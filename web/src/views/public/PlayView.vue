@@ -724,6 +724,8 @@ const {
   pause: playerPause,
   seekBy: playerSeekBy,
   setVolume: playerSetVolume,
+  enterTempRate,
+  exitTempRate,
   on: onPlayerEvent,
   player,
   paused,
@@ -1091,6 +1093,7 @@ function onPlayerTouchStart(e: TouchEvent): void {
   if (!e.touches || e.touches.length !== 1) return
   if (isGestureTargetUi(e)) return
   const t = e.touches[0]
+  if (!t) return
   gestureStartX = t.clientX
   gestureStartY = t.clientY
   gestureStartTime = Date.now()
@@ -1112,6 +1115,7 @@ function onPlayerTouchMove(e: TouchEvent): void {
   const p = player.value
   if (!p) return
   const t = e.touches[0]
+  if (!t) return
   const dx = t.clientX - gestureStartX
   const dy = t.clientY - gestureStartY
   if (gestureMode === 'none') {

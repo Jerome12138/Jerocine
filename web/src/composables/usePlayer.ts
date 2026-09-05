@@ -80,6 +80,7 @@ export type PlayerEventName =
   | 'volumechange'
   | 'waiting'
   | 'canplay'
+  | 'fullscreenchange'
 
 export interface UsePlayerReturn {
   /** video.js 实例（ready 之前为 null） */
@@ -108,6 +109,10 @@ export interface UsePlayerReturn {
   seekBy: (delta: number) => void
   /** 0–1 */
   setVolume: (v: number) => void
+  /** 进入临时倍速(手势长按等场景): 直接生效, 不写持久化缓存 */
+  enterTempRate: (rate: number) => void
+  /** 退出临时倍速, 恢复进入前档位 */
+  exitTempRate: () => void
   /** 注册事件，返回取消函数 */
   on: (event: PlayerEventName, fn: (...args: unknown[]) => void) => () => void
   /** 直接 off（与 on 配合） */
