@@ -313,6 +313,8 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       }
       // 监听倍速变化: 用户主动选非默认倍速时持久化(见 ratechange 内注释)
       p.on('ratechange', () => {
+        // 手势临时倍速(长按2x)不持久化, 退出手势即恢复
+        if (tempRateActive) return
         try {
           const r = p.playbackRate()
           // 切源/换 tech 时 video.js 会把倍速重置回 1 并触发 ratechange,
@@ -501,6 +503,32 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     dispose()
   })
 
+  /** ---- 触屏手势: 临时倍速(长按 2x)。倍速变化不写持久化缓存, 退出即恢复 ---- */
+  let tempRateActive = false
+  let tempRateBefore = 1
+  function enterTempRate(rate: number): void {
+    const p = player.value
+    if (!p) return
+    try {
+      const cur = p.playbackRate()
+      tempRateBefore = typeof cur === 'number' ? cur : 1
+      tempRateActive = true
+      p.playbackRate(rate)
+    } catch {
+      tempRateActive = false
+    }
+  }
+  function exitTempRate(): void {
+    const p = player.value
+    if (!p || !tempRateActive) return
+    tempRateActive = false
+    try {
+      p.playbackRate(tempRateBefore)
+    } catch {
+      // ignore
+    }
+  }
+
   return {
     player,
     ready,
@@ -516,6 +544,8 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     seek,
     seekBy,
     setVolume,
+    enterTempRate,
+    exitTempRate,
     on,
     off
   }

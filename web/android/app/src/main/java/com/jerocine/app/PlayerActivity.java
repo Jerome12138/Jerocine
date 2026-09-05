@@ -180,6 +180,10 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean skipEnabled = false;
     /** 自动连播开关(默认开). 关 → outroWatcher 不触发(跳过片尾属连播范畴); 跳片头不受影响 */
     private boolean autoNext = true;
+    /** 最近一次播放状态 — onDestroy 判断是否自然播完(ENDED → web 清该集记忆而非写进度) */
+    private int lastPlayerState = -1;
+    /** 上一集索引 — onMediaItemTransition 回传 fromIndex 给 web 清上一集记忆 */
+    private int lastMediaItemIndex = 0;
     /** 当前集是否已在 ready 时跳过了片头, 避免重复跳 */
     private boolean introSkippedForCurrent = false;
     /** 当前集是否已弹过"片尾即将跳过"的提前 10s 预告 */
@@ -308,6 +312,7 @@ public class PlayerActivity extends AppCompatActivity {
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
+                lastPlayerState = state;
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 // 缓冲不再自动弹控制面板(只保留中央 spinner 指示)。
                 // 原因: 播放中网络抖动/重缓冲会反复触发 STATE_BUFFERING, 一弹面板就把上下键
@@ -357,6 +362,10 @@ public class PlayerActivity extends AppCompatActivity {
                     org.json.JSONObject p = new org.json.JSONObject();
                     p.put("filmId", getIntent().getStringExtra(EXTRA_FILM_ID));
                     p.put("episodeIndex", player.getCurrentMediaItemIndex());
+                    // fromIndex: 上一集索引 — web 收到后清理上一集的播放记忆
+                    // (配合"倒数5分钟不记进度": 自动切集=上一集已播完, 旧进度不应滞留)
+                    p.put("fromIndex", lastMediaItemIndex);
+                    lastMediaItemIndex = player.getCurrentMediaItemIndex();
                     p.put("source", currentSourceLabel());
                     p.put("reason", reason);
                     emit("playerEpisodeChange", p);
@@ -456,6 +465,7 @@ public class PlayerActivity extends AppCompatActivity {
     private void startFromIntent(Intent intent) {
         int startIndex = intent.getIntExtra(EXTRA_START_INDEX, 0);
         long resumeMs = intent.getLongExtra(EXTRA_RESUME_MS, 0L);
+        lastMediaItemIndex = startIndex;
 
         // v3: 多源模式
         String sourcesJson = intent.getStringExtra(EXTRA_SOURCES_JSON);
@@ -1376,7 +1386,9 @@ public class PlayerActivity extends AppCompatActivity {
         // 进度同步, 用户感觉"退出后集数/进度还是老的"。
         // #4: 退出时正处于倒数 5 分钟内 → 整个 playerClosed 不发, web 不写播放记忆
         // (否则 App.vue 会以 position=0 兜底写入, 反而清掉已有进度)。
-        if (!(player != null && inNoRecordTail())) {
+        // 播放完成(ENDED): 照常发 playerClosed 且带 ended=true → web 清该集播放记忆。
+        boolean playbackEnded = player != null && lastPlayerState == androidx.media3.common.Player.STATE_ENDED;
+        if (playbackEnded || !(player != null && inNoRecordTail())) {
             try {
                 org.json.JSONObject p = new org.json.JSONObject();
                 p.put("filmId", getIntent().getStringExtra(EXTRA_FILM_ID));
@@ -1385,6 +1397,7 @@ public class PlayerActivity extends AppCompatActivity {
                     p.put("duration", player.getDuration() > 0 ? player.getDuration() / 1000.0 : 0);
                     p.put("episodeIndex", player.getCurrentMediaItemIndex());
                     p.put("source", currentSourceLabel());
+                    if (playbackEnded) p.put("ended", true);
                 }
                 emit("playerClosed", p);
             } catch (Exception ignore) {}

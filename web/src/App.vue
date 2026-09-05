@@ -289,8 +289,13 @@ onMounted(() => {
     jerocine.on('playerProgress', writeTick)
     jerocine.on('playerEpisodeChange', (payload) => {
       // 切集立即通知 web — 不等下次 5s tick. position=0 因为新集刚开始.
-      const p = payload as { filmId?: string; episodeIndex?: number; source?: string } | null
+      const p = payload as { filmId?: string; episodeIndex?: number; fromIndex?: number; source?: string } | null
       if (!p?.filmId) return
+      // 自动切集 = 上一集已播完(片尾跳过/自然播完): 清理上一集的播放记忆,
+      // 避免倒数5分钟不记进度导致旧进度滞留(重开该集又从旧位置续播)
+      if (p.fromIndex !== undefined && p.fromIndex !== p.episodeIndex) {
+        void historyStore.clearEpisode(String(p.filmId), p.source, Number(p.fromIndex))
+      }
       historyStore.updateProgress(String(p.filmId), Number(p.episodeIndex ?? 0), 0, undefined, p.source)
     })
     jerocine.on('playerClosed', (payload) => {
@@ -300,8 +305,14 @@ onMounted(() => {
         position?: number
         duration?: number
         source?: string
+        ended?: boolean
       } | null
       if (!p?.filmId) return
+      // 播放完成: 清该集播放记忆(进度不应滞留), 不再写入
+      if (p.ended) {
+        void historyStore.clearEpisode(String(p.filmId), p.source, Number(p.episodeIndex ?? 0))
+        return
+      }
       historyStore.updateProgress(
         String(p.filmId),
         Number(p.episodeIndex ?? 0),

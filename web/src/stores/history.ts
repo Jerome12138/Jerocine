@@ -344,9 +344,41 @@ export const useHistoryStore = defineStore('history', () => {
     refreshList()
   }
 
+  /**
+   * 清理单集播放记忆 — 播放完成 / 自动切下一集时调用。
+   * 配套"倒数5分钟不记进度": 否则该集残留的是很早之前的旧进度, 重开又从旧位置续播。
+   * 删除该(源,集)独立进度; 影片级记录若正指向该集也一并删除(否则 getEpisode 回退会复活旧进度)。
+   */
+  async function clearEpisode(id: string, source?: string, episodeIndex = 0): Promise<void> {
+    if (!id) return
+    const sid = String(id)
+    delete episodeMap.value[entryKey(sid, source, episodeIndex)]
+    const film = map.value[sid]
+    if (
+      film &&
+      (film.episodeIndex ?? 0) === episodeIndex &&
+      (!source || !film.source || film.source === source)
+    ) {
+      delete map.value[sid]
+      if (remoteMode.value) {
+        try {
+          const { remove: removeRemote } = await import('@/api/history')
+          await removeRemote({ mid: sid })
+        } catch (e) {
+          logger.warn('history clearEpisode (remote) failed', e)
+        }
+      }
+    }
+    if (!remoteMode.value) {
+      persistLocal(map.value, episodeMap.value)
+    } else {
+      persistEpisodesLocal(episodeMap.value)
+    }
+    refreshList()
+  }
+
   /** 清空 */
-  async function clear(): Promise<void> {
-    map.value = {}
+  async function clear(): Promise<void> {    map.value = {}
     episodeMap.value = {}
     if (remoteMode.value) {
       try {
@@ -505,6 +537,8 @@ export const useHistoryStore = defineStore('history', () => {
     getEpisode,
     remove,
     clear,
+    /** 清理单集播放记忆(播放完成/自动切集后调用) */
+    clearEpisode,
     /** 轻量进度更新, 不需要 name/picture, 给 Native 播放器事件用 */
     updateProgress,
     /** HistoryView 下拉刷新等场景显式触发 */

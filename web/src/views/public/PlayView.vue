@@ -1046,8 +1046,151 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   playNextAuto()
 }
 
-/** ---------- 集数 / 源切换 ---------- */
-function changeSource(sourceId: string): void {
+/** ---------- 触屏手势(仅全屏): 长按临时 2x / 横滑快进退 ----------
+ * 短促轻扫(快速横划) = 固定 ±10s; 按住横拖 = 连续刮擦进度(进度条跟手, 全屏宽≈全片时长)。
+ * 长按(450ms) = 临时 2x 倍速, 松手恢复; 临时倍速不写持久化缓存(usePlayer.enterTempRate)。
+ * 控制条/菜单上的触摸不参与手势(防误触)。 */
+const isPlayerFullscreen = ref(false)
+const gestureHint = ref('')
+const GESTURE_LONG_PRESS_MS = 450
+const GESTURE_SWIPE_TRIGGER_PX = 12
+const GESTURE_FLICK_MS = 300
+const GESTURE_FLICK_PX = 60
+const GESTURE_FLICK_SEEK_SEC = 10
+let gestureLongPressTimer: ReturnType<typeof setTimeout> | null = null
+let gestureMode: 'none' | 'press' | 'seek' = 'none'
+let gestureStartX = 0
+let gestureStartY = 0
+let gestureStartTime = 0
+let gestureSeekBase = 0
+let gestureTarget = 0
+let gestureLastDx = 0
+let gestureLastSeekAt = 0
+
+function fmtGestureTime(sec: number): string {
+  const s = Math.max(0, Math.round(sec))
+  const m = Math.floor(s / 60)
+  return `${m}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** 触摸落在控制条/菜单等 UI 上时不做手势 */
+function isGestureTargetUi(e: TouchEvent): boolean {
+  const el = e.target as HTMLElement | null
+  return !!el?.closest?.('.vjs-control-bar, .vjs-menu, .vjs-modal-dialog')
+}
+
+function clearGestureLongPress(): void {
+  if (gestureLongPressTimer) {
+    clearTimeout(gestureLongPressTimer)
+    gestureLongPressTimer = null
+  }
+}
+
+function onPlayerTouchStart(e: TouchEvent): void {
+  if (!isPlayerFullscreen.value) return
+  if (!e.touches || e.touches.length !== 1) return
+  if (isGestureTargetUi(e)) return
+  const t = e.touches[0]
+  gestureStartX = t.clientX
+  gestureStartY = t.clientY
+  gestureStartTime = Date.now()
+  gestureMode = 'none'
+  gestureLastDx = 0
+  clearGestureLongPress()
+  gestureLongPressTimer = setTimeout(() => {
+    const p = player.value
+    if (!p || paused.value || buffering.value) return
+    gestureMode = 'press'
+    enterTempRate(2)
+    gestureHint.value = '2x 倍速中 ▶▶'
+  }, GESTURE_LONG_PRESS_MS)
+}
+
+function onPlayerTouchMove(e: TouchEvent): void {
+  if (!e.touches || e.touches.length !== 1) return
+  if (isGestureTargetUi(e)) return
+  const p = player.value
+  if (!p) return
+  const t = e.touches[0]
+  const dx = t.clientX - gestureStartX
+  const dy = t.clientY - gestureStartY
+  if (gestureMode === 'none') {
+    // 横向意图判定: 水平位移超阈值且强于竖直 → 进入刮擦, 同时取消长按
+    if (Math.abs(dx) > GESTURE_SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy)) {
+      clearGestureLongPress()
+      gestureMode = 'seek'
+      gestureSeekBase = p.currentTime() ?? 0
+      gestureTarget = gestureSeekBase
+      gestureLastDx = dx
+      gestureLastSeekAt = 0
+    } else {
+      return
+    }
+  }
+  if (gestureMode !== 'seek') return
+  gestureLastDx = dx
+  const dur = p.duration() ?? 0
+  const width = window.innerWidth || 1
+  // 映射: 全屏宽 ≈ 全片时长(短视频至少保证全屏宽 ≈ 120s), 线性
+  const perPx = dur > 0 ? Math.max(dur / width, 120 / width) : 0.25
+  gestureTarget = Math.min(Math.max(gestureSeekBase + dx * perPx, 0), Math.max(dur - 0.5, 0))
+  const delta = gestureTarget - gestureSeekBase
+  gestureHint.value =
+    `${delta >= 0 ? '快进' : '快退'} ${fmtGestureTime(Math.abs(delta))}` +
+    ` · ${fmtGestureTime(gestureTarget)} (${Math.round((gestureTarget / (dur || 1)) * 100)}%)`
+  // 长拖: 节流实时 seek 让进度条跟手; 短促轻扫留给 touchend 判定固定步进
+  const now = Date.now()
+  if (
+    now - gestureStartTime > GESTURE_FLICK_MS &&
+    Math.abs(dx) > GESTURE_FLICK_PX &&
+    now - gestureLastSeekAt > 400
+  ) {
+    gestureLastSeekAt = now
+    try {
+      p.currentTime(gestureTarget)
+    } catch {
+      /* ignore */
+    }
+  }
+  if (e.cancelable) e.preventDefault()
+}
+
+function onPlayerTouchEnd(): void {
+  clearGestureLongPress()
+  const p = player.value
+  if (gestureMode === 'press') {
+    exitTempRate()
+    gestureHint.value = ''
+  } else if (gestureMode === 'seek' && p) {
+    const dt = Date.now() - gestureStartTime
+    if (dt < GESTURE_FLICK_MS && Math.abs(gestureLastDx) < GESTURE_FLICK_PX) {
+      // 短促轻扫: 固定 ±10s
+      const step = gestureLastDx >= 0 ? GESTURE_FLICK_SEEK_SEC : -GESTURE_FLICK_SEEK_SEC
+      try {
+        p.currentTime((p.currentTime() ?? 0) + step)
+      } catch {
+        /* ignore */
+      }
+      gestureHint.value = `${step > 0 ? '快进' : '快退'} ${GESTURE_FLICK_SEEK_SEC}s`
+      const hint = gestureHint.value
+      setTimeout(() => {
+        if (gestureHint.value === hint) gestureHint.value = ''
+      }, 600)
+    } else {
+      try {
+        p.currentTime(gestureTarget)
+      } catch {
+        /* ignore */
+      }
+      gestureHint.value = ''
+    }
+  } else {
+    gestureHint.value = ''
+  }
+  gestureMode = 'none'
+}
+
+/** ---------- 集数 / 源切换 ---------- */function changeSource(sourceId: string): void {
   if (!detail.value) return
   const next = detail.value.sources.find((s) => s.id === sourceId)
   if (!next) return
@@ -1116,7 +1259,15 @@ function selectEpisode(payload: { sourceId: string; episodeIndex: number; resume
  * 且把旧播放头写进中间那集的历史(进度串集)。手动按钮不受此限制。 */
 function playNextAuto(): void {
   if (switchInFlight) return
+  if (!hasNext.value) return
+  // 自动切集 = 本集已播完: 清理本集播放记忆(倒数5分钟不记进度会让旧进度滞留)
+  const filmId = detail.value?.mid
+  const srcId = currentSourceId.value
+  const epIdx = currentEpisodeIndex.value
   playNext()
+  if (filmId !== undefined && filmId !== null) {
+    void historyStore.clearEpisode(String(filmId), srcId, epIdx)
+  }
 }
 
 function playNext(): void {
@@ -1345,6 +1496,11 @@ onMounted(async () => {
   if (videoEl.value) {
     initPlayer(videoEl.value)
     onPlayerEvent('ended', () => {
+      // 自然播完: 清理本集播放记忆(无论是否开自动连播)
+      const filmId = detail.value?.mid
+      if (filmId !== undefined && filmId !== null) {
+        void historyStore.clearEpisode(String(filmId), currentSourceId.value, currentEpisodeIndex.value)
+      }
       if (autoPlayNext.value && hasNext.value) {
         playNextAuto()
       }
@@ -1358,6 +1514,10 @@ onMounted(async () => {
     })
     // 跳片尾自动播下一集 (按 filmId 配置, 默认 60s, 0=关闭)
     onPlayerEvent('timeupdate', onPlayerTimeUpdateForSkipOutro)
+    // 全屏状态: 触屏手势(长按2x/横滑快进退)仅全屏时启用
+    onPlayerEvent('fullscreenchange', () => {
+      isPlayerFullscreen.value = !!player.value?.isFullscreen()
+    })
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('keydown', handleKeydown)
@@ -1443,13 +1603,24 @@ watch(playerReady, (v) => {
       <div class="gf-play-grid">
         <section class="gf-play-grid__main flex flex-col gap-[var(--gf-space-5)]">
           <!-- 播放器容器 -->
-          <div class="gf-player-wrap" :data-loading="loading ? '1' : '0'">
+          <div
+            class="gf-player-wrap"
+            :data-loading="loading ? '1' : '0'"
+            @touchstart="onPlayerTouchStart"
+            @touchmove="onPlayerTouchMove"
+            @touchend="onPlayerTouchEnd"
+            @touchcancel="onPlayerTouchEnd"
+          >
             <video
               ref="videoEl"
               class="video-js vjs-default-skin gf-player"
               playsinline
               tabindex="0"
             />
+            <!-- 触屏手势提示(全屏): 长按2x / 刮擦进度 -->
+            <div v-if="gestureHint" class="gf-player-gesture" aria-hidden="true">
+              {{ gestureHint }}
+            </div>
             <!-- I-017: 广告过滤状态角标(常驻, 右上角, 五态) -->
             <div
               v-if="adFilterBadge"
@@ -1701,6 +1872,23 @@ watch(playerReady, (v) => {
 
 /* 加载占位：暗色遮罩 + 胶囊容器内 3 个跳动圆点 + 文字
    (原版仅半透明圆点、无遮罩无 z-index, 亮画面上几乎看不见) */
+/* 触屏手势提示(全屏): 居中半透明胶囊, 不拦截触摸 */
+.gf-player-gesture {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background-color: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .gf-player-loading {
   position: absolute;
   inset: 0;
