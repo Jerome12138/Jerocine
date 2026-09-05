@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { registerToast } from '@/api/http'
 
 interface ToastItem {
@@ -19,8 +19,22 @@ function push(type: ToastItem['type'], msg: string): void {
   }, 3000)
 }
 
+/** 全屏期间把 toast 宿主切到全屏元素 —— 全屏元素的 DOM 子树之外的任何内容
+ * (包括 body 下的 fixed 元素) 都不会被渲染, 不中转则"已跳过片头"等提示在全屏时全部丢失。 */
+const toastHost = ref<HTMLElement | null>(null)
+function syncFullscreenHost(): void {
+  toastHost.value = (document.fullscreenElement as HTMLElement | null) ?? null
+}
+
 onMounted(() => {
   registerToast({ push })
+  document.addEventListener('fullscreenchange', syncFullscreenHost)
+  document.addEventListener('webkitfullscreenchange', syncFullscreenHost)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncFullscreenHost)
+  document.removeEventListener('webkitfullscreenchange', syncFullscreenHost)
 })
 
 function tone(type: ToastItem['type']): string {
@@ -39,7 +53,8 @@ function tone(type: ToastItem['type']): string {
 </script>
 
 <template>
-  <Teleport to="body">
+  <!-- 无全屏时挂 body; 有全屏元素时挂进全屏元素内部(fixed 定位以全屏元素为包含块) -->
+  <Teleport :to="toastHost || 'body'" :disabled="!toastHost">
     <div
       class="fixed top-[var(--gf-space-4)] right-[var(--gf-space-4)] flex flex-col gap-[var(--gf-space-2)] z-[var(--gf-z-toast)] pointer-events-none"
     >

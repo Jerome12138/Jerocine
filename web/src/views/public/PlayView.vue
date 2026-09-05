@@ -1057,18 +1057,34 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   playNextAuto()
 }
 
-/** ---------- 触屏手势(仅全屏): 长按临时 2x / 横滑快进退 ----------
- * 短促轻扫(快速横划) = 固定 ±10s; 按住横拖 = 连续刮擦进度(进度条跟手, 全屏宽≈全片时长)。
- * 长按(450ms) = 临时 2x 倍速, 松手恢复; 临时倍速不写持久化缓存(usePlayer.enterTempRate)。
+/** ---------- 触屏手势(仅全屏): 长按临时 3x / 横滑快进退 ----------
+ * 短促轻扫(快速横划) = 固定 ±10s; 按住横拖 = 连续刮擦进度(渐进式步进, 上限 ±10min)。
+ * 长按(450ms) = 临时 3x 倍速, 松手恢复; 临时倍速不写持久化缓存(usePlayer.enterTempRate)。
  * 控制条/菜单上的触摸不参与手势(防误触)。 */
 const isPlayerFullscreen = ref(false)
-const gestureHint = ref('')
+/** 播放器内覆盖层宿主: 全屏元素是 video.js 的 .video-js 容器, 广告角标/手势提示若留在
+ * 外层 wrap(其兄弟节点), 全屏时会随 DOM 落在全屏元素之外而全部不可见。player 初始化后
+ * video.js 会把 <video> 包进 div.video-js, 此时把宿主指向它, Teleport 即把覆盖层迁进去。 */
+const playerOverlayHost = ref<HTMLElement | null>(null)
+/** 长按临时倍速提示(播放器顶部居中), 空串 = 隐藏 */
+const gestureRateHint = ref('')
+/** 横滑刮擦预览(播放器底部: 迷你进度条 + 目标时间), null = 隐藏 */
+const gestureSeekHint = ref<{ percent: number; curPercent: number; text: string } | null>(null)
 const GESTURE_LONG_PRESS_MS = 450
 const GESTURE_SWIPE_TRIGGER_PX = 12
 const GESTURE_FLICK_MS = 300
 const GESTURE_FLICK_PX = 60
 const GESTURE_FLICK_SEEK_SEC = 10
+const GESTURE_SEEK_INTERVAL_MS = 400
+const TEMP_RATE = 3
+/** 刮擦上限: 单次滑动最多 ±10 分钟(防长滑过冲) */
+const GESTURE_SEEK_MAX_SEC = 600
+/** 起步精确: 1px ≈ 1.2s(线性段), 保证小幅滑动可精细微调 */
+const GESTURE_SEEK_FINE_SPP = 1.2
+/** 渐进加速: 平方项除数, 越小则长滑加速越猛 */
+const GESTURE_SEEK_ACCEL_DIV = 50
 let gestureLongPressTimer: ReturnType<typeof setTimeout> | null = null
+let gestureSeekHintTimer: ReturnType<typeof setTimeout> | null = null
 let gestureMode: 'none' | 'press' | 'seek' = 'none'
 let gestureStartX = 0
 let gestureStartY = 0
@@ -1084,6 +1100,13 @@ function fmtGestureTime(sec: number): string {
   return `${m}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** 刮擦步进(渐进式): 起步线性 1.2s/px 精确微调; 距离越长平方项加速; 封顶 ±10min。
+ * 手感参考: 10px≈14s, 30px≈54s, 60px≈144s, 100px≈320s, ≈147px 封顶 10min。 */
+function scrubOffsetSec(nPx: number): number {
+  if (nPx <= 0) return 0
+  return Math.min(GESTURE_SEEK_MAX_SEC, GESTURE_SEEK_FINE_SPP * nPx + (nPx * nPx) / GESTURE_SEEK_ACCEL_DIV)
+}
+
 /** 触摸落在控制条/菜单等 UI 上时不做手势 */
 function isGestureTargetUi(e: TouchEvent): boolean {
   const el = e.target as HTMLElement | null
@@ -1095,6 +1118,29 @@ function clearGestureLongPress(): void {
     clearTimeout(gestureLongPressTimer)
     gestureLongPressTimer = null
   }
+}
+
+/** 更新刮擦预览: 迷你进度条(目标位置 + 当前位置) + 文本(快进/退量 · 目标时间 · 百分比) */
+function updateSeekHint(p: NonNullable<typeof player.value>, target: number): void {
+  const dur = p.duration() ?? 0
+  const pct = (v: number) => Math.min(100, Math.max(0, Math.round((v / (dur || 1)) * 100)))
+  const delta = target - gestureSeekBase
+  gestureSeekHint.value = {
+    percent: pct(target),
+    curPercent: pct(p.currentTime() ?? 0),
+    text:
+      `${delta >= 0 ? '快进' : '快退'} ${fmtGestureTime(Math.abs(delta))}` +
+      ` · ${fmtGestureTime(target)} (${pct(target)}%)`
+  }
+}
+
+/** 短促轻扫后的短暂提示, 600ms 后自动消失 */
+function flashSeekHint(): void {
+  if (gestureSeekHintTimer) clearTimeout(gestureSeekHintTimer)
+  gestureSeekHintTimer = setTimeout(() => {
+    gestureSeekHint.value = null
+    gestureSeekHintTimer = null
+  }, 600)
 }
 
 function onPlayerTouchStart(e: TouchEvent): void {
@@ -1113,8 +1159,8 @@ function onPlayerTouchStart(e: TouchEvent): void {
     const p = player.value
     if (!p || paused.value || buffering.value) return
     gestureMode = 'press'
-    enterTempRate(2)
-    gestureHint.value = '2x 倍速中 ▶▶'
+    enterTempRate(TEMP_RATE)
+    gestureRateHint.value = `${TEMP_RATE}x 倍速中 ${'▶'.repeat(TEMP_RATE)}`
   }, GESTURE_LONG_PRESS_MS)
 }
 
@@ -1143,20 +1189,19 @@ function onPlayerTouchMove(e: TouchEvent): void {
   if (gestureMode !== 'seek') return
   gestureLastDx = dx
   const dur = p.duration() ?? 0
-  const width = window.innerWidth || 1
-  // 映射: 全屏宽 ≈ 全片时长(短视频至少保证全屏宽 ≈ 120s), 线性
-  const perPx = dur > 0 ? Math.max(dur / width, 120 / width) : 0.25
-  gestureTarget = Math.min(Math.max(gestureSeekBase + dx * perPx, 0), Math.max(dur - 0.5, 0))
-  const delta = gestureTarget - gestureSeekBase
-  gestureHint.value =
-    `${delta >= 0 ? '快进' : '快退'} ${fmtGestureTime(Math.abs(delta))}` +
-    ` · ${fmtGestureTime(gestureTarget)} (${Math.round((gestureTarget / (dur || 1)) * 100)}%)`
-  // 长拖: 节流实时 seek 让进度条跟手; 短促轻扫留给 touchend 判定固定步进
+  // 渐进式步进: 方向跟随手势, 步进量只看 |dx| (起步精确 → 越滑越快 → 封顶 10min)
+  const offset = scrubOffsetSec(Math.abs(dx))
+  gestureTarget = Math.min(
+    Math.max(gestureSeekBase + (dx >= 0 ? offset : -offset), 0),
+    Math.max(dur - 0.5, 0)
+  )
+  updateSeekHint(p, gestureTarget)
+  // 长拖: 节流实时 seek 让进度条跟手(预览条本身每次 move 都刷新); 短促轻扫留给 touchend 判定
   const now = Date.now()
   if (
     now - gestureStartTime > GESTURE_FLICK_MS &&
     Math.abs(dx) > GESTURE_FLICK_PX &&
-    now - gestureLastSeekAt > 400
+    now - gestureLastSeekAt > GESTURE_SEEK_INTERVAL_MS
   ) {
     gestureLastSeekAt = now
     try {
@@ -1173,32 +1218,31 @@ function onPlayerTouchEnd(): void {
   const p = player.value
   if (gestureMode === 'press') {
     exitTempRate()
-    gestureHint.value = ''
+    gestureRateHint.value = ''
   } else if (gestureMode === 'seek' && p) {
     const dt = Date.now() - gestureStartTime
     if (dt < GESTURE_FLICK_MS && Math.abs(gestureLastDx) < GESTURE_FLICK_PX) {
       // 短促轻扫: 固定 ±10s
       const step = gestureLastDx >= 0 ? GESTURE_FLICK_SEEK_SEC : -GESTURE_FLICK_SEEK_SEC
+      const target = Math.max(0, (p.currentTime() ?? 0) + step)
       try {
-        p.currentTime((p.currentTime() ?? 0) + step)
+        p.currentTime(target)
       } catch {
         /* ignore */
       }
-      gestureHint.value = `${step > 0 ? '快进' : '快退'} ${GESTURE_FLICK_SEEK_SEC}s`
-      const hint = gestureHint.value
-      setTimeout(() => {
-        if (gestureHint.value === hint) gestureHint.value = ''
-      }, 600)
+      updateSeekHint(p, target)
+      flashSeekHint()
     } else {
+      // 长拖松手: 落到预览显示的目标点, 提示即清
       try {
         p.currentTime(gestureTarget)
       } catch {
         /* ignore */
       }
-      gestureHint.value = ''
+      gestureSeekHint.value = null
     }
   } else {
-    gestureHint.value = ''
+    gestureSeekHint.value = null
   }
   gestureMode = 'none'
 }
@@ -1266,23 +1310,28 @@ function selectEpisode(payload: { sourceId: string; episodeIndex: number; resume
   })
 }
 
+/** 清理指定集的播放记忆(封装 filmId 空值判断)。本集自然播完/自动切集时调用,
+ * 防止"倒数 5 分钟不上报进度"导致的旧进度滞留。 */
+function clearEpisodeMemory(filmId: number | string | undefined | null, srcId: string, epIdx: number): void {
+  if (filmId === undefined || filmId === null || filmId === '') return
+  void historyStore.clearEpisode(String(filmId), srcId, epIdx)
+}
+
 /** 自动连播入口(ended / 片尾 timeupdate): 切集互斥窗口内忽略 —— 修"连跳 2 集"。
- * 窗口 = selectEpisode 落地 → 新片源就绪(armSeekOnce 生效)。窗口内旧视频残余的
- * timeupdate/ended 事件会以"新集"身份再次通过去抖, 不拦截就会再跳一集,
- * 且把旧播放头写进中间那集的历史(进度串集)。手动按钮不受此限制。 */
+ * 两道防线: ①互斥窗口 = selectEpisode 落地 → 新片源就绪(armSeekOnce 生效), 窗口内旧视频
+ * 残余 timeupdate/ended 会以"新集"身份再次通过去抖, 不拦截就会再跳一集, 且把旧播放头写进
+ * 中间集的历史(进度串集); ②就绪后 10s 冷却, 防个别源就绪后仍迟到触发残余事件。
+ * 手动切集按钮不受任何一道限制。 */
 function playNextAuto(): void {
   if (switchInFlight) return
-  // 就绪冷却: 切集/开播后 10s 内的自动切集一律忽略(残余事件防线), 手动不受影响
   if (Date.now() < autoNextGuardUntil) return
   if (!hasNext.value) return
-  // 自动切集 = 本集已播完: 清理本集播放记忆(倒数5分钟不记进度会让旧进度滞留)
+  // 自动切集 = 本集已播完: 先记下本集(源,集)再切(切完 current* 已指向新集), 随后清其记忆
   const filmId = detail.value?.mid
   const srcId = currentSourceId.value
   const epIdx = currentEpisodeIndex.value
   playNext()
-  if (filmId !== undefined && filmId !== null) {
-    void historyStore.clearEpisode(String(filmId), srcId, epIdx)
-  }
+  clearEpisodeMemory(filmId, srcId, epIdx)
 }
 
 function playNext(): void {
@@ -1510,12 +1559,11 @@ onMounted(async () => {
   await nextTick()
   if (videoEl.value) {
     initPlayer(videoEl.value)
+    // video.js 初始化后会把 <video> 包进 div.video-js — 它就是全屏元素, 覆盖层宿主指向它
+    playerOverlayHost.value = (videoEl.value.closest('.video-js') as HTMLElement | null)
     onPlayerEvent('ended', () => {
-      // 自然播完: 清理本集播放记忆(无论是否开自动连播)
-      const filmId = detail.value?.mid
-      if (filmId !== undefined && filmId !== null) {
-        void historyStore.clearEpisode(String(filmId), currentSourceId.value, currentEpisodeIndex.value)
-      }
+      // 自然播完: 清理本集播放记忆(无论是否开自动连播; 开连播时 playNextAuto 内还会清一次, 幂等)
+      clearEpisodeMemory(detail.value?.mid, currentSourceId.value, currentEpisodeIndex.value)
       if (autoPlayNext.value && hasNext.value) {
         playNextAuto()
       }
@@ -1632,18 +1680,31 @@ watch(playerReady, (v) => {
               playsinline
               tabindex="0"
             />
-            <!-- 触屏手势提示(全屏): 长按2x / 刮擦进度 -->
-            <div v-if="gestureHint" class="gf-player-gesture" aria-hidden="true">
-              {{ gestureHint }}
-            </div>
-            <!-- I-017: 广告过滤状态角标(常驻, 右上角, 五态) -->
-            <div
-              v-if="adFilterBadge"
-              class="gf-player-adtag"
-              :data-kind="adFilterBadge.kind"
-            >
-              {{ adBadgeText }}
-            </div>
+            <!-- 覆盖层(全屏可见的关键): 全屏元素 = video.js 的 .video-js 容器, 覆盖层必须
+                 Teleport 进它内部, 否则全屏时 DOM 在全屏元素之外 → 全部不可见
+                 (右上角广告角标/手势提示消失的根因)。player 未初始化时宿主为空 → 留在原位。 -->
+            <Teleport :to="playerOverlayHost || 'body'" :disabled="!playerOverlayHost">
+              <!-- 长按临时倍速提示(顶部居中) -->
+              <div v-if="gestureRateHint" class="gf-player-gesture gf-player-gesture--rate" aria-hidden="true">
+                {{ gestureRateHint }}
+              </div>
+              <!-- 横滑刮擦预览(底部): 迷你进度条(目标+当前位置) + 文本 -->
+              <div v-if="gestureSeekHint" class="gf-player-gesture gf-player-gesture--seek" aria-hidden="true">
+                <div class="gf-player-gesture__bar">
+                  <div class="gf-player-gesture__fill" :style="{ width: gestureSeekHint.percent + '%' }" />
+                  <div class="gf-player-gesture__cur" :style="{ left: gestureSeekHint.curPercent + '%' }" />
+                </div>
+                <div class="gf-player-gesture__text">{{ gestureSeekHint.text }}</div>
+              </div>
+              <!-- I-017: 广告过滤状态角标(常驻, 右上角, 五态) -->
+              <div
+                v-if="adFilterBadge"
+                class="gf-player-adtag"
+                :data-kind="adFilterBadge.kind"
+              >
+                {{ adBadgeText }}
+              </div>
+            </Teleport>
             <div v-if="loading || buffering" class="gf-player-loading" role="status" aria-live="polite">
               <span class="gf-player-loading__spinner" />
             </div>
@@ -1887,12 +1948,10 @@ watch(playerReady, (v) => {
 
 /* 加载占位：暗色遮罩 + 胶囊容器内 3 个跳动圆点 + 文字
    (原版仅半透明圆点、无遮罩无 z-index, 亮画面上几乎看不见) */
-/* 触屏手势提示(全屏): 居中半透明胶囊, 不拦截触摸 */
+/* 触屏手势提示(全屏, Teleport 在 .video-js 内): 长按3x = 顶部居中胶囊; 刮擦 = 底部进度条面板。
+   共用胶囊底样式, 位置/尺寸由修饰类覆盖; 不拦截触摸。 */
 .gf-player-gesture {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
   z-index: 6;
   padding: 8px 16px;
   border-radius: 999px;
@@ -1902,6 +1961,52 @@ watch(playerReady, (v) => {
   letter-spacing: 0.5px;
   white-space: nowrap;
   pointer-events: none;
+}
+/* 长按 3x: 顶部居中(避开右上角广告角标) */
+.gf-player-gesture--rate {
+  left: 50%;
+  top: calc(var(--gf-space-4) + env(safe-area-inset-top, 0px));
+  transform: translateX(-50%);
+}
+/* 刮擦预览: 底部居中(悬在控制条上方), 面板含迷你进度条 + 文本行 */
+.gf-player-gesture--seek {
+  left: 50%;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: min(420px, 72%);
+  padding: 10px 14px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gf-player-gesture__bar {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.25);
+}
+/* 目标位置 = 白色填充; 当前位置 = 灰点(对照) */
+.gf-player-gesture__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 999px;
+  background-color: #fff;
+}
+.gf-player-gesture__cur {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.55);
+  transform: translate(-50%, -50%);
+}
+.gf-player-gesture__text {
+  text-align: center;
+  font-size: 13px;
 }
 
 .gf-player-loading {
