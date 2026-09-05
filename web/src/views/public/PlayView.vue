@@ -2119,6 +2119,11 @@ watch(playerReady, (v) => {
 :deep(.vjs-slider) {
   background-color: rgba(255, 255, 255, 0.18);
 }
+/* 倍速按钮的速率文字: video.js 默认 1.5em 偏大, 缩到与时间文字一致并垂直居中 */
+:deep(.vjs-playback-rate .vjs-playback-rate-value) {
+  font-size: 11px;
+  line-height: 30px;
+}
 
 /* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作) */
 .gf-player-adtag {

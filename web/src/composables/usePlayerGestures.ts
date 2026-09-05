@@ -5,11 +5,14 @@ import type Player from 'video.js/dist/types/player'
  * 触屏手势 composable（web 播放器专用, 仅全屏启用; TV/原生播放器不适用）。
  *
  * 语义（与原生端约定保持一致, 改动时两边同步评估）：
+ * - 单击 = 播放/暂停, 双击 = 切换全屏(语义对齐鼠标; 不限全屏, 长按/刮擦仍限全屏)。
+ *   单击延迟一个双击窗口(280ms)生效, 窗口内再点按即判双击; 全屏外双击亦可进入全屏
  * - 长按(450ms, 播放中) = 临时 3x 倍速, 松手恢复 —— 不写持久化缓存
- * - 按住横拖 = 连续刮擦进度: 渐进式步进(起步 1.2s/px 精确 → 平方项加速 → 封顶 ±10min),
+ * - 按住横拖 = 连续刮擦进度: 渐进式步进(起步 1.2s/px 精确 → 平方项加速, 无上限),
  *   底部预览面板(迷你进度条: 目标位置白条 + 当前位置灰点 + 目标时间文本), 长拖节流实时 seek 跟手
  * - 短促轻扫(<300ms 且 <60px) = 固定 ±10s
- * - 控制条/菜单等 UI 上的触摸不参与手势(防误触)
+ * - 控制条/菜单等 UI 上的触摸不参与手势(防误触); 点按路径会阻止合成 click,
+ *   避免叠加 video.js 默认的控制条开合
  *
  * 提示 UI 由调用方渲染(模板消费 gestureRateHint / gestureSeekHint 两个 ref),
  * 覆盖层需 Teleport 进 video.js 的 .video-js 容器(全屏元素), 否则全屏时不可见。
@@ -49,8 +52,10 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
   const GESTURE_SEEK_INTERVAL_MS = 400
   /** 长按临时倍速 */
   const TEMP_RATE = 3
-  /** 刮擦上限: 单次滑动最多 ±10 分钟(防长滑过冲) */
-  const GESTURE_SEEK_MAX_SEC = 600
+  /** 单击判定: 触摸时长 < 250ms 且位移 < 12px(=横向意图阈值) → 算点按 */
+  const TAP_MAX_MS = 250
+  /** 双击判定窗口: 两次点按间隔 < 280ms → 双击(切换全屏), 否则第一次按单击处理 */
+  const DOUBLE_TAP_MS = 280
   /** 起步精确: 1px ≈ 1.2s(线性段), 保证小幅滑动可精细微调 */
   const GESTURE_SEEK_FINE_SPP = 1.2
   /** 渐进加速: 平方项除数, 越小则长滑加速越猛 */
@@ -74,6 +79,16 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
   let gestureLastSeekAt = 0
   let longPressTimer: ReturnType<typeof setTimeout> | null = null
   let seekHintTimer: ReturnType<typeof setTimeout> | null = null
+  /** 点按计数(0/1): 1 = 已有一次点按在等双击窗口, 期间再点 = 双击 */
+  let tapCount = 0
+  let tapTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearTapTimer(): void {
+    if (tapTimer) {
+      clearTimeout(tapTimer)
+      tapTimer = null
+    }
+  }
 
   function clearLongPressTimer(): void {
     if (longPressTimer) {
@@ -82,11 +97,11 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     }
   }
 
-  /** 刮擦步进(渐进式): 起步线性 1.2s/px 精确微调; 距离越长平方项加速; 封顶 ±10min。
-   * 手感参考: 10px≈14s, 30px≈54s, 60px≈144s, 100px≈320s, ≈147px 封顶 10min。 */
+  /** 刮擦步进(渐进式): 起步线性 1.2s/px 精确微调; 距离越长平方项加速, 无上限(仍受片长钳制)。
+   * 手感参考: 10px≈14s, 30px≈54s, 60px≈144s, 100px≈320s, 越往后越快。 */
   function scrubOffsetSec(nPx: number): number {
     if (nPx <= 0) return 0
-    return Math.min(GESTURE_SEEK_MAX_SEC, GESTURE_SEEK_FINE_SPP * nPx + (nPx * nPx) / GESTURE_SEEK_ACCEL_DIV)
+    return GESTURE_SEEK_FINE_SPP * nPx + (nPx * nPx) / GESTURE_SEEK_ACCEL_DIV
   }
 
   /** m:ss */
@@ -172,7 +187,7 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     if (gestureMode !== 'seek') return // 已长按 3x: 移动不转刮擦
     gestureLastDx = dx
     const dur = p.duration() ?? 0
-    // 渐进式步进: 方向跟随手势, 步进量只看 |dx| (起步精确 → 越滑越快 → 封顶 10min)
+    // 渐进式步进: 方向跟随手势, 步进量只看 |dx| (起步精确 → 越滑越快, 只受片长钳制)
     const offset = scrubOffsetSec(Math.abs(dx))
     gestureTarget = Math.min(
       Math.max(gestureSeekBase + (dx >= 0 ? offset : -offset), 0),
@@ -196,7 +211,7 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     if (e.cancelable) e.preventDefault()
   }
 
-  function onTouchEnd(): void {
+  function onTouchEnd(e: TouchEvent): void {
     clearLongPressTimer()
     const p = player.value
     if (gestureMode === 'press') {
@@ -226,6 +241,47 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
       }
     } else {
       gestureSeekHint.value = null
+      // 点按判定: 短触 + 小位移 + 未进长按/刮擦 → 单击=播放暂停, 双击=全屏切换(语义对齐鼠标)
+      const t = e.changedTouches && e.changedTouches[0]
+      const dt = Date.now() - gestureStartTime
+      const dx = t ? t.clientX - gestureStartX : 0
+      const dy = t ? t.clientY - gestureStartY : 0
+      if (p && t && dt < TAP_MAX_MS && Math.abs(dx) < GESTURE_SWIPE_TRIGGER_PX && Math.abs(dy) < GESTURE_SWIPE_TRIGGER_PX) {
+        // 阻止合成 click, 避免 video.js 默认行为(切换控制条)与我们自己的播放/暂停叠加
+        if (e.cancelable) e.preventDefault()
+        clearTapTimer()
+        if (tapCount === 1) {
+          // 双击: 切换全屏
+          tapCount = 0
+          try {
+            if (p.isFullscreen()) {
+              p.exitFullscreen()
+            } else {
+              p.requestFullscreen()
+            }
+          } catch {
+            /* ignore */
+          }
+        } else {
+          // 单击: 延迟一个双击窗口再切播放/暂停, 给第二次点按留出判定时间
+          tapCount = 1
+          tapTimer = setTimeout(() => {
+            tapCount = 0
+            tapTimer = null
+            const cur = player.value
+            if (!cur) return
+            try {
+              if (cur.paused()) {
+                void cur.play()
+              } else {
+                cur.pause()
+              }
+            } catch {
+              /* ignore */
+            }
+          }, DOUBLE_TAP_MS)
+        }
+      }
     }
     gestureMode = 'none'
   }
@@ -233,6 +289,8 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
   // 组件卸载时清定时器, 防止卸载后回调摸已释放的播放器
   onScopeDispose(() => {
     clearLongPressTimer()
+    clearTapTimer()
+    tapCount = 0
     if (seekHintTimer) {
       clearTimeout(seekHintTimer)
       seekHintTimer = null
