@@ -131,8 +131,17 @@ const relate = ref<PlayInfo['related']>([])
 const currentSourceId = ref<string>('')
 /** 当前集索引 */
 const currentEpisodeIndex = ref<number>(0)
-/** 是否自动播放下一集 */
-const autoPlayNext = ref<boolean>(true)
+/** 是否自动播放下一集(本地持久化: 原生派发需在详情页/路由守卫读取同一状态) */
+const autoPlayNext = ref<boolean>(readAutoPlayNext())
+/** 切换自动连播并持久化 */
+function toggleAutoPlayNext(): void {
+  autoPlayNext.value = !autoPlayNext.value
+  try {
+    localStorage.setItem(AUTO_PLAY_NEXT_KEY, autoPlayNext.value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
 /** 视频源错误提示文本 */
 const videoErrorMsg = ref<string>('')
 
@@ -826,7 +835,7 @@ async function loadPlayInfo(): Promise<void> {
 }
 
 import { isNative } from '@/utils/jerocineNative'
-import { dispatchNativePlaylist } from '@/utils/nativePlay'
+import { dispatchNativePlaylist, AUTO_PLAY_NEXT_KEY, readAutoPlayNext } from '@/utils/nativePlay'
 import { telemetry } from '@/utils/telemetry'
 import {
   adFilterSuccessMessage,
@@ -1015,6 +1024,8 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   const p = player.value
   if (!p) return
   const skip = currentSkipConfig()
+  // 自动连播关闭 → 不自动跳片尾(跳过片尾=进下一集, 属连播范畴); 跳片头不受影响
+  if (!autoPlayNext.value) return
   if (skip.outro <= 0 || !hasNext.value) return
   const duration = p.duration() ?? 0
   const current = p.currentTime() ?? 0
@@ -1498,7 +1509,7 @@ watch(playerReady, (v) => {
           <button type="button" class="gf-pt-btn gf-pt-btn--primary" :disabled="!hasNext" data-focusable="true" @click="playNext">
             <BaseIcon name="skip-next" size="26px" /><span>下一集</span>
           </button>
-          <button type="button" class="gf-pt-btn" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" data-focusable="true" @click="autoPlayNext = !autoPlayNext">
+          <button type="button" class="gf-pt-btn" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" data-focusable="true" @click="toggleAutoPlayNext">
             <BaseIcon name="autoplay" size="26px" /><span>连播</span>
           </button>
           <button type="button" class="gf-pt-btn" :class="testingLines ? 'is-loading' : ''" data-focusable="true" @click="testLines">
@@ -1550,7 +1561,7 @@ watch(playerReady, (v) => {
               <Transition name="gf-fade">
                 <div v-if="moreActionsOpen" class="gf-pt-more__panel">
                   <!-- 开关项: 点击切换, 不关菜单, 用对勾显示当前态 -->
-                  <button type="button" class="gf-pt-more__item" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" @click="autoPlayNext = !autoPlayNext">
+                  <button type="button" class="gf-pt-more__item" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" @click="toggleAutoPlayNext">
                     <BaseIcon name="autoplay" size="16px" />
                     <span class="gf-pt-more__item-label">自动连播</span>
                     <span v-if="autoPlayNext" class="gf-pt-more__check" aria-hidden="true">✓</span>

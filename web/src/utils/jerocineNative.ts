@@ -188,6 +188,8 @@ export const jerocine = {
     resumeAtSec?: number
     skipIntroSec?: number
     skipOutroSec?: number
+    /** 自动连播开关(播放页开关持久化值). false → 原生不自动跳片尾; 跳片头不受影响 */
+    autoNext?: boolean
     filmId?: string
     filmName?: string
     /** 方案B: 传原始 m3u8 + 代理 base, 由原生每集自行包装代理过滤(不再 web 预包装) */

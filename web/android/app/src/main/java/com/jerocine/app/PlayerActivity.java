@@ -89,6 +89,8 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_SKIP_INTRO_MS = "skip_intro_ms";
     /** 每集结尾提前切下一集的毫秒数, 0 = 不跳 */
     public static final String EXTRA_SKIP_OUTRO_MS = "skip_outro_ms";
+    /** 自动连播开关(web 播放页开关的持久化值). false 时跳片尾=连播不生效, 跳片头不受影响 */
+    public static final String EXTRA_AUTO_NEXT = "auto_next";
     /** 影片 ID (用于事件回传给 web 写历史) */
     public static final String EXTRA_FILM_ID = "film_id";
     /** 影片名 (前缀拼到 title) */
@@ -176,6 +178,8 @@ public class PlayerActivity extends AppCompatActivity {
     private long skipOutroMs = DEFAULT_SKIP_OUTRO_MS;
     /** 跳过总开关 — 默认关. 开关关时即使 skipIntroMs/OutroMs > 0 也不执行 skip */
     private boolean skipEnabled = false;
+    /** 自动连播开关(默认开). 关 → outroWatcher 不触发(跳过片尾属连播范畴); 跳片头不受影响 */
+    private boolean autoNext = true;
     /** 当前集是否已在 ready 时跳过了片头, 避免重复跳 */
     private boolean introSkippedForCurrent = false;
     /** 当前集是否已弹过"片尾即将跳过"的提前 10s 预告 */
@@ -268,6 +272,7 @@ public class PlayerActivity extends AppCompatActivity {
         skipIntroMs = iMs > 0 ? iMs : DEFAULT_SKIP_INTRO_MS;
         skipOutroMs = oMs > 0 ? oMs : DEFAULT_SKIP_OUTRO_MS;
         skipEnabled = (iMs > 0 || oMs > 0);
+        autoNext = getIntent().getBooleanExtra(EXTRA_AUTO_NEXT, true);
 
         initPlayer();
         startFromIntent(getIntent());
@@ -751,7 +756,9 @@ public class PlayerActivity extends AppCompatActivity {
             try {
                 // !episodeSwitching: seekToNextMediaItem 是异步的, 切换未落地(READY)前
                 // 旧集 remaining 仍 <= skipOutroMs, 1s 轮询会再次触发 → 连跳 2 集。
-                if (player != null && skipEnabled && skipOutroMs > 0 && player.isPlaying() && !episodeSwitching) {
+                // !autoNext: 自动连播关闭时不自动跳片尾(跳过片尾=进下一集, 属连播范畴)。
+                if (player != null && skipEnabled && skipOutroMs > 0 && autoNext
+                        && player.isPlaying() && !episodeSwitching) {
                     long duration = player.getDuration();
                     long pos = player.getCurrentPosition();
                     if (duration > MIN_DURATION_FOR_SKIP_MS && pos > 0 && player.hasNextMediaItem()) {
@@ -1401,6 +1408,7 @@ public class PlayerActivity extends AppCompatActivity {
         skipIntroMs = iMs > 0 ? iMs : DEFAULT_SKIP_INTRO_MS;
         skipOutroMs = oMs > 0 ? oMs : DEFAULT_SKIP_OUTRO_MS;
         skipEnabled = (iMs > 0 || oMs > 0);
+        autoNext = getIntent().getBooleanExtra(EXTRA_AUTO_NEXT, true);
         introSkippedForCurrent = false;
         startFromIntent(intent);
     }

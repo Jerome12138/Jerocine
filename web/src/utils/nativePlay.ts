@@ -17,13 +17,24 @@ import { jerocine, absApiBase } from '@/utils/jerocineNative'
 import { useSkipSettings } from '@/composables/useSkipSettings'
 import { useHistoryStore } from '@/stores/history'
 
+/** 自动连播开关的本地持久化键 ('1'=开 '0'=关). PlayView 开关与原生派发共用 */
+export const AUTO_PLAY_NEXT_KEY = 'jerocine:autoPlayNext'
+
+/** 读自动连播开关(默认开). 原生派发时透传给 APK 的 outroWatcher */
+export function readAutoPlayNext(): boolean {
+  try {
+    return localStorage.getItem(AUTO_PLAY_NEXT_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
 export function dispatchNativePlaylist(
   detail: FilmDetail,
   sourceId: string,
   episodeIndex: number,
   resumeSec = 0
-): boolean {
-  const sources = detail.sources ?? []
+): boolean {  const sources = detail.sources ?? []
   const src = sources.find((s) => s.id === sourceId) ?? sources[0]
   if (!src) return false
   const mapped = sources.map((s) => ({
@@ -67,6 +78,7 @@ export function dispatchNativePlaylist(
     resumeAtSec: resumeSec,
     skipIntroSec: skip.intro,
     skipOutroSec: skip.outro,
+    autoNext: readAutoPlayNext(),
     filmId: id,
     filmName: detail.name,
     // 关键: proxyBase 决定原生端侧广告过滤是否触发, 必须传(统一用 absApiBase)

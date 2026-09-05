@@ -280,6 +280,7 @@ public class JerocineBridge {
         it.putExtra(PlayerActivity.EXTRA_RESUME_MS, (long) (cfg.optDouble("resumeAtSec", 0) * 1000));
         it.putExtra(PlayerActivity.EXTRA_SKIP_INTRO_MS, (long) cfg.optInt("skipIntroSec", 0) * 1000L);
         it.putExtra(PlayerActivity.EXTRA_SKIP_OUTRO_MS, (long) cfg.optInt("skipOutroSec", 0) * 1000L);
+        it.putExtra(PlayerActivity.EXTRA_AUTO_NEXT, cfg.optBoolean("autoNext", true));
         it.putExtra(PlayerActivity.EXTRA_FILM_ID, cfg.optString("filmId", ""));
         it.putExtra(PlayerActivity.EXTRA_FILM_NAME, cfg.optString("filmName", ""));
         // 方案B: 代理 base, 原生据此对原始 m3u8 每集自行包装代理过滤
