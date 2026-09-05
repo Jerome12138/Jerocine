@@ -14,6 +14,10 @@
 # ⚠ 集成验证(不碰线上)用隔离起栈:
 #   docker compose -p jerocine-new --env-file .env.validate up -d --build mysql redis migrate film
 #   (.env.validate 用不同端口/库名/卷名; 验证完 docker compose -p jerocine-new down -v)
+#
+# 项目名: 默认 jerocine; 已有旧栈(项目名 film, 数据卷 film_* 前缀)迁移部署时,
+# 在 .env 里设 COMPOSE_PROJECT_NAME=film 以延续原数据卷与容器, 否则会另起一套空卷。
+name: ${COMPOSE_PROJECT_NAME:-jerocine}
 
 services:
   migrate:
