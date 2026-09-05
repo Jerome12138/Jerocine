@@ -14,6 +14,7 @@
 
 ## 部署（Docker Compose）
 
+- **从零部署 / 新机器上线**：先读 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、`.env` 配置清单、部署步骤、验证与排障）；本节只讲日常运维。
 - Docker 栈定义在 `deploy/docker-compose.yml`（service 名 `nginx`/`server`）：
   - `jerocine_nginx`：多阶段 `web/Dockerfile`（node:20-alpine 构建前端含 vue-tsc 门禁 → nginx:1.27-alpine 托管 + 反代 /api）。部署机无需装 node。
   - `jerocine_server`：`deploy/Dockerfile`（golang:1.21-alpine 编译 → distroless **nonroot UID 65532**，无 shell）。
