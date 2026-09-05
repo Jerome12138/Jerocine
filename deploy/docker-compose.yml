@@ -2,20 +2,20 @@
 #
 # 用法:
 #   1. cp .env.example .env, 填生产值
-#   2. cd film && docker compose up -d --build
+#   2. cd deploy && docker compose up -d --build
 #
 # 与旧栈的根本差异:
-#   - 新增一次性 migrate 服务: golang-migrate 跑版本化 DDL(替代 AutoMigrate); film 依赖其 completed。
+#   - 新增一次性 migrate 服务: golang-migrate 跑版本化 DDL(替代 AutoMigrate); server 依赖其 completed。
 #   - MySQL 是唯一权威真相; Redis 退回纯旁路缓存 + 协调态, 读路径全部 miss 回源 MySQL。
 #   - 因此 Redis 可安全开 maxmemory 512mb + volatile-lru(所有缓存/协调键均带 TTL, 淘汰可重建,
 #     彻底解开旧栈"开 eviction 即首页空白"的死结 —— 见 commit 6305b91 复盘)。
 #   - 后端入口为 ./cmd/server, 路由挂 /api/v1; nginx 保留 /api 前缀反代。
 #
 # ⚠ 集成验证(不碰线上)用隔离起栈:
-#   docker compose -p jerocine-new --env-file .env.validate up -d --build mysql redis migrate film
+#   docker compose -p jerocine-new --env-file .env.validate up -d --build mysql redis migrate server
 #   (.env.validate 用不同端口/库名/卷名; 验证完 docker compose -p jerocine-new down -v)
 #
-# 项目名: 默认 jerocine; 已有旧栈(项目名 film, 数据卷 film_* 前缀)迁移部署时,
+# 项目名: 默认 jerocine; 已有旧栈(项目名 film, 数据卷 film_* 前缀)迁移部署时
 # 在 .env 里设 COMPOSE_PROJECT_NAME=film 以延续原数据卷与容器, 否则会另起一套空卷。
 name: ${COMPOSE_PROJECT_NAME:-jerocine}
 
@@ -33,13 +33,13 @@ services:
       mysql:
         condition: service_healthy
     networks:
-      - film-network
+      - jerocine-network
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
-  film:
-    container_name: film_api
+  server:
+    container_name: jerocine_server
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -66,10 +66,10 @@ services:
       BLOB_BASE_URL: "/api/upload/"
       GIN_MODE: release
     volumes:
-      - film_uploads:/opt/server/static/upload
+      - uploads:/opt/server/static/upload
       - ./secrets:/etc/jerocine/secrets:ro
     networks:
-      - film-network
+      - jerocine-network
     depends_on:
       mysql:
         condition: service_healthy
@@ -88,7 +88,7 @@ services:
       options: { max-size: "20m", max-file: "5" }
 
   nginx:
-    container_name: film_nginx
+    container_name: jerocine_nginx
     build:
       context: ..
       dockerfile: web/Dockerfile
@@ -102,16 +102,16 @@ services:
       - ./apk:/usr/share/nginx/html/apk:ro
       - nginx_cache:/var/cache/nginx/api
     networks:
-      - film-network
+      - jerocine-network
     depends_on:
-      film:
+      server:
         condition: service_healthy
     logging:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }
 
   mysql:
-    container_name: film_mysql
+    container_name: jerocine_mysql
     image: mysql:8.0.36
     restart: unless-stopped
     environment:
@@ -123,7 +123,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
-      - film-network
+      - jerocine-network
     command:
       - mysqld
       - --default-authentication-plugin=mysql_native_password
@@ -144,7 +144,7 @@ services:
       options: { max-size: "20m", max-file: "5" }
 
   redis:
-    container_name: film_redis
+    container_name: jerocine_redis
     image: redis:7.2-alpine
     restart: unless-stopped
     command:
@@ -165,7 +165,7 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - film-network
+      - jerocine-network
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep -q PONG"]
       interval: 10s
@@ -180,11 +180,11 @@ services:
       options: { max-size: "20m", max-file: "5" }
 
 networks:
-  film-network:
+  jerocine-network:
     driver: bridge
 
 volumes:
   mysql_data:
   redis_data:
-  film_uploads:
+  uploads:
   nginx_cache:
