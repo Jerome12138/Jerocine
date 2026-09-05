@@ -289,6 +289,14 @@ let seekArmToken = 0
 let awaitingNewSource = false
 
 /**
+ * 自动连播冷却: 新片源就绪(切集落地/首次开播)后的 10 秒内, 忽略一切自动切集请求。
+ * switchInFlight 只在 loadedmetadata/canplay 就绪事件时解除, 解除后个别源仍可能有
+ * 残余 ended/timeupdate 迟到触发, 这 10 秒是就绪后的第二道防线。手动切集不受影响。
+ */
+const AUTO_NEXT_COOLDOWN_MS = 10000
+let autoNextGuardUntil = 0
+
+/**
  * 新片源就绪后 seek 到本集续播点 + 按需自动续播。
  * 由 watch(playSrc) 在每次切集(playSrc 实际变化)时调用一次; token 去重保证仅首个
  * loadedmetadata/canplay 生效, 且监听挂在"新源加载前", 故即便 VHS 复用 MSE 不重发事件
@@ -309,6 +317,7 @@ function armSeekOnce(): void {
     offL()
     offC()
     switchInFlight = false // 新片源已就绪, 解除切集互斥
+    autoNextGuardUntil = Date.now() + AUTO_NEXT_COOLDOWN_MS // 就绪后 10s 自动连播冷却
     // 新源就绪事件(loadedmetadata/canplay)已触发: 立即清除切集时挂起的 loading 态,
     // 露出新集画面。放在 seek/play 之前, 即便 player 此刻为空也不会让 loading 卡住。
     loading.value = false
@@ -1263,6 +1272,8 @@ function selectEpisode(payload: { sourceId: string; episodeIndex: number; resume
  * 且把旧播放头写进中间那集的历史(进度串集)。手动按钮不受此限制。 */
 function playNextAuto(): void {
   if (switchInFlight) return
+  // 就绪冷却: 切集/开播后 10s 内的自动切集一律忽略(残余事件防线), 手动不受影响
+  if (Date.now() < autoNextGuardUntil) return
   if (!hasNext.value) return
   // 自动切集 = 本集已播完: 清理本集播放记忆(倒数5分钟不记进度会让旧进度滞留)
   const filmId = detail.value?.mid
