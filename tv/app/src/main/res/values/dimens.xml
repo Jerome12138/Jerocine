@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="gf_page_padding_horizontal">36dp</dimen>
+    <dimen name="gf_page_padding_vertical">28dp</dimen>
+    <dimen name="gf_toolbar_height">68dp</dimen>
+    <dimen name="gf_page_title_size">28sp</dimen>
+    <dimen name="gf_section_title_size">23sp</dimen>
+    <dimen name="gf_body_size">17sp</dimen>
+    <dimen name="gf_caption_size">14sp</dimen>
+    <dimen name="gf_control_height">48dp</dimen>
+    <dimen name="gf_control_radius">8dp</dimen>
+    <dimen name="gf_panel_radius">8dp</dimen>
+    <dimen name="gf_tv_panel_radius">20dp</dimen>
+    <dimen name="gf_tv_card_radius">8dp</dimen>
+</resources>

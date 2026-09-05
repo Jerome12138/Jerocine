@@ -1,0 +1,6 @@
+-- 000002 down
+DROP TABLE IF EXISTS files;
+DROP TABLE IF EXISTS app_version;
+DROP TABLE IF EXISTS site_config;
+DROP TABLE IF EXISTS cron_task;
+DROP TABLE IF EXISTS collect_source;

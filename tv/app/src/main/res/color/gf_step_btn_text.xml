@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- stepper 按钮文字: 聚焦/按下=深色(衬亮青底), 默认=白. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/gf_on_accent" />
+    <item android:state_pressed="true" android:color="@color/gf_on_accent" />
+    <item android:color="@color/gf_text" />
+</selector>

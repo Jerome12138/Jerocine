@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  共享玻璃 Toast 布局 (GlassToast.show 用): 玻璃面胶囊 + 细描边 + 白字, 可选左侧图标.
+  复用 @drawable/gf_toast_bg(与播放器内 center_toast 同款)与玻璃色令牌, 不另造样式.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/gf_toast_root"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/gf_toast_bg"
+    android:paddingHorizontal="20dp"
+    android:paddingVertical="13dp">
+
+    <ImageView
+        android:id="@+id/gf_toast_icon"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginEnd="9dp"
+        android:tint="@color/gf_accent"
+        android:visibility="gone"
+        android:importantForAccessibility="no" />
+
+    <TextView
+        android:id="@+id/gf_toast_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/gf_text"
+        android:textSize="15sp"
+        android:gravity="center"
+        android:maxWidth="320dp" />
+</LinearLayout>

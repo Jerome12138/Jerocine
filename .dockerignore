@@ -1,0 +1,45 @@
+# 仓库根作为 docker build 上下文 (deploy/docker-compose.yml build.context: ..)
+# 这里排除所有 docker 镜像不需要的目录, 让构建上下文足够小.
+
+.git/
+.gitignore
+.dockerignore
+
+# 文档
+doc/
+*.md
+
+# 前端
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/.env*
+web/android/
+web/.dev.notes.md
+
+# IDE / OS
+.claude/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Go 构建产物
+server/*.exe
+server/main
+server/static/upload/gallery/
+
+# CI / 临时
+.github/
+*.log
+
+# 部署目录本身 (deploy/) 由 Dockerfile 不主动拷贝, 这里加保险
+deploy/data/
+deploy/server/
+# 例外: 镜像内 nginx.conf 走仓库版本, 需要保留这一个文件
+!deploy/data/nginx/
+!deploy/data/nginx/nginx.conf
+
+# LICENSE 等不影响镜像
+LICENSE

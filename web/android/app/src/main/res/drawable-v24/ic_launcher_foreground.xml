@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Jerocine 影视 — 电影光圈: 六边形光圈环(aperture) + 中心播放三角, 青#4AD1E5→紫#7C5CFF 渐变 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 六边形光圈环 (外六边形 R34 - 内六边形 R26, evenOdd 镂空成环) -->
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M88,54 L71,24.6 L37,24.6 L20,54 L37,83.4 L71,83.4 Z M80,54 L67,31.5 L41,31.5 L28,54 L41,76.5 L67,76.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="22" android:startY="24"
+                android:endX="86" android:endY="84">
+                <item android:offset="0" android:color="#FF4AD1E5"/>
+                <item android:offset="1" android:color="#FF7C5CFF"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 中心播放三角 -->
+    <path android:pathData="M47,42 L47,66 L69,54 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="47" android:startY="42"
+                android:endX="69" android:endY="66">
+                <item android:offset="0" android:color="#FF4AD1E5"/>
+                <item android:offset="1" android:color="#FF7C5CFF"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

@@ -1,0 +1,186 @@
+# Jerocine docker-compose (重构后终态栈)
+#
+# 用法:
+#   1. cp .env.example .env, 填生产值
+#   2. cd film && docker compose up -d --build
+#
+# 与旧栈的根本差异:
+#   - 新增一次性 migrate 服务: golang-migrate 跑版本化 DDL(替代 AutoMigrate); film 依赖其 completed。
+#   - MySQL 是唯一权威真相; Redis 退回纯旁路缓存 + 协调态, 读路径全部 miss 回源 MySQL。
+#   - 因此 Redis 可安全开 maxmemory 512mb + volatile-lru(所有缓存/协调键均带 TTL, 淘汰可重建,
+#     彻底解开旧栈"开 eviction 即首页空白"的死结 —— 见 commit 6305b91 复盘)。
+#   - 后端入口为 ./cmd/server, 路由挂 /api/v1; nginx 保留 /api 前缀反代。
+#
+# ⚠ 集成验证(不碰线上)用隔离起栈:
+#   docker compose -p jerocine-new --env-file .env.validate up -d --build mysql redis migrate film
+#   (.env.validate 用不同端口/库名/卷名; 验证完 docker compose -p jerocine-new down -v)
+
+services:
+  migrate:
+    image: migrate/migrate:v4.17.1
+    restart: "no"
+    volumes:
+      - ../server/migrations:/migrations:ro
+    command:
+      - "-path=/migrations"
+      - "-database=mysql://${MYSQL_USER:-jerocine}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:-FilmSite}?multiStatements=true"
+      - "up"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - film-network
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  film:
+    container_name: film_api
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: jerocine-server:latest
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      SERVER_PORT: "3601"
+      MYSQL_DSN: "${MYSQL_USER:-jerocine}:${MYSQL_PASSWORD}@(mysql:3306)/${MYSQL_DATABASE:-FilmSite}?charset=utf8mb4&parseTime=True&loc=Local"
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_DB_CACHE: "0"
+      REDIS_DB_COORD: "1"
+      JWT_PRIVATE_KEY_FILE: "${JWT_PRIVATE_KEY_FILE:-/etc/jerocine/secrets/jwt_private.pem}"
+      JWT_PUBLIC_KEY_FILE: "${JWT_PUBLIC_KEY_FILE:-/etc/jerocine/secrets/jwt_public.pem}"
+      JWT_ISSUER: "Jerocine"
+      AUTH_TOKEN_TTL_HOURS: "${AUTH_TOKEN_TTL_HOURS:-168}"
+      MAX_DEVICE_LOGIN: "${MAX_DEVICE_LOGIN:-5}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
+      SPIDER_RESET_TOKEN: "${SPIDER_RESET_TOKEN}"
+      MAX_GOROUTINE: "${MAX_GOROUTINE:-32}"
+      BLOB_DRIVER: "local"
+      BLOB_LOCAL_DIR: "/opt/server/static/upload"
+      BLOB_BASE_URL: "/api/upload/"
+      GIN_MODE: release
+    volumes:
+      - film_uploads:/opt/server/static/upload
+      - ./secrets:/etc/jerocine/secrets:ro
+    networks:
+      - film-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/opt/server/main", "-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  nginx:
+    container_name: film_nginx
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+    image: jerocine-nginx:latest
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./apk:/usr/share/nginx/html/apk:ro
+      - nginx_cache:/var/cache/nginx/api
+    networks:
+      - film-network
+    depends_on:
+      film:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  mysql:
+    container_name: film_mysql
+    image: mysql:8.0.36
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-FilmSite}"
+      MYSQL_USER: "${MYSQL_USER:-jerocine}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD}"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - film-network
+    command:
+      - mysqld
+      - --default-authentication-plugin=mysql_native_password
+      - --innodb-buffer-pool-size=256M
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+8:00
+      - --lower-case-table-names=1
+      - --ngram-token-size=2
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  redis:
+    container_name: film_redis
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - "${REDIS_PASSWORD}"
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - "everysec"
+      - --save
+      - "900 1"
+      # 新架构下 Redis 是可重建缓存(读路径全部回源 MySQL), 故可安全淘汰:
+      - --maxmemory
+      - "${REDIS_MAXMEMORY:-512mb}"
+      - --maxmemory-policy
+      - "volatile-lru"
+    volumes:
+      - redis_data:/data
+    networks:
+      - film-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    environment:
+      TZ: Asia/Shanghai
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+networks:
+  film-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data:
+  film_uploads:
+  nginx_cache:

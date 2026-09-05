@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 控件按钮文字/图标着色: 聚焦/按下=强调青, 默认=白. (drawableTop 图标 tint 同步) -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/gf_accent" />
+    <item android:state_pressed="true" android:color="@color/gf_accent" />
+    <item android:color="@color/gf_text" />
+</selector>

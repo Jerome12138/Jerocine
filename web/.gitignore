@@ -1,0 +1,39 @@
+node_modules
+dist
+dist-ssr
+.env.local
+.env.*.local
+*.log
+.vite
+.cache
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.tsbuildinfo
+ios
+.capacitor
+
+# Capacitor Android: 跟踪源码(java/res/gradle 配置), 忽略构建产物/本地配置/密钥
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/.idea/
+android/local.properties
+# 发布签名密钥 — 严禁 commit(泄露=可冒名签名, 丢失=无法更新上架)
+*.keystore
+*.jks
+android/app/release/
+android/keystore.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/.cxx/
+# 根 .gitignore 忽略了所有 *.png; android res 下的图标/启动图/banner 需强制跟踪
+!android/app/src/main/res/**/*.png
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

@@ -1,0 +1,58 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+
+#忽略client相关依赖缓存
+node_modules/
+dist/
+package-lock.json
+
+.idea/
+.idea
+# 文件保留路径
+static/
+
+
+ProvideController.go
+ProvideLogic.go
+
+# 部署密钥与凭据 — 严禁 commit
+deploy/.env
+deploy/secrets/
+*.pem
+
+# brainstorming 临时 mockup
+.superpowers/
+
+# Playwright MCP 临时目录
+.playwright-mcp/
+
+# Local Git worktrees
+.worktrees/
+
+# Claude Code 本地工作目录 + 调试截图
+# skills/ 是可共享的项目资产(运维手册等), 纳入版本控制; settings.local.json / 锁文件等机器相关文件仍忽略
+.claude/*
+!.claude/skills/
+*.png
+
+# macOS 垃圾文件
+.DS_Store
+
+# macOS 垃圾文件
+.DS_Store
+.claude/
+

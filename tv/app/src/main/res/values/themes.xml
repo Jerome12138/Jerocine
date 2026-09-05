@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 面向低配电视的 View/XML 深色全屏主题。 -->
+    <style name="Theme.JerocineTV" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
+    <!-- 原生播放器主题: 全黑 + 隐藏状态栏 / 标题栏 -->
+    <style name="Theme.JerocineTV.Player" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+    </style>
+
+    <!-- 播放器弹窗主题: 暗色玻璃 + 品牌青强调色 -->
+    <style name="GfPlayerDialog" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/gf_dialog_bg</item>
+        <item name="android:colorAccent">@color/gf_accent</item>
+        <item name="android:textColorPrimary">@color/gf_text</item>
+        <item name="android:textColorSecondary">@color/gf_text_secondary</item>
+        <item name="android:textColorAlertDialogListItem">@color/gf_text</item>
+        <item name="android:windowTitleStyle">@style/GfPlayerDialogTitle</item>
+    </style>
+
+    <style name="GfPlayerDialogTitle" parent="@android:style/TextAppearance.Material.DialogWindowTitle">
+        <item name="android:textColor">@color/gf_text</item>
+        <item name="android:textSize">19sp</item>
+    </style>
+
+    <!-- 原生播放器控件按钮: 图标在上 + 文字在下，D-pad 焦点高亮。 -->
+    <style name="GfPlayerCtlBtn" parent="@android:style/Widget.Material.Button.Borderless">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minWidth">66dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:layout_marginLeft">5dp</item>
+        <item name="android:layout_marginRight">5dp</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:textColor">@color/gf_ctl_btn_text</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:drawablePadding">4dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">@drawable/gf_ctl_btn_bg</item>
+    </style>
+</resources>

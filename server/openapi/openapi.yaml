@@ -1,0 +1,2220 @@
+openapi: 3.1.0
+
+# ============================================================================
+# Jerocine 唯一 API 契约真相 (CONTRACT OF RECORD)
+# ----------------------------------------------------------------------------
+# 本文件是前后端唯一契约源, 受 CI lint gate 约束 (spectral / redocly lint)。
+# 后端手写 handler, 前端手写强类型 client; 任何端点变更必须先改本文件并过评审。
+#
+# 锁定原则 (终态架构):
+#  - 全部 /api/v1 前缀, 参数统一 camelCase, 删旧站大写/link=/search= 兼容。
+#  - HTTP 状态码语义化 (废除恒 200): 2xx 成功 / 4xx 客户端 / 5xx 服务端。
+#  - 成功直接返回 data (不再 {code,data,msg} 三段); 失败统一 RFC7807。
+#  - 每响应带 X-Trace-Id; 公开读接口带 ETag + Cache-Control 边缘缓存语义。
+#  - 分页请求 ?page=&size=; 响应统一 {list, page:{current,size,total,pageCount}}。
+# ============================================================================
+
+info:
+  title: Jerocine API
+  version: 1.0.0
+  description: |
+    Jerocine 影视聚合站 API。终态架构: handler→service→repository(+cache)→db,
+    MySQL 唯一权威真相, Redis 纯旁路缓存可回源。
+    本契约覆盖公开内容、认证/用户、管理后台、采集、埋点、健康检查全部端点。
+  contact:
+    name: Jerocine
+    email: recur-group@pipeline.sbcc.edu
+
+servers:
+  - url: /api/v1
+    description: 经 nginx 反代 (rewrite 去 /api 前缀至后端)
+
+tags:
+  - name: content
+    description: 公开内容 (GET 全部可边缘缓存)
+  - name: auth
+    description: 认证 (no-store)
+  - name: me
+    description: 当前用户 (no-store)
+  - name: manage-config
+    description: 管理后台-站点配置
+  - name: manage-user
+    description: 管理后台-用户管理
+  - name: manage-collect
+    description: 管理后台-采集源
+  - name: manage-cron
+    description: 管理后台-定时任务
+  - name: manage-spider
+    description: 管理后台-采集任务
+  - name: manage-film
+    description: 管理后台-影片/分类
+  - name: manage-file
+    description: 管理后台-文件库
+  - name: manage-version
+    description: 管理后台-APK 版本
+  - name: manage-telemetry
+    description: 管理后台-埋点监控
+  - name: telemetry
+    description: 埋点上报 (公开高频, 独立通道)
+  - name: m3u8
+    description: m3u8 代理过滤
+  - name: health
+    description: 健康检查 (无前缀, 无鉴权)
+
+# ============================================================================
+# 安全方案
+# ============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        RS256 JWT。登录返回 token, 客户端置于 Authorization: Bearer <token>。
+        服务端临期自动续期, 通过响应头 `New-Token` 下发新 token。
+        多设备 token (ZSET, 最多 5 设备) 由 v1:token:{userId} 管理。
+
+  # ---------------- 通用参数 ----------------
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: 页码 (从 1 开始)
+      schema: { type: integer, minimum: 1, default: 1 }
+    Size:
+      name: size
+      in: query
+      required: false
+      description: |
+        每页条数。默认值集中在 config.PageSizeDefaults:
+        home=14 / classify=21 / filter=49 / search=10 / gallery=39。
+      schema: { type: integer, minimum: 1, maximum: 100 }
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: 条件请求 ETag, 命中返回 304。
+      schema: { type: string }
+
+  # ---------------- 通用响应头 ----------------
+  headers:
+    XTraceId:
+      description: 请求链路追踪 ID, 每个响应必带。
+      schema: { type: string }
+    ETag:
+      description: 公开读接口资源指纹, 配合 If-None-Match 走 304。
+      schema: { type: string }
+    CacheControl:
+      description: 公开读 `public, s-maxage=300, stale-while-revalidate=600`; 私有 `no-store`。
+      schema: { type: string }
+    NewToken:
+      description: JWT 临期续签下发的新 token (鉴权接口可能出现)。
+      schema: { type: string }
+    RetryAfter:
+      description: 限流时建议重试间隔 (秒)。
+      schema: { type: integer }
+
+  # ---------------- 通用响应 ----------------
+  responses:
+    NotModified:
+      description: 资源未变更 (If-None-Match 命中)。
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+        X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+    BadRequest:
+      description: 参数错误。
+      headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { code: "BAD_REQUEST", message: "参数 mid 非法", traceId: "a1b2c3" }
+    Unauthorized:
+      description: 未认证 / token 失效。
+      headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { code: "UNAUTHORIZED", message: "登录已过期, 请重新登录", traceId: "a1b2c3" }
+    Forbidden:
+      description: 越权 (非管理员访问管理接口)。
+      headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { code: "FORBIDDEN", message: "权限不足, 仅管理员可操作", traceId: "a1b2c3" }
+    NotFound:
+      description: 资源不存在。
+      headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { code: "NOT_FOUND", message: "影片不存在", traceId: "a1b2c3" }
+    Conflict:
+      description: 冲突 (唯一约束 / 状态机非法跃迁)。
+      headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unprocessable:
+      description: 语义校验失败 (字段格式 / 业务规则)。
+      headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  details:
+                    type: array
+                    items: { $ref: '#/components/schemas/FieldError' }
+    TooManyRequests:
+      description: 限流 (m3u8 / login / telemetry 令牌桶)。
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+        X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { code: "RATE_LIMITED", message: "请求过于频繁", traceId: "a1b2c3" }
+    ServerError:
+      description: 服务端错误。
+      headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { code: "INTERNAL", message: "服务器繁忙, 请稍后再试", traceId: "a1b2c3" }
+
+  # ============================================================================
+  # 数据模型 (DTO) — camelCase, 与 internal/dto 强一致
+  # ============================================================================
+  schemas:
+
+    # ---------------- 错误模型 (RFC7807 风格) ----------------
+    Problem:
+      type: object
+      required: [code, message, traceId]
+      properties:
+        code:
+          type: string
+          description: 机器可读错误码 (UPPER_SNAKE)。
+          examples: [BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, VALIDATION_FAILED, RATE_LIMITED, INTERNAL]
+        message: { type: string, description: 人类可读错误消息 (前端可直接 toast)。 }
+        traceId: { type: string, description: 与 X-Trace-Id 一致的链路 ID。 }
+        details:
+          type: array
+          description: 可选字段级错误 (422 时出现)。
+          items: { $ref: '#/components/schemas/FieldError' }
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string }
+        message: { type: string }
+
+    # ---------------- 分页 ----------------
+    PageMeta:
+      type: object
+      required: [current, size, total, pageCount]
+      properties:
+        current: { type: integer, description: 当前页码 }
+        size: { type: integer, description: 每页条数 }
+        total: { type: integer, format: int64, description: 总条数 }
+        pageCount: { type: integer, description: 总页数 }
+
+    # ---------------- 内容: 分类 ----------------
+    Category:
+      type: object
+      required: [id, pid, name, show, sort]
+      properties:
+        id: { type: integer, format: int64 }
+        pid: { type: integer, format: int64, description: 父分类 ID, 0 为顶级 }
+        name: { type: string }
+        show: { type: boolean, description: 是否在导航显示 }
+        sort: { type: integer, default: 0 }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/Category' }
+
+    # ---------------- 内容: 卡片 / 列表项 (物化宽表投影) ----------------
+    FilmCard:
+      type: object
+      description: |
+        列表/卡片统一投影, 来源 movie_search 宽表单次查询 (cover 已进宽表, 零回填)。
+        统一字段名, 删旧站 id|mid / score|rating|dbScore / 多处 cName 兼容债。
+      required: [mid, name, cover]
+      properties:
+        mid: { type: integer, format: int64, description: 全局唯一业务主键 }
+        cid: { type: integer, format: int64 }
+        pid: { type: integer, format: int64 }
+        name: { type: string }
+        subTitle: { type: string }
+        cName: { type: string, description: 分类名 }
+        classTag: { type: string }
+        area: { type: string }
+        language: { type: string }
+        year: { type: integer }
+        state: { type: string, description: 正片|预告... }
+        remarks: { type: string, description: 完结|更新至x集 }
+        dbScore: { type: number, format: float, description: 豆瓣评分 0-10 }
+        hits: { type: integer, format: int64 }
+        cover: { type: string, description: 封面 URL (绝对/相对) }
+        releaseStamp: { type: integer, format: int64 }
+        updateStamp: { type: integer, format: int64 }
+
+    FilmCardPage:
+      type: object
+      required: [list, page]
+      properties:
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/FilmCard' }
+        page: { $ref: '#/components/schemas/PageMeta' }
+
+    # ---------------- 内容: 详情 ----------------
+    PlayEpisode:
+      type: object
+      required: [episode, link]
+      properties:
+        episode: { type: string, description: 集数标题 (如 "第01集") }
+        link: { type: string, description: 播放地址 / m3u8 链接 }
+
+    PlaySource:
+      type: object
+      required: [id, name, episodes]
+      properties:
+        id: { type: string, description: sourceId (站点标识), 与 play?source= 对应 }
+        name: { type: string, description: 播放源名 (playFrom) }
+        episodes:
+          type: array
+          items: { $ref: '#/components/schemas/PlayEpisode' }
+
+    FilmDescriptor:
+      type: object
+      description: 详情描述区, content 落库即清洗 HTML 实体/全角空格 (前端不再正则清)。
+      properties:
+        cName: { type: string }
+        classTag: { type: string }
+        director: { type: string }
+        actor: { type: string }
+        writer: { type: string }
+        releaseDate: { type: string }
+        area: { type: string }
+        language: { type: string }
+        year: { type: integer }
+        remarks: { type: string }
+        state: { type: string }
+        content: { type: string }
+        dbScore: { type: number, format: float }
+        hits: { type: integer, format: int64 }
+
+    FilmDetail:
+      type: object
+      required: [mid, name, cover, descriptor, sources]
+      properties:
+        mid: { type: integer, format: int64 }
+        cid: { type: integer, format: int64 }
+        pid: { type: integer, format: int64 }
+        name: { type: string }
+        subTitle: { type: string }
+        cover: { type: string }
+        descriptor: { $ref: '#/components/schemas/FilmDescriptor' }
+        sources:
+          type: array
+          description: 多源聚合 (主站 + 附属站, 按 matchKey 匹配)。
+          items: { $ref: '#/components/schemas/PlaySource' }
+
+    FilmDetailResp:
+      type: object
+      required: [detail, related]
+      properties:
+        detail: { $ref: '#/components/schemas/FilmDetail' }
+        related:
+          type: array
+          items: { $ref: '#/components/schemas/FilmCard' }
+
+    PlayInfoResp:
+      type: object
+      description: 播放页, 与详情共用详情读取; source/episode 缺省与越界保护在服务端完成。
+      required: [detail, current, currentSource, currentEpisode, related]
+      properties:
+        detail: { $ref: '#/components/schemas/FilmDetail' }
+        current: { $ref: '#/components/schemas/PlayEpisode' }
+        currentSource: { type: string, description: 当前播放源 id (与 detail.sources[i].id 对应) }
+        currentEpisode: { type: integer, description: 当前集索引 (从 0 起) }
+        related:
+          type: array
+          items: { $ref: '#/components/schemas/FilmCard' }
+
+    # ---------------- 内容: 首页聚合 (结构化区块, 前端不再补偿) ----------------
+    HomeResp:
+      type: object
+      description: |
+        后端完成 merge/去重/随机, 前端删全部补偿 (banner 回退扫描 / hot 回填 picture /
+        Math.random 打乱)。cover 已进宽表。
+      required: [banner, rankings, rows, recommend]
+      properties:
+        banner:
+          type: array
+          description: 轮播 (后端选定, 非前端扫 content)。
+          items: { $ref: '#/components/schemas/FilmCard' }
+        rankings:
+          type: array
+          description: 本月热门榜 / 排行区块。
+          items:
+            type: object
+            required: [title, items]
+            properties:
+              title: { type: string }
+              items:
+                type: array
+                items: { $ref: '#/components/schemas/FilmCard' }
+        rows:
+          type: array
+          description: 分类行 (每个一级分类一行卡片)。
+          items:
+            type: object
+            required: [nav, items]
+            properties:
+              nav: { $ref: '#/components/schemas/Category' }
+              items:
+                type: array
+                items: { $ref: '#/components/schemas/FilmCard' }
+        recommend:
+          type: array
+          description: 猜你喜欢 (后端随机/去重, 前端直接渲染)。
+          items: { $ref: '#/components/schemas/FilmCard' }
+
+    # ---------------- 内容: 分类首页三榜 ----------------
+    ClassifyResp:
+      type: object
+      required: [title, news, top, recent]
+      properties:
+        title: { $ref: '#/components/schemas/Category' }
+        news:
+          type: array
+          description: 最新 (release_stamp desc)
+          items: { $ref: '#/components/schemas/FilmCard' }
+        top:
+          type: array
+          description: 排行 (hits desc)
+          items: { $ref: '#/components/schemas/FilmCard' }
+        recent:
+          type: array
+          description: 最近更新 (update_stamp desc)
+          items: { $ref: '#/components/schemas/FilmCard' }
+
+    # ---------------- 内容: tag 筛选选项 (查询期 GROUP BY) ----------------
+    FilterOption:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string, description: 展示名 }
+        value: { type: string, description: 提交值 (空串表示"全部") }
+    FiltersResp:
+      type: object
+      description: |
+        维度选项从 movie_search GROUP BY 实时聚合 (根治采集双写计数虚高)。
+        '其它' 语义在筛选端点用 NOT IN/NOT LIKE 保留。
+      required: [titles, tags, sortList]
+      properties:
+        titles:
+          type: object
+          description: 维度键 → 展示标题 (固定 7 维度: category/plot/area/language/year/...)
+          additionalProperties: { type: string }
+        tags:
+          type: object
+          description: 维度键 → 选项列表
+          additionalProperties:
+            type: array
+            items: { $ref: '#/components/schemas/FilterOption' }
+        sortList:
+          type: array
+          items: { type: string }
+          description: 可选排序 (new|hits|update|score...)
+
+    # ---------------- 配置: 站点 ----------------
+    SiteConfig:
+      type: object
+      properties:
+        siteName: { type: string }
+        domain: { type: string }
+        logo: { type: string }
+        keyword: { type: string }
+        description: { type: string, description: 改名 describe→description }
+        state: { type: integer, description: 1 正常 / 0 维护中 }
+        hint: { type: string, description: 维护提示 }
+    SiteConfigUpdate:
+      type: object
+      properties:
+        siteName: { type: string }
+        domain: { type: string }
+        logo: { type: string }
+        keyword: { type: string }
+        description: { type: string }
+        state: { type: integer, enum: [0, 1] }
+        hint: { type: string }
+
+    # ---------------- 配置: APK 版本 ----------------
+    AppVersion:
+      type: object
+      required: [versionCode, versionName, apkUrl, channel]
+      properties:
+        versionCode: { type: integer }
+        versionName: { type: string }
+        apkUrl: { type: string }
+        changelog: { type: string }
+        force: { type: boolean, description: 是否强制升级 }
+        channel: { type: integer, enum: [0, 1], description: 0 stable / 1 beta }
+
+    # ---------------- 认证 / 用户 ----------------
+    LoginReq:
+      type: object
+      required: [account, password]
+      properties:
+        account: { type: string, description: 用户名或邮箱 }
+        password: { type: string, format: password }
+    LoginResp:
+      type: object
+      required: [userName, token, expires, role]
+      properties:
+        userName: { type: string }
+        nickName: { type: string }
+        token: { type: string }
+        expires: { type: integer, format: int64, description: 过期时间戳 (秒) }
+        role: { type: integer, enum: [0, 1], description: 0 普通用户 / 1 管理员 }
+    PasswordChangeReq:
+      type: object
+      required: [oldPassword, newPassword]
+      properties:
+        oldPassword: { type: string, format: password }
+        newPassword: { type: string, format: password, minLength: 6 }
+    UserInfo:
+      type: object
+      description: 脱敏 (无 password/salt)。
+      required: [id, userName, role]
+      properties:
+        id: { type: integer, format: int64 }
+        userName: { type: string }
+        nickName: { type: string }
+        email: { type: string }
+        avatar: { type: string }
+        gender: { type: integer }
+        status: { type: integer }
+        role: { type: integer, enum: [0, 1] }
+    UserCreateReq:
+      type: object
+      required: [userName, password, role]
+      properties:
+        userName: { type: string, minLength: 4, maxLength: 20, pattern: '^[A-Za-z0-9_]{4,20}$' }
+        password: { type: string, format: password, minLength: 8 }
+        email: { type: string, format: email }
+        nickName: { type: string }
+        role: { type: integer, enum: [0, 1] }
+
+    # ---------------- 用户: 历史 / 收藏 ----------------
+    HistoryItem:
+      type: object
+      required: [mid, name]
+      properties:
+        id: { type: integer, format: int64, description: 记录 ID }
+        mid: { type: integer, format: int64 }
+        name: { type: string }
+        cover: { type: string }
+        cName: { type: string }
+        episode: { type: string, description: 集数标题 }
+        episodeIndex: { type: integer, description: 集索引 }
+        sourceId: { type: string }
+        progress: { type: number, format: float, description: 播放进度 (秒) }
+        duration: { type: number, format: float, description: 总时长 (秒) }
+        updatedAt: { type: integer, format: int64 }
+    HistoryUpsertReq:
+      type: object
+      required: [mid]
+      properties:
+        mid: { type: integer, format: int64 }
+        name: { type: string }
+        cover: { type: string }
+        cName: { type: string }
+        episode: { type: string }
+        episodeIndex: { type: integer }
+        sourceId: { type: string }
+        progress: { type: number, format: float }
+        duration: { type: number, format: float }
+    FavoriteItem:
+      type: object
+      required: [mid, name]
+      properties:
+        id: { type: integer, format: int64 }
+        mid: { type: integer, format: int64 }
+        name: { type: string }
+        cover: { type: string }
+        cName: { type: string }
+        remarks: { type: string }
+        createdAt: { type: integer, format: int64 }
+    FavoriteAddReq:
+      type: object
+      required: [mid]
+      properties:
+        mid: { type: integer, format: int64 }
+        name: { type: string }
+        cover: { type: string }
+        cName: { type: string }
+        remarks: { type: string }
+    FavoriteCheckResp:
+      type: object
+      required: [favorited]
+      properties:
+        favorited: { type: boolean }
+
+    # ---------------- 采集源 ----------------
+    CollectSource:
+      type: object
+      required: [id, name, uri, grade]
+      properties:
+        id: { type: string, description: 采集源 ID (GenerateSalt) }
+        name: { type: string }
+        uri: { type: string, format: uri }
+        resultModel: { type: integer, enum: [0, 1], description: 0 json / 1 xml }
+        grade: { type: integer, enum: [0, 1], description: 0 主站 / 1 附属站 }
+        syncPictures: { type: boolean, description: 附属站禁止图片同步 }
+        collectType: { type: integer }
+        gradeScore: { type: integer }
+        intervalMs: { type: integer, description: 采集限速间隔 (ms) }
+        state: { type: integer, enum: [0, 1], description: 0 停用 / 1 启用 }
+    CollectSourceUpsert:
+      type: object
+      required: [name, uri, resultModel, grade]
+      properties:
+        name: { type: string }
+        uri: { type: string, format: uri }
+        resultModel: { type: integer, enum: [0, 1] }
+        grade: { type: integer, enum: [0, 1] }
+        syncPictures: { type: boolean }
+        collectType: { type: integer }
+        intervalMs: { type: integer }
+        state: { type: integer, enum: [0, 1] }
+    CollectTestResp:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        message: { type: string }
+        sampleCount: { type: integer, description: 测试拉取到的样本数 }
+
+    # ---------------- 定时任务 ----------------
+    CronTask:
+      type: object
+      required: [id, sourceIds, spec, model, state]
+      properties:
+        id: { type: integer, format: int64 }
+        sourceIds:
+          type: array
+          items: { type: string }
+          description: 指定采集源 (model=1 时生效)
+        spec: { type: string, description: cron 表达式 (含秒, 6 段) }
+        model: { type: integer, enum: [0, 1], description: 0 全部启用站 / 1 指定 ids }
+        state: { type: integer, enum: [0, 1] }
+        remark: { type: string }
+        entryId: { type: integer, description: robfig/cron EntryID 回写 }
+        lastRunAt: { type: integer, format: int64 }
+    CronTaskUpsert:
+      type: object
+      required: [spec, model]
+      properties:
+        sourceIds:
+          type: array
+          items: { type: string }
+        spec: { type: string }
+        model: { type: integer, enum: [0, 1] }
+        state: { type: integer, enum: [0, 1] }
+        remark: { type: string }
+
+    # ---------------- 采集任务 (job) ----------------
+    SpiderJobStartReq:
+      type: object
+      required: [sourceId]
+      properties:
+        sourceId: { type: string }
+        duration: { type: integer, description: '增量时长 (小时); -1 或省略表示全量' }
+    SpiderJob:
+      type: object
+      required: [sourceId, state, totalPages, donePages, failedPages, elapsedMs]
+      properties:
+        sourceId: { type: string }
+        state: { type: string, enum: [running, paused, done, canceled, failed] }
+        totalPages: { type: integer }
+        donePages: { type: integer }
+        failedPages: { type: integer }
+        elapsedMs: { type: integer, format: int64 }
+        startedAt: { type: integer, format: int64 }
+        finishedAt: { type: integer, format: int64 }
+    SpiderResetReq:
+      type: object
+      description: 清库重采 (取代 GET /spider/zero?accessKey=Re0)。需 admin JWT + 二次确认 token。
+      required: [confirm]
+      properties:
+        confirm: { type: string, description: 二次确认 token (前端弹窗输入, 服务端校验), 防误触/预取/CSRF。 }
+    SpiderCategoryCoverReq:
+      type: object
+      description: 分类覆盖 (取代 GET /spider/class/cover)。
+      properties:
+        sourceId: { type: string }
+
+    # ---------------- 影片管理 ----------------
+    FilmUpsertReq:
+      type: object
+      required: [name, pid, cid]
+      properties:
+        name: { type: string }
+        enName: { type: string }
+        subTitle: { type: string }
+        initial: { type: string }
+        pid: { type: integer, format: int64 }
+        cid: { type: integer, format: int64 }
+        cover: { type: string }
+        area: { type: string }
+        language: { type: string }
+        year: { type: integer }
+        director: { type: string }
+        actor: { type: string }
+        writer: { type: string }
+        classTag: { type: string }
+        content: { type: string }
+        remarks: { type: string }
+        state: { type: string }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/PlaySource' }
+
+    # ---------------- 文件库 ----------------
+    FileItem:
+      type: object
+      required: [id, link]
+      properties:
+        id: { type: integer, format: int64 }
+        link: { type: string, description: 访问 URL }
+        objectKey: { type: string, description: 对象存储 key (终态) }
+        relevanceId: { type: integer, format: int64 }
+        type: { type: integer }
+        fileType: { type: string }
+        createdAt: { type: integer, format: int64 }
+    FileUploadResp:
+      type: object
+      description: 删旧站裸字符串 URL, 返回结构化对象。
+      required: [id, link]
+      properties:
+        id: { type: integer, format: int64 }
+        link: { type: string }
+        objectKey: { type: string }
+
+    # ---------------- 埋点 ----------------
+    TelemetryEvent:
+      type: object
+      required: [type, ts]
+      properties:
+        type: { type: string, description: 'pv|error|action|perf|api' }
+        ts: { type: integer, format: int64, description: 客户端时间戳 (ms) }
+        category: { type: string }
+        action: { type: string }
+        label: { type: string }
+        value: { type: number }
+        path: { type: string }
+        sessionId: { type: string }
+        platform: { type: string }
+        appVersion: { type: string }
+        extra: { type: string, description: JSON 字符串 (stack/diag 等) }
+    TelemetryBatchReq:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          maxItems: 200
+          items: { $ref: '#/components/schemas/TelemetryEvent' }
+    TelemetryOverview:
+      type: object
+      properties:
+        pv: { type: integer, format: int64 }
+        uv: { type: integer, format: int64 }
+        uniqueUsers: { type: integer, format: int64 }
+        errorCount: { type: integer, format: int64 }
+        apiCount: { type: integer, format: int64 }
+        avgApiMs: { type: number, format: float }
+    TelemetryIssue:
+      type: object
+      properties:
+        key: { type: string, description: sha1(category|path|label) }
+        category: { type: string }
+        path: { type: string }
+        label: { type: string }
+        count: { type: integer, format: int64 }
+        status: { type: string, enum: [unresolved, resolved, reopened, expired] }
+        commitId: { type: string }
+        firstSeen: { type: integer, format: int64 }
+        lastSeen: { type: integer, format: int64 }
+    TelemetryResolveReq:
+      type: object
+      required: [key]
+      properties:
+        key: { type: string }
+        commitId: { type: string }
+    TopPath:
+      type: object
+      properties:
+        path: { type: string }
+        count: { type: integer, format: int64 }
+    ApiPerf:
+      type: object
+      properties:
+        path: { type: string }
+        count: { type: integer, format: int64 }
+        p50: { type: number, format: float }
+        p95: { type: number, format: float }
+        p99: { type: number, format: float }
+
+    # ---------------- 仪表盘 ----------------
+    DashboardStat:
+      type: object
+      properties:
+        filmCount: { type: integer, format: int64 }
+        collectCount: { type: integer, format: int64 }
+        cronCount: { type: integer, format: int64 }
+
+    # ---------------- m3u8 ----------------
+    M3u8ProxyReq:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri, description: 上游 m3u8 地址 (服务端 SSRF 校验) }
+        filterAds: { type: boolean, default: true }
+
+# ============================================================================
+# 端点定义
+# ============================================================================
+paths:
+
+  # ==================== 公开内容 (GET 全部可边缘缓存) ====================
+  /home:
+    get:
+      tags: [content]
+      summary: 首页区块化聚合
+      operationId: getHome
+      parameters: [{ $ref: '#/components/parameters/IfNoneMatch' }]
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HomeResp' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /categories:
+    get:
+      tags: [content]
+      summary: 导航分类树 (show 过滤)
+      operationId: getCategories
+      parameters: [{ $ref: '#/components/parameters/IfNoneMatch' }]
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /categories/{pid}/filters:
+    get:
+      tags: [content]
+      summary: 分类筛选维度选项 (MySQL GROUP BY 实时聚合)
+      operationId: getCategoryFilters
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FiltersResp' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /films:
+    get:
+      tags: [content]
+      summary: 影片列表 (关键字搜索 / 分类三榜 / 多维筛选 三态合一)
+      description: |
+        - `keyword` 存在 → 关键字搜索 (FULLTEXT ngram), 空结果返回 200 + 空数组。
+        - `pid` + `sort` (new|hits|update) → 分类三榜单榜模式 (亦可用 /films?pid 列表)。
+        - `pid` + `category/plot/area/language/year` → 多维筛选 ('其它' 语义保留)。
+        互斥优先级: keyword > 多维筛选 > 单榜。
+      operationId: listFilms
+      parameters:
+        - name: keyword
+          in: query
+          schema: { type: string }
+        - name: pid
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: category
+          in: query
+          description: 二级分类 cid (筛选)
+          schema: { type: integer, format: int64 }
+        - name: plot
+          in: query
+          schema: { type: string }
+        - name: area
+          in: query
+          schema: { type: string }
+        - name: language
+          in: query
+          schema: { type: string }
+        - name: year
+          in: query
+          schema: { type: integer }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [new, hits, update, score] }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: OK (空结果亦 200 + 空 list)
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilmCardPage' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /films/classify:
+    get:
+      tags: [content]
+      summary: 分类首页三榜聚合 (news/top/recent 一次返回)
+      operationId: getClassify
+      parameters:
+        - name: pid
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClassifyResp' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /films/{mid}:
+    get:
+      tags: [content]
+      summary: 影片详情 + 多源 (mid 直查, 无 cid 跳)
+      operationId: getFilmDetail
+      parameters:
+        - name: mid
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilmDetailResp' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /films/{mid}/play:
+    get:
+      tags: [content]
+      summary: 播放页 (默认源/默认集/越界保护)
+      operationId: getPlayInfo
+      parameters:
+        - name: mid
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: source
+          in: query
+          description: 播放源 id, 缺省取第一个源
+          schema: { type: string }
+        - name: episode
+          in: query
+          description: 集索引 (从 0 起), 越界回落到 0
+          schema: { type: integer, minimum: 0 }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayInfoResp' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /films/{mid}/related:
+    get:
+      tags: [content]
+      summary: 相关推荐
+      operationId: getRelated
+      parameters:
+        - name: mid
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FilmCard' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /config/site:
+    get:
+      tags: [content]
+      summary: 站点配置 (公开读)
+      operationId: getSiteConfig
+      parameters: [{ $ref: '#/components/parameters/IfNoneMatch' }]
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteConfig' }
+        '304': { $ref: '#/components/responses/NotModified' }
+
+  /app/version/latest:
+    get:
+      tags: [content]
+      summary: APK 灰度协商 (按 Authorization 解 token 取白名单)
+      operationId: getLatestVersion
+      security:
+        - {}
+        - BearerAuth: []
+      parameters:
+        - name: channel
+          in: query
+          schema: { type: integer, enum: [0, 1], default: 0 }
+      responses:
+        '200':
+          description: OK (配置缺失兜底 v1.0)
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppVersion' }
+
+  /m3u8/proxy:
+    get:
+      tags: [m3u8]
+      summary: m3u8 代理过滤并生成签名媒体转发地址
+      operationId: m3u8Proxy
+      parameters:
+        - name: src
+          in: query
+          required: true
+          schema: { type: string, format: uri }
+        - name: filterAds
+          in: query
+          schema: { type: integer, enum: [0, 1], default: 1 }
+        - name: proxyMedia
+          in: query
+          description: 设为 1 时将分片、初始化段和密钥改写为签名流转发地址
+          schema: { type: integer, enum: [0, 1], default: 0 }
+      responses:
+        '200':
+          description: 过滤并重写后的 m3u8 文本
+          headers:
+            Cache-Control:
+              description: 'public, max-age=120'
+              schema: { type: string }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/ServerError' }
+
+  /m3u8/stream:
+    get:
+      tags: [m3u8]
+      summary: 转发 m3u8 manifest 生成的签名媒体地址
+      operationId: m3u8Stream
+      parameters:
+        - name: src
+          in: query
+          required: true
+          schema: { type: string, format: uri }
+        - name: exp
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: sig
+          in: query
+          required: true
+          schema: { type: string }
+        - name: Range
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: 完整媒体资源
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '206':
+          description: Range 媒体响应
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/ServerError' }
+
+  /telemetry/events:
+    post:
+      tags: [telemetry]
+      summary: 埋点批量上报 (公开高频, per-IP 令牌桶, 独立通道)
+      operationId: telemetryBatch
+      security:
+        - {}
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TelemetryBatchReq' }
+      responses:
+        '204':
+          description: 已接收 (无内容)
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  # ==================== 认证 / 用户 (no-store) ====================
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: 登录 (唯一登录端点, 删 /login 与 /user/login 重复)
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginReq' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control:
+              description: no-store
+              schema: { type: string }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResp' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: 登出 (仅清当前设备 token)
+      operationId: logout
+      security: [{ BearerAuth: [] }]
+      responses:
+        '204':
+          description: 已登出
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me:
+    get:
+      tags: [me]
+      summary: 当前用户信息 (脱敏)
+      operationId: getMe
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          headers:
+            New-Token: { $ref: '#/components/headers/NewToken' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserInfo' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/password:
+    patch:
+      tags: [me]
+      summary: 修改密码 (不强制下线)
+      operationId: changePassword
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChangeReq' }
+      responses:
+        '204':
+          description: 已修改
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /me/histories:
+    get:
+      tags: [me]
+      summary: 观看历史列表 (updated_at desc 分页)
+      operationId: listHistories
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: OK
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [list, page]
+                properties:
+                  list:
+                    type: array
+                    items: { $ref: '#/components/schemas/HistoryItem' }
+                  page: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [me]
+      summary: 上报/更新观看历史 (按 user_id+mid 唯一 upsert)
+      operationId: upsertHistory
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HistoryUpsertReq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [me]
+      summary: 删除单条历史 (按 mid; user_id 防越权)
+      operationId: deleteHistory
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: mid
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204':
+          description: 已删除
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/histories/clear:
+    delete:
+      tags: [me]
+      summary: 清空全部历史
+      operationId: clearHistories
+      security: [{ BearerAuth: [] }]
+      responses:
+        '204':
+          description: 已清空
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/favorites:
+    get:
+      tags: [me]
+      summary: 收藏列表 (created_at desc 分页)
+      operationId: listFavorites
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [list, page]
+                properties:
+                  list:
+                    type: array
+                    items: { $ref: '#/components/schemas/FavoriteItem' }
+                  page: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [me]
+      summary: 添加收藏 (OnConflict DoNothing 幂等)
+      operationId: addFavorite
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FavoriteAddReq' }
+      responses:
+        '201':
+          description: 已收藏 (或已存在, 幂等)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FavoriteItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [me]
+      summary: 取消收藏 (按 mid)
+      operationId: removeFavorite
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: mid
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204':
+          description: 已取消
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/favorites/{mid}:
+    get:
+      tags: [me]
+      summary: 检查是否已收藏
+      operationId: checkFavorite
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: mid
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FavoriteCheckResp' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ==================== 管理后台 /manage (RequireAdmin, no-store) ====================
+  /manage/dashboard:
+    get:
+      tags: [manage-config]
+      summary: 仪表盘聚合 (子查询失败各自回 0)
+      operationId: getDashboard
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardStat' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/site-config:
+    get:
+      tags: [manage-config]
+      summary: 读站点配置
+      operationId: manageGetSiteConfig
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteConfig' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-config]
+      summary: 更新站点配置 (保存后前端同步 siteStore)
+      operationId: manageUpdateSiteConfig
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteConfigUpdate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteConfig' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/users:
+    get:
+      tags: [manage-user]
+      summary: 用户列表 (脱敏, id asc 分页)
+      operationId: manageListUsers
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [list, page]
+                properties:
+                  list:
+                    type: array
+                    items: { $ref: '#/components/schemas/UserInfo' }
+                  page: { $ref: '#/components/schemas/PageMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-user]
+      summary: 创建用户/管理员 (公网无注册, 强口令)
+      operationId: manageCreateUser
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreateReq' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserInfo' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/collect-sources:
+    get:
+      tags: [manage-collect]
+      summary: 采集源列表
+      operationId: manageListCollectSources
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CollectSource' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-collect]
+      summary: 新增采集源 (改 uri 跑 CollectApiTest, uri 查重)
+      operationId: manageCreateCollectSource
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectSourceUpsert' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectSource' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/collect-sources/{id}:
+    get:
+      tags: [manage-collect]
+      summary: 采集源详情
+      operationId: manageGetCollectSource
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectSource' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [manage-collect]
+      summary: 更新采集源
+      operationId: manageUpdateCollectSource
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectSourceUpsert' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectSource' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [manage-collect]
+      summary: 删除采集源 (主站禁删; 取代 GET /del)
+      operationId: manageDeleteCollectSource
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '204':
+          description: 已删除
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 主站不允许删除
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /manage/collect-sources/{id}/test:
+    post:
+      tags: [manage-collect]
+      summary: 测试采集源连通性
+      operationId: manageTestCollectSource
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectTestResp' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/cron-tasks:
+    get:
+      tags: [manage-cron]
+      summary: 定时任务列表
+      operationId: manageListCronTasks
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CronTask' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-cron]
+      summary: 新增定时任务 (cron 表达式校验到秒)
+      operationId: manageCreateCronTask
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CronTaskUpsert' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CronTask' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/cron-tasks/{id}:
+    get:
+      tags: [manage-cron]
+      summary: 定时任务详情
+      operationId: manageGetCronTask
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CronTask' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [manage-cron]
+      summary: 更新定时任务
+      operationId: manageUpdateCronTask
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CronTaskUpsert' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CronTask' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [manage-cron]
+      summary: 删除定时任务 (取代 GET /del)
+      operationId: manageDeleteCronTask
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '204':
+          description: 已删除
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/cron-tasks/{id}/state:
+    patch:
+      tags: [manage-cron]
+      summary: 启停定时任务
+      operationId: manageToggleCronTask
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: integer, enum: [0, 1] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CronTask' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/spider/jobs:
+    get:
+      tags: [manage-spider]
+      summary: 采集任务快照列表 (Redis v1:job:* 重建)
+      operationId: manageListSpiderJobs
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SpiderJob' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-spider]
+      summary: 触发采集 (全量 duration=-1 / 增量 duration>0)
+      operationId: manageStartSpider
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpiderJobStartReq' }
+      responses:
+        '202':
+          description: 已受理 (异步执行)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpiderJob' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: 同源任务进行中
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /manage/spider/jobs/{id}/pause:
+    post:
+      tags: [manage-spider]
+      summary: 暂停采集任务
+      operationId: manageSpiderPause
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpiderJob' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/spider/jobs/{id}/resume:
+    post:
+      tags: [manage-spider]
+      summary: 恢复采集任务
+      operationId: manageSpiderResume
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpiderJob' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/spider/jobs/{id}/cancel:
+    post:
+      tags: [manage-spider]
+      summary: 取消采集任务
+      operationId: manageSpiderCancel
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpiderJob' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/spider/reset:
+    post:
+      tags: [manage-spider]
+      summary: 清库重采 (POST + admin JWT + 二次确认 token, 删 GET+硬编码 Re0)
+      operationId: manageSpiderReset
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpiderResetReq' }
+      responses:
+        '202':
+          description: 已受理 (影子表 reindex 在线切换, 无查询空窗)
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/spider/category-cover:
+    post:
+      tags: [manage-spider]
+      summary: 分类覆盖 (POST, 取代 GET /class/cover)
+      operationId: manageSpiderCategoryCover
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpiderCategoryCoverReq' }
+      responses:
+        '202':
+          description: 已受理
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/films:
+    get:
+      tags: [manage-film]
+      summary: 后台影片检索 (统一分页, 删 params.paging 嵌套)
+      operationId: manageSearchFilms
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: name, in: query, schema: { type: string } }
+        - { name: pid, in: query, schema: { type: integer, format: int64 } }
+        - { name: cid, in: query, schema: { type: integer, format: int64 } }
+        - { name: plot, in: query, schema: { type: string } }
+        - { name: area, in: query, schema: { type: string } }
+        - { name: language, in: query, schema: { type: string } }
+        - { name: year, in: query, schema: { type: integer } }
+        - { name: remarks, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilmCardPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-film]
+      summary: 手动补录影片 (时间戳作 mid 避免与采集冲突)
+      operationId: manageCreateFilm
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FilmUpsertReq' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilmDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/films/{mid}:
+    get:
+      tags: [manage-film]
+      summary: 后台影片详情 (复用公开详情读取)
+      operationId: manageGetFilm
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: mid, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilmDetailResp' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/categories:
+    get:
+      tags: [manage-film]
+      summary: 分类树 (含 show=false, 行级)
+      operationId: manageListCategories
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-film]
+      summary: 新增分类 (行级)
+      operationId: manageCreateCategory
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, pid]
+              properties:
+                name: { type: string }
+                pid: { type: integer, format: int64 }
+                show: { type: boolean }
+                sort: { type: integer }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/categories/{id}:
+    put:
+      tags: [manage-film]
+      summary: 更新分类 (name/show/sort 行级)
+      operationId: manageUpdateCategory
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                show: { type: boolean }
+                sort: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [manage-film]
+      summary: 删除分类 (取代 GET /class/del)
+      operationId: manageDeleteCategory
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '204':
+          description: 已删除
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/files:
+    get:
+      tags: [manage-file]
+      summary: 文件库 (id desc 分页, 默认 size=39)
+      operationId: manageListFiles
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [list, page]
+                properties:
+                  list:
+                    type: array
+                    items: { $ref: '#/components/schemas/FileItem' }
+                  page: { $ref: '#/components/schemas/PageMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-file]
+      summary: 上传图片 (扩展名+DetectContentType 双判, 服务端重命名, 10MB, nosniff)
+      operationId: manageUploadFile
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                relevanceId: { type: integer, format: int64 }
+                type: { type: integer }
+      responses:
+        '201':
+          description: 已上传 (返回结构化对象, 非裸字符串)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileUploadResp' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/files/{id}:
+    delete:
+      tags: [manage-file]
+      summary: 删除文件 (双重校验, 连本地/对象一起删; 取代 GET /del)
+      operationId: manageDeleteFile
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '204':
+          description: 已删除
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/app-versions:
+    get:
+      tags: [manage-version]
+      summary: APK 版本列表
+      operationId: manageListAppVersions
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: channel, in: query, schema: { type: integer, enum: [0, 1] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AppVersion' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-version]
+      summary: 新增版本配置 (入库)
+      operationId: manageCreateAppVersion
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, versionCode, versionName, apkUrl]
+              properties:
+                channel: { type: integer, enum: [0, 1] }
+                versionCode: { type: integer }
+                versionName: { type: string }
+                apkUrl: { type: string }
+                changelog: { type: string }
+                force: { type: boolean }
+                whitelist:
+                  type: array
+                  items: { type: integer, format: int64 }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppVersion' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/app-versions/{id}:
+    delete:
+      tags: [manage-version]
+      summary: 删除版本配置
+      operationId: manageDeleteAppVersion
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '204':
+          description: 已删除
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/app-versions/apk:
+    post:
+      tags: [manage-version]
+      summary: 上传 APK (versionName 防路径穿越, 大小/类型限制)
+      operationId: manageUploadApk
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, channel, versionName]
+              properties:
+                file: { type: string, format: binary }
+                channel: { type: integer, enum: [0, 1] }
+                versionName: { type: string }
+      responses:
+        '201':
+          description: 已上传
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apkUrl: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/telemetry/overview:
+    get:
+      tags: [manage-telemetry]
+      summary: 埋点概览 (按 server_ts 窗口避时钟漂移)
+      operationId: manageTelemetryOverview
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: hours, in: query, schema: { type: integer, default: 24 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetryOverview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/telemetry/events:
+    get:
+      tags: [manage-telemetry]
+      summary: 事件/问题列表 (状态机 unresolved/resolved/reopened/expired)
+      operationId: manageTelemetryEvents
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: type, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [unresolved, resolved, reopened, expired] } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [list, page]
+                properties:
+                  list:
+                    type: array
+                    items: { $ref: '#/components/schemas/TelemetryIssue' }
+                  page: { $ref: '#/components/schemas/PageMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/telemetry/top-paths:
+    get:
+      tags: [manage-telemetry]
+      summary: 页面热点 TopN
+      operationId: manageTelemetryTopPaths
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: hours, in: query, schema: { type: integer, default: 24 } }
+        - { name: limit, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TopPath' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/telemetry/api-perf:
+    get:
+      tags: [manage-telemetry]
+      summary: API 性能 P50/P95/P99 (应用层近似, 限 1000 条)
+      operationId: manageTelemetryApiPerf
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: hours, in: query, schema: { type: integer, default: 24 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApiPerf' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/telemetry/issues/{key}/resolve:
+    post:
+      tags: [manage-telemetry]
+      summary: 标记问题已解决 (关联 commitId)
+      operationId: manageTelemetryResolve
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: key, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                commitId: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetryIssue' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/telemetry/issues/{key}/unresolve:
+    post:
+      tags: [manage-telemetry]
+      summary: 撤销已解决标记
+      operationId: manageTelemetryUnresolve
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: key, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelemetryIssue' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+# ============================================================================
+# 健康检查 (无 /api/v1 前缀, 由 nginx 旁路探针直连后端 /healthz)
+# 注: 这两个端点不在 /api/v1 servers 基址下, 此处仅作契约记录。
+# ============================================================================
+  /healthz:
+    servers: [{ url: '/' }]
+    get:
+      tags: [health]
+      summary: readiness (ping redis+mysql, 任一失败 503, 2s 超时)
+      operationId: healthz
+      security: []
+      responses:
+        '200': { description: 就绪 }
+        '503': { description: 依赖不可用 }
+  /livez:
+    servers: [{ url: '/' }]
+    get:
+      tags: [health]
+      summary: liveness (恒 200)
+      operationId: livez
+      security: []
+      responses:
+        '200': { description: 存活 }

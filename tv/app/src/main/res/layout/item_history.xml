@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="180dp"
+    android:layout_marginEnd="14dp"
+    android:layout_marginBottom="14dp"
+    android:background="@drawable/gf_poster_item"
+    android:clickable="true"
+    android:focusable="true"
+    android:orientation="vertical"
+    android:padding="4dp">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="124dp">
+
+        <ImageView
+            android:id="@+id/history_cover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/gf_glass_soft"
+            android:duplicateParentState="true"
+            android:scaleType="centerCrop" />
+
+        <TextView
+            android:id="@+id/history_episode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="7dp"
+            android:background="@drawable/gf_badge_bg"
+            android:paddingHorizontal="7dp"
+            android:paddingVertical="3dp"
+            android:textColor="@color/gf_text"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/history_delete"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#CC3A1016"
+            android:gravity="center"
+            android:text="按确认键移除"
+            android:textColor="@color/gf_text"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <ProgressBar
+            android:id="@+id/history_item_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="5dp"
+            android:layout_gravity="bottom"
+            android:max="1000"
+            android:progressTint="@color/gf_accent"
+            android:progressBackgroundTint="@color/gf_progress_unplayed" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/history_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:duplicateParentState="true"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="@color/gf_poster_text"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/history_meta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="@color/gf_text_secondary"
+        android:textSize="12sp" />
+</LinearLayout>

@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/gf_bg"
+    android:orientation="horizontal"
+    android:padding="24dp">
+
+    <ScrollView
+        android:id="@+id/search_controls"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:background="@drawable/gf_surface_panel"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:padding="18dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingEnd="4dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/search_back"
+                    style="@style/GfIconButton"
+                    android:contentDescription="返回"
+                    android:src="@drawable/ic_back" />
+
+                <TextView
+                    style="@style/GfPageTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="14dp"
+                    android:text="搜索" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/search_query"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/gf_input"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:maxLines="1"
+                android:paddingHorizontal="16dp"
+                android:text="输入关键字 / 拼音首字母"
+                android:textColor="@color/gf_text_secondary"
+                android:textSize="17sp" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/search_keyboard"
+                android:layout_width="match_parent"
+                android:layout_height="254dp"
+                android:layout_marginTop="10dp"
+                android:descendantFocusability="afterDescendants"
+                android:nestedScrollingEnabled="false"
+                android:overScrollMode="never"
+                android:scrollbars="none" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="历史搜索"
+                    android:textColor="@color/gf_text"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/search_clear_history"
+                    style="@style/GfChip"
+                    android:layout_width="76dp"
+                    android:layout_height="36dp"
+                    android:focusable="true"
+                    android:text="清空"
+                    android:textAllCaps="false" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/search_history_row"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:orientation="horizontal" />
+        </LinearLayout>
+    </ScrollView>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="18dp"
+        android:layout_weight="2"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="搜索结果"
+                android:textColor="@color/gf_text"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/search_result_count"
+                style="@style/GfPageSubtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 部" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/search_results_panel"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/search_results"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingStart="8dp"
+                android:paddingTop="8dp"
+                android:scrollbars="none" />
+
+            <ProgressBar
+                android:id="@+id/search_progress"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="top|end"
+                android:layout_margin="12dp"
+                android:indeterminateTint="@color/gf_accent"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/search_message"
+                android:layout_width="480dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:lineSpacingExtra="8dp"
+                android:textColor="@color/gf_text_secondary"
+                android:textSize="19sp" />
+        </FrameLayout>
+    </LinearLayout>
+</LinearLayout>

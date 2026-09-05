@@ -1,0 +1,106 @@
+/* 轻量 reset，仅做必要规范化 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  /* 响应式根字号，TV 模式下 useViewMode 会切换 data-mode 覆盖 */
+  font-size: clamp(14px, 1.05vw, 18px);
+  /* 恒定预留竖向滚动条槽位: 短页(无滚动条)与长页(有滚动条)的可用宽度一致,
+     消除居中容器(头部 / 内容区同用 container-page)随滚动条出现而左右跳动、
+     "顶部栏与内容区宽度对不齐"的问题。TV 模式 scrollbar-width:none 时本属性自动无效。 */
+  scrollbar-gutter: stable;
+}
+
+body {
+  min-height: 100vh;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+ul,
+ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* 移动端 input/textarea/select 强制 ≥ 16px 字号, 阻止 iOS Safari focus 自动缩放
+   (text-sm = 14px 触发缩放且退出不会还原, 桌面端不受影响).
+   !important 必要: Vue scoped class 优先级 (.foo[data-v-xxx]) 高于全局 tag selector,
+   不加会被组件 font-size: var(--gf-fs-sm) 等覆盖. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}

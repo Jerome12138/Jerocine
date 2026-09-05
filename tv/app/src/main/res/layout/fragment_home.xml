@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/gf_bg"
+    android:clipChildren="false">
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/home_sections"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:paddingHorizontal="36dp"
+        android:paddingTop="84dp"
+        android:paddingBottom="32dp"
+        android:scrollbars="none" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/gf_toolbar_height"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:paddingHorizontal="36dp">
+
+        <TextView
+            android:layout_width="132dp"
+            android:layout_height="wrap_content"
+            android:text="Jerocine"
+            android:textColor="@color/gf_text"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/home_navigation"
+            android:layout_width="wrap_content"
+            android:layout_height="52dp"
+            android:background="@drawable/gf_tv_nav_bar"
+            android:gravity="center_vertical"
+            android:padding="5dp"
+            android:scrollbars="none" />
+
+        <ImageButton
+            android:id="@+id/home_search"
+            style="@style/GfIconButton"
+            android:contentDescription="搜索"
+            android:focusable="true"
+            android:src="@drawable/ic_search"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/home_login"
+            style="@style/GfButtonSecondary"
+            android:layout_width="76dp"
+            android:layout_marginStart="8dp"
+            android:ellipsize="end"
+            android:focusable="true"
+            android:maxLines="1"
+            android:text="登录"
+            android:textAllCaps="false"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/home_history"
+            style="@style/GfIconButton"
+            android:layout_marginStart="8dp"
+            android:contentDescription="观看历史"
+            android:focusable="true"
+            android:src="@drawable/ic_history"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/home_favorites"
+            style="@style/GfIconButton"
+            android:layout_marginStart="8dp"
+            android:contentDescription="我的收藏"
+            android:focusable="true"
+            android:src="@drawable/ic_favorite"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/home_settings"
+            style="@style/GfIconButton"
+            android:layout_marginStart="8dp"
+            android:contentDescription="设置"
+            android:focusable="true"
+            android:src="@drawable/ic_settings"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/home_progress"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="center"
+        android:indeterminateTint="@color/gf_accent" />
+
+    <LinearLayout
+        android:layout_width="420dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/home_error_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textColor="@color/gf_text_secondary"
+            android:textSize="20sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/home_retry"
+            android:layout_width="160dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="18dp"
+            style="@style/GfButtonSecondary"
+            android:focusable="true"
+            android:text="重试"
+            android:textAllCaps="false"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</FrameLayout>

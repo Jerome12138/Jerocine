@@ -1,0 +1,7 @@
+/* iconfont 占位
+ * 旧站使用阿里 CDN 字体图标：
+ *   https://at.alicdn.com/t/c/font_3992367_chvdxwo1gkp.css
+ * 已在 index.html 通过 <link> 直接引入。
+ *
+ * 如需离线托管，下载字体到 public/iconfont/ 后在此文件追加 @font-face。
+ */

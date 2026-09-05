@@ -1,0 +1,130 @@
+/* ============================================================
+ * Jerocine TV · 雷鸟卡片仪表盘 chrome 样式 (gf-tv-*)
+ * 仅 TV 模式生效(全部 [data-mode="tv"] 作用域), 桌面/移动无影响。
+ * 影片卡仍用 FilmCard(海报+下方片名); 本表只提供"外层仪表盘"的卡片:
+ *   功能卡 / 专区面板 / 分类卡 / 排行卡 / 更多胶囊 / 轮播 / chip / 按钮 / 列表行 / 选集 / 键盘 / 玻璃卡。
+ * 焦点态沿用 theme.css 既有 [data-mode=tv] [data-focusable] 规则(青光环)。
+ * 设计来源: doc/tv-demos/pages/tv-theme.css(已与用户确认的雷鸟卡片式)。
+ * ============================================================ */
+
+/* ---------- 布局栅格助手 ---------- */
+[data-mode="tv"] .gf-tv-duo { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gf-space-4); }
+[data-mode="tv"] .gf-tv-duo > * { min-width: 0; }
+/* auto-fill(非 auto-fit): 项数 < 列数时保留空轨道, 单条不会被 1fr 拉满整屏 */
+[data-mode="tv"] .gf-tv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--gf-tv-card-min, 200px), 1fr)); gap: var(--gf-space-6); }
+[data-mode="tv"] .gf-tv-grid > * { min-width: 0; }
+
+/* ---------- "更多/查看全部" 胶囊按钮 ---------- */
+[data-mode="tv"] .gf-tv-more {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 18px;
+  border-radius: 999px; background: rgba(255, 255, 255, 0.12); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13));
+  color: var(--gf-text-primary); font-size: var(--gf-fs-sm); font-weight: var(--gf-fw-semibold); text-decoration: none; cursor: pointer;
+}
+
+/* ---------- 功能卡: 宽扁 + 右大图标 ---------- */
+[data-mode="tv"] .gf-tv-funcs { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--gf-space-4); }
+[data-mode="tv"] .gf-tv-fc {
+  position: relative; min-height: 72px; padding: 10px 50px 10px 16px; border-radius: var(--gf-radius-xl, 20px);
+  border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); overflow: hidden; text-decoration: none;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+}
+[data-mode="tv"] .gf-tv-fc .ic { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 34px; opacity: .85; color: #fff; }
+[data-mode="tv"] .gf-tv-fc .ti { font-size: var(--gf-fs-base); font-weight: var(--gf-fw-bold); color: var(--gf-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-mode="tv"] .gf-tv-fc .su { font-size: var(--gf-fs-sm); color: rgba(255, 255, 255, 0.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-mode="tv"] .gf-tv-fc.fc-1 { background: linear-gradient(150deg, #2b3a55, #1c2740); }
+[data-mode="tv"] .gf-tv-fc.fc-2 { background: linear-gradient(150deg, #7a3b67, #b5557e); }
+[data-mode="tv"] .gf-tv-fc.fc-3 { background: linear-gradient(150deg, #27508a, #2a8ca0); }
+[data-mode="tv"] .gf-tv-fc.fc-4 { background: linear-gradient(150deg, #1f7a6b, #36b0a0); }
+[data-mode="tv"] .gf-tv-fc.fc-5 { background: linear-gradient(150deg, #5a4b8a, #7c5cff); }
+
+/* ---------- 专区面板: 标题 + 内含影片(FilmCard, 每块≤3) ---------- */
+[data-mode="tv"] .gf-tv-panel { border-radius: var(--gf-radius-xl, 20px); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); padding: 16px 18px; background: var(--gf-tv-glass, rgba(21,21,28,.88)); }
+[data-mode="tv"] .gf-tv-panel.z1 { background: linear-gradient(135deg, rgba(74, 209, 229, 0.16), rgba(15, 32, 39, 0.5)); }
+[data-mode="tv"] .gf-tv-panel.z2 { background: linear-gradient(135deg, rgba(245, 150, 60, 0.18), rgba(60, 40, 12, 0.5)); }
+[data-mode="tv"] .gf-tv-panel.z3 { background: linear-gradient(135deg, rgba(155, 73, 231, 0.16), rgba(20, 20, 40, 0.5)); }
+[data-mode="tv"] .gf-tv-p3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gf-space-3); } /* 每块最多 3 影片 */
+[data-mode="tv"] .gf-tv-p3 > * { min-width: 0; }
+
+/* ---------- 影片卡 gf-tv-card (近期历史/历史/收藏: 海报 2:3 + 下方片名 + 集数/进度/角标) ---------- */
+[data-mode="tv"] .gf-tv-card { display: block; text-decoration: none; color: var(--gf-text-primary); min-width: 0; }
+[data-mode="tv"] .gf-tv-card .poster { aspect-ratio: 3/4; border-radius: var(--gf-radius-md, 8px); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); position: relative; overflow: hidden; background: var(--gf-bg-elevated); }
+[data-mode="tv"] .gf-tv-card .poster.h { aspect-ratio: 16/9; }
+[data-mode="tv"] .gf-tv-card .ep { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: 12px; padding: 1px 7px; border-radius: 6px; background: var(--gf-brand-gradient); color: #fff; }
+[data-mode="tv"] .gf-tv-card .score { position: absolute; top: 6px; right: 6px; z-index: 2; font-size: 12px; font-weight: 700; color: #ffc107; background: rgba(0,0,0,.72); padding: 1px 7px; border-radius: 6px; }
+[data-mode="tv"] .gf-tv-card .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 2; background: rgba(255,255,255,.25); }
+[data-mode="tv"] .gf-tv-card .pbar i { display: block; height: 100%; background: var(--gf-brand-gradient); }
+[data-mode="tv"] .gf-tv-card .name { margin-top: 7px; font-size: var(--gf-fs-sm); font-weight: 600; color: var(--gf-text-primary); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+[data-mode="tv"] .gf-tv-card .sub { font-size: var(--gf-fs-xs); color: var(--gf-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-mode="tv"] .gf-tv-card[data-focusable="true"]:focus, [data-mode="tv"] .gf-tv-card[data-focusable="true"]:focus-visible { transform: none; box-shadow: none; }
+[data-mode="tv"] .gf-tv-card[data-focusable="true"]:focus .poster, [data-mode="tv"] .gf-tv-card[data-focusable="true"]:focus-visible .poster { transform: scale(var(--gf-tv-focus-scale-card, 1.18)); box-shadow: var(--gf-tv-focus-ring); z-index: 5; transition: transform var(--gf-dur-focus, 200ms) var(--gf-ease-spring), box-shadow var(--gf-dur-focus, 200ms) var(--gf-ease-standard); }
+
+/* ---------- 区块标题 ---------- */
+[data-mode="tv"] .gf-tv-sec { display: flex; align-items: baseline; margin-bottom: 12px; }
+[data-mode="tv"] .gf-tv-sec .t { font-size: var(--gf-fs-md); font-weight: var(--gf-fw-bold); }
+[data-mode="tv"] .gf-tv-sec .s { font-size: var(--gf-fs-sm); color: var(--gf-text-muted); margin-left: 8px; }
+
+/* ---------- 分类卡(带副标题) ---------- */
+[data-mode="tv"] .gf-tv-cat {
+  border-radius: var(--gf-radius-xl, 20px); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); padding: 16px 18px; min-height: 84px;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; position: relative; overflow: hidden; text-decoration: none;
+}
+[data-mode="tv"] .gf-tv-cat .ti { font-size: var(--gf-fs-lg); font-weight: var(--gf-fw-bold); color: var(--gf-text-primary); }
+[data-mode="tv"] .gf-tv-cat .su { font-size: var(--gf-fs-sm); color: rgba(255, 255, 255, 0.78); }
+[data-mode="tv"] .gf-tv-cat.cat-1 { background: linear-gradient(150deg, #2e7d4f, #3aa06a); }
+[data-mode="tv"] .gf-tv-cat.cat-2 { background: linear-gradient(150deg, #3a3550, #5a4fb0); }
+[data-mode="tv"] .gf-tv-cat.cat-3 { background: linear-gradient(150deg, #8a3b3b, #c0584f); }
+[data-mode="tv"] .gf-tv-cat.cat-4 { background: linear-gradient(150deg, #2b5876, #4e4376); }
+[data-mode="tv"] .gf-tv-cat.cat-5 { background: linear-gradient(150deg, #3d6655, #4f8f76); }
+[data-mode="tv"] .gf-tv-cat.cat-6 { background: linear-gradient(150deg, #444b7a, #5a4fb0); }
+
+/* ---------- 排行榜列表卡 ---------- */
+[data-mode="tv"] .gf-tv-rank { border-radius: var(--gf-radius-xl, 20px); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); padding: 14px 18px; background: linear-gradient(135deg, rgba(245, 180, 60, 0.2), rgba(60, 40, 10, 0.5)); }
+[data-mode="tv"] .gf-tv-ranks { display: flex; gap: 14px; margin-top: 8px; }
+[data-mode="tv"] .gf-tv-rk { flex: 1; min-width: 0; }
+[data-mode="tv"] .gf-tv-rk h5 { font-size: var(--gf-fs-sm); color: var(--gf-text-secondary); margin-bottom: 8px; border-bottom: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); padding-bottom: 6px; }
+[data-mode="tv"] .gf-tv-rk ol { list-style: none; font-size: var(--gf-fs-sm); display: flex; flex-direction: column; gap: 7px; }
+[data-mode="tv"] .gf-tv-rk li { display: flex; gap: 7px; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-mode="tv"] .gf-tv-rk li b { color: var(--gf-brand-cyan); width: 14px; text-align: center; }
+
+/* ---------- 推荐轮播卡 ---------- */
+[data-mode="tv"] .gf-tv-carousel { border-radius: var(--gf-radius-xl, 20px); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); position: relative; overflow: hidden; display: flex; align-items: flex-end; padding: 18px; text-decoration: none; color: #fff; min-height: 170px; background: linear-gradient(120deg, #1a2a6c, #7a2a4a); }
+[data-mode="tv"] .gf-tv-carousel .tag { position: absolute; top: 14px; left: 18px; font-size: var(--gf-fs-sm); background: rgba(0, 0, 0, 0.4); padding: 4px 12px; border-radius: 999px; }
+[data-mode="tv"] .gf-tv-carousel h3 { font-size: var(--gf-fs-2xl); font-weight: var(--gf-fw-black); }
+[data-mode="tv"] .gf-tv-carousel p { color: rgba(255, 255, 255, 0.85); font-size: var(--gf-fs-sm); margin-top: 3px; }
+[data-mode="tv"] .gf-tv-dots { position: absolute; bottom: 14px; right: 16px; display: flex; gap: 6px; }
+[data-mode="tv"] .gf-tv-dots i { width: 8px; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.4); }
+[data-mode="tv"] .gf-tv-dots i.on { background: var(--gf-brand-cyan); width: 18px; }
+
+/* ---------- chip(筛选/选集源 tab) ---------- */
+[data-mode="tv"] .gf-tv-chip { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 20px; border-radius: 999px; background: var(--gf-tv-glass-soft, rgba(30,30,40,.7)); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); color: var(--gf-text-secondary); font-size: var(--gf-fs-base); font-weight: var(--gf-fw-semibold); cursor: pointer; text-decoration: none; }
+[data-mode="tv"] .gf-tv-chip.cur { background: var(--gf-brand-gradient); color: #fff; border-color: transparent; }
+[data-mode="tv"] .gf-tv-chip.sel { background: var(--gf-tv-selected-bg, rgba(74,209,229,.14)); border-color: var(--gf-brand-cyan); color: var(--gf-brand-cyan); }
+
+/* ---------- 通用按钮 ---------- */
+[data-mode="tv"] .gf-tv-btn { display: inline-flex; align-items: center; gap: 8px; height: 56px; padding: 0 28px; border-radius: 16px; font-size: var(--gf-fs-md); font-weight: var(--gf-fw-bold); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); background: var(--gf-tv-glass-soft, rgba(30,30,40,.7)); color: var(--gf-text-primary); cursor: pointer; }
+[data-mode="tv"] .gf-tv-btn.primary { background: var(--gf-brand-gradient); border-color: transparent; color: #fff; }
+[data-mode="tv"] .gf-tv-btn.cyan { background: var(--gf-tv-selected-bg, rgba(74,209,229,.16)); border-color: var(--gf-brand-cyan); color: var(--gf-brand-cyan); }
+
+/* ---------- 列表行(设置/设备) ---------- */
+[data-mode="tv"] .gf-tv-listrow { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-radius: var(--gf-radius-xl, 20px); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); background: var(--gf-tv-glass, rgba(21,21,28,.88)); min-height: 72px; }
+[data-mode="tv"] .gf-tv-listrow .lab { font-size: var(--gf-fs-md); font-weight: var(--gf-fw-semibold); }
+[data-mode="tv"] .gf-tv-listrow .sub { font-size: var(--gf-fs-sm); color: var(--gf-text-muted); }
+[data-mode="tv"] .gf-tv-listrow .right { margin-left: auto; color: var(--gf-text-secondary); font-size: var(--gf-fs-base); display: flex; align-items: center; gap: 10px; }
+[data-mode="tv"] .gf-tv-toggle { width: 52px; height: 30px; border-radius: 999px; background: rgba(255, 255, 255, 0.18); position: relative; flex-shrink: 0; }
+[data-mode="tv"] .gf-tv-toggle.on { background: var(--gf-brand-cyan); }
+[data-mode="tv"] .gf-tv-toggle i { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 999px; background: #fff; transition: left .15s; }
+[data-mode="tv"] .gf-tv-toggle.on i { left: 25px; }
+
+/* ---------- 选集网格 ---------- */
+[data-mode="tv"] .gf-tv-eps { display: grid; grid-template-columns: repeat(auto-fit, minmax(clamp(96px, 10vw, 140px), 1fr)); gap: var(--gf-space-3); }
+[data-mode="tv"] .gf-tv-ep { height: 60px; border-radius: 12px; background: var(--gf-tv-glass-soft, rgba(30,30,40,.7)); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); color: var(--gf-text-secondary); display: flex; align-items: center; justify-content: center; font-size: var(--gf-fs-base); font-weight: var(--gf-fw-semibold); cursor: pointer; }
+[data-mode="tv"] .gf-tv-ep.cur { background: var(--gf-tv-selected-bg, rgba(74,209,229,.14)); border-color: var(--gf-brand-cyan); color: var(--gf-brand-cyan); }
+
+/* ---------- 字母网格虚拟键盘 ---------- */
+[data-mode="tv"] .gf-tv-kbd { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; }
+[data-mode="tv"] .gf-tv-key { height: 42px; border-radius: 9px; background: var(--gf-tv-glass-soft, rgba(30,30,40,.7)); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); color: var(--gf-text-primary); display: flex; align-items: center; justify-content: center; font-size: var(--gf-fs-base); font-weight: var(--gf-fw-semibold); cursor: pointer; }
+[data-mode="tv"] .gf-tv-key--wide { grid-column: span 2; font-size: var(--gf-fs-sm); }
+
+/* ---------- 玻璃卡(登录/确认) ---------- */
+[data-mode="tv"] .gf-tv-glass-card { border-radius: 24px; border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.18)); background: var(--gf-tv-glass, rgba(21,21,28,.88)); padding: 36px 40px; }
+[data-mode="tv"] .gf-tv-input { height: 64px; border-radius: 16px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--gf-tv-stroke, rgba(255,255,255,.13)); color: var(--gf-text-primary); font-size: var(--gf-fs-md); padding: 0 20px; width: 100%; }

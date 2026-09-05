@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/gf_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/gf_toolbar_height"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="36dp">
+
+        <ImageButton
+            android:id="@+id/favorites_back"
+            style="@style/GfIconButton"
+            android:contentDescription="返回"
+            android:src="@drawable/ic_back" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/GfPageTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="我的收藏" />
+
+            <TextView
+                android:id="@+id/favorites_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/gf_text_secondary"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/favorites_login"
+            style="@style/GfButtonSecondary"
+            android:layout_width="120dp"
+            android:layout_height="46dp"
+            android:focusable="true"
+            android:text="登录同步"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/favorites_manage"
+            style="@style/GfButtonDanger"
+            android:layout_width="118dp"
+            android:layout_height="46dp"
+            android:layout_marginStart="10dp"
+            android:focusable="true"
+            android:text="管理"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/favorites_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingStart="36dp"
+        android:paddingTop="80dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="28dp"
+        android:scrollbars="none" />
+
+    <ProgressBar
+        android:id="@+id/favorites_progress"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="center"
+        android:indeterminateTint="@color/gf_accent" />
+
+    <TextView
+        android:id="@+id/favorites_message"
+        android:layout_width="520dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:lineSpacingExtra="7dp"
+        android:textColor="@color/gf_text_secondary"
+        android:textSize="20sp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/favorites_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="22dp"
+        android:background="@drawable/gf_toast_bg"
+        android:paddingHorizontal="20dp"
+        android:paddingVertical="11dp"
+        android:textColor="@color/gf_text"
+        android:textSize="15sp"
+        android:visibility="gone" />
+</FrameLayout>

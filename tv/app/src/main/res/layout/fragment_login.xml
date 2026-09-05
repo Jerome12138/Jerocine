@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/gf_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="28dp">
+
+    <LinearLayout
+        android:layout_width="300dp"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingEnd="22dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/login_back"
+                style="@style/GfIconButton"
+                android:contentDescription="返回"
+                android:src="@drawable/ic_back" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:text="Jerocine"
+                android:textColor="@color/gf_text"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="start"
+            android:text="同步观看历史和收藏"
+            android:textColor="@color/gf_text_secondary"
+            android:textSize="17sp" />
+
+        <Button
+            android:id="@+id/login_mode_qr"
+            style="@style/GfButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="36dp"
+            android:focusable="true"
+            android:gravity="center_vertical|start"
+            android:text="扫码登录"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/login_mode_password"
+            style="@style/GfButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="12dp"
+            android:focusable="true"
+            android:gravity="center_vertical|start"
+            android:text="密码登录"
+            android:textAllCaps="false" />
+
+        <TextView
+            android:id="@+id/login_status"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_marginTop="32dp"
+            android:gravity="top|start"
+            android:lineSpacingExtra="5dp"
+            android:textColor="@color/gf_text_secondary"
+            android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/login_retry"
+            style="@style/GfButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="14dp"
+            android:focusable="true"
+            android:text="重新获取二维码"
+            android:textAllCaps="false"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:background="@drawable/gf_surface_panel"
+        android:padding="28dp">
+
+        <LinearLayout
+            android:id="@+id/login_qr_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="扫码登录"
+                android:textColor="@color/gf_text"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/login_qr"
+                android:layout_width="230dp"
+                android:layout_height="230dp"
+                android:layout_marginTop="18dp"
+                android:background="#FFFFFFFF"
+                android:contentDescription="登录二维码"
+                android:padding="12dp"
+                android:scaleType="fitCenter" />
+
+            <TextView
+                android:id="@+id/login_code"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:textColor="@color/gf_accent"
+                android:textSize="28sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/login_password_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="300dp"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:paddingEnd="24dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="密码登录"
+                    android:textColor="@color/gf_text"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/login_account"
+                    android:layout_width="match_parent"
+                    android:layout_height="58dp"
+                    android:layout_marginTop="28dp"
+                    android:background="@drawable/gf_input"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:textAllCaps="false"
+                    android:textColor="@color/gf_ctl_btn_text"
+                    android:textSize="17sp" />
+
+                <Button
+                    android:id="@+id/login_password"
+                    android:layout_width="match_parent"
+                    android:layout_height="58dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/gf_input"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:textAllCaps="false"
+                    android:textColor="@color/gf_ctl_btn_text"
+                    android:textSize="17sp" />
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/login_keyboard"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:paddingTop="54dp"
+                android:scrollbars="none" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

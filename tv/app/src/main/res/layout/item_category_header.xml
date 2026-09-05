@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="72dp"
+    android:gravity="bottom"
+    android:orientation="horizontal"
+    android:paddingHorizontal="10dp"
+    android:paddingBottom="12dp">
+
+    <TextView
+        android:id="@+id/category_section_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/gf_text"
+        android:textSize="@dimen/gf_section_title_size"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/category_section_subtitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:textColor="@color/gf_text_secondary"
+        android:textSize="@dimen/gf_caption_size" />
+
+    <Button
+        android:id="@+id/category_section_more"
+        style="@style/GfChip"
+        android:layout_width="92dp"
+        android:layout_height="38dp"
+        android:background="@drawable/gf_tv_more"
+        android:focusable="true"
+        android:text="更多 ›"
+        android:textSize="14sp"
+        android:visibility="gone" />
+</LinearLayout>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/player_choice_text"
+    android:layout_width="match_parent"
+    android:layout_height="54dp"
+    android:background="@drawable/gf_player_choice_item"
+    android:ellipsize="end"
+    android:focusable="false"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="20dp"
+    android:singleLine="true"
+    android:textColor="@color/gf_player_choice_text"
+    android:textSize="17sp" />

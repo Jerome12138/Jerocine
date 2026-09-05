@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Jerocine 安卓壳 — 极简暗色玻璃拟态(glassmorphism)设计令牌.
+  风格: 半透明深色磨砂面 + 细描边(~rgba(255,255,255,0.10~0.14) 1px) + 大圆角 + 低对比 + 克制.
+  强调色青 #4AD1E5; 主操作可用紫→青渐变 #7C5CFF→#4AD1E5. 偏"影视/TV app"(Apple TV)氛围.
+  说明: Android 颜色为 #AARRGGBB (前两位 = alpha). 这里玻璃面用预乘 alpha 的深色十六进制.
+-->
+<resources>
+
+    <!-- ===== 背景 ===== -->
+    <!-- 应用根背景 / 不透明深色基底 -->
+    <color name="gf_bg">#0B0B0F</color>
+    <color name="gf_bg_black">#000000</color>
+
+    <!-- ===== 玻璃面 (半透明深色磨砂) ===== -->
+    <!-- 主玻璃面 (对话框/抽屉/浮层): 深色 ~80% 不透明 -->
+    <color name="gf_glass">#CC15151C</color>
+    <!-- 次玻璃面 (略浅/略透, 用于卡片/按钮默认底): ~70% -->
+    <color name="gf_glass_soft">#B31E1E28</color>
+    <!-- 更深玻璃面 (顶/底栏渐变末端) -->
+    <color name="gf_glass_deep">#CC0B0B0F</color>
+    <!-- 遮罩 (抽屉外侧/弹窗背后压暗) -->
+    <color name="gf_scrim">#99000000</color>
+    <!-- 标题栏轻渐变末端(顶部) -->
+    <color name="gf_scrim_top">#B3000000</color>
+
+    <!-- ===== 描边 ===== -->
+    <!-- 主细描边 ~rgba(255,255,255,0.13) -->
+    <color name="gf_stroke">#22FFFFFF</color>
+    <!-- 更淡描边 -->
+    <color name="gf_stroke_faint">#14FFFFFF</color>
+
+    <!-- ===== 文本 ===== -->
+    <color name="gf_text">#FFFFFFFF</color>
+    <color name="gf_text_secondary">#B3FFFFFF</color>
+    <color name="gf_text_tertiary">#80FFFFFF</color>
+
+    <!-- ===== 强调 ===== -->
+    <!-- 品牌青 -->
+    <color name="gf_accent">#FF4AD1E5</color>
+    <!-- 品牌青 半透明 (焦点底/进度缓冲) -->
+    <color name="gf_accent_dim">#334AD1E5</color>
+    <color name="gf_accent_press">#554AD1E5</color>
+    <!-- 品牌紫 (渐变起点) -->
+    <color name="gf_purple">#FF7C5CFF</color>
+    <color name="gf_purple_press">#FF5848D4</color>
+    <!-- 焦点态文字色(衬在亮青实底上) -->
+    <color name="gf_on_accent">#00141A</color>
+
+    <!-- ===== 危险 ===== -->
+    <color name="gf_danger">#FFFF5B6A</color>
+
+    <!-- ===== 进度条 (DefaultTimeBar) ===== -->
+    <!-- 已播 = 强调青; 缓冲 = 半透明白; 未播 = 更淡白; 拖动点 = 强调青 -->
+    <color name="gf_progress_played">#FF4AD1E5</color>
+    <color name="gf_progress_buffered">#55FFFFFF</color>
+    <color name="gf_progress_unplayed">#26FFFFFF</color>
+    <color name="gf_progress_scrubber">#FF4AD1E5</color>
+
+</resources>

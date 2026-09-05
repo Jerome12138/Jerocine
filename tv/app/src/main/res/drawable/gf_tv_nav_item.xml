@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true"><shape><solid android:color="@color/gf_accent_dim"/><stroke android:width="2dp" android:color="@color/gf_accent"/><corners android:radius="22dp"/></shape></item>
+    <item><shape><solid android:color="@android:color/transparent"/><corners android:radius="22dp"/></shape></item>
+</selector>

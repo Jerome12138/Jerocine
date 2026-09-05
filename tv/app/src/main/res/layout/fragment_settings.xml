@@ -1,0 +1,462 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/gf_bg"
+    android:orientation="horizontal"
+    android:padding="28dp">
+
+    <LinearLayout
+        android:layout_width="260dp"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingEnd="20dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/settings_back"
+                style="@style/GfIconButton"
+                android:contentDescription="返回"
+                android:src="@drawable/ic_back" />
+
+            <TextView
+                style="@style/GfPageTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:text="设置" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="播放 · 账号 · 设备"
+            android:textColor="@color/gf_text_secondary"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/settings_group_play"
+            style="@style/GfButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="30dp"
+            android:focusable="true"
+            android:gravity="center_vertical|start"
+            android:paddingHorizontal="18dp"
+            android:text="播放"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/settings_group_ad"
+            style="@style/GfButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="10dp"
+            android:focusable="true"
+            android:gravity="center_vertical|start"
+            android:paddingHorizontal="18dp"
+            android:text="广告过滤"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/settings_group_account"
+            style="@style/GfButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="10dp"
+            android:focusable="true"
+            android:gravity="center_vertical|start"
+            android:paddingHorizontal="18dp"
+            android:text="账号"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/settings_group_device"
+            style="@style/GfButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="10dp"
+            android:focusable="true"
+            android:gravity="center_vertical|start"
+            android:paddingHorizontal="18dp"
+            android:text="设备"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/settings_group_about"
+            style="@style/GfButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="10dp"
+            android:focusable="true"
+            android:gravity="center_vertical|start"
+            android:paddingHorizontal="18dp"
+            android:text="关于"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:background="@drawable/gf_surface_panel"
+        android:fillViewport="true"
+        android:padding="28dp"
+        android:scrollbars="none">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:id="@+id/settings_panel_play"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="播放"
+                    android:textColor="@color/gf_text"
+                    android:textSize="26sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="动画与播放体验"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/settings_motion_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="34dp"
+                    android:textColor="@color/gf_text"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="14dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/settings_motion_auto"
+                        style="@style/GfChip"
+                        android:layout_width="150dp"
+                        android:layout_height="52dp"
+                        android:focusable="true"
+                        android:text="自动"
+                        android:textAllCaps="false" />
+
+                    <Button
+                        android:id="@+id/settings_motion_reduce"
+                        style="@style/GfChip"
+                        android:layout_width="150dp"
+                        android:layout_height="52dp"
+                        android:layout_marginStart="12dp"
+                        android:focusable="true"
+                        android:text="减少"
+                        android:textAllCaps="false" />
+
+                    <Button
+                        android:id="@+id/settings_motion_full"
+                        style="@style/GfChip"
+                        android:layout_width="150dp"
+                        android:layout_height="52dp"
+                        android:layout_marginStart="12dp"
+                        android:focusable="true"
+                        android:text="完整"
+                        android:textAllCaps="false" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="30dp"
+                    android:text="画质"
+                    android:textColor="@color/gf_text"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="自动"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/settings_panel_ad"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="广告过滤"
+                    android:textColor="@color/gf_text"
+                    android:textSize="26sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/settings_ad_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="17sp" />
+
+                <Button
+                    android:id="@+id/settings_ad_toggle"
+                    style="@style/GfButtonSecondary"
+                    android:layout_width="180dp"
+                    android:layout_height="54dp"
+                    android:layout_marginTop="18dp"
+                    android:focusable="true"
+                    android:textAllCaps="false" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="32dp"
+                    android:text="过滤方式"
+                    android:textColor="@color/gf_text"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="端侧抓流 / 服务端过滤文本"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/settings_panel_account"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="账号"
+                    android:textColor="@color/gf_text"
+                    android:textSize="26sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="登录与跨设备同步"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="34dp"
+                    android:text="当前账号"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/settings_account_user"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="@color/gf_text"
+                    android:textSize="21sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/settings_account_action"
+                    style="@style/GfButtonSecondary"
+                    android:layout_width="180dp"
+                    android:layout_height="54dp"
+                    android:layout_marginTop="22dp"
+                    android:focusable="true"
+                    android:textAllCaps="false" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/settings_panel_device"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="设备"
+                    android:textColor="@color/gf_text"
+                    android:textSize="26sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="服务器与运行环境"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="16sp" />
+
+                <EditText
+                    android:id="@+id/settings_server"
+                    android:layout_width="match_parent"
+                    android:layout_height="58dp"
+                    android:layout_marginTop="30dp"
+                    android:background="@drawable/gf_input"
+                    android:focusable="true"
+                    android:hint="https://example.com"
+                    android:inputType="textUri"
+                    android:maxLines="1"
+                    android:paddingHorizontal="16dp"
+                    android:textColor="@color/gf_text"
+                    android:textColorHint="@color/gf_text_tertiary"
+                    android:textSize="17sp" />
+
+                <Button
+                    android:id="@+id/settings_server_save"
+                    style="@style/GfButtonPrimary"
+                    android:layout_width="160dp"
+                    android:layout_height="54dp"
+                    android:layout_marginTop="14dp"
+                    android:focusable="true"
+                    android:text="保存地址"
+                    android:textAllCaps="false" />
+
+                <TextView
+                    android:id="@+id/settings_server_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="运行平台"
+                    android:textColor="@color/gf_text"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Jerocine TV"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/settings_panel_about"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="关于"
+                    android:textColor="@color/gf_text"
+                    android:textSize="26sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="应用版本"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/settings_about_version"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/gf_text"
+                    android:textSize="19sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:text="构建模式"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/settings_about_build"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/gf_text"
+                    android:textSize="19sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:text="服务器地址"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/settings_about_server"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/gf_text"
+                    android:textSize="17sp" />
+
+                <Button
+                    android:id="@+id/settings_version_check"
+                    style="@style/GfButtonSecondary"
+                    android:layout_width="180dp"
+                    android:layout_height="54dp"
+                    android:layout_marginTop="24dp"
+                    android:focusable="true"
+                    android:text="检查新版本"
+                    android:textAllCaps="false" />
+
+                <TextView
+                    android:id="@+id/settings_version_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="GET /app/version/latest"
+                    android:textColor="@color/gf_text_secondary"
+                    android:textSize="15sp" />
+            </LinearLayout>
+        </FrameLayout>
+    </ScrollView>
+</LinearLayout>

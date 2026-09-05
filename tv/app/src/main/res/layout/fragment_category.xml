@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/gf_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/gf_toolbar_height"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="@dimen/gf_page_padding_horizontal">
+
+        <ImageButton
+            android:id="@+id/category_back"
+            style="@style/GfIconButton"
+            android:contentDescription="返回"
+            android:src="@drawable/ic_back" />
+
+        <TextView
+            android:id="@+id/category_title"
+            style="@style/GfPageTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_weight="1"
+            android:text="分类"
+            android:textColor="@color/gf_accent" />
+
+        <Button
+            android:id="@+id/category_library"
+            style="@style/GfChip"
+            android:layout_width="132dp"
+            android:layout_height="38dp"
+            android:background="@drawable/gf_tv_more"
+            android:focusable="true"
+            android:text="分类库 ›" />
+
+        <TextView
+            android:id="@+id/category_count"
+            style="@style/GfPageSubtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0 部"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/category_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:clipChildren="false"
+        android:paddingStart="26dp"
+        android:paddingTop="80dp"
+        android:paddingEnd="26dp"
+        android:paddingBottom="32dp"
+        android:scrollbars="none" />
+
+    <ProgressBar
+        android:id="@+id/category_progress"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="center"
+        android:indeterminateTint="@color/gf_accent" />
+
+    <LinearLayout
+        android:layout_width="420dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/category_message"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textColor="@color/gf_text_secondary"
+            android:textSize="20sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/category_retry"
+            style="@style/GfButtonSecondary"
+            android:layout_width="150dp"
+            android:layout_height="52dp"
+            android:layout_marginTop="16dp"
+            android:focusable="true"
+            android:text="重试"
+            android:textAllCaps="false"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>
