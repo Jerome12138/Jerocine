@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -180,6 +181,38 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean skipEnabled = false;
     /** 自动连播开关(默认开). 关 → outroWatcher 不触发(跳过片尾属连播范畴); 跳片头不受影响 */
     private boolean autoNext = true;
+
+    /* ========= 触屏手势(对齐 web 端语义): 长按临时 2x / 横滑刮擦进度 / 轻扫 ±10s =========
+     * 长按(450ms, 播放中) = 临时 2x 倍速, 松手恢复原速 — 不写任何持久化, 不影响倍速菜单档位;
+     * 按住横拖 = 连续刮擦进度(全屏宽≈全片时长, 节流实时 seek, 中央提示跟手);
+     * 短促轻扫(<300ms 且 <60px) = 固定 ±10s; 控制条/按钮等子控件自吃触摸, 不参与手势。 */
+    private static final int GESTURE_LONG_PRESS_MS = 450;
+    private static final int GESTURE_SWIPE_TRIGGER_PX = 12;
+    private static final int GESTURE_FLICK_MS = 300;
+    private static final int GESTURE_FLICK_PX = 60;
+    private static final int GESTURE_FLICK_SEEK_SEC = 10;
+    private static final int GESTURE_SEEK_INTERVAL_MS = 400;
+    /** 刮擦中提示保持显示的时长(收尾时手动清) — 避免 800ms 常规 toast 一闪而过 */
+    private static final long GESTURE_HINT_KEEP_MS = 60_000L;
+    /** 手势模式: 0=无 1=长按2x 2=横滑刮擦 */
+    private int gestureMode = 0;
+    private float gestureStartX, gestureStartY;
+    private long gestureStartTime;
+    private long gestureSeekBaseMs, gestureTargetMs;
+    private float gestureLastDx;
+    private long gestureLastSeekAt;
+    private float gestureTempRateBefore = 1f;
+    private final Runnable gestureLongPressRunnable = new Runnable() {
+        @Override public void run() {
+            // 仅播放中(缓冲/暂停不触发)进入临时 2x — 与 web 端一致
+            if (player == null || !player.getPlayWhenReady()
+                    || player.getPlaybackState() == Player.STATE_BUFFERING) return;
+            gestureMode = 1;
+            gestureTempRateBefore = player.getPlaybackParameters().speed;
+            player.setPlaybackParameters(new PlaybackParameters(2f));
+            showCenterToast("2x 倍速中 ▶▶", GESTURE_HINT_KEEP_MS);
+        }
+    };
     /** 最近一次播放状态 — onDestroy 判断是否自然播完(ENDED → web 清该集记忆而非写进度) */
     private int lastPlayerState = -1;
     /** 上一集索引 — onMediaItemTransition 回传 fromIndex 给 web 清上一集记忆 */
@@ -268,6 +301,10 @@ public class PlayerActivity extends AppCompatActivity {
         // 切集/缓冲/暂停时不自动弹控制面板 — 仅用户显式唤起(确认键/点击)才显示,
         // 否则"连按下一集"会误弹操作浮窗。
         playerView.setControllerAutoShow(false);
+
+        // 触屏手势接管(长按 2x / 横滑刮擦进度 / 轻扫 ±10s)。整体消费触摸后
+        // PlayerView 默认"点击切换控制面板"失效 → 单击分支在 onPlayerTouch 内手动复刻。
+        playerView.setOnTouchListener(this::onPlayerTouch);
 
         // 账号记忆: web 按 mid 从账号/本地取跳过秒数传来(默认 90/60, 关闭则传 0)。
         // 值>0 即视为"已开启"(与 web 端默认自动跳片头一致, 跨设备记忆)。
@@ -1015,6 +1052,135 @@ public class PlayerActivity extends AppCompatActivity {
         } else {
             player.play();
         }
+    }
+
+    /** ========= 触屏手势处理(对齐 web 端语义) =========
+     * 整体消费 playerView 的触摸; 控制条/按钮等子控件会先吃掉自己的触摸, 到不了这里。
+     * 普通单击(未形成任何手势) = 切换控制面板 — 复刻被接管前 PlayerView 的默认行为。 */
+    private boolean onPlayerTouch(View v, MotionEvent ev) {
+        if (player == null) return false;
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN: {
+                gestureMode = 0;
+                gestureStartX = ev.getX();
+                gestureStartY = ev.getY();
+                gestureStartTime = System.currentTimeMillis();
+                gestureLastDx = 0;
+                playerView.removeCallbacks(gestureLongPressRunnable);
+                playerView.postDelayed(gestureLongPressRunnable, GESTURE_LONG_PRESS_MS);
+                return true;
+            }
+            case MotionEvent.ACTION_POINTER_DOWN:
+                // 多指: 视作手势取消, 各自语义安全收尾(长按恢复原速/刮擦不落 seek)
+                cancelGesture();
+                return true;
+            case MotionEvent.ACTION_MOVE: {
+                if (ev.getPointerCount() != 1) return true;
+                float dx = ev.getX() - gestureStartX;
+                float dy = ev.getY() - gestureStartY;
+                if (gestureMode == 0) {
+                    // 横向意图判定: 水平位移超阈值且强于竖直 → 进入刮擦, 同时取消长按
+                    if (Math.abs(dx) > GESTURE_SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy)) {
+                        playerView.removeCallbacks(gestureLongPressRunnable);
+                        gestureMode = 2;
+                        gestureSeekBaseMs = player.getCurrentPosition();
+                        gestureTargetMs = gestureSeekBaseMs;
+                        gestureLastSeekAt = 0L;
+                    }
+                    return true; // 尚未判向或竖向滑动, 不做处理
+                }
+                if (gestureMode != 2) return true; // 已长按 2x: 移动不转刮擦
+                gestureLastDx = dx;
+                long durMs = player.getDuration();
+                int width = Math.max(1, playerView.getWidth());
+                // 映射: 全屏宽 ≈ 全片时长(短视频至少全屏宽≈120s), 与 web 端一致
+                float perPxMs = durMs > 0 ? Math.max(durMs / (float) width, 120_000f / width) : 250f;
+                long limit = durMs > 0 ? durMs - 500 : Long.MAX_VALUE;
+                gestureTargetMs = Math.min(
+                        Math.max(gestureSeekBaseMs + (long) (dx * perPxMs), 0L), Math.max(limit, 0L));
+                long delta = gestureTargetMs - gestureSeekBaseMs;
+                showCenterToast((delta >= 0 ? "快进 " : "快退 ") + fmtGestureMs(Math.abs(delta))
+                                + " · " + fmtGestureMs(gestureTargetMs)
+                                + " (" + (durMs > 0 ? Math.round(gestureTargetMs * 100.0 / durMs) : 0) + "%)",
+                        GESTURE_HINT_KEEP_MS);
+                // 长拖: 节流实时 seek 让进度条跟手; 短促轻扫留给 UP 判定固定步进
+                long now = System.currentTimeMillis();
+                if (now - gestureStartTime > GESTURE_FLICK_MS
+                        && Math.abs(dx) > GESTURE_FLICK_PX
+                        && now - gestureLastSeekAt > GESTURE_SEEK_INTERVAL_MS) {
+                    gestureLastSeekAt = now;
+                    player.seekTo(gestureTargetMs);
+                }
+                return true;
+            }
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: {
+                playerView.removeCallbacks(gestureLongPressRunnable);
+                int mode = gestureMode;
+                gestureMode = 0;
+                if (mode == 1) { // 长按结束: 恢复进入前的倍速
+                    player.setPlaybackParameters(new PlaybackParameters(gestureTempRateBefore));
+                    hideGestureToast();
+                    return true;
+                }
+                if (mode == 2) {
+                    long dt = System.currentTimeMillis() - gestureStartTime;
+                    if (dt < GESTURE_FLICK_MS && Math.abs(gestureLastDx) < GESTURE_FLICK_PX) {
+                        // 短促轻扫: 固定 ±10s
+                        long target = player.getCurrentPosition()
+                                + (gestureLastDx >= 0 ? 1 : -1) * GESTURE_FLICK_SEEK_SEC * 1000L;
+                        long dur = player.getDuration();
+                        target = Math.max(0, target);
+                        if (dur > 0) target = Math.min(target, dur);
+                        player.seekTo(target);
+                        showCenterToast((gestureLastDx >= 0 ? "▶ 快进 " : "◀ 快退 ")
+                                + GESTURE_FLICK_SEEK_SEC + "s", 800);
+                    } else {
+                        player.seekTo(gestureTargetMs);
+                        showCenterToast("已跳转 " + fmtGestureMs(gestureTargetMs), 800);
+                    }
+                    return true;
+                }
+                // 普通单击(未形成手势): 切换控制面板
+                if (System.currentTimeMillis() - gestureStartTime < 250) {
+                    if (playerView.isControllerFullyVisible()) {
+                        playerView.hideController();
+                    } else {
+                        playerView.showController(); // listener 会自动聚焦进度条
+                    }
+                }
+                return true;
+            }
+            default:
+                return true;
+        }
+    }
+
+    /** 手势中途取消(多指/异常): 长按恢复原速, 刮擦不落 seek。 */
+    private void cancelGesture() {
+        playerView.removeCallbacks(gestureLongPressRunnable);
+        if (gestureMode == 1 && player != null) {
+            player.setPlaybackParameters(new PlaybackParameters(gestureTempRateBefore));
+        }
+        gestureMode = 0;
+        hideGestureToast();
+    }
+
+    /** 隐藏手势提示(刮擦/长按期间用超长时长保持显示, 收尾手动清)。 */
+    private void hideGestureToast() {
+        toastHandler.removeCallbacksAndMessages(null);
+        if (centerToast != null) centerToast.setVisibility(View.GONE);
+        // 若仍处暂停态, 恢复"暂停图标停留"(与 showCenterToast 收尾逻辑一致)
+        if (player != null && !player.getPlayWhenReady()
+                && player.getPlaybackState() == Player.STATE_READY) {
+            showCenterIconPersistent(R.drawable.ic_pause);
+        }
+    }
+
+    /** ms → m:ss (手势提示用) */
+    private static String fmtGestureMs(long ms) {
+        long s = Math.max(0, ms) / 1000;
+        return (s / 60) + ":" + String.format(java.util.Locale.US, "%02d", s % 60);
     }
 
     private void showSpeedDialog() {
