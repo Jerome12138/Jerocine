@@ -267,6 +267,13 @@ let lastAdFilterToastUrl = ''
 /** 切集 seek + 续播参数: applyCurrentEpisodeToPlayer 写入, 供 armSeekOnce 读取(新源就绪时)。 */
 let pendingResumeAt = 0
 let pendingAutoPlay = false
+/**
+ * 切集互斥标志: selectEpisode 落地时置位, 直到新片源就绪(armSeekOnce 生效 / canplay)才解除。
+ * 修复"连跳 2 集": 切集窗口(旧视频暂停→新源提交前)内, 旧视频残余的 timeupdate / ended
+ * 事件会以"新集"的 key 再次通过去抖并触发 playNext → 再跳一集; 且第二次跳集会把旧播放头
+ * 写进中间那集的独立历史(进度串集的根源)。互斥标志把整个窗口内的自动切集请求全部忽略。
+ */
+let switchInFlight = false
 /** armSeekOnce 令牌: 每次切集递增, 保证只有最新一次 arming 的 seek+续播生效。 */
 let seekArmToken = 0
 /** 是否正在等待新片源: playSrc 实际变化(watch(playSrc))后清掉并触发一次 armSeekOnce。 */
@@ -292,6 +299,7 @@ function armSeekOnce(): void {
     fired = true
     offL()
     offC()
+    switchInFlight = false // 新片源已就绪, 解除切集互斥
     // 新源就绪事件(loadedmetadata/canplay)已触发: 立即清除切集时挂起的 loading 态,
     // 露出新集画面。放在 seek/play 之前, 即便 player 此刻为空也不会让 loading 卡住。
     loading.value = false
@@ -728,10 +736,25 @@ const {
 })
 
 /** ---------- 历史记录 ---------- */
+/** #4: 倒数 5 分钟内不记录播放记忆 —— 看完/退出在片尾附近时, 不写进度,
+ * 避免下次打开直接 resume 到片尾。短视频(<=5min)不适用, 否则永远不记录。 */
+const NO_RECORD_TAIL_SEC = 300
+
 const { flush: flushHistory } = useFilmHistory({
   collect: () => {
     if (!detail.value || !currentEpisode.value) {
       return null
+    }
+    // #4: 临近片尾(倒数 5 分钟内)不写历史
+    try {
+      const p = player.value
+      const duration = p?.duration() ?? 0
+      if (duration > NO_RECORD_TAIL_SEC) {
+        const remaining = duration - (p?.currentTime() ?? 0)
+        if (remaining <= NO_RECORD_TAIL_SEC) return null
+      }
+    } catch {
+      /* ignore */
     }
     const link = buildPlayLink({
       id: detail.value.mid,
@@ -1009,7 +1032,7 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   if (remaining > skip.outro) return
   if (outroTriggeredKey.value === key) return
   outroTriggeredKey.value = key
-  playNext()
+  playNextAuto()
 }
 
 /** ---------- 集数 / 源切换 ---------- */
@@ -1031,9 +1054,17 @@ function selectEpisode(payload: { sourceId: string; episodeIndex: number; resume
   if (!src) return
   const ep = src.episodes[payload.episodeIndex]
   if (!ep) return
+  // 同 (源,集) 重复选择: 不重走切集流程 —— 否则 currentSrc 不变 → playSrc 不变 →
+  // watch(playSrc) 不触发 → armSeekOnce 不执行 → switchInFlight 互斥窗口悬挂, 自动连播被永久卡死。
+  if (payload.sourceId === currentSourceId.value && payload.episodeIndex === currentEpisodeIndex.value) {
+    return
+  }
 
   // 用户切换源/集, 视为新的尝试, 重置错误重试计数
   resetRetry()
+  // 切集互斥: 从这里开始到新片源就绪前, 忽略一切自动切集(见 switchInFlight 注释)。
+  // 手动切集总是放行(重新进入互斥窗口), 仅自动入口在窗口内被 playNextAuto 拦截。
+  switchInFlight = true
   // 切换前先把当前进度写历史
   flushHistory()
 
@@ -1066,6 +1097,15 @@ function selectEpisode(payload: { sourceId: string; episodeIndex: number; resume
       episode: String(payload.episodeIndex)
     }
   })
+}
+
+/** 自动连播入口(ended / 片尾 timeupdate): 切集互斥窗口内忽略 —— 修"连跳 2 集"。
+ * 窗口 = selectEpisode 落地 → 新片源就绪(armSeekOnce 生效)。窗口内旧视频残余的
+ * timeupdate/ended 事件会以"新集"身份再次通过去抖, 不拦截就会再跳一集,
+ * 且把旧播放头写进中间那集的历史(进度串集)。手动按钮不受此限制。 */
+function playNextAuto(): void {
+  if (switchInFlight) return
+  playNext()
 }
 
 function playNext(): void {
@@ -1139,6 +1179,16 @@ function handleKeydown(e: KeyboardEvent): void {
   }
 }
 
+/** #3: 清理本视频的播放缓存 —— 删除该片全部观看历史(影片级 + 所有源/集的独立进度),
+ * 本地与登录态云端同步清。跳过设置/点赞是用户偏好, 不在此列。 */
+async function clearFilmCache(): Promise<void> {
+  const id = detail.value?.mid
+  if (id === undefined || id === null) return
+  moreActionsOpen.value = false
+  await historyStore.remove(String(id))
+  toast('success', '已清理本视频的播放缓存')
+}
+
 function goBackToDetail(): void {
   const id = filmId.value
   if (id) {
@@ -1172,6 +1222,9 @@ function handleVideoError(): void {
   if (!detail.value) return
   const p = player.value
   if (!p) return
+  // 切集互斥窗口内的 error 是旧源残余事件: 不重试(避免重挂旧 src 与切换打架),
+  // 新源就绪(互斥解除)后若仍出错会正常走重试/换源。
+  if (switchInFlight) return
 
   // 首次 error 且 adFilter 在用 → 推测过滤链路(端侧 blob / 服务端 proxy)故障, 关过滤回退原片
   // (Web 端: 关 adFilter → watch(adFilter) 重算 playSrc 为原始直链; APK 端见 native 内 Toast)
@@ -1227,6 +1280,8 @@ function handleVideoError(): void {
 
 function fallbackSwitchSource(): void {
   if (!detail.value) return
+  // 切集互斥窗口内不做自动换源: 旧源在切换瞬间的 error 属于残余事件, 等新源就绪后再评估
+  if (switchInFlight) return
   videoErrorMsg.value = '当前播放源不可用，正在尝试切换…'
   const sources = detail.value.sources
   const curIdx = sources.findIndex((s) => s.id === currentSourceId.value)
@@ -1280,7 +1335,7 @@ onMounted(async () => {
     initPlayer(videoEl.value)
     onPlayerEvent('ended', () => {
       if (autoPlayNext.value && hasNext.value) {
-        playNext()
+        playNextAuto()
       }
     })
     onPlayerEvent('error', () => {
@@ -1514,6 +1569,10 @@ watch(playerReady, (v) => {
                   <button type="button" class="gf-pt-more__item" @click="openSkipDialog(); moreActionsOpen = false">
                     <BaseIcon name="settings" size="16px" />
                     <span class="gf-pt-more__item-label">跳过设置</span>
+                  </button>
+                  <button type="button" class="gf-pt-more__item" @click="clearFilmCache">
+                    <BaseIcon name="trash" size="16px" />
+                    <span class="gf-pt-more__item-label">清理本视频播放缓存</span>
                   </button>
                   <button v-if="!isDesktop" type="button" class="gf-pt-more__item" @click="handleShare(); moreActionsOpen = false">
                     <BaseIcon name="share" size="16px" />

@@ -169,6 +169,9 @@ public class PlayerActivity extends AppCompatActivity {
     /** 默认值 — 跳过开关打开时若用户没改, 用这个 */
     private static final long DEFAULT_SKIP_INTRO_MS = 90_000L;
     private static final long DEFAULT_SKIP_OUTRO_MS = 60_000L;
+    /** #4: 倒数 5 分钟内不上报进度(web 层不写播放记忆), 避免重开续播到片尾。
+     *  时长 <= 5min 的短视频不适用(否则永远不记录)。 */
+    private static final long NO_RECORD_TAIL_MS = 300_000L;
     private long skipIntroMs = DEFAULT_SKIP_INTRO_MS;
     private long skipOutroMs = DEFAULT_SKIP_OUTRO_MS;
     /** 跳过总开关 — 默认关. 开关关时即使 skipIntroMs/OutroMs > 0 也不执行 skip */
@@ -429,7 +432,7 @@ public class PlayerActivity extends AppCompatActivity {
         @Override
         public void run() {
             try {
-                if (player != null && player.isPlaying()) {
+                if (player != null && player.isPlaying() && !inNoRecordTail()) {
                     org.json.JSONObject p = new org.json.JSONObject();
                     p.put("filmId", getIntent().getStringExtra(EXTRA_FILM_ID));
                     p.put("episodeIndex", player.getCurrentMediaItemIndex());
@@ -746,7 +749,9 @@ public class PlayerActivity extends AppCompatActivity {
         @Override
         public void run() {
             try {
-                if (player != null && skipEnabled && skipOutroMs > 0 && player.isPlaying()) {
+                // !episodeSwitching: seekToNextMediaItem 是异步的, 切换未落地(READY)前
+                // 旧集 remaining 仍 <= skipOutroMs, 1s 轮询会再次触发 → 连跳 2 集。
+                if (player != null && skipEnabled && skipOutroMs > 0 && player.isPlaying() && !episodeSwitching) {
                     long duration = player.getDuration();
                     long pos = player.getCurrentPosition();
                     if (duration > MIN_DURATION_FOR_SKIP_MS && pos > 0 && player.hasNextMediaItem()) {
@@ -1326,10 +1331,22 @@ public class PlayerActivity extends AppCompatActivity {
         if (player != null && player.isPlaying()) player.pause();
     }
 
+    /** 当前是否处于"倒数 5 分钟不记进度"区间(见 NO_RECORD_TAIL_MS)。 */
+    private boolean inNoRecordTail() {
+        try {
+            if (player == null) return false;
+            long duration = player.getDuration();
+            if (duration <= NO_RECORD_TAIL_MS) return false; // 短视频不适用
+            return duration - player.getCurrentPosition() <= NO_RECORD_TAIL_MS;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** 立即上报一次当前进度(供 onPause 等关键时机, 不等 5s tick)。 */
     private void emitProgressNow() {
         try {
-            if (player == null) return;
+            if (player == null || inNoRecordTail()) return;
             org.json.JSONObject p = new org.json.JSONObject();
             p.put("filmId", getIntent().getStringExtra(EXTRA_FILM_ID));
             p.put("episodeIndex", player.getCurrentMediaItemIndex());
@@ -1349,18 +1366,22 @@ public class PlayerActivity extends AppCompatActivity {
         progressHandler.removeCallbacksAndMessages(null);
         // 通知 web 播放结束 / 用户退出. 加 filmId — App.vue 的 writeProgress 没 filmId
         // 就 return, 之前 onDestroy 这里不传 filmId 导致退出后 web 详情页没收到最后一次
-        // 进度同步, 用户感觉"退出后集数/进度还是老的".
-        try {
-            org.json.JSONObject p = new org.json.JSONObject();
-            p.put("filmId", getIntent().getStringExtra(EXTRA_FILM_ID));
-            if (player != null) {
-                p.put("position", player.getCurrentPosition() / 1000.0);
-                p.put("duration", player.getDuration() > 0 ? player.getDuration() / 1000.0 : 0);
-                p.put("episodeIndex", player.getCurrentMediaItemIndex());
-                p.put("source", currentSourceLabel());
-            }
-            emit("playerClosed", p);
-        } catch (Exception ignore) {}
+        // 进度同步, 用户感觉"退出后集数/进度还是老的"。
+        // #4: 退出时正处于倒数 5 分钟内 → 整个 playerClosed 不发, web 不写播放记忆
+        // (否则 App.vue 会以 position=0 兜底写入, 反而清掉已有进度)。
+        if (!(player != null && inNoRecordTail())) {
+            try {
+                org.json.JSONObject p = new org.json.JSONObject();
+                p.put("filmId", getIntent().getStringExtra(EXTRA_FILM_ID));
+                if (player != null) {
+                    p.put("position", player.getCurrentPosition() / 1000.0);
+                    p.put("duration", player.getDuration() > 0 ? player.getDuration() / 1000.0 : 0);
+                    p.put("episodeIndex", player.getCurrentMediaItemIndex());
+                    p.put("source", currentSourceLabel());
+                }
+                emit("playerClosed", p);
+            } catch (Exception ignore) {}
+        }
         if (player != null) {
             player.release();
             player = null;
