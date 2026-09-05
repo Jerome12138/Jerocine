@@ -2,6 +2,15 @@
 
 在线观影站。前端 `web/`（Vue3 + Vite + TS + Pinia + UnoCSS，一套代码服务 desktop/mobile/tv，经 Capacitor 8 打成 Android APK），后端 `server/`（Go/Gin + GORM + go-redis），`deploy/` 为 Docker Compose 部署。
 
+## 仓库边界（先判断再落笔）
+
+本仓库是**公开代码仓**，只放两类内容：
+
+1. **代码**：`server/` `web/` `tv/` `deploy/`；
+2. **可公开的通用文档**：部署指南、架构蓝图、README、OpenAPI（放 `docs/`）。
+
+**不要放进来**：个人笔记、工作日志、服务器运维档案/快照、内网地址或端口拓扑、账号与环境细节、任务跟踪——这些属于维护者的**私有开发仓库**（Harness），与本仓分离维护。若发现本仓出现此类内容，提醒维护者移走。拿不准一个文件是否可公开时：默认不放本仓。
+
 ---
 
 ## 开发约定
