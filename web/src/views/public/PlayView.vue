@@ -28,6 +28,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { filmApi } from '@/api'
 import type { PlayInfo, PlaySource } from '@/types/film'
 import { usePlayer } from '@/composables/usePlayer'
+import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import videojs from 'video.js'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings } from '@/composables/useSkipSettings'
@@ -1057,197 +1058,22 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   playNextAuto()
 }
 
-/** ---------- 触屏手势(仅全屏): 长按临时 3x / 横滑快进退 ----------
- * 短促轻扫(快速横划) = 固定 ±10s; 按住横拖 = 连续刮擦进度(渐进式步进, 上限 ±10min)。
- * 长按(450ms) = 临时 3x 倍速, 松手恢复; 临时倍速不写持久化缓存(usePlayer.enterTempRate)。
- * 控制条/菜单上的触摸不参与手势(防误触)。 */
+/** ---------- 触屏手势(仅全屏, web 专用; TV/原生播放器不适用) ---------- */
 const isPlayerFullscreen = ref(false)
-/** 播放器内覆盖层宿主: 全屏元素是 video.js 的 .video-js 容器, 广告角标/手势提示若留在
- * 外层 wrap(其兄弟节点), 全屏时会随 DOM 落在全屏元素之外而全部不可见。player 初始化后
- * video.js 会把 <video> 包进 div.video-js, 此时把宿主指向它, Teleport 即把覆盖层迁进去。 */
+/** 覆盖层宿主: 全屏元素是 video.js 的 .video-js 容器, 广告角标/手势提示若留在外层 wrap
+ * (其兄弟节点), 全屏时会随 DOM 落在全屏元素之外而全部不可见。player 初始化后 video.js
+ * 会把 <video> 包进 div.video-js, 此时把宿主指向它, Teleport 即把覆盖层迁进去。 */
 const playerOverlayHost = ref<HTMLElement | null>(null)
-/** 长按临时倍速提示(播放器顶部居中), 空串 = 隐藏 */
-const gestureRateHint = ref('')
-/** 横滑刮擦预览(播放器底部: 迷你进度条 + 目标时间), null = 隐藏 */
-const gestureSeekHint = ref<{ percent: number; curPercent: number; text: string } | null>(null)
-const GESTURE_LONG_PRESS_MS = 450
-const GESTURE_SWIPE_TRIGGER_PX = 12
-const GESTURE_FLICK_MS = 300
-const GESTURE_FLICK_PX = 60
-const GESTURE_FLICK_SEEK_SEC = 10
-const GESTURE_SEEK_INTERVAL_MS = 400
-const TEMP_RATE = 3
-/** 刮擦上限: 单次滑动最多 ±10 分钟(防长滑过冲) */
-const GESTURE_SEEK_MAX_SEC = 600
-/** 起步精确: 1px ≈ 1.2s(线性段), 保证小幅滑动可精细微调 */
-const GESTURE_SEEK_FINE_SPP = 1.2
-/** 渐进加速: 平方项除数, 越小则长滑加速越猛 */
-const GESTURE_SEEK_ACCEL_DIV = 50
-let gestureLongPressTimer: ReturnType<typeof setTimeout> | null = null
-let gestureSeekHintTimer: ReturnType<typeof setTimeout> | null = null
-let gestureMode: 'none' | 'press' | 'seek' = 'none'
-let gestureStartX = 0
-let gestureStartY = 0
-let gestureStartTime = 0
-let gestureSeekBase = 0
-let gestureTarget = 0
-let gestureLastDx = 0
-let gestureLastSeekAt = 0
+const {
+  onTouchStart: onPlayerTouchStart,
+  onTouchMove: onPlayerTouchMove,
+  onTouchEnd: onPlayerTouchEnd,
+  gestureRateHint,
+  gestureSeekHint
+} = usePlayerGestures({ player, paused, buffering, fullscreen: isPlayerFullscreen, enterTempRate, exitTempRate })
 
-function fmtGestureTime(sec: number): string {
-  const s = Math.max(0, Math.round(sec))
-  const m = Math.floor(s / 60)
-  return `${m}:${String(s % 60).padStart(2, '0')}`
-}
-
-/** 刮擦步进(渐进式): 起步线性 1.2s/px 精确微调; 距离越长平方项加速; 封顶 ±10min。
- * 手感参考: 10px≈14s, 30px≈54s, 60px≈144s, 100px≈320s, ≈147px 封顶 10min。 */
-function scrubOffsetSec(nPx: number): number {
-  if (nPx <= 0) return 0
-  return Math.min(GESTURE_SEEK_MAX_SEC, GESTURE_SEEK_FINE_SPP * nPx + (nPx * nPx) / GESTURE_SEEK_ACCEL_DIV)
-}
-
-/** 触摸落在控制条/菜单等 UI 上时不做手势 */
-function isGestureTargetUi(e: TouchEvent): boolean {
-  const el = e.target as HTMLElement | null
-  return !!el?.closest?.('.vjs-control-bar, .vjs-menu, .vjs-modal-dialog')
-}
-
-function clearGestureLongPress(): void {
-  if (gestureLongPressTimer) {
-    clearTimeout(gestureLongPressTimer)
-    gestureLongPressTimer = null
-  }
-}
-
-/** 更新刮擦预览: 迷你进度条(目标位置 + 当前位置) + 文本(快进/退量 · 目标时间 · 百分比) */
-function updateSeekHint(p: NonNullable<typeof player.value>, target: number): void {
-  const dur = p.duration() ?? 0
-  const pct = (v: number) => Math.min(100, Math.max(0, Math.round((v / (dur || 1)) * 100)))
-  const delta = target - gestureSeekBase
-  gestureSeekHint.value = {
-    percent: pct(target),
-    curPercent: pct(p.currentTime() ?? 0),
-    text:
-      `${delta >= 0 ? '快进' : '快退'} ${fmtGestureTime(Math.abs(delta))}` +
-      ` · ${fmtGestureTime(target)} (${pct(target)}%)`
-  }
-}
-
-/** 短促轻扫后的短暂提示, 600ms 后自动消失 */
-function flashSeekHint(): void {
-  if (gestureSeekHintTimer) clearTimeout(gestureSeekHintTimer)
-  gestureSeekHintTimer = setTimeout(() => {
-    gestureSeekHint.value = null
-    gestureSeekHintTimer = null
-  }, 600)
-}
-
-function onPlayerTouchStart(e: TouchEvent): void {
-  if (!isPlayerFullscreen.value) return
-  if (!e.touches || e.touches.length !== 1) return
-  if (isGestureTargetUi(e)) return
-  const t = e.touches[0]
-  if (!t) return
-  gestureStartX = t.clientX
-  gestureStartY = t.clientY
-  gestureStartTime = Date.now()
-  gestureMode = 'none'
-  gestureLastDx = 0
-  clearGestureLongPress()
-  gestureLongPressTimer = setTimeout(() => {
-    const p = player.value
-    if (!p || paused.value || buffering.value) return
-    gestureMode = 'press'
-    enterTempRate(TEMP_RATE)
-    gestureRateHint.value = `${TEMP_RATE}x 倍速中 ${'▶'.repeat(TEMP_RATE)}`
-  }, GESTURE_LONG_PRESS_MS)
-}
-
-function onPlayerTouchMove(e: TouchEvent): void {
-  if (!e.touches || e.touches.length !== 1) return
-  if (isGestureTargetUi(e)) return
-  const p = player.value
-  if (!p) return
-  const t = e.touches[0]
-  if (!t) return
-  const dx = t.clientX - gestureStartX
-  const dy = t.clientY - gestureStartY
-  if (gestureMode === 'none') {
-    // 横向意图判定: 水平位移超阈值且强于竖直 → 进入刮擦, 同时取消长按
-    if (Math.abs(dx) > GESTURE_SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy)) {
-      clearGestureLongPress()
-      gestureMode = 'seek'
-      gestureSeekBase = p.currentTime() ?? 0
-      gestureTarget = gestureSeekBase
-      gestureLastDx = dx
-      gestureLastSeekAt = 0
-    } else {
-      return
-    }
-  }
-  if (gestureMode !== 'seek') return
-  gestureLastDx = dx
-  const dur = p.duration() ?? 0
-  // 渐进式步进: 方向跟随手势, 步进量只看 |dx| (起步精确 → 越滑越快 → 封顶 10min)
-  const offset = scrubOffsetSec(Math.abs(dx))
-  gestureTarget = Math.min(
-    Math.max(gestureSeekBase + (dx >= 0 ? offset : -offset), 0),
-    Math.max(dur - 0.5, 0)
-  )
-  updateSeekHint(p, gestureTarget)
-  // 长拖: 节流实时 seek 让进度条跟手(预览条本身每次 move 都刷新); 短促轻扫留给 touchend 判定
-  const now = Date.now()
-  if (
-    now - gestureStartTime > GESTURE_FLICK_MS &&
-    Math.abs(dx) > GESTURE_FLICK_PX &&
-    now - gestureLastSeekAt > GESTURE_SEEK_INTERVAL_MS
-  ) {
-    gestureLastSeekAt = now
-    try {
-      p.currentTime(gestureTarget)
-    } catch {
-      /* ignore */
-    }
-  }
-  if (e.cancelable) e.preventDefault()
-}
-
-function onPlayerTouchEnd(): void {
-  clearGestureLongPress()
-  const p = player.value
-  if (gestureMode === 'press') {
-    exitTempRate()
-    gestureRateHint.value = ''
-  } else if (gestureMode === 'seek' && p) {
-    const dt = Date.now() - gestureStartTime
-    if (dt < GESTURE_FLICK_MS && Math.abs(gestureLastDx) < GESTURE_FLICK_PX) {
-      // 短促轻扫: 固定 ±10s
-      const step = gestureLastDx >= 0 ? GESTURE_FLICK_SEEK_SEC : -GESTURE_FLICK_SEEK_SEC
-      const target = Math.max(0, (p.currentTime() ?? 0) + step)
-      try {
-        p.currentTime(target)
-      } catch {
-        /* ignore */
-      }
-      updateSeekHint(p, target)
-      flashSeekHint()
-    } else {
-      // 长拖松手: 落到预览显示的目标点, 提示即清
-      try {
-        p.currentTime(gestureTarget)
-      } catch {
-        /* ignore */
-      }
-      gestureSeekHint.value = null
-    }
-  } else {
-    gestureSeekHint.value = null
-  }
-  gestureMode = 'none'
-}
-
-/** ---------- 集数 / 源切换 ---------- */function changeSource(sourceId: string): void {
+/** ---------- 集数 / 源切换 ---------- */
+function changeSource(sourceId: string): void {
   if (!detail.value) return
   const next = detail.value.sources.find((s) => s.id === sourceId)
   if (!next) return
