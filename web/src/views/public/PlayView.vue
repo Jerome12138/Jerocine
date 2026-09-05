@@ -2119,10 +2119,19 @@ watch(playerReady, (v) => {
 :deep(.vjs-slider) {
   background-color: rgba(255, 255, 255, 0.18);
 }
-/* 倍速按钮的速率文字: video.js 默认 1.5em 偏大, 缩到与时间文字一致并垂直居中 */
+/* 倍速按钮的速率文字: video.js 默认 1.5em 偏大, 缩到与时间文字一致;
+   该元素默认绝对定位铺满按钮, 用 flex 精确上下左右居中 */
 :deep(.vjs-playback-rate .vjs-playback-rate-value) {
-  font-size: 11px;
-  line-height: 30px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
 }
 
 /* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作) */
