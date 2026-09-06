@@ -81,6 +81,8 @@ export type PlayerEventName =
   | 'waiting'
   | 'canplay'
   | 'fullscreenchange'
+  | 'useractive'
+  | 'userinactive'
 
 export interface UsePlayerReturn {
   /** video.js 实例（ready 之前为 null） */

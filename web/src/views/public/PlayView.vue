@@ -1058,8 +1058,11 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   playNextAuto()
 }
 
-/** ---------- 触屏手势(仅全屏, web 专用; TV/原生播放器不适用) ---------- */
+/** ---------- 触屏手势(web 专用; TV/原生播放器不适用) ---------- */
 const isPlayerFullscreen = ref(false)
+/** 控制条可见状态(video.js useractive/userinactive 事件驱动)。
+ * 全屏左上角标题层跟随它显隐; 暂停时 video.js 控制条常显 → 用 paused 兜底强制显示。 */
+const playerControlsVisible = ref(true)
 /** 覆盖层宿主: 全屏元素是 video.js 的 .video-js 容器, 广告角标/手势提示若留在外层 wrap
  * (其兄弟节点), 全屏时会随 DOM 落在全屏元素之外而全部不可见。player 初始化后 video.js
  * 会把 <video> 包进 div.video-js, 此时把宿主指向它, Teleport 即把覆盖层迁进去。 */
@@ -1177,14 +1180,84 @@ function playPrev(): void {
 }
 
 /** ---------- 键盘 / D-pad ---------- */
-function handleKeydown(e: KeyboardEvent): void {
-  // 输入框聚焦时不拦截
-  const target = e.target as HTMLElement | null
+/** 回车切换全屏/非全屏(桌面语义, 与触摸双击一致) */
+function togglePlayerFullscreen(): void {
+  const p = player.value
+  if (!p) return
+  try {
+    if (p.isFullscreen()) {
+      p.exitFullscreen()
+    } else {
+      p.requestFullscreen()
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 桌面/移动: 键盘始终控制播放器, 与焦点无关 —— 点击按钮留下的焦点不再接管按键。
+ * 左右=进度 ±10s, 空格=暂停/继续, 回车=全屏切换, 上下=音量, Esc=返回。
+ * 全屏与非全屏行为一致(window 级监听)。 */
+function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement | null): void {
   const tag = target?.tagName?.toLowerCase()
-  if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) {
+  const onUiButton = tag === 'button' || tag === 'a'
+  // 弹层打开时键盘交给弹层自身: Esc 关弹层而非返回, Enter/空格不劫持(防误切全屏等)
+  if (moreActionsOpen.value || skipDialogOpen.value) {
+    if (key === 'Escape') {
+      e.preventDefault()
+      moreActionsOpen.value = false
+      skipDialogOpen.value = false
+    }
     return
   }
-  const key = normalizeDpadKey(e)
+  switch (key) {
+    case ' ':
+    case 'Spacebar':
+      e.preventDefault()
+      if (onUiButton) target?.blur()
+      if (paused.value) {
+        void playerPlay()
+      } else {
+        playerPause()
+      }
+      break
+    case 'Enter':
+      e.preventDefault()
+      if (onUiButton) target?.blur()
+      togglePlayerFullscreen()
+      break
+    case 'ArrowLeft':
+      e.preventDefault()
+      playerSeekBy(-10)
+      break
+    case 'ArrowRight':
+      e.preventDefault()
+      playerSeekBy(10)
+      break
+    case 'ArrowUp': {
+      e.preventDefault()
+      const cur = player.value?.volume() ?? 0.6
+      playerSetVolume(Math.min(1, cur + 0.05))
+      break
+    }
+    case 'ArrowDown': {
+      e.preventDefault()
+      const cur = player.value?.volume() ?? 0.6
+      playerSetVolume(Math.max(0, cur - 0.05))
+      break
+    }
+    case 'Escape':
+      // 返回详情页
+      e.preventDefault()
+      goBackToDetail()
+      break
+    default:
+      break
+  }
+}
+
+/** TV: 保留 D-pad 焦点导航语义 —— OK/空格激活焦点按钮, 无焦点时控制播放器 */
+function handleTvKeydown(e: KeyboardEvent, key: string, tag: string | undefined): void {
   switch (key) {
     case ' ':
     case 'Spacebar':
@@ -1228,6 +1301,21 @@ function handleKeydown(e: KeyboardEvent): void {
       break
     default:
       break
+  }
+}
+
+function handleKeydown(e: KeyboardEvent): void {
+  // 输入框聚焦时不拦截
+  const target = e.target as HTMLElement | null
+  const tag = target?.tagName?.toLowerCase()
+  if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) {
+    return
+  }
+  const key = normalizeDpadKey(e)
+  if (isTV.value) {
+    handleTvKeydown(e, key, tag)
+  } else {
+    handleDesktopKeydown(e, key, target)
   }
 }
 
@@ -1407,6 +1495,13 @@ onMounted(async () => {
     onPlayerEvent('fullscreenchange', () => {
       isPlayerFullscreen.value = !!player.value?.isFullscreen()
     })
+    // 控制条显隐(video.js useractive/userinactive): 驱动全屏左上角标题层同步出现/消失
+    onPlayerEvent('useractive', () => {
+      playerControlsVisible.value = true
+    })
+    onPlayerEvent('userinactive', () => {
+      playerControlsVisible.value = false
+    })
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('keydown', handleKeydown)
@@ -1529,6 +1624,15 @@ watch(playerReady, (v) => {
                 :data-kind="adFilterBadge.kind"
               >
                 {{ adBadgeText }}
+              </div>
+              <!-- 全屏左上角: 影片名 · 该集名称。显隐跟随控制条(useractive/userinactive, 暂停常显),
+                   与右上角角标垂直居中对齐、顶部留 safe-area 空隙避开状态栏(样式见 gf-player-title) -->
+              <div
+                v-if="isPlayerFullscreen && (playerControlsVisible || paused) && detail"
+                class="gf-player-title"
+                aria-hidden="true"
+              >
+                {{ detail.name }}<template v-if="currentEpisode"> · {{ currentEpisode.episode }}</template>
               </div>
             </Teleport>
             <div v-if="loading || buffering" class="gf-player-loading" role="status" aria-live="polite">
@@ -2134,10 +2238,11 @@ watch(playerReady, (v) => {
   line-height: 1;
 }
 
-/* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作) */
+/* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作)
+   top 加 safe-area: 全屏时移动端可能出现状态栏, 顶部留出空隙; 与左上角标题同基线对齐 */
 .gf-player-adtag {
   position: absolute;
-  top: var(--gf-space-2);
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
   right: var(--gf-space-2);
   z-index: 3;
   display: inline-flex;
@@ -2170,6 +2275,37 @@ watch(playerReady, (v) => {
 .gf-player-adtag[data-kind='proxy']::before {
   background-color: #60a5fa;
   box-shadow: 0 0 6px rgba(96, 165, 250, 0.8);
+}
+
+/* 全屏左上角标题(影片名 · 集名): 与右上角广告角标同 top 基线且同高(20px) → 垂直中心线对齐;
+   字号比角标(fs-xs)大一号(fs-sm); top 含 safe-area 避开状态栏; 显隐由模板 v-if 跟随控制条,
+   此处仅做淡入过渡。 */
+.gf-player-title {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  left: var(--gf-space-3, 12px);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  height: 20px;
+  max-width: 68%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--gf-fs-sm);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  animation: gf-player-title-in 0.25s ease;
+}
+@keyframes gf-player-title-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* I-018: 控制条「下一集」文字按钮(插在倍速与全屏之间) */
@@ -2305,5 +2441,15 @@ watch(playerReady, (v) => {
   box-shadow: var(--gf-tv-focus-ring);
   background-color: rgba(255, 255, 255, 0.1);
   color: var(--gf-text-primary);
+}
+
+/* 桌面/移动(非 TV): 点击按钮产生的焦点框去掉 —— 键盘已全局接管为播放器控制
+   (左右=进度/空格=暂停/回车=全屏), 焦点导航无意义; TV 模式保留焦点环(D-pad 定位依赖)。 */
+[data-mode]:not([data-mode='tv']) .gf-play-view button:focus,
+[data-mode]:not([data-mode='tv']) .gf-play-view button:focus-visible,
+[data-mode]:not([data-mode='tv']) .gf-play-view .video-js button:focus,
+[data-mode]:not([data-mode='tv']) .gf-play-view .video-js button:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 </style>

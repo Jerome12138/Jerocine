@@ -2,7 +2,7 @@ import { onScopeDispose, ref, type Ref } from 'vue'
 import type Player from 'video.js/dist/types/player'
 
 /**
- * 触屏手势 composable（web 播放器专用, 仅全屏启用; TV/原生播放器不适用）。
+ * 触屏手势 composable（web 播放器专用; TV/原生播放器不适用）。
  *
  * 语义（与原生端约定保持一致, 改动时两边同步评估）：
  * - 单击 = 播放/暂停, 双击 = 切换全屏(语义对齐鼠标; 不限全屏, 长按/刮擦仍限全屏)。
@@ -142,7 +142,6 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
   /* ============ 触摸处理器(模板直绑) ============ */
 
   function onTouchStart(e: TouchEvent): void {
-    if (!fullscreen.value) return
     if (!e.touches || e.touches.length !== 1) return
     if (isGestureTargetUi(e)) return
     const t = e.touches[0]
@@ -153,6 +152,8 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     gestureMode = 'none'
     gestureLastDx = 0
     clearLongPressTimer()
+    // 长按 3x 仅全屏(非全屏是常规页面, 长按易误触); 点按/双击不受此限
+    if (!fullscreen.value) return
     longPressTimer = setTimeout(() => {
       const p = player.value
       // 仅播放中(暂停/缓冲不触发)进入临时倍速
@@ -173,8 +174,8 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     const dx = t.clientX - gestureStartX
     const dy = t.clientY - gestureStartY
     if (gestureMode === 'none') {
-      // 横向意图判定: 水平位移超阈值且强于竖直 → 进入刮擦, 同时取消长按
-      if (Math.abs(dx) > GESTURE_SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy)) {
+      // 横向意图判定: 水平位移超阈值且强于竖直 → 进入刮擦, 同时取消长按(刮擦仅全屏)
+      if (fullscreen.value && Math.abs(dx) > GESTURE_SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy)) {
         clearLongPressTimer()
         gestureMode = 'seek'
         gestureSeekBase = p.currentTime() ?? 0
