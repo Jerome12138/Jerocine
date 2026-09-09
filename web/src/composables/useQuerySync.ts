@@ -23,7 +23,8 @@ import {
  *
  * @param initial 初始值（决定字段名 / 字段类型）
  * @param options.path  路由 path（默认当前路由 path）
- * @param options.onChange 当 params 因 URL 变化而被同步时触发（不会在 push 后再触发一次）
+ * @param options.onChange params 变化时触发 —— 两个来源：外部改 URL（前进/后退/RouterLink）
+ *  以及自身 push() 成功导航后（replace 仍为静默替换, 不触发）。
  */
 export interface UseQuerySyncOptions<T> {
   path?: string
@@ -113,7 +114,12 @@ export function useQuerySync<
           break
         }
       }
-      if (!changed) return
+      if (!changed) {
+        // 无变化 = 之前某次 push 的导航到达(或失败已被 push 处理), 吞噬窗口结束;
+        // 不复位的话后续外部变更会被这个过期标记吞掉一次(表现为列表不刷新)。
+        suppressNext = false
+        return
+      }
       params.value = next
       if (suppressNext) {
         suppressNext = false
@@ -126,23 +132,31 @@ export function useQuerySync<
 
   async function push(next: Partial<T>): Promise<void> {
     const merged = { ...params.value, ...next } as T
-    // 本地立即同步，避免 watch 触发再 onChange
+    // 本地立即同步, 这样随后 route watch 浅比较判"无变化", 不会造成 onChange 二次触发
     params.value = merged
     suppressNext = true
-    await router.push({
+    const failure = await router.push({
       path: options.path ?? route.path,
       query: flatten(merged)
     })
+    if (failure) {
+      // 导航未实际发生(如同 query 重复导航): 取消防吞标记, 避免吞掉下一次外部变更
+      suppressNext = false
+      return
+    }
+    // push 引起的参数变化主动通知业务方(load) —— 路由 watch 因本地已同步不会触发
+    options.onChange?.(merged)
   }
 
   async function replace(next: Partial<T>): Promise<void> {
     const merged = { ...params.value, ...next } as T
     params.value = merged
     suppressNext = true
-    await router.replace({
+    const failure = await router.replace({
       path: options.path ?? route.path,
       query: flatten(merged)
     })
+    if (failure) suppressNext = false
   }
 
   return { params, push, replace }

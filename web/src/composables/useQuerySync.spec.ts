@@ -80,4 +80,49 @@ describe('useQuerySync', () => {
     const api = (w.vm as never as { api: ReturnType<typeof useQuerySync> }).api
     expect(api.params.value.current).toBe(1)
   })
+
+  // ─── onChange 触发时机(回归: 片库筛选点击后列表不刷新) ───
+
+  function mountHostWithOnChange(onChange: () => void, initial: Record<string, unknown>) {
+    const Host = defineComponent({
+      setup() {
+        const api = useQuerySync(initial as never, { onChange })
+        return { api }
+      },
+      render() { return h('div') }
+    })
+    return mount(Host, { global: { plugins: [router] } })
+  }
+
+  it('push() 成功导航后触发 onChange(业务 load 依赖它)', async () => {
+    let calls = 0
+    const w = mountHostWithOnChange(() => { calls++ }, { search: '', current: 1 })
+    const api = (w.vm as never as { api: ReturnType<typeof useQuerySync> }).api
+    await api.push({ search: 'abc' } as never)
+    expect(calls).toBe(1)
+  })
+
+  it('push 相同 query(重复导航)不触发 onChange, 且不吞掉后续外部变更', async () => {
+    let calls = 0
+    const w = mountHostWithOnChange(() => { calls++ }, { search: '' })
+    const api = (w.vm as never as { api: ReturnType<typeof useQuerySync> }).api
+    await api.push({ search: 'abc' } as never)
+    expect(calls).toBe(1)
+    await api.push({ search: 'abc' } as never) // 重复 → 导航失败
+    expect(calls).toBe(1)
+    await router.push('/?search=ext')          // 外部变更必须照常触发
+    await w.vm.$nextTick()
+    await w.vm.$nextTick()
+    expect(calls).toBe(2)
+    expect(api.params.value.search).toBe('ext')
+  })
+
+  it('外部改 URL 仍触发 onChange(前进/后退/RouterLink)', async () => {
+    let calls = 0
+    const w = mountHostWithOnChange(() => { calls++ }, { search: '' })
+    await router.push('/?search=ext')
+    await w.vm.$nextTick()
+    await w.vm.$nextTick()
+    expect(calls).toBe(1)
+  })
 })
