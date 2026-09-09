@@ -216,25 +216,40 @@ function getItemKey(item: Card, idx: number): string | number {
   .gf-film-row__item {
     width: calc((100vw - 32px) / 5);
   }
+  .gf-film-row__arrow {
+    top: calc(12px + (100vw - 32px) / 7.5);
+  }
 }
 @media (min-width: 768px) {
   .gf-film-row__item {
     width: calc((100vw - 48px) / 5.5);
+  }
+  .gf-film-row__arrow {
+    top: calc(12px + (100vw - 48px) / 8.25);
   }
 }
 @media (min-width: 1024px) {
   .gf-film-row__item {
     width: calc((100vw - 80px) / 6);
   }
+  .gf-film-row__arrow {
+    top: calc(12px + (100vw - 80px) / 9);
+  }
 }
 @media (min-width: 1440px) {
   .gf-film-row__item {
     width: calc(min(100vw - 80px, 1280px) / 7);
   }
+  .gf-film-row__arrow {
+    top: calc(12px + min(100vw - 80px, 1280px) / 10.5);
+  }
 }
 @media (min-width: 1920px) {
   .gf-film-row__item {
     width: calc(min(100vw - 80px, 1600px) / 8);
+  }
+  .gf-film-row__arrow {
+    top: calc(12px + min(100vw - 80px, 1600px) / 12);
   }
 }
 
@@ -260,7 +275,11 @@ function getItemKey(item: Card, idx: number): string | number {
 
 .gf-film-row__arrow {
   position: absolute;
-  top: 50%;
+  /* 箭头对准海报图片竖直中心, 而非"海报+下方标题"整卡中心(整卡中心会明显偏下)。
+     海报 3:4 → 高 = 列宽 × 4/3, 半高 = 列宽 × 2/3 = 列宽 ÷ 1.5;
+     top = 滚动容器 padding-top(12px) + 列宽 ÷ 1.5。
+     各断点除数与 __item 列宽公式一一对应, 改列宽务必同步这里。 */
+  top: calc(12px + (100vw - 32px) / 6.3);
   transform: translateY(-50%);
   height: 44px;
   width: 44px;
@@ -309,6 +328,8 @@ function getItemKey(item: Card, idx: number): string | number {
   opacity: 1;
   width: 56px;
   height: 56px;
+  /* 同 web 端: 对准海报竖直中心 (TV 列宽 = min(100vw-96px,1600px)/6, padding-top 16px) */
+  top: calc(16px + min(100vw - 96px, 1600px) / 9);
 }
 /* 焦点环不被横向滚动容器上下裁切.
  * overflow-x:auto(需保留横向滚动) 会把 overflow-y 计算成 auto → 纵向裁切.
