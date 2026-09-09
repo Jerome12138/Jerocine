@@ -95,11 +95,13 @@ services:
     image: jerocine-nginx:latest
     restart: unless-stopped
     ports:
-      - "${NGINX_PORT:-8080}:80"
+      # TLS 直接由本容器终结(单机单站, 不再套外层反代); 宿主 80 让给其他服务, 公网仅暴露 443
+      - "443:443"
     environment:
       TZ: Asia/Shanghai
     volumes:
       - ./apk:/usr/share/nginx/html/apk:ro
+      - ./certs:/etc/nginx/certs:ro
       - nginx_cache:/var/cache/nginx/api
     networks:
       - jerocine-network
