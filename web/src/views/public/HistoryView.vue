@@ -2,18 +2,20 @@
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useHistoryStore, useUserStore } from '@/stores'
-import { buildPlayLink } from '@/stores/history'
+import { buildPlayLink, recordToCard } from '@/stores/history'
 import { useViewMode } from '@/composables/useViewMode'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
+import FilmCard from '@/components/film/FilmCard.vue'
 import { confirm } from '@/composables/useConfirm'
 import {
   groupByTimeBucket,
   progressPercent,
-  episodeLabel
+  episodeLabel,
+  formatRelativeTime
 } from '@/composables/useTimeBucket'
 
 const historyStore = useHistoryStore()
@@ -256,38 +258,27 @@ function handleRemove(id: string, e: Event): void {
             {{ group.items.length }} 条
           </span>
         </h2>
-        <div
-          class="grid gap-[var(--gf-space-2)] sm:gap-[var(--gf-space-4)] grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]"
-        >
-          <RouterLink
+        <div class="gf-card-grid">
+          <FilmCard
             v-for="record in group.items"
             :key="record.id"
+            :item="recordToCard(record)"
             :to="buildPlayLink(record)"
-            class="gf-history-card group block"
-            data-focusable="true"
-            tabindex="0"
-            :aria-label="record.name"
+            :progress="progressPercent(record.currentTime, record.duration)"
+            :sub-text="formatRelativeTime(record.timeStamp)"
           >
-            <div class="relative overflow-hidden rounded-[var(--gf-radius-lg)] shadow-card aspect-[3/4] bg-elevated">
-              <BaseImage
-                :src="record.picture || ''"
-                :alt="record.name"
-                ratio="3/4"
-                fit="cover"
-              />
-
-              <BaseTag
+            <template #poster-overlay>
+              <!-- 左上角"看到第 N 集"(沿用改动前的角标与位置); 左下角 remarks 由
+                   recordToCard 提供, 与普通影片卡一致 -->
+              <span
                 v-if="episodeLabel(record.episode, record.episodeIndex)"
-                variant="brand"
-                size="xs"
-                class="absolute top-[var(--gf-space-2)] left-[var(--gf-space-2)] z-2"
+                class="gf-history-ep"
               >
                 {{ episodeLabel(record.episode, record.episodeIndex) }}
-              </BaseTag>
-
+              </span>
               <button
                 type="button"
-                class="absolute top-[var(--gf-space-2)] right-[var(--gf-space-2)] z-2 w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
+                class="absolute top-[var(--gf-space-2)] right-[var(--gf-space-2)] z-4 w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
                 :aria-label="`从历史中移除 ${record.name}`"
                 @click="handleRemove(record.id, $event)"
               >
@@ -296,42 +287,12 @@ function handleRemove(id: string, e: Event): void {
 
               <div
                 v-if="formatProgress(record.currentTime)"
-                class="absolute bottom-[8px] right-[var(--gf-space-2)] px-[6px] py-[2px] rounded-[var(--gf-radius-sm)] bg-[rgba(0,0,0,0.7)] text-white text-[var(--gf-fs-xs)] z-2"
+                class="absolute bottom-[8px] right-[var(--gf-space-2)] px-[6px] py-[2px] rounded-[var(--gf-radius-sm)] bg-[rgba(0,0,0,0.7)] text-white text-[var(--gf-fs-xs)] z-3"
               >
                 {{ formatProgress(record.currentTime) }}
               </div>
-
-              <!-- 进度条 (基于 currentTime / duration), 卡片底部 4px 横条 -->
-              <div
-                v-if="progressPercent(record.currentTime, record.duration) > 0"
-                class="gf-history-progress"
-                :aria-label="`已观看 ${progressPercent(record.currentTime, record.duration)}%`"
-              >
-                <span
-                  class="gf-history-progress__fill"
-                  :style="{ width: progressPercent(record.currentTime, record.duration) + '%' }"
-                />
-              </div>
-
-              <div class="absolute inset-0 bg-[linear-gradient(180deg,transparent_50%,rgba(0,0,0,0.85)_100%)] opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity" />
-
-              <div class="absolute inset-x-0 bottom-0 px-[var(--gf-space-3)] pb-[var(--gf-space-3)] pt-[var(--gf-space-5)] z-2 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
-                <div class="text-white text-[var(--gf-fs-sm)] font-[var(--gf-fw-semibold)] flex items-center gap-[var(--gf-space-1)]">
-                  <BaseIcon name="play" size="14px" />
-                  继续观看
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-[var(--gf-space-2)]">
-              <h3 class="text-[var(--gf-fs-sm)] font-[var(--gf-fw-medium)] text-primary line-clamp-1">
-                {{ record.name }}
-              </h3>
-              <p class="text-[var(--gf-fs-xs)] text-muted mt-[2px]">
-                {{ formatTime(record.timeStamp) }}
-              </p>
-            </div>
-          </RouterLink>
+            </template>
+          </FilmCard>
         </div>
       </section>
     </div>
@@ -357,48 +318,24 @@ function handleRemove(id: string, e: Event): void {
   outline: none;
 }
 
-.gf-history-card {
-  text-decoration: none;
-  outline: none;
-  transition: transform var(--gf-dur-base) var(--gf-ease-spring);
-}
-.gf-history-card:focus-visible {
-  outline: none;
-}
-.gf-history-card:focus-visible > div:first-child {
-  box-shadow: var(--gf-shadow-focus-ring), var(--gf-shadow-hover);
-}
-@media (hover: hover) and (pointer: fine) {
-  .gf-history-card:hover > div:first-child {
-    transform: scale(1.04);
-    box-shadow: var(--gf-shadow-hover);
-  }
-}
-.line-clamp-1 {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* 进度条: 卡片底部 4px 横条 */
-.gf-history-progress {
+/* 左上角"看到第 N 集"角标: 与首页「继续观看」行同款(品牌渐变胶囊 + 白字) */
+.gf-history-ep {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background-color: var(--gf-progress-bg);
-  z-index: 2;
+  top: var(--gf-space-2);
+  left: var(--gf-space-2);
+  z-index: 4;
+  /* 预留右上角删除按钮(24px)的位置, 过长集名截断 */
+  max-width: calc(100% - var(--gf-space-2) * 2 - 28px);
+  padding: 2px 8px;
+  border-radius: var(--gf-radius-sm);
+  background-image: var(--gf-brand-gradient);
+  color: #fff;
+  font-size: var(--gf-fs-xs);
+  font-weight: var(--gf-fw-semibold);
+  line-height: 1.4;
+  white-space: nowrap;
   overflow: hidden;
-}
-.gf-history-progress__fill {
-  display: block;
-  height: 100%;
-  background-image: var(--gf-progress-fg);
-  border-top-right-radius: 2px;
-  border-bottom-right-radius: 2px;
-  transition: width var(--gf-dur-base) var(--gf-ease-standard);
+  text-overflow: ellipsis;
 }
 </style>
 

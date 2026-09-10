@@ -42,39 +42,11 @@ function getItemKey(item: Card, idx: number): string | number {
 <style scoped>
 .gf-film-grid {
   display: grid;
-  /* 移动端默认 3 列, 与 bilibili/腾讯视频移动端密度一致 */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gf-space-2);
+  /* 列数/间距取自 theme.css 的全站统一阶梯(与首页横滚行、各列表页同阶梯):
+     移动 3 → ≥480 4 → ≥768 5 → ≥1024 及以上恒 6。改列数只需改 theme.css 一处。 */
+  grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr));
+  gap: var(--gf-list-gap);
 }
-@media (min-width: 480px) {
-  .gf-film-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--gf-space-3);
-  }
-}
-@media (min-width: 768px) {
-  .gf-film-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--gf-space-4);
-  }
-}
-@media (min-width: 1024px) {
-  .gf-film-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-@media (min-width: 1440px) {
-  .gf-film-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-}
-@media (min-width: 1920px) {
-  .gf-film-grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-    gap: var(--gf-space-6);
-  }
-}
-
 </style>
 
 <style>

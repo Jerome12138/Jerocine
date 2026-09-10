@@ -73,6 +73,24 @@ export function progressPercent(currentTime?: number, duration?: number): number
 }
 
 /**
+ * 相对时间显示 (历史卡副信息: 继续观看行 / 观看历史页共用).
+ * <1h → HH:mm; <7d → N 天前; 否则 M/D.
+ */
+export function formatRelativeTime(ts: number, now: number = Date.now()): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const diff = now - ts
+  const day = 24 * 60 * 60 * 1000
+  if (diff < day) {
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+  }
+  if (diff < 7 * day) {
+    return `${Math.floor(diff / day)} 天前`
+  }
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
+/**
  * "当前看到第几集" 的显示标签.
  * - episode: 集名(可能是显示名如 "第01集"/"HD", 也可能是 remote 历史里存的纯数字索引字符串)
  * - episodeIndex: 0-based 索引(原生播放器 updateProgress 会持续更新, 最可靠的"当前集")

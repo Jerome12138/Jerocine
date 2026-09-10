@@ -2,15 +2,19 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useHistoryStore } from '@/stores'
-import { buildPlayLink } from '@/stores/history'
-import { progressPercent, episodeLabel } from '@/composables/useTimeBucket'
-import BaseImage from '@/components/base/BaseImage.vue'
+import { recordToCard, buildPlayLink, type HistoryRecord } from '@/stores/history'
+import { progressPercent, episodeLabel, formatRelativeTime } from '@/composables/useTimeBucket'
+import FilmCard from '@/components/film/FilmCard.vue'
 
 /**
  * 首页「继续观看」横滚区 —— 用户要求首页顶部展示观看历史。
  * 数据取 useHistoryStore.list(已按 timeStamp 倒序; 本地/登录云端自动切换), 取前 12 条。
- * 每张卡链到 record.link(`/play?...`): 浏览器直接进播放页; TV(原生 APK) 上会被路由守卫
- * 拦截并派发原生播放器续播(带 currentTime)。无历史时整块不渲染(v-if)。
+ * 卡片复用 FilmCard(与首页影片行同款样式):
+ *  - 海报左下角 remarks = 影片自身更新状态(HD / 更新至 N 集), 与普通影片卡完全一致;
+ *  - 海报左上角角标 = "看到第 N 集"(历史进度, 与观看历史页一致, 属本行独有信息);
+ *  - 海报底部进度条 = 观看进度; 标题下方副信息 = 相对时间。
+ * 跳转 buildPlayLink 现拼, 保证接着"当前集 + 当前进度"续播。
+ * TV(原生 APK) 上会被路由守卫拦截并派发原生播放器续播(带 currentTime)。无历史时整块不渲染。
  */
 const historyStore = useHistoryStore()
 const { list } = storeToRefs(historyStore)
@@ -19,6 +23,11 @@ const recent = computed(() => list.value.slice(0, 12))
 
 function pct(currentTime?: number, duration?: number): number {
   return progressPercent(currentTime, duration)
+}
+
+/** "看到第 N 集" 角标文案(无集数信息时返回空串, 由 v-if 隐藏) */
+function epLabel(rec: HistoryRecord): string {
+  return episodeLabel(rec.episode, rec.episodeIndex)
 }
 </script>
 
@@ -44,48 +53,21 @@ function pct(currentTime?: number, duration?: number): number {
     <div class="gf-continue__viewport">
       <div class="gf-continue__scroll" data-focus-zone="rail">
         <div class="gf-continue__edge" aria-hidden="true" />
-        <RouterLink
+        <FilmCard
           v-for="rec in recent"
           :key="rec.id"
-          :to="buildPlayLink(rec)"
           class="gf-continue__item"
-          data-focusable="true"
-          tabindex="0"
-          :aria-label="`继续观看 ${rec.name}`"
+          :item="recordToCard(rec)"
+          :to="buildPlayLink(rec)"
+          :progress="pct(rec.currentTime, rec.duration)"
+          :sub-text="formatRelativeTime(rec.timeStamp)"
         >
-          <div class="gf-continue__poster">
-            <BaseImage
-              :src="rec.picture || ''"
-              :alt="rec.name"
-              ratio="3/4"
-              fit="cover"
-            />
-            <span
-              v-if="episodeLabel(rec.episode, rec.episodeIndex)"
-              class="gf-continue__ep"
-            >{{ episodeLabel(rec.episode, rec.episodeIndex) }}</span>
-            <div class="gf-continue__play" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z" /></svg>
-            </div>
-            <div
-              v-if="pct(rec.currentTime, rec.duration) > 0"
-              class="gf-continue__bar"
-              :aria-label="`已观看 ${pct(rec.currentTime, rec.duration)}%`"
-            >
-              <span
-                class="gf-continue__bar-fill"
-                :style="{ width: pct(rec.currentTime, rec.duration) + '%' }"
-              />
-            </div>
-          </div>
-          <h3 class="gf-continue__name">{{ rec.name }}</h3>
-          <p
-            v-if="episodeLabel(rec.episode, rec.episodeIndex)"
-            class="gf-continue__sub"
-          >
-            看到 {{ episodeLabel(rec.episode, rec.episodeIndex) }}
-          </p>
-        </RouterLink>
+          <!-- 左上角"看到第 N 集"角标(沿用改动前的样式与位置); 左下角 remarks 由
+               recordToCard 提供(item.remarks), 与首页其他影片卡同款 -->
+          <template #poster-overlay>
+            <span v-if="epLabel(rec)" class="gf-continue__ep">{{ epLabel(rec) }}</span>
+          </template>
+        </FilmCard>
         <div class="gf-continue__edge" aria-hidden="true" />
       </div>
     </div>
@@ -93,6 +75,8 @@ function pct(currentTime?: number, duration?: number): number {
 </template>
 
 <style scoped>
+/* 列数 / 缩进 / 卡间距与 FilmRow 同源（theme.css 的 --gf-rail-*）,
+   保证首页各横滚行卡片同宽同距 */
 .gf-continue {
   display: flex;
   flex-direction: column;
@@ -127,7 +111,7 @@ function pct(currentTime?: number, duration?: number): number {
 
 .gf-continue__scroll {
   display: flex;
-  gap: var(--gf-space-3);
+  gap: var(--gf-rail-gap);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
@@ -140,71 +124,32 @@ function pct(currentTime?: number, duration?: number): number {
 .gf-continue__scroll::-webkit-scrollbar {
   display: none;
 }
-@media (min-width: 768px) {
-  .gf-continue__scroll {
-    gap: var(--gf-space-4);
-  }
-}
 
 .gf-continue__edge {
   flex-shrink: 0;
-  width: var(--gf-gutter-mobile);
-}
-@media (min-width: 768px) {
-  .gf-continue__edge {
-    width: var(--gf-gutter-tablet);
-  }
-}
-@media (min-width: 1024px) {
-  .gf-continue__edge {
-    width: var(--gf-gutter-desktop);
-  }
+  /* 首尾缩进（web 按页面 gutter; TV 用安全区, 均由变量给出） */
+  width: var(--gf-rail-edge);
 }
 
 .gf-continue__item {
   flex-shrink: 0;
   scroll-snap-align: start;
-  text-decoration: none;
-  outline: none;
-  width: calc((100vw - 32px) / 3.2);
-  border-radius: var(--gf-card-radius);
-  transition: transform var(--gf-dur-base) var(--gf-ease-spring);
-}
-@media (min-width: 480px) {
-  .gf-continue__item {
-    width: calc((100vw - 32px) / 4);
-  }
-}
-@media (min-width: 768px) {
-  .gf-continue__item {
-    width: calc((100vw - 48px) / 5.5);
-  }
-}
-@media (min-width: 1024px) {
-  .gf-continue__item {
-    width: calc((100vw - 80px) / 6);
-  }
-}
-@media (min-width: 1440px) {
-  .gf-continue__item {
-    width: calc(min(100vw - 80px, 1280px) / 7);
-  }
+  /* 与 FilmRow 同一公式（必须逐字一致, 否则首页各横滚行卡片不同宽）:
+     (100% - 1×edge - 可见卡间 gap 道数 × 卡间距) / 列数
+     "只扣 1 个 edge"的原因见 FilmRow 内注释。 */
+  width: calc(
+    (100% - var(--gf-rail-edge) - var(--gf-rail-gaps) * var(--gf-rail-gap)) /
+      var(--gf-rail-cols)
+  );
 }
 
-.gf-continue__poster {
-  position: relative;
-  overflow: hidden;
-  border-radius: var(--gf-card-radius);
-  background-color: var(--gf-bg-elevated);
-  transition:
-    transform var(--gf-dur-base) var(--gf-ease-spring),
-    box-shadow var(--gf-dur-base) var(--gf-ease-standard);
-}
+/* "看到第 N 集" 角标: 海报左上角(沿用改动前的视觉: 品牌渐变 + 圆角 + 白字) */
 .gf-continue__ep {
   position: absolute;
   top: var(--gf-space-2);
   left: var(--gf-space-2);
   z-index: 2;
+  max-width: calc(100% - var(--gf-space-2) * 2);
   padding: 2px 8px;
   border-radius: var(--gf-radius-sm);
   background-image: var(--gf-brand-gradient);
@@ -213,117 +158,23 @@ function pct(currentTime?: number, duration?: number): number {
   font-weight: var(--gf-fw-semibold);
   line-height: 1.4;
   white-space: nowrap;
-}
-.gf-continue__play {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  opacity: 0;
-  transform: scale(0.85);
-  background-image: var(--gf-mask-card-hover);
-  pointer-events: none;
-  transition:
-    opacity var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-spring);
-}
-.gf-continue__bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background-color: var(--gf-progress-bg);
-  z-index: 2;
-  overflow: hidden;
-}
-.gf-continue__bar-fill {
-  display: block;
-  height: 100%;
-  background-image: var(--gf-progress-fg);
-}
-.gf-continue__name {
-  margin-top: var(--gf-space-2);
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-primary);
-  font-weight: var(--gf-fw-medium);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.gf-continue__sub {
-  margin-top: 2px;
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .gf-continue__item:hover .gf-continue__poster,
-  .gf-continue__item:focus-visible .gf-continue__poster {
-    transform: scale(1.04);
-    box-shadow: var(--gf-shadow-hover);
-    position: relative;
-    z-index: 3;
-  }
-  .gf-continue__item:hover .gf-continue__play,
-  .gf-continue__item:focus-visible .gf-continue__play {
-    opacity: 1;
-    transform: scale(1);
-  }
 }
 </style>
 
 <style>
-/* TV 模式: 焦点海报放大 + 青光晕(整卡不放大, 文字静止); 横滚条留纵向 padding 防焦点环被裁 */
+/* TV 模式: 与 FilmRow 同款(容器 100vw - 2×安全区, 每行 6 张完整卡片, 间距 +50%);
+   焦点行为直接继承 FilmCard 的 TV 焦点(整卡 outline + 放大), 不再单写。 */
+/* TV 的列数(6) / 卡间距(space-6) / 缩进(安全区) 由 theme.css 的 [data-mode="tv"] 统一覆盖,
+   此处不再重复定义宽度规则（避免与 FilmRow 两处公式不同步）。 */
 [data-mode='tv'] .gf-continue__scroll {
   padding-block: 16px;
-  gap: 24px;
-}
-@media (min-width: 768px) {
-  [data-mode='tv'] .gf-continue__scroll {
-    gap: var(--gf-space-6);
-  }
-}
-[data-mode='tv'] .gf-continue__item {
-  width: calc(min(100vw - 96px, 1600px) / 6);
-}
-[data-mode='tv'] .gf-continue__edge {
-  width: var(--gf-tv-safe);
 }
 [data-mode='tv'] .gf-continue__header.container-page {
   padding-inline: var(--gf-tv-safe);
 }
 [data-mode='tv'] .gf-continue__title {
   font-size: var(--gf-fs-xl);
-}
-[data-mode='tv'] .gf-continue__name {
-  font-size: var(--gf-fs-base);
-}
-[data-mode='tv'] .gf-continue__sub {
-  font-size: var(--gf-fs-sm);
-}
-[data-mode='tv'] .gf-continue__more {
-  font-size: var(--gf-fs-md);
-}
-[data-mode='tv'] .gf-continue__item[data-focusable='true']:focus,
-[data-mode='tv'] .gf-continue__item[data-focusable='true']:focus-visible {
-  outline: none;
-  transform: none;
-  box-shadow: none;
-}
-[data-mode='tv'] .gf-continue__item[data-focusable='true']:focus .gf-continue__poster,
-[data-mode='tv'] .gf-continue__item[data-focusable='true']:focus-visible .gf-continue__poster {
-  transform: scale(var(--gf-tv-focus-scale-card, 1.18));
-  box-shadow: var(--gf-tv-focus-ring);
-  z-index: 5;
-  transition:
-    transform var(--gf-dur-focus) var(--gf-ease-spring),
-    box-shadow var(--gf-dur-focus) var(--gf-ease-standard);
 }
 </style>

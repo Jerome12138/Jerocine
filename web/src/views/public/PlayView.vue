@@ -793,7 +793,9 @@ const { flush: flushHistory } = useFilmHistory({
       episodeIndex: currentEpisodeIndex.value,
       currentTime: Math.floor(playerCurrentTime.value),
       pid: detail.value.pid,
-      cid: detail.value.cid
+      cid: detail.value.cid,
+      // 影片自身更新状态(HD / 更新至 N 集): 供首页"继续观看"卡左下角像普通影片卡一样展示
+      remarks: detail.value.remarks
     }
   }
 })

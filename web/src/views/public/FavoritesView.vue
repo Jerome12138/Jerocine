@@ -152,7 +152,7 @@ function toCard(record: FavoriteRecord): Card {
 
     <div
       v-else
-      class="grid gap-[var(--gf-space-2)] sm:gap-[var(--gf-space-4)] grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]"
+      class="gf-card-grid"
     >
       <RouterLink
         v-for="record in items"

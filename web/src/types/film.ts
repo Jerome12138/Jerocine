@@ -17,6 +17,9 @@ export interface Card {
   mid: number
   name: string
   cover: string
+  /** 横版大图(轮播/横幅背景用)。当前后端 movie 表只有竖版 cover, 不返回该字段;
+   *  故一律按"有则用、无则回退 cover"处理, 后端将来补了横图字段无需改前端。 */
+  poster?: string
   cid: number
   pid: number
   cName: string

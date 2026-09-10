@@ -92,6 +92,14 @@ http.interceptors.request.use(
   (error) => Promise.reject(error)
 )
 
+/** 主动取消(AbortController / AbortSignal)判定。
+ *  用 boolean 包装而非直接内联 axios.isCancel: 后者是类型谓词(value is CanceledError),
+ *  而 CanceledError 是 AxiosError 的子类型, 直接判会把形参收窄成 never, 后续取 error.config
+ *  等属性全部报 TS2339。 */
+function isCanceled(err: unknown): boolean {
+  return axios.isCancel(err) || (err as AxiosError | undefined)?.code === 'ERR_CANCELED'
+}
+
 /** ===== 响应拦截器 =====
  * 成功 (2xx): 直接返回 resp.data(新契约无信封)。204 → undefined。
  * 失败: 由 error 分支抛 ApiError。
@@ -112,6 +120,14 @@ http.interceptors.response.use(
     return resp.status === 204 ? undefined : resp.data
   }) as unknown as (resp: AxiosResponse) => Promise<AxiosResponse>,
   async (error: AxiosError<Problem>) => {
+    // 主动取消(AbortController / useAbortable.refresh)不是"加载失败": 原样抛出, 不上报、不弹提示。
+    // 必须先于下面的包装 —— 否则会被包成 ApiError(name='ApiError'),
+    // 各页面 `e.name === 'CanceledError'` 的守卫失效, 把"被新请求取代的旧请求"
+    // 误判成失败(表现为: 点筛选/翻页后偶发"加载失败", 刷新又正常)。
+    if (isCanceled(error)) {
+      safePop(error.config as InternalAxiosRequestConfig | undefined)
+      return Promise.reject(error)
+    }
     safePop(error.config as InternalAxiosRequestConfig | undefined)
     const status = error.response?.status ?? 0
     trackApi(error.config, status || 599)

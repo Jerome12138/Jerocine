@@ -28,15 +28,16 @@ function pick(key: string, value: string | number): void {
 
 <template>
   <section
-    class="gf-filter-bar bg-surface rounded-[var(--gf-radius-lg)] p-[var(--gf-space-4)] flex flex-col gap-[var(--gf-space-3)]"
+    class="gf-filter-bar bg-surface rounded-[var(--gf-radius-lg)] p-[var(--gf-space-3)] md:p-[var(--gf-space-4)] flex flex-col gap-[var(--gf-space-2)] md:gap-[var(--gf-space-3)]"
   >
     <div
       v-for="group in groups"
       :key="group.key"
       class="gf-filter-row flex items-start gap-[var(--gf-space-3)]"
     >
+      <!-- 标题与"首行选项"垂直居中: min-height 对齐胶囊高度, 选项换行时标题保持钉在首行 -->
       <div
-        class="gf-filter-row__title shrink-0 text-secondary text-[var(--gf-fs-sm)] font-[var(--gf-fw-medium)] pt-[6px]"
+        class="gf-filter-row__title shrink-0 text-secondary text-[var(--gf-fs-sm)] font-[var(--gf-fw-medium)] flex items-center min-h-[44px]"
       >
         {{ group.title }}
       </div>
@@ -65,19 +66,22 @@ function pick(key: string, value: string | number): void {
 </template>
 
 <style scoped>
+/* 样式对齐播放页片源胶囊(gf-source-tab): 无边框 / 透明底 / 选中渐变 / outline 焦点环。
+   旧版 transparent 1px border 在部分屏上渲染出"被胶囊截断的内边框"痕迹, 故去掉 border。 */
 .gf-filter-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 44px;
+  height: 44px;
   padding: 0 var(--gf-space-4);
-  border-radius: var(--gf-radius-full);
+  border-radius: var(--gf-chip-radius, 9999px);
   background-color: transparent;
   color: var(--gf-text-secondary);
   font-size: var(--gf-fs-sm);
   font-weight: var(--gf-fw-medium);
-  border: 1px solid transparent;
+  border: none;
   cursor: pointer;
+  white-space: nowrap;
   transition:
     background-color var(--gf-dur-fast) var(--gf-ease-standard),
     color var(--gf-dur-fast) var(--gf-ease-standard);
@@ -92,11 +96,15 @@ function pick(key: string, value: string | number): void {
   background-image: var(--gf-brand-gradient);
   color: #fff;
   font-weight: var(--gf-fw-semibold);
-  box-shadow: var(--gf-shadow-purple-glow);
+}
+.gf-filter-chip--active:hover {
+  /* 覆盖 hover 半透明白底, 保持渐变(与片源胶囊一致) */
+  background-color: transparent;
 }
 
-/* 聚焦用跟随圆角的 outline 环, 替掉 box-shadow(易被父级 overflow 裁掉, 显得"边框被截断") */
-.gf-filter-chip:focus,
+/* 焦点环: 跟随圆角的 outline, 不被祖先 overflow 裁切(与片源胶囊一致)。
+   只用 :focus-visible —— 触屏点击/按压不会留下边框环(用户反馈移动端点完胶囊还挂着框),
+   键盘(Tab)与 TV 遥控焦点仍可见。 */
 .gf-filter-chip:focus-visible {
   outline: 2px solid var(--gf-brand-cyan);
   outline-offset: 2px;
@@ -108,7 +116,21 @@ function pick(key: string, value: string | number): void {
     align-items: stretch;
   }
   .gf-filter-row__title {
-    padding-top: 0;
+    min-height: 0;
+  }
+  /* 移动端: 胶囊与四周留白整体收一档, 一屏能多放几个选项 */
+  .gf-filter-chip {
+    height: 34px;
+    padding: 0 var(--gf-space-3);
+    font-size: var(--gf-fs-xs);
+  }
+  .gf-filter-row__chips {
+    gap: var(--gf-space-1) var(--gf-space-2);
+  }
+  /* 移动端不保留聚焦边框(触屏无需键盘焦点提示), 选中态靠渐变胶囊表达 */
+  .gf-filter-chip:focus,
+  .gf-filter-chip:focus-visible {
+    outline: none;
   }
 }
 </style>
@@ -127,6 +149,9 @@ function pick(key: string, value: string | number): void {
   box-shadow: 0 0 14px rgba(74, 209, 229, 0.4);
   background-color: rgba(255, 255, 255, 0.08);
   color: var(--gf-text-primary);
+}
+[data-mode='tv'] .gf-filter-chip--active {
+  background-color: transparent;
 }
 [data-mode='tv'] .gf-filter-row__title {
   font-size: var(--gf-fs-base);

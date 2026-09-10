@@ -64,7 +64,9 @@ export function dispatchNativePlaylist(
       episodeIndex,
       currentTime: resumeSec > 0 ? Math.floor(resumeSec) : 0,
       pid: detail.pid,
-      cid: detail.cid
+      cid: detail.cid,
+      // 影片自身更新状态(HD / 更新至 N 集): 供首页"继续观看"卡左下角像普通影片卡一样展示
+      remarks: detail.remarks
     })
   } catch {
     /* 历史建条失败不阻断播放 */

@@ -409,7 +409,7 @@ watch(
       </RouterLink>
 
       <!-- 主导航（桌面 / TV） -->
-      <nav class="gf-header__nav hidden md:flex items-center gap-[var(--gf-space-5)]" data-focus-zone="tab">
+      <nav class="gf-header__nav hidden md:flex items-center" data-focus-zone="tab">
         <RouterLink
           to="/index"
           class="gf-header__nav-link"
@@ -676,10 +676,12 @@ watch(
             :alt="displayName"
             class="gf-header__avatar"
           />
-          <span class="gf-header__username hidden lg:inline">
+          <!-- 用户名 / 下拉箭头: 1280(xl) 起才显示 —— 1024~1279 时顶栏没那么多空间,
+               显示用户名会把右侧挤爆(表现为头像被裁), 该区间只留头像。 -->
+          <span class="gf-header__username hidden xl:inline">
             {{ displayName }}
           </span>
-          <BaseIcon name="chevron-down" size="14px" class="hidden lg:inline" />
+          <BaseIcon name="chevron-down" size="14px" class="hidden xl:inline" />
         </button>
 
         <Transition name="gf-fade">
@@ -1001,9 +1003,10 @@ watch(
   margin-left: -6px;
 }
 
-.gf-header__nav {
-  margin-left: var(--gf-space-4);
-}
+/* 导航布局(间距 / 是否可收缩)在下方非 scoped 的全局块里统一定义 ——
+   原因: TV 视口只有 960px, 会同时命中 "768~1439 收紧间距" 的媒体查询与
+   [data-mode='tv'] 的覆盖规则; 两处同权重时会退化成"谁在后面谁赢"。
+   放进同一张样式表并让 TV 规则靠后, 结果就只由特异性决定, 与编译顺序无关。 */
 
 .gf-header__nav-item {
   position: relative;
@@ -1140,12 +1143,14 @@ watch(
   display: none !important;
 }
 
-/* 搜索 - bilibili 风格常驻框, PC 480 / 大屏 520 */
+/* 搜索 - bilibili 风格常驻框; 宽度随视口收缩(固定 480 在 ~1000px 视口会把右侧用户头像挤出容器) */
 .gf-header__search {
   position: relative;
   height: 40px;
-  width: 480px;
+  width: clamp(180px, 24vw, 520px);
   max-width: 100%;
+  /* 解除 flex 子项 min-content 下限, 允许被压缩到比 clamp 更窄(顶栏空间的"缓冲垫") */
+  min-width: 0;
   background-color: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--gf-radius-full);
@@ -1200,22 +1205,17 @@ watch(
   box-shadow: none;
 }
 
-@media (min-width: 1440px) {
-  .gf-header__search {
-    width: 520px;
-  }
-}
-
-/* 中等屏幕收窄, 防止挤压 nav / 用户菜单 */
-@media (min-width: 768px) and (max-width: 1023px) {
-  .gf-header__search {
-    width: 360px;
-  }
-}
+/* 搜索框宽度已由上面的 clamp(180px, 24vw, 520px) 随视口自适应,
+   原先写死的 1440→520px / 768~1023→360px 两条断点规则已删除(避免与 clamp 打架)。 */
 
 /* 搜索 + 下拉建议容器 (relative, 让 dropdown 绝对定位锚到这里) */
 .gf-header__search-wrap {
   position: relative;
+  /* 顶栏的"弹性缓冲": min-width:0 解除 flex 子项 min-content 下限, 空间不足时优先缩这里;
+     flex-basis auto 保留 width:clamp() 的自然宽度, 富余时仍按 clamp 显示。
+     → 缩的是搜索框, 不是把右侧头像挤出容器。 */
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 /* 建议下拉面板 */
@@ -1923,6 +1923,24 @@ watch(
   text-align: center;
   color: var(--gf-text-muted);
   font-size: var(--gf-fs-md);
+}
+
+/* ===== 导航布局: 间距 / 收缩策略（放在 TV 覆盖之前, 同表内顺序确定） =====
+ * 导航是"刚性"的: 链接 white-space:nowrap, 且每项带绝对定位的悬停二级下拉 ——
+ * 既不适合被压缩, 也不能开 overflow 裁切(裁切会切掉子分类面板)。故 flex:0 0 auto。
+ * 顶栏空间不足时改由中部搜索框收缩吸收(scoped 里 .gf-header__search-wrap 已设 min-width:0),
+ * 于是最右侧的用户头像永远待在容器内 —— 这就是此前 ~1000px 视口"头像被裁掉"的根因与修法:
+ * 原先 nav 无法收缩 + 搜索框写死 480px, 整行超出容器宽度, 头像被顶出容器后被裁。
+ * 注意: TV 视口只有 960px, 会命中下面这条媒体查询, 故必须让 TV 规则排在它之后。 */
+.gf-header__nav {
+  margin-left: var(--gf-space-4);
+  gap: var(--gf-space-4);
+  flex: 0 0 auto;
+}
+@media (min-width: 768px) and (max-width: 1439px) {
+  .gf-header__nav {
+    gap: var(--gf-space-3);
+  }
 }
 
 /* TV 模式覆盖：高度放大、字号放大、强制实色背景（避免透明导航被忽略）

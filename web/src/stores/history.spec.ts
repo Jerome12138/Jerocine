@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useHistoryStore, buildPlayLink } from './history'
+import { useHistoryStore, buildPlayLink, recordToCard } from './history'
 
 vi.mock('@/api/history', () => ({
   listHistory: vi.fn().mockResolvedValue([]),
@@ -152,5 +152,32 @@ describe('updateProgress 重建 link(续播接当前集)', () => {
     s.updateProgress('100', 5, 600, undefined, 'lz')
     expect(s.get('100')?.link).toBe('/play?id=100&source=lz&episode=5&currentTime=600')
     expect(s.get('100')?.episodeIndex).toBe(5)
+  })
+})
+
+describe('recordToCard (历史卡复用 FilmCard)', () => {
+  it('remarks 取影片自身更新状态(HD / 更新至 N 集), 与普通影片卡同位', () => {
+    const card = recordToCard({
+      id: '12',
+      name: '片',
+      link: '/play?id=12&source=lz&episode=0',
+      episode: '第3集',
+      timeStamp: 1,
+      remarks: 'HD'
+    })
+    expect(card.remarks).toBe('HD')
+    expect(card.name).toBe('片')
+    expect(card.mid).toBe(12)
+  })
+
+  it('老记录无 remarks → 空串(卡片左下角不显示), 不退回集数', () => {
+    const card = recordToCard({
+      id: '13',
+      name: '片2',
+      link: '/play?id=13',
+      episode: '第1集',
+      timeStamp: 1
+    })
+    expect(card.remarks).toBe('')
   })
 })

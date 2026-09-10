@@ -16,6 +16,7 @@
 ## 开发约定
 
 - **API 契约真相**：`server/openapi/openapi.yaml`。前后端改动以契约为准。
+- **本地 web dev 连后端**：默认 `/api` 走 Vite 代理 → `127.0.0.1:3601`（本地 Go 后端）。要连**线上后端**必须用 `JEROCINE_DEV_PROXY=https://jerocine.art pnpm dev`（vite.config.ts 内置的代理开关），**不要**用 `.env.local` + `VITE_API_BASE`（dev 下不生效，请求仍走代理，本地后端没起时页面接口全是 500）。
 - **较大改动必写单测**（后端 `go test ./...`，前端 vitest），合并前本地测绿。
 - **前端门禁必须 `pnpm run build`**（= `vue-tsc -p tsconfig.app.json --noEmit && vite build`），不能只跑裸 `vue-tsc --noEmit`：`tsconfig.app.json` 开了 `noUncheckedIndexedAccess` 等严格项，裸 tsc 用宽松配置会漏报（`map[k]` 实为 `T|undefined`）。
 - **方案/架构设计存档到 `docs/`**，不要只留对话里。

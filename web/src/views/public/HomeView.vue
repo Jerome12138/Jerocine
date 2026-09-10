@@ -512,34 +512,9 @@ onBeforeUnmount(() => {
 
 .gf-home__recommend-grid {
   display: grid;
-  /* 移动端默认 3 列 */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gf-space-2);
-}
-
-@media (min-width: 480px) {
-  .gf-home__recommend-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--gf-card-gap);
-  }
-}
-
-@media (min-width: 768px) {
-  .gf-home__recommend-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1024px) {
-  .gf-home__recommend-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1440px) {
-  .gf-home__recommend-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
+  /* 列数/间距取自 theme.css 的全站统一阶梯（与上方横滚行同列数: 3/4/5/6） */
+  grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr));
+  gap: var(--gf-list-gap);
 }
 
 @media (min-width: 768px) {

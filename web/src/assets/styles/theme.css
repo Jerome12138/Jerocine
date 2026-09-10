@@ -49,17 +49,18 @@
   --gf-brand-gradient-hover: linear-gradient(135deg, #b366f5 0%, #6ee0f0 100%);
 
   /* ---------- 蒙版 ---------- */
+  /* hero 遮罩减淡(用户反馈太深): 底部仍保留足够暗度保证文字可读, 但不再压到全黑 */
   --gf-mask-hero-bottom: linear-gradient(
     180deg,
     rgba(11, 11, 15, 0) 0%,
-    rgba(11, 11, 15, 0.55) 60%,
-    rgba(11, 11, 15, 1) 100%
+    rgba(11, 11, 15, 0.32) 60%,
+    rgba(11, 11, 15, 0.82) 100%
   );
   --gf-mask-hero-left: linear-gradient(
     90deg,
-    rgba(11, 11, 15, 0.92) 0%,
-    rgba(11, 11, 15, 0.6) 35%,
-    rgba(11, 11, 15, 0) 70%
+    rgba(11, 11, 15, 0.72) 0%,
+    rgba(11, 11, 15, 0.42) 35%,
+    rgba(11, 11, 15, 0) 65%
   );
   --gf-mask-row-left: linear-gradient(
     90deg,
@@ -209,6 +210,61 @@
 }
 
 /* ============================================================
+ * 列表每行卡片数 —— 全站统一阶梯 3 / 4 / 5 / 6
+ *   移动 3、≥480 4、≥768 5、≥1024 及以上恒 6（大屏不再增列, 容器本身有 max 封顶）。
+ *   - 网格页(历史 / 收藏 / 搜索 / 猜你喜欢): 用 --gf-list-cols 整数列数
+ *   - 横滚行(FilmRow / ContinueWatchingRow): 用 --gf-rail-cols 小数
+ *     （小数部分 = 末尾露出的卡片比例, 提示"可横向滑动"）
+ *   改列数只改这里, 各页面自动跟随。
+ * ============================================================ */
+:root {
+  --gf-list-cols: 3;
+  --gf-list-gap: var(--gf-space-2);
+  --gf-rail-cols: 3.2;
+  /* 横滚可见卡片之间的"间隙道数" = ceil(列数) - 1。CSS 无 ceil(), 故显式给出。
+     它必须与列宽公式里的减项一致, 否则末尾露出的比例会偏离 --gf-rail-cols 的小数部分。 */
+  --gf-rail-gaps: 3;
+  --gf-rail-edge: var(--gf-gutter-mobile);
+  --gf-rail-gap: var(--gf-space-3);
+}
+@media (min-width: 480px) {
+  :root {
+    --gf-list-cols: 4;
+    --gf-rail-cols: 4.2;
+    --gf-rail-gaps: 4;
+  }
+}
+@media (min-width: 768px) {
+  :root {
+    --gf-list-cols: 5;
+    --gf-list-gap: var(--gf-space-4);
+    --gf-rail-cols: 5.2;
+    --gf-rail-gaps: 5;
+    --gf-rail-edge: var(--gf-gutter-tablet);
+    --gf-rail-gap: var(--gf-space-4);
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --gf-list-cols: 6;
+    --gf-rail-cols: 6;
+    --gf-rail-gaps: 5;
+    --gf-rail-edge: var(--gf-gutter-desktop);
+  }
+}
+
+/* 影片卡片网格 —— 各列表页(历史 / 收藏 / 搜索 / 分类 / 猜你喜欢)统一使用,
+   列数与间距取自上面的阶梯, 因此与首页横滚行、FilmGrid 组件永远同列数。 */
+.gf-card-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr));
+  gap: var(--gf-list-gap);
+}
+.gf-card-grid > * {
+  min-width: 0;
+}
+
+/* ============================================================
  * Body 基础态
  * ============================================================ */
 body {
@@ -278,6 +334,14 @@ body {
   --gf-space-6: 28px;
   --gf-space-8: 40px;
   --gf-space-12: 64px;
+
+  /* 列表/横滚列数（TV）: 每行恒 6 张完整卡片（大屏 + 遥控器浏览）, 缩进改用 TV 安全区,
+     卡间距放大一档。覆盖 :root 的响应式阶梯, 故组件内不需再写 TV 专属宽度规则。 */
+  --gf-list-cols: 6;
+  --gf-rail-cols: 6;
+  --gf-rail-gaps: 5;
+  --gf-rail-edge: var(--gf-tv-safe);
+  --gf-rail-gap: var(--gf-space-6);
 
   /* 容器 max 不再写死 1600 — 让 100% 视口决定上界, 不会再有"容器比视口宽"的问题 */
   --gf-container-max-2xl: 100vw;

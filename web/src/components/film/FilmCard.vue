@@ -13,13 +13,21 @@ interface Props {
   lazy?: boolean
   /** 封面比例, 默认 3:4 (影视行业标准); 历史调用方可改 "2/3" 等 */
   ratio?: string
+  /** 覆盖默认跳转(/filmDetail?link=mid) — 历史卡直达播放页续播等场景; string 直接交给 RouterLink */
+  to?: string | { path: string; query?: Record<string, string | number> }
+  /** 观看进度 0-100, >0 时海报底部显示 3px 进度条(继续观看/历史卡) */
+  progress?: number
+  /** 覆盖标题下方副信息(默认 年份·地区·分类) — 历史卡显示相对时间 */
+  subText?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showTitleBelow: true,
   score: '',
   lazy: true,
-  ratio: '3/4'
+  ratio: '3/4',
+  progress: 0,
+  subText: ''
 })
 
 const cardRatio = computed(() => props.ratio)
@@ -42,10 +50,13 @@ const subTextBelow = computed(() => {
   return parts.join(' · ')
 })
 
-const linkTo = computed(() => ({
+const linkTo = computed(() => props.to ?? {
   path: '/filmDetail',
   query: { link: String(props.item.mid) }
-}))
+})
+
+/** 副信息: 显式 subText 优先(历史卡时间等), 否则 年份·地区·分类 */
+const subBelow = computed(() => props.subText || subTextBelow.value)
 
 /** 角标 remarks：更新到第几集这种关键信息（其它如年份/分类太冗，移到 hover 浮层与详情页） */
 const remarks = computed(() => props.item.remarks || '')
@@ -102,6 +113,18 @@ const scoreText = computed(() => {
       <!-- 蒙版 (hover/focus 加深) -->
       <div class="gf-film-card__mask absolute inset-0 pointer-events-none" />
 
+      <!-- 观看进度条 (继续观看/历史卡): 底部 3px, 盖在 remarks 渐变条之上 -->
+      <div
+        v-if="props.progress > 0"
+        class="gf-film-card__progress"
+        :aria-label="`已观看 ${props.progress}%`"
+      >
+        <span :style="{ width: props.progress + '%' }" />
+      </div>
+
+      <!-- 调用方自定义海报覆盖层(删除按钮 / 进度时间等) -->
+      <slot name="poster-overlay" />
+
       <!-- PC hover 播放图标 (中央) -->
       <div class="gf-film-card__play absolute inset-0 flex items-center justify-center pointer-events-none z-2" aria-hidden="true">
         <span class="gf-film-card__play-btn">
@@ -115,9 +138,9 @@ const scoreText = computed(() => {
       <h4 class="gf-film-card__title-below">
         {{ item.name }}
       </h4>
-      <!-- 评分已移到封面右上角星标, 此处只留 年份·地区·分类, 不重复评分 -->
-      <div v-if="subTextBelow" class="gf-film-card__sub-below">
-        <span class="gf-film-card__sub-meta">{{ subTextBelow }}</span>
+      <!-- 评分已移到封面右上角星标, 此处只留 副信息(subText 优先, 否则 年份·地区·分类), 不重复评分 -->
+      <div v-if="subBelow" class="gf-film-card__sub-below">
+        <span class="gf-film-card__sub-meta">{{ subBelow }}</span>
       </div>
     </div>
   </RouterLink>
@@ -290,6 +313,24 @@ const scoreText = computed(() => {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
   pointer-events: none;
   white-space: nowrap;
+}
+
+/* 观看进度条 (继续观看/历史卡): 底部 3px, 高于 remarks 渐变条(z-2) */
+.gf-film-card__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background-color: var(--gf-progress-bg);
+  z-index: 3;
+  overflow: hidden;
+}
+.gf-film-card__progress > span {
+  display: block;
+  height: 100%;
+  background-image: var(--gf-progress-fg);
+  transition: width var(--gf-dur-base) var(--gf-ease-standard);
 }
 
 /* 卡片下部剧集信息条 (remarks: 更新至 N 集 等) */

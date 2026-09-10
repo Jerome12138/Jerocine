@@ -95,6 +95,9 @@ async function load(): Promise<void> {
     )
     films.value = r.list ?? []
     page.value = r.page ?? page.value
+    // 成功即清错误态: 否则上一次失败(或被取代请求误判)留下的错误提示会一直挂着,
+    // 表现为"点了筛选一直显示加载失败, 只能刷新恢复"(v-if="!loading && errorMsg" 优先于列表)。
+    errorMsg.value = ''
     loaded.value = true
   } catch (e) {
     if ((e as { name?: string })?.name === 'CanceledError') return
@@ -122,10 +125,14 @@ const filterGroups = computed<FilterGroup[]>(() => {
       return {
         key,
         title: f.titles?.[key] || key,
-        options: tagList.map((t) => ({
-          value: String(t.value ?? ''),
-          label: String(t.name ?? '')
-        })),
+        // 首位放"全部"(value='') — 点击即取消该维度筛选; 再点已选中项同样取消
+        options: [
+          { value: '', label: '全部' },
+          ...tagList.map((t) => ({
+            value: String(t.value ?? ''),
+            label: String(t.name ?? '')
+          }))
+        ],
         current: String(params.value[key] ?? '')
       }
     })
@@ -135,8 +142,10 @@ const filterGroups = computed<FilterGroup[]>(() => {
 function onFilterChange(payload: { key: string; value: string | number }): void {
   const allowed = ['Category', 'Plot', 'Area', 'Language', 'Year', 'Sort']
   if (!allowed.includes(payload.key)) return
+  // 再点已选中的选项 = 取消该筛选(回"全部")
+  const isSame = String(params.value[payload.key] ?? '') === String(payload.value)
   const next: Partial<QueryShape> = {
-    [payload.key]: String(payload.value)
+    [payload.key]: isSame ? '' : String(payload.value)
   } as Partial<QueryShape>
   // 切换筛选项 → current 重置 1
   next.current = 1
@@ -348,7 +357,7 @@ function tvGoPage(delta: number): void {
       <!-- 骨架 -->
       <div
         v-if="loading && films.length === 0"
-        class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-[var(--gf-space-4)]"
+        class="gf-card-grid"
       >
         <BaseSkeleton
           v-for="i in 12"

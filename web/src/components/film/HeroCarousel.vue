@@ -152,12 +152,13 @@ const tags = computed<string[]>(() => {
         :aria-hidden="i !== current"
       >
         <BaseImage
-          :src="it.cover"
+          :src="it.poster || it.cover"
           :alt="it.name"
           ratio=""
           :eager="i === 0"
           fit="cover"
           class="gf-hero__image"
+          :class="{ 'gf-hero__image--wide': !!it.poster }"
         />
         <!-- 竖海报: TV 模糊铺底 + 右侧清晰竖海报; Web 宽屏同理在右侧展示完整竖海报(避免封面被裁)
         （仅当前 slide 的封面, 与下方热门榜单不重复） -->
@@ -519,6 +520,11 @@ const tags = computed<string[]>(() => {
   object-position: center;
   filter: blur(28px) brightness(0.5) saturate(1.1);
   transform: scale(1.18);
+}
+/* 有真横图时不做模糊放大: 那套"模糊铺底"是采集源只给竖海报时的兜底 */
+[data-mode='tv'] .gf-hero__image--wide {
+  filter: none;
+  transform: none;
 }
 /* 右侧清晰竖海报(2:3), 真正展示该片封面 */
 [data-mode='tv'] .gf-hero__poster-tv {

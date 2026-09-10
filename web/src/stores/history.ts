@@ -45,6 +45,10 @@ export interface HistoryRecord {
   cid?: number
   /** 视频总时长 (秒, 可选) */
   duration?: number
+  /** 影片自身更新状态 (HD / 更新至 N 集 等, 与影片卡 remarks 同义)。
+   *  来源: 播放页写入时取自详情; 登录态同步时取自服务端回填的 card.remarks。
+   *  匿名模式下的老记录可能没有 → 卡片左下角留空, 不显示。 */
+  remarks?: string
 }
 
 export type HistoryMap = Record<string, HistoryRecord>
@@ -200,6 +204,28 @@ export function buildPlayLink(rec: {
   )
 }
 
+/**
+ * 历史记录 → FilmCard 的 Card 形状 (继续观看行 / 观看历史页复用同一卡片组件).
+ * remarks 放影片自身的更新状态(HD / 更新至 N 集), 与普通影片卡同一位置(海报左下角);
+ * 历史进度"看到第 N 集"由调用方通过 FilmCard 的 poster-overlay 插槽放左上角角标。
+ */
+export function recordToCard(rec: HistoryRecord): import('@/types/film').Card {
+  return {
+    mid: Number(rec.id) || 0,
+    name: rec.name,
+    cover: rec.picture || '',
+    cid: rec.cid ?? 0,
+    pid: rec.pid ?? 0,
+    cName: '',
+    subTitle: '',
+    area: '',
+    year: 0,
+    state: '',
+    remarks: rec.remarks || '',
+    dbScore: 0
+  }
+}
+
 export const useHistoryStore = defineStore('history', () => {
   /** 内部存储以 map 形式 */
   const map = ref<HistoryMap>(loadFromLocal())
@@ -242,6 +268,7 @@ export const useHistoryStore = defineStore('history', () => {
       pid: item.pid,
       cid: item.cid,
       duration: item.duration,
+      remarks: item.remarks,
       timeStamp: item.timeStamp ?? Date.now()
     }
     map.value[next.id] = next
@@ -437,6 +464,7 @@ export const useHistoryStore = defineStore('history', () => {
       pid: c?.pid ?? r.pid ?? 0,
       cid: c?.cid ?? r.cid ?? 0,
       duration: r.duration,
+      remarks: c?.remarks ?? '',
       timeStamp: r.updatedAt ?? Date.now()
     }
   }

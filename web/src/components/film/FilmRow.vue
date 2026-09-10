@@ -19,17 +19,36 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const scrollEl = ref<HTMLElement | null>(null)
+const viewportEl = ref<HTMLElement | null>(null)
 const canScrollLeft = ref(false)
 const canScrollRight = ref(false)
 
 function updateArrows(): void {
   const el = scrollEl.value
   if (!el) return
+  updateArrowTop()
   const left = el.scrollLeft
   const max = el.scrollWidth - el.clientWidth
   // Math.round 消除亚像素: 否则最右时 left 可能永远差零点几px < max-4, 右箭头不消失
   canScrollLeft.value = Math.round(left) > 1
   canScrollRight.value = Math.round(left) < Math.round(max) - 1
+}
+
+/**
+ * 箭头对准海报图片竖直中心(非"海报+下方标题"整卡中心)。
+ * 用 JS 实测: top = 滚动容器 padding-top + 列宽×2/3(海报 3:4 → 高=列宽×4/3)。
+ * 不用 CSS 公式的原因: ① top 的百分比按容器"高度"解析, 列宽里的 % 会算错;
+ * ② 此前各断点 top 规则写在 base 规则之前被覆盖, 桌面实际套用了移动端公式(越宽偏越多)。
+ * 实测自动覆盖 web(12px pad) / TV(16px pad) 与全部断点, 改列宽无需同步这里。
+ */
+function updateArrowTop(): void {
+  const vp = viewportEl.value
+  const el = scrollEl.value
+  if (!vp || !el) return
+  const item = el.querySelector<HTMLElement>('.gf-film-row__item')
+  if (!item) return
+  const padTop = parseFloat(getComputedStyle(el).paddingTop) || 0
+  vp.style.setProperty('--row-arrow-top', `${(padTop + (item.offsetWidth * 2) / 3).toFixed(1)}px`)
 }
 
 function scrollByDir(dir: 1 | -1): void {
@@ -122,7 +141,10 @@ function getItemKey(item: Card, idx: number): string | number {
       </RouterLink>
     </header>
 
-    <div class="gf-film-row__viewport relative group">
+    <div
+      ref="viewportEl"
+      class="gf-film-row__viewport relative group"
+    >
       <!-- 左右遮罩（桌面）：跟随滚动边界显隐，避免常驻遮挡边缘卡片与标题 -->
       <div v-show="canScrollLeft" class="gf-film-row__mask-left absolute inset-y-0 left-0 pointer-events-none" />
       <div v-show="canScrollRight" class="gf-film-row__mask-right absolute inset-y-0 right-0 pointer-events-none" />
@@ -130,7 +152,7 @@ function getItemKey(item: Card, idx: number): string | number {
       <!-- 横向滚动容器 -->
       <div
         ref="scrollEl"
-        class="gf-film-row__scroll flex gap-[var(--gf-space-3)] md:gap-[var(--gf-space-4)] overflow-x-auto scroll-smooth"
+        class="gf-film-row__scroll flex overflow-x-auto scroll-smooth"
         data-focus-zone="rail"
       >
         <!-- 左侧缩进（与页面 gutter 对齐） -->
@@ -173,18 +195,18 @@ function getItemKey(item: Card, idx: number): string | number {
 </template>
 
 <style scoped>
-.gf-film-row {
-  /* row 之间间距由父级或 grid 控制 */
-}
+/* 列数 / 缩进 / 卡间距全部取自 theme.css 的全站统一阶梯(--gf-rail-*),
+   这里只引用不定义 —— 与 ContinueWatchingRow 及各网格页同阶梯(3.2 → 4.2 → 5.2 → 6),
+   改列数只需改 theme.css 一处。 */
 
 .gf-film-row__scroll {
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  gap: var(--gf-rail-gap);
   /* 关键: 横向滚动容器 overflow-x:auto 会按 CSS 规范把 overflow-y 强制计算成 auto,
      导致卡片 hover scale(1.04) 上下溢出的部分被纵向裁切(顶部被截断)。
-     加 padding-block 让放大溢出的上下部分落在 padding 区(属 padding box, 不裁),
-     与 TV 模式 padding-block:16px 同理。TV 全局覆盖为 16px, 此处为 web 端值。 */
+     加 padding-block 让放大溢出的上下部分落在 padding 区(属 padding box, 不裁)。 */
   padding-block: 12px;
 }
 .gf-film-row__scroll::-webkit-scrollbar {
@@ -192,65 +214,28 @@ function getItemKey(item: Card, idx: number): string | number {
 }
 
 .gf-film-row__edge {
-  /* 与页面 gutter 对齐 */
-  width: var(--gf-gutter-mobile);
-}
-@media (min-width: 768px) {
-  .gf-film-row__edge {
-    width: var(--gf-gutter-tablet);
-  }
-}
-@media (min-width: 1024px) {
-  .gf-film-row__edge {
-    width: var(--gf-gutter-desktop);
-  }
+  /* 首尾缩进（web 按页面 gutter; TV 用安全区, 均由变量给出） */
+  width: var(--gf-rail-edge);
 }
 
 .gf-film-row__item {
   scroll-snap-align: start;
-  /* 列宽：移动 4.2 (用户反馈 3.2 卡片太大太空), 大屏手机 5, 平板 5.5,
-     桌面 6, >=1440 7, >=1920 8. */
-  width: calc((100vw - 32px) / 4.2);
-}
-@media (min-width: 480px) {
-  .gf-film-row__item {
-    width: calc((100vw - 32px) / 5);
-  }
-  .gf-film-row__arrow {
-    top: calc(12px + (100vw - 32px) / 7.5);
-  }
-}
-@media (min-width: 768px) {
-  .gf-film-row__item {
-    width: calc((100vw - 48px) / 5.5);
-  }
-  .gf-film-row__arrow {
-    top: calc(12px + (100vw - 48px) / 8.25);
-  }
-}
-@media (min-width: 1024px) {
-  .gf-film-row__item {
-    width: calc((100vw - 80px) / 6);
-  }
-  .gf-film-row__arrow {
-    top: calc(12px + (100vw - 80px) / 9);
-  }
-}
-@media (min-width: 1440px) {
-  .gf-film-row__item {
-    width: calc(min(100vw - 80px, 1280px) / 7);
-  }
-  .gf-film-row__arrow {
-    top: calc(12px + min(100vw - 80px, 1280px) / 10.5);
-  }
-}
-@media (min-width: 1920px) {
-  .gf-film-row__item {
-    width: calc(min(100vw - 80px, 1600px) / 8);
-  }
-  .gf-film-row__arrow {
-    top: calc(12px + min(100vw - 80px, 1600px) / 12);
-  }
+  /* 列宽基准 = 滚动容器宽度(100%), 不用 100vw。
+     公式 = (100% - 1×edge - 可见卡间 gap 道数 × 卡间距) / 列数
+
+     为什么只扣 1 个 edge（而非左右各一个）:
+       初始 scrollLeft=0 时视口内只有"左侧 edge 占位", 右侧没有东西占位,
+       可用宽 = 100% - edge。要让末尾正好露出列数的小数部分 f,
+       即 (m+f)×c + m×gap = 100% - edge（m=整数部分, m 也正好是可见卡间的 gap 道数）。
+       早期误扣 2×edge, 实际露出变成 edge + f×c —— 多出一个 gutter, 且该 gutter 是固定
+       px 而卡片宽随屏宽变化, 于是"露出比例"看起来在 0.3~0.5 张之间飘。已修正。
+
+     整数档(列数=6)时 6×c + 5×gap = 100% - edge, 第 6 张右边缘正好落在视口右边界,
+       即一行恰好 6 张完整卡片。 */
+  width: calc(
+    (100% - var(--gf-rail-edge) - var(--gf-rail-gaps) * var(--gf-rail-gap)) /
+      var(--gf-rail-cols)
+  );
 }
 
 .gf-film-row__mask-left {
@@ -275,11 +260,9 @@ function getItemKey(item: Card, idx: number): string | number {
 
 .gf-film-row__arrow {
   position: absolute;
-  /* 箭头对准海报图片竖直中心, 而非"海报+下方标题"整卡中心(整卡中心会明显偏下)。
-     海报 3:4 → 高 = 列宽 × 4/3, 半高 = 列宽 × 2/3 = 列宽 ÷ 1.5;
-     top = 滚动容器 padding-top(12px) + 列宽 ÷ 1.5。
-     各断点除数与 __item 列宽公式一一对应, 改列宽务必同步这里。 */
-  top: calc(12px + (100vw - 32px) / 6.3);
+  /* top 由 JS 实测写入 --row-arrow-top(见 updateArrowTop): 滚动容器 padding-top + 列宽×2/3。
+     不用 CSS 公式 —— top 的百分比按容器"高"解析, 且断点规则曾被 base 覆盖导致位置错误。 */
+  top: var(--row-arrow-top, 50%);
   transform: translateY(-50%);
   height: 44px;
   width: 44px;
@@ -328,8 +311,6 @@ function getItemKey(item: Card, idx: number): string | number {
   opacity: 1;
   width: 56px;
   height: 56px;
-  /* 同 web 端: 对准海报竖直中心 (TV 列宽 = min(100vw-96px,1600px)/6, padding-top 16px) */
-  top: calc(16px + min(100vw - 96px, 1600px) / 9);
 }
 /* 焦点环不被横向滚动容器上下裁切.
  * overflow-x:auto(需保留横向滚动) 会把 overflow-y 计算成 auto → 纵向裁切.
@@ -345,20 +326,8 @@ function getItemKey(item: Card, idx: number): string | number {
   box-shadow: var(--gf-tv-focus-ring);
 }
 
-/* TV 卡片间距 +50%（基础 16px → 24px；large 断点 →） */
-[data-mode='tv'] .gf-film-row__scroll {
-  gap: 24px;
-}
-@media (min-width: 768px) {
-  [data-mode='tv'] .gf-film-row__scroll {
-    gap: var(--gf-space-6);
-  }
-}
-
-/* TV 列宽：1920 视口默认 8 列 */
-[data-mode='tv'] .gf-film-row__item {
-  width: calc(min(100vw - 96px, 1600px) / 6);
-}
+/* TV 的列数(6) / 卡间距(space-6) / 缩进(安全区) 已在 theme.css 的 [data-mode="tv"] 里
+   覆盖 --gf-rail-*, 组件内不再重复定义宽度规则 —— 避免两处公式不同步。 */
 
 /* TV title 字号: 2xl 在大屏偏大, 降到 xl (行标题不需要那么抢眼) */
 [data-mode='tv'] .gf-film-row__title {
@@ -368,8 +337,5 @@ function getItemKey(item: Card, idx: number): string | number {
 /* TV header 安全区缩进 */
 [data-mode='tv'] .gf-film-row > header.container-page {
   padding-inline: var(--gf-tv-safe);
-}
-[data-mode='tv'] .gf-film-row__edge {
-  width: var(--gf-tv-safe);
 }
 </style>
