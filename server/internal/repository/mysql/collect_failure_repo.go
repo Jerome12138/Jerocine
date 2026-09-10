@@ -19,6 +19,11 @@ func NewCollectFailureRepository(db *gorm.DB) repository.CollectFailureRepositor
 
 // Record 落一条失败记录。同一(源, 页, 参数)若还在待处理状态, 只累加 attempts 并刷新原因,
 // 不再插新行 —— 一个页连续失败几十次不该把台账刷成几十行。
+//
+// 累加用 gorm.Expr 交给数据库做(attempts = attempts + 1), 不在 Go 侧读改写:
+// 读到的旧值一旦被并发/重试覆盖, 计数就会丢。updated_at 由 autoUpdateTime 填,
+// 不写调用方传的值(引擎构造 CollectFailure 时并不填 CreatedAt, 早先拿它当 updated_at
+// 会把这一列刷成 0)。
 func (r *collectFailureRepo) Record(ctx context.Context, f *entity.CollectFailure) error {
 	db := dbFrom(ctx, r.db)
 	var exist entity.CollectFailure
@@ -27,9 +32,8 @@ func (r *collectFailureRepo) Record(ctx context.Context, f *entity.CollectFailur
 	if err == nil {
 		return db.Model(&entity.CollectFailure{}).Where("id = ?", exist.Id).
 			Updates(map[string]any{
-				"cause":      f.Cause,
-				"attempts":   exist.Attempts + 1,
-				"updated_at": f.CreatedAt,
+				"cause":    f.Cause,
+				"attempts": gorm.Expr("attempts + 1"),
 			}).Error
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {

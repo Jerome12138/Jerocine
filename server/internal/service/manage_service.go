@@ -696,6 +696,12 @@ func (s *ManageService) SoftDeleteFilm(ctx context.Context, mid int64) error {
 	}
 	at := time.Now().UnixMilli()
 	err := s.tx.WithinTx(ctx, func(ctx context.Context) error {
+		// 先判存在性。SoftDelete 对不存在的 mid 是"0 行受影响", 但 0 行同样可能来自
+		// "本来就已经删过了" —— 光看影响行数分不清这两种情况(MySQL affected_rows 是
+		// 实际变更行数), 于是以前对一笔都不存在的 mid 也返回成功, 前端照样弹"已删除"。
+		if _, err := s.movie.GetByMidIncludingDeleted(ctx, mid); err != nil {
+			return err // 不存在 → ErrMovieNotFound → 404
+		}
 		if err := s.movie.SoftDelete(ctx, mid, at); err != nil {
 			return err
 		}
@@ -715,6 +721,10 @@ func (s *ManageService) RestoreFilm(ctx context.Context, mid int64) error {
 		return domain.ErrInvalidArgument
 	}
 	err := s.tx.WithinTx(ctx, func(ctx context.Context) error {
+		// 同 SoftDeleteFilm: 先判存在, 否则对不存在的 mid 也报"恢复成功"。
+		if _, err := s.movie.GetByMidIncludingDeleted(ctx, mid); err != nil {
+			return err
+		}
 		if err := s.movie.Restore(ctx, mid); err != nil {
 			return err
 		}

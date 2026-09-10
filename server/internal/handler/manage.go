@@ -2,8 +2,10 @@ package handler
 
 import (
 	"crypto/subtle"
+	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +14,7 @@ import (
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 	"server/internal/dto"
+	"server/internal/service"
 )
 
 // ---- 仪表盘 / 站点配置 ----
@@ -501,17 +504,38 @@ func (h *Handlers) CategoryCover(c *gin.Context) {
 // ---- 采集失败台账 ----
 
 // ListCollectFailures GET /manage/collect-failures?status=&page=&size=
-// status 缺省 = -1(不限); 0 待补采 / 1 已处理。
+// status 缺省 = -1(不限); 0 待补采 / 1 已处理。越界取值直接 400, 不静默截断。
 func (h *Handlers) ListCollectFailures(c *gin.Context) {
-	status := int8(queryInt(c, "status", int(entity.FailureStatusAny)))
+	status, ok := failureStatus(c.Query("status"))
+	if !ok {
+		dto.Error(c, http.StatusBadRequest, "status 只能是 -1(不限)/0(待补采)/1(已处理)")
+		return
+	}
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
 	list, total, err := h.Spider.ListFailures(c.Request.Context(), status, page)
 	if err != nil {
 		dto.Fail(c, err)
 		return
 	}
-	np := page.Normalize(20)
+	np := page.Normalize(service.FailurePageSize) // 与取数层同一默认值, 见 SpiderService.ListFailures
 	dto.Page(c, list, np.Current, np.Size, total)
+}
+
+// failureStatus 解析 status 查询参数。缺省(空串) = FailureStatusAny。
+//
+// 早先写的是 int8(queryInt(c, "status", -1)): Atoi 出来的 int 直接窄化会**静默截断** ——
+// status=999 被截成 -25、status=257 被截成 1(当成"已处理"), 前者查询恒空却不报错。
+// 现在先按 int 判范围, 合法了再转 int8。
+func failureStatus(raw string) (int8, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return entity.FailureStatusAny, true
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < int(entity.FailureStatusAny) || n > int(entity.FailureHandled) {
+		return 0, false
+	}
+	return int8(n), true
 }
 
 // RecoverCollectFailures POST /manage/collect-failures/recover {ids?}
@@ -520,8 +544,25 @@ func (h *Handlers) RecoverCollectFailures(c *gin.Context) {
 	var req struct {
 		Ids []int64 `json:"ids"`
 	}
-	_ = c.ShouldBindJSON(&req) // 允许无请求体: 无体即"全部待处理"
-	h.Spider.RecoverAsync(req.Ids)
+	// 允许没有请求体(等价于"补采全部待处理"); 但**有**请求体就必须能解析 ——
+	// 早先是 `_ = c.ShouldBindJSON(&req)`, 把"body 写错/字段类型不对"也当成"没带 body",
+	// 于是本意"只补这几条"会静默退化成"补采全部待处理", 破坏面被放大。
+	if c.Request.ContentLength != 0 {
+		switch err := c.ShouldBindJSON(&req); {
+		case err == nil:
+		case errors.Is(err, io.EOF): // ContentLength 未知(-1)时, 空 body 会走到这里 → 仍按"全部"处理
+		default:
+			dto.Error(c, http.StatusBadRequest, "invalid body")
+			return
+		}
+	}
+	ids := make([]int64, 0, len(req.Ids))
+	for _, id := range req.Ids {
+		if id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	h.Spider.RecoverAsync(ids)
 	dto.Accepted(c, gin.H{
 		"accepted": true,
 		"pending":  h.Spider.PendingFailureCount(c.Request.Context()),

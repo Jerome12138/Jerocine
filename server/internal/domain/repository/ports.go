@@ -50,10 +50,10 @@ type SearchRepository interface {
 	// Restore 清除读模型的软删标记。
 	Restore(ctx context.Context, mid int64) error
 	// SyncDeletedFromMovie 把 movie.deleted_at 回灌到 movie_search。
-	// 由 ShadowCommit 在换表后自动调用(换表会把读模型重建、丢失删除态), 也可单独触发做修复。幂等。
+	// 由 ShadowCommit 在**换表前**对影子表调用(换表会重建读模型、丢失删除态), 也可单独触发做修复。幂等。
 	SyncDeletedFromMovie(ctx context.Context) error
 
-	// 全量重采无空窗影子表生命周期: Begin(建 movie_search_next) → Write(批量灌) → Commit(RENAME 原子切换 + drop old)。
+	// 全量重采无空窗影子表生命周期: Begin(建 movie_search_next) → Write(批量灌) → Commit(回灌删除态 + RENAME 原子切换 + drop old)。
 	ShadowBegin(ctx context.Context) error
 	ShadowWrite(ctx context.Context, list []entity.MovieSearch) error
 	ShadowCommit(ctx context.Context) error

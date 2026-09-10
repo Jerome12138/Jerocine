@@ -313,7 +313,15 @@ const (
 	recoverIncrementalMaxHours = 4320
 	// recoverBatchLimit 单轮最多处理多少条待补采记录(防一次补采把源站打穿)。
 	recoverBatchLimit = 200
+	// recoverTimeout 单轮补采的时间上限。补采是逐源逐页的重活, 但不能无上限地跑:
+	// 早先用 context.Background() 起 goroutine, 一旦跑起来就再也收不回来(连部署重启都不受影响)。
+	// 取与采集锁 TTL 同量级, 保证超时不会远远晚于锁失效。
+	recoverTimeout = collectLockTTL
 )
+
+// FailurePageSize 失败台账列表的默认每页条数。
+// 供 handler 生成响应里的 page/size 复用, 避免"取数层归一化用 20、响应口径用另一个数"的漂移。
+const FailurePageSize = 20
 
 // RecoverResult 一轮补采的统计。
 type RecoverResult struct {
@@ -430,6 +438,7 @@ func (s *SpiderService) recoverOnePage(ctx context.Context, src *entity.CollectS
 }
 
 // RecoverAsync 后台触发补采(handler 返回 202)。ids 为空 → 全部待补采。
+// 带超时的 ctx: goroutine 起出去之后仍能自行收敛, 不会永久挂着。
 func (s *SpiderService) RecoverAsync(ids []int64) {
 	go func() {
 		defer func() {
@@ -437,16 +446,22 @@ func (s *SpiderService) RecoverAsync(ids []int64) {
 				log.Printf("spider RecoverAsync panic: %v", r)
 			}
 		}()
-		s.RecoverPending(context.Background(), ids)
+		ctx, cancel := context.WithTimeout(context.Background(), recoverTimeout)
+		defer cancel()
+		s.RecoverPending(ctx, ids)
 	}()
 }
 
 // ListFailures 后台失败台账列表(status 见 entity.Failure* 常量)。
+//
+// 分页在这里就地归一化: 本项目约定"归一化由取数层负责"(ManageService/UserService/
+// FilmService 同款), 缺了它 size 缺省时 page.Limit() 就是 0 → SQL 编译成 LIMIT 0,
+// 返回空列表但 total 正常, 页面会显示"共 N 条、列表空"。
 func (s *SpiderService) ListFailures(ctx context.Context, status int8, page repository.Page) ([]entity.CollectFailure, int64, error) {
 	if s.failures == nil {
 		return nil, 0, nil
 	}
-	return s.failures.List(ctx, status, page)
+	return s.failures.List(ctx, status, page.Normalize(FailurePageSize))
 }
 
 // ClearHandledFailures 清理已处理记录, 返回删除条数。

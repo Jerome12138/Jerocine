@@ -52,28 +52,36 @@ func (r *bannerRepo) Create(ctx context.Context, b *entity.Banner) error {
 	return dbFrom(ctx, r.db).Create(b).Error
 }
 
+// Update 按 id 整体覆盖。
+//
+// 存在性单独判一次而不是看 RowsAffected: MySQL 默认 affected_rows 是**实际变更**的行数
+// (不是匹配行数, DSN 未设 clientFoundRows), 所以"所有列写入值与库里完全一致"时
+// RowsAffected 也是 0 —— 用 0 判"不存在"会把"原样保存一次"误报成 404。
+//
+// updated_at 不在这里写: entity.Banner 上有 autoUpdateTime:milli, 交给 gorm 在 UPDATE 时
+// 填当前时间, 避免调用方(HTTP body)传 0 把审计时间写成 0。
 func (r *bannerRepo) Update(ctx context.Context, b *entity.Banner) error {
-	res := dbFrom(ctx, r.db).Model(&entity.Banner{}).Where("id = ?", b.Id).
-		Updates(map[string]any{
-			"title":      b.Title,
-			"subtitle":   b.Subtitle,
-			"image":      b.Image,
-			"poster":     b.Poster,
-			"mid":        b.Mid,
-			"link":       b.Link,
-			"sort":       b.Sort,
-			"state":      b.State,
-			"start_at":   b.StartAt,
-			"end_at":     b.EndAt,
-			"updated_at": b.UpdatedAt,
-		})
-	if res.Error != nil {
-		return res.Error
+	db := dbFrom(ctx, r.db)
+	var n int64
+	if err := db.Model(&entity.Banner{}).Where("id = ?", b.Id).Count(&n).Error; err != nil {
+		return err
 	}
-	if res.RowsAffected == 0 {
+	if n == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	return db.Model(&entity.Banner{}).Where("id = ?", b.Id).
+		Updates(map[string]any{
+			"title":    b.Title,
+			"subtitle": b.Subtitle,
+			"image":    b.Image,
+			"poster":   b.Poster,
+			"mid":      b.Mid,
+			"link":     b.Link,
+			"sort":     b.Sort,
+			"state":    b.State,
+			"start_at": b.StartAt,
+			"end_at":   b.EndAt,
+		}).Error
 }
 
 func (r *bannerRepo) Delete(ctx context.Context, id int64) error {

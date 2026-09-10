@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"errors"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -301,8 +302,14 @@ func (r *searchRepo) Restore(ctx context.Context, mid int64) error {
 // 全量重采的读模型是从采集结果重建的(见 ShadowBegin/ShadowCommit), 新表里 deleted_at 全是 0,
 // 若不回灌, 已删影片会集体回到列表/检索里。JOIN 更新, 只写真正有差异的行。
 func (r *searchRepo) SyncDeletedFromMovie(ctx context.Context) error {
-	return dbFrom(ctx, r.db).Exec(
-		"UPDATE movie_search s JOIN movie m ON s.mid = m.mid " +
+	return syncDeletedFrom(dbFrom(ctx, r.db), "movie_search")
+}
+
+// syncDeletedFrom 把主表的软删态回灌到指定读模型表。
+// table 只由本包内的字面量传入, 不接受外部输入拼接, 无注入面。
+func syncDeletedFrom(db *gorm.DB, table string) error {
+	return db.Exec(
+		"UPDATE " + table + " s JOIN movie m ON s.mid = m.mid " +
 			"SET s.deleted_at = m.deleted_at WHERE s.deleted_at <> m.deleted_at",
 	).Error
 }
@@ -324,17 +331,25 @@ func (r *searchRepo) ShadowWrite(ctx context.Context, list []entity.MovieSearch)
 	return dbFrom(ctx, r.db).Table("movie_search_next").CreateInBatches(list, 200).Error
 }
 
+// ShadowCommit 交换影子表, 让全量重采"无空窗"。
+//
+// 顺序是关键: **先**把软删态回灌进影子表, 再 RENAME 交换 —— 交换那一刻新表就已经是对的,
+// 不存在"表已换、删除态还没补上"的窗口。旧实现是换表 + DROP 旧表之后才回灌, 那一步一旦失败
+// 就回不去了(表已交换无法回滚): 已删影片会短暂出现在公开列表, 同时整轮采集被标成 error。
 func (r *searchRepo) ShadowCommit(ctx context.Context) error {
 	db := dbFrom(ctx, r.db)
+	if err := syncDeletedFrom(db, "movie_search_next"); err != nil {
+		return err
+	}
 	if err := db.Exec("RENAME TABLE movie_search TO movie_search_old, movie_search_next TO movie_search").Error; err != nil {
 		return err
 	}
+	// 旧表只剩清理职责: 新表已是权威且已回灌, 这一步删不掉不影响一致性 —— 只告警, 不把
+	// 已经成功的换表标成失败(否则整轮采集白跑)。
 	if err := db.Exec("DROP TABLE IF EXISTS movie_search_old").Error; err != nil {
-		return err
+		log.Printf("search_repo: 清理 movie_search_old 失败(读模型已就绪, 不影响一致性): %v", err)
 	}
-	// 新表完全由采集结果重建, deleted_at 一律为 0; 换表后立刻回灌, 否则已删影片会集体复活。
-	// 收敛在换表这一处而不是让采集侧记得调, 是为了让"读模型与主表删除态一致"成为不可绕过的不变量。
-	return r.SyncDeletedFromMovie(ctx)
+	return nil
 }
 
 func (r *searchRepo) Truncate(ctx context.Context) error {
