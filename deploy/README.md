@@ -31,7 +31,8 @@ deploy/
    ```
 
    启动顺序：mysql/redis → `migrate` 一次性服务跑完 `server/migrations/` → jerocine_server → nginx。
-   默认对外端口 `8080`（`NGINX_PORT` 可改），后端 3601 仅容器网络内可达。
+   nginx 容器直接监听 **443** 并终结 TLS（端口在 compose 里硬编码，无 `NGINX_PORT` 变量），
+   证书由 `deploy/certs/{fullchain,privkey}.pem` 挂载；后端 3601 仅容器网络内可达。
 
 4. 首次登录：默认管理员 `admin / change_me_admin`（`000005_seed_admin` 迁移创建），**公网部署后立即改密**。
 
@@ -64,7 +65,8 @@ sudo docker exec jerocine_redis redis-cli -a "$REDIS_PASSWORD" --no-auth-warning
 ## 健康检查与排障
 
 - 容器健康：`sudo docker compose ps`（全部应为 healthy；jerocine_server 内置 `-healthcheck` 子命令）
-- 冒烟：`curl localhost:8080/`（前端 200）、`curl localhost:8080/api/v1/films?keyword=test`（API 200）
+- 冒烟：`curl -sk https://localhost/`（前端 200）、`curl -sk https://localhost/api/v1/films?page=1`（API 200）；
+  公网域名：`curl -s https://jerocine.art/`
 - 日志：`sudo docker logs jerocine_server`、`sudo docker logs jerocine_nginx`
 
 ## APP 版本管理
