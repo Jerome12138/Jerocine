@@ -23,9 +23,9 @@
 ```bash
 # 本地（已装 migrate CLI）
 migrate -path server/migrations \
-  -database "mysql://user:pass@tcp(127.0.0.1:3306)/FilmSite?multiStatements=true" up
+  -database "mysql://user:pass@tcp(127.0.0.1:3306)/jerocine?multiStatements=true" up
 
-# docker-compose（M6 中以一次性 migrate 服务运行，film 依赖其 completed）
+# docker-compose（以一次性 migrate 服务运行，server 依赖其 completed）
 docker compose run --rm migrate
 ```
 

@@ -27,7 +27,7 @@ services:
       - ../server/migrations:/migrations:ro
     command:
       - "-path=/migrations"
-      - "-database=mysql://${MYSQL_USER:-jerocine}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:-FilmSite}?multiStatements=true"
+      - "-database=mysql://${MYSQL_USER:-jerocine}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:-jerocine}?multiStatements=true"
       - "up"
     depends_on:
       mysql:
@@ -48,7 +48,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       SERVER_PORT: "3601"
-      MYSQL_DSN: "${MYSQL_USER:-jerocine}:${MYSQL_PASSWORD}@(mysql:3306)/${MYSQL_DATABASE:-FilmSite}?charset=utf8mb4&parseTime=True&loc=Local"
+      MYSQL_DSN: "${MYSQL_USER:-jerocine}:${MYSQL_PASSWORD}@(mysql:3306)/${MYSQL_DATABASE:-jerocine}?charset=utf8mb4&parseTime=True&loc=Local"
       REDIS_ADDR: "redis:6379"
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
       REDIS_DB_CACHE: "0"
@@ -119,7 +119,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
-      MYSQL_DATABASE: "${MYSQL_DATABASE:-FilmSite}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-jerocine}"
       MYSQL_USER: "${MYSQL_USER:-jerocine}"
       MYSQL_PASSWORD: "${MYSQL_PASSWORD}"
     volumes:
