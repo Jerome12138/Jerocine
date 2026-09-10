@@ -27,7 +27,7 @@
 - **从零部署 / 新机器上线**：先读 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、`.env` 配置清单、部署步骤、验证与排障）；本节只讲日常运维。
 - Docker 栈定义在 `deploy/docker-compose.yml`（service 名 `nginx`/`server`）：
   - `jerocine_nginx`：多阶段 `web/Dockerfile`（node:20-alpine 构建前端含 vue-tsc 门禁 → nginx:1.27-alpine 托管 + 反代 /api）。部署机无需装 node。
-  - `jerocine_server`：`deploy/Dockerfile`（golang:1.21-alpine 编译 → distroless **nonroot UID 65532**，无 shell）。
+  - `jerocine_server`：`deploy/Dockerfile`（golang:1.27-alpine 编译 → distroless **nonroot UID 65532**，无 shell）。
   - `jerocine_mysql`、`jerocine_redis`。
 - **部署命令**：
   - 前端改动：`cd deploy && sudo docker compose build nginx && sudo docker compose up -d --no-deps nginx`
@@ -36,7 +36,7 @@
   - ⚠️ nginx `depends_on: server`，**不加 `--no-deps`** 会连带重启 jerocine_server；故纯前端改动务必带 `--no-deps`。
 - **DB 迁移（golang-migrate）**：由 compose 独立一次性服务 `migrate`（只 `up`，`restart:no`）跑；`server` `depends_on: migrate(service_completed_successfully)` → `up -d server` 会**先跑完待应用迁移再起 jerocine_server**。只单跑迁移不重启 api：`sudo docker compose run --rm migrate`。迁移文件 `server/migrations/000NNN_*.{up,down}.sql`。
 - **后端 Go 编译/测试**（可用容器跑）：
-  `docker run --rm -v "$PWD/server":/src -w /src golang:1.21-alpine sh -c "go build ./... && go test ./internal/..."`
+  `docker run --rm -v "$PWD/server":/src -w /src golang:1.27-alpine sh -c "go build ./... && go test ./internal/..."`
 - **致命坑 — 权限**：`deploy/secrets/*.pem`(JWT key) 和 `deploy/apk/` 必须属 **65532:65532**（distroless nonroot UID），否则 jerocine_server 读不到 key / 写不了 APK 而崩。
 
 ## ⚠️ 部署后必清缓存（踩过坑）

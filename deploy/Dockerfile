@@ -1,7 +1,9 @@
-# 后端镜像: golang:1.21-alpine 编译 → distroless 运行, 非 root, 无 shell.
+# 后端镜像: golang:1.27-alpine 编译 → distroless 运行, 非 root, 无 shell.
+# 版本须与 server/go.mod 的 go 指令(1.27)一致: gin v1.12 起要求 go >= 1.25,
+# golang.org/x/crypto v0.57 起要求 go >= 1.26。
 # 上下文 = 仓库根 (见 docker-compose.yml build.context: ..)
 # 入口为重构后的组合根 ./cmd/server。
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 
 ARG TARGETARCH
 ENV GO111MODULE=on \

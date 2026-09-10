@@ -3,7 +3,7 @@
 ```text
 deploy/
 ├─ docker-compose.yml   # 服务编排: mysql / redis / migrate / server / nginx (build.context = 仓库根)
-├─ Dockerfile           # 后端镜像: golang:1.21-alpine 编译 → distroless nonroot (UID 65532), 监听 3601
+├─ Dockerfile           # 后端镜像: golang:1.27-alpine 编译 → distroless nonroot (UID 65532), 监听 3601
 ├─ .env.example         # 环境变量模板 (cp .env.example .env 后填生产值; .env 不入库)
 ├─ data/nginx/nginx.conf # nginx 配置: SPA 静态托管 + /api 反代 + proxy_cache
 ├─ secrets/             # JWT RS256 密钥对 (不入库, 见 .gitignore)

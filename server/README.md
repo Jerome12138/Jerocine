@@ -46,7 +46,7 @@ go run ./cmd/server       # 本地运行（需配置 env，见 docker-compose.ym
 
 ## 部署
 
-镜像由 `deploy/Dockerfile` 构建（golang:1.21-alpine 编译 → distroless nonroot 运行，监听 3601），
+镜像由 `deploy/Dockerfile` 构建（golang:1.27-alpine 编译 → distroless nonroot 运行，监听 3601），
 构建上下文为仓库根：`docker compose -p jerocine --env-file .env up -d --build mysql redis migrate film`。
 `migrate` 服务先跑 `migrations/`，`film` 依赖其完成。日常只更新后端：`docker compose build film && docker compose up -d --no-deps film`。
 
