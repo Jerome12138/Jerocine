@@ -113,6 +113,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	skipRepo := repomysql.NewSkipSettingRepository(gdb)
 	telemetryRepo := repomysql.NewTelemetryRepository(gdb)
 	healthRepo := repomysql.NewSourceHealthRepository(gdb)
+	failureRepo := repomysql.NewCollectFailureRepository(gdb)
 	bannerRepo := repomysql.NewBannerRepository(gdb)
 
 	// services
@@ -122,8 +123,8 @@ func buildApp(cfg *config.Config) (*App, error) {
 	m3u8Svc := service.NewM3u8Service(cfg.JWT.PrivateKey)
 	telemetrySvc := service.NewTelemetryService(telemetryRepo, searchRepo, favoriteRepo, cfg.TelemetryAllowedHosts, configSvc)
 	manageSvc := service.NewManageService(sourceRepo, cronRepo, siteRepo, versionRepo, fileRepo, categoryRepo, searchRepo, movieRepo, playRepo, healthRepo, tx, userSvc, blob)
-	engine := spider.NewEngine(movieRepo, searchRepo, playRepo, categoryRepo, fileRepo, tx, blob, cfg.Spider.MaxGoroutine)
-	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo)
+	engine := spider.NewEngine(movieRepo, searchRepo, playRepo, categoryRepo, fileRepo, tx, blob, failureRepo, cfg.Spider.MaxGoroutine)
+	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo)
 	bannerSvc := service.NewBannerService(bannerRepo)
 
 	handlers := &handler.Handlers{

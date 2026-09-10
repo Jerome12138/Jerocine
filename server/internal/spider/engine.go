@@ -26,20 +26,21 @@ type Engine struct {
 	files    repository.FileRepository
 	tx       repository.TxManager
 	blob     blobstore.BlobStore
+	failures repository.CollectFailureRepository // 页级失败台账(可空: 空则只打日志)
 	maxG     int
 }
 
 func NewEngine(
 	m repository.MovieRepository, s repository.SearchRepository, p repository.PlaySourceRepository,
 	c repository.CategoryRepository, f repository.FileRepository, tx repository.TxManager,
-	blob blobstore.BlobStore, maxGoroutine int,
+	blob blobstore.BlobStore, failures repository.CollectFailureRepository, maxGoroutine int,
 ) *Engine {
 	if maxGoroutine <= 0 {
 		maxGoroutine = 32
 	}
 	return &Engine{
 		fetcher: NewFetcher(), movie: m, search: s, play: p, category: c,
-		files: f, tx: tx, blob: blob, maxG: maxGoroutine,
+		files: f, tx: tx, blob: blob, failures: failures, maxG: maxGoroutine,
 	}
 }
 
@@ -136,6 +137,7 @@ func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCo
 				if err := e.collectPage(ctx, src, pg, hours, master, full); err != nil {
 					log.Printf("spider page src=%s pg=%d err=%v", src.Id, pg, err)
 					cache.JobIncrFailed(ctx, src.Id, 1)
+					e.recordFailure(ctx, src, pg, hours, err)
 				} else {
 					cache.JobIncrDone(ctx, src.Id, 1)
 				}
@@ -175,12 +177,18 @@ func (e *Engine) collectPage(ctx context.Context, src *entity.CollectSource, pg,
 }
 
 func (e *Engine) collectMasterPage(ctx context.Context, src *entity.CollectSource, pg, hours int, full bool) error {
+	_, err := e.collectMasterPageN(ctx, src, pg, hours, full)
+	return err
+}
+
+// collectMasterPageN 同 collectMasterPage, 另返回该页落库的影片条数(补采后需要回报补到了多少)。
+func (e *Engine) collectMasterPageN(ctx context.Context, src *entity.CollectSource, pg, hours int, full bool) (int, error) {
 	movies := make([]entity.Movie, 0, 30)
 	var plays []entity.MoviePlaySource
 	if src.ResultModel == entity.ResultXML {
 		vs, err := e.fetcher.XMLDetails(ctx, src, pg, hours)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		for _, v := range vs {
 			m := xmlToMovie(v)
@@ -190,7 +198,7 @@ func (e *Engine) collectMasterPage(ctx context.Context, src *entity.CollectSourc
 	} else {
 		ds, err := e.fetcher.JSONDetails(ctx, src, pg, hours)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		for _, d := range ds {
 			m := toMovie(d)
@@ -198,7 +206,68 @@ func (e *Engine) collectMasterPage(ctx context.Context, src *entity.CollectSourc
 			plays = append(plays, buildPlaySources(d, src.Id, &m.Mid)...)
 		}
 	}
-	return e.upsertMaster(ctx, src, movies, plays, full)
+	return len(movies), e.upsertMaster(ctx, src, movies, plays, full)
+}
+
+// maxCauseLen collect_failure.cause 列宽。
+const maxCauseLen = 512
+
+// recordFailure 把页级失败落进台账。失败页不记下来的话, 内容就永久丢了, 事后也无从补。
+// best-effort: 台账写失败只打日志, 绝不因台账问题影响采集主流程。
+func (e *Engine) recordFailure(ctx context.Context, src *entity.CollectSource, pg, hours int, cause error) {
+	if e.failures == nil {
+		return
+	}
+	msg := ""
+	if cause != nil {
+		msg = cause.Error()
+	}
+	if len(msg) > maxCauseLen {
+		msg = msg[:maxCauseLen]
+	}
+	if err := e.failures.Record(ctx, &entity.CollectFailure{
+		SourceId: src.Id, PageNo: pg, Hours: hours, Cause: msg,
+	}); err != nil {
+		log.Printf("spider: 记录失败页失败 src=%s pg=%d: %v", src.Id, pg, err)
+	}
+}
+
+// CollectOnePage 精确重采单页(供补采全量扫描中失败的页)。
+// 与 Collect 的关键差别: **不碰影子表**(始终按普通 upsert 落库)。影子表换表是整表级动作,
+// 单页重放不可能重建整张 movie_search; 所以这里只负责"把缺的那一页补回去", 而不是重跑全量。
+// 返回该页落库的影片条数。
+func (e *Engine) CollectOnePage(ctx context.Context, src *entity.CollectSource, pg, hours int) (int, error) {
+	master := src.Grade == entity.GradeMaster
+	cache.JobStart(ctx, src.Id, src.Name, 1)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("spider CollectOnePage panic src=%s pg=%d: %v", src.Id, pg, r)
+			cache.JobSetState(ctx, src.Id, cache.JobError)
+		}
+	}()
+
+	if !master {
+		if err := e.collectSlavePage(ctx, src, pg, hours); err != nil {
+			cache.JobIncrFailed(ctx, src.Id, 1)
+			cache.JobSetState(ctx, src.Id, cache.JobError)
+			return 0, err
+		}
+		cache.JobIncrDone(ctx, src.Id, 1)
+		cache.JobSetState(ctx, src.Id, cache.JobDone)
+		cache.InvalidateAfterCollect(ctx)
+		return 0, nil
+	}
+
+	n, err := e.collectMasterPageN(ctx, src, pg, hours, false)
+	if err != nil {
+		cache.JobIncrFailed(ctx, src.Id, 1)
+		cache.JobSetState(ctx, src.Id, cache.JobError)
+		return 0, err
+	}
+	cache.JobIncrDone(ctx, src.Id, 1)
+	cache.JobSetState(ctx, src.Id, cache.JobDone)
+	cache.InvalidateAfterCollect(ctx)
+	return n, nil
 }
 
 // upsertMaster 主站落库: 影片 + 检索(full 走影子表, 否则普通 upsert) + 多源, 事务双写; 封面 best-effort。

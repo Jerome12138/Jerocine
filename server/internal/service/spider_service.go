@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strconv"
 	"strings"
@@ -17,19 +18,20 @@ import (
 	"server/internal/spider"
 )
 
-// SpiderService 采集编排: 手动/定时触发、任务监控控制、清库、分类覆盖、cron 调度。
+// SpiderService 采集编排: 手动/定时触发、任务监控控制、清库、分类覆盖、cron 调度、失败页补采。
 type SpiderService struct {
-	engine  *spider.Engine
-	sources repository.CollectSourceRepository
-	crons   repository.CronTaskRepository
-	health  repository.SourceHealthRepository // 读: 自动采集跳过已停采死源(可空)
+	engine   *spider.Engine
+	sources  repository.CollectSourceRepository
+	crons    repository.CronTaskRepository
+	health   repository.SourceHealthRepository   // 读: 自动采集跳过已停采死源(可空)
+	failures repository.CollectFailureRepository // 页级失败台账
 
 	mu      sync.Mutex
 	cronLib *cron.Cron
 }
 
-func NewSpiderService(engine *spider.Engine, sources repository.CollectSourceRepository, crons repository.CronTaskRepository, health repository.SourceHealthRepository) *SpiderService {
-	return &SpiderService{engine: engine, sources: sources, crons: crons, health: health}
+func NewSpiderService(engine *spider.Engine, sources repository.CollectSourceRepository, crons repository.CronTaskRepository, health repository.SourceHealthRepository, failures repository.CollectFailureRepository) *SpiderService {
+	return &SpiderService{engine: engine, sources: sources, crons: crons, health: health, failures: failures}
 }
 
 // isSuppressed 健康检查是否已自动停采该源。fail-open: 缺行/出错/未注入一律 false, 绝不因健康设施故障而停采。
@@ -51,17 +53,20 @@ func (s *SpiderService) isSuppressed(ctx context.Context, src *entity.CollectSou
 const collectLockTTL = 6 * time.Hour
 
 // runOne 对单源采集一次(同源重入由分布式锁阻止)。同步执行。
-func (s *SpiderService) runOne(ctx context.Context, src *entity.CollectSource, hours int) {
+// 返回采集错误; 拿不到锁(同源已有采集在跑)返回 ErrConflict —— 那不是失败, 只是"这轮没轮上"。
+func (s *SpiderService) runOne(ctx context.Context, src *entity.CollectSource, hours int) error {
 	lockKey := cache.KeyLockCron("src:" + src.Id)
 	token, ok, _ := cache.TryLock(ctx, lockKey, collectLockTTL)
 	if !ok {
 		log.Printf("spider: 源 %s 上次采集未结束, 跳过", src.Id)
-		return
+		return domain.ErrConflict
 	}
 	defer cache.Unlock(ctx, lockKey, token)
 	if err := s.engine.Collect(ctx, src, hours); err != nil {
 		log.Printf("spider: 采集 %s 失败: %v", src.Id, err)
+		return err
 	}
+	return nil
 }
 
 // StartCollect 后台异步触发单源采集(handler 返回 202)。源停用 / 不存在 → 错误。
@@ -299,6 +304,171 @@ func (s *SpiderService) CategoryCover(ctx context.Context, sourceId string) erro
 	return s.engine.CoverCategories(ctx, src)
 }
 
+// ---- 失败页补采 ----
+
+// 补采策略参数。
+const (
+	// recoverIncrementalMaxHours 增量窗口上限(180 天)。超过它就意味着"这次采集要扫的范围已经太大",
+	// 此时扩窗重扫的代价高于按页码精确重放。
+	recoverIncrementalMaxHours = 4320
+	// recoverBatchLimit 单轮最多处理多少条待补采记录(防一次补采把源站打穿)。
+	recoverBatchLimit = 200
+)
+
+// RecoverResult 一轮补采的统计。
+type RecoverResult struct {
+	Scanned  int `json:"scanned"`  // 检查过的待补采记录数
+	Widened  int `json:"widened"`  // 经"扩大时间窗整段重扫"处理掉的记录数(含被宽窗顺带覆盖的)
+	Replayed int `json:"replayed"` // 经"精确重放单页"处理掉的记录数
+	Failed   int `json:"failed"`   // 补采仍失败的记录数
+	Busy     int `json:"busy"`     // 因该源正在采集而顺延的记录数
+}
+
+// RecoverPending 按失败台账补采。ids 为空 → 处理全部待补采记录; 非空 → 只处理这些 id。
+//
+// 分流依据是"页码在时间维度上还准不准":
+//   - 增量采集(hours>0)失败: 数据已经随时间往前走了, 重放旧页码没有意义 → 把时间窗扩到
+//     「原窗口 + 距失败已过的小时数」整段重扫, 既补上漏掉的页, 也不会重复太多。一次宽窗重扫
+//     覆盖该源所有更早的增量失败, 故这些记录一并归档, 不必逐条重放。
+//   - 全量/超长范围(hours<=0 或超上限)失败: 页码语义稳定, 按「源 + 时长 + 页码」精确重放那一页。
+func (s *SpiderService) RecoverPending(ctx context.Context, ids []int64) RecoverResult {
+	var res RecoverResult
+	if s.failures == nil || s.engine == nil {
+		return res
+	}
+	pending, err := s.failures.ListPending(ctx, ids, recoverBatchLimit)
+	if err != nil {
+		log.Printf("spider RecoverPending list err: %v", err)
+		return res
+	}
+
+	doneSource := map[string]bool{} // 已由宽窗重扫覆盖过的源, 同轮不再重复重扫
+	for i := range pending {
+		f := pending[i]
+		res.Scanned++
+
+		src, err := s.sources.Get(ctx, f.SourceId)
+		if err != nil {
+			// 源已被删除 → 台账无从补起, 直接归档, 免得永远挂在待处理里
+			_ = s.failures.MarkHandled(ctx, []int64{f.Id})
+			continue
+		}
+		if s.isSuppressed(ctx, src) {
+			// 源已被健康检查自动停采: 补采也只会失败, 保留记录等源恢复后再补
+			log.Printf("spider: 源 %s 已自动停采, 失败记录 %d 暂不补采", src.Id, f.Id)
+			continue
+		}
+
+		if f.Hours > 0 && f.Hours <= recoverIncrementalMaxHours {
+			if doneSource[src.Id] {
+				continue
+			}
+			window := widenedHours(f)
+			if err := s.runOne(ctx, src, window); err != nil {
+				if errors.Is(err, domain.ErrConflict) {
+					res.Busy++
+				} else {
+					res.Failed++
+				}
+				continue
+			}
+			n, e := s.failures.MarkHandledIncrementalBefore(ctx, src.Id, f.Id, recoverIncrementalMaxHours)
+			if e != nil {
+				log.Printf("spider: 归档增量失败记录 err: %v", e)
+			}
+			res.Widened += int(n)
+			doneSource[src.Id] = true
+			continue
+		}
+
+		if err := s.recoverOnePage(ctx, src, f); err != nil {
+			if errors.Is(err, domain.ErrConflict) {
+				res.Busy++
+			} else {
+				res.Failed++
+			}
+			continue
+		}
+		if err := s.failures.MarkHandled(ctx, []int64{f.Id}); err != nil {
+			log.Printf("spider: 归档失败记录 %d err: %v", f.Id, err)
+		}
+		res.Replayed++
+	}
+	log.Printf("spider RecoverPending 完成: %+v", res)
+	return res
+}
+
+// widenedHours 把失败记录的窗口扩到「原窗口 + 自失败起已过的小时数」, 上限 recoverIncrementalMaxHours。
+func widenedHours(f entity.CollectFailure) int {
+	elapsed := 0
+	if f.CreatedAt > 0 {
+		elapsed = int(time.Since(time.UnixMilli(f.CreatedAt)).Hours())
+	}
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	if w := f.Hours + elapsed; w < recoverIncrementalMaxHours {
+		return w
+	}
+	return recoverIncrementalMaxHours
+}
+
+// recoverOnePage 精确重放单页(走引擎的单页采集, 不动影子表)。
+func (s *SpiderService) recoverOnePage(ctx context.Context, src *entity.CollectSource, f entity.CollectFailure) error {
+	lockKey := cache.KeyLockCron("src:" + src.Id)
+	token, ok, _ := cache.TryLock(ctx, lockKey, collectLockTTL)
+	if !ok {
+		log.Printf("spider: 源 %s 正在采集, 失败记录 %d 顺延", src.Id, f.Id)
+		return domain.ErrConflict
+	}
+	defer cache.Unlock(ctx, lockKey, token)
+	if _, err := s.engine.CollectOnePage(ctx, src, f.PageNo, f.Hours); err != nil {
+		log.Printf("spider: 补采 %s 第 %d 页失败: %v", src.Id, f.PageNo, err)
+		return err
+	}
+	return nil
+}
+
+// RecoverAsync 后台触发补采(handler 返回 202)。ids 为空 → 全部待补采。
+func (s *SpiderService) RecoverAsync(ids []int64) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("spider RecoverAsync panic: %v", r)
+			}
+		}()
+		s.RecoverPending(context.Background(), ids)
+	}()
+}
+
+// ListFailures 后台失败台账列表(status 见 entity.Failure* 常量)。
+func (s *SpiderService) ListFailures(ctx context.Context, status int8, page repository.Page) ([]entity.CollectFailure, int64, error) {
+	if s.failures == nil {
+		return nil, 0, nil
+	}
+	return s.failures.List(ctx, status, page)
+}
+
+// ClearHandledFailures 清理已处理记录, 返回删除条数。
+func (s *SpiderService) ClearHandledFailures(ctx context.Context) (int64, error) {
+	if s.failures == nil {
+		return 0, nil
+	}
+	return s.failures.DeleteHandled(ctx)
+}
+
+// PendingFailureCount 待补采条数(仪表盘用)。
+func (s *SpiderService) PendingFailureCount(ctx context.Context) int64 {
+	if s.failures == nil {
+		return 0
+	}
+	n, err := s.failures.CountPending(ctx)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // ---- cron 调度 ----
 
 // StartScheduler 启动 cron: 注册全部已启用任务。应用启动时调用一次。
@@ -343,9 +513,12 @@ func (s *SpiderService) registerTasks(ctx context.Context) {
 			}
 			defer cache.Unlock(context.Background(), lockKey, tok)
 			bg := context.Background()
-			if task.Model == 0 {
+			switch task.Model {
+			case entity.CronModelAutoAll:
 				s.AutoCollect(bg, task.Time)
-			} else {
+			case entity.CronModelRecover:
+				s.RecoverPending(bg, nil)
+			default:
 				s.BatchCollect(bg, task.Time, task.SourceIds...)
 			}
 		})

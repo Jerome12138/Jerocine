@@ -44,7 +44,7 @@ type CronTask struct {
 	SourceIds StringSlice `gorm:"column:source_ids;type:json" json:"sourceIds"`
 	Spec      string      `gorm:"column:spec" json:"spec"`
 	Time      int         `gorm:"column:time" json:"time"`
-	Model     int8        `gorm:"column:model" json:"model"` // 0 自动全站 / 1 指定源
+	Model     int8        `gorm:"column:model" json:"model"` // 见 CronModel* 常量: 0 自动全站 / 1 指定源 / 2 补采失败页
 	State     int8        `gorm:"column:state" json:"state"`
 	Remark    string      `gorm:"column:remark" json:"remark"`
 	EntryId   int         `gorm:"column:entry_id" json:"entryId"`
@@ -54,6 +54,36 @@ type CronTask struct {
 }
 
 func (CronTask) TableName() string { return "cron_task" }
+
+// cron_task.model 取值
+const (
+	CronModelAutoAll  int8 = 0 // 自动采集全部启用源
+	CronModelSomeSrc  int8 = 1 // 只采 source_ids 指定的源
+	CronModelRecover  int8 = 2 // 按失败台账补采失败页
+)
+
+// 采集失败台账状态
+const (
+	FailurePending  int8 = 0 // 待补采
+	FailureHandled  int8 = 1 // 已处理
+	FailureStatusAny int8 = -1 // 查询用: 不限状态
+)
+
+// CollectFailure 采集页级失败台账 (table: collect_failure)。
+// 记下"哪个源、哪一页、什么参数"失败, 使失败页可被补采 —— 否则失败页的内容永久丢失。
+type CollectFailure struct {
+	Id        int64  `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	SourceId  string `gorm:"column:source_id" json:"sourceId"`
+	PageNo    int    `gorm:"column:page_no" json:"pageNo"`
+	Hours     int    `gorm:"column:hours" json:"hours"`      // 0=全量, >0 为增量小时
+	Cause     string `gorm:"column:cause" json:"cause"`
+	Status    int8   `gorm:"column:status" json:"status"`
+	Attempts  int    `gorm:"column:attempts" json:"attempts"`
+	CreatedAt int64  `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
+	UpdatedAt int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+}
+
+func (CollectFailure) TableName() string { return "collect_failure" }
 
 // 采集源健康状态
 const (

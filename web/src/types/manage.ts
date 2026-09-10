@@ -200,8 +200,8 @@ export interface CronTask {
   time: number
   /** cron 表达式 */
   spec: string
-  /** 任务类型 0=自动更新已启用站点 1=更新 ids */
-  model: 0 | 1
+  /** 任务类型 0=自动更新已启用站点 1=更新 ids 2=补采失败页 */
+  model: 0 | 1 | 2
   /** 启用 */
   state: boolean
   /** 备注 */
@@ -251,6 +251,35 @@ export interface DashboardStat {
   todayNew?: number
   weekNew?: number
   downSources?: number
+  /** 待补采的失败页数 */
+  pendingFails?: number
+}
+
+/** 采集失败台账一行（GET /manage/collect-failures, 后端 entity.CollectFailure） */
+export interface CollectFailure {
+  id: number
+  sourceId: string
+  /** 失败的页码 */
+  pageNo: number
+  /** 发起采集时的时长参数：0=全量，>0 增量小时 */
+  hours: number
+  cause: string
+  /** 0 待补采 / 1 已处理 */
+  status: 0 | 1
+  /** 重复失败次数 */
+  attempts: number
+  createdAt: number
+}
+
+/** 一轮补采的统计（POST /manage/collect-failures/recover 的回执里不含，仅供后续扩展） */
+export interface RecoverStat {
+  scanned: number
+  widened: number
+  replayed: number
+  failed: number
+  busy: number
+}
+
 /** 首页轮播 Banner（GET /manage/banners, 后端 entity.Banner） */
 export interface Banner {
   id: number

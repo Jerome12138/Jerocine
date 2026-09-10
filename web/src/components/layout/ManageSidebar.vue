@@ -58,6 +58,7 @@ const groups: MenuGroup[] = [
     items: [
       { path: '/manage/collect/index', label: '采集源' },
       { path: '/manage/collect/jobs', label: '任务监控' },
+      { path: '/manage/collect/failures', label: '补采中心' },
       { path: '/manage/cron/index', label: '定时任务' }
     ]
   },

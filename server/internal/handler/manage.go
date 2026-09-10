@@ -16,7 +16,11 @@ import (
 
 // ---- 仪表盘 / 站点配置 ----
 
-func (h *Handlers) Dashboard(c *gin.Context) { dto.OK(c, h.Manage.Dashboard(c.Request.Context())) }
+func (h *Handlers) Dashboard(c *gin.Context) {
+	d := h.Manage.Dashboard(c.Request.Context())
+	d.PendingFails = h.Spider.PendingFailureCount(c.Request.Context())
+	dto.OK(c, d)
+}
 
 func (h *Handlers) GetSiteConfig(c *gin.Context) {
 	cfg, err := h.Manage.GetSite(c.Request.Context())
@@ -492,6 +496,46 @@ func (h *Handlers) CategoryCover(c *gin.Context) {
 		return
 	}
 	dto.Accepted(c, gin.H{"ok": true})
+}
+
+// ---- 采集失败台账 ----
+
+// ListCollectFailures GET /manage/collect-failures?status=&page=&size=
+// status 缺省 = -1(不限); 0 待补采 / 1 已处理。
+func (h *Handlers) ListCollectFailures(c *gin.Context) {
+	status := int8(queryInt(c, "status", int(entity.FailureStatusAny)))
+	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
+	list, total, err := h.Spider.ListFailures(c.Request.Context(), status, page)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	np := page.Normalize(20)
+	dto.Page(c, list, np.Current, np.Size, total)
+}
+
+// RecoverCollectFailures POST /manage/collect-failures/recover {ids?}
+// ids 为空 → 补采全部待处理记录; 非空 → 只补这些。后台异步执行(逐源逐页可能很久), 立即返回 202。
+func (h *Handlers) RecoverCollectFailures(c *gin.Context) {
+	var req struct {
+		Ids []int64 `json:"ids"`
+	}
+	_ = c.ShouldBindJSON(&req) // 允许无请求体: 无体即"全部待处理"
+	h.Spider.RecoverAsync(req.Ids)
+	dto.Accepted(c, gin.H{
+		"accepted": true,
+		"pending":  h.Spider.PendingFailureCount(c.Request.Context()),
+	})
+}
+
+// ClearHandledFailures DELETE /manage/collect-failures/handled 清理已处理记录。
+func (h *Handlers) ClearHandledFailures(c *gin.Context) {
+	n, err := h.Spider.ClearHandledFailures(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"deleted": n})
 }
 
 // ---- helpers ----

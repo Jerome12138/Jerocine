@@ -98,6 +98,7 @@ type DashboardData struct {
 	TodayNew     int64 `json:"todayNew"`     // 今日新增影片(按 created_at)
 	WeekNew      int64 `json:"weekNew"`      // 近 7 天新增影片
 	DownSources  int64 `json:"downSources"`  // 已被自动停采的死源数
+	PendingFails int64 `json:"pendingFails"` // 待补采的失败页数(由 handler 从采集服务注入)
 }
 
 func (s *ManageService) Dashboard(ctx context.Context) DashboardData {

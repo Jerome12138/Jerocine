@@ -19,7 +19,7 @@ const toView = (d: CronDTO): CronTask => ({
   ids: d.sourceIds ?? [],
   time: d.time,
   spec: d.spec,
-  model: d.model === 1 ? 1 : 0,
+  model: d.model === 1 ? 1 : d.model === 2 ? 2 : 0,
   state: d.state === 0,
   remark: d.remark
 })

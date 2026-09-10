@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { manageApi } from '@/api'
 import type { DashboardStat } from '@/types/manage'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
@@ -32,7 +33,14 @@ const cards = computed(() => {
     { label: '近 7 天新增', value: d.weekNew ?? 0, icon: 'film', tint: 'from-[#3b82f6] to-[#22c55e]' },
     { label: '采集源', value: d.collectCount ?? 0, icon: 'magic', tint: 'from-[#E50914] to-[#ff6b6b]' },
     { label: '定时任务', value: d.cronCount ?? 0, icon: 'clock', tint: 'from-[#22c55e] to-[#4ad1e5]' },
-    { label: '已停采源', value: d.downSources ?? 0, icon: 'trash', tint: 'from-[#ef4444] to-[#f59e0b]' }
+    { label: '已停采源', value: d.downSources ?? 0, icon: 'trash', tint: 'from-[#ef4444] to-[#f59e0b]' },
+    {
+      label: '待补采页',
+      value: d.pendingFails ?? 0,
+      icon: 'refresh',
+      tint: 'from-[#ef4444] to-[#f59e0b]',
+      to: '/manage/collect/failures'
+    }
   ]
 })
 </script>
@@ -58,12 +66,15 @@ const cards = computed(() => {
     <!-- 错误 -->
     <BaseEmpty v-else-if="error" :title="error" :description="'点击右上角刷新重试'" />
 
-    <!-- 3 张统计卡 (真实数据) -->
-    <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-[var(--gf-space-4)]">
-      <article
+    <!-- 统计卡 (真实数据) -->
+    <div v-else class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-[var(--gf-space-4)]">
+      <component
+        :is="c.to ? RouterLink : 'article'"
         v-for="c in cards"
         :key="c.label"
+        :to="c.to"
         class="bg-surface rounded-card shadow-card p-[var(--gf-space-5)] flex items-center gap-[var(--gf-space-4)] min-h-[120px]"
+        :class="c.to ? 'hover:bg-elevated transition-colors' : ''"
       >
         <div
           class="w-[56px] h-[56px] rounded-full flex items-center justify-center text-white shrink-0"
@@ -77,7 +88,7 @@ const cards = computed(() => {
             {{ c.value }}
           </span>
         </div>
-      </article>
+      </component>
     </div>
 
     <!-- 提示: 更多图表/活动流待后端 -->

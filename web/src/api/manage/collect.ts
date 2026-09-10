@@ -1,6 +1,6 @@
 import type { AxiosRequestConfig } from 'axios'
 import { http } from '../http'
-import type { CollectParams, CollectSource } from '@/types/manage'
+import type { BackendPage, CollectFailure, CollectParams, CollectSource } from '@/types/manage'
 
 const enc = encodeURIComponent
 
@@ -183,3 +183,31 @@ export const spiderJobResume = (id: string): Promise<void> =>
 /** POST /manage/spider/jobs/:id/cancel */
 export const spiderJobCancel = (id: string): Promise<void> =>
   http.post<unknown, void>(`/manage/spider/jobs/${enc(id)}/cancel`)
+
+// ============ 采集失败台账（页级失败补采） ============
+
+/** 失败台账列表的响应形态（与全站分页契约一致：{list,page}） */
+export interface FailurePage {
+  list: CollectFailure[]
+  page: BackendPage
+}
+
+/** GET /manage/collect-failures?status=&page=&size=
+ *  status: -1 不限 / 0 待补采 / 1 已处理 */
+export const failures = (params?: {
+  status?: number
+  page?: number
+  size?: number
+}): Promise<FailurePage> =>
+  http.get<unknown, FailurePage>('/manage/collect-failures', { params })
+
+/** POST /manage/collect-failures/recover {ids?}
+ *  ids 为空 → 补采全部待处理；非空 → 只补这些。后台异步执行，接口立即返回 202。 */
+export const recoverFailures = (ids?: number[]): Promise<{ accepted: boolean; pending: number }> =>
+  http.post<unknown, { accepted: boolean; pending: number }>('/manage/collect-failures/recover', {
+    ids: ids ?? []
+  })
+
+/** DELETE /manage/collect-failures/handled 清理已处理记录 */
+export const clearHandledFailures = (): Promise<{ deleted: number }> =>
+  http.delete<unknown, { deleted: number }>('/manage/collect-failures/handled')

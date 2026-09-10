@@ -34,6 +34,12 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '采集任务监控' }
   },
   {
+    path: '/manage/collect/failures',
+    name: 'manage-collect-failures',
+    component: () => import('@/views/manage/collect/FailureListView.vue'),
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '补采中心' }
+  },
+  {
     path: '/manage/cron/index',
     name: 'manage-cron',
     component: () => import('@/views/manage/cron/CronListView.vue'),

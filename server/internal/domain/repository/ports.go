@@ -103,6 +103,26 @@ type CronTaskRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// CollectFailureRepository 采集页级失败台账。
+// 记录页级失败 → 让"补采"成为可能(此前失败页只会丢, 事后连丢的是哪页都查不到)。
+type CollectFailureRepository interface {
+	// Record 落一条失败记录; 同源+同页+同参数(小时)若仍在待处理, 则累加 attempts 并刷新原因/时间, 不另起一行。
+	Record(ctx context.Context, f *entity.CollectFailure) error
+	// ListPending 取待补采记录, 按失败时间升序; ids 非空时只取这些 id。
+	ListPending(ctx context.Context, ids []int64, limit int) ([]entity.CollectFailure, error)
+	// List 后台列表(status 为 entity.FailureStatusAny 时不过滤), 按时间倒序分页。
+	List(ctx context.Context, status int8, page Page) ([]entity.CollectFailure, int64, error)
+	// MarkHandled 按 id 置为已处理。
+	MarkHandled(ctx context.Context, ids []int64) error
+	// MarkHandledIncrementalBefore 把同源、同为增量(hours>0 且 <=maxHours)、id 不晚于 maxId 的待处理记录
+	// 一并置为已处理 —— 一次扩窗重扫已覆盖这些页, 不必再逐条重放。
+	MarkHandledIncrementalBefore(ctx context.Context, sourceId string, maxId int64, maxHours int) (int64, error)
+	// DeleteHandled 清空已处理记录, 返回删除条数。
+	DeleteHandled(ctx context.Context) (int64, error)
+	// CountPending 待补采条数。
+	CountPending(ctx context.Context) (int64, error)
+}
+
 // SiteConfigRepository 站点配置 (单行)。
 type SiteConfigRepository interface {
 	Get(ctx context.Context) (*entity.SiteConfig, error)
