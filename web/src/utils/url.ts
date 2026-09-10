@@ -37,3 +37,15 @@ export function parseQuery(query: string): Record<string, string> {
   }
   return out
 }
+
+/**
+ * 是否为站外链接(http/https)。
+ *
+ * 轮播跳转约定: 站外链接开新窗口, 其余一律按站内路径走 router
+ * (与后端 validBannerLink 白名单口径一致 —— 非 / 开头又非 http(s) 的伪协议
+ * 根本进不了库, 这里只需区分"新窗口"与"路由跳转"两种走向)。
+ * 桌面/移动/TV 三端共用本判断, 不要在组件里各自内联正则。
+ */
+export function isExternalLink(link: string): boolean {
+  return /^https?:\/\//i.test(link.trim())
+}

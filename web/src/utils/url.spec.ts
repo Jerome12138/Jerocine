@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stringifyQuery, parseQuery } from './url'
+import { stringifyQuery, parseQuery, isExternalLink } from './url'
 
 describe('stringifyQuery', () => {
   it('基础对象 → query string', () => {
@@ -51,5 +51,23 @@ describe('parseQuery', () => {
 
   it('=后无值 → 空串 value', () => {
     expect(parseQuery('a=')).toEqual({ a: '' })
+  })
+})
+
+describe('isExternalLink', () => {
+  it('http/https → true (大小写不敏感)', () => {
+    expect(isExternalLink('https://example.com/x')).toBe(true)
+    expect(isExternalLink('HTTP://EXAMPLE.COM')).toBe(true)
+  })
+
+  it('首尾空白容忍', () => {
+    expect(isExternalLink('  https://example.com  ')).toBe(true)
+  })
+
+  it('站内路径 / 协议相对 / 伪协议 → false', () => {
+    expect(isExternalLink('/filmDetail?link=1')).toBe(false)
+    expect(isExternalLink('//cdn.example.com/a.png')).toBe(false)
+    expect(isExternalLink('javascript:alert(1)')).toBe(false)
+    expect(isExternalLink('')).toBe(false)
   })
 })

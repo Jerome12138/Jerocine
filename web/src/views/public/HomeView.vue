@@ -6,6 +6,7 @@ import { useViewMode } from '@/composables/useViewMode'
 import { useHistoryStore, useUserStore } from '@/stores'
 import { buildPlayLink } from '@/stores/history'
 import { episodeLabel, progressPercent } from '@/composables/useTimeBucket'
+import { isExternalLink } from '@/utils/url'
 import HeroCarousel from '@/components/film/HeroCarousel.vue'
 import FilmRow from '@/components/film/FilmRow.vue'
 import ContinueWatchingRow from '@/components/film/ContinueWatchingRow.vue'
@@ -140,6 +141,22 @@ const tvHeroTo = computed<string | Record<string, unknown>>(() => {
   if (h.mid) return { path: '/filmDetail', query: { link: String(h.mid) } }
   return '/'
 })
+
+/**
+ * TV 推荐卡的站外链接拦截。
+ *
+ * RouterLink 只认站内路由 —— 把 https://… 交给 :to 会被当成应用内路径推入路由,
+ * TV 端点外链轮播会"跳到一个 404 路由"。这里与 HeroCarousel.gotoDetail 共用
+ * isExternalLink 口径: 站外链接 preventDefault + 新开窗口, 站内链接放行给 RouterLink。
+ * (href 本身仍是真实外链 URL, 对遥控器 focus/无障碍无影响)
+ */
+function onTvHeroClick(e: MouseEvent): void {
+  const link = tvHero.value?.link?.trim()
+  if (link && isExternalLink(link)) {
+    e.preventDefault()
+    window.open(link, '_blank', 'noopener,noreferrer')
+  }
+}
 let tvHeroTimer: number | null = null
 
 /** TV 推荐卡副标题: 年份·地区·分类·更新备注 */
@@ -329,6 +346,7 @@ onBeforeUnmount(() => {
             data-focusable="true"
             tabindex="0"
             :aria-label="`为你推荐 ${tvHero.name}`"
+            @click="onTvHeroClick"
           >
             <BaseImage
               v-if="tvHero.cover || tvHero.poster"

@@ -5,6 +5,7 @@ import type { HeroItem } from '@/types/film'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import { useViewMode } from '@/composables/useViewMode'
+import { isExternalLink } from '@/utils/url'
 
 interface Props {
   /**
@@ -105,7 +106,7 @@ function gotoDetail(item: HeroItem | undefined): void {
   if (!item) return
   const link = item.link?.trim()
   if (link) {
-    if (/^https?:\/\//i.test(link)) window.open(link, '_blank', 'noopener,noreferrer')
+    if (isExternalLink(link)) window.open(link, '_blank', 'noopener,noreferrer')
     else router.push(link)
     return
   }
