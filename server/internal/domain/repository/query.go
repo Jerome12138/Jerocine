@@ -35,6 +35,13 @@ const (
 	SortRecent                     // 最近更新 (update_stamp)
 )
 
+// 软删除态过滤维度。
+const (
+	DeletedExclude = 0  // 仅未删 (公开读路径默认, 也是零值)
+	DeletedOnly    = 1  // 仅已删 (后台回收站)
+	DeletedInclude = -1 // 不限 (后台"全部")
+)
+
 // FilterSpec /films 多维筛选条件 (空字段忽略)。
 type FilterSpec struct {
 	Keyword  string
@@ -45,6 +52,9 @@ type FilterSpec struct {
 	Language string
 	Year     int
 	Sort     string // update_stamp | hits | db_score | release_stamp
+	// Deleted 软删除态过滤: DeletedExclude(0, 公开默认) / DeletedOnly(1) / DeletedInclude(-1)。
+	// 零值即"仅未删", 所以公开调用方无需关心该字段。
+	Deleted int
 }
 
 // RelatedSeed 相关推荐种子 (来自当前影片)。

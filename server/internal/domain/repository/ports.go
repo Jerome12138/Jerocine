@@ -11,10 +11,16 @@ import (
 
 // MovieRepository 影片详情主表。
 type MovieRepository interface {
-	GetByMid(ctx context.Context, mid int64) (*entity.Movie, error) // 未命中返回 domain.ErrMovieNotFound
+	GetByMid(ctx context.Context, mid int64) (*entity.Movie, error) // 未命中返回 domain.ErrMovieNotFound; 已软删视为未命中
+	// GetByMidIncludingDeleted 同 GetByMid, 但不排除已软删的影片。后台查看/恢复需要能读到它们。
+	GetByMidIncludingDeleted(ctx context.Context, mid int64) (*entity.Movie, error)
 	Upsert(ctx context.Context, m *entity.Movie) error
 	BatchUpsert(ctx context.Context, list []entity.Movie) error
 	Delete(ctx context.Context, mid int64) error
+	// SoftDelete 打软删标记(deletedAt 毫秒时间戳, 供后台展示删除时间)。
+	SoftDelete(ctx context.Context, mid, deletedAt int64) error
+	// Restore 清除软删标记。
+	Restore(ctx context.Context, mid int64) error
 	Truncate(ctx context.Context) error
 }
 
@@ -27,8 +33,8 @@ type SearchRepository interface {
 	TopByPidSorted(ctx context.Context, pid int64, sort ClassifySort, limit int) ([]entity.MovieSearch, error)
 	// Filter 多维筛选分页 (含 pid+sort 的可翻页浏览; 返回数据与总数)。
 	Filter(ctx context.Context, spec FilterSpec, page Page) ([]entity.MovieSearch, int64, error)
-	// SearchKeyword 关键字检索 (FULLTEXT ngram)。
-	SearchKeyword(ctx context.Context, keyword string, page Page) ([]entity.MovieSearch, int64, error)
+	// SearchKeyword 关键字检索 (FULLTEXT ngram)。deleted 取 DeletedExclude/DeletedOnly/DeletedInclude。
+	SearchKeyword(ctx context.Context, keyword string, deleted int, page Page) ([]entity.MovieSearch, int64, error)
 	// CountCreatedSince 统计 created_at(毫秒) >= sinceMillis 的影片数 (仪表盘今日/近一周新增)。
 	CountCreatedSince(ctx context.Context, sinceMillis int64) (int64, error)
 	// Related 相关推荐候选 (按 cid + 名称/标签, 内存抽样在 service 层)。
@@ -39,6 +45,13 @@ type SearchRepository interface {
 	Upsert(ctx context.Context, m *entity.MovieSearch) error
 	BatchUpsert(ctx context.Context, list []entity.MovieSearch) error
 	Delete(ctx context.Context, mid int64) error
+	// SoftDelete 给读模型打软删标记, 与 movie 同步。
+	SoftDelete(ctx context.Context, mid, deletedAt int64) error
+	// Restore 清除读模型的软删标记。
+	Restore(ctx context.Context, mid int64) error
+	// SyncDeletedFromMovie 把 movie.deleted_at 回灌到 movie_search。
+	// 由 ShadowCommit 在换表后自动调用(换表会把读模型重建、丢失删除态), 也可单独触发做修复。幂等。
+	SyncDeletedFromMovie(ctx context.Context) error
 
 	// 全量重采无空窗影子表生命周期: Begin(建 movie_search_next) → Write(批量灌) → Commit(RENAME 原子切换 + drop old)。
 	ShadowBegin(ctx context.Context) error

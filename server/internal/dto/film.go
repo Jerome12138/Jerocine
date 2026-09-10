@@ -37,6 +37,26 @@ func ToCards(list []entity.MovieSearch) []Card {
 	return out
 }
 
+// ManageFilmRow 后台影片列表行: 公开 Card + 软删标记。
+// 单独定义而不给 Card 加字段, 是为了不把 deletedAt 泄漏到公开接口契约里。
+type ManageFilmRow struct {
+	Card
+	DeletedAt int64 `json:"deletedAt"`
+}
+
+func ToManageFilmRow(m entity.MovieSearch) ManageFilmRow {
+	return ManageFilmRow{Card: ToCard(m), DeletedAt: m.DeletedAt}
+}
+
+// ToManageFilmRows 后台影片列表批量转换。
+func ToManageFilmRows(list []entity.MovieSearch) []ManageFilmRow {
+	out := make([]ManageFilmRow, 0, len(list))
+	for _, m := range list {
+		out = append(out, ToManageFilmRow(m))
+	}
+	return out
+}
+
 // Episode 单集。
 type Episode struct {
 	Episode string `json:"episode"`

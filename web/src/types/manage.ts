@@ -83,11 +83,21 @@ export interface ManageFilmSearchParams {
   cid?: number
   page?: number
   size?: number
+  /** 软删态过滤：active=仅在架(默认) / deleted=回收站 / all=全部 */
+  status?: ManageFilmStatus
+}
+
+/** 后台影片列表的软删态过滤值 */
+export type ManageFilmStatus = 'active' | 'deleted' | 'all'
+
+/** 后台影片列表行：公开 Card + 软删标记（deletedAt>0 即在回收站） */
+export interface ManageFilmRow extends Card {
+  deletedAt?: number
 }
 
 /** 后台影片搜索响应（{list, page}） */
 export interface ManageFilmSearchResp {
-  list: Card[]
+  list: ManageFilmRow[]
   page: PageMeta
 }
 

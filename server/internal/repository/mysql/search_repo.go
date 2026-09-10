@@ -39,9 +39,41 @@ func orderForClassify(s repository.ClassifySort) string {
 	}
 }
 
+// applyDeleted 追加软删态条件。公开读路径一律传零值(仅未删), 后台回收站传 DeletedOnly。
+func applyDeleted(q *gorm.DB, mode int) *gorm.DB {
+	switch mode {
+	case repository.DeletedOnly:
+		return q.Where("deleted_at > 0")
+	case repository.DeletedInclude:
+		return q // 不限(后台"全部")
+	default:
+		return q.Where("deleted_at = 0")
+	}
+}
+
+// searchUpsertCols 采集回写读模型时参与 ON DUPLICATE KEY UPDATE 的列。
+// 与 movieUpsertCols 同口径: 排除 mid(冲突键)、created_at(首存时间)、deleted_at(软删标记),
+// 保证源站重推不会让已删影片在列表/检索里复活。由 TestSearchUpsertColsCoverEntity 反射校验。
+var searchUpsertCols = []string{
+	"cid", "pid", "name", "sub_title", "c_name", "class_tag",
+	"area", "language", "year", "initial", "name_pinyin", "state", "remarks",
+	"db_score", "hits", "cover", "release_stamp", "update_stamp", "updated_at",
+}
+
+// searchUpsertExclude 见 searchUpsertCols 注释。
+var searchUpsertExclude = map[string]bool{"mid": true, "created_at": true, "deleted_at": true}
+
+// searchUpsertClause 冲突时按内容列更新。MySQL 侧会编译成 `col = VALUES(col)`。
+func searchUpsertClause() clause.OnConflict {
+	return clause.OnConflict{
+		Columns:   []clause.Column{{Name: "mid"}},
+		DoUpdates: clause.AssignmentColumns(searchUpsertCols),
+	}
+}
+
 func (r *searchRepo) GetByMid(ctx context.Context, mid int64) (*entity.MovieSearch, error) {
 	var m entity.MovieSearch
-	err := dbFrom(ctx, r.db).Where("mid = ?", mid).First(&m).Error
+	err := applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude).Where("mid = ?", mid).First(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, domain.ErrNotFound
 	}
@@ -51,10 +83,11 @@ func (r *searchRepo) GetByMid(ctx context.Context, mid int64) (*entity.MovieSear
 	return &m, nil
 }
 
-// CountCreatedSince 统计 created_at(毫秒) >= sinceMillis 的影片数。
+// CountCreatedSince 统计 created_at(毫秒) >= sinceMillis 的影片数(仪表盘今日/近一周新增, 不计已删)。
 func (r *searchRepo) CountCreatedSince(ctx context.Context, sinceMillis int64) (int64, error) {
 	var n int64
-	err := dbFrom(ctx, r.db).Model(&entity.MovieSearch{}).Where("created_at >= ?", sinceMillis).Count(&n).Error
+	err := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude).
+		Where("created_at >= ?", sinceMillis).Count(&n).Error
 	return n, err
 }
 
@@ -63,7 +96,7 @@ func (r *searchRepo) GetByMids(ctx context.Context, mids []int64) ([]entity.Movi
 		return nil, nil
 	}
 	var out []entity.MovieSearch
-	if err := dbFrom(ctx, r.db).Where("mid IN ?", mids).Find(&out).Error; err != nil {
+	if err := applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude).Where("mid IN ?", mids).Find(&out).Error; err != nil {
 		return nil, err
 	}
 	// 按入参 mids 顺序回排 (保持推荐/批量取的顺序)
@@ -85,12 +118,13 @@ func (r *searchRepo) TopByPidSorted(ctx context.Context, pid int64, s repository
 		limit = 14
 	}
 	var out []entity.MovieSearch
-	err := dbFrom(ctx, r.db).Where("pid = ?", pid).Order(orderForClassify(s)).Limit(limit).Find(&out).Error
+	err := applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude).
+		Where("pid = ?", pid).Order(orderForClassify(s)).Limit(limit).Find(&out).Error
 	return out, err
 }
 
 func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, page repository.Page) ([]entity.MovieSearch, int64, error) {
-	q := dbFrom(ctx, r.db).Model(&entity.MovieSearch{})
+	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), spec.Deleted)
 	if spec.Pid > 0 {
 		q = q.Where("pid = ?", spec.Pid)
 	}
@@ -124,14 +158,14 @@ func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, pag
 	return out, total, nil
 }
 
-func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, page repository.Page) ([]entity.MovieSearch, int64, error) {
+func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted int, page repository.Page) ([]entity.MovieSearch, int64, error) {
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
 		return nil, 0, nil
 	}
 	// FULLTEXT ngram 布尔模式, 替代前导通配 LIKE 全表扫。
 	match := "MATCH(name, sub_title) AGAINST (? IN BOOLEAN MODE)"
-	q := dbFrom(ctx, r.db).Model(&entity.MovieSearch{})
+	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), deleted)
 	if isAllAsciiLetters(keyword) {
 		// 纯字母 → 可能是拼音首字母: 走 name_pinyin 前缀匹配, 同时兼容片名全文(英文名)。
 		q = q.Where("name_pinyin LIKE ? OR "+match, strings.ToUpper(keyword)+"%", keyword)
@@ -213,7 +247,8 @@ func (r *searchRepo) Related(ctx context.Context, seed repository.RelatedSeed, c
 		candidateLimit = 200
 	}
 	// 同分类 + (名称近似 OR 标签命中), 不再 ORDER BY RAND(); 随机抽样在 service 内存里做。
-	q := dbFrom(ctx, r.db).Model(&entity.MovieSearch{}).Where("cid = ? AND mid <> ?", seed.Cid, seed.Mid)
+	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude).
+		Where("cid = ? AND mid <> ?", seed.Cid, seed.Mid)
 	conds := dbFrom(ctx, r.db)
 	hasCond := false
 	if name := strings.TrimSpace(seed.Name); name != "" {
@@ -233,24 +268,43 @@ func (r *searchRepo) Related(ctx context.Context, seed repository.RelatedSeed, c
 }
 
 func (r *searchRepo) Upsert(ctx context.Context, m *entity.MovieSearch) error {
-	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "mid"}},
-		UpdateAll: true,
-	}).Create(m).Error
+	return dbFrom(ctx, r.db).Clauses(searchUpsertClause()).Create(m).Error
 }
 
 func (r *searchRepo) BatchUpsert(ctx context.Context, list []entity.MovieSearch) error {
 	if len(list) == 0 {
 		return nil
 	}
-	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "mid"}},
-		UpdateAll: true,
-	}).CreateInBatches(list, 200).Error
+	return dbFrom(ctx, r.db).Clauses(searchUpsertClause()).CreateInBatches(list, 200).Error
 }
 
 func (r *searchRepo) Delete(ctx context.Context, mid int64) error {
 	return dbFrom(ctx, r.db).Where("mid = ?", mid).Delete(&entity.MovieSearch{}).Error
+}
+
+func (r *searchRepo) SoftDelete(ctx context.Context, mid, deletedAt int64) error {
+	if deletedAt <= 0 {
+		deletedAt = nowMilli()
+	}
+	return dbFrom(ctx, r.db).Model(&entity.MovieSearch{}).
+		Where("mid = ?", mid).
+		Update("deleted_at", deletedAt).Error
+}
+
+func (r *searchRepo) Restore(ctx context.Context, mid int64) error {
+	return dbFrom(ctx, r.db).Model(&entity.MovieSearch{}).
+		Where("mid = ?", mid).
+		Update("deleted_at", 0).Error
+}
+
+// SyncDeletedFromMovie 把 movie.deleted_at 回灌到 movie_search。
+// 全量重采的读模型是从采集结果重建的(见 ShadowBegin/ShadowCommit), 新表里 deleted_at 全是 0,
+// 若不回灌, 已删影片会集体回到列表/检索里。JOIN 更新, 只写真正有差异的行。
+func (r *searchRepo) SyncDeletedFromMovie(ctx context.Context) error {
+	return dbFrom(ctx, r.db).Exec(
+		"UPDATE movie_search s JOIN movie m ON s.mid = m.mid " +
+			"SET s.deleted_at = m.deleted_at WHERE s.deleted_at <> m.deleted_at",
+	).Error
 }
 
 // ---- 全量重采无空窗影子表 ----
@@ -275,7 +329,12 @@ func (r *searchRepo) ShadowCommit(ctx context.Context) error {
 	if err := db.Exec("RENAME TABLE movie_search TO movie_search_old, movie_search_next TO movie_search").Error; err != nil {
 		return err
 	}
-	return db.Exec("DROP TABLE IF EXISTS movie_search_old").Error
+	if err := db.Exec("DROP TABLE IF EXISTS movie_search_old").Error; err != nil {
+		return err
+	}
+	// 新表完全由采集结果重建, deleted_at 一律为 0; 换表后立刻回灌, 否则已删影片会集体复活。
+	// 收敛在换表这一处而不是让采集侧记得调, 是为了让"读模型与主表删除态一致"成为不可绕过的不变量。
+	return r.SyncDeletedFromMovie(ctx)
 }
 
 func (r *searchRepo) Truncate(ctx context.Context) error {
@@ -319,7 +378,8 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 		C int64
 	}
 	var combos []cntRow
-	if err := db.Model(&entity.MovieSearch{}).Select("class_tag AS v, COUNT(*) AS c").
+	if err := applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude).
+		Select("class_tag AS v, COUNT(*) AS c").
 		Where("pid = ? AND class_tag <> ''", pid).Group("class_tag").Scan(&combos).Error; err != nil {
 		return nil, err
 	}
@@ -337,7 +397,7 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 
 	// Year: 存在的年份倒序
 	var years []int
-	if err := db.Model(&entity.MovieSearch{}).
+	if err := applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude).
 		Where("pid = ? AND year > 0", pid).
 		Distinct().Order("year DESC").Limit(12).Pluck("year", &years).Error; err != nil {
 		return nil, err
@@ -372,7 +432,8 @@ func (r *searchRepo) groupTop(db *gorm.DB, pid int64, col string, limit int) []r
 		C int64
 	}
 	var rows []cntRow
-	db.Model(&entity.MovieSearch{}).Select(col+" AS v, COUNT(*) AS c").
+	applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude).
+		Select(col+" AS v, COUNT(*) AS c").
 		Where("pid = ? AND "+col+" <> ''", pid).Group(col).Order("c DESC").Limit(limit).Scan(&rows)
 	out := make([]repository.TagOption, 0, len(rows))
 	for _, row := range rows {

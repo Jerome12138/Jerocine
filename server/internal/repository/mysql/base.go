@@ -5,11 +5,15 @@ package mysql
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 
 	"server/internal/domain/repository"
 )
+
+// nowMilli 当前毫秒时间戳。库内 BIGINT 时间列统一用毫秒口径(软删除戳、失败台账等), 故下沉到共享层。
+func nowMilli() int64 { return time.Now().UnixMilli() }
 
 type ctxTxKey struct{}
 

@@ -44,6 +44,14 @@ export const classUpdate = (data: FilmClass): Promise<void> =>
 export const add = (data: FilmAddPayload): Promise<void> =>
   http.post<unknown, void>('/manage/films', data)
 
+/** DELETE /manage/films/:mid 软删影片（可在回收站恢复） */
+export const softDelete = (mid: number | string): Promise<void> =>
+  http.delete<unknown, void>(`/manage/films/${mid}`)
+
+/** POST /manage/films/:mid/restore 从回收站恢复影片 */
+export const restore = (mid: number | string): Promise<void> =>
+  http.post<unknown, void>(`/manage/films/${mid}/restore`)
+
 /** GET /manage/films/:mid/detail 后台影片详情(实时全源全集) */
 export const detail = (mid: number | string): Promise<ManageFilmDetailResp> =>
   http.get<unknown, ManageFilmDetailResp>(`/manage/films/${mid}/detail`)

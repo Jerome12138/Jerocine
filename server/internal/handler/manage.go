@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -273,6 +274,8 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 
 // ---- 影片管理 ----
 
+// ManageFilms GET /manage/films 后台影片搜索(分页 {list,page})。
+// status 取 active(默认, 仅在架) | deleted(回收站) | all(全部)。
 func (h *Handlers) ManageFilms(c *gin.Context) {
 	// cid 兼容前端 cid / 旧 category 两种入参
 	cid := queryInt64(c, "cid")
@@ -281,6 +284,7 @@ func (h *Handlers) ManageFilms(c *gin.Context) {
 	}
 	spec := repository.FilterSpec{
 		Keyword: c.Query("keyword"), Pid: queryInt64(c, "pid"), Cid: cid,
+		Deleted: deletedMode(c.Query("status")),
 	}
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
 	res, err := h.Manage.SearchFilms(c.Request.Context(), spec, page)
@@ -288,7 +292,39 @@ func (h *Handlers) ManageFilms(c *gin.Context) {
 		dto.Fail(c, err)
 		return
 	}
-	dto.Page(c, dto.ToCards(res.List), res.Page.Current, res.Page.Size, res.Total)
+	dto.Page(c, dto.ToManageFilmRows(res.List), res.Page.Current, res.Page.Size, res.Total)
+}
+
+// deletedMode 把后台的 status 查询串映射成软删态过滤维度。
+func deletedMode(status string) int {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "deleted", "trash":
+		return repository.DeletedOnly
+	case "all", "any":
+		return repository.DeletedInclude
+	default:
+		return repository.DeletedExclude
+	}
+}
+
+// DeleteFilm DELETE /manage/films/:mid 软删影片(可在回收站恢复)。
+func (h *Handlers) DeleteFilm(c *gin.Context) {
+	mid, ok := pathInt64(c, "mid")
+	if !ok {
+		dto.Error(c, http.StatusBadRequest, "invalid mid")
+		return
+	}
+	respond(c, nil, h.Manage.SoftDeleteFilm(c.Request.Context(), mid))
+}
+
+// RestoreFilm POST /manage/films/:mid/restore 恢复被软删的影片。
+func (h *Handlers) RestoreFilm(c *gin.Context) {
+	mid, ok := pathInt64(c, "mid")
+	if !ok {
+		dto.Error(c, http.StatusBadRequest, "invalid mid")
+		return
+	}
+	respond(c, nil, h.Manage.RestoreFilm(c.Request.Context(), mid))
 }
 
 // ManageFilmDetail GET /manage/films/:mid/detail 后台影片详情(影片 + 全部源与集, 实时读库)。

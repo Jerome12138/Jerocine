@@ -108,6 +108,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/films", h.AddFilm)
 		mg.GET("/films/:mid", h.ManageGetFilm)
 		mg.GET("/films/:mid/detail", h.ManageFilmDetail) // 影片 + 全部源与集(实时)
+		mg.DELETE("/films/:mid", h.DeleteFilm)            // 软删(可在回收站恢复)
+		mg.POST("/films/:mid/restore", h.RestoreFilm)     // 从回收站恢复
 
 		mg.GET("/spider/jobs", h.SpiderJobs)
 		mg.POST("/spider/jobs", h.SpiderStart)

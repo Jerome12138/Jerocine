@@ -31,6 +31,9 @@ type Movie struct {
 	UpdateStamp  int64       `gorm:"column:update_stamp" json:"updateStamp"`
 	CreatedAt    int64       `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
 	UpdatedAt    int64       `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	// DeletedAt 软删除时间戳(毫秒), 0 = 未删。采集 upsert 不覆盖该列(见 movieUpsertCols),
+	// 所以已删影片被源站重新推回来也不会自动复活, 只有后台显式恢复才会。
+	DeletedAt int64 `gorm:"column:deleted_at" json:"deletedAt"`
 }
 
 func (Movie) TableName() string { return "movie" }
@@ -59,6 +62,9 @@ type MovieSearch struct {
 	UpdateStamp  int64   `gorm:"column:update_stamp" json:"updateStamp"`
 	CreatedAt    int64   `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
 	UpdatedAt    int64   `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	// DeletedAt 软删除标记的读模型镜像; 由 movie.deleted_at 同步而来(见 SearchRepository.SyncDeletedFromMovie)。
+	// 公开列表/检索/推荐全部带 deleted_at = 0 过滤, 后台列表可显式查已删。
+	DeletedAt int64 `gorm:"column:deleted_at" json:"deletedAt"`
 }
 
 func (MovieSearch) TableName() string { return "movie_search" }

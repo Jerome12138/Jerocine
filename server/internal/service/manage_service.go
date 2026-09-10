@@ -579,7 +579,7 @@ func (s *ManageService) SearchFilms(ctx context.Context, spec repository.FilterS
 		err   error
 	)
 	if kw := strings.TrimSpace(spec.Keyword); kw != "" {
-		list, total, err = s.search.SearchKeyword(ctx, kw, page)
+		list, total, err = s.search.SearchKeyword(ctx, kw, spec.Deleted, page)
 	} else {
 		list, total, err = s.search.Filter(ctx, spec, page)
 	}
@@ -589,8 +589,9 @@ func (s *ManageService) SearchFilms(ctx context.Context, spec repository.FilterS
 	return CardPage{List: list, Total: total, Page: page}, nil
 }
 
+// GetFilm 后台读取单部影片; 含已软删(后台要能看到并恢复它们)。
 func (s *ManageService) GetFilm(ctx context.Context, mid int64) (*entity.Movie, error) {
-	return s.movie.GetByMid(ctx, mid)
+	return s.movie.GetByMidIncludingDeleted(ctx, mid)
 }
 
 // ManageFilmSource 后台影片详情的单个播放源(按 siteId+playFrom 去重后的一条线路)。
@@ -611,7 +612,7 @@ type ManageFilmDetail struct {
 // FilmDetail 后台影片详情: 主站(按 mid) + 各补充源(按 match_key 命中)装配所有源与集, 实时读库。
 // 与公开 assembleSources 同口径但不缓存、不排延时, 便于采集后立即查看。
 func (s *ManageService) FilmDetail(ctx context.Context, mid int64) (*ManageFilmDetail, error) {
-	m, err := s.movie.GetByMid(ctx, mid)
+	m, err := s.movie.GetByMidIncludingDeleted(ctx, mid)
 	if err != nil {
 		return nil, err
 	}
@@ -683,4 +684,45 @@ func (s *ManageService) AddFilm(ctx context.Context, m *entity.Movie) (int64, er
 	}
 	cache.InvalidateMovie(ctx, m.Mid)
 	return m.Mid, nil
+}
+
+// SoftDeleteFilm 软删影片: 事务双写 movie + movie_search 的 deleted_at, 再失效内容缓存。
+// 不做物理删除 —— 采集源随时会把同一部片再推一遍, 物理删早晚会被长回来;
+// 打标记后公开读路径立刻看不到它, 后台可在回收站恢复。
+func (s *ManageService) SoftDeleteFilm(ctx context.Context, mid int64) error {
+	if mid <= 0 {
+		return domain.ErrInvalidArgument
+	}
+	at := time.Now().UnixMilli()
+	err := s.tx.WithinTx(ctx, func(ctx context.Context) error {
+		if err := s.movie.SoftDelete(ctx, mid, at); err != nil {
+			return err
+		}
+		return s.search.SoftDelete(ctx, mid, at)
+	})
+	if err != nil {
+		return err
+	}
+	cache.InvalidateMovie(ctx, mid)
+	cache.InvalidateAfterCollect(ctx) // 列表/分类页/标签/推荐都受影响, 按变更片处理
+	return nil
+}
+
+// RestoreFilm 恢复被软删的影片, 与 SoftDeleteFilm 对称。
+func (s *ManageService) RestoreFilm(ctx context.Context, mid int64) error {
+	if mid <= 0 {
+		return domain.ErrInvalidArgument
+	}
+	err := s.tx.WithinTx(ctx, func(ctx context.Context) error {
+		if err := s.movie.Restore(ctx, mid); err != nil {
+			return err
+		}
+		return s.search.Restore(ctx, mid)
+	})
+	if err != nil {
+		return err
+	}
+	cache.InvalidateMovie(ctx, mid)
+	cache.InvalidateAfterCollect(ctx)
+	return nil
 }

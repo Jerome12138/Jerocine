@@ -24,7 +24,7 @@ func (f *fakeSearchKW) Filter(context.Context, repository.FilterSpec, repository
 	f.filterCalls++
 	return nil, 0, nil
 }
-func (f *fakeSearchKW) SearchKeyword(_ context.Context, kw string, _ repository.Page) ([]entity.MovieSearch, int64, error) {
+func (f *fakeSearchKW) SearchKeyword(_ context.Context, kw string, _ int, _ repository.Page) ([]entity.MovieSearch, int64, error) {
 	f.keywordCalls++
 	f.lastKeyword = kw
 	return nil, 0, nil
