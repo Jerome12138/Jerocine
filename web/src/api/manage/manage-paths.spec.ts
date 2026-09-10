@@ -37,6 +37,7 @@ vi.mock('../http', () => {
   }
 })
 
+import * as banner from './banner'
 import * as collect from './collect'
 import * as cron from './cron'
 import * as file from './file'
@@ -160,6 +161,30 @@ describe('manage file api → 新 REST 路由', () => {
     const url = await file.upload(new FormData())
     expect(h.calls[0]).toMatchObject({ method: 'POST', url: '/manage/files' })
     expect(url).toBe('http://x/y.jpg')
+  })
+})
+
+describe('manage banner api → 新 REST 路由', () => {
+  const draft = { id: 0, title: 't', subtitle: '', image: '', poster: '', mid: 0, link: '', sort: 0, state: 0, startAt: 0, endAt: 0 }
+
+  it('list → GET /manage/banners', async () => {
+    await banner.list()
+    expect(h.calls[0]).toMatchObject({ method: 'GET', url: '/manage/banners' })
+  })
+
+  it('save 无 id → POST /manage/banners', async () => {
+    await banner.save({ ...draft })
+    expect(h.calls[0]).toMatchObject({ method: 'POST', url: '/manage/banners' })
+  })
+
+  it('save 带 id → PUT /manage/banners/:id', async () => {
+    await banner.save({ ...draft, id: 7 })
+    expect(h.calls[0]).toMatchObject({ method: 'PUT', url: '/manage/banners/7' })
+  })
+
+  it('remove → DELETE /manage/banners/:id', async () => {
+    await banner.remove(7)
+    expect(h.calls[0]).toMatchObject({ method: 'DELETE', url: '/manage/banners/7' })
   })
 })
 

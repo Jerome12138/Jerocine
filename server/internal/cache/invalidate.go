@@ -23,6 +23,11 @@ func InvalidateConfig(ctx context.Context) {
 	Del(ctx, KeyCfgSite, KeyCfgVersion, KeyCfgSources)
 }
 
+// InvalidateBanners 轮播配置变更后失效其缓存。
+func InvalidateBanners(ctx context.Context) {
+	Del(ctx, KeyBanners)
+}
+
 // InvalidateCategory 分类变更后失效分类树 + 首页。
 func InvalidateCategory(ctx context.Context) {
 	Del(ctx, KeyCatTree, KeyHomeAgg)

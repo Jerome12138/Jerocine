@@ -26,6 +26,7 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/films/:mid/play", h.Play)
 	v1.GET("/films/:mid/related", h.Related)
 	v1.GET("/config/site", h.SiteConfig)
+	v1.GET("/banners", h.HomeBanners)
 	v1.GET("/app/version/latest", h.VersionLatest)
 	// m3u8 代理须为 GET: <video>/hls.js 按 src 拉取 manifest, 无法 POST。
 	v1.GET("/m3u8/proxy", middleware.RateLimit("m3u8", 30, 10), h.M3u8Proxy)
@@ -100,6 +101,11 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/app-versions", h.CreateVersion)
 		mg.DELETE("/app-versions/:id", h.DeleteVersion)
 		mg.POST("/app-versions/apk", h.UploadApk)
+
+		mg.GET("/banners", h.ListBanners)
+		mg.POST("/banners", h.UpsertBanner)
+		mg.PUT("/banners/:id", h.UpsertBanner)
+		mg.DELETE("/banners/:id", h.DeleteBanner)
 
 		mg.GET("/users", h.ListUsers)
 		mg.POST("/users", h.CreateUser)

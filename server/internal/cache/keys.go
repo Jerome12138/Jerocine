@@ -20,6 +20,7 @@ const (
 	KeyCfgSite    = "v1:cfg:site"
 	KeyCfgVersion = "v1:cfg:version"
 	KeyCfgSources = "v1:cfg:sources"
+	KeyBanners    = "v1:cfg:banners"
 )
 
 // 失效用的 pattern(SCAN, 不用 KEYS)。

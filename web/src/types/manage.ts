@@ -251,4 +251,27 @@ export interface DashboardStat {
   todayNew?: number
   weekNew?: number
   downSources?: number
+/** 首页轮播 Banner（GET /manage/banners, 后端 entity.Banner） */
+export interface Banner {
+  id: number
+  title: string
+  subtitle: string
+  /** 横图（宽幅主视觉） */
+  image: string
+  /** 竖图（窄屏/兜底） */
+  poster: string
+  /** 关联影片（跳详情）；0=不关联 */
+  mid: number
+  /** 自定义跳转（站内路径或外链）；优先于 mid */
+  link: string
+  /** 越小越靠前 */
+  sort: number
+  /** 0 启用 / 1 停用 */
+  state: number
+  /** 生效起（ms）；0=不限 */
+  startAt: number
+  /** 生效止（ms）；0=不限 */
+  endAt: number
+  createdAt?: number
+  updatedAt?: number
 }

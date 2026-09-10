@@ -109,6 +109,21 @@ type SiteConfigRepository interface {
 	Save(ctx context.Context, c *entity.SiteConfig) error
 }
 
+// BannerRepository 首页轮播配置。
+type BannerRepository interface {
+	// ListEnabled 当前生效的 Banner(启用且在生效窗口内), 按 sort/id 升序。
+	// now 由调用方传入, 便于测试固定时间。
+	ListEnabled(ctx context.Context, now int64) ([]entity.Banner, error)
+	// ListAll 后台全量列表, 按 sort/id 升序。
+	ListAll(ctx context.Context) ([]entity.Banner, error)
+	// Get 按 id 取单条; 不存在返回 domain.ErrNotFound。
+	Get(ctx context.Context, id int64) (*entity.Banner, error)
+	Create(ctx context.Context, b *entity.Banner) error
+	// Update 按 id 整体覆盖可编辑字段。
+	Update(ctx context.Context, b *entity.Banner) error
+	Delete(ctx context.Context, id int64) error
+}
+
 // AppVersionRepository APK 版本。
 type AppVersionRepository interface {
 	Latest(ctx context.Context, channel int8) (*entity.AppVersion, error)

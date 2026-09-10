@@ -20,6 +20,7 @@ type Handlers struct {
 	Telemetry *service.TelemetryService
 	Manage     *service.ManageService
 	Spider     *service.SpiderService
+	Banner     *service.BannerService
 	Blob       blobstore.BlobStore
 	ResetToken string // /manage/spider/reset 二次确认 token
 }

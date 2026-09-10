@@ -14,12 +14,12 @@ import BaseImage from '@/components/base/BaseImage.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
-import type { Card, HomeData } from '@/types/film'
+import type { Card, HeroItem, HomeBanner, HomeData } from '@/types/film'
 
 /**
  * 首页 — STORY-008
  * - 调 GET /api/index 拿 { banner, content[] }
- * - HeroCarousel：banner 优先，回退 content[0].movies.slice(0, 5)
+ * - HeroCarousel：后台配置的轮播优先，无配置时回退第一行 hot/latest 前 5
  * - 按 content[i] 渲染若干 FilmRow（title=nav.name，items=movies）
  * - PC 大屏右侧栏显示 hot 前 12 条（取 content[0].hot，兜底合并）
  * - 加载中：HeroCarousel 区骨架 + 多行骨架
@@ -41,7 +41,10 @@ const state = ref<IndexState>({
   data: null
 })
 
-// 后端 /home 已做区块化聚合(无独立 banner): 首屏取第一行的 hot/latest 前 5。
+// 后台配置的轮播(可为空 —— 空则按下面 heroItems 派生, 保证首页永远有大图)
+const banners = ref<HomeBanner[]>([])
+
+// 后端 /home 已做区块化聚合(无独立 banner): 回退时取第一行的 hot/latest 前 5。
 const heroItems = computed<Card[]>(() => {
   const data = state.value.data
   if (!data) return []
@@ -50,6 +53,26 @@ const heroItems = computed<Card[]>(() => {
     if (row.latest?.length) return row.latest.slice(0, 5)
   }
   return []
+})
+
+/**
+ * 首屏大图最终数据源: 后台轮播优先, 否则回退影片派生。
+ * Banner → HeroItem 映射要点: image(横图) 映射到 poster(主视觉背景), poster(竖图) 映射到 cover(侧栏竖海报)。
+ * 只给了竖图的 banner 不置 poster, 交给 HeroCarousel 走"模糊铺底 + 侧栏竖海报"的兜底观感。
+ */
+const heroSlides = computed<HeroItem[]>(() => {
+  const configured = banners.value.filter((b) => b.image || b.poster)
+  if (configured.length) {
+    return configured.map((b) => ({
+      mid: b.mid || undefined,
+      name: b.title || '为你推荐',
+      poster: b.image || '',
+      cover: b.poster || '',
+      remarks: b.subtitle || '',
+      link: b.link || ''
+    }))
+  }
+  return heroItems.value
 })
 
 /** 热门榜单 — 合并各区块 hot(后端真实热门, cover 已进表, 无需回填) */
@@ -98,17 +121,25 @@ const recommendGrid = computed<Card[]>(() => {
 
 /* ============ 以下仅 TV 雷鸟分支复用的派生数据 (均基于已拉取的 state.data, 无新接口) ============ */
 
-/** TV 推荐轮播: 自动轮播 heroItems(每 6s 切一张), 点击进详情 */
+/** TV 推荐轮播: 自动轮播 heroSlides(每 6s 切一张), 点击进详情 */
 const tvHeroIdx = ref(0)
-const tvHero = computed<Card | null>(() => {
-  const items = heroItems.value
+const tvHero = computed<HeroItem | null>(() => {
+  const items = heroSlides.value
   if (!items.length) return null
   return items[tvHeroIdx.value % items.length] ?? items[0] ?? null
 })
-const tvHeroDots = computed<number>(() => Math.min(heroItems.value.length, 5))
+const tvHeroDots = computed<number>(() => Math.min(heroSlides.value.length, 5))
 const tvHeroActive = computed<number>(() =>
-  heroItems.value.length ? tvHeroIdx.value % heroItems.value.length : 0
+  heroSlides.value.length ? tvHeroIdx.value % heroSlides.value.length : 0
 )
+/** TV 推荐卡跳转: 自定义链接优先, 否则按关联影片进详情 */
+const tvHeroTo = computed<string | Record<string, unknown>>(() => {
+  const h = tvHero.value
+  if (!h) return '/'
+  if (h.link) return h.link
+  if (h.mid) return { path: '/filmDetail', query: { link: String(h.mid) } }
+  return '/'
+})
 let tvHeroTimer: number | null = null
 
 /** TV 推荐卡副标题: 年份·地区·分类·更新备注 */
@@ -193,11 +224,21 @@ async function loadIndex(): Promise<void> {
   }
 }
 
+/** 轮播单独拉: 失败就静默回退影片派生, 不连累整页 */
+async function loadBanners(): Promise<void> {
+  try {
+    banners.value = (await filmApi.getBanners()) ?? []
+  } catch {
+    banners.value = []
+  }
+}
+
 onMounted(() => {
   loadIndex()
+  loadBanners()
   if (isTV.value) {
     tvHeroTimer = window.setInterval(() => {
-      const n = heroItems.value.length
+      const n = heroSlides.value.length
       if (n > 1) tvHeroIdx.value = (tvHeroIdx.value + 1) % n
     }, 6000)
   }
@@ -280,20 +321,20 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <!-- 推荐轮播 (自动轮播 heroItems; 海报作背景, 点击进详情) -->
+          <!-- 推荐轮播 (自动轮播 heroSlides; 海报作背景, 点击进详情) -->
           <RouterLink
             v-if="tvHero"
-            :to="{ path: '/filmDetail', query: { link: String(tvHero.mid) } }"
+            :to="tvHeroTo"
             class="gf-tv-carousel gf-home-tv__hero"
             data-focusable="true"
             tabindex="0"
             :aria-label="`为你推荐 ${tvHero.name}`"
           >
             <BaseImage
-              v-if="tvHero.cover"
-              :key="tvHero.mid"
+              v-if="tvHero.cover || tvHero.poster"
+              :key="tvHero.mid ?? tvHero.name"
               class="gf-home-tv__hero-bg"
-              :src="tvHero.cover"
+              :src="tvHero.cover || tvHero.poster || ''"
               :alt="tvHero.name"
               ratio=""
               fit="cover"
@@ -413,13 +454,13 @@ onBeforeUnmount(() => {
 
       <!-- ============================== 桌面 / 移动: 原样 ============================== -->
       <template v-else>
-        <!-- 轮播 Banner -->
+        <!-- 轮播 Banner (后台配置优先, 无配置回退影片派生) -->
         <div
-          v-if="heroItems.length"
+          v-if="heroSlides.length"
           class="container-page pt-[var(--gf-space-6)]"
         >
           <HeroCarousel
-            :items="heroItems"
+            :items="heroSlides"
             class="rounded-[var(--gf-radius-lg)] overflow-hidden"
           />
         </div>

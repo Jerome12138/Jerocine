@@ -31,6 +31,41 @@ export interface Card {
   dbScore: number
 }
 
+/** 首页轮播项(后台配置, GET /banners)。 */
+export interface HomeBanner {
+  id: number
+  title: string
+  subtitle: string
+  /** 横图(宽幅主视觉) */
+  image: string
+  /** 竖图(窄屏/兜底) */
+  poster: string
+  /** 关联影片(跳详情); 0=不关联 */
+  mid: number
+  /** 自定义跳转(站内路径或外链); 优先于 mid */
+  link: string
+  sort: number
+  state: number
+  startAt: number
+  endAt: number
+}
+
+/** HeroCarousel 单项 —— 兼容"影片卡片(Card)"与"后台 Banner"两种来源。 */
+export interface HeroItem {
+  mid?: number
+  name: string
+  /** 竖图/封面 */
+  cover?: string
+  /** 横图(宽幅主视觉) */
+  poster?: string
+  cName?: string
+  area?: string
+  year?: number
+  remarks?: string
+  /** 自定义跳转(站内路径或外链); 有则优先于 mid */
+  link?: string
+}
+
 /** 单集 */
 export interface Episode {
   episode: string

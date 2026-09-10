@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { Card } from '@/types/film'
+import type { HeroItem } from '@/types/film'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import { useViewMode } from '@/composables/useViewMode'
 
 interface Props {
-  items: Card[]
+  /**
+   * 轮播项。兼容两种来源：影片卡片(Card) 与 后台配置的轮播图(只有标题/图/跳转)。
+   * Card 的字段是 HeroItem 的超集，所以直接传 Card[] 也是合法的。
+   */
+  items: HeroItem[]
   /** 自动切换间隔（ms），默认根据 mode：tv 6000 / 其他 4000 */
   interval?: number
   /** 是否显示左右箭头 */
@@ -96,10 +100,16 @@ function onTouchEnd(): void {
   paused.value = false
 }
 
-// 详情跳转
-function gotoDetail(item: Card | undefined): void {
+// 详情跳转：自定义链接优先（外链新开页），否则按关联影片进详情
+function gotoDetail(item: HeroItem | undefined): void {
   if (!item) return
-  router.push({ path: '/filmDetail', query: { link: String(item.mid) } })
+  const link = item.link?.trim()
+  if (link) {
+    if (/^https?:\/\//i.test(link)) window.open(link, '_blank', 'noopener,noreferrer')
+    else router.push(link)
+    return
+  }
+  if (item.mid) router.push({ path: '/filmDetail', query: { link: String(item.mid) } })
 }
 
 // 键盘导航：左右箭头切换

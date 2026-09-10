@@ -7,6 +7,7 @@ import type {
   FilmDetailResp,
   FilmsQuery,
   Filters,
+  HomeBanner,
   HomeData,
   NavCategory,
   PlayInfo
@@ -19,6 +20,10 @@ export const getHome = (): Promise<HomeData> =>
 /** GET /categories 导航分类 */
 export const getCategories = (): Promise<NavCategory[]> =>
   http.get<unknown, NavCategory[]>('/categories')
+
+/** GET /banners 首页轮播(后台可配; 返回空数组时前端回退按热门派生) */
+export const getBanners = (): Promise<HomeBanner[]> =>
+  swrGet('banners', (silent) => http.get<unknown, HomeBanner[]>('/banners', { silent }))
 
 /** GET /categories/:pid/filters 某一级分类的筛选维度(SWR 按 pid) */
 export const getFilters = (pid: number | string): Promise<Filters> =>
