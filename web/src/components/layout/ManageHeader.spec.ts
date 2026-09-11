@@ -77,10 +77,19 @@ describe('ManageHeader 汉堡按钮分支', () => {
     expect(w.find('h3').text()).toBe('Dashboard')
   })
 
-  it('未登录时 nickname/username 不存在 → 显示「管理员」兜底', async () => {
+  it('未登录时 displayName 取 store 兜底「用户」, 不再显示「管理员」', async () => {
     const w = await mountHeader({})
     const userStore = useUserStore()
-    // userStore.info 默认未设置
-    expect(w.text()).toContain('管理员')
+    // userStore.info 默认未设置 → displayName 兜底 '用户'
+    expect(userStore.displayName).toBe('用户')
+    expect(w.text()).toContain('用户')
+    expect(w.text()).not.toContain('管理员')
+  })
+
+  it('已登录且 nickName 存在 → 按实际昵称展示', async () => {
+    const userStore = useUserStore()
+    userStore.info = { id: 1, nickName: '老王', avatar: 'empty' }
+    const w = await mountHeader({})
+    expect(w.text()).toContain('老王')
   })
 })

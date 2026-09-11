@@ -17,7 +17,7 @@ const userStore = useUserStore()
 const uiStore = useUIStore()
 const route = useRoute()
 const router = useRouter()
-const { info } = storeToRefs(userStore)
+const { info, displayName } = storeToRefs(userStore)
 
 const dropdownOpen = ref(false)
 const dialogOpen = ref(false)
@@ -69,12 +69,12 @@ async function submitPwd(): Promise<void> {
   }
 }
 
-const avatar = computed(
-  () =>
-    info.value?.avatar && info.value.avatar !== 'empty'
-      ? info.value.avatar
-      : 'https://s2.loli.net/2023/12/05/O2SEiUcMx5aWlv4.jpg'
-)
+const avatar = computed(() => {
+  const a = info.value?.avatar
+  if (a && a !== 'empty') return a
+  // 与公开端同源: 本地静态 SVG (远程占位图在弱网/被墙时白图)
+  return '/default-avatar.svg'
+})
 </script>
 
 <template>
@@ -109,7 +109,7 @@ const avatar = computed(
           class="w-[32px] h-[32px] rounded-full border border-white/40 object-cover"
         />
         <span class="text-sm hidden md:inline">
-          {{ info?.nickname || info?.username || '管理员' }}
+          {{ displayName }}
         </span>
         <BaseIcon name="chevron-down" size="14px" />
       </button>
