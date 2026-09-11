@@ -7,7 +7,8 @@
 
 - **只对首页轮播影片回填**（手动配置位 + 热榜自动补位，共前 5 位），TMDB 用量与轮播规模成正比；
 - **图片落本地 blob**（`/api/upload/backdrop/{mid}.jpg`），访问终端无需直连 TMDB（`image.tmdb.org` 在大陆不可直连）；
-- **未配置 Key = 功能整体关闭**，worker 不启动，其余功能不受任何影响。
+- **Key 走管理后台维护**（保存前验真、热生效、掩码显示），也可用服务器环境变量兜底；
+- **未配置 Key = 功能整体关闭**，其余功能不受任何影响。
 
 ## 一、申请 API Key（免费）
 
@@ -21,9 +22,19 @@
 > 免费档限速约 50 req/s，本站 worker 自限约 3 req/s，正常使用不会触顶。
 > Key 丢失可随时回到同一页面找回，无需备份明文。
 
-## 二、配置到部署环境
+## 二、配置
 
-在服务器 `deploy/.env`（与 `docker-compose.yml` 同目录，**不进 git**）追加：
+### 方式 A（推荐）：管理后台配置，即时生效
+
+登录管理后台 → **系统 → 站点配置 → TMDB API Key**，粘贴 v3 key 或 v4 token 后点「保存 Key」：
+
+- 保存前服务端会到 TMDB 验真，无效 key 直接拒绝，避免横图静默不回填；
+- 保存即热生效（worker 下一轮立即用新 key），**无需重启**；已配置的 key 只显示掩码（如 `0c06…676b`），明文不可回看；
+- 「清除」即停用横图回填，已落地的图片不受影响。
+
+### 方式 B（备选）：服务器环境变量
+
+适合部署脚本自动化、或不便登后台的场景。在服务器 `deploy/.env`（与 `docker-compose.yml` 同目录，**不进 git**）追加：
 
 ```bash
 # 必填：v3 API Key 或 v4 Read Access Token，二选一；留空 = 功能关闭
@@ -46,6 +57,8 @@ TMDB_API_KEY=你的key
 cd /home/ubuntu/jerocine/deploy
 docker compose --env-file .env up -d --no-deps server
 ```
+
+> 优先级：**后台配置 > 环境变量**。后台未配置时才回落 env；两者都空 = 功能整体关闭。
 
 ## 三、验证是否生效
 
