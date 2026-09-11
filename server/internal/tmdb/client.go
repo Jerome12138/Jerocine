@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,20 +22,19 @@ import (
 // 对外 DTO 会把它归一为空串, 前端永远见不到这个值。
 const MissMark = "-"
 
-// Client TMDB v3 API 客户端。APIKey 为空时构造返回 nil(功能关闭), 调用方须判空。
+// Client TMDB v3/v4 API 客户端。key 可运行期热替换(管理后台维护), 为空时检索调用返回错误
+// (功能关闭), 调用方无需判空客户端本体。
 type Client struct {
-	apiKey  string
+	mu      sync.RWMutex
+	apiKey  string // 空串 = 未配置; SetKey 运行期热更新(后台保存即生效)
 	lang    string
 	baseURL string // 默认 https://api.themoviedb.org/3, 可被配置覆盖(自建反代)
 	image   string // 图片 CDN 前缀, 如 https://image.tmdb.org/t/p/
 	hc      *http.Client
 }
 
-// New 构造客户端。apiKey 为空 → 返回 nil(整体功能关闭, 不报错)。
+// New 构造客户端。apiKey 可为空(功能待配置), 后续经 SetKey 热更新。
 func New(apiKey, lang, apiBase, imageBase string) *Client {
-	if apiKey == "" {
-		return nil
-	}
 	if lang == "" {
 		lang = "zh-CN"
 	}
@@ -51,6 +51,20 @@ func New(apiKey, lang, apiBase, imageBase string) *Client {
 		image:   strings.TrimRight(imageBase, "/") + "/",
 		hc:      &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// SetKey 运行期替换凭据(空串 = 关闭)。供管理后台保存/清除后热生效, 无需重启。
+func (c *Client) SetKey(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.apiKey = key
+}
+
+// key 当前凭据快照。
+func (c *Client) key() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.apiKey
 }
 
 // ImageURL 由 backdrop_path 拼出 w1280 规格(轮播/详情 hero 够用)的图片 URL。
@@ -82,6 +96,9 @@ type searchResp struct {
 // 先按 movie 搜(年份可精确过滤), 再试 tv, 都没有时再各做一次不带年份的兜底 —— 采集源年份
 // 常见错标, 宽松兜底比精确无果更符合"有横图比没有强"的目标。
 func (c *Client) SearchBackdrop(ctx context.Context, name string, year int) (string, error) {
+	if c.key() == "" {
+		return "", fmt.Errorf("tmdb: api key not configured")
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", fmt.Errorf("tmdb: empty query")
@@ -102,6 +119,7 @@ func (c *Client) SearchBackdrop(ctx context.Context, name string, year int) (str
 
 // searchOne 单类目检索; withYear=false 时忽略年份过滤。无命中/无横图返回 ""。
 func (c *Client) searchOne(ctx context.Context, kind, name string, year int, withYear bool) (string, error) {
+	key := c.key()
 	q := url.Values{}
 	q.Set("query", name)
 	q.Set("language", c.lang)
@@ -116,8 +134,8 @@ func (c *Client) searchOne(ctx context.Context, kind, name string, year int, wit
 	}
 	// 鉴权二选一: v4 Read Access Token(三段式长 JWT)走 Bearer 头;
 	// 常见的 v3 API Key(32 位十六进制)走 api_key 查询参数, 放 Bearer 头会 401。
-	if !isJWTToken(c.apiKey) {
-		q.Set("api_key", c.apiKey)
+	if !isJWTToken(key) {
+		q.Set("api_key", key)
 	}
 	endpoint := c.baseURL + "/search/" + kind + "?" + q.Encode()
 
@@ -125,8 +143,8 @@ func (c *Client) searchOne(ctx context.Context, kind, name string, year int, wit
 	if err != nil {
 		return "", err
 	}
-	if isJWTToken(c.apiKey) {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if isJWTToken(key) {
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	req.Header.Set("Accept", "application/json")
 
@@ -153,4 +171,50 @@ func (c *Client) searchOne(ctx context.Context, kind, name string, year int, wit
 		}
 	}
 	return "", nil
+}
+
+// authResp /authentication 的响应(只关心 success)。
+type authResp struct {
+	Success bool `json:"success"`
+}
+
+// Verify 校验候选凭据是否有效(v3 key / v4 token 均可), 供管理后台保存前验真,
+// 避免存进一个错 key 之后横图静默不回填。网络错误原样返回, 由调用方提示重试。
+func (c *Client) Verify(ctx context.Context, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("tmdb: empty key")
+	}
+	endpoint := c.baseURL + "/authentication"
+	if !isJWTToken(key) {
+		endpoint += "?" + url.Values{"api_key": {key}}.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	if isJWTToken(key) {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("tmdb: verify request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("tmdb: key 无效(401), 请检查后重试")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("tmdb: verify status %d", resp.StatusCode)
+	}
+	var out authResp
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return fmt.Errorf("tmdb: decode verify: %w", err)
+	}
+	if !out.Success {
+		return fmt.Errorf("tmdb: key 无效, 请检查后重试")
+	}
+	return nil
 }

@@ -126,17 +126,19 @@ func buildApp(cfg *config.Config) (*App, error) {
 	configSvc := service.NewConfigService(siteRepo, versionRepo)
 	m3u8Svc := service.NewM3u8Service(cfg.JWT.PrivateKey)
 	telemetrySvc := service.NewTelemetryService(telemetryRepo, searchRepo, favoriteRepo, cfg.TelemetryAllowedHosts, configSvc)
-	manageSvc := service.NewManageService(sourceRepo, cronRepo, siteRepo, versionRepo, fileRepo, categoryRepo, searchRepo, movieRepo, playRepo, healthRepo, tx, userSvc, blob)
+	// TMDB 客户端: key 运行期热替换 —— 管理后台(优先, 落 site_config)保存/清除即生效; env TMDB_API_KEY 为兜底。
+	tmdbClient := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
+	manageSvc := service.NewManageService(sourceRepo, cronRepo, siteRepo, versionRepo, fileRepo, categoryRepo, searchRepo, movieRepo, playRepo, healthRepo, tx, userSvc, blob, tmdbClient)
 	engine := spider.NewEngine(movieRepo, searchRepo, playRepo, categoryRepo, fileRepo, tx, blob, failureRepo, cfg.Spider.MaxGoroutine)
 	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo)
 	bannerSvc := service.NewBannerService(bannerRepo, filmSvc)
 
-	// TMDB 横图回填 worker: 未配置 TMDB_API_KEY 时 client 为 nil, Start 内部 no-op。
-	tmdbClient := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
-	backdropSvc := service.NewBackdropService(movieRepo, searchRepo, bannerSvc, blob, tmdbClient)
-	// 事件挂钩: 采集落库/轮播变更 → 立即触发横图重算(20min 兜底扫描之外的主路径)。
+	// TMDB 横图回填 worker: 每轮解析 key(后台 DB > env), 未配置时轻量探测后静默等待。
+	backdropSvc := service.NewBackdropService(movieRepo, searchRepo, bannerSvc, blob, tmdbClient, siteRepo, cfg.TMDB.APIKey)
+	// 事件挂钩: 采集落库/轮播变更/后台改 key → 立即触发横图重算(20min 兜底扫描之外的主路径)。
 	spiderSvc.OnSettled = backdropSvc.Kick
 	bannerSvc.OnChange = backdropSvc.Kick
+	manageSvc.OnTMDBKeyChange = backdropSvc.Kick
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,

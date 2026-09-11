@@ -18,6 +18,7 @@ import (
 	"server/internal/domain/repository"
 	"server/internal/platform/blobstore"
 	"server/internal/spider"
+	"server/internal/tmdb"
 )
 
 // collectSourceIDRe 采集源 id 命名规则: 小写字母开头, 仅小写字母/数字/下划线, 2~32 字符。
@@ -41,6 +42,9 @@ type ManageService struct {
 	blob     blobstore.BlobStore
 	health   repository.SourceHealthRepository
 	prober   *spider.Fetcher
+	tmdb     *tmdb.Client // TMDB key 保存前验真
+	// OnTMDBKeyChange key 保存/清除后的回调(组合根接 backdropSvc.Kick): 新 key 立即参与下一轮回填。
+	OnTMDBKeyChange func()
 }
 
 func NewManageService(
@@ -51,11 +55,12 @@ func NewManageService(
 	play repository.PlaySourceRepository,
 	health repository.SourceHealthRepository,
 	tx repository.TxManager, users *UserService, blob blobstore.BlobStore,
+	tmdbc *tmdb.Client,
 ) *ManageService {
 	return &ManageService{
 		sources: sources, crons: crons, siteCfg: siteCfg, versions: versions,
 		files: files, category: category, search: search, movie: movie, play: play,
-		health: health, tx: tx, users: users, blob: blob,
+		health: health, tx: tx, users: users, blob: blob, tmdb: tmdbc,
 		prober: spider.NewFetcherWithTimeout(probeTimeout),
 	}
 }
@@ -145,6 +150,54 @@ func (s *ManageService) GetSite(ctx context.Context) (*entity.SiteConfig, error)
 }
 
 func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) error {
+	// TmdbAPIKey 不走本入口(管理端 json:"-" 绑不进来, 恒为空串): 用库内现值回填,
+	// 防止 UpdateAll upsert 把后台配好的 key 抹成空。
+	if cur, err := s.siteCfg.Get(ctx); err == nil {
+		c.TmdbAPIKey = cur.TmdbAPIKey
+	}
+	if err := s.siteCfg.Save(ctx, c); err != nil {
+		return err
+	}
+	cache.InvalidateConfig(ctx)
+	return nil
+}
+
+// SetTMDBKey 保存 TMDB 凭据(v3 key / v4 token): 保存前到 TMDB 验真, 存错 key 会让横图静默不回填。
+// 成功后失效配置缓存并触发回调(横图 worker 下一轮立即用新 key)。
+func (s *ManageService) SetTMDBKey(ctx context.Context, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return domain.ErrInvalidArgument
+	}
+	if err := s.tmdb.Verify(ctx, key); err != nil {
+		return err
+	}
+	c, err := s.siteCfg.Get(ctx)
+	if err != nil {
+		return err
+	}
+	changed := c.TmdbAPIKey != key
+	c.TmdbAPIKey = key
+	if err := s.siteCfg.Save(ctx, c); err != nil {
+		return err
+	}
+	cache.InvalidateConfig(ctx)
+	if changed {
+		safeNotify("tmdb key change", s.OnTMDBKeyChange)
+	}
+	return nil
+}
+
+// ClearTMDBKey 清除凭据: 下一轮横图 worker 探测到空 key 即整体停摆(本地已回填的图片不受影响)。
+func (s *ManageService) ClearTMDBKey(ctx context.Context) error {
+	c, err := s.siteCfg.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if c.TmdbAPIKey == "" {
+		return nil
+	}
+	c.TmdbAPIKey = ""
 	if err := s.siteCfg.Save(ctx, c); err != nil {
 		return err
 	}

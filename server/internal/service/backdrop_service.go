@@ -34,14 +34,18 @@ type BackdropService struct {
 	search  repository.SearchRepository
 	banners *BannerService // 生效轮播位(缓存), 手动+自动补位同源
 	blob    blobstore.BlobStore
-	client  *tmdb.Client // nil = 未配置 API key, Start 直接返回
+	client  *tmdb.Client  // key 运行期热替换, 永不为 nil
+	siteCfg repository.SiteConfigRepository // 后台维护的 key(优先)
+	envKey  string                          // 启动 env 兜底, DB 未配置时使用
 	kick    chan struct{} // 事件触发通道(容量 1, 多次触发自动合并)
 }
 
 func NewBackdropService(movie repository.MovieRepository, search repository.SearchRepository,
-	banners *BannerService, blob blobstore.BlobStore, client *tmdb.Client) *BackdropService {
+	banners *BannerService, blob blobstore.BlobStore, client *tmdb.Client,
+	siteCfg repository.SiteConfigRepository, envKey string) *BackdropService {
 	return &BackdropService{movie: movie, search: search, banners: banners,
-		blob: blob, client: client, kick: make(chan struct{}, 1)}
+		blob: blob, client: client, siteCfg: siteCfg, envKey: envKey,
+		kick: make(chan struct{}, 1)}
 }
 
 // Kick 事件触发一轮扫描(采集落库/轮播变更后调用)。非阻塞且幂等: 已有待处理触发时合并为一次。
@@ -53,7 +57,8 @@ func (s *BackdropService) Kick() {
 	}
 }
 
-// Start 起后台回填循环(阻塞 goroutine, 由组合根 go 出去)。未配置 TMDB_API_KEY 时为 no-op。
+// Start 起后台回填循环(阻塞 goroutine, 由组合根 go 出去)。未配置任何 key 时
+// 每轮只做一次轻量 key 探测即返回, 等后台配好 key 后下一轮自动激活, 无需重启。
 func (s *BackdropService) Start(ctx context.Context) {
 	if s.client == nil || s.blob == nil {
 		return
@@ -96,8 +101,13 @@ func safeNotify(name string, fn func()) {
 	fn()
 }
 
-// tick 一轮扫描: 轮播集合 → 过滤缺图 → 逐片补采。每步失败都只记日志, 不影响下一轮。
+// tick 一轮扫描: 解析当前 key → 轮播集合 → 过滤缺图 → 逐片补采。每步失败都只记日志, 不影响下一轮。
 func (s *BackdropService) tick(ctx context.Context) {
+	key := s.currentKey(ctx)
+	if key == "" {
+		return // 未配置 key: 功能整体关闭(本轮静默跳过)
+	}
+	s.client.SetKey(key)
 	mids := s.carouselMids(ctx)
 	if len(mids) == 0 {
 		return
@@ -116,6 +126,16 @@ func (s *BackdropService) tick(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// currentKey 解析当前生效凭据: 后台 DB 值优先, 未配置回落启动 env。读失败按 env 兜底, 不打断轮次。
+func (s *BackdropService) currentKey(ctx context.Context) string {
+	if s.siteCfg != nil {
+		if c, err := s.siteCfg.Get(ctx); err == nil && c.TmdbAPIKey != "" {
+			return c.TmdbAPIKey
+		}
+	}
+	return s.envKey
 }
 
 // carouselMids 汇总轮播影片集合(去重): 生效轮播位的 mid —— 手动配置位 + 自动补位,

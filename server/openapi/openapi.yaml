@@ -446,6 +446,14 @@ components:
         description: { type: string, description: 改名 describe→description }
         state: { type: integer, description: 1 正常 / 0 维护中 }
         hint: { type: string, description: 维护提示 }
+        tmdbKeyMasked: { type: string, description: TMDB 凭据掩码(如 0c06…676b), 未配置为空串; 明文永不外泄 }
+        tmdbKeySet: { type: boolean, description: 是否已配置 TMDB 凭据 }
+      description: TMDB key 本体经 json:"-" 硬隔离, 任何响应不携带; 读写走 /manage/tmdb-key
+    TMDBKeyUpdate:
+      type: object
+      required: [key]
+      properties:
+        key: { type: string, description: v3 API Key(32 位十六进制)或 v4 Read Access Token(JWT); 保存前服务端验真 }
     SiteConfigUpdate:
       type: object
       properties:
@@ -1412,6 +1420,39 @@ paths:
               schema: { $ref: '#/components/schemas/SiteConfig' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/tmdb-key:
+    post:
+      tags: [manage-config]
+      summary: 保存 TMDB 凭据(保存前验真, 成功后横图 worker 立即热生效)
+      operationId: manageSetTMDBKey
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TMDBKeyUpdate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { saved: { type: boolean } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [manage-config]
+      summary: 清除 TMDB 凭据(横图回填随下一轮停摆, 已落地图不受影响)
+      operationId: manageClearTMDBKey
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { cleared: { type: boolean } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /manage/users:
     get:

@@ -73,6 +73,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/dashboard", h.Dashboard)
 		mg.GET("/site-config", h.GetSiteConfig)
 		mg.POST("/site-config", h.SaveSiteConfig)
+		mg.POST("/tmdb-key", h.SetTMDBKey)
+		mg.DELETE("/tmdb-key", h.ClearTMDBKey)
 
 		mg.GET("/collect-sources", h.ListSources)
 		mg.POST("/collect-sources", h.UpsertSource)

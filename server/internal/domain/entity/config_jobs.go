@@ -126,7 +126,10 @@ type SiteConfig struct {
 	Description string `gorm:"column:description" json:"description"`
 	State       int8   `gorm:"column:state" json:"state"`
 	Hint        string `gorm:"column:hint" json:"hint"`
-	UpdatedAt   int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	// TmdbAPIKey TMDB 凭据(v3 key / v4 token)。json:"-" 硬隔离: 公开 /config/site 与
+	// 管理端 JSON 都不携带, 管理端读走独立掩码 DTO, 写走独立端点 —— 绝不让凭据序列化出去。
+	TmdbAPIKey string `gorm:"column:tmdb_api_key" json:"-"`
+	UpdatedAt  int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (SiteConfig) TableName() string { return "site_config" }

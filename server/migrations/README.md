@@ -16,6 +16,9 @@
 | 000002_config_and_jobs | collect_source / cron_task / site_config / app_version / files |
 | 000003_user_and_telemetry | users / user_history / user_favorite / telemetry_event / telemetry_issue_resolution |
 | 000004_seed_sources_and_cron | site_config 单行兜底 + 默认 cron（初始停用） |
+| 000016_normalize_source_ids | 采集源 id 规整（huya/sb → src_ 前缀），同步四处字符串引用 |
+| 000017_movie_backdrop | movie / movie_search 加 backdrop 列（TMDB 横图回填） |
+| 000018_site_tmdb_key | site_config 加 tmdb_api_key（TMDB 凭据管理后台化，明文不出库） |
 
 ## 运行
 迁移文件含多条语句，MySQL DSN 需带 `multiStatements=true`。

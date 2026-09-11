@@ -25,9 +25,35 @@ func (h *Handlers) Dashboard(c *gin.Context) {
 	dto.OK(c, d)
 }
 
+// siteConfigResp 站点配置响应: 基础字段 + TMDB key 状态(只出掩码, 明文永不离开服务端)。
+type siteConfigResp struct {
+	entity.SiteConfig
+	TmdbKeyMasked string `json:"tmdbKeyMasked"` // 已配置时的掩码, 如 0c06…676b; 未配置为空串
+	TmdbKeySet    bool   `json:"tmdbKeySet"`
+}
+
+// maskKey 凭据掩码: 前 4 + … + 后 4; 过短(理论不可达)整串打码。
+func maskKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	if len(key) < 12 {
+		return "••••"
+	}
+	return key[:4] + "…" + key[len(key)-4:]
+}
+
 func (h *Handlers) GetSiteConfig(c *gin.Context) {
 	cfg, err := h.Manage.GetSite(c.Request.Context())
-	respond(c, cfg, err)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, siteConfigResp{
+		SiteConfig:    *cfg,
+		TmdbKeyMasked: maskKey(cfg.TmdbAPIKey),
+		TmdbKeySet:    cfg.TmdbAPIKey != "",
+	})
 }
 
 func (h *Handlers) SaveSiteConfig(c *gin.Context) {
@@ -41,6 +67,34 @@ func (h *Handlers) SaveSiteConfig(c *gin.Context) {
 		return
 	}
 	dto.OK(c, cfg)
+}
+
+// tmdbKeyReq POST /manage/tmdb-key 请求体。
+type tmdbKeyReq struct {
+	Key string `json:"key"`
+}
+
+// SetTMDBKey POST /manage/tmdb-key: 保存(验真)+热生效。
+func (h *Handlers) SetTMDBKey(c *gin.Context) {
+	var req tmdbKeyReq
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Key) == "" {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	if err := h.Manage.SetTMDBKey(c.Request.Context(), req.Key); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"saved": true})
+}
+
+// ClearTMDBKey DELETE /manage/tmdb-key: 清除凭据, 横图回填随下一轮停摆。
+func (h *Handlers) ClearTMDBKey(c *gin.Context) {
+	if err := h.Manage.ClearTMDBKey(c.Request.Context()); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"cleared": true})
 }
 
 // ---- 采集源 ----
