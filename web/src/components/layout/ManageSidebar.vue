@@ -175,13 +175,13 @@ function onItemClick(): void {
       class="fixed top-0 bottom-0 left-0 z-[80] bg-[rgba(11,11,15,0.98)] border-r border-subtle flex flex-col"
       :style="{ width: collapsed ? '72px' : '220px' }"
     >
-      <!-- Brand: 首页同款品牌字(渐变色), 「后台管理」加粗白色标明区域; mini 档宽度所限显示站点名首字 -->
+      <!-- Brand: 首页同款品牌字(渐变色), 「后台管理」黑体加粗标明区域; mini 档宽度所限显示站点名首字 -->
       <div
-        class="px-[var(--gf-space-4)] py-[var(--gf-space-4)] border-b border-subtle flex items-center justify-center min-h-[56px] shrink-0 min-w-0"
+        class="px-[var(--gf-space-4)] py-[var(--gf-space-4)] border-b border-subtle flex items-center justify-center gap-1 min-h-[56px] shrink-0 min-w-0"
       >
         <template v-if="!collapsed">
           <span class="gf-ms__brand truncate">{{ siteStore.basic?.siteName || 'Jerocine' }}</span>
-          <span class="shrink-0 text-[var(--gf-fs-base)] font-[var(--gf-fw-bold)] text-primary whitespace-nowrap">后台管理</span>
+          <span class="shrink-0 text-[var(--gf-fs-base)] font-[var(--gf-fw-black)] text-primary whitespace-nowrap">后台管理</span>
         </template>
         <span
           v-else
