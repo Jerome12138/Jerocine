@@ -72,6 +72,7 @@ func (s *BackdropService) Start(ctx context.Context) {
 }
 
 func (s *BackdropService) loop(ctx context.Context) {
+	s.tick(ctx) // 启动即跑一轮: 重启/部署后立即补齐轮播横图, 不必等首个事件或兜底扫描
 	sweep := time.NewTicker(backdropSweepInterval)
 	defer sweep.Stop()
 	for {
