@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/user'
-import { useUIStore } from '@/stores/ui'
 import BaseButton from '@/components/base/BaseButton.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -14,8 +13,6 @@ const props = defineProps<{ showHamburger?: boolean }>()
 const emit = defineEmits<{ (e: 'toggle-drawer'): void }>()
 
 const userStore = useUserStore()
-const uiStore = useUIStore()
-const route = useRoute()
 const router = useRouter()
 const { info, displayName } = storeToRefs(userStore)
 
@@ -82,18 +79,18 @@ const avatar = computed(() => {
     class="flex-between bg-[image:var(--gf-brand-gradient)] px-[var(--gf-space-6)] h-[56px] sticky top-0 z-[var(--gf-z-header)] shadow-md"
   >
     <div class="flex items-center gap-[var(--gf-space-4)] text-white">
+      <!-- 汉堡按钮仅移动端渲染: 侧栏折叠已移除, 桌面/平板侧栏常驻无开关 -->
       <button
+        v-if="props.showHamburger"
         type="button"
         class="text-white/90 hover:text-white text-xl min-h-[44px] min-w-[44px] flex items-center justify-center"
         data-focusable="true"
-        @click="props.showHamburger ? emit('toggle-drawer') : uiStore.toggleSidebar()"
+        @click="emit('toggle-drawer')"
       >
         <BaseIcon name="menu" size="22px" />
-        <span class="sr-only">{{ props.showHamburger ? '打开菜单' : '切换侧栏' }}</span>
+        <span class="sr-only">打开菜单</span>
       </button>
-      <h3 class="font-[var(--gf-fw-semibold)] text-lg">
-        {{ (route.meta.title as string) || '后台管理中心' }}
-      </h3>
+      <!-- 页面标题不再放头部: 各页面内部已有自己的标题, 侧栏顶部有「站点名 后台管理」锚点 -->
     </div>
 
     <div class="relative">

@@ -48,7 +48,8 @@ describe('ManageSidebar variant', () => {
     expect(aside.style.width).toBe('64px')
   })
 
-  it('variant=full + sidebarCollapsed 默认 false → aside style width 220px', () => {
+  it('variant=full → aside style width 220px, 且历史折叠偏好不再生效(折叠已移除)', () => {
+    localStorage.setItem('gf-sidebar-collapsed', '1')
     mountSidebar({ variant: 'full' })
     const aside = document.querySelector('aside') as HTMLElement
     expect(aside.style.width).toBe('220px')

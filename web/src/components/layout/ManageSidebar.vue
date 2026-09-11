@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useUIStore } from '@/stores/ui'
 import { useSiteStore } from '@/stores/site'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 
@@ -9,7 +7,7 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
  * ManageSidebar 三 variant:
  *  - drawer    移动端: Teleport 到 body, 全屏 overlay 容器 + 260 左栏 + 右遮罩
  *  - icon-rail 平板:  fixed 64 强制图标栏
- *  - full      桌面:  fixed 64/220 可折叠 (持久化)
+ *  - full      桌面:  fixed 220 (折叠能力已移除)
  *
  * Drawer 用 "全屏 fixed 容器 + 内部 h-full" 模式 (而非 inset-y-0/h-screen),
  * iOS Safari 对 inset-y / 100vh 在地址栏隐现时存在已知歧义, fixed inset-0 是
@@ -24,18 +22,16 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (e: 'toggle-collapsed'): void
   (e: 'close'): void
 }>()
 
-const uiStore = useUIStore()
 const siteStore = useSiteStore()
-const { sidebarCollapsed } = storeToRefs(uiStore)
 
-const collapsed = computed(() => {
-  if (props.variant === 'icon-rail') return true
-  return sidebarCollapsed.value
-})
+/**
+ * 折叠能力已移除(用户要求): desktop 固定 220px, 平板 icon-rail 响应式强制 64px ——
+ * 都是模式驱动的形态, 不再提供用户手动折叠与持久化。
+ */
+const collapsed = computed(() => props.variant === 'icon-rail')
 
 /**
  * 样式对齐公开端首页抽屉(gf-mnav): 近黑底 rgba(11,11,15,0.98)、分组纯文字标题、
@@ -84,11 +80,6 @@ const groups: MenuGroup[] = [
 function onItemClick(): void {
   if (props.variant === 'drawer') emit('close')
 }
-
-function onToggleCollapse(): void {
-  uiStore.toggleSidebar()
-  emit('toggle-collapsed')
-}
 </script>
 
 <template>
@@ -109,7 +100,7 @@ function onToggleCollapse(): void {
         >
           <!-- 顶部 Brand + 关闭 X -->
           <div class="px-[var(--gf-space-4)] py-[var(--gf-space-3)] border-b border-subtle flex items-center gap-[var(--gf-space-3)] shrink-0 min-h-[56px]">
-            <span class="font-[var(--gf-fw-bold)] italic text-brand-gradient text-[var(--gf-fs-lg)] truncate flex-1">
+            <span class="gf-ms__brand truncate flex-1">
               {{ siteStore.basic?.siteName || 'Jerocine' }}
             </span>
             <button
@@ -178,33 +169,22 @@ function onToggleCollapse(): void {
       </div>
     </Transition>
 
-    <!-- ============== 非 Drawer (桌面 full / 平板 icon-rail) ============== -->
+    <!-- ============== 非 Drawer (桌面 full / 平板 icon-rail): 顶部直达页顶 ============== -->
     <aside
       v-if="props.variant !== 'drawer'"
-      class="fixed top-[56px] bottom-0 left-0 z-[80] bg-[rgba(11,11,15,0.98)] border-r border-subtle flex flex-col transition-[width] duration-[var(--gf-dur-base)]"
+      class="fixed top-0 bottom-0 left-0 z-[80] bg-[rgba(11,11,15,0.98)] border-r border-subtle flex flex-col"
       :style="{ width: collapsed ? '64px' : '220px' }"
     >
-      <!-- Brand (full 模式可点切换折叠) -->
-      <button
-        type="button"
-        class="px-[var(--gf-space-4)] py-[var(--gf-space-4)] border-b border-subtle flex items-center gap-[var(--gf-space-3)] w-full bg-transparent border-l-0 border-r-0 border-t-0 cursor-pointer text-left min-h-[56px] shrink-0"
-        :class="{ 'cursor-default': props.variant === 'icon-rail' }"
-        :disabled="props.variant === 'icon-rail'"
-        :title="collapsed ? '展开侧栏' : '折叠侧栏'"
-        :aria-label="collapsed ? '展开侧栏' : '折叠侧栏'"
-        :data-focusable="props.variant === 'full' ? 'true' : undefined"
-        @click="props.variant === 'full' && onToggleCollapse()"
+      <!-- Brand: 首页同款品牌字(渐变色), 「后台管理」加粗白色标明区域 -->
+      <div
+        class="px-[var(--gf-space-4)] py-[var(--gf-space-4)] border-b border-subtle flex items-center gap-[var(--gf-space-2)] min-h-[56px] shrink-0 min-w-0"
       >
-        <span class="font-[var(--gf-fw-bold)] italic text-brand-gradient text-[var(--gf-fs-lg)] truncate flex-1">
-          {{ collapsed ? 'GF' : (siteStore.basic?.siteName || 'Jerocine') }}
-        </span>
-        <BaseIcon
-          v-if="!collapsed && props.variant === 'full'"
-          name="chevron-left"
-          size="16px"
-          class="text-muted shrink-0"
-        />
-      </button>
+        <template v-if="!collapsed">
+          <span class="gf-ms__brand truncate">{{ siteStore.basic?.siteName || 'Jerocine' }}</span>
+          <span class="shrink-0 text-[var(--gf-fs-base)] font-[var(--gf-fw-bold)] text-primary whitespace-nowrap">后台管理</span>
+        </template>
+        <span v-else class="gf-ms__brand">GF</span>
+      </div>
 
       <!-- 菜单 -->
       <nav class="flex-1 overflow-y-auto py-[var(--gf-space-3)] min-h-0">
@@ -247,6 +227,19 @@ function onToggleCollapse(): void {
 </template>
 
 <style scoped>
+/* ===== 品牌字: 与首页 gf-mnav__brand 同款(字体/字重/渐变色) ===== */
+.gf-ms__brand {
+  font-family: var(--gf-font-display);
+  font-size: var(--gf-fs-lg);
+  font-weight: var(--gf-fw-bold);
+  background-image: var(--gf-brand-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  white-space: nowrap;
+}
+
 /* ===== 菜单样式: 对齐公开端首页抽屉(gf-mnav)的视觉语言 ===== */
 .gf-ms__group-title {
   padding: var(--gf-space-1) var(--gf-space-4) var(--gf-space-2);
