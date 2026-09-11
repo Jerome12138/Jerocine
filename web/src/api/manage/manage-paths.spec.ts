@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({ calls: [] as Array<{ method: string; url: string; 
 
 vi.mock('../http', () => {
   const mockData = (url: string): unknown => {
-    if (url.includes('site-config')) return { state: 0 }
+    if (url.includes('site-config')) return { state: 0, tmdbKeyMasked: '0c06…676b', tmdbKeySet: true }
     if (url.endsWith('/files')) return { list: [], page: { current: 1, size: 39, total: 0, pageCount: 0 } }
     if (/\/collect-sources\/[^/]+$/.test(url)) return { state: 0 }
     return []
@@ -211,5 +211,21 @@ describe('manage system api → 新 REST 路由', () => {
     await system.updateBasic({ siteName: 's', logo: '', keyword: '', describe: 'D', domain: '', state: true, hint: '' })
     expect(h.calls[0]).toMatchObject({ method: 'POST', url: '/manage/site-config' })
     expect(h.calls[0]?.body).toMatchObject({ description: 'D', state: 0 })
+  })
+
+  it('getTMDBKey → GET /manage/site-config, 掩码/set 提取', async () => {
+    const r = await system.getTMDBKey()
+    expect(h.calls[0]).toMatchObject({ method: 'GET', url: '/manage/site-config' })
+    expect(r).toEqual({ masked: '0c06…676b', set: true })
+  })
+
+  it('setTMDBKey → POST /manage/tmdb-key {key}', async () => {
+    await system.setTMDBKey('k'.repeat(32))
+    expect(h.calls[0]).toMatchObject({ method: 'POST', url: '/manage/tmdb-key', body: { key: 'k'.repeat(32) } })
+  })
+
+  it('clearTMDBKey → DELETE /manage/tmdb-key', async () => {
+    await system.clearTMDBKey()
+    expect(h.calls[0]).toMatchObject({ method: 'DELETE', url: '/manage/tmdb-key' })
   })
 })
