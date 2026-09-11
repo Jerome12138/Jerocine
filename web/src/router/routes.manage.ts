@@ -22,11 +22,12 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '埋点监控' }
   },
   {
-    path: '/manage/collect/index',
+    path: '/manage/collect',
     name: 'manage-collect',
     component: () => import('@/views/manage/collect/CollectListView.vue'),
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '采集源管理' }
   },
+  { path: '/manage/collect/index', redirect: '/manage/collect' },
   {
     path: '/manage/collect/jobs',
     name: 'manage-collect-jobs',
@@ -40,11 +41,12 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '补采中心' }
   },
   {
-    path: '/manage/cron/index',
+    path: '/manage/cron',
     name: 'manage-cron',
     component: () => import('@/views/manage/cron/CronListView.vue'),
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '定时任务' }
   },
+  { path: '/manage/cron/index', redirect: '/manage/cron' },
   {
     path: '/manage/film',
     name: 'manage-film-list',
@@ -88,9 +90,10 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '文件库' }
   },
   {
-    path: '/manage/system/webSite',
+    path: '/manage/system/site',
     name: 'manage-system-config',
     component: () => import('@/views/manage/system/SiteConfigView.vue'),
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '站点配置' }
-  }
+  },
+  { path: '/manage/system/webSite', redirect: '/manage/system/site' }
 ]

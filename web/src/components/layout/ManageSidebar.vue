@@ -6,7 +6,7 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 /**
  * ManageSidebar 三 variant:
  *  - drawer    移动端: Teleport 到 body, 全屏 overlay 容器 + 260 左栏 + 右遮罩
- *  - icon-rail 平板:  fixed 64 强制图标栏
+ *  - mini      平板:  fixed 72 图标+标签迷你栏(标签直接可见, 触屏无 hover 也可辨识)
  *  - full      桌面:  fixed 220 (折叠能力已移除)
  *
  * Drawer 用 "全屏 fixed 容器 + 内部 h-full" 模式 (而非 inset-y-0/h-screen),
@@ -14,7 +14,7 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
  * 最稳定的覆盖可见视口做法.
  */
 const props = withDefaults(defineProps<{
-  variant?: 'drawer' | 'icon-rail' | 'full'
+  variant?: 'drawer' | 'mini' | 'full'
   open?: boolean
 }>(), {
   variant: 'full',
@@ -28,10 +28,10 @@ const emit = defineEmits<{
 const siteStore = useSiteStore()
 
 /**
- * 折叠能力已移除(用户要求): desktop 固定 220px, 平板 icon-rail 响应式强制 64px ——
+ * 折叠能力已移除(用户要求): desktop 固定 220px, 平板 mini 响应式固定 72px ——
  * 都是模式驱动的形态, 不再提供用户手动折叠与持久化。
  */
-const collapsed = computed(() => props.variant === 'icon-rail')
+const collapsed = computed(() => props.variant === 'mini')
 
 /**
  * 样式对齐公开端首页抽屉(gf-mnav): 近黑底 rgba(11,11,15,0.98)、分组纯文字标题、
@@ -54,10 +54,10 @@ const groups: MenuGroup[] = [
   {
     title: '采集',
     items: [
-      { path: '/manage/collect/index', label: '采集源', icon: 'magic' },
+      { path: '/manage/collect', label: '采集源', icon: 'magic' },
       { path: '/manage/collect/jobs', label: '任务监控', icon: 'eye' },
       { path: '/manage/collect/failures', label: '补采中心', icon: 'refresh' },
-      { path: '/manage/cron/index', label: '定时任务', icon: 'clock' }
+      { path: '/manage/cron', label: '定时任务', icon: 'clock' }
     ]
   },
   {
@@ -69,11 +69,11 @@ const groups: MenuGroup[] = [
   },
   {
     title: '数据',
-    items: [{ path: '/manage/telemetry', label: '埋点监控', icon: 'fire' }]
+    items: [{ path: '/manage/telemetry', label: '埋点监控', icon: 'chart' }]
   },
   {
     title: '系统',
-    items: [{ path: '/manage/system/webSite', label: '站点配置', icon: 'settings' }]
+    items: [{ path: '/manage/system/site', label: '站点配置', icon: 'settings' }]
   }
 ]
 
@@ -169,21 +169,25 @@ function onItemClick(): void {
       </div>
     </Transition>
 
-    <!-- ============== 非 Drawer (桌面 full / 平板 icon-rail): 顶部直达页顶 ============== -->
+    <!-- ============== 非 Drawer (桌面 full / 平板 mini): 顶部直达页顶 ============== -->
     <aside
       v-if="props.variant !== 'drawer'"
       class="fixed top-0 bottom-0 left-0 z-[80] bg-[rgba(11,11,15,0.98)] border-r border-subtle flex flex-col"
-      :style="{ width: collapsed ? '64px' : '220px' }"
+      :style="{ width: collapsed ? '72px' : '220px' }"
     >
-      <!-- Brand: 首页同款品牌字(渐变色), 「后台管理」加粗白色标明区域 -->
+      <!-- Brand: 首页同款品牌字(渐变色), 「后台管理」加粗白色标明区域; mini 档宽度所限显示站点名首字 -->
       <div
-        class="px-[var(--gf-space-4)] py-[var(--gf-space-4)] border-b border-subtle flex items-center gap-[var(--gf-space-2)] min-h-[56px] shrink-0 min-w-0"
+        class="px-[var(--gf-space-4)] py-[var(--gf-space-4)] border-b border-subtle flex items-center justify-center min-h-[56px] shrink-0 min-w-0"
       >
         <template v-if="!collapsed">
           <span class="gf-ms__brand truncate">{{ siteStore.basic?.siteName || 'Jerocine' }}</span>
           <span class="shrink-0 text-[var(--gf-fs-base)] font-[var(--gf-fw-bold)] text-primary whitespace-nowrap">后台管理</span>
         </template>
-        <span v-else class="gf-ms__brand">GF</span>
+        <span
+          v-else
+          class="gf-ms__brand"
+          :title="siteStore.basic?.siteName || 'Jerocine'"
+        >{{ (siteStore.basic?.siteName || 'Jerocine').slice(0, 1) }}</span>
       </div>
 
       <!-- 菜单 -->
@@ -192,13 +196,20 @@ function onItemClick(): void {
         <RouterLink
           to="/"
           class="gf-ms__link mb-[var(--gf-space-2)]"
-          :class="{ 'justify-center': collapsed }"
+          :class="{ 'gf-ms__link--mini': collapsed }"
           active-class=""
           :title="collapsed ? '返回影视首页' : undefined"
           data-focusable="true"
         >
           <BaseIcon name="home" size="20px" class="gf-ms__link-icon" />
-          <span v-if="!collapsed">返回影视首页</span>
+          <span
+            v-if="!collapsed"
+            class="gf-ms__link-text"
+          >返回影视首页</span>
+          <span
+            v-else
+            class="gf-ms__mini-label"
+          >返回影视首页</span>
         </RouterLink>
         <div
           v-for="g in groups"
@@ -211,13 +222,20 @@ function onItemClick(): void {
             :key="it.path"
             :to="it.path"
             class="gf-ms__link"
-            :class="{ 'justify-center': collapsed }"
+            :class="{ 'gf-ms__link--mini': collapsed }"
             active-class="gf-ms__link--active"
             :title="collapsed ? it.label : undefined"
             data-focusable="true"
           >
             <BaseIcon :name="it.icon" size="20px" class="gf-ms__link-icon" />
-            <span v-if="!collapsed">{{ it.label }}</span>
+            <span
+              v-if="!collapsed"
+              class="gf-ms__link-text"
+            >{{ it.label }}</span>
+            <span
+              v-else
+              class="gf-ms__mini-label"
+            >{{ it.label }}</span>
           </RouterLink>
         </div>
       </nav>
@@ -287,6 +305,32 @@ function onItemClick(): void {
 .gf-ms__link:hover .gf-ms__link-icon,
 .gf-ms__link--active .gf-ms__link-icon {
   color: var(--gf-text-primary);
+}
+
+/* ===== 平板 mini 档: 图标上、中文标签下, 触屏无 hover 也直接可读 ===== */
+.gf-ms__link--mini {
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--gf-space-1);
+  padding: var(--gf-space-2) 2px;
+  min-height: 56px;
+}
+.gf-ms__mini-label {
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: inherit;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gf-ms__link--mini .gf-ms__link-icon {
+  color: var(--gf-text-secondary);
+}
+.gf-ms__link--mini.gf-ms__link--active .gf-ms__mini-label {
+  color: var(--gf-text-primary);
+  font-weight: var(--gf-fw-semibold);
 }
 
 /* Drawer 进出动画: panel 左滑 + 遮罩淡入 */

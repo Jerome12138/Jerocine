@@ -139,7 +139,7 @@ async function cancelJob(j: SpiderJob): Promise<void> {
 
     <div v-if="jobs.length === 0" class="gf-tm-empty">
       暂无正在运行 / 最近 30 分钟内结束的采集任务. 去
-      <RouterLink to="/manage/collect/index" class="text-link">采集源列表</RouterLink>
+      <RouterLink to="/manage/collect" class="text-link">采集源列表</RouterLink>
       启动一个.
     </div>
 

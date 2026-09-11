@@ -13,11 +13,11 @@ const { mode, isMobile, isTablet } = useViewMode()
 const drawerOpen = ref(false)
 function closeDrawer(): void { drawerOpen.value = false }
 
-// 右侧列(头部+主区)左侧 margin = sidebar 实际宽度 (mobile 抽屉不占位, tablet 64, desktop 固定 220)
+// 右侧列(头部+主区)左侧 margin = sidebar 实际宽度 (mobile 抽屉不占位, tablet 72 迷你栏, desktop 固定 220)
 // 侧栏 fixed 通到视口顶部, 头部/页面标题从侧栏右缘开始排。
 const rightMarginLeft = computed(() => {
   if (isMobile.value) return '0px'
-  if (isTablet.value) return '64px'
+  if (isTablet.value) return '72px'
   return '220px'
 })
 
@@ -39,7 +39,7 @@ onMounted(async () => {
     :data-mode="mode"
   >
     <ManageSidebar
-      :variant="isMobile ? 'drawer' : isTablet ? 'icon-rail' : 'full'"
+      :variant="isMobile ? 'drawer' : isTablet ? 'mini' : 'full'"
       :open="drawerOpen"
       @close="closeDrawer"
     />
