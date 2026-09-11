@@ -27,7 +27,7 @@ func NewMovieRepository(db *gorm.DB) repository.MovieRepository { return &movieR
 // 清单与 entity.Movie 的同步由 TestMovieUpsertColsCoverEntity 反射校验, 漏改会直接测试失败。
 var movieUpsertCols = []string{
 	"cid", "pid", "name", "sub_title", "c_name", "en_name", "initial", "class_tag",
-	"area", "language", "year", "actor", "director", "writer", "content",
+	"area", "language", "year", "pub_date", "actor", "director", "writer", "content",
 	"db_id", "db_score", "hits", "state", "remarks", "cover",
 	"play_from", "down_from", "release_stamp", "update_stamp", "updated_at",
 }

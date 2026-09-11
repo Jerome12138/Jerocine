@@ -26,6 +26,9 @@ func TestToMovie(t *testing.T) {
 	if m.Year != 2023 { // 优先 pubdate
 		t.Fatalf("year = %d, want 2023", m.Year)
 	}
+	if m.PubDate != "2023-05-01" { // 上映日期按源站精度原样保留
+		t.Fatalf("pubDate = %q, want 2023-05-01", m.PubDate)
+	}
 	if m.DbScore != 8.5 {
 		t.Fatalf("dbScore = %v, want 8.5", m.DbScore)
 	}
@@ -37,6 +40,27 @@ func TestToMovie(t *testing.T) {
 	}
 	if len(m.PlayFrom) != 3 {
 		t.Fatalf("playFrom: %v", m.PlayFrom)
+	}
+}
+
+// TestParsePubDate 覆盖源站 vod_pubdate 的全部实测形态与降级分支。
+func TestParsePubDate(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"2026-09-11(中国大陆)", "2026-09-11"}, // 精确到日; 地区后缀从开头锚定后自然丢弃
+		{"2026-04-03(日本)", "2026-04-03"},
+		{"2026-07(日本)", "2026-07"},     // 仅到月
+		{"2007", "2007"},                 // 仅年
+		{"  2024-02-29  ", "2024-02-29"}, // 前后空白容忍
+		{"2026-13-01", "2026"},           // 月越界 → 降级到年
+		{"2026-09-32", "2026-09"},        // 日越界 → 降级到月
+		{"2026-9-1", "2026"},             // 非零填充不入格式 → 只取年
+		{"", ""},                         // 源站未提供
+		{"暂无", ""},                       // 无法解析
+	}
+	for _, c := range cases {
+		if got := parsePubDate(c.in); got != c.want {
+			t.Errorf("parsePubDate(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 

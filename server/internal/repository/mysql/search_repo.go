@@ -57,7 +57,7 @@ func applyDeleted(q *gorm.DB, mode int) *gorm.DB {
 // 保证源站重推不会让已删影片在列表/检索里复活。由 TestSearchUpsertColsCoverEntity 反射校验。
 var searchUpsertCols = []string{
 	"cid", "pid", "name", "sub_title", "c_name", "class_tag",
-	"area", "language", "year", "initial", "name_pinyin", "state", "remarks",
+	"area", "language", "year", "pub_date", "initial", "name_pinyin", "state", "remarks",
 	"db_score", "hits", "cover", "release_stamp", "update_stamp", "updated_at",
 }
 

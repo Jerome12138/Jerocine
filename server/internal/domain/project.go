@@ -8,7 +8,7 @@ func ProjectMovieToSearch(m *entity.Movie) *entity.MovieSearch {
 	return &entity.MovieSearch{
 		Mid: m.Mid, Cid: m.Cid, Pid: m.Pid, Name: m.Name, SubTitle: m.SubTitle,
 		CName: m.CName, ClassTag: m.ClassTag, Area: m.Area, Language: m.Language,
-		Year: m.Year, Initial: m.Initial, NamePinyin: NameInitials(m.Name),
+		Year: m.Year, PubDate: m.PubDate, Initial: m.Initial, NamePinyin: NameInitials(m.Name),
 		State: m.State, Remarks: m.Remarks,
 		DbScore: m.DbScore, Hits: m.Hits, Cover: m.Cover, Backdrop: m.Backdrop,
 		ReleaseStamp: m.ReleaseStamp, UpdateStamp: m.UpdateStamp,

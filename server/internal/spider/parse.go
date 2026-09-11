@@ -12,12 +12,18 @@ import (
 
 var reYear4 = regexp.MustCompile(`[1-9][0-9]{3}`)
 
+// rePubDate 从源站 vod_pubdate 的开头抠 ISO 日期前缀(年 / 年月 / 年月日三档)。
+// 刻意用 ^ 锚定开头 —— 源站值形如 "2026-09-11(中国大陆)" / "2026-07(日本)",
+// 锚定后括号里的地区后缀自然被丢弃, 不必额外写剥后缀的逻辑。
+var rePubDate = regexp.MustCompile(`^([0-9]{4})(?:-([0-9]{2}))?(?:-([0-9]{2}))?`)
+
 // toMovie 把 maccms 详情映射为领域影片实体。
 func toMovie(d filmDetail) *entity.Movie {
 	return &entity.Movie{
 		Mid: d.VodID, Cid: d.TypeID, Pid: d.TypeID1, Name: d.VodName, SubTitle: d.VodSub,
 		CName: d.TypeName, EnName: d.VodEn, Initial: d.VodLetter, ClassTag: d.VodClass,
 		Area: d.VodArea, Language: d.VodLang, Year: parseYear(d.VodPubDate, d.VodYear),
+		PubDate: parsePubDate(d.VodPubDate),
 		Actor: d.VodActor, Director: d.VodDirector, Writer: d.VodWriter, Content: d.VodContent,
 		DbId: d.VodDouBanID, DbScore: parseScore(d.VodDouBanScore, d.VodScore), Hits: d.VodHits,
 		State: d.VodState, Remarks: d.VodRemarks, Cover: d.VodPic,
@@ -186,6 +192,31 @@ func parseYear(pubDate, fallback string) int {
 		return n
 	}
 	return 0
+}
+
+// parsePubDate 把源站 vod_pubdate 规范化为 ISO 前缀串 —— 保留源站给出的精度, 绝不臆造:
+// "2026-09-11(中国大陆)" → "2026-09-11"; "2026-07(日本)" → "2026-07"; "2007" → "2007"。
+// 月/日越界时降级到更高的精度段(如 "2026-13-01" → "2026"); 无法解析返回空串。
+// ISO 前缀的字典序等于时间序, 故结果列可直接参与 ORDER BY。
+func parsePubDate(s string) string {
+	m := rePubDate.FindStringSubmatch(strings.TrimSpace(s))
+	if m == nil {
+		return ""
+	}
+	y, mo, day := m[1], m[2], m[3]
+	if mo == "" {
+		return y
+	}
+	if month, err := strconv.Atoi(mo); err != nil || month < 1 || month > 12 {
+		return y
+	}
+	if day == "" {
+		return y + "-" + mo
+	}
+	if d, err := strconv.Atoi(day); err != nil || d < 1 || d > 31 {
+		return y + "-" + mo
+	}
+	return y + "-" + mo + "-" + day
 }
 
 func parseTimeUnix(s string) int64 {

@@ -15,6 +15,9 @@ type Movie struct {
 	Area         string      `gorm:"column:area" json:"area"`
 	Language     string      `gorm:"column:language" json:"language"`
 	Year         int         `gorm:"column:year" json:"year"`
+	// PubDate 上映日期, 源站 vod_pubdate 规范化后的 ISO 前缀串: "2026-09-11" / "2026-07" /
+	// "2007" / ""(源站未提供)。精度自描述, 字典序=时间序, 可直接参与 ORDER BY。
+	PubDate      string      `gorm:"column:pub_date;size:10" json:"pubDate"`
 	Actor        string      `gorm:"column:actor" json:"actor"`
 	Director     string      `gorm:"column:director" json:"director"`
 	Writer       string      `gorm:"column:writer" json:"writer"`
@@ -54,6 +57,8 @@ type MovieSearch struct {
 	Area         string  `gorm:"column:area" json:"area"`
 	Language     string  `gorm:"column:language" json:"language"`
 	Year         int     `gorm:"column:year" json:"year"`
+	// PubDate 上映日期(ISO 前缀串), 与 movie.pub_date 同源, 供卡片/详情展示与排序 tiebreak。
+	PubDate      string  `gorm:"column:pub_date;size:10" json:"pubDate"`
 	Initial      string  `gorm:"column:initial" json:"initial"`
 	NamePinyin   string  `gorm:"column:name_pinyin" json:"namePinyin"` // 片名拼音首字母串(大写), 首字母搜索用
 	State        string  `gorm:"column:state" json:"state"`
