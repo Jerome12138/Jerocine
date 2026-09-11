@@ -64,6 +64,9 @@ services:
       BLOB_DRIVER: "local"
       BLOB_LOCAL_DIR: "/opt/server/static/upload"
       BLOB_BASE_URL: "/api/upload/"
+      # TMDB 横图回填: 未配置 key 则功能关闭(worker 不启动)
+      TMDB_API_KEY: "${TMDB_API_KEY:-}"
+      TMDB_LANG: "${TMDB_LANG:-zh-CN}"
       GIN_MODE: release
     volumes:
       - uploads:/opt/server/static/upload

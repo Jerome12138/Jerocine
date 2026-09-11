@@ -25,6 +25,9 @@ type Movie struct {
 	State        string      `gorm:"column:state" json:"state"`
 	Remarks      string      `gorm:"column:remarks" json:"remarks"`
 	Cover        string      `gorm:"column:cover" json:"cover"`
+	// Backdrop 横图(16:9, 详情页 hero / 轮播兜底)。由后台 TMDB worker 下载到本地 blob 后回填,
+	// 采集 upsert 不覆盖该列(见 movieUpsertExclude); "-" 为"检索无果"哨兵, 对外 DTO 归一为空串。
+	Backdrop string `gorm:"column:backdrop" json:"backdrop"`
 	PlayFrom     StringSlice `gorm:"column:play_from;type:json" json:"playFrom"`
 	DownFrom     string      `gorm:"column:down_from" json:"downFrom"`
 	ReleaseStamp int64       `gorm:"column:release_stamp" json:"releaseStamp"`
@@ -58,6 +61,8 @@ type MovieSearch struct {
 	DbScore      float64 `gorm:"column:db_score;type:decimal(3,1)" json:"dbScore"`
 	Hits         int64   `gorm:"column:hits" json:"hits"`
 	Cover        string  `gorm:"column:cover" json:"cover"`
+	// Backdrop 横图, 与 movie.backdrop 由 worker 双写同步(采集 upsert 不覆盖, 见 searchUpsertExclude)。
+	Backdrop     string  `gorm:"column:backdrop" json:"backdrop"`
 	ReleaseStamp int64   `gorm:"column:release_stamp" json:"releaseStamp"`
 	UpdateStamp  int64   `gorm:"column:update_stamp" json:"updateStamp"`
 	CreatedAt    int64   `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`

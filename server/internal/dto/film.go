@@ -4,16 +4,28 @@ import (
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 	"server/internal/service"
+	"server/internal/tmdb"
 )
+
+// normBackdrop 对外输出前归一化: 检索无果哨兵不外泄, 统一为空串。
+func normBackdrop(b string) string {
+	if b == tmdb.MissMark {
+		return ""
+	}
+	return b
+}
 
 // Card 影片卡片(裁剪字段, 跨国线路减重)。
 type Card struct {
-	Mid      int64   `json:"mid"`
-	Name     string  `json:"name"`
-	Cover    string  `json:"cover"`
-	Cid      int64   `json:"cid"`
-	Pid      int64   `json:"pid"`
-	CName    string  `json:"cName"`
+	Mid     int64   `json:"mid"`
+	Name    string  `json:"name"`
+	Cover   string  `json:"cover"`
+	// Poster 横图(16:9)。数据列是 movie_search.backdrop; JSON 字段名沿用前端 TS 契约的
+	// poster(前端早已按"有则用、无则回退 cover"预留了该字段), 首页兜底轮播零改动点亮。
+	Poster  string  `json:"poster,omitempty"`
+	Cid     int64   `json:"cid"`
+	Pid     int64   `json:"pid"`
+	CName   string  `json:"cName"`
 	SubTitle string  `json:"subTitle"`
 	Area     string  `json:"area"`
 	Year     int     `json:"year"`
@@ -24,7 +36,8 @@ type Card struct {
 
 func ToCard(m entity.MovieSearch) Card {
 	return Card{
-		Mid: m.Mid, Name: m.Name, Cover: m.Cover, Cid: m.Cid, Pid: m.Pid, CName: m.CName,
+		Mid: m.Mid, Name: m.Name, Cover: m.Cover, Poster: normBackdrop(m.Backdrop), Cid: m.Cid,
+		Pid: m.Pid, CName: m.CName,
 		SubTitle: m.SubTitle, Area: m.Area, Year: m.Year, State: m.State, Remarks: m.Remarks, DbScore: m.DbScore,
 	}
 }
@@ -91,6 +104,7 @@ type FilmDetail struct {
 	Mid      int64        `json:"mid"`
 	Name     string       `json:"name"`
 	Cover    string       `json:"cover"`
+	Backdrop string       `json:"backdrop,omitempty"` // 横图(16:9), 详情页 hero 背景用
 	Cid      int64        `json:"cid"`
 	Pid      int64        `json:"pid"`
 	CName    string       `json:"cName"`
@@ -112,7 +126,7 @@ type FilmDetail struct {
 func ToFilmDetail(d service.FilmDetailData) FilmDetail {
 	m := d.Movie
 	return FilmDetail{
-		Mid: m.Mid, Name: m.Name, Cover: m.Cover, Cid: m.Cid, Pid: m.Pid, CName: m.CName,
+		Mid: m.Mid, Name: m.Name, Cover: m.Cover, Backdrop: normBackdrop(m.Backdrop), Cid: m.Cid, Pid: m.Pid, CName: m.CName,
 		SubTitle: m.SubTitle, Actor: m.Actor, Director: m.Director, Area: m.Area, Language: m.Language,
 		Year: m.Year, ClassTag: m.ClassTag, Remarks: m.Remarks, State: m.State, DbScore: m.DbScore,
 		Content: m.Content, PlayFrom: []string(m.PlayFrom), Sources: toSources(d.Sources),

@@ -22,6 +22,7 @@ type Config struct {
 	TelemetryAllowedHosts []string
 	Spider                SpiderConfig
 	Blob                  BlobConfig
+	TMDB                  TMDBConfig
 	PageSizes             PageSizes
 }
 
@@ -49,6 +50,15 @@ type BlobConfig struct {
 	Driver    string // local | oss
 	LocalDir  string
 	BaseURL   string // 访问前缀, 如 /api/upload/pic/poster/
+}
+
+// TMDBConfig 横图(backdrop)回填配置。APIKey 为空 → 整个功能关闭(不 fatal, worker 不启动)。
+// 可选 TMDB_API_BASE 支持自建反代; 图片由 worker 下载到本地 blob, 终端不直连 TMDB。
+type TMDBConfig struct {
+	APIKey   string // v3 API Key 或 v4 Read Access Token, 二者自动识别
+	Lang     string // 检索语言, 默认 zh-CN
+	APIBase  string // 默认 https://api.themoviedb.org/3
+	ImageBase string // 默认 https://image.tmdb.org/t/p/
 }
 
 // PageSizes 各接口默认页大小, 集中而非散落各 handler。
@@ -88,6 +98,12 @@ func Load() *Config {
 			Driver:   env("BLOB_DRIVER", "local"),
 			LocalDir: env("BLOB_LOCAL_DIR", "./static/upload"),
 			BaseURL:  env("BLOB_BASE_URL", "/api/upload/"),
+		},
+		TMDB: TMDBConfig{
+			APIKey:    os.Getenv("TMDB_API_KEY"),
+			Lang:      env("TMDB_LANG", "zh-CN"),
+			APIBase:   os.Getenv("TMDB_API_BASE"),
+			ImageBase: os.Getenv("TMDB_IMAGE_BASE"),
 		},
 		PageSizes: PageSizes{Home: 14, Classify: 21, Filter: 49, Search: 10, Gallery: 39},
 	}

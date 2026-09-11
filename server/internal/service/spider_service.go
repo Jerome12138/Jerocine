@@ -26,6 +26,10 @@ type SpiderService struct {
 	health   repository.SourceHealthRepository   // 读: 自动采集跳过已停采死源(可空)
 	failures repository.CollectFailureRepository // 页级失败台账
 
+	// OnSettled 采集落库后的回调(横图 worker 用, 组合根注入, 可空)。
+	// 触发即重算轮播集合: 新采集的片可能进入兜底榜单, 立即补横图。panic 由 safeNotify 隔离。
+	OnSettled func()
+
 	mu      sync.Mutex
 	cronLib *cron.Cron
 }
@@ -66,6 +70,8 @@ func (s *SpiderService) runOne(ctx context.Context, src *entity.CollectSource, h
 		log.Printf("spider: 采集 %s 失败: %v", src.Id, err)
 		return err
 	}
+	// 落库成功 → 通知横图 worker 重算(新片可能进入轮播兜底榜单)。失败也可能写了部分数据, 同样触发。
+	safeNotify("spider", s.OnSettled)
 	return nil
 }
 
@@ -186,6 +192,8 @@ func (s *SpiderService) CollectOneSource(ctx context.Context, sourceId, keyword 
 		n, e := s.engine.CollectByIds(ctx, src, []int64{vodId})
 		if e != nil {
 			r.Error = e.Error()
+		} else {
+			safeNotify("spider", s.OnSettled)
 		}
 		r.Collected = n
 		return r, nil
@@ -211,6 +219,7 @@ func (s *SpiderService) CollectOneSource(ctx context.Context, sourceId, keyword 
 			r.Error = ce.Error()
 			return r, nil
 		}
+		safeNotify("spider", s.OnSettled)
 		r.Collected = n
 		r.Picked = &picked
 		return r, nil
@@ -434,6 +443,7 @@ func (s *SpiderService) recoverOnePage(ctx context.Context, src *entity.CollectS
 		log.Printf("spider: 补采 %s 第 %d 页失败: %v", src.Id, f.PageNo, err)
 		return err
 	}
+	safeNotify("spider", s.OnSettled)
 	return nil
 }
 

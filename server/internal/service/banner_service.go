@@ -16,6 +16,8 @@ const ttlBanners = 3 * time.Minute
 // BannerService 首页轮播: 前台读取(缓存) + 后台增删改。
 type BannerService struct {
 	repo repository.BannerRepository
+	// OnChange 轮播配置变更回调(横图 worker 重算用, 组合根注入, 可空)。panic 由 safeNotify 隔离。
+	OnChange func()
 }
 
 func NewBannerService(repo repository.BannerRepository) *BannerService {
@@ -51,6 +53,7 @@ func (s *BannerService) Save(ctx context.Context, b *entity.Banner) error {
 		return err
 	}
 	cache.InvalidateBanners(ctx)
+	safeNotify("banner", s.OnChange)
 	return nil
 }
 
@@ -60,5 +63,6 @@ func (s *BannerService) Delete(ctx context.Context, id int64) error {
 		return err
 	}
 	cache.InvalidateBanners(ctx)
+	safeNotify("banner", s.OnChange)
 	return nil
 }

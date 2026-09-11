@@ -21,6 +21,11 @@ type MovieRepository interface {
 	SoftDelete(ctx context.Context, mid, deletedAt int64) error
 	// Restore 清除软删标记。
 	Restore(ctx context.Context, mid int64) error
+	// ListMissingBackdropsByMids 取指定 mid 中尚未回填横图的影片(TMDB worker 用, 范围仅首页轮播集合)。
+	// 排除未软删外的行(软删/空片名)与 backdrop 非空(含 '-' 哨兵)的行。
+	ListMissingBackdropsByMids(ctx context.Context, mids []int64) ([]entity.Movie, error)
+	// UpdateBackdrop 回填横图(url 可为 tmdb.MissMark 哨兵)。返回是否有行被更新。
+	UpdateBackdrop(ctx context.Context, mid int64, url string) (bool, error)
 	Truncate(ctx context.Context) error
 }
 
@@ -52,6 +57,8 @@ type SearchRepository interface {
 	// SyncDeletedFromMovie 把 movie.deleted_at 回灌到 movie_search。
 	// 由 ShadowCommit 在**换表前**对影子表调用(换表会重建读模型、丢失删除态), 也可单独触发做修复。幂等。
 	SyncDeletedFromMovie(ctx context.Context) error
+	// UpdateBackdrop 回填横图读模型列(与 movie.backdrop 由 TMDB worker 双写同步)。
+	UpdateBackdrop(ctx context.Context, mid int64, url string) error
 
 	// 全量重采无空窗影子表生命周期: Begin(建 movie_search_next) → Write(批量灌) → Commit(回灌删除态 + RENAME 原子切换 + drop old)。
 	ShadowBegin(ctx context.Context) error

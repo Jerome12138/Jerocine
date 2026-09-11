@@ -17,8 +17,8 @@ export interface Card {
   mid: number
   name: string
   cover: string
-  /** 横版大图(轮播/横幅背景用)。当前后端 movie 表只有竖版 cover, 不返回该字段;
-   *  故一律按"有则用、无则回退 cover"处理, 后端将来补了横图字段无需改前端。 */
+  /** 横版大图(16:9, 轮播/横幅背景用)。来自 TMDB 回填(movie_search.backdrop), 后端按
+   *  "有则返回、无则字段缺省"输出; 一律按"有则用、无则回退 cover"处理。 */
   poster?: string
   cid: number
   pid: number
@@ -84,6 +84,8 @@ export interface FilmDetail {
   mid: number
   name: string
   cover: string
+  /** 横图(16:9, 详情页 hero 背景用)。TMDB 回填后才有, 缺省为 undefined, 使用处须兜底 cover */
+  backdrop?: string
   cid: number
   pid: number
   cName: string

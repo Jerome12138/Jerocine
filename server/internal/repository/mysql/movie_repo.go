@@ -18,10 +18,11 @@ type movieRepo struct{ db *gorm.DB }
 func NewMovieRepository(db *gorm.DB) repository.MovieRepository { return &movieRepo{db: db} }
 
 // movieUpsertCols 采集回写时参与 ON DUPLICATE KEY UPDATE 的列。
-// 刻意剔除三列, 让 upsert 只覆盖"内容", 不碰"生命周期":
+// 刻意剔除四列, 让 upsert 只覆盖"内容", 不碰"生命周期/后台回填":
 //   - mid:        主键, 冲突判定依据, 本就不该出现在更新集里;
 //   - created_at: 首次入库时间, 重采不应把它刷成现在(否则"今日新增"会虚高);
-//   - deleted_at: 软删标记, 若跟着更新, 源站把已删影片再推一次就会自动复活。
+//   - deleted_at: 软删标记, 若跟着更新, 源站把已删影片再推一次就会自动复活;
+//   - backdrop:   TMDB 横图由后台 worker 下载回填, 源站没有该数据, 跟着更新只会把已回填的抹成空。
 //
 // 清单与 entity.Movie 的同步由 TestMovieUpsertColsCoverEntity 反射校验, 漏改会直接测试失败。
 var movieUpsertCols = []string{
@@ -31,8 +32,8 @@ var movieUpsertCols = []string{
 	"play_from", "down_from", "release_stamp", "update_stamp", "updated_at",
 }
 
-// movieUpsertExclude 内容列之外的例外列(mid 是冲突键, 另两列见 movieUpsertCols 注释)。
-var movieUpsertExclude = map[string]bool{"mid": true, "created_at": true, "deleted_at": true}
+// movieUpsertExclude 内容列之外的例外列(各列理由见 movieUpsertCols 注释)。
+var movieUpsertExclude = map[string]bool{"mid": true, "created_at": true, "deleted_at": true, "backdrop": true}
 
 // movieUpsertClause 冲突时按内容列更新。MySQL 侧会编译成 `col = VALUES(col)`。
 func movieUpsertClause() clause.OnConflict {
@@ -99,4 +100,26 @@ func (r *movieRepo) Restore(ctx context.Context, mid int64) error {
 
 func (r *movieRepo) Truncate(ctx context.Context) error {
 	return dbFrom(ctx, r.db).Exec("TRUNCATE TABLE movie").Error
+}
+
+// ListMissingBackdropsByMids 取指定影片中尚未回填横图的行(未软删、非空片名、backdrop 为空)。
+// 入参是首页轮播集合(配置 banner 关联片 + 兜底 hot/latest), 范围刻意收窄 —— 不做全库回填。
+func (r *movieRepo) ListMissingBackdropsByMids(ctx context.Context, mids []int64) ([]entity.Movie, error) {
+	if len(mids) == 0 {
+		return nil, nil
+	}
+	var list []entity.Movie
+	err := dbFrom(ctx, r.db).
+		Where("mid IN ? AND deleted_at = 0 AND name != '' AND backdrop = ''", mids).
+		Order("mid ASC").
+		Find(&list).Error
+	return list, err
+}
+
+// UpdateBackdrop 回填横图(全量写, url 可为 MissMark 哨兵)。返回是否确有行被更新。
+func (r *movieRepo) UpdateBackdrop(ctx context.Context, mid int64, url string) (bool, error) {
+	res := dbFrom(ctx, r.db).Model(&entity.Movie{}).
+		Where("mid = ?", mid).
+		Update("backdrop", url)
+	return res.RowsAffected > 0, res.Error
 }

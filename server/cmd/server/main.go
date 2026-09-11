@@ -25,6 +25,7 @@ import (
 	"server/internal/router"
 	"server/internal/service"
 	"server/internal/spider"
+	"server/internal/tmdb"
 )
 
 func main() {
@@ -54,6 +55,8 @@ func main() {
 	app.spiderSvc.StartScheduler(context.Background())
 	// 启动采集源健康检查定时任务(默认 1h, 写健康度 → 自动停采/恢复死源)
 	app.handlers.Manage.StartHealthScheduler(context.Background())
+	// 启动 TMDB 横图回填 worker(未配置 key 时为 no-op)
+	app.backdropSvc.Start(context.Background())
 
 	log.Printf("listening on :%s", cfg.ServerPort)
 	if err := r.Run(":" + cfg.ServerPort); err != nil {
@@ -68,6 +71,7 @@ type App struct {
 	coordRdb *redis.Client
 	userSvc  *service.UserService
 	spiderSvc *service.SpiderService
+	backdropSvc *service.BackdropService
 	handlers *handler.Handlers
 }
 
@@ -127,6 +131,13 @@ func buildApp(cfg *config.Config) (*App, error) {
 	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo)
 	bannerSvc := service.NewBannerService(bannerRepo)
 
+	// TMDB 横图回填 worker: 未配置 TMDB_API_KEY 时 client 为 nil, Start 内部 no-op。
+	tmdbClient := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
+	backdropSvc := service.NewBackdropService(movieRepo, searchRepo, bannerSvc, filmSvc, blob, tmdbClient)
+	// 事件挂钩: 采集落库/轮播变更 → 立即触发横图重算(20min 兜底扫描之外的主路径)。
+	spiderSvc.OnSettled = backdropSvc.Kick
+	bannerSvc.OnChange = backdropSvc.Kick
+
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,
 		Telemetry: telemetrySvc, Manage: manageSvc, Spider: spiderSvc, Banner: bannerSvc,
@@ -135,7 +146,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 
 	return &App{
 		gdb: gdb, cacheRdb: cacheRdb, coordRdb: coordRdb,
-		userSvc: userSvc, spiderSvc: spiderSvc, handlers: handlers,
+		userSvc: userSvc, spiderSvc: spiderSvc, backdropSvc: backdropSvc, handlers: handlers,
 	}, nil
 }
 

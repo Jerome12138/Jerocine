@@ -61,8 +61,8 @@ var searchUpsertCols = []string{
 	"db_score", "hits", "cover", "release_stamp", "update_stamp", "updated_at",
 }
 
-// searchUpsertExclude 见 searchUpsertCols 注释。
-var searchUpsertExclude = map[string]bool{"mid": true, "created_at": true, "deleted_at": true}
+// searchUpsertExclude 见 searchUpsertCols 注释。backdrop 由 TMDB worker 双写回填, 采集不覆盖。
+var searchUpsertExclude = map[string]bool{"mid": true, "created_at": true, "deleted_at": true, "backdrop": true}
 
 // searchUpsertClause 冲突时按内容列更新。MySQL 侧会编译成 `col = VALUES(col)`。
 func searchUpsertClause() clause.OnConflict {
@@ -298,6 +298,13 @@ func (r *searchRepo) Restore(ctx context.Context, mid int64) error {
 		Update("deleted_at", 0).Error
 }
 
+// UpdateBackdrop 回填横图读模型列(与 movie.backdrop 由 worker 双写同步)。
+func (r *searchRepo) UpdateBackdrop(ctx context.Context, mid int64, url string) error {
+	return dbFrom(ctx, r.db).Model(&entity.MovieSearch{}).
+		Where("mid = ?", mid).
+		Update("backdrop", url).Error
+}
+
 // SyncDeletedFromMovie 把 movie.deleted_at 回灌到 movie_search。
 // 全量重采的读模型是从采集结果重建的(见 ShadowBegin/ShadowCommit), 新表里 deleted_at 全是 0,
 // 若不回灌, 已删影片会集体回到列表/检索里。JOIN 更新, 只写真正有差异的行。
@@ -339,6 +346,12 @@ func (r *searchRepo) ShadowWrite(ctx context.Context, list []entity.MovieSearch)
 func (r *searchRepo) ShadowCommit(ctx context.Context) error {
 	db := dbFrom(ctx, r.db)
 	if err := syncDeletedFrom(db, "movie_search_next"); err != nil {
+		return err
+	}
+	// 横图与删除态同理: 影子表由采集结果重建, backdrop 全是空, 换表前从 movie 回灌,
+	// 否则一次全量重采就会把已回填的横图集体清掉。
+	if err := db.Exec("UPDATE movie_search_next ns JOIN movie m ON m.mid = ns.mid " +
+		"SET ns.backdrop = m.backdrop WHERE m.backdrop != ''").Error; err != nil {
 		return err
 	}
 	if err := db.Exec("RENAME TABLE movie_search TO movie_search_old, movie_search_next TO movie_search").Error; err != nil {
