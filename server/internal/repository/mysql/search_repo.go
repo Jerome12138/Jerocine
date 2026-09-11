@@ -54,21 +54,27 @@ func applyDeleted(q *gorm.DB, mode int) *gorm.DB {
 
 // searchUpsertCols 采集回写读模型时参与 ON DUPLICATE KEY UPDATE 的列。
 // 与 movieUpsertCols 同口径: 排除 mid(冲突键)、created_at(首存时间)、deleted_at(软删标记),
-// 保证源站重推不会让已删影片在列表/检索里复活。由 TestSearchUpsertColsCoverEntity 反射校验。
+// 保证源站重推不会让已删影片在列表/检索里复活; db_score / year / pub_date 走条件更新
+// (见 base.go 的 conditionalUpsert), 源站给不出时保留本地值。
+// 由 TestSearchUpsertColsCoverEntity 反射校验。
 var searchUpsertCols = []string{
 	"cid", "pid", "name", "sub_title", "c_name", "class_tag",
 	"area", "language", "year", "pub_date", "initial", "name_pinyin", "state", "remarks",
 	"db_score", "hits", "cover", "release_stamp", "update_stamp", "updated_at",
 }
 
-// searchUpsertExclude 见 searchUpsertCols 注释。backdrop 由 TMDB worker 双写回填, 采集不覆盖。
-var searchUpsertExclude = map[string]bool{"mid": true, "created_at": true, "deleted_at": true, "backdrop": true}
+// searchUpsertExclude 见 searchUpsertCols 注释。backdrop 由 TMDB worker 双写回填, 采集不覆盖;
+// hot_rank / hot_rank_at / hot_score / db_id_src 由豆瓣榜单任务写入, 同属"本地计算列"。
+var searchUpsertExclude = map[string]bool{
+	"mid": true, "created_at": true, "deleted_at": true, "backdrop": true,
+	"hot_rank": true, "hot_rank_at": true, "hot_score": true, "db_id_src": true,
+}
 
-// searchUpsertClause 冲突时按内容列更新。MySQL 侧会编译成 `col = VALUES(col)`。
+// searchUpsertClause 冲突时按内容列更新(常规列 VALUES(col) + 条件更新列)。
 func searchUpsertClause() clause.OnConflict {
 	return clause.OnConflict{
 		Columns:   []clause.Column{{Name: "mid"}},
-		DoUpdates: clause.AssignmentColumns(searchUpsertCols),
+		DoUpdates: upsertAssignments(searchUpsertCols),
 	}
 }
 
@@ -352,6 +358,14 @@ func (r *searchRepo) ShadowCommit(ctx context.Context) error {
 	// 否则一次全量重采就会把已回填的横图集体清掉。
 	if err := db.Exec("UPDATE movie_search_next ns JOIN movie m ON m.mid = ns.mid " +
 		"SET ns.backdrop = m.backdrop WHERE m.backdrop != ''").Error; err != nil {
+		return err
+	}
+	// 榜单热度列同理, 且更要紧: 这四列不在采集 upsert 清单里(见 searchUpsertCols), 影子表里
+	// 必然是默认 0, 不回灌就等于"每跑一次全量, 全站热度归零"。同样必须在 RENAME 之前完成。
+	if err := db.Exec("UPDATE movie_search_next ns JOIN movie m ON m.mid = ns.mid " +
+		"SET ns.hot_rank = m.hot_rank, ns.hot_rank_at = m.hot_rank_at, " +
+		"ns.hot_score = m.hot_score, ns.db_id_src = m.db_id_src " +
+		"WHERE m.hot_score > 0 OR m.db_id_src > 0").Error; err != nil {
 		return err
 	}
 	if err := db.Exec("RENAME TABLE movie_search TO movie_search_old, movie_search_next TO movie_search").Error; err != nil {
