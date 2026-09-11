@@ -131,7 +131,7 @@ const tvAllEmpty = computed(
   <!-- ══════════════════ TV (雷鸟卡片式) 分支 ══════════════════ -->
   <div
     v-if="isTV"
-    class="gf-classify-tv container-page py-[var(--gf-space-6)] flex flex-col gap-[var(--gf-space-8)]"
+    class="gf-classify-tv container-page py-[var(--gf-space-6)] flex flex-col gap-[var(--gf-space-6)]"
   >
     <!-- 顶部一级分类已由全局胶囊导航提供, 分类页不再重复 chip bar -->
 
@@ -170,7 +170,7 @@ const tvAllEmpty = computed(
     <!-- 骨架 -->
     <div
       v-else-if="loading && !loaded"
-      class="flex flex-col gap-[var(--gf-space-8)]"
+      class="flex flex-col gap-[var(--gf-space-6)]"
     >
       <div v-for="n in 3" :key="n" class="flex flex-col gap-[var(--gf-space-4)]">
         <BaseSkeleton width="240px" height="36px" />
@@ -303,7 +303,7 @@ const tvAllEmpty = computed(
     <!-- 骨架: 与网格版式同构 -->
     <div
       v-else-if="loading && !loaded"
-      class="flex flex-col gap-[var(--gf-space-8)]"
+      class="flex flex-col gap-[var(--gf-space-6)]"
     >
       <div v-for="n in 3" :key="n" class="flex flex-col gap-[var(--gf-space-3)]">
         <BaseSkeleton width="220px" height="32px" />
@@ -325,7 +325,7 @@ const tvAllEmpty = computed(
     <!-- 三段网格 (卡片摊开, 列数走全站统一阶梯 --gf-list-cols, 与 TV 分支同构) -->
     <div
       v-else
-      class="flex flex-col gap-[var(--gf-space-10)]"
+      class="flex flex-col gap-[var(--gf-space-6)]"
     >
       <section
         v-for="sec in sections"

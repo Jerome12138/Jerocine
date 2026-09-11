@@ -273,7 +273,7 @@ onBeforeUnmount(() => {
       <div class="gf-home__hero-skeleton container-page pt-[var(--gf-space-6)]">
         <BaseSkeleton shape="rect" width="100%" height="45vh" />
       </div>
-      <div class="container-page py-[var(--gf-space-8)] flex flex-col gap-[var(--gf-space-8)]">
+      <div class="container-page py-[var(--gf-space-8)] flex flex-col gap-[var(--gf-space-6)]">
         <div v-for="i in 3" :key="i" class="flex flex-col gap-[var(--gf-space-3)]">
           <BaseSkeleton shape="text" width="160px" height="24px" />
           <div class="gf-home__row-skeleton">
@@ -590,7 +590,7 @@ onBeforeUnmount(() => {
 .gf-home__rows {
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-8);
+  gap: var(--gf-space-6);
   padding-block: var(--gf-space-6) var(--gf-space-8);
 }
 
