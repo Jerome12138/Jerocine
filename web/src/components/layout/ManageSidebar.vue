@@ -37,48 +37,47 @@ const collapsed = computed(() => {
   return sidebarCollapsed.value
 })
 
-interface MenuItem { path: string; label: string }
-interface MenuGroup { title: string; icon: string; items: MenuItem[] }
+/**
+ * 样式对齐公开端首页抽屉(gf-mnav): 近黑底 rgba(11,11,15,0.98)、分组纯文字标题、
+ * 菜单项带图标、hover 白色 6% 淡底、选中淡紫渐变 —— 视觉语言与首页一致。
+ */
+interface MenuItem { path: string; label: string; icon: string }
+interface MenuGroup { title: string; items: MenuItem[] }
 
 const groups: MenuGroup[] = [
-  { title: '概览', icon: 'home', items: [{ path: '/manage/index', label: '仪表盘' }] },
+  { title: '概览', items: [{ path: '/manage/index', label: '仪表盘', icon: 'home' }] },
   {
     title: '影视',
-    icon: 'film',
     items: [
-      { path: '/manage/film', label: '影片列表' },
-      { path: '/manage/film/class', label: '分类管理' },
-      { path: '/manage/film/add', label: '新增影片' },
-      { path: '/manage/banner', label: '首页轮播' }
+      { path: '/manage/film', label: '影片列表', icon: 'film' },
+      { path: '/manage/film/class', label: '分类管理', icon: 'folder' },
+      { path: '/manage/film/add', label: '新增影片', icon: 'plus' },
+      { path: '/manage/banner', label: '首页轮播', icon: 'image' }
     ]
   },
   {
     title: '采集',
-    icon: 'magic',
     items: [
-      { path: '/manage/collect/index', label: '采集源' },
-      { path: '/manage/collect/jobs', label: '任务监控' },
-      { path: '/manage/collect/failures', label: '补采中心' },
-      { path: '/manage/cron/index', label: '定时任务' }
+      { path: '/manage/collect/index', label: '采集源', icon: 'magic' },
+      { path: '/manage/collect/jobs', label: '任务监控', icon: 'eye' },
+      { path: '/manage/collect/failures', label: '补采中心', icon: 'refresh' },
+      { path: '/manage/cron/index', label: '定时任务', icon: 'clock' }
     ]
   },
   {
     title: '文件',
-    icon: 'folder',
     items: [
-      { path: '/manage/file/upload', label: '文件上传' },
-      { path: '/manage/file/gallery', label: '文件库' }
+      { path: '/manage/file/upload', label: '文件上传', icon: 'upload' },
+      { path: '/manage/file/gallery', label: '文件库', icon: 'file' }
     ]
   },
   {
     title: '数据',
-    icon: 'chart',
-    items: [{ path: '/manage/telemetry', label: '埋点监控' }]
+    items: [{ path: '/manage/telemetry', label: '埋点监控', icon: 'fire' }]
   },
   {
     title: '系统',
-    icon: 'settings',
-    items: [{ path: '/manage/system/webSite', label: '站点配置' }]
+    items: [{ path: '/manage/system/webSite', label: '站点配置', icon: 'settings' }]
   }
 ]
 
@@ -105,7 +104,7 @@ function onToggleCollapse(): void {
       >
         <!-- 左侧 260 sidebar 主体 -->
         <aside
-          class="gf-drawer-panel w-[260px] h-full bg-[#191a23] border-r border-subtle flex flex-col shadow-2xl"
+          class="gf-drawer-panel w-[260px] h-full bg-[rgba(11,11,15,0.98)] border-r border-subtle flex flex-col shadow-2xl"
           @click.stop
         >
           <!-- 顶部 Brand + 关闭 X -->
@@ -126,15 +125,15 @@ function onToggleCollapse(): void {
 
           <!-- 菜单 (内部滚) -->
           <nav class="flex-1 overflow-y-auto py-[var(--gf-space-3)] min-h-0">
-            <!-- 返回影视首页 (to="/" 会被前缀匹配, 故不套 active gradient) -->
+            <!-- 返回影视首页 (to="/" 会被前缀匹配, 故不套 active 淡渐变) -->
             <RouterLink
               to="/"
-              class="flex items-center gap-[var(--gf-space-3)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] mb-[var(--gf-space-2)] text-secondary hover:bg-elevated hover:text-primary transition-colors min-h-[44px]"
+              class="gf-ms__link mb-[var(--gf-space-2)]"
               active-class=""
               data-focusable="true"
               @click="onItemClick"
             >
-              <BaseIcon name="home" size="18px" />
+              <BaseIcon name="home" size="16px" class="gf-ms__link-icon" />
               <span>返回影视首页</span>
             </RouterLink>
             <div
@@ -142,19 +141,17 @@ function onToggleCollapse(): void {
               :key="g.title"
               class="mb-[var(--gf-space-3)]"
             >
-              <div class="px-[var(--gf-space-4)] py-[var(--gf-space-2)] text-xs text-muted uppercase tracking-wider flex items-center gap-[var(--gf-space-2)]">
-                <BaseIcon :name="g.icon" size="14px" />
-                {{ g.title }}
-              </div>
+              <div class="gf-ms__group-title">{{ g.title }}</div>
               <RouterLink
                 v-for="it in g.items"
                 :key="it.path"
                 :to="it.path"
-                class="flex items-center gap-[var(--gf-space-3)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-secondary hover:bg-elevated hover:text-primary transition-colors min-h-[44px]"
-                active-class="bg-[image:var(--gf-brand-gradient)] text-white shadow-purple-glow"
+                class="gf-ms__link"
+                active-class="gf-ms__link--active"
                 data-focusable="true"
                 @click="onItemClick"
               >
+                <BaseIcon :name="it.icon" size="16px" class="gf-ms__link-icon" />
                 <span>{{ it.label }}</span>
               </RouterLink>
             </div>
@@ -184,7 +181,7 @@ function onToggleCollapse(): void {
     <!-- ============== 非 Drawer (桌面 full / 平板 icon-rail) ============== -->
     <aside
       v-if="props.variant !== 'drawer'"
-      class="fixed top-[56px] bottom-0 left-0 z-[80] bg-[#191a23] border-r border-subtle flex flex-col transition-[width] duration-[var(--gf-dur-base)]"
+      class="fixed top-[56px] bottom-0 left-0 z-[80] bg-[rgba(11,11,15,0.98)] border-r border-subtle flex flex-col transition-[width] duration-[var(--gf-dur-base)]"
       :style="{ width: collapsed ? '64px' : '220px' }"
     >
       <!-- Brand (full 模式可点切换折叠) -->
@@ -211,16 +208,16 @@ function onToggleCollapse(): void {
 
       <!-- 菜单 -->
       <nav class="flex-1 overflow-y-auto py-[var(--gf-space-3)] min-h-0">
-        <!-- 返回影视首页 (to="/" 会被前缀匹配, 故不套 active gradient) -->
+        <!-- 返回影视首页 (to="/" 会被前缀匹配, 故不套 active 淡渐变) -->
         <RouterLink
           to="/"
-          class="flex items-center gap-[var(--gf-space-3)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] mb-[var(--gf-space-2)] text-secondary hover:bg-elevated hover:text-primary transition-colors min-h-[44px]"
+          class="gf-ms__link mb-[var(--gf-space-2)]"
           :class="{ 'justify-center': collapsed }"
           active-class=""
           :title="collapsed ? '返回影视首页' : undefined"
           data-focusable="true"
         >
-          <BaseIcon name="home" size="20px" />
+          <BaseIcon name="home" size="20px" class="gf-ms__link-icon" />
           <span v-if="!collapsed">返回影视首页</span>
         </RouterLink>
         <div
@@ -228,28 +225,18 @@ function onToggleCollapse(): void {
           :key="g.title"
           class="mb-[var(--gf-space-3)]"
         >
-          <div
-            v-if="!collapsed"
-            class="px-[var(--gf-space-4)] py-[var(--gf-space-2)] text-xs text-muted uppercase tracking-wider flex items-center gap-[var(--gf-space-2)]"
-          >
-            <BaseIcon :name="g.icon" size="14px" />
-            {{ g.title }}
-          </div>
+          <div v-if="!collapsed" class="gf-ms__group-title">{{ g.title }}</div>
           <RouterLink
             v-for="it in g.items"
             :key="it.path"
             :to="it.path"
-            class="flex items-center gap-[var(--gf-space-3)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-secondary hover:bg-elevated hover:text-primary transition-colors min-h-[44px]"
+            class="gf-ms__link"
             :class="{ 'justify-center': collapsed }"
-            active-class="bg-[image:var(--gf-brand-gradient)] text-white shadow-purple-glow"
+            active-class="gf-ms__link--active"
             :title="collapsed ? it.label : undefined"
             data-focusable="true"
           >
-            <BaseIcon
-              v-if="collapsed"
-              :name="g.icon"
-              size="20px"
-            />
+            <BaseIcon :name="it.icon" size="20px" class="gf-ms__link-icon" />
             <span v-if="!collapsed">{{ it.label }}</span>
           </RouterLink>
         </div>
@@ -260,6 +247,55 @@ function onToggleCollapse(): void {
 </template>
 
 <style scoped>
+/* ===== 菜单样式: 对齐公开端首页抽屉(gf-mnav)的视觉语言 ===== */
+.gf-ms__group-title {
+  padding: var(--gf-space-1) var(--gf-space-4) var(--gf-space-2);
+  font-size: var(--gf-fs-xs);
+  font-weight: var(--gf-fw-semibold);
+  letter-spacing: var(--gf-tracking-wide);
+  text-transform: uppercase;
+  color: var(--gf-text-muted);
+}
+
+.gf-ms__link {
+  display: flex;
+  align-items: center;
+  gap: var(--gf-space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--gf-space-4);
+  color: var(--gf-text-secondary);
+  font-size: var(--gf-fs-sm);
+  font-weight: var(--gf-fw-medium);
+  text-decoration: none;
+  background: transparent;
+  transition:
+    background-color var(--gf-dur-fast) var(--gf-ease-standard),
+    color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-ms__link:hover,
+.gf-ms__link:focus-visible {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--gf-text-primary);
+  outline: none;
+}
+/* 选中: 淡紫渐变底 + 提亮文字(与首页抽屉 is-active 同款), 不再用实心渐变白字 */
+.gf-ms__link--active {
+  background-image: linear-gradient(90deg, rgba(155, 73, 231, 0.18), rgba(74, 209, 229, 0.08));
+  color: var(--gf-text-primary);
+}
+.gf-ms__link--active:hover {
+  background-image: linear-gradient(90deg, rgba(155, 73, 231, 0.18), rgba(74, 209, 229, 0.08));
+}
+.gf-ms__link-icon {
+  color: var(--gf-text-muted);
+  flex-shrink: 0;
+}
+.gf-ms__link:hover .gf-ms__link-icon,
+.gf-ms__link--active .gf-ms__link-icon {
+  color: var(--gf-text-primary);
+}
+
 /* Drawer 进出动画: panel 左滑 + 遮罩淡入 */
 .drawer-enter-active .gf-drawer-panel,
 .drawer-leave-active .gf-drawer-panel {
