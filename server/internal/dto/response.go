@@ -78,7 +78,7 @@ func mapStatus(err error) int {
 	switch err {
 	case domain.ErrNotFound, domain.ErrMovieNotFound, domain.ErrUserNotFound:
 		return http.StatusNotFound
-	case domain.ErrInvalidArgument, domain.ErrInvalidSourceID:
+	case domain.ErrInvalidArgument, domain.ErrInvalidSourceID, domain.ErrInvalidMove:
 		return http.StatusBadRequest
 	case domain.ErrConflict:
 		return http.StatusConflict

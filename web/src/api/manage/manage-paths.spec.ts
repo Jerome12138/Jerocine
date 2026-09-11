@@ -167,14 +167,21 @@ describe('manage file api → 新 REST 路由', () => {
 describe('manage banner api → 新 REST 路由', () => {
   const draft = { id: 0, title: 't', subtitle: '', image: '', poster: '', mid: 0, link: '', sort: 0, state: 0, startAt: 0, endAt: 0 }
 
-  it('list → GET /manage/banners', async () => {
-    await banner.list()
-    expect(h.calls[0]).toMatchObject({ method: 'GET', url: '/manage/banners' })
+  it('board → GET /manage/banners/effective', async () => {
+    await banner.board()
+    expect(h.calls[0]).toMatchObject({ method: 'GET', url: '/manage/banners/effective' })
   })
 
-  it('save 无 id → POST /manage/banners', async () => {
+  it('move → POST /manage/banners/move 带 slot/dir', async () => {
+    await banner.move(2, 'up')
+    expect(h.calls[0]).toMatchObject({ method: 'POST', url: '/manage/banners/move', body: { slot: 2, dir: 'up' } })
+  })
+
+  it('save 无 id → POST /manage/banners, 带 slot 透传', async () => {
     await banner.save({ ...draft })
     expect(h.calls[0]).toMatchObject({ method: 'POST', url: '/manage/banners' })
+    await banner.save({ ...draft }, 3)
+    expect(h.calls[1]).toMatchObject({ method: 'POST', url: '/manage/banners', body: { slot: 3 } })
   })
 
   it('save 带 id → PUT /manage/banners/:id', async () => {

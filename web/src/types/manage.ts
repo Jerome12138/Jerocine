@@ -305,20 +305,35 @@ export interface Banner {
   updatedAt?: number
 }
 
-/** 当前实际生效的轮播位（GET /manage/banners/effective, 后端 EffectiveSlide） */
+/** 生效轮播位（GET /manage/banners/effective 的 active / 前台 GET /banners，后端 EffectiveSlide）。
+ *  口径：手动配置位排前 + 热榜自动补位，共前 5 位，与首页大图完全同源。 */
 export interface EffectiveSlide {
-  /** banner=后台配置 / fallback=热门兜底（首页无可用配置时的自动回退） */
+  /** banner=手动配置位 / fallback=热榜自动补位 */
   source: 'banner' | 'fallback'
-  /** source=banner 时的配置 id，据此跳编辑 */
+  /** source=banner 时的配置 id */
   bannerId?: number
   mid?: number
   name: string
   subtitle?: string
-  /** 生效中的宽幅主视觉：配置横图，或兜底片的 TMDB 回填横图（空=尚未回填） */
+  /** 生效中的宽幅主视觉：配置横图，或自动位的 TMDB 回填横图（空=尚未回填） */
   image?: string
   /** 竖图/封面 */
   poster?: string
   link?: string
   sort?: number
   state?: number
+  /** 仅后台管理接口返回：手动位对应的完整配置行（编辑表单回填用），前台不返回 */
+  banner?: Banner
+}
+
+/** 未生效配置行（不参与展示与自动补位，管理页折叠区） */
+export interface InactiveBanner extends Banner {
+  /** disabled=已停用 / noimage=缺横竖图 / pending=未开始 / expired=已过期 / overflow=超出前5位 */
+  reason: 'disabled' | 'noimage' | 'pending' | 'expired' | 'overflow'
+}
+
+/** 后台轮播管理视图：生效位 + 未生效配置行 */
+export interface BannerBoard {
+  active: EffectiveSlide[]
+  inactive: InactiveBanner[]
 }

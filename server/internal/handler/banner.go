@@ -24,17 +24,33 @@ func (h *Handlers) HomeBanners(c *gin.Context) {
 	dto.WriteCached(c, list, 120)
 }
 
-// ListBanners GET /manage/banners 后台全量列表。
-func (h *Handlers) ListBanners(c *gin.Context) {
-	list, err := h.Banner.ManageList(c.Request.Context())
-	respond(c, list, err)
+// BoardBanners GET /manage/banners/effective 后台管理视图 —— 生效位(前 5, 与首页同源,
+// 自动补位带出已回填的 TMDB 横图) + 未生效配置行(带原因)。
+func (h *Handlers) BoardBanners(c *gin.Context) {
+	board, err := h.Banner.Board(c.Request.Context())
+	respond(c, board, err)
 }
 
-// EffectiveBanners GET /manage/banners/effective 后台实时生效列表 —— 首页此刻真正展示的
-// 轮播位(配置轮播 + 无配置时的热门兜底), 兜底位带出已回填的 TMDB 横图。
-func (h *Handlers) EffectiveBanners(c *gin.Context) {
-	list, err := h.Banner.Effective(c.Request.Context())
-	respond(c, list, err)
+// moveReq POST /manage/banners/move 请求体。slot 为生效列表下标(0 起)。
+type moveReq struct {
+	Slot int    `json:"slot"`
+	Dir  string `json:"dir"` // up | down
+}
+
+// MoveBanner POST /manage/banners/move 生效位排序: 手动位换位 / 自动位上移转手动。
+// 成功后直接返回新的 Board, 前端免二次请求。
+func (h *Handlers) MoveBanner(c *gin.Context) {
+	var req moveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	if err := h.Banner.Move(c.Request.Context(), req.Slot, req.Dir); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	board, err := h.Banner.Board(c.Request.Context())
+	respond(c, board, err)
 }
 
 // bannerReq 后台轮播写请求。
@@ -54,6 +70,8 @@ type bannerReq struct {
 	State    int8   `json:"state"`
 	StartAt  int64  `json:"startAt"`
 	EndAt    int64  `json:"endAt"`
+	// Slot 新建时的钉入位置(生效列表下标); nil = 追加到手动位末尾。仅 Create 路径生效。
+	Slot *int `json:"slot"`
 }
 
 // toEntity 只拷贝白名单字段 —— 审计字段(createdAt/updatedAt)由数据库负责(见
@@ -113,8 +131,9 @@ func (h *Handlers) UpsertBanner(c *gin.Context) {
 		b.Id = id
 	}
 
-	// 一张没有任何图的轮播没有意义(前台会渲染成纯色块), 直接挡在入口。
-	if b.Image == "" && b.Poster == "" {
+	// 启用中的轮播一张图都没有没有意义(前台会渲染成纯色块), 直接挡在入口。
+	// 停用行放宽: "禁用自动位"落地为一条只有 mid 的屏蔽行, 无图是合法形态。
+	if b.State == entity.BannerEnabled && b.Image == "" && b.Poster == "" {
 		dto.Error(c, http.StatusUnprocessableEntity, "banner 至少需要横图或竖图")
 		return
 	}
@@ -134,7 +153,7 @@ func (h *Handlers) UpsertBanner(c *gin.Context) {
 		dto.Error(c, http.StatusUnprocessableEntity, "结束时间不能早于开始时间")
 		return
 	}
-	if err := h.Banner.Save(c.Request.Context(), &b); err != nil {
+	if err := h.Banner.Save(c.Request.Context(), &b, req.Slot); err != nil {
 		dto.Fail(c, err)
 		return
 	}

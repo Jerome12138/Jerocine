@@ -133,7 +133,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 
 	// TMDB 横图回填 worker: 未配置 TMDB_API_KEY 时 client 为 nil, Start 内部 no-op。
 	tmdbClient := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
-	backdropSvc := service.NewBackdropService(movieRepo, searchRepo, bannerSvc, filmSvc, blob, tmdbClient)
+	backdropSvc := service.NewBackdropService(movieRepo, searchRepo, bannerSvc, blob, tmdbClient)
 	// 事件挂钩: 采集落库/轮播变更 → 立即触发横图重算(20min 兜底扫描之外的主路径)。
 	spiderSvc.OnSettled = backdropSvc.Kick
 	bannerSvc.OnChange = backdropSvc.Kick

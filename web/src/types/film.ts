@@ -31,23 +31,19 @@ export interface Card {
   dbScore: number
 }
 
-/** 首页轮播项(后台配置, GET /banners)。 */
+/** 首页轮播项(GET /banners) —— 后端生效位: 手动配置位 + 热榜自动补位, 与后台管理页同源。 */
 export interface HomeBanner {
-  id: number
-  title: string
-  subtitle: string
-  /** 横图(宽幅主视觉) */
-  image: string
-  /** 竖图(窄屏/兜底) */
-  poster: string
-  /** 关联影片(跳详情); 0=不关联 */
-  mid: number
+  /** banner=手动配置位 / fallback=热榜自动补位 */
+  source: 'banner' | 'fallback'
+  mid?: number
+  name: string
+  subtitle?: string
+  /** 横图(宽幅主视觉; 自动位为 TMDB 回填图, 可能缺省) */
+  image?: string
+  /** 竖图/封面 */
+  poster?: string
   /** 自定义跳转(站内路径或外链); 优先于 mid */
-  link: string
-  sort: number
-  state: number
-  startAt: number
-  endAt: number
+  link?: string
 }
 
 /** HeroCarousel 单项 —— 兼容"影片卡片(Card)"与"后台 Banner"两种来源。 */

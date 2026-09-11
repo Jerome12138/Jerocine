@@ -1,21 +1,21 @@
 import { http } from '../http'
-import type { Banner, EffectiveSlide } from '@/types/manage'
+import type { Banner, BannerBoard } from '@/types/manage'
 
 const enc = encodeURIComponent
 
-/** GET /manage/banners 全量轮播列表（含停用/未到期） */
-export const list = (): Promise<Banner[]> =>
-  http.get<unknown, Banner[]>('/manage/banners')
+/** GET /manage/banners/effective 管理视图：生效位(前5, 手动+自动补位) + 未生效配置行 */
+export const board = (): Promise<BannerBoard> =>
+  http.get<unknown, BannerBoard>('/manage/banners/effective')
 
-/** GET /manage/banners/effective 当前实际生效的轮播位（配置轮播 + 热门兜底, 与首页同口径） */
-export const effective = (): Promise<EffectiveSlide[]> =>
-  http.get<unknown, EffectiveSlide[]>('/manage/banners/effective')
+/** POST /manage/banners/move 生效位排序（手动位换位 / 自动位上移转手动），返回新 Board */
+export const move = (slot: number, dir: 'up' | 'down'): Promise<BannerBoard> =>
+  http.post<unknown, BannerBoard>('/manage/banners/move', { slot, dir })
 
-/** POST /manage/banners 新建；PUT /manage/banners/:id 更新（id 存在则走 PUT） */
-export const save = (data: Banner): Promise<Banner> =>
+/** POST /manage/banners 新建（slot = 钉入位置，采纳自动位时传）；PUT /manage/banners/:id 更新 */
+export const save = (data: Partial<Banner> & { id: number }, slot?: number): Promise<Banner> =>
   data.id > 0
     ? http.put<unknown, Banner>(`/manage/banners/${enc(data.id)}`, data)
-    : http.post<unknown, Banner>('/manage/banners', data)
+    : http.post<unknown, Banner>('/manage/banners', slot === undefined ? data : { ...data, slot })
 
 /** DELETE /manage/banners/:id */
 export const remove = (id: number): Promise<void> =>

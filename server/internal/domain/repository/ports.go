@@ -148,6 +148,8 @@ type BannerRepository interface {
 	Create(ctx context.Context, b *entity.Banner) error
 	// Update 按 id 整体覆盖可编辑字段。
 	Update(ctx context.Context, b *entity.Banner) error
+	// UpdateSort 只更新排序值(排序重排专用, 不碰其余字段)。
+	UpdateSort(ctx context.Context, id int64, sort int) error
 	Delete(ctx context.Context, id int64) error
 }
 

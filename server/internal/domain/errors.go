@@ -16,4 +16,6 @@ var (
 	// source_health.source_id / cron_task.source_ids 以字符串引用(无外键), 一旦落库不可再改,
 	// 因此入库前必须守住格式(见 manage_service.collectSourceIDRe)。
 	ErrInvalidSourceID = errors.New("invalid source id: 小写字母开头, 仅小写字母/数字/下划线, 2~32 字符")
+	// ErrInvalidMove 轮播位排序请求无法执行: 越界 / 已在边界 / 自动位不可下移(恒在尾部)。
+	ErrInvalidMove = errors.New("无法移动：已在边界或目标位无效")
 )

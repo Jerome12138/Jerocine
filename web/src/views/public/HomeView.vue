@@ -42,7 +42,7 @@ const state = ref<IndexState>({
   data: null
 })
 
-// 后台配置的轮播(可为空 —— 空则按下面 heroItems 派生, 保证首页永远有大图)
+// 后端生效轮播位(手动配置 + 热榜自动补位, 与后台管理页同源); 空则按下面 heroItems 派生兜底
 const banners = ref<HomeBanner[]>([])
 
 // 后端 /home 已做区块化聚合(无独立 banner): 回退时取第一行的 hot/latest 前 5。
@@ -57,16 +57,14 @@ const heroItems = computed<Card[]>(() => {
 })
 
 /**
- * 首屏大图最终数据源: 后台轮播优先, 否则回退影片派生。
- * Banner → HeroItem 映射要点: image(横图) 映射到 poster(主视觉背景), poster(竖图) 映射到 cover(侧栏竖海报)。
- * 只给了竖图的 banner 不置 poster, 交给 HeroCarousel 走"模糊铺底 + 侧栏竖海报"的兜底观感。
+ * 首屏大图最终数据源: 后端生效位优先(已含自动补位), 空时回退影片派生。
+ * Slide → HeroItem 映射要点: image(横图) 映射到 poster(主视觉背景), poster(竖图) 映射到 cover(侧栏竖海报)。
  */
 const heroSlides = computed<HeroItem[]>(() => {
-  const configured = banners.value.filter((b) => b.image || b.poster)
-  if (configured.length) {
-    return configured.map((b) => ({
+  if (banners.value.length) {
+    return banners.value.map((b) => ({
       mid: b.mid || undefined,
-      name: b.title || '为你推荐',
+      name: b.name || '为你推荐',
       poster: b.image || '',
       cover: b.poster || '',
       remarks: b.subtitle || '',

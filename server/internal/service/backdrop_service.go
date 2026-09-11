@@ -14,8 +14,6 @@ import (
 
 // 回填节奏参数: 免费档 TMDB 建议 ≤50 req/s, 这里压到个位 —— 慢慢跑, 不抢限额也不惊动源站。
 const (
-	// heroFallbackCount 首页轮播兜底片数, 与前端 HomeView.heroItems 的 slice(0,5) 口径一致。
-	heroFallbackCount = 5
 	// backdropReqDelay 相邻两次 TMDB 检索的间隔(检索含 movie+tv 最多 4 次请求, 实际 RPS≈4-13)。
 	backdropReqDelay = 300 * time.Millisecond
 	// backdropSweepInterval 兜底扫描间隔。正常路径是事件驱动(采集完成/轮播变更 → Kick),
@@ -34,16 +32,15 @@ const (
 type BackdropService struct {
 	movie   repository.MovieRepository
 	search  repository.SearchRepository
-	banners *BannerService // 前台轮播(缓存), 与首页实际展示同源
-	films   *FilmService   // 首页聚合(缓存), 兜底榜单数据源
+	banners *BannerService // 生效轮播位(缓存), 手动+自动补位同源
 	blob    blobstore.BlobStore
 	client  *tmdb.Client // nil = 未配置 API key, Start 直接返回
 	kick    chan struct{} // 事件触发通道(容量 1, 多次触发自动合并)
 }
 
 func NewBackdropService(movie repository.MovieRepository, search repository.SearchRepository,
-	banners *BannerService, films *FilmService, blob blobstore.BlobStore, client *tmdb.Client) *BackdropService {
-	return &BackdropService{movie: movie, search: search, banners: banners, films: films,
+	banners *BannerService, blob blobstore.BlobStore, client *tmdb.Client) *BackdropService {
+	return &BackdropService{movie: movie, search: search, banners: banners,
 		blob: blob, client: client, kick: make(chan struct{}, 1)}
 }
 
@@ -121,8 +118,8 @@ func (s *BackdropService) tick(ctx context.Context) {
 	}
 }
 
-// carouselMids 汇总轮播影片集合(去重): 配置 banner 的关联片 + 兜底榜单前 5。
-// banner 数据源与前台 Public 完全同源(启用且在生效窗口内); 外链 banner(无 mid)不参与。
+// carouselMids 汇总轮播影片集合(去重): 生效轮播位的 mid —— 手动配置位 + 自动补位,
+// 与前台首页大图完全同源; 外链 banner(无 mid)不参与。
 func (s *BackdropService) carouselMids(ctx context.Context) []int64 {
 	var mids []int64
 	seen := make(map[int64]bool, 16)
@@ -132,45 +129,15 @@ func (s *BackdropService) carouselMids(ctx context.Context) []int64 {
 			mids = append(mids, mid)
 		}
 	}
-	if bs, err := s.banners.Public(ctx); err != nil {
-		log.Printf("[backdrop] list banners err: %v", err)
-	} else {
-		for _, b := range bs {
-			add(b.Mid)
-		}
-	}
-	home, err := s.films.Home(ctx)
+	slides, err := s.banners.Public(ctx)
 	if err != nil {
-		log.Printf("[backdrop] home agg err: %v", err)
+		log.Printf("[backdrop] list slides err: %v", err)
 		return mids
 	}
-	for _, mid := range heroFallbackMids(home) {
-		add(mid)
+	for _, sl := range slides {
+		add(sl.Mid)
 	}
 	return mids
-}
-
-// heroFallbackMids 首页大图兜底影片 —— 与前端 HomeView.heroItems 逐行同口径:
-// 按行序取第一个 hot 非空的行的前 5 部, 否则第一个 latest 非空的行的前 5 部。
-func heroFallbackMids(home HomeData) []int64 {
-	for _, row := range home.Rows {
-		src := row.Hot
-		if len(src) == 0 {
-			src = row.Latest
-		}
-		if len(src) == 0 {
-			continue
-		}
-		if len(src) > heroFallbackCount {
-			src = src[:heroFallbackCount]
-		}
-		mids := make([]int64, 0, len(src))
-		for _, it := range src {
-			mids = append(mids, it.Mid)
-		}
-		return mids
-	}
-	return nil
 }
 
 // fillOne 单片回填: TMDB 检索 → 下载 → 双表回填。检索无果写 MissMark 哨兵防重查

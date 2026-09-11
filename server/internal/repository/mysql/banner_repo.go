@@ -84,6 +84,12 @@ func (r *bannerRepo) Update(ctx context.Context, b *entity.Banner) error {
 		}).Error
 }
 
+// UpdateSort 只更新排序值(排序重排专用, 不碰其余字段)。
+func (r *bannerRepo) UpdateSort(ctx context.Context, id int64, sort int) error {
+	return dbFrom(ctx, r.db).Model(&entity.Banner{}).Where("id = ?", id).
+		Update("sort", sort).Error
+}
+
 func (r *bannerRepo) Delete(ctx context.Context, id int64) error {
 	res := dbFrom(ctx, r.db).Where("id = ?", id).Delete(&entity.Banner{})
 	if res.Error != nil {
