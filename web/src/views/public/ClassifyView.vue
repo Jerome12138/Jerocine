@@ -3,8 +3,9 @@ import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import * as filmApi from '@/api/film'
 import type { Card, ClassifyData } from '@/types/film'
-import FilmRow from '@/components/film/FilmRow.vue'
+import FilmGrid from '@/components/film/FilmGrid.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
+import BaseIcon from '@/components/base/BaseIcon.vue'
 import { useQuerySync } from '@/composables/useQuerySync'
 import { useAbortable } from '@/composables/useAbortable'
 import { useNavStore } from '@/stores'
@@ -93,8 +94,8 @@ const tvTitlePid = computed(() =>
   String(data.value.title?.id || params.value.Pid)
 )
 
-// TV 三段网格的配置 (复用现有 news/top/recent 数据与 moreLink)
-const tvSections = computed(() => [
+// 三段网格配置 (最新上映/排行榜/最近更新): TV 与桌面/移动共用, 卡片均摊开为网格
+const sections = computed(() => [
   {
     key: 'news',
     title: '最新上映',
@@ -188,7 +189,7 @@ const tvAllEmpty = computed(
     <!-- 分段网格 (最新上映 / 排行榜 / 最近更新) -->
     <template v-else>
       <section
-        v-for="sec in tvSections"
+        v-for="sec in sections"
         v-show="isReady(sec.items)"
         :key="sec.key"
         class="gf-classify-tv__section"
@@ -299,48 +300,54 @@ const tvAllEmpty = computed(
       description="请检查链接中的 Pid 参数"
     />
 
-    <!-- 骨架 -->
+    <!-- 骨架: 与网格版式同构 -->
     <div
       v-else-if="loading && !loaded"
       class="flex flex-col gap-[var(--gf-space-8)]"
     >
       <div v-for="n in 3" :key="n" class="flex flex-col gap-[var(--gf-space-3)]">
         <BaseSkeleton width="220px" height="32px" />
-        <div class="flex gap-[var(--gf-space-3)] overflow-hidden">
+        <div
+          class="grid gap-[var(--gf-list-gap)]"
+          style="grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr))"
+        >
           <BaseSkeleton
-            v-for="i in 6"
+            v-for="i in 12"
             :key="i"
-            width="160px"
-            height="240px"
+            width="100%"
+            height="0"
             ratio="3/4"
           />
         </div>
       </div>
     </div>
 
-    <!-- 三个 Row -->
+    <!-- 三段网格 (卡片摊开, 列数走全站统一阶梯 --gf-list-cols, 与 TV 分支同构) -->
     <div
       v-else
-      class="gf-classify__rows flex flex-col gap-[var(--gf-space-10)]"
+      class="flex flex-col gap-[var(--gf-space-10)]"
     >
-      <FilmRow
-        v-if="isReady(data.news)"
-        title="最新上映"
-        :more-link="moreLink('release_stamp')"
-        :items="data.news"
-      />
-      <FilmRow
-        v-if="isReady(data.top)"
-        title="排行榜"
-        :more-link="moreLink('hits')"
-        :items="data.top"
-      />
-      <FilmRow
-        v-if="isReady(data.recent)"
-        title="最近更新"
-        :more-link="moreLink('update_stamp')"
-        :items="data.recent"
-      />
+      <section
+        v-for="sec in sections"
+        :key="sec.key"
+        v-show="isReady(sec.items)"
+      >
+        <header class="flex items-end justify-between gap-[var(--gf-space-4)] mb-[var(--gf-space-3)]">
+          <h2 class="text-[var(--gf-fs-lg)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]">
+            {{ sec.title }}
+          </h2>
+          <RouterLink
+            :to="moreLink(sec.sort)"
+            class="text-link text-[var(--gf-fs-sm)] inline-flex items-center gap-[var(--gf-space-1)] shrink-0"
+            data-focusable="true"
+            tabindex="0"
+          >
+            更多
+            <BaseIcon name="chevron-right" size="16px" />
+          </RouterLink>
+        </header>
+        <FilmGrid :items="sec.items" />
+      </section>
 
       <BaseEmpty
         v-if="
