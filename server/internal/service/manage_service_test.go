@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 	"server/internal/spider"
@@ -265,5 +266,33 @@ func TestClientOnlyResult(t *testing.T) {
 	r := clientOnlyResult()
 	if !r.Ok || r.Message != clientOnlyMessage {
 		t.Fatalf("got ok=%v msg=%q", r.Ok, r.Message)
+	}
+}
+
+// ---- UpsertSource 采集源 id 命名规则 ----
+
+// TestCollectSourceIDRe: 规则边界 —— 小写字母开头, 仅 [a-z0-9_], 2~32 字符。
+func TestCollectSourceIDRe(t *testing.T) {
+	for _, ok := range []string{"src_lz", "src_huya", "ab", "a1_b2", strings.Repeat("a", 32)} {
+		if !collectSourceIDRe.MatchString(ok) {
+			t.Fatalf("%q 应合法", ok)
+		}
+	}
+	for _, bad := range []string{"", "A", "1src", "src-lz", "src lz", "大写", strings.Repeat("a", 33)} {
+		if collectSourceIDRe.MatchString(bad) {
+			t.Fatalf("%q 应不合法", bad)
+		}
+	}
+}
+
+// TestUpsertSource_RejectsInvalidID: 不合法 id 在触达仓储前被拒绝(ErrInvalidSourceID)。
+// 合法路径会调用 ExistsByUri(本 fake 未实现, 调用即 panic)与 Redis 缓存失效, 单测环境不覆盖。
+func TestUpsertSource_RejectsInvalidID(t *testing.T) {
+	ms := &ManageService{sources: &fakeSourceRepo{byId: map[string]entity.CollectSource{}}}
+	for _, bad := range []string{"", "SRC", "1abc", "ab-cd", "a", "has space"} {
+		err := ms.UpsertSource(context.Background(), &entity.CollectSource{Id: bad})
+		if !errors.Is(err, domain.ErrInvalidSourceID) {
+			t.Fatalf("id=%q 应返回 ErrInvalidSourceID, got %v", bad, err)
+		}
 	}
 }

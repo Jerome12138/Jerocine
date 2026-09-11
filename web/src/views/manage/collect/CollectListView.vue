@@ -290,7 +290,16 @@ function openEdit(row: CollectSource): void {
   dialogOpen.value = true
 }
 
+// 资源站 id 规则 —— 与后端 manage_service.collectSourceIDRe 保持一致。
+// id 是主键且被播放源/失败台账/健康表以字符串引用(无外键), 落库后不可改。
+const SOURCE_ID_RE = /^[a-z][a-z0-9_]{1,31}$/
+
 async function submit(): Promise<void> {
+  if (!SOURCE_ID_RE.test(form.id.trim())) {
+    toast('error', '资源站标识不合法：小写字母开头，仅小写字母/数字/下划线，2~32 字符')
+    return
+  }
+  form.id = form.id.trim()
   submitting.value = true
   try {
     if (editing.value) await manageApi.collect.update({ ...form })
@@ -526,8 +535,9 @@ onMounted(() => {
     v-model="dialogOpen"
     :title="editing ? '编辑采集源' : '新增采集源'" mobile-mode="fullsheet">
     <div class="flex flex-col gap-[var(--gf-space-4)]">
-      <ManageFormField v-if="!editing" label="资源站标识" required hint="唯一英文 id, 如 lzi / fs (保存后不可改)">
-        <ManageInput v-model="form.id" placeholder="例如：lzi" />
+      <ManageFormField v-if="!editing" label="资源站标识" required
+        hint="规则：小写字母开头，仅小写字母/数字/下划线，2~32 字符；保存后不可修改（例：src_lz）">
+        <ManageInput v-model="form.id" placeholder="例如：src_lz" />
       </ManageFormField>
       <ManageFormField label="名称" required>
         <ManageInput v-model="form.name" placeholder="例如：飞速影视" />

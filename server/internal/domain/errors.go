@@ -11,4 +11,9 @@ var (
 	ErrConflict        = errors.New("resource conflict")
 	ErrUnauthorized    = errors.New("unauthorized")
 	ErrForbidden       = errors.New("forbidden")
+	// ErrInvalidSourceID 采集源 id 不符合命名规则。
+	// id 是 collect_source 主键, 被 movie_play_source.site_id / collect_failure.source_id /
+	// source_health.source_id / cron_task.source_ids 以字符串引用(无外键), 一旦落库不可再改,
+	// 因此入库前必须守住格式(见 manage_service.collectSourceIDRe)。
+	ErrInvalidSourceID = errors.New("invalid source id: 小写字母开头, 仅小写字母/数字/下划线, 2~32 字符")
 )

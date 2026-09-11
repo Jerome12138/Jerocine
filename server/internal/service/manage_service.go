@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,10 @@ import (
 	"server/internal/platform/blobstore"
 	"server/internal/spider"
 )
+
+// collectSourceIDRe 采集源 id 命名规则: 小写字母开头, 仅小写字母/数字/下划线, 2~32 字符。
+// id 是主键且被四处以字符串引用(无外键), 规则保证跨库可读、可迁移、永不冲突保留字大小写形态。
+var collectSourceIDRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
 
 // ManageService 后台 CRUD 编排(瘦层: 委派仓储 + 缓存失效)。
 // 注: cron 实际调度注册、采集源深度校验、手动加片的多源补全 与采集引擎耦合, 留待引擎里程碑接入。
@@ -158,7 +163,11 @@ func (s *ManageService) GetSource(ctx context.Context, id string) (*entity.Colle
 }
 
 // UpsertSource 新增/编辑采集源(含 ClientOnly 仅端侧标记, 由 handler 绑定 JSON clientOnly → repo Upsert 全列写入)。
+// id 必须符合 collectSourceIDRe —— 落库后不可改(改 id 等于新建, 播放源/失败台账/健康表的字符串引用全部悬挂)。
 func (s *ManageService) UpsertSource(ctx context.Context, src *entity.CollectSource) error {
+	if !collectSourceIDRe.MatchString(src.Id) {
+		return domain.ErrInvalidSourceID
+	}
 	dup, err := s.sources.ExistsByUri(ctx, src.Uri, src.Id)
 	if err != nil {
 		return err
