@@ -30,6 +30,13 @@ func (h *Handlers) ListBanners(c *gin.Context) {
 	respond(c, list, err)
 }
 
+// EffectiveBanners GET /manage/banners/effective 后台实时生效列表 —— 首页此刻真正展示的
+// 轮播位(配置轮播 + 无配置时的热门兜底), 兜底位带出已回填的 TMDB 横图。
+func (h *Handlers) EffectiveBanners(c *gin.Context) {
+	list, err := h.Banner.Effective(c.Request.Context())
+	respond(c, list, err)
+}
+
 // bannerReq 后台轮播写请求。
 //
 // 独立于 entity.Banner 而不是直接绑定实体: 直接绑实体等于把 createdAt/updatedAt 这类

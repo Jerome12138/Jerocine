@@ -103,6 +103,7 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/app-versions/apk", h.UploadApk)
 
 		mg.GET("/banners", h.ListBanners)
+		mg.GET("/banners/effective", h.EffectiveBanners)
 		mg.POST("/banners", h.UpsertBanner)
 		mg.PUT("/banners/:id", h.UpsertBanner)
 		mg.DELETE("/banners/:id", h.DeleteBanner)

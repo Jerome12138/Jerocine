@@ -1,11 +1,15 @@
 import { http } from '../http'
-import type { Banner } from '@/types/manage'
+import type { Banner, EffectiveSlide } from '@/types/manage'
 
 const enc = encodeURIComponent
 
 /** GET /manage/banners 全量轮播列表（含停用/未到期） */
 export const list = (): Promise<Banner[]> =>
   http.get<unknown, Banner[]>('/manage/banners')
+
+/** GET /manage/banners/effective 当前实际生效的轮播位（配置轮播 + 热门兜底, 与首页同口径） */
+export const effective = (): Promise<EffectiveSlide[]> =>
+  http.get<unknown, EffectiveSlide[]>('/manage/banners/effective')
 
 /** POST /manage/banners 新建；PUT /manage/banners/:id 更新（id 存在则走 PUT） */
 export const save = (data: Banner): Promise<Banner> =>

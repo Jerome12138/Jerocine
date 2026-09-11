@@ -304,3 +304,21 @@ export interface Banner {
   createdAt?: number
   updatedAt?: number
 }
+
+/** 当前实际生效的轮播位（GET /manage/banners/effective, 后端 EffectiveSlide） */
+export interface EffectiveSlide {
+  /** banner=后台配置 / fallback=热门兜底（首页无可用配置时的自动回退） */
+  source: 'banner' | 'fallback'
+  /** source=banner 时的配置 id，据此跳编辑 */
+  bannerId?: number
+  mid?: number
+  name: string
+  subtitle?: string
+  /** 生效中的宽幅主视觉：配置横图，或兜底片的 TMDB 回填横图（空=尚未回填） */
+  image?: string
+  /** 竖图/封面 */
+  poster?: string
+  link?: string
+  sort?: number
+  state?: number
+}

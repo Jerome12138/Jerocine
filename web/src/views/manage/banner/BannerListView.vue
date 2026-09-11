@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
-import type { Banner } from '@/types/manage'
+import type { Banner, EffectiveSlide } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
@@ -18,6 +18,8 @@ import { toast } from '@/api/http'
  * 首页轮播管理。
  * 横图 = 宽幅主视觉(桌面/大屏那张大图); 竖图 = 窄屏兜底(只给竖图时走"模糊铺底 + 侧栏竖海报")。
  * 跳转二选一: 关联影片(mid) 或 自定义链接(站内路径/外链, 优先)。
+ * 顶部「当前生效」区实时展示首页此刻真正显示的轮播位(配置轮播 + 无配置时的热门兜底),
+ * 兜底位可一键转为配置; 横图 worker 只对这里出现的影片回填 TMDB 横图。
  */
 
 const rows = ref<Banner[]>([])
@@ -25,6 +27,10 @@ const loading = ref(true)
 const sheetOpen = ref(false)
 const submitting = ref(false)
 const editing = ref<Banner | null>(null)
+
+/** 当前生效列表(30s 自动刷新) */
+const effectiveRows = ref<EffectiveSlide[]>([])
+let effectiveTimer: number | undefined
 
 interface Form {
   id: number
@@ -67,6 +73,43 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
+  await loadEffective(true)
+}
+
+/** 拉取当前生效列表; silent=true 时失败不打断页面(轮询路径) */
+async function loadEffective(silent = false): Promise<void> {
+  try {
+    effectiveRows.value = (await manageApi.banner.effective()) ?? []
+  } catch (e) {
+    if (!silent) console.error('load effective banners failed', e)
+  }
+}
+
+/** 兜底片一键转配置: 预填片名/封面/mid, 管理员补横图后保存 */
+function convertFromFallback(row: EffectiveSlide): void {
+  editing.value = null
+  Object.assign(form, blank())
+  form.title = row.name
+  form.subtitle = row.subtitle ?? ''
+  form.poster = row.poster ?? ''
+  form.mid = row.mid && row.mid > 0 ? String(row.mid) : ''
+  sheetOpen.value = true
+}
+
+/** 从生效区跳编辑对应配置(列表里找 bannerId 对应行) */
+function editEffective(row: EffectiveSlide): void {
+  const target = row.bannerId ? rows.value.find((b) => b.id === row.bannerId) : undefined
+  if (target) {
+    openEdit(target)
+  } else {
+    toast('error', '该配置不在当前列表中，请刷新后重试')
+  }
+}
+
+function effGoLabel(row: EffectiveSlide): string {
+  if (row.link) return row.link
+  if (row.mid && row.mid > 0) return `影片 #${row.mid}`
+  return '未配置'
 }
 
 function openAdd(): void {
@@ -190,10 +233,79 @@ function isLive(row: Banner): boolean {
   return true
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadEffective(true)
+  effectiveTimer = window.setInterval(() => loadEffective(true), 30_000)
+})
+
+onUnmounted(() => {
+  if (effectiveTimer !== undefined) window.clearInterval(effectiveTimer)
+})
 </script>
 
 <template>
+  <!-- ===================== 当前生效：首页此刻真正显示的轮播位（实时） ===================== -->
+  <section
+    class="mb-[var(--gf-space-5)] rounded-[var(--gf-radius-md)] border border-default bg-elevated p-[var(--gf-space-4)]"
+  >
+    <div class="flex items-center justify-between mb-[var(--gf-space-2)]">
+      <div class="flex items-center gap-[var(--gf-space-2)] flex-wrap">
+        <h3 class="font-[var(--gf-fw-semibold)]">当前生效</h3>
+        <span class="text-muted text-xs">首页此刻实际展示的轮播位 · 每 30 秒自动刷新</span>
+      </div>
+      <BaseButton variant="ghost" size="sm" @click="loadEffective()">
+        <BaseIcon name="refresh" size="16px" /> 刷新
+      </BaseButton>
+    </div>
+
+    <div v-if="!effectiveRows.length" class="text-muted text-sm py-[var(--gf-space-4)] text-center">
+      暂无生效轮播 —— 无可用配置且片库为空
+    </div>
+    <ul v-else class="flex flex-col">
+      <li
+        v-for="(s, i) in effectiveRows"
+        :key="`${s.source}-${s.bannerId ?? 0}-${s.mid ?? 0}-${i}`"
+        class="flex items-center gap-[var(--gf-space-3)] py-[var(--gf-space-2)] border-b border-default last:border-b-0"
+      >
+        <img
+          v-if="s.image || s.poster"
+          :src="s.image || s.poster"
+          alt=""
+          class="w-[96px] h-[54px] object-cover rounded-[var(--gf-radius-sm)] bg-elevated shrink-0"
+        />
+        <span
+          v-else
+          class="w-[96px] h-[54px] grid place-items-center text-muted text-xs rounded-[var(--gf-radius-sm)] bg-elevated shrink-0"
+        >无图</span>
+        <div class="flex flex-col min-w-0 flex-1">
+          <span class="truncate">{{ s.name || '为你推荐' }}</span>
+          <span v-if="s.subtitle" class="text-muted text-xs truncate">{{ s.subtitle }}</span>
+        </div>
+        <BaseTag :variant="s.source === 'banner' ? 'success' : 'default'" size="sm" class="shrink-0">
+          {{ s.source === 'banner' ? '配置' : '兜底' }}
+        </BaseTag>
+        <span class="text-xs text-link w-[130px] truncate hidden lg:block">{{ effGoLabel(s) }}</span>
+        <BaseTag
+          v-if="s.source === 'fallback'"
+          :variant="s.image ? 'success' : 'warning'"
+          size="sm"
+          class="hidden md:inline-flex shrink-0"
+        >
+          {{ s.image ? '横图已就绪' : '横图待回填' }}
+        </BaseTag>
+        <div class="flex gap-[var(--gf-space-1)] shrink-0">
+          <BaseButton v-if="s.source === 'banner'" variant="ghost" size="sm" @click="editEffective(s)">
+            编辑
+          </BaseButton>
+          <BaseButton v-else variant="ghost" size="sm" @click="convertFromFallback(s)">
+            转为轮播
+          </BaseButton>
+        </div>
+      </li>
+    </ul>
+  </section>
+
   <ManageTable
     :columns="columns"
     :rows="rows"

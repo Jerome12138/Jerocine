@@ -129,7 +129,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	manageSvc := service.NewManageService(sourceRepo, cronRepo, siteRepo, versionRepo, fileRepo, categoryRepo, searchRepo, movieRepo, playRepo, healthRepo, tx, userSvc, blob)
 	engine := spider.NewEngine(movieRepo, searchRepo, playRepo, categoryRepo, fileRepo, tx, blob, failureRepo, cfg.Spider.MaxGoroutine)
 	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo)
-	bannerSvc := service.NewBannerService(bannerRepo)
+	bannerSvc := service.NewBannerService(bannerRepo, filmSvc)
 
 	// TMDB 横图回填 worker: 未配置 TMDB_API_KEY 时 client 为 nil, Start 内部 no-op。
 	tmdbClient := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
