@@ -120,7 +120,7 @@ function toCard(record: FavoriteRecord): Card {
   <!-- ===================== 桌面 / 移动分支 (原样保留) ===================== -->
   <section
     v-else
-    class="px-[var(--gf-space-4)] md:px-[var(--gf-space-6)] py-[var(--gf-space-6)]"
+    class="container-page py-[var(--gf-space-6)]"
   >
     <header class="flex items-center justify-between mb-[var(--gf-space-5)] flex-wrap gap-[var(--gf-space-3)]">
       <div>

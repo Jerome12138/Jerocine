@@ -37,35 +37,10 @@ withDefaults(defineProps<Props>(), {
 <style scoped>
 .gf-related-list__grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gf-space-3);
-}
-@media (min-width: 768px) {
-  .gf-related-list__grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--gf-space-4);
-  }
-}
-@media (min-width: 1024px) {
-  .gf-related-list__grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-}
-@media (min-width: 1440px) {
-  .gf-related-list__grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-}
-@media (min-width: 1920px) {
-  .gf-related-list__grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-  }
-}
-
-</style>
-
-<style>
-[data-mode='tv'] .gf-related-list__grid {
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  /* 列数/间距取自 theme.css 的全站统一阶梯(与首页"猜你喜欢"网格、FilmGrid 同阶梯):
+     移动 3 → ≥480 4 → ≥768 5 → ≥1024 及以上恒 6; TV 由 theme.css 接管为恒 6。
+     改列数只需改 theme.css 一处。 */
+  grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr));
+  gap: var(--gf-list-gap);
 }
 </style>

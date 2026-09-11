@@ -204,7 +204,7 @@ function handleRemove(id: string, e: Event): void {
   </section>
 
   <!-- ============ 桌面 / 移动 分支 (原样保留) ============ -->
-  <section v-else class="px-[var(--gf-space-4)] md:px-[var(--gf-space-6)] py-[var(--gf-space-6)]">
+  <section v-else class="container-page py-[var(--gf-space-6)]">
     <header class="flex items-center justify-between mb-[var(--gf-space-5)] flex-wrap gap-[var(--gf-space-3)]">
       <div>
         <h1 class="text-[var(--gf-fs-2xl)] font-[var(--gf-fw-bold)]">观看历史</h1>
