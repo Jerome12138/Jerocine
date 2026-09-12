@@ -61,6 +61,12 @@ const subBelow = computed(() => props.subText || subTextBelow.value)
 /** 角标 remarks：更新到第几集这种关键信息（其它如年份/分类太冗，移到 hover 浮层与详情页） */
 const remarks = computed(() => props.item.remarks || '')
 
+/** 热度榜位角标: 后端榜单刷新任务标过 hotRank(1 起)才显示, 其余卡片不占位 */
+const hotRankText = computed(() => {
+  const r = props.item.hotRank ?? 0
+  return r > 0 ? `Hot No.${r}` : ''
+})
+
 /**
  * 评分显示策略：
  *  1. 父组件显式传 score 优先
@@ -103,6 +109,11 @@ const scoreText = computed(() => {
           <path d="M12 .587l3.668 7.568L24 9.75l-6 5.852L19.336 24 12 19.897 4.664 24 6 15.602 0 9.75l8.332-1.595z"/>
         </svg>
         {{ scoreText }}
+      </span>
+
+      <!-- 左上角热度榜位: 豆瓣当下热门 No.N(仅榜单刷新任务标过 hot_rank 的片有) -->
+      <span v-if="hotRankText" class="gf-film-card__hot-badge" aria-label="热度榜位">
+        {{ hotRankText }}
       </span>
 
       <!-- 卡片下部剧集信息 (remarks: 更新至 N 集 / HD / 独播 等), 常驻在封面底部 -->
@@ -315,6 +326,27 @@ const scoreText = computed(() => {
   white-space: nowrap;
 }
 
+/* 左上角热度榜位角标: 品牌渐变底 + 白字(与右上角评分黄星徽标左右呼应) */
+.gf-film-card__hot-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--gf-radius-sm);
+  background-image: var(--gf-brand-gradient);
+  color: #fff;
+  font-size: 12px;
+  font-weight: var(--gf-fw-bold);
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* 观看进度条 (继续观看/历史卡): 底部 3px, 高于 remarks 渐变条(z-2) */
 .gf-film-card__progress {
   position: absolute;
@@ -358,6 +390,7 @@ const scoreText = computed(() => {
 }
 @media (min-width: 1024px) {
   .gf-film-card__score-badge { height: 22px; font-size: 13px; }
+  .gf-film-card__hot-badge { height: 22px; font-size: 13px; }
   .gf-film-card__epinfo { font-size: 13px; }
 }
 </style>
@@ -394,4 +427,5 @@ const scoreText = computed(() => {
   font-size: 14px;
 }
 [data-mode='tv'] .gf-film-card__score-badge { height: 26px; font-size: 15px; padding: 0 8px; }
+[data-mode='tv'] .gf-film-card__hot-badge { height: 26px; font-size: 15px; padding: 0 8px; }
 </style>

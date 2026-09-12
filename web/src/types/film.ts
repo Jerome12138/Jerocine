@@ -29,6 +29,10 @@ export interface Card {
   state: string
   remarks: string
   dbScore: number
+  /** 上映日期(ISO 前缀串: 2026-09-11 / 2026-07 / 2007)。源站未提供时字段缺省 */
+  pubDate?: string
+  /** 当前豆瓣榜位(1 起)。不在榜时字段缺省 —— 卡片角标 "Hot No.N" 用 */
+  hotRank?: number
 }
 
 /** 首页轮播项(GET /banners) —— 后端生效位: 手动配置位 + 热榜自动补位, 与后台管理页同源。 */
@@ -95,6 +99,10 @@ export interface FilmDetail {
   remarks: string
   state: string
   dbScore: number
+  /** 上映日期(ISO 前缀串, 源站未提供时缺省) */
+  pubDate?: string
+  /** 当前豆瓣榜位(1 起, 不在榜缺省) —— 详情页「豆瓣热门 No.N」用 */
+  hotRank?: number
   content: string
   playFrom: string[]
   sources: PlaySource[]
@@ -125,6 +133,8 @@ export interface HomeRow {
 /** GET /home 响应 */
 export interface HomeData {
   categories: NavCategory[]
+  /** 全站跨类别热榜(「🔥 热门榜单」行) —— 与 rows[].hot(该分类热榜)口径不同, 后端已混排好 */
+  hot: Card[]
   rows: HomeRow[]
 }
 
@@ -134,6 +144,10 @@ export interface ClassifyData {
   news: Card[]
   top: Card[]
   recent: Card[]
+  /** 高分榜(db_score 降序, 排除解说) —— scoredCount 为 0 时必为空数组, 不渲染分区 */
+  score: Card[]
+  /** 该分类有评分的影片总数(0 = 该分类无评分数据, 隐藏高分榜入口) */
+  scoredCount: number
 }
 
 /** 筛选标签(小写 name/value, 对齐后端 TagOption) */

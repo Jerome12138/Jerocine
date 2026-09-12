@@ -45,10 +45,12 @@ const state = ref<IndexState>({
 // 后端生效轮播位(手动配置 + 热榜自动补位, 与后台管理页同源); 空则按下面 heroItems 派生兜底
 const banners = ref<HomeBanner[]>([])
 
-// 后端 /home 已做区块化聚合(无独立 banner): 回退时取第一行的 hot/latest 前 5。
+// 后端 /home 已做区块化聚合(无独立 banner): 优先顶层跨类热榜(与「热门榜单」行同口径),
+// 空时回退第一行的 hot/latest 前 5。
 const heroItems = computed<Card[]>(() => {
   const data = state.value.data
   if (!data) return []
+  if (data.hot?.length) return data.hot.slice(0, 5)
   for (const row of data.rows ?? []) {
     if (row.hot?.length) return row.hot.slice(0, 5)
     if (row.latest?.length) return row.latest.slice(0, 5)
@@ -74,24 +76,10 @@ const heroSlides = computed<HeroItem[]>(() => {
   return heroItems.value
 })
 
-/** 热门榜单 — 合并各区块 hot(后端真实热门, cover 已进表, 无需回填) */
-const topRanking = computed<Card[]>(() => {
-  const data = state.value.data
-  if (!data) return []
-  const merged: Card[] = []
-  const seen = new Set<number>()
-  for (const row of data.rows ?? []) {
-    for (const it of row.hot ?? []) {
-      if (!seen.has(it.mid)) {
-        seen.add(it.mid)
-        merged.push(it)
-        if (merged.length >= 10) break
-      }
-    }
-    if (merged.length >= 10) break
-  }
-  return merged
-})
+/** 热门榜单 — 后端已给全站跨类别混排(HomeData.hot), 直接消费。
+ *  (旧版在此逐行拼各分类的 row.hot, 但 break 位置错误导致永远只取第 1 行 —— 已删,
+ *   跨类别口径见 docs/榜单热度方案 §8.1①) */
+const topRanking = computed<Card[]>(() => state.value.data?.hot ?? [])
 
 const rows = computed(() => {
   const data = state.value.data

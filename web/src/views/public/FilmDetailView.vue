@@ -182,6 +182,12 @@ const score = computed(() => {
   return n.toFixed(1)
 })
 
+/** 豆瓣热度榜位(榜单刷新任务标记, 缺省/0 = 不在榜) —— 详情页「豆瓣热门 No.N」 */
+const hotBadge = computed(() => {
+  const r = detail.value?.hotRank ?? 0
+  return r > 0 ? `豆瓣热门 No.${r}` : ''
+})
+
 /** 剧情展开 */
 const SUMMARY_LIMIT = 140
 const expanded = ref(false)
@@ -401,14 +407,16 @@ function handleToggleFavorite(): void {
                 >{{ t }}</span>
               </div>
 
-              <!-- 元信息: 状态 / 语言 / 导演 -->
+              <!-- 元信息: 上映 / 状态 / 语言 / 导演 / 热度榜位 -->
               <div
-                v-if="detail.remarks || detail.language || directors.length"
+                v-if="detail.remarks || detail.language || directors.length || detail.pubDate || hotBadge"
                 class="gf-detail-tv__meta"
               >
+                <span v-if="detail.pubDate"><i>上映 </i>{{ detail.pubDate }}</span>
                 <span v-if="detail.remarks"><i>状态 </i>{{ detail.remarks }}</span>
                 <span v-if="detail.language"><i>语言 </i>{{ detail.language }}</span>
                 <span v-if="directors.length"><i>导演 </i>{{ directors.join(' / ') }}</span>
+                <span v-if="hotBadge"><i>热度 </i>{{ hotBadge }}</span>
               </div>
 
               <!-- 简介 ≤3 行 -->
@@ -536,8 +544,15 @@ function handleToggleFavorite(): void {
               </BaseTag>
             </div>
 
-            <!-- hero meta: 只保留上映/地区/状态等紧凑字段, 演职人员下沉到独立 section -->
-            <dl v-if="detail.year || detail.area || detail.language || detail.remarks" class="gf-detail__meta">
+            <!-- hero meta: 只保留 上映/年份/地区/状态 等紧凑字段, 演职人员下沉到独立 section -->
+            <dl
+              v-if="detail.year || detail.area || detail.language || detail.remarks || detail.pubDate || hotBadge"
+              class="gf-detail__meta"
+            >
+              <div v-if="detail.pubDate" class="gf-detail__meta-row">
+                <dt>上映</dt>
+                <dd>{{ detail.pubDate }}</dd>
+              </div>
               <div v-if="detail.year" class="gf-detail__meta-row">
                 <dt>年份</dt>
                 <dd>{{ detail.year }}</dd>
@@ -553,6 +568,10 @@ function handleToggleFavorite(): void {
               <div v-if="detail.remarks" class="gf-detail__meta-row">
                 <dt>状态</dt>
                 <dd>{{ detail.remarks }}</dd>
+              </div>
+              <div v-if="hotBadge" class="gf-detail__meta-row">
+                <dt>热度</dt>
+                <dd>{{ hotBadge }}</dd>
               </div>
             </dl>
 

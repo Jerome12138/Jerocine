@@ -13,7 +13,7 @@ import { useViewMode } from '@/composables/useViewMode'
 
 /**
  * /filmClassify?Pid=xxx
- * STORY-012 分类首页：最新上映 / 排行榜 / 最近更新
+ * 分类首页：最新上线 / 排行榜 / 最近更新 / 高分榜(scoredCount>0 才显示)
  */
 
 const { params } = useQuerySync<{ Pid: string }>(
@@ -30,7 +30,9 @@ const data = ref<ClassifyData>({
   title: undefined,
   news: [],
   top: [],
-  recent: []
+  recent: [],
+  score: [],
+  scoredCount: 0
 })
 const loading = ref<boolean>(true)
 const loaded = ref<boolean>(false)
@@ -94,36 +96,54 @@ const tvTitlePid = computed(() =>
   String(data.value.title?.id || params.value.Pid)
 )
 
-// 三段网格配置 (最新上映/排行榜/最近更新): TV 与桌面/移动共用, 卡片均摊开为网格
-const sections = computed(() => [
-  {
-    key: 'news',
-    title: '最新上映',
-    sub: '每日更新',
-    items: data.value.news,
-    sort: 'release_stamp'
-  },
-  {
-    key: 'top',
-    title: '排行榜',
-    sub: '按热度排序',
-    items: data.value.top,
-    sort: 'hits'
-  },
-  {
-    key: 'recent',
-    title: '最近更新',
-    sub: '追更不迷路',
-    items: data.value.recent,
-    sort: 'update_stamp'
+/**
+ * 四段网格配置 (最新上线/排行榜/最近更新/高分榜): TV 与桌面/移动共用, 卡片均摊开为网格。
+ * sort 值对齐后端 allowedSort(hot=hot_score 降序 / score=db_score 降序 / latest=year+pub_date) ——
+ * 旧值 hits/release_stamp 后端仍兼容, 但新代码一律用新值。
+ * 高分榜只在 scoredCount>0 时进列表(后端为 0 时不返回该分区, 运行时探测代替分类白名单)。
+ */
+const sections = computed(() => {
+  const secs = [
+    {
+      key: 'news',
+      title: '最新上线',
+      sub: '每日更新',
+      items: data.value.news,
+      sort: 'latest'
+    },
+    {
+      key: 'top',
+      title: '排行榜',
+      sub: '按热度排序',
+      items: data.value.top,
+      sort: 'hot'
+    },
+    {
+      key: 'recent',
+      title: '最近更新',
+      sub: '追更不迷路',
+      items: data.value.recent,
+      sort: 'update_stamp'
+    }
+  ]
+  if (data.value.scoredCount > 0) {
+    secs.push({
+      key: 'score',
+      title: '高分榜',
+      sub: '豆瓣评分优先',
+      items: data.value.score,
+      sort: 'score'
+    })
   }
-])
+  return secs
+})
 
 const tvAllEmpty = computed(
   () =>
     !isReady(data.value.news) &&
     !isReady(data.value.top) &&
-    !isReady(data.value.recent)
+    !isReady(data.value.recent) &&
+    !isReady(data.value.score)
 )
 </script>
 
@@ -353,7 +373,8 @@ const tvAllEmpty = computed(
         v-if="
           !isReady(data.news) &&
           !isReady(data.top) &&
-          !isReady(data.recent)
+          !isReady(data.recent) &&
+          !isReady(data.score)
         "
         title="该分类暂无影片"
         description="切换到分类库浏览更多内容"

@@ -63,4 +63,14 @@ describe('FilmCard', () => {
     const w = mountCard()
     expect(w.find('a').exists()).toBe(true)
   })
+
+  it('hotRank>0 → 显示 Hot No.N 角标; 缺省/0 → 不显示', () => {
+    const withRank = mountCard({
+      item: { ...baseItem, hotRank: 7 } as never
+    })
+    expect(withRank.text()).toContain('Hot No.7')
+
+    const noRank = mountCard()
+    expect(noRank.text()).not.toContain('Hot No.')
+  })
 })
