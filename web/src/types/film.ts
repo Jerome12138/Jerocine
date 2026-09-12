@@ -101,8 +101,10 @@ export interface FilmDetail {
   dbScore: number
   /** 上映日期(ISO 前缀串, 源站未提供时缺省) */
   pubDate?: string
-  /** 当前豆瓣榜位(1 起, 不在榜缺省) —— 详情页「豆瓣热门 No.N」用 */
+  /** 当前豆瓣榜位(1 起, 不在榜缺省) —— 详情页「豆瓣·热门电影 No.N」用 */
   hotRank?: number
+  /** 榜位来源榜单中文名(如 "热门电影"); 同一片多集合各有位次, 展示具体是哪个榜的 No.X */
+  hotBoard?: string
   content: string
   playFrom: string[]
   sources: PlaySource[]
