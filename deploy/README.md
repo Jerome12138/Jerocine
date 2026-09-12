@@ -3,6 +3,7 @@
 ```text
 deploy/
 ├─ docker-compose.yml   # 服务编排: mysql / redis / migrate / server / nginx (build.context = 仓库根)
+├─ deploy.sh            # 一键部署: pull → build+up → 等健康 → 清两层缓存
 ├─ Dockerfile           # 后端镜像: golang:1.27-alpine 编译 → distroless nonroot (UID 65532), 监听 3601
 ├─ .env.example         # 环境变量模板 (cp .env.example .env 后填生产值; .env 不入库)
 ├─ data/nginx/nginx.conf # nginx 配置: SPA 静态托管 + /api 反代 + proxy_cache
@@ -39,27 +40,25 @@ deploy/
 ## 日常更新
 
 ```bash
-# 只更新前端（--no-deps 不会连带重启 jerocine_server，不打断采集任务）
-sudo docker compose build nginx && sudo docker compose up -d --no-deps nginx
-
-# 更新后端（会重启 jerocine_server；若有采集任务先 POST /api/v1/manage/spider/jobs/:id/pause）
-sudo docker compose build server && sudo docker compose up -d server   # 会先自动跑待应用迁移
-
-# 只跑迁移不重启
-sudo docker compose run --rm migrate
+./deploy.sh          # 常规部署: server + nginx, 自动清两层缓存
+./deploy.sh nginx    # 纯前端改动: 只重建 nginx(不打断采集), 脚本内已带等健康与清缓存
+./deploy.sh server   # 只更新后端
 ```
 
-## 部署后必清缓存
+**采集不需要手动暂停**：server 收到 SIGTERM（compose 重建容器时自动发送）会优雅停机——
+HTTP 在途请求收尾 → 采集在跑轮次取消收尾（被中断的页记入失败台账，由补采/滚动增量窗口自愈）
+→ 新容器起来后 cron 调度器自动恢复下一轮增量（20 分钟周期）。停机宽限 40s（`stop_grace_period`）。
 
-后端 API 改动后接口可能仍返回旧数据（两层缓存）：
+手动操作等价形式（排查问题时用）：
 
 ```bash
-# 1. nginx proxy_cache（/api 缓存 7 天）
-sudo docker exec jerocine_nginx sh -c "rm -rf /var/cache/nginx/api/* && nginx -s reload"
+# 只跑迁移不重启
+sudo docker compose run --rm migrate
 
-# 2. Redis 应用层缓存（v1:movie:detail:* 等，带 TTL）
-sudo docker exec jerocine_redis redis-cli -a "$REDIS_PASSWORD" --no-auth-warning \
-  --scan --pattern 'v1:movie:detail:*' | xargs -r docker exec -i jerocine_redis redis-cli -a "$REDIS_PASSWORD" --no-auth-warning del
+# 手动清缓存（deploy.sh 已内置）
+sudo docker exec jerocine_nginx sh -c "rm -rf /var/cache/nginx/api/* && nginx -s reload"
+RP=$(grep -E '^REDIS_PASSWORD=' .env | cut -d= -f2-)
+sudo docker exec -e REDISCLI_AUTH="$RP" jerocine_redis redis-cli --no-auth-warning -n 0 FLUSHDB
 ```
 
 ## 健康检查与排障
