@@ -326,6 +326,51 @@ func TestPickNameMatch(t *testing.T) {
 	}
 }
 
+// TestHotService_MatchSkipsCommentaryOnlyDbIdGroup 线上实测(2026-09-12 首轮刷新):
+// 源站把正片的 db_id 填到解说行上、正片行缺 db_id → "全解说组"经 db_id 精确命中,
+// 「杀死比尔：血色全传[电影解说]」直接站上热度榜首。全解说组必须降级走片名兜底:
+// 库里有正片就挂正片(顺带回填 db_id), 没有就丢弃; 混合组(正片+解说)行为不变取正片。
+func TestHotService_MatchSkipsCommentaryOnlyDbIdGroup(t *testing.T) {
+	repo := &fakeHotRepo{
+		byDbId: map[int64][]repository.HotCandidate{
+			5002: { // 混合组: 取正片
+				{Mid: 29748, DbId: 5002, Name: "苍兰诀", Year: 2022},
+				{Mid: 61203, DbId: 5002, Name: "苍兰诀[电影解说]", Year: 2022},
+			},
+			6001: { // 全解说组: 降级片名兜底
+				{Mid: 61204, DbId: 6001, Name: "杀死比尔[电影解说]", Year: 2026, Remarks: "已完结"},
+			},
+		},
+		byKw: map[string][]repository.HotCandidate{
+			"杀死比尔": {{Mid: 30001, DbId: 0, Name: "杀死比尔", Year: 2026, Actor: "甲", Director: "乙"}},
+		},
+	}
+	svc := NewHotService(repo, nil) // match 不依赖 client
+
+	ranked := []douban.Ranked{
+		{Item: douban.Item{Id: 5002, Title: "苍兰诀", Year: "2022"}, Rank: 1, Depth: 10},
+		{Item: douban.Item{Id: 6001, Title: "杀死比尔", Year: "2026",
+			Actors: json.RawMessage(`["甲"]`), Directors: json.RawMessage(`["乙"]`)}, Rank: 2, Depth: 10},
+	}
+	matches, err := svc.match(context.Background(), ranked)
+	if err != nil {
+		t.Fatalf("match err: %v", err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("匹配数=%d, want 2: %+v", len(matches), matches)
+	}
+	byItem := make(map[int64]int64, len(matches)) // item.id → 命中的 mid
+	for _, m := range matches {
+		byItem[m.Item.Id] = m.Mid
+	}
+	if byItem[5002] != 29748 {
+		t.Fatalf("混合组应取正片: %+v", byItem)
+	}
+	if byItem[6001] != 30001 {
+		t.Fatalf("全解说组应降级挂正片 30001(而非解说行 61204): %+v", byItem)
+	}
+}
+
 // TestPickByDbId 重复 db_id(库里 16,755 组)取"本体": 片名与豆瓣标题一致 > 非解说 > mid 最小。
 func TestPickByDbId(t *testing.T) {
 	// 实测样本: 「苍兰诀」正片(29748) db_score=0, 解说行(61203) 8.1 —— 必须挂正片

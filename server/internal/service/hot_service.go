@@ -324,6 +324,14 @@ func (s *HotService) match(ctx context.Context, ranked []douban.Ranked) ([]hotMa
 		if !ok {
 			continue
 		}
+		if strings.Contains(local.Name, "解说") {
+			// 组内**全是**解说行(线上实测: 源站把正片的 db_id 填到解说行上, 正片行缺 db_id)
+			// —— db_id 精确只证明"源站这么标的", 证明不了这行是本体, 直接挂会让
+			// 「杀死比尔：血色全传[电影解说]」站上热度榜首。降级走片名兜底:
+			// 库里有正片就挂正片并回填 db_id, 没有就丢弃(绝不挂解说)。
+			unmatched = append(unmatched, r)
+			continue
+		}
 		out = append(out, hotMatch{Mid: local.Mid, Rank: r.Rank, Depth: r.Depth, Item: r.Item, Local: local})
 	}
 	unmatched = append(unmatched, noID...)
