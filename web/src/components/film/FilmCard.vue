@@ -64,7 +64,7 @@ const remarks = computed(() => props.item.remarks || '')
 /** 热度榜位角标: 后端榜单刷新任务标过 hotRank(1 起)才显示, 其余卡片不占位 */
 const hotRankText = computed(() => {
   const r = props.item.hotRank ?? 0
-  return r > 0 ? `Hot No.${r}` : ''
+  return r > 0 ? `Hot ${r}` : ''
 })
 
 /**
@@ -111,8 +111,11 @@ const scoreText = computed(() => {
         {{ scoreText }}
       </span>
 
-      <!-- 左上角热度榜位: 豆瓣当下热门 No.N(仅榜单刷新任务标过 hot_rank 的片有) -->
+      <!-- 左上角热度榜位: 火 + Hot N(仅榜单刷新任务标过 hot_rank 的片有) -->
       <span v-if="hotRankText" class="gf-film-card__hot-badge" aria-label="热度榜位">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11" aria-hidden="true">
+          <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+        </svg>
         {{ hotRankText }}
       </span>
 
@@ -389,8 +392,7 @@ const scoreText = computed(() => {
   pointer-events: none;
 }
 @media (min-width: 1024px) {
-  .gf-film-card__score-badge { height: 22px; font-size: 13px; }
-  .gf-film-card__hot-badge { height: 22px; font-size: 13px; }
+  /* 角标字体已与"看到第 N 集"角标同规格(fs-xs), 桌面不再放大 */
   .gf-film-card__epinfo { font-size: 13px; }
 }
 </style>

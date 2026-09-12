@@ -372,9 +372,15 @@ export const useHistoryStore = defineStore('history', () => {
   }
 
   /**
-   * 清理单集播放记忆 — 播放完成 / 自动切下一集时调用。
+   * 清理单集播放记忆 — 播放完成 / 切下一集时调用（原生 playerEpisodeChange 的
+   * 自动与手动切集都会带 fromIndex 触发；playerClosed ended=true 也会触发）。
    * 配套"倒数5分钟不记进度": 否则该集残留的是很早之前的旧进度, 重开又从旧位置续播。
-   * 删除该(源,集)独立进度; 影片级记录若正指向该集也一并删除(否则 getEpisode 回退会复活旧进度)。
+   *
+   * ⚠️ 只删该(源,集)的**独立进度**, 不删影片级记录 —— 修复 2026-09-12 线上 bug:
+   * 旧实现把影片级记录一并删除后, 紧跟的 updateProgress 因"无已有记录"no-op
+   * (缺 name/picture 无法重建), 且后续 5s tick 全部 no-op → 切一次集影片就从
+   * 历史里永久消失、进度再也不记录。现在影片级保留(指向该集时进度清零,
+   * 避免重开续播到已看完的旧位置), 随后的 updateProgress 可正常把它推进到新集。
    */
   async function clearEpisode(id: string, source?: string, episodeIndex = 0): Promise<void> {
     if (!id) return
@@ -386,14 +392,20 @@ export const useHistoryStore = defineStore('history', () => {
       (film.episodeIndex ?? 0) === episodeIndex &&
       (!source || !film.source || film.source === source)
     ) {
-      delete map.value[sid]
+      const cleared: HistoryRecord = {
+        ...film,
+        currentTime: 0,
+        link: buildPlayLink({
+          id: film.id,
+          source: film.source,
+          episodeIndex,
+          currentTime: 0
+        }),
+        timeStamp: Date.now()
+      }
+      map.value[sid] = cleared
       if (remoteMode.value) {
-        try {
-          const { remove: removeRemote } = await import('@/api/history')
-          await removeRemote({ mid: sid })
-        } catch (e) {
-          logger.warn('history clearEpisode (remote) failed', e)
-        }
+        void pushRemote(cleared)
       }
     }
     if (!remoteMode.value) {

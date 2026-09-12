@@ -155,6 +155,64 @@ describe('updateProgress 重建 link(续播接当前集)', () => {
   })
 })
 
+describe('clearEpisode 不删影片级记录(2026-09-12 线上 bug 回归)', () => {
+  it('切集(自动/手动): 清上一集独立进度, 影片级保留且进度清零, 随后 updateProgress 可推进到新集', async () => {
+    const s = useHistoryStore()
+    s.record({
+      id: '200',
+      name: '剧',
+      link: '/play?id=200&source=lz&episode=2&currentTime=1200',
+      episode: '第3集',
+      source: 'lz',
+      episodeIndex: 2,
+      currentTime: 1200
+    })
+    // 原生播放器 onMediaItemTransition: 从第2集切到第3集(自动或手动都带 fromIndex)
+    await s.clearEpisode('200', 'lz', 2)
+    // 影片级记录必须还在(旧实现被删 → 后续 updateProgress 全部 no-op → 影片从历史消失)
+    expect(s.get('200')).toBeDefined()
+    expect(s.get('200')?.currentTime).toBe(0)
+    // 该集独立进度已清(getEpisode 回退命中的是影片级清零记录 → 重开从头播)
+    expect(s.getEpisode('200', 'lz', 2)?.currentTime).toBe(0)
+    // 紧跟的切集通知: updateProgress 能正常推进到新集(不再因记录缺失而丢失)
+    s.updateProgress('200', 3, 0, undefined, 'lz')
+    expect(s.get('200')?.episodeIndex).toBe(3)
+    expect(s.get('200')?.currentTime).toBe(0)
+  })
+
+  it('影片级指向别的集 → clearEpisode 不动影片级', async () => {
+    const s = useHistoryStore()
+    s.record({
+      id: '201',
+      name: '剧2',
+      link: '/play?id=201&source=lz&episode=5',
+      episode: '第6集',
+      source: 'lz',
+      episodeIndex: 5,
+      currentTime: 300
+    })
+    await s.clearEpisode('201', 'lz', 2)
+    expect(s.get('201')?.currentTime).toBe(300)
+  })
+
+  it('播完退出(ended): 影片级保留、进度清零, 重开从头播(而非从历史消失)', async () => {
+    const s = useHistoryStore()
+    s.record({
+      id: '300',
+      name: '电影',
+      link: '/play?id=300&source=lz&episode=0&currentTime=5000',
+      episode: '正片',
+      source: 'lz',
+      episodeIndex: 0,
+      currentTime: 5000
+    })
+    await s.clearEpisode('300', 'lz', 0)
+    expect(s.get('300')).toBeDefined()
+    expect(s.get('300')?.currentTime).toBe(0)
+    expect(s.get('300')?.name).toBe('电影')
+  })
+})
+
 describe('recordToCard (历史卡复用 FilmCard)', () => {
   it('remarks 取影片自身更新状态(HD / 更新至 N 集), 与普通影片卡同位', () => {
     const card = recordToCard({

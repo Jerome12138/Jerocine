@@ -64,13 +64,14 @@ describe('FilmCard', () => {
     expect(w.find('a').exists()).toBe(true)
   })
 
-  it('hotRank>0 → 显示 Hot No.N 角标; 缺省/0 → 不显示', () => {
+  it('hotRank>0 → 显示 🔥Hot N 角标(带火图标); 缺省/0 → 不显示', () => {
     const withRank = mountCard({
       item: { ...baseItem, hotRank: 7 } as never
     })
-    expect(withRank.text()).toContain('Hot No.7')
+    expect(withRank.text()).toContain('Hot 7')
+    expect(withRank.find('.gf-film-card__hot-badge svg').exists()).toBe(true)
 
     const noRank = mountCard()
-    expect(noRank.text()).not.toContain('Hot No.')
+    expect(noRank.find('.gf-film-card__hot-badge').exists()).toBe(false)
   })
 })
