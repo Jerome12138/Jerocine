@@ -20,7 +20,7 @@
 - **较大改动必写单测**（后端 `go test ./...`，前端 vitest），合并前本地测绿。
 - **前端门禁必须 `pnpm run build`**（= `vue-tsc -p tsconfig.app.json --noEmit && vite build`），不能只跑裸 `vue-tsc --noEmit`：`tsconfig.app.json` 开了 `noUncheckedIndexedAccess` 等严格项，裸 tsc 用宽松配置会漏报（`map[k]` 实为 `T|undefined`）。
 - **方案/架构设计存档到 `docs/`**，不要只留对话里。
-- 任何重启线上服务的操作（`docker compose build/up` 等）前先征维护者同意。重部署前若有采集（spider）任务在跑，先 `POST /api/v1/manage/spider/jobs/:id/pause` 记进度再动（重启 jerocine_server 会杀采集 goroutine、丢在途进度）。
+- 任何重启线上服务的操作（`docker compose build/up` 等）前先征维护者同意。**采集无需手动暂停**：server 有 SIGTERM 优雅停机（HTTP 收尾 → 等采集协程退出，中断页记失败台账由补采/增量窗口自愈）。
 
 ## 部署（Docker Compose）
 
@@ -29,23 +29,26 @@
   - `jerocine_nginx`：多阶段 `web/Dockerfile`（node:20-alpine 构建前端含 vue-tsc 门禁 → nginx:1.27-alpine 托管 + 反代 /api）。部署机无需装 node。
   - `jerocine_server`：`deploy/Dockerfile`（golang:1.27-alpine 编译 → distroless **nonroot UID 65532**，无 shell）。
   - `jerocine_mysql`、`jerocine_redis`。
-- **部署命令**：
-  - 前端改动：`cd deploy && sudo docker compose build nginx && sudo docker compose up -d --no-deps nginx`
-    （`--no-deps` 只重建 nginx、**不连带重启 jerocine_server** → 不打断采集）
-  - 后端改动：`... build server && ... up -d server`（**会重启 jerocine_server → 必打断采集**；先 pause 采集）
-  - ⚠️ nginx `depends_on: server`，**不加 `--no-deps`** 会连带重启 jerocine_server；故纯前端改动务必带 `--no-deps`。
+- **部署命令**：日常用一键脚本（pull → build+up → 等健康 → 自动清两层缓存）：
+  - `cd deploy && ./deploy.sh`            # 常规：server + nginx
+  - `./deploy.sh nginx`                   # 纯前端：只重建 nginx，不碰 server/采集
+  - `./deploy.sh server`                  # 只更新后端
+  - 脚本对 docker 无权限时自动回退 `sudo -n docker`；采集**无需手动暂停**（优雅停机自愈）。
+  - 等价手工形式（排障用）：`git pull && cd deploy && sudo docker compose --env-file .env up -d --build server nginx`，
+    部署后手动清缓存见下节。
+  - ⚠️ 若绕过脚本手工 `up -d nginx`：nginx `depends_on: server` 会连带重启 jerocine_server，纯前端改动务必带 `--no-deps`。
 - **DB 迁移（golang-migrate）**：由 compose 独立一次性服务 `migrate`（只 `up`，`restart:no`）跑；`server` `depends_on: migrate(service_completed_successfully)` → `up -d server` 会**先跑完待应用迁移再起 jerocine_server**。只单跑迁移不重启 api：`sudo docker compose run --rm migrate`。迁移文件 `server/migrations/000NNN_*.{up,down}.sql`。
 - **后端 Go 编译/测试**（可用容器跑）：
   `docker run --rm -v "$PWD/server":/src -w /src golang:1.27-alpine sh -c "go build ./... && go test ./internal/..."`
 - **致命坑 — 权限**：`deploy/secrets/*.pem`(JWT key) 和 `deploy/apk/` 必须属 **65532:65532**（distroless nonroot UID），否则 jerocine_server 读不到 key / 写不了 APK 而崩。
 
-## ⚠️ 部署后必清缓存（踩过坑）
+## ⚠️ 部署后必清缓存（踩过坑；`deploy.sh` 已内置自动化）
 
-后端 API 改动重建 jerocine_server 后，接口**仍返回旧数据**——因为两层缓存：
+后端 API 改动重建 jerocine_server 后，接口**仍返回旧数据**——因为两层缓存（`./deploy.sh` 每次部署后自动清，无需手工）：
 1. **nginx proxy_cache**：`deploy/data/nginx/nginx.conf` 对 `/api` 开了 `proxy_cache api_cache; proxy_cache_valid 200 7d`。
-   清：`sudo docker exec jerocine_nginx sh -c "rm -rf /var/cache/nginx/api/* && nginx -s reload"`
-2. **Redis 应用层缓存**：`v1:movie:detail:<mid>` 等。清需带密码：
-   `sudo docker exec jerocine_redis redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "v1:movie:detail:*" | xargs -r ...del`
+   手工清：`sudo docker exec jerocine_nginx sh -c "rm -rf /var/cache/nginx/api/* && nginx -s reload"`
+2. **Redis 应用层缓存**：`v1:movie:detail:<mid>` 等。手工清（`-a` 参数在 exec 链路易 NOAUTH，用 REDISCLI_AUTH）：
+   `sudo docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" jerocine_redis redis-cli --no-auth-warning -n 0 FLUSHDB`
 
 ## Android 工程版本控制
 
