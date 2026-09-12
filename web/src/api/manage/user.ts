@@ -19,3 +19,14 @@ export const setDisabled = (id: number, disabled: boolean): Promise<unknown> =>
 /** PATCH /manage/users/:id/password 管理员重置密码(6-64 位, 重置后该用户下线) */
 export const resetPassword = (id: number, password: string): Promise<unknown> =>
   http.patch(`/manage/users/${id}/password`, { password })
+
+/** POST /manage/users 新增用户(密码 6-64 位) */
+export const create = (userName: string, password: string, role: number): Promise<unknown> =>
+  http.post('/manage/users', { userName, password, role })
+
+/** PUT /manage/users/:id 编辑用户(用户名+角色; 角色变化后该用户下线; 不能改自己的角色) */
+export const update = (id: number, userName: string, role: number): Promise<unknown> =>
+  http.put(`/manage/users/${id}`, { userName, role })
+
+/** DELETE /manage/users/:id 删除用户(硬删, 连同其历史/收藏; 不能删除自己) */
+export const remove = (id: number): Promise<unknown> => http.delete(`/manage/users/${id}`)

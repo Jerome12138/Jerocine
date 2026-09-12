@@ -14,8 +14,9 @@ import { toast } from '@/api/http'
 import { useUserStore } from '@/stores/user'
 
 /**
- * 用户管理: 列表(用户名搜索) / 禁用启用 / 重置密码。
+ * 用户管理: 列表(用户名搜索) / 新增 / 编辑(用户名+角色) / 删除 / 禁用启用 / 重置密码。
  * 禁用与重置密码都会让目标用户全部设备下线; 不能操作自己(后端同样校验, 防唯一管理员自锁)。
+ * 删除为硬删, 连同其观看历史/收藏/跳过设置; 改自己的角色被前后端双重禁止(防降权自锁)。
  */
 
 const userStore = useUserStore()
@@ -130,6 +131,79 @@ async function submitReset(): Promise<void> {
   }
 }
 
+// ---- 新增/编辑用户弹窗(editing 为 null 表示新增) ----
+const formOpen = ref(false)
+const editing = ref<ManageUserRow | null>(null)
+const form = reactive({ userName: '', password: '', role: 0 })
+
+function openCreate(): void {
+  editing.value = null
+  form.userName = ''
+  form.password = ''
+  form.role = 0
+  formOpen.value = true
+}
+
+function openEdit(row: ManageUserRow): void {
+  editing.value = row
+  form.userName = row.userName
+  form.password = ''
+  form.role = row.role
+  formOpen.value = true
+}
+
+async function submitForm(): Promise<void> {
+  const name = form.userName.trim()
+  if (!name || name.length > 32) {
+    toast('error', '用户名需为 1-32 个字符')
+    return
+  }
+  busy.value = true
+  try {
+    if (!editing.value) {
+      if (form.password.length < 6 || form.password.length > 64) {
+        toast('error', '密码长度需在 6-64 位之间')
+        return
+      }
+      await manageApi.user.create(name, form.password, form.role)
+      toast('success', `已创建用户「${name}」`)
+    } else {
+      if (isSelf(editing.value) && form.role !== editing.value.role) {
+        toast('error', '不能修改自己的角色')
+        return
+      }
+      await manageApi.user.update(editing.value.ID, name, form.role)
+      toast('success', '已保存')
+    }
+    formOpen.value = false
+    await load()
+  } catch (e) {
+    toast('error', (e as Error).message ?? '操作失败')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function removeUser(row: ManageUserRow): Promise<void> {
+  const ok = await confirm({
+    title: `删除「${row.userName}」？`,
+    desc: '将永久删除该账号及其观看历史、收藏、跳过设置, 该账号全部设备立即下线, 此操作不可恢复。',
+    okText: '删除',
+    danger: true
+  })
+  if (!ok) return
+  busy.value = true
+  try {
+    await manageApi.user.remove(row.ID)
+    toast('success', '已删除')
+    await load()
+  } catch (e) {
+    toast('error', (e as Error).message ?? '删除失败')
+  } finally {
+    busy.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -141,7 +215,7 @@ onMounted(load)
       row-key="ID"
       :loading="loading"
       empty="未找到用户"
-      actions-width="220px"
+      actions-width="300px"
     >
       <template #toolbar>
         <h2 class="text-lg font-[var(--gf-fw-semibold)]">用户管理</h2>
@@ -149,6 +223,9 @@ onMounted(load)
           <ManageInput v-model="params.keyword" placeholder="用户名关键字" @keydown.enter="search" />
           <BaseButton variant="gradient" size="sm" @click="search">
             <BaseIcon name="search" size="16px" /> 搜索
+          </BaseButton>
+          <BaseButton variant="gradient" size="sm" @click="openCreate">
+            <BaseIcon name="plus" size="16px" /> 新增用户
           </BaseButton>
         </div>
       </template>
@@ -170,10 +247,12 @@ onMounted(load)
 
       <template #actions="{ row }">
         <div class="flex gap-[var(--gf-space-1)] justify-end">
+          <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</BaseButton>
           <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="toggleDisabled(row)">
             {{ row.disabled === 1 ? '启用' : '禁用' }}
           </BaseButton>
           <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openReset(row)">重置密码</BaseButton>
+          <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="removeUser(row)">删除</BaseButton>
         </div>
       </template>
     </ManageTable>
@@ -194,6 +273,38 @@ onMounted(load)
         <div class="flex justify-end gap-[var(--gf-space-2)]">
           <BaseButton variant="ghost" size="sm" @click="resetOpen = false">取消</BaseButton>
           <BaseButton variant="gradient" size="sm" type="submit" :disabled="busy">确认重置</BaseButton>
+        </div>
+      </form>
+    </ManageSheet>
+
+    <ManageSheet v-model="formOpen" :title="editing ? `编辑用户 — ${editing.userName}` : '新增用户'">
+      <form class="flex flex-col gap-[var(--gf-space-4)]" @submit.prevent="submitForm">
+        <label class="flex flex-col gap-[var(--gf-space-2)]">
+          <span class="text-sm text-secondary">用户名(1-32 个字符, 不得与他人重复)</span>
+          <ManageInput v-model="form.userName" placeholder="输入用户名" />
+        </label>
+        <label v-if="!editing" class="flex flex-col gap-[var(--gf-space-2)]">
+          <span class="text-sm text-secondary">初始密码(6-64 位)</span>
+          <ManageInput v-model="form.password" type="password" placeholder="输入初始密码" />
+        </label>
+        <label class="flex flex-col gap-[var(--gf-space-2)]">
+          <span class="text-sm text-secondary">角色</span>
+          <select
+            v-model.number="form.role"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+            data-focusable="true"
+            :disabled="!!editing && isSelf(editing)"
+          >
+            <option :value="0">普通用户</option>
+            <option :value="1">管理员</option>
+          </select>
+          <span v-if="editing && isSelf(editing)" class="text-xs text-muted">不能修改自己的角色</span>
+        </label>
+        <div class="flex justify-end gap-[var(--gf-space-2)]">
+          <BaseButton variant="ghost" size="sm" @click="formOpen = false">取消</BaseButton>
+          <BaseButton variant="gradient" size="sm" type="submit" :disabled="busy">
+            {{ editing ? '保存' : '创建' }}
+          </BaseButton>
         </div>
       </form>
     </ManageSheet>
