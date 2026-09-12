@@ -90,11 +90,11 @@ var searchUpsertCols = []string{
 }
 
 // searchUpsertExclude 见 searchUpsertCols 注释。backdrop 由 TMDB worker 双写回填, 采集不覆盖;
-// hot_rank / hot_rank_at / db_id_src 由豆瓣榜单任务写入, 同属"本地计算列"(hot_score 例外:
+// hot_rank / hot_rank_at / hot_board / db_id_src 由豆瓣榜单任务写入, 同属"本地计算列"(hot_score 例外:
 // 它随年份/在播/口碑变化, 走 IF(hot_rank = 0, ...) 条件更新, 在榜行不会被抹)。
 var searchUpsertExclude = map[string]bool{
 	"mid": true, "created_at": true, "deleted_at": true, "backdrop": true,
-	"hot_rank": true, "hot_rank_at": true, "db_id_src": true,
+	"hot_rank": true, "hot_rank_at": true, "hot_board": true, "db_id_src": true,
 }
 
 // searchUpsertClause 冲突时按内容列更新(常规列 VALUES(col) + 条件更新列)。
@@ -435,11 +435,11 @@ func (r *searchRepo) ShadowCommit(ctx context.Context) error {
 		return err
 	}
 	// 榜单热度列同上。影子表里 hot_score 是**兜底分**(写入时按年份/在播/口碑算出来的, 见
-	// fillHotScoreSearch), 但榜位(hot_rank / hot_rank_at)与含榜位分的合成分只有 movie 表知道 ——
-	// 不回灌就等于"每跑一次全量, 全站榜位归零"。同样必须在 RENAME 之前完成。
+	// fillHotScoreSearch), 但榜位(hot_rank / hot_rank_at / hot_board)与含榜位分的合成分只有
+	// movie 表知道 —— 不回灌就等于"每跑一次全量, 全站榜位归零"。同样必须在 RENAME 之前完成。
 	if err := db.Exec("UPDATE movie_search_next ns JOIN movie m ON m.mid = ns.mid " +
 		"SET ns.hot_rank = m.hot_rank, ns.hot_rank_at = m.hot_rank_at, " +
-		"ns.hot_score = m.hot_score, ns.db_id_src = m.db_id_src " +
+		"ns.hot_board = m.hot_board, ns.hot_score = m.hot_score, ns.db_id_src = m.db_id_src " +
 		"WHERE m.hot_score > 0 OR m.db_id_src > 0").Error; err != nil {
 		return err
 	}

@@ -34,11 +34,13 @@ type Movie struct {
 	// 榜单热度列, 由豆瓣榜单刷新任务写入(见 service/hot_service.go)。属"本地计算列":
 	// 采集 upsert 一律排除(见 movieUpsertExclude), movie_search 影子表换表前从 movie 回灌。
 	// HotRank=当前榜位(0 不在榜) / HotRankAt=本轮抓取时间(Unix 秒) / HotScore=合成热度分 /
+	// HotBoard=榜位来源集合名(如 movie_hot_gaia, 详情页展示"哪个榜的 No.X") /
 	// DbIdSrc=movie.db_id 来源(0 源站自带 / 1 榜单回填)。
-	HotRank   int   `gorm:"column:hot_rank" json:"hotRank"`
-	HotRankAt int64 `gorm:"column:hot_rank_at" json:"hotRankAt"`
-	HotScore  int   `gorm:"column:hot_score" json:"hotScore"`
-	DbIdSrc   int8  `gorm:"column:db_id_src" json:"dbIdSrc"`
+	HotRank   int    `gorm:"column:hot_rank" json:"hotRank"`
+	HotRankAt int64  `gorm:"column:hot_rank_at" json:"hotRankAt"`
+	HotBoard  string `gorm:"column:hot_board" json:"hotBoard"`
+	HotScore  int    `gorm:"column:hot_score" json:"hotScore"`
+	DbIdSrc   int8   `gorm:"column:db_id_src" json:"dbIdSrc"`
 	PlayFrom     StringSlice `gorm:"column:play_from;type:json" json:"playFrom"`
 	DownFrom     string      `gorm:"column:down_from" json:"downFrom"`
 	ReleaseStamp int64       `gorm:"column:release_stamp" json:"releaseStamp"`
@@ -84,10 +86,11 @@ type MovieSearch struct {
 	Backdrop     string  `gorm:"column:backdrop" json:"backdrop"`
 	// 榜单热度列, 与 movie 同列同源(由 hot_service 双写)。属"本地计算列":
 	// 采集 upsert 不覆盖(见 searchUpsertExclude); 全量重采走影子表重建, 换表前从 movie 回灌。
-	HotRank      int   `gorm:"column:hot_rank" json:"hotRank"`
-	HotRankAt    int64 `gorm:"column:hot_rank_at" json:"hotRankAt"`
-	HotScore     int   `gorm:"column:hot_score" json:"hotScore"`
-	DbIdSrc      int8  `gorm:"column:db_id_src" json:"dbIdSrc"`
+	HotRank      int    `gorm:"column:hot_rank" json:"hotRank"`
+	HotRankAt    int64  `gorm:"column:hot_rank_at" json:"hotRankAt"`
+	HotBoard     string `gorm:"column:hot_board" json:"hotBoard"`
+	HotScore     int    `gorm:"column:hot_score" json:"hotScore"`
+	DbIdSrc      int8   `gorm:"column:db_id_src" json:"dbIdSrc"`
 	ReleaseStamp int64   `gorm:"column:release_stamp" json:"releaseStamp"`
 	UpdateStamp  int64   `gorm:"column:update_stamp" json:"updateStamp"`
 	CreatedAt    int64   `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`

@@ -32,7 +32,7 @@ func NewMovieRepository(db *gorm.DB) repository.MovieRepository { return &movieR
 //   - created_at: 首次入库时间, 重采不应把它刷成现在(否则"今日新增"会虚高);
 //   - deleted_at: 软删标记, 若跟着更新, 源站把已删影片再推一次就会自动复活;
 //   - backdrop:   TMDB 横图由后台 worker 下载回填, 源站没有该数据, 跟着更新只会把已回填的抹成空;
-//   - hot_rank / hot_rank_at / db_id_src:
+//   - hot_rank / hot_rank_at / hot_board / db_id_src:
 //     豆瓣榜单计算 / 回填列, 源站完全没有对应数据, 跟着更新会把算好的榜位抹成 0。
 //
 // 清单与 entity.Movie 的同步由 TestMovieUpsertColsCoverEntity 反射校验, 漏改会直接测试失败。
@@ -46,7 +46,7 @@ var movieUpsertCols = []string{
 // movieUpsertExclude 内容列之外的例外列(A 类, 各列理由见 movieUpsertCols 注释)。
 var movieUpsertExclude = map[string]bool{
 	"mid": true, "created_at": true, "deleted_at": true, "backdrop": true,
-	"hot_rank": true, "hot_rank_at": true, "db_id_src": true,
+	"hot_rank": true, "hot_rank_at": true, "hot_board": true, "db_id_src": true,
 }
 
 // movieUpsertClause 冲突时按内容列更新(常规列 VALUES(col) + B 类条件表达式)。
@@ -205,6 +205,7 @@ func (r *movieRepo) ApplyHot(ctx context.Context, rows []repository.HotRow) (int
 			}
 			mv := map[string]any{
 				"hot_rank": row.HotRank, "hot_rank_at": row.HotRankAt, "hot_score": row.HotScore,
+				"hot_board": row.HotBoard, // 掉榜行随 HotRank=0 一起清空
 			}
 			if row.DbId > 0 {
 				mv["db_id"] = row.DbId
@@ -221,6 +222,7 @@ func (r *movieRepo) ApplyHot(ctx context.Context, rows []repository.HotRow) (int
 
 			sv := map[string]any{
 				"hot_rank": row.HotRank, "hot_rank_at": row.HotRankAt, "hot_score": row.HotScore,
+				"hot_board": row.HotBoard,
 			}
 			if row.DbScore > 0 {
 				sv["db_score"] = row.DbScore

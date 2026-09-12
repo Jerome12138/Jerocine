@@ -211,6 +211,17 @@ type Ranked struct {
 // 位次分不在这里算: 本包只负责"取到榜单、给定位次", 折算成分数属领域计算,
 // 唯一实现在 domain.HotScore(内部按 0.1 分单位换算, 避免公式分叉)。
 
+// BoardLabel 集合名 → 中文榜单名(详情页展示"豆瓣·热门电影 No.2"用)。
+// 未知集合名返回原名 —— 库里可能存着清单下线前的历史名, 不至于展示成空白。
+func BoardLabel(name string) string {
+	for _, c := range Collections {
+		if c.Name == name {
+			return c.Label
+		}
+	}
+	return name
+}
+
 // Stats 一轮抓取的观测值 —— 供日志与后台排查(抓了多少页 / 空返回几次 / 跳过几页)。
 type Stats struct {
 	Pages   int           // 有效响应页数

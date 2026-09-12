@@ -48,12 +48,12 @@ var conditionalUpsert = map[string]string{
 // 没有这一步, 新采入库/后台新加的片会一直挂着 0 分, 在"热度优先"里沉到最底(最长要到次日 04:00
 // 的榜单刷新才被修正)。榜单刷新任务之后会把在榜片的 hot_score 覆盖为 榜位分 + 兜底分。
 func fillHotScore(m *entity.Movie, now time.Time) {
-	m.HotScore = domain.HotScore(0, 0, m.Year, m.Remarks, m.DbScore, now)
+	m.HotScore = domain.HotScore(0, m.Year, m.Remarks, m.DbScore, now)
 }
 
 // fillHotScoreSearch 同 fillHotScore, 作用于读模型行(两表同列同口径)。
 func fillHotScoreSearch(m *entity.MovieSearch, now time.Time) {
-	m.HotScore = domain.HotScore(0, 0, m.Year, m.Remarks, m.DbScore, now)
+	m.HotScore = domain.HotScore(0, m.Year, m.Remarks, m.DbScore, now)
 }
 
 // upsertAssignments 构造 ON DUPLICATE KEY UPDATE 的赋值列表:

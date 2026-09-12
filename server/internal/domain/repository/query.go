@@ -87,12 +87,13 @@ type HotCandidate struct {
 
 // HotRow 一次热度刷新要写的一行, 事务内双写 movie 与 movie_search。
 //
-// 零值语义: HotRank=0 且 HotRankAt=0 表示"落榜", 该行的 hot_score 回落兜底分;
+// 零值语义: HotRank=0 且 HotRankAt=0 表示"落榜", 该行的 hot_score 回落兜底分、hot_board 清空;
 // DbId / DbScore 为 0 表示不回填该列(db_score=0 在库里就是"无评分", 不存在"写 0 是有效值"的情形)。
 type HotRow struct {
 	Mid       int64
 	HotRank   int
 	HotRankAt int64
+	HotBoard  string // 榜位来源集合名(如 movie_hot_gaia), 落榜行为空串
 	HotScore  int
 	DbId      int64
 	DbScore   float64

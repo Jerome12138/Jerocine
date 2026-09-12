@@ -257,7 +257,7 @@ func (s *HotService) clearStaleBoard(ctx context.Context, now time.Time) (int, e
 	for _, p := range prev {
 		rows = append(rows, repository.HotRow{
 			Mid:      p.Mid,
-			HotScore: domain.HotScore(0, 0, p.Year, p.Remarks, p.DbScore, now),
+			HotScore: domain.HotScore(0, p.Year, p.Remarks, p.DbScore, now),
 		})
 	}
 	n, err := s.movie.ApplyHot(ctx, rows)
@@ -272,10 +272,69 @@ func (s *HotService) clearStaleBoard(ctx context.Context, now time.Time) (int, e
 // hotMatch 榜单条目 ↔ 本地影片的一对一匹配结果。
 type hotMatch struct {
 	Mid   int64
-	Rank  int // 榜单内位次(1 起)
-	Depth int // 该榜单深度(位次分归一化用)
+	Rank  int    // 榜单内位次(1 起)
+	Depth int    // 该榜单深度(与 Rank 一起决定多榜并列时的代表榜)
+	Board string // 来源集合名(如 movie_hot_gaia), 详情页展示"哪个榜的 No.X"
+	Label string // 集合中文名
 	Item  douban.Item
 	Local repository.HotCandidate
+}
+
+// betterMatch 与 betterBoard 同规则, 作用在 hotMatch 上(buildRows 按 mid 去重时用)。
+func betterMatch(a, b hotMatch) hotMatch {
+	if a.Rank != b.Rank {
+		if a.Rank < b.Rank {
+			return a
+		}
+		return b
+	}
+	if a.Depth != b.Depth {
+		if a.Depth > b.Depth {
+			return a
+		}
+		return b
+	}
+	if oa, ob := hotBoardOrder[a.Board], hotBoardOrder[b.Board]; oa != ob {
+		if oa < ob {
+			return a
+		}
+		return b
+	}
+	return a
+}
+
+// hotBoardOrder 集合名 → Collections 清单序号, 多榜并列时保证选择结果稳定可复现
+// (不依赖 map 迭代序)。
+var hotBoardOrder = func() map[string]int {
+	m := make(map[string]int, len(douban.Collections))
+	for i, c := range douban.Collections {
+		m[c.Name] = i
+	}
+	return m
+}()
+
+// betterBoard 多榜命中同一部片时选"代表榜": 位次小者优先; 同位次取更深的榜
+// (大榜的第 2 名比 10 条小榜的第 2 名含金量高); 再同按 Collections 清单顺序。
+func betterBoard(a, b douban.Ranked) douban.Ranked {
+	if a.Rank != b.Rank {
+		if a.Rank < b.Rank {
+			return a
+		}
+		return b
+	}
+	if a.Depth != b.Depth {
+		if a.Depth > b.Depth {
+			return a
+		}
+		return b
+	}
+	if oa, ob := hotBoardOrder[a.Collection], hotBoardOrder[b.Collection]; oa != ob {
+		if oa < ob {
+			return a
+		}
+		return b
+	}
+	return a
 }
 
 // match 三重门匹配(方案 §3.4):
@@ -292,8 +351,10 @@ func (s *HotService) match(ctx context.Context, ranked []douban.Ranked) ([]hotMa
 			noID = append(noID, r)
 			continue
 		}
-		if cur, ok := best[r.Id]; !ok || r.Rank < cur.Rank {
-			best[r.Id] = r // 命中多榜取最好位次
+		if cur, ok := best[r.Id]; !ok {
+			best[r.Id] = r
+		} else {
+			best[r.Id] = betterBoard(cur, r) // 命中多榜取代表榜(见 betterBoard)
 		}
 	}
 
@@ -332,7 +393,7 @@ func (s *HotService) match(ctx context.Context, ranked []douban.Ranked) ([]hotMa
 			unmatched = append(unmatched, r)
 			continue
 		}
-		out = append(out, hotMatch{Mid: local.Mid, Rank: r.Rank, Depth: r.Depth, Item: r.Item, Local: local})
+		out = append(out, hotMatch{Mid: local.Mid, Rank: r.Rank, Depth: r.Depth, Board: r.Collection, Label: r.Label, Item: r.Item, Local: local})
 	}
 	unmatched = append(unmatched, noID...)
 
@@ -355,7 +416,7 @@ func (s *HotService) match(ctx context.Context, ranked []douban.Ranked) ([]hotMa
 		if !ok {
 			continue
 		}
-		out = append(out, hotMatch{Mid: local.Mid, Rank: r.Rank, Depth: r.Depth, Item: r.Item, Local: local})
+		out = append(out, hotMatch{Mid: local.Mid, Rank: r.Rank, Depth: r.Depth, Board: r.Collection, Label: r.Label, Item: r.Item, Local: local})
 	}
 	return out, nil
 }
@@ -453,8 +514,10 @@ func (s *HotService) buildRows(ctx context.Context, matches []hotMatch, now time
 ) {
 	byMid := make(map[int64]hotMatch, len(matches))
 	for _, m := range matches {
-		if cur, ok := byMid[m.Mid]; !ok || m.Rank < cur.Rank {
+		if cur, ok := byMid[m.Mid]; !ok {
 			byMid[m.Mid] = m
+		} else {
+			byMid[m.Mid] = betterMatch(cur, m)
 		}
 	}
 	prev, err := s.movie.ListHotBoard(ctx)
@@ -466,7 +529,7 @@ func (s *HotService) buildRows(ctx context.Context, matches []hotMatch, now time
 	nowUnix := now.Unix()
 	rows = make([]repository.HotRow, 0, len(byMid)+len(prev))
 	for _, m := range byMid {
-		row := repository.HotRow{Mid: m.Mid, HotRank: m.Rank, HotRankAt: nowUnix}
+		row := repository.HotRow{Mid: m.Mid, HotRank: m.Rank, HotRankAt: nowUnix, HotBoard: m.Board}
 		score := m.Local.DbScore
 		if m.Local.DbId <= 0 && m.Item.Id > 0 {
 			row.DbId = m.Item.Id // 源站覆盖 59.2% → 剩下的靠榜单 id 精确回填
@@ -477,7 +540,7 @@ func (s *HotService) buildRows(ctx context.Context, matches []hotMatch, now time
 			score = m.Item.Rating.Value
 			scoreFilled++
 		}
-		row.HotScore = domain.HotScore(m.Rank, m.Depth, m.Local.Year, m.Local.Remarks, score, now)
+		row.HotScore = domain.HotScore(m.Rank, m.Local.Year, m.Local.Remarks, score, now)
 		rows = append(rows, row)
 	}
 	for _, p := range prev {
@@ -486,7 +549,7 @@ func (s *HotService) buildRows(ctx context.Context, matches []hotMatch, now time
 		}
 		rows = append(rows, repository.HotRow{
 			Mid:      p.Mid,
-			HotScore: domain.HotScore(0, 0, p.Year, p.Remarks, p.DbScore, now),
+			HotScore: domain.HotScore(0, p.Year, p.Remarks, p.DbScore, now),
 		})
 		fellOff++
 	}

@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"server/internal/douban"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 	"server/internal/service"
@@ -127,8 +128,11 @@ type FilmDetail struct {
 	DbScore  float64      `json:"dbScore"`
 	// PubDate 上映日期(ISO 前缀串, 空 = 源站未提供); HotRank 豆瓣榜位(0 = 不在榜),
 	// 详情页据此显示「上映日期」与「豆瓣热门 No.N」。
+	// HotBoard 榜位来源榜单中文名(如 "热门电影"), 展示成「豆瓣·热门电影 No.2」;
+	// 同一部片会在多个集合出现(多分类各有 No.2), 光看位次分不清是哪个榜的。
 	PubDate  string       `json:"pubDate,omitempty"`
 	HotRank  int          `json:"hotRank,omitempty"`
+	HotBoard string       `json:"hotBoard,omitempty"`
 	Content  string       `json:"content"`
 	PlayFrom []string     `json:"playFrom"`
 	Sources  []PlaySource `json:"sources"`
@@ -140,7 +144,7 @@ func ToFilmDetail(d service.FilmDetailData) FilmDetail {
 		Mid: m.Mid, Name: m.Name, Cover: m.Cover, Backdrop: normBackdrop(m.Backdrop), Cid: m.Cid, Pid: m.Pid, CName: m.CName,
 		SubTitle: m.SubTitle, Actor: m.Actor, Director: m.Director, Area: m.Area, Language: m.Language,
 		Year: m.Year, ClassTag: m.ClassTag, Remarks: m.Remarks, State: m.State, DbScore: m.DbScore,
-		PubDate: m.PubDate, HotRank: m.HotRank,
+		PubDate: m.PubDate, HotRank: m.HotRank, HotBoard: douban.BoardLabel(m.HotBoard),
 		Content: m.Content, PlayFrom: []string(m.PlayFrom), Sources: toSources(d.Sources),
 	}
 }

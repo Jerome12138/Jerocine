@@ -171,9 +171,9 @@ func TestHotService_Refresh_EndToEnd(t *testing.T) {
 		}
 	}
 
-	// db_id 精确命中: 位次 4(第 4 条), 深度 308 → 位次分 1000-400*3/307 = 997
-	// + 兜底(2024 新片 18 + 豆瓣 8.6→9 = 27) × 10 = 270 → 1267
-	if r := got[11]; r.HotRank != 4 || r.HotScore != 1267 {
+	// db_id 精确命中: 位次 4(第 4 条) → 100000 - 3×100 = 99700
+	// + tiebreak(2024 新片 18/3=6 + 豆瓣 8.6→9×4=36) = 99742
+	if r := got[11]; r.HotRank != 4 || r.HotScore != 99742 || r.HotBoard != "movie_hot_gaia" {
 		t.Fatalf("db_id 命中行不对: %+v", r)
 	}
 	// 重复 db_id: 取正片(29748), 不是解说行(61203)
@@ -183,17 +183,40 @@ func TestHotService_Refresh_EndToEnd(t *testing.T) {
 	if _, ok := got[61203]; ok {
 		t.Fatalf("解说行不该上榜: %+v", got[61203])
 	}
-	// 片名兜底: 回填 db_id(源站缺失) + 回填豆瓣分 9.4; 位次 1 → 位次分 1000 + 兜底(2023 → 17 + 9 = 26)×10 = 1260
+	// 片名兜底: 回填 db_id(源站缺失) + 回填豆瓣分 9.4; 位次 1 → 100000 + tiebreak(2023→17/3=5 + 9×4=36)
 	fill := got[58589]
 	if fill.DbId != hotTestSpecialID || fill.DbScore != 9.4 {
 		t.Fatalf("片名兜底行未回填 db_id/db_score: %+v", fill)
 	}
-	if fill.HotRank != 1 || fill.HotScore != 1260 {
+	if fill.HotRank != 1 || fill.HotScore != 100041 {
 		t.Fatalf("片名兜底行分数不对: %+v", fill)
 	}
-	// 掉榜片: 榜位归零 + 分数回落兜底(2019 老片、已完结、无评分 → 年份新鲜度 20-7=13 → 130)
-	if r := got[99]; r.HotRank != 0 || r.HotRankAt != 0 || r.HotScore != 130 {
-		t.Fatalf("掉榜片应回落兜底分: %+v", r)
+	// 掉榜片: 榜位/榜单来源归零 + 分数回落兜底(2019 老片、已完结、无评分 → 年份新鲜度 20-7=13 → 130)
+	if r := got[99]; r.HotRank != 0 || r.HotRankAt != 0 || r.HotBoard != "" || r.HotScore != 130 {
+		t.Fatalf("掉榜片应回落兜底分并清空榜单来源: %+v", r)
+	}
+}
+
+// TestBetterBoard 多榜命中同一部片时的代表榜选择:
+// 位次小者优先; 同位次取更深的榜(大榜 No.2 比 10 条小榜 No.2 含金量高);
+// 再同按 Collections 清单顺序(稳定可复现, 不依赖 map 迭代序)。
+func TestBetterBoard(t *testing.T) {
+	gaia := douban.Ranked{Collection: "movie_hot_gaia", Label: "热门电影", Rank: 5, Depth: 308}
+	weekly := douban.Ranked{Collection: "movie_weekly_best", Label: "一周口碑榜", Rank: 2, Depth: 10}
+	showing := douban.Ranked{Collection: "movie_showing", Label: "正在上映", Rank: 2, Depth: 50}
+
+	if got := betterBoard(gaia, weekly); got.Collection != "movie_weekly_best" {
+		t.Fatalf("位次小者优先: %+v", got)
+	}
+	// 同为 No.2: 深度 50 的"正在上映"胜过深度 10 的"一周口碑榜"
+	if got := betterBoard(weekly, showing); got.Collection != "movie_showing" {
+		t.Fatalf("同位次取更深榜: %+v", got)
+	}
+	// 同 rank 同 depth(不同集合): 按 Collections 清单顺序
+	a := douban.Ranked{Collection: "movie_weekly_best", Rank: 2, Depth: 10}
+	b := douban.Ranked{Collection: "tv_global_best_weekly", Rank: 2, Depth: 10}
+	if got := betterBoard(b, a); got.Collection != "movie_weekly_best" {
+		t.Fatalf("同位次同深度按清单顺序: %+v", got)
 	}
 }
 
