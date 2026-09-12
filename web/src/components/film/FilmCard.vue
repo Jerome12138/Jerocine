@@ -105,7 +105,7 @@ const scoreText = computed(() => {
 
       <!-- 右上角评分: 黄色星星 + 数字, 带底色阴影避免被封面同化 -->
       <span v-if="scoreText" class="gf-film-card__score-badge" aria-label="评分">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" aria-hidden="true">
           <path d="M12 .587l3.668 7.568L24 9.75l-6 5.852L19.336 24 12 19.897 4.664 24 6 15.602 0 9.75l8.332-1.595z"/>
         </svg>
         {{ scoreText }}
@@ -113,7 +113,7 @@ const scoreText = computed(() => {
 
       <!-- 左上角热度榜位: 火 + Hot N(仅榜单刷新任务标过 hot_rank 的片有) -->
       <span v-if="hotRankText" class="gf-film-card__hot-badge" aria-label="热度榜位">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" aria-hidden="true">
           <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
         </svg>
         {{ hotRankText }}
