@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -21,22 +22,47 @@ type searchRepo struct{ db *gorm.DB }
 // NewSearchRepository 构造物化卡片/检索宽表仓储。
 func NewSearchRepository(db *gorm.DB) repository.SearchRepository { return &searchRepo{db: db} }
 
-// allowedSort 排序列白名单, 防注入。
+// 排序键 —— 白名单(filter 的 sort 参数)、分类页三榜、首页全站热榜共用同一处定义, 避免两处漂移。
+//
+//	orderHot    热度优先: 主键是实测的 hot_score(见 service/hot_service.go), 后三级只做同分 tiebreak。
+//	            列顺序与 000020 建的 idx_hot(hot_score, year, update_stamp, mid) 完全一致 → 走索引不 filesort。
+//	orderScore  评分优先: db_score 无索引(存量如此), 但只取前 N + 分类页 10 分钟缓存, 可接受。
+//	orderLatest 最新上线: 原为 release_stamp(= 源站录入时间, 受 2023 老片补录污染), 改用
+//	            year + pub_date(源站上映日期, 精度自描述且字典序=时间序), 末级才回退 update_stamp。
+//	orderRecent 最近更新: 源站最近动过它的时间。
+const (
+	orderHot    = "hot_score DESC, year DESC, update_stamp DESC, mid DESC"
+	orderScore  = "db_score DESC, year DESC, mid DESC"
+	orderLatest = "year DESC, pub_date DESC, update_stamp DESC"
+	orderRecent = "update_stamp DESC"
+)
+
+// allowedSort 排序列白名单, 防注入。旧值(hits / db_score / release_stamp)保留为别名:
+// 前端与 Android TV 已发出的链接、以及 TV 端硬编码的旧 value 都要继续工作。
 var allowedSort = map[string]string{
-	"update_stamp":  "update_stamp DESC",
-	"hits":          "hits DESC",
-	"db_score":      "db_score DESC",
-	"release_stamp": "release_stamp DESC",
+	"hot":           orderHot,
+	"hits":          orderHot, // 旧值(人气排序)
+	"score":         orderScore,
+	"db_score":      orderScore, // 旧值(评分排序)
+	"latest":        orderLatest,
+	"release_stamp": orderLatest, // 旧值(最新上映)
+	"update_stamp":  orderRecent,
+	"recent":        orderRecent,
 }
+
+// defaultSort 未指定 / 无法识别时的排序键。
+const defaultSort = orderRecent
 
 func orderForClassify(s repository.ClassifySort) string {
 	switch s {
 	case repository.SortLatest:
-		return "release_stamp DESC"
+		return orderLatest
 	case repository.SortHot:
-		return "hits DESC"
+		return orderHot
+	case repository.SortScore:
+		return orderScore
 	default:
-		return "update_stamp DESC"
+		return orderRecent
 	}
 }
 
@@ -54,20 +80,21 @@ func applyDeleted(q *gorm.DB, mode int) *gorm.DB {
 
 // searchUpsertCols 采集回写读模型时参与 ON DUPLICATE KEY UPDATE 的列。
 // 与 movieUpsertCols 同口径: 排除 mid(冲突键)、created_at(首存时间)、deleted_at(软删标记),
-// 保证源站重推不会让已删影片在列表/检索里复活; db_score / year / pub_date 走条件更新
+// 保证源站重推不会让已删影片在列表/检索里复活; db_score / year / pub_date / hot_score 走条件更新
 // (见 base.go 的 conditionalUpsert), 源站给不出时保留本地值。
 // 由 TestSearchUpsertColsCoverEntity 反射校验。
 var searchUpsertCols = []string{
 	"cid", "pid", "name", "sub_title", "c_name", "class_tag",
 	"area", "language", "year", "pub_date", "initial", "name_pinyin", "state", "remarks",
-	"db_score", "hits", "cover", "release_stamp", "update_stamp", "updated_at",
+	"db_score", "hits", "hot_score", "cover", "release_stamp", "update_stamp", "updated_at",
 }
 
 // searchUpsertExclude 见 searchUpsertCols 注释。backdrop 由 TMDB worker 双写回填, 采集不覆盖;
-// hot_rank / hot_rank_at / hot_score / db_id_src 由豆瓣榜单任务写入, 同属"本地计算列"。
+// hot_rank / hot_rank_at / db_id_src 由豆瓣榜单任务写入, 同属"本地计算列"(hot_score 例外:
+// 它随年份/在播/口碑变化, 走 IF(hot_rank = 0, ...) 条件更新, 在榜行不会被抹)。
 var searchUpsertExclude = map[string]bool{
 	"mid": true, "created_at": true, "deleted_at": true, "backdrop": true,
-	"hot_rank": true, "hot_rank_at": true, "hot_score": true, "db_id_src": true,
+	"hot_rank": true, "hot_rank_at": true, "db_id_src": true,
 }
 
 // searchUpsertClause 冲突时按内容列更新(常规列 VALUES(col) + 条件更新列)。
@@ -130,6 +157,44 @@ func (r *searchRepo) TopByPidSorted(ctx context.Context, pid int64, s repository
 	return out, err
 }
 
+// TopHotAll 全站跨类别热榜 —— 首页「热门榜单」行(不按 pid)。与分类页排行榜共用 orderHot,
+// 但口径不同: 这里混排全站, 那里只看该分类(见 docs/榜单热度方案 §8.1①)。
+func (r *searchRepo) TopHotAll(ctx context.Context, limit int) ([]entity.MovieSearch, error) {
+	if limit <= 0 {
+		limit = 14
+	}
+	var out []entity.MovieSearch
+	err := applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude).
+		Order(orderHot).Limit(limit).Find(&out).Error
+	return out, err
+}
+
+// TopScoreByPid 该一级分类的高分榜。
+//
+// 口径(方案 §3.5): db_score > 0 且排除"解说" —— 用**片名内容**判定解说(实测与 c_name 口径
+// 21,479 vs 21,502 等价), 不依赖任何分类 id: 切源重建分类树后判据依然成立。
+// **不设分数下限**: 榜单本就只分页显示前面, 排序天然让高分在前, 门槛纯属多余
+// (分类筛选页更不该被 ≥8 卡掉)。
+func (r *searchRepo) TopScoreByPid(ctx context.Context, pid int64, limit int) ([]entity.MovieSearch, error) {
+	if limit <= 0 {
+		limit = 14
+	}
+	var out []entity.MovieSearch
+	err := applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude).
+		Where("pid = ? AND db_score > 0 AND name NOT LIKE ?", pid, "%解说%").
+		Order(orderScore).Limit(limit).Find(&out).Error
+	return out, err
+}
+
+// CountScoredByPid 该一级分类有评分的影片数 —— 分类页据此决定是否返回高分榜分区
+// (为 0 则前端不渲染入口)。用运行时探测代替"体育/短剧/漫剧"白名单: 切源后自动正确。
+func (r *searchRepo) CountScoredByPid(ctx context.Context, pid int64) (int64, error) {
+	var n int64
+	err := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude).
+		Where("pid = ? AND db_score > 0", pid).Count(&n).Error
+	return n, err
+}
+
 func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, page repository.Page) ([]entity.MovieSearch, int64, error) {
 	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), spec.Deleted)
 	if spec.Pid > 0 {
@@ -152,7 +217,7 @@ func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, pag
 	}
 	order := allowedSort[spec.Sort]
 	if order == "" {
-		order = "update_stamp DESC"
+		order = defaultSort
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
@@ -275,12 +340,17 @@ func (r *searchRepo) Related(ctx context.Context, seed repository.RelatedSeed, c
 }
 
 func (r *searchRepo) Upsert(ctx context.Context, m *entity.MovieSearch) error {
+	fillHotScoreSearch(m, time.Now())
 	return dbFrom(ctx, r.db).Clauses(searchUpsertClause()).Create(m).Error
 }
 
 func (r *searchRepo) BatchUpsert(ctx context.Context, list []entity.MovieSearch) error {
 	if len(list) == 0 {
 		return nil
+	}
+	now := time.Now()
+	for i := range list {
+		fillHotScoreSearch(&list[i], now)
 	}
 	return dbFrom(ctx, r.db).Clauses(searchUpsertClause()).CreateInBatches(list, 200).Error
 }
@@ -341,6 +411,10 @@ func (r *searchRepo) ShadowWrite(ctx context.Context, list []entity.MovieSearch)
 	if len(list) == 0 {
 		return nil
 	}
+	now := time.Now()
+	for i := range list {
+		fillHotScoreSearch(&list[i], now)
+	}
 	return dbFrom(ctx, r.db).Table("movie_search_next").CreateInBatches(list, 200).Error
 }
 
@@ -360,8 +434,9 @@ func (r *searchRepo) ShadowCommit(ctx context.Context) error {
 		"SET ns.backdrop = m.backdrop WHERE m.backdrop != ''").Error; err != nil {
 		return err
 	}
-	// 榜单热度列同理, 且更要紧: 这四列不在采集 upsert 清单里(见 searchUpsertCols), 影子表里
-	// 必然是默认 0, 不回灌就等于"每跑一次全量, 全站热度归零"。同样必须在 RENAME 之前完成。
+	// 榜单热度列同上。影子表里 hot_score 是**兜底分**(写入时按年份/在播/口碑算出来的, 见
+	// fillHotScoreSearch), 但榜位(hot_rank / hot_rank_at)与含榜位分的合成分只有 movie 表知道 ——
+	// 不回灌就等于"每跑一次全量, 全站榜位归零"。同样必须在 RENAME 之前完成。
 	if err := db.Exec("UPDATE movie_search_next ns JOIN movie m ON m.mid = ns.mid " +
 		"SET ns.hot_rank = m.hot_rank, ns.hot_rank_at = m.hot_rank_at, " +
 		"ns.hot_score = m.hot_score, ns.db_id_src = m.db_id_src " +
@@ -458,12 +533,13 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 	}
 	opts.Tags["Initial"] = initial
 
-	// Sort: 静态
+	// Sort: 静态。value 与 allowedSort 的键一一对应(web / Android TV 都从本接口取值, 不硬编码文案)。
+	// "最新上映"曾是 release_stamp(= 源站录入时间, 受 2023 老片补录污染) —— 已换成 year + pub_date。
 	opts.Tags["Sort"] = []repository.TagOption{
-		{Name: "时间排序", Value: "update_stamp"},
-		{Name: "人气排序", Value: "hits"},
-		{Name: "评分排序", Value: "db_score"},
-		{Name: "最新上映", Value: "release_stamp"},
+		{Name: "最近更新", Value: "update_stamp"},
+		{Name: "热度优先", Value: "hot"},
+		{Name: "评分优先", Value: "score"},
+		{Name: "最新上线", Value: "latest"},
 	}
 	return opts, nil
 }

@@ -41,3 +41,12 @@ func KeyToken(userId int64) string      { return fmt.Sprintf("v1:token:%d", user
 func KeySpiderTemp(siteId string) string { return "v1:spider:temp:" + siteId }
 
 const KeyLockSyncPic = "v1:lock:sync:pic"
+
+// ---- 榜单热度刷新(协调态, 见 service/hot_service.go) ----
+
+// KeyLockHotRun 刷新互斥锁: 每日调度与后台手动触发不能同时打豆瓣(限流红线)。
+const KeyLockHotRun = "v1:lock:hot:run"
+
+// KeyLockHotDaily 每日一次的成功标记(按本地日期): 抢到即说明今天还没成功跑过。
+// TTL 25h(>24h)覆盖跨天, 重启/多副本也不会当天重复拉榜单。
+func KeyLockHotDaily(date string) string { return "v1:lock:hot:daily:" + date }

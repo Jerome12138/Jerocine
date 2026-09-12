@@ -26,13 +26,14 @@ func (p Page) Normalize(defSize int) Page {
 func (p Page) Offset() int { return (p.Current - 1) * p.Size }
 func (p Page) Limit() int  { return p.Size }
 
-// ClassifySort 分类首页三榜排序维度。
+// ClassifySort 分类首页/筛选页排序维度。
 type ClassifySort int
 
 const (
-	SortLatest ClassifySort = iota // 最新上映 (release_stamp)
-	SortHot                        // 排行榜 (hits)
-	SortRecent                     // 最近更新 (update_stamp)
+	SortLatest ClassifySort = iota // 最新上线 (year DESC, pub_date DESC, update_stamp DESC)
+	SortHot                        // 热度优先 (hot_score DESC, year DESC, update_stamp DESC, mid DESC)
+	SortRecent                     // 最近更新 (update_stamp DESC)
+	SortScore                      // 评分优先 (db_score DESC, year DESC, mid DESC)
 )
 
 // 软删除态过滤维度。
@@ -51,7 +52,7 @@ type FilterSpec struct {
 	Area     string
 	Language string
 	Year     int
-	Sort     string // update_stamp | hits | db_score | release_stamp
+	Sort     string // update_stamp | hot(别名 hits) | score(别名 db_score) | latest(别名 release_stamp)
 	// Deleted 软删除态过滤: DeletedExclude(0, 公开默认) / DeletedOnly(1) / DeletedInclude(-1)。
 	// 零值即"仅未删", 所以公开调用方无需关心该字段。
 	Deleted int
@@ -65,6 +66,36 @@ type RelatedSeed struct {
 	ClassTag string
 	Area     string
 	Language string
+}
+
+// ---- 榜单热度值对象 (见 docs/榜单热度方案-2026-09-11.md) ----
+
+// HotCandidate 榜单匹配/算分所需的本地影片行 —— 只取匹配与算分要用的列,
+// 不拉 content/play_from 这类大字段(整表扫一遍也扛得住)。
+type HotCandidate struct {
+	Mid       int64
+	DbId      int64
+	Name      string
+	Year      int
+	Remarks   string
+	Actor     string
+	Director  string
+	DbScore   float64
+	HotRank   int   // 仅 ListHotBoard 填充
+	HotRankAt int64 // 仅 ListHotBoard 填充
+}
+
+// HotRow 一次热度刷新要写的一行, 事务内双写 movie 与 movie_search。
+//
+// 零值语义: HotRank=0 且 HotRankAt=0 表示"落榜", 该行的 hot_score 回落兜底分;
+// DbId / DbScore 为 0 表示不回填该列(db_score=0 在库里就是"无评分", 不存在"写 0 是有效值"的情形)。
+type HotRow struct {
+	Mid       int64
+	HotRank   int
+	HotRankAt int64
+	HotScore  int
+	DbId      int64
+	DbScore   float64
 }
 
 // TagOption 单个筛选标签。

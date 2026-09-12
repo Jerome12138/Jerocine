@@ -75,6 +75,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/site-config", h.SaveSiteConfig)
 		mg.POST("/tmdb-key", h.SetTMDBKey)
 		mg.DELETE("/tmdb-key", h.ClearTMDBKey)
+		// 榜单热度: 手动跑一轮豆瓣榜单刷新(每日 04:00 自动跑, 这里是排障/补跑入口)。
+		mg.POST("/hot/refresh", h.HotRefresh)
 
 		mg.GET("/collect-sources", h.ListSources)
 		mg.POST("/collect-sources", h.UpsertSource)

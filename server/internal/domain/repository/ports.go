@@ -27,6 +27,21 @@ type MovieRepository interface {
 	// UpdateBackdrop 回填横图(url 可为 tmdb.MissMark 哨兵)。返回是否有行被更新。
 	UpdateBackdrop(ctx context.Context, mid int64, url string) (bool, error)
 	Truncate(ctx context.Context) error
+
+	// ---- 榜单热度(豆瓣榜单刷新任务用, 见 service/hot_service.go) ----
+	// 注意: db_id 只存在于 movie 表 —— 按 db_id 匹配必须查主表, 读模型 movie_search 无该列。
+
+	// HotCandidatesByDbIds 按豆瓣 subject id 批量取本地候选行(首选匹配: 精确)。
+	// 同一 db_id 可能对应多行(库里 16,755 组重复, 多为"正片 + 电影解说"配对), 由调用方择优。
+	HotCandidatesByDbIds(ctx context.Context, dbIds []int64) ([]HotCandidate, error)
+	// HotCandidatesByKeyword 用 FULLTEXT 取与该片名相关的本地候选行(兜底匹配)。
+	// 只是**候选**: 调用方还要做归一化片名 + 年份 + 编导的三重校验, 唯一命中才采用。
+	HotCandidatesByKeyword(ctx context.Context, keyword string, limit int) ([]HotCandidate, error)
+	// ListHotBoard 当前在榜行(hot_rank > 0), 刷新任务据此把掉榜片回落到兜底分。
+	ListHotBoard(ctx context.Context) ([]HotCandidate, error)
+	// ApplyHot 写入榜单热度(db_id/db_score 仅在入参非 0 时回填), 事务内双写 movie 与 movie_search。
+	// 返回 movie 表实际更新的行数。
+	ApplyHot(ctx context.Context, rows []HotRow) (int, error)
 }
 
 // SearchRepository 物化卡片/检索宽表 (读模型) + 影子表重建。
@@ -36,6 +51,12 @@ type SearchRepository interface {
 	GetByMids(ctx context.Context, mids []int64) ([]entity.MovieSearch, error)
 	// TopByPidSorted 取某一级分类下某排序维度的前 N 条 (首页区块 / 分类三榜用, 不分页不 count → 根治首页无谓 COUNT)。
 	TopByPidSorted(ctx context.Context, pid int64, sort ClassifySort, limit int) ([]entity.MovieSearch, error)
+	// TopHotAll 全站跨类别热榜(首页「热门榜单」行, 不按 pid) —— 与分类页排行榜共用同一排序键。
+	TopHotAll(ctx context.Context, limit int) ([]entity.MovieSearch, error)
+	// TopScoreByPid 某一级分类的高分榜(口径见 docs/榜单热度方案 §3.5: db_score > 0 且排除"解说")。
+	TopScoreByPid(ctx context.Context, pid int64, limit int) ([]entity.MovieSearch, error)
+	// CountScoredByPid 该一级分类有评分的影片数 —— 为 0 时分类页不返回高分榜分区(前端隐藏入口)。
+	CountScoredByPid(ctx context.Context, pid int64) (int64, error)
 	// Filter 多维筛选分页 (含 pid+sort 的可翻页浏览; 返回数据与总数)。
 	Filter(ctx context.Context, spec FilterSpec, page Page) ([]entity.MovieSearch, int64, error)
 	// SearchKeyword 关键字检索 (FULLTEXT ngram)。deleted 取 DeletedExclude/DeletedOnly/DeletedInclude。

@@ -52,6 +52,12 @@ type Movie struct {
 
 func (Movie) TableName() string { return "movie" }
 
+// movie.db_id 的来源标记(db_id_src) —— 回填可审计、可回滚。
+const (
+	DbIdSrcSource int8 = 0 // 源站自带(vod_douban_id)
+	DbIdSrcHot    int8 = 1 // 豆瓣榜单回填(源站只覆盖 59.2%, 缺的靠榜单 id 精确补上)
+)
+
 // MovieSearch 物化卡片/检索宽表 (table: movie_search) — CQRS 读模型。
 // cover 进表 → 列表/卡片一次查询出, 无需回填 Redis basic 或 join files。
 type MovieSearch struct {

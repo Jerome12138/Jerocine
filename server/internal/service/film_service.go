@@ -102,6 +102,10 @@ func (s *FilmService) PidCategory(ctx context.Context, pid int64) (*entity.Categ
 }
 
 // Home 首页聚合(缓存)。
+//
+// 顶层 Hot 是**全站跨类别**热榜(热门榜单行); 各分类行的 Latest/Hot 仍是"该分类"的两份榜。
+// 口径说明见 docs/榜单热度方案-2026-09-11.md §8.1①: 首页第一行曾因前端拼接缺陷退化成
+// "第一个分类的热榜", 现由后端直接给全站混排结果, 前端不再拼。
 func (s *FilmService) Home(ctx context.Context) (HomeData, error) {
 	data, _, err := cache.GetOrLoad(ctx, cache.KeyHomeAgg, ttlHome, func(ctx context.Context) (HomeData, bool, error) {
 		nav, err := s.NavCategories(ctx)
@@ -110,7 +114,11 @@ func (s *FilmService) Home(ctx context.Context) (HomeData, error) {
 		}
 		topN := s.pages.Home
 		pool := topN * 4 // 多取候选, 优先挑有封面的(避免首页各分类卡出现无图灰块)
-		hd := HomeData{Categories: nav}
+		hotAll, err := s.search.TopHotAll(ctx, pool)
+		if err != nil {
+			return HomeData{}, false, err
+		}
+		hd := HomeData{Categories: nav, Hot: coverFirst(hotAll, topN)}
 		for _, n := range nav {
 			latest, err := s.search.TopByPidSorted(ctx, n.Id, repository.SortRecent, pool)
 			if err != nil {
@@ -145,7 +153,12 @@ func coverFirst(items []entity.MovieSearch, n int) []entity.MovieSearch {
 	return out
 }
 
-// Classify 分类页三榜(缓存)。
+// Classify 分类页各榜(缓存)。
+//
+// 四段口径(方案 §3.1 / §3.5): news=最新上线(year+pub_date)、top=该分类热度优先(hot_score)、
+// recent=最近更新(update_stamp)、score=高分榜(db_score 降序, 排除解说)。
+// 高分榜的显示与否由**运行时探测**决定(该分类 db_score > 0 的条数为 0 则不返回该分区),
+// 不用"体育/短剧/漫剧"这类分类白名单 —— 切源重建分类树后依然正确。
 func (s *FilmService) Classify(ctx context.Context, pid int64) (ClassifyData, error) {
 	data, _, err := cache.GetOrLoad(ctx, cache.KeyClassify(pid), ttlClassify, func(ctx context.Context) (ClassifyData, bool, error) {
 		n := s.pages.Classify
@@ -161,7 +174,17 @@ func (s *FilmService) Classify(ctx context.Context, pid int64) (ClassifyData, er
 		if err != nil {
 			return ClassifyData{}, false, err
 		}
-		return ClassifyData{News: news, Top: top, Recent: recent}, true, nil
+		scored, err := s.search.CountScoredByPid(ctx, pid)
+		if err != nil {
+			return ClassifyData{}, false, err
+		}
+		var score []entity.MovieSearch
+		if scored > 0 {
+			if score, err = s.search.TopScoreByPid(ctx, pid, n); err != nil {
+				return ClassifyData{}, false, err
+			}
+		}
+		return ClassifyData{News: news, Top: top, Recent: recent, Score: score, ScoredCount: scored}, true, nil
 	})
 	return data, err
 }

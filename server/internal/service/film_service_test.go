@@ -20,6 +20,9 @@ type fakeSearch struct {
 	repository.SearchRepository
 	topCalls int
 	rows     []entity.MovieSearch
+	hotAll   []entity.MovieSearch // 全站跨类别热榜(首页顶层 hot)
+	scoreRow []entity.MovieSearch // 高分榜
+	scored   int64                // 该分类有评分的影片数
 }
 
 func (f *fakeSearch) TopByPidSorted(_ context.Context, _ int64, _ repository.ClassifySort, limit int) ([]entity.MovieSearch, error) {
@@ -28,6 +31,27 @@ func (f *fakeSearch) TopByPidSorted(_ context.Context, _ int64, _ repository.Cla
 		return f.rows[:limit], nil
 	}
 	return f.rows, nil
+}
+
+func (f *fakeSearch) TopHotAll(_ context.Context, limit int) ([]entity.MovieSearch, error) {
+	if f.hotAll == nil {
+		return nil, nil
+	}
+	if len(f.hotAll) > limit {
+		return f.hotAll[:limit], nil
+	}
+	return f.hotAll, nil
+}
+
+func (f *fakeSearch) TopScoreByPid(_ context.Context, _ int64, limit int) ([]entity.MovieSearch, error) {
+	if len(f.scoreRow) > limit {
+		return f.scoreRow[:limit], nil
+	}
+	return f.scoreRow, nil
+}
+
+func (f *fakeSearch) CountScoredByPid(_ context.Context, _ int64) (int64, error) {
+	return f.scored, nil
 }
 
 type fakeMovie struct {
@@ -153,7 +177,10 @@ func TestSourceNameMap(t *testing.T) {
 
 func TestHome_CacheAsideAndCompose(t *testing.T) {
 	setupCache(t)
-	fs := &fakeSearch{rows: []entity.MovieSearch{{Mid: 1, Name: "A", Cover: "c1"}, {Mid: 2, Name: "B"}}}
+	fs := &fakeSearch{
+		rows:   []entity.MovieSearch{{Mid: 1, Name: "A", Cover: "c1"}, {Mid: 2, Name: "B"}},
+		hotAll: []entity.MovieSearch{{Mid: 9, Name: "跨类热片", Cover: "c9"}},
+	}
 	fc := &fakeCategory{cats: []entity.Category{
 		{Id: 1, Pid: 0, Name: "电影", Show: true},
 		{Id: 11, Pid: 1, Name: "动作", Show: true},
@@ -170,6 +197,10 @@ func TestHome_CacheAsideAndCompose(t *testing.T) {
 	if len(hd.Rows) != 1 || len(hd.Rows[0].Latest) == 0 {
 		t.Fatalf("home rows: %+v", hd.Rows)
 	}
+	// 顶层 Hot 必须是**全站混排**那份(TopHotAll), 不是某个分类的行内 hot
+	if len(hd.Hot) != 1 || hd.Hot[0].Mid != 9 {
+		t.Fatalf("home top-level hot 应取自 TopHotAll: %+v", hd.Hot)
+	}
 	callsAfterFirst := fs.topCalls // 1 nav × (latest+hot) = 2
 
 	// 第二次应命中缓存, 不再触发 repo
@@ -178,6 +209,37 @@ func TestHome_CacheAsideAndCompose(t *testing.T) {
 	}
 	if fs.topCalls != callsAfterFirst {
 		t.Fatalf("second Home should hit cache, topCalls %d → %d", callsAfterFirst, fs.topCalls)
+	}
+}
+
+// TestClassify_ScoreBoardGatedByScoredCount 高分榜分区由"该分类有评分的条数"决定:
+// 探测到 0 条就不返回(前端隐藏入口), 省掉一次无用查询。
+func TestClassify_ScoreBoardGatedByScoredCount(t *testing.T) {
+	setupCache(t)
+	fs := &fakeSearch{
+		rows:     []entity.MovieSearch{{Mid: 1, Name: "A"}},
+		scoreRow: []entity.MovieSearch{{Mid: 2, Name: "高分片", DbScore: 9.1}},
+	}
+	svc := newFilmService(fs, &fakeMovie{}, &fakePlay{}, &fakeCategory{})
+
+	// 无评分分类(pid=36): 不查高分榜
+	fs.scored = 0
+	d, err := svc.Classify(context.Background(), 36)
+	if err != nil {
+		t.Fatalf("Classify err: %v", err)
+	}
+	if d.ScoredCount != 0 || len(d.Score) != 0 {
+		t.Fatalf("无评分分类不该返回高分榜: %+v", d)
+	}
+
+	// 有评分分类(pid=1, 缓存键按 pid 区分, 与上例互不干扰): 返回高分榜
+	fs.scored = 27231
+	d2, err := svc.Classify(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("Classify2 err: %v", err)
+	}
+	if d2.ScoredCount != 27231 || len(d2.Score) != 1 || d2.Score[0].Mid != 2 {
+		t.Fatalf("有评分分类应返回高分榜: %+v", d2)
 	}
 }
 

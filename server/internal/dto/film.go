@@ -32,6 +32,12 @@ type Card struct {
 	State    string  `json:"state"`
 	Remarks  string  `json:"remarks"`
 	DbScore  float64 `json:"dbScore"`
+	// PubDate 上映日期(ISO 前缀串: 2026-09-11 / 2026-07 / 2007), 空 = 源站未提供。
+	// 源站覆盖率低且随机, 故 omitempty —— 没值就不占 payload。
+	PubDate string `json:"pubDate,omitempty"`
+	// HotRank 当前豆瓣榜位(1 起), 0 = 不在榜。前端据此显示 "Hot No.N" 角标;
+	// omitempty 让 15 万部榜外影片的卡片不带这个字段。
+	HotRank int `json:"hotRank,omitempty"`
 }
 
 func ToCard(m entity.MovieSearch) Card {
@@ -39,6 +45,7 @@ func ToCard(m entity.MovieSearch) Card {
 		Mid: m.Mid, Name: m.Name, Cover: m.Cover, Poster: normBackdrop(m.Backdrop), Cid: m.Cid,
 		Pid: m.Pid, CName: m.CName,
 		SubTitle: m.SubTitle, Area: m.Area, Year: m.Year, State: m.State, Remarks: m.Remarks, DbScore: m.DbScore,
+		PubDate: m.PubDate, HotRank: m.HotRank,
 	}
 }
 
@@ -118,6 +125,10 @@ type FilmDetail struct {
 	Remarks  string       `json:"remarks"`
 	State    string       `json:"state"`
 	DbScore  float64      `json:"dbScore"`
+	// PubDate 上映日期(ISO 前缀串, 空 = 源站未提供); HotRank 豆瓣榜位(0 = 不在榜),
+	// 详情页据此显示「上映日期」与「豆瓣热门 No.N」。
+	PubDate  string       `json:"pubDate,omitempty"`
+	HotRank  int          `json:"hotRank,omitempty"`
 	Content  string       `json:"content"`
 	PlayFrom []string     `json:"playFrom"`
 	Sources  []PlaySource `json:"sources"`
@@ -129,6 +140,7 @@ func ToFilmDetail(d service.FilmDetailData) FilmDetail {
 		Mid: m.Mid, Name: m.Name, Cover: m.Cover, Backdrop: normBackdrop(m.Backdrop), Cid: m.Cid, Pid: m.Pid, CName: m.CName,
 		SubTitle: m.SubTitle, Actor: m.Actor, Director: m.Director, Area: m.Area, Language: m.Language,
 		Year: m.Year, ClassTag: m.ClassTag, Remarks: m.Remarks, State: m.State, DbScore: m.DbScore,
+		PubDate: m.PubDate, HotRank: m.HotRank,
 		Content: m.Content, PlayFrom: []string(m.PlayFrom), Sources: toSources(d.Sources),
 	}
 }
@@ -182,11 +194,13 @@ func ToNavList(nodes []*entity.CategoryNode) []NavCategory {
 // HomeResp 首页。
 type HomeResp struct {
 	Categories []NavCategory `json:"categories"`
-	Rows       []HomeRow     `json:"rows"`
+	// Hot 全站跨类别热榜(「🔥 热门榜单」行) —— 与 rows[].hot(该分类热榜)口径不同。
+	Hot  []Card    `json:"hot"`
+	Rows []HomeRow `json:"rows"`
 }
 
 func ToHome(h service.HomeData) HomeResp {
-	r := HomeResp{Categories: ToNavList(h.Categories)}
+	r := HomeResp{Categories: ToNavList(h.Categories), Hot: ToCards(h.Hot)}
 	for _, row := range h.Rows {
 		r.Rows = append(r.Rows, HomeRow{
 			Nav:    NavCategory{Id: row.Nav.Id, Pid: row.Nav.Pid, Name: row.Nav.Name},
@@ -196,16 +210,22 @@ func ToHome(h service.HomeData) HomeResp {
 	return r
 }
 
-// ClassifyResp 分类页三榜(含标题分类)。
+// ClassifyResp 分类页各榜(含标题分类)。
+// ScoredCount 为该分类有评分的影片总数; 为 0 时 score 必为空, 前端不渲染高分榜分区。
 type ClassifyResp struct {
-	Title  *NavCategory `json:"title"`
-	News   []Card       `json:"news"`
-	Top    []Card       `json:"top"`
-	Recent []Card       `json:"recent"`
+	Title       *NavCategory `json:"title"`
+	News        []Card       `json:"news"`
+	Top         []Card       `json:"top"`
+	Recent      []Card       `json:"recent"`
+	Score       []Card       `json:"score"`
+	ScoredCount int64        `json:"scoredCount"`
 }
 
 func ToClassify(c service.ClassifyData, title *entity.CategoryNode) ClassifyResp {
-	r := ClassifyResp{News: ToCards(c.News), Top: ToCards(c.Top), Recent: ToCards(c.Recent)}
+	r := ClassifyResp{
+		News: ToCards(c.News), Top: ToCards(c.Top), Recent: ToCards(c.Recent),
+		Score: ToCards(c.Score), ScoredCount: c.ScoredCount,
+	}
 	if title != nil {
 		nc := toNav(title)
 		r.Title = &nc

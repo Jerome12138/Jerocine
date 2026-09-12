@@ -302,6 +302,30 @@ func (h *Handlers) UploadApk(c *gin.Context) {
 	dto.Created(c, gin.H{"url": url})
 }
 
+// ---- 榜单热度 ----
+
+// HotRefresh POST /manage/hot/refresh 手动跑一轮豆瓣榜单刷新。
+//
+// 与每日 04:00 的自动刷新共用一把锁: 撞车时返 409(而不是排队, 免得后台连点把豆瓣打爆)。
+// 响应体是这一轮的观测值(fetched/matched/fellOff/dbIdFilled/scoreFilled/applied/...), 抓取不可信时
+// 返回 502 且**不落库** —— 保留上一轮快照。
+func (h *Handlers) HotRefresh(c *gin.Context) {
+	if h.Hot == nil {
+		dto.Error(c, http.StatusServiceUnavailable, "hot service unavailable")
+		return
+	}
+	rep, err := h.Hot.Refresh(c.Request.Context())
+	if err != nil {
+		if errors.Is(err, service.ErrHotBusy) {
+			dto.Error(c, http.StatusConflict, err.Error())
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"message": err.Error(), "report": rep})
+		return
+	}
+	dto.OK(c, rep)
+}
+
 // ---- 用户 ----
 
 func (h *Handlers) CreateUser(c *gin.Context) {

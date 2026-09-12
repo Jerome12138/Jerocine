@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"server/internal/config"
+	"server/internal/douban"
 	"server/internal/handler"
 	"server/internal/platform/auth"
 	"server/internal/platform/blobstore"
@@ -57,6 +58,8 @@ func main() {
 	app.handlers.Manage.StartHealthScheduler(context.Background())
 	// 启动 TMDB 横图回填 worker(未配置 key 时为 no-op)
 	app.backdropSvc.Start(context.Background())
+	// 启动榜单热度刷新调度(每日 04:00 拉豆瓣榜单 → hot_rank/hot_score)
+	app.hotSvc.Start(context.Background())
 
 	log.Printf("listening on :%s", cfg.ServerPort)
 	if err := r.Run(":" + cfg.ServerPort); err != nil {
@@ -72,6 +75,7 @@ type App struct {
 	userSvc  *service.UserService
 	spiderSvc *service.SpiderService
 	backdropSvc *service.BackdropService
+	hotSvc   *service.HotService
 	handlers *handler.Handlers
 }
 
@@ -140,15 +144,21 @@ func buildApp(cfg *config.Config) (*App, error) {
 	bannerSvc.OnChange = backdropSvc.Kick
 	manageSvc.OnTMDBKeyChange = backdropSvc.Kick
 
+	// 榜单热度刷新: 每日 04:00 拉豆瓣 L1 榜单(8 集合 / 约 675 条 / 18 次请求),
+	// 匹配本地影片后写 hot_rank / hot_rank_at / hot_score, 顺带回填 db_id 与 db_score。
+	hotSvc := service.NewHotService(movieRepo, douban.New())
+
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,
 		Telemetry: telemetrySvc, Manage: manageSvc, Spider: spiderSvc, Banner: bannerSvc,
+		Hot:  hotSvc,
 		Blob: blob, ResetToken: cfg.Spider.ResetToken,
 	}
 
 	return &App{
 		gdb: gdb, cacheRdb: cacheRdb, coordRdb: coordRdb,
-		userSvc: userSvc, spiderSvc: spiderSvc, backdropSvc: backdropSvc, handlers: handlers,
+		userSvc: userSvc, spiderSvc: spiderSvc, backdropSvc: backdropSvc, hotSvc: hotSvc,
+		handlers: handlers,
 	}, nil
 }
 
