@@ -45,6 +45,9 @@ services:
       dockerfile: deploy/Dockerfile
     image: jerocine-server:latest
     restart: unless-stopped
+    # 优雅停机宽限: SIGTERM 后 server 先收尾 HTTP 再等采集协程(内部预算 30s),
+    # 40s 给足余量, 超时才 SIGKILL —— 部署因此无需手动暂停采集。
+    stop_grace_period: 40s
     environment:
       TZ: Asia/Shanghai
       SERVER_PORT: "3601"

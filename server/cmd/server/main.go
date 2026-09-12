@@ -5,11 +5,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,6 +47,11 @@ func main() {
 		log.Fatalf("启动失败: %v", err)
 	}
 
+	// 优雅停机根 ctx: SIGTERM/SIGINT 取消 → 采集在跑轮次快速收尾、后台调度停止接新活。
+	// docker stop / compose up -d --build 重建容器时走这条路径, 部署不再需要手动暂停采集。
+	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.GET("/livez", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
@@ -52,31 +60,59 @@ func main() {
 
 	router.Register(r, app.handlers, app.userSvc, cfg)
 
+	// 后台调度统一挂 rootCtx; 采集服务额外注入根 ctx 供手动触发/定时任务派生。
+	app.spiderSvc.SetBaseCtx(rootCtx)
 	// 启动 cron 调度(读 cron_task 注册已启用任务)
-	app.spiderSvc.StartScheduler(context.Background())
+	app.spiderSvc.StartScheduler(rootCtx)
 	// 启动采集源健康检查定时任务(默认 1h, 写健康度 → 自动停采/恢复死源)
-	app.handlers.Manage.StartHealthScheduler(context.Background())
+	app.handlers.Manage.StartHealthScheduler(rootCtx)
 	// 启动 TMDB 横图回填 worker(未配置 key 时为 no-op)
-	app.backdropSvc.Start(context.Background())
+	app.backdropSvc.Start(rootCtx)
 	// 启动榜单热度刷新调度(每日 04:00 拉豆瓣榜单 → hot_rank/hot_score)
-	app.hotSvc.Start(context.Background())
+	app.hotSvc.Start(rootCtx)
 
+	srv := &http.Server{Addr: ":" + cfg.ServerPort, Handler: r}
+	serveErr := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+		}
+	}()
 	log.Printf("listening on :%s", cfg.ServerPort)
-	if err := r.Run(":" + cfg.ServerPort); err != nil {
+
+	select {
+	case err := <-serveErr:
 		log.Fatalf("server exited: %v", err)
+	case <-rootCtx.Done():
+		// 停机序列: 先让 HTTP 在途请求收尾, 再等采集协程退出。总预算 30s
+		// (< compose stop_grace_period 40s), 超时部分交进程退出兜底 ——
+		// 单条落库是事务, 被中断的页记失败台账由补采接管, 数据不会坏。
+		log.Printf("收到退出信号, 优雅停机中(HTTP 收尾 + 采集任务收尾)...")
+		deadline := time.Now().Add(30 * time.Second)
+		shutdownCtx, cancel := context.WithDeadline(context.Background(), deadline)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("http shutdown: %v", err)
+		}
+		if app.spiderSvc.WaitJobs(shutdownCtx) {
+			log.Printf("采集任务已全部收尾")
+		} else {
+			log.Printf("采集任务收尾超时, 进程退出兜底(中断页已记失败台账)")
+		}
+		log.Printf("bye")
 	}
 }
 
 // App 组合根容器。
 type App struct {
-	gdb      *gorm.DB
-	cacheRdb *redis.Client
-	coordRdb *redis.Client
-	userSvc  *service.UserService
-	spiderSvc *service.SpiderService
+	gdb         *gorm.DB
+	cacheRdb    *redis.Client
+	coordRdb    *redis.Client
+	userSvc     *service.UserService
+	spiderSvc   *service.SpiderService
 	backdropSvc *service.BackdropService
-	hotSvc   *service.HotService
-	handlers *handler.Handlers
+	hotSvc      *service.HotService
+	handlers    *handler.Handlers
 }
 
 func buildApp(cfg *config.Config) (*App, error) {

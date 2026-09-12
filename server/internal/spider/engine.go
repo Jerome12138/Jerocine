@@ -45,13 +45,14 @@ func NewEngine(
 }
 
 // Collect 对单个采集源执行一次采集。hours<=0 全量(主站走影子表), hours>0 增量。
+// ctx 可被优雅停机取消: 取消后未开始的页不拉取, 收尾写(任务状态/缓存失效)经 finCtx 保证落地。
 func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours int) (err error) {
 	master := src.Grade == entity.GradeMaster
-	cache.JobStart(ctx, src.Id, src.Name, 0)
+	cache.JobStart(finCtx(ctx), src.Id, src.Name, 0)
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("spider Collect panic src=%s: %v", src.Id, r)
-			cache.JobSetState(ctx, src.Id, cache.JobError)
+			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
 		}
 	}()
 
@@ -60,7 +61,7 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 		if cats, e2 := e.category.All(ctx); e2 == nil && len(cats) == 0 {
 			if cl, e3 := e.fetcher.Categories(ctx, src); e3 == nil && len(cl) > 0 {
 				if e4 := e.category.BatchUpsert(ctx, parseCategories(cl)); e4 == nil {
-					cache.InvalidateCategory(ctx)
+					cache.InvalidateCategory(finCtx(ctx))
 				}
 			}
 		}
@@ -69,18 +70,18 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 	pageCount, err := e.fetcher.PageCount(ctx, src, hours)
 	if err != nil || pageCount <= 0 {
 		if pageCount <= 0 && err == nil {
-			cache.JobSetState(ctx, src.Id, cache.JobDone)
+			cache.JobSetState(finCtx(ctx), src.Id, cache.JobDone)
 			return nil
 		}
-		cache.JobSetState(ctx, src.Id, cache.JobError)
+		cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
 		return err
 	}
-	cache.JobSetTotal(ctx, src.Id, pageCount)
+	cache.JobSetTotal(finCtx(ctx), src.Id, pageCount)
 
 	full := hours <= 0
 	if master && full {
 		if err = e.search.ShadowBegin(ctx); err != nil {
-			cache.JobSetState(ctx, src.Id, cache.JobError)
+			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
 			return err
 		}
 	}
@@ -89,15 +90,15 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 
 	if master && full {
 		if err = e.search.ShadowCommit(ctx); err != nil {
-			cache.JobSetState(ctx, src.Id, cache.JobError)
+			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
 			return err
 		}
 	}
 	if master {
-		cache.InvalidateAfterCollect(ctx)
+		cache.InvalidateAfterCollect(finCtx(ctx))
 	}
 	if cache.JobReadState(ctx, src.Id) != cache.JobCanceled {
-		cache.JobSetState(ctx, src.Id, cache.JobDone)
+		cache.JobSetState(finCtx(ctx), src.Id, cache.JobDone)
 	}
 	return nil
 }
@@ -131,6 +132,9 @@ func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCo
 				}
 			}()
 			for pg := range pages {
+				if ctx.Err() != nil {
+					return // 优雅停机: 剩余页不拉取也不记台账, 增量窗口滚动自会覆盖
+				}
 				if !e.waitIfPausedOrCanceled(ctx, src.Id) {
 					return // 已取消
 				}
@@ -212,12 +216,19 @@ func (e *Engine) collectMasterPageN(ctx context.Context, src *entity.CollectSour
 // maxCauseLen collect_failure.cause 列宽。
 const maxCauseLen = 512
 
+// finCtx 收尾写用 ctx(脱离取消): 任务状态 / 缓存失效这类元数据动作必须
+// 在优雅停机(工作 ctx 已被 SIGTERM 取消)后仍能完成 —— 否则 Redis 任务状态
+// 卡在 running、应用缓存不失效、下一轮调度读不到干净状态。真正的抓取/落库
+// 工作仍用原 ctx, 取消即快速中止。
+func finCtx(ctx context.Context) context.Context { return context.WithoutCancel(ctx) }
+
 // recordFailure 把页级失败落进台账。失败页不记下来的话, 内容就永久丢了, 事后也无从补。
 // best-effort: 台账写失败只打日志, 绝不因台账问题影响采集主流程。
 func (e *Engine) recordFailure(ctx context.Context, src *entity.CollectSource, pg, hours int, cause error) {
 	if e.failures == nil {
 		return
 	}
+	ctx = finCtx(ctx) // 台账写入必须活过停机取消: 取消导致的页失败恰恰最需要记下来补采
 	msg := ""
 	if cause != nil {
 		msg = cause.Error()
@@ -238,35 +249,35 @@ func (e *Engine) recordFailure(ctx context.Context, src *entity.CollectSource, p
 // 返回该页落库的影片条数。
 func (e *Engine) CollectOnePage(ctx context.Context, src *entity.CollectSource, pg, hours int) (int, error) {
 	master := src.Grade == entity.GradeMaster
-	cache.JobStart(ctx, src.Id, src.Name, 1)
+	cache.JobStart(finCtx(ctx), src.Id, src.Name, 1)
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("spider CollectOnePage panic src=%s pg=%d: %v", src.Id, pg, r)
-			cache.JobSetState(ctx, src.Id, cache.JobError)
+			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
 		}
 	}()
 
 	if !master {
 		if err := e.collectSlavePage(ctx, src, pg, hours); err != nil {
 			cache.JobIncrFailed(ctx, src.Id, 1)
-			cache.JobSetState(ctx, src.Id, cache.JobError)
+			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
 			return 0, err
 		}
 		cache.JobIncrDone(ctx, src.Id, 1)
-		cache.JobSetState(ctx, src.Id, cache.JobDone)
-		cache.InvalidateAfterCollect(ctx)
+		cache.JobSetState(finCtx(ctx), src.Id, cache.JobDone)
+		cache.InvalidateAfterCollect(finCtx(ctx))
 		return 0, nil
 	}
 
 	n, err := e.collectMasterPageN(ctx, src, pg, hours, false)
 	if err != nil {
 		cache.JobIncrFailed(ctx, src.Id, 1)
-		cache.JobSetState(ctx, src.Id, cache.JobError)
+		cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
 		return 0, err
 	}
 	cache.JobIncrDone(ctx, src.Id, 1)
-	cache.JobSetState(ctx, src.Id, cache.JobDone)
-	cache.InvalidateAfterCollect(ctx)
+	cache.JobSetState(finCtx(ctx), src.Id, cache.JobDone)
+	cache.InvalidateAfterCollect(finCtx(ctx))
 	return n, nil
 }
 
@@ -391,7 +402,7 @@ func (e *Engine) CollectByName(ctx context.Context, src *entity.CollectSource, w
 		}
 	}
 	if total > 0 {
-		cache.InvalidateAfterCollect(ctx)
+		cache.InvalidateAfterCollect(finCtx(ctx))
 	}
 	return total, nil
 }
@@ -474,7 +485,7 @@ func (e *Engine) CollectByIds(ctx context.Context, src *entity.CollectSource, id
 		}
 	}
 	if n > 0 {
-		cache.InvalidateAfterCollect(ctx)
+		cache.InvalidateAfterCollect(finCtx(ctx))
 	}
 	return n, nil
 }
@@ -592,7 +603,7 @@ func (e *Engine) CoverCategories(ctx context.Context, src *entity.CollectSource)
 	if err := e.category.BatchUpsert(ctx, parseCategories(cl)); err != nil {
 		return err
 	}
-	cache.InvalidateCategory(ctx)
+	cache.InvalidateCategory(finCtx(ctx))
 	return nil
 }
 
@@ -607,7 +618,7 @@ func (e *Engine) Zero(ctx context.Context) error {
 	if err := e.play.Truncate(ctx); err != nil {
 		return err
 	}
-	cache.InvalidateAfterCollect(ctx)
+	cache.InvalidateAfterCollect(finCtx(ctx))
 	return nil
 }
 

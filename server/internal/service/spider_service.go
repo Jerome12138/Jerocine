@@ -30,12 +30,54 @@ type SpiderService struct {
 	// 触发即重算轮播集合: 新采集的片可能进入兜底榜单, 立即补横图。panic 由 safeNotify 隔离。
 	OnSettled func()
 
+	// baseCtx 优雅停机根 ctx(SetBaseCtx 注入, 缺省 Background)。所有后台采集
+	// (手动触发/定时任务/补采)从这里派生 —— SIGTERM 时取消信号能传进引擎,
+	// 引擎收尾后 WaitJobs 可等待在跑协程退出。
+	baseCtx context.Context
+
+	// jobs 在跑后台采集协程计数(优雅停机时等它们收尾, 见 WaitJobs)。
+	jobs sync.WaitGroup
+
 	mu      sync.Mutex
 	cronLib *cron.Cron
 }
 
 func NewSpiderService(engine *spider.Engine, sources repository.CollectSourceRepository, crons repository.CronTaskRepository, health repository.SourceHealthRepository, failures repository.CollectFailureRepository) *SpiderService {
 	return &SpiderService{engine: engine, sources: sources, crons: crons, health: health, failures: failures}
+}
+
+// SetBaseCtx 注入优雅停机根 ctx(组合根在启动监听前调用, 只调一次)。
+func (s *SpiderService) SetBaseCtx(ctx context.Context) {
+	s.mu.Lock()
+	s.baseCtx = ctx
+	s.mu.Unlock()
+}
+
+// bgCtx 后台采集应使用的根 ctx(未注入时退回 Background, 行为与旧版一致)。
+func (s *SpiderService) bgCtx() context.Context {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.baseCtx != nil {
+		return s.baseCtx
+	}
+	return context.Background()
+}
+
+// WaitJobs 等待所有在跑后台采集协程退出(优雅停机收尾用)。超时返回 false ——
+// 引擎对 ctx 取消会快速中止在跑页, 正常远早于超时收敛; 真超时说明有协程卡死,
+// 交由进程退出兜底(单条落库是事务, 数据不会坏)。
+func (s *SpiderService) WaitJobs(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		s.jobs.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // isSuppressed 健康检查是否已自动停采该源。fail-open: 缺行/出错/未注入一律 false, 绝不因健康设施故障而停采。
@@ -65,7 +107,9 @@ func (s *SpiderService) runOne(ctx context.Context, src *entity.CollectSource, h
 		log.Printf("spider: 源 %s 上次采集未结束, 跳过", src.Id)
 		return domain.ErrConflict
 	}
-	defer cache.Unlock(ctx, lockKey, token)
+	// Unlock 必须脱离取消: 优雅停机时 ctx 已取消, 用它解锁会失败 → 6h TTL 的
+	// 锁残留, 把部署后的前几轮自动采集全卡死。分布式锁的收尾动作不随停机取消。
+	defer cache.Unlock(context.WithoutCancel(ctx), lockKey, token)
 	if err := s.engine.Collect(ctx, src, hours); err != nil {
 		log.Printf("spider: 采集 %s 失败: %v", src.Id, err)
 		return err
@@ -76,21 +120,26 @@ func (s *SpiderService) runOne(ctx context.Context, src *entity.CollectSource, h
 }
 
 // StartCollect 后台异步触发单源采集(handler 返回 202)。源停用 / 不存在 → 错误。
+// ctx 取自 baseCtx(优雅停机根), 不取 HTTP 请求 ctx —— 采集必须活过请求生命周期,
+// 但要能被 SIGTERM 取消(旧版 Background 是停机传不进取消信号的根因)。
 func (s *SpiderService) StartCollect(sourceId string, hours int) error {
-	src, err := s.sources.Get(context.Background(), sourceId)
+	ctx := s.bgCtx()
+	src, err := s.sources.Get(ctx, sourceId)
 	if err != nil {
 		return err
 	}
 	if src.State != entity.StateEnabled {
 		return domain.ErrInvalidArgument
 	}
+	s.jobs.Add(1)
 	go func() {
+		defer s.jobs.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("spider StartCollect panic: %v", r)
 			}
 		}()
-		s.runOne(context.Background(), src, hours)
+		s.runOne(ctx, src, hours)
 	}()
 	return nil
 }
@@ -448,15 +497,17 @@ func (s *SpiderService) recoverOnePage(ctx context.Context, src *entity.CollectS
 }
 
 // RecoverAsync 后台触发补采(handler 返回 202)。ids 为空 → 全部待补采。
-// 带超时的 ctx: goroutine 起出去之后仍能自行收敛, 不会永久挂着。
+// ctx 取自 baseCtx: goroutine 起出去之后仍能自行收敛(自带超时), 且能被优雅停机取消。
 func (s *SpiderService) RecoverAsync(ids []int64) {
+	s.jobs.Add(1)
 	go func() {
+		defer s.jobs.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("spider RecoverAsync panic: %v", r)
 			}
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), recoverTimeout)
+		ctx, cancel := context.WithTimeout(s.bgCtx(), recoverTimeout)
 		defer cancel()
 		s.RecoverPending(ctx, ids)
 	}()
@@ -528,23 +579,25 @@ func (s *SpiderService) registerTasks(ctx context.Context) {
 			continue
 		}
 		spec := strings.ReplaceAll(t.Spec, "?", "*") // robfig 不支持 Quartz '?'
-		task := t                                     // 捕获副本
+		task := t                                    // 捕获副本
 		_, e := s.cronLib.AddFunc(spec, func() {
+			s.jobs.Add(1)
+			defer s.jobs.Done()
+			ctx := s.bgCtx() // 优雅停机根 ctx: SIGTERM 取消在跑轮次, 引擎收尾后进程可退
 			lockKey := cache.KeyLockCron("task:" + strconv.FormatInt(task.Id, 10))
-			tok, ok, _ := cache.TryLock(context.Background(), lockKey, collectLockTTL)
+			tok, ok, _ := cache.TryLock(ctx, lockKey, collectLockTTL)
 			if !ok {
 				log.Printf("cron task %d 上次未结束, 跳过", task.Id)
 				return
 			}
-			defer cache.Unlock(context.Background(), lockKey, tok)
-			bg := context.Background()
+			defer cache.Unlock(context.WithoutCancel(ctx), lockKey, tok)
 			switch task.Model {
 			case entity.CronModelAutoAll:
-				s.AutoCollect(bg, task.Time)
+				s.AutoCollect(ctx, task.Time)
 			case entity.CronModelRecover:
-				s.RecoverPending(bg, nil)
+				s.RecoverPending(ctx, nil)
 			default:
-				s.BatchCollect(bg, task.Time, task.SourceIds...)
+				s.BatchCollect(ctx, task.Time, task.SourceIds...)
 			}
 		})
 		if e != nil {
