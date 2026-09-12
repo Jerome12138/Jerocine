@@ -175,6 +175,41 @@ func TestClient_RateLimitInterval(t *testing.T) {
 	}
 }
 
+// TestItem_FlexibleNumericFields 线上实测(2026-09-12): subject_collection_items 的 id
+// 是**字符串**(`"id": "35423605"`), 强类型 int64 让整页 unmarshal 失败、首轮部署整轮作废。
+// id / rating.count / rating.value 都必须同时接受 number 与 string, 单字段异常损失该字段而非整页。
+func TestItem_FlexibleNumericFields(t *testing.T) {
+	body := `{"subject_collection_items":[
+		{"id":"35423605","title":"字符串id","year":"2024",
+		 "rating":{"value":"8.6","count":"12345"}},
+		{"id":123,"title":"数字id","year":"2023","rating":{"value":9.1,"count":456}},
+		{"id":null,"title":"空id","year":"2022","rating":null},
+		{"id":"not-a-number","title":"垃圾id","year":"2021"}
+	]}`
+	var resp struct {
+		Items []Item `json:"subject_collection_items"`
+	}
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatalf("宽松解析后不该再因字段形态报错: %v", err)
+	}
+	got := resp.Items
+	if len(got) != 4 {
+		t.Fatalf("条目数=%d, want 4", len(got))
+	}
+	if got[0].Id != 35423605 || got[0].Rating.Value != 8.6 || got[0].Rating.Count != 12345 {
+		t.Fatalf("字符串形态解析失败: %+v", got[0])
+	}
+	if got[1].Id != 123 || got[1].Rating.Value != 9.1 || got[1].Rating.Count != 456 {
+		t.Fatalf("数字形态解析失败: %+v", got[1])
+	}
+	if got[2].Id != 0 || got[2].Rating.Value != 0 {
+		t.Fatalf("null 应按缺省 0: %+v", got[2])
+	}
+	if got[3].Id != 0 || got[3].Title != "垃圾id" {
+		t.Fatalf("垃圾值只损失该字段: %+v", got[3])
+	}
+}
+
 func TestItem_YearIntAndNames(t *testing.T) {
 	it := Item{Year: "2024", Directors: json.RawMessage(`[{"name":"导演甲"}]`),
 		Actors: json.RawMessage(`["演员乙","演员丙"]`)}

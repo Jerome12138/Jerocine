@@ -79,6 +79,12 @@ var Collections = []Collection{
 }
 
 // Item 榜单条目 —— 只保留排序与匹配需要的字段。
+//
+// ⚠ 数值字段宽松解析(见 UnmarshalJSON / Rating): 豆瓣不同端点对同一字段会在
+// number / string 之间漂移 —— 线上实测 subject_collection_items 的 id 是**字符串**
+// (`"id": "35423605"`), 强类型 int64 直接让整页 unmarshal 失败、整轮抓取作废
+// (2026-09-12 首次部署即踩中)。原则同 Directors/Actors 的 RawMessage:
+// 单字段形态漂移绝不拖垮整页。
 type Item struct {
 	Id           int64  `json:"id"` // 豆瓣 subject id(与本地 movie.db_id 同源)
 	Title        string `json:"title"`
@@ -92,10 +98,65 @@ type Item struct {
 	Actors    json.RawMessage `json:"actors"`
 }
 
-// Rating 豆瓣评分块。
+// UnmarshalJSON 定制 Id 的宽松解析, 其余字段走默认逻辑(经 alias 避开递归)。
+func (it *Item) UnmarshalJSON(b []byte) error {
+	type alias Item
+	var aux struct {
+		Id json.RawMessage `json:"id"`
+		*alias
+	}
+	aux.alias = (*alias)(it)
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	it.Id = flexInt(aux.Id)
+	return nil
+}
+
+// Rating 豆瓣评分块 —— count/value 同样按"可能是字符串"宽松解析。
 type Rating struct {
 	Count int     `json:"count"` // 评价人数(真实片级热度标量, 可与位次分互相印证)
 	Value float64 `json:"value"`
+}
+
+// UnmarshalJSON 逐字段宽松解析: 单个评分字段形态漂移只损失该字段, 不拖垮整页。
+func (r *Rating) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		Count json.RawMessage `json:"count"`
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	r.Count = int(flexFloat(raw.Count))
+	r.Value = flexFloat(raw.Value)
+	return nil
+}
+
+// flexInt 宽松整数解析: 接受 123 与 "123"; 空/null/解析失败一律 0(缺省语义)。
+func flexInt(raw json.RawMessage) int64 {
+	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	if s == "" || s == "null" {
+		return 0
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// flexFloat 宽松浮点解析: 接受 8.5 与 "8.5"; 空/null/解析失败一律 0。
+func flexFloat(raw json.RawMessage) float64 {
+	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	if s == "" || s == "null" {
+		return 0
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return f
 }
 
 // YearInt 年份整数; 明显不合理或无法解析时返回 0。
