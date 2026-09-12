@@ -337,3 +337,20 @@ export interface BannerBoard {
   active: EffectiveSlide[]
   inactive: InactiveBanner[]
 }
+
+// ---- 用户管理 ----
+
+/** 后台用户行(gorm.Model 序列化: ID/CreatedAt/UpdatedAt 无 json tag, 保持 Go 字段名) */
+export interface ManageUserRow {
+  ID: number
+  userName: string
+  role: number
+  disabled: number
+  CreatedAt: string
+  UpdatedAt: string
+}
+
+export interface ManageUserListResp {
+  list: ManageUserRow[]
+  page: { current: number; size: number; total: number }
+}

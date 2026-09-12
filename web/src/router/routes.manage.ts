@@ -95,5 +95,11 @@ export const manageRoutes: RouteRecordRaw[] = [
     component: () => import('@/views/manage/system/SiteConfigView.vue'),
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '站点配置' }
   },
-  { path: '/manage/system/webSite', redirect: '/manage/system/site' }
+  { path: '/manage/system/webSite', redirect: '/manage/system/site' },
+  {
+    path: '/manage/user',
+    name: 'manage-user',
+    component: () => import('@/views/manage/user/UserListView.vue'),
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '用户管理' }
+  }
 ]
