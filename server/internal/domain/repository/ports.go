@@ -201,6 +201,9 @@ type UserRepository interface {
 	// 管理后台用户管理
 	ListPaged(ctx context.Context, keyword string, page Page) ([]entity.User, int64, error)
 	SetDisabled(ctx context.Context, id uint, disabled bool) error
+	UpdateProfile(ctx context.Context, id uint, name string, role int) error
+	// Delete 硬删用户, 并连同清理其观看历史/收藏/跳过设置(无外键, 避免孤儿数据)。
+	Delete(ctx context.Context, id uint) error
 }
 
 // HistoryRepository 观看历史。

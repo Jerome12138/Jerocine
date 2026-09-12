@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,18 +24,25 @@ func userPtr(id uint) *entity.User {
 type manageFakeUsers struct {
 	repository.UserRepository
 	u           *entity.User // GetById 命中目标
+	other       *entity.User // GetByName 的第二个账号(测重名)
 	listRows    []entity.User
 	gotKeyword  string
 	setDisabled bool
 	setID       uint
 	updatedPw   string
+	updatedID   uint
+	updatedName string
+	updatedRole int
+	deletedID   uint
 }
 
 func (f *manageFakeUsers) GetByName(_ context.Context, name string) (*entity.User, error) {
-	if f.u == nil || f.u.UserName != name {
-		return nil, domain.ErrUserNotFound
+	for _, u := range []*entity.User{f.u, f.other} {
+		if u != nil && u.UserName == name {
+			return u, nil
+		}
 	}
-	return f.u, nil
+	return nil, domain.ErrUserNotFound
 }
 
 func (f *manageFakeUsers) GetById(_ context.Context, id uint) (*entity.User, error) {
@@ -56,6 +64,19 @@ func (f *manageFakeUsers) SetDisabled(_ context.Context, id uint, disabled bool)
 
 func (f *manageFakeUsers) UpdatePassword(_ context.Context, _ uint, hashed string) error {
 	f.updatedPw = hashed
+	return nil
+}
+
+func (f *manageFakeUsers) UpdateProfile(_ context.Context, id uint, name string, role int) error {
+	f.updatedID, f.updatedName, f.updatedRole = id, name, role
+	return nil
+}
+
+func (f *manageFakeUsers) Delete(_ context.Context, id uint) error {
+	if f.u == nil || f.u.ID != id {
+		return domain.ErrUserNotFound
+	}
+	f.deletedID = id
 	return nil
 }
 
@@ -121,6 +142,89 @@ func TestManageListUsers_PassesKeyword(t *testing.T) {
 	}
 	if fu.gotKeyword != "ali" {
 		t.Fatalf("keyword 未透传: %q", fu.gotKeyword)
+	}
+}
+
+func TestManageUpdateUser_RenameAndRole(t *testing.T) {
+	bob := userPtr(9)
+	bob.UserName = "bob"
+	fu := &manageFakeUsers{u: bob}
+	s := newManageTestService(t, fu)
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, "bobby", 1); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if fu.updatedID != 9 || fu.updatedName != "bobby" || fu.updatedRole != 1 {
+		t.Fatalf("仓储未收到编辑指令: id=%d name=%q role=%d", fu.updatedID, fu.updatedName, fu.updatedRole)
+	}
+}
+
+func TestManageUpdateUser_InvalidArgs(t *testing.T) {
+	fu := &manageFakeUsers{u: userPtr(9)}
+	s := newManageTestService(t, fu)
+	cases := []struct {
+		name, userName string
+		role           int
+	}{
+		{"空用户名", "  ", 0},
+		{"超长用户名", strings.Repeat("x", 33), 0},
+		{"非法角色", "bob", 2},
+	}
+	for _, tc := range cases {
+		if err := s.ManageUpdateUser(context.Background(), 7, 9, tc.userName, tc.role); err != domain.ErrInvalidArgument {
+			t.Fatalf("%s: want ErrInvalidArgument, got %v", tc.name, err)
+		}
+	}
+}
+
+func TestManageUpdateUser_SelfRoleChangeForbidden(t *testing.T) {
+	bob := userPtr(7)
+	bob.UserName = "bob"
+	bob.Role = entity.RoleUser
+	fu := &manageFakeUsers{u: bob}
+	s := newManageTestService(t, fu)
+	if err := s.ManageUpdateUser(context.Background(), 7, 7, "bob", entity.RoleAdmin); err != domain.ErrInvalidArgument {
+		t.Fatalf("改自己角色: want ErrInvalidArgument, got %v", err)
+	}
+	// 自己改名(角色不变)是允许的
+	if err := s.ManageUpdateUser(context.Background(), 7, 7, "bobby", entity.RoleUser); err != nil {
+		t.Fatalf("自己改名: %v", err)
+	}
+}
+
+func TestManageUpdateUser_DuplicateNameConflict(t *testing.T) {
+	bob := userPtr(9)
+	bob.UserName = "bob"
+	alice := userPtr(10)
+	alice.UserName = "alice"
+	fu := &manageFakeUsers{u: bob, other: alice}
+	s := newManageTestService(t, fu)
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, "alice", 0); err != domain.ErrConflict {
+		t.Fatalf("重名: want ErrConflict, got %v", err)
+	}
+	// 改回自己的名字不冲突
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, "bob", 0); err != nil {
+		t.Fatalf("名字不变: %v", err)
+	}
+}
+
+func TestManageDeleteUser(t *testing.T) {
+	bob := userPtr(9)
+	bob.UserName = "bob"
+	fu := &manageFakeUsers{u: bob}
+	s := newManageTestService(t, fu)
+	// 不能删自己
+	if err := s.ManageDeleteUser(context.Background(), 7, 7); err != domain.ErrInvalidArgument {
+		t.Fatalf("删自己: want ErrInvalidArgument, got %v", err)
+	}
+	// 目标不存在
+	if err := s.ManageDeleteUser(context.Background(), 7, 99); err != domain.ErrUserNotFound {
+		t.Fatalf("删不存在: want ErrUserNotFound, got %v", err)
+	}
+	if err := s.ManageDeleteUser(context.Background(), 7, 9); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if fu.deletedID != 9 {
+		t.Fatalf("仓储未收到删除指令: id=%d", fu.deletedID)
 	}
 }
 

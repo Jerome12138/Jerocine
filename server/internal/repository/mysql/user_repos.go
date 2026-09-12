@@ -88,6 +88,33 @@ func (r *userRepo) SetDisabled(ctx context.Context, id uint, disabled bool) erro
 		Update("disabled", v).Error
 }
 
+// UpdateProfile 管理后台编辑用户: 改用户名/角色(密码走 UpdatePassword)。
+func (r *userRepo) UpdateProfile(ctx context.Context, id uint, name string, role int) error {
+	return dbFrom(ctx, r.db).Model(&entity.User{}).Where("id = ?", id).
+		Updates(map[string]any{"user_name": name, "role": role}).Error
+}
+
+// Delete 硬删用户并清理其观看历史/收藏/跳过设置。
+// users 表无外键约束, 单事务删四张表避免孤儿数据; 用户不存在时返回 ErrUserNotFound。
+func (r *userRepo) Delete(ctx context.Context, id uint) error {
+	return dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		res := tx.Where("id = ?", id).Delete(&entity.User{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return domain.ErrUserNotFound
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&entity.UserHistory{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&entity.UserFavorite{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", id).Delete(&entity.UserSkipSetting{}).Error
+	})
+}
+
 // ---- user_history ----
 
 type historyRepo struct{ db *gorm.DB }

@@ -753,3 +753,42 @@ func (h *Handlers) ManageUserResetPassword(c *gin.Context) {
 	}
 	dto.OK(c, gin.H{"id": id, "reset": true})
 }
+
+// manageUserUpdateReq PUT /manage/users/:id 请求体。
+type manageUserUpdateReq struct {
+	UserName string `json:"userName"`
+	Role     int    `json:"role"`
+}
+
+// ManageUserUpdate 编辑用户(用户名/角色)。角色变化后该用户全部设备下线; 不能改自己的角色。
+func (h *Handlers) ManageUserUpdate(c *gin.Context) {
+	id, ok := pathInt64(c, "id")
+	if !ok || id <= 0 {
+		dto.Error(c, http.StatusBadRequest, "bad id")
+		return
+	}
+	var req manageUserUpdateReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusBadRequest, "bad body")
+		return
+	}
+	if err := h.User.ManageUpdateUser(c.Request.Context(), uint(currentUserID(c)), uint(id), req.UserName, req.Role); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"id": id, "userName": req.UserName, "role": req.Role})
+}
+
+// ManageUserDelete 删除用户(硬删, 连同其历史/收藏/跳过设置), 删除后踢下线; 不能删除自己。
+func (h *Handlers) ManageUserDelete(c *gin.Context) {
+	id, ok := pathInt64(c, "id")
+	if !ok || id <= 0 {
+		dto.Error(c, http.StatusBadRequest, "bad id")
+		return
+	}
+	if err := h.User.ManageDeleteUser(c.Request.Context(), uint(currentUserID(c)), uint(id)); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"id": id, "deleted": true})
+}

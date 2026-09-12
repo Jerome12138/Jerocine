@@ -77,7 +77,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.DELETE("/tmdb-key", h.ClearTMDBKey)
 		// 榜单热度: 手动跑一轮豆瓣榜单刷新(每日 04:00 自动跑, 这里是排障/补跑入口)。
 		mg.POST("/hot/refresh", h.HotRefresh)
-		// 用户管理: 列表(用户名搜索, /users 已有) / 禁用启用(踢下线) / 重置密码(踢下线)。
+		// 用户管理: 列表(用户名搜索, /users 已有) / 新增(POST /users 已有) / 编辑(用户名+角色) / 删除 / 禁用启用(踢下线) / 重置密码(踢下线)。
+		mg.PUT("/users/:id", h.ManageUserUpdate)
+		mg.DELETE("/users/:id", h.ManageUserDelete)
 		mg.PATCH("/users/:id/disabled", h.ManageUserSetDisabled)
 		mg.PATCH("/users/:id/password", h.ManageUserResetPassword)
 

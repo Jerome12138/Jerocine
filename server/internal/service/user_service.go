@@ -299,6 +299,50 @@ func (s *UserService) ManageResetUserPassword(ctx context.Context, targetID uint
 	return nil
 }
 
+// ManageUpdateUser 管理后台编辑用户: 改用户名/角色。
+// 保护: 角色变更不允许操作自己(防唯一管理员自锁降权); 用户名不得与他人重复; 角色 0=用户 1=管理员。
+// 角色变化时踢下线, 让权限立即生效(改名不需要)。
+func (s *UserService) ManageUpdateUser(ctx context.Context, operatorID, targetID uint, name string, role int) error {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 32 || (role != 0 && role != 1) {
+		return domain.ErrInvalidArgument
+	}
+	target, err := s.users.GetById(ctx, targetID)
+	if err != nil {
+		return err
+	}
+	if role != int(target.Role) && operatorID == targetID {
+		return domain.ErrInvalidArgument // 不能改自己的角色
+	}
+	if name != target.UserName {
+		if other, err := s.users.GetByName(ctx, name); err == nil && other.ID != targetID {
+			return domain.ErrConflict
+		} else if err != nil && err != domain.ErrUserNotFound {
+			return err
+		}
+	}
+	if err := s.users.UpdateProfile(ctx, targetID, name, role); err != nil {
+		return err
+	}
+	if role != target.Role {
+		cache.ClearUserTokens(ctx, int64(targetID))
+	}
+	return nil
+}
+
+// ManageDeleteUser 管理后台删除用户(硬删, 连同其历史/收藏/跳过设置), 删除后踢下线。
+// 保护: 不能删除自己(防唯一管理员自锁)。
+func (s *UserService) ManageDeleteUser(ctx context.Context, operatorID, targetID uint) error {
+	if operatorID == targetID {
+		return domain.ErrInvalidArgument
+	}
+	if err := s.users.Delete(ctx, targetID); err != nil {
+		return err
+	}
+	cache.ClearUserTokens(ctx, int64(targetID))
+	return nil
+}
+
 // ---- 观看历史 ----
 
 func (s *UserService) HistoryUpsert(ctx context.Context, h *entity.UserHistory) error {
