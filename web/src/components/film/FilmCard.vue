@@ -316,14 +316,14 @@ const scoreText = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: 20px;
-  padding: 0 6px;
+  height: auto; /* 由内容 + padding 撑起, 不再固定高度 */
+  padding: 2px 6px;
   border-radius: var(--gf-radius-sm);
   background-color: rgba(0, 0, 0, 0.72);
   color: #ffc107; /* 黄色星 + 数字 */
-  font-size: 12px;
-  font-weight: var(--gf-fw-bold);
-  line-height: 1;
+  font-size: var(--gf-fs-xs);
+  font-weight: var(--gf-fw-semibold);
+  line-height: 1.4;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
   pointer-events: none;
   white-space: nowrap;
@@ -337,17 +337,25 @@ const scoreText = computed(() => {
   z-index: 3;
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 6px;
+  height: auto;
+  padding: 2px 6px;
   border-radius: var(--gf-radius-sm);
   background-image: var(--gf-brand-gradient);
   color: #fff;
-  font-size: 12px;
-  font-weight: var(--gf-fw-bold);
-  line-height: 1;
+  font-size: var(--gf-fs-xs);
+  font-weight: var(--gf-fw-semibold);
+  line-height: 1.4;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
   pointer-events: none;
   white-space: nowrap;
+}
+
+/* 移动端角标字体更小一档(xs=12px → 11px), 小封面不显拥挤 */
+@media (max-width: 767px) {
+  .gf-film-card__score-badge,
+  .gf-film-card__hot-badge {
+    font-size: 0.6875rem;
+  }
 }
 
 /* 观看进度条 (继续观看/历史卡): 底部 3px, 高于 remarks 渐变条(z-2) */
@@ -428,6 +436,6 @@ const scoreText = computed(() => {
 [data-mode='tv'] .gf-film-card__epinfo {
   font-size: 14px;
 }
-[data-mode='tv'] .gf-film-card__score-badge { height: 26px; font-size: 15px; padding: 0 8px; }
-[data-mode='tv'] .gf-film-card__hot-badge { height: 26px; font-size: 15px; padding: 0 8px; }
+/* TV 角标不再硬编码放大: [data-mode=tv] 的 --gf-fs-xs 已是 0.875rem(14px),
+ * 与"看到第 N 集"等角标同源缩放, 高度随内容(padding 2px 6px)自适应。 */
 </style>
