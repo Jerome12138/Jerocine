@@ -387,7 +387,7 @@ components:
           description: 猜你喜欢 (后端随机/去重, 前端直接渲染)。
           items: { $ref: '#/components/schemas/FilmCard' }
 
-    # ---------------- 内容: 分类首页三榜 ----------------
+    # ---------------- 内容: 分类首页各榜 ----------------
     ClassifyResp:
       type: object
       required: [title, news, top, recent]
@@ -395,16 +395,24 @@ components:
         title: { $ref: '#/components/schemas/Category' }
         news:
           type: array
-          description: 最新 (release_stamp desc)
+          description: 最新上线 (year desc, pub_date desc)
           items: { $ref: '#/components/schemas/FilmCard' }
         top:
           type: array
-          description: 排行 (hits desc)
+          description: 排行 (hot_score 降序, 豆瓣榜单热度)
           items: { $ref: '#/components/schemas/FilmCard' }
         recent:
           type: array
           description: 最近更新 (update_stamp desc)
           items: { $ref: '#/components/schemas/FilmCard' }
+        score:
+          type: array
+          description: 高分榜 (db_score 降序, 排除解说; scoredCount=0 时为空)
+          items: { $ref: '#/components/schemas/FilmCard' }
+        scoredCount:
+          type: integer
+          format: int64
+          description: 该分类有豆瓣评分的影片总数 (0 = 前端隐藏高分榜入口)
 
     # ---------------- 内容: tag 筛选选项 (查询期 GROUP BY) ----------------
     FilterOption:
@@ -904,7 +912,11 @@ paths:
           schema: { type: integer }
         - name: sort
           in: query
-          schema: { type: string, enum: [new, hits, update, score] }
+          schema: { type: string, enum: [hot, score, latest, update_stamp, recent] }
+          description: >-
+            排序键: hot=热度优先(hot_score 降序) / score=评分优先(db_score 降序) /
+            latest=最新上线(year+pub_date) / update_stamp=最近更新 / recent 同 update_stamp。
+            旧值 hits/db_score/release_stamp 仍兼容(等价 hot/score/latest); 未识别回退 update_stamp。
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
         - { $ref: '#/components/parameters/IfNoneMatch' }

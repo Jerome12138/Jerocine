@@ -24,7 +24,11 @@ data class Card(
     val year: Int = 0,
     val state: String = "",
     val remarks: String = "",
-    val dbScore: Double = 0.0
+    val dbScore: Double = 0.0,
+    // 上映日期(ISO 前缀串: 2026-09-11 / 2026-07 / 2007), 源站未提供时缺省
+    val pubDate: String = "",
+    // 当前豆瓣榜位(1 起), 不在榜时缺省
+    val hotRank: Int = 0
 )
 
 @Serializable
@@ -108,7 +112,10 @@ data class ClassifyResp(
     val title: NavCategory? = null,
     val news: List<Card> = emptyList(),
     val top: List<Card> = emptyList(),
-    val recent: List<Card> = emptyList()
+    val recent: List<Card> = emptyList(),
+    // 高分榜(db_score 降序, 排除解说); scoredCount=0 时后端不返回该分区
+    val score: List<Card> = emptyList(),
+    val scoredCount: Long = 0
 )
 
 @Serializable
