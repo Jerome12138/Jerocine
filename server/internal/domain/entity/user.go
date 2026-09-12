@@ -14,6 +14,8 @@ type User struct {
 	UserName   string `gorm:"column:user_name" json:"userName"`
 	Password   string `gorm:"column:password" json:"-"`
 	Role       int    `gorm:"column:role" json:"role"`
+	// 禁用标记: 1=禁用(禁止登录 + 登录态 token 全部清除), 0=正常。管理后台切换。
+	Disabled int `gorm:"column:disabled" json:"disabled"`
 }
 
 func (User) TableName() string { return "users" }

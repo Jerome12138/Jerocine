@@ -63,6 +63,31 @@ func (r *userRepo) UpdatePassword(ctx context.Context, id uint, hashed string) e
 		Update("password", hashed).Error
 }
 
+// ListPaged 管理后台用户列表: keyword 非空时按用户名模糊过滤。
+func (r *userRepo) ListPaged(ctx context.Context, keyword string, page repository.Page) ([]entity.User, int64, error) {
+	q := dbFrom(ctx, r.db).Model(&entity.User{})
+	if kw := strings.TrimSpace(keyword); kw != "" {
+		q = q.Where("user_name LIKE ?", "%"+kw+"%")
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var out []entity.User
+	err := q.Order("id ASC").Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error
+	return out, total, err
+}
+
+// SetDisabled 禁用/启用(禁用方在 service 层负责清 token)。
+func (r *userRepo) SetDisabled(ctx context.Context, id uint, disabled bool) error {
+	v := 0
+	if disabled {
+		v = 1
+	}
+	return dbFrom(ctx, r.db).Model(&entity.User{}).Where("id = ?", id).
+		Update("disabled", v).Error
+}
+
 // ---- user_history ----
 
 type historyRepo struct{ db *gorm.DB }

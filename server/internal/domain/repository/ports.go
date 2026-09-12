@@ -198,6 +198,9 @@ type UserRepository interface {
 	Create(ctx context.Context, u *entity.User) error
 	List(ctx context.Context, page Page) ([]entity.User, int64, error)
 	UpdatePassword(ctx context.Context, id uint, hashed string) error
+	// 管理后台用户管理
+	ListPaged(ctx context.Context, keyword string, page Page) ([]entity.User, int64, error)
+	SetDisabled(ctx context.Context, id uint, disabled bool) error
 }
 
 // HistoryRepository 观看历史。

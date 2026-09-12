@@ -348,7 +348,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 
 func (h *Handlers) ListUsers(c *gin.Context) {
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
-	list, total, err := h.Manage.ListUsers(c.Request.Context(), page)
+	list, total, err := h.Manage.ListUsers(c.Request.Context(), c.Query("keyword"), page)
 	if err != nil {
 		dto.Fail(c, err)
 		return
@@ -690,4 +690,66 @@ func readUpload(c *gin.Context) ([]byte, string, bool) {
 		return nil, "", false
 	}
 	return data, fh.Filename, true
+}
+
+// ---- 用户管理 ----
+
+// ManageUsers GET /manage/users?keyword=&page=&size= — 用户列表(用户名模糊搜索)。
+func (h *Handlers) ManageUsers(c *gin.Context) {
+	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
+	list, total, err := h.User.ManageListUsers(c.Request.Context(), c.Query("keyword"), page)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	n := page.Normalize(20)
+	dto.Page(c, list, n.Current, n.Size, total)
+}
+
+// manageUserDisabledReq PATCH /manage/users/:id/disabled 请求体。
+type manageUserDisabledReq struct {
+	Disabled bool `json:"disabled"`
+}
+
+// ManageUserSetDisabled 禁用/启用用户。禁用立即踢下线; 不能操作自己(防自锁)。
+func (h *Handlers) ManageUserSetDisabled(c *gin.Context) {
+	id, ok := pathInt64(c, "id")
+	if !ok || id <= 0 {
+		dto.Error(c, http.StatusBadRequest, "bad id")
+		return
+	}
+	var req manageUserDisabledReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusBadRequest, "bad body")
+		return
+	}
+	if err := h.User.ManageSetUserDisabled(c.Request.Context(), uint(currentUserID(c)), uint(id), req.Disabled); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"id": id, "disabled": req.Disabled})
+}
+
+// manageUserPasswordReq PATCH /manage/users/:id/password 请求体。
+type manageUserPasswordReq struct {
+	Password string `json:"password"`
+}
+
+// ManageUserResetPassword 管理员重置用户密码(不校验旧密码), 重置后该用户全部设备下线。
+func (h *Handlers) ManageUserResetPassword(c *gin.Context) {
+	id, ok := pathInt64(c, "id")
+	if !ok || id <= 0 {
+		dto.Error(c, http.StatusBadRequest, "bad id")
+		return
+	}
+	var req manageUserPasswordReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusBadRequest, "bad body")
+		return
+	}
+	if err := h.User.ManageResetUserPassword(c.Request.Context(), uint(id), req.Password); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"id": id, "reset": true})
 }

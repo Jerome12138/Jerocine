@@ -99,6 +99,10 @@ func (s *UserService) Login(ctx context.Context, account, password string) (Logi
 	if !auth.VerifyPassword(password, u.Password) {
 		return LoginResult{}, domain.ErrUnauthorized
 	}
+	if u.Disabled != 0 {
+		// 已禁用: 与密码错误同响应(不泄漏账号状态), 不签发 token
+		return LoginResult{}, domain.ErrUnauthorized
+	}
 	token, exp, err := s.tokens.Generate(u.ID, u.UserName, u.Role)
 	if err != nil {
 		return LoginResult{}, err
@@ -248,6 +252,51 @@ func (s *UserService) CreateUser(ctx context.Context, name, password string, rol
 
 func (s *UserService) ListUsers(ctx context.Context, page repository.Page) ([]entity.User, int64, error) {
 	return s.users.List(ctx, page.Normalize(20))
+}
+
+// ---- 管理员: 用户管理(列表/禁用/重置密码) ----
+
+// ManageListUsers 用户列表, keyword 非空按用户名模糊搜索。
+func (s *UserService) ManageListUsers(ctx context.Context, keyword string, page repository.Page) ([]entity.User, int64, error) {
+	return s.users.ListPaged(ctx, keyword, page.Normalize(20))
+}
+
+// ManageSetUserDisabled 禁用/启用用户。
+// 保护: 不能禁用自己(防止唯一管理员自锁); 目标不存在报 ErrUserNotFound。
+// 禁用立即生效: 清目标用户全部在线 token。
+func (s *UserService) ManageSetUserDisabled(ctx context.Context, operatorID, targetID uint, disabled bool) error {
+	if operatorID == targetID {
+		return domain.ErrInvalidArgument
+	}
+	if _, err := s.users.GetById(ctx, targetID); err != nil {
+		return err
+	}
+	if err := s.users.SetDisabled(ctx, targetID, disabled); err != nil {
+		return err
+	}
+	if disabled {
+		cache.ClearUserTokens(ctx, int64(targetID))
+	}
+	return nil
+}
+
+// ManageResetUserPassword 管理员重置任意用户密码(不校验旧密码), 重置后踢下线。
+func (s *UserService) ManageResetUserPassword(ctx context.Context, targetID uint, newPassword string) error {
+	if len(newPassword) < 6 || len(newPassword) > 64 {
+		return domain.ErrInvalidArgument
+	}
+	if _, err := s.users.GetById(ctx, targetID); err != nil {
+		return err
+	}
+	hashed, err := auth.HashPassword(newPassword)
+	if err != nil {
+		return domain.ErrInvalidArgument
+	}
+	if err := s.users.UpdatePassword(ctx, targetID, hashed); err != nil {
+		return err
+	}
+	cache.ClearUserTokens(ctx, int64(targetID))
+	return nil
 }
 
 // ---- 观看历史 ----

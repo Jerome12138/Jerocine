@@ -627,8 +627,8 @@ func (s *ManageService) DeleteVersion(ctx context.Context, id int64) error {
 func (s *ManageService) CreateUser(ctx context.Context, name, password string, role int) (*entity.User, error) {
 	return s.users.CreateUser(ctx, name, password, role)
 }
-func (s *ManageService) ListUsers(ctx context.Context, page repository.Page) ([]entity.User, int64, error) {
-	return s.users.ListUsers(ctx, page)
+func (s *ManageService) ListUsers(ctx context.Context, keyword string, page repository.Page) ([]entity.User, int64, error) {
+	return s.users.ManageListUsers(ctx, keyword, page)
 }
 
 // ---- 影片管理 ----
