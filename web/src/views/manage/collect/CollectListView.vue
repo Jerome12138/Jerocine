@@ -535,7 +535,7 @@ onMounted(() => {
               :href="row.siteUrl"
               target="_blank"
               rel="noopener noreferrer"
-              class="font-[var(--gf-fw-medium)] text-primary underline decoration-dotted underline-offset-4 hover:text-[var(--gf-primary)]"
+              class="font-[var(--gf-fw-medium)] text-primary underline decoration-dotted underline-offset-4 hover:text-[var(--gf-brand-primary)]"
               :title="`打开站点网址: ${row.siteUrl}`"
             >{{ row.name }}</a>
             <span v-else class="font-[var(--gf-fw-medium)] text-primary">{{ row.name }}</span>
