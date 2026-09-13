@@ -33,6 +33,8 @@ export interface PlayerGestureOptions {
   enterTempRate: (rate: number) => void
   /** 退出临时倍速, 恢复进入前档位 */
   exitTempRate: () => void
+  /** 手势总开关(false = 忽略所有手势, 如 loading 阻塞期: 防双击误进全屏/误暂停) */
+  enabled?: Readonly<Ref<boolean>>
 }
 
 export function usePlayerGestures(opts: PlayerGestureOptions) {
@@ -142,6 +144,7 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
   /* ============ 触摸处理器(模板直绑) ============ */
 
   function onTouchStart(e: TouchEvent): void {
+    if (opts.enabled && !opts.enabled.value) return
     if (!e.touches || e.touches.length !== 1) return
     if (isGestureTargetUi(e)) return
     const t = e.touches[0]
@@ -165,6 +168,7 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
   }
 
   function onTouchMove(e: TouchEvent): void {
+    if (opts.enabled && !opts.enabled.value) return
     if (!e.touches || e.touches.length !== 1) return
     if (isGestureTargetUi(e)) return
     const p = player.value
@@ -213,6 +217,10 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
   }
 
   function onTouchEnd(e: TouchEvent): void {
+    if (opts.enabled && !opts.enabled.value) {
+      gestureMode = 'none'
+      return
+    }
     clearLongPressTimer()
     const p = player.value
     if (gestureMode === 'press') {

@@ -791,7 +791,9 @@ async function loadPlayInfo(): Promise<void> {
       }
     }
     applyCurrentEpisodeToPlayer(resumeAt)
-    loading.value = false
+    // Web: 保持 loading 直到新源就绪(armSeekOnce→loadedmetadata/canplay)或出错(handleVideoError),
+    // 覆盖端侧广告过滤解析窗口 —— 此前这里提前关 loading, 过滤期间(可达数秒)点击视频无任何反馈。
+    if (isNative() || getNativePlayer() || !currentEpisode.value) loading.value = false
   } catch {
     // http 拦截器已 toast，这里只设页面态
     loadError.value = '播放信息加载失败'
@@ -1017,6 +1019,16 @@ function onPlayerTimeUpdateForSkipOutro(): void {
 
 /** ---------- 触屏手势(web 专用; TV/原生播放器不适用) ---------- */
 const isPlayerFullscreen = ref(false)
+
+/** loading 遮罩文案: 广告过滤解析窗口(最长可达数秒)明确告知在干什么, 其余通用 */
+const loadingHint = computed(() => {
+  const ep = currentEpisode.value
+  if (ep && adFilter.value && reM3u8.test(ep.link)) return '正在准备视频 · 广告过滤中…'
+  return '正在准备视频…'
+})
+
+/** loading 阻塞期禁用播放器手势(双击全屏/长按倍速/滑动 seek) */
+const gesturesEnabled = computed(() => !loading.value)
 /** 控制条可见状态(video.js useractive/userinactive 事件驱动)。
  * 全屏左上角标题层跟随它显隐; 暂停时 video.js 控制条常显 → 用 paused 兜底强制显示。 */
 const playerControlsVisible = ref(true)
@@ -1030,7 +1042,16 @@ const {
   onTouchEnd: onPlayerTouchEnd,
   gestureRateHint,
   gestureSeekHint
-} = usePlayerGestures({ player, paused, buffering, fullscreen: isPlayerFullscreen, enterTempRate, exitTempRate })
+} = usePlayerGestures({
+  player,
+  paused,
+  buffering,
+  fullscreen: isPlayerFullscreen,
+  enterTempRate,
+  exitTempRate,
+  // loading 阻塞期禁用手势: 遮罩拦得住鼠标, 但 wrapper 上的 touch 事件仍会触发(双击误进全屏)
+  enabled: gesturesEnabled
+})
 
 /** ---------- 集数 / 源切换 ---------- */
 function changeSource(sourceId: string): void {
@@ -1319,6 +1340,8 @@ function handleVideoError(): void {
   if (!detail.value) return
   const p = player.value
   if (!p) return
+  // 出错即解除 loading 遮罩(阻塞态), 后续反馈交给 videoErrorMsg/重试/换源流程, 避免遮罩死锁
+  loading.value = false
   // 切集互斥窗口内的 error 是旧源残余事件: 不重试(避免重挂旧 src 与切换打架),
   // 新源就绪(互斥解除)后若仍出错会正常走重试/换源。
   if (switchInFlight) return
@@ -1591,13 +1614,23 @@ watch(playerReady, (v) => {
               >
                 {{ detail.name }}<template v-if="currentEpisode"> · {{ currentEpisode.episode }}</template>
               </div>
+              <!-- loading(取数据/过滤解析/切集): 阻塞态, 拦截点击(此前 pointer-events:none 会穿透到
+                   控制条, 未就绪也能点全屏), 并给出阶段文案; buffering(播放中缓冲): 仅 spinner, 保持可点暂停。
+                   必须放在 Teleport 内: 全屏元素是 .video-js 容器, 留在外面则全屏时不可见 -->
+              <div
+                v-if="loading || buffering"
+                class="gf-player-loading"
+                :class="{ 'gf-player-loading--blocking': loading }"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="gf-player-loading__spinner" />
+                <span v-if="loading" class="gf-player-loading__text">{{ loadingHint }}</span>
+              </div>
+              <div v-if="videoErrorMsg" class="gf-player-error" role="alert">
+                {{ videoErrorMsg }}
+              </div>
             </Teleport>
-            <div v-if="loading || buffering" class="gf-player-loading" role="status" aria-live="polite">
-              <span class="gf-player-loading__spinner" />
-            </div>
-            <div v-if="videoErrorMsg" class="gf-player-error" role="alert">
-              {{ videoErrorMsg }}
-            </div>
           </div>
 
           <!-- 当前播放信息 + 控件: 标题单独一行(小字); 标签 + 操作按钮同一行 -->
@@ -1730,7 +1763,7 @@ watch(playerReady, (v) => {
         </div>
       </header>
 
-      <!-- 跳片头片尾设置 (按 filmId 持久化在 localStorage) -->
+      <!-- 跳片头片尾设置 (按 filmId 持久化在 localStorage / 登录后随账号同步) -->
       <BaseDialog v-model:visible="skipDialogOpen" title="跳过片头/片尾" width="380px">
         <div class="flex flex-col gap-[var(--gf-space-4)]">
           <p class="text-sm text-secondary">
@@ -1900,6 +1933,8 @@ watch(playerReady, (v) => {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
+  gap: 12px;
   align-items: center;
   justify-content: center;
   /* 遮罩: 压暗旧画面, 保证 loading 在任何视频底色上都可辨识 */
@@ -1907,6 +1942,16 @@ watch(playerReady, (v) => {
   backdrop-filter: blur(2px);
   z-index: 5;
   pointer-events: none;
+}
+/* loading(非 buffering)为阻塞态: 拦截点击, 不穿透到播放器控制条(未就绪不可暂停/全屏) */
+.gf-player-loading--blocking {
+  pointer-events: auto;
+  cursor: progress;
+}
+.gf-player-loading__text {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 /* 圆形 spinner: 用显式 px 而非 em —— 本层在 video 外, em 按根字号算不准
    (video.js 的 .video-js{font-size:10px} 只对播放器内部元素生效)。 */
@@ -1929,6 +1974,8 @@ watch(playerReady, (v) => {
   position: absolute;
   left: var(--gf-space-3);
   bottom: var(--gf-space-3);
+  /* 盖过 gf-player-loading(z-5): 阻塞期错误提示(重试倒计时等)必须可见 */
+  z-index: 6;
   padding: var(--gf-space-2) var(--gf-space-3);
   background-color: rgba(0, 0, 0, 0.65);
   color: #fff;
@@ -2170,6 +2217,11 @@ watch(playerReady, (v) => {
   left: 50%;
   margin-top: -1em;
   margin-left: -1em;
+}
+/* loading 期隐藏大播放按钮: 与 loading 遮罩的 spinner 双圆圈叠显不美观
+   (对齐需按 TV/移动/桌面分别特调, 直接隐藏; loading 结束后自动恢复) */
+.gf-player-wrap[data-loading='1'] :deep(.vjs-big-play-button) {
+  display: none;
 }
 :deep(.vjs-play-progress) {
   background-color: var(--gf-brand-primary);
