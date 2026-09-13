@@ -37,6 +37,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	// m3u8 端侧混合过滤: 客户端抓流→送文本→服务器只过滤(不抓源), 用于服务器抓不到的源(bf 地域封)。
 	v1.POST("/m3u8/filter", middleware.RateLimit("m3u8filter", 60, 20), h.M3u8Filter)
 	v1.POST("/telemetry/events", middleware.RateLimit("telemetry", 60, 20), h.TelemetryIngest)
+	// 广告过滤链路兜底上报(公开, 限流): 播放端实际失败 → 立即标该源 ad_filter_ok=false。
+	v1.POST("/ad-filter/feedback", middleware.RateLimit("adffb", 30, 10), h.AdFilterFeedback)
 
 	// ---- 认证 ----
 	v1.POST("/auth/login", middleware.RateLimit("login", 10, 0.5), h.Login)
@@ -91,6 +93,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.PUT("/collect-sources/:id", h.UpsertSource)
 		mg.DELETE("/collect-sources/:id", h.DeleteSource)
 		mg.POST("/collect-sources/:id/test", h.TestSource)
+		// 端侧播放测速: 取样本 m3u8 / 回传浏览器端实测延时。
+		mg.GET("/collect-sources/:id/sample-m3u8", h.SourceSampleM3u8)
+		mg.POST("/collect-sources/:id/play-latency", h.RecordPlayLatency)
 
 		mg.GET("/cron-tasks", h.ListCrons)
 		mg.POST("/cron-tasks", h.UpsertCron)

@@ -135,6 +135,32 @@ func (h *Handlers) TestSource(c *gin.Context) {
 	respond(c, res, err)
 }
 
+// SourceSampleM3u8 GET /manage/collect-sources/:id/sample-m3u8 端侧播放测速的样本输入。
+func (h *Handlers) SourceSampleM3u8(c *gin.Context) {
+	sample, err := h.Manage.SampleM3u8For(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"sampleM3u8": sample})
+}
+
+// RecordPlayLatency POST /manage/collect-sources/:id/play-latency 浏览器端播放测速结果回传落库。
+func (h *Handlers) RecordPlayLatency(c *gin.Context) {
+	var body struct {
+		Ms int64 `json:"ms"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Ms < 0 || body.Ms > 600_000 {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	if err := h.Manage.RecordPlayLatency(c.Request.Context(), c.Param("id"), body.Ms); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.NoContent(c)
+}
+
 func (h *Handlers) TestAllSources(c *gin.Context) {
 	res, err := h.Manage.TestAllSources(c.Request.Context())
 	respond(c, res, err)

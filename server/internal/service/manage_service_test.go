@@ -168,7 +168,7 @@ func TestSummarizeProbes_ConnectedButNoFilms(t *testing.T) {
 	}
 }
 
-// ---- ClientOnly(仅端侧可达)跳过测速/健康度 ----
+// ---- 测速拆分: 采集(服务端 API) / 播放(浏览器端) / 广告过滤可达性 ----
 
 // fakeSourceRepo 仅按 id 返回预置源, List 返回全部(其余方法被调用即 panic, 测试不应触发)。
 type fakeSourceRepo struct {
@@ -188,47 +188,26 @@ func (f *fakeSourceRepo) List(context.Context, bool) ([]entity.CollectSource, er
 	return f.all, nil
 }
 
-// fakeHealthRepo 记录 Upsert 调用次数, 验证 ClientOnly 源不写健康度。
+// fakeHealthRepo 记录 Upsert 调用次数与健康行, 验证健康度写入行为。
 type fakeHealthRepo struct {
 	upserts int
+	last    *entity.SourceHealth
 }
 
 func (f *fakeHealthRepo) Get(context.Context, string) (*entity.SourceHealth, error) {
 	return nil, nil
 }
 func (f *fakeHealthRepo) List(context.Context) ([]entity.SourceHealth, error) { return nil, nil }
-func (f *fakeHealthRepo) Upsert(context.Context, *entity.SourceHealth) error {
+func (f *fakeHealthRepo) Upsert(_ context.Context, h *entity.SourceHealth) error {
 	f.upserts++
+	f.last = h
 	return nil
 }
 
-// TestSource: ClientOnly 源直接返回占位结果(Ok=true, 占位文案), 且不写健康度(不计失败/不停采)。
-func TestTestSource_ClientOnlySkipsProbeAndHealth(t *testing.T) {
-	sr := &fakeSourceRepo{byId: map[string]entity.CollectSource{
-		"bf": {Id: "bf", Name: "BF", ClientOnly: true},
-	}}
-	hr := &fakeHealthRepo{}
-	ms := &ManageService{sources: sr, health: hr}
-	res, err := ms.TestSource(context.Background(), "bf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !res.Ok || res.Message != clientOnlyMessage {
-		t.Fatalf("ClientOnly 应返回占位结果: ok=%v msg=%q", res.Ok, res.Message)
-	}
-	if res.Probes != 0 || res.OkCount != 0 {
-		t.Fatalf("ClientOnly 不应有探测计数: probes=%d ok=%d", res.Probes, res.OkCount)
-	}
-	if hr.upserts != 0 {
-		t.Fatalf("ClientOnly 源不应写健康度, got upserts=%d", hr.upserts)
-	}
-}
-
-// TestAllSources: ClientOnly 源占位通过(不写健康度), 普通源仍照常测速并写健康度。
-func TestTestAllSources_ClientOnlySkipped(t *testing.T) {
-	// 普通源 uri 指向回环非法端点, Probe 会快速失败 → recordHealth 写一次(失败计数)。
+// TestAllSources: 探测失败的源写一次健康度(计失败), Ok=false。
+func TestTestAllSources_FailedSourceRecordsHealth(t *testing.T) {
+	// 源 uri 指向回环非法端点, Probe 会快速失败 → recordHealth 写一次(失败计数)。
 	sr := &fakeSourceRepo{all: []entity.CollectSource{
-		{Id: "bf", Name: "BF", ClientOnly: true},
 		{Id: "norm", Name: "Norm", Uri: "http://127.0.0.1:1/api"},
 	}}
 	hr := &fakeHealthRepo{}
@@ -237,35 +216,82 @@ func TestTestAllSources_ClientOnlySkipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 2 {
-		t.Fatalf("want 2 results, got %d", len(out))
+	if len(out) != 1 {
+		t.Fatalf("want 1 result, got %d", len(out))
 	}
-	var bf, norm SourceTestResult
-	for _, r := range out {
-		switch r.Id {
-		case "bf":
-			bf = r
-		case "norm":
-			norm = r
-		}
+	if out[0].Ok {
+		t.Fatalf("失败源不应 Ok=true")
 	}
-	if !bf.Ok || bf.Message != clientOnlyMessage {
-		t.Fatalf("ClientOnly 源占位异常: ok=%v msg=%q", bf.Ok, bf.Message)
-	}
-	if norm.Ok {
-		t.Fatalf("普通失败源不应 Ok=true")
-	}
-	// 仅普通源写了一次健康度, ClientOnly 源未写。
 	if hr.upserts != 1 {
-		t.Fatalf("应只为普通源写 1 次健康度, got %d", hr.upserts)
+		t.Fatalf("应为失败源写 1 次健康度, got %d", hr.upserts)
 	}
 }
 
-// clientOnlyResult 占位: Ok=true(不计失败), 文案固定。
-func TestClientOnlyResult(t *testing.T) {
-	r := clientOnlyResult()
-	if !r.Ok || r.Message != clientOnlyMessage {
-		t.Fatalf("got ok=%v msg=%q", r.Ok, r.Message)
+// TestApplyHealth_SplitFields: 采集测速结果合并 —— ApiCheckedAt 必写;
+// 样本 m3u8 / 广告过滤可达性(成功与失败都写)只在有值时更新; 浏览器端播放字段不受影响。
+func TestApplyHealth_SplitFields(t *testing.T) {
+	now := int64(1000)
+	ok := true
+	prev := &entity.SourceHealth{
+		PlayLatencyWeb: 234, PlayCheckedAt: 999, SampleM3u8: "http://old/x.m3u8",
+	}
+	// 成功探测 + m3u8 可达
+	res := CollectTestResult{Ok: true, LatencyMs: 120, PlayLatencyMs: 55, SampleM3u8: "http://new/x.m3u8", AdFilterOk: &ok}
+	h := applyHealth(prev, res, 3, now)
+	if h.ApiCheckedAt != now {
+		t.Fatalf("ApiCheckedAt = %d, want %d", h.ApiCheckedAt, now)
+	}
+	if h.SampleM3u8 != "http://new/x.m3u8" || h.PlayLatencyMs != 55 || h.AdFilterOk == nil || !*h.AdFilterOk {
+		t.Fatalf("广告过滤可达性未正确写入: %+v", h)
+	}
+	if h.PlayLatencyWeb != 234 || h.PlayCheckedAt != 999 {
+		t.Fatalf("浏览器端播放字段不应被采集测速覆盖: %+v", h)
+	}
+	// m3u8 不可达: AdFilterOk=false 也必须落(失败同样有价值)
+	bad := false
+	h2 := applyHealth(nil, CollectTestResult{Ok: true, SampleM3u8: "http://new/x.m3u8", AdFilterOk: &bad}, 3, now)
+	if h2.AdFilterOk == nil || *h2.AdFilterOk {
+		t.Fatalf("m3u8 不可达应写 AdFilterOk=false: %+v", h2)
+	}
+	if h2.AdFilterCheckedAt != now {
+		t.Fatalf("AdFilterCheckedAt = %d, want %d", h2.AdFilterCheckedAt, now)
+	}
+	// 无样本: 不动上次可达性
+	h3 := applyHealth(prev, CollectTestResult{Ok: true}, 3, now)
+	if h3.AdFilterOk != nil {
+		t.Fatalf("无样本不应写 AdFilterOk: %+v", h3)
+	}
+}
+
+// TestRecordAdFilter: 运行时兜底上报只接受失败(ok=true 直接忽略), 失败立即落库。
+func TestRecordAdFilter(t *testing.T) {
+	hr := &fakeHealthRepo{}
+	ms := &ManageService{health: hr}
+	if err := ms.RecordAdFilter(context.Background(), "lz", true); err != nil {
+		t.Fatal(err)
+	}
+	if hr.upserts != 0 {
+		t.Fatalf("ok=true 不应写库, got upserts=%d", hr.upserts)
+	}
+	if err := ms.RecordAdFilter(context.Background(), "lz", false); err != nil {
+		t.Fatal(err)
+	}
+	if hr.upserts != 1 || hr.last == nil || hr.last.AdFilterOk == nil || *hr.last.AdFilterOk {
+		t.Fatalf("失败上报应写 AdFilterOk=false, got %+v", hr.last)
+	}
+}
+
+// TestSiteURLRe: 站点网址规则(选填, http/https)。
+func TestSiteURLRe(t *testing.T) {
+	for _, ok := range []string{"https://a.com", "http://a.com/x?y=1"} {
+		if !siteURLRe.MatchString(ok) {
+			t.Fatalf("%q 应合法", ok)
+		}
+	}
+	for _, bad := range []string{"ftp://a.com", "a.com", "https://"} {
+		if siteURLRe.MatchString(bad) {
+			t.Fatalf("%q 应非法", bad)
+		}
 	}
 }
 

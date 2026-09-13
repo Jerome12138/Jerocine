@@ -23,6 +23,8 @@ type CollectSource struct {
 	Id           string `gorm:"column:id;primaryKey" json:"id"`
 	Name         string `gorm:"column:name" json:"name"`
 	Uri          string `gorm:"column:uri" json:"uri"`
+	// SiteUrl 站点网址(可选, 仅后台展示/点名称跳转用), 空 = 未填。
+	SiteUrl      string `gorm:"column:site_url" json:"siteUrl"`
 	ResultModel  int8   `gorm:"column:result_model" json:"resultModel"`
 	Grade        int8   `gorm:"column:grade" json:"grade"`
 	SyncPictures bool   `gorm:"column:sync_pictures" json:"syncPictures"`
@@ -30,8 +32,6 @@ type CollectSource struct {
 	GradeScore   int    `gorm:"column:grade_score" json:"gradeScore"`
 	IntervalMs   int    `gorm:"column:interval_ms" json:"intervalMs"`
 	State        int8   `gorm:"column:state" json:"state"`
-	// ClientOnly 仅端侧可达: 服务器(被地域封等)访问不到该源 → 服务端不测速/不计失败/不自动停采, 端侧另做测速。
-	ClientOnly   bool   `gorm:"column:client_only" json:"clientOnly"`
 	CreatedAt    int64  `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
 	UpdatedAt    int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
@@ -95,23 +95,32 @@ const (
 
 // SourceHealth 采集源健康度 (table: source_health) — 一源一行最新快照 + 连续失败计数。
 // suppressed=true 表示连续失败达阈值被自动停采(与 CollectSource.State 正交, 不互相覆盖)。
+// 测速拆两类: 采集(服务端打采集 API) 与 播放(浏览器端直连 CDN), 各记延时 + 检测时间;
+// SampleM3u8/PlayLatencyMs/AdFilterOk 为服务端抽样 m3u8 的产物, AdFilterOk 决定
+// 服务端代理广告过滤链路是否可用(NULL=未测)。
 type SourceHealth struct {
-	SourceId         string `gorm:"column:source_id;primaryKey" json:"sourceId"`
-	Status           string `gorm:"column:status" json:"status"`
-	ConsecutiveFails int    `gorm:"column:consecutive_fails" json:"consecutiveFails"`
-	Suppressed       bool   `gorm:"column:suppressed" json:"suppressed"`
-	LastOk           bool   `gorm:"column:last_ok" json:"lastOk"`
-	LatencyMs        int64  `gorm:"column:latency_ms" json:"latencyMs"`
-	BestMs           int64  `gorm:"column:best_ms" json:"bestMs"`
-	Films            int    `gorm:"column:films" json:"films"`
-	PageCount        int    `gorm:"column:page_count" json:"pageCount"`           // 分页总数(资源最全判定)
-	Total            int    `gorm:"column:total" json:"total"`                    // 目录总片数
-	PlayLatencyMs    int64  `gorm:"column:play_latency_ms" json:"playLatencyMs"`  // 抽样 m3u8 播放延时(0=未测)
-	OkCount          int    `gorm:"column:ok_count" json:"okCount"`
-	Probes           int    `gorm:"column:probes" json:"probes"`
-	Message          string `gorm:"column:message" json:"message"`
-	CheckedAt        int64  `gorm:"column:checked_at" json:"checkedAt"`
-	UpdatedAt        int64  `gorm:"column:updated_at" json:"updatedAt"`
+	SourceId          string `gorm:"column:source_id;primaryKey" json:"sourceId"`
+	Status            string `gorm:"column:status" json:"status"`
+	ConsecutiveFails  int    `gorm:"column:consecutive_fails" json:"consecutiveFails"`
+	Suppressed        bool   `gorm:"column:suppressed" json:"suppressed"`
+	LastOk            bool   `gorm:"column:last_ok" json:"lastOk"`
+	LatencyMs         int64  `gorm:"column:latency_ms" json:"latencyMs"`
+	BestMs            int64  `gorm:"column:best_ms" json:"bestMs"`
+	Films             int    `gorm:"column:films" json:"films"`
+	PageCount         int    `gorm:"column:page_count" json:"pageCount"`           // 分页总数(资源最全判定)
+	Total             int    `gorm:"column:total" json:"total"`                    // 目录总片数
+	PlayLatencyMs     int64  `gorm:"column:play_latency_ms" json:"playLatencyMs"`  // 服务端抽样 m3u8 延时(0=未测); >0 即服务端可达(可代理过滤)
+	OkCount           int    `gorm:"column:ok_count" json:"okCount"`
+	Probes            int    `gorm:"column:probes" json:"probes"`
+	Message           string `gorm:"column:message" json:"message"`
+	CheckedAt         int64  `gorm:"column:checked_at" json:"checkedAt"`
+	ApiCheckedAt      int64  `gorm:"column:api_checked_at" json:"apiCheckedAt"`        // 采集速度(服务端 API)检测时间(ms)
+	PlayCheckedAt     int64  `gorm:"column:play_checked_at" json:"playCheckedAt"`      // 播放速度(浏览器端)检测时间(ms)
+	SampleM3u8        string `gorm:"column:sample_m3u8" json:"sampleM3u8"`             // 最近探测解析到的样本 m3u8(端侧播放测速用)
+	PlayLatencyWeb    int64  `gorm:"column:play_latency_web" json:"playLatencyWeb"`    // 浏览器端实测视频加载延时(0=未测)
+	AdFilterOk        *bool  `gorm:"column:ad_filter_ok" json:"adFilterOk"`            // 服务端 m3u8 可达性: nil=未测 true=可代理过滤 false=不可达
+	AdFilterCheckedAt int64  `gorm:"column:ad_filter_checked_at" json:"adFilterCheckedAt"`
+	UpdatedAt         int64  `gorm:"column:updated_at" json:"updatedAt"`
 }
 
 func (SourceHealth) TableName() string { return "source_health" }

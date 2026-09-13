@@ -84,11 +84,12 @@ type Episode struct {
 	Link    string `json:"link"`
 }
 
-// PlaySource 一个播放源(契约: id/name/episodes)。
+// PlaySource 一个播放源(契约: id/name/episodes; adFilterOk 服务端 m3u8 可达性, false 时播放页跳过代理过滤)。
 type PlaySource struct {
-	Id       string    `json:"id"`
-	Name     string    `json:"name"`
-	Episodes []Episode `json:"episodes"`
+	Id         string    `json:"id"`
+	Name       string    `json:"name"`
+	Episodes   []Episode `json:"episodes"`
+	AdFilterOk *bool     `json:"adFilterOk,omitempty"`
 }
 
 func toEpisodes(eps []entity.Episode) []Episode {
@@ -102,7 +103,7 @@ func toEpisodes(eps []entity.Episode) []Episode {
 func toSources(srcs []service.PlaySourceView) []PlaySource {
 	out := make([]PlaySource, 0, len(srcs))
 	for _, s := range srcs {
-		out = append(out, PlaySource{Id: s.Id, Name: s.Name, Episodes: toEpisodes(s.Episodes)})
+		out = append(out, PlaySource{Id: s.Id, Name: s.Name, Episodes: toEpisodes(s.Episodes), AdFilterOk: s.AdFilterOk})
 	}
 	return out
 }

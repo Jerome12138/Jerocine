@@ -35,10 +35,12 @@ type ClassifyData struct {
 }
 
 // PlaySourceView 一个播放源(对齐 OpenAPI PlaySource: id/name/episodes)。
+// AdFilterOk 服务端 m3u8 可达性(nil=未测): false 时播放页跳过服务端代理过滤链路直接走直链。
 type PlaySourceView struct {
-	Id       string           `json:"id"`
-	Name     string           `json:"name"`
-	Episodes []entity.Episode `json:"episodes"`
+	Id         string           `json:"id"`
+	Name       string           `json:"name"`
+	Episodes   []entity.Episode `json:"episodes"`
+	AdFilterOk *bool            `json:"adFilterOk,omitempty"`
 }
 
 // FilmDetailData 影片详情(详情主体 + 多源播放)。

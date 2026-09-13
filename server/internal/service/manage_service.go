@@ -25,6 +25,9 @@ import (
 // id 是主键且被四处以字符串引用(无外键), 规则保证跨库可读、可迁移、永不冲突保留字大小写形态。
 var collectSourceIDRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
 
+// siteURLRe 站点网址规则(选填): http/https 绝对 URL。
+var siteURLRe = regexp.MustCompile(`^https?://\S+$`)
+
 // ManageService 后台 CRUD 编排(瘦层: 委派仓储 + 缓存失效)。
 // 注: cron 实际调度注册、采集源深度校验、手动加片的多源补全 与采集引擎耦合, 留待引擎里程碑接入。
 type ManageService struct {
@@ -215,11 +218,14 @@ func (s *ManageService) GetSource(ctx context.Context, id string) (*entity.Colle
 	return s.sources.Get(ctx, id)
 }
 
-// UpsertSource 新增/编辑采集源(含 ClientOnly 仅端侧标记, 由 handler 绑定 JSON clientOnly → repo Upsert 全列写入)。
+// UpsertSource 新增/编辑采集源(站点网址 siteUrl 可选, 填了须为 http/https; 由 handler 绑定 JSON → repo Upsert 全列写入)。
 // id 必须符合 collectSourceIDRe —— 落库后不可改(改 id 等于新建, 播放源/失败台账/健康表的字符串引用全部悬挂)。
 func (s *ManageService) UpsertSource(ctx context.Context, src *entity.CollectSource) error {
 	if !collectSourceIDRe.MatchString(src.Id) {
 		return domain.ErrInvalidSourceID
+	}
+	if src.SiteUrl != "" && !siteURLRe.MatchString(src.SiteUrl) {
+		return domain.ErrInvalidSourceID // 站点网址选填, 填了必须是 http(s):// URL
 	}
 	dup, err := s.sources.ExistsByUri(ctx, src.Uri, src.Id)
 	if err != nil {
@@ -260,7 +266,9 @@ type CollectTestResult struct {
 	Films         int    `json:"films"`         // 首页解析到的影片数(0 可疑)
 	PageCount     int    `json:"pageCount"`     // 分页总数
 	Total         int    `json:"total"`         // 目录总片数(资源最全判定)
-	PlayLatencyMs int64  `json:"playLatencyMs"` // 抽样 m3u8 播放延时(0=未测)
+	PlayLatencyMs int64  `json:"playLatencyMs"` // 服务端抽样 m3u8 延时(0=未测); >0 即服务端可达(可代理过滤)
+	SampleM3u8    string `json:"sampleM3u8,omitempty"` // 探测解析到的样本 m3u8(端侧播放测速用)
+	AdFilterOk    *bool  `json:"adFilterOk,omitempty"` // 服务端 m3u8 可达性: nil=未测(无样本) true=可代理过滤 false=不可达
 	Message       string `json:"message"`
 }
 
@@ -271,23 +279,12 @@ type SourceTestResult struct {
 	CollectTestResult
 }
 
-// clientOnlyMessage 仅端侧源的服务端测速占位说明(前端据此提示"服务器不测, 端侧自测")。
-const clientOnlyMessage = "仅端侧可达, 服务器不测速"
-
-// clientOnlyResult 仅端侧源的服务端测速结果: 不探测、不判失败(Ok=true 占位), 端侧另做。
-func clientOnlyResult() CollectTestResult {
-	return CollectTestResult{Ok: true, Message: clientOnlyMessage}
-}
-
 // TestSource 对单源连续打真实采集请求(ac=detail), 实测延时/成功率/可采集性, 并写入健康度。
-// ClientOnly 源服务器访问不到, 直接返回占位结果且不写健康度(不计失败/不自动停采)。
+// 顺带抽样服务端拉取样本 m3u8 的延时 → 判定服务端广告过滤代理链路可用性。
 func (s *ManageService) TestSource(ctx context.Context, id string) (CollectTestResult, error) {
 	src, err := s.sources.Get(ctx, id)
 	if err != nil {
 		return CollectTestResult{}, err
-	}
-	if src.ClientOnly {
-		return clientOnlyResult(), nil
 	}
 	res := s.probeSource(ctx, src)
 	s.recordHealth(ctx, src.Id, res)
@@ -310,11 +307,6 @@ func (s *ManageService) TestAllSources(ctx context.Context) ([]SourceTestResult,
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			src := srcs[i]
-			// ClientOnly 源服务器测不到, 跳过探测与健康度写入(不计失败/不自动停采)。
-			if src.ClientOnly {
-				out[i] = SourceTestResult{Id: src.Id, Name: src.Name, CollectTestResult: clientOnlyResult()}
-				return
-			}
 			res := s.probeSource(ctx, &src)
 			s.recordHealth(ctx, src.Id, res)
 			out[i] = SourceTestResult{Id: src.Id, Name: src.Name, CollectTestResult: res}
@@ -357,10 +349,17 @@ func (s *ManageService) probeSource(ctx context.Context, src *entity.CollectSour
 		total = pageCount * films // total 缺省时按 分页数×首页片数 估算目录大小
 	}
 	res.Total = total
-	// 抽样播放延时: 拿到 m3u8 样本时计时拉取一次(best-effort, 失败留 0)
+	// 服务端抽样 m3u8: 计时拉取一次。成功 → 服务端代理(广告过滤)链路可用; 失败(含非 200) → 不可达。
+	// 该指标与"采集速度"同源产出, 随测采集一起刷新。
 	if sampleM3u8 != "" {
+		res.SampleM3u8 = sampleM3u8
 		if pl, err := s.prober.MeasureURL(ctx, sampleM3u8); err == nil {
 			res.PlayLatencyMs = pl
+			ok := true
+			res.AdFilterOk = &ok
+		} else {
+			ok := false
+			res.AdFilterOk = &ok
 		}
 	}
 	return res
@@ -399,7 +398,6 @@ type SourceHealthView struct {
 	Id               string `json:"id"`
 	Name             string `json:"name"`
 	State            bool   `json:"state"`      // 管理员启用开关(与 suppressed 正交)
-	ClientOnly       bool   `json:"clientOnly"` // 仅端侧可达: 服务端不测速, 端侧另测
 	Grade            int8   `json:"grade"`
 	IsMaster         bool   `json:"isMaster"` // 当前主站(grade=0)
 	Status           string `json:"status"`
@@ -409,12 +407,19 @@ type SourceHealthView struct {
 	PageCount        int    `json:"pageCount"`
 	Collected        int64  `json:"collected"`      // 已采集片数(movie_play_source 该源行数, 实时)
 	Total            int    `json:"total"`          // 目录总片数(资源最全)
-	PlayLatencyMs    int64  `json:"playLatencyMs"`  // 抽样播放延时
+	PlayLatencyMs    int64  `json:"playLatencyMs"`  // 服务端抽样 m3u8 延时(0=未测, 广告过滤可达性)
 	OkCount          int    `json:"okCount"`
 	Probes           int    `json:"probes"`
 	ConsecutiveFails int    `json:"consecutiveFails"`
 	Message          string `json:"message"`
 	CheckedAt        int64  `json:"checkedAt"`
+	// 测速拆分: 采集=服务端 API, 播放=浏览器端直连 CDN(回传落库)。
+	ApiCheckedAt   int64  `json:"apiCheckedAt"`
+	PlayLatencyWeb int64  `json:"playLatencyWeb"`
+	PlayCheckedAt  int64  `json:"playCheckedAt"`
+	SampleM3u8     string `json:"sampleM3u8"`   // 样本 m3u8(端侧播放测速用)
+	AdFilterOk     *bool  `json:"adFilterOk"`   // nil=未测
+	AdFilterAt     int64  `json:"adFilterAt"`   // 广告过滤可达性检测时间
 }
 
 // ListHealth 健康度面板: 全部采集源左连健康快照(无快照 → unknown)。
@@ -440,13 +445,8 @@ func (s *ManageService) ListHealth(ctx context.Context) ([]SourceHealthView, err
 	for _, src := range srcs {
 		v := SourceHealthView{
 			Id: src.Id, Name: src.Name, State: src.State == entity.StateEnabled,
-			ClientOnly: src.ClientOnly,
-			Grade:      src.Grade, IsMaster: src.Grade == entity.GradeMaster, Status: entity.HealthUnknown,
+			Grade: src.Grade, IsMaster: src.Grade == entity.GradeMaster, Status: entity.HealthUnknown,
 			Collected: collected[src.Id],
-		}
-		// 仅端侧源服务端不测速, 不展示为 unknown/down(避免误判), 给固定占位说明。
-		if src.ClientOnly {
-			v.Message = clientOnlyMessage
 		}
 		if h, ok := hm[src.Id]; ok {
 			if h.Status != "" {
@@ -463,6 +463,12 @@ func (s *ManageService) ListHealth(ctx context.Context) ([]SourceHealthView, err
 			v.ConsecutiveFails = h.ConsecutiveFails
 			v.Message = h.Message
 			v.CheckedAt = h.CheckedAt
+			v.ApiCheckedAt = h.ApiCheckedAt
+			v.PlayLatencyWeb = h.PlayLatencyWeb
+			v.PlayCheckedAt = h.PlayCheckedAt
+			v.SampleM3u8 = h.SampleM3u8
+			v.AdFilterOk = h.AdFilterOk
+			v.AdFilterAt = h.AdFilterCheckedAt
 		}
 		out = append(out, v)
 	}
@@ -491,6 +497,7 @@ func applyHealth(prev *entity.SourceHealth, res CollectTestResult, threshold int
 	}
 	h.CheckedAt = now
 	h.UpdatedAt = now
+	h.ApiCheckedAt = now // 本轮是采集测速(服务端 API), 顺带产出服务端 m3u8 可达性
 	h.LastOk = res.Ok
 	h.LatencyMs = res.LatencyMs
 	h.BestMs = res.BestMs
@@ -499,12 +506,20 @@ func applyHealth(prev *entity.SourceHealth, res CollectTestResult, threshold int
 	h.OkCount = res.OkCount
 	h.Probes = res.Probes
 	h.Message = res.Message
-	// 目录大小/播放延时: 成功探测才更新, 失败保留上次(避免抖动把目录量清 0)
+	// 目录大小/播放延时/样本 m3u8: 成功探测才更新, 失败保留上次(避免抖动把目录量清 0)
 	if res.Total > 0 {
 		h.Total = res.Total
 	}
 	if res.PlayLatencyMs > 0 {
 		h.PlayLatencyMs = res.PlayLatencyMs
+	}
+	if res.SampleM3u8 != "" {
+		h.SampleM3u8 = res.SampleM3u8
+	}
+	// 广告过滤可达性: 有样本才判定(成功/失败都写, 失败同样有价值——提示代理链路不可用)
+	if res.AdFilterOk != nil {
+		h.AdFilterOk = res.AdFilterOk
+		h.AdFilterCheckedAt = now
 	}
 	if res.Ok {
 		h.ConsecutiveFails = 0
@@ -520,6 +535,80 @@ func applyHealth(prev *entity.SourceHealth, res CollectTestResult, threshold int
 		h.Status = entity.HealthDegraded // 未达阈值: 沿用原 Suppressed(首次失败为 false)
 	}
 	return h
+}
+
+// SampleM3u8For 取一条源当前可用的样本 m3u8(端侧播放测速的输入)。
+// 样本必须新鲜: 存量样本对应的影片可能已下线, 端侧解析必失败造成假阴性 —— 故每次实时探测;
+// 探测失败(源临时不可达)再回退健康表存量样本。
+func (s *ManageService) SampleM3u8For(ctx context.Context, id string) (string, error) {
+	src, err := s.sources.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if pr, perr := s.prober.Probe(ctx, src); perr == nil && pr.SampleM3u8 != "" {
+		// 顺手刷新健康表样本(best-effort, 失败不影响返回)
+		if s.health != nil {
+			if h, e := s.health.Get(ctx, id); e == nil && h != nil && h.SampleM3u8 != pr.SampleM3u8 {
+				h.SampleM3u8 = pr.SampleM3u8
+				h.UpdatedAt = time.Now().UnixMilli()
+				_ = s.health.Upsert(ctx, h)
+			}
+		}
+		return pr.SampleM3u8, nil
+	}
+	if s.health != nil {
+		if h, err := s.health.Get(ctx, id); err == nil && h != nil && h.SampleM3u8 != "" {
+			return h.SampleM3u8, nil
+		}
+	}
+	return "", nil
+}
+
+// RecordPlayLatency 落库浏览器端播放测速结果(测播放回传): 只更新播放侧字段, 不动采集侧健康状态。
+func (s *ManageService) RecordPlayLatency(ctx context.Context, id string, ms int64) error {
+	if s.health == nil {
+		return nil
+	}
+	now := time.Now().UnixMilli()
+	prev, _ := s.health.Get(ctx, id)
+	h := &entity.SourceHealth{}
+	if prev != nil {
+		*h = *prev
+	}
+	h.SourceId = id
+	h.PlayLatencyWeb = ms
+	h.PlayCheckedAt = now
+	h.UpdatedAt = now
+	if err := s.health.Upsert(ctx, h); err != nil {
+		return err
+	}
+	return nil
+}
+
+// RecordAdFilter 播放时兜底上报: 广告过滤链路实际失败 → 立即标不可达(不等下一轮定时测速)。
+// ok=true 仅在定时测速里恢复; 运行时只上报失败, 避免单次成功误刷掉定时结论。
+func (s *ManageService) RecordAdFilter(ctx context.Context, id string, ok bool) error {
+	if ok {
+		return nil
+	}
+	if s.health == nil {
+		return nil
+	}
+	now := time.Now().UnixMilli()
+	prev, _ := s.health.Get(ctx, id)
+	h := &entity.SourceHealth{}
+	if prev != nil {
+		*h = *prev
+	}
+	h.SourceId = id
+	f := false
+	h.AdFilterOk = &f
+	h.AdFilterCheckedAt = now
+	h.UpdatedAt = now
+	if err := s.health.Upsert(ctx, h); err != nil {
+		return err
+	}
+	return nil
 }
 
 // StartHealthScheduler 启动健康检查定时任务: 延迟首检后每 healthCheckInterval 跑一轮全量测速(写健康度→驱动自动停采/恢复)。

@@ -81,9 +81,8 @@ func (s *SpiderService) WaitJobs(ctx context.Context) bool {
 }
 
 // isSuppressed 健康检查是否已自动停采该源。fail-open: 缺行/出错/未注入一律 false, 绝不因健康设施故障而停采。
-// ClientOnly 源服务端从不测速也不写健康度, 永不被自动停采(防御性兜底: 即使有历史 suppressed 旧行也忽略)。
 func (s *SpiderService) isSuppressed(ctx context.Context, src *entity.CollectSource) bool {
-	if src == nil || src.ClientOnly {
+	if src == nil {
 		return false
 	}
 	if s.health == nil {

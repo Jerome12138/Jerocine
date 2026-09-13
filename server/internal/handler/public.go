@@ -266,6 +266,25 @@ func (h *Handlers) M3u8Stats(c *gin.Context) {
 	dto.OK(c, st)
 }
 
+// AdFilterFeedback POST /ad-filter/feedback (公开, 限流): 播放端兜底上报广告过滤链路失败,
+// 立即把该源 ad_filter_ok 置 false(不等下一轮定时测速)。运行时只接受失败上报, 单次成功不覆盖定时结论。
+func (h *Handlers) AdFilterFeedback(c *gin.Context) {
+	var body struct {
+		SourceId string `json:"sourceId"`
+		Ok       bool   `json:"ok"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.SourceId == "" {
+		dto.Error(c, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := h.Manage.RecordAdFilter(c.Request.Context(), body.SourceId, body.Ok); err != nil {
+		// 未知源/健康设施故障: 静默 204, 不向公开端回显错误细节
+		dto.NoContent(c)
+		return
+	}
+	dto.NoContent(c)
+}
+
 // TelemetryIngest POST /telemetry/events  (公开)
 func (h *Handlers) TelemetryIngest(c *gin.Context) {
 	ua := c.GetHeader("User-Agent")

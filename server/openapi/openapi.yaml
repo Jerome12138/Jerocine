@@ -593,6 +593,7 @@ components:
         id: { type: string, description: 采集源 ID (GenerateSalt) }
         name: { type: string }
         uri: { type: string, format: uri }
+        siteUrl: { type: string, description: 站点网址(可选, 后台展示/跳转用) }
         resultModel: { type: integer, enum: [0, 1], description: 0 json / 1 xml }
         grade: { type: integer, enum: [0, 1], description: 0 主站 / 1 附属站 }
         syncPictures: { type: boolean, description: 附属站禁止图片同步 }
@@ -606,6 +607,7 @@ components:
       properties:
         name: { type: string }
         uri: { type: string, format: uri }
+        siteUrl: { type: string, description: 站点网址(可选) }
         resultModel: { type: integer, enum: [0, 1] }
         grade: { type: integer, enum: [0, 1] }
         syncPictures: { type: boolean }

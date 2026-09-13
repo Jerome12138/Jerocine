@@ -16,14 +16,9 @@ func (suppressedHealthRepo) Get(context.Context, string) (*entity.SourceHealth, 
 func (suppressedHealthRepo) List(context.Context) ([]entity.SourceHealth, error) { return nil, nil }
 func (suppressedHealthRepo) Upsert(context.Context, *entity.SourceHealth) error  { return nil }
 
-// ClientOnly 源即便健康表里有 Suppressed=true 旧行, 也永不被判为停采(防御性兜底)。
-func TestIsSuppressed_ClientOnlyNeverSuppressed(t *testing.T) {
+// 停采健康行 + 普通源: 应判为已停采。
+func TestIsSuppressed_SuppressedRow(t *testing.T) {
 	s := &SpiderService{health: suppressedHealthRepo{}}
-	clientOnly := &entity.CollectSource{Id: "bf", ClientOnly: true}
-	if s.isSuppressed(context.Background(), clientOnly) {
-		t.Fatal("ClientOnly 源不应被自动停采")
-	}
-	// 同样的停采健康行, 普通源应判为已停采(对照组)。
 	normal := &entity.CollectSource{Id: "norm"}
 	if !s.isSuppressed(context.Background(), normal) {
 		t.Fatal("普通源命中 Suppressed 行应判为已停采")

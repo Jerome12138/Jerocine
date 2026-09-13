@@ -284,6 +284,8 @@ func (s *FilmService) assembleSources(ctx context.Context, m *entity.Movie) ([]P
 		return nil, err
 	}
 	nameMap := s.sourceNameMap(ctx)
+	// 各源服务端 m3u8 可达性(广告过滤代理链路是否可用): nil=未测, false=播放页直接跳过代理
+	adfMap := s.adFilterMap(ctx)
 	seen := make(map[string]struct{})
 	var lines []playLine
 	add := func(ps entity.MoviePlaySource) {
@@ -298,7 +300,10 @@ func (s *FilmService) assembleSources(ctx context.Context, m *entity.Movie) ([]P
 			name = nm
 		}
 		lines = append(lines, playLine{
-			View:   PlaySourceView{Id: ps.SiteId + ":" + ps.PlayFrom, Name: name, Episodes: ps.Episodes},
+			View: PlaySourceView{
+				Id: ps.SiteId + ":" + ps.PlayFrom, Name: name, Episodes: ps.Episodes,
+				AdFilterOk: adfMap[ps.SiteId],
+			},
 			SiteId: ps.SiteId,
 		})
 	}
@@ -329,6 +334,25 @@ func (s *FilmService) playLatencyMap(ctx context.Context) map[string]int64 {
 	for _, h := range hs {
 		if h.PlayLatencyMs > 0 {
 			m[h.SourceId] = h.PlayLatencyMs
+		}
+	}
+	return m
+}
+
+// adFilterMap 各源服务端 m3u8 可达性(nil=未测的源不入表)。健康仓储缺省/出错 → 空表(视为未测)。
+func (s *FilmService) adFilterMap(ctx context.Context) map[string]*bool {
+	if s.health == nil {
+		return nil
+	}
+	hs, err := s.health.List(ctx)
+	if err != nil {
+		return nil
+	}
+	m := make(map[string]*bool, len(hs))
+	for i := range hs {
+		if hs[i].AdFilterOk != nil {
+			ok := *hs[i].AdFilterOk
+			m[hs[i].SourceId] = &ok
 		}
 	}
 	return m
