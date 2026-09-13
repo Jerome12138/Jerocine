@@ -237,7 +237,7 @@ func (h *Handlers) SkipList(c *gin.Context) {
 	dto.OK(c, list)
 }
 
-// SkipSave PUT /me/skip-settings/:mid  {intro, outro}
+// SkipSave PUT /me/skip-settings/:mid  {intro, outro, enabled?}
 func (h *Handlers) SkipSave(c *gin.Context) {
 	mid, ok := pathInt64(c, "mid")
 	if !ok {
@@ -245,18 +245,23 @@ func (h *Handlers) SkipSave(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Intro int `json:"intro"`
-		Outro int `json:"outro"`
+		Intro   int   `json:"intro"`
+		Outro   int   `json:"outro"`
+		Enabled *bool `json:"enabled"` // 缺省(旧客户端)视为启用, 不误关已有设置
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
 		return
 	}
-	if err := h.User.SkipSave(c.Request.Context(), currentUserID(c), mid, req.Intro, req.Outro); err != nil {
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	if err := h.User.SkipSave(c.Request.Context(), currentUserID(c), mid, req.Intro, req.Outro, enabled); err != nil {
 		dto.Fail(c, err)
 		return
 	}
-	dto.OK(c, gin.H{"mid": mid, "intro": req.Intro, "outro": req.Outro})
+	dto.OK(c, gin.H{"mid": mid, "intro": req.Intro, "outro": req.Outro, "enabled": enabled})
 }
 
 // SkipReset DELETE /me/skip-settings/:mid

@@ -7,9 +7,10 @@
  *   安卓播放页由 web 层(PlayView)读取本 composable 后把秒数传给原生播放器, 故安卓同样受账号同步。
  *
  * 用法:
- *   const { get, save, DEFAULT_INTRO, DEFAULT_OUTRO } = useSkipSettings()
- *   const cfg = get(filmId)           // { intro: 90, outro: 60 } | 用户自定值
- *   save(filmId, { intro: 30, outro: 0 })
+ *   const { get, effective, save, DEFAULT_INTRO, DEFAULT_OUTRO } = useSkipSettings()
+ *   const cfg = get(filmId)           // { intro: 90, outro: 60, enabled: true } | 用户自定值
+ *   const eff = effective(filmId)     // enabled=false → { intro: 0, outro: 0 }(不跳)
+ *   save(filmId, { intro: 30, outro: 0, enabled: true })
  */
 import { getToken } from '@/utils/token'
 import * as skipApi from '@/api/skip'
@@ -20,6 +21,8 @@ export const DEFAULT_OUTRO_SEC = 60
 export interface SkipConfig {
   intro: number
   outro: number
+  /** 跳过总开关: false = 本剧不跳(秒数原样保留, 下次打开不用重填) */
+  enabled: boolean
 }
 
 function keyOf(filmId: string | number): string {
@@ -37,7 +40,9 @@ function getRaw(filmId: string | number): SkipConfig | null {
     if (!Number.isFinite(intro) || !Number.isFinite(outro)) return null
     return {
       intro: Math.max(0, Math.floor(intro)),
-      outro: Math.max(0, Math.floor(outro))
+      outro: Math.max(0, Math.floor(outro)),
+      // 存量数据无 enabled 字段 → 视为启用
+      enabled: parsed.enabled !== false
     }
   } catch {
     return null
@@ -47,8 +52,10 @@ function getRaw(filmId: string | number): SkipConfig | null {
 export interface UseSkipSettings {
   /** 取此 filmId 的跳过配置, 无则返回默认 */
   get: (filmId: string | number) => SkipConfig
-  /** 存某剧的配置. intro/outro 都 0 等于关闭跳过 */
+  /** 存某剧的配置. intro/outro 都 0 等于关闭跳过; enabled=false 等于本剧不跳 */
   save: (filmId: string | number, cfg: SkipConfig) => void
+  /** 取实际生效的秒数: enabled=false → 全 0(不跳), 秒数原值仍保留在配置里 */
+  effective: (filmId: string | number) => { intro: number; outro: number }
   /** 清除某剧的配置 (回归默认) */
   reset: (filmId: string | number) => void
   /** 是否走默认 (无自定义) */
@@ -58,16 +65,16 @@ export interface UseSkipSettings {
 }
 
 export function useSkipSettings(): UseSkipSettings {
+  const get = (filmId: string | number): SkipConfig =>
+    getRaw(filmId) ?? { intro: DEFAULT_INTRO_SEC, outro: DEFAULT_OUTRO_SEC, enabled: true }
   return {
-    get(filmId) {
-      const v = getRaw(filmId)
-      return v ?? { intro: DEFAULT_INTRO_SEC, outro: DEFAULT_OUTRO_SEC }
-    },
+    get,
     save(filmId, cfg) {
       if (typeof window === 'undefined') return
       const safe: SkipConfig = {
         intro: Math.max(0, Math.floor(cfg.intro)),
-        outro: Math.max(0, Math.floor(cfg.outro))
+        outro: Math.max(0, Math.floor(cfg.outro)),
+        enabled: cfg.enabled !== false
       }
       try {
         window.localStorage.setItem(keyOf(filmId), JSON.stringify(safe))
@@ -76,8 +83,12 @@ export function useSkipSettings(): UseSkipSettings {
       }
       // 已登录: 异步回写账号(跨设备), 失败静默不影响本地
       if (getToken()) {
-        void skipApi.skipSave(Number(filmId), safe.intro, safe.outro).catch(() => {})
+        void skipApi.skipSave(Number(filmId), safe.intro, safe.outro, safe.enabled).catch(() => {})
       }
+    },
+    effective(filmId) {
+      const cfg = get(filmId)
+      return cfg.enabled ? { intro: cfg.intro, outro: cfg.outro } : { intro: 0, outro: 0 }
     },
     reset(filmId) {
       if (typeof window === 'undefined') return
@@ -109,7 +120,8 @@ export async function hydrateSkipFromAccount(): Promise<void> {
     for (const r of rows) {
       const safe: SkipConfig = {
         intro: Math.max(0, Math.floor(r.intro)),
-        outro: Math.max(0, Math.floor(r.outro))
+        outro: Math.max(0, Math.floor(r.outro)),
+        enabled: r.enabled !== false
       }
       window.localStorage.setItem(keyOf(r.mid), JSON.stringify(safe))
     }

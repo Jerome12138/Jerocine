@@ -40,8 +40,8 @@ func (s *UserService) SkipList(ctx context.Context, userId int64) ([]entity.User
 	return s.skips.List(ctx, userId)
 }
 
-// SkipSave upsert 某片跳过设置, 秒数夹到 [0, 600]。
-func (s *UserService) SkipSave(ctx context.Context, userId, mid int64, intro, outro int) error {
+// SkipSave upsert 某片跳过设置, 秒数夹到 [0, 600]。enabled=false 关闭本剧跳过(秒数保留)。
+func (s *UserService) SkipSave(ctx context.Context, userId, mid int64, intro, outro int, enabled bool) error {
 	if s.skips == nil {
 		return nil
 	}
@@ -55,7 +55,7 @@ func (s *UserService) SkipSave(ctx context.Context, userId, mid int64, intro, ou
 		return v
 	}
 	return s.skips.Upsert(ctx, &entity.UserSkipSetting{
-		UserId: userId, Mid: mid, IntroSec: clamp(intro), OutroSec: clamp(outro),
+		UserId: userId, Mid: mid, IntroSec: clamp(intro), OutroSec: clamp(outro), Enabled: enabled,
 	})
 }
 

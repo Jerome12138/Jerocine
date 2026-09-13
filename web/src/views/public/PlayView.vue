@@ -32,6 +32,7 @@ import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import videojs from 'video.js'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings } from '@/composables/useSkipSettings'
+import type { SkipConfig } from '@/composables/useSkipSettings'
 import { useHistoryStore } from '@/stores/history'
 import { toast } from '@/api/http'
 import { useViewMode } from '@/composables/useViewMode'
@@ -847,12 +848,13 @@ function getNativePlayer(): { playPlaylist?: (cfg: string) => void; playVideo?: 
 
 /** 跳片头片尾按 filmId 持久化, 没存过用默认 90/60 */
 const skipSettings = useSkipSettings()
+/** 实际生效的跳过秒数: 总开关关闭 → 0/0(不跳), 配置里的秒数原样保留 */
 function currentSkipConfig(): { intro: number; outro: number } {
   const id = detail.value?.mid
   if (id === undefined || id === null) {
     return { intro: skipSettings.DEFAULT_INTRO, outro: skipSettings.DEFAULT_OUTRO }
   }
-  return skipSettings.get(id)
+  return skipSettings.effective(id)
 }
 
 /** 防止 timeupdate 每秒多次触发 playNext, 用 sourceId/episodeIndex 联合键去抖 */
@@ -864,19 +866,31 @@ const outroPromptKey = ref('')
 const skipDialogOpen = ref(false)
 const draftIntro = ref(skipSettings.DEFAULT_INTRO)
 const draftOutro = ref(skipSettings.DEFAULT_OUTRO)
+/** 跳过总开关(草稿): 关闭后本剧不跳, 秒数保留 */
+const draftEnabled = ref(true)
 function openSkipDialog(): void {
-  const cfg = currentSkipConfig()
+  const id = detail.value?.mid
+  const cfg: SkipConfig =
+    id === undefined || id === null
+      ? { intro: skipSettings.DEFAULT_INTRO, outro: skipSettings.DEFAULT_OUTRO, enabled: true }
+      : skipSettings.get(id)
   draftIntro.value = cfg.intro
   draftOutro.value = cfg.outro
+  draftEnabled.value = cfg.enabled
   skipDialogOpen.value = true
 }
 function saveSkip(): void {
   const id = detail.value?.mid
   if (id === undefined || id === null) return
-  const cfg = { intro: Number(draftIntro.value) || 0, outro: Number(draftOutro.value) || 0 }
+  const cfg: SkipConfig = {
+    intro: Number(draftIntro.value) || 0,
+    outro: Number(draftOutro.value) || 0,
+    enabled: draftEnabled.value
+  }
   skipSettings.save(id, cfg)
   skipDialogOpen.value = false
-  applySkipLive(cfg) // 正在播则立即生效, 不必等切集
+  // 总开关关闭 → 按 0/0 生效(等于不跳), 秒数已存
+  applySkipLive(cfg.enabled ? { intro: cfg.intro, outro: cfg.outro } : { intro: 0, outro: 0 })
 }
 function resetSkip(): void {
   const id = detail.value?.mid
@@ -884,6 +898,7 @@ function resetSkip(): void {
   skipSettings.reset(id)
   draftIntro.value = skipSettings.DEFAULT_INTRO
   draftOutro.value = skipSettings.DEFAULT_OUTRO
+  draftEnabled.value = true
   skipDialogOpen.value = false
   applySkipLive({ intro: skipSettings.DEFAULT_INTRO, outro: skipSettings.DEFAULT_OUTRO })
 }
@@ -1769,7 +1784,26 @@ watch(playerReady, (v) => {
           <p class="text-sm text-secondary">
             仅对本剧生效。保存后<strong>立即生效</strong>(片尾阈值即时更新; 若仍在片头区会自动跳过新片头)。
           </p>
-          <label class="flex items-center gap-[var(--gf-space-3)]">
+          <!-- 总开关: 关掉 = 本剧不跳, 秒数原样保留(不用把秒数改成 0 丢原值) -->
+          <button
+            type="button"
+            class="gf-skip-switch"
+            :class="{ 'is-on': draftEnabled }"
+            role="switch"
+            :aria-checked="draftEnabled"
+            data-focusable="true"
+            @click="draftEnabled = !draftEnabled"
+          >
+            <span class="gf-skip-switch__track" aria-hidden="true">
+              <span class="gf-skip-switch__thumb" />
+            </span>
+            <span class="gf-skip-switch__label">启用跳过</span>
+            <span class="gf-skip-switch__state">{{ draftEnabled ? '已开启' : '已关闭' }}</span>
+          </button>
+          <label
+            class="flex items-center gap-[var(--gf-space-3)]"
+            :class="{ 'opacity-40': !draftEnabled }"
+          >
             <span class="w-[80px] text-sm">片头 (秒)</span>
             <input
               v-model.number="draftIntro"
@@ -1777,11 +1811,15 @@ watch(playerReady, (v) => {
               min="0"
               max="600"
               step="10"
+              :disabled="!draftEnabled"
               class="flex-1 bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-2)] text-base"
               data-focusable="true"
             />
           </label>
-          <label class="flex items-center gap-[var(--gf-space-3)]">
+          <label
+            class="flex items-center gap-[var(--gf-space-3)]"
+            :class="{ 'opacity-40': !draftEnabled }"
+          >
             <span class="w-[80px] text-sm">片尾 (秒)</span>
             <input
               v-model.number="draftOutro"
@@ -1789,11 +1827,14 @@ watch(playerReady, (v) => {
               min="0"
               max="600"
               step="10"
+              :disabled="!draftEnabled"
               class="flex-1 bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-2)] text-base"
               data-focusable="true"
             />
           </label>
-          <p class="text-xs text-muted">默认 90 / 60。设为 0 = 不跳。</p>
+          <p class="text-xs text-muted">
+            默认 90 / 60。设为 0 = 不跳; 关闭上方开关 = 本剧不跳(秒数仍保留)。
+          </p>
         </div>
         <template #footer>
           <BaseButton variant="ghost" @click="resetSkip">恢复默认</BaseButton>
@@ -2460,5 +2501,58 @@ watch(playerReady, (v) => {
 [data-mode]:not([data-mode='tv']) .gf-play-view .video-js button:focus-visible {
   outline: none;
   box-shadow: none;
+}
+
+/* ============ 跳过设置弹窗: 启用跳过总开关 ============ */
+.gf-skip-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--gf-space-3);
+  width: 100%;
+  padding: var(--gf-space-2) var(--gf-space-3);
+  background-color: var(--gf-bg-elevated);
+  border: 1px solid var(--gf-border-default);
+  border-radius: var(--gf-radius-md);
+  cursor: pointer;
+  transition: border-color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-skip-switch__track {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background-color: var(--gf-text-muted);
+  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-skip-switch.is-on .gf-skip-switch__track {
+  background-color: var(--gf-brand-primary);
+}
+.gf-skip-switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #fff;
+  transition: transform var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-skip-switch.is-on .gf-skip-switch__thumb {
+  transform: translateX(16px);
+}
+.gf-skip-switch__label {
+  font-size: var(--gf-fs-sm);
+  color: var(--gf-text-primary);
+}
+.gf-skip-switch__state {
+  margin-left: auto;
+  font-size: var(--gf-fs-xs);
+  color: var(--gf-text-secondary);
+}
+[data-mode='tv'] .gf-skip-switch:focus,
+[data-mode='tv'] .gf-skip-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--gf-tv-focus-ring);
 }
 </style>

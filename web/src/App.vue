@@ -327,9 +327,13 @@ onMounted(() => {
       const p = payload as { filmId?: string; intro?: number; outro?: number } | null
       if (!p?.filmId) return
       void import('@/composables/useSkipSettings').then(({ useSkipSettings }) => {
-        useSkipSettings().save(p.filmId as string, {
+        const settings = useSkipSettings()
+        const filmId = p.filmId as string
+        settings.save(filmId, {
           intro: Math.max(0, Number(p.intro ?? 0)),
-          outro: Math.max(0, Number(p.outro ?? 0))
+          outro: Math.max(0, Number(p.outro ?? 0)),
+          // 原生播放器无总开关 UI: 沿用本剧既有开关态(默认启用), 不因改秒数把开关打开
+          enabled: settings.get(filmId).enabled
         })
       })
     })

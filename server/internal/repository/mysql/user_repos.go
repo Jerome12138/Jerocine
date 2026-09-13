@@ -209,7 +209,7 @@ func (r *skipRepo) List(ctx context.Context, userId int64) ([]entity.UserSkipSet
 func (r *skipRepo) Upsert(ctx context.Context, s *entity.UserSkipSetting) error {
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "mid"}},
-		DoUpdates: clause.AssignmentColumns([]string{"intro_sec", "outro_sec", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"intro_sec", "outro_sec", "enabled", "updated_at"}),
 	}).Create(s).Error
 }
 
@@ -221,7 +221,9 @@ func (r *skipRepo) Delete(ctx context.Context, userId, mid int64) error {
 
 type telemetryRepo struct{ db *gorm.DB }
 
-func NewTelemetryRepository(db *gorm.DB) repository.TelemetryRepository { return &telemetryRepo{db: db} }
+func NewTelemetryRepository(db *gorm.DB) repository.TelemetryRepository {
+	return &telemetryRepo{db: db}
+}
 
 func (r *telemetryRepo) BatchInsert(ctx context.Context, list []entity.TelemetryEvent) error {
 	if len(list) == 0 {

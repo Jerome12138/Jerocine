@@ -52,6 +52,7 @@ type UserSkipSetting struct {
 	Mid       int64 `gorm:"column:mid" json:"mid"`
 	IntroSec  int   `gorm:"column:intro_sec" json:"intro"`
 	OutroSec  int   `gorm:"column:outro_sec" json:"outro"`
+	Enabled   bool  `gorm:"column:enabled" json:"enabled"` // 跳过总开关: false=本剧不跳(秒数原样保留)
 	UpdatedAt int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
