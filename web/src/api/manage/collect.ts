@@ -9,40 +9,40 @@ interface SourceDTO {
   id: string
   name: string
   uri: string
+  /** 站点网址(可选) */
+  siteUrl?: string
   resultModel: number
   grade: number
   syncPictures: boolean
   collectType: number
   intervalMs: number
   state: number // 0 启用 / 1 停用
-  /** 仅端侧可达(服务器地域封无法访问, 如 bf): 服务端不测速, 测速走浏览器 */
-  clientOnly?: boolean
 }
 
 const toView = (d: SourceDTO): CollectSource => ({
   id: d.id,
   name: d.name,
   uri: d.uri,
+  siteUrl: d.siteUrl || '',
   resultModel: d.resultModel as CollectSource['resultModel'],
   grade: d.grade as CollectSource['grade'],
   syncPictures: d.syncPictures,
   collectType: d.collectType as CollectSource['collectType'],
   state: d.state === 0,
-  interval: d.intervalMs,
-  clientOnly: d.clientOnly === true
+  interval: d.intervalMs
 })
 
 const toDTO = (v: CollectSource): SourceDTO => ({
   id: v.id,
   name: v.name,
   uri: v.uri,
+  siteUrl: (v.siteUrl ?? '').trim(),
   resultModel: v.resultModel,
   grade: v.grade,
   syncPictures: v.syncPictures,
   collectType: v.collectType,
   intervalMs: Number(v.interval) || 0,
-  state: v.state ? 0 : 1,
-  clientOnly: v.clientOnly === true
+  state: v.state ? 0 : 1
 })
 
 /** GET /manage/collect-sources 采集源列表 */
@@ -107,22 +107,47 @@ export interface SourceHealthRow {
   isMaster: boolean // 当前主站(grade=0)
   status: 'healthy' | 'degraded' | 'down' | 'unknown'
   suppressed: boolean // 连续失败达阈值被自动停采
-  latencyMs: number // 采集 API 延时
+  latencyMs: number // 采集 API 延时(服务端)
   films: number
   pageCount: number
   collected: number // 已采集片数(该源 movie_play_source 行数, 实时)
   total: number // 目录总片数(资源最全)
-  playLatencyMs: number // 抽样播放延时
+  playLatencyMs: number // 服务端抽样 m3u8 延时(0=未测, 广告过滤可达性)
   okCount: number
   probes: number
   consecutiveFails: number
   message: string
   checkedAt: number // ms
+  /** 测速拆分: 采集(服务端 API) / 播放(浏览器端) */
+  apiCheckedAt: number
+  playLatencyWeb: number
+  playCheckedAt: number
+  /** 样本 m3u8(端侧播放测速用) */
+  sampleM3u8: string
+  /** 服务端 m3u8 可达性: null=未测 */
+  adFilterOk: boolean | null
+  adFilterAt: number
 }
 
 /** GET /manage/collect-sources/health 健康度面板 */
 export const health = (): Promise<SourceHealthRow[]> =>
   http.get<unknown, SourceHealthRow[]>('/manage/collect-sources/health')
+
+/** GET /manage/collect-sources/:id/sample-m3u8 端侧播放测速的样本输入 */
+export const sampleM3u8 = async (id: string): Promise<string> => {
+  const data = await http.get<unknown, { sampleM3u8: string }>(
+    `/manage/collect-sources/${enc(id)}/sample-m3u8`
+  )
+  return data?.sampleM3u8 ?? ''
+}
+
+/** POST /manage/collect-sources/:id/play-latency 浏览器端播放测速结果回传落库 */
+export const recordPlayLatency = (id: string, ms: number): Promise<void> =>
+  http.post<unknown, void>(`/manage/collect-sources/${enc(id)}/play-latency`, { ms })
+
+/** POST /ad-filter/feedback (公开) 播放端兜底上报: 广告过滤链路实际失败 → 立即标不可达 */
+export const reportAdFilterFailure = (sourceId: string): Promise<void> =>
+  http.post<unknown, void>('/ad-filter/feedback', { sourceId, ok: false })
 
 // ============ 采集任务 / 控制 ============
 

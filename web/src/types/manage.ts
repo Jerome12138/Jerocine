@@ -156,6 +156,8 @@ export interface CollectSource {
   name: string
   /** 采集链接（后端字段名 uri） */
   uri: string
+  /** 站点网址(可选, 后台展示/点名称跳转用) */
+  siteUrl?: string
   /** 接口返回类型 0=json 1=xml */
   resultModel: CollectResultModel
   /** 站点等级 0=主站 1=附属 */
@@ -168,8 +170,6 @@ export interface CollectSource {
   state: boolean
   /** 采集时间间隔 单位 ms */
   interval: number
-  /** 仅端侧可达(服务器地域封无法访问, 如 bf): 服务端不测速/不自动停采, 测速走浏览器 */
-  clientOnly?: boolean
 }
 
 /** 采集源 options（用于下拉） */

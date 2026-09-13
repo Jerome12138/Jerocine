@@ -35,6 +35,8 @@ import { useSkipSettings } from '@/composables/useSkipSettings'
 import { useHistoryStore } from '@/stores/history'
 import { toast } from '@/api/http'
 import { useViewMode } from '@/composables/useViewMode'
+import { measureLine } from '@/composables/usePlaySpeedTest'
+import { reportAdFilterFailure as postAdFilterFailure } from '@/api/manage/collect'
 import { useNetworkHint } from '@/composables/useNetworkHint'
 import { useLocalLikes } from '@/composables/useLocalLikes'
 import { useFavoriteStore } from '@/stores/favorite'
@@ -495,6 +497,14 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     return
   } catch {
     if (token !== playSrcToken) return
+    // 端侧过滤失败 → 服务端 m3u8 已知不可达(ad_filter_ok=false, 采集测速/兜底上报判定)时
+    // 服务端代理降级必死, 直接走原始直链, 不白发一次必超时的代理请求。
+    if (currentSource.value?.adFilterOk === false) {
+      reportAdFilterFailure('web')
+      adFilterBadge.value = { kind: 'unsupported', count: 0 }
+      commit(originalUrl, '', false)
+      return
+    }
     // 降级 1: 退回服务端 proxy(服务器能抓的源仍可过滤); 端侧拿不到过滤数, 角标转「服务端过滤中」
     adFilterBadge.value = { kind: 'proxy', count: 0 }
     commit(proxyAdFilterUrl(originalUrl), 'application/x-mpegURL', false)
@@ -502,87 +512,10 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
   }
 }
 
-/* ============ 线路测速 (实测各源"当前集" m3u8 经代理的加载延时, 选最快线路) ============ */
+/* ============ 线路测速 (实测各源"当前集" m3u8 首片加载延时, 选最快线路) ============
+ * 测速实现在公共模块 usePlaySpeedTest(与后台采集页「测播放」共用), 这里只管结果展示。 */
 const lineSpeeds = ref<Record<string, number>>({}) // ms; -1=失败/无 m3u8
 const testingLines = ref(false)
-
-/** 强制走 m3u8 代理(同源, 规避跨域), 用于测速真实播放链路 */
-function proxyM3u8Url(link: string): string {
-  const isAbs = /^https?:\/\//i.test(API_BASE)
-  const base = isAbs ? API_BASE : (typeof window !== 'undefined' ? window.location.origin : '') + API_BASE
-  return `${base}/v1/m3u8/proxy?src=${encodeURIComponent(link)}`
-}
-
-function originAbs(path: string): string {
-  return (typeof window !== 'undefined' ? window.location.origin : '') + path
-}
-
-/** 限时读取(代理后的) m3u8 文本(同源代理可读) */
-async function fetchText(url: string, timeoutMs = 8000): Promise<string> {
-  const ctrl = new AbortController()
-  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const resp = await fetch(url, { signal: ctrl.signal, cache: 'no-store' })
-    if (!resp.ok) return ''
-    return await resp.text()
-  } catch {
-    return ''
-  } finally {
-    window.clearTimeout(timer)
-  }
-}
-
-/**
- * 从(代理后的) m3u8 解析出第一条真实分片的绝对 URL.
- * 代理重写后: 子播放列表是 `/api/v1/m3u8/proxy?src=...`(同源可读), 分片是 CDN 绝对直链.
- * 遇子播放列表下钻一层(最多 2 层)直到拿到分片.
- */
-async function resolveFirstSegment(playlistUrl: string, depth = 0): Promise<string> {
-  if (depth > 2) return ''
-  const text = await fetchText(playlistUrl)
-  if (!text) return ''
-  const uris = text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-  const first = uris[0]
-  if (!first) return ''
-  const isProxy = first.includes('/m3u8/proxy?')
-  if (isProxy || /\.m3u8(\?|#|$)/i.test(first)) {
-    const next = isProxy ? originAbs(first) : proxyM3u8Url(first)
-    return resolveFirstSegment(next, depth + 1)
-  }
-  return first // 绝对 CDN 分片 URL
-}
-
-/**
- * 端侧抓"第一片"计时: 浏览器直连 CDN 拉首个分片(这正是真实播放的瓶颈链路).
- * 盗版 CDN 无 CORS → 用 no-cors 不透明请求, 计时到响应可用(首字节往返), 拿到即 abort 不下整片.
- * 注: no-cors 看不到状态码, 测的是"可达 + 首字节延时", 不保证 200.
- */
-async function measureSegment(segUrl: string, timeoutMs = 8000): Promise<number> {
-  const ctrl = new AbortController()
-  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs)
-  const t0 = performance.now()
-  try {
-    await fetch(segUrl, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal })
-    const ms = Math.round(performance.now() - t0)
-    ctrl.abort() // 拿到响应即止, 不下整片
-    return ms
-  } catch {
-    return -1
-  } finally {
-    window.clearTimeout(timer)
-  }
-}
-
-/** 单线路测速: 解析首片 → 直连 CDN 计时 */
-async function measureLine(link: string): Promise<number> {
-  if (!reM3u8.test(link)) return -1
-  const seg = await resolveFirstSegment(proxyM3u8Url(link))
-  if (!seg) return -1
-  return measureSegment(seg)
-}
 
 const fastestLineId = computed(() => {
   let id = ''
@@ -605,12 +538,15 @@ async function testLines(): Promise<void> {
   testingLines.value = true
   const epIdx = currentEpisodeIndex.value
   try {
-    const results = await Promise.all(
-      sources.map(async (s) => {
+    // 限并发 2 逐线路测: 全并行时各线路争抢用户带宽, 计时互相拖慢, 排名失真。
+    const results = await pMap(
+      sources,
+      async (s) => {
         const ep = s.episodes[epIdx] ?? s.episodes[0]
         if (!ep) return { id: s.id, ms: -1 }
         return { id: s.id, ms: await measureLine(ep.link) }
-      })
+      },
+      2
     )
     const map: Record<string, number> = {}
     for (const r of results) map[r.id] = r.ms
@@ -618,13 +554,28 @@ async function testLines(): Promise<void> {
     const ok = results.filter((r) => r.ms >= 0).sort((a, b) => a.ms - b.ms)
     if (ok.length) {
       const name = sources.find((s) => s.id === ok[0]!.id)?.name ?? ''
-      toast('success', `测速完成, 最快线路: ${name} (${ok[0]!.ms}ms)`)
+      toast('success', `播放测速完成, 最快线路: ${name} (${ok[0]!.ms}ms)`)
     } else {
-      toast('warning', '测速完成, 当前集无可用 m3u8 线路')
+      toast('warning', '播放测速完成, 当前集无可用 m3u8 线路')
     }
   } finally {
     testingLines.value = false
   }
+}
+
+/** 限并发 map(保序): 测速专用小工具 */
+async function pMap<T, R>(items: T[], fn: (item: T) => Promise<R>, concurrency: number): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  const queue = items.map((item, i) => ({ item, i }))
+  async function worker(): Promise<void> {
+    while (queue.length) {
+      const next = queue.shift()
+      if (!next) return
+      out[next.i] = await fn(next.item)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+  return out
 }
 
 /** 一键切到最快线路 */
@@ -877,6 +828,10 @@ function reportAdFilterFailure(channel: 'web' | 'native'): void {
       filmName: detail.value?.name
     })
   )
+  // 兜底上报到服务端: 立即把该源 ad_filter_ok 置 false(播放信息缓存过期时也能即时生效),
+  // 后续观众跳过死掉的代理过滤链路。fire-and-forget, 失败静默(遥测已留痕)。
+  const siteId = currentSourceId.value.split(':')[0] ?? ''
+  if (siteId) void postAdFilterFailure(siteId).catch(() => {})
 }
 
 /**
@@ -1754,7 +1709,7 @@ watch(playerReady, (v) => {
                   <!-- 动作项: 点击后关菜单 -->
                   <button type="button" class="gf-pt-more__item" :class="testingLines ? 'is-loading' : ''" @click="testLines(); moreActionsOpen = false">
                     <BaseIcon name="refresh" size="16px" />
-                    <span class="gf-pt-more__item-label">线路测速</span>
+                    <span class="gf-pt-more__item-label">播放测速</span>
                   </button>
                   <button type="button" class="gf-pt-more__item" @click="openSkipDialog(); moreActionsOpen = false">
                     <BaseIcon name="settings" size="16px" />
