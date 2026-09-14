@@ -70,7 +70,12 @@ const heroSlides = computed<HeroItem[]>(() => {
       poster: b.image || '',
       cover: b.poster || '',
       remarks: b.subtitle || '',
-      link: b.link || ''
+      link: b.link || '',
+      // 元信息(评分/类型标签/榜位)由后端按 mid 补齐; 纯自定义位(无 mid)缺省 → 描述行自动少这几项
+      dbScore: b.dbScore,
+      classTag: b.classTag,
+      hotRank: b.hotRank,
+      hotBoard: b.hotBoard
     }))
   }
   return heroItems.value

@@ -33,6 +33,11 @@ export interface Card {
   pubDate?: string
   /** 当前豆瓣榜位(1 起)。不在榜时字段缺省 —— 卡片角标 "Hot No.N" 用 */
   hotRank?: number
+  /** 榜位来源榜单中文名(如 "热门电影")。不在榜时缺省 —— 无轮播位时这条卡片要兜底当首屏大图,
+   *  描述行靠它把 "No.N" 说清是哪个榜 */
+  hotBoard?: string
+  /** 类型标签(如 "动作,冒险")。同上, 兜底首屏大图时拆成标签行; 无标签影片缺省 */
+  classTag?: string
 }
 
 /** 首页轮播项(GET /banners) —— 后端生效位: 手动配置位 + 热榜自动补位, 与后台管理页同源。 */
@@ -48,6 +53,14 @@ export interface HomeBanner {
   poster?: string
   /** 自定义跳转(站内路径或外链); 优先于 mid */
   link?: string
+  /** 影片元信息(带 mid 的生效位由后端按 mid 补齐; 纯自定义位缺省) —— 首屏大图描述行用 */
+  dbScore?: number
+  /** 类型标签(如 "动作,冒险"), 前端按逗号/顿号/斜杠拆分展示 */
+  classTag?: string
+  /** 当前豆瓣榜位(1 起), 缺省/0 = 不在榜 */
+  hotRank?: number
+  /** 榜位来源榜单中文名(如 "热门电影"), 展示成「豆瓣·热门电影 No.1」 */
+  hotBoard?: string
 }
 
 /** HeroCarousel 单项 —— 兼容"影片卡片(Card)"与"后台 Banner"两种来源。 */
@@ -64,6 +77,14 @@ export interface HeroItem {
   remarks?: string
   /** 自定义跳转(站内路径或外链); 有则优先于 mid */
   link?: string
+  /** 评分(0/缺省 = 无评分) —— 与详情页 dbScore 同源 */
+  dbScore?: number
+  /** 类型标签(classTag 原始串, 前端拆分) */
+  classTag?: string
+  /** 豆瓣榜位(0/缺省 = 不在榜) */
+  hotRank?: number
+  /** 榜位来源榜单中文名 */
+  hotBoard?: string
 }
 
 /** 单集 */

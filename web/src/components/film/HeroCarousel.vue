@@ -125,15 +125,46 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
+/**
+ * 标签行 = 影片类型标签(classTag)。
+ *
+ * 2026-09-14 用户要求: 标签内容只用 classTag, 不再显示 年份(date)/分类(cName)/地区(area) ——
+ * 那三项占位多且对"要不要点进去看"帮助有限, 类型标签信息量更高。
+ * classTag 是逗号/顿号/斜杠分隔的串(如 "动作,冒险"), 拆开最多展示 4 个, 避免首屏铺满。
+ * 没有 classTag 的影片不渲染标签行(不回退到年份/分类/地区)。
+ */
 const tags = computed<string[]>(() => {
-  const it = active.value
-  if (!it) return []
-  const res: string[] = []
-  if (it.year) res.push(String(it.year))
-  if (it.cName) res.push(String(it.cName))
-  if (it.area) res.push(String(it.area))
-  return res
+  const raw = active.value?.classTag?.trim()
+  if (!raw) return []
+  return raw
+    .split(/[,，、/|]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 4)
 })
+
+/** 评分(1 位小数)。<1 视为"无评分" —— 与详情页 score 同口径。 */
+const score = computed<string>(() => {
+  const n = active.value?.dbScore
+  if (n === undefined || n === null || !Number.isFinite(n) || n < 1) return ''
+  return n.toFixed(1)
+})
+
+/** 豆瓣热度榜位 —— 与详情页 hotBadge 同口径: 「豆瓣·热门电影 No.1」。不在榜为空串。
+ *  榜单名一定带分类: 后端 douban.HotBoardLabel 在 hot_board 缺失时按分类热榜兜底
+ *  (pid 4 → 热门动漫), 所以这里不会退化成一个没有分类的"热门"。
+ *  真拿不到榜名(数据异常)时也只给位次, 不硬造分类名。 */
+const hotBadge = computed<string>(() => {
+  const r = active.value?.hotRank ?? 0
+  if (r <= 0) return ''
+  const board = active.value?.hotBoard ?? ''
+  return board ? `豆瓣·${board} No.${r}` : `豆瓣榜 No.${r}`
+})
+
+/** 描述行是否有内容 —— 全空时不渲染, 避免留一行空白。 */
+const hasMeta = computed<boolean>(
+  () => !!(score.value || hotBadge.value || active.value?.remarks)
+)
 </script>
 
 <template>
@@ -194,7 +225,7 @@ const tags = computed<string[]>(() => {
       <div class="gf-hero__info">
         <div
           v-if="tags.length"
-          class="flex flex-wrap gap-[var(--gf-space-2)] mb-[var(--gf-space-3)]"
+          class="flex flex-wrap gap-[var(--gf-space-2)] mb-[var(--gf-space-2)]"
         >
           <BaseTag
             v-for="(t, i) in tags"
@@ -208,11 +239,19 @@ const tags = computed<string[]>(() => {
         <h2 class="gf-hero__title text-primary">
           {{ active.name }}
         </h2>
+        <!-- 描述行: 评分 · 豆瓣榜位 · 状态(片源给的 remarks)。
+             评分/榜位由后端按 mid 补齐, 缺哪项就少哪项, 不再单独占一行。
+             类型标签在上一行的标签行(tags = classTag), 此处不重复。 -->
         <p
-          v-if="active.remarks"
-          class="gf-hero__desc text-secondary mt-[var(--gf-space-3)] line-clamp-2"
+          v-if="hasMeta"
+          class="gf-hero__desc gf-hero__meta mt-[var(--gf-space-3)]"
         >
-          {{ active.remarks }}
+          <span v-if="score" class="gf-hero__score">
+            <BaseIcon name="star" size="0.85em" class="gf-hero__score-icon" />
+            {{ score }}
+          </span>
+          <span v-if="hotBadge" class="gf-hero__hot">{{ hotBadge }}</span>
+          <span v-if="active.remarks" class="gf-hero__remarks">{{ active.remarks }}</span>
         </p>
       </div>
     </div>
@@ -273,20 +312,24 @@ const tags = computed<string[]>(() => {
  * 避免单纯 vh 在窄竖屏 / 超宽屏 / 横屏小高度下变形：
  *
  *  ┌──────────────────────────────────────────────────────────────────┐
- *  │ 视口            纵横比         min-height   max-height          │
- *  │ < 480 (mobile)  4 / 5         320px        66vh                 │
- *  │ ≥ 480           16 / 10       360px        62vh                 │
- *  │ ≥ 768 (tablet)  16 / 9        420px        70vh                 │
- *  │ ≥ 1024 (PC)     21 / 9        480px        720px                │
- *  │ ≥ 1600 (大屏)   21 / 9        clamp(560,55vh,820)               │
+ *  │ 视口            纵横比         min-height   max-height           │
+ *  │ < 480 (mobile)  16 / 9        190px        38vh                 │
+ *  │ ≥ 480           16 / 9        220px        40vh                 │
+ *  │ ≥ 768 (tablet)  16 / 9        280px        38vh                 │
+ *  │ ≥ 1024 (PC)     21 / 9        320px        380px                │
+ *  │ ≥ 1600 (大屏)   21 / 9        clamp(340,30vh,400)  clamp(340,34vh,440) │
  *  └──────────────────────────────────────────────────────────────────┘
+ *
+ * 2026-09-14: 整体下调约一档(手机 16/10→16/9、各档 max-height 收 4~6vh、
+ * PC 420→380) —— 描述行补了评分/标签/榜位后信息更密, 高度反而可以更省,
+ * 首屏也能多露出下方列表。内容侧的内边距同步收紧(见 .gf-hero__content)。
  */
 .gf-hero {
   width: 100%;
-  /* 手机竖屏：用 16/10 而不是 4/5，避免大图占满半屏 */
-  aspect-ratio: 16 / 10;
-  min-height: 200px;
-  max-height: 42vh;
+  /* 手机竖屏：用 16/9 而不是 4/5，避免大图占满半屏 */
+  aspect-ratio: 16 / 9;
+  min-height: 190px;
+  max-height: 38vh;
   background-color: var(--gf-bg-base);
   outline: none;
 }
@@ -294,32 +337,32 @@ const tags = computed<string[]>(() => {
 @media (min-width: 480px) {
   .gf-hero {
     aspect-ratio: 16 / 9;
-    min-height: 240px;
-    max-height: 46vh;
+    min-height: 220px;
+    max-height: 40vh;
   }
 }
 
 @media (min-width: 768px) {
   .gf-hero {
     aspect-ratio: 16 / 9;
-    min-height: 300px;
-    max-height: 44vh;
+    min-height: 280px;
+    max-height: 38vh;
   }
 }
 
 @media (min-width: 1024px) {
   .gf-hero {
     aspect-ratio: 21 / 9;
-    min-height: 340px;
-    max-height: 420px;
+    min-height: 320px;
+    max-height: 380px;
   }
 }
 
 @media (min-width: 1600px) {
   .gf-hero {
     aspect-ratio: 21 / 9;
-    min-height: 380px;
-    max-height: clamp(360px, 38vh, 480px);
+    min-height: clamp(340px, 30vh, 400px);
+    max-height: clamp(340px, 34vh, 440px);
   }
 }
 
@@ -376,13 +419,13 @@ const tags = computed<string[]>(() => {
 }
 
 .gf-hero__content {
-  padding-top: var(--gf-space-8);
-  padding-bottom: var(--gf-space-12);
+  padding-top: var(--gf-space-6);
+  padding-bottom: var(--gf-space-8);
   z-index: 2;
 }
 @media (min-width: 1024px) {
   .gf-hero__content {
-    padding-bottom: 80px;
+    padding-bottom: 64px;
   }
 }
 
@@ -403,9 +446,56 @@ const tags = computed<string[]>(() => {
   letter-spacing: var(--gf-tracking-tight);
 }
 
-.gf-hero__desc {
-  font-size: var(--gf-fs-md);
-  line-height: var(--gf-lh-relaxed);
+/* 手机档片名再收一档: 令牌是 clamp(2.5rem, 4vw + 1rem, 4.5rem), 在 390px 屏上 4vw+1rem
+ * 只有 31.6px, 直接卡到下限 40px —— 配上 16/9 的矮横幅头重脚轻, 挤掉下方列表。
+ * 用户反馈"移动端轮播图的片名可以再小点", 故此处只覆盖 <768 档, 不动 --gf-fs-hero 令牌
+ * (令牌还被 TV 档整体放大覆盖, 改令牌会连带影响 TV)。 */
+@media (max-width: 767px) {
+  .gf-hero__title {
+    font-size: clamp(1.5rem, 6.5vw, 1.75rem);
+  }
+}
+
+/* 描述行: 评分 / 类型标签 / 豆瓣榜位 / 状态 并排一行, 窄屏自动换行(最多两行)。
+ * 各段靠颜色与字重区分(评分暖色、榜位品牌色、状态弱化), 不再插入分隔符。
+ * 保留 .gf-hero__desc 类名是为了不透传破坏 TV 下的字号覆盖([data-mode='tv'] .gf-hero__desc)。 */
+.gf-hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--gf-space-3);
+  font-size: var(--gf-fs-sm);
+  line-height: var(--gf-lh-snug);
+  color: var(--gf-text-secondary);
+  max-height: calc(2em * var(--gf-lh-snug));
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .gf-hero__meta {
+    font-size: var(--gf-fs-base);
+  }
+}
+
+.gf-hero__score {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--gf-warning);
+  font-weight: var(--gf-fw-bold);
+}
+
+.gf-hero__score-icon {
+  margin-bottom: 1px;
+}
+
+.gf-hero__hot {
+  color: var(--gf-brand-cyan);
+  font-weight: var(--gf-fw-semibold);
+}
+
+.gf-hero__remarks {
+  color: var(--gf-text-muted);
 }
 
 .gf-hero__arrow {
@@ -489,13 +579,6 @@ const tags = computed<string[]>(() => {
 @keyframes gf-hero-progress {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
-}
-
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 </style>
 
