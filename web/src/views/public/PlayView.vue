@@ -2223,30 +2223,37 @@ watch(playerReady, (v) => {
   gap: var(--gf-space-6);
 }
 
-/* 大屏: 左视频, 右选集. 右栏 sticky 跟随视口, 自身固定高度(随视口自适应),
- * 两层 tab 固定不滚, 仅集网格内部纵向滚动 + 鼠标滚轮顺畅. 不再依赖"左列等高"约束,
- * 即使左列(短片/无简介)很矮, 右栏仍有充裕滚动区. */
+/* 大屏: 左视频/影片信息, 右选集。
+ * 选集栏用「绝对定位 + 栅格定位」放进第 2 列: 它不进流 → 不参与行高计算,
+ * 因此高度严格等于左列高度(播放器 + 影片信息), 集数再多也不会把整行撑高、
+ * 拖到左列下方去; 超出部分由集网格内部纵向滚动消化。
+ * 面板自身仍 sticky: 左列比视口高时(超大屏/矮窗口)整块保持可见, 高度上限取二者较小值。 */
 @media (min-width: 1024px) {
   .gf-play-grid {
     grid-template-columns: minmax(0, 2.6fr) minmax(300px, 1fr);
     align-items: start;
+    /* 绝对定位的选集栏以本容器为包含块, 才能用 grid-column/row 定位到第 2 列 */
+    position: relative;
   }
   .gf-play-grid__aside {
+    /* 绝对定位的栅格子项: 第 2 列 × 第 1 行, 四边贴合该栅格区域(宽=右栏宽, 高=左列高) */
+    position: absolute;
+    grid-column: 2;
+    grid-row: 1;
+    inset: 0;
     min-width: 0;
-    /* sticky: 随页面滚动停在视口上方; 固定高度 = 视口高 - 上下留白, 随视口自适应 */
-    position: sticky;
-    top: var(--gf-space-6);
-    align-self: start;
-    height: calc(100vh - var(--gf-space-6) * 2);
-    max-height: calc(100vh - var(--gf-space-6) * 2);
     min-height: 0;
-    overflow: hidden;
   }
   .gf-play-grid__aside-inner {
+    /* sticky: 随页面滚动停在视口上方; 高度 = 左列高度, 但不超过视口可用高 */
+    position: sticky;
+    top: var(--gf-space-6);
+    height: 100%;
+    max-height: calc(100vh - var(--gf-space-6) * 2);
     display: flex;
     flex-direction: column;
-    height: 100%;
     min-height: 0;
+    overflow: hidden;
   }
   .gf-play-grid__aside :deep(.gf-episodes) {
     height: 100%;
