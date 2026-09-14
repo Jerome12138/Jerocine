@@ -28,16 +28,16 @@ function pick(key: string, value: string | number): void {
 
 <template>
   <section
-    class="gf-filter-bar bg-surface rounded-[var(--gf-radius-lg)] p-[var(--gf-space-3)] md:p-[var(--gf-space-4)] flex flex-col gap-[var(--gf-space-2)] md:gap-[var(--gf-space-3)]"
+    class="gf-filter-bar bg-surface rounded-[var(--gf-radius-lg)] p-[var(--gf-space-2)] md:p-[var(--gf-space-3)] flex flex-col gap-[var(--gf-space-1)] md:gap-[var(--gf-space-2)]"
   >
     <div
       v-for="group in groups"
       :key="group.key"
-      class="gf-filter-row flex items-start gap-[var(--gf-space-3)]"
+      class="gf-filter-row flex items-start gap-[var(--gf-space-2)]"
     >
       <!-- 标题与"首行选项"垂直居中: min-height 对齐胶囊高度, 选项换行时标题保持钉在首行 -->
       <div
-        class="gf-filter-row__title shrink-0 text-secondary text-[var(--gf-fs-sm)] font-[var(--gf-fw-medium)] flex items-center min-h-[44px]"
+        class="gf-filter-row__title shrink-0 text-secondary text-[var(--gf-fs-sm)] font-[var(--gf-fw-medium)] flex items-center min-h-[36px]"
       >
         {{ group.title }}
       </div>
@@ -72,8 +72,8 @@ function pick(key: string, value: string | number): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
-  padding: 0 var(--gf-space-4);
+  height: 36px;
+  padding: 0 var(--gf-space-3);
   border-radius: var(--gf-chip-radius, 9999px);
   background-color: transparent;
   color: var(--gf-text-secondary);
@@ -120,8 +120,8 @@ function pick(key: string, value: string | number): void {
   }
   /* 移动端: 胶囊与四周留白整体收一档, 一屏能多放几个选项 */
   .gf-filter-chip {
-    height: 34px;
-    padding: 0 var(--gf-space-3);
+    height: 30px;
+    padding: 0 var(--gf-space-2);
     font-size: var(--gf-fs-xs);
   }
   .gf-filter-row__chips {
