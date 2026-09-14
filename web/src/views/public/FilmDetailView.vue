@@ -16,6 +16,7 @@ import { useHistoryStore } from '@/stores/history'
 import { useFavoriteStore } from '@/stores/favorite'
 import { storeToRefs } from 'pinia'
 import { isNative } from '@/utils/jerocineNative'
+import { formatHotBadge } from '@/utils/format'
 import { useViewMode } from '@/composables/useViewMode'
 import { dispatchNativePlaylist } from '@/utils/nativePlay'
 
@@ -183,15 +184,10 @@ const score = computed(() => {
 })
 
 /** 豆瓣热度榜位(榜单刷新任务标记, 缺省/0 = 不在榜) —— 详情页「豆瓣·热门电影 No.N」。
- * hotBoard 是榜位来源榜单中文名(同一部片在多个集合各有位次, 光看 No.N 分不清是哪个榜);
- * 后端 douban.HotBoardLabel 在缺 hot_board 时按分类热榜兜底(pid 4 → 热门动漫), 所以不会
- * 退化成一个没有分类的"热门"。真拿不到榜名时也只给位次, 不硬造分类名。 */
-const hotBadge = computed(() => {
-  const r = detail.value?.hotRank ?? 0
-  if (r <= 0) return ''
-  const board = detail.value?.hotBoard ?? ''
-  return board ? `豆瓣·${board} No.${r}` : `豆瓣榜 No.${r}`
-})
+ * hotBoard 是榜位来源榜单中文名(同一部片在多个集合各有位次, 光看 No.N 分不清是哪个榜)。
+ * 与轮播首屏大图共用 formatHotBadge: 两处显示必然一致, 也不会出现没有分类的「热门」
+ * (后端 douban.HotBoardLabel 在缺 hot_board 时按分类热榜兜底, pid 4 → 热门动漫)。 */
+const hotBadge = computed(() => formatHotBadge(detail.value?.hotRank, detail.value?.hotBoard))
 
 /** 剧情展开 */
 const SUMMARY_LIMIT = 140

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatDuration, formatBytes, formatDateTime, truncate } from './format'
+import { formatDuration, formatBytes, formatDateTime, truncate, formatHotBadge } from './format'
 
 describe('formatDuration', () => {
   it('0 秒 → 00:00', () => expect(formatDuration(0)).toBe('00:00'))
@@ -51,4 +51,24 @@ describe('truncate', () => {
   it('等于 max → 原样', () => expect(truncate('hello', 5)).toBe('hello'))
   it('超过 max → 截断 + …', () => expect(truncate('helloworld', 5)).toBe('hello…'))
   it('空串 → 空串', () => expect(truncate('', 5)).toBe(''))
+})
+
+describe('formatHotBadge', () => {
+  it('榜单名带分类 → 「豆瓣·榜单名 No.N」(轮播与详情页共用同一文案)', () => {
+    expect(formatHotBadge(2, '热门电影')).toBe('豆瓣·热门电影 No.2')
+    expect(formatHotBadge(1, '热门动漫')).toBe('豆瓣·热门动漫 No.1')
+    expect(formatHotBadge(3, '一周口碑榜')).toBe('豆瓣·一周口碑榜 No.3')
+  })
+
+  it('不在榜 → 空串', () => {
+    expect(formatHotBadge(0, '热门电影')).toBe('')
+    expect(formatHotBadge(undefined, '热门电影')).toBe('')
+  })
+
+  it('位次在但榜名缺失 → 空串(不退化成没有分类的「热门」)', () => {
+    expect(formatHotBadge(1, '')).toBe('')
+    expect(formatHotBadge(1, '   ')).toBe('')
+    expect(formatHotBadge(1, undefined)).toBe('')
+    expect(formatHotBadge(1, null)).toBe('')
+  })
 })

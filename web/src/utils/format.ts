@@ -48,3 +48,20 @@ export function truncate(str: string, max: number): string {
   }
   return str.length > max ? `${str.slice(0, max)}…` : str
 }
+
+/**
+ * 豆瓣榜位展示文案 —— 轮播首屏大图与影片详情页共用同一个函数, 保证两处显示完全一致。
+ *
+ * 输出形如「豆瓣·热门电影 No.2」: 榜单名一定带分类。榜单名由后端 douban.HotBoardLabel
+ * 兜底(缺 hot_board 时按分类热榜补全, 如 pid 4 → 热门动漫), 正常都有值; 万一位次在、
+ * 榜名却缺失(数据异常), 这里返回空串(调用方不渲染) —— 宁可不显示, 也不输出一个
+ * 没有分类的「热门」。
+ */
+export function formatHotBadge(hotRank?: number | null, hotBoard?: string | null): string {
+  const rank = hotRank ?? 0
+  const board = (hotBoard ?? '').trim()
+  if (rank <= 0 || !board) {
+    return ''
+  }
+  return `豆瓣·${board} No.${rank}`
+}

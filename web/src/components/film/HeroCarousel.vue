@@ -6,6 +6,7 @@ import BaseImage from '@/components/base/BaseImage.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import { useViewMode } from '@/composables/useViewMode'
 import { isExternalLink } from '@/utils/url'
+import { formatHotBadge } from '@/utils/format'
 
 interface Props {
   /**
@@ -150,16 +151,12 @@ const score = computed<string>(() => {
   return n.toFixed(1)
 })
 
-/** 豆瓣热度榜位 —— 与详情页 hotBadge 同口径: 「豆瓣·热门电影 No.1」。不在榜为空串。
- *  榜单名一定带分类: 后端 douban.HotBoardLabel 在 hot_board 缺失时按分类热榜兜底
- *  (pid 4 → 热门动漫), 所以这里不会退化成一个没有分类的"热门"。
- *  真拿不到榜名(数据异常)时也只给位次, 不硬造分类名。 */
-const hotBadge = computed<string>(() => {
-  const r = active.value?.hotRank ?? 0
-  if (r <= 0) return ''
-  const board = active.value?.hotBoard ?? ''
-  return board ? `豆瓣·${board} No.${r}` : `豆瓣榜 No.${r}`
-})
+/** 豆瓣热度榜位 —— 与详情页共用 formatHotBadge, 两处显示必然一致: 「豆瓣·热门电影 No.1」。
+ *  榜单名由后端 douban.HotBoardLabel 兜底(缺 hot_board 时按分类热榜补全, pid 4 → 热门动漫),
+ *  正常都有值; 万一缺失则该行少这一段, 不会输出没有分类的「热门」。 */
+const hotBadge = computed<string>(() =>
+  formatHotBadge(active.value?.hotRank, active.value?.hotBoard)
+)
 
 /** 描述行是否有内容 —— 全空时不渲染, 避免留一行空白。 */
 const hasMeta = computed<boolean>(
