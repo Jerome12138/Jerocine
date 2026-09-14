@@ -354,7 +354,10 @@ function stopMarquee(e: Event): void {
   color: var(--gf-brand-primary, #6d28d9);
 }
 
-/* 分段 chip (1-30 / 31-60 ...) */
+/* 分段 chip (1-30 / 31-60 ...)
+ * 纯色胶囊: 不加 border / 光圈。原先激活态的 box-shadow 紫色光圈会被
+ * 外层 scroll/overflow 容器按直角硬切(上/左被截断, 右/下正常渐隐),
+ * 看起来像"被胶囊切掉的边框", 故整体去掉描边装饰, 激活态只留渐变胶囊。 */
 .gf-episode-seg {
   display: inline-flex;
   align-items: center;
@@ -366,7 +369,7 @@ function stopMarquee(e: Event): void {
   color: var(--gf-text-secondary);
   font-size: var(--gf-fs-sm);
   font-weight: var(--gf-fw-medium);
-  border: 1px solid transparent;
+  border: none;
   cursor: pointer;
   transition:
     background-color var(--gf-dur-fast) var(--gf-ease-standard),
@@ -379,8 +382,6 @@ function stopMarquee(e: Event): void {
 .gf-episode-seg--active {
   background-image: var(--gf-brand-gradient);
   color: #fff;
-  border-color: transparent;
-  box-shadow: var(--gf-shadow-purple-glow);
 }
 
 /* 每行集数: 减少列数, 给每集文字更多宽度(集名可能较长, 如"第01集 高清").
