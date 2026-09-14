@@ -2052,9 +2052,11 @@ watch(playerReady, (v) => {
   margin-left: var(--gf-space-2);
 }
 
-/* 桌面端: 首行 = 标题(可单行省略) + 操作按钮组(靠右), 标签行独占第二行。
+/* 平板及以上(≥768px): 首行 = 标题(可单行省略) + 操作按钮组(靠右), 标签行独占第二行。
+   断点对齐 useViewMode 的 tablet 档(768-1023) —— 900px 左右也能把按钮收到标题行右侧;
+   仅移动端(<768)保持"按钮另起一行"。
    仅在渲染了 PC/移动按钮组(非 TV)时切换为栅格 —— TV 工具条保持整行在下方。 */
-@media (min-width: 1024px) {
+@media (min-width: 768px) {
   .gf-play-info:has(.gf-play-toolbar--main) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
