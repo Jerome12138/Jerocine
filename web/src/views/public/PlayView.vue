@@ -1648,38 +1648,35 @@ watch(playerReady, (v) => {
             </Teleport>
           </div>
 
-          <!-- 当前播放信息 + 控件: 标题单独一行(小字); 标签 + 操作按钮同一行 -->
+          <!-- 当前播放信息 + 控件: 桌面端 操作按钮组与标题同行(靠右), 移动端按钮组另起一行 -->
           <header
             v-if="detail"
-            class="gf-play-info flex flex-col gap-[var(--gf-space-2)]"
+            class="gf-play-info"
           >
-        <div class="flex flex-col gap-[var(--gf-space-2)] min-w-0">
-          <!-- 返回按钮已移除: "查看完整介绍"链接即可回详情页. 影片名小一档(xl→lg) -->
-          <h1 class="gf-play-info__title text-[var(--gf-fs-lg)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]">
-            {{ detail.name }}
-            <span v-if="currentEpisode" class="gf-play-info__episode ml-[var(--gf-space-2)] text-secondary text-[var(--gf-fs-sm)]">
-              · {{ currentEpisode.episode }}
-            </span>
-          </h1>
-          <!-- 标签行 + 操作按钮(非TV): 同一行, 标签在左, 按钮靠右 -->
-          <div class="flex flex-wrap items-center gap-[var(--gf-space-2)]">
-            <BaseTag
-              v-for="t in tagList"
-              :key="t"
-              variant="default"
-              size="sm"
-            >
-              {{ t }}
-            </BaseTag>
-            <RouterLink
-              :to="{ path: '/filmDetail', query: { link: String(detail.mid) } }"
-              class="gf-play-info__detail-link"
-            >
-              查看完整介绍 ›
-            </RouterLink>
-            <!-- 非 TV: 操作按钮放标签行右侧(随 toolbar 块) -->
-          </div>
-        </div>
+            <!-- 标题行: 影片名 + 当前集名称(超长单行省略); 桌面端按钮组由 CSS 落到本行右侧 -->
+            <h1 class="gf-play-info__title text-[var(--gf-fs-lg)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]">
+              <span class="gf-play-info__name">{{ detail.name }}</span>
+              <span v-if="currentEpisode" class="gf-play-info__episode text-secondary text-[var(--gf-fs-sm)]">
+                · {{ currentEpisode.episode }}
+              </span>
+            </h1>
+            <!-- 标签行 -->
+            <div class="gf-play-info__tags flex flex-wrap items-center gap-[var(--gf-space-2)]">
+              <BaseTag
+                v-for="t in tagList"
+                :key="t"
+                variant="default"
+                size="sm"
+              >
+                {{ t }}
+              </BaseTag>
+              <RouterLink
+                :to="{ path: '/filmDetail', query: { link: String(detail.mid) } }"
+                class="gf-play-info__detail-link"
+              >
+                查看完整介绍 ›
+              </RouterLink>
+            </div>
 
         <!-- TV 端 (C 方案): 图标工具条, 一排等宽图标+小字 -->
         <div
@@ -1711,32 +1708,44 @@ watch(playerReady, (v) => {
           </button>
         </div>
 
-        <!-- PC / 移动 (A 方案): 主操作区只留高频(下一集 / 收藏 / 切到最快);
-             自动连播 / 过滤广告 / 线路测速 / 跳过设置 默认收进"更多操作"下拉, 减少拥挤 -->
-        <div v-else class="gf-play-toolbar">
+        <!-- PC / 移动: 主操作区只留高频(下集 / 收藏 / 切到最快);
+             自动连播 / 过滤广告 / 线路测速 / 跳过设置 默认收进"更多"下拉, 减少拥挤。
+             桌面端由 .gf-play-info 的栅格放到标题行右侧(与影片名同行), 移动端留在标签行下方。 -->
+        <div v-else class="gf-play-toolbar gf-play-toolbar--main">
           <!-- 组1 播放控制 -->
           <div class="gf-pt-group gf-pt-group--primary">
             <BaseButton variant="gradient" size="sm" :disabled="!hasNext" @click="playNext">
               <template #icon><BaseIcon name="skip-next" size="18px" /></template>
-              下一集
+              下集
             </BaseButton>
           </div>
           <!-- 组2 操作 -->
           <div class="gf-pt-group">
-            <BaseButton variant="outline" size="sm" :class="favorited ? 'gf-toggle--on' : ''" :aria-pressed="favorited" @click="toggleFavorite">
-              <template #icon><BaseIcon name="star" size="18px" /></template>
-              {{ favorited ? '已收藏' : '收藏' }}
+            <!-- 收藏: 纯图标(空心=未收藏 / 实心+品牌色=已收藏), 文案走 aria-label + title -->
+            <BaseButton
+              variant="outline"
+              size="sm"
+              class="gf-pt-fav"
+              :class="favorited ? 'gf-toggle--on' : ''"
+              :aria-pressed="favorited"
+              :aria-label="favorited ? '已收藏' : '收藏'"
+              :title="favorited ? '已收藏' : '收藏'"
+              @click="toggleFavorite"
+            >
+              <template #icon>
+                <BaseIcon :name="favorited ? 'star' : 'star-outline'" size="18px" />
+              </template>
             </BaseButton>
             <!-- 切到最快: 仅在有更快线路时出现 -->
             <BaseButton v-if="fastestLineId && fastestLineId !== currentSourceId" variant="ghost" size="sm" @click="switchToFastest">
               <template #icon><BaseIcon name="skip-next" size="18px" /></template>
               切到最快
             </BaseButton>
-            <!-- 更多操作: 收纳 自动连播 / 过滤广告 / 线路测速 / 跳过设置 (+移动端分享) -->
+            <!-- 更多: 收纳 自动连播 / 过滤广告 / 线路测速 / 跳过设置 (+移动端分享) -->
             <div class="gf-pt-more">
               <BaseButton variant="outline" size="sm" :aria-expanded="moreActionsOpen" @click="moreActionsOpen = !moreActionsOpen">
                 <template #icon><BaseIcon name="menu" size="18px" /></template>
-                更多操作
+                更多
               </BaseButton>
               <!-- 点击空白处关闭 (开关项不关菜单, 故需此遮罩兜底) -->
               <div v-if="moreActionsOpen" class="gf-pt-more__backdrop" @click="moreActionsOpen = false" />
@@ -2026,10 +2035,64 @@ watch(playerReady, (v) => {
   pointer-events: none;
 }
 
-/* 当前播放信息块 */
+/* 当前播放信息块: 移动端竖排(标题 / 标签 / 按钮条 顺序堆叠) */
+.gf-play-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gf-space-2);
+}
+
 .gf-play-info__title :deep(a) {
   color: inherit;
   text-decoration: none;
+}
+
+/* 移动端: "· 当前集"与影片名同行, 用 margin 拉开间距(桌面端改用 flex gap) */
+.gf-play-info__episode {
+  margin-left: var(--gf-space-2);
+}
+
+/* 桌面端: 首行 = 标题(可单行省略) + 操作按钮组(靠右), 标签行独占第二行。
+   仅在渲染了 PC/移动按钮组(非 TV)时切换为栅格 —— TV 工具条保持整行在下方。 */
+@media (min-width: 1024px) {
+  .gf-play-info:has(.gf-play-toolbar--main) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: var(--gf-space-3);
+    row-gap: var(--gf-space-2);
+  }
+  .gf-play-info:has(.gf-play-toolbar--main) .gf-play-info__title {
+    grid-area: 1 / 1;
+    display: flex;
+    align-items: baseline;
+    gap: var(--gf-space-2);
+    min-width: 0;
+  }
+  /* 影片名 / 当前集名称: 各自单行 + 溢出省略号。
+     集名优先保持可读(不参与收缩, 最多占半行), 影片名负责让位收缩 →
+     影片名过长时先截影片名, 集名过长时才轮到它自己截断 */
+  .gf-play-info__name,
+  .gf-play-info__episode {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gf-play-info__name {
+    flex: 0 1 auto;
+  }
+  .gf-play-info__episode {
+    flex: 0 0 auto;
+    max-width: 50%;
+    margin-left: 0;
+  }
+  .gf-play-info:has(.gf-play-toolbar--main) .gf-play-info__tags {
+    grid-area: 2 / 1 / 3 / -1;
+  }
+  .gf-play-info:has(.gf-play-toolbar--main) .gf-play-toolbar--main {
+    grid-area: 1 / 2;
+  }
 }
 
 /* 自动连播开关激活态 */
@@ -2071,6 +2134,12 @@ watch(playerReady, (v) => {
   width: auto;
   flex: 0 0 auto;
   padding-inline: var(--gf-space-3);
+}
+/* 收藏: 纯图标 → 收成正方形命中区(状态由空心/实心星 + 品牌色区分) */
+.gf-play-toolbar :deep(.gf-btn.gf-pt-fav) {
+  width: 32px;
+  padding-inline: 0;
+  gap: 0;
 }
 .gf-pt-group {
   display: flex;
