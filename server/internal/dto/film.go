@@ -39,6 +39,13 @@ type Card struct {
 	// HotRank 当前豆瓣榜位(1 起), 0 = 不在榜。前端据此显示 "Hot No.N" 角标;
 	// omitempty 让 15 万部榜外影片的卡片不带这个字段。
 	HotRank int `json:"hotRank,omitempty"`
+	// HotBoard 榜位来源榜单中文名(如 "热门电影"), 与详情页同口径 ——
+	// 同一部片在多个集合各有位次, 光看 "Hot No.N" 分不清是哪个榜。不在榜时缺省。
+	HotBoard string `json:"hotBoard,omitempty"`
+	// ClassTag 类型标签(如 "动作,冒险"), 前端按逗号/顿号/斜杠拆分展示。
+	// 首页无轮播位时兜底取的就是卡片(见 HomeView.heroItems), 带上它兜底路径才有标签行;
+	// omitempty 让无标签影片的卡片不占 payload。
+	ClassTag string `json:"classTag,omitempty"`
 }
 
 func ToCard(m entity.MovieSearch) Card {
@@ -47,6 +54,8 @@ func ToCard(m entity.MovieSearch) Card {
 		Pid: m.Pid, CName: m.CName,
 		SubTitle: m.SubTitle, Area: m.Area, Year: m.Year, State: m.State, Remarks: m.Remarks, DbScore: m.DbScore,
 		PubDate: m.PubDate, HotRank: m.HotRank,
+		// 榜单名走公共兜底: 缺 hot_board 时按分类热榜补全(不要只显示"热门")。
+		HotBoard: douban.HotBoardLabel(m.Pid, m.HotBoard, m.HotRank), ClassTag: m.ClassTag,
 	}
 }
 
@@ -145,7 +154,8 @@ func ToFilmDetail(d service.FilmDetailData) FilmDetail {
 		Mid: m.Mid, Name: m.Name, Cover: m.Cover, Backdrop: normBackdrop(m.Backdrop), Cid: m.Cid, Pid: m.Pid, CName: m.CName,
 		SubTitle: m.SubTitle, Actor: m.Actor, Director: m.Director, Area: m.Area, Language: m.Language,
 		Year: m.Year, ClassTag: m.ClassTag, Remarks: m.Remarks, State: m.State, DbScore: m.DbScore,
-		PubDate: m.PubDate, HotRank: m.HotRank, HotBoard: douban.BoardLabel(m.HotBoard),
+		PubDate: m.PubDate, HotRank: m.HotRank,
+		HotBoard: douban.HotBoardLabel(m.Pid, m.HotBoard, m.HotRank),
 		Content: m.Content, PlayFrom: []string(m.PlayFrom), Sources: toSources(d.Sources),
 	}
 }

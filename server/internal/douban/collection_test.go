@@ -224,3 +224,31 @@ func TestItem_YearIntAndNames(t *testing.T) {
 		t.Fatal("非法年份应为 0")
 	}
 }
+
+// TestHotBoardLabel 榜单名兜底: 缺 hot_board 时要按分类补全(用户要求"显示全, 别只显示热门"),
+// 但不在榜 / 分类未知时不能硬造一个榜单名。
+func TestHotBoardLabel(t *testing.T) {
+	cases := []struct {
+		name string
+		pid  int64
+		raw  string
+		rank int
+		want string
+	}{
+		{"落库的集合名照常翻译", 1, "movie_hot_gaia", 3, "热门电影"},
+		{"动漫片的分类热榜", 4, "tv_animation", 1, "热门动漫"},
+		{"缺榜名 → 按分类兜底出全称", 4, "", 1, "热门动漫"},
+		{"缺榜名 → 剧集兜底", 2, "", 7, "热门剧集"},
+		{"缺榜名 → 综艺兜底", 3, "", 2, "热门综艺"},
+		{"缺榜名 → 电影兜底", 1, "", 1, "热门电影"},
+		{"不在榜就不造榜名", 4, "", 0, ""},
+		{"未知分类不硬造", 99, "", 5, ""},
+		{"历史集合名保留原名(不展示成空白)", 1, "legacy_board", 2, "legacy_board"},
+	}
+	for _, c := range cases {
+		if got := HotBoardLabel(c.pid, c.raw, c.rank); got != c.want {
+			t.Errorf("%s: HotBoardLabel(%d,%q,%d)=%q, want %q",
+				c.name, c.pid, c.raw, c.rank, got, c.want)
+		}
+	}
+}

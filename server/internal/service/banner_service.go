@@ -9,6 +9,7 @@ import (
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
+	"server/internal/douban"
 )
 
 // ttlBanners 轮播列表缓存时长。比站点配置短: 排期(起止时间)会随时间推移自然生效/失效,
@@ -57,6 +58,12 @@ type EffectiveSlide struct {
 	Link   string `json:"link,omitempty"`
 	Sort   int    `json:"sort,omitempty"`
 	State  int8   `json:"state,omitempty"`
+	// 以下 4 项为按 mid 补齐的影片元信息(见 enrichMeta): 首屏大图描述行展示
+	// 「评分 · 类型标签 · 豆瓣·热门电影 No.1」。纯自定义位(无 mid)或影片已删时缺省。
+	DbScore  float64 `json:"dbScore,omitempty"`
+	ClassTag string  `json:"classTag,omitempty"`
+	HotRank  int     `json:"hotRank,omitempty"`
+	HotBoard string  `json:"hotBoard,omitempty"`
 	// Banner 仅后台 Board 填充: 手动位对应的完整配置行(编辑表单回填用), 前台不返回。
 	Banner *entity.Banner `json:"banner,omitempty"`
 }
@@ -155,9 +162,53 @@ func (s *BannerService) compose(ctx context.Context) ([]EffectiveSlide, error) {
 func (s *BannerService) Public(ctx context.Context) ([]EffectiveSlide, error) {
 	slides, _, err := cache.GetOrLoad(ctx, cache.KeyBanners, ttlBanners, func(ctx context.Context) ([]EffectiveSlide, bool, error) {
 		slides, err := s.compose(ctx)
+		// 元信息补齐放在缓存装载里: 一次 IN 查询(≤5 个 mid), 结果随轮播缓存复用 3min。
+		// 失败只记日志不报错 —— 缺评分/标签不影响轮播可用性, 没必要连累首页。
+		s.enrichMeta(ctx, slides)
 		return slides, true, err
 	})
 	return slides, err
+}
+
+// enrichMeta 给生效位补影片元信息(评分 / 类型标签 / 豆瓣榜位), 供首屏大图描述行展示。
+//
+// 轮播位本身只有 mid + 图 + 标题(自动位从榜单派生后也只留这几项), 而评分、类型标签、
+// 榜位都在影片读模型里 —— 一次 GetByMids 覆盖手动位与自动位, 避免逐条查详情。
+// 取不到的位(纯自定义无 mid / 影片已删)保持零值, 由 omitempty 从 JSON 里省掉。
+func (s *BannerService) enrichMeta(ctx context.Context, slides []EffectiveSlide) {
+	if s.films == nil || len(slides) == 0 {
+		return
+	}
+	mids := make([]int64, 0, len(slides))
+	for _, sl := range slides {
+		if sl.Mid > 0 {
+			mids = append(mids, sl.Mid)
+		}
+	}
+	if len(mids) == 0 {
+		return
+	}
+	cards, err := s.films.SearchByMids(ctx, mids)
+	if err != nil {
+		log.Printf("[banner] enrich meta err: %v", err)
+		return
+	}
+	byMid := make(map[int64]entity.MovieSearch, len(cards))
+	for _, c := range cards {
+		byMid[c.Mid] = c
+	}
+	for i := range slides {
+		c, ok := byMid[slides[i].Mid]
+		if !ok {
+			continue
+		}
+		slides[i].DbScore = c.DbScore
+		slides[i].ClassTag = c.ClassTag
+		slides[i].HotRank = c.HotRank
+		// 与详情页 hotBadge 同口径: 落库的是集合名(movie_hot_gaia), 对外给中文榜单名;
+		// hot_board 缺失时按分类热榜兜底, 避免前台只剩"热门"两个字(用户要求显示全)。
+		slides[i].HotBoard = douban.HotBoardLabel(c.Pid, c.HotBoard, c.HotRank)
+	}
 }
 
 // Board 后台管理视图: 生效位 + 未生效配置行(带原因, 管理页折叠区展示)。

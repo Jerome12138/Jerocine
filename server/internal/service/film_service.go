@@ -207,6 +207,17 @@ func (s *FilmService) Detail(ctx context.Context, mid int64) (FilmDetailData, bo
 	})
 }
 
+// SearchByMids 按 mid 批量取卡片读模型(单条 IN 查询)。
+//
+// 首页轮播位本身只存 mid + 图 + 标题, 评分/类型标签/榜位都在影片侧 ——
+// 由调用方拿到生效位后一次性补齐(≤5 个 mid), 避免逐条查详情。
+func (s *FilmService) SearchByMids(ctx context.Context, mids []int64) ([]entity.MovieSearch, error) {
+	if len(mids) == 0 {
+		return nil, nil
+	}
+	return s.search.GetByMids(ctx, mids)
+}
+
 // Related 相关推荐(缓存 + 内存均匀抽样, 去 ORDER BY RAND)。found=false 表示影片不存在。
 func (s *FilmService) Related(ctx context.Context, mid int64) ([]entity.MovieSearch, error) {
 	cards, _, err := cache.GetOrLoad(ctx, cache.KeyRelate(mid), ttlRelate, func(ctx context.Context) ([]entity.MovieSearch, bool, error) {

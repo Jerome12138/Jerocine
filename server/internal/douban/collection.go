@@ -222,6 +222,42 @@ func BoardLabel(name string) string {
 	return name
 }
 
+// pidClassHotBoard 一级分类 → 该分类对应的"分类热榜"集合名。
+// pid 口径同 nav 表: 1 电影片 / 2 连续剧 / 3 综艺片 / 4 动漫片。
+// 这里只写集合名, 中文名一律走 BoardLabel(Collections) —— 榜单名有唯一来源, 不重复写死。
+var pidClassHotBoard = map[int64]string{
+	1: "movie_hot_gaia",  // 电影片 → 热门电影
+	2: "tv_hot",          // 连续剧 → 热门剧集
+	3: "tv_variety_show", // 综艺片 → 热门综艺
+	4: "tv_animation",    // 动漫片 → 热门动漫
+}
+
+// ClassHotBoardLabel 按一级分类取"分类热榜"的中文名(pid=4 → "热门动漫")。取不到返回空串。
+func ClassHotBoardLabel(pid int64) string {
+	if name, ok := pidClassHotBoard[pid]; ok {
+		return BoardLabel(name)
+	}
+	return ""
+}
+
+// HotBoardLabel 对外展示的榜单名: 优先用落库的 hot_board, 缺失但有位次时按分类热榜兜底。
+//
+// 为什么需要兜底: hot_board 正常与 hot_rank 同批落库(hot_service 全量替换), 但历史行 /
+// 异常行可能只有位次没有榜名 —— 那时前台只剩"热门"两个字, 到底是电影/剧集/综艺/动漫的
+// 热榜全丢了。用户明确要求"要显示全, 比如热门动漫, 不要只显示热门"。
+//
+// 注意这是**兜底猜测**: 4 个分类热榜占榜单条目约 88%, 其余来自口碑榜 / 正在上映, 那些行若缺
+// 榜名会被归到分类热榜上。要精确只能靠采集侧把 hot_board 写全。
+func HotBoardLabel(pid int64, raw string, rank int) string {
+	if l := BoardLabel(raw); l != "" {
+		return l
+	}
+	if rank <= 0 {
+		return "" // 不在榜就没有"哪个榜"的问题, 不要凭分类硬造一个
+	}
+	return ClassHotBoardLabel(pid)
+}
+
 // Stats 一轮抓取的观测值 —— 供日志与后台排查(抓了多少页 / 空返回几次 / 跳过几页)。
 type Stats struct {
 	Pages   int           // 有效响应页数
