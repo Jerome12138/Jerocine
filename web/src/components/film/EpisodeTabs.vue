@@ -274,16 +274,17 @@ function stopMarquee(e: Event): void {
   position: relative;
   background: transparent;
   border: none;
-  height: 40px;
-  margin-block: 6px;
-  padding: 0 var(--gf-space-3);
+  /* 内部留白收紧: 高 40→36, 左右 12→10 (各断点一致, TV 由下方覆盖保持原尺寸) */
+  height: 36px;
+  margin-block: 4px;
+  padding: 0 10px;
   border-radius: var(--gf-chip-radius, 9999px);
   color: var(--gf-text-secondary);
   font-size: var(--gf-fs-md);
   font-weight: var(--gf-fw-medium);
   cursor: pointer;
   white-space: nowrap;
-  min-height: 44px;
+  min-height: 36px;
   transition:
     color var(--gf-dur-fast) var(--gf-ease-standard),
     background-color var(--gf-dur-fast) var(--gf-ease-standard);
@@ -357,19 +358,20 @@ function stopMarquee(e: Event): void {
 /* 分段 chip (1-30 / 31-60 ...)
  * 纯色胶囊: 不加 border / 光圈。原先激活态的 box-shadow 紫色光圈会被
  * 外层 scroll/overflow 容器按直角硬切(上/左被截断, 右/下正常渐隐),
- * 看起来像"被胶囊切掉的边框", 故整体去掉描边装饰, 激活态只留渐变胶囊。 */
+ * 看起来像"被胶囊切掉的边框", 故整体去掉描边装饰, 激活态只留渐变胶囊。
+ * 内部留白收紧: 高 32→28, 左右 14→10 (TV 由下方覆盖保持原尺寸)。 */
 .gf-episode-seg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: var(--gf-chip-height, 32px);
-  padding: 0 var(--gf-chip-padding-x, 14px);
+  height: 28px;
+  padding: 0 10px;
+  border: none;
   border-radius: var(--gf-chip-radius, 9999px);
   background-color: var(--gf-bg-elevated);
   color: var(--gf-text-secondary);
   font-size: var(--gf-fs-sm);
   font-weight: var(--gf-fw-medium);
-  border: none;
   cursor: pointer;
   transition:
     background-color var(--gf-dur-fast) var(--gf-ease-standard),
@@ -406,8 +408,9 @@ function stopMarquee(e: Event): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 38px;
-  padding: 0 var(--gf-space-2);
+  /* 内部留白收紧(各断点): 高 38/40/42→34/36/38, 左右 8→6 */
+  height: 34px;
+  padding: 0 6px;
   border-radius: var(--gf-radius-md);
   background-color: var(--gf-bg-elevated);
   color: var(--gf-text-secondary);
@@ -424,12 +427,12 @@ function stopMarquee(e: Event): void {
 
 @media (min-width: 768px) {
   .gf-episode-chip {
-    height: 40px;
+    height: 36px;
   }
 }
 @media (min-width: 1024px) {
   .gf-episode-chip {
-    height: 42px;
+    height: 38px;
   }
 }
 
@@ -505,6 +508,11 @@ function stopMarquee(e: Event): void {
 [data-mode='tv'] .gf-episode-chip {
   height: 48px;
   font-size: var(--gf-fs-sm);
+}
+/* TV: 分段胶囊不跟随 Web 的留白收紧, 保持 10 尺 UI 原有尺寸 */
+[data-mode='tv'] .gf-episode-seg {
+  height: 32px;
+  padding: 0 14px;
 }
 [data-mode='tv'] .gf-episode-chip:focus,
 [data-mode='tv'] .gf-episode-chip:focus-visible {
