@@ -547,22 +547,15 @@ function handleToggleFavorite(): void {
               </BaseTag>
             </div>
 
-            <!-- hero meta: 只保留 上映/年份/地区/状态 等紧凑字段, 演职人员下沉到独立 section -->
+            <!-- hero meta: 年份/地区已由上方标签行承载(chips), 此处不再重复;
+                 只留 上映/语言/状态/热度 等标签行没有的字段, 演职人员下沉到独立 section -->
             <dl
-              v-if="detail.year || detail.area || detail.language || detail.remarks || detail.pubDate || hotBadge"
+              v-if="detail.pubDate || detail.language || detail.remarks || hotBadge"
               class="gf-detail__meta"
             >
               <div v-if="detail.pubDate" class="gf-detail__meta-row">
                 <dt>上映</dt>
                 <dd>{{ detail.pubDate }}</dd>
-              </div>
-              <div v-if="detail.year" class="gf-detail__meta-row">
-                <dt>年份</dt>
-                <dd>{{ detail.year }}</dd>
-              </div>
-              <div v-if="detail.area" class="gf-detail__meta-row">
-                <dt>地区</dt>
-                <dd>{{ detail.area }}</dd>
               </div>
               <div v-if="detail.language" class="gf-detail__meta-row">
                 <dt>语言</dt>
