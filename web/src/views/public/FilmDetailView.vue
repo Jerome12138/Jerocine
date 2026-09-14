@@ -588,7 +588,7 @@ function handleToggleFavorite(): void {
               <BaseButton
                 v-if="resumeRecord"
                 variant="primary"
-                size="lg"
+                size="md"
                 @click="resumeWatching"
               >
                 <template #icon>
@@ -598,7 +598,7 @@ function handleToggleFavorite(): void {
               </BaseButton>
               <BaseButton
                 :variant="resumeRecord ? 'outline' : 'primary'"
-                size="lg"
+                size="md"
                 :disabled="!detail.sources?.[0]?.episodes?.length"
                 @click="playFirst"
               >
@@ -609,7 +609,7 @@ function handleToggleFavorite(): void {
               </BaseButton>
               <BaseButton
                 :variant="isFavorited ? 'primary' : 'outline'"
-                size="lg"
+                size="md"
                 @click="handleToggleFavorite"
               >
                 <template #icon>
@@ -621,7 +621,7 @@ function handleToggleFavorite(): void {
               <BaseButton
                 v-if="!isDesktop"
                 variant="ghost"
-                size="lg"
+                size="md"
                 @click="handleShare"
               >
                 <template #icon>
@@ -928,8 +928,17 @@ function handleToggleFavorite(): void {
 .gf-detail__cta {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gf-space-3);
+  gap: var(--gf-space-2);
   justify-content: center;
+}
+
+/* 操作按钮整体收一档: 原为 size="lg"(48px 高 / 左右 24px / 18px 字),
+ * 现走 md 档(40px 高 / 左右 16px), 字号再收到 16px。
+ * 基类 .gf-btn 有 min-height:44px 的下限(触控命中区), 会把 md 的 40px 顶回 44px,
+ * 所以这里显式放开下限 —— 该块是详情页核心操作区, 40px 仍满足命中需求。 */
+.gf-detail__cta :deep(.gf-btn) {
+  min-height: 40px;
+  font-size: var(--gf-fs-base);
 }
 
 @media (min-width: 768px) {
