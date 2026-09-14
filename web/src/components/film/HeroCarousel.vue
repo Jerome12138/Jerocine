@@ -449,9 +449,11 @@ const hasMeta = computed<boolean>(
 /* 手机档片名再收一档: 令牌是 clamp(2.5rem, 4vw + 1rem, 4.5rem), 在 390px 屏上 4vw+1rem
  * 只有 31.6px, 直接卡到下限 40px —— 配上 16/9 的矮横幅头重脚轻, 挤掉下方列表。
  * 用户反馈"移动端轮播图的片名可以再小点", 故此处只覆盖 <768 档, 不动 --gf-fs-hero 令牌
- * (令牌还被 TV 档整体放大覆盖, 改令牌会连带影响 TV)。 */
+ * (令牌还被 TV 档整体放大覆盖, 改令牌会连带影响 TV)。
+ * 显式排除 TV: TV 是独立 mode(data-mode 挂在 <html>, 不随宽度走), 万一大屏设备上报的
+ * 视口宽度 <768, 这条宽度规则会把 TV 的片名一并收小 —— 那不是我们要的。 */
 @media (max-width: 767px) {
-  .gf-hero__title {
+  html:not([data-mode='tv']) .gf-hero__title {
     font-size: clamp(1.5rem, 6.5vw, 1.75rem);
   }
 }
