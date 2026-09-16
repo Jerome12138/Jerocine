@@ -18,6 +18,10 @@ RUN pnpm run build
 # 运行镜像: nginx 静态托管 + /api/ 反代到 server.
 FROM nginx:1.27-alpine
 
+# brotli 压缩模块(Alpine community 提供, 与 nginx 1.27 版本匹配);
+# 安装失败会直接中断构建, 不会带着坏配置上线
+RUN apk add --no-cache nginx-mod-http-brotli
+
 # nginx.conf 走仓库版本, 不再依赖宿主机 /opt/film/data/nginx 挂载
 COPY deploy/data/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=build /app/dist /usr/share/nginx/html
