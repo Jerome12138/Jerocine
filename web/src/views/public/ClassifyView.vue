@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import * as filmApi from '@/api/film'
 import type { Card, ClassifyData } from '@/types/film'
@@ -47,6 +47,34 @@ const currentPid = computed(() => (params.value.Pid || '').trim())
 
 // 非移动端 (desktop/tv) 顶部 Header 已显示分类导航, 页内胶囊冗余 → 仅移动端显示
 const { isMobile, isTV } = useViewMode()
+
+/**
+ * 模块行数限制: 每个模块最多显示 3 行(不同分辨率一致)。
+ * 列数需与 CSS 对齐 —— 桌面/移动走 theme.css --gf-list-cols 阶梯(3/4/5/6),
+ * TV 分支本页固定 6 列([data-mode='tv'] .gf-tv-grid), 故按视口宽度计算并监听 resize。
+ */
+const MAX_MODULE_ROWS = 3
+const gridCols = ref(6)
+function calcGridCols(): number {
+  if (isTV.value) return 6
+  const w = window.innerWidth
+  if (w < 480) return 3
+  if (w < 768) return 4
+  if (w < 1024) return 5
+  return 6
+}
+function updateGridCols(): void {
+  gridCols.value = calcGridCols()
+}
+updateGridCols()
+window.addEventListener('resize', updateGridCols)
+onBeforeUnmount(() => window.removeEventListener('resize', updateGridCols))
+
+/** 截断到最多 3 行(3 × 当前列数) */
+function limitToRows(items: Card[] | undefined): Card[] {
+  if (!Array.isArray(items)) return []
+  return items.slice(0, gridCols.value * MAX_MODULE_ROWS)
+}
 
 async function load(): Promise<void> {
   const pid = (params.value.Pid || '').trim()
@@ -97,7 +125,8 @@ const tvTitlePid = computed(() =>
 )
 
 /**
- * 四段网格配置 (最新上线/排行榜/最近更新/高分榜): TV 与桌面/移动共用, 卡片均摊开为网格。
+ * 四段网格配置: **排行榜在最前**(用户定稿), 之后 最新上线 / 最近更新 / 高分榜。
+ * 每个模块最多 3 行(limitToRows, 3 × 当前列数)。
  * sort 值对齐后端 allowedSort(hot=hot_score 降序 / score=db_score 降序 / latest=year+pub_date) ——
  * 旧值 hits/release_stamp 后端仍兼容, 但新代码一律用新值。
  * 高分榜只在 scoredCount>0 时进列表(后端为 0 时不返回该分区, 运行时探测代替分类白名单)。
@@ -105,24 +134,24 @@ const tvTitlePid = computed(() =>
 const sections = computed(() => {
   const secs = [
     {
-      key: 'news',
-      title: '最新上线',
-      sub: '每日更新',
-      items: data.value.news,
-      sort: 'latest'
-    },
-    {
       key: 'top',
       title: '排行榜',
       sub: '按热度排序',
-      items: data.value.top,
+      items: limitToRows(data.value.top),
       sort: 'hot'
+    },
+    {
+      key: 'news',
+      title: '最新上线',
+      sub: '每日更新',
+      items: limitToRows(data.value.news),
+      sort: 'latest'
     },
     {
       key: 'recent',
       title: '最近更新',
       sub: '追更不迷路',
-      items: data.value.recent,
+      items: limitToRows(data.value.recent),
       sort: 'update_stamp'
     }
   ]
@@ -131,7 +160,7 @@ const sections = computed(() => {
       key: 'score',
       title: '高分榜',
       sub: '豆瓣评分优先',
-      items: data.value.score,
+      items: limitToRows(data.value.score),
       sort: 'score'
     })
   }
