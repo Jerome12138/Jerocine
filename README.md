@@ -1,31 +1,32 @@
-# Jerocine
+# Jerocine影视
 
-一个在线观影平台：Vue 3 单页应用（桌面 / 移动 / TV 自适应）+ Go 后端 + Android TV 原生壳 + Capacitor 安卓包。
+一个自托管的在线观影平台：**多采集源自由配置、服务端广告过滤、Android TV / 老投影原生支持、播放器触屏手势、扫码登录**。
+一套代码覆盖桌面 / 移动 / TV（UA 自适应），Web 经 Capacitor 打包安卓 APK，另有独立原生 Android TV 客户端。
+
+## ✨ 特色功能
+
+- **多采集源自由配置**：管理后台可自由增删采集源（XML / JSON 解析器），按源测速、自动停采、健康度面板；支持手动采集与定时更新，采集数据先入暂存表、再影子表原子 reindex
+- **服务端广告过滤**：m3u8 流在服务端过滤广告分片，播放页展示过滤角标，Web / TV / 原生播放器全端生效
+- **Android TV 全家桶**：
+  - `tv/` 原生 Kotlin 客户端（minSdk 21），兼容 Android 6 老投影 / 低配电视，D-pad 焦点管理
+  - `web/` Capacitor 壳 APK，同一套 Web 界面直接上 TV
+- **平板 / 触屏手势**：播放页双击全屏、长按倍速、横滑快进快退，带可视化手势提示（全屏触屏）
+- **扫码登录（设备码）**：Web 端扫码授权；TV / 老设备输入设备码轮询登录，登录后观看历史 / 收藏跨端同步
+- **多线路播放**：同一影片聚合多采集源线路，按实测播放延迟自动排序；自动续播、自动下一集、跳过片头片尾
+- **热度榜单体系**：hot_score 热度分 + 榜单（首页分类行 / 分类页排行榜 / 相关推荐），管理端可触发刷新
+- **全文检索 + 拼音**：物化宽表 FULLTEXT 检索 + 首字母拼音索引
+- **APP 自升级**：版本检查 + APK 下载，支持灰度白名单
+- **设备登录管理**：单账号多设备登录数与踢出管理
+- **部署自动化**：一键部署脚本（pull → 构建 → 健康检查 → 自动清双层缓存），优雅停机不打断采集
 
 ## 组成
 
 | 模块 | 说明 | 技术栈 |
 |---|---|---|
-| `web/` | Web 单页应用：用户端 + 管理后台 + TV 模式（UA 自适应），并可经 Capacitor 打包安卓 APK | Vue 3.5 · Vite · TypeScript · Pinia · UnoCSS |
+| `web/` | Web 单页应用：用户端 + 管理后台 + TV 模式（UA 自适应），Capacitor 打包安卓 APK | Vue 3.5 · Vite · TypeScript · Pinia · UnoCSS |
 | `server/` | 后端 API 与采集引擎 | Go · Gin · GORM · go-redis · golang-migrate |
-| `tv/` | Android TV 原生壳（Leanback，播放器/账号/历史/收藏） | Kotlin · ExoPlayer · View 系 |
-| `deploy/` | 部署编排：Docker Compose、Nginx、golang-migrate、APK 版本检查配置 | Docker Compose · Nginx |
-
-## 功能
-
-**用户端**
-
-- 首页轮播 + 多分类 Row + 热点推荐，分类导航 / 筛选 / 首字母 + 拼音搜索
-- 影片详情（多采集源、多选集、相关推荐），播放页（多源切换、自动续播、自动下一集、跳过片头片尾、广告过滤角标）
-- 观看历史 / 我的收藏（未登录本地保存，登录后无缝迁移云端、跨设备同步）
-- 扫码登录（设备码轮询），TV 端 D-pad 导航与焦点管理
-- APP 自升级（版本检查 + APK 下载，支持灰度白名单）
-
-**管理后台（`/manage`）**
-
-- 仪表盘、影片 / 分类 / 文件管理、站点配置
-- 采集源管理与健康度面板（测速、自动停采）、采集任务与定时更新
-- APP 版本管理（版本发布 + APK 上传）
+| `tv/` | Android TV 原生壳（播放器 / 账号 / 历史 / 收藏） | Kotlin · ExoPlayer · View 系 |
+| `deploy/` | 部署编排：Docker Compose、Nginx、golang-migrate、APK 版本 | Docker Compose · Nginx |
 
 ## 架构要点
 
@@ -63,6 +64,15 @@ Jerocine/
 
 各模块细节见各自 README：[server](./server/README.md) · [web](./web/README.md) · [deploy](./deploy/README.md)。
 
+## 致谢（Credits）
+
+本项目（Jerocine影视）的设计灵感来源于开源项目 **GoFilm**：
+
+- 仓库：[github.com/ProudMuBai/GoFilm](https://github.com/ProudMuBai/GoFilm)
+- 许可：MIT License，Copyright (c) 2023 ProudMuBai
+
+GoFilm 提供了"Vue + Gin + gocolly 多源采集在线影视站"的完整技术思路，本项目在其启发下重构实现（含多采集源、采集引擎、站点形态等），特此致谢。合规与版权说明见 [LICENSE](./LICENSE)。
+
 ## License
 
-[MIT](./LICENSE) © 2026 jerome12138 (Jerocine)
+[MIT](./LICENSE) © 2026 jerome12138 (Jerocine影视)。本项目受 GoFilm（MIT © 2023 ProudMuBai）启发，衍生声明见 LICENSE 文件。

@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 jerome12138 (Jerocine)
+Copyright (c) 2026 jerome12138 (Jerocine影视)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## 致谢与衍生声明（NOTICE）
+
+本项目（Jerocine影视）的设计与实现受开源项目 **GoFilm** 启发并参考：
+
+- 仓库：https://github.com/ProudMuBai/GoFilm
+- 原许可：MIT License，Copyright (c) 2023 ProudMuBai
+
+依据 MIT 许可条款（"The above copyright notice and this permission notice shall
+be included in all copies or substantial portions of the Software"），在此保留
+GoFilm 的版权与许可声明；来自 GoFilm 的代码、结构或灵感成果同样适用本文档所列
+MIT License 全文。特此对 GoFilm 作者 ProudMuBai 致谢。
