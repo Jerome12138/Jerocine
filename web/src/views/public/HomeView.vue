@@ -86,12 +86,14 @@ const heroSlides = computed<HeroItem[]>(() => {
  *   跨类别口径见 docs/榜单热度方案 §8.1①) */
 const topRanking = computed<Card[]>(() => state.value.data?.hot ?? [])
 
+/** 各分类行: items 取**该分类热榜**(rows[].hot, hot_score 降序) —— 与分类页「排行榜」同口径;
+ *  空时回退最新上线。全站「热门榜单」行仍用 HomeData.hot(跨类别混排), 两者口径不同, 见后端 views.go 注释。 */
 const rows = computed(() => {
   const data = state.value.data
   if (!data) return []
   return (data.rows ?? [])
-    .filter((r) => r.latest?.length)
-    .map((r) => ({ pid: r.nav.id, title: r.nav.name, items: r.latest }))
+    .filter((r) => r.hot?.length || r.latest?.length)
+    .map((r) => ({ pid: r.nav.id, title: r.nav.name, items: r.hot?.length ? r.hot : r.latest }))
 })
 
 /** 猜你喜欢: 合并各区块 latest 去重, 取 24 条(后端已排序, 不再前端 shuffle) */
