@@ -6,7 +6,55 @@ import (
 	"testing"
 
 	"server/internal/domain/entity"
+	"server/internal/domain/repository"
 )
+
+// TestFallbackLast 兜底项(其它/其他)必须固定在选项列表末尾, 其余相对顺序不变。
+func TestFallbackLast(t *testing.T) {
+	t.Run("其它在中间→移到末尾", func(t *testing.T) {
+		in := []repository.TagOption{{Name: "美国"}, {Name: "大陆"}, {Name: "其它"}, {Name: "日本"}}
+		got := fallbackLast(in)
+		want := []string{"美国", "大陆", "日本", "其它"}
+		if names(got) != strings.Join(want, ",") {
+			t.Fatalf("got %v, want %v", names(got), want)
+		}
+	})
+	t.Run("其他同样处理", func(t *testing.T) {
+		in := []repository.TagOption{{Name: "英语"}, {Name: "其他"}, {Name: "日语"}}
+		got := fallbackLast(in)
+		want := []string{"英语", "日语", "其他"}
+		if names(got) != strings.Join(want, ",") {
+			t.Fatalf("got %v, want %v", names(got), want)
+		}
+	})
+	t.Run("无兜底项原样返回", func(t *testing.T) {
+		in := []repository.TagOption{{Name: "剧情"}, {Name: "喜剧"}}
+		if got := fallbackLast(in); names(got) != "剧情,喜剧" {
+			t.Fatalf("got %v", names(got))
+		}
+	})
+	t.Run("多个兜底项全部移到最后且保持相对顺序", func(t *testing.T) {
+		in := []repository.TagOption{{Name: "其它"}, {Name: "动作"}, {Name: "其他"}, {Name: "爱情"}}
+		got := fallbackLast(in)
+		want := []string{"动作", "爱情", "其它", "其他"}
+		if names(got) != strings.Join(want, ",") {
+			t.Fatalf("got %v, want %v", names(got), want)
+		}
+	})
+	t.Run("空列表", func(t *testing.T) {
+		if got := fallbackLast(nil); len(got) != 0 {
+			t.Fatalf("got %v, want empty", got)
+		}
+	})
+}
+
+func names(opts []repository.TagOption) string {
+	ns := make([]string, 0, len(opts))
+	for _, o := range opts {
+		ns = append(ns, o.Name)
+	}
+	return strings.Join(ns, ",")
+}
 
 // TestSearchUpsertColsCoverEntity 与 TestMovieUpsertColsCoverEntity 同因:
 // 保证采集回写读模型时不会误刷 created_at / deleted_at, 也不会漏掉新增字段。

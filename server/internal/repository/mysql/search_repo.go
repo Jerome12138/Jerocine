@@ -506,11 +506,11 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 			plotCnt[tag] += row.C
 		}
 	}
-	opts.Tags["Plot"] = topByCount(plotCnt, 10)
+	opts.Tags["Plot"] = fallbackLast(topByCount(plotCnt, 10))
 
 	// Area / Language: GROUP BY 取高频
-	opts.Tags["Area"] = r.groupTop(db, pid, "area", 11)
-	opts.Tags["Language"] = r.groupTop(db, pid, "language", 6)
+	opts.Tags["Area"] = fallbackLast(r.groupTop(db, pid, "area", 11))
+	opts.Tags["Language"] = fallbackLast(r.groupTop(db, pid, "language", 6))
 
 	// Year: 存在的年份倒序
 	var years []int
@@ -542,6 +542,25 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 		{Name: "最新上线", Value: "latest"},
 	}
 	return opts, nil
+}
+
+// fallbackLast 把"其它/其他"这类兜底选项移到列表末尾(其余相对顺序不变)。
+// 数据驱动维度(地区/语言/剧情)按出现频次排序时, "其它"作为真实值会混在中间;
+// 语义上它是兜底/未分类项, 应固定在最后(线上 Area/Language 曾出现"其它"排第 3 位)。
+func fallbackLast(opts []repository.TagOption) []repository.TagOption {
+	head := make([]repository.TagOption, 0, len(opts))
+	var tail []repository.TagOption
+	for _, o := range opts {
+		if o.Name == "其它" || o.Name == "其他" {
+			tail = append(tail, o)
+		} else {
+			head = append(head, o)
+		}
+	}
+	if len(tail) == 0 {
+		return opts
+	}
+	return append(head, tail...)
 }
 
 func (r *searchRepo) groupTop(db *gorm.DB, pid int64, col string, limit int) []repository.TagOption {
