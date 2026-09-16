@@ -43,4 +43,15 @@ app.config.errorHandler = (err, instance, info) => {
 // 全局安装一次 viewMode（resize / storage 监听绑定到 window 生命周期）
 installViewMode()
 
-app.mount('#app')
+// 等路由初始导航完成(懒加载 chunk + 异步守卫)后再挂载。
+// 否则首帧 useRoute() 返回 START_LOCATION('/') → layout 误判为 public,
+// 刷新管理后台(/manage/*)时会先渲染首页导航与底部 tabbar, 路由就绪后才切回后台布局。
+router
+  .isReady()
+  .then(() => {
+    app.mount('#app')
+  })
+  .catch((err) => {
+    console.error('[router-ready] 初始导航失败, 仍挂载:', err)
+    app.mount('#app')
+  })
