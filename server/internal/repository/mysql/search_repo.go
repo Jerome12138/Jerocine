@@ -19,6 +19,10 @@ import (
 
 type searchRepo struct{ db *gorm.DB }
 
+// cstZone 东八区。线上服务器可能为 UTC, 跨年边界(元旦前后)按中国时间算"今年",
+// 避免年份选项在 1 月 1 日附近少算"明年"。
+var cstZone = time.FixedZone("CST", 8*3600)
+
 // NewSearchRepository 构造物化卡片/检索宽表仓储。
 func NewSearchRepository(db *gorm.DB) repository.SearchRepository { return &searchRepo{db: db} }
 
@@ -512,10 +516,12 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 	opts.Tags["Area"] = fallbackLast(r.groupTop(db, pid, "area", 11))
 	opts.Tags["Language"] = fallbackLast(r.groupTop(db, pid, "language", 6))
 
-	// Year: 存在的年份倒序
+	// Year: 存在的年份倒序。屏蔽未来年份脏数据 —— 最多允许到"明年"(跨年档新片可能标次年),
+	// 后年及以后(> 今年+1)不展示(线上曾出现 2028/2030 的误值)。
+	maxYear := time.Now().In(cstZone).Year() + 1
 	var years []int
 	if err := applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude).
-		Where("pid = ? AND year > 0", pid).
+		Where("pid = ? AND year > 0 AND year <= ?", pid, maxYear).
 		Distinct().Order("year DESC").Limit(12).Pluck("year", &years).Error; err != nil {
 		return nil, err
 	}
