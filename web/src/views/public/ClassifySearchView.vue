@@ -39,7 +39,8 @@ const initial: QueryShape = {
   Area: '',
   Language: '',
   Year: '',
-  Sort: '',
+  // 排序维度无"全部"态: 默认"热度优先"(hot)。老链接/API 直调无 Sort 时由后端 defaultSort 兜底(同为 hot)。
+  Sort: 'hot',
   current: 1
 }
 
@@ -125,9 +126,10 @@ const filterGroups = computed<FilterGroup[]>(() => {
       return {
         key,
         title: f.titles?.[key] || key,
-        // 首位放"全部"(value='') — 点击即取消该维度筛选; 再点已选中项同样取消
+        // 首位放"全部"(value='') — 点击即取消该维度筛选; 再点已选中项同样取消。
+        // 排序维度例外: 无"全部"态(默认热度, 见 initial), 只渲染后端 Sort 选项。
         options: [
-          { value: '', label: '全部' },
+          ...(key === 'Sort' ? [] : [{ value: '', label: '全部' }]),
           ...tagList.map((t) => ({
             value: String(t.value ?? ''),
             label: String(t.name ?? '')
@@ -142,10 +144,10 @@ const filterGroups = computed<FilterGroup[]>(() => {
 function onFilterChange(payload: { key: string; value: string | number }): void {
   const allowed = ['Category', 'Plot', 'Area', 'Language', 'Year', 'Sort']
   if (!allowed.includes(payload.key)) return
-  // 再点已选中的选项 = 取消该筛选(回"全部")
+  // 再点已选中的选项 = 取消该筛选(回"全部")。排序维度无"全部"态: 再点同项保持选中(不取消)
   const isSame = String(params.value[payload.key] ?? '') === String(payload.value)
   const next: Partial<QueryShape> = {
-    [payload.key]: isSame ? '' : String(payload.value)
+    [payload.key]: isSame && payload.key !== 'Sort' ? '' : String(payload.value)
   } as Partial<QueryShape>
   // 切换筛选项 → current 重置 1
   next.current = 1
