@@ -33,12 +33,20 @@ const siteStore = useSiteStore()
 const navStore = useNavStore()
 const historyStore = useHistoryStore()
 const userStore = useUserStore()
-const { isTV, isMobile } = useViewMode()
+const { isTV, isMobile, isTablet } = useViewMode()
 
 const { basic } = storeToRefs(siteStore)
 const { list: navList } = storeToRefs(navStore)
 const { list: historyList } = storeToRefs(historyStore)
 const { isLoggedIn, isAdmin, displayName, info: userInfo } = storeToRefs(userStore)
+
+/** 品牌标题字号: 桌面 30 / pad 28 / 手机 26(相比桌面再小), TV 保持 32 便于远观 */
+const brandSize = computed<number>(() => {
+  if (isTV.value) return 32
+  if (isMobile.value) return 26
+  if (isTablet.value) return 28
+  return 30
+})
 
 /** 滚动 → 切实色背景 */
 const scrolled = ref(false)
@@ -405,7 +413,7 @@ watch(
         tabindex="0"
         @click="closeMobile"
       >
-        <LogoMark :size="32" :show-text="true" />
+        <LogoMark :size="brandSize" :show-text="true" />
       </RouterLink>
 
       <!-- 主导航（桌面 / TV） -->
