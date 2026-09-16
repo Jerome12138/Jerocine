@@ -54,8 +54,9 @@ var allowedSort = map[string]string{
 	"recent":        orderRecent,
 }
 
-// defaultSort 未指定 / 无法识别时的排序键。
-const defaultSort = orderRecent
+// defaultSort 未指定 / 无法识别时的排序键。2026-09-16 起默认"热度优先"(原为最近更新):
+// 排序维度不再有"全部"态, 前端默认传 hot, 这里兜底老链接 / API 直调无 sort 的场景。
+const defaultSort = orderHot
 
 func orderForClassify(s repository.ClassifySort) string {
 	switch s {
