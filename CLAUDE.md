@@ -36,7 +36,7 @@
   - 脚本对 docker 无权限时自动回退 `sudo -n docker`；采集**无需手动暂停**（优雅停机自愈）。
   - 等价手工形式（排障用）：`git pull && cd deploy && sudo docker compose --env-file .env up -d --build server nginx`，
     部署后手动清缓存见下节。
-  - ⚠️ 若绕过脚本手工 `up -d nginx`：nginx `depends_on: server` 会连带重启 jerocine_server，纯前端改动务必带 `--no-deps`。
+  - 手工纯前端（绕过脚本）用 `up -d --build --no-deps nginx`：nginx `depends_on: server`，不带 `--no-deps` 时 `--build` 会顺带重建 server 镜像并跑一次 migrate（实测 compose v5.5.1 **不会** recreate 已运行的 server 容器、采集不中断，但多花一次后端构建）；带 `--no-deps` 只动 nginx。
 - **DB 迁移（golang-migrate）**：由 compose 独立一次性服务 `migrate`（只 `up`，`restart:no`）跑；`server` `depends_on: migrate(service_completed_successfully)` → `up -d server` 会**先跑完待应用迁移再起 jerocine_server**。只单跑迁移不重启 api：`sudo docker compose run --rm migrate`。迁移文件 `server/migrations/000NNN_*.{up,down}.sql`。
 - **后端 Go 编译/测试**（可用容器跑）：
   `docker run --rm -v "$PWD/server":/src -w /src golang:1.27-alpine sh -c "go build ./... && go test ./internal/..."`
