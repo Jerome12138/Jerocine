@@ -54,7 +54,7 @@ onBeforeUnmount(() => {
 })
 
 /** 站名 */
-const siteName = computed(() => basic.value?.siteName || 'Jerocine')
+const siteName = computed(() => basic.value?.siteName || 'Jerocine影视')
 
 /** 顶部 6 项导航 */
 const topNav = computed(() => navList.value.slice(0, 6))

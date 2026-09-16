@@ -1,6 +1,6 @@
 # jerocine-web
 
-Jerocine Web 客户端（用户端 + 管理端 + TV 模式），并经 Capacitor 打包安卓 APK。
+Jerocine影视 Web 客户端（用户端 + 管理端 + TV 模式），并经 Capacitor 打包安卓 APK。
 
 ## 技术栈
 

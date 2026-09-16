@@ -1,7 +1,7 @@
 import type { Router } from 'vue-router'
 import { getToken } from '@/utils/token'
 
-const APP_TITLE = (import.meta.env.VITE_APP_TITLE as string | undefined) ?? 'Jerocine'
+const APP_TITLE = (import.meta.env.VITE_APP_TITLE as string | undefined) ?? 'Jerocine影视'
 
 /**
  * 全局前后置守卫

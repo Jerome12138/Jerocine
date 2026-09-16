@@ -20,7 +20,7 @@ withDefaults(defineProps<Props>(), {
 <template>
   <span class="gf-logo" :style="{ height: size + 'px' }">
     <span class="gf-logo__text" :style="{ fontSize: size * 0.7 + 'px' }">
-      Jerocine
+      Jerocine影视
     </span>
   </span>
 </template>

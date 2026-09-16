@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Jerocine Vue3 重构客户端（用户端 + 管理端 + TV 模式）",
+  "description": "Jerocine影视 Vue3 重构客户端（用户端 + 管理端 + TV 模式）",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -p tsconfig.app.json --noEmit && vite build",

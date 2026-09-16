@@ -29,7 +29,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="14dp"
-                android:text="Jerocine"
+                android:text="Jerocine影视"
                 android:textColor="@color/gf_text"
                 android:textSize="26sp"
                 android:textStyle="bold" />

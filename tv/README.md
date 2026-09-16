@@ -1,4 +1,4 @@
-# Jerocine — 原生 Android TV 客户端
+# Jerocine影视 — 原生 Android TV 客户端
 
 为覆盖**坚果 Nano（Android 6.0 / API 23 / Chromium 48）这类老投影**而做的原生客户端。
 Capacitor(WebView) 方案在该设备上无法安装/运行，故采用原生实现。

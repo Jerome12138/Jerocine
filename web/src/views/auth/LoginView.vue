@@ -176,7 +176,7 @@ async function handleLogin(): Promise<void> {
   <!-- ============ TV: 雷鸟卡片式登录 ============ -->
   <div v-if="isTV" class="gf-tv-login">
     <div class="gf-tv-glass-card gf-tv-login__card">
-      <div class="gf-tv-login__logo text-brand-gradient">Jerocine</div>
+      <div class="gf-tv-login__logo text-brand-gradient">Jerocine影视</div>
       <div class="gf-tv-login__sub">登录后可同步观看历史 / 收藏 / 进入后台管理</div>
 
       <!-- 登录方式切换: 密码 / 扫码 -->
@@ -338,7 +338,7 @@ async function handleLogin(): Promise<void> {
       <h1
         class="text-[var(--gf-fs-2xl)] font-[var(--gf-fw-black)] tracking-tight text-brand-gradient"
       >
-        登录 Jerocine
+        登录 Jerocine影视
       </h1>
       <p class="mt-[var(--gf-space-2)] text-secondary text-sm">
         登录后可同步观看历史 / 收藏 / 进入后台管理

@@ -131,7 +131,7 @@ function selectGroup(id: GroupId): void {
   activeGroup.value = id
 }
 
-const platformLabel = computed(() => (isNative.value ? 'Jerocine TV APP' : 'Web 浏览器'))
+const platformLabel = computed(() => (isNative.value ? 'Jerocine影视 TV APP' : 'Web 浏览器'))
 
 async function onLogout(): Promise<void> {
   await userStore.logout()
@@ -335,7 +335,7 @@ async function onLogout(): Promise<void> {
       <h2 class="gf-settings-card__title">应用信息</h2>
       <div class="gf-settings-row">
         <span class="gf-settings-row__label">运行平台</span>
-        <span class="gf-settings-row__value">{{ isNative ? 'Jerocine TV APP' : 'Web 浏览器' }}</span>
+        <span class="gf-settings-row__value">{{ isNative ? 'Jerocine影视 TV APP' : 'Web 浏览器' }}</span>
       </div>
       <div class="gf-settings-row">
         <span class="gf-settings-row__label">服务器地址</span>

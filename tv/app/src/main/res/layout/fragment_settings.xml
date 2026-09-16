@@ -368,7 +368,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Jerocine TV"
+                    android:text="Jerocine影视 TV"
                     android:textColor="@color/gf_text_secondary"
                     android:textSize="16sp" />
             </LinearLayout>
