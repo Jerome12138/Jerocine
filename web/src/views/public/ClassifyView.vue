@@ -50,7 +50,7 @@ const { isMobile, isTV } = useViewMode()
 
 /**
  * 模块行数限制: 每个模块最多显示 3 行(不同分辨率一致)。
- * 列数需与 CSS 对齐 —— 桌面/移动走 theme.css --gf-list-cols 阶梯(3/4/5/6),
+ * 列数需与 CSS 对齐 —— 桌面/移动走 theme.css --gf-list-cols 阶梯(3/4/5/6/7),
  * TV 分支本页固定 6 列([data-mode='tv'] .gf-tv-grid), 故按视口宽度计算并监听 resize。
  */
 const MAX_MODULE_ROWS = 3
@@ -61,7 +61,8 @@ function calcGridCols(): number {
   if (w < 480) return 3
   if (w < 768) return 4
   if (w < 1024) return 5
-  return 6
+  if (w < 1536) return 6
+  return 7
 }
 function updateGridCols(): void {
   gridCols.value = calcGridCols()

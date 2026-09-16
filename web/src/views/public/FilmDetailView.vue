@@ -18,6 +18,7 @@ import { storeToRefs } from 'pinia'
 import { isNative } from '@/utils/jerocineNative'
 import { formatHotBadge } from '@/utils/format'
 import { useViewMode } from '@/composables/useViewMode'
+import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { dispatchNativePlaylist } from '@/utils/nativePlay'
 
 /**
@@ -75,6 +76,8 @@ const loading = ref(true)
 const errored = ref(false)
 const detail = ref<FilmDetail | null>(null)
 const relate = ref<Card[]>([])
+const { limitToRows } = useGridRowsLimit()
+const visibleRelate = computed(() => limitToRows(relate.value))
 
 async function loadDetail(id: string): Promise<void> {
   loading.value = true
@@ -487,13 +490,13 @@ function handleToggleFavorite(): void {
           </section>
 
           <!-- ===== 相关推荐 (gf-tv-grid 6 列 FilmCard) ===== -->
-          <section v-if="relate.length" class="gf-detail-tv__section" aria-label="相关推荐">
+          <section v-if="visibleRelate.length" class="gf-detail-tv__section" aria-label="相关推荐">
             <div class="gf-tv-sec">
               <span class="t">相关推荐</span>
             </div>
             <div class="gf-tv-grid gf-detail-tv__relate-grid">
               <FilmCard
-                v-for="item in relate"
+                v-for="item in visibleRelate"
                 :key="'rel-' + item.mid"
                 :item="item"
                 :show-title-below="true"
@@ -693,8 +696,8 @@ function handleToggleFavorite(): void {
       </section>
 
       <!-- 相关推荐 (选集职责已移交播放页, 详情页只做"看不看"决策) -->
-      <section v-if="relate.length" class="gf-detail__relate container-page">
-        <RelatedList :items="relate" title="相关推荐" />
+      <section v-if="visibleRelate.length" class="gf-detail__relate container-page">
+        <RelatedList :items="visibleRelate" title="相关推荐" />
       </section>
     </template>
   </div>

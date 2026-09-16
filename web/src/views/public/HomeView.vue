@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { filmApi } from '@/api'
 import { useViewMode } from '@/composables/useViewMode'
+import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { useHistoryStore, useUserStore } from '@/stores'
 import { buildPlayLink } from '@/stores/history'
 import { episodeLabel, progressPercent } from '@/composables/useTimeBucket'
@@ -35,6 +36,7 @@ interface IndexState {
 }
 
 const { isTV } = useViewMode()
+const { limitToRows } = useGridRowsLimit()
 
 const state = ref<IndexState>({
   loading: true,
@@ -511,7 +513,7 @@ onBeforeUnmount(() => {
           </header>
           <div class="gf-home__recommend-grid">
             <FilmCard
-              v-for="(item, idx) in recommendGrid"
+              v-for="(item, idx) in limitToRows(recommendGrid)"
               :key="String(item.mid ?? idx) + '-' + idx"
               :item="item"
               :show-title-below="true"

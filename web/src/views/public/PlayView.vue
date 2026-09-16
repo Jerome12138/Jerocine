@@ -45,6 +45,7 @@ import { storeToRefs } from 'pinia'
 import { normalizeDpadKey } from '@/utils/dpad'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
+import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
@@ -131,6 +132,8 @@ const loading = ref(true)
 const loadError = ref<string>('')
 const detail = ref<PlayInfo['detail'] | null>(null)
 const relate = ref<PlayInfo['related']>([])
+const { limitToRows } = useGridRowsLimit()
+const visibleRelate = computed(() => limitToRows(relate.value))
 /** 当前选中的播放源 ID（与 detail.sources[i].id 对应） */
 const currentSourceId = ref<string>('')
 /** 当前集索引 */
@@ -1872,8 +1875,8 @@ watch(playerReady, (v) => {
       </div>
 
       <!-- 相关推荐: 移到栅格下方整行展示 -->
-      <section v-if="relate.length" class="gf-play-relate mt-[var(--gf-space-8)]">
-        <RelatedList :items="relate" title="相关推荐" />
+      <section v-if="visibleRelate.length" class="gf-play-relate mt-[var(--gf-space-8)]">
+        <RelatedList :items="visibleRelate" title="相关推荐" />
       </section>
     </template>
   </div>
