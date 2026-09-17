@@ -64,16 +64,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    class="gf-route-progress"
+    class="jc-route-progress"
     :data-phase="phase"
     aria-hidden="true"
   >
-    <span class="gf-route-progress__bar" />
+    <span class="jc-route-progress__bar" />
   </div>
 </template>
 
 <style scoped>
-.gf-route-progress {
+.jc-route-progress {
   position: fixed;
   top: 0;
   left: 0;
@@ -82,27 +82,27 @@ onBeforeUnmount(() => {
   z-index: 100;
   pointer-events: none;
   opacity: 0;
-  transition: opacity var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: opacity var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-route-progress[data-phase='loading'],
-.gf-route-progress[data-phase='done'] {
+.jc-route-progress[data-phase='loading'],
+.jc-route-progress[data-phase='done'] {
   opacity: 1;
 }
-.gf-route-progress__bar {
+.jc-route-progress__bar {
   display: block;
   height: 100%;
   width: 0%;
-  background-image: var(--gf-brand-gradient);
+  background-image: var(--jc-brand-gradient);
   box-shadow: 0 0 8px rgba(155, 73, 231, 0.5);
   transform-origin: left center;
-  transition: width 0.6s var(--gf-ease-out);
+  transition: width 0.6s var(--jc-ease-out);
 }
-.gf-route-progress[data-phase='loading'] .gf-route-progress__bar {
+.jc-route-progress[data-phase='loading'] .jc-route-progress__bar {
   /* 300ms 内增长到 70%, 模拟 NProgress 加速曲线 */
   width: 70%;
   transition-duration: 0.7s;
 }
-.gf-route-progress[data-phase='done'] .gf-route-progress__bar {
+.jc-route-progress[data-phase='done'] .jc-route-progress__bar {
   /* 完成: 100% 后由父 opacity 淡出 */
   width: 100%;
   transition-duration: 0.18s;
@@ -111,7 +111,7 @@ onBeforeUnmount(() => {
 
 <style>
 /* TV 模式: 加粗一点 + 更亮, 大屏才看得清 */
-[data-mode='tv'] .gf-route-progress {
+[data-mode='tv'] .jc-route-progress {
   height: 4px;
 }
 </style>

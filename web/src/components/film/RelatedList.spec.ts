@@ -22,7 +22,7 @@ describe('RelatedList', () => {
 
   it('有 items → 渲染 section', () => {
     const w = mount(RelatedList, { props: { items }, global: { plugins: [router] } })
-    expect(w.find('section.gf-related-list').exists()).toBe(true)
+    expect(w.find('section.jc-related-list').exists()).toBe(true)
   })
 
   it('默认 title=相关推荐', () => {

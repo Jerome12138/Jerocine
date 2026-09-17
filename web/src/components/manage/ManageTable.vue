@@ -42,30 +42,30 @@ const useCardMode = computed(() => isMobile.value && props.mobileVariant === 'ca
   <section class="bg-surface rounded-card shadow-card overflow-hidden">
     <header
       v-if="$slots.toolbar"
-      class="px-[var(--gf-space-5)] py-[var(--gf-space-4)] border-b border-subtle flex flex-wrap gap-[var(--gf-space-3)] items-center justify-between"
+      class="px-[var(--jc-space-5)] py-[var(--jc-space-4)] border-b border-subtle flex flex-wrap gap-[var(--jc-space-3)] items-center justify-between"
     >
       <slot name="toolbar" />
     </header>
 
-    <div v-if="props.loading" class="p-[var(--gf-space-5)] flex flex-col gap-[var(--gf-space-3)]">
+    <div v-if="props.loading" class="p-[var(--jc-space-5)] flex flex-col gap-[var(--jc-space-3)]">
       <BaseSkeleton v-for="i in 5" :key="i" shape="rect" :height="'40px'" />
     </div>
 
-    <div v-else-if="props.rows.length === 0" class="py-[var(--gf-space-10)]">
+    <div v-else-if="props.rows.length === 0" class="py-[var(--jc-space-10)]">
       <BaseEmpty :description="props.empty || '暂无数据'" />
     </div>
 
     <div
       v-else-if="useCardMode"
-      class="gf-card-list flex flex-col gap-[var(--gf-space-3)] p-[var(--gf-space-3)]"
+      class="jc-card-list flex flex-col gap-[var(--jc-space-3)] p-[var(--jc-space-3)]"
     >
       <article
         v-for="(row, idx) in props.rows"
         :key="String(row[props.rowKey])"
-        class="bg-elevated rounded-[var(--gf-radius-md)] border border-default p-[var(--gf-space-4)] min-h-[44px]"
+        class="bg-elevated rounded-[var(--jc-radius-md)] border border-default p-[var(--jc-space-4)] min-h-[44px]"
       >
         <slot name="mobile-card" :row="row" :index="idx">
-          <header class="font-[var(--gf-fw-semibold)] text-primary mb-[var(--gf-space-2)]">
+          <header class="font-[var(--jc-fw-semibold)] text-primary mb-[var(--jc-space-2)]">
             <slot
               name="cell"
               :row="row"
@@ -75,11 +75,11 @@ const useCardMode = computed(() => isMobile.value && props.mobileVariant === 'ca
               {{ row[props.columns[0]!.key] ?? '—' }}
             </slot>
           </header>
-          <dl class="text-sm text-secondary space-y-[var(--gf-space-1)]">
+          <dl class="text-sm text-secondary space-y-[var(--jc-space-1)]">
             <div
               v-for="col in props.columns.slice(1)"
               :key="col.key"
-              class="flex gap-[var(--gf-space-2)]"
+              class="flex gap-[var(--jc-space-2)]"
             >
               <dt class="text-muted shrink-0">{{ col.label }}:</dt>
               <dd class="min-w-0 break-words">
@@ -91,7 +91,7 @@ const useCardMode = computed(() => isMobile.value && props.mobileVariant === 'ca
           </dl>
           <div
             v-if="$slots.actions"
-            class="mt-[var(--gf-space-3)] pt-[var(--gf-space-3)] border-t border-subtle flex gap-[var(--gf-space-2)] justify-end flex-wrap"
+            class="mt-[var(--jc-space-3)] pt-[var(--jc-space-3)] border-t border-subtle flex gap-[var(--jc-space-2)] justify-end flex-wrap"
           >
             <slot name="actions" :row="row" />
           </div>
@@ -107,7 +107,7 @@ const useCardMode = computed(() => isMobile.value && props.mobileVariant === 'ca
               v-for="col in props.columns"
               :key="col.key"
               :style="col.width ? { width: col.width } : undefined"
-              class="text-left font-[var(--gf-fw-semibold)] px-[var(--gf-space-4)] py-[var(--gf-space-3)]"
+              class="text-left font-[var(--jc-fw-semibold)] px-[var(--jc-space-4)] py-[var(--jc-space-3)]"
               :class="{
                 'text-right': col.align === 'right',
                 'text-center': col.align === 'center'
@@ -118,7 +118,7 @@ const useCardMode = computed(() => isMobile.value && props.mobileVariant === 'ca
             <th
               v-if="$slots.actions"
               :style="{ width: props.actionsWidth }"
-              class="text-right font-[var(--gf-fw-semibold)] px-[var(--gf-space-4)] py-[var(--gf-space-3)]"
+              class="text-right font-[var(--jc-fw-semibold)] px-[var(--jc-space-4)] py-[var(--jc-space-3)]"
             >
               操作
             </th>
@@ -133,7 +133,7 @@ const useCardMode = computed(() => isMobile.value && props.mobileVariant === 'ca
             <td
               v-for="col in props.columns"
               :key="col.key"
-              class="px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-primary"
+              class="px-[var(--jc-space-4)] py-[var(--jc-space-3)] text-primary"
               :class="{
                 'text-right': col.align === 'right',
                 'text-center': col.align === 'center'
@@ -145,7 +145,7 @@ const useCardMode = computed(() => isMobile.value && props.mobileVariant === 'ca
             </td>
             <td
               v-if="$slots.actions"
-              class="px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-right"
+              class="px-[var(--jc-space-4)] py-[var(--jc-space-3)] text-right"
             >
               <slot name="actions" :row="row" />
             </td>

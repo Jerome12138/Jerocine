@@ -3,7 +3,7 @@
     android:layout_width="130dp"
     android:layout_height="188dp"
     android:layout_marginEnd="12dp"
-    android:background="@drawable/gf_poster_item"
+    android:background="@drawable/jc_poster_item"
     android:clickable="true"
     android:focusable="true"
     android:orientation="vertical"
@@ -24,8 +24,8 @@
             android:layout_height="5dp"
             android:layout_gravity="bottom"
             android:max="1000"
-            android:progressBackgroundTint="@color/gf_progress_unplayed"
-            android:progressTint="@color/gf_progress_played" />
+            android:progressBackgroundTint="@color/jc_progress_unplayed"
+            android:progressTint="@color/jc_progress_played" />
     </FrameLayout>
 
     <TextView
@@ -36,7 +36,7 @@
         android:ellipsize="end"
         android:includeFontPadding="false"
         android:maxLines="1"
-        android:textColor="@color/gf_text"
+        android:textColor="@color/jc_text"
         android:textSize="14sp"
         android:textStyle="bold" />
 
@@ -48,6 +48,6 @@
         android:ellipsize="end"
         android:includeFontPadding="false"
         android:maxLines="1"
-        android:textColor="@color/gf_text_secondary"
+        android:textColor="@color/jc_text_secondary"
         android:textSize="12sp" />
 </LinearLayout>

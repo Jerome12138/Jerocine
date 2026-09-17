@@ -24,13 +24,13 @@ function getItemKey(item: Card, idx: number): string | number {
 
 <template>
   <div
-    class="gf-film-grid"
+    class="jc-film-grid"
     :style="gap ? { gap } : undefined"
   >
     <div
       v-for="(item, idx) in items"
       :key="getItemKey(item, idx)"
-      class="gf-film-grid__cell"
+      class="jc-film-grid__cell"
     >
       <slot name="item" :item="item" :index="idx">
         <FilmCard :item="item" :show-title-below="true" />
@@ -40,19 +40,19 @@ function getItemKey(item: Card, idx: number): string | number {
 </template>
 
 <style scoped>
-.gf-film-grid {
+.jc-film-grid {
   display: grid;
   /* 列数/间距取自 theme.css 的全站统一阶梯(与首页横滚行、各列表页同阶梯):
      移动 3 → ≥480 4 → ≥768 5 → ≥1024 及以上恒 6。改列数只需改 theme.css 一处。 */
-  grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr));
-  gap: var(--gf-list-gap);
+  grid-template-columns: repeat(var(--jc-list-cols), minmax(0, 1fr));
+  gap: var(--jc-list-gap);
 }
 </style>
 
 <style>
-[data-mode='tv'] .gf-film-grid {
+[data-mode='tv'] .jc-film-grid {
   /* P0: 列数自适应 — 960 视口 ~5 列, 1920 ~7 列, 不再写死 8(大屏卡太小/小屏挤) */
-  grid-template-columns: repeat(auto-fit, minmax(var(--gf-tv-card-min, 200px), 1fr));
-  gap: var(--gf-space-6);
+  grid-template-columns: repeat(auto-fit, minmax(var(--jc-tv-card-min, 200px), 1fr));
+  gap: var(--jc-space-6);
 }
 </style>

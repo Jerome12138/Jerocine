@@ -57,7 +57,7 @@ function hashStringFNV1a(input: string): number {
 }
 
 const placeholderColor = computed<string>(() => {
-  const seed = `${props.src}|${props.alt}` || 'gf-placeholder'
+  const seed = `${props.src}|${props.alt}` || 'jc-placeholder'
   const h = hashStringFNV1a(seed)
   const hue = h % 360
   const sat = 18 + ((h >> 9) % 11) // 18-28
@@ -165,14 +165,14 @@ watch(
 <template>
   <div
     ref="wrapEl"
-    class="gf-base-image relative overflow-hidden"
+    class="jc-base-image relative overflow-hidden"
     :class="rounded"
     :style="{ ...aspectStyle, ...placeholderStyle }"
   >
     <!-- 骨架/占位（shimmer 叠加在确定性颜色之上） -->
     <div
       v-if="!loaded && !errored"
-      class="absolute inset-0 gf-base-image__skeleton"
+      class="absolute inset-0 jc-base-image__skeleton"
       aria-hidden="true"
     />
     <!-- 真实图片 -->
@@ -183,10 +183,10 @@ watch(
       :loading="eager ? 'eager' : 'lazy'"
       :fetchpriority="eager ? 'high' : undefined"
       decoding="async"
-      class="gf-base-image__img absolute inset-0 w-full h-full"
+      class="jc-base-image__img absolute inset-0 w-full h-full"
       :class="[
         loaded ? 'opacity-100' : 'opacity-0',
-        loaded && !blurCleared && 'gf-base-image__img--blurred',
+        loaded && !blurCleared && 'jc-base-image__img--blurred',
         fit === 'cover' && 'object-cover',
         fit === 'contain' && 'object-contain',
         fit === 'fill' && 'object-fill',
@@ -198,7 +198,7 @@ watch(
     <!-- 错误回退（无外部 404.png 时使用渐变） -->
     <div
       v-if="errored"
-      class="absolute inset-0 flex items-center justify-center text-muted text-sm gf-base-image__fallback"
+      class="absolute inset-0 flex items-center justify-center text-muted text-sm jc-base-image__fallback"
       role="img"
       :aria-label="alt || 'image failed to load'"
     >
@@ -208,17 +208,17 @@ watch(
 </template>
 
 <style scoped>
-.gf-base-image__img {
+.jc-base-image__img {
   transition:
-    opacity var(--gf-dur-base) var(--gf-ease-standard),
-    filter var(--gf-dur-base) var(--gf-ease-standard);
+    opacity var(--jc-dur-base) var(--jc-ease-standard),
+    filter var(--jc-dur-base) var(--jc-ease-standard);
 }
 
-.gf-base-image__img--blurred {
+.jc-base-image__img--blurred {
   filter: blur(8px);
 }
 
-.gf-base-image__skeleton {
+.jc-base-image__skeleton {
   /* 透明度 ≤ 0.12，让确定性背景色"穿透"可见 */
   background: linear-gradient(
     90deg,
@@ -227,14 +227,14 @@ watch(
     rgba(255, 255, 255, 0.03) 100%
   );
   background-size: 200% 100%;
-  animation: gf-shimmer 1.4s linear infinite;
+  animation: jc-shimmer 1.4s linear infinite;
 }
 
-.gf-base-image__fallback {
+.jc-base-image__fallback {
   background: linear-gradient(135deg, #1c1d22 0%, #2a2b32 50%, #1c1d22 100%);
 }
 
-@keyframes gf-shimmer {
+@keyframes jc-shimmer {
   0% {
     background-position: 200% 0;
   }

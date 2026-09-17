@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:includeFontPadding="false"
-        android:textColor="@color/gf_text_tertiary"
+        android:textColor="@color/jc_text_tertiary"
         android:textSize="14sp"
         android:textStyle="bold" />
 

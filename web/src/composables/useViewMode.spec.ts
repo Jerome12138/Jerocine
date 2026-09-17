@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 describe('useViewMode 四档检测', () => {
   beforeEach(() => {
-    localStorage.removeItem('gf-mode')
+    localStorage.removeItem('jc-mode')
     document.documentElement.removeAttribute('data-mode')
     vi.resetModules()
   })
@@ -39,11 +39,11 @@ describe('useViewMode 四档检测', () => {
 
   /**
    * Native APK 强制 TV — 回归之前的 bug: 用户在 drawer 里点过"切桌面模式",
-   * localStorage 留下 gf-mode='desktop', 物理 TV 就锁死在 desktop 模式, 页面
+   * localStorage 留下 jc-mode='desktop', 物理 TV 就锁死在 desktop 模式, 页面
    * 横向溢出. 修复后 detectCapacitorAndroid=true 时持久化被无视, 永远 'tv'.
    */
   it('JerocineNative 注入时强制 TV 模式 (忽略 persisted desktop)', async () => {
-    localStorage.setItem('gf-mode', 'desktop')
+    localStorage.setItem('jc-mode', 'desktop')
     Object.defineProperty(window, 'innerWidth', { value: 960, configurable: true })
     ;(window as unknown as { JerocineNative: { invoke: () => string } }).JerocineNative = {
       invoke: () => '{"ok":true}'

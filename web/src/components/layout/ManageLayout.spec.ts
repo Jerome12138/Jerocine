@@ -40,31 +40,31 @@ describe('ManageLayout 响应式接入', () => {
     forceMode('desktop')
   })
 
-  it('根 div 有 gf-manage class (P4 触摸目标 CSS scope)', async () => {
+  it('根 div 有 jc-manage class (P4 触摸目标 CSS scope)', async () => {
     const w = await mountLayout()
-    const root = w.find('div.gf-manage')
+    const root = w.find('div.jc-manage')
     expect(root.exists()).toBe(true)
   })
 
   it('desktop 模式 data-mode="desktop"', async () => {
     forceMode('desktop')
     const w = await mountLayout()
-    expect(w.find('div.gf-manage').attributes('data-mode')).toBe('desktop')
+    expect(w.find('div.jc-manage').attributes('data-mode')).toBe('desktop')
   })
 
   it('mobile 模式 data-mode="mobile"', async () => {
     forceMode('mobile')
     const w = await mountLayout()
-    expect(w.find('div.gf-manage').attributes('data-mode')).toBe('mobile')
+    expect(w.find('div.jc-manage').attributes('data-mode')).toBe('mobile')
   })
 
   it('main 区有三档 padding class (p-3 / md:p-4 / lg:p-6)', async () => {
     const w = await mountLayout()
     const main = w.find('main')
     const cls = main.classes()
-    expect(cls).toContain('p-[var(--gf-space-3)]')
-    expect(cls).toContain('md:p-[var(--gf-space-4)]')
-    expect(cls).toContain('lg:p-[var(--gf-space-6)]')
+    expect(cls).toContain('p-[var(--jc-space-3)]')
+    expect(cls).toContain('md:p-[var(--jc-space-4)]')
+    expect(cls).toContain('lg:p-[var(--jc-space-6)]')
   })
 
   it('slot 内容渲染到 main 区', async () => {

@@ -26,7 +26,7 @@ describe('ContinueWatchingRow', () => {
 
   it('无观看历史时整块不渲染', () => {
     const w = mount(ContinueWatchingRow, mountOpts)
-    expect(w.find('.gf-continue').exists()).toBe(false)
+    expect(w.find('.jc-continue').exists()).toBe(false)
   })
 
   it('有历史时渲染"继续观看"标题与卡片', () => {
@@ -46,11 +46,11 @@ describe('ContinueWatchingRow', () => {
       episode: '第2集'
     })
     const w = mount(ContinueWatchingRow, mountOpts)
-    expect(w.find('.gf-continue').exists()).toBe(true)
+    expect(w.find('.jc-continue').exists()).toBe(true)
     expect(w.text()).toContain('继续观看')
     expect(w.text()).toContain('片A')
     expect(w.text()).toContain('片B')
-    expect(w.findAll('.gf-continue__item').length).toBe(2)
+    expect(w.findAll('.jc-continue__item').length).toBe(2)
   })
 
   it('最多取 12 条', () => {
@@ -64,7 +64,7 @@ describe('ContinueWatchingRow', () => {
       })
     }
     const w = mount(ContinueWatchingRow, mountOpts)
-    expect(w.findAll('.gf-continue__item').length).toBe(12)
+    expect(w.findAll('.jc-continue__item').length).toBe(12)
   })
 
   it('卡片链接指向 record.link(续播 /play)', () => {

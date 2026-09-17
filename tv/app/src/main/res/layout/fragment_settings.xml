@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/gf_bg"
+    android:background="@color/jc_bg"
     android:orientation="horizontal"
     android:padding="28dp">
 
@@ -20,12 +20,12 @@
 
             <ImageButton
                 android:id="@+id/settings_back"
-                style="@style/GfIconButton"
+                style="@style/JcIconButton"
                 android:contentDescription="返回"
                 android:src="@drawable/ic_back" />
 
             <TextView
-                style="@style/GfPageTitle"
+                style="@style/JcPageTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="14dp"
@@ -37,12 +37,12 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="5dp"
             android:text="播放 · 账号 · 设备"
-            android:textColor="@color/gf_text_secondary"
+            android:textColor="@color/jc_text_secondary"
             android:textSize="15sp" />
 
         <Button
             android:id="@+id/settings_group_play"
-            style="@style/GfButtonSecondary"
+            style="@style/JcButtonSecondary"
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:layout_marginTop="30dp"
@@ -54,7 +54,7 @@
 
         <Button
             android:id="@+id/settings_group_ad"
-            style="@style/GfButtonSecondary"
+            style="@style/JcButtonSecondary"
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:layout_marginTop="10dp"
@@ -66,7 +66,7 @@
 
         <Button
             android:id="@+id/settings_group_account"
-            style="@style/GfButtonSecondary"
+            style="@style/JcButtonSecondary"
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:layout_marginTop="10dp"
@@ -78,7 +78,7 @@
 
         <Button
             android:id="@+id/settings_group_device"
-            style="@style/GfButtonSecondary"
+            style="@style/JcButtonSecondary"
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:layout_marginTop="10dp"
@@ -90,7 +90,7 @@
 
         <Button
             android:id="@+id/settings_group_about"
-            style="@style/GfButtonSecondary"
+            style="@style/JcButtonSecondary"
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:layout_marginTop="10dp"
@@ -105,7 +105,7 @@
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
-        android:background="@drawable/gf_surface_panel"
+        android:background="@drawable/jc_surface_panel"
         android:fillViewport="true"
         android:padding="28dp"
         android:scrollbars="none">
@@ -124,7 +124,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="播放"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="26sp"
                     android:textStyle="bold" />
 
@@ -133,7 +133,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="动画与播放体验"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
 
                 <TextView
@@ -141,7 +141,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="34dp"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="19sp"
                     android:textStyle="bold" />
 
@@ -153,7 +153,7 @@
 
                     <Button
                         android:id="@+id/settings_motion_auto"
-                        style="@style/GfChip"
+                        style="@style/JcChip"
                         android:layout_width="150dp"
                         android:layout_height="52dp"
                         android:focusable="true"
@@ -162,7 +162,7 @@
 
                     <Button
                         android:id="@+id/settings_motion_reduce"
-                        style="@style/GfChip"
+                        style="@style/JcChip"
                         android:layout_width="150dp"
                         android:layout_height="52dp"
                         android:layout_marginStart="12dp"
@@ -172,7 +172,7 @@
 
                     <Button
                         android:id="@+id/settings_motion_full"
-                        style="@style/GfChip"
+                        style="@style/JcChip"
                         android:layout_width="150dp"
                         android:layout_height="52dp"
                         android:layout_marginStart="12dp"
@@ -186,7 +186,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="30dp"
                     android:text="画质"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="19sp"
                     android:textStyle="bold" />
 
@@ -195,7 +195,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="自动"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
             </LinearLayout>
 
@@ -210,7 +210,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="广告过滤"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="26sp"
                     android:textStyle="bold" />
 
@@ -219,12 +219,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="28dp"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="17sp" />
 
                 <Button
                     android:id="@+id/settings_ad_toggle"
-                    style="@style/GfButtonSecondary"
+                    style="@style/JcButtonSecondary"
                     android:layout_width="180dp"
                     android:layout_height="54dp"
                     android:layout_marginTop="18dp"
@@ -236,7 +236,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="32dp"
                     android:text="过滤方式"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="19sp"
                     android:textStyle="bold" />
 
@@ -245,7 +245,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="端侧抓流 / 服务端过滤文本"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
             </LinearLayout>
 
@@ -260,7 +260,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="账号"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="26sp"
                     android:textStyle="bold" />
 
@@ -269,7 +269,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="登录与跨设备同步"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
 
                 <TextView
@@ -277,7 +277,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="34dp"
                     android:text="当前账号"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="15sp" />
 
                 <TextView
@@ -285,13 +285,13 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="21sp"
                     android:textStyle="bold" />
 
                 <Button
                     android:id="@+id/settings_account_action"
-                    style="@style/GfButtonSecondary"
+                    style="@style/JcButtonSecondary"
                     android:layout_width="180dp"
                     android:layout_height="54dp"
                     android:layout_marginTop="22dp"
@@ -310,7 +310,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="设备"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="26sp"
                     android:textStyle="bold" />
 
@@ -319,7 +319,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="服务器与运行环境"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
 
                 <EditText
@@ -327,19 +327,19 @@
                     android:layout_width="match_parent"
                     android:layout_height="58dp"
                     android:layout_marginTop="30dp"
-                    android:background="@drawable/gf_input"
+                    android:background="@drawable/jc_input"
                     android:focusable="true"
                     android:hint="https://example.com"
                     android:inputType="textUri"
                     android:maxLines="1"
                     android:paddingHorizontal="16dp"
-                    android:textColor="@color/gf_text"
-                    android:textColorHint="@color/gf_text_tertiary"
+                    android:textColor="@color/jc_text"
+                    android:textColorHint="@color/jc_text_tertiary"
                     android:textSize="17sp" />
 
                 <Button
                     android:id="@+id/settings_server_save"
-                    style="@style/GfButtonPrimary"
+                    style="@style/JcButtonPrimary"
                     android:layout_width="160dp"
                     android:layout_height="54dp"
                     android:layout_marginTop="14dp"
@@ -352,7 +352,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="15sp" />
 
                 <TextView
@@ -360,7 +360,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="28dp"
                     android:text="运行平台"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="19sp"
                     android:textStyle="bold" />
 
@@ -369,7 +369,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="Jerocine影视 TV"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
             </LinearLayout>
 
@@ -384,7 +384,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="关于"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="26sp"
                     android:textStyle="bold" />
 
@@ -393,7 +393,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="28dp"
                     android:text="应用版本"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="15sp" />
 
                 <TextView
@@ -401,7 +401,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="19sp" />
 
                 <TextView
@@ -409,7 +409,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="20dp"
                     android:text="构建模式"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="15sp" />
 
                 <TextView
@@ -417,7 +417,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="19sp" />
 
                 <TextView
@@ -425,7 +425,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="20dp"
                     android:text="服务器地址"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="15sp" />
 
                 <TextView
@@ -435,12 +435,12 @@
                     android:layout_marginTop="4dp"
                     android:ellipsize="end"
                     android:maxLines="1"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="17sp" />
 
                 <Button
                     android:id="@+id/settings_version_check"
-                    style="@style/GfButtonSecondary"
+                    style="@style/JcButtonSecondary"
                     android:layout_width="180dp"
                     android:layout_height="54dp"
                     android:layout_marginTop="24dp"
@@ -454,7 +454,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:text="GET /app/version/latest"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="15sp" />
             </LinearLayout>
         </FrameLayout>

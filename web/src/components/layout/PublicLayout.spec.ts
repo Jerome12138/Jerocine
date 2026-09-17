@@ -43,7 +43,7 @@ describe('PublicLayout', () => {
 
   it('根 div data-mode 响应 useViewMode', async () => {
     const w = await mountLayout()
-    const root = w.find('.gf-public-layout')
+    const root = w.find('.jc-public-layout')
     expect(root.attributes('data-mode')).toBeDefined()
   })
 

@@ -114,7 +114,7 @@ export const ENDPOINT = API_BASE + '/v1/telemetry/events'
 function genSessionId(): string {
   if (typeof window === 'undefined') return 'ssr'
   try {
-    const KEY = 'gf-telemetry-sid'
+    const KEY = 'jc-telemetry-sid'
     let v = sessionStorage.getItem(KEY)
     if (!v) {
       v = 's_' + Math.random().toString(36).slice(2) + Date.now().toString(36)

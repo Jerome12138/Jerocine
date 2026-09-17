@@ -15,11 +15,11 @@ test.describe('FilmDetailView 详情页', () => {
   })
 
   test('标题显示 mock 影片名', async ({ page }) => {
-    await expect(page.locator('.gf-detail__title')).toContainText(/流浪地球/i)
+    await expect(page.locator('.jc-detail__title')).toContainText(/流浪地球/i)
   })
 
   test('Hero 背景图样式注入了 url()', async ({ page }) => {
-    const bg = page.locator('.gf-detail__hero-bg').first()
+    const bg = page.locator('.jc-detail__hero-bg').first()
     await expect(bg).toBeVisible()
     const style = (await bg.getAttribute('style')) ?? ''
     expect(style).toContain('background-image')
@@ -38,34 +38,34 @@ test.describe('FilmDetailView 详情页', () => {
 
   test('EpisodeTabs 多源 tab + 集数 chip', async ({ page }) => {
     // mock 每部影片 2 个源
-    const sourceTabs = page.locator('.gf-source-tab')
+    const sourceTabs = page.locator('.jc-source-tab')
     await expect(sourceTabs).toHaveCount(2)
 
     // 第一源默认选中（active class）
-    await expect(sourceTabs.first()).toHaveClass(/gf-source-tab--active/)
+    await expect(sourceTabs.first()).toHaveClass(/jc-source-tab--active/)
 
     // 集数 chip 至少 1 个
-    const chips = page.locator('.gf-episode-chip')
+    const chips = page.locator('.jc-episode-chip')
     await expect(chips.first()).toBeVisible()
     expect(await chips.count()).toBeGreaterThanOrEqual(1)
   })
 
   test('点选第二源切换并刷新集数列表', async ({ page }) => {
-    const tabs = page.locator('.gf-source-tab')
+    const tabs = page.locator('.jc-source-tab')
     await tabs.nth(1).click()
-    await expect(tabs.nth(1)).toHaveClass(/gf-source-tab--active/)
+    await expect(tabs.nth(1)).toHaveClass(/jc-source-tab--active/)
   })
 
   test('相关推荐区渲染', async ({ page }) => {
     // RelatedList 渲染 — mock buildFilmDetailResp 默认 8 条
-    const related = page.locator('.gf-detail__relate, [class*="relate"]').first()
+    const related = page.locator('.jc-detail__relate, [class*="relate"]').first()
     await expect(related).toBeVisible({ timeout: 5_000 })
   })
 
   test('剧情简介展开/收起', async ({ page }) => {
-    const summary = page.locator('.gf-detail__summary')
+    const summary = page.locator('.jc-detail__summary')
     if ((await summary.count()) === 0) test.skip(true, '此影片无 content')
-    const btn = summary.locator('.gf-detail__expand')
+    const btn = summary.locator('.jc-detail__expand')
     if ((await btn.count()) > 0) {
       const before = (await btn.textContent())?.trim()
       await btn.click()

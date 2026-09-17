@@ -20,8 +20,8 @@ describe('BaseEmpty', () => {
 
   it('role=status aria-live=polite (无障碍)', () => {
     const w = mount(BaseEmpty)
-    expect(w.find('.gf-empty').attributes('role')).toBe('status')
-    expect(w.find('.gf-empty').attributes('aria-live')).toBe('polite')
+    expect(w.find('.jc-empty').attributes('role')).toBe('status')
+    expect(w.find('.jc-empty').attributes('aria-live')).toBe('polite')
   })
 
   it('hideIcon=true 隐藏默认 icon', () => {

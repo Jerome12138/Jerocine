@@ -31,12 +31,12 @@ onMounted(async () => {
 
 <template>
   <div
-    class="gf-public-layout"
+    class="jc-public-layout"
     :data-mode="mode"
   >
     <RouteProgress />
     <PublicHeader />
-    <main class="gf-public-layout__main">
+    <main class="jc-public-layout__main">
       <slot />
     </main>
     <!-- TV 模式不显示页脚(遥控器无交互价值, 且占据焦点行) -->
@@ -49,25 +49,25 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.gf-public-layout {
+.jc-public-layout {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: var(--gf-bg-base);
-  color: var(--gf-text-primary);
+  background-color: var(--jc-bg-base);
+  color: var(--jc-text-primary);
 }
 
-.gf-public-layout__main {
+.jc-public-layout__main {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 56px - 220px);
   /* 移动端 tabbar fixed 在底部, 留出 padding 不让最后一屏内容被压住 */
-  padding-bottom: calc(var(--gf-tabbar-height, 56px) + env(safe-area-inset-bottom, 0));
+  padding-bottom: calc(var(--jc-tabbar-height, 56px) + env(safe-area-inset-bottom, 0));
 }
 
 @media (min-width: 768px) {
-  .gf-public-layout__main {
+  .jc-public-layout__main {
     min-height: calc(100vh - 64px - 200px);
     padding-bottom: 0; /* md+ tabbar 隐藏, 不需要留位 */
   }
@@ -76,16 +76,16 @@ onMounted(async () => {
 
 <style>
 /* TV 安全区 + 居中容器 */
-[data-mode='tv'] .gf-public-layout {
+[data-mode='tv'] .jc-public-layout {
   /* layout 自身保持流式（背景需要全屏），仅 main 居中 */
 }
-[data-mode='tv'] .gf-public-layout__main {
+[data-mode='tv'] .jc-public-layout__main {
   min-height: calc(100vh - 96px - 200px);
 }
-/* TV 模式下 .container-page 走 1600 居中（已由 theme.css 内 --gf-container-max-2xl 控制） */
+/* TV 模式下 .container-page 走 1600 居中（已由 theme.css 内 --jc-container-max-2xl 控制） */
 [data-mode='tv'] .container-page {
-  max-width: var(--gf-container-max-2xl);
+  max-width: var(--jc-container-max-2xl);
   margin-inline: auto;
-  padding-inline: var(--gf-tv-safe);
+  padding-inline: var(--jc-tv-safe);
 }
 </style>

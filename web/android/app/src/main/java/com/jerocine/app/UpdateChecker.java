@@ -153,7 +153,7 @@ public class UpdateChecker {
                 : changelog;
         if (force) msg = "[强制更新] " + msg;
 
-        AlertDialog.Builder b = new AlertDialog.Builder(activity, R.style.GfPlayerDialog)
+        AlertDialog.Builder b = new AlertDialog.Builder(activity, R.style.JcPlayerDialog)
                 .setTitle(title)
                 .setMessage(msg)
                 .setCancelable(!force)

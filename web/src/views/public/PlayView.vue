@@ -177,7 +177,7 @@ const currentSrc = ref<string>('')
  * 由后端拉源后剔除疑似广告 segment 再回吐, video.js 透明消费.
  * 非 m3u8 (mp4 / flv 等) 不重写, 走原始 URL.
  */
-const AD_FILTER_LS_KEY = 'gf-ad-filter'
+const AD_FILTER_LS_KEY = 'jc-ad-filter'
 const adFilter = ref<boolean>(
   (() => {
     try {
@@ -1565,7 +1565,7 @@ watch(playerReady, (v) => {
 </script>
 
 <template>
-  <div class="gf-play-view container-page py-[var(--gf-space-6)]">
+  <div class="jc-play-view container-page py-[var(--jc-space-6)]">
     <!-- 错误：API 失败 -->
     <BaseEmpty
       v-if="loadError && !loading"
@@ -1582,11 +1582,11 @@ watch(playerReady, (v) => {
     <!-- 主内容 -->
     <template v-if="!loadError">
       <!-- 主栅格: lg+ 左视频/简介 + 右选集; 小屏单栏堆叠 -->
-      <div class="gf-play-grid">
-        <section class="gf-play-grid__main flex flex-col gap-[var(--gf-space-5)]">
+      <div class="jc-play-grid">
+        <section class="jc-play-grid__main flex flex-col gap-[var(--jc-space-5)]">
           <!-- 播放器容器 -->
           <div
-            class="gf-player-wrap"
+            class="jc-player-wrap"
             :data-loading="loading ? '1' : '0'"
             @touchstart="onPlayerTouchStart"
             @touchmove="onPlayerTouchMove"
@@ -1595,7 +1595,7 @@ watch(playerReady, (v) => {
           >
             <video
               ref="videoEl"
-              class="video-js vjs-default-skin gf-player"
+              class="video-js vjs-default-skin jc-player"
               playsinline
               tabindex="0"
             />
@@ -1604,30 +1604,30 @@ watch(playerReady, (v) => {
                  (右上角广告角标/手势提示消失的根因)。player 未初始化时宿主为空 → 留在原位。 -->
             <Teleport :to="playerOverlayHost || 'body'" :disabled="!playerOverlayHost">
               <!-- 长按临时倍速提示(顶部居中) -->
-              <div v-if="gestureRateHint" class="gf-player-gesture gf-player-gesture--rate" aria-hidden="true">
+              <div v-if="gestureRateHint" class="jc-player-gesture jc-player-gesture--rate" aria-hidden="true">
                 {{ gestureRateHint }}
               </div>
               <!-- 横滑刮擦预览(底部): 迷你进度条(目标+当前位置) + 文本 -->
-              <div v-if="gestureSeekHint" class="gf-player-gesture gf-player-gesture--seek" aria-hidden="true">
-                <div class="gf-player-gesture__bar">
-                  <div class="gf-player-gesture__fill" :style="{ width: gestureSeekHint.percent + '%' }" />
-                  <div class="gf-player-gesture__cur" :style="{ left: gestureSeekHint.curPercent + '%' }" />
+              <div v-if="gestureSeekHint" class="jc-player-gesture jc-player-gesture--seek" aria-hidden="true">
+                <div class="jc-player-gesture__bar">
+                  <div class="jc-player-gesture__fill" :style="{ width: gestureSeekHint.percent + '%' }" />
+                  <div class="jc-player-gesture__cur" :style="{ left: gestureSeekHint.curPercent + '%' }" />
                 </div>
-                <div class="gf-player-gesture__text">{{ gestureSeekHint.text }}</div>
+                <div class="jc-player-gesture__text">{{ gestureSeekHint.text }}</div>
               </div>
               <!-- I-017: 广告过滤状态角标(常驻, 右上角, 五态) -->
               <div
                 v-if="adFilterBadge"
-                class="gf-player-adtag"
+                class="jc-player-adtag"
                 :data-kind="adFilterBadge.kind"
               >
                 {{ adBadgeText }}
               </div>
               <!-- 全屏左上角: 影片名 · 该集名称。显隐跟随控制条(useractive/userinactive, 暂停常显),
-                   与右上角角标垂直居中对齐、顶部留 safe-area 空隙避开状态栏(样式见 gf-player-title) -->
+                   与右上角角标垂直居中对齐、顶部留 safe-area 空隙避开状态栏(样式见 jc-player-title) -->
               <div
                 v-if="isPlayerFullscreen && (playerControlsVisible || paused) && detail"
-                class="gf-player-title"
+                class="jc-player-title"
                 aria-hidden="true"
               >
                 {{ detail.name }}<template v-if="currentEpisode"> · {{ currentEpisode.episode }}</template>
@@ -1637,15 +1637,15 @@ watch(playerReady, (v) => {
                    必须放在 Teleport 内: 全屏元素是 .video-js 容器, 留在外面则全屏时不可见 -->
               <div
                 v-if="loading || buffering"
-                class="gf-player-loading"
-                :class="{ 'gf-player-loading--blocking': loading }"
+                class="jc-player-loading"
+                :class="{ 'jc-player-loading--blocking': loading }"
                 role="status"
                 aria-live="polite"
               >
-                <span class="gf-player-loading__spinner" />
-                <span v-if="loading" class="gf-player-loading__text">{{ loadingHint }}</span>
+                <span class="jc-player-loading__spinner" />
+                <span v-if="loading" class="jc-player-loading__text">{{ loadingHint }}</span>
               </div>
-              <div v-if="videoErrorMsg" class="gf-player-error" role="alert">
+              <div v-if="videoErrorMsg" class="jc-player-error" role="alert">
                 {{ videoErrorMsg }}
               </div>
             </Teleport>
@@ -1654,17 +1654,17 @@ watch(playerReady, (v) => {
           <!-- 当前播放信息 + 控件: 桌面端 操作按钮组与标题同行(靠右), 移动端按钮组另起一行 -->
           <header
             v-if="detail"
-            class="gf-play-info"
+            class="jc-play-info"
           >
             <!-- 标题行: 影片名 + 当前集名称(超长单行省略); 桌面端按钮组由 CSS 落到本行右侧 -->
-            <h1 class="gf-play-info__title text-[var(--gf-fs-lg)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]">
-              <span class="gf-play-info__name">{{ detail.name }}</span>
-              <span v-if="currentEpisode" class="gf-play-info__episode text-secondary text-[var(--gf-fs-sm)]">
+            <h1 class="jc-play-info__title text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]">
+              <span class="jc-play-info__name">{{ detail.name }}</span>
+              <span v-if="currentEpisode" class="jc-play-info__episode text-secondary text-[var(--jc-fs-sm)]">
                 · {{ currentEpisode.episode }}
               </span>
             </h1>
             <!-- 标签行 -->
-            <div class="gf-play-info__tags flex flex-wrap items-center gap-[var(--gf-space-2)]">
+            <div class="jc-play-info__tags flex flex-wrap items-center gap-[var(--jc-space-2)]">
               <BaseTag
                 v-for="t in tagList"
                 :key="t"
@@ -1675,7 +1675,7 @@ watch(playerReady, (v) => {
               </BaseTag>
               <RouterLink
                 :to="{ path: '/filmDetail', query: { link: String(detail.mid) } }"
-                class="gf-play-info__detail-link"
+                class="jc-play-info__detail-link"
               >
                 查看完整介绍 ›
               </RouterLink>
@@ -1684,52 +1684,52 @@ watch(playerReady, (v) => {
         <!-- TV 端 (C 方案): 图标工具条, 一排等宽图标+小字 -->
         <div
           v-if="isTV"
-          class="gf-play-toolbar gf-play-toolbar--tv"
+          class="jc-play-toolbar jc-play-toolbar--tv"
           role="toolbar"
           aria-label="播放操作"
         >
-          <button type="button" class="gf-pt-btn gf-pt-btn--primary" :disabled="!hasNext" data-focusable="true" @click="playNext">
+          <button type="button" class="jc-pt-btn jc-pt-btn--primary" :disabled="!hasNext" data-focusable="true" @click="playNext">
             <BaseIcon name="skip-next" size="26px" /><span>下一集</span>
           </button>
-          <button type="button" class="gf-pt-btn" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" data-focusable="true" @click="toggleAutoPlayNext">
+          <button type="button" class="jc-pt-btn" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" data-focusable="true" @click="toggleAutoPlayNext">
             <BaseIcon name="autoplay" size="26px" /><span>连播</span>
           </button>
-          <button type="button" class="gf-pt-btn" :class="testingLines ? 'is-loading' : ''" data-focusable="true" @click="testLines">
+          <button type="button" class="jc-pt-btn" :class="testingLines ? 'is-loading' : ''" data-focusable="true" @click="testLines">
             <BaseIcon name="refresh" size="26px" /><span>测速</span>
           </button>
-          <button v-if="fastestLineId && fastestLineId !== currentSourceId" type="button" class="gf-pt-btn gf-pt-btn--accent" data-focusable="true" @click="switchToFastest">
+          <button v-if="fastestLineId && fastestLineId !== currentSourceId" type="button" class="jc-pt-btn jc-pt-btn--accent" data-focusable="true" @click="switchToFastest">
             <BaseIcon name="skip-next" size="26px" /><span>最快</span>
           </button>
-          <button type="button" class="gf-pt-btn" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" data-focusable="true" @click="adFilter = !adFilter">
+          <button type="button" class="jc-pt-btn" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" data-focusable="true" @click="adFilter = !adFilter">
             <BaseIcon name="shield" size="26px" /><span>广告</span>
           </button>
-          <button type="button" class="gf-pt-btn" :class="favorited ? 'is-on' : ''" :aria-pressed="favorited" data-focusable="true" @click="toggleFavorite">
+          <button type="button" class="jc-pt-btn" :class="favorited ? 'is-on' : ''" :aria-pressed="favorited" data-focusable="true" @click="toggleFavorite">
             <BaseIcon name="star" size="26px" /><span>{{ favorited ? '已收藏' : '收藏' }}</span>
           </button>
-          <button type="button" class="gf-pt-btn" data-focusable="true" @click="openSkipDialog">
+          <button type="button" class="jc-pt-btn" data-focusable="true" @click="openSkipDialog">
             <BaseIcon name="settings" size="26px" /><span>跳过</span>
           </button>
         </div>
 
         <!-- PC / 移动: 主操作区只留高频(下集 / 收藏 / 切到最快);
              自动连播 / 过滤广告 / 线路测速 / 跳过设置 默认收进"更多"下拉, 减少拥挤。
-             桌面端由 .gf-play-info 的栅格放到标题行右侧(与影片名同行), 移动端留在标签行下方。 -->
-        <div v-else class="gf-play-toolbar gf-play-toolbar--main">
+             桌面端由 .jc-play-info 的栅格放到标题行右侧(与影片名同行), 移动端留在标签行下方。 -->
+        <div v-else class="jc-play-toolbar jc-play-toolbar--main">
           <!-- 组1 播放控制 -->
-          <div class="gf-pt-group gf-pt-group--primary">
+          <div class="jc-pt-group jc-pt-group--primary">
             <BaseButton variant="gradient" size="sm" :disabled="!hasNext" @click="playNext">
               <template #icon><BaseIcon name="skip-next" size="18px" /></template>
               下集
             </BaseButton>
           </div>
           <!-- 组2 操作 -->
-          <div class="gf-pt-group">
+          <div class="jc-pt-group">
             <!-- 收藏: 纯图标(空心=未收藏 / 实心+品牌色=已收藏), 文案走 aria-label + title -->
             <BaseButton
               variant="outline"
               size="sm"
-              class="gf-pt-fav"
-              :class="favorited ? 'gf-toggle--on' : ''"
+              class="jc-pt-fav"
+              :class="favorited ? 'jc-toggle--on' : ''"
               :aria-pressed="favorited"
               :aria-label="favorited ? '已收藏' : '收藏'"
               :title="favorited ? '已收藏' : '收藏'"
@@ -1745,43 +1745,43 @@ watch(playerReady, (v) => {
               切到最快
             </BaseButton>
             <!-- 更多: 收纳 自动连播 / 过滤广告 / 线路测速 / 跳过设置 (+移动端分享) -->
-            <div class="gf-pt-more">
+            <div class="jc-pt-more">
               <BaseButton variant="outline" size="sm" :aria-expanded="moreActionsOpen" @click="moreActionsOpen = !moreActionsOpen">
                 <template #icon><BaseIcon name="menu" size="18px" /></template>
                 更多
               </BaseButton>
               <!-- 点击空白处关闭 (开关项不关菜单, 故需此遮罩兜底) -->
-              <div v-if="moreActionsOpen" class="gf-pt-more__backdrop" @click="moreActionsOpen = false" />
-              <Transition name="gf-fade">
-                <div v-if="moreActionsOpen" class="gf-pt-more__panel">
+              <div v-if="moreActionsOpen" class="jc-pt-more__backdrop" @click="moreActionsOpen = false" />
+              <Transition name="jc-fade">
+                <div v-if="moreActionsOpen" class="jc-pt-more__panel">
                   <!-- 开关项: 点击切换, 不关菜单, 用对勾显示当前态 -->
-                  <button type="button" class="gf-pt-more__item" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" @click="toggleAutoPlayNext">
+                  <button type="button" class="jc-pt-more__item" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" @click="toggleAutoPlayNext">
                     <BaseIcon name="autoplay" size="16px" />
-                    <span class="gf-pt-more__item-label">自动连播</span>
-                    <span v-if="autoPlayNext" class="gf-pt-more__check" aria-hidden="true">✓</span>
+                    <span class="jc-pt-more__item-label">自动连播</span>
+                    <span v-if="autoPlayNext" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
-                  <button type="button" class="gf-pt-more__item" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" @click="adFilter = !adFilter">
+                  <button type="button" class="jc-pt-more__item" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" @click="adFilter = !adFilter">
                     <BaseIcon name="shield" size="16px" />
-                    <span class="gf-pt-more__item-label">过滤广告</span>
-                    <span v-if="adFilter" class="gf-pt-more__check" aria-hidden="true">✓</span>
+                    <span class="jc-pt-more__item-label">过滤广告</span>
+                    <span v-if="adFilter" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
-                  <div class="gf-pt-more__sep" aria-hidden="true" />
+                  <div class="jc-pt-more__sep" aria-hidden="true" />
                   <!-- 动作项: 点击后关菜单 -->
-                  <button type="button" class="gf-pt-more__item" :class="testingLines ? 'is-loading' : ''" @click="testLines(); moreActionsOpen = false">
+                  <button type="button" class="jc-pt-more__item" :class="testingLines ? 'is-loading' : ''" @click="testLines(); moreActionsOpen = false">
                     <BaseIcon name="refresh" size="16px" />
-                    <span class="gf-pt-more__item-label">播放测速</span>
+                    <span class="jc-pt-more__item-label">播放测速</span>
                   </button>
-                  <button type="button" class="gf-pt-more__item" @click="openSkipDialog(); moreActionsOpen = false">
+                  <button type="button" class="jc-pt-more__item" @click="openSkipDialog(); moreActionsOpen = false">
                     <BaseIcon name="settings" size="16px" />
-                    <span class="gf-pt-more__item-label">跳过设置</span>
+                    <span class="jc-pt-more__item-label">跳过设置</span>
                   </button>
-                  <button type="button" class="gf-pt-more__item" @click="clearFilmCache">
+                  <button type="button" class="jc-pt-more__item" @click="clearFilmCache">
                     <BaseIcon name="trash" size="16px" />
-                    <span class="gf-pt-more__item-label">清理本视频播放缓存</span>
+                    <span class="jc-pt-more__item-label">清理本视频播放缓存</span>
                   </button>
-                  <button v-if="!isDesktop" type="button" class="gf-pt-more__item" @click="handleShare(); moreActionsOpen = false">
+                  <button v-if="!isDesktop" type="button" class="jc-pt-more__item" @click="handleShare(); moreActionsOpen = false">
                     <BaseIcon name="share" size="16px" />
-                    <span class="gf-pt-more__item-label">{{ shareLabel }}</span>
+                    <span class="jc-pt-more__item-label">{{ shareLabel }}</span>
                   </button>
                 </div>
               </Transition>
@@ -1792,28 +1792,28 @@ watch(playerReady, (v) => {
 
       <!-- 跳片头片尾设置 (按 filmId 持久化在 localStorage / 登录后随账号同步) -->
       <BaseDialog v-model:visible="skipDialogOpen" title="跳过片头/片尾" width="380px">
-        <div class="flex flex-col gap-[var(--gf-space-4)]">
+        <div class="flex flex-col gap-[var(--jc-space-4)]">
           <p class="text-sm text-secondary">
             仅对本剧生效。保存后<strong>立即生效</strong>(片尾阈值即时更新; 若仍在片头区会自动跳过新片头)。
           </p>
           <!-- 总开关: 关掉 = 本剧不跳, 秒数原样保留(不用把秒数改成 0 丢原值) -->
           <button
             type="button"
-            class="gf-skip-switch"
+            class="jc-skip-switch"
             :class="{ 'is-on': draftEnabled }"
             role="switch"
             :aria-checked="draftEnabled"
             data-focusable="true"
             @click="draftEnabled = !draftEnabled"
           >
-            <span class="gf-skip-switch__track" aria-hidden="true">
-              <span class="gf-skip-switch__thumb" />
+            <span class="jc-skip-switch__track" aria-hidden="true">
+              <span class="jc-skip-switch__thumb" />
             </span>
-            <span class="gf-skip-switch__label">启用跳过</span>
-            <span class="gf-skip-switch__state">{{ draftEnabled ? '已开启' : '已关闭' }}</span>
+            <span class="jc-skip-switch__label">启用跳过</span>
+            <span class="jc-skip-switch__state">{{ draftEnabled ? '已开启' : '已关闭' }}</span>
           </button>
           <label
-            class="flex items-center gap-[var(--gf-space-3)]"
+            class="flex items-center gap-[var(--jc-space-3)]"
             :class="{ 'opacity-40': !draftEnabled }"
           >
             <span class="w-[80px] text-sm">片头 (秒)</span>
@@ -1824,12 +1824,12 @@ watch(playerReady, (v) => {
               max="600"
               step="10"
               :disabled="!draftEnabled"
-              class="flex-1 bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-2)] text-base"
+              class="flex-1 bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-base"
               data-focusable="true"
             />
           </label>
           <label
-            class="flex items-center gap-[var(--gf-space-3)]"
+            class="flex items-center gap-[var(--jc-space-3)]"
             :class="{ 'opacity-40': !draftEnabled }"
           >
             <span class="w-[80px] text-sm">片尾 (秒)</span>
@@ -1840,7 +1840,7 @@ watch(playerReady, (v) => {
               max="600"
               step="10"
               :disabled="!draftEnabled"
-              class="flex-1 bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-2)] text-base"
+              class="flex-1 bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-base"
               data-focusable="true"
             />
           </label>
@@ -1858,8 +1858,8 @@ watch(playerReady, (v) => {
         </section>
 
         <!-- 右侧选集 (PC: 视频右边, 与左列等高, 两层 tab 固定仅集列表滚动; 小屏堆叠到下方). -->
-        <aside v-if="detail" class="gf-play-grid__aside">
-          <div class="gf-play-grid__aside-inner">
+        <aside v-if="detail" class="jc-play-grid__aside">
+          <div class="jc-play-grid__aside-inner">
             <EpisodeTabs
               :sources="detail.sources"
               :current-source-id="currentSourceId"
@@ -1875,7 +1875,7 @@ watch(playerReady, (v) => {
       </div>
 
       <!-- 相关推荐: 移到栅格下方整行展示 -->
-      <section v-if="visibleRelate.length" class="gf-play-relate mt-[var(--gf-space-8)]">
+      <section v-if="visibleRelate.length" class="jc-play-relate mt-[var(--jc-space-8)]">
         <RelatedList :items="visibleRelate" title="相关推荐" />
       </section>
     </template>
@@ -1883,22 +1883,22 @@ watch(playerReady, (v) => {
 </template>
 
 <style scoped>
-.gf-play-view {
+.jc-play-view {
   min-height: 60vh;
 }
 
 /* 播放器容器：16:9 自适应 */
-.gf-player-wrap {
+.jc-player-wrap {
   position: relative;
   width: 100%;
   background-color: #000;
-  border-radius: var(--gf-radius-lg);
+  border-radius: var(--jc-radius-lg);
   overflow: hidden;
   aspect-ratio: 16 / 9;
-  box-shadow: var(--gf-shadow-xl);
+  box-shadow: var(--jc-shadow-xl);
 }
 
-.gf-player {
+.jc-player {
   position: absolute;
   inset: 0;
   width: 100% !important;
@@ -1906,14 +1906,14 @@ watch(playerReady, (v) => {
   outline: none;
 }
 
-.gf-player:focus,
-.gf-player:focus-visible {
+.jc-player:focus,
+.jc-player:focus-visible {
   outline: none;
 }
 
 /* 桌面端最大宽度（>= 1280 居中） */
 @media (min-width: 1280px) {
-  .gf-player-wrap {
+  .jc-player-wrap {
     max-width: 1280px;
     margin: 0 auto;
   }
@@ -1923,7 +1923,7 @@ watch(playerReady, (v) => {
    (原版仅半透明圆点、无遮罩无 z-index, 亮画面上几乎看不见) */
 /* 触屏手势提示(全屏, Teleport 在 .video-js 内): 长按3x = 顶部居中胶囊; 刮擦 = 底部进度条面板。
    共用胶囊底样式, 位置/尺寸由修饰类覆盖; 不拦截触摸。 */
-.gf-player-gesture {
+.jc-player-gesture {
   position: absolute;
   z-index: 6;
   padding: 8px 16px;
@@ -1936,13 +1936,13 @@ watch(playerReady, (v) => {
   pointer-events: none;
 }
 /* 长按 3x: 顶部居中(避开右上角广告角标) */
-.gf-player-gesture--rate {
+.jc-player-gesture--rate {
   left: 50%;
-  top: calc(var(--gf-space-4) + env(safe-area-inset-top, 0px));
+  top: calc(var(--jc-space-4) + env(safe-area-inset-top, 0px));
   transform: translateX(-50%);
 }
 /* 刮擦预览: 底部居中(悬在控制条上方), 面板含迷你进度条 + 文本行 */
-.gf-player-gesture--seek {
+.jc-player-gesture--seek {
   left: 50%;
   bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
@@ -1953,14 +1953,14 @@ watch(playerReady, (v) => {
   flex-direction: column;
   gap: 6px;
 }
-.gf-player-gesture__bar {
+.jc-player-gesture__bar {
   position: relative;
   height: 4px;
   border-radius: 999px;
   background-color: rgba(255, 255, 255, 0.25);
 }
 /* 目标位置 = 白色填充; 当前位置 = 灰点(对照) */
-.gf-player-gesture__fill {
+.jc-player-gesture__fill {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -1968,7 +1968,7 @@ watch(playerReady, (v) => {
   border-radius: 999px;
   background-color: #fff;
 }
-.gf-player-gesture__cur {
+.jc-player-gesture__cur {
   position: absolute;
   top: 50%;
   width: 8px;
@@ -1977,12 +1977,12 @@ watch(playerReady, (v) => {
   background-color: rgba(255, 255, 255, 0.55);
   transform: translate(-50%, -50%);
 }
-.gf-player-gesture__text {
+.jc-player-gesture__text {
   text-align: center;
   font-size: 13px;
 }
 
-.gf-player-loading {
+.jc-player-loading {
   position: absolute;
   inset: 0;
   display: flex;
@@ -1997,62 +1997,62 @@ watch(playerReady, (v) => {
   pointer-events: none;
 }
 /* loading(非 buffering)为阻塞态: 拦截点击, 不穿透到播放器控制条(未就绪不可暂停/全屏) */
-.gf-player-loading--blocking {
+.jc-player-loading--blocking {
   pointer-events: auto;
   cursor: progress;
 }
-.gf-player-loading__text {
+.jc-player-loading__text {
   color: rgba(255, 255, 255, 0.92);
   font-size: 13px;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 /* 圆形 spinner: 用显式 px 而非 em —— 本层在 video 外, em 按根字号算不准
    (video.js 的 .video-js{font-size:10px} 只对播放器内部元素生效)。 */
-.gf-player-loading__spinner {
+.jc-player-loading__spinner {
   width: 44px;
   height: 44px;
   border-radius: 9999px;
   border: 4px solid rgba(255, 255, 255, 0.25);
   border-top-color: #fff;
   box-shadow: 0 0 12px rgba(255, 255, 255, 0.45);
-  animation: gf-play-spin 0.8s linear infinite;
+  animation: jc-play-spin 0.8s linear infinite;
 }
-@keyframes gf-play-spin {
+@keyframes jc-play-spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-.gf-player-error {
+.jc-player-error {
   position: absolute;
-  left: var(--gf-space-3);
-  bottom: var(--gf-space-3);
-  /* 盖过 gf-player-loading(z-5): 阻塞期错误提示(重试倒计时等)必须可见 */
+  left: var(--jc-space-3);
+  bottom: var(--jc-space-3);
+  /* 盖过 jc-player-loading(z-5): 阻塞期错误提示(重试倒计时等)必须可见 */
   z-index: 6;
-  padding: var(--gf-space-2) var(--gf-space-3);
+  padding: var(--jc-space-2) var(--jc-space-3);
   background-color: rgba(0, 0, 0, 0.65);
   color: #fff;
-  font-size: var(--gf-fs-sm);
-  border-radius: var(--gf-radius-md);
+  font-size: var(--jc-fs-sm);
+  border-radius: var(--jc-radius-md);
   z-index: 6;
   pointer-events: none;
 }
 
 /* 当前播放信息块: 移动端竖排(标题 / 标签 / 按钮条 顺序堆叠) */
-.gf-play-info {
+.jc-play-info {
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
 }
 
-.gf-play-info__title :deep(a) {
+.jc-play-info__title :deep(a) {
   color: inherit;
   text-decoration: none;
 }
 
 /* 移动端: "· 当前集"与影片名同行, 用 margin 拉开间距(桌面端改用 flex gap) */
-.gf-play-info__episode {
-  margin-left: var(--gf-space-2);
+.jc-play-info__episode {
+  margin-left: var(--jc-space-2);
 }
 
 /* 平板及以上(≥768px): 首行 = 标题(可单行省略) + 操作按钮组(靠右), 标签行独占第二行。
@@ -2060,172 +2060,172 @@ watch(playerReady, (v) => {
    仅移动端(<768)保持"按钮另起一行"。
    仅在渲染了 PC/移动按钮组(非 TV)时切换为栅格 —— TV 工具条保持整行在下方。 */
 @media (min-width: 768px) {
-  .gf-play-info:has(.gf-play-toolbar--main) {
+  .jc-play-info:has(.jc-play-toolbar--main) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    column-gap: var(--gf-space-3);
-    row-gap: var(--gf-space-2);
+    column-gap: var(--jc-space-3);
+    row-gap: var(--jc-space-2);
   }
-  .gf-play-info:has(.gf-play-toolbar--main) .gf-play-info__title {
+  .jc-play-info:has(.jc-play-toolbar--main) .jc-play-info__title {
     grid-area: 1 / 1;
     display: flex;
     align-items: baseline;
-    gap: var(--gf-space-2);
+    gap: var(--jc-space-2);
     min-width: 0;
   }
   /* 影片名 / 当前集名称: 各自单行 + 溢出省略号。
      集名优先保持可读(不参与收缩, 最多占半行), 影片名负责让位收缩 →
      影片名过长时先截影片名, 集名过长时才轮到它自己截断 */
-  .gf-play-info__name,
-  .gf-play-info__episode {
+  .jc-play-info__name,
+  .jc-play-info__episode {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .gf-play-info__name {
+  .jc-play-info__name {
     flex: 0 1 auto;
   }
-  .gf-play-info__episode {
+  .jc-play-info__episode {
     flex: 0 0 auto;
     max-width: 50%;
     margin-left: 0;
   }
-  .gf-play-info:has(.gf-play-toolbar--main) .gf-play-info__tags {
+  .jc-play-info:has(.jc-play-toolbar--main) .jc-play-info__tags {
     grid-area: 2 / 1 / 3 / -1;
   }
-  .gf-play-info:has(.gf-play-toolbar--main) .gf-play-toolbar--main {
+  .jc-play-info:has(.jc-play-toolbar--main) .jc-play-toolbar--main {
     grid-area: 1 / 2;
   }
 }
 
 /* 自动连播开关激活态 */
-.gf-toggle--on {
-  color: var(--gf-brand-primary) !important;
-  border-color: var(--gf-brand-primary) !important;
+.jc-toggle--on {
+  color: var(--jc-brand-primary) !important;
+  border-color: var(--jc-brand-primary) !important;
 }
 
 /* 主体栅格：移动 / 平板 单列；桌面 1024+ 双列 */
 /* 标题旁"查看完整介绍"链接 */
-.gf-play-info__detail-link {
+.jc-play-info__detail-link {
   display: inline-flex;
   align-items: center;
-  color: var(--gf-text-link);
-  font-size: var(--gf-fs-xs);
+  color: var(--jc-text-link);
+  font-size: var(--jc-fs-xs);
   text-decoration: none;
   padding: 2px 8px;
-  border-radius: var(--gf-radius-sm);
-  transition: color var(--gf-dur-fast) var(--gf-ease-standard);
+  border-radius: var(--jc-radius-sm);
+  transition: color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-play-info__detail-link:hover,
-.gf-play-info__detail-link:focus-visible {
-  color: var(--gf-text-link-hover);
+.jc-play-info__detail-link:hover,
+.jc-play-info__detail-link:focus-visible {
+  color: var(--jc-text-link-hover);
   background-color: rgba(74, 209, 229, 0.08);
   outline: none;
 }
 
 /* ===== 播放页操作工具条 (A: PC/移动单排分组) ===== */
-.gf-play-toolbar {
+.jc-play-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   flex-wrap: wrap;
   /* 操作按钮整体靠右 */
   justify-content: flex-end;
 }
 /* 按钮宽度随文字自适应 + 内边距更小 */
-.gf-play-toolbar :deep(.gf-btn) {
+.jc-play-toolbar :deep(.jc-btn) {
   width: auto;
   flex: 0 0 auto;
-  padding-inline: var(--gf-space-3);
+  padding-inline: var(--jc-space-3);
 }
 /* 收藏: 纯图标 → 收成正方形命中区(状态由空心/实心星 + 品牌色区分) */
-.gf-play-toolbar :deep(.gf-btn.gf-pt-fav) {
+.jc-play-toolbar :deep(.jc-btn.jc-pt-fav) {
   width: 32px;
   padding-inline: 0;
   gap: 0;
 }
-.gf-pt-group {
+.jc-pt-group {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   flex-wrap: wrap;
 }
 /* "更多操作" 下拉 */
-.gf-pt-more {
+.jc-pt-more {
   position: relative;
 }
 /* 透明全屏遮罩: 点击空白关闭下拉 (开关项不自关, 故需此兜底) */
-.gf-pt-more__backdrop {
+.jc-pt-more__backdrop {
   position: fixed;
   inset: 0;
-  z-index: calc(var(--gf-z-dropdown) - 1);
+  z-index: calc(var(--jc-z-dropdown) - 1);
 }
-.gf-pt-more__panel {
+.jc-pt-more__panel {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: var(--gf-z-dropdown);
+  z-index: var(--jc-z-dropdown);
   min-width: 184px;
-  padding: var(--gf-space-2);
-  background-color: var(--gf-bg-surface);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-md);
-  box-shadow: var(--gf-shadow-lg);
+  padding: var(--jc-space-2);
+  background-color: var(--jc-bg-surface);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-md);
+  box-shadow: var(--jc-shadow-lg);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.gf-pt-more__item {
+.jc-pt-more__item {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   width: 100%;
-  padding: var(--gf-space-2) var(--gf-space-3);
+  padding: var(--jc-space-2) var(--jc-space-3);
   background: transparent;
   border: none;
-  border-radius: var(--gf-radius-sm);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
+  border-radius: var(--jc-radius-sm);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
   cursor: pointer;
   text-align: left;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
 /* 文字占满中间, 把对勾推到最右 */
-.gf-pt-more__item-label {
+.jc-pt-more__item-label {
   flex: 1 1 auto;
 }
 /* 开关项已开启: 主题色 + 右侧对勾 */
-.gf-pt-more__item.is-on {
-  color: var(--gf-brand-primary);
+.jc-pt-more__item.is-on {
+  color: var(--jc-brand-primary);
 }
-.gf-pt-more__check {
+.jc-pt-more__check {
   flex: 0 0 auto;
-  color: var(--gf-brand-primary);
-  font-weight: var(--gf-fw-bold);
+  color: var(--jc-brand-primary);
+  font-weight: var(--jc-fw-bold);
 }
 /* 开关项与动作项之间的分隔线 */
-.gf-pt-more__sep {
+.jc-pt-more__sep {
   height: 1px;
-  margin: var(--gf-space-1) var(--gf-space-2);
-  background-color: var(--gf-border-subtle);
+  margin: var(--jc-space-1) var(--jc-space-2);
+  background-color: var(--jc-border-subtle);
 }
-.gf-pt-more__item:hover,
-.gf-pt-more__item:focus-visible {
+.jc-pt-more__item:hover,
+.jc-pt-more__item:focus-visible {
   background-color: rgba(255, 255, 255, 0.06);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   outline: none;
 }
-.gf-pt-more__item.is-loading {
+.jc-pt-more__item.is-loading {
   opacity: 0.6;
   pointer-events: none;
 }
 
-.gf-play-grid {
+.jc-play-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--gf-space-6);
+  gap: var(--jc-space-6);
 }
 
 /* 大屏: 左视频/影片信息, 右选集。
@@ -2234,13 +2234,13 @@ watch(playerReady, (v) => {
  * 拖到左列下方去; 超出部分由集网格内部纵向滚动消化。
  * 面板自身仍 sticky: 左列比视口高时(超大屏/矮窗口)整块保持可见, 高度上限取二者较小值。 */
 @media (min-width: 1024px) {
-  .gf-play-grid {
+  .jc-play-grid {
     grid-template-columns: minmax(0, 2.6fr) minmax(300px, 1fr);
     align-items: start;
     /* 绝对定位的选集栏以本容器为包含块, 才能用 grid-column/row 定位到第 2 列 */
     position: relative;
   }
-  .gf-play-grid__aside {
+  .jc-play-grid__aside {
     /* 绝对定位的栅格子项: 第 2 列 × 第 1 行, 四边贴合该栅格区域(宽=右栏宽, 高=左列高) */
     position: absolute;
     grid-column: 2;
@@ -2249,34 +2249,34 @@ watch(playerReady, (v) => {
     min-width: 0;
     min-height: 0;
   }
-  .gf-play-grid__aside-inner {
+  .jc-play-grid__aside-inner {
     /* sticky: 随页面滚动停在视口上方; 高度 = 左列高度, 但不超过视口可用高 */
     position: sticky;
-    top: var(--gf-space-6);
+    top: var(--jc-space-6);
     height: 100%;
-    max-height: calc(100vh - var(--gf-space-6) * 2);
+    max-height: calc(100vh - var(--jc-space-6) * 2);
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
   }
-  .gf-play-grid__aside :deep(.gf-episodes) {
+  .jc-play-grid__aside :deep(.jc-episodes) {
     height: 100%;
     min-height: 0;
   }
   /* 两层 tab(播放源条 + 集数分段)固定, 不进滚动区 */
-  .gf-play-grid__aside :deep(.gf-source-bar),
-  .gf-play-grid__aside :deep(.gf-episode-segments) {
+  .jc-play-grid__aside :deep(.jc-source-bar),
+  .jc-play-grid__aside :deep(.jc-episode-segments) {
     flex: 0 0 auto;
   }
   /* 选源条内的横向滚动容器必须可收缩(否则 flex:0 0 auto 会让它撑满溢出被 aside 裁掉,
      最右的源滚不到). 由其自身 min-width:0 + overflow-x:auto 接管内部横向滚动 */
-  .gf-play-grid__aside :deep(.gf-source-tabs) {
+  .jc-play-grid__aside :deep(.jc-source-tabs) {
     flex: 1 1 0;
     min-width: 0;
   }
   /* 集网格: 占满剩余高度 + 纵向滚动 + 滚轮顺畅. 右侧窄栏每行 2 个(用户指定), 细滚动条 */
-  .gf-play-grid__aside :deep(.gf-episode-grid) {
+  .jc-play-grid__aside :deep(.jc-episode-grid) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     flex: 1 1 auto;
     min-height: 0;
@@ -2285,33 +2285,33 @@ watch(playerReady, (v) => {
     overflow-x: clip;
     overscroll-behavior: contain;
     align-content: start;
-    padding-right: var(--gf-space-1);
+    padding-right: var(--jc-space-1);
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   }
-  .gf-play-grid__aside :deep(.gf-episode-grid)::-webkit-scrollbar {
+  .jc-play-grid__aside :deep(.jc-episode-grid)::-webkit-scrollbar {
     width: 8px;
   }
-  .gf-play-grid__aside :deep(.gf-episode-grid)::-webkit-scrollbar-thumb {
+  .jc-play-grid__aside :deep(.jc-episode-grid)::-webkit-scrollbar-thumb {
     background-color: rgba(255, 255, 255, 0.2);
     border-radius: 4px;
   }
-  .gf-play-grid__aside :deep(.gf-episode-grid)::-webkit-scrollbar-thumb:hover {
+  .jc-play-grid__aside :deep(.jc-episode-grid)::-webkit-scrollbar-thumb:hover {
     background-color: rgba(255, 255, 255, 0.35);
   }
 }
 
-.gf-play-grid__main {
+.jc-play-grid__main {
   min-width: 0;
 }
-.gf-play-grid__aside {
+.jc-play-grid__aside {
   min-width: 0;
 }
 
-.gf-play-synopsis {
-  background-color: var(--gf-bg-surface);
-  border-radius: var(--gf-radius-md);
-  padding: var(--gf-space-4);
+.jc-play-synopsis {
+  background-color: var(--jc-bg-surface);
+  border-radius: var(--jc-radius-md);
+  padding: var(--jc-space-4);
 }
 
 /* video.js 控件按钮去除白边 */
@@ -2319,7 +2319,7 @@ watch(playerReady, (v) => {
   outline: none !important;
 }
 :deep(.vjs-tech) {
-  border-radius: var(--gf-radius-lg);
+  border-radius: var(--jc-radius-lg);
 }
 :deep(.vjs-control-bar) {
   background-color: rgba(0, 0, 0, 0.55);
@@ -2342,11 +2342,11 @@ watch(playerReady, (v) => {
 }
 /* loading 期隐藏大播放按钮: 与 loading 遮罩的 spinner 双圆圈叠显不美观
    (对齐需按 TV/移动/桌面分别特调, 直接隐藏; loading 结束后自动恢复) */
-.gf-player-wrap[data-loading='1'] :deep(.vjs-big-play-button) {
+.jc-player-wrap[data-loading='1'] :deep(.vjs-big-play-button) {
   display: none;
 }
 :deep(.vjs-play-progress) {
-  background-color: var(--gf-brand-primary);
+  background-color: var(--jc-brand-primary);
 }
 :deep(.vjs-load-progress div) {
   background-color: rgba(255, 255, 255, 0.45);
@@ -2371,10 +2371,10 @@ watch(playerReady, (v) => {
 
 /* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作)
    top 加 safe-area: 全屏时移动端可能出现状态栏, 顶部留出空隙; 与左上角标题同基线对齐 */
-.gf-player-adtag {
+.jc-player-adtag {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 10px);
-  right: var(--gf-space-2);
+  right: var(--jc-space-2);
   z-index: 3;
   display: inline-flex;
   align-items: center;
@@ -2384,12 +2384,12 @@ watch(playerReady, (v) => {
   background-color: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   color: rgba(255, 255, 255, 0.92);
-  font-size: var(--gf-fs-xs);
+  font-size: var(--jc-fs-xs);
   line-height: 1;
   pointer-events: none;
   white-space: nowrap;
 }
-.gf-player-adtag::before {
+.jc-player-adtag::before {
   content: '';
   width: 6px;
   height: 6px;
@@ -2398,12 +2398,12 @@ watch(playerReady, (v) => {
   box-shadow: 0 0 6px rgba(52, 211, 153, 0.8);
 }
 /* I-017 五态配色: filtered/clean=绿(默认), off/unsupported=灰, proxy=蓝 */
-.gf-player-adtag[data-kind='off']::before,
-.gf-player-adtag[data-kind='unsupported']::before {
+.jc-player-adtag[data-kind='off']::before,
+.jc-player-adtag[data-kind='unsupported']::before {
   background-color: #9ca3af;
   box-shadow: none;
 }
-.gf-player-adtag[data-kind='proxy']::before {
+.jc-player-adtag[data-kind='proxy']::before {
   background-color: #60a5fa;
   box-shadow: 0 0 6px rgba(96, 165, 250, 0.8);
 }
@@ -2411,10 +2411,10 @@ watch(playerReady, (v) => {
 /* 全屏左上角标题(影片名 · 集名): 与右上角广告角标同 top 基线且同高(20px) → 垂直中心线对齐;
    字号比角标(fs-xs)大一号(fs-sm); top 含 safe-area 避开状态栏; 显隐由模板 v-if 跟随控制条,
    此处仅做淡入过渡。 */
-.gf-player-title {
+.jc-player-title {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 10px);
-  left: var(--gf-space-3, 12px);
+  left: var(--jc-space-3, 12px);
   z-index: 3;
   display: flex;
   align-items: center;
@@ -2423,14 +2423,14 @@ watch(playerReady, (v) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--gf-fs-sm);
+  font-size: var(--jc-fs-sm);
   font-weight: 600;
   color: rgba(255, 255, 255, 0.95);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.7);
   pointer-events: none;
-  animation: gf-player-title-in 0.25s ease;
+  animation: jc-player-title-in 0.25s ease;
 }
-@keyframes gf-player-title-in {
+@keyframes jc-player-title-in {
   from {
     opacity: 0;
   }
@@ -2464,7 +2464,7 @@ watch(playerReady, (v) => {
 
 /* 移动端：标题块换行 + 按钮组靠右 */
 @media (max-width: 767px) {
-  .gf-play-info {
+  .jc-play-info {
     align-items: flex-start;
   }
 }
@@ -2472,31 +2472,31 @@ watch(playerReady, (v) => {
 
 <style>
 /* TV 模式覆盖 */
-[data-mode='tv'] .gf-player-wrap {
+[data-mode='tv'] .jc-player-wrap {
   border-radius: 16px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
 }
-[data-mode='tv'] .gf-play-view {
-  padding-block: var(--gf-tv-safe);
-  padding-inline: var(--gf-tv-safe);
+[data-mode='tv'] .jc-play-view {
+  padding-block: var(--jc-tv-safe);
+  padding-inline: var(--jc-tv-safe);
 }
-[data-mode='tv'] .gf-play-view .video-js .vjs-control-bar {
+[data-mode='tv'] .jc-play-view .video-js .vjs-control-bar {
   font-size: 18px;
   height: 4em;
 }
 /* TV 远距离观看: spinner 对齐 TV 下的播放按钮(3em @ font-size:10px = 30px) */
-[data-mode='tv'] .gf-player-loading__spinner {
+[data-mode='tv'] .jc-player-loading__spinner {
   width: 64px;
   height: 64px;
   border-width: 6px;
 }
 /* TV: 广告过滤角标放大(远距可读) */
-[data-mode='tv'] .gf-player-adtag {
+[data-mode='tv'] .jc-player-adtag {
   font-size: 15px;
   padding: 8px 16px;
   gap: 9px;
 }
-[data-mode='tv'] .gf-player-adtag::before {
+[data-mode='tv'] .jc-player-adtag::before {
   width: 9px;
   height: 9px;
 }
@@ -2507,7 +2507,7 @@ watch(playerReady, (v) => {
 [data-mode='tv'] .video-js .vjs-next-episode-button__label {
   font-size: 15px;
 }
-[data-mode='tv'] .gf-play-view .vjs-big-play-button {
+[data-mode='tv'] .jc-play-view .vjs-big-play-button {
   height: 3em;
   width: 3em;
   line-height: 3em;
@@ -2516,100 +2516,100 @@ watch(playerReady, (v) => {
 }
 
 /* ===== TV 工具条 (C: 图标 + 小字, 一排等宽) ===== */
-.gf-play-toolbar--tv {
+.jc-play-toolbar--tv {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   /* 焦点环不被裁 */
   padding-block: 8px;
 }
-.gf-pt-btn {
+.jc-pt-btn {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
   min-width: 88px;
-  padding: var(--gf-space-3) var(--gf-space-3);
-  background-color: var(--gf-bg-elevated);
+  padding: var(--jc-space-3) var(--jc-space-3);
+  background-color: var(--jc-bg-elevated);
   border: none;
-  border-radius: var(--gf-radius-md);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  border-radius: var(--jc-radius-md);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
   cursor: pointer;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-pt-btn span {
-  font-size: var(--gf-fs-sm);
+.jc-pt-btn span {
+  font-size: var(--jc-fs-sm);
   white-space: nowrap;
 }
-.gf-pt-btn.is-on {
-  color: var(--gf-brand-cyan);
+.jc-pt-btn.is-on {
+  color: var(--jc-brand-cyan);
 }
-.gf-pt-btn--primary {
-  background-image: var(--gf-brand-gradient);
+.jc-pt-btn--primary {
+  background-image: var(--jc-brand-gradient);
   color: #fff;
 }
-.gf-pt-btn--accent {
-  color: var(--gf-brand-cyan);
-  border: 1px solid var(--gf-brand-cyan);
+.jc-pt-btn--accent {
+  color: var(--jc-brand-cyan);
+  border: 1px solid var(--jc-brand-cyan);
 }
-.gf-pt-btn:disabled {
+.jc-pt-btn:disabled {
   opacity: 0.4;
   pointer-events: none;
 }
-.gf-pt-btn.is-loading {
+.jc-pt-btn.is-loading {
   opacity: 0.6;
   pointer-events: none;
 }
 /* TV 焦点: 细环(不被裁), 统一 token */
-[data-mode='tv'] .gf-pt-btn:focus,
-[data-mode='tv'] .gf-pt-btn:focus-visible {
+[data-mode='tv'] .jc-pt-btn:focus,
+[data-mode='tv'] .jc-pt-btn:focus-visible {
   outline: none;
-  box-shadow: var(--gf-tv-focus-ring);
+  box-shadow: var(--jc-tv-focus-ring);
   background-color: rgba(255, 255, 255, 0.1);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
 
 /* 桌面/移动(非 TV): 点击按钮产生的焦点框去掉 —— 键盘已全局接管为播放器控制
    (左右=进度/空格=暂停/回车=全屏), 焦点导航无意义; TV 模式保留焦点环(D-pad 定位依赖)。 */
-[data-mode]:not([data-mode='tv']) .gf-play-view button:focus,
-[data-mode]:not([data-mode='tv']) .gf-play-view button:focus-visible,
-[data-mode]:not([data-mode='tv']) .gf-play-view .video-js button:focus,
-[data-mode]:not([data-mode='tv']) .gf-play-view .video-js button:focus-visible {
+[data-mode]:not([data-mode='tv']) .jc-play-view button:focus,
+[data-mode]:not([data-mode='tv']) .jc-play-view button:focus-visible,
+[data-mode]:not([data-mode='tv']) .jc-play-view .video-js button:focus,
+[data-mode]:not([data-mode='tv']) .jc-play-view .video-js button:focus-visible {
   outline: none;
   box-shadow: none;
 }
 
 /* ============ 跳过设置弹窗: 启用跳过总开关 ============ */
-.gf-skip-switch {
+.jc-skip-switch {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   width: 100%;
-  padding: var(--gf-space-2) var(--gf-space-3);
-  background-color: var(--gf-bg-elevated);
-  border: 1px solid var(--gf-border-default);
-  border-radius: var(--gf-radius-md);
+  padding: var(--jc-space-2) var(--jc-space-3);
+  background-color: var(--jc-bg-elevated);
+  border: 1px solid var(--jc-border-default);
+  border-radius: var(--jc-radius-md);
   cursor: pointer;
-  transition: border-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: border-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-skip-switch__track {
+.jc-skip-switch__track {
   position: relative;
   flex: none;
   width: 36px;
   height: 20px;
   border-radius: 999px;
-  background-color: var(--gf-text-muted);
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  background-color: var(--jc-text-muted);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-skip-switch.is-on .gf-skip-switch__track {
-  background-color: var(--gf-brand-primary);
+.jc-skip-switch.is-on .jc-skip-switch__track {
+  background-color: var(--jc-brand-primary);
 }
-.gf-skip-switch__thumb {
+.jc-skip-switch__thumb {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -2617,23 +2617,23 @@ watch(playerReady, (v) => {
   height: 16px;
   border-radius: 50%;
   background-color: #fff;
-  transition: transform var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: transform var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-skip-switch.is-on .gf-skip-switch__thumb {
+.jc-skip-switch.is-on .jc-skip-switch__thumb {
   transform: translateX(16px);
 }
-.gf-skip-switch__label {
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-primary);
+.jc-skip-switch__label {
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-primary);
 }
-.gf-skip-switch__state {
+.jc-skip-switch__state {
   margin-left: auto;
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-secondary);
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-secondary);
 }
-[data-mode='tv'] .gf-skip-switch:focus,
-[data-mode='tv'] .gf-skip-switch:focus-visible {
+[data-mode='tv'] .jc-skip-switch:focus,
+[data-mode='tv'] .jc-skip-switch:focus-visible {
   outline: none;
-  box-shadow: var(--gf-tv-focus-ring);
+  box-shadow: var(--jc-tv-focus-ring);
 }
 </style>

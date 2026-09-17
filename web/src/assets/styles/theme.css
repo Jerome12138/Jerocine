@@ -6,268 +6,268 @@
 
 :root {
   /* ---------- 背景 ---------- */
-  --gf-bg-base: #0b0b0f;
-  --gf-bg-surface: #141518;
-  --gf-bg-elevated: #1c1d22;
-  --gf-bg-overlay: rgba(0, 0, 0, 0.72);
-  --gf-bg-glass: rgba(20, 21, 24, 0.55);
-  --gf-bg-header: rgba(11, 11, 15, 0);
-  --gf-bg-header-scrolled: rgba(11, 11, 15, 0.92);
+  --jc-bg-base: #0b0b0f;
+  --jc-bg-surface: #141518;
+  --jc-bg-elevated: #1c1d22;
+  --jc-bg-overlay: rgba(0, 0, 0, 0.72);
+  --jc-bg-glass: rgba(20, 21, 24, 0.55);
+  --jc-bg-header: rgba(11, 11, 15, 0);
+  --jc-bg-header-scrolled: rgba(11, 11, 15, 0.92);
 
   /* ---------- 文本 ---------- */
-  --gf-text-primary: #ffffff;
-  --gf-text-secondary: rgba(255, 255, 255, 0.78);
-  --gf-text-muted: rgba(255, 255, 255, 0.55);
-  --gf-text-disabled: rgba(255, 255, 255, 0.32);
-  --gf-text-inverse: #0b0b0f;
-  --gf-text-link: #4ad1e5;
-  --gf-text-link-hover: #9b49e7;
+  --jc-text-primary: #ffffff;
+  --jc-text-secondary: rgba(255, 255, 255, 0.78);
+  --jc-text-muted: rgba(255, 255, 255, 0.55);
+  --jc-text-disabled: rgba(255, 255, 255, 0.32);
+  --jc-text-inverse: #0b0b0f;
+  --jc-text-link: #4ad1e5;
+  --jc-text-link-hover: #9b49e7;
 
   /* ---------- 边框 ---------- */
-  --gf-border-subtle: rgba(255, 255, 255, 0.06);
-  --gf-border-default: rgba(255, 255, 255, 0.12);
-  --gf-border-strong: rgba(255, 255, 255, 0.24);
-  --gf-border-brand: #e50914;
+  --jc-border-subtle: rgba(255, 255, 255, 0.06);
+  --jc-border-default: rgba(255, 255, 255, 0.12);
+  --jc-border-strong: rgba(255, 255, 255, 0.24);
+  --jc-border-brand: #e50914;
 
   /* ---------- 状态 ---------- */
-  --gf-success: #22c55e;
-  --gf-success-soft: rgba(34, 197, 94, 0.16);
-  --gf-warning: #f59e0b;
-  --gf-warning-soft: rgba(245, 158, 11, 0.16);
-  --gf-danger: #ef4444;
-  --gf-danger-soft: rgba(239, 68, 68, 0.16);
-  --gf-info: #3b82f6;
-  --gf-info-soft: rgba(59, 130, 246, 0.16);
+  --jc-success: #22c55e;
+  --jc-success-soft: rgba(34, 197, 94, 0.16);
+  --jc-warning: #f59e0b;
+  --jc-warning-soft: rgba(245, 158, 11, 0.16);
+  --jc-danger: #ef4444;
+  --jc-danger-soft: rgba(239, 68, 68, 0.16);
+  --jc-info: #3b82f6;
+  --jc-info-soft: rgba(59, 130, 246, 0.16);
 
   /* ---------- 品牌 ---------- */
-  --gf-brand-primary: #e50914;
-  --gf-brand-primary-hover: #ff1f2c;
-  --gf-brand-primary-active: #b0060f;
-  --gf-brand-purple: #9b49e7;
-  --gf-brand-cyan: #4ad1e5;
-  --gf-brand-gradient: linear-gradient(135deg, #9b49e7 0%, #4ad1e5 100%);
-  --gf-brand-gradient-hover: linear-gradient(135deg, #b366f5 0%, #6ee0f0 100%);
+  --jc-brand-primary: #e50914;
+  --jc-brand-primary-hover: #ff1f2c;
+  --jc-brand-primary-active: #b0060f;
+  --jc-brand-purple: #9b49e7;
+  --jc-brand-cyan: #4ad1e5;
+  --jc-brand-gradient: linear-gradient(135deg, #9b49e7 0%, #4ad1e5 100%);
+  --jc-brand-gradient-hover: linear-gradient(135deg, #b366f5 0%, #6ee0f0 100%);
 
   /* ---------- 蒙版 ---------- */
   /* hero 遮罩减淡(用户反馈太深): 底部仍保留足够暗度保证文字可读, 但不再压到全黑 */
-  --gf-mask-hero-bottom: linear-gradient(
+  --jc-mask-hero-bottom: linear-gradient(
     180deg,
     rgba(11, 11, 15, 0) 0%,
     rgba(11, 11, 15, 0.32) 60%,
     rgba(11, 11, 15, 0.82) 100%
   );
-  --gf-mask-hero-left: linear-gradient(
+  --jc-mask-hero-left: linear-gradient(
     90deg,
     rgba(11, 11, 15, 0.72) 0%,
     rgba(11, 11, 15, 0.42) 35%,
     rgba(11, 11, 15, 0) 65%
   );
-  --gf-mask-row-left: linear-gradient(
+  --jc-mask-row-left: linear-gradient(
     90deg,
     rgba(11, 11, 15, 0.28) 0%,
     rgba(11, 11, 15, 0) 100%
   );
-  --gf-mask-row-right: linear-gradient(
+  --jc-mask-row-right: linear-gradient(
     270deg,
     rgba(11, 11, 15, 0.28) 0%,
     rgba(11, 11, 15, 0) 100%
   );
-  --gf-mask-card-hover: linear-gradient(
+  --jc-mask-card-hover: linear-gradient(
     180deg,
     rgba(0, 0, 0, 0) 50%,
     rgba(0, 0, 0, 0.85) 100%
   );
 
   /* ---------- 字体 ---------- */
-  --gf-font-sans: "Inter", "Helvetica Neue", "PingFang SC", "Microsoft YaHei",
+  --jc-font-sans: "Inter", "Helvetica Neue", "PingFang SC", "Microsoft YaHei",
     "Hiragino Sans GB", "Noto Sans CJK SC", system-ui, sans-serif;
-  --gf-font-display: "Inter", "PingFang SC", "Microsoft YaHei", system-ui,
+  --jc-font-display: "Inter", "PingFang SC", "Microsoft YaHei", system-ui,
     sans-serif;
-  --gf-font-mono: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas,
+  --jc-font-mono: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas,
     monospace;
 
-  --gf-fs-xs: 0.75rem;
-  --gf-fs-sm: 0.875rem;
-  --gf-fs-base: 1rem;
-  --gf-fs-md: 1.125rem;
-  --gf-fs-lg: 1.25rem;
-  --gf-fs-xl: 1.5rem;
-  --gf-fs-2xl: 1.875rem;
-  --gf-fs-3xl: 2.5rem;
-  --gf-fs-display: clamp(1.75rem, 1.2rem + 1.5vw, 2.25rem); /* 详情页大标题, 28-34px */
-  --gf-fs-hero: clamp(2.5rem, 4vw + 1rem, 4.5rem);
+  --jc-fs-xs: 0.75rem;
+  --jc-fs-sm: 0.875rem;
+  --jc-fs-base: 1rem;
+  --jc-fs-md: 1.125rem;
+  --jc-fs-lg: 1.25rem;
+  --jc-fs-xl: 1.5rem;
+  --jc-fs-2xl: 1.875rem;
+  --jc-fs-3xl: 2.5rem;
+  --jc-fs-display: clamp(1.75rem, 1.2rem + 1.5vw, 2.25rem); /* 详情页大标题, 28-34px */
+  --jc-fs-hero: clamp(2.5rem, 4vw + 1rem, 4.5rem);
 
-  --gf-fw-regular: 400;
-  --gf-fw-medium: 500;
-  --gf-fw-semibold: 600;
-  --gf-fw-bold: 700;
-  --gf-fw-black: 900;
+  --jc-fw-regular: 400;
+  --jc-fw-medium: 500;
+  --jc-fw-semibold: 600;
+  --jc-fw-bold: 700;
+  --jc-fw-black: 900;
 
-  --gf-lh-tight: 1.15;
-  --gf-lh-snug: 1.3;
-  --gf-lh-normal: 1.5;
-  --gf-lh-relaxed: 1.7;
+  --jc-lh-tight: 1.15;
+  --jc-lh-snug: 1.3;
+  --jc-lh-normal: 1.5;
+  --jc-lh-relaxed: 1.7;
 
-  --gf-tracking-tight: -0.02em;
-  --gf-tracking-normal: 0;
-  --gf-tracking-wide: 0.05em;
-  --gf-tracking-wider: 0.12em;
+  --jc-tracking-tight: -0.02em;
+  --jc-tracking-normal: 0;
+  --jc-tracking-wide: 0.05em;
+  --jc-tracking-wider: 0.12em;
 
   /* ---------- 间距 ---------- */
-  --gf-space-0: 0;
-  --gf-space-1: 4px;
-  --gf-space-2: 8px;
-  --gf-space-3: 12px;
-  --gf-space-4: 16px;
-  --gf-space-5: 20px;
-  --gf-space-6: 24px;
-  --gf-space-8: 32px;
-  --gf-space-10: 40px;
-  --gf-space-12: 48px;
-  --gf-space-16: 64px;
+  --jc-space-0: 0;
+  --jc-space-1: 4px;
+  --jc-space-2: 8px;
+  --jc-space-3: 12px;
+  --jc-space-4: 16px;
+  --jc-space-5: 20px;
+  --jc-space-6: 24px;
+  --jc-space-8: 32px;
+  --jc-space-10: 40px;
+  --jc-space-12: 48px;
+  --jc-space-16: 64px;
 
   /* ---------- 容器 ---------- */
-  --gf-container-max: 1280px;
-  --gf-container-max-2xl: 1600px;
-  --gf-content-max-w: 1440px;
-  --gf-gutter-mobile: 16px;
-  --gf-gutter-tablet: 24px;
-  --gf-gutter-desktop: 40px;
+  --jc-container-max: 1280px;
+  --jc-container-max-2xl: 1600px;
+  --jc-content-max-w: 1440px;
+  --jc-gutter-mobile: 16px;
+  --jc-gutter-tablet: 24px;
+  --jc-gutter-desktop: 40px;
 
   /* ---------- 卡片 (3:4 影视封面) ---------- */
-  --gf-card-aspect: 3 / 4;
-  --gf-card-radius: 12px;
-  --gf-card-gap: 16px;
-  --gf-row-gap: 32px; /* 横向 row 与下一区块的垂直间距 */
-  --gf-row-height: 320px; /* 横滚 row 卡片区高度参考 */
-  --gf-hover-overlay: rgba(0, 0, 0, 0.6);
+  --jc-card-aspect: 3 / 4;
+  --jc-card-radius: 12px;
+  --jc-card-gap: 16px;
+  --jc-row-gap: 32px; /* 横向 row 与下一区块的垂直间距 */
+  --jc-row-height: 320px; /* 横滚 row 卡片区高度参考 */
+  --jc-hover-overlay: rgba(0, 0, 0, 0.6);
 
   /* ---------- 顶栏 / 底栏 / sidebar ---------- */
-  --gf-header-height: 60px;
-  --gf-header-height-mobile: 52px;
-  --gf-tabbar-height: 56px; /* 移动底部 tabbar */
-  --gf-sidebar-width-expanded: 220px;
-  --gf-sidebar-width-collapsed: 64px;
+  --jc-header-height: 60px;
+  --jc-header-height-mobile: 52px;
+  --jc-tabbar-height: 56px; /* 移动底部 tabbar */
+  --jc-sidebar-width-expanded: 220px;
+  --jc-sidebar-width-collapsed: 64px;
 
   /* ---------- chip (筛选/分类入口) ---------- */
-  --gf-chip-height: 32px;
-  --gf-chip-padding-x: 14px;
-  --gf-chip-radius: 9999px; /* 全圆 */
+  --jc-chip-height: 32px;
+  --jc-chip-padding-x: 14px;
+  --jc-chip-radius: 9999px; /* 全圆 */
 
   /* ---------- 进度条 ---------- */
-  --gf-progress-bg: rgba(255, 255, 255, 0.18);
-  --gf-progress-fg: linear-gradient(90deg, #9b49e7 0%, #4ad1e5 100%);
+  --jc-progress-bg: rgba(255, 255, 255, 0.18);
+  --jc-progress-fg: linear-gradient(90deg, #9b49e7 0%, #4ad1e5 100%);
 
   /* ---------- 圆角 ---------- */
-  --gf-radius-none: 0;
-  --gf-radius-sm: 4px;
-  --gf-radius-md: 8px;
-  --gf-radius-lg: 12px;
-  --gf-radius-xl: 20px;
-  --gf-radius-2xl: 28px;
-  --gf-radius-full: 9999px;
+  --jc-radius-none: 0;
+  --jc-radius-sm: 4px;
+  --jc-radius-md: 8px;
+  --jc-radius-lg: 12px;
+  --jc-radius-xl: 20px;
+  --jc-radius-2xl: 28px;
+  --jc-radius-full: 9999px;
 
   /* ---------- 阴影 ---------- */
-  --gf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --gf-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --gf-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
-  --gf-shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.75);
-  --gf-shadow-hover: 0 18px 40px rgba(0, 0, 0, 0.7),
+  --jc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --jc-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --jc-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --jc-shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.75);
+  --jc-shadow-hover: 0 18px 40px rgba(0, 0, 0, 0.7),
     0 0 0 1px rgba(255, 255, 255, 0.06);
-  --gf-shadow-brand-glow: 0 0 0 4px rgba(229, 9, 20, 0.25);
-  --gf-shadow-purple-glow: 0 0 24px rgba(155, 73, 231, 0.45);
-  --gf-shadow-focus-ring: 0 0 0 3px rgba(74, 209, 229, 0.6);
+  --jc-shadow-brand-glow: 0 0 0 4px rgba(229, 9, 20, 0.25);
+  --jc-shadow-purple-glow: 0 0 24px rgba(155, 73, 231, 0.45);
+  --jc-shadow-focus-ring: 0 0 0 3px rgba(74, 209, 229, 0.6);
 
   /* ---------- 断点（仅 JS 读取） ---------- */
-  --gf-bp-sm: 360px;
-  --gf-bp-md: 768px;
-  --gf-bp-lg: 1024px;
-  --gf-bp-xl: 1440px;
-  --gf-bp-2xl: 1920px;
+  --jc-bp-sm: 360px;
+  --jc-bp-md: 768px;
+  --jc-bp-lg: 1024px;
+  --jc-bp-xl: 1440px;
+  --jc-bp-2xl: 1920px;
 
   /* ---------- 动画 ---------- */
-  --gf-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
-  --gf-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --gf-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
-  --gf-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --gf-ease-linear: linear;
+  --jc-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --jc-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --jc-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --jc-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --jc-ease-linear: linear;
 
-  --gf-dur-instant: 80ms;
-  --gf-dur-fast: 150ms;
-  --gf-dur-base: 250ms;
-  --gf-dur-slow: 400ms;
-  --gf-dur-page: 500ms;
+  --jc-dur-instant: 80ms;
+  --jc-dur-fast: 150ms;
+  --jc-dur-base: 250ms;
+  --jc-dur-slow: 400ms;
+  --jc-dur-page: 500ms;
 
   /* ---------- 层级 ---------- */
-  --gf-z-base: 0;
-  --gf-z-row: 10;
-  --gf-z-header: 100;
-  --gf-z-dropdown: 200;
-  --gf-z-overlay: 900;
-  --gf-z-modal: 1000;
-  --gf-z-toast: 1100;
-  --gf-z-tooltip: 1200;
+  --jc-z-base: 0;
+  --jc-z-row: 10;
+  --jc-z-header: 100;
+  --jc-z-dropdown: 200;
+  --jc-z-overlay: 900;
+  --jc-z-modal: 1000;
+  --jc-z-toast: 1100;
+  --jc-z-tooltip: 1200;
 }
 
 /* ============================================================
  * 列表每行卡片数 —— 全站统一阶梯 3 / 4 / 5 / 6 / 7
  *   移动 3、≥480 4、≥768 5、≥1024 6、≥1152 7（更宽屏再增一列, 容器本身有 max 封顶）。
- *   - 网格页(历史 / 收藏 / 搜索 / 猜你喜欢): 用 --gf-list-cols 整数列数
- *   - 横滚行(FilmRow / ContinueWatchingRow): 用 --gf-rail-cols 小数
+ *   - 网格页(历史 / 收藏 / 搜索 / 猜你喜欢): 用 --jc-list-cols 整数列数
+ *   - 横滚行(FilmRow / ContinueWatchingRow): 用 --jc-rail-cols 小数
  *     （小数部分 = 末尾露出的卡片比例, 提示"可横向滑动"）
  *   改列数只改这里, 各页面自动跟随。
  * ============================================================ */
 :root {
-  --gf-list-cols: 3;
-  --gf-list-gap: var(--gf-space-2);
-  --gf-rail-cols: 3.2;
+  --jc-list-cols: 3;
+  --jc-list-gap: var(--jc-space-2);
+  --jc-rail-cols: 3.2;
   /* 横滚可见卡片之间的"间隙道数" = ceil(列数) - 1。CSS 无 ceil(), 故显式给出。
-     它必须与列宽公式里的减项一致, 否则末尾露出的比例会偏离 --gf-rail-cols 的小数部分。 */
-  --gf-rail-gaps: 3;
-  --gf-rail-edge: var(--gf-gutter-mobile);
-  --gf-rail-gap: var(--gf-space-3);
+     它必须与列宽公式里的减项一致, 否则末尾露出的比例会偏离 --jc-rail-cols 的小数部分。 */
+  --jc-rail-gaps: 3;
+  --jc-rail-edge: var(--jc-gutter-mobile);
+  --jc-rail-gap: var(--jc-space-3);
 }
 @media (min-width: 480px) {
   :root {
-    --gf-list-cols: 4;
-    --gf-rail-cols: 4.2;
-    --gf-rail-gaps: 4;
+    --jc-list-cols: 4;
+    --jc-rail-cols: 4.2;
+    --jc-rail-gaps: 4;
   }
 }
 @media (min-width: 768px) {
   :root {
-    --gf-list-cols: 5;
-    --gf-list-gap: var(--gf-space-4);
-    --gf-rail-cols: 5.2;
-    --gf-rail-gaps: 5;
-    --gf-rail-edge: var(--gf-gutter-tablet);
-    --gf-rail-gap: var(--gf-space-4);
+    --jc-list-cols: 5;
+    --jc-list-gap: var(--jc-space-4);
+    --jc-rail-cols: 5.2;
+    --jc-rail-gaps: 5;
+    --jc-rail-edge: var(--jc-gutter-tablet);
+    --jc-rail-gap: var(--jc-space-4);
   }
 }
 @media (min-width: 1024px) {
   :root {
-    --gf-list-cols: 6;
-    --gf-rail-cols: 6;
-    --gf-rail-gaps: 5;
-    --gf-rail-edge: var(--gf-gutter-desktop);
+    --jc-list-cols: 6;
+    --jc-rail-cols: 6;
+    --jc-rail-gaps: 5;
+    --jc-rail-edge: var(--jc-gutter-desktop);
   }
 }
 @media (min-width: 1152px) {
   :root {
-    --gf-list-cols: 7;
-    --gf-rail-cols: 7;
-    --gf-rail-gaps: 6;
+    --jc-list-cols: 7;
+    --jc-rail-cols: 7;
+    --jc-rail-gaps: 6;
   }
 }
 
 /* 影片卡片网格 —— 各列表页(历史 / 收藏 / 搜索 / 分类 / 猜你喜欢)统一使用,
    列数与间距取自上面的阶梯, 因此与首页横滚行、FilmGrid 组件永远同列数。 */
-.gf-card-grid {
+.jc-card-grid {
   display: grid;
-  grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr));
-  gap: var(--gf-list-gap);
+  grid-template-columns: repeat(var(--jc-list-cols), minmax(0, 1fr));
+  gap: var(--jc-list-gap);
 }
-.gf-card-grid > * {
+.jc-card-grid > * {
   min-width: 0;
 }
 
@@ -275,22 +275,22 @@
  * Body 基础态
  * ============================================================ */
 body {
-  background-color: var(--gf-bg-base);
-  color: var(--gf-text-primary);
-  font-family: var(--gf-font-sans);
-  font-size: var(--gf-fs-base);
-  line-height: var(--gf-lh-normal);
-  font-weight: var(--gf-fw-regular);
+  background-color: var(--jc-bg-base);
+  color: var(--jc-text-primary);
+  font-family: var(--jc-font-sans);
+  font-size: var(--jc-fs-base);
+  line-height: var(--jc-lh-normal);
+  font-weight: var(--jc-fw-regular);
 }
 
 /* ============================================================
  * Focus 可见样式（默认 desktop / mobile）
  * ============================================================ */
 :focus-visible {
-  outline: 2px solid var(--gf-brand-cyan);
+  outline: 2px solid var(--jc-brand-cyan);
   outline-offset: 2px;
-  box-shadow: var(--gf-shadow-focus-ring);
-  transition: box-shadow var(--gf-dur-fast) var(--gf-ease-standard);
+  box-shadow: var(--jc-shadow-focus-ring);
+  transition: box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
 /* ============================================================
@@ -322,75 +322,75 @@ body {
    * dpr=2 + width=device-width, CSS 视口被压成 960. 固定 48px 安全区 + 1600
    * 容器 + 420 搜索框 等设计稿是按 1920 CSS px 算的, 在 960 视口里 header /
    * 详情容器全部溢出. 改成 vw-based 自适应即可在任意 CSS 视口宽下正确显示. */
-  --gf-tv-safe: clamp(48px, 5vw, 96px); /* P0: overscan 安全区 ~5%(原 16~48 偏小, 10-foot 须更大留边) */
-  --gf-tv-safe-y: clamp(27px, 5vh, 54px); /* P0: 纵向安全区 ~5% */
+  --jc-tv-safe: clamp(48px, 5vw, 96px); /* P0: overscan 安全区 ~5%(原 16~48 偏小, 10-foot 须更大留边) */
+  --jc-tv-safe-y: clamp(27px, 5vh, 54px); /* P0: 纵向安全区 ~5% */
 
   /* 字号放大（基础 +25%, 用 dpr=2 视距, 16px CSS = 32px 物理 → 合理） */
-  --gf-fs-xs: 0.875rem;
-  --gf-fs-sm: 1rem;
-  --gf-fs-base: 1.25rem;
-  --gf-fs-md: 1.5rem;
-  --gf-fs-lg: 1.75rem;
-  --gf-fs-xl: 2rem;
-  --gf-fs-2xl: 2.5rem;
-  --gf-fs-3xl: 3.25rem;
-  --gf-fs-hero: clamp(3.5rem, 5vw + 1rem, 6rem);
+  --jc-fs-xs: 0.875rem;
+  --jc-fs-sm: 1rem;
+  --jc-fs-base: 1.25rem;
+  --jc-fs-md: 1.5rem;
+  --jc-fs-lg: 1.75rem;
+  --jc-fs-xl: 2rem;
+  --jc-fs-2xl: 2.5rem;
+  --jc-fs-3xl: 3.25rem;
+  --jc-fs-hero: clamp(3.5rem, 5vw + 1rem, 6rem);
 
   /* 间距适当放大 */
-  --gf-space-4: 20px;
-  --gf-space-6: 28px;
-  --gf-space-8: 40px;
-  --gf-space-12: 64px;
+  --jc-space-4: 20px;
+  --jc-space-6: 28px;
+  --jc-space-8: 40px;
+  --jc-space-12: 64px;
 
   /* 列表/横滚列数（TV）: 每行恒 6 张完整卡片（大屏 + 遥控器浏览）, 缩进改用 TV 安全区,
      卡间距放大一档。覆盖 :root 的响应式阶梯, 故组件内不需再写 TV 专属宽度规则。 */
-  --gf-list-cols: 6;
-  --gf-rail-cols: 6;
-  --gf-rail-gaps: 5;
-  --gf-rail-edge: var(--gf-tv-safe);
-  --gf-rail-gap: var(--gf-space-6);
+  --jc-list-cols: 6;
+  --jc-rail-cols: 6;
+  --jc-rail-gaps: 5;
+  --jc-rail-edge: var(--jc-tv-safe);
+  --jc-rail-gap: var(--jc-space-6);
 
   /* 容器 max 不再写死 1600 — 让 100% 视口决定上界, 不会再有"容器比视口宽"的问题 */
-  --gf-container-max-2xl: 100vw;
+  --jc-container-max-2xl: 100vw;
 
   /* 焦点环（TV 专用）— P0 强化: 4px 青环 + 24px 柔光晕(原 16px), 10-foot 更醒目.
    * 统一所有组件焦点态引用此 token, 别再硬编码. */
-  --gf-tv-focus-ring: 0 0 0 2px rgba(11, 11, 15, 0.92),
-    0 0 0 4px var(--gf-brand-cyan),
+  --jc-tv-focus-ring: 0 0 0 2px rgba(11, 11, 15, 0.92),
+    0 0 0 4px var(--jc-brand-cyan),
     0 0 24px 0 rgba(74, 209, 229, 0.55);
   /* P0 焦点放大: 通用 focusable 1.08(原 1.04, 按钮/nav/chip 适度);
    * 影视卡海报用 -card 1.18; 横图(16:9 继续观看进度卡)1.08; 小件 1.1 (参考通行 1.2×) */
-  --gf-tv-focus-scale: 1.08;
-  --gf-tv-focus-scale-card: 1.18;
-  --gf-tv-focus-scale-h: 1.08;
-  --gf-tv-focus-scale-sm: 1.1;
-  --gf-dur-focus: 200ms;
+  --jc-tv-focus-scale: 1.08;
+  --jc-tv-focus-scale-card: 1.18;
+  --jc-tv-focus-scale-h: 1.08;
+  --jc-tv-focus-scale-sm: 1.1;
+  --jc-dur-focus: 200ms;
 
   /* 玻璃面(沿用安卓原生壳暗色玻璃, 命名 token 杜绝硬编码漂移) */
-  --gf-tv-glass: rgba(21, 21, 28, 0.88);
-  --gf-tv-glass-soft: rgba(30, 30, 40, 0.7);
-  --gf-tv-stroke: rgba(255, 255, 255, 0.13);
+  --jc-tv-glass: rgba(21, 21, 28, 0.88);
+  --jc-tv-glass-soft: rgba(30, 30, 40, 0.7);
+  --jc-tv-stroke: rgba(255, 255, 255, 0.13);
   /* 悬浮玻璃顶栏(P1 用): Banner 区焦点在内容时半透明悬浮, 顶到 Tab 恢复实色 */
-  --gf-tv-header-float: linear-gradient(
+  --jc-tv-header-float: linear-gradient(
     180deg,
     rgba(11, 11, 15, 0.72) 0%,
     rgba(11, 11, 15, 0) 100%
   );
-  --gf-tv-header-solid: rgba(11, 11, 15, 0.92);
+  --jc-tv-header-solid: rgba(11, 11, 15, 0.92);
 
   /* 选中态(持续, 独立于瞬时 focus): 当前集/当前频道/当前分类 */
-  --gf-tv-selected-bg: rgba(74, 209, 229, 0.14);
-  --gf-tv-selected-stroke: var(--gf-brand-cyan);
+  --jc-tv-selected-bg: rgba(74, 209, 229, 0.14);
+  --jc-tv-selected-stroke: var(--jc-brand-cyan);
 
   /* 卡片 / Hero / 金刚区 尺寸(vw/clamp 自适应 960~1920) */
-  --gf-tv-card-min: clamp(180px, 16vw, 260px);
-  --gf-tv-hero-h: clamp(180px, 40vh, 480px); /* 沉浸 Banner 占屏 ~40%; 纯 vh 主导(旧 420px 下限在 TV 被压的 ~540 CSS 视口上会顶到近满屏) */
-  --gf-tv-quick-size: clamp(72px, 8vw, 120px);
-  --gf-tv-row-gap: var(--gf-space-12);
+  --jc-tv-card-min: clamp(180px, 16vw, 260px);
+  --jc-tv-hero-h: clamp(180px, 40vh, 480px); /* 沉浸 Banner 占屏 ~40%; 纯 vh 主导(旧 420px 下限在 TV 被压的 ~540 CSS 视口上会顶到近满屏) */
+  --jc-tv-quick-size: clamp(72px, 8vw, 120px);
+  --jc-tv-row-gap: var(--jc-space-12);
 
   /* 品牌色 TV 接管(防漏红: TV 主色锚定青/紫青渐变, 桌面/移动/后台仍红) */
-  --gf-brand-primary: var(--gf-brand-cyan);
-  --gf-border-brand: var(--gf-brand-cyan);
+  --jc-brand-primary: var(--jc-brand-cyan);
+  --jc-border-brand: var(--jc-brand-cyan);
 }
 
 /* TV 焦点样式：替代 hover；focus + focus-visible 双覆盖（D-pad 操作不一定触发 :focus-visible） */
@@ -398,13 +398,13 @@ body {
 [data-mode="tv"] [data-focusable="true"]:focus-visible,
 [data-mode="tv"] [data-focus="true"] {
   outline: none;
-  transform: scale(var(--gf-tv-focus-scale));
-  box-shadow: var(--gf-tv-focus-ring);
+  transform: scale(var(--jc-tv-focus-scale));
+  box-shadow: var(--jc-tv-focus-ring);
   z-index: 5;
   transform-origin: center;
   transition:
-    transform var(--gf-dur-fast) var(--gf-ease-spring),
-    box-shadow var(--gf-dur-fast) var(--gf-ease-standard);
+    transform var(--jc-dur-fast) var(--jc-ease-spring),
+    box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
 /* 禁用桌面端默认 :focus-visible 蓝边在 TV 下的双重描边 */
@@ -440,31 +440,31 @@ html[data-mode="tv"] body::-webkit-scrollbar {
 
 /* TV: FilmCard 聚焦时, 整张卡片不放大, 只放大上方 poster 区, 文字部分静止
  * (用户要求"列表只有图能选中即可, 下面文字不需要") */
-[data-mode="tv"] .gf-film-card[data-focusable="true"]:focus,
-[data-mode="tv"] .gf-film-card[data-focusable="true"]:focus-visible {
+[data-mode="tv"] .jc-film-card[data-focusable="true"]:focus,
+[data-mode="tv"] .jc-film-card[data-focusable="true"]:focus-visible {
   transform: none;
   box-shadow: none;
   outline: none;
 }
-[data-mode="tv"] .gf-film-card[data-focusable="true"]:focus .gf-film-card__poster,
-[data-mode="tv"] .gf-film-card[data-focusable="true"]:focus-visible .gf-film-card__poster {
-  transform: scale(var(--gf-tv-focus-scale-card));
-  box-shadow: var(--gf-tv-focus-ring);
+[data-mode="tv"] .jc-film-card[data-focusable="true"]:focus .jc-film-card__poster,
+[data-mode="tv"] .jc-film-card[data-focusable="true"]:focus-visible .jc-film-card__poster {
+  transform: scale(var(--jc-tv-focus-scale-card));
+  box-shadow: var(--jc-tv-focus-ring);
   z-index: 5;
   transform-origin: center;
   transition:
-    transform var(--gf-dur-fast) var(--gf-ease-spring),
-    box-shadow var(--gf-dur-fast) var(--gf-ease-standard);
+    transform var(--jc-dur-fast) var(--jc-ease-spring),
+    box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
 /* P4: manage 区 mobile 触摸目标 (WCAG 44x44pt 下限) — 兜底未单独加 min-h 的元素 */
-[data-mode="mobile"] .gf-manage button,
-[data-mode="mobile"] .gf-manage a[role="button"],
-[data-mode="mobile"] .gf-manage [data-focusable="true"][role="button"] {
+[data-mode="mobile"] .jc-manage button,
+[data-mode="mobile"] .jc-manage a[role="button"],
+[data-mode="mobile"] .jc-manage [data-focusable="true"][role="button"] {
   min-height: 44px;
 }
-[data-mode="mobile"] .gf-manage input:not([type="checkbox"]):not([type="radio"]),
-[data-mode="mobile"] .gf-manage select,
-[data-mode="mobile"] .gf-manage textarea {
+[data-mode="mobile"] .jc-manage input:not([type="checkbox"]):not([type="radio"]),
+[data-mode="mobile"] .jc-manage select,
+[data-mode="mobile"] .jc-manage textarea {
   min-height: 44px;
 }

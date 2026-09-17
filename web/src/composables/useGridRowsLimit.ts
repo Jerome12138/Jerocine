@@ -4,7 +4,7 @@ import { useViewMode } from './useViewMode'
 /**
  * 「猜你喜欢 / 相关推荐」类网格模块的行数上限：
  *   默认最多 maxRows 行(2), 移动端(<768)放宽到 mobileRows 行(3)。
- * 列数跟随 theme.css --gf-list-cols 阶梯(3/4/5/6/7, TV 恒 6) —— 与 CSS 保持同断点,
+ * 列数跟随 theme.css --jc-list-cols 阶梯(3/4/5/6/7, TV 恒 6) —— 与 CSS 保持同断点,
  * resize 时联动, 保证"截断条数 = 渲染列数 × 行数"。
  */
 export function useGridRowsLimit(maxRows = 2, mobileRows = 3): {

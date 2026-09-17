@@ -4,7 +4,7 @@ import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
  * 四档视图模式：mobile / tablet / desktop / tv
  *
  * 触发 TV 模式优先级（高 → 低）：
- *  1. localStorage['gf-mode'] = 'tv'
+ *  1. localStorage['jc-mode'] = 'tv'
  *  2. URL ?mode=tv
  *  3. UA 命中 SmartTV / Tizen / WebOS / HbbTV / Hisense / MiTV / Android TV / AFT[A-Z]+
  *  4. 视口 ≥ 1920 且 (hover: none)
@@ -18,7 +18,7 @@ import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 export type ViewMode = 'mobile' | 'tablet' | 'desktop' | 'tv'
 export type PersistedMode = 'mobile' | 'desktop' | 'tv'
 
-const STORAGE_KEY = 'gf-mode'
+const STORAGE_KEY = 'jc-mode'
 const TV_UA_REGEX =
   /SmartTV|Tizen|WebOS|HbbTV|Hisense|MiTV|Android TV|AFT[A-Z]+|GoogleTV|AppleTV|BRAVIA|VIDAA/i
 
@@ -106,7 +106,7 @@ function detectTV(): boolean {
 
 function detectMode(): ViewMode {
   // Native APK 壳 (JerocineNative 注入) 优先强制 TV — 忽略 localStorage 持久化.
-  // 原因: APK 在物理 TV 上跑, 用户可能调试时点过"切桌面模式"留下 gf-mode='desktop'
+  // 原因: APK 在物理 TV 上跑, 用户可能调试时点过"切桌面模式"留下 jc-mode='desktop'
   // 这个值, 之后没法自动恢复 TV 模式. desktop 模式下 [data-mode='tv'] 的
   // overflow-x:hidden / max-width:100vw 不会生效 → 整页横向溢出超出电视屏幕.
   // URL 参数 ?mode=xxx 仍可临时覆盖, 用于本机调试.

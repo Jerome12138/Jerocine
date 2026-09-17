@@ -13,8 +13,8 @@ describe('useUIStore', () => {
     expect(s.sidebarCollapsed).toBe(false)
   })
 
-  it('localStorage gf-sidebar-collapsed=1 → 初始 true', () => {
-    localStorage.setItem('gf-sidebar-collapsed', '1')
+  it('localStorage jc-sidebar-collapsed=1 → 初始 true', () => {
+    localStorage.setItem('jc-sidebar-collapsed', '1')
     const s = useUIStore()
     expect(s.sidebarCollapsed).toBe(true)
   })
@@ -25,10 +25,10 @@ describe('useUIStore', () => {
     expect(s.sidebarCollapsed).toBe(true)
     // watch 是 async, 等一拍
     await new Promise((r) => setTimeout(r, 0))
-    expect(localStorage.getItem('gf-sidebar-collapsed')).toBe('1')
+    expect(localStorage.getItem('jc-sidebar-collapsed')).toBe('1')
     s.toggleSidebar()
     await new Promise((r) => setTimeout(r, 0))
-    expect(localStorage.getItem('gf-sidebar-collapsed')).toBeNull()
+    expect(localStorage.getItem('jc-sidebar-collapsed')).toBeNull()
   })
 
   it('setSidebarCollapsed(true) 显式设置', () => {

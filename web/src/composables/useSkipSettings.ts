@@ -1,7 +1,7 @@
 /**
  * useSkipSettings - 按片 (filmId) 持久化"跳片头/片尾秒数"
  *
- * - 存储位置: localStorage 键 `gf-skip-{filmId}` → JSON `{ intro, outro }`(同步读, 不阻塞播放)
+ * - 存储位置: localStorage 键 `jc-skip-{filmId}` → JSON `{ intro, outro }`(同步读, 不阻塞播放)
  * - 没存过 / 解析失败 → 用默认值 (90/60), 适用于绝大多数中国大陆影源
  * - 已登录: 跨设备同步 — save/reset 异步回写账号; hydrateSkipFromAccount() 登录/开机时灌入 localStorage。
  *   安卓播放页由 web 层(PlayView)读取本 composable 后把秒数传给原生播放器, 故安卓同样受账号同步。
@@ -26,7 +26,7 @@ export interface SkipConfig {
 }
 
 function keyOf(filmId: string | number): string {
-  return `gf-skip-${filmId}`
+  return `jc-skip-${filmId}`
 }
 
 function getRaw(filmId: string | number): SkipConfig | null {

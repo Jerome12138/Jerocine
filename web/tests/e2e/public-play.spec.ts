@@ -14,19 +14,19 @@ test.describe('PlayView 播放页', () => {
     await page.goto('/play?id=201&source=s201-0&episode=2')
     await waitAppReady(page)
     // 等 PlayView 加载完成（detail 出现）
-    await page.locator('.gf-play-info__title').waitFor({ timeout: 12_000 }).catch(() => {})
+    await page.locator('.jc-play-info__title').waitFor({ timeout: 12_000 }).catch(() => {})
   })
 
   test('页面标题包含影片名 + 集数', async ({ page }) => {
     // 播放页 video.js 初始化 + mock 数据返回，给宽松 timeout
-    await expect(page.locator('.gf-play-info__title')).toContainText(/三体/, {
+    await expect(page.locator('.jc-play-info__title')).toContainText(/三体/, {
       timeout: 12_000
     })
-    await expect(page.locator('.gf-play-info__episode')).toContainText(/第\s*3\s*集/)
+    await expect(page.locator('.jc-play-info__episode')).toContainText(/第\s*3\s*集/)
   })
 
   test('当前集 chip 高亮', async ({ page }) => {
-    const active = page.locator('.gf-episode-chip--active')
+    const active = page.locator('.jc-episode-chip--active')
     await expect(active).toHaveCount(1)
     await expect(active).toContainText(/第\s*3\s*集/)
   })
@@ -34,10 +34,10 @@ test.describe('PlayView 播放页', () => {
   test('自动连播按钮存在且可切换', async ({ page }) => {
     const btn = page.locator('button').filter({ hasText: /自动连播/ }).first()
     await expect(btn).toBeVisible()
-    await expect(btn).toHaveClass(/gf-toggle--on/, { timeout: 5_000 })
+    await expect(btn).toHaveClass(/jc-toggle--on/, { timeout: 5_000 })
     // 用 force + 等待 stable，避免 video.js 重渲染导致 detach
     await btn.click({ force: true })
-    await expect(btn).not.toHaveClass(/gf-toggle--on/, { timeout: 5_000 })
+    await expect(btn).not.toHaveClass(/jc-toggle--on/, { timeout: 5_000 })
   })
 
   test('下一集按钮在非末集可点', async ({ page }) => {
@@ -52,7 +52,7 @@ test.describe('PlayView 播放页', () => {
   })
 
   test('点选集数 chip 切换 URL', async ({ page }) => {
-    const chips = page.locator('.gf-episode-chip')
+    const chips = page.locator('.jc-episode-chip')
     await expect(chips.first()).toBeVisible()
     await chips.nth(0).click()
     await expect(page).toHaveURL(/episode=0/)

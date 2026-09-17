@@ -34,7 +34,7 @@ const siteStore = useSiteStore()
 const collapsed = computed(() => props.variant === 'mini')
 
 /**
- * 样式对齐公开端首页抽屉(gf-mnav): 近黑底 rgba(11,11,15,0.98)、分组纯文字标题、
+ * 样式对齐公开端首页抽屉(jc-mnav): 近黑底 rgba(11,11,15,0.98)、分组纯文字标题、
  * 菜单项带图标、hover 白色 6% 淡底、选中淡紫渐变 —— 视觉语言与首页一致。
  */
 interface MenuItem { path: string; label: string; icon: string }
@@ -91,19 +91,19 @@ function onItemClick(): void {
     <Transition name="drawer">
       <div
         v-if="props.variant === 'drawer' && props.open"
-        class="gf-drawer-root fixed inset-0 z-[100] flex"
+        class="jc-drawer-root fixed inset-0 z-[100] flex"
         role="dialog"
         aria-modal="true"
         aria-label="管理菜单"
       >
         <!-- 左侧 260 sidebar 主体 -->
         <aside
-          class="gf-drawer-panel w-[260px] h-full bg-[rgba(11,11,15,0.98)] border-r border-subtle flex flex-col shadow-2xl"
+          class="jc-drawer-panel w-[260px] h-full bg-[rgba(11,11,15,0.98)] border-r border-subtle flex flex-col shadow-2xl"
           @click.stop
         >
           <!-- 顶部 Brand + 关闭 X -->
-          <div class="px-[var(--gf-space-4)] py-[var(--gf-space-3)] border-b border-subtle flex items-center gap-[var(--gf-space-3)] shrink-0 min-h-[56px]">
-            <span class="gf-ms__brand truncate flex-1">
+          <div class="px-[var(--jc-space-4)] py-[var(--jc-space-3)] border-b border-subtle flex items-center gap-[var(--jc-space-3)] shrink-0 min-h-[56px]">
+            <span class="jc-ms__brand truncate flex-1">
               {{ siteStore.basic?.siteName || 'Jerocine' }}
             </span>
             <button
@@ -118,34 +118,34 @@ function onItemClick(): void {
           </div>
 
           <!-- 菜单 (内部滚) -->
-          <nav class="flex-1 overflow-y-auto py-[var(--gf-space-3)] min-h-0">
+          <nav class="flex-1 overflow-y-auto py-[var(--jc-space-3)] min-h-0">
             <!-- 返回影视首页 (to="/" 会被前缀匹配, 故不套 active 淡渐变) -->
             <RouterLink
               to="/"
-              class="gf-ms__link mb-[var(--gf-space-2)]"
+              class="jc-ms__link mb-[var(--jc-space-2)]"
               active-class=""
               data-focusable="true"
               @click="onItemClick"
             >
-              <BaseIcon name="home" size="16px" class="gf-ms__link-icon" />
+              <BaseIcon name="home" size="16px" class="jc-ms__link-icon" />
               <span>返回影视首页</span>
             </RouterLink>
             <div
               v-for="g in groups"
               :key="g.title"
-              class="mb-[var(--gf-space-3)]"
+              class="mb-[var(--jc-space-3)]"
             >
-              <div class="gf-ms__group-title">{{ g.title }}</div>
+              <div class="jc-ms__group-title">{{ g.title }}</div>
               <RouterLink
                 v-for="it in g.items"
                 :key="it.path"
                 :to="it.path"
-                class="gf-ms__link"
-                active-class="gf-ms__link--active"
+                class="jc-ms__link"
+                active-class="jc-ms__link--active"
                 data-focusable="true"
                 @click="onItemClick"
               >
-                <BaseIcon :name="it.icon" size="16px" class="gf-ms__link-icon" />
+                <BaseIcon :name="it.icon" size="16px" class="jc-ms__link-icon" />
                 <span>{{ it.label }}</span>
               </RouterLink>
             </div>
@@ -154,7 +154,7 @@ function onItemClick(): void {
           <!-- 底部关闭按钮 -->
           <button
             type="button"
-            class="border-t border-subtle px-[var(--gf-space-4)] py-[var(--gf-space-3)] flex items-center justify-center gap-[var(--gf-space-2)] text-secondary hover:bg-elevated hover:text-primary transition-colors min-h-[48px] shrink-0 bg-transparent border-l-0 border-r-0 border-b-0 w-full cursor-pointer"
+            class="border-t border-subtle px-[var(--jc-space-4)] py-[var(--jc-space-3)] flex items-center justify-center gap-[var(--jc-space-2)] text-secondary hover:bg-elevated hover:text-primary transition-colors min-h-[48px] shrink-0 bg-transparent border-l-0 border-r-0 border-b-0 w-full cursor-pointer"
             aria-label="关闭菜单"
             data-focusable="true"
             @click="emit('close')"
@@ -166,7 +166,7 @@ function onItemClick(): void {
 
         <!-- 右侧遮罩 (占满剩余, 点击关闭) -->
         <div
-          class="gf-drawer-mask flex-1 bg-black/60"
+          class="jc-drawer-mask flex-1 bg-black/60"
           @click="emit('close')"
         />
       </div>
@@ -180,63 +180,63 @@ function onItemClick(): void {
     >
       <!-- Brand: 首页同款品牌字(渐变色); mini 档宽度所限显示站点名首字 -->
       <div
-        class="px-[var(--gf-space-4)] py-[var(--gf-space-4)] border-b border-subtle flex items-center justify-center gap-1 min-h-[56px] shrink-0 min-w-0"
+        class="px-[var(--jc-space-4)] py-[var(--jc-space-4)] border-b border-subtle flex items-center justify-center gap-1 min-h-[56px] shrink-0 min-w-0"
       >
         <template v-if="!collapsed">
-          <span class="gf-ms__brand truncate">{{ siteStore.basic?.siteName || 'Jerocine' }}后台</span>
+          <span class="jc-ms__brand truncate">{{ siteStore.basic?.siteName || 'Jerocine' }}后台</span>
         </template>
         <span
           v-else
-          class="gf-ms__brand"
+          class="jc-ms__brand"
           :title="siteStore.basic?.siteName || 'Jerocine'"
         >{{ (siteStore.basic?.siteName || 'Jerocine').slice(0, 1) }}</span>
       </div>
 
       <!-- 菜单 -->
-      <nav class="flex-1 overflow-y-auto py-[var(--gf-space-3)] min-h-0">
+      <nav class="flex-1 overflow-y-auto py-[var(--jc-space-3)] min-h-0">
         <!-- 返回影视首页 (to="/" 会被前缀匹配, 故不套 active 淡渐变) -->
         <RouterLink
           to="/"
-          class="gf-ms__link mb-[var(--gf-space-2)]"
-          :class="{ 'gf-ms__link--mini': collapsed }"
+          class="jc-ms__link mb-[var(--jc-space-2)]"
+          :class="{ 'jc-ms__link--mini': collapsed }"
           active-class=""
           :title="collapsed ? '返回影视首页' : undefined"
           data-focusable="true"
         >
-          <BaseIcon name="home" size="20px" class="gf-ms__link-icon" />
+          <BaseIcon name="home" size="20px" class="jc-ms__link-icon" />
           <span
             v-if="!collapsed"
-            class="gf-ms__link-text"
+            class="jc-ms__link-text"
           >返回影视首页</span>
           <span
             v-else
-            class="gf-ms__mini-label"
+            class="jc-ms__mini-label"
           >返回影视首页</span>
         </RouterLink>
         <div
           v-for="g in groups"
           :key="g.title"
-          class="mb-[var(--gf-space-3)]"
+          class="mb-[var(--jc-space-3)]"
         >
-          <div v-if="!collapsed" class="gf-ms__group-title">{{ g.title }}</div>
+          <div v-if="!collapsed" class="jc-ms__group-title">{{ g.title }}</div>
           <RouterLink
             v-for="it in g.items"
             :key="it.path"
             :to="it.path"
-            class="gf-ms__link"
-            :class="{ 'gf-ms__link--mini': collapsed }"
-            active-class="gf-ms__link--active"
+            class="jc-ms__link"
+            :class="{ 'jc-ms__link--mini': collapsed }"
+            active-class="jc-ms__link--active"
             :title="collapsed ? it.label : undefined"
             data-focusable="true"
           >
-            <BaseIcon :name="it.icon" size="20px" class="gf-ms__link-icon" />
+            <BaseIcon :name="it.icon" size="20px" class="jc-ms__link-icon" />
             <span
               v-if="!collapsed"
-              class="gf-ms__link-text"
+              class="jc-ms__link-text"
             >{{ it.label }}</span>
             <span
               v-else
-              class="gf-ms__mini-label"
+              class="jc-ms__mini-label"
             >{{ it.label }}</span>
           </RouterLink>
         </div>
@@ -247,12 +247,12 @@ function onItemClick(): void {
 </template>
 
 <style scoped>
-/* ===== 品牌字: 与首页 gf-mnav__brand 同款(字体/字重/渐变色) ===== */
-.gf-ms__brand {
-  font-family: var(--gf-font-display);
-  font-size: var(--gf-fs-lg);
-  font-weight: var(--gf-fw-bold);
-  background-image: var(--gf-brand-gradient);
+/* ===== 品牌字: 与首页 jc-mnav__brand 同款(字体/字重/渐变色) ===== */
+.jc-ms__brand {
+  font-family: var(--jc-font-display);
+  font-size: var(--jc-fs-lg);
+  font-weight: var(--jc-fw-bold);
+  background-image: var(--jc-brand-gradient);
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
@@ -260,64 +260,64 @@ function onItemClick(): void {
   white-space: nowrap;
 }
 
-/* ===== 菜单样式: 对齐公开端首页抽屉(gf-mnav)的视觉语言 ===== */
-.gf-ms__group-title {
-  padding: var(--gf-space-1) var(--gf-space-4) var(--gf-space-2);
-  font-size: var(--gf-fs-xs);
-  font-weight: var(--gf-fw-semibold);
-  letter-spacing: var(--gf-tracking-wide);
+/* ===== 菜单样式: 对齐公开端首页抽屉(jc-mnav)的视觉语言 ===== */
+.jc-ms__group-title {
+  padding: var(--jc-space-1) var(--jc-space-4) var(--jc-space-2);
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-semibold);
+  letter-spacing: var(--jc-tracking-wide);
   text-transform: uppercase;
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
 }
 
-.gf-ms__link {
+.jc-ms__link {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   width: 100%;
   min-height: 44px;
-  padding: 0 var(--gf-space-4);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  padding: 0 var(--jc-space-4);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
   text-decoration: none;
   background: transparent;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-ms__link:hover,
-.gf-ms__link:focus-visible {
+.jc-ms__link:hover,
+.jc-ms__link:focus-visible {
   background-color: rgba(255, 255, 255, 0.06);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   outline: none;
 }
 /* 选中: 淡紫渐变底 + 提亮文字(与首页抽屉 is-active 同款), 不再用实心渐变白字 */
-.gf-ms__link--active {
+.jc-ms__link--active {
   background-image: linear-gradient(90deg, rgba(155, 73, 231, 0.18), rgba(74, 209, 229, 0.08));
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
-.gf-ms__link--active:hover {
+.jc-ms__link--active:hover {
   background-image: linear-gradient(90deg, rgba(155, 73, 231, 0.18), rgba(74, 209, 229, 0.08));
 }
-.gf-ms__link-icon {
-  color: var(--gf-text-muted);
+.jc-ms__link-icon {
+  color: var(--jc-text-muted);
   flex-shrink: 0;
 }
-.gf-ms__link:hover .gf-ms__link-icon,
-.gf-ms__link--active .gf-ms__link-icon {
-  color: var(--gf-text-primary);
+.jc-ms__link:hover .jc-ms__link-icon,
+.jc-ms__link--active .jc-ms__link-icon {
+  color: var(--jc-text-primary);
 }
 
 /* ===== 平板 mini 档: 图标上、中文标签下, 触屏无 hover 也直接可读 ===== */
-.gf-ms__link--mini {
+.jc-ms__link--mini {
   flex-direction: column;
   justify-content: center;
-  gap: var(--gf-space-1);
-  padding: var(--gf-space-2) 2px;
+  gap: var(--jc-space-1);
+  padding: var(--jc-space-2) 2px;
   min-height: 56px;
 }
-.gf-ms__mini-label {
+.jc-ms__mini-label {
   font-size: 10px;
   line-height: 1.2;
   letter-spacing: 0.02em;
@@ -327,29 +327,29 @@ function onItemClick(): void {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gf-ms__link--mini .gf-ms__link-icon {
-  color: var(--gf-text-secondary);
+.jc-ms__link--mini .jc-ms__link-icon {
+  color: var(--jc-text-secondary);
 }
-.gf-ms__link--mini.gf-ms__link--active .gf-ms__mini-label {
-  color: var(--gf-text-primary);
-  font-weight: var(--gf-fw-semibold);
+.jc-ms__link--mini.jc-ms__link--active .jc-ms__mini-label {
+  color: var(--jc-text-primary);
+  font-weight: var(--jc-fw-semibold);
 }
 
 /* Drawer 进出动画: panel 左滑 + 遮罩淡入 */
-.drawer-enter-active .gf-drawer-panel,
-.drawer-leave-active .gf-drawer-panel {
-  transition: transform var(--gf-dur-base) var(--gf-ease-standard);
+.drawer-enter-active .jc-drawer-panel,
+.drawer-leave-active .jc-drawer-panel {
+  transition: transform var(--jc-dur-base) var(--jc-ease-standard);
 }
-.drawer-enter-from .gf-drawer-panel,
-.drawer-leave-to .gf-drawer-panel {
+.drawer-enter-from .jc-drawer-panel,
+.drawer-leave-to .jc-drawer-panel {
   transform: translateX(-100%);
 }
-.drawer-enter-active .gf-drawer-mask,
-.drawer-leave-active .gf-drawer-mask {
-  transition: opacity var(--gf-dur-base) var(--gf-ease-standard);
+.drawer-enter-active .jc-drawer-mask,
+.drawer-leave-active .jc-drawer-mask {
+  transition: opacity var(--jc-dur-base) var(--jc-ease-standard);
 }
-.drawer-enter-from .gf-drawer-mask,
-.drawer-leave-to .gf-drawer-mask {
+.drawer-enter-from .jc-drawer-mask,
+.drawer-leave-to .jc-drawer-mask {
   opacity: 0;
 }
 </style>

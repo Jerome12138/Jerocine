@@ -4,7 +4,7 @@
     android:layout_height="180dp"
     android:layout_marginEnd="14dp"
     android:layout_marginBottom="14dp"
-    android:background="@drawable/gf_poster_item"
+    android:background="@drawable/jc_poster_item"
     android:clickable="true"
     android:focusable="true"
     android:orientation="vertical"
@@ -18,7 +18,7 @@
             android:id="@+id/history_cover"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@color/gf_glass_soft"
+            android:background="@color/jc_glass_soft"
             android:duplicateParentState="true"
             android:scaleType="centerCrop" />
 
@@ -28,10 +28,10 @@
             android:layout_height="wrap_content"
             android:layout_gravity="top|start"
             android:layout_margin="7dp"
-            android:background="@drawable/gf_badge_bg"
+            android:background="@drawable/jc_badge_bg"
             android:paddingHorizontal="7dp"
             android:paddingVertical="3dp"
-            android:textColor="@color/gf_text"
+            android:textColor="@color/jc_text"
             android:textSize="13sp"
             android:textStyle="bold" />
 
@@ -42,7 +42,7 @@
             android:background="#CC3A1016"
             android:gravity="center"
             android:text="按确认键移除"
-            android:textColor="@color/gf_text"
+            android:textColor="@color/jc_text"
             android:textSize="16sp"
             android:textStyle="bold"
             android:visibility="gone" />
@@ -54,8 +54,8 @@
             android:layout_height="5dp"
             android:layout_gravity="bottom"
             android:max="1000"
-            android:progressTint="@color/gf_accent"
-            android:progressBackgroundTint="@color/gf_progress_unplayed" />
+            android:progressTint="@color/jc_accent"
+            android:progressBackgroundTint="@color/jc_progress_unplayed" />
     </FrameLayout>
 
     <TextView
@@ -67,7 +67,7 @@
         android:ellipsize="end"
         android:includeFontPadding="false"
         android:maxLines="1"
-        android:textColor="@color/gf_poster_text"
+        android:textColor="@color/jc_poster_text"
         android:textSize="15sp"
         android:textStyle="bold" />
 
@@ -79,6 +79,6 @@
         android:ellipsize="end"
         android:includeFontPadding="false"
         android:maxLines="1"
-        android:textColor="@color/gf_text_secondary"
+        android:textColor="@color/jc_text_secondary"
         android:textSize="12sp" />
 </LinearLayout>

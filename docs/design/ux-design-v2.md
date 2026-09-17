@@ -496,7 +496,7 @@ Mobile: 表格降级为卡片列表, 每行一卡显示主字段 + 折叠次要�
 | BaseIcon | path map | 补充 8 个图标: filter / sort / settings / refresh / download / more-horizontal / trash / check |
 | BaseImage | ratio + lazy | 加 `placeholder` prop（blur-up） |
 | BaseTag | variant 全 | 加 `dot` prop (左侧色点, 用于状态) |
-| BaseSkeleton | rect / text | 加 `aspect` prop 替代 ratio 字符串, 与 token `--gf-card-aspect` 联动 |
+| BaseSkeleton | rect / text | 加 `aspect` prop 替代 ratio 字符串, 与 token `--jc-card-aspect` 联动 |
 | BaseDialog | 居中 modal | 加 `fullscreen` 移动端断点 + drawer 模式 |
 | BasePagination | 数字翻页 | 加 `simple` 模式（仅上一页/下一页） |
 | BaseEmpty | 标题/描述/action | **强化**：4 种预设 (no-data/no-result/error/network)，含统一插画 SVG |
@@ -538,53 +538,53 @@ Mobile: 表格降级为卡片列表, 每行一卡显示主字段 + 折叠次要�
 
 ```css
 /* 当前已有 success/warning/danger/info, 补 soft / strong 变体 */
---gf-success-strong: #16a34a;
---gf-warning-strong: #d97706;
---gf-danger-strong:  #dc2626;
---gf-info-strong:    #2563eb;
+--jc-success-strong: #16a34a;
+--jc-warning-strong: #d97706;
+--jc-danger-strong:  #dc2626;
+--jc-info-strong:    #2563eb;
 
 /* 加 selected / pressed 状态层 */
---gf-state-hover:    rgba(255, 255, 255, 0.06);
---gf-state-active:   rgba(255, 255, 255, 0.10);
---gf-state-selected: rgba(155, 73, 231, 0.12);
+--jc-state-hover:    rgba(255, 255, 255, 0.06);
+--jc-state-active:   rgba(255, 255, 255, 0.10);
+--jc-state-selected: rgba(155, 73, 231, 0.12);
 ```
 
 ### 7.2 运动 token（统一)
 
 ```css
 /* 已有 dur-fast/base/slow, 补 ease 套件 */
---gf-ease-standard:    cubic-bezier(0.4, 0.0, 0.2, 1);     /* 已有 */
---gf-ease-decelerate:  cubic-bezier(0.0, 0.0, 0.2, 1);     /* 入场 */
---gf-ease-accelerate:  cubic-bezier(0.4, 0.0, 1.0, 1);     /* 离场 */
---gf-ease-spring:      cubic-bezier(0.34, 1.56, 0.64, 1);  /* 已有 */
---gf-ease-emphasized:  cubic-bezier(0.2, 0, 0, 1);         /* 强调 */
+--jc-ease-standard:    cubic-bezier(0.4, 0.0, 0.2, 1);     /* 已有 */
+--jc-ease-decelerate:  cubic-bezier(0.0, 0.0, 0.2, 1);     /* 入场 */
+--jc-ease-accelerate:  cubic-bezier(0.4, 0.0, 1.0, 1);     /* 离场 */
+--jc-ease-spring:      cubic-bezier(0.34, 1.56, 0.64, 1);  /* 已有 */
+--jc-ease-emphasized:  cubic-bezier(0.2, 0, 0, 1);         /* 强调 */
 
 /* prefers-reduced-motion 自动减弱 */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --gf-dur-fast: 0.01ms;
-    --gf-dur-base: 0.01ms;
-    --gf-dur-slow: 0.01ms;
+    --jc-dur-fast: 0.01ms;
+    --jc-dur-base: 0.01ms;
+    --jc-dur-slow: 0.01ms;
   }
-  .gf-hero__bar-progress { animation: none; transform: scaleX(1); }
+  .jc-hero__bar-progress { animation: none; transform: scaleX(1); }
 }
 ```
 
 ### 7.3 后台专用
 
 ```css
---gf-manage-row-height:        48px;     /* 表格行高 */
---gf-manage-cell-padding-x:    12px;
---gf-manage-zebra-bg:          rgba(255, 255, 255, 0.02);
---gf-manage-table-header-bg:   rgba(255, 255, 255, 0.04);
+--jc-manage-row-height:        48px;     /* 表格行高 */
+--jc-manage-cell-padding-x:    12px;
+--jc-manage-zebra-bg:          rgba(255, 255, 255, 0.02);
+--jc-manage-table-header-bg:   rgba(255, 255, 255, 0.04);
 ```
 
 ### 7.4 焦点环（a11y AA）
 
 ```css
 /* 现有 shadow-focus-ring 偏暗, AA 要求 2px / 与背景对比 3:1 */
---gf-focus-ring-color: var(--gf-brand-cyan);  /* #4ad1e5, 对 bg-base 对比 ≥ 7:1 */
---gf-focus-ring:       0 0 0 2px var(--gf-bg-base), 0 0 0 4px var(--gf-focus-ring-color);
+--jc-focus-ring-color: var(--jc-brand-cyan);  /* #4ad1e5, 对 bg-base 对比 ≥ 7:1 */
+--jc-focus-ring:       0 0 0 2px var(--jc-bg-base), 0 0 0 4px var(--jc-focus-ring-color);
 /* 双层 ring: 内圈 bg-base 制造 gap, 外圈 cyan, 任何背景都清晰可见 */
 ```
 
@@ -641,7 +641,7 @@ Progress  → 已知进度 (上传 / 网络感知码率) — 线性条
 | 项 | 要求 | 实施 |
 |---|---|---|
 | 全键盘可达 | Tab 顺序与视觉对齐 | 所有交互元素 `tabindex="0"` 或原生可聚焦 |
-| Focus 可见 | 对比 ≥ 3:1 | `--gf-focus-ring` 双层 ring（任何背景可见） |
+| Focus 可见 | 对比 ≥ 3:1 | `--jc-focus-ring` 双层 ring（任何背景可见） |
 | 跳过导航 | "Skip to main content" | BaseSkipLink 组件，顶部 Tab 第一个 focus |
 | 触屏 target | ≥ 44×44px | 所有按钮 / chip / tab 强约束 |
 | 自动播放 | 静音 + 用户控制 | Hero 静态 mode (reduced-motion) / 视频 default autoplay=false |

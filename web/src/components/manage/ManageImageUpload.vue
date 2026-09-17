@@ -67,11 +67,11 @@ function clear(): void {
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--gf-space-2)]">
-    <div class="flex items-start gap-[var(--gf-space-3)]">
+  <div class="flex flex-col gap-[var(--jc-space-2)]">
+    <div class="flex items-start gap-[var(--jc-space-3)]">
       <!-- 预览 -->
       <div
-        class="relative shrink-0 w-[168px] bg-elevated border border-default rounded-[var(--gf-radius-md)] overflow-hidden flex items-center justify-center"
+        class="relative shrink-0 w-[168px] bg-elevated border border-default rounded-[var(--jc-radius-md)] overflow-hidden flex items-center justify-center"
         :style="{ aspectRatio: props.ratio }"
         @dragover.prevent="dragOver = true"
         @dragleave.prevent="dragOver = false"
@@ -93,13 +93,13 @@ function clear(): void {
         </div>
       </div>
 
-      <div class="flex flex-col gap-[var(--gf-space-2)] flex-1 min-w-0">
+      <div class="flex flex-col gap-[var(--jc-space-2)] flex-1 min-w-0">
         <ManageInput
           :model-value="props.modelValue"
           :placeholder="props.placeholder"
           @update:model-value="(v) => emit('update:modelValue', String(v))"
         />
-        <div class="flex gap-[var(--gf-space-2)] flex-wrap">
+        <div class="flex gap-[var(--jc-space-2)] flex-wrap">
           <BaseButton variant="ghost" size="sm" :loading="uploading" @click="pick">
             <BaseIcon name="upload" size="16px" />
             {{ uploading ? `上传中 ${Math.round(progress * 100)}%` : '选择图片' }}
@@ -108,7 +108,7 @@ function clear(): void {
             清除
           </BaseButton>
         </div>
-        <span v-if="error" class="text-xs text-[var(--gf-danger)]">{{ error }}</span>
+        <span v-if="error" class="text-xs text-[var(--jc-danger)]">{{ error }}</span>
       </div>
     </div>
 

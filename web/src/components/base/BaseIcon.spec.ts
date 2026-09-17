@@ -16,7 +16,7 @@ describe('BaseIcon', () => {
   it('size prop 应用到 wrapper span style (svg 撑满 100%)', () => {
     const w = mount(BaseIcon, { props: { name: 'play', size: '24px' } })
     // size 控制外层 span 尺寸, svg 内部 100% 撑满
-    const style = w.find('span.gf-icon').attributes('style') ?? ''
+    const style = w.find('span.jc-icon').attributes('style') ?? ''
     expect(style).toContain('24px')
   })
 })

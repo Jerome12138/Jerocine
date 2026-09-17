@@ -129,7 +129,7 @@ function unwrap<T>(v: Ref<T> | T): T {
 
 /* ============ 倍速本地缓存 (I-019) ============ */
 
-const PLAYBACK_RATE_LS_KEY = 'gf-playback-rate'
+const PLAYBACK_RATE_LS_KEY = 'jc-playback-rate'
 
 /** 读取上次保存的倍速; 仅接受当前播放器支持的档位, 非法/隐私模式返回 null。 */
 function readSavedPlaybackRate(validRates: number[]): number | null {

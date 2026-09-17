@@ -149,7 +149,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--gf-space-4)]">
+  <div class="flex flex-col gap-[var(--jc-space-4)]">
     <ManageTable
       :columns="columns"
       :rows="rows"
@@ -159,9 +159,9 @@ onMounted(load)
       actions-width="160px"
     >
       <template #toolbar>
-        <div class="flex items-center gap-[var(--gf-space-3)] flex-wrap">
-          <h2 class="text-lg font-[var(--gf-fw-semibold)]">影片管理</h2>
-          <div class="flex gap-[var(--gf-space-1)]">
+        <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
+          <h2 class="text-lg font-[var(--jc-fw-semibold)]">影片管理</h2>
+          <div class="flex gap-[var(--jc-space-1)]">
             <BaseButton
               v-for="t in STATUS_TABS"
               :key="t.value"
@@ -173,7 +173,7 @@ onMounted(load)
             </BaseButton>
           </div>
         </div>
-        <div class="flex gap-[var(--gf-space-2)] flex-wrap">
+        <div class="flex gap-[var(--jc-space-2)] flex-wrap">
           <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
           <BaseButton variant="gradient" size="sm" @click="search">
             <BaseIcon name="search" size="16px" /> 搜索
@@ -186,7 +186,7 @@ onMounted(load)
 
       <template #mobile-card="{ row }">
         <div
-          class="flex items-center gap-[var(--gf-space-3)] cursor-pointer select-none"
+          class="flex items-center gap-[var(--jc-space-3)] cursor-pointer select-none"
           data-focusable="true"
           tabindex="0"
           role="button"
@@ -194,11 +194,11 @@ onMounted(load)
           @click="viewDetail(row)"
           @keydown.enter="viewDetail(row)"
         >
-          <div class="w-[48px] h-[64px] shrink-0 rounded-[var(--gf-radius-md)] overflow-hidden">
+          <div class="w-[48px] h-[64px] shrink-0 rounded-[var(--jc-radius-md)] overflow-hidden">
             <BaseImage :src="row.cover" :alt="row.name" ratio="3/4" />
           </div>
-          <div class="min-w-0 flex-1 flex flex-col gap-[var(--gf-space-1)]">
-            <span class="text-primary font-[var(--gf-fw-medium)] truncate">
+          <div class="min-w-0 flex-1 flex flex-col gap-[var(--jc-space-1)]">
+            <span class="text-primary font-[var(--jc-fw-medium)] truncate">
               {{ row.name }}
             </span>
             <span class="text-muted text-sm truncate">
@@ -215,10 +215,10 @@ onMounted(load)
       </template>
 
       <template #cell="{ row, col }">
-        <div v-if="col.key === 'cover'" class="w-[60px] h-[80px] rounded-[var(--gf-radius-md)] overflow-hidden">
+        <div v-if="col.key === 'cover'" class="w-[60px] h-[80px] rounded-[var(--jc-radius-md)] overflow-hidden">
           <BaseImage :src="row.cover" :alt="row.name" ratio="3/4" />
         </div>
-        <span v-else-if="col.key === 'name'" class="font-[var(--gf-fw-medium)]">
+        <span v-else-if="col.key === 'name'" class="font-[var(--jc-fw-medium)]">
           {{ row.name }}
         </span>
         <BaseTag
@@ -233,7 +233,7 @@ onMounted(load)
       </template>
 
       <template #actions="{ row }">
-        <div class="flex gap-[var(--gf-space-1)] justify-end">
+        <div class="flex gap-[var(--jc-space-1)] justify-end">
           <BaseButton variant="ghost" size="sm" @click="viewDetail(row)">查看</BaseButton>
           <BaseButton
             v-if="isDeleted(row)"

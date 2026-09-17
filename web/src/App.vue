@@ -44,10 +44,10 @@ const _winBack = window as unknown as {
 let backLastTapAt = 0
 const BACK_DOUBLE_MS = 2000
 _winBack.gfTvBack = (): boolean => {
-  // 0) BaseDialog 弹窗(冷启动续播提示 / 确认框等, body 标 data-gf-modal-open)优先关闭:
+  // 0) BaseDialog 弹窗(冷启动续播提示 / 确认框等, body 标 data-jc-modal-open)优先关闭:
   //    APK 的 BACK 走本桥(不派发按键事件), 故需在此主动关弹窗 —— 派发 Escape 让弹窗走自身 closeOnEsc
   //    (BaseDialog onKeydown 监听 Escape→handleClose; 确认框据此 answerConfirm(false))。
-  if (typeof document !== 'undefined' && document.body.hasAttribute('data-gf-modal-open')) {
+  if (typeof document !== 'undefined' && document.body.hasAttribute('data-jc-modal-open')) {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     return true
   }
@@ -127,7 +127,7 @@ const historyStore = useHistoryStore()
 async function maybePromptResume(): Promise<void> {
   if (!isNative()) return
   try {
-    if (sessionStorage.getItem('gf-resume-prompted') === '1') return
+    if (sessionStorage.getItem('jc-resume-prompted') === '1') return
   } catch {
     /* 隐私模式忽略 */
   }
@@ -139,7 +139,7 @@ async function maybePromptResume(): Promise<void> {
   }
   if (!rec?.id || !rec.name) return
   try {
-    sessionStorage.setItem('gf-resume-prompted', '1')
+    sessionStorage.setItem('jc-resume-prompted', '1')
   } catch {
     /* ignore */
   }
@@ -256,13 +256,13 @@ onMounted(() => {
         col: ev.colno
       })
       if (isNative()) jerocine.toast('ERR: ' + msg, true)
-      console.error('[gf-onerror]', msg, ev.error)
+      console.error('[jc-onerror]', msg, ev.error)
     })
     window.addEventListener('unhandledrejection', (ev) => {
       const msg = ev.reason instanceof Error ? `${ev.reason.message}\n${ev.reason.stack ?? ''}` : String(ev.reason)
       telemetry.trackError(ev.reason, 'unhandled-rejection')
       if (isNative()) jerocine.toast('REJECT: ' + msg.slice(0, 200), true)
-      console.error('[gf-unhandled]', ev.reason)
+      console.error('[jc-unhandled]', ev.reason)
     })
   }
 
@@ -407,12 +407,12 @@ onMounted(() => {
 
 <style>
 /*
- * public 页切换: 仅新页淡入 (150ms = --gf-dur-fast), 不定义 leave-* → 旧页瞬时移除, 无空窗.
+ * public 页切换: 仅新页淡入 (150ms = --jc-dur-fast), 不定义 leave-* → 旧页瞬时移除, 无空窗.
  * 配合模板里去掉 mode="out-in", 消除原先 500ms 淡出 + 空窗 + 500ms 淡入的 ~1s 惩罚.
  * (实测主因之一: 用户感到"切页加载不出来" 多来自这段固定动画, 与网络无关.)
  */
 .page-enter-active {
-  transition: opacity var(--gf-dur-fast) var(--gf-ease-out);
+  transition: opacity var(--jc-dur-fast) var(--jc-ease-out);
 }
 .page-enter-from {
   opacity: 0;

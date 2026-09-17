@@ -71,14 +71,14 @@ onBeforeUnmount(clearTimers)
 <template>
   <div
     v-show="visible"
-    class="gf-api-progress"
+    class="jc-api-progress"
     :style="{ width: widthPct + '%' }"
     aria-hidden="true"
   />
 </template>
 
 <style scoped>
-.gf-api-progress {
+.jc-api-progress {
   position: fixed;
   top: 0;
   left: 0;

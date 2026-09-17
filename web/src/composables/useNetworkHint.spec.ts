@@ -94,8 +94,8 @@ describe('useNetworkHint', () => {
     await w.vm.$nextTick()
     const api = (w.vm as never as { api: ReturnType<typeof useNetworkHint> }).api
     api.setManualPref('slow')
-    expect(localStorage.getItem('gf-network-pref')).toBe('slow')
+    expect(localStorage.getItem('jc-network-pref')).toBe('slow')
     api.setManualPref('auto')
-    expect(localStorage.getItem('gf-network-pref')).toBeNull()
+    expect(localStorage.getItem('jc-network-pref')).toBeNull()
   })
 })

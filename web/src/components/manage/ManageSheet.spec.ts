@@ -15,38 +15,38 @@ describe('ManageSheet', () => {
     forceMode('desktop')
   })
 
-  it('desktop → 渲染 .gf-sheet--modal', async () => {
+  it('desktop → 渲染 .jc-sheet--modal', async () => {
     forceMode('desktop')
     const w = mount(ManageSheet, {
       props: { modelValue: true, title: 'T' },
       attachTo: document.body
     })
     await w.vm.$nextTick()
-    expect(document.querySelector('.gf-sheet--modal')).not.toBeNull()
-    expect(document.querySelector('.gf-sheet--sheet')).toBeNull()
+    expect(document.querySelector('.jc-sheet--modal')).not.toBeNull()
+    expect(document.querySelector('.jc-sheet--sheet')).toBeNull()
     w.unmount()
   })
 
-  it('mobile + mobileMode=sheet → .gf-sheet--sheet', async () => {
+  it('mobile + mobileMode=sheet → .jc-sheet--sheet', async () => {
     forceMode('mobile')
     const w = mount(ManageSheet, {
       props: { modelValue: true, title: 'T', mobileMode: 'sheet' },
       attachTo: document.body
     })
     await w.vm.$nextTick()
-    expect(document.querySelector('.gf-sheet--sheet')).not.toBeNull()
-    expect(document.querySelector('.gf-sheet--modal')).toBeNull()
+    expect(document.querySelector('.jc-sheet--sheet')).not.toBeNull()
+    expect(document.querySelector('.jc-sheet--modal')).toBeNull()
     w.unmount()
   })
 
-  it('mobile + mobileMode=fullsheet → .gf-sheet--fullsheet', async () => {
+  it('mobile + mobileMode=fullsheet → .jc-sheet--fullsheet', async () => {
     forceMode('mobile')
     const w = mount(ManageSheet, {
       props: { modelValue: true, title: 'T', mobileMode: 'fullsheet' },
       attachTo: document.body
     })
     await w.vm.$nextTick()
-    expect(document.querySelector('.gf-sheet--fullsheet')).not.toBeNull()
+    expect(document.querySelector('.jc-sheet--fullsheet')).not.toBeNull()
     w.unmount()
   })
 
@@ -57,7 +57,7 @@ describe('ManageSheet', () => {
       attachTo: document.body
     })
     await w.vm.$nextTick()
-    expect(document.querySelector('.gf-sheet__overlay')).toBeNull()
+    expect(document.querySelector('.jc-sheet__overlay')).toBeNull()
     w.unmount()
   })
 
@@ -68,7 +68,7 @@ describe('ManageSheet', () => {
       attachTo: document.body
     })
     await w.vm.$nextTick()
-    const overlay = document.querySelector('.gf-sheet__overlay') as HTMLElement
+    const overlay = document.querySelector('.jc-sheet__overlay') as HTMLElement
     expect(overlay).not.toBeNull()
     overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await w.vm.$nextTick()
@@ -84,7 +84,7 @@ describe('ManageSheet', () => {
       attachTo: document.body
     })
     await w.vm.$nextTick()
-    const overlay = document.querySelector('.gf-sheet__overlay') as HTMLElement
+    const overlay = document.querySelector('.jc-sheet__overlay') as HTMLElement
     overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await w.vm.$nextTick()
     expect(w.emitted('update:modelValue')).toBeUndefined()

@@ -269,16 +269,16 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--gf-space-6)] max-w-[960px]">
+  <div class="flex flex-col gap-[var(--jc-space-6)] max-w-[960px]">
     <!-- ============ 按片名搜索站点影片 + 采集 ============ -->
-    <section class="bg-surface rounded-card shadow-card p-[var(--gf-space-6)]">
-      <header class="mb-[var(--gf-space-4)]">
-        <h2 class="text-lg font-[var(--gf-fw-semibold)]">按片名采集</h2>
+    <section class="bg-surface rounded-card shadow-card p-[var(--jc-space-6)]">
+      <header class="mb-[var(--jc-space-4)]">
+        <h2 class="text-lg font-[var(--jc-fw-semibold)]">按片名采集</h2>
         <p class="text-sm text-muted">输入片名搜索各采集源命中结果，勾选源后采集入库（预览不落库）</p>
       </header>
 
       <!-- 搜索栏 -->
-      <div class="flex gap-[var(--gf-space-2)] flex-wrap mb-[var(--gf-space-4)]">
+      <div class="flex gap-[var(--jc-space-2)] flex-wrap mb-[var(--jc-space-4)]">
         <ManageInput
           v-model="spiderKeyword"
           placeholder="影片名关键字，如 流浪地球"
@@ -291,29 +291,29 @@ async function submit(): Promise<void> {
       </div>
 
       <!-- 源勾选 + 采集动作 -->
-      <div v-if="collectSources.length" class="flex flex-col gap-[var(--gf-space-3)] mb-[var(--gf-space-4)]">
-        <div class="flex items-center gap-[var(--gf-space-3)] flex-wrap text-sm">
+      <div v-if="collectSources.length" class="flex flex-col gap-[var(--jc-space-3)] mb-[var(--jc-space-4)]">
+        <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap text-sm">
           <span class="text-muted">采集源：</span>
           <label
             v-for="s in collectSources"
             :key="s.id"
-            class="flex items-center gap-[var(--gf-space-1)] cursor-pointer text-secondary"
+            class="flex items-center gap-[var(--jc-space-1)] cursor-pointer text-secondary"
           >
             <input
               v-model="checked[s.id]"
               type="checkbox"
-              class="accent-[var(--gf-brand-primary)]"
+              class="accent-[var(--jc-brand-primary)]"
               data-focusable="true"
             />
             <span>{{ s.name }}</span>
             <BaseTag v-if="s.grade === 0" variant="brand" size="xs">主站</BaseTag>
           </label>
-          <div class="flex gap-[var(--gf-space-2)]">
+          <div class="flex gap-[var(--jc-space-2)]">
             <BaseButton variant="ghost" size="sm" @click="toggleAll(true)">全选</BaseButton>
             <BaseButton variant="ghost" size="sm" @click="toggleAll(false)">清空</BaseButton>
           </div>
         </div>
-        <div class="flex gap-[var(--gf-space-2)] flex-wrap">
+        <div class="flex gap-[var(--jc-space-2)] flex-wrap">
           <BaseButton variant="primary" size="sm" :loading="collecting" @click="collectChecked">
             <BaseIcon name="magic" size="16px" /> 采集选中源
           </BaseButton>
@@ -324,18 +324,18 @@ async function submit(): Promise<void> {
       </div>
 
       <!-- 搜索结果 -->
-      <div v-if="searched" class="flex flex-col gap-[var(--gf-space-3)]">
+      <div v-if="searched" class="flex flex-col gap-[var(--jc-space-3)]">
         <BaseEmpty v-if="!results.length" description="各源均无命中" />
         <div
           v-for="r in results"
           :key="r.sourceId"
-          class="border border-default rounded-[var(--gf-radius-md)] bg-elevated p-[var(--gf-space-3)]"
+          class="border border-default rounded-[var(--jc-radius-md)] bg-elevated p-[var(--jc-space-3)]"
         >
-          <div class="flex items-center gap-[var(--gf-space-2)] flex-wrap mb-[var(--gf-space-2)]">
-            <span class="font-[var(--gf-fw-medium)] text-primary">{{ r.sourceName }}</span>
+          <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap mb-[var(--jc-space-2)]">
+            <span class="font-[var(--jc-fw-medium)] text-primary">{{ r.sourceName }}</span>
             <BaseTag v-if="r.master" variant="brand" size="xs">主站</BaseTag>
             <BaseTag v-if="r.collected > 0" variant="success" size="xs">已采 {{ r.collected }} 集</BaseTag>
-            <span v-if="r.error" class="text-xs text-[var(--gf-danger)]">采集失败：{{ r.error }}</span>
+            <span v-if="r.error" class="text-xs text-[var(--jc-danger)]">采集失败：{{ r.error }}</span>
             <span v-else-if="r.hits && r.hits.length" class="text-xs text-muted">
               命中 {{ r.hits.length }} 部
             </span>
@@ -348,7 +348,7 @@ async function submit(): Promise<void> {
           <!-- 多版本提示(多源采集时该源同名多版本, 未自动采集) -->
           <div
             v-if="r.candidates && r.candidates.length"
-            class="flex items-center gap-[var(--gf-space-2)] flex-wrap mb-[var(--gf-space-2)] text-xs text-muted"
+            class="flex items-center gap-[var(--jc-space-2)] flex-wrap mb-[var(--jc-space-2)] text-xs text-muted"
           >
             <BaseIcon name="info" size="14px" />
             <span>该源同名多版本，请在下方命中列表点具体版本采集，或</span>
@@ -356,13 +356,13 @@ async function submit(): Promise<void> {
           </div>
 
           <!-- 命中影片列表(每条可单独采集) -->
-          <div v-if="r.hits && r.hits.length" class="flex flex-col gap-[var(--gf-space-2)]">
+          <div v-if="r.hits && r.hits.length" class="flex flex-col gap-[var(--jc-space-2)]">
             <div
               v-for="h in r.hits"
               :key="`${r.sourceId}-${h.sourceVodId}`"
-              class="flex items-center gap-[var(--gf-space-3)]"
+              class="flex items-center gap-[var(--jc-space-3)]"
             >
-              <div class="w-[40px] h-[54px] shrink-0 rounded-[var(--gf-radius-sm)] overflow-hidden bg-surface">
+              <div class="w-[40px] h-[54px] shrink-0 rounded-[var(--jc-radius-sm)] overflow-hidden bg-surface">
                 <BaseImage v-if="h.cover" :src="h.cover" :alt="h.name" ratio="3/4" />
               </div>
               <div class="min-w-0 flex-1 flex flex-col gap-[2px]">
@@ -396,14 +396,14 @@ async function submit(): Promise<void> {
     />
 
     <!-- ============ 手动新增影片 ============ -->
-    <section class="bg-surface rounded-card shadow-card p-[var(--gf-space-6)]">
-      <header class="mb-[var(--gf-space-5)]">
-        <h2 class="text-lg font-[var(--gf-fw-semibold)]">手动新增影片</h2>
+    <section class="bg-surface rounded-card shadow-card p-[var(--jc-space-6)]">
+      <header class="mb-[var(--jc-space-5)]">
+        <h2 class="text-lg font-[var(--jc-fw-semibold)]">手动新增影片</h2>
         <p class="text-sm text-muted">手动录入一部影片信息（采集源会自动同步，此页用于补录）</p>
       </header>
 
       <form
-        class="grid grid-cols-1 md:grid-cols-2 gap-[var(--gf-space-5)]"
+        class="grid grid-cols-1 md:grid-cols-2 gap-[var(--jc-space-5)]"
         @submit.prevent="submit"
       >
         <ManageFormField label="影片名" required>
@@ -416,7 +416,7 @@ async function submit(): Promise<void> {
         <ManageFormField label="顶级分类 (Pid)">
           <select
             v-model="form.pid"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
             data-focusable="true"
           >
             <option :value="0">请选择</option>
@@ -428,12 +428,12 @@ async function submit(): Promise<void> {
         </ManageFormField>
 
         <ManageFormField label="海报">
-          <div class="flex items-center gap-[var(--gf-space-3)]">
-            <div class="w-[80px] h-[110px] rounded-[var(--gf-radius-md)] overflow-hidden bg-elevated">
+          <div class="flex items-center gap-[var(--jc-space-3)]">
+            <div class="w-[80px] h-[110px] rounded-[var(--jc-radius-md)] overflow-hidden bg-elevated">
               <BaseImage v-if="form.picture" :src="form.picture" alt="poster" ratio="3/4" />
               <div v-else class="w-full h-full flex-center text-muted text-xs">暂无</div>
             </div>
-            <div class="flex flex-col gap-[var(--gf-space-2)]">
+            <div class="flex flex-col gap-[var(--jc-space-2)]">
               <input
                 ref="fileInput"
                 type="file"
@@ -476,7 +476,7 @@ async function submit(): Promise<void> {
           <ManageTextarea v-model="form.content" :rows="6" />
         </ManageFormField>
 
-        <div class="md:col-span-2 flex justify-end gap-[var(--gf-space-3)]">
+        <div class="md:col-span-2 flex justify-end gap-[var(--jc-space-3)]">
           <BaseButton variant="ghost" type="button" @click="router.back()">取消</BaseButton>
           <BaseButton variant="gradient" type="submit" :loading="submitting">保存</BaseButton>
         </div>

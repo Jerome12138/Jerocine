@@ -35,7 +35,7 @@ onMounted(async () => {
 
 <template>
   <div
-    class="gf-manage min-h-screen flex bg-base text-primary"
+    class="jc-manage min-h-screen flex bg-base text-primary"
     :data-mode="mode"
   >
     <ManageSidebar
@@ -44,7 +44,7 @@ onMounted(async () => {
       @close="closeDrawer"
     />
     <div
-      class="flex-1 flex flex-col min-w-0 transition-[margin] duration-[var(--gf-dur-base)]"
+      class="flex-1 flex flex-col min-w-0 transition-[margin] duration-[var(--jc-dur-base)]"
       :style="{ marginLeft: rightMarginLeft }"
     >
       <ManageHeader
@@ -52,7 +52,7 @@ onMounted(async () => {
         @toggle-drawer="drawerOpen = !drawerOpen"
       />
       <main
-        class="flex-1 overflow-x-auto min-w-0 p-[var(--gf-space-3)] md:p-[var(--gf-space-4)] lg:p-[var(--gf-space-6)]"
+        class="flex-1 overflow-x-auto min-w-0 p-[var(--jc-space-3)] md:p-[var(--jc-space-4)] lg:p-[var(--jc-space-6)]"
       >
         <slot />
       </main>

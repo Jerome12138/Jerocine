@@ -15,7 +15,7 @@ withDefaults(defineProps<Props>(), {
 
 <template>
   <div
-    class="gf-empty flex flex-col items-center justify-center text-center py-[var(--gf-space-12)] px-[var(--gf-space-4)] gap-[var(--gf-space-3)]"
+    class="jc-empty flex flex-col items-center justify-center text-center py-[var(--jc-space-12)] px-[var(--jc-space-4)] gap-[var(--jc-space-3)]"
     role="status"
     aria-live="polite"
   >
@@ -29,7 +29,7 @@ withDefaults(defineProps<Props>(), {
     </slot>
     <slot name="title">
       <h3
-        class="text-[var(--gf-fs-lg)] font-[var(--gf-fw-semibold)] text-primary"
+        class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary"
       >
         {{ title }}
       </h3>
@@ -37,12 +37,12 @@ withDefaults(defineProps<Props>(), {
     <slot name="description">
       <p
         v-if="description"
-        class="text-[var(--gf-fs-md)] text-muted max-w-md"
+        class="text-[var(--jc-fs-md)] text-muted max-w-md"
       >
         {{ description }}
       </p>
     </slot>
-    <div v-if="$slots.action" class="mt-[var(--gf-space-4)]">
+    <div v-if="$slots.action" class="mt-[var(--jc-space-4)]">
       <slot name="action" />
     </div>
   </div>

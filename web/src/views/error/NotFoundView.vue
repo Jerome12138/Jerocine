@@ -167,13 +167,13 @@ onMounted(() => {
   min-height: 100vh;
   min-height: 100dvh;
   width: 100%;
-  background-color: var(--gf-bg-base);
-  color: var(--gf-text-primary);
+  background-color: var(--jc-bg-base);
+  color: var(--jc-text-primary);
   overflow: hidden;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: clamp(40px, 8vw, 96px) var(--gf-space-4)
+  padding: clamp(40px, 8vw, 96px) var(--jc-space-4)
     clamp(48px, 8vw, 96px);
 }
 
@@ -247,13 +247,13 @@ onMounted(() => {
 }
 
 .nf-code {
-  font-family: var(--gf-font-display);
-  font-weight: var(--gf-fw-black);
+  font-family: var(--jc-font-display);
+  font-weight: var(--jc-fw-black);
   font-size: clamp(120px, 25vw, 320px);
   line-height: 0.92;
-  letter-spacing: var(--gf-tracking-tight);
+  letter-spacing: var(--jc-tracking-tight);
   margin: 0;
-  background-image: var(--gf-brand-gradient);
+  background-image: var(--jc-brand-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -263,29 +263,29 @@ onMounted(() => {
 }
 
 .nf-title {
-  margin: var(--gf-space-2) 0 0;
+  margin: var(--jc-space-2) 0 0;
   font-size: clamp(1.5rem, 3vw, 2.25rem);
-  font-weight: var(--gf-fw-bold);
-  color: var(--gf-text-primary);
-  letter-spacing: var(--gf-tracking-tight);
-  line-height: var(--gf-lh-tight);
+  font-weight: var(--jc-fw-bold);
+  color: var(--jc-text-primary);
+  letter-spacing: var(--jc-tracking-tight);
+  line-height: var(--jc-lh-tight);
 }
 
 .nf-desc {
-  margin: var(--gf-space-4) 0 0;
-  font-size: var(--gf-fs-md);
-  color: var(--gf-text-secondary);
-  line-height: var(--gf-lh-relaxed);
+  margin: var(--jc-space-4) 0 0;
+  font-size: var(--jc-fs-md);
+  color: var(--jc-text-secondary);
+  line-height: var(--jc-lh-relaxed);
   max-width: 520px;
 }
 
 /* ---------- 按钮组 ---------- */
 .nf-actions {
-  margin-top: var(--gf-space-8);
+  margin-top: var(--jc-space-8);
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
 }
 .nf-btn {
   min-width: 160px;
@@ -300,22 +300,22 @@ onMounted(() => {
 .nf-recommend__header {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
-  margin-bottom: var(--gf-space-5);
+  gap: var(--jc-space-3);
+  margin-bottom: var(--jc-space-5);
 }
 .nf-recommend__bar {
   display: inline-block;
   width: 4px;
   height: 22px;
-  border-radius: var(--gf-radius-sm);
-  background-image: var(--gf-brand-gradient);
+  border-radius: var(--jc-radius-sm);
+  background-image: var(--jc-brand-gradient);
 }
 .nf-recommend__title {
   margin: 0;
-  font-size: var(--gf-fs-xl);
-  font-weight: var(--gf-fw-bold);
-  color: var(--gf-text-primary);
-  letter-spacing: var(--gf-tracking-tight);
+  font-size: var(--jc-fs-xl);
+  font-weight: var(--jc-fw-bold);
+  color: var(--jc-text-primary);
+  letter-spacing: var(--jc-tracking-tight);
 }
 .nf-recommend__grid {
   list-style: none;
@@ -323,7 +323,7 @@ onMounted(() => {
   padding: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gf-card-gap);
+  gap: var(--jc-card-gap);
 }
 .nf-recommend__cell {
   min-width: 0;

@@ -11,8 +11,8 @@ fun ImageView.loadTvPoster(url: String, description: String?) {
     load(url) {
         size(360, 480)
         crossfade(false)
-        placeholder(ColorDrawable(ContextCompat.getColor(context, R.color.gf_glass_soft)))
-        error(ColorDrawable(ContextCompat.getColor(context, R.color.gf_glass_soft)))
+        placeholder(ColorDrawable(ContextCompat.getColor(context, R.color.jc_glass_soft)))
+        error(ColorDrawable(ContextCompat.getColor(context, R.color.jc_glass_soft)))
     }
 }
 
@@ -20,7 +20,7 @@ fun ImageView.loadTvBackdrop(url: String) {
     load(url) {
         size(960, 540)
         crossfade(false)
-        placeholder(ColorDrawable(ContextCompat.getColor(context, R.color.gf_bg)))
-        error(ColorDrawable(ContextCompat.getColor(context, R.color.gf_bg)))
+        placeholder(ColorDrawable(ContextCompat.getColor(context, R.color.jc_bg)))
+        error(ColorDrawable(ContextCompat.getColor(context, R.color.jc_bg)))
     }
 }

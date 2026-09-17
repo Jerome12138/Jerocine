@@ -45,7 +45,7 @@ function updateArrowTop(): void {
   const vp = viewportEl.value
   const el = scrollEl.value
   if (!vp || !el) return
-  const item = el.querySelector<HTMLElement>('.gf-film-row__item')
+  const item = el.querySelector<HTMLElement>('.jc-film-row__item')
   if (!item) return
   const padTop = parseFloat(getComputedStyle(el).paddingTop) || 0
   vp.style.setProperty('--row-arrow-top', `${(padTop + (item.offsetWidth * 2) / 3).toFixed(1)}px`)
@@ -118,21 +118,21 @@ function getItemKey(item: Card, idx: number): string | number {
 </script>
 
 <template>
-  <section class="gf-film-row">
+  <section class="jc-film-row">
     <header
       v-if="title || moreTo"
-      class="container-page flex items-end justify-between gap-[var(--gf-space-4)] mb-[var(--gf-space-3)]"
+      class="container-page flex items-end justify-between gap-[var(--jc-space-4)] mb-[var(--jc-space-3)]"
     >
       <h2
         v-if="title"
-        class="gf-film-row__title text-[var(--gf-fs-lg)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]"
+        class="jc-film-row__title text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
       >
         {{ title }}
       </h2>
       <RouterLink
         v-if="moreTo"
         :to="moreTo"
-        class="text-link text-[var(--gf-fs-sm)] inline-flex items-center gap-[var(--gf-space-1)] shrink-0"
+        class="text-link text-[var(--jc-fs-sm)] inline-flex items-center gap-[var(--jc-space-1)] shrink-0"
         data-focusable="true"
         tabindex="0"
       >
@@ -143,36 +143,36 @@ function getItemKey(item: Card, idx: number): string | number {
 
     <div
       ref="viewportEl"
-      class="gf-film-row__viewport relative group"
+      class="jc-film-row__viewport relative group"
     >
       <!-- 左右遮罩（桌面）：跟随滚动边界显隐，避免常驻遮挡边缘卡片与标题 -->
-      <div v-show="canScrollLeft" class="gf-film-row__mask-left absolute inset-y-0 left-0 pointer-events-none" />
-      <div v-show="canScrollRight" class="gf-film-row__mask-right absolute inset-y-0 right-0 pointer-events-none" />
+      <div v-show="canScrollLeft" class="jc-film-row__mask-left absolute inset-y-0 left-0 pointer-events-none" />
+      <div v-show="canScrollRight" class="jc-film-row__mask-right absolute inset-y-0 right-0 pointer-events-none" />
 
       <!-- 横向滚动容器 -->
       <div
         ref="scrollEl"
-        class="gf-film-row__scroll flex overflow-x-auto scroll-smooth"
+        class="jc-film-row__scroll flex overflow-x-auto scroll-smooth"
         data-focus-zone="rail"
       >
         <!-- 左侧缩进（与页面 gutter 对齐） -->
-        <div class="gf-film-row__edge shrink-0" aria-hidden="true" />
+        <div class="jc-film-row__edge shrink-0" aria-hidden="true" />
         <div
           v-for="(item, idx) in items"
           :key="getItemKey(item, idx)"
-          class="gf-film-row__item shrink-0"
+          class="jc-film-row__item shrink-0"
         >
           <slot name="item" :item="item" :index="idx">
             <FilmCard :item="item" :show-title-below="true" />
           </slot>
         </div>
-        <div class="gf-film-row__edge shrink-0" aria-hidden="true" />
+        <div class="jc-film-row__edge shrink-0" aria-hidden="true" />
       </div>
 
       <!-- 左箭头 -->
       <button
         v-show="canScrollLeft"
-        class="gf-film-row__arrow gf-film-row__arrow--left"
+        class="jc-film-row__arrow jc-film-row__arrow--left"
         data-focusable="true"
         tabindex="0"
         aria-label="scroll left"
@@ -182,7 +182,7 @@ function getItemKey(item: Card, idx: number): string | number {
       </button>
       <button
         v-show="canScrollRight"
-        class="gf-film-row__arrow gf-film-row__arrow--right"
+        class="jc-film-row__arrow jc-film-row__arrow--right"
         data-focusable="true"
         tabindex="0"
         aria-label="scroll right"
@@ -195,30 +195,30 @@ function getItemKey(item: Card, idx: number): string | number {
 </template>
 
 <style scoped>
-/* 列数 / 缩进 / 卡间距全部取自 theme.css 的全站统一阶梯(--gf-rail-*),
+/* 列数 / 缩进 / 卡间距全部取自 theme.css 的全站统一阶梯(--jc-rail-*),
    这里只引用不定义 —— 与 ContinueWatchingRow 及各网格页同阶梯(3.2 → 4.2 → 5.2 → 6),
    改列数只需改 theme.css 一处。 */
 
-.gf-film-row__scroll {
+.jc-film-row__scroll {
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
-  gap: var(--gf-rail-gap);
+  gap: var(--jc-rail-gap);
   /* 关键: 横向滚动容器 overflow-x:auto 会按 CSS 规范把 overflow-y 强制计算成 auto,
      导致卡片 hover scale(1.04) 上下溢出的部分被纵向裁切(顶部被截断)。
      加 padding-block 让放大溢出的上下部分落在 padding 区(属 padding box, 不裁)。 */
   padding-block: 12px;
 }
-.gf-film-row__scroll::-webkit-scrollbar {
+.jc-film-row__scroll::-webkit-scrollbar {
   display: none;
 }
 
-.gf-film-row__edge {
+.jc-film-row__edge {
   /* 首尾缩进（web 按页面 gutter; TV 用安全区, 均由变量给出） */
-  width: var(--gf-rail-edge);
+  width: var(--jc-rail-edge);
 }
 
-.gf-film-row__item {
+.jc-film-row__item {
   scroll-snap-align: start;
   /* 列宽基准 = 滚动容器宽度(100%), 不用 100vw。
      公式 = (100% - 1×edge - 可见卡间 gap 道数 × 卡间距) / 列数
@@ -233,32 +233,32 @@ function getItemKey(item: Card, idx: number): string | number {
      整数档(列数=6)时 6×c + 5×gap = 100% - edge, 第 6 张右边缘正好落在视口右边界,
        即一行恰好 6 张完整卡片。 */
   width: calc(
-    (100% - var(--gf-rail-edge) - var(--gf-rail-gaps) * var(--gf-rail-gap)) /
-      var(--gf-rail-cols)
+    (100% - var(--jc-rail-edge) - var(--jc-rail-gaps) * var(--jc-rail-gap)) /
+      var(--jc-rail-cols)
   );
 }
 
-.gf-film-row__mask-left {
+.jc-film-row__mask-left {
   width: 40px;
-  background-image: var(--gf-mask-row-left);
-  z-index: var(--gf-z-row);
+  background-image: var(--jc-mask-row-left);
+  z-index: var(--jc-z-row);
   /* 默认隐藏；仅桌面(lg)且对应方向仍可滚动时(v-show)显示，避免遮挡边缘卡片 */
   display: none;
 }
-.gf-film-row__mask-right {
+.jc-film-row__mask-right {
   width: 40px;
-  background-image: var(--gf-mask-row-right);
-  z-index: var(--gf-z-row);
+  background-image: var(--jc-mask-row-right);
+  z-index: var(--jc-z-row);
   display: none;
 }
 @media (min-width: 1024px) {
-  .gf-film-row__mask-left,
-  .gf-film-row__mask-right {
+  .jc-film-row__mask-left,
+  .jc-film-row__mask-right {
     display: block;
   }
 }
 
-.gf-film-row__arrow {
+.jc-film-row__arrow {
   position: absolute;
   /* top 由 JS 实测写入 --row-arrow-top(见 updateArrowTop): 滚动容器 padding-top + 列宽×2/3。
      不用 CSS 公式 —— top 的百分比按容器"高"解析, 且断点规则曾被 base 覆盖导致位置错误。 */
@@ -272,30 +272,30 @@ function getItemKey(item: Card, idx: number): string | number {
   border: none;
   border-radius: 9999px;
   background-color: rgba(0, 0, 0, 0.45);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   cursor: pointer;
-  z-index: calc(var(--gf-z-row) + 1);
+  z-index: calc(var(--jc-z-row) + 1);
   opacity: 0;
   transition:
-    opacity var(--gf-dur-fast) var(--gf-ease-standard),
-    background-color var(--gf-dur-fast) var(--gf-ease-standard);
+    opacity var(--jc-dur-fast) var(--jc-ease-standard),
+    background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-film-row__arrow:hover {
+.jc-film-row__arrow:hover {
   background-color: rgba(0, 0, 0, 0.7);
 }
-.gf-film-row__arrow--left {
+.jc-film-row__arrow--left {
   left: 8px;
 }
-.gf-film-row__arrow--right {
+.jc-film-row__arrow--right {
   right: 8px;
 }
 
 @media (hover: hover) and (min-width: 1024px) {
-  .gf-film-row__arrow {
+  .jc-film-row__arrow {
     display: inline-flex;
   }
-  .gf-film-row__viewport:hover .gf-film-row__arrow,
-  .gf-film-row__viewport:focus-within .gf-film-row__arrow {
+  .jc-film-row__viewport:hover .jc-film-row__arrow,
+  .jc-film-row__viewport:focus-within .jc-film-row__arrow {
     opacity: 1;
   }
 }
@@ -306,7 +306,7 @@ function getItemKey(item: Card, idx: number): string | number {
 /* TV 默认显示箭头（不依赖 hover），加大尺寸.
  * 注意: 用 v-show 控制边界隐藏(canScrollLeft/Right), 这里只给"显示时"的样式;
  * v-show=false 会加 display:none(行内 style 优先级高于本规则), 故边界自动隐藏. */
-[data-mode='tv'] .gf-film-row__arrow {
+[data-mode='tv'] .jc-film-row__arrow {
   display: inline-flex;
   opacity: 1;
   width: 56px;
@@ -316,26 +316,26 @@ function getItemKey(item: Card, idx: number): string | number {
  * overflow-x:auto(需保留横向滚动) 会把 overflow-y 计算成 auto → 纵向裁切.
  * 不能改 clip(会断横滚). 改为: 在滚动容器内加足够 padding-block, 让焦点框
  * (outline 3px + offset 2px + scale~6px ≈ 11px) 落在 padding 内不被裁. */
-[data-mode='tv'] .gf-film-row__scroll {
+[data-mode='tv'] .jc-film-row__scroll {
   padding-block: 16px;
 }
-[data-mode='tv'] .gf-film-row__arrow:focus,
-[data-mode='tv'] .gf-film-row__arrow:focus-visible {
+[data-mode='tv'] .jc-film-row__arrow:focus,
+[data-mode='tv'] .jc-film-row__arrow:focus-visible {
   background-color: rgba(0, 0, 0, 0.85);
   outline: none;
-  box-shadow: var(--gf-tv-focus-ring);
+  box-shadow: var(--jc-tv-focus-ring);
 }
 
 /* TV 的列数(6) / 卡间距(space-6) / 缩进(安全区) 已在 theme.css 的 [data-mode="tv"] 里
-   覆盖 --gf-rail-*, 组件内不再重复定义宽度规则 —— 避免两处公式不同步。 */
+   覆盖 --jc-rail-*, 组件内不再重复定义宽度规则 —— 避免两处公式不同步。 */
 
 /* TV title 字号: 2xl 在大屏偏大, 降到 xl (行标题不需要那么抢眼) */
-[data-mode='tv'] .gf-film-row__title {
-  font-size: var(--gf-fs-xl);
+[data-mode='tv'] .jc-film-row__title {
+  font-size: var(--jc-fs-xl);
 }
 
 /* TV header 安全区缩进 */
-[data-mode='tv'] .gf-film-row > header.container-page {
-  padding-inline: var(--gf-tv-safe);
+[data-mode='tv'] .jc-film-row > header.container-page {
+  padding-inline: var(--jc-tv-safe);
 }
 </style>

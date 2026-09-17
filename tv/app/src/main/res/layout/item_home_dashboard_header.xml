@@ -18,7 +18,7 @@
             android:layout_height="match_parent"
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
-            android:background="@drawable/gf_tv_panel_cyan"
+            android:background="@drawable/jc_tv_panel_cyan"
             android:orientation="vertical"
             android:paddingHorizontal="18dp"
             android:paddingVertical="16dp">
@@ -35,18 +35,18 @@
                     android:layout_weight="1"
                     android:includeFontPadding="false"
                     android:text="近期历史"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="20sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="36dp"
-                    android:background="@drawable/gf_badge_bg"
+                    android:background="@drawable/jc_badge_bg"
                     android:gravity="center"
                     android:paddingHorizontal="16dp"
                     android:text="全部"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="13sp" />
             </LinearLayout>
 
@@ -66,7 +66,7 @@
             android:layout_height="match_parent"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:background="@drawable/gf_tv_hero_frame"
+            android:background="@drawable/jc_tv_hero_frame"
             android:clickable="true"
             android:clipToOutline="true"
             android:focusable="true"
@@ -78,18 +78,18 @@
                 android:layout_height="match_parent"
                 android:scaleType="centerCrop" />
 
-            <View android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/gf_title_scrim" />
+            <View android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/jc_title_scrim" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="top|start"
                 android:layout_margin="18dp"
-                android:background="@drawable/gf_badge_bg"
+                android:background="@drawable/jc_badge_bg"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="5dp"
                 android:text="为你推荐"
-                android:textColor="@color/gf_text"
+                android:textColor="@color/jc_text"
                 android:textSize="13sp"
                 android:textStyle="bold" />
 
@@ -107,7 +107,7 @@
                     android:ellipsize="end"
                     android:includeFontPadding="false"
                     android:maxLines="1"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="27sp"
                     android:textStyle="bold" />
 
@@ -119,7 +119,7 @@
                     android:ellipsize="end"
                     android:includeFontPadding="false"
                     android:maxLines="1"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="14sp" />
             </LinearLayout>
         </FrameLayout>
@@ -132,23 +132,23 @@
         android:clipChildren="false"
         android:orientation="horizontal">
 
-        <FrameLayout android:id="@+id/home_quick_history" style="@style/HomeQuickCard" android:layout_marginEnd="8dp" android:background="@drawable/gf_tv_quick_history">
+        <FrameLayout android:id="@+id/home_quick_history" style="@style/HomeQuickCard" android:layout_marginEnd="8dp" android:background="@drawable/jc_tv_quick_history">
             <LinearLayout style="@style/HomeQuickText"><TextView style="@style/HomeQuickTitle" android:text="历史 · 收藏"/><TextView style="@style/HomeQuickSubtitle" android:text="记录您的热爱"/></LinearLayout>
             <ImageView style="@style/HomeQuickIcon" android:src="@drawable/ic_favorite" />
         </FrameLayout>
-        <FrameLayout android:id="@+id/home_quick_category" style="@style/HomeQuickCard" android:layout_marginHorizontal="8dp" android:background="@drawable/gf_tv_quick_category">
+        <FrameLayout android:id="@+id/home_quick_category" style="@style/HomeQuickCard" android:layout_marginHorizontal="8dp" android:background="@drawable/jc_tv_quick_category">
             <LinearLayout style="@style/HomeQuickText"><TextView style="@style/HomeQuickTitle" android:text="分类"/><TextView style="@style/HomeQuickSubtitle" android:text="剧 / 影 / 综 / 漫"/></LinearLayout>
             <ImageView style="@style/HomeQuickIcon" android:src="@drawable/ic_film" />
         </FrameLayout>
-        <FrameLayout android:id="@+id/home_quick_search" style="@style/HomeQuickCard" android:layout_marginHorizontal="8dp" android:background="@drawable/gf_tv_quick_search">
+        <FrameLayout android:id="@+id/home_quick_search" style="@style/HomeQuickCard" android:layout_marginHorizontal="8dp" android:background="@drawable/jc_tv_quick_search">
             <LinearLayout style="@style/HomeQuickText"><TextView style="@style/HomeQuickTitle" android:text="搜索"/><TextView style="@style/HomeQuickSubtitle" android:text="找片更快"/></LinearLayout>
             <ImageView style="@style/HomeQuickIcon" android:src="@drawable/ic_search" />
         </FrameLayout>
-        <FrameLayout android:id="@+id/home_quick_account" style="@style/HomeQuickCard" android:layout_marginHorizontal="8dp" android:background="@drawable/gf_tv_quick_account">
+        <FrameLayout android:id="@+id/home_quick_account" style="@style/HomeQuickCard" android:layout_marginHorizontal="8dp" android:background="@drawable/jc_tv_quick_account">
             <LinearLayout style="@style/HomeQuickText"><TextView style="@style/HomeQuickTitle" android:text="我的"/><TextView android:id="@+id/home_quick_account_subtitle" style="@style/HomeQuickSubtitle" android:text="点击登录"/></LinearLayout>
             <ImageView style="@style/HomeQuickIcon" android:src="@drawable/ic_user" />
         </FrameLayout>
-        <FrameLayout android:id="@+id/home_quick_settings" style="@style/HomeQuickCard" android:layout_marginStart="8dp" android:background="@drawable/gf_tv_quick_settings">
+        <FrameLayout android:id="@+id/home_quick_settings" style="@style/HomeQuickCard" android:layout_marginStart="8dp" android:background="@drawable/jc_tv_quick_settings">
             <LinearLayout style="@style/HomeQuickText"><TextView style="@style/HomeQuickTitle" android:text="设置"/><TextView style="@style/HomeQuickSubtitle" android:text="画质 / 过滤"/></LinearLayout>
             <ImageView style="@style/HomeQuickIcon" android:src="@drawable/ic_settings" />
         </FrameLayout>

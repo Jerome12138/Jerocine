@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/gf_bg"
+    android:background="@color/jc_bg"
     android:clipChildren="false">
 
     <ImageView
@@ -39,7 +39,7 @@
                 android:id="@+id/detail_poster"
                 android:layout_width="210dp"
                 android:layout_height="302dp"
-                android:background="@color/gf_surface_2"
+                android:background="@color/jc_surface_2"
                 android:scaleType="centerCrop" />
 
             <LinearLayout
@@ -56,7 +56,7 @@
                     android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:maxLines="2"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:includeFontPadding="false"
                     android:textSize="32sp"
                     android:textStyle="bold" />
@@ -66,7 +66,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
 
                 <TextView
@@ -76,7 +76,7 @@
                     android:layout_marginTop="12dp"
                     android:ellipsize="end"
                     android:maxLines="2"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="15sp" />
 
                 <TextView
@@ -87,7 +87,7 @@
                     android:ellipsize="end"
                     android:lineSpacingExtra="3dp"
                     android:maxLines="3"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
 
                 <LinearLayout
@@ -95,7 +95,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="14dp"
-                    android:background="@drawable/gf_surface_panel"
+                    android:background="@drawable/jc_surface_panel"
                     android:orientation="vertical"
                     android:paddingHorizontal="14dp"
                     android:paddingVertical="10dp">
@@ -104,7 +104,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="播放源"
-                        android:textColor="@color/gf_text_tertiary"
+                        android:textColor="@color/jc_text_tertiary"
                         android:textSize="13sp" />
 
                     <androidx.recyclerview.widget.RecyclerView
@@ -130,7 +130,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:text="选集"
-                        android:textColor="@color/gf_text_tertiary"
+                        android:textColor="@color/jc_text_tertiary"
                         android:textSize="13sp" />
 
                     <androidx.recyclerview.widget.RecyclerView
@@ -154,7 +154,7 @@
 
                     <Button
                         android:id="@+id/detail_play"
-                        style="@style/GfButtonPrimary"
+                        style="@style/JcButtonPrimary"
                         android:layout_width="180dp"
                         android:layout_height="56dp"
                         android:focusable="true"
@@ -163,7 +163,7 @@
 
                     <Button
                         android:id="@+id/detail_favorite"
-                        style="@style/GfButtonSecondary"
+                        style="@style/JcButtonSecondary"
                         android:layout_width="150dp"
                         android:layout_height="56dp"
                         android:layout_marginStart="14dp"
@@ -176,7 +176,7 @@
                         android:layout_width="42dp"
                         android:layout_height="42dp"
                         android:layout_marginStart="16dp"
-                        android:indeterminateTint="@color/gf_accent"
+                        android:indeterminateTint="@color/jc_accent"
                         android:visibility="gone" />
 
                 </LinearLayout>
@@ -186,7 +186,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:textColor="@color/gf_danger"
+                    android:textColor="@color/jc_danger"
                     android:textSize="17sp"
                     android:visibility="gone" />
 
@@ -198,7 +198,7 @@
 
     <ImageButton
         android:id="@+id/detail_back"
-        style="@style/GfIconButton"
+        style="@style/JcIconButton"
         android:layout_gravity="top|start"
         android:layout_marginStart="36dp"
         android:layout_marginTop="18dp"
@@ -210,7 +210,7 @@
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:layout_gravity="center"
-        android:indeterminateTint="@color/gf_accent" />
+        android:indeterminateTint="@color/jc_accent" />
 
     <LinearLayout
         android:layout_width="420dp"
@@ -224,13 +224,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
-            android:textColor="@color/gf_text_secondary"
+            android:textColor="@color/jc_text_secondary"
             android:textSize="20sp"
             android:visibility="gone" />
 
         <Button
             android:id="@+id/detail_retry"
-            style="@style/GfButtonSecondary"
+            style="@style/JcButtonSecondary"
             android:layout_width="160dp"
             android:layout_height="56dp"
             android:layout_marginTop="18dp"

@@ -12,7 +12,7 @@ watch(
     if (!v) return
     nextTick(() => {
       window.setTimeout(() => {
-        document.querySelector<HTMLElement>('.gf-confirm-ok')?.focus()
+        document.querySelector<HTMLElement>('.jc-confirm-ok')?.focus()
       }, 50)
     })
   }
@@ -29,7 +29,7 @@ watch(
   >
     <p
       v-if="confirmState.desc"
-      class="text-secondary text-[var(--gf-fs-md)] leading-[var(--gf-lh-relaxed)]"
+      class="text-secondary text-[var(--jc-fs-md)] leading-[var(--jc-lh-relaxed)]"
     >
       {{ confirmState.desc }}
     </p>
@@ -38,7 +38,7 @@ watch(
         {{ confirmState.cancelText }}
       </BaseButton>
       <BaseButton
-        class="gf-confirm-ok"
+        class="jc-confirm-ok"
         :variant="confirmState.danger ? 'danger' : 'gradient'"
         @click="answerConfirm(true)"
       >

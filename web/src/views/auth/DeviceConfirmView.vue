@@ -56,44 +56,44 @@ function goHome(): void {
 
 <template>
   <!-- ============ TV(雷鸟卡片式) ============ -->
-  <div v-if="isTV" class="gf-tv-device">
-    <div class="gf-tv-sec gf-tv-device__sec">
+  <div v-if="isTV" class="jc-tv-device">
+    <div class="jc-tv-sec jc-tv-device__sec">
       <span class="t">📱 设备登录</span>
       <span class="s">扫码授权后请回到那台设备，已自动登录</span>
     </div>
 
-    <div class="gf-tv-glass-card gf-tv-device__card">
-      <h1 class="gf-tv-device__title text-brand-gradient">扫码登录确认</h1>
+    <div class="jc-tv-glass-card jc-tv-device__card">
+      <h1 class="jc-tv-device__title text-brand-gradient">扫码登录确认</h1>
 
       <template v-if="state === 'confirm'">
-        <p class="gf-tv-device__desc">
-          有一台设备请求用<span class="gf-tv-device__name">「{{ userStore.displayName }}」</span
+        <p class="jc-tv-device__desc">
+          有一台设备请求用<span class="jc-tv-device__name">「{{ userStore.displayName }}」</span
           >登录。<br />确认是你本人操作再同意。
         </p>
 
         <!-- 请求信息(列表行风格, 仅用真实数据) -->
-        <div class="gf-tv-device__rows">
-          <div class="gf-tv-listrow">
-            <span class="gf-tv-device__ic">👤</span>
+        <div class="jc-tv-device__rows">
+          <div class="jc-tv-listrow">
+            <span class="jc-tv-device__ic">👤</span>
             <div>
               <div class="lab">登录账号</div>
               <div class="sub">{{ userStore.displayName }}</div>
             </div>
           </div>
-          <div v-if="code" class="gf-tv-listrow">
-            <span class="gf-tv-device__ic">🔑</span>
+          <div v-if="code" class="jc-tv-listrow">
+            <span class="jc-tv-device__ic">🔑</span>
             <div>
               <div class="lab">校验码</div>
-              <div class="sub gf-tv-device__code">{{ code }}</div>
+              <div class="sub jc-tv-device__code">{{ code }}</div>
             </div>
           </div>
         </div>
 
         <!-- 两个等宽大按钮: 取消 / 同意登录(同意默认焦点) -->
-        <div class="gf-tv-device__actions">
+        <div class="jc-tv-device__actions">
           <button
             type="button"
-            class="gf-tv-btn gf-tv-device__btn"
+            class="jc-tv-btn jc-tv-device__btn"
             data-focusable="true"
             tabindex="0"
             @click="goHome"
@@ -103,7 +103,7 @@ function goHome(): void {
           <button
             ref="approveBtn"
             type="button"
-            class="gf-tv-btn primary gf-tv-device__btn"
+            class="jc-tv-btn primary jc-tv-device__btn"
             data-focusable="true"
             tabindex="0"
             :disabled="submitting"
@@ -115,12 +115,12 @@ function goHome(): void {
       </template>
 
       <template v-else-if="state === 'done'">
-        <p class="gf-tv-device__done">✓ 已授权</p>
-        <p class="gf-tv-device__desc">请回到那台设备，已自动登录。</p>
-        <div class="gf-tv-device__actions gf-tv-device__actions--single">
+        <p class="jc-tv-device__done">✓ 已授权</p>
+        <p class="jc-tv-device__desc">请回到那台设备，已自动登录。</p>
+        <div class="jc-tv-device__actions jc-tv-device__actions--single">
           <button
             type="button"
-            class="gf-tv-btn primary gf-tv-device__btn"
+            class="jc-tv-btn primary jc-tv-device__btn"
             data-focusable="true"
             tabindex="0"
             @click="goHome"
@@ -131,11 +131,11 @@ function goHome(): void {
       </template>
 
       <template v-else>
-        <p class="gf-tv-device__error">{{ errorMsg }}</p>
-        <div class="gf-tv-device__actions gf-tv-device__actions--single">
+        <p class="jc-tv-device__error">{{ errorMsg }}</p>
+        <div class="jc-tv-device__actions jc-tv-device__actions--single">
           <button
             type="button"
-            class="gf-tv-btn primary gf-tv-device__btn"
+            class="jc-tv-btn primary jc-tv-device__btn"
             data-focusable="true"
             tabindex="0"
             @click="goHome"
@@ -148,22 +148,22 @@ function goHome(): void {
   </div>
 
   <!-- ============ 桌面 / 移动(原样) ============ -->
-  <div v-else class="flex flex-col gap-[var(--gf-space-6)] text-center">
+  <div v-else class="flex flex-col gap-[var(--jc-space-6)] text-center">
     <h1
-      class="text-[var(--gf-fs-2xl)] font-[var(--gf-fw-black)] tracking-tight text-brand-gradient"
+      class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tracking-tight text-brand-gradient"
     >
       扫码登录确认
     </h1>
 
     <template v-if="state === 'confirm'">
-      <p class="text-secondary text-sm leading-[var(--gf-lh-relaxed)]">
-        有一台设备请求用<span class="text-primary font-[var(--gf-fw-semibold)]">「{{ userStore.displayName }}」</span>登录。
+      <p class="text-secondary text-sm leading-[var(--jc-lh-relaxed)]">
+        有一台设备请求用<span class="text-primary font-[var(--jc-fw-semibold)]">「{{ userStore.displayName }}」</span>登录。
         确认是你本人操作再同意。
       </p>
       <p v-if="code" class="text-muted text-xs">
         校验码 <span class="text-primary font-mono tracking-[0.3em]">{{ code }}</span>
       </p>
-      <div class="flex gap-[var(--gf-space-3)]">
+      <div class="flex gap-[var(--jc-space-3)]">
         <BaseButton variant="ghost" size="lg" class="flex-1" @click="goHome">取消</BaseButton>
         <BaseButton
           variant="gradient"
@@ -178,32 +178,32 @@ function goHome(): void {
     </template>
 
     <template v-else-if="state === 'done'">
-      <p class="text-[var(--gf-success)] text-base">✓ 已授权</p>
+      <p class="text-[var(--jc-success)] text-base">✓ 已授权</p>
       <p class="text-secondary text-sm">请回到那台设备，已自动登录。</p>
       <BaseButton variant="ghost" size="lg" @click="goHome">返回首页</BaseButton>
     </template>
 
     <template v-else>
-      <p class="text-[var(--gf-danger)] text-sm">{{ errorMsg }}</p>
+      <p class="text-[var(--jc-danger)] text-sm">{{ errorMsg }}</p>
       <BaseButton variant="ghost" size="lg" @click="goHome">返回首页</BaseButton>
     </template>
   </div>
 </template>
 
 <style scoped>
-.gf-tv-device {
+.jc-tv-device {
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.gf-tv-device__sec {
+.jc-tv-device__sec {
   width: 100%;
   max-width: 560px;
 }
 
-.gf-tv-device__card {
+.jc-tv-device__card {
   width: 100%;
   max-width: 560px;
   display: flex;
@@ -212,70 +212,70 @@ function goHome(): void {
   text-align: center;
 }
 
-.gf-tv-device__title {
-  font-size: var(--gf-fs-xl);
-  font-weight: var(--gf-fw-black);
+.jc-tv-device__title {
+  font-size: var(--jc-fs-xl);
+  font-weight: var(--jc-fw-black);
   letter-spacing: -0.01em;
 }
 
-.gf-tv-device__desc {
-  font-size: var(--gf-fs-base);
-  color: var(--gf-text-secondary);
-  line-height: var(--gf-lh-relaxed);
+.jc-tv-device__desc {
+  font-size: var(--jc-fs-base);
+  color: var(--jc-text-secondary);
+  line-height: var(--jc-lh-relaxed);
 }
 
-.gf-tv-device__name {
-  color: var(--gf-text-primary);
-  font-weight: var(--gf-fw-bold);
+.jc-tv-device__name {
+  color: var(--jc-text-primary);
+  font-weight: var(--jc-fw-bold);
 }
 
-.gf-tv-device__rows {
+.jc-tv-device__rows {
   display: flex;
   flex-direction: column;
   gap: 12px;
   text-align: left;
 }
 
-.gf-tv-device__ic {
+.jc-tv-device__ic {
   font-size: 24px;
   line-height: 1;
 }
 
-.gf-tv-device__code {
-  font-family: var(--gf-font-mono, monospace);
+.jc-tv-device__code {
+  font-family: var(--jc-font-mono, monospace);
   letter-spacing: 0.3em;
-  color: var(--gf-brand-cyan);
+  color: var(--jc-brand-cyan);
 }
 
-.gf-tv-device__actions {
+.jc-tv-device__actions {
   display: flex;
   gap: 16px;
   margin-top: 4px;
 }
 
-.gf-tv-device__actions--single {
+.jc-tv-device__actions--single {
   justify-content: center;
 }
 
-.gf-tv-device__btn {
+.jc-tv-device__btn {
   flex: 1;
   justify-content: center;
 }
 
-.gf-tv-device__actions--single .gf-tv-device__btn {
+.jc-tv-device__actions--single .jc-tv-device__btn {
   flex: 0 0 auto;
   min-width: 220px;
 }
 
-.gf-tv-device__done {
-  font-size: var(--gf-fs-lg);
-  font-weight: var(--gf-fw-bold);
-  color: var(--gf-success);
+.jc-tv-device__done {
+  font-size: var(--jc-fs-lg);
+  font-weight: var(--jc-fw-bold);
+  color: var(--jc-success);
 }
 
-.gf-tv-device__error {
-  font-size: var(--gf-fs-base);
-  color: var(--gf-danger);
-  line-height: var(--gf-lh-relaxed);
+.jc-tv-device__error {
+  font-size: var(--jc-fs-base);
+  color: var(--jc-danger);
+  line-height: var(--jc-lh-relaxed);
 }
 </style>

@@ -482,19 +482,19 @@ onMounted(() => {
   >
     <template #toolbar>
       <div class="min-w-0">
-        <h2 class="text-lg font-[var(--gf-fw-semibold)]">采集源管理</h2>
-        <p v-if="hasAnyHealth" class="text-xs text-muted mt-[var(--gf-space-1)] flex flex-wrap gap-x-[var(--gf-space-2)]">
-          <span class="text-[var(--gf-success)]">健康 {{ healthSummary.healthy }}</span>
-          <span v-if="healthSummary.degraded" class="text-[var(--gf-warning)]">降级 {{ healthSummary.degraded }}</span>
-          <span v-if="healthSummary.down" class="text-[var(--gf-danger)]">已停采 {{ healthSummary.down }}</span>
+        <h2 class="text-lg font-[var(--jc-fw-semibold)]">采集源管理</h2>
+        <p v-if="hasAnyHealth" class="text-xs text-muted mt-[var(--jc-space-1)] flex flex-wrap gap-x-[var(--jc-space-2)]">
+          <span class="text-[var(--jc-success)]">健康 {{ healthSummary.healthy }}</span>
+          <span v-if="healthSummary.degraded" class="text-[var(--jc-warning)]">降级 {{ healthSummary.degraded }}</span>
+          <span v-if="healthSummary.down" class="text-[var(--jc-danger)]">已停采 {{ healthSummary.down }}</span>
           <span v-if="healthSummary.untested">未测 {{ healthSummary.untested }}</span>
         </p>
       </div>
-      <div class="flex gap-[var(--gf-space-2)] items-center flex-wrap">
+      <div class="flex gap-[var(--jc-space-2)] items-center flex-wrap">
         <label class="text-sm text-secondary">采集时长:</label>
         <select
           v-model.number="spiderHours"
-          class="bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-2)] text-sm min-h-[44px] md:min-h-[36px]"
+          class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm min-h-[44px] md:min-h-[36px]"
           data-focusable="true"
         >
           <option v-for="opt in HOURS_OPTIONS" :key="opt.value" :value="opt.value">
@@ -528,17 +528,17 @@ onMounted(() => {
       </BaseTag>
       <!-- 名称列: 名称(有站点网址时可点跳转) + 类型/角色徽标 + URI 副行 -->
       <template v-else-if="col.key === 'name'">
-        <div class="flex flex-col gap-[var(--gf-space-1)] min-w-0">
-          <div class="flex items-center gap-[var(--gf-space-2)] flex-wrap">
+        <div class="flex flex-col gap-[var(--jc-space-1)] min-w-0">
+          <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
             <a
               v-if="row.siteUrl"
               :href="row.siteUrl"
               target="_blank"
               rel="noopener noreferrer"
-              class="font-[var(--gf-fw-medium)] text-primary underline decoration-dotted underline-offset-4 hover:text-[var(--gf-brand-primary)]"
+              class="font-[var(--jc-fw-medium)] text-primary underline decoration-dotted underline-offset-4 hover:text-[var(--jc-brand-primary)]"
               :title="`打开站点网址: ${row.siteUrl}`"
             >{{ row.name }}</a>
-            <span v-else class="font-[var(--gf-fw-medium)] text-primary">{{ row.name }}</span>
+            <span v-else class="font-[var(--jc-fw-medium)] text-primary">{{ row.name }}</span>
             <BaseTag variant="default" size="xs" title="接口返回类型">
               {{ row.resultModel === 0 ? 'JSON' : 'XML' }}
             </BaseTag>
@@ -555,7 +555,7 @@ onMounted(() => {
             </BaseTag>
           </div>
           <span
-            class="text-muted text-xs font-[var(--gf-font-mono)] truncate max-w-[280px]"
+            class="text-muted text-xs font-[var(--jc-font-mono)] truncate max-w-[280px]"
             :title="row.uri"
           >
             {{ row.uri }}
@@ -564,9 +564,9 @@ onMounted(() => {
       </template>
       <!-- 采集片数列: 已采 / 目录总片数 (+ 停采/降级状态徽标) -->
       <template v-else-if="isColKey(col, 'collected')">
-        <div class="flex items-center gap-[var(--gf-space-1)] flex-wrap">
+        <div class="flex items-center gap-[var(--jc-space-1)] flex-wrap">
           <span
-            class="font-[var(--gf-font-mono)] text-sm"
+            class="font-[var(--jc-font-mono)] text-sm"
             :title="badges[row.id]?.title"
           >
             {{ collectedText(row.id) }}
@@ -591,7 +591,7 @@ onMounted(() => {
       </template>
       <!-- 测速列: 采集延时 / 播放延时 / 广告过滤可达性 三合一, 各带完整 tooltip -->
       <template v-else-if="isColKey(col, 'health')">
-        <div class="flex items-center gap-[var(--gf-space-1)] flex-wrap">
+        <div class="flex items-center gap-[var(--jc-space-1)] flex-wrap">
           <BaseTag
             :variant="apiLatInfo(row.id).variant"
             size="xs"
@@ -619,7 +619,7 @@ onMounted(() => {
     </template>
 
     <template #actions="{ row }">
-      <div class="flex gap-[var(--gf-space-1)] justify-end items-center flex-wrap">
+      <div class="flex gap-[var(--jc-space-1)] justify-end items-center flex-wrap">
         <BaseButton
           variant="ghost"
           size="sm"
@@ -651,7 +651,7 @@ onMounted(() => {
   <ManageSheet
     v-model="dialogOpen"
     :title="editing ? '编辑采集源' : '新增采集源'" mobile-mode="fullsheet">
-    <div class="flex flex-col gap-[var(--gf-space-4)]">
+    <div class="flex flex-col gap-[var(--jc-space-4)]">
       <ManageFormField v-if="!editing" label="资源站标识" required
         hint="规则：小写字母开头，仅小写字母/数字/下划线，2~32 字符；保存后不可修改（例：src_lz）">
         <ManageInput v-model="form.id" placeholder="例如：src_lz" />
@@ -671,7 +671,7 @@ onMounted(() => {
       <ManageFormField label="返回类型" required>
         <select
           v-model.number="form.resultModel"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
           data-focusable="true"
         >
           <option :value="0">JSON</option>
@@ -681,7 +681,7 @@ onMounted(() => {
       <ManageFormField label="站点等级">
         <select
           v-model.number="form.grade"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
           data-focusable="true"
         >
           <option :value="0">主站</option>
@@ -691,7 +691,7 @@ onMounted(() => {
       <ManageFormField label="资源类型">
         <select
           v-model.number="form.collectType"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
           data-focusable="true"
         >
           <option :value="0">视频</option>
@@ -724,15 +724,15 @@ onMounted(() => {
 
   <!-- 重置库存 confirm dialog (密钥校验) -->
   <ManageSheet v-model="resetDialogOpen" title="重置影片库存" mobile-mode="sheet">
-    <div class="flex flex-col gap-[var(--gf-space-4)]">
+    <div class="flex flex-col gap-[var(--jc-space-4)]">
       <p class="text-sm text-secondary">
-        <BaseIcon name="info" size="14px" class="inline align-middle mr-1 text-[var(--gf-danger)]" />
-        此操作将<strong class="text-[var(--gf-danger)]">清空全部影片数据</strong>并对所有已启用的采集源触发全量重新采集, <strong>不可撤销</strong>。
+        <BaseIcon name="info" size="14px" class="inline align-middle mr-1 text-[var(--jc-danger)]" />
+        此操作将<strong class="text-[var(--jc-danger)]">清空全部影片数据</strong>并对所有已启用的采集源触发全量重新采集, <strong>不可撤销</strong>。
       </p>
       <ManageFormField label="重置密钥" required hint="联系系统管理员获取">
         <ManageInput v-model="resetKey" type="password" placeholder="请输入密钥" />
       </ManageFormField>
-      <p v-if="resetError" class="text-xs text-[var(--gf-danger)]">{{ resetError }}</p>
+      <p v-if="resetError" class="text-xs text-[var(--jc-danger)]">{{ resetError }}</p>
     </div>
     <template #footer>
       <BaseButton variant="ghost" @click="resetDialogOpen = false">取消</BaseButton>

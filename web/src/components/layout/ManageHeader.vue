@@ -76,9 +76,9 @@ const avatar = computed(() => {
 
 <template>
   <header
-    class="flex-between bg-[image:var(--gf-brand-gradient)] px-[var(--gf-space-6)] h-[56px] sticky top-0 z-[var(--gf-z-header)] shadow-md"
+    class="flex-between bg-[image:var(--jc-brand-gradient)] px-[var(--jc-space-6)] h-[56px] sticky top-0 z-[var(--jc-z-header)] shadow-md"
   >
-    <div class="flex items-center gap-[var(--gf-space-4)] text-white">
+    <div class="flex items-center gap-[var(--jc-space-4)] text-white">
       <!-- 汉堡按钮仅移动端渲染: 侧栏折叠已移除, 桌面/平板侧栏常驻无开关 -->
       <button
         v-if="props.showHamburger"
@@ -96,7 +96,7 @@ const avatar = computed(() => {
     <div class="relative">
       <button
         type="button"
-        class="flex items-center gap-[var(--gf-space-2)] text-white/95 hover:text-white"
+        class="flex items-center gap-[var(--jc-space-2)] text-white/95 hover:text-white"
         data-focusable="true"
         @click="dropdownOpen = !dropdownOpen"
       >
@@ -114,11 +114,11 @@ const avatar = computed(() => {
       <Transition name="fade-slide">
         <div
           v-if="dropdownOpen"
-          class="absolute right-0 mt-[var(--gf-space-2)] w-[180px] bg-elevated border border-default rounded-[var(--gf-radius-md)] shadow-card-lg overflow-hidden"
+          class="absolute right-0 mt-[var(--jc-space-2)] w-[180px] bg-elevated border border-default rounded-[var(--jc-radius-md)] shadow-card-lg overflow-hidden"
         >
           <button
             type="button"
-            class="w-full text-left px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-secondary hover:bg-surface flex items-center gap-[var(--gf-space-3)]"
+            class="w-full text-left px-[var(--jc-space-4)] py-[var(--jc-space-3)] text-secondary hover:bg-surface flex items-center gap-[var(--jc-space-3)]"
             data-focusable="true"
             @click="openChangePwd"
           >
@@ -126,7 +126,7 @@ const avatar = computed(() => {
           </button>
           <button
             type="button"
-            class="w-full text-left px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-secondary hover:bg-surface flex items-center gap-[var(--gf-space-3)] border-t border-subtle"
+            class="w-full text-left px-[var(--jc-space-4)] py-[var(--jc-space-3)] text-secondary hover:bg-surface flex items-center gap-[var(--jc-space-3)] border-t border-subtle"
             data-focusable="true"
             @click="handleLogout"
           >
@@ -137,7 +137,7 @@ const avatar = computed(() => {
     </div>
 
     <ManageSheet v-model="dialogOpen" title="修改密码" mobile-mode="sheet">
-      <div class="flex flex-col gap-[var(--gf-space-4)]">
+      <div class="flex flex-col gap-[var(--jc-space-4)]">
         <ManageFormField label="原密码" required>
           <ManageInput v-model="pwdForm.password" type="password" placeholder="原密码" />
         </ManageFormField>
@@ -151,7 +151,7 @@ const avatar = computed(() => {
             placeholder="再次输入新密码"
           />
         </ManageFormField>
-        <p v-if="formError" class="text-xs text-[var(--gf-danger)]">
+        <p v-if="formError" class="text-xs text-[var(--jc-danger)]">
           {{ formError }}
         </p>
       </div>
@@ -168,8 +168,8 @@ const avatar = computed(() => {
 <style scoped>
 .fade-slide-enter-active,
 .fade-slide-leave-active {
-  transition: opacity var(--gf-dur-fast) var(--gf-ease-standard),
-    transform var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: opacity var(--jc-dur-fast) var(--jc-ease-standard),
+    transform var(--jc-dur-fast) var(--jc-ease-standard);
 }
 .fade-slide-enter-from,
 .fade-slide-leave-to {

@@ -18,24 +18,24 @@ withDefaults(defineProps<Props>(), {
 </script>
 
 <template>
-  <span class="gf-logo" :style="{ height: size + 'px' }">
-    <span class="gf-logo__text" :style="{ fontSize: size * 0.7 + 'px' }">
+  <span class="jc-logo" :style="{ height: size + 'px' }">
+    <span class="jc-logo__text" :style="{ fontSize: size * 0.7 + 'px' }">
       Jerocine影视
     </span>
   </span>
 </template>
 
 <style scoped>
-.gf-logo {
+.jc-logo {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   line-height: 1;
 }
-.gf-logo__mark {
+.jc-logo__mark {
   filter: drop-shadow(0 2px 8px rgba(155, 73, 231, 0.35));
 }
-.gf-logo__text {
+.jc-logo__text {
   display: inline-block;
   font-weight: 800;
   font-style: italic;

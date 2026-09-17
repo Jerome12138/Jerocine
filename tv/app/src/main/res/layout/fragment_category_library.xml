@@ -2,19 +2,19 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/gf_bg"
+    android:background="@color/jc_bg"
     android:clipChildren="false">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="@dimen/gf_toolbar_height"
+        android:layout_height="@dimen/jc_toolbar_height"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="@dimen/gf_page_padding_horizontal">
+        android:paddingHorizontal="@dimen/jc_page_padding_horizontal">
 
         <ImageButton
             android:id="@+id/category_library_back"
-            style="@style/GfIconButton"
+            style="@style/JcIconButton"
             android:contentDescription="返回"
             android:src="@drawable/ic_back" />
 
@@ -24,7 +24,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
             android:includeFontPadding="false"
-            android:textColor="@color/gf_text_secondary"
+            android:textColor="@color/jc_text_secondary"
             android:textSize="26sp"
             android:textStyle="bold" />
 
@@ -34,13 +34,13 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
             android:includeFontPadding="false"
-            android:textColor="@color/gf_accent"
+            android:textColor="@color/jc_accent"
             android:textSize="26sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/category_library_count"
-            style="@style/GfPageSubtitle"
+            style="@style/JcPageSubtitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="18dp"
@@ -63,7 +63,7 @@
             android:layout_height="match_parent"
             android:layout_marginEnd="12dp"
             android:layout_weight="2"
-            android:background="@drawable/gf_tv_filter_panel"
+            android:background="@drawable/jc_tv_filter_panel"
             android:clipChildren="false"
             android:clipToPadding="false"
             android:paddingVertical="4dp"
@@ -98,7 +98,7 @@
 
                 <Button
                     android:id="@+id/category_library_previous"
-                    style="@style/GfButtonSecondary"
+                    style="@style/JcButtonSecondary"
                     android:layout_width="112dp"
                     android:layout_height="48dp"
                     android:text="上一页" />
@@ -108,13 +108,13 @@
                     android:layout_width="88dp"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:textColor="@color/gf_text_secondary"
+                    android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
                 <Button
                     android:id="@+id/category_library_next"
-                    style="@style/GfButtonSecondary"
+                    style="@style/JcButtonSecondary"
                     android:layout_width="112dp"
                     android:layout_height="48dp"
                     android:text="下一页" />
@@ -127,7 +127,7 @@
         android:layout_width="52dp"
         android:layout_height="52dp"
         android:layout_gravity="center"
-        android:indeterminateTint="@color/gf_accent" />
+        android:indeterminateTint="@color/jc_accent" />
 
     <LinearLayout
         android:layout_width="420dp"
@@ -141,13 +141,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
-            android:textColor="@color/gf_text_secondary"
+            android:textColor="@color/jc_text_secondary"
             android:textSize="20sp"
             android:visibility="gone" />
 
         <Button
             android:id="@+id/category_library_retry"
-            style="@style/GfButtonSecondary"
+            style="@style/JcButtonSecondary"
             android:layout_width="150dp"
             android:layout_height="52dp"
             android:layout_marginTop="16dp"

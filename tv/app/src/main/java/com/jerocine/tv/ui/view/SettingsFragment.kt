@@ -138,12 +138,12 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             user.text = ServiceLocator.tokenStore.userName ?: "未登录"
             action.text = if (ServiceLocator.isLoggedIn) "退出登录" else "登录"
             action.setBackgroundResource(
-                if (ServiceLocator.isLoggedIn) R.drawable.gf_button_danger else R.drawable.gf_button_primary,
+                if (ServiceLocator.isLoggedIn) R.drawable.jc_button_danger else R.drawable.jc_button_primary,
             )
             action.setTextColor(
                 ContextCompat.getColorStateList(
                     requireContext(),
-                    if (ServiceLocator.isLoggedIn) R.color.gf_danger_btn_text else R.color.gf_primary_btn_text,
+                    if (ServiceLocator.isLoggedIn) R.color.jc_danger_btn_text else R.color.jc_primary_btn_text,
                 ),
             )
         }

@@ -49,10 +49,10 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="flex flex-col gap-[var(--gf-space-4)]">
+  <section class="flex flex-col gap-[var(--jc-space-4)]">
     <header class="flex items-center justify-between">
       <div>
-        <h2 class="text-lg font-[var(--gf-fw-semibold)]">文件库</h2>
+        <h2 class="text-lg font-[var(--jc-fw-semibold)]">文件库</h2>
         <p class="text-sm text-muted">站点已上传的图片 / 视频资源</p>
       </div>
       <BaseButton variant="ghost" size="sm" @click="load">
@@ -62,7 +62,7 @@ onMounted(load)
 
     <div
       v-if="loading"
-      class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-[var(--gf-space-3)]"
+      class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-[var(--jc-space-3)]"
     >
       <BaseSkeleton v-for="i in 8" :key="i" shape="rect" height="160px" />
     </div>
@@ -71,23 +71,23 @@ onMounted(load)
 
     <div
       v-else
-      class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-[var(--gf-space-3)]"
+      class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-[var(--jc-space-3)]"
     >
       <article
         v-for="item in items"
         :key="item.id"
-        class="bg-surface rounded-[var(--gf-radius-md)] overflow-hidden flex flex-col group"
+        class="bg-surface rounded-[var(--jc-radius-md)] overflow-hidden flex flex-col group"
       >
         <div class="aspect-square bg-elevated">
           <BaseImage :src="item.url" :alt="item.name" />
         </div>
-        <div class="p-[var(--gf-space-2)] text-xs flex flex-col gap-[var(--gf-space-1)]">
+        <div class="p-[var(--jc-space-2)] text-xs flex flex-col gap-[var(--jc-space-1)]">
           <div class="truncate text-secondary">{{ item.name }}</div>
           <div class="flex items-center justify-between text-muted">
             <span v-if="item.size">{{ (item.size / 1024).toFixed(1) }} KB</span>
             <span v-else />
             <button
-              class="hover:text-[var(--gf-danger)]"
+              class="hover:text-[var(--jc-danger)]"
               type="button"
               data-focusable="true"
               @click="remove(item)"

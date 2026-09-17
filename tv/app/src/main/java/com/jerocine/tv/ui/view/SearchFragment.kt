@@ -121,7 +121,7 @@ class SearchFragment : Fragment(R.layout.fragment_search) {
     private fun bindKeywords(container: LinearLayout, values: List<String>) {
         container.removeAllViews()
         values.take(4).forEach { value ->
-            val button = Button(requireContext(), null, 0, R.style.GfChip).apply {
+            val button = Button(requireContext(), null, 0, R.style.JcChip).apply {
                 text = value
                 isAllCaps = false
                 isFocusable = true

@@ -46,17 +46,17 @@ function pick(h: SourceSearchHit): void {
     width="560px"
     @update:visible="(v) => emit('update:visible', v)"
   >
-    <p class="text-sm text-muted mb-[var(--gf-space-3)]">
+    <p class="text-sm text-muted mb-[var(--jc-space-3)]">
       该源搜到多个同名影片，请选择要采集的版本：
     </p>
 
     <BaseEmpty v-if="!candidates.length" description="无候选版本" />
 
-    <ul v-else class="flex flex-col gap-[var(--gf-space-2)]">
+    <ul v-else class="flex flex-col gap-[var(--jc-space-2)]">
       <li
         v-for="h in candidates"
         :key="h.sourceVodId"
-        class="flex items-center gap-[var(--gf-space-3)] p-[var(--gf-space-2)] rounded-[var(--gf-radius-md)] border border-default bg-surface cursor-pointer hover:border-[var(--gf-brand-primary)] transition-colors"
+        class="flex items-center gap-[var(--jc-space-3)] p-[var(--jc-space-2)] rounded-[var(--jc-radius-md)] border border-default bg-surface cursor-pointer hover:border-[var(--jc-brand-primary)] transition-colors"
         :class="picking ? 'opacity-60 pointer-events-none' : ''"
         data-focusable="true"
         tabindex="0"
@@ -66,7 +66,7 @@ function pick(h: SourceSearchHit): void {
         @keydown.enter.prevent="pick(h)"
         @keydown.space.prevent="pick(h)"
       >
-        <div class="w-[40px] h-[54px] shrink-0 rounded-[var(--gf-radius-sm)] overflow-hidden bg-elevated">
+        <div class="w-[40px] h-[54px] shrink-0 rounded-[var(--jc-radius-sm)] overflow-hidden bg-elevated">
           <BaseImage v-if="h.cover" :src="h.cover" :alt="h.name" ratio="3/4" />
         </div>
         <div class="min-w-0 flex-1 flex flex-col gap-[2px]">

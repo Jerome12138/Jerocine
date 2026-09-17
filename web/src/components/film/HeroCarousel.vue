@@ -166,7 +166,7 @@ const hasMeta = computed<boolean>(
 
 <template>
   <section
-    class="gf-hero relative w-full overflow-hidden cursor-pointer"
+    class="jc-hero relative w-full overflow-hidden cursor-pointer"
     data-focus-zone="hero"
     role="button"
     :aria-label="active ? `查看《${active.name}》详情` : undefined"
@@ -182,11 +182,11 @@ const hasMeta = computed<boolean>(
     data-focusable="true"
   >
     <!-- 背景图层 -->
-    <div class="gf-hero__layers absolute inset-0">
+    <div class="jc-hero__layers absolute inset-0">
       <div
         v-for="(it, i) in items"
         :key="(it.mid ?? i) + '-' + i"
-        class="gf-hero__slide absolute inset-0"
+        class="jc-hero__slide absolute inset-0"
         :class="i === current ? 'opacity-100' : 'opacity-0 pointer-events-none'"
         :aria-hidden="i !== current"
       >
@@ -196,14 +196,14 @@ const hasMeta = computed<boolean>(
           ratio=""
           :eager="i === 0"
           fit="cover"
-          class="gf-hero__image"
-          :class="{ 'gf-hero__image--wide': !!it.poster }"
+          class="jc-hero__image"
+          :class="{ 'jc-hero__image--wide': !!it.poster }"
         />
         <!-- 竖海报: TV 模糊铺底 + 右侧清晰竖海报; Web 宽屏同理在右侧展示完整竖海报(避免封面被裁)
         （仅当前 slide 的封面, 与下方热门榜单不重复） -->
         <div
           v-if="it.cover"
-          class="gf-hero__poster-tv"
+          class="jc-hero__poster-tv"
           :style="{ backgroundImage: `url(${JSON.stringify(it.cover)})` }"
           aria-hidden="true"
         />
@@ -211,18 +211,18 @@ const hasMeta = computed<boolean>(
     </div>
 
     <!-- 蒙版 -->
-    <div class="gf-hero__mask-bottom absolute inset-0 pointer-events-none" />
-    <div class="gf-hero__mask-left absolute inset-0 pointer-events-none hidden md:block" />
+    <div class="jc-hero__mask-bottom absolute inset-0 pointer-events-none" />
+    <div class="jc-hero__mask-left absolute inset-0 pointer-events-none hidden md:block" />
 
     <!-- 左下信息层 -->
     <div
       v-if="active"
-      class="gf-hero__content absolute inset-x-0 bottom-0 container-page"
+      class="jc-hero__content absolute inset-x-0 bottom-0 container-page"
     >
-      <div class="gf-hero__info">
+      <div class="jc-hero__info">
         <div
           v-if="tags.length"
-          class="flex flex-wrap gap-[var(--gf-space-2)] mb-[var(--gf-space-2)]"
+          class="flex flex-wrap gap-[var(--jc-space-2)] mb-[var(--jc-space-2)]"
         >
           <BaseTag
             v-for="(t, i) in tags"
@@ -233,7 +233,7 @@ const hasMeta = computed<boolean>(
             {{ t }}
           </BaseTag>
         </div>
-        <h2 class="gf-hero__title text-primary">
+        <h2 class="jc-hero__title text-primary">
           {{ active.name }}
         </h2>
         <!-- 描述行: 评分 · 豆瓣榜位 · 状态(片源给的 remarks)。
@@ -241,14 +241,14 @@ const hasMeta = computed<boolean>(
              类型标签在上一行的标签行(tags = classTag), 此处不重复。 -->
         <p
           v-if="hasMeta"
-          class="gf-hero__desc gf-hero__meta mt-[var(--gf-space-3)]"
+          class="jc-hero__desc jc-hero__meta mt-[var(--jc-space-3)]"
         >
-          <span v-if="score" class="gf-hero__score">
-            <BaseIcon name="star" size="0.85em" class="gf-hero__score-icon" />
+          <span v-if="score" class="jc-hero__score">
+            <BaseIcon name="star" size="0.85em" class="jc-hero__score-icon" />
             {{ score }}
           </span>
-          <span v-if="hotBadge" class="gf-hero__hot">{{ hotBadge }}</span>
-          <span v-if="active.remarks" class="gf-hero__remarks">{{ active.remarks }}</span>
+          <span v-if="hotBadge" class="jc-hero__hot">{{ hotBadge }}</span>
+          <span v-if="active.remarks" class="jc-hero__remarks">{{ active.remarks }}</span>
         </p>
       </div>
     </div>
@@ -256,7 +256,7 @@ const hasMeta = computed<boolean>(
     <!-- 左右箭头 (.stop 阻止冒泡到 section 触发跳转) -->
     <template v-if="showArrows && total > 1">
       <button
-        class="gf-hero__arrow gf-hero__arrow--left"
+        class="jc-hero__arrow jc-hero__arrow--left"
         data-focusable="true"
         tabindex="0"
         aria-label="prev slide"
@@ -265,7 +265,7 @@ const hasMeta = computed<boolean>(
         <BaseIcon name="chevron-left" size="24px" />
       </button>
       <button
-        class="gf-hero__arrow gf-hero__arrow--right"
+        class="jc-hero__arrow jc-hero__arrow--right"
         data-focusable="true"
         tabindex="0"
         aria-label="next slide"
@@ -279,13 +279,13 @@ const hasMeta = computed<boolean>(
     <!-- 指示条 (bilibili 风格底部横条; 当前条带 4s 自动推进进度填充) -->
     <div
       v-if="total > 1"
-      class="gf-hero__bars absolute bottom-[var(--gf-space-4)] left-1/2 -translate-x-1/2 flex items-center gap-[var(--gf-space-2)]"
+      class="jc-hero__bars absolute bottom-[var(--jc-space-4)] left-1/2 -translate-x-1/2 flex items-center gap-[var(--jc-space-2)]"
     >
       <button
         v-for="(_, i) in items"
         :key="i"
-        class="gf-hero__bar"
-        :class="i === current ? 'gf-hero__bar--active' : ''"
+        class="jc-hero__bar"
+        :class="i === current ? 'jc-hero__bar--active' : ''"
         :aria-label="`go to slide ${i + 1}`"
         :aria-current="i === current ? 'true' : 'false'"
         data-focusable="true"
@@ -295,7 +295,7 @@ const hasMeta = computed<boolean>(
         <span
           v-if="i === current"
           :key="progressTick"
-          class="gf-hero__bar-progress"
+          class="jc-hero__bar-progress"
           :style="{ animationDuration: effectiveInterval + 'ms', animationPlayState: paused ? 'paused' : 'running' }"
         />
       </button>
@@ -319,20 +319,20 @@ const hasMeta = computed<boolean>(
  *
  * 2026-09-14: 整体下调约一档(手机 16/10→16/9、各档 max-height 收 4~6vh、
  * PC 420→380) —— 描述行补了评分/标签/榜位后信息更密, 高度反而可以更省,
- * 首屏也能多露出下方列表。内容侧的内边距同步收紧(见 .gf-hero__content)。
+ * 首屏也能多露出下方列表。内容侧的内边距同步收紧(见 .jc-hero__content)。
  */
-.gf-hero {
+.jc-hero {
   width: 100%;
   /* 手机竖屏：用 16/9 而不是 4/5，避免大图占满半屏 */
   aspect-ratio: 16 / 9;
   min-height: 190px;
   max-height: 38vh;
-  background-color: var(--gf-bg-base);
+  background-color: var(--jc-bg-base);
   outline: none;
 }
 
 @media (min-width: 480px) {
-  .gf-hero {
+  .jc-hero {
     aspect-ratio: 16 / 9;
     min-height: 220px;
     max-height: 40vh;
@@ -340,7 +340,7 @@ const hasMeta = computed<boolean>(
 }
 
 @media (min-width: 768px) {
-  .gf-hero {
+  .jc-hero {
     aspect-ratio: 16 / 9;
     min-height: 280px;
     max-height: 38vh;
@@ -348,7 +348,7 @@ const hasMeta = computed<boolean>(
 }
 
 @media (min-width: 1024px) {
-  .gf-hero {
+  .jc-hero {
     aspect-ratio: 21 / 9;
     min-height: 320px;
     max-height: 380px;
@@ -356,7 +356,7 @@ const hasMeta = computed<boolean>(
 }
 
 @media (min-width: 1600px) {
-  .gf-hero {
+  .jc-hero {
     aspect-ratio: 21 / 9;
     min-height: clamp(340px, 30vh, 400px);
     max-height: clamp(340px, 34vh, 440px);
@@ -365,7 +365,7 @@ const hasMeta = computed<boolean>(
 
 /* 横屏小高度设备（手机横屏 / 平板横屏低分辨率）：限制 max-height 防 hero 过高顶走列表 */
 @media (orientation: landscape) and (max-height: 600px) {
-  .gf-hero {
+  .jc-hero {
     max-height: 88vh;
     min-height: 280px;
   }
@@ -374,24 +374,24 @@ const hasMeta = computed<boolean>(
 /* TV 模式 hero 的尺寸与图层(沉浸 Banner: 竖图模糊铺底 + 右侧清晰竖海报)
  * 统一在文件底部非 scoped [data-mode='tv'] 块定义, 避免本处与其冲突(曾两处 max-height 打架). */
 
-.gf-hero__image,
-.gf-hero__image :deep(img) {
+.jc-hero__image,
+.jc-hero__image :deep(img) {
   width: 100%;
   height: 100%;
   border-radius: 0;
 }
 
-.gf-hero__slide {
-  transition: opacity var(--gf-dur-slow) var(--gf-ease-out);
+.jc-hero__slide {
+  transition: opacity var(--jc-dur-slow) var(--jc-ease-out);
 }
 
 /* Web: 默认隐藏竖海报(移动/平板轮播更矮, 不需); 宽屏(≥1024)在右侧展示完整竖海报,
  * 规避封面被 21/9 横幅裁掉竖图信息的问题. TV 模式尺寸在底部非 scoped 块单独定义. */
-.gf-hero__poster-tv {
+.jc-hero__poster-tv {
   display: none;
 }
 @media (min-width: 1024px) {
-  .gf-hero__poster-tv {
+  .jc-hero__poster-tv {
     display: block;
     position: absolute;
     top: 50%;
@@ -399,8 +399,8 @@ const hasMeta = computed<boolean>(
     transform: translateY(-50%);
     height: 80%;
     aspect-ratio: 2 / 3;
-    border-radius: var(--gf-radius-lg);
-    background-color: var(--gf-bg-elevated);
+    border-radius: var(--jc-radius-lg);
+    background-color: var(--jc-bg-elevated);
     background-size: cover;
     background-position: center;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
@@ -408,96 +408,96 @@ const hasMeta = computed<boolean>(
   }
 }
 
-.gf-hero__mask-bottom {
-  background-image: var(--gf-mask-hero-bottom);
+.jc-hero__mask-bottom {
+  background-image: var(--jc-mask-hero-bottom);
 }
-.gf-hero__mask-left {
-  background-image: var(--gf-mask-hero-left);
+.jc-hero__mask-left {
+  background-image: var(--jc-mask-hero-left);
 }
 
-.gf-hero__content {
-  padding-top: var(--gf-space-6);
-  padding-bottom: var(--gf-space-8);
+.jc-hero__content {
+  padding-top: var(--jc-space-6);
+  padding-bottom: var(--jc-space-8);
   z-index: 2;
 }
 @media (min-width: 1024px) {
-  .gf-hero__content {
+  .jc-hero__content {
     padding-bottom: 64px;
   }
 }
 
-.gf-hero__info {
+.jc-hero__info {
   max-width: min(640px, 100%);
 }
 
 @media (min-width: 768px) {
-  .gf-hero__info {
+  .jc-hero__info {
     max-width: min(640px, 60%);
   }
 }
 
-.gf-hero__title {
-  font-size: var(--gf-fs-hero);
-  font-weight: var(--gf-fw-black);
-  line-height: var(--gf-lh-tight);
-  letter-spacing: var(--gf-tracking-tight);
+.jc-hero__title {
+  font-size: var(--jc-fs-hero);
+  font-weight: var(--jc-fw-black);
+  line-height: var(--jc-lh-tight);
+  letter-spacing: var(--jc-tracking-tight);
 }
 
 /* 手机档片名再收一档: 令牌是 clamp(2.5rem, 4vw + 1rem, 4.5rem), 在 390px 屏上 4vw+1rem
  * 只有 31.6px, 直接卡到下限 40px —— 配上 16/9 的矮横幅头重脚轻, 挤掉下方列表。
- * 用户反馈"移动端轮播图的片名可以再小点", 故此处只覆盖 <768 档, 不动 --gf-fs-hero 令牌
+ * 用户反馈"移动端轮播图的片名可以再小点", 故此处只覆盖 <768 档, 不动 --jc-fs-hero 令牌
  * (令牌还被 TV 档整体放大覆盖, 改令牌会连带影响 TV)。
  * 显式排除 TV: TV 是独立 mode(data-mode 挂在 <html>, 不随宽度走), 万一大屏设备上报的
  * 视口宽度 <768, 这条宽度规则会把 TV 的片名一并收小 —— 那不是我们要的。 */
 @media (max-width: 767px) {
-  html:not([data-mode='tv']) .gf-hero__title {
+  html:not([data-mode='tv']) .jc-hero__title {
     font-size: clamp(1.5rem, 6.5vw, 1.75rem);
   }
 }
 
 /* 描述行: 评分 / 类型标签 / 豆瓣榜位 / 状态 并排一行, 窄屏自动换行(最多两行)。
  * 各段靠颜色与字重区分(评分暖色、榜位品牌色、状态弱化), 不再插入分隔符。
- * 保留 .gf-hero__desc 类名是为了不透传破坏 TV 下的字号覆盖([data-mode='tv'] .gf-hero__desc)。 */
-.gf-hero__meta {
+ * 保留 .jc-hero__desc 类名是为了不透传破坏 TV 下的字号覆盖([data-mode='tv'] .jc-hero__desc)。 */
+.jc-hero__meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px var(--gf-space-3);
-  font-size: var(--gf-fs-sm);
-  line-height: var(--gf-lh-snug);
-  color: var(--gf-text-secondary);
-  max-height: calc(2em * var(--gf-lh-snug));
+  gap: 4px var(--jc-space-3);
+  font-size: var(--jc-fs-sm);
+  line-height: var(--jc-lh-snug);
+  color: var(--jc-text-secondary);
+  max-height: calc(2em * var(--jc-lh-snug));
   overflow: hidden;
 }
 
 @media (min-width: 768px) {
-  .gf-hero__meta {
-    font-size: var(--gf-fs-base);
+  .jc-hero__meta {
+    font-size: var(--jc-fs-base);
   }
 }
 
-.gf-hero__score {
+.jc-hero__score {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  color: var(--gf-warning);
-  font-weight: var(--gf-fw-bold);
+  color: var(--jc-warning);
+  font-weight: var(--jc-fw-bold);
 }
 
-.gf-hero__score-icon {
+.jc-hero__score-icon {
   margin-bottom: 1px;
 }
 
-.gf-hero__hot {
-  color: var(--gf-brand-cyan);
-  font-weight: var(--gf-fw-semibold);
+.jc-hero__hot {
+  color: var(--jc-brand-cyan);
+  font-weight: var(--jc-fw-semibold);
 }
 
-.gf-hero__remarks {
-  color: var(--gf-text-muted);
+.jc-hero__remarks {
+  color: var(--jc-text-muted);
 }
 
-.gf-hero__arrow {
+.jc-hero__arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
@@ -507,37 +507,37 @@ const hasMeta = computed<boolean>(
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: var(--gf-radius-md);
+  border-radius: var(--jc-radius-md);
   background-color: rgba(0, 0, 0, 0.55);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   cursor: pointer;
   z-index: 3;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    opacity var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    opacity var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-hero__arrow:hover {
+.jc-hero__arrow:hover {
   background-color: rgba(0, 0, 0, 0.8);
 }
-.gf-hero__arrow--left {
-  left: var(--gf-space-4);
+.jc-hero__arrow--left {
+  left: var(--jc-space-4);
 }
-.gf-hero__arrow--right {
-  right: var(--gf-space-4);
+.jc-hero__arrow--right {
+  right: var(--jc-space-4);
 }
 
 @media (min-width: 768px) {
-  .gf-hero__arrow {
+  .jc-hero__arrow {
     display: inline-flex;
   }
 }
 
 /* 指示条 (横条 + 当前条进度填充) */
-.gf-hero__bars {
+.jc-hero__bars {
   z-index: 3;
 }
 
-.gf-hero__bar {
+.jc-hero__bar {
   position: relative;
   width: 36px;
   height: 3px;
@@ -547,35 +547,35 @@ const hasMeta = computed<boolean>(
   padding: 0;
   cursor: pointer;
   overflow: hidden;
-  transition: width var(--gf-dur-base) var(--gf-ease-standard);
+  transition: width var(--jc-dur-base) var(--jc-ease-standard);
 }
 
-.gf-hero__bar--active {
+.jc-hero__bar--active {
   width: 56px;
 }
 
-.gf-hero__bar:hover {
+.jc-hero__bar:hover {
   background-color: rgba(255, 255, 255, 0.45);
 }
 
-.gf-hero__bar:focus-visible {
+.jc-hero__bar:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px rgba(74, 209, 229, 0.8);
 }
 
-.gf-hero__bar-progress {
+.jc-hero__bar-progress {
   position: absolute;
   inset: 0;
-  background-image: var(--gf-brand-gradient);
+  background-image: var(--jc-brand-gradient);
   transform: scaleX(0);
   transform-origin: left center;
-  animation-name: gf-hero-progress;
+  animation-name: jc-hero-progress;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
   animation-iteration-count: 1;
 }
 
-@keyframes gf-hero-progress {
+@keyframes jc-hero-progress {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
@@ -583,72 +583,72 @@ const hasMeta = computed<boolean>(
 
 <style>
 /* TV 默认显示箭头（不依赖 hover），加大尺寸 + 安全区缩进 */
-[data-mode='tv'] .gf-hero__arrow {
+[data-mode='tv'] .jc-hero__arrow {
   display: inline-flex;
   width: 64px;
   height: 80px;
 }
-[data-mode='tv'] .gf-hero__arrow--left {
-  left: var(--gf-tv-safe);
+[data-mode='tv'] .jc-hero__arrow--left {
+  left: var(--jc-tv-safe);
 }
-[data-mode='tv'] .gf-hero__arrow--right {
-  right: var(--gf-tv-safe);
+[data-mode='tv'] .jc-hero__arrow--right {
+  right: var(--jc-tv-safe);
 }
-[data-mode='tv'] .gf-hero__arrow:focus,
-[data-mode='tv'] .gf-hero__arrow:focus-visible {
+[data-mode='tv'] .jc-hero__arrow:focus,
+[data-mode='tv'] .jc-hero__arrow:focus-visible {
   outline: none;
   background-color: rgba(0, 0, 0, 0.85);
-  box-shadow: var(--gf-tv-focus-ring);
+  box-shadow: var(--jc-tv-focus-ring);
 }
 /* TV 沉浸 Banner —— 占屏 ~55%; 采集源仅竖海报: 同图模糊放大铺底 + 右侧清晰竖海报兜底 */
-[data-mode='tv'] .gf-hero {
+[data-mode='tv'] .jc-hero {
   aspect-ratio: auto;
-  min-height: var(--gf-tv-hero-h, 55vh);
-  max-height: var(--gf-tv-hero-h, 55vh);
+  min-height: var(--jc-tv-hero-h, 55vh);
+  max-height: var(--jc-tv-hero-h, 55vh);
 }
 /* 背景层: 静态模糊(非 backdrop-blur)放大压暗, 把竖海报铺满宽幅不露裁切边 */
-[data-mode='tv'] .gf-hero__image,
-[data-mode='tv'] .gf-hero__image :deep(img) {
+[data-mode='tv'] .jc-hero__image,
+[data-mode='tv'] .jc-hero__image :deep(img) {
   object-fit: cover;
   object-position: center;
   filter: blur(28px) brightness(0.5) saturate(1.1);
   transform: scale(1.18);
 }
 /* 有真横图时不做模糊放大: 那套"模糊铺底"是采集源只给竖海报时的兜底 */
-[data-mode='tv'] .gf-hero__image--wide {
+[data-mode='tv'] .jc-hero__image--wide {
   filter: none;
   transform: none;
 }
 /* 右侧清晰竖海报(2:3), 真正展示该片封面 */
-[data-mode='tv'] .gf-hero__poster-tv {
+[data-mode='tv'] .jc-hero__poster-tv {
   position: absolute;
   top: 50%;
   right: clamp(48px, 8vw, 160px);
   transform: translateY(-50%);
   height: 74%;
   aspect-ratio: 2 / 3;
-  border-radius: var(--gf-radius-lg);
-  background-color: var(--gf-bg-elevated);
+  border-radius: var(--jc-radius-lg);
+  background-color: var(--jc-bg-elevated);
   background-size: cover;
   background-position: center;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
   z-index: 1;
 }
-[data-mode='tv'] .gf-hero__content {
-  padding-inline: var(--gf-tv-safe);
-  padding-bottom: var(--gf-space-12);
+[data-mode='tv'] .jc-hero__content {
+  padding-inline: var(--jc-tv-safe);
+  padding-bottom: var(--jc-space-12);
 }
-[data-mode='tv'] .gf-hero__info {
+[data-mode='tv'] .jc-hero__info {
   max-width: min(720px, 55%);
 }
-[data-mode='tv'] .gf-hero__desc {
-  font-size: var(--gf-fs-lg);
+[data-mode='tv'] .jc-hero__desc {
+  font-size: var(--jc-fs-lg);
 }
-[data-mode='tv'] .gf-hero__bar {
+[data-mode='tv'] .jc-hero__bar {
   width: 48px;
   height: 4px;
 }
-[data-mode='tv'] .gf-hero__bar--active {
+[data-mode='tv'] .jc-hero__bar--active {
   width: 72px;
 }
 </style>

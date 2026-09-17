@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:layout_marginEnd="8dp"
         android:layout_weight="1"
-        android:background="@drawable/gf_tv_panel_cyan"
+        android:background="@drawable/jc_tv_panel_cyan"
         android:clipChildren="false"
         android:orientation="vertical"
         android:padding="14dp">
@@ -27,7 +27,7 @@
                 android:id="@+id/home_panel_left_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/gf_text"
+                android:textColor="@color/jc_text"
                 android:textSize="21sp"
                 android:textStyle="bold" />
 
@@ -39,13 +39,13 @@
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="@color/gf_text_secondary"
+                android:textColor="@color/jc_text_secondary"
                 android:textSize="13sp" />
 
             <Button
                 android:id="@+id/home_panel_left_more"
-                style="@style/GfChip"
-                android:background="@drawable/gf_tv_more"
+                style="@style/JcChip"
+                android:background="@drawable/jc_tv_more"
                 android:layout_width="82dp"
                 android:layout_height="38dp"
                 android:text="更多"
@@ -68,7 +68,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:layout_weight="1"
-        android:background="@drawable/gf_tv_panel_amber"
+        android:background="@drawable/jc_tv_panel_amber"
         android:clipChildren="false"
         android:orientation="vertical"
         android:padding="14dp">
@@ -83,7 +83,7 @@
                 android:id="@+id/home_panel_right_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/gf_text"
+                android:textColor="@color/jc_text"
                 android:textSize="21sp"
                 android:textStyle="bold" />
 
@@ -95,13 +95,13 @@
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="@color/gf_text_secondary"
+                android:textColor="@color/jc_text_secondary"
                 android:textSize="13sp" />
 
             <Button
                 android:id="@+id/home_panel_right_more"
-                style="@style/GfChip"
-                android:background="@drawable/gf_tv_more"
+                style="@style/JcChip"
+                android:background="@drawable/jc_tv_more"
                 android:layout_width="82dp"
                 android:layout_height="38dp"
                 android:text="更多"

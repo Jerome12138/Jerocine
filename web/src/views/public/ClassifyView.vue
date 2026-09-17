@@ -50,8 +50,8 @@ const { isMobile, isTV } = useViewMode()
 
 /**
  * 模块行数限制: 每个模块最多显示 3 行(不同分辨率一致)。
- * 列数需与 CSS 对齐 —— 桌面/移动走 theme.css --gf-list-cols 阶梯(3/4/5/6/7),
- * TV 分支本页固定 6 列([data-mode='tv'] .gf-tv-grid), 故按视口宽度计算并监听 resize。
+ * 列数需与 CSS 对齐 —— 桌面/移动走 theme.css --jc-list-cols 阶梯(3/4/5/6/7),
+ * TV 分支本页固定 6 列([data-mode='tv'] .jc-tv-grid), 故按视口宽度计算并监听 resize。
  */
 const MAX_MODULE_ROWS = 3
 const gridCols = ref(6)
@@ -181,24 +181,24 @@ const tvAllEmpty = computed(
   <!-- ══════════════════ TV (雷鸟卡片式) 分支 ══════════════════ -->
   <div
     v-if="isTV"
-    class="gf-classify-tv container-page py-[var(--gf-space-6)] flex flex-col gap-[var(--gf-space-6)]"
+    class="jc-classify-tv container-page py-[var(--jc-space-6)] flex flex-col gap-[var(--jc-space-6)]"
   >
     <!-- 顶部一级分类已由全局胶囊导航提供, 分类页不再重复 chip bar -->
 
     <!-- 标题区: 「分类」当前 + 「分类库」入口 (filmClassifySearch) -->
     <div
       v-if="data.title?.name"
-      class="gf-classify-tv__title gf-tv-sec"
+      class="jc-classify-tv__title jc-tv-sec"
     >
-      <span class="gf-classify-tv__title-grad t">{{ data.title?.name }}</span>
-      <span class="gf-classify-tv__title-sep s" aria-hidden="true">|</span>
+      <span class="jc-classify-tv__title-grad t">{{ data.title?.name }}</span>
+      <span class="jc-classify-tv__title-sep s" aria-hidden="true">|</span>
       <RouterLink
         v-slot="{ navigate, href }"
         :to="{ path: '/filmClassifySearch', query: { Pid: tvTitlePid } }"
         custom
       >
         <a
-          class="gf-tv-chip gf-classify-tv__lib"
+          class="jc-tv-chip jc-classify-tv__lib"
           :href="href"
           data-focusable="true"
           tabindex="0"
@@ -220,11 +220,11 @@ const tvAllEmpty = computed(
     <!-- 骨架 -->
     <div
       v-else-if="loading && !loaded"
-      class="flex flex-col gap-[var(--gf-space-6)]"
+      class="flex flex-col gap-[var(--jc-space-6)]"
     >
-      <div v-for="n in 3" :key="n" class="flex flex-col gap-[var(--gf-space-4)]">
+      <div v-for="n in 3" :key="n" class="flex flex-col gap-[var(--jc-space-4)]">
         <BaseSkeleton width="240px" height="36px" />
-        <div class="gf-tv-grid">
+        <div class="jc-tv-grid">
           <BaseSkeleton
             v-for="i in 6"
             :key="i"
@@ -242,9 +242,9 @@ const tvAllEmpty = computed(
         v-for="sec in sections"
         v-show="isReady(sec.items)"
         :key="sec.key"
-        class="gf-classify-tv__section"
+        class="jc-classify-tv__section"
       >
-        <div class="gf-tv-sec">
+        <div class="jc-tv-sec">
           <span class="t">{{ sec.title }}</span>
           <span class="s">{{ sec.sub }}</span>
           <RouterLink
@@ -253,7 +253,7 @@ const tvAllEmpty = computed(
             custom
           >
             <a
-              class="gf-tv-more"
+              class="jc-tv-more"
               :href="href"
               data-focusable="true"
               tabindex="0"
@@ -264,7 +264,7 @@ const tvAllEmpty = computed(
             </a>
           </RouterLink>
         </div>
-        <div class="gf-tv-grid">
+        <div class="jc-tv-grid">
           <FilmCard
             v-for="item in sec.items"
             :key="item.mid"
@@ -298,20 +298,20 @@ const tvAllEmpty = computed(
   </div>
 
   <!-- ══════════════════ 桌面 / 移动 原始分支 ══════════════════ -->
-  <div v-else class="gf-classify container-page py-[var(--gf-space-6)]">
+  <div v-else class="jc-classify container-page py-[var(--jc-space-6)]">
     <!-- 顶级分类切换 (电影 / 电视剧 / 综艺 / 动漫 …) — 仅移动端显示;
          非移动端顶部 Header 已有分类导航, 此处胶囊冗余隐藏 -->
     <nav
       v-if="navCats.length && isMobile"
-      class="gf-classify__cats flex flex-wrap gap-[var(--gf-space-2)] mb-[var(--gf-space-6)]"
+      class="jc-classify__cats flex flex-wrap gap-[var(--jc-space-2)] mb-[var(--jc-space-6)]"
       aria-label="影视分类"
     >
       <RouterLink
         v-for="cat in navCats"
         :key="cat.id"
         :to="{ path: '/filmClassify', query: { Pid: String(cat.id) } }"
-        class="gf-classify__cat"
-        :class="String(cat.id) === currentPid ? 'gf-classify__cat--active' : ''"
+        class="jc-classify__cat"
+        :class="String(cat.id) === currentPid ? 'jc-classify__cat--active' : ''"
         data-focusable="true"
         tabindex="0"
       >
@@ -322,20 +322,20 @@ const tvAllEmpty = computed(
     <!-- 顶部 title 切换 -->
     <header
       v-if="data.title?.name"
-      class="gf-classify__title flex items-center gap-[var(--gf-space-3)] mb-[var(--gf-space-8)]"
+      class="jc-classify__title flex items-center gap-[var(--jc-space-3)] mb-[var(--jc-space-8)]"
     >
       <RouterLink
         :to="{ path: '/filmClassify', query: { Pid: String(data.title?.id) } }"
-        class="gf-classify__title-active"
+        class="jc-classify__title-active"
         data-focusable="true"
         tabindex="0"
       >
         {{ data.title?.name }}
       </RouterLink>
-      <span class="gf-classify__title-divider" aria-hidden="true">|</span>
+      <span class="jc-classify__title-divider" aria-hidden="true">|</span>
       <RouterLink
         :to="{ path: '/filmClassifySearch', query: { Pid: String(data.title?.id) } }"
-        class="gf-classify__title-link"
+        class="jc-classify__title-link"
         data-focusable="true"
         tabindex="0"
       >
@@ -353,13 +353,13 @@ const tvAllEmpty = computed(
     <!-- 骨架: 与网格版式同构 -->
     <div
       v-else-if="loading && !loaded"
-      class="flex flex-col gap-[var(--gf-space-6)]"
+      class="flex flex-col gap-[var(--jc-space-6)]"
     >
-      <div v-for="n in 3" :key="n" class="flex flex-col gap-[var(--gf-space-3)]">
+      <div v-for="n in 3" :key="n" class="flex flex-col gap-[var(--jc-space-3)]">
         <BaseSkeleton width="220px" height="32px" />
         <div
-          class="grid gap-[var(--gf-list-gap)]"
-          style="grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr))"
+          class="grid gap-[var(--jc-list-gap)]"
+          style="grid-template-columns: repeat(var(--jc-list-cols), minmax(0, 1fr))"
         >
           <BaseSkeleton
             v-for="i in 12"
@@ -372,23 +372,23 @@ const tvAllEmpty = computed(
       </div>
     </div>
 
-    <!-- 三段网格 (卡片摊开, 列数走全站统一阶梯 --gf-list-cols, 与 TV 分支同构) -->
+    <!-- 三段网格 (卡片摊开, 列数走全站统一阶梯 --jc-list-cols, 与 TV 分支同构) -->
     <div
       v-else
-      class="flex flex-col gap-[var(--gf-space-6)]"
+      class="flex flex-col gap-[var(--jc-space-6)]"
     >
       <section
         v-for="sec in sections"
         :key="sec.key"
         v-show="isReady(sec.items)"
       >
-        <header class="flex items-end justify-between gap-[var(--gf-space-4)] mb-[var(--gf-space-3)]">
-          <h2 class="text-[var(--gf-fs-lg)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]">
+        <header class="flex items-end justify-between gap-[var(--jc-space-4)] mb-[var(--jc-space-3)]">
+          <h2 class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]">
             {{ sec.title }}
           </h2>
           <RouterLink
             :to="moreLink(sec.sort)"
-            class="text-link text-[var(--gf-fs-sm)] inline-flex items-center gap-[var(--gf-space-1)] shrink-0"
+            class="text-link text-[var(--jc-fs-sm)] inline-flex items-center gap-[var(--jc-space-1)] shrink-0"
             data-focusable="true"
             tabindex="0"
           >
@@ -430,110 +430,110 @@ const tvAllEmpty = computed(
 </template>
 
 <style scoped>
-.gf-classify__cat {
+.jc-classify__cat {
   display: inline-flex;
   align-items: center;
   min-height: 36px;
-  padding: 0 var(--gf-space-4);
-  border-radius: var(--gf-radius-full);
-  background-color: var(--gf-bg-elevated);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  padding: 0 var(--jc-space-4);
+  border-radius: var(--jc-radius-full);
+  background-color: var(--jc-bg-elevated);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
   text-decoration: none;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-classify__cat:hover {
-  color: var(--gf-text-primary);
+.jc-classify__cat:hover {
+  color: var(--jc-text-primary);
   background-color: rgba(255, 255, 255, 0.08);
 }
-.gf-classify__cat--active {
-  background-image: var(--gf-brand-gradient);
+.jc-classify__cat--active {
+  background-image: var(--jc-brand-gradient);
   color: #fff;
-  font-weight: var(--gf-fw-semibold);
+  font-weight: var(--jc-fw-semibold);
 }
-.gf-classify__cat:focus,
-.gf-classify__cat:focus-visible {
+.jc-classify__cat:focus,
+.jc-classify__cat:focus-visible {
   outline: none;
-  box-shadow: var(--gf-shadow-focus-ring);
+  box-shadow: var(--jc-shadow-focus-ring);
 }
 
-.gf-classify__title {
+.jc-classify__title {
   flex-wrap: wrap;
 }
-.gf-classify__title-active,
-.gf-classify__title-link {
+.jc-classify__title-active,
+.jc-classify__title-link {
   text-decoration: none;
-  font-size: var(--gf-fs-2xl);
-  font-weight: var(--gf-fw-bold);
+  font-size: var(--jc-fs-2xl);
+  font-weight: var(--jc-fw-bold);
   outline: none;
-  transition: opacity var(--gf-dur-fast) var(--gf-ease-standard);
-  border-radius: var(--gf-radius-sm);
+  transition: opacity var(--jc-dur-fast) var(--jc-ease-standard);
+  border-radius: var(--jc-radius-sm);
 }
 
-.gf-classify__title-active {
-  background-image: var(--gf-brand-gradient);
+.jc-classify__title-active {
+  background-image: var(--jc-brand-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
 
-.gf-classify__title-link {
-  color: var(--gf-text-secondary);
+.jc-classify__title-link {
+  color: var(--jc-text-secondary);
 }
-.gf-classify__title-link:hover,
-.gf-classify__title-link:focus-visible {
-  color: var(--gf-text-primary);
+.jc-classify__title-link:hover,
+.jc-classify__title-link:focus-visible {
+  color: var(--jc-text-primary);
 }
-.gf-classify__title-active:focus-visible,
-.gf-classify__title-link:focus-visible {
-  box-shadow: var(--gf-shadow-focus-ring);
+.jc-classify__title-active:focus-visible,
+.jc-classify__title-link:focus-visible {
+  box-shadow: var(--jc-shadow-focus-ring);
 }
 
-.gf-classify__title-divider {
-  color: var(--gf-text-muted);
-  font-size: var(--gf-fs-lg);
+.jc-classify__title-divider {
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-lg);
 }
 
 @media (max-width: 767px) {
-  .gf-classify__title-active,
-  .gf-classify__title-link {
-    font-size: var(--gf-fs-xl);
+  .jc-classify__title-active,
+  .jc-classify__title-link {
+    font-size: var(--jc-fs-xl);
   }
 }
 
-/* ─── TV 分支局部修饰 (chrome 主体在全局 tv-cards.css 的 gf-tv-*) ─── */
-.gf-classify-tv__title {
+/* ─── TV 分支局部修饰 (chrome 主体在全局 tv-cards.css 的 jc-tv-*) ─── */
+.jc-classify-tv__title {
   align-items: center;
 }
-.gf-classify-tv__title-grad {
-  font-size: var(--gf-fs-2xl);
-  font-weight: var(--gf-fw-bold);
-  background-image: var(--gf-brand-gradient);
+.jc-classify-tv__title-grad {
+  font-size: var(--jc-fs-2xl);
+  font-weight: var(--jc-fw-bold);
+  background-image: var(--jc-brand-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
-.gf-classify-tv__title-sep {
-  font-size: var(--gf-fs-lg);
-  color: var(--gf-text-muted);
-  margin: 0 var(--gf-space-3);
+.jc-classify-tv__title-sep {
+  font-size: var(--jc-fs-lg);
+  color: var(--jc-text-muted);
+  margin: 0 var(--jc-space-3);
 }
-.gf-classify-tv__lib {
+.jc-classify-tv__lib {
   height: 36px;
-  font-size: var(--gf-fs-sm);
+  font-size: var(--jc-fs-sm);
 }
-.gf-classify-tv__section {
+.jc-classify-tv__section {
   display: flex;
   flex-direction: column;
 }
 
-/* 分类页 TV: 影片网格固定每行 6 个 (覆盖全局 gf-tv-grid 的 auto-fill) */
-[data-mode='tv'] .gf-tv-grid {
+/* 分类页 TV: 影片网格固定每行 6 个 (覆盖全局 jc-tv-grid 的 auto-fill) */
+[data-mode='tv'] .jc-tv-grid {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 </style>

@@ -56,14 +56,14 @@ function onSelect(e: Event): void {
 </script>
 
 <template>
-  <section class="flex flex-col gap-[var(--gf-space-5)] max-w-[960px]">
+  <section class="flex flex-col gap-[var(--jc-space-5)] max-w-[960px]">
     <header>
-      <h2 class="text-lg font-[var(--gf-fw-semibold)]">文件上传</h2>
+      <h2 class="text-lg font-[var(--jc-fw-semibold)]">文件上传</h2>
       <p class="text-sm text-muted">支持图片 / 视频片段等，拖拽或点击上传</p>
     </header>
 
     <div
-      class="border-2 border-dashed rounded-[var(--gf-radius-lg)] p-[var(--gf-space-10)] text-center transition-colors cursor-pointer"
+      class="border-2 border-dashed rounded-[var(--jc-radius-lg)] p-[var(--jc-space-10)] text-center transition-colors cursor-pointer"
       :class="dragOver ? 'border-strong bg-elevated' : 'border-default bg-surface'"
       data-focusable="true"
       tabindex="0"
@@ -74,7 +74,7 @@ function onSelect(e: Event): void {
       @drop.prevent="onDrop"
     >
       <BaseIcon name="upload" size="48px" class="text-muted mx-auto" />
-      <p class="mt-[var(--gf-space-3)] text-secondary">
+      <p class="mt-[var(--jc-space-3)] text-secondary">
         将文件拖到此处，或<span class="text-link">点击选择</span>
       </p>
       <input
@@ -86,32 +86,32 @@ function onSelect(e: Event): void {
       />
     </div>
 
-    <ul v-if="entries.length" class="flex flex-col gap-[var(--gf-space-3)]">
+    <ul v-if="entries.length" class="flex flex-col gap-[var(--jc-space-3)]">
       <li
         v-for="entry in entries"
         :key="entry.uid"
-        class="bg-surface rounded-[var(--gf-radius-md)] p-[var(--gf-space-4)] flex items-center gap-[var(--gf-space-4)]"
+        class="bg-surface rounded-[var(--jc-radius-md)] p-[var(--jc-space-4)] flex items-center gap-[var(--jc-space-4)]"
       >
-        <div class="w-[60px] h-[60px] rounded-[var(--gf-radius-md)] overflow-hidden bg-elevated shrink-0">
+        <div class="w-[60px] h-[60px] rounded-[var(--jc-radius-md)] overflow-hidden bg-elevated shrink-0">
           <BaseImage v-if="entry.resultUrl" :src="entry.resultUrl" alt="thumb" />
           <div v-else class="w-full h-full flex-center text-muted">
             <BaseIcon name="file" size="24px" />
           </div>
         </div>
         <div class="flex-1 min-w-0">
-          <div class="text-sm font-[var(--gf-fw-medium)] truncate">{{ entry.file.name }}</div>
+          <div class="text-sm font-[var(--jc-fw-medium)] truncate">{{ entry.file.name }}</div>
           <div class="text-xs text-muted">
             {{ (entry.file.size / 1024).toFixed(1) }} KB
           </div>
-          <div class="mt-[var(--gf-space-2)] h-[4px] rounded-full bg-elevated overflow-hidden">
+          <div class="mt-[var(--jc-space-2)] h-[4px] rounded-full bg-elevated overflow-hidden">
             <div
-              class="h-full bg-[image:var(--gf-brand-gradient)] transition-[width]"
+              class="h-full bg-[image:var(--jc-brand-gradient)] transition-[width]"
               :style="{ width: `${entry.progress * 100}%` }"
             />
           </div>
         </div>
-        <span v-if="entry.error" class="text-xs text-[var(--gf-danger)]">{{ entry.error }}</span>
-        <span v-else-if="entry.progress >= 1" class="text-xs text-[var(--gf-success)]">完成</span>
+        <span v-if="entry.error" class="text-xs text-[var(--jc-danger)]">{{ entry.error }}</span>
+        <span v-else-if="entry.progress >= 1" class="text-xs text-[var(--jc-success)]">完成</span>
       </li>
     </ul>
 

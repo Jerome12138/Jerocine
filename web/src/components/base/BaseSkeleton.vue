@@ -31,11 +31,11 @@ const itemStyle = computed(() => {
     style.borderRadius = '9999px'
   } else if (props.shape === 'text') {
     style.height = props.height || '0.85em'
-    style.borderRadius = 'var(--gf-radius-sm)'
+    style.borderRadius = 'var(--jc-radius-sm)'
   } else {
     if (props.height) style.height = props.height
     if (props.ratio) style.aspectRatio = props.ratio
-    style.borderRadius = 'var(--gf-radius-lg)'
+    style.borderRadius = 'var(--jc-radius-lg)'
   }
   return style
 })
@@ -44,11 +44,11 @@ const items = computed(() => Array.from({ length: Math.max(1, props.count) }))
 </script>
 
 <template>
-  <div class="gf-skeleton-wrap flex flex-col gap-[var(--gf-space-2)]">
+  <div class="jc-skeleton-wrap flex flex-col gap-[var(--jc-space-2)]">
     <div
       v-for="(_, i) in items"
       :key="i"
-      class="gf-skeleton"
+      class="jc-skeleton"
       :class="rounded"
       :style="itemStyle"
       aria-hidden="true"
@@ -57,7 +57,7 @@ const items = computed(() => Array.from({ length: Math.max(1, props.count) }))
 </template>
 
 <style scoped>
-.gf-skeleton {
+.jc-skeleton {
   display: block;
   background: linear-gradient(
     90deg,
@@ -66,10 +66,10 @@ const items = computed(() => Array.from({ length: Math.max(1, props.count) }))
     rgba(255, 255, 255, 0.04) 100%
   );
   background-size: 200% 100%;
-  animation: gf-skeleton-shimmer var(--gf-dur-page) linear infinite;
+  animation: jc-skeleton-shimmer var(--jc-dur-page) linear infinite;
 }
 
-@keyframes gf-skeleton-shimmer {
+@keyframes jc-skeleton-shimmer {
   0% {
     background-position: 200% 0;
   }
@@ -79,7 +79,7 @@ const items = computed(() => Array.from({ length: Math.max(1, props.count) }))
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gf-skeleton {
+  .jc-skeleton {
     animation: none;
     opacity: 0.6;
   }

@@ -128,38 +128,38 @@ async function cancelJob(j: SpiderJob): Promise<void> {
 </script>
 
 <template>
-  <div class="container-page py-[var(--gf-space-5)]">
-    <header class="flex items-center justify-between mb-[var(--gf-space-5)]">
-      <h1 class="text-2xl font-[var(--gf-fw-semibold)]">采集任务监控</h1>
-      <div class="flex items-center gap-[var(--gf-space-3)]">
+  <div class="container-page py-[var(--jc-space-5)]">
+    <header class="flex items-center justify-between mb-[var(--jc-space-5)]">
+      <h1 class="text-2xl font-[var(--jc-fw-semibold)]">采集任务监控</h1>
+      <div class="flex items-center gap-[var(--jc-space-3)]">
         <span class="text-muted text-sm" v-if="loading">刷新中…</span>
         <BaseButton variant="outline" size="sm" @click="load">手动刷新</BaseButton>
       </div>
     </header>
 
-    <div v-if="jobs.length === 0" class="gf-tm-empty">
+    <div v-if="jobs.length === 0" class="jc-tm-empty">
       暂无正在运行 / 最近 30 分钟内结束的采集任务. 去
       <RouterLink to="/manage/collect" class="text-link">采集源列表</RouterLink>
       启动一个.
     </div>
 
-    <div v-else class="flex flex-col gap-[var(--gf-space-4)]">
-      <article v-for="j in jobs" :key="j.sourceId" class="gf-job">
-        <header class="gf-job__head">
-          <span class="gf-job__name">{{ j.sourceName }}</span>
+    <div v-else class="flex flex-col gap-[var(--jc-space-4)]">
+      <article v-for="j in jobs" :key="j.sourceId" class="jc-job">
+        <header class="jc-job__head">
+          <span class="jc-job__name">{{ j.sourceName }}</span>
           <BaseTag :variant="stateVariant(j.state)" size="sm">{{ stateText(j.state) }}</BaseTag>
           <span class="text-muted text-xs ml-auto">
             {{ j.hour > 0 ? `近 ${j.hour}h` : '全量' }} · 用时 {{ fmtElapsed(j.elapsedMs) }}
           </span>
         </header>
 
-        <div class="gf-job__bar">
+        <div class="jc-job__bar">
           <div
-            class="gf-job__bar-fill"
-            :class="{ 'gf-job__bar-fill--paused': j.state === 'paused' }"
+            class="jc-job__bar-fill"
+            :class="{ 'jc-job__bar-fill--paused': j.state === 'paused' }"
             :style="{ width: fmtPercent(j) + '%' }"
           />
-          <span class="gf-job__bar-text">
+          <span class="jc-job__bar-text">
             已完成 {{ j.donePages }} 页 / 共 {{ j.totalPages || '?' }} 页
             <template v-if="j.failedPages > 0">
               · <span class="text-danger">失败 {{ j.failedPages }} 页</span>
@@ -168,7 +168,7 @@ async function cancelJob(j: SpiderJob): Promise<void> {
           </span>
         </div>
 
-        <div class="gf-job__actions">
+        <div class="jc-job__actions">
           <BaseButton
             v-if="j.state === 'running'"
             variant="outline"
@@ -195,63 +195,63 @@ async function cancelJob(j: SpiderJob): Promise<void> {
 </template>
 
 <style scoped>
-.gf-job {
-  background: var(--gf-bg-elevated);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-md);
-  padding: var(--gf-space-4);
+.jc-job {
+  background: var(--jc-bg-elevated);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-md);
+  padding: var(--jc-space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
 }
-.gf-job__head {
+.jc-job__head {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   flex-wrap: wrap;
 }
-.gf-job__name {
-  font-weight: var(--gf-fw-semibold);
-  font-size: var(--gf-fs-md);
+.jc-job__name {
+  font-weight: var(--jc-fw-semibold);
+  font-size: var(--jc-fs-md);
 }
-.gf-job__bar {
+.jc-job__bar {
   position: relative;
   height: 22px;
   background: rgba(255, 255, 255, 0.05);
-  border-radius: var(--gf-radius-sm);
+  border-radius: var(--jc-radius-sm);
   overflow: hidden;
 }
-.gf-job__bar-fill {
+.jc-job__bar-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: linear-gradient(90deg, var(--gf-brand-purple), var(--gf-brand-cyan));
-  transition: width var(--gf-dur-base) var(--gf-ease-standard);
+  background: linear-gradient(90deg, var(--jc-brand-purple), var(--jc-brand-cyan));
+  transition: width var(--jc-dur-base) var(--jc-ease-standard);
 }
-.gf-job__bar-fill--paused {
+.jc-job__bar-fill--paused {
   background: linear-gradient(90deg, #d97706, #f59e0b);
   opacity: 0.7;
 }
-.gf-job__bar-text {
+.jc-job__bar-text {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-primary);
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-primary);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
-.gf-job__actions {
+.jc-job__actions {
   display: flex;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   align-items: center;
 }
-.gf-tm-empty {
-  padding: var(--gf-space-12) var(--gf-space-4);
+.jc-tm-empty {
+  padding: var(--jc-space-12) var(--jc-space-4);
   text-align: center;
-  color: var(--gf-text-muted);
-  background: var(--gf-bg-elevated);
-  border: 1px dashed var(--gf-border-subtle);
-  border-radius: var(--gf-radius-md);
+  color: var(--jc-text-muted);
+  background: var(--jc-bg-elevated);
+  border: 1px dashed var(--jc-border-subtle);
+  border-radius: var(--jc-radius-md);
 }
 </style>

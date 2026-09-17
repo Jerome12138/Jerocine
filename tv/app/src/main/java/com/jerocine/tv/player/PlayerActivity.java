@@ -1198,7 +1198,7 @@ public class PlayerActivity extends android.app.Activity {
         String[] items = multiSrc
                 ? new String[]{"倍速 " + SPEED_LABELS[speedIndex], "选集", srcLabel, adLabel, "跳过设置", "关闭播放"}
                 : new String[]{"倍速 " + SPEED_LABELS[speedIndex], "选集", adLabel, "跳过设置", "关闭播放"};
-        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("播放控制")
                 .setItems(items, (d, w) -> {
                     if (multiSrc) {
@@ -1375,7 +1375,7 @@ public class PlayerActivity extends android.app.Activity {
         });
 
         // 不放"完成"按钮: 开关/stepper 即时生效, 返回键关闭弹窗即可
-        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("跳过片头 / 片尾")
                 .setView(ll)
                 .show();
@@ -1402,8 +1402,8 @@ public class PlayerActivity extends android.app.Activity {
             b.setAllCaps(false);
             b.setFocusable(true);
             // 选中态更明显: 亮青实底 + 文字反色 + 聚焦放大
-            b.setBackgroundResource(R.drawable.gf_step_btn_bg);
-            b.setTextColor(getResources().getColorStateList(R.color.gf_step_btn_text));
+            b.setBackgroundResource(R.drawable.jc_step_btn_bg);
+            b.setTextColor(getResources().getColorStateList(R.color.jc_step_btn_text));
             b.setOnFocusChangeListener((v, hasFocus) ->
                     v.animate().scaleX(hasFocus ? 1.12f : 1f).scaleY(hasFocus ? 1.12f : 1f)
                             .setDuration(120).start());

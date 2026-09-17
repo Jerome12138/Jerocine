@@ -26,7 +26,7 @@
         android:layout_height="64dp"
         android:layout_gravity="center"
         android:visibility="gone"
-        android:indeterminateTint="@color/gf_accent" />
+        android:indeterminateTint="@color/jc_accent" />
 
     <!-- 顶部标题栏 (随控制条一起显隐) — 玻璃渐变 -->
     <LinearLayout
@@ -34,7 +34,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:background="@drawable/gf_title_scrim"
+        android:background="@drawable/jc_title_scrim"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingHorizontal="28dp"
@@ -47,7 +47,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textColor="@color/gf_text"
+            android:textColor="@color/jc_text"
             android:textSize="19sp"
             android:textStyle="bold"
             android:singleLine="true"
@@ -60,12 +60,12 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
             android:layout_marginStart="12dp"
-            android:background="@drawable/gf_badge_bg"
+            android:background="@drawable/jc_badge_bg"
             android:drawableStart="@drawable/ic_shield"
             android:drawablePadding="5dp"
             android:paddingHorizontal="12dp"
             android:paddingVertical="6dp"
-            android:textColor="@color/gf_accent"
+            android:textColor="@color/jc_accent"
             android:textSize="16sp"
             android:textStyle="bold"
             android:text="过滤"
@@ -78,10 +78,10 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
             android:layout_marginStart="10dp"
-            android:background="@drawable/gf_badge_bg"
+            android:background="@drawable/jc_badge_bg"
             android:paddingHorizontal="12dp"
             android:paddingVertical="6dp"
-            android:textColor="@color/gf_text_secondary"
+            android:textColor="@color/jc_text_secondary"
             android:textSize="13sp"
             android:visibility="gone" />
 
@@ -91,8 +91,8 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
             android:layout_marginStart="10dp"
-            android:background="@drawable/gf_badge_bg"
-            android:textColor="@color/gf_text"
+            android:background="@drawable/jc_badge_bg"
+            android:textColor="@color/jc_text"
             android:textSize="13sp"
             android:text="1.0×"
             android:paddingHorizontal="12dp"
@@ -117,10 +117,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:background="@drawable/gf_toast_bg"
+        android:background="@drawable/jc_toast_bg"
         android:paddingHorizontal="22dp"
         android:paddingVertical="16dp"
-        android:textColor="@color/gf_text"
+        android:textColor="@color/jc_text"
         android:textSize="19sp"
         android:gravity="center"
         android:visibility="gone" />

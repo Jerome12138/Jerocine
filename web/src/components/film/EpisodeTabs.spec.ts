@@ -19,31 +19,31 @@ describe('EpisodeTabs 分段切换', () => {
     const wrapper = mount(EpisodeTabs, {
       props: { sources: [makeSource('s1', 20)] }
     })
-    expect(wrapper.find('.gf-episode-segments').exists()).toBe(false)
-    expect(wrapper.findAll('.gf-episode-chip')).toHaveLength(20)
+    expect(wrapper.find('.jc-episode-segments').exists()).toBe(false)
+    expect(wrapper.findAll('.jc-episode-chip')).toHaveLength(20)
   })
 
   it('集数 > pageSize 时显示分段, 默认只渲染第一段', () => {
     const wrapper = mount(EpisodeTabs, {
       props: { sources: [makeSource('s1', 75)] }
     })
-    expect(wrapper.find('.gf-episode-segments').exists()).toBe(true)
-    const segs = wrapper.findAll('.gf-episode-seg')
+    expect(wrapper.find('.jc-episode-segments').exists()).toBe(true)
+    const segs = wrapper.findAll('.jc-episode-seg')
     expect(segs).toHaveLength(3) // 75 / 30 = ceil 3
     expect(segs[0]!.text()).toBe('1-30')
     expect(segs[1]!.text()).toBe('31-60')
     expect(segs[2]!.text()).toBe('61-75')
     // 默认第一段, 30 个 chip
-    expect(wrapper.findAll('.gf-episode-chip')).toHaveLength(30)
+    expect(wrapper.findAll('.jc-episode-chip')).toHaveLength(30)
   })
 
   it('点分段切换后只渲染对应段的 chip, 触发 select 携带原始全局 idx', async () => {
     const wrapper = mount(EpisodeTabs, {
       props: { sources: [makeSource('s1', 50)] }
     })
-    const segs = wrapper.findAll('.gf-episode-seg')
+    const segs = wrapper.findAll('.jc-episode-seg')
     await segs[1]!.trigger('click') // 31-50
-    const chips = wrapper.findAll('.gf-episode-chip')
+    const chips = wrapper.findAll('.jc-episode-chip')
     expect(chips).toHaveLength(20) // 50 - 30 = 20
     expect(chips[0]!.text()).toContain('31')
     // 点第一个 (即第 31 集, 全局 idx=30)
@@ -61,17 +61,17 @@ describe('EpisodeTabs 分段切换', () => {
         currentEpisode: 's1-45' // 全局 idx=44, 落在 31-60 段
       }
     })
-    const segs = wrapper.findAll('.gf-episode-seg')
-    expect(segs[1]!.classes()).toContain('gf-episode-seg--active')
-    expect(segs[0]!.classes()).not.toContain('gf-episode-seg--active')
+    const segs = wrapper.findAll('.jc-episode-seg')
+    expect(segs[1]!.classes()).toContain('jc-episode-seg--active')
+    expect(segs[0]!.classes()).not.toContain('jc-episode-seg--active')
   })
 
   it('pageSize=0 关闭分段, 即使集数很多也不分段', () => {
     const wrapper = mount(EpisodeTabs, {
       props: { sources: [makeSource('s1', 100)], pageSize: 0 }
     })
-    expect(wrapper.find('.gf-episode-segments').exists()).toBe(false)
-    expect(wrapper.findAll('.gf-episode-chip')).toHaveLength(100)
+    expect(wrapper.find('.jc-episode-segments').exists()).toBe(false)
+    expect(wrapper.findAll('.jc-episode-chip')).toHaveLength(100)
   })
 })
 
@@ -80,7 +80,7 @@ describe('EpisodeTabs 播放源切换', () => {
     const wrapper = mount(EpisodeTabs, {
       props: { sources: [makeSource('s1', 5)] }
     })
-    expect(wrapper.find('.gf-source-tabs').exists()).toBe(false)
+    expect(wrapper.find('.jc-source-tabs').exists()).toBe(false)
   })
 
   it('多源时渲染 tab; 点击非 active 源触发 change-source', async () => {
@@ -90,7 +90,7 @@ describe('EpisodeTabs 播放源切换', () => {
         currentSourceId: 's1'
       }
     })
-    const tabs = wrapper.findAll('.gf-source-tab')
+    const tabs = wrapper.findAll('.jc-source-tab')
     expect(tabs).toHaveLength(2)
     await tabs[1]!.trigger('click')
     expect(wrapper.emitted('change-source')![0]).toEqual(['s2'])
@@ -109,20 +109,20 @@ describe('EpisodeTabs 片源集数徽标', () => {
         currentSourceId: 's1'
       }
     })
-    const badges = wrapper.findAll('.gf-source-tab__count-badge')
+    const badges = wrapper.findAll('.jc-source-tab__count-badge')
     expect(badges).toHaveLength(2)
     expect(badges[0]!.text()).toBe('12')
     expect(badges[1]!.text()).toBe('40')
     // 旧的"共 N 集"汇总已移除
-    expect(wrapper.find('.gf-source-count').exists()).toBe(false)
+    expect(wrapper.find('.jc-source-count').exists()).toBe(false)
   })
 
   it('单源不渲染源条(无 tab / 无徽标 / 无共N集)', () => {
     const wrapper = mount(EpisodeTabs, {
       props: { sources: [makeSource('s1', 5)] }
     })
-    expect(wrapper.find('.gf-source-bar').exists()).toBe(false)
-    expect(wrapper.find('.gf-source-count').exists()).toBe(false)
+    expect(wrapper.find('.jc-source-bar').exists()).toBe(false)
+    expect(wrapper.find('.jc-source-count').exists()).toBe(false)
   })
 })
 
@@ -135,10 +135,10 @@ describe('EpisodeTabs 已观看标记', () => {
         watchedLinks: ['s1-1', 's1-2', 's1-3']
       }
     })
-    const chips = wrapper.findAll('.gf-episode-chip')
-    expect(chips[0]!.find('.gf-episode-chip__dot').exists()).toBe(true)
-    expect(chips[1]!.find('.gf-episode-chip__dot').exists()).toBe(true)
-    expect(chips[2]!.find('.gf-episode-chip__dot').exists()).toBe(false)
-    expect(chips[2]!.classes()).toContain('gf-episode-chip--active')
+    const chips = wrapper.findAll('.jc-episode-chip')
+    expect(chips[0]!.find('.jc-episode-chip__dot').exists()).toBe(true)
+    expect(chips[1]!.find('.jc-episode-chip__dot').exists()).toBe(true)
+    expect(chips[2]!.find('.jc-episode-chip__dot').exists()).toBe(false)
+    expect(chips[2]!.classes()).toContain('jc-episode-chip--active')
   })
 })

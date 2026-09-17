@@ -19,12 +19,12 @@ const items: FilmListItem[] = [
 describe('FilmGrid', () => {
   it('items.length 决定渲染数量', () => {
     const w = mount(FilmGrid, { props: { items }, global: { plugins: [router] } })
-    expect(w.findAll('.gf-film-grid__cell').length).toBe(3)
+    expect(w.findAll('.jc-film-grid__cell').length).toBe(3)
   })
 
   it('空 items → 不渲染 cell', () => {
     const w = mount(FilmGrid, { props: { items: [] }, global: { plugins: [router] } })
-    expect(w.findAll('.gf-film-grid__cell').length).toBe(0)
+    expect(w.findAll('.jc-film-grid__cell').length).toBe(0)
   })
 
   it('gap prop 应用 inline style', () => {
@@ -32,7 +32,7 @@ describe('FilmGrid', () => {
       props: { items, gap: '20px' },
       global: { plugins: [router] }
     })
-    const style = w.find('.gf-film-grid').attributes('style') ?? ''
+    const style = w.find('.jc-film-grid').attributes('style') ?? ''
     expect(style).toContain('20px')
   })
 

@@ -224,16 +224,16 @@ onUnmounted(() => {
 
 <template>
   <div
-    class="rounded-[var(--gf-radius-md)] border border-default bg-elevated p-[var(--gf-space-4)]"
+    class="rounded-[var(--jc-radius-md)] border border-default bg-elevated p-[var(--jc-space-4)]"
   >
-    <div class="flex items-center justify-between mb-[var(--gf-space-2)] flex-wrap gap-[var(--gf-space-2)]">
-      <div class="flex items-center gap-[var(--gf-space-2)] flex-wrap">
-        <h2 class="text-lg font-[var(--gf-fw-semibold)]">首页轮播</h2>
+    <div class="flex items-center justify-between mb-[var(--jc-space-2)] flex-wrap gap-[var(--jc-space-2)]">
+      <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
+        <h2 class="text-lg font-[var(--jc-fw-semibold)]">首页轮播</h2>
         <span class="text-muted text-xs">
           与首页大图实时一致 · 手动位排前, 不足 5 位由热榜自动补位 · 每 30 秒刷新
         </span>
       </div>
-      <div class="flex gap-[var(--gf-space-2)]">
+      <div class="flex gap-[var(--jc-space-2)]">
         <BaseButton variant="ghost" size="sm" @click="load()">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </BaseButton>
@@ -243,10 +243,10 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-if="loading" class="text-muted text-sm py-[var(--gf-space-6)] text-center">加载中…</div>
+    <div v-if="loading" class="text-muted text-sm py-[var(--jc-space-6)] text-center">加载中…</div>
     <div
       v-else-if="!active.length"
-      class="text-muted text-sm py-[var(--gf-space-6)] text-center"
+      class="text-muted text-sm py-[var(--jc-space-6)] text-center"
     >
       暂无生效轮播 —— 无可用配置且片库为空
     </div>
@@ -256,18 +256,18 @@ onUnmounted(() => {
       <li
         v-for="(s, i) in active"
         :key="`${s.source}-${s.bannerId ?? 0}-${s.mid ?? 0}-${i}`"
-        class="flex items-center gap-[var(--gf-space-3)] py-[var(--gf-space-2)] border-b border-default last:border-b-0"
+        class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)] border-b border-default last:border-b-0"
       >
         <span class="w-4 text-center text-muted text-xs shrink-0">{{ i + 1 }}</span>
         <img
           v-if="s.image || s.poster"
           :src="s.image || s.poster"
           alt=""
-          class="w-[96px] h-[54px] object-cover rounded-[var(--gf-radius-sm)] bg-elevated shrink-0"
+          class="w-[96px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0"
         />
         <span
           v-else
-          class="w-[96px] h-[54px] grid place-items-center text-muted text-xs rounded-[var(--gf-radius-sm)] bg-elevated shrink-0"
+          class="w-[96px] h-[54px] grid place-items-center text-muted text-xs rounded-[var(--jc-radius-sm)] bg-elevated shrink-0"
         >无图</span>
         <div class="flex flex-col min-w-0 flex-1">
           <span class="truncate">{{ s.name || '为你推荐' }}</span>
@@ -287,7 +287,7 @@ onUnmounted(() => {
           {{ s.image ? '横图已就绪' : '横图待回填' }}
         </BaseTag>
         <span class="text-xs text-link w-[120px] truncate hidden lg:block shrink-0">{{ goLabelOf(s) }}</span>
-        <div class="flex gap-[var(--gf-space-1)] shrink-0">
+        <div class="flex gap-[var(--jc-space-1)] shrink-0">
           <BaseButton
             variant="ghost" size="sm" :disabled="!canMoveUp(s, i)"
             :title="s.source === 'banner' ? '上移' : '上移（转为手动位）'"
@@ -317,36 +317,36 @@ onUnmounted(() => {
     </ul>
 
     <!-- 未生效配置行(折叠区) -->
-    <div v-if="!loading && inactive.length" class="border-t border-default mt-[var(--gf-space-1)]">
+    <div v-if="!loading && inactive.length" class="border-t border-default mt-[var(--jc-space-1)]">
       <button
         type="button"
-        class="w-full flex items-center gap-[var(--gf-space-1)] py-[var(--gf-space-2)] text-muted text-xs"
+        class="w-full flex items-center gap-[var(--jc-space-1)] py-[var(--jc-space-2)] text-muted text-xs"
         @click="showInactive = !showInactive"
       >
         <span>{{ showInactive ? '▾' : '▸' }}</span>
         <span>未生效（{{ inactive.length }} · 不参与展示与自动补位）</span>
       </button>
-      <ul v-if="showInactive" class="flex flex-col pb-[var(--gf-space-2)]">
+      <ul v-if="showInactive" class="flex flex-col pb-[var(--jc-space-2)]">
         <li
           v-for="row in inactive"
           :key="row.id"
-          class="flex items-center gap-[var(--gf-space-3)] py-[var(--gf-space-2)]"
+          class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)]"
         >
           <img
             v-if="row.image || row.poster"
             :src="row.image || row.poster"
             alt=""
-            class="w-[96px] h-[54px] object-cover rounded-[var(--gf-radius-sm)] bg-elevated shrink-0 opacity-60"
+            class="w-[96px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60"
           />
           <span
             v-else
-            class="w-[96px] h-[54px] grid place-items-center text-muted text-xs rounded-[var(--gf-radius-sm)] bg-elevated shrink-0 opacity-60"
+            class="w-[96px] h-[54px] grid place-items-center text-muted text-xs rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60"
           >无图</span>
           <span class="truncate flex-1 min-w-0 text-secondary">{{ row.title || `#${row.mid > 0 ? '影片 ' + row.mid : row.id}` }}</span>
           <BaseTag :variant="reasonStyle[row.reason].variant" size="sm" class="shrink-0">
             {{ reasonStyle[row.reason].text }}
           </BaseTag>
-          <div class="flex gap-[var(--gf-space-1)] shrink-0">
+          <div class="flex gap-[var(--jc-space-1)] shrink-0">
             <BaseButton
               v-if="row.state !== 0"
               variant="ghost" size="sm" title="启用后转为手动位"
@@ -361,7 +361,7 @@ onUnmounted(() => {
   </div>
 
   <ManageSheet v-model="sheetOpen" :title="editing ? '编辑轮播' : adoptSlot !== undefined ? '采纳自动位' : '新增轮播'" mobile-mode="fullsheet">
-    <div class="flex flex-col gap-[var(--gf-space-4)]">
+    <div class="flex flex-col gap-[var(--jc-space-4)]">
       <ManageFormField label="标题" hint="留空则前台显示「为你推荐」">
         <ManageInput
           :model-value="form.title"
@@ -403,7 +403,7 @@ onUnmounted(() => {
         />
       </ManageFormField>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-[var(--gf-space-4)]">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-[var(--jc-space-4)]">
         <ManageFormField label="生效开始" hint="留空 = 立即">
           <ManageInput
             :model-value="form.startStr"

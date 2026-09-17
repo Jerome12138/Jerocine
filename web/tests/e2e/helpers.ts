@@ -42,7 +42,7 @@ export async function setViewMode(
   mode: 'mobile' | 'desktop' | 'tv'
 ): Promise<void> {
   await page.addInitScript((m) => {
-    localStorage.setItem('gf-mode', m)
+    localStorage.setItem('jc-mode', m)
   }, mode)
 }
 

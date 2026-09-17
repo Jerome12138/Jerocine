@@ -38,22 +38,22 @@
     </style>
 
     <!-- 播放器弹窗主题: 暗色玻璃 + 品牌青强调色(替代系统亮色 Material Dialog) -->
-    <style name="GfPlayerDialog" parent="Theme.AppCompat.Dialog.Alert">
-        <item name="android:windowBackground">@drawable/gf_dialog_bg</item>
-        <item name="colorAccent">@color/gf_accent</item>
-        <item name="android:colorAccent">@color/gf_accent</item>
-        <item name="android:textColorPrimary">@color/gf_text</item>
-        <item name="android:textColorSecondary">@color/gf_text_secondary</item>
-        <item name="android:textColorAlertDialogListItem">@color/gf_text</item>
-        <item name="android:windowTitleStyle">@style/GfPlayerDialogTitle</item>
+    <style name="JcPlayerDialog" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/jc_dialog_bg</item>
+        <item name="colorAccent">@color/jc_accent</item>
+        <item name="android:colorAccent">@color/jc_accent</item>
+        <item name="android:textColorPrimary">@color/jc_text</item>
+        <item name="android:textColorSecondary">@color/jc_text_secondary</item>
+        <item name="android:textColorAlertDialogListItem">@color/jc_text</item>
+        <item name="android:windowTitleStyle">@style/JcPlayerDialogTitle</item>
     </style>
-    <style name="GfPlayerDialogTitle" parent="@android:style/TextAppearance.Material.DialogWindowTitle">
-        <item name="android:textColor">@color/gf_text</item>
+    <style name="JcPlayerDialogTitle" parent="@android:style/TextAppearance.Material.DialogWindowTitle">
+        <item name="android:textColor">@color/jc_text</item>
         <item name="android:textSize">19sp</item>
     </style>
 
     <!-- 原生播放器控件按钮: 图标在上(drawableTop)+ 文字在下, 玻璃风背景, D-pad 焦点高亮. -->
-    <style name="GfPlayerCtlBtn" parent="android:Widget.Material.Button.Borderless">
+    <style name="JcPlayerCtlBtn" parent="android:Widget.Material.Button.Borderless">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:minWidth">66dp</item>
@@ -62,14 +62,14 @@
         <item name="android:paddingHorizontal">10dp</item>
         <item name="android:paddingTop">8dp</item>
         <item name="android:paddingBottom">8dp</item>
-        <item name="android:textColor">@color/gf_ctl_btn_text</item>
+        <item name="android:textColor">@color/jc_ctl_btn_text</item>
         <item name="android:textSize">12sp</item>
         <item name="android:gravity">center</item>
         <item name="android:singleLine">true</item>
         <item name="android:drawablePadding">4dp</item>
-        <item name="android:drawableTint">@color/gf_ctl_btn_text</item>
+        <item name="android:drawableTint">@color/jc_ctl_btn_text</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:focusable">true</item>
-        <item name="android:background">@drawable/gf_ctl_btn_bg</item>
+        <item name="android:background">@drawable/jc_ctl_btn_bg</item>
     </style>
 </resources>

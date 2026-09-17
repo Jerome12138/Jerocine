@@ -334,7 +334,7 @@ public class MainActivity extends BridgeActivity {
             input.setSelection(existing.length());
         }
 
-        AlertDialog dlg = new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        AlertDialog dlg = new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle(isReset ? "重置 Jerocine 服务器地址" : "请输入 Jerocine 服务器地址")
                 .setView(inWrap)
                 .setCancelable(false)
@@ -504,14 +504,14 @@ public class MainActivity extends BridgeActivity {
         return g;
     }
 
-    /** 在 WebView 内 localStorage 写 gf-mode, 然后 reload 让 useViewMode 生效 */
+    /** 在 WebView 内 localStorage 写 jc-mode, 然后 reload 让 useViewMode 生效 */
     private void persistViewMode(String mode) {
         if (webViewRef == null) return;
         final String js;
         if (mode == null) {
-            js = "try{localStorage.removeItem('gf-mode')}catch(e){};location.reload();";
+            js = "try{localStorage.removeItem('jc-mode')}catch(e){};location.reload();";
         } else {
-            js = "try{localStorage.setItem('gf-mode','" + mode + "')}catch(e){};location.reload();";
+            js = "try{localStorage.setItem('jc-mode','" + mode + "')}catch(e){};location.reload();";
         }
         webViewRef.evaluateJavascript(js, null);
         hideSettingsDrawer();
@@ -542,7 +542,7 @@ public class MainActivity extends BridgeActivity {
                             : value.replaceAll("^\"|\"$", "").replace("\\\"", "\"");
                     final String msg = prefix + "\nweb: " + stripped;
                     runOnUiThread(() -> {
-                        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+                        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                                 .setTitle("诊断")
                                 .setMessage(msg)
                                 .setPositiveButton("OK", null)

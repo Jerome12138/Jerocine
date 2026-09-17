@@ -96,7 +96,7 @@ p {
 /* 移动端 input/textarea/select 强制 ≥ 16px 字号, 阻止 iOS Safari focus 自动缩放
    (text-sm = 14px 触发缩放且退出不会还原, 桌面端不受影响).
    !important 必要: Vue scoped class 优先级 (.foo[data-v-xxx]) 高于全局 tag selector,
-   不加会被组件 font-size: var(--gf-fs-sm) 等覆盖. */
+   不加会被组件 font-size: var(--jc-fs-sm) 等覆盖. */
 @media (max-width: 767px) {
   input,
   textarea,

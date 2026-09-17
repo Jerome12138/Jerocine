@@ -11,7 +11,7 @@ import { ref, computed, type Ref, type ComputedRef } from 'vue'
  * 不和 favoriteStore 合并, 因为收藏是真后端 (登录态绑定), 点赞是匿名本地态.
  */
 
-const STORAGE_KEY = 'gf-likes'
+const STORAGE_KEY = 'jc-likes'
 
 function read(): Record<string, true> {
   try {

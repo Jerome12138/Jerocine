@@ -17,7 +17,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:background="@drawable/gf_control_scrim"
+        android:background="@drawable/jc_control_scrim"
         android:paddingHorizontal="28dp"
         android:paddingTop="24dp"
         android:paddingBottom="18dp">
@@ -33,7 +33,7 @@
                 android:id="@id/exo_position"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/gf_text"
+                android:textColor="@color/jc_text"
                 android:textSize="13sp"
                 android:includeFontPadding="false"
                 android:paddingHorizontal="8dp" />
@@ -43,10 +43,10 @@
                 android:layout_width="0dp"
                 android:layout_height="26dp"
                 android:layout_weight="1"
-                app:played_color="@color/gf_progress_played"
-                app:buffered_color="@color/gf_progress_buffered"
-                app:unplayed_color="@color/gf_progress_unplayed"
-                app:scrubber_color="@color/gf_progress_scrubber"
+                app:played_color="@color/jc_progress_played"
+                app:buffered_color="@color/jc_progress_buffered"
+                app:unplayed_color="@color/jc_progress_unplayed"
+                app:scrubber_color="@color/jc_progress_scrubber"
                 app:bar_height="3dp"
                 app:scrubber_enabled_size="14dp"
                 app:scrubber_dragged_size="18dp"
@@ -56,7 +56,7 @@
                 android:id="@id/exo_duration"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/gf_text_secondary"
+                android:textColor="@color/jc_text_secondary"
                 android:textSize="13sp"
                 android:includeFontPadding="false"
                 android:paddingHorizontal="8dp" />
@@ -72,49 +72,49 @@
 
             <Button
                 android:id="@+id/btn_prev"
-                style="@style/GfPlayerCtlBtn"
+                style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_prev"
                 android:text="上集" />
 
             <Button
                 android:id="@+id/btn_next"
-                style="@style/GfPlayerCtlBtn"
+                style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_next"
                 android:text="下集" />
 
             <Button
                 android:id="@+id/btn_episodes"
-                style="@style/GfPlayerCtlBtn"
+                style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_episodes"
                 android:text="选集" />
 
             <Button
                 android:id="@+id/btn_speed"
-                style="@style/GfPlayerCtlBtn"
+                style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_speed"
                 android:text="倍速" />
 
             <Button
                 android:id="@+id/btn_source"
-                style="@style/GfPlayerCtlBtn"
+                style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_source"
                 android:text="换源" />
 
             <Button
                 android:id="@+id/btn_network_mode"
-                style="@style/GfPlayerCtlBtn"
+                style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_network_mode"
                 android:text="切到中转" />
 
             <Button
                 android:id="@+id/btn_skip"
-                style="@style/GfPlayerCtlBtn"
+                style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_skip"
                 android:text="跳过" />
 
             <Button
                 android:id="@+id/btn_close"
-                style="@style/GfPlayerCtlBtn"
+                style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_close"
                 android:text="退出" />
         </LinearLayout>

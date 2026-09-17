@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="46dp"
     android:layout_margin="3dp"
-    android:background="@drawable/gf_chip"
+    android:background="@drawable/jc_chip"
     android:clickable="true"
     android:focusable="true">
 
@@ -14,7 +14,7 @@
         android:duplicateParentState="true"
         android:gravity="center"
         android:maxLines="1"
-        android:textColor="@color/gf_chip_text"
+        android:textColor="@color/jc_chip_text"
         android:textSize="14sp"
         android:textStyle="bold" />
 </FrameLayout>

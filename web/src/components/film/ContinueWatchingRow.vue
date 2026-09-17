@@ -34,14 +34,14 @@ function epLabel(rec: HistoryRecord): string {
 <template>
   <section
     v-if="recent.length"
-    class="gf-continue"
+    class="jc-continue"
     aria-label="继续观看"
   >
-    <header class="container-page gf-continue__header">
-      <h2 class="gf-continue__title">继续观看</h2>
+    <header class="container-page jc-continue__header">
+      <h2 class="jc-continue__title">继续观看</h2>
       <RouterLink
         to="/history"
-        class="gf-continue__more"
+        class="jc-continue__more"
         data-focusable="true"
         tabindex="0"
       >
@@ -50,13 +50,13 @@ function epLabel(rec: HistoryRecord): string {
       </RouterLink>
     </header>
 
-    <div class="gf-continue__viewport">
-      <div class="gf-continue__scroll" data-focus-zone="rail">
-        <div class="gf-continue__edge" aria-hidden="true" />
+    <div class="jc-continue__viewport">
+      <div class="jc-continue__scroll" data-focus-zone="rail">
+        <div class="jc-continue__edge" aria-hidden="true" />
         <FilmCard
           v-for="rec in recent"
           :key="rec.id"
-          class="gf-continue__item"
+          class="jc-continue__item"
           :item="recordToCard(rec)"
           :to="buildPlayLink(rec)"
           :progress="pct(rec.currentTime, rec.duration)"
@@ -65,53 +65,53 @@ function epLabel(rec: HistoryRecord): string {
           <!-- 左上角"看到第 N 集"角标(沿用改动前的样式与位置); 左下角 remarks 由
                recordToCard 提供(item.remarks), 与首页其他影片卡同款 -->
           <template #poster-overlay>
-            <span v-if="epLabel(rec)" class="gf-continue__ep">{{ epLabel(rec) }}</span>
+            <span v-if="epLabel(rec)" class="jc-continue__ep">{{ epLabel(rec) }}</span>
           </template>
         </FilmCard>
-        <div class="gf-continue__edge" aria-hidden="true" />
+        <div class="jc-continue__edge" aria-hidden="true" />
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-/* 列数 / 缩进 / 卡间距与 FilmRow 同源（theme.css 的 --gf-rail-*）,
+/* 列数 / 缩进 / 卡间距与 FilmRow 同源（theme.css 的 --jc-rail-*）,
    保证首页各横滚行卡片同宽同距 */
-.gf-continue {
+.jc-continue {
   display: flex;
   flex-direction: column;
 }
-.gf-continue__header {
+.jc-continue__header {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: var(--gf-space-4);
-  margin-bottom: var(--gf-space-3);
+  gap: var(--jc-space-4);
+  margin-bottom: var(--jc-space-3);
 }
-.gf-continue__title {
-  font-size: var(--gf-fs-lg);
-  font-weight: var(--gf-fw-bold);
-  color: var(--gf-text-primary);
-  line-height: var(--gf-lh-snug);
+.jc-continue__title {
+  font-size: var(--jc-fs-lg);
+  font-weight: var(--jc-fw-bold);
+  color: var(--jc-text-primary);
+  line-height: var(--jc-lh-snug);
 }
-.gf-continue__more {
-  color: var(--gf-text-link);
-  font-size: var(--gf-fs-sm);
+.jc-continue__more {
+  color: var(--jc-text-link);
+  font-size: var(--jc-fs-sm);
   display: inline-flex;
   align-items: center;
-  gap: var(--gf-space-1);
+  gap: var(--jc-space-1);
   text-decoration: none;
   flex-shrink: 0;
 }
-.gf-continue__more:hover,
-.gf-continue__more:focus-visible {
+.jc-continue__more:hover,
+.jc-continue__more:focus-visible {
   outline: none;
-  color: var(--gf-text-link-hover);
+  color: var(--jc-text-link-hover);
 }
 
-.gf-continue__scroll {
+.jc-continue__scroll {
   display: flex;
-  gap: var(--gf-rail-gap);
+  gap: var(--jc-rail-gap);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
@@ -121,41 +121,41 @@ function epLabel(rec: HistoryRecord): string {
      加 padding-block 让放大溢出的上下部分落在 padding 区(不被裁)。 */
   padding-block: 12px;
 }
-.gf-continue__scroll::-webkit-scrollbar {
+.jc-continue__scroll::-webkit-scrollbar {
   display: none;
 }
 
-.gf-continue__edge {
+.jc-continue__edge {
   flex-shrink: 0;
   /* 首尾缩进（web 按页面 gutter; TV 用安全区, 均由变量给出） */
-  width: var(--gf-rail-edge);
+  width: var(--jc-rail-edge);
 }
 
-.gf-continue__item {
+.jc-continue__item {
   flex-shrink: 0;
   scroll-snap-align: start;
   /* 与 FilmRow 同一公式（必须逐字一致, 否则首页各横滚行卡片不同宽）:
      (100% - 1×edge - 可见卡间 gap 道数 × 卡间距) / 列数
      "只扣 1 个 edge"的原因见 FilmRow 内注释。 */
   width: calc(
-    (100% - var(--gf-rail-edge) - var(--gf-rail-gaps) * var(--gf-rail-gap)) /
-      var(--gf-rail-cols)
+    (100% - var(--jc-rail-edge) - var(--jc-rail-gaps) * var(--jc-rail-gap)) /
+      var(--jc-rail-cols)
   );
 }
 
 /* "看到第 N 集" 角标: 海报左上角(沿用改动前的视觉: 品牌渐变 + 圆角 + 白字) */
-.gf-continue__ep {
+.jc-continue__ep {
   position: absolute;
-  top: var(--gf-space-2);
-  left: var(--gf-space-2);
+  top: var(--jc-space-2);
+  left: var(--jc-space-2);
   z-index: 2;
-  max-width: calc(100% - var(--gf-space-2) * 2);
+  max-width: calc(100% - var(--jc-space-2) * 2);
   padding: 2px 8px;
-  border-radius: var(--gf-radius-sm);
-  background-image: var(--gf-brand-gradient);
+  border-radius: var(--jc-radius-sm);
+  background-image: var(--jc-brand-gradient);
   color: #fff;
-  font-size: var(--gf-fs-xs);
-  font-weight: var(--gf-fw-semibold);
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-semibold);
   line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
@@ -168,13 +168,13 @@ function epLabel(rec: HistoryRecord): string {
    焦点行为直接继承 FilmCard 的 TV 焦点(整卡 outline + 放大), 不再单写。 */
 /* TV 的列数(6) / 卡间距(space-6) / 缩进(安全区) 由 theme.css 的 [data-mode="tv"] 统一覆盖,
    此处不再重复定义宽度规则（避免与 FilmRow 两处公式不同步）。 */
-[data-mode='tv'] .gf-continue__scroll {
+[data-mode='tv'] .jc-continue__scroll {
   padding-block: 16px;
 }
-[data-mode='tv'] .gf-continue__header.container-page {
-  padding-inline: var(--gf-tv-safe);
+[data-mode='tv'] .jc-continue__header.container-page {
+  padding-inline: var(--jc-tv-safe);
 }
-[data-mode='tv'] .gf-continue__title {
-  font-size: var(--gf-fs-xl);
+[data-mode='tv'] .jc-continue__title {
+  font-size: var(--jc-fs-xl);
 }
 </style>

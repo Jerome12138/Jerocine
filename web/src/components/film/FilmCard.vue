@@ -89,12 +89,12 @@ const scoreText = computed(() => {
 <template>
   <RouterLink
     :to="linkTo"
-    class="gf-film-card block group"
+    class="jc-film-card block group"
     data-focusable="true"
     tabindex="0"
     :aria-label="item.name"
   >
-    <div class="gf-film-card__poster relative overflow-hidden shadow-card">
+    <div class="jc-film-card__poster relative overflow-hidden shadow-card">
       <BaseImage
         :src="item.cover"
         :alt="item.name"
@@ -104,7 +104,7 @@ const scoreText = computed(() => {
       />
 
       <!-- 右上角评分: 黄色星星 + 数字, 带底色阴影避免被封面同化 -->
-      <span v-if="scoreText" class="gf-film-card__score-badge" aria-label="评分">
+      <span v-if="scoreText" class="jc-film-card__score-badge" aria-label="评分">
         <svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" aria-hidden="true">
           <path d="M12 .587l3.668 7.568L24 9.75l-6 5.852L19.336 24 12 19.897 4.664 24 6 15.602 0 9.75l8.332-1.595z"/>
         </svg>
@@ -112,7 +112,7 @@ const scoreText = computed(() => {
       </span>
 
       <!-- 左上角热度榜位: 火 + Hot N(仅榜单刷新任务标过 hot_rank 的片有) -->
-      <span v-if="hotRankText" class="gf-film-card__hot-badge" aria-label="热度榜位">
+      <span v-if="hotRankText" class="jc-film-card__hot-badge" aria-label="热度榜位">
         <svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" aria-hidden="true">
           <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
         </svg>
@@ -120,17 +120,17 @@ const scoreText = computed(() => {
       </span>
 
       <!-- 卡片下部剧集信息 (remarks: 更新至 N 集 / HD / 独播 等), 常驻在封面底部 -->
-      <div v-if="remarks" class="gf-film-card__epinfo">
+      <div v-if="remarks" class="jc-film-card__epinfo">
         {{ remarks }}
       </div>
 
       <!-- 蒙版 (hover/focus 加深) -->
-      <div class="gf-film-card__mask absolute inset-0 pointer-events-none" />
+      <div class="jc-film-card__mask absolute inset-0 pointer-events-none" />
 
       <!-- 观看进度条 (继续观看/历史卡): 底部 3px, 盖在 remarks 渐变条之上 -->
       <div
         v-if="props.progress > 0"
-        class="gf-film-card__progress"
+        class="jc-film-card__progress"
         :aria-label="`已观看 ${props.progress}%`"
       >
         <span :style="{ width: props.progress + '%' }" />
@@ -140,132 +140,132 @@ const scoreText = computed(() => {
       <slot name="poster-overlay" />
 
       <!-- PC hover 播放图标 (中央) -->
-      <div class="gf-film-card__play absolute inset-0 flex items-center justify-center pointer-events-none z-2" aria-hidden="true">
-        <span class="gf-film-card__play-btn">
+      <div class="jc-film-card__play absolute inset-0 flex items-center justify-center pointer-events-none z-2" aria-hidden="true">
+        <span class="jc-film-card__play-btn">
           <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg>
         </span>
       </div>
     </div>
 
     <!-- 卡片下方信息区: 标题 + 副信息 (年份·分类·⭐评分), 常驻可见 (bilibili/腾讯视频风格) -->
-    <div v-if="showTitleBelow" class="gf-film-card__below">
-      <h4 class="gf-film-card__title-below">
+    <div v-if="showTitleBelow" class="jc-film-card__below">
+      <h4 class="jc-film-card__title-below">
         {{ item.name }}
       </h4>
       <!-- 评分已移到封面右上角星标, 此处只留 副信息(subText 优先, 否则 年份·地区·分类), 不重复评分 -->
-      <div v-if="subBelow" class="gf-film-card__sub-below">
-        <span class="gf-film-card__sub-meta">{{ subBelow }}</span>
+      <div v-if="subBelow" class="jc-film-card__sub-below">
+        <span class="jc-film-card__sub-meta">{{ subBelow }}</span>
       </div>
     </div>
   </RouterLink>
 </template>
 
 <style scoped>
-.gf-film-card {
+.jc-film-card {
   text-decoration: none;
   outline: none;
-  border-radius: var(--gf-card-radius);
+  border-radius: var(--jc-card-radius);
   transition:
-    transform var(--gf-dur-base) var(--gf-ease-spring),
-    box-shadow var(--gf-dur-base) var(--gf-ease-standard);
+    transform var(--jc-dur-base) var(--jc-ease-spring),
+    box-shadow var(--jc-dur-base) var(--jc-ease-standard);
 }
 
-.gf-film-card__poster {
-  background-color: var(--gf-bg-elevated);
-  border-radius: var(--gf-card-radius);
+.jc-film-card__poster {
+  background-color: var(--jc-bg-elevated);
+  border-radius: var(--jc-card-radius);
   transition:
-    transform var(--gf-dur-base) var(--gf-ease-spring),
-    box-shadow var(--gf-dur-base) var(--gf-ease-standard);
+    transform var(--jc-dur-base) var(--jc-ease-spring),
+    box-shadow var(--jc-dur-base) var(--jc-ease-standard);
 }
 
-.gf-film-card__mask {
+.jc-film-card__mask {
   background-image: linear-gradient(
     to top,
-    var(--gf-hover-overlay) 0%,
+    var(--jc-hover-overlay) 0%,
     rgba(0, 0, 0, 0.35) 45%,
     rgba(0, 0, 0, 0) 70%
   );
   opacity: 0;
-  transition: opacity var(--gf-dur-base) var(--gf-ease-standard);
+  transition: opacity var(--jc-dur-base) var(--jc-ease-standard);
 }
 
-.gf-film-card__hover-info {
+.jc-film-card__hover-info {
   opacity: 0;
   transform: translateY(12px);
   transition:
-    opacity var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-standard);
+    opacity var(--jc-dur-base) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-standard);
 }
 
-.gf-film-card__meta {
+.jc-film-card__meta {
   color: rgba(255, 255, 255, 0.78);
 }
 
 /* 中央播放图标 (hover 才显示) */
-.gf-film-card__play {
+.jc-film-card__play {
   opacity: 0;
   transform: scale(0.85);
   transition:
-    opacity var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-spring);
+    opacity var(--jc-dur-base) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-spring);
 }
-.gf-film-card__play-btn {
+.jc-film-card__play-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 48px;
   height: 48px;
   border-radius: 9999px;
-  background-image: var(--gf-brand-gradient);
+  background-image: var(--jc-brand-gradient);
   color: #fff;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 /* 桌面 hover: 卡片轻微缩放 + 蒙版/简介浮层上滑 + 中央播放按钮浮出 */
 @media (hover: hover) and (pointer: fine) {
-  .gf-film-card:hover,
-  .gf-film-card:focus-visible {
+  .jc-film-card:hover,
+  .jc-film-card:focus-visible {
     position: relative;
     z-index: 3;
   }
-  .gf-film-card:hover .gf-film-card__poster,
-  .gf-film-card:focus-visible .gf-film-card__poster {
+  .jc-film-card:hover .jc-film-card__poster,
+  .jc-film-card:focus-visible .jc-film-card__poster {
     transform: scale(1.04);
-    box-shadow: var(--gf-shadow-hover);
+    box-shadow: var(--jc-shadow-hover);
   }
-  .gf-film-card:hover .gf-film-card__mask,
-  .gf-film-card:focus-visible .gf-film-card__mask {
+  .jc-film-card:hover .jc-film-card__mask,
+  .jc-film-card:focus-visible .jc-film-card__mask {
     opacity: 1;
   }
-  .gf-film-card:hover .gf-film-card__hover-info,
-  .gf-film-card:focus-visible .gf-film-card__hover-info {
+  .jc-film-card:hover .jc-film-card__hover-info,
+  .jc-film-card:focus-visible .jc-film-card__hover-info {
     opacity: 1;
     transform: translateY(0);
   }
-  .gf-film-card:hover .gf-film-card__play,
-  .gf-film-card:focus-visible .gf-film-card__play {
+  .jc-film-card:hover .jc-film-card__play,
+  .jc-film-card:focus-visible .jc-film-card__play {
     opacity: 1;
     transform: scale(1);
   }
-  .gf-film-card:hover .gf-film-card__title-below,
-  .gf-film-card:focus-visible .gf-film-card__title-below {
-    color: var(--gf-text-primary);
+  .jc-film-card:hover .jc-film-card__title-below,
+  .jc-film-card:focus-visible .jc-film-card__title-below {
+    color: var(--jc-text-primary);
   }
 }
 
 /* 移动端按下反馈 */
 @media (hover: none) {
-  .gf-film-card:active .gf-film-card__poster {
+  .jc-film-card:active .jc-film-card__poster {
     transform: scale(0.97);
   }
 }
 
 /* 焦点态强化 */
-.gf-film-card:focus-visible {
+.jc-film-card:focus-visible {
   outline: none;
 }
-.gf-film-card:focus-visible .gf-film-card__poster {
-  box-shadow: var(--gf-shadow-focus-ring), var(--gf-shadow-hover);
+.jc-film-card:focus-visible .jc-film-card__poster {
+  box-shadow: var(--jc-shadow-focus-ring), var(--jc-shadow-hover);
 }
 
 .line-clamp-2 {
@@ -276,31 +276,31 @@ const scoreText = computed(() => {
 }
 
 /* 标题下方区域: 双行结构 (bilibili / 腾讯视频风格) */
-.gf-film-card__below {
-  margin-top: var(--gf-space-2);
+.jc-film-card__below {
+  margin-top: var(--jc-space-2);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.gf-film-card__title-below {
+.jc-film-card__title-below {
   /* 默认两行截断 */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   /* h4 默认 bold → 改中等字重(用户要求卡片名不加粗) */
-  font-weight: var(--gf-fw-medium);
-  min-height: calc(var(--gf-fs-sm) * var(--gf-lh-snug, 1.3) * 2);
+  font-weight: var(--jc-fw-medium);
+  min-height: calc(var(--jc-fs-sm) * var(--jc-lh-snug, 1.3) * 2);
 }
-.gf-film-card__sub-below {
+.jc-film-card__sub-below {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-2);
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
+  gap: var(--jc-space-2);
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
   line-height: 1.4;
 }
-.gf-film-card__sub-meta {
+.jc-film-card__sub-meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -308,7 +308,7 @@ const scoreText = computed(() => {
 }
 
 /* 右上角评分徽标: 黄色星星 + 数字, 半透明黑底 + 阴影(防被封面同化) */
-.gf-film-card__score-badge {
+.jc-film-card__score-badge {
   position: absolute;
   top: 6px;
   right: 6px;
@@ -318,11 +318,11 @@ const scoreText = computed(() => {
   gap: 2px;
   height: auto; /* 由内容 + padding 撑起, 不再固定高度 */
   padding: 2px 6px;
-  border-radius: var(--gf-radius-sm);
+  border-radius: var(--jc-radius-sm);
   background-color: rgba(0, 0, 0, 0.72);
   color: #ffc107; /* 黄色星 + 数字 */
-  font-size: var(--gf-fs-xs);
-  font-weight: var(--gf-fw-semibold);
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-semibold);
   line-height: 1.4;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
   pointer-events: none;
@@ -330,7 +330,7 @@ const scoreText = computed(() => {
 }
 
 /* 左上角热度榜位角标: 品牌渐变底 + 白字(与右上角评分黄星徽标左右呼应) */
-.gf-film-card__hot-badge {
+.jc-film-card__hot-badge {
   position: absolute;
   top: 6px;
   left: 6px;
@@ -339,11 +339,11 @@ const scoreText = computed(() => {
   align-items: center;
   height: auto;
   padding: 2px 6px;
-  border-radius: var(--gf-radius-sm);
-  background-image: var(--gf-brand-gradient);
+  border-radius: var(--jc-radius-sm);
+  background-image: var(--jc-brand-gradient);
   color: #fff;
-  font-size: var(--gf-fs-xs);
-  font-weight: var(--gf-fw-semibold);
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-semibold);
   line-height: 1.4;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
   pointer-events: none;
@@ -352,37 +352,37 @@ const scoreText = computed(() => {
 
 /* 移动端角标字体更小一档(xs=12px → 11px), 小封面不显拥挤 */
 @media (max-width: 767px) {
-  .gf-film-card__score-badge,
-  .gf-film-card__hot-badge {
+  .jc-film-card__score-badge,
+  .jc-film-card__hot-badge {
     font-size: 0.6875rem;
   }
 }
 
 /* 观看进度条 (继续观看/历史卡): 底部 3px, 高于 remarks 渐变条(z-2) */
-.gf-film-card__progress {
+.jc-film-card__progress {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   height: 3px;
-  background-color: var(--gf-progress-bg);
+  background-color: var(--jc-progress-bg);
   z-index: 3;
   overflow: hidden;
 }
-.gf-film-card__progress > span {
+.jc-film-card__progress > span {
   display: block;
   height: 100%;
-  background-image: var(--gf-progress-fg);
-  transition: width var(--gf-dur-base) var(--gf-ease-standard);
+  background-image: var(--jc-progress-fg);
+  transition: width var(--jc-dur-base) var(--jc-ease-standard);
 }
 
 /* 卡片下部剧集信息条 (remarks: 更新至 N 集 等) */
-.gf-film-card__epinfo {
+.jc-film-card__epinfo {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 12px var(--gf-space-2) 6px;
+  padding: 12px var(--jc-space-2) 6px;
   background-image: linear-gradient(
     to top,
     rgba(0, 0, 0, 0.85) 0%,
@@ -391,7 +391,7 @@ const scoreText = computed(() => {
   );
   color: #fff;
   font-size: 12px;
-  font-weight: var(--gf-fw-medium);
+  font-weight: var(--jc-fw-medium);
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
@@ -401,41 +401,41 @@ const scoreText = computed(() => {
 }
 @media (min-width: 1024px) {
   /* 角标字体已与"看到第 N 集"角标同规格(fs-xs), 桌面不再放大 */
-  .gf-film-card__epinfo { font-size: 13px; }
+  .jc-film-card__epinfo { font-size: 13px; }
 }
 </style>
 
 <style>
-[data-mode='tv'] .gf-film-card__mask {
+[data-mode='tv'] .jc-film-card__mask {
   opacity: 0;
 }
 /* TV 焦点态：聚焦区域包含整张卡片(封面+下方文字), 焦点环 + 轻微放大.
  * 用 outline(随 border-radius, 不被祖先 overflow 裁切) 而非纯 box-shadow,
  * 解决"卡片聚焦框顶部被截断". 整卡放大用 transform 在卡片根. */
-[data-mode='tv'] .gf-film-card:focus,
-[data-mode='tv'] .gf-film-card:focus-visible {
-  outline: 3px solid var(--gf-brand-cyan);
+[data-mode='tv'] .jc-film-card:focus,
+[data-mode='tv'] .jc-film-card:focus-visible {
+  outline: 3px solid var(--jc-brand-cyan);
   outline-offset: 2px;
-  border-radius: var(--gf-card-radius);
+  border-radius: var(--jc-card-radius);
   transform: scale(1.05);
   z-index: 5;
   box-shadow: 0 0 18px 2px rgba(74, 209, 229, 0.4);
 }
-[data-mode='tv'] .gf-film-card:focus .gf-film-card__poster,
-[data-mode='tv'] .gf-film-card:focus-visible .gf-film-card__poster {
+[data-mode='tv'] .jc-film-card:focus .jc-film-card__poster,
+[data-mode='tv'] .jc-film-card:focus-visible .jc-film-card__poster {
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
 }
-[data-mode='tv'] .gf-film-card:focus .gf-film-card__title-below,
-[data-mode='tv'] .gf-film-card:focus-visible .gf-film-card__title-below {
-  color: var(--gf-text-primary);
+[data-mode='tv'] .jc-film-card:focus .jc-film-card__title-below,
+[data-mode='tv'] .jc-film-card:focus-visible .jc-film-card__title-below {
+  color: var(--jc-text-primary);
 }
-/* TV 卡片标题字号（不靠 hover 显示）— 调小一档(base→sm), 与历史/收藏 gf-tv-card .name 一致 */
-[data-mode='tv'] .gf-film-card__title-below {
-  font-size: var(--gf-fs-sm);
+/* TV 卡片标题字号（不靠 hover 显示）— 调小一档(base→sm), 与历史/收藏 jc-tv-card .name 一致 */
+[data-mode='tv'] .jc-film-card__title-below {
+  font-size: var(--jc-fs-sm);
 }
-[data-mode='tv'] .gf-film-card__epinfo {
+[data-mode='tv'] .jc-film-card__epinfo {
   font-size: 14px;
 }
-/* TV 角标不再硬编码放大: [data-mode=tv] 的 --gf-fs-xs 已是 0.875rem(14px),
+/* TV 角标不再硬编码放大: [data-mode=tv] 的 --jc-fs-xs 已是 0.875rem(14px),
  * 与"看到第 N 集"等角标同源缩放, 高度随内容(padding 2px 6px)自适应。 */
 </style>

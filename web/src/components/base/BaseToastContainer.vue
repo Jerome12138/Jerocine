@@ -40,14 +40,14 @@ onBeforeUnmount(() => {
 function tone(type: ToastItem['type']): string {
   switch (type) {
     case 'success':
-      return 'border-l-[3px] border-[var(--gf-success)] bg-[var(--gf-success-soft)]'
+      return 'border-l-[3px] border-[var(--jc-success)] bg-[var(--jc-success-soft)]'
     case 'warning':
-      return 'border-l-[3px] border-[var(--gf-warning)] bg-[var(--gf-warning-soft)]'
+      return 'border-l-[3px] border-[var(--jc-warning)] bg-[var(--jc-warning-soft)]'
     case 'info':
-      return 'border-l-[3px] border-[var(--gf-info)] bg-[var(--gf-info-soft)]'
+      return 'border-l-[3px] border-[var(--jc-info)] bg-[var(--jc-info-soft)]'
     case 'error':
     default:
-      return 'border-l-[3px] border-[var(--gf-danger)] bg-[var(--gf-danger-soft)]'
+      return 'border-l-[3px] border-[var(--jc-danger)] bg-[var(--jc-danger-soft)]'
   }
 }
 </script>
@@ -56,13 +56,13 @@ function tone(type: ToastItem['type']): string {
   <!-- 无全屏时挂 body; 有全屏元素时挂进全屏元素内部(fixed 定位以全屏元素为包含块) -->
   <Teleport :to="toastHost || 'body'" :disabled="!toastHost">
     <div
-      class="fixed top-[var(--gf-space-4)] right-[var(--gf-space-4)] flex flex-col gap-[var(--gf-space-2)] z-[var(--gf-z-toast)] pointer-events-none"
+      class="fixed top-[var(--jc-space-4)] right-[var(--jc-space-4)] flex flex-col gap-[var(--jc-space-2)] z-[var(--jc-z-toast)] pointer-events-none"
     >
       <TransitionGroup name="toast">
         <div
           v-for="t in items"
           :key="t.id"
-          class="px-[var(--gf-space-4)] py-[var(--gf-space-3)] rounded-[var(--gf-radius-md)] shadow-card-lg text-primary text-sm pointer-events-auto bg-elevated"
+          class="px-[var(--jc-space-4)] py-[var(--jc-space-3)] rounded-[var(--jc-radius-md)] shadow-card-lg text-primary text-sm pointer-events-auto bg-elevated"
           :class="tone(t.type)"
           role="status"
           aria-live="polite"
@@ -78,8 +78,8 @@ function tone(type: ToastItem['type']): string {
 .toast-enter-active,
 .toast-leave-active {
   transition:
-    opacity var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-standard);
+    opacity var(--jc-dur-base) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-standard);
 }
 .toast-enter-from {
   opacity: 0;

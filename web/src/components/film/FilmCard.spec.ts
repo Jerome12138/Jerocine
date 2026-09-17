@@ -69,9 +69,9 @@ describe('FilmCard', () => {
       item: { ...baseItem, hotRank: 7 } as never
     })
     expect(withRank.text()).toContain('Hot 7')
-    expect(withRank.find('.gf-film-card__hot-badge svg').exists()).toBe(true)
+    expect(withRank.find('.jc-film-card__hot-badge svg').exists()).toBe(true)
 
     const noRank = mountCard()
-    expect(noRank.find('.gf-film-card__hot-badge').exists()).toBe(false)
+    expect(noRank.find('.jc-film-card__hot-badge').exists()).toBe(false)
   })
 })

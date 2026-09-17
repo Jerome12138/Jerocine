@@ -36,14 +36,14 @@ pnpm build        # 产物输出 dist/（含 vue-tsc 严格类型门禁，CI/部
 通过 `<html data-mode="mobile|desktop|tv">` 切换：
 
 - 自动检测：UA + 视口宽度 + hover 能力
-- 强制：`localStorage.setItem('gf-mode','tv')` 或 URL `?mode=tv`
+- 强制：`localStorage.setItem('jc-mode','tv')` 或 URL `?mode=tv`
 - 详见 `src/composables/useViewMode.ts`
 
 ## 编码守则
 
 - 遵循分层与命名约定；不做"兼容旧字段"的冗余映射。
 - 严格模式（`noUncheckedIndexedAccess`）下注意索引访问的 `T | undefined`。
-- 组件必须补齐 空/错/loading 三态；视觉 token 一律引用 `--gf-*` CSS 变量，不写裸值。
+- 组件必须补齐 空/错/loading 三态；视觉 token 一律引用 `--jc-*` CSS 变量，不写裸值。
 
 ## Android 打包（Capacitor）
 

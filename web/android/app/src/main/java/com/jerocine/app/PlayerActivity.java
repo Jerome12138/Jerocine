@@ -1184,7 +1184,7 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void showSpeedDialog() {
-        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("播放速度")
                 .setSingleChoiceItems(SPEED_LABELS, speedIndex, (d, i) -> {
                     speedIndex = i;
@@ -1243,7 +1243,7 @@ public class PlayerActivity extends AppCompatActivity {
         String[] items = multiSrc
                 ? new String[]{"倍速 " + SPEED_LABELS[speedIndex], "选集", srcLabel, adLabel, "跳过设置", "关闭播放"}
                 : new String[]{"倍速 " + SPEED_LABELS[speedIndex], "选集", adLabel, "跳过设置", "关闭播放"};
-        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("播放控制")
                 .setItems(items, (d, w) -> {
                     if (multiSrc) {
@@ -1281,7 +1281,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
         final int curEp = player != null ? player.getCurrentMediaItemIndex() : 0;
         final long curPos = player != null ? player.getCurrentPosition() : 0;
-        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("切换播放源")
                 .setSingleChoiceItems(names, currentSourceIndex, (d, w) -> {
                     if (w == currentSourceIndex) { d.dismiss(); return; }
@@ -1315,7 +1315,7 @@ public class PlayerActivity extends AppCompatActivity {
             int e = Math.min((i + 1) * EPISODE_SEG, total);
             segs[i] = "第 " + s + "-" + e + " 集";
         }
-        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("选集 (共 " + total + " 集)")
                 .setSingleChoiceItems(segs, cur / EPISODE_SEG, (d, w) -> {
                     d.dismiss();
@@ -1330,7 +1330,7 @@ public class PlayerActivity extends AppCompatActivity {
         String[] arr = new String[end - start];
         for (int i = start; i < end; i++) arr[i - start] = playlistTitles.get(i);
         int checked = (cur >= start && cur < end) ? cur - start : -1;
-        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("选集 " + (start + 1) + "-" + end)
                 .setSingleChoiceItems(arr, checked, (d, w) -> {
                     if (player != null) player.seekTo(start + w, 0);
@@ -1411,7 +1411,7 @@ public class PlayerActivity extends AppCompatActivity {
         });
 
         // 不放"完成"按钮: 开关/stepper 即时生效, 返回键关闭弹窗即可
-        new AlertDialog.Builder(this, R.style.GfPlayerDialog)
+        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("跳过片头 / 片尾")
                 .setView(ll)
                 .show();
@@ -1438,8 +1438,8 @@ public class PlayerActivity extends AppCompatActivity {
             b.setAllCaps(false);
             b.setFocusable(true);
             // 选中态更明显: 亮青实底 + 文字反色 + 聚焦放大
-            b.setBackgroundResource(R.drawable.gf_step_btn_bg);
-            b.setTextColor(getResources().getColorStateList(R.color.gf_step_btn_text));
+            b.setBackgroundResource(R.drawable.jc_step_btn_bg);
+            b.setTextColor(getResources().getColorStateList(R.color.jc_step_btn_text));
             b.setOnFocusChangeListener((v, hasFocus) ->
                     v.animate().scaleX(hasFocus ? 1.12f : 1f).scaleY(hasFocus ? 1.12f : 1f)
                             .setDuration(120).start());

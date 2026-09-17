@@ -12,7 +12,7 @@ test.describe('HistoryView 观看历史', () => {
     await muteImages(page)
     await page.goto('/history')
     await waitAppReady(page)
-    await expect(page.locator('.gf-empty')).toContainText(/还没有观看记录/)
+    await expect(page.locator('.jc-empty')).toContainText(/还没有观看记录/)
   })
 
   test('注入历史记录后渲染卡片网格', async ({ page }) => {
@@ -39,7 +39,7 @@ test.describe('HistoryView 观看历史', () => {
     await waitAppReady(page)
 
     // 卡片应可见
-    const card = page.locator('.gf-history-card')
+    const card = page.locator('.jc-history-card')
     await expect(card.first()).toBeVisible()
     expect(await card.count()).toBe(1)
 
@@ -78,7 +78,7 @@ test.describe('HistoryView 观看历史', () => {
     await removeBtn.click()
 
     // 应回到空态
-    await expect(page.locator('.gf-empty')).toContainText(/还没有观看记录/)
+    await expect(page.locator('.jc-empty')).toContainText(/还没有观看记录/)
   })
 
   test('清空全部触发 BaseConfirmDialog（非原生 confirm）', async ({ page }) => {
@@ -111,7 +111,7 @@ test.describe('HistoryView 观看历史', () => {
     await dialog.locator('button').filter({ hasText: /取消/ }).click()
     await expect(dialog).not.toBeVisible()
     // 卡片仍在
-    await expect(page.locator('.gf-history-card').first()).toBeVisible()
+    await expect(page.locator('.jc-history-card').first()).toBeVisible()
 
     // 再点清空 → 确认
     await clearBtn.click()
@@ -119,6 +119,6 @@ test.describe('HistoryView 观看历史', () => {
     await dialog.locator('button').filter({ hasText: /清空/ }).click()
 
     // 应回到空态
-    await expect(page.locator('.gf-empty')).toContainText(/还没有观看记录/)
+    await expect(page.locator('.jc-empty')).toContainText(/还没有观看记录/)
   })
 })

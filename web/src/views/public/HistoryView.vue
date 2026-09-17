@@ -79,26 +79,26 @@ function handleRemove(id: string, e: Event): void {
 
 <template>
   <!-- ============ TV (雷鸟卡片式) 分支 ============ -->
-  <section v-if="isTV" class="gf-tv-history">
+  <section v-if="isTV" class="jc-tv-history">
     <!-- 操作条: 标题 + 来源标签 + 共N条 + 登录同步 + 清空 -->
-    <div class="gf-tv-history__bar">
-      <div class="gf-tv-history__head-left">
-        <div class="gf-tv-history__title">观看历史</div>
-        <div class="gf-tv-history__meta">
-          <span class="gf-tv-chip sel gf-tv-history__srcchip">
+    <div class="jc-tv-history__bar">
+      <div class="jc-tv-history__head-left">
+        <div class="jc-tv-history__title">观看历史</div>
+        <div class="jc-tv-history__meta">
+          <span class="jc-tv-chip sel jc-tv-history__srcchip">
             {{ remoteMode ? '云端' : '本地' }}
           </span>
           <span>{{ sourceLabel }}</span>
           <span>·</span>
           <span>共 {{ items.length }} 条</span>
-          <span v-if="remoteLoading" class="gf-tv-history__syncing">同步中…</span>
+          <span v-if="remoteLoading" class="jc-tv-history__syncing">同步中…</span>
         </div>
       </div>
-      <div class="gf-tv-history__ops">
+      <div class="jc-tv-history__ops">
         <RouterLink
           v-if="!isLoggedIn"
           to="/login"
-          class="gf-tv-chip"
+          class="jc-tv-chip"
           data-focusable="true"
           tabindex="0"
         >
@@ -107,7 +107,7 @@ function handleRemove(id: string, e: Event): void {
         <button
           v-if="items.length"
           type="button"
-          class="gf-tv-btn gf-tv-history__manage"
+          class="jc-tv-btn jc-tv-history__manage"
           :class="{ cyan: manageMode }"
           data-focusable="true"
           tabindex="0"
@@ -118,7 +118,7 @@ function handleRemove(id: string, e: Event): void {
         <button
           v-if="items.length"
           type="button"
-          class="gf-tv-btn gf-tv-history__clear"
+          class="jc-tv-btn jc-tv-history__clear"
           data-focusable="true"
           tabindex="0"
           @click="handleClear"
@@ -139,13 +139,13 @@ function handleRemove(id: string, e: Event): void {
       <section
         v-for="group in groups"
         :key="group.bucket"
-        class="gf-tv-history__group"
+        class="jc-tv-history__group"
       >
-        <div class="gf-tv-sec">
+        <div class="jc-tv-sec">
           <span class="t">{{ group.label }}</span>
           <span class="s">{{ group.items.length }} 条</span>
         </div>
-        <div class="gf-tv-grid">
+        <div class="jc-tv-grid">
           <RouterLink
             v-for="record in group.items"
             :key="record.id"
@@ -154,7 +154,7 @@ function handleRemove(id: string, e: Event): void {
             custom
           >
             <div
-              class="gf-tv-card gf-tv-hcard"
+              class="jc-tv-card jc-tv-hcard"
               :class="{ 'is-manage': manageMode }"
               data-focusable="true"
               tabindex="0"
@@ -192,7 +192,7 @@ function handleRemove(id: string, e: Event): void {
               >
                 <i :style="{ width: progressPercent(record.currentTime, record.duration) + '%' }" />
               </span>
-              <span v-if="manageMode" class="gf-tv-hcard__delmark" aria-hidden="true">✕ 删除</span>
+              <span v-if="manageMode" class="jc-tv-hcard__delmark" aria-hidden="true">✕ 删除</span>
             </div>
             <div class="name">{{ record.name }}</div>
             <div class="sub">{{ formatTime(record.timeStamp) }}</div>
@@ -204,11 +204,11 @@ function handleRemove(id: string, e: Event): void {
   </section>
 
   <!-- ============ 桌面 / 移动 分支 (原样保留) ============ -->
-  <section v-else class="container-page py-[var(--gf-space-6)]">
-    <header class="flex items-center justify-between mb-[var(--gf-space-5)] flex-wrap gap-[var(--gf-space-3)]">
+  <section v-else class="container-page py-[var(--jc-space-6)]">
+    <header class="flex items-center justify-between mb-[var(--jc-space-5)] flex-wrap gap-[var(--jc-space-3)]">
       <div>
-        <h1 class="text-[var(--gf-fs-2xl)] font-[var(--gf-fw-bold)]">观看历史</h1>
-        <p class="text-sm text-muted mt-[var(--gf-space-1)] flex items-center gap-[var(--gf-space-2)] flex-wrap">
+        <h1 class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">观看历史</h1>
+        <p class="text-sm text-muted mt-[var(--jc-space-1)] flex items-center gap-[var(--jc-space-2)] flex-wrap">
           <BaseTag :variant="remoteMode ? 'purple' : 'default'" size="xs">
             {{ remoteMode ? '云端' : '本地' }}
           </BaseTag>
@@ -218,11 +218,11 @@ function handleRemove(id: string, e: Event): void {
           <span v-if="remoteLoading" class="text-link">同步中…</span>
         </p>
       </div>
-      <div class="flex items-center gap-[var(--gf-space-2)]">
+      <div class="flex items-center gap-[var(--jc-space-2)]">
         <RouterLink
           v-if="!isLoggedIn"
           to="/login"
-          class="gf-link-btn"
+          class="jc-link-btn"
         >
           登录以云端同步
         </RouterLink>
@@ -244,21 +244,21 @@ function handleRemove(id: string, e: Event): void {
       description="去首页找一部喜欢的影片开始观看吧"
     />
 
-    <div v-else class="flex flex-col gap-[var(--gf-space-8)]">
+    <div v-else class="flex flex-col gap-[var(--jc-space-8)]">
       <section
         v-for="group in groups"
         :key="group.bucket"
-        class="flex flex-col gap-[var(--gf-space-4)]"
+        class="flex flex-col gap-[var(--jc-space-4)]"
       >
-        <h2 class="gf-history-group__title flex items-baseline gap-[var(--gf-space-2)]">
-          <span class="text-[var(--gf-fs-lg)] font-[var(--gf-fw-bold)] text-primary">
+        <h2 class="jc-history-group__title flex items-baseline gap-[var(--jc-space-2)]">
+          <span class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary">
             {{ group.label }}
           </span>
-          <span class="text-[var(--gf-fs-xs)] text-muted">
+          <span class="text-[var(--jc-fs-xs)] text-muted">
             {{ group.items.length }} 条
           </span>
         </h2>
-        <div class="gf-card-grid">
+        <div class="jc-card-grid">
           <FilmCard
             v-for="record in group.items"
             :key="record.id"
@@ -272,13 +272,13 @@ function handleRemove(id: string, e: Event): void {
                    recordToCard 提供, 与普通影片卡一致 -->
               <span
                 v-if="episodeLabel(record.episode, record.episodeIndex)"
-                class="gf-history-ep"
+                class="jc-history-ep"
               >
                 {{ episodeLabel(record.episode, record.episodeIndex) }}
               </span>
               <button
                 type="button"
-                class="absolute top-[var(--gf-space-2)] right-[var(--gf-space-2)] z-4 w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
+                class="absolute top-[var(--jc-space-2)] right-[var(--jc-space-2)] z-4 w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
                 :aria-label="`从历史中移除 ${record.name}`"
                 @click="handleRemove(record.id, $event)"
               >
@@ -287,7 +287,7 @@ function handleRemove(id: string, e: Event): void {
 
               <div
                 v-if="formatProgress(record.currentTime)"
-                class="absolute bottom-[8px] right-[var(--gf-space-2)] px-[6px] py-[2px] rounded-[var(--gf-radius-sm)] bg-[rgba(0,0,0,0.7)] text-white text-[var(--gf-fs-xs)] z-3"
+                class="absolute bottom-[8px] right-[var(--jc-space-2)] px-[6px] py-[2px] rounded-[var(--jc-radius-sm)] bg-[rgba(0,0,0,0.7)] text-white text-[var(--jc-fs-xs)] z-3"
               >
                 {{ formatProgress(record.currentTime) }}
               </div>
@@ -300,38 +300,38 @@ function handleRemove(id: string, e: Event): void {
 </template>
 
 <style scoped>
-.gf-link-btn {
+.jc-link-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border-radius: var(--gf-radius-sm);
+  border-radius: var(--jc-radius-sm);
   background-color: rgba(155, 73, 231, 0.16);
-  color: var(--gf-text-link);
-  font-size: var(--gf-fs-sm);
+  color: var(--jc-text-link);
+  font-size: var(--jc-fs-sm);
   text-decoration: none;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-link-btn:hover,
-.gf-link-btn:focus-visible {
+.jc-link-btn:hover,
+.jc-link-btn:focus-visible {
   background-color: rgba(155, 73, 231, 0.28);
   outline: none;
 }
 
 /* 左上角"看到第 N 集"角标: 与首页「继续观看」行同款(品牌渐变胶囊 + 白字) */
-.gf-history-ep {
+.jc-history-ep {
   position: absolute;
-  top: var(--gf-space-2);
-  left: var(--gf-space-2);
+  top: var(--jc-space-2);
+  left: var(--jc-space-2);
   z-index: 4;
   /* 预留右上角删除按钮(24px)的位置, 过长集名截断 */
-  max-width: calc(100% - var(--gf-space-2) * 2 - 28px);
+  max-width: calc(100% - var(--jc-space-2) * 2 - 28px);
   padding: 2px 8px;
-  border-radius: var(--gf-radius-sm);
-  background-image: var(--gf-brand-gradient);
+  border-radius: var(--jc-radius-sm);
+  background-image: var(--jc-brand-gradient);
   color: #fff;
-  font-size: var(--gf-fs-xs);
-  font-weight: var(--gf-fw-semibold);
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-semibold);
   line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
@@ -341,89 +341,89 @@ function handleRemove(id: string, e: Event): void {
 
 <!-- ============ TV (雷鸟) 专属样式: 非 scoped, 仅 [data-mode=tv] 作用域 ============ -->
 <style>
-[data-mode='tv'] .gf-tv-history {
-  padding: 6px var(--gf-space-8, 30px) 26px;
+[data-mode='tv'] .jc-tv-history {
+  padding: 6px var(--jc-space-8, 30px) 26px;
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
 /* 操作条 */
-[data-mode='tv'] .gf-tv-history__bar {
+[data-mode='tv'] .jc-tv-history__bar {
   display: flex;
   align-items: flex-end;
   gap: 14px;
   flex-wrap: wrap;
 }
-[data-mode='tv'] .gf-tv-history__head-left {
+[data-mode='tv'] .jc-tv-history__head-left {
   flex: 1 1 auto;
   min-width: 0;
   /* 标题 + 来源/同步/计数/标签 左右排布(原块级上下堆叠) */
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   flex-wrap: wrap;
 }
-[data-mode='tv'] .gf-tv-history__title {
+[data-mode='tv'] .jc-tv-history__title {
   font-size: clamp(22px, 2vw, 30px);
   font-weight: 800;
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
-[data-mode='tv'] .gf-tv-history__meta {
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-muted);
+[data-mode='tv'] .jc-tv-history__meta {
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-muted);
   margin-top: 6px;
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
-[data-mode='tv'] .gf-tv-history__srcchip {
+[data-mode='tv'] .jc-tv-history__srcchip {
   height: 22px;
   padding: 0 10px;
   font-size: 11px;
 }
-[data-mode='tv'] .gf-tv-history__syncing {
-  color: var(--gf-brand-cyan);
+[data-mode='tv'] .jc-tv-history__syncing {
+  color: var(--jc-brand-cyan);
 }
-[data-mode='tv'] .gf-tv-history__ops {
+[data-mode='tv'] .jc-tv-history__ops {
   margin-left: auto;
   display: flex;
   gap: 10px;
 }
-[data-mode='tv'] .gf-tv-history__clear,
-[data-mode='tv'] .gf-tv-history__manage {
+[data-mode='tv'] .jc-tv-history__clear,
+[data-mode='tv'] .jc-tv-history__manage {
   height: 44px;
   padding: 0 18px;
   font-size: 14px;
 }
 
 /* 历史进度卡 (横图 16:9 + 角标 + 进度条 + 下方片名/时间) */
-[data-mode='tv'] .gf-tv-hcard {
+[data-mode='tv'] .jc-tv-hcard {
   display: block;
   text-decoration: none;
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
-[data-mode='tv'] .gf-tv-hcard .poster {
+[data-mode='tv'] .jc-tv-hcard .poster {
   aspect-ratio: 16 / 9;
-  border-radius: var(--gf-radius-md, 11px);
-  border: 1px solid var(--gf-tv-stroke, rgba(255, 255, 255, 0.13));
+  border-radius: var(--jc-radius-md, 11px);
+  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
   position: relative;
   overflow: hidden;
-  background-color: var(--gf-bg-elevated, #1c1d22);
+  background-color: var(--jc-bg-elevated, #1c1d22);
 }
-[data-mode='tv'] .gf-tv-hcard .ep {
+[data-mode='tv'] .jc-tv-hcard .ep {
   position: absolute;
   top: 6px;
   left: 6px;
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 5px;
-  background: var(--gf-brand-gradient);
+  background: var(--jc-brand-gradient);
   color: #fff;
   z-index: 2;
 }
-[data-mode='tv'] .gf-tv-hcard .del {
+[data-mode='tv'] .jc-tv-hcard .del {
   position: absolute;
   top: 6px;
   right: 6px;
@@ -440,7 +440,7 @@ function handleRemove(id: string, e: Event): void {
   cursor: pointer;
   border: none;
 }
-[data-mode='tv'] .gf-tv-hcard .ptime {
+[data-mode='tv'] .jc-tv-hcard .ptime {
   position: absolute;
   right: 7px;
   bottom: 8px;
@@ -451,7 +451,7 @@ function handleRemove(id: string, e: Event): void {
   border-radius: 5px;
   z-index: 2;
 }
-[data-mode='tv'] .gf-tv-hcard .pbar {
+[data-mode='tv'] .jc-tv-hcard .pbar {
   position: absolute;
   left: 0;
   right: 0;
@@ -460,24 +460,24 @@ function handleRemove(id: string, e: Event): void {
   background: rgba(255, 255, 255, 0.25);
   z-index: 2;
 }
-[data-mode='tv'] .gf-tv-hcard .pbar i {
+[data-mode='tv'] .jc-tv-hcard .pbar i {
   display: block;
   height: 100%;
-  background: var(--gf-brand-gradient);
+  background: var(--jc-brand-gradient);
 }
-[data-mode='tv'] .gf-tv-hcard .name {
+[data-mode='tv'] .jc-tv-hcard .name {
   margin-top: 7px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-[data-mode='tv'] .gf-tv-hcard .sub {
+[data-mode='tv'] .jc-tv-hcard .sub {
   font-size: 11px;
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
   margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
@@ -485,25 +485,25 @@ function handleRemove(id: string, e: Event): void {
 }
 
 /* 焦点: 只放大海报, 下方片名/时间静止 (与 web TV FilmCard 行为一致) */
-[data-mode='tv'] .gf-tv-hcard[data-focusable='true']:focus,
-[data-mode='tv'] .gf-tv-hcard[data-focusable='true']:focus-visible {
+[data-mode='tv'] .jc-tv-hcard[data-focusable='true']:focus,
+[data-mode='tv'] .jc-tv-hcard[data-focusable='true']:focus-visible {
   transform: none;
   box-shadow: none;
   outline: none;
 }
-[data-mode='tv'] .gf-tv-hcard[data-focusable='true']:focus .poster,
-[data-mode='tv'] .gf-tv-hcard[data-focusable='true']:focus-visible .poster {
-  transform: scale(var(--gf-tv-focus-scale-card, 1.05));
-  box-shadow: var(--gf-tv-focus-ring);
+[data-mode='tv'] .jc-tv-hcard[data-focusable='true']:focus .poster,
+[data-mode='tv'] .jc-tv-hcard[data-focusable='true']:focus-visible .poster {
+  transform: scale(var(--jc-tv-focus-scale-card, 1.05));
+  box-shadow: var(--jc-tv-focus-ring);
   z-index: 5;
   transform-origin: center;
   transition:
-    transform var(--gf-dur-fast) var(--gf-ease-spring),
-    box-shadow var(--gf-dur-fast) var(--gf-ease-standard);
+    transform var(--jc-dur-fast) var(--jc-ease-spring),
+    box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
 /* 管理模式: 海报上覆盖红色"✕ 删除"提示, 点整卡(OK 键)即删该条 */
-[data-mode='tv'] .gf-tv-hcard__delmark {
+[data-mode='tv'] .jc-tv-hcard__delmark {
   position: absolute;
   inset: 0;
   z-index: 4;
@@ -511,13 +511,13 @@ function handleRemove(id: string, e: Event): void {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: var(--gf-fs-base);
+  font-size: var(--jc-fs-base);
   font-weight: 800;
   letter-spacing: 1px;
   color: #fff;
   background: rgba(220, 38, 38, 0.42);
 }
-[data-mode='tv'] .gf-tv-hcard.is-manage .name {
-  color: var(--gf-danger, #ff4757);
+[data-mode='tv'] .jc-tv-hcard.is-manage .name {
+  color: var(--jc-danger, #ff4757);
 }
 </style>

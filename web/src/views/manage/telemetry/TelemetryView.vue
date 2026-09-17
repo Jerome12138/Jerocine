@@ -193,13 +193,13 @@ watch(statusFilter, loadAll)
 </script>
 
 <template>
-  <div class="container-page py-[var(--gf-space-5)]">
-    <header class="flex items-center justify-between mb-[var(--gf-space-5)]">
-      <h1 class="text-2xl font-[var(--gf-fw-semibold)]">埋点监控</h1>
-      <div class="flex items-center gap-[var(--gf-space-3)]">
+  <div class="container-page py-[var(--jc-space-5)]">
+    <header class="flex items-center justify-between mb-[var(--jc-space-5)]">
+      <h1 class="text-2xl font-[var(--jc-fw-semibold)]">埋点监控</h1>
+      <div class="flex items-center gap-[var(--jc-space-3)]">
         <select
           v-model.number="days"
-          class="bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-2)]"
+          class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)]"
           data-focusable="true"
         >
           <option v-for="o in DAYS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
@@ -211,41 +211,41 @@ watch(statusFilter, loadAll)
     </header>
 
     <!-- 顶部数字卡 -->
-    <section class="grid grid-cols-2 md:grid-cols-4 gap-[var(--gf-space-4)] mb-[var(--gf-space-6)]">
-      <div class="gf-tm-card">
-        <span class="gf-tm-card__label">PV</span>
-        <span class="gf-tm-card__value">{{ overview?.pv ?? '-' }}</span>
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-[var(--jc-space-4)] mb-[var(--jc-space-6)]">
+      <div class="jc-tm-card">
+        <span class="jc-tm-card__label">PV</span>
+        <span class="jc-tm-card__value">{{ overview?.pv ?? '-' }}</span>
       </div>
-      <div class="gf-tm-card">
-        <span class="gf-tm-card__label">UV (sessions)</span>
-        <span class="gf-tm-card__value">{{ overview?.uv ?? '-' }}</span>
+      <div class="jc-tm-card">
+        <span class="jc-tm-card__label">UV (sessions)</span>
+        <span class="jc-tm-card__value">{{ overview?.uv ?? '-' }}</span>
       </div>
-      <div class="gf-tm-card gf-tm-card--err">
-        <span class="gf-tm-card__label">错误数</span>
-        <span class="gf-tm-card__value">{{ overview?.errorCount ?? '-' }}</span>
+      <div class="jc-tm-card jc-tm-card--err">
+        <span class="jc-tm-card__label">错误数</span>
+        <span class="jc-tm-card__value">{{ overview?.errorCount ?? '-' }}</span>
       </div>
-      <div class="gf-tm-card">
-        <span class="gf-tm-card__label">平均 API 响应</span>
-        <span class="gf-tm-card__value">{{ overview ? fmtMs(overview.avgApiMs) : '-' }}</span>
+      <div class="jc-tm-card">
+        <span class="jc-tm-card__label">平均 API 响应</span>
+        <span class="jc-tm-card__value">{{ overview ? fmtMs(overview.avgApiMs) : '-' }}</span>
       </div>
     </section>
 
     <!-- 错误列表 -->
-    <section class="mb-[var(--gf-space-6)]">
-      <header class="flex items-center justify-between mb-[var(--gf-space-3)] gap-[var(--gf-space-3)] flex-wrap">
-        <h2 class="text-lg font-[var(--gf-fw-semibold)]">
+    <section class="mb-[var(--jc-space-6)]">
+      <header class="flex items-center justify-between mb-[var(--jc-space-3)] gap-[var(--jc-space-3)] flex-wrap">
+        <h2 class="text-lg font-[var(--jc-fw-semibold)]">
           错误 <span class="text-muted text-sm">({{ errors.length }})</span>
         </h2>
         <select
           v-model="statusFilter"
-          class="bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-2)] text-sm"
+          class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm"
           data-focusable="true"
         >
           <option v-for="o in STATUS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
       </header>
-      <div class="gf-tm-table">
-        <div class="gf-tm-table__head">
+      <div class="jc-tm-table">
+        <div class="jc-tm-table__head">
           <span class="w-[150px]">时间</span>
           <span class="w-[100px]">状态</span>
           <span class="w-[90px]">分类</span>
@@ -254,8 +254,8 @@ watch(statusFilter, loadAll)
           <span class="flex-1">描述</span>
           <span class="w-[80px]"></span>
         </div>
-        <div v-if="errors.length === 0" class="gf-tm-empty">暂无错误</div>
-        <div v-for="row in errors" :key="row.id" class="gf-tm-row" @click="toggleExpand(row.id)">
+        <div v-if="errors.length === 0" class="jc-tm-empty">暂无错误</div>
+        <div v-for="row in errors" :key="row.id" class="jc-tm-row" @click="toggleExpand(row.id)">
           <span class="w-[150px] text-xs text-muted font-mono">{{ fmtTime(row.serverTs) }}</span>
           <span class="w-[100px]">
             <BaseTag :variant="statusVariant(row.issueStatus)" size="xs">{{ statusText(row.issueStatus) }}</BaseTag>
@@ -267,17 +267,17 @@ watch(statusFilter, loadAll)
           </span>
           <span class="flex-1 min-w-0 text-sm">
             <span class="block" :class="expanded[row.id] ? 'whitespace-pre-wrap break-all' : 'truncate'">{{ row.label }}</span>
-            <div v-if="expanded[row.id]" class="gf-tm-extra">
-              <div v-if="row.resolution" class="gf-tm-extra__item">
+            <div v-if="expanded[row.id]" class="jc-tm-extra">
+              <div v-if="row.resolution" class="jc-tm-extra__item">
                 <div class="text-muted text-xs">resolution:</div>
-                <pre class="gf-tm-stack">{{ JSON.stringify(row.resolution, null, 2) }}</pre>
+                <pre class="jc-tm-stack">{{ JSON.stringify(row.resolution, null, 2) }}</pre>
               </div>
               <div v-if="row.userId">user: {{ row.userId }}</div>
               <div v-if="row.platform">platform: {{ row.platform }}</div>
               <template v-if="row.extra">
-                <div v-for="[k, v] in parsedExtraEntries(row.extra)" :key="k" class="gf-tm-extra__item">
+                <div v-for="[k, v] in parsedExtraEntries(row.extra)" :key="k" class="jc-tm-extra__item">
                   <div class="text-muted text-xs">{{ k }}:</div>
-                  <pre class="gf-tm-stack">{{ v }}</pre>
+                  <pre class="jc-tm-stack">{{ v }}</pre>
                 </div>
               </template>
             </div>
@@ -300,7 +300,7 @@ watch(statusFilter, loadAll)
 
     <!-- 标记已解决 Dialog -->
     <BaseDialog v-model:visible="resolveDialog.open" title="标记问题已解决">
-      <div v-if="resolveDialog.row" class="flex flex-col gap-[var(--gf-space-3)]">
+      <div v-if="resolveDialog.row" class="flex flex-col gap-[var(--jc-space-3)]">
         <div class="text-sm text-secondary">
           <div><b>分类:</b> {{ resolveDialog.row.category }}</div>
           <div><b>路径:</b> {{ resolveDialog.row.path || '-' }}</div>
@@ -324,24 +324,24 @@ watch(statusFilter, loadAll)
       </template>
     </BaseDialog>
 
-    <div class="grid md:grid-cols-2 gap-[var(--gf-space-5)] mb-[var(--gf-space-6)]">
+    <div class="grid md:grid-cols-2 gap-[var(--jc-space-5)] mb-[var(--jc-space-6)]">
       <!-- 热点视频 -->
       <section>
-        <h2 class="text-lg font-[var(--gf-fw-semibold)] mb-[var(--gf-space-3)]">热点视频 Top 10</h2>
-        <div class="gf-tm-table">
-          <div v-if="hotFilms.length === 0" class="gf-tm-empty">暂无数据</div>
+        <h2 class="text-lg font-[var(--jc-fw-semibold)] mb-[var(--jc-space-3)]">热点视频 Top 10</h2>
+        <div class="jc-tm-table">
+          <div v-if="hotFilms.length === 0" class="jc-tm-empty">暂无数据</div>
           <RouterLink
             v-for="(f, i) in hotFilms"
             :key="f.mid"
             :to="{ path: '/filmDetail', query: { link: String(f.mid) } }"
-            class="gf-tm-row gf-tm-film"
+            class="jc-tm-row jc-tm-film"
           >
             <span class="w-[24px] text-muted shrink-0">{{ i + 1 }}</span>
             <BaseImage
               :src="f.cover"
               :alt="f.name"
               ratio="40/54"
-              rounded="rounded-[var(--gf-radius-sm)]"
+              rounded="rounded-[var(--jc-radius-sm)]"
               class="w-[40px] shrink-0"
             />
             <span class="flex-1 truncate text-sm">{{ f.name }}</span>
@@ -352,21 +352,21 @@ watch(statusFilter, loadAll)
 
       <!-- 收藏最多 -->
       <section>
-        <h2 class="text-lg font-[var(--gf-fw-semibold)] mb-[var(--gf-space-3)]">收藏最多 Top 10</h2>
-        <div class="gf-tm-table">
-          <div v-if="mostFavorited.length === 0" class="gf-tm-empty">暂无数据</div>
+        <h2 class="text-lg font-[var(--jc-fw-semibold)] mb-[var(--jc-space-3)]">收藏最多 Top 10</h2>
+        <div class="jc-tm-table">
+          <div v-if="mostFavorited.length === 0" class="jc-tm-empty">暂无数据</div>
           <RouterLink
             v-for="(f, i) in mostFavorited"
             :key="f.mid"
             :to="{ path: '/filmDetail', query: { link: String(f.mid) } }"
-            class="gf-tm-row gf-tm-film"
+            class="jc-tm-row jc-tm-film"
           >
             <span class="w-[24px] text-muted shrink-0">{{ i + 1 }}</span>
             <BaseImage
               :src="f.cover"
               :alt="f.name"
               ratio="40/54"
-              rounded="rounded-[var(--gf-radius-sm)]"
+              rounded="rounded-[var(--jc-radius-sm)]"
               class="w-[40px] shrink-0"
             />
             <span class="flex-1 truncate text-sm">{{ f.name }}</span>
@@ -376,19 +376,19 @@ watch(statusFilter, loadAll)
       </section>
     </div>
 
-    <div class="grid md:grid-cols-2 gap-[var(--gf-space-5)]">
+    <div class="grid md:grid-cols-2 gap-[var(--jc-space-5)]">
       <!-- API 性能 -->
       <section>
-        <h2 class="text-lg font-[var(--gf-fw-semibold)] mb-[var(--gf-space-3)]">API 性能 Top 10</h2>
-        <div class="gf-tm-table">
-          <div class="gf-tm-table__head">
+        <h2 class="text-lg font-[var(--jc-fw-semibold)] mb-[var(--jc-space-3)]">API 性能 Top 10</h2>
+        <div class="jc-tm-table">
+          <div class="jc-tm-table__head">
             <span class="flex-1">接口</span>
             <span class="w-[50px] text-right">P50</span>
             <span class="w-[50px] text-right">P95</span>
             <span class="w-[50px] text-right">P99</span>
           </div>
-          <div v-if="apiPerf.length === 0" class="gf-tm-empty">暂无</div>
-          <div v-for="a in apiPerf" :key="a.action" class="gf-tm-row">
+          <div v-if="apiPerf.length === 0" class="jc-tm-empty">暂无</div>
+          <div v-for="a in apiPerf" :key="a.action" class="jc-tm-row">
             <span class="flex-1 truncate font-mono text-xs">{{ a.action }}</span>
             <span class="w-[50px] text-right text-xs">{{ fmtMs(a.p50) }}</span>
             <span class="w-[50px] text-right text-xs">{{ fmtMs(a.p95) }}</span>
@@ -401,93 +401,93 @@ watch(statusFilter, loadAll)
 </template>
 
 <style scoped>
-.gf-tm-card {
-  background: var(--gf-bg-elevated);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-md);
-  padding: var(--gf-space-4);
+.jc-tm-card {
+  background: var(--jc-bg-elevated);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-md);
+  padding: var(--jc-space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-1);
+  gap: var(--jc-space-1);
 }
-.gf-tm-card--err .gf-tm-card__value {
-  color: var(--gf-danger);
+.jc-tm-card--err .jc-tm-card__value {
+  color: var(--jc-danger);
 }
-.gf-tm-card__label {
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-secondary);
+.jc-tm-card__label {
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-secondary);
 }
-.gf-tm-card__value {
+.jc-tm-card__value {
   font-size: 1.75rem;
-  font-weight: var(--gf-fw-semibold);
+  font-weight: var(--jc-fw-semibold);
 }
-.gf-tm-table {
-  background: var(--gf-bg-elevated);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-md);
+.jc-tm-table {
+  background: var(--jc-bg-elevated);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-md);
   overflow: hidden;
 }
-.gf-tm-table__head {
+.jc-tm-table__head {
   display: flex;
-  gap: var(--gf-space-3);
-  padding: var(--gf-space-3) var(--gf-space-4);
+  gap: var(--jc-space-3);
+  padding: var(--jc-space-3) var(--jc-space-4);
   background: rgba(255, 255, 255, 0.03);
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-secondary);
-  font-weight: var(--gf-fw-semibold);
-  border-bottom: 1px solid var(--gf-border-subtle);
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-secondary);
+  font-weight: var(--jc-fw-semibold);
+  border-bottom: 1px solid var(--jc-border-subtle);
 }
-.gf-tm-row {
+.jc-tm-row {
   display: flex;
-  gap: var(--gf-space-3);
-  padding: var(--gf-space-3) var(--gf-space-4);
-  border-bottom: 1px solid var(--gf-border-subtle);
+  gap: var(--jc-space-3);
+  padding: var(--jc-space-3) var(--jc-space-4);
+  border-bottom: 1px solid var(--jc-border-subtle);
   align-items: flex-start;
   cursor: pointer;
 }
-.gf-tm-row:last-child {
+.jc-tm-row:last-child {
   border-bottom: none;
 }
-.gf-tm-row:hover {
+.jc-tm-row:hover {
   background: rgba(255, 255, 255, 0.02);
 }
-.gf-tm-empty {
-  padding: var(--gf-space-6);
+.jc-tm-empty {
+  padding: var(--jc-space-6);
   text-align: center;
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
 }
-.gf-tm-film {
+.jc-tm-film {
   align-items: center;
   text-decoration: none;
   color: inherit;
 }
-.gf-tm-film:hover .flex-1 {
-  color: var(--gf-text-primary);
+.jc-tm-film:hover .flex-1 {
+  color: var(--jc-text-primary);
 }
-.gf-tm-extra {
-  margin-top: var(--gf-space-2);
-  padding: var(--gf-space-2);
-  background: var(--gf-bg-base);
-  border-radius: var(--gf-radius-sm);
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-secondary);
-  font-family: var(--gf-font-mono);
+.jc-tm-extra {
+  margin-top: var(--jc-space-2);
+  padding: var(--jc-space-2);
+  background: var(--jc-bg-base);
+  border-radius: var(--jc-radius-sm);
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-secondary);
+  font-family: var(--jc-font-mono);
 }
-.gf-tm-extra pre {
+.jc-tm-extra pre {
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
 }
-.gf-tm-extra__item {
-  margin-top: var(--gf-space-2);
+.jc-tm-extra__item {
+  margin-top: var(--jc-space-2);
 }
-.gf-tm-extra__item:first-child {
+.jc-tm-extra__item:first-child {
   margin-top: 0;
 }
-.gf-tm-stack {
+.jc-tm-stack {
   background: rgba(0, 0, 0, 0.35);
-  padding: var(--gf-space-2);
-  border-radius: var(--gf-radius-sm);
+  padding: var(--jc-space-2);
+  border-radius: var(--jc-radius-sm);
   max-height: 360px;
   overflow: auto;
 }

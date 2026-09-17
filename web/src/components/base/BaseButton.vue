@@ -30,30 +30,30 @@ const emit = defineEmits<{
 const sizeClass = computed(() => {
   switch (props.size) {
     case 'sm':
-      return 'h-8 px-3 text-[var(--gf-fs-sm)] gap-[var(--gf-space-1)]'
+      return 'h-8 px-3 text-[var(--jc-fs-sm)] gap-[var(--jc-space-1)]'
     case 'lg':
-      return 'h-12 px-6 text-[var(--gf-fs-md)] gap-[var(--gf-space-2)]'
+      return 'h-12 px-6 text-[var(--jc-fs-md)] gap-[var(--jc-space-2)]'
     case 'xl':
-      return 'h-14 px-8 text-[var(--gf-fs-lg)] gap-[var(--gf-space-2)] rounded-[var(--gf-radius-xl)]'
+      return 'h-14 px-8 text-[var(--jc-fs-lg)] gap-[var(--jc-space-2)] rounded-[var(--jc-radius-xl)]'
     case 'md':
     default:
-      return 'h-10 px-4 text-[var(--gf-fs-md)] gap-[var(--gf-space-2)]'
+      return 'h-10 px-4 text-[var(--jc-fs-md)] gap-[var(--jc-space-2)]'
   }
 })
 
 const variantClass = computed(() => {
   switch (props.variant) {
     case 'gradient':
-      return 'gf-btn-gradient text-white'
+      return 'jc-btn-gradient text-white'
     case 'ghost':
       return 'bg-transparent text-secondary hover:bg-[rgba(255,255,255,0.06)] hover:text-primary active:bg-[rgba(255,255,255,0.1)]'
     case 'outline':
       return 'bg-transparent border border-strong text-primary hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.12)]'
     case 'danger':
-      return 'bg-[var(--gf-danger)] text-white hover:brightness-110 active:brightness-90'
+      return 'bg-[var(--jc-danger)] text-white hover:brightness-110 active:brightness-90'
     case 'primary':
     default:
-      return 'bg-[var(--gf-brand-primary)] text-white hover:bg-[var(--gf-brand-primary-hover)] active:bg-[var(--gf-brand-primary-active)] hover:shadow-brand-glow'
+      return 'bg-[var(--jc-brand-primary)] text-white hover:bg-[var(--jc-brand-primary-hover)] active:bg-[var(--jc-brand-primary-active)] hover:shadow-brand-glow'
   }
 })
 
@@ -74,7 +74,7 @@ function handleClick(e: MouseEvent): void {
     :disabled="disabled || loading"
     :data-focusable="disabled || loading ? undefined : 'true'"
     :tabindex="disabled || loading ? -1 : 0"
-    class="gf-btn inline-flex items-center justify-center font-[var(--gf-fw-semibold)] rounded-[var(--gf-radius-md)] gf-btn-transition select-none whitespace-nowrap"
+    class="jc-btn inline-flex items-center justify-center font-[var(--jc-fw-semibold)] rounded-[var(--jc-radius-md)] jc-btn-transition select-none whitespace-nowrap"
     :class="[
       sizeClass,
       variantClass,
@@ -83,51 +83,51 @@ function handleClick(e: MouseEvent): void {
     ]"
     @click="handleClick"
   >
-    <span v-if="loading" class="gf-btn-spinner" aria-hidden="true" />
+    <span v-if="loading" class="jc-btn-spinner" aria-hidden="true" />
     <slot v-else name="icon" />
     <slot />
   </button>
 </template>
 
 <style scoped>
-.gf-btn {
+.jc-btn {
   /* 触控命中区不小于 44 */
   min-height: 44px;
   /* sm 尺寸通过外层填充补足 */
 }
 
-.gf-btn-transition {
+.jc-btn-transition {
   transition:
-    background-color var(--gf-dur-base) var(--gf-ease-standard),
-    box-shadow var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-standard),
-    opacity var(--gf-dur-base) var(--gf-ease-standard);
+    background-color var(--jc-dur-base) var(--jc-ease-standard),
+    box-shadow var(--jc-dur-base) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-standard),
+    opacity var(--jc-dur-base) var(--jc-ease-standard);
 }
-.gf-btn[data-size='sm'] {
+.jc-btn[data-size='sm'] {
   min-height: 32px;
 }
 
-.gf-btn-gradient {
-  background-image: var(--gf-brand-gradient);
+.jc-btn-gradient {
+  background-image: var(--jc-brand-gradient);
 }
-.gf-btn-gradient:hover {
-  background-image: var(--gf-brand-gradient-hover);
-  box-shadow: var(--gf-shadow-purple-glow);
+.jc-btn-gradient:hover {
+  background-image: var(--jc-brand-gradient-hover);
+  box-shadow: var(--jc-shadow-purple-glow);
 }
-.gf-btn-gradient:active {
+.jc-btn-gradient:active {
   transform: scale(0.98);
 }
 
-.gf-btn-spinner {
+.jc-btn-spinner {
   width: 1em;
   height: 1em;
   border: 2px solid rgba(255, 255, 255, 0.45);
   border-top-color: #fff;
   border-radius: 9999px;
-  animation: gf-btn-spin 0.8s linear infinite;
+  animation: jc-btn-spin 0.8s linear infinite;
 }
 
-@keyframes gf-btn-spin {
+@keyframes jc-btn-spin {
   to {
     transform: rotate(360deg);
   }

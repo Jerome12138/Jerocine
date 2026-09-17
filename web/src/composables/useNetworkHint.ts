@@ -13,7 +13,7 @@ import { ref, onMounted, onUnmounted, computed, type Ref, type ComputedRef } fro
  * 不支持时默认按"非弱网"处理, 不影响主路径.
  *
  * 用户重写:
- *  - localStorage 里写 'gf-network-pref': 'slow' / 'fast' / 'auto' 可强制
+ *  - localStorage 里写 'jc-network-pref': 'slow' / 'fast' / 'auto' 可强制
  *    (用户在弱网设备但 connection API 误报时, 给一条手动通道)
  */
 
@@ -44,7 +44,7 @@ function readConnection(): NavigatorConn | null {
 
 function readManualPref(): 'slow' | 'fast' | 'auto' {
   try {
-    const v = localStorage.getItem('gf-network-pref')
+    const v = localStorage.getItem('jc-network-pref')
     if (v === 'slow' || v === 'fast') return v
   } catch {
     /* ignore */
@@ -97,8 +97,8 @@ export function useNetworkHint(): NetworkHint {
   function setManualPref(v: 'slow' | 'fast' | 'auto'): void {
     manualPref.value = v
     try {
-      if (v === 'auto') localStorage.removeItem('gf-network-pref')
-      else localStorage.setItem('gf-network-pref', v)
+      if (v === 'auto') localStorage.removeItem('jc-network-pref')
+      else localStorage.setItem('jc-network-pref', v)
     } catch {
       /* ignore */
     }

@@ -208,7 +208,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--gf-space-4)]">
+  <div class="flex flex-col gap-[var(--jc-space-4)]">
     <ManageTable
       :columns="columns"
       :rows="rows"
@@ -218,8 +218,8 @@ onMounted(load)
       actions-width="300px"
     >
       <template #toolbar>
-        <h2 class="text-lg font-[var(--gf-fw-semibold)]">用户管理</h2>
-        <div class="flex gap-[var(--gf-space-2)] flex-wrap">
+        <h2 class="text-lg font-[var(--jc-fw-semibold)]">用户管理</h2>
+        <div class="flex gap-[var(--jc-space-2)] flex-wrap">
           <ManageInput v-model="params.keyword" placeholder="用户名关键字" @keydown.enter="search" />
           <BaseButton variant="gradient" size="sm" @click="search">
             <BaseIcon name="search" size="16px" /> 搜索
@@ -231,9 +231,9 @@ onMounted(load)
       </template>
 
       <template #cell="{ row, col }">
-        <span v-if="col.key === 'userName'" class="font-[var(--gf-fw-medium)]">
+        <span v-if="col.key === 'userName'" class="font-[var(--jc-fw-medium)]">
           {{ row.userName }}
-          <BaseTag v-if="isSelf(row)" variant="info" size="xs" class="ml-[var(--gf-space-1)]">当前登录</BaseTag>
+          <BaseTag v-if="isSelf(row)" variant="info" size="xs" class="ml-[var(--jc-space-1)]">当前登录</BaseTag>
         </span>
         <BaseTag v-else-if="col.key === 'role'" :variant="row.role === 1 ? 'warning' : 'default'" size="sm">
           {{ roleLabel(row) }}
@@ -246,7 +246,7 @@ onMounted(load)
       </template>
 
       <template #actions="{ row }">
-        <div class="flex gap-[var(--gf-space-1)] justify-end">
+        <div class="flex gap-[var(--jc-space-1)] justify-end">
           <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</BaseButton>
           <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="toggleDisabled(row)">
             {{ row.disabled === 1 ? '启用' : '禁用' }}
@@ -265,12 +265,12 @@ onMounted(load)
     />
 
     <ManageSheet v-model="resetOpen" :title="`重置密码 — ${resetTarget?.userName ?? ''}`">
-      <form class="flex flex-col gap-[var(--gf-space-4)]" @submit.prevent="submitReset">
-        <label class="flex flex-col gap-[var(--gf-space-2)]">
+      <form class="flex flex-col gap-[var(--jc-space-4)]" @submit.prevent="submitReset">
+        <label class="flex flex-col gap-[var(--jc-space-2)]">
           <span class="text-sm text-secondary">新密码(6-64 位, 重置后该用户全部设备下线)</span>
           <ManageInput v-model="resetPassword" type="password" placeholder="输入新密码" />
         </label>
-        <div class="flex justify-end gap-[var(--gf-space-2)]">
+        <div class="flex justify-end gap-[var(--jc-space-2)]">
           <BaseButton variant="ghost" size="sm" @click="resetOpen = false">取消</BaseButton>
           <BaseButton variant="gradient" size="sm" type="submit" :disabled="busy">确认重置</BaseButton>
         </div>
@@ -278,20 +278,20 @@ onMounted(load)
     </ManageSheet>
 
     <ManageSheet v-model="formOpen" :title="editing ? `编辑用户 — ${editing.userName}` : '新增用户'">
-      <form class="flex flex-col gap-[var(--gf-space-4)]" @submit.prevent="submitForm">
-        <label class="flex flex-col gap-[var(--gf-space-2)]">
+      <form class="flex flex-col gap-[var(--jc-space-4)]" @submit.prevent="submitForm">
+        <label class="flex flex-col gap-[var(--jc-space-2)]">
           <span class="text-sm text-secondary">用户名(1-32 个字符, 不得与他人重复)</span>
           <ManageInput v-model="form.userName" placeholder="输入用户名" />
         </label>
-        <label v-if="!editing" class="flex flex-col gap-[var(--gf-space-2)]">
+        <label v-if="!editing" class="flex flex-col gap-[var(--jc-space-2)]">
           <span class="text-sm text-secondary">初始密码(6-64 位)</span>
           <ManageInput v-model="form.password" type="password" placeholder="输入初始密码" />
         </label>
-        <label class="flex flex-col gap-[var(--gf-space-2)]">
+        <label class="flex flex-col gap-[var(--jc-space-2)]">
           <span class="text-sm text-secondary">角色</span>
           <select
             v-model.number="form.role"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
             data-focusable="true"
             :disabled="!!editing && isSelf(editing)"
           >
@@ -300,7 +300,7 @@ onMounted(load)
           </select>
           <span v-if="editing && isSelf(editing)" class="text-xs text-muted">不能修改自己的角色</span>
         </label>
-        <div class="flex justify-end gap-[var(--gf-space-2)]">
+        <div class="flex justify-end gap-[var(--jc-space-2)]">
           <BaseButton variant="ghost" size="sm" @click="formOpen = false">取消</BaseButton>
           <BaseButton variant="gradient" size="sm" type="submit" :disabled="busy">
             {{ editing ? '保存' : '创建' }}

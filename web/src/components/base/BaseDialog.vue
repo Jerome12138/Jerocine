@@ -48,11 +48,11 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
-// 给 body 加 data-gf-modal-open, 让空间导航 Esc 让位给本对话框 (TV 弹窗里按 Esc 不应整页回退)
+// 给 body 加 data-jc-modal-open, 让空间导航 Esc 让位给本对话框 (TV 弹窗里按 Esc 不应整页回退)
 function setModalFlag(open: boolean): void {
   if (typeof document === 'undefined') return
-  if (open) document.body.setAttribute('data-gf-modal-open', '1')
-  else document.body.removeAttribute('data-gf-modal-open')
+  if (open) document.body.setAttribute('data-jc-modal-open', '1')
+  else document.body.removeAttribute('data-jc-modal-open')
 }
 
 watch(
@@ -88,16 +88,16 @@ const wrapStyle = computed(() => ({
 
 <template>
   <Teleport to="body">
-    <Transition name="gf-dialog">
+    <Transition name="jc-dialog">
       <div
         v-if="visible"
-        class="gf-dialog-mask fixed inset-0 flex items-center justify-center"
-        :style="{ zIndex: 'var(--gf-z-modal)' }"
+        class="jc-dialog-mask fixed inset-0 flex items-center justify-center"
+        :style="{ zIndex: 'var(--jc-z-modal)' }"
         @click.self="onOverlay"
       >
         <div
           ref="dialogEl"
-          class="gf-dialog bg-elevated rounded-[var(--gf-radius-2xl)] shadow-card-xl flex flex-col max-h-[calc(100vh-64px)]"
+          class="jc-dialog bg-elevated rounded-[var(--jc-radius-2xl)] shadow-card-xl flex flex-col max-h-[calc(100vh-64px)]"
           :style="wrapStyle"
           role="dialog"
           aria-modal="true"
@@ -106,18 +106,18 @@ const wrapStyle = computed(() => ({
         >
           <header
             v-if="title || $slots.header || showClose"
-            class="flex items-center justify-between gap-[var(--gf-space-4)] px-[var(--gf-space-6)] py-[var(--gf-space-4)] border-b border-subtle"
+            class="flex items-center justify-between gap-[var(--jc-space-4)] px-[var(--jc-space-6)] py-[var(--jc-space-4)] border-b border-subtle"
           >
             <slot name="header">
               <h3
-                class="text-[var(--gf-fs-lg)] font-[var(--gf-fw-semibold)] text-primary truncate"
+                class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary truncate"
               >
                 {{ title }}
               </h3>
             </slot>
             <button
               v-if="showClose"
-              class="gf-dialog-close shrink-0 inline-flex items-center justify-center text-muted hover:text-primary"
+              class="jc-dialog-close shrink-0 inline-flex items-center justify-center text-muted hover:text-primary"
               data-focusable="true"
               tabindex="0"
               aria-label="close dialog"
@@ -128,14 +128,14 @@ const wrapStyle = computed(() => ({
           </header>
 
           <div
-            class="px-[var(--gf-space-6)] py-[var(--gf-space-5)] overflow-auto text-[var(--gf-fs-md)] text-secondary"
+            class="px-[var(--jc-space-6)] py-[var(--jc-space-5)] overflow-auto text-[var(--jc-fs-md)] text-secondary"
           >
             <slot />
           </div>
 
           <footer
             v-if="$slots.footer"
-            class="flex items-center justify-end gap-[var(--gf-space-3)] px-[var(--gf-space-6)] py-[var(--gf-space-4)] border-t border-subtle"
+            class="flex items-center justify-end gap-[var(--jc-space-3)] px-[var(--jc-space-6)] py-[var(--jc-space-4)] border-t border-subtle"
           >
             <slot name="footer" />
           </footer>
@@ -146,43 +146,43 @@ const wrapStyle = computed(() => ({
 </template>
 
 <style scoped>
-.gf-dialog-mask {
-  background-color: var(--gf-bg-overlay);
+.jc-dialog-mask {
+  background-color: var(--jc-bg-overlay);
   backdrop-filter: blur(4px);
 }
-.gf-dialog-close {
+.jc-dialog-close {
   width: 36px;
   height: 36px;
-  border-radius: var(--gf-radius-md);
+  border-radius: var(--jc-radius-md);
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: color var(--gf-dur-fast) var(--gf-ease-standard),
-    background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: color var(--jc-dur-fast) var(--jc-ease-standard),
+    background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-dialog-close:hover {
+.jc-dialog-close:hover {
   background-color: rgba(255, 255, 255, 0.06);
 }
 
-.gf-dialog-enter-active,
-.gf-dialog-leave-active {
+.jc-dialog-enter-active,
+.jc-dialog-leave-active {
   transition:
-    opacity var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-standard);
+    opacity var(--jc-dur-base) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-standard);
 }
-.gf-dialog-enter-active .gf-dialog,
-.gf-dialog-leave-active .gf-dialog {
+.jc-dialog-enter-active .jc-dialog,
+.jc-dialog-leave-active .jc-dialog {
   transition:
-    opacity var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-standard);
+    opacity var(--jc-dur-base) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-standard);
 }
 
-.gf-dialog-enter-from,
-.gf-dialog-leave-to {
+.jc-dialog-enter-from,
+.jc-dialog-leave-to {
   opacity: 0;
 }
-.gf-dialog-enter-from .gf-dialog,
-.gf-dialog-leave-to .gf-dialog {
+.jc-dialog-enter-from .jc-dialog,
+.jc-dialog-leave-to .jc-dialog {
   opacity: 0;
   transform: scale(0.96);
 }
@@ -191,18 +191,18 @@ const wrapStyle = computed(() => ({
 <style>
 /* TV 模式：Dialog 居中加大 + 关闭按钮焦点环 */
 /* P0: 弱 WebView 上 backdrop blur 掉帧 → 降级为纯半透明压暗 */
-[data-mode='tv'] .gf-dialog-mask {
+[data-mode='tv'] .jc-dialog-mask {
   backdrop-filter: none;
   background-color: rgba(0, 0, 0, 0.72);
 }
-[data-mode='tv'] .gf-dialog-close {
+[data-mode='tv'] .jc-dialog-close {
   width: 56px;
   height: 56px;
 }
-[data-mode='tv'] .gf-dialog-close:focus,
-[data-mode='tv'] .gf-dialog-close:focus-visible {
+[data-mode='tv'] .jc-dialog-close:focus,
+[data-mode='tv'] .jc-dialog-close:focus-visible {
   outline: none;
-  box-shadow: var(--gf-tv-focus-ring);
+  box-shadow: var(--jc-tv-focus-ring);
   background-color: rgba(255, 255, 255, 0.08);
 }
 </style>

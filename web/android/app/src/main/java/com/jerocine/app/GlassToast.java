@@ -13,7 +13,7 @@ import androidx.annotation.DrawableRes;
 /**
  * 共享玻璃 Toast — 把系统默认灰底小条统一换成项目的暗色玻璃拟态风.
  *
- * 实现: new Toast(ctx) + setView(自定义玻璃布局 @layout/gf_toast), 复用 @drawable/gf_toast_bg
+ * 实现: new Toast(ctx) + setView(自定义玻璃布局 @layout/jc_toast), 复用 @drawable/jc_toast_bg
  * (与 PlayerActivity 内 center_toast 同款: 半透明深色面 + 1px 细描边 + 大圆角 + 白字),
  * 与全局玻璃令牌(colors.xml)一致, 不另造样式. 居中靠下显示, 支持可选左侧图标.
  *
@@ -44,10 +44,10 @@ public final class GlassToast {
     @SuppressWarnings("deprecation") // 自定义 view toast: setView 在弃用后仍按预期工作
     public static void show(Context ctx, CharSequence msg, int duration, @DrawableRes int iconRes) {
         if (ctx == null || msg == null) return;
-        View view = LayoutInflater.from(ctx).inflate(R.layout.gf_toast, null, false);
-        TextView text = view.findViewById(R.id.gf_toast_text);
+        View view = LayoutInflater.from(ctx).inflate(R.layout.jc_toast, null, false);
+        TextView text = view.findViewById(R.id.jc_toast_text);
         text.setText(msg);
-        ImageView icon = view.findViewById(R.id.gf_toast_icon);
+        ImageView icon = view.findViewById(R.id.jc_toast_icon);
         if (iconRes != 0) {
             icon.setImageResource(iconRes);
             icon.setVisibility(View.VISIBLE);

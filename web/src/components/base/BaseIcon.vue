@@ -149,7 +149,7 @@ const path = computed(() => PATHS[props.name as IconName] ?? '')
 
 <template>
   <span
-    class="gf-icon"
+    class="jc-icon"
     :style="wrapperStyle"
     role="img"
     :aria-label="label || undefined"
@@ -168,14 +168,14 @@ const path = computed(() => PATHS[props.name as IconName] ?? '')
 </template>
 
 <style scoped>
-.gf-icon {
+.jc-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   vertical-align: middle;
   line-height: 1;
 }
-.gf-icon svg {
+.jc-icon svg {
   display: block;
 }
 </style>

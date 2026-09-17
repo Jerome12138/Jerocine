@@ -46,12 +46,12 @@ const cards = computed(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--gf-space-6)]">
+  <div class="flex flex-col gap-[var(--jc-space-6)]">
     <header class="flex items-center justify-between">
-      <h2 class="text-[var(--gf-fs-2xl)] font-[var(--gf-fw-bold)]">仪表盘</h2>
+      <h2 class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">仪表盘</h2>
       <button
         type="button"
-        class="text-sm text-link hover:underline min-h-[44px] px-[var(--gf-space-3)]"
+        class="text-sm text-link hover:underline min-h-[44px] px-[var(--jc-space-3)]"
         @click="load"
       >
         刷新
@@ -59,7 +59,7 @@ const cards = computed(() => {
     </header>
 
     <!-- loading 骨架 -->
-    <div v-if="loading" class="grid grid-cols-1 md:grid-cols-3 gap-[var(--gf-space-4)]">
+    <div v-if="loading" class="grid grid-cols-1 md:grid-cols-3 gap-[var(--jc-space-4)]">
       <BaseSkeleton v-for="i in 3" :key="i" shape="rect" :height="'120px'" />
     </div>
 
@@ -67,13 +67,13 @@ const cards = computed(() => {
     <BaseEmpty v-else-if="error" :title="error" :description="'点击右上角刷新重试'" />
 
     <!-- 统计卡 (真实数据) -->
-    <div v-else class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-[var(--gf-space-4)]">
+    <div v-else class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-[var(--jc-space-4)]">
       <component
         :is="c.to ? RouterLink : 'article'"
         v-for="c in cards"
         :key="c.label"
         :to="c.to"
-        class="bg-surface rounded-card shadow-card p-[var(--gf-space-5)] flex items-center gap-[var(--gf-space-4)] min-h-[120px]"
+        class="bg-surface rounded-card shadow-card p-[var(--jc-space-5)] flex items-center gap-[var(--jc-space-4)] min-h-[120px]"
         :class="c.to ? 'hover:bg-elevated transition-colors' : ''"
       >
         <div
@@ -84,7 +84,7 @@ const cards = computed(() => {
         </div>
         <div class="flex flex-col min-w-0">
           <span class="text-secondary text-sm">{{ c.label }}</span>
-          <span class="text-[var(--gf-fs-3xl)] font-[var(--gf-fw-black)] tabular-nums">
+          <span class="text-[var(--jc-fs-3xl)] font-[var(--jc-fw-black)] tabular-nums">
             {{ c.value }}
           </span>
         </div>
@@ -92,7 +92,7 @@ const cards = computed(() => {
     </div>
 
     <!-- 提示: 更多图表/活动流待后端 -->
-    <section v-if="!loading && !error" class="bg-surface rounded-card p-[var(--gf-space-5)]">
+    <section v-if="!loading && !error" class="bg-surface rounded-card p-[var(--jc-space-5)]">
       <p class="text-secondary text-sm">
         <BaseIcon name="info" size="14px" class="inline align-middle mr-1" />
         更多统计图表（近 7 天新增 / 最近操作流等）需后端支持，待补。

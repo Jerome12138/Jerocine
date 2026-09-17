@@ -13,28 +13,28 @@ test.describe('SearchView 搜索', () => {
     await muteImages(page)
     await page.goto('/search')
     await waitAppReady(page)
-    await expect(page.locator('.gf-empty')).toContainText(/开始你的搜索/)
+    await expect(page.locator('.jc-empty')).toContainText(/开始你的搜索/)
   })
 
   test('搜"三体"返回结果列表', async ({ page }) => {
     await muteImages(page)
     await page.goto('/search')
     await waitAppReady(page)
-    const input = page.locator('.gf-search__input')
+    const input = page.locator('.jc-search__input')
     await input.fill('三体')
-    await page.locator('.gf-search__btn').click()
+    await page.locator('.jc-search__btn').click()
     await expect(page).toHaveURL(/search=%E4%B8%89%E4%BD%93|search=三体/)
     // 至少 1 条结果
-    await expect(page.locator('.gf-search__row-desktop, .gf-search__row-mobile').first()).toBeVisible()
+    await expect(page.locator('.jc-search__row-desktop, .jc-search__row-mobile').first()).toBeVisible()
   })
 
   test('清空输入并提交 → URL search 被清', async ({ page }) => {
     await muteImages(page)
     await page.goto('/search?search=三体')
     await waitAppReady(page)
-    const input = page.locator('.gf-search__input')
+    const input = page.locator('.jc-search__input')
     await input.fill('')
-    await page.locator('.gf-search__btn').click()
+    await page.locator('.jc-search__btn').click()
     await expect(page).not.toHaveURL(/search=三体|search=%E4%B8%89%E4%BD%93/)
   })
 })
@@ -47,13 +47,13 @@ test.describe('ClassifyView 分类首页', () => {
   })
 
   test('分类标题展示', async ({ page }) => {
-    // ClassifyView 标题区是 RouterLink anchor（.gf-classify__title-active / link）
-    const titleEl = page.locator('.gf-classify__title-active').filter({ hasText: /电视剧/ })
+    // ClassifyView 标题区是 RouterLink anchor（.jc-classify__title-active / link）
+    const titleEl = page.locator('.jc-classify__title-active').filter({ hasText: /电视剧/ })
     await expect(titleEl).toBeVisible({ timeout: 5_000 })
   })
 
   test('至少有一组列表渲染', async ({ page }) => {
-    const cards = page.locator('.gf-film-card')
+    const cards = page.locator('.jc-film-card')
     await expect(cards.first()).toBeVisible({ timeout: 5_000 })
     expect(await cards.count()).toBeGreaterThan(0)
   })
@@ -65,7 +65,7 @@ test.describe('ClassifySearchView 筛选页', () => {
     await page.goto('/filmClassifySearch?Pid=1')
     await waitAppReady(page)
 
-    const chips = page.locator('.gf-filter-chip')
+    const chips = page.locator('.jc-filter-chip')
     await expect(chips.first()).toBeVisible({ timeout: 6_000 })
 
     // 找一个非"全部"且非默认选中的 chip 点
@@ -76,13 +76,13 @@ test.describe('ClassifySearchView 筛选页', () => {
     await expect(page).toHaveURL(/Plot=%E7%A7%91%E5%B9%BB|Plot=科幻/)
 
     // 列表应仍渲染（至少一张 FilmCard）
-    await expect(page.locator('.gf-film-card').first()).toBeVisible({ timeout: 5_000 })
+    await expect(page.locator('.jc-film-card').first()).toBeVisible({ timeout: 5_000 })
   })
 
   test('chip 触控目标 ≥ 44px', async ({ page }) => {
     await page.goto('/filmClassifySearch?Pid=1')
     await waitAppReady(page)
-    const chip = page.locator('.gf-filter-chip').first()
+    const chip = page.locator('.jc-filter-chip').first()
     await expect(chip).toBeVisible({ timeout: 6_000 })
     const box = await chip.boundingBox()
     expect(box).not.toBeNull()

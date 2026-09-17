@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/gf_bg"
+    android:background="@color/jc_bg"
     android:orientation="horizontal"
     android:padding="24dp">
 
@@ -10,7 +10,7 @@
         android:id="@+id/search_controls"
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:background="@drawable/gf_surface_panel"
+        android:background="@drawable/jc_surface_panel"
         android:layout_weight="1"
         android:fillViewport="true"
         android:padding="18dp"
@@ -30,12 +30,12 @@
 
                 <ImageButton
                     android:id="@+id/search_back"
-                    style="@style/GfIconButton"
+                    style="@style/JcIconButton"
                     android:contentDescription="返回"
                     android:src="@drawable/ic_back" />
 
                 <TextView
-                    style="@style/GfPageTitle"
+                    style="@style/JcPageTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="14dp"
@@ -47,13 +47,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/gf_input"
+                android:background="@drawable/jc_input"
                 android:ellipsize="end"
                 android:gravity="center_vertical"
                 android:maxLines="1"
                 android:paddingHorizontal="16dp"
                 android:text="输入关键字 / 拼音首字母"
-                android:textColor="@color/gf_text_secondary"
+                android:textColor="@color/jc_text_secondary"
                 android:textSize="17sp" />
 
             <androidx.recyclerview.widget.RecyclerView
@@ -78,13 +78,13 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="历史搜索"
-                    android:textColor="@color/gf_text"
+                    android:textColor="@color/jc_text"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
                 <Button
                     android:id="@+id/search_clear_history"
-                    style="@style/GfChip"
+                    style="@style/JcChip"
                     android:layout_width="76dp"
                     android:layout_height="36dp"
                     android:focusable="true"
@@ -119,13 +119,13 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="搜索结果"
-                android:textColor="@color/gf_text"
+                android:textColor="@color/jc_text"
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/search_result_count"
-                style="@style/GfPageSubtitle"
+                style="@style/JcPageSubtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0 部" />
@@ -152,7 +152,7 @@
                 android:layout_height="44dp"
                 android:layout_gravity="top|end"
                 android:layout_margin="12dp"
-                android:indeterminateTint="@color/gf_accent"
+                android:indeterminateTint="@color/jc_accent"
                 android:visibility="gone" />
 
             <TextView
@@ -162,7 +162,7 @@
                 android:layout_gravity="center"
                 android:gravity="center"
                 android:lineSpacingExtra="8dp"
-                android:textColor="@color/gf_text_secondary"
+                android:textColor="@color/jc_text_secondary"
                 android:textSize="19sp" />
         </FrameLayout>
     </LinearLayout>

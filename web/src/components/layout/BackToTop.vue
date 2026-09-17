@@ -31,11 +31,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Transition name="gf-fab-fade">
+  <Transition name="jc-fab-fade">
     <button
       v-if="visible"
       type="button"
-      class="gf-back-top"
+      class="jc-back-top"
       aria-label="回到顶部"
       data-focusable="true"
       tabindex="0"
@@ -55,71 +55,71 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.gf-back-top {
+.jc-back-top {
   position: fixed;
-  right: var(--gf-space-5);
+  right: var(--jc-space-5);
   /* 移动端 tabbar 高度 + safe-area, > md 失去 tabbar 由 media query 重置 */
-  bottom: calc(var(--gf-tabbar-height, 56px) + env(safe-area-inset-bottom, 0px) + var(--gf-space-4));
+  bottom: calc(var(--jc-tabbar-height, 56px) + env(safe-area-inset-bottom, 0px) + var(--jc-space-4));
   width: 44px;
   height: 44px;
-  border: 1px solid var(--gf-border-subtle);
+  border: 1px solid var(--jc-border-subtle);
   border-radius: 9999px;
   background-color: rgba(20, 20, 24, 0.85);
   backdrop-filter: blur(8px);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   transition:
-    transform var(--gf-dur-fast) var(--gf-ease-spring),
-    box-shadow var(--gf-dur-fast) var(--gf-ease-standard),
-    background-color var(--gf-dur-fast) var(--gf-ease-standard);
+    transform var(--jc-dur-fast) var(--jc-ease-spring),
+    box-shadow var(--jc-dur-fast) var(--jc-ease-standard),
+    background-color var(--jc-dur-fast) var(--jc-ease-standard);
   z-index: 40;
 }
 
 @media (min-width: 768px) {
-  .gf-back-top {
-    bottom: var(--gf-space-6);
-    right: var(--gf-space-6);
+  .jc-back-top {
+    bottom: var(--jc-space-6);
+    right: var(--jc-space-6);
     width: 48px;
     height: 48px;
   }
 }
 
-.gf-back-top:hover {
+.jc-back-top:hover {
   background-color: rgba(155, 73, 231, 0.92);
   transform: translateY(-2px);
   box-shadow: 0 12px 28px rgba(155, 73, 231, 0.35), 0 0 0 1px rgba(155, 73, 231, 0.5);
 }
 
-.gf-back-top:focus-visible {
+.jc-back-top:focus-visible {
   outline: none;
-  box-shadow: var(--gf-shadow-focus-ring), 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--jc-shadow-focus-ring), 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
-.gf-back-top:active {
+.jc-back-top:active {
   transform: translateY(0);
 }
 
 /* 渐显渐隐 */
-.gf-fab-fade-enter-from,
-.gf-fab-fade-leave-to {
+.jc-fab-fade-enter-from,
+.jc-fab-fade-leave-to {
   opacity: 0;
   transform: translateY(12px) scale(0.9);
 }
-.gf-fab-fade-enter-active,
-.gf-fab-fade-leave-active {
+.jc-fab-fade-enter-active,
+.jc-fab-fade-leave-active {
   transition:
-    opacity var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-spring);
+    opacity var(--jc-dur-base) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-spring);
 }
 </style>
 
 <style>
 /* TV 模式: 用 D-pad 不需要 FAB, 隐藏 */
-[data-mode='tv'] .gf-back-top {
+[data-mode='tv'] .jc-back-top {
   display: none;
 }
 </style>

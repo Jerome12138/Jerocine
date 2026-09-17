@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="GfPageTitle" parent="@android:style/TextAppearance.Material.Headline">
-        <item name="android:textColor">@color/gf_text</item>
-        <item name="android:textSize">@dimen/gf_page_title_size</item>
+    <style name="JcPageTitle" parent="@android:style/TextAppearance.Material.Headline">
+        <item name="android:textColor">@color/jc_text</item>
+        <item name="android:textSize">@dimen/jc_page_title_size</item>
         <item name="android:textStyle">bold</item>
         <item name="android:includeFontPadding">false</item>
     </style>
 
-    <style name="GfPageSubtitle" parent="@android:style/TextAppearance.Material.Body1">
-        <item name="android:textColor">@color/gf_text_secondary</item>
-        <item name="android:textSize">@dimen/gf_caption_size</item>
+    <style name="JcPageSubtitle" parent="@android:style/TextAppearance.Material.Body1">
+        <item name="android:textColor">@color/jc_text_secondary</item>
+        <item name="android:textSize">@dimen/jc_caption_size</item>
         <item name="android:includeFontPadding">false</item>
     </style>
 
-    <style name="GfButtonBase" parent="@android:style/Widget.Material.Button.Borderless">
-        <item name="android:layout_height">@dimen/gf_control_height</item>
+    <style name="JcButtonBase" parent="@android:style/Widget.Material.Button.Borderless">
+        <item name="android:layout_height">@dimen/jc_control_height</item>
         <item name="android:minHeight">0dp</item>
         <item name="android:minWidth">48dp</item>
         <item name="android:focusable">true</item>
@@ -25,30 +25,30 @@
         <item name="android:textSize">16sp</item>
     </style>
 
-    <style name="GfButtonPrimary" parent="GfButtonBase">
-        <item name="android:background">@drawable/gf_button_primary</item>
-        <item name="android:textColor">@color/gf_primary_btn_text</item>
+    <style name="JcButtonPrimary" parent="JcButtonBase">
+        <item name="android:background">@drawable/jc_button_primary</item>
+        <item name="android:textColor">@color/jc_primary_btn_text</item>
         <item name="android:textStyle">bold</item>
     </style>
 
-    <style name="GfButtonSecondary" parent="GfButtonBase">
-        <item name="android:background">@drawable/gf_button_secondary</item>
-        <item name="android:textColor">@color/gf_ctl_btn_text</item>
+    <style name="JcButtonSecondary" parent="JcButtonBase">
+        <item name="android:background">@drawable/jc_button_secondary</item>
+        <item name="android:textColor">@color/jc_ctl_btn_text</item>
     </style>
 
-    <style name="GfButtonDanger" parent="GfButtonBase">
-        <item name="android:background">@drawable/gf_button_danger</item>
-        <item name="android:textColor">@color/gf_danger_btn_text</item>
+    <style name="JcButtonDanger" parent="JcButtonBase">
+        <item name="android:background">@drawable/jc_button_danger</item>
+        <item name="android:textColor">@color/jc_danger_btn_text</item>
     </style>
 
-    <style name="GfChip" parent="GfButtonBase">
+    <style name="JcChip" parent="JcButtonBase">
         <item name="android:layout_height">42dp</item>
-        <item name="android:background">@drawable/gf_chip</item>
-        <item name="android:textColor">@color/gf_chip_text</item>
+        <item name="android:background">@drawable/jc_chip</item>
+        <item name="android:textColor">@color/jc_chip_text</item>
         <item name="android:textSize">15sp</item>
     </style>
 
-    <style name="GfIconButton" parent="GfButtonSecondary">
+    <style name="JcIconButton" parent="JcButtonSecondary">
         <item name="android:layout_width">48dp</item>
         <item name="android:paddingLeft">12dp</item>
         <item name="android:paddingRight">12dp</item>
@@ -77,7 +77,7 @@
         <item name="android:ellipsize">end</item>
         <item name="android:includeFontPadding">false</item>
         <item name="android:maxLines">1</item>
-        <item name="android:textColor">@color/gf_text</item>
+        <item name="android:textColor">@color/jc_text</item>
         <item name="android:textSize">16sp</item>
         <item name="android:textStyle">bold</item>
     </style>
@@ -89,7 +89,7 @@
         <item name="android:ellipsize">end</item>
         <item name="android:includeFontPadding">false</item>
         <item name="android:maxLines">1</item>
-        <item name="android:textColor">@color/gf_text_secondary</item>
+        <item name="android:textColor">@color/jc_text_secondary</item>
         <item name="android:textSize">13sp</item>
     </style>
 

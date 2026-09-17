@@ -66,13 +66,13 @@ function go(page: number): void {
 
 <template>
   <nav
-    class="gf-pagination flex items-center justify-center flex-wrap gap-[var(--gf-space-2)]"
+    class="jc-pagination flex items-center justify-center flex-wrap gap-[var(--jc-space-2)]"
     role="navigation"
     aria-label="pagination"
   >
     <!-- prev -->
     <button
-      class="gf-page-chip flex items-center justify-center"
+      class="jc-page-chip flex items-center justify-center"
       :class="current <= 1 ? 'opacity-30 pointer-events-none' : ''"
       :disabled="current <= 1"
       :data-focusable="current > 1 ? 'true' : undefined"
@@ -84,7 +84,7 @@ function go(page: number): void {
     </button>
 
     <!-- 移动端简化：仅显示当前/总 -->
-    <span class="gf-page-current md:hidden text-secondary text-sm">
+    <span class="jc-page-current md:hidden text-secondary text-sm">
       {{ current }} / {{ totalPages }}
     </span>
 
@@ -92,15 +92,15 @@ function go(page: number): void {
     <template v-for="(p, idx) in pages" :key="idx + '-' + p">
       <span
         v-if="p === '...'"
-        class="gf-page-ellipsis hidden md:inline-flex items-center justify-center text-muted"
+        class="jc-page-ellipsis hidden md:inline-flex items-center justify-center text-muted"
         >…</span
       >
       <button
         v-else
-        class="gf-page-chip hidden md:inline-flex items-center justify-center"
+        class="jc-page-chip hidden md:inline-flex items-center justify-center"
         :class="
           p === current
-            ? 'gf-page-chip--active'
+            ? 'jc-page-chip--active'
             : 'text-secondary hover:bg-[rgba(255,255,255,0.1)] hover:text-primary'
         "
         :data-focusable="p === current ? undefined : 'true'"
@@ -114,7 +114,7 @@ function go(page: number): void {
 
     <!-- next -->
     <button
-      class="gf-page-chip flex items-center justify-center"
+      class="jc-page-chip flex items-center justify-center"
       :class="current >= totalPages ? 'opacity-30 pointer-events-none' : ''"
       :disabled="current >= totalPages"
       :data-focusable="current < totalPages ? 'true' : undefined"
@@ -128,53 +128,53 @@ function go(page: number): void {
 </template>
 
 <style scoped>
-.gf-page-chip {
+.jc-page-chip {
   min-width: 44px;
   height: 44px;
-  padding: 0 var(--gf-space-3);
-  border-radius: var(--gf-radius-full);
-  background-color: var(--gf-bg-elevated);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-semibold);
+  padding: 0 var(--jc-space-3);
+  border-radius: var(--jc-radius-full);
+  background-color: var(--jc-bg-elevated);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-semibold);
   cursor: pointer;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard),
-    transform var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard),
+    transform var(--jc-dur-fast) var(--jc-ease-standard);
   border: none;
-  color: var(--gf-text-secondary);
+  color: var(--jc-text-secondary);
 }
 
-.gf-page-chip--active {
-  background-image: var(--gf-brand-gradient);
+.jc-page-chip--active {
+  background-image: var(--jc-brand-gradient);
   color: #fff;
-  box-shadow: var(--gf-shadow-purple-glow);
+  box-shadow: var(--jc-shadow-purple-glow);
 }
 
-.gf-page-ellipsis {
+.jc-page-ellipsis {
   min-width: 24px;
   height: 44px;
-  font-size: var(--gf-fs-sm);
+  font-size: var(--jc-fs-sm);
 }
 </style>
 
 <style>
 /* TV 模式：放大页码 chip + 焦点环 */
-[data-mode='tv'] .gf-page-chip {
+[data-mode='tv'] .jc-page-chip {
   min-width: 56px;
   height: 56px;
-  padding: 0 var(--gf-space-4);
-  font-size: var(--gf-fs-base);
+  padding: 0 var(--jc-space-4);
+  font-size: var(--jc-fs-base);
 }
-[data-mode='tv'] .gf-page-chip:focus,
-[data-mode='tv'] .gf-page-chip:focus-visible {
+[data-mode='tv'] .jc-page-chip:focus,
+[data-mode='tv'] .jc-page-chip:focus-visible {
   outline: none;
-  box-shadow: var(--gf-tv-focus-ring);
+  box-shadow: var(--jc-tv-focus-ring);
   background-color: rgba(255, 255, 255, 0.12);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
-[data-mode='tv'] .gf-page-ellipsis {
+[data-mode='tv'] .jc-page-ellipsis {
   height: 56px;
-  font-size: var(--gf-fs-base);
+  font-size: var(--jc-fs-base);
 }
 </style>

@@ -61,8 +61,8 @@ function speedLabel(id: string): string {
 function speedClass(id: string): string {
   const v = props.speeds[id]
   if (v === undefined) return ''
-  if (v < 0) return 'gf-source-tab__speed--fail'
-  return id === fastestId.value ? 'gf-source-tab__speed--fast' : 'gf-source-tab__speed--ok'
+  if (v < 0) return 'jc-source-tab__speed--fail'
+  return id === fastestId.value ? 'jc-source-tab__speed--fast' : 'jc-source-tab__speed--ok'
 }
 
 const emit = defineEmits<{
@@ -148,13 +148,13 @@ function selectSegment(i: number): void {
 function startMarquee(e: Event): void {
   const chip = e.currentTarget as HTMLElement | null
   if (!chip) return
-  const label = chip.querySelector<HTMLElement>('.gf-episode-chip__label')
+  const label = chip.querySelector<HTMLElement>('.jc-episode-chip__label')
   if (!label) return
   // 默认态(省略号)下测量: scrollWidth=完整文字宽, clientWidth=被按钮裁掉后的可见宽
   const shift = label.scrollWidth - label.clientWidth
   if (shift <= 2) return
-  chip.style.setProperty('--gf-ep-shift', `-${shift}px`)
-  chip.style.setProperty('--gf-ep-dur', `${Math.max(2, shift / 40).toFixed(1)}s`)
+  chip.style.setProperty('--jc-ep-shift', `-${shift}px`)
+  chip.style.setProperty('--jc-ep-dur', `${Math.max(2, shift / 40).toFixed(1)}s`)
   chip.classList.add('is-marquee')
 }
 function stopMarquee(e: Event): void {
@@ -164,34 +164,34 @@ function stopMarquee(e: Event): void {
 </script>
 
 <template>
-  <section class="gf-episodes flex flex-col gap-[var(--gf-space-4)]">
+  <section class="jc-episodes flex flex-col gap-[var(--jc-space-4)]">
     <!-- 播放源 Tab(每个 tab 右上角已带该源集数徽标, 不再单独显示"共 N 集") -->
     <div
       v-if="sources.length > 1"
-      class="gf-source-bar flex items-center gap-[var(--gf-space-4)] border-b border-default"
+      class="jc-source-bar flex items-center gap-[var(--jc-space-4)] border-b border-default"
     >
       <div
         v-if="sources.length > 1"
-        class="gf-source-tabs flex items-center gap-[var(--gf-space-6)] overflow-x-auto"
+        class="jc-source-tabs flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
       >
         <button
           v-for="s in sources"
           :key="s.id"
-          class="gf-source-tab"
-          :class="s.id === activeSourceId ? 'gf-source-tab--active' : ''"
+          class="jc-source-tab"
+          :class="s.id === activeSourceId ? 'jc-source-tab--active' : ''"
           data-focusable="true"
           tabindex="0"
           :aria-selected="s.id === activeSourceId"
           @click="selectSource(s.id)"
         >
-          <span class="gf-source-tab__name">{{ s.name }}</span>
-          <span v-if="speedLabel(s.id)" class="gf-source-tab__speed" :class="speedClass(s.id)">
+          <span class="jc-source-tab__name">{{ s.name }}</span>
+          <span v-if="speedLabel(s.id)" class="jc-source-tab__speed" :class="speedClass(s.id)">
             {{ speedLabel(s.id) }}
           </span>
           <!-- 右上角集数徽标: 显示「该源」自己的集数, 区别于条尾「共 N 集」(当前源) -->
           <span
             v-if="s.episodes.length"
-            class="gf-source-tab__count-badge"
+            class="jc-source-tab__count-badge"
             :aria-label="`该源 ${s.episodes.length} 集`"
           >
             {{ s.episodes.length }}
@@ -203,15 +203,15 @@ function stopMarquee(e: Event): void {
     <!-- 分段切换 (集数 > pageSize 时显示) -->
     <div
       v-if="needsSegments"
-      class="gf-episode-segments flex flex-wrap gap-[var(--gf-space-2)]"
+      class="jc-episode-segments flex flex-wrap gap-[var(--jc-space-2)]"
       role="tablist"
       aria-label="集数分段"
     >
       <button
         v-for="(seg, i) in segments"
         :key="i"
-        class="gf-episode-seg"
-        :class="i === segmentIndex ? 'gf-episode-seg--active' : ''"
+        class="jc-episode-seg"
+        :class="i === segmentIndex ? 'jc-episode-seg--active' : ''"
         data-focusable="true"
         tabindex="0"
         :aria-selected="i === segmentIndex"
@@ -223,14 +223,14 @@ function stopMarquee(e: Event): void {
     </div>
 
     <!-- 集数网格 -->
-    <div v-if="visibleEpisodes.length" class="gf-episode-grid">
+    <div v-if="visibleEpisodes.length" class="jc-episode-grid">
       <button
         v-for="{ ep, idx } in visibleEpisodes"
         :key="ep.link + '-' + idx"
-        class="gf-episode-chip"
+        class="jc-episode-chip"
         :class="[
-          ep.link === currentEpisode ? 'gf-episode-chip--active' : '',
-          watchedLinks.includes(ep.link) ? 'gf-episode-chip--watched' : ''
+          ep.link === currentEpisode ? 'jc-episode-chip--active' : '',
+          watchedLinks.includes(ep.link) ? 'jc-episode-chip--watched' : ''
         ]"
         data-focusable="true"
         tabindex="0"
@@ -241,10 +241,10 @@ function stopMarquee(e: Event): void {
         @focus="startMarquee"
         @blur="stopMarquee"
       >
-        <span class="gf-episode-chip__label">{{ cleanEpisodeName(ep.episode) }}</span>
+        <span class="jc-episode-chip__label">{{ cleanEpisodeName(ep.episode) }}</span>
         <span
           v-if="watchedLinks.includes(ep.link) && ep.link !== currentEpisode"
-          class="gf-episode-chip__dot"
+          class="jc-episode-chip__dot"
           aria-hidden="true"
         />
       </button>
@@ -254,23 +254,23 @@ function stopMarquee(e: Event): void {
 
 <style scoped>
 /* 源 tab 外层条: 左侧 tab 列表占据剩余宽并可横滚, 右侧"共 N 集"固定钉右上角不随滚动 */
-.gf-source-tabs {
+.jc-source-tabs {
   flex: 1 1 auto;
   min-width: 0;
   /* 纵向留白 + 不裁纵向, 让焦点框/激活态完整显示(避免被祖先 overflow 截断) */
   overflow-y: visible;
   padding-block: 6px;
 }
-.gf-source-count {
+.jc-source-count {
   flex: 0 0 auto;
   margin-left: auto;
   white-space: nowrap;
-  color: var(--gf-text-muted);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
 }
 
-.gf-source-tab {
+.jc-source-tab {
   position: relative;
   background: transparent;
   border: none;
@@ -278,58 +278,58 @@ function stopMarquee(e: Event): void {
   height: 36px;
   margin-block: 4px;
   padding: 0 10px;
-  border-radius: var(--gf-chip-radius, 9999px);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-md);
-  font-weight: var(--gf-fw-medium);
+  border-radius: var(--jc-chip-radius, 9999px);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-md);
+  font-weight: var(--jc-fw-medium);
   cursor: pointer;
   white-space: nowrap;
   min-height: 36px;
   transition:
-    color var(--gf-dur-fast) var(--gf-ease-standard),
-    background-color var(--gf-dur-fast) var(--gf-ease-standard);
+    color var(--jc-dur-fast) var(--jc-ease-standard),
+    background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-.gf-source-tab:hover {
-  color: var(--gf-text-primary);
+.jc-source-tab:hover {
+  color: var(--jc-text-primary);
   background-color: rgba(255, 255, 255, 0.06);
 }
 
 /* 选中态: 仅渐变背景(胶囊), 不再加被祖先 overflow 裁切的下划线/描边 */
-.gf-source-tab--active {
+.jc-source-tab--active {
   color: #fff;
-  font-weight: var(--gf-fw-semibold);
-  background-image: var(--gf-brand-gradient);
+  font-weight: var(--jc-fw-semibold);
+  background-image: var(--jc-brand-gradient);
 }
-.gf-source-tab--active:hover {
+.jc-source-tab--active:hover {
   /* 覆盖 hover 的半透明白底, 保持渐变 */
   background-color: transparent;
 }
 
 /* Web 焦点环: 用跟随圆角的 outline(不被祖先 overflow 裁切), 替代默认方形 outline */
-.gf-source-tab:focus-visible {
-  outline: 2px solid var(--gf-brand-cyan);
+.jc-source-tab:focus-visible {
+  outline: 2px solid var(--jc-brand-cyan);
   outline-offset: 2px;
 }
 
 /* 线路测速延时小标 */
-.gf-source-tab__speed {
-  margin-left: var(--gf-space-1);
-  font-size: var(--gf-fs-xs);
-  font-weight: var(--gf-fw-medium);
+.jc-source-tab__speed {
+  margin-left: var(--jc-space-1);
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-medium);
 }
-.gf-source-tab__speed--fast {
-  color: var(--gf-success);
+.jc-source-tab__speed--fast {
+  color: var(--jc-success);
 }
-.gf-source-tab__speed--ok {
-  color: var(--gf-text-muted);
+.jc-source-tab__speed--ok {
+  color: var(--jc-text-muted);
 }
-.gf-source-tab__speed--fail {
-  color: var(--gf-danger);
+.jc-source-tab__speed--fail {
+  color: var(--jc-danger);
 }
 
 /* 源 tab 右上角集数徽标 — 小巧, 绝对定位不挤压 tab 文字布局 */
-.gf-source-tab__count-badge {
+.jc-source-tab__count-badge {
   position: absolute;
   top: 0;
   right: 0;
@@ -341,18 +341,18 @@ function stopMarquee(e: Event): void {
   height: 16px;
   padding: 0 4px;
   border-radius: 9999px;
-  background-color: var(--gf-bg-elevated);
-  color: var(--gf-text-secondary);
+  background-color: var(--jc-bg-elevated);
+  color: var(--jc-text-secondary);
   font-size: 10px;
-  font-weight: var(--gf-fw-bold);
+  font-weight: var(--jc-fw-bold);
   line-height: 1;
-  box-shadow: 0 0 0 1.5px var(--gf-bg-base, #0b0b0f);
+  box-shadow: 0 0 0 1.5px var(--jc-bg-base, #0b0b0f);
   pointer-events: none;
 }
 /* 选中态徽标: 在渐变胶囊上用反白底, 对比更清晰 */
-.gf-source-tab--active .gf-source-tab__count-badge {
+.jc-source-tab--active .jc-source-tab__count-badge {
   background-color: rgba(255, 255, 255, 0.92);
-  color: var(--gf-brand-primary, #6d28d9);
+  color: var(--jc-brand-primary, #6d28d9);
 }
 
 /* 分段 chip (1-30 / 31-60 ...)
@@ -360,29 +360,29 @@ function stopMarquee(e: Event): void {
  * 外层 scroll/overflow 容器按直角硬切(上/左被截断, 右/下正常渐隐),
  * 看起来像"被胶囊切掉的边框", 故整体去掉描边装饰, 激活态只留渐变胶囊。
  * 内部留白收紧: 高 32→28, 左右 14→10 (TV 由下方覆盖保持原尺寸)。 */
-.gf-episode-seg {
+.jc-episode-seg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 28px;
   padding: 0 10px;
   border: none;
-  border-radius: var(--gf-chip-radius, 9999px);
-  background-color: var(--gf-bg-elevated);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  border-radius: var(--jc-chip-radius, 9999px);
+  background-color: var(--jc-bg-elevated);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
   cursor: pointer;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-episode-seg:hover {
+.jc-episode-seg:hover {
   background-color: rgba(255, 255, 255, 0.08);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
-.gf-episode-seg--active {
-  background-image: var(--gf-brand-gradient);
+.jc-episode-seg--active {
+  background-image: var(--jc-brand-gradient);
   color: #fff;
 }
 
@@ -391,19 +391,19 @@ function stopMarquee(e: Event): void {
  * 列宽不够时自动减少列数, 保证每集文字能显示. */
 /* 每行最多 6 个(用户指定). 小屏窄, 用 auto-fill 但上限 6 列;
  * 用 min(已算列宽, 6 等分) 保证不超 6, 且每个 chip 文字够宽不裁. */
-.gf-episode-grid {
+.jc-episode-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
 }
 @media (min-width: 768px) {
-  .gf-episode-grid {
+  .jc-episode-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: var(--gf-space-3);
+    gap: var(--jc-space-3);
   }
 }
 
-.gf-episode-chip {
+.jc-episode-chip {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -411,59 +411,59 @@ function stopMarquee(e: Event): void {
   /* 内部留白收紧(各断点): 高 38/40/42→34/36/38, 左右 8→6 */
   height: 34px;
   padding: 0 6px;
-  border-radius: var(--gf-radius-md);
-  background-color: var(--gf-bg-elevated);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-semibold);
+  border-radius: var(--jc-radius-md);
+  background-color: var(--jc-bg-elevated);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-semibold);
   border: none;
   cursor: pointer;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard),
-    transform var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard),
+    transform var(--jc-dur-fast) var(--jc-ease-standard);
   overflow: hidden;
 }
 
 @media (min-width: 768px) {
-  .gf-episode-chip {
+  .jc-episode-chip {
     height: 36px;
   }
 }
 @media (min-width: 1024px) {
-  .gf-episode-chip {
+  .jc-episode-chip {
     height: 38px;
   }
 }
 
-.gf-episode-chip:hover {
+.jc-episode-chip:hover {
   background-color: rgba(255, 255, 255, 0.08);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
 
 /* Web 焦点环: 跟随圆角 outline, 不被网格/容器 overflow 裁切 */
-.gf-episode-chip:focus-visible {
-  outline: 2px solid var(--gf-brand-cyan);
+.jc-episode-chip:focus-visible {
+  outline: 2px solid var(--jc-brand-cyan);
   outline-offset: 2px;
 }
 
-.gf-episode-chip--active {
-  background-image: var(--gf-brand-gradient);
+.jc-episode-chip--active {
+  background-image: var(--jc-brand-gradient);
   color: #fff;
-  box-shadow: var(--gf-shadow-purple-glow);
+  box-shadow: var(--jc-shadow-purple-glow);
 }
 
-.gf-episode-chip--watched .gf-episode-chip__dot {
+.jc-episode-chip--watched .jc-episode-chip__dot {
   position: absolute;
   top: 6px;
   left: 6px;
   width: 6px;
   height: 6px;
   border-radius: 9999px;
-  background-color: var(--gf-success);
+  background-color: var(--jc-success);
 }
 
-.gf-episode-chip__label {
+.jc-episode-chip__label {
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
@@ -472,86 +472,86 @@ function stopMarquee(e: Event): void {
 }
 
 /* 文字超出按钮时(hover/聚焦), 左对齐起始 + 横向轮播完整集名 */
-.gf-episode-chip.is-marquee {
+.jc-episode-chip.is-marquee {
   justify-content: flex-start;
 }
-.gf-episode-chip.is-marquee .gf-episode-chip__label {
+.jc-episode-chip.is-marquee .jc-episode-chip__label {
   max-width: none;
   overflow: visible;
   text-overflow: clip;
-  animation: gf-ep-marquee var(--gf-ep-dur, 3s) linear infinite alternate;
+  animation: jc-ep-marquee var(--jc-ep-dur, 3s) linear infinite alternate;
 }
-/* 两端各停顿一下便于阅读; 位移量 = 实测溢出像素(JS 注入 --gf-ep-shift) */
-@keyframes gf-ep-marquee {
+/* 两端各停顿一下便于阅读; 位移量 = 实测溢出像素(JS 注入 --jc-ep-shift) */
+@keyframes jc-ep-marquee {
   0%,
   12% {
     transform: translateX(0);
   }
   88%,
   100% {
-    transform: translateX(var(--gf-ep-shift, 0));
+    transform: translateX(var(--jc-ep-shift, 0));
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .gf-episode-chip.is-marquee .gf-episode-chip__label {
+  .jc-episode-chip.is-marquee .jc-episode-chip__label {
     animation: none;
   }
 }
 </style>
 
 <style>
-[data-mode='tv'] .gf-episode-grid {
+[data-mode='tv'] .jc-episode-grid {
   /* P0: 列数自适应 — 大屏更多列, 集名仍够宽不裁; 960 ~6 列, 1920 ~10 列 */
   grid-template-columns: repeat(auto-fit, minmax(clamp(120px, 13vw, 180px), 1fr));
-  gap: var(--gf-space-4);
+  gap: var(--jc-space-4);
 }
-[data-mode='tv'] .gf-episode-chip {
+[data-mode='tv'] .jc-episode-chip {
   height: 48px;
-  font-size: var(--gf-fs-sm);
+  font-size: var(--jc-fs-sm);
 }
 /* TV: 分段胶囊不跟随 Web 的留白收紧, 保持 10 尺 UI 原有尺寸 */
-[data-mode='tv'] .gf-episode-seg {
+[data-mode='tv'] .jc-episode-seg {
   height: 32px;
   padding: 0 14px;
 }
-[data-mode='tv'] .gf-episode-chip:focus,
-[data-mode='tv'] .gf-episode-chip:focus-visible {
+[data-mode='tv'] .jc-episode-chip:focus,
+[data-mode='tv'] .jc-episode-chip:focus-visible {
   /* outline 随圆角且不被祖先 overflow 裁切; 替代易被裁的 box-shadow 环 */
-  outline: 3px solid var(--gf-brand-cyan);
+  outline: 3px solid var(--jc-brand-cyan);
   outline-offset: 2px;
   box-shadow: 0 0 14px rgba(74, 209, 229, 0.4);
   background-color: rgba(255, 255, 255, 0.12);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
-[data-mode='tv'] .gf-source-tab {
+[data-mode='tv'] .jc-source-tab {
   height: 48px;
-  font-size: var(--gf-fs-base);
-  padding: 0 var(--gf-space-4);
+  font-size: var(--jc-fs-base);
+  padding: 0 var(--jc-space-4);
   margin-block: 6px;
 }
-[data-mode='tv'] .gf-source-tab__count-badge {
+[data-mode='tv'] .jc-source-tab__count-badge {
   min-width: 22px;
   height: 22px;
   font-size: 13px;
   padding: 0 6px;
 }
-[data-mode='tv'] .gf-source-count {
-  font-size: var(--gf-fs-base);
+[data-mode='tv'] .jc-source-count {
+  font-size: var(--jc-fs-base);
 }
-[data-mode='tv'] .gf-source-tab:focus,
-[data-mode='tv'] .gf-source-tab:focus-visible {
-  outline: 3px solid var(--gf-brand-cyan);
+[data-mode='tv'] .jc-source-tab:focus,
+[data-mode='tv'] .jc-source-tab:focus-visible {
+  outline: 3px solid var(--jc-brand-cyan);
   outline-offset: 2px;
   box-shadow: 0 0 14px rgba(74, 209, 229, 0.4);
-  border-radius: var(--gf-radius-sm);
-  color: var(--gf-text-primary);
+  border-radius: var(--jc-radius-sm);
+  color: var(--jc-text-primary);
 }
 /* 源 tab 横滚条 / 集数容器: 纵向留白 + 不裁纵向, 让焦点框完整显示 */
-[data-mode='tv'] .gf-source-tabs {
+[data-mode='tv'] .jc-source-tabs {
   overflow-y: visible;
   padding-block: 6px;
 }
-[data-mode='tv'] .gf-episodes {
+[data-mode='tv'] .jc-episodes {
   padding-block: 4px;
 }
 </style>

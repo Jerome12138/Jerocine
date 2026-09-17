@@ -16,7 +16,7 @@ test.describe('HomeView 首页', () => {
   })
 
   test('Hero 区域渲染且符合视口纵横比策略', async ({ page, viewport }) => {
-    const hero = page.locator('.gf-hero').first()
+    const hero = page.locator('.jc-hero').first()
     await expect(hero).toBeVisible()
 
     const box = await hero.boundingBox()
@@ -47,7 +47,7 @@ test.describe('HomeView 首页', () => {
   })
 
   test('Hero 标题随轮播切换', async ({ page }) => {
-    const title = page.locator('.gf-hero__title').first()
+    const title = page.locator('.jc-hero__title').first()
     await expect(title).toBeVisible()
     const firstText = (await title.textContent())?.trim() || ''
     expect(firstText.length).toBeGreaterThan(0)
@@ -55,7 +55,7 @@ test.describe('HomeView 首页', () => {
 
   test('立即播放按钮可点跳转 /filmDetail', async ({ page }) => {
     const playBtn = page
-      .locator('.gf-hero__cta button')
+      .locator('.jc-hero__cta button')
       .filter({ hasText: /立即播放/ })
       .first()
     await expect(playBtn).toBeVisible()
@@ -64,33 +64,33 @@ test.describe('HomeView 首页', () => {
   })
 
   test('FilmRow 列表 + FilmCard 评分角标', async ({ page }) => {
-    const rows = page.locator('.gf-film-row, [class*="gf-film-row"]')
+    const rows = page.locator('.jc-film-row, [class*="jc-film-row"]')
     await expect(rows.first()).toBeVisible({ timeout: 10_000 })
     await expect(rows).toHaveCount(await rows.count())
 
     // 至少一张 FilmCard
-    const card = page.locator('.gf-film-card').first()
+    const card = page.locator('.jc-film-card').first()
     await expect(card).toBeVisible()
 
     // mock 数据每部影片有 dbScore，FilmCard 应自动显示评分 chip
-    const score = card.locator('.gf-film-card__score')
+    const score = card.locator('.jc-film-card__score')
     await expect(score).toBeVisible()
     const scoreText = (await score.textContent())?.trim() ?? ''
     expect(scoreText).toMatch(/^\d(\.\d)?$|^10$/)
   })
 
   test('卡片左上角不再有冗余 BaseTag（年份/分类）', async ({ page }) => {
-    const card = page.locator('.gf-film-card').first()
+    const card = page.locator('.jc-film-card').first()
     await expect(card).toBeVisible({ timeout: 10_000 })
-    // 左上区域应不存在 BaseTag.gf-tag — 用属性 selector 避免 unocss 转义复杂度
+    // 左上区域应不存在 BaseTag.jc-tag — 用属性 selector 避免 unocss 转义复杂度
     const leftTopTags = card.locator(
-      '[class*="absolute"][class*="top-["][class*="left-["] .gf-tag'
+      '[class*="absolute"][class*="top-["][class*="left-["] .jc-tag'
     )
     await expect(leftTopTags).toHaveCount(0)
   })
 
   test('点击卡片可跳详情', async ({ page }) => {
-    const card = page.locator('.gf-film-card').first()
+    const card = page.locator('.jc-film-card').first()
     await card.click()
     await expect(page).toHaveURL(/\/filmDetail\?link=/)
   })

@@ -235,10 +235,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="bg-surface rounded-card shadow-card p-[var(--gf-space-6)] max-w-[1100px]">
-    <header class="flex items-center justify-between mb-[var(--gf-space-5)] flex-wrap gap-[var(--gf-space-3)]">
-      <h2 class="text-lg font-[var(--gf-fw-semibold)]">影片详情</h2>
-      <div class="flex gap-[var(--gf-space-2)] flex-wrap">
+  <section class="bg-surface rounded-card shadow-card p-[var(--jc-space-6)] max-w-[1100px]">
+    <header class="flex items-center justify-between mb-[var(--jc-space-5)] flex-wrap gap-[var(--jc-space-3)]">
+      <h2 class="text-lg font-[var(--jc-fw-semibold)]">影片详情</h2>
+      <div class="flex gap-[var(--jc-space-2)] flex-wrap">
         <BaseButton
           variant="outline"
           size="sm"
@@ -259,7 +259,7 @@ onMounted(async () => {
       </div>
     </header>
 
-    <div v-if="loading" class="flex flex-col gap-[var(--gf-space-3)]">
+    <div v-if="loading" class="flex flex-col gap-[var(--jc-space-3)]">
       <BaseSkeleton shape="rect" height="240px" />
       <BaseSkeleton v-for="i in 4" :key="i" shape="rect" height="20px" />
     </div>
@@ -268,18 +268,18 @@ onMounted(async () => {
 
     <template v-else>
       <!-- ===== 影片信息 ===== -->
-      <article class="flex flex-col md:flex-row gap-[var(--gf-space-6)]">
-        <div class="w-full md:w-[200px] shrink-0 rounded-[var(--gf-radius-lg)] overflow-hidden">
+      <article class="flex flex-col md:flex-row gap-[var(--jc-space-6)]">
+        <div class="w-full md:w-[200px] shrink-0 rounded-[var(--jc-radius-lg)] overflow-hidden">
           <BaseImage :src="movie.cover" :alt="movie.name" ratio="3/4" />
         </div>
-        <div class="flex-1 flex flex-col gap-[var(--gf-space-3)] min-w-0">
-          <h3 class="text-[var(--gf-fs-2xl)] font-[var(--gf-fw-bold)]">
+        <div class="flex-1 flex flex-col gap-[var(--jc-space-3)] min-w-0">
+          <h3 class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">
             {{ movie.name }}
             <span v-if="movie.subTitle" class="text-base text-muted font-normal ml-2">
               {{ movie.subTitle }}
             </span>
           </h3>
-          <div class="flex flex-wrap gap-[var(--gf-space-2)]">
+          <div class="flex flex-wrap gap-[var(--jc-space-2)]">
             <BaseTag v-if="movie.cName" variant="purple">{{ movie.cName }}</BaseTag>
             <BaseTag v-if="movie.year">{{ movie.year }}</BaseTag>
             <BaseTag v-if="movie.area">{{ movie.area }}</BaseTag>
@@ -301,22 +301,22 @@ onMounted(async () => {
       </article>
 
       <!-- ===== 采集源(合并: 已采集显集数 + 未采集源) ===== -->
-      <section class="mt-[var(--gf-space-6)]">
-        <div class="flex items-center justify-between mb-[var(--gf-space-3)]">
-          <h4 class="text-base font-[var(--gf-fw-semibold)]">
+      <section class="mt-[var(--jc-space-6)]">
+        <div class="flex items-center justify-between mb-[var(--jc-space-3)]">
+          <h4 class="text-base font-[var(--jc-fw-semibold)]">
             采集源 <span class="text-muted text-sm">({{ mergedSources.length }})</span>
           </h4>
         </div>
 
         <BaseEmpty v-if="!mergedSources.length" description="暂无采集源" />
 
-        <div v-else class="flex flex-col gap-[var(--gf-space-2)]">
+        <div v-else class="flex flex-col gap-[var(--jc-space-2)]">
           <div
             v-for="row in mergedSources"
             :key="row.siteId"
-            class="flex items-center gap-[var(--gf-space-3)] p-[var(--gf-space-3)] flex-wrap border border-default rounded-[var(--gf-radius-md)] bg-elevated"
+            class="flex items-center gap-[var(--jc-space-3)] p-[var(--jc-space-3)] flex-wrap border border-default rounded-[var(--jc-radius-md)] bg-elevated"
           >
-            <span class="font-[var(--gf-fw-medium)] text-primary">{{ row.siteName }}</span>
+            <span class="font-[var(--jc-fw-medium)] text-primary">{{ row.siteName }}</span>
             <BaseTag v-if="row.master" variant="brand" size="xs">主站</BaseTag>
             <BaseTag v-if="row.collected" variant="success" size="xs">{{ row.episodes }} 集</BaseTag>
             <BaseTag v-else variant="default" size="xs">未采集</BaseTag>

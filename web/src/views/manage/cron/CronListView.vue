@@ -113,8 +113,8 @@ onMounted(load)
     empty="暂无定时任务"
   >
     <template #toolbar>
-      <h2 class="text-lg font-[var(--gf-fw-semibold)]">定时任务</h2>
-      <div class="flex gap-[var(--gf-space-2)]">
+      <h2 class="text-lg font-[var(--jc-fw-semibold)]">定时任务</h2>
+      <div class="flex gap-[var(--jc-space-2)]">
         <BaseButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </BaseButton>
@@ -133,19 +133,19 @@ onMounted(load)
       </BaseTag>
       <code
         v-else-if="col.key === 'spec'"
-        class="font-[var(--gf-font-mono)] text-[var(--gf-fs-xs)] text-[var(--gf-text-link)]"
+        class="font-[var(--jc-font-mono)] text-[var(--jc-fs-xs)] text-[var(--jc-text-link)]"
       >
         {{ row.spec }}
       </code>
       <span v-else-if="col.key === 'time'">{{ row.time }} 小时</span>
-      <span v-else-if="col.key === 'id'" class="font-[var(--gf-font-mono)] text-xs">
+      <span v-else-if="col.key === 'id'" class="font-[var(--jc-font-mono)] text-xs">
         {{ row.id }}
       </span>
       <span v-else>{{ row[col.key] ?? '—' }}</span>
     </template>
 
     <template #actions="{ row }">
-      <div class="flex gap-[var(--gf-space-1)] justify-end">
+      <div class="flex gap-[var(--jc-space-1)] justify-end">
         <BaseButton variant="ghost" size="sm" @click="toggleState(row)">
           {{ row.state ? '停止' : '启动' }}
         </BaseButton>
@@ -156,14 +156,14 @@ onMounted(load)
   </ManageTable>
 
   <ManageSheet v-model="dialogOpen" :title="editing ? '编辑任务' : '新增任务'" mobile-mode="fullsheet">
-    <div class="flex flex-col gap-[var(--gf-space-4)]">
+    <div class="flex flex-col gap-[var(--jc-space-4)]">
       <ManageFormField label="Cron 表达式" required hint="如 0 0 3 * * *（秒 分 时 日 月 周）">
         <ManageInput v-model="form.spec" placeholder="0 0 3 * * *" />
       </ManageFormField>
       <ManageFormField label="任务类型" required>
         <select
           v-model.number="form.model"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
           data-focusable="true"
         >
           <option :value="0">自动更新已启用站点</option>
@@ -175,7 +175,7 @@ onMounted(load)
         label="资源站列表"
         hint="点击勾选对应资源站 id"
       >
-        <div class="flex flex-wrap gap-[var(--gf-space-2)]">
+        <div class="flex flex-wrap gap-[var(--jc-space-2)]">
           <BaseTag
             v-for="s in sources"
             :key="s.id"

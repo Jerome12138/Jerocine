@@ -15,15 +15,15 @@ withDefaults(defineProps<Props>(), {
 <template>
   <section
     v-if="items.length"
-    class="gf-related-list flex flex-col gap-[var(--gf-space-4)]"
+    class="jc-related-list flex flex-col gap-[var(--jc-space-4)]"
   >
     <h2
       v-if="title"
-      class="text-[var(--gf-fs-lg)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]"
+      class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
     >
       {{ title }}
     </h2>
-    <div class="gf-related-list__grid">
+    <div class="jc-related-list__grid">
       <FilmCard
         v-for="(item, idx) in items"
         :key="(item.mid ?? idx) + '-' + idx"
@@ -35,12 +35,12 @@ withDefaults(defineProps<Props>(), {
 </template>
 
 <style scoped>
-.gf-related-list__grid {
+.jc-related-list__grid {
   display: grid;
   /* 列数/间距取自 theme.css 的全站统一阶梯(与首页"猜你喜欢"网格、FilmGrid 同阶梯):
      移动 3 → ≥480 4 → ≥768 5 → ≥1024 及以上恒 6; TV 由 theme.css 接管为恒 6。
      改列数只需改 theme.css 一处。 */
-  grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr));
-  gap: var(--gf-list-gap);
+  grid-template-columns: repeat(var(--jc-list-cols), minmax(0, 1fr));
+  gap: var(--jc-list-gap);
 }
 </style>

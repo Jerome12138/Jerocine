@@ -174,16 +174,16 @@ async function handleLogin(): Promise<void> {
 
 <template>
   <!-- ============ TV: 雷鸟卡片式登录 ============ -->
-  <div v-if="isTV" class="gf-tv-login">
-    <div class="gf-tv-glass-card gf-tv-login__card">
-      <div class="gf-tv-login__logo text-brand-gradient">Jerocine影视</div>
-      <div class="gf-tv-login__sub">登录后可同步观看历史 / 收藏 / 进入后台管理</div>
+  <div v-if="isTV" class="jc-tv-login">
+    <div class="jc-tv-glass-card jc-tv-login__card">
+      <div class="jc-tv-login__logo text-brand-gradient">Jerocine影视</div>
+      <div class="jc-tv-login__sub">登录后可同步观看历史 / 收藏 / 进入后台管理</div>
 
       <!-- 登录方式切换: 密码 / 扫码 -->
-      <div class="gf-tv-login__tabs">
+      <div class="jc-tv-login__tabs">
         <button
           type="button"
-          class="gf-tv-login__tab"
+          class="jc-tv-login__tab"
           :class="{ cur: mode === 'pwd' }"
           data-focusable="true"
           tabindex="0"
@@ -193,7 +193,7 @@ async function handleLogin(): Promise<void> {
         </button>
         <button
           type="button"
-          class="gf-tv-login__tab"
+          class="jc-tv-login__tab"
           :class="{ cur: mode === 'qr' }"
           data-focusable="true"
           tabindex="0"
@@ -206,15 +206,15 @@ async function handleLogin(): Promise<void> {
       <!-- 密码登录 -->
       <template v-if="mode === 'pwd'">
         <!-- 账号 (字段=account) -->
-        <div class="gf-tv-login__field">
-          <span class="gf-tv-login__lab">用户名 <b>*</b></span>
-          <div class="gf-tv-login__wrap">
-            <BaseIcon name="user" class="gf-tv-login__ic" size="20px" />
+        <div class="jc-tv-login__field">
+          <span class="jc-tv-login__lab">用户名 <b>*</b></span>
+          <div class="jc-tv-login__wrap">
+            <BaseIcon name="user" class="jc-tv-login__ic" size="20px" />
             <input
               ref="usernameInput"
               v-model="form.username"
               type="text"
-              class="gf-tv-input gf-tv-login__input"
+              class="jc-tv-input jc-tv-login__input"
               placeholder="用户名 / 邮箱"
               autocomplete="username"
               data-focusable="true"
@@ -226,15 +226,15 @@ async function handleLogin(): Promise<void> {
         </div>
 
         <!-- 密码 + 显隐 -->
-        <div class="gf-tv-login__field">
-          <span class="gf-tv-login__lab">密码 <b>*</b></span>
-          <div class="gf-tv-login__wrap">
-            <BaseIcon name="lock" class="gf-tv-login__ic" size="20px" />
+        <div class="jc-tv-login__field">
+          <span class="jc-tv-login__lab">密码 <b>*</b></span>
+          <div class="jc-tv-login__wrap">
+            <BaseIcon name="lock" class="jc-tv-login__ic" size="20px" />
             <input
               ref="passwordInput"
               v-model="form.password"
               :type="showPwd ? 'text' : 'password'"
-              class="gf-tv-input gf-tv-login__input"
+              class="jc-tv-input jc-tv-login__input"
               placeholder="密码"
               autocomplete="current-password"
               data-focusable="true"
@@ -245,7 +245,7 @@ async function handleLogin(): Promise<void> {
             />
             <button
               type="button"
-              class="gf-tv-login__ic-r"
+              class="jc-tv-login__ic-r"
               data-focusable="true"
               tabindex="0"
               aria-label="切换密码可见性"
@@ -256,12 +256,12 @@ async function handleLogin(): Promise<void> {
           </div>
         </div>
 
-        <p v-if="errorMsg" class="gf-tv-login__err" role="alert">{{ errorMsg }}</p>
+        <p v-if="errorMsg" class="jc-tv-login__err" role="alert">{{ errorMsg }}</p>
 
-        <div class="gf-tv-login__actions">
+        <div class="jc-tv-login__actions">
           <button
             type="button"
-            class="gf-tv-btn primary gf-tv-login__submit"
+            class="jc-tv-btn primary jc-tv-login__submit"
             :disabled="loading"
             data-focusable="true"
             tabindex="0"
@@ -272,7 +272,7 @@ async function handleLogin(): Promise<void> {
         </div>
 
         <!-- 注册下线指引 -->
-        <div class="gf-tv-login__note">
+        <div class="jc-tv-login__note">
           <div class="a">注册功能已暂时下线。</div>
           <div class="b">
             如需账号请联系管理员开通；管理员可在后台「系统管理 → 用户管理」创建账号。
@@ -282,9 +282,9 @@ async function handleLogin(): Promise<void> {
 
       <!-- 扫码 / 设备码登录 -->
       <template v-else>
-        <div class="gf-tv-login__qr">
-          <div class="gf-tv-login__qr-tip">用已登录的手机扫码，确认后此设备自动登录</div>
-          <div class="gf-tv-login__qr-box" data-focusable="true" tabindex="0">
+        <div class="jc-tv-login__qr">
+          <div class="jc-tv-login__qr-tip">用已登录的手机扫码，确认后此设备自动登录</div>
+          <div class="jc-tv-login__qr-box" data-focusable="true" tabindex="0">
             <img
               v-if="qr.dataUrl"
               :src="qr.dataUrl"
@@ -292,18 +292,18 @@ async function handleLogin(): Promise<void> {
               width="220"
               height="220"
             />
-            <span v-else class="gf-tv-login__qr-ph">{{
+            <span v-else class="jc-tv-login__qr-ph">{{
               qr.loading ? '生成中…' : '加载二维码…'
             }}</span>
-            <div v-if="qr.status === 'ok'" class="gf-tv-login__qr-ok">已确认，登录中…</div>
+            <div v-if="qr.status === 'ok'" class="jc-tv-login__qr-ok">已确认，登录中…</div>
           </div>
-          <div v-if="qr.userCode" class="gf-tv-login__qr-code">
+          <div v-if="qr.userCode" class="jc-tv-login__qr-code">
             校验码 <span class="uc">{{ qr.userCode }}</span>
           </div>
-          <div class="gf-tv-login__actions">
+          <div class="jc-tv-login__actions">
             <button
               type="button"
-              class="gf-tv-btn cyan"
+              class="jc-tv-btn cyan"
               data-focusable="true"
               tabindex="0"
               @click="startQrLogin"
@@ -316,8 +316,8 @@ async function handleLogin(): Promise<void> {
     </div>
 
     <!-- 右侧: 同屏字母虚拟键盘 (密码登录时显示) -->
-    <div v-if="mode === 'pwd'" class="gf-tv-glass-card gf-tv-login__kbd">
-      <div class="gf-tv-login__kbd-head">
+    <div v-if="mode === 'pwd'" class="jc-tv-glass-card jc-tv-login__kbd">
+      <div class="jc-tv-login__kbd-head">
         <span class="t">软键盘</span>
         <span class="s">输入 {{ kbdTarget === 'password' ? '密码' : '用户名' }}</span>
       </div>
@@ -326,34 +326,34 @@ async function handleLogin(): Promise<void> {
         @update:model-value="onKbdInput"
         @enter="handleLogin"
       />
-      <div class="gf-tv-login__tip">首次部署默认管理员 <b>admin</b> / <b>change_me_admin</b>（登录后请立即改密）</div>
+      <div class="jc-tv-login__tip">首次部署默认管理员 <b>admin</b> / <b>change_me_admin</b>（登录后请立即改密）</div>
     </div>
 
-    <p v-if="redirectTo" class="gf-tv-login__redirect">登录后将跳转至：{{ redirectTo }}</p>
+    <p v-if="redirectTo" class="jc-tv-login__redirect">登录后将跳转至：{{ redirectTo }}</p>
   </div>
 
   <!-- ============ 桌面 / 移动 (原样) ============ -->
-  <div v-else class="flex flex-col gap-[var(--gf-space-6)]">
+  <div v-else class="flex flex-col gap-[var(--jc-space-6)]">
     <div class="text-center">
       <h1
-        class="text-[var(--gf-fs-2xl)] font-[var(--gf-fw-black)] tracking-tight text-brand-gradient"
+        class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tracking-tight text-brand-gradient"
       >
         登录 Jerocine影视
       </h1>
-      <p class="mt-[var(--gf-space-2)] text-secondary text-sm">
+      <p class="mt-[var(--jc-space-2)] text-secondary text-sm">
         登录后可同步观看历史 / 收藏 / 进入后台管理
       </p>
     </div>
 
     <!-- 登录方式切换 -->
     <div
-      class="flex gap-[var(--gf-space-1)] p-[var(--gf-space-1)] bg-elevated rounded-[var(--gf-radius-full)]"
+      class="flex gap-[var(--jc-space-1)] p-[var(--jc-space-1)] bg-elevated rounded-[var(--jc-radius-full)]"
     >
       <button
         type="button"
-        class="flex-1 py-[var(--gf-space-2)] rounded-[var(--gf-radius-full)] text-sm font-[var(--gf-fw-medium)] transition"
+        class="flex-1 py-[var(--jc-space-2)] rounded-[var(--jc-radius-full)] text-sm font-[var(--jc-fw-medium)] transition"
         :class="mode === 'pwd' ? 'text-white' : 'text-secondary'"
-        :style="mode === 'pwd' ? { backgroundImage: 'var(--gf-brand-gradient)' } : {}"
+        :style="mode === 'pwd' ? { backgroundImage: 'var(--jc-brand-gradient)' } : {}"
         data-focusable="true"
         @click="switchMode('pwd')"
       >
@@ -361,9 +361,9 @@ async function handleLogin(): Promise<void> {
       </button>
       <button
         type="button"
-        class="flex-1 py-[var(--gf-space-2)] rounded-[var(--gf-radius-full)] text-sm font-[var(--gf-fw-medium)] transition"
+        class="flex-1 py-[var(--jc-space-2)] rounded-[var(--jc-radius-full)] text-sm font-[var(--jc-fw-medium)] transition"
         :class="mode === 'qr' ? 'text-white' : 'text-secondary'"
-        :style="mode === 'qr' ? { backgroundImage: 'var(--gf-brand-gradient)' } : {}"
+        :style="mode === 'qr' ? { backgroundImage: 'var(--jc-brand-gradient)' } : {}"
         data-focusable="true"
         @click="switchMode('qr')"
       >
@@ -374,19 +374,19 @@ async function handleLogin(): Promise<void> {
     <!-- 扫码登录 -->
     <div
       v-if="mode === 'qr'"
-      class="flex flex-col items-center gap-[var(--gf-space-4)] py-[var(--gf-space-2)]"
+      class="flex flex-col items-center gap-[var(--jc-space-4)] py-[var(--jc-space-2)]"
     >
       <p class="text-secondary text-sm text-center">
         用已登录的手机扫码，确认后此设备自动登录
       </p>
       <div
-        class="relative w-[220px] h-[220px] flex items-center justify-center bg-white rounded-[var(--gf-radius-md)] overflow-hidden"
+        class="relative w-[220px] h-[220px] flex items-center justify-center bg-white rounded-[var(--jc-radius-md)] overflow-hidden"
       >
         <img v-if="qr.dataUrl" :src="qr.dataUrl" alt="登录二维码" width="220" height="220" />
         <span v-else class="text-[#666] text-sm">{{ qr.loading ? '生成中…' : '加载二维码…' }}</span>
         <div
           v-if="qr.status === 'ok'"
-          class="absolute inset-0 bg-black/70 flex items-center justify-center text-[var(--gf-success)] text-base"
+          class="absolute inset-0 bg-black/70 flex items-center justify-center text-[var(--jc-success)] text-base"
         >
           已确认，登录中…
         </div>
@@ -406,21 +406,21 @@ async function handleLogin(): Promise<void> {
 
     <form
       v-if="mode === 'pwd'"
-      class="flex flex-col gap-[var(--gf-space-4)]"
+      class="flex flex-col gap-[var(--jc-space-4)]"
       @submit.prevent="handleLogin"
     >
       <ManageFormField label="用户名" required>
         <div class="relative">
           <BaseIcon
             name="user"
-            class="absolute left-[var(--gf-space-3)] top-1/2 -translate-y-1/2 text-muted"
+            class="absolute left-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted"
             size="18px"
           />
           <input
             ref="usernameInput"
             v-model="form.username"
             type="text"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-full)] pl-[var(--gf-space-10)] pr-[var(--gf-space-4)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-4)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
             placeholder="用户名 / 邮箱"
             autocomplete="username"
             data-focusable="true"
@@ -433,14 +433,14 @@ async function handleLogin(): Promise<void> {
         <div class="relative">
           <BaseIcon
             name="lock"
-            class="absolute left-[var(--gf-space-3)] top-1/2 -translate-y-1/2 text-muted"
+            class="absolute left-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted"
             size="18px"
           />
           <input
             ref="passwordInput"
             v-model="form.password"
             :type="showPwd ? 'text' : 'password'"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-full)] pl-[var(--gf-space-10)] pr-[var(--gf-space-10)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-10)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
             placeholder="密码"
             autocomplete="current-password"
             data-focusable="true"
@@ -449,7 +449,7 @@ async function handleLogin(): Promise<void> {
           />
           <button
             type="button"
-            class="absolute right-[var(--gf-space-3)] top-1/2 -translate-y-1/2 text-muted hover:text-primary"
+            class="absolute right-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted hover:text-primary"
             data-focusable="true"
             aria-label="切换密码可见性"
             @click="showPwd = !showPwd"
@@ -461,7 +461,7 @@ async function handleLogin(): Promise<void> {
 
       <p
         v-if="errorMsg"
-        class="text-xs text-[var(--gf-danger)] text-center"
+        class="text-xs text-[var(--jc-danger)] text-center"
         role="alert"
       >
         {{ errorMsg }}
@@ -474,12 +474,12 @@ async function handleLogin(): Promise<void> {
 
     <!-- 注册指引：公共注册已下线，由管理员后台创建账号 -->
     <div
-      class="rounded-[var(--gf-radius-md)] border border-subtle bg-elevated/60 p-[var(--gf-space-4)] text-center"
+      class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-4)] text-center"
     >
-      <p class="text-secondary text-sm leading-[var(--gf-lh-relaxed)]">
+      <p class="text-secondary text-sm leading-[var(--jc-lh-relaxed)]">
         注册功能已暂时下线。
       </p>
-      <p class="text-muted text-xs mt-[var(--gf-space-2)]">
+      <p class="text-muted text-xs mt-[var(--jc-space-2)]">
         如需账号请联系管理员开通；管理员可在后台「系统管理 → 用户管理」创建账号。
       </p>
     </div>
@@ -499,79 +499,79 @@ async function handleLogin(): Promise<void> {
   在 440px 内完整呈现, 不挤压.
 -->
 <style>
-[data-mode='tv'] .gf-tv-login {
+[data-mode='tv'] .jc-tv-login {
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-5);
+  gap: var(--jc-space-5);
   width: 100%;
 }
 
-[data-mode='tv'] .gf-tv-login__card,
-[data-mode='tv'] .gf-tv-login__kbd {
+[data-mode='tv'] .jc-tv-login__card,
+[data-mode='tv'] .jc-tv-login__kbd {
   padding: 28px 30px;
 }
 
-[data-mode='tv'] .gf-tv-login__logo {
-  font-weight: var(--gf-fw-black);
-  font-size: var(--gf-fs-2xl);
+[data-mode='tv'] .jc-tv-login__logo {
+  font-weight: var(--jc-fw-black);
+  font-size: var(--jc-fs-2xl);
   text-align: center;
 }
 
-[data-mode='tv'] .gf-tv-login__sub {
+[data-mode='tv'] .jc-tv-login__sub {
   text-align: center;
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
   margin-top: 7px;
 }
 
-[data-mode='tv'] .gf-tv-login__tabs {
+[data-mode='tv'] .jc-tv-login__tabs {
   display: flex;
   gap: 5px;
   background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--gf-tv-stroke, rgba(255, 255, 255, 0.13));
-  border-radius: var(--gf-radius-full);
+  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
+  border-radius: var(--jc-radius-full);
   padding: 5px;
   margin: 18px 0 6px;
 }
 
-[data-mode='tv'] .gf-tv-login__tab {
+[data-mode='tv'] .jc-tv-login__tab {
   flex: 1;
   text-align: center;
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
   padding: 11px 0;
-  border-radius: var(--gf-radius-full);
+  border-radius: var(--jc-radius-full);
   cursor: pointer;
-  font-weight: var(--gf-fw-semibold);
+  font-weight: var(--jc-fw-semibold);
   border: 0;
   background: transparent;
 }
 
-[data-mode='tv'] .gf-tv-login__tab.cur {
-  background: var(--gf-brand-gradient);
+[data-mode='tv'] .jc-tv-login__tab.cur {
+  background: var(--jc-brand-gradient);
   color: #fff;
 }
 
-[data-mode='tv'] .gf-tv-login__field {
+[data-mode='tv'] .jc-tv-login__field {
   margin-top: 16px;
 }
 
-[data-mode='tv'] .gf-tv-login__lab {
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-secondary);
+[data-mode='tv'] .jc-tv-login__lab {
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-secondary);
   margin-bottom: 8px;
   display: block;
 }
 
-[data-mode='tv'] .gf-tv-login__lab b {
-  color: var(--gf-danger, #ff6b81);
+[data-mode='tv'] .jc-tv-login__lab b {
+  color: var(--jc-danger, #ff6b81);
 }
 
-[data-mode='tv'] .gf-tv-login__wrap {
+[data-mode='tv'] .jc-tv-login__wrap {
   position: relative;
 }
 
-[data-mode='tv'] .gf-tv-login__ic {
+[data-mode='tv'] .jc-tv-login__ic {
   position: absolute;
   left: 16px;
   top: 50%;
@@ -580,7 +580,7 @@ async function handleLogin(): Promise<void> {
   pointer-events: none;
 }
 
-[data-mode='tv'] .gf-tv-login__ic-r {
+[data-mode='tv'] .jc-tv-login__ic-r {
   position: absolute;
   right: 12px;
   top: 50%;
@@ -595,89 +595,89 @@ async function handleLogin(): Promise<void> {
   justify-content: center;
 }
 
-[data-mode='tv'] .gf-tv-login__input {
+[data-mode='tv'] .jc-tv-login__input {
   padding-left: 46px;
   padding-right: 46px;
 }
 
-[data-mode='tv'] .gf-tv-login__err {
+[data-mode='tv'] .jc-tv-login__err {
   margin-top: 14px;
   text-align: center;
-  color: var(--gf-danger);
-  font-size: var(--gf-fs-sm);
+  color: var(--jc-danger);
+  font-size: var(--jc-fs-sm);
 }
 
-[data-mode='tv'] .gf-tv-login__actions {
+[data-mode='tv'] .jc-tv-login__actions {
   margin-top: 18px;
 }
 
-[data-mode='tv'] .gf-tv-login__submit {
+[data-mode='tv'] .jc-tv-login__submit {
   width: 100%;
   justify-content: center;
 }
 
-[data-mode='tv'] .gf-tv-login__note {
+[data-mode='tv'] .jc-tv-login__note {
   margin-top: 18px;
-  border-radius: var(--gf-radius-md);
-  border: 1px solid var(--gf-tv-stroke, rgba(255, 255, 255, 0.13));
+  border-radius: var(--jc-radius-md);
+  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
   background: rgba(0, 0, 0, 0.25);
   padding: 14px 16px;
   text-align: center;
 }
 
-[data-mode='tv'] .gf-tv-login__note .a {
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
+[data-mode='tv'] .jc-tv-login__note .a {
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
 }
 
-[data-mode='tv'] .gf-tv-login__note .b {
-  color: var(--gf-text-muted);
-  font-size: var(--gf-fs-xs);
+[data-mode='tv'] .jc-tv-login__note .b {
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-xs);
   margin-top: 6px;
 }
 
-[data-mode='tv'] .gf-tv-login__kbd-head {
+[data-mode='tv'] .jc-tv-login__kbd-head {
   display: flex;
   align-items: baseline;
   gap: 8px;
   margin-bottom: 12px;
 }
 
-[data-mode='tv'] .gf-tv-login__kbd-head .t {
-  font-size: var(--gf-fs-base);
-  font-weight: var(--gf-fw-bold);
+[data-mode='tv'] .jc-tv-login__kbd-head .t {
+  font-size: var(--jc-fs-base);
+  font-weight: var(--jc-fw-bold);
 }
 
-[data-mode='tv'] .gf-tv-login__kbd-head .s {
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-brand-cyan);
+[data-mode='tv'] .jc-tv-login__kbd-head .s {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-brand-cyan);
 }
 
-[data-mode='tv'] .gf-tv-login__tip {
+[data-mode='tv'] .jc-tv-login__tip {
   margin-top: 14px;
   text-align: center;
-  color: var(--gf-text-muted);
-  font-size: var(--gf-fs-xs);
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-xs);
 }
 
-[data-mode='tv'] .gf-tv-login__tip b {
-  color: var(--gf-brand-cyan);
-  font-weight: var(--gf-fw-semibold);
+[data-mode='tv'] .jc-tv-login__tip b {
+  color: var(--jc-brand-cyan);
+  font-weight: var(--jc-fw-semibold);
 }
 
 /* 扫码区 */
-[data-mode='tv'] .gf-tv-login__qr {
+[data-mode='tv'] .jc-tv-login__qr {
   margin-top: 16px;
   text-align: center;
 }
 
-[data-mode='tv'] .gf-tv-login__qr-tip {
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
+[data-mode='tv'] .jc-tv-login__qr-tip {
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
   margin-bottom: 12px;
 }
 
-[data-mode='tv'] .gf-tv-login__qr-box {
+[data-mode='tv'] .jc-tv-login__qr-box {
   width: 220px;
   height: 220px;
   margin: 0 auto;
@@ -690,39 +690,39 @@ async function handleLogin(): Promise<void> {
   overflow: hidden;
 }
 
-[data-mode='tv'] .gf-tv-login__qr-ph {
+[data-mode='tv'] .jc-tv-login__qr-ph {
   color: #666;
-  font-size: var(--gf-fs-sm);
+  font-size: var(--jc-fs-sm);
 }
 
-[data-mode='tv'] .gf-tv-login__qr-ok {
+[data-mode='tv'] .jc-tv-login__qr-ok {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.7);
-  color: var(--gf-success);
-  font-size: var(--gf-fs-base);
+  color: var(--jc-success);
+  font-size: var(--jc-fs-base);
 }
 
-[data-mode='tv'] .gf-tv-login__qr-code {
+[data-mode='tv'] .jc-tv-login__qr-code {
   margin-top: 12px;
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-xs);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-xs);
 }
 
-[data-mode='tv'] .gf-tv-login__qr-code .uc {
-  color: var(--gf-brand-cyan);
-  font-weight: var(--gf-fw-black);
+[data-mode='tv'] .jc-tv-login__qr-code .uc {
+  color: var(--jc-brand-cyan);
+  font-weight: var(--jc-fw-black);
   letter-spacing: 0.3em;
   font-family: monospace;
-  font-size: var(--gf-fs-base);
+  font-size: var(--jc-fs-base);
 }
 
-[data-mode='tv'] .gf-tv-login__redirect {
+[data-mode='tv'] .jc-tv-login__redirect {
   text-align: center;
-  color: var(--gf-text-muted);
-  font-size: var(--gf-fs-xs);
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-xs);
 }
 </style>

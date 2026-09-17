@@ -12,7 +12,7 @@ import { useUserStore } from '@/stores/user'
  * - 4 tab: 首页 / 分类 / 历史 / 我的
  * - "我的" 未登录 → /login; 登录 → /favorites (我的收藏); 原先误指 /history 与"历史"撞车
  * - active 态用品牌渐变图标 + 文字
- * - tabbar 高度 = --gf-tabbar-height; PublicLayout 给 main 加同高 padding-bottom
+ * - tabbar 高度 = --jc-tabbar-height; PublicLayout 给 main 加同高 padding-bottom
  *   避免内容被遮挡
  */
 
@@ -71,72 +71,72 @@ function isActive(t: TabItem): boolean {
 </script>
 
 <template>
-  <nav class="gf-tabbar md:hidden" aria-label="底部导航">
+  <nav class="jc-tabbar md:hidden" aria-label="底部导航">
     <RouterLink
       v-for="t in tabs"
       :key="t.key"
       :to="t.to"
-      class="gf-tabbar__item"
-      :class="isActive(t) ? 'gf-tabbar__item--active' : ''"
+      class="jc-tabbar__item"
+      :class="isActive(t) ? 'jc-tabbar__item--active' : ''"
       data-focusable="true"
       tabindex="0"
     >
-      <BaseIcon :name="t.icon" size="22px" class="gf-tabbar__icon" />
-      <span class="gf-tabbar__label">{{ t.label }}</span>
+      <BaseIcon :name="t.icon" size="22px" class="jc-tabbar__icon" />
+      <span class="jc-tabbar__label">{{ t.label }}</span>
     </RouterLink>
   </nav>
 </template>
 
 <style scoped>
-.gf-tabbar {
+.jc-tabbar {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   display: flex;
-  height: var(--gf-tabbar-height, 56px);
+  height: var(--jc-tabbar-height, 56px);
   background-color: rgba(11, 11, 15, 0.96);
   backdrop-filter: blur(12px);
-  border-top: 1px solid var(--gf-border-subtle);
+  border-top: 1px solid var(--jc-border-subtle);
   z-index: 80;
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 /* PC / 平板 (≥768px) 强制隐藏底部 tabbar, 兜底 unocss md:hidden */
 @media (min-width: 768px) {
-  .gf-tabbar {
+  .jc-tabbar {
     display: none !important;
   }
 }
 
-.gf-tabbar__item {
+.jc-tabbar__item {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
   text-decoration: none;
-  font-size: var(--gf-fs-xs);
+  font-size: var(--jc-fs-xs);
   outline: none;
-  transition: color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-tabbar__item:focus-visible {
+.jc-tabbar__item:focus-visible {
   background-color: rgba(255, 255, 255, 0.05);
 }
 
-.gf-tabbar__item--active {
-  color: var(--gf-brand-cyan);
+.jc-tabbar__item--active {
+  color: var(--jc-brand-cyan);
 }
-.gf-tabbar__item--active .gf-tabbar__icon {
+.jc-tabbar__item--active .jc-tabbar__icon {
   filter: drop-shadow(0 0 4px rgba(74, 209, 229, 0.5));
 }
 
-.gf-tabbar__icon {
+.jc-tabbar__icon {
   display: block;
 }
-.gf-tabbar__label {
+.jc-tabbar__label {
   line-height: 1;
 }
 </style>

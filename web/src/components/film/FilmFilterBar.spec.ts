@@ -34,7 +34,7 @@ describe('FilmFilterBar', () => {
 
   it('渲染每个 group 的所有 option', () => {
     const w = mount(FilmFilterBar, { props: { groups } })
-    const chips = w.findAll('.gf-filter-chip, button')
+    const chips = w.findAll('.jc-filter-chip, button')
     // 至少 3 + 3 = 6 个 chip
     expect(chips.length).toBeGreaterThanOrEqual(6)
   })

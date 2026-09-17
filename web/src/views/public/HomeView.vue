@@ -264,16 +264,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="gf-home flex flex-col">
+  <div class="jc-home flex flex-col">
     <!-- 加载骨架 -->
     <template v-if="state.loading">
-      <div class="gf-home__hero-skeleton container-page pt-[var(--gf-space-6)]">
+      <div class="jc-home__hero-skeleton container-page pt-[var(--jc-space-6)]">
         <BaseSkeleton shape="rect" width="100%" height="45vh" />
       </div>
-      <div class="container-page py-[var(--gf-space-8)] flex flex-col gap-[var(--gf-space-6)]">
-        <div v-for="i in 3" :key="i" class="flex flex-col gap-[var(--gf-space-3)]">
+      <div class="container-page py-[var(--jc-space-8)] flex flex-col gap-[var(--jc-space-6)]">
+        <div v-for="i in 3" :key="i" class="flex flex-col gap-[var(--jc-space-3)]">
           <BaseSkeleton shape="text" width="160px" height="24px" />
-          <div class="gf-home__row-skeleton">
+          <div class="jc-home__row-skeleton">
             <BaseSkeleton
               v-for="j in 7"
               :key="j"
@@ -288,7 +288,7 @@ onBeforeUnmount(() => {
 
     <!-- 错误态 -->
     <template v-else-if="state.errored">
-      <div class="container-page py-[var(--gf-space-12)]">
+      <div class="container-page py-[var(--jc-space-12)]">
         <BaseEmpty
           title="加载失败"
           description="无法获取首页数据，请稍后重试或检查网络。"
@@ -305,20 +305,20 @@ onBeforeUnmount(() => {
     <!-- 正常 -->
     <template v-else-if="state.data">
       <!-- ============================== TV: 雷鸟卡片式仪表盘 ============================== -->
-      <div v-if="isTV" class="gf-home-tv container-page">
+      <div v-if="isTV" class="jc-home-tv container-page">
         <!-- ① 顶部: 近期历史(3 片同款影片卡显当前集数) + 推荐轮播, 各占一半 -->
-        <div class="gf-home-tv__top" :class="{ 'no-recent': !tvRecent.length }">
-          <section v-if="tvRecent.length" class="gf-tv-panel z1">
-            <div class="gf-tv-sec">
+        <div class="jc-home-tv__top" :class="{ 'no-recent': !tvRecent.length }">
+          <section v-if="tvRecent.length" class="jc-tv-panel z1">
+            <div class="jc-tv-sec">
               <span class="t">⏱ 近期历史</span>
-              <RouterLink class="gf-tv-more" to="/history" data-focusable="true" tabindex="0">全部</RouterLink>
+              <RouterLink class="jc-tv-more" to="/history" data-focusable="true" tabindex="0">全部</RouterLink>
             </div>
-            <div class="gf-tv-p3">
+            <div class="jc-tv-p3">
               <RouterLink
                 v-for="rec in tvRecent"
                 :key="'rec-' + rec.id"
                 :to="buildPlayLink(rec)"
-                class="gf-tv-card"
+                class="jc-tv-card"
                 data-focusable="true"
                 tabindex="0"
                 :aria-label="`继续观看 ${rec.name}`"
@@ -337,7 +337,7 @@ onBeforeUnmount(() => {
           <RouterLink
             v-if="tvHero"
             :to="tvHeroTo"
-            class="gf-tv-carousel gf-home-tv__hero"
+            class="jc-tv-carousel jc-home-tv__hero"
             data-focusable="true"
             tabindex="0"
             :aria-label="`为你推荐 ${tvHero.name}`"
@@ -346,59 +346,59 @@ onBeforeUnmount(() => {
             <BaseImage
               v-if="tvHero.cover || tvHero.poster"
               :key="tvHero.mid ?? tvHero.name"
-              class="gf-home-tv__hero-bg"
+              class="jc-home-tv__hero-bg"
               :src="tvHero.cover || tvHero.poster || ''"
               :alt="tvHero.name"
               ratio=""
               fit="cover"
               :eager="true"
             />
-            <span class="gf-home-tv__hero-shade" aria-hidden="true" />
+            <span class="jc-home-tv__hero-shade" aria-hidden="true" />
             <span class="tag">为你推荐</span>
-            <div class="gf-home-tv__hero-text">
+            <div class="jc-home-tv__hero-text">
               <h3>{{ tvHero.name }}</h3>
               <p v-if="tvHeroSub">{{ tvHeroSub }}</p>
             </div>
-            <div v-if="tvHeroDots > 1" class="gf-tv-dots" aria-hidden="true">
+            <div v-if="tvHeroDots > 1" class="jc-tv-dots" aria-hidden="true">
               <i v-for="d in tvHeroDots" :key="d" :class="{ on: d - 1 === tvHeroActive }" />
             </div>
           </RouterLink>
         </div>
 
         <!-- ② 功能卡(大彩色卡, 左文字右图标 — 对齐设计稿; 继续观看入口已并入顶部"近期历史") -->
-        <div class="gf-tv-funcs">
-          <RouterLink class="gf-tv-fc fc-2" to="/favorites" data-focusable="true" tabindex="0">
+        <div class="jc-tv-funcs">
+          <RouterLink class="jc-tv-fc fc-2" to="/favorites" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="heart" size="42px" /></span><span class="ti">历史 · 收藏</span><span class="su">记录您的热爱</span>
           </RouterLink>
-          <RouterLink class="gf-tv-fc fc-3" :to="tvFirstPid ? { path: '/filmClassify', query: { Pid: tvFirstPid } } : '/filmClassify'" data-focusable="true" tabindex="0">
+          <RouterLink class="jc-tv-fc fc-3" :to="tvFirstPid ? { path: '/filmClassify', query: { Pid: tvFirstPid } } : '/filmClassify'" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="film" size="42px" /></span><span class="ti">分类</span><span class="su">剧/影/综/漫</span>
           </RouterLink>
-          <RouterLink class="gf-tv-fc fc-4" to="/search" data-focusable="true" tabindex="0">
+          <RouterLink class="jc-tv-fc fc-4" to="/search" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="search" size="42px" /></span><span class="ti">搜索</span><span class="su">找片更快</span>
           </RouterLink>
-          <RouterLink class="gf-tv-fc fc-1" :to="isLoggedIn ? { path: '/settings', query: { group: 'account' } } : { path: '/login' }" data-focusable="true" tabindex="0">
+          <RouterLink class="jc-tv-fc fc-1" :to="isLoggedIn ? { path: '/settings', query: { group: 'account' } } : { path: '/login' }" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="user" size="42px" /></span><span class="ti">我的</span><span class="su">{{ isLoggedIn ? '账号 · 退出' : '点击登录' }}</span>
           </RouterLink>
-          <RouterLink class="gf-tv-fc fc-5" to="/settings" data-focusable="true" tabindex="0">
+          <RouterLink class="jc-tv-fc fc-5" to="/settings" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="settings" size="42px" /></span><span class="ti">设置</span><span class="su">画质/过滤</span>
           </RouterLink>
         </div>
 
         <!-- ④ 专区面板: 热门榜单 + 最新上架 (每块≤3 张 FilmCard) -->
-        <div class="gf-tv-duo">
-          <section v-if="tvHotPanel.length" class="gf-tv-panel z1">
-            <div class="gf-tv-sec">
+        <div class="jc-tv-duo">
+          <section v-if="tvHotPanel.length" class="jc-tv-panel z1">
+            <div class="jc-tv-sec">
               <span class="t">🔥 热门榜单</span>
               <span class="s">最热抢先看</span>
               <RouterLink
                 v-if="tvFirstPid"
-                class="gf-tv-more"
+                class="jc-tv-more"
                 :to="{ path: '/filmClassify', query: { Pid: tvFirstPid } }"
                 data-focusable="true"
                 tabindex="0"
               >更多内容</RouterLink>
             </div>
-            <div class="gf-tv-p3">
+            <div class="jc-tv-p3">
               <FilmCard
                 v-for="item in tvHotPanel"
                 :key="'hot-' + item.mid"
@@ -407,18 +407,18 @@ onBeforeUnmount(() => {
               />
             </div>
           </section>
-          <section v-if="tvLatestPanel.length" class="gf-tv-panel z2">
-            <div class="gf-tv-sec">
+          <section v-if="tvLatestPanel.length" class="jc-tv-panel z2">
+            <div class="jc-tv-sec">
               <span class="t">🆕 最新上架</span>
               <span class="s">每日更新</span>
               <RouterLink
-                class="gf-tv-more"
+                class="jc-tv-more"
                 :to="{ path: '/filmClassify', query: { Pid: tvLatestPid } }"
                 data-focusable="true"
                 tabindex="0"
               >查看全部</RouterLink>
             </div>
-            <div class="gf-tv-p3">
+            <div class="jc-tv-p3">
               <FilmCard
                 v-for="item in tvLatestPanel"
                 :key="'new-' + item.mid"
@@ -430,24 +430,24 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- ⑥ 各分类专区: 名称 + 该分类 top3 影片 (替代纯文字分类卡) -->
-        <div class="gf-tv-duo gf-home-tv__cat-panels">
+        <div class="jc-tv-duo jc-home-tv__cat-panels">
           <section
             v-for="(p, idx) in tvCatPanels"
             :key="'catp-' + p.id"
-            class="gf-tv-panel"
+            class="jc-tv-panel"
             :class="idx % 2 === 0 ? 'z1' : 'z3'"
           >
-            <div class="gf-tv-sec">
+            <div class="jc-tv-sec">
               <span class="t">{{ p.name }}</span>
               <span class="s">{{ catSubtitle(p.name) }}</span>
               <RouterLink
-                class="gf-tv-more"
+                class="jc-tv-more"
                 :to="{ path: '/filmClassify', query: { Pid: p.id } }"
                 data-focusable="true"
                 tabindex="0"
               >更多</RouterLink>
             </div>
-            <div class="gf-tv-p3">
+            <div class="jc-tv-p3">
               <FilmCard
                 v-for="item in p.items"
                 :key="'catp-' + p.id + '-' + item.mid"
@@ -470,16 +470,16 @@ onBeforeUnmount(() => {
         <!-- 轮播 Banner (后台配置优先, 无配置回退影片派生) -->
         <div
           v-if="heroSlides.length"
-          class="container-page pt-[var(--gf-space-6)]"
+          class="container-page pt-[var(--jc-space-6)]"
         >
           <HeroCarousel
             :items="heroSlides"
-            class="rounded-[var(--gf-radius-lg)] overflow-hidden"
+            class="rounded-[var(--jc-radius-lg)] overflow-hidden"
           />
         </div>
 
         <!-- 热门榜单 + 主推荐 rows 同处 container-page, 宽度/间距与分类完全一致 -->
-        <div class="gf-home__rows container-page">
+        <div class="jc-home__rows container-page">
           <!-- 继续观看 (置顶: 有观看历史时显示) -->
           <ContinueWatchingRow />
           <FilmRow
@@ -504,14 +504,14 @@ onBeforeUnmount(() => {
         <!-- 猜你喜欢瀑布流 (bilibili 风格底部推荐) -->
         <section
           v-if="recommendGrid.length"
-          class="gf-home__recommend container-page"
+          class="jc-home__recommend container-page"
           aria-label="猜你喜欢"
         >
-          <header class="gf-home__recommend-header">
-            <h2 class="gf-home__recommend-title">猜你喜欢</h2>
-            <span class="gf-home__recommend-tip">基于浏览数据混合推荐</span>
+          <header class="jc-home__recommend-header">
+            <h2 class="jc-home__recommend-title">猜你喜欢</h2>
+            <span class="jc-home__recommend-tip">基于浏览数据混合推荐</span>
           </header>
-          <div class="gf-home__recommend-grid">
+          <div class="jc-home__recommend-grid">
             <FilmCard
               v-for="(item, idx) in limitToRows(recommendGrid)"
               :key="String(item.mid ?? idx) + '-' + idx"
@@ -526,207 +526,207 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.gf-home {
+.jc-home {
   width: 100%;
 }
 
-.gf-home__hero-skeleton {
+.jc-home__hero-skeleton {
   width: 100%;
 }
 
-.gf-home__row-skeleton {
+.jc-home__row-skeleton {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
 }
 
 /* 猜你喜欢瀑布流 */
-.gf-home__recommend {
-  padding-block: var(--gf-space-8) var(--gf-space-16);
+.jc-home__recommend {
+  padding-block: var(--jc-space-8) var(--jc-space-16);
 }
 
-.gf-home__recommend-header {
+.jc-home__recommend-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: var(--gf-space-5);
-  gap: var(--gf-space-3);
+  margin-bottom: var(--jc-space-5);
+  gap: var(--jc-space-3);
 }
 
-.gf-home__recommend-title {
-  font-size: var(--gf-fs-xl);
-  font-weight: var(--gf-fw-bold);
-  color: var(--gf-text-primary);
+.jc-home__recommend-title {
+  font-size: var(--jc-fs-xl);
+  font-weight: var(--jc-fw-bold);
+  color: var(--jc-text-primary);
 }
 
-.gf-home__recommend-tip {
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
+.jc-home__recommend-tip {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
 }
 
-.gf-home__recommend-grid {
+.jc-home__recommend-grid {
   display: grid;
   /* 列数/间距取自 theme.css 的全站统一阶梯（与上方横滚行同列数: 3/4/5/6） */
-  grid-template-columns: repeat(var(--gf-list-cols), minmax(0, 1fr));
-  gap: var(--gf-list-gap);
+  grid-template-columns: repeat(var(--jc-list-cols), minmax(0, 1fr));
+  gap: var(--jc-list-gap);
 }
 
 @media (min-width: 768px) {
-  .gf-home__row-skeleton {
+  .jc-home__row-skeleton {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 @media (min-width: 1024px) {
-  .gf-home__row-skeleton {
+  .jc-home__row-skeleton {
     grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 }
 
 /* 主内容 rows 容器 (单列流式, 不再有 aside) */
-.gf-home__rows {
+.jc-home__rows {
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-6);
-  padding-block: var(--gf-space-6) var(--gf-space-8);
+  gap: var(--jc-space-6);
+  padding-block: var(--jc-space-6) var(--jc-space-8);
 }
 
 @media (min-width: 768px) {
-  .gf-home__rows {
-    gap: var(--gf-space-10);
+  .jc-home__rows {
+    gap: var(--jc-space-10);
   }
 }
 
 /* ========== 热门榜单模块 (Netflix Top 10 / 腾讯视频热播榜风格) ========== */
-.gf-home__ranking {
-  padding-block: var(--gf-space-6) var(--gf-space-4);
+.jc-home__ranking {
+  padding-block: var(--jc-space-6) var(--jc-space-4);
 }
 
-.gf-home__section-header {
+.jc-home__section-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: var(--gf-space-4);
-  gap: var(--gf-space-3);
+  margin-bottom: var(--jc-space-4);
+  gap: var(--jc-space-3);
 }
 
-.gf-home__section-title {
-  font-size: var(--gf-fs-xl);
-  font-weight: var(--gf-fw-bold);
-  color: var(--gf-text-primary);
+.jc-home__section-title {
+  font-size: var(--jc-fs-xl);
+  font-weight: var(--jc-fw-bold);
+  color: var(--jc-text-primary);
   display: inline-flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   margin: 0;
 }
 
-.gf-home__section-flame {
+.jc-home__section-flame {
   font-size: 1.1em;
 }
 
-.gf-home__section-tip {
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
+.jc-home__section-tip {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
 }
 
-.gf-home__ranking-scroll {
+.jc-home__ranking-scroll {
   display: flex;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: thin;
-  padding-block: var(--gf-space-2);
-  margin-inline: calc(-1 * var(--gf-gutter-mobile));
-  padding-inline: var(--gf-gutter-mobile);
+  padding-block: var(--jc-space-2);
+  margin-inline: calc(-1 * var(--jc-gutter-mobile));
+  padding-inline: var(--jc-gutter-mobile);
 }
 @media (min-width: 768px) {
-  .gf-home__ranking-scroll {
-    gap: var(--gf-space-4);
-    margin-inline: calc(-1 * var(--gf-gutter-tablet));
-    padding-inline: var(--gf-gutter-tablet);
+  .jc-home__ranking-scroll {
+    gap: var(--jc-space-4);
+    margin-inline: calc(-1 * var(--jc-gutter-tablet));
+    padding-inline: var(--jc-gutter-tablet);
   }
 }
 @media (min-width: 1024px) {
-  .gf-home__ranking-scroll {
+  .jc-home__ranking-scroll {
     margin-inline: 0;
     padding-inline: 0;
   }
 }
 
-.gf-home__ranking-scroll::-webkit-scrollbar {
+.jc-home__ranking-scroll::-webkit-scrollbar {
   height: 4px;
 }
-.gf-home__ranking-scroll::-webkit-scrollbar-thumb {
+.jc-home__ranking-scroll::-webkit-scrollbar-thumb {
   background-color: rgba(255, 255, 255, 0.18);
   border-radius: 2px;
 }
 
-.gf-home__ranking-item {
+.jc-home__ranking-item {
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: auto 84px 1fr;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   align-items: center;
   width: 280px;
-  padding: var(--gf-space-2);
-  background-color: var(--gf-bg-surface);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-lg);
+  padding: var(--jc-space-2);
+  background-color: var(--jc-bg-surface);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-lg);
   text-decoration: none;
   scroll-snap-align: start;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-spring);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-spring);
   outline: none;
 }
-.gf-home__ranking-item:hover {
-  background-color: var(--gf-bg-elevated);
+.jc-home__ranking-item:hover {
+  background-color: var(--jc-bg-elevated);
   transform: translateY(-2px);
 }
-.gf-home__ranking-item:focus-visible {
-  box-shadow: var(--gf-shadow-focus-ring);
+.jc-home__ranking-item:focus-visible {
+  box-shadow: var(--jc-shadow-focus-ring);
 }
 @media (min-width: 768px) {
-  .gf-home__ranking-item {
+  .jc-home__ranking-item {
     width: 320px;
   }
 }
 
-.gf-home__ranking-rank {
-  font-family: var(--gf-font-display);
+.jc-home__ranking-rank {
+  font-family: var(--jc-font-display);
   font-size: 48px;
   font-weight: 900;
   line-height: 1;
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
   text-align: center;
   min-width: 48px;
   font-style: italic;
   letter-spacing: -0.04em;
 }
-.gf-home__ranking-rank--top {
+.jc-home__ranking-rank--top {
   color: transparent;
-  background-image: var(--gf-brand-gradient);
+  background-image: var(--jc-brand-gradient);
   background-clip: text;
   -webkit-background-clip: text;
 }
 
-.gf-home__ranking-poster {
+.jc-home__ranking-poster {
   width: 84px;
-  border-radius: var(--gf-radius-md);
+  border-radius: var(--jc-radius-md);
   overflow: hidden;
   flex-shrink: 0;
 }
 
-.gf-home__ranking-info {
+.jc-home__ranking-info {
   display: flex;
   flex-direction: column;
   min-width: 0;
   gap: 4px;
 }
-.gf-home__ranking-name {
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-semibold);
-  color: var(--gf-text-primary);
+.jc-home__ranking-name {
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-semibold);
+  color: var(--jc-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -734,18 +734,18 @@ onBeforeUnmount(() => {
   -webkit-box-orient: vertical;
   margin: 0;
 }
-.gf-home__ranking-meta {
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
+.jc-home__ranking-meta {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   margin: 0;
 }
 
-.gf-home__hot-remarks {
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
+.jc-home__hot-remarks {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -754,49 +754,49 @@ onBeforeUnmount(() => {
 
 <style>
 /* TV 模式下不显示侧栏（屏幕宽度足够，但旁栏会破坏 10-foot UI 节奏） */
-[data-mode='tv'] .gf-home__aside {
+[data-mode='tv'] .jc-home__aside {
   display: none;
 }
-[data-mode='tv'] .gf-home__main {
-  padding-inline: var(--gf-tv-safe);
+[data-mode='tv'] .jc-home__main {
+  padding-inline: var(--jc-tv-safe);
 }
 
 /* ============================================================
  * TV 雷鸟仪表盘布局胶水 (chrome 卡片样式来自全局 tv-cards.css, 此处只补容器/栅格)
  * 全部 [data-mode='tv'] 作用域, 不影响桌面/移动。
  * ============================================================ */
-[data-mode='tv'] .gf-home-tv.container-page {
-  padding-inline: var(--gf-tv-safe);
+[data-mode='tv'] .jc-home-tv.container-page {
+  padding-inline: var(--jc-tv-safe);
 }
-[data-mode='tv'] .gf-home-tv {
+[data-mode='tv'] .jc-home-tv {
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-6);
-  padding-block: var(--gf-space-4) var(--gf-space-12);
+  gap: var(--jc-space-6);
+  padding-block: var(--jc-space-4) var(--jc-space-12);
 }
 
 /* ContinueWatchingRow 自带 container-page 内缩, 在 TV 仪表盘里抵消其与本容器的双重内缩,
- * 让横滚区与下方卡片左右对齐 (其内部 edge 已用 var(--gf-tv-safe) 留白) */
-[data-mode='tv'] .gf-home-tv > .gf-continue {
-  margin-inline: calc(-1 * var(--gf-tv-safe));
+ * 让横滚区与下方卡片左右对齐 (其内部 edge 已用 var(--jc-tv-safe) 留白) */
+[data-mode='tv'] .jc-home-tv > .jc-continue {
+  margin-inline: calc(-1 * var(--jc-tv-safe));
 }
 
 /* ① 顶部: 近期历史 + 推荐轮播 并排(对齐设计稿); 无历史时轮播占满 */
-[data-mode='tv'] .gf-home-tv__top {
+[data-mode='tv'] .jc-home-tv__top {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--gf-space-4);
+  gap: var(--jc-space-4);
   align-items: stretch;
 }
-[data-mode='tv'] .gf-home-tv__top.no-recent {
+[data-mode='tv'] .jc-home-tv__top.no-recent {
   grid-template-columns: 1fr;
 }
 
 /* 推荐轮播: 海报作背景铺满, 文字浮在上层 */
-[data-mode='tv'] .gf-home-tv__hero {
+[data-mode='tv'] .jc-home-tv__hero {
   min-height: clamp(180px, 22vw, 280px);
 }
-[data-mode='tv'] .gf-home-tv__hero-bg {
+[data-mode='tv'] .jc-home-tv__hero-bg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -804,7 +804,7 @@ onBeforeUnmount(() => {
   z-index: 0;
   pointer-events: none;
 }
-[data-mode='tv'] .gf-home-tv__hero-shade {
+[data-mode='tv'] .jc-home-tv__hero-shade {
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -816,46 +816,46 @@ onBeforeUnmount(() => {
     rgba(0, 0, 0, 0.08) 100%
   );
 }
-[data-mode='tv'] .gf-home-tv__hero .tag,
-[data-mode='tv'] .gf-home-tv__hero-text,
-[data-mode='tv'] .gf-home-tv__hero .gf-tv-dots {
+[data-mode='tv'] .jc-home-tv__hero .tag,
+[data-mode='tv'] .jc-home-tv__hero-text,
+[data-mode='tv'] .jc-home-tv__hero .jc-tv-dots {
   position: relative;
   z-index: 1;
 }
-[data-mode='tv'] .gf-home-tv__hero-text {
+[data-mode='tv'] .jc-home-tv__hero-text {
   max-width: 70%;
 }
 
 /* ⑤ 电视剧/电影大卡 + 热播排行 */
-[data-mode='tv'] .gf-home-tv__row5 {
+[data-mode='tv'] .jc-home-tv__row5 {
   display: grid;
   grid-template-columns: 1fr 1fr 2fr;
-  gap: var(--gf-space-4);
+  gap: var(--jc-space-4);
 }
 
 /* 排行列表项: 行内可聚焦, 焦点环靠 theme.css */
-[data-mode='tv'] .gf-home-tv__rk-item {
+[data-mode='tv'] .jc-home-tv__rk-item {
   cursor: pointer;
   border-radius: 8px;
   outline: none;
 }
 
 /* ⑥ 底部分类卡: 4 列 (与 demo tv-funcs repeat(4) 一致) */
-[data-mode='tv'] .gf-home-tv__cats {
+[data-mode='tv'] .jc-home-tv__cats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: var(--gf-space-4);
+  gap: var(--jc-space-4);
 }
 
 /* 窄屏 TV (真机 WebView dpr 压缩) 降列, 保证可读 */
 @media (max-width: 1100px) {
-  [data-mode='tv'] .gf-home-tv__row5 {
+  [data-mode='tv'] .jc-home-tv__row5 {
     grid-template-columns: 1fr 1fr;
   }
-  [data-mode='tv'] .gf-home-tv__row5 .gf-tv-rank {
+  [data-mode='tv'] .jc-home-tv__row5 .jc-tv-rank {
     grid-column: 1 / -1;
   }
-  [data-mode='tv'] .gf-home-tv__cats {
+  [data-mode='tv'] .jc-home-tv__cats {
     grid-template-columns: repeat(3, 1fr);
   }
 }

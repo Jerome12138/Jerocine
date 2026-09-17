@@ -75,7 +75,7 @@ test.describe('管理端 文件库', () => {
 
   test('文件网格展示', async ({ page }) => {
     // FileGalleryView 渲染卡片
-    const cards = page.locator('article').filter({ has: page.locator('img, .gf-base-image') })
+    const cards = page.locator('article').filter({ has: page.locator('img, .jc-base-image') })
     await expect(cards.first()).toBeVisible({ timeout: 6_000 })
   })
 

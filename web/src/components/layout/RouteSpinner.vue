@@ -60,19 +60,19 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="gf-spinner-fade">
+    <Transition name="jc-spinner-fade">
       <div
         v-if="visible"
-        class="gf-route-spinner"
+        class="jc-route-spinner"
         role="status"
         aria-live="polite"
         aria-label="加载中"
       >
-        <div class="gf-route-spinner__box">
+        <div class="jc-route-spinner__box">
           <span
             v-for="i in 12"
             :key="i"
-            class="gf-route-spinner__bar"
+            class="jc-route-spinner__bar"
             :style="{
               transform: `rotate(${(i - 1) * 30}deg) translate(0, -10px)`,
               animationDelay: `${-((12 - i) + 1) / 12}s`
@@ -85,7 +85,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.gf-route-spinner {
+.jc-route-spinner {
   position: fixed;
   inset: 0;
   display: flex;
@@ -95,7 +95,7 @@ onBeforeUnmount(() => {
   z-index: 950;
 }
 
-.gf-route-spinner__box {
+.jc-route-spinner__box {
   position: relative;
   width: 60px;
   height: 60px;
@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
 }
 
 /* 12 根辐条围一圈, 每根 opacity 按 delay 错峰渐变. iOS 标准 spinner 样式 */
-.gf-route-spinner__bar {
+.jc-route-spinner__bar {
   position: absolute;
   left: calc(50% - 1px);
   top: calc(50% - 9px);
@@ -120,20 +120,20 @@ onBeforeUnmount(() => {
   border-radius: 1px;
   transform-origin: 1px 10px;
   opacity: 0.12;
-  animation: gf-ios-spin 1s linear infinite;
+  animation: jc-ios-spin 1s linear infinite;
 }
 
-@keyframes gf-ios-spin {
+@keyframes jc-ios-spin {
   0% { opacity: 1; }
   100% { opacity: 0.12; }
 }
 
-.gf-spinner-fade-enter-active,
-.gf-spinner-fade-leave-active {
-  transition: opacity var(--gf-dur-fast, 180ms) var(--gf-ease-standard, ease);
+.jc-spinner-fade-enter-active,
+.jc-spinner-fade-leave-active {
+  transition: opacity var(--jc-dur-fast, 180ms) var(--jc-ease-standard, ease);
 }
-.gf-spinner-fade-enter-from,
-.gf-spinner-fade-leave-to {
+.jc-spinner-fade-enter-from,
+.jc-spinner-fade-leave-to {
   opacity: 0;
 }
 </style>

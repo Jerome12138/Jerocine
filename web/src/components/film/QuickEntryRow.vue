@@ -23,89 +23,89 @@ const entries: QuickEntry[] = [
 </script>
 
 <template>
-  <nav class="gf-quick container-page" aria-label="快捷入口">
-    <div class="gf-quick__row" data-focus-zone="quick">
+  <nav class="jc-quick container-page" aria-label="快捷入口">
+    <div class="jc-quick__row" data-focus-zone="quick">
       <RouterLink
         v-for="e in entries"
         :key="e.key"
         :to="e.to"
-        class="gf-quick__item"
+        class="jc-quick__item"
         data-focusable="true"
         tabindex="0"
         :aria-label="e.label"
       >
-        <span class="gf-quick__icon">
+        <span class="jc-quick__icon">
           <BaseIcon :name="e.icon" size="42%" />
         </span>
-        <span class="gf-quick__label">{{ e.label }}</span>
+        <span class="jc-quick__label">{{ e.label }}</span>
       </RouterLink>
     </div>
   </nav>
 </template>
 
 <style scoped>
-.gf-quick {
-  padding-block: var(--gf-space-4);
+.jc-quick {
+  padding-block: var(--jc-space-4);
 }
-.gf-quick__row {
+.jc-quick__row {
   display: flex;
   gap: clamp(16px, 3vw, 48px);
   justify-content: flex-start;
   padding-block: 12px;
 }
-.gf-quick__item {
+.jc-quick__item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   text-decoration: none;
-  color: var(--gf-text-secondary);
+  color: var(--jc-text-secondary);
   outline: none;
 }
-.gf-quick__icon {
-  width: var(--gf-tv-quick-size, 96px);
-  height: var(--gf-tv-quick-size, 96px);
+.jc-quick__icon {
+  width: var(--jc-tv-quick-size, 96px);
+  height: var(--jc-tv-quick-size, 96px);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--gf-radius-full);
-  background-color: var(--gf-tv-glass-soft, rgba(30, 30, 40, 0.7));
-  border: 1px solid var(--gf-tv-stroke, rgba(255, 255, 255, 0.13));
-  color: var(--gf-brand-cyan);
+  border-radius: var(--jc-radius-full);
+  background-color: var(--jc-tv-glass-soft, rgba(30, 30, 40, 0.7));
+  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
+  color: var(--jc-brand-cyan);
   transition:
-    transform var(--gf-dur-base) var(--gf-ease-spring),
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    box-shadow var(--gf-dur-base) var(--gf-ease-standard);
+    transform var(--jc-dur-base) var(--jc-ease-spring),
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    box-shadow var(--jc-dur-base) var(--jc-ease-standard);
 }
-.gf-quick__label {
-  font-size: var(--gf-fs-base);
-  color: var(--gf-text-secondary);
+.jc-quick__label {
+  font-size: var(--jc-fs-base);
+  color: var(--jc-text-secondary);
 }
 </style>
 
 <style>
 /* TV 焦点: 仅放大圆形图标 + 青光晕, 文字静止变亮(整项不放大) */
-[data-mode='tv'] .gf-quick__item[data-focusable='true']:focus,
-[data-mode='tv'] .gf-quick__item[data-focusable='true']:focus-visible {
+[data-mode='tv'] .jc-quick__item[data-focusable='true']:focus,
+[data-mode='tv'] .jc-quick__item[data-focusable='true']:focus-visible {
   outline: none;
   transform: none;
   box-shadow: none;
 }
-[data-mode='tv'] .gf-quick__item[data-focusable='true']:focus .gf-quick__icon,
-[data-mode='tv'] .gf-quick__item[data-focusable='true']:focus-visible .gf-quick__icon {
-  transform: scale(var(--gf-tv-focus-scale-sm, 1.1));
-  box-shadow: var(--gf-tv-focus-ring);
-  background-color: var(--gf-tv-selected-bg, rgba(74, 209, 229, 0.14));
+[data-mode='tv'] .jc-quick__item[data-focusable='true']:focus .jc-quick__icon,
+[data-mode='tv'] .jc-quick__item[data-focusable='true']:focus-visible .jc-quick__icon {
+  transform: scale(var(--jc-tv-focus-scale-sm, 1.1));
+  box-shadow: var(--jc-tv-focus-ring);
+  background-color: var(--jc-tv-selected-bg, rgba(74, 209, 229, 0.14));
   z-index: 5;
 }
-[data-mode='tv'] .gf-quick__item[data-focusable='true']:focus .gf-quick__label,
-[data-mode='tv'] .gf-quick__item[data-focusable='true']:focus-visible .gf-quick__label {
-  color: var(--gf-text-primary);
+[data-mode='tv'] .jc-quick__item[data-focusable='true']:focus .jc-quick__label,
+[data-mode='tv'] .jc-quick__item[data-focusable='true']:focus-visible .jc-quick__label {
+  color: var(--jc-text-primary);
 }
-[data-mode='tv'] .gf-quick.container-page {
-  padding-inline: var(--gf-tv-safe);
+[data-mode='tv'] .jc-quick.container-page {
+  padding-inline: var(--jc-tv-safe);
 }
-[data-mode='tv'] .gf-quick__label {
-  font-size: var(--gf-fs-md);
+[data-mode='tv'] .jc-quick__label {
+  font-size: var(--jc-fs-md);
 }
 </style>

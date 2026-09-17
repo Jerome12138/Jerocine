@@ -146,7 +146,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--gf-space-4)]">
+  <div class="flex flex-col gap-[var(--jc-space-4)]">
     <ManageTable
       :columns="columns"
       :rows="rows"
@@ -156,9 +156,9 @@ onMounted(async () => {
       actions-width="120px"
     >
       <template #toolbar>
-        <div class="flex items-center gap-[var(--gf-space-3)] flex-wrap">
-          <h2 class="text-lg font-[var(--gf-fw-semibold)]">采集失败台账</h2>
-          <div class="flex gap-[var(--gf-space-1)]">
+        <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
+          <h2 class="text-lg font-[var(--jc-fw-semibold)]">采集失败台账</h2>
+          <div class="flex gap-[var(--jc-space-1)]">
             <BaseButton
               v-for="t in STATUS_TABS"
               :key="t.value"
@@ -171,7 +171,7 @@ onMounted(async () => {
             </BaseButton>
           </div>
         </div>
-        <div class="flex gap-[var(--gf-space-2)] flex-wrap">
+        <div class="flex gap-[var(--jc-space-2)] flex-wrap">
           <BaseButton variant="ghost" size="sm" @click="load">
             <BaseIcon name="refresh" size="16px" /> 刷新
           </BaseButton>
@@ -203,7 +203,7 @@ onMounted(async () => {
       </template>
 
       <template #actions="{ row }">
-        <div class="flex gap-[var(--gf-space-1)] justify-end">
+        <div class="flex gap-[var(--jc-space-1)] justify-end">
           <BaseButton
             v-if="row.status === 0"
             variant="ghost"

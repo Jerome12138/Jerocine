@@ -24,20 +24,20 @@ function clear(): void {
 </script>
 
 <template>
-  <div class="gf-tv-kbd" role="group" aria-label="字母键盘">
+  <div class="jc-tv-kbd" role="group" aria-label="字母键盘">
     <button
       v-for="k in KEYS"
       :key="k"
       type="button"
-      class="gf-tv-key"
+      class="jc-tv-key"
       data-focusable="true"
       tabindex="0"
       @click="press(k)"
     >
       {{ k }}
     </button>
-    <button type="button" class="gf-tv-key gf-tv-key--wide" data-focusable="true" tabindex="0" @click="backspace">⌫ 退格</button>
-    <button type="button" class="gf-tv-key gf-tv-key--wide" data-focusable="true" tabindex="0" @click="press(' ')">␣ 空格</button>
-    <button type="button" class="gf-tv-key gf-tv-key--wide" data-focusable="true" tabindex="0" @click="clear">✕ 清空</button>
+    <button type="button" class="jc-tv-key jc-tv-key--wide" data-focusable="true" tabindex="0" @click="backspace">⌫ 退格</button>
+    <button type="button" class="jc-tv-key jc-tv-key--wide" data-focusable="true" tabindex="0" @click="press(' ')">␣ 空格</button>
+    <button type="button" class="jc-tv-key jc-tv-key--wide" data-focusable="true" tabindex="0" @click="clear">✕ 清空</button>
   </div>
 </template>

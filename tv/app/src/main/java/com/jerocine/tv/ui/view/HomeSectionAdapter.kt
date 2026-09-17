@@ -109,9 +109,9 @@ class HomeSectionAdapter(
         fun bind(panel: HomeSectionItem) {
             root.setBackgroundResource(
                 when (panel.tone) {
-                    HomePanelTone.CYAN -> R.drawable.gf_tv_panel_cyan
-                    HomePanelTone.AMBER -> R.drawable.gf_tv_panel_amber
-                    HomePanelTone.PURPLE -> R.drawable.gf_tv_panel_purple
+                    HomePanelTone.CYAN -> R.drawable.jc_tv_panel_cyan
+                    HomePanelTone.AMBER -> R.drawable.jc_tv_panel_amber
+                    HomePanelTone.PURPLE -> R.drawable.jc_tv_panel_purple
                 },
             )
             title.text = panel.title

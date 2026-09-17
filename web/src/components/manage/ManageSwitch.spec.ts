@@ -32,6 +32,6 @@ describe('ManageSwitch', () => {
 
   it('开/关 视觉: knob class on/off', () => {
     const w = mount(ManageSwitch, { props: { modelValue: true } })
-    expect(w.find('.gf-switch__knob').classes()).toContain('gf-switch__knob--on')
+    expect(w.find('.jc-switch__knob').classes()).toContain('jc-switch__knob--on')
   })
 })

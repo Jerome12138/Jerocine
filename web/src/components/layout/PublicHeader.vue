@@ -385,16 +385,16 @@ watch(
 
 <template>
   <header
-    class="gf-header"
-    :class="scrolled ? 'gf-header--scrolled' : 'gf-header--top'"
+    class="jc-header"
+    :class="scrolled ? 'jc-header--scrolled' : 'jc-header--top'"
     :data-route="route.name as string | undefined"
   >
-    <div class="gf-header__inner container-page flex items-center gap-[var(--gf-space-4)]">
+    <div class="jc-header__inner container-page flex items-center gap-[var(--jc-space-4)]">
       <!-- 汉堡菜单: 仅 mobile. TV 改用顶部频道 Tab 导航(P1-b), 不再用抽屉(焦点恢复耦合根因);
            desktop md+ 隐. 移动端复用 mobileMenuOpen 抽屉. -->
       <button
         v-show="isMobile"
-        class="gf-header__icon-btn"
+        class="jc-header__icon-btn"
         type="button"
         aria-label="打开菜单"
         data-focusable="true"
@@ -407,7 +407,7 @@ watch(
       <!-- 站名 / Logo -->
       <RouterLink
         to="/index"
-        class="gf-header__brand flex items-center"
+        class="jc-header__brand flex items-center"
         :aria-label="siteName"
         data-focusable="true"
         tabindex="0"
@@ -417,10 +417,10 @@ watch(
       </RouterLink>
 
       <!-- 主导航（桌面 / TV） -->
-      <nav class="gf-header__nav hidden md:flex items-center" data-focus-zone="tab">
+      <nav class="jc-header__nav hidden md:flex items-center" data-focus-zone="tab">
         <RouterLink
           to="/index"
-          class="gf-header__nav-link"
+          class="jc-header__nav-link"
           :class="route.name === 'home' ? 'is-active' : ''"
           data-focusable="true"
           tabindex="0"
@@ -430,23 +430,23 @@ watch(
         <div
           v-for="nav in topNav"
           :key="nav.id"
-          class="gf-header__nav-item"
+          class="jc-header__nav-item"
         >
           <RouterLink
             :to="{ path: '/filmClassify', query: { Pid: nav.id } }"
-            class="gf-header__nav-link"
+            class="jc-header__nav-link"
             :class="isNavActive(nav.id) ? 'is-active' : ''"
             data-focusable="true"
           >
             {{ nav.name }}
           </RouterLink>
           <!-- 二级子分类悬停下拉 -->
-          <div v-if="nav.children?.length" class="gf-header__subnav">
+          <div v-if="nav.children?.length" class="jc-header__subnav">
             <RouterLink
               v-for="sub in nav.children"
               :key="sub.id"
               :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
-              class="gf-header__subnav-link"
+              class="jc-header__subnav-link"
               data-focusable="true"
             >
               {{ sub.name }}
@@ -459,26 +459,26 @@ watch(
       <div class="flex-1 hidden md:block" />
 
       <!-- 桌面搜索框 (常驻, bilibili 风格居中, 宽 480-520px) -->
-      <div class="gf-header__search-wrap hidden md:flex">
+      <div class="jc-header__search-wrap hidden md:flex">
         <form
-          class="gf-header__search flex items-center w-full"
+          class="jc-header__search flex items-center w-full"
           role="search"
           @submit.prevent="submitSearch"
         >
-          <BaseIcon name="search" size="18px" class="gf-header__search-icon" />
+          <BaseIcon name="search" size="18px" class="jc-header__search-icon" />
           <input
             v-model="keyword"
             type="search"
             placeholder="搜索影片、剧集、动漫…"
             aria-label="搜索"
-            class="gf-header__search-input"
+            class="jc-header__search-input"
             data-focusable="true"
             tabindex="0"
             autocomplete="off"
             role="combobox"
             :aria-expanded="suggestOpen"
-            aria-controls="gf-search-suggest"
-            :aria-activedescendant="suggestIndex >= 0 ? `gf-search-opt-${suggestIndex}` : undefined"
+            aria-controls="jc-search-suggest"
+            :aria-activedescendant="suggestIndex >= 0 ? `jc-search-opt-${suggestIndex}` : undefined"
             @focus="!isTV && openSuggest()"
             @blur="deferCloseSuggest"
             @click="openSuggest"
@@ -486,70 +486,70 @@ watch(
           />
         </form>
         <!-- 建议下拉: 热词 + 历史 -->
-        <Transition name="gf-suggest">
+        <Transition name="jc-suggest">
           <div
             v-if="suggestOpen && (hotKeywords.length || searchHistory.length)"
-            id="gf-search-suggest"
-            class="gf-header__suggest"
+            id="jc-search-suggest"
+            class="jc-header__suggest"
             role="listbox"
             aria-label="搜索建议"
             @mousedown.prevent
           >
-            <div v-if="hotKeywords.length" class="gf-header__suggest-section">
-              <div class="gf-header__suggest-title">
+            <div v-if="hotKeywords.length" class="jc-header__suggest-section">
+              <div class="jc-header__suggest-title">
                 <BaseIcon name="fire" size="14px" />
                 <span>热门搜索</span>
               </div>
-              <ul class="gf-header__suggest-list gf-header__suggest-list--hot">
+              <ul class="jc-header__suggest-list jc-header__suggest-list--hot">
                 <li
                   v-for="(kw, i) in hotKeywords"
-                  :id="`gf-search-opt-${i}`"
+                  :id="`jc-search-opt-${i}`"
                   :key="`hot-${kw}`"
                   role="option"
                   :aria-selected="suggestIndex === i"
-                  class="gf-header__suggest-chip"
+                  class="jc-header__suggest-chip"
                   :class="[
-                    i < 3 ? 'gf-header__suggest-chip--hot' : '',
-                    suggestIndex === i ? 'gf-header__suggest-chip--active' : ''
+                    i < 3 ? 'jc-header__suggest-chip--hot' : '',
+                    suggestIndex === i ? 'jc-header__suggest-chip--active' : ''
                   ]"
                   @click="pickSuggest(kw)"
                   @mouseenter="suggestIndex = i"
                 >
-                  <span v-if="i < 3" class="gf-header__suggest-rank">{{ i + 1 }}</span>
+                  <span v-if="i < 3" class="jc-header__suggest-rank">{{ i + 1 }}</span>
                   {{ kw }}
                 </li>
               </ul>
             </div>
-            <div v-if="searchHistory.length" class="gf-header__suggest-section">
-              <div class="gf-header__suggest-title">
+            <div v-if="searchHistory.length" class="jc-header__suggest-section">
+              <div class="jc-header__suggest-title">
                 <BaseIcon name="clock" size="14px" />
                 <span>搜索历史</span>
                 <button
                   type="button"
-                  class="gf-header__suggest-clear"
+                  class="jc-header__suggest-clear"
                   aria-label="清空搜索历史"
                   @click="clearSearchHistory()"
                 >
                   清空
                 </button>
               </div>
-              <ul class="gf-header__suggest-list">
+              <ul class="jc-header__suggest-list">
                 <li
                   v-for="(kw, i) in searchHistory"
-                  :id="`gf-search-opt-${hotKeywords.length + i}`"
+                  :id="`jc-search-opt-${hotKeywords.length + i}`"
                   :key="`his-${kw}`"
                   role="option"
                   :aria-selected="suggestIndex === hotKeywords.length + i"
-                  class="gf-header__suggest-row"
-                  :class="suggestIndex === hotKeywords.length + i ? 'gf-header__suggest-row--active' : ''"
+                  class="jc-header__suggest-row"
+                  :class="suggestIndex === hotKeywords.length + i ? 'jc-header__suggest-row--active' : ''"
                   @click="pickSuggest(kw)"
                   @mouseenter="suggestIndex = hotKeywords.length + i"
                 >
-                  <BaseIcon name="clock" size="14px" class="gf-header__suggest-row-icon" />
-                  <span class="gf-header__suggest-row-text">{{ kw }}</span>
+                  <BaseIcon name="clock" size="14px" class="jc-header__suggest-row-icon" />
+                  <span class="jc-header__suggest-row-text">{{ kw }}</span>
                   <button
                     type="button"
-                    class="gf-header__suggest-row-x"
+                    class="jc-header__suggest-row-x"
                     :aria-label="`删除历史 ${kw}`"
                     @click="removeHistoryItem(kw, $event)"
                   >
@@ -570,7 +570,7 @@ watch(
 
       <!-- 移动端搜索图标 -->
       <button
-        class="gf-header__icon-btn md:!hidden"
+        class="jc-header__icon-btn md:!hidden"
         type="button"
         aria-label="搜索"
         data-focusable="true"
@@ -585,12 +585,12 @@ watch(
       <!-- 历史按钮 + 浮层. TV 也用同一个下拉浮层 (之前 TV 走 BaseDialog 出现大居中弹窗
            按钮无法 D-pad 聚焦, 用户明确要求复用普通下拉) -->
       <div
-        class="gf-header__history relative hidden md:block"
+        class="jc-header__history relative hidden md:block"
         @mouseenter="!isTV && openHistory()"
         @mouseleave="!isTV && deferCloseHistory()"
       >
         <button
-          class="gf-header__icon-btn"
+          class="jc-header__icon-btn"
           type="button"
           aria-label="观看历史"
           aria-haspopup="menu"
@@ -601,32 +601,32 @@ watch(
         >
           <BaseIcon name="history" size="22px" />
         </button>
-        <Transition name="gf-fade">
+        <Transition name="jc-fade">
           <div
             v-if="historyOpen"
-            class="gf-header__history-panel"
+            class="jc-header__history-panel"
             role="menu"
             @mouseenter="!isTV && openHistory()"
             @mouseleave="!isTV && deferCloseHistory()"
           >
-            <div class="gf-header__history-title">
+            <div class="jc-header__history-title">
               <span>最近观看</span>
               <RouterLink
                 to="/history"
-                class="text-link text-[var(--gf-fs-sm)]"
+                class="text-link text-[var(--jc-fs-sm)]"
                 @click="historyOpen = false"
               >
                 全部
               </RouterLink>
             </div>
-            <ul v-if="historyTop.length" class="gf-header__history-list">
+            <ul v-if="historyTop.length" class="jc-header__history-list">
               <li
                 v-for="item in historyTop"
                 :key="item.id + item.source + item.episode"
               >
                 <button
                   type="button"
-                  class="gf-header__history-item"
+                  class="jc-header__history-item"
                   data-focusable="true"
                   @click="goHistoryItem(item)"
                 >
@@ -635,16 +635,16 @@ watch(
                     :src="item.picture"
                     :alt="item.name"
                     loading="lazy"
-                    class="gf-header__history-thumb"
+                    class="jc-header__history-thumb"
                   />
-                  <span class="gf-header__history-meta">
-                    <span class="gf-header__history-name">{{ item.name }}</span>
-                    <span class="gf-header__history-ep">第 {{ item.episode || '1' }} 集</span>
+                  <span class="jc-header__history-meta">
+                    <span class="jc-header__history-name">{{ item.name }}</span>
+                    <span class="jc-header__history-ep">第 {{ item.episode || '1' }} 集</span>
                   </span>
                 </button>
               </li>
             </ul>
-            <div v-else class="gf-header__history-empty">
+            <div v-else class="jc-header__history-empty">
               暂无观看记录
             </div>
           </div>
@@ -654,7 +654,7 @@ watch(
       <!-- 用户菜单：未登录显示"登录"按钮，已登录显示头像 dropdown -->
       <button
         v-if="!isLoggedIn"
-        class="gf-header__login-btn"
+        class="jc-header__login-btn"
         type="button"
         data-focusable="true"
         tabindex="0"
@@ -666,12 +666,12 @@ watch(
 
       <div
         v-else
-        class="gf-header__user relative"
+        class="jc-header__user relative"
         @mouseenter="!isTV && openUserMenu()"
         @mouseleave="!isTV && deferCloseUserMenu()"
       >
         <button
-          class="gf-header__user-btn"
+          class="jc-header__user-btn"
           type="button"
           data-focusable="true"
           tabindex="0"
@@ -682,29 +682,29 @@ watch(
           <img
             :src="userAvatar"
             :alt="displayName"
-            class="gf-header__avatar"
+            class="jc-header__avatar"
           />
           <!-- 用户名 / 下拉箭头: 1280(xl) 起才显示 —— 1024~1279 时顶栏没那么多空间,
                显示用户名会把右侧挤爆(表现为头像被裁), 该区间只留头像。 -->
-          <span class="gf-header__username hidden xl:inline">
+          <span class="jc-header__username hidden xl:inline">
             {{ displayName }}
           </span>
           <BaseIcon name="chevron-down" size="14px" class="hidden xl:inline" />
         </button>
 
-        <Transition name="gf-fade">
+        <Transition name="jc-fade">
           <div
             v-if="userMenuOpen"
-            class="gf-header__user-panel"
+            class="jc-header__user-panel"
             role="menu"
             @mouseenter="openUserMenu"
             @mouseleave="deferCloseUserMenu"
           >
-            <div class="gf-header__user-header">
-              <img :src="userAvatar" :alt="displayName" class="gf-header__user-avatar" />
-              <div class="gf-header__user-info">
-                <div class="gf-header__user-name">{{ displayName }}</div>
-                <div class="gf-header__user-role">
+            <div class="jc-header__user-header">
+              <img :src="userAvatar" :alt="displayName" class="jc-header__user-avatar" />
+              <div class="jc-header__user-info">
+                <div class="jc-header__user-name">{{ displayName }}</div>
+                <div class="jc-header__user-role">
                   {{ isAdmin ? '管理员' : '普通用户' }}
                 </div>
               </div>
@@ -712,7 +712,7 @@ watch(
 
             <RouterLink
               to="/history"
-              class="gf-header__user-item"
+              class="jc-header__user-item"
               data-focusable="true"
               tabindex="0"
               @click="closeUserMenu"
@@ -723,7 +723,7 @@ watch(
 
             <RouterLink
               to="/favorites"
-              class="gf-header__user-item"
+              class="jc-header__user-item"
               data-focusable="true"
               tabindex="0"
               @click="closeUserMenu"
@@ -735,7 +735,7 @@ watch(
             <RouterLink
               v-if="isAdmin"
               to="/manage/index"
-              class="gf-header__user-item"
+              class="jc-header__user-item"
               data-focusable="true"
               tabindex="0"
               @click="closeUserMenu"
@@ -746,7 +746,7 @@ watch(
 
             <button
               type="button"
-              class="gf-header__user-item"
+              class="jc-header__user-item"
               data-focusable="true"
               tabindex="0"
               @click="openChangePwd"
@@ -757,7 +757,7 @@ watch(
 
             <button
               type="button"
-              class="gf-header__user-item gf-header__user-item--danger"
+              class="jc-header__user-item jc-header__user-item--danger"
               data-focusable="true"
               tabindex="0"
               @click="handleLogout"
@@ -771,20 +771,20 @@ watch(
     </div>
 
     <!-- 移动端搜索条（展开） -->
-    <Transition name="gf-slide-down">
+    <Transition name="jc-slide-down">
       <form
         v-if="mobileSearchOpen"
-        class="gf-header__mobile-search md:!hidden"
+        class="jc-header__mobile-search md:!hidden"
         role="search"
         @submit.prevent="submitSearch"
       >
-        <BaseIcon name="search" size="18px" class="gf-header__search-icon" />
+        <BaseIcon name="search" size="18px" class="jc-header__search-icon" />
         <input
           v-model="keyword"
           type="search"
           placeholder="搜索影片、剧集、动漫…"
           aria-label="搜索"
-          class="gf-header__search-input"
+          class="jc-header__search-input"
           data-focusable="true"
           tabindex="0"
           autofocus
@@ -799,27 +799,27 @@ watch(
        但看不见任何东西. 现在依赖 v-if=mobileMenuOpen 控制可见, 浏览器 desktop 模式没汉堡按钮
        (PublicHeader 汉堡 v-show=isMobile||isTV), 自然不会被打开. -->
   <Teleport to="body">
-    <Transition name="gf-mobile-overlay-fade">
+    <Transition name="jc-mobile-overlay-fade">
       <div
         v-if="mobileMenuOpen"
-        class="gf-header__mobile-overlay"
+        class="jc-header__mobile-overlay"
         @click="closeMobile"
       />
     </Transition>
-    <Transition name="gf-slide-left">
+    <Transition name="jc-slide-left">
       <aside
         v-if="mobileMenuOpen"
-        class="gf-mnav"
+        class="jc-mnav"
         aria-label="主导航"
         role="dialog"
         aria-modal="true"
       >
         <!-- 顶部 brand + X -->
-        <div class="gf-mnav__head">
-          <span class="gf-mnav__brand">{{ siteName }}</span>
+        <div class="jc-mnav__head">
+          <span class="jc-mnav__brand">{{ siteName }}</span>
           <button
             type="button"
-            class="gf-mnav__close"
+            class="jc-mnav__close"
             aria-label="关闭菜单"
             data-focusable="true"
             @click="closeMobile"
@@ -829,39 +829,39 @@ watch(
         </div>
 
         <!-- 菜单 (内部滚) -->
-        <nav class="gf-mnav__body">
+        <nav class="jc-mnav__body">
           <!-- 浏览 -->
-          <div class="gf-mnav__group">
-            <div class="gf-mnav__group-title">浏览</div>
+          <div class="jc-mnav__group">
+            <div class="jc-mnav__group-title">浏览</div>
             <RouterLink
               to="/index"
-              class="gf-mnav__link" data-focusable="true"
+              class="jc-mnav__link" data-focusable="true"
               :class="route.name === 'home' ? 'is-active' : ''"
               @click="closeMobile"
             >
-              <BaseIcon name="home" size="16px" class="gf-mnav__link-icon" />
+              <BaseIcon name="home" size="16px" class="jc-mnav__link-icon" />
               <span>首页</span>
             </RouterLink>
             <!-- 分类(两级): 父级链到分类首页, 子级链到筛选库 -->
             <template v-for="nav in topNav" :key="nav.id">
               <RouterLink
                 :to="{ path: '/filmClassify', query: { Pid: nav.id } }"
-                class="gf-mnav__link" data-focusable="true"
+                class="jc-mnav__link" data-focusable="true"
                 :class="isNavActive(nav.id) ? 'is-active' : ''"
                 @click="closeMobile"
               >
-                <BaseIcon name="film" size="16px" class="gf-mnav__link-icon" />
+                <BaseIcon name="film" size="16px" class="jc-mnav__link-icon" />
                 <span>{{ nav.name }}</span>
               </RouterLink>
               <div
                 v-if="nav.children?.length"
-                class="flex flex-wrap gap-[var(--gf-space-2)] pl-[var(--gf-space-8)] pb-[var(--gf-space-2)]"
+                class="flex flex-wrap gap-[var(--jc-space-2)] pl-[var(--jc-space-8)] pb-[var(--jc-space-2)]"
               >
                 <RouterLink
                   v-for="sub in nav.children"
                   :key="sub.id"
                   :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
-                  class="text-xs text-secondary bg-elevated px-[10px] py-[4px] rounded-[var(--gf-radius-full)] hover:text-primary no-underline"
+                  class="text-xs text-secondary bg-elevated px-[10px] py-[4px] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
                   data-focusable="true"
                   @click="closeMobile"
                 >
@@ -872,56 +872,56 @@ watch(
           </div>
 
           <!-- 个人 -->
-          <div class="gf-mnav__group">
-            <div class="gf-mnav__group-title">个人</div>
-            <RouterLink to="/history" class="gf-mnav__link" data-focusable="true" @click="closeMobile">
-              <BaseIcon name="history" size="16px" class="gf-mnav__link-icon" />
+          <div class="jc-mnav__group">
+            <div class="jc-mnav__group-title">个人</div>
+            <RouterLink to="/history" class="jc-mnav__link" data-focusable="true" @click="closeMobile">
+              <BaseIcon name="history" size="16px" class="jc-mnav__link-icon" />
               <span>观看历史</span>
             </RouterLink>
-            <RouterLink to="/favorites" class="gf-mnav__link" data-focusable="true" @click="closeMobile">
-              <BaseIcon name="heart" size="16px" class="gf-mnav__link-icon" />
+            <RouterLink to="/favorites" class="jc-mnav__link" data-focusable="true" @click="closeMobile">
+              <BaseIcon name="heart" size="16px" class="jc-mnav__link-icon" />
               <span>我的收藏</span>
             </RouterLink>
           </div>
 
           <!-- 管理 (仅 admin) -->
-          <div v-if="isLoggedIn && isAdmin" class="gf-mnav__group">
-            <div class="gf-mnav__group-title">管理</div>
-            <RouterLink to="/manage/index" class="gf-mnav__link" data-focusable="true" @click="closeMobile">
-              <BaseIcon name="settings" size="16px" class="gf-mnav__link-icon" />
+          <div v-if="isLoggedIn && isAdmin" class="jc-mnav__group">
+            <div class="jc-mnav__group-title">管理</div>
+            <RouterLink to="/manage/index" class="jc-mnav__link" data-focusable="true" @click="closeMobile">
+              <BaseIcon name="settings" size="16px" class="jc-mnav__link-icon" />
               <span>后台管理</span>
             </RouterLink>
           </div>
 
           <!-- 账户 -->
-          <div class="gf-mnav__group">
-            <div class="gf-mnav__group-title">账户</div>
+          <div class="jc-mnav__group">
+            <div class="jc-mnav__group-title">账户</div>
             <button
               v-if="isLoggedIn"
               type="button"
-              class="gf-mnav__link" data-focusable="true"
+              class="jc-mnav__link" data-focusable="true"
               @click="closeMobile(); openChangePwd()"
             >
-              <BaseIcon name="lock" size="16px" class="gf-mnav__link-icon" />
+              <BaseIcon name="lock" size="16px" class="jc-mnav__link-icon" />
               <span>修改密码</span>
             </button>
             <RouterLink
               v-if="!isLoggedIn"
               :to="{ path: '/login', query: { redirect: route.fullPath } }"
-              class="gf-mnav__link" data-focusable="true"
+              class="jc-mnav__link" data-focusable="true"
               @click="closeMobile"
             >
-              <BaseIcon name="user" size="16px" class="gf-mnav__link-icon" />
+              <BaseIcon name="user" size="16px" class="jc-mnav__link-icon" />
               <span>登录</span>
             </RouterLink>
             <button
               v-else
               type="button"
-              class="gf-mnav__link gf-mnav__link--danger"
+              class="jc-mnav__link jc-mnav__link--danger"
               data-focusable="true"
               @click="closeMobile(); handleLogout()"
             >
-              <BaseIcon name="logout" size="16px" class="gf-mnav__link-icon" />
+              <BaseIcon name="logout" size="16px" class="jc-mnav__link-icon" />
               <span>退出登录</span>
             </button>
           </div>
@@ -932,7 +932,7 @@ watch(
 
 <!-- 修改密码弹窗 (公开端用户菜单触发) -->
   <BaseDialog v-model:visible="pwdDialogOpen" title="修改密码">
-    <div class="flex flex-col gap-[var(--gf-space-4)]">
+    <div class="flex flex-col gap-[var(--jc-space-4)]">
       <ManageFormField label="原密码" required>
         <ManageInput v-model="pwdForm.password" type="password" placeholder="原密码" />
       </ManageFormField>
@@ -946,7 +946,7 @@ watch(
           placeholder="再次输入新密码"
         />
       </ManageFormField>
-      <p v-if="pwdError" class="text-xs text-[var(--gf-danger)]">
+      <p v-if="pwdError" class="text-xs text-[var(--jc-danger)]">
         {{ pwdError }}
       </p>
     </div>
@@ -960,19 +960,19 @@ watch(
 </template>
 
 <style scoped>
-.gf-header {
+.jc-header {
   position: sticky;
   top: 0;
-  z-index: var(--gf-z-header);
+  z-index: var(--jc-z-header);
   width: 100%;
   transition:
-    background-color var(--gf-dur-base) var(--gf-ease-standard),
-    backdrop-filter var(--gf-dur-base) var(--gf-ease-standard),
-    border-color var(--gf-dur-base) var(--gf-ease-standard);
+    background-color var(--jc-dur-base) var(--jc-ease-standard),
+    backdrop-filter var(--jc-dur-base) var(--jc-ease-standard),
+    border-color var(--jc-dur-base) var(--jc-ease-standard);
   border-bottom: 1px solid transparent;
 }
 
-.gf-header--top {
+.jc-header--top {
   background-color: rgba(11, 11, 15, 0);
   background-image: linear-gradient(
     180deg,
@@ -981,32 +981,32 @@ watch(
   );
 }
 
-.gf-header--scrolled {
-  background-color: var(--gf-bg-header-scrolled);
+.jc-header--scrolled {
+  background-color: var(--jc-bg-header-scrolled);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
-  border-bottom-color: var(--gf-border-subtle);
+  border-bottom-color: var(--jc-border-subtle);
 }
 
-.gf-header__inner {
+.jc-header__inner {
   height: 56px;
 }
 
 @media (min-width: 768px) {
-  .gf-header__inner {
+  .jc-header__inner {
     height: 64px;
   }
 }
 
-.gf-header__brand {
-  font-family: var(--gf-font-display);
-  font-size: var(--gf-fs-xl);
-  font-weight: var(--gf-fw-black);
-  letter-spacing: var(--gf-tracking-tight);
+.jc-header__brand {
+  font-family: var(--jc-font-display);
+  font-size: var(--jc-fs-xl);
+  font-weight: var(--jc-fw-black);
+  letter-spacing: var(--jc-tracking-tight);
   text-decoration: none;
   white-space: nowrap;
   outline: none;
-  border-radius: var(--gf-radius-md);
+  border-radius: var(--jc-radius-md);
   padding: 4px 6px;
   margin-left: -6px;
 }
@@ -1016,21 +1016,21 @@ watch(
    [data-mode='tv'] 的覆盖规则; 两处同权重时会退化成"谁在后面谁赢"。
    放进同一张样式表并让 TV 规则靠后, 结果就只由特异性决定, 与编译顺序无关。 */
 
-.gf-header__nav-item {
+.jc-header__nav-item {
   position: relative;
 }
 /* 二级子分类悬停下拉 (桌面) */
-.gf-header__subnav {
+.jc-header__subnav {
   position: absolute;
   top: 100%;
   left: 0;
   min-width: 220px;
   margin-top: 4px;
-  padding: var(--gf-space-2);
-  background-color: var(--gf-bg-elevated);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-md);
-  box-shadow: var(--gf-shadow-card);
+  padding: var(--jc-space-2);
+  background-color: var(--jc-bg-elevated);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-md);
+  box-shadow: var(--jc-shadow-card);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px;
@@ -1038,75 +1038,75 @@ watch(
   visibility: hidden;
   transform: translateY(4px);
   transition:
-    opacity var(--gf-dur-fast) var(--gf-ease-standard),
-    transform var(--gf-dur-fast) var(--gf-ease-standard),
-    visibility var(--gf-dur-fast) var(--gf-ease-standard);
+    opacity var(--jc-dur-fast) var(--jc-ease-standard),
+    transform var(--jc-dur-fast) var(--jc-ease-standard),
+    visibility var(--jc-dur-fast) var(--jc-ease-standard);
   z-index: 50;
 }
-.gf-header__nav-item:hover .gf-header__subnav,
-.gf-header__nav-item:focus-within .gf-header__subnav {
+.jc-header__nav-item:hover .jc-header__subnav,
+.jc-header__nav-item:focus-within .jc-header__subnav {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
 }
-.gf-header__subnav-link {
+.jc-header__subnav-link {
   white-space: nowrap;
   padding: 6px 10px;
-  border-radius: var(--gf-radius-sm);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
+  border-radius: var(--jc-radius-sm);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
   text-decoration: none;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-header__subnav-link:hover,
-.gf-header__subnav-link:focus-visible {
+.jc-header__subnav-link:hover,
+.jc-header__subnav-link:focus-visible {
   background-color: rgba(255, 255, 255, 0.08);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   outline: none;
 }
 
-.gf-header__nav-link {
+.jc-header__nav-link {
   position: relative;
   display: inline-flex;
   align-items: center;
   height: 40px;
   padding: 0 4px;
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
   text-decoration: none;
   white-space: nowrap;
-  transition: color var(--gf-dur-fast) var(--gf-ease-standard);
-  border-radius: var(--gf-radius-sm);
+  transition: color var(--jc-dur-fast) var(--jc-ease-standard);
+  border-radius: var(--jc-radius-sm);
   outline: none;
 }
 
-.gf-header__nav-link:hover,
-.gf-header__nav-link:focus-visible {
-  color: var(--gf-text-primary);
+.jc-header__nav-link:hover,
+.jc-header__nav-link:focus-visible {
+  color: var(--jc-text-primary);
 }
 
-.gf-header__nav-link.is-active {
-  color: var(--gf-text-primary);
-  font-weight: var(--gf-fw-semibold);
+.jc-header__nav-link.is-active {
+  color: var(--jc-text-primary);
+  font-weight: var(--jc-fw-semibold);
 }
 
-.gf-header__nav-link.is-active::after {
+.jc-header__nav-link.is-active::after {
   content: '';
   position: absolute;
   left: 4px;
   right: 4px;
   bottom: 4px;
   height: 2px;
-  background-image: var(--gf-brand-gradient);
+  background-image: var(--jc-brand-gradient);
   border-radius: 2px;
 }
 
 /* ===== TV: 顶部频道导航 = 居中胶囊药丸 (对齐设计稿 .tv-nav) ===== */
-[data-mode='tv'] .gf-header__inner {
+[data-mode='tv'] .jc-header__inner {
   position: relative;
 }
-[data-mode='tv'] .gf-header__nav {
+[data-mode='tv'] .jc-header__nav {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -1115,44 +1115,44 @@ watch(
   gap: 8px;
   padding: 5px;
   background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--gf-border-subtle);
+  border: 1px solid var(--jc-border-subtle);
   border-radius: 999px;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
-[data-mode='tv'] .gf-header__nav-link {
+[data-mode='tv'] .jc-header__nav-link {
   height: auto;
   padding: 8px 22px;
   border-radius: 999px;
-  font-size: var(--gf-fs-base);
-  font-weight: var(--gf-fw-medium);
-  color: var(--gf-text-secondary);
+  font-size: var(--jc-fs-base);
+  font-weight: var(--jc-fw-medium);
+  color: var(--jc-text-secondary);
 }
 /* TV 去桌面下划线高亮, 改"白底黑字"药丸 */
-[data-mode='tv'] .gf-header__nav-link.is-active {
+[data-mode='tv'] .jc-header__nav-link.is-active {
   background: rgba(255, 255, 255, 0.92);
   color: #0a0a0f;
-  font-weight: var(--gf-fw-bold);
+  font-weight: var(--jc-fw-bold);
 }
-[data-mode='tv'] .gf-header__nav-link.is-active::after {
+[data-mode='tv'] .jc-header__nav-link.is-active::after {
   display: none;
 }
 /* 遥控器聚焦: 药丸浅底 (青色焦点环由全局 [data-focusable]:focus 叠加) */
-[data-mode='tv'] .gf-header__nav-link:focus-visible {
+[data-mode='tv'] .jc-header__nav-link:focus-visible {
   background: rgba(255, 255, 255, 0.18);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
 
 /* TV 顶部精简: 去掉 logo/历史/用户/登录, 只留居中频道导航(搜索/我的等入口下沉首页金刚区) */
-[data-mode='tv'] .gf-header__brand,
-[data-mode='tv'] .gf-header__history,
-[data-mode='tv'] .gf-header__user,
-[data-mode='tv'] .gf-header__login-btn {
+[data-mode='tv'] .jc-header__brand,
+[data-mode='tv'] .jc-header__history,
+[data-mode='tv'] .jc-header__user,
+[data-mode='tv'] .jc-header__login-btn {
   display: none !important;
 }
 
 /* 搜索 - bilibili 风格常驻框; 宽度随视口收缩(固定 480 在 ~1000px 视口会把右侧用户头像挤出容器) */
-.gf-header__search {
+.jc-header__search {
   position: relative;
   height: 40px;
   width: clamp(180px, 24vw, 520px);
@@ -1161,54 +1161,54 @@ watch(
   min-width: 0;
   background-color: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--gf-radius-full);
+  border-radius: var(--jc-radius-full);
   padding: 0 14px 0 38px;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    border-color var(--gf-dur-fast) var(--gf-ease-standard),
-    box-shadow var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    border-color var(--jc-dur-fast) var(--jc-ease-standard),
+    box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-.gf-header__search:focus-within {
+.jc-header__search:focus-within {
   background-color: rgba(255, 255, 255, 0.12);
   border-color: rgba(155, 73, 231, 0.55);
   box-shadow: none;
 }
 
-.gf-header__search-icon {
+.jc-header__search-icon {
   position: absolute;
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
   pointer-events: none;
 }
 
-.gf-header__search-input {
+.jc-header__search-input {
   flex: 1;
   height: 100%;
   background: transparent;
   border: none;
   outline: none;
-  color: var(--gf-text-primary);
-  font-size: var(--gf-fs-sm);
+  color: var(--jc-text-primary);
+  font-size: var(--jc-fs-sm);
 }
 
 /* iOS Safari: input font-size < 16px focus 时会自动 zoom (不还原).
    mobile 端强制 16px (PC scoped 优先级覆盖了 reset.css 的全局规则, 需就地补) */
 @media (max-width: 767px) {
-  .gf-header__search-input {
+  .jc-header__search-input {
     font-size: 16px;
   }
 }
 
-.gf-header__search-input::placeholder {
-  color: var(--gf-text-muted);
+.jc-header__search-input::placeholder {
+  color: var(--jc-text-muted);
 }
 
-/* 聚焦由外层 .gf-header__search:focus-within 处理(紫边); input 本身不叠加全局 2px outline + 3px 环 */
-.gf-header__search-input:focus,
-.gf-header__search-input:focus-visible {
+/* 聚焦由外层 .jc-header__search:focus-within 处理(紫边); input 本身不叠加全局 2px outline + 3px 环 */
+.jc-header__search-input:focus,
+.jc-header__search-input:focus-visible {
   outline: none;
   box-shadow: none;
 }
@@ -1217,7 +1217,7 @@ watch(
    原先写死的 1440→520px / 768~1023→360px 两条断点规则已删除(避免与 clamp 打架)。 */
 
 /* 搜索 + 下拉建议容器 (relative, 让 dropdown 绝对定位锚到这里) */
-.gf-header__search-wrap {
+.jc-header__search-wrap {
   position: relative;
   /* 顶栏的"弹性缓冲": min-width:0 解除 flex 子项 min-content 下限, 空间不足时优先缩这里;
      flex-basis auto 保留 width:clamp() 的自然宽度, 富余时仍按 clamp 显示。
@@ -1227,7 +1227,7 @@ watch(
 }
 
 /* 建议下拉面板 */
-.gf-header__suggest {
+.jc-header__suggest {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
@@ -1235,99 +1235,99 @@ watch(
   z-index: 30;
   background-color: rgba(20, 20, 24, 0.96);
   backdrop-filter: blur(12px);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-lg);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-lg);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-  padding: var(--gf-space-3);
+  padding: var(--jc-space-3);
   max-height: 480px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
 }
 
-.gf-header__suggest-section {
+.jc-header__suggest-section {
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
 }
 
-.gf-header__suggest-title {
+.jc-header__suggest-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--gf-fs-xs);
-  font-weight: var(--gf-fw-semibold);
-  color: var(--gf-text-secondary);
-  letter-spacing: var(--gf-tracking-wide);
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-semibold);
+  color: var(--jc-text-secondary);
+  letter-spacing: var(--jc-tracking-wide);
 }
 
-.gf-header__suggest-clear {
+.jc-header__suggest-clear {
   margin-left: auto;
   border: none;
   background: transparent;
-  color: var(--gf-text-muted);
-  font-size: var(--gf-fs-xs);
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-xs);
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: var(--gf-radius-sm);
+  border-radius: var(--jc-radius-sm);
 }
-.gf-header__suggest-clear:hover,
-.gf-header__suggest-clear:focus-visible {
-  color: var(--gf-text-primary);
+.jc-header__suggest-clear:hover,
+.jc-header__suggest-clear:focus-visible {
+  color: var(--jc-text-primary);
   background-color: rgba(255, 255, 255, 0.08);
   outline: none;
 }
 
 /* 热词: chip 网格 (bilibili 风格), 前 3 个紫渐变高亮 */
-.gf-header__suggest-list--hot {
+.jc-header__suggest-list--hot {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.gf-header__suggest-chip {
+.jc-header__suggest-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  border-radius: var(--gf-radius-full);
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-secondary);
+  border-radius: var(--jc-radius-full);
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-secondary);
   background-color: rgba(255, 255, 255, 0.06);
   border: 1px solid transparent;
   cursor: pointer;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard),
-    border-color var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard),
+    border-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-header__suggest-chip:hover,
-.gf-header__suggest-chip--active {
+.jc-header__suggest-chip:hover,
+.jc-header__suggest-chip--active {
   background-color: rgba(155, 73, 231, 0.18);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   border-color: rgba(155, 73, 231, 0.45);
 }
 
-.gf-header__suggest-chip--hot .gf-header__suggest-rank {
+.jc-header__suggest-chip--hot .jc-header__suggest-rank {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: var(--gf-radius-sm);
-  background-image: var(--gf-brand-gradient);
+  border-radius: var(--jc-radius-sm);
+  background-image: var(--jc-brand-gradient);
   color: #fff;
   font-size: 10px;
-  font-weight: var(--gf-fw-bold);
+  font-weight: var(--jc-fw-bold);
 }
 
 /* 历史: 行式列表 */
-.gf-header__suggest-list {
+.jc-header__suggest-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1335,35 +1335,35 @@ watch(
   flex-direction: column;
 }
 
-.gf-header__suggest-row {
+.jc-header__suggest-row {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   padding: 8px 8px;
-  border-radius: var(--gf-radius-sm);
+  border-radius: var(--jc-radius-sm);
   cursor: pointer;
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-secondary);
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-secondary);
 }
-.gf-header__suggest-row:hover,
-.gf-header__suggest-row--active {
+.jc-header__suggest-row:hover,
+.jc-header__suggest-row--active {
   background-color: rgba(255, 255, 255, 0.06);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
 
-.gf-header__suggest-row-icon {
-  color: var(--gf-text-muted);
+.jc-header__suggest-row-icon {
+  color: var(--jc-text-muted);
   flex-shrink: 0;
 }
 
-.gf-header__suggest-row-text {
+.jc-header__suggest-row-text {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.gf-header__suggest-row-x {
+.jc-header__suggest-row-x {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1371,41 +1371,41 @@ watch(
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
   cursor: pointer;
   border-radius: 9999px;
   opacity: 0;
   transition:
-    opacity var(--gf-dur-fast) var(--gf-ease-standard),
-    background-color var(--gf-dur-fast) var(--gf-ease-standard);
+    opacity var(--jc-dur-fast) var(--jc-ease-standard),
+    background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-header__suggest-row:hover .gf-header__suggest-row-x,
-.gf-header__suggest-row--active .gf-header__suggest-row-x,
-.gf-header__suggest-row-x:focus-visible {
+.jc-header__suggest-row:hover .jc-header__suggest-row-x,
+.jc-header__suggest-row--active .jc-header__suggest-row-x,
+.jc-header__suggest-row-x:focus-visible {
   opacity: 1;
 }
-.gf-header__suggest-row-x:hover,
-.gf-header__suggest-row-x:focus-visible {
+.jc-header__suggest-row-x:hover,
+.jc-header__suggest-row-x:focus-visible {
   background-color: rgba(255, 255, 255, 0.12);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   outline: none;
 }
 
 /* 下拉渐显 */
-.gf-suggest-enter-from,
-.gf-suggest-leave-to {
+.jc-suggest-enter-from,
+.jc-suggest-leave-to {
   opacity: 0;
   transform: translateY(-6px);
 }
-.gf-suggest-enter-active,
-.gf-suggest-leave-active {
+.jc-suggest-enter-active,
+.jc-suggest-leave-active {
   transition:
-    opacity var(--gf-dur-fast) var(--gf-ease-standard),
-    transform var(--gf-dur-fast) var(--gf-ease-standard);
+    opacity var(--jc-dur-fast) var(--jc-ease-standard),
+    transform var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
 /* 图标按钮 */
-.gf-header__icon-btn {
+.jc-header__icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1414,49 +1414,49 @@ watch(
   min-width: 44px;
   background: transparent;
   border: none;
-  border-radius: var(--gf-radius-md);
-  color: var(--gf-text-secondary);
+  border-radius: var(--jc-radius-md);
+  color: var(--jc-text-secondary);
   cursor: pointer;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-.gf-header__icon-btn:hover,
-.gf-header__icon-btn:focus-visible {
+.jc-header__icon-btn:hover,
+.jc-header__icon-btn:focus-visible {
   background-color: rgba(255, 255, 255, 0.08);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
 
 /* 历史浮层 */
-.gf-header__history-panel {
+.jc-header__history-panel {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   width: 320px;
-  background-color: var(--gf-bg-surface);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-lg);
-  box-shadow: var(--gf-shadow-lg);
-  padding: var(--gf-space-3);
-  z-index: var(--gf-z-dropdown);
+  background-color: var(--jc-bg-surface);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-lg);
+  box-shadow: var(--jc-shadow-lg);
+  padding: var(--jc-space-3);
+  z-index: var(--jc-z-dropdown);
 }
 
-.gf-header__history-title {
+.jc-header__history-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--gf-space-2) var(--gf-space-2);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-semibold);
-  color: var(--gf-text-primary);
-  border-bottom: 1px solid var(--gf-border-subtle);
+  padding: 0 var(--jc-space-2) var(--jc-space-2);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-semibold);
+  color: var(--jc-text-primary);
+  border-bottom: 1px solid var(--jc-border-subtle);
 }
 
-.gf-header__history-list {
+.jc-header__history-list {
   list-style: none;
   margin: 0;
-  padding: var(--gf-space-2) 0 0;
+  padding: var(--jc-space-2) 0 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1464,128 +1464,128 @@ watch(
   overflow-y: auto;
 }
 
-.gf-header__history-item {
+.jc-header__history-item {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: var(--gf-space-3);
-  padding: var(--gf-space-2);
+  gap: var(--jc-space-3);
+  padding: var(--jc-space-2);
   background: transparent;
   border: none;
-  border-radius: var(--gf-radius-md);
-  color: var(--gf-text-primary);
+  border-radius: var(--jc-radius-md);
+  color: var(--jc-text-primary);
   cursor: pointer;
   text-align: left;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-.gf-header__history-item:hover,
-.gf-header__history-item:focus-visible {
+.jc-header__history-item:hover,
+.jc-header__history-item:focus-visible {
   background-color: rgba(255, 255, 255, 0.06);
   outline: none;
 }
 
-.gf-header__history-thumb {
+.jc-header__history-thumb {
   width: 56px;
   height: 36px;
   object-fit: cover;
-  border-radius: var(--gf-radius-sm);
-  background-color: var(--gf-bg-elevated);
+  border-radius: var(--jc-radius-sm);
+  background-color: var(--jc-bg-elevated);
   flex-shrink: 0;
 }
 
-.gf-header__history-meta {
+.jc-header__history-meta {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
 
-.gf-header__history-name {
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
-  color: var(--gf-text-primary);
+.jc-header__history-name {
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
+  color: var(--jc-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.gf-header__history-ep {
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
+.jc-header__history-ep {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
   margin-top: 2px;
 }
 
-.gf-header__history-empty {
-  padding: var(--gf-space-6) var(--gf-space-2);
+.jc-header__history-empty {
+  padding: var(--jc-space-6) var(--jc-space-2);
   text-align: center;
-  color: var(--gf-text-muted);
-  font-size: var(--gf-fs-sm);
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-sm);
 }
 
 /* 用户菜单 / 登录按钮 */
-.gf-header__login-btn {
+.jc-header__login-btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   height: 36px;
-  padding: 0 var(--gf-space-3);
-  border-radius: var(--gf-radius-full);
+  padding: 0 var(--jc-space-3);
+  border-radius: var(--jc-radius-full);
   background-color: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  color: var(--gf-text-primary);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  color: var(--jc-text-primary);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
   cursor: pointer;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    border-color var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    border-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-header__login-btn:hover,
-.gf-header__login-btn:focus-visible {
+.jc-header__login-btn:hover,
+.jc-header__login-btn:focus-visible {
   background-color: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.24);
   outline: none;
 }
 
-.gf-header__user-btn {
+.jc-header__user-btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   height: 40px;
-  padding: 2px var(--gf-space-2);
-  border-radius: var(--gf-radius-full);
+  padding: 2px var(--jc-space-2);
+  border-radius: var(--jc-radius-full);
   /* 宽度跟随内容, 不被父级 flex 拉伸; 防止整体撑宽 */
   flex: 0 0 auto;
   max-width: 200px;
   background: transparent;
   border: 1px solid transparent;
-  color: var(--gf-text-secondary);
+  color: var(--jc-text-secondary);
   cursor: pointer;
   transition:
-    background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    border-color var(--gf-dur-fast) var(--gf-ease-standard);
+    background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    border-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-header__user-btn:hover,
-.gf-header__user-btn:focus-visible {
+.jc-header__user-btn:hover,
+.jc-header__user-btn:focus-visible {
   background-color: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.14);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   outline: none;
 }
 
-.gf-header__avatar {
+.jc-header__avatar {
   width: 32px;
   height: 32px;
   border-radius: 9999px;
   object-fit: cover;
-  background-color: var(--gf-bg-elevated);
+  background-color: var(--jc-bg-elevated);
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-.gf-header__username {
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+.jc-header__username {
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
   /* 宽度自适应文字, 设上限避免长名撑宽顶栏(放宽上限, 让常见长账号名完整显示) */
   max-width: clamp(96px, 14vw, 220px);
   overflow: hidden;
@@ -1593,106 +1593,106 @@ watch(
   white-space: nowrap;
 }
 
-.gf-header__user-panel {
+.jc-header__user-panel {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   width: 240px;
-  background-color: var(--gf-bg-surface);
-  border: 1px solid var(--gf-border-subtle);
-  border-radius: var(--gf-radius-lg);
-  box-shadow: var(--gf-shadow-lg);
-  padding: var(--gf-space-3);
-  z-index: var(--gf-z-dropdown);
+  background-color: var(--jc-bg-surface);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-lg);
+  box-shadow: var(--jc-shadow-lg);
+  padding: var(--jc-space-3);
+  z-index: var(--jc-z-dropdown);
 }
 
-.gf-header__user-header {
+.jc-header__user-header {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
-  padding: var(--gf-space-2);
-  border-bottom: 1px solid var(--gf-border-subtle);
-  margin-bottom: var(--gf-space-2);
+  gap: var(--jc-space-3);
+  padding: var(--jc-space-2);
+  border-bottom: 1px solid var(--jc-border-subtle);
+  margin-bottom: var(--jc-space-2);
 }
-.gf-header__user-avatar {
+.jc-header__user-avatar {
   width: 44px;
   height: 44px;
   border-radius: 9999px;
   object-fit: cover;
-  background-color: var(--gf-bg-elevated);
+  background-color: var(--jc-bg-elevated);
 }
-.gf-header__user-info {
+.jc-header__user-info {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
-.gf-header__user-name {
-  font-size: var(--gf-fs-md);
-  font-weight: var(--gf-fw-semibold);
-  color: var(--gf-text-primary);
+.jc-header__user-name {
+  font-size: var(--jc-fs-md);
+  font-weight: var(--jc-fw-semibold);
+  color: var(--jc-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.gf-header__user-role {
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
+.jc-header__user-role {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
   margin-top: 2px;
 }
 
-.gf-header__user-item {
+.jc-header__user-item {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: var(--gf-space-3);
-  padding: var(--gf-space-3) var(--gf-space-2);
+  gap: var(--jc-space-3);
+  padding: var(--jc-space-3) var(--jc-space-2);
   background: transparent;
   border: none;
-  border-radius: var(--gf-radius-md);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
+  border-radius: var(--jc-radius-md);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
   cursor: pointer;
   text-align: left;
   text-decoration: none;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-header__user-item:hover,
-.gf-header__user-item:focus-visible {
+.jc-header__user-item:hover,
+.jc-header__user-item:focus-visible {
   background-color: rgba(255, 255, 255, 0.06);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   outline: none;
 }
-.gf-header__user-item--danger {
-  color: var(--gf-danger);
+.jc-header__user-item--danger {
+  color: var(--jc-danger);
 }
-.gf-header__user-item--danger:hover {
+.jc-header__user-item--danger:hover {
   background-color: rgba(255, 71, 87, 0.12);
 }
 
 /* 移动端搜索条 */
-.gf-header__mobile-search {
+.jc-header__mobile-search {
   position: relative;
   display: flex;
   align-items: center;
-  margin: 0 var(--gf-gutter-mobile) var(--gf-space-3);
+  margin: 0 var(--jc-gutter-mobile) var(--jc-space-3);
   height: 40px;
   background-color: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--gf-radius-full);
+  border-radius: var(--jc-radius-full);
   padding: 0 14px 0 38px;
 }
 
 /* ============ 移动端抽屉 (Teleport 到 body, 整组样式) ============ */
-.gf-header__mobile-overlay {
+.jc-header__mobile-overlay {
   position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.5);
-  /* 高于 --gf-z-header (100), 低于 mnav 自身 */
+  /* 高于 --jc-z-header (100), 低于 mnav 自身 */
   z-index: 899;
 }
 
-.gf-mnav {
+.jc-mnav {
   position: fixed;
   top: 0;
   left: 0;
@@ -1701,27 +1701,27 @@ watch(
   display: flex;
   flex-direction: column;
   background-color: rgba(11, 11, 15, 0.98);
-  border-right: 1px solid var(--gf-border-subtle);
+  border-right: 1px solid var(--jc-border-subtle);
   box-shadow: 12px 0 32px rgba(0, 0, 0, 0.5);
-  /* 必须 > --gf-z-header (100), 用 overlay 层级 (900) 直接盖住 header 含汉堡按钮 */
+  /* 必须 > --jc-z-header (100), 用 overlay 层级 (900) 直接盖住 header 含汉堡按钮 */
   z-index: 900;
 }
 
-.gf-mnav__head {
+.jc-mnav__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--gf-space-3);
-  padding: var(--gf-space-3) var(--gf-space-4);
-  border-bottom: 1px solid var(--gf-border-subtle);
+  gap: var(--jc-space-3);
+  padding: var(--jc-space-3) var(--jc-space-4);
+  border-bottom: 1px solid var(--jc-border-subtle);
   flex-shrink: 0;
   min-height: 56px;
 }
-.gf-mnav__brand {
-  font-family: var(--gf-font-display);
-  font-size: var(--gf-fs-lg);
-  font-weight: var(--gf-fw-bold);
-  background-image: var(--gf-brand-gradient);
+.jc-mnav__brand {
+  font-family: var(--jc-font-display);
+  font-size: var(--jc-fs-lg);
+  font-weight: var(--jc-fw-bold);
+  background-image: var(--jc-brand-gradient);
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
@@ -1731,7 +1731,7 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.gf-mnav__close {
+.jc-mnav__close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1739,309 +1739,309 @@ watch(
   height: 36px;
   background: transparent;
   border: none;
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
   cursor: pointer;
-  border-radius: var(--gf-radius-md);
+  border-radius: var(--jc-radius-md);
   flex-shrink: 0;
 }
-.gf-mnav__close:hover,
-.gf-mnav__close:focus-visible {
-  color: var(--gf-text-primary);
+.jc-mnav__close:hover,
+.jc-mnav__close:focus-visible {
+  color: var(--jc-text-primary);
   background-color: rgba(255, 255, 255, 0.08);
   outline: none;
 }
 
-.gf-mnav__body {
+.jc-mnav__body {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: var(--gf-space-3) 0;
+  padding: var(--jc-space-3) 0;
   display: flex;
   flex-direction: column;
-  gap: var(--gf-space-4);
+  gap: var(--jc-space-4);
 }
 
-.gf-mnav__group {
+.jc-mnav__group {
   display: flex;
   flex-direction: column;
 }
-.gf-mnav__group-title {
-  padding: var(--gf-space-1) var(--gf-space-4);
-  font-size: var(--gf-fs-xs);
-  font-weight: var(--gf-fw-semibold);
-  letter-spacing: var(--gf-tracking-wide);
+.jc-mnav__group-title {
+  padding: var(--jc-space-1) var(--jc-space-4);
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-semibold);
+  letter-spacing: var(--jc-tracking-wide);
   text-transform: uppercase;
-  color: var(--gf-text-muted);
+  color: var(--jc-text-muted);
 }
 
-.gf-mnav__link {
+.jc-mnav__link {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   width: 100%;
   min-height: 44px;
-  padding: 0 var(--gf-space-4);
-  color: var(--gf-text-secondary);
-  font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  padding: 0 var(--jc-space-4);
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  font-weight: var(--jc-fw-medium);
   text-decoration: none;
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard),
-    color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard),
+    color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-mnav__link:hover,
-.gf-mnav__link:focus-visible,
-.gf-mnav__link.is-active {
+.jc-mnav__link:hover,
+.jc-mnav__link:focus-visible,
+.jc-mnav__link.is-active {
   background-color: rgba(255, 255, 255, 0.06);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   outline: none;
 }
-.gf-mnav__link.is-active {
+.jc-mnav__link.is-active {
   background-image: linear-gradient(
     90deg,
     rgba(155, 73, 231, 0.18),
     rgba(74, 209, 229, 0.08)
   );
 }
-.gf-mnav__link-icon {
-  color: var(--gf-text-muted);
+.jc-mnav__link-icon {
+  color: var(--jc-text-muted);
   flex-shrink: 0;
 }
-.gf-mnav__link.is-active .gf-mnav__link-icon,
-.gf-mnav__link:hover .gf-mnav__link-icon {
-  color: var(--gf-text-primary);
+.jc-mnav__link.is-active .jc-mnav__link-icon,
+.jc-mnav__link:hover .jc-mnav__link-icon {
+  color: var(--jc-text-primary);
 }
-.gf-mnav__link--danger {
-  color: var(--gf-danger);
+.jc-mnav__link--danger {
+  color: var(--jc-danger);
 }
-.gf-mnav__link--danger:hover {
+.jc-mnav__link--danger:hover {
   background-color: rgba(255, 71, 87, 0.12);
-  color: var(--gf-danger);
+  color: var(--jc-danger);
 }
-.gf-mnav__link--danger .gf-mnav__link-icon {
-  color: var(--gf-danger);
+.jc-mnav__link--danger .jc-mnav__link-icon {
+  color: var(--jc-danger);
 }
 
 /* 过渡 */
-.gf-fade-enter-active,
-.gf-fade-leave-active {
-  transition: opacity var(--gf-dur-fast) var(--gf-ease-standard),
-    transform var(--gf-dur-fast) var(--gf-ease-standard);
+.jc-fade-enter-active,
+.jc-fade-leave-active {
+  transition: opacity var(--jc-dur-fast) var(--jc-ease-standard),
+    transform var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-fade-enter-from,
-.gf-fade-leave-to {
+.jc-fade-enter-from,
+.jc-fade-leave-to {
   opacity: 0;
   transform: translateY(-4px);
 }
 
-.gf-slide-down-enter-active,
-.gf-slide-down-leave-active {
-  transition: opacity var(--gf-dur-base) var(--gf-ease-standard),
-    transform var(--gf-dur-base) var(--gf-ease-standard);
+.jc-slide-down-enter-active,
+.jc-slide-down-leave-active {
+  transition: opacity var(--jc-dur-base) var(--jc-ease-standard),
+    transform var(--jc-dur-base) var(--jc-ease-standard);
   overflow: hidden;
 }
-.gf-slide-down-enter-from,
-.gf-slide-down-leave-to {
+.jc-slide-down-enter-from,
+.jc-slide-down-leave-to {
   opacity: 0;
   transform: translateY(-8px);
 }
 
 /* 移动端抽屉: 从左侧滑入 + 遮罩淡入 */
-.gf-slide-left-enter-active,
-.gf-slide-left-leave-active {
-  transition: transform var(--gf-dur-base) var(--gf-ease-standard);
+.jc-slide-left-enter-active,
+.jc-slide-left-leave-active {
+  transition: transform var(--jc-dur-base) var(--jc-ease-standard);
 }
-.gf-slide-left-enter-from,
-.gf-slide-left-leave-to {
+.jc-slide-left-enter-from,
+.jc-slide-left-leave-to {
   transform: translateX(-100%);
 }
-.gf-mobile-overlay-fade-enter-active,
-.gf-mobile-overlay-fade-leave-active {
-  transition: opacity var(--gf-dur-base) var(--gf-ease-standard);
+.jc-mobile-overlay-fade-enter-active,
+.jc-mobile-overlay-fade-leave-active {
+  transition: opacity var(--jc-dur-base) var(--jc-ease-standard);
 }
-.gf-mobile-overlay-fade-enter-from,
-.gf-mobile-overlay-fade-leave-to {
+.jc-mobile-overlay-fade-enter-from,
+.jc-mobile-overlay-fade-leave-to {
   opacity: 0;
 }
 </style>
 
 <style>
 /* TV history Dialog 内容 */
-.gf-tv-history__list {
+.jc-tv-history__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   max-height: 60vh;
   overflow-y: auto;
 }
-.gf-tv-history__item {
+.jc-tv-history__item {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: var(--gf-space-3);
-  padding: var(--gf-space-3);
-  background: var(--gf-bg-elevated);
+  gap: var(--jc-space-3);
+  padding: var(--jc-space-3);
+  background: var(--jc-bg-elevated);
   border: none;
-  border-radius: var(--gf-radius-md);
-  color: var(--gf-text-primary);
+  border-radius: var(--jc-radius-md);
+  color: var(--jc-text-primary);
   cursor: pointer;
   text-align: left;
   outline: none;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-tv-history__item:focus,
-.gf-tv-history__item:focus-visible {
+.jc-tv-history__item:focus,
+.jc-tv-history__item:focus-visible {
   outline: none;
   background-color: rgba(255, 255, 255, 0.08);
 }
-.gf-tv-history__thumb {
+.jc-tv-history__thumb {
   width: 96px;
   height: 64px;
   object-fit: cover;
-  border-radius: var(--gf-radius-sm);
-  background-color: var(--gf-bg-base);
+  border-radius: var(--jc-radius-sm);
+  background-color: var(--jc-bg-base);
   flex-shrink: 0;
 }
-.gf-tv-history__meta {
+.jc-tv-history__meta {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
-.gf-tv-history__name {
-  font-size: var(--gf-fs-md);
-  font-weight: var(--gf-fw-semibold);
+.jc-tv-history__name {
+  font-size: var(--jc-fs-md);
+  font-weight: var(--jc-fw-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.gf-tv-history__ep {
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-muted);
+.jc-tv-history__ep {
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-muted);
   margin-top: 4px;
 }
-.gf-tv-history__empty {
-  padding: var(--gf-space-8) var(--gf-space-2);
+.jc-tv-history__empty {
+  padding: var(--jc-space-8) var(--jc-space-2);
   text-align: center;
-  color: var(--gf-text-muted);
-  font-size: var(--gf-fs-md);
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-md);
 }
 
 /* ===== 导航布局: 间距 / 收缩策略（放在 TV 覆盖之前, 同表内顺序确定） =====
  * 导航是"刚性"的: 链接 white-space:nowrap, 且每项带绝对定位的悬停二级下拉 ——
  * 既不适合被压缩, 也不能开 overflow 裁切(裁切会切掉子分类面板)。故 flex:0 0 auto。
- * 顶栏空间不足时改由中部搜索框收缩吸收(scoped 里 .gf-header__search-wrap 已设 min-width:0),
+ * 顶栏空间不足时改由中部搜索框收缩吸收(scoped 里 .jc-header__search-wrap 已设 min-width:0),
  * 于是最右侧的用户头像永远待在容器内 —— 这就是此前 ~1000px 视口"头像被裁掉"的根因与修法:
  * 原先 nav 无法收缩 + 搜索框写死 480px, 整行超出容器宽度, 头像被顶出容器后被裁。
  * 注意: TV 视口只有 960px, 会命中下面这条媒体查询, 故必须让 TV 规则排在它之后。 */
-.gf-header__nav {
-  margin-left: var(--gf-space-4);
-  gap: var(--gf-space-4);
+.jc-header__nav {
+  margin-left: var(--jc-space-4);
+  gap: var(--jc-space-4);
   flex: 0 0 auto;
 }
 @media (min-width: 768px) and (max-width: 1439px) {
-  .gf-header__nav {
-    gap: var(--gf-space-3);
+  .jc-header__nav {
+    gap: var(--jc-space-3);
   }
 }
 
 /* TV 模式覆盖：高度放大、字号放大、强制实色背景（避免透明导航被忽略）
  * 关键: TV CSS 视口实际只有 960px (因 dpr=2 + width=device-width). header 内
  * 不能用固定 px 撑 — 这里全部改用 flex 自适应 + 缩小硬编码宽度. */
-[data-mode='tv'] .gf-header__inner {
+[data-mode='tv'] .jc-header__inner {
   height: 80px; /* 96 → 80, 节省高度 */
-  padding-inline: var(--gf-tv-safe);
-  gap: var(--gf-space-3); /* 让 nav / search 之间间距收紧 */
+  padding-inline: var(--jc-tv-safe);
+  gap: var(--jc-space-3); /* 让 nav / search 之间间距收紧 */
 }
-[data-mode='tv'] .gf-header__brand {
-  font-size: var(--gf-fs-xl); /* 2xl → xl, 缩小 logo 文字宽度 */
+[data-mode='tv'] .jc-header__brand {
+  font-size: var(--jc-fs-xl); /* 2xl → xl, 缩小 logo 文字宽度 */
   flex: 0 0 auto;
 }
-[data-mode='tv'] .gf-header__nav {
+[data-mode='tv'] .jc-header__nav {
   flex: 1 1 auto;
   min-width: 0; /* 允许 nav 收缩, 不撑爆 */
   /* overflow-x clip 裁横向溢出, 但纵向 visible — 否则 nav-link 焦点框上下被截断 */
   overflow-x: clip;
   overflow-y: visible;
 }
-[data-mode='tv'] .gf-header__nav-link {
+[data-mode='tv'] .jc-header__nav-link {
   height: 48px;
-  font-size: var(--gf-fs-sm); /* md → sm, nav 文字小一档 */
-  padding: 0 var(--gf-space-2);
+  font-size: var(--jc-fs-sm); /* md → sm, nav 文字小一档 */
+  padding: 0 var(--jc-space-2);
 }
-[data-mode='tv'] .gf-header__icon-btn {
+[data-mode='tv'] .jc-header__icon-btn {
   width: 48px;
   height: 48px;
 }
-[data-mode='tv'] .gf-header__search {
+[data-mode='tv'] .jc-header__search {
   height: 48px;
   /* 420 → 自适应: 最大 280, 在窄视口下进一步收缩 */
   width: clamp(160px, 20vw, 280px);
   flex: 0 1 auto;
-  font-size: var(--gf-fs-sm);
+  font-size: var(--jc-fs-sm);
 }
-[data-mode='tv'] .gf-header__search-input {
-  font-size: var(--gf-fs-sm);
+[data-mode='tv'] .jc-header__search-input {
+  font-size: var(--jc-fs-sm);
 }
 /* TV 顶栏悬浮玻璃: 顶部(覆盖 hero 上方)用半透明渐变, 滚动后转实色(复用 scrolled 态).
  * 之前 TV 无 hero 故强制实色; 现首页有沉浸 Banner, 顶栏悬浮其上更沉浸. */
-[data-mode='tv'] .gf-header--top {
+[data-mode='tv'] .jc-header--top {
   background-color: transparent;
-  background-image: var(--gf-tv-header-float);
+  background-image: var(--jc-tv-header-float);
   border-bottom-color: transparent;
 }
-[data-mode='tv'] .gf-header--scrolled {
-  background-color: var(--gf-tv-header-solid);
+[data-mode='tv'] .jc-header--scrolled {
+  background-color: var(--jc-tv-header-solid);
   backdrop-filter: none; /* 弱 WebView 防掉帧 */
   -webkit-backdrop-filter: none;
-  border-bottom-color: var(--gf-border-subtle);
+  border-bottom-color: var(--jc-border-subtle);
 }
 /* TV: 内联搜索框改为右端搜索图标(goSearch); 二级悬停下拉删除(focus-within 会在 D-pad 聚焦时误弹) */
-[data-mode='tv'] .gf-header__search-wrap {
+[data-mode='tv'] .jc-header__search-wrap {
   display: none;
 }
-[data-mode='tv'] .gf-header__subnav {
+[data-mode='tv'] .jc-header__subnav {
   display: none !important;
 }
 /* TV: 当前频道 Tab 选中态(青色胶囊) */
-[data-mode='tv'] .gf-header__nav-link.is-active {
-  color: var(--gf-brand-cyan);
-  background-color: var(--gf-tv-selected-bg);
-  border-radius: var(--gf-radius-full);
+[data-mode='tv'] .jc-header__nav-link.is-active {
+  color: var(--jc-brand-cyan);
+  background-color: var(--jc-tv-selected-bg);
+  border-radius: var(--jc-radius-full);
 }
 
 /* TV 焦点环：导航 / 图标 / 搜索.
  * 顶栏高度有限, box-shadow 环会被 header/nav 上下边界裁切 → 一律改 outline(随圆角,
  * 不被祖先 overflow/边界裁切), 细环 2px + offset, 配合柔光. */
-[data-mode='tv'] .gf-header__nav-link:focus,
-[data-mode='tv'] .gf-header__nav-link:focus-visible,
-[data-mode='tv'] .gf-header__brand:focus,
-[data-mode='tv'] .gf-header__brand:focus-visible {
-  outline: 2px solid var(--gf-brand-cyan);
+[data-mode='tv'] .jc-header__nav-link:focus,
+[data-mode='tv'] .jc-header__nav-link:focus-visible,
+[data-mode='tv'] .jc-header__brand:focus,
+[data-mode='tv'] .jc-header__brand:focus-visible {
+  outline: 2px solid var(--jc-brand-cyan);
   outline-offset: 1px;
   box-shadow: 0 0 12px rgba(74, 209, 229, 0.4);
   /* 跟随药丸圆角(原 radius-sm 会把聚焦/选中的频道 tab 描边压成方形) */
-  border-radius: var(--gf-radius-full);
-  color: var(--gf-text-primary);
+  border-radius: var(--jc-radius-full);
+  color: var(--jc-text-primary);
   /* 不放大: TV 全局 focus 的 scale(1.08) 会让药丸 tab 与相邻 tab 交叉重叠 */
   transform: none;
 }
-[data-mode='tv'] .gf-header__icon-btn:focus,
-[data-mode='tv'] .gf-header__icon-btn:focus-visible {
-  outline: 2px solid var(--gf-brand-cyan);
+[data-mode='tv'] .jc-header__icon-btn:focus,
+[data-mode='tv'] .jc-header__icon-btn:focus-visible {
+  outline: 2px solid var(--jc-brand-cyan);
   outline-offset: 1px;
   box-shadow: 0 0 12px rgba(74, 209, 229, 0.4);
   background-color: rgba(255, 255, 255, 0.12);
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
 }
-[data-mode='tv'] .gf-header__search:focus-within {
-  outline: 2px solid var(--gf-brand-cyan);
+[data-mode='tv'] .jc-header__search:focus-within {
+  outline: 2px solid var(--jc-brand-cyan);
   outline-offset: 1px;
   box-shadow: 0 0 12px rgba(74, 209, 229, 0.4);
   background-color: rgba(255, 255, 255, 0.12);

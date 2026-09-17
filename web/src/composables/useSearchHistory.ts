@@ -15,7 +15,7 @@ import { ref, type Ref } from 'vue'
  *  - localStorage 持久化, 隐私模式静默降级 (内存态仍可用)
  */
 
-const STORAGE_KEY = 'gf-search-history'
+const STORAGE_KEY = 'jc-search-history'
 const DEFAULT_LIMIT = 10
 
 function read(): string[] {

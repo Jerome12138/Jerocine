@@ -22,7 +22,7 @@ import { useViewMode } from '@/composables/useViewMode'
 import { normalizeDpadKey } from '@/utils/dpad'
 
 const FOCUSABLE_SELECTOR = '[data-focusable="true"]:not([disabled]):not([aria-hidden="true"])'
-const FOCUS_MEMORY_PREFIX = 'gf-tv-focus:'
+const FOCUS_MEMORY_PREFIX = 'jc-tv-focus:'
 const FOCUS_RESTORE_DELAY = 50
 
 interface Rect {
@@ -393,7 +393,7 @@ export function useSpatialNavigation(): Api {
     const key = normalizeDpadKey(e)
     const action = decideSpatialAction(key, e.isTrusted, {
       currentFocusable: currentFocusable(),
-      modalOpen: document.body.hasAttribute('data-gf-modal-open')
+      modalOpen: document.body.hasAttribute('data-jc-modal-open')
     })
 
     switch (action.type) {

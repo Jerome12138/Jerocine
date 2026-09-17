@@ -99,13 +99,13 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="bg-surface rounded-card shadow-card p-[var(--gf-space-4)] md:p-[var(--gf-space-5)]">
-    <header class="flex items-center justify-between gap-[var(--gf-space-3)] mb-[var(--gf-space-4)]">
+  <section class="bg-surface rounded-card shadow-card p-[var(--jc-space-4)] md:p-[var(--jc-space-5)]">
+    <header class="flex items-center justify-between gap-[var(--jc-space-3)] mb-[var(--jc-space-4)]">
       <div class="min-w-0">
-        <h2 class="text-lg font-[var(--gf-fw-semibold)]">影视分类管理</h2>
+        <h2 class="text-lg font-[var(--jc-fw-semibold)]">影视分类管理</h2>
         <p class="text-sm text-muted truncate">维护顶级与子分类的展示状态、名称与排序</p>
       </div>
-      <div class="flex items-center gap-[var(--gf-space-2)] shrink-0">
+      <div class="flex items-center gap-[var(--jc-space-2)] shrink-0">
         <BaseButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" />
           <span class="hidden sm:inline">刷新</span>
@@ -116,17 +116,17 @@ onMounted(load)
       </div>
     </header>
 
-    <div v-if="loading" class="flex flex-col gap-[var(--gf-space-3)]">
+    <div v-if="loading" class="flex flex-col gap-[var(--jc-space-3)]">
       <BaseSkeleton v-for="i in 4" :key="i" shape="rect" height="64px" />
     </div>
 
     <BaseEmpty v-else-if="!tree.length" description="暂无分类数据" />
 
-    <div v-else class="flex flex-col gap-[var(--gf-space-3)]">
-      <article v-for="parent in tree" :key="parent.id" class="gf-cat">
+    <div v-else class="flex flex-col gap-[var(--jc-space-3)]">
+      <article v-for="parent in tree" :key="parent.id" class="jc-cat">
         <!-- 父级 -->
         <div
-          class="gf-cat__parent"
+          class="jc-cat__parent"
           data-focusable="true"
           tabindex="0"
           role="button"
@@ -134,14 +134,14 @@ onMounted(load)
           @click="openEdit(parent)"
           @keydown.enter="openEdit(parent)"
         >
-          <span class="gf-cat__bar" aria-hidden="true" />
-          <div class="gf-cat__title">
-            <span class="gf-cat__name" :class="{ 'gf-cat--off': !parent.show }">{{ parent.name }}</span>
-            <span class="gf-cat__meta">#{{ parent.id }} · {{ parent.children?.length ?? 0 }} 子分类</span>
+          <span class="jc-cat__bar" aria-hidden="true" />
+          <div class="jc-cat__title">
+            <span class="jc-cat__name" :class="{ 'jc-cat--off': !parent.show }">{{ parent.name }}</span>
+            <span class="jc-cat__meta">#{{ parent.id }} · {{ parent.children?.length ?? 0 }} 子分类</span>
           </div>
           <!-- 展示开关: 带文字标签, 单独可点不触发整行编辑 -->
-          <label class="gf-cat__toggle" @click.stop>
-            <span class="gf-cat__state" :class="{ 'gf-cat__state--on': parent.show }">
+          <label class="jc-cat__toggle" @click.stop>
+            <span class="jc-cat__state" :class="{ 'jc-cat__state--on': parent.show }">
               {{ parent.show ? '展示' : '隐藏' }}
             </span>
             <ManageSwitch :model-value="parent.show" @update:model-value="toggleShow(parent)" />
@@ -149,11 +149,11 @@ onMounted(load)
         </div>
 
         <!-- 子级 (始终渲染, 末尾保留新增子分类入口) -->
-        <ul class="gf-cat__children">
+        <ul class="jc-cat__children">
           <li
             v-for="child in parent.children"
             :key="child.id"
-            class="gf-cat__child"
+            class="jc-cat__child"
             data-focusable="true"
             tabindex="0"
             role="button"
@@ -161,19 +161,19 @@ onMounted(load)
             @click="openEdit(child)"
             @keydown.enter="openEdit(child)"
           >
-            <span class="gf-cat__dot" :class="{ 'gf-cat__dot--on': child.show }" aria-hidden="true" />
-            <span class="gf-cat__cname" :class="{ 'gf-cat--off': !child.show }">{{ child.name }}</span>
-            <span class="gf-cat__cid">#{{ child.id }}</span>
-            <div class="gf-cat__cctrl" @click.stop>
-              <label class="gf-cat__toggle">
-                <span class="gf-cat__state gf-cat__state--sm" :class="{ 'gf-cat__state--on': child.show }">
+            <span class="jc-cat__dot" :class="{ 'jc-cat__dot--on': child.show }" aria-hidden="true" />
+            <span class="jc-cat__cname" :class="{ 'jc-cat--off': !child.show }">{{ child.name }}</span>
+            <span class="jc-cat__cid">#{{ child.id }}</span>
+            <div class="jc-cat__cctrl" @click.stop>
+              <label class="jc-cat__toggle">
+                <span class="jc-cat__state jc-cat__state--sm" :class="{ 'jc-cat__state--on': child.show }">
                   {{ child.show ? '展示' : '隐藏' }}
                 </span>
                 <ManageSwitch :model-value="child.show" @update:model-value="toggleShow(child)" />
               </label>
               <button
                 type="button"
-                class="gf-cat__del"
+                class="jc-cat__del"
                 :aria-label="`删除 ${child.name}`"
                 data-focusable="true"
                 @click="remove(child)"
@@ -185,7 +185,7 @@ onMounted(load)
           <li>
             <button
               type="button"
-              class="gf-cat__add"
+              class="jc-cat__add"
               data-focusable="true"
               @click="openAddChild(parent)"
             >
@@ -202,7 +202,7 @@ onMounted(load)
     :title="editing ? '编辑分类' : addingUnder ? `在「${addingUnder}」下新增子分类` : '新增顶级分类'"
     mobile-mode="sheet"
   >
-    <div class="flex flex-col gap-[var(--gf-space-4)]">
+    <div class="flex flex-col gap-[var(--jc-space-4)]">
       <ManageFormField label="名称" required>
         <ManageInput v-model="form.name" placeholder="例如：动作片" />
       </ManageFormField>
@@ -224,186 +224,186 @@ onMounted(load)
 </template>
 
 <style scoped>
-.gf-cat {
-  border: 1px solid var(--gf-border-default);
-  border-radius: var(--gf-radius-lg);
-  background-color: var(--gf-bg-elevated);
+.jc-cat {
+  border: 1px solid var(--jc-border-default);
+  border-radius: var(--jc-radius-lg);
+  background-color: var(--jc-bg-elevated);
   overflow: hidden;
 }
 
 /* ---- 父级 ---- */
-.gf-cat__parent {
+.jc-cat__parent {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--gf-space-3);
+  gap: var(--jc-space-3);
   min-height: 56px;
-  padding: var(--gf-space-3) var(--gf-space-4) var(--gf-space-3) var(--gf-space-5);
+  padding: var(--jc-space-3) var(--jc-space-4) var(--jc-space-3) var(--jc-space-5);
   cursor: pointer;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-cat__parent:hover {
+.jc-cat__parent:hover {
   background-color: rgba(255, 255, 255, 0.04);
 }
-.gf-cat__bar {
+.jc-cat__bar {
   position: absolute;
   left: 0;
-  top: var(--gf-space-2);
-  bottom: var(--gf-space-2);
+  top: var(--jc-space-2);
+  bottom: var(--jc-space-2);
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background-image: var(--gf-brand-gradient);
+  background-image: var(--jc-brand-gradient);
 }
-.gf-cat__title {
+.jc-cat__title {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
   flex: 1;
 }
-.gf-cat__name {
-  font-weight: var(--gf-fw-semibold);
-  color: var(--gf-text-primary);
+.jc-cat__name {
+  font-weight: var(--jc-fw-semibold);
+  color: var(--jc-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gf-cat__meta {
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
-  font-family: var(--gf-font-mono);
+.jc-cat__meta {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
+  font-family: var(--jc-font-mono);
 }
 
 /* ---- 子级 ---- */
-.gf-cat__children {
+.jc-cat__children {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid var(--gf-border-subtle);
-  background-color: var(--gf-bg-surface);
+  border-top: 1px solid var(--jc-border-subtle);
+  background-color: var(--jc-bg-surface);
 }
-.gf-cat__child {
+.jc-cat__child {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   min-height: 48px;
-  padding: var(--gf-space-2) var(--gf-space-3) var(--gf-space-2) var(--gf-space-5);
-  border-bottom: 1px solid var(--gf-border-subtle);
+  padding: var(--jc-space-2) var(--jc-space-3) var(--jc-space-2) var(--jc-space-5);
+  border-bottom: 1px solid var(--jc-border-subtle);
   cursor: pointer;
-  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-cat__child:hover {
+.jc-cat__child:hover {
   background-color: rgba(255, 255, 255, 0.04);
 }
-.gf-cat__dot {
+.jc-cat__dot {
   flex-shrink: 0;
   width: 7px;
   height: 7px;
-  border-radius: var(--gf-radius-full);
-  background-color: var(--gf-text-muted);
+  border-radius: var(--jc-radius-full);
+  background-color: var(--jc-text-muted);
 }
-.gf-cat__dot--on {
-  background-color: var(--gf-success);
+.jc-cat__dot--on {
+  background-color: var(--jc-success);
 }
-.gf-cat__cname {
+.jc-cat__cname {
   min-width: 0;
   flex: 1;
-  color: var(--gf-text-primary);
+  color: var(--jc-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gf-cat__cid {
+.jc-cat__cid {
   flex-shrink: 0;
-  font-size: var(--gf-fs-xs);
-  color: var(--gf-text-muted);
-  font-family: var(--gf-font-mono);
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
+  font-family: var(--jc-font-mono);
 }
-.gf-cat--off {
+.jc-cat--off {
   opacity: 0.5;
   text-decoration: line-through;
 }
 
 /* ---- 控制区 ---- */
-.gf-cat__cctrl {
+.jc-cat__cctrl {
   display: flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   flex-shrink: 0;
 }
-.gf-cat__toggle {
+.jc-cat__toggle {
   display: inline-flex;
   align-items: center;
-  gap: var(--gf-space-2);
+  gap: var(--jc-space-2);
   cursor: pointer;
 }
-.gf-cat__state {
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-muted);
+.jc-cat__state {
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-muted);
   min-width: 2em;
   text-align: right;
   user-select: none;
 }
-.gf-cat__state--sm {
-  font-size: var(--gf-fs-xs);
+.jc-cat__state--sm {
+  font-size: var(--jc-fs-xs);
 }
-.gf-cat__state--on {
-  color: var(--gf-brand-purple);
-  font-weight: var(--gf-fw-medium);
+.jc-cat__state--on {
+  color: var(--jc-brand-purple);
+  font-weight: var(--jc-fw-medium);
 }
-.gf-cat__del {
+.jc-cat__del {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: var(--gf-radius-md);
-  color: var(--gf-text-muted);
+  border-radius: var(--jc-radius-md);
+  color: var(--jc-text-muted);
   transition:
-    color var(--gf-dur-fast) var(--gf-ease-standard),
-    background-color var(--gf-dur-fast) var(--gf-ease-standard);
+    color var(--jc-dur-fast) var(--jc-ease-standard),
+    background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-cat__del:hover {
-  color: var(--gf-danger);
+.jc-cat__del:hover {
+  color: var(--jc-danger);
   background-color: rgba(255, 255, 255, 0.06);
 }
-.gf-cat__del:focus-visible {
+.jc-cat__del:focus-visible {
   outline: none;
-  box-shadow: var(--gf-shadow-focus-ring);
+  box-shadow: var(--jc-shadow-focus-ring);
 }
 
 /* ---- 新增子分类 ---- */
-.gf-cat__add {
+.jc-cat__add {
   display: inline-flex;
   align-items: center;
-  gap: var(--gf-space-1);
+  gap: var(--jc-space-1);
   width: 100%;
   min-height: 44px;
-  padding: 0 var(--gf-space-3) 0 var(--gf-space-5);
-  font-size: var(--gf-fs-sm);
-  color: var(--gf-text-muted);
+  padding: 0 var(--jc-space-3) 0 var(--jc-space-5);
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-muted);
   text-align: left;
-  transition: color var(--gf-dur-fast) var(--gf-ease-standard);
+  transition: color var(--jc-dur-fast) var(--jc-ease-standard);
 }
-.gf-cat__add:hover {
-  color: var(--gf-brand-purple);
+.jc-cat__add:hover {
+  color: var(--jc-brand-purple);
 }
-.gf-cat__add:focus-visible {
+.jc-cat__add:focus-visible {
   outline: none;
-  box-shadow: var(--gf-shadow-focus-ring);
+  box-shadow: var(--jc-shadow-focus-ring);
 }
 
 /* ---- 移动端: 隐藏次要信息 + 放大触控 ---- */
 @media (max-width: 640px) {
-  .gf-cat__meta,
-  .gf-cat__cid {
+  .jc-cat__meta,
+  .jc-cat__cid {
     display: none;
   }
-  .gf-cat__state {
+  .jc-cat__state {
     display: none;
   }
-  .gf-cat__parent,
-  .gf-cat__child {
+  .jc-cat__parent,
+  .jc-cat__child {
     min-height: 52px;
   }
 }

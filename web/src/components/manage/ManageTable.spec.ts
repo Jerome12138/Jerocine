@@ -34,13 +34,13 @@ describe('ManageTable mobile card mode', () => {
     forceMode('desktop')
     const w = mount(ManageTable, { props: { columns: cols, rows, rowKey: 'id' } })
     expect(w.find('table').exists()).toBe(true)
-    expect(w.find('.gf-card-list').exists()).toBe(false)
+    expect(w.find('.jc-card-list').exists()).toBe(false)
   })
 
-  it('mobile + 默认 mobileVariant=card → .gf-card-list, 无 <table>', () => {
+  it('mobile + 默认 mobileVariant=card → .jc-card-list, 无 <table>', () => {
     forceMode('mobile')
     const w = mount(ManageTable, { props: { columns: cols, rows, rowKey: 'id' } })
-    expect(w.find('.gf-card-list').exists()).toBe(true)
+    expect(w.find('.jc-card-list').exists()).toBe(true)
     expect(w.find('table').exists()).toBe(false)
     expect(w.findAll('article')).toHaveLength(2)
   })
@@ -51,7 +51,7 @@ describe('ManageTable mobile card mode', () => {
       props: { columns: cols, rows, rowKey: 'id', mobileVariant: 'scroll' }
     })
     expect(w.find('table').exists()).toBe(true)
-    expect(w.find('.gf-card-list').exists()).toBe(false)
+    expect(w.find('.jc-card-list').exists()).toBe(false)
   })
 
   it('mobile card 默认 fallback: 首列标题 + 剩余列 meta', () => {
@@ -81,7 +81,7 @@ describe('ManageTable mobile card mode', () => {
     const w = mount(ManageTable, {
       props: { columns: cols, rows, rowKey: 'id', loading: true }
     })
-    expect(w.find('.gf-card-list').exists()).toBe(false)
+    expect(w.find('.jc-card-list').exists()).toBe(false)
     expect(w.find('table').exists()).toBe(false)
   })
 
@@ -90,7 +90,7 @@ describe('ManageTable mobile card mode', () => {
     const w = mount(ManageTable, {
       props: { columns: cols, rows: [], rowKey: 'id' }
     })
-    expect(w.find('.gf-card-list').exists()).toBe(false)
+    expect(w.find('.jc-card-list').exists()).toBe(false)
     expect(w.find('table').exists()).toBe(false)
   })
 })

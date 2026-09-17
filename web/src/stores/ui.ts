@@ -5,9 +5,9 @@ import { ref, watch } from 'vue'
  * 全局 UI 状态：sidebar、主题、loading 计数
  * 由网络层 / 布局组件读写。
  *
- * sidebar 折叠态持久化到 localStorage 'gf-sidebar-collapsed', 跨刷新保留用户偏好.
+ * sidebar 折叠态持久化到 localStorage 'jc-sidebar-collapsed', 跨刷新保留用户偏好.
  */
-const SIDEBAR_LS_KEY = 'gf-sidebar-collapsed'
+const SIDEBAR_LS_KEY = 'jc-sidebar-collapsed'
 
 function readSidebar(): boolean {
   try {
