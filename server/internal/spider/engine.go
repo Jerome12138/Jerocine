@@ -229,6 +229,46 @@ func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCo
 		}
 	}
 
+	pages := make(chan int, pageCount)
+	for i := 1; i <= pageCount; i++ {
+		pages <- i
+	}
+	close(pages)
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("spider worker panic src=%s: %v", src.Id, r)
+					cache.JobIncrFailed(ctx, src.Id, 1)
+				}
+			}()
+			for pg := range pages {
+				if ctx.Err() != nil {
+					return // 优雅停机: 剩余页不拉取也不记台账, 增量窗口滚动自会覆盖
+				}
+				if !e.waitIfPausedOrCanceled(ctx, src.Id) {
+					return // 已取消
+				}
+				if err := e.collectPageWithRetry(ctx, src, pg, hours, master, full); err != nil {
+					log.Printf("spider page src=%s pg=%d err=%v", src.Id, pg, err)
+					cache.JobIncrFailed(ctx, src.Id, 1)
+					e.recordFailure(ctx, src, pg, hours, err)
+				} else {
+					cache.JobIncrDone(ctx, src.Id, 1)
+				}
+				if throttled {
+					time.Sleep(time.Duration(src.IntervalMs) * time.Millisecond)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 // isDeadlock 判定 MySQL 死锁错误(Error 1213 / Deadlock found)。死锁是并发写事务的
 // 偶发互锁(InnoDB 随机回滚受害者), 退避后重放同一页通常即成功, 不应直接记成永久失败页。
 func isDeadlock(err error) bool {
