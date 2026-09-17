@@ -109,63 +109,6 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 	return nil
 }
 
-// runPages 并发分页采集; IntervalMs>500 的源退化为单线程限速。
-// 主站(master)页数据量大(影片+检索+多源播放行事务双写)且增量窗口相邻页影片重叠,
-// 32 worker 并发 UPSERT 同一批行会高频触发 InnoDB 死锁(台账里 src_lz 批量 Error 1213),
-// 故主站并发收敛到 masterMaxWorkers; 附属源(只写播放源行)保持 maxG。
-func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCount, hours int, master, full bool) {
-	workers := e.maxG
-	if workers > pageCount {
-		workers = pageCount
-	}
-	throttled := src.IntervalMs > 500
-	if throttled {
-		workers = 1
-	}
-	if master && workers > masterMaxWorkers {
-		workers = masterMaxWorkers
-	}
-
-	pages := make(chan int, pageCount)
-	for i := 1; i <= pageCount; i++ {
-		pages <- i
-	}
-	close(pages)
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for w := 0; w < workers; w++ {
-		go func() {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("spider worker panic src=%s: %v", src.Id, r)
-					cache.JobIncrFailed(ctx, src.Id, 1)
-				}
-			}()
-			for pg := range pages {
-				if ctx.Err() != nil {
-					return // 优雅停机: 剩余页不拉取也不记台账, 增量窗口滚动自会覆盖
-				}
-				if !e.waitIfPausedOrCanceled(ctx, src.Id) {
-					return // 已取消
-				}
-				if err := e.collectPageWithRetry(ctx, src, pg, hours, master, full); err != nil {
-					log.Printf("spider page src=%s pg=%d err=%v", src.Id, pg, err)
-					cache.JobIncrFailed(ctx, src.Id, 1)
-					e.recordFailure(ctx, src, pg, hours, err)
-				} else {
-					cache.JobIncrDone(ctx, src.Id, 1)
-				}
-				if throttled {
-					time.Sleep(time.Duration(src.IntervalMs) * time.Millisecond)
-				}
-			}
-		}()
-	}
-	wg.Wait()
-}
-
 // waitIfPausedOrCanceled 暂停则轮询等待; 取消返回 false。
 func (e *Engine) waitIfPausedOrCanceled(ctx context.Context, jobId string) bool {
 	for {
