@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * LogoMark - 站点品牌 logo
+ * LogoMark - 站点品牌字标（纯文字，品牌中立化）
  *
- * 品牌来自后台 site_config（品牌中立化）：
- * - 配了 logo 图 URL → 渲染图片（高度随 size，object-fit: contain）
- * - 未配 logo → 渲染 siteName 文字（渐变色斜体字标，适合 TV 远观）
+ * - 显示后台 site_config.siteName（渐变色斜体字标，适合 TV 远观视场）
  * - siteName 兜底为中性词「影视」，不硬编码任何个人品牌
+ * - 后台 logo 字段不在此渲染图片（用户明确：顶栏保持文字字标，
+ *   logo 仅用于浏览器标签页 icon，见 App.vue applyFavicon）
  *
  * 字号 / 整体大小用 size prop 控制（字号 = size * 0.7）
  */
@@ -23,21 +23,12 @@ const props = withDefaults(defineProps<Props>(), {
 
 const site = useSiteStore()
 const siteName = computed(() => site.basic?.siteName || '影视')
-const logoUrl = computed(() => site.basic?.logo || '')
 </script>
 
 <template>
   <span class="jc-logo" :style="{ height: size + 'px' }">
-    <img
-      v-if="logoUrl"
-      :src="logoUrl"
-      :alt="siteName"
-      class="jc-logo__img"
-      :style="{ height: size + 'px' }"
-      loading="lazy"
-    />
     <span
-      v-else-if="showText"
+      v-if="showText"
       class="jc-logo__text"
       :style="{ fontSize: size * 0.7 + 'px' }"
     >
@@ -52,13 +43,6 @@ const logoUrl = computed(() => site.basic?.logo || '')
   align-items: center;
   gap: 8px;
   line-height: 1;
-}
-.jc-logo__img {
-  display: block;
-  width: auto;
-  max-width: 220px;
-  object-fit: contain;
-  border-radius: 4px;
 }
 .jc-logo__text {
   display: inline-block;

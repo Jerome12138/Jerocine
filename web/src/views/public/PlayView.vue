@@ -1747,7 +1747,11 @@ watch(playerReady, (v) => {
               <template #icon><BaseIcon name="skip-next" size="18px" /></template>
               切到最快
             </BaseButton>
-            <!-- 更多: 收纳 自动连播 / 过滤广告 / 线路测速 / 跳过设置 (+移动端分享) -->
+            <!-- 分享: TV 无复制场景不显示; 桌面/移动/Pad 显示, 点击复制链接 -->
+            <BaseButton v-if="!isTV" variant="ghost" size="sm" :aria-label="shareLabel" :title="shareLabel" @click="handleShare">
+              <template #icon><BaseIcon name="share" size="18px" /></template>
+            </BaseButton>
+            <!-- 更多: 收纳 自动连播 / 过滤广告 / 线路测速 / 跳过设置 -->
             <div class="jc-pt-more">
               <BaseButton variant="outline" size="sm" :aria-expanded="moreActionsOpen" @click="moreActionsOpen = !moreActionsOpen">
                 <template #icon><BaseIcon name="menu" size="18px" /></template>
@@ -1781,10 +1785,6 @@ watch(playerReady, (v) => {
                   <button type="button" class="jc-pt-more__item" @click="clearFilmCache">
                     <BaseIcon name="trash" size="16px" />
                     <span class="jc-pt-more__item-label">清理本视频播放缓存</span>
-                  </button>
-                  <button v-if="!isDesktop" type="button" class="jc-pt-more__item" @click="handleShare(); moreActionsOpen = false">
-                    <BaseIcon name="share" size="16px" />
-                    <span class="jc-pt-more__item-label">{{ shareLabel }}</span>
                   </button>
                 </div>
               </Transition>

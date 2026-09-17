@@ -156,13 +156,29 @@ async function maybePromptResume(): Promise<void> {
   void router.push(buildPlayLink(rec))
 }
 
+// 后台 logo 字段 → 浏览器标签页 icon（无 logo 时回退默认 favicon.svg）
+function applyFavicon(url?: string | null): void {
+  const href = url?.trim() || '/favicon.svg'
+  let link = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]')
+  if (!link) {
+    link = document.createElement('link')
+    link.rel = 'icon'
+    document.head.appendChild(link)
+  }
+  link.href = href
+}
+
 onMounted(() => {
   void maybePromptResume()
 
   // 站点信息 / 顶级导航预热（并行，失败静默，不阻塞页面渲染）
-  Promise.all([siteStore.ensureLoaded(), navStore.ensureLoaded()]).catch(() => {
-    // 拦截器已统一 toast，这里仅吞错避免冒泡
-  })
+  Promise.all([siteStore.ensureLoaded(), navStore.ensureLoaded()])
+    .then(() => {
+      applyFavicon(siteStore.basic?.logo)
+    })
+    .catch(() => {
+      // 拦截器已统一 toast，这里仅吞错避免冒泡
+    })
 
   // 开机一次性 diag snapshot — 设备/视口/UA/mode 全量上报, 后台一眼看到 TV 的实际渲染态
   telemetry.reportDiag({ source: 'app-mount' })

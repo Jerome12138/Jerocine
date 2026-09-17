@@ -17,8 +17,6 @@ body {
 html {
   font-size: 16px;
   scroll-behavior: smooth;
-  /* 响应式根字号，TV 模式下 useViewMode 会切换 data-mode 覆盖 */
-  font-size: clamp(14px, 1.05vw, 18px);
   /* 恒定预留竖向滚动条槽位: 短页(无滚动条)与长页(有滚动条)的可用宽度一致,
      消除居中容器(头部 / 内容区同用 container-page)随滚动条出现而左右跳动、
      "顶部栏与内容区宽度对不齐"的问题。TV 模式 scrollbar-width:none 时本属性自动无效。 */

@@ -621,9 +621,9 @@ function handleToggleFavorite(): void {
                 </template>
                 {{ isFavorited ? '已收藏' : '收藏' }}
               </BaseButton>
-              <!-- 分享: PC(desktop) 不显示; 其余端点击复制链接 -->
+              <!-- 分享: TV 无复制场景不显示; 桌面/移动/Pad 显示, 点击复制链接 -->
               <BaseButton
-                v-if="!isDesktop"
+                v-if="!isTV"
                 variant="ghost"
                 size="md"
                 @click="handleShare"

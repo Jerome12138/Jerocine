@@ -95,7 +95,7 @@
   --jc-fs-2xl: 1.875rem;
   --jc-fs-3xl: 2.5rem;
   --jc-fs-display: clamp(1.75rem, 1.2rem + 1.5vw, 2.25rem); /* 详情页大标题, 28-34px */
-  --jc-fs-hero: clamp(2.5rem, 4vw + 1rem, 4.5rem);
+  --jc-fs-hero: clamp(2.25rem, 3.5vw + 0.75rem, 4rem);
 
   --jc-fw-regular: 400;
   --jc-fw-medium: 500;

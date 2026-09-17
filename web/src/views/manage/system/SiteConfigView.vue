@@ -120,8 +120,8 @@ onMounted(load)
       <ManageFormField label="站点名称" required>
         <ManageInput v-model="form.siteName" />
       </ManageFormField>
-      <ManageFormField label="Logo URL">
-        <ManageInput v-model="form.logo" placeholder="https://..." />
+      <ManageFormField label="Logo URL（浏览器标签页图标）">
+        <ManageInput v-model="form.logo" placeholder="https://...（图标 URL）" />
       </ManageFormField>
       <ManageFormField label="域名">
         <ManageInput v-model="form.domain!" placeholder="https://example.com" />
