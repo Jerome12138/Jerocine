@@ -20,7 +20,7 @@ export function useGridRowsLimit(maxRows = 2, mobileRows = 3): {
     if (w < 480) return 3
     if (w < 768) return 4
     if (w < 1024) return 5
-    if (w < 1536) return 6
+    if (w < 1152) return 6
     return 7
   }
   function update(): void {
