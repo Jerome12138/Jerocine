@@ -79,10 +79,16 @@ func (r *collectFailureRepo) MarkHandled(ctx context.Context, ids []int64) error
 		Updates(map[string]any{"status": entity.FailureHandled, "updated_at": nowMilli()}).Error
 }
 
-func (r *collectFailureRepo) MarkHandledIncrementalBefore(ctx context.Context, sourceId string, maxId int64, maxHours int) (int64, error) {
+// MarkHandledIncrementalCovered 按「宽窗重扫覆盖范围」归档同源待处理记录:
+// 失败时间不早于 sinceMs(宽窗起点)且自身窗口不超过 windowHours 的增量失败页,
+// 说明已被这次扩窗重扫恢复到, 一并置为已处理, 不必逐条重放。
+//
+// 注意: 不能用 id 上界代替时间范围 —— 宽窗重扫覆盖的是"失败时间落在宽窗内"的页
+// (包括比被补采那条失败更晚、id 更大的记录), 按 id<=当前条 归档会漏掉大部分已恢复的页。
+func (r *collectFailureRepo) MarkHandledIncrementalCovered(ctx context.Context, sourceId string, sinceMs int64, windowHours int) (int64, error) {
 	res := dbFrom(ctx, r.db).Model(&entity.CollectFailure{}).
-		Where("source_id = ? AND id <= ? AND status = ? AND hours > 0 AND hours <= ?",
-			sourceId, maxId, entity.FailurePending, maxHours).
+		Where("source_id = ? AND status = ? AND hours > 0 AND hours <= ? AND created_at >= ?",
+			sourceId, entity.FailurePending, windowHours, sinceMs).
 		Updates(map[string]any{"status": entity.FailureHandled, "updated_at": nowMilli()})
 	return res.RowsAffected, res.Error
 }

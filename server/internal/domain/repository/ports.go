@@ -142,9 +142,9 @@ type CollectFailureRepository interface {
 	List(ctx context.Context, status int8, page Page) ([]entity.CollectFailure, int64, error)
 	// MarkHandled 按 id 置为已处理。
 	MarkHandled(ctx context.Context, ids []int64) error
-	// MarkHandledIncrementalBefore 把同源、同为增量(hours>0 且 <=maxHours)、id 不晚于 maxId 的待处理记录
-	// 一并置为已处理 —— 一次扩窗重扫已覆盖这些页, 不必再逐条重放。
-	MarkHandledIncrementalBefore(ctx context.Context, sourceId string, maxId int64, maxHours int) (int64, error)
+	// MarkHandledIncrementalCovered 把同源、同为增量(hours 在 (0, windowHours])、失败时间不早于
+	// sinceMs(宽窗起点)的待处理记录一并置为已处理 —— 一次扩窗重扫已覆盖这些页, 不必再逐条重放。
+	MarkHandledIncrementalCovered(ctx context.Context, sourceId string, sinceMs int64, windowHours int) (int64, error)
 	// DeleteHandled 清空已处理记录, 返回删除条数。
 	DeleteHandled(ctx context.Context) (int64, error)
 	// CountPending 待补采条数。

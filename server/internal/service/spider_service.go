@@ -394,7 +394,7 @@ type RecoverResult struct {
 // 分流依据是"页码在时间维度上还准不准":
 //   - 增量采集(hours>0)失败: 数据已经随时间往前走了, 重放旧页码没有意义 → 把时间窗扩到
 //     「原窗口 + 距失败已过的小时数」整段重扫, 既补上漏掉的页, 也不会重复太多。一次宽窗重扫
-//     覆盖该源所有更早的增量失败, 故这些记录一并归档, 不必逐条重放。
+//     覆盖该源宽窗范围内(失败时间不早于宽窗起点)的所有增量失败, 故这些记录一并归档, 不必逐条重放。
 //   - 全量/超长范围(hours<=0 或超上限)失败: 页码语义稳定, 按「源 + 时长 + 页码」精确重放那一页。
 func (s *SpiderService) RecoverPending(ctx context.Context, ids []int64) RecoverResult {
 	var res RecoverResult
@@ -437,7 +437,7 @@ func (s *SpiderService) RecoverPending(ctx context.Context, ids []int64) Recover
 				}
 				continue
 			}
-			n, e := s.failures.MarkHandledIncrementalBefore(ctx, src.Id, f.Id, recoverIncrementalMaxHours)
+			n, e := s.failures.MarkHandledIncrementalCovered(ctx, src.Id, coveredSinceMs(f), widenedHours(f))
 			if e != nil {
 				log.Printf("spider: 归档增量失败记录 err: %v", e)
 			}
@@ -476,6 +476,12 @@ func widenedHours(f entity.CollectFailure) int {
 		return w
 	}
 	return recoverIncrementalMaxHours
+}
+
+// coveredSinceMs 宽窗重扫的覆盖起点(毫秒时间戳): 宽窗 = 当前往前 widenedHours 小时,
+// 失败时间不早于该起点的同源增量页都已被这次重扫恢复到, 可一并归档。
+func coveredSinceMs(f entity.CollectFailure) int64 {
+	return time.Now().UnixMilli() - int64(widenedHours(f))*3600*1000
 }
 
 // recoverOnePage 精确重放单页(走引擎的单页采集, 不动影子表)。
