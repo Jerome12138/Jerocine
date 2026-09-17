@@ -202,15 +202,16 @@ const masterMaxWorkers = 12
 const slaveMaxWorkers = 8
 
 // concurrentPageMin 页数超过该值才允许并发(全量不限页数)。
-// 增量窗口页数少(3h 仅 1~5 页), 单线程几十秒即可完成, 并发没有收益反而增加源站压力。
-const concurrentPageMin = 1000
+// 增量窗口页数少(3h 仅 1~5 页), 单线程几十秒即可完成, 并发没有收益反而增加源站压力;
+// 达到数百页的大窗口才值得并发提速。
+const concurrentPageMin = 200
 
 // deadlockRetries 页事务死锁重试次数(首次失败后最多再试 2 次)。
 const deadlockRetries = 2
 
 // runPages 分页采集, 并发策略:
 //   - interval_ms >= 300 → 单线程限速(源站明确要求慢采, 每页间隔 interval_ms)
-//   - 全量(hours<=0) 或 页数 > 1000 → 并发: 主站 ≤12 / 从站 ≤8, 且不超过页数
+//   - 全量(hours<=0) 或 页数 > 200 → 并发: 主站 ≤12 / 从站 ≤8, 且不超过页数
 //   - 其余(增量且页数少) → 单线程: 增量页少、完成快, 不并发以免对源站构成瞬时压力
 func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCount, hours int, master, full bool) {
 	workers := 1
