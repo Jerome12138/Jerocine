@@ -21,6 +21,8 @@ FROM nginx:1.27-alpine
 # nginx.conf 走仓库版本, 不再依赖宿主机 /opt/film/data/nginx 挂载
 COPY deploy/data/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=build /app/dist /usr/share/nginx/html
+# 许可随产物分发(MIT + GoFilm 衍生声明, 见 LICENSE): 站点 /LICENSE 可直接访问
+COPY LICENSE /usr/share/nginx/html/LICENSE
 
 EXPOSE 80
 

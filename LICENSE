@@ -22,14 +22,7 @@ SOFTWARE.
 
 ---
 
-## 致谢与衍生声明（NOTICE）
+## NOTICE
 
-本项目（Jerocine影视）的设计与实现受开源项目 **GoFilm** 启发并参考：
-
-- 仓库：https://github.com/ProudMuBai/GoFilm
-- 原许可：MIT License，Copyright (c) 2023 ProudMuBai
-
-依据 MIT 许可条款（"The above copyright notice and this permission notice shall
-be included in all copies or substantial portions of the Software"），在此保留
-GoFilm 的版权与许可声明；来自 GoFilm 的代码、结构或灵感成果同样适用本文档所列
-MIT License 全文。特此对 GoFilm 作者 ProudMuBai 致谢。
+This project is inspired by **GoFilm** (https://github.com/ProudMuBai/GoFilm),
+which is licensed under the MIT License, Copyright (c) 2023 ProudMuBai.

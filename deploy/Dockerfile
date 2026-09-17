@@ -30,6 +30,8 @@ LABEL org.opencontainers.image.title="jerocine-server"
 WORKDIR /opt/server
 COPY --from=build --chown=nonroot:nonroot /out/main /opt/server/main
 COPY --from=build --chown=nonroot:nonroot /out/static /opt/server/static
+# 许可随镜像分发(MIT + GoFilm 衍生声明)
+COPY LICENSE /licenses/LICENSE
 
 USER nonroot:nonroot
 EXPOSE 3601

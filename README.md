@@ -66,13 +66,8 @@ Jerocine/
 
 ## 致谢（Credits）
 
-本项目（Jerocine影视）的设计灵感来源于开源项目 **GoFilm**：
-
-- 仓库：[github.com/ProudMuBai/GoFilm](https://github.com/ProudMuBai/GoFilm)
-- 许可：MIT License，Copyright (c) 2023 ProudMuBai
-
-GoFilm 提供了"Vue + Gin + gocolly 多源采集在线影视站"的完整技术思路，本项目在其启发下重构实现（含多采集源、采集引擎、站点形态等），特此致谢。合规与版权说明见 [LICENSE](./LICENSE)。
+本项目受开源项目 [GoFilm](https://github.com/ProudMuBai/GoFilm)（MIT © 2023 ProudMuBai）启发，特此致谢。许可与声明见 [LICENSE](./LICENSE)。
 
 ## License
 
-[MIT](./LICENSE) © 2026 jerome12138 (Jerocine影视)。本项目受 GoFilm（MIT © 2023 ProudMuBai）启发，衍生声明见 LICENSE 文件。
+[MIT](./LICENSE) © 2026 jerome12138 (Jerocine影视)
