@@ -192,13 +192,41 @@ func (e *Engine) collectPage(ctx context.Context, src *entity.CollectSource, pg,
 	return e.collectMasterPage(ctx, src, pg, hours, full)
 }
 
-// masterMaxWorkers 主站并发上限。主站每页事务写 movie+search+play 三表,
+// masterMaxWorkers 主站并发上限: 主站每页事务写 movie+search+play 三表,
 // 并发过高 → InnoDB 行锁循环等待(Error 1213 Deadlock)批量出现(台账实证)。
-// 12 个 worker 对 20+ 部/页的吞吐足够, 死锁概率大幅下降。
 const masterMaxWorkers = 12
+
+// slaveMaxWorkers 从站并发上限: 从站只写播放源行, 单事务比主站轻, 但
+// 高并发仍会对源站 API 构成瞬时冲击(实测 src_ff/tt 403 与限频/反爬相关),
+// 故从站收敛到 8, 降低触发源站限流被拉黑的风险。
+const slaveMaxWorkers = 8
+
+// concurrentPageMin 页数超过该值才允许并发(全量不限页数)。
+// 增量窗口页数少(3h 仅 1~5 页), 单线程几十秒即可完成, 并发没有收益反而增加源站压力。
+const concurrentPageMin = 1000
 
 // deadlockRetries 页事务死锁重试次数(首次失败后最多再试 2 次)。
 const deadlockRetries = 2
+
+// runPages 分页采集, 并发策略:
+//   - interval_ms >= 300 → 单线程限速(源站明确要求慢采, 每页间隔 interval_ms)
+//   - 全量(hours<=0) 或 页数 > 1000 → 并发: 主站 ≤12 / 从站 ≤8, 且不超过页数
+//   - 其余(增量且页数少) → 单线程: 增量页少、完成快, 不并发以免对源站构成瞬时压力
+func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCount, hours int, master, full bool) {
+	workers := 1
+	throttled := src.IntervalMs >= 300
+	if !throttled && (full || pageCount > concurrentPageMin) {
+		workers = e.maxG
+		if workers > pageCount {
+			workers = pageCount
+		}
+		if master && workers > masterMaxWorkers {
+			workers = masterMaxWorkers
+		}
+		if !master && workers > slaveMaxWorkers {
+			workers = slaveMaxWorkers
+		}
+	}
 
 // isDeadlock 判定 MySQL 死锁错误(Error 1213 / Deadlock found)。死锁是并发写事务的
 // 偶发互锁(InnoDB 随机回滚受害者), 退避后重放同一页通常即成功, 不应直接记成永久失败页。
