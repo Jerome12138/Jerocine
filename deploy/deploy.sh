@@ -24,7 +24,12 @@ echo "==> git pull --ff-only"
 git -C .. pull --ff-only
 
 echo "==> compose up -d --build: ${services[*]}"
-"${COMPOSE[@]}" up -d --build "${services[@]}"
+# 纯前端必须 --no-deps: nginx depends_on server, 不带会连带重启后端打断采集
+if [ "${services[*]}" = "nginx" ]; then
+  "${COMPOSE[@]}" up -d --build --no-deps nginx
+else
+  "${COMPOSE[@]}" up -d --build "${services[@]}"
+fi
 
 # 等待 server 健康(纯 nginx 部署时容器本来就该 healthy, 快速通过)
 echo "==> 等待 jerocine_server healthy..."
