@@ -2,6 +2,7 @@ package spider
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"path"
@@ -49,11 +50,11 @@ func NewEngine(
 // ctx 可被优雅停机取消: 取消后未开始的页不拉取, 收尾写(任务状态/缓存失效)经 finCtx 保证落地。
 func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours int) (err error) {
 	master := src.Grade == entity.GradeMaster
-	cache.JobStart(finCtx(ctx), src.Id, src.Name, 0)
+	cache.JobStart(finCtx(ctx), src.Id, src.Name, 0, hours)
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("spider Collect panic src=%s: %v", src.Id, r)
-			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
+			cache.JobFail(finCtx(ctx), src.Id, "采集引擎 panic: "+fmt.Sprint(r))
 		}
 	}()
 
@@ -74,7 +75,7 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 			cache.JobSetState(finCtx(ctx), src.Id, cache.JobDone)
 			return nil
 		}
-		cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
+		cache.JobFail(finCtx(ctx), src.Id, "获取分页总数失败: "+err.Error())
 		return err
 	}
 	cache.JobSetTotal(finCtx(ctx), src.Id, pageCount)
@@ -82,7 +83,7 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 	full := hours <= 0
 	if master && full {
 		if err = e.search.ShadowBegin(ctx); err != nil {
-			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
+			cache.JobFail(finCtx(ctx), src.Id, "影子表开启失败: "+err.Error())
 			return err
 		}
 	}
@@ -91,7 +92,7 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 
 	if master && full {
 		if err = e.search.ShadowCommit(ctx); err != nil {
-			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
+			cache.JobFail(finCtx(ctx), src.Id, "影子表提交失败: "+err.Error())
 			return err
 		}
 	}
@@ -340,18 +341,18 @@ func (e *Engine) recordFailure(ctx context.Context, src *entity.CollectSource, p
 // 返回该页落库的影片条数。
 func (e *Engine) CollectOnePage(ctx context.Context, src *entity.CollectSource, pg, hours int) (int, error) {
 	master := src.Grade == entity.GradeMaster
-	cache.JobStart(finCtx(ctx), src.Id, src.Name, 1)
+	cache.JobStart(finCtx(ctx), src.Id, src.Name, 1, hours)
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("spider CollectOnePage panic src=%s pg=%d: %v", src.Id, pg, r)
-			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
+			cache.JobFail(finCtx(ctx), src.Id, "补采单页 panic: "+fmt.Sprint(r))
 		}
 	}()
 
 	if !master {
 		if err := e.collectSlavePage(ctx, src, pg, hours); err != nil {
 			cache.JobIncrFailed(ctx, src.Id, 1)
-			cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
+			cache.JobFail(finCtx(ctx), src.Id, err.Error())
 			return 0, err
 		}
 		cache.JobIncrDone(ctx, src.Id, 1)
@@ -363,7 +364,7 @@ func (e *Engine) CollectOnePage(ctx context.Context, src *entity.CollectSource, 
 	n, err := e.collectPageNWithRetry(ctx, src, pg, hours, true, false)
 	if err != nil {
 		cache.JobIncrFailed(ctx, src.Id, 1)
-		cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)
+		cache.JobFail(finCtx(ctx), src.Id, err.Error())
 		return 0, err
 	}
 	cache.JobIncrDone(ctx, src.Id, 1)

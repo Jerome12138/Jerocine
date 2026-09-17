@@ -206,6 +206,55 @@ export interface CronTask {
   state: boolean
   /** 备注 */
   remark?: string
+  /** 上次运行时间(ms, 0=尚无运行记录) */
+  lastRunAt?: number
+  /** 上次运行状态: running | success | failed | canceled */
+  lastStatus?: string
+  /** 上次失败原因 */
+  lastError?: string
+  /** 上次运行结果摘要 */
+  lastMessage?: string
+}
+
+/** 任务运行台账单条(GET /manage/tasks/runs) */
+export interface TaskRun {
+  id: number
+  /** 触发来源: cron 定时 / manual 手动 */
+  kind: 'cron' | 'manual'
+  /** 任务类型: collect | recover | category_cover | hot_refresh */
+  type: 'collect' | 'recover' | 'category_cover' | 'hot_refresh'
+  /** 定时任务 id(非定时触发为 0) */
+  cronId: number
+  /** 采集源 id(采集/覆盖类) */
+  sourceId: string
+  /** 任务显示名 */
+  name: string
+  /** 采集时长: -1 全量 / >0 增量小时 */
+  hours: number
+  /** 状态: running | success | failed | canceled */
+  status: 'running' | 'success' | 'failed' | 'canceled'
+  /** 总页数 */
+  total: number
+  /** 成功页数 */
+  done: number
+  /** 失败页数 */
+  failed: number
+  /** 结果摘要 */
+  message: string
+  /** 失败原因 */
+  error: string
+  /** 开始时间(ms) */
+  startedAt: number
+  /** 结束时间(ms) */
+  endedAt: number
+}
+
+/** GET /manage/tasks/overview 统计卡 */
+export interface TaskOverview {
+  running: number
+  todaySuccess: number
+  todayFailed: number
+  pendingFailures: number
 }
 
 /** 影片分类 */

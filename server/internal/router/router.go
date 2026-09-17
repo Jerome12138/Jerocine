@@ -101,6 +101,14 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/cron-tasks", h.UpsertCron)
 		mg.PUT("/cron-tasks/:id", h.UpsertCron)
 		mg.DELETE("/cron-tasks/:id", h.DeleteCron)
+		// 定时任务"立即执行"一次(不改变调度表, 登记为手动任务)。
+		mg.POST("/cron-tasks/:id/run", h.CronRun)
+
+		// 任务管理: 运行台账(全部定时/手动任务的历史、状态、失败原因与重跑)。
+		// 静态段先于 :id 注册。
+		mg.GET("/tasks/runs", h.TaskRuns)
+		mg.GET("/tasks/overview", h.TaskOverview)
+		mg.POST("/tasks/:id/rerun", h.TaskRerun)
 
 		mg.GET("/categories", h.ListCategories)
 		mg.POST("/categories", h.UpsertCategory)

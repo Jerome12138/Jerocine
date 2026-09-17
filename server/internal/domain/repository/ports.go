@@ -206,6 +206,30 @@ type UserRepository interface {
 	Delete(ctx context.Context, id uint) error
 }
 
+// TaskRunFilter 任务台账筛选(空字段忽略)。
+type TaskRunFilter struct {
+	Status string
+	Type   string
+}
+
+// TaskRunRepository 任务运行台账。
+type TaskRunRepository interface {
+	Create(ctx context.Context, r *entity.TaskRun) error
+	// Update 更新可变动字段(状态/进度/结果/错误/结束时间)。
+	Update(ctx context.Context, r *entity.TaskRun) error
+	Get(ctx context.Context, id int64) (*entity.TaskRun, error)
+	// List 按时间倒序分页。
+	List(ctx context.Context, f TaskRunFilter, page Page) ([]entity.TaskRun, int64, error)
+	// LatestByCron 每个定时任务最近一次运行(cron_id ∈ ids), 返回 map[cronId]TaskRun。
+	LatestByCron(ctx context.Context, cronIds []int64) (map[int64]entity.TaskRun, error)
+	// CountSince 统计某时间点后的成功/失败任务数(统计卡用)。
+	CountSince(ctx context.Context, sinceMs int64) (success, failed int64, err error)
+	// CountRunning 运行中(running)任务数(统计卡用)。
+	CountRunning(ctx context.Context) (int64, error)
+	// MarkInterrupted 把全部 running 行标记为 failed(服务重启导致的中断), 避免幽灵"运行中"行。
+	MarkInterrupted(ctx context.Context) error
+}
+
 // HistoryRepository 观看历史。
 type HistoryRepository interface {
 	Upsert(ctx context.Context, h *entity.UserHistory) error

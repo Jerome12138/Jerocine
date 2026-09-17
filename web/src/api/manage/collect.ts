@@ -167,9 +167,14 @@ export interface SpiderJob {
   totalPages: number
   donePages: number
   failedPages: number
-  /** 后端 JobProgress 暂未跟踪用时/时长, 固定 0(视图按 0 显示 全量/0s) */
+  /** 已用时长 ms(由 startedAt 推算; 无则 0) */
   elapsedMs: number
+  /** 采集时长: -1 全量 / >0 增量小时(0=未知, 重跑时按此还原) */
   hour: number
+  /** 开始时间 unix 秒 */
+  startedAt: number
+  /** 失败原因(error 态) */
+  error?: string
   note?: string
 }
 
@@ -180,11 +185,15 @@ interface JobProgressDTO {
   done: number
   failed: number
   state: SpiderJob['state']
+  startedAt?: number
+  hour?: number
+  error?: string
 }
 
 /** GET /manage/spider/jobs 当前 + 近 30 分钟内结束的采集任务 */
 export const spiderJobs = async (): Promise<SpiderJob[]> => {
   const data = await http.get<unknown, JobProgressDTO[]>('/manage/spider/jobs')
+  const now = Date.now()
   return (data ?? []).map((j) => ({
     sourceId: j.sourceId,
     sourceName: j.name,
@@ -192,8 +201,11 @@ export const spiderJobs = async (): Promise<SpiderJob[]> => {
     totalPages: j.total,
     donePages: j.done,
     failedPages: j.failed,
-    elapsedMs: 0,
-    hour: 0
+    hour: j.hour ?? 0,
+    startedAt: j.startedAt ?? 0,
+    error: j.error,
+    elapsedMs: j.startedAt ? now - j.startedAt * 1000 : 0,
+    note: undefined
   }))
 }
 

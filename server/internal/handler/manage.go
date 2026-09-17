@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"server/internal/cache"
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
@@ -173,9 +176,41 @@ func (h *Handlers) ListSourceHealth(c *gin.Context) {
 
 // ---- cron 任务 ----
 
+// cronTaskResp 定时任务响应: 原字段 + 最近一次运行信息(任务台账回填)。
+// 定时任务页据此展示"上次运行时间/状态/失败原因", 不再是无历史的黑盒。
+type cronTaskResp struct {
+	entity.CronTask
+	LastRunAt   int64  `json:"lastRunAt"`
+	LastStatus  string `json:"lastStatus"`
+	LastError   string `json:"lastError"`
+	LastMessage string `json:"lastMessage"`
+}
+
 func (h *Handlers) ListCrons(c *gin.Context) {
 	list, err := h.Manage.ListCrons(c.Request.Context())
-	respond(c, list, err)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	ids := make([]int64, 0, len(list))
+	for i := range list {
+		ids = append(ids, list[i].Id)
+	}
+	latest := map[int64]entity.TaskRun{}
+	if h.Tasks != nil && len(ids) > 0 {
+		if m, e := h.Tasks.LatestByCron(c.Request.Context(), ids); e == nil {
+			latest = m
+		}
+	}
+	out := make([]cronTaskResp, 0, len(list))
+	for _, t := range list {
+		r := cronTaskResp{CronTask: t}
+		if lr, ok := latest[t.Id]; ok {
+			r.LastRunAt, r.LastStatus, r.LastError, r.LastMessage = lr.StartedAt, lr.Status, lr.Error, lr.Message
+		}
+		out = append(out, r)
+	}
+	dto.OK(c, out)
 }
 
 func (h *Handlers) UpsertCron(c *gin.Context) {
@@ -204,6 +239,20 @@ func (h *Handlers) DeleteCron(c *gin.Context) {
 	}
 	h.Spider.ReloadCron(c.Request.Context())
 	dto.NoContent(c)
+}
+
+// CronRun POST /manage/cron-tasks/:id/run 手动立即执行一次定时任务(不改变调度表)。
+func (h *Handlers) CronRun(c *gin.Context) {
+	id, ok := pathInt64(c, "id")
+	if !ok {
+		dto.Error(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := h.Spider.TriggerCron(c.Request.Context(), id); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.Accepted(c, gin.H{"accepted": true})
 }
 
 // ---- 分类 ----
@@ -334,13 +383,13 @@ func (h *Handlers) UploadApk(c *gin.Context) {
 //
 // 与每日 04:00 的自动刷新共用一把锁: 撞车时返 409(而不是排队, 免得后台连点把豆瓣打爆)。
 // 响应体是这一轮的观测值(fetched/matched/fellOff/dbIdFilled/scoreFilled/applied/...), 抓取不可信时
-// 返回 502 且**不落库** —— 保留上一轮快照。
+// 返回 502 且**不落库** —— 保留上一轮快照。每次触发都会登记一条任务台账(hot_refresh)。
 func (h *Handlers) HotRefresh(c *gin.Context) {
 	if h.Hot == nil {
 		dto.Error(c, http.StatusServiceUnavailable, "hot service unavailable")
 		return
 	}
-	rep, err := h.Hot.Refresh(c.Request.Context())
+	rep, err := h.runHotRefresh(c.Request.Context())
 	if err != nil {
 		if errors.Is(err, service.ErrHotBusy) {
 			dto.Error(c, http.StatusConflict, err.Error())
@@ -350,6 +399,94 @@ func (h *Handlers) HotRefresh(c *gin.Context) {
 		return
 	}
 	dto.OK(c, rep)
+}
+
+// runHotRefresh 执行一轮榜单刷新并登记任务台账(手动刷新 / 历史任务重跑共用)。
+func (h *Handlers) runHotRefresh(ctx context.Context) (service.HotRefreshReport, error) {
+	runId := h.Tasks.Start(entity.TaskRunKindManual, entity.TaskRunHotRefresh, 0, "", "榜单热度刷新", 0)
+	rep, err := h.Hot.Refresh(ctx)
+	if err != nil {
+		status := entity.TaskRunFailed
+		if errors.Is(err, service.ErrHotBusy) {
+			status = entity.TaskRunCanceled // 上一轮未结束, 本轮未执行
+		}
+		h.Tasks.Finish(runId, status, 0, 0, 0, "", err.Error())
+		return rep, err
+	}
+	msg := fmt.Sprintf("抓取 %d 条, 匹配 %d 部, 应用 %d 行, 耗时 %dms",
+		rep.Fetched, rep.Matched, rep.Applied, rep.ElapsedMs)
+	h.Tasks.Finish(runId, entity.TaskRunSuccess, 0, 0, 0, msg, "")
+	return rep, nil
+}
+
+// ---- 任务管理(运行台账) ----
+
+// TaskRuns GET /manage/tasks/runs?status=&type=&page=&size= 任务运行台账分页。
+// status: running | success | failed | canceled; type: collect | recover | category_cover | hot_refresh。
+func (h *Handlers) TaskRuns(c *gin.Context) {
+	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
+	list, total, err := h.Tasks.List(c.Request.Context(), c.Query("status"), c.Query("type"), page)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	np := page.Normalize(20)
+	dto.Page(c, list, np.Current, np.Size, total)
+}
+
+// TaskOverview GET /manage/tasks/overview 任务管理页统计卡。
+// Running = Redis 活跃采集 job(在跑/暂停) + 台账 running 行数。
+func (h *Handlers) TaskOverview(c *gin.Context) {
+	jobs, _ := h.Spider.Jobs(c.Request.Context())
+	active := 0
+	for _, j := range jobs {
+		if j.State == cache.JobRunning || j.State == cache.JobPaused {
+			active++
+		}
+	}
+	o := h.Tasks.Overview(c.Request.Context(), active, h.Spider.PendingFailureCount(c.Request.Context()))
+	dto.OK(c, o)
+}
+
+// TaskRerun POST /manage/tasks/:id/rerun 重跑一条历史任务(按其类型重放动作, 会登记一条新记录)。
+func (h *Handlers) TaskRerun(c *gin.Context) {
+	id, ok := pathInt64(c, "id")
+	if !ok || id <= 0 {
+		dto.Error(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	run, err := h.Tasks.Get(c.Request.Context(), id)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	switch run.Type {
+	case entity.TaskRunCollect:
+		if err := h.Spider.StartCollect(run.SourceId, run.Hours); err != nil {
+			dto.Fail(c, err)
+			return
+		}
+	case entity.TaskRunRecover:
+		h.Spider.RecoverAsync(nil) // 重跑补采 = 补采全部待处理
+	case entity.TaskRunCategoryCover:
+		if err := h.Spider.CategoryCover(c.Request.Context(), run.SourceId); err != nil {
+			dto.Fail(c, err)
+			return
+		}
+	case entity.TaskRunHotRefresh:
+		if h.Hot == nil {
+			dto.Error(c, http.StatusServiceUnavailable, "hot service unavailable")
+			return
+		}
+		if _, err := h.runHotRefresh(c.Request.Context()); err != nil {
+			dto.Fail(c, err)
+			return
+		}
+	default:
+		dto.Error(c, http.StatusBadRequest, "unsupported task type: "+run.Type)
+		return
+	}
+	dto.Accepted(c, gin.H{"accepted": true, "type": run.Type})
 }
 
 // ---- 用户 ----

@@ -3,7 +3,7 @@ import type { CronTask } from '@/types/manage'
 
 const enc = encodeURIComponent
 
-// ---- 后端契约 DTO (entity.CronTask 子集) ----
+// ---- 后端契约 DTO (entity.CronTask 子集 + 最近一次运行信息) ----
 interface CronDTO {
   id: number
   sourceIds: string[]
@@ -12,6 +12,11 @@ interface CronDTO {
   model: number
   state: number // 0 启用 / 1 停用
   remark: string
+  /** 最近一次运行(任务台账回填, 可能缺省) */
+  lastRunAt?: number
+  lastStatus?: string
+  lastError?: string
+  lastMessage?: string
 }
 
 const toView = (d: CronDTO): CronTask => ({
@@ -21,7 +26,11 @@ const toView = (d: CronDTO): CronTask => ({
   spec: d.spec,
   model: d.model === 1 ? 1 : d.model === 2 ? 2 : 0,
   state: d.state === 0,
-  remark: d.remark
+  remark: d.remark,
+  lastRunAt: d.lastRunAt ?? 0,
+  lastStatus: d.lastStatus,
+  lastError: d.lastError,
+  lastMessage: d.lastMessage
 })
 
 const toDTO = (v: CronTask): CronDTO => ({
@@ -55,3 +64,7 @@ export const change = (data: CronTask): Promise<void> =>
 /** DELETE /manage/cron-tasks/:id 删除 */
 export const remove = (id: string): Promise<void> =>
   http.delete<unknown, void>(`/manage/cron-tasks/${enc(id)}`)
+
+/** POST /manage/cron-tasks/:id/run 手动立即执行一次(登记为手动任务) */
+export const runNow = (id: string): Promise<{ accepted: boolean }> =>
+  http.post<unknown, { accepted: boolean }>(`/manage/cron-tasks/${enc(id)}/run`)

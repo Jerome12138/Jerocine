@@ -148,7 +148,7 @@ func TestTryLockUnlock(t *testing.T) {
 func TestJobProgress(t *testing.T) {
 	newTestCache(t)
 	ctx := context.Background()
-	if err := JobStart(ctx, "src_lz", "HD(lz)", 10); err != nil {
+	if err := JobStart(ctx, "src_lz", "HD(lz)", 10, -1); err != nil {
 		t.Fatalf("JobStart: %v", err)
 	}
 	JobIncrDone(ctx, "src_lz", 3)
@@ -157,9 +157,16 @@ func TestJobProgress(t *testing.T) {
 	if p.Total != 10 || p.Done != 3 || p.Failed != 1 || p.State != JobRunning || p.Name != "HD(lz)" {
 		t.Fatalf("snapshot mismatch: %+v", p)
 	}
+	if p.Hour != -1 || p.StartedAt <= 0 {
+		t.Fatalf("snapshot meta mismatch: %+v", p)
+	}
 	JobSetState(ctx, "src_lz", JobPaused)
 	if JobReadState(ctx, "src_lz") != JobPaused {
 		t.Fatal("state should be paused")
+	}
+	JobFail(ctx, "src_lz", "模拟失败原因")
+	if p, _ := JobSnapshot(ctx, "src_lz"); p.State != JobError || p.Error != "模拟失败原因" {
+		t.Fatalf("fail snapshot: %+v", p)
 	}
 	list, _ := JobList(ctx)
 	if len(list) != 1 || list[0].SourceId != "src_lz" {

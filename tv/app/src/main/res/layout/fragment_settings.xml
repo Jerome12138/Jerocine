@@ -371,6 +371,45 @@
                     android:text="Jerocine影视 TV"
                     android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
+
+                <!-- 设备诊断: 安装后异常排查用(Android 版本 / WebView 内核 / 支持判定) -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="设备诊断"
+                    android:textColor="@color/jc_text"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/settings_diag_info"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="3dp"
+                    android:textColor="@color/jc_text_secondary"
+                    android:textIsSelectable="true"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/settings_diag_verdict"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:lineSpacingExtra="2dp"
+                    android:textSize="15sp" />
+
+                <Button
+                    android:id="@+id/settings_diag_copy"
+                    style="@style/JcButtonPrimary"
+                    android:layout_width="240dp"
+                    android:layout_height="54dp"
+                    android:layout_marginTop="14dp"
+                    android:focusable="true"
+                    android:text="复制诊断信息"
+                    android:textAllCaps="false" />
             </LinearLayout>
 
             <LinearLayout

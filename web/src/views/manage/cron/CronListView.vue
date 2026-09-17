@@ -35,8 +35,61 @@ const columns = [
   { key: 'model' as const, label: '类型', width: '110px' },
   { key: 'time' as const, label: '采集时长', width: '110px' },
   { key: 'state' as const, label: '状态', width: '80px', align: 'center' as const },
+  { key: 'lastRunAt' as const, label: '上次运行', width: '170px' },
   { key: 'remark' as const, label: '备注' }
 ]
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+function fmtRunTime(ms?: number): string {
+  if (!ms) return '—'
+  const d = new Date(ms)
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function lastRunVariant(s?: string): 'default' | 'success' | 'danger' | 'brand' | 'warning' {
+  switch (s) {
+    case 'success':
+      return 'success'
+    case 'failed':
+      return 'danger'
+    case 'running':
+      return 'brand'
+    case 'canceled':
+      return 'warning'
+    default:
+      return 'default'
+  }
+}
+
+function lastRunText(s?: string): string {
+  switch (s) {
+    case 'success':
+      return '成功'
+    case 'failed':
+      return '失败'
+    case 'running':
+      return '运行中'
+    case 'canceled':
+      return '已取消'
+    default:
+      return '无记录'
+  }
+}
+
+/** 立即执行一次(不改变调度表, 在任务管理-历史中登记为手动任务) */
+async function runNow(row: CronTask): Promise<void> {
+  const ok = await confirm({
+    title: '立即执行',
+    desc: `手动触发任务「${row.id}」执行一次? 完成后可在 任务管理-历史记录 查看结果.`,
+    okText: '执行'
+  })
+  if (!ok) return
+  await manageApi.cron.runNow(row.id)
+  await load()
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -129,7 +182,7 @@ onMounted(load)
         {{ row.state ? '运行中' : '停止' }}
       </BaseTag>
       <BaseTag v-else-if="col.key === 'model'" variant="purple" size="xs">
-        {{ row.model === 0 ? '自动' : '指定' }}
+        {{ row.model === 0 ? '自动' : row.model === 2 ? '补采' : '指定' }}
       </BaseTag>
       <code
         v-else-if="col.key === 'spec'"
@@ -141,6 +194,17 @@ onMounted(load)
       <span v-else-if="col.key === 'id'" class="font-[var(--jc-font-mono)] text-xs">
         {{ row.id }}
       </span>
+      <span v-else-if="col.key === 'lastRunAt'" class="flex items-center gap-[var(--jc-space-1)]">
+        <BaseTag v-if="row.lastStatus" :variant="lastRunVariant(row.lastStatus)" size="xs">
+          {{ lastRunText(row.lastStatus) }}
+        </BaseTag>
+        <span class="text-xs text-muted whitespace-nowrap">{{ fmtRunTime(row.lastRunAt) }}</span>
+        <span
+          v-if="row.lastError"
+          class="text-xs text-danger break-all"
+          :title="row.lastMessage ? row.lastError + '（' + row.lastMessage + '）' : row.lastError"
+        >{{ row.lastError }}</span>
+      </span>
       <span v-else>{{ row[col.key] ?? '—' }}</span>
     </template>
 
@@ -149,6 +213,7 @@ onMounted(load)
         <BaseButton variant="ghost" size="sm" @click="toggleState(row)">
           {{ row.state ? '停止' : '启动' }}
         </BaseButton>
+        <BaseButton variant="ghost" size="sm" @click="runNow(row)">立即执行</BaseButton>
         <BaseButton variant="ghost" size="sm" @click="openEdit(row)">编辑</BaseButton>
         <BaseButton variant="danger" size="sm" @click="remove(row)">删除</BaseButton>
       </div>
@@ -168,6 +233,7 @@ onMounted(load)
         >
           <option :value="0">自动更新已启用站点</option>
           <option :value="1">仅更新所选资源站</option>
+          <option :value="2">补采失败页</option>
         </select>
       </ManageFormField>
       <ManageFormField

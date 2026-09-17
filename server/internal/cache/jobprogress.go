@@ -24,28 +24,36 @@ const jobTTL = 24 * time.Hour // job hash 兜底过期, 避免残留
 
 // JobProgress 采集进度快照。
 type JobProgress struct {
-	SourceId string `json:"sourceId"`
-	Name     string `json:"name"`
-	Total    int    `json:"total"`
-	Done     int    `json:"done"`
-	Failed   int    `json:"failed"`
-	State    string `json:"state"`
+	SourceId  string `json:"sourceId"`
+	Name      string `json:"name"`
+	Total     int    `json:"total"`
+	Done      int    `json:"done"`
+	Failed    int    `json:"failed"`
+	State     string `json:"state"`
+	// StartedAt 任务开始时间(unix 秒, 0=未知)。
+	StartedAt int64 `json:"startedAt"`
+	// Hour 采集时长: -1 全量 / >0 增量小时。0 表示未知(旧数据)。
+	Hour int `json:"hour"`
+	// Error 失败原因(仅 error 态有值; 页面据此展示失败提示与重跑依据)。
+	Error string `json:"error,omitempty"`
 }
 
 // JobStart 初始化一个采集任务进度。
-func JobStart(ctx context.Context, sourceId, name string, total int) error {
+// hours: -1 全量 / >0 增量小时(未知传 0)。
+func JobStart(ctx context.Context, sourceId, name string, total int, hours int) error {
 	if coordRdb == nil {
 		return nil
 	}
 	key := KeyJob(sourceId)
 	if err := coordRdb.HSet(ctx, key, map[string]any{
 		"name": name, "total": total, "done": 0, "failed": 0, "state": JobRunning,
+		"startedAt": time.Now().Unix(), "hour": hours,
 	}).Err(); err != nil {
 		return err
 	}
-	// 清上一轮残留的 endedAt: 同源重采时 key 复用, 旧结束时间戳若不清,
-	// JobList 的 endedAt 窗口 GC 会误读(展示混乱)。
-	coordRdb.HDel(ctx, key, "endedAt")
+	// 清上一轮残留的 endedAt/error: 同源重采时 key 复用, 旧结束时间戳/错误若不清,
+	// JobList 的 endedAt 窗口 GC 会误读(展示混乱), error 会残留误导。
+	coordRdb.HDel(ctx, key, "endedAt", "error")
 	return coordRdb.Expire(ctx, key, jobTTL).Err()
 }
 
@@ -82,6 +90,19 @@ func JobSetState(ctx context.Context, sourceId, state string) {
 	if isTerminalState(state) {
 		coordRdb.HSet(ctx, key, "endedAt", time.Now().Unix())
 	}
+}
+
+// JobFail 标记任务失败并记录原因(替代裸 JobSetState(JobError) —— 失败原因要在
+// 管理后台可查, 否则"任务出错"但没人知道为什么)。
+func JobFail(ctx context.Context, sourceId, msg string) {
+	if coordRdb == nil {
+		return
+	}
+	key := KeyJob(sourceId)
+	if len(msg) > 512 {
+		msg = msg[:512]
+	}
+	coordRdb.HSet(ctx, key, "state", JobError, "error", msg, "endedAt", time.Now().Unix())
 }
 
 // JobReadState 读当前状态(worker 每页前轮询, 实现暂停/取消)。
@@ -153,6 +174,9 @@ func fillJob(p *JobProgress, m map[string]string) {
 	p.Total = atoi(m["total"])
 	p.Done = atoi(m["done"])
 	p.Failed = atoi(m["failed"])
+	p.StartedAt, _ = strconv.ParseInt(m["startedAt"], 10, 64)
+	p.Hour = atoi(m["hour"])
+	p.Error = m["error"]
 }
 
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }

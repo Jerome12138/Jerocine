@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ type SpiderService struct {
 	crons    repository.CronTaskRepository
 	health   repository.SourceHealthRepository   // 读: 自动采集跳过已停采死源(可空)
 	failures repository.CollectFailureRepository // 页级失败台账
+	tasks    *TaskRunService                     // 任务运行台账(可空: 空则不记录, 不影响采集)
 
 	// OnSettled 采集落库后的回调(横图 worker 用, 组合根注入, 可空)。
 	// 触发即重算轮播集合: 新采集的片可能进入兜底榜单, 立即补横图。panic 由 safeNotify 隔离。
@@ -42,8 +44,8 @@ type SpiderService struct {
 	cronLib *cron.Cron
 }
 
-func NewSpiderService(engine *spider.Engine, sources repository.CollectSourceRepository, crons repository.CronTaskRepository, health repository.SourceHealthRepository, failures repository.CollectFailureRepository) *SpiderService {
-	return &SpiderService{engine: engine, sources: sources, crons: crons, health: health, failures: failures}
+func NewSpiderService(engine *spider.Engine, sources repository.CollectSourceRepository, crons repository.CronTaskRepository, health repository.SourceHealthRepository, failures repository.CollectFailureRepository, tasks *TaskRunService) *SpiderService {
+	return &SpiderService{engine: engine, sources: sources, crons: crons, health: health, failures: failures, tasks: tasks}
 }
 
 // SetBaseCtx 注入优雅停机根 ctx(组合根在启动监听前调用, 只调一次)。
@@ -121,6 +123,7 @@ func (s *SpiderService) runOne(ctx context.Context, src *entity.CollectSource, h
 // StartCollect 后台异步触发单源采集(handler 返回 202)。源停用 / 不存在 → 错误。
 // ctx 取自 baseCtx(优雅停机根), 不取 HTTP 请求 ctx —— 采集必须活过请求生命周期,
 // 但要能被 SIGTERM 取消(旧版 Background 是停机传不进取消信号的根因)。
+// 同时登记一条手动采集运行记录(kind=manual, type=collect), 供任务管理页展示/重跑。
 func (s *SpiderService) StartCollect(sourceId string, hours int) error {
 	ctx := s.bgCtx()
 	src, err := s.sources.Get(ctx, sourceId)
@@ -138,10 +141,32 @@ func (s *SpiderService) StartCollect(sourceId string, hours int) error {
 				log.Printf("spider StartCollect panic: %v", r)
 			}
 		}()
-		s.runOne(ctx, src, hours)
+		runId := s.tasks.Start(entity.TaskRunKindManual, entity.TaskRunCollect, 0, src.Id,
+			"手动采集："+src.Name, hours)
+		err := s.runOne(ctx, src, hours)
+		if err != nil {
+			status, msg := entity.TaskRunFailed, err.Error()
+			if errors.Is(err, domain.ErrConflict) {
+				status = entity.TaskRunCanceled
+				msg = "同源已有采集在跑, 本次跳过"
+			}
+			s.tasks.Finish(runId, status, 0, 0, 0, "", msg)
+			return
+		}
+		// 引擎已把进度写进 Redis job, 收尾时快照补齐页数统计
+		p, _ := cache.JobSnapshot(finishCtx(ctx), src.Id)
+		msg := "采集完成"
+		if p.Failed > 0 {
+			msg = fmt.Sprintf("采集完成, %d 页失败(可在失败记录中补采)", p.Failed)
+		}
+		s.tasks.Finish(runId, entity.TaskRunSuccess, p.Total, p.Done, p.Failed, msg, "")
 	}()
 	return nil
 }
+
+// runFinishCtx 台账收尾写用 ctx(脱离停机取消): 优雅停机时在跑任务被取消,
+// 收尾登记仍要落地, 否则"任务为什么没跑完"查不到。
+func finishCtx(ctx context.Context) context.Context { return context.WithoutCancel(ctx) }
 
 // SourceFilmResult 单源按片名搜索/采集的结果(供新增页预览与按源采集聚合展示)。
 type SourceFilmResult struct {
@@ -301,24 +326,63 @@ func (s *SpiderService) CollectFilm(ctx context.Context, keyword string, ids []s
 	return results, nil
 }
 
-// AutoCollect 采集所有已启用源(主站在前, 由 List 的 grade 排序保证)。
-func (s *SpiderService) AutoCollect(ctx context.Context, hours int) {
+// CollectSummary 一轮批量采集的汇总(定时任务台账收尾用)。
+type CollectSummary struct {
+	Sources     int    // 尝试的源数
+	OK          int    // 成功源数
+	Failed      int    // 失败源数
+	Skipped     int    // 跳过源数(同源在跑 / 已自动停采)
+	Total       int    // 页数合计
+	Done        int    // 成功页合计
+	FailedPages int    // 失败页合计
+	FirstErr    string // 首个源失败原因
+}
+
+// summarizeJob 把一个源的快照并进汇总。
+func summarizeJob(s *CollectSummary, src *entity.CollectSource, err error) {
+	s.Sources++
+	if err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			s.Skipped++
+		} else {
+			s.Failed++
+			if s.FirstErr == "" {
+				s.FirstErr = err.Error()
+			}
+		}
+		return
+	}
+	s.OK++
+	if p, e := cache.JobSnapshot(finishCtx(context.Background()), src.Id); e == nil {
+		s.Total += p.Total
+		s.Done += p.Done
+		s.FailedPages += p.Failed
+	}
+}
+
+// AutoCollect 采集所有已启用源(主站在前, 由 List 的 grade 排序保证), 返回汇总。
+func (s *SpiderService) AutoCollect(ctx context.Context, hours int) CollectSummary {
+	var sum CollectSummary
 	srcs, err := s.sources.List(ctx, true)
 	if err != nil {
 		log.Printf("spider AutoCollect list err: %v", err)
-		return
+		return sum
 	}
 	for i := range srcs {
 		if s.isSuppressed(ctx, &srcs[i]) {
 			log.Printf("spider: 源 %s 已被健康检查自动停采, 跳过", srcs[i].Id)
+			sum.Sources++
+			sum.Skipped++
 			continue
 		}
-		s.runOne(ctx, &srcs[i], hours)
+		summarizeJob(&sum, &srcs[i], s.runOne(ctx, &srcs[i], hours))
 	}
+	return sum
 }
 
-// BatchCollect 采集指定源。
-func (s *SpiderService) BatchCollect(ctx context.Context, hours int, ids ...string) {
+// BatchCollect 采集指定源, 返回汇总。
+func (s *SpiderService) BatchCollect(ctx context.Context, hours int, ids ...string) CollectSummary {
+	var sum CollectSummary
 	for _, id := range ids {
 		src, err := s.sources.Get(ctx, id)
 		if err != nil || src.State != entity.StateEnabled {
@@ -326,10 +390,13 @@ func (s *SpiderService) BatchCollect(ctx context.Context, hours int, ids ...stri
 		}
 		if s.isSuppressed(ctx, src) {
 			log.Printf("spider: 源 %s 已被健康检查自动停采, 跳过", id)
+			sum.Sources++
+			sum.Skipped++
 			continue
 		}
-		s.runOne(ctx, src, hours)
+		summarizeJob(&sum, src, s.runOne(ctx, src, hours))
 	}
+	return sum
 }
 
 // ---- 任务监控/控制(状态存 Redis, 多副本一致) ----
@@ -352,13 +419,20 @@ func (s *SpiderService) FilmZero(ctx context.Context) error {
 	return s.engine.Zero(ctx)
 }
 
-// CategoryCover 重采并覆盖分类。
+// CategoryCover 重采并覆盖分类(同步执行, 登记台账)。
 func (s *SpiderService) CategoryCover(ctx context.Context, sourceId string) error {
 	src, err := s.sources.Get(ctx, sourceId)
 	if err != nil {
 		return err
 	}
-	return s.engine.CoverCategories(ctx, src)
+	runId := s.tasks.Start(entity.TaskRunKindManual, entity.TaskRunCategoryCover, 0, src.Id,
+		"分类覆盖："+src.Name, 0)
+	if err := s.engine.CoverCategories(ctx, src); err != nil {
+		s.tasks.Finish(runId, entity.TaskRunFailed, 0, 0, 0, "", err.Error())
+		return err
+	}
+	s.tasks.Finish(runId, entity.TaskRunSuccess, 0, 0, 0, "分类已覆盖", "")
+	return nil
 }
 
 // ---- 失败页补采 ----
@@ -503,6 +577,7 @@ func (s *SpiderService) recoverOnePage(ctx context.Context, src *entity.CollectS
 
 // RecoverAsync 后台触发补采(handler 返回 202)。ids 为空 → 全部待补采。
 // ctx 取自 baseCtx: goroutine 起出去之后仍能自行收敛(自带超时), 且能被优雅停机取消。
+// 登记一条补采运行记录(kind=manual, type=recover)。
 func (s *SpiderService) RecoverAsync(ids []int64) {
 	s.jobs.Add(1)
 	go func() {
@@ -514,7 +589,13 @@ func (s *SpiderService) RecoverAsync(ids []int64) {
 		}()
 		ctx, cancel := context.WithTimeout(s.bgCtx(), recoverTimeout)
 		defer cancel()
-		s.RecoverPending(ctx, ids)
+		name := "失败页补采"
+		if len(ids) > 0 {
+			name = fmt.Sprintf("失败页补采(%d 条)", len(ids))
+		}
+		runId := s.tasks.Start(entity.TaskRunKindManual, entity.TaskRunRecover, 0, "", name, 0)
+		res := s.RecoverPending(ctx, ids)
+		s.finishRecoverRun(runId, res)
 	}()
 }
 
@@ -596,17 +677,102 @@ func (s *SpiderService) registerTasks(ctx context.Context) {
 				return
 			}
 			defer cache.Unlock(context.WithoutCancel(ctx), lockKey, tok)
-			switch task.Model {
-			case entity.CronModelAutoAll:
-				s.AutoCollect(ctx, task.Time)
-			case entity.CronModelRecover:
-				s.RecoverPending(ctx, nil)
-			default:
-				s.BatchCollect(ctx, task.Time, task.SourceIds...)
-			}
+			s.executeTask(ctx, &task, entity.TaskRunKindCron)
 		})
 		if e != nil {
 			log.Printf("cron add task %d (spec=%q) err: %v", task.Id, spec, e)
 		}
 	}
+}
+
+// TriggerCron 手动触发一个定时任务立即执行一次(后台"立即执行"按钮), 返回 202 语义。
+// 登记为 kind=manual —— 任务管理页按"手动任务"展示, 与定时到点触发区分。
+func (s *SpiderService) TriggerCron(ctx context.Context, id int64) error {
+	t, err := s.crons.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.State != entity.StateEnabled {
+		return domain.ErrInvalidArgument
+	}
+	s.jobs.Add(1)
+	go func() {
+		defer s.jobs.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("spider TriggerCron panic: %v", r)
+			}
+		}()
+		s.executeTask(s.bgCtx(), t, entity.TaskRunKindManual)
+	}()
+	return nil
+}
+
+// taskTypeOf 定时任务的台账类型。
+func taskTypeOf(t *entity.CronTask) string {
+	if t.Model == entity.CronModelRecover {
+		return entity.TaskRunRecover
+	}
+	return entity.TaskRunCollect
+}
+
+// cronDisplayName 定时任务显示名(带 kind 前缀, 区分定时触发/手动执行)。
+func cronDisplayName(t *entity.CronTask, kind string) string {
+	prefix := "定时任务"
+	if kind == entity.TaskRunKindManual {
+		prefix = "手动执行"
+	}
+	name := fmt.Sprintf("%s#%d", prefix, t.Id)
+	if t.Remark != "" {
+		name += " " + t.Remark
+	}
+	return name
+}
+
+// executeTask 执行一个定时任务的动作一次, 并登记台账。cron 闭包与 TriggerCron 共用。
+func (s *SpiderService) executeTask(ctx context.Context, t *entity.CronTask, kind string) {
+	runId := s.tasks.Start(kind, taskTypeOf(t), t.Id, "", cronDisplayName(t, kind), t.Time)
+	switch t.Model {
+	case entity.CronModelAutoAll:
+		sum := s.AutoCollect(ctx, t.Time)
+		s.finishCollectRun(runId, sum)
+	case entity.CronModelRecover:
+		res := s.RecoverPending(ctx, nil)
+		s.finishRecoverRun(runId, res)
+	default:
+		sum := s.BatchCollect(ctx, t.Time, t.SourceIds...)
+		s.finishCollectRun(runId, sum)
+	}
+}
+
+// finishCollectRun 把一轮批量采集汇总收尾进台账。
+func (s *SpiderService) finishCollectRun(runId int64, sum CollectSummary) {
+	msg := fmt.Sprintf("成功 %d 个源, 跳过 %d 个", sum.OK, sum.Skipped)
+	if sum.Done > 0 || sum.FailedPages > 0 {
+		msg += fmt.Sprintf(", 采 %d 页", sum.Done)
+		if sum.FailedPages > 0 {
+			msg += fmt.Sprintf(", 失败 %d 页", sum.FailedPages)
+		}
+	}
+	if sum.Failed > 0 {
+		err := fmt.Sprintf("%d 个源失败", sum.Failed)
+		if sum.FirstErr != "" {
+			err += ": " + sum.FirstErr
+		}
+		s.tasks.Finish(runId, entity.TaskRunFailed, sum.Total, sum.Done, sum.FailedPages, msg, err)
+		return
+	}
+	s.tasks.Finish(runId, entity.TaskRunSuccess, sum.Total, sum.Done, sum.FailedPages, msg, "")
+}
+
+// finishRecoverRun 把一轮补采结果收尾进台账。
+func (s *SpiderService) finishRecoverRun(runId int64, res RecoverResult) {
+	msg := fmt.Sprintf("检查 %d 条待补采: 宽窗覆盖 %d, 精确重放 %d, 顺延 %d",
+		res.Scanned, res.Widened, res.Replayed, res.Busy)
+	if res.Failed > 0 {
+		s.tasks.Finish(runId, entity.TaskRunFailed, res.Scanned, res.Widened+res.Replayed, res.Failed,
+			msg, fmt.Sprintf("%d 条补采仍失败", res.Failed))
+		return
+	}
+	s.tasks.Finish(runId, entity.TaskRunSuccess, res.Scanned, res.Widened+res.Replayed, res.Failed, msg, "")
 }

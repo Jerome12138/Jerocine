@@ -62,6 +62,8 @@ func main() {
 
 	// 后台调度统一挂 rootCtx; 采集服务额外注入根 ctx 供手动触发/定时任务派生。
 	app.spiderSvc.SetBaseCtx(rootCtx)
+	// 服务重启: 把上一轮遗留的 running 台账行标记为中断(避免幽灵"运行中"任务)。
+	app.handlers.Tasks.MarkInterrupted(rootCtx)
 	// 启动 cron 调度(读 cron_task 注册已启用任务)
 	app.spiderSvc.StartScheduler(rootCtx)
 	// 启动采集源健康检查定时任务(默认 1h, 写健康度 → 自动停采/恢复死源)
@@ -170,7 +172,9 @@ func buildApp(cfg *config.Config) (*App, error) {
 	tmdbClient := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
 	manageSvc := service.NewManageService(sourceRepo, cronRepo, siteRepo, versionRepo, fileRepo, categoryRepo, searchRepo, movieRepo, playRepo, healthRepo, tx, userSvc, blob, tmdbClient)
 	engine := spider.NewEngine(movieRepo, searchRepo, playRepo, categoryRepo, fileRepo, tx, blob, failureRepo, cfg.Spider.MaxGoroutine)
-	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo)
+	taskRunRepo := repomysql.NewTaskRunRepository(gdb)
+	taskSvc := service.NewTaskRunService(taskRunRepo)
+	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo, taskSvc)
 	bannerSvc := service.NewBannerService(bannerRepo, filmSvc)
 
 	// TMDB 横图回填 worker: 每轮解析 key(后台 DB > env), 未配置时轻量探测后静默等待。
@@ -187,7 +191,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,
 		Telemetry: telemetrySvc, Manage: manageSvc, Spider: spiderSvc, Banner: bannerSvc,
-		Hot:  hotSvc,
+		Hot: hotSvc, Tasks: taskSvc,
 		Blob: blob, ResetToken: cfg.Spider.ResetToken,
 	}
 

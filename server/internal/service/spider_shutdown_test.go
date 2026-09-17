@@ -8,7 +8,7 @@ import (
 
 // TestSpiderWaitJobs_Idle 无在跑协程时 WaitJobs 立即返回 true(优雅停机不被空等阻塞)。
 func TestSpiderWaitJobs_Idle(t *testing.T) {
-	s := NewSpiderService(nil, nil, nil, nil, nil)
+	s := NewSpiderService(nil, nil, nil, nil, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if !s.WaitJobs(ctx) {
@@ -18,7 +18,7 @@ func TestSpiderWaitJobs_Idle(t *testing.T) {
 
 // TestSpiderWaitJobs_WaitsRunning 在跑协程收尾前 WaitJobs 阻塞, 收尾后/超时后返回。
 func TestSpiderWaitJobs_WaitsRunning(t *testing.T) {
-	s := NewSpiderService(nil, nil, nil, nil, nil)
+	s := NewSpiderService(nil, nil, nil, nil, nil, nil)
 	s.jobs.Add(1)
 	released := make(chan struct{})
 	go func() {
@@ -44,7 +44,7 @@ func TestSpiderWaitJobs_WaitsRunning(t *testing.T) {
 
 // TestSpiderBgCtx bgCtx 回退与注入语义: 未注入退 Background, 注入后返回同一实例。
 func TestSpiderBgCtx(t *testing.T) {
-	s := NewSpiderService(nil, nil, nil, nil, nil)
+	s := NewSpiderService(nil, nil, nil, nil, nil, nil)
 	if s.bgCtx() != context.Background() {
 		t.Fatal("未注入 baseCtx 时应退回 context.Background")
 	}

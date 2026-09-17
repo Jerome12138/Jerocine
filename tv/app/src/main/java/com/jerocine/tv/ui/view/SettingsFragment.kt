@@ -1,11 +1,15 @@
 package com.jerocine.tv.ui.view
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -14,6 +18,7 @@ import com.jerocine.tv.BuildConfig
 import com.jerocine.tv.MainActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.ServiceLocator
+import com.jerocine.tv.ui.DeviceDiagnostics
 import com.jerocine.tv.ui.normalizeServerUrl
 import com.jerocine.tv.ui.reduceMotionLabel
 import kotlinx.coroutines.launch
@@ -175,6 +180,33 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                     root.findViewById<TextView>(R.id.settings_about_server).text = ServiceLocator.serverBase
                 }
                 .onFailure { status.text = it.message ?: "保存失败" }
+        }
+        bindDiagnostics(root)
+    }
+
+    /** 设备诊断: 机型/Android/WebView 内核/分辨率/内存 + Web 嵌入版支持判定 + 复制。 */
+    private fun bindDiagnostics(root: View) {
+        val infoView = root.findViewById<TextView>(R.id.settings_diag_info)
+        val verdictView = root.findViewById<TextView>(R.id.settings_diag_verdict)
+        val copy = root.findViewById<Button>(R.id.settings_diag_copy)
+        copy.installTvFocusAnimation { ServiceLocator.tokenStore.reduceMotion }
+
+        val diag = DeviceDiagnostics.collect(requireContext())
+        infoView.text = diag.toText()
+        verdictView.text = diag.verdict
+        verdictView.setTextColor(
+            ContextCompat.getColor(
+                requireContext(),
+                if (diag.supportsWebApk) R.color.jc_success else R.color.jc_danger,
+            )
+        )
+
+        copy.setOnClickListener {
+            runCatching {
+                val cm = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("jerocine-diagnostics", diag.toText()))
+            }
+            Toast.makeText(requireContext(), "诊断信息已复制，可粘贴发给维护者", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -1,6 +1,7 @@
 /** 后台 API 桶导出 */
 export * as collect from './collect'
 export * as cron from './cron'
+export * as tasks from './tasks'
 export * as film from './film'
 export * as file from './file'
 export * as banner from './banner'
