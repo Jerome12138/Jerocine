@@ -409,7 +409,10 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
           player.value.src({ src: next, type: t })
           // 默认重新尝试播放
           if (opts.autoplay) {
-            void player.value.play()
+            // 切源/切集时旧 play() promise 可能已被 pause() 打断 → reject(浏览器标准行为),
+            // 不 catch 会产生 unhandledrejection 并被埋点当成 js-error 上报。静默吞掉。
+            const ret = player.value.play() as Promise<void> | undefined
+            void ret?.catch(() => undefined)
           }
         }
       )

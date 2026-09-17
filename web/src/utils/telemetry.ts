@@ -30,6 +30,17 @@
 const CHUNK_NOISE_RE =
   /dynamically imported module|Importing a module script failed|valid JavaScript MIME type|ChunkLoadError|Loading (CSS )?chunk|preload CSS/i
 
+/**
+ * 已知无害错误的统一过滤(与 chunk noise 同点处理, 各路径全覆盖):
+ *  - "play() interrupted by a call to pause()": 切集/切源时旧播放 promise 被 pause 打断,
+ *    浏览器标准行为, 播放器上游已 catch, 只剩个别环境漏出的 unhandledrejection, 无修复价值。
+ *  - "s.then is not a function": video.js 全屏内部 promise 链在个别环境(非 Promise 返回值)
+ *    抛错, 调用侧已 catch 兜底, 无害。
+ * 保留它们只会污染埋点错误列表、掩盖真实问题, 故与 chunk noise 一样单点丢弃。
+ */
+const KNOWN_NOISE_RE =
+  /The play\(\) request was interrupted by a call to pause\(\)|s\.then is not a function/i
+
 interface TelemetryEvent {
   ts: number
   type: 'pv' | 'error' | 'action' | 'perf' | 'api'
@@ -294,7 +305,7 @@ class Telemetry {
     // chunk 加载失败 = 部署后旧 index.html 指向旧 chunk hash 的"正常自愈"现象(router.onError 已自动
     // reload), 不是异常 → 不上报, 否则每次部署都刷屏埋点错误列表(vue-error/unhandled-rejection/
     // js-error-opaque/chunk-load-reload 各路径都汇到这里, 单点过滤即可全覆盖)。
-    if (CHUNK_NOISE_RE.test(message)) return
+    if (CHUNK_NOISE_RE.test(message) || KNOWN_NOISE_RE.test(message)) return
     // 所有 error 自动带 viewport/mode/dpr/UA — 不用再每个 caller 单独传, 后台一眼看到
     // 出错时的设备态.
     this.track('error', {

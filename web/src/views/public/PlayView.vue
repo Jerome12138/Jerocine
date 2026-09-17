@@ -1185,9 +1185,14 @@ function togglePlayerFullscreen(): void {
   if (!p) return
   try {
     if (p.isFullscreen()) {
-      p.exitFullscreen()
+      // video.js exitFullscreen 返回 undefined 或 Promise, 个别环境内部 promise 链
+      // 会把非 Promise 值当 Promise 用(s.then is not a function) → 返回值 catch 兜底,
+      // 避免 unhandledrejection 上报。
+      const r = p.exitFullscreen() as Promise<void> | undefined
+      void r?.catch(() => undefined)
     } else {
-      p.requestFullscreen()
+      const r = p.requestFullscreen() as Promise<void> | undefined
+      void r?.catch(() => undefined)
     }
   } catch {
     /* ignore */

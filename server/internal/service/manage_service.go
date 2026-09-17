@@ -48,6 +48,11 @@ type ManageService struct {
 	tmdb     *tmdb.Client // TMDB key 保存前验真
 	// OnTMDBKeyChange key 保存/清除后的回调(组合根接 backdropSvc.Kick): 新 key 立即参与下一轮回填。
 	OnTMDBKeyChange func()
+
+	// siteCollected 用的 30s 内存缓存(CountBySite 全表统计 ~800ms, 高频调用必缓存)。
+	countCacheMu sync.Mutex
+	countCacheAt time.Time
+	countCache   map[string]int64
 }
 
 func NewManageService(
@@ -66,6 +71,29 @@ func NewManageService(
 		health: health, tx: tx, users: users, blob: blob, tmdb: tmdbc,
 		prober: spider.NewFetcherWithTimeout(probeTimeout),
 	}
+}
+
+// siteCollected 各源已采集片数(30s 内存缓存)。
+// CountBySite 是 movie_play_source 按 site_id 的 GROUP BY 全表统计(线上实测 ~800ms),
+// 而源健康列表/健康检查会高频调用(曾观察到每 ~10s 一次), 每次都打全表会持续占用 MySQL。
+// 30s 的陈旧度对"已采集片数"展示无感, 换来的 DB 压力下降是实打实的。
+const siteCollectedCacheTTL = 30 * time.Second
+
+func (s *ManageService) siteCollected(ctx context.Context) map[string]int64 {
+	s.countCacheMu.Lock()
+	defer s.countCacheMu.Unlock()
+	if s.countCache != nil && time.Since(s.countCacheAt) < siteCollectedCacheTTL {
+		return s.countCache
+	}
+	m, err := s.play.CountBySite(ctx)
+	if err != nil {
+		if s.countCache != nil {
+			return s.countCache // 统计失败退回旧缓存, 展示不闪断
+		}
+		return nil
+	}
+	s.countCache, s.countCacheAt = m, time.Now()
+	return m
 }
 
 // 采集源实测 / 健康度参数。
@@ -436,10 +464,10 @@ func (s *ManageService) ListHealth(ctx context.Context) ([]SourceHealthView, err
 			}
 		}
 	}
-	// 已采集片数: 一次 GROUP BY site_id 实时取全量(准确且高性能, 反映刚采完的状态)。
+	// 已采集片数: GROUP BY site_id 全量统计(实测 ~800ms), 30s 内存缓存兜住高频调用。
 	var collected map[string]int64
 	if s.play != nil {
-		collected, _ = s.play.CountBySite(ctx)
+		collected = s.siteCollected(ctx)
 	}
 	out := make([]SourceHealthView, 0, len(srcs))
 	for _, src := range srcs {

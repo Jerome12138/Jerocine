@@ -3,6 +3,7 @@ package spider
 import (
 	"context"
 	"log"
+	"math/rand"
 	"path"
 	"strconv"
 	"strings"
@@ -98,12 +99,20 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 		cache.InvalidateAfterCollect(finCtx(ctx))
 	}
 	if cache.JobReadState(ctx, src.Id) != cache.JobCanceled {
+		// 采集成功打一行完整日志: 此前成功路径完全无日志, 排障时"任务在跑却看不到活动"。
+		if p, e2 := cache.JobSnapshot(finCtx(ctx), src.Id); e2 == nil {
+			log.Printf("spider: 采集完成 src=%s name=%s total=%d done=%d failed=%d",
+				src.Id, p.Name, p.Total, p.Done, p.Failed)
+		}
 		cache.JobSetState(finCtx(ctx), src.Id, cache.JobDone)
 	}
 	return nil
 }
 
 // runPages 并发分页采集; IntervalMs>500 的源退化为单线程限速。
+// 主站(master)页数据量大(影片+检索+多源播放行事务双写)且增量窗口相邻页影片重叠,
+// 32 worker 并发 UPSERT 同一批行会高频触发 InnoDB 死锁(台账里 src_lz 批量 Error 1213),
+// 故主站并发收敛到 masterMaxWorkers; 附属源(只写播放源行)保持 maxG。
 func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCount, hours int, master, full bool) {
 	workers := e.maxG
 	if workers > pageCount {
@@ -112,6 +121,9 @@ func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCo
 	throttled := src.IntervalMs > 500
 	if throttled {
 		workers = 1
+	}
+	if master && workers > masterMaxWorkers {
+		workers = masterMaxWorkers
 	}
 
 	pages := make(chan int, pageCount)
@@ -138,7 +150,7 @@ func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCo
 				if !e.waitIfPausedOrCanceled(ctx, src.Id) {
 					return // 已取消
 				}
-				if err := e.collectPage(ctx, src, pg, hours, master, full); err != nil {
+				if err := e.collectPageWithRetry(ctx, src, pg, hours, master, full); err != nil {
 					log.Printf("spider page src=%s pg=%d err=%v", src.Id, pg, err)
 					cache.JobIncrFailed(ctx, src.Id, 1)
 					e.recordFailure(ctx, src, pg, hours, err)
@@ -178,6 +190,73 @@ func (e *Engine) collectPage(ctx context.Context, src *entity.CollectSource, pg,
 		return e.collectSlavePage(ctx, src, pg, hours)
 	}
 	return e.collectMasterPage(ctx, src, pg, hours, full)
+}
+
+// masterMaxWorkers 主站并发上限。主站每页事务写 movie+search+play 三表,
+// 并发过高 → InnoDB 行锁循环等待(Error 1213 Deadlock)批量出现(台账实证)。
+// 12 个 worker 对 20+ 部/页的吞吐足够, 死锁概率大幅下降。
+const masterMaxWorkers = 12
+
+// deadlockRetries 页事务死锁重试次数(首次失败后最多再试 2 次)。
+const deadlockRetries = 2
+
+// isDeadlock 判定 MySQL 死锁错误(Error 1213 / Deadlock found)。死锁是并发写事务的
+// 偶发互锁(InnoDB 随机回滚受害者), 退避后重放同一页通常即成功, 不应直接记成永久失败页。
+func isDeadlock(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "1213") && strings.Contains(msg, "deadlock")
+}
+
+// collectPageWithRetry collectPage 的死锁重试包装: 命中 1213 时随机退避 50~150ms 重放,
+// 仍失败才原样返回(由调用方记台账)。优雅停机 ctx 取消时立即中止, 不再重试。
+func (e *Engine) collectPageWithRetry(ctx context.Context, src *entity.CollectSource, pg, hours int, master, full bool) error {
+	var err error
+	for attempt := 0; attempt <= deadlockRetries; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(50+rand.Intn(100)) * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+		err = e.collectPage(ctx, src, pg, hours, master, full)
+		if err == nil || !isDeadlock(err) {
+			return err
+		}
+		log.Printf("spider page src=%s pg=%d deadlock retry %d/%d", src.Id, pg, attempt, deadlockRetries)
+	}
+	return err
+}
+
+// collectPageNWithRetry 同 collectPageWithRetry, 额外返回该页落库条数(补采回报用)。
+func (e *Engine) collectPageNWithRetry(ctx context.Context, src *entity.CollectSource, pg, hours int, master, full bool) (int, error) {
+	var n int
+	var err error
+	for attempt := 0; attempt <= deadlockRetries; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(50+rand.Intn(100)) * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+		if master {
+			n, err = e.collectMasterPageN(ctx, src, pg, hours, full)
+		} else {
+			err = e.collectSlavePage(ctx, src, pg, hours)
+			n = 0
+		}
+		if err == nil || !isDeadlock(err) {
+			return n, err
+		}
+		log.Printf("spider page src=%s pg=%d deadlock retry %d/%d", src.Id, pg, attempt, deadlockRetries)
+	}
+	return n, err
 }
 
 func (e *Engine) collectMasterPage(ctx context.Context, src *entity.CollectSource, pg, hours int, full bool) error {
@@ -269,7 +348,7 @@ func (e *Engine) CollectOnePage(ctx context.Context, src *entity.CollectSource, 
 		return 0, nil
 	}
 
-	n, err := e.collectMasterPageN(ctx, src, pg, hours, false)
+	n, err := e.collectPageNWithRetry(ctx, src, pg, hours, true, false)
 	if err != nil {
 		cache.JobIncrFailed(ctx, src.Id, 1)
 		cache.JobSetState(finCtx(ctx), src.Id, cache.JobError)

@@ -43,6 +43,9 @@ func JobStart(ctx context.Context, sourceId, name string, total int) error {
 	}).Err(); err != nil {
 		return err
 	}
+	// 清上一轮残留的 endedAt: 同源重采时 key 复用, 旧结束时间戳若不清,
+	// JobList 的 endedAt 窗口 GC 会误读(展示混乱)。
+	coordRdb.HDel(ctx, key, "endedAt")
 	return coordRdb.Expire(ctx, key, jobTTL).Err()
 }
 
