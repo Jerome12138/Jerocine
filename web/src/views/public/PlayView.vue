@@ -34,6 +34,7 @@ import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings } from '@/composables/useSkipSettings'
 import type { SkipConfig } from '@/composables/useSkipSettings'
 import { useHistoryStore } from '@/stores/history'
+import { useSiteStore } from '@/stores/site'
 import { toast } from '@/api/http'
 import { useViewMode } from '@/composables/useViewMode'
 import { measureLine } from '@/composables/usePlaySpeedTest'
@@ -60,6 +61,7 @@ const { isTV, isDesktop } = useViewMode()
 /** PC(A方案)按钮"更多"展开态: 一行放不下的低频项收进这里 */
 const moreActionsOpen = ref(false)
 const historyStore = useHistoryStore()
+const siteStore = useSiteStore()
 // 弱网感知: 决定 player 初始化参数 + 错误重试策略
 const { isSlow: isSlowNetwork } = useNetworkHint()
 const favoriteStore = useFavoriteStore()
@@ -98,10 +100,11 @@ function toggleFavorite(): void {
   })
 }
 
-/** 分享: 复制当前 URL 到剪贴板, 短暂展示"已复制"反馈 */
+/** 分享: 复制当前 URL 到剪贴板, 短暂展示"已复制"反馈 (优先用后台配置的 domain 拼绝对地址) */
 const shareLabel = ref<string>('分享')
 async function handleShare(): Promise<void> {
-  const url = typeof window !== 'undefined' ? window.location.href : ''
+  const origin = siteStore.basic?.domain || (typeof window !== 'undefined' ? window.location.origin : '')
+  const url = origin + (typeof window !== 'undefined' ? window.location.pathname + window.location.search : '')
   if (!url) return
   try {
     if (navigator.clipboard?.writeText) {

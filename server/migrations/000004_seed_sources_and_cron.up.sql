@@ -14,7 +14,7 @@ VALUES
   ('src_kk', 'HD(kk)', 'https://kuaikan-api.com/api.php/provide/vod/from/kuaikan/',  0, 1, 0, 0,  60,    0, 0, UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000);
 
 INSERT IGNORE INTO site_config (id, site_name, domain, logo, keyword, description, state, hint, updated_at)
-VALUES (1, 'Jerocine', '', '', '影视,在线观看', 'Jerocine 影视站', 0, '', UNIX_TIMESTAMP() * 1000);
+VALUES (1, '影视站', '', '', '影视,在线观看', '在线影视站', 0, '', UNIX_TIMESTAMP() * 1000);
 
 -- 默认自动更新 cron(初始停用, model=0 自动全站, 每 20 分钟), 由后台启用
 INSERT INTO cron_task (source_ids, spec, time, model, state, remark, entry_id, last_run_at, created_at, updated_at)

@@ -14,6 +14,7 @@ import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import type { Card, FilmDetail, FilmDetailResp } from '@/types/film'
 import { useHistoryStore } from '@/stores/history'
 import { useFavoriteStore } from '@/stores/favorite'
+import { useSiteStore } from '@/stores/site'
 import { storeToRefs } from 'pinia'
 import { isNative } from '@/utils/jerocineNative'
 import { formatHotBadge } from '@/utils/format'
@@ -39,13 +40,15 @@ const route = useRoute()
 const router = useRouter()
 const historyStore = useHistoryStore()
 const favoriteStore = useFavoriteStore()
+const siteStore = useSiteStore()
 const { map: favoriteMap } = storeToRefs(favoriteStore)
 const { isDesktop, isTV } = useViewMode()
 
-/** 分享: 复制当前页 URL 到剪贴板, 短暂反馈 */
+/** 分享: 复制当前页 URL 到剪贴板, 短暂反馈 (优先用后台配置的 domain 拼绝对地址) */
 const shareLabel = ref<string>('分享')
 async function handleShare(): Promise<void> {
-  const url = typeof window !== 'undefined' ? window.location.href : ''
+  const origin = siteStore.basic?.domain || (typeof window !== 'undefined' ? window.location.origin : '')
+  const url = origin + (typeof window !== 'undefined' ? window.location.pathname + window.location.search : '')
   if (!url) return
   try {
     if (navigator.clipboard?.writeText) {

@@ -1,26 +1,47 @@
 <script setup lang="ts">
 /**
- * LogoMark - Jerocine 品牌 logo (纯文字, 移除了原圆形 SVG 图标 — 用户反馈
- * 圆形 logo 占位太大不美观, 字标更适合 TV 远观视场).
+ * LogoMark - 站点品牌 logo
  *
- * - "Jerocine" 文字 (渐变色, 斜体)
- * - showText=false 时仍渲染 (本组件已无图标可隐), 保留 prop 防破坏调用方
- * - 字号 / 整体大小用 size prop 控制 (字号 = size * 0.7)
+ * 品牌来自后台 site_config（品牌中立化）：
+ * - 配了 logo 图 URL → 渲染图片（高度随 size，object-fit: contain）
+ * - 未配 logo → 渲染 siteName 文字（渐变色斜体字标，适合 TV 远观）
+ * - siteName 兜底为中性词「影视」，不硬编码任何个人品牌
+ *
+ * 字号 / 整体大小用 size prop 控制（字号 = size * 0.7）
  */
+import { computed } from 'vue'
+import { useSiteStore } from '@/stores/site'
+
 interface Props {
   size?: number
   showText?: boolean
 }
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
   size: 36,
   showText: true
 })
+
+const site = useSiteStore()
+const siteName = computed(() => site.basic?.siteName || '影视')
+const logoUrl = computed(() => site.basic?.logo || '')
 </script>
 
 <template>
   <span class="jc-logo" :style="{ height: size + 'px' }">
-    <span class="jc-logo__text" :style="{ fontSize: size * 0.7 + 'px' }">
-      Jerocine影视
+    <img
+      v-if="logoUrl"
+      :src="logoUrl"
+      :alt="siteName"
+      class="jc-logo__img"
+      :style="{ height: size + 'px' }"
+      loading="lazy"
+    />
+    <span
+      v-else-if="showText"
+      class="jc-logo__text"
+      :style="{ fontSize: size * 0.7 + 'px' }"
+    >
+      {{ siteName }}
     </span>
   </span>
 </template>
@@ -32,8 +53,12 @@ withDefaults(defineProps<Props>(), {
   gap: 8px;
   line-height: 1;
 }
-.jc-logo__mark {
-  filter: drop-shadow(0 2px 8px rgba(155, 73, 231, 0.35));
+.jc-logo__img {
+  display: block;
+  width: auto;
+  max-width: 220px;
+  object-fit: contain;
+  border-radius: 4px;
 }
 .jc-logo__text {
   display: inline-block;
@@ -48,5 +73,6 @@ withDefaults(defineProps<Props>(), {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
+  white-space: nowrap;
 }
 </style>

@@ -50,7 +50,7 @@ cd server && go test ./...
 cd web && pnpm test
 ```
 
-生产部署：完整从零部署手册见 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、环境变量配置清单、部署步骤、验证与排障）；快速命令参考 [`deploy/README.md`](./deploy/README.md)（`docker compose up -d --build`，nginx 对外 443 直挂 TLS，后端 3601 仅内网）。
+生产部署：完整从零部署手册见 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、环境变量配置清单、部署步骤、品牌定制、验证与排障）；快速命令参考 [`deploy/README.md`](./deploy/README.md)（`docker compose up -d --build`，nginx 对外 443 直挂 TLS，后端 3601 仅内网）。
 
 ## 目录结构
 
