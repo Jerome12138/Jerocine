@@ -145,6 +145,41 @@ func TestOnlineService_DailyStats(t *testing.T) {
 	}
 }
 
+func TestOnlineService_SameSidDifferentIP_SeparateRows(t *testing.T) {
+	s, _ := newTestOnlineService(t)
+	ctx := context.Background()
+	// 同一设备(sid=s1)先后从两个出口 IP 访问 → 应显示为两行会话
+	s.Heartbeat(ctx, sess("s1", "1.1.1.1", 0, true))
+	s.Heartbeat(ctx, sess("s1", "2.2.2.2", 0, false))
+	o := s.Overview(ctx)
+	if len(o.Sessions) != 2 {
+		t.Fatalf("同 sid 不同 IP 应分两行, got %d 行", len(o.Sessions))
+	}
+	if o.PV != 2 {
+		t.Fatalf("PV 应为 2 个会话行, got %d", o.PV)
+	}
+	// 游客按 IP 去重 → UV 仍为 2
+	if o.UV != 2 {
+		t.Fatalf("UV 应 2(两 IP), got %d", o.UV)
+	}
+	// 同一 sid+IP 续心跳仍合并为一行
+	s.Heartbeat(ctx, sess("s1", "1.1.1.1", 0, true))
+	o = s.Overview(ctx)
+	if len(o.Sessions) != 2 || o.PV != 2 {
+		t.Fatalf("同 sid+IP 续心跳应仍为 2 行, got %d 行 PV=%d", len(o.Sessions), o.PV)
+	}
+	// 登录用户同 sid 多 IP: 明细分行, UV 按 uid 去重为 1
+	s.Heartbeat(ctx, sess("u1", "8.8.8.8", 9, true))
+	s.Heartbeat(ctx, sess("u1", "9.9.9.9", 9, false))
+	o = s.Overview(ctx)
+	if len(o.Sessions) != 4 {
+		t.Fatalf("登录用户多 IP 应分行, got %d 行", len(o.Sessions))
+	}
+	if o.UV != 3 { // 游客两 IP + 登录用户 u1
+		t.Fatalf("UV 应 3, got %d", o.UV)
+	}
+}
+
 func TestIsBotUAOnline(t *testing.T) {
 	cases := []struct {
 		ua   string

@@ -14,7 +14,8 @@ import (
 // OnlineService Redis 在线统计: 匿名会话心跳, 多实例共享, 查询时惰性清理。
 //
 // 口径(在线 = 窗口 90s 内有心跳):
-//   - PV = 当前活跃会话数: 每个浏览器标签/TV 设备一个 sid, 打开页面即计 1
+//   - PV = 当前活跃会话数: 每(浏览器标签/TV 设备 sid + 出口 IP)一个会话
+//     同一浏览器换网络(IP 变)计 2 个会话行, 可看出同一用户多个网络出口
 //   - UV = 去重后在线人数: 登录用户按 uid 去重, 游客按 IP 去重
 //     (同一用户开多标签/多设备只算 1; 同 IP 多游客合并为 1, 口径偏保守)
 //   - 观看中 = 活跃会话中 watching=true 的会话数
@@ -28,8 +29,8 @@ import (
 // 不入实时与今日统计 — 防止搜索爬虫污染在线数据。
 //
 // 存储:
-//   - ZSET jc:online:act  member=sid score=lastSeen(心跳续期; 查询时按窗口 ZREMRANGEBYSCORE)
-//   - STRING jc:online:info:{sid} 会话明细 JSON, TTL 略大于窗口(防 ZSET 清理后孤儿残留)
+//   - ZSET jc:online:act  member=sid#ip(或纯 sid) score=lastSeen(心跳续期; 查询时按窗口 ZREMRANGEBYSCORE)
+//   - STRING jc:online:info:{sid#ip} 会话明细 JSON, TTL 略大于窗口(防 ZSET 清理后孤儿残留)
 type OnlineService struct {
 	rdb    *redis.Client
 	window time.Duration
@@ -76,7 +77,17 @@ const (
 	visitGap  = 30 * time.Minute  // 同一 sid 距上次访问 ≥30min 计一次新访问(今日 PV)
 )
 
-func onlineInfoKey(sid string) string { return "jc:online:info:" + sid }
+// 会话唯一键: 设备 sid + 出口 IP。同浏览器换网络(IP 变)视为另一会话行,
+// 便于后台看出"同一用户开了几个端/几个网络出口"。
+// IP 为空(异常心跳)时退化为纯 sid, 保持旧行为。
+func onlineSessionKey(sid, ip string) string {
+	if ip == "" {
+		return sid
+	}
+	return sid + "#" + ip
+}
+
+func onlineInfoKey(k string) string { return "jc:online:info:" + k }
 
 // 今日统计键。
 func dailyKeys(date string) (uv, pv, peak, lastPrefix string) {
@@ -114,8 +125,9 @@ func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession) {
 	}
 	now := time.Now()
 	nowMs := now.UnixMilli()
+	key := onlineSessionKey(sess.Sid, sess.IP)
 	firstSeen := now.Unix()
-	if v, err := s.rdb.Get(ctx, onlineInfoKey(sess.Sid)).Result(); err == nil {
+	if v, err := s.rdb.Get(ctx, onlineInfoKey(key)).Result(); err == nil {
 		var old OnlineSession
 		if json.Unmarshal([]byte(v), &old) == nil && old.FirstSeen > 0 {
 			firstSeen = old.FirstSeen
@@ -125,8 +137,8 @@ func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession) {
 	sess.LastSeen = now.Unix()
 	buf, _ := json.Marshal(sess)
 	pipe := s.rdb.Pipeline()
-	pipe.ZAdd(ctx, onlineActKey, redis.Z{Score: float64(nowMs), Member: sess.Sid})
-	pipe.Set(ctx, onlineInfoKey(sess.Sid), buf, onlineInfoTTL)
+	pipe.ZAdd(ctx, onlineActKey, redis.Z{Score: float64(nowMs), Member: key})
+	pipe.Set(ctx, onlineInfoKey(key), buf, onlineInfoTTL)
 	// ---- 今日累计 ----
 	date := now.Format("20060102")
 	uvKey, pvKey, _, lastPrefix := dailyKeys(date)
