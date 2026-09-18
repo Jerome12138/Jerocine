@@ -3,24 +3,41 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { manageApi } from '@/api'
 import type { DashboardStat, OnlineOverview } from '@/types/manage'
+import * as telemetryApi from '@/api/manage/telemetry'
+import type { FilmStat, OverviewResp } from '@/api/manage/telemetry'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
+import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 
 const data = ref<DashboardStat | null>(null)
 const loading = ref(true)
 const error = ref('')
 
+// ---- 埋点数据(与仪表盘同次加载, 独立容错): 内容热度 Top5 + 站点健康度 ----
+const hotFilms = ref<FilmStat[]>([])
+const mostFavorited = ref<FilmStat[]>([])
+const teleOv = ref<OverviewResp | null>(null)
+
 async function load(): Promise<void> {
   loading.value = true
   error.value = ''
-  try {
-    data.value = await manageApi.system.dashboard()
-  } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : '加载失败'
-  } finally {
-    loading.value = false
+  const results = await Promise.allSettled([
+    manageApi.system.dashboard(),
+    telemetryApi.hotFilms(7, 5),
+    telemetryApi.mostFavorited(5),
+    telemetryApi.overview(7)
+  ])
+  if (results[0].status === 'fulfilled') {
+    data.value = results[0].value
+  } else {
+    error.value = results[0].reason instanceof Error ? results[0].reason.message : '加载失败'
   }
+  // 埋点数据失败静默(区块显示空态), 不影响主看板
+  if (results[1].status === 'fulfilled') hotFilms.value = results[1].value
+  if (results[2].status === 'fulfilled') mostFavorited.value = results[2].value
+  if (results[3].status === 'fulfilled') teleOv.value = results[3].value
+  loading.value = false
 }
 onMounted(load)
 
@@ -44,6 +61,10 @@ onUnmounted(() => {
 
 function fmtTime(sec: number): string {
   return new Date(sec * 1000).toLocaleTimeString('zh-CN', { hour12: false })
+}
+function fmtCount(n: number): string {
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
+  return String(n)
 }
 function shortUa(ua: string): string {
   const s = ua.replace(/\s+/g, ' ').trim()
@@ -80,6 +101,20 @@ const cards = computed(() => {
       icon: 'refresh',
       tint: 'from-[#ef4444] to-[#f59e0b]',
       to: '/manage/collect/failures'
+    },
+    {
+      label: '7 天异常事件',
+      value: teleOv.value?.errorCount ?? '—',
+      icon: 'info',
+      tint: 'from-[#f97316] to-[#ef4444]',
+      to: '/manage/telemetry'
+    },
+    {
+      label: 'API 平均耗时(7天)',
+      value: teleOv.value ? `${teleOv.value.avgApiMs}ms` : '—',
+      icon: 'chart',
+      tint: 'from-[#06b6d4] to-[#3b82f6]',
+      to: '/manage/telemetry'
     }
   ]
 })
@@ -289,6 +324,62 @@ const cards = computed(() => {
           </table>
         </div>
         <BaseEmpty v-else :title="statusFilter === 'all' ? '当前无人在线' : '该状态下暂无会话'" :description="'打开网站或播放器后 30s 内出现在这里'" />
+      </div>
+    </section>
+
+    <!-- 内容热度: 埋点访问量(近7天)与收藏量 Top5, 点击跳影片详情 -->
+    <section v-if="!loading && !error" class="grid md:grid-cols-2 gap-[var(--jc-space-4)]">
+      <div class="bg-surface rounded-card shadow-card p-[var(--jc-space-4)]">
+        <div class="flex items-center justify-between mb-[var(--jc-space-3)]">
+          <h3 class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)]">热点视频 Top 5</h3>
+          <RouterLink to="/manage/telemetry" class="text-xs text-link hover:underline">查看全部</RouterLink>
+        </div>
+        <div v-if="hotFilms.length" class="flex flex-col">
+          <RouterLink
+            v-for="(f, i) in hotFilms"
+            :key="f.mid"
+            :to="{ path: '/filmDetail', query: { link: String(f.mid) } }"
+            class="flex items-center gap-[var(--jc-space-2)] py-1.5 rounded min-h-[52px] hover:bg-elevated transition-colors"
+          >
+            <span class="w-5 text-secondary text-sm shrink-0">{{ i + 1 }}</span>
+            <BaseImage
+              :src="f.cover"
+              :alt="f.name"
+              ratio="40/54"
+              rounded="rounded-[var(--jc-radius-sm)]"
+              class="w-[36px] shrink-0"
+            />
+            <span class="flex-1 truncate text-sm">{{ f.name }}</span>
+            <span class="text-secondary text-xs shrink-0">{{ fmtCount(f.count) }} 次</span>
+          </RouterLink>
+        </div>
+        <BaseEmpty v-else title="暂无热点数据" description="近 7 天无影片访问埋点" />
+      </div>
+      <div class="bg-surface rounded-card shadow-card p-[var(--jc-space-4)]">
+        <div class="flex items-center justify-between mb-[var(--jc-space-3)]">
+          <h3 class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)]">收藏最多 Top 5</h3>
+          <RouterLink to="/manage/telemetry" class="text-xs text-link hover:underline">查看全部</RouterLink>
+        </div>
+        <div v-if="mostFavorited.length" class="flex flex-col">
+          <RouterLink
+            v-for="(f, i) in mostFavorited"
+            :key="f.mid"
+            :to="{ path: '/filmDetail', query: { link: String(f.mid) } }"
+            class="flex items-center gap-[var(--jc-space-2)] py-1.5 rounded min-h-[52px] hover:bg-elevated transition-colors"
+          >
+            <span class="w-5 text-secondary text-sm shrink-0">{{ i + 1 }}</span>
+            <BaseImage
+              :src="f.cover"
+              :alt="f.name"
+              ratio="40/54"
+              rounded="rounded-[var(--jc-radius-sm)]"
+              class="w-[36px] shrink-0"
+            />
+            <span class="flex-1 truncate text-sm">{{ f.name }}</span>
+            <span class="text-secondary text-xs shrink-0">{{ fmtCount(f.count) }} 收藏</span>
+          </RouterLink>
+        </div>
+        <BaseEmpty v-else title="暂无收藏数据" description="尚无用户收藏影片" />
       </div>
     </section>
 
