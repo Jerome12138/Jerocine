@@ -93,7 +93,7 @@ func parseAndGuard(rawURL string) (*url.URL, error) {
 // load 回源 + 重写 + 统计, 结果以 JSON 缓存 10min(Proxy / Stats 共享)。
 func (s *M3u8Service) load(ctx context.Context, rawURL string, u *url.URL, filterAds, proxyMedia bool) (m3u8Cached, error) {
 	// 缓存版本号: 过滤逻辑变更需 bump。v4=签名媒体转发，key id 防密钥轮换后命中旧签名。
-	cacheKey := fmt.Sprintf("m3u8:v5:%s:%s:%t:%t", s.streamKeyID, sha1hex(rawURL), filterAds, proxyMedia)
+	cacheKey := fmt.Sprintf("m3u8:v6:%s:%s:%t:%t", s.streamKeyID, sha1hex(rawURL), filterAds, proxyMedia)
 	blob, _, err := cache.GetOrLoad(ctx, cacheKey, 10*time.Minute, func(ctx context.Context) (string, bool, error) {
 		body, err := s.fetch(ctx, rawURL)
 		if err != nil {
@@ -323,7 +323,7 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 	out := make([]string, 0, len(lines))
 	// 广告判定基准 = 本列表内分片的"主导 host"(出现最多者 = 真实内容 CDN), 而非播放列表自身 host。
 	// 多 CDN 源常把 m3u8 与分片放不同 host(合法), 旧的"跨播放列表 host=广告"会误杀整张表(如 huya)。
-	dominant := dominantSegmentHost(lines, base)
+	dominant := dominantSegmentKey(lines, base)
 	// 预扫: 按播放顺序收集分片(非子列表)绝对 URI 与 EXTINF 时长, 供"编号跳脱"同域广告检测
 	// (lz/量子源把广告用异编号分片同域插进正片连续序列, 跨域过滤抓不到)与"时长维度"
 	// (极短剔除 + 时长异常预警, 覆盖同域同编号的纯时长异常插片)。
@@ -417,7 +417,7 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 		if filterAds && pendingExtinf != "" {
 			crossDrop := false
 			if dominant != "" {
-				if h := hostOf(abs); h != "" && h != dominant {
+				if k := segKey(abs); k != "" && k != dominant {
 					crossDrop = true
 				}
 			}
@@ -713,9 +713,23 @@ func absolutize(ref string, base *url.URL) string {
 	return ref
 }
 
-// dominantSegmentHost 统计本播放列表内分片(非子播放列表)的 host, 返回出现最多者(真实内容 CDN)。
-// 全部分片在同一 host(即便≠播放列表 host) → 返回该 host, 不会被当广告; 零星异 host 分片才判广告。
-func dominantSegmentHost(lines []string, base *url.URL) string {
+// segKey 分片归属键 = host + path 前两段(内容目录), 用于区分"同 host 不同内容目录"的广告插片
+// (maowushi 类源把广告放到不同内容目录 oVx7Nl6K/, 与正片 Dy0OgKn2/ 同 host 但路径不同)。
+func segKey(abs string) string {
+	u, err := url.Parse(abs)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) >= 2 {
+		return u.Host + "/" + parts[0] + "/" + parts[1]
+	}
+	return u.Host
+}
+
+// dominantSegmentKey 统计本播放列表内分片(非子播放列表)的归属键(host+内容目录), 返回出现最多者(真实内容)。
+// 全部分片在同一键 → 不会被当广告; 零星异键分片才判广告(覆盖跨域 CDN 与同 host 异目录两种广告形态)。
+func dominantSegmentKey(lines []string, base *url.URL) string {
 	counts := map[string]int{}
 	for _, ln := range lines {
 		t := strings.TrimSpace(ln)
@@ -724,16 +738,16 @@ func dominantSegmentHost(lines []string, base *url.URL) string {
 		}
 		abs := absolutize(t, base)
 		if isPlaylistURI(abs) {
-			continue // 子播放列表不计入分片 host 统计
+			continue // 子播放列表不计入分片键统计
 		}
-		if h := hostOf(abs); h != "" {
-			counts[h]++
+		if k := segKey(abs); k != "" {
+			counts[k]++
 		}
 	}
 	best, bestN := "", 0
-	for h, n := range counts {
+	for k, n := range counts {
 		if n > bestN {
-			best, bestN = h, n
+			best, bestN = k, n
 		}
 	}
 	return best
