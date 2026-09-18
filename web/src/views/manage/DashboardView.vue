@@ -169,6 +169,47 @@ const cards = computed(() => {
         </article>
       </div>
 
+      <!-- 今日累计: 自然日滚动, 与实时并列为运营日报维度 -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-secondary whitespace-nowrap">今日累计</span>
+        <div class="h-px flex-1 bg-[var(--jc-border)]" />
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-[var(--jc-space-3)]">
+        <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
+          <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#8b5cf6] to-[#ec4899]">
+            <BaseIcon name="user" size="18px" />
+          </div>
+          <div class="flex flex-col min-w-0 leading-tight">
+            <span class="text-secondary text-xs">今日人数（UV）</span>
+            <span class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+              {{ online?.today?.uv ?? '—' }}
+            </span>
+          </div>
+        </article>
+        <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
+          <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#06b6d4] to-[#3b82f6]">
+            <BaseIcon name="refresh" size="18px" />
+          </div>
+          <div class="flex flex-col min-w-0 leading-tight">
+            <span class="text-secondary text-xs">今日访问（PV）</span>
+            <span class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+              {{ online?.today?.pv ?? '—' }}
+            </span>
+          </div>
+        </article>
+        <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
+          <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#f59e0b] to-[#ef4444]">
+            <BaseIcon name="chart" size="18px" />
+          </div>
+          <div class="flex flex-col min-w-0 leading-tight">
+            <span class="text-secondary text-xs">今日峰值在线</span>
+            <span class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+              {{ online?.today?.peak ?? '—' }}
+            </span>
+          </div>
+        </article>
+      </div>
+
       <!-- 在线明细表单: 最近活跃倒序, 90s 无心跳自动消失; 可筛选"在播放/在线"分开查看 -->
       <div class="bg-surface rounded-card shadow-card p-[var(--jc-space-4)]">
         <div class="flex items-center justify-between mb-[var(--jc-space-3)]">

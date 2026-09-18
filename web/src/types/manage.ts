@@ -329,6 +329,15 @@ export interface OnlineOverview {
   /** 在线会话数(每个标签/TV 设备一个 sid) */
   pv: number
   watching: number
+  /** 今日累计(自然日滚动) */
+  today: {
+    /** 今日去重人数 */
+    uv: number
+    /** 今日访问次数(同一会话 ≥30min 间隔计新访问) */
+    pv: number
+    /** 今日峰值在线(实时会话数最高值) */
+    peak: number
+  }
   sessions: OnlineSession[]
 }
 

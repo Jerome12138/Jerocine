@@ -98,3 +98,71 @@ func TestOnlineService_SortedByLastSeenDesc(t *testing.T) {
 		t.Fatalf("应按最近活跃倒序, got %+v", fmt.Sprintf("%+v", o.Sessions))
 	}
 }
+
+func TestOnlineService_BotUA_Ignored(t *testing.T) {
+	s, _ := newTestOnlineService(t)
+	ctx := context.Background()
+	// applebot: 用户实测在明细里见过的爬虫
+	s.Heartbeat(ctx, OnlineSession{Sid: "b1", IP: "9.9.9.9", UA: "Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)"})
+	// googlebot / bytespider / curl
+	s.Heartbeat(ctx, OnlineSession{Sid: "b2", IP: "9.9.9.10", UA: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"})
+	s.Heartbeat(ctx, OnlineSession{Sid: "b3", IP: "9.9.9.11", UA: "Mozilla/5.0 (compatible; Bytespider; spider-feedback@bytedance.com)"})
+	s.Heartbeat(ctx, OnlineSession{Sid: "b4", IP: "9.9.9.12", UA: "curl/8.5.0"})
+	// 正常浏览器不入 bot
+	s.Heartbeat(ctx, OnlineSession{Sid: "u1", IP: "8.8.8.8", UA: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"})
+	o := s.Overview(ctx)
+	if o.PV != 1 || o.UV != 1 || len(o.Sessions) != 1 {
+		t.Fatalf("爬虫应全部忽略, 仅正常浏览器在线: got %+v", o)
+	}
+	if o.Today.UV != 1 || o.Today.PV != 1 {
+		t.Fatalf("爬虫不应计入今日统计: got %+v", o.Today)
+	}
+}
+
+func TestOnlineService_DailyStats(t *testing.T) {
+	s, _ := newTestOnlineService(t)
+	ctx := context.Background()
+	// 两个不同游客 IP(UV=2, PV=2), 其中 1 人观看中
+	s.Heartbeat(ctx, sess("s1", "1.1.1.1", 0, true))
+	s.Heartbeat(ctx, sess("s2", "2.2.2.2", 0, false))
+	o := s.Overview(ctx)
+	if o.Today.UV != 2 || o.Today.PV != 2 {
+		t.Fatalf("今日 UV/PV 应累计: got %+v", o.Today)
+	}
+	// 峰值: 当前在线 2 个会话, 应更新为 2
+	if o.Today.Peak != 2 {
+		t.Fatalf("今日峰值应为当前会话数 2: got %+v", o.Today)
+	}
+	// 同 sid 30min 内再次心跳不新增今日 PV; 新 sid 新增
+	s.Heartbeat(ctx, sess("s1", "1.1.1.1", 0, true))
+	s.Heartbeat(ctx, sess("s3", "3.3.3.3", 0, true))
+	o = s.Overview(ctx)
+	if o.Today.UV != 3 || o.Today.PV != 3 {
+		t.Fatalf("s1 续心跳不应新增 PV, s3 应新增: got %+v", o.Today)
+	}
+	if o.Today.Peak != 3 {
+		t.Fatalf("峰值应为 3: got %+v", o.Today)
+	}
+}
+
+func TestIsBotUAOnline(t *testing.T) {
+	cases := []struct {
+		ua   string
+		want bool
+	}{
+		{"", false}, // 宽松版: 空 UA 不误伤
+		{"Mozilla/5.0 (compatible; Applebot/0.1)", true},
+		{"Mozilla/5.0 (compatible; Googlebot/2.1)", true},
+		{"Mozilla/5.0 (compatible; Bytespider)", true},
+		{"curl/8.5.0", true},
+		{"Wget/1.21.4", true},
+		{"python-requests/2.31.0", true},
+		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36", false},
+		{"Mozilla/5.0 (Linux; Android 10; TV) AppleWebKit/537.36 Chrome/126.0 Safari/537.36", false},
+	}
+	for _, c := range cases {
+		if got := isBotUAOnline(c.ua); got != c.want {
+			t.Fatalf("isBotUAOnline(%q)=%v want %v", c.ua, got, c.want)
+		}
+	}
+}
