@@ -111,7 +111,7 @@ const cards = computed(() => {
     },
     {
       label: 'API 平均耗时(7天)',
-      value: teleOv.value ? `${teleOv.value.avgApiMs}ms` : '—',
+      value: teleOv.value ? `${Math.round(teleOv.value.avgApiMs)}ms` : '—',
       icon: 'chart',
       tint: 'from-[#06b6d4] to-[#3b82f6]',
       to: '/manage/telemetry'

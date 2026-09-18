@@ -72,7 +72,8 @@ func (r *telemetryRepo) ApiPerf(ctx context.Context, sinceUnix int64, limit int)
 }
 
 // OverviewStats 看板顶部卡片原始聚合。category=pv/api 直接计数; error 用 extra.type;
-// avgApiMs 取 api 事件 value 均值(value=耗时 ms)。
+// avgApiMs 取 api 事件 value 均值(value=耗时 ms), 剔除 >60s 异常样本 —
+// 正常接口调用远小于该值, 挂起/断连/超时请求(可达数百秒)会把算术均值拉爆, 不参与统计。
 func (r *telemetryRepo) OverviewStats(ctx context.Context, sinceUnix int64) (repository.OverviewStats, error) {
 	var o repository.OverviewStats
 	if err := r.sinceQuery(ctx, sinceUnix).Where("category = ?", "pv").Count(&o.PV).Error; err != nil {
@@ -86,8 +87,12 @@ func (r *telemetryRepo) OverviewStats(ctx context.Context, sinceUnix int64) (rep
 	}
 	r.sinceQuery(ctx, sinceUnix).Where("session_id <> ''").Distinct("session_id").Count(&o.UV)
 	r.sinceQuery(ctx, sinceUnix).Where("user_id IS NOT NULL AND user_id <> 0").Distinct("user_id").Count(&o.UniqueUsers)
+	const maxApiMs = 60_000 // 异常样本阈值: >60s 视为挂起/超时请求, 不参与均值
 	var avg struct{ V float64 }
-	if err := r.sinceQuery(ctx, sinceUnix).Where("category = ?", "api").Select("COALESCE(AVG(value),0) AS v").Scan(&avg).Error; err == nil {
+	if err := r.sinceQuery(ctx, sinceUnix).
+		Where("category = ?", "api").
+		Select("COALESCE(AVG(CASE WHEN value >= 0 AND value <= ? THEN value END),0) AS v", maxApiMs).
+		Scan(&avg).Error; err == nil {
 		o.AvgApiMs = avg.V
 	}
 	return o, nil
