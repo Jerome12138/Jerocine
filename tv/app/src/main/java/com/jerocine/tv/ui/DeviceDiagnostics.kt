@@ -102,15 +102,12 @@ object DeviceDiagnostics {
 
     /** 返回 (WebView 描述, Chrome 内核主版本); 描述优先取包版本, 内核版本解析自版本号/UA。 */
     private fun webViewInfo(context: Context): Pair<String, Int?> {
-        // 1) API 26+: WebView 实现可更新, 直接取当前 WebView 包
+        // 1) API 26+: WebView 实现可更新, 直接取当前 WebView 包(返回 PackageInfo)
         if (Build.VERSION.SDK_INT >= 26) {
-            val pkg = runCatching { WebView.getCurrentWebView() }.getOrNull()
+            val pkg = runCatching { WebView.getCurrentWebViewPackage() }.getOrNull()
             if (pkg != null) {
-                val pi = runCatching { context.packageManager.getPackageInfo(pkg.packageName, 0) }.getOrNull()
-                if (pi != null) {
-                    val major = pi.versionName?.substringBefore('.')?.toIntOrNull()
-                    return "WebView ${pi.versionName} (${pkg.packageName})" to major
-                }
+                val major = pkg.versionName?.substringBefore('.')?.toIntOrNull()
+                return "WebView ${pkg.versionName} (${pkg.packageName})" to major
             }
         }
         // 2) 常见 WebView 包名探测(API 21-25 的独立更新包)
