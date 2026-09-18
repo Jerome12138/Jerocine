@@ -1018,6 +1018,37 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
   loading.value = true
 }
 
+/* ============ 下一集预取(自动连播场景, 消除切集过滤 2-3s) ============
+ * 仅当"自动连播开启 + 有下一集 + 距自动切集点 <= 60s"才后台预取下一集 m3u8,
+ * 预热服务器 10min 过滤缓存 → 自动切集时直接命中, 不再付"抓源+过滤"全价。
+ * 幂等(每源每集只预取一次) + 静默失败(预取失败则切集时再付一次全价, 不影响播放)。
+ * 注: 预取预热的是服务端 proxy 过滤缓存, 对走服务端过滤的源(端侧 CORS 失败的源)有效;
+ *     走端侧混合过滤的源(如 bf)不查该缓存, 预取仅无害不白做收益。 */
+const PREFETCH_LEAD_S = 60
+const prefetchedEpisodeKey = ref('')
+async function prefetchNextEpisode(): Promise<void> {
+  if (!autoPlayNext.value || !hasNext.value) return
+  const nextIdx = currentEpisodeIndex.value + 1
+  const key = `${currentSourceId.value}/${nextIdx}`
+  if (prefetchedEpisodeKey.value === key) return
+  prefetchedEpisodeKey.value = key
+  try {
+    const data: PlayInfo = await filmApi.getPlayInfo({
+      mid: String(route.query.id ?? ''),
+      source: currentSourceId.value,
+      episode: nextIdx
+    })
+    const ep = data?.detail?.sources
+      ?.find((s) => s.id === currentSourceId.value)
+      ?.episodes?.[nextIdx]
+    if (!ep || !reM3u8.test(ep.link)) return
+    // 预热: 请求服务端 proxy(抓源站+过滤+写缓存), 响应丢弃; 失败静默不重试
+    await fetch(proxyAdFilterUrl(ep.link), { method: 'GET' })
+  } catch {
+    /* 预取失败不影响播放(切集时再付一次全价) */
+  }
+}
+
 /** Web 播放器 timeupdate 监听: 接近片尾自动播下一集 (key 去抖) */
 function onPlayerTimeUpdateForSkipOutro(): void {
   const p = player.value
@@ -1030,6 +1061,10 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   const current = p.currentTime() ?? 0
   if (duration <= 300 || current <= 0) return
   const remaining = duration - current
+  // 预取下一集: 距自动切集点 <=60s 时后台预热服务器过滤缓存(幂等, 静默, 失败不影响播放)
+  if (remaining <= skip.outro + PREFETCH_LEAD_S) {
+    prefetchNextEpisode()
+  }
   const key = `${currentSourceId.value}/${currentEpisodeIndex.value}`
   // 跳过片尾前 10s 预告(每集一次)
   if (remaining <= skip.outro + 10 && remaining > skip.outro) {
