@@ -212,6 +212,21 @@ func (s *UserService) Me(ctx context.Context, userID uint) (*entity.User, error)
 	return s.users.GetById(ctx, userID)
 }
 
+// NamesByIDs 批量取用户昵称(id → 昵称; 不存在/已删除跳过)。在线明细表展示用, 会话数少逐个查可接受。
+func (s *UserService) NamesByIDs(ctx context.Context, ids []int64) map[int64]string {
+	out := make(map[int64]string, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		u, err := s.users.GetById(ctx, uint(id))
+		if err == nil && u != nil {
+			out[id] = u.UserName
+		}
+	}
+	return out
+}
+
 func (s *UserService) ChangePassword(ctx context.Context, userID uint, oldPw, newPw string) error {
 	u, err := s.users.GetById(ctx, userID)
 	if err != nil {

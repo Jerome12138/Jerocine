@@ -21,6 +21,7 @@ import (
 
 	"server/internal/config"
 	"server/internal/douban"
+	"server/internal/geoip"
 	"server/internal/handler"
 	"server/internal/platform/auth"
 	"server/internal/platform/blobstore"
@@ -125,6 +126,10 @@ func buildApp(cfg *config.Config) (*App, error) {
 	cacheRdb, coordRdb, err := db.InitRedis(cfg.Redis)
 	if err != nil {
 		return nil, fmt.Errorf("init redis: %w", err)
+	}
+	// 离线 IP 归属地库(可选): 数据文件缺失/损坏时仅记录, 在线明细归属地列显示空, 不影响主流程。
+	if err := geoip.Init("data/ip2region.db"); err != nil {
+		log.Printf("[warn] geoip init: %v (在线明细 IP 归属地不可用)", err)
 	}
 	tokenMgr, err := auth.NewTokenManager(cfg.JWT.PrivateKey, cfg.JWT.PublicKey, cfg.JWT.TTL, cfg.JWT.Issuer)
 	if err != nil {

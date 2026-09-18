@@ -27,14 +27,17 @@ type OnlineService struct {
 }
 
 // OnlineSession 一个在线会话的明细(handler 层从请求解析 IP/UID/UA)。
-// 注意: 不收集页面路径/标题等"在看什么"的信息 — 与 IP/用户组合即观看行为隐私,
-// 后台仅需"谁在线/是否观看中", 不展示内容偏好。
+// 隐私口径: Path 只记录页面路径(pathname, 不含 query 参数/影片标识),
+// 不收集"正在看哪部影片"这类内容偏好; Username/IPRegion 由 Overview 时只读增强填充。
 type OnlineSession struct {
 	Sid       string `json:"sid"`
 	IP        string `json:"ip"`
 	UID       int64  `json:"uid,omitempty"`
 	Watching  bool   `json:"watching"`
 	UA        string `json:"ua,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Username  string `json:"username,omitempty"`
+	IPRegion  string `json:"ipRegion,omitempty"`
 	FirstSeen int64  `json:"firstSeen"`
 	LastSeen  int64  `json:"lastSeen"`
 }

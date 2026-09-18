@@ -9,8 +9,10 @@
  *       Native(TV ExoPlayer) → touchNativeWatching(playerProgress 事件到达,
  *                              以"最近一次在 15s 内"判观看中, 事件 5s/tick)
  *   - 30s 心跳 + 页面隐藏停发(后台标签页不算在线), 恢复可见立即续报
- *   - payload: sid + watching; 登录用户附 Bearer token, 服务端解析 uid 用于"同一用户去重"
- *   - 隐私: 不上报路径/页面标题(与 IP/用户组合即观看行为隐私), 后台不展示"在看什么"
+ *   - payload: sid + watching + path(pathname 仅路径, 不含 query/影片标识);
+ *     登录用户附 Bearer token, 服务端解析 uid 用于"同一用户去重"
+ *   - 隐私: 只上报页面路径类别(如 /play、/detail), 不上报任何参数/影片标识,
+ *     后台可分析页面分布但不识别"正在看哪部影片"
  *   - 上报失败静默, 不打扰播放主流程
  */
 
@@ -59,7 +61,9 @@ async function send(): Promise<void> {
       },
       body: JSON.stringify({
         sid,
-        watching: watchingNow()
+        watching: watchingNow(),
+        // 仅路径(不含 query/hash/影片标识): 后台看页面分布, 不识别具体影片
+        path: typeof window !== 'undefined' ? window.location.pathname : ''
       }),
       credentials: 'omit',
       keepalive: true

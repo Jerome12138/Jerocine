@@ -20,7 +20,7 @@ RUN go mod download
 
 COPY server/ ./
 RUN go build -trimpath -ldflags="-s -w" -o /out/main ./cmd/server && \
-    mkdir -p /out/static/upload
+    mkdir -p /out/static/upload /out/data && cp -r data /out/data
 
 # 运行镜像: 静态 distroless, 非 root.
 FROM gcr.io/distroless/static-debian12:nonroot
@@ -30,6 +30,8 @@ LABEL org.opencontainers.image.title="jerocine-server"
 WORKDIR /opt/server
 COPY --from=build --chown=nonroot:nonroot /out/main /opt/server/main
 COPY --from=build --chown=nonroot:nonroot /out/static /opt/server/static
+# IP 归属地离线库(geoip; 缺失时在线明细归属地列留空, 不阻断启动)
+COPY --from=build --chown=nonroot:nonroot /out/data /opt/server/data
 # 许可随镜像分发(MIT + GoFilm 衍生声明)
 COPY LICENSE /licenses/LICENSE
 

@@ -310,8 +310,14 @@ export interface OnlineSession {
   ip: string
   /** 登录用户 id(游客为 0/缺省) */
   uid?: number
+  /** 登录用户昵称(服务端回填; 游客空) */
+  username?: string
   watching: boolean
   ua?: string
+  /** 页面路径(仅 pathname, 不含 query/影片标识) */
+  path?: string
+  /** IP 归属地(离线库回填; 内网/未命中空) */
+  ipRegion?: string
   firstSeen: number
   lastSeen: number
 }
