@@ -92,9 +92,8 @@ const cards = computed(() => {
     { label: '影片总数', value: d.filmCount ?? 0, icon: 'film', tint: 'from-[#9b49e7] to-[#4ad1e5]' },
     { label: '今日新增', value: d.todayNew ?? 0, icon: 'plus', tint: 'from-[#f59e0b] to-[#fbbf24]' },
     { label: '近 7 天新增', value: d.weekNew ?? 0, icon: 'film', tint: 'from-[#3b82f6] to-[#22c55e]' },
-    { label: '采集源', value: d.collectCount ?? 0, icon: 'magic', tint: 'from-[#E50914] to-[#ff6b6b]' },
+    { label: '启用采集源', value: d.collectCount ?? 0, icon: 'magic', tint: 'from-[#E50914] to-[#ff6b6b]' },
     { label: '定时任务', value: d.cronCount ?? 0, icon: 'clock', tint: 'from-[#22c55e] to-[#4ad1e5]' },
-    { label: '已停采源', value: d.downSources ?? 0, icon: 'trash', tint: 'from-[#ef4444] to-[#f59e0b]' },
     {
       label: '待补采页',
       value: d.pendingFails ?? 0,
@@ -159,7 +158,11 @@ const cards = computed(() => {
         </div>
         <div class="flex flex-col min-w-0 leading-tight">
           <span class="text-secondary text-xs truncate">{{ c.label }}</span>
-          <span class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+          <!-- 可点击卡片: 数字用链接色提示可跳转 -->
+          <span
+            class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums"
+            :class="c.to ? 'text-link' : ''"
+          >
             {{ c.value }}
           </span>
         </div>

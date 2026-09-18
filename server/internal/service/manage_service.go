@@ -134,11 +134,10 @@ func (s *ManageService) UploadApk(ctx context.Context, fileName string, data []b
 // DashboardData 仪表盘统计。
 type DashboardData struct {
 	FilmCount    int64 `json:"filmCount"`
-	CollectCount int64 `json:"collectCount"`
+	CollectCount int64 `json:"collectCount"` // 当前启用采集源数
 	CronCount    int64 `json:"cronCount"`
 	TodayNew     int64 `json:"todayNew"`     // 今日新增影片(按 created_at)
 	WeekNew      int64 `json:"weekNew"`      // 近 7 天新增影片
-	DownSources  int64 `json:"downSources"`  // 已被自动停采的死源数
 	PendingFails int64 `json:"pendingFails"` // 待补采的失败页数(由 handler 从采集服务注入)
 }
 
@@ -147,7 +146,7 @@ func (s *ManageService) Dashboard(ctx context.Context) DashboardData {
 	if _, total, err := s.search.Filter(ctx, repository.FilterSpec{}, repository.Page{Current: 1, Size: 1}); err == nil {
 		d.FilmCount = total
 	}
-	if srcs, err := s.sources.List(ctx, false); err == nil {
+	if srcs, err := s.sources.List(ctx, true); err == nil { // 仅启用源
 		d.CollectCount = int64(len(srcs))
 	}
 	if crons, err := s.crons.List(ctx); err == nil {
@@ -161,15 +160,6 @@ func (s *ManageService) Dashboard(ctx context.Context) DashboardData {
 	}
 	if n, err := s.search.CountCreatedSince(ctx, now.AddDate(0, 0, -7).UnixMilli()); err == nil {
 		d.WeekNew = n
-	}
-	if s.health != nil {
-		if hs, err := s.health.List(ctx); err == nil {
-			for _, h := range hs {
-				if h.Suppressed {
-					d.DownSources++
-				}
-			}
-		}
 	}
 	return d
 }

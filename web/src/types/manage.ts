@@ -295,11 +295,11 @@ export interface PhotoWallResp {
 /** 仪表盘统计（GET /manage/dashboard, 后端 service.DashboardData） */
 export interface DashboardStat {
   filmCount?: number
+  /** 当前启用采集源数 */
   collectCount?: number
   cronCount?: number
   todayNew?: number
   weekNew?: number
-  downSources?: number
   /** 待补采的失败页数 */
   pendingFails?: number
 }
