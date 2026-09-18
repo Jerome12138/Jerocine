@@ -281,7 +281,10 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
             if (!cur) return
             try {
               if (cur.paused()) {
-                void cur.play()
+                // play() 返回 promise: 单击快速切暂停时旧 play() 会被打断 reject(AbortError),
+                // 同步 try/catch 捕获不到, 不 catch 会成 unhandledrejection 被埋点误报。静默吞掉。
+                const ret = cur.play() as Promise<void> | undefined
+                void ret?.catch(() => undefined)
               } else {
                 cur.pause()
               }
