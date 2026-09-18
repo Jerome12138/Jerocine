@@ -458,7 +458,9 @@ html[data-mode="tv"] body::-webkit-scrollbar {
 }
 
 /* P4: manage 区 mobile 触摸目标 (WCAG 44x44pt 下限) — 兜底未单独加 min-h 的元素 */
-[data-mode="mobile"] .jc-manage button,
+/* .jc-switch 自带 44x28 视觉尺寸(且含 flex-shrink:0 防塌), 需排除, 否则 44px min-height
+   把高度撑到与宽度相等(44x44 + rounded-full) → 开关显示为正圆 */
+[data-mode="mobile"] .jc-manage button:not(.jc-switch),
 [data-mode="mobile"] .jc-manage a[role="button"],
 [data-mode="mobile"] .jc-manage [data-focusable="true"][role="button"] {
   min-height: 44px;
