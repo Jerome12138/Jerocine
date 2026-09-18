@@ -160,7 +160,7 @@ const cards = computed(() => {
           <span class="text-secondary text-xs truncate">{{ c.label }}</span>
           <!-- 可点击卡片: 数字用链接色提示可跳转 -->
           <span
-            class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums"
+            class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate"
             :class="c.to ? 'text-link' : ''"
           >
             {{ c.value }}
@@ -171,14 +171,14 @@ const cards = computed(() => {
 
     <!-- 在线实时统计: 客户端 30s 心跳, 90s 未上报判离线; UV 登录按 uid / 游客按 IP 去重 -->
     <section v-if="!loading && !error" class="flex flex-col gap-[var(--jc-space-3)]">
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-[var(--jc-space-3)]">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--jc-space-3)]">
         <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
           <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#22c55e] to-[#4ad1e5]">
             <BaseIcon name="eye" size="18px" />
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">在线人数（UV）</span>
-            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.uv ?? '—' }}
             </span>
           </div>
@@ -189,7 +189,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">在线会话（PV）</span>
-            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.pv ?? '—' }}
             </span>
           </div>
@@ -200,7 +200,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">正在观看</span>
-            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.watching ?? '—' }}
             </span>
           </div>
@@ -212,14 +212,14 @@ const cards = computed(() => {
         <span class="text-xs text-secondary whitespace-nowrap">今日累计</span>
         <div class="h-px flex-1 bg-[var(--jc-border)]" />
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-[var(--jc-space-3)]">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--jc-space-3)]">
         <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
           <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#8b5cf6] to-[#ec4899]">
             <BaseIcon name="user" size="18px" />
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">今日人数（UV）</span>
-            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.today?.uv ?? '—' }}
             </span>
           </div>
@@ -230,7 +230,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">今日访问（PV）</span>
-            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.today?.pv ?? '—' }}
             </span>
           </div>
@@ -241,7 +241,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">今日峰值在线</span>
-            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.today?.peak ?? '—' }}
             </span>
           </div>
@@ -280,19 +280,20 @@ const cards = computed(() => {
               </button>
             </div>
           </div>
-          <span class="text-secondary text-xs">90s 无心跳自动离线 · 15s 自动刷新</span>
+          <span class="hidden md:inline text-secondary text-xs">90s 无心跳自动离线 · 15s 自动刷新</span>
         </div>
         <div v-if="filteredSessions.length" class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
               <tr class="text-secondary text-xs text-left border-b border-[var(--jc-border)]">
-                <th class="py-2 pr-4 font-normal">IP / 归属地</th>
-                <th class="py-2 pr-4 font-normal">用户</th>
-                <th class="py-2 pr-4 font-normal">状态</th>
-                <th class="py-2 pr-4 font-normal">页面</th>
-                <th class="py-2 pr-4 font-normal">浏览器</th>
-                <th class="py-2 pr-4 font-normal">进入时间</th>
-                <th class="py-2 font-normal">最近活跃</th>
+                <!-- 各列 min-width: 窄屏下表格横向滚动, 列不被内容挤窄 -->
+                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[160px]">IP / 归属地</th>
+                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[100px]">用户</th>
+                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[72px]">状态</th>
+                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[140px]">页面</th>
+                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[160px]">浏览器</th>
+                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[88px]">进入时间</th>
+                <th class="py-2 font-normal whitespace-nowrap min-w-[88px]">最近活跃</th>
               </tr>
             </thead>
             <tbody>
@@ -305,7 +306,7 @@ const cards = computed(() => {
                   <span class="inline-block">{{ s.ip || '—' }}</span>
                   <span v-if="s.ipRegion" class="block text-xs text-tertiary">{{ s.ipRegion }}</span>
                 </td>
-                <td class="py-2 pr-4 text-secondary">{{ userLabel(s) }}</td>
+                <td class="py-2 pr-4 text-secondary max-w-[160px] truncate">{{ userLabel(s) }}</td>
                 <td class="py-2 pr-4">
                   <span
                     class="inline-flex items-center gap-1 text-xs"
