@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -54,12 +55,15 @@ const statsMaxDepth = 2
 // M3u8Stats 广告过滤统计: Total=本播放链路分片总数, Filtered=被判为广告剔除的分片数。
 // Cross/Num/HasDisc/Sample 仅供排查日志用, json:"-" 不序列化(不入缓存 JSON、不出 API)。
 type M3u8Stats struct {
-	Filtered int      `json:"filtered"`
-	Total    int      `json:"total"`
-	Cross    int      `json:"-"` // 跨域 host 命中剔除数
-	Num      int      `json:"-"` // 编号跳脱命中剔除数
-	HasDisc  bool     `json:"-"` // 列表是否含 #EXT-X-DISCONTINUITY(广告常用插片标记)
-	Sample   []string `json:"-"` // DISCONTINUITY 后首个分片 URI 样本(疑似漏过滤时定位广告形态)
+	Filtered   int      `json:"filtered"`
+	Total      int      `json:"total"`
+	Cross      int      `json:"-"` // 跨域 host 命中剔除数
+	Num        int      `json:"-"` // 编号跳脱命中剔除数
+	Short      int      `json:"-"` // <1s 极短分片命中剔除数(时长维度)
+	DurOutlier int      `json:"-"` // 时长异常分片数(疑似漏过滤, 仅预警不剔除)
+	HasDisc    bool     `json:"-"` // 列表是否含 #EXT-X-DISCONTINUITY(广告常用插片标记)
+	Sample     []string `json:"-"` // DISCONTINUITY 后首个分片 URI 样本(疑似漏过滤时定位广告形态)
+	DurSample  []string `json:"-"` // 时长异常分片 URI 样本(定位广告形态)
 }
 
 // m3u8SampleMax 排查样本上限: 只留前若干个"插片标记后分片"URI, 够定位广告形态即可。
@@ -273,13 +277,13 @@ func logM3u8Filter(via, srcURL string, st M3u8Stats) {
 	if u, err := url.Parse(srcURL); err == nil {
 		host, path = u.Hostname(), u.Path
 	}
-	if st.Filtered == 0 && st.Total >= adNumMinSegs && st.HasDisc {
-		log.Printf("WARN m3u8 filter[%s] 疑似漏过滤 host=%s path=%s total=%d filtered=0 hasDisc=true sample=%v",
-			via, host, path, st.Total, st.Sample)
+	if st.Filtered == 0 && st.Total >= adNumMinSegs && (st.HasDisc || st.DurOutlier > 0) {
+		log.Printf("WARN m3u8 filter[%s] 疑似漏过滤 host=%s path=%s total=%d filtered=0 hasDisc=%t durOutlier=%d discSample=%v durSample=%v",
+			via, host, path, st.Total, st.HasDisc, st.DurOutlier, st.Sample, st.DurSample)
 		return
 	}
-	log.Printf("m3u8 filter[%s] host=%s path=%s total=%d filtered=%d cross=%d num=%d hasDisc=%t",
-		via, host, path, st.Total, st.Filtered, st.Cross, st.Num, st.HasDisc)
+	log.Printf("m3u8 filter[%s] host=%s path=%s total=%d filtered=%d cross=%d num=%d short=%d durOutlier=%d hasDisc=%t",
+		via, host, path, st.Total, st.Filtered, st.Cross, st.Num, st.Short, st.DurOutlier, st.HasDisc)
 }
 
 // rewriteM3u8WithStats 把相对 URI 绝对化; filterAds 时剔除与主域不同 host 的分片(常见广告插入手法),
@@ -320,14 +324,28 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 	// 广告判定基准 = 本列表内分片的"主导 host"(出现最多者 = 真实内容 CDN), 而非播放列表自身 host。
 	// 多 CDN 源常把 m3u8 与分片放不同 host(合法), 旧的"跨播放列表 host=广告"会误杀整张表(如 huya)。
 	dominant := dominantSegmentHost(lines, base)
-	// 预扫: 按播放顺序收集分片(非子列表)绝对 URI, 供"编号跳脱"同域广告检测(lz/量子源把广告
-	// 用异编号分片同域插进正片连续序列, 跨域过滤抓不到)。
+	// 预扫: 按播放顺序收集分片(非子列表)绝对 URI 与 EXTINF 时长, 供"编号跳脱"同域广告检测
+	// (lz/量子源把广告用异编号分片同域插进正片连续序列, 跨域过滤抓不到)与"时长维度"
+	// (极短剔除 + 时长异常预警, 覆盖同域同编号的纯时长异常插片)。
 	var adByIdx map[int]bool
+	var durOutlierIdx map[int]bool
+	var durSamples []string
+	var segDurs []float64
 	if filterAds {
 		var segURIs []string
+		pendingDur := -1.0 // 前一条 EXTINF 的时长; 无 EXTINF 的分片保持 -1(时长规则不适用)
 		for _, ln := range lines {
 			t := strings.TrimSpace(ln)
-			if t == "" || strings.HasPrefix(t, "#") {
+			if t == "" {
+				continue
+			}
+			if strings.HasPrefix(t, "#EXTINF") {
+				if d, ok := parseExtinfDuration(t); ok {
+					pendingDur = d
+				}
+				continue
+			}
+			if strings.HasPrefix(t, "#") {
 				continue
 			}
 			abs := absolutize(t, base)
@@ -335,8 +353,11 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 				continue
 			}
 			segURIs = append(segURIs, abs)
+			segDurs = append(segDurs, pendingDur)
+			pendingDur = -1.0
 		}
 		adByIdx = numberOutlierAds(segURIs)
+		durOutlierIdx, durSamples = durationOutliers(segDurs, segURIs)
 	}
 	var pendingExtinf string
 	var st M3u8Stats
@@ -389,7 +410,8 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 			}
 			justAfterDisc = false
 		}
-		// 广告判定: ① 非主导 host 的零星分片(跨域广告 CDN); ② 编号跳脱正片连续序列的同域插片。
+		// 广告判定: ① 非主导 host 的零星分片(跨域广告 CDN); ② 编号跳脱正片连续序列的同域插片;
+		// ③ <1s 极短分片(广告卡点常见, 豁免开头 4 段片头)。
 		if filterAds && pendingExtinf != "" {
 			crossDrop := false
 			if dominant != "" {
@@ -398,13 +420,21 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 				}
 			}
 			numDrop := !crossDrop && adByIdx[segIdx]
-			if crossDrop || numDrop {
+			shortDrop := false
+			if !crossDrop && !numDrop && segIdx < len(segDurs) && segDurs[segIdx] >= 0 &&
+				segDurs[segIdx] < adShortMaxDur && segIdx > adShortSkipHead {
+				shortDrop = true
+			}
+			if crossDrop || numDrop || shortDrop {
 				pendingExtinf = "" // 连同其 EXTINF 丢弃
 				st.Filtered++
-				if crossDrop {
+				switch {
+				case crossDrop:
 					st.Cross++
-				} else {
+				case numDrop:
 					st.Num++
+				default:
+					st.Short++
 				}
 				continue
 			}
@@ -419,6 +449,10 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 			out = append(out, abs)
 		}
 	}
+	if durOutlierIdx != nil {
+		st.DurOutlier = len(durOutlierIdx)
+		st.DurSample = durSamples
+	}
 	return strings.Join(out, "\n"), st, firstChild
 }
 
@@ -428,6 +462,10 @@ const (
 	adNumMinCoverage = 0.80 // 至少这么大比例分片能解析出尾号, 否则视为非顺序命名, 跳过
 	adNumMinContent  = 0.60 // 主内容簇至少占比, 否则编号分布太散, 不可信
 	adNumMaxDropFrac = 0.30 // 剔除占比上限: 候选广告超此比例 → 判定误判, 整张表不剔
+
+	// 时长维度(极短剔除 + 时长异常预警)参数。
+	adShortMaxDur   = 1.0 // <1s 视为极短(广告卡点常见, 正常分片极少短于此), 触发剔除
+	adShortSkipHead = 4   // 开头前 4 段豁免(片头/OP 常有短段, 避免误杀片头)
 )
 
 // numberOutlierAds 识别"编号跳脱正片连续序列"的同域插播广告。
@@ -534,6 +572,78 @@ func segNumber(rawURL string) int {
 		return -1
 	}
 	return v
+}
+
+// parseExtinfDuration 解析 #EXTINF 时长(秒), 兼容 "#EXTINF:4.0," / "#EXTINF:3" 等形态;
+// 解析失败或负值返回 ok=false(调用方按"无时长"处理, 时长规则不适用)。
+func parseExtinfDuration(line string) (float64, bool) {
+	if !strings.HasPrefix(line, "#EXTINF") {
+		return 0, false
+	}
+	i := strings.IndexByte(line, ':')
+	if i < 0 {
+		return 0, false
+	}
+	rest := strings.TrimSpace(line[i+1:])
+	if j := strings.IndexByte(rest, ','); j >= 0 {
+		rest = strings.TrimSpace(rest[:j])
+	}
+	d, err := strconv.ParseFloat(rest, 64)
+	if err != nil || d < 0 {
+		return 0, false
+	}
+	return d, true
+}
+
+// durationOutliers 时长异常分片(z-score>3)索引集与样本 URI(仅预警不剔除)。
+// 广告卡点时长常偏离正片均值数倍, 而同域+同编号命名时跨域/编号两维都抓不到(如纯时长插片、
+// 哈希命名源); 先以日志预警定位形态, 不直接剔(避免正片时长波动导致误杀)。
+func durationOutliers(segDurs []float64, segURIs []string) (map[int]bool, []string) {
+	out := map[int]bool{}
+	var known []float64
+	for _, d := range segDurs {
+		if d >= 0 {
+			known = append(known, d)
+		}
+	}
+	if len(known) < adNumMinSegs {
+		return out, nil
+	}
+	avg, std := segDurationStats(known)
+	if std <= 0 {
+		return out, nil
+	}
+	var samples []string
+	for i, d := range segDurs {
+		if d < 0 {
+			continue
+		}
+		if math.Abs(d-avg) > 3*std {
+			out[i] = true
+			if len(samples) < m3u8SampleMax && i < len(segURIs) {
+				samples = append(samples, segURIs[i])
+			}
+		}
+	}
+	return out, samples
+}
+
+// segDurationStats 分片时长均值与标准差(总体标准差; 输入须已剔除未知时长)。
+func segDurationStats(known []float64) (avg, std float64) {
+	n := len(known)
+	if n == 0 {
+		return 0, 0
+	}
+	s := 0.0
+	for _, d := range known {
+		s += d
+	}
+	avg = s / float64(n)
+	var sq float64
+	for _, d := range known {
+		sq += (d - avg) * (d - avg)
+	}
+	return avg, math.Sqrt(sq / float64(n))
 }
 
 // medianGap 排序数列相邻差值的中位数(用于估计正片编号步长)。

@@ -425,3 +425,96 @@ func TestLogM3u8Filter_WarnVsInfoVsQuiet(t *testing.T) {
 		t.Fatalf("Total=0 应降噪不打印, got: %s", buf.String())
 	}
 }
+
+// 同域 + 编号连续 + 仅时长异常的插片(0.5s 卡点)→ 时长维度剔除, 记 Short。
+// 该形态跨域/编号两维都抓不到(哈希命名或连续编号), 是时长维度的覆盖增量。
+func TestRewriteM3u8WithStats_DropsShortSegments(t *testing.T) {
+	base, _ := url.Parse("https://v.src.com/x/mixed.m3u8")
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	for i := 0; i < 6; i++ {
+		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
+	}
+	b.WriteString("#EXTINF:0.5,\nseg_ad.ts\n") // 广告卡点: 同域、编号 -1, 仅时长极短
+	for i := 6; i < 12; i++ {
+		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
+	}
+	out, st, _ := rewriteM3u8WithStats(b.String(), base, true, false)
+	if st.Filtered != 1 || st.Short != 1 {
+		t.Fatalf("应剔 1 段短分片: Filtered=%d Short=%d want 1/1 (Num=%d Cross=%d)", st.Filtered, st.Short, st.Num, st.Cross)
+	}
+	if strings.Contains(out, "seg_ad.ts") {
+		t.Fatalf("短广告分片应被剔除:\n%s", out)
+	}
+	if !strings.Contains(out, "seg0.ts") || !strings.Contains(out, "seg11.ts") {
+		t.Fatalf("正片应保留:\n%s", out)
+	}
+	if strings.Count(out, "#EXTINF") != 12 {
+		t.Fatalf("剔除后不应残留孤立 EXTINF, got %d 条:\n%s", strings.Count(out, "#EXTINF"), out)
+	}
+}
+
+// 开头 4 段内的短分片(片头/OP 常见)→ 豁免, 不误杀。
+func TestRewriteM3u8WithStats_KeepsShortHeadSegments(t *testing.T) {
+	base, _ := url.Parse("https://v.src.com/x/mixed.m3u8")
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	for i := 0; i < 4; i++ {
+		fmt.Fprintf(&b, "#EXTINF:0.8,\nseg%d.ts\n", i)
+	}
+	for i := 4; i < 12; i++ {
+		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
+	}
+	out, st, _ := rewriteM3u8WithStats(b.String(), base, true, false)
+	if st.Filtered != 0 {
+		t.Fatalf("开头短段应豁免, got Filtered=%d", st.Filtered)
+	}
+	if strings.Count(out, "#EXTINF") != 12 {
+		t.Fatalf("全部分片应保留:\n%s", out)
+	}
+}
+
+// 时长异常(z-score>3)→ 仅预警(DurOutlier + 样本), 不剔除。
+func TestRewriteM3u8WithStats_DurationOutlierWarnsOnly(t *testing.T) {
+	base, _ := url.Parse("https://v.src.com/x/mixed.m3u8")
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
+	}
+	b.WriteString("#EXTINF:25.0,\nseg_long.ts\n") // 时长异常(疑似广告, 先预警定位)
+	out, st, _ := rewriteM3u8WithStats(b.String(), base, true, false)
+	if st.Filtered != 0 {
+		t.Fatalf("时长异常仅预警不剔除, got Filtered=%d", st.Filtered)
+	}
+	if st.DurOutlier != 1 {
+		t.Fatalf("DurOutlier=%d want 1", st.DurOutlier)
+	}
+	if len(st.DurSample) == 0 || !strings.Contains(st.DurSample[0], "seg_long.ts") {
+		t.Fatalf("DurSample 应含异常分片, got %v", st.DurSample)
+	}
+	if !strings.Contains(out, "seg_long.ts") {
+		t.Fatalf("预警模式不应剔除异常分片:\n%s", out)
+	}
+}
+
+func TestParseExtinfDuration(t *testing.T) {
+	cases := map[string]struct {
+		want float64
+		ok   bool
+	}{
+		"#EXTINF:4.0,":                  {4.0, true},
+		"#EXTINF:3":                     {3, true},
+		"#EXTINF:2.5, next":             {2.5, true},
+		"#EXTINF:0.8,":                  {0.8, true},
+		"#EXTINF:-1,":                   {0, false},
+		"#EXTINF:abc,":                  {0, false},
+		"#EXT-X-TARGETDURATION:10":      {0, false},
+	}
+	for in, want := range cases {
+		got, ok := parseExtinfDuration(in)
+		if ok != want.ok || (ok && got != want.want) {
+			t.Errorf("parseExtinfDuration(%q)=%v,%v want %v,%v", in, got, ok, want.want, want.ok)
+		}
+	}
+}
