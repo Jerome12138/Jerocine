@@ -273,7 +273,7 @@ onMounted(async () => {
           <BaseImage :src="movie.cover" :alt="movie.name" ratio="3/4" />
         </div>
         <div class="flex-1 flex flex-col gap-[var(--jc-space-3)] min-w-0">
-          <h3 class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">
+          <h3 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">
             {{ movie.name }}
             <span v-if="movie.subTitle" class="text-base text-muted font-normal ml-2">
               {{ movie.subTitle }}

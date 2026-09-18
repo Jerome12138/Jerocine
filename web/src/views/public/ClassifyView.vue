@@ -383,12 +383,12 @@ const tvAllEmpty = computed(
         v-show="isReady(sec.items)"
       >
         <header class="flex items-end justify-between gap-[var(--jc-space-4)] mb-[var(--jc-space-3)]">
-          <h2 class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]">
+          <h2 class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]">
             {{ sec.title }}
           </h2>
           <RouterLink
             :to="moreLink(sec.sort)"
-            class="text-link text-[var(--jc-fs-sm)] inline-flex items-center gap-[var(--jc-space-1)] shrink-0"
+            class="text-link text-[length:var(--jc-fs-sm)] inline-flex items-center gap-[var(--jc-space-1)] shrink-0"
             data-focusable="true"
             tabindex="0"
           >

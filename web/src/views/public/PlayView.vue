@@ -1719,9 +1719,9 @@ watch(playerReady, (v) => {
             class="jc-play-info"
           >
             <!-- 标题行: 影片名 + 当前集名称(超长单行省略); 桌面端按钮组由 CSS 落到本行右侧 -->
-            <h1 class="jc-play-info__title text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]">
+            <h1 class="jc-play-info__title text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]">
               <span class="jc-play-info__name">{{ detail.name }}</span>
-              <span v-if="currentEpisode" class="jc-play-info__episode text-secondary text-[var(--jc-fs-sm)]">
+              <span v-if="currentEpisode" class="jc-play-info__episode text-secondary text-[length:var(--jc-fs-sm)]">
                 · {{ currentEpisode.episode }}
               </span>
             </h1>

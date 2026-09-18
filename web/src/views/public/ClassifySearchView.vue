@@ -348,10 +348,10 @@ function tvGoPage(delta: number): void {
         v-if="page.total > 0"
         class="jc-classify-search__count flex items-baseline justify-between mb-[var(--jc-space-4)] mt-[var(--jc-space-5)]"
       >
-        <p class="text-secondary text-[var(--jc-fs-sm)]">
+        <p class="text-secondary text-[length:var(--jc-fs-sm)]">
           共 <strong class="text-primary">{{ page.total }}</strong> 部影片
         </p>
-        <span class="text-muted text-[var(--jc-fs-xs)]">
+        <span class="text-muted text-[length:var(--jc-fs-xs)]">
           第 {{ page.current || 1 }} / {{ Math.max(1, page.pageCount || 1) }} 页
         </span>
       </div>

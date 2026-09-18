@@ -29,7 +29,7 @@ withDefaults(defineProps<Props>(), {
     </slot>
     <slot name="title">
       <h3
-        class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary"
+        class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary"
       >
         {{ title }}
       </h3>
@@ -37,7 +37,7 @@ withDefaults(defineProps<Props>(), {
     <slot name="description">
       <p
         v-if="description"
-        class="text-[var(--jc-fs-md)] text-muted max-w-md"
+        class="text-[length:var(--jc-fs-md)] text-muted max-w-md"
       >
         {{ description }}
       </p>

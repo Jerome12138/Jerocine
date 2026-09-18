@@ -207,7 +207,7 @@ function handleRemove(id: string, e: Event): void {
   <section v-else class="container-page py-[var(--jc-space-6)]">
     <header class="flex items-center justify-between mb-[var(--jc-space-5)] flex-wrap gap-[var(--jc-space-3)]">
       <div>
-        <h1 class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">观看历史</h1>
+        <h1 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">观看历史</h1>
         <p class="text-sm text-muted mt-[var(--jc-space-1)] flex items-center gap-[var(--jc-space-2)] flex-wrap">
           <BaseTag :variant="remoteMode ? 'purple' : 'default'" size="xs">
             {{ remoteMode ? '云端' : '本地' }}
@@ -251,10 +251,10 @@ function handleRemove(id: string, e: Event): void {
         class="flex flex-col gap-[var(--jc-space-4)]"
       >
         <h2 class="jc-history-group__title flex items-baseline gap-[var(--jc-space-2)]">
-          <span class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary">
+          <span class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary">
             {{ group.label }}
           </span>
-          <span class="text-[var(--jc-fs-xs)] text-muted">
+          <span class="text-[length:var(--jc-fs-xs)] text-muted">
             {{ group.items.length }} 条
           </span>
         </h2>
@@ -287,7 +287,7 @@ function handleRemove(id: string, e: Event): void {
 
               <div
                 v-if="formatProgress(record.currentTime)"
-                class="absolute bottom-[8px] right-[var(--jc-space-2)] px-[6px] py-[2px] rounded-[var(--jc-radius-sm)] bg-[rgba(0,0,0,0.7)] text-white text-[var(--jc-fs-xs)] z-3"
+                class="absolute bottom-[8px] right-[var(--jc-space-2)] px-[6px] py-[2px] rounded-[var(--jc-radius-sm)] bg-[rgba(0,0,0,0.7)] text-white text-[length:var(--jc-fs-xs)] z-3"
               >
                 {{ formatProgress(record.currentTime) }}
               </div>

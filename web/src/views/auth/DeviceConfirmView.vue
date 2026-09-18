@@ -150,7 +150,7 @@ function goHome(): void {
   <!-- ============ 桌面 / 移动(原样) ============ -->
   <div v-else class="flex flex-col gap-[var(--jc-space-6)] text-center">
     <h1
-      class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tracking-tight text-brand-gradient"
+      class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tracking-tight text-brand-gradient"
     >
       扫码登录确认
     </h1>

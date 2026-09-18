@@ -160,7 +160,7 @@ const cards = computed(() => {
           <span class="text-secondary text-xs truncate">{{ c.label }}</span>
           <!-- 可点击卡片: 数字用链接色提示可跳转 -->
           <span
-            class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums"
+            class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums"
             :class="c.to ? 'text-link' : ''"
           >
             {{ c.value }}
@@ -178,7 +178,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">在线人数（UV）</span>
-            <span class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
               {{ online?.uv ?? '—' }}
             </span>
           </div>
@@ -189,7 +189,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">在线会话（PV）</span>
-            <span class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
               {{ online?.pv ?? '—' }}
             </span>
           </div>
@@ -200,7 +200,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">正在观看</span>
-            <span class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
               {{ online?.watching ?? '—' }}
             </span>
           </div>
@@ -219,7 +219,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">今日人数（UV）</span>
-            <span class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
               {{ online?.today?.uv ?? '—' }}
             </span>
           </div>
@@ -230,7 +230,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">今日访问（PV）</span>
-            <span class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
               {{ online?.today?.pv ?? '—' }}
             </span>
           </div>
@@ -241,7 +241,7 @@ const cards = computed(() => {
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
             <span class="text-secondary text-xs">今日峰值在线</span>
-            <span class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tabular-nums">
+            <span class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums">
               {{ online?.today?.peak ?? '—' }}
             </span>
           </div>

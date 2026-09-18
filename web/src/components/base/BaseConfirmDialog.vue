@@ -29,7 +29,7 @@ watch(
   >
     <p
       v-if="confirmState.desc"
-      class="text-secondary text-[var(--jc-fs-md)] leading-[var(--jc-lh-relaxed)]"
+      class="text-secondary text-[length:var(--jc-fs-md)] leading-[var(--jc-lh-relaxed)]"
     >
       {{ confirmState.desc }}
     </p>

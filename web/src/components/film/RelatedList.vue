@@ -19,7 +19,7 @@ withDefaults(defineProps<Props>(), {
   >
     <h2
       v-if="title"
-      class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
+      class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
     >
       {{ title }}
     </h2>

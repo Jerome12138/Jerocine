@@ -125,14 +125,14 @@ function getItemKey(item: Card, idx: number): string | number {
     >
       <h2
         v-if="title"
-        class="jc-film-row__title text-[var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
+        class="jc-film-row__title text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
       >
         {{ title }}
       </h2>
       <RouterLink
         v-if="moreTo"
         :to="moreTo"
-        class="text-link text-[var(--jc-fs-sm)] inline-flex items-center gap-[var(--jc-space-1)] shrink-0"
+        class="text-link text-[length:var(--jc-fs-sm)] inline-flex items-center gap-[var(--jc-space-1)] shrink-0"
         data-focusable="true"
         tabindex="0"
       >

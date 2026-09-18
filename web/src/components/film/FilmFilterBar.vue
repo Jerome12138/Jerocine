@@ -37,7 +37,7 @@ function pick(key: string, value: string | number): void {
     >
       <!-- 标题与"首行选项"垂直居中: min-height 对齐胶囊高度, 选项换行时标题保持钉在首行 -->
       <div
-        class="jc-filter-row__title shrink-0 text-secondary text-[var(--jc-fs-sm)] font-[var(--jc-fw-medium)] flex items-center min-h-[36px]"
+        class="jc-filter-row__title shrink-0 text-secondary text-[length:var(--jc-fs-sm)] font-[var(--jc-fw-medium)] flex items-center min-h-[36px]"
       >
         {{ group.title }}
       </div>

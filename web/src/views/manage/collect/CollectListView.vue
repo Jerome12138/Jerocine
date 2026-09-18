@@ -707,7 +707,7 @@ onMounted(() => {
       </ManageFormField>
       <ManageFormField label="采集间隔（毫秒）">
         <ManageInput v-model="form.interval" type="number" placeholder="0" />
-        <p class="mt-[var(--jc-space-1)] text-[var(--jc-text-tertiary)] text-[var(--jc-fs-caption)] leading-snug">
+        <p class="mt-[var(--jc-space-1)] text-[var(--jc-text-tertiary)] text-[length:var(--jc-fs-caption)] leading-snug">
           ≥300 时该源按单线程限速采集；默认仅全量或超过 200 页时并发（主站 ≤12、附属 ≤8），增量采集自动单线程
         </p>
       </ManageFormField>

@@ -613,7 +613,7 @@ watch(
               <span>最近观看</span>
               <RouterLink
                 to="/history"
-                class="text-link text-[var(--jc-fs-sm)]"
+                class="text-link text-[length:var(--jc-fs-sm)]"
                 @click="historyOpen = false"
               >
                 全部

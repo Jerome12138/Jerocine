@@ -124,7 +124,7 @@ function toCard(record: FavoriteRecord): Card {
   >
     <header class="flex items-center justify-between mb-[var(--jc-space-5)] flex-wrap gap-[var(--jc-space-3)]">
       <div>
-        <h1 class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">我的收藏</h1>
+        <h1 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">我的收藏</h1>
         <p class="text-sm text-muted mt-[var(--jc-space-1)] flex items-center gap-[var(--jc-space-2)] flex-wrap">
           <BaseTag :variant="remoteMode ? 'purple' : 'default'" size="xs">
             {{ remoteMode ? '云端' : '本地' }}
@@ -184,10 +184,10 @@ function toCard(record: FavoriteRecord): Card {
         </div>
 
         <div class="mt-[var(--jc-space-2)]">
-          <h3 class="text-[var(--jc-fs-sm)] font-[var(--jc-fw-medium)] text-primary line-clamp-1">
+          <h3 class="text-[length:var(--jc-fs-sm)] font-[var(--jc-fw-medium)] text-primary line-clamp-1">
             {{ record.name }}
           </h3>
-          <p v-if="record.remarks" class="text-[var(--jc-fs-xs)] text-muted mt-[2px] line-clamp-1">
+          <p v-if="record.remarks" class="text-[length:var(--jc-fs-xs)] text-muted mt-[2px] line-clamp-1">
             {{ record.remarks }}
           </p>
         </div>

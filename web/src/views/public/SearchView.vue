@@ -327,11 +327,11 @@ void load()
     <section v-if="oldSearch" class="jc-search__result">
       <header v-if="!loading" class="mb-[var(--jc-space-6)]">
         <h2
-          class="text-[var(--jc-fs-xl)] font-[var(--jc-fw-bold)] text-primary mb-[var(--jc-space-1)]"
+          class="text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-bold)] text-primary mb-[var(--jc-space-1)]"
         >
           {{ oldSearch }}
         </h2>
-        <p class="text-secondary text-[var(--jc-fs-sm)]">
+        <p class="text-secondary text-[length:var(--jc-fs-sm)]">
           找到 <strong class="text-primary">{{ page.total }}</strong> 部与
           "{{ oldSearch }}" 相关的影视作品
         </p>

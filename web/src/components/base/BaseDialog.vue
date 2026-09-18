@@ -110,7 +110,7 @@ const wrapStyle = computed(() => ({
           >
             <slot name="header">
               <h3
-                class="text-[var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary truncate"
+                class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary truncate"
               >
                 {{ title }}
               </h3>
@@ -128,7 +128,7 @@ const wrapStyle = computed(() => ({
           </header>
 
           <div
-            class="px-[var(--jc-space-6)] py-[var(--jc-space-5)] overflow-auto text-[var(--jc-fs-md)] text-secondary"
+            class="px-[var(--jc-space-6)] py-[var(--jc-space-5)] overflow-auto text-[length:var(--jc-fs-md)] text-secondary"
           >
             <slot />
           </div>

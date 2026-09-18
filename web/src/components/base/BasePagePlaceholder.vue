@@ -16,7 +16,7 @@ const route = useRoute()
   <section
     class="container-page py-[var(--jc-space-12)] flex flex-col gap-[var(--jc-space-4)]"
   >
-    <h1 class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-bold)] text-brand-gradient">
+    <h1 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)] text-brand-gradient">
       {{ title }}
     </h1>
     <p v-if="description" class="text-secondary">{{ description }}</p>

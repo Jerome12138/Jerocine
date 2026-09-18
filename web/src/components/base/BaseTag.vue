@@ -27,12 +27,12 @@ const props = withDefaults(defineProps<Props>(), {
 const sizeClass = computed(() => {
   switch (props.size) {
     case 'xs':
-      return 'h-5 px-[6px] text-[var(--jc-fs-xs)]'
+      return 'h-5 px-[6px] text-[length:var(--jc-fs-xs)]'
     case 'md':
-      return 'h-7 px-[10px] text-[var(--jc-fs-sm)]'
+      return 'h-7 px-[10px] text-[length:var(--jc-fs-sm)]'
     case 'sm':
     default:
-      return 'h-6 px-2 text-[var(--jc-fs-xs)]'
+      return 'h-6 px-2 text-[length:var(--jc-fs-xs)]'
   }
 })
 
@@ -60,7 +60,7 @@ const variantClass = computed(() => {
     case 'brand':
       return 'bg-[var(--jc-brand-primary)] text-white'
     case 'purple':
-      return 'jc-tag--purple text-[var(--jc-brand-purple)]'
+      return 'jc-tag--purple text-white'
     case 'success':
       return 'bg-[var(--jc-success-soft)] text-[var(--jc-success)]'
     case 'warning':

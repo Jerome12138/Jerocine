@@ -336,7 +336,7 @@ async function handleLogin(): Promise<void> {
   <div v-else class="flex flex-col gap-[var(--jc-space-6)]">
     <div class="text-center">
       <h1
-        class="text-[var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tracking-tight text-brand-gradient"
+        class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-black)] tracking-tight text-brand-gradient"
       >
         登录 Jerocine影视
       </h1>

@@ -186,7 +186,7 @@ onMounted(load)
       </BaseTag>
       <code
         v-else-if="col.key === 'spec'"
-        class="font-[var(--jc-font-mono)] text-[var(--jc-fs-xs)] text-[var(--jc-text-link)]"
+        class="font-[var(--jc-font-mono)] text-[length:var(--jc-fs-xs)] text-[var(--jc-text-link)]"
       >
         {{ row.spec }}
       </code>

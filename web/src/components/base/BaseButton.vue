@@ -30,14 +30,14 @@ const emit = defineEmits<{
 const sizeClass = computed(() => {
   switch (props.size) {
     case 'sm':
-      return 'h-8 px-3 text-[var(--jc-fs-sm)] gap-[var(--jc-space-1)]'
+      return 'h-8 px-3 text-[length:var(--jc-fs-sm)] gap-[var(--jc-space-1)]'
     case 'lg':
-      return 'h-12 px-6 text-[var(--jc-fs-md)] gap-[var(--jc-space-2)]'
+      return 'h-12 px-6 text-[length:var(--jc-fs-md)] gap-[var(--jc-space-2)]'
     case 'xl':
-      return 'h-14 px-8 text-[var(--jc-fs-lg)] gap-[var(--jc-space-2)] rounded-[var(--jc-radius-xl)]'
+      return 'h-14 px-8 text-[length:var(--jc-fs-lg)] gap-[var(--jc-space-2)] rounded-[var(--jc-radius-xl)]'
     case 'md':
     default:
-      return 'h-10 px-4 text-[var(--jc-fs-md)] gap-[var(--jc-space-2)]'
+      return 'h-10 px-4 text-[length:var(--jc-fs-md)] gap-[var(--jc-space-2)]'
   }
 })
 
