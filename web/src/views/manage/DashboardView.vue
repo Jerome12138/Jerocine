@@ -299,7 +299,7 @@ const cards = computed(() => {
             <tbody>
               <tr
                 v-for="s in filteredSessions"
-                :key="s.sid"
+                :key="`${s.sid}|${s.ip}`"
                 class="border-b border-[var(--jc-border)]/50 last:border-0"
               >
                 <td class="py-2 pr-4 tabular-nums text-secondary">
