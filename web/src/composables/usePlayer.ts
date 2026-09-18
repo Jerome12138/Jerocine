@@ -224,7 +224,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     const initialPoster = unwrap(opts.poster)
 
     // VHS (video.js 内置 HLS 引擎) 弱网友好默认.
-    // 低带宽预设 → 初始码率从低开始, 缓冲目标缩短, 二次播放复用上次带宽估算.
+    // 低带宽预设 → 初始码率从低开始, 二次播放复用上次带宽估算.
     const lowBw = opts.lowBandwidth ?? false
     const vhsOpts: Record<string, unknown> = {
       // 复用上一次会话估算的带宽 (localStorage), 二次播放不必从默认 4Mbps 重新摸索
@@ -235,8 +235,9 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       useNetworkInformationApi: true,
       // 基于缓冲长度做 ABR (而非带宽估算). 弱网抖动下避免反复升降级
       experimentalBufferBasedABR: lowBw,
-      // 弱网初始码率猜测: 800 kbps; 默认是 4 Mbps, 弱网下会立即选择高码率然后卡顿
-      bandwidth: lowBw ? 800_000 : undefined,
+      // 初始带宽估算: 弱网 800k 起播选低码率; 正常网 2M — 实测源站 1080p 变体约 800k~2M,
+      // VHS 默认 4M 估算偏高, 慢源站会"起播即选高码率→带宽不足→立刻降级", 起播反糊
+      bandwidth: lowBw ? 800_000 : 2_000_000,
       // 限制 m3u8 重试次数, 失败快速冒泡给我们的 error 重试逻辑
       maxPlaylistRetries: 2
     }
@@ -287,18 +288,17 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       }
     })
 
-    // 弱网模式: 缩短目标缓冲, 起播更快, 也减少弱网下抢带宽
-    if (lowBw) {
-      try {
-        // 这是 VHS 的全局静态常量, 改完对所有 player 生效
-        const Vhs = (videojs as unknown as { Vhs?: { GOAL_BUFFER_LENGTH?: number; MAX_GOAL_BUFFER_LENGTH?: number } }).Vhs
-        if (Vhs) {
-          Vhs.GOAL_BUFFER_LENGTH = 15 // 默认 30
-          Vhs.MAX_GOAL_BUFFER_LENGTH = 30 // 默认 60
-        }
-      } catch {
-        /* VHS 版本变化时静默跳过, 不影响播放 */
+    // 抗卡顿缓冲: 这是 VHS 的全局静态常量, 改完对所有 player 生效。
+    // 正常网: 目标 40s(默认30)/上限 80s(默认60) — 实测源站 TTFB 0.4-0.9s/分片, 更深缓冲显著减少 rebuffer;
+    // 弱网: 目标 25s(原 15)/上限 50s(原 30) — 起播仍快(metadata preload + 实验性 buffer ABR), 但比原配置多扛几秒卡顿。
+    try {
+      const Vhs = (videojs as unknown as { Vhs?: { GOAL_BUFFER_LENGTH?: number; MAX_GOAL_BUFFER_LENGTH?: number } }).Vhs
+      if (Vhs) {
+        Vhs.GOAL_BUFFER_LENGTH = lowBw ? 25 : 40
+        Vhs.MAX_GOAL_BUFFER_LENGTH = lowBw ? 50 : 80
       }
+    } catch {
+      /* VHS 版本变化时静默跳过, 不影响播放 */
     }
 
     p.on('ready', () => {

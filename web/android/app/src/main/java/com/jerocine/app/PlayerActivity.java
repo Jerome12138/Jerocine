@@ -332,11 +332,11 @@ public class PlayerActivity extends AppCompatActivity {
                 .setEnableDecoderFallback(true)
                 .forceEnableMediaCodecAsynchronousQueueing();
         // 缓冲调深: PC 端 hls.js 缓冲很激进, 安卓默认偏浅 → 同源安卓更易卡.
-        // 最多缓 60s + 按"时长"而非字节预算缓冲(高码率也缓够时长); 卡顿后多缓 5s 再续, 减少二次卡顿.
-        // 抗卡顿/快起播: 起播阈值 1.5s(更快出画面), 卡顿后 2.5s 恢复; 稳态目标缓冲 25s,
-        // 上限拉到 90s(带宽够时多缓、弱网多扛); 留 30s 回看缓冲免重下。
+        // 最多缓 120s + 按"时长"而非字节预算缓冲(高码率也缓够时长); 卡顿后多缓 5s 再续, 减少二次卡顿.
+        // 抗卡顿/快起播: 起播阈值 1.5s(更快出画面), 卡顿后 2.5s 恢复; 稳态目标缓冲 30s,
+        // 上限拉到 120s(带宽够时多缓、弱网多扛); 留 30s 回看缓冲免重下。
         LoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(25_000, 90_000, 1_500, 2_500)
+                .setBufferDurationsMs(30_000, 120_000, 1_500, 2_500)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .setBackBuffer(30_000, true)
                 .build();
