@@ -93,7 +93,7 @@ func parseAndGuard(rawURL string) (*url.URL, error) {
 // load 回源 + 重写 + 统计, 结果以 JSON 缓存 10min(Proxy / Stats 共享)。
 func (s *M3u8Service) load(ctx context.Context, rawURL string, u *url.URL, filterAds, proxyMedia bool) (m3u8Cached, error) {
 	// 缓存版本号: 过滤逻辑变更需 bump。v4=签名媒体转发，key id 防密钥轮换后命中旧签名。
-	cacheKey := fmt.Sprintf("m3u8:v4:%s:%s:%t:%t", s.streamKeyID, sha1hex(rawURL), filterAds, proxyMedia)
+	cacheKey := fmt.Sprintf("m3u8:v5:%s:%s:%t:%t", s.streamKeyID, sha1hex(rawURL), filterAds, proxyMedia)
 	blob, _, err := cache.GetOrLoad(ctx, cacheKey, 10*time.Minute, func(ctx context.Context) (string, bool, error) {
 		body, err := s.fetch(ctx, rawURL)
 		if err != nil {
@@ -328,6 +328,7 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 	// (lz/量子源把广告用异编号分片同域插进正片连续序列, 跨域过滤抓不到)与"时长维度"
 	// (极短剔除 + 时长异常预警, 覆盖同域同编号的纯时长异常插片)。
 	var adByIdx map[int]bool
+	var shortByIdx map[int]bool
 	var durOutlierIdx map[int]bool
 	var durSamples []string
 	var segDurs []float64
@@ -357,6 +358,7 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 			pendingDur = -1.0
 		}
 		adByIdx = numberOutlierAds(segURIs)
+		shortByIdx = shortBurstAds(segDurs)
 		durOutlierIdx, durSamples = durationOutliers(segDurs, segURIs)
 	}
 	var pendingExtinf string
@@ -411,7 +413,7 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 			justAfterDisc = false
 		}
 		// 广告判定: ① 非主导 host 的零星分片(跨域广告 CDN); ② 编号跳脱正片连续序列的同域插片;
-		// ③ <1s 极短分片(广告卡点常见, 豁免开头 4 段片头)。
+		// ③ 连续 ≥2 个 <1s 极短分片(广告密集切片; 孤立单短段多为转场/镜头切换, 不误伤)。
 		if filterAds && pendingExtinf != "" {
 			crossDrop := false
 			if dominant != "" {
@@ -420,11 +422,7 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 				}
 			}
 			numDrop := !crossDrop && adByIdx[segIdx]
-			shortDrop := false
-			if !crossDrop && !numDrop && segIdx < len(segDurs) && segDurs[segIdx] >= 0 &&
-				segDurs[segIdx] < adShortMaxDur && segIdx > adShortSkipHead {
-				shortDrop = true
-			}
+			shortDrop := !crossDrop && !numDrop && segIdx < len(shortByIdx) && shortByIdx[segIdx]
 			if crossDrop || numDrop || shortDrop {
 				pendingExtinf = "" // 连同其 EXTINF 丢弃
 				st.Filtered++
@@ -465,8 +463,36 @@ const (
 
 	// 时长维度(极短剔除 + 时长异常预警)参数。
 	adShortMaxDur   = 1.0 // <1s 视为极短(广告卡点常见, 正常分片极少短于此), 触发剔除
-	adShortSkipHead = 4   // 开头前 4 段豁免(片头/OP 常有短段, 避免误杀片头)
+	adShortSkipHead    = 4   // 开头前 4 段豁免(片头/OP 常有短段, 避免误杀片头)
+	adShortBurstMinDur = 3.0 // 连续短段簇累计时长下限: 不足 3s 视为转场/镜头切换, 广告不会这么短
 )
+
+// shortBurstAds 识别"连续极短分片簇"的广告切片: 孤立单个 <1s 段多为转场/镜头切换(实测一瓯春 6 个孤立短段全是正片),
+// 只有连续 ≥2 个 <1s 段才是广告密集切片特征。返回判为广告的下标集; 开头 adShortSkipHead 段豁免。
+func shortBurstAds(segDurs []float64) map[int]bool {
+	out := map[int]bool{}
+	n := len(segDurs)
+	for i := 0; i < n; {
+		if segDurs[i] >= 0 && segDurs[i] < adShortMaxDur && i > adShortSkipHead {
+			j := i
+			burst := 0.0
+			for j < n && segDurs[j] >= 0 && segDurs[j] < adShortMaxDur && j > adShortSkipHead {
+				burst += segDurs[j]
+				j++
+			}
+			// 广告不会短于 3s: 簇累计时长不足则视为转场/镜头切换, 不剔。
+			if burst >= adShortBurstMinDur {
+				for k := i; k < j; k++ {
+					out[k] = true
+				}
+			}
+			i = j
+		} else {
+			i++
+		}
+	}
+	return out
+}
 
 // numberOutlierAds 识别"编号跳脱正片连续序列"的同域插播广告。
 // 原理: 正片分片文件名尾号在一个紧凑连续区间(主内容簇), 广告被插进来时编号远离该区间。
