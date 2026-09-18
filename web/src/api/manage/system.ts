@@ -1,5 +1,5 @@
 import { http } from '../http'
-import type { DashboardStat, SiteBasic } from '@/types/manage'
+import type { DashboardStat, OnlineOverview, SiteBasic } from '@/types/manage'
 
 // ---- 后端契约 DTO (entity.SiteConfig 子集) ----
 interface SiteConfigDTO {
@@ -19,6 +19,10 @@ interface SiteConfigDTO {
 /** GET /manage/dashboard 仪表盘统计 */
 export const dashboard = (): Promise<DashboardStat> =>
   http.get<unknown, DashboardStat>('/manage/dashboard')
+
+/** GET /manage/online/overview 当前在线/观看人数(内存实时) */
+export const onlineOverview = (): Promise<OnlineOverview> =>
+  http.get<unknown, OnlineOverview>('/manage/online/overview')
 
 /** GET /manage/site-config 站点基础配置 */
 export const getBasic = async (): Promise<SiteBasic> => {

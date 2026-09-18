@@ -304,6 +304,28 @@ export interface DashboardStat {
   pendingFails?: number
 }
 
+/** 在线会话明细(管理后台"在线明细"表单一行, GET /manage/online/overview) */
+export interface OnlineSession {
+  sid: string
+  ip: string
+  /** 登录用户 id(游客为 0/缺省) */
+  uid?: number
+  watching: boolean
+  ua?: string
+  firstSeen: number
+  lastSeen: number
+}
+
+/** 在线概览（GET /manage/online/overview, Redis 实时值） */
+export interface OnlineOverview {
+  /** 在线人数: 登录按 uid / 游客按 IP 去重 */
+  uv: number
+  /** 在线会话数(每个标签/TV 设备一个 sid) */
+  pv: number
+  watching: number
+  sessions: OnlineSession[]
+}
+
 /** 采集失败台账一行（GET /manage/collect-failures, 后端 entity.CollectFailure） */
 export interface CollectFailure {
   id: number

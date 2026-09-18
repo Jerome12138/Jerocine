@@ -97,6 +97,8 @@ export interface UsePlayerReturn {
   paused: Ref<boolean>
   /** 是否正在缓冲(首帧可播前的等待态, 用于展示 loading) */
   buffering: Ref<boolean>
+  /** 视频实际分辨率(像素宽高; loadedmetadata/码率切换后更新, 未就绪为 null) */
+  videoSize: Ref<{ width: number; height: number } | null>
   /** 是否处于错误态 */
   errored: ComputedRef<boolean>
   /** 创建并挂载到目标 video 元素 */
@@ -208,6 +210,10 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
   const errorMessage = ref('')
 
   const errored = computed(() => errorMessage.value.length > 0)
+
+  /** 视频实际分辨率(像素宽高)。videoWidth/videoHeight 在码率切换后更新,
+   *  VHS 切档时底层 video 元素触发 resize, 一并监听以实时反映当前画质。 */
+  const videoSize = ref<{ width: number; height: number } | null>(null)
 
   /** 待 ready 后再注册的事件队列 */
   const pendingListeners: Array<{
@@ -382,6 +388,21 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       const err = p.error()
       errorMessage.value = err?.message || 'video error'
     })
+    // 分辨率实时跟踪: loadedmetadata 拿到初始宽高; VHS 码率切换时底层 video 元素
+    // 触发 resize, 重读宽高反映当前实际画质。读取失败防御性跳过(null 直到可读)。
+    const readVideoSize = (): void => {
+      try {
+        const w = p.videoWidth()
+        const h = p.videoHeight()
+        if (typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0) {
+          videoSize.value = { width: w, height: h }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    p.on('loadedmetadata', readVideoSize)
+    p.on('resize', readVideoSize)
     p.on('canplay', () => {
       errorMessage.value = ''
       buffering.value = false
@@ -546,6 +567,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     duration,
     paused,
     buffering,
+    videoSize,
     errored,
     init,
     dispose,
@@ -584,4 +606,15 @@ function clamp01(n: number): number {
     return 0
   }
   return Math.max(0, Math.min(1, n))
+}
+
+/** 分辨率打标: 按视频实际宽高给出展示画质(行业通用阈值, 与源站标称无直接关系)。 */
+export function resolutionLabel(width: number, height: number): string {
+  if (width >= 3800 || height >= 2100) return '4K'
+  if (width >= 2500 || height >= 1400) return '2K'
+  if (width >= 1800 || height >= 950) return '1080P'
+  if (width >= 1200 || height >= 680) return '720P'
+  if (width >= 800 || height >= 460) return '480P'
+  if (height > 0) return `${height}P`
+  return '标清'
 }

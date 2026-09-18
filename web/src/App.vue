@@ -8,6 +8,7 @@ import { useSiteStore, useNavStore, useHistoryStore } from '@/stores'
 import { buildPlayLink } from '@/stores/history'
 import { jerocine, isNative } from '@/utils/jerocineNative'
 import { telemetry } from '@/utils/telemetry'
+import { startOnlineHeartbeat, touchNativeWatching } from '@/utils/onlineHeartbeat'
 import { confirm } from '@/composables/useConfirm'
 
 // 布局壳静态导入（首屏必须）
@@ -171,6 +172,10 @@ function applyFavicon(url?: string | null): void {
 onMounted(() => {
   void maybePromptResume()
 
+  // 全站在线心跳(匿名): 打开页面即在线; 播放状态由 PlayView(video.js) 与
+  // native playerProgress 事件分别驱动 watching。
+  startOnlineHeartbeat()
+
   // 站点信息 / 顶级导航预热（并行，失败静默，不阻塞页面渲染）
   Promise.all([siteStore.ensureLoaded(), navStore.ensureLoaded()])
     .then(() => {
@@ -294,6 +299,8 @@ onMounted(() => {
     const writeTick = (payload: unknown): void => {
       const p = payload as { filmId?: string; episodeIndex?: number; position?: number; source?: string } | null
       if (!p?.filmId) return
+      // native 播放活跃 → 计入"观看中"(在线心跳)
+      touchNativeWatching()
       historyStore.updateProgress(
         String(p.filmId),
         Number(p.episodeIndex ?? 0),

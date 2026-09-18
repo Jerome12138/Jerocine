@@ -119,6 +119,16 @@ public class PlayerActivity extends android.app.Activity {
         }
     }
 
+    /** 分辨率打标: 按实际宽高显示 4K/2K/1080P/720P/480P(行业通用阈值, 与源站标称无关)。 */
+    private static String resolutionLabel(int w, int h) {
+        if (w >= 3800 || h >= 2100) return "4K";
+        if (w >= 2500 || h >= 1400) return "2K";
+        if (w >= 1800 || h >= 950) return "1080P";
+        if (w >= 1200 || h >= 680) return "720P";
+        if (w >= 800 || h >= 460) return "480P";
+        return h + "P";
+    }
+
     /** 当前运行中的 PlayerActivity 单例引用 (用于 bridge stop/setSpeed) */
     private static volatile PlayerActivity sCurrentInstance;
     public static void stopRunningInstance() {
@@ -213,11 +223,11 @@ public class PlayerActivity extends android.app.Activity {
     private volatile boolean filterProxyMissing = false;      // 开关开着但 proxyBase 空(前端没传/WebView 旧缓存)
     private boolean filterToastShownForEpisode = false;       // 本集"过滤状态"提示是否已弹(每集一次)
     private TextView adFilterBadge;                            // 标题栏"🛡 过滤"常驻标(起播后显示本集结果)
+    private TextView resolutionBadge;                          // 标题栏分辨率标(4K/2K/1080P..., 按实际宽高)
     private Button speedButton;
     private Button episodesButton;
     private Button sourceButton;
-    private Button networkModeButton;
-    // 端侧过滤 POST 客户端: 显式超时上限(默认无 callTimeout, 卡住会拖死播放列表解析线程),
+    private Button networkModeButton;    // 端侧过滤 POST 客户端: 显式超时上限(默认无 callTimeout, 卡住会拖死播放列表解析线程),
     // 切集时网络争用偶发失败 → filterViaServer 内重试一次, 降低"切集有时不过滤广告"概率。
     private final OkHttpClient adStatsClient = new OkHttpClient.Builder()
             .connectTimeout(6, TimeUnit.SECONDS)
@@ -242,6 +252,7 @@ public class PlayerActivity extends android.app.Activity {
         episodesCount = findViewById(R.id.episodes_count);
         networkModeBadge = findViewById(R.id.network_mode_badge);
         adFilterBadge = findViewById(R.id.ad_filter_badge);
+        resolutionBadge = findViewById(R.id.resolution_badge);
         centerToast = findViewById(R.id.center_toast);
         centerIcon = findViewById(R.id.center_icon);
 
@@ -352,9 +363,22 @@ public class PlayerActivity extends android.app.Activity {
                 }
             }
 
+            // 分辨率实时更新: 码率切换/切集后 ExoPlayer 都会回调; 未就绪宽高为 0 → 隐藏
             @Override
-            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
-                if (player == null) return;
+            public void onVideoSizeChanged(@androidx.annotation.NonNull androidx.media3.common.VideoSize videoSize) {
+                if (resolutionBadge == null) return;
+                int w = videoSize.width;
+                int h = videoSize.height;
+                if (w > 0 && h > 0) {
+                    resolutionBadge.setText(resolutionLabel(w, h));
+                    resolutionBadge.setVisibility(View.VISIBLE);
+                } else {
+                    resolutionBadge.setVisibility(View.GONE);
+                }
+            }
+
+            @Override
+            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {                if (player == null) return;
                 if (!playWhenReady) {
                     // 暂停: 中央暂停图标"持久"显示(不自动消失, 让用户看到处于暂停) + 弹控制面板
                     if (player.getPlaybackState() == Player.STATE_READY) {

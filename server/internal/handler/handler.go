@@ -23,6 +23,7 @@ type Handlers struct {
 	Banner     *service.BannerService
 	Hot        *service.HotService // 榜单热度刷新(每日 04:00 自动 + 后台手动触发)
 	Tasks      *service.TaskRunService
+	Online     *service.OnlineService // 内存在线/观看统计(心跳上报)
 	Blob       blobstore.BlobStore
 	ResetToken string // /manage/spider/reset 二次确认 token
 }

@@ -117,6 +117,22 @@
             android:textSize="13sp"
             android:text="1.0×"
             android:paddingHorizontal="12dp" />
+        <!-- 分辨率标(常驻): 播放就绪后按视频实际宽高显示 4K/2K/1080P/720P..., 未就绪隐藏。
+             用途: 一眼看出当前实际画质, 排查"标称 1080P 实际 480P"的虚标源 -->
+        <TextView
+            android:id="@+id/resolution_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/jc_badge_bg"
+            android:gravity="center_vertical"
+            android:includeFontPadding="false"
+            android:textColor="@color/jc_accent"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:paddingHorizontal="12dp"
+            android:visibility="gone" />
         <!-- 之前右上有"设置"按钮; 用户要求合并到控制面板右下角默认的设置按钮 (exo_settings),
              Java 层用 setOnClickListener 重写其行为为 showPlayMenu, XML 里就不再放 -->
     </LinearLayout>

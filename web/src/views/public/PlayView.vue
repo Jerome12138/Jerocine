@@ -27,7 +27,8 @@ import {
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { filmApi } from '@/api'
 import type { PlayInfo, PlaySource } from '@/types/film'
-import { usePlayer } from '@/composables/usePlayer'
+import { usePlayer, resolutionLabel } from '@/composables/usePlayer'
+import { setWebWatching } from '@/utils/onlineHeartbeat'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import videojs from 'video.js'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
@@ -698,6 +699,7 @@ const {
   player,
   paused,
   buffering,
+  videoSize,
   currentTime: playerCurrentTime,
   ready: playerReady
 } = usePlayer({
@@ -713,6 +715,9 @@ const {
   // I-018: 控制条内常驻「下一集」入口(点击走 playNext, 内部有 hasNext guard)
   nextEpisode: { onClick: () => playNext() }
 })
+
+// 在线心跳 watching 信号: video.js 播放状态实时置位(暂停/结束即回落)。
+watch(paused, (v) => setWebWatching(!v))
 
 /** ---------- 历史记录 ---------- */
 /** #4: 倒数 5 分钟内不记录播放记忆 —— 看完/退出在片尾附近时, 不写进度,
@@ -786,6 +791,8 @@ async function loadPlayInfo(): Promise<void> {
       return
     }
     detail.value = data.detail
+    // 页面标题带影片名(路由 meta 固定"播放"): 供在线明细后台直接看到"在看什么"
+    document.title = `${data.detail.name} - ${siteStore.basic?.siteName || 'Jerocine'}`
     relate.value = data.related ?? []
     currentSourceId.value = data.currentSource || data.detail.sources[0]?.id || ''
     currentEpisodeIndex.value = Number(data.currentEpisode) || 0
@@ -1623,13 +1630,25 @@ watch(playerReady, (v) => {
                 </div>
                 <div class="jc-player-gesture__text">{{ gestureSeekHint.text }}</div>
               </div>
-              <!-- I-017: 广告过滤状态角标(常驻, 右上角, 五态) -->
-              <div
-                v-if="adFilterBadge"
-                class="jc-player-adtag"
-                :data-kind="adFilterBadge.kind"
-              >
-                {{ adBadgeText }}
+              <!-- 右上角角标组: 广告过滤 + 分辨率 同行(间距 8px) -->
+              <div class="jc-player-badges">
+                <!-- I-017: 广告过滤状态角标(常驻, 右上角, 五态) -->
+                <div
+                  v-if="adFilterBadge"
+                  class="jc-player-adtag"
+                  :data-kind="adFilterBadge.kind"
+                >
+                  {{ adBadgeText }}
+                </div>
+                <!-- 分辨率打标: 常驻(广告角标右侧), 反映当前实际画质; VHS 码率切换实时更新,
+                     加载中隐藏(切集瞬间旧分辨率会误导) -->
+                <div
+                  v-if="videoSize && !loading"
+                  class="jc-player-res"
+                  aria-hidden="true"
+                >
+                  {{ resolutionLabel(videoSize.width, videoSize.height) }}
+                </div>
               </div>
               <!-- 全屏左上角: 影片名 · 该集名称。显隐跟随控制条(useractive/userinactive, 暂停常显),
                    与右上角角标垂直居中对齐、顶部留 safe-area 空隙避开状态栏(样式见 jc-player-title) -->
@@ -2380,10 +2399,6 @@ watch(playerReady, (v) => {
 /* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作)
    top 加 safe-area: 全屏时移动端可能出现状态栏, 顶部留出空隙; 与左上角标题同基线对齐 */
 .jc-player-adtag {
-  position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 10px);
-  right: var(--jc-space-2);
-  z-index: 3;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2414,6 +2429,33 @@ watch(playerReady, (v) => {
 .jc-player-adtag[data-kind='proxy']::before {
   background-color: #60a5fa;
   box-shadow: 0 0 6px rgba(96, 165, 250, 0.8);
+}
+
+/* 右上角角标组(广告过滤 + 分辨率): absolute 定位于播放器右上角, 内部 flex 同行, 间距 8px */
+.jc-player-badges {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  right: var(--jc-space-2);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+/* 分辨率打标(广告角标右侧, 同行): 同款玻璃胶囊, 反映当前实际画质 */
+.jc-player-res {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: var(--jc-fs-xs);
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 /* 全屏左上角标题(影片名 · 集名): 与右上角广告角标同 top 基线且同高(20px) → 垂直中心线对齐;

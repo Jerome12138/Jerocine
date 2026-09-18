@@ -37,6 +37,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	// m3u8 端侧混合过滤: 客户端抓流→送文本→服务器只过滤(不抓源), 用于服务器抓不到的源(bf 地域封)。
 	v1.POST("/m3u8/filter", middleware.RateLimit("m3u8filter", 60, 20), h.M3u8Filter)
 	v1.POST("/telemetry/events", middleware.RateLimit("telemetry", 60, 20), h.TelemetryIngest)
+	// 在线心跳上报(公开, 限流): 播放器/页面每 30s 上报一次 {sid, watching}, 供后台在线统计。
+	v1.POST("/online/heartbeat", middleware.RateLimit("onlinehb", 60, 30), h.OnlineHeartbeat)
 	// 广告过滤链路兜底上报(公开, 限流): 播放端实际失败 → 立即标该源 ad_filter_ok=false。
 	v1.POST("/ad-filter/feedback", middleware.RateLimit("adffb", 30, 10), h.AdFilterFeedback)
 
@@ -73,6 +75,7 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	mg.Use(middleware.AuthToken(us), middleware.RequireAdmin(), middleware.NoStore())
 	{
 		mg.GET("/dashboard", h.Dashboard)
+		mg.GET("/online/overview", h.OnlineOverview) // 当前在线人数 / 观看中人数(内存, 实时)
 		mg.GET("/site-config", h.GetSiteConfig)
 		mg.POST("/site-config", h.SaveSiteConfig)
 		mg.POST("/tmdb-key", h.SetTMDBKey)
