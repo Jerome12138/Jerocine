@@ -309,7 +309,11 @@ function adFilterInfo(id: string): { text: string; variant: LatVariant; title: s
   }
   const when = h.adFilterAt ? new Date(h.adFilterAt).toLocaleString() : ''
   if (!h.adFilterOk) {
-    return { text: '✗ 不可达', variant: 'danger', title: `服务端拉不到 m3u8, 代理过滤不可用(播放时自动走直链) · ${when}` }
+    return {
+      text: '✗ 不可达',
+      variant: 'danger',
+      title: `服务端拉不到 m3u8, 服务端代理过滤不可用; 播放时自动走端侧过滤(浏览器抓流→服务器仅过滤文本), 端侧也失败才直链不过滤 · ${when}`
+    }
   }
   return {
     text: '✓ 可用',
