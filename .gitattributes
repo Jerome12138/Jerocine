@@ -1,0 +1,40 @@
+# 行尾与二进制归属。目的有两个：
+# 1. 让 Windows(Git Bash) 上 clone 出来的 shell 脚本仍是 LF —— CRLF 的 .sh 执行会报
+#    "$'\r': command not found"。gradlew 同理。
+# 2. 显式声明二进制类型，避免被当成文本做编码转换。
+#    983993f(gf-→jc- 改名) 曾把 web/android/app/src/main/res 下两个 PNG 按文本重编码，
+#    全字节 >=0x80 被替换成 U+FFFD，AAPT 直接编译失败。已从该提交的父版本还原。
+
+# shell / 批处理
+*.sh   text eol=lf
+gradlew text eol=lf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 图片
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.bmp  binary
+
+# 字体
+*.ttf  binary
+*.otf  binary
+*.woff binary
+*.woff2 binary
+
+# 产物 / 归档 / 原生库
+*.so   binary
+*.jar  binary
+*.zip  binary
+*.aab  binary
+*.apk  binary
+*.mp4  binary
+
+# 密钥（本来就不该入库，这里再兜一层）
+*.keystore binary
+*.jks      binary
+*.p12      binary
