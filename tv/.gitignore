@@ -8,3 +8,8 @@
 /captures
 .externalNativeBuild
 .cxx
+
+# 签名凭据（app/build.gradle.kts 支持从 tv/keystore.properties 读，本机自备，绝不上传）
+/keystore.properties
+*.keystore
+*.jks

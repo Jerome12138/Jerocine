@@ -1,5 +1,19 @@
 apply plugin: 'com.android.application'
 
+// 版本号唯一来源: 仓库根 scripts/android-versions.properties
+// 不要在这里写死数字 —— 改了也只影响这一处, 否则会和 tv / 构建脚本产物名对不上。
+// 临时覆盖: ./gradlew assembleRelease -PwebVersionCode=1042 -PwebVersionName=1.1.0
+def jcVersionsFile = rootProject.file('../../scripts/android-versions.properties')
+def jcVersions = new Properties()
+if (jcVersionsFile.exists()) {
+    jcVersionsFile.withInputStream { jcVersions.load(it) }
+}
+def jcVersionCode = project.findProperty('webVersionCode') ?: jcVersions.getProperty('web.versionCode')
+def jcVersionName = project.findProperty('webVersionName') ?: jcVersions.getProperty('web.versionName')
+if (jcVersionCode == null || jcVersionName == null) {
+    throw new GradleException("读不到版本号, 请检查 ${jcVersionsFile} 里的 web.versionCode / web.versionName")
+}
+
 android {
     namespace = "com.jerocine.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +21,8 @@ android {
         applicationId "art.jerocine.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 41
-        versionName "1.0.9"
+        versionCode jcVersionCode.toString().toInteger()
+        versionName jcVersionName.toString()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -19,17 +33,20 @@ android {
     buildFeatures {
         buildConfig true
     }
-    // 签名凭据从 keystore.properties(gitignored) 或环境变量读取, 不硬编码进源码.
-    // 缺凭据时 signingConfig 留空 → release 走默认(无法签名发布, 但 debug/CI 不崩).
+    // 签名凭据从环境变量或 keystore.properties(gitignored) 读取, 不硬编码进源码.
+    // 环境变量优先: 它是"本次构建"的权威来源(构建脚本注入正式密钥), 工程里若遗留一份
+    // keystore.properties(换过密钥 / 别人留下的) 不应悄悄盖过它 —— 否则会用一个你没意识到的密钥签名.
+    // 空值视为未设置, 继续向下回退; 两个来源都缺 → signingConfig 留空, release 无法签名发布.
+    // release 缺签名由 scripts/build-android.sh 在构建前拦下(要求只用正式密钥).
     def ksPropsFile = rootProject.file('keystore.properties')
     def ksProps = new Properties()
     if (ksPropsFile.exists()) {
         ksPropsFile.withInputStream { ksProps.load(it) }
     }
-    def ksStorePassword = ksProps.getProperty('storePassword') ?: System.getenv('JEROCINE_STORE_PASSWORD')
-    def ksKeyAlias = ksProps.getProperty('keyAlias') ?: System.getenv('JEROCINE_KEY_ALIAS') ?: 'jerocine'
-    def ksKeyPassword = ksProps.getProperty('keyPassword') ?: System.getenv('JEROCINE_KEY_PASSWORD')
-    def ksStoreFile = rootProject.file('jerocine.keystore')
+    def ksStorePassword = System.getenv('JEROCINE_STORE_PASSWORD') ?: ksProps.getProperty('storePassword')
+    def ksKeyAlias = System.getenv('JEROCINE_KEY_ALIAS') ?: ksProps.getProperty('keyAlias') ?: 'jerocine'
+    def ksKeyPassword = System.getenv('JEROCINE_KEY_PASSWORD') ?: ksProps.getProperty('keyPassword')
+    def ksStoreFile = System.getenv('JEROCINE_KEYSTORE') ? file(System.getenv('JEROCINE_KEYSTORE')) : rootProject.file('jerocine.keystore')
     def hasSigning = ksStoreFile.exists() && ksStorePassword != null && ksKeyPassword != null
 
     signingConfigs {
