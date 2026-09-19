@@ -20,16 +20,41 @@ Capacitor(WebView) 方案在该设备上无法安装/运行，故采用原生实
 
 ## 构建
 
+推荐用仓库根的脚本，它同时管住两个安卓工程、校验签名、并把产物复制到系统下载目录：
+
 ```bash
-export ANDROID_HOME=~/Android/Sdk
-export JAVA_HOME=/path/to/jdk-21
-cd tv
-echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
-./gradlew :app:assembleDebug
-# 产物：app/build/outputs/apk/debug/app-debug.apk（minSdk 21，可装 Android 6.0）
+# 在仓库根执行
+scripts/build-android.sh tv                                  # 只打 TV 包
+scripts/build-android.sh tv --api-base=https://你的域名/       # 指定后端地址
+scripts/build-android.sh all                                 # 壳应用 + TV 一起打
 ```
 
-配置后端地址：`app/build.gradle.kts` 的 `API_BASE_URL`（默认 `http://localhost:9000/`，构建时用 `-PapiBase=...` 指向实际后端）。
+Windows 用 Git Bash 执行 `bash scripts/build-android.sh tv ...`（PowerShell / cmd 跑不了 .sh）。
+
+需要 JDK 17+（AGP 8.x 要求，实测 17 可用）与 Android SDK；脚本会自动探测 `ANDROID_HOME`、
+`~/Library/Android/sdk`、`~/Android/Sdk` 并补写 `local.properties`。
+
+**签名**：release 包必须用正式密钥（不接受 debug 签名兜底，也不静默降级）。密钥不入库、
+也**不从工程目录里读**：把 `keystore.properties`（键名 `storePassword` / `keyAlias` /
+`keyPassword`）和密钥文件放在仓库外的任意目录，构建时用 `JEROCINE_KEY_DIR=<目录>` 指过去
+（或用 `JEROCINE_KEYSTORE` 等环境变量逐项给）。缺密钥时脚本直接报错退出，
+并打印当前解析到的路径、哪一项缺失、以及怎么放。
+
+不改脚本、手工构建也可以：
+
+```bash
+export ANDROID_HOME=~/Android/Sdk
+export JAVA_HOME=/path/to/jdk-17
+cd tv
+echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
+./gradlew :app:assembleDebug                      # debug：app/build/outputs/apk/debug/app-debug.apk
+
+# release 需要密钥，否则产出的是 app-release-unsigned.apk（装不上）
+./gradlew :app:assembleRelease -PapiBase=https://你的域名/
+```
+
+后端地址是**编译期常量**（`API_BASE_URL`，默认 `http://localhost:9000/`）。用脚本时传
+`--api-base=`，手工构建时传 `-PapiBase=`；不打这个参数装到电视上会连不通。
 
 ## 自测
 

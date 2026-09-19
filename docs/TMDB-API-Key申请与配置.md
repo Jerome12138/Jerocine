@@ -54,7 +54,7 @@ TMDB_API_KEY=你的key
 重启服务生效（只重建 server 容器，不影响采集）：
 
 ```bash
-cd /home/ubuntu/jerocine/deploy
+cd /path/to/Jerocine/deploy
 docker compose --env-file .env up -d --no-deps server
 ```
 

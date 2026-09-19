@@ -22,6 +22,41 @@
 - **方案/架构设计存档到 `docs/`**，不要只留对话里。
 - 任何重启线上服务的操作（`docker compose build/up` 等）前先征维护者同意。**采集无需手动暂停**：server 有 SIGTERM 优雅停机（HTTP 收尾 → 等采集协程退出，中断页记失败台账由补采/增量窗口自愈）。
 
+## 构建脚本清单（新增或改动务必登记到这里）
+
+> **约定**：任何新增/修改的构建、打包、发布脚本，都要在本节留一条（位置、用法、前置条件、产物去哪）。
+> 目的是让后来的人（和 AI）不用读脚本源码就知道有什么、怎么用。
+
+| 脚本 | 作用 | 前置 | 产物 |
+|---|---|---|---|
+| `scripts/build-android.sh` | 打安卓包，目标 `web`(Capacitor 壳) / `native`(原生 TV) / `all` | JDK 17+、Android SDK、**正式签名密钥**（仓库外，见下） | 各工程 `app/build/outputs/apk/<variant>/`，并复制一份到系统下载目录 |
+
+`scripts/build-android.sh` 用法：
+
+```bash
+scripts/build-android.sh all                                   # 两个包都打
+scripts/build-android.sh tv --api-base=https://你的域名/        # 指定 TV 的后端地址(编译期常量)；tv 与 native 等价
+scripts/build-android.sh web --debug                           # debug 试用包，跳过密钥校验
+scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原样透传给 gradle
+```
+
+- 产物命名：`Jerocine-TV-{web,native}-v<版本名>(<构建号>).apk`，debug 追加 `-debug`。
+  例：`Jerocine-TV-web-v1.0.9(1041).apk`。构建号取 APK 产物目录 `output-metadata.json` 里的
+  `versionCode`（gradle 生成的真实值），读不到才退回版本源文件。
+- **版本号唯一来源：`scripts/android-versions.properties`**（构建号统一千位编号 = 1000 + 迭代号）。
+  `web/android/app/build.gradle`、`tv/app/build.gradle.kts`、`scripts/build-android.sh` 都读它，
+  **发新版只改这一个文件**，别在 `build.gradle` 里写死数字（否则产物名会和包内元数据对不上）。
+  单次覆盖：`-PwebVersionCode=1042 -PwebVersionName=1.1.0` / `-PnativeVersionCode=1002`。
+- **release 必须用正式密钥**，脚本找不到就报错退出（不静默降级成 debug 签名）。
+  密钥不入库，也**刻意不从工程目录里读**——必须显式指定：目录里放好 `keystore.properties`
+  （键名 `storePassword` / `keyAlias` / `keyPassword`）后用 `JEROCINE_KEY_DIR=<目录>` 指过去，
+  或用 `JEROCINE_KEYSTORE` / `JEROCINE_STORE_PASSWORD` / `JEROCINE_KEY_ALIAS` / `JEROCINE_KEY_PASSWORD`
+  逐项给。放仓库里靠 `.gitignore` 挡是单点防线（漏一条规则就泄漏），显式指定还能保证
+  「找不到密钥」时永远报错，不会悄悄采用了别处遗留的一份。
+- 两个包**共用同一密钥**（证书 SHA-256 `0754fe8d…295b`），靠 applicationId 区分：
+  `art.jerocine.app`(web 壳) / `art.jerocine.tv`(原生 TV)，可并存安装、互不覆盖。
+- 跨平台 macOS / Linux / **Windows 需 Git Bash**（PowerShell/cmd 跑不了 `.sh`）。
+
 ## 部署（Docker Compose）
 
 - **从零部署 / 新机器上线**：先读 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、`.env` 配置清单、部署步骤、验证与排障）；本节只讲日常运维。
@@ -53,7 +88,7 @@
 ## Android 工程版本控制
 
 - `web/android/` 源码纳入 git。精细忽略：`build/`、`.gradle/`、`local.properties`、`assets/public`(cap 产物)、**`*.keystore`/`*.jks`(发布密钥严禁 commit)**。
-- **APK 只能本地 `gradlew` 打**（构建机需 JDK17 + Android SDK）：`cd web && pnpm build:no-check && npx cap sync android && cd android && ./gradlew assembleDebug`。
+- **APK 构建**：见上文「构建脚本清单」的 `scripts/build-android.sh`（已封装 `pnpm build` + `cap sync android` + `gradlew`，并强制校验正式签名）。手工兜底：`cd web && pnpm build:no-check && npx cap sync android && cd android && ./gradlew assembleDebug`（debug 无需密钥）。
 - 原生播放器控件 = 自定义 Media3 布局 `res/layout/exo_player_control_view.xml`（进度条下方一排[图标+2字]按钮），由 `PlayerActivity.bindControlButtons()` 绑定。
 
 ## Android APK（Capacitor 壳）
