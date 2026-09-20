@@ -19,9 +19,7 @@
         <item name="android:colorBackground">@android:color/black</item>
     </style>
 
-    <!-- Splash 主题 (启动到 onCreate 之间) — 用纯黑背景, 之前 @drawable/splash 是
-         logo PNG 中心白底, 用户看到的就是白闪. 改成全黑 ColorDrawable. -->
-<!-- 原生播放器主题: 全黑 + 隐藏状态栏 / 标题栏 -->
+    <!-- 原生播放器主题: 全黑 + 隐藏状态栏 / 标题栏 -->
     <style name="AppTheme.Player" parent="Theme.AppCompat.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>

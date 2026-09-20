@@ -57,8 +57,9 @@
     <color name="jc_progress_unplayed">#26FFFFFF</color>
     <color name="jc_progress_scrubber">#FF4AD1E5</color>
 
-    <!-- Material 主题必需 -->
-    <color name="colorPrimary">#FF4AD1E5</color>
-    <color name="colorPrimaryDark">#FF00141A</color>
+    <!-- ===== Material 主题色 (供 AppCompatActivity 使用) ===== -->
+    <color name="colorPrimary">#FF7C5CFF</color>
+    <color name="colorPrimaryDark">#FF5848D4</color>
     <color name="colorAccent">#FF4AD1E5</color>
+
 </resources>

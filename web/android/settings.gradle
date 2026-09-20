@@ -1,6 +1,7 @@
 include ':app'
 include ':player-core'
-project(':player-core').projectDir = new File('./player-core')
+// 引用 tv/player-core (公共播放模块, 与 tv 壳共用一份代码)
+project(':player-core').projectDir = new File('../../tv/player-core')
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 
