@@ -111,7 +111,7 @@ public class PlayerActivity extends AppCompatActivity {
     public static volatile PlayerEventCallback sCallback;
     public static void setCallback(PlayerEventCallback l) { sCallback = l; }
     private static void emit(String name, org.json.JSONObject payload) {
-        EventListener l = sListener;
+        PlayerEventCallback l = sCallback;
         if (l != null) {
             try { l.onPlayerEvent(name, payload); } catch (Exception ignore) {}
         }
@@ -625,8 +625,8 @@ public class PlayerActivity extends AppCompatActivity {
     private String resolveProxyBase(Intent intent) {
         String pb = (intent != null) ? intent.getStringExtra(EXTRA_PROXY_BASE) : null;
         if (pb == null || pb.isEmpty()) {
-            String server = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE)
-                    .getString(MainActivity.KEY_SERVER_URL, "https://jerocine.art");
+            String server = getSharedPreferences("jerocine", MODE_PRIVATE)
+                    .getString("server_url", "https://jerocine.art");
             if (server != null && !server.isEmpty()) {
                 pb = server.replaceAll("/+$", "") + "/api";
             }

@@ -57,4 +57,8 @@
     <color name="jc_progress_unplayed">#26FFFFFF</color>
     <color name="jc_progress_scrubber">#FF4AD1E5</color>
 
+    <!-- Material 主题必需 -->
+    <color name="colorPrimary">#FF4AD1E5</color>
+    <color name="colorPrimaryDark">#FF00141A</color>
+    <color name="colorAccent">#FF4AD1E5</color>
 </resources>
