@@ -71,6 +71,20 @@
             android:text="过滤"
             android:visibility="gone" />
 
+        <!-- 清晰度标签 (右上角) — 玻璃胶囊, 随码率切换实时更新 -->
+        <TextView
+            android:id="@+id/resolution_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/jc_badge_bg"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:textColor="@color/jc_accent"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
         <!-- 当前片源总集数 (右上角) — 玻璃胶囊 -->
         <TextView
             android:id="@+id/episodes_count"

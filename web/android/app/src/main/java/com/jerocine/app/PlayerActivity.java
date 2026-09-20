@@ -140,6 +140,15 @@ public class PlayerActivity extends AppCompatActivity {
     private static final String[] SPEED_LABELS = {"0.5×", "1.0×", "1.25×", "1.5×", "2.0×", "3.0×"};
     /** 跳片尾轮询间隔 */
     private static final long OUTRO_POLL_MS = 1000L;
+
+    /** 按视频实际宽高给出展示画质(行业通用阈值, 与源站标称无直接关系) */
+    private static String resolutionLabel(int width, int height) {
+        if (width <= 0 || height <= 0) return null;
+        if (width >= 1800 || height >= 950) return "1080P";
+        if (width >= 1200 || height >= 680) return "720P";
+        if (width >= 800 || height >= 460) return "480P";
+        return "标清";
+    }
     /** 跳片头/片尾不应用于过短的视频 */
     private static final long MIN_DURATION_FOR_SKIP_MS = 5 * 60_000L;
 
@@ -158,6 +167,7 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView titleText;
     private TextView speedText;
     private TextView episodesCount;
+    private TextView resolutionBadge;
     private TextView centerToast;
     private ImageView centerIcon;  // 中央 播放/暂停 反馈图标(无外框)
 
@@ -272,6 +282,7 @@ public class PlayerActivity extends AppCompatActivity {
         titleText = findViewById(R.id.title_text);
         speedText = findViewById(R.id.speed_text);
         episodesCount = findViewById(R.id.episodes_count);
+        resolutionBadge = findViewById(R.id.resolution_badge);
         adFilterBadge = findViewById(R.id.ad_filter_badge);
         centerToast = findViewById(R.id.center_toast);
         centerIcon = findViewById(R.id.center_icon);
