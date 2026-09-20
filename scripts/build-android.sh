@@ -189,7 +189,12 @@ ensure_sdk() {
     cur=""
     [ -f "$lp" ] && cur="$(sed -n 's/^sdk\.dir=//p' "$lp" | head -1 | tr -d '\r' || true)"
     if [ -z "$cur" ] || [ ! -d "$cur" ]; then
-      printf 'sdk.dir=%s\n' "$sdk" > "$lp"
+      # properties 文件里 Windows 反斜杠要转义, Git Bash 下用正斜杠路径最省事
+      if command -v cygpath >/dev/null 2>&1; then
+        printf 'sdk.dir=%s\n' "$(cygpath -m "$sdk")" > "$lp"
+      else
+        printf 'sdk.dir=%s\n' "$sdk" > "$lp"
+      fi
     fi
   done
   info "Android SDK $sdk"
