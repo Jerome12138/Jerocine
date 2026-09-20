@@ -505,8 +505,22 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     return
   } catch {
     if (token !== playSrcToken) return
-    // 端侧过滤失败 → 服务端 m3u8 已知不可达(ad_filter_ok=false, 采集测速/兜底上报判定)时
-    // 服务端代理降级必死, 直接走原始直链, 不白发一次必超时的代理请求。
+    // 端侧过滤失败重试一次(网络抖动/CORS 偶发失败, 避免直接降级导致过滤失效)
+    try {
+      await new Promise(r => setTimeout(r, 500))
+      if (token !== playSrcToken) return
+      const retry = await clientSideFilter(originalUrl)
+      if (token !== playSrcToken) {
+        try { URL.revokeObjectURL(retry.url) } catch { /* ignore */ }
+        return
+      }
+      commit(retry.url, 'application/x-mpegURL', true)
+      adFilterBadge.value = { kind: retry.filtered > 0 ? 'filtered' : 'clean', count: retry.filtered }
+      return
+    } catch {
+      if (token !== playSrcToken) return
+    }
+    // 重试也失败 → 服务端 m3u8 已知不可达(ad_filter_ok=false)时直接走原始直链
     if (currentSource.value?.adFilterOk === false) {
       reportAdFilterFailure('web')
       adFilterBadge.value = { kind: 'unsupported', count: 0 }
@@ -516,7 +530,6 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     // 降级 1: 退回服务端 proxy(服务器能抓的源仍可过滤); 端侧拿不到过滤数, 角标转「服务端过滤中」
     adFilterBadge.value = { kind: 'proxy', count: 0 }
     commit(proxyAdFilterUrl(originalUrl), 'application/x-mpegURL', false)
-    // 降级 2(再失败)由 video.js 首错回退兜底(handleVideoError 关过滤走原始直链)
   }
 }
 
