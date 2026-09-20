@@ -22,3 +22,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "JerocineTV"
 include(":app")
+include(":player-core")
+project(":player-core").projectDir = file("player-core")

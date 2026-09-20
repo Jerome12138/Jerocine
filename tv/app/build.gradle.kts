@@ -101,6 +101,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":player-core"))
+
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
