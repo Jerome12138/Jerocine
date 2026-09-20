@@ -128,6 +128,16 @@ die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
 resolve_downloads() {
   local d
+  # Windows: 读注册表拿真实下载目录(用户可能用"位置"移动到 D 盘等非默认位置)
+  if [ "$OS" = windows ] && command -v reg >/dev/null 2>&1; then
+    d="$(reg query 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders' \
+         -v '{374DE290-123F-4565-9164-39C4925E467B}' 2>/dev/null \
+         | sed -n 's/.*REG_SZ[[:space:]]*//p' | head -1 | tr -d '\r' || true)"
+    if [ -n "$d" ]; then
+      d="$(cygpath -u "$d" 2>/dev/null || printf '%s' "$d")"
+      if [ -d "$d" ]; then printf '%s' "$d"; return; fi
+    fi
+  fi
   if [ "$OS" = linux ] && command -v xdg-user-dir >/dev/null 2>&1; then
     d="$(xdg-user-dir DOWNLOAD 2>/dev/null || true)"
     if [ -n "$d" ] && [ -d "$d" ]; then printf '%s' "$d"; return; fi
