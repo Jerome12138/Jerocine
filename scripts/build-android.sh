@@ -271,6 +271,11 @@ EOF
     exit 1
   fi
 
+  # Git Bash on Windows: gradlew is Windows process, convert keystore path to Windows format
+  # (/c/Users/... exists()=false on Windows File(), would fall back to unsigned)
+  if command -v cygpath >/dev/null 2>&1 && [ -n "$KS_STORE" ]; then
+    KS_STORE="$(cygpath -w "$KS_STORE")"
+  fi
   export JEROCINE_KEYSTORE="$KS_STORE"
   export JEROCINE_STORE_PASSWORD="$KS_PASS"
   export JEROCINE_KEY_ALIAS="$KS_ALIAS"
