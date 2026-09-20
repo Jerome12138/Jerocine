@@ -1,5 +1,7 @@
 package com.jerocine.app;
 
+import com.jerocine.player.PlayerActivity;
+
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -102,7 +104,7 @@ public class MainActivity extends BridgeActivity {
         addBootProgress();
 
         // PlayerActivity 事件 → 通过 bridge 转发给 web
-        PlayerActivity.setEventListener((name, payload) -> {
+        PlayerActivity.setCallback((name, payload) -> {
             JerocineBridge.sendEvent(webViewRef, name, payload);
         });
 

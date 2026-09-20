@@ -1,5 +1,7 @@
 package com.jerocine.app;
 
+import com.jerocine.player.PlayerActivity;
+
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;

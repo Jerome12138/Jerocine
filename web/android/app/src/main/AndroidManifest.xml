@@ -42,7 +42,7 @@
 
         <!-- 原生视频播放器 (ExoPlayer 全屏 + 横屏 + 沉浸式) -->
         <activity
-            android:name=".PlayerActivity"
+            android:name="com.jerocine.player.PlayerActivity"
             android:exported="false"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode|navigation"
