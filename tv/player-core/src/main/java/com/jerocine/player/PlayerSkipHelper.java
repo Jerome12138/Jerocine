@@ -104,6 +104,6 @@ public class PlayerSkipHelper {
      * 跳片头/片尾设置 — 总开关 + ±10/±60 stepper, 改动即时生效并回写账号。
      */
     void showSkipSettingsDialog() {
-        activity.getDialogHelper().showSkipSettingsDialog();
+        activity.dialogHelper.showSkipSettingsDialog();
     }
 }

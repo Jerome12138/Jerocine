@@ -11,8 +11,6 @@ import android.view.ViewGroup;
 
 import androidx.media3.common.PlaybackParameters;
 
-import java.util.ArrayList;
-
 /**
  * 各种 Dialog 助手 — 倍速/选集/切源/跳过设置/播放控制菜单。
  */
@@ -64,7 +62,7 @@ public class PlayerDialogHelper {
         Button close = activity.playerView.findViewById(R.id.btn_close);
         if (close == null) return;
 
-        boolean multi = activity.sourceList.size() >= 2;
+        boolean multi = activity.sourceHelper.sourceList.size() >= 2;
         boolean playlist = activity.player != null && activity.player.getMediaItemCount() > 1;
         if (prev != null) {
             prev.setVisibility(playlist ? View.VISIBLE : View.GONE);
@@ -89,9 +87,9 @@ public class PlayerDialogHelper {
      * 菜单键: 播放控制总入口
      */
     void showPlayMenu() {
-        boolean multiSrc = activity.sourceList.size() >= 2;
+        boolean multiSrc = activity.sourceHelper.sourceList.size() >= 2;
         String srcLabel = multiSrc
-                ? "切换源 (" + activity.sourceList.get(activity.currentSourceIndex).name + ")"
+                ? "切换源 (" + activity.sourceHelper.sourceList.get(activity.sourceHelper.currentSourceIndex).name + ")"
                 : null;
         String adLabel = "广告过滤: " + (activity.adFilterHelper.adFilterOn ? "开" : "关");
         String[] items = multiSrc
@@ -126,24 +124,24 @@ public class PlayerDialogHelper {
      * 切换源 dialog (仅多源模式) — 保留当前集数 + 当前播放时间, 不打断观看。
      */
     void showSourceDialog() {
-        if (activity.sourceList.size() < 2) {
+        if (activity.sourceHelper.sourceList.size() < 2) {
             activity.showCenterToast("仅一个源, 无需切换", 1500);
             return;
         }
-        String[] names = new String[activity.sourceList.size()];
-        for (int i = 0; i < activity.sourceList.size(); i++) {
-            PlayerActivity.SourceData s = activity.sourceList.get(i);
+        String[] names = new String[activity.sourceHelper.sourceList.size()];
+        for (int i = 0; i < activity.sourceHelper.sourceList.size(); i++) {
+            PlayerSourceHelper.SourceData s = activity.sourceHelper.sourceList.get(i);
             names[i] = s.name + " (" + s.urls.size() + " 集)";
         }
         final int curEp = activity.player != null ? activity.player.getCurrentMediaItemIndex() : 0;
         final long curPos = activity.player != null ? activity.player.getCurrentPosition() : 0;
         new AlertDialog.Builder(activity, R.style.JcPlayerDialog)
                 .setTitle("切换播放源")
-                .setSingleChoiceItems(names, activity.currentSourceIndex, (d, w) -> {
-                    if (w == activity.currentSourceIndex) { d.dismiss(); return; }
-                    activity.currentSourceIndex = w;
-                    activity.loadSourceIntoPlayer(w, curEp, curPos);
-                    activity.showCenterToast("已切到「" + activity.sourceList.get(w).name + "」 (从 " + (curPos / 1000) + "s 续播)", 2000);
+                .setSingleChoiceItems(names, activity.sourceHelper.currentSourceIndex, (d, w) -> {
+                    if (w == activity.sourceHelper.currentSourceIndex) { d.dismiss(); return; }
+                    activity.sourceHelper.currentSourceIndex = w;
+                    activity.sourceHelper.loadSourceIntoPlayer(w, curEp, curPos);
+                    activity.showCenterToast("已切到「" + activity.sourceHelper.sourceList.get(w).name + "」 (从 " + (curPos / 1000) + "s 续播)", 2000);
                     d.dismiss();
                 })
                 .show();
@@ -153,11 +151,11 @@ public class PlayerDialogHelper {
      * 选集 dialog: >30 集时先按 30 集一档分段选择, 再选具体集(D-pad 友好)。
      */
     void showEpisodeDialog() {
-        if (activity.playlistTitles == null || activity.playlistTitles.size() < 2) {
+        if (activity.sourceHelper.playlistTitles == null || activity.sourceHelper.playlistTitles.size() < 2) {
             activity.showCenterToast("仅一集, 无需选择", 1500);
             return;
         }
-        int total = activity.playlistTitles.size();
+        int total = activity.sourceHelper.playlistTitles.size();
         int cur = activity.player != null ? activity.player.getCurrentMediaItemIndex() : 0;
         if (total <= EPISODE_SEG) {
             showEpisodeSegment(0, total, cur);
@@ -182,7 +180,7 @@ public class PlayerDialogHelper {
 
     private void showEpisodeSegment(int start, int end, int cur) {
         String[] arr = new String[end - start];
-        for (int i = start; i < end; i++) arr[i - start] = activity.playlistTitles.get(i);
+        for (int i = start; i < end; i++) arr[i - start] = activity.sourceHelper.playlistTitles.get(i);
         int checked = (cur >= start && cur < end) ? cur - start : -1;
         new AlertDialog.Builder(activity, R.style.JcPlayerDialog)
                 .setTitle("选集 " + (start + 1) + "-" + end)

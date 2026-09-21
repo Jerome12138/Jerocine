@@ -134,7 +134,7 @@ public class PlayerAdFilterHelper {
         lastFilterToastUrl = "";
         int idx = activity.player != null ? activity.player.getCurrentMediaItemIndex() : 0;
         long pos = activity.player != null ? activity.player.getCurrentPosition() : 0;
-        activity.loadSourceIntoPlayer(activity.currentSourceIndex, idx, pos);
+        activity.sourceHelper.loadSourceIntoPlayer(activity.sourceHelper.currentSourceIndex, idx, pos);
         updateAdFilterBadge();
         activity.showCenterToast(adFilterOn ? "广告过滤已开启" : "广告过滤已关闭", 1200);
     }
