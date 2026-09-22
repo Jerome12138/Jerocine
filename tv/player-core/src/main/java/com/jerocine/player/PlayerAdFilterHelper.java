@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.view.View;
-import android.widget.TextView;
 
 import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistParserFactory;
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist;
@@ -18,10 +17,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.MediaType;
@@ -31,7 +26,10 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
- * 广告过滤助手 — 端侧混合过滤: 抓到 m3u8 后送 /m3u8/filter 剔广告再解析。
+ * 广告过滤 — 端侧混合过滤: 抓到 m3u8 后送 /v1/m3u8/filter 剔广告再交默认解析器.
+ *
+ * 状态(开关/代理地址/线路/统计)全部在 {@link PlayerSession}; 本类只负责过滤动作与持久化,
+ * 与其它 helper 无互相引用.
  */
 public class PlayerAdFilterHelper {
 
@@ -39,20 +37,14 @@ public class PlayerAdFilterHelper {
     private static final String PREF_AD_FILTER = "ad_filter_enabled";
 
     private final Context context;
-    private final TextView adFilterBadge;
-    private final PlayerActivity activity;
+    private final PlayerSession session;
 
-    String proxyBase = "";
-    volatile boolean adFilterOn = true;
-    List<String> currentRawUrls = new ArrayList<>();
-    final Set<Integer> forceRawIdx = new HashSet<>();
     volatile String lastFilterToastUrl = "";
-    volatile int pendingFilteredCount = 0;
-    volatile boolean filterAttempted = false;
-    volatile boolean filterFailed = false;
-    volatile boolean filterProxyMissing = false;
-    boolean filterToastShownForEpisode = false;
 
+    /**
+     * 端侧过滤 POST 客户端: 显式短超时上限.
+     * 解析线程上同步等待, 不设上限会拖死播放列表解析; 切集时网络争用偶发失败, 调用处会重试一次.
+     */
     private final OkHttpClient adStatsClient = new OkHttpClient.Builder()
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(6, TimeUnit.SECONDS)
@@ -61,10 +53,9 @@ public class PlayerAdFilterHelper {
             .retryOnConnectionFailure(true)
             .build();
 
-    public PlayerAdFilterHelper(Context context, TextView adFilterBadge, PlayerActivity activity) {
+    public PlayerAdFilterHelper(Context context, PlayerSession session) {
         this.context = context;
-        this.adFilterBadge = adFilterBadge;
-        this.activity = activity;
+        this.session = session;
     }
 
     SharedPreferences prefs() {
@@ -72,99 +63,96 @@ public class PlayerAdFilterHelper {
     }
 
     /**
-     * 解析代理 base: 优先 web 传入的 EXTRA_PROXY_BASE; 为空时兜底用本机配置的服务器地址拼 /api。
+     * 解析代理 base: 优先壳层传入的 EXTRA_PROXY_BASE; 为空(壳没传 / 旧缓存 / relaunch)时
+     * 用壳注入的兜底地址(见 {@link JerocinePlayer#setDefaultProxyBase}) —— 播放器本身不硬编码域名.
      */
     String resolveProxyBase(Intent intent) {
         String pb = (intent != null) ? intent.getStringExtra(PlayerActivity.EXTRA_PROXY_BASE) : null;
-        if (pb == null || pb.isEmpty()) {
-            String server = context.getSharedPreferences("jerocine", Context.MODE_PRIVATE)
-                    .getString("server_url", "https://jerocine.art");
-            if (server != null && !server.isEmpty()) {
-                pb = server.replaceAll("/+$", "") + "/api";
-            }
-        }
+        if (pb == null || pb.isEmpty()) pb = JerocinePlayer.defaultProxyBase();
         return pb == null ? "" : pb;
     }
 
     void updateAdFilterBadge() {
-        if (adFilterBadge != null) {
-            adFilterBadge.setVisibility(adFilterOn ? View.VISIBLE : View.GONE);
-            if (adFilterOn) adFilterBadge.setText("过滤");
-        }
+        if (session.adFilterBadge == null) return;
+        session.adFilterBadge.setVisibility(session.adFilterOn ? View.VISIBLE : View.GONE);
+        // 盾牌图标已在布局里(drawableStart=ic_shield), 起播后由 showFilterStatus 改成结果
+        if (session.adFilterOn) session.adFilterBadge.setText("过滤");
     }
 
-    /**
-     * 起播时按本集实际过滤结果给一次明确提示 + 刷新角标。
-     */
+    /** 起播时按本集实际过滤结果给一次明确提示 + 刷新角标(让"有没有过滤掉"肉眼可见). */
     void showFilterStatus() {
-        if (!adFilterOn) return;
+        if (!session.adFilterOn) return; // 用户主动关了过滤, 不打扰
         final String msg, badge;
-        if (filterProxyMissing) {
+        if (session.filterProxyMissing) {
             msg = "广告过滤未生效: 代理地址未传(请彻底重启/清缓存或更新到最新)";
             badge = "未生效";
-        } else if (filterFailed && pendingFilteredCount == 0) {
+        } else if (session.filterFailed && session.pendingFilteredCount == 0) {
             msg = "广告过滤失败: 网络异常";
             badge = "失败";
-        } else if (pendingFilteredCount > 0) {
-            msg = "已过滤 " + pendingFilteredCount + " 段广告";
-            badge = String.valueOf(pendingFilteredCount);
-        } else if (filterAttempted) {
+        } else if (session.pendingFilteredCount > 0) {
+            msg = "已过滤 " + session.pendingFilteredCount + " 段广告";
+            badge = String.valueOf(session.pendingFilteredCount);
+        } else if (session.filterAttempted) {
             msg = "本集未发现广告";
             badge = "0";
         } else {
             msg = "广告过滤未触发";
             badge = "未触发";
         }
-        activity.showCenterToast(msg, 2200);
-        if (adFilterBadge != null) {
-            activity.runOnUiThread(() -> {
-                adFilterBadge.setText(badge);
-                adFilterBadge.setVisibility(View.VISIBLE);
-            });
+        session.host().showCenterToast(msg, 2200);
+        if (session.adFilterBadge != null) {
+            session.adFilterBadge.setText(badge);
+            session.adFilterBadge.setVisibility(View.VISIBLE);
         }
     }
 
-    /**
-     * 切换广告过滤: 持久化 + 重载当前集(保留进度) + 刷新标。
-     */
+    /** 切换广告过滤: 持久化 + 重载当前集(保留进度) + 刷新标. */
     void toggleAdFilter() {
-        adFilterOn = !adFilterOn;
-        prefs().edit().putBoolean(PREF_AD_FILTER, adFilterOn).apply();
-        forceRawIdx.clear();
+        session.adFilterOn = !session.adFilterOn;
+        prefs().edit().putBoolean(PREF_AD_FILTER, session.adFilterOn).apply();
+        session.forceRawIdx.clear();
         lastFilterToastUrl = "";
-        int idx = activity.player != null ? activity.player.getCurrentMediaItemIndex() : 0;
-        long pos = activity.player != null ? activity.player.getCurrentPosition() : 0;
-        activity.sourceHelper.loadSourceIntoPlayer(activity.sourceHelper.currentSourceIndex, idx, pos);
+        session.reloadCurrentSourceKeepPosition();
         updateAdFilterBadge();
-        activity.showCenterToast(adFilterOn ? "广告过滤已开启" : "广告过滤已关闭", 1200);
+        session.host().showCenterToast(session.adFilterOn ? "广告过滤已开启" : "广告过滤已关闭", 1200);
     }
 
     /**
-     * 同步 POST 原始 m3u8 到 /m3u8/filter, 返回过滤后字节; 失败返回 null(用原始, 优雅降级)。
+     * 同步 POST 原始 m3u8 到 /v1/m3u8/filter, 返回过滤后字节; 失败返回 null(用原始, 优雅降级).
+     * 在 loader 线程调用.
      */
     byte[] filterViaServer(String srcUrl, byte[] raw) {
-        filterAttempted = true;
+        session.filterAttempted = true;
         final String url;
         try {
-            url = proxyBase + "/v1/m3u8/filter?src=" + java.net.URLEncoder.encode(srcUrl, "UTF-8");
+            url = session.proxyBase + "/v1/m3u8/filter?src="
+                    + java.net.URLEncoder.encode(srcUrl, "UTF-8");
         } catch (Exception e) {
-            filterFailed = true;
+            session.filterFailed = true;
             return null;
         }
         for (int attempt = 0; attempt < 2; attempt++) {
             try {
                 Request req = new Request.Builder().url(url)
-                        .post(RequestBody.create(MediaType.parse("application/vnd.apple.mpegurl"), raw)).build();
+                        .post(RequestBody.create(
+                                MediaType.parse("application/vnd.apple.mpegurl"), raw))
+                        .build();
                 try (Response resp = adStatsClient.newCall(req).execute()) {
                     if (!resp.isSuccessful() || resp.body() == null) {
-                        if (attempt == 1) { filterFailed = true; return null; }
+                        if (attempt == 1) {
+                            session.filterFailed = true;
+                            return null;
+                        }
                     } else {
                         byte[] out = resp.body().bytes();
                         String n = resp.header("X-Ad-Filtered");
                         if (n != null) {
                             try {
                                 int cnt = Integer.parseInt(n);
-                                if (cnt > pendingFilteredCount) pendingFilteredCount = cnt;
+                                // master 表 cnt=0、子表才 cnt>0; 取最大, 待 STATE_READY 弹一次状态
+                                if (cnt > session.pendingFilteredCount) {
+                                    session.pendingFilteredCount = cnt;
+                                }
                             } catch (NumberFormatException ignore) {
                             }
                         }
@@ -173,14 +161,19 @@ public class PlayerAdFilterHelper {
                 }
             } catch (Exception e) {
                 if (attempt == 1) {
-                    filterFailed = true;
+                    session.filterFailed = true;
                     return null;
                 }
             }
-            try { Thread.sleep(250); }
-            catch (InterruptedException ie) { Thread.currentThread().interrupt(); filterFailed = true; return null; }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                session.filterFailed = true;
+                return null;
+            }
         }
-        filterFailed = true;
+        session.filterFailed = true;
         return null;
     }
 
@@ -194,9 +187,7 @@ public class PlayerAdFilterHelper {
         return bos.toByteArray();
     }
 
-    /**
-     * 自定义 HLS 播放列表解析器 — 抓到 m3u8 后送 /m3u8/filter 剔广告, 再交默认解析器。
-     */
+    /** 自定义 HLS 播放列表解析器 — 抓到 m3u8 后送 /v1/m3u8/filter 剔广告, 再交默认解析器. */
     class FilterPlaylistParser implements ParsingLoadable.Parser<HlsPlaylist> {
         private final ParsingLoadable.Parser<HlsPlaylist> delegate;
 
@@ -207,14 +198,15 @@ public class PlayerAdFilterHelper {
         @Override
         public HlsPlaylist parse(Uri uri, InputStream in) throws IOException {
             byte[] data = readAll(in);
-            if (adFilterOn) {
-                if (proxyBase != null && !proxyBase.isEmpty()) {
+            if (session.adFilterOn) {
+                if (!PlayerUrls.needsClientSideFilter(uri.toString())) {
+                    // /m3u8/proxy 已在服务端完成过滤与媒体地址改写, 不必再同步 POST 一次
+                    session.filterAttempted = true;
+                } else if (session.proxyBase != null && !session.proxyBase.isEmpty()) {
                     byte[] f = filterViaServer(uri.toString(), data);
-                    if (f != null) {
-                        data = f;
-                    }
+                    if (f != null) data = f;
                 } else {
-                    filterProxyMissing = true;
+                    session.filterProxyMissing = true; // 开关开着却没代理地址 → 起播提示"未生效"
                 }
             }
             return delegate.parse(uri, new ByteArrayInputStream(data));

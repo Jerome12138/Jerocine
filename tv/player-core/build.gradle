@@ -1,5 +1,41 @@
 apply plugin: 'com.android.library'
 
+// ============================================================
+// 公共播放模块 (WebView 壳 + TV 壳共用一份播放器实现)
+//
+// 依赖版本唯一来源: 仓库根 scripts/android-versions.properties 的 dep.*。
+// 本模块是"播放器技术栈"(media3 / appcompat / okhttp)的唯一声明处, 用 api 暴露给壳层,
+// 壳层不再各写一遍版本号。
+//
+// 定位说明: player-core 在 tv/ 目录下, 但会被两个 Gradle 构建包含
+// (tv/settings.gradle.kts 与 web/android/settings.gradle), 两边的 rootProject 不同,
+// 所以这里向上查找仓库根定位版本文件, 不用固定相对路径。
+// ============================================================
+def findRepoFile = { String relative ->
+    def dir = rootProject.projectDir
+    for (int i = 0; i < 5 && dir != null; i++) {
+        def candidate = new File(dir, relative)
+        if (candidate.exists()) return candidate
+        dir = dir.parentFile
+    }
+    return null
+}
+
+def versionsFile = findRepoFile('scripts/android-versions.properties')
+if (versionsFile == null) {
+    throw new GradleException('找不到 scripts/android-versions.properties, 无法确定依赖版本')
+}
+def depVersions = new Properties()
+versionsFile.withInputStream { depVersions.load(it) }
+def ver = { String key ->
+    def v = depVersions.getProperty(key)
+    if (v == null) throw new GradleException("android-versions.properties 缺少 ${key}")
+    return v
+}
+def media3Version = ver('dep.media3Version')
+def okhttpVersion = ver('dep.okhttpVersion')
+def appcompatVersion = ver('dep.appcompatVersion')
+
 android {
     namespace 'com.jerocine.player'
     compileSdk 36
@@ -23,13 +59,18 @@ android {
 
 dependencies {
     implementation 'androidx.core:core:1.13.1'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.media3:media3-exoplayer:1.4.1'
-    implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
-    implementation 'androidx.media3:media3-ui:1.4.1'
-    implementation 'androidx.media3:media3-datasource:1.4.1'
-    implementation 'androidx.media3:media3-datasource-okhttp:1.4.1'
-    implementation 'androidx.media3:media3-database:1.4.1'
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    // api: 播放器对外暴露 AppCompatActivity 与 PlayerView, 壳层必须拿到这些类型
+    api "androidx.appcompat:appcompat:${appcompatVersion}"
+    api "androidx.media3:media3-exoplayer:${media3Version}"
+    api "androidx.media3:media3-exoplayer-hls:${media3Version}"
+    api "androidx.media3:media3-ui:${media3Version}"
+    api "androidx.media3:media3-datasource:${media3Version}"
+    api "androidx.media3:media3-datasource-okhttp:${media3Version}"
+    api "androidx.media3:media3-database:${media3Version}"
+    implementation "com.google.android.material:material:1.12.0"
+    implementation "com.squareup.okhttp3:okhttp:${okhttpVersion}"
+
+    // 纯逻辑(URL 策略/画质命名/落点钳位)单测
+    testImplementation 'junit:junit:4.13.2'
 }

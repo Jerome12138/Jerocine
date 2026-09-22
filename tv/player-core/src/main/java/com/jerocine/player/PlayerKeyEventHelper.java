@@ -3,84 +3,88 @@ package com.jerocine.player;
 import android.view.KeyEvent;
 import android.view.View;
 
-import androidx.media3.common.Player;
-
 /**
- * 按键事件处理 — 遥控/键盘事件分发。
+ * 遥控 / 键盘按键分发.
+ *
+ * 三态键控:
+ *  A. 控制面板隐藏(默认): ←→=快进快退, ↑=上一集, ↓=下一集, OK=播放/暂停, MENU=显示面板, BACK=双击退出
+ *  B. 面板可见且焦点在进度条: ←→=快进快退, OK=播放/暂停, MENU/BACK=隐藏面板
+ *  C. 面板可见且焦点在按钮: 方向键=焦点切换, OK=触发(super 处理), MENU/BACK=隐藏面板
  */
 public class PlayerKeyEventHelper {
 
     private static final long EPISODE_CONFIRM_MS = 2000L;
     private static final long BACK_CONFIRM_MS = 2000L;
 
-    private final PlayerActivity activity;
+    private final PlayerSession session;
     private long lastEpisodeKeyAt = 0L;
     private int lastEpisodeKeyCode = 0;
     private long lastBackAt = 0L;
 
-    public PlayerKeyEventHelper(PlayerActivity activity) {
-        this.activity = activity;
+    public PlayerKeyEventHelper(PlayerSession session) {
+        this.session = session;
     }
 
-    /** 进度键长按渐进步进 — 按 getDownTime() 起算的实际按住时长 (ms) 计算步幅 */
+    /** 进度键长按渐进步进 — 按 getDownTime() 起算的实际按住时长(ms)算步幅, 快退 = 快进 50%. */
     private long seekStepFor(KeyEvent ev, boolean forward) {
         long heldMs = ev.getEventTime() - ev.getDownTime();
         long fwd;
-        if (heldMs < 500)        fwd = 10_000L;
-        else if (heldMs < 2000)  fwd = 30_000L;
-        else if (heldMs < 5000)  fwd = 60_000L;
-        else                     fwd = 180_000L;
+        if (heldMs < 500) fwd = 10_000L;
+        else if (heldMs < 2000) fwd = 30_000L;
+        else if (heldMs < 5000) fwd = 60_000L;
+        else fwd = 180_000L;
         return forward ? fwd : fwd / 2;
     }
 
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() != KeyEvent.ACTION_DOWN) {
-            return activity.dispatchKeyEvent(event);
+            return session.host().dispatchToSuper(event);
         }
         int code = event.getKeyCode();
-        boolean controllerVisible = activity.playerView != null && activity.playerView.isControllerFullyVisible();
+        boolean controllerVisible = session.playerView != null
+                && session.playerView.isControllerFullyVisible();
         boolean onSeekbar = isFocusOnSeekbar();
 
         switch (code) {
             case KeyEvent.KEYCODE_MENU:
             case KeyEvent.KEYCODE_INFO: {
                 if (controllerVisible) {
-                    activity.playerView.hideController();
+                    session.playerView.hideController();
                 } else {
-                    activity.dialogHelper.showPlayMenu();
+                    session.host().showPlayMenu();
                 }
                 return true;
             }
             case KeyEvent.KEYCODE_BACK: {
                 if (controllerVisible) {
-                    activity.playerView.hideController();
+                    session.playerView.hideController();
                     lastBackAt = 0L;
                     return true;
                 }
                 long now = System.currentTimeMillis();
                 if (now - lastBackAt < BACK_CONFIRM_MS) {
                     lastBackAt = 0L;
-                    activity.finish();
+                    session.host().finishPlayer();
                 } else {
                     lastBackAt = now;
-                    activity.showCenterToast("再按一次返回退出播放", 1800);
+                    session.host().showCenterToast("再按一次返回退出播放", 1800);
                 }
                 return true;
             }
             case KeyEvent.KEYCODE_MEDIA_NEXT:
             case KeyEvent.KEYCODE_CHANNEL_UP:
-                if (activity.player != null && activity.player.hasNextMediaItem()) {
-                    activity.skipHelper.episodeSwitching = true;
-                    activity.player.seekToNextMediaItem();
-                    activity.showCenterToast("下一集", 600);
+                if (session.player != null && session.player.hasNextMediaItem()) {
+                    session.markEpisodeSwitching();
+                    session.player.seekToNextMediaItem();
+                    session.host().showCenterToast("下一集", 600);
                 }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
             case KeyEvent.KEYCODE_CHANNEL_DOWN:
-                if (activity.player != null && activity.player.hasPreviousMediaItem()) {
-                    activity.skipHelper.episodeSwitching = true;
-                    activity.player.seekToPreviousMediaItem();
-                    activity.showCenterToast("上一集", 600);
+                if (session.player != null && session.player.hasPreviousMediaItem()) {
+                    session.markEpisodeSwitching();
+                    session.player.seekToPreviousMediaItem();
+                    session.host().showCenterToast("上一集", 600);
                 }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
@@ -108,7 +112,7 @@ public class PlayerKeyEventHelper {
                     togglePlayPause();
                     return true;
                 default:
-                    return activity.dispatchKeyEvent(event);
+                    return session.host().dispatchToSuper(event);
             }
         }
 
@@ -121,69 +125,66 @@ public class PlayerKeyEventHelper {
                             : seekStepFor(event, true));
                     return true;
                 }
-                return activity.dispatchKeyEvent(event);
-            case KeyEvent.KEYCODE_DPAD_UP:
-            case KeyEvent.KEYCODE_DPAD_DOWN:
-                return activity.dispatchKeyEvent(event);
+                return session.host().dispatchToSuper(event);
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
                 if (onSeekbar) {
                     togglePlayPause();
                     return true;
                 }
-                return activity.dispatchKeyEvent(event);
+                return session.host().dispatchToSuper(event);
             default:
-                return activity.dispatchKeyEvent(event);
+                return session.host().dispatchToSuper(event);
         }
     }
 
     private boolean isFocusOnSeekbar() {
-        if (activity.playerView == null) return false;
-        View focus = activity.playerView.findFocus();
+        if (session.playerView == null) return false;
+        View focus = session.playerView.findFocus();
         if (focus == null) return false;
         return focus.getId() == androidx.media3.ui.R.id.exo_progress;
     }
 
     /** 切集 + 防误触: 1 下提示, 2s 内再按 1 下才生效. prev=true 上一集, false 下一集. */
     private boolean handleEpisodeKey(boolean prev, int code) {
-        if (activity.player == null) {
-            return true;
-        }
-        boolean has = prev ? activity.player.hasPreviousMediaItem() : activity.player.hasNextMediaItem();
+        if (session.player == null) return true;
+        boolean has = prev ? session.player.hasPreviousMediaItem() : session.player.hasNextMediaItem();
         if (!has) {
-            activity.showCenterToast(prev ? "已是第一集" : "已是最后一集", 800);
+            session.host().showCenterToast(prev ? "已是第一集" : "已是最后一集", 800);
             return true;
         }
         long now = System.currentTimeMillis();
         if (lastEpisodeKeyCode == code && now - lastEpisodeKeyAt < EPISODE_CONFIRM_MS) {
-            lastEpisodeKeyAt = 0; lastEpisodeKeyCode = 0;
-            activity.skipHelper.episodeSwitching = true;
-            if (prev) activity.player.seekToPreviousMediaItem();
-            else activity.player.seekToNextMediaItem();
-            activity.showCenterToast(prev ? "上一集" : "下一集", 600);
+            lastEpisodeKeyAt = 0;
+            lastEpisodeKeyCode = 0;
+            session.markEpisodeSwitching();
+            if (prev) session.player.seekToPreviousMediaItem();
+            else session.player.seekToNextMediaItem();
+            session.host().showCenterToast(prev ? "上一集" : "下一集", 600);
         } else {
-            lastEpisodeKeyAt = now; lastEpisodeKeyCode = code;
-            activity.showCenterToast(prev ? "再按 ▲ 切上一集" : "再按 ▼ 切下一集", 1500);
+            lastEpisodeKeyAt = now;
+            lastEpisodeKeyCode = code;
+            session.host().showCenterToast(prev ? "再按 ▲ 切上一集" : "再按 ▼ 切下一集", 1500);
         }
         return true;
     }
 
     private void seekRelative(long deltaMs) {
-        if (activity.player == null) return;
-        long target = Math.max(0, activity.player.getCurrentPosition() + deltaMs);
-        long duration = activity.player.getDuration();
+        if (session.player == null) return;
+        long target = Math.max(0, session.player.getCurrentPosition() + deltaMs);
+        long duration = session.player.getDuration();
         if (duration > 0) target = Math.min(target, duration);
-        activity.player.seekTo(target);
+        session.player.seekTo(target);
         String dir = deltaMs > 0 ? "▶ +" : "◀ ";
-        activity.showCenterToast(dir + (deltaMs / 1000) + "s", 800);
+        session.host().showCenterToast(dir + (deltaMs / 1000) + "s", 800);
     }
 
     private void togglePlayPause() {
-        if (activity.player == null) return;
-        if (activity.player.getPlayWhenReady()) {
-            activity.player.pause();
+        if (session.player == null) return;
+        if (session.player.getPlayWhenReady()) {
+            session.player.pause();
         } else {
-            activity.player.play();
+            session.player.play();
         }
     }
 }

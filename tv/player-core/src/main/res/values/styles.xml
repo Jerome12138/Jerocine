@@ -1,34 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  公共播放模块的样式. 只放"播放器自己要用"的样式 —— 壳层的 AppTheme / 启动页主题属于各壳,
+  不要放到这里(早先由 web 壳复制过来, 已清理: 应用资源会覆盖库资源, 留着只会误导).
+-->
 <resources>
 
-    <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
-        <!-- Customize your theme here. -->
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-        <item name="colorAccent">@color/colorAccent</item>
-    </style>
-
-    <!-- 主活动主题 — 全黑背景, 避免 WebView 加载前白闪 (用户反馈"启动总有白屏"),
-         windowBackground 同时设黑色, 保证从 launcher 起就是黑底. -->
-    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="windowActionBar">false</item>
-        <item name="windowNoTitle">true</item>
-        <item name="android:background">@android:color/black</item>
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:colorBackground">@android:color/black</item>
-    </style>
-
-    <!-- 原生播放器主题: 全黑 + 隐藏状态栏 / 标题栏 -->
-    <style name="AppTheme.Player" parent="Theme.AppCompat.NoActionBar">
-        <item name="windowActionBar">false</item>
-        <item name="windowNoTitle">true</item>
-        <item name="android:windowFullscreen">true</item>
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:colorBackground">@android:color/black</item>
-    </style>
-
-    <!-- 播放器弹窗主题: 暗色玻璃 + 品牌青强调色(替代系统亮色 Material Dialog) -->
+    <!-- 播放器弹窗主题: 暗色玻璃 + 品牌青强调色(替代系统亮色 Material Dialog).
+         parent 必须是 AppCompat 系(播放器用 androidx.appcompat.app.AlertDialog). -->
     <style name="JcPlayerDialog" parent="Theme.AppCompat.Dialog.Alert">
         <item name="android:windowBackground">@drawable/jc_dialog_bg</item>
         <item name="colorAccent">@color/jc_accent</item>
@@ -38,12 +16,13 @@
         <item name="android:textColorAlertDialogListItem">@color/jc_text</item>
         <item name="android:windowTitleStyle">@style/JcPlayerDialogTitle</item>
     </style>
+
     <style name="JcPlayerDialogTitle" parent="@android:style/TextAppearance.Material.DialogWindowTitle">
         <item name="android:textColor">@color/jc_text</item>
         <item name="android:textSize">19sp</item>
     </style>
 
-    <!-- 原生播放器控件按钮: 图标在上(drawableTop)+ 文字在下, 玻璃风背景, D-pad 焦点高亮. -->
+    <!-- 原生播放器控件按钮: 图标在上(drawableTop) + 文字在下, 玻璃风背景, D-pad 焦点高亮. -->
     <style name="JcPlayerCtlBtn" parent="android:Widget.Material.Button.Borderless">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>

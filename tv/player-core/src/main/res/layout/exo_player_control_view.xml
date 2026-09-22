@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  自定义 Media3 控件布局: 底部 = 进度行(时间+seekbar) + 其下一排[图标在上+文字在下]按钮.
-  按钮(上集/下集/倍速/选集/换源/跳过/退出)id 由 PlayerActivity 绑定点击 + D-pad 焦点 —— id 必须原样保留.
+  自定义 Media3 控件布局(公共播放模块唯一一份, 两壳共用; 壳不再各自复制).
+  按钮(上集/下集/倍速/选集/换源/线路/跳过/退出)id 由 PlayerDialogHelper 绑定点击 + D-pad 焦点 —— id 必须原样保留.
   exo_* id 是 Media3 约定 id(androidx.media3.ui.R.id.*), 控件库自动接管 seekbar/时间.
   风格: 玻璃拟态 —— 底部渐变玻璃面 + 强调青进度条 + 半透明白缓冲/未播.
 -->
@@ -13,6 +13,7 @@
 
     <!-- 玻璃渐变底栏 (顶部透明 → 底部深玻璃) -->
     <LinearLayout
+        android:id="@+id/player_controls_root"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -62,7 +63,7 @@
                 android:paddingHorizontal="8dp" />
         </LinearLayout>
 
-        <!-- 自定义按钮排: 进度条下方, 图标在上 + 文字在下 -->
+        <!-- 全部播放操作保持单行, 适配横屏遥控器 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -83,22 +84,28 @@
                 android:text="下集" />
 
             <Button
-                android:id="@+id/btn_speed"
-                style="@style/JcPlayerCtlBtn"
-                android:drawableTop="@drawable/ic_speed"
-                android:text="倍速" />
-
-            <Button
                 android:id="@+id/btn_episodes"
                 style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_episodes"
                 android:text="选集" />
 
             <Button
+                android:id="@+id/btn_speed"
+                style="@style/JcPlayerCtlBtn"
+                android:drawableTop="@drawable/ic_speed"
+                android:text="倍速" />
+
+            <Button
                 android:id="@+id/btn_source"
                 style="@style/JcPlayerCtlBtn"
                 android:drawableTop="@drawable/ic_source"
                 android:text="换源" />
+
+            <Button
+                android:id="@+id/btn_network_mode"
+                style="@style/JcPlayerCtlBtn"
+                android:drawableTop="@drawable/ic_network_mode"
+                android:text="切到中转" />
 
             <Button
                 android:id="@+id/btn_skip"
