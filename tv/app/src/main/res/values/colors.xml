@@ -1,34 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  TV 壳 — 仅存放"播放器公共模块(player-core)没有"的令牌.
+
+  公共设计令牌(玻璃面 jc_glass/jc_glass_soft/jc_glass_deep、描边 jc_stroke/jc_stroke_faint、
+  文本 jc_text*、强调色 jc_accent*/jc_purple*、进度条 jc_progress_* 等)统一定义在
+  player-core/src/main/res/values/colors.xml —— 壳里再定义一份会覆盖库资源, 改了 core 不生效,
+  是本次收敛要消除的坑, 因此这里不再重复.
+  下面只保留 TV 端独有的实色表面 / 功能色 / TV 面板配色.
+-->
 <resources>
-    <color name="jc_bg">#0C0D10</color>
-    <color name="jc_bg_black">#000000</color>
+
+    <!-- ===== TV 独有的实色表面(不透明, 供卡片/面板/占位图使用) ===== -->
     <color name="jc_surface_1">#16181D</color>
     <color name="jc_surface_2">#1D2026</color>
     <color name="jc_surface_3">#252932</color>
-    <color name="jc_glass">#E616181D</color>
-    <color name="jc_glass_soft">#E61D2026</color>
-    <color name="jc_glass_deep">#F20C0D10</color>
-    <color name="jc_scrim">#99000000</color>
-    <color name="jc_scrim_top">#B3000000</color>
-    <color name="jc_stroke">#FF30343C</color>
-    <color name="jc_stroke_faint">#FF242830</color>
-    <color name="jc_text">#FFFFFFFF</color>
-    <color name="jc_text_secondary">#B3FFFFFF</color>
-    <color name="jc_text_tertiary">#80FFFFFF</color>
-    <color name="jc_accent">#FF4AD1E5</color>
-    <color name="jc_accent_dim">#334AD1E5</color>
-    <color name="jc_accent_press">#554AD1E5</color>
-    <color name="jc_purple">#FF7C5CFF</color>
-    <color name="jc_purple_press">#FF5848D4</color>
-    <color name="jc_on_accent">#00141A</color>
-    <color name="jc_danger">#FFFF5B6A</color>
+
+    <!-- ===== TV 独有的功能色 ===== -->
     <color name="jc_danger_dim">#33FF5B6A</color>
     <color name="jc_success">#FF46D27E</color>
     <color name="jc_warning">#FFFFC857</color>
-    <color name="jc_progress_played">#FF4AD1E5</color>
-    <color name="jc_progress_buffered">#55FFFFFF</color>
-    <color name="jc_progress_unplayed">#26FFFFFF</color>
-    <color name="jc_progress_scrubber">#FF4AD1E5</color>
+
+    <!-- ===== TV 面板专用描边与渐变 ===== -->
     <color name="jc_tv_stroke">#21FFFFFF</color>
     <color name="jc_tv_panel_cyan_start">#294AD1E5</color>
     <color name="jc_tv_panel_cyan_end">#800F2027</color>
@@ -36,4 +28,5 @@
     <color name="jc_tv_panel_amber_end">#803C280C</color>
     <color name="jc_tv_panel_purple_start">#299B49E7</color>
     <color name="jc_tv_panel_purple_end">#80141428</color>
+
 </resources>

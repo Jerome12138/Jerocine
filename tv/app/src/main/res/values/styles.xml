@@ -100,4 +100,9 @@
         <item name="android:layout_marginEnd">14dp</item>
         <item name="android:alpha">0.85</item>
     </style>
+
+    <!--
+      播放器样式(JcPlayerDialog / JcPlayerDialogTitle / JcPlayerCtlBtn)由 player-core 提供,
+      壳内不再重复定义 —— 重复定义会覆盖库资源, 改了 core 不生效.
+    -->
 </resources>

@@ -22,6 +22,7 @@ import com.jerocine.tv.ui.DeviceDiagnostics
 import com.jerocine.tv.ui.normalizeServerUrl
 import com.jerocine.tv.ui.reduceMotionLabel
 import kotlinx.coroutines.launch
+import com.jerocine.player.R as PlayerR
 
 class SettingsFragment : Fragment(R.layout.fragment_settings) {
     private val groupButtons = linkedMapOf<Int, String>()
@@ -194,10 +195,11 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         val diag = DeviceDiagnostics.collect(requireContext())
         infoView.text = diag.toText()
         verdictView.text = diag.verdict
+        // jc_danger 属 player-core 的公共设计令牌(壳内已不再重复定义), 故用库的 R 引用.
         verdictView.setTextColor(
             ContextCompat.getColor(
                 requireContext(),
-                if (diag.supportsWebApk) R.color.jc_success else R.color.jc_danger,
+                if (diag.supportsWebApk) R.color.jc_success else PlayerR.color.jc_danger,
             )
         )
 
