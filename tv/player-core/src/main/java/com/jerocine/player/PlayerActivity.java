@@ -133,6 +133,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private TextView resolutionBadge;
     private TextView networkModeBadge;
     private Button networkModeButton;
+    private TextView speedText;
+    private TextView adFilterBadge;
     private TextView centerToast;
     private ImageView centerIcon;
 
@@ -163,9 +165,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         centerToast = findViewById(R.id.center_toast);
         centerIcon = findViewById(R.id.center_icon);
 
-        session.playerView = playerView;
-        session.speedText = findViewById(R.id.speed_text);
-        session.adFilterBadge = findViewById(R.id.ad_filter_badge);
+        speedText = findViewById(R.id.speed_text);
+        adFilterBadge = findViewById(R.id.ad_filter_badge);
         networkModeBadge = findViewById(R.id.network_mode_badge);
 
         // helper 之间互不引用: 只依赖 session(状态) + session.host()(UI 出口)
@@ -645,6 +646,23 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     public void renderNetworkMode(boolean relay) {
         if (networkModeBadge != null) networkModeBadge.setText(relay ? "中转" : "直连");
         if (networkModeButton != null) networkModeButton.setText(relay ? "切到直连" : "切到中转");
+    }
+
+    @Override
+    public PlayerView playerView() {
+        return playerView;
+    }
+
+    @Override
+    public void renderAdFilterBadge(boolean visible, String text) {
+        if (adFilterBadge == null) return;
+        if (text != null) adFilterBadge.setText(text);
+        adFilterBadge.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
+    public void renderSpeedText(String label) {
+        if (speedText != null) speedText.setText(label);
     }
 
     @Override

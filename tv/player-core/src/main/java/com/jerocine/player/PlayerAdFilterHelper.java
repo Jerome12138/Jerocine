@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.view.View;
 
 import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistParserFactory;
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist;
@@ -71,10 +70,8 @@ public class PlayerAdFilterHelper {
     }
 
     void updateAdFilterBadge() {
-        if (session.adFilterBadge == null) return;
-        session.adFilterBadge.setVisibility(session.adFilterOn ? View.VISIBLE : View.GONE);
         // 盾牌图标已在布局里(drawableStart=ic_shield), 起播后由 showFilterStatus 改成结果
-        if (session.adFilterOn) session.adFilterBadge.setText("过滤");
+        session.host().renderAdFilterBadge(session.adFilterOn, session.adFilterOn ? "过滤" : null);
     }
 
     /** 起播时按本集实际过滤结果给一次明确提示 + 刷新角标(让"有没有过滤掉"肉眼可见). */
@@ -98,10 +95,7 @@ public class PlayerAdFilterHelper {
             badge = "未触发";
         }
         session.host().showCenterToast(msg, 2200);
-        if (session.adFilterBadge != null) {
-            session.adFilterBadge.setText(badge);
-            session.adFilterBadge.setVisibility(View.VISIBLE);
-        }
+        session.host().renderAdFilterBadge(true, badge);
     }
 
     /** 切换广告过滤: 持久化 + 重载当前集(保留进度) + 刷新标. */

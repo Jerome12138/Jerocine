@@ -11,13 +11,14 @@ import android.widget.Switch;
 import android.widget.TextView;
 
 import androidx.media3.common.PlaybackParameters;
+import androidx.media3.ui.PlayerView;
 
 import org.json.JSONObject;
 
 /**
  * 播放器各类弹窗 — 倍速 / 选集 / 切源 / 跳过设置 / 播放控制菜单.
  *
- * 依赖 {@link PlayerSession}(状态 + 控制面板视图)与 Host(上下文/提示/退出),
+ * 依赖 {@link PlayerSession}(状态)与 Host(上下文/提示/退出/视图访问),
  * 与其它 helper 无互相引用.
  */
 public class PlayerDialogHelper {
@@ -51,7 +52,7 @@ public class PlayerDialogHelper {
                     if (session.player != null) {
                         session.player.setPlaybackParameters(new PlaybackParameters(SPEEDS[i]));
                     }
-                    if (session.speedText != null) session.speedText.setText(SPEED_LABELS[i]);
+                    session.host().renderSpeedText(SPEED_LABELS[i]);
                     session.host().showCenterToast("速度 " + SPEED_LABELS[i], 800);
                     d.dismiss();
                 })
@@ -66,15 +67,16 @@ public class PlayerDialogHelper {
      */
     void bindControlButtons() {
         if (ctlBtnsBound) return;
-        if (session.playerView == null) return;
-        Button prev = session.playerView.findViewById(R.id.btn_prev);
-        Button next = session.playerView.findViewById(R.id.btn_next);
-        Button speed = session.playerView.findViewById(R.id.btn_speed);
-        Button episodes = session.playerView.findViewById(R.id.btn_episodes);
-        Button source = session.playerView.findViewById(R.id.btn_source);
-        Button skip = session.playerView.findViewById(R.id.btn_skip);
-        Button close = session.playerView.findViewById(R.id.btn_close);
-        Button networkMode = session.playerView.findViewById(R.id.btn_network_mode);
+        PlayerView pv = session.host().playerView();
+        if (pv == null) return;
+        Button prev = pv.findViewById(R.id.btn_prev);
+        Button next = pv.findViewById(R.id.btn_next);
+        Button speed = pv.findViewById(R.id.btn_speed);
+        Button episodes = pv.findViewById(R.id.btn_episodes);
+        Button source = pv.findViewById(R.id.btn_source);
+        Button skip = pv.findViewById(R.id.btn_skip);
+        Button close = pv.findViewById(R.id.btn_close);
+        Button networkMode = pv.findViewById(R.id.btn_network_mode);
         if (close == null) return;
 
         boolean multi = session.sourceList.size() >= 2;

@@ -3,6 +3,8 @@ package com.jerocine.player;
 import android.view.KeyEvent;
 import android.view.View;
 
+import androidx.media3.ui.PlayerView;
+
 /**
  * 遥控 / 键盘按键分发.
  *
@@ -41,15 +43,15 @@ public class PlayerKeyEventHelper {
             return session.host().dispatchToSuper(event);
         }
         int code = event.getKeyCode();
-        boolean controllerVisible = session.playerView != null
-                && session.playerView.isControllerFullyVisible();
+        final PlayerView pv = session.host().playerView();
+        boolean controllerVisible = pv != null && pv.isControllerFullyVisible();
         boolean onSeekbar = isFocusOnSeekbar();
 
         switch (code) {
             case KeyEvent.KEYCODE_MENU:
             case KeyEvent.KEYCODE_INFO: {
                 if (controllerVisible) {
-                    session.playerView.hideController();
+                    pv.hideController();
                 } else {
                     session.host().showPlayMenu();
                 }
@@ -57,7 +59,7 @@ public class PlayerKeyEventHelper {
             }
             case KeyEvent.KEYCODE_BACK: {
                 if (controllerVisible) {
-                    session.playerView.hideController();
+                    pv.hideController();
                     lastBackAt = 0L;
                     return true;
                 }
@@ -139,8 +141,9 @@ public class PlayerKeyEventHelper {
     }
 
     private boolean isFocusOnSeekbar() {
-        if (session.playerView == null) return false;
-        View focus = session.playerView.findFocus();
+        PlayerView pv = session.host().playerView();
+        if (pv == null) return false;
+        View focus = pv.findFocus();
         if (focus == null) return false;
         return focus.getId() == androidx.media3.ui.R.id.exo_progress;
     }

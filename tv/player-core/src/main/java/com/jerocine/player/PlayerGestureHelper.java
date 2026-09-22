@@ -5,6 +5,7 @@ import android.view.View;
 
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.ui.PlayerView;
 
 import java.util.Locale;
 
@@ -56,7 +57,8 @@ public class PlayerGestureHelper {
      * 普通单击(未形成任何手势) = 切换控制面板.
      */
     boolean onPlayerTouch(View v, MotionEvent ev) {
-        if (session.player == null || session.playerView == null) return false;
+        final PlayerView pv = session.host().playerView();
+        if (session.player == null || pv == null) return false;
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {
                 gestureMode = 0;
@@ -64,8 +66,8 @@ public class PlayerGestureHelper {
                 gestureStartY = ev.getY();
                 gestureStartTime = System.currentTimeMillis();
                 gestureLastDx = 0;
-                session.playerView.removeCallbacks(gestureLongPressRunnable);
-                session.playerView.postDelayed(gestureLongPressRunnable, GESTURE_LONG_PRESS_MS);
+                pv.removeCallbacks(gestureLongPressRunnable);
+                pv.postDelayed(gestureLongPressRunnable, GESTURE_LONG_PRESS_MS);
                 return true;
             }
             case MotionEvent.ACTION_POINTER_DOWN:
@@ -77,7 +79,7 @@ public class PlayerGestureHelper {
                 float dy = ev.getY() - gestureStartY;
                 if (gestureMode == 0) {
                     if (Math.abs(dx) > GESTURE_SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy)) {
-                        session.playerView.removeCallbacks(gestureLongPressRunnable);
+                        pv.removeCallbacks(gestureLongPressRunnable);
                         gestureMode = 2;
                         gestureSeekBaseMs = session.player.getCurrentPosition();
                         gestureTargetMs = gestureSeekBaseMs;
@@ -88,7 +90,7 @@ public class PlayerGestureHelper {
                 if (gestureMode != 2) return true;
                 gestureLastDx = dx;
                 long durMs = session.player.getDuration();
-                int width = Math.max(1, session.playerView.getWidth());
+                int width = Math.max(1, pv.getWidth());
                 float perPxMs = durMs > 0 ? Math.max(durMs / (float) width, 120_000f / width) : 250f;
                 long limit = durMs > 0 ? durMs - 500 : Long.MAX_VALUE;
                 gestureTargetMs = Math.min(
@@ -110,7 +112,7 @@ public class PlayerGestureHelper {
             }
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL: {
-                session.playerView.removeCallbacks(gestureLongPressRunnable);
+                pv.removeCallbacks(gestureLongPressRunnable);
                 int mode = gestureMode;
                 gestureMode = 0;
                 if (mode == 1) {
@@ -137,10 +139,10 @@ public class PlayerGestureHelper {
                     return true;
                 }
                 if (System.currentTimeMillis() - gestureStartTime < 250) {
-                    if (session.playerView.isControllerFullyVisible()) {
-                        session.playerView.hideController();
+                    if (pv.isControllerFullyVisible()) {
+                        pv.hideController();
                     } else {
-                        session.playerView.showController();
+                        pv.showController();
                     }
                 }
                 return true;
@@ -152,8 +154,9 @@ public class PlayerGestureHelper {
 
     /** 手势中途取消(多指/异常): 长按恢复原速, 刮擦不落 seek. */
     void cancelGesture() {
-        if (session.playerView != null) {
-            session.playerView.removeCallbacks(gestureLongPressRunnable);
+        PlayerView pv = session.host().playerView();
+        if (pv != null) {
+            pv.removeCallbacks(gestureLongPressRunnable);
         }
         if (gestureMode == 1 && session.player != null) {
             session.player.setPlaybackParameters(new PlaybackParameters(gestureTempRateBefore));

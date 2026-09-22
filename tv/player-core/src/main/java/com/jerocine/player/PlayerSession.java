@@ -4,7 +4,6 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
-import android.widget.TextView;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -24,7 +23,8 @@ import java.util.Set;
  * 抽取前 6 个 helper 通过 activity 互相直接读写对方字段(adFilter → source → adFilter → skip 成环),
  * 任何一处改动都要同时读 6 个文件. 现在把"跨 helper 的共享状态与操作"全部收敛到本类:
  *   - helper 之间互不引用, 只依赖 session;
- *   - PlayerActivity 只负责 UI 出口(Host)与视图装配, 不再持有播放状态.
+ *   - PlayerActivity 只负责 UI 出口(Host)与视图装配, 不再持有播放状态;
+ *   - 本类不持有任何 View —— 视图全部归 PlayerActivity, helper 经 Host 读写.
  */
 public class PlayerSession {
 
@@ -59,6 +59,15 @@ public class PlayerSession {
         /** 刷新线路角标与"线路"按钮文案(relay = 当前集是否走全量中转). */
         void renderNetworkMode(boolean relay);
 
+        /** 播放器视图 — 壳层装配的实例, helper 做面板显隐/取子控件时经此访问. */
+        PlayerView playerView();
+
+        /** 刷新广告过滤角标; text 为 null 表示只改显隐(隐藏时不必刷文案). */
+        void renderAdFilterBadge(boolean visible, String text);
+
+        /** 刷新倍速角标文案. */
+        void renderSpeedText(String label);
+
         /** 把按键事件交回 Activity 默认处理(焦点移动等). */
         boolean dispatchToSuper(KeyEvent event);
     }
@@ -72,11 +81,6 @@ public class PlayerSession {
     }
 
     private final Host host;
-
-    // ===== 视图(多 helper 共用, 由 PlayerActivity 装配) =====
-    PlayerView playerView;
-    TextView adFilterBadge;
-    TextView speedText;
 
     // ===== 播放器 =====
     ExoPlayer player;
