@@ -26,7 +26,7 @@ public class PlayerGestureHelper {
     private final PlayerSession session;
 
     /** 手势模式: 0=无 1=长按2x 2=横滑刮擦 */
-    int gestureMode = 0;
+    private int gestureMode = 0;
     private float gestureStartX, gestureStartY;
     private long gestureStartTime;
     private long gestureSeekBaseMs, gestureTargetMs;

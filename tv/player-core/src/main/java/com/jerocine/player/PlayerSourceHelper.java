@@ -2,20 +2,17 @@ package com.jerocine.player;
 
 import android.content.Intent;
 
-import androidx.media3.common.MediaItem;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 
 /**
  * Intent 解析 — 多源(v3) / 单源 playlist(v2) / 单 URL 三种启动模式.
  *
- * 只负责"把 Intent 变成 session 里的片源与播放列表", 实际装载交给
- * {@link PlayerSession#loadSourceIntoPlayer}. 与其它 helper 无任何互相引用.
+ * 只负责"把 Intent 解析成片源与播放列表", 实际装载统一交给
+ * {@link PlayerSession#loadPlaylistIntoPlayer}; 本类不碰 player, 与其它 helper 无互相引用.
  */
 public class PlayerSourceHelper {
 
@@ -55,37 +52,21 @@ public class PlayerSourceHelper {
         ArrayList<String> urls = intent.getStringArrayListExtra(PlayerActivity.EXTRA_PLAYLIST_URLS);
         ArrayList<String> titles = intent.getStringArrayListExtra(PlayerActivity.EXTRA_PLAYLIST_TITLES);
         if (urls != null && !urls.isEmpty()) {
-            session.playlistTitles = (titles != null) ? titles : new ArrayList<>();
-            session.setRawUrls(urls);
-            session.resetLineState();
-            List<MediaItem> items = new ArrayList<>(urls.size());
-            for (int i = 0; i < urls.size(); i++) {
-                items.add(MediaItem.fromUri(session.mediaUriFor(i, urls.get(i))));
-            }
-            int safeStart = Math.max(0, Math.min(startIndex, items.size() - 1));
-            session.player.setMediaItems(items, safeStart, Math.max(0L, resumeMs));
-            session.player.prepare();
-            session.player.setPlayWhenReady(true);
-            session.host().updateTitleForCurrent();
-            session.updateNetworkModeUi();
+            session.loadPlaylistIntoPlayer(urls, titles, startIndex, resumeMs, false);
             return;
         }
 
-        // 兼容单 URL
+        // 兼容单 URL: 直接用原始地址起播(单 URL 模式不做代理包装)
         String url = intent.getStringExtra(PlayerActivity.EXTRA_URL);
         String title = intent.getStringExtra(PlayerActivity.EXTRA_TITLE);
         if (url == null || url.isEmpty()) {
             session.host().finishPlayer();
             return;
         }
-        session.playlistTitles = Collections.singletonList(title != null ? title : "");
-        session.setRawUrls(Collections.singletonList(url));
-        session.resetLineState();
-        session.player.setMediaItem(MediaItem.fromUri(url));
-        if (resumeMs > 0) session.player.seekTo(resumeMs);
-        session.player.prepare();
-        session.player.setPlayWhenReady(true);
-        session.host().updateTitleForCurrent();
+        session.loadPlaylistIntoPlayer(
+                Collections.singletonList(url),
+                Collections.singletonList(title != null ? title : ""),
+                0, resumeMs, true);
     }
 
     /** 解析多源 JSON. 返回 SOURCES_LOADED / SOURCES_EMPTY / SOURCES_INVALID. */

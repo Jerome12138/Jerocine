@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -130,6 +131,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private TextView titleText;
     private TextView episodesCount;
     private TextView resolutionBadge;
+    private TextView networkModeBadge;
+    private Button networkModeButton;
     private TextView centerToast;
     private ImageView centerIcon;
 
@@ -163,7 +166,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         session.playerView = playerView;
         session.speedText = findViewById(R.id.speed_text);
         session.adFilterBadge = findViewById(R.id.ad_filter_badge);
-        session.networkModeBadge = findViewById(R.id.network_mode_badge);
+        networkModeBadge = findViewById(R.id.network_mode_badge);
 
         // helper 之间互不引用: 只依赖 session(状态) + session.host()(UI 出口)
         skipHelper = new PlayerSkipHelper(session);
@@ -185,6 +188,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             View controlsRoot = playerView.findViewById(R.id.player_controls_root);
             if (controlsRoot != null) controlsRoot.setVisibility(v);
             if (v == View.VISIBLE) {
+                // "线路"按钮在 PlayerView 的控制视图里(懒加载): 面板显示时取到, 交给 host 统一刷新文案
+                networkModeButton = playerView.findViewById(R.id.btn_network_mode);
                 dialogHelper.bindControlButtons();
                 playerView.post(() -> {
                     View prog = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
@@ -634,6 +639,12 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     @Override
     public void toggleAdFilter() {
         adFilterHelper.toggleAdFilter();
+    }
+
+    @Override
+    public void renderNetworkMode(boolean relay) {
+        if (networkModeBadge != null) networkModeBadge.setText(relay ? "中转" : "直连");
+        if (networkModeButton != null) networkModeButton.setText(relay ? "切到直连" : "切到中转");
     }
 
     @Override

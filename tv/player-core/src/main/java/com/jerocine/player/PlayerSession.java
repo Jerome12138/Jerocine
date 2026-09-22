@@ -4,7 +4,6 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
-import android.widget.Button;
 import android.widget.TextView;
 
 import androidx.media3.common.MediaItem;
@@ -57,6 +56,9 @@ public class PlayerSession {
         /** 切换广告过滤开关(由 AdFilterHelper 实现, 供菜单调用). */
         void toggleAdFilter();
 
+        /** 刷新线路角标与"线路"按钮文案(relay = 当前集是否走全量中转). */
+        void renderNetworkMode(boolean relay);
+
         /** 把按键事件交回 Activity 默认处理(焦点移动等). */
         boolean dispatchToSuper(KeyEvent event);
     }
@@ -74,9 +76,7 @@ public class PlayerSession {
     // ===== 视图(多 helper 共用, 由 PlayerActivity 装配) =====
     PlayerView playerView;
     TextView adFilterBadge;
-    TextView networkModeBadge;
     TextView speedText;
-    Button networkModeButton;
 
     // ===== 播放器 =====
     ExoPlayer player;
@@ -121,10 +121,6 @@ public class PlayerSession {
 
     public Context context() { return host.context(); }
 
-    public ExoPlayer player() { return player; }
-
-    public boolean isAdFilterOn() { return adFilterOn; }
-
     // ============================ 片源装载 ============================
 
     /** 当前片源 id(多源时 = sourceList 选中项 id), 供回传前端更新历史片源. */
@@ -157,17 +153,33 @@ public class PlayerSession {
 
     /** 把指定 source 的 episodes 装入 player; 从 startEpisodeIndex 开始, resumeMs 续播. */
     void loadSourceIntoPlayer(int sourceIdx, int startEpisodeIndex, long resumeMs) {
-        if (player == null || sourceIdx < 0 || sourceIdx >= sourceList.size()) return;
+        if (sourceIdx < 0 || sourceIdx >= sourceList.size()) return;
         SourceData src = sourceList.get(sourceIdx);
-        playlistTitles = new ArrayList<>(src.titles);
-        setRawUrls(src.urls);
+        loadPlaylistIntoPlayer(src.urls, src.titles, startEpisodeIndex, resumeMs, false);
+    }
+
+    /**
+     * 装载并起播一组地址 — 三种启动模式(多源 / 单源 playlist / 单 URL)的唯一出口.
+     * 装载序列只此一份, 各模式只决定"装哪些地址、要不要走代理包装".
+     *
+     * @param rawUrls      原始地址列表(供线路切换与失败回退)
+     * @param titles       每集标题, 可为 null
+     * @param startIndex   起始集
+     * @param resumeMs     续播位置
+     * @param bypassFilter true = 直接用原始地址(单 URL 兼容模式, 不做代理包装)
+     */
+    void loadPlaylistIntoPlayer(List<String> rawUrls, List<String> titles,
+                                int startIndex, long resumeMs, boolean bypassFilter) {
+        if (player == null || rawUrls == null || rawUrls.isEmpty()) return;
+        playlistTitles = (titles != null) ? new ArrayList<>(titles) : new ArrayList<>();
+        setRawUrls(rawUrls);
         resetLineState();
-        List<MediaItem> items = new ArrayList<>(src.urls.size());
-        for (int i = 0; i < src.urls.size(); i++) {
-            items.add(MediaItem.fromUri(mediaUriFor(i, src.urls.get(i))));
+        List<MediaItem> items = new ArrayList<>(rawUrls.size());
+        for (int i = 0; i < rawUrls.size(); i++) {
+            String raw = rawUrls.get(i);
+            items.add(MediaItem.fromUri(bypassFilter ? raw : mediaUriFor(i, raw)));
         }
-        if (items.isEmpty()) return;
-        int safeStart = Math.max(0, Math.min(startEpisodeIndex, items.size() - 1));
+        int safeStart = Math.max(0, Math.min(startIndex, items.size() - 1));
         introSkippedForCurrent = false;
         outroPromptShown = false;
         player.setMediaItems(items, safeStart, Math.max(0L, resumeMs));
@@ -235,12 +247,10 @@ public class PlayerSession {
         });
     }
 
-    /** 刷新线路角标与按钮文案. */
+    /** 刷新线路角标与"线路"按钮文案 — 经 Host 出 UI, 本类不再直接持有/写 View. */
     void updateNetworkModeUi() {
         int idx = player != null ? player.getCurrentMediaItemIndex() : -1;
-        boolean relay = isRelay(idx);
-        if (networkModeBadge != null) networkModeBadge.setText(relay ? "中转" : "直连");
-        if (networkModeButton != null) networkModeButton.setText(relay ? "切到直连" : "切到中转");
+        host.renderNetworkMode(isRelay(idx));
     }
 
     void markEpisodeSwitching() {

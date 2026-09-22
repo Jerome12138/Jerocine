@@ -30,7 +30,7 @@ public class PlayerDialogHelper {
 
     private final PlayerSession session;
 
-    int speedIndex = 1;
+    private int speedIndex = 1;
     private boolean ctlBtnsBound = false;
 
     public PlayerDialogHelper(PlayerSession session) {
@@ -98,7 +98,6 @@ public class PlayerDialogHelper {
             source.setOnClickListener(b -> showSourceDialog());
         }
         if (networkMode != null) {
-            session.networkModeButton = networkMode;
             networkMode.setOnClickListener(b -> session.toggleNetworkMode());
             session.updateNetworkModeUi();
         }

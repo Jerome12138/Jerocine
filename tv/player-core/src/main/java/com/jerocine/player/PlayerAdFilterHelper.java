@@ -39,8 +39,6 @@ public class PlayerAdFilterHelper {
     private final Context context;
     private final PlayerSession session;
 
-    volatile String lastFilterToastUrl = "";
-
     /**
      * 端侧过滤 POST 客户端: 显式短超时上限.
      * 解析线程上同步等待, 不设上限会拖死播放列表解析; 切集时网络争用偶发失败, 调用处会重试一次.
@@ -111,7 +109,6 @@ public class PlayerAdFilterHelper {
         session.adFilterOn = !session.adFilterOn;
         prefs().edit().putBoolean(PREF_AD_FILTER, session.adFilterOn).apply();
         session.forceRawIdx.clear();
-        lastFilterToastUrl = "";
         session.reloadCurrentSourceKeepPosition();
         updateAdFilterBadge();
         session.host().showCenterToast(session.adFilterOn ? "广告过滤已开启" : "广告过滤已关闭", 1200);
