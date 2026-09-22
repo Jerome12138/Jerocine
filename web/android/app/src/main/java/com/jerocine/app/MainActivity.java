@@ -342,7 +342,7 @@ public class MainActivity extends BridgeActivity {
             input.setSelection(existing.length());
         }
 
-        AlertDialog dlg = new AlertDialog.Builder(this, R.style.JcPlayerDialog)
+        AlertDialog dlg = new AlertDialog.Builder(this, com.jerocine.player.R.style.JcPlayerDialog)
                 .setTitle(isReset ? "重置 Jerocine 服务器地址" : "请输入 Jerocine 服务器地址")
                 .setView(inWrap)
                 .setCancelable(false)
@@ -550,7 +550,7 @@ public class MainActivity extends BridgeActivity {
                             : value.replaceAll("^\"|\"$", "").replace("\\\"", "\"");
                     final String msg = prefix + "\nweb: " + stripped;
                     runOnUiThread(() -> {
-                        new AlertDialog.Builder(this, R.style.JcPlayerDialog)
+                        new AlertDialog.Builder(this, com.jerocine.player.R.style.JcPlayerDialog)
                                 .setTitle("诊断")
                                 .setMessage(msg)
                                 .setPositiveButton("OK", null)
