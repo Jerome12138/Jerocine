@@ -10,6 +10,11 @@ import android.widget.Toast;
 
 import androidx.annotation.DrawableRes;
 
+// jc_toast 布局与玻璃色令牌已收敛到 player-core(共享 UI 模块), 仅此一份.
+// AGP8 默认非传递 R 类(android.nonTransitiveRClass=true): 壳的 R 不含库资源,
+// 故这里显式引用 player-core 的 R —— 它才是 @layout/jc_toast 的宿主.
+import com.jerocine.player.R;
+
 /**
  * 共享玻璃 Toast — 把系统默认灰底小条统一换成项目的暗色玻璃拟态风.
  *

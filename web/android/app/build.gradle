@@ -14,6 +14,18 @@ if (jcVersionCode == null || jcVersionName == null) {
     throw new GradleException("读不到版本号, 请检查 ${jcVersionsFile} 里的 web.versionCode / web.versionName")
 }
 
+// 依赖版本唯一来源: 仓库根 scripts/android-versions.properties (dep.*)
+def jcDepsFile = rootProject.file('../../scripts/android-versions.properties')
+def jcDeps = new Properties()
+if (jcDepsFile.exists()) {
+    jcDepsFile.withInputStream { jcDeps.load(it) }
+}
+def media3Version = jcDeps.getProperty('dep.media3Version')
+def okhttpVersion = jcDeps.getProperty('dep.okhttpVersion')
+if (media3Version == null || okhttpVersion == null) {
+    throw new GradleException("读不到依赖版本, 请检查 ${jcDepsFile} 里的 dep.media3Version / dep.okhttpVersion")
+}
+
 android {
     namespace = "com.jerocine.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -88,15 +100,14 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 
-    // Media3 ExoPlayer (TV 原生视频播放, 接管前端 video.js)
-    def media3Version = "1.4.1"
+    // Media3 ExoPlayer (与公共播放模块 player-core 同版本, 版本号来自 android-versions.properties)
     implementation "androidx.media3:media3-exoplayer:$media3Version"
     implementation "androidx.media3:media3-exoplayer-hls:$media3Version"
     implementation "androidx.media3:media3-exoplayer-dash:$media3Version"
     implementation "androidx.media3:media3-datasource-okhttp:$media3Version"
     implementation "androidx.media3:media3-ui:$media3Version"
     implementation "androidx.media3:media3-session:$media3Version"
-    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
 }
 
 apply from: 'capacitor.build.gradle'

@@ -1,5 +1,6 @@
 package com.jerocine.app;
 
+import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerActivity;
 
 import android.app.AlertDialog;
@@ -172,6 +173,11 @@ public class MainActivity extends BridgeActivity {
 
     /** 加载用户填的服务器地址 */
     private void loadServer(String url) {
+        // 把当前服务器地址注入公共播放模块, 作为"未显式传 proxyBase"时的兜底代理
+        // (播放器本身不硬编码任何域名)
+        if (url != null && !url.isEmpty()) {
+            JerocinePlayer.setDefaultProxyBase(url.replaceAll("/+$", "") + "/api");
+        }
         WebView wv = (bridge != null) ? bridge.getWebView() : null;
         if (wv == null) return;
         // 断网兜底: 没网就不 loadUrl(避免 Chromium 原生 ERR_INTERNET_DISCONNECTED 错误页),
