@@ -2,6 +2,7 @@ package com.jerocine.tv.player
 
 import android.content.Context
 import android.content.Intent
+import com.jerocine.player.PlayerActivity
 import com.jerocine.tv.data.PlayInfoResp
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -79,6 +80,7 @@ fun buildNativePlayerPayload(
 }
 
 fun launchNativePlayer(context: Context, payload: NativePlayerPayload) {
+    // 目标 Activity 是公共播放模块 player-core 的实现(与 WebView 壳共用同一份播放器)
     val intent = Intent(context, PlayerActivity::class.java).apply {
         putExtra(PlayerActivity.EXTRA_SOURCES_JSON, payload.sourcesJson)
         putExtra(PlayerActivity.EXTRA_CURRENT_SOURCE_ID, payload.currentSourceId)

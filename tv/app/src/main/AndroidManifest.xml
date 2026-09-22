@@ -18,8 +18,9 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.JerocineTV">
 
+        <!-- 原生播放器: 公共模块 player-core 的实现(tv 壳不再自带一份播放器副本) -->
         <activity
-            android:name=".player.PlayerActivity"
+            android:name="com.jerocine.player.PlayerActivity"
             android:exported="false"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
             android:screenOrientation="landscape"

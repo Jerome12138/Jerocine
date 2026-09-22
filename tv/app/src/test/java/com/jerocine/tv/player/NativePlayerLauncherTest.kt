@@ -10,11 +10,14 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * 播放地址 / 线路策略(PlayerUrls)的测试已随实现迁到 player-core 模块:
+ *   tv/player-core/src/test/java/com/jerocine/player/PlayerUrlsTest.java
+ * 这里只保留 TV 壳自己的 payload 组装与历史续播逻辑。
+ */
 class NativePlayerLauncherTest {
     @Test
     fun historyItemResumeSecondsUsesSavedProgress() {
@@ -54,7 +57,7 @@ class NativePlayerLauncherTest {
             requestedEpisode = 1,
             skipIntroSec = 90,
             skipOutroSec = 60,
-            proxyBase = "https://jerocine.art/api"
+            proxyBase = "https://example.com/api"
         )
 
         assertNotNull(payload)
@@ -65,92 +68,12 @@ class NativePlayerLauncherTest {
         assertEquals(60_000L, payload.skipOutroMs)
         assertEquals("42", payload.filmId)
         assertEquals("测试片", payload.filmName)
-        assertEquals("https://jerocine.art/api", payload.proxyBase)
+        assertEquals("https://example.com/api", payload.proxyBase)
 
         val sources = Json.parseToJsonElement(payload.sourcesJson).jsonArray
         assertEquals("src_a", sources[0].jsonObject["id"]?.jsonPrimitive?.content)
         assertEquals("https://cdn/a01.m3u8", sources[0].jsonObject["episodes"]?.jsonArray?.get(0)?.jsonObject?.get("url")?.jsonPrimitive?.content)
         assertEquals("src_b", sources[1].jsonObject["id"]?.jsonPrimitive?.content)
         assertEquals("测试片 · 02", sources[1].jsonObject["episodes"]?.jsonArray?.get(1)?.jsonObject?.get("title")?.jsonPrimitive?.content)
-    }
-
-    @Test
-    fun playerWrapsM3u8WithProxyWhenAdFilterEnabled() {
-        val url = PlayerActivity.buildPlayableUrl(
-            0,
-            "https://cdn.example.com/video/01.m3u8?token=a b",
-            true,
-            false,
-            false,
-            "https://jerocine.art/api/"
-        )
-
-        assertEquals(
-            "https://jerocine.art/api/v1/m3u8/proxy?src=https%3A%2F%2Fcdn.example.com%2Fvideo%2F01.m3u8%3Ftoken%3Da+b&filterAds=1&proxyMedia=0",
-            url
-        )
-    }
-
-    @Test
-    fun playerEnablesFullRelayOnlyForCompatibilityRetry() {
-        val url = PlayerActivity.buildPlayableUrl(
-            0,
-            "https://cdn.example.com/video/01.m3u8",
-            true,
-            false,
-            true,
-            "http://jerocine.art/api"
-        )
-
-        assertTrue(url.endsWith("&filterAds=1&proxyMedia=1"))
-    }
-
-    @Test
-    fun playerKeepsOriginalUrlWhenProxyFallbackIsForced() {
-        val raw = "https://cdn.example.com/video/01.m3u8"
-
-        assertEquals(
-            raw,
-            PlayerActivity.buildPlayableUrl(0, raw, true, true, false, "https://jerocine.art/api")
-        )
-    }
-
-    @Test
-    fun relayRetryRequiresAProxyManifestAndDirectCdnFailure() {
-        val manifest = "http://jerocine.art/api/v1/m3u8/proxy?src=x&proxyMedia=0"
-
-        assertTrue(
-            PlayerActivity.shouldRetryWithRelay(
-                manifest,
-                "https://cdn.example.com/video/seg01.ts"
-            )
-        )
-        assertFalse(PlayerActivity.shouldRetryWithRelay(manifest, manifest))
-        assertFalse(
-            PlayerActivity.shouldRetryWithRelay(
-                manifest.replace("proxyMedia=0", "proxyMedia=1"),
-                "https://cdn.example.com/video/seg01.ts"
-            )
-        )
-        assertFalse(
-            PlayerActivity.shouldRetryWithRelay(
-                "https://cdn.example.com/video/index.m3u8",
-                "https://cdn.example.com/video/seg01.ts"
-            )
-        )
-    }
-
-    @Test
-    fun clientFilterSkipsManifestsAlreadyHandledByServerProxy() {
-        assertFalse(
-            PlayerActivity.needsClientSideFilter(
-                "http://jerocine.art/api/v1/m3u8/proxy?src=x&proxyMedia=1"
-            )
-        )
-        assertTrue(
-            PlayerActivity.needsClientSideFilter(
-                "https://cdn.example.com/video/index.m3u8"
-            )
-        )
     }
 }

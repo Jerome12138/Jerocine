@@ -117,12 +117,9 @@ dependencies {
     // token 加密存储
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Media3 / ExoPlayer（主播放器）
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
-    // 用 OkHttp 做数据源：复用 API 那条能过 TLS 的路径（老设备 CA 问题）
-    implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
+    // Media3 / ExoPlayer 由 :player-core 以 api 传递(播放器技术栈唯一声明处),
+    // 这里不再重复声明版本 —— 版本改 scripts/android-versions.properties 的 dep.media3Version.
+    // 用 OkHttp 做数据源: 播放器已内建(见 player-core), shell 侧 Retrofit 复用同一份 okhttp.
 
     // IJKPlayer（兜底播放器，ffmpeg 内核，啃畸形采集源）
     implementation("tv.danmaku.ijk.media:ijkplayer-java:0.8.8")
