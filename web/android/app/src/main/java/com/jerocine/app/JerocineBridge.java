@@ -1,5 +1,6 @@
 package com.jerocine.app;
 
+import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerActivity;
 
 import android.app.Activity;
@@ -292,13 +293,13 @@ public class JerocineBridge {
     }
 
     private String handleStopPlayer() {
-        PlayerActivity.stopRunningInstance();
+        JerocinePlayer.control().stop();
         return jsonOk();
     }
 
     private String handleSetPlayerSpeed(JSONObject args) throws Exception {
         float speed = (float) args.optDouble("speed", 1.0);
-        PlayerActivity.setSpeedOnRunningInstance(speed);
+        JerocinePlayer.control().setSpeed(speed);
         return jsonOk();
     }
 

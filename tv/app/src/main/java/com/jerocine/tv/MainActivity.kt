@@ -9,7 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import com.jerocine.tv.data.HistoryReq
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.data.isPlayerHistoryEvent
-import com.jerocine.player.PlayerActivity
+import com.jerocine.player.JerocinePlayer
 import com.jerocine.tv.ui.view.DetailFragment
 import com.jerocine.tv.ui.view.HomeFragment
 import com.jerocine.tv.ui.view.SearchFragment
@@ -28,7 +28,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        PlayerActivity.setCallback(::handlePlayerEvent)
+        JerocinePlayer.config().setCallback(::handlePlayerEvent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (supportFragmentManager.backStackEntryCount > 0) {
@@ -110,7 +110,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
-        PlayerActivity.setCallback(null)
+        JerocinePlayer.config().setCallback(null)
         super.onDestroy()
     }
 

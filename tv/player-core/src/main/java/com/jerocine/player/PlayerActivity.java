@@ -56,7 +56,8 @@ import okhttp3.OkHttpClient;
  * 倍速: 0.5 / 1 / 1.25 / 1.5 / 2 / 3
  * 遥控: ←→ ±10s(长按渐进步进) / Enter 播暂 / Menu·Info 控制面板 / Back 双击退出
  *
- * 本类只做两件事: ① 装配视图与 helper; ② 实现 {@link PlayerSession.Host} 的 UI 出口.
+ * 本类只做三件事: ① 装配视图与 helper; ② 实现 {@link PlayerSession.Host} 的 UI 出口;
+ * ③ 向 {@link PlayerControl} 注册自身 / 上报播放结局.
  * 播放状态与跨 helper 操作都在 {@link PlayerSession}.
  */
 @OptIn(markerClass = UnstableApi.class)
@@ -83,40 +84,21 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         void onPlayerEvent(String name, JSONObject payload);
     }
 
-    public static void setCallback(PlayerEventCallback l) {
-        JerocinePlayer.setCallback(l);
-    }
-
     static void emit(String name, JSONObject payload) {
         JerocinePlayer.dispatch(name, payload);
     }
 
-    /** 当前运行中的 PlayerActivity 单例引用(用于壳层 stop / setSpeed). */
-    private static volatile PlayerActivity sCurrentInstance;
-
-    public static void stopRunningInstance() {
-        PlayerActivity inst = sCurrentInstance;
-        if (inst != null) inst.runOnUiThread(inst::finish);
-    }
-
-    public static void setSpeedOnRunningInstance(float speed) {
-        PlayerActivity inst = sCurrentInstance;
-        if (inst != null) {
-            inst.runOnUiThread(() -> {
-                ExoPlayer p = inst.session == null ? null : inst.session.player;
-                if (p != null) p.setPlaybackParameters(new PlaybackParameters(speed));
-            });
-        }
+    /** 改当前播放器倍速 — 由 {@link PlayerControl#setSpeed} 在主线程回调. */
+    void applyPlaybackSpeed(float speed) {
+        ExoPlayer p = session == null ? null : session.player;
+        if (p != null) p.setPlaybackParameters(new PlaybackParameters(speed));
     }
 
     private static final long CACHE_SIZE = 1024L * 1024L * 1024L; // 1GB
     private static final long PROGRESS_TICK_MS = 5000L;
 
-    /** 进程内单例, 避免重开时 "Another SimpleCache instance" 报错. */
+    /** 进程内单例, 避免重开时 "Another SimpleCache instance" 报错 — 进程级资源, 必须静态. */
     private static SimpleCache sCache;
-
-    /** 跨 Activity 的播放失败标志: 报错时置 true, finish 后壳层 onResume 检查并通知前端 fallback. */
-    public static volatile boolean sLastPlaybackFailed = false;
 
     private final Handler toastHandler = new Handler(Looper.getMainLooper());
     private final Handler iconHandler = new Handler(Looper.getMainLooper());
@@ -150,7 +132,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        sCurrentInstance = this;
+        PlayerControl.get().attach(this);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_player);
         hideSystemUi();
@@ -310,7 +292,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
-                sLastPlaybackFailed = true;
+                PlayerControl.get().markPlaybackFailed();
                 String currentUrl = "";
                 try {
                     if (session.player != null && session.player.getCurrentMediaItem() != null
@@ -330,7 +312,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                         && !session.forceRelayIdx.contains(errIdx)) {
                     session.forceRelayIdx.add(errIdx);
                     session.forceRawIdx.remove(errIdx);
-                    sLastPlaybackFailed = false;
+                    PlayerControl.get().clearPlaybackFailure();
                     session.retryCurrentItem(errIdx, "直连失败, 已切换中转");
                     return;
                 }
@@ -342,7 +324,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                         && !session.forceRawIdx.contains(errIdx)) {
                     session.forceRawIdx.add(errIdx);
                     session.forceRelayIdx.remove(errIdx);
-                    sLastPlaybackFailed = false;
+                    PlayerControl.get().clearPlaybackFailure();
                     session.retryCurrentItem(errIdx, "清单代理失败, 已切换直连");
                     return;
                 }
@@ -489,7 +471,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (sCurrentInstance == this) sCurrentInstance = null;
+        PlayerControl.get().detach(this);
         skipHelper.stopOutroWatcher();
         toastHandler.removeCallbacksAndMessages(null);
         iconHandler.removeCallbacksAndMessages(null);

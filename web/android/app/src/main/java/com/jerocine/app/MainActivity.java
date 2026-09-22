@@ -1,7 +1,6 @@
 package com.jerocine.app;
 
 import com.jerocine.player.JerocinePlayer;
-import com.jerocine.player.PlayerActivity;
 
 import android.app.AlertDialog;
 import android.content.Context;
@@ -104,8 +103,8 @@ public class MainActivity extends BridgeActivity {
         // 启动加载动画 (覆盖在 WebView 上方居中, 加载完成隐藏)
         addBootProgress();
 
-        // PlayerActivity 事件 → 通过 bridge 转发给 web
-        PlayerActivity.setCallback((name, payload) -> {
+        // 播放器事件 → 通过 bridge 转发给 web
+        JerocinePlayer.config().setCallback((name, payload) -> {
             JerocineBridge.sendEvent(webViewRef, name, payload);
         });
 
@@ -154,9 +153,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        // PlayerActivity 报错后回到主界面: 通知前端 fallback (关 adFilter 重播)
-        if (PlayerActivity.sLastPlaybackFailed) {
-            PlayerActivity.sLastPlaybackFailed = false;
+        // 播放器报错后回到主界面: 通知前端 fallback (关 adFilter 重播)
+        if (JerocinePlayer.control().consumePlaybackFailure()) {
             WebView wv = (bridge != null) ? bridge.getWebView() : null;
             if (wv != null) {
                 wv.evaluateJavascript(
@@ -176,7 +174,7 @@ public class MainActivity extends BridgeActivity {
         // 把当前服务器地址注入公共播放模块, 作为"未显式传 proxyBase"时的兜底代理
         // (播放器本身不硬编码任何域名)
         if (url != null && !url.isEmpty()) {
-            JerocinePlayer.setDefaultProxyBase(url.replaceAll("/+$", "") + "/api");
+            JerocinePlayer.config().setDefaultProxyBase(url.replaceAll("/+$", "") + "/api");
         }
         WebView wv = (bridge != null) ? bridge.getWebView() : null;
         if (wv == null) return;
