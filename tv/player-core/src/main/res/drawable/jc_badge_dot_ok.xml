@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 广告过滤角标状态点 — 绿(过滤正常/有结果). 与 web 端 .jc-player-adtag::before 同色同径 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/jc_badge_ok" />
+    <size android:width="8dp" android:height="8dp" />
+</shape>

@@ -16,6 +16,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.MediaType;
@@ -69,33 +70,66 @@ public class PlayerAdFilterHelper {
         return pb == null ? "" : pb;
     }
 
+    /** 当前播放清单 URL(player 上媒体项); 未就绪/已释放返回空串. */
+    private String currentMediaUrl() {
+        try {
+            if (session.player != null
+                    && session.player.getCurrentMediaItem() != null
+                    && session.player.getCurrentMediaItem().localConfiguration != null) {
+                return String.valueOf(session.player.getCurrentMediaItem().localConfiguration.uri);
+            }
+        } catch (Exception ignore) {
+            /* player 未就绪: 视为无片源 */
+        }
+        return "";
+    }
+
+    /** 求出角标状态(无片源 → null, 壳层隐藏角标). 判据与前端 web 播放器五态一致. */
+    AdFilterStatus currentStatus() {
+        String url = currentMediaUrl();
+        if (url.isEmpty()) return null;
+        // 服务端代理清单(已在服务端过滤, 端侧不再重复 POST) → 「服务端过滤中」
+        boolean viaServerProxy = url.toLowerCase(Locale.US).contains("/m3u8/proxy?");
+        return AdFilterStatus.of(
+                session.adFilterOn,
+                session.filterProxyMissing,
+                viaServerProxy || PlayerUrls.isM3u8(url),
+                viaServerProxy,
+                session.filterFailed,
+                session.filterAttempted,
+                session.pendingFilteredCount);
+    }
+
+    /** 刷新角标(五态整句 + 状态点), 由起播/切集/开关切换调用; 无片源时隐藏. */
     void updateAdFilterBadge() {
-        // 盾牌图标已在布局里(drawableStart=ic_shield), 起播后由 showFilterStatus 改成结果
-        session.host().renderAdFilterBadge(session.adFilterOn, session.adFilterOn ? "过滤" : null);
+        session.host().renderAdFilterBadge(currentStatus());
     }
 
     /** 起播时按本集实际过滤结果给一次明确提示 + 刷新角标(让"有没有过滤掉"肉眼可见). */
     void showFilterStatus() {
-        if (!session.adFilterOn) return; // 用户主动关了过滤, 不打扰
-        final String msg, badge;
-        if (session.filterProxyMissing) {
-            msg = "广告过滤未生效: 代理地址未传(请彻底重启/清缓存或更新到最新)";
-            badge = "未生效";
-        } else if (session.filterFailed && session.pendingFilteredCount == 0) {
-            msg = "广告过滤失败: 网络异常";
-            badge = "失败";
-        } else if (session.pendingFilteredCount > 0) {
-            msg = "已过滤 " + session.pendingFilteredCount + " 段广告";
-            badge = String.valueOf(session.pendingFilteredCount);
-        } else if (session.filterAttempted) {
-            msg = "本集未发现广告";
-            badge = "0";
-        } else {
-            msg = "广告过滤未触发";
-            badge = "未触发";
+        AdFilterStatus st = currentStatus();
+        session.host().renderAdFilterBadge(st);
+        if (!session.adFilterOn) return; // 主动关了过滤: 角标已常驻"过滤未开启", 不再弹中央提示
+        session.host().showCenterToast(toastFor(st), 2200);
+    }
+
+    /** 中央提示文案(角标状态 → 一句话), 与角标语义保持一致. */
+    private static String toastFor(AdFilterStatus st) {
+        if (st == null) return "广告过滤未触发";
+        switch (st.kind) {
+            case AdFilterStatus.KIND_INEFFECTIVE:
+                return "广告过滤未生效: 代理地址未传(请彻底重启/清缓存或更新到最新)";
+            case AdFilterStatus.KIND_FAILED:
+                return "广告过滤失败: 网络异常";
+            case AdFilterStatus.KIND_FILTERED:
+                return "已过滤 " + st.count + " 段广告";
+            case AdFilterStatus.KIND_PROXY:
+                return "本集由服务端过滤";
+            case AdFilterStatus.KIND_CLEAN:
+                return "本集未发现广告";
+            default:
+                return "该源无需过滤";
         }
-        session.host().showCenterToast(msg, 2200);
-        session.host().renderAdFilterBadge(true, badge);
     }
 
     /** 切换广告过滤: 持久化 + 重载当前集(保留进度) + 刷新标. */

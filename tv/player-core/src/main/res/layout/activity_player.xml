@@ -57,7 +57,9 @@
             android:singleLine="true"
             android:ellipsize="end" />
 
-        <!-- 广告过滤常驻标: 盾牌图标 + 起播后显示本集过滤结果 -->
+        <!-- 广告过滤标: 状态圆点 + 五态整句(文案/配色对齐前端 web 播放器, 见 AdFilterStatus).
+             圆点色调随状态在 Java 层换 drawable(绿/灰/蓝); 无片源时隐藏, 开关关掉也显示"过滤未开启";
+             注意它随控制面板一起显隐(与 web 的常驻不同), 是用户拍板保留的差异, 别顺手改成常驻. -->
         <TextView
             android:id="@+id/ad_filter_badge"
             android:layout_width="wrap_content"
@@ -65,15 +67,14 @@
             android:layout_gravity="center_vertical"
             android:layout_marginStart="12dp"
             android:background="@drawable/jc_badge_bg"
-            android:drawableStart="@drawable/ic_shield"
-            android:drawablePadding="5dp"
+            android:drawableStart="@drawable/jc_badge_dot_ok"
+            android:drawablePadding="6dp"
             android:gravity="center_vertical"
             android:includeFontPadding="false"
             android:paddingHorizontal="12dp"
-            android:textColor="@color/jc_accent"
+            android:textColor="@color/jc_text"
             android:textSize="13sp"
-            android:textStyle="bold"
-            android:text="过滤"
+            android:text="过滤未开启"
             android:visibility="gone" />
 
         <!-- 当前集数 (右上角) — 玻璃胶囊 -->

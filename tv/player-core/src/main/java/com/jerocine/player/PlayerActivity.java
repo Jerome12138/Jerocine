@@ -636,10 +636,23 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     }
 
     @Override
-    public void renderAdFilterBadge(boolean visible, String text) {
+    public void renderAdFilterBadge(AdFilterStatus status) {
         if (adFilterBadge == null) return;
-        if (text != null) adFilterBadge.setText(text);
-        adFilterBadge.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (status == null) {
+            adFilterBadge.setVisibility(View.GONE);
+            return;
+        }
+        int dot;
+        if (status.tone == AdFilterStatus.Tone.BLUE) {
+            dot = R.drawable.jc_badge_dot_busy;
+        } else if (status.tone == AdFilterStatus.Tone.GRAY) {
+            dot = R.drawable.jc_badge_dot_idle;
+        } else {
+            dot = R.drawable.jc_badge_dot_ok;
+        }
+        adFilterBadge.setText(status.text);
+        adFilterBadge.setCompoundDrawablesRelativeWithIntrinsicBounds(dot, 0, 0, 0);
+        adFilterBadge.setVisibility(View.VISIBLE);
     }
 
     @Override

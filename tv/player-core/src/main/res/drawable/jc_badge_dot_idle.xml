@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 广告过滤角标状态点 — 灰(未开启/该源无需过滤) -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/jc_badge_idle" />
+    <size android:width="8dp" android:height="8dp" />
+</shape>

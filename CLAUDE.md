@@ -112,6 +112,8 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
   - 自定义 Media3 控件布局 `tv/player-core/src/main/res/layout/exo_player_control_view.xml`（进度条下方一排[图标+2字]按钮），按钮绑定在 `PlayerDialogHelper.bindControlButtons()`，**不在** `PlayerActivity`。
   - 该模块**没有 AndroidManifest.xml**：`com.jerocine.player.PlayerActivity` 必须由各壳清单声明（两端都已声明），传参统一走 `PlayerActivity.EXTRA_*` 常量，别写字面量字符串。
   - **播放器资源只在 player-core 定义一份**：壳里出现同名 drawable/color/style 会**覆盖库资源**（改了 core 不生效），要改样式改 core，别在壳里复制副本。
+  - **播放器内的可见文案以"前端 web 播放器"为唯一基准**（`web/src/views/public/PlayView.vue`，video.js 那套；**不是** `web/android` 壳）。广告过滤角标即五态：`过滤未开启 / 该源无需过滤 / 服务端过滤中 / 未检出广告 / 已过滤 N 段广告`，文案与色调由纯逻辑 `AdFilterStatus` 给出（+2 个 Android 特有态 `过滤未生效 / 过滤失败`），壳层只做 `Tone → drawable` 映射（`jc_badge_dot_{ok,idle,busy}`）。**过滤关掉时不隐藏**（显示"过滤未开启"），只有尚无片源才隐藏 —— 历史上的"开了才显示"会让用户以为功能不存在。改文案两端同步，另有单测锁定优先级。
+  - **⚠️ 弹窗背景必须不透明（独立 Dialog window 的限制）。** 弹窗是独立 window，其 `windowBackground` 带 alpha 时在电视等设备上会**退化成白底**（不是半透明）→ 必须用不透明实色版（core 的 `jc_glass_solid` = `#FF15151C`，即 `jc_glass` 同 RGB 去掉 alpha）。**View 层浮层不受此限**：播放器中央提示 `jc_toast_bg`、顶部角标 `jc_badge_bg` 用半透明 `jc_glass` 在 TV 上实测正常。**收敛壳层重复资源时别把壳里那份不透明弹窗背景删掉** —— `tv/app` 的 `jc_dialog_bg.xml` 就这么被删过一次，直接导致 TV 播放器弹窗白底。
 
 ## Android APK（Capacitor 壳）
 

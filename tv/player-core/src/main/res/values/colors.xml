@@ -19,6 +19,10 @@
     <color name="jc_glass_soft">#B31E1E28</color>
     <!-- 更深玻璃面 (顶/底栏渐变末端) -->
     <color name="jc_glass_deep">#CC0B0B0F</color>
+    <!-- 玻璃面的**实色版**(与 jc_glass 同 RGB 15151C, 去掉 alpha): 专供弹窗背景.
+         弹窗永远叠在视频画面上, 带 alpha 会把亮画面透出来 → 观感发白/发脏(旧设备尤其明显),
+         所以弹窗底色必须不透明. 顶/底栏等"衬在 UI 之上"的浮层才适合用半透明玻璃. -->
+    <color name="jc_glass_solid">#FF15151C</color>
     <!-- 遮罩 (抽屉外侧/弹窗背后压暗) -->
     <color name="jc_scrim">#99000000</color>
     <!-- 标题栏轻渐变末端(顶部) -->
@@ -49,6 +53,13 @@
 
     <!-- ===== 危险 ===== -->
     <color name="jc_danger">#FFFF5B6A</color>
+
+    <!-- ===== 角标状态点 (广告过滤角标) ===== -->
+    <!-- 与前端 web 播放器 PlayView.vue 的 .jc-player-adtag::before 逐值一致:
+         绿 = 过滤正常/有结果; 灰 = 未开启/无需过滤; 蓝 = 服务端过滤中(数量未知) -->
+    <color name="jc_badge_ok">#FF34D399</color>
+    <color name="jc_badge_idle">#FF9CA3AF</color>
+    <color name="jc_badge_busy">#FF60A5FA</color>
 
     <!-- ===== 进度条 (DefaultTimeBar) ===== -->
     <!-- 已播 = 强调青; 缓冲 = 半透明白; 未播 = 更淡白; 拖动点 = 强调青 -->

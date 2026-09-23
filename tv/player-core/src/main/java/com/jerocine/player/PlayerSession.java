@@ -62,8 +62,8 @@ public class PlayerSession {
         /** 播放器视图 — 壳层装配的实例, helper 做面板显隐/取子控件时经此访问. */
         PlayerView playerView();
 
-        /** 刷新广告过滤角标; text 为 null 表示只改显隐(隐藏时不必刷文案). */
-        void renderAdFilterBadge(boolean visible, String text);
+        /** 刷新广告过滤角标(五态文案 + 状态点色调); status 为 null 表示隐藏(尚无片源). */
+        void renderAdFilterBadge(AdFilterStatus status);
 
         /** 刷新倍速角标文案. */
         void renderSpeedText(String label);
