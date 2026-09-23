@@ -89,7 +89,10 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
 
 - `web/android/` 源码纳入 git。精细忽略：`build/`、`.gradle/`、`local.properties`、`assets/public`(cap 产物)、**`*.keystore`/`*.jks`(发布密钥严禁 commit)**。
 - **APK 构建**：见上文「构建脚本清单」的 `scripts/build-android.sh`（已封装 `pnpm build` + `cap sync android` + `gradlew`，并强制校验正式签名）。手工兜底：`cd web && pnpm build:no-check && npx cap sync android && cd android && ./gradlew assembleDebug`（debug 无需密钥）。
-- 原生播放器控件 = 自定义 Media3 布局 `res/layout/exo_player_control_view.xml`（进度条下方一排[图标+2字]按钮），由 `PlayerActivity.bindControlButtons()` 绑定。
+- **原生播放器只有一个实现：`tv/player-core`**（Java 库，被 `tv` 与 `web/android` 两个工程各自 include，两壳不再自带播放器副本）。
+  - 自定义 Media3 控件布局 `tv/player-core/src/main/res/layout/exo_player_control_view.xml`（进度条下方一排[图标+2字]按钮），按钮绑定在 `PlayerDialogHelper.bindControlButtons()`，**不在** `PlayerActivity`。
+  - 该模块**没有 AndroidManifest.xml**：`com.jerocine.player.PlayerActivity` 必须由各壳清单声明（两端都已声明），传参统一走 `PlayerActivity.EXTRA_*` 常量，别写字面量字符串。
+  - **播放器资源只在 player-core 定义一份**：壳里出现同名 drawable/color/style 会**覆盖库资源**（改了 core 不生效），要改样式改 core，别在壳里复制副本。
 
 ## Android APK（Capacitor 壳）
 
@@ -97,7 +100,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
   - **前端改动部署线上即对 APK 生效**（APK 清缓存重启即可），无需重打 APK。
   - **`window.Capacitor` 不会注入**（远程页）→ 壳在 pause/resume `eval("window.Capacitor.triggerEvent(...)")` 会报 undefined。已用 `src/utils/capacitorShim.ts` 垫片兜底；生产(release)包 `onConsoleMessage` 不再弹 Toast。
 - 断网兜底在**原生层** `MainActivity`（`showOfflineOverlay`），Web 层兜底覆盖不到纯断网。
-- 视频：APK 内有**原生 ExoPlayer 全屏播放器**（`PlayerActivity.java` + `JerocineBridge` + `jerocineNative.ts`），`isNative()` 时 `PlayView` 派发给原生、不渲染 video.js。
+- 视频：APK 内有**原生 ExoPlayer 全屏播放器**（`tv/player-core` 的 `PlayerActivity` + 壳侧 `JerocineBridge` + 前端 `jerocineNative.ts`），`isNative()` 时 `PlayView` 派发给原生、不渲染 video.js。
 - **⚠️ 原生播放派发有 3 个入口，配置必须同步**（踩过：只 PlayView 带 `proxyBase`，另两条漏，致原生端侧过滤"代理地址未传"不触发）：
   1. `router/index.ts` beforeEach 守卫——**APK 上进 `/play` 会被它拦截**（拉 detail → 直接 `jerocine.playPlaylist` → 重定向 `/filmDetail`），**PlayView 在原生上根本不挂载**（其内的 playPlaylist 派发=原生死代码）。收藏/外链/历史进入走这里。
   2. `FilmDetailView.gotoPlay`——详情页"立即播放/继续观看"直跳原生，**不走 `/play` 路由**。
