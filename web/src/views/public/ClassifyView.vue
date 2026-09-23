@@ -509,8 +509,10 @@ const tvAllEmpty = computed(
 .jc-classify-tv__title {
   align-items: center;
 }
+/* 页头标题字号**不在这里给** —— 该元素同时带 jc-tv-sec 的 .t 类, 由全局
+   [data-mode='tv'] .jc-tv-sec .t(= --jc-fs-base) 定档; 这里再写一次会被全局规则按
+   特异性压掉, 只会误导后来人(筛选页就是照它抄才抄出 2xl 的不一致). */
 .jc-classify-tv__title-grad {
-  font-size: var(--jc-fs-2xl);
   font-weight: var(--jc-fw-bold);
   background-image: var(--jc-brand-gradient);
   -webkit-background-clip: text;
@@ -519,13 +521,14 @@ const tvAllEmpty = computed(
   -webkit-text-fill-color: transparent;
 }
 .jc-classify-tv__title-sep {
-  font-size: var(--jc-fs-lg);
+  font-size: var(--jc-fs-base);
   color: var(--jc-text-muted);
   margin: 0 var(--jc-space-3);
 }
 .jc-classify-tv__lib {
-  height: 36px;
-  font-size: var(--jc-fs-sm);
+  height: 32px;
+  padding: 0 10px;
+  font-size: var(--jc-fs-xs);
 }
 .jc-classify-tv__section {
   display: flex;

@@ -2,6 +2,8 @@
 <!--
   播放器页面布局(公共播放模块唯一一份, 两壳共用; 壳不再各自复制).
   角标: 广告过滤 / 分辨率 / 集数 均在顶部标题栏, 随控制条一起显隐.
+  注: 线路(直连/中转)不再有顶部常驻角标 —— 状态改由底栏「中转」按钮左上角的状态点表达
+  (详见 exo_player_control_view.xml), 免得顶部堆一排小胶囊.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -92,24 +94,6 @@
             android:textSize="13sp"
             android:visibility="gone" />
 
-        <!-- 线路标: 直连 / 中转(媒体分片是否走中转) -->
-        <TextView
-            android:id="@+id/network_mode_badge"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="10dp"
-            android:background="@drawable/jc_badge_bg"
-            android:drawableStart="@drawable/ic_network_mode"
-            android:drawablePadding="5dp"
-            android:gravity="center_vertical"
-            android:includeFontPadding="false"
-            android:paddingHorizontal="12dp"
-            android:text="直连"
-            android:textColor="@color/jc_accent"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
         <TextView
             android:id="@+id/speed_text"
             android:layout_width="wrap_content"
@@ -134,9 +118,8 @@
             android:background="@drawable/jc_badge_bg"
             android:gravity="center_vertical"
             android:includeFontPadding="false"
-            android:textColor="@color/jc_accent"
+            android:textColor="@color/jc_text_secondary"
             android:textSize="13sp"
-            android:textStyle="bold"
             android:paddingHorizontal="12dp"
             android:visibility="gone" />
     </LinearLayout>

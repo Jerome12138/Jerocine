@@ -50,13 +50,16 @@ public class PlayerSession {
         /** 当前影片 id(供事件回传), 无则空串. */
         String filmId();
 
-        /** 打开"播放控制"菜单(由 DialogHelper 实现, 供按键分发调用). */
-        void showPlayMenu();
-
-        /** 切换广告过滤开关(由 AdFilterHelper 实现, 供菜单调用). */
+        /** 切换广告过滤开关(由 AdFilterHelper 实现, 供底栏"过滤"按钮调用). */
         void toggleAdFilter();
 
-        /** 刷新线路角标与"线路"按钮文案(relay = 当前集是否走全量中转). */
+        /** 刷新底栏"过滤"按钮左上角状态点(开=绿点/关=灰点). 文案恒定不变色. */
+        void renderAdFilterSwitch(boolean on);
+
+        /** 切换线路开关(直连 ⇄ 中转, 由 NetworkModeHelper 实现, 供底栏"中转"按钮调用). */
+        void toggleNetworkMode();
+
+        /** 刷新底栏"中转"按钮左上角状态点(开=绿点/关=灰点). 文案恒定为"中转". */
         void renderNetworkMode(boolean relay);
 
         /** 播放器视图 — 壳层装配的实例, helper 做面板显隐/取子控件时经此访问. */
@@ -98,8 +101,13 @@ public class PlayerSession {
     List<String> currentRawUrls = new ArrayList<>();
     /** 代理失败的集 → 强制用原始地址. */
     final Set<Integer> forceRawIdx = new HashSet<>();
-    /** 直连分片失败的集 → 强制全量中转. */
+    /** 直连分片失败的集 → 强制全量中转(单集自愈; 与用户的"中转"开关无关). */
     final Set<Integer> forceRelayIdx = new HashSet<>();
+    /**
+     * 用户的中转开关(默认关 = 分片直连) — 全局生效, 持久化在 PlayerNetworkModeHelper.
+     * 与 forceRelayIdx 的差别: 这个是"用户意图", 那个是"单集自愈".
+     */
+    volatile boolean relayOn = false;
     volatile int pendingFilteredCount = 0;
     volatile boolean filterAttempted = false;
     volatile boolean filterFailed = false;
@@ -204,12 +212,13 @@ public class PlayerSession {
 
     String mediaUriFor(int idx, String rawUrl) {
         return PlayerUrls.buildPlayableUrl(
-                rawUrl, adFilterOn, forceRawIdx.contains(idx), forceRelayIdx.contains(idx), proxyBase);
+                rawUrl, adFilterOn, forceRawIdx.contains(idx), isRelay(idx), proxyBase);
     }
 
-    /** 当前集是否走全量中转. */
+    /** 当前集是否走全量中转: 用户开关开着, 或本集被自愈标记(且没被强制回原始). */
     boolean isRelay(int idx) {
-        return forceRelayIdx.contains(idx) && !forceRawIdx.contains(idx);
+        if (forceRawIdx.contains(idx)) return false;
+        return relayOn || forceRelayIdx.contains(idx);
     }
 
     /** 当前视频能否切换线路(仅"直连 CDN 的 m3u8 + 开关开启 + 有代理地址"). */
@@ -220,18 +229,8 @@ public class PlayerSession {
         return raw.contains(".m3u8") && !raw.contains("/m3u8/proxy?");
     }
 
-    /** 手动切换本集线路(直连 ⇄ 中转). */
-    void toggleNetworkMode() {
-        int idx = player != null ? player.getCurrentMediaItemIndex() : -1;
-        if (!canSwitchNetworkMode(idx)) {
-            host.showCenterToast("当前视频不支持线路切换", 1500);
-            return;
-        }
-        boolean relay = !forceRelayIdx.contains(idx);
-        forceRawIdx.remove(idx);
-        if (relay) forceRelayIdx.add(idx); else forceRelayIdx.remove(idx);
-        retryCurrentItem(idx, relay ? "已切换到中转" : "已切换到直连");
-    }
+    // 手动切换线路(直连 ⇄ 中转)不在这里 —— 它需要读/写 Context 落盘开关态,
+    // 由 PlayerNetworkModeHelper.toggle() 实现, 经 Host.toggleNetworkMode() 转发。
 
     /** 用当前线路策略重建某集并恢复进度(线路切换 / 失败自愈). */
     void retryCurrentItem(int idx, String message) {
@@ -251,10 +250,9 @@ public class PlayerSession {
         });
     }
 
-    /** 刷新线路角标与"线路"按钮文案 — 经 Host 出 UI, 本类不再直接持有/写 View. */
+    /** 刷新底栏"中转"按钮的状态点 — 经 Host 出 UI, 本类不再直接持有/写 View. */
     void updateNetworkModeUi() {
-        int idx = player != null ? player.getCurrentMediaItemIndex() : -1;
-        host.renderNetworkMode(isRelay(idx));
+        host.renderNetworkMode(relayOn);
     }
 
     void markEpisodeSwitching() {

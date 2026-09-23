@@ -139,6 +139,7 @@ public class PlayerAdFilterHelper {
         session.forceRawIdx.clear();
         session.reloadCurrentSourceKeepPosition();
         updateAdFilterBadge();
+        session.host().renderAdFilterSwitch(session.adFilterOn);
         session.host().showCenterToast(session.adFilterOn ? "广告过滤已开启" : "广告过滤已关闭", 1200);
     }
 

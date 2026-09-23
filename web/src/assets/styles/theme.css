@@ -96,6 +96,9 @@
   --jc-fs-3xl: 2.5rem;
   --jc-fs-display: clamp(1.75rem, 1.2rem + 1.5vw, 2.25rem); /* 详情页大标题, 28-34px */
   --jc-fs-hero: clamp(2.25rem, 3.5vw + 0.75rem, 4rem);
+  /* 卡片角标(热度 Hot N / 评分)专用: 比 xs 再小一档 —— 海报角标一旦接近正文大小,
+     左上"Hot N"与右上"评分"在窄卡片上会挤到一起(用户反馈过)。TV 档见下方覆盖(同值, 都 11px)。 */
+  --jc-fs-badge: 0.6875rem;
 
   --jc-fw-regular: 400;
   --jc-fw-medium: 500;
@@ -325,16 +328,40 @@ body {
   --jc-tv-safe: clamp(48px, 5vw, 96px); /* P0: overscan 安全区 ~5%(原 16~48 偏小, 10-foot 须更大留边) */
   --jc-tv-safe-y: clamp(27px, 5vh, 54px); /* P0: 纵向安全区 ~5% */
 
-  /* 字号放大（基础 +25%, 用 dpr=2 视距, 16px CSS = 32px 物理 → 合理） */
-  --jc-fs-xs: 0.875rem;
-  --jc-fs-sm: 1rem;
-  --jc-fs-base: 1.25rem;
-  --jc-fs-md: 1.5rem;
-  --jc-fs-lg: 1.75rem;
-  --jc-fs-xl: 2rem;
-  --jc-fs-2xl: 2.5rem;
-  --jc-fs-3xl: 3.25rem;
-  --jc-fs-hero: clamp(3.5rem, 5vw + 1rem, 6rem);
+  /* 字号阶梯（2026-09-23 起为 TV 的**唯一**基准, 别再在组件里硬编码字号）
+   *
+   * 语义约定（写新样式时对号入座, 不要凭感觉挑 token）:
+   *   hero    巨标题   详情页主视觉（6.4 视距下的"最大一级", 全站仅 1~2 处）     48~72
+   *   3xl     页面大标题 详情页片名 / 结果页大标题                               44
+   *   2xl     轮播片名   首页推荐轮播的片名                                       36
+   *   xl      分类卡标题 分类卡主标题 / 桌面端页面标题                             28
+   *   lg      空态大标题 空态、提示类大标题                                      24
+   *   md      主按钮     主操作按钮文字                                           22
+   *   base    区块标题   板块标题("近期历史/热门榜单")、分类页/筛选页页头、正文、
+   *                      顶部频道胶囊、chip、字母格、选集格                       18
+   *   sm      次级       卡片名、功能卡主文案、次要按钮、区块副标题                   15
+   *   xs      最小       卡片副信息(年份·地区)、功能卡描述、时间戳、极次要说明        13
+   *   badge   角标       海报角标(Hot N / 评分), 比 xs 再小一档以求紧凑              11
+   *
+   * 依据: 1080p 电视 CSS 视口约 960px(dpr=2) ⇒ CSS 值 ×2 ＝ 物理像素。
+   * 正文 18 CSS = 36 物理 px（10-foot 视距下可读下限约 24）。
+   * 沿革: 2026-09-23 用户先反馈"大标题整体偏大、角标挤在一起" → 整条阶梯降一档;
+   * 同日再反馈"近期历史/热门榜单这类标题还能再小一点、角标文字再小一点" →
+   * 区块标题落到 base(18)、badge 由 12 落到 11, 同时把散落在组件里的硬编码字号收敛回 token。
+   */
+  --jc-fs-xs: 0.8125rem;
+  --jc-fs-sm: 0.9375rem;
+  --jc-fs-base: 1.125rem;
+  --jc-fs-md: 1.375rem;
+  --jc-fs-lg: 1.5rem;
+  --jc-fs-xl: 1.75rem;
+  --jc-fs-2xl: 2.25rem;
+  --jc-fs-3xl: 2.75rem;
+  --jc-fs-display: clamp(2rem, 1.6rem + 1.4vw, 2.5rem); /* 详情页大标题 32-40px */
+  --jc-fs-hero: clamp(3rem, 4vw + 1rem, 4.5rem);
+  /* 角标(11px)与基础档同值 —— TV 上角标不再单独放大; 紧凑靠"角标不跟正文缩放"实现,
+     真正挤压来源是左右两个角标同排, 故配套收了内边距(FilmCard/tv-cards 里 padding 1px 2px)。 */
+  --jc-fs-badge: 0.6875rem;
 
   /* 间距适当放大 */
   --jc-space-4: 20px;

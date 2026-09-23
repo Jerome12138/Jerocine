@@ -474,8 +474,9 @@ function tvGoPage(delta: number): void {
 .jc-cs-tv__title-link,
 .jc-cs-tv__title-active {
   text-decoration: none;
-  /* 对齐分类页(ClassifyView)标题: 2xl + bold(原 black 偏重显大) */
-  font-size: var(--jc-fs-2xl);
+  /* 与分类页(ClassifyView)页头同级 —— 那边标题走 jc-tv-sec .t = var(--jc-fs-base),
+     这里必须显式给同一个 token, 否则会回到 2xl(36) 比分类页大一大截(用户反馈过不一致) */
+  font-size: var(--jc-fs-base);
   font-weight: var(--jc-fw-bold);
   outline: none;
   border-radius: var(--jc-radius-sm);
@@ -494,12 +495,12 @@ function tvGoPage(delta: number): void {
 .jc-cs-tv__title-divider {
   margin: 0 var(--jc-space-3);
   color: var(--jc-text-muted);
-  font-size: var(--jc-fs-lg);
+  font-size: var(--jc-fs-base);
 }
 .jc-cs-tv__count {
   margin-left: var(--jc-space-4);
   color: var(--jc-text-muted);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-fs-xs);
 }
 .jc-cs-tv__count strong {
   color: var(--jc-brand-cyan);
@@ -538,11 +539,12 @@ function tvGoPage(delta: number): void {
   flex-wrap: wrap;
   gap: var(--jc-space-2);
 }
-/* 竖栏空间窄, chip 紧凑些 */
+/* 竖栏空间窄, chip 再收一档(高 40→34 / 内边距 16→10 / 字号 sm→xs):
+   左栏只有 2/6 屏宽, 原来的尺寸一屏放不下几个选项 */
 .jc-cs-tv__chip {
-  height: 40px;
-  padding: 0 16px;
-  font-size: var(--jc-fs-sm);
+  height: 34px;
+  padding: 0 10px;
+  font-size: var(--jc-fs-xs);
 }
 
 /* 右: 结果主区 — 影片固定 4 列(用户指定) */

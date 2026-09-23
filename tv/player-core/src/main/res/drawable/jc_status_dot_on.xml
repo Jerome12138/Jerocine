@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 开关类按钮的状态点: 开启 = 绿点.
+     色值取 @color/jc_badge_ok(#34D399), 与顶部"广告过滤"角标的绿点同源,
+     这样"过滤开"与"中转开"两处的绿是同一个绿. 尺寸 8dp, 由按钮左上角叠加的 View 使用. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <size android:width="8dp" android:height="8dp" />
+    <solid android:color="@color/jc_badge_ok" />
+</shape>

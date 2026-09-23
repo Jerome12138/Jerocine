@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 开关类按钮的状态点: 关闭 = 灰点(半透明, 不抢视线).
+     色值取 @color/jc_badge_idle(#9CA3AF) 加 alpha, 与角标灰点同源色相. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <size android:width="8dp" android:height="8dp" />
+    <solid android:color="#669CA3AF" />
+</shape>

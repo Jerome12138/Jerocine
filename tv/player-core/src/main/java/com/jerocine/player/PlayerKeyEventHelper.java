@@ -9,9 +9,9 @@ import androidx.media3.ui.PlayerView;
  * 遥控 / 键盘按键分发.
  *
  * 三态键控:
- *  A. 控制面板隐藏(默认): ←→=快进快退, ↑=上一集, ↓=下一集, OK=播放/暂停, MENU=显示面板, BACK=双击退出
- *  B. 面板可见且焦点在进度条: ←→=快进快退, OK=播放/暂停, MENU/BACK=隐藏面板
- *  C. 面板可见且焦点在按钮: 方向键=焦点切换, OK=触发(super 处理), MENU/BACK=隐藏面板
+ *  A. 控制面板隐藏(默认): ←→=快进快退, ↑=上一集, ↓=下一集, OK=播放/暂停, MENU=唤出操作栏, BACK=双击退出
+ *  B. 面板可见且焦点在进度条: ←→=快进快退, OK=播放/暂停, MENU/BACK=收起面板
+ *  C. 面板可见且焦点在按钮: 方向键=焦点切换, OK=触发(super 处理), MENU/BACK=收起面板
  */
 public class PlayerKeyEventHelper {
 
@@ -50,10 +50,13 @@ public class PlayerKeyEventHelper {
         switch (code) {
             case KeyEvent.KEYCODE_MENU:
             case KeyEvent.KEYCODE_INFO: {
+                // MENU = 唤出/收起"顶部标题栏 + 底部操作栏"(用户要求: 不再弹播放控制弹窗).
+                // 原弹窗里的每一项(倍速/选集/换源/广告过滤/跳过/退出)底栏都已有按钮, 弹窗纯属多一层.
+                if (pv == null) return true;
                 if (controllerVisible) {
                     pv.hideController();
                 } else {
-                    session.host().showPlayMenu();
+                    pv.showController();
                 }
                 return true;
             }

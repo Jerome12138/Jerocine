@@ -15,22 +15,30 @@
 [data-mode="tv"] .jc-tv-grid > * { min-width: 0; }
 
 /* ---------- "更多/查看全部" 胶囊按钮 ---------- */
+/* 高 36→32、字号 sm→xs: 区块标题已降到 18px, 这颗胶囊比标题还抢眼就本末倒置了 */
 [data-mode="tv"] .jc-tv-more {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 18px;
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 14px;
   border-radius: 999px; background: rgba(255, 255, 255, 0.12); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13));
-  color: var(--jc-text-primary); font-size: var(--jc-fs-sm); font-weight: var(--jc-fw-semibold); text-decoration: none; cursor: pointer;
+  color: var(--jc-text-primary); font-size: var(--jc-fs-xs); font-weight: var(--jc-fw-semibold); text-decoration: none; cursor: pointer;
 }
 
 /* ---------- 功能卡: 宽扁 + 右大图标 ---------- */
 [data-mode="tv"] .jc-tv-funcs { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--jc-space-4); }
 [data-mode="tv"] .jc-tv-fc {
-  position: relative; min-height: 72px; padding: 10px 50px 10px 16px; border-radius: var(--jc-radius-xl, 20px);
+  position: relative; min-height: 72px; padding: 10px 44px 10px 16px; border-radius: var(--jc-radius-xl, 20px);
   border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); overflow: hidden; text-decoration: none;
   display: flex; flex-direction: column; justify-content: center; gap: 2px;
 }
-[data-mode="tv"] .jc-tv-fc .ic { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 34px; opacity: .85; color: #fff; }
-[data-mode="tv"] .jc-tv-fc .ti { font-size: var(--jc-fs-base); font-weight: var(--jc-fw-bold); color: var(--jc-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-[data-mode="tv"] .jc-tv-fc .su { font-size: var(--jc-fs-sm); color: rgba(255, 255, 255, 0.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 右图标: 上下居中靠 flex + line-height:0 —— 只写 top:50%/translateY 时, 内联 svg 的行盒
+   会带出 baseline 以下的空隙, 图标看着"偏上"(用户反馈"当前没有居中"), 故这里用 flex 居中.
+   图标尺寸由 BaseIcon 的 size 决定(HomeView 传 32px), 别再靠 font-size 调. */
+[data-mode="tv"] .jc-tv-fc .ic {
+  position: absolute; right: 14px; top: 0; bottom: 0; margin: auto; height: 34px;
+  display: flex; align-items: center; justify-content: center; line-height: 0;
+  opacity: .85; color: #fff;
+}
+[data-mode="tv"] .jc-tv-fc .ti { font-size: var(--jc-fs-sm); font-weight: var(--jc-fw-bold); color: var(--jc-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-mode="tv"] .jc-tv-fc .su { font-size: var(--jc-fs-xs); color: rgba(255, 255, 255, 0.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 [data-mode="tv"] .jc-tv-fc.fc-1 { background: linear-gradient(150deg, #2b3a55, #1c2740); }
 [data-mode="tv"] .jc-tv-fc.fc-2 { background: linear-gradient(150deg, #7a3b67, #b5557e); }
 [data-mode="tv"] .jc-tv-fc.fc-3 { background: linear-gradient(150deg, #27508a, #2a8ca0); }
@@ -49,19 +57,33 @@
 [data-mode="tv"] .jc-tv-card { display: block; text-decoration: none; color: var(--jc-text-primary); min-width: 0; }
 [data-mode="tv"] .jc-tv-card .poster { aspect-ratio: 3/4; border-radius: var(--jc-radius-md, 8px); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); position: relative; overflow: hidden; background: var(--jc-bg-elevated); }
 [data-mode="tv"] .jc-tv-card .poster.h { aspect-ratio: 16/9; }
-[data-mode="tv"] .jc-tv-card .ep { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: 12px; padding: 1px 7px; border-radius: 6px; background: var(--jc-brand-gradient); color: #fff; }
-[data-mode="tv"] .jc-tv-card .score { position: absolute; top: 6px; right: 6px; z-index: 2; font-size: 12px; font-weight: 700; color: #ffc107; background: rgba(0,0,0,.72); padding: 1px 7px; border-radius: 6px; }
-[data-mode="tv"] .jc-tv-card .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 2; background: rgba(255,255,255,.25); }
+/* 角标(集数/评分): badge 字号(11px) + 左右内边距 4px(上下 1px) —— 左右留白比上一版的 2px 舒展,
+   但仍比桌面的 5~6px 紧凑, 兼顾"不打架"与"不显空". */
+[data-mode="tv"] .jc-tv-card .ep { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: var(--jc-fs-badge); padding: 1px 4px; border-radius: 5px; background: var(--jc-brand-gradient); color: #fff; }
+[data-mode="tv"] .jc-tv-card .score { position: absolute; top: 6px; right: 6px; z-index: 2; font-size: var(--jc-fs-badge); font-weight: 700; color: #ffc107; background: rgba(0,0,0,.72); padding: 1px 4px; border-radius: 5px; }
+[data-mode="tv"] .jc-tv-card .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 3; background: rgba(255,255,255,.25); }
 [data-mode="tv"] .jc-tv-card .pbar i { display: block; height: 100%; background: var(--jc-brand-gradient); }
+/* 图内底部信息条(近期历史的"看到第 N 集"): 与 FilmCard 的 __epinfo 同款渐变底,
+   这样"集数"不再单占一行, 卡片整体矮一行. */
+[data-mode="tv"] .jc-tv-card .poster .epinfo {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  padding: 12px 8px 6px;
+  background-image: linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.45) 60%, rgba(0,0,0,0) 100%);
+  color: #fff; font-size: var(--jc-fs-xs); font-weight: var(--jc-fw-medium);
+  line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
 [data-mode="tv"] .jc-tv-card .name { margin-top: 7px; font-size: var(--jc-fs-sm); font-weight: 600; color: var(--jc-text-primary); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 [data-mode="tv"] .jc-tv-card .sub { font-size: var(--jc-fs-xs); color: var(--jc-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 [data-mode="tv"] .jc-tv-card[data-focusable="true"]:focus, [data-mode="tv"] .jc-tv-card[data-focusable="true"]:focus-visible { transform: none; box-shadow: none; }
 [data-mode="tv"] .jc-tv-card[data-focusable="true"]:focus .poster, [data-mode="tv"] .jc-tv-card[data-focusable="true"]:focus-visible .poster { transform: scale(var(--jc-tv-focus-scale-card, 1.18)); box-shadow: var(--jc-tv-focus-ring); z-index: 5; transition: transform var(--jc-dur-focus, 200ms) var(--jc-ease-spring), box-shadow var(--jc-dur-focus, 200ms) var(--jc-ease-standard); }
 
 /* ---------- 区块标题 ---------- */
+/* 板块标题(近期历史/热门榜单…)落到 base(18) —— 用户反馈"再小一点"; 副标题同步降到 xs,
+   否则 18/15 只差一档看着一样大. */
 [data-mode="tv"] .jc-tv-sec { display: flex; align-items: baseline; margin-bottom: 12px; }
-[data-mode="tv"] .jc-tv-sec .t { font-size: var(--jc-fs-md); font-weight: var(--jc-fw-bold); }
-[data-mode="tv"] .jc-tv-sec .s { font-size: var(--jc-fs-sm); color: var(--jc-text-muted); margin-left: 8px; }
+[data-mode="tv"] .jc-tv-sec .t { font-size: var(--jc-fs-base); font-weight: var(--jc-fw-bold); }
+[data-mode="tv"] .jc-tv-sec .s { font-size: var(--jc-fs-xs); color: var(--jc-text-muted); margin-left: 8px; }
 
 /* ---------- 分类卡(带副标题) ---------- */
 [data-mode="tv"] .jc-tv-cat {
@@ -88,15 +110,26 @@
 
 /* ---------- 推荐轮播卡 ---------- */
 [data-mode="tv"] .jc-tv-carousel { border-radius: var(--jc-radius-xl, 20px); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); position: relative; overflow: hidden; display: flex; align-items: flex-end; padding: 18px; text-decoration: none; color: #fff; min-height: 170px; background: linear-gradient(120deg, #1a2a6c, #7a2a4a); }
-[data-mode="tv"] .jc-tv-carousel .tag { position: absolute; top: 14px; left: 18px; font-size: var(--jc-fs-sm); background: rgba(0, 0, 0, 0.4); padding: 4px 12px; border-radius: 999px; }
-[data-mode="tv"] .jc-tv-carousel h3 { font-size: var(--jc-fs-2xl); font-weight: var(--jc-fw-black); }
+/* 轮播标签("为你推荐"): 钉在左上角、加粗、胶囊宽度随文字自适应(内联 flex + max-content,
+   免得被父级拉伸成一条横贯整卡的横杠); 配色对齐 web 端 BaseTag 的 purple 变体. */
+[data-mode="tv"] .jc-tv-carousel .tag {
+  position: absolute; top: 14px; left: 18px; z-index: 1;
+  display: inline-flex; align-items: center; width: max-content;
+  font-size: var(--jc-fs-xs); font-weight: var(--jc-fw-bold); line-height: 1;
+  background: rgba(155, 73, 231, 0.55); border: 1px solid rgba(255, 255, 255, 0.22);
+  padding: 5px 12px; border-radius: 999px;
+}
+/* 片名 2xl(36)→xl(28): 轮播卡只占半屏宽(与左侧"近期历史"并排), 36px 的片名会把
+   下面新加的标签行/描述行挤没(用户要求"影片名字体小一点"). */
+[data-mode="tv"] .jc-tv-carousel h3 { font-size: var(--jc-fs-xl); font-weight: var(--jc-fw-black); line-height: 1.2; }
 [data-mode="tv"] .jc-tv-carousel p { color: rgba(255, 255, 255, 0.85); font-size: var(--jc-fs-sm); margin-top: 3px; }
 [data-mode="tv"] .jc-tv-dots { position: absolute; bottom: 14px; right: 16px; display: flex; gap: 6px; }
 [data-mode="tv"] .jc-tv-dots i { width: 8px; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.4); }
 [data-mode="tv"] .jc-tv-dots i.on { background: var(--jc-brand-cyan); width: 18px; }
 
 /* ---------- chip(筛选/选集源 tab) ---------- */
-[data-mode="tv"] .jc-tv-chip { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 20px; border-radius: 999px; background: var(--jc-tv-glass-soft, rgba(30,30,40,.7)); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); color: var(--jc-text-secondary); font-size: var(--jc-fs-base); font-weight: var(--jc-fw-semibold); cursor: pointer; text-decoration: none; }
+/* 高度/内边距/字号都收一档: 原 48px 高 + 20px 内边距 + base(20px) 字, 一屏放不了几个标签 */
+[data-mode="tv"] .jc-tv-chip { display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 16px; border-radius: 999px; background: var(--jc-tv-glass-soft, rgba(30,30,40,.7)); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); color: var(--jc-text-secondary); font-size: var(--jc-fs-sm); font-weight: var(--jc-fw-semibold); cursor: pointer; text-decoration: none; }
 [data-mode="tv"] .jc-tv-chip.cur { background: var(--jc-brand-gradient); color: #fff; border-color: transparent; }
 [data-mode="tv"] .jc-tv-chip.sel { background: var(--jc-tv-selected-bg, rgba(74,209,229,.14)); border-color: var(--jc-brand-cyan); color: var(--jc-brand-cyan); }
 
@@ -121,9 +154,24 @@
 [data-mode="tv"] .jc-tv-ep.cur { background: var(--jc-tv-selected-bg, rgba(74,209,229,.14)); border-color: var(--jc-brand-cyan); color: var(--jc-brand-cyan); }
 
 /* ---------- 字母网格虚拟键盘 ---------- */
-[data-mode="tv"] .jc-tv-kbd { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; }
-[data-mode="tv"] .jc-tv-key { height: 42px; border-radius: 9px; background: var(--jc-tv-glass-soft, rgba(30,30,40,.7)); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); color: var(--jc-text-primary); display: flex; align-items: center; justify-content: center; font-size: var(--jc-fs-base); font-weight: var(--jc-fw-semibold); cursor: pointer; }
-[data-mode="tv"] .jc-tv-key--wide { grid-column: span 2; font-size: var(--jc-fs-sm); }
+/* 字母格尺寸提成变量(键 34 + 间距 6 ⇒ 总宽 234px): 字母格本身、搜索页的左栏宽与输入条宽
+   全都引用它, 保证"搜索框和下面 6 格一样宽"—— 改键宽/间距只需改 --jc-tv-key / --jc-tv-gap. */
+[data-mode="tv"] {
+  --jc-tv-key: 34px;   /* 单个字母键边长(正方形) */
+  --jc-tv-gap: 6px;    /* 键间距 */
+  /* 字母格总宽 = 6 键 + 5 间隙 —— 由上面两个值**算出**, 不写死数字:
+     搜索页的左栏宽与输入条宽都引用它, 因此"搜索框和下面 6 格一样宽"是结构保证,
+     而不是"两边各抄一个数字、改一处忘一处"(曾因此差出 16px, 用户反馈"搜索框比 6 格宽"). */
+  --jc-tv-kbd-w: calc(var(--jc-tv-key) * 6 + var(--jc-tv-gap) * 5);
+}
+/* 字母格: 一行 6 键(用户最终拍板回到 6 列)、键 34×34 **正方形**、间距 6、字号 xs ——
+   字母格只是输入入口, 不该和正文抢视觉重量.
+   用固定列宽 repeat(6, 34px) 而不是 1fr: 1fr 会把键拉成"宽扁形", 正方形更规整;
+   36 键正好 6 行, 3 个 span2 功能键正好凑满第 7 行 ⇒ 网格完全整齐(这也是当初选 6 列的原因,
+   5 列时 36 键除不尽、末行必然留空格). */
+[data-mode="tv"] .jc-tv-kbd { display: grid; grid-template-columns: repeat(6, var(--jc-tv-key)); gap: var(--jc-tv-gap); justify-content: start; }
+[data-mode="tv"] .jc-tv-key { height: var(--jc-tv-key); border-radius: 8px; background: var(--jc-tv-glass-soft, rgba(30,30,40,.7)); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); color: var(--jc-text-primary); display: flex; align-items: center; justify-content: center; font-size: var(--jc-fs-xs); font-weight: var(--jc-fw-semibold); cursor: pointer; }
+[data-mode="tv"] .jc-tv-key--wide { grid-column: span 2; font-size: var(--jc-fs-xs); }
 
 /* ---------- 玻璃卡(登录/确认) ---------- */
 [data-mode="tv"] .jc-tv-glass-card { border-radius: 24px; border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.18)); background: var(--jc-tv-glass, rgba(21,21,28,.88)); padding: 36px 40px; }

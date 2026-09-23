@@ -315,15 +315,15 @@ const scoreText = computed(() => {
   z-index: 3;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   height: auto; /* 由内容 + padding 撑起, 不再固定高度 */
-  padding: 2px 6px;
+  padding: 1px 5px;
   border-radius: var(--jc-radius-sm);
   background-color: rgba(0, 0, 0, 0.72);
   color: #ffc107; /* 黄色星 + 数字 */
-  font-size: var(--jc-fs-xs);
+  font-size: var(--jc-fs-badge);
   font-weight: var(--jc-fw-semibold);
-  line-height: 1.4;
+  line-height: 1.35;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
   pointer-events: none;
   white-space: nowrap;
@@ -337,24 +337,26 @@ const scoreText = computed(() => {
   z-index: 3;
   display: inline-flex;
   align-items: center;
+  gap: 3px;
   height: auto;
-  padding: 2px 6px;
+  padding: 1px 5px;
   border-radius: var(--jc-radius-sm);
   background-image: var(--jc-brand-gradient);
   color: #fff;
-  font-size: var(--jc-fs-xs);
+  font-size: var(--jc-fs-badge);
   font-weight: var(--jc-fw-semibold);
-  line-height: 1.4;
+  line-height: 1.35;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
   pointer-events: none;
   white-space: nowrap;
 }
 
-/* 移动端角标字体更小一档(xs=12px → 11px), 小封面不显拥挤 */
+/* 窄卡片(移动端): 左右两个角标更易撞在一起, 再收一档内边距 */
 @media (max-width: 767px) {
   .jc-film-card__score-badge,
   .jc-film-card__hot-badge {
-    font-size: 0.6875rem;
+    padding: 1px 4px;
+    gap: 2px;
   }
 }
 
@@ -390,7 +392,8 @@ const scoreText = computed(() => {
     rgba(0, 0, 0, 0) 100%
   );
   color: #fff;
-  font-size: 12px;
+  /* 字号 = 卡片副信息档(--jc-fs-xs), 与"看到第 N 集"角标同规格; 不再按屏宽额外放大一档 */
+  font-size: var(--jc-fs-xs);
   font-weight: var(--jc-fw-medium);
   line-height: 1.2;
   white-space: nowrap;
@@ -398,10 +401,6 @@ const scoreText = computed(() => {
   text-overflow: ellipsis;
   z-index: 2;
   pointer-events: none;
-}
-@media (min-width: 1024px) {
-  /* 角标字体已与"看到第 N 集"角标同规格(fs-xs), 桌面不再放大 */
-  .jc-film-card__epinfo { font-size: 13px; }
 }
 </style>
 
@@ -434,8 +433,13 @@ const scoreText = computed(() => {
   font-size: var(--jc-fs-sm);
 }
 [data-mode='tv'] .jc-film-card__epinfo {
-  font-size: 14px;
+  font-size: var(--jc-fs-xs);
 }
-/* TV 角标不再硬编码放大: [data-mode=tv] 的 --jc-fs-xs 已是 0.875rem(14px),
- * 与"看到第 N 集"等角标同源缩放, 高度随内容(padding 2px 6px)自适应。 */
+/* TV 角标: badge 字号(TV 档 11px) + 左右内边距 4px(上下 1px) —— 比上一版的 2px 舒展,
+   肉眼上不再"贴着字边的紧箍"; 同时仍小于桌面版的 5px, 窄卡片上左右两个角标不会撞. */
+[data-mode='tv'] .jc-film-card__score-badge,
+[data-mode='tv'] .jc-film-card__hot-badge {
+  padding: 1px 4px;
+  gap: 3px;
+}
 </style>

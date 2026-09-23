@@ -8,6 +8,7 @@ import { useHistoryStore, useUserStore } from '@/stores'
 import { buildPlayLink } from '@/stores/history'
 import { episodeLabel, progressPercent } from '@/composables/useTimeBucket'
 import { isExternalLink } from '@/utils/url'
+import { formatHotBadge } from '@/utils/format'
 import HeroCarousel from '@/components/film/HeroCarousel.vue'
 import FilmRow from '@/components/film/FilmRow.vue'
 import ContinueWatchingRow from '@/components/film/ContinueWatchingRow.vue'
@@ -154,14 +155,34 @@ function onTvHeroClick(e: MouseEvent): void {
 }
 let tvHeroTimer: number | null = null
 
-/** TV 推荐卡副标题: 年份·地区·分类·更新备注 */
-const tvHeroSub = computed<string>(() => {
-  const h = tvHero.value
-  if (!h) return ''
-  return [h.year, h.area, h.cName, h.remarks]
-    .filter((v) => v !== undefined && v !== null && v !== '' && v !== 0)
-    .join(' · ')
+/**
+ * TV 推荐卡的标签行 / 描述行 —— 口径**完全对齐非 TV 的 HeroCarousel**(用户要求"像非 TV 版一样"):
+ *   · 标签行 = classTag 拆分(最多 4 个), 不回退到 年份/分类/地区(那三项占位多、信息量低);
+ *   · 描述行 = 评分 · 豆瓣榜位 · remarks(片源状态), 缺哪项少哪项, 全空则不渲染;
+ * 顺带把"年份 · 地区 · 分类 · 备注"那版副标题去掉 —— 非 TV 版早就不这么显示了。
+ * 注: 这几段是照 HeroCarousel 私有口径复制的, 改那边记得同步这里。
+ */
+const tvHeroTags = computed<string[]>(() => {
+  const raw = tvHero.value?.classTag?.trim()
+  if (!raw) return []
+  return raw
+    .split(/[,，、/|]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 4)
 })
+const tvHeroScore = computed<string>(() => {
+  const n = tvHero.value?.dbScore
+  if (n === undefined || n === null || !Number.isFinite(n) || n < 1) return ''
+  return n.toFixed(1)
+})
+/** 豆瓣榜位(「豆瓣·热门电影 No.1」) —— 复用 formatHotBadge, 与非 TV 版/详情页必然一致 */
+const tvHeroHot = computed<string>(() =>
+  formatHotBadge(tvHero.value?.hotRank, tvHero.value?.hotBoard)
+)
+const tvHeroHasMeta = computed<boolean>(
+  () => !!(tvHeroScore.value || tvHeroHot.value || tvHero.value?.remarks)
+)
 
 /** TV 近期历史: 顶部"近期历史"影片大卡行(前 3 条, 续播入口) */
 const historyStore = useHistoryStore()
@@ -325,10 +346,11 @@ onBeforeUnmount(() => {
               >
                 <div class="poster">
                   <BaseImage :src="rec.picture || ''" :alt="rec.name" ratio="3/4" fit="cover" />
+                  <!-- 集数放进图内底部信息条(与 FilmCard 的 __epinfo 同款): 不再单独占图下一行 -->
+                  <span class="epinfo">看到 {{ episodeLabel(rec.episode, rec.episodeIndex) || '第 1 集' }}</span>
                   <span v-if="progressPercent(rec.currentTime, rec.duration) > 0" class="pbar"><i :style="{ width: progressPercent(rec.currentTime, rec.duration) + '%' }" /></span>
                 </div>
                 <div class="name">{{ rec.name }}</div>
-                <div class="sub">看到 {{ episodeLabel(rec.episode, rec.episodeIndex) || '第 1 集' }}</div>
               </RouterLink>
             </div>
           </section>
@@ -357,7 +379,20 @@ onBeforeUnmount(() => {
             <span class="tag">为你推荐</span>
             <div class="jc-home-tv__hero-text">
               <h3>{{ tvHero.name }}</h3>
-              <p v-if="tvHeroSub">{{ tvHeroSub }}</p>
+              <!-- 标签行: 与非 TV 版 HeroCarousel 同口径(classTag 拆最多 4 个, purple 胶囊) -->
+              <div v-if="tvHeroTags.length" class="jc-home-tv__hero-tags">
+                <BaseTag v-for="(t, i) in tvHeroTags" :key="i" variant="purple" size="sm">
+                  {{ t }}
+                </BaseTag>
+              </div>
+              <!-- 描述行: 评分 · 豆瓣榜位 · 片源状态 —— 与非 TV 版逐项一致 -->
+              <p v-if="tvHeroHasMeta" class="jc-home-tv__hero-meta">
+                <span v-if="tvHeroScore" class="score">
+                  <BaseIcon name="star" size="0.85em" />{{ tvHeroScore }}
+                </span>
+                <span v-if="tvHeroHot" class="hot">{{ tvHeroHot }}</span>
+                <span v-if="tvHero.remarks" class="remarks">{{ tvHero.remarks }}</span>
+              </p>
             </div>
             <div v-if="tvHeroDots > 1" class="jc-tv-dots" aria-hidden="true">
               <i v-for="d in tvHeroDots" :key="d" :class="{ on: d - 1 === tvHeroActive }" />
@@ -365,22 +400,23 @@ onBeforeUnmount(() => {
           </RouterLink>
         </div>
 
-        <!-- ② 功能卡(大彩色卡, 左文字右图标 — 对齐设计稿; 继续观看入口已并入顶部"近期历史") -->
+        <!-- ② 功能卡(大彩色卡, 左文字右图标 — 对齐设计稿; 继续观看入口已并入顶部"近期历史")
+             注: 卡片本就指向 /favorites, 故主文案用"收藏"(用户拍板), 不再写"历史·收藏"占宽. -->
         <div class="jc-tv-funcs">
           <RouterLink class="jc-tv-fc fc-2" to="/favorites" data-focusable="true" tabindex="0">
-            <span class="ic"><BaseIcon name="heart" size="42px" /></span><span class="ti">历史 · 收藏</span><span class="su">记录您的热爱</span>
+            <span class="ic"><BaseIcon name="heart" size="32px" /></span><span class="ti">收藏</span><span class="su">记录您的热爱</span>
           </RouterLink>
           <RouterLink class="jc-tv-fc fc-3" :to="tvFirstPid ? { path: '/filmClassify', query: { Pid: tvFirstPid } } : '/filmClassify'" data-focusable="true" tabindex="0">
-            <span class="ic"><BaseIcon name="film" size="42px" /></span><span class="ti">分类</span><span class="su">剧/影/综/漫</span>
+            <span class="ic"><BaseIcon name="film" size="32px" /></span><span class="ti">分类</span><span class="su">剧/影/综/漫</span>
           </RouterLink>
           <RouterLink class="jc-tv-fc fc-4" to="/search" data-focusable="true" tabindex="0">
-            <span class="ic"><BaseIcon name="search" size="42px" /></span><span class="ti">搜索</span><span class="su">找片更快</span>
+            <span class="ic"><BaseIcon name="search" size="32px" /></span><span class="ti">搜索</span><span class="su">找片更快</span>
           </RouterLink>
           <RouterLink class="jc-tv-fc fc-1" :to="isLoggedIn ? { path: '/settings', query: { group: 'account' } } : { path: '/login' }" data-focusable="true" tabindex="0">
-            <span class="ic"><BaseIcon name="user" size="42px" /></span><span class="ti">我的</span><span class="su">{{ isLoggedIn ? '账号 · 退出' : '点击登录' }}</span>
+            <span class="ic"><BaseIcon name="user" size="32px" /></span><span class="ti">我的</span><span class="su">{{ isLoggedIn ? '账号 · 退出' : '点击登录' }}</span>
           </RouterLink>
           <RouterLink class="jc-tv-fc fc-5" to="/settings" data-focusable="true" tabindex="0">
-            <span class="ic"><BaseIcon name="settings" size="42px" /></span><span class="ti">设置</span><span class="su">画质/过滤</span>
+            <span class="ic"><BaseIcon name="settings" size="32px" /></span><span class="ti">设置</span><span class="su">画质/过滤</span>
           </RouterLink>
         </div>
 
@@ -597,170 +633,9 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ========== 热门榜单模块 (Netflix Top 10 / 腾讯视频热播榜风格) ========== */
-.jc-home__ranking {
-  padding-block: var(--jc-space-6) var(--jc-space-4);
-}
-
-.jc-home__section-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: var(--jc-space-4);
-  gap: var(--jc-space-3);
-}
-
-.jc-home__section-title {
-  font-size: var(--jc-fs-xl);
-  font-weight: var(--jc-fw-bold);
-  color: var(--jc-text-primary);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--jc-space-2);
-  margin: 0;
-}
-
-.jc-home__section-flame {
-  font-size: 1.1em;
-}
-
-.jc-home__section-tip {
-  font-size: var(--jc-fs-xs);
-  color: var(--jc-text-muted);
-}
-
-.jc-home__ranking-scroll {
-  display: flex;
-  gap: var(--jc-space-3);
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: thin;
-  padding-block: var(--jc-space-2);
-  margin-inline: calc(-1 * var(--jc-gutter-mobile));
-  padding-inline: var(--jc-gutter-mobile);
-}
-@media (min-width: 768px) {
-  .jc-home__ranking-scroll {
-    gap: var(--jc-space-4);
-    margin-inline: calc(-1 * var(--jc-gutter-tablet));
-    padding-inline: var(--jc-gutter-tablet);
-  }
-}
-@media (min-width: 1024px) {
-  .jc-home__ranking-scroll {
-    margin-inline: 0;
-    padding-inline: 0;
-  }
-}
-
-.jc-home__ranking-scroll::-webkit-scrollbar {
-  height: 4px;
-}
-.jc-home__ranking-scroll::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.18);
-  border-radius: 2px;
-}
-
-.jc-home__ranking-item {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: auto 84px 1fr;
-  gap: var(--jc-space-3);
-  align-items: center;
-  width: 280px;
-  padding: var(--jc-space-2);
-  background-color: var(--jc-bg-surface);
-  border: 1px solid var(--jc-border-subtle);
-  border-radius: var(--jc-radius-lg);
-  text-decoration: none;
-  scroll-snap-align: start;
-  transition:
-    background-color var(--jc-dur-fast) var(--jc-ease-standard),
-    transform var(--jc-dur-base) var(--jc-ease-spring);
-  outline: none;
-}
-.jc-home__ranking-item:hover {
-  background-color: var(--jc-bg-elevated);
-  transform: translateY(-2px);
-}
-.jc-home__ranking-item:focus-visible {
-  box-shadow: var(--jc-shadow-focus-ring);
-}
-@media (min-width: 768px) {
-  .jc-home__ranking-item {
-    width: 320px;
-  }
-}
-
-.jc-home__ranking-rank {
-  font-family: var(--jc-font-display);
-  font-size: 48px;
-  font-weight: 900;
-  line-height: 1;
-  color: var(--jc-text-muted);
-  text-align: center;
-  min-width: 48px;
-  font-style: italic;
-  letter-spacing: -0.04em;
-}
-.jc-home__ranking-rank--top {
-  color: transparent;
-  background-image: var(--jc-brand-gradient);
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-
-.jc-home__ranking-poster {
-  width: 84px;
-  border-radius: var(--jc-radius-md);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.jc-home__ranking-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 4px;
-}
-.jc-home__ranking-name {
-  font-size: var(--jc-fs-sm);
-  font-weight: var(--jc-fw-semibold);
-  color: var(--jc-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  margin: 0;
-}
-.jc-home__ranking-meta {
-  font-size: var(--jc-fs-xs);
-  color: var(--jc-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin: 0;
-}
-
-.jc-home__hot-remarks {
-  font-size: var(--jc-fs-xs);
-  color: var(--jc-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 </style>
 
 <style>
-/* TV 模式下不显示侧栏（屏幕宽度足够，但旁栏会破坏 10-foot UI 节奏） */
-[data-mode='tv'] .jc-home__aside {
-  display: none;
-}
-[data-mode='tv'] .jc-home__main {
-  padding-inline: var(--jc-tv-safe);
-}
-
 /* ============================================================
  * TV 雷鸟仪表盘布局胶水 (chrome 卡片样式来自全局 tv-cards.css, 此处只补容器/栅格)
  * 全部 [data-mode='tv'] 作用域, 不影响桌面/移动。
@@ -816,9 +691,11 @@ onBeforeUnmount(() => {
     rgba(0, 0, 0, 0.08) 100%
   );
 }
-[data-mode='tv'] .jc-home-tv__hero .tag,
-[data-mode='tv'] .jc-home-tv__hero-text,
-[data-mode='tv'] .jc-home-tv__hero .jc-tv-dots {
+/* 注意: 这里**不包含** .tag, 也**不包含** .jc-tv-dots —— 这两者都必须保持 tv-cards.css 里的
+ * position:absolute, 才能各自钉在左上角 / 右下角. 曾把它们和文字一起设成 position:relative:
+ * 标签掉进 flex 行变成左下角的内联小胶囊、指示点也从右下角回到内容流末尾(用户两次分别反馈过).
+ * 只让标题文字用 relative+z-index 压过遮罩层. */
+[data-mode='tv'] .jc-home-tv__hero-text {
   position: relative;
   z-index: 1;
 }
@@ -826,37 +703,35 @@ onBeforeUnmount(() => {
   max-width: 70%;
 }
 
-/* ⑤ 电视剧/电影大卡 + 热播排行 */
-[data-mode='tv'] .jc-home-tv__row5 {
-  display: grid;
-  grid-template-columns: 1fr 1fr 2fr;
-  gap: var(--jc-space-4);
+/* 推荐轮播的标签行 / 描述行 —— 配色口径照非 TV 的 HeroCarousel(.jc-hero__meta 系列):
+   评分暖色粗体、榜位品牌青、片源状态弱化白; 深色渐变底上这组颜色对比足够. */
+[data-mode='tv'] .jc-home-tv__hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
-
-/* 排行列表项: 行内可聚焦, 焦点环靠 theme.css */
-[data-mode='tv'] .jc-home-tv__rk-item {
-  cursor: pointer;
-  border-radius: 8px;
-  outline: none;
+[data-mode='tv'] .jc-home-tv__hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: var(--jc-fs-sm);
+  color: rgba(255, 255, 255, 0.8);
 }
-
-/* ⑥ 底部分类卡: 4 列 (与 demo tv-funcs repeat(4) 一致) */
-[data-mode='tv'] .jc-home-tv__cats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--jc-space-4);
+[data-mode='tv'] .jc-home-tv__hero-meta .score {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--jc-warning);
+  font-weight: var(--jc-fw-bold);
 }
-
-/* 窄屏 TV (真机 WebView dpr 压缩) 降列, 保证可读 */
-@media (max-width: 1100px) {
-  [data-mode='tv'] .jc-home-tv__row5 {
-    grid-template-columns: 1fr 1fr;
-  }
-  [data-mode='tv'] .jc-home-tv__row5 .jc-tv-rank {
-    grid-column: 1 / -1;
-  }
-  [data-mode='tv'] .jc-home-tv__cats {
-    grid-template-columns: repeat(3, 1fr);
-  }
+[data-mode='tv'] .jc-home-tv__hero-meta .hot {
+  color: var(--jc-brand-cyan);
+  font-weight: var(--jc-fw-semibold);
+}
+[data-mode='tv'] .jc-home-tv__hero-meta .remarks {
+  color: rgba(255, 255, 255, 0.6);
 }
 </style>

@@ -121,7 +121,10 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
   - 该模块**没有 AndroidManifest.xml**：`com.jerocine.player.PlayerActivity` 必须由各壳清单声明（两端都已声明），传参统一走 `PlayerActivity.EXTRA_*` 常量，别写字面量字符串。
   - **播放器资源只在 player-core 定义一份**：壳里出现同名 drawable/color/style 会**覆盖库资源**（改了 core 不生效），要改样式改 core，别在壳里复制副本。
   - **播放器内的可见文案以"前端 web 播放器"为唯一基准**（`web/src/views/public/PlayView.vue`，video.js 那套；**不是** `web/android` 壳）。广告过滤角标即五态：`过滤未开启 / 该源无需过滤 / 服务端过滤中 / 未检出广告 / 已过滤 N 段广告`，文案与色调由纯逻辑 `AdFilterStatus` 给出（+2 个 Android 特有态 `过滤未生效 / 过滤失败`），壳层只做 `Tone → drawable` 映射（`jc_badge_dot_{ok,idle,busy}`）。**过滤关掉时不隐藏**（显示"过滤未开启"），只有尚无片源才隐藏 —— 历史上的"开了才显示"会让用户以为功能不存在。改文案两端同步，另有单测锁定优先级。
-  - **⚠️ 弹窗背景必须不透明（独立 Dialog window 的限制）。** 弹窗是独立 window，其 `windowBackground` 带 alpha 时在电视等设备上会**退化成白底**（不是半透明）→ 必须用不透明实色版（core 的 `jc_glass_solid` = `#FF15151C`，即 `jc_glass` 同 RGB 去掉 alpha）。**View 层浮层不受此限**：播放器中央提示 `jc_toast_bg`、顶部角标 `jc_badge_bg` 用半透明 `jc_glass` 在 TV 上实测正常。**收敛壳层重复资源时别把壳里那份不透明弹窗背景删掉** —— `tv/app` 的 `jc_dialog_bg.xml` 就这么被删过一次，直接导致 TV 播放器弹窗白底。
+  - **遥控器按键约定**：`MENU/INFO` = **唤出/收起上下操作栏**（不再弹"播放控制"弹窗 —— 原弹窗里的倍速/选集/换源/过滤/跳过/退出底栏都有按钮，弹窗已删除）；`BACK` = 面板开着先收面板，否则 2s 内双击退出；面板隐藏时 ←→=快进退、↑↓=上/下一集（需再按一次确认）、OK=播/暂。
+  - **底栏按钮即全部播放控制**：上集 / 下集 / 选集 / 倍速 / 换源 / **中转** / **过滤** / 跳过 / 退出。加按钮改 `exo_player_control_view.xml` + `PlayerDialogHelper.bindControlButtons`，新增状态往 `PlayerSession.Host` 加渲染出口（别让 helper 直接摸 View）。
+  - **两个开关类按钮（中转 / 过滤）的显示约定**：文案**恒定不变**（就叫「中转」「过滤」，不写"切到X"、不写"过滤 开/关"），文字**不随开关变色**（`jc_ctl_btn_text.xml` 只保留 focused/pressed 分支）；开/关状态一律由**左上角状态点**表达（绿=开 `jc_status_dot_on`、灰=关 `jc_status_dot_off`）。实现上这两个按钮各套一层 `FrameLayout`、点作为兄弟 View 叠在 `top|start` —— 不能用 compound drawable 拼点（`JcPlayerCtlBtn` 的 `drawableTint` 会把整块染成单色、绿点一起被染掉）。**改这两个按钮的文案/配色前先看这条**。
+  - **线路（直连 / 中转）**：默认 **关** = `proxyMedia=0`，清单过服务端、**媒体分片由设备直连 CDN**（省服务端带宽）；开关态持久化在 `PlayerNetworkModeHelper`（prefs `network_relay_enabled`）。开 = `proxyMedia=1` 分片也经服务器转发，可绕开直连受限的源、代价是更耗带宽。**自愈与开关分属两套状态，别合并**：直连分片失败（CDN 地域封锁/证书链异常）→ 自动把**那一集**标进 `forceRelayIdx`（`PlayerSession` 里的单集自愈，不落盘、不动开关、不改变状态点），中转再失败则标 `forceRawIdx` 回退原始地址（保能播、牺牲过滤）；`isRelay(idx)` = 用户开关 `relayOn` **或** 本集自愈标记，取反仍优先 `forceRawIdx`。顶部曾有常驻 `network_mode_badge`（直连/中转），**已删**（状态统一由底栏按钮的状态点表达）。
 
 ## Android APK（Capacitor 壳）
 
@@ -142,6 +145,6 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
 
 - TV 焦点环是 `box-shadow`/`outline`，会被祖先 `overflow:hidden/auto/clip` 上下裁切；横滚行/tab 条需留纵向 padding 或用 outline。
 - TV 下 `overflow-x:hidden` 会被 CSS 规范强制把另一轴 `overflow-y` 变 `auto` → 造成嵌套滚动容器、Router `scrollBehavior{top:0}` 滚错对象。统一用 `overflow-x:clip`。
-- TV 基准字号用 `clamp(vw)` 跟随分辨率（真机 WebView CSS 视口因 dpr 常被压到 ~960）。
+- **TV 字号阶梯的唯一定义处 = `web/src/assets/styles/theme.css` 里的 `[data-mode="tv"]` 块**（语义约定 `hero/3xl/2xl/xl/lg/md/base/sm/xs/badge` 就写在块内注释里；新增样式对号入座，别在组件里硬编码字号 —— 海报角标统一用 `--jc-fs-badge`）。真机 WebView CSS 视口因 dpr 常被压到 ~960 ⇒ **CSS 值 ×2 ＝ 物理像素**，10-foot 可读下限约 24 物理 px。2026-09-23 按用户反馈把整条阶梯**降了一档**（原值偏大：区块标题 28px 级、角标 14px 级）。
 - **`overflow:hidden` 会把元素变成滚动容器**（即便无滚动条）→ 遥控器聚焦其内元素时浏览器 `scrollIntoView` 会**滚动该容器**，导致这块（如详情页 hero 海报+文字，因 `inset:-40px` 模糊背景使可滚区大于可视框）整体偏移。要裁溢出又不想被聚焦滚动，用 **`overflow:clip`**。
 - **空间导航**（`useSpatialNavigation.ts` `findNearest`）：方向键策略=**「最近一行/列优先（主轴 band 内归一排），排内再按副轴对齐」**。曾用"主轴+0.5×副轴"打分，致"上一行只有偏侧按钮时被更远的对齐行抢走、上一行被跳过"。

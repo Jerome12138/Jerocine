@@ -113,14 +113,18 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private TextView titleText;
     private TextView episodesCount;
     private TextView resolutionBadge;
-    private TextView networkModeBadge;
     private Button networkModeButton;
+    private Button adFilterButton;
+    /** 开关类按钮左上角的状态点(绿=开/灰=关) — 叠在按钮上的兄弟 View. */
+    private View dotNetworkMode;
+    private View dotAdFilter;
     private TextView speedText;
     private TextView adFilterBadge;
     private TextView centerToast;
     private ImageView centerIcon;
 
     private PlayerAdFilterHelper adFilterHelper;
+    private PlayerNetworkModeHelper networkModeHelper;
     private PlayerSkipHelper skipHelper;
     private PlayerGestureHelper gestureHelper;
     private PlayerDialogHelper dialogHelper;
@@ -149,11 +153,11 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
         speedText = findViewById(R.id.speed_text);
         adFilterBadge = findViewById(R.id.ad_filter_badge);
-        networkModeBadge = findViewById(R.id.network_mode_badge);
 
         // helper 之间互不引用: 只依赖 session(状态) + session.host()(UI 出口)
         skipHelper = new PlayerSkipHelper(session);
         adFilterHelper = new PlayerAdFilterHelper(this, session);
+        networkModeHelper = new PlayerNetworkModeHelper(this, session);
         gestureHelper = new PlayerGestureHelper(session);
         dialogHelper = new PlayerDialogHelper(session);
         keyEventHelper = new PlayerKeyEventHelper(session);
@@ -161,6 +165,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
         session.proxyBase = adFilterHelper.resolveProxyBase(getIntent());
         session.adFilterOn = adFilterHelper.prefs().getBoolean("ad_filter_enabled", true);
+        networkModeHelper.applyPersisted(); // 中转默认关(分片直连), 只有用户主动开过才为 true
         adFilterHelper.updateAdFilterBadge();
 
         View titleBar = findViewById(R.id.title_bar);
@@ -171,9 +176,13 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             View controlsRoot = playerView.findViewById(R.id.player_controls_root);
             if (controlsRoot != null) controlsRoot.setVisibility(v);
             if (v == View.VISIBLE) {
-                // "线路"按钮在 PlayerView 的控制视图里(懒加载): 面板显示时取到, 交给 host 统一刷新文案
+                // "中转"/"过滤"按钮(含左上角状态点)在 PlayerView 的控制视图里(懒加载): 面板显示时取到
                 networkModeButton = playerView.findViewById(R.id.btn_network_mode);
+                adFilterButton = playerView.findViewById(R.id.btn_ad_filter);
+                dotNetworkMode = playerView.findViewById(R.id.dot_network_mode);
+                dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
                 dialogHelper.bindControlButtons();
+                renderAdFilterSwitch(session.adFilterOn);
                 playerView.post(() -> {
                     View prog = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
                     if (prog != null) prog.requestFocus();
@@ -615,19 +624,43 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     }
 
     @Override
-    public void showPlayMenu() {
-        dialogHelper.showPlayMenu();
-    }
-
-    @Override
     public void toggleAdFilter() {
         adFilterHelper.toggleAdFilter();
     }
 
     @Override
+    public void toggleNetworkMode() {
+        networkModeHelper.toggle();
+    }
+
+    @Override
+    public void renderAdFilterSwitch(boolean on) {
+        // 底栏"过滤"按钮/状态点是 PlayerView 控制视图里懒加载的, 首次刷新时现取
+        if (adFilterButton == null && playerView != null) {
+            adFilterButton = playerView.findViewById(R.id.btn_ad_filter);
+        }
+        if (adFilterButton == null) return;
+        // 文案恒定、不变色; 开关状态只由左上角状态点表达
+        adFilterButton.setText("过滤");
+        if (dotAdFilter == null && playerView != null) {
+            dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
+        }
+        renderStatusDot(dotAdFilter, on);
+    }
+
+    @Override
     public void renderNetworkMode(boolean relay) {
-        if (networkModeBadge != null) networkModeBadge.setText(relay ? "中转" : "直连");
-        if (networkModeButton != null) networkModeButton.setText(relay ? "切到直连" : "切到中转");
+        if (networkModeButton != null) networkModeButton.setText("中转");
+        if (dotNetworkMode == null && playerView != null) {
+            dotNetworkMode = playerView.findViewById(R.id.dot_network_mode);
+        }
+        renderStatusDot(dotNetworkMode, relay);
+    }
+
+    /** 状态点: 开=绿点, 关=灰点. */
+    private void renderStatusDot(View dot, boolean on) {
+        if (dot == null) return;
+        dot.setBackgroundResource(on ? R.drawable.jc_status_dot_on : R.drawable.jc_status_dot_off);
     }
 
     @Override

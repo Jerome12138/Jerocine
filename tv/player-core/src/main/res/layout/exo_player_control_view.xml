@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   自定义 Media3 控件布局(公共播放模块唯一一份, 两壳共用; 壳不再各自复制).
-  按钮(上集/下集/倍速/选集/换源/线路/跳过/退出)id 由 PlayerDialogHelper 绑定点击 + D-pad 焦点 —— id 必须原样保留.
+  按钮(上集/下集/选集/倍速/换源/中转/过滤/跳过/退出)id 由 PlayerDialogHelper 绑定点击 + D-pad 焦点 —— id 必须原样保留.
+  "中转" 与 "过滤" 是开关类按钮: 文案恒定不变色, 状态全部由**左上角状态点**表达
+  (绿=开 / 灰=关, 见 jc_status_dot_on|off.xml) —— 所以这两个按钮各自套一层 FrameLayout,
+  点作为兄弟 View 叠在左上角; 其余按钮保持裸 Button, 不要顺手改结构.
   exo_* id 是 Media3 约定 id(androidx.media3.ui.R.id.*), 控件库自动接管 seekbar/时间.
   风格: 玻璃拟态 —— 底部渐变玻璃面 + 强调青进度条 + 半透明白缓冲/未播.
 -->
@@ -101,11 +104,48 @@
                 android:drawableTop="@drawable/ic_source"
                 android:text="换源" />
 
-            <Button
-                android:id="@+id/btn_network_mode"
-                style="@style/JcPlayerCtlBtn"
-                android:drawableTop="@drawable/ic_network_mode"
-                android:text="切到中转" />
+            <!-- 中转开关: 文案固定"中转"(不再写"切到X", 免得整排按钮文案长度不一),
+                 开/关看左上角状态点(绿=开). 默认关(分片直连), 开关态持久化见 PlayerNetworkModeHelper. -->
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+
+                <Button
+                    android:id="@+id/btn_network_mode"
+                    style="@style/JcPlayerCtlBtn"
+                    android:drawableTop="@drawable/ic_network_mode"
+                    android:text="中转" />
+
+                <View
+                    android:id="@+id/dot_network_mode"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:layout_gravity="top|start"
+                    android:layout_marginStart="7dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/jc_status_dot_off" />
+            </FrameLayout>
+
+            <!-- 广告过滤开关: 同上, 文案固定"过滤", 状态看左上角状态点(绿=开/灰=关) -->
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+
+                <Button
+                    android:id="@+id/btn_ad_filter"
+                    style="@style/JcPlayerCtlBtn"
+                    android:drawableTop="@drawable/ic_ad_filter"
+                    android:text="过滤" />
+
+                <View
+                    android:id="@+id/dot_ad_filter"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:layout_gravity="top|start"
+                    android:layout_marginStart="7dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/jc_status_dot_off" />
+            </FrameLayout>
 
             <Button
                 android:id="@+id/btn_skip"

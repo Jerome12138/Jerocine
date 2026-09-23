@@ -158,42 +158,20 @@ void load()
   <!-- ===================== TV(雷鸟卡片式)分支 ===================== -->
   <section v-if="isTV" class="jc-search-tv container-page">
     <div class="jc-search-tv__wrap">
-      <!-- ============ 左栏: 输入条 + 字母键盘 + 热搜/历史 ============ -->
+      <!-- ============ 左栏: 输入条 + 字母键盘 + 历史搜索 ============ -->
       <div class="jc-search-tv__left">
-        <!-- 输入显示条 (对应 inputKeyword) -->
+        <!-- 输入显示条 (对应 inputKeyword) — 空态用浅色小字提示, 不再和已输入的词同样大同样白 -->
         <div class="jc-search-tv__inputbar">
           <BaseIcon name="search" size="22px" class="jc-search-tv__inputbar-ic" />
-          <span class="jc-search-tv__kw">{{ inputKeyword || '输入关键字 / 拼音首字母' }}</span>
+          <span class="jc-search-tv__kw" :class="{ 'is-placeholder': !inputKeyword }">{{ inputKeyword || '输入关键字 / 拼音首字母' }}</span>
           <span class="jc-search-tv__caret" aria-hidden="true" />
         </div>
 
         <!-- 字母/数字虚拟键盘 (受控 v-model, ENTER 提交搜索) -->
         <TvOnScreenKeyboard v-model="inputKeyword" @enter="submitSearch" />
 
-        <!-- 热门搜索 (hotKeywords, 取顶层分类名; 前 3 红角标) -->
-        <div v-if="hotKeywords.length" class="jc-search-tv__block">
-          <div class="jc-tv-sec">
-            <span class="t">🔥 热门搜索</span>
-            <span class="s">大家都在搜</span>
-          </div>
-          <div class="jc-search-tv__chiprow">
-            <button
-              v-for="(kw, i) in hotKeywords"
-              :key="kw"
-              type="button"
-              class="jc-tv-chip"
-              :class="i < 3 ? 'hot' : ''"
-              data-focusable="true"
-              tabindex="0"
-              @click="pickKeyword(kw)"
-            >
-              <span v-if="i < 3" class="jc-search-tv__rank">{{ i + 1 }}</span>
-              {{ kw }}
-            </button>
-          </div>
-        </div>
-
-        <!-- 历史搜索 (searchHistory, 支持清空) -->
+        <!-- 历史搜索 (searchHistory, 支持清空) — 原来的"热门搜索"(用顶层分类名伪装的假热词)已删:
+             那只是把分类名当热词摆一遍, 对用户没有信息量, 不如把位置让给真正会用到的历史搜索。 -->
         <div v-if="searchHistory.length" class="jc-search-tv__block">
           <div class="jc-tv-sec">
             <span class="t">🕘 历史搜索</span>
@@ -833,14 +811,25 @@ void load()
 }
 [data-mode='tv'] .jc-search-tv__wrap {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  /* 左栏宽 = 字母格总宽(tv-cards.css 的 --jc-tv-kbd-w), 这样输入条/字母格/历史区三者左右边界一致,
+     也就是用户要的"搜索框跟下面 6 格一样宽"(原 240px 是拍脑袋值, 比键盘宽出 6px). */
+  grid-template-columns: var(--jc-tv-kbd-w, 234px) 1fr;
   gap: var(--jc-space-6);
   align-items: start;
 }
 [data-mode='tv'] .jc-search-tv__left {
   display: flex;
   flex-direction: column;
-  gap: var(--jc-space-5);
+  /* 块间距 20→24: 输入条/字母格/历史三块挨得太紧, 四周留白放宽一档 */
+  gap: var(--jc-space-6);
+  /* ⚠️ 必须显式写死宽度 = 字母格总宽(--jc-tv-kbd-w):
+     grid 项的 justify-self 默认 stretch, 一旦挂上负外边距, 盒子会被**撑宽**而不是只平移 ——
+     之前只写 margin-left:-16px, 左栏实际宽 234+16=250px, 块级输入条跟着占满 250px,
+     而字母格是固定列宽 repeat(6,34px) 只有 234px ⇒ 搜索框比 6 格宽 16px(用户反馈"还是宽了")。
+     写死宽度后: 盒宽恒 234px, 负外边距只把它整体左移 16px(减小左边留白), 输入条/字母格/历史区
+     三者左右边界严格一致. */
+  width: var(--jc-tv-kbd-w, 234px);
+  margin-left: -16px;
 }
 [data-mode='tv'] .jc-search-tv__right {
   min-width: 0;
@@ -850,10 +839,11 @@ void load()
 [data-mode='tv'] .jc-search-tv__inputbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 64px;
-  padding: 0 18px;
-  border-radius: 16px;
+  gap: 10px;
+  /* 高 64→52 / 圆角 16→14: 输入条是"显示当前关键字"的窄条, 不需要占满半个左栏 */
+  height: 52px;
+  padding: 0 16px;
+  border-radius: 14px;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--jc-brand-cyan);
   box-shadow: 0 0 18px rgba(74, 209, 229, 0.18);
@@ -862,15 +852,22 @@ void load()
   color: var(--jc-brand-cyan);
   flex-shrink: 0;
 }
+/* 输入条文字: 字号 base→sm(空态提示原来和输入内容一样大一样白, 太抢眼);
+   空态再小一档(xs) + 弱化色 —— 提示语不该抢"用户到底输了什么"的位置 */
 [data-mode='tv'] .jc-search-tv__kw {
   flex: 1;
   min-width: 0;
-  font-size: var(--jc-fs-lg);
+  font-size: var(--jc-fs-sm);
   font-weight: var(--jc-fw-bold);
   color: var(--jc-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+[data-mode='tv'] .jc-search-tv__kw.is-placeholder {
+  font-size: var(--jc-fs-xs);
+  font-weight: var(--jc-fw-regular);
+  color: var(--jc-text-muted);
 }
 [data-mode='tv'] .jc-search-tv__caret {
   width: 2px;
@@ -902,24 +899,11 @@ void load()
   flex-wrap: wrap;
   gap: 10px;
 }
-/* 热门/历史搜索 chip 文字调小(用户反馈热门搜索文字偏大) */
+/* 历史搜索 chip: 跟着左栏收窄再收一档(高 40→32 / 内边距 14→10 / 字号 sm→xs) */
 [data-mode='tv'] .jc-search-tv__chiprow .jc-tv-chip {
-  height: 40px;
-  padding: 0 14px;
-  font-size: var(--jc-fs-sm);
-}
-[data-mode='tv'] .jc-search-tv__rank {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--jc-brand-gradient);
-  color: #fff;
+  height: 32px;
+  padding: 0 10px;
   font-size: var(--jc-fs-xs);
-  font-weight: var(--jc-fw-bold);
-  margin-right: 6px;
 }
 [data-mode='tv'] .jc-search-tv__clear {
   margin-left: auto;
@@ -1016,7 +1000,7 @@ void load()
   padding: 56px 40px;
 }
 [data-mode='tv'] .jc-search-tv__hint-glyph {
-  font-size: 56px;
+  font-size: var(--jc-fs-hero);
   line-height: 1;
   color: var(--jc-text-muted);
   opacity: 0.6;

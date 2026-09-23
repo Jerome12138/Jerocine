@@ -20,8 +20,8 @@ import MinimalLayout from '@/components/layout/MinimalLayout.vue'
 const route = useRoute()
 const router = useRouter()
 
-// 启动 view-mode 检测，写入 <html data-mode>
-useViewMode()
+// 启动 view-mode 检测，写入 <html data-mode>（isTV 供返回键桥判断"主界面"）
+const { isTV } = useViewMode()
 
 // D-pad keyCode → 标准 KeyboardEvent.key 桥接（始终安装；非 TV 模式无副作用）
 const uninstallDpad = installDpadBridge()
@@ -31,8 +31,17 @@ installSpatialNavigationOnce()
 
 // Capacitor Android BACK 键桥. 优先级:
 //   1. 有弹层 (modal/sidebar) 打开 → 关弹层
-//   2. 路由有上一页 → router.back()
-//   3. 在首页 (history.length <= 1) → 双击退出: 第一下 toast, 2s 内第二下 return false 让原生退
+//   2. 根页面 (首页) **不参与路由回退** → 直接走双击退出
+//   3. TV 的"主界面"级页面 (首页 / 一级分类) 之间切换 → 也**不回退**, 一律回首页
+//   4. 其他页面路由有上一页 → router.back()
+//   5. 兜底 → 双击退出: 第一下 toast, 2s 内第二下 return false 让原生退
+//
+// 为什么首页要特判: APK 里 history 栈往往带着"上个会话/外部入口"的记录, 在首页按返回
+// 会回退到那个路由 (观感=页面乱跳/白屏), 用户期望的是"首页＝最外层, 再按就是退出"。
+// 为什么 TV 的分类页也要特判: 顶部频道胶囊(电影片/连续剧/…)是**同一层**的主界面,
+// 在"电影片"按返回若走 router.back() 会回到上一个频道(甚至回退到进 TV 前的路由),
+// 观感像"频道之间来回横跳"; 用户要的是"从主界面返回 = 回首页", 只有二级页
+// (详情/播放/搜索/历史/我的/分类库…) 才回上一页。
 //
 // 用局部 typed 变量绑 window — 之前用 ;(window as X).fn = ... 的"防 ASI" 头分号
 // 在 minifier 里被当 EmptyStatement 删掉, 导致 let backLastTapAt = 0 紧贴下一行
@@ -42,6 +51,10 @@ const _winBack = window as unknown as {
   gfTvBack?: () => boolean
   __gfModalCloser?: () => boolean
 }
+/** 根页面(不参与路由回退, 返回键＝双击退出): 首页 */
+const BACK_ROOT_PAGES: ReadonlySet<string> = new Set(['home'])
+/** TV 主界面级页面(返回键＝回首页, 不回退到上一个主界面): 首页 + 一级分类页 */
+const BACK_TV_MAIN_PAGES: ReadonlySet<string> = new Set(['home', 'classify'])
 let backLastTapAt = 0
 const BACK_DOUBLE_MS = 2000
 _winBack.gfTvBack = (): boolean => {
@@ -61,12 +74,20 @@ _winBack.gfTvBack = (): boolean => {
       /* ignore */
     }
   }
-  // 2) router 有上一页就回
-  if (window.history.length > 1) {
+  // 2) 根页面: 跳过路由回退, 直接进入"双击退出"分支(见下)
+  const routeName = String(route.name ?? '')
+  const onRootPage = BACK_ROOT_PAGES.has(routeName)
+  // 3) 非根页面: TV 主界面之间(含一级分类)切换不用回退栈, 直接回首页 (replace 免得多一条历史)
+  if (!onRootPage && isTV.value && BACK_TV_MAIN_PAGES.has(routeName)) {
+    void router.replace({ path: '/index' })
+    return true
+  }
+  // 4) 非根页面且 router 有上一页就回
+  if (!onRootPage && window.history.length > 1) {
     router.back()
     return true
   }
-  // 3) 首页双击退出
+  // 5) 双击退出
   const now = Date.now()
   if (now - backLastTapAt < BACK_DOUBLE_MS) {
     backLastTapAt = 0

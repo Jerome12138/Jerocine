@@ -77,6 +77,7 @@ public class PlayerDialogHelper {
         Button skip = pv.findViewById(R.id.btn_skip);
         Button close = pv.findViewById(R.id.btn_close);
         Button networkMode = pv.findViewById(R.id.btn_network_mode);
+        Button adFilter = pv.findViewById(R.id.btn_ad_filter);
         if (close == null) return;
 
         boolean multi = session.sourceList.size() >= 2;
@@ -100,49 +101,14 @@ public class PlayerDialogHelper {
             source.setOnClickListener(b -> showSourceDialog());
         }
         if (networkMode != null) {
-            networkMode.setOnClickListener(b -> session.toggleNetworkMode());
+            // 走 Host 转给 PlayerNetworkModeHelper(需读 Context 落盘), 与"过滤"按钮同一条路
+            networkMode.setOnClickListener(b -> session.host().toggleNetworkMode());
             session.updateNetworkModeUi();
         }
         if (skip != null) skip.setOnClickListener(b -> showSkipSettingsDialog());
+        if (adFilter != null) adFilter.setOnClickListener(b -> session.host().toggleAdFilter());
         close.setOnClickListener(b -> session.host().finishPlayer());
         ctlBtnsBound = true;
-    }
-
-    // ============================ 播放控制菜单 ============================
-
-    /** MENU 键: 播放控制总入口 */
-    void showPlayMenu() {
-        boolean multiSrc = session.sourceList.size() >= 2;
-        String srcLabel = multiSrc
-                ? "切换源 (" + session.sourceList.get(session.currentSourceIndex).name + ")"
-                : null;
-        String adLabel = "广告过滤: " + (session.adFilterOn ? "开" : "关");
-        String[] items = multiSrc
-                ? new String[]{"倍速 " + SPEED_LABELS[speedIndex], "选集", srcLabel, adLabel, "跳过设置", "关闭播放"}
-                : new String[]{"倍速 " + SPEED_LABELS[speedIndex], "选集", adLabel, "跳过设置", "关闭播放"};
-        new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
-                .setTitle("播放控制")
-                .setItems(items, (d, w) -> {
-                    if (multiSrc) {
-                        switch (w) {
-                            case 0: showSpeedDialog(); break;
-                            case 1: showEpisodeDialog(); break;
-                            case 2: showSourceDialog(); break;
-                            case 3: session.host().toggleAdFilter(); break;
-                            case 4: showSkipSettingsDialog(); break;
-                            default: session.host().finishPlayer(); break;
-                        }
-                    } else {
-                        switch (w) {
-                            case 0: showSpeedDialog(); break;
-                            case 1: showEpisodeDialog(); break;
-                            case 2: session.host().toggleAdFilter(); break;
-                            case 3: showSkipSettingsDialog(); break;
-                            default: session.host().finishPlayer(); break;
-                        }
-                    }
-                })
-                .show();
     }
 
     // ============================ 切源 ============================
