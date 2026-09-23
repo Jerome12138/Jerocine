@@ -142,6 +142,15 @@ die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
 resolve_downloads() {
   local d
+  # 显式指定优先：脚本/CI/容器里可能读不到注册表，或 reg.exe 被「程序黑名单」拦住（进程起不来；
+  # 那是命令安全策略，与沙箱隔离/用户权限无关），
+  # 这时用 JEROCINE_DOWNLOAD_DIR 直接说清产物该落到哪。目录不存在则忽略它、继续往下探测。
+  d="${JEROCINE_DOWNLOAD_DIR:-}"
+  if [ -n "$d" ]; then
+    d="$(cygpath -u "$d" 2>/dev/null || printf '%s' "$d")"
+    if [ -d "$d" ]; then printf '%s' "$d"; return; fi
+    warn "JEROCINE_DOWNLOAD_DIR=$JEROCINE_DOWNLOAD_DIR 不是已存在的目录，忽略，改按系统下载目录探测。"
+  fi
   # Windows: 读注册表拿真实下载目录(用户可能用"位置"移动到 D 盘等非默认位置)
   if [ "$OS" = windows ] && command -v reg >/dev/null 2>&1; then
     d="$(reg query 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders' \

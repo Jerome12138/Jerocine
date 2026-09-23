@@ -44,6 +44,14 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
 - 产物命名：`Jerocine-TV-{web,native}-v<版本名>(<构建号>).apk`，debug 追加 `-debug`。
   例：`Jerocine-TV-web-v1.0.9(1041).apk`。构建号取 APK 产物目录 `output-metadata.json` 里的
   `versionCode`（gradle 生成的真实值），读不到才退回版本源文件。
+- **产物复制到哪 —— 系统真实「下载」目录**，解析顺序：① `JEROCINE_DOWNLOAD_DIR`（显式指定，最优先）；
+  ② Windows 读注册表 `Shell Folders\{374DE290-123F-4565-9164-39C4925E467B}`（支持用户把"下载"位置
+  改到别的盘，如 `D:\Downloads`）；③ macOS/Linux 走 `xdg-user-dir DOWNLOAD` / `~/Downloads`。
+  **⚠️ `reg.exe` 可能被「命令安全 → 程序黑名单」拦住**（进程起不来，报 `PROGRAM BLOCKED BY SECURITY POLICY`；
+  该拦截**不可批准也不可绕过**，只能在安全中心里移除，且**与"沙箱隔离/完全权限"无关** —— 别混为一谈）。
+  而脚本里这步带 `2>/dev/null ... || true`，**静默无输出** → 会悄悄回退到 `C:\Users\<user>\Downloads`，
+  包就落到了"错"的目录（用户会以为没出包）。
+  这种情况下显式传 `JEROCINE_DOWNLOAD_DIR=/d/Downloads`（Harness 的 `build-android-local.sh` 已按本机注入）。
 - **版本号唯一来源：`scripts/android-versions.properties`**（构建号统一千位编号 = 1000 + 迭代号）。
   `web/android/app/build.gradle`、`tv/app/build.gradle.kts`、`scripts/build-android.sh` 都读它，
   **发新版只改这一个文件**，别在 `build.gradle` 里写死数字（否则产物名会和包内元数据对不上）。
