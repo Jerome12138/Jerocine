@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TV 外壳的状态徽标(首页看板 / 历史条目): 不透明实面 + 1dp 描边.
+  播放器内部的角标用 player-core 的 @drawable/jc_badge_bg(web 玻璃风小胶囊), 两者刻意不同名 ——
+  壳里若用同名的 jc_badge_bg, 会覆盖库资源, 播放器内部也跟着变.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/jc_surface_1" />
+    <stroke android:width="1dp" android:color="@color/jc_tv_border" />
+    <corners android:radius="@dimen/jc_control_radius" />
+</shape>

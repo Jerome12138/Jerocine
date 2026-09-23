@@ -14,7 +14,7 @@
         android:id="@+id/poster_cover"
         android:layout_width="122dp"
         android:layout_height="163dp"
-        android:background="@color/jc_glass_soft"
+        android:background="@color/jc_tv_glass_soft"
         android:duplicateParentState="true"
         android:scaleType="centerCrop" />
 

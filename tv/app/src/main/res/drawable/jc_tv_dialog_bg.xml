@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TV 外壳对话框背景(如详情页选源弹窗): 不透明深色表面, 避免旧设备出现白底透出.
+  播放器内部的弹窗仍用 player-core 的玻璃版 @drawable/jc_dialog_bg(JcPlayerDialog 主题的
+  windowBackground) —— 两者刻意不同名, 否则壳里的同名额会覆盖库资源.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/jc_surface_1" />
+    <corners android:radius="@dimen/jc_panel_radius" />
+    <stroke android:width="1dp" android:color="@color/jc_tv_border" />
+    <padding android:left="10dp" android:top="10dp" android:right="10dp" android:bottom="10dp" />
+</shape>

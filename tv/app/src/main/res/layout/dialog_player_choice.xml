@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/jc_dialog_bg"
+    android:background="@drawable/jc_tv_dialog_bg"
     android:orientation="vertical"
     android:padding="18dp">
 

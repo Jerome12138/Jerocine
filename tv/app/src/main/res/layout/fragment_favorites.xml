@@ -93,7 +93,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="22dp"
-        android:background="@drawable/jc_toast_bg"
+        android:background="@drawable/jc_tv_toast_bg"
         android:paddingHorizontal="20dp"
         android:paddingVertical="11dp"
         android:textColor="@color/jc_text"

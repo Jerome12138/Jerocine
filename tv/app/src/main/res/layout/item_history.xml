@@ -18,7 +18,7 @@
             android:id="@+id/history_cover"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@color/jc_glass_soft"
+            android:background="@color/jc_tv_glass_soft"
             android:duplicateParentState="true"
             android:scaleType="centerCrop" />
 
@@ -28,7 +28,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="top|start"
             android:layout_margin="7dp"
-            android:background="@drawable/jc_badge_bg"
+            android:background="@drawable/jc_tv_badge_bg"
             android:paddingHorizontal="7dp"
             android:paddingVertical="3dp"
             android:textColor="@color/jc_text"

@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  TV 壳 — 仅存放"播放器公共模块(player-core)没有"的令牌.
+  TV 壳色板. 分两类 ——
 
-  公共设计令牌(玻璃面 jc_glass/jc_glass_soft/jc_glass_deep、描边 jc_stroke/jc_stroke_faint、
-  文本 jc_text*、强调色 jc_accent*/jc_purple*、进度条 jc_progress_* 等)统一定义在
-  player-core/src/main/res/values/colors.xml —— 壳里再定义一份会覆盖库资源, 改了 core 不生效,
-  是本次收敛要消除的坑, 因此这里不再重复.
-  下面只保留 TV 端独有的实色表面 / 功能色 / TV 面板配色.
+  1) 壳外层(播放器之外)自己的令牌: 不透明实色表面 / 外壳描边 / 功能色 / TV 面板配色, 保留在本文件.
+     其中 jc_tv_border / jc_tv_border_faint / jc_tv_glass_soft 是与播放器玻璃令牌
+     (jc_stroke / jc_stroke_faint / jc_glass_soft) **值不同**的一对: 播放器内部要用 player-core 的
+     玻璃色板(半透明), 外壳外层仍要用旧的不透明版(老设备"白底透出"的坑). 因为壳里同名资源会覆盖
+     库资源(连播放器一起改), 所以外壳那份用 jc_tv_ 前缀各存一份.
+
+  2) 与 player-core 值相同的公共令牌(文本 jc_text*、强调色 jc_accent*/jc_purple*、进度条
+     jc_progress_*、以及 jc_bg / jc_scrim / jc_bg_black 等)只在 player-core 定义, 这里不重复.
 -->
 <resources>
 
@@ -14,6 +17,12 @@
     <color name="jc_surface_1">#16181D</color>
     <color name="jc_surface_2">#1D2026</color>
     <color name="jc_surface_3">#252932</color>
+
+    <!-- ===== TV 外壳的描边与面板底(不透明/近实色, 供播放器之外的界面使用) =====
+         与 player-core 的玻璃描边令牌刻意区分: 见文件头注释. -->
+    <color name="jc_tv_border">#FF30343C</color>
+    <color name="jc_tv_border_faint">#FF242830</color>
+    <color name="jc_tv_glass_soft">#E61D2026</color>
 
     <!-- ===== TV 独有的功能色 ===== -->
     <color name="jc_danger_dim">#33FF5B6A</color>
