@@ -37,6 +37,7 @@
 scripts/build-android.sh all                                   # 两个包都打
 scripts/build-android.sh tv --api-base=https://你的域名/        # 指定 TV 的后端地址(编译期常量)；tv 与 native 等价
 scripts/build-android.sh web --debug                           # debug 试用包，跳过密钥校验
+scripts/build-android.sh web --keep-version                    # 故意重打同一个构建号（会给重复发版警告）
 scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原样透传给 gradle
 ```
 
@@ -47,6 +48,24 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
   `web/android/app/build.gradle`、`tv/app/build.gradle.kts`、`scripts/build-android.sh` 都读它，
   **发新版只改这一个文件**，别在 `build.gradle` 里写死数字（否则产物名会和包内元数据对不上）。
   单次覆盖：`-PwebVersionCode=1042 -PwebVersionName=1.1.0` / `-PnativeVersionCode=1002`。
+- **⚠️ 每次正式打包 versionCode 必须 +1**（versionName 可以不动；Android 只接受更大的
+  versionCode，同号包装不上已装旧包的设备，也可能被分发渠道判为重复版本）。
+  **这一步不用靠人记——脚本有闸门**：正式构建时脚本把 `web./native.versionCode` 与文件里的
+  `served.*.versionCode` 水位线（= 该 kind 已出过正式包的最大构建号）比较：
+  - 当前号 **≤ 水位线** → 这一版已经发过包了 → **自动 +1、回写文件**，然后才构建；
+  - 当前号 **> 水位线** → 手动改大了 → 尊重你的值，脚本不动（想提前占号直接改大即可）。
+  交付成功后水位线才推进到本次实际构建号，**构建失败不推进**，所以重试仍是同一个号、不白烧号。
+  `--keep-version` 关掉自动递增（重发同一版用）；`--` 之后用 `-P<kind>VersionCode=` 显式指定时
+  也跳过递增。脚本自动改过版本源文件时会在结尾提醒提交它。
+- **web 包的构建顺序是强制的**：`vue-tsc → vite build → cap sync android → gradlew assemble`。脚本已内建
+  两道保险，别为"顺手简化"改掉：
+  ① `cap sync` 必须重定向 stdin（`< /dev/null`）：**stdin 不是 TTY 时（后台/脚本/CI/agent 里都是）
+  它会在拷贝完成后去读 stdin 并一直阻塞**，全程无输出、看着像卡死（实测 25s 仍在挂；加了重定向 18.5s 正常结束）；
+  ② 出包前断言 `web/dist` 的每个文件都存在于 `web/android/app/src/main/assets/public`
+  —— `cap sync` 会先把该目录（约 181 文件）删空再重灌，中途被打断就留下残缺前端，
+  那种包**编译照过、装上却是白屏**，日志里没有任何异常。手工兜底时同样要加 `< /dev/null`。
+  脚本对 `cap sync` 这步另加超时兜底（默认 300s，`JEROCINE_CAP_SYNC_TIMEOUT` 可调）：Linux 用 `timeout`，
+  macOS 无 `timeout` 时自动改用 `gtimeout`，两者都没有就只告警并照常执行（少一层兜底，不影响正确性）。
 - **release 必须用正式密钥**，脚本找不到就报错退出（不静默降级成 debug 签名）。
   密钥不入库，也**刻意不从工程目录里读**——必须显式指定：目录里放好 `keystore.properties`
   （键名 `storePassword` / `keyAlias` / `keyPassword`）后用 `JEROCINE_KEY_DIR=<目录>` 指过去，
@@ -88,7 +107,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
 ## Android 工程版本控制
 
 - `web/android/` 源码纳入 git。精细忽略：`build/`、`.gradle/`、`local.properties`、`assets/public`(cap 产物)、**`*.keystore`/`*.jks`(发布密钥严禁 commit)**。
-- **APK 构建**：见上文「构建脚本清单」的 `scripts/build-android.sh`（已封装 `pnpm build` + `cap sync android` + `gradlew`，并强制校验正式签名）。手工兜底：`cd web && pnpm build:no-check && npx cap sync android && cd android && ./gradlew assembleDebug`（debug 无需密钥）。
+- **APK 构建**：见上文「构建脚本清单」的 `scripts/build-android.sh`（已封装 `pnpm build` + `cap sync android` + `gradlew`，并强制校验正式签名）。手工兜底：`cd web && pnpm build:no-check && npx cap sync android < /dev/null && cd android && ./gradlew assembleDebug`（debug 无需密钥；`< /dev/null` 不能省，见上文 stdin 坑）。
 - **原生播放器只有一个实现：`tv/player-core`**（Java 库，被 `tv` 与 `web/android` 两个工程各自 include，两壳不再自带播放器副本）。
   - 自定义 Media3 控件布局 `tv/player-core/src/main/res/layout/exo_player_control_view.xml`（进度条下方一排[图标+2字]按钮），按钮绑定在 `PlayerDialogHelper.bindControlButtons()`，**不在** `PlayerActivity`。
   - 该模块**没有 AndroidManifest.xml**：`com.jerocine.player.PlayerActivity` 必须由各壳清单声明（两端都已声明），传参统一走 `PlayerActivity.EXTRA_*` 常量，别写字面量字符串。
