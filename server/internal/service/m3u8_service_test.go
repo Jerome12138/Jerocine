@@ -355,8 +355,10 @@ func TestRewriteM3u8WithStats_BfEp146Shape(t *testing.T) {
 	if st.Filtered != 9 {
 		t.Fatalf("应剔 9 段 adjump 广告, got Filtered=%d (Num=%d Cross=%d)", st.Filtered, st.Num, st.Cross)
 	}
-	if st.Num != 9 || st.Cross != 0 {
-		t.Fatalf("应全部由编号跳脱命中: Num=%d Cross=%d want 9/0", st.Num, st.Cross)
+	// 广告在 /video/adjump/time/ 与正片 /video/x/ep146/ 同 host 异内容目录 ⇒ 8b1903d(跨域判定扩展
+	// 到内容目录)之后由跨域维度先命中(Cross); 编号跳脱是同形态的另一条判据, 同目录场景见 DropsNumberOutlierAds。
+	if st.Num+st.Cross != 9 {
+		t.Fatalf("9 段广告应被跨域/编号维度之一命中: Num=%d Cross=%d 合计应为 9", st.Num, st.Cross)
 	}
 	if !st.HasDisc {
 		t.Fatalf("含 #EXT-X-DISCONTINUITY, HasDisc 应为 true")
@@ -426,34 +428,6 @@ func TestLogM3u8Filter_WarnVsInfoVsQuiet(t *testing.T) {
 	}
 }
 
-// 同域 + 编号连续 + 仅时长异常的插片(0.5s 卡点)→ 时长维度剔除, 记 Short。
-// 该形态跨域/编号两维都抓不到(哈希命名或连续编号), 是时长维度的覆盖增量。
-func TestRewriteM3u8WithStats_DropsShortSegments(t *testing.T) {
-	base, _ := url.Parse("https://v.src.com/x/mixed.m3u8")
-	var b strings.Builder
-	b.WriteString("#EXTM3U\n")
-	for i := 0; i < 6; i++ {
-		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
-	}
-	b.WriteString("#EXTINF:0.5,\nseg_ad.ts\n") // 广告卡点: 同域、编号 -1, 仅时长极短
-	for i := 6; i < 12; i++ {
-		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
-	}
-	out, st, _ := rewriteM3u8WithStats(b.String(), base, true, false)
-	if st.Filtered != 1 || st.Short != 1 {
-		t.Fatalf("应剔 1 段短分片: Filtered=%d Short=%d want 1/1 (Num=%d Cross=%d)", st.Filtered, st.Short, st.Num, st.Cross)
-	}
-	if strings.Contains(out, "seg_ad.ts") {
-		t.Fatalf("短广告分片应被剔除:\n%s", out)
-	}
-	if !strings.Contains(out, "seg0.ts") || !strings.Contains(out, "seg11.ts") {
-		t.Fatalf("正片应保留:\n%s", out)
-	}
-	if strings.Count(out, "#EXTINF") != 12 {
-		t.Fatalf("剔除后不应残留孤立 EXTINF, got %d 条:\n%s", strings.Count(out, "#EXTINF"), out)
-	}
-}
-
 // 开头 4 段内的短分片(片头/OP 常见)→ 豁免, 不误杀。
 func TestRewriteM3u8WithStats_KeepsShortHeadSegments(t *testing.T) {
 	base, _ := url.Parse("https://v.src.com/x/mixed.m3u8")
@@ -495,6 +469,106 @@ func TestRewriteM3u8WithStats_DurationOutlierWarnsOnly(t *testing.T) {
 	}
 	if !strings.Contains(out, "seg_long.ts") {
 		t.Fatalf("预警模式不应剔除异常分片:\n%s", out)
+	}
+}
+
+// 时长维度: "连续极短分片簇"才剔(广告密集切片特征)。判定基准是**簇累计时长**(a1aab70 起),
+// 不是单段时长 —— 旧用例按"孤立一段也剔"写, 那次改实现时未同步测试, 已过期。
+// 该形态同目录 + 编号连续, 跨域/编号两维都抓不到, 是时长维度的覆盖增量。
+func TestRewriteM3u8WithStats_DropsShortBurstAds(t *testing.T) {
+	base, _ := url.Parse("https://v.src.com/x/mixed.m3u8")
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	for i := 0; i < 6; i++ {
+		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
+	}
+	for i := 0; i < 4; i++ { // 连续 4 段 0.8s: 累计 3.2s ≥ 3s → 整簇剔除
+		fmt.Fprintf(&b, "#EXTINF:0.8,\nseg_ad%d.ts\n", i)
+	}
+	for i := 6; i < 12; i++ {
+		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
+	}
+	out, st, _ := rewriteM3u8WithStats(b.String(), base, true, false)
+	if st.Short != 4 || st.Filtered != 4 {
+		t.Fatalf("连续 4 段极短(累计 3.2s)应整簇剔除: Short=%d Filtered=%d want 4/4 (Num=%d Cross=%d)",
+			st.Short, st.Filtered, st.Num, st.Cross)
+	}
+	if strings.Contains(out, "seg_ad") {
+		t.Fatalf("短广告簇应被剔除:\n%s", out)
+	}
+	if !strings.Contains(out, "seg0.ts") || !strings.Contains(out, "seg11.ts") {
+		t.Fatalf("正片应保留:\n%s", out)
+	}
+	if strings.Count(out, "#EXTINF") != 12 {
+		t.Fatalf("剔除后不应残留孤立 EXTINF, got %d 条:\n%s", strings.Count(out, "#EXTINF"), out)
+	}
+}
+
+// 孤立 <1s 段 / 累计不足 3s 的短簇 → 保留(避免误伤转场、镜头切换)。
+func TestRewriteM3u8WithStats_KeepsShortBurstUnderThreshold(t *testing.T) {
+	base, _ := url.Parse("https://v.src.com/x/mixed.m3u8")
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	for i := 0; i < 6; i++ {
+		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
+	}
+	b.WriteString("#EXTINF:0.5,\nseg_short1.ts\n") // 累计 0.5s
+	b.WriteString("#EXTINF:0.5,\nseg_short2.ts\n") // 累计 1.0s < 3s → 视为转场, 不剔
+	for i := 6; i < 12; i++ {
+		fmt.Fprintf(&b, "#EXTINF:4.0,\nseg%d.ts\n", i)
+	}
+	out, st, _ := rewriteM3u8WithStats(b.String(), base, true, false)
+	if st.Filtered != 0 {
+		t.Fatalf("累计不足 3s 的短簇应保留, got Filtered=%d Short=%d", st.Filtered, st.Short)
+	}
+	if !strings.Contains(out, "seg_short1.ts") || !strings.Contains(out, "seg_short2.ts") {
+		t.Fatalf("短段应保留:\n%s", out)
+	}
+	if strings.Count(out, "#EXTINF") != 14 {
+		t.Fatalf("14 段应全保留, got %d 条 EXTINF:\n%s", strings.Count(out, "#EXTINF"), out)
+	}
+}
+
+// 跨域维度占比保护: 长表中异键分片超上限 → 判定主导键选错, 整表不剔(宁可漏过滤, 也不删光正片)。
+// 典型误判形态: 双 CDN 交替(合法多源), 异键恰好占 50%。注: 保护只对长表(n≥adCrossMinSegs)生效。
+func TestRewriteM3u8WithStats_CrossDropCapKeepsAlternatingCdn(t *testing.T) {
+	base, _ := url.Parse("https://1080p.huyall.com/play/hls/x/index.m3u8")
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	for i := 0; i < 12; i++ {
+		host := "c1.example.com"
+		if i%2 == 1 {
+			host = "c2.example.com"
+		}
+		fmt.Fprintf(&b, "#EXTINF:5.0,\nhttps://%s/hls/p%d.ts\n", host, i)
+	}
+	_, st, _ := rewriteM3u8WithStats(b.String(), base, true, false)
+	if st.Filtered != 0 {
+		t.Fatalf("双 CDN 交替(异键 50%% 超上限)应整表不剔, got Filtered=%d (Cross=%d)", st.Filtered, st.Cross)
+	}
+}
+
+// segKey 必须"先剥文件名再取目录段": 同目录分片必须同键。
+// 旧实现直接取 path 前两段 —— 目录只有一层时第二段取到的是**文件名**, 每个分片各成一键、
+// 互为异键, 于是同目录的正常分片被整批当跨域广告删掉(实测 3 段删 2 段)。
+func TestSegKey_SameDirectorySharesKey(t *testing.T) {
+	sameDir := []struct{ a, b, want string }{
+		// 目录单层: 旧实现会退化成 a≠b
+		{"https://cdn.example.com/play/seg0.ts", "https://cdn.example.com/play/seg1.ts", "cdn.example.com/play"},
+		// 目录多层: 取前两段目录
+		{"https://v.fengbao8.com/video/liurendiliuji/ecca40a6bdd2/0000001.ts",
+			"https://v.fengbao8.com/video/liurendiliuji/ecca40a6bdd2/0000002.ts", "v.fengbao8.com/video/liurendiliuji"},
+		// 分片就在 host 根: 退化为 host
+		{"https://cdnA.com/s0.ts", "https://cdnA.com/s1.ts", "cdnA.com"},
+	}
+	for _, c := range sameDir {
+		if ka, kb := segKey(c.a), segKey(c.b); ka != c.want || kb != c.want {
+			t.Errorf("同目录应同键 want %q, got %q / %q", c.want, ka, kb)
+		}
+	}
+	// 同 host 异内容目录(maowushi 类广告)必须**不同**键, 否则跨域维度抓不到
+	if segKey("https://x.com/video/Dy0OgKn2/0001.ts") == segKey("https://x.com/video/oVx7Nl6K/ad.ts") {
+		t.Errorf("同 host 异内容目录应不同键, got 同键 %q", segKey("https://x.com/video/Dy0OgKn2/0001.ts"))
 	}
 }
 

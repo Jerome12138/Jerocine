@@ -72,11 +72,13 @@ public final class AdFilterStatus {
         if (!hls) {
             return new AdFilterStatus(KIND_UNSUPPORTED, Tone.GRAY, "该源无需过滤", 0);
         }
-        if (filterFailed) {
-            return new AdFilterStatus(KIND_FAILED, Tone.GRAY, "过滤失败", 0);
-        }
+        // 判据顺序: "当前正走服务端代理" 必须排在 filterFailed 之前 —— 代理链路是好的(已过滤),
+        // 残留的失败标记(上一集/上一轮端侧 POST 失败)不该盖掉它, 否则角标会一直误报"过滤失败"。
         if (viaServerProxy) {
             return new AdFilterStatus(KIND_PROXY, Tone.BLUE, "服务端过滤中", 0);
+        }
+        if (filterFailed) {
+            return new AdFilterStatus(KIND_FAILED, Tone.GRAY, "过滤失败", 0);
         }
         if (filteredCount > 0) {
             return new AdFilterStatus(

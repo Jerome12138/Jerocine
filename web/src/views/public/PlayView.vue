@@ -988,8 +988,10 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
   const native = getNativePlayer()
   if (native?.playPlaylist && src) {
     const movieName = detail.value?.name ?? ''
+    // 一律给**原始地址**: 包不包 /m3u8/proxy 由原生自己按 adFilterOk 决定(端侧混合过滤优先),
+    // web 层预包装会让原生看不到 adFilterOk 而白撞一次代理(实测失败源要等 2~15s 才回退)。
     const episodes = src.episodes.map((e) => ({
-      url: wrapAdFilterUrl(e.link),
+      url: e.link,
       title: `${movieName} · ${e.episode ?? ''}`.trim()
     }))
     native.playPlaylist(JSON.stringify({
@@ -1006,7 +1008,7 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
   // 兼容旧 bridge (只支持单集)
   if (native?.playVideo) {
     const title = `${detail.value?.name ?? ''} · ${ep.episode ?? ''}`.trim()
-    native.playVideo(wrapAdFilterUrl(ep.link), title)
+    native.playVideo(ep.link, title)
     return
   }
   currentSrc.value = ep.link

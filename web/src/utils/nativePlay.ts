@@ -40,6 +40,11 @@ export function dispatchNativePlaylist(
   const mapped = sources.map((s) => ({
     id: s.id,
     name: s.name,
+    // 服务端能否代理该源清单(play 接口标注的服务端可达性): 原生据此决定要不要把清单包成
+    // /m3u8/proxy。false 时直接播原始地址、由端侧混合过滤剔广告 —— 与 web 播放页的降级一致,
+    // 否则每次起播都要白撞一次必然失败的代理请求(实测失败源要等 2~15s 才回退)。
+    // undefined(未测) 序列化时会被丢掉, 原生按"可用"处理, 保持旧行为。
+    adFilterOk: s.adFilterOk,
     episodes: (s.episodes ?? []).map((e) => ({
       url: e.link,
       title: `${detail.name} · ${e.episode ?? ''}`.trim()

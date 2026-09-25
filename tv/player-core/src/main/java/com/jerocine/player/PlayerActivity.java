@@ -130,6 +130,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private PlayerDialogHelper dialogHelper;
     private PlayerKeyEventHelper keyEventHelper;
     private PlayerSourceHelper sourceHelper;
+    private PlayerPrefetchHelper prefetchHelper;
 
     // ============================ 生命周期 ============================
 
@@ -162,6 +163,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         dialogHelper = new PlayerDialogHelper(session);
         keyEventHelper = new PlayerKeyEventHelper(session);
         sourceHelper = new PlayerSourceHelper(session);
+        prefetchHelper = new PlayerPrefetchHelper(session);
 
         session.proxyBase = adFilterHelper.resolveProxyBase(getIntent());
         session.adFilterOn = adFilterHelper.prefs().getBoolean("ad_filter_enabled", true);
@@ -315,8 +317,12 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 final int errIdx = session.player != null
                         ? session.player.getCurrentMediaItemIndex() : -1;
 
-                // 直连分片失败 → 本集改走全量中转(自愈)
-                if (session.adFilterOn && PlayerUrls.shouldRetryWithRelay(currentUrl, failedUrl)
+                // 直连失败(端侧过滤下设备自己抓清单/分片) → 本集改走全量中转(自愈).
+                // 前两版只在"当前是 proxy 清单"时才自愈; 端侧混合过滤成为主路径后当前地址是**原始 m3u8**,
+                // 所以判据放宽为"失败的不是代理请求本身"(见 PlayerUrls.shouldRetryWithRelay).
+                // 服务端抓不到该源的(proxyUsable=false)中转也无意义, 直接走下面的报错/回退.
+                if (session.adFilterOn && session.sourceProxyUsable
+                        && PlayerUrls.shouldRetryWithRelay(currentUrl, failedUrl)
                         && errIdx >= 0 && errIdx < session.currentRawUrls.size()
                         && !session.forceRelayIdx.contains(errIdx)) {
                     session.forceRelayIdx.add(errIdx);
@@ -378,14 +384,16 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         @Override
         public void run() {
             try {
-                if (session.player != null && session.player.isPlaying()
-                        && !skipHelper.inNoRecordTail()) {
-                    JSONObject p = new JSONObject();
-                    p.put("filmId", filmId());
-                    p.put("episodeIndex", session.player.getCurrentMediaItemIndex());
-                    p.put("source", session.currentSourceLabel());
-                    p.put("position", session.player.getCurrentPosition() / 1000.0);
-                    emit("playerProgress", p);
+                if (session.player != null && session.player.isPlaying()) {
+                    maybeRefreshPrefetchNearOutro();
+                    if (!skipHelper.inNoRecordTail()) {
+                        JSONObject p = new JSONObject();
+                        p.put("filmId", filmId());
+                        p.put("episodeIndex", session.player.getCurrentMediaItemIndex());
+                        p.put("source", session.currentSourceLabel());
+                        p.put("position", session.player.getCurrentPosition() / 1000.0);
+                        emit("playerProgress", p);
+                    }
                 }
             } catch (Exception ignore) {
             } finally {
@@ -393,6 +401,23 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             }
         }
     };
+
+    /**
+     * 接近片尾(剩余 ≤ 跳过片尾秒数 + 60s) → 预取下一集的过滤后清单, 让切集不再白等端侧过滤.
+     *
+     * 这是预取的**唯一触发点**: 不做"起播就预取下一集" —— 预取结果 TTL 只有 10min, 而一集
+     * 30~45min, 起播时预取的那份到切集时必然过期。5s 轮询一次调用, 去重节流都在
+     * {@link PlayerPrefetchHelper#schedule()} 里(结果还新鲜就直接返回)。
+     */
+    private void maybeRefreshPrefetchNearOutro() {
+        if (!session.autoNext || !session.adFilterOn) return;
+        long duration = session.player.getDuration();
+        long pos = session.player.getCurrentPosition();
+        if (duration <= 0 || pos <= 0) return;
+        long remaining = duration - pos;
+        if (remaining > PlayerPrefetchHelper.NEAR_OUTRO_LEAD_MS + session.skipOutroMs) return;
+        prefetchHelper.schedule();
+    }
 
     private DataSource.Factory buildCacheFactory() {
         if (sCache == null) {
@@ -482,6 +507,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         super.onDestroy();
         PlayerControl.get().detach(this);
         skipHelper.stopOutroWatcher();
+        prefetchHelper.shutdown(); // 停掉在途预取(否则后台线程还占着 socket 跑一次没人要的过滤)
         toastHandler.removeCallbacksAndMessages(null);
         iconHandler.removeCallbacksAndMessages(null);
         progressHandler.removeCallbacksAndMessages(null);

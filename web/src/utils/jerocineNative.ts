@@ -179,7 +179,16 @@ export const jerocine = {
    */
   playPlaylist(cfg: {
     /** v3 多源: 整片所有播放源 + 集列表 */
-    sources?: Array<{ id: string; name: string; episodes: Array<{ url: string; title?: string }> }>
+    sources?: Array<{
+      id: string
+      name: string
+      /**
+       * 服务端 m3u8 可达性(play 接口标注): false ⇒ 原生不包装 /m3u8/proxy, 走直链 +
+       * 端侧混合过滤。undefined(未测) 时保持旧行为(仍走代理)。
+       */
+      adFilterOk?: boolean
+      episodes: Array<{ url: string; title?: string }>
+    }>
     /** v3 多源: 初始选中的源 id (找不到时默认 sources[0]) */
     currentSourceId?: string
     /** v2 单源兼容: 当前源的集列表 (与 sources 二选一) */

@@ -31,6 +31,8 @@ public class PlayerSourceHelper {
         int startIndex = intent.getIntExtra(PlayerActivity.EXTRA_START_INDEX, 0);
         long resumeMs = intent.getLongExtra(PlayerActivity.EXTRA_RESUME_MS, 0L);
         session.lastMediaItemIndex = startIndex;
+        // 新片/新源 = 干净起点: 复位"本片源端侧过滤坏过"的粘性偏好(同一片内切集时才保留)
+        session.sourcePreferProxy = false;
 
         // v3: 多源模式
         String sourcesJson = intent.getStringExtra(PlayerActivity.EXTRA_SOURCES_JSON);
@@ -80,6 +82,9 @@ public class PlayerSourceHelper {
                 PlayerSession.SourceData sd = new PlayerSession.SourceData();
                 sd.id = src.optString("id", "");
                 sd.name = src.optString("name", "源 " + (i + 1));
+                // 服务端标注的清单可达性: 字段缺失(null) 与显式 false 语义不同, 必须区分 ——
+                // 未测/老壳没传要沿用"走代理"的旧行为, 只有 false 才跳过代理。
+                sd.adFilterOk = src.isNull("adFilterOk") ? null : src.optBoolean("adFilterOk", true);
                 JSONArray eps = src.optJSONArray("episodes");
                 if (eps != null) {
                     for (int j = 0; j < eps.length(); j++) {

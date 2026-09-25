@@ -70,7 +70,7 @@ public class AdFilterStatusTest {
         assertEquals(AdFilterStatus.Tone.GRAY, failed.tone);
     }
 
-    /** 优先级: 关闭过滤 > 代理缺失 > 非 HLS > 过滤失败 > 服务端代理 > 有结果 > 无检出. */
+    /** 优先级: 关闭过滤 > 代理缺失 > 非 HLS > **服务端代理** > 过滤失败 > 有结果 > 无检出. */
     @Test
     public void offWinsOverEverythingElse() {
         AdFilterStatus st = of(false, true, false, false, true, false, 9);
@@ -81,5 +81,16 @@ public class AdFilterStatusTest {
     public void proxyMissingWinsOverFailureAndProxy() {
         AdFilterStatus st = of(true, true, true, true, true, true, 5);
         assertEquals(AdFilterStatus.KIND_INEFFECTIVE, st.kind);
+    }
+
+    /**
+     * 当前清单确实走着服务端代理时, 残留的 filterFailed(上一集/上一轮端侧 POST 失败) 不该
+     * 盖掉"服务端过滤中" —— 否则角标会一直误报"过滤失败"。
+     */
+    @Test
+    public void serverProxyWinsOverStaleFailureFlag() {
+        AdFilterStatus st = of(true, false, true, true, true, true, 0);
+        assertEquals(AdFilterStatus.KIND_PROXY, st.kind);
+        assertEquals(AdFilterStatus.Tone.BLUE, st.tone);
     }
 }

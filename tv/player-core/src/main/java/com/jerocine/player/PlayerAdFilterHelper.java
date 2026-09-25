@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistParserFactory;
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist;
@@ -28,6 +30,10 @@ import okhttp3.Response;
 /**
  * 广告过滤 — 端侧混合过滤: 抓到 m3u8 后送 /v1/m3u8/filter 剔广告再交默认解析器.
  *
+ * 这是**主路径**(与 web 播放页一致): 默认不把清单包成服务端代理, 由设备自己抓清单 ——
+ * 少一跳服务器回源(起播更快), 且服务端抓不到的源(源站拒机房 IP)也能正常过滤。
+ * 端侧失败时由 {@link #escalateToProxy()} 升级为服务端 /v1/m3u8/proxy。
+ *
  * 状态(开关/代理地址/线路/统计)全部在 {@link PlayerSession}; 本类只负责过滤动作与持久化,
  * 与其它 helper 无互相引用.
  */
@@ -40,14 +46,19 @@ public class PlayerAdFilterHelper {
     private final PlayerSession session;
 
     /**
-     * 端侧过滤 POST 客户端: 显式短超时上限.
+     * 端侧过滤 POST 客户端: 显式超时上限.
      * 解析线程上同步等待, 不设上限会拖死播放列表解析; 切集时网络争用偶发失败, 调用处会重试一次.
+     *
+     * 上限取 12s: 媒体表实际可达 900+ 段 —— 实测单张清单上行 ~25KB、过滤后下行 ~77KB,
+     * 服务端纯过滤耗时就要 3s+, 弱网设备上行更慢. 8s 会把"其实能过滤"误判成"过滤失败".
+     * 端侧混合过滤是**主路径**(见 PlayerUrls.buildPlayableUrl: 默认不包代理), 上限过紧会
+     * 平白多一次"失败 → 升级服务端代理"的来回(web 端 fetch 没有这个上限).
      */
     private final OkHttpClient adStatsClient = new OkHttpClient.Builder()
-            .connectTimeout(6, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
-            .writeTimeout(6, TimeUnit.SECONDS)
-            .callTimeout(8, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
 
@@ -137,6 +148,7 @@ public class PlayerAdFilterHelper {
         session.adFilterOn = !session.adFilterOn;
         prefs().edit().putBoolean(PREF_AD_FILTER, session.adFilterOn).apply();
         session.forceRawIdx.clear();
+        session.forceProxyIdx.clear();
         session.reloadCurrentSourceKeepPosition();
         updateAdFilterBadge();
         session.host().renderAdFilterSwitch(session.adFilterOn);
@@ -213,7 +225,39 @@ public class PlayerAdFilterHelper {
         return bos.toByteArray();
     }
 
-    /** 自定义 HLS 播放列表解析器 — 抓到 m3u8 后送 /v1/m3u8/filter 剔广告, 再交默认解析器. */
+    /**
+     * 端侧过滤失败 → 把**本集**升级为服务端清单代理(与 web resolvePlaySrc 的"降级1"一致)。
+     *
+     * 为什么要有这一步: 端侧混合过滤是主路径, 它挂掉时不能就这么放着广告播 —— 若服务端抓得到
+     * 这个源(proxyUsable), 就换成 /v1/m3u8/proxy 由服务器抓 + 过滤。
+     *
+     * 防打转(必须): ① 服务端抓不到该源时不升级(包了也是 500); ② 本集已被"回退直连"(forceRawIdx)
+     * 或已升级过(forceProxyIdx)则不再动 —— 否则"直连失败 → 代理 → 代理失败 → 直连"会来回切换。
+     * parse 跑在 loader 线程, 读当前集索引/重建播放器必须回主线程。
+     */
+    private void escalateToProxy() {
+        if (!session.sourceProxyUsable) return;
+        if (session.proxyBase == null || session.proxyBase.isEmpty()) return;
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (session.player == null) return;
+            int idx = session.player.getCurrentMediaItemIndex();
+            if (idx < 0 || idx >= session.currentRawUrls.size()) return;
+            if (session.forceRawIdx.contains(idx) || session.forceProxyIdx.contains(idx)) return;
+            session.forceProxyIdx.add(idx);
+            // 本片源端侧过滤已证明不可靠 → 后续集直接用代理, 免得每集都白等一轮 12s 超时
+            session.sourcePreferProxy = true;
+            // 后续集都走代理了, 已预取/在途的端侧清单缓存全部作废(也顺手停掉在途任务)
+            session.invalidatePrefetch();
+            session.retryCurrentItem(idx, "端侧过滤失败, 已切换服务端过滤");
+        });
+    }
+
+    /**
+     * 自定义 HLS 播放列表解析器 — 抓到 m3u8 后送 /v1/m3u8/filter 剔广告, 再交默认解析器.
+     *
+     * 先查 {@link PlayerSession} 的预取缓存(起播后由 {@link PlayerPrefetchHelper} 提前过滤好的
+     * master + 子表): 命中就直接用, 省掉一次 1.4~5.1s 的 POST —— 这是"切集不再白等"的关键。
+     */
     class FilterPlaylistParser implements ParsingLoadable.Parser<HlsPlaylist> {
         private final ParsingLoadable.Parser<HlsPlaylist> delegate;
 
@@ -229,8 +273,23 @@ public class PlayerAdFilterHelper {
                     // /m3u8/proxy 已在服务端完成过滤与媒体地址改写, 不必再同步 POST 一次
                     session.filterAttempted = true;
                 } else if (session.proxyBase != null && !session.proxyBase.isEmpty()) {
-                    byte[] f = filterViaServer(uri.toString(), data);
-                    if (f != null) data = f;
+                    // 预取命中: 起播后已把下一集(master + 子表)过滤好放缓存 → 直接用, 不再付 POST 代价
+                    PlayerSession.Prefetched cached = session.takePrefetched(uri.toString());
+                    if (cached != null) {
+                        data = cached.data;
+                        session.filterAttempted = true;
+                        // master 层 cnt=0、子表层才 >0; 取最大, 待 STATE_READY 弹一次状态
+                        if (cached.filteredCount > session.pendingFilteredCount) {
+                            session.pendingFilteredCount = cached.filteredCount;
+                        }
+                    } else {
+                        byte[] f = filterViaServer(uri.toString(), data);
+                        if (f != null) {
+                            data = f;
+                        } else {
+                            escalateToProxy(); // 端侧失败 → 本集升级服务端代理
+                        }
+                    }
                 } else {
                     session.filterProxyMissing = true; // 开关开着却没代理地址 → 起播提示"未生效"
                 }

@@ -49,7 +49,12 @@ data class Episode(
 data class PlaySource(
     val id: String = "",
     val name: String = "",
-    val episodes: List<Episode> = emptyList()
+    val episodes: List<Episode> = emptyList(),
+    /**
+     * 服务端 m3u8 可达性(广告过滤代理链路): false=服务端抓不到 → 播放器跳过代理走直链; null=未测。
+     * **必须是最后一个字段** —— 现有调用多用位置参数 PlaySource(id, name, episodes), 插在中间会错位。
+     */
+    val adFilterOk: Boolean? = null
 )
 
 @Serializable

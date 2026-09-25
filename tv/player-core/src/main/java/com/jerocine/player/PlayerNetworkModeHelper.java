@@ -46,10 +46,14 @@ public class PlayerNetworkModeHelper {
                 session.host().showCenterToast("中转不可用: 未配置代理地址", 1800);
                 return;
             }
+            if (!session.sourceProxyUsable) {
+                session.host().showCenterToast("中转不可用: 服务端抓不到该片源", 1800);
+                return;
+            }
             if (!session.canSwitchNetworkMode(idx)) {
                 session.host().showCenterToast(
                         session.adFilterOn
-                                ? "当前片源走服务端清单, 无需中转"
+                                ? "当前不是可中转的 m3u8 片源"
                                 : "请先开启「过滤」, 中转依赖代理链路", 1800);
                 return;
             }
@@ -58,6 +62,7 @@ public class PlayerNetworkModeHelper {
         prefs().edit().putBoolean(PREF_NETWORK_RELAY, session.relayOn).apply();
         session.forceRelayIdx.clear();
         session.forceRawIdx.clear();
+        session.forceProxyIdx.clear();
         session.reloadCurrentSourceKeepPosition();
         session.host().renderNetworkMode(session.relayOn);
         session.host().showCenterToast(

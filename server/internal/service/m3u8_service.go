@@ -329,6 +329,7 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 	// (极短剔除 + 时长异常预警, 覆盖同域同编号的纯时长异常插片)。
 	var adByIdx map[int]bool
 	var shortByIdx map[int]bool
+	var crossByIdx map[int]bool
 	var durOutlierIdx map[int]bool
 	var durSamples []string
 	var segDurs []float64
@@ -359,6 +360,7 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 		}
 		adByIdx = numberOutlierAds(segURIs)
 		shortByIdx = shortBurstAds(segDurs)
+		crossByIdx = crossDomainAds(segURIs, dominant)
 		durOutlierIdx, durSamples = durationOutliers(segDurs, segURIs)
 	}
 	var pendingExtinf string
@@ -412,17 +414,15 @@ func rewriteM3u8Core(body string, base *url.URL, filterAds, proxyChild bool, wra
 			}
 			justAfterDisc = false
 		}
-		// 广告判定: ① 非主导 host 的零星分片(跨域广告 CDN); ② 编号跳脱正片连续序列的同域插片;
+		// 广告判定: ① 归属键 ≠ 主导键的分片(跨域广告 CDN, 或同 host 异内容目录插片);
+		// ② 编号跳脱正片连续序列的同域插片;
 		// ③ 连续 ≥2 个 <1s 极短分片(广告密集切片; 孤立单短段多为转场/镜头切换, 不误伤)。
 		if filterAds && pendingExtinf != "" {
-			crossDrop := false
-			if dominant != "" {
-				if k := segKey(abs); k != "" && k != dominant {
-					crossDrop = true
-				}
-			}
+			crossDrop := crossByIdx[segIdx]
 			numDrop := !crossDrop && adByIdx[segIdx]
-			shortDrop := !crossDrop && !numDrop && segIdx < len(shortByIdx) && shortByIdx[segIdx]
+			// 不要写 segIdx < len(shortByIdx): len(map) 是**命中数**而非下标上限, 命中数少而下标靠后时
+			// 会把该剔的短簇整簇漏掉(旧实现即如此, 短段剔除长期不生效)。map 取值对缺键本就返回 false。
+			shortDrop := !crossDrop && !numDrop && shortByIdx[segIdx]
 			if crossDrop || numDrop || shortDrop {
 				pendingExtinf = "" // 连同其 EXTINF 丢弃
 				st.Filtered++
@@ -460,6 +460,15 @@ const (
 	adNumMinCoverage = 0.80 // 至少这么大比例分片能解析出尾号, 否则视为非顺序命名, 跳过
 	adNumMinContent  = 0.60 // 主内容簇至少占比, 否则编号分布太散, 不可信
 	adNumMaxDropFrac = 0.30 // 剔除占比上限: 候选广告超此比例 → 判定误判, 整张表不剔
+
+	// 跨域维度的同类保护: 长表中异键分片占比超此比例 → 主导键没选对(分片路径形态超出 segKey 的
+	// 假设), 整表不剔。宁可漏过滤, 也不能把整集正片删光(2026-09-24 修 segKey 取键 bug 时的纵深防御)。
+	//
+	// 阈值 0.30(与 adNumMaxDropFrac 一致)且只对长表生效 —— 两个约束都必要:
+	//   ① 主导键是"出现最多者", 异键占比恒 ≤50%: 取 0.50 只有"每片一键"才触发, 形同虚设;
+	//   ② 短表样本太少, 3 段里 1 段广告就是 33% → 没有 adCrossMinSegs 门槛会把该剔的广告留下。
+	adCrossMinSegs     = 10
+	adCrossMaxDropFrac = 0.30
 
 	// 时长维度(极短剔除 + 时长异常预警)参数。
 	adShortMaxDur   = 1.0 // <1s 视为极短(广告卡点常见, 正常分片极少短于此), 触发剔除
@@ -713,16 +722,54 @@ func absolutize(ref string, base *url.URL) string {
 	return ref
 }
 
-// segKey 分片归属键 = host + path 前两段(内容目录), 用于区分"同 host 不同内容目录"的广告插片
-// (maowushi 类源把广告放到不同内容目录 oVx7Nl6K/, 与正片 Dy0OgKn2/ 同 host 但路径不同)。
+// crossDomainAds 跨域维度: 标记"归属键 ≠ 主导键"的分片(广告 CDN, 或同 host 异内容目录的插片)。
+// 占比保护(纵深防御): 异键分片超过 adCrossMaxDropFrac 说明主导键没选对(分片路径形态超出 segKey 的
+// 假设), 此时整表不剔 —— 宁可漏过滤, 也不能把整集正片删光。返回 nil 表示本表不做跨域剔除。
+func crossDomainAds(segURIs []string, dominant string) map[int]bool {
+	if dominant == "" || len(segURIs) == 0 {
+		return nil
+	}
+	ads := map[int]bool{}
+	for i, u := range segURIs {
+		if k := segKey(u); k != "" && k != dominant {
+			ads[i] = true
+		}
+	}
+	if len(ads) == 0 {
+		return nil
+	}
+	// 只对长表做比例保护(理由见 adCrossMaxDropFrac 注释)
+	if len(segURIs) >= adCrossMinSegs &&
+		float64(len(ads)) > float64(len(segURIs))*adCrossMaxDropFrac {
+		return nil
+	}
+	return ads
+}
+
+// segKey 分片归属键 = host + 内容目录(去掉文件名后的前两段目录), 用于区分"同 host 不同内容目录"的
+// 广告插片(maowushi 类源把广告放到不同内容目录 oVx7Nl6K/, 与正片 Dy0OgKn2/ 同 host 但路径不同)。
+//
+// 必须**先剥掉文件名再取目录段**。旧实现直接取 path 前两段: 对"目录只有一层"的源
+// (如 /play/seg0.ts) 第二段会取到**文件名** ⇒ 每个分片各自成键、互为异键，
+// 于是同目录的正常分片被整批当成跨域广告删掉(实测 3 段合法分片删 2 段，见 segKey 回归用例)。
+// 目录 ≥2 层时(如 /video/liurendiliuji/ecca40a6bdd2/0000001.ts)旧实现恰好取到目录, 故线上未爆。
 func segKey(abs string) string {
 	u, err := url.Parse(abs)
 	if err != nil || u.Host == "" {
 		return ""
 	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) >= 2 {
+	dir := u.Path
+	if i := strings.LastIndexByte(dir, '/'); i >= 0 {
+		dir = dir[:i] // 去掉文件名段
+	} else {
+		dir = ""
+	}
+	parts := strings.Split(strings.Trim(dir, "/"), "/")
+	switch {
+	case len(parts) >= 2 && parts[0] != "":
 		return u.Host + "/" + parts[0] + "/" + parts[1]
+	case len(parts) == 1 && parts[0] != "":
+		return u.Host + "/" + parts[0]
 	}
 	return u.Host
 }
