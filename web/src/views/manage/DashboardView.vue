@@ -112,11 +112,12 @@ function sessionState(s: OnlineSession): 'watching' | 'online' | 'offline' {
   return 'online' // 实时明细无 online 字段, 均视为在线
 }
 
-/** 进入/活跃时间: 今天只显时分秒, 历史(近7天)补日期 MM-DD */
-function fmtDateTime(sec: number): string {
+/** 进入/活跃时间: 实时/今日只显时分秒; 近7天(forceDate)强制补日期 MM-DD 以便跨天区分 */
+function fmtDateTime(sec: number, forceDate = false): string {
   const d = new Date(sec * 1000)
   const now = new Date()
   const sameDay =
+    !forceDate &&
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate()
@@ -391,8 +392,8 @@ const cards = computed(() => {
                 </td>
                 <td class="py-2 pr-4 text-secondary max-w-[140px] truncate" :title="s.path">{{ s.path || '—' }}</td>
                 <td class="py-2 pr-4 text-secondary max-w-[180px] truncate" :title="s.ua">{{ shortUa(s.ua ?? '') }}</td>
-                <td class="py-2 pr-4 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.firstSeen) : fmtDateTime(s.firstSeen) }}</td>
-                <td class="py-2 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.lastSeen) : fmtDateTime(s.lastSeen) }}</td>
+                <td class="py-2 pr-4 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.firstSeen) : fmtDateTime(s.firstSeen, timeFilter === 'week') }}</td>
+                <td class="py-2 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.lastSeen) : fmtDateTime(s.lastSeen, timeFilter === 'week') }}</td>
               </tr>
             </tbody>
           </table>
