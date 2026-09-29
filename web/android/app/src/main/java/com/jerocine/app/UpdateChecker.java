@@ -48,7 +48,7 @@ public class UpdateChecker {
     private static final String PREFS = "jerocine_update";
     private static final String KEY_IGNORED_VERSION = "ignored_version_code";
     private static final String KEY_AUTH_TOKEN = "auth_token";
-    private static final String VERSION_PATH = "/api/version/latest";
+    private static final String VERSION_PATH = "/api/v1/app/version/latest?channel=1";
 
     private final Activity activity;
     private final OkHttpClient client;
