@@ -1,5 +1,5 @@
 import { http } from '../http'
-import type { DashboardStat, OnlineOverview, SiteBasic } from '@/types/manage'
+import type { DailySessionsResp, DashboardStat, OnlineOverview, SiteBasic } from '@/types/manage'
 
 // ---- 后端契约 DTO (entity.SiteConfig 子集) ----
 interface SiteConfigDTO {
@@ -23,6 +23,10 @@ export const dashboard = (): Promise<DashboardStat> =>
 /** GET /manage/online/overview 当前在线/观看人数(内存实时) */
 export const onlineOverview = (): Promise<OnlineOverview> =>
   http.get<unknown, OnlineOverview>('/manage/online/overview')
+
+/** GET /manage/online/daily-sessions 今日/近7天访问用户明细(?days=1|7) */
+export const onlineDailySessions = (days: number): Promise<DailySessionsResp> =>
+  http.get<unknown, DailySessionsResp>('/manage/online/daily-sessions', { params: { days } })
 
 /** GET /manage/site-config 站点基础配置 */
 export const getBasic = async (): Promise<SiteBasic> => {

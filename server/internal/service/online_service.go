@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,8 @@ type OnlineSession struct {
 	IPRegion  string `json:"ipRegion,omitempty"`
 	FirstSeen int64  `json:"firstSeen"`
 	LastSeen  int64  `json:"lastSeen"`
+	// Online 仅每日/近7天明细(dailySessions)返回时有效: 该会话当前是否在线(90s 窗口内活跃)。
+	Online bool `json:"online,omitempty"`
 }
 
 // OnlineOverview 在线概览: 实时 UV/PV/观看中 + 今日累计 + 会话明细(后台表单)。
@@ -75,6 +78,9 @@ const (
 
 	dailyTTL  = 48 * time.Hour    // 今日统计键 TTL: 覆盖当日全天 + 次日缓冲, 自然滚动
 	visitGap  = 30 * time.Minute  // 同一 sid 距上次访问 ≥30min 计一次新访问(今日 PV)
+	// 按日访问日志(明细回溯)TTL: 须支撑后台"近7天"查询 → 7 天 + 1 天缓冲;
+	// 心跳每次续期, 实际留存 = 最后一次心跳 + 8 天。
+	dailyLogTTL = 8 * 24 * time.Hour
 )
 
 // 会话唯一键: 设备 sid + 出口 IP。同浏览器换网络(IP 变)视为另一会话行,
@@ -96,6 +102,10 @@ func dailyKeys(date string) (uv, pv, peak, lastPrefix string) {
 		"jc:online:daily:" + date + ":peak",
 		"jc:online:daily:" + date + ":last:" // + sid
 }
+
+// 当日访问日志键(明细回溯): 心跳时同步写一份按日 ZSET + 按日明细, TTL 与今日统计一致。
+func dailyLogKey(date string) string      { return "jc:online:daily:" + date + ":log" }
+func dailyInfoKey(date, k string) string  { return "jc:online:daily:" + date + ":info:" + k }
 
 // isBotUAOnline 在线心跳机器人过滤(宽松版): 复用 telemetry 的 botUASubstrings 关键词表,
 // 但空 UA 不判 bot — 空 UA 可能是异常客户端而非爬虫, 不误伤在线统计。
@@ -158,6 +168,10 @@ func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession) {
 		pipe.Expire(ctx, pvKey, dailyTTL)
 		pipe.Set(ctx, lastKey, now.Unix(), dailyTTL)
 	}
+	// ---- 当日访问日志(明细回溯): 按日 ZSET(最近活跃排序) + 按日明细, TTL 8 天(支撑近7天查询) ----
+	pipe.ZAdd(ctx, dailyLogKey(date), redis.Z{Score: float64(nowMs), Member: key})
+	pipe.Expire(ctx, dailyLogKey(date), dailyLogTTL)
+	pipe.Set(ctx, dailyInfoKey(date, key), buf, dailyLogTTL)
 	_, _ = pipe.Exec(ctx)
 }
 
@@ -230,5 +244,92 @@ func sids2sessions(ctx context.Context, rdb *redis.Client, sids []string, out []
 		}
 		out = append(out, sess)
 	}
+	return out
+}
+
+// DailySessions 返回最近 days 天(含今天)出现过的会话明细, 供后台"今日/近7天访问用户"列表。
+// 排序: 在播(watching) 在前 → 当前在线(90s 窗口)其次 → 其余按最近活跃倒序。
+// 同一会话跨天重复出现时按最近一天去重(取最后一次心跳的明细与时间)。
+func (s *OnlineService) DailySessions(ctx context.Context, days int) []OnlineSession {
+	if days < 1 {
+		days = 1
+	}
+	if days > 30 {
+		days = 30
+	}
+	// 当前在线会话集合(90s 窗口), 用于打 online 标记与排序
+	now := time.Now()
+	cutoffMs := now.UnixMilli() - int64(s.window/time.Millisecond)
+	active := make(map[string]bool, 64)
+	if sids, err := s.rdb.ZRevRangeByScore(ctx, onlineActKey, &redis.ZRangeBy{
+		Min: strconv.FormatInt(cutoffMs, 10), Max: "+inf",
+	}).Result(); err == nil {
+		for _, k := range sids {
+			active[k] = true
+		}
+	}
+
+	// 按天收集 member → 最近一次出现(日期 + 明细 JSON), 跨天去重
+	type dailyHit struct {
+		date string
+		seen int64
+		json string
+	}
+	best := make(map[string]dailyHit, 256)
+	for i := 0; i < days; i++ {
+		date := now.AddDate(0, 0, -i).Format("20060102")
+		members, err := s.rdb.ZRevRange(ctx, dailyLogKey(date), 0, -1).Result()
+		if err != nil || len(members) == 0 {
+			continue
+		}
+		// 批量读该日明细(MGet 一次), 顺带确定每个 member 的最近心跳时间(用明细里的 LastSeen)
+		infos := make([]string, 0, len(members))
+		for _, m := range members {
+			infos = append(infos, dailyInfoKey(date, m))
+		}
+		vals, err := s.rdb.MGet(ctx, infos...).Result()
+		if err != nil {
+			continue
+		}
+		for j, m := range members {
+			if j >= len(vals) || vals[j] == nil {
+				continue
+			}
+			raw, ok := vals[j].(string)
+			if !ok {
+				continue
+			}
+			var sess OnlineSession
+			if json.Unmarshal([]byte(raw), &sess) != nil {
+				continue
+			}
+			if cur, ok := best[m]; !ok || sess.LastSeen > cur.seen {
+				best[m] = dailyHit{date: date, seen: sess.LastSeen, json: raw}
+			}
+		}
+	}
+
+	out := make([]OnlineSession, 0, len(best))
+	for m, b := range best {
+		var sess OnlineSession
+		if json.Unmarshal([]byte(b.json), &sess) != nil {
+			continue
+		}
+		sess.Online = active[m]
+		out = append(out, sess)
+	}
+	// 排序: 在播 > 在线 > 离线; 同级按最近活跃倒序
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		aw, bw := a.Watching, b.Watching
+		if aw != bw {
+			return aw
+		}
+		ao, bo := a.Online, b.Online
+		if ao != bo {
+			return ao
+		}
+		return a.LastSeen > b.LastSeen
+	})
 	return out
 }

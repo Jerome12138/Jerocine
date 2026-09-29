@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -55,18 +57,37 @@ func (h *Handlers) OnlineHeartbeat(c *gin.Context) {
 // 明细只读增强: 登录用户回填昵称(uid → userName), 会话回填 IP 归属地(离线库), 查询失败静默。
 func (h *Handlers) OnlineOverview(c *gin.Context) {
 	ov := h.Online.Overview(c.Request.Context())
-	ids := make([]int64, 0, len(ov.Sessions))
-	for _, s := range ov.Sessions {
+	h.enrichSessions(c.Request.Context(), ov.Sessions)
+	dto.OK(c, ov)
+}
+
+// OnlineDailySessions 管理后台: 今日 / 近7天访问用户明细列表。
+// query: days=1(今日, 默认) | 7(近7天); 排序: 在播 → 在线 → 最近活跃倒序。
+func (h *Handlers) OnlineDailySessions(c *gin.Context) {
+	days := 1
+	if v := c.Query("days"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			days = n
+		}
+	}
+	sessions := h.Online.DailySessions(c.Request.Context(), days)
+	h.enrichSessions(c.Request.Context(), sessions)
+	dto.OK(c, gin.H{"days": days, "sessions": sessions})
+}
+
+// enrichSessions 只读增强: 登录用户回填昵称 + 会话回填 IP 归属地, 查询失败静默。
+func (h *Handlers) enrichSessions(ctx context.Context, sessions []service.OnlineSession) {
+	ids := make([]int64, 0, len(sessions))
+	for _, s := range sessions {
 		if s.UID > 0 {
 			ids = append(ids, s.UID)
 		}
 	}
-	names := h.User.NamesByIDs(c.Request.Context(), ids)
-	for i := range ov.Sessions {
-		ov.Sessions[i].Username = names[ov.Sessions[i].UID]
-		ov.Sessions[i].IPRegion = geoip.Search(ov.Sessions[i].IP)
+	names := h.User.NamesByIDs(ctx, ids)
+	for i := range sessions {
+		sessions[i].Username = names[sessions[i].UID]
+		sessions[i].IPRegion = geoip.Search(sessions[i].IP)
 	}
-	dto.OK(c, ov)
 }
 
 // sanitizePath 规整页面路径: 只保留 pathname(去 query/hash 与影片标识), 限长, 必须 / 开头。

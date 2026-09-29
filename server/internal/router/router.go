@@ -75,7 +75,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	mg.Use(middleware.AuthToken(us), middleware.RequireAdmin(), middleware.NoStore())
 	{
 		mg.GET("/dashboard", h.Dashboard)
-		mg.GET("/online/overview", h.OnlineOverview) // 当前在线人数 / 观看中人数(内存, 实时)
+		mg.GET("/online/overview", h.OnlineOverview)           // 当前在线人数 / 观看中人数(内存, 实时)
+		mg.GET("/online/daily-sessions", h.OnlineDailySessions) // 今日/近7天访问用户明细(?days=1|7)
 		mg.GET("/site-config", h.GetSiteConfig)
 		mg.POST("/site-config", h.SaveSiteConfig)
 		mg.POST("/tmdb-key", h.SetTMDBKey)

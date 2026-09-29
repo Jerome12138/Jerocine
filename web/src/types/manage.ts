@@ -320,6 +320,14 @@ export interface OnlineSession {
   ipRegion?: string
   firstSeen: number
   lastSeen: number
+  /** 仅每日/近7天明细(daily-sessions)返回时有效: 该会话当前是否在线 */
+  online?: boolean
+}
+
+/** 今日/近7天访问用户明细（GET /manage/online/daily-sessions?days=1|7） */
+export interface DailySessionsResp {
+  days: number
+  sessions: OnlineSession[]
 }
 
 /** 在线概览（GET /manage/online/overview, Redis 实时值） */

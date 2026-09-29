@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { manageApi } from '@/api'
-import type { DashboardStat, OnlineOverview } from '@/types/manage'
+import type { DashboardStat, OnlineOverview, OnlineSession } from '@/types/manage'
 import * as telemetryApi from '@/api/manage/telemetry'
 import type { FilmStat, OverviewResp } from '@/api/manage/telemetry'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
@@ -59,6 +59,17 @@ onUnmounted(() => {
   if (onlineTimer !== undefined) window.clearInterval(onlineTimer)
 })
 
+// ---- 今日/近7天访问用户明细: 切换时拉取一次, 排序(在播→在线→最近活跃)由后端保证 ----
+const dailySessions = ref<OnlineSession[]>([])
+async function loadDaily(days: number): Promise<void> {
+  try {
+    const resp = await manageApi.system.onlineDailySessions(days)
+    dailySessions.value = resp.sessions
+  } catch {
+    /* 失败静默, 保留上次数据 */
+  }
+}
+
 function fmtTime(sec: number): string {
   return new Date(sec * 1000).toLocaleTimeString('zh-CN', { hour12: false })
 }
@@ -76,14 +87,43 @@ function userLabel(s: { uid?: number; username?: string }): string {
   return s.uid && s.uid > 0 ? `用户 #${s.uid}` : '游客'
 }
 
+/** 时间范围: 实时(90s 窗口) / 今日 / 近7天 */
+const timeFilter = ref<'live' | 'today' | 'week'>('live')
+function switchTime(t: 'live' | 'today' | 'week'): void {
+  if (timeFilter.value === t) return
+  timeFilter.value = t
+  if (t !== 'live') void loadDaily(t === 'week' ? 7 : 1)
+}
+
 /** 在线/在播放分开显示: 状态筛选 tab */
 const statusFilter = ref<'all' | 'watching' | 'online'>('all')
 const filteredSessions = computed(() => {
-  if (!online.value) return []
-  if (statusFilter.value === 'all') return online.value.sessions
+  const base = timeFilter.value === 'live' ? online.value?.sessions ?? [] : dailySessions.value
+  if (statusFilter.value === 'all') return base
   const want = statusFilter.value === 'watching'
-  return online.value.sessions.filter((s) => s.watching === want)
+  return base.filter((s) => s.watching === want)
 })
+
+/** 会话状态三态: 在播(绿) / 在线(蓝) / 已离线(灰, 仅历史明细) */
+function sessionState(s: OnlineSession): 'watching' | 'online' | 'offline' {
+  if (s.watching) return 'watching'
+  if (s.online) return 'online'
+  if (s.online === false) return 'offline'
+  return 'online' // 实时明细无 online 字段, 均视为在线
+}
+
+/** 进入/活跃时间: 今天只显时分秒, 历史(近7天)补日期 MM-DD */
+function fmtDateTime(sec: number): string {
+  const d = new Date(sec * 1000)
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  const t = d.toLocaleTimeString('zh-CN', { hour12: false })
+  if (sameDay) return t
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${t}`
+}
 
 const cards = computed(() => {
   if (!data.value) return []
@@ -250,9 +290,37 @@ const cards = computed(() => {
 
       <!-- 在线明细表单: 最近活跃倒序, 90s 无心跳自动消失; 可筛选"在播放/在线"分开查看 -->
       <div class="bg-surface rounded-card shadow-card p-[var(--jc-space-4)]">
-        <div class="flex items-center justify-between mb-[var(--jc-space-3)]">
-          <div class="flex items-center gap-[var(--jc-space-3)]">
+        <div class="flex items-center justify-between mb-[var(--jc-space-3)] flex-wrap gap-2">
+          <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
             <h3 class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)]">在线明细</h3>
+            <!-- 时间范围: 实时 / 今日 / 近7天 -->
+            <div class="flex rounded-full bg-elevated p-0.5 text-xs">
+              <button
+                type="button"
+                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
+                :class="timeFilter === 'live' ? 'bg-surface shadow text-primary' : 'text-secondary'"
+                @click="switchTime('live')"
+              >
+                实时
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
+                :class="timeFilter === 'today' ? 'bg-surface shadow text-primary' : 'text-secondary'"
+                @click="switchTime('today')"
+              >
+                今日
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
+                :class="timeFilter === 'week' ? 'bg-surface shadow text-primary' : 'text-secondary'"
+                @click="switchTime('week')"
+              >
+                近 7 天
+              </button>
+            </div>
+            <!-- 状态筛选: 全部 / 在播放 / 在线 -->
             <div class="flex rounded-full bg-elevated p-0.5 text-xs">
               <button
                 type="button"
@@ -280,7 +348,9 @@ const cards = computed(() => {
               </button>
             </div>
           </div>
-          <span class="hidden md:inline text-secondary text-xs">90s 无心跳自动离线 · 15s 自动刷新</span>
+          <span class="hidden md:inline text-secondary text-xs">
+            {{ timeFilter === 'live' ? '90s 无心跳自动离线 · 15s 自动刷新' : (timeFilter === 'today' ? '今日访问用户 · 在播/在线优先' : '近 7 天访问用户 · 在播/在线优先') }}
+          </span>
         </div>
         <div v-if="filteredSessions.length" class="overflow-x-auto">
           <table class="w-full text-sm">
@@ -310,24 +380,28 @@ const cards = computed(() => {
                 <td class="py-2 pr-4">
                   <span
                     class="inline-flex items-center gap-1 text-xs"
-                    :class="s.watching ? 'text-[#34d399]' : 'text-[#3b82f6]'"
+                    :class="sessionState(s) === 'watching' ? 'text-[#34d399]' : (sessionState(s) === 'offline' ? 'text-[#94a3b8]' : 'text-[#3b82f6]')"
                   >
                     <span
                       class="w-1.5 h-1.5 rounded-full"
-                      :class="s.watching ? 'bg-[#34d399]' : 'bg-[#3b82f6]'"
+                      :class="sessionState(s) === 'watching' ? 'bg-[#34d399]' : (sessionState(s) === 'offline' ? 'bg-[#94a3b8]' : 'bg-[#3b82f6]')"
                     />
-                    {{ s.watching ? '在播放' : '在线' }}
+                    {{ sessionState(s) === 'watching' ? '在播放' : (sessionState(s) === 'offline' ? '已离线' : '在线') }}
                   </span>
                 </td>
                 <td class="py-2 pr-4 text-secondary max-w-[140px] truncate" :title="s.path">{{ s.path || '—' }}</td>
                 <td class="py-2 pr-4 text-secondary max-w-[180px] truncate" :title="s.ua">{{ shortUa(s.ua ?? '') }}</td>
-                <td class="py-2 pr-4 tabular-nums text-secondary">{{ fmtTime(s.firstSeen) }}</td>
-                <td class="py-2 tabular-nums text-secondary">{{ fmtTime(s.lastSeen) }}</td>
+                <td class="py-2 pr-4 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.firstSeen) : fmtDateTime(s.firstSeen) }}</td>
+                <td class="py-2 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.lastSeen) : fmtDateTime(s.lastSeen) }}</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <BaseEmpty v-else :title="statusFilter === 'all' ? '当前无人在线' : '该状态下暂无会话'" :description="'打开网站或播放器后 30s 内出现在这里'" />
+        <BaseEmpty
+          v-else
+          :title="filteredSessions.length === 0 ? (timeFilter === 'live' ? '当前无人在线' : (timeFilter === 'today' ? '今日暂无访问' : '近 7 天暂无访问')) : '该状态下暂无会话'"
+          :description="timeFilter === 'live' ? '打开网站或播放器后 30s 内出现在这里' : '在播/在播放的用户会优先展示在前面'"
+        />
       </div>
     </section>
 
