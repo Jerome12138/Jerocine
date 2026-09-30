@@ -12,7 +12,7 @@
         android:name=".JerocineTvApp"
         android:allowBackup="true"
         android:label="@string/app_name"
-        android:icon="@drawable/jerocine_app_icon"
+        android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/jerocine_tv_banner"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true"

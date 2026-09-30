@@ -10,7 +10,9 @@
 .externalNativeBuild
 .cxx
 
-# 签名凭据（app/build.gradle.kts 支持从 tv/keystore.properties 读，本机自备，绝不上传）
 /keystore.properties
 *.keystore
 *.jks
+
+# 根 .gitignore 忽略了所有 *.png; android res 下的图标/启动图/banner 需强制跟踪
+!app/src/main/res/**/*.png

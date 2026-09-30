@@ -21,7 +21,6 @@ android/app/build/
 android/capacitor-cordova-android-plugins/build/
 android/.idea/
 android/local.properties
-# 发布签名密钥 — 严禁 commit(泄露=可冒名签名, 丢失=无法更新上架)
 *.keystore
 *.jks
 android/app/release/
@@ -37,3 +36,6 @@ android/.cxx/
 test-results/
 playwright-report/
 playwright/.cache/
+
+# 根 .gitignore 忽略了所有 *.png; public 下站点图标(favicon/chrome/apple-touch) 为构建依赖, 需跟踪
+!/public/*.png
