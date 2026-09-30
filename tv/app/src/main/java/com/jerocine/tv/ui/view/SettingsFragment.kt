@@ -21,6 +21,7 @@ import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.ui.DeviceDiagnostics
 import com.jerocine.tv.ui.normalizeServerUrl
 import com.jerocine.tv.ui.reduceMotionLabel
+import com.jerocine.player.PlayerNetworkModeHelper
 import kotlinx.coroutines.launch
 import com.jerocine.player.R as PlayerR
 
@@ -62,6 +63,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             R.id.settings_motion_reduce,
             R.id.settings_motion_full,
             R.id.settings_ad_toggle,
+            R.id.settings_relay_toggle,
             R.id.settings_account_action,
             R.id.settings_server_save,
             R.id.settings_version_check,
@@ -71,6 +73,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
         bindReduceMotion(view)
         bindAdFilter(view)
+        bindRelay(view)
         bindAccount(view)
         bindDevice(view)
         bindAbout(view)
@@ -133,6 +136,32 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         toggle.setOnClickListener {
             ServiceLocator.tokenStore.adFilterEnabled = !ServiceLocator.tokenStore.adFilterEnabled
             update()
+        }
+        update()
+    }
+
+    /**
+     * 中转播放开关 — 与原生播放器共用同一个持久化开关(PlayerNetworkModeHelper 的 jerocine prefs),
+     * 默认关闭。这里只落盘开关态; 播放器起播时经 applyPersisted() 生效。
+     */
+    private fun bindRelay(root: View) {
+        val toggle = root.findViewById<Button>(R.id.settings_relay_toggle)
+        fun update() {
+            val on = PlayerNetworkModeHelper.isRelayEnabled(requireContext())
+            toggle.text = if (on) "已开启" else "已关闭"
+            toggle.isSelected = on
+            root.findViewById<TextView>(R.id.settings_relay_status).text =
+                if (on) "分片经服务器转发（更耗带宽）" else "分片设备直连（默认，更快更省流量）"
+        }
+        toggle.setOnClickListener {
+            val next = !PlayerNetworkModeHelper.isRelayEnabled(requireContext())
+            PlayerNetworkModeHelper.setRelayEnabled(requireContext(), next)
+            update()
+            Toast.makeText(
+                requireContext(),
+                if (next) "中转已开启 · 仅直连异常时经服务器转发" else "中转已关闭 · 设备直连播放",
+                Toast.LENGTH_SHORT,
+            ).show()
         }
         update()
     }

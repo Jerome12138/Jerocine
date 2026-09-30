@@ -27,9 +27,10 @@ fun flattenCategoryRows(sections: List<CategoryTvSection>): List<CategoryRow> = 
 }
 
 fun deriveCategoryTvSections(input: ClassifyResp): List<CategoryTvSection> {
+    // 模块顺序与 web 分类页保持一致(用户定稿): 排行榜最前, 之后 最新上线 / 最近更新 / 高分榜
     val sections = mutableListOf(
-        CategoryTvSection("news", "最新上线", "每日更新", "latest", input.news.take(18)),
         CategoryTvSection("top", "排行榜", "按热度排序", "hot", input.top.take(18)),
+        CategoryTvSection("news", "最新上线", "每日更新", "latest", input.news.take(18)),
         CategoryTvSection("recent", "最近更新", "追更不迷路", "update_stamp", input.recent.take(18)),
     )
     // 高分榜: 仅该分类有豆瓣评分数据时显示(后端 scoredCount 运行时探测, 不做分类白名单)

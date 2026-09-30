@@ -27,6 +27,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 底部系统导航栏(手势条/三键条)与页面背景同色 — 装平板/手机时避免黑白条突兀
+        window.navigationBarColor =
+            androidx.core.content.ContextCompat.getColor(this, com.jerocine.player.R.color.jc_bg)
         setContentView(R.layout.activity_main)
         JerocinePlayer.config().setCallback(::handlePlayerEvent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -107,6 +110,21 @@ class MainActivity : FragmentActivity() {
             .replace(R.id.page_container, SettingsFragment.newInstance())
             .addToBackStack(SettingsFragment::class.java.simpleName)
             .commit()
+    }
+
+    /**
+     * MENU 键 → 打开设置页(与 web 壳"菜单触发设置抽屉"同语义; 当前已在设置页则忽略,
+     * 避免连按 MENU 重复压栈). 遥控器/触屏菜单键均会走到这里.
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.keyCode == android.view.KeyEvent.KEYCODE_MENU
+            && event.action == android.view.KeyEvent.ACTION_DOWN
+        ) {
+            val top = supportFragmentManager.fragments.lastOrNull()
+            if (top !is SettingsFragment) openSettings()
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onDestroy() {

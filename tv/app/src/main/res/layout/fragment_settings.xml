@@ -247,6 +247,42 @@
                     android:text="端侧抓流 / 服务端过滤文本"
                     android:textColor="@color/jc_text_secondary"
                     android:textSize="16sp" />
+
+                <!-- 中转: 默认关闭. 中转不一定比直连快, 仅直连异常时才经服务器转发. -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="32dp"
+                    android:text="中转播放"
+                    android:textColor="@color/jc_text"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/settings_relay_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="@color/jc_text_secondary"
+                    android:textSize="17sp" />
+
+                <Button
+                    android:id="@+id/settings_relay_toggle"
+                    style="@style/JcButtonSecondary"
+                    android:layout_width="180dp"
+                    android:layout_height="54dp"
+                    android:layout_marginTop="14dp"
+                    android:focusable="true"
+                    android:textAllCaps="false" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:lineSpacingExtra="2dp"
+                    android:text="默认关闭：分片设备直连，更快更省流量。\n仅当直连异常（源站受限/拉流失败）时才建议开启，让分片经服务器转发。中转不一定比直连快，且更耗服务器带宽。"
+                    android:textColor="@color/jc_text_tertiary"
+                    android:textSize="14sp" />
             </LinearLayout>
 
             <LinearLayout

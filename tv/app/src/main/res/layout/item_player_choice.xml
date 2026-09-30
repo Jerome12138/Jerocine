@@ -2,12 +2,12 @@
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/player_choice_text"
     android:layout_width="match_parent"
-    android:layout_height="54dp"
+    android:layout_height="48dp"
     android:background="@drawable/jc_player_choice_item"
     android:ellipsize="end"
     android:focusable="false"
     android:gravity="center_vertical"
-    android:paddingHorizontal="20dp"
+    android:paddingHorizontal="16dp"
     android:singleLine="true"
     android:textColor="@color/jc_player_choice_text"
-    android:textSize="17sp" />
+    android:textSize="15sp" />

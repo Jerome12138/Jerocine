@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- 完整渐变图标作背景层, 由系统按 mask 裁圆角/圆形; 主体在 66% 安全区内不被裁 -->
-    <background android:drawable="@drawable/ic_launcher_gradient03" />
-    <foreground android:drawable="@android:color/transparent" />
+    <background android:drawable="@drawable/ic_launcher_bg_gradient03" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground_gradient03" />
 </adaptive-icon>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 海报封面圆角底 — 与 jc_poster_item 卡片圆角(8dp)一致;
+     配合 ImageView 的 clipToOutline + outlineProvider=background 实现封面圆角裁剪. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/jc_tv_glass_soft" />
+    <corners android:radius="@dimen/jc_panel_radius" />
+</shape>

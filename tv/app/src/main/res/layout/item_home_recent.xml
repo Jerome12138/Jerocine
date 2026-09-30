@@ -16,6 +16,9 @@
             android:id="@+id/home_recent_cover"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@drawable/jc_poster_cover"
+            android:clipToOutline="true"
+            android:outlineProvider="background"
             android:scaleType="centerCrop" />
         <ProgressBar
             android:id="@+id/home_recent_progress"
