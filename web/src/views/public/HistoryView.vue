@@ -81,20 +81,37 @@ function handleRemove(id: string, e: Event): void {
   <!-- ============ TV (雷鸟卡片式) 分支 ============ -->
   <section v-if="isTV" class="jc-tv-history">
     <!-- 操作条: 标题 + 来源标签 + 共N条 + 登录同步 + 清空 -->
-    <div class="jc-tv-history__bar">
-      <div class="jc-tv-history__head-left">
-        <div class="jc-tv-history__title">观看历史</div>
-        <div class="jc-tv-history__meta">
-          <span class="jc-tv-chip sel jc-tv-history__srcchip">
+    <!-- 横排样式内联写死(不依赖 [data-mode=tv] 全局块, 保证 TV 壳任何环境生效):
+         bar=flex 行, head-left(标题+meta)=nowrap 横排, ops 靠右 -->
+    <div
+      class="jc-tv-history__bar"
+      style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;"
+    >
+      <div
+        class="jc-tv-history__head-left"
+        style="display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap;"
+      >
+        <div
+          class="jc-tv-history__title"
+          style="white-space: nowrap; flex-shrink: 0;"
+        >观看历史</div>
+        <div
+          class="jc-tv-history__meta"
+          style="display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; min-width: 0; overflow: hidden; white-space: nowrap;"
+        >
+          <span class="jc-tv-chip sel jc-tv-history__srcchip" style="flex-shrink: 0;">
             {{ remoteMode ? '云端' : '本地' }}
           </span>
-          <span>{{ sourceLabel }}</span>
-          <span>·</span>
-          <span>共 {{ items.length }} 条</span>
-          <span v-if="remoteLoading" class="jc-tv-history__syncing">同步中…</span>
+          <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis;">{{ sourceLabel }}</span>
+          <span style="flex-shrink: 0;">·</span>
+          <span style="flex-shrink: 0;">共 {{ items.length }} 条</span>
+          <span v-if="remoteLoading" class="jc-tv-history__syncing" style="flex-shrink: 0;">同步中…</span>
         </div>
       </div>
-      <div class="jc-tv-history__ops">
+      <div
+        class="jc-tv-history__ops"
+        style="margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0;"
+      >
         <RouterLink
           v-if="!isLoggedIn"
           to="/login"
