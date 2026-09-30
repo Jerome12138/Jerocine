@@ -55,7 +55,7 @@
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/home_panel_left_posters"
             android:layout_width="match_parent"
-            android:layout_height="226dp"
+            android:layout_height="238dp"
             android:clipChildren="false"
             android:clipToPadding="false"
             android:paddingTop="6dp"
@@ -111,7 +111,7 @@
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/home_panel_right_posters"
             android:layout_width="match_parent"
-            android:layout_height="226dp"
+            android:layout_height="238dp"
             android:clipChildren="false"
             android:clipToPadding="false"
             android:paddingTop="6dp"

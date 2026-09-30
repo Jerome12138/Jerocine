@@ -4,6 +4,19 @@
     android:layout_height="match_parent"
     android:background="@color/jc_bg">
 
+    <!-- 列表在 toolbar 之前 → toolbar 位于 z 序上层, 保证触屏能点到返回/登录/管理按钮
+         (全屏 RecyclerView 会消费掉覆盖区域的触摸, 此前返回按钮触控失效) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/favorites_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingStart="36dp"
+        android:paddingTop="80dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="28dp"
+        android:scrollbars="none" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="@dimen/jc_toolbar_height"
@@ -57,17 +70,6 @@
             android:text="管理"
             android:textAllCaps="false" />
     </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/favorites_list"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:paddingStart="36dp"
-        android:paddingTop="80dp"
-        android:paddingEnd="20dp"
-        android:paddingBottom="28dp"
-        android:scrollbars="none" />
 
     <ProgressBar
         android:id="@+id/favorites_progress"

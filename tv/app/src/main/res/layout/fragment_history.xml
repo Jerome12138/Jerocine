@@ -4,6 +4,18 @@
     android:layout_height="match_parent"
     android:background="@color/jc_bg">
 
+    <!-- 列表在 toolbar 之前 → toolbar 位于 z 序上层, 保证触屏能点到返回/登录/管理/清空按钮 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/history_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingStart="36dp"
+        android:paddingTop="80dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="28dp"
+        android:scrollbars="none" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="@dimen/jc_toolbar_height"
@@ -67,17 +79,6 @@
             android:text="清空"
             android:textAllCaps="false" />
     </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/history_list"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:paddingStart="36dp"
-        android:paddingTop="80dp"
-        android:paddingEnd="20dp"
-        android:paddingBottom="28dp"
-        android:scrollbars="none" />
 
     <ProgressBar
         android:id="@+id/history_progress"

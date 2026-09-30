@@ -82,6 +82,7 @@ class HomeDashboardHeaderAdapter(
     ) : RecyclerView.ViewHolder(itemView) {
         private val recentPanel = itemView.findViewById<View>(R.id.home_recent_panel)
         private val recentList = itemView.findViewById<RecyclerView>(R.id.home_recent_list)
+        private val recentAll = itemView.findViewById<View>(R.id.home_recent_all)
         private val recentAdapter = HomeRecentAdapter(onPosterClick)
         private val hero = itemView.findViewById<View>(R.id.home_hero)
         private val heroImage = itemView.findViewById<ImageView>(R.id.home_hero_image)
@@ -101,11 +102,12 @@ class HomeDashboardHeaderAdapter(
             recentList.layoutManager = LinearLayoutManager(itemView.context, RecyclerView.HORIZONTAL, false)
             recentList.adapter = recentAdapter
             recentList.itemAnimator = null
-            listOf(hero, history, category, search, account, settings).forEach { control ->
+            listOf(hero, history, category, search, account, settings, recentAll).forEach { control ->
                 control.installTvFocusAnimation { ServiceLocator.tokenStore.reduceMotion }
             }
             hero.setOnClickListener { if (heroMid > 0) onPosterClick(heroMid) }
             history.setOnClickListener { onHistory() }
+            recentAll.setOnClickListener { onHistory() }
             category.setOnClickListener { if (firstPid > 0) onCategory(firstPid) }
             search.setOnClickListener { onSearch() }
             account.setOnClickListener { onAccount(loggedIn) }
