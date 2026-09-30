@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { manageApi } from '@/api'
 import type { DashboardStat, OnlineOverview, OnlineSession } from '@/types/manage'
@@ -9,6 +9,7 @@ import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BasePagination from '@/components/base/BasePagination.vue'
 
 const data = ref<DashboardStat | null>(null)
 const loading = ref(true)
@@ -102,6 +103,21 @@ const filteredSessions = computed(() => {
   if (statusFilter.value === 'all') return base
   const want = statusFilter.value === 'watching'
   return base.filter((s) => s.watching === want)
+})
+
+// ---- 在线明细分页: 每页 20 条; 切换时间/状态回到第 1 页, 数据收缩时钳制页码 ----
+const PAGE_SIZE = 10
+const page = ref(1)
+const pagedSessions = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE
+  return filteredSessions.value.slice(start, start + PAGE_SIZE)
+})
+watch([timeFilter, statusFilter], () => {
+  page.value = 1
+})
+watch(filteredSessions, (list) => {
+  const max = Math.max(1, Math.ceil(list.length / PAGE_SIZE))
+  if (page.value > max) page.value = max
 })
 
 /** 会话状态三态: 在播(绿) / 在线(蓝) / 已离线(灰, 仅历史明细) */
@@ -212,7 +228,7 @@ const cards = computed(() => {
 
     <!-- 在线实时统计: 客户端 30s 心跳, 90s 未上报判离线; UV 登录按 uid / 游客按 IP 去重 -->
     <section v-if="!loading && !error" class="flex flex-col gap-[var(--jc-space-3)]">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--jc-space-3)]">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-[var(--jc-space-3)]">
         <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
           <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#22c55e] to-[#4ad1e5]">
             <BaseIcon name="eye" size="18px" />
@@ -246,6 +262,17 @@ const cards = computed(() => {
             </span>
           </div>
         </article>
+        <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
+          <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#8b5cf6] to-[#ec4899]">
+            <BaseIcon name="eye" size="18px" />
+          </div>
+          <div class="flex flex-col min-w-0 leading-tight">
+            <span class="text-secondary text-xs">机器人在线</span>
+            <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
+              {{ online?.bots ?? '—' }}
+            </span>
+          </div>
+        </article>
       </div>
 
       <!-- 今日累计: 自然日滚动, 与实时并列为运营日报维度 -->
@@ -253,7 +280,7 @@ const cards = computed(() => {
         <span class="text-xs text-secondary whitespace-nowrap">今日累计</span>
         <div class="h-px flex-1 bg-[var(--jc-border)]" />
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--jc-space-3)]">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-[var(--jc-space-3)]">
         <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
           <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#8b5cf6] to-[#ec4899]">
             <BaseIcon name="user" size="18px" />
@@ -284,6 +311,17 @@ const cards = computed(() => {
             <span class="text-secondary text-xs">今日峰值在线</span>
             <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.today?.peak ?? '—' }}
+            </span>
+          </div>
+        </article>
+        <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
+          <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 bg-gradient-to-br from-[#475569] to-[#64748b]">
+            <BaseIcon name="clock" size="18px" />
+          </div>
+          <div class="flex flex-col min-w-0 leading-tight">
+            <span class="text-secondary text-xs">机器人请求 PV</span>
+            <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
+              {{ online?.today?.botPV ?? '—' }}
             </span>
           </div>
         </article>
@@ -369,7 +407,7 @@ const cards = computed(() => {
             </thead>
             <tbody>
               <tr
-                v-for="s in filteredSessions"
+                v-for="s in pagedSessions"
                 :key="`${s.sid}|${s.ip}`"
                 class="border-b border-[var(--jc-border)]/50 last:border-0"
               >
@@ -397,10 +435,13 @@ const cards = computed(() => {
               </tr>
             </tbody>
           </table>
+          <div v-if="filteredSessions.length > PAGE_SIZE" class="mt-3 flex justify-end">
+            <BasePagination v-model:current="page" :total="filteredSessions.length" :page-size="PAGE_SIZE" />
+          </div>
         </div>
         <BaseEmpty
-          v-else
-          :title="filteredSessions.length === 0 ? (timeFilter === 'live' ? '当前无人在线' : (timeFilter === 'today' ? '今日暂无访问' : '近 7 天暂无访问')) : '该状态下暂无会话'"
+          v-if="filteredSessions.length === 0"
+          :title="statusFilter === 'all' ? (timeFilter === 'live' ? '当前无人在线' : (timeFilter === 'today' ? '今日暂无访问' : '近 7 天暂无访问')) : '该状态下暂无会话'"
           :description="timeFilter === 'live' ? '打开网站或播放器后 30s 内出现在这里' : '在播/在播放的用户会优先展示在前面'"
         />
       </div>

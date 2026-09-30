@@ -337,6 +337,8 @@ export interface OnlineOverview {
   /** 在线会话数(每个标签/TV 设备一个 sid) */
   pv: number
   watching: number
+  /** 实时机器人在线源数(90s 窗口, 单独统计; 机器人请求不入 uv/pv) */
+  bots?: number
   /** 今日累计(自然日滚动) */
   today: {
     /** 今日去重人数 */
@@ -345,6 +347,8 @@ export interface OnlineOverview {
     pv: number
     /** 今日峰值在线(实时会话数最高值) */
     peak: number
+    /** 今日机器人请求PV(被过滤掉的爬虫请求次数) */
+    botPV?: number
   }
   sessions: OnlineSession[]
 }

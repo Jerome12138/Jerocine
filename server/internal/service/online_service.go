@@ -60,19 +60,22 @@ type OnlineOverview struct {
 	UV       int             `json:"uv"`
 	PV       int             `json:"pv"`
 	Watching int             `json:"watching"`
+	Bots     int             `json:"bots"` // 实时机器人在线源数(90s 窗口, 单独统计)
 	Today    DailyStats      `json:"today"`
 	Sessions []OnlineSession `json:"sessions"`
 }
 
 // DailyStats 今日累计(自然日滚动)。
 type DailyStats struct {
-	UV   int `json:"uv"`   // 今日去重人数
-	PV   int `json:"pv"`   // 今日访问次数(同一会话 ≥30min 间隔计新访问)
-	Peak int `json:"peak"` // 今日峰值在线(实时会话数最高值)
+	UV    int `json:"uv"`    // 今日去重人数
+	PV    int `json:"pv"`    // 今日访问次数(同一会话 ≥30min 间隔计新访问)
+	Peak  int `json:"peak"`  // 今日峰值在线(实时会话数最高值)
+	BotPV int `json:"botPV"` // 今日机器人请求PV(被过滤掉的爬虫请求次数)
 }
 
 const (
 	onlineActKey  = "jc:online:act"
+	onlineBotsKey = "jc:online:bots" // 实时机器人在线源(90s 窗口), ZSET, 与正常会话隔离
 	onlineInfoTTL = 150 * time.Second // > 窗口 90s, 防 ZSET 清理后明细残留
 	onlineWindow  = 90 * time.Second  // 心跳 30s, 90s 未上报判离线(容忍丢包/切后台)
 
@@ -107,14 +110,41 @@ func dailyKeys(date string) (uv, pv, peak, lastPrefix string) {
 func dailyLogKey(date string) string      { return "jc:online:daily:" + date + ":log" }
 func dailyInfoKey(date, k string) string  { return "jc:online:daily:" + date + ":info:" + k }
 
-// isBotUAOnline 在线心跳机器人过滤(宽松版): 复用 telemetry 的 botUASubstrings 关键词表,
+// onlineBotUA 在线统计机器人/爬虫 UA 关键词表(小写子串匹配)。
+// 与 telemetry 的 botUASubstrings 相互独立: 在线统计口径更宽松(空 UA 不判 bot,
+// 可能是异常客户端而非爬虫), 且可单独追加而不互相影响。
+// 注意: 子串匹配, 只加不会出现在正常浏览器/安卓壳 UA 中的关键词(如勿加 okhttp)。
+// ↑ 追加识别关键词时在此新增即可。
+var onlineBotUA = []string{
+	// ── 通用爬虫/扫描器 ──
+	"bot", "spider", "crawl", "slurp", "curl", "wget", "python", "go-http",
+	"scrapy", "headless", "phantom", "masscan", "zgrab", "nmap", "censys",
+	"semrush", "ahrefs", "mj12", "dotbot", "bytespider", "facebookexternalhit",
+	// ── 搜索引擎/收录爬虫 ──
+	"googlebot", "googleother", "adsbot-google", "mediapartners-google",
+	"bingbot", "bingpreview", "baiduspider", "360spider", "yisouspider",
+	"yandexbot", "duckduckbot", "petalbot", "ia_archiver", "applebot",
+	"twitterbot", "linkedinbot",
+	// ── AI 爬虫 ──
+	"gptbot", "oai-searchbot", "claudebot", "ccbot", "amazonbot",
+	// ── 监控/连通性检查 ──
+	"uptimerobot", "pingdom", "statuscake", "gtmetrix", "monitis",
+	// ── 即时通讯/社交平台爬虫 ──
+	// 注意: 勿加 whatsapp — WhatsApp 内置浏览器(点开分享链接)UA 含该词, 是真实用户.
+	"telegrambot", "slackbot", "discordbot",
+	// ── 脚本 HTTP 客户端 ──
+	"node", "axios", "http-client", "lwp", "mechanize", "httrack", "libwww",
+	"exabot", "gigabot", "java/",
+}
+
+// isBotUAOnline 在线心跳机器人过滤(宽松版): 用 onlineBotUA 规则组,
 // 但空 UA 不判 bot — 空 UA 可能是异常客户端而非爬虫, 不误伤在线统计。
 func isBotUAOnline(ua string) bool {
 	u := strings.ToLower(strings.TrimSpace(ua))
 	if u == "" {
 		return false
 	}
-	for _, s := range botUASubstrings {
+	for _, s := range onlineBotUA {
 		if strings.Contains(u, s) {
 			return true
 		}
@@ -128,9 +158,13 @@ func NewOnlineService(rdb *redis.Client) *OnlineService {
 
 // Heartbeat 记录/续期一个会话。首次出现记 firstSeen(进入时间), 已存在沿用。
 // ZSET score 用毫秒精度(窗口判断/排序), 明细里 FirstSeen/LastSeen 用秒(展示可读)。
-// 机器人 UA 直接丢弃(不入实时与今日统计)。
+// 机器人 UA 不入实时与今日统计, 单独计数(实时 bots + 今日 botPV), 后台展示可排除。
 func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession) {
-	if sess.Sid == "" || isBotUAOnline(sess.UA) {
+	if sess.Sid == "" {
+		return
+	}
+	if isBotUAOnline(sess.UA) {
+		s.recordBotHit(ctx, sess)
 		return
 	}
 	now := time.Now()
@@ -175,17 +209,49 @@ func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession) {
 	_, _ = pipe.Exec(ctx)
 }
 
+// recordBotHit 机器人请求单独计数: 实时 bots(90s 窗口内去重源) + 今日 botPV(请求次数)。
+// 与正常会话隔离存储, 不污染 UV/PV 与明细; 后台"机器人请求PV"指标即今日累计值。
+func (s *OnlineService) recordBotHit(ctx context.Context, sess OnlineSession) {
+	now := time.Now()
+	nowMs := now.UnixMilli()
+	date := now.Format("20060102")
+	pipe := s.rdb.Pipeline()
+	pipe.ZAdd(ctx, onlineBotsKey, redis.Z{Score: float64(nowMs), Member: onlineSessionKey(sess.Sid, sess.IP)})
+	pipe.Expire(ctx, onlineBotsKey, onlineInfoTTL)
+	pipe.Incr(ctx, dailyInfoKey(date, "botpv"))
+	pipe.Expire(ctx, dailyInfoKey(date, "botpv"), dailyTTL)
+	_, _ = pipe.Exec(ctx)
+}
+
 // Overview 返回在线 UV/PV/观看中 + 今日累计与明细(按最近活跃倒序, 由 ZRevRange 保证),
 // 顺带惰性清理过期会话、更新今日峰值。
 func (s *OnlineService) Overview(ctx context.Context) OnlineOverview {
 	cutoffMs := time.Now().UnixMilli() - int64(s.window/time.Millisecond)
 	_ = s.rdb.ZRemRangeByScore(ctx, onlineActKey, "0",
 		strconv.FormatInt(cutoffMs, 10)).Err() // 清理失败下轮再试
+	_ = s.rdb.ZRemRangeByScore(ctx, onlineBotsKey, "0",
+		strconv.FormatInt(cutoffMs, 10)).Err()
 	sessions := make([]OnlineSession, 0, 64)
 	pv, err := s.rdb.ZCard(ctx, onlineActKey).Result()
 	if err == nil && pv > 0 {
 		sids, _ := s.rdb.ZRevRange(ctx, onlineActKey, 0, -1).Result() // 最新活跃在前
 		sessions = sids2sessions(ctx, s.rdb, sids, sessions)
+	}
+	// 防御: 明细再过滤一次机器人(写入端已过滤, 防规则演进/历史残留)
+	if n := len(sessions); n > 0 {
+		kept := sessions[:0]
+		for _, sess := range sessions {
+			if !isBotUAOnline(sess.UA) {
+				kept = append(kept, sess)
+			}
+		}
+		sessions = kept
+	}
+	// 实时机器人在线源数(90s 窗口, 单独统计)
+	bots := 0
+	if n, err := s.rdb.ZCount(ctx, onlineBotsKey,
+		strconv.FormatInt(cutoffMs, 10), "+inf").Result(); err == nil {
+		bots = int(n)
 	}
 	// UV 去重: 登录按 uid, 游客按 IP; 两者都空(异常)退化为按 sid
 	seen := make(map[string]bool, len(sessions))
@@ -207,7 +273,7 @@ func (s *OnlineService) Overview(ctx context.Context) OnlineOverview {
 		}
 	}
 	today := s.todayStats(ctx, pv)
-	return OnlineOverview{UV: uv, PV: len(sessions), Watching: watching, Today: today, Sessions: sessions}
+	return OnlineOverview{UV: uv, PV: len(sessions), Watching: watching, Bots: bots, Today: today, Sessions: sessions}
 }
 
 // todayStats 读今日 UV/PV/峰值; 当前实时会话数超过峰值时惰性更新。
@@ -223,6 +289,9 @@ func (s *OnlineService) todayStats(ctx context.Context, curPV int64) DailyStats 
 	}
 	if n, err := s.rdb.Get(ctx, peakKey).Int(); err == nil {
 		t.Peak = n
+	}
+	if n, err := s.rdb.Get(ctx, dailyInfoKey(date, "botpv")).Int(); err == nil {
+		t.BotPV = n
 	}
 	if curPV > int64(t.Peak) {
 		t.Peak = int(curPV)
@@ -313,6 +382,10 @@ func (s *OnlineService) DailySessions(ctx context.Context, days int) []OnlineSes
 	for m, b := range best {
 		var sess OnlineSession
 		if json.Unmarshal([]byte(b.json), &sess) != nil {
+			continue
+		}
+		// 过滤机器人/爬虫明细(写入端已过滤, 此处为规则演进/历史残留兜底)
+		if isBotUAOnline(sess.UA) {
 			continue
 		}
 		sess.Online = active[m]

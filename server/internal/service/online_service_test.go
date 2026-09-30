@@ -1,7 +1,8 @@
-package service
+﻿package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -194,10 +195,101 @@ func TestIsBotUAOnline(t *testing.T) {
 		{"python-requests/2.31.0", true},
 		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36", false},
 		{"Mozilla/5.0 (Linux; Android 10; TV) AppleWebKit/537.36 Chrome/126.0 Safari/537.36", false},
+		// 规则组扩充后新增识别的爬虫
+		{"Mozilla/5.0 (compatible; BingPreview/1.0; +http://www.bing.com/bingbot.htm)", true},
+		{"Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)", true},
+		{"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", true},
+		{"Mozilla/5.0 (compatible; GPTBot/1.0; +https://openai.com/gptbot)", true},
+		{"axios/1.6.0", true},
+		{"node-fetch/2.6.0", true},
+		{"statuscake.com", true},
+		{"Pingdom.com_bot_version_1.4", true},
+		// 正常浏览器/安卓壳不被误伤
+		{"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36", false},
+		{"Mozilla/5.0 (Linux; Android 11; SM-T970) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36", false},
+		{"ExoPlayerLib/2.19.1", false},
+		// WhatsApp 内置浏览器(点开分享链接)是真实用户, 不得误伤
+		{"Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36 WhatsApp/2.24.21", false},
 	}
 	for _, c := range cases {
 		if got := isBotUAOnline(c.ua); got != c.want {
 			t.Fatalf("isBotUAOnline(%q)=%v want %v", c.ua, got, c.want)
 		}
+	}
+}
+
+func TestOnlineService_BotHitCounted(t *testing.T) {
+	s, _ := newTestOnlineService(t)
+	ctx := context.Background()
+	// 正常用户 1 个
+	s.Heartbeat(ctx, sess("u1", "8.8.8.8", 0, true))
+	// 多个爬虫心跳(不同 IP)
+	s.Heartbeat(ctx, OnlineSession{Sid: "b1", IP: "9.9.9.9", UA: "Mozilla/5.0 (compatible; Googlebot/2.1)"})
+	s.Heartbeat(ctx, OnlineSession{Sid: "b2", IP: "9.9.9.10", UA: "Mozilla/5.0 (compatible; Applebot/0.1)"})
+	s.Heartbeat(ctx, OnlineSession{Sid: "b3", IP: "9.9.9.11", UA: "curl/8.5.0"})
+	o := s.Overview(ctx)
+	// 爬虫不计入 UV/PV/明细
+	if o.PV != 1 || o.UV != 1 || len(o.Sessions) != 1 {
+		t.Fatalf("爬虫不应计入 UV/PV/明细: got %+v", o)
+	}
+	// 实时机器人在线源数(90s 窗口去重) = 3
+	if o.Bots != 3 {
+		t.Fatalf("Bots=%d want 3", o.Bots)
+	}
+	// 今日机器人请求 PV = 3(每次 bot 心跳 +1)
+	if o.Today.BotPV != 3 {
+		t.Fatalf("Today.BotPV=%d want 3", o.Today.BotPV)
+	}
+	// 今日正常 UV/PV 只含正常用户
+	if o.Today.UV != 1 || o.Today.PV != 1 {
+		t.Fatalf("今日正常统计被爬虫污染: got %+v", o.Today)
+	}
+	// 同源 bot 续心跳: bots 去重仍 3, botPV 继续 +1
+	s.Heartbeat(ctx, OnlineSession{Sid: "b1", IP: "9.9.9.9", UA: "Googlebot/2.1"})
+	o = s.Overview(ctx)
+	if o.Bots != 3 {
+		t.Fatalf("同源 bot 续心跳应去重, Bots=%d want 3", o.Bots)
+	}
+	if o.Today.BotPV != 4 {
+		t.Fatalf("BotPV=%d want 4(第4次心跳)", o.Today.BotPV)
+	}
+}
+
+// 防御过滤: 规则上线前/演进时, act 与按日日志里可能残留爬虫会话(历史数据),
+// Overview 与 DailySessions 输出时应再次过滤(写入端已过滤, 此处为兜底)。
+func TestOnlineService_DefensiveBotFilter(t *testing.T) {
+	s, mr := newTestOnlineService(t)
+	ctx := context.Background()
+	// 模拟历史残留: 直接写入一条爬虫 UA 的在线会话(绕过 Heartbeat 的写入端过滤)
+	botSess := OnlineSession{Sid: "legacy-bot", IP: "9.9.9.9", UA: "Mozilla/5.0 (compatible; Googlebot/2.1)", LastSeen: time.Now().Unix()}
+	buf, _ := json.Marshal(botSess)
+	nowMs := time.Now().UnixMilli()
+	if _, err := mr.ZAdd("jc:online:act", float64(nowMs), "legacy-bot#9.9.9.9"); err != nil {
+		t.Fatalf("seed act: %v", err)
+	}
+	if err := mr.Set("jc:online:info:legacy-bot#9.9.9.9", string(buf)); err != nil {
+		t.Fatalf("seed info: %v", err)
+	}
+	// 正常用户也在线
+	s.Heartbeat(ctx, sess("u1", "8.8.8.8", 0, true))
+	o := s.Overview(ctx)
+	if o.PV != 1 || o.UV != 1 || len(o.Sessions) != 1 {
+		t.Fatalf("残留爬虫会话应被 Overview 防御过滤: got %+v", o)
+	}
+	if o.Sessions[0].Sid != "u1" {
+		t.Fatalf("仅正常用户应保留: got %+v", o.Sessions)
+	}
+
+	// DailySessions 同理: 按日日志里塞一条爬虫会话, 应被过滤
+	date := time.Now().Format("20060102")
+	if _, err := mr.ZAdd("jc:online:daily:"+date+":log", float64(nowMs), "legacy-bot#9.9.9.9"); err != nil {
+		t.Fatalf("seed dailylog: %v", err)
+	}
+	if err := mr.Set("jc:online:daily:"+date+":info:legacy-bot#9.9.9.9", string(buf)); err != nil {
+		t.Fatalf("seed dailyinfo: %v", err)
+	}
+	sessList := s.DailySessions(ctx, 1)
+	if len(sessList) != 1 || sessList[0].Sid != "u1" {
+		t.Fatalf("残留爬虫会话应被 DailySessions 防御过滤: got %+v", sessList)
 	}
 }
