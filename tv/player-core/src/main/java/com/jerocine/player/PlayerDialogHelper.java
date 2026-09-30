@@ -45,7 +45,7 @@ public class PlayerDialogHelper {
     // ============================ 倍速 ============================
 
     void showSpeedDialog() {
-        new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
+        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("播放速度")
                 .setSingleChoiceItems(SPEED_LABELS, speedIndex, (d, i) -> {
                     speedIndex = i;
@@ -57,7 +57,8 @@ public class PlayerDialogHelper {
                     session.host().showCenterToast("速度 " + SPEED_LABELS[i], 800);
                     d.dismiss();
                 })
-                .show();
+                .create();
+        showDialog(dialog);
     }
 
     // ============================ 控制面板按钮 ============================
@@ -127,7 +128,7 @@ public class PlayerDialogHelper {
         }
         final int curEp = session.player != null ? session.player.getCurrentMediaItemIndex() : 0;
         final long curPos = session.player != null ? session.player.getCurrentPosition() : 0L;
-        new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
+        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("切换播放源")
                 .setSingleChoiceItems(names, session.currentSourceIndex, (d, w) -> {
                     if (w == session.currentSourceIndex) {
@@ -143,7 +144,8 @@ public class PlayerDialogHelper {
                             + "」 (从 " + (target.positionMs / 1000) + "s 续播)", 2000);
                     d.dismiss();
                 })
-                .show();
+                .create();
+        showDialog(dialog);
     }
 
     // ============================ 选集 ============================
@@ -167,14 +169,15 @@ public class PlayerDialogHelper {
             int e = Math.min((i + 1) * EPISODE_SEG, total);
             segs[i] = "第 " + s + "-" + e + " 集";
         }
-        new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
+        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("选集 (共 " + total + " 集)")
                 .setSingleChoiceItems(segs, cur / EPISODE_SEG, (d, w) -> {
                     d.dismiss();
                     int start = w * EPISODE_SEG;
                     showEpisodeSegment(start, Math.min(start + EPISODE_SEG, total), cur);
                 })
-                .show();
+                .create();
+        showDialog(dialog);
     }
 
     /** 展示 [start,end) 区间内的集供选择, 当前集在区间内则高亮. */
@@ -182,7 +185,7 @@ public class PlayerDialogHelper {
         String[] arr = new String[end - start];
         for (int i = start; i < end; i++) arr[i - start] = session.playlistTitles.get(i);
         int checked = (cur >= start && cur < end) ? cur - start : 0;
-        new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
+        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("选集 " + (start + 1) + "-" + end)
                 .setSingleChoiceItems(arr, checked, (d, w) -> {
                     PlaybackTarget target = PlaybackTarget.selectEpisode(
@@ -193,7 +196,8 @@ public class PlayerDialogHelper {
                     }
                     d.dismiss();
                 })
-                .show();
+                .create();
+        showDialog(dialog);
     }
 
     // ============================ 跳过片头/片尾 ============================
@@ -223,7 +227,7 @@ public class PlayerDialogHelper {
         Switch sw = new Switch(ctx());
         sw.setText(skipLabel);
         sw.setChecked(session.skipEnabled);
-        sw.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+        sw.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
         sw.setTextColor(0xFFFFFFFF);
         ll.addView(sw);
 
@@ -244,13 +248,13 @@ public class PlayerDialogHelper {
         });
 
         introValue.setText("片头跳过: " + session.skipIntroMs / 1000 + " 秒");
-        introValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
+        introValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
         introValue.setPadding(0, pad, 0, 0);
         ll.addView(introValue);
         ll.addView(introRow);
 
         outroValue.setText("片尾跳过: " + session.skipOutroMs / 1000 + " 秒");
-        outroValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
+        outroValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
         outroValue.setPadding(0, pad, 0, 0);
         ll.addView(outroValue);
         ll.addView(outroRow);
@@ -273,10 +277,11 @@ public class PlayerDialogHelper {
         });
 
         // 不放"完成"按钮: 开关/stepper 即时生效, 返回键关闭弹窗即可
-        new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
+        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("跳过片头 / 片尾")
                 .setView(ll)
-                .show();
+                .create();
+        showDialog(dialog);
     }
 
     private void setRowEnabled(LinearLayout row, boolean on) {
@@ -300,7 +305,7 @@ public class PlayerDialogHelper {
             Button b = new Button(ctx());
             b.setText((s > 0 ? "+" : "") + s + "s");
             b.setAllCaps(false);
-            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
             b.setFocusable(true);
             b.setBackgroundResource(R.drawable.jc_step_btn_bg);
             b.setTextColor(ctx().getResources().getColorStateList(R.color.jc_step_btn_text));
@@ -316,5 +321,24 @@ public class PlayerDialogHelper {
             row.addView(b);
         }
         return row;
+    }
+
+    /**
+     * 统一弹窗展示: 内容超高时限制为屏幕高度的 80% (选集/切源等大列表弹窗),
+     * 内容少时保持 wrap_content 不拉伸.
+     */
+    private void showDialog(AlertDialog dialog) {
+        dialog.show();
+        android.view.Window win = dialog.getWindow();
+        if (win == null) return;
+        View decor = win.getDecorView();
+        decor.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        int contentH = decor.getMeasuredHeight();
+        int maxH = (int) (ctx().getResources().getDisplayMetrics().heightPixels * 0.8f);
+        if (contentH > maxH) {
+            android.view.WindowManager.LayoutParams lp = win.getAttributes();
+            lp.height = maxH;
+            win.setAttributes(lp);
+        }
     }
 }

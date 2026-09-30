@@ -183,6 +183,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 // "中转"/"过滤"/"倍速"/"跳过"按钮(含左上角状态点)在 PlayerView 的控制视图里(懒加载): 面板显示时取到
                 networkModeButton = playerView.findViewById(R.id.btn_network_mode);
                 adFilterButton = playerView.findViewById(R.id.btn_ad_filter);
+                updateRelayButtonVisibility();
                 dotNetworkMode = playerView.findViewById(R.id.dot_network_mode);
                 dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
                 dotSpeed = playerView.findViewById(R.id.dot_speed);
@@ -245,6 +246,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             public void onPlaybackStateChanged(int state) {
                 lastPlayerState = state;
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
+                updateFilterLoadingText(state);
                 if (state == Player.STATE_READY) {
                     session.episodeSwitching = false;
                     if (!session.introSkippedForCurrent) {
@@ -673,7 +675,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         }
         if (adFilterButton == null) return;
         // 文案恒定、不变色; 开关状态只由左上角状态点表达
-        adFilterButton.setText("过滤");
+        adFilterButton.setText("去广告");
         if (dotAdFilter == null && playerView != null) {
             dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
         }
@@ -687,6 +689,33 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             dotNetworkMode = playerView.findViewById(R.id.dot_network_mode);
         }
         renderStatusDot(dotNetworkMode, relay);
+        // 设置里关闭中转 → 整组按钮隐藏(只保留自愈能力, 无 UI 入口)
+        updateRelayButtonVisibility();
+    }
+
+    /**
+     * 中转按钮显隐: 设置开关(持久化 network_relay_enabled, 默认关)决定播放器是否显示底栏"中转"按钮.
+     * 关闭时隐藏整组(按钮+状态点), 直连分片失败的单集自愈不受影响(走 forceRelayIdx, 无 UI).
+     */
+    private void updateRelayButtonVisibility() {
+        boolean show = PlayerNetworkModeHelper.isRelayEnabled(this);
+        View container = playerView != null ? playerView.findViewById(R.id.relay_button_container) : null;
+        if (container != null) {
+            container.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /**
+     * "正在准备视频 · 广告过滤中"提示: 仅起播/切集加载期(缓冲中且广告过滤开启)显示,
+     * 播放就绪或非缓冲状态隐藏. 与 web 播放器 loading 文案对齐.
+     */
+    private void updateFilterLoadingText(int state) {
+        View tv = findViewById(R.id.filter_loading_text);
+        if (tv == null) return;
+        boolean show = state == Player.STATE_BUFFERING
+                && session.episodeSwitching
+                && session.adFilterOn;
+        tv.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     /** 状态点: 开=绿点, 关=灰点. */

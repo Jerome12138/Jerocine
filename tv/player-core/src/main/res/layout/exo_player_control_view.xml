@@ -118,7 +118,7 @@
                     android:layout_width="8dp"
                     android:layout_height="8dp"
                     android:layout_gravity="top|start"
-                    android:layout_marginStart="10dp"
+                    android:layout_marginStart="16dp"
                     android:layout_marginTop="7dp"
                     android:background="@drawable/jc_status_dot_off" />
             </FrameLayout>
@@ -132,19 +132,19 @@
                     android:id="@+id/btn_skip"
                     style="@style/JcPlayerCtlBtn"
                     android:drawableTop="@drawable/ic_skip"
-                    android:text="跳过" />
+                    android:text="跳片头" />
 
                 <View
                     android:id="@+id/dot_skip"
                     android:layout_width="8dp"
                     android:layout_height="8dp"
                     android:layout_gravity="top|start"
-                    android:layout_marginStart="10dp"
+                    android:layout_marginStart="16dp"
                     android:layout_marginTop="7dp"
                     android:background="@drawable/jc_status_dot_off" />
             </FrameLayout>
 
-            <!-- 广告过滤开关: 同上, 文案固定"过滤", 状态看左上角状态点(绿=开/灰=关) -->
+            <!-- 广告过滤开关: 同上, 文案固定"去广告", 状态看左上角状态点(绿=开/灰=关) -->
             <FrameLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content">
@@ -153,21 +153,23 @@
                     android:id="@+id/btn_ad_filter"
                     style="@style/JcPlayerCtlBtn"
                     android:drawableTop="@drawable/ic_ad_filter"
-                    android:text="过滤" />
+                    android:text="去广告" />
 
                 <View
                     android:id="@+id/dot_ad_filter"
                     android:layout_width="8dp"
                     android:layout_height="8dp"
                     android:layout_gravity="top|start"
-                    android:layout_marginStart="10dp"
+                    android:layout_marginStart="16dp"
                     android:layout_marginTop="7dp"
                     android:background="@drawable/jc_status_dot_off" />
             </FrameLayout>
 
             <!-- 中转开关: 文案固定"中转"(不再写"切到X", 免得整排按钮文案长度不一),
-                 开/关看左上角状态点(绿=开). 默认关(分片直连), 开关态持久化见 PlayerNetworkModeHelper. -->
+                 开/关看左上角状态点(绿=开). 默认关(分片直连), 开关态持久化见 PlayerNetworkModeHelper.
+                 设置里关闭中转时整组隐藏(见 PlayerActivity.updateRelayButtonVisibility). -->
             <FrameLayout
+                android:id="@+id/relay_button_container"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content">
 
@@ -182,7 +184,7 @@
                     android:layout_width="8dp"
                     android:layout_height="8dp"
                     android:layout_gravity="top|start"
-                    android:layout_marginStart="10dp"
+                    android:layout_marginStart="16dp"
                     android:layout_marginTop="7dp"
                     android:background="@drawable/jc_status_dot_off" />
             </FrameLayout>

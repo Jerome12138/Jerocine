@@ -34,6 +34,22 @@
         android:visibility="gone"
         android:indeterminateTint="@color/jc_accent" />
 
+    <!-- 广告过滤解析中提示 (起播/切集加载期显示, 对齐 web 播放器 "正在准备视频 · 广告过滤中" 风格) -->
+    <TextView
+        android:id="@+id/filter_loading_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="92dp"
+        android:background="@drawable/jc_tv_toast_bg"
+        android:gravity="center"
+        android:paddingHorizontal="18dp"
+        android:paddingVertical="9dp"
+        android:text="正在准备视频 · 广告过滤中"
+        android:textColor="@color/jc_text"
+        android:textSize="15sp"
+        android:visibility="gone" />
+
     <!-- 顶部标题栏 (随控制条一起显隐) — 玻璃渐变 -->
     <LinearLayout
         android:id="@+id/title_bar"
