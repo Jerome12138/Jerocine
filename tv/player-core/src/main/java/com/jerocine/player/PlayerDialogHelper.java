@@ -53,6 +53,7 @@ public class PlayerDialogHelper {
                         session.player.setPlaybackParameters(new PlaybackParameters(SPEEDS[i]));
                     }
                     session.host().renderSpeedText(SPEED_LABELS[i]);
+                    session.host().renderSpeedDot(Math.abs(SPEEDS[i] - 1f) > 0.001f);
                     session.host().showCenterToast("速度 " + SPEED_LABELS[i], 800);
                     d.dismiss();
                 })
@@ -216,11 +217,13 @@ public class PlayerDialogHelper {
         int pad = (int) (16 * ctx().getResources().getDisplayMetrics().density);
         ll.setPadding(pad * 3, pad, pad * 3, pad);
 
+        // 弹窗内文字统一缩小一档(需求: 换源/换集/跳过弹窗的文字与控件缩放一个档位)
+        final String skipLabel = "启用跳过 (开后片头" + PlayerSkipHelper.DEFAULT_SKIP_INTRO_MS / 1000
+                + "s 片尾" + PlayerSkipHelper.DEFAULT_SKIP_OUTRO_MS / 1000 + "s)";
         Switch sw = new Switch(ctx());
-        sw.setText("启用跳过 (开后片头" + PlayerSkipHelper.DEFAULT_SKIP_INTRO_MS / 1000
-                + "s 片尾" + PlayerSkipHelper.DEFAULT_SKIP_OUTRO_MS / 1000 + "s)");
+        sw.setText(skipLabel);
         sw.setChecked(session.skipEnabled);
-        sw.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
+        sw.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
         sw.setTextColor(0xFFFFFFFF);
         ll.addView(sw);
 
@@ -241,13 +244,13 @@ public class PlayerDialogHelper {
         });
 
         introValue.setText("片头跳过: " + session.skipIntroMs / 1000 + " 秒");
-        introValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18);
+        introValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
         introValue.setPadding(0, pad, 0, 0);
         ll.addView(introValue);
         ll.addView(introRow);
 
         outroValue.setText("片尾跳过: " + session.skipOutroMs / 1000 + " 秒");
-        outroValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18);
+        outroValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
         outroValue.setPadding(0, pad, 0, 0);
         ll.addView(outroValue);
         ll.addView(outroRow);
@@ -264,6 +267,7 @@ public class PlayerDialogHelper {
         sw.setOnCheckedChangeListener((CompoundButton b, boolean isOn) -> {
             session.skipEnabled = isOn;
             applyEnabled.run();
+            session.host().renderSkipDot(isOn);
             session.host().showCenterToast(isOn ? "跳过已开启" : "跳过已关闭", 1000);
             emitSkipChanged();
         });
@@ -296,6 +300,7 @@ public class PlayerDialogHelper {
             Button b = new Button(ctx());
             b.setText((s > 0 ? "+" : "") + s + "s");
             b.setAllCaps(false);
+            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
             b.setFocusable(true);
             b.setBackgroundResource(R.drawable.jc_step_btn_bg);
             b.setTextColor(ctx().getResources().getColorStateList(R.color.jc_step_btn_text));

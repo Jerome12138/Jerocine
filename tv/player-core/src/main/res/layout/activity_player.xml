@@ -79,21 +79,7 @@
             android:text="过滤未开启"
             android:visibility="gone" />
 
-        <!-- 当前集数 (右上角) — 玻璃胶囊 -->
-        <TextView
-            android:id="@+id/episodes_count"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="10dp"
-            android:background="@drawable/jc_badge_bg"
-            android:gravity="center_vertical"
-            android:includeFontPadding="false"
-            android:paddingHorizontal="12dp"
-            android:textColor="@color/jc_text_secondary"
-            android:textSize="13sp"
-            android:visibility="gone" />
-
+        <!-- 倍速标 (右上角) — 玻璃胶囊; 顺序(用户指定): 过滤广告 / 倍速 / 分辨率 / 总集数 -->
         <TextView
             android:id="@+id/speed_text"
             android:layout_width="wrap_content"
@@ -121,6 +107,21 @@
             android:textColor="@color/jc_text_secondary"
             android:textSize="13sp"
             android:paddingHorizontal="12dp"
+            android:visibility="gone" />
+
+        <!-- 当前集数 (最右) — 玻璃胶囊 -->
+        <TextView
+            android:id="@+id/episodes_count"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/jc_badge_bg"
+            android:gravity="center_vertical"
+            android:includeFontPadding="false"
+            android:paddingHorizontal="12dp"
+            android:textColor="@color/jc_text_secondary"
+            android:textSize="13sp"
             android:visibility="gone" />
     </LinearLayout>
 

@@ -56,3 +56,7 @@ deploy/secrets/
 .DS_Store
 .claude/
 
+
+# Kotlin 编译缓存
+tv/.kotlin/
+

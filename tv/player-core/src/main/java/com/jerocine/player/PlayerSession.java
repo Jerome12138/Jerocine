@@ -71,6 +71,12 @@ public class PlayerSession {
         /** 刷新倍速角标文案. */
         void renderSpeedText(String label);
 
+        /** 刷新底栏"倍速"按钮左上角状态点(播放倍速 ≠ 1.0 即开). */
+        void renderSpeedDot(boolean on);
+
+        /** 刷新底栏"跳过"按钮左上角状态点(片头/片尾跳过已启用即开). */
+        void renderSkipDot(boolean on);
+
         /** 把按键事件交回 Activity 默认处理(焦点移动等). */
         boolean dispatchToSuper(KeyEvent event);
     }

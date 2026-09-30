@@ -47,6 +47,8 @@ public class PlayerSessionPrefetchTest {
             @Override public PlayerView playerView() { return null; }
             @Override public void renderAdFilterBadge(AdFilterStatus status) { }
             @Override public void renderSpeedText(String label) { }
+            @Override public void renderSpeedDot(boolean on) { }
+            @Override public void renderSkipDot(boolean on) { }
             @Override public boolean dispatchToSuper(KeyEvent event) { return false; }
         });
     }

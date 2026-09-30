@@ -23,6 +23,10 @@ public class PlayerGestureHelper {
     private static final int GESTURE_FLICK_SEEK_SEC = 10;
     private static final int GESTURE_SEEK_INTERVAL_MS = 400;
     private static final long GESTURE_HINT_KEEP_MS = 60_000L;
+    /** 横滑刮擦速率下限: 每像素至少 120ms ⇒ 全屏横滑最多前进约 120s(短时长片源也不会刮不动). */
+    private static final float SCRUB_MIN_SPEED_MS_PER_PX = 120_000f;
+    /** 直播/未知时长(durMs<=0)时的固定刮擦速率: 250ms/px. */
+    private static final float SCRUB_LIVE_SPEED_MS_PER_PX = 250f;
 
     private final PlayerSession session;
 
@@ -34,6 +38,8 @@ public class PlayerGestureHelper {
     private float gestureLastDx;
     private long gestureLastSeekAt;
     private float gestureTempRateBefore = 1f;
+    /** 进度条(横滑刮擦时让 scrubber 跟手, 见 {@link #ensureScrubber}). */
+    private androidx.media3.ui.DefaultTimeBar scrubber;
 
     private final Runnable gestureLongPressRunnable = new Runnable() {
         @Override
@@ -53,8 +59,22 @@ public class PlayerGestureHelper {
     }
 
     /**
+     * 取进度条(Media3 控制视图懒加载, 每次面板创建后都要重查).
+     * 控制视图由 {@code pv.showController()} 同步 inflate, 故 showController 后即可拿到.
+     */
+    private void ensureScrubber() {
+        if (scrubber == null) {
+            PlayerView pv = session.host().playerView();
+            if (pv != null) {
+                scrubber = pv.findViewById(androidx.media3.ui.R.id.exo_progress);
+            }
+        }
+    }
+
+    /**
      * 整体消费 playerView 的触摸; 控制条/按钮等子控件会先吃掉自己的触摸, 到不了这里.
      * 普通单击(未形成任何手势) = 切换控制面板.
+     * 横滑刮擦: 进入即显示上下控制 UI(面板), 进度条 scrubber 跟随手指移动, 抬指才落 seek.
      */
     boolean onPlayerTouch(View v, MotionEvent ev) {
         final PlayerView pv = session.host().playerView();
@@ -84,17 +104,17 @@ public class PlayerGestureHelper {
                         gestureSeekBaseMs = session.player.getCurrentPosition();
                         gestureTargetMs = gestureSeekBaseMs;
                         gestureLastSeekAt = 0L;
+                        // 需求: 左右滑动时显示上下的控制 UI, 进度条随动
+                        pv.showController();
+                        ensureScrubber();
                     }
                     return true;
                 }
                 if (gestureMode != 2) return true;
                 gestureLastDx = dx;
                 long durMs = session.player.getDuration();
-                int width = Math.max(1, pv.getWidth());
-                float perPxMs = durMs > 0 ? Math.max(durMs / (float) width, 120_000f / width) : 250f;
-                long limit = durMs > 0 ? durMs - 500 : Long.MAX_VALUE;
-                gestureTargetMs = Math.min(
-                        Math.max(gestureSeekBaseMs + (long) (dx * perPxMs), 0L), Math.max(limit, 0L));
+                gestureTargetMs = computeScrubTarget(gestureSeekBaseMs, dx, pv.getWidth(), durMs);
+                if (scrubber != null) scrubber.setPosition(gestureTargetMs);
                 long delta = gestureTargetMs - gestureSeekBaseMs;
                 session.host().showCenterToast(
                         (delta >= 0 ? "快进 " : "快退 ") + fmtGestureMs(Math.abs(delta))
@@ -129,11 +149,13 @@ public class PlayerGestureHelper {
                         target = Math.max(0, target);
                         if (dur > 0) target = Math.min(target, dur);
                         session.player.seekTo(target);
+                        if (scrubber != null) scrubber.setPosition(target);
                         session.host().showCenterToast(
                                 (gestureLastDx >= 0 ? "▶ 快进 " : "◀ 快退 ")
                                         + GESTURE_FLICK_SEEK_SEC + "s", 800);
                     } else {
                         session.player.seekTo(gestureTargetMs);
+                        if (scrubber != null) scrubber.setPosition(gestureTargetMs);
                         session.host().showCenterToast("已跳转 " + fmtGestureMs(gestureTargetMs), 800);
                     }
                     return true;
@@ -163,6 +185,22 @@ public class PlayerGestureHelper {
         }
         gestureMode = 0;
         session.host().hideGestureToast();
+    }
+
+    /**
+     * 横滑刮擦目标位置 — 纯计算, 便于单测.
+     *
+     * 基准位置 + 手指位移 × 每像素毫秒数, 钳制在 [0, durMs-500].
+     * 每像素毫秒数下限 {@link #SCRUB_MIN_SPEED_MS_PER_PX}: 短时长片源也保证全屏横滑可跨越多集进度,
+     * 不会因为源太短而刮擦"纹丝不动". 直播/未知时长(durMs<=0)用固定速率, 不上限钳制.
+     */
+    static long computeScrubTarget(long seekBaseMs, float dx, int widthPx, long durMs) {
+        int width = Math.max(1, widthPx);
+        float perPxMs = durMs > 0
+                ? Math.max(durMs / (float) width, SCRUB_MIN_SPEED_MS_PER_PX / width)
+                : SCRUB_LIVE_SPEED_MS_PER_PX;
+        long limit = durMs > 0 ? durMs - 500 : Long.MAX_VALUE;
+        return Math.min(Math.max(seekBaseMs + (long) (dx * perPxMs), 0L), Math.max(limit, 0L));
     }
 
     /** ms → m:ss (手势提示用) */

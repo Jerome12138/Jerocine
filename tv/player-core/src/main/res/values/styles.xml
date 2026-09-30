@@ -6,7 +6,8 @@
 <resources>
 
     <!-- 播放器弹窗主题: 暗色玻璃 + 品牌青强调色(替代系统亮色 Material Dialog).
-         parent 必须是 AppCompat 系(播放器用 androidx.appcompat.app.AlertDialog). -->
+         parent 必须是 AppCompat 系(播放器用 androidx.appcompat.app.AlertDialog).
+         文字/单选列表项统一缩小一档(用户指定): 标题 16sp, 列表项 15sp. -->
     <style name="JcPlayerDialog" parent="Theme.AppCompat.Dialog.Alert">
         <item name="android:windowBackground">@drawable/jc_dialog_bg</item>
         <item name="colorAccent">@color/jc_accent</item>
@@ -15,11 +16,25 @@
         <item name="android:textColorSecondary">@color/jc_text_secondary</item>
         <item name="android:textColorAlertDialogListItem">@color/jc_text</item>
         <item name="android:windowTitleStyle">@style/JcPlayerDialogTitle</item>
+        <item name="android:textAppearanceListItem">@style/JcPlayerDialogListItem</item>
+        <item name="android:textAppearanceListItemSmall">@style/JcPlayerDialogListItem</item>
+        <item name="android:textAppearanceListItemSecondary">@style/JcPlayerDialogListSecondary</item>
     </style>
 
     <style name="JcPlayerDialogTitle" parent="@android:style/TextAppearance.Material.DialogWindowTitle">
         <item name="android:textColor">@color/jc_text</item>
-        <item name="android:textSize">19sp</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <!-- 单选/列表项文字: 缩小一档(Material 默认 18sp → 15sp) -->
+    <style name="JcPlayerDialogListItem" parent="@android:style/TextAppearance.Material">
+        <item name="android:textColor">@color/jc_text</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <style name="JcPlayerDialogListSecondary" parent="@android:style/TextAppearance.Material">
+        <item name="android:textColor">@color/jc_text_secondary</item>
+        <item name="android:textSize">13sp</item>
     </style>
 
     <!-- 原生播放器控件按钮: 图标在上(drawableTop) + 文字在下, 玻璃风背景, D-pad 焦点高亮. -->

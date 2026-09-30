@@ -118,6 +118,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     /** 开关类按钮左上角的状态点(绿=开/灰=关) — 叠在按钮上的兄弟 View. */
     private View dotNetworkMode;
     private View dotAdFilter;
+    private View dotSpeed;
+    private View dotSkip;
     private TextView speedText;
     private TextView adFilterBadge;
     private TextView centerToast;
@@ -178,13 +180,17 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             View controlsRoot = playerView.findViewById(R.id.player_controls_root);
             if (controlsRoot != null) controlsRoot.setVisibility(v);
             if (v == View.VISIBLE) {
-                // "中转"/"过滤"按钮(含左上角状态点)在 PlayerView 的控制视图里(懒加载): 面板显示时取到
+                // "中转"/"过滤"/"倍速"/"跳过"按钮(含左上角状态点)在 PlayerView 的控制视图里(懒加载): 面板显示时取到
                 networkModeButton = playerView.findViewById(R.id.btn_network_mode);
                 adFilterButton = playerView.findViewById(R.id.btn_ad_filter);
                 dotNetworkMode = playerView.findViewById(R.id.dot_network_mode);
                 dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
+                dotSpeed = playerView.findViewById(R.id.dot_speed);
+                dotSkip = playerView.findViewById(R.id.dot_skip);
                 dialogHelper.bindControlButtons();
                 renderAdFilterSwitch(session.adFilterOn);
+                renderSpeedDot(isSpeedOn());
+                renderSkipDot(session.skipEnabled);
                 playerView.post(() -> {
                     View prog = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
                     if (prog != null) prog.requestFocus();
@@ -687,6 +693,28 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private void renderStatusDot(View dot, boolean on) {
         if (dot == null) return;
         dot.setBackgroundResource(on ? R.drawable.jc_status_dot_on : R.drawable.jc_status_dot_off);
+    }
+
+    /** 当前播放倍速是否 ≠ 1.0(非 1.0 即算"倍速开启", 含手势长按临时 2x). */
+    private boolean isSpeedOn() {
+        return session.player != null
+                && Math.abs(session.player.getPlaybackParameters().speed - 1f) > 0.001f;
+    }
+
+    @Override
+    public void renderSpeedDot(boolean on) {
+        if (dotSpeed == null && playerView != null) {
+            dotSpeed = playerView.findViewById(R.id.dot_speed);
+        }
+        renderStatusDot(dotSpeed, on);
+    }
+
+    @Override
+    public void renderSkipDot(boolean on) {
+        if (dotSkip == null && playerView != null) {
+            dotSkip = playerView.findViewById(R.id.dot_skip);
+        }
+        renderStatusDot(dotSkip, on);
     }
 
     @Override

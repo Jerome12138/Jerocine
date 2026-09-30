@@ -32,6 +32,24 @@ public class PlayerNetworkModeHelper {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
+    /**
+     * 读取持久化的中转开关态(默认关 = 分片直连, 省带宽) — 供设置页/壳层 bridge 查询.
+     * 播放器起播前经 {@link #applyPersisted()} 同步到 session.
+     */
+    public static boolean isRelayEnabled(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_NETWORK_RELAY, false);
+    }
+
+    /**
+     * 写持久化的中转开关态(默认关) — 供设置页/壳层 bridge 切换后落盘.
+     * 播放器下一次起播经 applyPersisted() 生效; 播放中切换由 toggle() 走即时重载.
+     */
+    public static void setRelayEnabled(Context context, boolean enabled) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_NETWORK_RELAY, enabled).apply();
+    }
+
     /** 读取上次的开关态(默认关 = 分片直连, 省带宽). 起播前调用一次. */
     void applyPersisted() {
         session.relayOn = prefs().getBoolean(PREF_NETWORK_RELAY, false);
@@ -67,7 +85,7 @@ public class PlayerNetworkModeHelper {
         session.host().renderNetworkMode(session.relayOn);
         session.host().showCenterToast(
                 session.relayOn
-                        ? "中转已开启 · 分片经服务器转发, 可绕开直连受限的片源(更耗带宽)"
-                        : "中转已关闭 · 分片设备直连, 更快更省流量", 2600);
+                        ? "中转已开启 · 仅直连异常时经服务器转发(中转不一定比直连快, 更耗带宽)"
+                        : "中转已关闭 · 设备直连播放, 更快更省流量", 2600);
     }
 }
