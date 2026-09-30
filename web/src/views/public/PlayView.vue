@@ -211,6 +211,23 @@ watch(adFilter, (v) => {
 })
 
 /**
+ * 中转开关(默认关) — 仅 APK 内有入口(SettingsView 同步写 localStorage + 原生持久化).
+ * web 播放器读 localStorage: 开启后 m3u8 起播即走全量中转(proxyMedia=1),
+ * 与原生播放器 PlayerNetworkModeHelper 语义一致; 纯浏览器无入口, 默认关.
+ */
+const RELAY_LS_KEY = 'jc-relay-cache'
+const relayOn = ref<boolean>(
+  (() => {
+    try {
+      const v = localStorage.getItem(RELAY_LS_KEY)
+      return v === '1'
+    } catch {
+      return false
+    }
+  })()
+)
+
+/**
  * 广告过滤结果角标 (I-017, 常驻五态):
  *   off         = 过滤开关未开 → 「过滤未开启」
  *   unsupported = 非 m3u8 源(mp4 等无广告清单) → 「该源无需过滤」
@@ -368,9 +385,14 @@ function revokeCurrentBlob(): void {
   }
 }
 
-/** 服务端代理 URL(降级用): 由服务器抓源 + 过滤。 */
+/** 服务端代理 URL(降级用): 由服务器抓源 + 过滤(分片仍直连, proxyMedia=0). */
 function proxyAdFilterUrl(originalUrl: string): string {
   return `${absApiBase()}/v1/m3u8/proxy?src=${encodeURIComponent(originalUrl)}`
+}
+
+/** 全量中转 URL: 分片也经服务器转发(proxyMedia=1). 与原生 PlayerUrls.relay 语义一致. */
+function proxyRelayUrl(originalUrl: string): string {
+  return `${absApiBase()}/v1/m3u8/proxy?src=${encodeURIComponent(originalUrl)}&filterAds=1&proxyMedia=1`
 }
 
 /** 端侧混合过滤接口 URL。 */
@@ -480,6 +502,14 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
   if (!adFilter.value || !reM3u8.test(originalUrl)) {
     adFilterBadge.value = { kind: adFilter.value ? 'unsupported' : 'off', count: 0 }
     commit(originalUrl, '', false)
+    return
+  }
+
+  // 中转开关(APK 设置页可开): 直连异常时经服务器全量转发(proxyMedia=1).
+  // 服务器明确抓不到该源(adFilterOk===false)时中转无意义 → 走下方端侧混合过滤(浏览器抓).
+  if (relayOn.value && currentSource.value?.adFilterOk !== false) {
+    adFilterBadge.value = { kind: 'proxy', count: 0 }
+    commit(proxyRelayUrl(originalUrl), 'application/x-mpegURL', false)
     return
   }
 

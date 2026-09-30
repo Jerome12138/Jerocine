@@ -35,6 +35,20 @@ const historyStore = useHistoryStore()
 const userStore = useUserStore()
 const { isTV, isMobile, isTablet } = useViewMode()
 
+/**
+ * 二级页面左上角"返回"按钮 — 仅非 TV 模式(遥控器/系统返回键已覆盖)且非首页时显示。
+ * 行为与全局返回桥(gfTvBack)一致: 先关移动端抽屉, 有历史则 router.back(), 否则回首页。
+ */
+const showBackButton = computed(() => !isTV.value && route.name !== 'home')
+function goBack(): void {
+  closeMobile()
+  if (typeof window !== 'undefined' && window.history.length > 1) {
+    router.back()
+  } else {
+    void router.push({ path: '/index' })
+  }
+}
+
 const { basic } = storeToRefs(siteStore)
 const { list: navList } = storeToRefs(navStore)
 const { list: historyList } = storeToRefs(historyStore)
@@ -402,6 +416,19 @@ watch(
         @click="mobileMenuOpen = !mobileMenuOpen"
       >
         <BaseIcon name="menu" size="22px" />
+      </button>
+
+      <!-- 二级页面返回按钮: 非首页(且非 TV — TV 走遥控器返回键)时显示, 与 gfTvBack 同语义 -->
+      <button
+        v-if="showBackButton"
+        class="jc-header__back-btn jc-header__icon-btn"
+        type="button"
+        aria-label="返回上一页"
+        data-focusable="true"
+        tabindex="0"
+        @click="goBack"
+      >
+        <BaseIcon name="arrow-left" size="22px" />
       </button>
 
       <!-- 站名 / Logo -->
@@ -1420,6 +1447,11 @@ watch(
   transition:
     background-color var(--jc-dur-fast) var(--jc-ease-standard),
     color var(--jc-dur-fast) var(--jc-ease-standard);
+}
+
+/* 返回按钮与汉堡/图标按钮同风格; 与 logo 之间留一点间距, 且不与汉堡重叠 */
+.jc-header__back-btn {
+  margin-inline-start: 4px;
 }
 
 .jc-header__icon-btn:hover,

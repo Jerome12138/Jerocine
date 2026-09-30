@@ -358,30 +358,40 @@ function handleRemove(id: string, e: Event): void {
 [data-mode='tv'] .jc-tv-history__head-left {
   flex: 1 1 auto;
   min-width: 0;
-  /* 标题 + 来源/同步/计数/标签 左右排布(原块级上下堆叠) */
+  /* 标题 + 来源/同步/计数/标签 强制同一行左右排布(原块级上下堆叠; 禁 wrap 防窄视口换行) */
   display: flex;
   align-items: center;
   gap: var(--jc-space-3);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 [data-mode='tv'] .jc-tv-history__title {
   font-size: clamp(22px, 2vw, 30px);
   font-weight: 800;
   color: var(--jc-text-primary);
+  white-space: nowrap;
 }
 [data-mode='tv'] .jc-tv-history__meta {
   font-size: var(--jc-fs-sm);
   color: var(--jc-text-muted);
-  margin-top: 6px;
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+[data-mode='tv'] .jc-tv-history__meta > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 [data-mode='tv'] .jc-tv-history__srcchip {
   height: 22px;
   padding: 0 10px;
   font-size: 11px;
+  flex-shrink: 0;
 }
 [data-mode='tv'] .jc-tv-history__syncing {
   color: var(--jc-brand-cyan);

@@ -26,6 +26,8 @@ interface JerocineNativeBridge {
   getPlatform?: () => string
   checkUpdate?: () => void
   openServerSettings?: () => void
+  /** 通用 invoke (v2 桥): 同步返回 {ok,...} JSON 字符串 */
+  invoke?: (method: string, jsonArgs: string) => string
 }
 
 const native = computed<JerocineNativeBridge | undefined>(() => {
@@ -98,6 +100,53 @@ function toggleAdFilter(): void {
   }
   toast(adFilter.value ? 'success' : 'info', adFilter.value ? '广告过滤已开启' : '广告过滤已关闭')
 }
+
+/**
+ * 中转播放开关 — 仅 APK(native)可见; 与原生播放器共用 PlayerNetworkModeHelper 的持久化
+ * (jerocine prefs / network_relay_enabled, 默认关)。经 v2 桥 invoke 读写。
+ * 纯浏览器没有服务器代理分片的概念, 不显示该开关。
+ */
+const RELAY_LS_CACHE = 'jc-relay-cache'
+const relayOn = ref(false)
+function readRelay(): boolean {
+  try {
+    const v = localStorage.getItem(RELAY_LS_CACHE)
+    if (v === '0' || v === '1') return v === '1'
+  } catch { /* ignore */ }
+  return false
+}
+async function syncRelayFromNative(): Promise<void> {
+  const inv = native.value?.invoke
+  if (!inv) return
+  try {
+    const raw = inv('getNetworkRelay', '')
+    const r = JSON.parse(raw || '{}') as { ok?: boolean; enabled?: boolean }
+    if (r.ok) {
+      relayOn.value = !!r.enabled
+      try { localStorage.setItem(RELAY_LS_CACHE, relayOn.value ? '1' : '0') } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+}
+function toggleRelay(): void {
+  const inv = native.value?.invoke
+  if (!inv) {
+    toast('info', '中转开关仅在 APK 内可用')
+    return
+  }
+  relayOn.value = !relayOn.value
+  try { localStorage.setItem(RELAY_LS_CACHE, relayOn.value ? '1' : '0') } catch { /* ignore */ }
+  try {
+    inv('setNetworkRelay', JSON.stringify({ enabled: relayOn.value }))
+  } catch { /* ignore */ }
+  toast(
+    relayOn.value ? 'success' : 'info',
+    relayOn.value
+      ? '中转已开启 · 仅直连异常时经服务器转发(不一定比直连快, 更耗带宽)'
+      : '中转已关闭 · 设备直连播放, 更快更省流量'
+  )
+}
+// APK 内设置页加载时同步一次 native 开关态
+void syncRelayFromNative()
 
 /** 左侧分组 (依平台动态裁剪: 设备组仅 APK 可见) */
 type GroupId = 'play' | 'adfilter' | 'account' | 'device' | 'about'
@@ -224,6 +273,29 @@ async function onLogout(): Promise<void> {
               <span class="jc-set-tv__note-ic">🛡</span>
               <div class="sub">
                 安卓原生播放器使用设备本地开关(默认开启), 起播后会提示本集已剔除的分片数。
+              </div>
+            </div>
+            <!-- 中转播放: 仅 APK 可见; 默认关闭 — 中转不一定比直连快, 仅直连异常时经服务器转发 -->
+            <div
+              v-if="isNative"
+              class="jc-tv-listrow jc-set-tv__toggle-row"
+              data-focusable="true"
+              tabindex="0"
+              @click="toggleRelay"
+              @keydown.enter.prevent="toggleRelay"
+            >
+              <div>
+                <div class="lab">中转播放</div>
+                <div class="sub">分片经服务器转发 · 默认关闭(设备直连更快更省流量)</div>
+              </div>
+              <span class="right">
+                <span class="jc-tv-toggle" :class="{ on: relayOn }"><i></i></span>
+              </span>
+            </div>
+            <div v-if="isNative" class="jc-tv-listrow jc-set-tv__note">
+              <span class="jc-set-tv__note-ic">↻</span>
+              <div class="sub">
+                中转不一定比直连快, 仅当直连异常(源站受限/拉流失败)时才建议开启; 开启后分片经服务器转发, 更耗服务器带宽。
               </div>
             </div>
           </div>
