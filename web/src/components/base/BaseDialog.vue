@@ -12,6 +12,8 @@ interface Props {
   width?: string
   /** 是否显示关闭按钮 */
   showClose?: boolean
+  /** 紧凑标题（比默认小一档，轻量弹窗用） */
+  compactTitle?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -19,7 +21,8 @@ const props = withDefaults(defineProps<Props>(), {
   closeOnOverlay: true,
   closeOnEsc: true,
   width: '480px',
-  showClose: true
+  showClose: true,
+  compactTitle: false
 })
 
 const emit = defineEmits<{
@@ -111,6 +114,7 @@ const wrapStyle = computed(() => ({
             <slot name="header">
               <h3
                 class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary truncate"
+                :class="props.compactTitle ? 'text-[length:var(--jc-fs-md)]' : ''"
               >
                 {{ title }}
               </h3>

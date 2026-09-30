@@ -171,7 +171,8 @@ async function maybePromptResume(): Promise<void> {
     title: '继续观看',
     desc: `上次看到《${rec.name}》${epLabel}, 是否继续?`,
     okText: '继续观看',
-    cancelText: '取消'
+    cancelText: '取消',
+    small: true
   })
   if (!ok) return
   // 由当前字段实时拼链接(不用可能过期的 rec.link), 保证接着当前集与进度续播

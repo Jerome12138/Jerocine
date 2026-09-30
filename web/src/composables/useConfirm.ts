@@ -17,6 +17,8 @@ interface ConfirmOptions {
   cancelText?: string
   /** 是否走危险样式（红色按钮） */
   danger?: boolean
+  /** 紧凑样式: 标题/正文缩小一档(近期播放提示等轻量弹窗用) */
+  small?: boolean
 }
 
 interface ConfirmState {
@@ -26,6 +28,7 @@ interface ConfirmState {
   okText: string
   cancelText: string
   danger: boolean
+  small: boolean
   resolve: ((v: boolean) => void) | null
 }
 
@@ -36,6 +39,7 @@ export const confirmState = reactive<ConfirmState>({
   okText: '确认',
   cancelText: '取消',
   danger: false,
+  small: false,
   resolve: null
 })
 
@@ -50,6 +54,7 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
     confirmState.okText = opts.okText ?? '确认'
     confirmState.cancelText = opts.cancelText ?? '取消'
     confirmState.danger = !!opts.danger
+    confirmState.small = !!opts.small
     confirmState.visible = true
     confirmState.resolve = resolve
   })

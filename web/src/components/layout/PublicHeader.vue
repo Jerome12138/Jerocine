@@ -36,12 +36,18 @@ const userStore = useUserStore()
 const { isTV, isMobile, isTablet } = useViewMode()
 
 /**
- * 二级页面左上角"返回"按钮 — 仅非 TV 模式(遥控器/系统返回键已覆盖)且非首页时显示。
- * 行为与全局返回桥(gfTvBack)一致: 先关移动端抽屉, 有历史则 router.back(), 否则回首页。
+ * 二级页面左上角"返回"按钮 — 仅 TV 模式显示(触屏用户需要可视返回入口, 遥控器返回键之外),
+ * 非首页时出现; 桌面/移动模式不显示(原本无此按钮, 保持原 UI)。
+ * 行为与全局返回桥(gfTvBack)一致。
  */
-const showBackButton = computed(() => !isTV.value && route.name !== 'home')
+const showBackButton = computed(() => isTV.value && route.name !== 'home')
 function goBack(): void {
   closeMobile()
+  // TV 模式与 gfTvBack 同语义: 分类主界面直接回首页, 其余二级页走 history back
+  if (isTV.value && route.name === 'classify') {
+    void router.replace({ path: '/index' })
+    return
+  }
   if (typeof window !== 'undefined' && window.history.length > 1) {
     router.back()
   } else {
@@ -1176,6 +1182,12 @@ watch(
 [data-mode='tv'] .jc-header__user,
 [data-mode='tv'] .jc-header__login-btn {
   display: none !important;
+}
+
+/* TV 二级页返回按钮: 保留在顶栏流内左上角(胶囊导航居中, 互不重叠) */
+[data-mode='tv'] .jc-header__back-btn {
+  display: inline-flex;
+  margin-inline-start: 0;
 }
 
 /* 搜索 - bilibili 风格常驻框; 宽度随视口收缩(固定 480 在 ~1000px 视口会把右侧用户头像挤出容器) */

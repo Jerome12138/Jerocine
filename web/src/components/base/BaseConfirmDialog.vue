@@ -23,13 +23,17 @@ watch(
   <BaseDialog
     :visible="confirmState.visible"
     :title="confirmState.title"
-    :width="'420px'"
+    :width="confirmState.small ? '360px' : '420px'"
+    :compact-title="confirmState.small"
     :close-on-overlay="false"
     @update:visible="(v) => !v && answerConfirm(false)"
   >
     <p
       v-if="confirmState.desc"
-      class="text-secondary text-[length:var(--jc-fs-md)] leading-[var(--jc-lh-relaxed)]"
+      class="text-secondary"
+      :class="confirmState.small
+        ? 'text-[length:var(--jc-fs-sm)] leading-[var(--jc-lh-normal)]'
+        : 'text-[length:var(--jc-fs-md)] leading-[var(--jc-lh-relaxed)]'"
     >
       {{ confirmState.desc }}
     </p>
