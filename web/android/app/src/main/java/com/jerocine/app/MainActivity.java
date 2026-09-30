@@ -1,6 +1,7 @@
 package com.jerocine.app;
 
 import com.jerocine.player.JerocinePlayer;
+import com.jerocine.player.PlayerNetworkModeHelper;
 
 import android.app.AlertDialog;
 import android.content.Context;
@@ -10,6 +11,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -89,6 +91,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 底部系统导航栏(手势条/三键条)与页面背景同色 — 装平板/手机时避免黑白条突兀
+        if (Build.VERSION.SDK_INT >= 21) {
+            getWindow().setNavigationBarColor(GF_BG);
+        }
         // 注入 JS Bridge:
         //  v1 名: JerocinePlayer  (兼容旧 PlayView playVideo/playPlaylist)
         //  v2 名: JerocineNative  (通用 invoke + 事件总线)
@@ -434,7 +440,18 @@ public class MainActivity extends BridgeActivity {
             hideSettingsDrawer();
             if (webViewRef != null) webViewRef.reload();
         }));
-        settingsPanel.addView(makeDrawerButton("诊断信息 (toast)", v -> showDiagToast()));
+        settingsPanel.addView(makeDrawerButton("设备诊断", v -> {
+            hideSettingsDrawer();
+            showDeviceDiagnostics();
+        }));
+        settingsPanel.addView(makeDrawerButton("中转播放: " + relayLabel(), v -> {
+            boolean next = !PlayerNetworkModeHelper.isRelayEnabled(this);
+            PlayerNetworkModeHelper.setRelayEnabled(this, next);
+            GlassToast.show(this, next
+                    ? "中转已开启 · 仅直连异常时经服务器转发(不一定比直连快, 更耗带宽)"
+                    : "中转已关闭 · 设备直连播放, 更快更省流量", Toast.LENGTH_LONG);
+            refreshRelayButtonLabel();
+        }));
         settingsPanel.addView(makeDrawerButton("修改服务器地址", v -> {
             hideSettingsDrawer();
             promptServerUrl(true);
@@ -457,6 +474,19 @@ public class MainActivity extends BridgeActivity {
         }));
         settingsPanel.addView(makeDrawerButton("退出应用", v -> finishAffinity()));
         settingsPanel.addView(makeDrawerButton("关闭", v -> hideSettingsDrawer()));
+    }
+
+    private String relayLabel() {
+        return PlayerNetworkModeHelper.isRelayEnabled(this) ? "开 (分片经服务器转发)" : "关 (设备直连)";
+    }
+
+    /** 刷新"中转播放"按钮文案 — 抽屉已重建时按钮序号固定在第 3 个(0 标题 1 版本 2 服务器 3 刷新 4 诊断 5 中转 ...). */
+    private void refreshRelayButtonLabel() {
+        if (settingsPanel == null) return;
+        View relayBtn = settingsPanel.getChildAt(5);
+        if (relayBtn instanceof Button) {
+            ((Button) relayBtn).setText("中转播放: " + relayLabel());
+        }
     }
 
     private Button makeDrawerButton(String label, View.OnClickListener click) {
@@ -558,6 +588,59 @@ public class MainActivity extends BridgeActivity {
         );
     }
 
+    /**
+     * 设备诊断对话框 — 安装后异常排查用(与 tv 原生版 DeviceDiagnostics 对齐):
+     * 机型 / Android 版本 / WebView 内核 / 分辨率 / 内存 / 应用版本等, 并给出
+     * "当前 TV 是否适合 Web 嵌入方式"的判定参考.
+     */
+    private void showDeviceDiagnostics() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("机型: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
+        sb.append("Android: ").append(Build.VERSION.RELEASE)
+                .append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
+        sb.append("ABI: ").append(Build.SUPPORTED_ABIS != null && Build.SUPPORTED_ABIS.length > 0
+                ? Build.SUPPORTED_ABIS[0] : "未知").append('\n');
+        sb.append("应用版本: ").append(BuildConfig.VERSION_NAME)
+                .append(" (").append(BuildConfig.VERSION_CODE).append(")\n");
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        sb.append("分辨率: ").append(dm.widthPixels).append('x').append(dm.heightPixels)
+                .append(" density=").append(dm.density).append('\n');
+        android.app.ActivityManager am =
+                (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (am != null) {
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            sb.append("内存: 总计 ").append(mi.totalMem / 1024 / 1024 / 1024)
+                    .append("G, 可用 ").append(mi.availMem / 1024 / 1024)
+                    .append("M\n");
+        }
+        WebView wv = (bridge != null) ? bridge.getWebView() : null;
+        if (wv != null) {
+            sb.append("WebView 内核: ").append(WebSettings.getDefaultUserAgent(wv.getContext())).append('\n');
+        } else {
+            sb.append("WebView 内核: 未就绪\n");
+        }
+        // Web 嵌入方式支持判定: 低内存 / 老 Android(API<21) / 无 WebView 内核 建议用低配独立 APK
+        int api = Build.VERSION.SDK_INT;
+        long memGb = 0;
+        if (am != null) {
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            memGb = mi.totalMem / 1024 / 1024 / 1024;
+        }
+        sb.append('\n').append("建议: ");
+        if (api < 23 || (memGb > 0 && memGb < 2)) {
+            sb.append("设备偏旧/内存偏小, Web 嵌入方式可能卡顿, 建议改用低配独立版 APK");
+        } else {
+            sb.append("设备满足 Web 嵌入方式运行要求(WebView 内核正常即可)");
+        }
+        new AlertDialog.Builder(this, com.jerocine.player.R.style.JcPlayerDialog)
+                .setTitle("设备诊断")
+                .setMessage(sb.toString())
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
     private void showSettingsDrawer() {
         if (settingsOverlay == null) buildSettingsDrawer();
         if (settingsOverlay == null) return;
@@ -616,37 +699,56 @@ public class MainActivity extends BridgeActivity {
         }
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
                 && event.getAction() == KeyEvent.ACTION_DOWN) {
-            // 抽屉打开时, BACK 仅关抽屉
-            if (settingsOpen) {
-                hideSettingsDrawer();
-                return true;
-            }
-            // 转给前端 router (window.gfTvBack); 首页(前端不消费)则双击返回退出。
-            // 注: "改服务器地址"已在菜单(MENU 抽屉)里, 不再用"连按4次返回"触发重置弹窗。
-            WebView webView = (bridge != null) ? bridge.getWebView() : null;
-            if (webView != null) {
-                webView.evaluateJavascript(
-                        "(function(){try{return !!(window.gfTvBack&&window.gfTvBack());}catch(e){return false;}})();",
-                        new ValueCallback<String>() {
-                            @Override
-                            public void onReceiveValue(String value) {
-                                if ("true".equals(value)) return;
-                                // 前端没消费 = 已在首页 → 双击返回退出应用
-                                runOnUiThread(() -> {
-                                    long t = System.currentTimeMillis();
-                                    if (t - lastExitBackAt < EXIT_CONFIRM_MS) {
-                                        lastExitBackAt = 0L;
-                                        finishAffinity(); // 真正退出应用
-                                    } else {
-                                        lastExitBackAt = t;
-                                        GlassToast.show(MainActivity.this, "再按一次退出应用");
-                                    }
-                                });
-                            }
-                        });
-                return true; // 异步, 先吞掉
-            }
+            return handleBackPressed();
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    /**
+     * 返回统一出口 — 遥控器 BACK、系统手势返回(onBackPressed)共用同一套逻辑:
+     * 抽屉开着 → 先关抽屉; 否则转前端路由(window.gfTvBack); 前端不消费(已在首页) → 双击返回退出。
+     */
+    private boolean handleBackPressed() {
+        // 抽屉打开时, BACK 仅关抽屉
+        if (settingsOpen) {
+            hideSettingsDrawer();
+            return true;
+        }
+        // 转给前端 router (window.gfTvBack); 首页(前端不消费)则双击返回退出。
+        WebView webView = (bridge != null) ? bridge.getWebView() : null;
+        if (webView != null) {
+            webView.evaluateJavascript(
+                    "(function(){try{return !!(window.gfTvBack&&window.gfTvBack());}catch(e){return false;}})();",
+                    new ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String value) {
+                            if ("true".equals(value)) return;
+                            // 前端没消费 = 已在首页 → 双击返回退出应用 (与遥控器返回一致)
+                            runOnUiThread(() -> {
+                                long t = System.currentTimeMillis();
+                                if (t - lastExitBackAt < EXIT_CONFIRM_MS) {
+                                    lastExitBackAt = 0L;
+                                    finishAffinity(); // 真正退出应用
+                                } else {
+                                    lastExitBackAt = t;
+                                    GlassToast.show(MainActivity.this, "再按一次退出应用");
+                                }
+                            });
+                        }
+                    });
+            return true; // 异步, 先吞掉
+        }
+        return false; // 无 WebView 时交由 onBackPressed() 走系统默认
+    }
+
+    /**
+     * 系统返回 / 触屏返回按钮 / 左滑手势返回(Android 10+ 手势导航) — 统一走 handleBackPressed()。
+     * 否则平板/手机装壳版时, 系统返回会直接退掉应用而不是先回上一页。
+     */
+    @Override
+    public void onBackPressed() {
+        if (!handleBackPressed()) {
+            super.onBackPressed();
+        }
     }
 }

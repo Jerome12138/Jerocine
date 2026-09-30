@@ -2,6 +2,7 @@ package com.jerocine.app;
 
 import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerActivity;
+import com.jerocine.player.PlayerNetworkModeHelper;
 
 import android.app.Activity;
 import android.content.Context;
@@ -81,6 +82,8 @@ public class JerocineBridge {
                 case "playPlaylist":       return handlePlayPlaylist(args);
                 case "stopPlayer":         return handleStopPlayer();
                 case "setPlayerSpeed":     return handleSetPlayerSpeed(args);
+                case "getNetworkRelay":    return handleGetNetworkRelay();
+                case "setNetworkRelay":    return handleSetNetworkRelay(args);
                 case "checkUpdate":        return handleCheckUpdate();
                 case "openServerSettings": return handleOpenServerSettings();
                 case "setAuthToken":       return handleSetAuthToken(args);
@@ -300,6 +303,18 @@ public class JerocineBridge {
     private String handleSetPlayerSpeed(JSONObject args) throws Exception {
         float speed = (float) args.optDouble("speed", 1.0);
         JerocinePlayer.control().setSpeed(speed);
+        return jsonOk();
+    }
+
+    /** 读中转开关态(默认关). 与原生播放器/设置抽屉共用 PlayerNetworkModeHelper 同一份持久化. */
+    private String handleGetNetworkRelay() throws Exception {
+        return jsonOk("enabled", PlayerNetworkModeHelper.isRelayEnabled(activity));
+    }
+
+    /** 写中转开关态(enabled). 播放器下一次起播生效; 播放中切换仍走播放器底栏按钮即时重载. */
+    private String handleSetNetworkRelay(JSONObject args) throws Exception {
+        boolean enabled = args.optBoolean("enabled", false);
+        PlayerNetworkModeHelper.setRelayEnabled(activity, enabled);
         return jsonOk();
     }
 
