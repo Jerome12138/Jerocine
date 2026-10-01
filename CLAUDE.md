@@ -2,6 +2,16 @@
 
 在线观影站。前端 `web/`（Vue3 + Vite + TS + Pinia + UnoCSS，一套代码服务 desktop/mobile/tv，经 Capacitor 8 打成 Android APK），后端 `server/`（Go/Gin + GORM + go-redis），`deploy/` 为 Docker Compose 部署。
 
+## ⚠️ 安卓播放器架构事实（agent 先读，勿混淆）
+
+- **web 壳 APK 与 TV 版使用同一个原生安卓播放器**：`tv/player-core` 的 `PlayerActivity`（ExoPlayer/Media3 系）。
+  **不是网页播放器**。前端 `web/src/views/public/PlayView.vue`（video.js）**只在纯 web 端渲染**。
+- 壳（`web/android`）内 `/play` 路由被 router 守卫拦截 → 直接调 `jerocine.playPlaylist` 派发**原生播放器**；
+  `PlayView` 在原生上**根本不挂载**。因此前端样式/行为改动对原生播放器**无效**。
+- **安卓端的一切播放器 UI（控制栏/弹窗/抽屉/过滤提示/下载面板）都是原生实现**（player-core），
+  桌面 web 才用 SPA 里的网页播放器组件。做播放器相关功能时**先在 `tv/player-core` 里找**，别在 web 前端里找。
+- 详细机制（派发入口/广告过滤阶梯/预取）见下文「Android APK（Capacitor 壳）」小节。
+
 ## 仓库边界（先判断再落笔）
 
 本仓库是**公开代码仓**，只放两类内容：
