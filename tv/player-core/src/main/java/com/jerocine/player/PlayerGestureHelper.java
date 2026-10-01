@@ -41,6 +41,12 @@ public class PlayerGestureHelper {
     /** 进度条(横滑刮擦时让 scrubber 跟手, 见 {@link #ensureScrubber}). */
     private androidx.media3.ui.DefaultTimeBar scrubber;
 
+    /** 双击判定窗口(ms) — 单击延迟该窗口再切播放/暂停, 给第二次点按留出判定时间(对齐 web usePlayerGestures). */
+    private static final int DOUBLE_TAP_MS = 280;
+    /** 单击最短触时长(ms): 超过则不算点按(可能是长按/刮擦的误触). */
+    private static final int TAP_MAX_MS = 250;
+    private long lastTapAt = 0L;
+
     private final Runnable gestureLongPressRunnable = new Runnable() {
         @Override
         public void run() {
@@ -160,12 +166,8 @@ public class PlayerGestureHelper {
                     }
                     return true;
                 }
-                if (System.currentTimeMillis() - gestureStartTime < 250) {
-                    if (pv.isControllerFullyVisible()) {
-                        pv.hideController();
-                    } else {
-                        pv.showController();
-                    }
+                if (System.currentTimeMillis() - gestureStartTime < TAP_MAX_MS) {
+                    handleTapToggle(pv);
                 }
                 return true;
             }
@@ -185,6 +187,34 @@ public class PlayerGestureHelper {
         }
         gestureMode = 0;
         session.host().hideGestureToast();
+    }
+
+    /**
+     * 单击 = 切换控制面板; 双击(280ms 窗口内两次点按) = 暂停/播放。
+     * 双击语义不受控制面板浮现状态影响(面板开着时双击同样暂停/播放)。
+     */
+    private void handleTapToggle(PlayerView pv) {
+        long now = System.currentTimeMillis();
+        if (now - lastTapAt < DOUBLE_TAP_MS) {
+            // 双击: 暂停/播放
+            lastTapAt = 0L;
+            Player player = session.player;
+            if (player != null) {
+                if (player.getPlayWhenReady()) {
+                    player.pause();
+                } else {
+                    player.play();
+                }
+            }
+            return;
+        }
+        lastTapAt = now;
+        // 单击: 立即切控制面板
+        if (pv.isControllerFullyVisible()) {
+            pv.hideController();
+        } else {
+            pv.showController();
+        }
     }
 
     /**

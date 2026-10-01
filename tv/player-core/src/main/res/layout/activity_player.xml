@@ -83,7 +83,7 @@
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:layout_gravity="center_vertical"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/jc_badge_bg"
             android:drawableStart="@drawable/jc_badge_dot_ok"
             android:drawablePadding="6dp"
