@@ -100,7 +100,7 @@ const wrapStyle = computed(() => ({
       >
         <div
           ref="dialogEl"
-          class="jc-dialog bg-elevated rounded-[var(--jc-radius-2xl)] shadow-card-xl flex flex-col max-h-[calc(100vh-64px)]"
+          class="jc-dialog bg-elevated rounded-[var(--jc-radius-2xl)] shadow-card-xl flex flex-col max-h-[80vh]"
           :style="wrapStyle"
           role="dialog"
           aria-modal="true"
@@ -114,7 +114,7 @@ const wrapStyle = computed(() => ({
             <slot name="header">
               <h3
                 class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary truncate"
-                :class="props.compactTitle ? 'text-[length:var(--jc-fs-md)]' : ''"
+                :class="props.compactTitle ? 'text-[length:var(--jc-fs-sm)]' : ''"
               >
                 {{ title }}
               </h3>

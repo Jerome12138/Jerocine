@@ -32,17 +32,18 @@ watch(
       v-if="confirmState.desc"
       class="text-secondary"
       :class="confirmState.small
-        ? 'text-[length:var(--jc-fs-sm)] leading-[var(--jc-lh-normal)]'
+        ? 'text-[length:var(--jc-fs-md)] leading-[var(--jc-lh-normal)]'
         : 'text-[length:var(--jc-fs-md)] leading-[var(--jc-lh-relaxed)]'"
     >
       {{ confirmState.desc }}
     </p>
     <template #footer>
-      <BaseButton variant="ghost" @click="answerConfirm(false)">
+      <BaseButton size="sm" variant="ghost" @click="answerConfirm(false)">
         {{ confirmState.cancelText }}
       </BaseButton>
       <BaseButton
         class="jc-confirm-ok"
+        size="sm"
         :variant="confirmState.danger ? 'danger' : 'gradient'"
         @click="answerConfirm(true)"
       >
