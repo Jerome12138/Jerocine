@@ -391,6 +391,7 @@ function handleRemove(id: string, e: Event): void {
   font-size: var(--jc-fs-sm);
   color: var(--jc-text-muted);
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 10px;
   flex-wrap: nowrap;
