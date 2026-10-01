@@ -13,6 +13,7 @@ import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity;
@@ -164,6 +165,17 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         gestureHelper = new PlayerGestureHelper(session);
         dialogHelper = new PlayerDialogHelper(session);
         keyEventHelper = new PlayerKeyEventHelper(session);
+
+        // AndroidX OnBackPressedDispatcher 接管返回(predictive back / 系统左滑手势 /
+        // 导航栏返回都走这里), 必须注册 callback —— 否则左滑手势返回会被 dispatcher
+        // 默认直接 finish() 退出播放器, 绕过 keyEventHelper.handleBack 的
+        // "控制条收起 → 双击确认退出"逻辑(与遥控器 BACK 行为不一致).
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                keyEventHelper.handleBack();
+            }
+        });
         sourceHelper = new PlayerSourceHelper(session);
         prefetchHelper = new PlayerPrefetchHelper(session);
 
@@ -487,6 +499,15 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         return keyEventHelper.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public void onBackPressed() {
+        // 安卓系统手势/导航栏返回: 与遥控器 BACK 走同一个 handleBack (控制条收起 → 双击确认退出).
+        // 不调 super 默认直接 finish, 否则左滑返回会绕过二次确认.
+        if (!keyEventHelper.handleBack()) {
+            super.onBackPressed();
+        }
     }
 
     @Override

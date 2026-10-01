@@ -60,22 +60,8 @@ public class PlayerKeyEventHelper {
                 }
                 return true;
             }
-            case KeyEvent.KEYCODE_BACK: {
-                if (controllerVisible) {
-                    pv.hideController();
-                    lastBackAt = 0L;
-                    return true;
-                }
-                long now = System.currentTimeMillis();
-                if (now - lastBackAt < BACK_CONFIRM_MS) {
-                    lastBackAt = 0L;
-                    session.host().finishPlayer();
-                } else {
-                    lastBackAt = now;
-                    session.host().showCenterToast("再按一次返回退出播放", 1800);
-                }
-                return true;
-            }
+            case KeyEvent.KEYCODE_BACK:
+                return handleBack();
             case KeyEvent.KEYCODE_MEDIA_NEXT:
             case KeyEvent.KEYCODE_CHANNEL_UP:
                 if (session.player != null && session.player.hasNextMediaItem()) {
@@ -141,6 +127,30 @@ public class PlayerKeyEventHelper {
             default:
                 return session.host().dispatchToSuper(event);
         }
+    }
+
+    /**
+     * 统一返回处理: 控制面板可见先收起, 否则双击确认退出播放.
+     * 遥控器 BACK (dispatchKeyEvent) 与安卓系统手势返回 (PlayerActivity.onBackPressed) 共用,
+     * 保证两条路径行为一致.
+     */
+    public boolean handleBack() {
+        final PlayerView pv = session.host().playerView();
+        boolean controllerVisible = pv != null && pv.isControllerFullyVisible();
+        if (controllerVisible) {
+            pv.hideController();
+            lastBackAt = 0L;
+            return true;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastBackAt < BACK_CONFIRM_MS) {
+            lastBackAt = 0L;
+            session.host().finishPlayer();
+        } else {
+            lastBackAt = now;
+            session.host().showCenterToast("再按一次返回退出播放", 1800);
+        }
+        return true;
     }
 
     private boolean isFocusOnSeekbar() {

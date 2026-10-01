@@ -38,6 +38,8 @@ import android.widget.Toast;
 
 import com.getcapacitor.BridgeActivity;
 
+import androidx.activity.OnBackPressedCallback;
+
 import org.json.JSONObject;
 
 /**
@@ -121,6 +123,17 @@ public class MainActivity extends BridgeActivity {
             prefs().edit().putString(KEY_SERVER_URL, url).apply();
         }
         loadServer(url);
+
+        // AndroidX OnBackPressedDispatcher 完全接管返回(系统手势左滑 / predictive back /
+        // 导航栏返回都走这里), 必须注册 OnBackPressedCallback —— 否则左滑手势返回会被
+        // dispatcher 默认直接 finish() 退出应用, 绕过 handleBackPressed 的"先回上一页/双击退出"逻辑.
+        // 与 tv 原生壳 MainActivity(onBackPressedDispatcher.addCallback) 机制保持一致.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                handleBackPressed();
+            }
+        });
 
         // 自升级: 启动 5s 后异步检查 (避开首屏并行 IO)
         updateChecker = new UpdateChecker(this);
