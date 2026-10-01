@@ -2766,4 +2766,16 @@ watch(playerReady, (v) => {
   outline: none;
   box-shadow: var(--jc-tv-focus-ring);
 }
+/* TV/安卓壳: video.js 倍速菜单缩小(video.js 原生 1.5em 偏大) */
+[data-mode='tv'] .video-js .vjs-menu-button-popup .vjs-menu {
+  font-size: 14px;
+}
+[data-mode='tv'] .video-js .vjs-menu-button-popup .vjs-menu-item {
+  font-size: 14px;
+  padding: 2px 14px;
+  line-height: 2;
+}
+[data-mode='tv'] .video-js .vjs-menu-button-popup .vjs-menu-item .vjs-menu-item-text {
+  line-height: 1.4;
+}
 </style>

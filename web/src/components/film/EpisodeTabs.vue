@@ -502,17 +502,19 @@ function stopMarquee(e: Event): void {
 <style>
 [data-mode='tv'] .jc-episode-grid {
   /* P0: 列数自适应 — 大屏更多列, 集名仍够宽不裁; 960 ~6 列, 1920 ~10 列 */
-  grid-template-columns: repeat(auto-fit, minmax(clamp(120px, 13vw, 180px), 1fr));
-  gap: var(--jc-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(clamp(110px, 11vw, 160px), 1fr));
+  gap: var(--jc-space-3);
 }
 [data-mode='tv'] .jc-episode-chip {
-  height: 48px;
+  height: 40px;
   font-size: var(--jc-fs-sm);
+  padding: 0 8px;
 }
-/* TV: 分段胶囊不跟随 Web 的留白收紧, 保持 10 尺 UI 原有尺寸 */
+/* TV: 分段胶囊随 Web 收紧档位缩小, 保持触控可点 */
 [data-mode='tv'] .jc-episode-seg {
-  height: 32px;
-  padding: 0 14px;
+  height: 28px;
+  padding: 0 12px;
+  font-size: var(--jc-fs-sm);
 }
 [data-mode='tv'] .jc-episode-chip:focus,
 [data-mode='tv'] .jc-episode-chip:focus-visible {
@@ -524,19 +526,19 @@ function stopMarquee(e: Event): void {
   color: var(--jc-text-primary);
 }
 [data-mode='tv'] .jc-source-tab {
-  height: 48px;
-  font-size: var(--jc-fs-base);
-  padding: 0 var(--jc-space-4);
-  margin-block: 6px;
+  height: 40px;
+  font-size: var(--jc-fs-sm);
+  padding: 0 var(--jc-space-3);
+  margin-block: 4px;
 }
 [data-mode='tv'] .jc-source-tab__count-badge {
-  min-width: 22px;
-  height: 22px;
-  font-size: 13px;
-  padding: 0 6px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 11px;
+  padding: 0 5px;
 }
 [data-mode='tv'] .jc-source-count {
-  font-size: var(--jc-fs-base);
+  font-size: var(--jc-fs-sm);
 }
 [data-mode='tv'] .jc-source-tab:focus,
 [data-mode='tv'] .jc-source-tab:focus-visible {
@@ -549,7 +551,7 @@ function stopMarquee(e: Event): void {
 /* 源 tab 横滚条 / 集数容器: 纵向留白 + 不裁纵向, 让焦点框完整显示 */
 [data-mode='tv'] .jc-source-tabs {
   overflow-y: visible;
-  padding-block: 6px;
+  padding-block: 4px;
 }
 [data-mode='tv'] .jc-episodes {
   padding-block: 4px;
