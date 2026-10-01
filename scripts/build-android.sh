@@ -96,8 +96,10 @@ for arg in "$@"; do
   fi
   case "$arg" in
     all) TARGET="all" ;;
-    web) TARGET="web" ;;
-    tv|native) TARGET="tv" ;;   # native = 原生 TV 客户端, 与产物名 Jerocine-TV-native-... 对齐
+    # 目标可累积：web + tv 一起传 = all（此前 TARGET 是单值、后传覆盖前者，
+    # `web tv` 会静默只打 tv、web 被无声丢弃）。单个目标行为不变。
+    web) if [ "$TARGET" = "tv" ]; then TARGET="all"; else TARGET="web"; fi ;;
+    tv|native) if [ "$TARGET" = "web" ]; then TARGET="all"; else TARGET="tv"; fi ;;
     --debug) VARIANT="Debug" ;;
     --keep-version) KEEP_VERSION=1 ;;
     --api-base=*) API_BASE="${arg#*=}" ;;
