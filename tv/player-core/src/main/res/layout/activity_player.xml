@@ -41,7 +41,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:layout_marginTop="92dp"
-        android:background="@drawable/jc_tv_toast_bg"
+        android:background="@drawable/jc_toast_bg"
         android:gravity="center"
         android:paddingHorizontal="18dp"
         android:paddingVertical="9dp"
