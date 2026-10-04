@@ -3,6 +3,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 下载前台服务 (Android 8+ 必声明; 14+ 需指定类型) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- TV：leanback 不强制，手机/平板也能装 -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -25,6 +28,19 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
             android:screenOrientation="landscape"
             android:theme="@style/Theme.JerocineTV.Player" />
+
+        <!-- 下载管理页(公共模块, 从播放器「⋮ 更多→下载管理」与设置页进入) -->
+        <activity
+            android:name="com.jerocine.player.download.DownloadActivity"
+            android:exported="false"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
+            android:theme="@style/Theme.JerocineTV" />
+
+        <!-- 下载前台服务(批量并发下载, 通知实时进度) -->
+        <service
+            android:name="com.jerocine.player.download.JerocineDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <activity
             android:name=".MainActivity"

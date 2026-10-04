@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 选集勾选框: 已选中 — 强调青实底 + 白色对勾 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="4dp" />
+            <solid android:color="#FF4AD1E5" />
+            <size android:width="22dp" android:height="22dp" />
+        </shape>
+    </item>
+    <item android:drawable="@drawable/ic_check_white"
+        android:width="14dp" android:height="14dp"
+        android:gravity="center" />
+</layer-list>

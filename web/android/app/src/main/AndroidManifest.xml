@@ -48,6 +48,19 @@
             android:theme="@style/AppTheme.Player"
             android:launchMode="singleTop" />
 
+        <!-- 下载管理页(公共模块, 从播放器「⋮ 更多→下载管理」与设置页进入) -->
+        <activity
+            android:name="com.jerocine.player.download.DownloadActivity"
+            android:exported="false"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
+            android:theme="@style/AppTheme" />
+
+        <!-- 下载前台服务(批量并发下载, 通知实时进度) -->
+        <service
+            android:name="com.jerocine.player.download.JerocineDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -64,4 +77,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 自升级: 装其他应用 (Android 8.0+ 必需) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 下载前台服务 (Android 8+ 必声明; 14+ 需指定类型) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 </manifest>

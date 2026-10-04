@@ -3,6 +3,7 @@ package com.jerocine.player;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
@@ -100,6 +101,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
     /** 进程内单例, 避免重开时 "Another SimpleCache instance" 报错 — 进程级资源, 必须静态. */
     private static SimpleCache sCache;
+    /** sCache 当前指向的缓存目录(与 intent 期望目录不一致时重建, 支持离线播放切到下载缓存区). */
+    private static File sCacheDir;
 
     private final Handler toastHandler = new Handler(Looper.getMainLooper());
     private final Handler iconHandler = new Handler(Looper.getMainLooper());
@@ -114,10 +117,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private TextView titleText;
     private TextView episodesCount;
     private TextView resolutionBadge;
-    private Button networkModeButton;
     private Button adFilterButton;
     /** 开关类按钮左上角的状态点(绿=开/灰=关) — 叠在按钮上的兄弟 View. */
-    private View dotNetworkMode;
     private View dotAdFilter;
     private View dotSpeed;
     private View dotSkip;
@@ -192,15 +193,13 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             View controlsRoot = playerView.findViewById(R.id.player_controls_root);
             if (controlsRoot != null) controlsRoot.setVisibility(v);
             if (v == View.VISIBLE) {
-                // "中转"/"过滤"/"倍速"/"跳过"按钮(含左上角状态点)在 PlayerView 的控制视图里(懒加载): 面板显示时取到
-                networkModeButton = playerView.findViewById(R.id.btn_network_mode);
+                // "过滤"/"倍速"/"跳过"按钮(含左上角状态点)在 PlayerView 的控制视图里(懒加载): 面板显示时取到
                 adFilterButton = playerView.findViewById(R.id.btn_ad_filter);
-                updateRelayButtonVisibility();
-                dotNetworkMode = playerView.findViewById(R.id.dot_network_mode);
                 dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
                 dotSpeed = playerView.findViewById(R.id.dot_speed);
                 dotSkip = playerView.findViewById(R.id.dot_skip);
                 dialogHelper.bindControlButtons();
+                bindMoreMenu();
                 renderAdFilterSwitch(session.adFilterOn);
                 renderSpeedDot(isSpeedOn());
                 renderSkipDot(session.skipEnabled);
@@ -440,10 +439,20 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     }
 
     private DataSource.Factory buildCacheFactory() {
+        // 进程内单例; 若 intent 指定了不同的缓存目录(如离线播放指到下载缓存区),
+        // 释放旧实例并重建, 否则继续用播放缓存(video_cache)
+        File wantDir = resolveCacheDir();
+        if (sCache != null && !wantDir.equals(sCacheDir)) {
+            try {
+                sCache.release();
+            } catch (Exception ignore) {
+            }
+            sCache = null;
+        }
         if (sCache == null) {
-            File cacheDir = resolveCacheDir();
+            sCacheDir = resolveCacheDir();
             sCache = new SimpleCache(
-                    cacheDir,
+                    sCacheDir,
                     new LeastRecentlyUsedCacheEvictor(CACHE_SIZE),
                     new StandaloneDatabaseProvider(getApplicationContext())
             );
@@ -705,24 +714,101 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
     @Override
     public void renderNetworkMode(boolean relay) {
-        if (networkModeButton != null) networkModeButton.setText("中转");
-        if (dotNetworkMode == null && playerView != null) {
-            dotNetworkMode = playerView.findViewById(R.id.dot_network_mode);
-        }
-        renderStatusDot(dotNetworkMode, relay);
-        // 设置里关闭中转 → 整组按钮隐藏(只保留自愈能力, 无 UI 入口)
-        updateRelayButtonVisibility();
+        // 中转按钮已移入右上角「⋮ 更多」菜单: 菜单每次点开重建, 状态文本实时取 session.relayOn,
+        // 无需维护常驻按钮引用; 开关切换的即时反馈由 toggle() 里的 centerToast 承担.
+    }
+
+    /** 面板显示时绑定右上角「⋮ 更多」菜单(每次现取, 与其它懒加载控件一致). */
+    private void bindMoreMenu() {
+        Button more = playerView != null ? playerView.findViewById(R.id.btn_more) : null;
+        if (more == null) return;
+        more.setOnClickListener(v -> showMoreMenu());
     }
 
     /**
-     * 中转按钮显隐: 设置开关(持久化 network_relay_enabled, 默认关)决定播放器是否显示底栏"中转"按钮.
-     * 关闭时隐藏整组(按钮+状态点), 直连分片失败的单集自愈不受影响(走 forceRelayIdx, 无 UI).
+     * 更多菜单 — 收纳非常用项(用户拍板): 下载管理 / 缓存缓冲 / 中转 / 分辨率 / 诊断.
+     * 播放器右上角保留原有显示(过滤广告/倍速/分辨率/总集数)不变.
      */
-    private void updateRelayButtonVisibility() {
-        boolean show = PlayerNetworkModeHelper.isRelayEnabled(this);
-        View container = playerView != null ? playerView.findViewById(R.id.relay_button_container) : null;
-        if (container != null) {
-            container.setVisibility(show ? View.VISIBLE : View.GONE);
+    private void showMoreMenu() {
+        final String[] items = {
+                "下载管理",
+                "缓存缓冲",
+                "中转：" + (session.relayOn ? "开" : "关"),
+                "分辨率：" + (resolutionBadge != null && resolutionBadge.getVisibility() == View.VISIBLE
+                        ? resolutionBadge.getText().toString() : "播放中获取"),
+                "诊断信息"
+        };
+        new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
+                .setTitle("更多")
+                .setItems(items, (d, i) -> {
+                    switch (i) {
+                        case 0:
+                            openDownloadManager();
+                            break;
+                        case 1:
+                            showCenterToast("播放器缓存自动管理(video_cache · 1GB LRU), 无需手动清", 2400);
+                            break;
+                        case 2:
+                            toggleNetworkMode();
+                            break;
+                        case 3:
+                            showCenterToast("当前分辨率 " + items[3].replace("分辨率：", ""), 2000);
+                            break;
+                        case 4:
+                            showDiagnostics();
+                            break;
+                        default:
+                            break;
+                    }
+                })
+                .create().show();
+    }
+
+    /** 更多菜单 → 下载管理: 透传影片上下文给 DownloadActivity(选集/下载中/已完成三 tab). */
+    private void openDownloadManager() {
+        Intent i = new Intent(this, com.jerocine.player.download.DownloadActivity.class);
+        i.putExtra(EXTRA_FILM_ID, filmId());
+        i.putExtra(EXTRA_FILM_NAME, getIntent().getStringExtra(EXTRA_FILM_NAME));
+        String sourcesJson = getIntent().getStringExtra(EXTRA_SOURCES_JSON);
+        if (sourcesJson != null) i.putExtra(EXTRA_SOURCES_JSON, sourcesJson);
+        i.putExtra(EXTRA_PROXY_BASE, session.proxyBase);
+        startActivity(i);
+    }
+
+    /** 更多菜单 → 诊断信息: 安卓版本/设备/内核/媒体库/代理, 帮助判断播放异常归属. */
+    private void showDiagnostics() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("安卓版本: ").append(Build.VERSION.RELEASE)
+                .append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
+        sb.append("设备: ").append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append("\n");
+        sb.append("WebView 内核: ").append(webViewVersion()).append("\n");
+        sb.append("媒体库: media3 1.4.1 (ExoPlayer)\n");
+        sb.append("中转代理: ").append(session.proxyBase == null || session.proxyBase.isEmpty()
+                ? "未配置" : session.proxyBase).append("\n");
+        sb.append("中转开关: ").append(session.relayOn ? "开" : "关").append("\n");
+        sb.append("广告过滤: ").append(session.adFilterOn ? "开" : "关").append("\n");
+        sb.append("当前片源: ").append(session.currentSourceIndex + 1).append("/")
+                .append(session.sourceList.size());
+        new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
+                .setTitle("诊断信息")
+                .setMessage(sb.toString())
+                .setPositiveButton("知道了", null)
+                .create().show();
+    }
+
+    /** WebView 内核版本(用 UA 提取, 不启动 WebView 实例). */
+    private String webViewVersion() {
+        try {
+            String ua = android.webkit.WebSettings.getDefaultUserAgent(this);
+            if (ua != null && ua.contains("Chrome/")) {
+                int s = ua.indexOf("Chrome/") + 7;
+                int e = ua.indexOf(' ', s);
+                if (e < 0) e = ua.length();
+                return "Chromium " + ua.substring(s, e);
+            }
+            return ua == null ? "未知" : ua;
+        } catch (Exception e) {
+            return "未知";
         }
     }
 

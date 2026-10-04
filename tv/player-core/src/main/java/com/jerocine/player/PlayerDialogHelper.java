@@ -78,7 +78,6 @@ public class PlayerDialogHelper {
         Button source = pv.findViewById(R.id.btn_source);
         Button skip = pv.findViewById(R.id.btn_skip);
         Button close = pv.findViewById(R.id.btn_close);
-        Button networkMode = pv.findViewById(R.id.btn_network_mode);
         Button adFilter = pv.findViewById(R.id.btn_ad_filter);
         if (close == null) return;
 
@@ -102,17 +101,11 @@ public class PlayerDialogHelper {
             source.setVisibility(multi ? View.VISIBLE : View.GONE);
             source.setOnClickListener(b -> showSourceDialog());
         }
-        if (networkMode != null) {
-            // 走 Host 转给 PlayerNetworkModeHelper(需读 Context 落盘), 与"过滤"按钮同一条路
-            networkMode.setOnClickListener(b -> session.host().toggleNetworkMode());
-            session.updateNetworkModeUi();
-        }
         if (skip != null) skip.setOnClickListener(b -> showSkipSettingsDialog());
         if (adFilter != null) adFilter.setOnClickListener(b -> session.host().toggleAdFilter());
         close.setOnClickListener(b -> session.host().finishPlayer());
         ctlBtnsBound = true;
     }
-
     // ============================ 切源 ============================
 
     /** 切换源(仅多源模式) — 保留当前集数 + 播放进度. */

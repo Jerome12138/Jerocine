@@ -72,7 +72,8 @@ public class JerocinePlayer {
         return CONFIG.mediaClient;
     }
 
-    static String defaultProxyBase() {
+    /** 壳层初始化时传入的默认代理基址(下载/过滤模块跨包读取). */
+    public static String defaultProxyBase() {
         return CONFIG.defaultProxyBase;
     }
 }

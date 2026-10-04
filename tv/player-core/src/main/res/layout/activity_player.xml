@@ -139,6 +139,19 @@
             android:textColor="@color/jc_text_secondary"
             android:textSize="13sp"
             android:visibility="gone" />
+
+        <!-- 更多菜单(⋮) — 收纳下载管理/缓存缓冲/中转/分辨率/诊断等非常用项, 用户拍板的口径 -->
+        <Button
+            android:id="@+id/btn_more"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:layout_width="42dp"
+            android:layout_height="36dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/jc_badge_bg"
+            android:contentDescription="更多"
+            android:drawableTop="@drawable/ic_more_vert"
+            android:drawableTint="@color/jc_text_secondary" />
     </LinearLayout>
 
     <!-- 中央 播放/暂停 反馈图标 — 无外框, 统一矢量风格(ic_play/ic_pause) -->

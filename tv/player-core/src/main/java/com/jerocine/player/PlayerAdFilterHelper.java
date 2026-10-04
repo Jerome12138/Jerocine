@@ -19,13 +19,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
-
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
 
 /**
  * 广告过滤 — 端侧混合过滤: 抓到 m3u8 后送 /v1/m3u8/filter 剔广告再交默认解析器.
@@ -44,23 +37,6 @@ public class PlayerAdFilterHelper {
 
     private final Context context;
     private final PlayerSession session;
-
-    /**
-     * 端侧过滤 POST 客户端: 显式超时上限.
-     * 解析线程上同步等待, 不设上限会拖死播放列表解析; 切集时网络争用偶发失败, 调用处会重试一次.
-     *
-     * 上限取 12s: 媒体表实际可达 900+ 段 —— 实测单张清单上行 ~25KB、过滤后下行 ~77KB,
-     * 服务端纯过滤耗时就要 3s+, 弱网设备上行更慢. 8s 会把"其实能过滤"误判成"过滤失败".
-     * 端侧混合过滤是**主路径**(见 PlayerUrls.buildPlayableUrl: 默认不包代理), 上限过紧会
-     * 平白多一次"失败 → 升级服务端代理"的来回(web 端 fetch 没有这个上限).
-     */
-    private final OkHttpClient adStatsClient = new OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .callTimeout(12, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build();
 
     public PlayerAdFilterHelper(Context context, PlayerSession session) {
         this.context = context;
@@ -157,62 +133,20 @@ public class PlayerAdFilterHelper {
 
     /**
      * 同步 POST 原始 m3u8 到 /v1/m3u8/filter, 返回过滤后字节; 失败返回 null(用原始, 优雅降级).
-     * 在 loader 线程调用.
+     * 在 loader 线程调用. 网络/重试细节在 {@link M3u8FilterClient}, 这里只维护 session 过滤状态.
      */
     byte[] filterViaServer(String srcUrl, byte[] raw) {
         session.filterAttempted = true;
-        final String url;
-        try {
-            url = session.proxyBase + "/v1/m3u8/filter?src="
-                    + java.net.URLEncoder.encode(srcUrl, "UTF-8");
-        } catch (Exception e) {
+        M3u8FilterClient.Result r = M3u8FilterClient.filter(session.proxyBase, srcUrl, raw);
+        if (r == null) {
             session.filterFailed = true;
             return null;
         }
-        for (int attempt = 0; attempt < 2; attempt++) {
-            try {
-                Request req = new Request.Builder().url(url)
-                        .post(RequestBody.create(
-                                MediaType.parse("application/vnd.apple.mpegurl"), raw))
-                        .build();
-                try (Response resp = adStatsClient.newCall(req).execute()) {
-                    if (!resp.isSuccessful() || resp.body() == null) {
-                        if (attempt == 1) {
-                            session.filterFailed = true;
-                            return null;
-                        }
-                    } else {
-                        byte[] out = resp.body().bytes();
-                        String n = resp.header("X-Ad-Filtered");
-                        if (n != null) {
-                            try {
-                                int cnt = Integer.parseInt(n);
-                                // master 表 cnt=0、子表才 cnt>0; 取最大, 待 STATE_READY 弹一次状态
-                                if (cnt > session.pendingFilteredCount) {
-                                    session.pendingFilteredCount = cnt;
-                                }
-                            } catch (NumberFormatException ignore) {
-                            }
-                        }
-                        return out;
-                    }
-                }
-            } catch (Exception e) {
-                if (attempt == 1) {
-                    session.filterFailed = true;
-                    return null;
-                }
-            }
-            try {
-                Thread.sleep(250);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                session.filterFailed = true;
-                return null;
-            }
+        // master 表 cnt=0、子表才 cnt>0; 取最大, 待 STATE_READY 弹一次状态
+        if (r.filteredCount > session.pendingFilteredCount) {
+            session.pendingFilteredCount = r.filteredCount;
         }
-        session.filterFailed = true;
-        return null;
+        return r.data;
     }
 
     static byte[] readAll(InputStream in) throws IOException {

@@ -70,7 +70,9 @@
         </LinearLayout>
 
         <!-- 全部播放操作保持单行, 适配横屏遥控器.
-             顺序(用户指定): 上集 / 下集 / 选集 / 换源 / 倍速 / 跳过 / 过滤 / 中转 / 退出 -->
+             顺序(用户指定): 上集 / 下集 / 选集 / 换源 / 倍速 / 跳过 / 过滤 / 退出.
+             中转按钮已移除 — 中转移入右上角「⋮ 更多」菜单(设置页不再有"是否显示中转"开关,
+             见 PlayerActivity.showMoreMenu); 直连失败的单集自愈不受影响(forceRelayIdx, 无 UI). -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -157,30 +159,6 @@
 
                 <View
                     android:id="@+id/dot_ad_filter"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:layout_gravity="top|start"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginTop="7dp"
-                    android:background="@drawable/jc_status_dot_off" />
-            </FrameLayout>
-
-            <!-- 中转开关: 文案固定"中转"(不再写"切到X", 免得整排按钮文案长度不一),
-                 开/关看左上角状态点(绿=开). 默认关(分片直连), 开关态持久化见 PlayerNetworkModeHelper.
-                 设置里关闭中转时整组隐藏(见 PlayerActivity.updateRelayButtonVisibility). -->
-            <FrameLayout
-                android:id="@+id/relay_button_container"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content">
-
-                <Button
-                    android:id="@+id/btn_network_mode"
-                    style="@style/JcPlayerCtlBtn"
-                    android:drawableTop="@drawable/ic_network_mode"
-                    android:text="中转" />
-
-                <View
-                    android:id="@+id/dot_network_mode"
                     android:layout_width="8dp"
                     android:layout_height="8dp"
                     android:layout_gravity="top|start"

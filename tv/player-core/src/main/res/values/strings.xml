@@ -4,4 +4,8 @@
     <string name="title_activity_main">Jerocine影视</string>
     <string name="package_name">com.jerocine.app</string>
     <string name="custom_url_scheme">com.jerocine.app</string>
+
+    <!-- 下载服务前台通知渠道 -->
+    <string name="download_channel_name">视频下载</string>
+    <string name="download_channel_description">影视下载任务进度与状态</string>
 </resources>
