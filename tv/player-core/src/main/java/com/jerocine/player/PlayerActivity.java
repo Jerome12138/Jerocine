@@ -104,6 +104,11 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     /** sCache 当前指向的缓存目录(与 intent 期望目录不一致时重建, 支持离线播放切到下载缓存区). */
     private static File sCacheDir;
 
+    /** 当前播放缓存实例(与播放器共用; BufferPrefetcher 写缓存缓冲用, 同包访问). */
+    static SimpleCache cacheInstance() {
+        return sCache;
+    }
+
     private final Handler toastHandler = new Handler(Looper.getMainLooper());
     private final Handler iconHandler = new Handler(Looper.getMainLooper());
     private final Handler progressHandler = new Handler(Looper.getMainLooper());
@@ -135,6 +140,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private PlayerKeyEventHelper keyEventHelper;
     private PlayerSourceHelper sourceHelper;
     private PlayerPrefetchHelper prefetchHelper;
+    /** 缓存缓冲(网络差预取, 更多菜单触发); 退出时 cancel. */
+    private BufferPrefetcher bufferPrefetcher;
 
     // ============================ 生命周期 ============================
 
@@ -546,6 +553,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         PlayerControl.get().detach(this);
         skipHelper.stopOutroWatcher();
         prefetchHelper.shutdown(); // 停掉在途预取(否则后台线程还占着 socket 跑一次没人要的过滤)
+        if (bufferPrefetcher != null) bufferPrefetcher.cancel(); // 停掉缓存缓冲(已写分片留在缓存)
         toastHandler.removeCallbacksAndMessages(null);
         iconHandler.removeCallbacksAndMessages(null);
         progressHandler.removeCallbacksAndMessages(null);
@@ -746,7 +754,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                             openDownloadManager();
                             break;
                         case 1:
-                            showCenterToast("播放器缓存自动管理(video_cache · 1GB LRU), 无需手动清", 2400);
+                            showBufferDialog();
                             break;
                         case 2:
                             toggleNetworkMode();
@@ -764,9 +772,61 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 .create().show();
     }
 
+    /** 更多菜单 → 缓存缓冲: 选时长, 暂停播放后后台预取前 N 分钟分片(写播放缓存区). */
+    private void showBufferDialog() {
+        final double[] options = {5.0, 15.0, 30.0, 0.0};
+        final String[] labels = {"缓冲 5 分钟", "缓冲 15 分钟", "缓冲 30 分钟", "缓冲本集"};
+        new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
+                .setTitle("缓存缓冲")
+                .setItems(labels, (d, i) -> startBufferPrefetch(options[i], labels[i]))
+                .setNegativeButton("取消", null)
+                .create().show();
+    }
+
+    /**
+     * 启动缓存缓冲(路径 B): 暂停 → BufferPrefetcher 把当前集前 N 分钟分片写进播放缓存区
+     * → 完成自动恢复播放(CacheDataSource 命中缓存, 卡顿缓解).
+     * minutes=0 表示本集全部; 缓冲中再次进入会先 cancel 旧的再开始新的.
+     */
+    private void startBufferPrefetch(double minutes, String label) {
+        if (session == null || session.player == null) return;
+        int idx = session.player.getCurrentMediaItemIndex();
+        if (session.currentRawUrls.isEmpty() || idx < 0 || idx >= session.currentRawUrls.size()) {
+            showCenterToast("当前集无可缓冲的片源", 1800);
+            return;
+        }
+        if (sCache == null) {
+            showCenterToast("缓存区未就绪, 稍后再试", 1800);
+            return;
+        }
+        final boolean playing = session.player.getPlayWhenReady();
+        session.player.pause();
+        if (bufferPrefetcher != null) bufferPrefetcher.cancel();
+        bufferPrefetcher = new BufferPrefetcher(sCache, session.proxyBase);
+        final String srcUrl = session.currentRawUrls.get(idx);
+        showCenterToast("正在缓冲 " + label + " · 播放暂停", 2200);
+        bufferPrefetcher.start(srcUrl, minutes,
+                (cached, target) -> {
+                    int pct = target > 0 ? (int) (cached * 100.0 / target) : 0;
+                    showCenterToast("缓存缓冲 " + Math.min(pct, 100) + "% · " + label, 1200);
+                },
+                new BufferPrefetcher.CompletionListener() {
+                    @Override
+                    public void onComplete() {
+                        showCenterToast("缓存完成 · 已恢复播放", 2200);
+                        if (session.player != null && playing) session.player.setPlayWhenReady(true);
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        showCenterToast(message, 2400);
+                        if (session.player != null && playing) session.player.setPlayWhenReady(true);
+                    }
+                });
+    }
+
     /** 更多菜单 → 下载管理: 透传影片上下文给 DownloadActivity(选集/下载中/已完成三 tab). */
-    private void openDownloadManager() {
-        Intent i = new Intent(this, com.jerocine.player.download.DownloadActivity.class);
+    private void openDownloadManager() {        Intent i = new Intent(this, com.jerocine.player.download.DownloadActivity.class);
         i.putExtra(EXTRA_FILM_ID, filmId());
         i.putExtra(EXTRA_FILM_NAME, getIntent().getStringExtra(EXTRA_FILM_NAME));
         String sourcesJson = getIntent().getStringExtra(EXTRA_SOURCES_JSON);
