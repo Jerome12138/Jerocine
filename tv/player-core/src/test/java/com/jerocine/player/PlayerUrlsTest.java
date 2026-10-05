@@ -140,6 +140,17 @@ public class PlayerUrlsTest {
     }
 
     @Test
+    public void clientFilterSkipsLocalPlaylists() {
+        // 离线/本地清单(下载时已过滤)不再付 POST; 在线源站仍需要端侧过滤
+        assertFalse(PlayerUrls.needsClientSideFilter(
+                "file:///data/user/0/art.jerocine.tv/cache/download_cache/149293/79/playlist.m3u8"));
+        assertFalse(PlayerUrls.needsClientSideFilter(
+                "content://com.android.externalstorage/raw/movie.m3u8"));
+        assertFalse(PlayerUrls.needsClientSideFilter("FILE:///sdcard/a.m3u8"));
+        assertTrue(PlayerUrls.needsClientSideFilter("https://cdn.example.com/video/index.m3u8"));
+    }
+
+    @Test
     public void m3u8DetectionCoversQueryAndFragment() {
         assertTrue(PlayerUrls.isM3u8("https://cdn.example.com/a.m3u8"));
         assertTrue(PlayerUrls.isM3u8("https://cdn.example.com/a.m3u8?x=1"));

@@ -96,15 +96,23 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
     }
 
     /**
-     * 启动恢复: 上次进程被杀时仍在 DOWNLOADING 的任务标记为 PAUSED(等用户续传).
-     * Media3 DefaultDownloadIndex 自身也持久, 但业务表的状态必须同步, 否则 UI 会显示卡死的"下载中".
+     * 启动恢复: 上次进程被杀时仍在 DOWNLOADING 的任务标记为 PAUSED(等用户续传);
+     * 导出中(EXPORTING)被杀的 → 回滚 COMPLETED(EXPORTING 是临时态, 残留 export.tmp 由下次导出覆盖).
+     * Media3 DefaultDownloadIndex 自身也持久, 但业务表的状态必须同步, 否则 UI 会显示卡死的"下载中"/"导出中".
      */
     public void markInterruptedAsPaused() {
+        SQLiteDatabase db = getWritableDatabase();
+        long now = System.currentTimeMillis();
+        // 下载中被杀 → PAUSED(等续传)
         ContentValues v = new ContentValues();
         v.put("state", DownloadTask.STATE_PAUSED);
-        v.put("updatedAt", System.currentTimeMillis());
-        getWritableDatabase().update(TABLE, v,
-                "state=?", new String[]{String.valueOf(DownloadTask.STATE_DOWNLOADING)});
+        v.put("updatedAt", now);
+        db.update(TABLE, v, "state=?", new String[]{String.valueOf(DownloadTask.STATE_DOWNLOADING)});
+        // 导出中被杀 → 回 COMPLETED(EXPORTING→EXPORTING 是非法迁移, 不回滚会永久卡死"正在导出中")
+        ContentValues v2 = new ContentValues();
+        v2.put("state", DownloadTask.STATE_COMPLETED);
+        v2.put("updatedAt", now);
+        db.update(TABLE, v2, "state=?", new String[]{String.valueOf(DownloadTask.STATE_EXPORTING)});
     }
 
     private List<DownloadTask> query(String where, String[] args, String orderBy) {

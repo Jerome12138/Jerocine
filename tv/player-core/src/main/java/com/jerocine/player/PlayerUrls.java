@@ -27,11 +27,14 @@ public final class PlayerUrls {
 
     /**
      * 该清单是否还需要在设备侧再过滤一次.
-     * 已经是 /m3u8/proxy 的清单由服务端处理过, 不再重复同步 POST(否则只是白白多一跳).
+     * 已经是 /m3u8/proxy 的清单由服务端处理过, 不再重复同步 POST(否则只是白白多一跳);
+     * file:// / content:// 是本地/离线清单(下载时已过滤), 同样不再过滤.
      */
     public static boolean needsClientSideFilter(String playlistUrl) {
-        return playlistUrl == null
-                || !playlistUrl.toLowerCase(Locale.US).contains("/m3u8/proxy?");
+        if (playlistUrl == null) return true;
+        String lower = playlistUrl.toLowerCase(Locale.US);
+        if (lower.startsWith("file://") || lower.startsWith("content://")) return false;
+        return !lower.contains("/m3u8/proxy?");
     }
 
     /** 是否 HLS 清单(可被 /m3u8/proxy 包装). */

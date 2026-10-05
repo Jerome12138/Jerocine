@@ -52,7 +52,10 @@ public class JerocineDownloadService extends DownloadService {
     @Override
     protected DownloadManager getDownloadManager() {
         DownloadEngine engine = DownloadEngine.existing();
-        return engine != null ? engine.manager() : null;
+        if (engine != null) return engine.manager();
+        // 进程被杀后系统恢复服务: 静态单例已丢 → 重建(空 proxyBase, 后续入队会自动切到会话 base)。
+        // 重建会跑 markInterruptedAsPaused(把残留 DOWNLOADING 标 PAUSED), 与服务恢复语义一致。
+        return DownloadEngine.get(this, "").manager();
     }
 
     @Override

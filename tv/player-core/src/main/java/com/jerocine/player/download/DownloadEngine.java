@@ -73,6 +73,8 @@ public final class DownloadEngine {
 
     /** 入队时已过滤好的 master 清单(按源站 URL) — HlsDownloader 解析 master 时直接命中, 省一次 POST. */
     private final java.util.Map<String, byte[]> prefetchedPlaylists = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 公共 HTTP 客户端(拉源站清单用) — 避免每次入队新建 OkHttpClient. */
+    private final OkHttpClient playlistClient;
 
     public static synchronized DownloadEngine get(Context context, String proxyBase) {
         if (sInstance == null || !sInstance.proxyBase.equals(proxyBase == null ? "" : proxyBase)) {
@@ -111,6 +113,7 @@ public final class DownloadEngine {
                 .followRedirects(true)
                 .followSslRedirects(true)
                 .build();
+        playlistClient = http;
         OkHttpDataSource.Factory upstream = new OkHttpDataSource.Factory(http)
                 .setUserAgent(USER_AGENT);
         CacheDataSource.Factory dsFactory = new CacheDataSource.Factory()
@@ -122,18 +125,22 @@ public final class DownloadEngine {
                 new DownloaderFactoryImpl(dsFactory, proxyBase, prefetchedPlaylists));
         manager.setMaxParallelDownloads(MAX_PARALLEL);
         manager.setMinRetryCount(2);
-        manager.addListener(new DownloadManager.Listener() {
-            @Override
-            public void onDownloadChanged(DownloadManager downloadManager, Download download, @Nullable Exception exception) {
-                DownloadEngine.this.onDownloadChanged(download, exception);
-            }
-
-            @Override
-            public void onDownloadRemoved(DownloadManager downloadManager, Download download) {
-                DownloadEngine.this.onDownloadRemoved(download);
-            }
-        });
+        manager.addListener(managerListener);
     }
+
+    /** 保存 listener 引用 — release 时按实例移除(removeListener(null) 语义不明确, 避免). */
+    private final DownloadManager.Listener managerListener = new DownloadManager.Listener() {
+        @Override
+        public void onDownloadChanged(DownloadManager downloadManager, Download download,
+                                      @Nullable Exception exception) {
+            DownloadEngine.this.onDownloadChanged(download, exception);
+        }
+
+        @Override
+        public void onDownloadRemoved(DownloadManager downloadManager, Download download) {
+            DownloadEngine.this.onDownloadRemoved(download);
+        }
+    };
 
     public DownloadManager manager() {
         return manager;
@@ -267,8 +274,10 @@ public final class DownloadEngine {
     }
 
     private void onDownloadRemoved(Download d) {
-        String taskId = new String(d.request.data, StandardCharsets.UTF_8);
-        prefetchedPlaylists.remove(taskId);
+        // 注意: prefetchedPlaylists 的 key 是**源站 URL**(enqueue 时 put), 而 Download 只有
+        // taskId(=filmId:sourceKey:episode, 反查不到 srcUrl) → 这里无法精确移除。
+        // 该 map 的 key 每次 enqueue 时按 srcUrl 覆盖(put), 最多残留一个已删任务的旧清单,
+        // 下次同源入队即被覆盖, 无实际危害, 不清理。
     }
 
     /** UI 刷新钩子 — DownloadActivity 注册, 下载状态变化时在主线程回调. */
@@ -293,10 +302,7 @@ public final class DownloadEngine {
 
     private byte[] fetchPlaylist(String url) throws Exception {
         Request req = new Request.Builder().url(url).header("User-Agent", USER_AGENT).build();
-        try (Response resp = new OkHttpClient.Builder()
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .build().newCall(req).execute()) {
+        try (Response resp = playlistClient.newCall(req).execute()) {
             if (!resp.isSuccessful() || resp.body() == null) {
                 throw new java.io.IOException("HTTP " + resp.code());
             }
@@ -315,7 +321,13 @@ public final class DownloadEngine {
         t.error = reason;
         t.updatedAt = System.currentTimeMillis();
         if (t.createdAt == 0) t.createdAt = System.currentTimeMillis();
-        repository.update(t);
+        // 失败可能发生在 insertIgnore 之前(拉清单/过滤失败) → 此时 update 写不到行,
+        // 失败任务会静默丢失(UI 看不到失败原因)。先查存在性, 不存在则插入。
+        if (repository.get(t.id) != null) {
+            repository.update(t);
+        } else {
+            repository.insertIgnore(t);
+        }
         notifyChanged(t.id);
     }
 
@@ -347,7 +359,7 @@ public final class DownloadEngine {
     }
 
     private void release() {
-        manager.removeListener(null);
+        manager.removeListener(managerListener);
         manager.release();
         worker.shutdownNow();
         sInstance = null;
