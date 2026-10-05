@@ -68,8 +68,10 @@ public final class PlaylistSegments {
     }
 
     /**
-     * 相对/绝对分片 URL 解析: 绝对 URL(http/https/file)原样; 相对路径按 base 的目录部分拼接.
-     * 不依赖 android.net.Uri.resolve(本地单测无 android 运行时, 手工拼更可控).
+     * 相对/绝对分片 URL 解析 — 与 media3 {@code Uri.resolve} 语义对齐(RFC 3986):
+     * 绝对 URL(http/https/file)原样; 以 {@code /} 开头 → 替换为 base 的 scheme://authority;
+     * 其余相对路径 → base 目录拼接, 并归一化 {@code ./} 与 {@code ../} 段。
+     * 不依赖 android.net.Uri.resolve(本地单测无 android 运行时, 手工拼更可控且可测)。
      */
     private static String resolveUrl(String base, String url) {
         String u = url.trim();
@@ -77,9 +79,49 @@ public final class PlaylistSegments {
             return u;
         }
         if (base == null || base.isEmpty()) return u;
+        // 以 / 开头的路径 → 替换 base 的 scheme://authority 部分(与 Uri.resolve 一致)
+        if (u.startsWith("/")) {
+            int schemeEnd = base.indexOf("://");
+            if (schemeEnd > 0) {
+                int authEnd = base.indexOf('/', schemeEnd + 3);
+                String authority = authEnd > 0 ? base.substring(0, authEnd) : base;
+                return authority + u;
+            }
+            return u;
+        }
+        // 相对路径 → base 目录 + u, 归一化点段
         int slash = base.lastIndexOf('/');
         String dir = slash >= 0 ? base.substring(0, slash + 1) : base + "/";
-        return dir + u;
+        return normalizeDots(dir + u);
+    }
+
+    /** 归一化 ./ 与 ../ 路径段(仅路径部分, query/fragment 原样保留) — 对齐 Uri.resolve. */
+    private static String normalizeDots(String url) {
+        int q = url.indexOf('?');
+        int f = url.indexOf('#');
+        int cut = url.length();
+        if (q >= 0) cut = Math.min(cut, q);
+        if (f >= 0) cut = Math.min(cut, f);
+        String path = url.substring(0, cut);
+        String suffix = url.substring(cut);
+        int scheme = path.indexOf("://");
+        if (scheme < 0) return url;
+        int pathStart = path.indexOf('/', scheme + 3);
+        if (pathStart < 0) return url; // 无路径, 无需归一化
+        String head = path.substring(0, pathStart); // scheme://authority
+        String[] segs = path.substring(pathStart).split("/");
+        java.util.ArrayDeque<String> stack = new java.util.ArrayDeque<>();
+        for (String s : segs) {
+            if (s.isEmpty() || s.equals(".")) continue;
+            if (s.equals("..")) {
+                if (!stack.isEmpty()) stack.pollLast(); // 越出根时丢弃(与 Uri.resolve 一致)
+                continue;
+            }
+            stack.addLast(s);
+        }
+        StringBuilder sb = new StringBuilder(head);
+        for (String s : stack) sb.append('/').append(s);
+        return sb.toString() + suffix;
     }
 
     /**

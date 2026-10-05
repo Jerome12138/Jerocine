@@ -27,7 +27,8 @@ public final class LocalPlayback {
         int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
         if (slash >= 0) name = name.substring(slash + 1);
         try {
-            name = URLDecoder.decode(name, StandardCharsets.UTF_8.name());
+            // URLDecoder 会把 '+' 解成空格 → 先转义为 %2B, 文件名里的 + 才能保留
+            name = URLDecoder.decode(name.replace("+", "%2B"), StandardCharsets.UTF_8.name());
         } catch (Exception ignore) {
         }
         name = name.trim();

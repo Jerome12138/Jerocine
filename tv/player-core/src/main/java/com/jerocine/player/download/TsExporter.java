@@ -50,6 +50,8 @@ public final class TsExporter {
     private final SimpleCache downloadCache;
     /** 共享单线程池 — 导出任务互不阻塞, 避免每次 new 线程池堆积. */
     private static final ExecutorService SHARED_WORKER = Executors.newSingleThreadExecutor();
+    /** 主线程 Handler(导出回调) — 静态复用, 避免每次 new. */
+    private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
 
     public TsExporter(Context context, SimpleCache downloadCache) {
         this.appContext = context.getApplicationContext();
@@ -180,7 +182,11 @@ public final class TsExporter {
             MediaScannerConnection.scanFile(appContext, new String[]{dest.getAbsolutePath()}, null, null);
             return dest.getAbsolutePath();
         } catch (Exception e) {
-            File fallback = new File(appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName);
+            File dir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (dir == null) {
+                throw new IOException("无法获取应用下载目录");
+            }
+            File fallback = new File(dir, fileName);
             if (fallback.getParentFile() != null) fallback.getParentFile().mkdirs();
             copyFile(tmp, fallback);
             return fallback.getAbsolutePath() + "(无存储权限, 已存应用目录)";
@@ -209,6 +215,6 @@ public final class TsExporter {
     }
 
     private void post(Runnable r) {
-        new android.os.Handler(android.os.Looper.getMainLooper()).post(r);
+        MAIN.post(r);
     }
 }

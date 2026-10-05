@@ -44,6 +44,15 @@ public final class BufferPrefetcher {
 
     private static final String TAG = "BufferPrefetcher";
     private static final String UA = "Jerocine/1.0 (Android)";
+    /** 公共 HTTP 客户端(拉清单 + 写分片) — 避免每次预取新建 OkHttpClient. */
+    private static final OkHttpClient HTTP = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build();
 
     public interface ProgressListener {
         /** 主线程回调: 已缓存 / 目标 分钟数(0~1 之间语义见实现). */
@@ -106,11 +115,7 @@ public final class BufferPrefetcher {
         double targetSec = 0;
         for (int i = 0; i < end; i++) targetSec += segments.get(i).durationSeconds;
 
-        OkHttpClient http = new OkHttpClient.Builder()
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .build();
-        OkHttpDataSource upstream = new OkHttpDataSource.Factory(http)
+        OkHttpDataSource upstream = new OkHttpDataSource.Factory(HTTP)
                 .setUserAgent(UA)
                 .createDataSource();
 
@@ -157,12 +162,8 @@ public final class BufferPrefetcher {
     }
 
     private byte[] fetch(String url) throws IOException {
-        OkHttpClient client = new OkHttpClient.Builder()
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .build();
         Request req = new Request.Builder().url(url).header("User-Agent", UA).build();
-        try (Response resp = client.newCall(req).execute()) {
+        try (Response resp = HTTP.newCall(req).execute()) {
             if (!resp.isSuccessful() || resp.body() == null) {
                 throw new IOException("HTTP " + resp.code());
             }

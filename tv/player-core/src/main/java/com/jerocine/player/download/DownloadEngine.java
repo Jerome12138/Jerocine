@@ -209,8 +209,23 @@ public final class DownloadEngine {
         manager.setStopReason(taskId, 1);
     }
 
-    /** 恢复/重试: 清 stop reason 并 resume. */
+    /**
+     * 恢复/重试: 清 stop reason 并 resume.
+     * FAILED 任务 media3 的 setStopReason 不会重启 → 重新发 AddDownload.
+     * 第 4 参 isRemoveFile=true: media3 对已存在同 id 任务会删旧缓存后完整重下
+     * (安全, 不抛 "Task already exists"; 代价是已缓存分片不保留, 全量重下).
+     */
     public void resume(String taskId) {
+        DownloadTask t = repository.get(taskId);
+        if (t != null && t.state == DownloadTask.STATE_FAILED) {
+            DownloadRequest request = new DownloadRequest.Builder(t.id, Uri.parse(t.srcUrl))
+                    .setMimeType("application/vnd.apple.mpegurl")
+                    .setData(t.id.getBytes(StandardCharsets.UTF_8))
+                    .build();
+            DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
+            // media3 会触发 onDownloadChanged(QUEUED/DOWNLOADING) → 业务表状态随之更新
+            return;
+        }
         manager.setStopReason(taskId, Download.STOP_REASON_NONE);
         manager.resumeDownloads();
     }
@@ -370,8 +385,13 @@ public final class DownloadEngine {
         private final CacheDataSource.Factory dsFactory;
         private final String proxyBase;
         private final java.util.Map<String, byte[]> prefetched;
+        /**
+         * 下载执行线程池. 注意**必须用缓存线程池**: DownloadManager 按 maxParallelDownloads(3)
+         * 并行调度多个 Downloader, 若这里共享单线程 executor, 所有集的分片加载会退化成串行,
+         * "集级并行 3" 形同虚设。cachedThreadPool 空闲 60s 自动回收, 无泄漏.
+         */
         private final java.util.concurrent.Executor executor =
-                Executors.newSingleThreadExecutor();
+                Executors.newCachedThreadPool();
 
         DownloaderFactoryImpl(CacheDataSource.Factory dsFactory, String proxyBase,
                               java.util.Map<String, byte[]> prefetched) {

@@ -78,4 +78,55 @@ public class PlaylistSegmentsTest {
         List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(SAMPLE, "https://x/");
         assertEquals(0, PlaylistSegments.rangeForMinutes(segs, 0));
     }
+
+    // ---- resolveUrl 对齐 media3 Uri.resolve(RFC 3986) 的回归用例 ----
+
+    @Test
+    public void resolve_parentDirReferenceNormalized() {
+        // 与 Uri.resolve("https://cdn/play/video/playlist.m3u8", "../hd/seg.ts") 一致
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(
+                "#EXTINF:5,\n../hd/seg.ts\n", "https://cdn/play/video/playlist.m3u8");
+        assertEquals("https://cdn/play/hd/seg.ts", segs.get(0).url);
+    }
+
+    @Test
+    public void resolve_rootRelativePathUsesAuthority() {
+        // 以 / 开头 → 替换 base 的 scheme://authority, 与 Uri.resolve 一致
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(
+                "#EXTINF:5,\n/video/seg.ts\n", "https://cdn.example.com/play/playlist.m3u8");
+        assertEquals("https://cdn.example.com/video/seg.ts", segs.get(0).url);
+    }
+
+    @Test
+    public void resolve_queryAndFragmentPreserved() {
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(
+                "#EXTINF:5,\nseg.ts?token=abc&x=1#frag\n", "https://cdn.example.com/play/playlist.m3u8");
+        assertEquals("https://cdn.example.com/play/seg.ts?token=abc&x=1#frag", segs.get(0).url);
+        // base 自身带 query 时, 相对拼接只取 base 的目录部分
+        List<PlaylistSegments.Segment> baseWithQuery = PlaylistSegments.parse(
+                "#EXTINF:5,\nseg.ts\n", "https://cdn.example.com/play/playlist.m3u8?token=9");
+        assertEquals("https://cdn.example.com/play/seg.ts", baseWithQuery.get(0).url);
+    }
+
+    @Test
+    public void resolve_dotSegmentsNormalized() {
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(
+                "#EXTINF:5,\n./seg.ts\n#EXTINF:5,\na/../b/seg.ts\n", "https://cdn.example.com/play/playlist.m3u8");
+        assertEquals("https://cdn.example.com/play/seg.ts", segs.get(0).url);
+        assertEquals("https://cdn.example.com/play/b/seg.ts", segs.get(1).url);
+    }
+
+    @Test
+    public void resolve_baseOnHostRoot() {
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(
+                "#EXTINF:5,\nseg.ts\n", "https://cdn.example.com/");
+        assertEquals("https://cdn.example.com/seg.ts", segs.get(0).url);
+    }
+
+    @Test
+    public void resolve_absoluteUrlUnchanged() {
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(
+                "#EXTINF:5,\nhttps://other.cdn/x/seg.ts\n", "https://cdn.example.com/play/playlist.m3u8");
+        assertEquals("https://other.cdn/x/seg.ts", segs.get(0).url);
+    }
 }

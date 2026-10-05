@@ -37,4 +37,19 @@ public class LocalPlaybackTest {
         // 文件管理器 URI 常带 percent-encoding
         assertEquals("我的 视频", LocalPlayback.displayTitle("我的%20视频.mp4", "x"));
     }
+
+    @Test
+    public void displayTitle_plusSignPreserved() {
+        // URLDecoder 会把 '+' 当空格 — 修复后文件名中的 + 必须保留
+        assertEquals("The+Show", LocalPlayback.displayTitle("The+Show.ts", "x"));
+        assertEquals("A+B+C", LocalPlayback.displayTitle("content://x/A+B+C.mp4", "x"));
+    }
+
+    @Test
+    public void displayTitle_encodedPlusDecoded() {
+        // 真实编码的 %2B 才解码为 +
+        assertEquals("A+B", LocalPlayback.displayTitle("A%2BB.ts", "x"));
+        // 混合: %20 是空格, 字面 + 保留
+        assertEquals("我的 电影+1", LocalPlayback.displayTitle("我的%20电影+1.ts", "x"));
+    }
 }

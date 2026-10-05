@@ -604,6 +604,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
     private void emitProgressNow() {
         try {
+            if (session.localPlayback) return; // 本地模式无影片/剧集上下文, 不上报进度
             if (session.player == null || skipHelper.inNoRecordTail()) return;
             JSONObject p = new JSONObject();
             p.put("filmId", filmId());
