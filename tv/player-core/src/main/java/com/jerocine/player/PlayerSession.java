@@ -99,6 +99,14 @@ public class PlayerSession {
     // ===== 播放器 =====
     ExoPlayer player;
 
+    // ===== 本地文件播放(文件管理器「打开方式」/ 应用内 SAF 选文件) =====
+    /** 本地模式: 不经 HLS 广告过滤链路, 用 DefaultMediaSourceFactory 自动识别 mp4/ts/m3u8. */
+    boolean localPlayback = false;
+    /** 本地文件 content:// / file:// URI. */
+    String localUri = "";
+    /** 本地文件显示名(文件名, 无则 fallback). */
+    String localTitle = "";
+
     // ===== 片源 =====
     final ArrayList<SourceData> sourceList = new ArrayList<>();
     int currentSourceIndex = 0;
