@@ -803,9 +803,11 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         // 无需维护常驻按钮引用; 开关切换的即时反馈由 toggle() 里的 centerToast 承担.
     }
 
-    /** 面板显示时绑定右上角「⋮ 更多」菜单(每次现取, 与其它懒加载控件一致). */
+    /** 面板显示时绑定右上角「⋮ 更多」菜单(每次现取, 与其它懒加载控件一致).
+     *  注意: btn_more 在 activity_player.xml 的标题栏(title_bar)里, 是 PlayerView 的兄弟节点,
+     *  必须用 Activity 根视图 findViewById —— playerView.findViewById 会返回 null, 点击无响应. */
     private void bindMoreMenu() {
-        Button more = playerView != null ? playerView.findViewById(R.id.btn_more) : null;
+        Button more = findViewById(R.id.btn_more);
         if (more == null) return;
         more.setOnClickListener(v -> showMoreMenu());
     }
