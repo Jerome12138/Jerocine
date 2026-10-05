@@ -22,12 +22,28 @@
         android:theme="@style/Theme.JerocineTV">
 
         <!-- 原生播放器: 公共模块 player-core 的实现(tv 壳不再自带一份播放器副本) -->
+        <!-- exported=true + ACTION_VIEW: 支持系统文件管理器「打开方式」直接调用本地视频播放 -->
         <activity
             android:name="com.jerocine.player.PlayerActivity"
-            android:exported="false"
+            android:exported="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.JerocineTV.Player" />
+            android:theme="@style/Theme.JerocineTV.Player">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <!-- .ts 兜底: 部分文件管理器把 .ts 识别为 application/octet-stream -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:pathPattern=".*\\.ts" />
+            </intent-filter>
+        </activity>
 
         <!-- 下载管理页(公共模块, 从播放器「⋮ 更多→下载管理」与设置页进入) -->
         <activity
