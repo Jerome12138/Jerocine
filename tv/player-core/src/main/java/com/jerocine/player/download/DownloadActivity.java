@@ -388,6 +388,8 @@ public class DownloadActivity extends AppCompatActivity {
         List<String> titles = src.titles;
         List<Integer> eps = new ArrayList<>(selected);
         eps.sort(Integer::compareTo);
+        int added = 0;
+        int skipped = 0;
         for (int ep : eps) {
             if (ep < 0 || ep >= urls.size()) continue;
             DownloadTask t = new DownloadTask();
@@ -402,11 +404,21 @@ public class DownloadActivity extends AppCompatActivity {
             t.cacheDir = engine.episodeCacheDir(t).getAbsolutePath();
             t.createdAt = System.currentTimeMillis();
             t.updatedAt = t.createdAt;
+            // 已存在的任务跳过(engine 内部 insertIgnore 幂等兜底; 这里先统计, 提示才准确)
+            if (engine.repository().get(t.id) != null) {
+                skipped++;
+                continue;
+            }
             engine.enqueue(t);
+            added++;
         }
         selected.clear();
         renderEpisodeList(currentSegment);
-        toast("已加入 " + eps.size() + " 个下载任务");
+        if (added > 0) {
+            toast(added + " 个任务已加入" + (skipped > 0 ? " · " + skipped + " 个已存在" : ""));
+        } else if (skipped > 0) {
+            toast("所选集数均已存在下载任务");
+        }
         switchTab(1);
     }
 
@@ -478,12 +490,8 @@ public class DownloadActivity extends AppCompatActivity {
                 DownloadTask tt = (DownloadTask) v.getTag();
                 if (tt.state == DownloadTask.STATE_PAUSED || tt.state == DownloadTask.STATE_FAILED) {
                     engine.resume(tt.id);
-                } else if (tt.state == DownloadTask.STATE_DOWNLOADING || tt.state == DownloadTask.STATE_QUEUED) {
+                } else { // QUEUED / DOWNLOADING → 暂停
                     engine.pause(tt.id);
-                } else if (tt.state == DownloadTask.STATE_QUEUED) {
-                    engine.pause(tt.id);
-                } else if (tt.state == DownloadTask.STATE_PAUSED) {
-                    engine.resume(tt.id);
                 }
                 refreshTasks();
             });
@@ -665,10 +673,21 @@ public class DownloadActivity extends AppCompatActivity {
     }
 
     private String exportedText(DownloadTask t) {
-        long mb = t.totalBytes / 1024 / 1024;
-        return t.exportedPath != null && !t.exportedPath.isEmpty()
-                ? "已导出 · " + mb + "MB"
-                : mb + "MB";
+        long bytes = t.totalBytes;
+        if (t.exportedPath != null && !t.exportedPath.isEmpty()) {
+            return "已导出 · " + sizeText(bytes);
+        }
+        return sizeText(bytes);
+    }
+
+    private static String sizeText(long bytes) {
+        if (bytes >= 1024 * 1024) {
+            return String.format(Locale.US, "%.1fMB", bytes / 1024f / 1024f);
+        }
+        if (bytes >= 1024) {
+            return String.format(Locale.US, "%dKB", bytes / 1024);
+        }
+        return "0KB";
     }
 
     /** 离线播放: 本地过滤后清单 + 下载缓存(PlayerActivity 支持 EXTRA_CACHE_DIR 切换缓存实例). */

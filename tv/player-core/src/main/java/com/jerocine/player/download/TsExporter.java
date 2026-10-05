@@ -48,7 +48,8 @@ public final class TsExporter {
 
     private final Context appContext;
     private final SimpleCache downloadCache;
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    /** 共享单线程池 — 导出任务互不阻塞, 避免每次 new 线程池堆积. */
+    private static final ExecutorService SHARED_WORKER = Executors.newSingleThreadExecutor();
 
     public TsExporter(Context context, SimpleCache downloadCache) {
         this.appContext = context.getApplicationContext();
@@ -59,7 +60,7 @@ public final class TsExporter {
      * 导出任务(异步). 内部做 EXPORTING 状态迁移防并发; 导出中重复调用 → 回调 onError("正在导出").
      */
     public void export(DownloadRepository repo, DownloadTask task, Callback cb) {
-        worker.execute(() -> {
+        SHARED_WORKER.execute(() -> {
             try {
                 exportInternal(repo, task, cb);
             } catch (Exception e) {
