@@ -147,6 +147,11 @@ public final class DownloadEngine {
         return cacheRoot;
     }
 
+    /** 下载缓存区实例(导出 .ts 用 TsExporter 直读分片). */
+    public SimpleCache cache() {
+        return cache;
+    }
+
     /** 某集的下载缓存目录(放过滤后清单/导出临时文件, SimpleCache 数据在其父目录). */
     public File episodeCacheDir(DownloadTask task) {
         return new File(cacheRoot, task.filmId + File.separator + task.episode);

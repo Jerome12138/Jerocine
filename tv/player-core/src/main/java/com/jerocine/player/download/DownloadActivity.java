@@ -417,8 +417,8 @@ public class DownloadActivity extends AppCompatActivity {
         doneTasks.clear();
         inProgress.clear();
         for (DownloadTask t : engine.repository().listAll()) {
-            if (t.state == DownloadTask.STATE_COMPLETED) {
-                doneTasks.add(t);
+            if (t.state == DownloadTask.STATE_COMPLETED || t.state == DownloadTask.STATE_EXPORTING) {
+                doneTasks.add(t); // 导出中仍属"已完成"(状态由 EXPORTING 防并发, 完成回 COMPLETED)
             } else if (t.state == DownloadTask.STATE_QUEUED
                     || t.state == DownloadTask.STATE_DOWNLOADING) {
                 activeTasks.add(t);
@@ -511,21 +511,83 @@ public class DownloadActivity extends AppCompatActivity {
         public View getView(int position, View convertView, ViewGroup parent) {
             DownloadTask t = doneTasks.get(position);
             if (convertView == null) {
-                convertView = makeTaskRow();
+                convertView = makeDoneRow();
             }
             LinearLayout row = (LinearLayout) convertView;
             TextView name = (TextView) row.getChildAt(0);
-            ProgressBar bar = (ProgressBar) row.getChildAt(1);
-            TextView status = (TextView) row.getChildAt(2);
-            Button action = (Button) row.getChildAt(3);
+            TextView status = (TextView) row.getChildAt(1);
+            Button exportBtn = (Button) row.getChildAt(2);
+            Button playBtn = (Button) row.getChildAt(3);
             name.setText(label(t));
-            bar.setVisibility(View.GONE);
             status.setText(exportedText(t));
-            action.setText("播放");
-            action.setTag(t);
-            action.setOnClickListener(v -> playOffline((DownloadTask) v.getTag()));
+            boolean exporting = t.state == DownloadTask.STATE_EXPORTING;
+            exportBtn.setText(exporting ? "导出中" : "导出");
+            exportBtn.setEnabled(!exporting);
+            exportBtn.setTag(t);
+            exportBtn.setOnClickListener(v -> exportTs((DownloadTask) v.getTag()));
+            playBtn.setText("播放");
+            playBtn.setTag(t);
+            playBtn.setOnClickListener(v -> playOffline((DownloadTask) v.getTag()));
             return convertView;
         }
+    }
+
+    /** 已完成行: 名 + 状态 + [导出][播放] 双按钮. */
+    private View makeDoneRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), dp(10), dp(16), dp(10));
+
+        TextView name = new TextView(this);
+        name.setTextSize(14);
+        name.setTextColor((int) 0xFFE6FFFFFFL);
+        name.setMaxLines(1);
+        row.addView(name, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView status = new TextView(this);
+        status.setTextSize(12);
+        status.setTextColor((int) 0xFF80FFFFFFL);
+        status.setGravity(Gravity.CENTER);
+        row.addView(status, new LinearLayout.LayoutParams(dp(74), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Button exportBtn = new Button(this);
+        exportBtn.setTextSize(13);
+        exportBtn.setAllCaps(false);
+        exportBtn.setMinWidth(dp(64));
+        exportBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
+        styleChip(exportBtn, false);
+        row.addView(exportBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Button playBtn = new Button(this);
+        playBtn.setTextSize(13);
+        playBtn.setAllCaps(false);
+        playBtn.setMinWidth(dp(64));
+        playBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
+        styleChip(playBtn, true);
+        row.addView(playBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return row;
+    }
+
+    /** 导出 .ts: 下载缓存分片按序拼接 → 系统下载目录(MediaStore Downloads). */
+    private void exportTs(DownloadTask t) {
+        TsExporter exporter = new TsExporter(this, engine.cache());
+        exporter.export(engine.repository(), t, new TsExporter.Callback() {
+            @Override
+            public void onExported(String path) {
+                toast("已导出: " + path);
+                refreshTasks();
+            }
+
+            @Override
+            public void onError(String message) {
+                toast(message);
+                refreshTasks();
+            }
+        });
     }
 
     private View makeTaskRow() {
