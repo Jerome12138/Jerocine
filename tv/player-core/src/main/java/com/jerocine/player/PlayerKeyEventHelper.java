@@ -135,6 +135,11 @@ public class PlayerKeyEventHelper {
      * 保证两条路径行为一致.
      */
     public boolean handleBack() {
+        // 本地模式: 无剧集上下文, 返回直接退出(回文件管理器/上一页), 不做双击确认
+        if (session.localPlayback) {
+            session.host().finishPlayer();
+            return true;
+        }
         final PlayerView pv = session.host().playerView();
         boolean controllerVisible = pv != null && pv.isControllerFullyVisible();
         if (controllerVisible) {

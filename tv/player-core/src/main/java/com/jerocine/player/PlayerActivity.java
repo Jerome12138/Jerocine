@@ -2,6 +2,7 @@ package com.jerocine.player;
 
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
 import android.os.Handler;
@@ -36,6 +37,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.LoadControl;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
 
 import org.json.JSONObject;
@@ -155,6 +157,16 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
         session = new PlayerSession(this);
 
+        // 本地文件打开(文件管理器「打开方式」ACTION_VIEW): 立即标记本地模式,
+        // 后续跳过 HLS 广告过滤链路, 用 DefaultMediaSourceFactory 自动识别 mp4/ts/m3u8.
+        if (LocalPlayback.isLocalAction(getIntent().getAction()) && getIntent().getData() != null) {
+            session.localPlayback = true;
+            session.localUri = getIntent().getData().toString();
+            session.localTitle = LocalPlayback.displayTitle(
+                    getIntent().getData().getLastPathSegment(),
+                    getIntent().getStringExtra(EXTRA_TITLE));
+        }
+
         playerView = findViewById(R.id.player_view);
         bufferSpinner = findViewById(R.id.buffer_spinner);
         titleText = findViewById(R.id.title_text);
@@ -205,11 +217,15 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
                 dotSpeed = playerView.findViewById(R.id.dot_speed);
                 dotSkip = playerView.findViewById(R.id.dot_skip);
-                dialogHelper.bindControlButtons();
-                bindMoreMenu();
-                renderAdFilterSwitch(session.adFilterOn);
-                renderSpeedDot(isSpeedOn());
-                renderSkipDot(session.skipEnabled);
+                if (session.localPlayback) {
+                    hideOnlineControls(); // 本地模式: 隐藏在线专属控件(过滤/换源/选集/上下集/跳过)
+                } else {
+                    dialogHelper.bindControlButtons();
+                    renderAdFilterSwitch(session.adFilterOn);
+                    renderSpeedDot(isSpeedOn());
+                    renderSkipDot(session.skipEnabled);
+                }
+                bindMoreMenu(); // 在线与本地模式都要(本地=选择本地文件/诊断)
                 playerView.post(() -> {
                     View prog = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
                     if (prog != null) prog.requestFocus();
@@ -222,8 +238,12 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
         applySkipSettingsFromIntent(getIntent());
 
-        initPlayer();
-        sourceHelper.startFromIntent(getIntent());
+        if (session.localPlayback) {
+            initLocalPlayer();
+        } else {
+            initPlayer();
+            sourceHelper.startFromIntent(getIntent());
+        }
     }
 
     /** 账号记忆: 壳层按 mid 从账号/本地取跳过秒数传来(默认 90/60, 关闭则传 0); 值 > 0 即视为已开启. */
@@ -234,6 +254,54 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         session.skipOutroMs = oMs > 0 ? oMs : PlayerSkipHelper.DEFAULT_SKIP_OUTRO_MS;
         session.skipEnabled = (iMs > 0 || oMs > 0);
         session.autoNext = intent.getBooleanExtra(EXTRA_AUTO_NEXT, true);
+    }
+
+    /**
+     * 本地文件播放器: 不经 HLS 广告过滤链路, 用 DefaultMediaSourceFactory 按扩展名自动识别
+     * mp4 / 裸 ts / 本地 m3u8(相对分片由 media3 按文件目录解析). 无缓存(文件已本地),
+     * 复用同一套渲染器/缓冲参数/分辨率角标.
+     */
+    private void initLocalPlayer() {
+        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
+                .setEnableDecoderFallback(true)
+                .forceEnableMediaCodecAsynchronousQueueing();
+        LoadControl loadControl = new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(30_000, 120_000, 1_500, 2_500)
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBackBuffer(30_000, true)
+                .build();
+        final ExoPlayer player = new ExoPlayer.Builder(this, renderersFactory)
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(this))
+                .setLoadControl(loadControl)
+                .build();
+        session.player = player;
+        playerView.setPlayer(player);
+
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                lastPlayerState = state;
+                bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
+            }
+
+            @Override
+            public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
+                if (resolutionBadge == null) return;
+                String label = PlayerQuality.resolutionLabel(videoSize.width, videoSize.height);
+                resolutionBadge.setVisibility(label == null ? View.GONE : View.VISIBLE);
+                if (label != null) resolutionBadge.setText(label);
+            }
+
+            @Override
+            public void onPlayerError(@NonNull PlaybackException error) {
+                showCenterToast("本地文件播放失败: " + error.getErrorCodeName(), 2600);
+            }
+        });
+
+        titleText.setText(session.localTitle.isEmpty() ? "本地视频" : session.localTitle);
+        player.setMediaItem(MediaItem.fromUri(Uri.parse(session.localUri)));
+        player.prepare();
+        player.setPlayWhenReady(true);
     }
 
     private void initPlayer() {
@@ -559,7 +627,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         progressHandler.removeCallbacksAndMessages(null);
         final ExoPlayer player = session.player;
         boolean playbackEnded = player != null && lastPlayerState == Player.STATE_ENDED;
-        if (playbackEnded || !(player != null && skipHelper.inNoRecordTail())) {
+        // 本地模式: 不向壳层上报播放结局(无 web 心跳/无剧集上下文)
+        if (!session.localPlayback
+                && (playbackEnded || !(player != null && skipHelper.inNoRecordTail()))) {
             try {
                 JSONObject p = new JSONObject();
                 p.put("filmId", filmId());
@@ -584,6 +654,13 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        // 本地文件再打开(文件管理器在应用存活时再次调起 / 本地模式再选文件):
+        // recreate 重走 onCreate 装配本地模式, 旧实例走 onDestroy 释放.
+        if (LocalPlayback.isLocalAction(intent.getAction()) && intent.getData() != null) {
+            setIntent(intent);
+            recreate();
+            return;
+        }
         setIntent(intent);
         // 与 onCreate 一致重读代理 base(漏读会致 relaunch 后 proxyBase 用空值 → 切集"过滤未生效")
         session.proxyBase = adFilterHelper.resolveProxyBase(intent);
@@ -734,10 +811,37 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     }
 
     /**
+     * 本地模式: 隐藏在线专属控件(广告过滤/换源/选集/上下集/跳片头 + 标题栏角标),
+     * 保留: 倍速/进度/手势/分辨率/更多(本地播放入口与诊断).
+     */
+    private void hideOnlineControls() {
+        int[] inPlayerView = {R.id.btn_ad_filter, R.id.dot_ad_filter, R.id.btn_source,
+                R.id.btn_episodes, R.id.btn_prev, R.id.btn_next, R.id.btn_skip, R.id.dot_skip};
+        for (int id : inPlayerView) {
+            View v = playerView != null ? playerView.findViewById(id) : null;
+            if (v != null) v.setVisibility(View.GONE);
+        }
+        if (adFilterBadge != null) adFilterBadge.setVisibility(View.GONE);
+        if (episodesCount != null) episodesCount.setVisibility(View.GONE);
+    }
+
+    /**
      * 更多菜单 — 收纳非常用项(用户拍板): 下载管理 / 缓存缓冲 / 中转 / 分辨率 / 诊断.
      * 播放器右上角保留原有显示(过滤广告/倍速/分辨率/总集数)不变.
+     * 本地模式: 只留「选择本地文件播放 / 诊断信息」.
      */
     private void showMoreMenu() {
+        if (session.localPlayback) {
+            final String[] localItems = {"选择本地文件播放", "诊断信息"};
+            new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
+                    .setTitle("更多")
+                    .setItems(localItems, (d, i) -> {
+                        if (i == 0) openLocalFilePicker();
+                        else if (i == 1) showDiagnostics();
+                    })
+                    .create().show();
+            return;
+        }
         final String[] items = {
                 "下载管理",
                 "缓存缓冲",
@@ -770,6 +874,42 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     }
                 })
                 .create().show();
+    }
+
+    /** 本地播放 SAF 选文件请求码. */
+    private static final int REQ_OPEN_LOCAL = 4001;
+
+    /** 更多菜单 → 选择本地文件播放: SAF 选文件 → 持久读授权 → 本地模式新实例承载. */
+    private void openLocalFilePicker() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*"); // .ts 常被识别为 application/octet-stream, 放开类型让用户自选
+        try {
+            startActivityForResult(i, REQ_OPEN_LOCAL);
+        } catch (Exception e) {
+            showCenterToast("系统文件选择器不可用", 1800);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_OPEN_LOCAL || resultCode != RESULT_OK || data == null) return;
+        Uri uri = data.getData();
+        if (uri == null) return;
+        try {
+            getContentResolver().takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (SecurityException ignore) {
+            // 部分文件管理器只给本次临时授权 — 当前进程播放不受影响, 忽略
+        }
+        Intent play = new Intent(this, PlayerActivity.class);
+        play.setAction(Intent.ACTION_VIEW);
+        play.setData(uri);
+        play.putExtra(EXTRA_TITLE, LocalPlayback.displayTitle(uri.getLastPathSegment(), null));
+        play.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(play);
+        finish();
     }
 
     /** 更多菜单 → 缓存缓冲: 选时长, 暂停播放后后台预取前 N 分钟分片(写播放缓存区). */
