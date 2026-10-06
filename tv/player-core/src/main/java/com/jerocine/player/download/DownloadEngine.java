@@ -63,7 +63,8 @@ public final class DownloadEngine {
     private static DownloadEngine sInstance;
 
     private final Context appContext;
-    private final String proxyBase;
+    /** 广告过滤接口 base — 可变(get() 时更新), 仅影响后续 filter 调用, 不影响下载引擎实例. */
+    private String proxyBase;
     private final File cacheRoot;
     private final SimpleCache cache;
     private final DownloadManager manager;
@@ -77,10 +78,14 @@ public final class DownloadEngine {
     private final OkHttpClient playlistClient;
 
     public static synchronized DownloadEngine get(Context context, String proxyBase) {
-        if (sInstance == null || !sInstance.proxyBase.equals(proxyBase == null ? "" : proxyBase)) {
-            if (sInstance != null) sInstance.release();
+        if (sInstance == null) {
             sInstance = new DownloadEngine(context, proxyBase);
+            return sInstance;
         }
+        // 实例已存在: 只更新过滤接口 base(不 release 重建)。
+        // 之前"proxyBase 不同则重建"会 release 掉在途下载的 manager,
+        // 导致 DownloadActivity/service helper 持有的旧实例失效 → 任务永远 QUEUED、暂停无效。
+        sInstance.proxyBase = proxyBase == null ? "" : proxyBase;
         return sInstance;
     }
 
@@ -126,6 +131,10 @@ public final class DownloadEngine {
         manager.setMaxParallelDownloads(MAX_PARALLEL);
         manager.setMinRetryCount(2);
         manager.addListener(managerListener);
+        // media3 DownloadManager 构造后 downloadsPaused=true, 只有 service 首次 onCreate 会
+        // resumeDownloads(); 若 helper 已存在或 manager 被恢复重建, 将永远不恢复 → 任务卡 QUEUED。
+        // 这里主动 resume 一次, 不依赖 service 时序, 保证任何创建方入队的任务都能启动。
+        manager.resumeDownloads();
     }
 
     /** 保存 listener 引用 — release 时按实例移除(removeListener(null) 语义不明确, 避免). */
@@ -264,10 +273,14 @@ public final class DownloadEngine {
         next.totalBytes = d.contentLength;
         switch (d.state) {
             case Download.STATE_QUEUED:
-                next.state = DownloadTask.STATE_QUEUED;
+                // media3 setStopReason 只改 stopReason 字段、不改 state → 暂停后 state 仍可能是
+                // QUEUED/DOWNLOADING。映射必须以 stopReason 为准, 否则"暂停"在 UI 上看起来无效。
+                next.state = d.stopReason == 0
+                        ? DownloadTask.STATE_QUEUED : DownloadTask.STATE_PAUSED;
                 break;
             case Download.STATE_DOWNLOADING:
-                next.state = DownloadTask.STATE_DOWNLOADING;
+                next.state = d.stopReason == 0
+                        ? DownloadTask.STATE_DOWNLOADING : DownloadTask.STATE_PAUSED;
                 break;
             case Download.STATE_COMPLETED:
                 next.state = DownloadTask.STATE_COMPLETED;
