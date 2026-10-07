@@ -132,13 +132,21 @@ public final class PlaylistSegments {
         int i = line.indexOf(key);
         if (i < 0) return null;
         String v = line.substring(i + key.length());
+        String out;
         if (key.endsWith("\"")) {
             int end = v.indexOf('"');
             return end > 0 ? v.substring(0, end) : null;
         }
         // 无引号值: 到下一个逗号为止
         int comma = v.indexOf(',');
-        return (comma >= 0 ? v.substring(0, comma) : v).trim();
+        out = (comma >= 0 ? v.substring(0, comma) : v).trim();
+        // HLS 允许属性值带引号: METHOD="AES-128"(RFC 8216 §4.3.4.2)。
+        // 不剥掉会让 equalsIgnoreCase("NONE") 判断失效 → 明文流被误判为加密而拦下,
+        // 且用户看到的加密方式是带引号的怪字符串。
+        if (out.length() >= 2 && out.charAt(0) == '"' && out.charAt(out.length() - 1) == '"') {
+            out = out.substring(1, out.length() - 1);
+        }
+        return out;
     }
 
     /**
@@ -284,6 +292,11 @@ public final class PlaylistSegments {
         return segments.size();
     }
 
-    /** 时长未知时"缓冲 N 分钟"的兜底分片上限(约一集常规分片量级, 不会放大成全集)。 */
-    private static final int MINUTES_FALLBACK_CAP = 60;
+    /**
+     * 时长未知时"缓冲 N 分钟"的兜底分片上限(约一集常规分片量级, 不会放大成全集)。
+     *
+     * <p>公开可见是为了让单测能引用它构造"远超上限"的输入 —— 否则用例里写死一个魔法数,
+     * 常量将来调大就会变成静默的假通过。
+     */
+    public static final int MINUTES_FALLBACK_CAP = 60;
 }

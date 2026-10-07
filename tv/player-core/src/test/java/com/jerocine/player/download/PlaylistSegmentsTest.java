@@ -93,6 +93,33 @@ public class PlaylistSegmentsTest {
         assertNull(PlaylistSegments.inspect(pl).exportBlockReason());
     }
 
+    // HLS 允许属性值带引号(RFC 8216§4.3.4.2)。不剥引号会让 equalsIgnoreCase("NONE")
+    // 失效 → 明文流被误判为加密而拦下, 且用户看到的加密方式是带引号的怪字符串。
+    @Test
+    public void inspect_quotedAttributeValuesUnwrapped() {
+        String pl = "#EXTM3U\n#EXT-X-KEY:METHOD=\"NONE\"\n#EXTINF:10.0,\nseg0.ts\n#EXT-X-ENDLIST\n";
+        PlaylistSegments.Capabilities c = PlaylistSegments.inspect(pl);
+        assertEquals("NONE", c.encryptionMethod);
+        assertNull("带引号的 METHOD=NONE 必须放行", c.exportBlockReason());
+    }
+
+    @Test
+    public void inspect_quotedAes128StillDetected() {
+        String pl = "#EXTM3U\n#EXT-X-KEY:METHOD=\"AES-128\",URI=\"k.bin\"\n"
+                + "#EXTINF:10.0,\nseg0.ts\n#EXT-X-ENDLIST\n";
+        PlaylistSegments.Capabilities c = PlaylistSegments.inspect(pl);
+        assertEquals("AES-128", c.encryptionMethod);
+        assertNotNull(c.exportBlockReason());
+    }
+
+    // KEY 标签的属性顺序不固定: URI 在前、METHOD 在后也要能取到
+    @Test
+    public void inspect_keyAttributesInAnyOrder() {
+        String pl = "#EXTM3U\n#EXT-X-KEY:URI=\"key.bin\",METHOD=AES-128\n"
+                + "#EXTINF:10.0,\nseg0.ts\n#EXT-X-ENDLIST\n";
+        assertEquals("AES-128", PlaylistSegments.inspect(pl).encryptionMethod);
+    }
+
     @Test
     public void inspect_fmp4InitBlocksExport() {
         // EXT-X-MAP 的 init 分片(ftyp+moov)不在分片列表里, 且 .m4s 不是 MPEG-TS
@@ -160,16 +187,20 @@ public class PlaylistSegmentsTest {
 
     @Test
     public void rangeForMinutes_allZeroDurationsCapped() {
-        // 无 EXTINF → 时长全 0 → 修复前返回全集(等于"缓冲 N 分钟"下载整集)。
-        // 用例需超过封顶片数才能验证封顶, 这里构造 80 片。
+        // 无 EXTINF → 时长全 0 → 修复前 return segments.size(), "缓冲 N 分钟"变缓冲整集。
+        // 构造远超封顶值的分片数(cap * 3), 这样常量将来调大到该量级时用例会明确失败,
+        // 而不会因为"分片数 <= cap"变成静默的假通过。
+        int n = PlaylistSegments.MINUTES_FALLBACK_CAP * 3;
         StringBuilder pl = new StringBuilder("#EXTM3U\n");
-        for (int i = 0; i < 80; i++) pl.append("seg").append(i).append(".ts\n");
+        for (int i = 0; i < n; i++) pl.append("seg").append(i).append(".ts\n");
         pl.append("#EXT-X-ENDLIST\n");
         List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(pl.toString(), "https://x/");
-        assertEquals(80, segs.size());
+        assertEquals(n, segs.size());
         int end = PlaylistSegments.rangeForMinutes(segs, 5.0);
-        assertTrue("时长未知时不应返回全集(实际 " + end + "/80)",
+        assertTrue("时长未知时不应返回全集(实际 " + end + "/" + n + ")",
                 end < segs.size());
+        assertEquals("封顶值应恰好是 MINUTES_FALLBACK_CAP",
+                PlaylistSegments.MINUTES_FALLBACK_CAP, end);
         assertTrue(end > 0);
     }
 
