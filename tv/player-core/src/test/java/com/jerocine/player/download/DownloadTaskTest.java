@@ -91,6 +91,52 @@ public class DownloadTaskTest {
         assertEquals("E5.ts", DownloadTask.exportFileName(null, 4));
     }
 
+    // ============================ 路径片段净化(防路径穿越) ============================
+
+    // PlayerActivity 已 exported=true(为接 ACTION_VIEW), 任意 App 可注入 film_id。
+    // 未净化时 "../../databases/x" 拼进路径 + remove() 的递归删除 = 删掉私有目录树任意路径。
+    @Test
+    public void safeSegmentStripsPathSeparators() {
+        assertEquals(".._.._databases_x", DownloadTask.safeSegment("../../databases/x"));
+        assertEquals(".._.._databases_x", DownloadTask.safeSegment("..\\..\\databases\\x"));
+        assertFalse("净化结果绝不能含路径分隔符",
+                DownloadTask.safeSegment("../x").contains("/"));
+        assertFalse(DownloadTask.safeSegment("..\\x").contains("\\"));
+    }
+
+    @Test
+    public void safeSegmentKeepsNormalIds() {
+        // 正常形态不该被破坏: 影片 id 常含数字/点/横线
+        assertEquals("3.10", DownloadTask.safeSegment("3.10"));
+        assertEquals("film-2", DownloadTask.safeSegment("film-2"));
+        assertEquals("abc123", DownloadTask.safeSegment("abc123"));
+    }
+
+    @Test
+    public void safeSegmentRejectsPureDotNames() {
+        // 纯点/点点的变体: 清洗后仍可能是 "." 或 ".." 或 "...", 仍具上跳语义
+        assertEquals("_", DownloadTask.safeSegment("."));
+        assertEquals("_", DownloadTask.safeSegment(".."));
+        assertEquals("_", DownloadTask.safeSegment("..."));
+        // 空白: 非空所以不是 null 分支, 两个空格各自替换成一个下划线
+        assertEquals("__", DownloadTask.safeSegment("  "));
+        assertEquals("_", DownloadTask.safeSegment(""));
+        assertEquals("_", DownloadTask.safeSegment(null));
+    }
+
+    @Test
+    public void safeSegmentHandlesNullAndEmpty() {
+        assertEquals("_", DownloadTask.safeSegment(null));
+        assertEquals("_", DownloadTask.safeSegment(""));
+    }
+
+    @Test
+    public void idForKeepsRawFilmIdForPersistenceCompat() {
+        // id 是持久化主键, 不能被 safeSegment 改动 —— 否则旧库里的行再也查不到
+        assertEquals("../../x:src:3", DownloadTask.idFor("../../x", "src", 3));
+        assertEquals(":src:0", DownloadTask.idFor(null, "src", 0));
+    }
+
     // ============================ 存储语义(内存实现) ============================
 
     /** 测试用内存存储 — 语义与 DownloadRepository 一致(幂等插入/更新/查询/删除). */

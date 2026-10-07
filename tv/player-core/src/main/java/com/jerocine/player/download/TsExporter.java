@@ -83,42 +83,60 @@ public final class TsExporter {
     }
 
     private void exportInternal(DownloadRepository repo, DownloadTask task, Callback cb) throws Exception {
+        // 【关键】以库中当前状态为准, 不用调用方传进来的对象。
+        // 调用方(DownloadActivity)拿到的是 refreshTasks() 那一刻的快照, 而
+        // DownloadEngine.onDownloadChanged 每 5 秒回写一次状态 —— 用户在两次刷新之间
+        // 点了两次"导出", 会拿到两个不同快照, 各自都以为自己是 COMPLETED → 双重导出
+        // (整集重拼, 数百 MB 重写)。这里重读一次, 第二个调用必然看到 EXPORTING 而被拒。
+        DownloadTask fresh = repo.get(task.id);
+        if (fresh == null) {
+            post(() -> cb.onError("任务已删除"));
+            return;
+        }
+        DownloadTask cur = fresh;
+
         // 幂等: 已导出且文件确实还在 → 直接返回。
         // exportedPath 在 API29+ 是 content:// URI(见 moveToDownloads), 不能当文件路径判存在,
         // 否则 exists() 恒为 false → 每次点「导出」都重跑全流程, 在下载目录堆出一份份 GB 级重复文件。
-        if (task.exportedPath != null && !task.exportedPath.isEmpty()
-                && exportedTargetExists(task.exportedPath)) {
-            post(() -> cb.onExported(task.exportedPath));
+        if (cur.exportedPath != null && !cur.exportedPath.isEmpty()
+                && exportedTargetExists(cur.exportedPath)) {
+            post(() -> cb.onExported(cur.exportedPath));
             return;
         }
-        // EXPORTING 防并发: 仅 COMPLETED 可进入
-        if (!task.canTransitionTo(DownloadTask.STATE_EXPORTING)) {
-            post(() -> cb.onError(task.state == DownloadTask.STATE_EXPORTING
+        // EXPORTING 防并发: 仅 COMPLETED 可进入(用库中状态判断, 见上)
+        if (!cur.canTransitionTo(DownloadTask.STATE_EXPORTING)) {
+            post(() -> cb.onError(cur.state == DownloadTask.STATE_EXPORTING
                     ? "正在导出中, 请稍候" : "任务未完成, 无法导出"));
             return;
         }
-        task.state = DownloadTask.STATE_EXPORTING;
-        task.error = "";
-        repo.update(task);
+        cur.state = DownloadTask.STATE_EXPORTING;
+        cur.error = "";
+        repo.update(cur);
 
-        if (task.filteredPlaylist == null || task.filteredPlaylist.isEmpty()) {
-            throw new IOException("缺少过滤后清单");
+        // 清单按需单取: 列表查询刻意不带这一列(见 DownloadRepository.LIST_COLUMNS),
+        // 避免几百集 × ~77KB 清单在主线程被反复反序列化。这里按 id 单独取一份。
+        String playlist = cur.filteredPlaylist;
+        if (playlist == null || playlist.isEmpty()) {
+            playlist = repo.getFilteredPlaylist(cur.id);
+        }
+        if (playlist == null || playlist.isEmpty()) {
+            throw new IOException("缺少过滤后清单, 请重新下载该集");
         }
         // 能力校验前置: 明文完整 TS 清单才可按序拼接。
         // 片源不固定 —— 加密/fMP4/BYTERANGE/直播流都会让"拼接出的 .ts"打不开,
         // 而旧实现照样跑完全流程并标记"已导出"(静默产出坏文件)。这里显式拦下并给出原因。
-        String blockReason = PlaylistSegments.inspect(task.filteredPlaylist).exportBlockReason();
+        String blockReason = PlaylistSegments.inspect(playlist).exportBlockReason();
         if (blockReason != null) {
             throw new IOException(blockReason);
         }
         List<PlaylistSegments.Segment> segments =
-                PlaylistSegments.parse(task.filteredPlaylist, task.srcUrl);
+                PlaylistSegments.parse(playlist, cur.srcUrl);
         if (segments.isEmpty()) {
             throw new IOException("清单中没有可导出的分片");
         }
 
         // 1) 拼到暂存文件
-        File tmp = new File(task.cacheDir, "export.tmp");
+        File tmp = new File(cur.cacheDir, "export.tmp");
         File parent = tmp.getParentFile();
         if (parent != null && !parent.exists()) parent.mkdirs();
         byte[] buf = new byte[128 * 1024];
@@ -150,7 +168,7 @@ public final class TsExporter {
         //    而已完成任务的 cacheDir 不会被清 → 反复失败累积 GB 级临时文件。
         String finalPath;
         try {
-            finalPath = moveToDownloads(task, tmp);
+            finalPath = moveToDownloads(cur, tmp);
         } finally {
             if (tmp.exists() && !tmp.delete()) {
                 Log.w(TAG, "导出暂存文件残留: " + tmp);
@@ -158,19 +176,27 @@ public final class TsExporter {
         }
 
         // 3) 状态回 COMPLETED + 记录导出路径
-        task.state = DownloadTask.STATE_COMPLETED;
-        task.exportedPath = finalPath;
-        task.updatedAt = System.currentTimeMillis();
-        repo.update(task);
+        cur.state = DownloadTask.STATE_COMPLETED;
+        cur.exportedPath = finalPath;
+        cur.updatedAt = System.currentTimeMillis();
+        repo.update(cur);
         post(() -> cb.onExported(finalPath));
     }
 
+    /**
+     * 导出失败回滚: EXPORTING → COMPLETED 并记错误原因。
+ *
+     * <p>按 id 重读而不是改传入对象: 传入的是调用方(UI)的旧快照, 期间进度回写可能已改过库里状态,
+     * 拿快照回写会把 downloaded 进度等新值一起覆盖回旧值。
+     */
     private void rollbackState(DownloadRepository repo, DownloadTask task, String error) {
         try {
-            task.state = DownloadTask.STATE_COMPLETED;
-            task.error = error;
-            task.updatedAt = System.currentTimeMillis();
-            repo.update(task);
+            DownloadTask cur = repo.get(task.id);
+            if (cur == null) return; // 任务已被删除, 无需回滚
+            cur.state = DownloadTask.STATE_COMPLETED;
+            cur.error = error;
+            cur.updatedAt = System.currentTimeMillis();
+            repo.update(cur);
         } catch (Exception ignore) {
         }
     }

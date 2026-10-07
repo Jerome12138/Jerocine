@@ -25,6 +25,22 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
     private static final int DB_VERSION = 1;
     private static final String TABLE = "download_task";
 
+    /**
+     * <b>列表查询的列投影 — 刻意排除 {@code filteredPlaylist}。</b>
+     *
+     * <p>该字段是整份过滤后清单, 单集约 77KB(见 {@code M3u8FilterClient} 的量级说明),
+     * 几百集就是 20MB+ String。而下载管理页 {@code refreshTasks()} 走 {@link #listAll()},
+     * 被 {@code onResume} 和每次状态变化回调触发; media3 的进度通知间隔是 5000ms,
+     * 集级并行 3 → 每 5 秒至少 3 次全表扫描 + 全表反序列化, 且都在主线程 —— 会 ANR/OOM。
+     *
+     * <p>清单只在真正需要时单取: 导出({@link #getFilteredPlaylist})与离线播放。
+     */
+    private static final String[] LIST_COLUMNS = {
+            "id", "filmId", "filmTitle", "sourceKey", "sourceName", "episode",
+            "episodeTitle", "srcUrl", "state", "progressBytes", "totalBytes", "error",
+            "cacheDir", "exportedPath", "createdAt", "updatedAt",
+    };
+
     public DownloadRepository(Context context) {
         super(context.getApplicationContext(), DB_NAME, null, DB_VERSION);
     }
@@ -80,15 +96,95 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
         }
     }
 
+    /**
+     * 单取某个任务的过滤后清单全文 — 仅在导出/离线播放时调用。
+     *
+     * <p>列表查询刻意不带这一列(见 {@link #LIST_COLUMNS}), 所以需要时按 id 单独取,
+     * 避免把几十 MB 的清单常驻内存并反复在主线程反序列化。
+     *
+     * @return 清单文本; 任务不存在或字段为空时返回 null
+     */
+    public String getFilteredPlaylist(String id) {
+        if (id == null || id.isEmpty()) return null;
+        SQLiteDatabase db = getReadableDatabase();
+        try (Cursor c = db.query(TABLE, new String[]{"filteredPlaylist"},
+                "id=?", new String[]{id}, null, null, null, "1")) {
+            if (!c.moveToFirst()) return null;
+            String s = c.getString(0);
+            return (s == null || s.isEmpty()) ? null : s;
+        }
+    }
+
     @Override
     public List<DownloadTask> listByFilm(String filmId) {
-        return query("filmId=?", new String[]{filmId}, "episode ASC");
+        return query(LIST_COLUMNS, "filmId=?", new String[]{filmId}, "episode ASC");
     }
 
     @Override
     public List<DownloadTask> listAll() {
-        return query(null, null, "createdAt ASC");
+        return query(LIST_COLUMNS, null, null, "createdAt ASC");
     }
+
+    /**
+     * 只更新进度/状态列 — 供 media3 高频进度回调使用(见 DownloadEngine.onDownloadChanged)。
+     *
+     * <p><b>为什么要单独开这个方法</b>: {@link #update} 走 {@link #toValues} 写<b>全部列</b>,
+     * 包括 {@code filteredPlaylist} 与 {@code exportedPath}。而进度回调每 5 秒就来一次,
+     * 且拿到的对象是"回调触发时刻"的快照 —— 若期间导出流程正在写 {@code EXPORTING}/
+     * {@code exportedPath}, 全行覆盖会把它们<b>写回旧值</b>:
+     * <ul>
+     *   <li>导出完成后 UI 显示不出"已导出"(exportedPath 被清空);</li>
+     *   <li>EXPORTING 被覆盖回 COMPLETED → DownloadTask 状态机的防并发被绕过,
+     *       重复点"导出"会整集重拼(数百 MB 重写)。</li>
+     * </ul>
+     * 局部更新从根上避免这两种覆盖。
+     *
+     * @param state  要写入的状态; {@link #EXPORTING_SENTINEL} 表示"不改state"
+     */
+    public void updateProgressOnly(String id, int state, long progressBytes, long totalBytes,
+                                   String error, long updatedAt) {
+        if (id == null) return;
+        ContentValues v = new ContentValues();
+        if (state != EXPORTING_SENTINEL) v.put("state", state);
+        v.put("progressBytes", progressBytes);
+        v.put("totalBytes", totalBytes);
+        v.put("updatedAt", updatedAt);
+        if (error != null) v.put("error", error);
+        // 条件更新: 正在导出/已导出的任务, 其 state 与 exportedPath 不受下载进度回写影响。
+        // 否则下载回调会把 EXPORTING 覆盖回 COMPLETED, 击穿防并发。
+        getWritableDatabase().update(TABLE, v, "id=? AND state<>?",
+                new String[]{id, String.valueOf(DownloadTask.STATE_EXPORTING)});
+    }
+
+    /**
+ * 条件更新 state — 用于"用户意图写状态"的场景(如暂停), 只在当前状态符合预期时才改。
+ *
+ * <p>比 {@link #update} 全行覆盖安全: 暂停是 UI 动作, 可能与进度回调/导出并发。若对方
+ * 已把状态推进到别的阶段(如开始导出), 这里的 {@code allowedFrom} 判据会让更新落空,
+ * 而全行覆盖会把它倒退回去。
+ *
+ * @param allowedFrom 允许的当前状态集合; 任一命中才更新, 否则不动
+ * @return 是否真的改了
+ */
+    public boolean updateStateIf(String id, int newState, int... allowedFrom) {
+        if (id == null || allowedFrom == null || allowedFrom.length == 0) return false;
+        StringBuilder where = new StringBuilder("id=? AND state IN (");
+        String[] args = new String[allowedFrom.length + 1];
+        args[0] = id;
+        for (int i = 0; i < allowedFrom.length; i++) {
+            if (i > 0) where.append(',');
+            where.append('?');
+            args[i + 1] = String.valueOf(allowedFrom[i]);
+        }
+        where.append(')');
+        ContentValues v = new ContentValues();
+        v.put("state", newState);
+        v.put("updatedAt", System.currentTimeMillis());
+        return getWritableDatabase().update(TABLE, v, where.toString(), args) > 0;
+    }
+
+    /** updateProgressOnly 的 state 参数哨兵: 表示"本次不写 state"(NULL 不能用, 会清列)。 */
+    public static final int EXPORTING_SENTINEL = -1;
 
     @Override
     public boolean delete(String id) {
@@ -115,13 +211,43 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
         db.update(TABLE, v2, "state=?", new String[]{String.valueOf(DownloadTask.STATE_EXPORTING)});
     }
 
-    private List<DownloadTask> query(String where, String[] args, String orderBy) {
+    private List<DownloadTask> query(String[] columns, String where, String[] args, String orderBy) {
         List<DownloadTask> out = new ArrayList<>();
         try (Cursor c = getReadableDatabase().query(
-                TABLE, null, where, args, null, null, orderBy)) {
+                TABLE, columns, where, args, null, null, orderBy)) {
             while (c.moveToNext()) out.add(fromCursor(c));
         }
         return out;
+    }
+
+    /**
+     * 读游标 → 任务对象。
+     *
+     * <p>{@code filteredPlaylist} 用 {@code getColumnIndex} 而非 {@code getColumnIndexOrThrow}:
+     * 列表投影刻意不含该列(见 {@link #LIST_COLUMNS}), 缺列时留空而不是抛异常。
+     * 真要用清单的地方请显式调 {@link #getFilteredPlaylist(String)}。
+     */
+    private static DownloadTask fromCursor(Cursor c) {
+        DownloadTask t = new DownloadTask();
+        t.id = c.getString(c.getColumnIndexOrThrow("id"));
+        t.filmId = c.getString(c.getColumnIndexOrThrow("filmId"));
+        t.filmTitle = c.getString(c.getColumnIndexOrThrow("filmTitle"));
+        t.sourceKey = c.getString(c.getColumnIndexOrThrow("sourceKey"));
+        t.sourceName = c.getString(c.getColumnIndexOrThrow("sourceName"));
+        t.episode = c.getInt(c.getColumnIndexOrThrow("episode"));
+        t.episodeTitle = c.getString(c.getColumnIndexOrThrow("episodeTitle"));
+        t.srcUrl = c.getString(c.getColumnIndexOrThrow("srcUrl"));
+        int plIdx = c.getColumnIndex("filteredPlaylist");
+        t.filteredPlaylist = plIdx >= 0 ? c.getString(plIdx) : "";
+        t.state = c.getInt(c.getColumnIndexOrThrow("state"));
+        t.progressBytes = c.getLong(c.getColumnIndexOrThrow("progressBytes"));
+        t.totalBytes = c.getLong(c.getColumnIndexOrThrow("totalBytes"));
+        t.error = c.getString(c.getColumnIndexOrThrow("error"));
+        t.cacheDir = c.getString(c.getColumnIndexOrThrow("cacheDir"));
+        t.exportedPath = c.getString(c.getColumnIndexOrThrow("exportedPath"));
+        t.createdAt = c.getLong(c.getColumnIndexOrThrow("createdAt"));
+        t.updatedAt = c.getLong(c.getColumnIndexOrThrow("updatedAt"));
+        return t;
     }
 
     private static ContentValues toValues(DownloadTask t) {
@@ -144,27 +270,5 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
         v.put("createdAt", t.createdAt);
         v.put("updatedAt", t.updatedAt);
         return v;
-    }
-
-    private static DownloadTask fromCursor(Cursor c) {
-        DownloadTask t = new DownloadTask();
-        t.id = c.getString(c.getColumnIndexOrThrow("id"));
-        t.filmId = c.getString(c.getColumnIndexOrThrow("filmId"));
-        t.filmTitle = c.getString(c.getColumnIndexOrThrow("filmTitle"));
-        t.sourceKey = c.getString(c.getColumnIndexOrThrow("sourceKey"));
-        t.sourceName = c.getString(c.getColumnIndexOrThrow("sourceName"));
-        t.episode = c.getInt(c.getColumnIndexOrThrow("episode"));
-        t.episodeTitle = c.getString(c.getColumnIndexOrThrow("episodeTitle"));
-        t.srcUrl = c.getString(c.getColumnIndexOrThrow("srcUrl"));
-        t.filteredPlaylist = c.getString(c.getColumnIndexOrThrow("filteredPlaylist"));
-        t.state = c.getInt(c.getColumnIndexOrThrow("state"));
-        t.progressBytes = c.getLong(c.getColumnIndexOrThrow("progressBytes"));
-        t.totalBytes = c.getLong(c.getColumnIndexOrThrow("totalBytes"));
-        t.error = c.getString(c.getColumnIndexOrThrow("error"));
-        t.cacheDir = c.getString(c.getColumnIndexOrThrow("cacheDir"));
-        t.exportedPath = c.getString(c.getColumnIndexOrThrow("exportedPath"));
-        t.createdAt = c.getLong(c.getColumnIndexOrThrow("createdAt"));
-        t.updatedAt = c.getLong(c.getColumnIndexOrThrow("updatedAt"));
-        return t;
     }
 }

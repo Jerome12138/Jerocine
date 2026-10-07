@@ -52,8 +52,30 @@ public final class DownloadTask {
     public long updatedAt;
 
     public static String idFor(String filmId, String sourceKey, int episode) {
+        // 注意: 这里**不做路径净化** —— id 是持久化主键, 清洗会改变既有任务的 id
+        // (旧库里已入库的行再也查不到)。路径侧的防护在 DownloadEngine.episodeCacheDir。
         return (filmId == null ? "" : filmId) + ":" + (sourceKey == null ? "" : sourceKey)
                 + ":" + episode;
+    }
+
+    /**
+     * 路径片段净化 — 只保留 {@code [A-Za-z0-9._-]}, 其余(含 {@code /} 与 {@code \})全替换为下划线。
+     *
+     * <p><b>为什么必须有</b>: {@code filmId} 来源是 Intent extra,而 PlayerActivity 已是
+     * {@code exported="true"}(为接ACTION_VIEW 的本地文件), 任意第三方 App 都能注入
+     * {@code film_id=../../databases/x}。它一旦进入路径拼接,配合
+     * {@link DownloadEngine#remove()} 的 {@code deleteRecursive} 就是<b>递归删除应用私有目录树里
+     * 任意路径</b> —— 零成本的实际破坏。片名/源名等同样入路径的值走同一道清洗。
+     *
+     * <p>保留 {@code .} 与 {@code -} 是为了不破坏正常形态(如 "3.10"、"film-2");
+     * 但 {@code ..} 这类"纯点"必须单独处理, 否则清洗后仍可能是 {@code ..} 或 {@code _.._}。
+     */
+    public static String safeSegment(String raw) {
+        if (raw == null || raw.isEmpty()) return "_";
+        String s = raw.replaceAll("[^A-Za-z0-9._-]", "_");
+        // 纯点/点点的变体: "..", ".", "...", "._." 等都无意义且可能参与上跳
+        if (s.chars().allMatch(c -> c == '.')) return "_";
+        return s;
     }
 
     /** 状态机迁移表 — 非法迁移返回 false. */

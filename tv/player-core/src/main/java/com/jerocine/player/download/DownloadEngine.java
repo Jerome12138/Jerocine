@@ -58,6 +58,8 @@ public final class DownloadEngine {
 
     private static final String TAG = "DownloadEngine";
     private static final int MAX_PARALLEL = 3;
+    /** 入队预取(拉清单 + 过滤)的并发上限 — 与 MAX_PARALLEL 解耦, 见构造器注释。 */
+    private static final int ENQUEUE_PARALLEL = 4;
     private static final String CACHE_DIR_NAME = "download_cache";
     private static final String USER_AGENT = "Jerocine/1.0 (Android TV)";
 
@@ -107,7 +109,12 @@ public final class DownloadEngine {
     private DownloadEngine(Context context, String proxyBase) {
         this.appContext = context.getApplicationContext();
         this.proxyBase = proxyBase == null ? "" : proxyBase;
-        this.worker = Executors.newCachedThreadPool();
+        // 固定小线程池, **不要用 newCachedThreadPool**:
+        // enqueue 会为每个选中集跑一次"拉清单 + 过滤 POST", 300 集就是 300 条并发 HTTPS +
+        // 300 个线程, 必然 OOM 并把源站打挂(过滤接口还有 250ms 重试, 更会放大成风暴)。
+        // MAX_PARALLEL=3 只管media3 的**下载阶段**, 管不到这里的入队预取 ——
+        // 所以"集级并行 3"在预取阶段实际是 N 并行, 必须在这里也限流。
+        this.worker = Executors.newFixedThreadPool(ENQUEUE_PARALLEL);
         this.mainHandler = new Handler(Looper.getMainLooper());
 
         repository = new DownloadRepository(appContext);
@@ -209,9 +216,32 @@ public final class DownloadEngine {
         }
     }
 
-    /** 某集的下载缓存目录(放过滤后清单/导出临时文件, SimpleCache 数据在其父目录). */
+    /**
+     * 某集的下载缓存目录(放过滤后清单/导出临时文件, SimpleCache 数据在其父目录)。
+     *
+     * <p><b>路径安全</b>: {@code filmId} 来自 Intent extra, 而 PlayerActivity 已 exported=true
+     * (为接 ACTION_VIEW 本地文件), 任意 App 可注入 {@code film_id=../../databases/x}。
+     * 这里双层防护:
+     * <ol>
+     *   <li>{@link DownloadTask#safeSegment} 字符白名单 —— 路径分隔符直接变下划线;</li>
+     *   <li>canonical 断言 —— 兜住符号链接等字符清洗挡不住的越界。</li>
+     * </ol>
+     * 任一层不通过就抛 {@link IllegalArgumentException}: 调用方是下载/删除路径,
+     * 失败可见远优于悄悄写到错误位置(尤其是 {@link #remove()} 会递归删除)。
+     */
     public File episodeCacheDir(DownloadTask task) {
-        return new File(cacheRoot, task.filmId + File.separator + task.episode);
+        File dir = new File(new File(cacheRoot, DownloadTask.safeSegment(task.filmId)),
+                String.valueOf(task.episode));
+        try {
+            String root = cacheRoot.getCanonicalPath();
+            String path = dir.getCanonicalPath();
+            if (!path.startsWith(root + File.separator)) {
+                throw new IllegalArgumentException("非法filmId: " + task.filmId);
+            }
+        } catch (IOException e) {
+            throw new IllegalArgumentException("无法校验缓存目录路径: " + task.filmId, e);
+        }
+        return dir;
     }
 
     // ============================ 入队 / 暂停 / 恢复 / 删除 ============================
@@ -250,6 +280,16 @@ public final class DownloadEngine {
                             .build();
                     DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
                 }
+            } catch (IllegalArgumentException e) {
+                // 路径校验失败(filmId 非法): 说清是哪个任务出的问题, 不混进"清单获取失败"
+                Log.w(TAG, "enqueue bad filmId: " + task.id, e);
+                fail(fresh, "任务参数非法(影片ID 含非法字符), 无法下载");
+            } catch (IllegalStateException e) {
+                // Android 8+ 后台启动前台服务被系统拒绝: sendAddDownload 跑在 worker 线程,
+                // 用户点完"开始下载"可能已退出页面 → 抛 IllegalStateException。
+                // 原实现被下面的 catch(Exception) 吞掉并报"清单获取失败", 用户完全看不懂。
+                Log.w(TAG, "enqueue blocked by background start limit: " + task.id, e);
+                fail(fresh, "系统限制后台启动下载服务, 请回到应用前台后重试");
             } catch (Exception e) {
                 Log.w(TAG, "enqueue failed: " + task.id, e);
                 fail(fresh, "清单获取失败: " + safeMessage(e));
@@ -257,9 +297,33 @@ public final class DownloadEngine {
         });
     }
 
-    /** 暂停(手动): media3 用自定义 stop reason(>0) 表达手动暂停 → 任务 PAUSED. */
-    public void pause(String taskId) {
+    /**
+ * 暂停(手动): media3 用自定义 stop reason(>0) 表达手动暂停 → 任务 PAUSED。
+ *
+ * <p><b>必须同步业务表</b>: 只调 {@code manager.setStopReason} 的话, 存在两个问题 ——
+ * <ol>
+ *   <li><b>竞态窗口</b>: 入队流程先 {@code insertIgnore(QUEUED)} 再异步
+ *       {@code sendAddDownload}; 此窗口内 media3 的 DownloadIndex 尚无该 id,
+ *       {@code setStopReason} 找不到记录即<b>静默返回</b> → 用户点暂停没反应,
+ *       任务照常下载, UI 还一直显示"暂停"按钮可反复点。</li>
+ *   <li><b>UI 无反馈</b>: 不写业务表则 UI 拿不到新状态, 用户以为按钮坏了。</li>
+ * </ol>
+ * 两侧都做: media3 侧对已注册任务生效, 业务表保证即时可见;
+ * 若任务还没注册到 media3,业务表的 PAUSED 会在其首次 onDownloadChanged 时被一致保留
+ * (onDownloadChanged 以 stopReason 为准, 不会把它改回 QUEUED/DOWNLOADING)。
+ */
+public void pause(String taskId) {
         manager.setStopReason(taskId, 1);
+        DownloadTask t = repository.get(taskId);
+        if (t == null) return;
+        // 条件更新: 只在"进行中"时改。不用 update(t) 全行覆盖, 避免与导出/进度回写互相踩。
+        if (t.state == DownloadTask.STATE_QUEUED || t.state == DownloadTask.STATE_DOWNLOADING
+                || t.state == DownloadTask.STATE_PAUSED) {
+            repository.updateStateIf(taskId, DownloadTask.STATE_PAUSED,
+                    DownloadTask.STATE_QUEUED, DownloadTask.STATE_DOWNLOADING,
+                    DownloadTask.STATE_PAUSED);
+            notifyChanged(taskId);
+        }
     }
 
     /**
@@ -270,28 +334,45 @@ public final class DownloadEngine {
      */
     public void resume(String taskId) {
         DownloadTask t = repository.get(taskId);
-        if (t != null && t.state == DownloadTask.STATE_FAILED) {
+        if (t == null) return;
+        if (t.state == DownloadTask.STATE_FAILED) {
             DownloadRequest request = new DownloadRequest.Builder(t.id, Uri.parse(t.srcUrl))
                     .setMimeType("application/vnd.apple.mpegurl")
                     .setData(t.id.getBytes(StandardCharsets.UTF_8))
                     .build();
-            DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
+            try {
+                DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
+            } catch (IllegalStateException e) {
+                // 同 enqueue: 后台启动前台服务被系统拒绝。给可操作的提示, 而不是让异常上抛。
+                Log.w(TAG, "resume blocked by background start limit: " + taskId, e);
+                notifyChanged(taskId);
+                return;
+            }
             // media3 会触发 onDownloadChanged(QUEUED/DOWNLOADING) → 业务表状态随之更新
             return;
         }
+        // 同步业务表(与 pause 对称): 不然 UI 一直显示"暂停"按钮, 用户看不到恢复生效。
+        repository.updateStateIf(taskId, DownloadTask.STATE_QUEUED,
+                DownloadTask.STATE_PAUSED);
         manager.setStopReason(taskId, Download.STOP_REASON_NONE);
         manager.resumeDownloads();
+        notifyChanged(taskId);
     }
 
-    /** 删除任务: 停下载 + 清缓存目录 + 删业务记录. */
+    /**
+     * 删除任务: 停下载 + 清缓存目录 + 删业务记录。
+     *
+     * <p>顺序刻意保持"先停下载与删库, 最后删目录": 路径校验失败(非法 filmId)时抛
+     * IllegalArgumentException, 此时任务已从库和 media3 移除, 不会留下"删不掉的任务"。
+     * 缓存目录残留只是占空间, 远好过删错目录。
+     */
     public void remove(String taskId) {
         DownloadTask t = repository.get(taskId);
         manager.removeDownload(taskId);
         repository.delete(taskId);
+        prefetchedPlaylists.remove(t == null ? null : t.srcUrl);
         if (t != null) {
             deleteRecursive(episodeCacheDir(t));
-            // 顺带清预取: 清单字节(~77KB/集)只增不减, 删任务不清会一直驻留内存
-            prefetchedPlaylists.remove(t.srcUrl);
         }
     }
 
@@ -301,49 +382,39 @@ public final class DownloadEngine {
         String taskId = new String(d.request.data, StandardCharsets.UTF_8);
         DownloadTask t = repository.get(taskId);
         if (t == null) return;
-        DownloadTask next = new DownloadTask();
-        next.id = t.id;
-        next.filmId = t.filmId;
-        next.filmTitle = t.filmTitle;
-        next.sourceKey = t.sourceKey;
-        next.sourceName = t.sourceName;
-        next.episode = t.episode;
-        next.episodeTitle = t.episodeTitle;
-        next.srcUrl = t.srcUrl;
-        next.filteredPlaylist = t.filteredPlaylist;
-        next.cacheDir = t.cacheDir;
-        next.exportedPath = t.exportedPath;
-        next.createdAt = t.createdAt;
-        next.updatedAt = System.currentTimeMillis();
-        next.progressBytes = d.getBytesDownloaded();
-        next.totalBytes = d.contentLength;
+        int state;
+        String error = null;
         switch (d.state) {
             case Download.STATE_QUEUED:
                 // media3 setStopReason 只改 stopReason 字段、不改 state → 暂停后 state 仍可能是
                 // QUEUED/DOWNLOADING。映射必须以 stopReason 为准, 否则"暂停"在 UI 上看起来无效。
-                next.state = d.stopReason == 0
+                state = d.stopReason == 0
                         ? DownloadTask.STATE_QUEUED : DownloadTask.STATE_PAUSED;
                 break;
             case Download.STATE_DOWNLOADING:
-                next.state = d.stopReason == 0
+                state = d.stopReason == 0
                         ? DownloadTask.STATE_DOWNLOADING : DownloadTask.STATE_PAUSED;
                 break;
             case Download.STATE_COMPLETED:
-                next.state = DownloadTask.STATE_COMPLETED;
+                state = DownloadTask.STATE_COMPLETED;
                 break;
             case Download.STATE_FAILED:
-                next.state = DownloadTask.STATE_FAILED;
-                next.error = failureReasonText(d.failureReason, exception);
+                state = DownloadTask.STATE_FAILED;
+                error = failureReasonText(d.failureReason, exception);
                 break;
             case Download.STATE_STOPPED:
-                next.state = d.stopReason == 0
+                state = d.stopReason == 0
                         ? DownloadTask.STATE_QUEUED : DownloadTask.STATE_PAUSED;
                 break;
-            default: // REMOVING / RESTARTING: 保持原状态
-                next.state = t.state;
+            default: // REMOVING / RESTARTING: 保持原状态(用哨兵表示不写 state)
+                state = DownloadRepository.EXPORTING_SENTINEL;
                 break;
         }
-        repository.update(next);
+        // 局部更新(不写全列): 进度回调每 5 秒一次, 全行覆盖会把导出流程正在写的
+        // EXPORTING / exportedPath 写回旧值, 击穿防并发并丢失"已导出"标记。
+        // updateProgressOnly 内部还带 "state<>EXPORTING" 条件, 双重保护。
+        repository.updateProgressOnly(taskId, state, d.getBytesDownloaded(),
+                d.contentLength, error, System.currentTimeMillis());
         notifyChanged(taskId);
         // 终态后 master 预取字节(~77KB/集)已无用(HlsDownloader 不再读它), 及时释放;
         // remove() 也会清, 这里覆盖"下载完成但任务仍在列表里"的常态路径。
@@ -425,8 +496,27 @@ public final class DownloadEngine {
         return (m == null || m.isEmpty()) ? e.getClass().getSimpleName() : m;
     }
 
-    private static void deleteRecursive(File f) {
+    /**
+     * 递归删除 — 带根目录边界断言。
+     *
+     * <p>边界检查是必须的: {@code episodeCacheDir} 已有字符清洗与 canonical 校验, 但
+     * deleteRecursive 是"对任意 File 递归删"的通用操作, 一旦将来被别处复用而传入未校验的路径
+     * (或目录内含指向别处的符号链接), 就会删掉应用私有目录树里的其他数据。
+     * 这里再挡一层: 不在 cacheRoot 之下就拒绝, 宁可不删也不误删。
+     */
+    private void deleteRecursive(File f) {
         if (f == null || !f.exists()) return;
+        try {
+            String root = cacheRoot.getCanonicalPath();
+            String path = f.getCanonicalPath();
+            if (!path.equals(root) && !path.startsWith(root + File.separator)) {
+                Log.w(TAG, "拒绝删除缓存区外的路径: " + path);
+                return;
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "无法校验待删路径, 已跳过: " + f);
+            return;
+        }
         if (f.isDirectory()) {
             File[] kids = f.listFiles();
             if (kids != null) {

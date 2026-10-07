@@ -1,8 +1,10 @@
 package com.jerocine.player.download;
 
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -383,6 +385,9 @@ public class DownloadActivity extends AppCompatActivity {
             toast("无片源数据, 请从播放器进入下载");
             return;
         }
+        // Android 13+ 通知是运行时权限: 不申请则前台服务通知不展示 → 用户看不到下载进度、
+        // 也不知道下载在跑。缺权限不阻断下载(下载本身仍能完成), 只是提示一次。
+        requestNotificationPermissionIfNeeded();
         PlayerSession.SourceData src = sources.get(currentSource);
         List<String> urls = src.urls;
         List<String> titles = src.titles;
@@ -478,6 +483,7 @@ public class DownloadActivity extends AppCompatActivity {
             ProgressBar bar = (ProgressBar) row.getChildAt(1);
             TextView status = (TextView) row.getChildAt(2);
             Button action = (Button) row.getChildAt(3);
+            Button del = (Button) row.getChildAt(4);
             name.setText(label(t));
             boolean downloading = inProgress.contains(t.id);
             int pct = (t.totalBytes > 0) ? (int) (t.progressBytes * 100 / t.totalBytes) : 0;
@@ -495,6 +501,9 @@ public class DownloadActivity extends AppCompatActivity {
                 }
                 refreshTasks();
             });
+            del.setText("删除");
+            del.setTag(t);
+            del.setOnClickListener(v -> confirmRemove((DownloadTask) v.getTag()));
             return convertView;
         }
     }
@@ -526,6 +535,7 @@ public class DownloadActivity extends AppCompatActivity {
             TextView status = (TextView) row.getChildAt(1);
             Button exportBtn = (Button) row.getChildAt(2);
             Button playBtn = (Button) row.getChildAt(3);
+            Button deleteBtn = (Button) row.getChildAt(4);
             name.setText(label(t));
             status.setText(exportedText(t));
             boolean exporting = t.state == DownloadTask.STATE_EXPORTING;
@@ -536,6 +546,9 @@ public class DownloadActivity extends AppCompatActivity {
             playBtn.setText("播放");
             playBtn.setTag(t);
             playBtn.setOnClickListener(v -> playOffline((DownloadTask) v.getTag()));
+            deleteBtn.setText("删除");
+            deleteBtn.setTag(t);
+            deleteBtn.setOnClickListener(v -> confirmRemove((DownloadTask) v.getTag()));
             return convertView;
         }
     }
@@ -577,7 +590,43 @@ public class DownloadActivity extends AppCompatActivity {
         styleChip(playBtn, true);
         row.addView(playBtn, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // 删除: 下载缓存区用 NoOpCacheEvictor(主动下载永不清), 若没有删除入口用户永远
+        // 无法释放空间 —— remove() 早已实现却没有 UI 能到, 等于死代码。
+        Button deleteBtn = new Button(this);
+        deleteBtn.setTextSize(13);
+        deleteBtn.setAllCaps(false);
+        deleteBtn.setMinWidth(dp(64));
+        deleteBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
+        styleChip(deleteBtn, false);
+        row.addView(deleteBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return row;
+    }
+
+    /** 删除任务(二次确认): 会连带删除该集的下载缓存分片与已导出的文件引用. */
+    private void confirmRemove(DownloadTask t) {
+        if (t == null) return;
+        String msg = "删除「" + label(t) + "」?\n\n将同时删除该集的下载缓存分片, 之后需要重新下载。"
+                + (t.exportedPath != null && !t.exportedPath.isEmpty()
+                ? "\n已导出的文件不会被删除。" : "");
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("删除下载任务")
+                .setMessage(msg)
+                .setPositiveButton("删除", (d, w) -> {
+                    try {
+                        engine.remove(t.id);
+                        toast("已删除");
+                    } catch (IllegalArgumentException e) {
+                        // 路径校验失败(filmId 非法): 任务已从库与 media3 移除, 仅缓存目录未清
+                        toast("任务已删除, 但缓存清理失败: " + e.getMessage());
+                    } catch (Exception e) {
+                        toast("删除失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+                    }
+                    refreshTasks();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     /** 导出 .ts: 下载缓存分片按序拼接 → 系统下载目录(MediaStore Downloads). */
@@ -629,6 +678,16 @@ public class DownloadActivity extends AppCompatActivity {
         action.setPadding(dp(10), dp(4), dp(10), dp(4));
         styleChip(action, true);
         row.addView(action, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // 删除: ��下的任务也能删(不然用户只能等它跑完/失败才能清缓存)
+        Button del = new Button(this);
+        del.setTextSize(13);
+        del.setAllCaps(false);
+        del.setMinWidth(dp(64));
+        del.setPadding(dp(10), dp(4), dp(10), dp(4));
+        styleChip(del, false);
+        row.addView(del, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return row;
     }
@@ -707,4 +766,35 @@ public class DownloadActivity extends AppCompatActivity {
     private void toast(String msg) {
         android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show();
     }
+
+    /** 运行时权限申请码(仅用于日志/回调区分)。 */
+    private static final int REQ_POST_NOTIFICATIONS = 4101;
+
+    /**
+     * 首次点「开始下载」时申请通知权限(Android 13+ 是运行时权限, Manifest 声明不够)。
+     *
+     * <p>不阻断下载: 用户拒绝后下载照样能完成, 只是前台服务通知不展示 → 看不到进度、
+     * 不知道后台在跑。所以只提示一次, 不反复弹。
+     */
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return; // 33 以下无需申请
+        String perm = android.Manifest.permission.POST_NOTIFICATIONS;
+        if (checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) return;
+        if (!notificationPermissionAsked) {
+            notificationPermissionAsked = true;
+            try {
+                requestPermissions(new String[]{perm}, REQ_POST_NOTIFICATIONS);
+            } catch (Exception ignore) {
+                // 某些壳 Activity 可能不支持运行时申请; 下载本身不依赖通知
+            }
+            return;
+        }
+        // 已问过一次还被拒: 不再弹系统框, 只留一句说明(避免每次点下载都被系统框打断)
+        if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+            toast("未授予通知权限, 下载进度将不会显示在通知栏");
+        }
+    }
+
+    /** 是否已弹过通知权限申请(避免重复打扰)。 */
+    private boolean notificationPermissionAsked = false;
 }

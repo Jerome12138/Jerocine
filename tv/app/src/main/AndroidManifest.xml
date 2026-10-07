@@ -6,6 +6,8 @@
     <!-- 下载前台服务 (Android 8+ 必声明; 14+ 需指定类型) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 下载进度通知 (Android 13+ 运行时权限; 不申请则前台服务通知不展示, 用户看不到进度/续传状态) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- TV：leanback 不强制，手机/平板也能装 -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

@@ -204,7 +204,13 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         session.proxyBase = adFilterHelper.resolveProxyBase(getIntent());
         session.adFilterOn = adFilterHelper.prefs().getBoolean("ad_filter_enabled", true);
         networkModeHelper.applyPersisted(); // 中转默认关(分片直连), 只有用户主动开过才为 true
-        adFilterHelper.updateAdFilterBadge();
+        // 本地模式不显示广告过滤角标: 隐藏它的 hideOnlineControls() 只在控制面板首次变为
+        // VISIBLE 时才被调用(见下方 ControllerVisibilityListener), 而面板默认 GONE
+        // (setControllerAutoShow(false)) → 不加守卫的话, 本地文件起播后会闪现一个
+        // 与本地播放毫无关系的"广告过滤"状态点, 直到用户首次唤出控制面板才消失。
+        if (!session.localPlayback) {
+            adFilterHelper.updateAdFilterBadge();
+        }
 
         View titleBar = findViewById(R.id.title_bar);
         // 面板可见时: ① 标题栏跟随显隐 ② 进度条默认获焦(用户期望"面板出→进度条选中")
@@ -221,6 +227,11 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 dotSkip = playerView.findViewById(R.id.dot_skip);
                 if (session.localPlayback) {
                     hideOnlineControls(); // 本地模式: 隐藏在线专属控件(过滤/换源/选集/上下集/跳过)
+                    // 倍速/退出对本地文件同样有意义(可调速、可退出), 且不在 hideOnlineControls 的
+                    // 隐藏列表里 —— 所以**必须**绑定监听器, 否则它们是"可见但点不动"的死按钮。
+                    // TV 遥控器上表现为"按了没反应", 很容易被当成播放器卡死。
+                    dialogHelper.bindControlButtons();
+                    renderSpeedDot(isSpeedOn());
                 } else {
                     dialogHelper.bindControlButtons();
                     renderAdFilterSwitch(session.adFilterOn);
