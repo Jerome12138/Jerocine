@@ -28,6 +28,7 @@ import com.jerocine.player.M3u8FilterClient;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -166,6 +167,36 @@ public final class DownloadEngine {
     /** 下载缓存区实例(导出 .ts 用 TsExporter 直读分片). */
     public SimpleCache cache() {
         return cache;
+    }
+
+    /**
+     * 取已持有 {@code dir} 的下载缓存实例; 本引擎未初始化或目录不匹配返回 null。
+     *
+     * <p>{@link SimpleCache} 对目录是进程级独占的: media3 内部维护 lockedCacheDirs,
+     * 只有 {@link SimpleCache#release()} 才解锁。本引擎的 {@code release()} 是私有且无调用方,
+     * 所以 {@code download_cache} 在进程存活期内始终被本引擎的实例锁住 ——
+     * 任何第二处 {@code new SimpleCache(download_cache, ...)} 都会抛
+     * {@code IllegalStateException("Another SimpleCache instance uses the folder")}。
+     *
+     * <p>播放器离线播放(EXTRA_CACHE_DIR 指到下载缓存区)必须走这里拿实例, 不能自己new。
+     * 注意: 复用时**不能**由播放器另配 LRU 驱逐器, 否则会把"主动下载永不清"的
+     * 已下载分片当缓存淘汰掉(引擎用的是 {@link NoOpCacheEvictor})。
+     */
+    @Nullable
+    public static SimpleCache heldCacheFor(File dir) {
+        DownloadEngine e = sInstance;
+        if (e == null || dir == null) return null;
+        return sameDir(e.cacheRoot, dir) ? e.cache : null;
+    }
+
+    /** 目录比较(解析符号链接/相对路径), 失败退化为绝对路径比较。 */
+    private static boolean sameDir(File a, File b) {
+        if (a == null || b == null) return false;
+        try {
+            return a.getCanonicalPath().equals(b.getCanonicalPath());
+        } catch (IOException e) {
+            return a.getAbsolutePath().equals(b.getAbsolutePath());
+        }
     }
 
     /** 某集的下载缓存目录(放过滤后清单/导出临时文件, SimpleCache 数据在其父目录). */

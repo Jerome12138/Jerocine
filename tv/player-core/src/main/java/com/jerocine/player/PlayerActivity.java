@@ -40,6 +40,8 @@ import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
 
+import com.jerocine.player.download.DownloadEngine;
+
 import org.json.JSONObject;
 
 import java.io.File;
@@ -517,20 +519,28 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         // 进程内单例; 若 intent 指定了不同的缓存目录(如离线播放指到下载缓存区),
         // 释放旧实例并重建, 否则继续用播放缓存(video_cache)
         File wantDir = resolveCacheDir();
-        if (sCache != null && !wantDir.equals(sCacheDir)) {
-            try {
-                sCache.release();
-            } catch (Exception ignore) {
+        // 关键: 下载缓存区已被 DownloadEngine 的 SimpleCache 进程级独占(见 heldCacheFor 注释),
+        // 这里绝不能自己 new —— 会抛 IllegalStateException 导致离线播放点「播放」必崩。
+        // 复用引擎实例, 同时保住它的 NoOpCacheEvictor(已下载分片不参与淘汰)。
+        SimpleCache engineCache = DownloadEngine.heldCacheFor(wantDir);
+        if (engineCache != null) {
+            sCacheDir = wantDir;
+            sCache = engineCache;
+        } else {
+            if (sCache != null && !wantDir.equals(sCacheDir)) {
+                try {
+                    sCache.release();
+                } catch (Exception ignore) {
+                }
+                sCache = null;
             }
-            sCache = null;
-        }
-        if (sCache == null) {
-            sCacheDir = resolveCacheDir();
-            sCache = new SimpleCache(
-                    sCacheDir,
-                    new LeastRecentlyUsedCacheEvictor(CACHE_SIZE),
-                    new StandaloneDatabaseProvider(getApplicationContext())
-            );
+            if (sCache == null) {
+                sCacheDir = wantDir;
+                sCache = new SimpleCache(
+                        sCacheDir,
+                        new LeastRecentlyUsedCacheEvictor(CACHE_SIZE),
+                        new StandaloneDatabaseProvider(getApplicationContext()));
+            }
         }
         // connect/read 用 30s 无数据超时; 不设整次请求总时限, 否则长分片/MP4 会在固定时间被掐断.
         // 壳层可注入自己的媒体客户端(放宽 TLS 兼容老设备), 未注入则自建.
@@ -649,7 +659,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             player.release();
             session.player = null;
         }
-        // sCache 故意不 release: 进程内复用, 退出时缓存继续保留供下次用
+        // sCache 故意不 release: 进程内复用, 退出时缓存继续保留供下次用。
+        // 离线播放时 sCache 是 DownloadEngine 持有的实例(见 buildCacheFactory) ——
+        // 那更不能 release: 引擎无release 出口, 解锁后重新 new 会与在途下载抢同一目录。
     }
 
     @Override
