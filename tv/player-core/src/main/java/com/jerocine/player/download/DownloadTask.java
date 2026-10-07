@@ -107,8 +107,12 @@ public final class DownloadTask {
      * 空片名回退到 E&lt;集号&gt;.ts.
      */
     public static String exportFileName(String filmTitle, int episode) {
+        // 括号一并清洗: TsExporter.exportedTargetExists 判"是否已导出"时会把 "(" 之后
+        // 当作旧版提示文案剥掉(兼容早期把"无存储权限"拼进路径的脏数据)。若文件名保留括号,
+        // 片名含 ASCII 括号(如 "Rick and Morty (2020)")时 API<29 回退路径会被截断 →
+        // exists() 为 false → 每次点「导出」都重拼整集并多生成一份 GB 级文件。
         String base = (filmTitle == null || filmTitle.trim().isEmpty())
-                ? "" : filmTitle.trim().replaceAll("[\\\\/:*?\"<>|]", "_");
+                ? "" : filmTitle.trim().replaceAll("[\\\\/:*?\"<>|()\\[\\]]", "_");
         String sep = base.isEmpty() ? "" : "_";
         return base + sep + "E" + (episode + 1) + ".ts";
     }

@@ -395,6 +395,7 @@ public class DownloadActivity extends AppCompatActivity {
         eps.sort(Integer::compareTo);
         int added = 0;
         int skipped = 0;
+        int failed = 0;
         for (int ep : eps) {
             if (ep < 0 || ep >= urls.size()) continue;
             DownloadTask t = new DownloadTask();
@@ -406,7 +407,16 @@ public class DownloadActivity extends AppCompatActivity {
             t.episodeTitle = (titles != null && ep < titles.size()) ? titles.get(ep) : "";
             t.srcUrl = urls.get(ep);
             t.id = DownloadTask.idFor(filmId, src.id, ep);
-            t.cacheDir = engine.episodeCacheDir(t).getAbsolutePath();
+            try {
+                // episodeCacheDir 会校验路径(防穿越); 非法 filmId 应只跳过这一集,
+                // 绝不能让异常抛到主线程把**整批**下载一起带崩。
+                t.cacheDir = engine.episodeCacheDir(t).getAbsolutePath();
+            } catch (IllegalArgumentException ex) {
+                failed++;
+                android.util.Log.w("DownloadActivity",
+                        "非法 filmId, 跳过该集: " + filmId, ex);
+                continue;
+            }
             t.createdAt = System.currentTimeMillis();
             t.updatedAt = t.createdAt;
             // 已存在的任务跳过(engine 内部 insertIgnore 幂等兜底; 这里先统计, 提示才准确)
@@ -419,7 +429,9 @@ public class DownloadActivity extends AppCompatActivity {
         }
         selected.clear();
         renderEpisodeList(currentSegment);
-        if (added > 0) {
+        if (failed > 0) {
+            toast(failed + " 集因影片ID 含非法字符被跳过");
+        } else if (added > 0) {
             toast(added + " 个任务已加入" + (skipped > 0 ? " · " + skipped + " 个已存在" : ""));
         } else if (skipped > 0) {
             toast("所选集数均已存在下载任务");
@@ -680,7 +692,7 @@ public class DownloadActivity extends AppCompatActivity {
         row.addView(action, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // 删除: ��下的任务也能删(不然用户只能等它跑完/失败才能清缓存)
+        // 删除: 队列里的任务也能删(不然用户只能等它跑完/失败才能清缓存)
         Button del = new Button(this);
         del.setTextSize(13);
         del.setAllCaps(false);

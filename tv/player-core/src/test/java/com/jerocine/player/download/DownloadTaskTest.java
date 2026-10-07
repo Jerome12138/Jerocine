@@ -91,6 +91,16 @@ public class DownloadTaskTest {
         assertEquals("E5.ts", DownloadTask.exportFileName(null, 4));
     }
 
+    @Test
+    public void exportFileNameCleansParentheses() {
+        // 括号必须清洗: exportedTargetExists 会把 "(" 之后当旧版提示文案剥掉,
+        // 保留括号会让含括号的片名在 API<29 上每次导出都重复生成大文件。
+        assertEquals("Rick and Morty _2020__E1.ts",
+                DownloadTask.exportFileName("Rick and Morty (2020)", 0));
+        assertEquals("a_b__E1.ts", DownloadTask.exportFileName("a(b)", 0));
+        assertEquals("a_b_c_E1.ts", DownloadTask.exportFileName("a[b]c", 0));
+    }
+
     // ============================ 路径片段净化(防路径穿越) ============================
 
     // PlayerActivity 已 exported=true(为接 ACTION_VIEW), 任意 App 可注入 film_id。

@@ -11,6 +11,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.NoOpCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
@@ -30,6 +31,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -360,19 +362,63 @@ public void pause(String taskId) {
     }
 
     /**
-     * 删除任务: 停下载 + 清缓存目录 + 删业务记录。
+     * 删除任务: 停下载 + **清 SimpleCache 里的真实分片** + 清任务目录 + 删业务记录。
      *
-     * <p>顺序刻意保持"先停下载与删库, 最后删目录": 路径校验失败(非法 filmId)时抛
-     * IllegalArgumentException, 此时任务已从库和 media3 移除, 不会留下"删不掉的任务"。
-     * 缓存目录残留只是占空间, 远好过删错目录。
+     * <p><b>为什么必须显式清 SimpleCache</b>: media3 的分片不在 {@code episodeCacheDir} 下,
+     * {@code SimpleCache} 的磁盘布局是 {@code download_cache/<0..9>/<contentId>.<uid>.<ext>}
+     * (数字子目录, 见 {@code SimpleCache.startFile}), 而 {@code episodeCacheDir} 只是
+     * {@code download_cache/<filmId>/<episode>/} —— 两者不是同一条路径。
+     * {@code DownloadManager.removeDownload} 也<b>不会</b>删缓存文件(已核对 media3 1.4.1 字节码:
+     * 它只发消息并回调 onDownloadRemoved, 无任何 File/Cache 操作)。
+     * 所以只删 episodeCacheDir 的话, 用户点删除后几个 GB 的分片纹丝不动, 而缓存区是
+     * {@code NoOpCacheEvictor}(主动下载永不清) → 空间永远不释放。
+     *
+     * <p>cache key 必须与读侧一致: {@link TsExporter} 用 {@code new DataSpec(Uri.parse(url))}
+     * (key 为 null), media3 的 {@code DefaultCacheKeyFactory} 此时退化为 {@code uri.toString()}。
+     * 这里用同样方式构造, 才能命中同一批 span。
      */
     public void remove(String taskId) {
         DownloadTask t = repository.get(taskId);
-        manager.removeDownload(taskId);
-        repository.delete(taskId);
-        prefetchedPlaylists.remove(t == null ? null : t.srcUrl);
         if (t != null) {
-            deleteRecursive(episodeCacheDir(t));
+            clearDownloadedSegments(t);
+            manager.removeDownload(taskId);
+            repository.delete(taskId);
+            prefetchedPlaylists.remove(t.srcUrl);
+            // 用库里的持久化路径而不是重算: safeSegment 上线前入队的任务, DB 里存的是旧路径,
+            // 重算会算到新目录 → 老目录永远删不掉(读侧 playOffline/TsExporter 用的也是 DB 值)。
+            if (t.cacheDir != null && !t.cacheDir.isEmpty()) {
+                deleteRecursive(new File(t.cacheDir));
+            } else {
+                deleteRecursive(episodeCacheDir(t));
+            }
+        } else {
+            manager.removeDownload(taskId);
+            repository.delete(taskId);
+        }
+    }
+
+    /**
+     * 删掉某集在 SimpleCache 里的全部分片 — 按过滤后清单逐个 removeResource。
+     *
+     * <p>{@code removeResource} 对未命中的 key 是静默无害的, 所以不必先查 {@code getKeys()}。
+     * 解析清单失败时不做特殊处理: 最坏情况是残留分片(仍可由用户在系统里清理),
+     * 强删则可能误伤其他集 —— 宁可少删不可错删。
+     */
+    private void clearDownloadedSegments(DownloadTask task) {
+        try {
+            String playlist = repository.getFilteredPlaylist(task.id);
+            if (playlist == null || playlist.isEmpty()) return;
+            List<PlaylistSegments.Segment> segments =
+                    PlaylistSegments.parse(playlist, task.srcUrl);
+            int n = 0;
+            for (PlaylistSegments.Segment seg : segments) {
+                // DataSpec 不设 key → 与 TsExporter/BufferPrefetcher 的读侧一致
+                cache.removeResource(new DataSpec(Uri.parse(seg.url)).key);
+                n++;
+            }
+            Log.i(TAG, "已清理分片缓存: " + task.id + " × " + n + "片");
+        } catch (Exception e) {
+            Log.w(TAG, "清理分片缓存失败(残留分片需手动清理): " + task.id, e);
         }
     }
 

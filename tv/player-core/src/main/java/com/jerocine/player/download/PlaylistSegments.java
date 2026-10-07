@@ -43,7 +43,7 @@ public final class PlaylistSegments {
      * <p>{@link #exportBlockReason} 非空即表示"不能按序拼接导出", 值是可直接展示给用户的中文原因。
      */
     public static final class Capabilities {
-        /** 加密方法(METHOD=NONE / AES-128 / SAMPLE-AES 等); ���清单无 KEY 时为 null. */
+        /** 加密方法(METHOD=NONE / AES-128 / SAMPLE-AES 等); 清单无 KEY 标签时为 null. */
         public final String encryptionMethod;
         /** fMP4 init 分片 URI; 无 EXT-X-MAP 时为 null. */
         public final String initUri;
@@ -51,7 +51,7 @@ public final class PlaylistSegments {
         public final boolean hasByteRange;
         /** 是否以 EXT-X-ENDLIST 结尾(false → 直播流, 导出必然不完整). */
         public final boolean hasEndList;
-        /** 首行是否 #EXTM3U(用���识别"服务端返回了 HTML 错误页"这类垃圾响应). */
+        /** 首行是否是 #EXTM3U(用于识别"服务端返回了 HTML 错误页"这类垃圾响应). */
         public final boolean looksLikePlaylist;
 
         Capabilities(String encryptionMethod, String initUri, boolean hasByteRange,

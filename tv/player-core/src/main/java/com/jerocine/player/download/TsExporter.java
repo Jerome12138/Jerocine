@@ -74,7 +74,16 @@ public final class TsExporter {
         SHARED_WORKER.execute(() -> {
             try {
                 exportInternal(repo, task, cb);
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // 必须 catch Throwable 而非 Exception: 导出是全应用内存峰值最高的路径
+                // (128KB 拼接缓冲 + moveToDownloads 的 128KB 复制缓冲 + media3 CacheDataSource
+                // 读缓冲), OutOfMemoryError 是现实风险, 而 Error 不被 Exception 捕获。
+                // 漏掉它的后果不只是这次导出失败 —— 任务会**永久卡在 EXPORTING**:
+                //   · updateProgressOnly 的 WHERE 条件 state<>EXPORTING 拒绝一切后续写入;
+                //   · markInterruptedAsPaused 的回滚只在 DownloadEngine 构造时跑一次(进程级单例);
+                //   · UI 上导出按钮永久禁用。
+                // 用户只能杀进程重启 App 才能恢复。
+                Log.w(TAG, "导出异常: " + task.id, e);
                 String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 rollbackState(repo, task, "导出失败: " + msg);
                 post(() -> cb.onError("导出失败: " + msg));
@@ -221,7 +230,12 @@ public final class TsExporter {
                             null, null, null)) {
                 return c != null && c.moveToFirst();
             } catch (Exception e) {
-                return false; // 查询失败时保守认为已导出, 避免重复生成 GB 级文件
+                // 【关键】查询异常时必须返回 true(=认为已导出)。
+                // 返回 false 会让export() 重跑全流程, 把整集再拼一遍并在下载目录多生成一份
+                // GB 级文件 —— 正是本方法要根治的问题(跨用户 content URI、厂商 ROM 权限收紧
+                // 等场景都会走到这里)。
+                Log.w(TAG, "查询已导出目标失败, 按已导出处理以避免重复生成大文件: " + target, e);
+                return true;
             }
         }
         File f = new File(target);
