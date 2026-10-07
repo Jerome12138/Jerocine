@@ -1,6 +1,8 @@
 package com.jerocine.player.download;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -54,12 +56,121 @@ public class PlaylistSegmentsTest {
     }
 
     @Test
-    public void parse_byterangeSkipped() {
-        String pl = "#EXTINF:10.0,\nbase.ts\n#EXT-X-BYTERANGE:524288@0\n#EXTINF:10.0,\nnext.ts\n";
+    public void parse_byterangeKeptInListButExportBlocked() {
+        // 原用例把 BYTERANGE 放在 base.ts 和一个**全新**的 next.ts 之间, 并断言 next.ts 被当完整分片收入 ——
+        // 那等于声明"next.ts 是 base.ts 的第524288 字节起的片段", 与 HLS 规范不符(规范形态是
+        // URL 在前、BYTERANGE 修饰它自己), 断言固化的是错误行为。
+        // 现在: 分片仍照常收入(不改变解析面), 但 inspect() 会拦住导出 → 不会静默产出缺字节的文件。
+        String pl = "#EXTM3U\n#EXTINF:10.0,\nbase.ts\n#EXT-X-BYTERANGE:524288@0\n"
+                + "#EXTINF:10.0,\nnext.ts\n#EXT-X-ENDLIST\n";
         List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(pl, "https://x/");
         assertEquals(2, segs.size());
-        assertEquals("https://x/base.ts", segs.get(0).url);
-        assertEquals("https://x/next.ts", segs.get(1).url);
+        assertNotNull("BYTERANGE 清单必须被拦下, 不能产出缺字节的导出文件",
+                PlaylistSegments.inspect(pl).exportBlockReason());
+    }
+
+    // ---- 能力检测(inspect): 片源不固定时, 导出前必须能判断"能不能导" ----
+
+    @Test
+    public void inspect_plainTsPlaylistIsExportable() {
+        assertNull(PlaylistSegments.inspect(SAMPLE).exportBlockReason());
+    }
+
+    @Test
+    public void inspect_aes128BlocksExport() {
+        // KEY 只被当普通标签跳过 → 分片 URL 照常收入 → 缓存里是密文, 拼出来打不开
+        String pl = "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n"
+                + "#EXTINF:10.0,\nseg0.ts\n#EXT-X-ENDLIST\n";
+        PlaylistSegments.Capabilities c = PlaylistSegments.inspect(pl);
+        assertEquals("AES-128", c.encryptionMethod);
+        assertNotNull(c.exportBlockReason());
+        assertTrue(c.exportBlockReason().contains("加密"));
+    }
+
+    @Test
+    public void inspect_methodNoneIsNotBlocked() {
+        String pl = "#EXTM3U\n#EXT-X-KEY:METHOD=NONE\n#EXTINF:10.0,\nseg0.ts\n#EXT-X-ENDLIST\n";
+        assertNull(PlaylistSegments.inspect(pl).exportBlockReason());
+    }
+
+    @Test
+    public void inspect_fmp4InitBlocksExport() {
+        // EXT-X-MAP 的 init 分片(ftyp+moov)不在分片列表里, 且 .m4s 不是 MPEG-TS
+        String pl = "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n"
+                + "#EXTINF:10.0,\nseg0.m4s\n#EXT-X-ENDLIST\n";
+        PlaylistSegments.Capabilities c = PlaylistSegments.inspect(pl);
+        assertEquals("init.mp4", c.initUri);
+        assertNotNull(c.exportBlockReason());
+    }
+
+    @Test
+    public void inspect_byterangeBlocksExport() {
+        String pl = "#EXTM3U\n#EXTINF:10.0,\nbase.ts\n#EXT-X-BYTERANGE:52128@0\n#EXT-X-ENDLIST\n";
+        assertTrue(PlaylistSegments.inspect(pl).hasByteRange);
+        assertNotNull(PlaylistSegments.inspect(pl).exportBlockReason());
+    }
+
+    @Test
+    public void inspect_livePlaylistWithoutEndlistBlocked() {
+        // 无 ENDLIST = 直播流, 导出得到的是被截断的录像
+        String pl = "#EXTM3U\n#EXTINF:10.0,\nseg0.ts\n#EXTINF:10.0,\nseg1.ts\n";
+        PlaylistSegments.Capabilities c = PlaylistSegments.inspect(pl);
+        assertTrue(!c.hasEndList);
+        assertNotNull(c.exportBlockReason());
+    }
+
+    @Test
+    public void inspect_htmlErrorPageBlocked() {
+        // 服务端 200 返回 HTML 错误页: 以前每行都会变"分片 URL", 现在明确判定不是清单
+        String html = "<!DOCTYPE html>\n<html><head><title>404</title></head>\n<body>Not Found</body></html>";
+        PlaylistSegments.Capabilities c = PlaylistSegments.inspect(html);
+        assertTrue(!c.looksLikePlaylist);
+        assertNotNull(c.exportBlockReason());
+    }
+
+    @Test
+    public void inspect_nullOrEmptyBlocked() {
+        assertNotNull(PlaylistSegments.inspect(null).exportBlockReason());
+        assertNotNull(PlaylistSegments.inspect("").exportBlockReason());
+    }
+
+    // ---- BOM: trim() 不处理 U+FEFF, 会把首行 #EXTM3U 当分片 URL ----
+
+    @Test
+    public void parse_bomStrippedFromFirstLine() {
+        String pl = "\uFEFF#EXTM3U\n#EXTINF:10.0,\nseg0.ts\n#EXT-X-ENDLIST\n";
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(pl, "https://x/");
+        // 修复前: 首行因 BOM 不匹配任何标签也不以 # 开头 → 被当分片收进来, size=2
+        assertEquals(1, segs.size());
+        assertEquals("https://x/seg0.ts", segs.get(0).url);
+        assertNull(PlaylistSegments.inspect(pl).exportBlockReason());
+    }
+
+    // ---- resolveUrl: base 落在主机根(无尾斜杠)时的畸形 URL ----
+
+    @Test
+    public void resolve_baseOnHostRootWithoutTrailingSlash() {
+        // 修复前: lastIndexOf('/') 命中 "https://" 里的斜杠 → dir="https://" → "https://seg.ts"
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(
+                "#EXTINF:5,\nseg.ts\n", "https://cdn.example.com");
+        assertEquals("https://cdn.example.com/seg.ts", segs.get(0).url);
+    }
+
+    // ---- 时长未知时, rangeForMinutes 不能放大成全集 ----
+
+    @Test
+    public void rangeForMinutes_allZeroDurationsCapped() {
+        // 无 EXTINF → 时长全 0 → 修复前返回全集(等于"缓冲 N 分钟"下载整集)。
+        // 用例需超过封顶片数才能验证封顶, 这里构造 80 片。
+        StringBuilder pl = new StringBuilder("#EXTM3U\n");
+        for (int i = 0; i < 80; i++) pl.append("seg").append(i).append(".ts\n");
+        pl.append("#EXT-X-ENDLIST\n");
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(pl.toString(), "https://x/");
+        assertEquals(80, segs.size());
+        int end = PlaylistSegments.rangeForMinutes(segs, 5.0);
+        assertTrue("时长未知时不应返回全集(实际 " + end + "/80)",
+                end < segs.size());
+        assertTrue(end > 0);
     }
 
     @Test

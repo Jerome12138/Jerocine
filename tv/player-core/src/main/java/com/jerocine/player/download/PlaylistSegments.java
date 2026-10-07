@@ -11,8 +11,18 @@ import java.util.List;
  *
  * <p>分片 URL 以 String 表达(纯 Java 可测); 调用方需要 {@code Uri} 时自行 parse。
  *
- * <p>只支持常规 EXTINF 分片清单(源站均为该形态); 出现 {@code #EXT-X-BYTERANGE} / KEY 分片等
- * 特殊形态时诚实跳过该片(不解析), 不影响其余分片。
+ * <p><b>能力边界</b>(重要): 导出只支持<b>明文 TS 分片</b>清单。
+ * 以下形态无法通过"从下载缓存按序拼接分片字节"得到可播放文件, 必须由 {@link #inspect}检出
+ * 并显式报错, <b>不能静默产出坏文件</b>:
+ * <ul>
+ *   <li>{@code #EXT-X-KEY}(METHOD != NONE)—— AES-128 加密流: media3 {@code HlsDownloader}
+ *       下载时<b>从不解密</b>(key 只被当作普通资源下载进缓存), 缓存里是<b>密文</b>,
+ *       拼出的 .ts 任何播放器都解不出来;</li>
+ *   <li>{@code #EXT-X-MAP}—— fMP4: 媒体分片是裸 fragment(非 MPEG-TS), 且 init 分片
+ *       (ftyp+moov) 根本不在分片列表里, 拼出来缺 moov 结构不完整;</li>
+ *   <li>{@code #EXT-X-BYTERANGE}—— 分片是同一文件的字节区间, 按完整分片拼接会缺字节;</li>
+ *   <li>无 {@code #EXT-X-ENDLIST}—— 直播流, 拼出的文件是被截断的录像。</li>
+ * </ul>
  */
 public final class PlaylistSegments {
 
@@ -27,7 +37,120 @@ public final class PlaylistSegments {
         }
     }
 
+    /**
+     * 清单能力检查结果 — {@link #inspect} 的产物。
+     *
+     * <p>{@link #exportBlockReason} 非空即表示"不能按序拼接导出", 值是可直接展示给用户的中文原因。
+     */
+    public static final class Capabilities {
+        /** 加密方法(METHOD=NONE / AES-128 / SAMPLE-AES 等); ���清单无 KEY 时为 null. */
+        public final String encryptionMethod;
+        /** fMP4 init 分片 URI; 无 EXT-X-MAP 时为 null. */
+        public final String initUri;
+        /** 是否出现 EXT-X-BYTERANGE. */
+        public final boolean hasByteRange;
+        /** 是否以 EXT-X-ENDLIST 结尾(false → 直播流, 导出必然不完整). */
+        public final boolean hasEndList;
+        /** 首行是否 #EXTM3U(用���识别"服务端返回了 HTML 错误页"这类垃圾响应). */
+        public final boolean looksLikePlaylist;
+
+        Capabilities(String encryptionMethod, String initUri, boolean hasByteRange,
+                     boolean hasEndList, boolean looksLikePlaylist) {
+            this.encryptionMethod = encryptionMethod;
+            this.initUri = initUri;
+            this.hasByteRange = hasByteRange;
+            this.hasEndList = hasEndList;
+            this.looksLikePlaylist = looksLikePlaylist;
+        }
+
+        /**
+         * 返回不可导出的原因; 可导出(明文 TS 完整清单)时返回 null。
+         *
+         * <p>顺序按"用户最可能遇到"排: 加密 → fMP4 → BYTERANGE → 直播 → 非清单。
+         */
+        public String exportBlockReason() {
+            if (encryptionMethod != null && !"NONE".equalsIgnoreCase(encryptionMethod)) {
+                return "该片源是加密流(" + encryptionMethod + "), 无法导出为可播放文件, 请在线播放";
+            }
+            if (initUri != null) {
+                return "该片源是 fMP4 格式(EXT-X-MAP), 无法导出为 .ts, 请在线播放";
+            }
+            if (hasByteRange) {
+                return "该片源使用字节区间分片(EXT-X-BYTERANGE), 无法导出, 请在线播放";
+            }
+            if (!looksLikePlaylist) {
+                return "清单格式异常(不是有效的 m3u8), 可能是源站返回了错误页面, 请重试";
+            }
+            if (!hasEndList) {
+                return "该片源是直播流(无 EXT-X-ENDLIST), 导出的文件不完整, 请在线播放或等待完播后再试";
+            }
+            return null;
+        }
+    }
+
     private PlaylistSegments() {
+    }
+
+    /**
+     * 检查清单能力(不下载、不拼接, 纯字符串扫描) — 导出前必须先问一次。
+     *
+     * <p>存在的意义: 让"导出得到一个打不开的文件"变成"明确告诉用户为什么不能导出"。
+     * 片源不固定时尤其重要 —— 同一个导出按钮, 不同片源能力不同。
+     */
+    public static Capabilities inspect(String playlist) {
+        String encryptionMethod = null;
+        String initUri = null;
+        boolean hasByteRange = false;
+        boolean hasEndList = false;
+        boolean looksLikePlaylist = false;
+
+        if (playlist != null && !playlist.isEmpty()) {
+            for (String raw : playlist.split("\\r?\\n")) {
+                String line = stripBom(raw.trim());
+                if (line.isEmpty()) continue;
+                if (!looksLikePlaylist) {
+                    looksLikePlaylist = line.startsWith("#EXTM3U");
+                }
+                if (line.startsWith("#EXT-X-KEY:")) {
+                    String m = attribute(line, "METHOD=");
+                    if (m != null && encryptionMethod == null) encryptionMethod = m;
+                } else if (line.startsWith("#EXT-X-MAP:")) {
+                    String u = attribute(line, "URI=\"");
+                    if (u != null && initUri == null) initUri = u;
+                } else if (line.startsWith("#EXT-X-BYTERANGE:")) {
+                    hasByteRange = true;
+                } else if (line.startsWith("#EXT-X-ENDLIST")) {
+                    hasEndList = true;
+                }
+            }
+        }
+        return new Capabilities(encryptionMethod, initUri, hasByteRange, hasEndList, looksLikePlaylist);
+    }
+
+    /** 读 m3u8 属性值: key 形如 {@code METHOD=} 或 {@code URI="} ; 无值返回 null. */
+    private static String attribute(String line, String key) {
+        int i = line.indexOf(key);
+        if (i < 0) return null;
+        String v = line.substring(i + key.length());
+        if (key.endsWith("\"")) {
+            int end = v.indexOf('"');
+            return end > 0 ? v.substring(0, end) : null;
+        }
+        // 无引号值: 到下一个逗号为止
+        int comma = v.indexOf(',');
+        return (comma >= 0 ? v.substring(0, comma) : v).trim();
+    }
+
+    /**
+     * 剥 UTF-8 BOM(U+FEFF)。
+     *
+     * <p>{@code String.trim()} 只移除 &lt;= U+0020, <b>不处理</b> U+FEFF。
+     * 带 BOM 的 m3u8 首行 {@code #EXTM3U} 会因首字符是 U+FEFF 而既不匹配任何标签、
+     * 又不以 {@code #} 开头 → 被当成一个分片 URL 收入, 后续导出/预取必然失败在
+     * "不存在的地址"上, 报错信息完全误导。
+     */
+    private static String stripBom(String s) {
+        return (!s.isEmpty() && s.charAt(0) == '\uFEFF') ? s.substring(1) : s;
     }
 
     /**
@@ -40,7 +163,8 @@ public final class PlaylistSegments {
         String[] lines = playlist.split("\\r?\\n");
         double pendingDuration = -1.0;
         for (String raw : lines) {
-            String line = raw.trim();
+            // BOM 必须剥: trim() 不处理 U+FEFF, 会把首行 #EXTM3U 当成分片 URL
+            String line = stripBom(raw.trim());
             if (line.isEmpty()) continue;
             if (line.startsWith("#EXTINF:")) {
                 // #EXTINF:10.000,  → 取冒号后逗号前的时长
@@ -90,9 +214,20 @@ public final class PlaylistSegments {
             return u;
         }
         // 相对路径 → base 目录 + u, 归一化点段
-        int slash = base.lastIndexOf('/');
-        String dir = slash >= 0 ? base.substring(0, slash + 1) : base + "/";
-        return normalizeDots(dir + u);
+        // 目录 = base 最后一个 '/' 之前(含该斜杠)。注意 lastIndexOf('/') 不能无条件用:
+        // base="https://cdn.example.com"(无尾斜杠、无路径)时它会命中 "https://" 里的第二个斜杠,
+        // dir="https://" → 拼出 "https://seg.ts" 这种畸形 URL。
+        // 故先定位主机名终点(scheme 之后第一个 '/'); 它不存在说明 base 无路径,
+        // 它存在时 lastIndexOf 必然落在路径内, 可安全使用。
+        int schemeEnd = base.indexOf("://");
+        int authorityEnd = base.indexOf('/', schemeEnd > 0 ? schemeEnd + 3 : 0);
+        if (authorityEnd < 0) {
+            // base 落在主机根(无路径) → 分片直接挂在根下
+            return normalizeDots(base + "/" + u);
+        }
+        int lastSlash = base.lastIndexOf('/');
+        if (lastSlash < authorityEnd) lastSlash = authorityEnd; // base 以 '/' 结尾
+        return normalizeDots(base.substring(0, lastSlash + 1) + u);
     }
 
     /** 归一化 ./ 与 ../ 路径段(仅路径部分, query/fragment 原样保留) — 对齐 Uri.resolve. */
@@ -126,7 +261,11 @@ public final class PlaylistSegments {
 
     /**
      * 取前 {@code minutes} 分钟对应的分片下标范围 [0, end): 按 EXTINF 累计时长,
-     * 不足整片时包含下一片(保证覆盖 N 分钟); 返回 0 表示无分片可取.
+     * 不足整片时包含下一片(保证覆盖 N 分钟); 返回 0 表示无分片可取。
+     *
+     * <p><b>注意</b>: 分片时长全为 0 时无法按分钟估算, 此时返回全集 —— 调用方
+     * (BufferPrefetcher)必须在调用前自行校验时长已知, 否则"缓冲 N 分钟"会退化成
+     * 缓冲整集。这里的封顶只是最后一道防线, 不替代调用方校验。
      */
     public static int rangeForMinutes(List<Segment> segments, double minutes) {
         if (segments == null || segments.isEmpty() || minutes <= 0) return 0;
@@ -137,6 +276,14 @@ public final class PlaylistSegments {
                 return Math.min(i + 1, segments.size());
             }
         }
+        // 时长全 0: 累加永不达标 → 原本返回全集(等于缓冲整集)。此处封顶到 MINUTES_FALLBACK_CAP 片,
+        // 让"时长未知"不会被放大成"下载全部分片"。
+        if (acc <= 0) {
+            return Math.min(segments.size(), MINUTES_FALLBACK_CAP);
+        }
         return segments.size();
     }
+
+    /** 时长未知时"缓冲 N 分钟"的兜底分片上限(约一集常规分片量级, 不会放大成全集)。 */
+    private static final int MINUTES_FALLBACK_CAP = 60;
 }

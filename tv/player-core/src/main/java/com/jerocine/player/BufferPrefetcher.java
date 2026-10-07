@@ -87,6 +87,9 @@ public final class BufferPrefetcher {
                 String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 Log.w(TAG, "prefetch failed", e);
                 post(() -> done.onError("缓存缓冲失败: " + msg));
+            } finally {
+                // 正常结束也要回收(cancel 才走不到的路径); 幂等, 与 cancel 的 shutdown 兼容
+                worker.shutdown();
             }
         });
     }
@@ -100,9 +103,24 @@ public final class BufferPrefetcher {
             throw new IOException("广告过滤失败");
         }
         String filtered = new String(r.data, java.nio.charset.StandardCharsets.UTF_8);
+        // 同导出一致: 加密/fMP4/BYTERANGE/直播流无法靠"从缓存取分片字节"生效, 明确拒绝,
+        // 否则白耗带宽和磁盘, 播放依然卡。
+        String blockReason = PlaylistSegments.inspect(filtered).exportBlockReason();
+        if (blockReason != null) {
+            throw new IOException(blockReason);
+        }
         List<PlaylistSegments.Segment> segments = PlaylistSegments.parse(filtered, srcUrl);
         if (segments.isEmpty()) {
             throw new IOException("清单为空");
+        }
+        // 时长全为 0(清单缺 EXTINF)时 rangeForMinutes 会返回全集 → "缓冲 N 分钟"变缓冲整集(数 GB),
+        // 且进度条 target=0 恒显 0%。此时直接拒绝, 让用户改用「缓冲本集」(minutes<=0)。
+        boolean durationKnown = false;
+        for (PlaylistSegments.Segment s : segments) {
+            if (s.durationSeconds > 0) { durationKnown = true; break; }
+        }
+        if (minutes > 0 && !durationKnown) {
+            throw new IOException("清单缺少分片时长, 无法按分钟缓冲, 请改用「缓冲本集」");
         }
         int end = minutes > 0
                 ? PlaylistSegments.rangeForMinutes(segments, minutes)
@@ -159,6 +177,9 @@ public final class BufferPrefetcher {
             } catch (Exception ignore) {
             }
         }
+        // 必须回收线程池: 本类每次"缓存缓冲"都被 new 一个, 而 newSingleThreadExecutor 的
+        // 核心线程永不超时回收 → 用户每点一次就泄漏一个永久存活线程 + 一套连接池。
+        worker.shutdownNow();
     }
 
     private byte[] fetch(String url) throws IOException {

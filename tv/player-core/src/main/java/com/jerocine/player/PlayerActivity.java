@@ -958,9 +958,15 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         session.player.pause();
         if (bufferPrefetcher != null) bufferPrefetcher.cancel();
         bufferPrefetcher = new BufferPrefetcher(sCache, session.proxyBase);
-        final String srcUrl = session.currentRawUrls.get(idx);
+        // 必须用播放器**实际会请求的** URL, 不能用原始源站 URL:
+        // 开了「中转」或本集被自愈/端侧过滤失败升级时, 播放器走的是 /v1/m3u8/proxy 包装地址,
+        // 服务端返回的清单里分片 URL 已被改写为代理地址。SimpleCache 的键就是 URL 字符串,
+        // 两种地址是两个不同的键 → 按源站 URL 预取的分片一条也命中不了,
+        // 表现为"缓冲了但播放依然卡", 白耗带宽和磁盘。
+        final String srcUrl = session.mediaUriFor(idx, session.currentRawUrls.get(idx));
         showCenterToast("正在缓冲 " + label + " · 播放暂停", 2200);
-        bufferPrefetcher.start(srcUrl, minutes,
+        try {
+            bufferPrefetcher.start(srcUrl, minutes,
                 (cached, target) -> {
                     int pct = target > 0 ? (int) (cached * 100.0 / target) : 0;
                     showCenterToast("缓存缓冲 " + Math.min(pct, 100) + "% · " + label, 1200);
@@ -978,6 +984,14 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                         if (session.player != null && playing) session.player.setPlayWhenReady(true);
                     }
                 });
+        } catch (Exception e) {
+            // start() 同步抛异常(如线程池已 shutdown)→ 不会触发回调,
+            // 上面捕获的 playing 就丢了, 播放会停在暂停态无人恢复。
+            bufferPrefetcher = null;
+            showCenterToast("缓存缓冲启动失败: "
+                    + (e.getMessage() == null ? "未知错误" : e.getMessage()), 2400);
+            if (session.player != null && playing) session.player.setPlayWhenReady(true);
+        }
     }
 
     /** 更多菜单 → 下载管理: 透传影片上下文给 DownloadActivity(选集/下载中/已完成三 tab). */

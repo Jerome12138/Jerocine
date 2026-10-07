@@ -104,6 +104,13 @@ public final class TsExporter {
         if (task.filteredPlaylist == null || task.filteredPlaylist.isEmpty()) {
             throw new IOException("缺少过滤后清单");
         }
+        // 能力校验前置: 明文完整 TS 清单才可按序拼接。
+        // 片源不固定 —— 加密/fMP4/BYTERANGE/直播流都会让"拼接出的 .ts"打不开,
+        // 而旧实现照样跑完全流程并标记"已导出"(静默产出坏文件)。这里显式拦下并给出原因。
+        String blockReason = PlaylistSegments.inspect(task.filteredPlaylist).exportBlockReason();
+        if (blockReason != null) {
+            throw new IOException(blockReason);
+        }
         List<PlaylistSegments.Segment> segments =
                 PlaylistSegments.parse(task.filteredPlaylist, task.srcUrl);
         if (segments.isEmpty()) {
