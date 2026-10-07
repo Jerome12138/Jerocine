@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.offline.DownloadManager;
 import androidx.media3.exoplayer.offline.DownloadService;
 import androidx.media3.exoplayer.scheduler.Scheduler;
 
+import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.R;
 
 import java.util.List;
@@ -53,9 +54,12 @@ public class JerocineDownloadService extends DownloadService {
     protected DownloadManager getDownloadManager() {
         DownloadEngine engine = DownloadEngine.existing();
         if (engine != null) return engine.manager();
-        // 进程被杀后系统恢复服务: 静态单例已丢 → 重建(空 proxyBase, 后续入队会自动切到会话 base)。
+        // 进程被杀后系统恢复服务: 静态单例已丢 → 重建。
+        // 注意这里**不能传空串**: 空 proxyBase 会让广告过滤直接返回 null,
+        // 导致重启后所有在途下载必然失败("广告过滤失败")且无法自愈。
+        // 兜底取壳层配置的默认代理地址(JerocinePlayer.defaultProxyBase)。
         // 重建会跑 markInterruptedAsPaused(把残留 DOWNLOADING 标 PAUSED), 与服务恢复语义一致。
-        return DownloadEngine.get(this, "").manager();
+        return DownloadEngine.get(this, JerocinePlayer.defaultProxyBase()).manager();
     }
 
     @Override

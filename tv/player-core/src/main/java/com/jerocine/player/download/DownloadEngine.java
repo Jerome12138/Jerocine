@@ -64,8 +64,16 @@ public final class DownloadEngine {
     private static DownloadEngine sInstance;
 
     private final Context appContext;
-    /** 广告过滤接口 base — 可变(get() 时更新), 仅影响后续 filter 调用, 不影响下载引擎实例. */
-    private String proxyBase;
+    /**
+     * 广告过滤接口 base — 可变: {@link #get} 时更新。
+     *
+     * <p>volatile 是必需的: 写入方是主线程({@code get}), 读取方是 worker 线程池
+     * ({@link #enqueue} 的 lambda 与 {@link DownloaderFactoryImpl})。没有 happens-before 时
+     * worker 可能读到空串/旧值 →过滤直接返回 null → 任务莫名"广告过滤失败"。
+     *
+     * <p><b>不要再把它以 final 固化进 {@link DownloaderFactoryImpl}</b>(见那里的说明)。
+     */
+    private volatile String proxyBase;
     private final File cacheRoot;
     private final SimpleCache cache;
     private final DownloadManager manager;
@@ -128,7 +136,9 @@ public final class DownloadEngine {
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
 
         manager = new DownloadManager(appContext, new DefaultDownloadIndex(provider),
-                new DownloaderFactoryImpl(dsFactory, proxyBase, prefetchedPlaylists));
+                // Supplier 而非值: 引擎可能被后续 get(ctx, base) 刷新 proxyBase,
+                // factory 必须读到最新值(进程被杀后服务重建的场景尤其关键)
+                new DownloaderFactoryImpl(dsFactory, () -> this.proxyBase, prefetchedPlaylists));
         manager.setMaxParallelDownloads(MAX_PARALLEL);
         manager.setMinRetryCount(2);
         manager.addListener(managerListener);
@@ -211,6 +221,9 @@ public final class DownloadEngine {
      * 过滤失败 → 任务 FAILED(不静默下原始流, 防广告进产物). 幂等: 已存在同 id 任务则忽略.
      */
     public void enqueue(DownloadTask task) {
+        // 入队时取快照: worker 线程池异步执行, 直接读 volatile 字段虽可见但语义不清,
+        // 且本任务生命周期内应始终用同一个 base(避免中途被 get() 改动导致前后不一致)
+        final String base = proxyBase;
         worker.execute(() -> {
             if (repository.get(task.id) != null) {
                 return; // 幂等: 已存在(重复入队被 UI 拦截过, 双保险)
@@ -218,7 +231,7 @@ public final class DownloadEngine {
             DownloadTask fresh = task;
             try {
                 byte[] raw = fetchPlaylist(task.srcUrl);
-                M3u8FilterClient.Result r = M3u8FilterClient.filter(proxyBase, task.srcUrl, raw);
+                M3u8FilterClient.Result r = M3u8FilterClient.filter(base, task.srcUrl, raw);
                 if (r == null) {
                     fail(task, "广告过滤失败(网络异常或服务端不可用), 可重试");
                     return;
@@ -277,6 +290,8 @@ public final class DownloadEngine {
         repository.delete(taskId);
         if (t != null) {
             deleteRecursive(episodeCacheDir(t));
+            // 顺带清预取: 清单字节(~77KB/集)只增不减, 删任务不清会一直驻留内存
+            prefetchedPlaylists.remove(t.srcUrl);
         }
     }
 
@@ -330,13 +345,17 @@ public final class DownloadEngine {
         }
         repository.update(next);
         notifyChanged(taskId);
+        // 终态后 master 预取字节(~77KB/集)已无用(HlsDownloader 不再读它), 及时释放;
+        // remove() 也会清, 这里覆盖"下载完成但任务仍在列表里"的常态路径。
+        if (d.state == Download.STATE_COMPLETED || d.state == Download.STATE_FAILED) {
+            prefetchedPlaylists.remove(t.srcUrl);
+        }
     }
 
     private void onDownloadRemoved(Download d) {
-        // 注意: prefetchedPlaylists 的 key 是**源站 URL**(enqueue 时 put), 而 Download 只有
+        // prefetchedPlaylists 的 key 是**源站 URL**(enqueue 时 put), 而 Download 只有
         // taskId(=filmId:sourceKey:episode, 反查不到 srcUrl) → 这里无法精确移除。
-        // 该 map 的 key 每次 enqueue 时按 srcUrl 覆盖(put), 最多残留一个已删任务的旧清单,
-        // 下次同源入队即被覆盖, 无实际危害, 不清理。
+        // 改由 remove()(有完整任务对象, 按 srcUrl 清) 与 onDownloadChanged 的终态分支兜底。
     }
 
     /** UI 刷新钩子 — DownloadActivity 注册, 下载状态变化时在主线程回调. */
@@ -427,7 +446,16 @@ public final class DownloadEngine {
     /** 自定义 DownloaderFactory — HLS 注入过滤解析器(下载列表=过滤后分片, 广告段不进缓存). */
     private static final class DownloaderFactoryImpl implements DownloaderFactory {
         private final CacheDataSource.Factory dsFactory;
-        private final String proxyBase;
+        /**
+         * 广告过滤 base 的<b>动态</b>读取入口(不能存成final String)。
+         *
+         * <p>曾经把 proxyBase 以 final 固化在构造时, 后果: 进程被系统回收后
+         * {@link JerocineDownloadService} 用空串重建引擎, 之后即使 Activity 再
+         * {@code get(ctx, 真实base)} 刷新了字段, 已创建的 factory 仍拿着旧值 →
+         * {@link M3u8FilterClient#filter} 直接返回 null → 进程重启后
+         * <b>所有在途下载 100% 失败</b>, 且无法自愈。
+         */
+        private final java.util.function.Supplier<String> proxyBaseSupplier;
         private final java.util.Map<String, byte[]> prefetched;
         /**
          * 下载执行线程池. 注意**必须用缓存线程池**: DownloadManager 按 maxParallelDownloads(3)
@@ -437,10 +465,11 @@ public final class DownloadEngine {
         private final java.util.concurrent.Executor executor =
                 Executors.newCachedThreadPool();
 
-        DownloaderFactoryImpl(CacheDataSource.Factory dsFactory, String proxyBase,
+        DownloaderFactoryImpl(CacheDataSource.Factory dsFactory,
+                              java.util.function.Supplier<String> proxyBaseSupplier,
                               java.util.Map<String, byte[]> prefetched) {
             this.dsFactory = dsFactory;
-            this.proxyBase = proxyBase;
+            this.proxyBaseSupplier = proxyBaseSupplier;
             this.prefetched = prefetched;
         }
 
@@ -454,8 +483,10 @@ public final class DownloadEngine {
             }
             MediaItem item = request.toMediaItem();
             if (type == C.CONTENT_TYPE_HLS) {
+                // 每次现取: 引擎可能被 get() 刷新过 proxyBase, factory 必须跟随
+                String base = proxyBaseSupplier.get();
                 return new HlsDownloader(item,
-                        new DownloadFilterPlaylistParserFactory(proxyBase, prefetched),
+                        new DownloadFilterPlaylistParserFactory(base, prefetched),
                         dsFactory,
                         executor);
             }
