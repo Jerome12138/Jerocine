@@ -154,7 +154,8 @@ public class DownloadActivity extends AppCompatActivity {
         tabDone.setOnClickListener(v -> switchTab(2));
     }
 
-    private Button btn(int id) {
+    /** 按钮按id 取控件(返回键是 ImageButton, 走 View 父类型即可)。 */
+    private View btn(int id) {
         return findViewById(id);
     }
 
