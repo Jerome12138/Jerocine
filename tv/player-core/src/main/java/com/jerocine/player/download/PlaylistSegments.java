@@ -86,6 +86,17 @@ public final class PlaylistSegments {
             }
             return null;
         }
+
+        /** 场景化文案: {@code action} 是"导出"/"缓冲"等用户可见的动作名。 */
+        public String exportBlockReason(String action) {
+            String reason = exportBlockReason();
+            if (reason == null) return null;
+            // "导出的文件不完整" / "无法导出" 这类措辞对"缓存缓冲"没有指代对象,
+            // 直接用 exportBlockReason 会让用户在缓冲场景看到"导出的文件不完整"。
+            return reason
+                    .replace("无法导出", "无法" + action)
+                    .replace("导出的文件不完整", action + "的内容不完整");
+        }
     }
 
     private PlaylistSegments() {

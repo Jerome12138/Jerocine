@@ -12,10 +12,10 @@ import androidx.media3.ui.PlayerView;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 播放会话 — helper 之间唯一的共享上下文.
@@ -110,11 +110,17 @@ public class PlayerSession {
     // ===== 片源 =====
     final ArrayList<SourceData> sourceList = new ArrayList<>();
     int currentSourceIndex = 0;
-    List<String> playlistTitles = new ArrayList<>();
+    /**
+     * volatile: 预取线程({@code jc-prefetch} 池)会读它做URL 键匹配与下钻, 而主线程在
+     * {@link #setRawUrls} 里整体重新赋值。缺 happens-before 时预取线程可能看到新引用
+     * 但未完全可见的数组内容 → {@code get()} 越界(被静默 catch)或拿到 null, 表现为
+     * "预取悄悄失效"。与下面各volatile 字段是同一类问题。
+     */
+    volatile List<String> playlistTitles = new ArrayList<>();
     /** 上一次的集索引 — onMediaItemTransition 里作为 fromIndex 回传(前端清上一集记忆). */
     int lastMediaItemIndex = 0;
-    /** 本次装载是否走"单 URL 兼容模式"(不做任何包装) — 重载时要沿用同一模式. */
-    boolean currentBypassFilter = false;
+    /** 本次装载是否走"单URL 兼容模式"(不做任何包装) — 重载时要沿用同一模式. 预取线程会读。 */
+    volatile boolean currentBypassFilter = false;
 
     // ===== 广告过滤 / 线路 =====
     String proxyBase = "";
@@ -131,13 +137,22 @@ public class PlayerSession {
      * **每集都白等一轮超时**再升级。换片/换源(startFromIntent)时重置。
      */
     volatile boolean sourcePreferProxy = false;
-    List<String> currentRawUrls = new ArrayList<>();
+    volatile List<String> currentRawUrls = new ArrayList<>();
+    /**
+     * 三个"强制线路"集索引: **主线程写, 预取线程读**(读点在
+     * {@link #mediaUriFor}, 它被 {@code PlayerPrefetchHelper} 的池线程调用)。
+     *
+     * <p>必须用并发集合: 写方会在 {@code onPlayerError} 里 {@code add}, 触发 HashMap 扩容;
+     * 读方同时在 {@code contains}。非并发 HashSet 在 resize 与并发 get 交错时可能读到
+     * 环形桶链(经典死循环)或返回错误结果 → 预取误判线路 → 白发一次注定不被消费的
+     * 过滤请求, 或无谓放弃预取。
+     */
     /** 代理失败的集 → 强制用原始地址. */
-    final Set<Integer> forceRawIdx = new HashSet<>();
+    final Set<Integer> forceRawIdx = ConcurrentHashMap.newKeySet();
     /** 端侧过滤失败的集 → 强制用服务端代理(proxyMedia=0)。 */
-    final Set<Integer> forceProxyIdx = new HashSet<>();
+    final Set<Integer> forceProxyIdx = ConcurrentHashMap.newKeySet();
     /** 直连失败的集 → 强制全量中转(单集自愈; 与用户的"中转"开关无关). */
-    final Set<Integer> forceRelayIdx = new HashSet<>();
+    final Set<Integer> forceRelayIdx = ConcurrentHashMap.newKeySet();
     /**
      * 用户的中转开关(默认关 = 不包代理, 走端侧混合过滤) — 全局生效, 持久化在 PlayerNetworkModeHelper.
      * 开 = 优先走服务端代理且分片全中转(proxyMedia=1)。
@@ -242,6 +257,13 @@ public class PlayerSession {
         // 跟随片源切换刷新"服务端能否代理": 服务端抓不到的源(如 bf/360)不能走代理, 也不能中转,
         // 只能"设备抓清单 + /v1/m3u8/filter 端侧过滤"。
         sourceProxyUsable = src.adFilterOk == null || src.adFilterOk;
+        // 换源 = 换了一个片源, 上一源"端侧过滤不可靠"的结论不能继承。
+        // 不清的话: 片源 A 有一次弱网超时 → sourcePreferProxy 永久为 true → 切到片源 B 后
+        // PlayerPrefetchHelper.canPrefetch 的 `raw.equals(mediaUriFor(...))` 恒为 false
+        // → **整个新片源的预取加速器被永久关掉**, 而 B 的端侧过滤其实完全正常。
+        if (sourceIdx != currentSourceIndex) {
+            sourcePreferProxy = false;
+        }
         loadPlaylistIntoPlayer(src.urls, src.titles, startEpisodeIndex, resumeMs, false);
     }
 
@@ -258,7 +280,16 @@ public class PlayerSession {
     void loadPlaylistIntoPlayer(List<String> rawUrls, List<String> titles,
                                 int startIndex, long resumeMs, boolean bypassFilter) {
         if (player == null || rawUrls == null || rawUrls.isEmpty()) return;
-        playlistTitles = (titles != null) ? new ArrayList<>(titles) : new ArrayList<>();
+        // playlistTitles 必须与 rawUrls **等长**: 它被多处当作"集数"基准 ——
+        // PlayerActivity 角标 `共 N 集`、PlayerDialogHelper.showEpisodeDialog 的分段与条目。
+        // 两个列表来自 Intent 的两个独立 extra, 壳层若传 20 个 URL 但只给 12 个标题,
+        // 角标会显示"共 12 集"且最后 8 集在"选集"里根本选不到。缺失项补占位标题。
+        List<String> aligned = new ArrayList<>(rawUrls.size());
+        for (int i = 0; i < rawUrls.size(); i++) {
+            String t = (titles != null && i < titles.size()) ? titles.get(i) : null;
+            aligned.add((t == null || t.isEmpty()) ? "第 " + (i + 1) + " 集" : t);
+        }
+        playlistTitles = aligned;
         currentBypassFilter = bypassFilter;
         setRawUrls(rawUrls);
         resetLineState();

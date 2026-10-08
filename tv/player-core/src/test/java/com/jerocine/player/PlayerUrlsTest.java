@@ -159,6 +159,26 @@ public class PlayerUrlsTest {
         assertFalse(PlayerUrls.isM3u8(null));
     }
 
+    // 放宽 isM3u8 的回归: 大量真实 HLS 源不以 .m3u8 结尾, 旧判据一律 false →
+    // 中转/端侧失败升级/角标/子表预取四处连锁失效。
+    @Test
+    public void m3u8DetectionCoversRealWorldShapes() {
+        // 尾部斜杠: 部分 CDN 的 /playlist.m3u8/ 同样返回清单
+        assertTrue(PlayerUrls.isM3u8("https://cdn.example.com/live/playlist.m3u8/"));
+        // 无扩展名
+        assertTrue(PlayerUrls.isM3u8("https://cdn.example.com/hls/master"));
+        assertTrue(PlayerUrls.isM3u8("https://cdn.example.com/hls/master#frag"));
+        assertTrue(PlayerUrls.isM3u8("https://cdn.example.com/live/index.HLS"));
+        // m3u8 写在查询串里
+        assertTrue(PlayerUrls.isM3u8("https://api.example.com/play?type=m3u8&url=abc"));
+        // 组合: query + fragment
+        assertTrue(PlayerUrls.isM3u8("https://cdn.example.com/video/main.m3u8?token=1#frag"));
+        // 不能放宽过头
+        assertFalse(PlayerUrls.isM3u8("https://cdn.example.com/movie.mp4"));
+        assertFalse(PlayerUrls.isM3u8("https://cdn.example.com/"));
+        assertFalse(PlayerUrls.isM3u8(""));
+    }
+
     // ==================== 子清单提取(端侧预取下钻一层) ====================
     // 端侧路径每集要过滤两次(master + 子表): 服务端 FilterText 只绝对化、不改写子表地址,
     // 所以预取必须把子表也一并做掉, 否则切集仍卡在子表那次 POST 上。

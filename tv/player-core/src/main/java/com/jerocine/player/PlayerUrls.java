@@ -37,12 +37,38 @@ public final class PlayerUrls {
         return !lower.contains("/m3u8/proxy?");
     }
 
-    /** 是否 HLS 清单(可被 /m3u8/proxy 包装). */
-    public static boolean isM3u8(String rawUrl) {
+/**
+ * 是否 HLS 清单(可被 /v1/m3u8/proxy 包装).
+ *
+ * <p><b>不能只判 URL 形状</b>: 大量真实 HLS 源不以 .m3u8结尾 ——
+ * 尾部斜杠({@code /playlist.m3u8/})、无扩展名({@code /hls/master}、{@code /live/index.HLS})、
+ * 把 m3u8 放在查询串里({@code /play?type=m3u8&url=...})。它们都真的返回
+ * {@code application/vnd.apple.mpegurl}, 但旧判据一律 false, 而false 会让
+ * <b>三处连锁失效</b>: 中转(proxyMedia=1)与端侧失败升级永不生效、
+ * canSwitchNetworkMode 报"不是可中转的片源"让用户开不了中转、
+ * AdFilterStatus 判KIND_UNSUPPORTED"该源无需过滤"而**角标与实际过滤结果相反**。
+ */
+public static boolean isM3u8(String rawUrl) {
         if (rawUrl == null) return false;
-        String lower = rawUrl.toLowerCase(Locale.US);
-        return lower.endsWith(".m3u8") || lower.contains(".m3u8?") || lower.contains(".m3u8#");
-    }
+        String s = rawUrl.toLowerCase(Locale.US);
+        // 依次剥离 fragment 与 query, 只留 path 判形态; query 另存(有些源把 m3u8 写在查询串里)。
+        int hash = s.indexOf('#');
+        String beforeFragment = (hash > 0) ? s.substring(0, hash) : s;
+        int q = beforeFragment.indexOf('?');
+        String path = (q >= 0) ? beforeFragment.substring(0, q) : beforeFragment;
+        String query = (q >= 0) ? beforeFragment.substring(q + 1) : "";
+        // 尾部形态: 注意要兼容"尾斜杠"——部分 CDN 返回 /playlist.m3u8/ 同样是清单
+        while (path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        if (path.endsWith(".m3u8") || path.endsWith("/m3u8")
+                || path.endsWith(".hls") || path.endsWith("/hls")) {
+            return true;
+        }
+        return path.contains("/m3u8/") || path.contains(".m3u8/")
+                || path.contains("/hls/") || path.contains("/.hls/")
+                || query.contains("m3u8") || query.contains(".hls");
+}
 
     /**
      * 计算某集的实际播放地址.

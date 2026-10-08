@@ -18,6 +18,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -169,21 +170,40 @@ public class PlayerAdFilterHelper {
      * 或已升级过(forceProxyIdx)则不再动 —— 否则"直连失败 → 代理 → 代理失败 → 直连"会来回切换。
      * parse 跑在 loader 线程, 读当前集索引/重建播放器必须回主线程。
      */
-    private void escalateToProxy() {
+    private void escalateToProxy(final String failedUrl) {
         if (!session.sourceProxyUsable) return;
         if (session.proxyBase == null || session.proxyBase.isEmpty()) return;
+        // 【关键】在**调用点(loader 线程)**解析失败的是哪一集, 不能在 post 里读"当前索引"。
+        // 原实现在 post 里才读 getCurrentMediaItemIndex(): 第5 集起播 → 过滤超时 8s →
+        // 用户在这期间按▼切到第 6 集 → post 执行时索引已是 5 → **第 6 集被无端标记
+        // forceProxy 并 replaceMediaItem 重建**(打断用户已在看的这一集), 并连带
+        // invalidatePrefetch() 把第 6 集已预取好的清单一起清掉。真正失败的第 5 集反被漏标。
+        final int failedIdx = indexOfRawUrl(failedUrl);
+        if (failedIdx < 0) return;
         new Handler(Looper.getMainLooper()).post(() -> {
             if (session.player == null) return;
-            int idx = session.player.getCurrentMediaItemIndex();
-            if (idx < 0 || idx >= session.currentRawUrls.size()) return;
-            if (session.forceRawIdx.contains(idx) || session.forceProxyIdx.contains(idx)) return;
-            session.forceProxyIdx.add(idx);
-            // 本片源端侧过滤已证明不可靠 → 后续集直接用代理, 免得每集都白等一轮 12s 超时
+            // 用户已经切走了就别动手: 修复"打错集"的最后一层保险
+            if (session.player.getCurrentMediaItemIndex() != failedIdx) return;
+            if (session.forceRawIdx.contains(failedIdx) || session.forceProxyIdx.contains(failedIdx)) {
+                return;
+            }
+            session.forceProxyIdx.add(failedIdx);
+            // 本片源端侧过滤已证明不可靠 → 后续集直接用代理, 免得每集都白等一轮超时
             session.sourcePreferProxy = true;
             // 后续集都走代理了, 已预取/在途的端侧清单缓存全部作废(也顺手停掉在途任务)
             session.invalidatePrefetch();
-            session.retryCurrentItem(idx, "端侧过滤失败, 已切换服务端过滤");
+            session.retryCurrentItem(failedIdx, "端侧过滤失败, 已切换服务端过滤");
         });
+    }
+
+    /** 在当前播放列表里找该URL 对应的集索引; 找不到返回 -1. */
+    private int indexOfRawUrl(String rawUrl) {
+        if (rawUrl == null) return -1;
+        List<String> urls = session.currentRawUrls;
+        for (int i = 0; i < urls.size(); i++) {
+            if (rawUrl.equals(urls.get(i))) return i;
+        }
+        return -1;
     }
 
     /**
@@ -221,7 +241,7 @@ public class PlayerAdFilterHelper {
                         if (f != null) {
                             data = f;
                         } else {
-                            escalateToProxy(); // 端侧失败 → 本集升级服务端代理
+                            escalateToProxy(uri.toString()); // 端侧失败 → 本集升级服务端代理(带失败 URL 以定位是哪一集)
                         }
                     }
                 } else {

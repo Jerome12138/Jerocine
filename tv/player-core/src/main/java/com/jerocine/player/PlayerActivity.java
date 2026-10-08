@@ -439,9 +439,10 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     return;
                 }
                 // 服务端无法抓取清单时, 仅本集回退原始源(广告不过滤, 但保证能放)
-                if (session.adFilterOn && currentUrl.contains("/m3u8/proxy")
+                if (session.adFilterOn && currentUrl.toLowerCase(Locale.US).contains("/m3u8/proxy")
                         && !currentUrl.toLowerCase(Locale.US).contains("proxymedia=1")
-                        && (failedUrl.isEmpty() || failedUrl.contains("/m3u8/proxy"))
+                        && (failedUrl.isEmpty()
+                            || failedUrl.toLowerCase(Locale.US).contains("/m3u8/proxy"))
                         && errIdx >= 0 && errIdx < session.currentRawUrls.size()
                         && !session.forceRawIdx.contains(errIdx)) {
                     session.forceRawIdx.add(errIdx);
@@ -620,6 +621,10 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         super.onPause();
         // 离开/熄屏/切后台都会走 onPause(比 onDestroy 可靠) → 立即记一次进度
         emitProgressNow();
+        // 复位手势长按 2x 倍速: 用户长按视频区进入 2x 后未抬手就按 HOME/切后台时,
+        // MotionEvent 不再派发 → cancelGesture() 不会被调用(它只在 ACTION_POINTER_DOWN 里触发),
+        // 回来后播放器继续以 2.0 倍速播放且倍速状态点还亮着, 用户不知道是残留。
+        if (gestureHelper != null) gestureHelper.cancelGesture();
         if (session.player != null && session.player.isPlaying()) session.player.pause();
     }
 

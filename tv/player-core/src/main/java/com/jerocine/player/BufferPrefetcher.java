@@ -84,6 +84,16 @@ public final class BufferPrefetcher {
             try {
                 run(srcUrl, minutes, progress, done);
             } catch (Exception e) {
+                // 取消引起的失败要与真实失败区分开。cancel() 会 shutdownNow 中断本线程,
+                // 被打断的 M3u8FilterClient.filter 返回 null → 这里抛 "广告过滤失败"。
+                // 若不判cancelled, 用户在"缓冲30分钟"中途改选"缓冲5分钟"时, 旧实例会:
+                //   ①弹一个莫名其妙的"缓存缓冲失败: 广告过滤失败"(实际是用户自己取消的);
+                //   ② 执行 onError 里的 setPlayWhenReady(true) → **在新实例正在写缓存的
+                //      同时恢复播放**, 把"缓冲中暂停"的语义彻底破坏。
+                if (cancelled) {
+                    post(() -> done.onError("已取消"));
+                    return;
+                }
                 String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 Log.w(TAG, "prefetch failed", e);
                 post(() -> done.onError("缓存缓冲失败: " + msg));
@@ -105,7 +115,7 @@ public final class BufferPrefetcher {
         String filtered = new String(r.data, java.nio.charset.StandardCharsets.UTF_8);
         // 同导出一致: 加密/fMP4/BYTERANGE/直播流无法靠"从缓存取分片字节"生效, 明确拒绝,
         // 否则白耗带宽和磁盘, 播放依然卡。
-        String blockReason = PlaylistSegments.inspect(filtered).exportBlockReason();
+        String blockReason = PlaylistSegments.inspect(filtered).exportBlockReason("缓冲");
         if (blockReason != null) {
             throw new IOException(blockReason);
         }
@@ -133,14 +143,18 @@ public final class BufferPrefetcher {
         double targetSec = 0;
         for (int i = 0; i < end; i++) targetSec += segments.get(i).durationSeconds;
 
-        OkHttpDataSource upstream = new OkHttpDataSource.Factory(HTTP)
-                .setUserAgent(UA)
-                .createDataSource();
-
         double cachedSec = 0;
         for (int i = 0; i < end; i++) {
             if (cancelled) break;
             PlaylistSegments.Segment seg = segments.get(i);
+            // 每片用独立的 upstream: CacheDataSource.close() 会**顺手关掉 upstream**,
+            // 共享一个实例的话, 任何一处给 ds 补上 close 都会让后续所有分片抛
+            // "DataSource is closed"。目前恰好没 close 才没炸, 这条约定很脆。
+            // (OkHttpDataSource 底层共享静态 HTTP 的连接池, 每片新建 DataSource
+            //  的代价只是一层对象, 不会多建连接)
+            OkHttpDataSource upstream = new OkHttpDataSource.Factory(HTTP)
+                    .setUserAgent(UA)
+                    .createDataSource();
             CacheDataSource ds = new CacheDataSource(cache, upstream,
                     CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
             final CacheWriter writer = new CacheWriter(ds, new DataSpec(Uri.parse(seg.url)), null,

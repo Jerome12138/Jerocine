@@ -460,12 +460,29 @@ public class DownloadActivity extends AppCompatActivity {
         renderDoneList();
     }
 
+        // 适配器实例复用: refreshTasks 每 5 秒被 media3 进度通知触发一次。
+    // 每次 setAdapter(新对象) 会清空 ListView 的 RecyclePool 并重建全部子 view,
+    // **焦点与滚动位置一起丢失** —— TV 遥控器上表现为"正在浏览下载列表, 5 秒后焦点跳回顶部"。
+    // 改为复用同一个适配器 + notifyDataSetChanged, 只重画不重建。
+    private ActiveAdapter activeAdapter;
+    private DoneAdapter doneAdapter;
+
     private void renderActiveList() {
-        lvActive.setAdapter(new ActiveAdapter());
+        if (activeAdapter == null) {
+            activeAdapter = new ActiveAdapter();
+            lvActive.setAdapter(activeAdapter);
+        } else {
+            activeAdapter.notifyDataSetChanged();
+        }
     }
 
     private void renderDoneList() {
-        lvDone.setAdapter(new DoneAdapter());
+        if (doneAdapter == null) {
+            doneAdapter = new DoneAdapter();
+            lvDone.setAdapter(doneAdapter);
+        } else {
+            doneAdapter.notifyDataSetChanged();
+        }
     }
 
     private final class ActiveAdapter extends BaseAdapter {

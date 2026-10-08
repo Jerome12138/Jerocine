@@ -27,41 +27,59 @@ public class PlayerKeyEventHelper {
         this.session = session;
     }
 
-    /** 进度键长按渐进步进 — 按 getDownTime() 起算的实际按住时长(ms)算步幅, 快退 = 快进 50%. */
-    private long seekStepFor(KeyEvent ev, boolean forward) {
-        long heldMs = ev.getEventTime() - ev.getDownTime();
-        long fwd;
-        if (heldMs < 500) fwd = 10_000L;
-        else if (heldMs < 2000) fwd = 30_000L;
-        else if (heldMs < 5000) fwd = 60_000L;
-        else fwd = 180_000L;
-        return forward ? fwd : fwd / 2;
+/**
+ * 进度键长按步进 — 按 {@link KeyEvent#getRepeatCount()} 分档。
+ *
+ * <p><b>不能用 eventTime - downTime</b>: repeat 事件携带**相同的 downTime**、递增的 eventTime,
+ * 于是每个 repeat 的"按住时长"都 ≥5s → 每次 repeat 都叠加一次 180s 步幅, 而 seekRelative
+ * 每次都重读当前位置累加 → 5次/秒的repeat 速率下就是 900s/s, 按住 3 秒直接跳到片尾并触发
+ * 自动下一集。用 repeat 次数分档则步长只增不减, 符合"越按越快"的手感。
+ *
+ * <p>快退 = 快进的 50%。封顶 {@link #MAX_SEEK_STEP_MS}: 再大就谈不上"步进"了。
+ */
+private long seekStepFor(KeyEvent ev, boolean forward) {
+    int repeats = ev.getRepeatCount();
+    long fwd;
+    if (repeats <= 0) fwd = 10_000L;         // 首次按下
+    else if (repeats < 4) fwd = 15_000L;
+    else if (repeats < 12) fwd = 30_000L;
+    else fwd = MAX_SEEK_STEP_MS;
+    return forward ? fwd : fwd / 2;
+}
+
+/** 单次步进上限(快进; 快退为其一半)。 */
+private static final long MAX_SEEK_STEP_MS = 60_000L;
+
+public boolean dispatchKeyEvent(KeyEvent event) {
+    int code = event.getKeyCode();
+    // BACK 必须由本类全权处理: DOWN 走逻辑, UP 一并吞掉。
+    // 否则 ACTION_UP 落到 super → Activity.onKeyUp → AOSP 对 BACK 调 onBackPressed()
+    // → PlayerActivity.onBackPressed 又调一次 handleBack() → 同一次物理按键被计两次,
+    // "再按一次返回退出"退化成单击即退出, 二次确认形同虚设。
+    if (code == KeyEvent.KEYCODE_BACK) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) return handleBack();
+        return true;
     }
+    if (event.getAction() != KeyEvent.ACTION_DOWN) {
+        return session.host().dispatchToSuper(event);
+    }
+    final PlayerView pv = session.host().playerView();
+    boolean controllerVisible = pv != null && pv.isControllerFullyVisible();
+    boolean onSeekbar = isFocusOnSeekbar();
 
-    public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getAction() != KeyEvent.ACTION_DOWN) {
-            return session.host().dispatchToSuper(event);
-        }
-        int code = event.getKeyCode();
-        final PlayerView pv = session.host().playerView();
-        boolean controllerVisible = pv != null && pv.isControllerFullyVisible();
-        boolean onSeekbar = isFocusOnSeekbar();
-
-        switch (code) {
-            case KeyEvent.KEYCODE_MENU:
-            case KeyEvent.KEYCODE_INFO: {
-                // MENU = 唤出/收起"顶部标题栏 + 底部操作栏"(用户要求: 不再弹播放控制弹窗).
-                // 原弹窗里的每一项(倍速/选集/换源/广告过滤/跳过/退出)底栏都已有按钮, 弹窗纯属多一层.
-                if (pv == null) return true;
-                if (controllerVisible) {
-                    pv.hideController();
-                } else {
-                    pv.showController();
-                }
-                return true;
+    switch (code) {
+        case KeyEvent.KEYCODE_MENU:
+        case KeyEvent.KEYCODE_INFO: {
+            // MENU = 唤出/收起"顶部标题栏 + 底部操作栏"(用户要求: 不再弹播放控制弹窗).
+            // 原弹窗里的每一项(倍速/选集/换源/广告过滤/跳过/退出)底栏都已有按钮, 弹窗纯属多一层.
+            if (pv == null) return true;
+            if (controllerVisible) {
+                pv.hideController();
+            } else {
+                pv.showController();
             }
-            case KeyEvent.KEYCODE_BACK:
-                return handleBack();
+            return true;
+        }
             case KeyEvent.KEYCODE_MEDIA_NEXT:
             case KeyEvent.KEYCODE_CHANNEL_UP:
                 if (session.player != null && session.player.hasNextMediaItem()) {
