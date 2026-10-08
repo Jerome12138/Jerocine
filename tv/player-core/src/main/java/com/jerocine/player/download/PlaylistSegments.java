@@ -215,8 +215,10 @@ public final class PlaylistSegments {
      * 绝对 URL(http/https/file)原样; 以 {@code /} 开头 → 替换为 base 的 scheme://authority;
      * 其余相对路径 → base 目录拼接, 并归一化 {@code ./} 与 {@code ../} 段。
      * 不依赖 android.net.Uri.resolve(本地单测无 android 运行时, 手工拼更可控且可测)。
+     *
+     * <p>包内可见: {@link DownloadEngine#firstVariantUrl} 下钻 master 子表时复用同一套语义。
      */
-    private static String resolveUrl(String base, String url) {
+    static String resolveUrl(String base, String url) {
         String u = url.trim();
         if (u.startsWith("http://") || u.startsWith("https://") || u.startsWith("file://")) {
             return u;

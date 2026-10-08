@@ -153,14 +153,17 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
         // 条件更新: 正在导出/已导出的任务, 其 state 与 exportedPath 不受下载进度回写影响。
         // 否则下载回调会把 EXPORTING 覆盖回 COMPLETED, 击穿防并发。
         //
-        // 但留一个自愈出口: 导出进程被杀(EXPORTING 残留)时, media3 迟早会报该任务 COMPLETED,
-        // 这时允许穿透写回 —— 否则任务永久卡在"导出中"且按钮禁用, 用户只能杀进程重启 App。
-        // 判据里带上 state 参数: 只有"要写成 COMPLETED 且当前是 EXPORTING"才放行。
+        // ⚠️ 2026-10-08 修 bug: 原实现 writingCompleted 时 WHERE 写成 "state=EXPORTING",
+        // 导致普通下载 DOWNLOADING→COMPLETED 的落库**永远静默失败**(当前 state 是
+        // DOWNLOADING 不等于 EXPORTING) → 任务永远显示"下载中 100%", 永不进已完成 tab
+        // (pad 实测实锤)。COMPLETED 是终态且不会被 EXPORTING 回写之外的路径产生,
+        // 这里必须无条件放行 —— 注释里说的"自愈出口"本来就是要求穿透 EXPORTING。
         int exporting = DownloadTask.STATE_EXPORTING;
         boolean writingCompleted = state == DownloadTask.STATE_COMPLETED;
         getWritableDatabase().update(TABLE, v,
-                writingCompleted ? "id=? AND state=?" : "id=? AND state<>?",
-                new String[]{id, String.valueOf(exporting)});
+                writingCompleted ? "id=?" : "id=? AND state<>?",
+                writingCompleted ? new String[]{id}
+                        : new String[]{id, String.valueOf(exporting)});
     }
 
     /**

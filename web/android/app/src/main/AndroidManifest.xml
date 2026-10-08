@@ -69,7 +69,7 @@
             android:name="com.jerocine.player.download.DownloadActivity"
             android:exported="false"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
-            android:theme="@style/AppTheme" />
+            android:theme="@style/AppTheme.Download" />
 
         <!-- 下载前台服务(批量并发下载, 通知实时进度) -->
         <service

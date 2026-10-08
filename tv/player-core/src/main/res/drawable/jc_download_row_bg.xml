@@ -1,24 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  下载页 Tab 背景 — 2026-10-08 重设计为"文字 Tab + 下划线"版式:
-    · 焦点态(TV D-pad): jc_accent_dim 底 + jc_accent 2dp 描边(与 jc_ctl_btn_bg 同款, 焦点必须可见)
-    · 按压态: jc_accent_press
-    · 选中态不再铺实色青底 —— 选中改由"文字变青 + 下划线"(layout 里的 underline_* View)表达,
-      背景回到透明, 与参考版式一致。
-  色值全部走 player-core 自己的令牌; 不能引用壳层资源(依赖方向必须壳→库)。
+  下载页列表行背景(focused / pressed / 默认透明)。
+  行是普通 LinearLayout(选集行/下载中行/已完成行共用): 默认透明靠列表分隔线区隔,
+  焦点/按压时浮起玻璃面 —— TV 遥控器必须能看出焦点在哪一行。
+  色值走 player-core 令牌, 与 jc_download_tab_bg/jc_download_chip_bg 同款形态。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <shape android:shape="rectangle">
             <solid android:color="@color/jc_accent_dim" />
             <stroke android:width="2dp" android:color="@color/jc_accent" />
-            <corners android:radius="22dp" />
+            <corners android:radius="8dp" />
         </shape>
     </item>
     <item android:state_pressed="true">
         <shape android:shape="rectangle">
             <solid android:color="@color/jc_accent_press" />
-            <corners android:radius="22dp" />
+            <corners android:radius="8dp" />
         </shape>
     </item>
     <item>

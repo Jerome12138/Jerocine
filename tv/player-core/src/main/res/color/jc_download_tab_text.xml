@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  下载页 Tab 文字色 — 与 jc_download_tab_bg 的四态同步。
+  下载页 Tab 文字色 — 与"文字 Tab + 下划线"版式(2026-10-08)同步。
 
-  焦点态用 jc_on_accent(#00141A 深色): 焦点背景是 jc_accent_dim(亮青), 深色字才读得清;
-  选中态用白字: 选中背景是 jc_accent 实色青, 白字对比度更高。
-  默认态 jc_text_secondary。
+  焦点态 = jc_text 白字: 焦点背景是 jc_accent_dim(暗青玻璃), 白字对比度最高;
+  选中态 = jc_accent 青字 + 下划线(下划线在 layout 里, 颜色直接 jc_accent);
+  默认态 = jc_text_secondary(未选中 Tab 弱化, 与参考版式一致)。
+  selected+focused 同时成立时焦点白字优先(selector 先命中 focused)。
 
   为什么不用 color/jc_ctl_btn_text 那个现成的: 它没有 selected 分支(项目刻意让开关类按钮
-  靠状态点表达状态, 见该文件注释 L5-7), Tab 是"焦点 + 选中"两个维度, 不能复用。
+  靠状态点表达状态), Tab 是"焦点 + 选中"两个维度, 不能复用。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_focused="true" android:color="@color/jc_on_accent" />
-    <item android:state_selected="true" android:color="@color/jc_text" />
+    <item android:state_focused="true" android:color="@color/jc_text" />
+    <item android:state_selected="true" android:color="@color/jc_accent" />
     <item android:color="@color/jc_text_secondary" />
 </selector>

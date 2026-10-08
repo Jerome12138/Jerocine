@@ -28,6 +28,8 @@ import java.io.InputStream;
  */
 public final class DownloadFilterPlaylistParserFactory implements ParsingLoadable.Parser<HlsPlaylist> {
 
+    private static final String TAG = "DownloadFilter";
+
     private final ParsingLoadable.Parser<HlsPlaylist> delegate = new HlsPlaylistParser();
     private final String proxyBase;
     /** 入队时已过滤好的 master 清单(按源站 URL) — HlsDownloader 解析 master 时命中, 不再付一次 POST. 可空. */
@@ -45,6 +47,9 @@ public final class DownloadFilterPlaylistParserFactory implements ParsingLoadabl
     @Override
     public HlsPlaylist parse(android.net.Uri uri, InputStream in) throws IOException {
         byte[] raw = readAll(in);
+        // 注意: 必须 android.util.Log —— androidx.media3.common.util.Log 默认 logLevel=WARN,
+        // info 全被吞(2026-10-08 排查 DownloadFilter 零日志时踩坑)
+        android.util.Log.i(TAG, "parse: " + uri + " rawLen=" + raw.length);
         // 入队预取命中(master 清单) → 直接用过滤结果; 子表未预取 → POST 过滤
         byte[] data = null;
         if (prefetched != null) {
@@ -57,10 +62,15 @@ public final class DownloadFilterPlaylistParserFactory implements ParsingLoadabl
                 //只记 host, 不记完整 URL: 这个 message 会经 DownloadEngine.fail()
                 // 持久化进 DownloadTask.error 并显示在下载列表的错误列里, 而源站 URL
                 // 常带时效签名(?token=xxx&sign=yyy) —— 落库 + 上屏等于扩散凭据。
+                android.util.Log.w(TAG,
+                        "filter failed: " + com.jerocine.player.ErrorDiag.safeUrl(uri.toString()));
                 throw new IOException("广告过滤失败: " + com.jerocine.player.ErrorDiag.safeUrl(uri.toString()));
             }
             data = r.data;
         }
+        android.util.Log.i(TAG,
+                "parse done: " + uri + " dataLen=" + data.length
+                        + (data == raw ? " (原文)" : " (过滤后)"));
         return delegate.parse(uri, new ByteArrayInputStream(data));
     }
 

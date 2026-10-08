@@ -35,18 +35,34 @@ public class JerocineDownloadService extends DownloadService {
     public JerocineDownloadService() {
         super(FOREGROUND_NOTIFICATION_ID, 1000L, CHANNEL_ID,
                 R.string.download_channel_name, R.string.download_channel_description);
+        // ⚠️ 严禁在构造函数里碰 Context 方法(getString/getResources 等)!
+        // 系统经 Class.newInstance() 实例化 Service 时 attachBaseContext() 还没跑,
+        // baseContext == null → getString() 直接 NPE → "Unable to create service"
+        // → **整个进程崩溃** → 界面退回播放页, 而且下载请求丢失、任务永远卡"排队中"。
+        // (2026-10-08 pad 实测: 每次首次点「开始下载」必崩, dropbox 三条同因记录。)
+        // 通知渠道创建挪到 onCreate() —— 此时 Context 已就绪。
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
         createChannel();
     }
 
     private void createChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel ch = new NotificationChannel(CHANNEL_ID,
-                    getString(R.string.download_channel_name),
-                    NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription(getString(R.string.download_channel_description));
-            ch.setShowBadge(false);
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            if (nm != null) nm.createNotificationChannel(ch);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel ch = new NotificationChannel(CHANNEL_ID,
+                        getString(R.string.download_channel_name),
+                        NotificationManager.IMPORTANCE_LOW);
+                ch.setDescription(getString(R.string.download_channel_description));
+                ch.setShowBadge(false);
+                NotificationManager nm = getSystemService(NotificationManager.class);
+                if (nm != null) nm.createNotificationChannel(ch);
+            }
+        } catch (Exception e) {
+            // 渠道创建失败不致命(通知可能不展示), 但绝不能让它把服务/进程带崩
+            android.util.Log.w("JerocineDownloadService", "createChannel failed", e);
         }
     }
 

@@ -1,27 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   下载页选集 chip 背景 — 三态(focused / selected / 默认)。
-  与 jc_download_tab_bg 同款形态: chip 是 D-pad 可聚焦元素, 焦点态必须可见。
+  2026-10-08 二轮: 圆角改 999dp = 完整胶囊(用户拍板"所有按钮采用胶囊");
+  选中态从"亮青实底+深色字"改为"半透明青底+青描边+白字" —— 用户要求源/分段标签
+  文字恒定白色(旧选中态深色字突兀), 白字衬半透明青底对比双侧都够。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <shape android:shape="rectangle">
-            <solid android:color="@color/jc_accent_dim" />
+            <solid android:color="@color/jc_accent_press" />
             <stroke android:width="2dp" android:color="@color/jc_accent" />
-            <corners android:radius="8dp" />
+            <corners android:radius="999dp" />
         </shape>
     </item>
     <item android:state_selected="true">
         <shape android:shape="rectangle">
-            <solid android:color="@color/jc_accent" />
-            <corners android:radius="8dp" />
+            <solid android:color="@color/jc_accent_dim" />
+            <stroke android:width="2dp" android:color="@color/jc_accent" />
+            <corners android:radius="999dp" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
             <solid android:color="@color/jc_glass_soft" />
             <stroke android:width="1dp" android:color="@color/jc_stroke_faint" />
-            <corners android:radius="8dp" />
+            <corners android:radius="999dp" />
         </shape>
     </item>
 </selector>

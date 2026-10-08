@@ -169,6 +169,16 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     getIntent().getStringExtra(EXTRA_TITLE));
         }
 
+        // 离线播放(下载管理页「播放」): EXTRA_URL 是本地过滤后清单(file://) 且指定了下载缓存目录。
+        // 与 localPlayback 互斥; 置位后走 initPlayer(复用渲染器/缓冲/角标), 但关掉整条过滤/线路链路
+        // (见 PlayerSession.offlinePlayback 注释 —— 不过滤、禁中转、错误不做线路自愈)。
+        String offlineUrl = getIntent().getStringExtra(EXTRA_URL);
+        if (!session.localPlayback
+                && getIntent().getStringExtra(EXTRA_CACHE_DIR) != null
+                && offlineUrl != null && offlineUrl.startsWith("file://")) {
+            session.offlinePlayback = true;
+        }
+
         playerView = findViewById(R.id.player_view);
         bufferSpinner = findViewById(R.id.buffer_spinner);
         titleText = findViewById(R.id.title_text);
@@ -208,7 +218,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         // VISIBLE 时才被调用(见下方 ControllerVisibilityListener), 而面板默认 GONE
         // (setControllerAutoShow(false)) → 不加守卫的话, 本地文件起播后会闪现一个
         // 与本地播放毫无关系的"广告过滤"状态点, 直到用户首次唤出控制面板才消失。
-        if (!session.localPlayback) {
+        if (!session.localPlayback && !session.offlinePlayback) {
             adFilterHelper.updateAdFilterBadge();
         }
 
@@ -225,8 +235,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
                 dotSpeed = playerView.findViewById(R.id.dot_speed);
                 dotSkip = playerView.findViewById(R.id.dot_skip);
-                if (session.localPlayback) {
-                    hideOnlineControls(); // 本地模式: 隐藏在线专属控件(过滤/换源/选集/上下集/跳过)
+                if (session.localPlayback || session.offlinePlayback) {
+                    hideOnlineControls(); // 本地/离线模式: 隐藏在线专属控件(过滤/换源/选集/上下集/跳过)
                     // 倍速/退出对本地文件同样有意义(可调速、可退出), 且不在 hideOnlineControls 的
                     // 隐藏列表里 —— 所以**必须**绑定监听器, 否则它们是"可见但点不动"的死按钮。
                     // TV 遥控器上表现为"按了没反应", 很容易被当成播放器卡死。
@@ -320,9 +330,14 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private void initPlayer() {
         DataSource.Factory cacheFactory = buildCacheFactory();
         // 端侧混合广告过滤: 全 HLS 内容用自定义播放列表解析器, 抓到 m3u8 后送服务端剔除广告再解析.
-        HlsMediaSource.Factory msFactory = new HlsMediaSource.Factory(cacheFactory)
-                .setPlaylistParserFactory(adFilterHelper.new FilterPlaylistParserFactory())
-                .setAllowChunklessPreparation(true);
+        // 离线播放例外: 清单是下载时已过滤落库的本地副本, 必须用默认解析器 ——
+        // FilterPlaylistParser 会对它再付一次过滤 POST, 且 file:// 源失败会触发 escalateToProxy
+        // 把 file:// 包成服务端代理(2026-10-08 "离线播放走中转"的根因)。
+        HlsMediaSource.Factory msFactory = new HlsMediaSource.Factory(cacheFactory);
+        if (!session.offlinePlayback) {
+            msFactory.setPlaylistParserFactory(adFilterHelper.new FilterPlaylistParserFactory());
+        }
+        msFactory.setAllowChunklessPreparation(true);
         // 解码: 硬解吃不消时回退软解; 异步队列送解码(全机型强制开)
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
                 .setEnableDecoderFallback(true)
@@ -352,8 +367,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                         skipHelper.applySkipIntro();
                         session.introSkippedForCurrent = true;
                     }
-                    // 起播弹一次"过滤状态"(每集一次)
-                    if (!session.filterToastShownForEpisode) {
+                    // 起播弹一次"过滤状态"(每集一次); 离线播放清单已过滤, 无过滤状态可弹
+                    if (!session.filterToastShownForEpisode && !session.offlinePlayback) {
                         session.filterToastShownForEpisode = true;
                         adFilterHelper.showFilterStatus();
                     }
@@ -429,7 +444,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 // 前两版只在"当前是 proxy 清单"时才自愈; 端侧混合过滤成为主路径后当前地址是**原始 m3u8**,
                 // 所以判据放宽为"失败的不是代理请求本身"(见 PlayerUrls.shouldRetryWithRelay).
                 // 服务端抓不到该源的(proxyUsable=false)中转也无意义, 直接走下面的报错/回退.
-                if (session.adFilterOn && session.sourceProxyUsable
+                // 离线播放: 分片要么在缓存里, 要么就得重新下载, 换线路/换代理救不了
+                // (file:// 被包进代理只会让服务端去抓一个不存在的本地地址) → 不做任何线路自愈。
+                if (!session.offlinePlayback && session.adFilterOn && session.sourceProxyUsable
                         && PlayerUrls.shouldRetryWithRelay(currentUrl, failedUrl)
                         && errIdx >= 0 && errIdx < session.currentRawUrls.size()
                         && !session.forceRelayIdx.contains(errIdx)) {
@@ -447,7 +464,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 // 但换回原始源/换一条线路往往能拿到现存的路径。
                 // forceRelay/forceRaw 互斥标记天然限制了重试轮数(每集最多来回一次),
                 // 不会无限循环。
-                if (session.adFilterOn
+                if (!session.offlinePlayback && session.adFilterOn
                         && session.forceRelayIdx.contains(errIdx)
                         && !session.forceRawIdx.contains(errIdx)
                         && errIdx >= 0 && errIdx < session.currentRawUrls.size()) {
@@ -458,7 +475,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     return;
                 }
                 // 服务端无法抓取清单时, 仅本集回退原始源(广告不过滤, 但保证能放)
-                if (session.adFilterOn && currentUrl.toLowerCase(Locale.US).contains("/m3u8/proxy")
+                if (!session.offlinePlayback && session.adFilterOn && currentUrl.toLowerCase(Locale.US).contains("/m3u8/proxy")
                         && !currentUrl.toLowerCase(Locale.US).contains("proxymedia=1")
                         && (failedUrl.isEmpty()
                             || failedUrl.toLowerCase(Locale.US).contains("/m3u8/proxy"))
@@ -610,8 +627,15 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 .followRedirects(true)
                 .followSslRedirects(true)
                 .build();
-        OkHttpDataSource.Factory upstream = new OkHttpDataSource.Factory(http)
+        OkHttpDataSource.Factory okHttp = new OkHttpDataSource.Factory(http)
                 .setUserAgent("Jerocine/1.0 (Android TV)");
+        // 【2026-10-08 修"离线播放 Malformed URL"】上游必须包一层 DefaultDataSource:
+        // 离线播放的清单是 file://(下载时过滤落库的本地副本), OkHttpDataSource 对
+        // 非 http(s) 直接抛 "Malformed URL"; DefaultDataSource 会把 file:// 委给
+        // FileDataSource、http(s) 委给 base 工厂(OkHttp), 两类来源都通。
+        // 在线播放行为不变(全部来源都是 http(s), DefaultDataSource 纯转发)。
+        androidx.media3.datasource.DefaultDataSource.Factory upstream =
+                new androidx.media3.datasource.DefaultDataSource.Factory(this, okHttp);
         return new CacheDataSource.Factory()
                 .setCache(sCache)
                 .setUpstreamDataSourceFactory(upstream)
@@ -945,6 +969,18 @@ private static String failedRequestUrl(Throwable error) {
                     .setTitle("更多")
                     .setItems(localItems, (d, i) -> {
                         if (i == 0) openLocalFilePicker();
+                        else if (i == 1) showDiagnostics();
+                    })
+                    .create().show();
+            return;
+        }
+        // 离线播放: 中转/缓存缓冲都没有指代对象(分片已本地), 只留下载管理与诊断
+        if (session.offlinePlayback) {
+            final String[] offItems = {"下载管理", "诊断信息"};
+            new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
+                    .setTitle("更多")
+                    .setItems(offItems, (d, i) -> {
+                        if (i == 0) openDownloadManager();
                         else if (i == 1) showDiagnostics();
                     })
                     .create().show();

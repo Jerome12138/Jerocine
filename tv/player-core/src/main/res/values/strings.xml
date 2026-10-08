@@ -16,5 +16,26 @@
     <string name="download_tab_active">下载中</string>
     <string name="download_tab_done">已完成</string>
     <string name="download_start">开始下载</string>
-    <string name="download_selected_zero">已选 0 集</string>
+    <!-- 选集下载 tab(2026-10-08 重设计): 信息行/分段弹窗/下载横幅/底部主按钮 -->
+    <string name="download_total_fmt">共 %1$d 集</string>
+    <string name="download_summary_fmt">已下载 %1$d 集 · 共 %2$s</string>
+    <string name="download_seg_label">选集 (%1$d~%2$d)</string>
+    <string name="download_seg_title">选择分段</string>
+    <string name="download_select_all">全选</string>
+    <string name="download_banner_downloading">正在下载 %1$d/%2$d</string>
+    <string name="download_banner_paused">已暂停 %1$d/%2$d</string>
+    <string name="download_pause_all">暂停全部</string>
+    <string name="download_resume_all">全部继续</string>
+    <string name="download_btn_start_fmt">下载选中 (%1$d)</string>
+    <string name="download_already_active">该集已在下载列表</string>
+    <string name="download_already_done">该集已下载完成</string>
+    <string name="download_none_operable">没有可操作的任务</string>
+    <string name="download_paused_n">已暂停 %1$d 个任务</string>
+    <string name="download_resumed_n">已继续 %1$d 个任务</string>
+    <!-- 选集行/空态/复制链接(player-core 两壳共用, 不硬编码) -->
+    <string name="download_episode_name">第 %1$d 集</string>
+    <string name="download_copy_link">复制链接</string>
+    <string name="download_copied">链接已复制</string>
+    <string name="download_empty_active">暂无下载任务\n从「选集下载」勾选后点底部「下载选中」</string>
+    <string name="download_empty_done">暂无已完成\n下载完成的剧集会出现在这里</string>
 </resources>

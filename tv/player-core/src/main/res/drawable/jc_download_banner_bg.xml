@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  下载横幅背景(选集页顶部"正在下载 x/y"条) — 暗青玻璃圆角条。
+  走 jc_accent_dim 令牌(#334AD1E5): 叠在 jc_bg 上 ≈ #172126 暗青调,
+  与参考版式的橙色横幅同位置, 但配色走品牌青; 不引入新色值。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/jc_accent_dim" />
+    <corners android:radius="12dp" />
+</shape>

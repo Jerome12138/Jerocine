@@ -107,6 +107,21 @@ public class PlayerSession {
     /** 本地文件显示名(文件名, 无则 fallback). */
     String localTitle = "";
 
+    // ===== 离线播放(下载管理页「播放」, 本地过滤后清单 + 下载缓存区) =====
+    /**
+     * 离线模式: 播放的是**已下载**的分片(SimpleCache 里), 与在线播放的本质区别:
+     * <ul>
+     *   <li>清单已过滤过(下载时落库的 playlist.m3u8), 再送 /v1/m3u8/filter 纯属白付一次
+     *       POST, 而且失败会触发 escalateToProxy → file:// 被包成 /m3u8/proxy?src=file://…
+     *       → 服务端根本抓不到本地文件 → "清单代理失败, 已切换直连" 来回打转 ——
+     *       2026-10-08 用户实锤"播放已下载视频一直走中转、直连逻辑"的根因;</li>
+     *   <li>中转/直连自愈全部无意义: 分片要么在缓存里, 要么就得重新下载, 网络换线救不了;</li>
+     *   <li>过滤/中转/换源/选集控件全部隐藏(单集离线, 这些开关没有指代对象)。</li>
+     * </ul>
+     * 由 PlayerActivity 检测 EXTRA_CACHE_DIR + file:// EXTRA_URL 置位(与 localPlayback 互斥)。
+     */
+    volatile boolean offlinePlayback = false;
+
     // ===== 片源 =====
     final ArrayList<SourceData> sourceList = new ArrayList<>();
     int currentSourceIndex = 0;
@@ -332,6 +347,8 @@ public class PlayerSession {
     // ============================ 线路 / 自愈 ============================
 
     String mediaUriFor(int idx, String rawUrl) {
+        // 离线播放: 清单是本地 file://(已过滤), 任何代理包装都是"包一个服务端抓不到的地址"
+        if (offlinePlayback) return rawUrl;
         // forceProxyIdx = 本集端侧过滤失败后的升级; sourcePreferProxy = 本片源端侧过滤"坏过"的粘性偏好
         boolean forceProxy = forceProxyIdx.contains(idx) || sourcePreferProxy;
         return PlayerUrls.buildPlayableUrl(
@@ -347,6 +364,8 @@ public class PlayerSession {
 
     /** 当前视频能否切换线路(仅"直连 CDN 的 m3u8 + 开关开启 + 有代理地址 + 服务端抓得到该源"). */
     boolean canSwitchNetworkMode(int idx) {
+        // 离线播放没有"线路"概念: 分片在本地缓存, 中转/直连都救不了缺失的分片
+        if (offlinePlayback) return false;
         if (!adFilterOn || !sourceProxyUsable || proxyBase == null || proxyBase.isEmpty()) return false;
         if (idx < 0 || idx >= currentRawUrls.size()) return false;
         String raw = currentRawUrls.get(idx).toLowerCase(Locale.US);

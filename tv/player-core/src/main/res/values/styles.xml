@@ -99,14 +99,13 @@
     </style>
 
     <!--
-      Tab 页签: 焦点态与选中态是两个独立维度(焦点靠 D-pad, 选中靠点击), 都要可见。
-      原来只靠代码 styleTab() 改文字色, 焦点移动完全不可见 —— TV 上是硬伤。
+      Tab 页签(2026-10-08 重设计): 文字 Tab + 选中下划线版式。
+      容器可聚焦(D-pad 焦点态= jc_download_tab_bg 的暗青底+青描边), 选中态由子级表达:
+      文字色 jc_download_tab_text(state_selected → jc_accent) + underline_* View(3dp 青条)。
     -->
     <style name="JcDownloadTab" parent="">
-        <item name="android:layout_height">42dp</item>
+        <item name="android:layout_height">44dp</item>
         <item name="android:gravity">center</item>
-        <item name="android:textSize">15sp</item>
-        <item name="android:textColor">@color/jc_download_tab_text</item>
         <item name="android:background">@drawable/jc_download_tab_bg</item>
         <item name="android:focusable">true</item>
         <item name="android:clickable">true</item>

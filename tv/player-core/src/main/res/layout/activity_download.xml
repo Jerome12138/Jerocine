@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   下载管理页(公共播放模块, 两壳共用) — 三个 tab: 选集下载 / 下载中 / 已完成.
-  设计: 深色玻璃拟态, 触控(手机/平板) + D-pad 焦点(TV) 双兼容;
-  选集按 30 集一组分段(与播放器选集弹窗 EPISODE_SEG 一致), 不做区间勾选.
+  设计(2026-10-08 定稿, 参考选集类下载页版式): 文字 Tab + 选中下划线,
+  信息行(共N集 / 分段选集▾ / 全选圆圈), 下载横幅(进度+速度+暂停全部),
+  大集号列表行, 底部居中主按钮。
+  深色玻璃拟态, 触控(手机/平板) + D-pad 焦点(TV) 双兼容;
+  选集按 30 集一组分段(与播放器选集弹窗 EPISODE_SEG 一致), 分段用胶囊 chips 行(hsv_segments)。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -21,7 +24,7 @@
         android:gravity="center_vertical"
         android:paddingHorizontal="16dp"
         android:paddingTop="14dp"
-        android:paddingBottom="10dp">
+        android:paddingBottom="6dp">
 
         <ImageButton
             android:id="@+id/btn_download_back"
@@ -46,38 +49,85 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Tab 行: 焦点态(青底青框)与选中态(实色青)由 jc_download_tab_bg 处理,
-             代码里的 styleTab() 只切 selected, 不再手工设背景。 -->
+    <!-- Tab 行: 文字 Tab + 选中下划线(underline_* 由代码切可见性);
+         焦点态(暗青底+青描边)由 jc_download_tab_bg 接管, TV D-pad 必须能看出焦点在哪。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingHorizontal="16dp"
-        android:paddingBottom="8dp">
+        android:paddingHorizontal="16dp">
 
-        <TextView
+        <LinearLayout
             android:id="@+id/tab_episodes"
             style="@style/JcDownloadTab"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            android:text="@string/download_tab_episodes" />
+            android:orientation="vertical">
 
-        <TextView
+            <TextView
+                android:id="@+id/tv_tab_episodes"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/download_tab_episodes"
+                android:textColor="@color/jc_download_tab_text"
+                android:textSize="15sp" />
+
+            <View
+                android:id="@+id/underline_episodes"
+                android:layout_width="28dp"
+                android:layout_height="3dp"
+                android:layout_marginTop="3dp"
+                android:background="@color/jc_accent"
+                android:visibility="visible" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/tab_active"
             style="@style/JcDownloadTab"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_marginHorizontal="6dp"
-            android:text="@string/download_tab_active" />
+            android:orientation="vertical">
 
-        <TextView
+            <TextView
+                android:id="@+id/tv_tab_active"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/download_tab_active"
+                android:textColor="@color/jc_download_tab_text"
+                android:textSize="15sp" />
+
+            <View
+                android:id="@+id/underline_active"
+                android:layout_width="28dp"
+                android:layout_height="3dp"
+                android:layout_marginTop="3dp"
+                android:background="@color/jc_accent"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/tab_done"
             style="@style/JcDownloadTab"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:text="@string/download_tab_done" />
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_tab_done"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/download_tab_done"
+                android:textColor="@color/jc_download_tab_text"
+                android:textSize="15sp" />
+
+            <View
+                android:id="@+id/underline_done"
+                android:layout_width="28dp"
+                android:layout_height="3dp"
+                android:layout_marginTop="3dp"
+                android:background="@color/jc_accent"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 
     <FrameLayout
@@ -94,7 +144,7 @@
             android:orientation="vertical"
             android:visibility="visible">
 
-            <!-- 源选择(多源时显示) + 分段选择(>30 集时显示), 代码填充 -->
+            <!-- 源选择(多源时显示), 代码填充 -->
             <HorizontalScrollView
                 android:id="@+id/hsv_sources"
                 android:layout_width="match_parent"
@@ -110,6 +160,7 @@
                     android:paddingHorizontal="16dp" />
             </HorizontalScrollView>
 
+            <!-- 选集分段(>30集时显示), 代码填充胶囊 chips(用户拍板: 分段保持胶囊标签形式) -->
             <HorizontalScrollView
                 android:id="@+id/hsv_segments"
                 android:layout_width="match_parent"
@@ -125,58 +176,237 @@
                     android:paddingHorizontal="16dp" />
             </HorizontalScrollView>
 
-            <ListView
-                android:id="@+id/lv_episodes"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:divider="@color/jc_stroke_faint"
-                android:dividerHeight="1px"
-                android:choiceMode="multipleChoice" />
-
+            <!-- 信息行: 共 N 集 | 选集 (a~b) ▾(分段弹窗) | 全选 圆圈 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingHorizontal="16dp"
-                android:paddingVertical="10dp">
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp">
 
                 <TextView
-                    android:id="@+id/tv_selected_count"
+                    android:id="@+id/tv_total_count"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/download_total_fmt"
+                    android:textColor="@color/jc_text_tertiary"
+                    android:textSize="13sp" />
+
+                <!-- 弹性占位: 把「全选」推到行尾 -->
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <LinearLayout
+                    android:id="@+id/ll_select_all"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="6dp"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:background="@drawable/jc_download_row_bg">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/download_select_all"
+                        android:textColor="@color/jc_text_secondary"
+                        android:textSize="13sp" />
+
+                    <View
+                        android:id="@+id/iv_select_all"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/jc_checkbox_off" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 下载横幅: 正在下载 x/y + 速度 + 暂停/继续全部; 有活动任务才显示(代码控制) -->
+            <LinearLayout
+                android:id="@+id/ll_banner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginHorizontal="12dp"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="8dp"
+                android:background="@drawable/jc_download_banner_bg"
+                android:focusable="true"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tv_banner_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/jc_accent"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_banner_speed"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="@string/download_selected_zero"
+                    android:gravity="end"
+                    android:layout_marginEnd="10dp"
                     android:textColor="@color/jc_text_secondary"
-                    android:textSize="13sp" />
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btn_banner_action"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="5dp"
+                    android:textSize="12sp"
+                    android:textAllCaps="false"
+                    android:textColor="@color/jc_download_chip_text"
+                    android:background="@drawable/jc_download_chip_bg"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <ListView
+                android:id="@+id/lv_episodes"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:divider="@null"
+                android:dividerHeight="0dp" />
+
+            <!-- 底部居中主按钮: 下载选中 (N); 只在选集 tab 出现 -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="12dp">
 
                 <Button
                     android:id="@+id/btn_start_download"
                     style="@style/JcDownloadBtnPrimary"
                     android:layout_width="wrap_content"
-                    android:drawableStart="@drawable/ic_download"
-                    android:drawablePadding="4dp"
+                    android:layout_height="44dp"
+                    android:minWidth="220dp"
+                    android:layout_gravity="center_horizontal"
+                    android:gravity="center"
                     android:text="@string/download_start" />
-            </LinearLayout>
+            </FrameLayout>
         </LinearLayout>
 
-        <!-- Tab2: 下载中 -->
-        <ListView
-            android:id="@+id/lv_active"
+        <!-- Tab2: 下载中 — 独立容器: 切 tab 只切容器的可见性。
+             2026-10-08 修"三个 tab UI 叠在一起": 旧实现把 ListView 和空态 TextView
+             平铺在本 FrameLayout 里, 而 ListView.setEmptyView 会在数据变化时强行把空态
+             置 VISIBLE(无视我们手动 GONE) → 选集 tab 底下透出"下载中"空态文字。
+             容器化后 setEmptyView 照常工作, 但容器 GONE 时内部全隐藏, 互不可见。 -->
+        <FrameLayout
+            android:id="@+id/tab_active_container"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:divider="@color/jc_stroke_faint"
-            android:dividerHeight="1px"
-            android:visibility="gone" />
+            android:visibility="gone">
 
-        <!-- Tab3: 已完成 -->
-        <ListView
-            android:id="@+id/lv_done"
+            <!-- 三轮1: 应用内已下载总大小(代码刷新); 空则 GONE -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tv_active_summary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="6dp"
+                    android:textColor="@color/jc_text_tertiary"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1">
+
+                    <ListView
+                        android:id="@+id/lv_active"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:divider="@color/jc_stroke_faint"
+                        android:dividerHeight="1px" />
+
+                    <!-- 下载中空态: ListView.setEmptyView 接管可见性 -->
+                    <TextView
+                        android:id="@+id/tv_empty_active"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:gravity="center"
+                        android:text="@string/download_empty_active"
+                        android:textColor="@color/jc_text_tertiary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+                </FrameLayout>
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Tab3: 已完成 — 同上独立容器 -->
+        <FrameLayout
+            android:id="@+id/tab_done_container"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:divider="@color/jc_stroke_faint"
-            android:dividerHeight="1px"
-            android:visibility="gone" />
+            android:visibility="gone">
+
+            <!-- 三轮1: 应用内已下载总大小(代码刷新); 空则 GONE -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tv_done_summary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="6dp"
+                    android:textColor="@color/jc_text_tertiary"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1">
+
+                    <ListView
+                        android:id="@+id/lv_done"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:divider="@color/jc_stroke_faint"
+                        android:dividerHeight="1px" />
+
+                    <!-- 已完成空态 -->
+                    <TextView
+                        android:id="@+id/tv_empty_done"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:gravity="center"
+                        android:text="@string/download_empty_done"
+                        android:textColor="@color/jc_text_tertiary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+                </FrameLayout>
+            </LinearLayout>
+        </FrameLayout>
     </FrameLayout>
 </LinearLayout>

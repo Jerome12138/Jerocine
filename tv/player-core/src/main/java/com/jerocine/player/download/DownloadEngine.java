@@ -9,9 +9,9 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DataSource;
-import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.NoOpCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
@@ -82,6 +82,7 @@ public final class DownloadEngine {
     private final SimpleCache cache;
     private final DownloadManager manager;
     private final DownloadRepository repository;
+    private final CacheDatabaseProvider dbProvider;
     private final ExecutorService worker;
     private final Handler mainHandler;
 
@@ -126,12 +127,18 @@ public final class DownloadEngine {
         cacheRoot = new File(appContext.getCacheDir(), CACHE_DIR_NAME);
         if (!cacheRoot.exists()) cacheRoot.mkdirs();
         CacheDatabaseProvider provider = new CacheDatabaseProvider(appContext);
+        this.dbProvider = provider;
         cache = new SimpleCache(cacheRoot, new NoOpCacheEvictor(), provider);
 
         OkHttpClient http = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
+                // 2026-10-08 真机实测: 只有 connect/read/write 超时不够 —— 某些 CDN 的响应
+                // 会"涓滴"式卡住(每次 read 都在超时前吐 1 字节), 整个请求永远不结束,
+                // worker 线程被无限占用, 任务永远不落库也不失败(下载列表一片空白)。
+                // callTimeout 是单次调用总闸, 从根上保证 enqueue 一定能走到终态。
+                .callTimeout(90, TimeUnit.SECONDS)
                 .retryOnConnectionFailure(true)
                 .followRedirects(true)
                 .followSslRedirects(true)
@@ -155,6 +162,90 @@ public final class DownloadEngine {
         // resumeDownloads(); 若 helper 已存在或 manager 被恢复重建, 将永远不恢复 → 任务卡 QUEUED。
         // 这里主动 resume 一次, 不依赖 service 时序, 保证任何创建方入队的任务都能启动。
         manager.resumeDownloads();
+        requeueOrphanTasks();
+        repairLegacySizes();
+    }
+
+    /**
+     * 旧任务体积自愈: 历史版本把 media3 的 contentLength(-1) 原样落库, 且卡在 100% 的任务
+     * bytesDownloaded=0 → 已完成列表全部显示 "0KB"(2026-10-08 用户实锤)。
+     * 这里在引擎创建时扫一遍 COMPLETED 任务: 优先取 media3 DownloadIndex 的真实字节数,
+     * 取不到(全缓存命中)则按过滤后清单实测 SimpleCache; 拿到就回写业务表。
+     * 跑在 worker 线程(几百集也只有毫秒级元数据查询), 失败静默(UI 仍是 0KB, 不影响功能)。
+     */
+    private void repairLegacySizes() {
+        worker.execute(() -> {
+            try {
+                DefaultDownloadIndex index = new DefaultDownloadIndex(dbProvider);
+                int n = 0;
+                for (DownloadTask t : repository.listAll()) {
+                    if (t.state != DownloadTask.STATE_COMPLETED) continue;
+                    if (t.totalBytes > 0 || t.progressBytes > 0) continue;
+                    Download d;
+                    try {
+                        d = index.getDownload(t.id);
+                    } catch (IOException e) {
+                        d = null;
+                    }
+                    long bytes = d != null ? Math.max(0L, d.getBytesDownloaded()) : 0L;
+                    if (bytes <= 0) bytes = cachedBytesFor(t);
+                    if (bytes <= 0) continue;
+                    repository.updateProgressOnly(t.id, DownloadTask.STATE_COMPLETED,
+                            bytes, bytes, null, System.currentTimeMillis());
+                    notifyChanged(t.id);
+                    n++;
+                }
+                if (n > 0) Log.i(TAG, "自愈: 修复旧任务体积 " + n + " 个");
+            } catch (Exception e) {
+                Log.w(TAG, "repairLegacySizes failed", e);
+            }
+        });
+    }
+
+    /**
+     * 孤儿任务自愈: 业务表里 QUEUED 但 media3 DownloadIndex 没有记录的任务 → 重新发 AddDownload。
+     *
+     * <p>怎么产生的: enqueue 流程是「拉清单+过滤(网络, 秒级) → insertIgnore(QUEUED) →
+     * sendAddDownload」。若进程在 insert 之后、media3 落索引之前被杀(典型: 服务构造函数
+     * 崩溃把整个进程带走, 2026-10-08 实测), 业务表就留下了永远没人认领的 QUEUED 行 ——
+     * UI 一直显示"排队中", 重启也不会动。
+     *
+     * <p>过滤后清单大概率已落库(insertIgnore 前写的), media3 重下时经
+     * DownloadFilterPlaylistParserFactory 走正常过滤路径, 不会绕过广告过滤。
+     */
+    private void requeueOrphanTasks() {
+        try {
+            DefaultDownloadIndex index = new DefaultDownloadIndex(dbProvider);
+            int n = 0;
+            for (DownloadTask t : repository.listAll()) {
+                if (t.state != DownloadTask.STATE_QUEUED) continue;
+                if (t.srcUrl == null || t.srcUrl.isEmpty()) continue;
+                boolean exists;
+                try {
+                    exists = index.getDownload(t.id) != null;
+                } catch (IOException e) {
+                    exists = false;
+                }
+                if (exists) continue;
+                DownloadRequest request = new DownloadRequest.Builder(t.id, Uri.parse(t.srcUrl))
+                        .setMimeType(MimeTypes.APPLICATION_M3U8)
+                        .setData(t.id.getBytes(StandardCharsets.UTF_8))
+                        .build();
+                try {
+                    DownloadService.sendAddDownload(appContext, JerocineDownloadService.class,
+                            request, true);
+                    n++;
+                } catch (IllegalStateException e) {
+                    // 后台启动限制: 放弃本次自愈, 下次引擎创建时再试(不影响已在跑的下载)
+                    Log.w(TAG, "requeue blocked by background start limit: " + t.id);
+                    return;
+                }
+            }
+            if (n > 0) Log.i(TAG, "自愈: 重新入队孤儿任务 " + n + " 个");
+        } catch (Exception e) {
+            // 自愈是尽力而为, 任何异常都不能挡住引擎初始化
+            Log.w(TAG, "requeueOrphanTasks failed", e);
+        }
     }
 
     /** 保存 listener 引用 — release 时按实例移除(removeListener(null) 语义不明确, 避免). */
@@ -257,27 +348,60 @@ public final class DownloadEngine {
         // 且本任务生命周期内应始终用同一个 base(避免中途被 get() 改动导致前后不一致)
         final String base = proxyBase;
         worker.execute(() -> {
+            Log.i(TAG, "入队开始: " + task.id);
             if (repository.get(task.id) != null) {
                 return; // 幂等: 已存在(重复入队被 UI 拦截过, 双保险)
             }
             DownloadTask fresh = task;
             try {
                 byte[] raw = fetchPlaylist(task.srcUrl);
+                Log.i(TAG, "拉清单完成: " + task.id + " len=" + raw.length);
                 M3u8FilterClient.Result r = M3u8FilterClient.filter(base, task.srcUrl, raw);
                 if (r == null) {
                     fail(task, "广告过滤失败(网络异常或服务端不可用), 可重试");
                     return;
                 }
-                fresh.filteredPlaylist = new String(r.data, StandardCharsets.UTF_8);
-                prefetchedPlaylists.put(task.srcUrl, r.data); // master 命中, HlsDownloader 不再付 POST
+                Log.i(TAG, "过滤完成: " + task.id + " filtered=" + r.filteredCount);
+                // 【2026-10-08 根修 "0KB+秒完成+离线播放走网络"】源 URL 常是 **master 清单**
+                // (实锤: lz 源的 index.m3u8 只有 96 字节, 一行 variant 指向 2000k/hls/mixed.m3u8)。
+                // 若把 master 当 filteredPlaylist 落库:
+                //   · PlaylistSegments.parse(master) 会把 variant 行误当 1 个"分片" →
+                //     导出/清缓存/体积自愈/离线播放全部建立在错误分片表上;
+                //   · 真正的分片要靠 HlsDownloader 下钻 variant 子表再过一轮滤 — 而该步在
+                //     getSegments(removeWhenParsed=true) 里异常直接跳过, 设备实测 0 分片秒完成。
+                // 修法: 入队时下钻第一个 variant, 拉子表 → 过滤 → 把**媒体级清单**作为
+                // filteredPlaylist 落库 + prefetched(子表分片已被服务端绝对化)。
+                // HlsDownloader 对 master URI 解析直接命中这份媒体清单(分片全绝对化),
+                // 不再需要下钻; 离线播放 file://playlist.m3u8 同理命中缓存。
+                byte[] playlistData = r.data;
+                if (isMasterPlaylist(playlistData)) {
+                    Log.i(TAG, "master 清单, 下钻子表: " + task.id);
+                    String childUrl = firstVariantUrl(playlistData, task.srcUrl);
+                    if (childUrl == null || childUrl.isEmpty()) {
+                        fail(task, "master 清单中没有可用的子清单, 无法下载");
+                        return;
+                    }
+                    byte[] childRaw = fetchPlaylist(childUrl);
+                    M3u8FilterClient.Result child = M3u8FilterClient.filter(base, childUrl, childRaw);
+                    if (child == null) {
+                        fail(task, "广告过滤失败(子清单), 可重试");
+                        return;
+                    }
+                    playlistData = child.data;
+                    Log.i(TAG, "子表过滤完成: " + task.id + " filtered=" + child.filteredCount
+                            + " len=" + playlistData.length);
+                }
+                fresh.filteredPlaylist = new String(playlistData, StandardCharsets.UTF_8);
+                prefetchedPlaylists.put(task.srcUrl, playlistData); // master URI 命中, HlsDownloader 直接拿到媒体清单
                 File dir = episodeCacheDir(fresh);
                 if (!dir.exists()) dir.mkdirs();
-                writePlaylistFile(new File(dir, "playlist.m3u8"), r.data);
+                writePlaylistFile(new File(dir, "playlist.m3u8"), playlistData);
                 fresh.state = DownloadTask.STATE_QUEUED;
                 fresh.error = "";
                 if (repository.insertIgnore(fresh)) {
+                    Log.i(TAG, "已入队 media3: " + task.id);
                     DownloadRequest request = new DownloadRequest.Builder(task.id, Uri.parse(task.srcUrl))
-                            .setMimeType("application/vnd.apple.mpegurl")
+                            .setMimeType(MimeTypes.APPLICATION_M3U8)
                             .setData(task.id.getBytes(StandardCharsets.UTF_8))
                             .build();
                     DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
@@ -339,7 +463,7 @@ public void pause(String taskId) {
         if (t == null) return;
         if (t.state == DownloadTask.STATE_FAILED) {
             DownloadRequest request = new DownloadRequest.Builder(t.id, Uri.parse(t.srcUrl))
-                    .setMimeType("application/vnd.apple.mpegurl")
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
                     .setData(t.id.getBytes(StandardCharsets.UTF_8))
                     .build();
             try {
@@ -412,8 +536,12 @@ public void pause(String taskId) {
                     PlaylistSegments.parse(playlist, task.srcUrl);
             int n = 0;
             for (PlaylistSegments.Segment seg : segments) {
-                // DataSpec 不设 key → 与 TsExporter/BufferPrefetcher 的读侧一致
-                cache.removeResource(new DataSpec(Uri.parse(seg.url)).key);
+                // 缓存 key 必须与读侧一致: media3 的 DefaultCacheKeyFactory 在 DataSpec.key
+                // 为 null 时退化为 uri.toString()。⚠ 2026-10-08 修 bug: 旧代码传
+                // `new DataSpec(...).key` —— 那是**恒 null**(DataSpec(Uri) 构造不设 key),
+                // removeResource(null) 抛异常被 catch 吞掉 → 分片从来没删掉过,
+                // 重下时全部缓存命中 → 秒完成且 bytesDownloaded=0(用户实锤"0KB+秒完成")。
+                cache.removeResource(seg.url);
                 n++;
             }
             Log.i(TAG, "已清理分片缓存: " + task.id + " × " + n + "片");
@@ -459,8 +587,20 @@ public void pause(String taskId) {
         // 局部更新(不写全列): 进度回调每 5 秒一次, 全行覆盖会把导出流程正在写的
         // EXPORTING / exportedPath 写回旧值, 击穿防并发并丢失"已导出"标记。
         // updateProgressOnly 内部还带 "state<>EXPORTING" 条件, 双重保护。
-        repository.updateProgressOnly(taskId, state, d.getBytesDownloaded(),
-                d.contentLength, error, System.currentTimeMillis());
+        // ⚠ 2026-10-08 修"下载的视频 0KB": HLS 下载的 contentLength 恒为 LENGTH_UNSET(-1)
+        // (DownloadRequest 从未 setContentLength, master 清单也不报总体积), 旧代码把 -1
+        // 原样落库 → sizeText(-1) 永远显示 "0KB"。完成时 bytesDownloaded 就是真实体积;
+        // 若为 0(分片全部缓存命中, 如"删除后重下"), media3 不把缓存命中计入字节数,
+        // 此时按过滤后清单实测 SimpleCache 累计(与 TsExporter/离线播放同一套 key)。
+        long bytes = Math.max(0L, d.getBytesDownloaded());
+        if (d.state == Download.STATE_COMPLETED && bytes <= 0) {
+            bytes = cachedBytesFor(t);
+        }
+        long total = d.state == Download.STATE_COMPLETED ? bytes : d.contentLength;
+        Log.i(TAG, "状态变更: " + taskId + " media3state=" + d.state
+                + " 业务state=" + state + " bytes=" + bytes + " total=" + total);
+        repository.updateProgressOnly(taskId, state, bytes,
+                total, error, System.currentTimeMillis());
         notifyChanged(taskId);
         // 终态后 master 预取字节(~77KB/集)已无用(HlsDownloader 不再读它), 及时释放;
         // remove() 也会清, 这里覆盖"下载完成但任务仍在列表里"的常态路径。
@@ -473,6 +613,35 @@ public void pause(String taskId) {
         // prefetchedPlaylists 的 key 是**源站 URL**(enqueue 时 put), 而 Download 只有
         // taskId(=filmId:sourceKey:episode, 反查不到 srcUrl) → 这里无法精确移除。
         // 改由 remove()(有完整任务对象, 按 srcUrl 清) 与 onDownloadChanged 的终态分支兜底。
+    }
+
+    /**
+     * 按过滤后清单实测某集在下载缓存区的字节数 — COMPLETED 但 bytesDownloaded=0 时的体积兜底。
+     *
+     * <p>什么时候会走到这里: 分片已经全部在 SimpleCache 里(典型: 删除任务后重下, 而旧版
+     * removeResource(null) 又从没删成功过), media3 的 CacheWriter 只计**网络**字节,
+     * 缓存命中一个都不计 → bytesDownloaded=0, 但缓存里实打实存着整集。
+     *
+     * <p>key 语义与 {@link #clearDownloadedSegments}/{@link TsExporter} 一致:
+     * DefaultCacheKeyFactory 在 DataSpec.key 为 null 时用 uri.toString()。
+     * getCachedBytes 在 worker 语义上是纯内存元数据查询(分片几百个也就毫秒级);
+     * 解析/查询失败一律返回 0(UI 退回"大小未知"), 绝不能把异常抛进 onDownloadChanged。
+     */
+    private long cachedBytesFor(DownloadTask t) {
+        try {
+            String playlist = repository.getFilteredPlaylist(t.id);
+            if (playlist == null || playlist.isEmpty()) return 0L;
+            List<PlaylistSegments.Segment> segments =
+                    PlaylistSegments.parse(playlist, t.srcUrl);
+            long sum = 0L;
+            for (PlaylistSegments.Segment seg : segments) {
+                sum += cache.getCachedBytes(seg.url, 0L, C.LENGTH_UNSET);
+            }
+            return sum;
+        } catch (Exception e) {
+            Log.w(TAG, "实测缓存字节数失败: " + t.id, e);
+            return 0L;
+        }
     }
 
     /** UI 刷新钩子 — DownloadActivity 注册, 下载状态变化时在主线程回调. */
@@ -503,6 +672,33 @@ public void pause(String taskId) {
             }
             return resp.body().bytes();
         }
+    }
+
+    /** 是否 master 清单(含 #EXT-X-STREAM-INF; 见到 #EXTINF 即媒体级清单, 立即否定)。 */
+    private static boolean isMasterPlaylist(byte[] data) {
+        for (String rawLine : new String(data, StandardCharsets.UTF_8).split("\\r?\\n")) {
+            String line = rawLine.trim();
+            if (line.startsWith("#EXT-X-STREAM-INF")) return true;
+            if (line.startsWith("#EXTINF")) return false;
+        }
+        return false;
+    }
+
+    /**
+     * 取 master 清单第一个 variant 的 URL(多码率取首个, 与播放器行为对齐;
+     * 相对路径按 master URL 绝对化 — 服务端 FilterText 一般已绝对化, 这里兑底)。
+     */
+    private static String firstVariantUrl(byte[] data, String masterUrl) {
+        boolean pending = false;
+        for (String rawLine : new String(data, StandardCharsets.UTF_8).split("\\r?\\n")) {
+            String line = rawLine.trim();
+            if (line.isEmpty()) continue;
+            if (pending && !line.startsWith("#")) {
+                return PlaylistSegments.resolveUrl(masterUrl, line);
+            }
+            pending = line.startsWith("#EXT-X-STREAM-INF");
+        }
+        return null;
     }
 
     private void writePlaylistFile(File f, byte[] data) throws Exception {
@@ -713,11 +909,19 @@ public void pause(String taskId) {
             if (type == C.CONTENT_TYPE_HLS) {
                 // 每次现取: 引擎可能被 get() 刷新过 proxyBase, factory 必须跟随
                 String base = proxyBaseSupplier.get();
+                android.util.Log.i(TAG, "createDownloader: HLS " + request.id
+                        + " uri=" + request.uri);
                 return new HlsDownloader(item,
                         new DownloadFilterPlaylistParserFactory(base, prefetched),
                         dsFactory,
                         executor);
             }
+            // 【2026-10-08 根修】走到这里 = mimeType 推断失败 → ProgressiveDownloader 会把
+            // master 清单当"单个资源"整块下载(96 字节, 0.5s COMPLETED, 真分片一个不下)。
+            // 曾经填 "application/vnd.apple.mpegurl" 而 media3 只严格认 "application/x-mpegURL",
+            // 结果所有任务都掉进这个分支。保持日志, 一旦再出现立刻可见。
+            android.util.Log.w(TAG, "createDownloader: 非HLS(type=" + type + ") " + request.id
+                    + " uri=" + request.uri + " mimeType=" + request.mimeType);
             return new androidx.media3.exoplayer.offline.ProgressiveDownloader(
                     item, dsFactory, executor);
         }

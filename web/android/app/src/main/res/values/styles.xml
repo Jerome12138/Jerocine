@@ -37,6 +37,17 @@
         <item name="android:colorBackground">@android:color/black</item>
     </style>
 
+    <!-- 下载管理页主题 (2026-10-08): 原先用 AppTheme(Light.DarkActionBar), 页顶挂出一条
+         Material 亮色 ActionBar 显示应用名"Jerocine影视", 与整页深色玻璃风格完全脱节
+         (问题1 的"Jerocine影视标题"就是它)。改 NoActionBar + 黑底, 页内自有标题栏。
+         Activity 里还有 getSupportActionBar().hide() 兜底, 双保险。 -->
+    <style name="AppTheme.Download" parent="Theme.AppCompat.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+    </style>
+
     <!--
       播放器样式(JcPlayerDialog / JcPlayerDialogTitle / JcPlayerCtlBtn)由 player-core 提供,
       壳内不再重复定义 —— 重复定义会覆盖库资源, 改了 core 不生效.
