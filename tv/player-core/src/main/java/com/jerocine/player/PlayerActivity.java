@@ -27,7 +27,10 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.HttpDataSource;
+import androidx.media3.datasource.TransferListener;
+import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
@@ -45,6 +48,7 @@ import com.jerocine.player.download.DownloadEngine;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
@@ -440,6 +444,17 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 final int errIdx = session.player != null
                         ? session.player.getCurrentMediaItemIndex() : -1;
 
+                // 【本地优先播放的本集失败】当前 item 是本地 file:// 清单 → 本地缓存异常
+                // (清单损坏/分片缺失), 线路自愈无意义; 自动切回在线一次(preferOnlineIdx.add
+                // 已存在时返回 false, 天然防循环), 用户仍可在更多菜单再切回本地。
+                if (currentUrl.startsWith("file://") && !session.offlinePlayback
+                        && errIdx >= 0 && errIdx < session.currentRawUrls.size()
+                        && session.preferOnlineIdx.add(errIdx)) {
+                    PlayerControl.get().clearPlaybackFailure();
+                    session.retryCurrentItem(errIdx, "本地缓存读取失败, 已切换在线播放");
+                    return;
+                }
+
                 // 直连失败(端侧过滤下设备自己抓清单/分片) → 本集改走全量中转(自愈).
                 // 前两版只在"当前是 proxy 清单"时才自愈; 端侧混合过滤成为主路径后当前地址是**原始 m3u8**,
                 // 所以判据放宽为"失败的不是代理请求本身"(见 PlayerUrls.shouldRetryWithRelay).
@@ -636,10 +651,93 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         // 在线播放行为不变(全部来源都是 http(s), DefaultDataSource 纯转发)。
         androidx.media3.datasource.DefaultDataSource.Factory upstream =
                 new androidx.media3.datasource.DefaultDataSource.Factory(this, okHttp);
-        return new CacheDataSource.Factory()
+        DataSource.Factory onlineFactory = new CacheDataSource.Factory()
                 .setCache(sCache)
                 .setUpstreamDataSourceFactory(upstream)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+        // 【本地优先播放】在线会话里, 已下载集的清单是 file://、分片在**下载缓存区**
+        // (key = 源站分片 URL) —— sCache(video_cache) 里根本没有它们。用 RoutingDataSource
+        // 把"已下载"的分片请求路由到 DownloadEngine 的下载缓存实例(命中即零网络,
+        // 缺口部分经 upstream 回源, 无害), 其余请求照走 video_cache。
+        // 判定用缓存索引内存查询(微秒级); 离线播放(sCache 本身就是下载缓存)无需路由。
+        if (engineCache != null) return onlineFactory; // 离线播放: 单缓存
+        DownloadEngine engine = DownloadEngine.existing();
+        if (engine == null) return onlineFactory;
+        final Cache dlCache = engine.cache();
+        DataSource.Factory downloadedFactory = new CacheDataSource.Factory()
+                .setCache(dlCache)
+                .setUpstreamDataSourceFactory(upstream)
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+        return () -> new RoutingDataSource(dlCache,
+                onlineFactory.createDataSource(), downloadedFactory.createDataSource());
+    }
+
+    /**
+     * 按"分片是否已在下载缓存区"路由的数据源 — 本地优先播放的分片拾取器。
+     * 清单(file://)与未下载分片走常规链路(video_cache); 已下载分片直读下载缓存。
+     */
+    private static final class RoutingDataSource implements DataSource {
+        private final Cache downloadCache;
+        private final DataSource online;
+        private final DataSource downloaded;
+        private DataSource active;
+
+        RoutingDataSource(Cache downloadCache, DataSource online, DataSource downloaded) {
+            this.downloadCache = downloadCache;
+            this.online = online;
+            this.downloaded = downloaded;
+        }
+
+        @Override
+        public void addTransferListener(TransferListener transferListener) {
+            // 两个 delegate 都挂: open 前不知道会路由到哪边, 索性两边都登记
+            online.addTransferListener(transferListener);
+            downloaded.addTransferListener(transferListener);
+        }
+
+        @Override
+        public long open(DataSpec dataSpec) throws IOException {
+            String scheme = dataSpec.uri.getScheme();
+            boolean http = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+            boolean hit = false;
+            if (http) {
+                try {
+                    hit = downloadCache.getCachedBytes(
+                            dataSpec.uri.toString(), 0, androidx.media3.common.C.LENGTH_UNSET) > 0;
+                } catch (Exception ignore) {
+                    // 索引查询异常按未命中处理, 走在线链路
+                }
+            }
+            active = hit ? downloaded : online;
+            return active.open(dataSpec);
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            return active.read(buffer, offset, length);
+        }
+
+        @Override
+        public Uri getUri() {
+            return active == null ? null : active.getUri();
+        }
+
+        @Override
+        public java.util.Map<String, java.util.List<String>> getResponseHeaders() {
+            return active == null ? java.util.Collections.emptyMap()
+                    : active.getResponseHeaders();
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (active != null) {
+                try {
+                    active.close();
+                } finally {
+                    active = null;
+                }
+            }
+        }
     }
 
     /** 视频缓存目录: 壳层可经 EXTRA_CACHE_DIR 指定, 否则用壳默认缓存目录下 video_cache. */
@@ -986,33 +1084,44 @@ private static String failedRequestUrl(Throwable error) {
                     .create().show();
             return;
         }
-        final String[] items = {
-                "下载管理",
-                "缓存缓冲",
-                "中转：" + (session.relayOn ? "开" : "关"),
-                "诊断信息"
-        };
+        final java.util.List<String> items = new java.util.ArrayList<>();
+        final java.util.List<Runnable> actions = new java.util.ArrayList<>();
+        items.add("下载管理");
+        actions.add(this::openDownloadManager);
+        items.add("缓存缓冲");
+        actions.add(this::showBufferDialog);
+        items.add("中转：" + (session.relayOn ? "开" : "关"));
+        actions.add(this::toggleNetworkMode);
+        // 本地优先播放切换项: 仅当本集已下载时出现, 展示当前态与目标态
+        int curIdx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        if (curIdx >= 0 && session.isLocalEpisode(curIdx)) {
+            final int idx = curIdx;
+            if (session.preferOnlineIdx.contains(idx)) {
+                items.add("本集在线播放 · 切回本地");
+            } else {
+                items.add("本集本地播放 · 切换在线");
+            }
+            actions.add(() -> toggleLocalOnline(idx));
+        }
+        items.add("诊断信息");
+        actions.add(this::showDiagnostics);
         new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
                 .setTitle("更多")
-                .setItems(items, (d, i) -> {
-                    switch (i) {
-                        case 0:
-                            openDownloadManager();
-                            break;
-                        case 1:
-                            showBufferDialog();
-                            break;
-                        case 2:
-                            toggleNetworkMode();
-                            break;
-                        case 3:
-                            showDiagnostics();
-                            break;
-                        default:
-                            break;
-                    }
+                .setItems(items.toArray(new String[0]), (d, i) -> {
+                    if (i >= 0 && i < actions.size()) actions.get(i).run();
                 })
                 .create().show();
+    }
+
+    /** 更多菜单 → 本集本地/在线切换: 切后重装当前集并保留进度。 */
+    private void toggleLocalOnline(int idx) {
+        if (session.preferOnlineIdx.contains(idx)) {
+            session.preferOnlineIdx.remove(idx);
+            session.retryCurrentItem(idx, "已切换本地播放");
+        } else {
+            session.preferOnlineIdx.add(idx);
+            session.retryCurrentItem(idx, "已切换在线播放");
+        }
     }
 
     /** 本地播放 SAF 选文件请求码. */
@@ -1072,6 +1181,11 @@ private static String failedRequestUrl(Throwable error) {
         int idx = session.player.getCurrentMediaItemIndex();
         if (session.currentRawUrls.isEmpty() || idx < 0 || idx >= session.currentRawUrls.size()) {
             showCenterToast("当前集无可缓冲的片源", 1800);
+            return;
+        }
+        // 本地优先播放中的集分片已在下载缓存区, 缓冲无意义
+        if (session.isLocalEpisode(idx) && !session.preferOnlineIdx.contains(idx)) {
+            showCenterToast("本集已下载, 无需缓冲", 1800);
             return;
         }
         if (sCache == null) {

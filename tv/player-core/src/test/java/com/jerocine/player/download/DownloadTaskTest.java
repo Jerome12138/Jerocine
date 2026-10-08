@@ -81,14 +81,14 @@ public class DownloadTaskTest {
     @Test
     public void exportFileNameCleansIllegalChars() {
         assertEquals("心动的信号第九季_E80.ts",
-                DownloadTask.exportFileName("心动的信号第九季", 79));
-        assertEquals("a_b_c___E1.ts", DownloadTask.exportFileName("a/b\\c:?", 0));
+                DownloadTask.exportFileName("心动的信号第九季", 79, null));
+        assertEquals("a_b_c___E1.ts", DownloadTask.exportFileName("a/b\\c:?", 0, ""));
     }
 
     @Test
     public void exportFileNameFallsBackToEpisodeWhenTitleBlank() {
-        assertEquals("E5.ts", DownloadTask.exportFileName("   ", 4));
-        assertEquals("E5.ts", DownloadTask.exportFileName(null, 4));
+        assertEquals("E5.ts", DownloadTask.exportFileName("   ", 4, null));
+        assertEquals("E5.ts", DownloadTask.exportFileName(null, 4, ""));
     }
 
     @Test
@@ -96,9 +96,28 @@ public class DownloadTaskTest {
         // 括号必须清洗: exportedTargetExists 会把 "(" 之后当旧版提示文案剥掉,
         // 保留括号会让含括号的片名在 API<29 上每次导出都重复生成大文件。
         assertEquals("Rick and Morty _2020__E1.ts",
-                DownloadTask.exportFileName("Rick and Morty (2020)", 0));
-        assertEquals("a_b__E1.ts", DownloadTask.exportFileName("a(b)", 0));
-        assertEquals("a_b_c_E1.ts", DownloadTask.exportFileName("a[b]c", 0));
+                DownloadTask.exportFileName("Rick and Morty (2020)", 0, null));
+        assertEquals("a_b__E1.ts", DownloadTask.exportFileName("a(b)", 0, null));
+        assertEquals("a_b_c_E1.ts", DownloadTask.exportFileName("a[b]c", 0, null));
+    }
+
+    @Test
+    public void exportFileNameAppendsEpisodeTitle() {
+        // 2026-10-08: 文件名加该集名称; 集名同样要清洗非法字符(含括号)
+        assertEquals("心动的信号第九季_E1_第1集 初遇.ts",
+                DownloadTask.exportFileName("心动的信号第九季", 0, "第1集 初遇"));
+        assertEquals("心动的信号第九季_E1.ts",
+                DownloadTask.exportFileName("心动的信号第九季", 0, "   "));
+        assertEquals("心动的信号第九季_E1.ts",
+                DownloadTask.exportFileName("心动的信号第九季", 0, null));
+        assertEquals("E1_上集_清洗_.ts",
+                DownloadTask.exportFileName(null, 0, "上集(清洗)"));
+        // 源返回的集标题常自带"片名 · "前缀: 剥掉避免文件名片名重复
+        assertEquals("心动的信号第九季_E1_20260731先导片上.ts",
+                DownloadTask.exportFileName("心动的信号第九季", 0, "心动的信号第九季 · 20260731先导片上"));
+        // 集名不以片名开头时原样保留
+        assertEquals("心动的信号第九季_E2_加更上.ts",
+                DownloadTask.exportFileName("心动的信号第九季", 1, "加更上"));
     }
 
     // ============================ 路径片段净化(防路径穿越) ============================

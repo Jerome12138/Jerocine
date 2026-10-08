@@ -122,6 +122,15 @@ public class PlayerSession {
      */
     volatile boolean offlinePlayback = false;
 
+    // ===== 本地优先播放(已下载集默认播本地缓存) =====
+    /**
+     * episode index -> 本地过滤后清单 URI(file://…/playlist.m3u8)。装载播放列表时
+     * 重查一次下载业务表(见 refreshLocalDownloads), 只含**已完成且清单文件存在**的集。
+     */
+    volatile java.util.Map<Integer, String> localEpisodePlaylists = java.util.Collections.emptyMap();
+    /** 用户显式切回在线的集(更多菜单切换; 会话级偏好, 不落盘)。 */
+    public final java.util.Set<Integer> preferOnlineIdx = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     // ===== 片源 =====
     final ArrayList<SourceData> sourceList = new ArrayList<>();
     int currentSourceIndex = 0;
@@ -306,6 +315,11 @@ public class PlayerSession {
         }
         playlistTitles = aligned;
         currentBypassFilter = bypassFilter;
+        // 本地优先: 装载时重查一次已下载集(轻量查询, 每次装载只这一次)。
+        // 单 URL 兼容模式无剧集概念, 不查。
+        if (!bypassFilter) {
+            refreshLocalDownloads(host.filmId(), currentSourceLabel());
+        }
         setRawUrls(rawUrls);
         resetLineState();
         // 装载 = 换片/换源/开关切换: 上一份播放列表的预取清单全部作废(切集不走这里, 缓存能活过切集)
@@ -313,7 +327,7 @@ public class PlayerSession {
         List<MediaItem> items = new ArrayList<>(rawUrls.size());
         for (int i = 0; i < rawUrls.size(); i++) {
             String raw = rawUrls.get(i);
-            items.add(MediaItem.fromUri(bypassFilter ? raw : mediaUriFor(i, raw)));
+            items.add(MediaItem.fromUri(bypassFilter ? raw : playbackUriFor(i, raw)));
         }
         int safeStart = Math.max(0, Math.min(startIndex, items.size() - 1));
         introSkippedForCurrent = false;
@@ -356,6 +370,70 @@ public class PlayerSession {
                 sourceProxyUsable, proxyBase);
     }
 
+    // ============================ 本地优先播放 ============================
+
+    /**
+     * 重查已下载集映射: filmId(+当前源) 的已完成任务, 清单文件存在的入表。
+     * 每次装载播放列表调一次; 查询失败保持旧映射(在线播放不受影响)。
+     *
+     * <p>主线程轻量 SQLite 查询(任务表≤数百行), 换取装载期一次性的本地可用性判定;
+     * 若将来表规模失控, 应改成异步预查 + 装载时用快照。
+     */
+    void refreshLocalDownloads(String filmId, String sourceKey) {
+        if (localPlayback || offlinePlayback || filmId == null || filmId.isEmpty()) {
+            localEpisodePlaylists = java.util.Collections.emptyMap();
+            return;
+        }
+        try {
+            com.jerocine.player.download.DownloadEngine e =
+                    com.jerocine.player.download.DownloadEngine.existing();
+            if (e == null) {
+                // 冷启动直接进播放器(继续观看)时引擎尚未初始化 —— 不查就是空表,
+                // 本地优先整个失效(2026-10-08 真机实锤)。这里惰性初始化: 只建 DB/线程池,
+                // 无下载任务时无副作用; 与下载服务(同进程单例)天然共享。
+                try {
+                    e = com.jerocine.player.download.DownloadEngine.get(
+                            context(), proxyBase == null ? "" : proxyBase);
+                } catch (Exception ignore) {
+                }
+            }
+            if (e == null) {
+                localEpisodePlaylists = java.util.Collections.emptyMap();
+                return;
+            }
+            java.util.Map<Integer, String> m = new java.util.HashMap<>();
+            for (com.jerocine.player.download.DownloadTask t : e.repository().listByFilm(filmId)) {
+                if (t.state != com.jerocine.player.download.DownloadTask.STATE_COMPLETED) continue;
+                // 多源模式严格匹配源 id, 避免播到另一条线路的缓存;
+                // 单源模式(sourceList 空)拿不到 sourceKey → 接受该片任何源的已完成任务。
+                if (sourceKey != null && !sourceKey.isEmpty() && !sourceKey.equals(t.sourceKey)) continue;
+                if (t.cacheDir == null || t.cacheDir.isEmpty()) continue;
+                java.io.File p = new java.io.File(t.cacheDir, "playlist.m3u8");
+                if (p.exists()) m.put(t.episode, "file://" + p.getAbsolutePath());
+            }
+            localEpisodePlaylists = m;
+        } catch (Exception ignore) {
+            // 查询异常: 保持旧映射, 不影响本次装载的在线播放
+        }
+    }
+
+    /** 该集是否有可用的本地缓存(已完成下载且本地清单存在)。 */
+    boolean isLocalEpisode(int idx) {
+        return localEpisodePlaylists.containsKey(idx);
+    }
+
+    /**
+     * 播放 URI 决策(装载/重试统一入口):
+     * 已下载集默认播本地(file:// 过滤后清单, 分片由 RoutingDataSource 从下载缓存取),
+     * 用户在「更多」里切回在线(preferOnlineIdx)或无缓存时走在线链路(mediaUriFor)。
+     */
+    String playbackUriFor(int idx, String rawUrl) {
+        if (offlinePlayback) return rawUrl;
+        String local = localEpisodePlaylists.get(idx);
+        if (local != null && !preferOnlineIdx.contains(idx)) return local;
+        return mediaUriFor(idx, rawUrl);
+    }
+
     /** 当前集是否走全量中转: 用户开关开着, 或本集被自愈标记(且没被强制回原始). */
     boolean isRelay(int idx) {
         if (forceRawIdx.contains(idx)) return false;
@@ -386,7 +464,7 @@ public class PlayerSession {
                 // 否则上一轮残留的 filterFailed 会让角标一直显示"过滤失败"(且盖掉正确的"服务端过滤中").
                 // 顺带把 filterToastShownForEpisode 也复位 → 新链路 READY 后角标与中央提示都会按当前真实态刷新。
                 resetFilterStateForEpisode();
-                player.replaceMediaItem(idx, MediaItem.fromUri(mediaUriFor(idx, raw)));
+                player.replaceMediaItem(idx, MediaItem.fromUri(playbackUriFor(idx, raw)));
                 player.seekTo(idx, pos);
                 player.prepare();
                 player.play();

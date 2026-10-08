@@ -11,6 +11,7 @@ import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.CacheWriter;
 import androidx.media3.datasource.okhttp.OkHttpDataSource;
 
+import com.jerocine.player.download.DownloadEngine;
 import com.jerocine.player.download.PlaylistSegments;
 
 import java.io.IOException;
@@ -107,19 +108,39 @@ public final class BufferPrefetcher {
     private void run(String srcUrl, double minutes, ProgressListener progress,
                      CompletionListener done) throws Exception {
         // 1) 拉源站清单 → 过滤
+        // 【2026-10-08 修“直播流”误报】端侧过滤模式下 mediaUriFor 返回的是**原始源 URL**,
+        // 而多数源的根 URL 是 master 清单(master 永远没有 EXT-X-ENDLIST) —— 旧实现直接把
+        // master 送 inspect(), 被误判成“直播流”拒绝, 用户看到“缓存缓冲失败: 该片源是直播流”
+        // 但实际是纯 VOD。与 DownloadEngine.enqueue 同一修法: master 先下钻第一个 variant
+        // (子表才是媒体级清单), 对子表过滤后再解析分片。
         byte[] raw = fetch(srcUrl);
         M3u8FilterClient.Result r = M3u8FilterClient.filter(proxyBase, srcUrl, raw);
         if (r == null) {
             throw new IOException("广告过滤失败");
         }
-        String filtered = new String(r.data, java.nio.charset.StandardCharsets.UTF_8);
-        // 同导出一致: 加密/fMP4/BYTERANGE/直播流无法靠"从缓存取分片字节"生效, 明确拒绝,
+        byte[] data = r.data;
+        String playlistUrl = srcUrl;
+        if (DownloadEngine.isMasterPlaylist(data)) {
+            String child = DownloadEngine.firstVariantUrl(data, srcUrl);
+            if (child == null) {
+                throw new IOException("master 清单中没有可用的子表");
+            }
+            byte[] childRaw = fetch(child);
+            M3u8FilterClient.Result cr = M3u8FilterClient.filter(proxyBase, child, childRaw);
+            if (cr == null) {
+                throw new IOException("广告过滤失败(子表)");
+            }
+            data = cr.data;
+            playlistUrl = child; // 分片相对路径按子表 URL 绝对化
+        }
+        String filtered = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+        // 同导出一致: 加密/fMP4/BYTERANGE/直播流无法靠“从缓存取分片字节”生效, 明确拒绝,
         // 否则白耗带宽和磁盘, 播放依然卡。
         String blockReason = PlaylistSegments.inspect(filtered).exportBlockReason("缓冲");
         if (blockReason != null) {
             throw new IOException(blockReason);
         }
-        List<PlaylistSegments.Segment> segments = PlaylistSegments.parse(filtered, srcUrl);
+        List<PlaylistSegments.Segment> segments = PlaylistSegments.parse(filtered, playlistUrl);
         if (segments.isEmpty()) {
             throw new IOException("清单为空");
         }

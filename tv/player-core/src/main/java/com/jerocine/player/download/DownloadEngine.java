@@ -124,7 +124,23 @@ public final class DownloadEngine {
         // 上次进程被杀时仍在下载的任务 → 标 PAUSED(UI 不显示卡死的"下载中")
         repository.markInterruptedAsPaused();
 
-        cacheRoot = new File(appContext.getCacheDir(), CACHE_DIR_NAME);
+        // 【2026-10-08 根修】下载缓存必须放 getExternalFilesDir(系统不会主动清理), 不能放
+        // getCacheDir(): 真机实锤设备存储 93% 时系统把 cache/ 整个清掉 —— 分片、media3 索引、
+        // playlist.m3u8 全没了, 但任务记录(databases/)幸存 → 列表显示"已完成 461MB"却
+        // 导出 ENOENT / 离线播放"缓存缺失"。主动下载的数据用户花了真金白银的流量, 不是可再生的
+        // 播放缓存; 可再生的 video_cache 留在 cache/ 由系统清理是对的。
+        File external = appContext.getExternalFilesDir(null);
+        File baseDir = (external != null && external.isDirectory()
+                || (external != null && external.mkdirs()))
+                ? external : appContext.getFilesDir();
+        cacheRoot = new File(baseDir, CACHE_DIR_NAME);
+        // 迁移: 旧版本数据仍在 cache/download_cache 且未被害的话, 搬到新家(同分区 rename 原子)。
+        // 注意必须在 mkdirs 之前: 目标目录已存在时 renameTo 恒失败。
+        File legacy = new File(appContext.getCacheDir(), CACHE_DIR_NAME);
+        if (legacy.isDirectory() && !cacheRoot.exists() && !legacy.renameTo(cacheRoot)) {
+            // rename 失败(极少见)不阻断: 引擎照常用新目录, 旧数据等同丢失(与被系统清理同效)
+            android.util.Log.w(TAG, "download_cache 迁移失败, 放弃旧数据: " + legacy);
+        }
         if (!cacheRoot.exists()) cacheRoot.mkdirs();
         CacheDatabaseProvider provider = new CacheDatabaseProvider(appContext);
         this.dbProvider = provider;
@@ -674,8 +690,9 @@ public void pause(String taskId) {
         }
     }
 
-    /** 是否 master 清单(含 #EXT-X-STREAM-INF; 见到 #EXTINF 即媒体级清单, 立即否定)。 */
-    private static boolean isMasterPlaylist(byte[] data) {
+    /** 是否 master 清单(含 #EXT-X-STREAM-INF; 见到 #EXTINF 即媒体级清单, 立即否定)。
+     *  public: BufferPrefetcher(缓冲)同样要先下钻 master, 同一套判定。 */
+    public static boolean isMasterPlaylist(byte[] data) {
         for (String rawLine : new String(data, StandardCharsets.UTF_8).split("\\r?\\n")) {
             String line = rawLine.trim();
             if (line.startsWith("#EXT-X-STREAM-INF")) return true;
@@ -687,8 +704,9 @@ public void pause(String taskId) {
     /**
      * 取 master 清单第一个 variant 的 URL(多码率取首个, 与播放器行为对齐;
      * 相对路径按 master URL 绝对化 — 服务端 FilterText 一般已绝对化, 这里兑底)。
+     * public: BufferPrefetcher(缓冲)同样要下钻 master, 同一套取法。
      */
-    private static String firstVariantUrl(byte[] data, String masterUrl) {
+    public static String firstVariantUrl(byte[] data, String masterUrl) {
         boolean pending = false;
         for (String rawLine : new String(data, StandardCharsets.UTF_8).split("\\r?\\n")) {
             String line = rawLine.trim();
@@ -882,12 +900,14 @@ public void pause(String taskId) {
         private final java.util.function.Supplier<String> proxyBaseSupplier;
         private final java.util.Map<String, byte[]> prefetched;
         /**
-         * 下载执行线程池. 注意**必须用缓存线程池**: DownloadManager 按 maxParallelDownloads(3)
-         * 并行调度多个 Downloader, 若这里共享单线程 executor, 所有集的分片加载会退化成串行,
-         * "集级并行 3" 形同虚设。cachedThreadPool 空闲 60s 自动回收, 无泄漏.
+         * 下载执行线程池. **必须用固定容量池**: media3 SegmentDownloader 会把一个清单里的
+         * **所有分片一次性全部提交**到这个 executor(并行度=池容量), 用 cachedThreadPool
+         * 等于无界并发 —— bf 源 51KB 清单几百个分片, 真机实测 710 个线程 + 堆耗尽 OOM,
+         * 进程崩溃 → DownloadService 重建再下 → 再崩, 无限循环。固定 4 线程 =
+         * 每集分片级并发 4, 集级(3)×分片级(4)=12 并发连接, 安全且不影响集级并行。
          */
         private final java.util.concurrent.Executor executor =
-                Executors.newCachedThreadPool();
+                java.util.concurrent.Executors.newFixedThreadPool(4);
 
         DownloaderFactoryImpl(CacheDataSource.Factory dsFactory,
                               java.util.function.Supplier<String> proxyBaseSupplier,

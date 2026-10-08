@@ -106,14 +106,32 @@ public final class DownloadTask {
      * 导出文件名: {@code <片名>_E<集号>.ts}, 非法文件名字符(\\/:*?"&lt;&gt;|)清洗为下划线.
      * 空片名回退到 E&lt;集号&gt;.ts.
      */
-    public static String exportFileName(String filmTitle, int episode) {
-        // 括号一并清洗: TsExporter.exportedTargetExists 判"是否已导出"时会把 "(" 之后
-        // 当作旧版提示文案剥掉(兼容早期把"无存储权限"拼进路径的脏数据)。若文件名保留括号,
-        // 片名含 ASCII 括号(如 "Rick and Morty (2020)")时 API<29 回退路径会被截断 →
-        // exists() 为 false → 每次点「导出」都重拼整集并多生成一份 GB 级文件。
-        String base = (filmTitle == null || filmTitle.trim().isEmpty())
-                ? "" : filmTitle.trim().replaceAll("[\\\\/:*?\"<>|()\\[\\]]", "_");
-        String sep = base.isEmpty() ? "" : "_";
-        return base + sep + "E" + (episode + 1) + ".ts";
+    /**
+     * 导出文件名: {@code <片名>_E<集号>_<集名>.ts}(集名为空退回 {@code <片名>_E<集号>.ts}),
+     * 非法文件名字符(\\/:*?"<>|及括号方括号)清洗为下划线. 空片名回退到 E<集号>.ts.
+     *
+     * <p>2026-10-08: 按用户要求文件名加该集名称(episodeTitle 建任务时已落库)。
+     */
+    public static String exportFileName(String filmTitle, int episode, String episodeTitle) {
+        String base = cleanNamePart(filmTitle);
+        String epName = episodeTitle == null ? "" : episodeTitle.trim();
+        // 源返回的集标题常自带"片名 · "前缀(真机实锤: <片名>_E1_<片名>_xxx.ts 重复),
+        // 以片名开头时剥掉前缀和紧随的分隔符(·/-/_/空格), 得到纯集名。
+        String rawTitle = filmTitle == null ? "" : filmTitle.trim();
+        if (!base.isEmpty() && !rawTitle.isEmpty() && epName.startsWith(rawTitle)) {
+            epName = epName.substring(rawTitle.length()).replaceFirst("^[\\s·・\\-_·]+", "");
+        }
+        epName = cleanNamePart(epName);
+        StringBuilder sb = new StringBuilder();
+        if (!base.isEmpty()) sb.append(base).append('_');
+        sb.append('E').append(episode + 1);
+        if (!epName.isEmpty()) sb.append('_').append(epName);
+        return sb.append(".ts").toString();
+    }
+
+    /** 文件名片段清洗: 去首尾空白 + 非法字符(含括号)替换为下划线。 */
+    private static String cleanNamePart(String raw) {
+        if (raw == null) return "";
+        return raw.trim().replaceAll("[\\\\/:*?\"<>|()\\[\\]]", "_");
     }
 }

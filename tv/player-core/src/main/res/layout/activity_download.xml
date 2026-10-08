@@ -281,7 +281,8 @@
                 android:layout_height="0dp"
                 android:layout_weight="1"
                 android:divider="@null"
-                android:dividerHeight="0dp" />
+                android:dividerHeight="0dp"
+                android:focusable="false" />
 
             <!-- 底部居中主按钮: 下载选中 (N); 只在选集 tab 出现 -->
             <FrameLayout
@@ -341,7 +342,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:divider="@color/jc_stroke_faint"
-                        android:dividerHeight="1px" />
+                        android:dividerHeight="1px"
+                        android:focusable="false" />
 
                     <!-- 下载中空态: ListView.setEmptyView 接管可见性 -->
                     <TextView
@@ -392,7 +394,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:divider="@color/jc_stroke_faint"
-                        android:dividerHeight="1px" />
+                        android:dividerHeight="1px"
+                        android:focusable="false" />
 
                     <!-- 已完成空态 -->
                     <TextView

@@ -255,7 +255,7 @@ public final class TsExporter {
      * 却实打实占着几个 GB, 用户反复重试就反复堆积看不见的垃圾。
      */
     private String moveToDownloads(DownloadTask task, File tmp) throws IOException {
-        String fileName = DownloadTask.exportFileName(task.filmTitle, task.episode);
+        String fileName = DownloadTask.exportFileName(task.filmTitle, task.episode, task.episodeTitle);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ContentValues v = new ContentValues();
             v.put(MediaStore.Downloads.DISPLAY_NAME, fileName);

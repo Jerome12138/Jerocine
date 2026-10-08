@@ -140,6 +140,19 @@ public class DownloadActivity extends AppCompatActivity {
         btn(R.id.btn_download_back).setOnClickListener(v -> finish());
         llSelectAll.setOnClickListener(v -> toggleSelectAll());
         btnBannerAction.setOnClickListener(v -> onBannerAction());
+        // 【TV 遥控器】进入页面必须有人持有焦点, 否则 D-pad 没有起点
+        // (真机 uiautomator 实测入场 focused=0, 遥控器按键完全无响应)。
+        // post 到队列: 等 ListView 完成首次渲染后再落焦, 避免被布局覆盖。
+        currentTabView().post(() -> {
+            if (getCurrentFocus() == null) currentTabView().requestFocus();
+        });
+    }
+
+    /** 当前 tab 的可聚焦页签 View(初始焦点用)。 */
+    private View currentTabView() {
+        if (currentTab == 1) return tabActive;
+        if (currentTab == 2) return tabDone;
+        return tabEpisodes;
     }
 
     @Override
@@ -171,6 +184,16 @@ public class DownloadActivity extends AppCompatActivity {
         lvEpisodes = findViewById(R.id.lv_episodes);
         lvActive = findViewById(R.id.lv_active);
         lvDone = findViewById(R.id.lv_done);
+        // 【TV 遥控器】AbsListView 构造器会强制 focusableInTouchMode=true 且焦点搜索
+        // 会命中容器本身 —— 真机实测焦点停在 ListView 上, 行永远拿不到焦点, OK 无效。
+        // FOCUS_AFTER_DESCENDANTS + setItemsCanFocus(true) = 焦点直达行, 容器只在
+        // 行全部不可焦时才接盘(标准 TV 组合)。
+        android.widget.ListView[] lists = {lvEpisodes, lvActive, lvDone};
+        for (android.widget.ListView lv : lists) {
+            lv.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
+            lv.setItemsCanFocus(true);
+            lv.setFocusable(false);
+        }
         hsvSources = findViewById(R.id.hsv_sources);
         llSources = findViewById(R.id.ll_sources);
         hsvSegments = findViewById(R.id.hsv_segments);
