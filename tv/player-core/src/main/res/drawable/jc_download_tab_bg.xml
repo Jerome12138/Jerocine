@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  下载页 Tab 背景 — 四态(focused / selected / 默认), TV 遥控器必须能看出焦点在哪。
+
+  为什么必须有 focused 分支: 下载页是 D-pad 可操作的页面, 若只有"选中态"没有"焦点态",
+  用户按左右键切换 Tab 时完全看不出焦点移到了哪个(Tab 与内容区用 styleTab() 在代码里
+  切换可见性, 不是同一次点击, 焦点必须独立可见)。
+
+  色值全部走 player-core 自己的令牌:
+    · jc_accent_dim #334AD1E5 + jc_accent 2dp 描边 = 焦点态(与 jc_ctl_btn_bg/jc_step_btn_bg 同款)
+    · jc_accent实色 = 选中态(当前正在看的 Tab)
+    · jc_glass_soft  #B31E1E28 + jc_stroke_faint 1dp = 默认态
+  圆角 8dp: 现有控件圆角(jc_control_radius)口径, 原实现写10dp 无出处。
+  注意**不能**引用 tv/app 的 jc_control_radius/jc_surface_3 —— 那些只存在于壳层,
+  下载页在 player-core 里两壳共用, 反向依赖会在 web 壳编译失败。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_accent_dim" />
+            <stroke android:width="2dp" android:color="@color/jc_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_glass_soft" />
+            <stroke android:width="1dp" android:color="@color/jc_stroke_faint" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+</selector>

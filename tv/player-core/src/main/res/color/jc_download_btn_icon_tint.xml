@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  下载页主按钮的 compound drawableTint — 与 jc_download_btn_text 同规则。
+  Button 的 drawableStart **不会**跟随 textColor 的 selector, 必须单独给,
+  否则禁用态图标仍是亮青色, 与灰色文字不协调。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:color="@color/jc_text_tertiary" />
+    <item android:color="@color/jc_on_accent" />
+</selector>

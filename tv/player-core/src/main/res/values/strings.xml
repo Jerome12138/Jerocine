@@ -8,4 +8,13 @@
     <!-- 下载服务前台通知渠道 -->
     <string name="download_channel_name">视频下载</string>
     <string name="download_channel_description">影视下载任务进度与状态</string>
+
+    <!-- 下载管理页(两壳共用, 硬编码在布局里会让两壳的翻译/无障碍都失效) -->
+    <string name="download_title">下载管理</string>
+    <string name="download_back">返回</string>
+    <string name="download_tab_episodes">选集下载</string>
+    <string name="download_tab_active">下载中</string>
+    <string name="download_tab_done">已完成</string>
+    <string name="download_start">开始下载</string>
+    <string name="download_selected_zero">已选 0 集</string>
 </resources>

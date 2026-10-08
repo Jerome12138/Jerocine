@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  下载页图标按钮背景(focused / pressed / 默认)。
+  与 jc_download_btn_primary 同款形态但尺寸更小、常态透明 —— 图标按钮不该有实色底。
+
+  为什么不用 jc_ctl_btn_bg: 那个圆角 14dp 是播放器控制条专用口径,
+  页面级图标按钮按控件口径 8dp。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_accent_dim" />
+            <stroke android:width="2dp" android:color="@color/jc_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_accent_press" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <stroke android:width="1dp" android:color="@color/jc_stroke_faint" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+</selector>

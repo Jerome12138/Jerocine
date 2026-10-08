@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  下载页图标 tint — 与 jc_download_icon_btn_bg 的焦点态同步:
+  焦点时变 jc_accent(青), 默认 jc_text_secondary。
+  单独做成 selector 是因为 ImageView 的 tint 不会随背景 selector 一起变。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/jc_accent" />
+    <item android:color="@color/jc_text_secondary" />
+</selector>

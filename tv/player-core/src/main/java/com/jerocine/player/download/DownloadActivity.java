@@ -3,7 +3,6 @@ package com.jerocine.player.download;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -175,11 +174,14 @@ public class DownloadActivity extends AppCompatActivity {
     }
 
     private void styleTab(TextView tv, boolean active) {
-        tv.setTextColor(active ? (int) 0xFF00141AL : (int) 0xFFB3FFFFFFL);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(active ? (int) 0xFF4AD1E5L : (int) 0xFF1E1E28L);
-        g.setCornerRadius(dp(10));
-        tv.setBackground(g);
+        // 只切 selected —— 背景/焦点/文字色全部由 @drawable/jc_download_tab_bg 与
+        // @color/jc_download_tab_text 处理(state_focused / state_selected 各有一套)。
+        //
+        // 原来这里手工构造 GradientDrawable 并写死色值, 带来两个问题:
+        //   ① 常驻背景不含focused 分支 → **遥控器按下左右键时看不出焦点移到了哪个Tab**
+        //      (TV 应用硬伤; Tab 与内容区的切换是分开两次动作, 焦点必须独立可见);
+        //   ② 写死 0xFF4AD1E5 / 0xFF1E1E28 绕过颜色令牌, 与项目其他地方不一致。
+        tv.setSelected(active);
     }
 
     // ============================ 选集数据 ============================
@@ -225,15 +227,7 @@ public class DownloadActivity extends AppCompatActivity {
         llSources.removeAllViews();
         for (int i = 0; i < sources.size(); i++) {
             final int idx = i;
-            Button b = new Button(this);
-            b.setText(sources.get(i).name);
-            b.setTextSize(13);
-            b.setAllCaps(false);
-            b.setPadding(dp(14), dp(8), dp(14), dp(8));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp(4), dp(8), dp(4));
-            b.setLayoutParams(lp);
+            Button b = createChip(sources.get(i).name);
             b.setOnClickListener(v -> {
                 currentSource = idx;
                 selected.clear();
@@ -244,6 +238,28 @@ public class DownloadActivity extends AppCompatActivity {
             styleChip(b, idx == currentSource);
             llSources.addView(b);
         }
+    }
+
+    /**
+     * chip 统一构造 — 源按钮与分段按钮共用。
+     *
+     * <p>必须显式铺样式: {@code new Button(this)} 走的是 Material 默认主题(亮色实底+大圆角),
+     * 在深色玻璃页面上非常突兀; 且默认背景不含 state_focused 分支 → D-pad 看不到焦点。
+     */
+    private Button createChip(String label) {
+        Button b = new Button(this, null, 0);// null, 0 = 不套默认 Material 样式
+        b.setText(label);
+        b.setTextSize(14);
+        b.setAllCaps(false);
+        b.setPadding(dp(14), dp(8), dp(14), dp(8));
+        b.setTextColor(R.color.jc_download_chip_text);
+        b.setBackgroundResource(R.drawable.jc_download_chip_bg);
+        b.setFocusable(true);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(4), dp(8), dp(4));
+        b.setLayoutParams(lp);
+        return b;
     }
 
     private void buildSegmentButtons() {
@@ -261,15 +277,7 @@ public class DownloadActivity extends AppCompatActivity {
             final int seg = i;
             int s = i * EPISODE_SEG + 1;
             int e = Math.min((i + 1) * EPISODE_SEG, total);
-            Button b = new Button(this);
-            b.setText("第 " + s + "-" + e + " 集");
-            b.setTextSize(13);
-            b.setAllCaps(false);
-            b.setPadding(dp(14), dp(8), dp(14), dp(8));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, dp(4), dp(8), dp(4));
-            b.setLayoutParams(lp);
+            Button b = createChip("第 " + s + "-" + e + " 集");
             b.setOnClickListener(v -> {
                 currentSegment = seg;
                 buildSegmentButtons();
@@ -281,12 +289,10 @@ public class DownloadActivity extends AppCompatActivity {
     }
 
     private void styleChip(Button b, boolean active) {
-        b.setTextColor(active ? (int) 0xFF00141AL : (int) 0xFFE6FFFFFFL);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(active ? (int) 0xFF4AD1E5L : (int) 0xFF1E1E28L);
-        g.setCornerRadius(dp(10));
-        g.setStroke(dp(1), 0x22FFFFFF);
-        b.setBackground(g);
+        // 同 styleTab: 背景与焦点交给 selector, 这里只切 selected。
+        // 原实现的问题: 常驻 GradientDrawable 无 focused 分支 → 遥控器在选集间移动时
+        // 看不到焦点; 且写死 0xFF4AD1E5 / 0xFF1E1E28 / 圆角 10dp 绕过令牌。
+        b.setSelected(active);
     }
 
     private void renderEpisodeList(int seg) {
@@ -324,7 +330,7 @@ public class DownloadActivity extends AppCompatActivity {
                 } else {
                     cb = new CheckBox(DownloadActivity.this);
                     cb.setTextSize(14);
-                    cb.setTextColor((int) 0xFFE6FFFFFFL);
+                    cb.setTextColor(getColor(R.color.jc_text));
                     cb.setPadding(dp(16), dp(12), dp(16), dp(12));
                     cb.setFocusable(true);
                     cb.setButtonDrawable(null);
@@ -591,14 +597,14 @@ public class DownloadActivity extends AppCompatActivity {
 
         TextView name = new TextView(this);
         name.setTextSize(14);
-        name.setTextColor((int) 0xFFE6FFFFFFL);
+        name.setTextColor(getColor(R.color.jc_text));
         name.setMaxLines(1);
         row.addView(name, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView status = new TextView(this);
         status.setTextSize(12);
-        status.setTextColor((int) 0xFF80FFFFFFL);
+        status.setTextColor(getColor(R.color.jc_text_tertiary));
         status.setGravity(Gravity.CENTER);
         row.addView(status, new LinearLayout.LayoutParams(dp(74), ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -684,19 +690,19 @@ public class DownloadActivity extends AppCompatActivity {
 
         TextView name = new TextView(this);
         name.setTextSize(14);
-        name.setTextColor((int) 0xFFE6FFFFFFL);
+        name.setTextColor(getColor(R.color.jc_text));
         name.setMaxLines(1);
         row.addView(name, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         bar.setMax(100);
-        bar.setProgressTintList(android.content.res.ColorStateList.valueOf((int) 0xFF4AD1E5L));
+        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.jc_accent)));
         row.addView(bar, new LinearLayout.LayoutParams(dp(90), dp(6)));
 
         TextView status = new TextView(this);
         status.setTextSize(12);
-        status.setTextColor((int) 0xFF80FFFFFFL);
+        status.setTextColor(getColor(R.color.jc_text_tertiary));
         status.setGravity(Gravity.CENTER);
         row.addView(status, new LinearLayout.LayoutParams(dp(74), ViewGroup.LayoutParams.WRAP_CONTENT));
 

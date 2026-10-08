@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  下载页主按钮背景 — 四态(disabled / focused / pressed / 默认)。
+
+  与 tv/app 的 jc_button_primary 同款形态(白底+2dp 青描边=焦点),但**独立定义**:
+  下载页在 player-core 里, 而 jc_button_primary 只存在于 tv/app;
+  若在此引用 @drawable/jc_button_primary, web/android壳编译会找不到资源。
+  player-core 与壳层之间的依赖方向必须是壳→库, 不能库→壳。
+
+  色值走 player-core 自己的令牌:
+    · 默认= jc_accent(#FF4AD1E5 亮青实底), 文字 jc_on_accent
+    · 焦点= jc_text 白底 + 2dp jc_accent 描边(焦点要在白底上才醒目)
+    · 禁用= jc_glass_soft 底 + jc_stroke_faint 描边, 文字 jc_text_tertiary
+  圆角 8dp, 与项目控件圆角口径一致。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_glass_soft" />
+            <stroke android:width="1dp" android:color="@color/jc_stroke_faint" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_text" />
+            <stroke android:width="2dp" android:color="@color/jc_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_accent_dim" />
+            <stroke android:width="2dp" android:color="@color/jc_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_accent" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+</selector>

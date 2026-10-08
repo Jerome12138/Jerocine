@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 下载页选集 chip 文字色 — 与 jc_download_chip_bg 三态同步。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/jc_on_accent" />
+    <item android:state_selected="true" android:color="@color/jc_text" />
+    <item android:color="@color/jc_text_secondary" />
+</selector>

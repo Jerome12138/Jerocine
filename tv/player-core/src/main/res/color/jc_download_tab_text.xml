@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  下载页 Tab 文字色 — 与 jc_download_tab_bg 的四态同步。
+
+  焦点态用 jc_on_accent(#00141A 深色): 焦点背景是 jc_accent_dim(亮青), 深色字才读得清;
+  选中态用白字: 选中背景是 jc_accent 实色青, 白字对比度更高。
+  默认态 jc_text_secondary。
+
+  为什么不用 color/jc_ctl_btn_text 那个现成的: 它没有 selected 分支(项目刻意让开关类按钮
+  靠状态点表达状态, 见该文件注释 L5-7), Tab 是"焦点 + 选中"两个维度, 不能复用。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/jc_on_accent" />
+    <item android:state_selected="true" android:color="@color/jc_text" />
+    <item android:color="@color/jc_text_secondary" />
+</selector>

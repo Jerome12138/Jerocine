@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  下载页主按钮文字色 — 与 jc_download_btn_primary 的四态同步:
+    · 禁用 → jc_text_tertiary(灰)
+    · 焦点 → jc_on_accent(#00141A 深色): 焦点背景是 jc_text 白底, 深色字才读得清
+    · 默认 → jc_on_accent: 默认背景是 jc_accent 亮青实底, 深色字对比度更高
+  (默认与焦点都用深色字: 两种背景都是浅色, 深色字是唯一高对比的选择)
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:color="@color/jc_text_tertiary" />
+    <item android:color="@color/jc_on_accent" />
+</selector>

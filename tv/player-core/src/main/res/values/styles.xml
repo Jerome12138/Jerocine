@@ -57,4 +57,48 @@
         <item name="android:focusable">true</item>
         <item name="android:background">@drawable/jc_ctl_btn_bg</item>
     </style>
+
+    <!--
+      下载页控件样式 — 只定义在 player-core, **不复用 tv/app 的 JcButton***。
+      原因: 下载页是 player-core 里的两壳共用页面, 而 JcButtonBase/JcButtonPrimary
+      只存在于 tv/app; 库引用壳的资源会让 web/android 壳编译失败(依赖方向必须壳→库)。
+      形态与 tv/app 同款: 48dp 高 / 16sp / 8dp 圆角 / textAllCaps=false。
+    -->
+    <style name="JcDownloadBtnPrimary" parent="android:Widget.Material.Button">
+        <item name="android:layout_height">48dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:minWidth">120dp</item>
+        <item name="android:paddingLeft">24dp</item>
+        <item name="android:paddingRight">24dp</item>
+        <item name="android:textColor">@color/jc_download_btn_text</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:focusable">true</item>
+        <item name="android:drawableTint">@color/jc_download_btn_icon_tint</item>
+        <item name="android:background">@drawable/jc_download_btn_primary</item>
+    </style>
+
+    <!-- 图标按钮: 见方48dp, 图标居中, 焦点背景走 jc_download_icon_btn_bg。 -->
+    <style name="JcDownloadIconBtn" parent="">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:padding">12dp</item>
+        <item name="android:scaleType">center</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">@drawable/jc_download_icon_btn_bg</item>
+    </style>
+
+    <!--
+      Tab 页签: 焦点态与选中态是两个独立维度(焦点靠 D-pad, 选中靠点击), 都要可见。
+      原来只靠代码 styleTab() 改文字色, 焦点移动完全不可见 —— TV 上是硬伤。
+    -->
+    <style name="JcDownloadTab" parent="">
+        <item name="android:layout_height">42dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/jc_download_tab_text</item>
+        <item name="android:background">@drawable/jc_download_tab_bg</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
 </resources>
