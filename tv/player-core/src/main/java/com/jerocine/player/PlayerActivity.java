@@ -420,7 +420,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     }
                 } catch (Exception ignore) {
                 }
-                String failedUrl = failedRequestUrl(error);
+                HttpFailure httpFail = extractHttpFailure(error);
+                String failedUrl = httpFail.url;
                 final int errIdx = session.player != null
                         ? session.player.getCurrentMediaItemIndex() : -1;
 
@@ -436,6 +437,24 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     session.forceRawIdx.remove(errIdx);
                     PlayerControl.get().clearPlaybackFailure();
                     session.retryCurrentItem(errIdx, "直连失败, 已切换中转");
+                    return;
+                }
+                // 【新增第三档自愈】中转也失败后, 再回退到**原始源直连**试一次。
+                // 为什么需要: forceRelayIdx 是本集**永久**标记, 原实现在"已标记"时直接落到
+                // 错误上报 —— 于是"直连失败→切中转→中转也失败"这一条常见路径走到死胡同,
+                // 用户只能退出重进。而实际现场(2004/404)恰恰就是这种形态:
+                // 源站把旧哈希路径删了(index.m3u8 404), 中转只是转发源站响应, 救不了;
+                // 但换回原始源/换一条线路往往能拿到现存的路径。
+                // forceRelay/forceRaw 互斥标记天然限制了重试轮数(每集最多来回一次),
+                // 不会无限循环。
+                if (session.adFilterOn
+                        && session.forceRelayIdx.contains(errIdx)
+                        && !session.forceRawIdx.contains(errIdx)
+                        && errIdx >= 0 && errIdx < session.currentRawUrls.size()) {
+                    session.forceRawIdx.add(errIdx);
+                    session.forceRelayIdx.remove(errIdx);
+                    PlayerControl.get().clearPlaybackFailure();
+                    session.retryCurrentItem(errIdx, "中转也失败, 已回退原始源");
                     return;
                 }
                 // 服务端无法抓取清单时, 仅本集回退原始源(广告不过滤, 但保证能放)
@@ -472,6 +491,20 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     // 若前端确实需要原地址做换源重试, 应另行走壳层接口而非事件字段。
                     p.put("currentUrl", ErrorDiag.safeUrl(currentUrl));
                     p.put("causeDetail", causeDetail);
+                    // 【关键】真实 HTTP 状态码: errorCode 2004 只说明"非 2xx",
+                    // 把 403(防盗链/签名过期) / 404(源站路径失效) / 429(限流) 混在一起,
+                    // 后台无法区分根因。加了这两个字段才能按 status 分布看问题:
+                    //   403 集中 → 源站防盗链或签名过期, 需重取清单
+                    //   404 集中 → 源站把旧哈希路径删了(只能重试/换源)
+                    //   429 集中 → 被限流, 必须退避
+                    p.put("httpStatus", httpFail.statusCode);
+                    p.put("failedUrl", ErrorDiag.safeUrl(failedUrl));
+                    p.put("episodeIndex", errIdx);
+                    // 自愈状态: 能直接看出"这次上报前是不是已经自愈过"(relayFlagged=true
+                    // 说明已试过中转、rawFlagged=true 说明已试过回退原始源),
+                    // 不用再从日志时序推断。
+                    p.put("relayFlagged", session.forceRelayIdx.contains(errIdx));
+                    p.put("rawFlagged", session.forceRawIdx.contains(errIdx));
                     emit("playerError", p);
                 } catch (Exception ignore) {
                 }
@@ -480,7 +513,11 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 // 签名印在电视屏幕上, 截图/录屏/直播都会扩散出去。
                 // 保留 host + 路径末两段 + 非签名参数, 诊断信息基本不丢。
                 String safeUrl = ErrorDiag.safeUrl(currentUrl);
-                showCenterToast("播放出错 " + error.errorCode + " (" + error.getErrorCodeName() + ")\n"
+                // 状态码直接打屏: 用户截图就能定性, 不必再翻后台。
+                // 0 = 非 HTTP 类失败(连接被重置/超时/解析), 此时不显示以免误读成"状态码 0"。
+                String statusText = httpFail.statusCode > 0 ? (" HTTP " + httpFail.statusCode) : "";
+                showCenterToast("播放出错 " + error.errorCode + " ("
+                        + error.getErrorCodeName() + ")" + statusText + "\n"
                         + safeUrl + causeDetail, 8000);
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     if (!isFinishing()) finish();
@@ -591,21 +628,52 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         return dir;
     }
 
-    /** 从异常链里捞出真正失败的请求 URL(HttpDataSourceException 会带 dataSpec). */
-    private static String failedRequestUrl(Throwable error) {
-        Throwable cause = error;
-        while (cause != null) {
-            if (cause instanceof HttpDataSource.HttpDataSourceException) {
-                HttpDataSource.HttpDataSourceException httpError =
-                        (HttpDataSource.HttpDataSourceException) cause;
-                if (httpError.dataSpec != null && httpError.dataSpec.uri != null) {
-                    return httpError.dataSpec.uri.toString();
-                }
+/**
+ * 一次遍历异常链, 同时取出「失败请求 URL」与「HTTP 状态码」。
+ *
+ * <p><b>为什么必须补状态码</b>: {@code PlaybackException} 的 errorCode 粒度太粗 ——
+ * {@code 2004 (ERROR_CODE_IO_BAD_HTTP_STATUS)} 把403(防盗链/签名过期)、404(源站路径失效)、
+ * 429(限流) 全混在一起, 后台只能靠猜。而这三者的根因与后续策略完全不同:
+ * 403 要重取清单换签名、404 是源站把旧哈希路径删了(只能重试/换源)、
+ * 429 必须退避。之前只能靠用户截图才能定位, 就是因为这里没埋。
+ *
+ * <p>状态码在 {@code HttpDataSource.InvalidResponseCodeException.responseCode} 上 ——
+ * 注意父类 {@code HttpDataSourceException} 只有 dataSpec/type, **没有** status,
+ * 所以必须判子类(已核对 media3 1.4.1 的类结构)。
+ */
+private static final class HttpFailure {
+    String url = "";
+    int statusCode;
+}
+
+private static HttpFailure extractHttpFailure(Throwable error) {
+    HttpFailure out = new HttpFailure();
+    Throwable cause = error;
+    while (cause != null) {
+        if (cause instanceof HttpDataSource.InvalidResponseCodeException) {
+            HttpDataSource.InvalidResponseCodeException e =
+                    (HttpDataSource.InvalidResponseCodeException) cause;
+            if (out.url.isEmpty() && e.dataSpec != null && e.dataSpec.uri != null) {
+                out.url = e.dataSpec.uri.toString();
             }
-            cause = cause.getCause();
+            if (out.statusCode == 0) out.statusCode = e.responseCode;
+        } else if (cause instanceof HttpDataSource.HttpDataSourceException) {
+            // 非 2xx 之外的 HTTP 错误(如连接被重置)也带 dataSpec, 状态码留 0
+            HttpDataSource.HttpDataSourceException e =
+                    (HttpDataSource.HttpDataSourceException) cause;
+            if (out.url.isEmpty() && e.dataSpec != null && e.dataSpec.uri != null) {
+                out.url = e.dataSpec.uri.toString();
+            }
         }
-        return "";
+        cause = cause.getCause();
     }
+    return out;
+}
+
+/** 从异常链里捞出真正失败的请求 URL(HttpDataSourceException 会带 dataSpec)。 */
+private static String failedRequestUrl(Throwable error) {
+    return extractHttpFailure(error).url;
+}
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {

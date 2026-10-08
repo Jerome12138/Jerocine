@@ -384,7 +384,9 @@ onMounted(() => {
     })
 
     // 原生播放器错误 → telemetry
-    // Native 现在发的 payload: {code, errorCodeName, message, currentUrl, causeDetail}
+    // Native 现在发的 payload:
+    //   {code, errorCodeName, message, currentUrl, causeDetail,
+    //    httpStatus, failedUrl, episodeIndex, relayFlagged, rawFlagged}
     // 之前只取 code+message, currentUrl 和 cause chain 直接丢了, 后台只看到模糊的
     // "PlayerError 3003: Source error" — 没法定位是 m3u8 索引层挂 还是 segment 层挂.
     jerocine.on('playerError', (payload) => {
@@ -394,17 +396,38 @@ onMounted(() => {
         message?: string
         currentUrl?: string
         causeDetail?: string
+        // 真实 HTTP 状态码(0 = 非 HTTP 类失败): 2004 只说明"非 2xx", 靠这个字段才能区分
+        // 403(防盗链/签名过期) / 404(源站路径失效) / 429(限流) 三种完全不同的根因。
+        httpStatus?: number
+        failedUrl?: string
+        episodeIndex?: number
+        // 报错前是否已自愈过: 用于判断是不是"直连→中转→都失败"的死胡同场景。
+        relayFlagged?: boolean
+        rawFlagged?: boolean
       } | null
       const code = p?.code ?? '?'
       const name = p?.errorCodeName ?? ''
       const msg = p?.message ?? ''
+      const status = p?.httpStatus ?? 0
+      // 状态码直接进 Error message: 后台按 message 聚合即可按状态码分组, 无需另开字段查询。
+      const statusSuffix = status > 0 ? ` [HTTP ${status}]` : ''
       telemetry.trackError(
-        new Error(`PlayerError ${code}${name ? ' (' + name + ')' : ''}: ${msg}`),
+        new Error(
+          `PlayerError ${code}${name ? ' (' + name + ')' : ''}${statusSuffix}: ${msg}`
+        ),
         'native-error',
         {
           nativeCode: p?.code,
           errorCodeName: p?.errorCodeName,
+          httpStatus: status,
+          // 自愈轨迹: 直连失败(0) / 已试过中转(1) / 已试过回退原始源(2)
+          healStage:
+            p?.relayFlagged && p?.rawFlagged ? 2 : p?.relayFlagged ? 1 : 0,
+          episodeIndex: p?.episodeIndex,
           currentUrl: p?.currentUrl,
+          // 真正 404/403 的那个 URL(脱敏后); 与 currentUrl 可能不同 ——
+          // currentUrl 是 MediaItem 的地址, failedUrl 才是服务端拒绝的那个请求。
+          failedUrl: p?.failedUrl,
           causeDetail: p?.causeDetail
         }
       )
