@@ -54,7 +54,10 @@ public final class DownloadFilterPlaylistParserFactory implements ParsingLoadabl
         if (data == null) {
             M3u8FilterClient.Result r = M3u8FilterClient.filter(proxyBase, uri.toString(), raw);
             if (r == null) {
-                throw new IOException("广告过滤失败: " + uri);
+                //只记 host, 不记完整 URL: 这个 message 会经 DownloadEngine.fail()
+                // 持久化进 DownloadTask.error 并显示在下载列表的错误列里, 而源站 URL
+                // 常带时效签名(?token=xxx&sign=yyy) —— 落库 + 上屏等于扩散凭据。
+                throw new IOException("广告过滤失败: " + com.jerocine.player.ErrorDiag.safeUrl(uri.toString()));
             }
             data = r.data;
         }

@@ -537,9 +537,101 @@ public void pause(String taskId) {
         }
     }
 
+    /**
+ * 异常 message → 用户可读文案。
+ *
+     * <p><b>落库前统一脱敏</b>: 这个返回值会写进 {@code DownloadTask.error} 并显示在
+     * 下载列表的错误列。异常 message 里常夹带完整源站 URL(含 {@code ?token=}时效签名),
+     * 一旦落库 + 上屏就等于扩散了凭据, 而且是**持久化**的(比 toast 更难收回)。
+     * 故凡出现 {@code http(s)://} 形态就整体脱敏成"host + 路径末两段"。
+     */
     private static String safeMessage(Exception e) {
         String m = e.getMessage();
-        return (m == null || m.isEmpty()) ? e.getClass().getSimpleName() : m;
+        if (m == null || m.isEmpty()) return e.getClass().getSimpleName();
+        return redactUrls(m);
+    }
+
+    /**
+     * 把文本中所有 http(s) URL 替换成脱敏形式; 非 URL 文本原样返回。
+     *
+     * <p>实现取向: 找到 {@code http} 起点后**一直吃到分隔符为止**整段替换, 不做"起点回溯"。
+     * 早期版本试图回溯到 URL 起始以保留紧贴的前缀, 但在"括号/引号包裹"与"中文紧贴"两种
+     * 真实文案里都会切错(切不到起点 → 整段不替换 → 反而漏掉签名)。
+     * 宁可多脱敏一点文本, 也不能漏一个 URL。
+     */
+    static String redactUrls(String text) {
+        if (text == null || !text.contains("://")) return text;
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        while (i < text.length()) {
+            int p = text.indexOf("://", i);
+            if (p < 0) {
+                out.append(text, i, text.length());
+                break;
+            }
+            // URL 结束: 空白/引号/括号/逗号即止
+            int end = p + 3;
+            while (end < text.length() && !Character.isWhitespace(text.charAt(end))
+                    && text.charAt(end) != '"' && text.charAt(end) != '\''
+                    && text.charAt(end) != ')' && text.charAt(end) != ',') {
+                end++;
+            }
+            // 起点: **向前找完整的 http/https 前缀**, 而不是逐字符回溯。
+            // 逐字符回溯在"URL 紧贴中文"时会被 8 字符上限截断, 切出不含 http 的残段
+            // (如 "h://cdn.y.com/a?token=1") → 判定成非 http 而保留原文 → 反而泄漏。
+            int start = -1;
+            for (int k = p - 1; k >= i && p - k <= 12; k--) {
+                if (!isSchemeBoundary(text, k)) continue;
+                // 必须匹配**已知** scheme 名, 不能只判"字符集合法":
+                // 否则 "https://" 会先在 k=5命中("tps" 全是合法 scheme 字符),
+                // 切出 scheme="ttps" 的残段 → 既漏脱敏又留下原文尾巴。
+                if (isKnownScheme(text, k, p)) {
+                    start = k;
+                    break;
+                }
+            }
+            if (start < 0) {
+                // 完全认不出 scheme(跨中文/超长前缀): **整段丢弃**。
+                // 宁可少显示几个字, 也不能留一个可能带 token= 的原文。
+                i = end;
+                continue;
+            }
+            out.append(text, i, start);
+            String scheme = text.substring(start, p).toLowerCase(java.util.Locale.US);
+            if ("http".equals(scheme) || "https".equals(scheme)) {
+                out.append(com.jerocine.player.ErrorDiag.safeUrl(text.substring(start, end)));
+            } else {
+                out.append(text, start, end); // ftp/magnet 等不带签名, 原样保留
+            }
+            i = end;
+        }
+        return out.toString();
+    }
+
+/** 已知的、可能出现在异常文案里的 scheme。 */
+    private static final String[] KNOWN_SCHEMES = {
+            "http", "https", "ftp", "ftps", "magnet", "file", "content", "rtsp",
+    };
+
+    /** text[k..p) 是否恰好是某个已知 scheme 名(大小写不敏感)。 */
+    private static boolean isKnownScheme(String text, int k, int p) {
+        int len = p - k;
+        for (String s : KNOWN_SCHEMES) {
+            if (s.length() != len) continue;
+            if (text.regionMatches(true, k, s, 0, len)) return true;
+        }
+        return false;
+    }
+
+    /** k 处是否是一个 scheme 的合法起点(前一字符不能是 scheme 字符, 否则是更长单词的一部分)。 */
+    private static boolean isSchemeBoundary(String text, int k) {
+        if (k == 0) return true;
+        char c = text.charAt(k - 1);
+        // 只认 ASCII 字母数字与 +-.: 中文等非 ASCII 不能当边界, 否则紧贴中文的
+        // "…https://" 会被判成"前一字符是单词一部分"而找不到起点。
+        boolean schemeChar = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.';
+        return !schemeChar;
     }
 
     /**

@@ -1,6 +1,5 @@
 package com.jerocine.player;
 
-import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -103,11 +102,48 @@ public static boolean isM3u8(String rawUrl) {
                     ? proxyBase.substring(0, proxyBase.length() - 1)
                     : proxyBase;
             return base + "/v1/m3u8/proxy?src="
-                    + URLEncoder.encode(rawUrl, "UTF-8")
+                    + encodeParam(rawUrl)
                     + "&filterAds=1&proxyMedia=" + (relay ? "1" : "0");
         } catch (Exception e) {
             return rawUrl;
         }
+    }
+
+    /**
+     * 查询参数值编码 — RFC 3986 百分号编码(等价于 web 端的 {@code encodeURIComponent})。
+     *
+     * <p><b>不用 {@code URLEncoder}</b>: 它是 {@code application/x-www-form-urlencoded} 语义,
+     * 空格编成 {@code +}、{@code *} 原样透传; 而 web 端(PlayView.vue)用
+     * {@code encodeURIComponent}, 空格编成 {@code %20}、{@code *} 编成 {@code %2A}。
+     * 两者对含空格或 {@code *} 的源 URL会产出**不同的 src 字符串** → 服务端按 src 归并的
+     * 过滤缓存与统计会分裂成两条, 命中率下降、口径不一致。
+     *
+     * <p>保留 {@code -_.~} 这四个 unreserved 字符(与 encodeURIComponent 一致)。
+     * 实现在本文件内而不用 {@code android.net.Uri.encode}: 保持 PlayerUrls 纯逻辑可单测。
+     */
+    static String encodeParam(String value) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < value.length(); ) {
+            int cp = value.codePointAt(i);
+            i += Character.charCount(cp);
+            if (isUnreserved(cp)) {
+                sb.appendCodePoint(cp);
+            } else {
+                // 逐字节百分号编码(UTF-8)
+                byte[] bytes = new String(Character.toChars(cp))
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                for (byte b : bytes) {
+                    sb.append('%').append(String.format("%02X", b & 0xFF));
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /** RFC 3986 unreserved: ALPHA / DIGIT / {@code -} / {@code _} / {@code .} / {@code ~}。 */
+    private static boolean isUnreserved(int cp) {
+        return (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || (cp >= '0' && cp <= '9')
+                || cp == '-' || cp == '_' || cp == '.' || cp == '~';
     }
 
     /**

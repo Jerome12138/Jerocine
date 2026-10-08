@@ -467,16 +467,21 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     p.put("code", error.errorCode);
                     p.put("errorCodeName", error.getErrorCodeName());
                     p.put("message", error.getMessage() == null ? "" : error.getMessage());
-                    p.put("currentUrl", currentUrl);
+                    // 供前端上报/日志用: 脱敏版(不含源站签名)。
+                    // 注意不要改成完整 URL —— 前端日志/上报链路会把签名一起带走。
+                    // 若前端确实需要原地址做换源重试, 应另行走壳层接口而非事件字段。
+                    p.put("currentUrl", ErrorDiag.safeUrl(currentUrl));
                     p.put("causeDetail", causeDetail);
                     emit("playerError", p);
                 } catch (Exception ignore) {
                 }
-                String urlTail = currentUrl.length() > 60
-                        ? "..." + currentUrl.substring(currentUrl.length() - 60)
-                        : currentUrl;
+                // URL 必须脱敏后再上屏: 代理 URL 的尾部恰好是 src=<编码后的源站 URL>,
+                // 而源站常带时效签名(?token=xxx&sign=yyy) → 直接显示尾部 60 字符会把
+                // 签名印在电视屏幕上, 截图/录屏/直播都会扩散出去。
+                // 保留 host + 路径末两段 + 非签名参数, 诊断信息基本不丢。
+                String safeUrl = ErrorDiag.safeUrl(currentUrl);
                 showCenterToast("播放出错 " + error.errorCode + " (" + error.getErrorCodeName() + ")\n"
-                        + urlTail + causeDetail, 8000);
+                        + safeUrl + causeDetail, 8000);
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     if (!isFinishing()) finish();
                 }, 8000);

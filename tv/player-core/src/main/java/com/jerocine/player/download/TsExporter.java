@@ -122,8 +122,11 @@ public final class TsExporter {
         cur.error = "";
         repo.update(cur);
 
-        // 清单按需单取: 列表查询刻意不带这一列(见 DownloadRepository.LIST_COLUMNS),
-        // 避免几百集 × ~77KB 清单在主线程被反复反序列化。这里按 id 单独取一份。
+        // 清单: repo.get() 是**全列查询**(含 filteredPlaylist), 所以 cur 已有该字段。
+        // 兜底再取一次是为了防御"将来把 get() 改成投影查询"这种重构 —— 清单缺失必须
+        // 给出可操作的提示, 而不是静默导出空文件。
+        // 注意: 导出跑在后台单线程池且一次一集(~77KB), 与"主线程全表几百集"的 ANR
+        // 量级完全不同;真正的主线程优化在 DownloadRepository.LIST_COLUMNS(列表不带清单列)。
         String playlist = cur.filteredPlaylist;
         if (playlist == null || playlist.isEmpty()) {
             playlist = repo.getFilteredPlaylist(cur.id);

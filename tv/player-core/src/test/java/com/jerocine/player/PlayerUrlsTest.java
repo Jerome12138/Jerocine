@@ -40,11 +40,30 @@ public class PlayerUrlsTest {
 
         assertEquals(
                 BASE + "/v1/m3u8/proxy?src="
-                        + "https%3A%2F%2Fcdn.example.com%2Fvideo%2F01.m3u8%3Ftoken%3Da+b"
+                        // 空格必须是 %20(不是 +): 与 web 端 encodeURIComponent 对齐,
+                        // 否则同一集在两端产出不同的 src → 服务端按 src 归并的缓存/统计分裂。
+                        + "https%3A%2F%2Fcdn.example.com%2Fvideo%2F01.m3u8%3Ftoken%3Da%20b"
                         + "&filterAds=1&proxyMedia=0",
                 url);
         // 已由服务端过滤 → 端侧不再重复 POST
         assertFalse(PlayerUrls.needsClientSideFilter(url));
+    }
+
+    // 编码必须与 web 端 encodeURIComponent 完全一致(空格→%20, *→%2A),
+    // 否则两端 src 字符串不同, 服务端过滤缓存命中率与统计口径都会分裂。
+    @Test
+    public void encodeParamMatchesEncodeUriComponent() {
+        assertEquals("https%3A%2F%2Fcdn.com%2Fa.m3u8",
+                PlayerUrls.encodeParam("https://cdn.com/a.m3u8"));
+        assertEquals("https%3A%2F%2Fcdn.com%2Fa%20b.m3u8",
+                PlayerUrls.encodeParam("https://cdn.com/a b.m3u8"));
+        assertEquals("https%3A%2F%2Fcdn.com%2F%2A",
+                PlayerUrls.encodeParam("https://cdn.com/*"));
+        assertEquals("a%2Bb", PlayerUrls.encodeParam("a+b"));
+        // unreserved 必须原样保留(encodeURIComponent 也不编码它们)
+        assertEquals("a-b_c.d~e", PlayerUrls.encodeParam("a-b_c.d~e"));
+        // 中文按 UTF-8 逐字节编码
+        assertEquals("%E4%B8%AD", PlayerUrls.encodeParam("中"));
     }
 
     @Test

@@ -1,6 +1,5 @@
 package com.jerocine.player;
 
-import java.net.URLEncoder;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.MediaType;
@@ -89,7 +88,10 @@ public final class M3u8FilterClient {
             String base = proxyBase.endsWith("/")
                     ? proxyBase.substring(0, proxyBase.length() - 1)
                     : proxyBase;
-            url = base + "/v1/m3u8/filter?src=" + URLEncoder.encode(srcUrl, "UTF-8");
+            // 编码与 PlayerUrls.encodeParam / web 端 encodeURIComponent 一致(RFC 3986):
+            // 不用 URLEncoder(空格→'+'、'*' 不编码), 否则同一集在两端产生不同的 src 串,
+            // 服务端按 src 归并的过滤缓存与统计会对不上。
+            url = base + "/v1/m3u8/filter?src=" + PlayerUrls.encodeParam(srcUrl);
         } catch (Exception e) {
             return null;
         }
