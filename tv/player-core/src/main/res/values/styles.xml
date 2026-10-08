@@ -7,7 +7,7 @@
 
     <!-- 播放器弹窗主题: 暗色玻璃 + 品牌青强调色(替代系统亮色 Material Dialog).
          parent 必须是 AppCompat 系(播放器用 androidx.appcompat.app.AlertDialog).
-         文字/单选列表项统一缩小一档(用户指定): 标题 16sp, 列表项 15sp. -->
+         字号层级见下方 JcPlayerDialogTitle / ListItem / ListSecondary 三级定义。 -->
     <style name="JcPlayerDialog" parent="Theme.AppCompat.Dialog.Alert">
         <item name="android:windowBackground">@drawable/jc_dialog_bg</item>
         <item name="colorAccent">@color/jc_accent</item>
@@ -21,20 +21,30 @@
         <item name="android:textAppearanceListItemSecondary">@style/JcPlayerDialogListSecondary</item>
     </style>
 
+    <!--
+     弹窗标题: 原来 14sp、列表正文 13sp, 只差 1sp 且标题不加粗 → **标题与正文看不出区别**。
+     现在建立三级层级(用户拍板「标题文字与列表正文需要做出差异」):
+       标题 18sp bold + jc_text主色      ← 最强
+       列表项 15sp + jc_text             ← 正文
+       次级说明 13sp + jc_text_secondary ← 最弱(用于"已开启 · 弱网时预取"这类补充说明)
+     字重也参与层级: 标题 bold, 正文 normal。
+-->
     <style name="JcPlayerDialogTitle" parent="@android:style/TextAppearance.Material.DialogWindowTitle">
         <item name="android:textColor">@color/jc_text</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
     </style>
 
-    <!-- 单选/列表项文字: 缩小一档(Material 默认 18sp → 15sp) -->
+    <!-- 列表项(正文): 15sp, 与标题拉开 3sp + 字重差; 颜色仍用 jc_text 保证可读。 -->
     <style name="JcPlayerDialogListItem" parent="@android:style/TextAppearance.Material">
         <item name="android:textColor">@color/jc_text</item>
-        <item name="android:textSize">13sp</item>
+        <item name="android:textSize">15sp</item>
     </style>
 
+    <!-- 次级说明: 13sp + 次级色, 用于弹窗里解释当前状态的补充行。 -->
     <style name="JcPlayerDialogListSecondary" parent="@android:style/TextAppearance.Material">
         <item name="android:textColor">@color/jc_text_secondary</item>
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">13sp</item>
     </style>
 
     <!-- 原生播放器控件按钮: 图标在上(drawableTop) + 文字在下, 玻璃风背景, D-pad 焦点高亮. -->

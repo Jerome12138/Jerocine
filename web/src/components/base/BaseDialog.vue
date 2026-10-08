@@ -109,12 +109,15 @@ const wrapStyle = computed(() => ({
         >
           <header
             v-if="title || $slots.header || showClose"
-            class="flex items-center justify-between gap-[var(--jc-space-4)] px-[var(--jc-space-6)] py-[var(--jc-space-4)] border-b border-subtle"
+            class="flex items-center justify-between gap-[var(--jc-space-4)] border-b border-subtle"
+            :class="props.compactTitle
+              ? 'px-[var(--jc-space-5)] py-[var(--jc-space-3)]'
+              : 'px-[var(--jc-space-6)] py-[var(--jc-space-4)]'"
           >
             <slot name="header">
               <h3
                 class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-semibold)] text-primary truncate"
-                :class="props.compactTitle ? 'text-[length:var(--jc-fs-sm)]' : ''"
+                :class="props.compactTitle ? 'text-[length:var(--jc-fs-md)]' : ''"
               >
                 {{ title }}
               </h3>
@@ -132,7 +135,10 @@ const wrapStyle = computed(() => ({
           </header>
 
           <div
-            class="px-[var(--jc-space-6)] py-[var(--jc-space-5)] overflow-auto text-[length:var(--jc-fs-md)] text-secondary"
+            class="overflow-auto text-[length:var(--jc-fs-md)] text-secondary"
+            :class="props.compactTitle
+              ? 'px-[var(--jc-space-5)] py-[var(--jc-space-3)]'
+              : 'px-[var(--jc-space-6)] py-[var(--jc-space-5)]'"
           >
             <slot />
           </div>

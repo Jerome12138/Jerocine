@@ -930,9 +930,13 @@ private static String failedRequestUrl(Throwable error) {
     }
 
     /**
-     * 更多菜单 — 收纳非常用项(用户拍板): 下载管理 / 缓存缓冲 / 中转 / 分辨率 / 诊断.
-     * 播放器右上角保留原有显示(过滤广告/倍速/分辨率/总集数)不变.
-     * 本地模式: 只留「选择本地文件播放 / 诊断信息」.
+     * 更多菜单 — 收纳非常用项(用户拍板): 下载管理 / 缓存缓冲 / 中转 / 诊断.
+     * 播放器右上角保留原有显示(过滤广告/倍速/分辨率/总集数)不变。
+     * 本地模式: 只留「选择本地文件播放 / 诊断信息」。
+     *
+     * <p><b>不含分辨率</b>(用户拍板): 原先有一项只做 toast 展示、点下去什么也不做,
+     * 而右上角常有分辨率角标 —— 不能切换的项放进菜单只会让人以为能点, 故移除。
+     * 若将来真要做分辨率切换, 应做成带 RadioGroup 的子菜单而不是这一行。
      */
     private void showMoreMenu() {
         if (session.localPlayback) {
@@ -950,8 +954,6 @@ private static String failedRequestUrl(Throwable error) {
                 "下载管理",
                 "缓存缓冲",
                 "中转：" + (session.relayOn ? "开" : "关"),
-                "分辨率：" + (resolutionBadge != null && resolutionBadge.getVisibility() == View.VISIBLE
-                        ? resolutionBadge.getText().toString() : "播放中获取"),
                 "诊断信息"
         };
         new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
@@ -968,9 +970,6 @@ private static String failedRequestUrl(Throwable error) {
                             toggleNetworkMode();
                             break;
                         case 3:
-                            showCenterToast("当前分辨率 " + items[3].replace("分辨率：", ""), 2000);
-                            break;
-                        case 4:
                             showDiagnostics();
                             break;
                         default:

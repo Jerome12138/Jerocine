@@ -140,18 +140,26 @@
             android:textSize="13sp"
             android:visibility="gone" />
 
-        <!-- 更多菜单(⋮) — 收纳下载管理/缓存缓冲/中转/分辨率/诊断等非常用项, 用户拍板的口径 -->
+        <!-- 更多菜单(⋮) — 收纳下载管理/缓存缓冲/中转/诊断等非常用项, 用户拍板的口径。
+     尺寸与左侧角标(ad_filter_badge/speed_text 等, 均36dp 高)对齐, 不再是42x36 的高个;
+     用 drawableStart 而非 drawableTop —— ⋮ 是竖排三点, 只有水平方向贴图时才能真正
+     视觉居中(父容器 gravity=center_vertical 已居中, 但 Button 默认会把无文字的
+     drawable 顶到上沿, 表现为"图标比旁边的字高出一截")。 -->
         <Button
             android:id="@+id/btn_more"
             style="@style/Widget.AppCompat.Button.Borderless"
-            android:layout_width="42dp"
+            android:layout_width="36dp"
             android:layout_height="36dp"
             android:layout_gravity="center_vertical"
-            android:layout_marginStart="6dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/jc_badge_bg"
             android:contentDescription="更多"
-            android:drawableTop="@drawable/ic_more_vert"
-            android:drawableTint="@color/jc_text_secondary" />
+            android:drawableStart="@drawable/ic_more_vert"
+            android:drawableTint="@color/jc_text_secondary"
+            android:gravity="center"
+            android:padding="0dp"
+            android:scaleX="0.8"
+            android:scaleY="0.8" />
     </LinearLayout>
 
     <!-- 中央 播放/暂停 反馈图标 — 无外框, 统一矢量风格(ic_play/ic_pause) -->

@@ -32,7 +32,7 @@ watch(
       v-if="confirmState.desc"
       class="text-secondary"
       :class="confirmState.small
-        ? 'text-[length:var(--jc-fs-md)] leading-[var(--jc-lh-normal)]'
+        ? 'text-[length:var(--jc-fs-base)] leading-[var(--jc-lh-normal)]'
         : 'text-[length:var(--jc-fs-md)] leading-[var(--jc-lh-relaxed)]'"
     >
       {{ confirmState.desc }}
