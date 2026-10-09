@@ -9,6 +9,7 @@ import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.ListAdapter;
+import android.widget.RadioButton;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -131,7 +132,8 @@ public class PlayerDialogHelper {
         AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("切换播放源")
                 .setSingleChoiceItems(
-                        downloadedRowAdapter(names, downloaded, PlayerModes.downloadedSourceTag()),
+                        downloadedRowAdapter(names, downloaded,
+                                PlayerModes.downloadedSourceTag(), session.currentSourceIndex),
                         session.currentSourceIndex, (d, w) -> {
                     if (w == session.currentSourceIndex) {
                         d.dismiss();
@@ -194,7 +196,8 @@ public class PlayerDialogHelper {
         AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("选集 " + (start + 1) + "-" + end)
                 .setSingleChoiceItems(
-                        downloadedRowAdapter(arr, downloaded, PlayerModes.downloadedEpisodeTag()),
+                        downloadedRowAdapter(arr, downloaded,
+                                PlayerModes.downloadedEpisodeTag(), checked),
                         checked, (d, w) -> {
                     PlaybackTarget target = PlaybackTarget.selectEpisode(
                             session.currentSourceIndex, start + w, session.playlistTitles.size());
@@ -211,17 +214,22 @@ public class PlayerDialogHelper {
     // ============================ 跳过片头/片尾 ============================
 
     /**
-     * 单选列表适配器: 标题左(带单选圆点) + 右侧灰色小标签(见 {@link PlayerModes} 的
-     * downloadedSourceTag/downloadedEpisodeTag), 无标记的行标签隐藏、占位不塌。
-     * 行布局 jc_dialog_row_downloaded; 字号/颜色由弹窗主题(JcPlayerDialog)统一。
+     * 单选列表适配器: RadioButton 圆点在左 + 右侧灰色小标签
+     * (见 {@link PlayerModes} 的 downloadedSourceTag/downloadedEpisodeTag),
+     * 无标记的行标签隐藏、不占位。选中态按 checkedPos 显式绘制 —— 行根是
+     * LinearLayout(非 Checkable), 不能指望 ListView 的 checked 传播; 弹窗列表
+     * 内容存续期不变、点击即 dismiss, 静态绘制足够。字号/颜色由弹窗主题统一。
      */
-    private ListAdapter downloadedRowAdapter(String[] names, boolean[] tags, String tagText) {
+    private ListAdapter downloadedRowAdapter(
+            String[] names, boolean[] tags, String tagText, int checkedPos) {
         final Context c = ctx();
         return new ArrayAdapter<CharSequence>(
-                c, R.layout.jc_dialog_row_downloaded, R.id.jc_row_text, names) {
+                c, R.layout.jc_dialog_row_downloaded, android.R.id.text1, names) {
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
                 View row = super.getView(position, convertView, parent);
+                RadioButton rb = row.findViewById(android.R.id.text1);
+                rb.setChecked(position == checkedPos);
                 TextView tag = row.findViewById(R.id.jc_row_tag);
                 if (tags != null && position < tags.length && tags[position]) {
                     tag.setText(tagText);

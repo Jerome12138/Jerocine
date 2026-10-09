@@ -690,10 +690,11 @@ maybe_adb_install() {
     return 0
   fi
   printf '[自动安装] 检测到设备 %s, 安装 %s ...\n' "$dev" "$(basename -- "$apk")"
-  # adb.exe 是 Windows 程序, 不认 git-bash 的 /d/... 路径 → cygpath 转 D:/...
+  # adb.exe 是 Windows 程序, 不认 git-bash 的 /d/... 路径 → cygpath 转 D:/...;
+  # adb install 也不认 "--" 分隔符(会当成文件名报 Can't open file), 别加。
   local apk_win
   apk_win="$(cygpath -m -- "$apk" 2>/dev/null || echo "$apk")"
-  if "$adb" -s "$dev" install -r -- "$apk_win"; then
+  if "$adb" -s "$dev" install -r "$apk_win"; then
     printf '[自动安装] 已装到设备 %s。\n' "$dev"
   else
     warn "自动安装失败(可能设备息屏/未授权 USB 调试/空间不足), 请手动安装: $apk"
