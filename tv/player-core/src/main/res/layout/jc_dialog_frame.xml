@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  JcDialog 固定外框(设计见 docs/播放器通用弹窗组件设计-JcDialog-2026-10-09.md):
+  标题区 / 内容插槽(列表/文本/自定义View 三选一, 运行时注入) / 可选按钮区。
+  版式 token 唯一定义处之一:
+    标题 17sp bold jc_text, padTop 16dp / padBottom 16dp(2026-10-09 用户拍板)
+    按钮 15sp(JcDialogBtn 样式), 不配置按钮时整块 GONE、由 JcDialog 给内容区补 16dp 底距
+  高度: 内容区 weight=1 — 弹窗被 JcDialog.capHeight 钉到 80% 屏时内容区收缩滚动,
+  未触上限时整体 wrap_content 不拉伸。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/jc_dialog_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="?attr/dialogPreferredPadding"
+        android:paddingEnd="?attr/dialogPreferredPadding"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:textColor="@color/jc_text"
+        android:maxLines="2"
+        android:ellipsize="end" />
+
+    <FrameLayout
+        android:id="@+id/jc_dialog_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1" />
+
+    <LinearLayout
+        android:id="@+id/jc_dialog_buttons"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end|center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/jc_dialog_negative"
+            style="@style/JcDialogBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/jc_dialog_positive"
+            style="@style/JcDialogBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+</LinearLayout>

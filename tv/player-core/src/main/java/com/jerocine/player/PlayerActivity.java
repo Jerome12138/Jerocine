@@ -1071,25 +1071,27 @@ private static String failedRequestUrl(Throwable error) {
     private void showMoreMenu() {
         if (session.localPlayback) {
             final String[] localItems = {"选择本地文件播放", "诊断信息"};
-            new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
-                    .setTitle("更多")
-                    .setItems(localItems, (d, i) -> {
+            com.jerocine.player.ui.JcDialog.list(this)
+                    .title("更多")
+                    .items(localItems)
+                    .onItemClick((d, i) -> {
                         if (i == 0) openLocalFilePicker();
                         else if (i == 1) showDiagnostics();
                     })
-                    .create().show();
+                    .show();
             return;
         }
         // 单集本地清单(下载页无上下文播单集): 无在线可切, 缓冲/中转也无指代对象 → 只留下载管理与诊断
         if (session.isSingleLocalPlaylist()) {
             final String[] offItems = {"下载管理", "诊断信息"};
-            new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
-                    .setTitle("更多")
-                    .setItems(offItems, (d, i) -> {
+            com.jerocine.player.ui.JcDialog.list(this)
+                    .title("更多")
+                    .items(offItems)
+                    .onItemClick((d, i) -> {
                         if (i == 0) openDownloadManager();
                         else if (i == 1) showDiagnostics();
                     })
-                    .create().show();
+                    .show();
             return;
         }
         final java.util.List<String> items = new java.util.ArrayList<>();
@@ -1133,12 +1135,13 @@ private static String failedRequestUrl(Throwable error) {
         }
         items.add("诊断信息");
         actions.add(this::showDiagnostics);
-        new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
-                .setTitle("更多")
-                .setItems(items.toArray(new String[0]), (d, i) -> {
+        com.jerocine.player.ui.JcDialog.list(this)
+                .title("更多")
+                .items(items.toArray(new String[0]))
+                .onItemClick((d, i) -> {
                     if (i >= 0 && i < actions.size()) actions.get(i).run();
                 })
-                .create().show();
+                .show();
     }
 
     /** 更多菜单 → 本集本地/在线切换: 切后重装当前集并保留进度。 */
@@ -1245,11 +1248,12 @@ private static String failedRequestUrl(Throwable error) {
     private void showBufferDialog() {
         final double[] options = {5.0, 15.0, 30.0, 0.0};
         final String[] labels = {"缓冲 5 分钟", "缓冲 15 分钟", "缓冲 30 分钟", "缓冲本集"};
-        new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
-                .setTitle("缓存缓冲")
-                .setItems(labels, (d, i) -> startBufferPrefetch(options[i], labels[i]))
-                .setNegativeButton("取消", null)
-                .create().show();
+        com.jerocine.player.ui.JcDialog.list(this)
+                .title("缓存缓冲")
+                .items(labels)
+                .onItemClick((d, i) -> startBufferPrefetch(options[i], labels[i]))
+                .cancelButton("取消")
+                .show();
     }
 
     /**
@@ -1337,11 +1341,11 @@ private static String failedRequestUrl(Throwable error) {
         sb.append("广告过滤: ").append(session.adFilterOn ? "开" : "关").append("\n");
         sb.append("当前片源: ").append(session.currentSourceIndex + 1).append("/")
                 .append(session.sourceList.size());
-        new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
-                .setTitle("诊断信息")
-                .setMessage(sb.toString())
-                .setPositiveButton("知道了", null)
-                .create().show();
+        com.jerocine.player.ui.JcDialog.message(this)
+                .title("诊断信息")
+                .message(sb.toString())
+                .confirmButton("知道了")
+                .show();
     }
 
     /** WebView 内核版本(用 UA 提取, 不启动 WebView 实例). */

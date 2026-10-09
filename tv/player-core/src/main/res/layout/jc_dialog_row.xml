@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  JcDialog 统一列表行 — 播放器全部弹窗列表的**唯一**行实现
+  (取代 framework 内部行与 appcompat include 行两套并存的旧机制)。
+  版式 token 唯一定义处之一:
+    行高 36dp / 主文字 15sp jc_text / 右侧 tag 13sp 次级色 / 圆圈 16dp(jc_dialog_radio_on/off)
+  行背景复用 jc_download_row_bg(D-pad 焦点/按压态玻璃底, 下载页已验证的同一份 selector)。
+  checkable=false 时圆圈 GONE 不占位; tag=null 时右侧 GONE 不占位(见 JcDialogRowAdapter)。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="36dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/jc_download_row_bg"
+    android:paddingStart="?attr/dialogPreferredPadding"
+    android:paddingEnd="?attr/dialogPreferredPadding">
+
+    <ImageView
+        android:id="@+id/jc_row_radio"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_marginEnd="14dp"
+        android:visibility="gone"
+        android:importantForAccessibility="no"
+        android:focusable="false"
+        android:clickable="false" />
+
+    <TextView
+        android:id="@+id/jc_row_text"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="15sp"
+        android:textColor="@color/jc_text"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/jc_row_tag"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:textSize="13sp"
+        android:textColor="@color/jc_text_secondary"
+        android:visibility="gone"
+        android:focusable="false"
+        android:clickable="false" />
+</LinearLayout>

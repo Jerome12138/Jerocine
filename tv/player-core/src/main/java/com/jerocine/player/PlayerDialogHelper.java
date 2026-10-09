@@ -1,15 +1,11 @@
 package com.jerocine.player;
 
-import android.app.AlertDialog;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.CheckedTextView;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
-import android.widget.ListAdapter;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -29,9 +25,6 @@ public class PlayerDialogHelper {
     private static final float[] SPEEDS = {0.5f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f};
     private static final String[] SPEED_LABELS = {"0.5×", "1.0×", "1.25×", "1.5×", "2.0×", "3.0×"};
 
-    /** 每个选集分段的集数 — 与 Web 端选集分段一致 */
-    private static final int EPISODE_SEG = 30;
-
     private final PlayerSession session;
 
     private int speedIndex = 1;
@@ -48,9 +41,12 @@ public class PlayerDialogHelper {
     // ============================ 倍速 ============================
 
     void showSpeedDialog() {
-        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
-                .setTitle("播放速度")
-                .setSingleChoiceItems(SPEED_LABELS, speedIndex, (d, i) -> {
+        com.jerocine.player.ui.JcDialog.list(ctx())
+                .title("播放速度")
+                .items(SPEED_LABELS)
+                .checkable(true)
+                .checkedIndex(speedIndex)
+                .onItemClick((d, i) -> {
                     speedIndex = i;
                     if (session.player != null) {
                         session.player.setPlaybackParameters(new PlaybackParameters(SPEEDS[i]));
@@ -60,8 +56,7 @@ public class PlayerDialogHelper {
                     session.host().showCenterToast("速度 " + SPEED_LABELS[i], 800);
                     d.dismiss();
                 })
-                .create();
-        showDialog(dialog);
+                .show();
     }
 
     // ============================ 控制面板按钮 ============================
@@ -119,22 +114,23 @@ public class PlayerDialogHelper {
             session.host().showCenterToast("仅一个源, 无需切换", 1500);
             return;
         }
-        String[] names = new String[session.sourceList.size()];
-        boolean[] downloaded = new boolean[session.sourceList.size()];
         final int curEp = session.player != null ? session.player.getCurrentMediaItemIndex() : 0;
+        java.util.List<com.jerocine.player.ui.JcDialogItem> rows = new java.util.ArrayList<>();
         for (int i = 0; i < session.sourceList.size(); i++) {
             PlayerSession.SourceData s = session.sourceList.get(i);
-            names[i] = s.name + " (" + s.urls.size() + " 集)";
-            // 当前集在该源有已下载副本 → 右侧灰色标签(当前源看本地副本表, 别源看 otherSource 表)
-            downloaded[i] = session.isEpisodeDownloadedOnSource(curEp, i);
+            // 当前集在该源有已下载副本 → 右侧灰色标签(当前源看本地副本表, 别源看 otherSource 表);
+            // tag 传 null = 不显示不占位(JcDialog 统一行自管)
+            rows.add(new com.jerocine.player.ui.JcDialogItem(s.name + " (" + s.urls.size() + " 集)",
+                    session.isEpisodeDownloadedOnSource(curEp, i)
+                            ? PlayerModes.downloadedSourceTag() : null));
         }
         final long curPos = session.player != null ? session.player.getCurrentPosition() : 0L;
-        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
-                .setTitle("切换播放源")
-                .setSingleChoiceItems(
-                        downloadedRowAdapter(names, downloaded,
-                                PlayerModes.downloadedSourceTag(), session.currentSourceIndex),
-                        session.currentSourceIndex, (d, w) -> {
+        com.jerocine.player.ui.JcDialog.list(ctx())
+                .title("切换播放源")
+                .items(rows)
+                .checkable(true)
+                .checkedIndex(session.currentSourceIndex)
+                .onItemClick((d, w) -> {
                     if (w == session.currentSourceIndex) {
                         d.dismiss();
                         return;
@@ -148,13 +144,12 @@ public class PlayerDialogHelper {
                             + "」 (从 " + (target.positionMs / 1000) + "s 续播)", 2000);
                     d.dismiss();
                 })
-                .create();
-        showDialog(dialog);
+                .show();
     }
 
     // ============================ 选集 ============================
 
-    /** 选集: >30 集时先按 30 集一档分段选择, 再选具体集(D-pad 友好). */
+    /** 选集: >30 集时先按 30 集一档分段选择, 再选具体集(D-pad 友好). 分段计算见 {@link com.jerocine.player.ui.EpisodeSegments}. */
     void showEpisodeDialog() {
         if (session.playlistTitles == null || session.playlistTitles.size() < 2) {
             session.host().showCenterToast("仅一集, 无需选择", 1500);
@@ -162,43 +157,40 @@ public class PlayerDialogHelper {
         }
         int total = session.playlistTitles.size();
         int cur = session.player != null ? session.player.getCurrentMediaItemIndex() : 0;
-        if (total <= EPISODE_SEG) {
+        if (total <= com.jerocine.player.ui.EpisodeSegments.PER_SEG) {
             showEpisodeSegment(0, total, cur);
             return;
         }
-        int segCount = (total + EPISODE_SEG - 1) / EPISODE_SEG;
-        String[] segs = new String[segCount];
-        for (int i = 0; i < segCount; i++) {
-            int s = i * EPISODE_SEG + 1;
-            int e = Math.min((i + 1) * EPISODE_SEG, total);
-            segs[i] = "第 " + s + "-" + e + " 集";
-        }
-        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
-                .setTitle("选集 (共 " + total + " 集)")
-                .setSingleChoiceItems(segs, cur / EPISODE_SEG, (d, w) -> {
+        String[] segs = com.jerocine.player.ui.EpisodeSegments.titles(total);
+        com.jerocine.player.ui.JcDialog.list(ctx())
+                .title("选集 (共 " + total + " 集)")
+                .items(segs)
+                .checkable(true)
+                .checkedIndex(com.jerocine.player.ui.EpisodeSegments.checkedSegment(cur))
+                .onItemClick((d, w) -> {
                     d.dismiss();
-                    int start = w * EPISODE_SEG;
-                    showEpisodeSegment(start, Math.min(start + EPISODE_SEG, total), cur);
+                    int start = com.jerocine.player.ui.EpisodeSegments.startOf(w);
+                    showEpisodeSegment(start,
+                            com.jerocine.player.ui.EpisodeSegments.endOf(w, total), cur);
                 })
-                .create();
-        showDialog(dialog);
+                .show();
     }
 
     /** 展示 [start,end) 区间内的集供选择, 当前集在区间内则高亮; 已下载的集带右侧灰色标签. */
     private void showEpisodeSegment(int start, int end, int cur) {
-        String[] arr = new String[end - start];
-        boolean[] downloaded = new boolean[end - start];
+        java.util.List<com.jerocine.player.ui.JcDialogItem> rows = new java.util.ArrayList<>();
         for (int i = start; i < end; i++) {
-            arr[i - start] = session.playlistTitles.get(i);
-            downloaded[i - start] = session.isLocalEpisode(i);
+            // 当前集已下载 → 右侧灰色标签; tag 传 null = 不显示不占位
+            rows.add(new com.jerocine.player.ui.JcDialogItem(session.playlistTitles.get(i),
+                    session.isLocalEpisode(i) ? PlayerModes.downloadedEpisodeTag() : null));
         }
         int checked = (cur >= start && cur < end) ? cur - start : 0;
-        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
-                .setTitle("选集 " + (start + 1) + "-" + end)
-                .setSingleChoiceItems(
-                        downloadedRowAdapter(arr, downloaded,
-                                PlayerModes.downloadedEpisodeTag(), checked),
-                        checked, (d, w) -> {
+        com.jerocine.player.ui.JcDialog.list(ctx())
+                .title("选集 " + (start + 1) + "-" + end)
+                .items(rows)
+                .checkable(true)
+                .checkedIndex(checked)
+                .onItemClick((d, w) -> {
                     PlaybackTarget target = PlaybackTarget.selectEpisode(
                             session.currentSourceIndex, start + w, session.playlistTitles.size());
                     if (session.player != null) {
@@ -207,47 +199,10 @@ public class PlayerDialogHelper {
                     }
                     d.dismiss();
                 })
-                .create();
-        showDialog(dialog);
+                .show();
     }
 
     // ============================ 跳过片头/片尾 ============================
-
-    /**
-     * 单选列表适配器: 左侧行 = appcompat 默认单选行(圆点在左, 缩进与系统完全一致),
-     * 右侧灰色小标签(见 {@link PlayerModes} 的 downloadedSourceTag/downloadedEpisodeTag),
-     * 无标记的行标签隐藏、不占位。include 进来的 CheckedTextView 不是行根,
-     * ListView 的 checked 传播够不着 → 选中态按 checkedPos 显式 setChecked
-     * (弹窗列表存续期内容不变、点击即 dismiss, 静态绘制足够)。
-     */
-    private ListAdapter downloadedRowAdapter(
-            String[] names, boolean[] tags, String tagText, int checkedPos) {
-        final Context c = ctx();
-        return new ArrayAdapter<CharSequence>(
-                c, R.layout.jc_dialog_row_downloaded, android.R.id.text1, names) {
-            @Override
-            public View getView(int position, View convertView, ViewGroup parent) {
-                View row = super.getView(position, convertView, parent);
-                CheckedTextView ctv = row.findViewById(android.R.id.text1);
-                // include 的 appcompat 行有两处主题覆盖不到(其布局用无前缀 appcompat attr,
-                // 挂到弹窗主题会让壳层 AAPT 链接失败) → 在此显式对齐:
-                //   行高: minHeight=?attr/listPreferredItemHeightSmall(48dp) → 40dp,
-                //         与 framework 行的 android:listPreferredItemHeightSmall 覆盖一致;
-                //   字号: textAppearanceMedium(16sp) → 13sp, 与 JcPlayerDialogListItem 一致。
-                ctv.setMinimumHeight((int) (40 * c.getResources().getDisplayMetrics().density));
-                ctv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
-                ctv.setChecked(position == checkedPos);
-                TextView tag = row.findViewById(R.id.jc_row_tag);
-                if (tags != null && position < tags.length && tags[position]) {
-                    tag.setText(tagText);
-                    tag.setVisibility(View.VISIBLE);
-                } else {
-                    tag.setVisibility(View.GONE);
-                }
-                return row;
-            }
-        };
-    }
 
     /** 跳过参数变化 → 通知壳层回写账号(跨设备记忆). 关闭时记 0/0(=不跳). */
     private void emitSkipChanged() {
@@ -266,15 +221,17 @@ public class PlayerDialogHelper {
         LinearLayout ll = new LinearLayout(ctx());
         ll.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (16 * ctx().getResources().getDisplayMetrics().density);
-        ll.setPadding(pad * 3, pad, pad * 3, pad);
+        // 左右内边距与标题对齐(同一 dialogPreferredPadding), 不再散写 3 倍 pad
+        int padX = com.jerocine.player.ui.JcDialog.contentPaddingX(ctx());
+        ll.setPadding(padX, pad, padX, 0);
 
-        // 弹窗内文字统一缩小一档(需求: 换源/换集/跳过弹窗的文字与控件缩放一个档位)
+        // 弹窗内容文字统一 15sp(2026-10-09 用户拍板: 与列表主文字/按钮同一档)
         final String skipLabel = "启用跳过 (开后片头" + PlayerSkipHelper.DEFAULT_SKIP_INTRO_MS / 1000
                 + "s 片尾" + PlayerSkipHelper.DEFAULT_SKIP_OUTRO_MS / 1000 + "s)";
         Switch sw = new Switch(ctx());
         sw.setText(skipLabel);
         sw.setChecked(session.skipEnabled);
-        sw.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+        sw.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
         sw.setTextColor(0xFFFFFFFF);
         ll.addView(sw);
 
@@ -295,13 +252,13 @@ public class PlayerDialogHelper {
         });
 
         introValue.setText("片头跳过: " + session.skipIntroMs / 1000 + " 秒");
-        introValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+        introValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
         introValue.setPadding(0, pad, 0, 0);
         ll.addView(introValue);
         ll.addView(introRow);
 
         outroValue.setText("片尾跳过: " + session.skipOutroMs / 1000 + " 秒");
-        outroValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+        outroValue.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
         outroValue.setPadding(0, pad, 0, 0);
         ll.addView(outroValue);
         ll.addView(outroRow);
@@ -324,11 +281,10 @@ public class PlayerDialogHelper {
         });
 
         // 不放"完成"按钮: 开关/stepper 即时生效, 返回键关闭弹窗即可
-        AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
-                .setTitle("跳过片头 / 片尾")
-                .setView(ll)
-                .create();
-        showDialog(dialog);
+        com.jerocine.player.ui.JcDialog.custom(ctx())
+                .title("跳过片头 / 片尾")
+                .content(ll)
+                .show();
     }
 
     private void setRowEnabled(LinearLayout row, boolean on) {
@@ -352,7 +308,7 @@ public class PlayerDialogHelper {
             Button b = new Button(ctx());
             b.setText((s > 0 ? "+" : "") + s + "s");
             b.setAllCaps(false);
-            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
             b.setFocusable(true);
             b.setBackgroundResource(R.drawable.jc_step_btn_bg);
             b.setTextColor(ctx().getResources().getColorStateList(R.color.jc_step_btn_text));
@@ -370,27 +326,4 @@ public class PlayerDialogHelper {
         return row;
     }
 
-    /**
-     * 统一弹窗展示: 内容超高时限制为屏幕高度的 80% (选集/切源等大列表弹窗),
-     * 内容少时保持 wrap_content 不拉伸.
-     */
-    private void showDialog(AlertDialog dialog) {
-        dialog.show();
-        android.view.Window win = dialog.getWindow();
-        if (win == null) return;
-        View decor = win.getDecorView();
-        android.util.DisplayMetrics dm = ctx().getResources().getDisplayMetrics();
-        int maxH = (int) (dm.heightPixels * 0.8f);
-        // 高度上限 80% 屏幕(用户拍板 2026-10-09)。不能用 UNSPECIFIED 量 decor:
-        // ListView wrap-content 只实测前几个子项、其余按均值估算 → 30 集的选集弹窗
-        // 实际远超 80% 却被判成"没超"。改用 AT_MOST(maxH) 上限测量, 量到上限即钉死。
-        decor.measure(
-                View.MeasureSpec.makeMeasureSpec(dm.widthPixels, View.MeasureSpec.AT_MOST),
-                View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
-        if (decor.getMeasuredHeight() >= maxH) {
-            android.view.WindowManager.LayoutParams lp = win.getAttributes();
-            lp.height = maxH;
-            win.setAttributes(lp);
-        }
-    }
 }

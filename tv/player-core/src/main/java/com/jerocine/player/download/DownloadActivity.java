@@ -1079,10 +1079,10 @@ public class DownloadActivity extends AppCompatActivity {
         String msg = "删除「" + label(t) + "」?\n\n将同时删除该集的下载缓存分片, 之后需要重新下载。"
                 + (t.exportedPath != null && !t.exportedPath.isEmpty()
                 ? "\n已导出的文件不会被删除。" : "");
-        new androidx.appcompat.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
-                .setTitle("删除下载任务")
-                .setMessage(msg)
-                .setPositiveButton("删除", (d, w) -> {
+        com.jerocine.player.ui.JcDialog.message(this)
+                .title("删除下载任务")
+                .message(msg)
+                .confirmButton("删除", () -> {
                     try {
                         engine.remove(t.id);
                         toast("已删除");
@@ -1094,7 +1094,7 @@ public class DownloadActivity extends AppCompatActivity {
                     }
                     refreshTasks();
                 })
-                .setNegativeButton("取消", null)
+                .cancelButton()
                 .show();
     }
 
