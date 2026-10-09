@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  弹窗单选列表行(换源/选集): RadioButton(圆点在文字左侧, clickable/focusable=false 交还 ListView)
-  + 可选的右侧灰色小标签。
-  为什么不用 CheckedTextView: 它的 checkMark 画在行尾, 想放左边需要 android:checkMarkGravity
-  —— 隐藏属性, AAPT 拒绝; 系统默认单选行布局/资源(select_dialog_singlechoice_material)也是
-  private, include 不了。RadioButton 是唯一"圆点在左"的公开做法。
-  选中态由 PlayerDialogHelper 的 adapter 按"当前集下标"显式绘制(列表内容在弹窗存续期不变,
-  无需依赖 ListView 的 checked 传播; 点击即 dismiss 不存在重绘时差)。
-  右侧标签 = "当前集已下载"标记(文案见 PlayerModes.downloadedSourceTag/downloadedEpisodeTag)。
+  弹窗单选列表行(换源/选集): 直接 include appcompat 的系统默认单选行
+  (select_dialog_singlechoice_material —— 库内公开资源; 框架同名布局是 private 不能用),
+  圆点在左、paddingStart=20dp、圆点→文字 drawablePadding=20dp, 与原有弹窗缩进**完全一致**。
+  左侧 include 覆盖为 weight=1, 右侧挂可选的灰色小标签(当前集已下载标记,
+  文案见 PlayerModes.downloadedSourceTag/downloadedEpisodeTag)。
+  include 进来的 CheckedTextView 不是行根, ListView 的 checked 传播够不着 →
+  选中态由 PlayerDialogHelper 的 adapter 按当前集下标显式 setChecked
+  (弹窗列表存续期内容不变、点击即 dismiss, 静态绘制足够)。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -15,29 +15,18 @@
     android:orientation="horizontal"
     android:gravity="center_vertical">
 
-    <RadioButton
-        android:id="@android:id/text1"
+    <include
+        layout="@layout/select_dialog_singlechoice_material"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:background="@null"
-        android:clickable="false"
-        android:focusable="false"
-        android:gravity="center_vertical"
-        android:minHeight="?android:attr/listPreferredItemHeight"
-        android:paddingStart="?android:attr/listPreferredItemPaddingStart"
-        android:paddingEnd="0dp"
-        android:singleLine="true"
-        android:ellipsize="end"
-        android:textAppearance="?android:attr/textAppearanceListItem"
-        android:textColor="?android:attr/textColorAlertDialogListItem" />
+        android:layout_weight="1" />
 
     <TextView
         android:id="@+id/jc_row_tag"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
-        android:layout_marginEnd="?android:attr/listPreferredItemPaddingEnd"
+        android:layout_marginEnd="?attr/dialogPreferredPadding"
         android:textAppearance="?android:attr/textAppearanceListItemSecondary"
         android:textColor="@color/jc_text_secondary" />
 </LinearLayout>

@@ -6,10 +6,10 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckedTextView;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.ListAdapter;
-import android.widget.RadioButton;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -214,11 +214,11 @@ public class PlayerDialogHelper {
     // ============================ 跳过片头/片尾 ============================
 
     /**
-     * 单选列表适配器: RadioButton 圆点在左 + 右侧灰色小标签
-     * (见 {@link PlayerModes} 的 downloadedSourceTag/downloadedEpisodeTag),
-     * 无标记的行标签隐藏、不占位。选中态按 checkedPos 显式绘制 —— 行根是
-     * LinearLayout(非 Checkable), 不能指望 ListView 的 checked 传播; 弹窗列表
-     * 内容存续期不变、点击即 dismiss, 静态绘制足够。字号/颜色由弹窗主题统一。
+     * 单选列表适配器: 左侧行 = appcompat 默认单选行(圆点在左, 缩进与系统完全一致),
+     * 右侧灰色小标签(见 {@link PlayerModes} 的 downloadedSourceTag/downloadedEpisodeTag),
+     * 无标记的行标签隐藏、不占位。include 进来的 CheckedTextView 不是行根,
+     * ListView 的 checked 传播够不着 → 选中态按 checkedPos 显式 setChecked
+     * (弹窗列表存续期内容不变、点击即 dismiss, 静态绘制足够)。
      */
     private ListAdapter downloadedRowAdapter(
             String[] names, boolean[] tags, String tagText, int checkedPos) {
@@ -228,8 +228,8 @@ public class PlayerDialogHelper {
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
                 View row = super.getView(position, convertView, parent);
-                RadioButton rb = row.findViewById(android.R.id.text1);
-                rb.setChecked(position == checkedPos);
+                CheckedTextView ctv = row.findViewById(android.R.id.text1);
+                ctv.setChecked(position == checkedPos);
                 TextView tag = row.findViewById(R.id.jc_row_tag);
                 if (tags != null && position < tags.length && tags[position]) {
                     tag.setText(tagText);
