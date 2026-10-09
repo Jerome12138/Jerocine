@@ -3,6 +3,7 @@ import { publicRoutes } from './routes.public'
 import { manageRoutes } from './routes.manage'
 import { registerGuards } from './guards'
 import { scrollBehavior } from './scrollBehavior'
+import { handleChunkLoadError, isChunkLoadError } from '@/utils/chunkReload'
 
 /** 扩展 RouteMeta 类型 */
 declare module 'vue-router' {
@@ -92,24 +93,29 @@ router.afterEach((to) => {
 /**
  * 动态 import 失败自动 reload — 新 deploy 把 dist/assets/XXX-[hash].js 文件全部换名,
  * 但 WebView 缓存里 index.html 还指向旧 hash. 用户跳路由 → 懒加载 component 取旧 chunk
- * → 404 → nginx 默认返 index.html (text/html), 触发 "'text/html' is not a valid
- * JavaScript MIME type" 的 unhandled-rejection. 一旦命中就 location.reload() 拿新
- * index.html + 新 chunk URLs, 错误自愈.
+ * → 404 → 触发 "'text/html' is not a valid JavaScript MIME type" 的 unhandled-rejection.
+ * 一旦命中就 location.reload() 拿新 index.html + 新 chunk URLs, 错误自愈.
+ *
+ * ⚠ 接入 Service Worker 后必须加"一次性闸门"(见 @/utils/chunkReload):
+ *   SW 接管后 reload 会命中 precache 的旧 index.html ⇒ 再次 404 ⇒ 再次 reload 成环.
  */
 router.onError((err) => {
-  const msg = err instanceof Error ? err.message : String(err)
-  const isChunkFail =
-    msg.includes('dynamically imported module') ||
-    msg.includes('text/html') ||
-    msg.includes('Failed to fetch dynamically imported module') ||
-    msg.includes('Importing a module script failed')
-  if (isChunkFail && typeof window !== 'undefined') {
-    void import('@/utils/telemetry').then(({ telemetry }) => {
-      telemetry.trackError(err as Error, 'chunk-load-reload', { msg })
-    })
-    // 给 telemetry 50ms flush 机会, 然后硬刷
-    window.setTimeout(() => window.location.reload(), 50)
-  }
+  if (!isChunkLoadError(err)) return
+  if (typeof window === 'undefined') return
+  handleChunkLoadError(err, {
+    guardStore: window.sessionStorage,
+    reload: () => window.location.reload(),
+    getRegistration: () =>
+      navigator.serviceWorker?.getRegistration?.() as
+        | Promise<{ update: () => Promise<unknown> } | undefined>
+        | undefined,
+    track: (e, category, extra) => {
+      void import('@/utils/telemetry').then(({ telemetry }) =>
+        telemetry.trackError(e, category, extra)
+      )
+    },
+    setTimer: (fn, ms) => window.setTimeout(fn, ms)
+  })
 })
 
 export default router

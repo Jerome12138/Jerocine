@@ -9,6 +9,7 @@ import { useSearchHistory } from '@/composables/useSearchHistory'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
+import PwaUpdateBadge from '@/components/base/PwaUpdateBadge.vue'
 import LogoMark from '@/components/brand/LogoMark.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
@@ -448,6 +449,9 @@ watch(
       >
         <LogoMark :size="brandSize" :show-text="true" />
       </RouterLink>
+
+      <!-- 新版本就绪提示(§4.3): 标题右侧; TV 下 logo 隐藏, 这里即左上角 -->
+      <PwaUpdateBadge />
 
       <!-- 主导航（桌面 / TV） -->
       <nav class="jc-header__nav hidden md:flex items-center" data-focus-zone="tab">

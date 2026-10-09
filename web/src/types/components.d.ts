@@ -19,6 +19,7 @@ declare module 'vue' {
     BaseSkeleton: typeof import('./../components/base/BaseSkeleton.vue')['default']
     BaseTag: typeof import('./../components/base/BaseTag.vue')['default']
     BaseToastContainer: typeof import('./../components/base/BaseToastContainer.vue')['default']
+    PwaUpdateBadge: typeof import('./../components/base/PwaUpdateBadge.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
   }
