@@ -1,0 +1,21 @@
+#!/bin/sh
+# 提交信息规范(用户要求 2026-10-09):
+#   格式: type(scope): 说明  或  type: 说明   —— 括号 scope 可省略
+#   type 白名单: feat fix docs style refactor perf test build ci chore revert
+# 例: fix(android-ui): 本地播放不显示过滤角标 / docs: 更新 README
+# Merge / Revert 开头(自动生成)不拦。
+f="$1"
+[ -f "$f" ] || exit 0
+head=$(head -n 1 "$f")
+case "$head" in
+  "Merge "*|"Revert "*) exit 0 ;;
+esac
+pat='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?: .+'
+if ! printf '%s\n' "$head" | grep -Eq "$pat"; then
+  echo "提交信息不符合规范: $head" >&2
+  echo "格式: type(scope): 说明 或 type: 说明 (scope 可省略)" >&2
+  echo "type 白名单: feat fix docs style refactor perf test build ci chore revert" >&2
+  echo "例: fix(android-ui): 本地播放不显示过滤角标" >&2
+  exit 1
+fi
+exit 0
