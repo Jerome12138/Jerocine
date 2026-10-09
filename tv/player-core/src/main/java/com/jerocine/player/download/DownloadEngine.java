@@ -48,9 +48,10 @@ import okhttp3.Response;
  *   <li>下载缓存区: {@code getCacheDir()/download_cache}, SimpleCache + NoOpCacheEvictor(主动下载永不清),
  *       数据库独立见 {@link CacheDatabaseProvider}(与播放器 video_cache 完全隔离);</li>
  *   <li>批量并发: {@code setMaxParallelDownloads(3)} —— 集级并行, 每集内部由 HlsDownloader 串行分片;</li>
- *   <li>广告过滤: 入队前 GET 源站清单 → {@link M3u8FilterClient} 过滤 → 过滤后清单落库(离线播放用),
+ *   <li>广告过滤: 入队前 GET 源站清单 → {@link M3u8FilterClient} 过滤 → 清单落库(离线播放用),
  *       同时注入 {@link DownloadFilterPlaylistParserFactory} 让 HlsDownloader 解析时直接命中预取结果
- *       (master 不再付第二次 POST; 子表仍走 POST);</li>
+ *       (master 不再付第二次 POST; 子表仍走 POST)。失败按 {@link DownloadFilterFallbackPolicy}
+ *       分级: 网络类重试 3 轮后 FAIL; 无过滤服务/4xx/响应异常 → 原始流兜底(落盘前绝对化);</li>
  *   <li>进度/状态: {@link DownloadManager.Listener} 把 Media3 状态映射到 {@link DownloadTask} 并落库;</li>
  *   <li>崩溃恢复: 启动时把残留 DOWNLOADING 标 PAUSED(等用户续传)。</li>
  * </ul>
@@ -227,7 +228,8 @@ public final class DownloadEngine {
      * UI 一直显示"排队中", 重启也不会动。
      *
      * <p>过滤后清单大概率已落库(insertIgnore 前写的), media3 重下时经
-     * DownloadFilterPlaylistParserFactory 走正常过滤路径, 不会绕过广告过滤。
+     * DownloadFilterPlaylistParserFactory 走正常过滤路径或按
+     * {@link DownloadFilterFallbackPolicy} 原始流兜底, 与入队侧同一份策略。
      */
     private void requeueOrphanTasks() {
         try {
@@ -356,8 +358,12 @@ public final class DownloadEngine {
     // ============================ 入队 / 暂停 / 恢复 / 删除 ============================
 
     /**
-     * 入队一个下载任务: 拉源站清单 → 端侧过滤 → 保存过滤后清单(离线播用) → 交给 DownloadService.
-     * 过滤失败 → 任务 FAILED(不静默下原始流, 防广告进产物). 幂等: 已存在同 id 任务则忽略.
+     * 入队一个下载任务: 拉源站清单 → 端侧过滤(失败按 {@link DownloadFilterFallbackPolicy} 分级降级)
+     * → 保存清单(离线播用) → 交给 DownloadService. 幂等: 已存在同 id 任务则忽略.
+     *
+     * <p>降级策略(用户拍板 2026-10-10): 数据获取类失败(NETWORK)重试 3 轮, 耗尽仍失败 → 任务 FAIL;
+     * 无过滤服务/服务端拒绝/响应异常 → <b>原始流兜底</b>(媒体级清单落盘前按来源 URL 绝对化,
+     * 见 {@link HlsPlaylistAbsolutizer}; 产物含潜在广告段, 用户明确接受该取舍)。
      */
     public void enqueue(DownloadTask task) {
         // 入队时取快照: worker 线程池异步执行, 直接读 volatile 字段虽可见但语义不清,
@@ -372,12 +378,16 @@ public final class DownloadEngine {
             try {
                 byte[] raw = fetchPlaylist(task.srcUrl);
                 Log.i(TAG, "拉清单完成: " + task.id + " len=" + raw.length);
-                M3u8FilterClient.Result r = M3u8FilterClient.filter(base, task.srcUrl, raw);
-                if (r == null) {
-                    fail(task, "广告过滤失败(网络异常或服务端不可用), 可重试");
+                FilterOutcome master = filterWithFallback(base, task.srcUrl, raw, "清单");
+                if (master.cancelled) {
+                    Log.i(TAG, "已取消, 停止入队: " + task.id);
                     return;
                 }
-                Log.i(TAG, "过滤完成: " + task.id + " filtered=" + r.filteredCount);
+                if (master.error != null) {
+                    fail(task, master.error);
+                    return;
+                }
+                Log.i(TAG, "过滤完成(" + (master.rawFallback ? "原始流兜底" : "filtered=" + master.filteredCount) + "): " + task.id);
                 // 【2026-10-08 根修 "0KB+秒完成+离线播放走网络"】源 URL 常是 **master 清单**
                 // (实锤: lz 源的 index.m3u8 只有 96 字节, 一行 variant 指向 2000k/hls/mixed.m3u8)。
                 // 若把 master 当 filteredPlaylist 落库:
@@ -389,7 +399,7 @@ public final class DownloadEngine {
                 // filteredPlaylist 落库 + prefetched(子表分片已被服务端绝对化)。
                 // HlsDownloader 对 master URI 解析直接命中这份媒体清单(分片全绝对化),
                 // 不再需要下钻; 离线播放 file://playlist.m3u8 同理命中缓存。
-                byte[] playlistData = r.data;
+                byte[] playlistData = master.data;
                 if (isMasterPlaylist(playlistData)) {
                     Log.i(TAG, "master 清单, 下钻子表: " + task.id);
                     String childUrl = firstVariantUrl(playlistData, task.srcUrl);
@@ -398,14 +408,33 @@ public final class DownloadEngine {
                         return;
                     }
                     byte[] childRaw = fetchPlaylist(childUrl);
-                    M3u8FilterClient.Result child = M3u8FilterClient.filter(base, childUrl, childRaw);
-                    if (child == null) {
-                        fail(task, "广告过滤失败(子清单), 可重试");
+                    FilterOutcome child = filterWithFallback(base, childUrl, childRaw, "子表");
+                    if (child.cancelled) {
+                        Log.i(TAG, "已取消, 停止入队: " + task.id);
+                        return;
+                    }
+                    if (child.error != null) {
+                        fail(task, child.error);
                         return;
                     }
                     playlistData = child.data;
-                    Log.i(TAG, "子表过滤完成: " + task.id + " filtered=" + child.filteredCount
-                            + " len=" + playlistData.length);
+                    // 原始流兜底时没有服务端绝对化 —— 子表(媒体级)相对分片按子表 URL 绝对化,
+                    // 否则 file:// 离线播放解析不出分片、下载缓存 key 也与播放期不一致。
+                    if (child.rawFallback) {
+                        playlistData = HlsPlaylistAbsolutizer
+                                .absolutize(new String(child.data, StandardCharsets.UTF_8), childUrl)
+                                .getBytes(StandardCharsets.UTF_8);
+                        Log.i(TAG, "原始流子清单已按子表 URL 绝对化: " + task.id);
+                    }
+                    Log.i(TAG, "子表完成(" + (child.rawFallback ? "原始流兜底" : "filtered=" + child.filteredCount)
+                            + ") len=" + playlistData.length);
+                } else if (master.rawFallback) {
+                    // 源 URL 本身就是媒体级清单 + 原始流兜底: 相对分片按源 URL 绝对化
+                    // (与下方子表兜底同一道理, 否则 file:// 离线播放解析不出分片)
+                    playlistData = HlsPlaylistAbsolutizer
+                            .absolutize(new String(master.data, StandardCharsets.UTF_8), task.srcUrl)
+                            .getBytes(StandardCharsets.UTF_8);
+                    Log.i(TAG, "原始流媒体清单已按源 URL 绝对化: " + task.id);
                 }
                 fresh.filteredPlaylist = new String(playlistData, StandardCharsets.UTF_8);
                 prefetchedPlaylists.put(task.srcUrl, playlistData); // master URI 命中, HlsDownloader 直接拿到媒体清单
@@ -690,6 +719,81 @@ public void pause(String taskId) {
         }
     }
 
+    /** {@link #filterWithFallback} 的结果: data/error/cancelled 互斥使用。 */
+    private static final class FilterOutcome {
+        final byte[] data;            // 成功(过滤后或原始流兜底)
+        final int filteredCount;      // 成功时被剔除的广告段数(原始流兜底 = 0)
+        final boolean rawFallback;    // true = 原始流兜底(调用方需对媒体级清单绝对化)
+        final String error;           // 重试耗尽等需要任务 FAIL 的消息
+        final boolean cancelled;      // 任务被取消(静默退出, 不写 error)
+
+        private FilterOutcome(byte[] data, int filteredCount, boolean rawFallback,
+                              String error, boolean cancelled) {
+            this.data = data;
+            this.filteredCount = filteredCount;
+            this.rawFallback = rawFallback;
+            this.error = error;
+            this.cancelled = cancelled;
+        }
+
+        static FilterOutcome ok(byte[] data, int cnt) {
+            return new FilterOutcome(data, cnt, false, null, false);
+        }
+
+        static FilterOutcome raw(byte[] data, int cnt) {
+            return new FilterOutcome(data, cnt, true, null, false);
+        }
+
+        static FilterOutcome err(String msg) {
+            return new FilterOutcome(null, 0, false, msg, false);
+        }
+
+        static FilterOutcome cancel() {
+            return new FilterOutcome(null, 0, false, null, true);
+        }
+    }
+
+    /**
+     * 过滤一单层清单, 带 {@link DownloadFilterFallbackPolicy} 降级策略(用户拍板 2026-10-10):
+     * NETWORK → 最多 3 轮(每轮内 M3u8FilterClient 自带 1 次快速重试), 耗尽仍失败 → FAIL;
+     * NO_FILTER / REJECTED / BAD_RESPONSE → 原始流兜底(调用方需对媒体级清单绝对化);
+     * CANCELLED → 取消。取消失败链路: 中断位已由 client 重设, 这里不再 sleep 直接返回。
+     */
+    private FilterOutcome filterWithFallback(String base, String url, byte[] rawBytes, String what) {
+        int attempt = 0;
+        while (true) {
+            M3u8FilterClient.Outcome o = M3u8FilterClient.filterDetailed(base, url, rawBytes);
+            if (o.success()) {
+                return FilterOutcome.ok(o.result.data, o.result.filteredCount);
+            }
+            attempt++;
+            DownloadFilterFallbackPolicy.Action a =
+                    DownloadFilterFallbackPolicy.onFilterFailure(o.cause, attempt);
+            switch (a) {
+                case RETRY:
+                    try {
+                        Thread.sleep(300);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return FilterOutcome.cancel();
+                    }
+                    break;
+                case USE_RAW:
+                    // 只记 host, 不记完整 URL: 源站 URL 常带时效签名, 落日志等于扩散凭据
+                    Log.w(TAG, what + "过滤不可用(" + o.cause + "), 按原始流下载: "
+                            + com.jerocine.player.ErrorDiag.safeUrl(url));
+                    return FilterOutcome.raw(rawBytes, 0);
+                case FAIL:
+                    return FilterOutcome.err("广告过滤失败(网络异常, 已重试"
+                            + (attempt - 1) + "次), 可重试");
+                case ABORT:
+                default:
+                    Log.i(TAG, what + "过滤被取消");
+                    return FilterOutcome.cancel();
+            }
+        }
+    }
+
     /** 是否 master 清单(含 #EXT-X-STREAM-INF; 见到 #EXTINF 即媒体级清单, 立即否定)。
      *  public: BufferPrefetcher(缓冲)同样要先下钻 master, 同一套判定。 */
     public static boolean isMasterPlaylist(byte[] data) {
@@ -885,7 +989,7 @@ public void pause(String taskId) {
         sInstance = null;
     }
 
-    /** 自定义 DownloaderFactory — HLS 注入过滤解析器(下载列表=过滤后分片, 广告段不进缓存). */
+    /** 自定义 DownloaderFactory — HLS 注入过滤解析器(下载列表=过滤后分片; 原始流兜底任务含潜在广告段, 见 DownloadFilterFallbackPolicy). */
     private static final class DownloaderFactoryImpl implements DownloaderFactory {
         private final CacheDataSource.Factory dsFactory;
         /**

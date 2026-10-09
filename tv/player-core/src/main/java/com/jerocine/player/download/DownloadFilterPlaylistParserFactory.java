@@ -5,11 +5,13 @@ import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParser;
 import androidx.media3.exoplayer.upstream.ParsingLoadable;
 
 import com.jerocine.player.M3u8FilterClient;
+import com.jerocine.player.ErrorDiag;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 /**
  * 下载器专用过滤解析器 — 下载前把源站 m3u8 送 /v1/m3u8/filter 剔广告, 再交默认解析器.
@@ -50,27 +52,52 @@ public final class DownloadFilterPlaylistParserFactory implements ParsingLoadabl
         // 注意: 必须 android.util.Log —— androidx.media3.common.util.Log 默认 logLevel=WARN,
         // info 全被吞(2026-10-08 排查 DownloadFilter 零日志时踩坑)
         android.util.Log.i(TAG, "parse: " + uri + " rawLen=" + raw.length);
-        // 入队预取命中(master 清单) → 直接用过滤结果; 子表未预取 → POST 过滤
+        // 入队预取命中(master 清单) → 直接用结果; 未命中(进程重启后自愈/重试) → POST 过滤,
+        // 失败按 {@link DownloadFilterFallbackPolicy} 分级(与入队侧同一份策略):
+        //   NETWORK 重试 3 轮; NO_FILTER/REJECTED/BAD_RESPONSE → 原始流兜底;
+        //   CANCELLED/耗尽 → 抛错终止本次解析(取消场景任务已被移除, 抛错只是收尾)。
+        // 原始流兜底时没有服务端绝对化 → 相对 URL 按本解析 URI 绝对化(语义对齐 media3,
+        // 保证下载缓存 key 与播放期一致)。master 级绝对化同样无害(variant 行/URI 属性)。
         byte[] data = null;
+        boolean rawFallback = false;
         if (prefetched != null) {
             byte[] hit = prefetched.get(uri.toString());
             if (hit != null) data = hit;
         }
         if (data == null) {
-            M3u8FilterClient.Result r = M3u8FilterClient.filter(proxyBase, uri.toString(), raw);
-            if (r == null) {
-                //只记 host, 不记完整 URL: 这个 message 会经 DownloadEngine.fail()
-                // 持久化进 DownloadTask.error 并显示在下载列表的错误列里, 而源站 URL
-                // 常带时效签名(?token=xxx&sign=yyy) —— 落库 + 上屏等于扩散凭据。
-                android.util.Log.w(TAG,
-                        "filter failed: " + com.jerocine.player.ErrorDiag.safeUrl(uri.toString()));
-                throw new IOException("广告过滤失败: " + com.jerocine.player.ErrorDiag.safeUrl(uri.toString()));
+            int attempt = 0;
+            while (true) {
+                M3u8FilterClient.Outcome o =
+                        M3u8FilterClient.filterDetailed(proxyBase, uri.toString(), raw);
+                if (o.success()) {
+                    data = o.result.data;
+                    break;
+                }
+                attempt++;
+                DownloadFilterFallbackPolicy.Action a =
+                        DownloadFilterFallbackPolicy.onFilterFailure(o.cause, attempt);
+                if (a == DownloadFilterFallbackPolicy.Action.RETRY) continue;
+                if (a == DownloadFilterFallbackPolicy.Action.USE_RAW) {
+                    // 只记 host, 不记完整 URL: 源站 URL 常带时效签名, 落日志等于扩散凭据
+                    android.util.Log.w(TAG, "filter unavailable (" + o.cause
+                            + "), raw fallback: " + ErrorDiag.safeUrl(uri.toString()));
+                    data = HlsPlaylistAbsolutizer.absolutize(
+                            new String(raw, StandardCharsets.UTF_8), uri.toString())
+                            .getBytes(StandardCharsets.UTF_8);
+                    rawFallback = true;
+                    break;
+                }
+                // FAIL / ABORT: message 只记 host + 原因, 会经 DownloadEngine.fail() 落库上屏
+                android.util.Log.w(TAG, "filter failed (" + o.cause + ", attempt " + attempt
+                        + "): " + ErrorDiag.safeUrl(uri.toString()));
+                throw new IOException("广告过滤失败("
+                        + (o.cause == M3u8FilterClient.FailureCause.CANCELLED ? "已取消" : "网络异常, 已重试")
+                        + "): " + ErrorDiag.safeUrl(uri.toString()));
             }
-            data = r.data;
         }
         android.util.Log.i(TAG,
                 "parse done: " + uri + " dataLen=" + data.length
-                        + (data == raw ? " (原文)" : " (过滤后)"));
+                        + (rawFallback ? " (原始流兜底)" : " (过滤后)"));
         return delegate.parse(uri, new ByteArrayInputStream(data));
     }
 
