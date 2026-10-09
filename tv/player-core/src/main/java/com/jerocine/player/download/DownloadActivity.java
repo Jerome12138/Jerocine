@@ -75,11 +75,24 @@ public class DownloadActivity extends AppCompatActivity {
     private Button btnBannerAction;
     private View tvEmptyActive, tvEmptyDone;
 
+    // 管理模式(下载中/已完成批量操作, 2026-10-10)
+    private Button btnManageActive, btnManageDone;
+    private View llSelectAllActive, ivSelectAllActive, llSelectAllDone, ivSelectAllDone;
+    private LinearLayout llBatchActive, llBatchDone;
+    private Button btnBatchPause, btnBatchDeleteActive, btnBatchExport, btnBatchDeleteDone;
+
     /** 当前选中的 tab(0选集/1下载中/2已完成)。*/
     private int currentTab = 0;
 
     private final Set<Integer> selected = new HashSet<>();
     private final Set<String> inProgress = new HashSet<>();
+
+    /** 管理模式(下载中/已完成各自独立, 2026-10-10): true=行首勾选圈, 行点击=切换勾选, 底部出批量操作栏。 */
+    private boolean manageActive = false;
+    private boolean manageDone = false;
+    /** 管理模式勾选集(任务 id): 下载中/已完成各自一份; refreshTasks 时清理已消失的 id。 */
+    private final Set<String> selectedActiveIds = new HashSet<>();
+    private final Set<String> selectedDoneIds = new HashSet<>();
 
     private final List<DownloadTask> activeTasks = new ArrayList<>();
     private final List<DownloadTask> doneTasks = new ArrayList<>();
@@ -143,6 +156,7 @@ public class DownloadActivity extends AppCompatActivity {
         btn(R.id.btn_download_back).setOnClickListener(v -> finish());
         llSelectAll.setOnClickListener(v -> toggleSelectAll());
         btnBannerAction.setOnClickListener(v -> onBannerAction());
+        bindManageViews();
         // 【TV 遥控器】进入页面必须有人持有焦点, 否则 D-pad 没有起点
         // (真机 uiautomator 实测入场 focused=0, 遥控器按键完全无响应)。
         // post 到队列: 等 ListView 完成首次渲染后再落焦, 避免被布局覆盖。
@@ -220,6 +234,31 @@ public class DownloadActivity extends AppCompatActivity {
         tabEpisodes.setOnClickListener(v -> switchTab(0));
         tabActive.setOnClickListener(v -> switchTab(1));
         tabDone.setOnClickListener(v -> switchTab(2));
+    }
+
+    /** 管理模式视图装配(下载中/已完成各一套): 入口按钮/全选圈/底部批量栏。 */
+    private void bindManageViews() {
+        btnManageActive = findViewById(R.id.btn_manage_active);
+        btnManageDone = findViewById(R.id.btn_manage_done);
+        llSelectAllActive = findViewById(R.id.ll_select_all_active);
+        ivSelectAllActive = findViewById(R.id.iv_select_all_active);
+        llSelectAllDone = findViewById(R.id.ll_select_all_done);
+        ivSelectAllDone = findViewById(R.id.iv_select_all_done);
+        llBatchActive = findViewById(R.id.ll_batch_active);
+        llBatchDone = findViewById(R.id.ll_batch_done);
+        btnBatchPause = findViewById(R.id.btn_batch_pause);
+        btnBatchDeleteActive = findViewById(R.id.btn_batch_delete_active);
+        btnBatchExport = findViewById(R.id.btn_batch_export);
+        btnBatchDeleteDone = findViewById(R.id.btn_batch_delete_done);
+        btnManageActive.setOnClickListener(v -> setManageMode(true, !manageActive));
+        btnManageDone.setOnClickListener(v -> setManageMode(false, !manageDone));
+        llSelectAllActive.setOnClickListener(v -> toggleSelectAllActive());
+        llSelectAllDone.setOnClickListener(v -> toggleSelectAllDone());
+        btnBatchPause.setOnClickListener(v -> onBatchPause());
+        btnBatchDeleteActive.setOnClickListener(v -> onBatchDelete(false));
+        btnBatchExport.setOnClickListener(v -> onBatchExport());
+        btnBatchDeleteDone.setOnClickListener(v -> onBatchDelete(true));
+        updateManageUi();
     }
 
     /** 按钮按id 取控件(返回键是 ImageButton, 走 View 父类型即可)。 */
@@ -799,8 +838,18 @@ public class DownloadActivity extends AppCompatActivity {
                 : getString(R.string.download_summary_fmt, doneTasks.size(), sizeText(doneBytes));
         tvActiveSummary.setText(summary);
         tvDoneSummary.setText(summary);
-        tvActiveSummary.setVisibility(doneTasks.isEmpty() ? View.GONE : View.VISIBLE);
-        tvDoneSummary.setVisibility(doneTasks.isEmpty() ? View.GONE : View.VISIBLE);
+        // 【2026-10-10 二轮】summary 改成 weight=1 常驻(空文本不占视觉), 右侧"管理"入口
+        // 恒靠右; 原先空态 GONE 的逻辑撤掉(否则管理按钮会塌到左边)。
+        // 管理模式勾选清理: 只保留仍存在的任务; 列表空了自动退出该 tab 的管理模式。
+        Set<String> liveActiveIds = new HashSet<>();
+        for (DownloadTask t : activeTasks) liveActiveIds.add(t.id);
+        selectedActiveIds.retainAll(liveActiveIds);
+        if (activeTasks.isEmpty() && manageActive) setManageMode(true, false);
+        Set<String> liveDoneIds = new HashSet<>();
+        for (DownloadTask t : doneTasks) liveDoneIds.add(t.id);
+        selectedDoneIds.retainAll(liveDoneIds);
+        if (doneTasks.isEmpty() && manageDone) setManageMode(false, false);
+        if (manageActive || manageDone) updateManageUi();
         renderActiveList();
         renderDoneList();
         // 任务状态变化会影响选集行的状态圈(✓/环/灰圈)与全选圆圈。
@@ -866,6 +915,194 @@ public class DownloadActivity extends AppCompatActivity {
         refreshTasks();
     }
 
+    // ============================ 管理模式(批量操作) ============================
+
+    /**
+     * 进/出管理模式(2026-10-10 用户要求"像选集页面一样加选择逻辑"):
+     * 行首出勾选圈、右侧逐行按钮隐藏、底部出批量操作栏(下载中=暂停/删除, 已完成=导出/删除);
+     * 退出时清空勾选。下载中/已完成两个 tab 各自独立。
+     */
+    private void setManageMode(boolean activeTab, boolean on) {
+        if (activeTab) {
+            manageActive = on;
+            if (!on) selectedActiveIds.clear();
+        } else {
+            manageDone = on;
+            if (!on) selectedDoneIds.clear();
+        }
+        updateManageUi();
+        if (activeTab && activeAdapter != null) activeAdapter.notifyDataSetChanged();
+        if (!activeTab && doneAdapter != null) doneAdapter.notifyDataSetChanged();
+    }
+
+    /** 管理入口/全选圈/批量栏的可见性与文案统一刷新(进出模式与 refreshTasks 后都要调)。 */
+    private void updateManageUi() {
+        if (btnManageActive == null) return; // bindManageViews 之前(理论上不可达, 防御)
+        btnManageActive.setText(manageActive ? R.string.download_manage_done : R.string.download_manage);
+        btnManageDone.setText(manageDone ? R.string.download_manage_done : R.string.download_manage);
+        llSelectAllActive.setVisibility(manageActive ? View.VISIBLE : View.GONE);
+        llSelectAllDone.setVisibility(manageDone ? View.VISIBLE : View.GONE);
+        llBatchActive.setVisibility(manageActive ? View.VISIBLE : View.GONE);
+        llBatchDone.setVisibility(manageDone ? View.VISIBLE : View.GONE);
+        updateSelectAllActiveIcon();
+        updateSelectAllDoneIcon();
+        updateBatchButtons();
+    }
+
+    private void toggleActiveSelection(String id) {
+        if (id == null) return;
+        if (selectedActiveIds.contains(id)) selectedActiveIds.remove(id);
+        else selectedActiveIds.add(id);
+        updateSelectAllActiveIcon();
+        updateBatchButtons();
+        if (activeAdapter != null) activeAdapter.notifyDataSetChanged();
+    }
+
+    private void toggleDoneSelection(String id) {
+        if (id == null) return;
+        if (selectedDoneIds.contains(id)) selectedDoneIds.remove(id);
+        else selectedDoneIds.add(id);
+        updateSelectAllDoneIcon();
+        updateBatchButtons();
+        if (doneAdapter != null) doneAdapter.notifyDataSetChanged();
+    }
+
+    /** 全选/取消全选(下载中 tab): 本 tab 全部行都在勾选集时再点 = 清空。 */
+    private void toggleSelectAllActive() {
+        boolean all = activeAllSelected(selectedActiveIds, activeTasks);
+        selectedActiveIds.clear();
+        if (!all) {
+            for (DownloadTask t : activeTasks) selectedActiveIds.add(t.id);
+        }
+        updateSelectAllActiveIcon();
+        updateBatchButtons();
+        if (activeAdapter != null) activeAdapter.notifyDataSetChanged();
+    }
+
+    private void toggleSelectAllDone() {
+        boolean all = activeAllSelected(selectedDoneIds, doneTasks);
+        selectedDoneIds.clear();
+        if (!all) {
+            for (DownloadTask t : doneTasks) selectedDoneIds.add(t.id);
+        }
+        updateSelectAllDoneIcon();
+        updateBatchButtons();
+        if (doneAdapter != null) doneAdapter.notifyDataSetChanged();
+    }
+
+    /** 列表非空且全部 id 都在勾选集 → true(全选圈点亮判定)。 */
+    private static boolean activeAllSelected(Set<String> sel, List<DownloadTask> tasks) {
+        if (tasks.isEmpty()) return false;
+        for (DownloadTask t : tasks) {
+            if (!sel.contains(t.id)) return false;
+        }
+        return true;
+    }
+
+    private void updateSelectAllActiveIcon() {
+        boolean all = activeAllSelected(selectedActiveIds, activeTasks);
+        ivSelectAllActive.setBackgroundResource(all ? R.drawable.jc_checkbox_on
+                : R.drawable.jc_checkbox_off);
+    }
+
+    private void updateSelectAllDoneIcon() {
+        boolean all = activeAllSelected(selectedDoneIds, doneTasks);
+        ivSelectAllDone.setBackgroundResource(all ? R.drawable.jc_checkbox_on
+                : R.drawable.jc_checkbox_off);
+    }
+
+    /** 底部批量按钮文案与可用态: 暂停/导出只统计可操作的(排队/下载中/过滤中; COMPLETED)。 */
+    private void updateBatchButtons() {
+        int pausable = 0;
+        for (DownloadTask t : activeTasks) {
+            if (selectedActiveIds.contains(t.id) && (t.state == DownloadTask.STATE_DOWNLOADING
+                    || t.state == DownloadTask.STATE_QUEUED
+                    || t.state == DownloadTask.STATE_FILTERING)) {
+                pausable++;
+            }
+        }
+        btnBatchPause.setText(getString(R.string.download_batch_pause_fmt, pausable));
+        btnBatchPause.setEnabled(pausable > 0);
+        btnBatchDeleteActive.setText(getString(R.string.download_batch_delete_fmt,
+                selectedActiveIds.size()));
+        btnBatchDeleteActive.setEnabled(!selectedActiveIds.isEmpty());
+        int exportable = 0;
+        for (DownloadTask t : doneTasks) {
+            if (selectedDoneIds.contains(t.id) && t.state == DownloadTask.STATE_COMPLETED) {
+                exportable++;
+            }
+        }
+        btnBatchExport.setText(getString(R.string.download_batch_export_fmt, exportable));
+        btnBatchExport.setEnabled(exportable > 0);
+        btnBatchDeleteDone.setText(getString(R.string.download_batch_delete_fmt,
+                selectedDoneIds.size()));
+        btnBatchDeleteDone.setEnabled(!selectedDoneIds.isEmpty());
+    }
+
+    /** 批量暂停(下载中 tab): 只对可暂停态生效, 单个失败不阻断其余。 */
+    private void onBatchPause() {
+        int n = 0;
+        for (DownloadTask t : activeTasks) {
+            if (!selectedActiveIds.contains(t.id)) continue;
+            if (t.state == DownloadTask.STATE_DOWNLOADING
+                    || t.state == DownloadTask.STATE_QUEUED
+                    || t.state == DownloadTask.STATE_FILTERING) {
+                engine.pause(t.id);
+                n++;
+            }
+        }
+        toast(n > 0 ? getString(R.string.download_paused_n, n)
+                : getString(R.string.download_none_operable));
+        refreshTasks();
+    }
+
+    /** 批量删除(两个 tab 共用): 一次确认, 逐个 remove; 单个失败不阻断其余。 */
+    private void onBatchDelete(boolean doneTab) {
+        Set<String> ids = doneTab ? selectedDoneIds : selectedActiveIds;
+        if (ids.isEmpty()) {
+            toast(getString(R.string.download_none_operable));
+            return;
+        }
+        int total = ids.size();
+        com.jerocine.player.ui.JcDialog.message(this)
+                .title("批量删除")
+                .message(getString(R.string.download_batch_delete_confirm, total))
+                .confirmButton("删除", () -> {
+                    int ok = 0;
+                    for (String id : new ArrayList<>(ids)) {
+                        try {
+                            engine.remove(id);
+                            ok++;
+                        } catch (Exception e) {
+                            android.util.Log.w("DownloadActivity", "批量删除失败: " + id, e);
+                        }
+                    }
+                    ids.clear();
+                    toast(ok == total ? getString(R.string.download_batch_deleted, ok)
+                            : "已删除 " + ok + "/" + total + " 个任务");
+                    refreshTasks();
+                })
+                .cancelButton()
+                .show();
+    }
+
+    /** 批量导出(已完成 tab): 只导 COMPLETED; TsExporter 内部单线程池自动串行, 直接逐个提交。 */
+    private void onBatchExport() {
+        int n = 0;
+        for (DownloadTask t : doneTasks) {
+            if (!selectedDoneIds.contains(t.id)) continue;
+            if (t.state != DownloadTask.STATE_COMPLETED) continue;
+            exportTs(t);
+            n++;
+        }
+        if (n == 0) {
+            toast(getString(R.string.download_none_operable));
+        } else {
+            toast("开始导出 " + n + " 个任务");
+        }
+        // 不退出管理模式: 各导出回调里 refreshTasks 会把行刷成"导出中…"
+    }
+
         // 适配器实例复用: refreshTasks 每 5 秒被 media3 进度通知触发一次。
     // 每次 setAdapter(新对象) 会清空 ListView 的 RecyclePool 并重建全部子 view,
     // **焦点与滚动位置一起丢失** —— TV 遥控器上表现为"正在浏览下载列表, 5 秒后焦点跳回顶部"。
@@ -914,12 +1151,20 @@ public class DownloadActivity extends AppCompatActivity {
                 convertView = makeTaskRow();
             }
             LinearLayout row = (LinearLayout) convertView;
-            LinearLayout left = (LinearLayout) row.getChildAt(0);
+            // 2026-10-10 管理模式: [0]=勾选圈(管理模式才可见), 其余顺位 +1
+            View chk = row.getChildAt(0);
+            LinearLayout left = (LinearLayout) row.getChildAt(1);
             TextView name = (TextView) left.getChildAt(0);
             TextView info = (TextView) left.getChildAt(1);
-            RingProgressView ring = (RingProgressView) row.getChildAt(1);
-            Button action = (Button) row.getChildAt(2);
-            Button del = (Button) row.getChildAt(3);
+            RingProgressView ring = (RingProgressView) row.getChildAt(2);
+            Button action = (Button) row.getChildAt(3);
+            Button del = (Button) row.getChildAt(4);
+            chk.setVisibility(manageActive ? View.VISIBLE : View.GONE);
+            chk.setBackgroundResource(selectedActiveIds.contains(t.id)
+                    ? R.drawable.jc_checkbox_on : R.drawable.jc_checkbox_off);
+            // 管理模式下隐藏逐行按钮: 操作集中在底部批量栏, 也避免与行点击抢焦点/误触
+            action.setVisibility(manageActive ? View.GONE : View.VISIBLE);
+            del.setVisibility(manageActive ? View.GONE : View.VISIBLE);
             name.setText(label(t));
             // 二轮9/10: 右侧圆环进度 + 信息行"百分比 · 已下/总量"。
             // 2026-10-10: HLS 拿不到总字节(contentLength 恒 -1), 百分比改由分片数换算
@@ -989,6 +1234,10 @@ public class DownloadActivity extends AppCompatActivity {
             del.setText("删除");
             del.setTag(t);
             del.setOnClickListener(v -> confirmRemove((DownloadTask) v.getTag()));
+            // 行点击: 管理模式=切换勾选; 非管理模式无行为(操作走行内按钮)
+            row.setOnClickListener(v -> {
+                if (manageActive) toggleActiveSelection(t.id);
+            });
             return convertView;
         }
     }
@@ -1016,11 +1265,19 @@ public class DownloadActivity extends AppCompatActivity {
                 convertView = makeDoneRow();
             }
             LinearLayout row = (LinearLayout) convertView;
-            TextView name = (TextView) row.getChildAt(0);
-            TextView status = (TextView) row.getChildAt(1);
-            Button exportBtn = (Button) row.getChildAt(2);
-            Button playBtn = (Button) row.getChildAt(3);
-            Button deleteBtn = (Button) row.getChildAt(4);
+            // 2026-10-10 管理模式: [0]=勾选圈(管理模式才可见), 其余顺位 +1
+            View chk = row.getChildAt(0);
+            TextView name = (TextView) row.getChildAt(1);
+            TextView status = (TextView) row.getChildAt(2);
+            Button exportBtn = (Button) row.getChildAt(3);
+            Button playBtn = (Button) row.getChildAt(4);
+            Button deleteBtn = (Button) row.getChildAt(5);
+            chk.setVisibility(manageDone ? View.VISIBLE : View.GONE);
+            chk.setBackgroundResource(selectedDoneIds.contains(t.id)
+                    ? R.drawable.jc_checkbox_on : R.drawable.jc_checkbox_off);
+            exportBtn.setVisibility(manageDone ? View.GONE : View.VISIBLE);
+            playBtn.setVisibility(manageDone ? View.GONE : View.VISIBLE);
+            deleteBtn.setVisibility(manageDone ? View.GONE : View.VISIBLE);
             name.setText(label(t));
             // 原始流兑底任务常驻标记(2026-10-10): 该集离线播放/导出含潜在广告段
             status.setText(DownloadTask.withRawBadge(t.rawFallback, exportedText(t)));
@@ -1035,6 +1292,10 @@ public class DownloadActivity extends AppCompatActivity {
             deleteBtn.setText("删除");
             deleteBtn.setTag(t);
             deleteBtn.setOnClickListener(v -> confirmRemove((DownloadTask) v.getTag()));
+            // 行点击: 管理模式=切换勾选; 非管理模式无行为(操作走行内按钮)
+            row.setOnClickListener(v -> {
+                if (manageDone) toggleDoneSelection(t.id);
+            });
             return convertView;
         }
     }
@@ -1047,6 +1308,13 @@ public class DownloadActivity extends AppCompatActivity {
         row.setPadding(dp(16), dp(12), dp(12), dp(12));
         row.setFocusable(true);
         row.setBackgroundResource(R.drawable.jc_download_row_bg);
+
+        // 管理模式(2026-10-10)行首勾选圈: 非管理模式 GONE, 不占视觉
+        View chk = new View(this);
+        chk.setBackgroundResource(R.drawable.jc_checkbox_off);
+        LinearLayout.LayoutParams chkLp = new LinearLayout.LayoutParams(dp(20), dp(20));
+        chkLp.rightMargin = dp(10);
+        row.addView(chk, chkLp);
 
         TextView name = new TextView(this);
         name.setTextSize(14);
@@ -1067,14 +1335,19 @@ public class DownloadActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         Button playBtn = smallAction("");
-        row.addView(playBtn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // 【2026-10-10 修间距】三个按钮此前全无 margin(导出/播放/删除贴在一起, 用户实锤)
+        LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        playLp.setMargins(dp(8), 0, 0, 0);
+        row.addView(playBtn, playLp);
 
         // 删除: 下载缓存区用 NoOpCacheEvictor(主动下载永不清), 若没有删除入口用户永远
         // 无法释放空间 —— remove() 早已实现却没有 UI 能到, 等于死代码。
         Button deleteBtn = smallAction("");
-        row.addView(deleteBtn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        deleteLp.setMargins(dp(8), 0, 0, 0);
+        row.addView(deleteBtn, deleteLp);
         return row;
     }
 
@@ -1155,6 +1428,13 @@ public class DownloadActivity extends AppCompatActivity {
         row.setFocusable(true);
         row.setBackgroundResource(R.drawable.jc_download_row_bg);
 
+        // 管理模式(2026-10-10)行首勾选圈: 非管理模式 GONE, 不占视觉
+        View chk = new View(this);
+        chk.setBackgroundResource(R.drawable.jc_checkbox_off);
+        LinearLayout.LayoutParams chkLp = new LinearLayout.LayoutParams(dp(20), dp(20));
+        chkLp.rightMargin = dp(10);
+        row.addView(chk, chkLp);
+
         LinearLayout left = new LinearLayout(this);
         left.setOrientation(LinearLayout.VERTICAL);
         TextView name = new TextView(this);
@@ -1189,8 +1469,11 @@ public class DownloadActivity extends AppCompatActivity {
 
         // 删除: 队列里的任务也能删(不然用户只能等它跑完/失败才能清缓存)
         Button del = smallAction("");
-        row.addView(del, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // 【2026-10-10 修间距】右侧按钮之间此前无 margin(暂停/删除贴在一起, 用户实锤)
+        LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        delLp.setMargins(dp(8), 0, 0, 0);
+        row.addView(del, delLp);
         return row;
     }
 

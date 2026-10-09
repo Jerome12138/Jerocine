@@ -315,22 +315,74 @@
             android:layout_height="match_parent"
             android:visibility="gone">
 
-            <!-- 三轮1: 应用内已下载总大小(代码刷新); 空则 GONE -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="vertical">
 
+            <!-- 三轮1: 应用内已下载总大小(代码刷新); 右侧管理入口(2026-10-10 管理模式)。
+                 summary 改 weight=1 常驻: 空文本不占视觉, 但保证"管理"恒靠右。 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="6dp">
+
                 <TextView
                     android:id="@+id/tv_active_summary"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:paddingHorizontal="16dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="6dp"
                     android:textColor="@color/jc_text_tertiary"
+                    android:textSize="13sp" />
+
+                <LinearLayout
+                    android:id="@+id/ll_select_all_active"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="6dp"
+                    android:layout_marginEnd="8dp"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:background="@drawable/jc_download_row_bg"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/download_select_all"
+                        android:textColor="@color/jc_text_secondary"
+                        android:textSize="13sp" />
+
+                    <View
+                        android:id="@+id/iv_select_all_active"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/jc_checkbox_off" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btn_manage_active"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="5dp"
                     android:textSize="13sp"
-                    android:visibility="gone" />
+                    android:textAllCaps="false"
+                    android:text="@string/download_manage"
+                    android:textColor="@color/jc_download_chip_text"
+                    android:background="@drawable/jc_download_chip_bg"
+                    android:focusable="true" />
+            </LinearLayout>
 
                 <FrameLayout
                     android:layout_width="match_parent"
@@ -357,6 +409,46 @@
                         android:textSize="14sp"
                         android:visibility="gone" />
                 </FrameLayout>
+
+                <!-- 批量操作栏(管理模式才显示, 代码控制) -->
+                <LinearLayout
+                    android:id="@+id/ll_batch_active"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="12dp"
+                    android:visibility="gone">
+
+                    <Button
+                        android:id="@+id/btn_batch_pause"
+                        style="@style/JcDownloadBtnPrimary"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="12dp"
+                        android:textSize="14sp"
+                        android:text="@string/download_batch_pause_fmt"
+                        android:focusable="true" />
+
+                    <Button
+                        android:id="@+id/btn_batch_delete_active"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="12dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="12dp"
+                        android:textSize="14sp"
+                        android:textAllCaps="false"
+                        android:text="@string/download_batch_delete_fmt"
+                        android:textColor="@color/jc_danger"
+                        android:background="@drawable/jc_download_chip_bg"
+                        android:focusable="true" />
+                </LinearLayout>
             </LinearLayout>
         </FrameLayout>
 
@@ -367,22 +459,73 @@
             android:layout_height="match_parent"
             android:visibility="gone">
 
-            <!-- 三轮1: 应用内已下载总大小(代码刷新); 空则 GONE -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="vertical">
 
+            <!-- 三轮1: 应用内已下载总大小(代码刷新); 右侧管理入口(2026-10-10 管理模式) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="6dp">
+
                 <TextView
                     android:id="@+id/tv_done_summary"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:paddingHorizontal="16dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="6dp"
                     android:textColor="@color/jc_text_tertiary"
+                    android:textSize="13sp" />
+
+                <LinearLayout
+                    android:id="@+id/ll_select_all_done"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="6dp"
+                    android:layout_marginEnd="8dp"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:background="@drawable/jc_download_row_bg"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/download_select_all"
+                        android:textColor="@color/jc_text_secondary"
+                        android:textSize="13sp" />
+
+                    <View
+                        android:id="@+id/iv_select_all_done"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/jc_checkbox_off" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btn_manage_done"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="5dp"
                     android:textSize="13sp"
-                    android:visibility="gone" />
+                    android:textAllCaps="false"
+                    android:text="@string/download_manage"
+                    android:textColor="@color/jc_download_chip_text"
+                    android:background="@drawable/jc_download_chip_bg"
+                    android:focusable="true" />
+            </LinearLayout>
 
                 <FrameLayout
                     android:layout_width="match_parent"
@@ -409,6 +552,46 @@
                         android:textSize="14sp"
                         android:visibility="gone" />
                 </FrameLayout>
+
+                <!-- 批量操作栏(管理模式才显示, 代码控制) -->
+                <LinearLayout
+                    android:id="@+id/ll_batch_done"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="12dp"
+                    android:visibility="gone">
+
+                    <Button
+                        android:id="@+id/btn_batch_export"
+                        style="@style/JcDownloadBtnPrimary"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="12dp"
+                        android:textSize="14sp"
+                        android:text="@string/download_batch_export_fmt"
+                        android:focusable="true" />
+
+                    <Button
+                        android:id="@+id/btn_batch_delete_done"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="12dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="12dp"
+                        android:textSize="14sp"
+                        android:textAllCaps="false"
+                        android:text="@string/download_batch_delete_fmt"
+                        android:textColor="@color/jc_danger"
+                        android:background="@drawable/jc_download_chip_bg"
+                        android:focusable="true" />
+                </LinearLayout>
             </LinearLayout>
         </FrameLayout>
     </FrameLayout>

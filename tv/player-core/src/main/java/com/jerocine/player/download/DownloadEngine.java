@@ -48,7 +48,11 @@ import okhttp3.Response;
  * <ul>
  *   <li>下载缓存区: {@code getCacheDir()/download_cache}, SimpleCache + NoOpCacheEvictor(主动下载永不清),
  *       数据库独立见 {@link CacheDatabaseProvider}(与播放器 video_cache 完全隔离);</li>
- *   <li>批量并发: {@code setMaxParallelDownloads(3)} —— 集级并行, 每集内部由 HlsDownloader 串行分片;</li>
+ *   <li>批量并发: {@code setMaxParallelDownloads(3)} —— 集级并行, 每集内部由 HlsDownloader 串行分片;
+ *       <b>激活顺序由引擎门控</b>(2026-10-10 用户要求): 过滤完成的任务只落 QUEUED 行(显示"排队中"),
+ *       {@link #activateNext} 按 {@link DownloadQueueOrder}(episode 升序)逐个交给 media3,
+ *       名额 = MAX_PARALLEL - 下载中数; media3 的并发上限只是兜底 —— <b>不能依赖它的内部
+ *       排队顺序</b>(同批加入按 id 序、跨批按加入序, 都不受集序控制, 2026-10-10 用户实锤);</li>
  *   <li>广告过滤: 入队前 GET 源站清单 → {@link M3u8FilterClient} 过滤 → 清单落库(离线播放用),
  *       同时注入 {@link DownloadFilterPlaylistParserFactory} 让 HlsDownloader 解析时直接命中预取结果
  *       (master 不再付第二次 POST; 子表仍走 POST)。失败按 {@link DownloadFilterFallbackPolicy}
@@ -102,6 +106,14 @@ public final class DownloadEngine {
     /** 分片进度快照(内存, 不落库): taskId → 进度; 查询走 {@link #getSegmentProgress(String)}。 */
     private final java.util.Map<String, SegmentProgress> segmentProgressMap =
             new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * 已提交 media3 但还没收到首个状态回调的任务 id — {@link #doActivate} 的去重闸:
+     * sendAddDownload 是异步 intent, 回调到达前业务行仍是 QUEUED, 没有这层会被下一拍
+     * activateNext 重复提交(media3 对已存在 id 重发 = 删旧缓存全量重下, 绝不能发生)。
+     */
+    private final java.util.Set<String> pendingActivation = new java.util.HashSet<>();
+    /** activateNext 的互斥锁(多个触发点跨线程提交, doActivate 内部读改 pendingActivation)。 */
+    private final Object activationLock = new Object();
 
     /** 入队时已过滤好的 master 清单(按源站 URL) — HlsDownloader 解析 master 时直接命中, 省一次 POST. */
     private final java.util.Map<String, byte[]> prefetchedPlaylists = new java.util.concurrent.ConcurrentHashMap<>();
@@ -195,9 +207,11 @@ public final class DownloadEngine {
         // resumeDownloads(); 若 helper 已存在或 manager 被恢复重建, 将永远不恢复 → 任务卡 QUEUED。
         // 这里主动 resume 一次, 不依赖 service 时序, 保证任何创建方入队的任务都能启动。
         manager.resumeDownloads();
-        requeueOrphanTasks();
         resumeFilteringTasks();
         repairLegacySizes();
+        // 【2026-10-10 二轮】原 requeueOrphanTasks(QUEUED 行无 media3 记录就全部立即重发)
+        // 被激活门控取代: activateNext 按集序、按容量补发, 语义完全覆盖且不会瞬间打满并发。
+        activateNext();
         progressPoller = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "jc-dl-progress");
             t.setDaemon(true);
@@ -244,9 +258,10 @@ public final class DownloadEngine {
     private void pollProgress() {
         try {
             List<Download> downloads = manager.getCurrentDownloads();
-            if (downloads.isEmpty()) return;
+            int downloadingCount = 0;
             for (Download d : downloads) {
                 if (d.state != Download.STATE_DOWNLOADING) continue;
+                downloadingCount++;
                 String taskId = new String(d.request.data, StandardCharsets.UTF_8);
                 DownloadTask t = repository.get(taskId);
                 if (t == null || t.state != DownloadTask.STATE_DOWNLOADING) continue;
@@ -259,6 +274,11 @@ public final class DownloadEngine {
                     notifyChanged(taskId);
                 }
                 segmentProgressMap.put(taskId, computeSegmentProgress(t));
+            }
+            // 兜底: 有空位就按队列补位(自愈漏触发的 activateNext / 后台启动被限的暂退);
+            // 无候选时 doActivate 空转一次(小表 listAll, 2s 一次可忽略)。
+            if (downloadingCount < MAX_PARALLEL) {
+                activateNext();
             }
         } catch (Exception e) {
             // 轮询是尽力而为: 一拍失败不影响下一拍, 更不能把守护线程打死
@@ -348,49 +368,63 @@ public final class DownloadEngine {
     }
 
     /**
-     * 孤儿任务自愈: 业务表里 QUEUED 但 media3 DownloadIndex 没有记录的任务 → 重新发 AddDownload。
-     *
-     * <p>怎么产生的: enqueue 流程是「拉清单+过滤(网络, 秒级) → insertIgnore(QUEUED) →
-     * sendAddDownload」。若进程在 insert 之后、media3 落索引之前被杀(典型: 服务构造函数
-     * 崩溃把整个进程带走, 2026-10-08 实测), 业务表就留下了永远没人认领的 QUEUED 行 ——
-     * UI 一直显示"排队中", 重启也不会动。
-     *
-     * <p>过滤后清单大概率已落库(insertIgnore 前写的), media3 重下时经
-     * DownloadFilterPlaylistParserFactory 走正常过滤路径或按
-     * {@link DownloadFilterFallbackPolicy} 原始流兜底, 与入队侧同一份策略。
+     * 孤儿任务自愈已并入激活门控({@link #activateNext}): 业务表 QUEUED 而 media3 无记录的
+     * 任务正是门控的激活候选, 按 (episode, createdAt) 序、以剩余容量逐个补发, 不再需要
+     * 独立的"全量立即重发"逻辑(2026-10-10 二轮, 顺带满足用户"队列按集序激活")。
      */
-    private void requeueOrphanTasks() {
-        try {
-            DefaultDownloadIndex index = new DefaultDownloadIndex(dbProvider);
-            int n = 0;
-            for (DownloadTask t : repository.listAll()) {
-                if (t.state != DownloadTask.STATE_QUEUED) continue;
-                if (t.srcUrl == null || t.srcUrl.isEmpty()) continue;
-                boolean exists;
-                try {
-                    exists = index.getDownload(t.id) != null;
-                } catch (IOException e) {
-                    exists = false;
+
+    /**
+     * 按队列激活下一批下载(异步, 幂等, 任意线程可调)。
+     *
+     * <p>触发点: 管线过滤完成(新 QUEUED 行) / 某任务到终态或被暂停(释放名额) / 任务删除 /
+     * {@code resume()} / {@link #pollProgress} 每 2s 兜底(自愈漏触发与后台启动失败的暂退)。
+     */
+    public void activateNext() {
+        worker.execute(this::doActivate);
+    }
+
+    /** 门控实现(串行于 activationLock): 有名额才按 {@link DownloadQueueOrder} 集序补发。 */
+    private void doActivate() {
+        synchronized (activationLock) {
+            try {
+                List<DownloadTask> all = repository.listAll();
+                int slots = MAX_PARALLEL - DownloadQueueOrder.countDownloading(all);
+                if (slots <= 0) return;
+                java.util.Set<String> tracked = new java.util.HashSet<>(pendingActivation);
+                for (Download d : manager.getCurrentDownloads()) {
+                    tracked.add(new String(d.request.data, StandardCharsets.UTF_8));
                 }
-                if (exists) continue;
-                DownloadRequest request = new DownloadRequest.Builder(t.id, Uri.parse(t.srcUrl))
-                        .setMimeType(MimeTypes.APPLICATION_M3U8)
-                        .setData(t.id.getBytes(StandardCharsets.UTF_8))
-                        .build();
-                try {
-                    DownloadService.sendAddDownload(appContext, JerocineDownloadService.class,
-                            request, true);
-                    n++;
-                } catch (IllegalStateException e) {
-                    // 后台启动限制: 放弃本次自愈, 下次引擎创建时再试(不影响已在跑的下载)
-                    Log.w(TAG, "requeue blocked by background start limit: " + t.id);
-                    return;
+                List<DownloadTask> picks = DownloadQueueOrder.pickActivatable(all, tracked, slots);
+                if (picks.isEmpty()) return;
+                // 存在性用 DownloadIndex 同步查(权威): 构造后 media3 内存表异步加载,
+                // 只看 getCurrentDownloads 会在窗口期漏掉已有记录的任务 → 重发 = 删缓存重下。
+                DefaultDownloadIndex index = new DefaultDownloadIndex(dbProvider);
+                for (DownloadTask t : picks) {
+                    try {
+                        if (index.getDownload(t.id) != null) continue; // media3 已有记录, 自会续跑
+                    } catch (IOException e) {
+                        continue; // 索引读不到按"已有"处理(保守): 宁可不发也不能触发删缓存重下
+                    }
+                    Log.i(TAG, "按队列激活下载: " + t.id + " (第" + (t.episode + 1) + "集)");
+                    pendingActivation.add(t.id);
+                    DownloadRequest request = new DownloadRequest.Builder(t.id, Uri.parse(t.srcUrl))
+                            .setMimeType(MimeTypes.APPLICATION_M3U8)
+                            .setData(t.id.getBytes(StandardCharsets.UTF_8))
+                            .build();
+                    try {
+                        DownloadService.sendAddDownload(appContext, JerocineDownloadService.class,
+                                request, true);
+                    } catch (IllegalStateException e) {
+                        pendingActivation.remove(t.id);
+                        // 后台启动被限: 后续任务同样会被限, 整轮撤退, 等 pollProgress 兜底重试
+                        Log.w(TAG, "activateNext blocked by background start limit: " + t.id);
+                        return;
+                    }
                 }
+            } catch (Exception e) {
+                // 激活是尽力而为: 一轮失败不影响下一轮(pollProgress 兜底)
+                Log.w(TAG, "doActivate failed", e);
             }
-            if (n > 0) Log.i(TAG, "自愈: 重新入队孤儿任务 " + n + " 个");
-        } catch (Exception e) {
-            // 自愈是尽力而为, 任何异常都不能挡住引擎初始化
-            Log.w(TAG, "requeueOrphanTasks failed", e);
         }
     }
 
@@ -495,27 +529,18 @@ public final class DownloadEngine {
      * 产物含潜在广告段, 用户明确接受该取舍)。
      */
     public void enqueue(DownloadTask task) {
-        // 入队时取快照: worker 线程池异步执行, 直接读 volatile 字段虽可见但语义不清,
-        // 且本任务生命周期内应始终用同一个 base(避免中途被 get() 改动导致前后不一致)
-        final String base = proxyBase;
-        worker.execute(() -> {
-            Log.i(TAG, "入队开始: " + task.id);
-            if (repository.get(task.id) != null) {
-                return; // 幂等: 已存在(重复入队被 UI 拦截过, 双保险)
-            }
-            // 【2026-10-10 用户要求】先落一行 FILTERING("广告过滤中"): 过滤是网络操作
-            // (拉清单 + 最多 3 轮重试, 可达数十秒), 旧行为过滤完才 insertIgnore →
-            // 用户点完"开始下载"切到"下载中" tab 一片空白, 以为没点上。
-            // 现在入队即可见, 过滤重试/兑底/失败全程有落点; 进程被杀则由
-            // resumeFilteringTasks() 重跑。
-            task.state = DownloadTask.STATE_FILTERING;
-            task.error = "广告过滤中…";
-            if (!repository.insertIgnore(task)) {
-                return; // 并发入队已被抢先插上, 幂等
-            }
-            notifyChanged(task.id);
-            runPipeline(task);
-        });
+        // 【2026-10-10 二轮】落库(FILTERING 行)同步执行在调用线程: 旧行为 insertIgnore 在
+        // worker(4 线程)里, 批量勾选时第 N 行要等前面 N-1 个完整过滤管线跑完才出现 ——
+        // 用户实锤"勾很多集会一个个慢慢出现"。DB 单行插入毫秒级, 主线程可承受。
+        if (task == null || task.id == null) return;
+        task.state = DownloadTask.STATE_FILTERING;
+        task.error = "广告过滤中…";
+        if (!repository.insertIgnore(task)) {
+            return; // 幂等: 已存在(UI 先查过一次, 这里双保险; 并发入队被抢先插上同理)
+        }
+        Log.i(TAG, "入队(FILTERING 行已落库): " + task.id);
+        notifyChanged(task.id);
+        worker.execute(() -> runPipeline(task));
     }
 
     /**
@@ -617,19 +642,24 @@ public final class DownloadEngine {
             File dir = episodeCacheDir(fresh);
             if (!dir.exists()) dir.mkdirs();
             writePlaylistFile(new File(dir, "playlist.m3u8"), playlistData);
-            Log.i(TAG, "已入队 media3: " + task.id
-                    + (rawFlag ? " (原始流兜底)" : ""));
-            DownloadRequest request = new DownloadRequest.Builder(task.id, Uri.parse(task.srcUrl))
-                    .setMimeType(MimeTypes.APPLICATION_M3U8)
-                    .setData(task.id.getBytes(StandardCharsets.UTF_8))
-                    .build();
-            DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
-            // 过滤期间用户按了暂停: 注册到 media3 后立即回挂 stopReason, media3 会回调
-            // PAUSED 把业务表同步回来。setStopReason 对未注册任务是静默 no-op, 故必须在
-            // sendAddDownload 之后调用; 极小窗口内可能竞态(add 尚未入 handler, stopReason
-            // 落空 → 照常下载), 与 pause() 的已知竞态窗口同源, 不额外加锁。
             if (pausedDuringFiltering) {
+                // 过滤期间用户按了暂停: 直接注册进 media3 并回挂 stopReason(暂停不占下载
+                // 名额, 不走激活门控)。setStopReason 对未注册任务是静默 no-op, 故必须在
+                // sendAddDownload 之后调用; 极小窗口内可能竞态(add 尚未入 handler,
+                // stopReason 落空 → 照常下载), 与 pause() 的已知竞态窗口同源, 不额外加锁。
+                Log.i(TAG, "已入队 media3(过滤中已暂停): " + task.id
+                        + (rawFlag ? " (原始流兜底)" : ""));
+                DownloadRequest request = new DownloadRequest.Builder(task.id, Uri.parse(task.srcUrl))
+                        .setMimeType(MimeTypes.APPLICATION_M3U8)
+                        .setData(task.id.getBytes(StandardCharsets.UTF_8))
+                        .build();
+                DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
                 manager.setStopReason(task.id, 1);
+            } else {
+                // 【2026-10-10 二轮】不直接交给 media3: 落 QUEUED 行(显示"排队中")后由
+                // activateNext 按集序门控激活 —— 全部过滤完的任务先排队, 按原集序依次开下。
+                Log.i(TAG, "过滤完成待激活: " + task.id + (rawFlag ? " (原始流兜底)" : ""));
+                activateNext();
             }
         } catch (IllegalArgumentException e) {
             // 路径校验失败(filmId 非法): 说清是哪个任务出的问题, 不混进"清单获取失败"
@@ -675,6 +705,7 @@ public void pause(String taskId) {
                     DownloadTask.STATE_QUEUED, DownloadTask.STATE_DOWNLOADING,
                     DownloadTask.STATE_PAUSED, DownloadTask.STATE_FILTERING);
             notifyChanged(taskId);
+            activateNext(); // 暂停释放了一个名额, 按队列补位下一集
         }
     }
 
@@ -704,11 +735,15 @@ public void pause(String taskId) {
             return;
         }
         // 同步业务表(与 pause 对称): 不然 UI 一直显示"暂停"按钮, 用户看不到恢复生效。
-        repository.updateStateIf(taskId, DownloadTask.STATE_QUEUED,
-                DownloadTask.STATE_PAUSED);
-        manager.setStopReason(taskId, Download.STOP_REASON_NONE);
-        manager.resumeDownloads();
-        notifyChanged(taskId);
+            repository.updateStateIf(taskId, DownloadTask.STATE_QUEUED,
+                    DownloadTask.STATE_PAUSED);
+            manager.setStopReason(taskId, Download.STOP_REASON_NONE);
+            manager.resumeDownloads();
+            notifyChanged(taskId);
+            // 恢复后按队列补位: 兼修旧洞穴 —— PAUSED 但从未注册进 media3 的任务(如过滤中
+            // 暂停后进程重启), 旧代码 setStopReason 对不存在的记录是 no-op, 行会卡死在 QUEUED;
+            // 现在它成为门控候选, 由 activateNext 正常补发。
+            activateNext();
     }
 
     /**
@@ -729,6 +764,7 @@ public void pause(String taskId) {
      */
     public void remove(String taskId) {
         DownloadTask t = repository.get(taskId);
+        pendingActivation.remove(taskId); // 若激活在途, 撤闸防重复补发
         if (t != null) {
             clearDownloadedSegments(t);
             manager.removeDownload(taskId);
@@ -746,6 +782,7 @@ public void pause(String taskId) {
             manager.removeDownload(taskId);
             repository.delete(taskId);
         }
+        activateNext(); // 删除释放名额(若删的是下载中), 按队列补位下一集
     }
 
     /**
@@ -781,6 +818,7 @@ public void pause(String taskId) {
 
     private void onDownloadChanged(Download d, @Nullable Exception exception) {
         String taskId = new String(d.request.data, StandardCharsets.UTF_8);
+        pendingActivation.remove(taskId); // media3 已认识它了, 去重闸放行(后续状态由此处同步)
         DownloadTask t = repository.get(taskId);
         if (t == null) return;
         int state;
@@ -829,6 +867,8 @@ public void pause(String taskId) {
         repository.updateProgressOnly(taskId, state, bytes,
                 total, error, System.currentTimeMillis());
         notifyChanged(taskId);
+        // 状态变化可能释放名额(完成/失败/暂停)或推进队列 → 门控补位(幂等, 空转便宜)
+        activateNext();
         // 终态后 master 预取字节(~77KB/集)已无用(HlsDownloader 不再读它), 及时释放;
         // remove() 也会清, 这里覆盖"下载完成但任务仍在列表里"的常态路径。
         if (d.state == Download.STATE_COMPLETED || d.state == Download.STATE_FAILED) {
