@@ -37,7 +37,7 @@ export function isChunkLoadError(err: unknown): boolean {
 
 export interface ChunkReloadDeps {
   /** 一次性闸门存储(通常 sessionStorage) */
-  guardStore: Pick<Storage, 'getItem' | 'setItem'>
+  guardStore: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
   /** 硬刷新页面 */
   reload: () => void
   /** 取 SW 注册(可能同步返回 undefined / Promise, 也可能抛错) */
@@ -46,6 +46,60 @@ export interface ChunkReloadDeps {
   track: (err: unknown, category: string, extra?: Record<string, unknown>) => void
   /** 定时器(注入便于测试) */
   setTimer: (fn: () => void, ms: number) => void
+}
+
+/**
+ * 「先让 SW 更新、再刷新」的公共动作:
+ *   - 有注册 ⇒ update()(拿到最新 precache manifest) → 刷新;
+ *   - update 卡住/抛错/无注册 ⇒ 兜底定时器保证仍然刷新;
+ *   - fired 闸门保证只刷一次。
+ */
+function reloadAfterSwUpdate(
+  deps: Pick<ChunkReloadDeps, 'reload' | 'getRegistration' | 'setTimer'>
+): void {
+  let fired = false
+  const fire = (): void => {
+    if (fired) return
+    fired = true
+    // 留 50ms 给 telemetry flush, 再硬刷
+    deps.setTimer(() => deps.reload(), 50)
+  }
+
+  let reg: Promise<{ update: () => Promise<unknown> } | undefined> | undefined
+  try {
+    reg = deps.getRegistration()
+  } catch {
+    reg = undefined
+  }
+
+  if (reg && typeof reg.then === 'function') {
+    reg
+      .then((r) => (r ? r.update() : undefined))
+      .catch(() => {})
+      .finally(fire)
+    // 兜底: update 卡住时也要刷
+    deps.setTimer(fire, CHUNK_RELOAD_FALLBACK_MS)
+  } else {
+    fire()
+  }
+}
+
+/**
+ * 用户**显式**「刷新到最新版本」(TV 胶囊行"刷新"按钮, 方案 §6.2)。
+ *
+ * 与 `location.reload()` 的区别: SW 接管后裸 reload 只会重新吃 **precache 里的旧 index.html**,
+ * 拿不到新版本。这里先清掉一次性闸门(用户意图明确 ⇒ 允许后续 chunk 404 继续自愈),
+ * 再让 SW `update()` 拉新 manifest, 最后才 reload。
+ */
+export function reloadToLatest(
+  deps: Pick<ChunkReloadDeps, 'guardStore' | 'reload' | 'getRegistration' | 'setTimer'>
+): void {
+  try {
+    deps.guardStore.removeItem(CHUNK_RELOAD_GUARD_KEY)
+  } catch {
+    /* sessionStorage 不可用时忽略 */
+  }
+  reloadAfterSwUpdate(deps)
 }
 
 /**
@@ -73,32 +127,7 @@ export function handleChunkLoadError(err: unknown, deps: ChunkReloadDeps): Chunk
   }
 
   deps.track(err, 'chunk-load-reload', { msg })
-
-  let fired = false
-  const fire = (): void => {
-    if (fired) return
-    fired = true
-    // 留 50ms 给 telemetry flush, 再硬刷
-    deps.setTimer(() => deps.reload(), 50)
-  }
-
-  let reg: Promise<{ update: () => Promise<unknown> } | undefined> | undefined
-  try {
-    reg = deps.getRegistration()
-  } catch {
-    reg = undefined
-  }
-
-  if (reg && typeof reg.then === 'function') {
-    reg
-      .then((r) => (r ? r.update() : undefined))
-      .catch(() => {})
-      .finally(fire)
-    // 兜底: update 卡住时也要刷
-    deps.setTimer(fire, CHUNK_RELOAD_FALLBACK_MS)
-  } else {
-    fire()
-  }
+  reloadAfterSwUpdate(deps)
 
   return 'reloaded'
 }

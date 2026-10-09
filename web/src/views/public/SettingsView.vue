@@ -12,8 +12,13 @@
  * 渲染分支:
  *   - 桌面 / 移动: 原有卡片式布局 (保持不变)
  *   - TV (isTV): 雷鸟卡片式左右分屏 — 左竖排分组, 右当前组设置项面板
+ *
+ * TV 分支收敛(2026-10-09, 见《TV模式设置抽屉重设计》§5):
+ *   APK 内 TV 模式只留「播放 / 账号」(都依赖登录态/API); 设备级设置(广告过滤 / 中转 /
+ *   设备 / 关于)已迁入**原生设置抽屉**(MENU 键或胶囊行"设置"按钮)。
+ *   纯网页的 TV 模式(?mode=tv, bridge 不在场 ⇒ 没有抽屉可落)仍保留全部分组, 避免功能倒退。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -148,7 +153,14 @@ function toggleRelay(): void {
 // APK 内设置页加载时同步一次 native 开关态
 void syncRelayFromNative()
 
-/** 左侧分组 (依平台动态裁剪: 设备组仅 APK 可见) */
+/**
+ * 左侧分组。
+ *
+ * APK(原生桥在场) ⇒ **只留依赖登录态/API 的两组**: 播放(跳过秒数) / 账号。
+ *   设备级设置(广告过滤 / 中转 / 设备 / 关于)已迁入原生设置抽屉 —— 那里能用 Java 直接
+ *   读写原生偏好(如播放器的 ad_filter_enabled), 不必在 SPA 里绕 bridge。
+ * 纯网页的 TV 模式 ⇒ 保留全部 5 组(bridge 不在场, 没有抽屉承接, 删了就是功能倒退)。
+ */
 type GroupId = 'play' | 'adfilter' | 'account' | 'device' | 'about'
 interface SettingGroup {
   id: GroupId
@@ -156,17 +168,25 @@ interface SettingGroup {
   label: string
 }
 const groups = computed<SettingGroup[]>(() => {
-  const base: SettingGroup[] = [
+  if (isNative.value) {
+    return [
+      { id: 'play', icon: '▶', label: '播放' },
+      { id: 'account', icon: '👤', label: '账号' }
+    ]
+  }
+  return [
     { id: 'play', icon: '▶', label: '播放' },
     { id: 'adfilter', icon: '🛡', label: '广告过滤' },
-    { id: 'account', icon: '👤', label: '账号' }
+    { id: 'account', icon: '👤', label: '账号' },
+    { id: 'device', icon: '📺', label: '设备' },
+    { id: 'about', icon: 'ℹ', label: '关于' }
   ]
-  if (isNative.value) {
-    base.push({ id: 'device', icon: '📺', label: '设备' })
-  }
-  base.push({ id: 'about', icon: 'ℹ', label: '关于' })
-  return base
 })
+/** APK 内设备级设置已收敛进原生抽屉 —— 页头给一句指路语, 避免用户以为设置项丢了 */
+const tvHeaderHint = computed(() =>
+  isNative.value ? '播放 · 账号' : '播放 · 广告过滤 · 账号 · 设备 · 关于'
+)
+
 // 支持 /settings?group=account 深链(首页"我的"卡直达账号分组)
 const route = useRoute()
 const VALID_GROUPS: readonly GroupId[] = ['play', 'adfilter', 'account', 'device', 'about']
@@ -176,6 +196,15 @@ const activeGroup = ref<GroupId>(
     ? (route.query.group as GroupId)
     : 'play'
 )
+
+// 深链/模式切换后可能指向本模式下已收敛掉的分组(如 APK 里的 adfilter) ⇒ 回落到播放组,
+// 否则右侧面板会落到 v-else(关于) 分支, 显示与左侧选中项不一致。
+watchEffect(() => {
+  if (!groups.value.some((g) => g.id === activeGroup.value)) {
+    activeGroup.value = 'play'
+  }
+})
+
 function selectGroup(id: GroupId): void {
   activeGroup.value = id
 }
@@ -193,7 +222,13 @@ async function onLogout(): Promise<void> {
   <main v-if="isTV" class="jc-set-tv">
     <div class="jc-tv-sec">
       <span class="t">⚙ 设置</span>
-      <span class="s">播放 · 广告过滤 · 账号 · 关于</span>
+      <span class="s">{{ tvHeaderHint }}</span>
+    </div>
+
+    <!-- APK 内: 设备级设置已迁到原生抽屉, 这里给一句指路语(遥控器 MENU 键 / 顶栏"设置") -->
+    <div v-if="isNative" class="jc-set-tv__drawer-hint">
+      设备级设置(广告过滤 / 中转播放 / 服务器地址 / 更新)在系统设置抽屉里 ——
+      按遥控器 <b>MENU</b> 键, 或顶栏右侧「设置」按钮打开。
     </div>
 
     <div class="jc-set-tv__split">
@@ -482,6 +517,20 @@ async function onLogout(): Promise<void> {
   grid-template-columns: 260px 1fr;
   gap: var(--jc-space-4);
   align-items: start;
+}
+/* APK 内的设备级设置指路语(已收敛到原生抽屉) */
+.jc-set-tv__drawer-hint {
+  margin-bottom: var(--jc-space-4);
+  padding: var(--jc-space-3) var(--jc-space-4);
+  font-size: var(--jc-fs-sm);
+  line-height: 1.6;
+  color: var(--jc-text-secondary);
+  background: rgba(74, 209, 229, 0.08);
+  border: 1px solid rgba(74, 209, 229, 0.3);
+  border-radius: var(--jc-radius-md);
+}
+.jc-set-tv__drawer-hint b {
+  color: var(--jc-text-primary);
 }
 .jc-set-tv__groups {
   display: flex;

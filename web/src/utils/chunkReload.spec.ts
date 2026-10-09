@@ -4,6 +4,7 @@ import {
   CHUNK_RELOAD_GUARD_KEY,
   handleChunkLoadError,
   isChunkLoadError,
+  reloadToLatest,
   type ChunkReloadDeps
 } from './chunkReload'
 
@@ -16,6 +17,9 @@ function makeGuardStore() {
     getItem: (k: string): string | null => map.get(k) ?? null,
     setItem: (k: string, v: string): void => {
       map.set(k, v)
+    },
+    removeItem: (k: string): void => {
+      map.delete(k)
     }
   }
 }
@@ -158,10 +162,57 @@ describe('handleChunkLoadError', () => {
         getItem: () => null,
         setItem: () => {
           throw new Error('quota')
-        }
+        },
+        removeItem: () => {}
       }
     })
     expect(handleChunkLoadError(new Error(CHUNK_ERR), h.deps)).toBe('guarded')
     expect(h.reload).not.toHaveBeenCalled()
+  })
+})
+
+describe('reloadToLatest (TV 胶囊行「刷新」显式动作)', () => {
+  it('清掉一次性闸门后再刷新(用户显式意图 ⇒ 恢复自愈能力)', () => {
+    const h = makeHarness()
+    h.guard.map.set(CHUNK_RELOAD_GUARD_KEY, '1') // 模拟本会话已自愈过一次
+    reloadToLatest(h.deps)
+    expect(h.guard.map.has(CHUNK_RELOAD_GUARD_KEY)).toBe(false)
+    h.fireTimers()
+    expect(h.reload).toHaveBeenCalledTimes(1)
+    // 清闸门后, 后续 chunk 404 仍能自愈(不被 guarded 卡住)
+    expect(handleChunkLoadError(new Error(CHUNK_ERR), h.deps)).toBe('reloaded')
+  })
+
+  it('有 SW 注册 → 先 update 再刷新', async () => {
+    const update = vi.fn().mockResolvedValue(undefined)
+    const h = makeHarness({ getRegistration: () => Promise.resolve({ update }) })
+    reloadToLatest(h.deps)
+    await flush()
+    expect(update).toHaveBeenCalledTimes(1)
+    h.fireTimers()
+    h.fireTimers()
+    expect(h.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('无 SW 注册(纯网页/不支持) → 仍然刷新', () => {
+    const h = makeHarness({ getRegistration: () => undefined })
+    reloadToLatest(h.deps)
+    h.fireTimers()
+    expect(h.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('闸门存储不可用 → 不影响刷新', () => {
+    const h = makeHarness({
+      guardStore: {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {
+          throw new Error('quota')
+        }
+      }
+    })
+    reloadToLatest(h.deps)
+    h.fireTimers()
+    expect(h.reload).toHaveBeenCalledTimes(1)
   })
 })

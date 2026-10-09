@@ -10,6 +10,7 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import PwaUpdateBadge from '@/components/base/PwaUpdateBadge.vue'
+import TvHeaderActions from '@/components/layout/TvHeaderActions.vue'
 import LogoMark from '@/components/brand/LogoMark.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
@@ -490,6 +491,9 @@ watch(
             </RouterLink>
           </div>
         </div>
+
+        <!-- TV 胶囊行最右侧: 刷新(拿最新版本) + 设置(原生抽屉), 同属 tab 焦点区 -->
+        <TvHeaderActions v-if="isTV" />
       </nav>
 
       <!-- 中部弹性 (左 spacer) -->

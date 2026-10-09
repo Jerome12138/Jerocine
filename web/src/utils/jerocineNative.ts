@@ -27,6 +27,8 @@ interface NativeBridge {
   clearAuthToken?: () => void
   checkUpdate?: () => void
   openServerSettings?: () => void
+  /** 打开原生设置抽屉(TV 胶囊行"设置"按钮 / 首页"我的"卡, 方案 §6) */
+  openSettings?: () => void
   getPlatform?: () => string
 }
 
@@ -225,6 +227,11 @@ export const jerocine = {
 
   openServerSettings(): void {
     this.call('openServerSettings')
+  },
+
+  /** 打开原生设置抽屉(壳层 MENU 键的等价入口, 供无 MENU 键的遥控器 / 触屏使用) */
+  openSettings(): void {
+    this.call('openSettings')
   },
 
   setAuthToken(token: string): void {

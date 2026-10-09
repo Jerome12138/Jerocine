@@ -9,6 +9,7 @@ import { buildPlayLink } from '@/stores/history'
 import { episodeLabel, progressPercent } from '@/composables/useTimeBucket'
 import { isExternalLink } from '@/utils/url'
 import { formatHotBadge } from '@/utils/format'
+import { useTvSettingsEntry } from '@/composables/useTvSettingsEntry'
 import HeroCarousel from '@/components/film/HeroCarousel.vue'
 import FilmRow from '@/components/film/FilmRow.vue'
 import ContinueWatchingRow from '@/components/film/ContinueWatchingRow.vue'
@@ -214,6 +215,16 @@ const tvLatestPid = computed<number | undefined>(() => rows.value[0]?.pid)
 /** 首个一级分类 Pid: 给"分类"功能卡 / 热门榜单·热播排行"更多"做落地(否则无 Pid 进分类页报"缺少分类参数 Pid") */
 const tvFirstPid = computed<number | undefined>(() => rows.value[0]?.pid)
 
+/**
+ * 「设置」功能卡(方案 §6 / 抽屉重设计 §6): 原生壳里设备级设置已收敛到原生抽屉 ⇒
+ * 点击改为开抽屉(guard 会拦掉 RouterLink 默认跳转); 纯网页 TV 模式仍走 SPA /settings。
+ */
+const { guard: tvSettingsGuard, isIntercepted: tvSettingsIsNative } = useTvSettingsEntry()
+const tvSettingsSub = computed(() => (tvSettingsIsNative() ? '设备/过滤' : '画质/过滤'))
+function onTvSettingsClick(e: MouseEvent): void {
+  tvSettingsGuard(e)
+}
+
 /** 分类卡副标题文案 (按常见名称给一句营销语, 命不中给通用语) */
 const CAT_SUBTITLES: Record<string, string> = {
   电视剧: '热播好剧抢先看',
@@ -415,8 +426,8 @@ onBeforeUnmount(() => {
           <RouterLink class="jc-tv-fc fc-1" :to="isLoggedIn ? { path: '/settings', query: { group: 'account' } } : { path: '/login' }" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="user" size="32px" /></span><span class="ti">我的</span><span class="su">{{ isLoggedIn ? '账号 · 退出' : '点击登录' }}</span>
           </RouterLink>
-          <RouterLink class="jc-tv-fc fc-5" to="/settings" data-focusable="true" tabindex="0">
-            <span class="ic"><BaseIcon name="settings" size="32px" /></span><span class="ti">设置</span><span class="su">画质/过滤</span>
+          <RouterLink class="jc-tv-fc fc-5" to="/settings" data-focusable="true" tabindex="0" @click="onTvSettingsClick">
+            <span class="ic"><BaseIcon name="settings" size="32px" /></span><span class="ti">设置</span><span class="su">{{ tvSettingsSub }}</span>
           </RouterLink>
         </div>
 
