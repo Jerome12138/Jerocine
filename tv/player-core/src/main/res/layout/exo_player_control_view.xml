@@ -146,7 +146,8 @@
                     android:background="@drawable/jc_status_dot_off" />
             </FrameLayout>
 
-            <!-- 广告过滤开关: 同上, 文案固定"去广告", 状态看左上角状态点(绿=开/灰=关) -->
+            <!-- 广告过滤开关: 同上, 文案固定"去广告", 状态看左上角状态点(绿=开/灰=关).
+                 本地播放的集整组隐藏(分片已过滤过, 开关无指代对象), 见 PlayerActivity.updateLocalOnlineUi -->
             <FrameLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content">
@@ -166,6 +167,16 @@
                     android:layout_marginTop="7dp"
                     android:background="@drawable/jc_status_dot_off" />
             </FrameLayout>
+
+            <!-- 切本地/切在线: 仅当前源本集有本地副本(且存在在线替代)时可见, 文案随当前态翻转
+                 ("切在线"=正在播本地 / "切本地"=正在播在线), 见 PlayerActivity.updateLocalOnlineUi.
+                 无状态点 —— 按钮文案本身即当前态的"目标态", 无需再叠开关语义。 -->
+            <Button
+                android:id="@+id/btn_local_toggle"
+                style="@style/JcPlayerCtlBtn"
+                android:drawableTop="@drawable/ic_network_mode"
+                android:text="切在线"
+                android:visibility="gone" />
 
             <Button
                 android:id="@+id/btn_close"

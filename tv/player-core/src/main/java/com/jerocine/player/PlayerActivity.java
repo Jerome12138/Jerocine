@@ -131,6 +131,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private TextView episodesCount;
     private TextView resolutionBadge;
     private Button adFilterButton;
+    /** 底栏"切本地/切在线"按钮(仅当前源本集有本地副本时可见; 文案随当前态翻转)。 */
+    private Button btnLocalToggle;
     /** 开关类按钮左上角的状态点(绿=开/灰=关) — 叠在按钮上的兄弟 View. */
     private View dotAdFilter;
     private View dotSpeed;
@@ -173,15 +175,10 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     getIntent().getStringExtra(EXTRA_TITLE));
         }
 
-        // 离线播放(下载管理页「播放」): EXTRA_URL 是本地过滤后清单(file://) 且指定了下载缓存目录。
-        // 与 localPlayback 互斥; 置位后走 initPlayer(复用渲染器/缓冲/角标), 但关掉整条过滤/线路链路
-        // (见 PlayerSession.offlinePlayback 注释 —— 不过滤、禁中转、错误不做线路自愈)。
-        String offlineUrl = getIntent().getStringExtra(EXTRA_URL);
-        if (!session.localPlayback
-                && getIntent().getStringExtra(EXTRA_CACHE_DIR) != null
-                && offlineUrl != null && offlineUrl.startsWith("file://")) {
-            session.offlinePlayback = true;
-        }
+        // 下载页「播放」无影片上下文时: EXTRA_URL 是本地过滤后清单(file://) + EXTRA_CACHE_DIR
+        // 指到下载缓存区(供 buildCacheFactory 复用引擎缓存实例)。不再置独立"离线模式":
+        // startFromIntent 走单 URL 兼容装载后, 会话即 isSingleLocalPlaylist(),
+        // 与"已下载集播本地"共用同一套判定(见 PlayerModes 类注释)。
 
         playerView = findViewById(R.id.player_view);
         bufferSpinner = findViewById(R.id.buffer_spinner);
@@ -222,7 +219,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         // VISIBLE 时才被调用(见下方 ControllerVisibilityListener), 而面板默认 GONE
         // (setControllerAutoShow(false)) → 不加守卫的话, 本地文件起播后会闪现一个
         // 与本地播放毫无关系的"广告过滤"状态点, 直到用户首次唤出控制面板才消失。
-        if (!session.localPlayback && !session.offlinePlayback) {
+        if (!session.localPlayback) {
             adFilterHelper.updateAdFilterBadge();
         }
 
@@ -234,13 +231,14 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             View controlsRoot = playerView.findViewById(R.id.player_controls_root);
             if (controlsRoot != null) controlsRoot.setVisibility(v);
             if (v == View.VISIBLE) {
-                // "过滤"/"倍速"/"跳过"按钮(含左上角状态点)在 PlayerView 的控制视图里(懒加载): 面板显示时取到
+                // "过滤"/"倍速"/"跳过"/"切本地/在线"按钮(含左上角状态点)在 PlayerView 的控制视图里(懒加载): 面板显示时取到
                 adFilterButton = playerView.findViewById(R.id.btn_ad_filter);
                 dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
                 dotSpeed = playerView.findViewById(R.id.dot_speed);
                 dotSkip = playerView.findViewById(R.id.dot_skip);
-                if (session.localPlayback || session.offlinePlayback) {
-                    hideOnlineControls(); // 本地/离线模式: 隐藏在线专属控件(过滤/换源/选集/上下集/跳过)
+                btnLocalToggle = playerView.findViewById(R.id.btn_local_toggle);
+                if (session.localPlayback || session.isSingleLocalPlaylist()) {
+                    hideOnlineControls(); // 本地文件/单集本地: 隐藏在线专属控件(过滤/换源/选集/上下集/跳过)
                     // 倍速/退出对本地文件同样有意义(可调速、可退出), 且不在 hideOnlineControls 的
                     // 隐藏列表里 —— 所以**必须**绑定监听器, 否则它们是"可见但点不动"的死按钮。
                     // TV 遥控器上表现为"按了没反应", 很容易被当成播放器卡死。
@@ -253,6 +251,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     renderSkipDot(session.skipEnabled);
                 }
                 bindMoreMenu(); // 在线与本地模式都要(本地=选择本地文件/诊断)
+                updateLocalOnlineUi(); // 按当前集本地/在线态刷新角标与切换按钮(每面板次显隐都要重算)
                 playerView.post(() -> {
                     View prog = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
                     if (prog != null) prog.requestFocus();
@@ -270,6 +269,13 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         } else {
             initPlayer();
             sourceHelper.startFromIntent(getIntent());
+            // 单集本地清单(下载页无上下文播单集): 把清单登记进本地副本表,
+            // 之后 isEpisodePlayingLocal(0) 恒为 true —— 角标/按钮/自愈/预取与"已下载集播本地"同轨。
+            if (session.isSingleLocalPlaylist() && !session.currentRawUrls.isEmpty()) {
+                java.util.Map<Integer, String> m = new java.util.HashMap<>();
+                m.put(0, session.currentRawUrls.get(0));
+                session.localEpisodePlaylists = m;
+            }
         }
     }
 
@@ -334,13 +340,11 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private void initPlayer() {
         DataSource.Factory cacheFactory = buildCacheFactory();
         // 端侧混合广告过滤: 全 HLS 内容用自定义播放列表解析器, 抓到 m3u8 后送服务端剔除广告再解析.
-        // 离线播放例外: 清单是下载时已过滤落库的本地副本, 必须用默认解析器 ——
-        // FilterPlaylistParser 会对它再付一次过滤 POST, 且 file:// 源失败会触发 escalateToProxy
-        // 把 file:// 包成服务端代理(2026-10-08 "离线播放走中转"的根因)。
+        // 本地清单(file://)天然安全: FilterPlaylistParser 经 PlayerUrls.needsClientSideFilter
+        // 对 file:///content:// 直接放行(不 POST、不升级代理), 无需按会话形态切换解析器 ——
+        // 统一挂在工厂上, 在线/本地分片装载同一条路(2026-10-09 去掉 offlinePlayback 特例)。
         HlsMediaSource.Factory msFactory = new HlsMediaSource.Factory(cacheFactory);
-        if (!session.offlinePlayback) {
-            msFactory.setPlaylistParserFactory(adFilterHelper.new FilterPlaylistParserFactory());
-        }
+        msFactory.setPlaylistParserFactory(adFilterHelper.new FilterPlaylistParserFactory());
         msFactory.setAllowChunklessPreparation(true);
         // 解码: 硬解吃不消时回退软解; 异步队列送解码(全机型强制开)
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
@@ -371,8 +375,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                         skipHelper.applySkipIntro();
                         session.introSkippedForCurrent = true;
                     }
-                    // 起播弹一次"过滤状态"(每集一次); 离线播放清单已过滤, 无过滤状态可弹
-                    if (!session.filterToastShownForEpisode && !session.offlinePlayback) {
+                    // 起播弹一次"过滤状态"(每集一次); 本地集清单已过滤, 无过滤状态可弹(角标显示"本集本地播放")
+                    if (!session.filterToastShownForEpisode
+                            && !session.isEpisodePlayingLocal(session.player.getCurrentMediaItemIndex())) {
                         session.filterToastShownForEpisode = true;
                         adFilterHelper.showFilterStatus();
                     }
@@ -414,6 +419,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 session.resetFilterStateForEpisode();
                 updateTitleForCurrent();
                 session.updateNetworkModeUi();
+                updateLocalOnlineUi(); // 切集后按新集本地/在线态刷新角标与切换按钮
+                maybeOtherSourceToast();
                 try {
                     JSONObject p = new JSONObject();
                     p.put("filmId", filmId());
@@ -446,8 +453,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
                 // 【本地优先播放的本集失败】当前 item 是本地 file:// 清单 → 本地缓存异常
                 // (清单损坏/分片缺失), 线路自愈无意义; 自动切回在线一次(preferOnlineIdx.add
-                // 已存在时返回 false, 天然防循环), 用户仍可在更多菜单再切回本地。
-                if (currentUrl.startsWith("file://") && !session.offlinePlayback
+                // 已存在时返回 false, 天然防循环), 用户仍可在底栏再切回本地。
+                if (currentUrl.startsWith("file://") && !session.isSingleLocalPlaylist()
                         && errIdx >= 0 && errIdx < session.currentRawUrls.size()
                         && session.preferOnlineIdx.add(errIdx)) {
                     PlayerControl.get().clearPlaybackFailure();
@@ -459,9 +466,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 // 前两版只在"当前是 proxy 清单"时才自愈; 端侧混合过滤成为主路径后当前地址是**原始 m3u8**,
                 // 所以判据放宽为"失败的不是代理请求本身"(见 PlayerUrls.shouldRetryWithRelay).
                 // 服务端抓不到该源的(proxyUsable=false)中转也无意义, 直接走下面的报错/回退.
-                // 离线播放: 分片要么在缓存里, 要么就得重新下载, 换线路/换代理救不了
+                // 本地播放: 分片要么在缓存/本地盘里, 要么就得重新下载, 换线路/换代理救不了
                 // (file:// 被包进代理只会让服务端去抓一个不存在的本地地址) → 不做任何线路自愈。
-                if (!session.offlinePlayback && session.adFilterOn && session.sourceProxyUsable
+                if (!session.isEpisodePlayingLocal(errIdx) && session.adFilterOn && session.sourceProxyUsable
                         && PlayerUrls.shouldRetryWithRelay(currentUrl, failedUrl)
                         && errIdx >= 0 && errIdx < session.currentRawUrls.size()
                         && !session.forceRelayIdx.contains(errIdx)) {
@@ -479,7 +486,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 // 但换回原始源/换一条线路往往能拿到现存的路径。
                 // forceRelay/forceRaw 互斥标记天然限制了重试轮数(每集最多来回一次),
                 // 不会无限循环。
-                if (!session.offlinePlayback && session.adFilterOn
+                if (!session.isEpisodePlayingLocal(errIdx) && session.adFilterOn
                         && session.forceRelayIdx.contains(errIdx)
                         && !session.forceRawIdx.contains(errIdx)
                         && errIdx >= 0 && errIdx < session.currentRawUrls.size()) {
@@ -490,7 +497,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     return;
                 }
                 // 服务端无法抓取清单时, 仅本集回退原始源(广告不过滤, 但保证能放)
-                if (!session.offlinePlayback && session.adFilterOn && currentUrl.toLowerCase(Locale.US).contains("/m3u8/proxy")
+                if (!session.isEpisodePlayingLocal(errIdx) && session.adFilterOn && currentUrl.toLowerCase(Locale.US).contains("/m3u8/proxy")
                         && !currentUrl.toLowerCase(Locale.US).contains("proxymedia=1")
                         && (failedUrl.isEmpty()
                             || failedUrl.toLowerCase(Locale.US).contains("/m3u8/proxy"))
@@ -825,7 +832,7 @@ private static String failedRequestUrl(Throwable error) {
 
     private void emitProgressNow() {
         try {
-            if (session.localPlayback) return; // 本地模式无影片/剧集上下文, 不上报进度
+            if (session.localPlayback || session.isSingleLocalPlaylist()) return; // 本地模式无影片/剧集上下文, 不上报进度
             if (session.player == null || skipHelper.inNoRecordTail()) return;
             JSONObject p = new JSONObject();
             p.put("filmId", filmId());
@@ -850,7 +857,7 @@ private static String failedRequestUrl(Throwable error) {
         final ExoPlayer player = session.player;
         boolean playbackEnded = player != null && lastPlayerState == Player.STATE_ENDED;
         // 本地模式: 不向壳层上报播放结局(无 web 心跳/无剧集上下文)
-        if (!session.localPlayback
+        if (!session.localPlayback && !session.isSingleLocalPlaylist()
                 && (playbackEnded || !(player != null && skipHelper.inNoRecordTail()))) {
             try {
                 JSONObject p = new JSONObject();
@@ -1042,7 +1049,8 @@ private static String failedRequestUrl(Throwable error) {
      */
     private void hideOnlineControls() {
         int[] inPlayerView = {R.id.btn_ad_filter, R.id.dot_ad_filter, R.id.btn_source,
-                R.id.btn_episodes, R.id.btn_prev, R.id.btn_next, R.id.btn_skip, R.id.dot_skip};
+                R.id.btn_episodes, R.id.btn_prev, R.id.btn_next, R.id.btn_skip, R.id.dot_skip,
+                R.id.btn_local_toggle};
         for (int id : inPlayerView) {
             View v = playerView != null ? playerView.findViewById(id) : null;
             if (v != null) v.setVisibility(View.GONE);
@@ -1072,8 +1080,8 @@ private static String failedRequestUrl(Throwable error) {
                     .create().show();
             return;
         }
-        // 离线播放: 中转/缓存缓冲都没有指代对象(分片已本地), 只留下载管理与诊断
-        if (session.offlinePlayback) {
+        // 单集本地清单(下载页无上下文播单集): 无在线可切, 缓冲/中转也无指代对象 → 只留下载管理与诊断
+        if (session.isSingleLocalPlaylist()) {
             final String[] offItems = {"下载管理", "诊断信息"};
             new android.app.AlertDialog.Builder(this, R.style.JcPlayerDialog)
                     .setTitle("更多")
@@ -1088,26 +1096,20 @@ private static String failedRequestUrl(Throwable error) {
         final java.util.List<Runnable> actions = new java.util.ArrayList<>();
         items.add("下载管理");
         actions.add(this::openDownloadManager);
-        items.add("缓存缓冲");
-        actions.add(this::showBufferDialog);
-        items.add("中转：" + (session.relayOn ? "开" : "关"));
-        actions.add(this::toggleNetworkMode);
-        // 本地优先播放切换项: 仅当本集已下载时出现, 展示当前态与目标态
+        // 本地/在线分集判定: 本地集的"缓冲/中转"无指代对象(分片已在本地), 不展示
         int curIdx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        boolean curLocal = curIdx >= 0 && session.isEpisodePlayingLocal(curIdx);
+        if (!curLocal) {
+            items.add("缓存缓冲");
+            actions.add(this::showBufferDialog);
+            items.add("中转：" + (session.relayOn ? "开" : "关"));
+            actions.add(this::toggleNetworkMode);
+        }
+        // 本集本地⇄在线切换已移至底栏按钮(去广告右侧, 用户拍板); 菜单里只保留"别源已下载"的换源入口
         android.util.Log.i("JcLocal", "more menu: curIdx=" + curIdx
-                + " isLocal=" + (curIdx >= 0 && session.isLocalEpisode(curIdx))
-                + " mapSize=" + session.localEpisodePlaylists.size()
-                + " localPlayback=" + session.localPlayback
-                + " offlinePlayback=" + session.offlinePlayback);
-        if (curIdx >= 0 && session.isLocalEpisode(curIdx)) {
-            final int idx = curIdx;
-            if (session.preferOnlineIdx.contains(idx)) {
-                items.add("本集在线播放 · 切回本地");
-            } else {
-                items.add("本集本地播放 · 切换在线");
-            }
-            actions.add(() -> toggleLocalOnline(idx));
-        } else if (curIdx >= 0 && session.otherSourceHasEpisode(curIdx)) {
+                + " curLocal=" + curLocal
+                + " mapSize=" + session.localEpisodePlaylists.size());
+        if (curIdx >= 0 && session.otherSourceHasEpisode(curIdx)) {
             // 本集在别的源有已完成下载(如下载时 lz 源、续播恢复成 bf 源): 严格匹配下
             // 不自动播本地, 但必须给用户一条可达路径 —— 一键换到已下载的源并本地起播。
             com.jerocine.player.download.DownloadTask t = session.otherSourceTask(curIdx);
@@ -1140,7 +1142,11 @@ private static String failedRequestUrl(Throwable error) {
     }
 
     /** 更多菜单 → 本集本地/在线切换: 切后重装当前集并保留进度。 */
-    private void toggleLocalOnline(int idx) {
+    /** 底栏「切本地/切在线」(Host 回调): 按当前集翻转 preferOnlineIdx 并原位重装(保留进度). */
+    @Override
+    public void toggleLocalOnline() {
+        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        if (!session.isEpisodeLocalAvailable(idx)) return; // 无本地副本/单集本地: 无可切
         if (session.preferOnlineIdx.contains(idx)) {
             session.preferOnlineIdx.remove(idx);
             session.retryCurrentItem(idx, "已切换本地播放");
@@ -1148,6 +1154,55 @@ private static String failedRequestUrl(Throwable error) {
             session.preferOnlineIdx.add(idx);
             session.retryCurrentItem(idx, "已切换在线播放");
         }
+        updateLocalOnlineUi();
+    }
+
+    /**
+     * 按当前集本地/在线态刷新两处 UI(切集/切换/面板显隐时都要调):
+     * <ul>
+     *   <li>右上角原"去广告"角标位: 本地集显示「本集本地播放」, 在线集维持过滤角标不动
+     *       (在线是默认态, 不做额外标识 —— 用户拍板);</li>
+     *   <li>底栏「切本地/切在线」: 仅当前源本集有本地副本且存在在线替代时可见;
+     *       本地集同时隐藏"去广告"按钮与状态点(本地分片已过滤过, 开关无指代对象)。</li>
+     * </ul>
+     */
+    private void updateLocalOnlineUi() {
+        if (session.localPlayback) return; // 本地文件模式: 控件已整体隐藏(hideOnlineControls), 无集概念
+        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        boolean local = session.isEpisodePlayingLocal(idx);
+        boolean avail = session.isEpisodeLocalAvailable(idx);
+        if (local) {
+            renderLocalBadge();
+        } else if (idx >= 0) {
+            adFilterHelper.updateAdFilterBadge(); // 恢复常规过滤角标(切回在线时)
+        }
+        if (adFilterButton != null) adFilterButton.setVisibility(local ? View.GONE : View.VISIBLE);
+        if (dotAdFilter != null) dotAdFilter.setVisibility(local ? View.GONE : View.VISIBLE);
+        if (btnLocalToggle != null) {
+            btnLocalToggle.setVisibility(avail ? View.VISIBLE : View.GONE);
+            if (avail) btnLocalToggle.setText(PlayerModes.localToggleText(local));
+        }
+    }
+
+    /** 右上角角标 → 「本集本地播放」(绿点; 占原"去广告"角标位). */
+    private void renderLocalBadge() {
+        if (adFilterBadge == null) return;
+        adFilterBadge.setText(PlayerModes.localBadgeText());
+        adFilterBadge.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                R.drawable.jc_badge_dot_ok, 0, 0, 0);
+        adFilterBadge.setVisibility(View.VISIBLE);
+    }
+
+    /** 播到"本集在别的源已下载"的在线集时, 每集弹一次提示(完整会话才弹). */
+    private void maybeOtherSourceToast() {
+        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        if (idx < 0 || session.localPlayback || session.isSingleLocalPlaylist()) return;
+        if (session.isEpisodeLocalAvailable(idx)) return; // 当前源就有本地副本, 无需提示
+        if (!session.otherSourceHasEpisode(idx)) return;
+        if (!session.otherSourceToastShown.add(idx)) return; // 每集只弹一次
+        com.jerocine.player.download.DownloadTask t = session.otherSourceTask(idx);
+        session.host().showCenterToast(
+                PlayerModes.otherSourceToastText(t != null ? t.sourceName : null), 2400);
     }
 
     /** 本地播放 SAF 选文件请求码. */
@@ -1209,8 +1264,8 @@ private static String failedRequestUrl(Throwable error) {
             showCenterToast("当前集无可缓冲的片源", 1800);
             return;
         }
-        // 本地优先播放中的集分片已在下载缓存区, 缓冲无意义
-        if (session.isLocalEpisode(idx) && !session.preferOnlineIdx.contains(idx)) {
+        // 本地播放中的集分片已在下载缓存区, 缓冲无意义(统一判定, 含单集本地)
+        if (session.isEpisodePlayingLocal(idx)) {
             showCenterToast("本集已下载, 无需缓冲", 1800);
             return;
         }
@@ -1312,9 +1367,12 @@ private static String failedRequestUrl(Throwable error) {
     private void updateFilterLoadingText(int state) {
         View tv = findViewById(R.id.filter_loading_text);
         if (tv == null) return;
+        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
         boolean show = state == Player.STATE_BUFFERING
                 && session.episodeSwitching
-                && session.adFilterOn;
+                && session.adFilterOn
+                // 本地集清单已过滤过, 不存在"过滤中"(统一判定, 见 PlayerModes)
+                && !session.isEpisodePlayingLocal(idx);
         tv.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 

@@ -79,6 +79,7 @@ public class PlayerDialogHelper {
         Button skip = pv.findViewById(R.id.btn_skip);
         Button close = pv.findViewById(R.id.btn_close);
         Button adFilter = pv.findViewById(R.id.btn_ad_filter);
+        Button localToggle = pv.findViewById(R.id.btn_local_toggle);
         if (close == null) return;
 
         boolean multi = session.sourceList.size() >= 2;
@@ -103,6 +104,7 @@ public class PlayerDialogHelper {
         }
         if (skip != null) skip.setOnClickListener(b -> showSkipSettingsDialog());
         if (adFilter != null) adFilter.setOnClickListener(b -> session.host().toggleAdFilter());
+        if (localToggle != null) localToggle.setOnClickListener(b -> session.host().toggleLocalOnline());
         close.setOnClickListener(b -> session.host().finishPlayer());
         ctlBtnsBound = true;
     }
@@ -115,11 +117,13 @@ public class PlayerDialogHelper {
             return;
         }
         String[] names = new String[session.sourceList.size()];
+        final int curEp = session.player != null ? session.player.getCurrentMediaItemIndex() : 0;
         for (int i = 0; i < session.sourceList.size(); i++) {
             PlayerSession.SourceData s = session.sourceList.get(i);
-            names[i] = s.name + " (" + s.urls.size() + " 集)";
+            // 当前集在该源有已下载副本 → 标记(当前源看本地副本表, 别源看 otherSource 表)
+            names[i] = PlayerModes.sourceLabel(
+                    s.name, s.urls.size(), session.isEpisodeDownloadedOnSource(curEp, i));
         }
-        final int curEp = session.player != null ? session.player.getCurrentMediaItemIndex() : 0;
         final long curPos = session.player != null ? session.player.getCurrentPosition() : 0L;
         AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("切换播放源")
@@ -173,10 +177,13 @@ public class PlayerDialogHelper {
         showDialog(dialog);
     }
 
-    /** 展示 [start,end) 区间内的集供选择, 当前集在区间内则高亮. */
+    /** 展示 [start,end) 区间内的集供选择, 当前集在区间内则高亮; 已下载的集追加标记. */
     private void showEpisodeSegment(int start, int end, int cur) {
         String[] arr = new String[end - start];
-        for (int i = start; i < end; i++) arr[i - start] = session.playlistTitles.get(i);
+        for (int i = start; i < end; i++) {
+            arr[i - start] = PlayerModes.episodeLabel(
+                    session.playlistTitles.get(i), session.isLocalEpisode(i));
+        }
         int checked = (cur >= start && cur < end) ? cur - start : 0;
         AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("选集 " + (start + 1) + "-" + end)

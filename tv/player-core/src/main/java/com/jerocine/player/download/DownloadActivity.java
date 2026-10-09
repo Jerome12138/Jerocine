@@ -56,6 +56,8 @@ public class DownloadActivity extends AppCompatActivity {
     private String filmName = "";
     private String proxyBase = "";
     private List<PlayerSession.SourceData> sources = new ArrayList<>();
+    /** 原始 sourcesJson(来自播放器入口): 供"播放"按钮重建完整多源会话, 与在线播放同一状态机。 */
+    private String sourcesJson = "";
     private int currentSource = 0;
     private int currentSegment = 0;
 
@@ -114,6 +116,7 @@ public class DownloadActivity extends AppCompatActivity {
         }
         String sourcesJson = in.getStringExtra(PlayerActivity.EXTRA_SOURCES_JSON);
         if (sourcesJson != null && !sourcesJson.isEmpty()) {
+            this.sourcesJson = sourcesJson;
             sources = parseSources(sourcesJson);
         }
 
@@ -1257,7 +1260,17 @@ public class DownloadActivity extends AppCompatActivity {
         return "0KB";
     }
 
-    /** 离线播放: 本地过滤后清单 + 下载缓存(PlayerActivity 支持 EXTRA_CACHE_DIR 切换缓存实例). */
+    /**
+     * 播放已下载的集 —— 统一入口(2026-10-09 起不再有独立"离线模式"):
+     * <ul>
+     *   <li><b>有同片的完整上下文</b>(播放器进入且任务属于当前片): 传完整 sourcesJson +
+     *       currentSourceId=任务源 + startIndex=任务集 → 正常在线装载, 本地优先自动把该集
+     *       播成本地(file:// 清单, 分片由 RoutingDataSource 从下载缓存取) —— 与"从详情页
+     *       播已下载集"完全同一条状态机, 换源/选集/切在线全部可用;</li>
+     *   <li><b>无上下文</b>(设置页进入)或任务不属于上下文影片: 走单集本地清单(file://) +
+     *       EXTRA_CACHE_DIR 指到下载缓存区 → 播放器 isSingleLocalPlaylist() 识别为本地集。</li>
+     * </ul>
+     */
     private void playOffline(DownloadTask t) {
         File playlist = new File(t.cacheDir, "playlist.m3u8");
         if (!playlist.exists()) {
@@ -1265,10 +1278,31 @@ public class DownloadActivity extends AppCompatActivity {
             return;
         }
         Intent i = new Intent(this, PlayerActivity.class);
-        i.putExtra(PlayerActivity.EXTRA_URL, "file://" + playlist.getAbsolutePath());
-        i.putExtra(PlayerActivity.EXTRA_CACHE_DIR, engine.cacheRoot().getAbsolutePath());
-        i.putExtra(PlayerActivity.EXTRA_TITLE, label(t));
+        boolean sameFilm = t.filmId != null && !t.filmId.isEmpty() && t.filmId.equals(filmId);
+        if (sameFilm && sourcesJson != null && !sourcesJson.isEmpty()
+                && indexOfSourceKey(t.sourceKey) >= 0) {
+            i.putExtra(PlayerActivity.EXTRA_SOURCES_JSON, sourcesJson);
+            i.putExtra(PlayerActivity.EXTRA_CURRENT_SOURCE_ID, t.sourceKey);
+            i.putExtra(PlayerActivity.EXTRA_START_INDEX, t.episode);
+            i.putExtra(PlayerActivity.EXTRA_FILM_ID, t.filmId);
+            i.putExtra(PlayerActivity.EXTRA_FILM_NAME, t.filmTitle != null ? t.filmTitle : filmName);
+            i.putExtra(PlayerActivity.EXTRA_PROXY_BASE, proxyBase);
+        } else {
+            i.putExtra(PlayerActivity.EXTRA_URL, "file://" + playlist.getAbsolutePath());
+            i.putExtra(PlayerActivity.EXTRA_CACHE_DIR, engine.cacheRoot().getAbsolutePath());
+            i.putExtra(PlayerActivity.EXTRA_TITLE, label(t));
+        }
         startActivity(i);
+    }
+
+    /** 在上下文源列表里找任务源的下标; 无上下文/找不到返回 -1。 */
+    private int indexOfSourceKey(String key) {
+        if (key == null || key.isEmpty()) return -1;
+        for (int i = 0; i < sources.size(); i++) {
+            PlayerSession.SourceData s = sources.get(i);
+            if (s != null && key.equals(s.id)) return i;
+        }
+        return -1;
     }
 
     private void toast(String msg) {

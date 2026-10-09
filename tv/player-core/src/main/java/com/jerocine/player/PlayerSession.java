@@ -59,6 +59,9 @@ public class PlayerSession {
         /** 切换线路开关(直连 ⇄ 中转, 由 NetworkModeHelper 实现, 供底栏"中转"按钮调用). */
         void toggleNetworkMode();
 
+        /** 切换当前集 本地 ⇄ 在线(底栏"切本地/切在线"按钮调用; 无本地副本时为 no-op). */
+        void toggleLocalOnline();
+
         /** 刷新底栏"中转"按钮左上角状态点(开=绿点/关=灰点). 文案恒定为"中转". */
         void renderNetworkMode(boolean relay);
 
@@ -107,25 +110,15 @@ public class PlayerSession {
     /** 本地文件显示名(文件名, 无则 fallback). */
     String localTitle = "";
 
-    // ===== 离线播放(下载管理页「播放」, 本地过滤后清单 + 下载缓存区) =====
-    /**
-     * 离线模式: 播放的是**已下载**的分片(SimpleCache 里), 与在线播放的本质区别:
-     * <ul>
-     *   <li>清单已过滤过(下载时落库的 playlist.m3u8), 再送 /v1/m3u8/filter 纯属白付一次
-     *       POST, 而且失败会触发 escalateToProxy → file:// 被包成 /m3u8/proxy?src=file://…
-     *       → 服务端根本抓不到本地文件 → "清单代理失败, 已切换直连" 来回打转 ——
-     *       2026-10-08 用户实锤"播放已下载视频一直走中转、直连逻辑"的根因;</li>
-     *   <li>中转/直连自愈全部无意义: 分片要么在缓存里, 要么就得重新下载, 网络换线救不了;</li>
-     *   <li>过滤/中转/换源/选集控件全部隐藏(单集离线, 这些开关没有指代对象)。</li>
-     * </ul>
-     * 由 PlayerActivity 检测 EXTRA_CACHE_DIR + file:// EXTRA_URL 置位(与 localPlayback 互斥)。
-     */
-    volatile boolean offlinePlayback = false;
-
     // ===== 本地优先播放(已下载集默认播本地缓存) =====
     /**
      * episode index -> 本地过滤后清单 URI(file://…/playlist.m3u8)。装载播放列表时
      * 重查一次下载业务表(见 refreshLocalDownloads), 只含**已完成且清单文件存在**的集。
+     *
+     * <p>2026-10-09 重构: 原独立的"离线播放模式"(offlinePlayback, 下载页播单集)已并入
+     * 本表 —— 无影片上下文时PlayerActivity 会把单条 file:// 清单装进本表(见
+     * {@link #isSingleLocalPlaylist}), 判定/文案/自愈/预取全部走
+     * {@link PlayerModes#isEpisodePlayingLocal} 一个出口, 不再有第二套状态。
      */
     volatile java.util.Map<Integer, String> localEpisodePlaylists = java.util.Collections.emptyMap();
     /**
@@ -136,7 +129,9 @@ public class PlayerSession {
      */
     volatile java.util.Map<Integer, com.jerocine.player.download.DownloadTask> otherSourceLocalEpisodes =
             java.util.Collections.emptyMap();
-    /** 用户显式切回在线的集(更多菜单切换; 会话级偏好, 不落盘)。 */
+    /** 已弹过"别源已下载"提示的集(会话级, 每集只弹一次)。 */
+    public final java.util.Set<Integer> otherSourceToastShown = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** 用户显式切回在线的集(底栏「切本地/切在线」; 会话级偏好, 不落盘)。 */
     public final java.util.Set<Integer> preferOnlineIdx = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     // ===== 片源 =====
@@ -369,8 +364,6 @@ public class PlayerSession {
     // ============================ 线路 / 自愈 ============================
 
     String mediaUriFor(int idx, String rawUrl) {
-        // 离线播放: 清单是本地 file://(已过滤), 任何代理包装都是"包一个服务端抓不到的地址"
-        if (offlinePlayback) return rawUrl;
         // forceProxyIdx = 本集端侧过滤失败后的升级; sourcePreferProxy = 本片源端侧过滤"坏过"的粘性偏好
         boolean forceProxy = forceProxyIdx.contains(idx) || sourcePreferProxy;
         return PlayerUrls.buildPlayableUrl(
@@ -389,9 +382,8 @@ public class PlayerSession {
      */
     void refreshLocalDownloads(String filmId, String sourceKey) {
         final String TAG = "JcLocal";
-        if (localPlayback || offlinePlayback || filmId == null || filmId.isEmpty()) {
-            android.util.Log.i(TAG, "skip: localPlayback=" + localPlayback
-                    + " offlinePlayback=" + offlinePlayback + " filmId=" + filmId);
+        if (localPlayback || filmId == null || filmId.isEmpty()) {
+            android.util.Log.i(TAG, "skip: localPlayback=" + localPlayback + " filmId=" + filmId);
             localEpisodePlaylists = java.util.Collections.emptyMap();
             otherSourceLocalEpisodes = java.util.Collections.emptyMap();
             return;
@@ -476,25 +468,58 @@ public class PlayerSession {
     /**
      * 播放 URI 决策(装载/重试统一入口):
      * 已下载集默认播本地(file:// 过滤后清单, 分片由 RoutingDataSource 从下载缓存取),
-     * 用户在「更多」里切回在线(preferOnlineIdx)或无缓存时走在线链路(mediaUriFor)。
+     * 用户在底栏/更多里切回在线(preferOnlineIdx)或无缓存时走在线链路(mediaUriFor)。
      */
     String playbackUriFor(int idx, String rawUrl) {
-        if (offlinePlayback) return rawUrl;
         String local = localEpisodePlaylists.get(idx);
         if (local != null && !preferOnlineIdx.contains(idx)) return local;
         return mediaUriFor(idx, rawUrl);
     }
 
+    /** 会话是否是"单条本地清单"(下载页无影片上下文播单集), 判据见 {@link PlayerModes}。 */
+    boolean isSingleLocalPlaylist() {
+        return PlayerModes.isSingleLocalPlaylist(currentBypassFilter, currentRawUrls);
+    }
+
+    /**
+     * <b>统一判定: 第 idx 集现在是否在播本地</b> —— 角标/底栏按钮/线路自愈/预取/
+     * 过滤提示全部只看这里, 禁止再散落自写 file:// 前缀判断以外的第二套状态。
+     */
+    public boolean isEpisodePlayingLocal(int idx) {
+        return PlayerModes.isEpisodePlayingLocal(
+                localPlayback, isSingleLocalPlaylist(), localEpisodePlaylists, preferOnlineIdx, idx);
+    }
+
+    /** 第 idx 集有无本地副本且存在在线替代(底栏切换按钮显隐); 单集本地/本地文件模式无在线可切。 */
+    public boolean isEpisodeLocalAvailable(int idx) {
+        return PlayerModes.isEpisodeLocalAvailable(
+                localPlayback, isSingleLocalPlaylist(), localEpisodePlaylists, idx);
+    }
+
+    /**
+     * 当前集在指定源是否已有已下载副本(换源弹窗标记用)。
+     * 当前源看本地副本表; 其他源看别源任务表(otherSourceLocalEpisodes 只存与当前源不匹配的任务, 正好对口)。
+     */
+    public boolean isEpisodeDownloadedOnSource(int episode, int sourceIdx) {
+        if (sourceIdx < 0 || sourceIdx >= sourceList.size()) return false;
+        if (sourceIdx == currentSourceIndex) return localEpisodePlaylists.containsKey(episode);
+        com.jerocine.player.download.DownloadTask t = otherSourceLocalEpisodes.get(episode);
+        String key = sourceList.get(sourceIdx).id;
+        return t != null && key != null && key.equals(t.sourceKey);
+    }
+
     /** 当前集是否走全量中转: 用户开关开着, 或本集被自愈标记(且没被强制回原始). */
     boolean isRelay(int idx) {
+        // 本地播放(单集本地/已下载集): 分片在本地, "线路"无指代对象
+        if (isEpisodePlayingLocal(idx)) return false;
         if (forceRawIdx.contains(idx)) return false;
         return relayOn || forceRelayIdx.contains(idx);
     }
 
     /** 当前视频能否切换线路(仅"直连 CDN 的 m3u8 + 开关开启 + 有代理地址 + 服务端抓得到该源"). */
     boolean canSwitchNetworkMode(int idx) {
-        // 离线播放没有"线路"概念: 分片在本地缓存, 中转/直连都救不了缺失的分片
-        if (offlinePlayback) return false;
+        // 本地播放没有"线路"概念: 分片在本地缓存/本地盘, 中转/直连都救不了缺失的分片
+        if (isEpisodePlayingLocal(idx)) return false;
         if (!adFilterOn || !sourceProxyUsable || proxyBase == null || proxyBase.isEmpty()) return false;
         if (idx < 0 || idx >= currentRawUrls.size()) return false;
         String raw = currentRawUrls.get(idx).toLowerCase(Locale.US);

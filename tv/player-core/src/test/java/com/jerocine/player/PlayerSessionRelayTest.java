@@ -38,6 +38,7 @@ public class PlayerSessionRelayTest {
         @Override public void toggleAdFilter() { }
         @Override public void renderAdFilterSwitch(boolean on) { }
         @Override public void toggleNetworkMode() { }
+        @Override public void toggleLocalOnline() { }
         @Override public void renderNetworkMode(boolean relay) {
             renderNetworkModeCalled = true;
             lastRenderNetworkMode = relay;

@@ -111,8 +111,8 @@ public class PlayerPrefetchHelper {
         int next = currentIdx + 1;
         String raw = rawUrlAt(next);
         if (raw == null || !PlayerUrls.isM3u8(raw)) return false;
-        // 下一集已下载(本地优先) → 会直接播 file:// 本地清单, 端侧预取纯浪费一次过滤 POST
-        if (session.isLocalEpisode(next) && !session.preferOnlineIdx.contains(next)) return false;
+        // 下一集正在播本地(本地优先/单集本地) → 会直接播 file:// 本地清单, 端侧预取纯浪费一次过滤 POST
+        if (session.isEpisodePlayingLocal(next)) return false;
         // 下一集实际会包代理/走中转(端侧不可用或已升级) → 清单由服务端抓并缓存, 端侧预取无意义
         return raw.equals(session.mediaUriFor(next, raw));
     }
