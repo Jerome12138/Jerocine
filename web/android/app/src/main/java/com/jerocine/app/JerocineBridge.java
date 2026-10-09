@@ -86,6 +86,7 @@ public class JerocineBridge {
                 case "setNetworkRelay":    return handleSetNetworkRelay(args);
                 case "checkUpdate":        return handleCheckUpdate();
                 case "openServerSettings": return handleOpenServerSettings();
+                case "openSettings":       return handleOpenSettings();
                 case "setAuthToken":       return handleSetAuthToken(args);
                 case "clearAuthToken":     return handleClearAuthToken();
                 case "echoTest":           return handleEchoTest(args);
@@ -328,6 +329,17 @@ public class JerocineBridge {
     private String handleOpenServerSettings() {
         if (activity instanceof MainActivity) {
             runOnUi(((MainActivity) activity)::promptServerUrlExposed);
+        }
+        return jsonOk();
+    }
+
+    /**
+     * 打开原生设置抽屉 — 给没有 MENU 键的遥控器 / 触屏提供一个可见入口
+     * (web TV 胶囊行"设置"按钮、首页"我的"卡)。与 MENU 键走同一个抽屉。
+     */
+    private String handleOpenSettings() {
+        if (activity instanceof MainActivity) {
+            runOnUi(((MainActivity) activity)::showSettingsDrawerExposed);
         }
         return jsonOk();
     }

@@ -24,13 +24,12 @@ const config: CapacitorConfig = {
     backgroundColor: '#0b0b0fff'
   },
   plugins: {
+    // 启动观感统一到原生侧(方案 §7, 评审 C10): AndroidX core-splashscreen(系统 splash, 纯黑)
+    // → BrandSplashView(品牌首屏)。Capacitor SplashScreen 插件必须关掉, 否则会出现
+    // "系统 splash → 插件 800ms 覆盖 → 品牌首屏"的三段跳。保留依赖但不再展示。
     SplashScreen: {
-      launchShowDuration: 800,
-      backgroundColor: '#0b0b0f',
-      androidScaleType: 'CENTER_CROP',
-      showSpinner: false,
-      splashFullScreen: true,
-      splashImmersive: true
+      launchShowDuration: 0,
+      launchAutoHide: true
     }
   }
 }
