@@ -6,6 +6,15 @@
     </style>
 
     <!--
+      启动主题(方案 §7, P2): 仅挂给 MainActivity —— windowBackground 换成"黑底 + 居中品牌 logo",
+      让原生模式冷启也先看到品牌标(原来是一片纯黑, 用户会以为没反应)。
+      首帧布局后即被 activity_main 的不透明 @color/jc_bg 覆盖, 视觉上无缝。
+    -->
+    <style name="Theme.JerocineTV.Launch" parent="Theme.JerocineTV">
+        <item name="android:windowBackground">@drawable/jc_splash_brand</item>
+    </style>
+
+    <!--
       原生播放器主题: 全黑 + 隐藏状态栏 / 标题栏.
       注意 parent 必须是 AppCompat 系 —— 播放器 PlayerActivity 继承 AppCompatActivity,
       用 android:Theme.Material.NoActionBar 会在启动时抛 "You need to use a Theme.AppCompat theme".

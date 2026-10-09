@@ -49,6 +49,24 @@ public class PlayerAdFilterHelper {
     }
 
     /**
+     * 读取持久化的广告过滤开关(默认开) — 供设置页 / 壳层设置抽屉查询。
+     *
+     * 与 {@link PlayerNetworkModeHelper#isRelayEnabled} 同款: 开关态既要在播放器内持久化,
+     * 又要被"播放器之外"(tv 壳设置抽屉 / web 壳设置抽屉)读写, 所以键名只在这里定义一次,
+     * 壳层一律调这两个静态方法 —— 避免各处硬编码 "ad_filter_enabled" 后漂移。
+     */
+    public static boolean isAdFilterEnabled(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_AD_FILTER, true);
+    }
+
+    /** 写持久化的广告过滤开关 — 播放器下一次起播生效(播放中切换走 {@link #toggleAdFilter()}). */
+    public static void setAdFilterEnabled(Context context, boolean enabled) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_AD_FILTER, enabled).apply();
+    }
+
+    /**
      * 解析代理 base: 优先壳层传入的 EXTRA_PROXY_BASE; 为空(壳没传 / 旧缓存 / relaunch)时
      * 用壳注入的兜底地址(见 {@link JerocinePlayer#setDefaultProxyBase}) —— 播放器本身不硬编码域名.
      */

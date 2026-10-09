@@ -213,7 +213,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         prefetchHelper = new PlayerPrefetchHelper(session);
 
         session.proxyBase = adFilterHelper.resolveProxyBase(getIntent());
-        session.adFilterOn = adFilterHelper.prefs().getBoolean("ad_filter_enabled", true);
+        // 开关初值统一走静态 getter(键名/默认值定义在 PlayerAdFilterHelper, 不在各处硬编码)
+        session.adFilterOn = PlayerAdFilterHelper.isAdFilterEnabled(this);
         networkModeHelper.applyPersisted(); // 中转默认关(分片直连), 只有用户主动开过才为 true
         // 本地模式不显示广告过滤角标: 隐藏它的 hideOnlineControls() 只在控制面板首次变为
         // VISIBLE 时才被调用(见下方 ControllerVisibilityListener), 而面板默认 GONE

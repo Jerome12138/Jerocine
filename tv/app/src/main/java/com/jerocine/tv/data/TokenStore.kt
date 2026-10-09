@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.jerocine.player.PlayerAdFilterHelper
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 
@@ -29,7 +30,8 @@ class TokenStore(context: Context) {
         // 回退：老设备 / 无 KeyStore 时用明文，避免崩溃
         context.getSharedPreferences("jerocine_tv_auth", Context.MODE_PRIVATE)
     }
-    private val playerSp: SharedPreferences = context.getSharedPreferences("jerocine", Context.MODE_PRIVATE)
+    /** 只用来访问 player-core 的规范开关入口(见 adFilterEnabled), 不持有 Activity */
+    private val appContext: Context = context.applicationContext
 
     var token: String?
         get() = sp.getString(KEY_TOKEN, null)
@@ -49,10 +51,15 @@ class TokenStore(context: Context) {
         get() = sp.getString(KEY_REDUCE_MOTION, "auto") ?: "auto"
         set(v) { sp.edit().putString(KEY_REDUCE_MOTION, v).apply() }
 
-    /** 与旧 PlayerActivity 共用的广告过滤开关，默认开启 */
+    /**
+     * 与播放器共用的广告过滤开关(默认开)。
+     *
+     * 读写一律走 player-core 的规范入口 —— prefs 名("jerocine")与键名("ad_filter_enabled")
+     * 只在 PlayerAdFilterHelper 里定义一次。壳层不再自己拼键, 否则改了播放器那边就会漂移。
+     */
     var adFilterEnabled: Boolean
-        get() = playerSp.getBoolean(KEY_AD_FILTER, true)
-        set(v) { playerSp.edit().putBoolean(KEY_AD_FILTER, v).apply() }
+        get() = PlayerAdFilterHelper.isAdFilterEnabled(appContext)
+        set(v) { PlayerAdFilterHelper.setAdFilterEnabled(appContext, v) }
 
     fun localHistories(): List<LocalHistoryRecord> {
         val raw = sp.getString(KEY_LOCAL_HISTORY, null) ?: return emptyList()
@@ -191,7 +198,6 @@ class TokenStore(context: Context) {
         private const val KEY_USER = "userName"
         private const val KEY_SERVER = "server"
         private const val KEY_REDUCE_MOTION = "reduce_motion"
-        private const val KEY_AD_FILTER = "ad_filter_enabled"
         private const val KEY_LOCAL_HISTORY = "local_history"
         private const val KEY_LOCAL_FAVORITES = "local_favorites"
         private const val KEY_LOCAL_SKIP_SETTINGS = "local_skip_settings"

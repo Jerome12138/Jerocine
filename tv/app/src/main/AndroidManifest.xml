@@ -65,7 +65,7 @@
             android:exported="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.JerocineTV">
+            android:theme="@style/Theme.JerocineTV.Launch">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
