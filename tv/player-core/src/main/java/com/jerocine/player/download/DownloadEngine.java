@@ -51,7 +51,7 @@ import okhttp3.Response;
  *   <li>广告过滤: 入队前 GET 源站清单 → {@link M3u8FilterClient} 过滤 → 清单落库(离线播放用),
  *       同时注入 {@link DownloadFilterPlaylistParserFactory} 让 HlsDownloader 解析时直接命中预取结果
  *       (master 不再付第二次 POST; 子表仍走 POST)。失败按 {@link DownloadFilterFallbackPolicy}
- *       分级: 网络类重试 3 轮后 FAIL; 无过滤服务/4xx/响应异常 → 原始流兜底(落盘前绝对化);</li>
+ *       分级: 网络类重试 3 轮后与其余原因一样原始流兜底(落盘前绝对化), 仅取消中止;</li>
  *   <li>进度/状态: {@link DownloadManager.Listener} 把 Media3 状态映射到 {@link DownloadTask} 并落库;</li>
  *   <li>崩溃恢复: 启动时把残留 DOWNLOADING 标 PAUSED(等用户续传)。</li>
  * </ul>
@@ -361,9 +361,10 @@ public final class DownloadEngine {
      * 入队一个下载任务: 拉源站清单 → 端侧过滤(失败按 {@link DownloadFilterFallbackPolicy} 分级降级)
      * → 保存清单(离线播用) → 交给 DownloadService. 幂等: 已存在同 id 任务则忽略.
      *
-     * <p>降级策略(用户拍板 2026-10-10): 数据获取类失败(NETWORK)重试 3 轮, 耗尽仍失败 → 任务 FAIL;
-     * 无过滤服务/服务端拒绝/响应异常 → <b>原始流兜底</b>(媒体级清单落盘前按来源 URL 绝对化,
-     * 见 {@link HlsPlaylistAbsolutizer}; 产物含潜在广告段, 用户明确接受该取舍)。
+     * <p>降级策略(用户拍板 2026-10-10, 二次确认): 除取消外全部原始流兜底 —— 数据获取类失败
+     * (NETWORK)先重试 3 轮, 耗尽后与其他原因(NO_FILTER/REJECTED/BAD_RESPONSE)一样
+     * <b>原始流兜底</b>(媒体级清单落盘前按来源 URL 绝对化, 见 {@link HlsPlaylistAbsolutizer};
+     * 产物含潜在广告段, 用户明确接受该取舍)。
      */
     public void enqueue(DownloadTask task) {
         // 入队时取快照: worker 线程池异步执行, 直接读 volatile 字段虽可见但语义不清,
@@ -755,8 +756,8 @@ public void pause(String taskId) {
 
     /**
      * 过滤一单层清单, 带 {@link DownloadFilterFallbackPolicy} 降级策略(用户拍板 2026-10-10):
-     * NETWORK → 最多 3 轮(每轮内 M3u8FilterClient 自带 1 次快速重试), 耗尽仍失败 → FAIL;
-     * NO_FILTER / REJECTED / BAD_RESPONSE → 原始流兜底(调用方需对媒体级清单绝对化);
+     * NETWORK → 最多 3 轮(每轮内 M3u8FilterClient 自带 1 次快速重试), 耗尽后与
+     * NO_FILTER / REJECTED / BAD_RESPONSE 一样原始流兜底(调用方需对媒体级清单绝对化);
      * CANCELLED → 取消。取消失败链路: 中断位已由 client 重设, 这里不再 sleep 直接返回。
      */
     private FilterOutcome filterWithFallback(String base, String url, byte[] rawBytes, String what) {
@@ -784,8 +785,8 @@ public void pause(String taskId) {
                             + com.jerocine.player.ErrorDiag.safeUrl(url));
                     return FilterOutcome.raw(rawBytes, 0);
                 case FAIL:
-                    return FilterOutcome.err("广告过滤失败(网络异常, 已重试"
-                            + (attempt - 1) + "次), 可重试");
+                    // 仅防御路径(未知/缺失原因), 正常分级到不了这里
+                    return FilterOutcome.err("广告过滤失败, 可重试");
                 case ABORT:
                 default:
                     Log.i(TAG, what + "过滤被取消");

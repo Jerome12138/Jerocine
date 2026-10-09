@@ -8,18 +8,18 @@ import com.jerocine.player.download.DownloadFilterFallbackPolicy.Action;
 import org.junit.Test;
 
 /**
- * 下载侧广告过滤降级策略 — 用户拍板(2026-10-10):
- * 数据获取类重试 3 轮(耗尽 FAIL); 本地逻辑/服务端拒绝/响应异常直接原始流兜底; 取消中止。
+ * 下载侧广告过滤降级策略 — 用户拍板(2026-10-10, 二次确认):
+ * 数据获取类重试 3 轮后与其他原因一样原始流兜底; 仅取消中止; 未知原因防御性 FAIL。
  */
 public class DownloadFilterFallbackPolicyTest {
 
     @Test
-    public void network_retriesUpToThreeRounds_thenFail() {
+    public void network_retriesUpToThreeRounds_thenRaw() {
         assertEquals(Action.RETRY, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.NETWORK, 1));
         assertEquals(Action.RETRY, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.NETWORK, 2));
-        // 第 3 轮失败已是最后一轮 → 不再 RETRY
-        assertEquals(Action.FAIL, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.NETWORK, 3));
-        assertEquals(Action.FAIL, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.NETWORK, 99));
+        // 第 3 轮失败 = 重试耗尽 → 不再 RETRY, 与其他原因一样原始流兜底(用户拍板, 不再 FAIL)
+        assertEquals(Action.USE_RAW, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.NETWORK, 3));
+        assertEquals(Action.USE_RAW, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.NETWORK, 99));
     }
 
     @Test

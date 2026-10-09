@@ -54,8 +54,8 @@ public final class DownloadFilterPlaylistParserFactory implements ParsingLoadabl
         android.util.Log.i(TAG, "parse: " + uri + " rawLen=" + raw.length);
         // 入队预取命中(master 清单) → 直接用结果; 未命中(进程重启后自愈/重试) → POST 过滤,
         // 失败按 {@link DownloadFilterFallbackPolicy} 分级(与入队侧同一份策略):
-        //   NETWORK 重试 3 轮; NO_FILTER/REJECTED/BAD_RESPONSE → 原始流兜底;
-        //   CANCELLED/耗尽 → 抛错终止本次解析(取消场景任务已被移除, 抛错只是收尾)。
+        //   NETWORK 重试 3 轮后与 NO_FILTER/REJECTED/BAD_RESPONSE 一样原始流兜底;
+        //   CANCELLED → 抛错终止本次解析(取消场景任务已被移除, 抛错只是收尾)。
         // 原始流兜底时没有服务端绝对化 → 相对 URL 按本解析 URI 绝对化(语义对齐 media3,
         // 保证下载缓存 key 与播放期一致)。master 级绝对化同样无害(variant 行/URI 属性)。
         byte[] data = null;
@@ -91,7 +91,7 @@ public final class DownloadFilterPlaylistParserFactory implements ParsingLoadabl
                 android.util.Log.w(TAG, "filter failed (" + o.cause + ", attempt " + attempt
                         + "): " + ErrorDiag.safeUrl(uri.toString()));
                 throw new IOException("广告过滤失败("
-                        + (o.cause == M3u8FilterClient.FailureCause.CANCELLED ? "已取消" : "网络异常, 已重试")
+                        + (o.cause == M3u8FilterClient.FailureCause.CANCELLED ? "已取消" : "未知原因")
                         + "): " + ErrorDiag.safeUrl(uri.toString()));
             }
         }

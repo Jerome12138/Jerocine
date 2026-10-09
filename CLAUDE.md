@@ -54,6 +54,9 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
 - 产物命名：`Jerocine-TV-{web,native}-v<版本名>(<构建号>).apk`，debug 追加 `-debug`。
   例：`Jerocine-TV-web-v1.0.9(1041).apk`。构建号取 APK 产物目录 `output-metadata.json` 里的
   `versionCode`（gradle 生成的真实值），读不到才退回版本源文件。
+- **打包后自动装 pad**：交付成功后 `maybe_adb_install` 检测 `adb devices`，有设备就对最新 web/native
+  包各执行一次 `install -r`（成功打日志，无设备静默跳过）。注意 adb.exe 不认 `/d/...` 风格路径，
+  脚本内已做 `cygpath -m` 转换 —— 手工装包时同理。
 - **产物复制到哪 —— 系统真实「下载」目录**，解析顺序：① `JEROCINE_DOWNLOAD_DIR`（显式指定，最优先）；
   ② Windows 读注册表 `Shell Folders\{374DE290-123F-4565-9164-39C4925E467B}`（支持用户把"下载"位置
   改到别的盘，如 `D:\Downloads`）；③ macOS/Linux 走 `xdg-user-dir DOWNLOAD` / `~/Downloads`。
@@ -125,6 +128,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
 ## Android 工程版本控制
 
 - `web/android/` 源码纳入 git。精细忽略：`build/`、`.gradle/`、`local.properties`、`assets/public`(cap 产物)、**`*.keystore`/`*.jks`(发布密钥严禁 commit)**。
+- **构建水位线回写（`scripts/android-versions.properties`）不单独提交**：跟近期功能改动一起提交即可（amend 进当前功能提交，或随下一个提交）—— 单独的水位线提交只会刷屏提交历史。
 - **APK 构建**：见上文「构建脚本清单」的 `scripts/build-android.sh`（已封装 `pnpm build` + `cap sync android` + `gradlew`，并强制校验正式签名）。手工兜底：`cd web && pnpm build:no-check && npx cap sync android < /dev/null && cd android && ./gradlew assembleDebug`（debug 无需密钥；`< /dev/null` 不能省，见上文 stdin 坑）。
 - **原生播放器只有一个实现：`tv/player-core`**（Java 库，被 `tv` 与 `web/android` 两个工程各自 include，两壳不再自带播放器副本）。
   - 自定义 Media3 控件布局 `tv/player-core/src/main/res/layout/exo_player_control_view.xml`（进度条下方一排[图标+2字]按钮），按钮绑定在 `PlayerDialogHelper.bindControlButtons()`，**不在** `PlayerActivity`。
