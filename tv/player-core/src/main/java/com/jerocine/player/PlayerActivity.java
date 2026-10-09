@@ -261,6 +261,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         // 切集/缓冲/暂停时不自动弹面板 — 仅用户显式唤起(确认键/点击)才显示
         playerView.setControllerAutoShow(false);
         playerView.setOnTouchListener(gestureHelper::onPlayerTouch);
+        // 暂停/缓冲中面板不主动消失(策略见 PlayerAutoHidePolicy); 起播前也按当前态初始化
+        playerView.setControllerShowTimeoutMs(
+                PlayerAutoHidePolicy.timeoutMs(false, true));
 
         applySkipSettingsFromIntent(getIntent());
 
@@ -315,6 +318,12 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             public void onPlaybackStateChanged(int state) {
                 lastPlayerState = state;
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
+                updateControllerAutoHide(); // 暂停/缓冲中面板不主动消失(本地播放同轨)
+            }
+
+            @Override
+            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                updateControllerAutoHide();
             }
 
             @Override
@@ -368,6 +377,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             public void onPlaybackStateChanged(int state) {
                 lastPlayerState = state;
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
+                updateControllerAutoHide(); // 暂停/缓冲中面板不主动消失
                 updateFilterLoadingText(state);
                 if (state == Player.STATE_READY) {
                     session.episodeSwitching = false;
@@ -384,6 +394,21 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 }
             }
 
+            @Override
+            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                updateControllerAutoHide(); // 暂停/缓冲中面板不主动消失
+                if (session.player == null) return;
+                if (!playWhenReady) {
+                    // 暂停: 中央暂停图标持久显示 + 弹控制面板
+                    if (session.player.getPlaybackState() == Player.STATE_READY) {
+                        showCenterIconPersistent(R.drawable.ic_pause);
+                        if (playerView != null) playerView.showController();
+                    }
+                } else {
+                    showCenterIcon(R.drawable.ic_play, 600);
+                }
+            }
+
             /** 分辨率实时更新: 码率切换/切集后都会回调; 未就绪宽高为 0 → 隐藏. */
             @Override
             public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
@@ -394,20 +419,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 } else {
                     resolutionBadge.setText(label);
                     resolutionBadge.setVisibility(View.VISIBLE);
-                }
-            }
-
-            @Override
-            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
-                if (session.player == null) return;
-                if (!playWhenReady) {
-                    // 暂停: 中央暂停图标持久显示 + 弹控制面板
-                    if (session.player.getPlaybackState() == Player.STATE_READY) {
-                        showCenterIconPersistent(R.drawable.ic_pause);
-                        if (playerView != null) playerView.showController();
-                    }
-                } else {
-                    showCenterIcon(R.drawable.ic_play, 600);
                 }
             }
 
@@ -1368,6 +1379,36 @@ private static String failedRequestUrl(Throwable error) {
      * "正在准备视频 · 广告过滤中"提示: 仅起播/切集加载期(缓冲中且广告过滤开启)显示,
      * 播放就绪或非缓冲状态隐藏. 与 web 播放器 loading 文案对齐.
      */
+    /**
+     * 暂停/缓冲中控制面板不主动消失(用户要求 2026-10-09, 策略见 {@link PlayerAutoHidePolicy})。
+     * media3 的自动收起是 show() 时排一个延时任务 — 暂停时唤出也会被收、缓冲中照样收。
+     * 这里按状态切超时, 并对"面板当前可见"的场景清理/重排那个延时任务:
+     *   保持可见(暂停/缓冲) → 超时 0 + hide→show 清掉已排任务(同帧同步执行, 无闪烁;
+     *       showController 在播放抑制时会 no-op, 故先查 suppression, 抑制时面板保持原状);
+     *   播放中 → 恢复 3s, 可见则 show() 重排计时。
+     * 监听点: onPlaybackStateChanged + onPlayWhenReadyChanged(在线/本地两套监听器都挂)。
+     */
+    private void updateControllerAutoHide() {
+        if (playerView == null || session.player == null) return;
+        boolean buffering = session.player.getPlaybackState() == Player.STATE_BUFFERING;
+        boolean playWhenReady = session.player.getPlayWhenReady();
+        playerView.setControllerShowTimeoutMs(
+                PlayerAutoHidePolicy.timeoutMs(buffering, playWhenReady));
+        if (!playerView.isControllerFullyVisible()) return;
+        boolean hold = PlayerAutoHidePolicy.shouldHoldVisible(buffering, playWhenReady);
+        boolean suppressed = session.player.getPlaybackSuppressionReason()
+                != Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+        if (hold) {
+            if (!suppressed) {
+                // show() 只在超时>0 时重排延时任务 → 先 hide 清旧的再 show(永不自动收)
+                playerView.hideController();
+                playerView.showController();
+            }
+        } else {
+            playerView.showController(); // 重排 3s 自动收起
+        }
+    }
+
     private void updateFilterLoadingText(int state) {
         View tv = findViewById(R.id.filter_loading_text);
         if (tv == null) return;
