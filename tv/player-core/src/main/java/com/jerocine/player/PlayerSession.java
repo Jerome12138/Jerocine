@@ -162,8 +162,12 @@ public class PlayerSession {
      * 本片源端侧过滤已失败过一次 → 后续集直接用服务端代理。
      * 为什么需要: 端侧过滤是主路径, 若某源的大清单 POST 稳定超时(12s), 没有这个粘性偏好就会
      * **每集都白等一轮超时**再升级。换片/换源(startFromIntent)时重置。
+     * 2026-10-10 改: 需**连续 2 集**端侧失败({@link FilterEscalationPolicy})才置位 ——
+     * 用户实测一集瞬时抖动就粘住, 弱代理源"一集失败, 后面的集跟着失败"(全走代理+预取被关)。
      */
     volatile boolean sourcePreferProxy = false;
+    /** 端侧过滤失败连击(跨集累计, 任意一次端侧过滤成功即清零) — 粘性切代理的判据。 */
+    volatile int clientFilterFailStreak = 0;
     volatile List<String> currentRawUrls = new ArrayList<>();
     /**
      * 三个"强制线路"集索引: **主线程写, 预取线程读**(读点在
@@ -191,6 +195,13 @@ public class PlayerSession {
     volatile boolean filterFailed = false;
     volatile boolean filterProxyMissing = false;
     boolean filterToastShownForEpisode = false;
+    /**
+     * 最近一次清单解析(FilterPlaylistParser.parse)的 URI — parse 在 loader 线程写,
+     * 主线程 transition 回调读。切集 reset 的竞态防护: 主线程卡顿时下一集的解析可能
+     * **先于** transition 回调完成, 此时 parse 写下的过滤状态就是本集的, 不能抹
+     * (抹掉会让 READY 的状态提示误报"该源无需过滤"/丢失"已过滤 N 段", 2026-10-10 用户实测)。
+     */
+    volatile String lastParsedPlaylistUrl = "";
 
     // ===== 端侧预取缓存(下一集清单) =====
     /**
@@ -270,11 +281,34 @@ public class PlayerSession {
 
     /** 每集起播时重置本集过滤统计(供 STATE_READY 弹一次状态). */
     void resetFilterStateForEpisode() {
+        // toast 门必须每集重置(即使下面竞态跳过了状态重置, 新集也要能弹自己的状态)
+        filterToastShownForEpisode = false;
+        // 竞态防护(2026-10-10): parse 跑在 loader 线程, 本方法在主线程 transition 回调里。
+        // 主线程卡顿时, 下一集的清单解析可能**先于**本回调完成 —— parse 写下的 attempted/
+        // pendingFilteredCount 就是本集的结果, 抹掉会让 READY 时误报"该源无需过滤"。
+        // 判据: 最近一次解析的 URI == 当前媒体项 URI → 状态属于本集, 跳过重置。
+        String cur = currentMediaUriOrNull();
+        if (!lastParsedPlaylistUrl.isEmpty() && lastParsedPlaylistUrl.equals(cur)) {
+            return;
+        }
+        lastParsedPlaylistUrl = "";
         pendingFilteredCount = 0;
         filterAttempted = false;
         filterFailed = false;
         filterProxyMissing = false;
-        filterToastShownForEpisode = false;
+    }
+
+    /** 当前媒体项 URI; player 未就绪/无项返回空串。 */
+    private String currentMediaUriOrNull() {
+        try {
+            if (player != null && player.getCurrentMediaItem() != null
+                    && player.getCurrentMediaItem().localConfiguration != null) {
+                return String.valueOf(player.getCurrentMediaItem().localConfiguration.uri);
+            }
+        } catch (Exception ignore) {
+            /* player 未就绪: 视为无 URI */
+        }
+        return "";
     }
 
     /** 把指定 source 的 episodes 装入 player; 从 startEpisodeIndex 开始, resumeMs 续播. */
@@ -290,6 +324,7 @@ public class PlayerSession {
         // → **整个新片源的预取加速器被永久关掉**, 而 B 的端侧过滤其实完全正常。
         if (sourceIdx != currentSourceIndex) {
             sourcePreferProxy = false;
+            clientFilterFailStreak = 0; // 换源 = 端侧链路结论不继承, 连击一并清零
         }
         loadPlaylistIntoPlayer(src.urls, src.titles, startEpisodeIndex, resumeMs, false);
     }

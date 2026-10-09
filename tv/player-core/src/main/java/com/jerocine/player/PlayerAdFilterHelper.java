@@ -126,6 +126,7 @@ public class PlayerAdFilterHelper {
         prefs().edit().putBoolean(PREF_AD_FILTER, session.adFilterOn).apply();
         session.forceRawIdx.clear();
         session.forceProxyIdx.clear();
+        session.clientFilterFailStreak = 0; // 开关切换重载: 端侧链路结论一并作废
         session.reloadCurrentSourceKeepPosition();
         updateAdFilterBadge();
         session.host().renderAdFilterSwitch(session.adFilterOn);
@@ -143,6 +144,8 @@ public class PlayerAdFilterHelper {
             session.filterFailed = true;
             return null;
         }
+        // 端侧链路活着: 清失败连击(见 escalateToProxy 的二连才粘策略)
+        session.clientFilterFailStreak = 0;
         // master 表 cnt=0、子表才 cnt>0; 取最大, 待 STATE_READY 弹一次状态
         if (r.filteredCount > session.pendingFilteredCount) {
             session.pendingFilteredCount = r.filteredCount;
@@ -188,8 +191,14 @@ public class PlayerAdFilterHelper {
                 return;
             }
             session.forceProxyIdx.add(failedIdx);
-            // 本片源端侧过滤已证明不可靠 → 后续集直接用代理, 免得每集都白等一轮超时
-            session.sourcePreferProxy = true;
+            // 2026-10-10 改: 连续 2 集端侧失败才把整片源粘性切代理 —— 用户实测一集瞬时抖动
+            // 就粘住, 弱代理源“一集失败, 后面的集跟着失败”(全走代理 + 预取加速被关)。
+            // 单次失败只升级本集, 下一集还会重试端侧; 连续失败才认定端侧链路真坏了。
+            session.clientFilterFailStreak++;
+            if (FilterEscalationPolicy.shouldStickSource(session.clientFilterFailStreak)) {
+                // 本片源端侧过滤已证明不可靠 → 后续集直接用代理, 免得每集都白等一轮超时
+                session.sourcePreferProxy = true;
+            }
             // 后续集都走代理了, 已预取/在途的端侧清单缓存全部作废(也顺手停掉在途任务)
             session.invalidatePrefetch();
             session.retryCurrentItem(failedIdx, "端侧过滤失败, 已切换服务端过滤");
@@ -222,6 +231,9 @@ public class PlayerAdFilterHelper {
         @Override
         public HlsPlaylist parse(Uri uri, InputStream in) throws IOException {
             byte[] data = readAll(in);
+            // 记录最近一次解析的 URI: 切集 reset 的竞态防护依据(见 PlayerSession.resetFilterStateForEpisode)。
+            // parse 跑在 loader 线程, 可能先于主线程的 transition 回调完成。
+            session.lastParsedPlaylistUrl = uri.toString();
             if (session.adFilterOn) {
                 if (!PlayerUrls.needsClientSideFilter(uri.toString())) {
                     // /m3u8/proxy 已在服务端完成过滤与媒体地址改写, 不必再同步 POST 一次

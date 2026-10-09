@@ -149,6 +149,8 @@ public class PlayerPrefetchHelper {
         if (raw == null) return;
         PlayerSession.Prefetched done = filterViaServer(url, raw);
         if (done == null) return;
+        // 预取与播放共用同一条端侧过滤链路: 成功即清失败连击(见 FilterEscalationPolicy)
+        session.clientFilterFailStreak = 0;
         session.putPrefetched(url, done.data, done.filteredCount, gen);
         if (depth >= MAX_CHILD_DEPTH) return;
         // 子表串行做(1~3 个): 与 master 共用一条预取线程, 不必再开并发.
