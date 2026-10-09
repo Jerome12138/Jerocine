@@ -4,9 +4,11 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
+import android.widget.ListAdapter;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -117,17 +119,20 @@ public class PlayerDialogHelper {
             return;
         }
         String[] names = new String[session.sourceList.size()];
+        boolean[] downloaded = new boolean[session.sourceList.size()];
         final int curEp = session.player != null ? session.player.getCurrentMediaItemIndex() : 0;
         for (int i = 0; i < session.sourceList.size(); i++) {
             PlayerSession.SourceData s = session.sourceList.get(i);
-            // 当前集在该源有已下载副本 → 标记(当前源看本地副本表, 别源看 otherSource 表)
-            names[i] = PlayerModes.sourceLabel(
-                    s.name, s.urls.size(), session.isEpisodeDownloadedOnSource(curEp, i));
+            names[i] = s.name + " (" + s.urls.size() + " 集)";
+            // 当前集在该源有已下载副本 → 右侧灰色标签(当前源看本地副本表, 别源看 otherSource 表)
+            downloaded[i] = session.isEpisodeDownloadedOnSource(curEp, i);
         }
         final long curPos = session.player != null ? session.player.getCurrentPosition() : 0L;
         AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("切换播放源")
-                .setSingleChoiceItems(names, session.currentSourceIndex, (d, w) -> {
+                .setSingleChoiceItems(
+                        downloadedRowAdapter(names, downloaded, PlayerModes.downloadedSourceTag()),
+                        session.currentSourceIndex, (d, w) -> {
                     if (w == session.currentSourceIndex) {
                         d.dismiss();
                         return;
@@ -177,17 +182,20 @@ public class PlayerDialogHelper {
         showDialog(dialog);
     }
 
-    /** 展示 [start,end) 区间内的集供选择, 当前集在区间内则高亮; 已下载的集追加标记. */
+    /** 展示 [start,end) 区间内的集供选择, 当前集在区间内则高亮; 已下载的集带右侧灰色标签. */
     private void showEpisodeSegment(int start, int end, int cur) {
         String[] arr = new String[end - start];
+        boolean[] downloaded = new boolean[end - start];
         for (int i = start; i < end; i++) {
-            arr[i - start] = PlayerModes.episodeLabel(
-                    session.playlistTitles.get(i), session.isLocalEpisode(i));
+            arr[i - start] = session.playlistTitles.get(i);
+            downloaded[i - start] = session.isLocalEpisode(i);
         }
         int checked = (cur >= start && cur < end) ? cur - start : 0;
         AlertDialog dialog = new AlertDialog.Builder(ctx(), R.style.JcPlayerDialog)
                 .setTitle("选集 " + (start + 1) + "-" + end)
-                .setSingleChoiceItems(arr, checked, (d, w) -> {
+                .setSingleChoiceItems(
+                        downloadedRowAdapter(arr, downloaded, PlayerModes.downloadedEpisodeTag()),
+                        checked, (d, w) -> {
                     PlaybackTarget target = PlaybackTarget.selectEpisode(
                             session.currentSourceIndex, start + w, session.playlistTitles.size());
                     if (session.player != null) {
@@ -201,6 +209,30 @@ public class PlayerDialogHelper {
     }
 
     // ============================ 跳过片头/片尾 ============================
+
+    /**
+     * 单选列表适配器: 标题左(带单选圆点) + 右侧灰色小标签(见 {@link PlayerModes} 的
+     * downloadedSourceTag/downloadedEpisodeTag), 无标记的行标签隐藏、占位不塌。
+     * 行布局 jc_dialog_row_downloaded; 字号/颜色由弹窗主题(JcPlayerDialog)统一。
+     */
+    private ListAdapter downloadedRowAdapter(String[] names, boolean[] tags, String tagText) {
+        final Context c = ctx();
+        return new ArrayAdapter<CharSequence>(
+                c, R.layout.jc_dialog_row_downloaded, R.id.jc_row_text, names) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View row = super.getView(position, convertView, parent);
+                TextView tag = row.findViewById(R.id.jc_row_tag);
+                if (tags != null && position < tags.length && tags[position]) {
+                    tag.setText(tagText);
+                    tag.setVisibility(View.VISIBLE);
+                } else {
+                    tag.setVisibility(View.GONE);
+                }
+                return row;
+            }
+        };
+    }
 
     /** 跳过参数变化 → 通知壳层回写账号(跨设备记忆). 关闭时记 0/0(=不跳). */
     private void emitSkipChanged() {
@@ -332,10 +364,15 @@ public class PlayerDialogHelper {
         android.view.Window win = dialog.getWindow();
         if (win == null) return;
         View decor = win.getDecorView();
-        decor.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-        int contentH = decor.getMeasuredHeight();
-        int maxH = (int) (ctx().getResources().getDisplayMetrics().heightPixels * 0.8f);
-        if (contentH > maxH) {
+        android.util.DisplayMetrics dm = ctx().getResources().getDisplayMetrics();
+        int maxH = (int) (dm.heightPixels * 0.8f);
+        // 高度上限 80% 屏幕(用户拍板 2026-10-09)。不能用 UNSPECIFIED 量 decor:
+        // ListView wrap-content 只实测前几个子项、其余按均值估算 → 30 集的选集弹窗
+        // 实际远超 80% 却被判成"没超"。改用 AT_MOST(maxH) 上限测量, 量到上限即钉死。
+        decor.measure(
+                View.MeasureSpec.makeMeasureSpec(dm.widthPixels, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
+        if (decor.getMeasuredHeight() >= maxH) {
             android.view.WindowManager.LayoutParams lp = win.getAttributes();
             lp.height = maxH;
             win.setAttributes(lp);

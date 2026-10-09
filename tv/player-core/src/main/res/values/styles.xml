@@ -22,10 +22,9 @@
     </style>
 
     <!--
-     弹窗标题: 原来 14sp、列表正文 13sp, 只差 1sp 且标题不加粗 → **标题与正文看不出区别**。
-     现在建立三级层级(用户拍板「标题文字与列表正文需要做出差异」):
+     弹窗标题: 建立三级层级(用户拍板「标题文字与列表正文需要做出差异」):
        标题 18sp bold + jc_text主色      ← 最强
-       列表项 15sp + jc_text             ← 正文
+       列表项 14sp + jc_text             ← 正文(2026-10-09 用户要求比初版再小一号)
        次级说明 13sp + jc_text_secondary ← 最弱(用于"已开启 · 弱网时预取"这类补充说明)
      字重也参与层级: 标题 bold, 正文 normal。
 -->
@@ -35,10 +34,10 @@
         <item name="android:textStyle">bold</item>
     </style>
 
-    <!-- 列表项(正文): 15sp, 与标题拉开 3sp + 字重差; 颜色仍用 jc_text 保证可读。 -->
+    <!-- 列表项(正文): 14sp(用户要求比 15sp 再小一号), 与标题拉开层级; 颜色仍用 jc_text 保证可读。 -->
     <style name="JcPlayerDialogListItem" parent="@android:style/TextAppearance.Material">
         <item name="android:textColor">@color/jc_text</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">14sp</item>
     </style>
 
     <!-- 次级说明: 13sp + 次级色, 用于弹窗里解释当前状态的补充行。 -->

@@ -667,6 +667,41 @@ if [ -n "$TV_APK" ]; then deliver "$TV_APK" native native; fi
 
 printf '\n已复制 %s 个 APK 到 %s\n' "$COPIED_COUNT" "$DOWNLOADS"
 
+# ---- 构建后自动安装(用户要求 2026-10-09): pad 连着就直接装上, 不用手动拷 ----
+maybe_adb_install() {
+  local kind="$1"
+  local adb="${LOCALAPPDATA:-}/Android/Sdk/platform-tools/adb.exe"
+  adb="${adb//\\//}"   # Windows 路径反斜杠转正斜杠, git-bash 可执行
+  if [ ! -x "$adb" ]; then adb="$(command -v adb 2>/dev/null || true)"; fi
+  if [ -z "$adb" ] || [ ! -x "$adb" ]; then
+    printf '[自动安装] 找不到 adb, 跳过自动安装。\n'
+    return 0
+  fi
+  local dev
+  dev="$("$adb" devices 2>/dev/null | awk 'NR>1 && $2=="device"{print $1; exit}')"
+  if [ -z "$dev" ]; then
+    printf '[自动安装] 未检测到已连接的设备, 跳过安装(手动安装: %s 下的 APK)。\n' "$DOWNLOADS"
+    return 0
+  fi
+  local apk
+  apk="$(ls -t "$DOWNLOADS"/Jerocine-TV-"$kind"-v*.apk 2>/dev/null | head -1)"
+  if [ -z "$apk" ]; then
+    printf '[自动安装] %s 下没找到 %s 的 APK, 跳过。\n' "$DOWNLOADS" "$kind"
+    return 0
+  fi
+  printf '[自动安装] 检测到设备 %s, 安装 %s ...\n' "$dev" "$(basename -- "$apk")"
+  # adb.exe 是 Windows 程序, 不认 git-bash 的 /d/... 路径 → cygpath 转 D:/...
+  local apk_win
+  apk_win="$(cygpath -m -- "$apk" 2>/dev/null || echo "$apk")"
+  if "$adb" -s "$dev" install -r -- "$apk_win"; then
+    printf '[自动安装] 已装到设备 %s。\n' "$dev"
+  else
+    warn "自动安装失败(可能设备息屏/未授权 USB 调试/空间不足), 请手动安装: $apk"
+  fi
+}
+if [ -n "$WEB_APK" ]; then maybe_adb_install web; fi
+if [ -n "$TV_APK" ]; then maybe_adb_install native; fi
+
 if [ "${#VERSION_AUTOBUMPED[@]}" -gt 0 ]; then
   joined=""
   for one in "${VERSION_AUTOBUMPED[@]}"; do joined="${joined:+$joined，}$one"; done

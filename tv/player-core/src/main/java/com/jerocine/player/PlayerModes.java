@@ -85,17 +85,18 @@ public final class PlayerModes {
         return playingLocal ? "切在线" : "切本地";
     }
 
-    /** 选集弹窗条目: 已下载的集在标题后追加标记。 */
-    public static String episodeLabel(String title, boolean downloaded) {
-        if (title == null) title = "";
-        return downloaded ? title + " · 已下载" : title;
+    /** 选集弹窗条目的已下载标签(列表行右侧灰色小字; 该行本身就是这一集, 只说"已下载")。 */
+    public static String downloadedEpisodeTag() {
+        return "已下载";
     }
 
-    /** 换源弹窗条目: 当前集在该源有已下载副本时追加标记。 */
-    public static String sourceLabel(String name, int episodeCount, boolean downloaded) {
-        String n = name == null ? "" : name;
-        String s = n + " (" + episodeCount + " 集)";
-        return downloaded ? s + " · 已下载" : s;
+    /**
+     * 换源弹窗条目的已下载标签(列表行右侧灰色小字)。
+     * 用"已下载本集"而非"已下载" —— 换源列表标记的是「当前播放的这集」在该源有副本,
+     * 不是整部片都下过, 用户拍板(2026-10-09)这个措辞更准确。
+     */
+    public static String downloadedSourceTag() {
+        return "已下载本集";
     }
 
     /** 播到"本集在别的源已下载"的在线集时的一次性提示。 */

@@ -126,13 +126,10 @@ public class PlayerModesTest {
         assertEquals("本集本地播放", PlayerModes.localBadgeText());
         assertEquals("切在线", PlayerModes.localToggleText(true));
         assertEquals("切本地", PlayerModes.localToggleText(false));
-        // 选集条目: 已下载追加标记
-        assertEquals("第1集 · 已下载", PlayerModes.episodeLabel("第1集", true));
-        assertEquals("第1集", PlayerModes.episodeLabel("第1集", false));
-        assertEquals(" · 已下载", PlayerModes.episodeLabel(null, true));
-        // 换源条目: 集数 + 当前集已下载标记
-        assertEquals("lz源 (125 集) · 已下载", PlayerModes.sourceLabel("lz源", 125, true));
-        assertEquals("lz源 (125 集)", PlayerModes.sourceLabel("lz源", 125, false));
+        // 选集条目: 标签文案(右侧灰色小字, 行本身是这一集 → 只说"已下载")
+        assertEquals("已下载", PlayerModes.downloadedEpisodeTag());
+        // 换源条目: 标签指明是"当前播放的这集"在该源有副本(用户拍板的措辞)
+        assertEquals("已下载本集", PlayerModes.downloadedSourceTag());
         // 别源提示: 源名缺失时兜底
         assertEquals("本集已在「lz」源下载, 更多菜单可换源播本地",
                 PlayerModes.otherSourceToastText("lz"));

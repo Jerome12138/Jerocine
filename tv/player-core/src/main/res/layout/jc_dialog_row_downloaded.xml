@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  弹窗单选列表行(换源/选集): 标题左(weight=1, 带单选圆点) + 可选的右侧灰色小标签。
+  右侧标签用于"当前集已下载"标记(文案见 PlayerModes.downloadedSourceTag/downloadedEpisodeTag),
+  比 2026-10-09 之前把「· 已下载」拼进标题更显眼 —— 用户拍板"直接右侧灰色字体描述"。
+  标签默认不设文本: 由 PlayerDialogHelper 的 adapter 按行决定显隐与文案。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="?android:attr/listPreferredItemHeight"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="?android:attr/listPreferredItemPaddingStart"
+    android:paddingEnd="?android:attr/listPreferredItemPaddingEnd">
+
+    <CheckedTextView
+        android:id="@+id/jc_row_text"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:textAppearance="?android:attr/textAppearanceListItem"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:checkMark="?android:attr/listChoiceIndicatorSingle" />
+
+    <TextView
+        android:id="@+id/jc_row_tag"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:textAppearance="?android:attr/textAppearanceListItemSecondary"
+        android:textColor="@color/jc_text_secondary" />
+</LinearLayout>
