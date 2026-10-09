@@ -161,6 +161,16 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
   只预取"下一集确实走端侧过滤"的情形（`canPrefetch`：过滤开 + 非 bypass 模式 + 有 proxyBase + `mediaUriFor(next,raw)==raw`）—— 走代理/中转的由服务端自己缓存。**触发只有一处**：`progressTick`（5s）里 `remaining <= skipOutroMs + 60s` → `schedule()`，与 web 的 `remaining <= outro + PREFETCH_LEAD_S(60)` 同条件；`schedule()` 内用"结果年龄 < 60s 就返回"节流，所以调用方可以 5s 无脑调一次。**刻意不做"起播就预取下一集"**（用户 2026-09-25 拍板）：预取 TTL 只有 10min，而一集 30~45min ⇒ 起播那份到切集时必然过期、对自动连播是白做，唯一能覆盖的"10min 内手动按下一集"窗口太窄，不值当每集多烧一次服务端过滤（3~5s CPU + 25KB 上行）；宁可只保留"切集前那一刻一定新鲜"的这一路。失效：`loadPlaylistIntoPlayer` 里 `invalidatePrefetch()`（换片/换源/开关切换；**切集不走装载路径**，所以缓存能活过切集）+ `escalateToProxy`（本片源改走代理后端侧预取全无意义）。另有 TTL 10min、上限 8 条、`prefetchGen` 代际（在途任务换片后写回被丢弃）、`onDestroy` `shutdown()`。预取失败静默 —— 切集时按原路径再付一次全价，不改变行为。**web 播放页那套预取（`PlayView.prefetchNextEpisode`）预热的是服务端 proxy 缓存，端侧优先路径下没人查 ⇒ 对浏览器/APK 均零收益**（APK 内 video.js 从不渲染，更用不上），要受益得同样改成"预取过滤后文本"。
 - 本地联调：APK「连按4次返回→改服务器地址」可填 `http://<电脑IP>:3600` 连本地 dev（`JEROCINE_DEV_PROXY=<后端站点> pnpm dev --host`）。
 
+## 播放器弹窗 / 控制面板铁律（player-core，2026-10-09）
+
+设计文档：`docs/播放器通用弹窗组件设计-JcDialog-2026-10-09.md`（在 Harness 私有仓 docs/）。
+
+- **新增弹窗一律走 `com.jerocine.player.ui.JcDialog`**（`list` / `message` / `custom` 三入口同一个 builder），**禁止再手写 `AlertDialog.Builder`**。`checkable(bool)` 控制左侧圆圈有无；条目 `JcDialogItem.tag` 有无控制右侧灰标显隐（合并了单选/带tag单选/普通列表三种形态）；按钮可选、文案可传参（默认「确定/取消」）；80% 屏高上限组件自管。
+- **版式 token 唯一定义处** = `jc_dialog_frame.xml` / `jc_dialog_row.xml` / `JcDialogBtn`（标题 17sp bold + padTop/padBottom 16dp、主文字与按钮 15sp、tag 13sp、行高 36dp、圆圈 16dp、无按钮时内容区补 16dp 底距）。改观感只动这三处，**业务代码禁止散写字号/间距**。
+- 自定义 View 内容（如跳过设置面板）想与标题左对齐，用 `JcDialog.contentPaddingX(ctx)`（解析 dialogPreferredPadding），别硬编码 24dp。
+- 控制面板自动收起策略 = `PlayerAutoHidePolicy`（**暂停/缓冲中不主动消失**，播放中 3s 自动收），由 `PlayerActivity.updateControllerAutoHide()` 落地。别绕开它直接 `setControllerShowTimeoutMs`。
+- ⚠️ **主题 style 禁止挂无前缀 appcompat attr**（`listChoiceIndicatorSingle` / `listPreferredItemHeightSmall` 等）：库单独编译不报错，壳层 `:app` 资源链接时才炸 `attr not found`（实测 1081 打包失败）。圆圈/行高覆盖一律用 `android:` 前缀属性。
+
 ## TV / WebView 已知约束
 
 - TV 焦点环是 `box-shadow`/`outline`，会被祖先 `overflow:hidden/auto/clip` 上下裁切；横滚行/tab 条需留纵向 padding 或用 outline。
