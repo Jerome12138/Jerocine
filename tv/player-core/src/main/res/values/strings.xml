@@ -36,6 +36,7 @@
     <string name="download_manage">管理</string>
     <string name="download_manage_done">完成</string>
     <string name="download_batch_pause_fmt">暂停选中 (%1$d)</string>
+    <string name="download_batch_resume_fmt">继续选中 (%1$d)</string>
     <string name="download_batch_delete_fmt">删除选中 (%1$d)</string>
     <string name="download_batch_export_fmt">导出选中 (%1$d)</string>
     <string name="download_batch_deleted">已删除 %1$d 个任务</string>

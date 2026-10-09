@@ -48,17 +48,18 @@ import okhttp3.Response;
  * <ul>
  *   <li>下载缓存区: {@code getCacheDir()/download_cache}, SimpleCache + NoOpCacheEvictor(主动下载永不清),
  *       数据库独立见 {@link CacheDatabaseProvider}(与播放器 video_cache 完全隔离);</li>
- *   <li>批量并发: {@code setMaxParallelDownloads(3)} —— 集级并行, 每集内部由 HlsDownloader 串行分片;
- *       <b>激活顺序由引擎门控</b>(2026-10-10 用户要求): 过滤完成的任务只落 QUEUED 行(显示"排队中"),
- *       {@link #activateNext} 按 {@link DownloadQueueOrder}(episode 升序)逐个交给 media3,
- *       名额 = MAX_PARALLEL - 下载中数; media3 的并发上限只是兜底 —— <b>不能依赖它的内部
+ *   <li>队列门控(2026-10-10 三轮重设计, 用户拍板): <b>广告过滤是下载的前置步骤, 在队列里做</b> ——
+ *       入队只落 QUEUED 行(显示"排队中", 全部立即可见), {@link #activateNext} 按
+ *       {@link DownloadQueueOrder}(episode 升序)出队: 名额 = MAX_PARALLEL - (下载中+过滤中),
+ *       出队任务先跑过滤管线({@link DownloadTask#STATE_FILTERING})再注册 media3 下载。
+ *       整条链路(过滤+下载)受暂停/继续控制: 过滤中暂停 → 行留 PAUSED, 恢复后重新出队
+ *       (清单已就绪时走快速路径直接注册)。media3 的并发上限只是兜底 —— <b>不能依赖它的内部
  *       排队顺序</b>(同批加入按 id 序、跨批按加入序, 都不受集序控制, 2026-10-10 用户实锤);</li>
- *   <li>广告过滤: 入队前 GET 源站清单 → {@link M3u8FilterClient} 过滤 → 清单落库(离线播放用),
+ *   <li>广告过滤: 门控出队后 GET 源站清单 → {@link M3u8FilterClient} 过滤 → 清单落库(离线播放用),
  *       同时注入 {@link DownloadFilterPlaylistParserFactory} 让 HlsDownloader 解析时直接命中预取结果
  *       (master 不再付第二次 POST; 子表仍走 POST)。失败按 {@link DownloadFilterFallbackPolicy}
  *       分级: 网络类重试 3 轮后与其余原因一样原始流兜底(落盘前绝对化), 仅取消中止;
- *       过滤阶段先落 {@link DownloadTask#STATE_FILTERING} 行(2026-10-10 用户要求:
- *       过滤中/重试/兜底/失败全程在下载列表可见), 崩溃后自启动重跑;</li>
+ *       过滤中/重试/兜底/失败全程在下载列表可见;</li>
  *   <li>进度/状态: {@link DownloadManager.Listener} 把 Media3 状态映射到 {@link DownloadTask} 并落库;
  *       ⚠ media3 只在**状态变化/增删**时回调 listener, 下载中的字节进度不回调(1.4.1 字节码实锤:
  *       MSG_UPDATE_PROGRESS 只更新 getCurrentDownloads 内表) → 另有 2s 守护轮询把实时字节/
@@ -106,13 +107,9 @@ public final class DownloadEngine {
     /** 分片进度快照(内存, 不落库): taskId → 进度; 查询走 {@link #getSegmentProgress(String)}。 */
     private final java.util.Map<String, SegmentProgress> segmentProgressMap =
             new java.util.concurrent.ConcurrentHashMap<>();
-    /**
-     * 已提交 media3 但还没收到首个状态回调的任务 id — {@link #doActivate} 的去重闸:
-     * sendAddDownload 是异步 intent, 回调到达前业务行仍是 QUEUED, 没有这层会被下一拍
-     * activateNext 重复提交(media3 对已存在 id 重发 = 删旧缓存全量重下, 绝不能发生)。
-     */
-    private final java.util.Set<String> pendingActivation = new java.util.HashSet<>();
-    /** activateNext 的互斥锁(多个触发点跨线程提交, doActivate 内部读改 pendingActivation)。 */
+    /** 速度跟踪(内存): 每拍差分, 查询走 {@link #getTaskSpeedBps(String)}/{@link #getTotalSpeedBps()}。 */
+    private final DownloadSpeedTracker speedTracker = new DownloadSpeedTracker();
+    /** activateNext 的互斥锁(多个触发点跨线程提交, doActivate 内部读改写业务表)。 */
     private final Object activationLock = new Object();
 
     /** 入队时已过滤好的 master 清单(按源站 URL) — HlsDownloader 解析 master 时直接命中, 省一次 POST. */
@@ -207,7 +204,7 @@ public final class DownloadEngine {
         // resumeDownloads(); 若 helper 已存在或 manager 被恢复重建, 将永远不恢复 → 任务卡 QUEUED。
         // 这里主动 resume 一次, 不依赖 service 时序, 保证任何创建方入队的任务都能启动。
         manager.resumeDownloads();
-        resumeFilteringTasks();
+        resetFilteringToQueued();
         repairLegacySizes();
         // 【2026-10-10 二轮】原 requeueOrphanTasks(QUEUED 行无 media3 记录就全部立即重发)
         // 被激活门控取代: activateNext 按集序、按容量补发, 语义完全覆盖且不会瞬间打满并发。
@@ -254,18 +251,33 @@ public final class DownloadEngine {
         return taskId == null ? null : segmentProgressMap.get(taskId);
     }
 
-    /** 轮询一拍: 实时字节落库 + 分片统计。跑在守护线程, 任何异常吞掉(下拍重来)。 */
+    /**
+     * 某任务当前下载速度(bytes/s); 非下载中/首拍未采样返回 0(调用方自行隐藏"0/s")。
+     * 数据来自 2s 轮询差分, 刷新粒度与轮询一致。
+     */
+    public long getTaskSpeedBps(String taskId) {
+        return taskId == null ? 0 : speedTracker.speedBps(taskId);
+    }
+
+    /** 全部下载中任务的总速度(bytes/s), 下载页顶部"总体"速度用。 */
+    public long getTotalSpeedBps() {
+        return speedTracker.totalBps();
+    }
+
+    /** 轮询一拍: 实时字节落库 + 速度差分 + 分片统计。跑在守护线程, 任何异常吞掉(下拍重来)。 */
     private void pollProgress() {
         try {
             List<Download> downloads = manager.getCurrentDownloads();
-            int downloadingCount = 0;
+            java.util.Set<String> seen = new java.util.HashSet<>();
             for (Download d : downloads) {
                 if (d.state != Download.STATE_DOWNLOADING) continue;
-                downloadingCount++;
                 String taskId = new String(d.request.data, StandardCharsets.UTF_8);
+                seen.add(taskId);
                 DownloadTask t = repository.get(taskId);
                 if (t == null || t.state != DownloadTask.STATE_DOWNLOADING) continue;
                 long bytes = Math.max(0L, d.getBytesDownloaded());
+                // 速度差分(先于落库, 基准用同一份 bytes/now)
+                speedTracker.onSample(taskId, bytes, System.currentTimeMillis());
                 // 字节进度落库(仅 DOWNLOADING 态, 防竞态把 PAUSED 冲回 DOWNLOADING)
                 if (bytes != t.progressBytes
                         || (t.totalBytes <= 0 && d.contentLength > 0)) {
@@ -275,11 +287,12 @@ public final class DownloadEngine {
                 }
                 segmentProgressMap.put(taskId, computeSegmentProgress(t));
             }
-            // 兜底: 有空位就按队列补位(自愈漏触发的 activateNext / 后台启动被限的暂退);
-            // 无候选时 doActivate 空转一次(小表 listAll, 2s 一次可忽略)。
-            if (downloadingCount < MAX_PARALLEL) {
-                activateNext();
-            }
+            // 对账清理: 已退出下载中的任务速度不再计入总数(正常路径 onDownloadChanged 已清,
+            // 这里兜崩溃恢复/遗漏回调的僵尸条目)
+            speedTracker.retainAll(seen);
+            // 兜底: 每拍都尝试按队列补位(doActivate 内部自判名额, 无候选时空转一次, 便宜);
+            // 覆盖自愈漏触发、后台启动被限的暂退、过滤完成注册失败等所有需要推进的场景。
+            activateNext();
         } catch (Exception e) {
             // 轮询是尽力而为: 一拍失败不影响下一拍, 更不能把守护线程打死
             Log.w(TAG, "pollProgress failed", e);
@@ -313,21 +326,22 @@ public final class DownloadEngine {
     }
 
     /**
-     * 崩溃自愈: 上次进程被杀时仍卡在 FILTERING(拉清单/过滤未完成)的任务 → 重跑入队管线
-     * (fetch+filter 幂等, 过滤结果落库后照常交给 media3)。不重跑的话任务永远停在
-     * "广告过滤中"。服务重建时 {@link JerocineDownloadService} 传
-     * {@code defaultProxyBase()}(非空), 这里的过滤不会因 base 缺失而误降级。
+     * 崩溃自愈: 上次进程被杀时仍卡在 FILTERING(过滤管线被打断)的任务 → 回 QUEUED 重排队,
+     * 由 {@link #activateNext} 按集序重新出队(清单未就绪则重跑过滤, 就绪则走快速路径)。
+     * 三轮前是"直接重跑管线", 现在过滤在队列里, 一切进出都要过门控。服务重建时
+     * {@link JerocineDownloadService} 传 {@code defaultProxyBase()}(非空), 不会因 base 缺失误降级。
      */
-    private void resumeFilteringTasks() {
+    private void resetFilteringToQueued() {
         try {
             for (DownloadTask t : repository.listAll()) {
                 if (t.state != DownloadTask.STATE_FILTERING) continue;
-                Log.i(TAG, "自愈: 重跑过滤管线: " + t.id);
-                worker.execute(() -> runPipeline(t));
+                Log.i(TAG, "自愈: 过滤中断, 回队重排: " + t.id);
+                repository.updateStateIf(t.id, DownloadTask.STATE_QUEUED,
+                        DownloadTask.STATE_FILTERING);
             }
         } catch (Exception e) {
             // 自愈是尽力而为, 任何异常都不能挡住引擎初始化
-            Log.w(TAG, "resumeFilteringTasks failed", e);
+            Log.w(TAG, "resetFilteringToQueued failed", e);
         }
     }
 
@@ -374,30 +388,33 @@ public final class DownloadEngine {
      */
 
     /**
-     * 按队列激活下一批下载(异步, 幂等, 任意线程可调)。
+     * 按队列激活下一批(异步, 幂等, 任意线程可调)。
      *
-     * <p>触发点: 管线过滤完成(新 QUEUED 行) / 某任务到终态或被暂停(释放名额) / 任务删除 /
-     * {@code resume()} / {@link #pollProgress} 每 2s 兜底(自愈漏触发与后台启动失败的暂退)。
+     * <p>触发点: 入队 / 某任务到终态或被暂停(释放名额) / 任务删除 / {@code resume()} /
+     * {@link #pollProgress} 每 2s 兜底(覆盖自愈漏触发与后台启动失败的暂退)。
      */
     public void activateNext() {
         worker.execute(this::doActivate);
     }
 
-    /** 门控实现(串行于 activationLock): 有名额才按 {@link DownloadQueueOrder} 集序补发。 */
+    /**
+     * 门控实现(串行于 activationLock): 有名额才按 {@link DownloadQueueOrder} 集序出队。
+     *
+     * <p>出队 ≠ 直接下载: 先同步把行置为 FILTERING(占住名额, 也让下一拍不重复挑它),
+     * 再异步跑过滤管线 {@link #runPipeline}, 管线末端才注册 media3(见用户拍板:
+     * "广告过滤作为下载的前置步骤, 队列中拿出来先过滤再下载")。
+     * media3 已有记录的候选直接跳过(它自会续跑; 重发 = 删旧缓存全量重下, 绝不能发生)。
+     */
     private void doActivate() {
         synchronized (activationLock) {
             try {
                 List<DownloadTask> all = repository.listAll();
-                int slots = MAX_PARALLEL - DownloadQueueOrder.countDownloading(all);
+                int slots = MAX_PARALLEL - DownloadQueueOrder.countOccupied(all);
                 if (slots <= 0) return;
-                java.util.Set<String> tracked = new java.util.HashSet<>(pendingActivation);
-                for (Download d : manager.getCurrentDownloads()) {
-                    tracked.add(new String(d.request.data, StandardCharsets.UTF_8));
-                }
-                List<DownloadTask> picks = DownloadQueueOrder.pickActivatable(all, tracked, slots);
+                List<DownloadTask> picks = DownloadQueueOrder.pickActivatable(all, null, slots);
                 if (picks.isEmpty()) return;
                 // 存在性用 DownloadIndex 同步查(权威): 构造后 media3 内存表异步加载,
-                // 只看 getCurrentDownloads 会在窗口期漏掉已有记录的任务 → 重发 = 删缓存重下。
+                // 只看 getCurrentDownloads 会在窗口期漏掉已有记录的任务。
                 DefaultDownloadIndex index = new DefaultDownloadIndex(dbProvider);
                 for (DownloadTask t : picks) {
                     try {
@@ -405,21 +422,14 @@ public final class DownloadEngine {
                     } catch (IOException e) {
                         continue; // 索引读不到按"已有"处理(保守): 宁可不发也不能触发删缓存重下
                     }
-                    Log.i(TAG, "按队列激活下载: " + t.id + " (第" + (t.episode + 1) + "集)");
-                    pendingActivation.add(t.id);
-                    DownloadRequest request = new DownloadRequest.Builder(t.id, Uri.parse(t.srcUrl))
-                            .setMimeType(MimeTypes.APPLICATION_M3U8)
-                            .setData(t.id.getBytes(StandardCharsets.UTF_8))
-                            .build();
-                    try {
-                        DownloadService.sendAddDownload(appContext, JerocineDownloadService.class,
-                                request, true);
-                    } catch (IllegalStateException e) {
-                        pendingActivation.remove(t.id);
-                        // 后台启动被限: 后续任务同样会被限, 整轮撤退, 等 pollProgress 兜底重试
-                        Log.w(TAG, "activateNext blocked by background start limit: " + t.id);
-                        return;
+                    // 同步置 FILTERING: 占名额 + 防重复出队。CAS 失败 = 行已被删/改态, 跳过。
+                    if (!repository.updateStateIf(t.id, DownloadTask.STATE_FILTERING,
+                            DownloadTask.STATE_QUEUED)) {
+                        continue;
                     }
+                    Log.i(TAG, "按队列出队(先过滤): " + t.id + " (第" + (t.episode + 1) + "集)");
+                    notifyChanged(t.id);
+                    worker.execute(() -> runPipeline(t));
                 }
             } catch (Exception e) {
                 // 激活是尽力而为: 一轮失败不影响下一轮(pollProgress 兜底)
@@ -529,39 +539,51 @@ public final class DownloadEngine {
      * 产物含潜在广告段, 用户明确接受该取舍)。
      */
     public void enqueue(DownloadTask task) {
-        // 【2026-10-10 二轮】落库(FILTERING 行)同步执行在调用线程: 旧行为 insertIgnore 在
-        // worker(4 线程)里, 批量勾选时第 N 行要等前面 N-1 个完整过滤管线跑完才出现 ——
-        // 用户实锤"勾很多集会一个个慢慢出现"。DB 单行插入毫秒级, 主线程可承受。
+        // 【2026-10-10 三轮】入队只落 QUEUED 行(显示"排队中"), 过滤挪到门控出队后
+        // (用户拍板: "将广告过滤作为下载的前置步骤, 队列中拿出来先过滤再下载")。
+        // 落库同步执行在调用线程: DB 单行插入毫秒级, 批量勾选所有集立即出现在列表;
+        // 过滤并发也不再由 4 线程池决定, 而是被 MAX_PARALLEL 名额管住(过滤也占名额)。
         if (task == null || task.id == null) return;
-        task.state = DownloadTask.STATE_FILTERING;
-        task.error = "广告过滤中…";
+        task.state = DownloadTask.STATE_QUEUED;
+        task.error = "";
         if (!repository.insertIgnore(task)) {
             return; // 幂等: 已存在(UI 先查过一次, 这里双保险; 并发入队被抢先插上同理)
         }
-        Log.i(TAG, "入队(FILTERING 行已落库): " + task.id);
+        Log.i(TAG, "入队(排队中): " + task.id);
         notifyChanged(task.id);
-        worker.execute(() -> runPipeline(task));
+        activateNext();
     }
 
     /**
-     * 入队管线: 拉源站清单 → 端侧过滤(失败按 {@link DownloadFilterFallbackPolicy} 分级降级)
-     * → 保存清单(离线播用) → 交给 DownloadService。行已在 enqueue/自愈时落库(FILTERING),
-     * 这里只负责推进状态; 过滤期间用户删除(update 返回 false)则静默退出。
+     * 过滤管线(门控出队后执行): 拉源站清单 → 端侧过滤(失败按 {@link DownloadFilterFallbackPolicy}
+     * 分级降级) → 清单落盘(离线播用) → 注册 media3 下载。
+     *
+     * <p><b>全程受暂停控制</b>(2026-10-10 三轮): 每个阻塞点之间都有暂停检查点
+     * ({@link #checkNotPaused}, 过滤重试轮间隙也查) — 发现 PAUSED 立即退出, 行保持 PAUSED,
+     * 恢复后重新出队。清单已过滤好的任务(过滤中暂停→恢复)走快速路径直接注册, 不重付网络。
+     * 过滤期间用户删除(行消失)则静默退出。
      */
     private void runPipeline(DownloadTask task) {
         final String base = proxyBase;
         DownloadTask fresh = task;
         try {
+            checkNotPaused(task.id);
+            // 快速路径: 清单早已过滤好(典型: 过滤中暂停 → 恢复重新出队), 直接注册, 不重付网络
+            String existing = repository.getFilteredPlaylist(task.id);
+            if (existing != null && !existing.isEmpty()) {
+                Log.i(TAG, "清单已就绪, 直接注册: " + task.id);
+                registerToMedia3(task, task.rawFallback);
+                return;
+            }
             byte[] raw = fetchPlaylist(task.srcUrl);
+            checkNotPaused(task.id);
             Log.i(TAG, "拉清单完成: " + task.id + " len=" + raw.length);
             FilterOutcome master = filterWithFallback(base, task.srcUrl, raw, "清单",
-                    (attempt, max) -> {
-                        repository.updateFilterNote(task.id,
-                                "广告过滤中 · 重试 " + attempt + "/" + max);
-                        notifyChanged(task.id);
-                    });
+                    pauseAwareFeedback(task.id));
             if (master.cancelled) {
-                Log.i(TAG, "已取消, 停止入队: " + task.id);
+                // 仅 worker 关停(引擎 release)等线程中断场景; 用户暂停走检查点不走这里。
+                // 行可能是 FILTERING 残留: 启动自愈(resetFilteringToQueued)会兜回队列。
+                Log.i(TAG, "过滤被中断, 停止管线: " + task.id);
                 return;
             }
             if (master.error != null) {
@@ -590,15 +612,12 @@ public final class DownloadEngine {
                     return;
                 }
                 byte[] childRaw = fetchPlaylist(childUrl);
+                checkNotPaused(task.id);
                 // 子表重试同样回写过程文案(同一行, 文案相同, 幂等)
                 FilterOutcome child = filterWithFallback(base, childUrl, childRaw, "子表",
-                        (attempt, max) -> {
-                            repository.updateFilterNote(task.id,
-                                    "广告过滤中 · 重试 " + attempt + "/" + max);
-                            notifyChanged(task.id);
-                        });
+                        pauseAwareFeedback(task.id));
                 if (child.cancelled) {
-                    Log.i(TAG, "已取消, 停止入队: " + task.id);
+                    Log.i(TAG, "过滤被中断, 停止管线: " + task.id);
                     return;
                 }
                 if (child.error != null) {
@@ -627,14 +646,15 @@ public final class DownloadEngine {
             }
             fresh.filteredPlaylist = new String(playlistData, StandardCharsets.UTF_8);
             fresh.rawFallback = rawFlag; // 兜底标记落库, 下载中/已完成行常驻显示(用户要求可见)
-            fresh.state = DownloadTask.STATE_QUEUED;
-            fresh.error = "";
-            // 先读过滤期间的暂停意图(update 会把 PAUSED 覆盖成 QUEUED, 之后就读不到了)
+            // 过滤期间用户按了暂停: 清单照常落盘(恢复后走快速路径复用), 但行保持 PAUSED、不注册
             DownloadTask cur = repository.get(task.id);
             if (cur == null) {
                 return; // 过滤期间用户已删除该任务: 静默退出, 不再交给 media3
             }
             boolean pausedDuringFiltering = cur.state == DownloadTask.STATE_PAUSED;
+            fresh.state = pausedDuringFiltering
+                    ? DownloadTask.STATE_PAUSED : DownloadTask.STATE_QUEUED;
+            fresh.error = "";
             if (!repository.update(fresh)) {
                 return; // 行已消失(并发删除): 同上静默退出
             }
@@ -643,61 +663,97 @@ public final class DownloadEngine {
             if (!dir.exists()) dir.mkdirs();
             writePlaylistFile(new File(dir, "playlist.m3u8"), playlistData);
             if (pausedDuringFiltering) {
-                // 过滤期间用户按了暂停: 直接注册进 media3 并回挂 stopReason(暂停不占下载
-                // 名额, 不走激活门控)。setStopReason 对未注册任务是静默 no-op, 故必须在
-                // sendAddDownload 之后调用; 极小窗口内可能竞态(add 尚未入 handler,
-                // stopReason 落空 → 照常下载), 与 pause() 的已知竞态窗口同源, 不额外加锁。
-                Log.i(TAG, "已入队 media3(过滤中已暂停): " + task.id
+                Log.i(TAG, "过滤完成但任务已暂停, 留在队列: " + task.id
                         + (rawFlag ? " (原始流兜底)" : ""));
-                DownloadRequest request = new DownloadRequest.Builder(task.id, Uri.parse(task.srcUrl))
-                        .setMimeType(MimeTypes.APPLICATION_M3U8)
-                        .setData(task.id.getBytes(StandardCharsets.UTF_8))
-                        .build();
-                DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
-                manager.setStopReason(task.id, 1);
-            } else {
-                // 【2026-10-10 二轮】不直接交给 media3: 落 QUEUED 行(显示"排队中")后由
-                // activateNext 按集序门控激活 —— 全部过滤完的任务先排队, 按原集序依次开下。
-                Log.i(TAG, "过滤完成待激活: " + task.id + (rawFlag ? " (原始流兜底)" : ""));
-                activateNext();
+                return;
             }
+            Log.i(TAG, "过滤完成, 注册 media3: " + task.id + (rawFlag ? " (原始流兜底)" : ""));
+            registerToMedia3(fresh, rawFlag);
+        } catch (PausedException pe) {
+            // 检查点发现暂停: 行已是 PAUSED(pause() 写的), 直接退出; 恢复后重新出队
+            Log.i(TAG, "过滤期间被暂停, 管线退出: " + task.id);
         } catch (IllegalArgumentException e) {
             // 路径校验失败(filmId 非法): 说清是哪个任务出的问题, 不混进"清单获取失败"
-            Log.w(TAG, "enqueue bad filmId: " + task.id, e);
+            Log.w(TAG, "pipeline bad filmId: " + task.id, e);
             fail(fresh, "任务参数非法(影片ID 含非法字符), 无法下载");
-        } catch (IllegalStateException e) {
-            // Android 8+ 后台启动前台服务被系统拒绝: sendAddDownload 跑在 worker 线程,
-            // 用户点完"开始下载"可能已退出页面 → 抛 IllegalStateException。
-            // 原实现被下面的 catch(Exception) 吞掉并报"清单获取失败", 用户完全看不懂。
-            Log.w(TAG, "enqueue blocked by background start limit: " + task.id, e);
-            fail(fresh, "系统限制后台启动下载服务, 请回到应用前台后重试");
         } catch (Exception e) {
-            Log.w(TAG, "enqueue failed: " + task.id, e);
+            Log.w(TAG, "pipeline failed: " + task.id, e);
             fail(fresh, "清单获取失败: " + safeMessage(e));
         }
     }
 
+    /** 暂停检查点命中 — 贯穿过滤管线的控制流退出信号(行已是 PAUSED, 无需再写库)。 */
+    private static final class PausedException extends RuntimeException {
+    }
+
     /**
- * 暂停(手动): media3 用自定义 stop reason(>0) 表达手动暂停 → 任务 PAUSED。
- *
- * <p><b>必须同步业务表</b>: 只调 {@code manager.setStopReason} 的话, 存在两个问题 ——
- * <ol>
- *   <li><b>竞态窗口</b>: 入队流程先落 FILTERING 行、过滤完 update(QUEUED) 后才异步
- *       {@code sendAddDownload}; 此窗口内 media3 的 DownloadIndex 尚无该 id,
- *       {@code setStopReason} 找不到记录即<b>静默返回</b> → 用户点暂停没反应,
- *       任务照常下载, UI 还一直显示"暂停"按钮可反复点。</li>
- *   <li><b>UI 无反馈</b>: 不写业务表则 UI 拿不到新状态, 用户以为按钮坏了。</li>
- * </ol>
- * 两侧都做: media3 侧对已注册任务生效, 业务表保证即时可见;
- * 若任务还没注册到 media3,业务表的 PAUSED 会在其首次 onDownloadChanged 时被一致保留
- * (onDownloadChanged 以 stopReason 为准, 不会把它改回 QUEUED/DOWNLOADING)。
- */
-public void pause(String taskId) {
+     * 暂停检查点: 行已 PAUSED(或已被删除)时抛 {@link PausedException} 退出管线。
+     * 检查点位置: 管线入口 / 每次"拉清单"网络请求返回后 / 过滤重试轮间隙(见
+     * {@link #pauseAwareFeedback})。用户在单个阻塞请求进行中的暂停, 会在请求返回后的
+     * 下一检查点生效(请求本身不可中断, callTimeout 90s 封顶)。
+     */
+    private void checkNotPaused(String taskId) {
+        DownloadTask cur = repository.get(taskId);
+        if (cur == null || cur.state == DownloadTask.STATE_PAUSED) {
+            throw new PausedException();
+        }
+    }
+
+    /** 过滤重试回调: 过程文案上屏 + 顺带做暂停检查(重试轮间隙是天然检查点)。 */
+    private RetryFeedback pauseAwareFeedback(String taskId) {
+        return (attempt, max) -> {
+            checkNotPaused(taskId); // 已暂停 → 抛 PausedException, 立即中止后续重试轮
+            repository.updateFilterNote(taskId, "广告过滤中 · 重试 " + attempt + "/" + max);
+            notifyChanged(taskId);
+        };
+    }
+
+    /**
+     * 注册 media3 下载(过滤完成后 / 快速路径): sendAddDownload + 注册瞬间暂停竞态兜底。
+     * setStopReason 对未注册任务是静默 no-op, 所以暂停兜底必须在 sendAddDownload 之后;
+     * 注册后首回调若撞上 DB=PAUSED, {@code onDownloadChanged} 的暂停保护闸会再兜一层。
+     */
+    private void registerToMedia3(DownloadTask t, boolean rawFallback) {
+        DownloadRequest request = new DownloadRequest.Builder(t.id, Uri.parse(t.srcUrl))
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .setData(t.id.getBytes(StandardCharsets.UTF_8))
+                .build();
+        try {
+            DownloadService.sendAddDownload(appContext, JerocineDownloadService.class,
+                    request, true);
+        } catch (IllegalStateException e) {
+            // Android 8+ 后台启动前台服务被系统拒绝: 用户点完"开始下载"可能已退出页面
+            Log.w(TAG, "register blocked by background start limit: " + t.id, e);
+            fail(t, "系统限制后台启动下载服务, 请回到应用前台后重试");
+            return;
+        }
+        Log.i(TAG, "已注册 media3: " + t.id + (rawFallback ? " (原始流兜底)" : ""));
+        DownloadTask cur = repository.get(t.id);
+        if (cur != null && cur.state == DownloadTask.STATE_PAUSED) {
+            manager.setStopReason(t.id, 1); // 注册瞬间用户已按暂停: 回挂 stopReason, 不开下
+        }
+    }
+
+    /**
+     * 暂停(手动): media3 用自定义 stop reason(>0) 表达手动暂停 → 任务 PAUSED。
+     *
+     * <p><b>必须同步业务表</b>: 只调 {@code manager.setStopReason} 的话, 存在两个问题 ——
+     * <ol>
+     *   <li><b>竞态窗口</b>: 门控出队后过滤管线末端才 {@code sendAddDownload}; 若任务还没
+     *       注册进 media3(排队中/过滤中), {@code setStopReason} 找不到记录即<b>静默返回</b>
+     *       → 只写业务表的 PAUSED 就是唯一事实源, 由过滤管线检查点与 onDownloadChanged
+     *       的暂停保护闸保证 media3 侧最终一致。</li>
+     *   <li><b>UI 无反馈</b>: 不写业务表则 UI 拿不到新状态, 用户以为按钮坏了。</li>
+     * </ol>
+     * 两侧都做: media3 侧对已注册任务生效, 业务表保证即时可见。
+     */
+    public void pause(String taskId) {
         manager.setStopReason(taskId, 1);
         DownloadTask t = repository.get(taskId);
         if (t == null) return;
         // 条件更新: 只在"进行中"时改。不用 update(t) 全行覆盖, 避免与导出/进度回写互相踩。
-        // FILTERING 也可暂停: 行会被标 PAUSED, 过滤管线末端检测到后注册 media3 并回挂 stopReason。
+        // FILTERING/QUEUED 也可暂停: 只写业务行 PAUSED —— 过滤管线检查点会在下一个阻塞点后
+        // 退出; 若已注册 media3, onDownloadChanged 的暂停保护闸会反向按下 media3。
         if (t.state == DownloadTask.STATE_QUEUED || t.state == DownloadTask.STATE_DOWNLOADING
                 || t.state == DownloadTask.STATE_PAUSED
                 || t.state == DownloadTask.STATE_FILTERING) {
@@ -764,7 +820,7 @@ public void pause(String taskId) {
      */
     public void remove(String taskId) {
         DownloadTask t = repository.get(taskId);
-        pendingActivation.remove(taskId); // 若激活在途, 撤闸防重复补发
+        speedTracker.remove(taskId);
         if (t != null) {
             clearDownloadedSegments(t);
             manager.removeDownload(taskId);
@@ -818,7 +874,6 @@ public void pause(String taskId) {
 
     private void onDownloadChanged(Download d, @Nullable Exception exception) {
         String taskId = new String(d.request.data, StandardCharsets.UTF_8);
-        pendingActivation.remove(taskId); // media3 已认识它了, 去重闸放行(后续状态由此处同步)
         DownloadTask t = repository.get(taskId);
         if (t == null) return;
         int state;
@@ -848,6 +903,22 @@ public void pause(String taskId) {
             default: // REMOVING / RESTARTING: 保持原状态(用哨兵表示不写 state)
                 state = DownloadRepository.EXPORTING_SENTINEL;
                 break;
+        }
+        // 【2026-10-10 三轮修"排队中暂停后又自己开下"】暂停保护闸: 业务行已是 PAUSED 而
+        // media3 还在跑/要开下(竞态: 注册在途回调晚到、崩溃重启后 stopReason 丢失等),
+        // 此时绝不能把 PAUSED 冲掉 —— 反向把 media3 按下暂停, 业务行保持不动。
+        if (t.state == DownloadTask.STATE_PAUSED
+                && (state == DownloadTask.STATE_DOWNLOADING
+                || state == DownloadTask.STATE_QUEUED)) {
+            Log.i(TAG, "业务行已暂停而 media3 在跑, 强制暂停: " + taskId);
+            manager.setStopReason(taskId, 1);
+            speedTracker.remove(taskId);
+            notifyChanged(taskId);
+            return;
+        }
+        // 退出下载中 → 速度不再计入(总速度与分集速度都归零)
+        if (state != DownloadTask.STATE_DOWNLOADING) {
+            speedTracker.remove(taskId);
         }
         // 局部更新(不写全列): 进度回调每 5 秒一次, 全行覆盖会把导出流程正在写的
         // EXPORTING / exportedPath 写回旧值, 击穿防并发并丢失"已导出"标记。
@@ -1041,7 +1112,7 @@ public void pause(String taskId) {
 
     /**
      * 取 master 清单第一个 variant 的 URL(多码率取首个, 与播放器行为对齐;
-     * 相对路径按 master URL 绝对化 — 服务端 FilterText 一般已绝对化, 这里兑底)。
+     * 相对路径按 master URL 绝对化 — 服务端 FilterText 一般已绝对化, 这里兜底)。
      * public: BufferPrefetcher(缓冲)同样要下钻 master, 同一套取法。
      */
     public static String firstVariantUrl(byte[] data, String masterUrl) {

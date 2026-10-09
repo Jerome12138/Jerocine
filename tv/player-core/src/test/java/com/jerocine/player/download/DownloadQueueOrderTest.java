@@ -90,19 +90,22 @@ public class DownloadQueueOrderTest {
     @Test
     public void emptyInputsAreSafe() {
         assertTrue(DownloadQueueOrder.pickActivatable(new ArrayList<>(), new HashSet<>(), 3).isEmpty());
+        assertTrue(DownloadQueueOrder.pickActivatable(new ArrayList<>(), null, 3).isEmpty());
         assertTrue(DownloadQueueOrder.pickActivatable(null, null, 3).isEmpty());
-        assertEquals(0, DownloadQueueOrder.countDownloading(null));
-        assertEquals(0, DownloadQueueOrder.countDownloading(new ArrayList<>()));
+        assertEquals(0, DownloadQueueOrder.countOccupied(null));
+        assertEquals(0, DownloadQueueOrder.countOccupied(new ArrayList<>()));
     }
 
     @Test
-    public void countsOnlyDownloading() {
+    public void countsDownloadingAndFilteringAsOccupied() {
+        // 2026-10-10 三轮: 过滤是队列前置步骤, 出队先过滤 → 过滤中也占名额
         List<DownloadTask> all = new ArrayList<>(Arrays.asList(
                 task("a", DownloadTask.STATE_DOWNLOADING, 0, 1),
-                task("b", DownloadTask.STATE_DOWNLOADING, 1, 2),
+                task("b", DownloadTask.STATE_FILTERING, 1, 2),
                 task("c", DownloadTask.STATE_QUEUED, 2, 3),
-                task("d", DownloadTask.STATE_PAUSED, 3, 4)));
-        assertEquals(2, DownloadQueueOrder.countDownloading(all));
+                task("d", DownloadTask.STATE_PAUSED, 3, 4),
+                task("e", DownloadTask.STATE_COMPLETED, 4, 5)));
+        assertEquals(2, DownloadQueueOrder.countOccupied(all));
     }
 
     @Test

@@ -11,10 +11,11 @@ import java.util.Set;
  * 下载队列激活顺序(纯逻辑, 可单测) — 2026-10-10 用户需求:
  * "全部入队并显示, 然后并发同时下载几个, 后面的显示排队中, 队列顺序按原集序号加入, 按队列激活"。
  *
- * <p>背景: 入队管线(拉清单+过滤, 见 {@link DownloadEngine#enqueue})由 4 线程池并行执行,
- * 各任务到达"过滤完成"的先后与集序无关; media3 内部队列同批加入按 id 序、跨批按加入序,
- * 都不受集序控制。改为引擎门控: 过滤完成只落 QUEUED 行, 由 {@link DownloadEngine#activateNext}
- * 按 {@link #pickActivatable} 选出的顺序逐个交给 media3, 容量 = {@code MAX_PARALLEL - 下载中数}。
+ * <p>背景: 入队只落 QUEUED 行(全部立即可见), 广告过滤是<b>队列的前置步骤</b>(2026-10-10 三轮
+ * 用户拍板): {@link com.jerocine.player.download.DownloadEngine#activateNext} 按
+ * {@link #pickActivatable} 选出的顺序出队, 出队任务先跑过滤管线(FILTERING)再交给 media3 下载;
+ * <b>过滤中也占一个名额</b>(见 {@link #countOccupied}), 所以整条链路并发恒 ≤ MAX_PARALLEL。
+ * media3 内部队列同批加入按 id 序、跨批按加入序, 都不受集序控制 —— 顺序必须在引擎侧控制。
  *
  * <p>排序键: episode 升序(用户要求"按原集序号") → createdAt 升序(同集号跨批次/跨片先来先下)
  * → id 升序(全并列时稳定排序, 保证两次调用结果一致, 不在同一拍内来回换序)。
@@ -56,12 +57,20 @@ public final class DownloadQueueOrder {
         return out;
     }
 
-    /** 下载中任务数(激活名额计算用): 只认业务表 DOWNLOADING 态。 */
-    public static int countDownloading(List<DownloadTask> all) {
+    /**
+     * 占用名额的任务数(激活名额计算用): 下载中(DOWNLOADING) + 过滤中(FILTERING)。
+     *
+     * <p>过滤中也占名额是三轮重设计(2026-10-10)的语义: 过滤是队列前置步骤, 出队即占坑,
+     * 否则 3 个名额会同时被 3 个过滤中的任务占住线程却不开下, 下载反而饿死 ——
+     * 反过来过滤也计入, 保证"同时最多 3 条链路(过滤或下载)在跑", 恒定可控。
+     */
+    public static int countOccupied(List<DownloadTask> all) {
         int n = 0;
         if (all == null) return 0;
         for (DownloadTask t : all) {
-            if (t != null && t.state == DownloadTask.STATE_DOWNLOADING) n++;
+            if (t == null) continue;
+            if (t.state == DownloadTask.STATE_DOWNLOADING
+                    || t.state == DownloadTask.STATE_FILTERING) n++;
         }
         return n;
     }

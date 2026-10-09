@@ -11,9 +11,11 @@ package com.jerocine.player.download;
  *   QUEUED ──→ DOWNLOADING ──→ COMPLETED ──→ EXPORTING ──→ COMPLETED(exportedPath 非空)
  *     │              │
  *     ├──→ PAUSED ←──┤              (用户暂停; PAUSED ──→ QUEUED 续传)
- *     └──→ FAILED ←──┘              (失败可重试; FAILED ──→ QUEUED 重试)
+ *     ├──→ FAILED ←──┘              (失败可重试; FAILED ──→ QUEUED 重试)
+ *     └──→ FILTERING                (2026-10-10 三轮: 门控出队先过滤再下载, 全程受暂停控制)
  *
- *   FILTERING ──→ QUEUED | PAUSED | FAILED   (入队起点: 拉清单+广告过滤阶段, 见 DownloadEngine.enqueue)
+ *   FILTERING ──→ QUEUED | PAUSED | FAILED   (过滤结束: 成功/兜底回 QUEUED 等注册;
+ *                                             过滤中暂停 → PAUSED; 失败 → FAILED)
  * </pre>
  * 删除不走状态机(任意态都可删除, 见 DownloadActivity)。
  */
@@ -26,9 +28,10 @@ public final class DownloadTask {
     public static final int STATE_FAILED = 4;
     public static final int STATE_EXPORTING = 5;
     /**
-     * 拉清单+广告过滤阶段(2026-10-10): 入队后先落库此状态, 让"下载中"列表立即可见
-     * (过滤是网络操作, 含最多 3 轮重试, 可达数十秒; 旧行为过滤完才入库 → 用户看空白)。
-     * 过滤结束 → QUEUED(成功/原始流兜底) 或 FAILED; 用户可在过滤期间暂停。
+     * 拉清单+广告过滤阶段: <b>队列的前置步骤</b>(2026-10-10 三轮用户拍板) —— 入队只落 QUEUED,
+     * 门控出队后才进入本状态跑过滤管线, 结束回 QUEUED(等注册 media3)/PAUSED/FAILED。
+     * 过滤中/重试轮次/兜底全程在下载列表可见; 过滤中暂停 → PAUSED, 恢复后重新出队
+     * (清单已就绪时走快速路径直接注册, 不重付网络)。
      */
     public static final int STATE_FILTERING = 6;
 
@@ -98,7 +101,10 @@ public final class DownloadTask {
     public static boolean canTransition(int from, int to) {
         switch (from) {
             case STATE_QUEUED:
-                return to == STATE_DOWNLOADING || to == STATE_PAUSED || to == STATE_FAILED;
+                // DOWNLOADING(门控出队直接注册) / PAUSED(用户暂停) / FAILED(拉清单失败等) /
+                // FILTERING(2026-10-10 三轮: 门控出队先跑过滤管线 —— 过滤是队列前置步骤)
+                return to == STATE_DOWNLOADING || to == STATE_PAUSED || to == STATE_FAILED
+                        || to == STATE_FILTERING;
             case STATE_DOWNLOADING:
                 return to == STATE_COMPLETED || to == STATE_PAUSED || to == STATE_FAILED;
             case STATE_PAUSED:

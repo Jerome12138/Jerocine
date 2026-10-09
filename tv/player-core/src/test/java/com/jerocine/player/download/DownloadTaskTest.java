@@ -88,8 +88,9 @@ public class DownloadTaskTest {
         assertFalse(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_DOWNLOADING));
         assertFalse(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_COMPLETED));
         assertFalse(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_EXPORTING));
-        // 过滤是入队起点, 不接受从其它状态"回退"进过滤
-        assertFalse(DownloadTask.canTransition(DownloadTask.STATE_QUEUED, DownloadTask.STATE_FILTERING));
+        // 2026-10-10 三轮: 过滤是队列前置步骤, QUEUED(排队中)出队即进 FILTERING(门控出队)
+        assertTrue(DownloadTask.canTransition(DownloadTask.STATE_QUEUED, DownloadTask.STATE_FILTERING));
+        // 但 PAUSED/FAILED 不能直接进过滤(必须先回 QUEUED 由门控出队)
         assertFalse(DownloadTask.canTransition(DownloadTask.STATE_PAUSED, DownloadTask.STATE_FILTERING));
         assertFalse(DownloadTask.canTransition(DownloadTask.STATE_FAILED, DownloadTask.STATE_FILTERING));
         // 暂停的过滤任务恢复后照常走 PAUSED → QUEUED → DOWNLOADING

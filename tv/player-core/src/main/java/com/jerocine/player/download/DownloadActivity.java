@@ -79,7 +79,7 @@ public class DownloadActivity extends AppCompatActivity {
     private Button btnManageActive, btnManageDone;
     private View llSelectAllActive, ivSelectAllActive, llSelectAllDone, ivSelectAllDone;
     private LinearLayout llBatchActive, llBatchDone;
-    private Button btnBatchPause, btnBatchDeleteActive, btnBatchExport, btnBatchDeleteDone;
+    private Button btnBatchPause, btnBatchResume, btnBatchDeleteActive, btnBatchExport, btnBatchDeleteDone;
 
     /** 当前选中的 tab(0选集/1下载中/2已完成)。*/
     private int currentTab = 0;
@@ -247,6 +247,7 @@ public class DownloadActivity extends AppCompatActivity {
         llBatchActive = findViewById(R.id.ll_batch_active);
         llBatchDone = findViewById(R.id.ll_batch_done);
         btnBatchPause = findViewById(R.id.btn_batch_pause);
+        btnBatchResume = findViewById(R.id.btn_batch_resume);
         btnBatchDeleteActive = findViewById(R.id.btn_batch_delete_active);
         btnBatchExport = findViewById(R.id.btn_batch_export);
         btnBatchDeleteDone = findViewById(R.id.btn_batch_delete_done);
@@ -255,6 +256,7 @@ public class DownloadActivity extends AppCompatActivity {
         llSelectAllActive.setOnClickListener(v -> toggleSelectAllActive());
         llSelectAllDone.setOnClickListener(v -> toggleSelectAllDone());
         btnBatchPause.setOnClickListener(v -> onBatchPause());
+        btnBatchResume.setOnClickListener(v -> onBatchResume());
         btnBatchDeleteActive.setOnClickListener(v -> onBatchDelete(false));
         btnBatchExport.setOnClickListener(v -> onBatchExport());
         btnBatchDeleteDone.setOnClickListener(v -> onBatchDelete(true));
@@ -836,8 +838,12 @@ public class DownloadActivity extends AppCompatActivity {
         for (DownloadTask t : doneTasks) doneBytes += displaySize(t);
         String summary = doneTasks.isEmpty() ? ""
                 : getString(R.string.download_summary_fmt, doneTasks.size(), sizeText(doneBytes));
-        tvActiveSummary.setText(summary);
         tvDoneSummary.setText(summary);
+        // 总体下载速度(2026-10-10): 摘要行尾部追加, 无下载中(总速 0)时不显示
+        long totalBps = engine.getTotalSpeedBps();
+        tvActiveSummary.setText(totalBps > 0
+                ? (summary.isEmpty() ? "" : summary + " · ") + "总体 " + speedText(totalBps)
+                : summary);
         // 【2026-10-10 二轮】summary 改成 weight=1 常驻(空文本不占视觉), 右侧"管理"入口
         // 恒靠右; 原先空态 GONE 的逻辑撤掉(否则管理按钮会塌到左边)。
         // 管理模式勾选清理: 只保留仍存在的任务; 列表空了自动退出该 tab 的管理模式。
@@ -1011,18 +1017,29 @@ public class DownloadActivity extends AppCompatActivity {
                 : R.drawable.jc_checkbox_off);
     }
 
-    /** 底部批量按钮文案与可用态: 暂停/导出只统计可操作的(排队/下载中/过滤中; COMPLETED)。 */
+    /**
+     * 底部批量按钮文案与可用态: 暂停只统计可暂停态(下载中/排队/过滤中),
+     * 继续只统计可恢复态(已暂停/失败), 导出只统计 COMPLETED。
+     */
     private void updateBatchButtons() {
         int pausable = 0;
+        int resumable = 0;
         for (DownloadTask t : activeTasks) {
-            if (selectedActiveIds.contains(t.id) && (t.state == DownloadTask.STATE_DOWNLOADING
+            if (!selectedActiveIds.contains(t.id)) continue;
+            if (t.state == DownloadTask.STATE_DOWNLOADING
                     || t.state == DownloadTask.STATE_QUEUED
-                    || t.state == DownloadTask.STATE_FILTERING)) {
+                    || t.state == DownloadTask.STATE_FILTERING) {
                 pausable++;
+            }
+            if (t.state == DownloadTask.STATE_PAUSED
+                    || t.state == DownloadTask.STATE_FAILED) {
+                resumable++;
             }
         }
         btnBatchPause.setText(getString(R.string.download_batch_pause_fmt, pausable));
         btnBatchPause.setEnabled(pausable > 0);
+        btnBatchResume.setText(getString(R.string.download_batch_resume_fmt, resumable));
+        btnBatchResume.setEnabled(resumable > 0);
         btnBatchDeleteActive.setText(getString(R.string.download_batch_delete_fmt,
                 selectedActiveIds.size()));
         btnBatchDeleteActive.setEnabled(!selectedActiveIds.isEmpty());
@@ -1052,6 +1069,22 @@ public class DownloadActivity extends AppCompatActivity {
             }
         }
         toast(n > 0 ? getString(R.string.download_paused_n, n)
+                : getString(R.string.download_none_operable));
+        refreshTasks();
+    }
+
+    /** 批量继续(下载中 tab): 对 PAUSED/FAILED 逐个 resume; 单个失败不阻断其余。 */
+    private void onBatchResume() {
+        int n = 0;
+        for (DownloadTask t : activeTasks) {
+            if (!selectedActiveIds.contains(t.id)) continue;
+            if (t.state == DownloadTask.STATE_PAUSED
+                    || t.state == DownloadTask.STATE_FAILED) {
+                engine.resume(t.id);
+                n++;
+            }
+        }
+        toast(n > 0 ? getString(R.string.download_resumed_n, n)
                 : getString(R.string.download_none_operable));
         refreshTasks();
     }
@@ -1176,7 +1209,8 @@ public class DownloadActivity extends AppCompatActivity {
             String infoStr;
             switch (t.state) {
                 case DownloadTask.STATE_DOWNLOADING:
-                    infoStr = DownloadTask.withRawBadge(t.rawFallback, downloadingInfo(t, sp));
+                    infoStr = DownloadTask.withRawBadge(t.rawFallback,
+                            downloadingInfo(t, sp, engine.getTaskSpeedBps(t.id)));
                     if (frac >= 0f) {
                         ring.setProgress(frac);
                     } else {
@@ -1524,8 +1558,10 @@ public class DownloadActivity extends AppCompatActivity {
         return (int) (t.progressBytes * 100 / t.totalBytes) + "% · " + sz;
     }
 
-    /** 下载中行信息: 有分片快照用 "45% · 96/213 片 · 12.3MB"; 无(入队头几秒)退字节逻辑。 */
-    private static String downloadingInfo(DownloadTask t, DownloadEngine.SegmentProgress sp) {
+    /** 下载中行信息: 有分片快照用 "45% · 96/213 片 · 12.3MB · 1.2MB/s"; 无(入队头几秒)退字节逻辑。 */
+    private String downloadingInfo(DownloadTask t, DownloadEngine.SegmentProgress sp,
+                                   long speedBps) {
+        String base;
         if (sp != null && sp.totalSegments > 0) {
             int pct = sp.cachedSegments * 100 / sp.totalSegments;
             StringBuilder sb = new StringBuilder()
@@ -1533,9 +1569,17 @@ public class DownloadActivity extends AppCompatActivity {
                     .append(sp.cachedSegments).append('/')
                     .append(sp.totalSegments).append(" 片");
             if (sp.cachedBytes > 0) sb.append(" · ").append(sizeText(sp.cachedBytes));
-            return sb.toString();
+            base = sb.toString();
+        } else {
+            base = progressInfo(t);
         }
-        return progressInfo(t);
+        // 分集速度(2026-10-10): 0(首拍未采样/刚暂停)不追加, 免得闪 "0KB/s"
+        return speedBps > 0 ? base + " · " + speedText(speedBps) : base;
+    }
+
+    /** 速度文案: sizeText + "/s"。 */
+    private static String speedText(long bps) {
+        return sizeText(bps) + "/s";
     }
 
     /** 暂停/失败行信息: 总量已知用 x/y, 否则退已下字节(0 时只有状态词); 分片快照可用时优先。 */

@@ -434,6 +434,19 @@
                         android:focusable="true" />
 
                     <Button
+                        android:id="@+id/btn_batch_resume"
+                        style="@style/JcDownloadBtnPrimary"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="12dp"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="12dp"
+                        android:textSize="14sp"
+                        android:text="@string/download_batch_resume_fmt"
+                        android:focusable="true" />
+
+                    <Button
                         android:id="@+id/btn_batch_delete_active"
                         android:layout_width="0dp"
                         android:layout_weight="1"
