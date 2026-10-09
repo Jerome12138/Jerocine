@@ -19,14 +19,25 @@
         <item name="android:textAppearanceListItem">@style/JcPlayerDialogListItem</item>
         <item name="android:textAppearanceListItemSmall">@style/JcPlayerDialogListItem</item>
         <item name="android:textAppearanceListItemSecondary">@style/JcPlayerDialogListSecondary</item>
+        <!-- 列表行高 48→40dp(2026-10-09 用户要求缩小列表间距): 管框架弹窗行
+             (倍速/选集/更多菜单, select_dialog_*_material 用 ?android:attr/listPreferredItemHeightSmall)。
+             注意: 不能再挂无前缀的 appcompat 同名 attr —— 壳层 AAPT 链接会报
+             attr/listChoiceIndicatorSingle not found(实测 1081 打包失败);
+             include 的 appcompat 行(行高/字号)由 downloadedRowAdapter 显式设置。 -->
+        <item name="android:listPreferredItemHeightSmall">40dp</item>
+        <!-- 单选圆点缩小(系统默认 ~32dp → 18dp): framework 属性即可同时覆盖
+             框架行与 appcompat include 行(其 drawableStart 也引用 ?android:attr/)。 -->
+        <item name="android:listChoiceIndicatorSingle">@drawable/jc_dialog_radio</item>
     </style>
 
     <!--
      弹窗标题: 建立三级层级(用户拍板「标题文字与列表正文需要做出差异」):
        标题 18sp bold + jc_text主色      ← 最强
-       列表项 14sp + jc_text             ← 正文(2026-10-09 用户要求比初版再小一号)
-       次级说明 13sp + jc_text_secondary ← 最弱(用于"已开启 · 弱网时预取"这类补充说明)
+       列表项 13sp + jc_text             ← 正文(2026-10-09 用户要求再缩小一档, 14→13)
+       次级说明 12sp + jc_text_secondary ← 最弱(用于"已开启 · 弱网时预取"这类补充说明)
      字重也参与层级: 标题 bold, 正文 normal。
+     注意: jc_dialog_row_downloaded include 的 appcompat 行文字走 textAppearanceMedium,
+     不能被本文件覆盖 → 由 downloadedRowAdapter 在 getView 里显式 set 13sp 对齐。
 -->
     <style name="JcPlayerDialogTitle" parent="@android:style/TextAppearance.Material.DialogWindowTitle">
         <item name="android:textColor">@color/jc_text</item>
@@ -34,16 +45,16 @@
         <item name="android:textStyle">bold</item>
     </style>
 
-    <!-- 列表项(正文): 14sp(用户要求比 15sp 再小一号), 与标题拉开层级; 颜色仍用 jc_text 保证可读。 -->
+    <!-- 列表项(正文): 13sp(2026-10-09 用户要求再缩小一档), 与标题拉开层级; 颜色仍用 jc_text 保证可读。 -->
     <style name="JcPlayerDialogListItem" parent="@android:style/TextAppearance.Material">
         <item name="android:textColor">@color/jc_text</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">13sp</item>
     </style>
 
-    <!-- 次级说明: 13sp + 次级色, 用于弹窗里解释当前状态的补充行。 -->
+    <!-- 次级说明: 12sp + 次级色, 用于弹窗里解释当前状态的补充行。 -->
     <style name="JcPlayerDialogListSecondary" parent="@android:style/TextAppearance.Material">
         <item name="android:textColor">@color/jc_text_secondary</item>
-        <item name="android:textSize">13sp</item>
+        <item name="android:textSize">12sp</item>
     </style>
 
     <!-- 原生播放器控件按钮: 图标在上(drawableTop) + 文字在下, 玻璃风背景, D-pad 焦点高亮. -->

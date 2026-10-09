@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  弹窗单选列表的自定义圆点选择器(2026-10-09 用户要求缩小圆点与列表间距):
+  18dp 圆环, 选中态青色+实心内点, 未选中态灰色空心。
+  经主题属性挂载: JcPlayerDialog 里的 android:listChoiceIndicatorSingle(框架弹窗行)
+  与 listChoiceIndicatorSingle(appcompat 行, 见 jc_dialog_row_downloaded include 布局)
+  两处都指向本 selector, 保证两类行圆点大小一致。
+  尺寸/颜色不要在别处散写 —— 改这里一处即可。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true" android:drawable="@drawable/jc_dialog_radio_on" />
+    <item android:drawable="@drawable/jc_dialog_radio_off" />
+</selector>

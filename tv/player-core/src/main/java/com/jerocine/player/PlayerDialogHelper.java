@@ -229,6 +229,13 @@ public class PlayerDialogHelper {
             public View getView(int position, View convertView, ViewGroup parent) {
                 View row = super.getView(position, convertView, parent);
                 CheckedTextView ctv = row.findViewById(android.R.id.text1);
+                // include 的 appcompat 行有两处主题覆盖不到(其布局用无前缀 appcompat attr,
+                // 挂到弹窗主题会让壳层 AAPT 链接失败) → 在此显式对齐:
+                //   行高: minHeight=?attr/listPreferredItemHeightSmall(48dp) → 40dp,
+                //         与 framework 行的 android:listPreferredItemHeightSmall 覆盖一致;
+                //   字号: textAppearanceMedium(16sp) → 13sp, 与 JcPlayerDialogListItem 一致。
+                ctv.setMinimumHeight((int) (40 * c.getResources().getDisplayMetrics().density));
+                ctv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
                 ctv.setChecked(position == checkedPos);
                 TextView tag = row.findViewById(R.id.jc_row_tag);
                 if (tags != null && position < tags.length && tags[position]) {
