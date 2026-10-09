@@ -28,6 +28,7 @@
     <string name="download_resume_all">全部继续</string>
     <string name="download_btn_start_fmt">下载选中 (%1$d)</string>
     <string name="download_already_active">该集已在下载列表</string>
+    <string name="download_already_paused">该集已暂停，请在「下载中」页继续</string>
     <string name="download_already_done">该集已下载完成</string>
     <string name="download_none_operable">没有可操作的任务</string>
     <string name="download_paused_n">已暂停 %1$d 个任务</string>

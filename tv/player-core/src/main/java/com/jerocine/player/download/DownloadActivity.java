@@ -423,13 +423,14 @@ public class DownloadActivity extends AppCompatActivity {
         return DownloadTask.idFor(filmId, sources.get(currentSource).id, ep);
     }
 
-    /** 该集是否"不可再勾"(已完成/导出中/下载中/排队/过滤中 —— 任务已在跑或已落盘)。 */
+    /** 该集是否"不可再勾"(已完成/导出中/下载中/排队/过滤中/暂停 —— 任务已存在, 恢复走"下载中"页)。 */
     private boolean episodeLocked(DownloadTask t) {
         return t != null && (t.state == DownloadTask.STATE_COMPLETED
                 || t.state == DownloadTask.STATE_EXPORTING
                 || t.state == DownloadTask.STATE_DOWNLOADING
                 || t.state == DownloadTask.STATE_QUEUED
-                || t.state == DownloadTask.STATE_FILTERING);
+                || t.state == DownloadTask.STATE_FILTERING
+                || t.state == DownloadTask.STATE_PAUSED);
     }
 
     /** 全选 = 勾上当前分段所有可选的集(锁定集跳过); 本段已全勾时再点 = 清空本段勾选。 */
@@ -551,41 +552,76 @@ public class DownloadActivity extends AppCompatActivity {
         boolean busy = t != null && (t.state == DownloadTask.STATE_DOWNLOADING
                 || t.state == DownloadTask.STATE_QUEUED
                 || t.state == DownloadTask.STATE_FILTERING);
+        boolean paused = t != null && t.state == DownloadTask.STATE_PAUSED;
+        boolean failed = t != null && t.state == DownloadTask.STATE_FAILED;
         boolean checked = selected.contains(row.index);
 
         h.num.setText(String.valueOf(row.index + 1));
         h.title.setText(row.title);
-        // 二轮10: 行内小字显示大小 —— 下载中=已下/总, 已完成/暂停=总量; 无任务不显示。
-        // ⚠ HLS 下载的 totalBytes 落库前一直是 -1(见 DownloadEngine.onDownloadChanged),
-        // 必须用 progressBytes 兑底, 否则显示空白/0KB。
-        boolean hasTotal = t != null && t.totalBytes > 0;
-        long shown = t == null ? 0 : displaySize(t);
+        // 进度比例: 分片缓存命中优先(HLS 的 totalBytes 落库前恒 -1, 字节比基本不可得),
+        // 快照缺失时回退字节比; 都没有 → -1(转圈/纯文字)。暂停态快照被引擎保留, 弧停在原位。
+        float frac = -1f;
+        if (t != null) {
+            DownloadEngine.SegmentProgress sp = engine.getSegmentProgress(t.id);
+            if (sp != null && sp.totalSegments > 0) {
+                frac = sp.fraction();
+            } else if (t.totalBytes > 0) {
+                frac = (float) ((double) t.progressBytes / t.totalBytes);
+            }
+        }
+        // 小字: 状态词优先于体积 —— 下载中=百分比, 排队/过滤/暂停/失败=状态词, 已完成=总量。
         String size;
-        if (hasTotal && t.state == DownloadTask.STATE_DOWNLOADING && t.progressBytes > 0) {
-            size = sizeText(t.progressBytes) + "/" + sizeText(t.totalBytes);
-        } else if (shown > 0) {
-            size = sizeText(shown);
-        } else {
+        if (t == null) {
             size = "";
+        } else if (failed) {
+            size = "下载失败";
+        } else if (paused) {
+            size = frac >= 0f ? "已暂停 · " + Math.round(frac * 100f) + "%" : "已暂停";
+        } else if (t.state == DownloadTask.STATE_DOWNLOADING && frac >= 0f) {
+            size = Math.round(frac * 100f) + "%";
+        } else if (t.state == DownloadTask.STATE_QUEUED) {
+            size = "排队中";
+        } else if (t.state == DownloadTask.STATE_FILTERING) {
+            // FILTERING 期间 error 列被复用作过程文案("广告过滤中 · 重试 N/3")
+            size = (t.error != null && !t.error.isEmpty()) ? t.error : "广告过滤中";
+        } else {
+            long shown = displaySize(t);
+            size = shown > 0 ? sizeText(shown) : "";
         }
         h.size.setText(size);
         h.size.setVisibility(size.isEmpty() ? View.GONE : View.VISIBLE);
-        // 已完成/下载中的行整体弱化(参考版式同款), 只有可勾选的行保持全对比度。
-        h.root.setAlpha(busy || done ? 0.45f : 1f);
+        // 下载中/已完成弱化; 暂停半弱化(区别于未下载行, 又不抢"正在跑"的注意力);
+        // 失败全对比度 + 红环, 一眼看出哪集挂了(2026-10-10 三轮: 暂停/失败此前与未下载行无异)。
+        if (failed) {
+            h.root.setAlpha(1f);
+        } else if (paused) {
+            h.root.setAlpha(0.75f);
+        } else {
+            h.root.setAlpha(busy || done ? 0.45f : 1f);
+        }
         if (busy) {
-            // 下载中/排队中: 圆环接管(有总量画进度弧, 没有则转圈)。
+            // 下载中: 有分片/字节快照画进度弧, 没有(排队/过滤中)转圈。
             h.ring.setVisibility(View.GONE);
             h.ringProg.setVisibility(View.VISIBLE);
-            if (hasTotal) {
-                h.ringProg.setProgress((float) ((double) t.progressBytes / t.totalBytes));
+            if (frac >= 0f) {
+                h.ringProg.setProgress(frac);
             } else {
                 h.ringProg.setSpinning();
             }
+        } else if (paused) {
+            // 暂停: 静止弧展示停下来的位置; 无快照画空环(小字"已暂停"兜底表达)。
+            h.ring.setVisibility(View.GONE);
+            h.ringProg.setVisibility(View.VISIBLE);
+            h.ringProg.setProgress(Math.max(frac, 0f));
+        } else if (failed) {
+            h.ring.setVisibility(View.GONE);
+            h.ringProg.setVisibility(View.VISIBLE);
+            h.ringProg.setFailedMark();
         } else {
             h.ringProg.setVisibility(View.GONE);
             h.ring.setVisibility(View.VISIBLE);
             // 已完成 → 青底对勾(复用 jc_checkbox_on, 与"全选"同一套状态语言);
-            // 暂停/失败/未选 → 灰圈; 已选 → 青底对勾。
+            // 未选 → 灰圈; 已选 → 青底对勾。
             h.ring.setBackgroundResource(done || checked
                     ? R.drawable.jc_checkbox_on : R.drawable.jc_checkbox_off);
         }
@@ -671,6 +707,12 @@ public class DownloadActivity extends AppCompatActivity {
                 toast(getString(R.string.download_already_active));
                 return;
             }
+            if (tk != null && tk.state == DownloadTask.STATE_PAUSED) {
+                // 暂停集不再允许勾选(2026-10-10 三轮): 此前暂停行与未下载行长得一样,
+                // 误勾后 startDownloads 只会"已存在"跳过, 用户以为勾选失效。
+                toast(getString(R.string.download_already_paused));
+                return;
+            }
             if (selected.contains(r.index)) {
                 selected.remove(r.index);
             } else {
@@ -747,6 +789,7 @@ public class DownloadActivity extends AppCompatActivity {
         eps.sort(Integer::compareTo);
         int added = 0;
         int skipped = 0;
+        int retried = 0;
         int failed = 0;
         for (int ep : eps) {
             if (ep < 0 || ep >= urls.size()) continue;
@@ -771,9 +814,16 @@ public class DownloadActivity extends AppCompatActivity {
             }
             t.createdAt = System.currentTimeMillis();
             t.updatedAt = t.createdAt;
-            // 已存在的任务跳过(engine 内部 insertIgnore 幂等兜底; 这里先统计, 提示才准确)
-            if (engine.repository().get(t.id) != null) {
-                skipped++;
+            // 已存在的任务: 失败集 → 原地重下(engine.resume 对 FAILED 重新发 AddDownload,
+            // 下载器解析器会重新走过滤管线, 广告防护不破); 其余跳过(insertIgnore 幂等兜底)。
+            DownloadTask existing = engine.repository().get(t.id);
+            if (existing != null) {
+                if (existing.state == DownloadTask.STATE_FAILED) {
+                    engine.resume(t.id);
+                    retried++;
+                } else {
+                    skipped++;
+                }
                 continue;
             }
             engine.enqueue(t);
@@ -784,7 +834,12 @@ public class DownloadActivity extends AppCompatActivity {
         if (failed > 0) {
             toast(failed + " 集因影片ID 含非法字符被跳过");
         } else if (added > 0) {
-            toast(added + " 个任务已加入" + (skipped > 0 ? " · " + skipped + " 个已存在" : ""));
+            String extra = "";
+            if (skipped > 0) extra += " · " + skipped + " 个已存在";
+            if (retried > 0) extra += " · " + retried + " 个失败重下";
+            toast(added + " 个任务已加入" + extra);
+        } else if (retried > 0) {
+            toast(retried + " 个失败任务已重新下载");
         } else if (skipped > 0) {
             toast("所选集数均已存在下载任务");
         }
