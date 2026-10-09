@@ -534,7 +534,7 @@ public final class DownloadEngine {
      * → 保存清单(离线播用) → 交给 DownloadService. 幂等: 已存在同 id 任务则忽略.
      *
      * <p>降级策略(用户拍板 2026-10-10, 二次确认): 除取消外全部原始流兜底 —— 数据获取类失败
-     * (NETWORK)先重试 3 轮, 耗尽后与其他原因(NO_FILTER/REJECTED/BAD_RESPONSE)一样
+     * (NETWORK/BAD_RESPONSE)先重试 3 轮, 耗尽后与其他原因(NO_FILTER/REJECTED/TOO_LARGE)一样
      * <b>原始流兜底</b>(媒体级清单落盘前按来源 URL 绝对化, 见 {@link HlsPlaylistAbsolutizer};
      * 产物含潜在广告段, 用户明确接受该取舍)。
      */
@@ -1055,7 +1055,7 @@ public final class DownloadEngine {
     /**
      * 过滤一单层清单, 带 {@link DownloadFilterFallbackPolicy} 降级策略(用户拍板 2026-10-10):
      * NETWORK → 最多 3 轮(每轮内 M3u8FilterClient 自带 1 次快速重试), 耗尽后与
-     * NO_FILTER / REJECTED / BAD_RESPONSE 一样原始流兜底(调用方需对媒体级清单绝对化);
+     * NO_FILTER / REJECTED / TOO_LARGE 一样原始流兜底(调用方需对媒体级清单绝对化);
      * CANCELLED → 取消。取消失败链路: 中断位已由 client 重设, 这里不再 sleep 直接返回。
      *
      * @param feedback 每决定重试一次回调一次(带即将进行的重试轮次), 可为 null(如解析器侧不用)

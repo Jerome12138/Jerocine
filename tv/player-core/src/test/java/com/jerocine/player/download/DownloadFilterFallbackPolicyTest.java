@@ -36,9 +36,19 @@ public class DownloadFilterFallbackPolicyTest {
     }
 
     @Test
-    public void badResponse_useRaw() {
-        // 响应超限/读失败 — 重试同样会超限 → 原始流
-        assertEquals(Action.USE_RAW, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.BAD_RESPONSE, 1));
+    public void badResponse_retriesUpToThreeRounds_thenRaw() {
+        // 读失败(连接中断/流异常)是瞬时故障: 2026-10-10 三轮起并入重试组
+        // (360 片源实测: 一次瞬时 BAD_RESPONSE 就原始流兜底, 用户被迫"删了重下")
+        assertEquals(Action.RETRY, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.BAD_RESPONSE, 1));
+        assertEquals(Action.RETRY, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.BAD_RESPONSE, 2));
+        assertEquals(Action.USE_RAW, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.BAD_RESPONSE, 3));
+    }
+
+    @Test
+    public void tooLarge_useRaw() {
+        // 响应超 4MB 上限是确定性失败, 重试同样会超 → 直接原始流
+        assertEquals(Action.USE_RAW, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.TOO_LARGE, 1));
+        assertEquals(Action.USE_RAW, DownloadFilterFallbackPolicy.onFilterFailure(FailureCause.TOO_LARGE, 5));
     }
 
     @Test

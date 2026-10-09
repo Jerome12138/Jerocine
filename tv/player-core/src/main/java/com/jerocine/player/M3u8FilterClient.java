@@ -73,8 +73,10 @@ public final class M3u8FilterClient {
         NETWORK,
         /** 过滤服务拒绝请求(4xx, 如端点不存在/src 非法) — 重试无意义。 */
         REJECTED,
-        /** 响应异常(超体积上限/读失败) — 服务端返回内容有问题, 重试同样会超限。 */
+        /** 响应读失败(连接中断/流异常) — 瞬时故障, 与 NETWORK 同级可重试。 */
         BAD_RESPONSE,
+        /** 响应超体积上限(&gt;4MB) — 确定性失败, 重试同样会超限。 */
+        TOO_LARGE,
         /** 任务被取消(线程中断) — 既不重试也不降级。 */
         CANCELLED
     }
@@ -165,9 +167,16 @@ public final class M3u8FilterClient {
                         return Outcome.fail(FailureCause.REJECTED);
                     }
                     if (resp.isSuccessful() && resp.body() != null) {
-                        byte[] out = readCapped(resp.body(), MAX_PLAYLIST_BYTES);
-                        // 超限: 不重试(重试同样会超)
-                        if (out == null) return Outcome.fail(FailureCause.BAD_RESPONSE);
+                        byte[] out;
+                        try {
+                            out = readCapped(resp.body(), MAX_PLAYLIST_BYTES);
+                        } catch (ResponseTooLargeException e) {
+                            // 超限: 不重试(重试同样会超)
+                            return Outcome.fail(FailureCause.TOO_LARGE);
+                        } catch (java.io.IOException e) {
+                            // 读失败(连接中断/流异常): 瞬时, 与 NETWORK 同级交上层重试
+                            return Outcome.fail(FailureCause.BAD_RESPONSE);
+                        }
                         int cnt = 0;
                         String n = resp.header("X-Ad-Filtered");
                         if (n != null) {
@@ -203,26 +212,26 @@ public final class M3u8FilterClient {
     }
 
     /**
-     * 读响应体并对体积设上限 — 超限返回 null(而非抛异常), 调用方按"过滤失败"处理。
+     * 读响应体并对体积设上限 — 超限抛 {@link ResponseTooLargeException}(确定性失败, 重试同样超限),
+     * 读失败按普通 {@link java.io.IOException} 上抛(瞬时, 调用方按可重试处理)。
      *
      * <p>{@code body.bytes()} 会把整个响应读进堆, 没有上限时源站返回一个"巨型 m3u8"
      * 就能让 TV 端 OOM。
      */
-    private static byte[] readCapped(okhttp3.ResponseBody body, int cap) {
-        try {
-            if (body.contentLength() > cap) return null;
-            java.io.InputStream in = body.byteStream();
-            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n, total = 0;
-            while ((n = in.read(buf)) != -1) {
-                total += n;
-                if (total > cap) return null;
-                bos.write(buf, 0, n);
-            }
-            return bos.toByteArray();
-        } catch (java.io.IOException e) {
-            return null;
+    private static final class ResponseTooLargeException extends java.io.IOException {
+    }
+
+    private static byte[] readCapped(okhttp3.ResponseBody body, int cap) throws java.io.IOException {
+        if (body.contentLength() > cap) throw new ResponseTooLargeException();
+        java.io.InputStream in = body.byteStream();
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n, total = 0;
+        while ((n = in.read(buf)) != -1) {
+            total += n;
+            if (total > cap) throw new ResponseTooLargeException();
+            bos.write(buf, 0, n);
         }
+        return bos.toByteArray();
     }
 }
