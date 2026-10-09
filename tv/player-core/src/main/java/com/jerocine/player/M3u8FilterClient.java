@@ -174,18 +174,28 @@ public final class M3u8FilterClient {
                             // 超限: 不重试(重试同样会超)
                             return Outcome.fail(FailureCause.TOO_LARGE);
                         } catch (java.io.IOException e) {
-                            // 读失败(连接中断/流异常): 瞬时, 与 NETWORK 同级交上层重试
-                            return Outcome.fail(FailureCause.BAD_RESPONSE);
-                        }
-                        int cnt = 0;
-                        String n = resp.header("X-Ad-Filtered");
-                        if (n != null) {
-                            try {
-                                cnt = Integer.parseInt(n);
-                            } catch (NumberFormatException ignore) {
+                            // 读失败(连接中断/流异常): 瞬时, 与 NETWORK 同待遇 —— 第 1 次失败
+                            // 落下去快速重试一次, 第 2 次失败才上报(播放/下载两侧共用此客户端;
+                            // 播放侧上报即触发 escalateToProxy, 360 这类 proxyUsable=false 的源
+                            // 会直接原始流播放, 所以这里能自己恢复就别上报)
+                            if (attempt == 0) {
+                                out = null; // 落下去 sleep 重试
+                            } else {
+                                return Outcome.fail(FailureCause.BAD_RESPONSE);
                             }
                         }
-                        return Outcome.ok(new Result(out, cnt));
+                        if (out != null) {
+                            int cnt = 0;
+                            String n = resp.header("X-Ad-Filtered");
+                            if (n != null) {
+                                try {
+                                    cnt = Integer.parseInt(n);
+                                } catch (NumberFormatException ignore) {
+                                }
+                            }
+                            return Outcome.ok(new Result(out, cnt));
+                        }
+                        // out == null: 仅"读失败第 1 轮"会走到这里 → 落下去 sleep 重试
                     }
                     // 5xx / 3xx / 无 body → 值得重试一次
                     if (attempt == 1) return Outcome.fail(FailureCause.NETWORK);
