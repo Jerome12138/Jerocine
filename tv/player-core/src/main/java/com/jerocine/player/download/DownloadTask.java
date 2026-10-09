@@ -119,6 +119,16 @@ public final class DownloadTask {
     }
 
     /**
+     * 行标题的片源标识(2026-10-10 用户要求): 同一片常从多个源下载, 标题不带源分不清是哪条线的缓存。
+     * sourceName 优先(如"量子"), 空 则退 sourceKey(如"src_lz:lzm3u8"); 都空返回 ""。
+     */
+    public static String sourceTag(String sourceName, String sourceKey) {
+        String s = (sourceName == null || sourceName.trim().isEmpty())
+                ? sourceKey : sourceName;
+        return s == null ? "" : s.trim();
+    }
+
+    /**
      * 给行内信息文案追加原始流兜底角标 — rawFallback 任务的常驻标记(下载中/已完成行都带)。
      */
     public static String withRawBadge(boolean rawFallback, String base) {

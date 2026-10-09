@@ -199,6 +199,23 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
         return getWritableDatabase().update(TABLE, v, where.toString(), args) > 0;
     }
 
+    /**
+     * 进度轮询专用: 仅 DOWNLOADING 态才写字节进度。
+     *
+     * <p>条件 WHERE 是必须的: 轮询线程读过任务后、写库前用户可能按了暂停(业务表已 PAUSED),
+     * 无条件写会把状态冲回 DOWNLOADING(暂停"看起来失效")。
+     */
+    public void updateProgressIfDownloading(String id, long progressBytes, long totalBytes,
+                                            long updatedAt) {
+        if (id == null) return;
+        ContentValues v = new ContentValues();
+        v.put("progressBytes", progressBytes);
+        v.put("totalBytes", totalBytes);
+        v.put("updatedAt", updatedAt);
+        getWritableDatabase().update(TABLE, v, "id=? AND state=?",
+                new String[]{id, String.valueOf(DownloadTask.STATE_DOWNLOADING)});
+    }
+
     /** updateProgressOnly 的 state 参数哨兵: 表示"本次不写 state"(NULL 不能用, 会清列)。 */
     public static final int EXPORTING_SENTINEL = -1;
 

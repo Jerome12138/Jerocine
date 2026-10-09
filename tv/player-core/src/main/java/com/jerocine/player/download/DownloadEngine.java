@@ -34,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -54,7 +55,10 @@ import okhttp3.Response;
  *       分级: 网络类重试 3 轮后与其余原因一样原始流兜底(落盘前绝对化), 仅取消中止;
  *       过滤阶段先落 {@link DownloadTask#STATE_FILTERING} 行(2026-10-10 用户要求:
  *       过滤中/重试/兜底/失败全程在下载列表可见), 崩溃后自启动重跑;</li>
- *   <li>进度/状态: {@link DownloadManager.Listener} 把 Media3 状态映射到 {@link DownloadTask} 并落库;</li>
+ *   <li>进度/状态: {@link DownloadManager.Listener} 把 Media3 状态映射到 {@link DownloadTask} 并落库;
+ *       ⚠ media3 只在**状态变化/增删**时回调 listener, 下载中的字节进度不回调(1.4.1 字节码实锤:
+ *       MSG_UPDATE_PROGRESS 只更新 getCurrentDownloads 内表) → 另有 2s 守护轮询把实时字节/
+ *       分片进度落库+推送 UI(2026-10-10 用户实锤"下载中大小不刷新, 暂停后才变");</li>
  *   <li>崩溃恢复: 启动时把残留 DOWNLOADING 标 PAUSED(等用户续传)。</li>
  * </ul>
  */
@@ -88,6 +92,16 @@ public final class DownloadEngine {
     private final CacheDatabaseProvider dbProvider;
     private final ExecutorService worker;
     private final Handler mainHandler;
+    /**
+     * 进度轮询线程池(单线程守护): 见类注释 "进度/状态" 条目。2s 一拍:
+     * 从 {@link DownloadManager#getCurrentDownloads()} 拉实时字节落库 + 按 SimpleCache
+     * 缓存命中数算分片级进度(百分比 = 已缓存分片/总片数)。无下载中任务时早退, 常驻开销
+     * 只是一次内存表读取。
+     */
+    private final ScheduledExecutorService progressPoller;
+    /** 分片进度快照(内存, 不落库): taskId → 进度; 查询走 {@link #getSegmentProgress(String)}。 */
+    private final java.util.Map<String, SegmentProgress> segmentProgressMap =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** 入队时已过滤好的 master 清单(按源站 URL) — HlsDownloader 解析 master 时直接命中, 省一次 POST. */
     private final java.util.Map<String, byte[]> prefetchedPlaylists = new java.util.concurrent.ConcurrentHashMap<>();
@@ -184,6 +198,98 @@ public final class DownloadEngine {
         requeueOrphanTasks();
         resumeFilteringTasks();
         repairLegacySizes();
+        progressPoller = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "jc-dl-progress");
+            t.setDaemon(true);
+            return t;
+        });
+        progressPoller.scheduleWithFixedDelay(this::pollProgress,
+                PROGRESS_POLL_MS, PROGRESS_POLL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    /** 进度轮询间隔: UI 刷新粒度 2s, 再密无益(分片统计要扫缓存元数据)。 */
+    private static final long PROGRESS_POLL_MS = 2000;
+
+    // ============================ 下载中实时进度轮询 ============================
+
+    /**
+     * 分片级进度快照 — HLS 的 media3 contentLength 恒为 -1(字节百分比无从谈起),
+     * 按"已缓存分片数 / 过滤后清单总片数"换算百分比(用户拍板); cachedBytes 供体积列显示
+     * (比 media3 bytesDownloaded 准: 它不计缓存命中, 删除重下时恒 0)。
+     */
+    public static final class SegmentProgress {
+        public final int totalSegments;
+        public final int cachedSegments;
+        public final long cachedBytes;
+
+        SegmentProgress(int totalSegments, int cachedSegments, long cachedBytes) {
+            this.totalSegments = totalSegments;
+            this.cachedSegments = cachedSegments;
+            this.cachedBytes = cachedBytes;
+        }
+
+        /** 分片进度比例; 无分片表时 -1(调用方退回字节逻辑)。 */
+        public float fraction() {
+            return totalSegments <= 0 ? -1f : (float) cachedSegments / totalSegments;
+        }
+    }
+
+    /** 某下载中/已暂停任务的分片进度快照; 尚未统计到(入队头几秒)返回 null。 */
+    @Nullable
+    public SegmentProgress getSegmentProgress(String taskId) {
+        return taskId == null ? null : segmentProgressMap.get(taskId);
+    }
+
+    /** 轮询一拍: 实时字节落库 + 分片统计。跑在守护线程, 任何异常吞掉(下拍重来)。 */
+    private void pollProgress() {
+        try {
+            List<Download> downloads = manager.getCurrentDownloads();
+            if (downloads.isEmpty()) return;
+            for (Download d : downloads) {
+                if (d.state != Download.STATE_DOWNLOADING) continue;
+                String taskId = new String(d.request.data, StandardCharsets.UTF_8);
+                DownloadTask t = repository.get(taskId);
+                if (t == null || t.state != DownloadTask.STATE_DOWNLOADING) continue;
+                long bytes = Math.max(0L, d.getBytesDownloaded());
+                // 字节进度落库(仅 DOWNLOADING 态, 防竞态把 PAUSED 冲回 DOWNLOADING)
+                if (bytes != t.progressBytes
+                        || (t.totalBytes <= 0 && d.contentLength > 0)) {
+                    repository.updateProgressIfDownloading(taskId, bytes, d.contentLength,
+                            System.currentTimeMillis());
+                    notifyChanged(taskId);
+                }
+                segmentProgressMap.put(taskId, computeSegmentProgress(t));
+            }
+        } catch (Exception e) {
+            // 轮询是尽力而为: 一拍失败不影响下一拍, 更不能把守护线程打死
+            Log.w(TAG, "pollProgress failed", e);
+        }
+    }
+
+    /**
+     * 按过滤后清单逐片查 SimpleCache, 统计已缓存片数/字节数。
+     * 全是内存元数据查询(几百片毫秒级, 见 cachedBytesFor 同款语义); 失败返回 null(UI 退回字节逻辑)。
+     */
+    @Nullable
+    private SegmentProgress computeSegmentProgress(DownloadTask t) {
+        try {
+            String playlist = repository.getFilteredPlaylist(t.id);
+            if (playlist == null || playlist.isEmpty()) return null;
+            List<PlaylistSegments.Segment> segments = PlaylistSegments.parse(playlist, t.srcUrl);
+            if (segments.isEmpty()) return null;
+            int cached = 0;
+            long bytes = 0L;
+            for (PlaylistSegments.Segment seg : segments) {
+                long b = cache.getCachedBytes(seg.url, 0L, C.LENGTH_UNSET);
+                if (b > 0) {
+                    cached++;
+                    bytes += b;
+                }
+            }
+            return new SegmentProgress(segments.size(), cached, bytes);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
@@ -628,6 +734,7 @@ public void pause(String taskId) {
             manager.removeDownload(taskId);
             repository.delete(taskId);
             prefetchedPlaylists.remove(t.srcUrl);
+            segmentProgressMap.remove(taskId);
             // 用库里的持久化路径而不是重算: safeSegment 上线前入队的任务, DB 里存的是旧路径,
             // 重算会算到新目录 → 老目录永远删不掉(读侧 playOffline/TsExporter 用的也是 DB 值)。
             if (t.cacheDir != null && !t.cacheDir.isEmpty()) {
@@ -726,6 +833,7 @@ public void pause(String taskId) {
         // remove() 也会清, 这里覆盖"下载完成但任务仍在列表里"的常态路径。
         if (d.state == Download.STATE_COMPLETED || d.state == Download.STATE_FAILED) {
             prefetchedPlaylists.remove(t.srcUrl);
+            segmentProgressMap.remove(taskId); // 终态后快照无用(暂停态保留, 恢复后继续复用)
         }
     }
 
@@ -1072,6 +1180,7 @@ public void pause(String taskId) {
         manager.removeListener(managerListener);
         manager.release();
         worker.shutdownNow();
+        progressPoller.shutdownNow();
         sInstance = null;
     }
 

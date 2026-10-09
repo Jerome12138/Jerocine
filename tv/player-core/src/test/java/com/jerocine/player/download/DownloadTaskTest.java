@@ -105,6 +105,32 @@ public class DownloadTaskTest {
         assertNull(DownloadTask.withRawBadge(true, null));
     }
 
+    // ============================ 片源标识 / 分片进度(2026-10-10) ============================
+
+    @Test
+    public void sourceTagPrefersNameFallsBackToKey() {
+        assertEquals("量子", DownloadTask.sourceTag("量子", "src_lz:lzm3u8"));
+        // sourceName 空 → 退 sourceKey
+        assertEquals("src_lz:lzm3u8", DownloadTask.sourceTag("", "src_lz:lzm3u8"));
+        assertEquals("src_lz:lzm3u8", DownloadTask.sourceTag("   ", "src_lz:lzm3u8"));
+        assertEquals("量子", DownloadTask.sourceTag(" 量子 ", null));
+        // 都空 → 空串(调用方不追加 " · src" 尾巴)
+        assertEquals("", DownloadTask.sourceTag(null, null));
+        assertEquals("", DownloadTask.sourceTag(null, ""));
+    }
+
+    @Test
+    public void segmentProgressFraction() {
+        DownloadEngine.SegmentProgress sp =
+                new DownloadEngine.SegmentProgress(213, 96, 123456789L);
+        assertEquals(213, sp.totalSegments);
+        assertEquals(96, sp.cachedSegments);
+        assertEquals(123456789L, sp.cachedBytes);
+        assertEquals(96f / 213f, sp.fraction(), 1e-6f);
+        // 无分片表(总片数 0) → -1, 调用方退回字节逻辑
+        assertEquals(-1f, new DownloadEngine.SegmentProgress(0, 0, 0).fraction(), 1e-6f);
+    }
+
     // ============================ 导出文件名 ============================
 
     @Test

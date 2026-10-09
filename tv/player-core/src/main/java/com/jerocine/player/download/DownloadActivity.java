@@ -922,12 +922,16 @@ public class DownloadActivity extends AppCompatActivity {
             Button del = (Button) row.getChildAt(3);
             name.setText(label(t));
             // 二轮9/10: 右侧圆环进度 + 信息行"百分比 · 已下/总量"。
+            // 2026-10-10: HLS 拿不到总字节(contentLength 恒 -1), 百分比改由分片数换算
+            // (引擎每 2s 轮询 SimpleCache 缓存命中, 同时把实时字节落库 —— 修"下载中大小不刷新")。
+            DownloadEngine.SegmentProgress sp = engine.getSegmentProgress(t.id);
             boolean hasTotal = t.totalBytes > 0;
-            float frac = hasTotal ? (float) ((double) t.progressBytes / t.totalBytes) : -1f;
+            float frac = sp != null && sp.totalSegments > 0 ? sp.fraction()
+                    : hasTotal ? (float) ((double) t.progressBytes / t.totalBytes) : -1f;
             String infoStr;
             switch (t.state) {
                 case DownloadTask.STATE_DOWNLOADING:
-                    infoStr = DownloadTask.withRawBadge(t.rawFallback, progressInfo(t));
+                    infoStr = DownloadTask.withRawBadge(t.rawFallback, downloadingInfo(t, sp));
                     if (frac >= 0f) {
                         ring.setProgress(frac);
                     } else {
@@ -950,14 +954,16 @@ public class DownloadActivity extends AppCompatActivity {
                     ring.setVisibility(View.VISIBLE);
                     break;
                 case DownloadTask.STATE_PAUSED:
-                    infoStr = DownloadTask.withRawBadge(t.rawFallback, pausedFailedInfo(t));
+                    // 暂停行也带分片快照(冻结值): 与下载中同一套口径, 恢复后无缝接上
+                    DownloadEngine.SegmentProgress psp = engine.getSegmentProgress(t.id);
+                    infoStr = DownloadTask.withRawBadge(t.rawFallback, pausedFailedInfo(t, psp));
                     ring.setProgress(frac >= 0f ? frac : 0f); // 暂停: 冻结的进度弧
                     ring.setVisibility(View.VISIBLE);
                     break;
                 case DownloadTask.STATE_FAILED:
                     // 2026-10-10: 失败原因上屏(t.error 一直落库但从未显示过), 一眼看出哪条为何挂
                     infoStr = (t.error != null && !t.error.isEmpty())
-                            ? "失败 · " + t.error : pausedFailedInfo(t);
+                            ? "失败 · " + t.error : pausedFailedInfo(t, null);
                     ring.setProgress(frac >= 0f ? frac : 0f);
                     ring.setVisibility(View.VISIBLE);
                     break;
@@ -1204,7 +1210,9 @@ public class DownloadActivity extends AppCompatActivity {
         if (ep.isEmpty()) {
             ep = String.format(Locale.US, getString(R.string.download_episode_name), t.episode + 1);
         }
-        return film + " E" + (t.episode + 1) + " " + ep;
+        // 片源标识(2026-10-10 用户要求): 下载中/已完成行标题尾部带源名, 多源下载时分得清是哪条线
+        String src = DownloadTask.sourceTag(t.sourceName, t.sourceKey);
+        return film + " E" + (t.episode + 1) + " " + ep + (src.isEmpty() ? "" : " · " + src);
     }
 
     /** 去掉片名前缀后残留的分隔符(空格 - · : ： — _ 全角空格)。 */
@@ -1233,9 +1241,33 @@ public class DownloadActivity extends AppCompatActivity {
         return (int) (t.progressBytes * 100 / t.totalBytes) + "% · " + sz;
     }
 
-    /** 暂停/失败行信息: 总量已知用 x/y, 否则退已下字节(0 时只有状态词)。 */
-    private static String pausedFailedInfo(DownloadTask t) {
+    /** 下载中行信息: 有分片快照用 "45% · 96/213 片 · 12.3MB"; 无(入队头几秒)退字节逻辑。 */
+    private static String downloadingInfo(DownloadTask t, DownloadEngine.SegmentProgress sp) {
+        if (sp != null && sp.totalSegments > 0) {
+            int pct = sp.cachedSegments * 100 / sp.totalSegments;
+            StringBuilder sb = new StringBuilder()
+                    .append(pct).append("% · ")
+                    .append(sp.cachedSegments).append('/')
+                    .append(sp.totalSegments).append(" 片");
+            if (sp.cachedBytes > 0) sb.append(" · ").append(sizeText(sp.cachedBytes));
+            return sb.toString();
+        }
+        return progressInfo(t);
+    }
+
+    /** 暂停/失败行信息: 总量已知用 x/y, 否则退已下字节(0 时只有状态词); 分片快照可用时优先。 */
+    private static String pausedFailedInfo(DownloadTask t, @androidx.annotation.Nullable
+            DownloadEngine.SegmentProgress sp) {
         String label = t.state == DownloadTask.STATE_PAUSED ? "已暂停" : "失败";
+        if (sp != null && sp.totalSegments > 0) {
+            int pct = sp.cachedSegments * 100 / sp.totalSegments;
+            StringBuilder sb = new StringBuilder(label).append(" · ")
+                    .append(pct).append("% · ")
+                    .append(sp.cachedSegments).append('/')
+                    .append(sp.totalSegments).append(" 片");
+            if (sp.cachedBytes > 0) sb.append(" · ").append(sizeText(sp.cachedBytes));
+            return sb.toString();
+        }
         if (t.totalBytes > 0) {
             return label + " · " + sizeText(t.progressBytes) + "/" + sizeText(t.totalBytes);
         }
