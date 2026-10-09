@@ -1094,6 +1094,11 @@ private static String failedRequestUrl(Throwable error) {
         actions.add(this::toggleNetworkMode);
         // 本地优先播放切换项: 仅当本集已下载时出现, 展示当前态与目标态
         int curIdx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        android.util.Log.i("JcLocal", "more menu: curIdx=" + curIdx
+                + " isLocal=" + (curIdx >= 0 && session.isLocalEpisode(curIdx))
+                + " mapSize=" + session.localEpisodePlaylists.size()
+                + " localPlayback=" + session.localPlayback
+                + " offlinePlayback=" + session.offlinePlayback);
         if (curIdx >= 0 && session.isLocalEpisode(curIdx)) {
             final int idx = curIdx;
             if (session.preferOnlineIdx.contains(idx)) {
@@ -1102,6 +1107,27 @@ private static String failedRequestUrl(Throwable error) {
                 items.add("本集本地播放 · 切换在线");
             }
             actions.add(() -> toggleLocalOnline(idx));
+        } else if (curIdx >= 0 && session.otherSourceHasEpisode(curIdx)) {
+            // 本集在别的源有已完成下载(如下载时 lz 源、续播恢复成 bf 源): 严格匹配下
+            // 不自动播本地, 但必须给用户一条可达路径 —— 一键换到已下载的源并本地起播。
+            com.jerocine.player.download.DownloadTask t = session.otherSourceTask(curIdx);
+            int srcIdx = session.indexOfSourceKey(t.sourceKey);
+            if (srcIdx >= 0) {
+                final int idx = curIdx;
+                final int target = srcIdx;
+                String srcLabel = (t.sourceName != null && !t.sourceName.isEmpty())
+                        ? t.sourceName : t.sourceKey;
+                items.add("本集已在「" + srcLabel + "」源下载 · 换源播本地");
+                actions.add(() -> {
+                    long pos = session.player != null ? session.player.getCurrentPosition() : 0L;
+                    // 与 PlayerDialogHelper 的换源流程一致: 必须先更新 currentSourceIndex,
+                    // 否则 loadPlaylistIntoPlayer 里的 refreshLocalDownloads 仍按旧源查, 本地优先不生效。
+                    session.currentSourceIndex = target;
+                    session.loadSourceIntoPlayer(target, idx, pos);
+                    session.host().showCenterToast("已切到「"
+                            + session.sourceList.get(target).name + "」源本地播放", 2000);
+                });
+            }
         }
         items.add("诊断信息");
         actions.add(this::showDiagnostics);

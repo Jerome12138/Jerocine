@@ -128,6 +128,14 @@ public class PlayerSession {
      * 重查一次下载业务表(见 refreshLocalDownloads), 只含**已完成且清单文件存在**的集。
      */
     volatile java.util.Map<Integer, String> localEpisodePlaylists = java.util.Collections.emptyMap();
+    /**
+     * 本集在**别的源**有已完成下载(episode → 任务)。多源严格匹配下不参与自动本地优先
+     * (不同源的集号/内容可能对不齐), 但要在更多菜单里可见可操作 —— 否则用户从历史
+     * 恢复到另一个源时, 明明下载过却既不播本地、菜单也没有任何提示(2026-10-09 真机实锤:
+     * 下载时 lz 源, 续播恢复成 bf 源 → 菜单无切换项, 用户以为功能坏了)。
+     */
+    volatile java.util.Map<Integer, com.jerocine.player.download.DownloadTask> otherSourceLocalEpisodes =
+            java.util.Collections.emptyMap();
     /** 用户显式切回在线的集(更多菜单切换; 会话级偏好, 不落盘)。 */
     public final java.util.Set<Integer> preferOnlineIdx = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
@@ -380,8 +388,12 @@ public class PlayerSession {
      * 若将来表规模失控, 应改成异步预查 + 装载时用快照。
      */
     void refreshLocalDownloads(String filmId, String sourceKey) {
+        final String TAG = "JcLocal";
         if (localPlayback || offlinePlayback || filmId == null || filmId.isEmpty()) {
+            android.util.Log.i(TAG, "skip: localPlayback=" + localPlayback
+                    + " offlinePlayback=" + offlinePlayback + " filmId=" + filmId);
             localEpisodePlaylists = java.util.Collections.emptyMap();
+            otherSourceLocalEpisodes = java.util.Collections.emptyMap();
             return;
         }
         try {
@@ -394,32 +406,71 @@ public class PlayerSession {
                 try {
                     e = com.jerocine.player.download.DownloadEngine.get(
                             context(), proxyBase == null ? "" : proxyBase);
-                } catch (Exception ignore) {
+                    android.util.Log.i(TAG, "lazy init engine ok=" + (e != null));
+                } catch (Exception ex) {
+                    android.util.Log.w(TAG, "lazy init engine FAILED", ex);
                 }
             }
             if (e == null) {
+                android.util.Log.i(TAG, "engine null -> empty map");
                 localEpisodePlaylists = java.util.Collections.emptyMap();
+                otherSourceLocalEpisodes = java.util.Collections.emptyMap();
                 return;
             }
             java.util.Map<Integer, String> m = new java.util.HashMap<>();
-            for (com.jerocine.player.download.DownloadTask t : e.repository().listByFilm(filmId)) {
+            java.util.Map<Integer, com.jerocine.player.download.DownloadTask> other =
+                    new java.util.HashMap<>();
+            java.util.List<com.jerocine.player.download.DownloadTask> tasks =
+                    e.repository().listByFilm(filmId);
+            for (com.jerocine.player.download.DownloadTask t : tasks) {
+                android.util.Log.i(TAG, "task ep=" + t.episode + " state=" + t.state
+                        + " srcKey=" + t.sourceKey + " (cur=" + sourceKey + ")"
+                        + " cacheDir=" + t.cacheDir);
                 if (t.state != com.jerocine.player.download.DownloadTask.STATE_COMPLETED) continue;
-                // 多源模式严格匹配源 id, 避免播到另一条线路的缓存;
-                // 单源模式(sourceList 空)拿不到 sourceKey → 接受该片任何源的已完成任务。
-                if (sourceKey != null && !sourceKey.isEmpty() && !sourceKey.equals(t.sourceKey)) continue;
                 if (t.cacheDir == null || t.cacheDir.isEmpty()) continue;
                 java.io.File p = new java.io.File(t.cacheDir, "playlist.m3u8");
-                if (p.exists()) m.put(t.episode, "file://" + p.getAbsolutePath());
+                if (!p.exists()) continue;
+                // 多源模式严格匹配源 id, 避免播到另一条线路的缓存;
+                // 单源模式(sourceList 空)拿不到 sourceKey → 接受该片任何源的已完成任务。
+                if (sourceKey != null && !sourceKey.isEmpty() && !sourceKey.equals(t.sourceKey)) {
+                    other.putIfAbsent(t.episode, t); // 别源已完成: 供更多菜单"换源播本地"
+                    continue;
+                }
+                m.put(t.episode, "file://" + p.getAbsolutePath());
             }
             localEpisodePlaylists = m;
-        } catch (Exception ignore) {
+            otherSourceLocalEpisodes = other;
+            android.util.Log.i(TAG, "matched " + m.size() + "/" + tasks.size()
+                    + " local episodes, otherSource=" + other.size()
+                    + " (filmId=" + filmId + " sourceKey=" + sourceKey + ")");
+        } catch (Exception ex) {
             // 查询异常: 保持旧映射, 不影响本次装载的在线播放
+            android.util.Log.w(TAG, "refresh FAILED", ex);
         }
     }
 
     /** 该集是否有可用的本地缓存(已完成下载且本地清单存在)。 */
     boolean isLocalEpisode(int idx) {
         return localEpisodePlaylists.containsKey(idx);
+    }
+
+    /** 本集是否在**别的源**有已完成下载(更多菜单"换源播本地"的判定)。 */
+    boolean otherSourceHasEpisode(int idx) {
+        return otherSourceLocalEpisodes.containsKey(idx);
+    }
+
+    /** 取本集在别源的下载任务(仅当 {@link #otherSourceHasEpisode} 为 true)。 */
+    com.jerocine.player.download.DownloadTask otherSourceTask(int idx) {
+        return otherSourceLocalEpisodes.get(idx);
+    }
+
+    /** 按 sourceKey 找 sourceList 下标; 找不到(源列表变动)返回 -1。 */
+    int indexOfSourceKey(String key) {
+        if (key == null || key.isEmpty()) return -1;
+        for (int i = 0; i < sourceList.size(); i++) {
+            if (key.equals(sourceList.get(i).id)) return i;
+        }
+        return -1;
     }
 
     /**
