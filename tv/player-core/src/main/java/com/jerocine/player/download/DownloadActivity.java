@@ -382,12 +382,13 @@ public class DownloadActivity extends AppCompatActivity {
         return DownloadTask.idFor(filmId, sources.get(currentSource).id, ep);
     }
 
-    /** 该集是否"不可再勾"(已完成/导出中/下载中/排队 —— 任务已在跑或已落盘)。 */
+    /** 该集是否"不可再勾"(已完成/导出中/下载中/排队/过滤中 —— 任务已在跑或已落盘)。 */
     private boolean episodeLocked(DownloadTask t) {
         return t != null && (t.state == DownloadTask.STATE_COMPLETED
                 || t.state == DownloadTask.STATE_EXPORTING
                 || t.state == DownloadTask.STATE_DOWNLOADING
-                || t.state == DownloadTask.STATE_QUEUED);
+                || t.state == DownloadTask.STATE_QUEUED
+                || t.state == DownloadTask.STATE_FILTERING);
     }
 
     /** 全选 = 勾上当前分段所有可选的集(锁定集跳过); 本段已全勾时再点 = 清空本段勾选。 */
@@ -507,7 +508,8 @@ public class DownloadActivity extends AppCompatActivity {
         boolean done = t != null && (t.state == DownloadTask.STATE_COMPLETED
                 || t.state == DownloadTask.STATE_EXPORTING);
         boolean busy = t != null && (t.state == DownloadTask.STATE_DOWNLOADING
-                || t.state == DownloadTask.STATE_QUEUED);
+                || t.state == DownloadTask.STATE_QUEUED
+                || t.state == DownloadTask.STATE_FILTERING);
         boolean checked = selected.contains(row.index);
 
         h.num.setText(String.valueOf(row.index + 1));
@@ -623,7 +625,8 @@ public class DownloadActivity extends AppCompatActivity {
                 return;
             }
             if (tk != null && (tk.state == DownloadTask.STATE_DOWNLOADING
-                    || tk.state == DownloadTask.STATE_QUEUED)) {
+                    || tk.state == DownloadTask.STATE_QUEUED
+                    || tk.state == DownloadTask.STATE_FILTERING)) {
                 toast(getString(R.string.download_already_active));
                 return;
             }
@@ -774,6 +777,12 @@ public class DownloadActivity extends AppCompatActivity {
                     inProgress.add(t.id);
                     queued++;
                     break;
+                case DownloadTask.STATE_FILTERING:
+                    // 拉清单+广告过滤阶段: 也算活动任务(横幅计数并入 queued, 显示"正在下载 N/M")
+                    activeTasks.add(t);
+                    inProgress.add(t.id);
+                    queued++;
+                    break;
                 case DownloadTask.STATE_PAUSED:
                     activeTasks.add(t);
                     paused++;
@@ -840,7 +849,8 @@ public class DownloadActivity extends AppCompatActivity {
         int n = 0;
         for (DownloadTask t : activeTasks) {
             if (pause && (t.state == DownloadTask.STATE_DOWNLOADING
-                    || t.state == DownloadTask.STATE_QUEUED)) {
+                    || t.state == DownloadTask.STATE_QUEUED
+                    || t.state == DownloadTask.STATE_FILTERING)) {
                 engine.pause(t.id);
                 n++;
             } else if (!pause && t.state == DownloadTask.STATE_PAUSED) {
@@ -917,7 +927,7 @@ public class DownloadActivity extends AppCompatActivity {
             String infoStr;
             switch (t.state) {
                 case DownloadTask.STATE_DOWNLOADING:
-                    infoStr = progressInfo(t);
+                    infoStr = DownloadTask.withRawBadge(t.rawFallback, progressInfo(t));
                     if (frac >= 0f) {
                         ring.setProgress(frac);
                     } else {
@@ -926,17 +936,28 @@ public class DownloadActivity extends AppCompatActivity {
                     ring.setVisibility(View.VISIBLE);
                     break;
                 case DownloadTask.STATE_QUEUED:
-                    infoStr = displaySize(t) > 0 ? "排队中 · " + sizeText(displaySize(t)) : "排队中";
+                    infoStr = DownloadTask.withRawBadge(t.rawFallback,
+                            displaySize(t) > 0 ? "排队中 · " + sizeText(displaySize(t)) : "排队中");
+                    ring.setSpinning();
+                    ring.setVisibility(View.VISIBLE);
+                    break;
+                case DownloadTask.STATE_FILTERING:
+                    // 拉清单+广告过滤阶段(可达数十秒): 入队即见, 重试轮次实时刷新
+                    // (过程文案存在 error 列, 见 DownloadEngine 的 updateFilterNote)
+                    infoStr = (t.error != null && !t.error.isEmpty())
+                            ? t.error : "广告过滤中…";
                     ring.setSpinning();
                     ring.setVisibility(View.VISIBLE);
                     break;
                 case DownloadTask.STATE_PAUSED:
-                    infoStr = pausedFailedInfo(t);
+                    infoStr = DownloadTask.withRawBadge(t.rawFallback, pausedFailedInfo(t));
                     ring.setProgress(frac >= 0f ? frac : 0f); // 暂停: 冻结的进度弧
                     ring.setVisibility(View.VISIBLE);
                     break;
                 case DownloadTask.STATE_FAILED:
-                    infoStr = pausedFailedInfo(t);
+                    // 2026-10-10: 失败原因上屏(t.error 一直落库但从未显示过), 一眼看出哪条为何挂
+                    infoStr = (t.error != null && !t.error.isEmpty())
+                            ? "失败 · " + t.error : pausedFailedInfo(t);
                     ring.setProgress(frac >= 0f ? frac : 0f);
                     ring.setVisibility(View.VISIBLE);
                     break;
@@ -995,7 +1016,8 @@ public class DownloadActivity extends AppCompatActivity {
             Button playBtn = (Button) row.getChildAt(3);
             Button deleteBtn = (Button) row.getChildAt(4);
             name.setText(label(t));
-            status.setText(exportedText(t));
+            // 原始流兑底任务常驻标记(2026-10-10): 该集离线播放/导出含潜在广告段
+            status.setText(DownloadTask.withRawBadge(t.rawFallback, exportedText(t)));
             boolean exporting = t.state == DownloadTask.STATE_EXPORTING;
             exportBtn.setText(exporting ? "导出中" : "导出");
             exportBtn.setEnabled(!exporting);
@@ -1032,7 +1054,7 @@ public class DownloadActivity extends AppCompatActivity {
         status.setTextSize(12);
         status.setTextColor(getColor(R.color.jc_text_secondary));
         status.setGravity(Gravity.CENTER);
-        row.addView(status, new LinearLayout.LayoutParams(dp(74), ViewGroup.LayoutParams.WRAP_CONTENT));
+        row.addView(status, new LinearLayout.LayoutParams(dp(120), ViewGroup.LayoutParams.WRAP_CONTENT));
 
         Button exportBtn = smallAction("");
         row.addView(exportBtn, new LinearLayout.LayoutParams(
@@ -1139,6 +1161,7 @@ public class DownloadActivity extends AppCompatActivity {
         info.setTextSize(12);
         info.setTextColor(getColor(R.color.jc_text_secondary));
         info.setMaxLines(1);
+        info.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         infoLp.setMargins(0, dp(2), 0, 0);
@@ -1226,6 +1249,7 @@ public class DownloadActivity extends AppCompatActivity {
                 return "继续";
             case DownloadTask.STATE_QUEUED:
             case DownloadTask.STATE_DOWNLOADING:
+            case DownloadTask.STATE_FILTERING:
                 return "暂停";
             default:
                 return "删除";

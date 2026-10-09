@@ -22,7 +22,8 @@ import java.util.List;
 public class DownloadRepository extends SQLiteOpenHelper implements DownloadTaskStore {
 
     private static final String DB_NAME = "jerocine_downloads.db";
-    private static final int DB_VERSION = 1;
+    /** v2(2026-10-10): 加 rawFallback 列 — 原始流兜底任务常驻标记(用户要求过滤结果可见)。 */
+    private static final int DB_VERSION = 2;
     private static final String TABLE = "download_task";
 
     /**
@@ -38,7 +39,7 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
     private static final String[] LIST_COLUMNS = {
             "id", "filmId", "filmTitle", "sourceKey", "sourceName", "episode",
             "episodeTitle", "srcUrl", "state", "progressBytes", "totalBytes", "error",
-            "cacheDir", "exportedPath", "createdAt", "updatedAt",
+            "rawFallback", "cacheDir", "exportedPath", "createdAt", "updatedAt",
     };
 
     public DownloadRepository(Context context) {
@@ -61,6 +62,7 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
                 + "progressBytes INTEGER NOT NULL DEFAULT 0,"
                 + "totalBytes INTEGER NOT NULL DEFAULT 0,"
                 + "error TEXT NOT NULL DEFAULT '',"
+                + "rawFallback INTEGER NOT NULL DEFAULT 0,"
                 + "cacheDir TEXT NOT NULL DEFAULT '',"
                 + "exportedPath TEXT NOT NULL DEFAULT '',"
                 + "createdAt INTEGER NOT NULL,"
@@ -70,7 +72,11 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // v1 初版; 未来加列走 ALTER, 不 drop(下载进度不能丢)
+        // 只加列不 drop(下载进度不能丢)
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE " + TABLE
+                    + " ADD COLUMN rawFallback INTEGER NOT NULL DEFAULT 0");
+        }
     }
 
     @Override
@@ -196,6 +202,22 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
     /** updateProgressOnly 的 state 参数哨兵: 表示"本次不写 state"(NULL 不能用, 会清列)。 */
     public static final int EXPORTING_SENTINEL = -1;
 
+    /**
+     * 过滤阶段的过程文案(如"广告过滤中 · 重试 2/3")写进 error 列 — 仅 FILTERING 态生效。
+     *
+     * <p>复用 error 列承载临时过程文案(任务终态前会被清空/覆盖), 避免为几秒一次的
+     * 过程刷新加专列; WHERE 限定 state=FILTERING, 过滤已结束(成功/失败)时静默不写,
+     * 不会盖掉真实失败原因或入队后的清空。
+     */
+    public boolean updateFilterNote(String id, String note) {
+        if (id == null) return false;
+        ContentValues v = new ContentValues();
+        v.put("error", note == null ? "" : note);
+        v.put("updatedAt", System.currentTimeMillis());
+        return getWritableDatabase().update(TABLE, v, "id=? AND state=?",
+                new String[]{id, String.valueOf(DownloadTask.STATE_FILTERING)}) > 0;
+    }
+
     @Override
     public boolean delete(String id) {
         return getWritableDatabase().delete(TABLE, "id=?", new String[]{id}) > 0;
@@ -253,6 +275,7 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
         t.progressBytes = c.getLong(c.getColumnIndexOrThrow("progressBytes"));
         t.totalBytes = c.getLong(c.getColumnIndexOrThrow("totalBytes"));
         t.error = c.getString(c.getColumnIndexOrThrow("error"));
+        t.rawFallback = c.getInt(c.getColumnIndexOrThrow("rawFallback")) != 0;
         t.cacheDir = c.getString(c.getColumnIndexOrThrow("cacheDir"));
         t.exportedPath = c.getString(c.getColumnIndexOrThrow("exportedPath"));
         t.createdAt = c.getLong(c.getColumnIndexOrThrow("createdAt"));
@@ -275,6 +298,7 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
         v.put("progressBytes", t.progressBytes);
         v.put("totalBytes", t.totalBytes);
         v.put("error", t.error == null ? "" : t.error);
+        v.put("rawFallback", t.rawFallback ? 1 : 0);
         v.put("cacheDir", t.cacheDir == null ? "" : t.cacheDir);
         v.put("exportedPath", t.exportedPath == null ? "" : t.exportedPath);
         v.put("createdAt", t.createdAt);

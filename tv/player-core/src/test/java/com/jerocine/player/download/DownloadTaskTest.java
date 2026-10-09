@@ -76,6 +76,35 @@ public class DownloadTaskTest {
         assertFalse(t.canTransitionTo(DownloadTask.STATE_COMPLETED));
     }
 
+    // ============================ 过滤阶段状态(2026-10-10) ============================
+
+    @Test
+    public void filteringPhaseTransitions() {
+        // 过滤结束: 成功/原始流兜底 → QUEUED; 用户暂停 → PAUSED; 失败 → FAILED
+        assertTrue(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_QUEUED));
+        assertTrue(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_PAUSED));
+        assertTrue(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_FAILED));
+        // 不能跳过 QUEUED 直接下载/完成/导出
+        assertFalse(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_DOWNLOADING));
+        assertFalse(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_COMPLETED));
+        assertFalse(DownloadTask.canTransition(DownloadTask.STATE_FILTERING, DownloadTask.STATE_EXPORTING));
+        // 过滤是入队起点, 不接受从其它状态"回退"进过滤
+        assertFalse(DownloadTask.canTransition(DownloadTask.STATE_QUEUED, DownloadTask.STATE_FILTERING));
+        assertFalse(DownloadTask.canTransition(DownloadTask.STATE_PAUSED, DownloadTask.STATE_FILTERING));
+        assertFalse(DownloadTask.canTransition(DownloadTask.STATE_FAILED, DownloadTask.STATE_FILTERING));
+        // 暂停的过滤任务恢复后照常走 PAUSED → QUEUED → DOWNLOADING
+        assertTrue(DownloadTask.canTransition(DownloadTask.STATE_PAUSED, DownloadTask.STATE_QUEUED));
+    }
+
+    @Test
+    public void rawBadgeAppendsOnlyWhenFallback() {
+        assertEquals("排队中", DownloadTask.withRawBadge(false, "排队中"));
+        assertEquals("排队中 · " + DownloadTask.RAW_FALLBACK_BADGE,
+                DownloadTask.withRawBadge(true, "排队中"));
+        assertEquals(DownloadTask.RAW_FALLBACK_BADGE, DownloadTask.withRawBadge(true, ""));
+        assertNull(DownloadTask.withRawBadge(true, null));
+    }
+
     // ============================ 导出文件名 ============================
 
     @Test

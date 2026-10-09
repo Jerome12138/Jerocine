@@ -12,6 +12,8 @@ package com.jerocine.player.download;
  *     │              │
  *     ├──→ PAUSED ←──┤              (用户暂停; PAUSED ──→ QUEUED 续传)
  *     └──→ FAILED ←──┘              (失败可重试; FAILED ──→ QUEUED 重试)
+ *
+ *   FILTERING ──→ QUEUED | PAUSED | FAILED   (入队起点: 拉清单+广告过滤阶段, 见 DownloadEngine.enqueue)
  * </pre>
  * 删除不走状态机(任意态都可删除, 见 DownloadActivity)。
  */
@@ -23,6 +25,18 @@ public final class DownloadTask {
     public static final int STATE_COMPLETED = 3;
     public static final int STATE_FAILED = 4;
     public static final int STATE_EXPORTING = 5;
+    /**
+     * 拉清单+广告过滤阶段(2026-10-10): 入队后先落库此状态, 让"下载中"列表立即可见
+     * (过滤是网络操作, 含最多 3 轮重试, 可达数十秒; 旧行为过滤完才入库 → 用户看空白)。
+     * 过滤结束 → QUEUED(成功/原始流兜底) 或 FAILED; 用户可在过滤期间暂停。
+     */
+    public static final int STATE_FILTERING = 6;
+
+    /**
+     * 原始流兜底任务的常驻角标文案(2026-10-10 用户要求可见): 该集离线播放/导出含潜在广告段。
+     * 持久化在 {@code rawFallback} 列, 下载中/已完成行都要带。
+     */
+    public static final String RAW_FALLBACK_BADGE = "原始流(含广告)";
 
     /** 幂等键 = filmId:sourceKey:episode */
     public String id;
@@ -42,8 +56,10 @@ public final class DownloadTask {
     public int state = STATE_QUEUED;
     public long progressBytes;
     public long totalBytes;
-    /** 失败原因(用户可读文案) */
+    /** 失败原因(用户可读文案); FILTERING 阶段临时承载过程文案(如"广告过滤中 · 重试 2/3") */
     public String error;
+    /** true = 过滤失败按策略原始流兜底(见 DownloadFilterFallbackPolicy), 离线播放含潜在广告段 */
+    public boolean rawFallback;
     /** 下载缓存区目录 download_cache/&lt;filmId&gt;/&lt;episode&gt; */
     public String cacheDir;
     /** 导出 .ts 后的系统下载目录路径(可空) */
@@ -91,11 +107,25 @@ public final class DownloadTask {
                 return to == STATE_EXPORTING;
             case STATE_EXPORTING:
                 return to == STATE_COMPLETED; // 导出完成, 回 COMPLETED 并带 exportedPath
+            case STATE_FILTERING:
+                // 过滤结束: 成功/兜底 → QUEUED; 用户暂停 → PAUSED(管线末端注册 media3 后回挂 stopReason);
+                // 失败(重试耗尽防御路径/清单拉取失败) → FAILED。不直接到 DOWNLOADING/COMPLETED。
+                return to == STATE_QUEUED || to == STATE_PAUSED || to == STATE_FAILED;
             case STATE_FAILED:
                 return to == STATE_QUEUED; // 用户重试
             default:
                 return false;
         }
+    }
+
+    /**
+     * 给行内信息文案追加原始流兜底角标 — rawFallback 任务的常驻标记(下载中/已完成行都带)。
+     */
+    public static String withRawBadge(boolean rawFallback, String base) {
+        if (base == null) return null;
+        if (!rawFallback) return base;
+        // 空基础文案不带" · "前缀(行信息为空时角标单独成词)
+        return base.isEmpty() ? RAW_FALLBACK_BADGE : base + " · " + RAW_FALLBACK_BADGE;
     }
 
     public boolean canTransitionTo(int to) {

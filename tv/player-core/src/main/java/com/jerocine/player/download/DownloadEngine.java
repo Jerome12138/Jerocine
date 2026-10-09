@@ -51,7 +51,9 @@ import okhttp3.Response;
  *   <li>广告过滤: 入队前 GET 源站清单 → {@link M3u8FilterClient} 过滤 → 清单落库(离线播放用),
  *       同时注入 {@link DownloadFilterPlaylistParserFactory} 让 HlsDownloader 解析时直接命中预取结果
  *       (master 不再付第二次 POST; 子表仍走 POST)。失败按 {@link DownloadFilterFallbackPolicy}
- *       分级: 网络类重试 3 轮后与其余原因一样原始流兜底(落盘前绝对化), 仅取消中止;</li>
+ *       分级: 网络类重试 3 轮后与其余原因一样原始流兜底(落盘前绝对化), 仅取消中止;
+ *       过滤阶段先落 {@link DownloadTask#STATE_FILTERING} 行(2026-10-10 用户要求:
+ *       过滤中/重试/兜底/失败全程在下载列表可见), 崩溃后自启动重跑;</li>
  *   <li>进度/状态: {@link DownloadManager.Listener} 把 Media3 状态映射到 {@link DownloadTask} 并落库;</li>
  *   <li>崩溃恢复: 启动时把残留 DOWNLOADING 标 PAUSED(等用户续传)。</li>
  * </ul>
@@ -180,7 +182,27 @@ public final class DownloadEngine {
         // 这里主动 resume 一次, 不依赖 service 时序, 保证任何创建方入队的任务都能启动。
         manager.resumeDownloads();
         requeueOrphanTasks();
+        resumeFilteringTasks();
         repairLegacySizes();
+    }
+
+    /**
+     * 崩溃自愈: 上次进程被杀时仍卡在 FILTERING(拉清单/过滤未完成)的任务 → 重跑入队管线
+     * (fetch+filter 幂等, 过滤结果落库后照常交给 media3)。不重跑的话任务永远停在
+     * "广告过滤中"。服务重建时 {@link JerocineDownloadService} 传
+     * {@code defaultProxyBase()}(非空), 这里的过滤不会因 base 缺失而误降级。
+     */
+    private void resumeFilteringTasks() {
+        try {
+            for (DownloadTask t : repository.listAll()) {
+                if (t.state != DownloadTask.STATE_FILTERING) continue;
+                Log.i(TAG, "自愈: 重跑过滤管线: " + t.id);
+                worker.execute(() -> runPipeline(t));
+            }
+        } catch (Exception e) {
+            // 自愈是尽力而为, 任何异常都不能挡住引擎初始化
+            Log.w(TAG, "resumeFilteringTasks failed", e);
+        }
     }
 
     /**
@@ -375,98 +397,148 @@ public final class DownloadEngine {
             if (repository.get(task.id) != null) {
                 return; // 幂等: 已存在(重复入队被 UI 拦截过, 双保险)
             }
-            DownloadTask fresh = task;
-            try {
-                byte[] raw = fetchPlaylist(task.srcUrl);
-                Log.i(TAG, "拉清单完成: " + task.id + " len=" + raw.length);
-                FilterOutcome master = filterWithFallback(base, task.srcUrl, raw, "清单");
-                if (master.cancelled) {
+            // 【2026-10-10 用户要求】先落一行 FILTERING("广告过滤中"): 过滤是网络操作
+            // (拉清单 + 最多 3 轮重试, 可达数十秒), 旧行为过滤完才 insertIgnore →
+            // 用户点完"开始下载"切到"下载中" tab 一片空白, 以为没点上。
+            // 现在入队即可见, 过滤重试/兑底/失败全程有落点; 进程被杀则由
+            // resumeFilteringTasks() 重跑。
+            task.state = DownloadTask.STATE_FILTERING;
+            task.error = "广告过滤中…";
+            if (!repository.insertIgnore(task)) {
+                return; // 并发入队已被抢先插上, 幂等
+            }
+            notifyChanged(task.id);
+            runPipeline(task);
+        });
+    }
+
+    /**
+     * 入队管线: 拉源站清单 → 端侧过滤(失败按 {@link DownloadFilterFallbackPolicy} 分级降级)
+     * → 保存清单(离线播用) → 交给 DownloadService。行已在 enqueue/自愈时落库(FILTERING),
+     * 这里只负责推进状态; 过滤期间用户删除(update 返回 false)则静默退出。
+     */
+    private void runPipeline(DownloadTask task) {
+        final String base = proxyBase;
+        DownloadTask fresh = task;
+        try {
+            byte[] raw = fetchPlaylist(task.srcUrl);
+            Log.i(TAG, "拉清单完成: " + task.id + " len=" + raw.length);
+            FilterOutcome master = filterWithFallback(base, task.srcUrl, raw, "清单",
+                    (attempt, max) -> {
+                        repository.updateFilterNote(task.id,
+                                "广告过滤中 · 重试 " + attempt + "/" + max);
+                        notifyChanged(task.id);
+                    });
+            if (master.cancelled) {
+                Log.i(TAG, "已取消, 停止入队: " + task.id);
+                return;
+            }
+            if (master.error != null) {
+                fail(task, master.error);
+                return;
+            }
+            Log.i(TAG, "过滤完成(" + (master.rawFallback ? "原始流兜底" : "filtered=" + master.filteredCount) + "): " + task.id);
+            boolean rawFlag = master.rawFallback;
+            // 【2026-10-08 根修 "0KB+秒完成+离线播放走网络"】源 URL 常是 **master 清单**
+            // (实锤: lz 源的 index.m3u8 只有 96 字节, 一行 variant 指向 2000k/hls/mixed.m3u8)。
+            // 若把 master 当 filteredPlaylist 落库:
+            //   · PlaylistSegments.parse(master) 会把 variant 行误当 1 个"分片" →
+            //     导出/清缓存/体积自愈/离线播放全部建立在错误分片表上;
+            //   · 真正的分片要靠 HlsDownloader 下钻 variant 子表再过一轮滤 — 而该步在
+            //     getSegments(removeWhenParsed=true) 里异常直接跳过, 设备实测 0 分片秒完成。
+            // 修法: 入队时下钻第一个 variant, 拉子表 → 过滤 → 把**媒体级清单**作为
+            // filteredPlaylist 落库 + prefetched(子表分片已被服务端绝对化)。
+            // HlsDownloader 对 master URI 解析直接命中这份媒体清单(分片全绝对化),
+            // 不再需要下钻; 离线播放 file://playlist.m3u8 同理命中缓存。
+            byte[] playlistData = master.data;
+            if (isMasterPlaylist(playlistData)) {
+                Log.i(TAG, "master 清单, 下钻子表: " + task.id);
+                String childUrl = firstVariantUrl(playlistData, task.srcUrl);
+                if (childUrl == null || childUrl.isEmpty()) {
+                    fail(task, "master 清单中没有可用的子清单, 无法下载");
+                    return;
+                }
+                byte[] childRaw = fetchPlaylist(childUrl);
+                // 子表重试同样回写过程文案(同一行, 文案相同, 幂等)
+                FilterOutcome child = filterWithFallback(base, childUrl, childRaw, "子表",
+                        (attempt, max) -> {
+                            repository.updateFilterNote(task.id,
+                                    "广告过滤中 · 重试 " + attempt + "/" + max);
+                            notifyChanged(task.id);
+                        });
+                if (child.cancelled) {
                     Log.i(TAG, "已取消, 停止入队: " + task.id);
                     return;
                 }
-                if (master.error != null) {
-                    fail(task, master.error);
+                if (child.error != null) {
+                    fail(task, child.error);
                     return;
                 }
-                Log.i(TAG, "过滤完成(" + (master.rawFallback ? "原始流兜底" : "filtered=" + master.filteredCount) + "): " + task.id);
-                // 【2026-10-08 根修 "0KB+秒完成+离线播放走网络"】源 URL 常是 **master 清单**
-                // (实锤: lz 源的 index.m3u8 只有 96 字节, 一行 variant 指向 2000k/hls/mixed.m3u8)。
-                // 若把 master 当 filteredPlaylist 落库:
-                //   · PlaylistSegments.parse(master) 会把 variant 行误当 1 个"分片" →
-                //     导出/清缓存/体积自愈/离线播放全部建立在错误分片表上;
-                //   · 真正的分片要靠 HlsDownloader 下钻 variant 子表再过一轮滤 — 而该步在
-                //     getSegments(removeWhenParsed=true) 里异常直接跳过, 设备实测 0 分片秒完成。
-                // 修法: 入队时下钻第一个 variant, 拉子表 → 过滤 → 把**媒体级清单**作为
-                // filteredPlaylist 落库 + prefetched(子表分片已被服务端绝对化)。
-                // HlsDownloader 对 master URI 解析直接命中这份媒体清单(分片全绝对化),
-                // 不再需要下钻; 离线播放 file://playlist.m3u8 同理命中缓存。
-                byte[] playlistData = master.data;
-                if (isMasterPlaylist(playlistData)) {
-                    Log.i(TAG, "master 清单, 下钻子表: " + task.id);
-                    String childUrl = firstVariantUrl(playlistData, task.srcUrl);
-                    if (childUrl == null || childUrl.isEmpty()) {
-                        fail(task, "master 清单中没有可用的子清单, 无法下载");
-                        return;
-                    }
-                    byte[] childRaw = fetchPlaylist(childUrl);
-                    FilterOutcome child = filterWithFallback(base, childUrl, childRaw, "子表");
-                    if (child.cancelled) {
-                        Log.i(TAG, "已取消, 停止入队: " + task.id);
-                        return;
-                    }
-                    if (child.error != null) {
-                        fail(task, child.error);
-                        return;
-                    }
-                    playlistData = child.data;
-                    // 原始流兜底时没有服务端绝对化 —— 子表(媒体级)相对分片按子表 URL 绝对化,
-                    // 否则 file:// 离线播放解析不出分片、下载缓存 key 也与播放期不一致。
-                    if (child.rawFallback) {
-                        playlistData = HlsPlaylistAbsolutizer
-                                .absolutize(new String(child.data, StandardCharsets.UTF_8), childUrl)
-                                .getBytes(StandardCharsets.UTF_8);
-                        Log.i(TAG, "原始流子清单已按子表 URL 绝对化: " + task.id);
-                    }
-                    Log.i(TAG, "子表完成(" + (child.rawFallback ? "原始流兜底" : "filtered=" + child.filteredCount)
-                            + ") len=" + playlistData.length);
-                } else if (master.rawFallback) {
-                    // 源 URL 本身就是媒体级清单 + 原始流兜底: 相对分片按源 URL 绝对化
-                    // (与下方子表兜底同一道理, 否则 file:// 离线播放解析不出分片)
+                playlistData = child.data;
+                rawFlag |= child.rawFallback;
+                // 原始流兜底时没有服务端绝对化 —— 子表(媒体级)相对分片按子表 URL 绝对化,
+                // 否则 file:// 离线播放解析不出分片、下载缓存 key 也与播放期不一致。
+                if (child.rawFallback) {
                     playlistData = HlsPlaylistAbsolutizer
-                            .absolutize(new String(master.data, StandardCharsets.UTF_8), task.srcUrl)
+                            .absolutize(new String(child.data, StandardCharsets.UTF_8), childUrl)
                             .getBytes(StandardCharsets.UTF_8);
-                    Log.i(TAG, "原始流媒体清单已按源 URL 绝对化: " + task.id);
+                    Log.i(TAG, "原始流子清单已按子表 URL 绝对化: " + task.id);
                 }
-                fresh.filteredPlaylist = new String(playlistData, StandardCharsets.UTF_8);
-                prefetchedPlaylists.put(task.srcUrl, playlistData); // master URI 命中, HlsDownloader 直接拿到媒体清单
-                File dir = episodeCacheDir(fresh);
-                if (!dir.exists()) dir.mkdirs();
-                writePlaylistFile(new File(dir, "playlist.m3u8"), playlistData);
-                fresh.state = DownloadTask.STATE_QUEUED;
-                fresh.error = "";
-                if (repository.insertIgnore(fresh)) {
-                    Log.i(TAG, "已入队 media3: " + task.id);
-                    DownloadRequest request = new DownloadRequest.Builder(task.id, Uri.parse(task.srcUrl))
-                            .setMimeType(MimeTypes.APPLICATION_M3U8)
-                            .setData(task.id.getBytes(StandardCharsets.UTF_8))
-                            .build();
-                    DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
-                }
-            } catch (IllegalArgumentException e) {
-                // 路径校验失败(filmId 非法): 说清是哪个任务出的问题, 不混进"清单获取失败"
-                Log.w(TAG, "enqueue bad filmId: " + task.id, e);
-                fail(fresh, "任务参数非法(影片ID 含非法字符), 无法下载");
-            } catch (IllegalStateException e) {
-                // Android 8+ 后台启动前台服务被系统拒绝: sendAddDownload 跑在 worker 线程,
-                // 用户点完"开始下载"可能已退出页面 → 抛 IllegalStateException。
-                // 原实现被下面的 catch(Exception) 吞掉并报"清单获取失败", 用户完全看不懂。
-                Log.w(TAG, "enqueue blocked by background start limit: " + task.id, e);
-                fail(fresh, "系统限制后台启动下载服务, 请回到应用前台后重试");
-            } catch (Exception e) {
-                Log.w(TAG, "enqueue failed: " + task.id, e);
-                fail(fresh, "清单获取失败: " + safeMessage(e));
+                Log.i(TAG, "子表完成(" + (child.rawFallback ? "原始流兜底" : "filtered=" + child.filteredCount)
+                        + ") len=" + playlistData.length);
+            } else if (master.rawFallback) {
+                // 源 URL 本身就是媒体级清单 + 原始流兜底: 相对分片按源 URL 绝对化
+                // (与下方子表兜底同一道理, 否则 file:// 离线播放解析不出分片)
+                playlistData = HlsPlaylistAbsolutizer
+                        .absolutize(new String(master.data, StandardCharsets.UTF_8), task.srcUrl)
+                        .getBytes(StandardCharsets.UTF_8);
+                Log.i(TAG, "原始流媒体清单已按源 URL 绝对化: " + task.id);
             }
-        });
+            fresh.filteredPlaylist = new String(playlistData, StandardCharsets.UTF_8);
+            fresh.rawFallback = rawFlag; // 兜底标记落库, 下载中/已完成行常驻显示(用户要求可见)
+            fresh.state = DownloadTask.STATE_QUEUED;
+            fresh.error = "";
+            // 先读过滤期间的暂停意图(update 会把 PAUSED 覆盖成 QUEUED, 之后就读不到了)
+            DownloadTask cur = repository.get(task.id);
+            if (cur == null) {
+                return; // 过滤期间用户已删除该任务: 静默退出, 不再交给 media3
+            }
+            boolean pausedDuringFiltering = cur.state == DownloadTask.STATE_PAUSED;
+            if (!repository.update(fresh)) {
+                return; // 行已消失(并发删除): 同上静默退出
+            }
+            prefetchedPlaylists.put(task.srcUrl, playlistData); // master URI 命中, HlsDownloader 直接拿到媒体清单
+            File dir = episodeCacheDir(fresh);
+            if (!dir.exists()) dir.mkdirs();
+            writePlaylistFile(new File(dir, "playlist.m3u8"), playlistData);
+            Log.i(TAG, "已入队 media3: " + task.id
+                    + (rawFlag ? " (原始流兜底)" : ""));
+            DownloadRequest request = new DownloadRequest.Builder(task.id, Uri.parse(task.srcUrl))
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
+                    .setData(task.id.getBytes(StandardCharsets.UTF_8))
+                    .build();
+            DownloadService.sendAddDownload(appContext, JerocineDownloadService.class, request, true);
+            // 过滤期间用户按了暂停: 注册到 media3 后立即回挂 stopReason, media3 会回调
+            // PAUSED 把业务表同步回来。setStopReason 对未注册任务是静默 no-op, 故必须在
+            // sendAddDownload 之后调用; 极小窗口内可能竞态(add 尚未入 handler, stopReason
+            // 落空 → 照常下载), 与 pause() 的已知竞态窗口同源, 不额外加锁。
+            if (pausedDuringFiltering) {
+                manager.setStopReason(task.id, 1);
+            }
+        } catch (IllegalArgumentException e) {
+            // 路径校验失败(filmId 非法): 说清是哪个任务出的问题, 不混进"清单获取失败"
+            Log.w(TAG, "enqueue bad filmId: " + task.id, e);
+            fail(fresh, "任务参数非法(影片ID 含非法字符), 无法下载");
+        } catch (IllegalStateException e) {
+            // Android 8+ 后台启动前台服务被系统拒绝: sendAddDownload 跑在 worker 线程,
+            // 用户点完"开始下载"可能已退出页面 → 抛 IllegalStateException。
+            // 原实现被下面的 catch(Exception) 吞掉并报"清单获取失败", 用户完全看不懂。
+            Log.w(TAG, "enqueue blocked by background start limit: " + task.id, e);
+            fail(fresh, "系统限制后台启动下载服务, 请回到应用前台后重试");
+        } catch (Exception e) {
+            Log.w(TAG, "enqueue failed: " + task.id, e);
+            fail(fresh, "清单获取失败: " + safeMessage(e));
+        }
     }
 
     /**
@@ -474,7 +546,7 @@ public final class DownloadEngine {
  *
  * <p><b>必须同步业务表</b>: 只调 {@code manager.setStopReason} 的话, 存在两个问题 ——
  * <ol>
- *   <li><b>竞态窗口</b>: 入队流程先 {@code insertIgnore(QUEUED)} 再异步
+ *   <li><b>竞态窗口</b>: 入队流程先落 FILTERING 行、过滤完 update(QUEUED) 后才异步
  *       {@code sendAddDownload}; 此窗口内 media3 的 DownloadIndex 尚无该 id,
  *       {@code setStopReason} 找不到记录即<b>静默返回</b> → 用户点暂停没反应,
  *       任务照常下载, UI 还一直显示"暂停"按钮可反复点。</li>
@@ -489,11 +561,13 @@ public void pause(String taskId) {
         DownloadTask t = repository.get(taskId);
         if (t == null) return;
         // 条件更新: 只在"进行中"时改。不用 update(t) 全行覆盖, 避免与导出/进度回写互相踩。
+        // FILTERING 也可暂停: 行会被标 PAUSED, 过滤管线末端检测到后注册 media3 并回挂 stopReason。
         if (t.state == DownloadTask.STATE_QUEUED || t.state == DownloadTask.STATE_DOWNLOADING
-                || t.state == DownloadTask.STATE_PAUSED) {
+                || t.state == DownloadTask.STATE_PAUSED
+                || t.state == DownloadTask.STATE_FILTERING) {
             repository.updateStateIf(taskId, DownloadTask.STATE_PAUSED,
                     DownloadTask.STATE_QUEUED, DownloadTask.STATE_DOWNLOADING,
-                    DownloadTask.STATE_PAUSED);
+                    DownloadTask.STATE_PAUSED, DownloadTask.STATE_FILTERING);
             notifyChanged(taskId);
         }
     }
@@ -754,13 +828,21 @@ public void pause(String taskId) {
         }
     }
 
+    /** 过滤重试回调 — 把"重试 N/M"即时写进任务行(用户要求过滤过程可见)。 */
+    private interface RetryFeedback {
+        void onRetry(int attempt, int maxRounds);
+    }
+
     /**
      * 过滤一单层清单, 带 {@link DownloadFilterFallbackPolicy} 降级策略(用户拍板 2026-10-10):
      * NETWORK → 最多 3 轮(每轮内 M3u8FilterClient 自带 1 次快速重试), 耗尽后与
      * NO_FILTER / REJECTED / BAD_RESPONSE 一样原始流兜底(调用方需对媒体级清单绝对化);
      * CANCELLED → 取消。取消失败链路: 中断位已由 client 重设, 这里不再 sleep 直接返回。
+     *
+     * @param feedback 每决定重试一次回调一次(带即将进行的重试轮次), 可为 null(如解析器侧不用)
      */
-    private FilterOutcome filterWithFallback(String base, String url, byte[] rawBytes, String what) {
+    private FilterOutcome filterWithFallback(String base, String url, byte[] rawBytes, String what,
+                                             @Nullable RetryFeedback feedback) {
         int attempt = 0;
         while (true) {
             M3u8FilterClient.Outcome o = M3u8FilterClient.filterDetailed(base, url, rawBytes);
@@ -772,6 +854,9 @@ public void pause(String taskId) {
                     DownloadFilterFallbackPolicy.onFilterFailure(o.cause, attempt);
             switch (a) {
                 case RETRY:
+                    if (feedback != null) {
+                        feedback.onRetry(attempt, DownloadFilterFallbackPolicy.NETWORK_RETRY_ROUNDS);
+                    }
                     try {
                         Thread.sleep(300);
                     } catch (InterruptedException ie) {
