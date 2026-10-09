@@ -34,6 +34,12 @@ deploy/.env
 deploy/secrets/
 *.pem
 
+# Web 部署产物(宿主机挂载给 nginx, 由 deploy.sh web 生成) — 不入库。
+# html/ = 公开静态目录; releases/ = 整版回滚快照; debugmap/ = 归档的 sourcemap(非公开)
+deploy/data/html/
+deploy/data/releases/
+deploy/data/debugmap/
+
 # brainstorming 临时 mockup
 .superpowers/
 
@@ -42,6 +48,9 @@ deploy/secrets/
 
 # Local Git worktrees
 .worktrees/
+
+# WorkBuddy 本地工作目录(临时草稿/工具状态) — 项目记忆在本机 Harness 仓, 不进公开仓
+.workbuddy/
 
 # Claude Code 本地工作目录 + 调试截图
 # skills/ 是可共享的项目资产(运维手册等), 纳入版本控制; settings.local.json / 锁文件等机器相关文件仍忽略
