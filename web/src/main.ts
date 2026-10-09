@@ -5,7 +5,6 @@ import 'virtual:uno.css'
 import '@/assets/styles/reset.css'
 import '@/assets/styles/theme.css'
 import '@/assets/styles/tv-cards.css'
-import '@/assets/styles/iconfont.css'
 
 import App from './App.vue'
 import router from './router'

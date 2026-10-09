@@ -5,6 +5,13 @@ import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { fileURLToPath, URL } from 'node:url'
 
+// 构建期版本目录: 部署脚本注入 JC_BUILD_TS=YYYYMMDD-HHMMSS, 产物落 dist/assets/<TS>/.
+// 目的: 让 index.html 的资源引用与 Workbox precache manifest 在同一次构建里天然自洽
+// (部署期不再对 index.html 做 sed 改写 —— 那会让 sw.js 的 manifest 与实际 URL 不一致,
+//  导致 precache 全量 404、Service Worker 永远装不上).
+// 未注入时 (本地 dev / 普通构建) 行为完全不变, 仍是 dist/assets/.
+const BUILD_TS = process.env.JC_BUILD_TS ?? ''
+
 // https://vitejs.dev/config/
 export default defineConfig({
   resolve: {
@@ -53,6 +60,8 @@ export default defineConfig({
   build: {
     target: 'es2020',
     cssCodeSplit: true,
+    // 版本目录(见顶部 BUILD_TS 说明): 有 TS 时资源落 assets/<TS>/, 否则保持 assets/
+    assetsDir: BUILD_TS ? `assets/${BUILD_TS}` : 'assets',
     // sourcemap 开 hidden 模式 — .map 文件正常生成但 bundle 里不引用,
     // 浏览器不会自动加载 (不增加首屏 cost). 但 server 上文件存在,
     // 调试时手动下载 .map 配合 stack 可还原源码定位.
