@@ -1312,7 +1312,12 @@ private static String failedRequestUrl(Throwable error) {
             bufferPrefetcher.start(srcUrl, minutes,
                 (cached, target) -> {
                     int pct = target > 0 ? (int) (cached * 100.0 / target) : 0;
-                    showCenterToast("缓存缓冲 " + Math.min(pct, 100) + "% · " + label, 1200);
+                    // duration 必须 ≥ 分片下载间隔: toast 是"覆盖+定时消失"式, 1.2s 时
+                    // 分片间隔稍大就闪没, 下片完成才再冒出来 —— 用户看到的是"弹窗一会
+                    // 消失一会出现", 且最后一个被看清的百分比会被误读成"缓冲到 X% 就
+                    // 直接完成了"(真机反馈 2026-10-10)。5s 续命视觉上即常驻,
+                    // 完成时被"缓存完成"覆盖。
+                    showCenterToast("缓存缓冲 " + Math.min(pct, 100) + "% · " + label, 5000);
                 },
                 new BufferPrefetcher.CompletionListener() {
                     @Override
