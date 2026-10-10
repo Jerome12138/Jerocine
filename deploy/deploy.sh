@@ -65,6 +65,20 @@ pull_and_reexec() {
 
 # ============================ Web 发布(v2: 挂载 + 版本目录) ============================
 
+# 把 docker cp 拷出来的目录属主归一到当前用户。
+# docker cp 由 docker daemon(root) 写盘 ⇒ 拷出来的文件属主是 root; 不归一化的话, 后续
+# 「以当前用户删除/覆盖写」会 Permission denied(删文件要求其父目录可写; cp 覆盖是 truncate 而非 unlink,
+#  root:644 对普通用户只读)。需要 root ⇒ 服务器约定 sudo -n 可用(docker 本身已走它); 以 root 运行则跳过。
+chown_to_me() {
+  local target="$1"
+  [ "$(id -u)" = "0" ] && return 0
+  if ! sudo -n chown -R "$(id -u):$(id -g)" "$target" 2>/dev/null; then
+    echo "!! 无法把 $target 属主改回当前用户(docker cp 产物属主为 root)。请手动执行:" >&2
+    echo "   sudo chown -R $(id -u):$(id -g) \"$target\"   然后重试" >&2
+    exit 1
+  fi
+}
+
 # 挂载目录是否已有可服务的产物
 web_mount_ready() { [ -f data/html/index.html ]; }
 
@@ -110,6 +124,10 @@ deploy_web() {
   cid="$("${DOCKER[@]}" create "$builder")"
   "${DOCKER[@]}" cp "$cid:/app/dist/." "$tmp/"
   "${DOCKER[@]}" rm -f "$cid" >/dev/null
+  # docker cp 产物属主是 root ⇒ 必须归一化, 否则 ① 收尾 rm -rf "$tmp" 会 Permission denied,
+  # 触发 set -e 直接中止, 后面的「重建 nginx + reload + 清缓存」全部被跳过;
+  # ② 拷进挂载目录的文件属主也不干净(影响下次覆盖写)。
+  chown_to_me "$tmp"
 
   # 3) 同步进挂载目录(先写目录; 排除 *.map 并归档; 保留 3 版; 生成整版快照)
   wr_sync_dist "$tmp" "data" "$ts" "../LICENSE"
@@ -141,17 +159,9 @@ web_init() {
   fi
   mkdir -p data/html
   "${DOCKER[@]}" cp jerocine_nginx:/usr/share/nginx/html/. data/html/
-  # docker cp 由 docker daemon(root) 写盘 ⇒ 拷出来的文件属主是 root。必须归一到当前用户, 否则:
-  #   ① 下面删 apk 副本会 Permission denied(apk/ 目录属主 root, 删其内容需该目录可写);
-  #   ② 紧接着的 ./deploy.sh web 用 cp 覆盖 html/index.html 也会被拒(cp 是 truncate 写而非 unlink,
-  #      而 root:644 对普通用户只读)。服务器约定 sudo -n 可用(docker 本身已走它); 已是 root 则跳过。
-  if [ "$(id -u)" != "0" ]; then
-    if ! sudo -n chown -R "$(id -u):$(id -g)" data/html 2>/dev/null; then
-      echo "!! 无法把 data/html 属主改回当前用户(docker cp 产物属主为 root)。请手动执行:" >&2
-      echo "   sudo chown -R $(id -u):$(id -g) \"$(pwd)/data/html\"   然后重跑 web-init" >&2
-      exit 1
-    fi
-  fi
+  # docker cp 产物属主是 root(见 chown_to_me 注释): 不归一化则下面删 apk 副本会 Permission denied,
+  # 紧接着的 ./deploy.sh web 覆盖写 html/index.html 也会被拒。
+  chown_to_me data/html
   if [ ! -f data/html/index.html ]; then
     echo "!! 容器内没有前端产物(可能已是新版镜像 / 已切挂载)。" >&2
     echo "   直接跑 ./deploy.sh web 用构建产物初始化挂载目录即可。" >&2
