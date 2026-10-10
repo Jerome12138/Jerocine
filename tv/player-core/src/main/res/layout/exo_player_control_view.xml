@@ -185,7 +185,7 @@
             <Button
                 android:id="@+id/btn_more"
                 style="@style/JcPlayerCtlBtn"
-                android:drawableTop="@drawable/ic_more_vert"
+                android:drawableTop="@drawable/ic_more_horiz"
                 android:text="更多" />
 
             <Button
