@@ -227,12 +227,22 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
      * 不会盖掉真实失败原因或入队后的清空。
      */
     public boolean updateFilterNote(String id, String note) {
+        return updateNoteIf(id, note, DownloadTask.STATE_FILTERING);
+    }
+
+    /**
+     * 过程/原因文案写 error 列(条件 state 生效, 语义同 {@link #updateFilterNote})。
+     *
+     * <p>低空间闸(2026-10-10)复用: 暂停原因写 PAUSED 行("存储空间不足…", 行内可见),
+     * 用户点「继续」回 QUEUED 时写空串清掉, 防止行内残留旧原因。
+     */
+    public boolean updateNoteIf(String id, String note, int forState) {
         if (id == null) return false;
         ContentValues v = new ContentValues();
         v.put("error", note == null ? "" : note);
         v.put("updatedAt", System.currentTimeMillis());
         return getWritableDatabase().update(TABLE, v, "id=? AND state=?",
-                new String[]{id, String.valueOf(DownloadTask.STATE_FILTERING)}) > 0;
+                new String[]{id, String.valueOf(forState)}) > 0;
     }
 
     @Override

@@ -1291,6 +1291,10 @@ public class DownloadActivity extends AppCompatActivity {
                     // 暂停行也带分片快照(冻结值): 与下载中同一套口径, 恢复后无缝接上
                     DownloadEngine.SegmentProgress psp = engine.getSegmentProgress(t.id);
                     infoStr = DownloadTask.withRawBadge(t.rawFallback, pausedFailedInfo(t, psp));
+                    // 主动暂停的原因(低空间闸写的 error 列)上屏 —— 一眼看出为什么被停、该干什么
+                    if (t.error != null && !t.error.isEmpty()) {
+                        infoStr += " · " + t.error;
+                    }
                     ring.setProgress(frac >= 0f ? frac : 0f); // 暂停: 冻结的进度弧
                     ring.setVisibility(View.VISIBLE);
                     break;

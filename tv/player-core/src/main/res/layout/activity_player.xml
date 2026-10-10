@@ -110,7 +110,10 @@
             android:text="1.0×"
             android:paddingHorizontal="12dp" />
 
-        <!-- 分辨率标: 播放就绪后按视频实际宽高显示 4K/2K/1080P/720P..., 未就绪隐藏 -->
+        <!-- 分辨率标: 播放就绪后按视频实际宽高显示 4K/2K/1080P/720P..., 未就绪隐藏。
+             2026-10-10: textColor 统一 jc_text —— 此前这枚和集数标是 jc_text_secondary(70% 白),
+             与过滤/倍速标的纯白混排, 用户反馈"有的白有的灰"; web 端对照(adtag/res 均
+             rgba(255,255,255,.92))也证明四枚同色才对, 灰是 UI 群修时的手误不是设计。 -->
         <TextView
             android:id="@+id/resolution_badge"
             android:layout_width="wrap_content"
@@ -120,12 +123,12 @@
             android:background="@drawable/jc_badge_bg"
             android:gravity="center_vertical"
             android:includeFontPadding="false"
-            android:textColor="@color/jc_text_secondary"
+            android:textColor="@color/jc_text"
             android:textSize="13sp"
             android:paddingHorizontal="12dp"
             android:visibility="gone" />
 
-        <!-- 当前集数 (最右) — 玻璃胶囊 -->
+        <!-- 当前集数 (最右) — 玻璃胶囊; textColor 与其余三枚统一 jc_text(见分辨率标注释) -->
         <TextView
             android:id="@+id/episodes_count"
             android:layout_width="wrap_content"
@@ -136,7 +139,7 @@
             android:gravity="center_vertical"
             android:includeFontPadding="false"
             android:paddingHorizontal="12dp"
-            android:textColor="@color/jc_text_secondary"
+            android:textColor="@color/jc_text"
             android:textSize="13sp"
             android:visibility="gone" />
 

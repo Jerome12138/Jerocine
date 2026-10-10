@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -111,6 +112,11 @@ public final class DownloadEngine {
     private final DownloadSpeedTracker speedTracker = new DownloadSpeedTracker();
     /** activateNext 的互斥锁(多个触发点跨线程提交, doActivate 内部读改写业务表)。 */
     private final Object activationLock = new Object();
+    /**
+     * 低空间 toast 只弹一次(跨过红线回到其上时在 doActivate 复位)。
+     * pollProgress 每 2s 一拍, 无此标记会轰炸用户。
+     */
+    private boolean lowStorageToastShown;
 
     /** 入队时已过滤好的 master 清单(按源站 URL) — HlsDownloader 解析 master 时直接命中, 省一次 POST. */
     private final java.util.Map<String, byte[]> prefetchedPlaylists = new java.util.concurrent.ConcurrentHashMap<>();
@@ -290,6 +296,17 @@ public final class DownloadEngine {
             // 对账清理: 已退出下载中的任务速度不再计入总数(正常路径 onDownloadChanged 已清,
             // 这里兜崩溃恢复/遗漏回调的僵尸条目)
             speedTracker.retainAll(seen);
+            // 空间预检(2026-10-10): 在途下载持续写盘, 分区可用可能一泻到底; 每拍兜底检查,
+            // 低于红线暂停全部下载中任务(pause 内部 activateNext → 门控再拦 QUEUED,
+            // toast 有一次标记不会轰炸)。红线留 2GB 给系统与可再生缓存余量。
+            if (!seen.isEmpty()
+                    && DownloadStorageGate.belowFloor(
+                    DownloadStorageGate.usableBytes(cacheRoot))) {
+                Log.w(TAG, "下载分区可用空间<2GB: 暂停全部下载中任务");
+                for (String taskId : seen) {
+                    pause(taskId);
+                }
+            }
             // 兜底: 每拍都尝试按队列补位(doActivate 内部自判名额, 无候选时空转一次, 便宜);
             // 覆盖自愈漏触发、后台启动被限的暂退、过滤完成注册失败等所有需要推进的场景。
             activateNext();
@@ -413,6 +430,14 @@ public final class DownloadEngine {
                 if (slots <= 0) return;
                 List<DownloadTask> picks = DownloadQueueOrder.pickActivatable(all, null, slots);
                 if (picks.isEmpty()) return;
+                // 空间预检(2026-10-10): 下载分区可用 < 2GB → 全部 QUEUED 转 PAUSED 并提示
+                // 清理, 不发新任务。恢复路径 = 用户清理后点「继续」(resume→QUEUED→回到本
+                // 门控重新预检; 仍不足会再次被拦, 行内原因可见)。
+                if (DownloadStorageGate.belowFloor(DownloadStorageGate.usableBytes(cacheRoot))) {
+                    pauseQueuedForLowStorage(all);
+                    return;
+                }
+                lowStorageToastShown = false; // 已回红线之上, 下次越线重新提示
                 // 存在性用 DownloadIndex 同步查(权威): 构造后 media3 内存表异步加载,
                 // 只看 getCurrentDownloads 会在窗口期漏掉已有记录的任务。
                 DefaultDownloadIndex index = new DefaultDownloadIndex(dbProvider);
@@ -436,6 +461,35 @@ public final class DownloadEngine {
                 Log.w(TAG, "doActivate failed", e);
             }
         }
+    }
+
+    /**
+     * 低空间闸: 把所有 QUEUED 行置 PAUSED 并写原因(error 列, 行内可见), 一次性 toast 提醒。
+     * 拦的是全部排队任务而非本轮 picks —— 让用户看到的是"所有排队都停了", 而不是
+     * "前几集停了后面还在排队"的半吊子状态。
+     */
+    private void pauseQueuedForLowStorage(List<DownloadTask> all) {
+        String reason = DownloadStorageGate.pauseReason();
+        int n = 0;
+        for (DownloadTask t : all) {
+            if (t.state != DownloadTask.STATE_QUEUED) continue;
+            if (repository.updateStateIf(t.id, DownloadTask.STATE_PAUSED,
+                    DownloadTask.STATE_QUEUED)) {
+                repository.updateNoteIf(t.id, reason, DownloadTask.STATE_PAUSED);
+                notifyChanged(t.id);
+                n++;
+            }
+        }
+        Log.w(TAG, "下载分区可用空间<2GB: 暂停 " + n + " 个排队任务");
+        showLowStorageToastOnce();
+    }
+
+    /** 低空间提示只弹一次; 空间恢复(doActivate 门控放行)后复位, 下次越线重新提示。 */
+    private void showLowStorageToastOnce() {
+        if (lowStorageToastShown) return;
+        lowStorageToastShown = true;
+        mainHandler.post(() -> Toast.makeText(appContext,
+                DownloadStorageGate.toastText(), Toast.LENGTH_LONG).show());
     }
 
     /** 保存 listener 引用 — release 时按实例移除(removeListener(null) 语义不明确, 避免). */
@@ -793,6 +847,8 @@ public final class DownloadEngine {
         // 同步业务表(与 pause 对称): 不然 UI 一直显示"暂停"按钮, 用户看不到恢复生效。
             repository.updateStateIf(taskId, DownloadTask.STATE_QUEUED,
                     DownloadTask.STATE_PAUSED);
+            // 清掉上一次暂停原因(如低空间闸写的"存储空间不足…"), 防行内残留旧文案。
+            repository.updateNoteIf(taskId, "", DownloadTask.STATE_QUEUED);
             manager.setStopReason(taskId, Download.STOP_REASON_NONE);
             manager.resumeDownloads();
             notifyChanged(taskId);
