@@ -62,12 +62,15 @@ public class BrandSplashView extends FrameLayout {
                 LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER);
         addView(col, colLp);
 
-        // 品牌 logo(复用 adaptive icon 的前景图, 全版本可用的位图)
+        // 品牌 logo —— 用**圆角版**(ic_logo_rounded), 不是 adaptive icon 那张原图。
+        // 原图(ic_launcher_foreground_gradient03)是满幅方图(launcher 的 mask 才负责圆角),
+        // 直接放到 #0B0B0F 深色首屏上就是一个直角浅色方块(用户实测反馈) ⇒ splash 改用它
+        // 的圆角副本(半径 22% 边长, 圆角外透明)。
         // 不做 try/catch: R.drawable.* 是编译期常量 —— 资源缺失在编译期就会失败,
         // 运行期不可能走到"缺图"分支(留个假兜底反而让人以为这里能容错)。
         ImageView logo = new ImageView(getContext());
         int logoSize = dp(96);
-        logo.setImageResource(R.drawable.ic_launcher_foreground_gradient03);
+        logo.setImageResource(R.drawable.ic_logo_rounded);
         col.addView(logo, new LinearLayout.LayoutParams(logoSize, logoSize));
 
         // 品牌名

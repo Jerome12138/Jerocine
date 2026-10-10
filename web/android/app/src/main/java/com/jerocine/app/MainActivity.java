@@ -72,6 +72,7 @@ public class MainActivity extends BridgeActivity {
     private static final int GF_ACCENT      = 0xFF4AD1E5; // 强调青
     private static final int GF_ACCENT_DIM  = 0x334AD1E5; // 半透明青 (焦点底)
     private static final int GF_ACCENT_PRESS= 0x554AD1E5; // 按下青底
+    private static final int GF_KNOB        = 0xFFFFFFFF; // 开关圆点 (纯白)
     /** 默认服务器地址 — 首次启动直接用, 不再弹输入框 */
     private static final String DEFAULT_SERVER_URL = "https://jerocine.art";
     /** 首页双击返回退出应用的确认窗口 */
@@ -733,12 +734,21 @@ public class MainActivity extends BridgeActivity {
         settingsPanel.addView(row, rowParams(dp(ROW_H_DP), 6));
     }
 
-    /** 开关图形: 44×24dp 药丸 + 18dp 圆点(纯展示, 不接收事件) */
+    /**
+     * 开关图形: 44×24dp 药丸 + 18dp 白色圆点(纯展示, 不接收事件)。
+     *
+     * ⚠️ 圆点必须**显式给背景**: `new View(this)` 默认没有 drawable ⇒ 在深色玻璃面上就是
+     * 一个透明洞。用户实测"开关中间的圆点没显示"即是此因(自首版 8645d9a 起就没画出来)。
+     */
     private FrameLayout buildToggleSwitch(boolean on) {
         FrameLayout sw = new FrameLayout(this);
         sw.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(24)));
         applyToggleLook(sw, on);
         View knob = new View(this);
+        GradientDrawable knobBg = new GradientDrawable();
+        knobBg.setShape(GradientDrawable.OVAL);
+        knobBg.setColor(GF_KNOB);
+        knob.setBackground(knobBg);
         sw.addView(knob, knobParams(on));
         sw.setTag(knob);
         return sw;
@@ -765,9 +775,16 @@ public class MainActivity extends BridgeActivity {
         sw.setBackground(track);
     }
 
+    /**
+     * 圆点位置/内缩: 24dp 轨道装 18dp 圆点, 上下居中(各 3dp), 左右各留 3dp。
+     * 两个 margin 都设 —— gravity START 时吃 leftMargin、END 时吃 rightMargin,
+     * refreshToggle 只换 gravity, 不设的那一侧会变成贴边。
+     */
     private FrameLayout.LayoutParams knobParams(boolean on) {
         FrameLayout.LayoutParams klp = new FrameLayout.LayoutParams(dp(18), dp(18));
         klp.gravity = (on ? Gravity.END : Gravity.START) | Gravity.CENTER_VERTICAL;
+        klp.leftMargin = dp(3);
+        klp.rightMargin = dp(3);
         return klp;
     }
 
