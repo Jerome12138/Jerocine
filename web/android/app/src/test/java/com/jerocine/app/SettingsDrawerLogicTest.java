@@ -92,33 +92,69 @@ public class SettingsDrawerLogicTest {
         }
     }
 
-    // ============ SPA 深链拼接 ============
+    // ============ 账号行(2026-10-10 抽屉改版): __jcAuth.user() 报文解析 ============
 
     @Test
-    public void spaSettingsUrl_plain() {
-        assertEquals("https://jerocine.art/settings?group=account",
-                SettingsDrawerLogic.spaSettingsUrl("https://jerocine.art", "account"));
+    public void parseAccountSnapshot_logged_in() {
+        SettingsDrawerLogic.AccountSnapshot s =
+                SettingsDrawerLogic.parseAccountSnapshot("{\"loggedIn\":true,\"name\":\"老王\"}");
+        org.junit.Assert.assertTrue(s.loggedIn);
+        assertEquals("老王", s.name);
+        assertEquals("老王", SettingsDrawerLogic.accountTitle(s));
+        assertEquals("退出", SettingsDrawerLogic.accountActionText(s));
     }
 
     @Test
-    public void spaSettingsUrl_trailing_slash_normalized() {
-        assertEquals("https://jerocine.art/settings?group=account",
-                SettingsDrawerLogic.spaSettingsUrl("https://jerocine.art/", "account"));
-        assertEquals("http://192.168.1.9:8080/settings",
-                SettingsDrawerLogic.spaSettingsUrl("http://192.168.1.9:8080///", ""));
+    public void parseAccountSnapshot_logged_out() {
+        SettingsDrawerLogic.AccountSnapshot s =
+                SettingsDrawerLogic.parseAccountSnapshot("{\"loggedIn\":false,\"name\":\"\"}");
+        org.junit.Assert.assertFalse(s.loggedIn);
+        assertEquals("未登录", SettingsDrawerLogic.accountTitle(s));
+        assertEquals("登录", SettingsDrawerLogic.accountActionText(s));
     }
 
     @Test
-    public void spaSettingsUrl_no_group() {
-        assertEquals("https://jerocine.art/settings",
-                SettingsDrawerLogic.spaSettingsUrl("https://jerocine.art", null));
-        assertEquals("https://jerocine.art/settings",
-                SettingsDrawerLogic.spaSettingsUrl("https://jerocine.art", ""));
+    public void parseAccountSnapshot_null_and_junk_become_logged_out() {
+        // evaluateJavascript 的回调可能是 null / "null" / 空串 / 报错文本 —— 一律归一成未登录
+        for (String junk : new String[] {null, "null", "", "   ", "not-json", "{\"a\":1}"}) {
+            SettingsDrawerLogic.AccountSnapshot s = SettingsDrawerLogic.parseAccountSnapshot(junk);
+            org.junit.Assert.assertFalse("junk=" + junk, s.loggedIn);
+            assertEquals("未登录", SettingsDrawerLogic.accountTitle(s));
+            assertEquals("登录", SettingsDrawerLogic.accountActionText(s));
+        }
     }
 
     @Test
-    public void spaSettingsUrl_handles_null_and_blank_base() {
-        assertEquals("/settings?group=play", SettingsDrawerLogic.spaSettingsUrl(null, "play"));
-        assertEquals("/settings", SettingsDrawerLogic.spaSettingsUrl("   ", ""));
+    public void parseAccountSnapshot_handles_escaped_quotes_in_name() {
+        // 昵称理论上可含引号 —— JSON.stringify 会转义, 解析端要还原
+        SettingsDrawerLogic.AccountSnapshot s = SettingsDrawerLogic.parseAccountSnapshot(
+                "{\"loggedIn\":true,\"name\":\"a\\\"b\\\\c\"}");
+        org.junit.Assert.assertTrue(s.loggedIn);
+        assertEquals("a\"b\\c", s.name);
+    }
+
+    @Test
+    public void parseAccountSnapshot_field_order_and_whitespace_tolerant() {
+        // 字段顺序/空白变化不该影响解析(报文出自 JSON.stringify, 但别把实现绑死在形状上)
+        SettingsDrawerLogic.AccountSnapshot s = SettingsDrawerLogic.parseAccountSnapshot(
+                "{ \"name\" : \"小明\" , \"loggedIn\" : true }");
+        org.junit.Assert.assertTrue(s.loggedIn);
+        assertEquals("小明", s.name);
+        assertEquals("登录中 · 点右侧按钮退出", SettingsDrawerLogic.accountSubtitle(s));
+    }
+
+    @Test
+    public void accountSubtitle_variants() {
+        SettingsDrawerLogic.AccountSnapshot in =
+                SettingsDrawerLogic.parseAccountSnapshot("{\"loggedIn\":true,\"name\":\"x\"}");
+        SettingsDrawerLogic.AccountSnapshot out = SettingsDrawerLogic.parseAccountSnapshot("null");
+        org.junit.Assert.assertEquals("登录中 · 点右侧按钮退出",
+                SettingsDrawerLogic.accountSubtitle(in));
+        org.junit.Assert.assertEquals("登录后收藏 / 历史 / 跳过设置多端同步",
+                SettingsDrawerLogic.accountSubtitle(out));
+        // 登录了但名字为空 → 标题仍归一成"未登录"(防脏数据把行渲染成空)
+        SettingsDrawerLogic.AccountSnapshot weird =
+                SettingsDrawerLogic.parseAccountSnapshot("{\"loggedIn\":true}");
+        assertEquals("未登录", SettingsDrawerLogic.accountTitle(weird));
     }
 }

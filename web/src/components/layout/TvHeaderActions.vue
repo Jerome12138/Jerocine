@@ -4,7 +4,7 @@ import { useTvSettingsEntry } from '@/composables/useTvSettingsEntry'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 
 /**
- * 顶栏最右侧的两个动作按钮（方案 §6；2026-10-10 实测反馈修订）。
+ * 顶栏最右侧的两个动作按钮（方案 §6；2026-10-10 两次修订）。
  *   刷新 → 「拿最新版本」（不是裸 reload: SW 接管后裸 reload 只会吃 precache 的旧 index.html）
  *   设置 → 打开原生设置抽屉（给没有 MENU 键的遥控器 / 触屏留入口）
  *
@@ -13,13 +13,15 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
  *      可访问性交给 aria-label / title；
  *   2. **钉在最右**：由 PublicHeader 把它放在 header inner 的**最后一个 flex 子项** +
  *      两侧 flex-1 spacer 顶到容器右缘（原先它挂在居中的胶囊导航里，位置随胶囊走）；
- *   3/4. **显隐交给父级** `shouldShowHeaderActions()` —— TV 模式恒显示；非 TV 模式只有
- *      「在原生壳里且能调起设置抽屉」才显示。桌面布局下首页金刚区的「设置」卡不渲染
- *      （v-if="isTV"），顶栏是用户唯一的回退入口，藏掉它用户切到桌面模式后就切不回 TV 了。
+ *   3/4. **显隐交给父级** `shouldShowHeaderActions()` —— TV 模式恒显示按钮组（纯网页 TV
+ *      也要有「刷新」）；桌面布局下首页金刚区的「设置」卡不渲染（v-if="isTV"），顶栏是
+ *      唯一回退入口。
+ *   5. **「设置」按钮只在原生壳里渲染**（2026-10-10）：SPA /settings 已删，纯网页 TV 没有
+ *      抽屉可开 —— 按 isIntercepted() 过滤，避免死按钮。
  */
 
-/** 设置入口语义(原生壳开抽屉 / 纯网页走 SPA)与首页金刚区共用同一份判断 */
-const { open: openSettings } = useTvSettingsEntry()
+/** 设置入口语义(原生壳开抽屉)与首页金刚区共用同一份判断 */
+const { open: openSettings, isIntercepted: showSettingsBtn } = useTvSettingsEntry()
 
 function track(action: string): void {
   void import('@/utils/telemetry')
@@ -60,6 +62,7 @@ function onOpenSettings(): void {
       <BaseIcon name="refresh" size="20px" />
     </button>
     <button
+      v-if="showSettingsBtn()"
       type="button"
       class="jc-tv-actions__btn"
       aria-label="打开设置"

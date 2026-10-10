@@ -3,8 +3,9 @@ import type { RouteLocationRaw } from 'vue-router'
 
 /**
  * 首页金刚区 —— 一排圆角快捷入口(国产电视常见). 仅 TV 模式使用(HomeView v-if isTV)。
- * 5 个入口: 分类 / 历史 / 收藏 / 排行 / 设置(用户拍板)。
+ * 4 个入口: 分类 / 历史 / 收藏 / 排行。
  * 注: "排行" 暂无独立排行页, 先指向分类筛选(全部影片浏览), 后续有排行页再改。
+ *     原"设置"入口已删(2026-10-10): SPA /settings 下线, 设置走原生抽屉/顶栏齿轮。
  */
 interface QuickEntry {
   key: string
@@ -17,8 +18,7 @@ const entries: QuickEntry[] = [
   { key: 'classify', label: '分类', icon: 'film', to: '/filmClassify' },
   { key: 'history', label: '历史', icon: 'history', to: '/history' },
   { key: 'favorites', label: '收藏', icon: 'heart', to: '/favorites' },
-  { key: 'ranking', label: '排行', icon: 'fire', to: '/filmClassifySearch' },
-  { key: 'settings', label: '设置', icon: 'settings', to: '/settings' }
+  { key: 'ranking', label: '排行', icon: 'fire', to: '/filmClassifySearch' }
 ]
 </script>
 

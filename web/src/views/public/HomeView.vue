@@ -216,8 +216,9 @@ const tvLatestPid = computed<number | undefined>(() => rows.value[0]?.pid)
 const tvFirstPid = computed<number | undefined>(() => rows.value[0]?.pid)
 
 /**
- * 「设置」功能卡(方案 §6 / 抽屉重设计 §6): 原生壳里设备级设置已收敛到原生抽屉 ⇒
- * 点击改为开抽屉(guard 会拦掉 RouterLink 默认跳转); 纯网页 TV 模式仍走 SPA /settings。
+ * 「设置」功能卡(方案 §6 / 抽屉重设计 §6; 2026-10-10 修订): SPA `/settings` 已删,
+ * 设置入口只剩原生抽屉 ⇒ 卡片**只在原生壳里渲染**(v-if), 点击开抽屉(guard 拦掉
+ * RouterLink 默认跳转); 纯网页 TV 模式没有设置入口, 卡片隐藏。
  *
  * ⚠️ 必须用 `@click.capture`(不是 `@click`): RouterLink 自己也在同一个 <a> 上绑了
  * onClick, Vue 会按「组件自身 handler 在前」的顺序合并 ⇒ 冒泡阶段我们的 handler 跑在
@@ -232,7 +233,8 @@ const { guard: tvSettingsGuard, isIntercepted: tvSettingsIsNative } = useTvSetti
  * 与 composable 里"实时判断、不做快照"的注释自相矛盾。
  * 真正需要实时判断的是 open()/guard() 内部的 isIntercepted()。
  */
-const tvSettingsSub = tvSettingsIsNative() ? '设备/过滤' : '画质/过滤'
+const showTvSettingsCard = tvSettingsIsNative()
+const tvSettingsSub = '设备/账号'
 function onTvSettingsClick(e: MouseEvent): void {
   tvSettingsGuard(e)
 }
@@ -435,10 +437,13 @@ onBeforeUnmount(() => {
           <RouterLink class="jc-tv-fc fc-4" to="/search" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="search" size="32px" /></span><span class="ti">搜索</span><span class="su">找片更快</span>
           </RouterLink>
-          <RouterLink class="jc-tv-fc fc-1" :to="isLoggedIn ? { path: '/settings', query: { group: 'account' } } : { path: '/login' }" data-focusable="true" tabindex="0">
+          <!-- 我的卡(2026-10-10): /settings 已删 ⇒ 未登录去 /login; 已登录在原生壳里
+               开抽屉(guard 拦掉跳转, 抽屉「账号」行直接登录/退出), 纯网页兜底去 /login
+               (LoginView 对已登录用户会自动 redirect 走)。 -->
+          <RouterLink class="jc-tv-fc fc-1" to="/login" data-focusable="true" tabindex="0" @click.capture="onTvSettingsClick">
             <span class="ic"><BaseIcon name="user" size="32px" /></span><span class="ti">我的</span><span class="su">{{ isLoggedIn ? '账号 · 退出' : '点击登录' }}</span>
           </RouterLink>
-          <RouterLink class="jc-tv-fc fc-5" to="/settings" data-focusable="true" tabindex="0" @click.capture="onTvSettingsClick">
+          <RouterLink v-if="showTvSettingsCard" class="jc-tv-fc fc-5" to="/login" data-focusable="true" tabindex="0" @click.capture="onTvSettingsClick">
             <span class="ic"><BaseIcon name="settings" size="32px" /></span><span class="ti">设置</span><span class="su">{{ tvSettingsSub }}</span>
           </RouterLink>
         </div>

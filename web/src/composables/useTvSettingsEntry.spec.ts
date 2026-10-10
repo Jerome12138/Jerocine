@@ -37,12 +37,12 @@ describe('useTvSettingsEntry (TV 设置入口语义)', () => {
     expect(entry.isIntercepted()).toBe(true)
   })
 
-  it('纯网页 TV 模式: open() → SPA /settings(无桥可调)', () => {
+  it('纯网页 TV 模式: open() 是 no-op(SPA /settings 已删, UI 层负责藏按钮)', () => {
     native = false
     const entry = useTvSettingsEntry()
-    entry.open()
+    expect(() => entry.open()).not.toThrow()
     expect(openSettings).not.toHaveBeenCalled()
-    expect(push).toHaveBeenCalledWith('/settings')
+    expect(push).not.toHaveBeenCalled()
     expect(entry.isIntercepted()).toBe(false)
   })
 
@@ -63,7 +63,7 @@ describe('useTvSettingsEntry (TV 设置入口语义)', () => {
 })
 
 describe('shouldShowHeaderActions (顶栏「刷新/设置」显隐)', () => {
-  it('TV 模式: 无论能不能开抽屉都显示 —— 纯网页 TV 模式也得有, 设置会退化成跳 /settings', () => {
+  it('TV 模式: 无论能不能开抽屉都显示按钮组 —— 纯网页 TV 也得有「刷新」; 设置按钮由组件按 isIntercepted 二次过滤', () => {
     expect(shouldShowHeaderActions(true, false)).toBe(true)
     expect(shouldShowHeaderActions(true, true)).toBe(true)
   })

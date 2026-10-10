@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { mount } from "@vue/test-utils"
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 const reloadToLatest = vi.fn()
@@ -73,12 +73,12 @@ describe('TvHeaderActions (顶栏最右两个图标按钮)', () => {
     expect(router.currentRoute.value.path).toBe('/index')
   })
 
-  it('纯网页 TV 模式(bridge 不在场)点"设置" → 回退到 SPA /settings', async () => {
+  it('纯网页 TV 模式: 「设置」按钮不渲染(SPA /settings 已删, 没有抽屉可开) —— 只剩「刷新」', async () => {
     native = false
     const w = await mountActions()
-    await w.findAll('button')[1].trigger('click')
+    const btns = w.findAll('button')
+    expect(btns).toHaveLength(1)
+    expect(btns[0].attributes('aria-label')).toBe('刷新到最新版本')
     expect(openSettings).not.toHaveBeenCalled()
-    await flushPromises()
-    expect(router.currentRoute.value.path).toBe('/settings')
   })
 })

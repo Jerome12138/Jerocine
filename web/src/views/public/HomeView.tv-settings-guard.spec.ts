@@ -93,7 +93,7 @@ describe('HomeView TV「设置」卡 × 原生抽屉', () => {
     const wrapper = await mountHome(router)
     const card = wrapper.find('.jc-tv-fc.fc-5')
     expect(card.exists()).toBe(true)
-    expect(card.text()).toContain('设备/过滤') // 副标题随宿主变化
+    expect(card.text()).toContain('设备/账号') // 副标题(2026-10-10 起设置卡只在壳内渲染)
 
     const pushSpy = vi.spyOn(router, 'push')
     await card.trigger('click')
@@ -104,17 +104,37 @@ describe('HomeView TV「设置」卡 × 原生抽屉', () => {
     expect(router.currentRoute.value.path).toBe('/')
   })
 
-  it('纯网页 TV 模式: 点设置卡 → 正常导航到 SPA /settings', async () => {
+  it('纯网页 TV 模式: 设置卡不渲染(SPA /settings 已删, 没有可去的设置页)', async () => {
     mocks.native.value = false
     const wrapper = await mountHome(router)
-    const card = wrapper.find('.jc-tv-fc.fc-5')
+    expect(wrapper.find('.jc-tv-fc.fc-5').exists()).toBe(false)
+    expect(mocks.openSettings).not.toHaveBeenCalled()
+  })
+
+  it('原生壳: 点「我的」卡 → 也开原生抽屉(账号行在抽屉里), 不跳路由', async () => {
+    const wrapper = await mountHome(router)
+    const card = wrapper.find('.jc-tv-fc.fc-1')
     expect(card.exists()).toBe(true)
-    expect(card.text()).toContain('画质/过滤')
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await card.trigger('click')
+    await flushPromises()
+
+    expect(mocks.openSettings).toHaveBeenCalledTimes(1)
+    expect(pushSpy).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.path).toBe('/')
+  })
+
+  it('纯网页 TV 模式: 点「我的」卡 → 兜底去 /login(未登录态; 登录页对已登录用户自动 redirect)', async () => {
+    mocks.native.value = false
+    const wrapper = await mountHome(router)
+    const card = wrapper.find('.jc-tv-fc.fc-1')
+    expect(card.exists()).toBe(true)
 
     await card.trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.path).toBe('/settings')
+    expect(router.currentRoute.value.path).toBe('/login')
     expect(mocks.openSettings).not.toHaveBeenCalled()
   })
 })

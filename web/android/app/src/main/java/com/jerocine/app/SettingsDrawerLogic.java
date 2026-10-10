@@ -5,7 +5,7 @@ package com.jerocine.app;
  * (见 app/src/test/java/com/jerocine/app/SettingsDrawerLogicTest.java)。
  *
  * 抽屉本身的构建是编程式 View 组装(MainActivity.buildSettingsDrawer), 只能靠编译 + 真机验收;
- * 但下面这几处"取值/拼接"逻辑是最容易出错的边界(显示模式三态循环、深链 URL 拼接),
+ * 但下面这几处"取值/拼接"逻辑是最容易出错的边界(显示模式三态循环、账号快照解析),
  * 所以明确拆出来覆盖。
  */
 final class SettingsDrawerLogic {
@@ -58,19 +58,122 @@ final class SettingsDrawerLogic {
         return "已清除模式 · 自动检测";
     }
 
+    // ==================== 账号行(2026-10-10 抽屉改版) ====================
+    // 数据源 = web 端 window.__jcAuth.user() 返回的 JSON 字符串 {"loggedIn":true,"name":"昵称"}。
+    // 之前"跳 SPA /settings"的入口已随该页删除而移除。
+
+    /** 解析后的账号快照(.loggedIn / .name; 未登录时 name 为空串) */
+    static final class AccountSnapshot {
+        final boolean loggedIn;
+        final String name;
+
+        AccountSnapshot(boolean loggedIn, String name) {
+            this.loggedIn = loggedIn;
+            this.name = name;
+        }
+    }
+
+    static final AccountSnapshot ACCOUNT_LOGGED_OUT = new AccountSnapshot(false, "");
+
     /**
-     * SPA 设置页深链: 原生抽屉里的"账号设置 / 跳过片头片尾"都要跳到 web 的对应分组。
-     * 末尾斜杠必须归一化(服务器地址允许用户填成 http://ip/ 或 http://ip), 否则会拼出
-     * "//settings?group=..." 这种被个别源站当异常路径的 URL。
+     * 解析 window.__jcAuth.user() 的返回。
      *
-     * @param baseUrl 服务器地址(可带尾斜杠)
-     * @param group   分组 id, 如 account / play; 空则不带 query
+     * **手写解析而不是 org.json** —— unit 测试的 android.jar 里 org.json 是 stub(一调就抛),
+     * 引它等于让这段逻辑测不了。报文是我们自己的钩子产出的固定形状, 手写足够:
+     * 取 "loggedIn" 后的 true/false, 再取 "name" 后的 JSON 字符串(处理常见转义)。
+     *
+     * @param json 形如 {"loggedIn":true,"name":"x"}; null/"null"/空/异常报文一律归一成未登录
      */
-    static String spaSettingsUrl(String baseUrl, String group) {
-        String base = baseUrl == null ? "" : baseUrl.trim();
-        while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
-        String url = base + "/settings";
-        if (group != null && !group.isEmpty()) url += "?group=" + group;
-        return url;
+    static AccountSnapshot parseAccountSnapshot(String json) {
+        if (json == null) return ACCOUNT_LOGGED_OUT;
+        String s = json.trim();
+        if (s.isEmpty() || "null".equals(s)) return ACCOUNT_LOGGED_OUT;
+        boolean loggedIn = containsField(s, "loggedIn") && extractBoolean(s, "loggedIn");
+        String name = extractString(s, "name");
+        return new AccountSnapshot(loggedIn, name);
+    }
+
+    /** 账号行主标题: 已登录显示昵称, 未登录固定"未登录" */
+    static String accountTitle(AccountSnapshot snapshot) {
+        if (snapshot == null || !snapshot.loggedIn || snapshot.name == null
+                || snapshot.name.isEmpty()) {
+            return "未登录";
+        }
+        return snapshot.name;
+    }
+
+    /** 账号行副标题 */
+    static String accountSubtitle(AccountSnapshot snapshot) {
+        if (snapshot == null || !snapshot.loggedIn) {
+            return "登录后收藏 / 历史 / 跳过设置多端同步";
+        }
+        return "登录中 · 点右侧按钮退出";
+    }
+
+    /** 账号行右侧动作文案(也是动作语义: 登录 / 退出) */
+    static String accountActionText(AccountSnapshot snapshot) {
+        if (snapshot != null && snapshot.loggedIn) return "退出";
+        return "登录";
+    }
+
+    // ---------- 解析小工具(仅面向我们自己钩子产出的 JSON 形状) ----------
+
+    /** 找 "key": 并返回其值片段的起点(跳过冒号与空白); 找不到返回 -1 */
+    private static int valueStart(String s, String key) {
+        String needle = "\"" + key + "\"";
+        int k = s.indexOf(needle);
+        if (k < 0) return -1;
+        int i = s.indexOf(':', k + needle.length());
+        if (i < 0) return -1;
+        i++;
+        while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++;
+        return i < s.length() ? i : -1;
+    }
+
+    private static boolean containsField(String s, String key) {
+        return valueStart(s, key) >= 0;
+    }
+
+    private static boolean extractBoolean(String s, String key) {
+        int i = valueStart(s, key);
+        return s.startsWith("true", i);
+    }
+
+    /** 解析 "key":"value" 的字符串值, 处理 \\\" \\\\ \\n 等常见转义; 非字符串值返回空串 */
+    private static String extractString(String s, String key) {
+        int i = valueStart(s, key);
+        if (i < 0 || s.charAt(i) != '"') return "";
+        StringBuilder sb = new StringBuilder();
+        for (int j = i + 1; j < s.length(); j++) {
+            char c = s.charAt(j);
+            if (c == '\\') {
+                if (++j >= s.length()) break;
+                char e = s.charAt(j);
+                switch (e) {
+                    case '"' -> sb.append('"');
+                    case '\\' -> sb.append('\\');
+                    case '/' -> sb.append('/');
+                    case 'n' -> sb.append('\n');
+                    case 't' -> sb.append('\t');
+                    case 'r' -> sb.append('\r');
+                    case 'u' -> {
+                        if (j + 4 < s.length()) {
+                            try {
+                                sb.append((char) Integer.parseInt(s.substring(j + 1, j + 5), 16));
+                                j += 4;
+                            } catch (NumberFormatException ignored) {
+                                // 非法 \\u 转义: 原样丢弃(报文是我们自己产出的, 不该出现)
+                            }
+                        }
+                    }
+                    default -> sb.append(e);
+                }
+            } else if (c == '"') {
+                break;
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

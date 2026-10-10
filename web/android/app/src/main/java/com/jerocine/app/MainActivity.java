@@ -2,7 +2,6 @@ package com.jerocine.app;
 
 import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerAdFilterHelper;
-import com.jerocine.player.PlayerNetworkModeHelper;
 
 import android.app.AlertDialog;
 import android.content.Context;
@@ -98,9 +97,14 @@ public class MainActivity extends BridgeActivity {
     private LinearLayout settingsPanel;
     /** 组装时记录第一行可聚焦项 —— 分组后行序会变, 不能再靠固定下标定位焦点 */
     private View settingsFirstFocus;
-    /** 抽屉里的两处开关图形(切换后就地刷新, 不重建面板以保住遥控器焦点) */
+    /** 抽屉里的开关图形(切换后就地刷新, 不重建面板以保住遥控器焦点) */
     private FrameLayout adFilterSwitch;
-    private FrameLayout relaySwitch;
+    /** 「账号」行右侧动作文案(登录 / 退出) —— 打开抽屉时经 __jcAuth 异步刷新 */
+    private TextView accountAction;
+    /** 「账号」行主标题(显示昵称 / 未登录) —— 与 accountAction 同步刷新 */
+    private TextView accountTitleView;
+    /** 最近一次读到的 web 登录态(决定账号行的动作语义) */
+    private boolean accountLoggedIn;
     /** "显示模式"行右侧状态(存在 WebView localStorage 的 jc-native-mode, 打开抽屉时异步读一次) */
     private TextView displayModeValue;
     /** 当前显示模式覆盖值: tv / desktop / null(=没选过, 壳内默认强制 TV) */
@@ -481,19 +485,21 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * 按《TV 模式设置抽屉重设计》§4 组装抽屉内容(分组 + 行)。
+     * 抽屉内容(2026-10-10 按用户要求重排):
+     *   置顶「刷新页面」→ 账号(行内直读 web 登录态, 右侧按钮登录/退出) → 播放(广告过滤)
+     *   → 设备(诊断·服务器) → 关于(平台·构建·更新) → 系统(显示模式·退出)。
      *
-     * 分组承载"设备级设置"(无需登录态, Java 直读写原生偏好):
-     *   播放(广告过滤) / 网络(中转) / 账号(跳 SPA) / 设备(诊断·服务器) / 关于(更新·平台) / 系统(刷新·显示模式·退出)
-     * 账号级设置(跳过秒数 / 登录态)不在这里重复实现, 只给 SPA `/settings?group=...` 入口 ——
-     * 避免原生壳再引一套 token 同步。
+     * 改版点: 中转播放开关删除(播放器菜单里已有同款); 跳过片头片尾入口删除(按片设置在
+     * 播放页, 账号级默认值的数据协议留着未来用); 原「账号设置 → SPA /settings」入口删除
+     * (SPA 设置页已删, 账号行经 window.__jcAuth 直接读写 web 登录态)。
      */
     private void fillSettingsPanel() {
         settingsPanel.removeAllViews();
         settingsFirstFocus = null;
         adFilterSwitch = null;
-        relaySwitch = null;
         displayModeValue = null;
+        accountAction = null;
+        accountTitleView = null;
 
         // ---------- 头部: 标题 + 版本 + ✕ ----------
         LinearLayout head = new LinearLayout(this);
@@ -513,6 +519,21 @@ public class MainActivity extends BridgeActivity {
         head.addView(closeBtn);
         settingsPanel.addView(head, rowParams(ViewGroup.LayoutParams.WRAP_CONTENT, 8));
 
+        // ---------- 置顶: 刷新页面(用户 2026-10-10 指定放最上) ----------
+        addNavRow("刷新页面", "重新加载当前站点", "", () -> {
+            if (webViewRef != null) webViewRef.reload();
+            hideSettingsDrawer();
+        });
+
+        // ---------- 账号: 行内直读 web 登录态(异步, 打开抽屉时 refreshAccountRow 刷真值) ----------
+        addGroupHeader("账号");
+        LinearLayout accountRow = makeRowBase(
+                "未登录", "登录后收藏 / 历史 / 跳过设置多端同步", true, v -> onAccountActionClick());
+        accountTitleView = (TextView) ((LinearLayout) accountRow.getChildAt(0)).getChildAt(0);
+        accountAction = makeText("登录", 13, GF_ACCENT, false);
+        addRowTail(accountRow, accountAction);
+        settingsPanel.addView(accountRow, rowParams(dp(ROW_H_DP), 6));
+
         // ---------- 播放 ----------
         addGroupHeader("播放");
         addToggleRow("广告过滤",
@@ -525,30 +546,6 @@ public class MainActivity extends BridgeActivity {
                     refreshToggle(adFilterSwitch, next);
                     GlassToast.show(this, next ? "广告过滤已开启" : "广告过滤已关闭");
                 });
-        addNavRow("跳过片头 / 片尾",
-                "秒数随账号同步(user_skip_setting) · 登录后多端一致",
-                "去设置 ›",
-                () -> openSpaSettings("play"));
-
-        // ---------- 网络 ----------
-        addGroupHeader("网络");
-        addToggleRow("中转播放",
-                "分片经服务器转发 · 默认关闭(设备直连更快更省流量)",
-                PlayerNetworkModeHelper.isRelayEnabled(this),
-                sw -> relaySwitch = sw,
-                () -> {
-                    boolean next = !PlayerNetworkModeHelper.isRelayEnabled(this);
-                    PlayerNetworkModeHelper.setRelayEnabled(this, next);
-                    refreshToggle(relaySwitch, next);
-                    GlassToast.show(this, next
-                            ? "中转已开启 · 仅直连异常时经服务器转发(不一定更快, 更耗带宽)"
-                            : "中转已关闭 · 设备直连播放, 更快更省流量", Toast.LENGTH_LONG);
-                });
-
-        // ---------- 账号 (账号级设置留在 SPA, 这里只给入口) ----------
-        addGroupHeader("账号");
-        addNavRow("账号设置", "登录 / 跳过秒数 / 退出登录", "打开 ›",
-                () -> openSpaSettings("account"));
 
         // ---------- 设备 ----------
         addGroupHeader("设备");
@@ -561,8 +558,6 @@ public class MainActivity extends BridgeActivity {
         addGroupHeader("关于");
         addInfoRow("运行平台", "Android " + Build.VERSION.RELEASE
                 + " (API " + Build.VERSION.SDK_INT + ")");
-        // SPA 的「关于」分组在原生壳里不可达(APK 内 SPA 只留播放/账号两组) ⇒ 构建模式在此补一处。
-        // 值是 APK 自身的构建类型(能否弹 JS 错误 toast 就看它), 不是 web 包体的 MODE。
         addInfoRow("构建模式", "APK 构建类型 · 与线上包体无关",
                 BuildConfig.DEBUG ? "debug" : "release");
         addNavRow("检查更新", "GET /app/version/latest", "立即检查",
@@ -570,10 +565,6 @@ public class MainActivity extends BridgeActivity {
 
         // ---------- 系统 ----------
         addGroupHeader("系统");
-        addNavRow("刷新页面", "重新加载当前站点", "", () -> {
-            if (webViewRef != null) webViewRef.reload();
-            hideSettingsDrawer();
-        });
         displayModeValue = addNavRow("显示模式", "TV → 桌面 → 自动（壳内默认 TV）",
                 SettingsDrawerLogic.displayModeLabel(null), this::cycleDisplayMode);
         addNavRow("退出应用", "", "", () -> {
@@ -594,12 +585,49 @@ public class MainActivity extends BridgeActivity {
         GlassToast.show(this, SettingsDrawerLogic.displayModeToast(next));
     }
 
-    /** 打开 SPA 设置页的某个分组(账号级设置仍由 web 承载) */
-    private void openSpaSettings(String group) {
-        hideSettingsDrawer();
+    /** 账号行动作: 未登录 → web 的登录页(redirect 回当前页); 已登录 → web 的退出流程 */
+    private void onAccountActionClick() {
         if (webViewRef == null) return;
-        String base = prefs().getString(KEY_SERVER_URL, DEFAULT_SERVER_URL);
-        webViewRef.loadUrl(SettingsDrawerLogic.spaSettingsUrl(base, group));
+        if (accountLoggedIn) {
+            evalJs("window.__jcAuth && window.__jcAuth.logout();");
+            GlassToast.show(this, "已退出登录");
+            // web 端 logout 是异步(后端注销 + 清 token): 延迟重查一次刷行内文案
+            new Handler(Looper.getMainLooper()).postDelayed(this::refreshAccountRow, 800);
+        } else {
+            evalJs("window.__jcAuth && window.__jcAuth.login();");
+            hideSettingsDrawer(); // 登录是页面导航(登录完 redirect 回来), 抽屉没必要留着
+        }
+    }
+
+    /**
+     * 读一次 web 登录态(经 window.__jcAuth.user()), 刷新「账号」行文案。
+     * __jcAuth 只在原生壳里安装且 user() 返回 JSON 字符串 ⇒ 让 JS 直接 parse 成对象
+     * 回传(evaluateJavascript 对对象回 JSON 文本, 对字符串会再包一层引号, 少一层解码)。
+     */
+    private void refreshAccountRow() {
+        if (accountAction == null || webViewRef == null) return;
+        evalJs("(function(){try{return window.__jcAuth"
+                + "?JSON.parse(window.__jcAuth.user()):null}catch(e){return null}})();",
+                value -> {
+                    SettingsDrawerLogic.AccountSnapshot snap =
+                            SettingsDrawerLogic.parseAccountSnapshot(value);
+                    accountLoggedIn = snap.loggedIn;
+                    runOnUiThread(() -> {
+                        if (accountAction == null || accountTitleView == null) return;
+                        accountTitleView.setText(SettingsDrawerLogic.accountTitle(snap));
+                        accountAction.setText(SettingsDrawerLogic.accountActionText(snap));
+                    });
+                });
+    }
+
+    /** evaluateJavascript 的空指针安全包装 */
+    private void evalJs(String script) {
+        evalJs(script, null);
+    }
+
+    private void evalJs(String script, ValueCallback<String> cb) {
+        if (webViewRef == null) return;
+        webViewRef.evaluateJavascript(script, cb);
     }
 
     /**
@@ -962,8 +990,10 @@ public class MainActivity extends BridgeActivity {
     void showSettingsDrawerExposed() {
         if (settingsOverlay == null) buildSettingsDrawer();
         if (settingsOverlay == null) return;
-        // 服务器地址是"值行"(组装时已写入), 显示模式存在 WebView localStorage ⇒ 打开时异步同步一次
+        // 服务器地址是"值行"(组装时已写入), 显示模式存在 WebView localStorage ⇒ 打开时异步同步一次;
+        // 账号行同理(登录态在 web 侧, 登录/退出发生在两次开抽屉之间)
         refreshDisplayModeValue();
+        refreshAccountRow();
         settingsOpen = true;
         // 关键: 抽屉打开时禁掉 WebView 的可聚焦, 不然 D-pad 事件被 WebView 抢走,
         // 按钮焦点上不去. 关抽屉时恢复.

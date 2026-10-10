@@ -58,12 +58,9 @@ export const publicRoutes: RouteRecordRaw[] = [
     component: () => import('@/views/public/FavoritesView.vue'),
     meta: { layout: 'public', title: '我的收藏' }
   },
-  {
-    path: '/settings',
-    name: 'settings',
-    component: () => import('@/views/public/SettingsView.vue'),
-    meta: { layout: 'public', title: '设置' }
-  },
+  // /settings 已删（2026-10-10）：TV 的设备级/账号级设置都收进原生抽屉（账号行经
+  // window.__jcAuth 直接读写 web 登录态），SPA 设置页没有存在意义了。
+  // 片头片尾的"按片"设置仍在播放页（useSkipSettings），账号级默认值的数据协议保留备用。
   {
     path: '/login',
     name: 'login',
