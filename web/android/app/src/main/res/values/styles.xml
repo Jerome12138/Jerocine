@@ -24,21 +24,21 @@
 
     <!-- Splash 主题 (启动到 onCreate 之间) — 用站点根背景色 #0B0B0F, 之前 @drawable/splash
          是 logo PNG 中心白底, 用户看到的就是白闪.
-         配合 MainActivity.onCreate 里的 installSplashScreen(): Android 12+ 走系统 splash
-         (背景 + 品牌图标), 首帧(品牌首屏 BrandSplashView, 也是 #0B0B0F)出来即无缝接上 ——
-         系统 splash → 品牌首屏 → 页面 三段同为 #0B0B0F, 不再有 #000000/#0B0B0F 的细微跳变。 -->
+         配合 MainActivity.onCreate 里的 installSplashScreen(): 系统 splash 背景同为
+         #0B0B0F, 接首帧品牌页(BrandSplashView) 无缝。
+         ⚠️ 与 AppTheme.NoActionBar 同理, 主题里**不能**写 android:background —— 本主题
+         在 API 31+ 上会**一直**是 Activity 的生效主题(core-splashscreen 的 Impl31 不做
+         setTheme, postSplashScreenTheme 形同虚设, 2026-10-10 反编译 1.2.0 实锤), 带着它
+         所有编程式 View 又会吃到默认黑背景。
+         ⚠️ 系统 splash 图标刻意设为**透明**(2026-10-10): 原本挂 ic_logo_rounded, 但用户
+         反馈"logo-only 的系统 splash 与壳内品牌页重复, 去掉前者" —— 透明图标后系统
+         splash 就是一帧深色底, 唯一的品牌页只剩 BrandSplashView(logo+文字+loading)。 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@color/jc_bg</item>
         <item name="android:windowBackground">@color/jc_bg</item>
         <item name="android:colorBackground">@color/jc_bg</item>
         <!-- Android 12+ 系统 splash 背景色(不设则跟随主题表面色, 可能非深色) -->
         <item name="windowSplashScreenBackground">@color/jc_bg</item>
-        <!-- 系统 splash 图标 = **圆角版** logo(2026-10-10 修订): 之前用 adaptive icon 的
-             foreground(ic_launcher_foreground_gradient03) —— 那是满幅方图, 系统 splash
-             不做 launcher 的圆角 mask ⇒ 启动先闪一个直角方块再进 BrandSplashView 的
-             圆角 logo(用户反馈"方形logo页面"). 换 ic_logo_rounded 后两段同图同底色,
-             视觉上是连续的一个首屏。 -->
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_logo_rounded</item>
+        <item name="windowSplashScreenAnimatedIcon">@android:color/transparent</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 

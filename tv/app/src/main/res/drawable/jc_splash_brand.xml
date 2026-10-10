@@ -10,9 +10,18 @@
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/jc_bg" />
-    <item>
+    <!-- logo 固定 128dp(与 web 壳 BrandSplashView 的 96dp 同量级, 电视观看距离稍放大):
+         2026-10-10 用户反馈"启动 logo 太大" —— 之前 bitmap 无尺寸约束, 512px 原图放在
+         默认 drawable/(mdpi 基准)在高密度屏按密度倍率放大, 平板上能占近半屏。
+         item 的 android:width/height 需 API 23+(minSdk 21 的老设备忽略此属性,
+         退回原图尺寸 —— 低密度小屏上 512px 本来就不大, 可接受);
+         bitmap 用 gravity="fill" 把圆角图缩放进 item 边界(默认 center 是原尺寸绘制, 约束无效)。 -->
+    <item
+        android:width="128dp"
+        android:height="128dp"
+        android:gravity="center">
         <bitmap
             android:src="@drawable/ic_logo_rounded"
-            android:gravity="center" />
+            android:gravity="fill" />
     </item>
 </layer-list>

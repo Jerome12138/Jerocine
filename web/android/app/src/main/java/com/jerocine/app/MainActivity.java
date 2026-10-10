@@ -119,6 +119,12 @@ public class MainActivity extends BridgeActivity {
         // 否则 AppTheme.NoActionBarLaunch 的 postSplashScreenTheme 不生效, "系统 splash 无缝接品牌首屏"
         // 的前提不成立(评审 C10)。背景为纯黑, 图标即品牌图标, 与下面的 BrandSplashView 视觉连续。
         androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
+        // ⚠️ 显式切到正式主题 —— 不能依赖 postSplashScreenTheme(2026-10-10 实锤):
+        // core-splashscreen 1.2.0 反编译, 只有 API<31 的 Impl.install() 调 Activity.setTheme,
+        // API 31+ 的 Impl31.install() 全程不 setTheme ⇒ 31+ 设备上启动主题(其 profile 里
+        // 曾有 android:background)一直生效, 编程式创建的抽屉行/文字列全吃到默认黑背景。
+        // 在此显式 setTheme 才是所有 API 上一致的做法(必须在任何 View 创建之前)。
+        setTheme(R.style.AppTheme_NoActionBar);
         super.onCreate(savedInstanceState);
         // 底部系统导航栏(手势条/三键条)与页面背景同色 — 装平板/手机时避免黑白条突兀
         if (Build.VERSION.SDK_INT >= 21) {
