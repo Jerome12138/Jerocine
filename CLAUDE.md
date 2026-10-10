@@ -102,20 +102,38 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
 - **从零部署 / 新机器上线**：先读 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、`.env` 配置清单、部署步骤、验证与排障）；本节只讲日常运维。
 - Docker 栈定义在 `deploy/docker-compose.yml`（service 名 `nginx`/`server`）：
   - `jerocine_nginx`：`web/Dockerfile`（nginx:1.27-alpine 托管 + 反代 /api）。**静态目录已改宿主机挂载**（compose `./data/html:/usr/share/nginx/html`）——镜像内**不再 COPY dist/LICENSE**，前端产物由 `./deploy.sh web` 构建后写入挂载目录。镜像里的 node 构建阶段（含 vue-tsc 门禁 + 布局断言）只在该阶段被依赖时才跑，部署机无需装 node。
-  - `jerocine_server`：`deploy/Dockerfile`（golang:1.27-alpine 编译 → distroless **nonroot UID 65532**，无 shell）。
+  - `jerocine_server`：后端。**常规**走 `deploy/Dockerfile.runtime`（薄镜像：只 `COPY` 本机交叉编译好的二进制，容器内不编译）；**备用**走 `deploy/Dockerfile`（golang:1.27-alpine 现编译 → distroless **nonroot UID 65532**，无 shell）。两者运行形态一致（3601 + 自带 `-healthcheck`）。
   - `jerocine_mysql`、`jerocine_redis`。
-- **部署命令**：日常用一键脚本（pull → build+up → 等健康 → 自动清两层缓存）：
-  - `cd deploy && ./deploy.sh`            # 常规：server + nginx 容器（**不含前端产物**）
-  - `./deploy.sh web`                     # **前端发布**：构建产物 → 同步挂载目录 → reload（保留 3 版 / 可整版回滚）
-  - `./deploy.sh server`                  # 只更新后端
-  - `./deploy.sh web-init`                # 【仅迁移】把旧容器镜像内产物搬到挂载目录（**必须在旧容器还活着时**跑）
-  - `./deploy.sh web-rollback <TS>`       # 整版回滚（TS 见 `deploy/data/releases/`）
-  - **`./deploy.sh nginx` 语义已变**：静态目录改挂载后它只重建 nginx 容器（改 `nginx.conf` 时用），**不产出前端文件** —— 日常"前端更新"一律走 `./deploy.sh web`。`web` / `nginx` / 全量部署在 `data/html` 为空时会**拒绝执行**（防把站点打成 404）。
+- **部署命令**：分「常规（本机构建 + 上传压缩包）」与「备用（服务器上构建）」两条路径。
+  - **常规 —— 本机构建产物包 → 上传 → 服务器只解包落盘**（2026-10-10 起；服务器不需要 Node/pnpm/Go，也不留 docker 构建缓存，产物包还留档可重发）：
+
+    ```bash
+    # 前端
+    bash scripts/build-web.sh            # 本机构建(注入 JC_BUILD_TS) + 布局断言 + tar.gz
+    bash scripts/deploy-web.sh           # 构建 + scp 上传 + 远端 ./deploy.sh web-deploy
+    bash scripts/deploy-web.sh --pkg <tgz>   # 复用已构建好的包(跳过构建)
+
+    # 后端
+    bash scripts/build-server.sh         # 本机 CGO_ENABLED=0 交叉编译 + tar.gz(默认 linux/amd64)
+    bash scripts/deploy-server.sh        # 编译 + 上传 + 远端 ./deploy.sh server-deploy
+    ```
+
+    远端对应子命令（一般由上面的脚本调用，排障时可手动跑）：
+    - `./deploy.sh web-deploy <pkg>`     # 解包前端包 → 同一套发布语义 → 留档 `data/packages/` → reload
+    - `./deploy.sh server-deploy <pkg>`  # 解包后端包 → 构建 `Dockerfile.runtime` → `up -d --no-build server` → 等健康
+  - **备用 —— 在服务器上从某个 commit 构建**（没有本机工具链时才用；`pull → build+up → 等健康 → 自动清两层缓存`）：
+    - `cd deploy && ./deploy.sh`            # 常规：server + nginx 容器（**不含前端产物**）
+    - `./deploy.sh web`                     # **前端发布（服务器上构建）**：构建产物 → 同步挂载目录 → reload
+    - `./deploy.sh server`                  # 只更新后端（服务器上 golang 编译）
+    - `./deploy.sh web-init`                # 【仅迁移】把旧容器镜像内产物搬到挂载目录（**必须在旧容器还活着时**跑）
+    - `./deploy.sh web-rollback <TS>`       # 整版回滚（TS 见 `deploy/data/releases/`）
+    - 两条前端路径**共用** `deploy/lib/web-release.sh` 的发布语义（版本目录 / 排除 map / 保留 3 版 / 整版快照 / 陈旧根文件清理 / 空挂载守卫），差别只在"产物的二进制从哪来"。
+  - **`./deploy.sh nginx` 语义已变**：静态目录改挂载后它只重建 nginx 容器（改 `nginx.conf` 时用），**不产出前端文件** —— 日常"前端更新"一律走 `web`（服务器端）或 `web-deploy`（上传包）。`web`/`web-deploy`/`nginx`/全量部署在必要条件下会**拒绝执行**（防把站点打成 404）。
   - 脚本对 docker 无权限时自动回退 `sudo -n docker`；采集**无需手动暂停**（优雅停机自愈）。
   - 等价手工形式（排障用）：`git pull && cd deploy && sudo docker compose --env-file .env up -d --build server nginx`，
     部署后手动清缓存见下节。
-  - **全新服务器**：先 `sudo docker compose --env-file .env up -d --build` 拉起全栈，再 `./deploy.sh web` 初始化挂载目录（否则 nginx 探活失败、站点 404）。
-  - 手工前端变更无意义：产物只能由 `./deploy.sh web` 写进挂载目录；单独 `up -d --build --no-deps nginx` 只重建容器、**不发产物**（`--no-deps` 是给"只改 nginx.conf"用的 —— 不带它会顺带重建 server 镜像并跑一次 migrate；实测 compose v5.5.1 **不会** recreate 已运行的 server 容器、采集不中断，但多花一次后端构建）。
+  - **全新服务器**：先 `sudo docker compose --env-file .env up -d --build` 拉起全栈，再发布一次前端初始化挂载目录（本机 `scripts/deploy-web.sh`，或服务器上 `./deploy.sh web`）；否则 nginx 探活失败、站点 404。
+  - 手工前端变更无意义：产物只能由 `./deploy.sh web` / `web-deploy` 写进挂载目录；单独 `up -d --build --no-deps nginx` 只重建容器、**不发产物**（`--no-deps` 是给"只改 nginx.conf"用的 —— 不带它会顺带重建 server 镜像并跑一次 migrate；实测 compose v5.5.1 **不会** recreate 已运行的 server 容器、采集不中断，但多花一次后端构建）。
 - **DB 迁移（golang-migrate）**：由 compose 独立一次性服务 `migrate`（只 `up`，`restart:no`）跑；`server` `depends_on: migrate(service_completed_successfully)` → `up -d server` 会**先跑完待应用迁移再起 jerocine_server**。只单跑迁移不重启 api：`sudo docker compose run --rm migrate`。迁移文件 `server/migrations/000NNN_*.{up,down}.sql`。
 - **后端 Go 编译/测试**（可用容器跑）：
   `docker run --rm -v "$PWD/server":/src -w /src golang:1.27-alpine sh -c "go build ./... && go test ./internal/..."`

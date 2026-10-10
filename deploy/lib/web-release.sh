@@ -15,6 +15,7 @@
 #   └── assets/<TS>/      本版资源（版本窗口 = 保留 3 版）
 #   data/releases/<TS>/   整版快照 {index.html, sw.js, workbox-*.js} —— 回滚最小单位
 #   data/debugmap/<TS>/   归档的 *.map（**挂载目录之外** ⇒ 公网不可达）
+#   data/packages/<TS>.tar.gz  本地上传的产物包留档（常规发布手段；保留 WR_KEEP_PACKAGES 份）
 #   data/root-manifest.txt 上一版写入 html 根的条目名清单（用于清理陈旧根静态）
 #
 # 为什么 snapshots/debugmap 放在 html 之外：html 是公开根，sourcemap 里就是源码；
@@ -23,8 +24,15 @@
 # 保留版本数（assets / releases / debugmap 三处同步裁剪）
 WR_KEEP_VERSIONS="${WR_KEEP_VERSIONS:-3}"
 
+# 上传产物包（data/packages/<TS>.tar.gz）的保留份数 —— 常规发布走
+# 「本地构建 → 压缩包上传 → 服务器解包发布」，上传包本身也留档，方便事后重发/比对。
+WR_KEEP_PACKAGES="${WR_KEEP_PACKAGES:-5}"
+
 # 版本目录名格式（与 build 期 JC_BUILD_TS 一致）：YYYYMMDD-HHMMSS
 WR_TS_RE='^[0-9]{8}-[0-9]{6}$'
+
+# 上传产物包的归档文件名格式
+WR_PKG_RE='^[0-9]{8}-[0-9]{6}\.tar\.gz$'
 
 # html 根"由发布写入"的条目清单（每次发布覆盖写）。
 # 用途：下一次发布时删掉"上一版有、本版没有"的根文件/目录 —— 否则被改名/移除的产物
@@ -211,4 +219,74 @@ wr_rollback() {
   done
 
   echo "==> 已回滚静态产物到 $ts（接着 reload nginx 生效）"
+}
+
+# ==================== 上传产物包（本地构建 → 压缩包 → 服务器解包发布） ====================
+#
+# 常规发布链路（2026-10-10 起）：
+#   本机  scripts/build-web.sh    构建(注入 JC_BUILD_TS) + 布局校验 + tar czf dist → jerocine-web-<TS>.tar.gz
+#   本机  scripts/deploy-web.sh   scp 上传到 <deploy>/incoming/ 并调远端 ./deploy.sh web-deploy <包>
+#   服务器 deploy.sh web-deploy   解包 → wr_sync_dist(同一套发布语义) → 留档 data/packages/ → reload
+# 下面这几个函数只做纯文件系统语义，便于在本机完整测（见 tests/web-release.test.sh 第 10 组）。
+
+# wr_pkg_ts <pkg>  —— 从产物包文件名解出版本号（jerocine-web-<TS>.tar.gz）；不匹配返回非 0
+wr_pkg_ts() {
+  local base
+  base="$(basename "${1:-}")"
+  case "$base" in
+    jerocine-web-*.tar.gz) base="${base#jerocine-web-}"; base="${base%.tar.gz}" ;;
+    *) return 1 ;;
+  esac
+  printf '%s' "$base" | grep -Eq "$WR_TS_RE" || return 1
+  printf '%s' "$base"
+}
+
+# wr_extract_tar <pkg> <dest>  —— 解包 tar.gz(通用; 前端/后端产物包都用它)
+wr_extract_tar() {
+  local pkg="${1:-}" dest="${2:-}"
+  [ -n "$pkg" ] || wr_die "用法: wr_extract_tar <pkg.tar.gz> <dest>"
+  [ -n "$dest" ] || wr_die "用法: wr_extract_tar <pkg.tar.gz> <dest>"
+  [ -f "$pkg" ] || wr_die "找不到产物包: $pkg"
+  mkdir -p "$dest"
+  tar xzf "$pkg" -C "$dest" || wr_die "解包失败（不是合法的 tar.gz？）: $pkg"
+  return 0
+}
+
+# wr_extract_pkg <pkg> <dest>  —— 解包前端产物包 + 最低限度校验（包内必须是 dist 的**内容**）
+wr_extract_pkg() {
+  local pkg="${1:-}" dest="${2:-}"
+  wr_extract_tar "$pkg" "$dest"
+  [ -f "$dest/index.html" ] || wr_die \
+    "包内没有 index.html —— 打包时应打进 web/dist 的**内容**(tar -C web/dist .)，不是 dist 目录本身"
+  return 0
+}
+
+# wr_ts_from_dist <dist>  —— dist/assets 下唯一的版本目录名就是本次发布的 TS（构建期注入）
+wr_ts_from_dist() {
+  local dist="${1:-}" vers n
+  vers="$(ls -1 "$dist/assets" 2>/dev/null | grep -E "$WR_TS_RE" | sort -r || true)"
+  n="$(printf '%s' "$vers" | grep -c . || true)"
+  if [ "$n" != "1" ]; then
+    wr_die "dist/assets 下应恰好有 1 个版本目录(实际 $n 个) ⇒ 构建时没注入 JC_BUILD_TS？"
+  fi
+  printf '%s' "$vers"
+}
+
+# wr_archive_pkg <pkg> <data> <ts>  —— 把上传的产物包留档到 data/packages/<TS>.tar.gz，只保留最近 N 份
+wr_archive_pkg() {
+  local pkg="${1:-}" data="${2:-}" ts="${3:-}" dst f i=0
+  [ -n "$pkg" ] && [ -n "$data" ] && [ -n "$ts" ] || wr_die "用法: wr_archive_pkg <pkg> <data_dir> <ts>"
+  mkdir -p "$data/packages"
+  dst="$data/packages/$ts.tar.gz"
+  # 已经在归档目录里(比如直接对 data/packages 下的包再发一次)就不搬
+  if [ "$(cd "$(dirname "$pkg")" && pwd)/$(basename "$pkg")" != "$(cd "$data/packages" && pwd)/$ts.tar.gz" ]; then
+    mv -f "$pkg" "$dst"
+  fi
+  for f in $(ls -1 "$data/packages" 2>/dev/null | grep -E "$WR_PKG_RE" | sort -r || true); do
+    i=$((i + 1))
+    [ "$i" -le "$WR_KEEP_PACKAGES" ] && continue
+    rm -f "$data/packages/$f"
+    echo "==> 清理旧产物包 $f（超出保留 $WR_KEEP_PACKAGES 份）"
+  done
+  echo "==> 产物包已留档: $dst"
 }

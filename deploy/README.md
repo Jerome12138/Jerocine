@@ -3,16 +3,22 @@
 ```text
 deploy/
 ├─ docker-compose.yml    # 服务编排: mysql / redis / migrate / server / nginx (build.context = 仓库根)
-├─ deploy.sh             # 一键部署: pull(→必要时自我重启) → build+up → 等健康 → 清两层缓存 (web/web-init/web-rollback 见下)
-├─ lib/web-release.sh    # 前端产物 发布/回滚 纯逻辑 (版本目录 / 排除 map / 保留 3 版 / 整版快照 / 陈旧根文件清理)
+├─ deploy.sh             # 一键部署: pull(→必要时自我重启) → build+up → 等健康 → 清两层缓存
+│                        #   常规发布子命令 web-deploy / server-deploy(解包本地上传的产物包)
+├─ Dockerfile            # 【备用】后端镜像: golang:1.27-alpine 编译 → distroless nonroot, 监听 3601
+├─ Dockerfile.runtime    # 【常规】后端运行镜像(薄): 只 COPY 本机编译好的二进制, 容器内不编译
+├─ lib/web-release.sh    # 前端产物 发布/回滚 纯逻辑 (版本目录 / 排除 map / 保留 3 版 / 整版快照 /
+│                        #   陈旧根文件清理 / 上传包解包与留档)
 ├─ tests/web-release.test.sh   # ↑ 的单测 (本机可跑, 不需要 docker)
 ├─ tests/deploy-reexec.test.sh # deploy.sh 自我重启机制的单测 (假仓库 + 假 git)
-├─ Dockerfile            # 后端镜像: golang:1.27-alpine 编译 → distroless nonroot (UID 65532), 监听 3601
 ├─ .env.example          # 环境变量模板 (cp .env.example .env 后填生产值; .env 不入库)
 ├─ data/nginx/nginx.conf # nginx 配置: SPA 静态托管 + /api 反代 + proxy_cache + SW no-cache
-├─ data/html/            # 前端产物 (挂载给 nginx; 不入库, 由 ./deploy.sh web 生成)
+├─ incoming/             # 本机上传的产物包落地处(scp 到此, 由 *-deploy 解包; 不入库)
+├─ server/               # 后端产物包解包处(= Dockerfile.runtime 的 build context; 不入库)
+├─ data/html/            # 前端产物 (挂载给 nginx; 不入库, 由前端发布写入)
 ├─ data/releases/<TS>/   # 每个发布版本的整版快照 {index.html, sw.js, workbox-*.js} (回滚用)
 ├─ data/debugmap/<TS>/   # 归档的 sourcemap (挂载目录之外 ⇒ 公网不可达)
+├─ data/packages/<TS>.tar.gz # 上传的产物包留档(常规发布手段, 事后可重发/比对; 保留 5 份)
 ├─ data/root-manifest.txt # 上一版写入 html 根的条目名清单 (用于清理陈旧根文件; 不入库)
 ├─ secrets/              # JWT RS256 密钥对 (不入库, 见 .gitignore)
 └─ apk/                  # APK 下载目录 (容器内只读挂载)
@@ -48,15 +54,39 @@ deploy/
 
 ## 日常更新
 
+**常规做法：本机构建 → 压缩包上传 → 服务器只负责"解包 + 落盘 + reload"**（2026-10-10 起）。
+服务器因此不需要 Node/pnpm/Go，也不留 docker 构建缓存（历史上那 13.87GB build cache 主要就是
+前端 node 阶段与后端 golang 阶段攒出来的）。
+
 ```bash
-./deploy.sh          # 常规部署: server + nginx 容器, 自动清两层缓存(不含前端产物)
-./deploy.sh web      # 前端发布: 构建产物 → 同步挂载目录 → reload(保留 3 版 / 可整版回滚)
-./deploy.sh server   # 只更新后端
+# 前端：本机构建(注入 JC_BUILD_TS + 布局断言) → tar.gz → scp → 远端 ./deploy.sh web-deploy
+cd ../ && bash scripts/build-web.sh          # 只构建打包（产物在系统下载目录）
+bash scripts/deploy-web.sh                   # 构建 + 上传 + 发布（一步到位）
+bash scripts/deploy-web.sh --pkg <tgz>       # 复用已构建好的包（跳过构建）
+
+# 后端：本机交叉编译(CGO_ENABLED=0 GOOS=linux) → tar.gz → scp → 远端 ./deploy.sh server-deploy
+bash scripts/build-server.sh                 # 只编译打包
+bash scripts/deploy-server.sh                # 编译 + 上传 + 发布（一步到位）
 ```
 
-> `./deploy.sh nginx`（只重建 nginx 容器、**不产出前端产物**）仅用于改 `nginx.conf`；
-> 前端更新一律 `./deploy.sh web`（见下节）。
+服务器侧对应的子命令（一般由上面的脚本调用，排障时可手动跑）：
 
+```bash
+./deploy.sh web-deploy <pkg.tar.gz>    # 解包前端产物包 → 同一套发布语义 → 留档 data/packages/ → reload
+./deploy.sh server-deploy <pkg.tar.gz> # 解包后端产物包 → 构建薄运行镜像 → 重建容器 → 等健康 → 清缓存
+```
+
+**备用路径**（没有本机工具链、或想在服务器上从某个 commit 重跑时用；这才会在服务器上编译）：
+
+```bash
+./deploy.sh            # 常规部署: server + nginx 容器, 自动清两层缓存(不含前端产物)
+./deploy.sh web        # 前端发布(服务器上构建): 需服务器有 docker + node 构建阶段网络
+./deploy.sh server     # 只更新后端(服务器上 golang 编译)
+./deploy.sh nginx      # 只重建 nginx 容器(改 nginx.conf 时用), **不产出前端产物**
+```
+
+> 两条路径**共用**同一套发布语义（版本目录 / 排除 map / 保留 3 版 / 整版快照 / 陈旧根文件清理 /
+> 空挂载守卫），所以行为一致；区别只在"产物的二进制从哪来"。
 > `git pull` 之后脚本会用**新版本重新 exec 自己一次**（防重入标记 `JEROCINE_DEPLOY_REEXEC=1`）——
 > pull 会覆写脚本自身，而 bash 是"边执行边读"的。因此日志里会看到两轮 pull/前置输出，这是预期行为；
 > 它保证后续流程一定跑在刚拉到的版本上（例如某个修复只在 `deploy.sh` 里，第一次执行就能生效）。
@@ -91,7 +121,7 @@ deploy/
 - 顺序约束：**先写目录、最后才 reload**（避免切换期间的 404 窗口）；陈旧清理也在写目录阶段完成。
 - 整版回滚 = 快照三件套（`index.html` + `sw.js` + `workbox-*.js`）；根静态不随回滚变化。
 - 本机纯逻辑单测：
-  - `bash tests/web-release.test.sh`（9 组 61 条断言：布局 / map 排除归档 / 保留 3 版 / 陈旧根文件清理 / web-init 收尾 / 回滚）
+  - `bash tests/web-release.test.sh`（10 组 81 条断言：布局 / map 排除归档 / 保留 3 版 / 陈旧根文件清理 / web-init 收尾 / 回滚 / 上传包解包与留档）
   - `bash tests/deploy-reexec.test.sh`（4 条：`git pull` 后自我重启 + 防重入 + 参数传递）
 - **迁移注意**：`web-init` 从旧容器拷出的 `assets/*`（旧版无版本目录的产物）不归新流程管，也不会被自动清理；
   `web-init` 会列出来提示，确认新版上线正常后可手动删除。`docker cp` 产物属主为 **root**（daemon 写盘），

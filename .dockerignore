@@ -37,6 +37,7 @@ server/static/upload/gallery/
 # 部署目录本身 (deploy/) 由 Dockerfile 不主动拷贝, 这里加保险
 deploy/data/
 deploy/server/
+deploy/incoming/
 # 例外: 镜像内 nginx.conf 走仓库版本, 需要保留这一个文件
 !deploy/data/nginx/
 !deploy/data/nginx/nginx.conf

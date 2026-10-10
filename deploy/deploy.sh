@@ -3,11 +3,21 @@
 #
 # 用法(在服务器或本机都可, 脚本自动定位 deploy/ 目录):
 #   ./deploy.sh                     # 默认部署 server + nginx(常规全栈更新)
-#   ./deploy.sh server              # 只更新后端
+#   ./deploy.sh server              # 【备用】只更新后端(在服务器上编译)
+#   ./deploy.sh server-deploy <pkg> # 【常规后端发布】解包本地上传的产物包 → 薄运行镜像 → 重建容器
 #   ./deploy.sh nginx               # 只重建 nginx 容器(改 nginx.conf 时用), **不发前端产物**
 #   ./deploy.sh web-init            # 【一次性】切挂载前, 把现有 /usr/share/nginx/html 复制到 data/html
-#   ./deploy.sh web                 # 【推荐】前端发布: 构建 → 同步 data/html → 挂载 → reload(含 SW)
+#   ./deploy.sh web-deploy <pkg>    # 【常规前端发布】解包本地上传的产物包 → 同步 data/html → reload
+#   ./deploy.sh web                 # 【备用】前端发布(在服务器上构建) —— 需服务器有 docker+网络
 #   ./deploy.sh web-rollback <TS>   # 整版回滚(TS 见 data/releases/)
+#
+# `web-deploy` / `server-deploy` 与 `web` / `server` 的区别(**重要**): 常规发布走 *-deploy ——
+# 产物在本机(scripts/build-web.sh / scripts/build-server.sh)构建并打包成 tar.gz, 上传到
+# deploy/incoming/ 后由本脚本解包发布; 服务器因此**不需要** node/pnpm/golang 与构建缓存
+# (以前那 13GB docker build cache 主要就是这么来的), 且上传包会留档到 data/packages/ 供事后重发/比对。
+# `web` / `server` 保留为备用路径(没有本机工具链、或想在服务器上重跑同一 commit 时用)。
+# 前端两条路径**共用** lib/web-release.sh 的发布语义(版本目录 / 排除 map / 保留 3 版 / 整版快照 /
+# 陈旧根文件清理 / 空挂载守卫), 所以行为一致。
 #
 # `web` 与 `nginx` 的区别(**重要, 语义已变更**): 静态目录从"镜像内 COPY dist"改成宿主机挂载
 # `./data/html`, 所以 `nginx` 只重建容器、不产出前端文件; 前端发布必须走 `web`。
@@ -90,17 +100,22 @@ web_legacy_html_live() {
   "${DOCKER[@]}" exec jerocine_nginx test -f /usr/share/nginx/html/index.html >/dev/null 2>&1
 }
 
-# 构建前端产物(复用 web/Dockerfile 的 build 阶段, 同一层缓存) → 取出 dist → 写入挂载目录 → reload
-deploy_web() {
-  # 前置守卫: 只有"线上仍在服务、而挂载目录是空的"才会被本次发布打成 404。
-  #   - 迁移场景(旧容器还活着且镜像里有产物) ⇒ 必须先 web-init 把现有产物搬到挂载目录;
-  #   - 首次安装(没有容器 / 挂载本来就是空) ⇒ 放行, 由本次发布完成初始化。
-  #     (否则会与 web-init 形成死锁: web 让你先跑 web-init, web-init 说没有容器就跑 web。)
+# 空挂载守卫(web / web-deploy 共用): 只有"线上旧容器仍在服务镜像内产物、而挂载目录是空的"
+# 才会被本次发布打成 404。
+#   - 迁移场景(旧容器还活着且镜像里有产物) ⇒ 必须先 web-init 把现有产物搬到挂载目录;
+#   - 首次安装(没有容器 / 挂载本来就是空) ⇒ 放行, 由本次发布完成初始化。
+#     (否则会与 web-init 形成死锁: web 让你先跑 web-init, web-init 说没有容器就跑 web。)
+require_web_mount_safe() {
   if ! web_mount_ready && web_legacy_html_live; then
     echo "!! data/html 尚未初始化, 而线上旧容器仍在服务镜像内的产物。" >&2
     echo "   现在发布会让线上 404。请先执行(必须在旧容器还活着时): ./deploy.sh web-init" >&2
     exit 1
   fi
+}
+
+# 构建前端产物(复用 web/Dockerfile 的 build 阶段, 同一层缓存) → 取出 dist → 写入挂载目录 → reload
+deploy_web() {
+  require_web_mount_safe
 
   pull_and_reexec
 
@@ -120,7 +135,7 @@ deploy_web() {
   )
 
   # 2) 从构建产物镜像里取出 dist(docker create + cp + rm, 比 docker run 干净)
-  tmp="$(mktemp -d)"
+  tmp="$(cd "$(mktemp -d)" && pwd)"
   cid="$("${DOCKER[@]}" create "$builder")"
   "${DOCKER[@]}" cp "$cid:/app/dist/." "$tmp/"
   "${DOCKER[@]}" rm -f "$cid" >/dev/null
@@ -201,7 +216,113 @@ web_rollback_cmd() {
   echo "==> 回滚完成: $ts（客户端 sw.js 字节变化后会重装该版 SW, 与旧 index.html 自洽）"
 }
 
+# 常规前端发布: 解包本地上传的产物包 → 走同一套发布语义 → 留档上传包 → reload
+#
+# 用法: ./deploy.sh web-deploy <pkg.tar.gz> [TS]
+#   包由本机 scripts/build-web.sh 生成(jerocine-web-<TS>.tar.gz), 由 scripts/deploy-web.sh
+#   上传到 deploy/incoming/ 后调本命令。TS 缺省从包内 assets/<TS>/ 推(权威来源), 也可显式给。
+deploy_web_from_pkg() {
+  local pkg="${1:-}" ts_arg="${2:-}"
+  if [ -z "$pkg" ]; then
+    echo "用法: ./deploy.sh web-deploy <jerocine-web-<TS>.tar.gz> [TS]" >&2
+    echo "  (产物包在本机生成: scripts/build-web.sh; 上传+远程调用: scripts/deploy-web.sh)" >&2
+    exit 1
+  fi
+  [ -f "$pkg" ] || wr_die "找不到产物包: $pkg"
+
+  require_web_mount_safe
+
+  # 仍然 pull: 服务器侧的 deploy.sh / lib / nginx.conf 也要跟着走
+  # (上传包放在未被跟踪的 incoming/ 里, git pull 不会动它)
+  pull_and_reexec
+
+  local ts tmp pkg_ts
+  tmp="$(cd "$(mktemp -d)" && pwd)"
+  wr_extract_pkg "$pkg" "$tmp"
+  ts="$ts_arg"
+  [ -n "$ts" ] || ts="$(wr_ts_from_dist "$tmp")"
+  # 包名与包内容不一致时以**包内容**为准, 但要说一声(多半是传错了文件)
+  if pkg_ts="$(wr_pkg_ts "$pkg")" && [ "$pkg_ts" != "$ts" ]; then
+    echo "!! 包名版本($pkg_ts) 与包内 assets 版本($ts) 不一致, 以包内为准" >&2
+  fi
+
+  echo "==> 发布上传产物包 $pkg (版本 $ts)"
+  wr_sync_dist "$tmp" "data" "$ts" "../LICENSE"
+  rm -rf "$tmp"
+  wr_archive_pkg "$pkg" "data" "$ts"
+
+  # 应用挂载(配置首次变更时重建容器) + 校验配置 + reload —— 最后一步才让新版本可见
+  echo "==> 应用挂载并 reload nginx"
+  "${COMPOSE[@]}" up -d --build --no-deps nginx
+  "${DOCKER[@]}" exec jerocine_nginx nginx -t
+  "${DOCKER[@]}" exec jerocine_nginx nginx -s reload
+
+  clear_caches
+
+  echo "==> 完成: 前端已发布 $ts"
+  "${DOCKER[@]}" ps --format '{{.Names}}\t{{.Status}}' | grep jerocine || true
+  echo "   产物包留档: data/packages/$ts.tar.gz ; 回滚: ./deploy.sh web-rollback <TS>"
+}
+
+# 常规后端发布: 解包本地上传的产物包 → 构建薄运行镜像 → 重建容器 → 等健康 → 清缓存
+#
+# 用法: ./deploy.sh server-deploy <pkg.tar.gz>
+#   包由本机 scripts/build-server.sh 交叉编译生成
+#   (jerocine-server-<TS>-<sha7>-linux-<arch>.tar.gz), 由 scripts/deploy-server.sh 上传后调本命令。
+#   镜像用 deploy/Dockerfile.runtime(只 COPY 二进制, 容器内不再编译)。
+deploy_server_from_pkg() {
+  local pkg="${1:-}"
+  if [ -z "$pkg" ]; then
+    echo "用法: ./deploy.sh server-deploy <jerocine-server-*.tar.gz>" >&2
+    echo "  (产物包在本机生成: scripts/build-server.sh; 上传+远程调用: scripts/deploy-server.sh)" >&2
+    exit 1
+  fi
+  [ -f "$pkg" ] || wr_die "找不到产物包: $pkg"
+
+  pull_and_reexec
+
+  local ctx
+  ctx="$(cd "$(mktemp -d)" && pwd)"
+  wr_extract_tar "$pkg" "$ctx"
+  [ -f "$ctx/main" ] || wr_die "包内没有 main —— 用 scripts/build-server.sh 打包"
+  [ -d "$ctx/data" ] || wr_die "包内没有 data/（IP 归属地离线库）"
+  [ -d "$ctx/static/upload" ] || wr_die "包内没有 static/upload/（upload 卷挂载点）"
+  [ -f "$ctx/LICENSE" ] || wr_die "包内没有 LICENSE"
+
+  echo "==> 构建后端运行镜像(内置本机编译的二进制, 容器内不再编译)"
+  # 上下文 = 解包目录(布局见 deploy/Dockerfile.runtime); -f 相对 deploy/(cwd)
+  "${DOCKER[@]}" build -f Dockerfile.runtime -t jerocine-server:latest "$ctx"
+  rm -rf "$ctx"
+
+  # --no-build: 直接用刚构建的镜像, 不让 compose 再去跑 Dockerfile 的 golang 编译阶段
+  echo "==> 重建 jerocine_server(--no-build)"
+  "${COMPOSE[@]}" up -d --no-build server
+
+  if ! wait_for_server_healthy; then
+    echo "   回退到容器内编译: ./deploy.sh server" >&2
+    exit 1
+  fi
+
+  clear_caches
+
+  echo "==> 完成: 后端已发布(镜像 jerocine-server:latest 由 $pkg 构建)"
+  "${DOCKER[@]}" ps --format '{{.Names}}\t{{.Status}}' | grep jerocine || true
+}
+
 # ============================ 原有服务部署 ============================
+
+# 等 jerocine_server 达到 healthy（超时打印日志提示并返回 1）。deploy_services 与 server-deploy 共用。
+wait_for_server_healthy() {
+  echo "==> 等待 jerocine_server healthy..."
+  local st
+  for _ in $(seq 1 60); do
+    st="$("${DOCKER[@]}" inspect --format '{{.State.Health.Status}}' jerocine_server 2>/dev/null || echo missing)"
+    if [ "$st" = "healthy" ]; then return 0; fi
+    sleep 5
+  done
+  echo "!! jerocine_server 5 分钟未达 healthy, 请查日志: ${DOCKER[*]} logs jerocine_server" >&2
+  return 1
+}
 
 deploy_services() {
   local services=("$@")
@@ -234,18 +355,7 @@ deploy_services() {
   fi
 
   # 等待 server 健康(纯 nginx 部署时容器本来就该 healthy, 快速通过)
-  echo "==> 等待 jerocine_server healthy..."
-  local ok=""
-  for _ in $(seq 1 60); do
-    local st
-    st="$("${DOCKER[@]}" inspect --format '{{.State.Health.Status}}' jerocine_server 2>/dev/null || echo missing)"
-    if [ "$st" = "healthy" ]; then ok=1; break; fi
-    sleep 5
-  done
-  if [ -z "$ok" ]; then
-    echo "!! jerocine_server 5 分钟未达 healthy, 请查日志: ${DOCKER[*]} logs jerocine_server" >&2
-    exit 1
-  fi
+  wait_for_server_healthy || exit 1
 
   clear_caches
 
@@ -269,8 +379,10 @@ clear_caches() {
 
 cmd="${1:-}"
 case "$cmd" in
-  web)          shift; deploy_web "$@" ;;
-  web-init)     shift; web_init "$@" ;;
-  web-rollback) shift; web_rollback_cmd "$@" ;;
-  *)            deploy_services "$@" ;;
+  web)           shift; deploy_web "$@" ;;
+  web-deploy)    shift; deploy_web_from_pkg "$@" ;;
+  web-init)      shift; web_init "$@" ;;
+  web-rollback)  shift; web_rollback_cmd "$@" ;;
+  server-deploy) shift; deploy_server_from_pkg "$@" ;;
+  *)             deploy_services "$@" ;;
 esac

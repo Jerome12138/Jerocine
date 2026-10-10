@@ -34,13 +34,21 @@ deploy/.env
 deploy/secrets/
 *.pem
 
-# Web 部署产物(宿主机挂载给 nginx, 由 deploy.sh web 生成) — 不入库。
+# Web 部署产物(宿主机挂载给 nginx, 由 deploy.sh web / web-deploy 生成) — 不入库。
 # html/ = 公开静态目录; releases/ = 整版回滚快照; debugmap/ = 归档的 sourcemap(非公开);
+# packages/ = 本地上传的产物包留档(常规发布手段, 事后可重发/比对);
 # root-manifest.txt = 上一版写入 html 根的条目清单(陈旧根文件清理用; 挂载目录之外, 不公开)
 deploy/data/html/
 deploy/data/releases/
 deploy/data/debugmap/
+deploy/data/packages/
 deploy/data/root-manifest.txt
+
+# 本地上传产物包的落地目录(scripts/deploy-web.sh 先 scp 到这里, 再由 deploy.sh 解包发布)
+deploy/incoming/
+
+# 后端本地构建产物(Dockerfile.runtime 的 build context; scripts/build-server.sh 解包到此)
+deploy/server/
 
 # brainstorming 临时 mockup
 .superpowers/

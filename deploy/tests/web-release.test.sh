@@ -20,7 +20,11 @@ assert_has()  { [ -e "$2" ] && ok "$1" || bad "$1 (缺少 $2)"; }
 assert_gone() { [ ! -e "$2" ] && ok "$1" || bad "$1 (不该存在 $2)"; }
 assert_die()  { if ( "$@" ) >/dev/null 2>&1; then bad "应失败但成功了: $*"; else ok "按预期失败: $*"; fi; }
 
-WORK="$(mktemp -d)"
+# 注意: 不要写 WORK="$(mktemp -d)"。Windows(Git Bash/MSYS) 下 TMPDIR 可能是
+# C:\Users\...\Temp, mktemp 会吐出 C:\...\Temp/tmp.xxx 这种"混了分隔符"的路径,
+# 于是 rm -rf "$WORK/..." 变成带盘符前缀的怪路径(某些删除守卫会直接拒)。
+# 先 cd 进去再 pwd, 拿到的就是 shell 认的 POSIX 路径。
+WORK="$(cd "$(mktemp -d)" && pwd)"
 trap 'rm -rf "$WORK"' EXIT
 DATA="$WORK/data"
 mkdir -p "$DATA"
@@ -190,6 +194,65 @@ D9="$(make_dist 20260101-000009 d9 wb000099)"
 wr_sync_dist "$D9" "$W9/data" 20260101-000009 "" >/dev/null
 assert_gone "迁移后首次发布清掉旧版遗留根文件" "$W9/data/html/old-extra.txt"
 assert_has  "两版都有的根静态保留"             "$W9/data/html/favicon.ico"
+
+echo
+echo "== 10. 上传产物包(常规发布): 解包 / 版本号判定 / 留档保留窗口 =="
+PKG_DIR="$WORK/pkgs"; mkdir -p "$PKG_DIR"
+D10="$(make_dist 20260101-000010 d10 wb000010)"
+# 与 scripts/build-web.sh 的打包方式一致: 打进包的是 dist 的**内容**
+PKG="$PKG_DIR/jerocine-web-20260101-000010.tar.gz"
+tar -czf "$PKG" -C "$D10" .
+assert_has "产物包已生成" "$PKG"
+
+assert_eq  "包名解出版本号"                 "$(wr_pkg_ts "$PKG")" "20260101-000010"
+assert_die wr_pkg_ts "$PKG_DIR/random.tar.gz"
+assert_die wr_pkg_ts "$PKG_DIR/jerocine-web-notats.tar.gz"
+
+EX="$WORK/ex10"
+wr_extract_pkg "$PKG" "$EX" >/dev/null
+assert_has "解包后 index.html 在包根"      "$EX/index.html"
+assert_has "解包后 assets/<TS> 就位"       "$EX/assets/20260101-000010/index-d10.js"
+assert_eq  "wr_ts_from_dist 取到唯一版本"  "$(wr_ts_from_dist "$EX")" "20260101-000010"
+
+# 打成"dist 目录本身"(而非其内容) 的包必须被拒 —— 否则线上会多一层目录、index.html 找不到
+BADP="$PKG_DIR/bad.tar.gz"; tar -czf "$BADP" -C "$WORK" "dist-20260101-000010"
+assert_die wr_extract_pkg "$BADP" "$WORK/ex10bad"
+
+# assets 下 0 个 / 2 个版本目录 ⇒ 必须失败(否则会静默发错版本)
+mkdir -p "$WORK/ex10zero"
+assert_die wr_ts_from_dist "$WORK/ex10zero"
+mkdir -p "$WORK/ex10two/assets/20260101-000001" "$WORK/ex10two/assets/20260101-000002"
+assert_die wr_ts_from_dist "$WORK/ex10two"
+
+# 留档: 上传包搬到 data/packages/<TS>.tar.gz, 并按 WR_KEEP_PACKAGES 裁剪
+P10="$WORK/data10"; mkdir -p "$P10"
+wr_archive_pkg "$PKG" "$P10" 20260101-000010 >/dev/null
+assert_has  "上传包留档到 data/packages"        "$P10/packages/20260101-000010.tar.gz"
+assert_gone "留档是搬迁(原上传位置不留副本)"    "$PKG"
+for i in 11 12; do
+  DD="$(make_dist "20260101-0000$i" "d$i" "wb0000$i")"
+  PP="$PKG_DIR/jerocine-web-20260101-0000$i.tar.gz"; tar -czf "$PP" -C "$DD" .
+  WR_KEEP_PACKAGES=2 wr_archive_pkg "$PP" "$P10" "20260101-0000$i" >/dev/null
+done
+assert_has  "保留最新一份"                      "$P10/packages/20260101-000012.tar.gz"
+assert_gone "超出保留窗口的最旧一份已清理"      "$P10/packages/20260101-000010.tar.gz"
+assert_eq   "产物包数 = 保留窗口(2)"            "$(ls -1 "$P10/packages" | grep -cE "$WR_PKG_RE")" "2"
+# 已在归档位置的包再发一次: 不搬、不丢
+wr_archive_pkg "$P10/packages/20260101-000012.tar.gz" "$P10" 20260101-000012 >/dev/null
+assert_has  "重复归档不丢包"                    "$P10/packages/20260101-000012.tar.gz"
+
+# 后端产物包走通用解包(main + data + static/upload 空目录)
+EXB="$WORK/ex10b"
+BP="$PKG_DIR/jerocine-server-test-linux-amd64.tar.gz"
+mkdir -p "$WORK/srvbuild/static/upload" "$WORK/srvbuild/data"
+printf 'ELF\n' > "$WORK/srvbuild/main"
+printf 'DB\n'  > "$WORK/srvbuild/data/ip2region.db"
+tar -czf "$BP" -C "$WORK/srvbuild" .
+wr_extract_tar "$BP" "$EXB" >/dev/null
+assert_has  "后端包解出 main"                   "$EXB/main"
+assert_has  "后端包解出 ip2region.db"           "$EXB/data/ip2region.db"
+assert_has  "后端包解出 static/upload 目录"     "$EXB/static/upload"
+assert_die  wr_extract_tar "$PKG_DIR/nope.tar.gz" "$WORK/ex10none"
 
 echo
 echo "===================================="

@@ -1,0 +1,34 @@
+# 后端**运行镜像**(薄): 只打包本机交叉编译好的 Linux 二进制, 容器内不再编译。
+#
+# 常规部署路径(2026-10-10 起):
+#   本机 scripts/build-server.sh   CGO_ENABLED=0 交叉编译 + 打包(含 data/ static/ LICENSE)
+#   本机 scripts/deploy-server.sh  上传到 deploy/incoming/ 并调远端 ./deploy.sh server-deploy
+#   服务器 deploy.sh server-deploy 解包到 deploy/server/ → 以该目录为上下文构建本文件 → up -d
+#
+# 与 deploy/Dockerfile(多阶段 golang:1.27-alpine 现编译)的关系:
+#   常规 = 本文件 —— 服务器**不需要** golang、不需要 go module 网络、不产生构建缓存
+#          (之前 docker build cache 涨到 13GB 主要就是它);
+#   备用 = Dockerfile —— 没有本机工具链、或想在服务器上从某个 commit 重跑时用(./deploy.sh server)。
+# 两者运行形态一致: distroless static + nonroot(65532) + 监听 3601 + 自带 -healthcheck。
+#
+# 构建上下文 = 解包后的产物包目录(deploy/server/), 布局由 scripts/build-server.sh 保证。
+FROM gcr.io/distroless/static-debian12:nonroot
+
+LABEL org.opencontainers.image.title="jerocine-server"
+
+WORKDIR /opt/server
+
+# 本机交叉编译的静态二进制(main 名字与 deploy/Dockerfile 的产出保持一致)
+COPY --chown=nonroot:nonroot main /opt/server/main
+# upload 卷的挂载点(内容由 compose 的 uploads 卷提供, 这里只需目录存在)
+COPY --chown=nonroot:nonroot static /opt/server/static
+# IP 归属地离线库(geoip; 缺失时在线明细归属地列留空, 不阻断启动)
+COPY --chown=nonroot:nonroot data /opt/server/data
+# 许可随镜像分发(MIT + GoFilm 衍生声明)
+COPY --chown=nonroot:nonroot LICENSE /licenses/LICENSE
+
+USER nonroot:nonroot
+EXPOSE 3601
+
+# distroless 无 curl/wget; 健康检查用二进制自带的 -healthcheck 子命令(compose healthcheck 调用)。
+ENTRYPOINT ["/opt/server/main"]
