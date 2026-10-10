@@ -10,11 +10,14 @@
     </style>
 
     <!-- 主活动主题 — 与站点根背景同色(@color/jc_bg #0B0B0F), 避免 WebView 加载前白闪
-         (用户反馈"启动总有白屏")。windowBackground 同步设成同一色, 保证从 launcher 起就是深色。 -->
+         (用户反馈"启动总有白屏")。windowBackground 同步设成同一色, 保证从 launcher 起就是深色。
+         ⚠️ 主题里**不能**写 android:background(2026-10-10 实测坑): 主题级 background 会被
+        当成**所有未显式设背景 View 的默认背景** —— 设置抽屉的文字列/面板等全被涂成不透明
+         #0B0B0F, 行内文字下面出现一块黑底(用户反馈), 玻璃透明设计整体失效。
+         防白闪只靠 windowBackground 就够了。 -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
-        <item name="android:background">@color/jc_bg</item>
         <item name="android:windowBackground">@color/jc_bg</item>
         <item name="android:colorBackground">@color/jc_bg</item>
     </style>
@@ -30,8 +33,12 @@
         <item name="android:colorBackground">@color/jc_bg</item>
         <!-- Android 12+ 系统 splash 背景色(不设则跟随主题表面色, 可能非深色) -->
         <item name="windowSplashScreenBackground">@color/jc_bg</item>
-        <!-- 系统 splash 图标 = 品牌图标(与 mipmap-anydpi-v26/ic_launcher 的 foreground 同源) -->
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground_gradient03</item>
+        <!-- 系统 splash 图标 = **圆角版** logo(2026-10-10 修订): 之前用 adaptive icon 的
+             foreground(ic_launcher_foreground_gradient03) —— 那是满幅方图, 系统 splash
+             不做 launcher 的圆角 mask ⇒ 启动先闪一个直角方块再进 BrandSplashView 的
+             圆角 logo(用户反馈"方形logo页面"). 换 ic_logo_rounded 后两段同图同底色,
+             视觉上是连续的一个首屏。 -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_logo_rounded</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 
