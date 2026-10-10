@@ -469,8 +469,10 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- ② 功能卡(大彩色卡, 左文字右图标 — 对齐设计稿; 继续观看入口已并入顶部"近期历史")
-             注: 卡片本就指向 /favorites, 故主文案用"收藏"(用户拍板), 不再写"历史·收藏"占宽. -->
-        <div class="jc-tv-funcs">
+             注: 卡片本就指向 /favorites, 故主文案用"收藏"(用户拍板), 不再写"历史·收藏"占宽.
+             --no-settings(2026-10-10): 纯网页 TV 无设置卡 ⇒ 网格 5 列改 4 列占满行宽,
+             不留右侧空位(tv-cards.css)。 -->
+        <div class="jc-tv-funcs" :class="{ 'jc-tv-funcs--no-settings': !showTvSettingsCard }">
           <RouterLink class="jc-tv-fc fc-2" to="/favorites" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="heart" size="32px" /></span><span class="ti">收藏</span><span class="su">记录您的热爱</span>
           </RouterLink>

@@ -104,11 +104,24 @@ describe('HomeView TV「设置」卡 × 原生抽屉', () => {
     expect(router.currentRoute.value.path).toBe('/')
   })
 
+  it('原生壳: 设置卡渲染 ⇒ 功能卡网格保持 5 列(不挂 --no-settings)', async () => {
+    const wrapper = await mountHome(router)
+    expect(wrapper.find('.jc-tv-fc.fc-5').exists()).toBe(true)
+    expect(wrapper.find('.jc-tv-funcs').classes()).not.toContain('jc-tv-funcs--no-settings')
+  })
+
   it('纯网页 TV 模式: 设置卡不渲染(SPA /settings 已删, 没有可去的设置页)', async () => {
     mocks.native.value = false
     const wrapper = await mountHome(router)
     expect(wrapper.find('.jc-tv-fc.fc-5').exists()).toBe(false)
     expect(mocks.openSettings).not.toHaveBeenCalled()
+  })
+
+  it('纯网页 TV 模式: 功能卡网格挂 --no-settings ⇒ CSS 侧切 4 列占满行宽(右侧不留空位)', async () => {
+    mocks.native.value = false
+    const wrapper = await mountHome(router)
+    expect(wrapper.find('.jc-tv-funcs').classes()).toContain('jc-tv-funcs--no-settings')
+    expect(wrapper.findAll('.jc-tv-fc').length).toBe(4)
   })
 
   it('原生壳: 点「我的」卡 → 也开原生抽屉(账号行在抽屉里), 不跳路由', async () => {
