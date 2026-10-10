@@ -141,28 +141,26 @@ web_init() {
   fi
   mkdir -p data/html
   "${DOCKER[@]}" cp jerocine_nginx:/usr/share/nginx/html/. data/html/
-  # apk 是独立挂载(./apk:.../apk), docker cp 会一并带出来 ⇒ 删掉这份多余的副本
-  if [ -d data/html/apk ]; then
-    rm -rf data/html/apk
-    echo "    (已移除 docker cp 带出的 apk 副本 —— 它由 ./apk 单独挂载)"
+  # docker cp 由 docker daemon(root) 写盘 ⇒ 拷出来的文件属主是 root。必须归一到当前用户, 否则:
+  #   ① 下面删 apk 副本会 Permission denied(apk/ 目录属主 root, 删其内容需该目录可写);
+  #   ② 紧接着的 ./deploy.sh web 用 cp 覆盖 html/index.html 也会被拒(cp 是 truncate 写而非 unlink,
+  #      而 root:644 对普通用户只读)。服务器约定 sudo -n 可用(docker 本身已走它); 已是 root 则跳过。
+  if [ "$(id -u)" != "0" ]; then
+    if ! sudo -n chown -R "$(id -u):$(id -g)" data/html 2>/dev/null; then
+      echo "!! 无法把 data/html 属主改回当前用户(docker cp 产物属主为 root)。请手动执行:" >&2
+      echo "   sudo chown -R $(id -u):$(id -g) \"$(pwd)/data/html\"   然后重跑 web-init" >&2
+      exit 1
+    fi
   fi
   if [ ! -f data/html/index.html ]; then
     echo "!! 容器内没有前端产物(可能已是新版镜像 / 已切挂载)。" >&2
     echo "   直接跑 ./deploy.sh web 用构建产物初始化挂载目录即可。" >&2
     exit 1
   fi
-  echo "   已复制:"
+  # 删掉 docker cp 带出的 apk 副本, 并写出初始根清单(详见 lib/web-release.sh 的 wr_init_after_copy)
+  wr_init_after_copy data
+  echo "   已复制(不含 apk 副本):"
   ls -1 data/html | sed 's/^/     /'
-  # 记一份"当前根条目清单"(排除 assets/ —— 它归 wr_prune_versions 按保留窗口管理)。
-  # 有了这份基线, 紧接着的 ./deploy.sh web 才能把新构建产物里已不存在的旧根文件清掉
-  # (不带清单 ⇒ 旧文件只能靠人工删)。清单只记录本次拷进来的名字, 清理也只碰这些名字。
-  local entries=() e
-  while IFS= read -r e; do
-    [ -n "$e" ] || continue
-    [ "$e" = "assets" ] && continue
-    entries+=("$e")
-  done < <(ls -1 data/html)
-  wr_write_root_manifest data "${entries[@]}"
   # 旧版(没有版本目录的年代)的 assets/* 不归新发布管: 清单恒不含 assets/, 也不会被自动清理。
   # 不自动删 —— 这些文件不是新流程产出的, 删了无法回滚; 只提示, 由运维确认后处置。
   if [ -d data/html/assets ]; then

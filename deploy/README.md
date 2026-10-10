@@ -89,7 +89,8 @@ deploy/
   - `bash tests/web-release.test.sh`（8 组 55 条断言：布局 / map 排除归档 / 保留 3 版 / 陈旧根文件清理 / 回滚）
   - `bash tests/deploy-reexec.test.sh`（4 条：`git pull` 后自我重启 + 防重入 + 参数传递）
 - **迁移注意**：`web-init` 从旧容器拷出的 `assets/*`（旧版无版本目录的产物）不归新流程管，也不会被自动清理；
-  `web-init` 会列出来提示，确认新版上线正常后可手动删除。
+  `web-init` 会列出来提示，确认新版上线正常后可手动删除。`docker cp` 产物属主为 **root**（daemon 写盘），
+  `web-init` 会 `chown` 回当前用户再继续 —— 否则随后的 `web` 发布以普通用户覆盖写 `index.html` 会 Permission denied。
 
 **采集不需要手动暂停**：server 收到 SIGTERM（compose 重建容器时自动发送）会优雅停机——
 HTTP 在途请求收尾 → 采集在跑轮次取消收尾（被中断的页记入失败台账，由补采/滚动增量窗口自愈）

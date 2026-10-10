@@ -171,6 +171,27 @@ assert_has  "脏清单不会误删 assets/"   "$DATA/html/assets/20260101-000007
 assert_has  "脏清单不会越界删除"       "$DATA/outside.txt"
 
 echo
+echo "== 9. web-init 收尾: 移除 docker cp 带出的 apk 副本 + 写初始根清单 =="
+W9="$WORK/w9"
+mkdir -p "$W9/data/html/apk" "$W9/data/html/assets/20260101-000001"
+printf '<html>old</html>\n' > "$W9/data/html/index.html"
+printf 'ICO\n'              > "$W9/data/html/favicon.ico"
+printf 'OLD\n'              > "$W9/data/html/old-extra.txt"
+printf 'APK\n'              > "$W9/data/html/apk/Jerocine-TV-web-1.apk"
+wr_init_after_copy "$W9/data" >/dev/null
+assert_gone "docker cp 带出的 apk 副本被移除"   "$W9/data/html/apk"
+assert_has  "挂载目录现有产物保留"              "$W9/data/html/index.html"
+assert_has  "初始根清单已写出"                  "$W9/data/root-manifest.txt"
+assert_eq   "初始清单 = 根条目(排除 assets/apk)" \
+            "$(sort "$W9/data/root-manifest.txt" | tr '\n' ' ')" \
+            "favicon.ico index.html old-extra.txt "
+# 与紧随其后的 ./deploy.sh web 衔接: 新一版不再有 old-extra.txt ⇒ 应被初始清单清理
+D9="$(make_dist 20260101-000009 d9 wb000099)"
+wr_sync_dist "$D9" "$W9/data" 20260101-000009 "" >/dev/null
+assert_gone "迁移后首次发布清掉旧版遗留根文件" "$W9/data/html/old-extra.txt"
+assert_has  "两版都有的根静态保留"             "$W9/data/html/favicon.ico"
+
+echo
 echo "===================================="
 echo "  通过 $pass / 失败 $fail"
 echo "===================================="

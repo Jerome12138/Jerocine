@@ -104,6 +104,27 @@ wr_prune_root_stale() {
   return 0
 }
 
+# wr_init_after_copy <data_dir>
+# web-init 专用: docker cp 把旧容器产物落到 html/ 之后, 做两件纯文件的事 ——
+#   ① 删掉 docker cp 连带带出的 apk 副本(容器内 /usr/share/nginx/html/apk 是 ./apk 的只读挂载点,
+#      不属于镜像自带产物; 留在挂载目录里会被 ./apk 挂载遮蔽, 还会干扰根清单清理);
+#   ② 写出初始根清单 —— 有了它, 紧随其后的 ./deploy.sh web 才能清掉"旧版有、本版没有"的根文件。
+# 抽成纯函数(不碰 docker/权限)便于本机单测: tests/web-release.test.sh 第 9 组。
+wr_init_after_copy() {
+  local data="$1" html="$1/html" entries=() e
+  [ -d "$html" ] || return 0
+  if [ -d "$html/apk" ]; then
+    rm -rf "$html/apk"
+    echo "    (已移除 docker cp 带出的 apk 副本 —— 它由 ./apk 单独挂载)"
+  fi
+  while IFS= read -r e; do
+    [ -n "$e" ] || continue
+    [ "$e" = "assets" ] && continue
+    entries+=("$e")
+  done < <(ls -1 "$html" 2>/dev/null || true)
+  wr_write_root_manifest "$data" "${entries[@]}"
+}
+
 # wr_sync_dist <dist_dir> <data_dir> <ts> [license_file]
 # 顺序 = 先写目录；调用方负责最后才 reload nginx（R9：避免覆盖期间的 404 窗口）
 wr_sync_dist() {
