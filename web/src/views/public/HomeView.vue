@@ -225,7 +225,14 @@ const tvFirstPid = computed<number | undefined>(() => rows.value[0]?.pid)
  * 捕获阶段先于组件的冒泡 handler, 才能真正拦下导航。
  */
 const { guard: tvSettingsGuard, isIntercepted: tvSettingsIsNative } = useTvSettingsEntry()
-const tvSettingsSub = computed(() => (tvSettingsIsNative() ? '设备/过滤' : '画质/过滤'))
+/**
+ * 副标题随宿主变化。这里在 setup 期取一次值即可(**不要**用 computed 去包它)：
+ * 原生桥是 addJavascriptInterface 在 loadUrl 之前注入的 ⇒ 本次页面生命周期内恒定，
+ * 用 computed 包一个非响应式函数只会伪装成"会跟着变"(值永不变、也不会失效)，
+ * 与 composable 里"实时判断、不做快照"的注释自相矛盾。
+ * 真正需要实时判断的是 open()/guard() 内部的 isIntercepted()。
+ */
+const tvSettingsSub = tvSettingsIsNative() ? '设备/过滤' : '画质/过滤'
 function onTvSettingsClick(e: MouseEvent): void {
   tvSettingsGuard(e)
 }
