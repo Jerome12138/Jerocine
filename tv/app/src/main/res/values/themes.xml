@@ -6,9 +6,9 @@
     </style>
 
     <!--
-      启动主题(方案 §7, P2): 仅挂给 MainActivity —— windowBackground 换成"黑底 + 居中品牌 logo",
-      让原生模式冷启也先看到品牌标(原来是一片纯黑, 用户会以为没反应)。
-      首帧布局后即被 activity_main 的不透明 @color/jc_bg 覆盖, 视觉上无缝。
+      启动主题(方案 §7, P2): 仅挂给 MainActivity —— windowBackground 换成"站点根背景色 +
+      居中品牌 logo", 让原生模式冷启也先看到品牌标(原来是一片纯黑, 用户会以为没反应)。
+      首帧布局后即被 activity_main 的不透明 @color/jc_bg 覆盖(同色), 视觉上无缝。
     -->
     <style name="Theme.JerocineTV.Launch" parent="Theme.JerocineTV">
         <item name="android:windowBackground">@drawable/jc_splash_brand</item>

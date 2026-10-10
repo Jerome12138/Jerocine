@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  原生壳启动首屏(方案 §7, P2): 纯黑底 + 居中品牌 logo.
+  原生壳启动首屏(方案 §7, P2): 站点根背景色 + 居中品牌 logo.
   作为 MainActivity 的 windowBackground —— 只在"窗口创建 → 首帧布局"这段可见,
   之后被 activity_main 的不透明 @color/jc_bg 覆盖, 因此不会有残留。
   与 web 壳的 BrandSplashView 观感同源(同一张 gradient03 前景图)。
+  底色刻意用 @color/jc_bg(#0B0B0F) 而非纯黑 —— 与首帧布局同色, 中间不再有色差跳变。
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/black" />
+    <item android:drawable="@color/jc_bg" />
     <item>
         <bitmap
             android:src="@drawable/ic_launcher_foreground_gradient03"
