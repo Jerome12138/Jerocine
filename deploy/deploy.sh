@@ -64,7 +64,9 @@ deploy_web() {
 
   local ts builder cid tmp
   ts="$(date +%Y%m%d-%H%M%S)"
-  builder="jerocine-web-builder:$ts"
+  # 固定 tag(不是 :$ts) —— 每次发版换 tag 会在 docker images 里累积一堆含 node_modules
+  # + dist 的大镜像; 固定 tag 只替换引用, 层仍被新镜像复用(buildkit 缓存不丢)。
+  builder="jerocine-web-builder:latest"
   echo "==> 构建前端产物 (JC_BUILD_TS=$ts)"
 
   # 1) 只构建到 build 阶段(产物在 /app/dist)。上下文 = 仓库根, 故 subshell 里 cd ..
