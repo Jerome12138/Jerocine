@@ -50,3 +50,21 @@ export function useTvSettingsEntry(): TvSettingsEntry {
 
   return { open, guard, isIntercepted }
 }
+
+/**
+ * 顶栏右侧「刷新 / 设置」两个按钮是否显示（2026-10-10 实测反馈修订）。
+ *
+ * - **TV 模式 ⇒ 恒显示**：纯网页 TV 模式（`?mode=tv`，无桥）也要有 —— 此时「设置」按钮
+ *   退化成跳 SPA `/settings` 路由（见 useTvSettingsEntry.open），不是死按钮；
+ * - **非 TV 模式 ⇒ 仅"在原生壳里且能调起设置抽屉"时显示**：桌面布局下首页金刚区的
+ *   「设置」卡不渲染（`v-if="isTV"`），顶栏是用户唯一的回退入口 —— 藏掉它，用户在壳里
+ *   切到桌面模式后就再也切不回 TV 了。
+ *
+ * 拆成纯函数是为了把这条产品决策钉在单测里（见 useTvSettingsEntry.spec.ts）。
+ */
+export function shouldShowHeaderActions(
+  isTV: boolean,
+  canOpenNativeSettings: boolean
+): boolean {
+  return isTV || canOpenNativeSettings
+}

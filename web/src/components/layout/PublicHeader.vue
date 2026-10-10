@@ -6,6 +6,8 @@ import { useSiteStore, useNavStore, useHistoryStore } from '@/stores'
 import { useUserStore } from '@/stores/user'
 import { useViewMode } from '@/composables/useViewMode'
 import { useSearchHistory } from '@/composables/useSearchHistory'
+import { shouldShowHeaderActions } from '@/composables/useTvSettingsEntry'
+import { canOpenSettings } from '@/utils/jerocineNative'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -56,6 +58,13 @@ function goBack(): void {
     void router.push({ path: '/index' })
   }
 }
+
+/**
+ * 顶栏最右「刷新 / 设置」的显隐（见 shouldShowHeaderActions 的判据与理由）：
+ *   TV 模式恒显示；非 TV 模式只在"原生壳内且能调起设置抽屉"时显示 ——
+ *   否则用户在壳里切到桌面模式后，没有任何入口切回 TV。
+ */
+const showHeaderActions = computed(() => shouldShowHeaderActions(isTV.value, canOpenSettings()))
 
 const { basic } = storeToRefs(siteStore)
 const { list: navList } = storeToRefs(navStore)
@@ -491,9 +500,6 @@ watch(
             </RouterLink>
           </div>
         </div>
-
-        <!-- TV 胶囊行最右侧: 刷新(拿最新版本) + 设置(原生抽屉), 同属 tab 焦点区 -->
-        <TvHeaderActions v-if="isTV" />
       </nav>
 
       <!-- 中部弹性 (左 spacer) -->
@@ -809,6 +815,12 @@ watch(
           </div>
         </Transition>
       </div>
+
+      <!-- 顶栏最右: 刷新(拿最新版本) + 设置(原生抽屉)。
+           放在 inner 的**最后一个 flex 子项** ⇒ 前面两个 flex-1 spacer 把它顶到右缘(pin)。
+           TV 模式恒显示; 非 TV 模式只有"在壳里且能开设置抽屉"才显示 —— 否则用户在壳里
+           切到桌面模式后没有任何入口切回 TV(桌面布局下首页金刚区的设置卡不渲染)。 -->
+      <TvHeaderActions v-if="showHeaderActions" />
     </div>
 
     <!-- 移动端搜索条（展开） -->

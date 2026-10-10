@@ -62,6 +62,28 @@ export function isNative(): boolean {
   return !!(b && (b.invoke || b.playVideo))
 }
 
+/**
+ * 壳内**能否真的调起原生设置抽屉** —— 比 isNative() 严一档：还要求 bridge 暴露了调用入口。
+ *
+ * 用途：顶栏「刷新 / 设置」按钮在**非 TV 模式**下的显隐判断（见
+ * `useTvSettingsEntry.shouldShowHeaderActions`）。桌面布局里首页金刚区的「设置」卡不渲染
+ * （v-if="isTV"），顶栏那个按钮是用户切回 TV 的唯一入口 —— 但在老 APK 上按钮点了没反应，
+ * 等于给了个假入口，所以这里要能区分"桥在但调不动设置"。
+ *
+ * 两个分支都认的原因：
+ *   - 现版 bridge(`JerocineBridge`) 把 openSettings 做成 `invoke('openSettings')` 的
+ *     一个 case，**没有**单独的 @JavascriptInterface 方法 ⇒ 必须认 `invoke`；
+ *   - 旧 v1 bridge 只有 playVideo/playPlaylist（没有 invoke）⇒ 返回 false，顶栏就不画
+ *     这个假装能用的按钮；
+ *   - 若将来把 openSettings 提升为独立的 @JavascriptInterface 方法，第一个分支照样认得。
+ */
+export function canOpenSettings(): boolean {
+  const b = getBridge()
+  if (!b) return false
+  if (typeof b.openSettings === 'function') return true
+  return typeof b.invoke === 'function'
+}
+
 const subscribers = new Map<string, Set<EventHandler>>()
 
 function dispatchEvent(name: string, payload: unknown): void {

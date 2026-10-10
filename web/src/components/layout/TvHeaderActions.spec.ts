@@ -30,22 +30,29 @@ async function mountActions() {
   return mount(TvHeaderActions, { global: { plugins: [router] } })
 }
 
-describe('TvHeaderActions (TV 胶囊行最右两个按钮)', () => {
+describe('TvHeaderActions (顶栏最右两个图标按钮)', () => {
   beforeEach(() => {
     reloadToLatest.mockClear()
     openSettings.mockClear()
     native = true
   })
 
-  it('渲染 刷新 / 设置 两个按钮, 且都自带可聚焦属性(遥控器可达)', async () => {
+  it('渲染 刷新 / 设置 两个**纯图标**按钮(无文字), 且都自带可聚焦属性(遥控器可达)', async () => {
     const w = await mountActions()
     const btns = w.findAll('button')
     expect(btns).toHaveLength(2)
-    expect(btns[0].text()).toContain('刷新')
-    expect(btns[1].text()).toContain('设置')
+    // 反馈修订: 只留图标 —— 文字退到 aria-label/title(TV 视距下文字既占宽又冗余)
+    expect(btns[0].text()).toBe('')
+    expect(btns[1].text()).toBe('')
+    expect(btns[0].attributes('aria-label')).toBe('刷新到最新版本')
+    expect(btns[0].attributes('title')).toBe('刷新到最新版本')
+    expect(btns[1].attributes('aria-label')).toBe('打开设置')
+    expect(btns[1].attributes('title')).toBe('打开设置')
     for (const b of btns) {
       expect(b.attributes('data-focusable')).toBe('true')
       expect(b.attributes('tabindex')).toBe('0')
+      // 图标本身要画出来(否则按钮是空壳)
+      expect(b.find('svg').exists()).toBe(true)
     }
   })
 

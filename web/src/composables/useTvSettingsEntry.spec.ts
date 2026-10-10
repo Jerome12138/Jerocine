@@ -12,7 +12,7 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push })
 }))
 
-import { useTvSettingsEntry } from './useTvSettingsEntry'
+import { useTvSettingsEntry, shouldShowHeaderActions } from './useTvSettingsEntry'
 
 describe('useTvSettingsEntry (TV 设置入口语义)', () => {
   beforeEach(() => {
@@ -59,5 +59,20 @@ describe('useTvSettingsEntry (TV 设置入口语义)', () => {
     const entry = useTvSettingsEntry()
     expect(() => entry.guard()).not.toThrow()
     expect(openSettings).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('shouldShowHeaderActions (顶栏「刷新/设置」显隐)', () => {
+  it('TV 模式: 无论能不能开抽屉都显示 —— 纯网页 TV 模式也得有, 设置会退化成跳 /settings', () => {
+    expect(shouldShowHeaderActions(true, false)).toBe(true)
+    expect(shouldShowHeaderActions(true, true)).toBe(true)
+  })
+
+  it('非 TV 模式 + 壳内可调起设置: 显示 —— 否则用户切到桌面模式后没有入口切回 TV', () => {
+    expect(shouldShowHeaderActions(false, true)).toBe(true)
+  })
+
+  it('非 TV 模式 + 无桥/调不动设置: 不显示 —— 纯网页桌面布局不该冒出原生设置入口', () => {
+    expect(shouldShowHeaderActions(false, false)).toBe(false)
   })
 })
