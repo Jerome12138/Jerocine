@@ -434,9 +434,15 @@ body {
     box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-/* 禁用桌面端默认 :focus-visible 蓝边在 TV 下的双重描边 */
+/* 禁用桌面端默认 :focus-visible 蓝边在 TV 下的双重描边。
+ * 2026-10-10: 光杀 outline 不够 —— 全局 :focus-visible(见顶部)同时给了 box-shadow 青环,
+ * 它在 TV 下对**未挂 data-focusable**的胶囊/按钮照样生效, 遇 overflow 裁剪的容器
+ * (滚动行/圆角格)被裁成"截断的蓝色边框"(用户反馈)。这里兜底换成 TV 焦点环
+ * (无 scale, 对布局零影响); 带 data-focusable 的组件仍走上面的放大+环规则,
+ * 本条 specificity 更低不冲突。 */
 [data-mode="tv"] :focus-visible {
   outline: none;
+  box-shadow: var(--jc-tv-focus-ring);
 }
 
 /* TV: 禁横向滚动 + 隐藏纵向滚动条 (光标 scrollIntoView 驱动滚动, 不显示原生滚动条)

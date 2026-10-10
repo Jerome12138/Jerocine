@@ -18,11 +18,19 @@ interface Props {
   interval?: number
   /** 是否显示左右箭头 */
   showArrows?: boolean
+  /**
+   * 沉浸式(2026-10-10 评审定稿): 盒子几何与盒内一切(文字/按钮/右侧竖海报/箭头/
+   * 指示条)完全维持原版; 只把图片从"圆角框内显示"改为铺满页面顶部全宽背景 ——
+   * 图片元素 breakout 出盒子(铺满视口宽、顶到页头下缘、高度=盒高+下探量,
+   * 下探尾压在继续观看区背后, 底部渐隐入页面底色)。仅 ≥1024 档生效。
+   */
+  immersive?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   interval: 0,
-  showArrows: true
+  showArrows: true,
+  immersive: false
 })
 
 const router = useRouter()
@@ -167,6 +175,7 @@ const hasMeta = computed<boolean>(
 <template>
   <section
     class="jc-hero relative w-full overflow-hidden cursor-pointer"
+    :class="{ 'jc-hero--immersive': immersive }"
     data-focus-zone="hero"
     role="button"
     :aria-label="active ? `查看《${active.name}》详情` : undefined"
@@ -650,5 +659,65 @@ const hasMeta = computed<boolean>(
 }
 [data-mode='tv'] .jc-hero__bar--active {
   width: 72px;
+}
+
+/* ===== 沉浸式(桌面 ≥1024, 2026-10-10 评审定稿, 未 push) =====
+ * 用户定稿口径: 原有轮播区域不变、高度不变, 盒内按钮/文字/右侧海报原位;
+ * 把图从"圆角框内显示"改为页面顶部背景 —— 宽度保持内容区宽(不铺满视口,
+ * 2026-10-10 二次定稿"高度透出, 宽度保持"), 只高度向下透出, 压到继续观看区
+ * 背后, 下探上限加大(--jc-hero-bleed 280px); 即页面内容区背景换成轮播图。
+ *
+ * 实现口径 —— 只 breakout 图片元素本身, DOM 不动:
+ *   · 盒子(.jc-hero)几何沿用原版(21/9 + max-height 380 等), 仅关闭圆角裁剪
+ *     放行溢出、盒底色透明(图不落在盒内而在背景上);
+ *   · .jc-hero__image(BaseImage 根)绝对定位纵向拉伸: top 上提补回 wrapper 的
+ *     pt-6 顶到页头下缘, bottom 下探 --jc-hero-bleed, 水平 left/right 撑满
+ *     盒宽(=内容区宽); img cover 保持比例; 定位包含块是 slide(=盒子),
+ *     盒内其它元素不受影响(右侧竖海报仍锚定 slide, 位置与原版一致);
+ *   · 两层蒙版同步拉伸到同一矩形, mask-bottom 用"顶部轻压暗→文字区加深→
+ *     渐隐尾融入页面底色"的沉浸式渐变;
+ *   · HomeView 侧 .jc-home__rows 抬 z-index:1, 继续观看卡片压在下探尾之上。
+ *   · width/height 必须 !important 覆盖 BaseImage 根的内联 100%(ratio="" 时
+ *     aspectStyle 内联输出, 内联样式压过一切选择器, 不加则纵向拉伸不生效, 踩过)。 */
+.jc-hero.jc-hero--immersive {
+  --jc-hero-bleed: 280px;
+}
+@media (min-width: 1024px) {
+  .jc-hero.jc-hero--immersive {
+    overflow: visible;
+    border-radius: 0;
+    background-color: transparent;
+  }
+  /* 图片纵向拉伸: 宽=盒宽(内容区宽), 上提 24px 顶到页头下缘, 下探 bleed 压到继续观看区背后 */
+  .jc-hero.jc-hero--immersive .jc-hero__image {
+    position: absolute;
+    top: calc(-1 * var(--jc-space-6));
+    bottom: calc(-1 * var(--jc-hero-bleed));
+    left: 0;
+    right: 0;
+    width: auto !important;
+    height: auto !important;
+  }
+  /* 蒙版同步拉伸到与图片同一矩形 */
+  .jc-hero.jc-hero--immersive .jc-hero__mask-bottom,
+  .jc-hero.jc-hero--immersive .jc-hero__mask-left {
+    inset: auto;
+    top: calc(-1 * var(--jc-space-6));
+    bottom: calc(-1 * var(--jc-hero-bleed));
+    left: 0;
+    right: 0;
+  }
+  /* 沉浸式渐变: 顶部轻压暗(页头下缘过渡) → 中段透明 → 文字区(盒底 ~59%)加深 →
+   * 渐隐尾放缓拉长, 让下探区的图"透"出来铺在继续观看区背后 */
+  .jc-hero.jc-hero--immersive .jc-hero__mask-bottom {
+    background-image: linear-gradient(
+      180deg,
+      rgba(11, 11, 15, 0.25) 0%,
+      rgba(11, 11, 15, 0) 14%,
+      rgba(11, 11, 15, 0) 38%,
+      rgba(11, 11, 15, 0.4) 56%,
+      var(--jc-bg-base) 100%
+    );
+  }
 }
 </style>

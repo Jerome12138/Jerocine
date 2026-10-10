@@ -148,6 +148,12 @@ const tvHeroTo = computed<string | Record<string, unknown>>(() => {
  * (href 本身仍是真实外链 URL, 对遥控器 focus/无障碍无影响)
  */
 function onTvHeroClick(e: MouseEvent): void {
+  // 刚完成滑动手势: 触摸合成的 click 会跟着 touchend 到来, 吞掉防误进详情
+  if (tvHeroSwiped) {
+    tvHeroSwiped = false
+    e.preventDefault()
+    return
+  }
   const link = tvHero.value?.link?.trim()
   if (link && isExternalLink(link)) {
     e.preventDefault()
@@ -155,6 +161,43 @@ function onTvHeroClick(e: MouseEvent): void {
   }
 }
 let tvHeroTimer: number | null = null
+
+/** (重)启动 TV 推荐卡自动轮播: 手动切换后调用, 避免"刚切完 1s 内又自动跳下一张" */
+function restartTvHeroTimer(): void {
+  if (tvHeroTimer !== null) window.clearInterval(tvHeroTimer)
+  tvHeroTimer = window.setInterval(() => {
+    const n = heroSlides.value.length
+    if (n > 1) tvHeroIdx.value = (tvHeroIdx.value + 1) % n
+  }, 6000)
+}
+
+/** 手动步进(手势/后续遥控键共用): 环绕 + 重置自动轮播计时 */
+function tvHeroStep(delta: number): void {
+  const n = heroSlides.value.length
+  if (n <= 1) return
+  tvHeroIdx.value = (tvHeroIdx.value + delta + n) % n
+  restartTvHeroTimer()
+}
+
+/* TV 推荐卡触摸横滑切换(2026-10-10 用户要求"手势滑动上/下一张"):
+ * 阈值 ±60px 与 HeroCarousel 同口径; 滑动后吞掉合成 click(见 onTvHeroClick)。 */
+let tvHeroTouchX = 0
+let tvHeroTouchDx = 0
+let tvHeroSwiped = false
+function onTvHeroTouchStart(e: TouchEvent): void {
+  tvHeroTouchX = e.touches[0]?.clientX ?? 0
+  tvHeroTouchDx = 0
+  tvHeroSwiped = false
+}
+function onTvHeroTouchMove(e: TouchEvent): void {
+  tvHeroTouchDx = (e.touches[0]?.clientX ?? 0) - tvHeroTouchX
+}
+function onTvHeroTouchEnd(): void {
+  if (Math.abs(tvHeroTouchDx) > 60) {
+    tvHeroSwiped = true
+    tvHeroStep(tvHeroTouchDx < 0 ? 1 : -1)
+  }
+}
 
 /**
  * TV 推荐卡的标签行 / 描述行 —— 口径**完全对齐非 TV 的 HeroCarousel**(用户要求"像非 TV 版一样"):
@@ -294,12 +337,7 @@ async function loadBanners(): Promise<void> {
 onMounted(() => {
   loadIndex()
   loadBanners()
-  if (isTV.value) {
-    tvHeroTimer = window.setInterval(() => {
-      const n = heroSlides.value.length
-      if (n > 1) tvHeroIdx.value = (tvHeroIdx.value + 1) % n
-    }, 6000)
-  }
+  if (isTV.value) restartTvHeroTimer()
 })
 onBeforeUnmount(() => {
   if (tvHeroTimer !== null) {
@@ -380,7 +418,9 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <!-- 推荐轮播 (自动轮播 heroSlides; 海报作背景, 点击进详情) -->
+          <!-- 推荐轮播 (自动轮播 heroSlides; 海报作背景, 点击进详情; 触摸横滑切上/下一张)
+               图序对齐桌面版 HeroCarousel(2026-10-10): 横图(poster)优先、竖图(cover)兜底 ——
+               原来反着写导致 TV 首屏竖图被 16:9 容器裁得只剩脸。 -->
           <RouterLink
             v-if="tvHero"
             :to="tvHeroTo"
@@ -389,12 +429,15 @@ onBeforeUnmount(() => {
             tabindex="0"
             :aria-label="`为你推荐 ${tvHero.name}`"
             @click="onTvHeroClick"
+            @touchstart="onTvHeroTouchStart"
+            @touchmove="onTvHeroTouchMove"
+            @touchend="onTvHeroTouchEnd"
           >
             <BaseImage
-              v-if="tvHero.cover || tvHero.poster"
+              v-if="tvHero.poster || tvHero.cover"
               :key="tvHero.mid ?? tvHero.name"
               class="jc-home-tv__hero-bg"
-              :src="tvHero.cover || tvHero.poster || ''"
+              :src="tvHero.poster || tvHero.cover || ''"
               :alt="tvHero.name"
               ratio=""
               fit="cover"
@@ -531,13 +574,15 @@ onBeforeUnmount(() => {
 
       <!-- ============================== 桌面 / 移动: 原样 ============================== -->
       <template v-else>
-        <!-- 轮播 Banner (后台配置优先, 无配置回退影片派生) -->
-        <div
-          v-if="heroSlides.length"
-          class="container-page pt-[var(--jc-space-6)]"
-        >
+        <!-- 轮播 Banner (后台配置优先, 无配置回退影片派生)。
+             沉浸式(2026-10-10 评审定稿): 盒子几何/盒内文字/按钮/右侧海报/
+             继续观看区位置全部维持原版; 只把图从"圆角框内显示"改为铺满页面
+             顶部全宽背景(限高+底部渐隐, 下探尾压在继续观看区背后)。
+             图片 breakout 实现见 HeroCarousel 的 jc-hero--immersive 块。 -->
+        <div v-if="heroSlides.length" class="container-page pt-[var(--jc-space-6)]">
           <HeroCarousel
             :items="heroSlides"
+            immersive
             class="rounded-[var(--jc-radius-lg)] overflow-hidden"
           />
         </div>
@@ -653,6 +698,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--jc-space-6);
   padding-block: var(--jc-space-6) var(--jc-space-8);
+  /* 沉浸式(2026-10-10): 轮播背景图下探尾压在本区背后, hero 是定位元素会盖住
+   * 本区的静态内容, 抬 z 让继续观看/榜单卡片压回背景之上(位置不变) */
+  position: relative;
+  z-index: 1;
 }
 
 @media (min-width: 768px) {
@@ -695,9 +744,12 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr;
 }
 
-/* 推荐轮播: 海报作背景铺满, 文字浮在上层 */
+/* 推荐轮播: 海报作背景铺满, 文字浮在上层。
+ * touch-action: pan-y(2026-10-10) —— 横滑由我们的 swipe 检测接管切上/下一张,
+ * 声明纵向滚动保留, 防浏览器把横滑当历史导航/其它手势劫持。 */
 [data-mode='tv'] .jc-home-tv__hero {
   min-height: clamp(180px, 22vw, 280px);
+  touch-action: pan-y;
 }
 [data-mode='tv'] .jc-home-tv__hero-bg {
   position: absolute;
