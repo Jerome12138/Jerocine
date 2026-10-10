@@ -9,26 +9,27 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
-    <!-- 主活动主题 — 全黑背景, 避免 WebView 加载前白闪 (用户反馈"启动总有白屏"),
-         windowBackground 同时设黑色, 保证从 launcher 起就是黑底. -->
+    <!-- 主活动主题 — 与站点根背景同色(@color/jc_bg #0B0B0F), 避免 WebView 加载前白闪
+         (用户反馈"启动总有白屏")。windowBackground 同步设成同一色, 保证从 launcher 起就是深色。 -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
-        <item name="android:background">@android:color/black</item>
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:colorBackground">@android:color/black</item>
+        <item name="android:background">@color/jc_bg</item>
+        <item name="android:windowBackground">@color/jc_bg</item>
+        <item name="android:colorBackground">@color/jc_bg</item>
     </style>
 
-    <!-- Splash 主题 (启动到 onCreate 之间) — 用纯黑背景, 之前 @drawable/splash 是
-         logo PNG 中心白底, 用户看到的就是白闪. 改成全黑 ColorDrawable.
+    <!-- Splash 主题 (启动到 onCreate 之间) — 用站点根背景色 #0B0B0F, 之前 @drawable/splash
+         是 logo PNG 中心白底, 用户看到的就是白闪.
          配合 MainActivity.onCreate 里的 installSplashScreen(): Android 12+ 走系统 splash
-         (背景纯黑 + 品牌图标), 首帧(品牌首屏 BrandSplashView)出来即无缝接上. -->
+         (背景 + 品牌图标), 首帧(品牌首屏 BrandSplashView, 也是 #0B0B0F)出来即无缝接上 ——
+         系统 splash → 品牌首屏 → 页面 三段同为 #0B0B0F, 不再有 #000000/#0B0B0F 的细微跳变。 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@android:color/black</item>
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:colorBackground">@android:color/black</item>
-        <!-- Android 12+ 系统 splash 背景色(不设则跟随主题表面色, 可能非黑) -->
-        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <item name="android:background">@color/jc_bg</item>
+        <item name="android:windowBackground">@color/jc_bg</item>
+        <item name="android:colorBackground">@color/jc_bg</item>
+        <!-- Android 12+ 系统 splash 背景色(不设则跟随主题表面色, 可能非深色) -->
+        <item name="windowSplashScreenBackground">@color/jc_bg</item>
         <!-- 系统 splash 图标 = 品牌图标(与 mipmap-anydpi-v26/ic_launcher 的 foreground 同源) -->
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground_gradient03</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>

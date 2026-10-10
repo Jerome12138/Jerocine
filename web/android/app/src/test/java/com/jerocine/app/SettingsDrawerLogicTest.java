@@ -61,6 +61,37 @@ public class SettingsDrawerLogicTest {
         assertEquals("已清除模式 · 自动检测", SettingsDrawerLogic.displayModeToast(null));
     }
 
+    // ============ 下发给前端 window.__jcSetMode 的入参 ============
+    // 契约: 只有 tv / desktop 是有效值; "自动"(=null/空/脏值) 必须下发 "auto",
+    // 前端 normalizeNativeMode 收到非 tv/desktop 才会清除覆盖、回到壳内默认 TV。
+    // 两边只要有一边把 null 当成 "null" 字符串之类, 抽屉的"自动"就会失效。
+
+    @Test
+    public void jsModeArg_valid_values_pass_through() {
+        assertEquals("tv", SettingsDrawerLogic.jsModeArg(SettingsDrawerLogic.MODE_TV));
+        assertEquals("desktop", SettingsDrawerLogic.jsModeArg(SettingsDrawerLogic.MODE_DESKTOP));
+    }
+
+    @Test
+    public void jsModeArg_auto_and_garbage_become_auto() {
+        assertEquals("auto", SettingsDrawerLogic.jsModeArg(null));
+        assertEquals("auto", SettingsDrawerLogic.jsModeArg(""));
+        assertEquals("auto", SettingsDrawerLogic.jsModeArg("TV"));      // 大小写不宽容
+        assertEquals("auto", SettingsDrawerLogic.jsModeArg("mobile"));  // 壳内不提供 mobile
+        assertEquals("auto", SettingsDrawerLogic.jsModeArg("weird"));
+    }
+
+    @Test
+    public void jsModeArg_round_trips_with_nextDisplayMode() {
+        // 三态循环产生的每个值都必须能安全下发
+        String m = null;
+        for (int i = 0; i < 3; i++) {
+            m = SettingsDrawerLogic.nextDisplayMode(m);
+            String arg = SettingsDrawerLogic.jsModeArg(m);
+            assertEquals(m == null ? "auto" : m, arg);
+        }
+    }
+
     // ============ SPA 深链拼接 ============
 
     @Test

@@ -98,8 +98,9 @@ public class MainActivity extends BridgeActivity {
     /** 抽屉里的两处开关图形(切换后就地刷新, 不重建面板以保住遥控器焦点) */
     private FrameLayout adFilterSwitch;
     private FrameLayout relaySwitch;
-    /** "显示模式"行右侧状态(存在 WebView localStorage, 打开抽屉时异步读一次) */
+    /** "显示模式"行右侧状态(存在 WebView localStorage 的 jc-native-mode, 打开抽屉时异步读一次) */
     private TextView displayModeValue;
+    /** 当前显示模式覆盖值: tv / desktop / null(=没选过, 壳内默认强制 TV) */
     private String currentDisplayMode;
     private boolean settingsOpen = false;
     /** 断网兜底页 (原生全屏覆盖, 带重试按钮) */
@@ -526,10 +527,14 @@ public class MainActivity extends BridgeActivity {
 
         // ---------- 关于 ----------
         addGroupHeader("关于");
-        addNavRow("检查更新", "GET /app/version/latest", "立即检查",
-                this::checkUpdateExposed);
         addInfoRow("运行平台", "Android " + Build.VERSION.RELEASE
                 + " (API " + Build.VERSION.SDK_INT + ")");
+        // SPA 的「关于」分组在原生壳里不可达(APK 内 SPA 只留播放/账号两组) ⇒ 构建模式在此补一处。
+        // 值是 APK 自身的构建类型(能否弹 JS 错误 toast 就看它), 不是 web 包体的 MODE。
+        addInfoRow("构建模式", "APK 构建类型 · 与线上包体无关",
+                BuildConfig.DEBUG ? "debug" : "release");
+        addNavRow("检查更新", "GET /app/version/latest", "立即检查",
+                this::checkUpdateExposed);
 
         // ---------- 系统 ----------
         addGroupHeader("系统");
@@ -537,7 +542,7 @@ public class MainActivity extends BridgeActivity {
             if (webViewRef != null) webViewRef.reload();
             hideSettingsDrawer();
         });
-        displayModeValue = addNavRow("显示模式", "循环切换: TV → 桌面 → 自动",
+        displayModeValue = addNavRow("显示模式", "TV → 桌面 → 自动（壳内默认 TV）",
                 SettingsDrawerLogic.displayModeLabel(null), this::cycleDisplayMode);
         addNavRow("退出应用", "", "", () -> {
             hideSettingsDrawer();
@@ -550,10 +555,10 @@ public class MainActivity extends BridgeActivity {
         showDeviceDiagnostics();
     }
 
-    /** 显示模式三态循环: TV → 桌面 → 自动(清除) → TV…; 写完后就地更新右侧状态 */
+    /** 显示模式三态循环: TV → 桌面 → 自动(清除) → TV…; 经 __jcSetMode 钩子即时生效 */
     private void cycleDisplayMode() {
         String next = SettingsDrawerLogic.nextDisplayMode(currentDisplayMode);
-        persistViewMode(next); // 内部写 localStorage + reload + 关抽屉
+        applyViewMode(next); // 内部下发钩子 + 关抽屉
         GlassToast.show(this, SettingsDrawerLogic.displayModeToast(next));
     }
 
@@ -565,11 +570,16 @@ public class MainActivity extends BridgeActivity {
         webViewRef.loadUrl(SettingsDrawerLogic.spaSettingsUrl(base, group));
     }
 
-    /** 读一次 WebView localStorage 里的显示模式, 刷新"显示模式"行右侧状态 */
+    /**
+     * 读一次 WebView localStorage 里的显示模式覆盖值(jc-native-mode), 刷新"显示模式"行右侧状态。
+     * 键名须与前端 useViewMode.NATIVE_MODE_KEY 一致 —— 只有抽屉(applyViewMode)会写它;
+     * 空 ⇒ null ⇒ 文案"自动"(即"没选过", 壳内按默认强制 TV)。
+     */
     private void refreshDisplayModeValue() {
         if (displayModeValue == null || webViewRef == null) return;
         webViewRef.evaluateJavascript(
-                "(function(){try{return localStorage.getItem('jc-mode')||''}catch(e){return ''}})();",
+                "(function(){try{return localStorage.getItem('jc-native-mode')||''}"
+                        + "catch(e){return ''}})();",
                 value -> {
                     String raw = value == null ? "" : value.replaceAll("^\"|\"$", "");
                     if ("null".equals(raw)) raw = "";
@@ -712,7 +722,12 @@ public class MainActivity extends BridgeActivity {
 
     /** 纯信息行(不可聚焦, 不进 D-pad 焦点链) */
     private void addInfoRow(String title, String value) {
-        LinearLayout row = makeRowBase(title, null, false, null);
+        addInfoRow(title, null, value);
+    }
+
+    /** 带副标题的信息行 —— 用于副标题需要解释"这个值是什么"的行(如构建模式) */
+    private void addInfoRow(String title, String sub, String value) {
+        LinearLayout row = makeRowBase(title, sub, false, null);
         TextView v = makeText(value == null ? "" : value, 13, GF_TEXT_SEC, false);
         addRowTail(row, v);
         settingsPanel.addView(row, rowParams(dp(ROW_H_DP), 6));
@@ -789,16 +804,19 @@ public class MainActivity extends BridgeActivity {
         return g;
     }
 
-    /** 在 WebView 内 localStorage 写 jc-mode, 然后 reload 让 useViewMode 生效 */
-    private void persistViewMode(String mode) {
+    /**
+     * 应用显示模式(tv / desktop / null=自动): 交前端 useViewMode 的 window.__jcSetMode 钩子
+     * (前端 installNativeModeHook 暴露, 先例 window.gfTvBack)。前端只切换自身的 data-mode,
+     * **不 reload** —— 切完页面即时重排(以前写 localStorage 再 location.reload 的做法在壳内
+     * 根本不生效: 壳内 detectMode() 刻意忽略 jc-mode, 见前端 NATIVE_MODE_KEY 注释)。
+     */
+    private void applyViewMode(String mode) {
         if (webViewRef == null) return;
-        final String js;
-        if (mode == null) {
-            js = "try{localStorage.removeItem('jc-mode')}catch(e){};location.reload();";
-        } else {
-            js = "try{localStorage.setItem('jc-mode','" + mode + "')}catch(e){};location.reload();";
-        }
-        webViewRef.evaluateJavascript(js, null);
+        final String arg = SettingsDrawerLogic.jsModeArg(mode);
+        webViewRef.evaluateJavascript(
+                "(function(){try{return !!(window.__jcSetMode&&window.__jcSetMode('" + arg + "'))}"
+                        + "catch(e){return false}})();",
+                null);
         hideSettingsDrawer();
     }
 

@@ -15,7 +15,8 @@ import android.widget.TextView;
 /**
  * 原生品牌首屏(方案 §7) —— 替代原来"黑底 + 裸转圈"的启动动画。
  *
- * 形态: 黑底 + 居中品牌 logo + 品牌名 + 底部呼吸 loading(三点)。
+ * 形态: 站点根背景色(@color/jc_bg #0B0B0F) + 居中品牌 logo + 品牌名 + 底部呼吸 loading(三点)。
+ * 系统 splash 与页面根背景也用同一色(styles.xml / activity_main) ⇒ 三段无跳变。
  *
  * 三条硬约束(评审 C9/C10 校正后确认):
  *  1. **不展示白屏**: 现状本就不是白屏(styles.xml 已显式黑底), 这里只是把它品牌化, 不改性能;

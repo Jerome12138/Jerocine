@@ -10,7 +10,14 @@ package com.jerocine.app;
  */
 final class SettingsDrawerLogic {
 
-    /** 显示模式取值: 持久化在 WebView localStorage 的 jc-mode(见 MainActivity.persistViewMode) */
+    /**
+     * 显示模式取值: 下发/读回的都是 WebView localStorage 的 **jc-native-mode**
+     * (前端 useViewMode.NATIVE_MODE_KEY) —— 只有抽屉会写这个键; 缺省(=null) 表示
+     * "没选过", 壳内按默认强制 TV。
+     *
+     * 注意**不是** jc-mode: 那个键被壳内 detectMode() 刻意忽略(历史残留值会让 TV 页面
+     * 按桌面布局横向溢出), 前端为此另开了来源唯一的壳专用键。
+     */
     static final String MODE_TV = "tv";
     static final String MODE_DESKTOP = "desktop";
 
@@ -25,6 +32,16 @@ final class SettingsDrawerLogic {
         if (MODE_TV.equals(current)) return MODE_DESKTOP;
         if (MODE_DESKTOP.equals(current)) return null; // 自动
         return MODE_TV;
+    }
+
+    /**
+     * window.__jcSetMode 的入参: 只有 tv / desktop 是有效值, 其余(null=自动 / 空 / 非法)
+     * 一律下发 "auto" ⇒ 前端清除覆盖、回到壳内默认的强制 TV。
+     * (前端 normalizeNativeMode 也是同一套归一化, 两边一致才能保证"自动"确实生效。)
+     */
+    static String jsModeArg(String mode) {
+        if (MODE_TV.equals(mode) || MODE_DESKTOP.equals(mode)) return mode;
+        return "auto";
     }
 
     /** 显示模式行右侧的状态文案 */
