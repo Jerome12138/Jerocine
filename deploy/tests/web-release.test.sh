@@ -3,7 +3,8 @@
 #   cd deploy && bash tests/web-release.test.sh
 #
 # 覆盖真正会出事的地方: 版本目录布局 / 排除 *.map 并归档 / 整版快照 / 保留 3 版 /
-# workbox 换 hash 后旧运行时清理 / 回滚(含"目标已出窗口"必须失败)。
+# workbox 换 hash 后旧运行时清理 / 陈旧根文件清理(含"不碰清单外文件"与脏清单越界) /
+# 回滚(含"目标已出窗口"必须失败)。
 set -uo pipefail
 
 cd "$(dirname "$0")/.."          # → deploy/
@@ -133,6 +134,41 @@ echo "== 7. 回滚边界: 目标已出保留窗口 / 版本不存在 ⇒ 必须�
 assert_die wr_rollback "$DATA" 20260101-000001   # 已被裁剪
 assert_die wr_rollback "$DATA" 20990101-000000   # 从不存在
 assert_die wr_rollback "$DATA" ""                # 缺参数
+
+echo
+echo "== 8. 陈旧根文件清理(只认发布自己写的清单, 不碰清单外的东西) =="
+# v5: 多出一个根目录 icons/ 与一个根文件 extra.txt
+D8A="$(make_dist 20260101-000005 d5 wb000055)"
+mkdir -p "$D8A/icons"; printf 'PNG\n' > "$D8A/icons/icon-192.png"
+printf 'EXTRA\n' > "$D8A/extra.txt"
+wr_sync_dist "$D8A" "$DATA" 20260101-000005 "" >/dev/null
+assert_has  "v5 的根目录 icons/ 已发布"     "$DATA/html/icons/icon-192.png"
+assert_has  "v5 的根文件 extra.txt 已发布"  "$DATA/html/extra.txt"
+assert_eq   "清单内容 = 本版根条目(不含 assets/*.map)" \
+            "$(sort "$DATA/root-manifest.txt" | tr '\n' ' ')" \
+            "default-avatar.svg extra.txt favicon.ico icons index.html robots.txt sw.js workbox-wb000055.js "
+assert_has  "清单落在挂载目录之外"          "$DATA/root-manifest.txt"
+assert_gone "挂载目录内没有清单(不公开)"    "$DATA/html/root-manifest.txt"
+# 运维手工放进挂载目录的东西(从未被清单记录) —— 不该被删
+mkdir -p "$DATA/html/.well-known/acme"
+printf 'TOKEN\n' > "$DATA/html/.well-known/acme/token"
+
+# v6: 不再产出 icons/ 与 extra.txt
+D8B="$(make_dist 20260101-000006 d6 wb000066)"
+wr_sync_dist "$D8B" "$DATA" 20260101-000006 "" >/dev/null
+assert_gone "本版已没有的根目录 icons/ 被清理"   "$DATA/html/icons"
+assert_gone "本版已没有的根文件 extra.txt 被清理" "$DATA/html/extra.txt"
+assert_has  "两版都有的根静态 favicon.ico 保留"  "$DATA/html/favicon.ico"
+assert_has  "清单外的运维文件不受影响"           "$DATA/html/.well-known/acme/token"
+assert_has  "assets/<TS> 不受清单清理影响"       "$DATA/html/assets/20260101-000006"
+
+# 脏清单(路径穿越 / assets) 不得越界删除
+printf 'TOKEN_OUTSIDE\n' > "$DATA/outside.txt"
+printf 'assets\n../outside.txt\n/etc\n' > "$DATA/root-manifest.txt"
+D8C="$(make_dist 20260101-000007 d7 wb000077)"
+wr_sync_dist "$D8C" "$DATA" 20260101-000007 "" >/dev/null
+assert_has  "脏清单不会误删 assets/"   "$DATA/html/assets/20260101-000007"
+assert_has  "脏清单不会越界删除"       "$DATA/outside.txt"
 
 echo
 echo "===================================="

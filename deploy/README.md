@@ -3,15 +3,17 @@
 ```text
 deploy/
 ├─ docker-compose.yml    # 服务编排: mysql / redis / migrate / server / nginx (build.context = 仓库根)
-├─ deploy.sh             # 一键部署: pull → build+up → 等健康 → 清两层缓存 (web/web-init/web-rollback 见下)
-├─ lib/web-release.sh    # 前端产物 发布/回滚 纯逻辑 (版本目录 / 排除 map / 保留 3 版 / 整版快照)
-├─ tests/web-release.test.sh  # ↑ 的单测 (本机可跑, 不需要 docker)
+├─ deploy.sh             # 一键部署: pull(→必要时自我重启) → build+up → 等健康 → 清两层缓存 (web/web-init/web-rollback 见下)
+├─ lib/web-release.sh    # 前端产物 发布/回滚 纯逻辑 (版本目录 / 排除 map / 保留 3 版 / 整版快照 / 陈旧根文件清理)
+├─ tests/web-release.test.sh   # ↑ 的单测 (本机可跑, 不需要 docker)
+├─ tests/deploy-reexec.test.sh # deploy.sh 自我重启机制的单测 (假仓库 + 假 git)
 ├─ Dockerfile            # 后端镜像: golang:1.27-alpine 编译 → distroless nonroot (UID 65532), 监听 3601
 ├─ .env.example          # 环境变量模板 (cp .env.example .env 后填生产值; .env 不入库)
 ├─ data/nginx/nginx.conf # nginx 配置: SPA 静态托管 + /api 反代 + proxy_cache + SW no-cache
 ├─ data/html/            # 前端产物 (挂载给 nginx; 不入库, 由 ./deploy.sh web 生成)
 ├─ data/releases/<TS>/   # 每个发布版本的整版快照 {index.html, sw.js, workbox-*.js} (回滚用)
 ├─ data/debugmap/<TS>/   # 归档的 sourcemap (挂载目录之外 ⇒ 公网不可达)
+├─ data/root-manifest.txt # 上一版写入 html 根的条目名清单 (用于清理陈旧根文件; 不入库)
 ├─ secrets/              # JWT RS256 密钥对 (不入库, 见 .gitignore)
 └─ apk/                  # APK 下载目录 (容器内只读挂载)
 ```
@@ -50,6 +52,10 @@ deploy/
 ./deploy.sh server   # 只更新后端
 ```
 
+> `git pull` 之后脚本会用**新版本重新 exec 自己一次**（防重入标记 `JEROCINE_DEPLOY_REEXEC=1`）——
+> pull 会覆写脚本自身，而 bash 是"边执行边读"的。因此日志里会看到两轮 pull/前置输出，这是预期行为；
+> 它保证后续流程一定跑在刚拉到的版本上（例如某个修复只在 `deploy.sh` 里，第一次执行就能生效）。
+
 ## 前端发布（Service Worker + 版本目录）
 
 > 2026-10-09 起前端静态目录改为**宿主机挂载**（`./data/html`），不再 COPY 进 nginx 镜像 ——
@@ -74,8 +80,16 @@ deploy/
 - 产物结构：`index.html`（引用 `/assets/<TS>/…`）+ `sw.js` + `workbox-<hash>.js` + 根静态 + `LICENSE`；
   版本目录 = `data/html/assets/<TS>/`，只保留最近 **3** 版。
 - `*.map` **不进挂载目录**，归档到 `data/debugmap/<TS>/`（排障用；nginx 另有 `.map → 404` 双保险）。
-- 顺序约束：**先写目录、最后才 reload**（避免切换期间的 404 窗口）。
-- 纯逻辑单测（本机）：`bash tests/web-release.test.sh`（7 组 43 条断言）。
+- **陈旧根文件清理**：每次发布把"本版放到 html 根的条目名"记进 `data/root-manifest.txt`（挂载目录**之外**，
+  不公开）；下次发布据此删掉"上一版有、本版没有"的根文件/目录（改名后的 icons/、被移除的 robots.txt 等）。
+  只认这份清单 ⇒ 运维手工放进挂载目录的东西不会被误删；`assets/` 恒被跳过（归保留窗口管）。
+- 顺序约束：**先写目录、最后才 reload**（避免切换期间的 404 窗口）；陈旧清理也在写目录阶段完成。
+- 整版回滚 = 快照三件套（`index.html` + `sw.js` + `workbox-*.js`）；根静态不随回滚变化。
+- 本机纯逻辑单测：
+  - `bash tests/web-release.test.sh`（8 组 55 条断言：布局 / map 排除归档 / 保留 3 版 / 陈旧根文件清理 / 回滚）
+  - `bash tests/deploy-reexec.test.sh`（4 条：`git pull` 后自我重启 + 防重入 + 参数传递）
+- **迁移注意**：`web-init` 从旧容器拷出的 `assets/*`（旧版无版本目录的产物）不归新流程管，也不会被自动清理；
+  `web-init` 会列出来提示，确认新版上线正常后可手动删除。
 
 **采集不需要手动暂停**：server 收到 SIGTERM（compose 重建容器时自动发送）会优雅停机——
 HTTP 在途请求收尾 → 采集在跑轮次取消收尾（被中断的页记入失败台账，由补采/滚动增量窗口自愈）

@@ -14,8 +14,8 @@
 # `web` 另具备"保留 3 版 / 整版回滚 / 先写目录最后 reload"能力。
 # 两者都会在 data/html 未初始化时拒绝执行(否则挂载点为空的 nginx 直接把站点打成 404)。
 #
-# 常规全栈部署自动完成: git pull → compose build+up → 等待健康 → 清两层缓存
-# (nginx proxy_cache + Redis DB0)。
+# 常规全栈部署自动完成: git pull(→ 必要时自我重启, 见 pull_and_reexec) → compose build+up →
+# 等待健康 → 清两层缓存 (nginx proxy_cache + Redis DB0)。
 # 采集无需手动暂停: server 收到 SIGTERM 会优雅停机(在跑页记失败台账, 增量窗口滚动自愈),
 # 新容器起来后调度器自动恢复下一轮增量采集。
 set -euo pipefail
@@ -23,6 +23,12 @@ set -euo pipefail
 # Git Bash(MSYS) 会把以 / 开头的参数当 Windows 路径改写(如 docker cp 的容器内路径) —— 关掉。
 # Linux 上该变量无意义, 无副作用。
 export MSYS_NO_PATHCONV=1
+
+# 自身绝对路径 + 原始参数 —— 供 pull 之后"重新 exec 自己"用(见 pull_and_reexec)。
+# 必须在 cd 之前取: $0 可能是相对**调用方** cwd 的路径(如 bash ../deploy/deploy.sh),
+# cd 进 deploy/ 之后它就不再指向本文件了。
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+SCRIPT_ARGS=("$@")
 
 cd "$(dirname "$0")"   # 总在 deploy/ 下执行, compose 相对路径才正确
 
@@ -33,6 +39,29 @@ source ./lib/web-release.sh
 # docker 权限: 可直连用 docker, 否则回退 sudo -n (服务器约定)
 if docker ps >/dev/null 2>&1; then DOCKER=(docker); else DOCKER=(sudo -n docker); fi
 COMPOSE=("${DOCKER[@]}" compose --env-file .env)
+
+# ============================ git pull 与"自我重启" ============================
+
+# 拉取最新代码, 然后**重新 exec 本脚本一次**。
+#
+# 为什么必须重启: `git -C .. pull` 会覆写本文件, 而 bash 是"边执行边按偏移读取脚本"的 ——
+# 拉到新版本后, 后面的语句可能来自"半新半旧"的文件(轻则行为不一致, 重则语法错误直接崩)。
+# 重新 exec 一次(带防重入标记)才能保证后续流程一定跑在刚拉到的版本上。
+# 代价: 一次进程启动 + 一轮重复日志输出; 换来"部署脚本自身也能随 push 热更新"。
+pull_and_reexec() {
+  echo "==> git pull --ff-only"
+  git -C .. pull --ff-only
+
+  if [ "${JEROCINE_DEPLOY_REEXEC:-0}" = "1" ]; then
+    return 0   # 已是重启后的那一轮: 不再重入(pull 本身幂等, 重复调一次无副作用)
+  fi
+  export JEROCINE_DEPLOY_REEXEC=1
+  echo "==> 代码可能已更新 ⇒ 以新版本重新执行自身(JEROCINE_DEPLOY_REEXEC=1)"
+  if [ "${#SCRIPT_ARGS[@]}" -gt 0 ]; then
+    exec bash "$SELF" "${SCRIPT_ARGS[@]}"
+  fi
+  exec bash "$SELF"
+}
 
 # ============================ Web 发布(v2: 挂载 + 版本目录) ============================
 
@@ -59,8 +88,7 @@ deploy_web() {
     exit 1
   fi
 
-  echo "==> git pull --ff-only"
-  git -C .. pull --ff-only
+  pull_and_reexec
 
   local ts builder cid tmp
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -125,6 +153,27 @@ web_init() {
   fi
   echo "   已复制:"
   ls -1 data/html | sed 's/^/     /'
+  # 记一份"当前根条目清单"(排除 assets/ —— 它归 wr_prune_versions 按保留窗口管理)。
+  # 有了这份基线, 紧接着的 ./deploy.sh web 才能把新构建产物里已不存在的旧根文件清掉
+  # (不带清单 ⇒ 旧文件只能靠人工删)。清单只记录本次拷进来的名字, 清理也只碰这些名字。
+  local entries=() e
+  while IFS= read -r e; do
+    [ -n "$e" ] || continue
+    [ "$e" = "assets" ] && continue
+    entries+=("$e")
+  done < <(ls -1 data/html)
+  wr_write_root_manifest data "${entries[@]}"
+  # 旧版(没有版本目录的年代)的 assets/* 不归新发布管: 清单恒不含 assets/, 也不会被自动清理。
+  # 不自动删 —— 这些文件不是新流程产出的, 删了无法回滚; 只提示, 由运维确认后处置。
+  if [ -d data/html/assets ]; then
+    local legacy
+    legacy="$(ls -1 data/html/assets 2>/dev/null | grep -vE "$WR_TS_RE" | head -5 || true)"
+    if [ -n "$legacy" ]; then
+      echo "   注意: assets/ 下有旧版(非版本目录)产物, 新方案不会引用它们:"
+      echo "$legacy" | sed 's/^/     /'
+      echo "         确认新版上线正常后可手动删除(它们不在自动清理范围内)"
+    fi
+  fi
   echo "==> 初始化完成。接着跑 ./deploy.sh web 发布首个带 Service Worker 的版本"
 }
 
@@ -166,8 +215,7 @@ deploy_services() {
     exit 1
   fi
 
-  echo "==> git pull --ff-only"
-  git -C .. pull --ff-only
+  pull_and_reexec
 
   echo "==> compose up -d --build: ${services[*]}"
   # 纯前端必须 --no-deps: nginx depends_on server, 不带会连带重启后端打断采集

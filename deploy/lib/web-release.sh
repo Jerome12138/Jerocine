@@ -15,6 +15,7 @@
 #   └── assets/<TS>/      本版资源（版本窗口 = 保留 3 版）
 #   data/releases/<TS>/   整版快照 {index.html, sw.js, workbox-*.js} —— 回滚最小单位
 #   data/debugmap/<TS>/   归档的 *.map（**挂载目录之外** ⇒ 公网不可达）
+#   data/root-manifest.txt 上一版写入 html 根的条目名清单（用于清理陈旧根静态）
 #
 # 为什么 snapshots/debugmap 放在 html 之外：html 是公开根，sourcemap 里就是源码；
 # 方案 §3.3 允许的两种做法里，我们取"放非 nginx root 下"，不依赖 location 规则兜底。
@@ -24,6 +25,12 @@ WR_KEEP_VERSIONS="${WR_KEEP_VERSIONS:-3}"
 
 # 版本目录名格式（与 build 期 JC_BUILD_TS 一致）：YYYYMMDD-HHMMSS
 WR_TS_RE='^[0-9]{8}-[0-9]{6}$'
+
+# html 根"由发布写入"的条目清单（每次发布覆盖写）。
+# 用途：下一次发布时删掉"上一版有、本版没有"的根文件/目录 —— 否则被改名/移除的产物
+# （如换名后的 icons 目录、旧版遗留的 robots.txt）会永久留在公开目录里。
+# 放在挂载目录**之外**（与 releases/ debugmap/ 同级）⇒ 不是公开文件。
+WR_ROOT_MANIFEST='root-manifest.txt'
 
 wr_die() { echo "!! $*" >&2; exit 1; }
 
@@ -56,11 +63,53 @@ wr_prune_versions() {
   done
 }
 
+# 写根条目清单：wr_write_root_manifest <data_dir> <条目名...>
+# 无条目时删除清单（下次发布不清理任何东西，比留一份旧清单安全）。
+wr_write_root_manifest() {
+  local data="$1" mf name
+  mf="$data/$WR_ROOT_MANIFEST"
+  if [ "$#" -le 1 ]; then
+    rm -f "$mf"
+    return 0
+  fi
+  shift
+  for name in "$@"; do echo "$name"; done > "$mf"
+  return 0
+}
+
+# 删除"上一版清单里有、本版清单里没有"的 html 根条目（目录也删）。
+# 只认自己写的清单 ⇒ 不会碰运维手工放进挂载目录的东西（如 ACME 的 .well-known/）。
+# assets/ 恒被跳过：它由 wr_prune_versions 按保留窗口管理，绝不能被这里整目录删掉。
+wr_prune_root_stale() {
+  local data="$1"; shift
+  local mf="$data/$WR_ROOT_MANIFEST" f old base hit
+  [ -f "$mf" ] || return 0
+  while IFS= read -r old; do
+    [ -n "$old" ] || continue
+    # 清单是我们自己写的，但仍挡一下脏值：绝不因清单内容越出 html 目录或删到 assets
+    case "$old" in
+      */*|.|..|assets) continue ;;
+    esac
+    hit=0
+    for base in "$@"; do
+      if [ "$base" = "$old" ]; then hit=1; break; fi
+    done
+    [ "$hit" = "1" ] && continue
+    f="$data/html/$old"
+    if [ -e "$f" ]; then
+      rm -rf "$f"
+      echo "==> 清理本版已不存在的根文件 $old"
+    fi
+  done < "$mf"
+  return 0
+}
+
 # wr_sync_dist <dist_dir> <data_dir> <ts> [license_file]
 # 顺序 = 先写目录；调用方负责最后才 reload nginx（R9：避免覆盖期间的 404 窗口）
 wr_sync_dist() {
   local dist="$1" data="$2" ts="$3" license="${4:-}"
   local html="$data/html" f base wb
+  local root_entries=()
 
   [ -d "$dist" ] || wr_die "dist 目录不存在: $dist"
   [ -f "$dist/index.html" ] || wr_die "dist 缺 index.html（构建失败？）"
@@ -74,17 +123,28 @@ wr_sync_dist() {
   mkdir -p "$html/assets/$ts"
   wr_copy_excluding_maps "$dist/assets/$ts" "$html/assets/$ts"
 
-  # 2) html 根：除 assets/ 与 *.map 外全部（index.html / sw.js / workbox-*.js / 根静态）
-  #    先清上一版的 workbox 运行时（内容哈希文件名，不清会永久堆积 && 干扰整版回滚）
-  rm -f "$html"/workbox-*.js
+  # 2) 本版要放到 html 根的条目（除 assets/ 与 *.map）—— 先算清单，既用于拷贝，
+  #    也用于清掉"上一版有、本版没有"的陈旧根文件（step 2.1）。
   for f in "$dist"/*; do
     [ -e "$f" ] || continue
     base="$(basename "$f")"
     [ "$base" = "assets" ] && continue
     case "$base" in *.map) continue ;; esac
-    cp -R "$f" "$html/$base"
+    root_entries+=("$base")
+  done
+  [ "${#root_entries[@]}" -gt 0 ] || wr_die "dist 根目录为空（构建异常？）"
+
+  # 2.0) 先清上一版的 workbox 运行时（内容哈希文件名，不清会永久堆积 && 干扰整版回滚）
+  rm -f "$html"/workbox-*.js
+  for base in "${root_entries[@]}"; do
+    cp -R "$dist/$base" "$html/$base"
   done
   [ -f "$html/index.html" ] || wr_die "index.html 未落到 $html"
+
+  # 2.1) 清掉上一版有、本版没有的根条目（只认自己写的清单），再记下本版清单供下一版清理。
+  #      注意顺序：必须在版本资源目录写完**之后**（清单恒不含 assets/，但要防手工清单脏值）。
+  wr_prune_root_stale "$data" "${root_entries[@]}"
+  wr_write_root_manifest "$data" "${root_entries[@]}"
 
   # 3) LICENSE（随产物分发，站点 /LICENSE 可访问）
   if [ -n "$license" ] && [ -f "$license" ]; then cp "$license" "$html/LICENSE"; fi

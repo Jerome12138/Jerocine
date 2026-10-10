@@ -35,10 +35,12 @@ deploy/secrets/
 *.pem
 
 # Web 部署产物(宿主机挂载给 nginx, 由 deploy.sh web 生成) — 不入库。
-# html/ = 公开静态目录; releases/ = 整版回滚快照; debugmap/ = 归档的 sourcemap(非公开)
+# html/ = 公开静态目录; releases/ = 整版回滚快照; debugmap/ = 归档的 sourcemap(非公开);
+# root-manifest.txt = 上一版写入 html 根的条目清单(陈旧根文件清理用; 挂载目录之外, 不公开)
 deploy/data/html/
 deploy/data/releases/
 deploy/data/debugmap/
+deploy/data/root-manifest.txt
 
 # brainstorming 临时 mockup
 .superpowers/
