@@ -35,22 +35,27 @@ deploy/
 3. 启动（在 `deploy/` 目录）：
 
    ```bash
-   sudo docker compose --env-file .env up -d --build
+   sudo docker compose --env-file .env up -d --build   # 拉起全栈（前端挂载目录此时为空）
+   ./deploy.sh web                                     # 构建并发布前端产物到挂载目录（否则站点 404 / nginx 不健康）
    ```
 
    启动顺序：mysql/redis → `migrate` 一次性服务跑完 `server/migrations/` → jerocine_server → nginx。
    nginx 容器直接监听 **443** 并终结 TLS（端口在 compose 里硬编码，无 `NGINX_PORT` 变量），
    证书由 `deploy/certs/{fullchain,privkey}.pem` 挂载；后端 3601 仅容器网络内可达。
+   **全新安装不需要 `web-init`**（那是"从旧容器搬运镜像内产物"的迁移专用步骤，见下节）。
 
 4. 首次登录：默认管理员 `admin / change_me_admin`（`000005_seed_admin` 迁移创建），**公网部署后立即改密**。
 
 ## 日常更新
 
 ```bash
-./deploy.sh          # 常规部署: server + nginx, 自动清两层缓存
-./deploy.sh nginx    # 纯前端改动(旧模式): 只重建 nginx 镜像(不打断采集), 脚本内已带等健康与清缓存
+./deploy.sh          # 常规部署: server + nginx 容器, 自动清两层缓存(不含前端产物)
+./deploy.sh web      # 前端发布: 构建产物 → 同步挂载目录 → reload(保留 3 版 / 可整版回滚)
 ./deploy.sh server   # 只更新后端
 ```
+
+> `./deploy.sh nginx`（只重建 nginx 容器、**不产出前端产物**）仅用于改 `nginx.conf`；
+> 前端更新一律 `./deploy.sh web`（见下节）。
 
 > `git pull` 之后脚本会用**新版本重新 exec 自己一次**（防重入标记 `JEROCINE_DEPLOY_REEXEC=1`）——
 > pull 会覆写脚本自身，而 bash 是"边执行边读"的。因此日志里会看到两轮 pull/前置输出，这是预期行为；
@@ -86,7 +91,7 @@ deploy/
 - 顺序约束：**先写目录、最后才 reload**（避免切换期间的 404 窗口）；陈旧清理也在写目录阶段完成。
 - 整版回滚 = 快照三件套（`index.html` + `sw.js` + `workbox-*.js`）；根静态不随回滚变化。
 - 本机纯逻辑单测：
-  - `bash tests/web-release.test.sh`（8 组 55 条断言：布局 / map 排除归档 / 保留 3 版 / 陈旧根文件清理 / 回滚）
+  - `bash tests/web-release.test.sh`（9 组 61 条断言：布局 / map 排除归档 / 保留 3 版 / 陈旧根文件清理 / web-init 收尾 / 回滚）
   - `bash tests/deploy-reexec.test.sh`（4 条：`git pull` 后自我重启 + 防重入 + 参数传递）
 - **迁移注意**：`web-init` 从旧容器拷出的 `assets/*`（旧版无版本目录的产物）不归新流程管，也不会被自动清理；
   `web-init` 会列出来提示，确认新版上线正常后可手动删除。`docker cp` 产物属主为 **root**（daemon 写盘），
