@@ -3,14 +3,16 @@
   原生壳启动首屏(方案 §7, P2): 站点根背景色 + 居中品牌 logo.
   作为 MainActivity 的 windowBackground —— 只在"窗口创建 → 首帧布局"这段可见,
   之后被 activity_main 的不透明 @color/jc_bg 覆盖, 因此不会有残留。
-  与 web 壳的 BrandSplashView 观感同源(同一张 gradient03 前景图)。
+  与 web 壳的 BrandSplashView 观感同源(同一张 gradient03 前景图的**圆角副本**)。
   底色刻意用 @color/jc_bg(#0B0B0F) 而非纯黑 —— 与首帧布局同色, 中间不再有色差跳变。
+  用 ic_logo_rounded 而非 ic_launcher_foreground_gradient03: 后者是满幅方图(圆角由
+  launcher 的 mask 负责), 直接铺在深色底上会是直角浅色方块(用户实测反馈)。
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/jc_bg" />
     <item>
         <bitmap
-            android:src="@drawable/ic_launcher_foreground_gradient03"
+            android:src="@drawable/ic_logo_rounded"
             android:gravity="center" />
     </item>
 </layer-list>
