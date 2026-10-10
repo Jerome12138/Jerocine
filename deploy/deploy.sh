@@ -270,6 +270,21 @@ deploy_web_from_pkg() {
 #   包由本机 scripts/build-server.sh 交叉编译生成
 #   (jerocine-server-<TS>-<sha7>-linux-<arch>.tar.gz), 由 scripts/deploy-server.sh 上传后调本命令。
 #   镜像用 deploy/Dockerfile.runtime(只 COPY 二进制, 容器内不再编译)。
+# 后端上传包留档(与 web-deploy 的 wr_archive_pkg 对等): 复制进 data/packages/,
+# 保留 WR_KEEP_PACKAGES 份(只按 server 包名裁剪, 不碰 web 包)。
+# 与 web 包的差别: 后端包名自带 TS+sha+arch, 直接用原文件名, 不改写。
+archive_server_pkg() {
+  local pkg="$1" dest old srcre
+  mkdir -p data/packages
+  dest="data/packages/$(basename "$pkg")"
+  if [ "$(readlink -f "$pkg")" != "$(readlink -f "$dest")" ]; then
+    cp -f "$pkg" "$dest"
+  fi
+  srcre='^jerocine-server-[0-9]{8}-[0-9]{6}-[0-9a-f]{7}-linux-(amd64|arm64)\.tar\.gz$'
+  old="$(ls -1t data/packages/ 2>/dev/null | grep -E "$srcre" | tail -n +$((WR_KEEP_PACKAGES + 1)) || true)"
+  if [ -n "$old" ]; then (cd data/packages && rm -f $old); fi
+}
+
 deploy_server_from_pkg() {
   local pkg="${1:-}"
   if [ -z "$pkg" ]; then
@@ -305,7 +320,9 @@ deploy_server_from_pkg() {
 
   clear_caches
 
+  archive_server_pkg "$pkg"
   echo "==> 完成: 后端已发布(镜像 jerocine-server:latest 由 $pkg 构建)"
+  echo "   产物包留档: data/packages/$(basename "$pkg") （保留 $WR_KEEP_PACKAGES 份）"
   "${DOCKER[@]}" ps --format '{{.Names}}\t{{.Status}}' | grep jerocine || true
 }
 

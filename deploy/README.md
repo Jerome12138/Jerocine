@@ -18,7 +18,8 @@ deploy/
 ├─ data/html/            # 前端产物 (挂载给 nginx; 不入库, 由前端发布写入)
 ├─ data/releases/<TS>/   # 每个发布版本的整版快照 {index.html, sw.js, workbox-*.js} (回滚用)
 ├─ data/debugmap/<TS>/   # 归档的 sourcemap (挂载目录之外 ⇒ 公网不可达)
-├─ data/packages/<TS>.tar.gz # 上传的产物包留档(常规发布手段, 事后可重发/比对; 保留 5 份)
+├─ data/packages/           # 上传的产物包留档(常规发布手段, 事后可重发/比对; 各保留 5 份):
+│   │                        #   web: <TS>.tar.gz / server: jerocine-server-<TS>-<sha>-linux-<arch>.tar.gz
 ├─ data/root-manifest.txt # 上一版写入 html 根的条目名清单 (用于清理陈旧根文件; 不入库)
 ├─ secrets/              # JWT RS256 密钥对 (不入库, 见 .gitignore)
 └─ apk/                  # APK 下载目录 (容器内只读挂载)
@@ -73,7 +74,7 @@ bash scripts/deploy-server.sh                # 编译 + 上传 + 发布（一步
 
 ```bash
 ./deploy.sh web-deploy <pkg.tar.gz>    # 解包前端产物包 → 同一套发布语义 → 留档 data/packages/ → reload
-./deploy.sh server-deploy <pkg.tar.gz> # 解包后端产物包 → 构建薄运行镜像 → 重建容器 → 等健康 → 清缓存
+./deploy.sh server-deploy <pkg.tar.gz> # 解包后端产物包 → 构建薄运行镜像 → 重建容器 → 等健康 → 清缓存 → 留档 data/packages/
 ```
 
 **备用路径**（没有本机工具链、或想在服务器上从某个 commit 重跑时用；这才会在服务器上编译）：
