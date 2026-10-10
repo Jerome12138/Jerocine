@@ -140,24 +140,25 @@ public boolean dispatchKeyEvent(KeyEvent event) {
                 }
                 return session.host().dispatchToSuper(event);
             case KeyEvent.KEYCODE_DPAD_UP:
-                // 焦点在进度条时, 上键显式送焦点到右上角「更多」(btn_more, title_bar 内)。
-                // 2026-10-10 实测: 靠 ViewRootImpl 的空间焦点搜索到不了它 —— title_bar 是
-                // PlayerView 的**兄弟节点**, 从 PlayerView 内部的进度条出发, 焦点搜索命中
-                // 失败(两连上焦点纹丝不动, 真机 adb 复现), 即使 PlayerView 已不可聚焦。
-                // 已在「更多」上则交回 super(保持默认行为)。DOWN 成对: 「更多」→ 进度条。
-                if (onSeekbar) {
-                    View more = moreButton();
-                    if (more != null && more.isShown()) {
-                        more.requestFocus();
+                // 成对路径: 「更多」上按上键回进度条(其余按钮交给默认搜索)。
+                if (isFocusOnMore()) {
+                    View bar = seekbar();
+                    if (bar != null) {
+                        bar.requestFocus();
                         return true;
                     }
                 }
                 return session.host().dispatchToSuper(event);
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                if (isFocusOnMore()) {
-                    View prog = seekbar();
-                    if (prog != null) {
-                        prog.requestFocus();
+                // 焦点在进度条时, 下键显式送焦点到底部栏「更多」(2026-10-10 三次修订)。
+                // 实测(adb 日志两次对照): 靠 ViewRootImpl 空间搜索从 DefaultTimeBar 出发
+                // 到按钮行**不稳定** —— 一次能落「换源」, 一次焦点纹丝不动(onSeekbar 仍 true)。
+                // 「更多」已移入底部栏与其它按钮同排, 落点确定后 ←→ 天然同排导航。
+                // 成对路径: 「更多」等按钮上按上键 → dispatchToSuper 自然回进度条(同子树可靠)。
+                if (onSeekbar) {
+                    View more = moreButton();
+                    if (more != null && more.isShown()) {
+                        more.requestFocus();
                         return true;
                     }
                 }
@@ -168,21 +169,20 @@ public boolean dispatchKeyEvent(KeyEvent event) {
                     togglePlayPause();
                     return true;
                 }
-                // 焦点在「更多」上时 OK 交回 super —— 聚焦 View 收到 CENTER 自动 performClick
-                // (弹出更多菜单); 其它按钮同理。
+                // 聚焦按钮收到 CENTER 自动 performClick(「更多」弹出菜单, 其它按钮同理)。
                 return session.host().dispatchToSuper(event);
             default:
                 return session.host().dispatchToSuper(event);
         }
     }
 
-    /** 右上角「更多」按钮(在 Activity 布局的 title_bar 里, 是 PlayerView 的兄弟节点, 从根视图找)。 */
+    /** 底部栏「更多」按钮(media3 控制视图内; v1102 起从右上角 title_bar 移入底部操作行)。 */
     private View moreButton() {
         PlayerView pv = session.host().playerView();
-        return pv != null ? pv.getRootView().findViewById(R.id.btn_more) : null;
+        return pv != null ? pv.findViewById(R.id.btn_more) : null;
     }
 
-    /** 焦点是否在右上角「更多」按钮上。 */
+    /** 焦点是否在底部栏「更多」按钮上。 */
     private boolean isFocusOnMore() {
         View more = moreButton();
         return more != null && more.hasFocus();

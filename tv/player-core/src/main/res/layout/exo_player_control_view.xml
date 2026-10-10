@@ -70,8 +70,8 @@
         </LinearLayout>
 
         <!-- 全部播放操作保持单行, 适配横屏遥控器.
-             顺序(用户指定): 上集 / 下集 / 选集 / 换源 / 倍速 / 跳过 / 过滤 / 退出.
-             中转按钮已移除 — 中转移入右上角「⋮ 更多」菜单(设置页不再有"是否显示中转"开关,
+             顺序: 上集 / 下集 / 选集 / 换源 / 倍速 / 跳过 / 过滤 / 更多 / 退出.
+             中转按钮已移除 — 中转移入「更多」菜单(设置页不再有"是否显示中转"开关,
              见 PlayerActivity.showMoreMenu); 直连失败的单集自愈不受影响(forceRelayIdx, 无 UI). -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -177,6 +177,16 @@
                 android:drawableTop="@drawable/ic_network_mode"
                 android:text="切在线"
                 android:visibility="gone" />
+
+            <!-- 更多菜单: 收纳下载管理/缓存缓冲/中转/诊断等非常用项, 用户拍板的口径。
+                 2026-10-10 二次修订: 原放右上角 title_bar —— 它是 PlayerView 的**兄弟节点**,
+                 遥控器从底部进度条出发焦点到不了(空间搜索跨兄弟节点不可靠, adb 日志实锤),
+                 显式送焦用户实测仍不稳 ⇒ 按用户拍板移入底部栏, 与其它按钮同排天然可导航。 -->
+            <Button
+                android:id="@+id/btn_more"
+                style="@style/JcPlayerCtlBtn"
+                android:drawableTop="@drawable/ic_more_vert"
+                android:text="更多" />
 
             <Button
                 android:id="@+id/btn_close"

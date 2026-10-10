@@ -182,10 +182,10 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
         playerView = findViewById(R.id.player_view);
         // ⚠️ PlayerView 必须**不可聚焦**(2026-10-10 实测): 全屏 View 一旦可聚焦,D-pad 焦点搜索
-        // 从底栏按钮往"上"找时必被它截胡(它在空间上包住标题栏, btn_more 不算其"上方"候选,
-        // 聚到它之后焦点就出不去了) ⇒ 右上角「更多」永远无法被遥控器选中。按键处理不依赖
-        // PlayerView 焦点 —— 全部走 Activity 级 PlayerKeyEventHelper(见 dispatchKeyEvent),
-        // 控制条内部按钮各自可聚焦即可。这里代码级再设一次, 防 PlayerView 构造器内 setFocusable。
+        // 从底栏按钮往"上"找时必被它截胡, 聚到它之后焦点就出不去了 ⇒ 底栏/进度条焦点失效。
+        // 按键处理不依赖 PlayerView 焦点 —— 全部走 Activity 级 PlayerKeyEventHelper(见
+        // dispatchKeyEvent), 控制条内部按钮各自可聚焦即可。代码级再设一次, 防 PlayerView
+        // 构造器内 setFocusable。
         playerView.setFocusable(false);
         playerView.setFocusableInTouchMode(false);
         bufferSpinner = findViewById(R.id.buffer_spinner);
@@ -1049,16 +1049,15 @@ private static String failedRequestUrl(Throwable error) {
 
     @Override
     public void renderNetworkMode(boolean relay) {
-        // 中转按钮已移入右上角「⋮ 更多」菜单: 菜单每次点开重建, 状态文本实时取 session.relayOn,
+        // 中转按钮已移入「更多」菜单: 菜单每次点开重建, 状态文本实时取 session.relayOn,
         // 无需维护常驻按钮引用; 开关切换的即时反馈由 toggle() 里的 centerToast 承担.
     }
 
-    /** 面板显示时绑定右上角「⋮ 更多」菜单(每次现取, 与其它懒加载控件一致).
-     *  注意: btn_more 在 activity_player.xml 的标题栏(title_bar)里, 是 PlayerView 的兄弟节点,
-     *  必须用 Activity 根视图 findViewById —— playerView.findViewById 会返回 null, 点击无响应. */
+    /** 面板显示时绑定「更多」菜单(每次现取, 与其它懒加载控件一致).
+     *  注意: btn_more 在 media3 控制视图(exo_player_control_view.xml)里, 由 PlayerView
+     *  inflate —— 必须用 Activity 根视图 findViewById; bindMoreMenu 在面板 show 回调里调用,
+     *  届时控制视图已挂到视图树, 现取不会为 null。 */
     private void bindMoreMenu() {
-        // 2026-10-10: btn_more 从 Button(drawableStart) 改为 FrameLayout+居中 ImageView
-        // (图标在圆底里真居中), 这里只挂点击, View 类型即可。
         View more = findViewById(R.id.btn_more);
         if (more == null) return;
         more.setOnClickListener(v -> showMoreMenu());

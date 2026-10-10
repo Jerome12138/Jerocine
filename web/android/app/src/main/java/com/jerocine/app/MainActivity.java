@@ -549,7 +549,7 @@ public class MainActivity extends BridgeActivity {
         // ---------- 播放 ----------
         addGroupHeader("播放");
         addToggleRow("广告过滤",
-                "剔除 m3u8 插片/跨域广告 · 默认开启（原生播放器）",
+                "剔除 m3u8 插片/跨域广告 · 默认开启",
                 PlayerAdFilterHelper.isAdFilterEnabled(this),
                 sw -> adFilterSwitch = sw,
                 () -> {
