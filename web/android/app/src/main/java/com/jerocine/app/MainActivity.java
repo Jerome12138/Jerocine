@@ -670,13 +670,22 @@ public class MainActivity extends BridgeActivity {
     /**
      * 右侧控件必须 **不可聚焦/不可点** —— 否则 D-pad 焦点会被它抢走(踩过的坑),
      * 行整体才是唯一的交互目标。
+     *
+     * 尺寸: 若 tail 自带 LayoutParams **必须沿用** —— addView(child, params) 内部会
+     * child.setLayoutParams(params), 直接 new 一个 WRAP_CONTENT 的会把开关的 44×24dp
+     * 冲掉, FrameLayout 退化成按 knob(18dp) 测量 ⇒ 开关渲染成一个圆点、切态时 knob 也不位移。
      */
     private void addRowTail(LinearLayout row, View tail) {
         tail.setFocusable(false);
         tail.setClickable(false);
         tail.setFocusableInTouchMode(false);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        final LinearLayout.LayoutParams lp;
+        if (tail.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+            lp = (LinearLayout.LayoutParams) tail.getLayoutParams();
+        } else {
+            lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
         lp.leftMargin = dp(12);
         row.addView(tail, lp);
     }
