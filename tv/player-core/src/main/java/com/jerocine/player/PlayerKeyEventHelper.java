@@ -10,8 +10,8 @@ import androidx.media3.ui.PlayerView;
  *
  * 三态键控:
  *  A. 控制面板隐藏(默认): ←→=快进快退, ↑=上一集, ↓=下一集, OK=播放/暂停, MENU=唤出操作栏, BACK=双击退出
- *  B. 面板可见且焦点在进度条: ←→=快进快退, OK=播放/暂停, MENU/BACK=收起面板
- *  C. 面板可见且焦点在按钮: 方向键=焦点切换, OK=触发(super 处理), MENU/BACK=收起面板
+ *  B. 面板可见且焦点在进度条: ←→=快进快退, ↑=焦点送右上角「更多」, OK=播放/暂停, MENU/BACK=收起面板
+ *  C. 面板可见且焦点在按钮:「更多」↑↓ 回进度条, 其余方向键=焦点切换, OK=触发(super 处理), MENU/BACK=收起面板
  */
 public class PlayerKeyEventHelper {
 
@@ -66,6 +66,10 @@ public boolean dispatchKeyEvent(KeyEvent event) {
     final PlayerView pv = session.host().playerView();
     boolean controllerVisible = pv != null && pv.isControllerFullyVisible();
     boolean onSeekbar = isFocusOnSeekbar();
+    // 诊断日志(tag=JcKey, 沿用 JcLocal 先例保留): 排查遥控器焦点问题的活证据
+    View f = (pv != null) ? pv.getRootView().findFocus() : null;
+    android.util.Log.d("JcKey", "code=" + code + " vis=" + controllerVisible + " onSeekbar=" + onSeekbar
+            + " focus=" + (f != null ? f.getClass().getSimpleName() + "/0x" + Integer.toHexString(f.getId()) : "null"));
 
     switch (code) {
         case KeyEvent.KEYCODE_MENU:
@@ -135,16 +139,59 @@ public boolean dispatchKeyEvent(KeyEvent event) {
                     return true;
                 }
                 return session.host().dispatchToSuper(event);
+            case KeyEvent.KEYCODE_DPAD_UP:
+                // 焦点在进度条时, 上键显式送焦点到右上角「更多」(btn_more, title_bar 内)。
+                // 2026-10-10 实测: 靠 ViewRootImpl 的空间焦点搜索到不了它 —— title_bar 是
+                // PlayerView 的**兄弟节点**, 从 PlayerView 内部的进度条出发, 焦点搜索命中
+                // 失败(两连上焦点纹丝不动, 真机 adb 复现), 即使 PlayerView 已不可聚焦。
+                // 已在「更多」上则交回 super(保持默认行为)。DOWN 成对: 「更多」→ 进度条。
+                if (onSeekbar) {
+                    View more = moreButton();
+                    if (more != null && more.isShown()) {
+                        more.requestFocus();
+                        return true;
+                    }
+                }
+                return session.host().dispatchToSuper(event);
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (isFocusOnMore()) {
+                    View prog = seekbar();
+                    if (prog != null) {
+                        prog.requestFocus();
+                        return true;
+                    }
+                }
+                return session.host().dispatchToSuper(event);
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
                 if (onSeekbar) {
                     togglePlayPause();
                     return true;
                 }
+                // 焦点在「更多」上时 OK 交回 super —— 聚焦 View 收到 CENTER 自动 performClick
+                // (弹出更多菜单); 其它按钮同理。
                 return session.host().dispatchToSuper(event);
             default:
                 return session.host().dispatchToSuper(event);
         }
+    }
+
+    /** 右上角「更多」按钮(在 Activity 布局的 title_bar 里, 是 PlayerView 的兄弟节点, 从根视图找)。 */
+    private View moreButton() {
+        PlayerView pv = session.host().playerView();
+        return pv != null ? pv.getRootView().findViewById(R.id.btn_more) : null;
+    }
+
+    /** 焦点是否在右上角「更多」按钮上。 */
+    private boolean isFocusOnMore() {
+        View more = moreButton();
+        return more != null && more.hasFocus();
+    }
+
+    /** 底部进度条(media3 控制视图内, 懒加载现取)。 */
+    private View seekbar() {
+        PlayerView pv = session.host().playerView();
+        return pv != null ? pv.findViewById(androidx.media3.ui.R.id.exo_progress) : null;
     }
 
     /**

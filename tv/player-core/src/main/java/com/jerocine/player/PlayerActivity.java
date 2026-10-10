@@ -181,6 +181,13 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         // 与"已下载集播本地"共用同一套判定(见 PlayerModes 类注释)。
 
         playerView = findViewById(R.id.player_view);
+        // ⚠️ PlayerView 必须**不可聚焦**(2026-10-10 实测): 全屏 View 一旦可聚焦,D-pad 焦点搜索
+        // 从底栏按钮往"上"找时必被它截胡(它在空间上包住标题栏, btn_more 不算其"上方"候选,
+        // 聚到它之后焦点就出不去了) ⇒ 右上角「更多」永远无法被遥控器选中。按键处理不依赖
+        // PlayerView 焦点 —— 全部走 Activity 级 PlayerKeyEventHelper(见 dispatchKeyEvent),
+        // 控制条内部按钮各自可聚焦即可。这里代码级再设一次, 防 PlayerView 构造器内 setFocusable。
+        playerView.setFocusable(false);
+        playerView.setFocusableInTouchMode(false);
         bufferSpinner = findViewById(R.id.buffer_spinner);
         titleText = findViewById(R.id.title_text);
         episodesCount = findViewById(R.id.episodes_count);
@@ -1050,7 +1057,9 @@ private static String failedRequestUrl(Throwable error) {
      *  注意: btn_more 在 activity_player.xml 的标题栏(title_bar)里, 是 PlayerView 的兄弟节点,
      *  必须用 Activity 根视图 findViewById —— playerView.findViewById 会返回 null, 点击无响应. */
     private void bindMoreMenu() {
-        Button more = findViewById(R.id.btn_more);
+        // 2026-10-10: btn_more 从 Button(drawableStart) 改为 FrameLayout+居中 ImageView
+        // (图标在圆底里真居中), 这里只挂点击, View 类型即可。
+        View more = findViewById(R.id.btn_more);
         if (more == null) return;
         more.setOnClickListener(v -> showMoreMenu());
     }

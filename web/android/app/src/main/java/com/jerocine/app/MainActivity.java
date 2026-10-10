@@ -30,6 +30,7 @@ import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -516,13 +517,18 @@ public class MainActivity extends BridgeActivity {
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         head.addView(makeText("v" + BuildConfig.VERSION_NAME
                 + " (" + BuildConfig.VERSION_CODE + ")", 12, GF_TEXT_TER, false));
-        TextView closeBtn = makeText("✕", 18, GF_TEXT_SEC, false);
-        closeBtn.setGravity(Gravity.CENTER);
-        closeBtn.setPadding(dp(10), dp(4), 0, dp(4));
+        // 关闭按钮: 用矢量图标(ic_close 在 player-core, 资源全 APK 一份但 R 非传递,
+        // 必须用 com.jerocine.player.R) —— 别用 Unicode 字符
+        // (原 "✕" U+2715 在部分设备字体缺字形, 显示成"方框里一个叉"即缺字 tofu, 用户反馈)。
+        ImageView closeBtn = new ImageView(this);
+        closeBtn.setImageResource(com.jerocine.player.R.drawable.ic_close);
+        closeBtn.setColorFilter(GF_TEXT_SEC);
+        closeBtn.setContentDescription("关闭");
+        closeBtn.setPadding(dp(4), dp(4), dp(4), dp(4));
         closeBtn.setFocusable(true);
         closeBtn.setClickable(true);
         closeBtn.setOnClickListener(v -> hideSettingsDrawer());
-        head.addView(closeBtn);
+        head.addView(closeBtn, new LinearLayout.LayoutParams(dp(24), dp(24)));
         settingsPanel.addView(head, rowParams(ViewGroup.LayoutParams.WRAP_CONTENT, 8));
 
         // ---------- 置顶: 刷新页面(用户 2026-10-10 指定放最上) ----------

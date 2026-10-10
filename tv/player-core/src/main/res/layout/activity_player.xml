@@ -22,8 +22,8 @@
         app:controller_layout_id="@layout/exo_player_control_view"
         app:animation_enabled="false"
         app:resize_mode="fit"
-        android:focusable="true"
-        android:focusableInTouchMode="true" />
+        android:focusable="false"
+        android:focusableInTouchMode="false" />
 
     <!-- 中央缓冲指示 -->
     <ProgressBar
@@ -141,25 +141,31 @@
             android:visibility="gone" />
 
         <!-- 更多菜单(⋮) — 收纳下载管理/缓存缓冲/中转/诊断等非常用项, 用户拍板的口径。
-     尺寸与左侧角标(ad_filter_badge/speed_text 等, 均36dp 高)对齐, 不再是42x36 的高个;
-     用 drawableStart 而非 drawableTop —— ⋮ 是竖排三点, 只有水平方向贴图时才能真正
-     视觉居中(父容器 gravity=center_vertical 已居中, 但 Button 默认会把无文字的
-     drawable 顶到上沿, 表现为"图标比旁边的字高出一截")。 -->
-        <Button
+     尺寸与左侧角标(ad_filter_badge/speed_text 等, 均36dp 高)对齐, 不再是42x36 的高个。
+     2026-10-10 修订: Button+drawableStart 的组合有两个实测问题 ——
+       ① 无文字 Button 的 drawableStart 贴 start 边, gravity=center 管不到复合 drawable,
+          ⋮ 在圆形底里偏左不居中(用户反馈);
+       ② 换 FrameLayout+ImageView 后图标由 layout_gravity=center 真居中。
+     焦点: 显式 focusable=true(遥控器可选中); 焦点到达路径靠 PlayerView 不可聚焦
+     (见 PlayerActivity 对 player_view 的注释), 否则全屏 PlayerView 会截胡上键。 -->
+        <FrameLayout
             android:id="@+id/btn_more"
-            style="@style/Widget.AppCompat.Button.Borderless"
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:layout_gravity="center_vertical"
             android:layout_marginStart="8dp"
             android:background="@drawable/jc_badge_bg"
             android:contentDescription="更多"
-            android:drawableStart="@drawable/ic_more_vert"
-            android:drawableTint="@color/jc_text_secondary"
-            android:gravity="center"
-            android:padding="0dp"
-            android:scaleX="0.8"
-            android:scaleY="0.8" />
+            android:focusable="true">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_more_vert"
+                android:tint="@color/jc_text_secondary" />
+        </FrameLayout>
     </LinearLayout>
 
     <!-- 中央 播放/暂停 反馈图标 — 无外框, 统一矢量风格(ic_play/ic_pause) -->
