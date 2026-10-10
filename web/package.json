@@ -10,6 +10,7 @@
     "build:no-check": "vite build",
     "preview": "vite preview --port 3600",
     "type-check": "vue-tsc --noEmit",
+    "verify:dist": "node scripts/verify-build-layout.mjs",
     "lint": "eslint . --ext .ts,.vue --fix",
     "format": "prettier --write src/",
     "test": "vitest run",

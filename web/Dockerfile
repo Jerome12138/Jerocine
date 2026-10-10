@@ -22,6 +22,12 @@ ENV JC_BUILD_TS=${JC_BUILD_TS}
 # build = vue-tsc(类型强检验) + vite build; 重构后契约对齐, 生产构建强制类型门禁
 RUN pnpm run build
 
+# 产物布局断言(web/scripts/verify-build-layout.mjs): index.html 站内引用可解析 / 不引用 .map /
+# 注入 JC_BUILD_TS 时资源确实落在 assets/<TS>/ 且 sw.js 的 precache manifest 与之自洽。
+# 放在**构建镜像里**跑 —— 服务器上没有 node, 这里是唯一"能跑且必跑"的位置:
+# 断言不过即构建失败 ⇒ 部署中止, 不会把 404 连篇的产物发上线。
+RUN node scripts/verify-build-layout.mjs
+
 # 运行镜像: nginx 静态托管 + /api/ 反代到 server.
 FROM nginx:1.27-alpine
 

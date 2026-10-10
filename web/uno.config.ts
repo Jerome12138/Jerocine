@@ -1,7 +1,6 @@
 import {
   defineConfig,
   presetAttributify,
-  presetIcons,
   presetTypography,
   presetUno,
   transformerDirectives,
@@ -12,16 +11,12 @@ import {
  * UnoCSS 配置
  * - 断点与 design-tokens.md 第 6 节一致
  * - shortcuts 把 CSS 变量映射成可在 attributify 中使用的原子类
- * - preset-icons 默认走 carbon / mdi 集合
+ * - 图标不走 presetIcons / 字体图标：0.62.4 的 preset-icons 在 carbon/mdi 图标上
+ *   build 时会输出非法 CSS，已移除；全站图标统一走 BaseIcon 内联 SVG
+ *   （2026-10-09 Wave 1 已删掉阿里 iconfont 外链，本文件不再保留相关 safelist）
  */
 export default defineConfig({
-  presets: [
-    presetUno(),
-    presetAttributify(),
-    // preset-icons 0.62.4 在某些 carbon/mdi 图标 build 时输出非法 CSS
-    // 暂时禁用，新版组件改用 inline SVG / iconfont 字体
-    presetTypography()
-  ],
+  presets: [presetUno(), presetAttributify(), presetTypography()],
   transformers: [transformerDirectives(), transformerVariantGroup()],
   theme: {
     breakpoints: {
@@ -105,12 +100,5 @@ export default defineConfig({
     // 卡片
     ['card', 'bg-surface rounded-card shadow-card transition duration-[var(--jc-dur-base)]'],
     ['card-hover', 'hover:bg-elevated hover:shadow-card-hover hover:scale-[1.04]']
-  ],
-  safelist: [
-    'iconfont',
-    'icon-film',
-    'icon-tv',
-    'icon-cartoon',
-    'icon-variety'
   ]
 })
