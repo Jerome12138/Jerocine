@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 本机上传前端产物包并触发服务器发布 —— 常规前端发布的第二步(与 scripts/build-web.sh 配套)。
 #
-# 链路: 本机构建打包(build-web.sh) → scp 上传到 <deploy>/incoming/ → ssh 执行
+# 链路: 本机构建打包(build-web.sh) → SSH 上送到 <deploy>/incoming/ → ssh 执行
 #       ./deploy.sh web-deploy <远端包路径>(解包 → 同一套发布语义 → 留档 data/packages/ → reload)
 #
 # 用法:
@@ -15,7 +15,7 @@
 #   JEROCINE_INCOMING_DIR 远端上传落点(默认 <deploy>/incoming)
 set -euo pipefail
 
-# Git Bash(MSYS) 会改写以 / 开头的参数(scp 的远端路径) —— 关掉
+# Git Bash(MSYS) 会改写以 / 开头的参数(远端路径) —— 关掉。Linux 上该变量无意义, 无副作用。
 export MSYS_NO_PATHCONV=1
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -90,16 +90,26 @@ PKG_ABS="$(cd "$(dirname "$PKG")" && pwd)/$(basename "$PKG")"
 PKG_NAME="$(basename "$PKG_ABS")"
 
 # ---------------------------------------------------------------- 2. 上传
+#
+# 用 `cat <本地文件> | ssh host 'cat > 目标'` —— **不用 scp**：本仓库运维约定里 scp 是禁用的，
+# 单向传文件的既有姿态就是"走 ssh stdin"(见 Harness `.agents/skills/jerocine-ops` §3 通道 B)。
+# 为什么用 `cat |` 而不是更简洁的 `ssh ... < 本地文件`：后者让 ssh 直接把大文件当 stdin，
+# 在带命令沙箱的环境里对 >1MB 的文件会被 SIGTERM；经一个 cat 中间进程则正常。
+# 代价是没有 scp 自带的校验，所以下面显式比对字节数。
 
 info "准备远端目录 $HOST:$INCOMING"
 ssh "$HOST" "mkdir -p '$INCOMING'"
 
+REMOTE_PKG="$INCOMING/$PKG_NAME"
 info "上传 $PKG_NAME"
-scp -q "$PKG_ABS" "$HOST:$INCOMING/$PKG_NAME"
+local_size="$(wc -c < "$PKG_ABS" | tr -d ' ')"
+cat "$PKG_ABS" | ssh "$HOST" "cat > '$REMOTE_PKG'" || die "上传失败"
+remote_size="$(ssh "$HOST" "wc -c < '$REMOTE_PKG'" | tr -d ' ')"
+[ "$local_size" = "$remote_size" ] || die \
+  "上传后大小不一致(本地 $local_size / 远端 $remote_size) —— 传输被截断，请重试"
 
 # ---------------------------------------------------------------- 3. 远端发布
 
-REMOTE_PKG="$INCOMING/$PKG_NAME"
 info "远端发布: $DEPLOY_DIR → ./deploy.sh web-deploy $REMOTE_PKG"
 ssh "$HOST" "cd '$DEPLOY_DIR' && ./deploy.sh web-deploy '$REMOTE_PKG'"
 

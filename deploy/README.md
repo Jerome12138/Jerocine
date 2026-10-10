@@ -13,7 +13,7 @@ deploy/
 ├─ tests/deploy-reexec.test.sh # deploy.sh 自我重启机制的单测 (假仓库 + 假 git)
 ├─ .env.example          # 环境变量模板 (cp .env.example .env 后填生产值; .env 不入库)
 ├─ data/nginx/nginx.conf # nginx 配置: SPA 静态托管 + /api 反代 + proxy_cache + SW no-cache
-├─ incoming/             # 本机上传的产物包落地处(scp 到此, 由 *-deploy 解包; 不入库)
+├─ incoming/             # 本机上传的产物包落地处(SSH 上送到此, 由 *-deploy 解包; 不入库)
 ├─ server/               # 后端产物包解包处(= Dockerfile.runtime 的 build context; 不入库)
 ├─ data/html/            # 前端产物 (挂载给 nginx; 不入库, 由前端发布写入)
 ├─ data/releases/<TS>/   # 每个发布版本的整版快照 {index.html, sw.js, workbox-*.js} (回滚用)
@@ -59,12 +59,12 @@ deploy/
 前端 node 阶段与后端 golang 阶段攒出来的）。
 
 ```bash
-# 前端：本机构建(注入 JC_BUILD_TS + 布局断言) → tar.gz → scp → 远端 ./deploy.sh web-deploy
+# 前端：本机构建(注入 JC_BUILD_TS + 布局断言) → tar.gz → SSH 上送 → 远端 ./deploy.sh web-deploy
 cd ../ && bash scripts/build-web.sh          # 只构建打包（产物在系统下载目录）
 bash scripts/deploy-web.sh                   # 构建 + 上传 + 发布（一步到位）
 bash scripts/deploy-web.sh --pkg <tgz>       # 复用已构建好的包（跳过构建）
 
-# 后端：本机交叉编译(CGO_ENABLED=0 GOOS=linux) → tar.gz → scp → 远端 ./deploy.sh server-deploy
+# 后端：本机交叉编译(CGO_ENABLED=0 GOOS=linux) → tar.gz → SSH 上送 → 远端 ./deploy.sh server-deploy
 bash scripts/build-server.sh                 # 只编译打包
 bash scripts/deploy-server.sh                # 编译 + 上传 + 发布（一步到位）
 ```

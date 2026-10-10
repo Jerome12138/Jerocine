@@ -110,7 +110,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
     ```bash
     # 前端
     bash scripts/build-web.sh            # 本机构建(注入 JC_BUILD_TS) + 布局断言 + tar.gz
-    bash scripts/deploy-web.sh           # 构建 + scp 上传 + 远端 ./deploy.sh web-deploy
+    bash scripts/deploy-web.sh           # 构建 + SSH 上送 + 远端 ./deploy.sh web-deploy
     bash scripts/deploy-web.sh --pkg <tgz>   # 复用已构建好的包(跳过构建)
 
     # 后端
