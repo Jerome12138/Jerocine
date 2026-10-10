@@ -18,8 +18,11 @@ LABEL org.opencontainers.image.title="jerocine-server"
 
 WORKDIR /opt/server
 
-# 本机交叉编译的静态二进制(main 名字与 deploy/Dockerfile 的产出保持一致)
-COPY --chown=nonroot:nonroot main /opt/server/main
+# 本机交叉编译的静态二进制(main 名字与 deploy/Dockerfile 的产出保持一致)。
+# --chmod=0755 必须带: 本机(Git Bash/Windows)打 tar 时 main 只有 644 —— Windows 的
+# go build 产物没有 exec 位, 而第一次实测(2026-10-10)里 distroless nonroot 起容器
+# 直接 `exec: "/opt/server/main": permission denied`。
+COPY --chown=nonroot:nonroot --chmod=0755 main /opt/server/main
 # upload 卷的挂载点(内容由 compose 的 uploads 卷提供, 这里只需目录存在)
 COPY --chown=nonroot:nonroot static /opt/server/static
 # IP 归属地离线库(geoip; 缺失时在线明细归属地列留空, 不阻断启动)

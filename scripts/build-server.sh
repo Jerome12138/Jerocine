@@ -149,6 +149,9 @@ info "交叉编译后端 linux/$ARCH（$(go version | awk '{print $3}')）"
 ( cd "$SRV" && go build -trimpath -ldflags="-s -w" -o "$(to_native "$STAGE/main")" ./cmd/server )
 
 check_elf "$STAGE/main" "$ARCH"
+# 补 exec 位(Windows 文件系统上 go 产物默认 644; Git Bash 的 chmod 能落到 tar 的 mode 里)。
+# 双保险 —— 运行镜像侧还有 COPY --chmod=0755 兜底, 但裸用包内容(如手工解包替换)时靠这层。
+chmod 0755 "$STAGE/main"
 
 # ---------------------------------------------------------------- 打包
 
@@ -163,6 +166,13 @@ rm -f "$PKG"
 info "打包 $PKG"
 tar -czf "$PKG" -C "$STAGE" .
 pkg_has_entry "$PKG" './main' || die "产物包内没有 ./main"
+# 可执行位断言(踩过一次: Windows 上 tar 进包的 main 是 644, distroless nonroot 起容器
+# 直接 permission denied)。tar -tvzf 第 1 列是 mode。
+main_mode="$(tar -tvzf "$PKG" './main' | awk '{print $1}')"
+case "$main_mode" in
+  *x*) : ;;
+  *) die "包内 ./main 没有可执行位(mode=$main_mode) —— 服务器上容器会起不来" ;;
+esac
 
 printf '\n产物包: %s  (%s)\n' "$PKG" "$(du -h "$PKG" | awk '{print $1}')"
 printf '  sha256: %s\n' "$(file_sha256 "$PKG")"
