@@ -91,6 +91,8 @@ public class MainActivity extends BridgeActivity {
     private BrandSplashView brandSplash;
     /** package-private — JerocineBridge.handleEchoTest 需要直接拿到 WebView 发反向事件 */
     WebView webViewRef;
+    /** 当前服务器 host(loadServer 每次刷新) —— 供 ServerNavigationWebViewClient 判定"站内导航" */
+    private String currentServerHost;
     private FrameLayout settingsOverlay;
     private ScrollView settingsPanelScroll;
     private LinearLayout settingsPanel;
@@ -244,9 +246,19 @@ public class MainActivity extends BridgeActivity {
         // TV 上禁用内置缩放 (D-pad 无双指捏合, 也避免误放大)
         s.setBuiltInZoomControls(false);
         s.setSupportZoom(false);
-        // 关键: 不要 setWebViewClient, 否则覆盖 Capacitor BridgeWebViewClient,
-        // 导致 window.Capacitor 不注入, 前端 useViewMode 无法识别 TV 模式 → 页面渲染错乱.
-        // 错误监听改用 setWebChromeClient (不冲突), 抓前端 console.error 显示给用户.
+        // 关键: 不要直接 `wv.setWebViewClient(...)` 换成裸 WebViewClient, 否则覆盖 Capacitor
+        // BridgeWebViewClient, 导致 window.Capacitor 不注入, 前端 useViewMode 无法识别 TV 模式
+        // → 页面渲染错乱。要改导航判定必须**继承** BridgeWebViewClient 并经 bridge.setWebViewClient
+        // 安装(见 installServerNavigationClient)。错误监听改用 setWebChromeClient (不冲突),
+        // 抓前端 console.error 显示给用户。
+        //
+        // 站内顶层导航留在 WebView(2026-10-10 真机修复): 本壳的 SPA 是**远程加载**的, 而
+        // Capacitor 只把 appUrl(http://localhost) 与 server.allowNavigation 当站内,
+        // 于是 https://<server>/... 的顶层导航会被 Intent.ACTION_VIEW 丢给系统浏览器 ——
+        // 顶栏「刷新」按钮的 location.reload() 正好命中。详见 ServerNavigationWebViewClient。
+        currentServerHost = ServerNavigationPolicy.hostOf(url);
+        installServerNavigationClient();
+
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int progress) {
@@ -270,6 +282,25 @@ public class MainActivity extends BridgeActivity {
             }
         });
         wv.loadUrl(url);
+    }
+
+    /**
+     * 安装"站内导航判定"(幂等). 让指向当前服务器 host 的顶层导航留在 WebView 内,
+     * 而不是被 Capacitor 当外链丢给系统浏览器(见 ServerNavigationWebViewClient 注释).
+     *
+     * 必须在 Capacitor 初始化 Bridge 之后调用(即 onCreate 里 super 之后), 且必须**继承**
+     * BridgeWebViewClient —— 换成裸 WebViewClient 会丢掉 Capacitor 的本地资源拦截能力.
+     * 经 Bridge.setWebViewClient 设置, 顺带把 bridge 内部的引用也换成同一个实例.
+     */
+    private void installServerNavigationClient() {
+        if (bridge == null) {
+            return;
+        }
+        if (bridge.getWebViewClient() instanceof ServerNavigationWebViewClient) {
+            return;
+        }
+        bridge.setWebViewClient(
+                new ServerNavigationWebViewClient(bridge, () -> currentServerHost));
     }
 
     /** 当前是否有可用网络连接 (拿不到判定时按"有网"处理, 避免误拦) */
