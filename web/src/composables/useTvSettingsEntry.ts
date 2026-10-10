@@ -19,6 +19,10 @@ export interface TvSettingsEntry {
   /**
    * 给 RouterLink 用的点击守卫: 原生壳里拦掉默认跳转(改用抽屉),
    * 纯网页里什么都不做(让 <a> 正常导航)。
+   *
+   * ⚠️ **必须绑在捕获阶段**(`@click.capture`) —— RouterLink 自身也在这个 <a> 上绑了
+   * navigate, 且 Vue 合并同名 handler 时组件自身的排在后面(冒泡阶段)才执行我们这份;
+   * 冒泡阶段的 preventDefault 拦不住 navigate(实测 push 仍发生)。捕获阶段先跑 ⇒ 有效。
    */
   guard: (e?: { preventDefault: () => void }) => void
   /** 当前是否会走原生抽屉(每次实时判断, 不用快照, 避免 bridge 注入时序导致误判) */

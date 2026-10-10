@@ -218,6 +218,11 @@ const tvFirstPid = computed<number | undefined>(() => rows.value[0]?.pid)
 /**
  * 「设置」功能卡(方案 §6 / 抽屉重设计 §6): 原生壳里设备级设置已收敛到原生抽屉 ⇒
  * 点击改为开抽屉(guard 会拦掉 RouterLink 默认跳转); 纯网页 TV 模式仍走 SPA /settings。
+ *
+ * ⚠️ 必须用 `@click.capture`(不是 `@click`): RouterLink 自己也在同一个 <a> 上绑了
+ * onClick, Vue 会按「组件自身 handler 在前」的顺序合并 ⇒ 冒泡阶段我们的 handler 跑在
+ * RouterLink 的 navigate 之后, 那时 preventDefault 已经晚了(实测 push 仍发生)。
+ * 捕获阶段先于组件的冒泡 handler, 才能真正拦下导航。
  */
 const { guard: tvSettingsGuard, isIntercepted: tvSettingsIsNative } = useTvSettingsEntry()
 const tvSettingsSub = computed(() => (tvSettingsIsNative() ? '设备/过滤' : '画质/过滤'))
@@ -426,7 +431,7 @@ onBeforeUnmount(() => {
           <RouterLink class="jc-tv-fc fc-1" :to="isLoggedIn ? { path: '/settings', query: { group: 'account' } } : { path: '/login' }" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="user" size="32px" /></span><span class="ti">我的</span><span class="su">{{ isLoggedIn ? '账号 · 退出' : '点击登录' }}</span>
           </RouterLink>
-          <RouterLink class="jc-tv-fc fc-5" to="/settings" data-focusable="true" tabindex="0" @click="onTvSettingsClick">
+          <RouterLink class="jc-tv-fc fc-5" to="/settings" data-focusable="true" tabindex="0" @click.capture="onTvSettingsClick">
             <span class="ic"><BaseIcon name="settings" size="32px" /></span><span class="ti">设置</span><span class="su">{{ tvSettingsSub }}</span>
           </RouterLink>
         </div>
