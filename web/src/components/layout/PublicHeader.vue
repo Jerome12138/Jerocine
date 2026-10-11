@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useSiteStore, useNavStore, useHistoryStore } from '@/stores'
 import { useUserStore } from '@/stores/user'
+import { useUIStore } from '@/stores'
 import { useViewMode } from '@/composables/useViewMode'
 import { useSearchHistory } from '@/composables/useSearchHistory'
 import { shouldShowHeaderActions } from '@/composables/useTvSettingsEntry'
@@ -35,6 +36,7 @@ const router = useRouter()
 
 const siteStore = useSiteStore()
 const navStore = useNavStore()
+const uiStore = useUIStore()
 const historyStore = useHistoryStore()
 const userStore = useUserStore()
 const { isTV, isMobile, isTablet } = useViewMode()
@@ -81,15 +83,49 @@ const brandSize = computed<number>(() => {
 
 /** 滚动 → 切实色背景 */
 const scrolled = ref(false)
+/** --top 毛玻璃渐隐系数(2026-10-11 用户定稿): 不量 DOM, 全用固定值 ——
+ * 淡出从 FADE_START(≈轮播区/继续观看区分界线)开始, FADE_SPAN 内线性降到 0,
+ * 走完即切 --scrolled 实底。轮播盒高(38vh 封顶)与下探区(280~68vh)随屏幕浮动,
+ * 固定值取常见桌面屏的中位感觉即可(用户: "差不多就行")。 */
+const HERO_FADE_START = 200
+const HERO_FADE_SPAN = 200
+const headerFade = ref(1)
+/** 沉浸式轮播场景(2026-10-10 用户要求): 首页设了实底门槛(headerSolidAt>0)即视为
+ * "轮播大图场景", 页头一律不带 border-bottom 分隔线(背景/毛玻璃切换照旧)。
+ * 挂 jc-header--no-line 类, 压过 --scrolled 的边框着色。 */
+const heroNoLine = computed(() => uiStore.headerSolidAt > 0)
 function onScroll(): void {
-  scrolled.value = (window.scrollY ?? 0) > 12
+  const y = window.scrollY ?? 0
+  // 是否沉浸式轮播页: 纯类名判断, 不做任何几何测量
+  const heroScene = !isTV.value && document.querySelector('.jc-hero--immersive') !== null
+  if (!heroScene) {
+    // 非轮播页: 12px 即切实底(原行为), 玻璃恒全强度
+    scrolled.value = y > 12
+    headerFade.value = 1
+    return
+  }
+  const t = (y - HERO_FADE_START) / HERO_FADE_SPAN
+  headerFade.value = t <= 0 ? 1 : Math.max(0, Math.min(1, 1 - t))
+  // 淡出走完(实底完全淡入)即切实底
+  scrolled.value = t >= 1
 }
+// HomeView 在轮播数据到达后才量出 headerSolidAt(0→正数): 值一变立即重算页头状态,
+// 否则数据到达前滚过的页头会停留在错误态直到下一次滚动(2026-10-11 用户实测踩过)。
+// 路由切换同理 —— SPA 换页不一定触发 window scroll。
+watch(
+  [() => uiStore.headerSolidAt, () => route.fullPath],
+  () => requestAnimationFrame(onScroll)
+)
 onMounted(() => {
   onScroll()
   window.addEventListener('scroll', onScroll, { passive: true })
 })
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll)
+  if (sideScrollTimer !== null) {
+    window.clearTimeout(sideScrollTimer)
+    sideScrollTimer = null
+  }
 })
 
 /** 站名 */
@@ -225,6 +261,22 @@ function closeMobile(): void {
   mobileSearchOpen.value = false
 }
 
+/** 侧栏滚动条(2026-10-11 用户要求): 仅滚动状态下显示。
+ * 侧栏菜单超长需要内滚, 但常驻滚动条在毛玻璃侧栏上显得突兀 ——
+ * scroll 事件挂 is-scrolling 类放开细滚动条, 停止滚动 700ms 后收起。 */
+const sideNavBody = ref<HTMLElement | null>(null)
+let sideScrollTimer: number | null = null
+function onSideScroll(): void {
+  const el = sideNavBody.value
+  if (!el) return
+  el.classList.add('is-scrolling')
+  if (sideScrollTimer !== null) window.clearTimeout(sideScrollTimer)
+  sideScrollTimer = window.setTimeout(() => {
+    el.classList.remove('is-scrolling')
+    sideScrollTimer = null
+  }, 700)
+}
+
 /** 历史浮层（hover 显示，移动端用点击） */
 const historyOpen = ref(false)
 let historyCloseTimer: number | null = null
@@ -289,6 +341,15 @@ const activePid = computed<number | null>(() => {
 /** route 跳转后自动关闭抽屉 */
 function isNavActive(id: number): boolean {
   return activePid.value === id
+}
+
+/** 顶级分类图标(2026-10-11 用户要求电影/剧/综艺/动漫各异): 按名称关键词区分,
+ *  未匹配(含新增未知分类)回落 film。侧栏与移动抽屉共用。 */
+function navIcon(name: string): string {
+  if (/综艺/.test(name)) return 'mic'
+  if (/动漫|动画/.test(name)) return 'sparkles'
+  if (/剧/.test(name)) return 'tv'
+  return 'film'
 }
 
 /** 用户菜单（已登录） */
@@ -417,7 +478,11 @@ watch(
 <template>
   <header
     class="jc-header"
-    :class="scrolled ? 'jc-header--scrolled' : 'jc-header--top'"
+    :class="[
+      scrolled ? 'jc-header--scrolled' : 'jc-header--top',
+      heroNoLine ? 'jc-header--no-line' : ''
+    ]"
+    :style="{ '--jc-header-fade': headerFade }"
     :data-route="route.name as string | undefined"
   >
     <div class="jc-header__inner container-page flex items-center gap-[var(--jc-space-4)]">
@@ -852,6 +917,122 @@ watch(
        但看不见任何东西. 现在依赖 v-if=mobileMenuOpen 控制可见, 浏览器 desktop 模式没汉堡按钮
        (PublicHeader 汉堡 v-show=isMobile||isTV), 自然不会被打开. -->
   <Teleport to="body">
+    <!-- ============ 桌面宽屏常驻侧栏 (2026-10-10 用户拍板: 复用抽屉菜单, 不另造组件) ============
+         同一套 jc-mnav 菜单标记, 变体差异: 无 brand 头/关闭钮/遮罩, 常驻显示不滑动,
+         不再调用 closeMobile(无抽屉可关)。≥1600px 由 CSS 放开(推导见样式注释),
+         TV 模式强制隐藏。 -->
+    <aside class="jc-mnav jc-mnav--side" aria-label="主导航">
+      <!-- 侧栏标题(2026-10-10): 复用桌面页头标题样式(jc-header__brand + LogoMark),
+           顶栏在侧栏出现时隐藏标题, 这里是唯一 brand 入口 -->
+      <div class="jc-mnav__head">
+        <RouterLink
+          to="/index"
+          class="jc-header__brand flex items-center"
+          :aria-label="siteName"
+          data-focusable="true"
+        >
+          <LogoMark :size="brandSize" :show-text="true" />
+        </RouterLink>
+      </div>
+      <nav ref="sideNavBody" class="jc-mnav__body" @scroll="onSideScroll">
+        <div class="jc-mnav__group">
+          <!-- 顶部不再放分割线(2026-10-11 用户要求): 头部标题自带 border-bottom,
+               再放一条会重复 -->
+          <RouterLink
+            to="/index"
+            class="jc-mnav__link" data-focusable="true"
+            :class="route.name === 'home' ? 'is-active' : ''"
+          >
+            <BaseIcon name="home" size="16px" class="jc-mnav__link-icon" />
+            <span>首页</span>
+          </RouterLink>
+          <template v-for="nav in topNav" :key="nav.id">
+            <RouterLink
+              :to="{ path: '/filmClassify', query: { Pid: nav.id } }"
+              class="jc-mnav__link" data-focusable="true"
+              :class="isNavActive(nav.id) ? 'is-active' : ''"
+            >
+              <BaseIcon :name="navIcon(nav.name)" size="16px" class="jc-mnav__link-icon" />
+              <span>{{ nav.name }}</span>
+            </RouterLink>
+            <div
+              v-if="nav.children?.length"
+              class="flex flex-wrap gap-[var(--jc-space-2)] pl-[var(--jc-space-8)] pb-[var(--jc-space-2)]"
+            >
+              <RouterLink
+                v-for="sub in nav.children"
+                :key="sub.id"
+                :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
+                class="text-xs text-secondary bg-[rgba(255,255,255,0.08)] px-[10px] py-[4px] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
+                data-focusable="true"
+              >
+                {{ sub.name }}
+              </RouterLink>
+            </div>
+          </template>
+        </div>
+
+        <div class="jc-mnav__group">
+          <div class="jc-mnav__divider" role="separator" aria-label="个人" />
+          <RouterLink
+            to="/history"
+            class="jc-mnav__link" data-focusable="true"
+            :class="route.path === '/history' ? 'is-active' : ''"
+          >
+            <BaseIcon name="history" size="16px" class="jc-mnav__link-icon" />
+            <span>观看历史</span>
+          </RouterLink>
+          <RouterLink
+            to="/favorites"
+            class="jc-mnav__link" data-focusable="true"
+            :class="route.path === '/favorites' ? 'is-active' : ''"
+          >
+            <BaseIcon name="heart" size="16px" class="jc-mnav__link-icon" />
+            <span>我的收藏</span>
+          </RouterLink>
+        </div>
+
+        <div v-if="isLoggedIn && isAdmin" class="jc-mnav__group">
+          <div class="jc-mnav__divider" role="separator" aria-label="管理" />
+          <RouterLink to="/manage/index" class="jc-mnav__link" data-focusable="true">
+            <BaseIcon name="settings" size="16px" class="jc-mnav__link-icon" />
+            <span>后台管理</span>
+          </RouterLink>
+        </div>
+
+        <div class="jc-mnav__group">
+          <div class="jc-mnav__divider" role="separator" aria-label="账户" />
+          <button
+            v-if="isLoggedIn"
+            type="button"
+            class="jc-mnav__link" data-focusable="true"
+            @click="openChangePwd()"
+          >
+            <BaseIcon name="lock" size="16px" class="jc-mnav__link-icon" />
+            <span>修改密码</span>
+          </button>
+          <RouterLink
+            v-if="!isLoggedIn"
+            :to="{ path: '/login', query: { redirect: route.fullPath } }"
+            class="jc-mnav__link" data-focusable="true"
+          >
+            <BaseIcon name="user" size="16px" class="jc-mnav__link-icon" />
+            <span>登录</span>
+          </RouterLink>
+          <button
+            v-else
+            type="button"
+            class="jc-mnav__link jc-mnav__link--danger"
+            data-focusable="true"
+            @click="handleLogout()"
+          >
+            <BaseIcon name="logout" size="16px" class="jc-mnav__link-icon" />
+            <span>退出登录</span>
+          </button>
+        </div>
+      </nav>
+    </aside>
+
     <Transition name="jc-mobile-overlay-fade">
       <div
         v-if="mobileMenuOpen"
@@ -885,7 +1066,8 @@ watch(
         <nav class="jc-mnav__body">
           <!-- 浏览 -->
           <div class="jc-mnav__group">
-            <div class="jc-mnav__group-title">浏览</div>
+            <!-- 顶部不放分割线(2026-10-11 用户要求): 抽屉头部同样自带
+                 border-bottom, 再放一条会重复(与侧栏同规则) -->
             <RouterLink
               to="/index"
               class="jc-mnav__link" data-focusable="true"
@@ -903,7 +1085,7 @@ watch(
                 :class="isNavActive(nav.id) ? 'is-active' : ''"
                 @click="closeMobile"
               >
-                <BaseIcon name="film" size="16px" class="jc-mnav__link-icon" />
+                <BaseIcon :name="navIcon(nav.name)" size="16px" class="jc-mnav__link-icon" />
                 <span>{{ nav.name }}</span>
               </RouterLink>
               <div
@@ -914,7 +1096,7 @@ watch(
                   v-for="sub in nav.children"
                   :key="sub.id"
                   :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
-                  class="text-xs text-secondary bg-elevated px-[10px] py-[4px] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
+                  class="text-xs text-secondary bg-[rgba(255,255,255,0.08)] px-[10px] py-[4px] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
                   data-focusable="true"
                   @click="closeMobile"
                 >
@@ -926,12 +1108,22 @@ watch(
 
           <!-- 个人 -->
           <div class="jc-mnav__group">
-            <div class="jc-mnav__group-title">个人</div>
-            <RouterLink to="/history" class="jc-mnav__link" data-focusable="true" @click="closeMobile">
+            <div class="jc-mnav__divider" role="separator" aria-label="个人" />
+            <RouterLink
+              to="/history"
+              class="jc-mnav__link" data-focusable="true"
+              :class="route.path === '/history' ? 'is-active' : ''"
+              @click="closeMobile"
+            >
               <BaseIcon name="history" size="16px" class="jc-mnav__link-icon" />
               <span>观看历史</span>
             </RouterLink>
-            <RouterLink to="/favorites" class="jc-mnav__link" data-focusable="true" @click="closeMobile">
+            <RouterLink
+              to="/favorites"
+              class="jc-mnav__link" data-focusable="true"
+              :class="route.path === '/favorites' ? 'is-active' : ''"
+              @click="closeMobile"
+            >
               <BaseIcon name="heart" size="16px" class="jc-mnav__link-icon" />
               <span>我的收藏</span>
             </RouterLink>
@@ -939,7 +1131,7 @@ watch(
 
           <!-- 管理 (仅 admin) -->
           <div v-if="isLoggedIn && isAdmin" class="jc-mnav__group">
-            <div class="jc-mnav__group-title">管理</div>
+            <div class="jc-mnav__divider" role="separator" aria-label="管理" />
             <RouterLink to="/manage/index" class="jc-mnav__link" data-focusable="true" @click="closeMobile">
               <BaseIcon name="settings" size="16px" class="jc-mnav__link-icon" />
               <span>后台管理</span>
@@ -948,7 +1140,7 @@ watch(
 
           <!-- 账户 -->
           <div class="jc-mnav__group">
-            <div class="jc-mnav__group-title">账户</div>
+            <div class="jc-mnav__divider" role="separator" aria-label="账户" />
             <button
               v-if="isLoggedIn"
               type="button"
@@ -1025,13 +1217,43 @@ watch(
   border-bottom: 1px solid transparent;
 }
 
-.jc-header--top {
-  background-color: rgba(11, 11, 15, 0);
-  background-image: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.55) 0%,
-    rgba(0, 0, 0, 0) 100%
-  );
+/* --top(轮播/未滚动态)毛玻璃(方案 B + 渐变): 玻璃做在 ::before 上,
+ * 用 mask 纵向渐隐 —— 下缘自然过渡无硬边框感; backdrop-filter 无法渐变,
+ * mask 渐隐整个玻璃层(底色+模糊+压暗渐变)即为"渐变玻璃",
+ * mask 只作用于玻璃层, 导航/搜索内容不受影响保持全实。 */
+.jc-header--top::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  /* 玻璃恒全强度(2026-10-11 改交叉溶解): 不再给玻璃挂 opacity ——
+   * backdrop-filter 元素改 opacity 在 Chromium 上模糊层不跟随淡出,
+   * "玻璃渐隐"过程肉眼几乎不可见; 改由 ::after 实底层按计算值淡入 */
+  background-color: rgba(11, 11, 15, 0.45);
+  background-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0) 100%);
+  background-repeat: no-repeat;
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  /* 渐隐从高度顶端就开始(2026-10-11 用户反馈: 62% 平台期导致过渡生硬) ——
+   * 玻璃在 y=0 最实、随高度线性淡出, 到下缘完全消失, 无边框感 */
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
+}
+
+/* 实底层(与 --scrolled 同款同参数): 随下滚在淡出区间内按 1-fade 线性淡入,
+ * 到区间终点恰好 opacity=1, 与 --scrolled 类切换的画面完全一致 —— 零跳变。
+ * 交叉溶解让 200~400 的过渡肉眼可见(玻璃不动、实底渐显)。 */
+.jc-header--top::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: calc(1 - var(--jc-header-fade, 1));
+  background-color: var(--jc-bg-header-scrolled);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
 
 .jc-header--scrolled {
@@ -1039,6 +1261,12 @@ watch(
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
   border-bottom-color: var(--jc-border-subtle);
+}
+
+/* 沉浸式轮播场景(2026-10-10 用户要求): 大图铺满顶部期间页头一律不带分隔线。
+ * 置于 --scrolled 之后, 同特异性按序覆盖其边框着色。 */
+.jc-header--no-line {
+  border-bottom-color: transparent;
 }
 
 .jc-header__inner {
@@ -1644,7 +1872,7 @@ watch(
   border-radius: 9999px;
   object-fit: cover;
   background-color: var(--jc-bg-elevated);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  /* 2026-10-10 用户要求: 顶栏头像框不加边框 */
 }
 
 .jc-header__username {
@@ -1771,6 +1999,72 @@ watch(
   z-index: 900;
 }
 
+/* ============ 桌面宽屏常驻侧栏 (jc-mnav--side, 复用抽屉菜单 2026-10-10) ============
+ * 变体差异: 无 brand 头/关闭钮/遮罩/滑动动画, 常驻左侧。
+ * 断点 1600(2026-10-10 用户定稿, 原 2160 过大): 侧栏出现时布局整体右移
+ * --jc-side-pad(276px, 见 PublicLayout 联动块), 内容右侧自适应填满剩余空间,
+ * 不再要求"两侧对称富余放得下侧栏"。1600 ≈ 视口到达容器最大宽度(2xl 封顶
+ * 1600)的量级, 再低内容区会被压得过窄。
+ * z 低于 header(--jc-z-header=100), 顶部让开 64px 页头(md+ 实高)。 */
+.jc-mnav--side {
+  display: none;
+  top: 0;
+  /* 宽度 = 内容区左侧留白(--jc-side-pad, html 层定义), 与内容起始线严格
+   * 对齐 —— 原 260px 栏 + 16px 留白的错位空白条消除 */
+  width: var(--jc-side-pad, 276px);
+  z-index: calc(var(--jc-z-header) - 10);
+  box-shadow: none;
+  border-right: none;
+  background-color: transparent;
+  /* 内部左右边距: 玻璃底下列表不贴边 */
+  padding-inline: var(--jc-space-4);
+}
+/* 毛玻璃层(2026-10-10 用户定稿方案 B + 渐变): backdrop-filter 本身无法渐变,
+ * 把玻璃(半透明底+模糊)做在 ::before 上用 mask 横向渐隐 —— 玻璃向内容区
+ * 自然过渡、无硬边框感; mask 只作用于玻璃层, 菜单文字保持全实。
+ * 大图 100vw 铺满本就延伸到侧栏身后, 玻璃把那段画面糊化透出。 */
+.jc-mnav--side::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: rgba(11, 11, 15, 0.45);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  /* 渐隐从左侧 40% 处开始向右淡出(2026-10-11 用户定稿), 右缘自然融入大图 */
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 40%, transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 40%, transparent 100%);
+}
+/* 顶部压暗带: 与顶栏 --top 同款的顶端渐变, 承担左半段玻璃顶带。右缘延伸 200px
+ * 进顶栏下方(顶栏基座透明、玻璃半透明, 延伸段可透出)并横向渐隐 —— 全强度保持
+ * 到侧栏右缘(58% = 276/476 恰为接缝), 接缝两侧亮度连续; 顶带越过页头下缘
+ * (y=64~96)的部分若无此延伸会在接缝处硬截止成竖向细线 */
+.jc-mnav--side::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: -200px;
+  z-index: -1;
+  pointer-events: none;
+  background-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0) 100%);
+  background-size: 100% 96px;
+  background-position: top;
+  background-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 58%, transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 58%, transparent 100%);
+}
+@media (min-width: 1600px) {
+  html:not([data-mode='tv']) .jc-mnav--side {
+    display: flex;
+  }
+}
+html[data-mode='tv'] .jc-mnav--side {
+  display: none !important;
+}
+
 .jc-mnav__head {
   display: flex;
   align-items: center;
@@ -1822,22 +2116,44 @@ watch(
   padding: var(--jc-space-3) 0;
   display: flex;
   flex-direction: column;
-  gap: var(--jc-space-4);
+  /* 分组间 gap 去掉(2026-10-11 用户要求): 分组间隔全靠 divider 的上下 margin,
+   * gap 会与首条 divider 之上形成双倍空隙(侧栏与抽屉共用) */
+  gap: 0;
+}
+
+/* 侧栏滚动条(2026-10-11 用户要求): 放左边 + 仅滚动状态下显示。
+ * direction:rtl 让原生纵向滚动条画在左侧, 直接子层转回 ltr 保持菜单排版;
+ * 常态隐藏(webkit 宽 0 / Firefox scrollbar-width:none), JS @scroll 挂
+ * is-scrolling 类放开 6px 细滚动条, 停止滚动 700ms 后收起。 */
+.jc-mnav--side .jc-mnav__body {
+  direction: rtl;
+  scrollbar-width: none;
+}
+.jc-mnav--side .jc-mnav__body > * {
+  direction: ltr;
+}
+.jc-mnav--side .jc-mnav__body.is-scrolling {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+.jc-mnav--side .jc-mnav__body::-webkit-scrollbar {
+  width: 0;
+}
+.jc-mnav--side .jc-mnav__body.is-scrolling::-webkit-scrollbar {
+  width: 6px;
+}
+.jc-mnav--side .jc-mnav__body::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.28);
+  border-radius: var(--jc-radius-full);
+}
+.jc-mnav--side .jc-mnav__body::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .jc-mnav__group {
   display: flex;
   flex-direction: column;
 }
-.jc-mnav__group-title {
-  padding: var(--jc-space-1) var(--jc-space-4);
-  font-size: var(--jc-fs-xs);
-  font-weight: var(--jc-fw-semibold);
-  letter-spacing: var(--jc-tracking-wide);
-  text-transform: uppercase;
-  color: var(--jc-text-muted);
-}
-
 .jc-mnav__link {
   display: flex;
   align-items: center;
@@ -1869,6 +2185,55 @@ watch(
     rgba(155, 73, 231, 0.18),
     rgba(74, 209, 229, 0.08)
   );
+}
+/* 侧栏选中态(2026-10-10 用户定稿): 文字加粗 + 品牌紫标记, 不再用背景色高亮
+ * (仅侧栏变体; 移动抽屉仍用上方原背景高亮规则) */
+/* 侧栏主菜单(2026-10-11 用户定稿): 字号加大一档(--jc-fs-sm→base);
+ * 未选中/未悬浮不加粗(常规字重), 仅选中态加粗标记 */
+.jc-mnav--side .jc-mnav__link {
+  font-size: var(--jc-fs-base);
+  font-weight: var(--jc-fw-normal);
+}
+/* 侧栏悬浮态(2026-10-10 用户定稿): 不加任何背景, 仅提亮文字。
+ * 必须声明在选中态规则之前 —— 悬浮选中项时若这条在后会清掉渐变背景,
+ * 而选中态文字是 clip:text 的 transparent, 会隐形 */
+.jc-mnav--side .jc-mnav__link:hover,
+.jc-mnav--side .jc-mnav__link:focus-visible {
+  background-color: transparent;
+  background-image: none;
+}
+/* 侧栏选中态(2026-10-11 定稿): 紫蓝渐变文字(与影片卡角标同款
+ * --jc-brand-gradient, background-clip:text), 不再用纯紫/背景高亮;
+ * 图标不参与 clip:text, 显式给渐变起点紫 */
+.jc-mnav--side .jc-mnav__link.is-active {
+  background-color: transparent;
+  background-image: var(--jc-brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: var(--jc-fw-bold);
+}
+.jc-mnav--side .jc-mnav__link.is-active .jc-mnav__link-icon {
+  color: var(--jc-brand-purple);
+}
+/* 退出登录 hover(2026-10-11 用户反馈文字颜色没变): 通用 --danger:hover 把 color
+ * 钉回 danger 且声明在后压过通用 hover 提亮, 侧栏又去了背景 ⇒ 毫无反馈;
+ * 侧栏给提亮红(#f87171) + 图标同步 */
+.jc-mnav--side .jc-mnav__link--danger:hover,
+.jc-mnav--side .jc-mnav__link--danger:focus-visible {
+  background-color: transparent;
+  color: #f87171;
+}
+.jc-mnav--side .jc-mnav__link--danger:hover .jc-mnav__link-icon,
+.jc-mnav--side .jc-mnav__link--danger:focus-visible .jc-mnav__link-icon {
+  color: #f87171;
+}
+/* 分组分隔线(2026-10-11 用户定稿): 取代"浏览/个人/管理/账户"文字标题,
+ * 侧栏与移动抽屉共用; role/aria-label 保留分组语义给读屏 */
+.jc-mnav__divider {
+  height: 1px;
+  margin: var(--jc-space-2) var(--jc-space-4);
+  background-color: var(--jc-border-subtle);
 }
 .jc-mnav__link-icon {
   color: var(--jc-text-muted);
@@ -2058,7 +2423,12 @@ watch(
 [data-mode='tv'] .jc-header--top {
   background-color: transparent;
   background-image: var(--jc-tv-header-float);
+  /* 桌面 --top 的玻璃做在 ::before 上, TV 弱 WebView 不启用(防掉帧) */
+  background-repeat: no-repeat;
   border-bottom-color: transparent;
+}
+[data-mode='tv'] .jc-header--top::before {
+  display: none;
 }
 [data-mode='tv'] .jc-header--scrolled {
   background-color: var(--jc-tv-header-solid);

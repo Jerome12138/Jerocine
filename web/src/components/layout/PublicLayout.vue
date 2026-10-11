@@ -75,6 +75,45 @@ onMounted(async () => {
 </style>
 
 <style>
+/* ============ 宽屏左侧导航栏联动(2026-10-10 用户定稿) ============
+ * 侧栏(PublicHeader 的 jc-mnav--side, 260px 栏 + 16px 间距 = 276px)出现时,
+ * 内容不再保持"两侧对称大留白": 布局整体右移 --jc-side-pad, 右侧自适应
+ * 填满剩余空间(容器 1600 封顶后右侧才重新出现自然留白)。
+ * 断点取 1600 = 视口到达容器最大宽度量级; 再低内容区会被压得过窄。
+ * header/footer 用"负 margin + 等值 padding"把背景拉回全幅, 其内部
+ * container-page 与 main 的内容区保持同一中心线。
+ * 轮播 breakout 图在 HeroCarousel 里按 --jc-side-pad/2 反向平移,
+ * 保证 100vw 图层仍正对视口居中。 */
+/* 变量必须定义在 html 层: 侧栏(teleport 到 body, 非 .jc-public-layout 后代)
+ * 也要取到 --jc-side-pad —— 侧栏宽度=右侧留白, 不再 260+16 错位出空白条 */
+html {
+  --jc-side-pad: 0px;
+}
+@media (min-width: 1600px) {
+  html:not([data-mode='tv']) {
+    --jc-side-pad: 276px;
+  }
+  html:not([data-mode='tv']) .jc-public-layout {
+    padding-left: var(--jc-side-pad);
+  }
+  /* footer: 左右各负 margin 拉回全幅背景, padding-left 让内容跟随内容区中心线 */
+  html:not([data-mode='tv']) .jc-public-layout .jc-footer {
+    margin-left: calc(-1 * var(--jc-side-pad));
+    margin-right: calc(-1 * var(--jc-side-pad));
+    padding-left: var(--jc-side-pad);
+  }
+  /* 顶栏(2026-10-11 用户定稿): 按布局内容区(侧栏右侧)宽度, 不覆盖侧栏区域
+   * (全幅玻璃方案已否); 标题与主导航在侧栏出现时隐藏(导航职责移交侧栏) */
+  html:not([data-mode='tv']) .jc-public-layout .jc-header .jc-header__brand,
+  html:not([data-mode='tv']) .jc-public-layout .jc-header .jc-header__nav {
+    display: none;
+  }
+  /* 顶栏内容铺满右侧区域(压掉 container-page 的 max-width, 保留 gutter) */
+  html:not([data-mode='tv']) .jc-public-layout .jc-header .jc-header__inner {
+    max-width: none;
+  }
+}
+
 /* TV 安全区 + 居中容器 */
 [data-mode='tv'] .jc-public-layout {
   /* layout 自身保持流式（背景需要全屏），仅 main 居中 */
