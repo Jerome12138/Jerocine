@@ -196,7 +196,12 @@ const hasMeta = computed<boolean>(
         v-for="(it, i) in items"
         :key="(it.mid ?? i) + '-' + i"
         class="jc-hero__slide absolute inset-0"
-        :class="i === current ? 'opacity-100' : 'opacity-0 pointer-events-none'"
+        :class="[
+          i === current ? 'opacity-100' : 'opacity-0 pointer-events-none',
+          /* 竖图 slide(无 poster 即 cover 竖图): 水平内边距变量挂 slide,
+           * 图片与下方蒙版共同继承, 各 slide 按自己的方向取矩形 */
+          { 'jc-hero__slide--portrait': !it.poster },
+        ]"
         :aria-hidden="i !== current"
       >
         <BaseImage
@@ -208,8 +213,19 @@ const hasMeta = computed<boolean>(
           class="jc-hero__image"
           :class="{ 'jc-hero__image--wide': !!it.poster }"
         />
-        <!-- 竖海报: TV 模糊铺底 + 右侧清晰竖海报; Web 宽屏同理在右侧展示完整竖海报(避免封面被裁)
-        （仅当前 slide 的封面, 与下方热门榜单不重复） -->
+        <!-- 蒙版在 slide 内(每张自带一套, 2026-10-11 用户反馈重构): 此前是 layers 外
+             的一套共享蒙版、矩形跟激活 slide 的方向跳变 —— 切换时上一张先失阴影、
+             当前图后补阴影, 且图片硬边与蒙版渐隐边错位成"两套细线"。移入后阴影随
+             slide 一起交叉淡入淡出, 永远与自己的图片同向同矩形。(desktop 沉浸式另给
+             顶/右两侧渐隐, 见沉浸式块; 其余档无背景不可见) -->
+        <div class="jc-hero__mask-top absolute inset-0 pointer-events-none" />
+        <div class="jc-hero__mask-right absolute inset-0 pointer-events-none" />
+        <div class="jc-hero__mask-bottom absolute inset-0 pointer-events-none" />
+        <div class="jc-hero__mask-left absolute inset-0 pointer-events-none hidden md:block" />
+        <!-- 竖海报在蒙版之后: 恒定处于阴影上方。此前 z-index:1 在过渡期间被 slide 的
+             opacity(<1) 层叠上下文困在蒙版下、过渡结束又逃逸到外层蒙版上 —— 即用户
+             看到的"先压到阴影下方、再被挪到上方"的闪变; 移入 slide 内靠 DOM 顺序
+             定层序, 与过渡状态无关 -->
         <div
           v-if="it.cover"
           class="jc-hero__poster-tv"
@@ -218,10 +234,6 @@ const hasMeta = computed<boolean>(
         />
       </div>
     </div>
-
-    <!-- 蒙版 -->
-    <div class="jc-hero__mask-bottom absolute inset-0 pointer-events-none" />
-    <div class="jc-hero__mask-left absolute inset-0 pointer-events-none hidden md:block" />
 
     <!-- 左下信息层 -->
     <div
@@ -429,6 +441,14 @@ const hasMeta = computed<boolean>(
   padding-bottom: var(--jc-space-8);
   z-index: 2;
 }
+@media (min-width: 768px) {
+  /* 左箭头 768 起显示且已靠边(宽 48px), 文字/标签左边距 64px = 箭头右缘
+   * + 16px 间隙防遮挡(2026-10-10: 箭头去 16px 偏移后 80→64 同步收窄);
+   * 右侧沿用容器 gutter */
+  .jc-hero__content {
+    padding-left: 64px;
+  }
+}
 @media (min-width: 1024px) {
   .jc-hero__content {
     padding-bottom: 64px;
@@ -510,14 +530,15 @@ const hasMeta = computed<boolean>(
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 48px;
-  height: 64px;
+  /* 对齐分类区行箭头(FilmRow)的圆形规格: 44x44 圆形, 底色同 0.45 */
+  width: 44px;
+  height: 44px;
   display: none;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: var(--jc-radius-md);
-  background-color: rgba(0, 0, 0, 0.55);
+  border-radius: 9999px;
+  background-color: rgba(0, 0, 0, 0.45);
   color: var(--jc-text-primary);
   cursor: pointer;
   z-index: 3;
@@ -529,10 +550,10 @@ const hasMeta = computed<boolean>(
   background-color: rgba(0, 0, 0, 0.8);
 }
 .jc-hero__arrow--left {
-  left: var(--jc-space-4);
+  left: 0;
 }
 .jc-hero__arrow--right {
-  right: var(--jc-space-4);
+  right: 0;
 }
 
 @media (min-width: 768px) {
@@ -661,63 +682,176 @@ const hasMeta = computed<boolean>(
   width: 72px;
 }
 
-/* ===== 沉浸式(桌面 ≥1024, 2026-10-10 评审定稿, 未 push) =====
- * 用户定稿口径: 原有轮播区域不变、高度不变, 盒内按钮/文字/右侧海报原位;
- * 把图从"圆角框内显示"改为页面顶部背景 —— 宽度保持内容区宽(不铺满视口,
- * 2026-10-10 二次定稿"高度透出, 宽度保持"), 只高度向下透出, 压到继续观看区
- * 背后, 下探上限加大(--jc-hero-bleed 280px); 即页面内容区背景换成轮播图。
+/* ===== 沉浸式(除 TV 外全尺寸, 2026-10-10 评审定稿, 未 push) =====
+ * 用户定稿口径: 原有轮播区域不变、高度不变, 盒内按钮/文字原位;
+ * 把图从"圆角框内显示"改为页面顶部背景 —— 宽度铺满视口(body 已有
+ * overflow-x:hidden 不出横向滚动条), 高度向上覆盖到顶部导航栏背后, 向下透出
+ * 压到继续观看区背后。原仅桌面 ≥1024, 后按用户要求放开到 mobile/tablet/desktop
+ * 全尺寸(除 TV)。
  *
  * 实现口径 —— 只 breakout 图片元素本身, DOM 不动:
  *   · 盒子(.jc-hero)几何沿用原版(21/9 + max-height 380 等), 仅关闭圆角裁剪
  *     放行溢出、盒底色透明(图不落在盒内而在背景上);
- *   · .jc-hero__image(BaseImage 根)绝对定位纵向拉伸: top 上提补回 wrapper 的
- *     pt-6 顶到页头下缘, bottom 下探 --jc-hero-bleed, 水平 left/right 撑满
- *     盒宽(=内容区宽); img cover 保持比例; 定位包含块是 slide(=盒子),
- *     盒内其它元素不受影响(右侧竖海报仍锚定 slide, 位置与原版一致);
- *   · 两层蒙版同步拉伸到同一矩形, mask-bottom 用"顶部轻压暗→文字区加深→
- *     渐隐尾融入页面底色"的沉浸式渐变;
+ *   · .jc-hero__image(BaseImage 根)绝对定位: 水平铺满 100vw 居中, top 上提
+ *     (--jc-hero-toplift = 页头高 mobile 56 / md+ 64 + wrapper pt-6, 顶到页面
+ *     最顶、垫在 sticky 页头之下), 高度 = 盒高(100%) + 上提 + 下探
+ *     (--jc-hero-bleed, 最大 1000px, 2026-10-10 用户定稿); img cover
+ *     保持比例。定位包含块是 slide(=盒子), 盒内其它元素不受影响(右侧竖海报
+ *     仍锚定 slide, ≥1024 才显示, 位置与原版一致);
+ *   · breakout 图必须 pointer-events:none —— 图层覆盖到页头区域后会截胡
+ *     nav 的悬停/点击(点击会落到 section 的 gotoDetail);
+ *   · 页头可读性: PublicHeader 的 jc-header--top 自带 rgba(0,0,0,.55)→透明
+ *     渐变阴影背景(z-index 高于本层), 图垫在其下正好透出渐变, 无需另加;
+ *   · 四层蒙版(顶/右/底/左)同步拉伸到同一矩形做四边渐隐, 顶部条带最小, 底部
+ *     渐隐尾融入页面底色;
  *   · HomeView 侧 .jc-home__rows 抬 z-index:1, 继续观看卡片压在下探尾之上。
  *   · width/height 必须 !important 覆盖 BaseImage 根的内联 100%(ratio="" 时
- *     aspectStyle 内联输出, 内联样式压过一切选择器, 不加则纵向拉伸不生效, 踩过)。 */
-.jc-hero.jc-hero--immersive {
-  --jc-hero-bleed: 280px;
+ *     aspectStyle 内联输出, 内联样式压过一切选择器, 不加则纵向拉伸不生效, 踩过);
+ *   · 选择器统一加 html:not([data-mode='tv']) 前缀 —— TV 模式完全不匹配这些
+ *     规则, 沿用原有 TV 沉浸 Banner(55vh 模糊铺底)样式。 */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
+  /* 底部下探量 = 背景超出轮播盒底部的部分, 最大 1000px(2026-10-10 用户定稿);
+   * 想调下探深度只改这一个变量 */
+  --jc-hero-bleed: clamp(280px, 68vh, 1000px);
+  /* 顶部上提量 = 页头高(mobile 56 / md+ 64) + wrapper pt-6 */
+  --jc-hero-toplift: 80px;
+}
+@media (min-width: 768px) {
+  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
+    --jc-hero-toplift: 88px;
+  }
+}
+/* 窄屏(<1024): 下探量按页面宽度等比缩小(30vw), 不再吃 280px 保底,
+ * 背景高度随宽度收窄而降低, 避免小屏上背景占比过大(2026-10-10 用户定稿) */
+@media (max-width: 1023.98px) {
+  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
+    --jc-hero-bleed: clamp(96px, 30vw, 1000px);
+  }
+}
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
+  overflow: visible;
+  border-radius: 0;
+  background-color: transparent;
+}
+/* 水平内边距变量挂 slide(2026-10-11 用户定稿): 图片与 slide 内蒙版共同继承,
+ * 各 slide 按自己的方向取矩形 —— 切换时阴影随 slide 交叉淡入淡出, 无跳变。
+ * 默认两变量 0 = 铺满 100vw(<1024 维持原观感); ≥1024 两侧各留 5% 视口边距
+ * (用户: 原 10% 减半), 竖图(无 poster, slide--portrait)加倍到 10%;
+ * 侧栏模式(≥1600)左边距再加倍(右不变)。
+ * 水平定位公式: left:50%(slide 中心) + translateX(-50% - side-pad/2) 使元素中心
+ * 落在视口中心(对 gutter/容器宽度鲁棒, 已验证), 非对称边距时再加 (L-R)/2 偏移
+ * —— 元素中心 = 视口中心 + (L-R)/2, 左缘恰好在 L。 */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide {
+  --jc-hero-inset-l: 0px;
+  --jc-hero-inset-r: 0px;
 }
 @media (min-width: 1024px) {
-  .jc-hero.jc-hero--immersive {
-    overflow: visible;
-    border-radius: 0;
-    background-color: transparent;
+  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide {
+    --jc-hero-inset-l: 5vw;
+    --jc-hero-inset-r: 5vw;
   }
-  /* 图片纵向拉伸: 宽=盒宽(内容区宽), 上提 24px 顶到页头下缘, 下探 bleed 压到继续观看区背后 */
-  .jc-hero.jc-hero--immersive .jc-hero__image {
-    position: absolute;
-    top: calc(-1 * var(--jc-space-6));
-    bottom: calc(-1 * var(--jc-hero-bleed));
-    left: 0;
-    right: 0;
-    width: auto !important;
-    height: auto !important;
+  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide--portrait {
+    --jc-hero-inset-l: 10vw;
+    --jc-hero-inset-r: 10vw;
   }
-  /* 蒙版同步拉伸到与图片同一矩形 */
-  .jc-hero.jc-hero--immersive .jc-hero__mask-bottom,
-  .jc-hero.jc-hero--immersive .jc-hero__mask-left {
-    inset: auto;
-    top: calc(-1 * var(--jc-space-6));
-    bottom: calc(-1 * var(--jc-hero-bleed));
-    left: 0;
-    right: 0;
+}
+@media (min-width: 1600px) {
+  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide {
+    --jc-hero-inset-l: 10vw;
+    --jc-hero-inset-r: 5vw;
   }
-  /* 沉浸式渐变: 顶部轻压暗(页头下缘过渡) → 中段透明 → 文字区(盒底 ~59%)加深 →
-   * 渐隐尾放缓拉长, 让下探区的图"透"出来铺在继续观看区背后 */
-  .jc-hero.jc-hero--immersive .jc-hero__mask-bottom {
-    background-image: linear-gradient(
-      180deg,
-      rgba(11, 11, 15, 0.25) 0%,
-      rgba(11, 11, 15, 0) 14%,
-      rgba(11, 11, 15, 0) 38%,
-      rgba(11, 11, 15, 0.4) 56%,
-      var(--jc-bg-base) 100%
-    );
+  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide--portrait {
+    --jc-hero-inset-l: 20vw;
+    --jc-hero-inset-r: 10vw;
   }
+}
+/* 图片拉伸: 顶部锚定上提覆盖 sticky 页头顶到页面最顶, 高度 = 盒高+上提+下探
+ * (--jc-hero-bleed), img cover 等比铺满; 水平宽度/偏移由继承的 inset 变量驱动 */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__image {
+  position: absolute;
+  top: calc(-1 * var(--jc-hero-toplift));
+  bottom: auto;
+  left: 50%;
+  width: calc(100vw - var(--jc-hero-inset-l, 0px) - var(--jc-hero-inset-r, 0px)) !important;
+  transform: translateX(
+    calc(
+      -50% - var(--jc-side-pad, 0px) / 2 +
+        (var(--jc-hero-inset-l, 0px) - var(--jc-hero-inset-r, 0px)) / 2
+    )
+  );
+  height: calc(100% + var(--jc-hero-toplift) + var(--jc-hero-bleed)) !important;
+  pointer-events: none;
+}
+/* 图片等比平铺居中(2026-10-10 用户定稿): img 撑满 breakout 层, object-fit: cover
+ * = 按 max(宽缩放, 高缩放) 等比缩放铺满(即"按最大宽度或最大高度平铺"),
+ * object-position: center 保持图片中心对齐可视区域中心。!important 同上,
+ * 压过 BaseImage 根内联 100% 与 :deep(img) 的宽高规则。 */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__image :deep(img) {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  object-position: center;
+}
+/* 四层蒙版(已移入 slide, 与图片同 slide 同矩形, 见模板注释):
+ * top 锚点 + 显式高度 + 继承 slide 的 inset 变量驱动水平宽度/偏移。
+ * 水平比图片外扩 8px/侧(width +16px, 居中故两侧均分): 蒙版渐变带边缘是全强度
+ * 页面底色, 外扩段落在图外与底色同色不可见 —— 图片与蒙版是两层独立合成, 亚像素
+ * 取整可能让最边缘 1px 露出未加阴影的图(亮图右侧细线, 2026-10-11 用户反馈),
+ * 外扩保证图片边缘始终处于蒙版全强度区之下 */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-top,
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-right,
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-bottom,
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-left {
+  display: block;
+  inset: auto;
+  top: calc(-1 * var(--jc-hero-toplift));
+  bottom: auto;
+  left: 50%;
+  width: calc(100vw - var(--jc-hero-inset-l, 0px) - var(--jc-hero-inset-r, 0px) + 16px);
+  transform: translateX(
+    calc(
+      -50% - var(--jc-side-pad, 0px) / 2 +
+        (var(--jc-hero-inset-l, 0px) - var(--jc-hero-inset-r, 0px)) / 2
+    )
+  );
+  height: calc(100% + var(--jc-hero-toplift) + var(--jc-hero-bleed));
+}
+/* 顶部渐隐(用户: 顶部阴影区比其他方向小): 120px 条带压暗垫页头下 */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-top {
+  background-image: linear-gradient(180deg, rgba(11, 11, 15, 0.6), rgba(11, 11, 15, 0));
+  background-size: 100% 120px;
+  background-position: top;
+  background-repeat: no-repeat;
+}
+/* 右侧渐隐: 图右缘淡入页面底色(2026-10-11 用户: 阴影带加宽一倍, 渐变同步拉宽 ——
+ * 条带宽度 80/14vw/320 → 160/28vw/640) */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-right {
+  background-image: linear-gradient(270deg, var(--jc-bg-base), rgba(11, 11, 15, 0));
+  background-size: clamp(160px, 28vw, 640px) 100%;
+  background-position: right;
+  background-repeat: no-repeat;
+}
+/* 左侧渐隐 + 文字区压暗合一(阴影区域加宽一倍、渐变同步拉宽:
+ * 边缘入底色 9%→18%, 文字区压暗 24%→48%, 放行 46%→92%) */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-left {
+  background-image: linear-gradient(
+    90deg,
+    var(--jc-bg-base) 0%,
+    rgba(11, 11, 15, 0) 18%,
+    rgba(11, 11, 15, 0.55) 48%,
+    rgba(11, 11, 15, 0) 92%
+  );
+}
+/* 沉浸式渐变: 顶部轻压暗(垫在页头渐变下再补一层) → 中段透明 → 文字区加深 →
+ * 渐隐尾放缓拉长, 让下探区的图"透"出来铺在继续观看区背后 */
+html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-bottom {
+  background-image: linear-gradient(
+    180deg,
+    rgba(11, 11, 15, 0.25) 0%,
+    rgba(11, 11, 15, 0) 14%,
+    rgba(11, 11, 15, 0) 38%,
+    rgba(11, 11, 15, 0.4) 56%,
+    var(--jc-bg-base) 100%
+  );
 }
 </style>
