@@ -121,11 +121,6 @@ dependencies {
     // 这里不再重复声明版本 —— 版本改 scripts/android-versions.properties 的 dep.media3Version.
     // 用 OkHttp 做数据源: 播放器已内建(见 player-core), shell 侧 Retrofit 复用同一份 okhttp.
 
-    // IJKPlayer（兜底播放器，ffmpeg 内核，啃畸形采集源）
-    implementation("tv.danmaku.ijk.media:ijkplayer-java:0.8.8")
-    implementation("tv.danmaku.ijk.media:ijkplayer-arm64:0.8.8")
-    implementation("tv.danmaku.ijk.media:ijkplayer-armv7a:0.8.8")
-
     // 网络：Retrofit + kotlinx-serialization（无反射，适合弱机）
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

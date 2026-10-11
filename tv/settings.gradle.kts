@@ -14,7 +14,6 @@ dependencyResolutionManagement {
     repositories {
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/jcenter") } // ijkplayer 兜底播放器
         google()
         mavenCentral()
     }

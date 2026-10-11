@@ -81,7 +81,7 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
 ## 已完成
 
 - [x] 手机端「设备授权」确认页：`web` 的 `/tv-auth`（调用 `POST /tv/approve`）
-- [x] 播放健壮性：ExoPlayer 失败自动换源；**IJKPlayer 兜底**（arm64+armv7 .so）智能降级——仅真·解码失败才切 IJK，垃圾数据不喂避免 ffmpeg 原生崩溃
+- [x] 播放健壮性：ExoPlayer 失败自动换源（IJK 兜底已于 2026-10-11 移除——代码中从未接线，仅剩死依赖）
 - [x] 登录二维码（zxing，手机扫码直达授权页并预填配对码）
 - [x] token 加密存储（EncryptedSharedPreferences，API<23 自动回退明文）
 
