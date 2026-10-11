@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { filmApi } from '@/api'
 import { useViewMode } from '@/composables/useViewMode'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
-import { useHistoryStore, useUserStore } from '@/stores'
+import { useUIStore, useHistoryStore, useUserStore } from '@/stores'
 import { buildPlayLink } from '@/stores/history'
 import { episodeLabel, progressPercent } from '@/composables/useTimeBucket'
 import { isExternalLink } from '@/utils/url'
@@ -334,12 +334,51 @@ async function loadBanners(): Promise<void> {
   }
 }
 
+/* ============ 页头实底门槛(2026-10-10) ============
+ * 沉浸式轮播期间页头保持渐变阴影态, 轮播背景(含下探尾)滚出视口后才切毛玻璃实底。
+ * 背景层高度由 HeroCarousel 的 --jc-hero-bleed(下探量, 最大 1000px)+上提量驱动,
+ * 这里直接量真实图片层的文档底部 —— CSS 怎么改高度 JS 都不用跟着调。 */
+const uiStore = useUIStore()
+const heroWrapEl = ref<HTMLElement | null>(null)
+function updateHeaderGate(): void {
+  const el = heroWrapEl.value
+  const img = el?.querySelector<HTMLElement>('.jc-hero__image')
+  if (!el || !img || isTV.value) {
+    uiStore.headerSolidAt = 0
+    return
+  }
+  // 实底门槛 = 背景大图(含下探)文档底部。
+  // 注: 玻璃淡出已改由 PublicHeader onScroll 实时量视口坐标(2026-10-11),
+  // 这里只负责 headerSolidAt(页头无下边线的场景开关)。
+  uiStore.headerSolidAt = Math.max(0, img.getBoundingClientRect().bottom + window.scrollY)
+}
+function onWinResize(): void {
+  updateHeaderGate()
+}
+/** 测量加固(2026-10-11): nextTick 只保证 DOM 更新, 盒子高度(字体/轮播布局)
+ * 可能还没定型 —— 双 rAF 等两帧布局稳定后再量, 避免量到偏小/偏大的门槛。 */
+function remeasureHeaderGate(): void {
+  nextTick(() => {
+    requestAnimationFrame(() => requestAnimationFrame(updateHeaderGate))
+  })
+}
+watch(
+  () => heroSlides.value.length,
+  remeasureHeaderGate
+)
+watch(isTV, updateHeaderGate)
+
 onMounted(() => {
   loadIndex()
   loadBanners()
+  updateHeaderGate()
+  remeasureHeaderGate()
+  window.addEventListener('resize', onWinResize)
   if (isTV.value) restartTvHeroTimer()
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', onWinResize)
+  uiStore.headerSolidAt = 0
   if (tvHeroTimer !== null) {
     window.clearInterval(tvHeroTimer)
     tvHeroTimer = null
@@ -581,7 +620,11 @@ onBeforeUnmount(() => {
              继续观看区位置全部维持原版; 只把图从"圆角框内显示"改为铺满页面
              顶部全宽背景(限高+底部渐隐, 下探尾压在继续观看区背后)。
              图片 breakout 实现见 HeroCarousel 的 jc-hero--immersive 块。 -->
-        <div v-if="heroSlides.length" class="container-page pt-[var(--jc-space-6)]">
+        <div
+          v-if="heroSlides.length"
+          ref="heroWrapEl"
+          class="container-page pt-[var(--jc-space-6)]"
+        >
           <HeroCarousel
             :items="heroSlides"
             immersive

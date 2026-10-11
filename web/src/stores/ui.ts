@@ -34,6 +34,12 @@ export const useUIStore = defineStore('ui', () => {
   const loadingCount = ref(0)
   const loading = ref(false)
 
+  // 顶栏"实底"滚动门槛(px): 首页沉浸式轮播会把它设为轮播背景(含下探)的文档底部,
+  // >0 即"轮播大图场景" —— 页头不出边框线(2026-10-10)。
+  // 注: 玻璃淡出走 PublicHeader 固定值常量(HERO_FADE_START/SPAN, 2026-10-11 定稿),
+  // 本字段仅剩"是否轮播场景"(>0)的语义, 不再参与淡出/实底判定。
+  const headerSolidAt = ref(0)
+
   function pushLoading(): void {
     loadingCount.value++
     loading.value = true
@@ -63,6 +69,7 @@ export const useUIStore = defineStore('ui', () => {
     theme,
     loading,
     loadingCount,
+    headerSolidAt,
     pushLoading,
     popLoading,
     toggleSidebar,
