@@ -67,6 +67,9 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             R.id.settings_account_action,
             R.id.settings_server_save,
             R.id.settings_version_check,
+            R.id.settings_shell_auto,
+            R.id.settings_shell_web,
+            R.id.settings_shell_native,
         ).forEach { id ->
             view.findViewById<View>(id).installTvFocusAnimation { ServiceLocator.tokenStore.reduceMotion }
         }
@@ -77,6 +80,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         bindAccount(view)
         bindDevice(view)
         bindAbout(view)
+        bindShellMode(view)
         showGroup(R.id.settings_group_play)
     }
 
@@ -262,6 +266,31 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 check.isEnabled = true
             }
         }
+    }
+
+    /**
+     * 壳模式切换: auto / web / native, 写入 jerocine_prefs / jc-shell-mode,
+     * 与 DeviceProbe 和 WebShellActivity 共用同一键, 重启后 EntryRouter 按此路由。
+     */
+    private fun bindShellMode(root: View) {
+        val status = root.findViewById<TextView>(R.id.settings_shell_status)
+        val prefs = requireContext().getSharedPreferences("jerocine_prefs", Context.MODE_PRIVATE)
+        fun select(mode: String) {
+            prefs.edit().putString("jc-shell-mode", mode).apply()
+            status.text = "当前：" + when (mode) {
+                "web" -> "Web 容器"
+                "native" -> "原生播放器"
+                else -> "自动（按设备能力）"
+            }
+            root.findViewById<Button>(R.id.settings_shell_auto).isSelected = mode == "auto"
+            root.findViewById<Button>(R.id.settings_shell_web).isSelected = mode == "web"
+            root.findViewById<Button>(R.id.settings_shell_native).isSelected = mode == "native"
+            Toast.makeText(requireContext(), "壳模式已切换，重启后生效", Toast.LENGTH_SHORT).show()
+        }
+        root.findViewById<Button>(R.id.settings_shell_auto).setOnClickListener { select("auto") }
+        root.findViewById<Button>(R.id.settings_shell_web).setOnClickListener { select("web") }
+        root.findViewById<Button>(R.id.settings_shell_native).setOnClickListener { select("native") }
+        select(prefs.getString("jc-shell-mode", "auto") ?: "auto")
     }
 
     companion object {

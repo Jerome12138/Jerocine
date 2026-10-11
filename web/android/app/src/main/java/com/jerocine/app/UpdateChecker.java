@@ -61,12 +61,28 @@ public class UpdateChecker {
                 .build();
     }
 
-    /** 由 JerocineBridge.setAuthToken / clearAuthToken 静态调用 */
+    /**
+     * 由 JerocineBridge.setAuthToken / clearAuthToken 静态调用。
+     *
+     * P2.1 数据一致性: token 同时写入 ServiceLocator(→ TokenStore 加密存储, 与 tv 壳共用)
+     * 和旧位置 jerocine_update(兼容老版本升级)。读时优先 ServiceLocator, 回退旧位置。
+     */
     public static void saveAuthToken(Context ctx, String token) {
+        // 统一存储: 加密 prefs, 切壳模式不丢登录态
+        com.jerocine.tv.data.ServiceLocator.saveToken(token);
+        // 兼容旧位置(老版本升级 / 回退)
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_AUTH_TOKEN, token == null ? "" : token)
                 .apply();
+    }
+
+    /** 读 token: 优先统一存储(ServiceLocator), 回退旧位置 jerocine_update */
+    static String readAuthToken(Activity activity) {
+        String t = com.jerocine.tv.data.ServiceLocator.currentToken();
+        if (t != null && !t.isEmpty()) return t;
+        return activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_AUTH_TOKEN, "");
     }
 
     /**
@@ -81,8 +97,7 @@ public class UpdateChecker {
             return;
         }
         String versionUrl = serverUrl.replaceAll("/$", "") + VERSION_PATH;
-        String token = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_AUTH_TOKEN, "");
+        String token = readAuthToken(activity);
 
         Request.Builder b = new Request.Builder().url(versionUrl);
         if (token != null && !token.isEmpty()) {

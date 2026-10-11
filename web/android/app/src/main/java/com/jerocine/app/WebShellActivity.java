@@ -55,7 +55,8 @@ import org.json.JSONObject;
  * 3. 重置入口: 连按 BACK 4 次 (1.2s 内) 弹"重置服务器"对话框,
  *    避免遥控器没法长按 / 没菜单键 的尴尬.
  */
-public class WebShellActivity extends BridgeActivity {
+public class WebShellActivity extends BridgeActivity
+        implements ServerNavigationWebViewClient.WebViewFallbackCallback {
 
     static final String PREFS = "jerocine_prefs";
     static final String KEY_SERVER_URL = "server_url";
@@ -110,6 +111,11 @@ public class WebShellActivity extends BridgeActivity {
     private TextView displayModeValue;
     /** 当前显示模式覆盖值: tv / desktop / null(=没选过, 壳内默认强制 TV) */
     private String currentDisplayMode;
+    /** "壳模式"行右侧状态(存在 SharedPreferences jerocine_prefs / jc-shell-mode) */
+    private TextView shellModeValue;
+    /** 当前壳模式: auto / web / native(与 DeviceProbe 取值一致) */
+    private String currentShellMode;
+    static final String KEY_SHELL_MODE = "jc-shell-mode";
     private boolean settingsOpen = false;
     /** 断网兜底页 (原生全屏覆盖, 带重试按钮) */
     private FrameLayout offlineOverlay;
@@ -274,7 +280,14 @@ public class WebShellActivity extends BridgeActivity {
             @Override
             public void onProgressChanged(WebView view, int progress) {
                 super.onProgressChanged(view, progress);
-                if (progress >= 100) hideBootProgress();
+                if (progress >= 100) {
+                    hideBootProgress();
+                    // P2.3: 页面加载成功, 重置 WebView 失败计数
+                    if (bridge != null
+                            && bridge.getWebViewClient() instanceof ServerNavigationWebViewClient) {
+                        ((ServerNavigationWebViewClient) bridge.getWebViewClient()).onPageLoadSuccess();
+                    }
+                }
             }
             @Override
             public boolean onConsoleMessage(ConsoleMessage cm) {
@@ -311,7 +324,25 @@ public class WebShellActivity extends BridgeActivity {
             return;
         }
         bridge.setWebViewClient(
-                new ServerNavigationWebViewClient(bridge, () -> currentServerHost));
+                new ServerNavigationWebViewClient(bridge, () -> currentServerHost, this, prefs()));
+    }
+
+    /**
+     * P2.3 运行时降级: WebView 连续失败/渲染进程崩溃后触发。
+     * ServerNavigationWebViewClient 已写 prefs(jc-shell-mode=native),
+     * 这里负责重启应用让 EntryRouter 走原生壳。
+     */
+    @Override
+    public void onWebViewUnrecoverable() {
+        runOnUiThread(() -> {
+            GlassToast.show(this, "Web 容器异常，切换为原生模式，重启中…",
+                    android.widget.Toast.LENGTH_LONG);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                // 重启应用: 杀掉当前进程 + 系统自动恢复(或用户手动打开)
+                finishAffinity();
+                System.exit(0);
+            }, 1500);
+        });
     }
 
     /** 当前是否有可用网络连接 (拿不到判定时按"有网"处理, 避免误拦) */
@@ -505,6 +536,7 @@ public class WebShellActivity extends BridgeActivity {
         settingsFirstFocus = null;
         adFilterSwitch = null;
         displayModeValue = null;
+        shellModeValue = null;
         accountAction = null;
         accountTitleView = null;
 
@@ -577,6 +609,9 @@ public class WebShellActivity extends BridgeActivity {
 
         // ---------- 系统 ----------
         addGroupHeader("系统");
+        currentShellMode = prefs().getString(KEY_SHELL_MODE, "auto");
+        shellModeValue = addNavRow("壳模式", "自动 / Web / 原生（重启生效）",
+                shellModeLabel(currentShellMode), this::cycleShellMode);
         displayModeValue = addNavRow("显示模式", "TV → 桌面 → 自动（壳内默认 TV）",
                 SettingsDrawerLogic.displayModeLabel(null), this::cycleDisplayMode);
         addNavRow("退出应用", "", "", () -> {
@@ -595,6 +630,27 @@ public class WebShellActivity extends BridgeActivity {
         String next = SettingsDrawerLogic.nextDisplayMode(currentDisplayMode);
         applyViewMode(next); // 内部下发钩子 + 关抽屉
         GlassToast.show(this, SettingsDrawerLogic.displayModeToast(next));
+    }
+
+    /** 壳模式三态循环: auto → web → native → auto; 写入 SharedPreferences, 重启生效 */
+    private void cycleShellMode() {
+        String next = nextShellMode(currentShellMode);
+        prefs().edit().putString(KEY_SHELL_MODE, next).apply();
+        currentShellMode = next;
+        if (shellModeValue != null) shellModeValue.setText(shellModeLabel(next));
+        GlassToast.show(this, "壳模式已设为 " + shellModeLabel(next) + "，重启后生效");
+    }
+
+    static String nextShellMode(String current) {
+        if ("web".equals(current)) return "native";
+        if ("native".equals(current)) return "auto";
+        return "web"; // auto 或非法值
+    }
+
+    static String shellModeLabel(String mode) {
+        if ("web".equals(mode)) return "Web";
+        if ("native".equals(mode)) return "原生";
+        return "自动";
     }
 
     /** 账号行动作: 未登录 → web 的登录页(redirect 回当前页); 已登录 → web 的退出流程 */

@@ -67,6 +67,21 @@ object ServiceLocator {
         }
     }
 
+    /**
+     * 仅存 token（web 壳登录时只有 jwt, 没有 userName —— userName 由前端 localStorage 管理）。
+     * 供 Java 侧 UpdateChecker / JerocineBridge 调用, 统一 token 存储到 TokenStore(加密),
+     * 切壳模式时登录态不丢。
+     */
+    @JvmStatic
+    fun saveToken(token: String?) {
+        this.token = token
+        if (::tokenStore.isInitialized) tokenStore.token = token
+    }
+
+    /** 当前 token(Java 侧可读); 未登录返回 null */
+    @JvmStatic
+    fun currentToken(): String? = token
+
     fun logout() {
         token = null
         if (::tokenStore.isInitialized) tokenStore.clear()
