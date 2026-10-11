@@ -95,4 +95,31 @@
         <item name="android:focusable">true</item>
         <item name="android:clickable">true</item>
     </style>
+
+    <!--
+      原生播放器 Activity 主题(2026-10-11 从两壳下沉到 player-core):
+      全黑 + 隐藏 ActionBar/标题栏 + 全屏。
+      parent 必须 AppCompat 系 —— PlayerActivity 继承 AppCompatActivity,
+      用 android:Theme.Material.NoActionBar 会抛 "You need to use a Theme.AppCompat theme".
+      两壳 manifest 统一引用 @style/Theme.JcPlayer, 不再各定义一份。
+    -->
+    <style name="Theme.JcPlayer" parent="Theme.AppCompat.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+    </style>
+
+    <!--
+      下载管理页 Activity 主题(2026-10-11 从 web 壳下沉到 player-core):
+      NoActionBar + 黑底 —— 页内自有标题栏, 避免 Material 亮色 ActionBar 与深色玻璃风格脱节。
+      两壳 manifest 统一引用 @style/Theme.JcDownload。
+    -->
+    <style name="Theme.JcDownload" parent="Theme.AppCompat.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+    </style>
 </resources>

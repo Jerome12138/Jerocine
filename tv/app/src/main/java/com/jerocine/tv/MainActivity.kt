@@ -30,7 +30,7 @@ class MainActivity : FragmentActivity() {
         // 底部系统导航栏(手势条/三键条)与页面背景同色 — 装平板/手机时避免黑白条突兀
         window.navigationBarColor =
             androidx.core.content.ContextCompat.getColor(this, com.jerocine.player.R.color.jc_bg)
-        setContentView(R.layout.activity_main)
+        setContentView(R.layout.activity_native_shell)
         JerocinePlayer.config().setCallback(::handlePlayerEvent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
