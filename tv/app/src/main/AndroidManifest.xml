@@ -13,7 +13,7 @@
     <application>
         <!-- 原生壳入口: 由 EntryRouter 转发, 不对外导出 -->
         <activity
-            android:name=".MainActivity"
+            android:name=".NativeShellActivity"
             android:exported="false"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
             android:screenOrientation="landscape"

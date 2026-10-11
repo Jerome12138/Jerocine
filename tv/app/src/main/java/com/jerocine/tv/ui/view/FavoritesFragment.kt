@@ -11,7 +11,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.jerocine.tv.MainActivity
+import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.FavoriteItem
 import com.jerocine.tv.data.ServiceLocator
@@ -40,7 +40,7 @@ class FavoritesFragment : Fragment(R.layout.fragment_favorites) {
         }
         back.setOnClickListener { requireActivity().onBackPressedDispatcher.onBackPressed() }
         login.isVisible = !ServiceLocator.isLoggedIn
-        login.setOnClickListener { (requireActivity() as MainActivity).openLogin() }
+        login.setOnClickListener { (requireActivity() as NativeShellActivity).openLogin() }
         manage.setOnClickListener {
             manageMode = !manageMode
             manage.text = if (manageMode) "完成" else "管理"
@@ -98,7 +98,7 @@ class FavoritesFragment : Fragment(R.layout.fragment_favorites) {
 
     private fun handlePosterClick(mid: Long) {
         if (!manageMode) {
-            (requireActivity() as MainActivity).openDetail(mid)
+            (requireActivity() as NativeShellActivity).openDetail(mid)
             return
         }
         viewLifecycleOwner.lifecycleScope.launch {

@@ -320,15 +320,15 @@ public class JerocineBridge {
     }
 
     private String handleCheckUpdate() {
-        if (activity instanceof MainActivity) {
-            runOnUi(((MainActivity) activity)::checkUpdateExposed);
+        if (activity instanceof WebShellActivity) {
+            runOnUi(((WebShellActivity) activity)::checkUpdateExposed);
         }
         return jsonOk();
     }
 
     private String handleOpenServerSettings() {
-        if (activity instanceof MainActivity) {
-            runOnUi(((MainActivity) activity)::promptServerUrlExposed);
+        if (activity instanceof WebShellActivity) {
+            runOnUi(((WebShellActivity) activity)::promptServerUrlExposed);
         }
         return jsonOk();
     }
@@ -338,8 +338,8 @@ public class JerocineBridge {
      * (web TV 胶囊行"设置"按钮、首页"我的"卡)。与 MENU 键走同一个抽屉。
      */
     private String handleOpenSettings() {
-        if (activity instanceof MainActivity) {
-            runOnUi(((MainActivity) activity)::showSettingsDrawerExposed);
+        if (activity instanceof WebShellActivity) {
+            runOnUi(((WebShellActivity) activity)::showSettingsDrawerExposed);
         }
         return jsonOk();
     }
@@ -363,8 +363,8 @@ public class JerocineBridge {
     private String handleEchoTest(JSONObject args) throws Exception {
         final String nonce = args.optString("nonce", "");
         final long t = args.optLong("t", 0L);
-        if (activity instanceof MainActivity) {
-            final MainActivity ma = (MainActivity) activity;
+        if (activity instanceof WebShellActivity) {
+            final WebShellActivity ma = (WebShellActivity) activity;
             // 200ms 后回吐, 避免与同步 invoke 返回竞争
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 try {

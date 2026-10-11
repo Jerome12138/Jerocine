@@ -22,7 +22,7 @@ import com.jerocine.tv.ui.view.SettingsFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-class MainActivity : FragmentActivity() {
+class NativeShellActivity : FragmentActivity() {
     private val exitGate = DoubleBackExitGate()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,7 +41,7 @@ class MainActivity : FragmentActivity() {
                 if (exitGate.shouldExit(SystemClock.elapsedRealtime())) {
                     finish()
                 } else {
-                    Toast.makeText(this@MainActivity, "再按一次退出应用", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@NativeShellActivity, "再按一次退出应用", Toast.LENGTH_SHORT).show()
                 }
             }
         })

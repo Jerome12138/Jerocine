@@ -15,7 +15,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.jerocine.tv.MainActivity
+import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.HistoryItem
 import com.jerocine.tv.data.ServiceLocator
@@ -65,12 +65,12 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             control.installTvFocusAnimation { ServiceLocator.tokenStore.reduceMotion }
         }
         retry.setOnClickListener { viewModel.refresh() }
-        search.setOnClickListener { (requireActivity() as MainActivity).openSearch() }
+        search.setOnClickListener { (requireActivity() as NativeShellActivity).openSearch() }
         login.text = "登录"
-        login.setOnClickListener { (requireActivity() as MainActivity).openLogin() }
-        history.setOnClickListener { (requireActivity() as MainActivity).openHistory() }
-        favorites.setOnClickListener { (requireActivity() as MainActivity).openFavorites() }
-        settings.setOnClickListener { (requireActivity() as MainActivity).openSettings() }
+        login.setOnClickListener { (requireActivity() as NativeShellActivity).openLogin() }
+        history.setOnClickListener { (requireActivity() as NativeShellActivity).openHistory() }
+        favorites.setOnClickListener { (requireActivity() as NativeShellActivity).openFavorites() }
+        settings.setOnClickListener { (requireActivity() as NativeShellActivity).openSettings() }
         loadRecentOnce()
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -131,28 +131,28 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
     private fun openDetail(mid: Long) {
         focusedMid = mid
-        (requireActivity() as MainActivity).openDetail(mid)
+        (requireActivity() as NativeShellActivity).openDetail(mid)
     }
 
     private fun openCategory(pid: Long) {
-        (requireActivity() as MainActivity).openCategory(pid)
+        (requireActivity() as NativeShellActivity).openCategory(pid)
     }
 
     private fun openHistory() {
-        (requireActivity() as MainActivity).openHistory()
+        (requireActivity() as NativeShellActivity).openHistory()
     }
 
     private fun openSearch() {
-        (requireActivity() as MainActivity).openSearch()
+        (requireActivity() as NativeShellActivity).openSearch()
     }
 
     private fun openAccount(loggedIn: Boolean) {
-        if (loggedIn) (requireActivity() as MainActivity).openSettings()
-        else (requireActivity() as MainActivity).openLogin()
+        if (loggedIn) (requireActivity() as NativeShellActivity).openSettings()
+        else (requireActivity() as NativeShellActivity).openLogin()
     }
 
     private fun openSettings() {
-        (requireActivity() as MainActivity).openSettings()
+        (requireActivity() as NativeShellActivity).openSettings()
     }
 
     private fun submitHeader() {

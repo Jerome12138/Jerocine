@@ -18,27 +18,32 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
 
+        <!-- 入口路由器: 唯一 launcher, 按设备能力/用户偏好转发到 WebShell 或 NativeShell -->
         <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
-            android:name=".MainActivity"
-            android:label="@string/title_activity_main"
+            android:name=".EntryRouterActivity"
+            android:exported="true"
             android:theme="@style/AppTheme.NoActionBarLaunch"
-            android:launchMode="singleTask"
-            android:exported="true">
-
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density">
             <!-- 手机/平板入口 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
             <!-- Android TV Leanback Launcher 入口 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-
         </activity>
+
+        <!-- WebView 壳: 由 EntryRouter 转发, 不对外导出 -->
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".WebShellActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="false" />
 
         <!-- 原生视频播放器 (ExoPlayer 全屏 + 横屏 + 沉浸式) -->
         <!-- exported=true + ACTION_VIEW: 支持系统文件管理器「打开方式」直接调用本地视频播放 -->

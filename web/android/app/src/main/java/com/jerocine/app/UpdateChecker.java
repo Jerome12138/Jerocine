@@ -74,8 +74,8 @@ public class UpdateChecker {
      * @param userTriggered true=用户在 UI 点的, 即使无更新也提示 + 忽略 ignored_version
      */
     public void check(boolean userTriggered) {
-        String serverUrl = activity.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE)
-                .getString(MainActivity.KEY_SERVER_URL, null);
+        String serverUrl = activity.getSharedPreferences(WebShellActivity.PREFS, Context.MODE_PRIVATE)
+                .getString(WebShellActivity.KEY_SERVER_URL, null);
         if (serverUrl == null || serverUrl.isEmpty()) {
             if (userTriggered) toast("尚未设置服务器地址");
             return;

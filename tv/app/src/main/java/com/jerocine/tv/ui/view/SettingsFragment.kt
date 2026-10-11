@@ -15,7 +15,7 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.jerocine.tv.BuildConfig
-import com.jerocine.tv.MainActivity
+import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.ui.DeviceDiagnostics
@@ -187,7 +187,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 ServiceLocator.logout()
                 update()
             } else {
-                (requireActivity() as MainActivity).openLogin()
+                (requireActivity() as NativeShellActivity).openLogin()
             }
         }
         update()

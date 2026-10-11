@@ -11,7 +11,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.jerocine.tv.MainActivity
+import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.HistoryItem
 import com.jerocine.tv.data.LocalHistoryRecord
@@ -50,7 +50,7 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
         }
         back.setOnClickListener { requireActivity().onBackPressedDispatcher.onBackPressed() }
         login.isVisible = !ServiceLocator.isLoggedIn
-        login.setOnClickListener { (requireActivity() as MainActivity).openLogin() }
+        login.setOnClickListener { (requireActivity() as NativeShellActivity).openLogin() }
         manage.setOnClickListener {
             manageMode = !manageMode
             historyAdapter.manageMode = manageMode

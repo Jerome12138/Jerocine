@@ -14,7 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.jerocine.tv.MainActivity
+import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.ui.CategoryViewModel
@@ -96,10 +96,10 @@ class CategoryFragment : Fragment(R.layout.fragment_category) {
         viewModel.load(pid)
     }
 
-    private fun openDetail(mid: Long) = (requireActivity() as MainActivity).openDetail(mid)
+    private fun openDetail(mid: Long) = (requireActivity() as NativeShellActivity).openDetail(mid)
 
     private fun openLibrary(sort: String) =
-        (requireActivity() as MainActivity).openCategoryLibrary(pid, categoryName, sort)
+        (requireActivity() as NativeShellActivity).openCategoryLibrary(pid, categoryName, sort)
 
     companion object {
         private const val ARG_PID = "pid"

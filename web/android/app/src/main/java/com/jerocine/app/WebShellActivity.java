@@ -55,7 +55,7 @@ import org.json.JSONObject;
  * 3. 重置入口: 连按 BACK 4 次 (1.2s 内) 弹"重置服务器"对话框,
  *    避免遥控器没法长按 / 没菜单键 的尴尬.
  */
-public class MainActivity extends BridgeActivity {
+public class WebShellActivity extends BridgeActivity {
 
     static final String PREFS = "jerocine_prefs";
     static final String KEY_SERVER_URL = "server_url";
@@ -286,7 +286,7 @@ public class MainActivity extends BridgeActivity {
                     Log.e("JerocineWeb", msg);
                     if (BuildConfig.DEBUG) {
                         runOnUiThread(() -> GlassToast.show(
-                                MainActivity.this, msg, Toast.LENGTH_LONG));
+                                WebShellActivity.this, msg, Toast.LENGTH_LONG));
                     }
                 }
                 return super.onConsoleMessage(cm);
@@ -1086,7 +1086,7 @@ public class MainActivity extends BridgeActivity {
                                     finishAffinity(); // 真正退出应用
                                 } else {
                                     lastExitBackAt = t;
-                                    GlassToast.show(MainActivity.this, "再按一次退出应用");
+                                    GlassToast.show(WebShellActivity.this, "再按一次退出应用");
                                 }
                             });
                         }

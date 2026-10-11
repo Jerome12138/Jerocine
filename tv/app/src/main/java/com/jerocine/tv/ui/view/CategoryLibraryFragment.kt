@@ -15,7 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.jerocine.tv.MainActivity
+import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.ui.CategoryLibraryViewModel
@@ -118,7 +118,7 @@ class CategoryLibraryFragment : Fragment(R.layout.fragment_category_library) {
         viewModel.load(pid, sort)
     }
 
-    private fun openDetail(mid: Long) = (requireActivity() as MainActivity).openDetail(mid)
+    private fun openDetail(mid: Long) = (requireActivity() as NativeShellActivity).openDetail(mid)
 
     private fun selectFilter(key: String, value: String) = viewModel.selectFilter(key, value)
 
