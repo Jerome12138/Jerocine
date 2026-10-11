@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 可延伸浅灰渐变背景(近似 gradient03 母图边缘色), mask 裁切只切背景不切图标留白 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:type="linear"
+        android:angle="315"
+        android:startColor="#C6C6D2"
+        android:endColor="#DDE2EE" />
+</shape>

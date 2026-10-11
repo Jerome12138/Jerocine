@@ -2,6 +2,7 @@ package com.jerocine.app;
 
 import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerAdFilterHelper;
+import com.jerocine.tv.ui.SettingsDrawerController;
 
 import android.app.AlertDialog;
 import android.content.Context;
@@ -56,7 +57,8 @@ import org.json.JSONObject;
  *    避免遥控器没法长按 / 没菜单键 的尴尬.
  */
 public class WebShellActivity extends BridgeActivity
-        implements ServerNavigationWebViewClient.WebViewFallbackCallback {
+        implements ServerNavigationWebViewClient.WebViewFallbackCallback,
+                   SettingsDrawerController.Host {
 
     static final String PREFS = "jerocine_prefs";
     static final String KEY_SERVER_URL = "server_url";
@@ -94,29 +96,13 @@ public class WebShellActivity extends BridgeActivity
     WebView webViewRef;
     /** 当前服务器 host(loadServer 每次刷新) —— 供 ServerNavigationWebViewClient 判定"站内导航" */
     private String currentServerHost;
-    private FrameLayout settingsOverlay;
-    private ScrollView settingsPanelScroll;
-    private LinearLayout settingsPanel;
-    /** 组装时记录第一行可聚焦项 —— 分组后行序会变, 不能再靠固定下标定位焦点 */
-    private View settingsFirstFocus;
-    /** 抽屉里的开关图形(切换后就地刷新, 不重建面板以保住遥控器焦点) */
-    private FrameLayout adFilterSwitch;
-    /** 「账号」行右侧动作文案(登录 / 退出) —— 打开抽屉时经 __jcAuth 异步刷新 */
-    private TextView accountAction;
-    /** 「账号」行主标题(显示昵称 / 未登录) —— 与 accountAction 同步刷新 */
-    private TextView accountTitleView;
+    /** 统一设置抽屉控制器(web 壳与原生壳共用) */
+    private SettingsDrawerController settingsDrawer;
     /** 最近一次读到的 web 登录态(决定账号行的动作语义) */
     private boolean accountLoggedIn;
-    /** "显示模式"行右侧状态(存在 WebView localStorage 的 jc-native-mode, 打开抽屉时异步读一次) */
-    private TextView displayModeValue;
     /** 当前显示模式覆盖值: tv / desktop / null(=没选过, 壳内默认强制 TV) */
     private String currentDisplayMode;
-    /** "壳模式"行右侧状态(存在 SharedPreferences jerocine_prefs / jc-shell-mode) */
-    private TextView shellModeValue;
-    /** 当前壳模式: auto / web / native(与 DeviceProbe 取值一致) */
-    private String currentShellMode;
     static final String KEY_SHELL_MODE = "jc-shell-mode";
-    private boolean settingsOpen = false;
     /** 断网兜底页 (原生全屏覆盖, 带重试按钮) */
     private FrameLayout offlineOverlay;
 
@@ -486,171 +472,61 @@ public class WebShellActivity extends BridgeActivity
                 getResources().getDisplayMetrics());
     }
 
-    private void buildSettingsDrawer() {
-        FrameLayout root = findViewById(android.R.id.content);
-        if (root == null) return;
-        // 全屏半透明遮罩 (拦截外部点击 = 关抽屉)
-        settingsOverlay = new FrameLayout(this);
-        settingsOverlay.setBackgroundColor(GF_SCRIM);
-        settingsOverlay.setVisibility(View.GONE);
-        settingsOverlay.setClickable(true);
-        settingsOverlay.setOnClickListener(v -> hideSettingsDrawer());
-        root.addView(settingsOverlay, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    // ======================== SettingsDrawerController.Host 实现 ========================
+    // 通用设置抽屉以 web 壳原有样式为基础, 原生壳共用; 壳特有操作经此回调。
 
-        // 右侧抽屉外壳 (ScrollView 包裹 — 分组后行数多, 小屏 TV 必须能滚)
-        // 玻璃面 (半透明深色) + 左侧细描边, 营造贴边玻璃抽屉感.
-        settingsPanelScroll = new ScrollView(this);
-        GradientDrawable drawerBg = new GradientDrawable();
-        drawerBg.setColor(GF_GLASS);
-        drawerBg.setStroke(dp(1), GF_STROKE);
-        settingsPanelScroll.setBackground(drawerBg);
-        settingsPanelScroll.setClickable(true); // 拦截到自己上的点击, 别冒泡给遮罩
-        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(
-                dp(DRAWER_W_DP), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
-        settingsOverlay.addView(settingsPanelScroll, panelLp);
-
-        // 真正的行容器
-        settingsPanel = new LinearLayout(this);
-        settingsPanel.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(20);
-        settingsPanel.setPadding(pad, pad, pad, dp(28));
-        settingsPanelScroll.addView(settingsPanel, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        fillSettingsPanel();
+    @Override public void onRefreshPage() {
+        if (webViewRef != null) webViewRef.reload();
+    }
+    @Override public void onExitApp() { finishAffinity(); }
+    @Override public void onCheckUpdate() { checkUpdateExposed(); }
+    @Override public void onDeviceDiagnostics() { showDeviceDiagnostics(); }
+    @Override public void onServerUrlEdit() { promptServerUrl(true); }
+    @Override public String getServerUrl() {
+        return prefs().getString(KEY_SERVER_URL, "");
     }
 
-    /**
-     * 抽屉内容(2026-10-10 按用户要求重排):
-     *   置顶「刷新页面」→ 账号(行内直读 web 登录态, 右侧按钮登录/退出) → 播放(广告过滤)
-     *   → 设备(诊断·服务器) → 关于(平台·构建·更新) → 系统(显示模式·退出)。
-     *
-     * 改版点: 中转播放开关删除(播放器菜单里已有同款); 跳过片头片尾入口删除(按片设置在
-     * 播放页, 账号级默认值的数据协议留着未来用); 原「账号设置 → SPA /settings」入口删除
-     * (SPA 设置页已删, 账号行经 window.__jcAuth 直接读写 web 登录态)。
-     */
-    private void fillSettingsPanel() {
-        settingsPanel.removeAllViews();
-        settingsFirstFocus = null;
-        adFilterSwitch = null;
-        displayModeValue = null;
-        shellModeValue = null;
-        accountAction = null;
-        accountTitleView = null;
-
-        // ---------- 头部: 标题 + 版本 + ✕ ----------
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = makeText("设置", 20, GF_TEXT, true);
-        head.addView(title, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        head.addView(makeText("v" + BuildConfig.VERSION_NAME
-                + " (" + BuildConfig.VERSION_CODE + ")", 12, GF_TEXT_TER, false));
-        // 关闭按钮: 用矢量图标(ic_close 在 player-core, 资源全 APK 一份但 R 非传递,
-        // 必须用 com.jerocine.player.R) —— 别用 Unicode 字符
-        // (原 "✕" U+2715 在部分设备字体缺字形, 显示成"方框里一个叉"即缺字 tofu, 用户反馈)。
-        ImageView closeBtn = new ImageView(this);
-        closeBtn.setImageResource(com.jerocine.player.R.drawable.ic_close);
-        closeBtn.setColorFilter(GF_TEXT_SEC);
-        closeBtn.setContentDescription("关闭");
-        closeBtn.setPadding(dp(4), dp(4), dp(4), dp(4));
-        closeBtn.setFocusable(true);
-        closeBtn.setClickable(true);
-        closeBtn.setOnClickListener(v -> hideSettingsDrawer());
-        head.addView(closeBtn, new LinearLayout.LayoutParams(dp(24), dp(24)));
-        settingsPanel.addView(head, rowParams(ViewGroup.LayoutParams.WRAP_CONTENT, 8));
-
-        // ---------- 置顶: 刷新页面(用户 2026-10-10 指定放最上) ----------
-        addNavRow("刷新页面", "重新加载当前站点", "", () -> {
-            if (webViewRef != null) webViewRef.reload();
+    // ---- 账号(web 特有: 经 window.__jcAuth 读写 web 登录态) ----
+    @Override public void onAccountAction() {
+        if (webViewRef == null) return;
+        if (accountLoggedIn) {
+            evalJs("window.__jcAuth && window.__jcAuth.logout();");
+            GlassToast.show(this, "已退出登录");
+            new Handler(Looper.getMainLooper()).postDelayed(this::refreshAccountRow, 800);
+        } else {
+            evalJs("window.__jcAuth && window.__jcAuth.login();");
             hideSettingsDrawer();
-        });
-
-        // ---------- 账号: 行内直读 web 登录态(异步, 打开抽屉时 refreshAccountRow 刷真值) ----------
-        addGroupHeader("账号");
-        LinearLayout accountRow = makeRowBase(
-                "未登录", "登录后收藏 / 历史 / 跳过设置多端同步", true, v -> onAccountActionClick());
-        accountTitleView = (TextView) ((LinearLayout) accountRow.getChildAt(0)).getChildAt(0);
-        accountAction = makeText("登录", 13, GF_ACCENT, false);
-        addRowTail(accountRow, accountAction);
-        settingsPanel.addView(accountRow, rowParams(dp(ROW_H_DP), 6));
-
-        // ---------- 播放 ----------
-        addGroupHeader("播放");
-        addToggleRow("广告过滤",
-                "剔除 m3u8 插片/跨域广告 · 默认开启",
-                PlayerAdFilterHelper.isAdFilterEnabled(this),
-                sw -> adFilterSwitch = sw,
-                () -> {
-                    boolean next = !PlayerAdFilterHelper.isAdFilterEnabled(this);
-                    PlayerAdFilterHelper.setAdFilterEnabled(this, next);
-                    refreshToggle(adFilterSwitch, next);
-                    GlassToast.show(this, next ? "广告过滤已开启" : "广告过滤已关闭");
-                });
-
-        // ---------- 设备 ----------
-        addGroupHeader("设备");
-        addNavRow("设备诊断", "机型 / 系统 / WebView 内核 / 内存", "",
-                this::onDeviceDiagnosticsClick);
-        addNavRow("服务器地址", prefs().getString(KEY_SERVER_URL, ""), "修改 ›",
-                () -> promptServerUrl(true));
-
-        // ---------- 关于 ----------
-        addGroupHeader("关于");
-        addInfoRow("运行平台", "Android " + Build.VERSION.RELEASE
-                + " (API " + Build.VERSION.SDK_INT + ")");
-        addInfoRow("构建模式", "APK 构建类型 · 与线上包体无关",
-                BuildConfig.DEBUG ? "debug" : "release");
-        addNavRow("检查更新", "GET /app/version/latest", "立即检查",
-                this::checkUpdateExposed);
-
-        // ---------- 系统 ----------
-        addGroupHeader("系统");
-        currentShellMode = prefs().getString(KEY_SHELL_MODE, "auto");
-        shellModeValue = addNavRow("壳模式", "自动 / Web / 原生（重启生效）",
-                shellModeLabel(currentShellMode), this::cycleShellMode);
-        displayModeValue = addNavRow("显示模式", "TV → 桌面 → 自动（壳内默认 TV）",
-                SettingsDrawerLogic.displayModeLabel(null), this::cycleDisplayMode);
-        addNavRow("退出应用", "", "", () -> {
-            hideSettingsDrawer();
-            finishAffinity();
-        });
+        }
+    }
+    @Override public SettingsDrawerController.AccountInfo getAccountInfo() {
+        if (accountLoggedIn) {
+            return new SettingsDrawerController.AccountInfo(
+                    "已登录", "收藏 / 历史 / 跳过设置多端同步", "退出", true);
+        }
+        return SettingsDrawerController.AccountInfo.loggedOut();
     }
 
-    private void onDeviceDiagnosticsClick() {
-        hideSettingsDrawer();
-        showDeviceDiagnostics();
+    // ---- 显示模式(web 特有; 原生壳 hasDisplayMode=false 隐藏此行) ----
+    @Override public boolean hasDisplayMode() { return true; }
+    @Override public void onCycleDisplayMode() { cycleDisplayMode(); }
+    @Override public String getDisplayModeLabel() {
+        return SettingsDrawerLogic.displayModeLabel(currentDisplayMode);
+    }
+
+    // ---- 壳模式(通用) ----
+    @Override public void onShellModeChanged(String mode) {
+        GlassToast.show(this, "壳模式已设为 "
+                + SettingsDrawerController.shellModeLabel(mode) + "，重启后生效");
+    }
+    @Override public String getCurrentShellMode() {
+        return prefs().getString(KEY_SHELL_MODE, "auto");
     }
 
     /** 显示模式三态循环: TV → 桌面 → 自动(清除) → TV…; 经 __jcSetMode 钩子即时生效 */
     private void cycleDisplayMode() {
         String next = SettingsDrawerLogic.nextDisplayMode(currentDisplayMode);
-        applyViewMode(next); // 内部下发钩子 + 关抽屉
+        applyViewMode(next);
         GlassToast.show(this, SettingsDrawerLogic.displayModeToast(next));
-    }
-
-    /** 壳模式三态循环: auto → web → native → auto; 写入 SharedPreferences, 重启生效 */
-    private void cycleShellMode() {
-        String next = nextShellMode(currentShellMode);
-        prefs().edit().putString(KEY_SHELL_MODE, next).apply();
-        currentShellMode = next;
-        if (shellModeValue != null) shellModeValue.setText(shellModeLabel(next));
-        GlassToast.show(this, "壳模式已设为 " + shellModeLabel(next) + "，重启后生效");
-    }
-
-    static String nextShellMode(String current) {
-        if ("web".equals(current)) return "native";
-        if ("native".equals(current)) return "auto";
-        return "web"; // auto 或非法值
-    }
-
-    static String shellModeLabel(String mode) {
-        if ("web".equals(mode)) return "Web";
-        if ("native".equals(mode)) return "原生";
-        return "自动";
     }
 
     /** 账号行动作: 未登录 → web 的登录页(redirect 回当前页); 已登录 → web 的退出流程 */
@@ -673,7 +549,7 @@ public class WebShellActivity extends BridgeActivity
      * 回传(evaluateJavascript 对对象回 JSON 文本, 对字符串会再包一层引号, 少一层解码)。
      */
     private void refreshAccountRow() {
-        if (accountAction == null || webViewRef == null) return;
+        if (webViewRef == null) return;
         evalJs("(function(){try{return window.__jcAuth"
                 + "?JSON.parse(window.__jcAuth.user()):null}catch(e){return null}})();",
                 value -> {
@@ -681,9 +557,12 @@ public class WebShellActivity extends BridgeActivity
                             SettingsDrawerLogic.parseAccountSnapshot(value);
                     accountLoggedIn = snap.loggedIn;
                     runOnUiThread(() -> {
-                        if (accountAction == null || accountTitleView == null) return;
-                        accountTitleView.setText(SettingsDrawerLogic.accountTitle(snap));
-                        accountAction.setText(SettingsDrawerLogic.accountActionText(snap));
+                        if (settingsDrawer == null) return;
+                        settingsDrawer.refreshAccount(new SettingsDrawerController.AccountInfo(
+                                SettingsDrawerLogic.accountTitle(snap),
+                                "登录后收藏 / 历史 / 跳过设置多端同步",
+                                SettingsDrawerLogic.accountActionText(snap),
+                                snap.loggedIn));
                     });
                 });
     }
@@ -704,7 +583,7 @@ public class WebShellActivity extends BridgeActivity
      * 空 ⇒ null ⇒ 文案"自动"(即"没选过", 壳内按默认强制 TV)。
      */
     private void refreshDisplayModeValue() {
-        if (displayModeValue == null || webViewRef == null) return;
+        if (webViewRef == null) return;
         webViewRef.evaluateJavascript(
                 "(function(){try{return localStorage.getItem('jc-native-mode')||''}"
                         + "catch(e){return ''}})();",
@@ -714,224 +593,27 @@ public class WebShellActivity extends BridgeActivity
                     final String mode = raw;
                     currentDisplayMode = mode.isEmpty() ? null : mode;
                     runOnUiThread(() -> {
-                        if (displayModeValue != null) {
-                            displayModeValue.setText(SettingsDrawerLogic.displayModeLabel(mode));
+                        if (settingsDrawer != null) {
+                            settingsDrawer.refreshDisplayMode(
+                                    SettingsDrawerLogic.displayModeLabel(mode));
                         }
                     });
                 });
     }
 
-    // ==================== 抽屉行 helper (分组化 UI, 见抽屉重设计 §4) ====================
-    // 行规格: 高 56dp; 主标题 16sp(白 92%); 副标题 12sp(白 55%); 右侧控件右对齐;
-    // 组标题 12sp(白 40%) 行高 32dp + 顶部 16dp 留白。
-
-    private TextView makeText(String text, float sp, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextColor(color);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        if (bold) t.setPaintFlags(t.getPaintFlags() | android.graphics.Paint.FAKE_BOLD_TEXT_FLAG);
-        return t;
-    }
-
-    private LinearLayout.LayoutParams rowParams(int height, int topMarginDp) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, height);
-        lp.topMargin = dp(topMarginDp);
-        return lp;
-    }
-
-    /** 组标题: 小字弱化 + 左侧竖条, 行高 32dp */
-    private void addGroupHeader(String label) {
-        LinearLayout wrap = new LinearLayout(this);
-        wrap.setOrientation(LinearLayout.HORIZONTAL);
-        wrap.setGravity(Gravity.BOTTOM);
-        // 组标题与行之间留一点呼吸(不然 12sp 小字贴着行上沿)
-        wrap.setPadding(0, 0, 0, 0);
-
-        View bar = new View(this);
-        GradientDrawable barBg = new GradientDrawable();
-        barBg.setColor(GF_ACCENT);
-        barBg.setCornerRadius(dp(2));
-        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(3), dp(12));
-        barLp.bottomMargin = dp(6);
-        wrap.addView(bar, barLp);
-
-        TextView t = makeText(label, 12, GF_TEXT_TER, true);
-        t.setLetterSpacing(0.18f);
-        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tLp.leftMargin = dp(8);
-        tLp.bottomMargin = dp(4);
-        wrap.addView(t, tLp);
-
-        LinearLayout.LayoutParams lp = rowParams(dp(32), 16);
-        lp.bottomMargin = dp(2);
-        settingsPanel.addView(wrap, lp);
-    }
-
-    /** 行基底: 玻璃底 + 焦点态 + 左(主/副标题)右(控件) 两栏; focusable=false 时纯展示 */
-    private LinearLayout makeRowBase(String title, String sub, boolean focusable,
-                                     View.OnClickListener click) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackground(buildDrawerButtonBg());
-        int padH = dp(16);
-        row.setPadding(padH, 0, padH, 0);
-        row.setFocusable(focusable);
-        row.setClickable(focusable);
-        if (focusable) {
-            row.setOnClickListener(click);
-            if (settingsFirstFocus == null) settingsFirstFocus = row;
-        }
-
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setGravity(Gravity.CENTER_VERTICAL);
-        TextView t = makeText(title, 16, GF_TEXT, false);
-        col.addView(t, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        if (sub != null && !sub.isEmpty()) {
-            TextView s = makeText(sub, 12, GF_TEXT_SEC, false);
-            s.setMaxLines(2);
-            LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            sLp.topMargin = dp(2);
-            col.addView(s, sLp);
-        }
-        row.addView(col, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        return row;
-    }
-
-    /**
-     * 右侧控件必须 **不可聚焦/不可点** —— 否则 D-pad 焦点会被它抢走(踩过的坑),
-     * 行整体才是唯一的交互目标。
-     *
-     * 尺寸: 若 tail 自带 LayoutParams **必须沿用** —— addView(child, params) 内部会
-     * child.setLayoutParams(params), 直接 new 一个 WRAP_CONTENT 的会把开关的 44×24dp
-     * 冲掉, FrameLayout 退化成按 knob(18dp) 测量 ⇒ 开关渲染成一个圆点、切态时 knob 也不位移。
-     */
-    private void addRowTail(LinearLayout row, View tail) {
-        tail.setFocusable(false);
-        tail.setClickable(false);
-        tail.setFocusableInTouchMode(false);
-        final LinearLayout.LayoutParams lp;
-        if (tail.getLayoutParams() instanceof LinearLayout.LayoutParams) {
-            lp = (LinearLayout.LayoutParams) tail.getLayoutParams();
-        } else {
-            lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        }
-        lp.leftMargin = dp(12);
-        row.addView(tail, lp);
-    }
-
-    /** 开关行: 整行可点(OK 键切换), 右侧是纯展示的开关图形 */
-    private void addToggleRow(String title, String sub, boolean on,
-                              java.util.function.Consumer<FrameLayout> switchOut,
-                              Runnable onToggle) {
-        LinearLayout row = makeRowBase(title, sub, true, v -> onToggle.run());
-        FrameLayout sw = buildToggleSwitch(on);
-        if (switchOut != null) switchOut.accept(sw);
-        addRowTail(row, sw);
-        settingsPanel.addView(row, rowParams(dp(ROW_H_DP), 6));
-    }
-
-    /** 跳转/动作行: 右侧是"打开 ›/立即检查"这类提示文案 */
-    private TextView addNavRow(String title, String sub, String value, Runnable action) {
-        LinearLayout row = makeRowBase(title, sub, true, v -> action.run());
-        TextView v = makeText(value == null ? "" : value, 13, GF_ACCENT, false);
-        addRowTail(row, v);
-        settingsPanel.addView(row, rowParams(dp(ROW_H_DP), 6));
-        return v;
-    }
-
-    /** 纯信息行(不可聚焦, 不进 D-pad 焦点链) */
-    private void addInfoRow(String title, String value) {
-        addInfoRow(title, null, value);
-    }
-
-    /** 带副标题的信息行 —— 用于副标题需要解释"这个值是什么"的行(如构建模式) */
-    private void addInfoRow(String title, String sub, String value) {
-        LinearLayout row = makeRowBase(title, sub, false, null);
-        TextView v = makeText(value == null ? "" : value, 13, GF_TEXT_SEC, false);
-        addRowTail(row, v);
-        settingsPanel.addView(row, rowParams(dp(ROW_H_DP), 6));
-    }
-
-    /**
-     * 开关图形: 44×24dp 药丸 + 18dp 白色圆点(纯展示, 不接收事件)。
-     *
-     * ⚠️ 圆点必须**显式给背景**: `new View(this)` 默认没有 drawable ⇒ 在深色玻璃面上就是
-     * 一个透明洞。用户实测"开关中间的圆点没显示"即是此因(自首版 8645d9a 起就没画出来)。
-     */
-    private FrameLayout buildToggleSwitch(boolean on) {
-        FrameLayout sw = new FrameLayout(this);
-        sw.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(24)));
-        applyToggleLook(sw, on);
-        View knob = new View(this);
-        GradientDrawable knobBg = new GradientDrawable();
-        knobBg.setShape(GradientDrawable.OVAL);
-        knobBg.setColor(GF_KNOB);
-        knob.setBackground(knobBg);
-        sw.addView(knob, knobParams(on));
-        sw.setTag(knob);
-        return sw;
-    }
-
-    /** 就地刷新开关态(不重建整个面板 ⇒ 遥控器焦点不丢) */
-    private void refreshToggle(FrameLayout sw, boolean on) {
-        if (sw == null) return;
-        applyToggleLook(sw, on);
-        Object knob = sw.getTag();
-        if (knob instanceof View) {
-            // 换 knob 的 margin 而非重建: 用 layoutParams 直接改 gravity
-            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams)
-                    ((View) knob).getLayoutParams();
-            lp.gravity = (on ? Gravity.END : Gravity.START) | Gravity.CENTER_VERTICAL;
-            ((View) knob).setLayoutParams(lp);
-        }
-    }
-
-    private void applyToggleLook(FrameLayout sw, boolean on) {
-        GradientDrawable track = new GradientDrawable();
-        track.setCornerRadius(dp(12));
-        track.setColor(on ? GF_ACCENT : 0x33FFFFFF);
-        sw.setBackground(track);
-    }
-
-    /**
-     * 圆点位置/内缩: 24dp 轨道装 18dp 圆点, 上下居中(各 3dp), 左右各留 3dp。
-     * 两个 margin 都设 —— gravity START 时吃 leftMargin、END 时吃 rightMargin,
-     * refreshToggle 只换 gravity, 不设的那一侧会变成贴边。
-     */
-    private FrameLayout.LayoutParams knobParams(boolean on) {
-        FrameLayout.LayoutParams klp = new FrameLayout.LayoutParams(dp(18), dp(18));
-        klp.gravity = (on ? Gravity.END : Gravity.START) | Gravity.CENTER_VERTICAL;
-        klp.leftMargin = dp(3);
-        klp.rightMargin = dp(3);
-        return klp;
-    }
-
+    /** 抽屉行/按钮背景: 聚焦=青色描边+浅青底, 按下=深青, 常态=玻璃面 */
     private Drawable buildDrawerButtonBg() {
-        // 玻璃风按钮: 默认半透明深玻璃面 + 细描边; 聚焦 = 强调青描边 + 半透明青底(D-pad 焦点明显);
-        // 按下 = 略深青底. 大圆角 14dp. (不依赖 RenderEffect, 弱机/TV 也流畅)
         GradientDrawable focused = new GradientDrawable();
         focused.setColor(GF_ACCENT_DIM);
         focused.setCornerRadius(dp(14));
         focused.setStroke(dp(2), GF_ACCENT);
-
         GradientDrawable pressed = new GradientDrawable();
         pressed.setColor(GF_ACCENT_PRESS);
         pressed.setCornerRadius(dp(14));
-
         GradientDrawable normal = new GradientDrawable();
         normal.setColor(GF_GLASS_SOFT);
         normal.setCornerRadius(dp(14));
         normal.setStroke(dp(1), GF_STROKE);
-
         StateListDrawable sld = new StateListDrawable();
         sld.addState(new int[]{android.R.attr.state_focused}, focused);
         sld.addState(new int[]{android.R.attr.state_pressed}, pressed);
@@ -1056,46 +738,29 @@ public class WebShellActivity extends BridgeActivity
      *  openSettings(web 胶囊行"设置"按钮 / 首页"我的"卡) 共用; 命名与
      *  checkUpdateExposed / promptServerUrlExposed 保持一致。 */
     void showSettingsDrawerExposed() {
-        if (settingsOverlay == null) buildSettingsDrawer();
-        if (settingsOverlay == null) return;
-        // 服务器地址是"值行"(组装时已写入), 显示模式存在 WebView localStorage ⇒ 打开时异步同步一次;
-        // 账号行同理(登录态在 web 侧, 登录/退出发生在两次开抽屉之间)
-        refreshDisplayModeValue();
-        refreshAccountRow();
-        settingsOpen = true;
-        // 关键: 抽屉打开时禁掉 WebView 的可聚焦, 不然 D-pad 事件被 WebView 抢走,
-        // 按钮焦点上不去. 关抽屉时恢复.
+        if (settingsDrawer == null) {
+            settingsDrawer = new SettingsDrawerController(this, prefs(), this);
+        }
+        // 抽屉打开时禁掉 WebView 的可聚焦, 不然 D-pad 事件被 WebView 抢走
         if (webViewRef != null) {
             webViewRef.setFocusable(false);
             webViewRef.setFocusableInTouchMode(false);
         }
-        settingsOverlay.setFocusableInTouchMode(true);
-        settingsOverlay.setFocusable(true);
-        settingsOverlay.setVisibility(View.VISIBLE);
-        // 滚回顶部 — 上次关时滚到中间的话, 重开应从头开始
-        settingsPanelScroll.scrollTo(0, 0);
-        // 等布局测量后再开始动画 + 抢焦点 (animate ScrollView 本身, 它是右边贴边的)
-        settingsPanelScroll.post(() -> {
-            float w = settingsPanelScroll.getWidth() > 0 ? settingsPanelScroll.getWidth() : dp(DRAWER_W_DP);
-            settingsPanelScroll.setTranslationX(w);
-            settingsPanelScroll.animate().translationX(0f).setDuration(220).start();
-            // 焦点定到第一行可聚焦的项(组装时记录, 不再靠固定下标 —— 分组后行序会变)
-            if (settingsFirstFocus != null) settingsFirstFocus.requestFocus();
-        });
+        settingsDrawer.show();
+        // web 特有: 账号登录态和显示模式存在 web 侧, 打开抽屉时异步同步一次
+        refreshDisplayModeValue();
+        refreshAccountRow();
     }
 
     private void hideSettingsDrawer() {
-        if (!settingsOpen || settingsOverlay == null) return;
-        settingsOpen = false;
+        if (settingsDrawer == null || !settingsDrawer.isShowing()) return;
         // 恢复 WebView 焦点能力
         if (webViewRef != null) {
             webViewRef.setFocusable(true);
             webViewRef.setFocusableInTouchMode(true);
             webViewRef.requestFocus();
         }
-        float w = settingsPanelScroll.getWidth() > 0 ? settingsPanelScroll.getWidth() : dp(360);
-        settingsPanelScroll.animate().translationX(w).setDuration(180).withEndAction(
-                () -> settingsOverlay.setVisibility(View.GONE)).start();
+        settingsDrawer.hide();
     }
 
     @Override
@@ -1104,7 +769,7 @@ public class WebShellActivity extends BridgeActivity
         // 后续要改菜单条目直接改 APK, 不依赖 web 是否就绪)
         if (event.getKeyCode() == KeyEvent.KEYCODE_MENU
                 && event.getAction() == KeyEvent.ACTION_DOWN) {
-            if (settingsOpen) hideSettingsDrawer();
+            if (settingsDrawer != null && settingsDrawer.isShowing()) hideSettingsDrawer();
             else showSettingsDrawerExposed();
             return true;
         }
@@ -1121,7 +786,7 @@ public class WebShellActivity extends BridgeActivity
      */
     private boolean handleBackPressed() {
         // 抽屉打开时, BACK 仅关抽屉
-        if (settingsOpen) {
+        if (settingsDrawer != null && settingsDrawer.isShowing()) {
             hideSettingsDrawer();
             return true;
         }

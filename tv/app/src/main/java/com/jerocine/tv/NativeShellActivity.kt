@@ -18,12 +18,13 @@ import com.jerocine.tv.ui.view.CategoryLibraryFragment
 import com.jerocine.tv.ui.view.LoginFragment
 import com.jerocine.tv.ui.view.HistoryFragment
 import com.jerocine.tv.ui.view.FavoritesFragment
-import com.jerocine.tv.ui.view.SettingsFragment
+import com.jerocine.tv.ui.SettingsDrawerController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-class NativeShellActivity : FragmentActivity() {
+class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
     private val exitGate = DoubleBackExitGate()
+    private var settingsDrawer: SettingsDrawerController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +35,11 @@ class NativeShellActivity : FragmentActivity() {
         JerocinePlayer.config().setCallback(::handlePlayerEvent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                // 抽屉打开时, BACK 仅关抽屉
+                if (settingsDrawer?.isShowing == true) {
+                    settingsDrawer?.hide()
+                    return
+                }
                 if (supportFragmentManager.backStackEntryCount > 0) {
                     supportFragmentManager.popBackStack()
                     return
@@ -106,26 +112,101 @@ class NativeShellActivity : FragmentActivity() {
     }
 
     fun openSettings() {
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.page_container, SettingsFragment.newInstance())
-            .addToBackStack(SettingsFragment::class.java.simpleName)
-            .commit()
+        if (settingsDrawer == null) {
+            settingsDrawer = SettingsDrawerController(
+                this,
+                getSharedPreferences("jerocine_prefs", MODE_PRIVATE),
+                this
+            )
+        }
+        settingsDrawer?.show()
     }
 
     /**
-     * MENU 键 → 打开设置页(与 web 壳"菜单触发设置抽屉"同语义; 当前已在设置页则忽略,
-     * 避免连按 MENU 重复压栈). 遥控器/触屏菜单键均会走到这里.
+     * MENU 键 → 切换设置抽屉(与 web 壳同语义)
      */
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         if (event.keyCode == android.view.KeyEvent.KEYCODE_MENU
             && event.action == android.view.KeyEvent.ACTION_DOWN
         ) {
-            val top = supportFragmentManager.fragments.lastOrNull()
-            if (top !is SettingsFragment) openSettings()
+            if (settingsDrawer?.isShowing == true) settingsDrawer?.hide()
+            else openSettings()
             return true
         }
         return super.dispatchKeyEvent(event)
     }
+
+    // ==================== SettingsDrawerController.Host 实现 ====================
+
+    override fun onRefreshPage() {
+        // 原生壳: 重建当前 fragment 以刷新数据
+        val top = supportFragmentManager.fragments.lastOrNull()
+        if (top != null) {
+            supportFragmentManager.beginTransaction()
+                .detach(top)
+                .attach(top)
+                .commit()
+        }
+    }
+
+    override fun onExitApp() { finishAffinity() }
+
+    override fun onCheckUpdate() {
+        Toast.makeText(this, "原生壳暂未集成检查更新", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onDeviceDiagnostics() {
+        val info = com.jerocine.tv.ui.DeviceDiagnostics.collect(this)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("设备诊断")
+            .setMessage(info.toText())
+            .setPositiveButton("关闭", null)
+            .show()
+    }
+
+    override fun onServerUrlEdit() {
+        Toast.makeText(this, "服务器地址修改请在 web 壳设置中操作", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun getServerUrl(): String = ServiceLocator.serverBase
+
+    override fun onAccountAction() {
+        if (ServiceLocator.isLoggedIn) {
+            ServiceLocator.saveToken(null)
+            Toast.makeText(this, "已退出登录", Toast.LENGTH_SHORT).show()
+        } else {
+            openLogin()
+        }
+    }
+
+    override fun getAccountInfo(): SettingsDrawerController.AccountInfo {
+        return if (ServiceLocator.isLoggedIn) {
+            SettingsDrawerController.AccountInfo(
+                "已登录",
+                "收藏 / 历史 / 跳过设置多端同步",
+                "退出",
+                true
+            )
+        } else {
+            SettingsDrawerController.AccountInfo.loggedOut()
+        }
+    }
+
+    override fun hasDisplayMode(): Boolean = false
+    override fun onCycleDisplayMode() {}
+    override fun getDisplayModeLabel(): String = ""
+
+    override fun onShellModeChanged(mode: String) {
+        Toast.makeText(
+            this,
+            "壳模式已设为 ${SettingsDrawerController.shellModeLabel(mode)}，重启后生效",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    override fun getCurrentShellMode(): String =
+        getSharedPreferences("jerocine_prefs", MODE_PRIVATE)
+            .getString(SettingsDrawerController.KEY_SHELL_MODE, "auto") ?: "auto"
 
     override fun onDestroy() {
         JerocinePlayer.config().setCallback(null)
