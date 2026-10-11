@@ -6,7 +6,7 @@ import coil.ImageLoader
 import com.jerocine.player.JerocinePlayer
 import com.jerocine.tv.data.ServiceLocator
 
-class JerocineTvApp : Application() {
+class JerocineApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ServiceLocator.init(this)

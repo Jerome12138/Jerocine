@@ -1,77 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  :tvshell library 的 manifest —— 合并后只声明"原生壳自己的 Activity"。
+  application 节点不写任何属性(name/label/icon/theme)：这些由宿主 :app 的 manifest 统一提供，
+  library 写了会在 manifest merge 时与宿主冲突(application 节点属性合并规则是"后者覆盖前者",
+  但 label/icon 各写一份会触发 manifest merger 的 conflict 报错)。
+  PlayerActivity / DownloadActivity / FileProvider / 权限都不在此声明 —— 宿主 manifest 声明一次即可,
+  library 重复声明会导致 merge 冲突或重复组件。
+  阶段 E 会把 .MainActivity 改名为 .NativeShellActivity, 此处同步更新。
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- 下载前台服务 (Android 8+ 必声明; 14+ 需指定类型) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- 下载进度通知 (Android 13+ 运行时权限; 不申请则前台服务通知不展示, 用户看不到进度/续传状态) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- TV：leanback 不强制，手机/平板也能装 -->
-    <uses-feature android:name="android.software.leanback" android:required="false" />
-    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-
-    <application
-        android:name=".JerocineTvApp"
-        android:allowBackup="true"
-        android:label="@string/app_name"
-        android:icon="@mipmap/ic_launcher"
-        android:banner="@drawable/jerocine_tv_banner"
-        android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.JerocineTV">
-
-        <!-- 原生播放器: 公共模块 player-core 的实现(tv 壳不再自带一份播放器副本) -->
-        <!-- exported=true + ACTION_VIEW: 支持系统文件管理器「打开方式」直接调用本地视频播放 -->
-        <activity
-            android:name="com.jerocine.player.PlayerActivity"
-            android:exported="true"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
-            android:screenOrientation="landscape"
-            android:theme="@style/Theme.JerocineTV.Player">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:mimeType="video/*" />
-            </intent-filter>
-            <!-- .ts 兜底: 部分文件管理器把 .ts 识别为 application/octet-stream -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:mimeType="application/octet-stream" />
-                <data android:pathPattern=".*\\.ts" />
-            </intent-filter>
-        </activity>
-
-        <!-- 下载管理页(公共模块, 从播放器「⋮ 更多→下载管理」与设置页进入) -->
-        <activity
-            android:name="com.jerocine.player.download.DownloadActivity"
-            android:exported="false"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
-            android:theme="@style/Theme.JerocineTV" />
-
-        <!-- 下载前台服务(批量并发下载, 通知实时进度) -->
-        <service
-            android:name="com.jerocine.player.download.JerocineDownloadService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
+    <application>
+        <!-- 原生壳入口: 由 EntryRouter 转发, 不对外导出 -->
         <activity
             android:name=".MainActivity"
-            android:exported="true"
+            android:exported="false"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.JerocineTV.Launch">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.JerocineTV.Launch" />
     </application>
 
 </manifest>
