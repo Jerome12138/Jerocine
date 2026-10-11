@@ -34,8 +34,8 @@ object DeviceProbe {
     const val MIN_WEBVIEW_MAJOR = 87
     const val MIN_MEMORY_GB = 2L
 
-    /** SharedPreferences 里存用户选择的键 */
-    const val PREFS_NAME = "jerocine_shell"
+    /** SharedPreferences 里存用户选择的键 —— 复用 WebShellActivity.PREFS("jerocine_prefs"), 与设置页共用 */
+    const val PREFS_NAME = "jerocine_prefs"
     const val KEY_SHELL_MODE = "jc-shell-mode"
 
     /**

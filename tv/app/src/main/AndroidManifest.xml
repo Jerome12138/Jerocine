@@ -6,7 +6,7 @@
   但 label/icon 各写一份会触发 manifest merger 的 conflict 报错)。
   PlayerActivity / DownloadActivity / FileProvider / 权限都不在此声明 —— 宿主 manifest 声明一次即可,
   library 重复声明会导致 merge 冲突或重复组件。
-  阶段 E 会把 .MainActivity 改名为 .NativeShellActivity, 此处同步更新。
+  阶段 E 已将入口改名为 .NativeShellActivity(原 MainActivity)。
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 

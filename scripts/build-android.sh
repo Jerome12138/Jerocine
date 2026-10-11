@@ -442,11 +442,13 @@ version_gate_one() {
 }
 
 # 按本次要构建的目标执行闸门
+# 单包合并后只有一个 APK(applicationId=art.jerocine.app), 水位线统一用 web.*;
+# native.* 保留仅为兼容旧 tv 独立构建, all 模式不再触碰。
 version_gate() {
   case "$TARGET" in
     web) version_gate_one web web ;;
     tv)  version_gate_one native tv ;;
-    all) version_gate_one web web; version_gate_one native tv ;;
+    all) version_gate_one web web ;;
   esac
 }
 
@@ -457,72 +459,23 @@ meta_field() {
   sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^,\"[:space:]]*\)\"\{0,1\}.*/\1/p" "$1" | head -1 || true
 }
 
-# 数一个目录下的文件个数（目录不存在返回 0）
-count_files() {
-  [ -d "$1" ] || { printf '0'; return; }
-  find "$1" -type f 2>/dev/null | wc -l | tr -d '[:space:]'
-}
-
-# 断言"刚构建出来的前端产物 dist 每个文件都进了壳工程 assets/public"。
-# 为什么需要: cap sync 中途被打断（stdin 非 TTY 挂死/被超时杀掉）时, 它会先把
-# assets/public 删空再重灌 —— 残缺状态下 gradle 照样能编译出包, 但装到设备上是**白屏**,
-# 而且构建日志一切正常。这里把"白屏"变成一个明确的构建失败。
-verify_web_assets() {
-  local dist="$1" public="$2" rel missing=0 total
-  [ -f "$public/index.html" ] || {
-    warn "  壳工程缺 index.html：$public"
-    return 1
-  }
-  total="$(count_files "$dist")"
-  [ "$total" -gt 0 ] || { warn "  前端产物为空：$dist"; return 1; }
-  while IFS= read -r rel; do
-    if [ ! -f "$public/$rel" ]; then
-      missing=$((missing + 1))
-      [ "$missing" -le 3 ] && warn "  壳工程缺 $rel"
-    fi
-  done < <(cd "$dist" && find . -type f 2>/dev/null)
-  if [ "$missing" -gt 0 ]; then
-    warn "  dist $total 个文件里有 $missing 个没进壳工程（壳内现有 $(count_files "$public") 个）"
-    return 1
-  fi
-  return 0
-}
+# 单包合并后 APK 不携带前端产物: WebShell 远程加载线上 SPA,
+# assets/public 仅含 cap sync 灌入的占位 index.html。
+# 不再需要 verify_web_assets (dist→assets 逐文件比对), 改为检查占位页存在即可。
 
 build_web() {
   local w="$ROOT/web" a="$ROOT/web/android"
   [ -f "$w/package.json" ] || die "找不到 $w/package.json"
 
-  if [ ! -d "$w/node_modules" ]; then
-    info "安装前端依赖（首次需要）..."
-    if command -v pnpm >/dev/null 2>&1; then
-      ( cd "$w" && pnpm install )
-    elif command -v npm >/dev/null 2>&1; then
-      warn "未装 pnpm，退回 npm。本项目锁文件是 pnpm-lock.yaml，npm 可能报 ERESOLVE。"
-      ( cd "$w" && npm install )
-    else
-      die "需要 Node.js（含 pnpm 或 npm）来编译前端资源。"
-    fi
-  fi
-
-  command -v node >/dev/null 2>&1 || die "找不到 node。web/android 是 Capacitor 壳，必须先编译前端。"
-  [ -x "$w/node_modules/.bin/vite" ] || die "缺少 $w/node_modules/.bin/vite，依赖装得不完整。"
+  command -v node >/dev/null 2>&1 || die "找不到 node。cap sync 需要 node。"
   [ -x "$w/node_modules/.bin/cap" ] || die "缺少 $w/node_modules/.bin/cap，请安装 @capacitor/cli。"
 
-  info "[web] 编译前端（vue-tsc 类型检查 + vite build）"
-  ( cd "$w" && ./node_modules/.bin/vue-tsc -p tsconfig.app.json --noEmit && ./node_modules/.bin/vite build )
+  # 注: 前端(web/)独立构建部署到 nginx 容器, APK 不携带前端产物(WebShell 远程加载线上 SPA)。
+  # 打 APK 不需要也不应该校验前端编译状态——两者解耦, 前端有自己的 CI/构建流程。
 
-  # ⚠️ cap sync 必须拿 /dev/null 当 stdin：stdin 不是 TTY（后台/脚本/CI/agent 里都是这种）时
-  # 它会在**拷贝完成之后**继续往下走时去读 stdin 并一直阻塞 —— 全程无任何输出，看着像卡死。
-  # 2026-09-23 实测：`Copying web assets ... in 11s` 打完后就没有下文了，25s 时仍在挂（被 timeout
-  # 杀掉）；而 copy 阶段本身会先把 assets/public 整个删空再重灌，所以一旦在这个窗口里被打断/
-  # 杀掉，壳工程里就是残缺的前端 → 编译照过、装上却是**白屏**（见下面 verify_web_assets）。
-  # 别把 `< /dev/null` 去掉，也别改成裸 `cap sync`。超时兜底是为了"真卡住就明确失败"。
-  # 正常一次 12~20s，给足余量但**必须有界**：卡住时宁可 5 分钟后明确失败，也不要无限期挂着。
+  # cap sync: 把 android-shell-stub 占位页灌进 assets/public + 同步插件配置。
+  # ⚠️ 必须拿 /dev/null 当 stdin: 非 TTY 环境下 cap sync 会在拷贝完成后读 stdin 阻塞。
   local cap_timeout="${JEROCINE_CAP_SYNC_TIMEOUT:-300}"
-  # timeout/gtimeout 是 GNU coreutils 的东西：Linux 自带 timeout；macOS 默认**没有** timeout
-  # （brew install coreutils 之后叫 gtimeout），所以两个都探，都没有就直接跑（只是少了兜底）。
-  # ⚠️ 这里刻意不用「空数组 + "${arr[@]}"」写法：macOS 自带的 bash 3.2 在 set -u 下展开空数组
-  #    会直接报 unbound variable 退出（bash 4.4 才修），而 mac 恰好走"没有 timeout"那条路。
   local timeout_cmd=""
   if command -v timeout >/dev/null 2>&1; then
     timeout_cmd="timeout"
@@ -530,26 +483,20 @@ build_web() {
     timeout_cmd="gtimeout"
   fi
 
-  info "[web] cap sync android（把 dist 灌进壳工程；超时 ${cap_timeout}s）"
-  # 必须用**相对路径** + 先 cd：node 会把 MSYS 绝对路径 `/d/...` 按当前盘符解析成 `D:\d\...`
-  # （报 Cannot find module ...\d\Git\...）。
+  info "[web] cap sync android（占位页 + 插件同步；超时 ${cap_timeout}s）"
   local cap_rc=0
   if [ -n "$timeout_cmd" ]; then
     ( cd "$w" && "$timeout_cmd" "$cap_timeout" ./node_modules/.bin/cap sync android < /dev/null ) || cap_rc=$?
   else
-    warn "未找到 timeout/gtimeout，cap sync 这一步没有超时兜底（macOS: brew install coreutils 可补上）。"
+    warn "未找到 timeout/gtimeout，cap sync 没有超时兜底（macOS: brew install coreutils）。"
     ( cd "$w" && ./node_modules/.bin/cap sync android < /dev/null ) || cap_rc=$?
   fi
-  if [ "$cap_rc" -ne 0 ]; then
-    die "[web] cap sync 失败或超时（${cap_timeout}s）—— 壳工程里的前端可能是残缺的。
-  正常只需 12~20s；确实慢就调大预算重跑: JEROCINE_CAP_SYNC_TIMEOUT=1800 bash scripts/build-android.sh web"
-  fi
+  [ "$cap_rc" -eq 0 ] || die "[web] cap sync 失败或超时（${cap_timeout}s）。正常只需几秒；确实慢就调大预算重跑: JEROCINE_CAP_SYNC_TIMEOUT=1800 bash scripts/build-android.sh web"
 
-  # 白屏包防线（见 verify_web_assets 注释）：不满足就拒绝出包，别把白屏包装到用户设备上。
-  verify_web_assets "$w/dist" "$a/app/src/main/assets/public" \
-    || die "[web] cap sync 没把前端完整灌进壳工程 —— 这种包装上去是白屏，已中止。"
+  # 验证占位页已灌入 (cap sync 被打断时 assets/public 可能为空)
+  [ -f "$a/app/src/main/assets/public/index.html" ] || die "[web] cap sync 后缺 assets/public/index.html —— 壳工程前端残缺，已中止。"
 
-  info "[web] 前端已灌入壳工程（dist $(count_files "$w/dist") 个文件）"
+  info "[web] 占位页已灌入壳工程（单包合并，不携带前端产物）"
 
   local args=("assemble$VARIANT")
   if [ "${#EXTRA_GRADLE_ARGS[@]}" -gt 0 ]; then
@@ -657,8 +604,8 @@ TV_APK=""
 
 case "$TARGET" in
   web) build_web ;;
-  tv)  build_tv ;;
-  all) build_web; build_tv ;;
+  tv)  warn "[tv] 单包合并后 tv 独立构建已废弃（tv 源码作为 :tvshell 纳入 web/android）。仍执行旧路径仅供回滚参考。"; build_tv ;;
+  all) build_web ;;
 esac
 
 printf '\n构建完成，产物:\n'

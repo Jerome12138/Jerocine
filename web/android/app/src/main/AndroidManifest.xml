@@ -51,7 +51,7 @@
             android:name="com.jerocine.player.PlayerActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|navigation"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
             android:theme="@style/Theme.JcPlayer"
             android:launchMode="singleTop">
             <intent-filter>
