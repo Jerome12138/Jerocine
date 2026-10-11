@@ -1264,9 +1264,14 @@ watch(
 }
 
 /* 沉浸式轮播场景(2026-10-10 用户要求): 大图铺满顶部期间页头一律不带分隔线。
- * 置于 --scrolled 之后, 同特异性按序覆盖其边框着色。 */
+ * 置于 --scrolled 之后, 同特异性按序覆盖其边框着色。
+ * 同时禁用根元素过渡(2026-10-11): 该场景的明暗渐变全部由 ::after 实底层
+ * 交叉溶解承担, 类切换瞬间 ::after(opacity 已=1)被移除, 若保留根元素
+ * background-color/backdrop-filter 过渡, 300ms 内页头近乎透明 —— 即
+ * "到 400 分界点闪一下变亮"的根因; 两态在切换点画面本就一致, 无需过渡。 */
 .jc-header--no-line {
   border-bottom-color: transparent;
+  transition: none;
 }
 
 .jc-header__inner {
