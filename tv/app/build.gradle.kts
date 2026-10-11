@@ -1,87 +1,61 @@
 import java.util.Properties
+import java.io.File
 
 plugins {
-    id("com.android.application")
+    // 由 com.android.application 改为 library：合并后它是 :app(宿主) 的子模块
+    id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// 签名凭据来源与 web/android 对齐, 优先级: 
-//   1. 环境变量 JEROCINE_*(构建脚本 / CI 注入, 本次构建的权威来源)
-//   2. tv/keystore.properties(gitignored, 本机开发者自备)
-//   3. 都没有 → 不建 signingConfig
-// 环境变量优先是刻意的: 工程里若遗留一份 keystore.properties, 不该悄悄盖过构建脚本注入的密钥
-// (否则会用一个你没意识到的密钥签名)。空值视为未设置, 继续向下回退。
-// 缺凭据时不报错也是刻意的: 让 assembleDebug 仍可用。release 缺签名由 scripts/build-android.sh
-// 在构建前拦下(要求只用正式密钥), 不靠 Gradle 兜底。
-// 注意 keystore 用同一份即可: web/android 是 art.jerocine.app, 本工程是 art.jerocine.tv,
-// 同密钥签不同 applicationId 合法, 两包互不覆盖安装。
-val ksPropsFile = rootProject.file("keystore.properties")
-val ksProps = Properties().apply {
-    if (ksPropsFile.exists()) {
-        ksPropsFile.inputStream().use { load(it) }
+// ⚠️ 合并后 rootProject 变成 web/android，不能用 rootProject.file("../scripts/...")。
+//    与 player-core 相同：向上查找仓库根（5 层内）。
+fun findRepoFile(relative: String): File? {
+    var dir: File? = rootProject.projectDir
+    var depth = 0
+    while (dir != null && depth < 5) {
+        val candidate = File(dir, relative)
+        if (candidate.exists()) return candidate
+        dir = dir.parentFile
+        depth++
     }
+    return null
 }
-fun envOrProp(name: String, prop: String): String? =
-    System.getenv(name)?.takeIf { it.isNotBlank() } ?: ksProps.getProperty(prop)
-val ksStorePassword: String? = envOrProp("JEROCINE_STORE_PASSWORD", "storePassword")
-val ksKeyAlias: String = envOrProp("JEROCINE_KEY_ALIAS", "keyAlias") ?: "jerocine"
-val ksKeyPassword: String? = envOrProp("JEROCINE_KEY_PASSWORD", "keyPassword")
-// JEROCINE_KEYSTORE 支持绝对路径, 便于把密钥放在仓库外的任意位置
-val ksStoreFile: File =
-    System.getenv("JEROCINE_KEYSTORE")?.takeIf { it.isNotBlank() }?.let { file(it) }
-        ?: rootProject.file("jerocine.keystore")
-val hasSigning = ksStoreFile.exists() && ksStorePassword != null && ksKeyPassword != null
 
-// 版本号唯一来源: 仓库根 scripts/android-versions.properties
-// 不要在这里写死数字 —— 改了也只影响这一处, 否则会和 web/android / 构建脚本产物名对不上。
-// 临时覆盖: ./gradlew :app:assembleRelease -PnativeVersionCode=1002 -PnativeVersionName=1.0.1
-val jcVersionsFile = rootProject.file("../scripts/android-versions.properties")
-val jcVersions = Properties().apply {
-    if (jcVersionsFile.exists()) {
-        jcVersionsFile.inputStream().use { load(it) }
-    }
-}
+val jcVersionsFile = findRepoFile("scripts/android-versions.properties")
+    ?: throw GradleException("找不到 scripts/android-versions.properties, 无法确定版本号")
+val jcVersions = Properties().apply { jcVersionsFile.inputStream().use { load(it) } }
 fun jcVersion(key: String, prop: String): String =
     (project.findProperty(prop) as String?) ?: jcVersions.getProperty(key)
         ?: throw GradleException("读不到版本号, 请检查 $jcVersionsFile 里的 $key")
 
 android {
     namespace = "com.jerocine.tv"
-    compileSdk = 35
+
+    // 与宿主 :app 对齐到 36：宿主依赖 androidx.core:core:1.17.0(要求 compileSdk>=36)，
+    // 库若仍用 35 会报 "requires ... compile against version 36 or later"。
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "art.jerocine.tv"
         minSdk = 21          // 覆盖坚果 Nano (Android 6.0 / API 23)
-        targetSdk = 30       // 不上 36，避免老 ROM 解析风险
-        versionCode = jcVersion("native.versionCode", "nativeVersionCode").toInt()
-        versionName = jcVersion("native.versionName", "nativeVersionName")
+        // library 无 applicationId / versionCode / versionName；targetSdk 对库无意义，删掉。
 
-        // 后端 base url（可用 -PapiBase=... 覆盖，便于模拟器/真机联调）
+        // 后端 base url（可用 -PapiBase=... 覆盖）
         val apiBase = (project.findProperty("apiBase") as String?) ?: "http://localhost:9000/"
         buildConfigField("String", "API_BASE_URL", "\"$apiBase\"")
-        // Web 端地址（二维码指向 /tv-auth?code=... 供手机扫码授权）
+        // Web 端地址（二维码指向 /tv-auth?code=...）
         val webBase = (project.findProperty("webBase") as String?) ?: "http://localhost/"
         buildConfigField("String", "WEB_BASE_URL", "\"$webBase\"")
-    }
 
-    signingConfigs {
-        if (hasSigning) {
-            create("release") {
-                storeFile = ksStoreFile
-                storePassword = ksStorePassword
-                keyAlias = ksKeyAlias
-                keyPassword = ksKeyPassword
-            }
-        }
+        // ⚠️ library 不自动生成 VERSION_NAME / VERSION_CODE，
+        //    而 SettingsFragment 用到了 → 手动补，避免编译失败。
+        buildConfigField("String", "VERSION_NAME", "\"${jcVersion("native.versionName", "nativeVersionName")}\"")
+        buildConfigField("int", "VERSION_CODE", jcVersion("native.versionCode", "nativeVersionCode"))
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            if (hasSigning) {
-                signingConfig = signingConfigs.getByName("release")
-            }
         }
     }
 
@@ -94,9 +68,6 @@ android {
     }
     buildFeatures {
         buildConfig = true
-    }
-    lint {
-        disable += "ExpiredTargetSdkVersion"
     }
 }
 
@@ -117,11 +88,10 @@ dependencies {
     // token 加密存储
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Media3 / ExoPlayer 由 :player-core 以 api 传递(播放器技术栈唯一声明处),
-    // 这里不再重复声明版本 —— 版本改 scripts/android-versions.properties 的 dep.media3Version.
-    // 用 OkHttp 做数据源: 播放器已内建(见 player-core), shell 侧 Retrofit 复用同一份 okhttp.
+    // Media3 / ExoPlayer 由 :player-core 以 api 传递，这里不重复声明。
+    // ⚠️ IJKPlayer 三件套已删除（死依赖，见执行手册 §1）。
 
-    // 网络：Retrofit + kotlinx-serialization（无反射，适合弱机）
+    // 网络：Retrofit + kotlinx-serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
