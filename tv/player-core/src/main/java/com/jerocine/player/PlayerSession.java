@@ -248,6 +248,9 @@ public class PlayerSession {
     boolean outroPromptShown = false;
     /** 正在切集(含自动连播): 期间抑制缓冲抖动带来的误判. */
     boolean episodeSwitching = false;
+    /** 底部按钮行"上次选中"记忆(View id, 0=无): 进度条按 ↓ 恢复焦点用(2026-10-11 用户要求,
+     * 有记忆恢复记忆按钮, 无记忆落行内第一个可见按钮, 不再恒落「更多」). */
+    int lastBottomBtnId = 0;
 
     public PlayerSession(Host host) {
         this.host = host;

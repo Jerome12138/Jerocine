@@ -9,18 +9,18 @@ import androidx.media3.ui.PlayerView;
  * 遥控 / 键盘按键分发.
  *
  * 三态键控:
- *  A. 控制面板隐藏(默认): ←→=快进快退, ↑=上一集, ↓=下一集, OK=播放/暂停, MENU=唤出操作栏, BACK=双击退出
- *  B. 面板可见且焦点在进度条: ←→=快进快退, ↑=焦点送右上角「更多」, OK=播放/暂停, MENU/BACK=收起面板
- *  C. 面板可见且焦点在按钮:「更多」↑↓ 回进度条, 其余方向键=焦点切换, OK=触发(super 处理), MENU/BACK=收起面板
+ *  A. 控制面板隐藏(默认): ←→=快进快退(自动浮现面板), ↑↓=唤出面板(2026-10-11 起 ↑↓ 不再切集),
+ *     OK=播放/暂停(自动浮现面板), MENU=唤出操作栏, BACK=双击退出
+ *  B. 面板可见且焦点在进度条: ←→=快进快退, ↓=焦点进底部按钮行(上次选中记忆优先,
+ *     否则行内第一个可见按钮, 见 PlayerBottomRowFocus), ↑=「更多」上回进度条(成对路径),
+ *     OK=播放/暂停, MENU/BACK=收起面板
+ *  C. 面板可见且焦点在按钮: 方向键=焦点切换, OK=触发(super 处理), MENU/BACK=收起面板
  */
 public class PlayerKeyEventHelper {
 
-    private static final long EPISODE_CONFIRM_MS = 2000L;
     private static final long BACK_CONFIRM_MS = 2000L;
 
     private final PlayerSession session;
-    private long lastEpisodeKeyAt = 0L;
-    private int lastEpisodeKeyCode = 0;
     private long lastBackAt = 0L;
 
     public PlayerKeyEventHelper(PlayerSession session) {
@@ -90,6 +90,7 @@ public boolean dispatchKeyEvent(KeyEvent event) {
                     session.markEpisodeSwitching();
                     session.player.seekToNextMediaItem();
                     session.host().showCenterToast("下一集", 600);
+                    showPanelIfHidden(); // 切集操作也自动浮现面板(2026-10-11)
                 }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
@@ -98,11 +99,13 @@ public boolean dispatchKeyEvent(KeyEvent event) {
                     session.markEpisodeSwitching();
                     session.player.seekToPreviousMediaItem();
                     session.host().showCenterToast("上一集", 600);
+                    showPanelIfHidden();
                 }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
             case KeyEvent.KEYCODE_SPACE:
                 togglePlayPause();
+                showPanelIfHidden();
                 return true;
         }
 
@@ -111,18 +114,23 @@ public boolean dispatchKeyEvent(KeyEvent event) {
                 case KeyEvent.KEYCODE_DPAD_LEFT:
                 case KeyEvent.KEYCODE_MEDIA_REWIND:
                     seekRelative(-seekStepFor(event, false));
+                    showPanelIfHidden(); // 快进快退自动浮现面板(2026-10-11 用户要求)
                     return true;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
                 case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
                     seekRelative(seekStepFor(event, true));
+                    showPanelIfHidden();
                     return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
-                    return handleEpisodeKey(true, code);
                 case KeyEvent.KEYCODE_DPAD_DOWN:
-                    return handleEpisodeKey(false, code);
+                    // 2026-10-11 用户要求: 取消"↑↓ 双击确认切上/下集", 改为唤出控制面板
+                    // (切集走面板内「上/下集」「选集」按钮或媒体键 MEDIA_NEXT/PREV)。
+                    if (pv != null) pv.showController();
+                    return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
                     togglePlayPause();
+                    showPanelIfHidden();
                     return true;
                 default:
                     return session.host().dispatchToSuper(event);
@@ -150,17 +158,14 @@ public boolean dispatchKeyEvent(KeyEvent event) {
                 }
                 return session.host().dispatchToSuper(event);
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                // 焦点在进度条时, 下键显式送焦点到底部栏「更多」(2026-10-10 三次修订)。
-                // 实测(adb 日志两次对照): 靠 ViewRootImpl 空间搜索从 DefaultTimeBar 出发
-                // 到按钮行**不稳定** —— 一次能落「换源」, 一次焦点纹丝不动(onSeekbar 仍 true)。
-                // 「更多」已移入底部栏与其它按钮同排, 落点确定后 ←→ 天然同排导航。
-                // 成对路径: 「更多」等按钮上按上键 → dispatchToSuper 自然回进度条(同子树可靠)。
-                if (onSeekbar) {
-                    View more = moreButton();
-                    if (more != null && more.isShown()) {
-                        more.requestFocus();
-                        return true;
-                    }
+                // 焦点在进度条时, 下键显式送焦点到底部按钮行(2026-10-11 用户要求:
+                // 不再恒落「更多」—— 有"上次选中"记忆恢复记忆按钮, 否则行内第一个可见按钮;
+                // 记忆在 bindBottomFocusMemory 聚焦时写入 session.lastBottomBtnId)。
+                // 显式处理的原因(2026-10-10 实测): 靠 ViewRootImpl 空间搜索从 DefaultTimeBar
+                // 出发到按钮行**不稳定** —— 一次能落「换源」, 一次焦点纹丝不动。
+                // 成对路径: 按钮行上按上键 → dispatchToSuper 自然回进度条(同子树可靠)。
+                if (onSeekbar && focusBottomRow()) {
+                    return true;
                 }
                 return session.host().dispatchToSuper(event);
             case KeyEvent.KEYCODE_DPAD_CENTER:
@@ -231,27 +236,27 @@ public boolean dispatchKeyEvent(KeyEvent event) {
         return focus.getId() == androidx.media3.ui.R.id.exo_progress;
     }
 
-    /** 切集 + 防误触: 1 下提示, 2s 内再按 1 下才生效. prev=true 上一集, false 下一集. */
-    private boolean handleEpisodeKey(boolean prev, int code) {
-        if (session.player == null) return true;
-        boolean has = prev ? session.player.hasPreviousMediaItem() : session.player.hasNextMediaItem();
-        if (!has) {
-            session.host().showCenterToast(prev ? "已是第一集" : "已是最后一集", 800);
-            return true;
-        }
-        long now = System.currentTimeMillis();
-        if (lastEpisodeKeyCode == code && now - lastEpisodeKeyAt < EPISODE_CONFIRM_MS) {
-            lastEpisodeKeyAt = 0;
-            lastEpisodeKeyCode = 0;
-            session.markEpisodeSwitching();
-            if (prev) session.player.seekToPreviousMediaItem();
-            else session.player.seekToNextMediaItem();
-            session.host().showCenterToast(prev ? "上一集" : "下一集", 600);
-        } else {
-            lastEpisodeKeyAt = now;
-            lastEpisodeKeyCode = code;
-            session.host().showCenterToast(prev ? "再按 ▲ 切上一集" : "再按 ▼ 切下一集", 1500);
-        }
+    /** 操作(快进快退/播暂/切集)后面板未显则自动浮现(2026-10-11 用户要求); 已可见则保持. */
+    private void showPanelIfHidden() {
+        PlayerView pv = session.host().playerView();
+        if (pv != null && !pv.isControllerFullyVisible()) pv.showController();
+    }
+
+    /**
+     * 进度条 ↓ 进底部按钮行: 上次选中记忆优先, 否则行内第一个可见按钮
+     * (决策见 {@link PlayerBottomRowFocus}; 行内无可见按钮时返回 false 走默认焦点搜索)。
+     */
+    private boolean focusBottomRow() {
+        PlayerView pv = session.host().playerView();
+        if (pv == null) return false;
+        int target = PlayerBottomRowFocus.pick(session.lastBottomBtnId, id -> {
+            View v = pv.findViewById(id);
+            return v != null && v.isShown();
+        });
+        if (target == 0) return false;
+        View v = pv.findViewById(target);
+        if (v == null) return false;
+        v.requestFocus();
         return true;
     }
 

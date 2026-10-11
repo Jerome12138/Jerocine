@@ -64,7 +64,8 @@ import okhttp3.OkHttpClient;
  *
  * 缓存: SimpleCache 1GB LRU(壳缓存目录下 video_cache)
  * 倍速: 0.5 / 1 / 1.25 / 1.5 / 2 / 3
- * 遥控: ←→ ±10s(长按渐进步进) / Enter 播暂 / Menu·Info 控制面板 / Back 双击退出
+ * 遥控: ←→ ±10s(长按渐进步进, 自动浮现面板) / ↑↓ 唤出面板 / Enter 播暂(自动浮现面板)
+ *       / Menu·Info 控制面板 / Back 双击退出
  *
  * 本类只做三件事: ① 装配视图与 helper; ② 实现 {@link PlayerSession.Host} 的 UI 出口;
  * ③ 向 {@link PlayerControl} 注册自身 / 上报播放结局.
@@ -120,9 +121,13 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private final Handler toastHandler = new Handler(Looper.getMainLooper());
     private final Handler iconHandler = new Handler(Looper.getMainLooper());
     private final Handler progressHandler = new Handler(Looper.getMainLooper());
+    /** 缓冲进度 toast 刷新(500ms 一拍, 仅 STATE_BUFFERING 期间运行). */
+    private final Handler bufferHandler = new Handler(Looper.getMainLooper());
 
     /** 最近一次播放状态 — onDestroy 判断是否自然播完 */
     private int lastPlayerState = -1;
+    /** 缓冲进度 toast 是否在显示(与普通 toast 共用 centerToast 视图, 见 bufferTick). */
+    private boolean bufferToastOn = false;
 
     private PlayerSession session;
     private PlayerView playerView;
@@ -259,6 +264,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     renderSkipDot(session.skipEnabled);
                 }
                 bindMoreMenu(); // 在线与本地模式都要(本地=选择本地文件/诊断)
+                bindBottomFocusMemory(); // 底部按钮行焦点记忆(进度条 ↓ 恢复上次选中)
                 updateLocalOnlineUi(); // 按当前集本地/在线态刷新角标与切换按钮(每面板次显隐都要重算)
                 playerView.post(() -> {
                     View prog = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
@@ -266,7 +272,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 });
             }
         });
-        // 切集/缓冲/暂停时不自动弹面板 — 仅用户显式唤起(确认键/点击)才显示
+        // media3 自带的"播暂自动弹面板"关闭(2026-10-11): 面板浮现改为在按键层显式控制 ——
+        // 快进快退/播暂/切集等操作后由 PlayerKeyEventHelper.showPanelIfHidden() 唤起,
+        // 触摸手势路径维持单击切面板语义, 不受 media3 auto-show 干扰
         playerView.setControllerAutoShow(false);
         playerView.setOnTouchListener(gestureHelper::onPlayerTouch);
         // 暂停/缓冲中面板不主动消失(策略见 PlayerAutoHidePolicy); 起播前也按当前态初始化
@@ -327,6 +335,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 lastPlayerState = state;
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 updateControllerAutoHide(); // 暂停/缓冲中面板不主动消失(本地播放同轨)
+                updateBufferToast(state); // 缓冲进度 toast(2026-10-11 用户要求)
             }
 
             @Override
@@ -386,6 +395,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 lastPlayerState = state;
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 updateControllerAutoHide(); // 暂停/缓冲中面板不主动消失
+                updateBufferToast(state); // 缓冲进度 toast(2026-10-11 用户要求)
                 updateFilterLoadingText(state);
                 if (state == Player.STATE_READY) {
                     session.episodeSwitching = false;
@@ -873,6 +883,7 @@ private static String failedRequestUrl(Throwable error) {
         toastHandler.removeCallbacksAndMessages(null);
         iconHandler.removeCallbacksAndMessages(null);
         progressHandler.removeCallbacksAndMessages(null);
+        bufferHandler.removeCallbacksAndMessages(null);
         final ExoPlayer player = session.player;
         boolean playbackEnded = player != null && lastPlayerState == Player.STATE_ENDED;
         // 本地模式: 不向壳层上报播放结局(无 web 心跳/无剧集上下文)
@@ -956,6 +967,59 @@ private static String failedRequestUrl(Throwable error) {
             }
         }, durationMs);
     }
+
+    /**
+     * 缓冲进度 toast(2026-10-11 用户要求): STATE_BUFFERING 期间中央 toast 常驻,
+     * 每 500ms 刷新 `缓冲中 x%`(百分比取 player.getBufferedPercentage()); 离开缓冲态收起。
+     * 与普通 toast 共用 centerToast 视图: 期间若有普通 toast介入会被下一拍覆盖 ——
+     * 缓冲中百分比是主信号, 可接受。决策逻辑见 {@link PlayerBufferToastPolicy}。
+     */
+    private void updateBufferToast(int state) {
+        switch (PlayerBufferToastPolicy.onState(state, bufferToastOn)) {
+            case START:
+                bufferToastOn = true;
+                // 与 showCenterToast 同款互斥: 停掉中央图标与普通 toast 的定时器
+                if (centerIcon != null) centerIcon.setVisibility(View.GONE);
+                iconHandler.removeCallbacksAndMessages(null);
+                toastHandler.removeCallbacksAndMessages(null);
+                bufferHandler.removeCallbacks(bufferTick);
+                centerToast.setVisibility(View.VISIBLE);
+                bufferHandler.post(bufferTick);
+                break;
+            case STOP:
+                hideBufferToast();
+                break;
+            case KEEP:
+            case IGNORE:
+            default:
+                break;
+        }
+    }
+
+    private void hideBufferToast() {
+        bufferToastOn = false;
+        bufferHandler.removeCallbacks(bufferTick);
+        if (centerToast != null) centerToast.setVisibility(View.GONE);
+        // 若仍处暂停态, 缓冲提示收起后恢复"暂停图标停留"(对齐 showCenterToast 收尾)
+        if (session.player != null && !session.player.getPlayWhenReady()
+                && session.player.getPlaybackState() == Player.STATE_READY) {
+            showCenterIconPersistent(R.drawable.ic_pause);
+        }
+    }
+
+    private final Runnable bufferTick = new Runnable() {
+        @Override
+        public void run() {
+            ExoPlayer p = session.player;
+            if (p == null || lastPlayerState != Player.STATE_BUFFERING) {
+                hideBufferToast();
+                return;
+            }
+            centerToast.setText("缓冲中 " + p.getBufferedPercentage() + "%");
+            centerToast.setVisibility(View.VISIBLE);
+            bufferHandler.postDelayed(this, 500);
+        }
+    };
 
     @Override
     public void showCenterIcon(int drawableRes, long durationMs) {
@@ -1061,6 +1125,21 @@ private static String failedRequestUrl(Throwable error) {
         View more = findViewById(R.id.btn_more);
         if (more == null) return;
         more.setOnClickListener(v -> showMoreMenu());
+    }
+
+    /**
+     * 底部按钮行焦点记忆(2026-10-11 用户要求): 聚焦行内任一按钮即记入 session.lastBottomBtnId,
+     * 供下次从进度条 ↓ 恢复"上次选中的按钮"(决策见 PlayerBottomRowFocus, 默认第一个可见按钮)。
+     * 面板每次显示时重绑(幂等); ←→ 空间导航与 OK 点击引发的焦点变化都会经过监听器。
+     */
+    private void bindBottomFocusMemory() {
+        View.OnFocusChangeListener remember = (v, hasFocus) -> {
+            if (hasFocus) session.lastBottomBtnId = v.getId();
+        };
+        for (int id : PlayerBottomRowFocus.ROW_IDS) {
+            View b = playerView.findViewById(id);
+            if (b != null) b.setOnFocusChangeListener(remember);
+        }
     }
 
     /**
