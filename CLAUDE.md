@@ -39,23 +39,28 @@
 
 | 脚本 | 作用 | 前置 | 产物 |
 |---|---|---|---|
-| `scripts/build-android.sh` | 打安卓包，目标 `web`(Capacitor 壳) / `native`(原生 TV) / `all` | JDK 17+、Android SDK、**正式签名密钥**（仓库外，见下） | 各工程 `app/build/outputs/apk/<variant>/`，并复制一份到系统下载目录 |
+| `scripts/build-android.sh` | 打安卓包（**单包**：Capacitor 壳 + 内嵌原生壳，启动按设备能力路由），目标 `web` / `all`（等价，后者为兼容保留） | JDK 17+、Android SDK、**正式签名密钥**（仓库外，见下） | `web/android/app/build/outputs/apk/<variant>/`，并复制一份到系统下载目录 |
+
+> ⚠️ **2026-10-11 单包合并**：`tv/app` 已改造为宿主 `web/android` 里的 `:tvshell` library，
+> 与 Capacitor 壳打进同一个 APK（`art.jerocine.app`），由 `EntryRouterActivity` 按设备能力
+> 路由到 `WebShellActivity` / `NativeShellActivity`。**`tv` 目标已取消**（传它会明确报错），
+> 前端产物也**不随包发布**（WebShell 远程加载线上 SPA，包内只留占位页）。
+> 要回到"两个独立 APK"需回退合并批次的提交，不是换个构建参数能切回来。
 
 `scripts/build-android.sh` 用法：
 
 ```bash
-scripts/build-android.sh all                                   # 两个包都打
-scripts/build-android.sh tv --api-base=https://你的域名/        # 指定 TV 的后端地址(编译期常量)；tv 与 native 等价
+scripts/build-android.sh all                                   # 出单包（与 web 等价）
 scripts/build-android.sh web --debug                           # debug 试用包，跳过密钥校验
 scripts/build-android.sh web --keep-version                    # 故意重打同一个构建号（会给重复发版警告）
-scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原样透传给 gradle
+scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原样透传给 gradle
 ```
 
-- 产物命名：`Jerocine-TV-{web,native}-v<版本名>(<构建号>).apk`，debug 追加 `-debug`。
+- 产物命名：`Jerocine-TV-web-v<版本名>(<构建号>).apk`（`web` 就是唯一那个包），debug 追加 `-debug`。
   例：`Jerocine-TV-web-v1.0.9(1041).apk`。构建号取 APK 产物目录 `output-metadata.json` 里的
   `versionCode`（gradle 生成的真实值），读不到才退回版本源文件。
-- **打包后自动装 pad**：交付成功后 `maybe_adb_install` 检测 `adb devices`，有设备就对最新 web/native
-  包各执行一次 `install -r`（成功打日志，无设备静默跳过）。注意 adb.exe 不认 `/d/...` 风格路径，
+- **打包后自动装 pad**：交付成功后 `maybe_adb_install` 检测 `adb devices`，有设备就对最新包执行一次
+  `install -r`（成功打日志，无设备静默跳过）。注意 adb.exe 不认 `/d/...` 风格路径，
   脚本内已做 `cygpath -m` 转换 —— 手工装包时同理。
 - **产物复制到哪 —— 系统真实「下载」目录**，解析顺序：① `JEROCINE_DOWNLOAD_DIR`（显式指定，最优先）；
   ② Windows 读注册表 `Shell Folders\{374DE290-123F-4565-9164-39C4925E467B}`（支持用户把"下载"位置
@@ -66,25 +71,28 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
   包就落到了"错"的目录（用户会以为没出包）。
   这种情况下显式传 `JEROCINE_DOWNLOAD_DIR=/d/Downloads`（Harness 的 `build-android-local.sh` 已按本机注入）。
 - **版本号唯一来源：`scripts/android-versions.properties`**（构建号统一千位编号 = 1000 + 迭代号）。
-  `web/android/app/build.gradle`、`tv/app/build.gradle.kts`、`scripts/build-android.sh` 都读它，
-  **发新版只改这一个文件**，别在 `build.gradle` 里写死数字（否则产物名会和包内元数据对不上）。
-  单次覆盖：`-PwebVersionCode=1042 -PwebVersionName=1.1.0` / `-PnativeVersionCode=1002`。
+  合并后只有**一个包**（宿主 `web/android`），`web/android/app/build.gradle` 与 `tv/app/build.gradle.kts`
+  都读同一组 **`web.*`** 键（`tv` 作为 library 与宿主同源，不再有自己的 `native.*` 版本号）；
+  `scripts/build-android.sh` 也读它，**发新版只改这一个文件**，别在 `build.gradle` 里写死数字
+  （否则产物名会和包内元数据对不上）。
+  单次覆盖：`-PwebVersionCode=1042 -PwebVersionName=1.1.0`。
 - **⚠️ 每次正式打包 versionCode 必须 +1**（versionName 可以不动；Android 只接受更大的
   versionCode，同号包装不上已装旧包的设备，也可能被分发渠道判为重复版本）。
-  **这一步不用靠人记——脚本有闸门**：正式构建时脚本把 `web./native.versionCode` 与文件里的
-  `served.*.versionCode` 水位线（= 该 kind 已出过正式包的最大构建号）比较：
+  **这一步不用靠人记——脚本有闸门**：正式构建时脚本把 `web.versionCode` 与文件里的
+  `served.web.versionCode` 水位线（= 已出过正式包的最大构建号）比较：
   - 当前号 **≤ 水位线** → 这一版已经发过包了 → **自动 +1、回写文件**，然后才构建；
   - 当前号 **> 水位线** → 手动改大了 → 尊重你的值，脚本不动（想提前占号直接改大即可）。
   交付成功后水位线才推进到本次实际构建号，**构建失败不推进**，所以重试仍是同一个号、不白烧号。
-  `--keep-version` 关掉自动递增（重发同一版用）；`--` 之后用 `-P<kind>VersionCode=` 显式指定时
+  `--keep-version` 关掉自动递增（重发同一版用）；`--` 之后用 `-PwebVersionCode=` 显式指定时
   也跳过递增。脚本自动改过版本源文件时会在结尾提醒提交它。
-- **web 包的构建顺序是强制的**：`vue-tsc → vite build → cap sync android → gradlew assemble`。脚本已内建
-  两道保险，别为"顺手简化"改掉：
+- **单包构建顺序**：`cap sync android → gradlew assemble`。**不再跑 `vue-tsc` / `vite build`**
+  —— 前端产物由 nginx 容器独立发布（WebShell 远程加载线上 SPA），APK 只带 `android-shell-stub`
+  占位页，两条构建链彻底解耦（打 APK 不校验前端编译状态，前端有自己的 CI）。脚本对 `cap sync`
+  内建两道保险，别为"顺手简化"改掉：
   ① `cap sync` 必须重定向 stdin（`< /dev/null`）：**stdin 不是 TTY 时（后台/脚本/CI/agent 里都是）
   它会在拷贝完成后去读 stdin 并一直阻塞**，全程无输出、看着像卡死（实测 25s 仍在挂；加了重定向 18.5s 正常结束）；
-  ② 出包前断言 `web/dist` 的每个文件都存在于 `web/android/app/src/main/assets/public`
-  —— `cap sync` 会先把该目录（约 181 文件）删空再重灌，中途被打断就留下残缺前端，
-  那种包**编译照过、装上却是白屏**，日志里没有任何异常。手工兜底时同样要加 `< /dev/null`。
+  ② 出包前断言 `web/android/app/src/main/assets/public/index.html` 存在 —— `cap sync` 会先把该目录
+  删空再重灌，中途被打断就留下残缺占位页，那种包**编译照过、WebShell 却可能起不来**。手工兜底时同样要加 `< /dev/null`。
   脚本对 `cap sync` 这步另加超时兜底（默认 300s，`JEROCINE_CAP_SYNC_TIMEOUT` 可调）：Linux 用 `timeout`，
   macOS 无 `timeout` 时自动改用 `gtimeout`，两者都没有就只告警并照常执行（少一层兜底，不影响正确性）。
 - **release 必须用正式密钥**，脚本找不到就报错退出（不静默降级成 debug 签名）。
@@ -93,8 +101,10 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
   或用 `JEROCINE_KEYSTORE` / `JEROCINE_STORE_PASSWORD` / `JEROCINE_KEY_ALIAS` / `JEROCINE_KEY_PASSWORD`
   逐项给。放仓库里靠 `.gitignore` 挡是单点防线（漏一条规则就泄漏），显式指定还能保证
   「找不到密钥」时永远报错，不会悄悄采用了别处遗留的一份。
-- 两个包**共用同一密钥**（证书 SHA-256 `0754fe8d…295b`），靠 applicationId 区分：
-  `art.jerocine.app`(web 壳) / `art.jerocine.tv`(原生 TV)，可并存安装、互不覆盖。
+- 只有**一个包**：证书 SHA-256 `0754fe8d…295b`，applicationId `art.jerocine.app`（Capacitor 壳 +
+  内嵌原生壳，由 `EntryRouterActivity` 路由）。`art.jerocine.tv`（原独立 TV 包）**仅存在于已发出的旧包里**，
+  合并后不再产出；单包与旧 TV 包 applicationId 不同，可并存安装、互不覆盖（覆盖升级旧 web 包
+  只要同 applicationId + 更大 versionCode 即可）。
 - 跨平台 macOS / Linux / **Windows 需 Git Bash**（PowerShell/cmd 跑不了 `.sh`）。
 
 ## 部署（Docker Compose）
@@ -167,7 +177,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1042          # `--` 之后原�
 - APK 以**远程加载**站点 URL 运行（不是本地 capacitor:// 资源），见 `web/android` 主 Activity 的 `loadUrl(...)`。因此：
   - **前端改动部署线上即对 APK 生效**（APK 清缓存重启即可），无需重打 APK。
   - **`window.Capacitor` 不会注入**（远程页）→ 壳在 pause/resume `eval("window.Capacitor.triggerEvent(...)")` 会报 undefined。已用 `src/utils/capacitorShim.ts` 垫片兜底；生产(release)包 `onConsoleMessage` 不再弹 Toast。
-- 断网兜底在**原生层** `MainActivity`（`showOfflineOverlay`），Web 层兜底覆盖不到纯断网。
+- 断网兜底在**原生层** `WebShellActivity`（`showOfflineOverlay`；原 `MainActivity` 已按路由拆分更名），Web 层兜底覆盖不到纯断网。
 - 视频：APK 内有**原生 ExoPlayer 全屏播放器**（`tv/player-core` 的 `PlayerActivity` + 壳侧 `JerocineBridge` + 前端 `jerocineNative.ts`），`isNative()` 时 `PlayView` 派发给原生、不渲染 video.js。
 - **⚠️ 原生播放派发有 3 个入口，配置必须同步**（踩过：只 PlayView 带 `proxyBase`，另两条漏，致原生端侧过滤"代理地址未传"不触发）：
   1. `router/index.ts` beforeEach 守卫——**APK 上进 `/play` 会被它拦截**（拉 detail → 直接 `jerocine.playPlaylist` → 重定向 `/filmDetail`），**PlayView 在原生上根本不挂载**（其内的 playPlaylist 派发=原生死代码）。收藏/外链/历史进入走这里。

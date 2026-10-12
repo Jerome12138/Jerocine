@@ -1,7 +1,7 @@
 # Jerocine影视
 
 一个自托管的在线观影平台：**多采集源自由配置、服务端广告过滤、Android TV / 老投影原生支持、播放器触屏手势、扫码登录**。
-一套代码覆盖桌面 / 移动 / TV（UA 自适应），Web 经 Capacitor 打包安卓 APK，另有独立原生 Android TV 客户端。
+一套代码覆盖桌面 / 移动 / TV（UA 自适应），Web 经 Capacitor 打包安卓 **单包 APK**（内含 Web 壳 + 原生壳，启动按设备能力自动路由）。
 
 > **⚠️ 免责声明**
 >
@@ -13,9 +13,10 @@
 
 - **多采集源自由配置**：管理后台可自由增删采集源（XML / JSON 解析器），按源测速、自动停采、健康度面板；支持手动采集与定时更新，采集数据先入暂存表、再影子表原子 reindex
 - **服务端广告过滤**：m3u8 流在服务端过滤广告分片，播放页展示过滤角标，Web / TV / 原生播放器全端生效
-- **Android TV 全家桶**：
-  - `tv/` 原生 Kotlin 客户端（minSdk 21），兼容 Android 6 老投影 / 低配电视，D-pad 焦点管理
-  - `web/` Capacitor 壳 APK，同一套 Web 界面直接上 TV
+- **Android TV 全家桶（单包双壳）**：
+  - 单一 APK（`art.jerocine.app`）：`EntryRouterActivity` 探测设备能力，能力强走 `web/` 的 Capacitor Web 壳，
+    能力弱（WebView 内核过旧 / 内存不足）自动落到 `tv/` 的原生壳，D-pad 焦点管理
+  - 两壳共用同一原生播放器核心 `tv/player-core`（ExoPlayer/Media3），前端产物由 nginx 独立发布、APK 远程加载
 - **平板 / 触屏手势**：播放页双击全屏、长按倍速、横滑快进快退，带可视化手势提示（全屏触屏）
 - **扫码登录（设备码）**：Web 端扫码授权；TV / 老设备输入设备码轮询登录，登录后观看历史 / 收藏跨端同步
 - **多线路播放**：同一影片聚合多采集源线路，按实测播放延迟自动排序；自动续播、自动下一集、跳过片头片尾
@@ -29,9 +30,9 @@
 
 | 模块 | 说明 | 技术栈 |
 |---|---|---|
-| `web/` | Web 单页应用：用户端 + 管理后台 + TV 模式（UA 自适应），Capacitor 打包安卓 APK | Vue 3.5 · Vite · TypeScript · Pinia · UnoCSS |
+| `web/` | Web 单页应用：用户端 + 管理后台 + TV 模式（UA 自适应）；`web/android` 为安卓宿主（单包 APK，内含原生壳） | Vue 3.5 · Vite · TypeScript · Pinia · UnoCSS · Capacitor |
 | `server/` | 后端 API 与采集引擎 | Go · Gin · GORM · go-redis · golang-migrate |
-| `tv/` | Android TV 原生壳（播放器 / 账号 / 历史 / 收藏） | Kotlin · ExoPlayer · View 系 |
+| `tv/` | Android TV 原生壳（作为宿主的 `:tvshell` library，播放器核心 `player-core` 两壳共用） | Kotlin · ExoPlayer · View 系 |
 | `deploy/` | 部署编排：Docker Compose、Nginx、golang-migrate、APK 版本 | Docker Compose · Nginx |
 
 ## 架构要点
@@ -62,8 +63,8 @@ cd web && pnpm test
 
 ```text
 Jerocine/
-├─ web/        # Vue3 SPA + Capacitor 安卓壳（android/）
-├─ tv/         # Android TV 原生壳（Kotlin, 包名 com.jerocine.tv）
+├─ web/        # Vue3 SPA + 安卓宿主 web/android（单包 APK：Capacitor 壳 + 内嵌 :tvshell）
+├─ tv/         # Android TV 原生壳（Kotlin；作为宿主 library，无独立 applicationId）+ player-core 播放器核心
 ├─ server/           # Go 后端（cmd/server 入口 + internal/ 业务 + migrations/ + openapi/）
 └─ deploy/           # 部署编排（docker-compose / Dockerfile / nginx / apk/）
 ```

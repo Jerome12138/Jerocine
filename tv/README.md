@@ -1,14 +1,29 @@
 # Jerocine影视 — 原生 Android TV 客户端
 
-为覆盖**坚果 Nano（Android 6.0 / API 23 / Chromium 48）这类老投影**而做的原生客户端。
-Capacitor(WebView) 方案在该设备上无法安装/运行，故采用原生实现。
+> ⚠️ **2026-10-11 单包合并**：`tv/app` 已不再是独立 APK，而是宿主 `web/android` 里的 **`:tvshell` library**，
+> 与 Capacitor 壳（`art.jerocine.app`）打进**同一个包**，由 `EntryRouterActivity` 按设备能力路由
+> （低配/WebView 内核过旧 → 进本模块的 `NativeShellActivity`）。因此：
+> - **不再有 `build-android.sh tv` 目标**（传它会明确报错）；打单一 APK 用 `build-android.sh web`（或 `all`，等价）。
+> - 本模块**无自己的 applicationId / versionCode / versionName**，版本号跟宿主走 `scripts/android-versions.properties` 的 `web.*`。
+> - 下文「技术栈 / 功能 / 后端」描述对本模块内部仍成立；**构建与签名一节已按单包口径重写**。
+>
+> 本文其余部分保留合并前语境（历史说明），如需权威现状以仓库根 `CLAUDE.md` 为准。
+
+为覆盖**坚果 Nano（Android 6.0 / API 23 / Chromium 48）这类老投影**而做的原生壳。
+Capacitor(WebView) 方案在该设备上无法安装/运行，故采用原生实现；合并后它作为宿主内的
+`:tvshell` library 被 `EntryRouterActivity` 按设备能力路由进来。
+
+> ⚠️ 但合并后宿主 **minSdk 被抬到 24**（Capacitor 8 内置 Cordova AAR 的硬要求），
+> 因此**原生壳实际服务的是"能装上单包、但 WebView 内核过旧/内存过小"的记忆体设备**；
+> API 23 的坚果 Nano 已装不上单包（属既有结论，需产品层决策），不再是本壳的目标设备。
 
 ## 技术栈
 
 - Kotlin + **Android View/XML + RecyclerView**（针对低配电视减少渲染开销）
 - **Media3 (ExoPlayer)** + SurfaceView（解码帧直贴屏，弱机最流畅）
 - Retrofit + kotlinx-serialization（无反射，适合弱机）
-- **minSdk 21 / targetSdk 30**（覆盖 Android 6.0；不上 36 避免老 ROM 解析问题）
+- **library `minSdk = 21`，但合并后宿主 `minSdk = 24` 生效**（manifest 合并取二者较大值）；
+  `targetSdk` 对库无意义，已删。
 - 复用现有 Go 后端 API，仅新增设备码登录 3 接口
 
 ## 功能
@@ -20,16 +35,14 @@ Capacitor(WebView) 方案在该设备上无法安装/运行，故采用原生实
 
 ## 构建
 
-推荐用仓库根的脚本，它同时管住两个安卓工程、校验签名、并把产物复制到系统下载目录：
+本模块**不再单独出包**。打单一 APK（含本壳）在仓库根执行：
 
 ```bash
-# 在仓库根执行
-scripts/build-android.sh tv                                  # 只打 TV 包
-scripts/build-android.sh tv --api-base=https://你的域名/       # 指定后端地址
-scripts/build-android.sh all                                 # 壳应用 + TV 一起打
+scripts/build-android.sh web      # 单包 art.jerocine.app（Capacitor 壳 + 本原生壳）
+scripts/build-android.sh all      # 等价于 web（保留 all 仅为兼容旧脚本）
 ```
 
-Windows 用 Git Bash 执行 `bash scripts/build-android.sh tv ...`（PowerShell / cmd 跑不了 .sh）。
+Windows 用 Git Bash 执行 `bash scripts/build-android.sh web ...`（PowerShell / cmd 跑不了 .sh）。
 
 需要 JDK 17+（AGP 8.x 要求，实测 17 可用）与 Android SDK；脚本会自动探测 `ANDROID_HOME`、
 `~/Library/Android/sdk`、`~/Android/Sdk` 并补写 `local.properties`。
@@ -40,38 +53,31 @@ Windows 用 Git Bash 执行 `bash scripts/build-android.sh tv ...`（PowerShell 
 （或用 `JEROCINE_KEYSTORE` 等环境变量逐项给）。缺密钥时脚本直接报错退出，
 并打印当前解析到的路径、哪一项缺失、以及怎么放。
 
-不改脚本、手工构建也可以：
+不改脚本、手工构建**本库**也可以（只编库，不产 APK）：
 
 ```bash
 export ANDROID_HOME=~/Android/Sdk
 export JAVA_HOME=/path/to/jdk-17
 cd tv
 echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
-./gradlew :app:assembleDebug                      # debug：app/build/outputs/apk/debug/app-debug.apk
-
-# release 需要密钥，否则产出的是 app-release-unsigned.apk（装不上）
-./gradlew :app:assembleRelease -PapiBase=https://你的域名/
+./gradlew :app:assembleDebug                      # 编出 :tvshell 的 aar（不产 APK）
 ```
 
-后端地址是**编译期常量**（`API_BASE_URL`，默认 `http://localhost:9000/`）。用脚本时传
-`--api-base=`，手工构建时传 `-PapiBase=`；不打这个参数装到电视上会连不通。
+> 后端地址**不再走编译期常量**：`-PapiBase=`/`--api-base=` 只是遗留开关，写入的
+> `BuildConfig.API_BASE_URL` 当前无人引用；运行时后端地址由应用内「设置 → 服务器地址」
+> 填写并落在共享 prefs（`jerocine_prefs/server_url`）里。
 
 ## 自测
 
 ```bash
 # JVM 单测（解析 + MockWebServer 端到端网络栈，无需设备）
-./gradlew :app:testDebugUnitTest
+./gradlew :tvshell:testDebugUnitTest
 ```
 
 已覆盖：响应解析、首页/详情/播放/搜索、设备码流程、历史记录、焦点导航及播放器配置。
 
-## 真机冒烟（坚果 Nano，需设备在线）
-
-```bash
-./scripts/smoke-nano.sh <投影仪IP>
-```
-
-脚本会：连接 adb → 校验 Android 版本 → 安装 APK → 启动 → 抓 logcat 崩溃。
+> 旧的真机冒烟脚本 `tv/scripts/smoke-nano.sh` 属合并前产物，已在开头加硬拦截（装错包/起错组件直接拒跑）；
+> 需要真机冒烟时按单包口径（`art.jerocine.app` / `.EntryRouterActivity` / 宿主 APK 路径）重写。当前日常不做真机测试。
 
 ## 后端改动
 
@@ -87,5 +93,5 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
 
 ## 待办（设备环节）
 
-- [ ] **坚果 Nano 真机功能 + 性能实测**（设备上线后跑 `scripts/smoke-nano.sh`；当前已设自动重试）
+- [ ] **坚果 Nano 真机功能 + 性能实测**（⚠️ 合并后 minSdk=24，API 23 的 Nano 装不上已发的 APK —— 该设备实测项已失效，待产品层决策）
 - [ ] **新版 View/XML UI 真机视觉与滚动复核**
