@@ -1,4 +1,4 @@
-package com.jerocine.tv.route
+package com.jerocine.app
 
 import android.content.Context
 import android.content.SharedPreferences

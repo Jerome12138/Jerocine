@@ -1,4 +1,4 @@
-package com.jerocine.tv
+package com.jerocine.app
 
 import android.app.Application
 import coil.Coil
@@ -6,6 +6,16 @@ import coil.ImageLoader
 import com.jerocine.player.JerocinePlayer
 import com.jerocine.tv.data.ServiceLocator
 
+/**
+ * 单包唯一 Application —— 进程级初始化必须住在宿主 :app。
+ *
+ * 2026-10-12 从 `:tvshell`（原 `com.jerocine.tv`）迁来：Application 是**进程级**的，
+ * 与它并列的 `EntryRouterActivity` / packageName / 版本号都在宿主，它却住在"原生壳"库里，
+ * 语义错位（详见 `docs/单包合并架构复盘与共性件组织方案-2026-10-12.md` §3）。
+ *
+ * 内容仍是"两壳都需要的初始化"（合并前 tv 壳一份，见细则 §7）：
+ * 依赖方向 :app → :tvshell，因此这里引用 tvshell 的 ServiceLocator 是允许的。
+ */
 class JerocineApp : Application() {
     override fun onCreate() {
         super.onCreate()

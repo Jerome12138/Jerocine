@@ -1,9 +1,9 @@
-package com.jerocine.tv.route
+package com.jerocine.app
 
 import android.content.SharedPreferences
-import com.jerocine.tv.route.DeviceProbe.MIN_MEMORY_GB
-import com.jerocine.tv.route.DeviceProbe.MIN_SDK
-import com.jerocine.tv.route.DeviceProbe.MIN_WEBVIEW_MAJOR
+import com.jerocine.app.DeviceProbe.MIN_MEMORY_GB
+import com.jerocine.app.DeviceProbe.MIN_SDK
+import com.jerocine.app.DeviceProbe.MIN_WEBVIEW_MAJOR
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test

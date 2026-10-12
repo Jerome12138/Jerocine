@@ -5,7 +5,7 @@ import android.content.Intent;
 import android.os.Bundle;
 
 import com.jerocine.tv.NativeShellActivity;
-import com.jerocine.tv.route.DeviceProbe;
+// DeviceProbe 2026-10-12 起与 EntryRouterActivity 同处宿主 :app（com.jerocine.app），无需 import。
 
 /**
  * 单包合并后的唯一 launcher Activity。
