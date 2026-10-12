@@ -1,5 +1,10 @@
 ext {
-    minSdkVersion = 24
+    // ⚠️ 单包双壳：这里是**整个 APK**的 minSdk，必须低到能装进低配机（坚果 Nano / Android 6.0 / API 23），
+    //    否则 EntryRouterActivity 的「低配走原生壳」路由在物理上无从发生（装都装不上）。
+    //    Capacitor / cordova-android 模板默认给 24，不要跟它走；与 :tvshell / :player-core 的 21 保持一致。
+    //    代价：几个 Capacitor 依赖库自身声明 minSdk 24，需在宿主 manifest 用 tools:overrideLibrary 放行
+    //    （见 app/src/main/AndroidManifest.xml）；低配机永远不会加载这些类（路由保证）。
+    minSdkVersion = 21
     compileSdkVersion = 36
     targetSdkVersion = 36
     androidxActivityVersion = '1.11.0'

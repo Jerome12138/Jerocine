@@ -10,19 +10,19 @@
 > 本文其余部分保留合并前语境（历史说明），如需权威现状以仓库根 `CLAUDE.md` 为准。
 
 为覆盖**坚果 Nano（Android 6.0 / API 23 / Chromium 48）这类老投影**而做的原生壳。
-Capacitor(WebView) 方案在该设备上无法安装/运行，故采用原生实现；合并后它作为宿主内的
-`:tvshell` library 被 `EntryRouterActivity` 按设备能力路由进来。
+Capacitor(WebView) 方案在该设备上跑不动（WebView 内核 48 远低于前端要求），故采用原生实现；
+合并后它作为宿主内的 `:tvshell` library 被 `EntryRouterActivity` 按设备能力路由进来。
 
-> ⚠️ 但合并后宿主 **minSdk 被抬到 24**（Capacitor 8 内置 Cordova AAR 的硬要求），
-> 因此**原生壳实际服务的是"能装上单包、但 WebView 内核过旧/内存过小"的记忆体设备**；
-> API 23 的坚果 Nano 已装不上单包（属既有结论，需产品层决策），不再是本壳的目标设备。
+> ✅ 单包 minSdk 已降到 **21**（2026-10-12；对 Capacitor/cordova 依赖用 `tools:overrideLibrary` 放行），
+> 所以 API 21–23 的老设备**装得上**这个包，启动后由 `DeviceProbe` 判为低配 → 直接进本原生壳
+> （那条路径上 Capacitor 的类从不加载）。这正是"同一个包、低配也能安装并自动走原生"的设计要点。
 
 ## 技术栈
 
 - Kotlin + **Android View/XML + RecyclerView**（针对低配电视减少渲染开销）
 - **Media3 (ExoPlayer)** + SurfaceView（解码帧直贴屏，弱机最流畅）
 - Retrofit + kotlinx-serialization（无反射，适合弱机）
-- **library `minSdk = 21`，但合并后宿主 `minSdk = 24` 生效**（manifest 合并取二者较大值）；
+- **minSdk = 21**（与宿主同值；合并后的 APK 只有一条 `uses-sdk minSdkVersion=21`）；
   `targetSdk` 对库无意义，已删。
 - 复用现有 Go 后端 API，仅新增设备码登录 3 接口
 
@@ -93,5 +93,5 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
 
 ## 待办（设备环节）
 
-- [ ] **坚果 Nano 真机功能 + 性能实测**（⚠️ 合并后 minSdk=24，API 23 的 Nano 装不上已发的 APK —— 该设备实测项已失效，待产品层决策）
+- [ ] **坚果 Nano 真机功能 + 性能实测**（单包 minSdk=21 已可安装；待验证：装包成功 → 启动进原生壳 → Capacitor 类未加载 → 界面/滚动正常）
 - [ ] **新版 View/XML UI 真机视觉与滚动复核**

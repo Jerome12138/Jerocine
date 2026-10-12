@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 单包双壳: APK 携带 Capacitor/cordova 依赖(它们自身声明 minSdkVersion=24),
+         但整个包的 minSdk 要降到 21 才能装进坚果 Nano(API 23)这类低配机。
+         overrideLibrary 只是放行 manifest 合并的版本检查 —— API<24 的机器由
+         EntryRouterActivity 路由进 NativeShellActivity, 永不加载这些类。 -->
+    <uses-sdk tools:overrideLibrary="org.apache.cordova" />
 
     <!-- TV 适配: 不要求触屏 / 声明支持 Leanback (required=false 让手机也能装) -->
     <uses-feature
