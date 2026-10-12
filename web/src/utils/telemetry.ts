@@ -36,10 +36,20 @@ const CHUNK_NOISE_RE =
  *    浏览器标准行为, 播放器上游已 catch, 只剩个别环境漏出的 unhandledrejection, 无修复价值。
  *  - "s.then is not a function": video.js 全屏内部 promise 链在个别环境(非 Promise 返回值)
  *    抛错, 调用侧已 catch 兜底, 无害。
+ *  - "wallet must has at least one account" (code 4001): 用户浏览器安装了加密钱包扩展
+ *    (MetaMask 类), 其注入脚本在本站页面抛错, 与本站代码无关。
+ *  - "TrustedTypePolicyFactory ... Policy with name ... already exists": 浏览器扩展或
+ *    第三方脚本重复创建 TrustedTypes policy, 非本站代码问题; 常伴随低版本 WebView 上的
+ *    "(void 0) is not a function" 连锁报错, 均为环境侧噪音。
+ *  - "Failed to execute 'createPolicy' on 'TrustedTypePolicyFactory'": 同上。
+ *  - "(void 0) is not a function": 低版本 WebView / 浏览器扩展注入导致第三方库
+ *    (video.js VHS / TrustedTypes polyfill) 内部调用 undefined 函数, col 通常 >10000
+ *    (打包后 vendor 区域), 非业务代码 bug; 单用户设备集中出现且伴随 TrustedTypes
+ *    错误时判定为环境噪音。若后续多用户复现需移除本过滤并深入排查。
  * 保留它们只会污染埋点错误列表、掩盖真实问题, 故与 chunk noise 一样单点丢弃。
  */
 const KNOWN_NOISE_RE =
-  /The play\(\) request was interrupted by a call to pause\(\)|s\.then is not a function/i
+  /The play\(\) request was interrupted by a call to pause\(\)|s\.then is not a function|wallet must has at least one account|TrustedTypePolicyFactory|createPolicy.*already exists|\(void 0\) is not a function/i
 
 interface TelemetryEvent {
   ts: number
