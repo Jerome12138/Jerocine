@@ -3,7 +3,8 @@ package com.jerocine.tv.route
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.annotation.VisibleForTesting
-import com.jerocine.tv.data.ShellPrefs
+import com.jerocine.player.data.ShellPrefs
+import com.jerocine.player.ui.JcDeviceDiagnostics
 import kotlin.jvm.JvmStatic
 
 /**
@@ -31,17 +32,17 @@ object DeviceProbe {
     enum class ShellTarget { WEB, NATIVE }
 
     /**
-     * 阈值常量 —— 集中在此, 调阈值不用翻逻辑。
+     * 阈值常量 —— **单一来源在 core 的 [JcDeviceDiagnostics]**（设备诊断页要展示同一套判定），
+     * 这里只做别名，防止"路由一套、诊断一套"的静默漂移。
      *
-     * ⚠️ [MIN_SDK] 在单包合并后是**结构性恒真**的: 合并后的 APK 只有一个 uses-sdk,
-     *    它由 Capacitor 8 的硬要求(内置 Cordova AAR 声明 minSdk 24)决定, 见宿主
-     *    web/android/variables.gradle 的 minSdkVersion=24 ⇒ API<24 的机器根本装不上,
-     *    探针也就永远看不到 sdkInt<24。保留这个判断是为了①万一将来 minSdk 能降下来,
-     *    路由不需要改;②纯逻辑单测仍能覆盖该分支。**低配兜底实际靠内存/WebView 两条阈值。**
+     * [MIN_SDK] 是真正的路由阈值（不再恒真）：整个包的 minSdk 已降到 21
+     * （见 web/android/variables.gradle），API 21-23 的老设备**装得上**，
+     * 但启动后会被本探针判为 NATIVE → 进原生壳。这正是"同一个包、低配也能安装
+     * 并自动走原生"的设计要点；低配兜底由此阈值 + 内存/WebView 三条共同决定。
      */
-    const val MIN_SDK = 24
-    const val MIN_WEBVIEW_MAJOR = 87
-    const val MIN_MEMORY_GB = 2L
+    const val MIN_SDK = JcDeviceDiagnostics.MIN_SDK
+    const val MIN_WEBVIEW_MAJOR = JcDeviceDiagnostics.MIN_WEBVIEW_MAJOR
+    const val MIN_MEMORY_GB = JcDeviceDiagnostics.MIN_MEMORY_GB
 
     /** prefs 名与"壳模式"键 —— 契约只在 [ShellPrefs] 定义一次, 这里只做别名 */
     const val PREFS_NAME = ShellPrefs.NAME

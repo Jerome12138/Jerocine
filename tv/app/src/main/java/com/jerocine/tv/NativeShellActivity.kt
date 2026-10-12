@@ -8,18 +8,18 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
+import com.jerocine.player.ui.GlassToast
+import com.jerocine.player.ui.JcDeviceDiagnostics
 import com.jerocine.player.ui.JcDialog
 import com.jerocine.tv.data.HistoryReq
 import com.jerocine.tv.data.ServiceLocator
-import com.jerocine.tv.data.ShellPrefs
+import com.jerocine.player.data.ServerUrl
+import com.jerocine.player.data.ShellPrefs
 import com.jerocine.tv.data.isPlayerHistoryEvent
 import com.jerocine.player.JerocinePlayer
-import com.jerocine.tv.ui.DeviceDiagnostics
-import com.jerocine.tv.ui.normalizeServerUrl
 import com.jerocine.tv.ui.reduceMotionLabel
 import com.jerocine.tv.ui.view.DetailFragment
 import com.jerocine.tv.ui.view.HomeFragment
@@ -29,7 +29,7 @@ import com.jerocine.tv.ui.view.CategoryLibraryFragment
 import com.jerocine.tv.ui.view.LoginFragment
 import com.jerocine.tv.ui.view.HistoryFragment
 import com.jerocine.tv.ui.view.FavoritesFragment
-import com.jerocine.tv.ui.SettingsDrawerController
+import com.jerocine.player.ui.SettingsDrawerController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.jerocine.player.R as PlayerR
@@ -59,7 +59,7 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
                 if (exitGate.shouldExit(SystemClock.elapsedRealtime())) {
                     finish()
                 } else {
-                    Toast.makeText(this@NativeShellActivity, "再按一次退出应用", Toast.LENGTH_SHORT).show()
+                    GlassToast.show(this@NativeShellActivity, "再按一次退出应用")
                 }
             }
         })
@@ -184,14 +184,9 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
         }
     }
 
-    /** 设备诊断 —— 一律走 JcDialog(项目铁律: 禁止手写 AlertDialog.Builder) */
+    /** 设备诊断 —— 共用 core 的一份实现(单包双壳同一套字段与判定, 细则 §5.1) */
     override fun onDeviceDiagnostics() {
-        val info = DeviceDiagnostics.collect(this)
-        JcDialog.message(this)
-            .title("设备诊断")
-            .message(info.toText())
-            .confirmButton("关闭")
-            .show()
+        JcDeviceDiagnostics.show(this)
     }
 
     /**
@@ -228,7 +223,7 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
             .title("服务器地址")
             .content(wrap)
             .confirmButton("保存", Runnable {
-                val url = normalizeServerUrl(input.text.toString())
+                val url = ServerUrl.normalize(input.text.toString())
                 if (url.isBlank()) {
                     toast("地址不能为空")
                     return@Runnable
@@ -256,7 +251,7 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
     override fun onAccountAction() {
         if (ServiceLocator.isLoggedIn) {
             ServiceLocator.saveToken(null)
-            Toast.makeText(this, "已退出登录", Toast.LENGTH_SHORT).show()
+            GlassToast.show(this, "已退出登录")
         } else {
             openLogin()
         }
@@ -296,7 +291,8 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
     }
 
     override fun toast(msg: String) {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        // 与 web 壳同一份玻璃 Toast(下沉自 web 壳, 细则 §5.1): 两壳轻提示观感一致
+        GlassToast.show(this, msg)
     }
 
     override fun onShellModeChanged(mode: String) {

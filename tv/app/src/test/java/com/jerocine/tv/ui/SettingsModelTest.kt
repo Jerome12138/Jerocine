@@ -4,10 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SettingsModelTest {
-    @Test
-    fun normalizesServerWithoutTrailingSlash() {
-        assertEquals("https://example.com", normalizeServerUrl(" https://example.com/// "))
-    }
+    // 服务器地址归一化的用例已随实现下沉到 player-core(见 ServerUrlTest)
 
     @Test
     fun labelsReduceMotionModes() {

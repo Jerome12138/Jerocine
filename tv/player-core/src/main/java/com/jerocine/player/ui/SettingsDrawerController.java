@@ -1,4 +1,4 @@
-package com.jerocine.tv.ui;
+package com.jerocine.player.ui;
 
 import android.app.Activity;
 import android.content.Context;
@@ -18,17 +18,19 @@ import android.widget.TextView;
 
 import com.jerocine.player.PlayerAdFilterHelper;
 import com.jerocine.player.R;
-import com.jerocine.tv.BuildConfig;
-import com.jerocine.tv.data.ShellPrefs;
+import com.jerocine.player.data.ShellPrefs;
 
 /**
- * 统一设置抽屉控制器 —— 从 WebShellActivity.buildSettingsDrawer 抽取,
- * web 壳和原生壳共用同一套右侧玻璃抽屉 UI。
+ * 统一设置抽屉控制器 —— 单包双壳**共用一份**（下沉到 player-core，细则 §5.1 / §6.3）。
  *
- * 设计原则: 以 web 壳原有抽屉为基础, 通用项(广告过滤/设备诊断/服务器/版本/
- * 检查更新/壳模式/退出)直接处理; 壳特有项(刷新页面/账号登录态/显示模式/减少动效)
- * 通过 {@link Host} 回调交给各壳实现: web 壳有"显示模式"无"减少动效",
- * 原生壳相反 —— 由 host.hasDisplayMode()/hasMotionRow() 各自隐藏对方那一行。
+ * 合并前 web 壳在 WebShellActivity 里内联约 450 行构建、原生壳是全页 SettingsFragment；
+ * 现在两壳都在 onCreate 里 new 出本控制器，外观与交互完全一致
+ * （§10 验收项"设置页在两种模式下同一份抽屉、外观一致"）。
+ *
+ * 设计原则: 通用项(广告过滤/设备诊断/服务器/版本/检查更新/壳模式/退出)直接处理;
+ * 壳特有项(刷新页面/账号登录态/显示模式/减少动效)通过 {@link Host} 回调交给各壳实现:
+ * web 壳有"显示模式"无"减少动效", 原生壳相反 —— 由 host.hasDisplayMode()/hasMotionRow()
+ * 各自隐藏对方那一行。
  *
  * 用法:
  *   controller = new SettingsDrawerController(activity, prefs, host);
@@ -62,7 +64,7 @@ public class SettingsDrawerController {
 
     /** 壳特有操作回调 —— web 壳和原生壳各自实现 */
     public interface Host {
-        /** 轻提示。web 壳走 GlassToast(玻璃风格, TV 上观感统一), 原生壳走系统 Toast */
+        /** 轻提示 —— 两壳统一走 core 的 {@link GlassToast}(玻璃风格, TV 上观感一致) */
         void toast(String msg);
         /** 刷新页面(web: webView.reload; 原生: 刷新数据) */
         void onRefreshPage();
@@ -260,7 +262,7 @@ public class SettingsDrawerController {
         addInfoRow("运行平台", "Android " + android.os.Build.VERSION.RELEASE
                 + " (API " + android.os.Build.VERSION.SDK_INT + ")");
         addInfoRow("构建模式", "APK 构建类型 · 与线上包体无关",
-                BuildConfig.DEBUG ? "debug" : "release");
+                isDebuggableBuild() ? "debug" : "release");
         addNavRow("检查更新", "GET /app/version/latest", "立即检查",
                 () -> { hide(); host.onCheckUpdate(); });
 
@@ -369,10 +371,8 @@ public class SettingsDrawerController {
      * 头部版本号文案。
      *
      * ⚠️ 必须读**已安装包**的真实版本: 单包合并后唯一 APK 的版本来自宿主 :app(web.*),
-     *    而本类在 :tvshell 库里 —— 库的 BuildConfig.VERSION_NAME 与宿主**不是同一来源**
-     *    (早期两壳是两个 APK, 各有各的版本号)。直接用库的 BuildConfig 会显示成
-     *    "v1.0.1 (1038)" 这种早已不存在的旧版本号, 用户报障时给的信息就是错的。
-     *    BuildConfig 只作为兜底(取包信息理论上不会失败)。
+     *    而本类在 player-core 库里 —— 库既没有 applicationId 也没有 versionCode/versionName，
+     *    靠 BuildConfig 兜底只会显示空串或错号（用户报障时给的信息就是错的）。故只走 PackageManager。
      */
     @SuppressWarnings("deprecation") // getPackageInfo(String,int) 在 API 33 被标记过时, 但全版本可用
     private String installedVersionText() {
@@ -381,8 +381,14 @@ public class SettingsDrawerController {
                     .getPackageInfo(activity.getPackageName(), 0);
             return "v" + pi.versionName + " (" + pi.versionCode + ")";
         } catch (Exception e) {
-            return "v" + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")";
+            return "";
         }
+    }
+
+    /** 是否 debug 包 —— 读已安装包的 debuggable 标志(库不自带 BuildConfig 版本语义) */
+    private boolean isDebuggableBuild() {
+        return (activity.getApplicationInfo().flags
+                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
     private TextView makeText(String text, float sp, int color, boolean bold) {

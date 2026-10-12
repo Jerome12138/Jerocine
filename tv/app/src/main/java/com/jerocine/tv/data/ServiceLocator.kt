@@ -1,6 +1,7 @@
 package com.jerocine.tv.data
 
 import android.content.Context
+import com.jerocine.player.data.ShellPrefs
 import com.jerocine.tv.BuildConfig
 
 /**

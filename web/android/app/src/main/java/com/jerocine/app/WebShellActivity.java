@@ -2,7 +2,11 @@ package com.jerocine.app;
 
 import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerAdFilterHelper;
-import com.jerocine.tv.ui.SettingsDrawerController;
+import com.jerocine.player.data.ServerUrl;
+import com.jerocine.player.ui.BrandSplashView;
+import com.jerocine.player.ui.GlassToast;
+import com.jerocine.player.ui.JcDeviceDiagnostics;
+import com.jerocine.player.ui.SettingsDrawerController;
 
 import android.app.AlertDialog;
 import android.content.Context;
@@ -60,10 +64,10 @@ public class WebShellActivity extends BridgeActivity
         implements ServerNavigationWebViewClient.WebViewFallbackCallback,
                    SettingsDrawerController.Host {
 
-    // 壳层共享 prefs 契约(文件名/键名)只在 com.jerocine.tv.data.ShellPrefs 定义一次 ——
+    // 壳层共享 prefs 契约(文件名/键名)只在 com.jerocine.player.data.ShellPrefs 定义一次 ——
     // 合并成单包后原生壳读写的是同一份 prefs, 键名漂移会导致"切壳后设置/登录态错配"。
-    static final String PREFS = com.jerocine.tv.data.ShellPrefs.NAME;
-    static final String KEY_SERVER_URL = com.jerocine.tv.data.ShellPrefs.KEY_SERVER_URL;
+    static final String PREFS = com.jerocine.player.data.ShellPrefs.NAME;
+    static final String KEY_SERVER_URL = com.jerocine.player.data.ShellPrefs.KEY_SERVER_URL;
 
     // ===== 玻璃暗色设计令牌 (与 res/values/colors.xml 对应, 编程式 UI 用) =====
     private static final int GF_BG          = 0xFF0B0B0F; // 应用根背景
@@ -104,7 +108,7 @@ public class WebShellActivity extends BridgeActivity
     private boolean accountLoggedIn;
     /** 当前显示模式覆盖值: tv / desktop / null(=没选过, 壳内默认强制 TV) */
     private String currentDisplayMode;
-    static final String KEY_SHELL_MODE = com.jerocine.tv.data.ShellPrefs.KEY_SHELL_MODE;
+    static final String KEY_SHELL_MODE = com.jerocine.player.data.ShellPrefs.KEY_SHELL_MODE;
     /** 断网兜底页 (原生全屏覆盖, 带重试按钮) */
     private FrameLayout offlineOverlay;
 
@@ -261,7 +265,7 @@ public class WebShellActivity extends BridgeActivity
         // Capacitor 只把 appUrl(http://localhost) 与 server.allowNavigation 当站内,
         // 于是 https://<server>/... 的顶层导航会被 Intent.ACTION_VIEW 丢给系统浏览器 ——
         // 顶栏「刷新」按钮的 location.reload() 正好命中。详见 ServerNavigationWebViewClient。
-        currentServerHost = ServerNavigationPolicy.hostOf(url);
+        currentServerHost = ServerUrl.hostOf(url);
         installServerNavigationClient();
 
         wv.setWebChromeClient(new WebChromeClient() {
@@ -487,7 +491,7 @@ public class WebShellActivity extends BridgeActivity
     }
     @Override public void onExitApp() { finishAffinity(); }
     @Override public void onCheckUpdate() { checkUpdateExposed(); }
-    @Override public void onDeviceDiagnostics() { showDeviceDiagnostics(); }
+    @Override public void onDeviceDiagnostics() { JcDeviceDiagnostics.show(this); }
     @Override public void onServerUrlEdit() { promptServerUrl(true); }
     @Override public String getServerUrl() {
         return prefs().getString(KEY_SERVER_URL, "");
@@ -691,58 +695,6 @@ public class WebShellActivity extends BridgeActivity
                     });
                 }
         );
-    }
-
-    /**
-     * 设备诊断对话框 — 安装后异常排查用(与 tv 原生版 DeviceDiagnostics 对齐):
-     * 机型 / Android 版本 / WebView 内核 / 分辨率 / 内存 / 应用版本等, 并给出
-     * "当前 TV 是否适合 Web 嵌入方式"的判定参考.
-     */
-    private void showDeviceDiagnostics() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("机型: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
-        sb.append("Android: ").append(Build.VERSION.RELEASE)
-                .append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
-        sb.append("ABI: ").append(Build.SUPPORTED_ABIS != null && Build.SUPPORTED_ABIS.length > 0
-                ? Build.SUPPORTED_ABIS[0] : "未知").append('\n');
-        sb.append("应用版本: ").append(BuildConfig.VERSION_NAME)
-                .append(" (").append(BuildConfig.VERSION_CODE).append(")\n");
-        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        sb.append("分辨率: ").append(dm.widthPixels).append('x').append(dm.heightPixels)
-                .append(" density=").append(dm.density).append('\n');
-        android.app.ActivityManager am =
-                (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-        if (am != null) {
-            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
-            am.getMemoryInfo(mi);
-            sb.append("内存: 总计 ").append(mi.totalMem / 1024 / 1024 / 1024)
-                    .append("G, 可用 ").append(mi.availMem / 1024 / 1024)
-                    .append("M\n");
-        }
-        WebView wv = (bridge != null) ? bridge.getWebView() : null;
-        if (wv != null) {
-            sb.append("WebView 内核: ").append(WebSettings.getDefaultUserAgent(wv.getContext())).append('\n');
-        } else {
-            sb.append("WebView 内核: 未就绪\n");
-        }
-        // Web 容器适配判定: 内存偏小建议固定原生壳(单包内两壳切换, 不再有"独立版 APK")
-        long memGb = 0;
-        if (am != null) {
-            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
-            am.getMemoryInfo(mi);
-            memGb = mi.totalMem / 1024 / 1024 / 1024;
-        }
-        sb.append('\n').append("建议: ");
-        if (memGb > 0 && memGb < 2) {
-            sb.append("内存偏小, Web 容器可能卡顿; 界面异常时可在「设置 → 壳模式」固定为「原生」(单包内两壳, 无需另装包)");
-        } else {
-            sb.append("设备满足 Web 容器运行要求(WebView 内核正常即可); 若界面异常, 启动时会自动降级到原生壳");
-        }
-        new AlertDialog.Builder(this, com.jerocine.player.R.style.JcPlayerDialog)
-                .setTitle("设备诊断")
-                .setMessage(sb.toString())
-                .setPositiveButton("OK", null)
-                .show();
     }
 
     /** 打开原生设置抽屉 — 供 MENU 键(dispatchKeyEvent) 与 JerocineBridge 的

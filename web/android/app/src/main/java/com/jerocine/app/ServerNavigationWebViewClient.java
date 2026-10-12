@@ -9,20 +9,21 @@ import android.webkit.WebView;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
+import com.jerocine.player.data.ServerUrl;
 
 /**
  * 继承 Capacitor 的 BridgeWebViewClient, 做两件事:
  *
  * 1. 导航规则: 指向"当前服务器 host"的顶层导航(A 标签 / location.href / location.reload)
  *    留在 WebView 内; 其余(其它域名的外链)仍按 Capacitor 默认交给系统浏览器打开。
- *    判定逻辑抽在 {@link ServerNavigationPolicy}(纯逻辑 + JVM 单测)。
+ *    判定逻辑抽在 {@link ServerUrl}(core 纯逻辑 + JVM 单测, 两壳共用一份)。
  *
  * 2. 运行时降级兜底(P2.3): WebView 连续加载失败或渲染进程崩溃达到阈值后,
  *    写 SharedPreferences 强制原生模式(jc-shell-mode=native)并重启应用,
  *    让 EntryRouter 下次走 NativeShellActivity。避免低配设备 WebView 反复
  *    崩溃时用户卡在白屏。
  *
- * 为什么不走 config 的 server.allowNavigation: 见 ServerNavigationPolicy 类注释。
+ * 为什么不走 config 的 server.allowNavigation: 见 ServerUrl 类注释。
  */
 class ServerNavigationWebViewClient extends BridgeWebViewClient {
 
@@ -191,6 +192,6 @@ class ServerNavigationWebViewClient extends BridgeWebViewClient {
         if (url == null) {
             return false;
         }
-        return ServerNavigationPolicy.isInAppHost(url.getHost(), hostProvider.currentServerHost());
+        return ServerUrl.isInAppHost(url.getHost(), hostProvider.currentServerHost());
     }
 }

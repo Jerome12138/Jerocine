@@ -1,4 +1,4 @@
-package com.jerocine.app;
+package com.jerocine.player.ui;
 
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
@@ -12,8 +12,13 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.jerocine.player.R;
+
 /**
  * 原生品牌首屏(方案 §7) —— 替代原来"黑底 + 裸转圈"的启动动画。
+ *
+ * **单包双壳共用**（下沉自 web 壳，细则 §5.1）：品牌 logo 资源 {@code ic_logo_rounded}
+ * 也一并收敛到 player-core 一份，两壳不再各存一份副本。
  *
  * 形态: 站点根背景色(@color/jc_bg #0B0B0F) + 居中品牌 logo + 品牌名 + 底部呼吸 loading(三点)。
  * 系统 splash(styles.xml 的 AppTheme.NoActionBarLaunch.windowBackground)与它同色 ⇒ 无跳变。

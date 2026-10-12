@@ -1,4 +1,4 @@
-package com.jerocine.app;
+package com.jerocine.player.ui;
 
 import android.content.Context;
 import android.view.Gravity;
@@ -10,23 +10,24 @@ import android.widget.Toast;
 
 import androidx.annotation.DrawableRes;
 
-// jc_toast 布局与玻璃色令牌已收敛到 player-core(共享 UI 模块), 仅此一份.
+// jc_toast 布局与玻璃色令牌都在 player-core(共享 UI 模块), 仅此一份, 所以本类也放在这里.
 // AGP8 默认非传递 R 类(android.nonTransitiveRClass=true): 壳的 R 不含库资源,
 // 故这里显式引用 player-core 的 R —— 它才是 @layout/jc_toast 的宿主.
 import com.jerocine.player.R;
 
 /**
  * 共享玻璃 Toast — 把系统默认灰底小条统一换成项目的暗色玻璃拟态风.
+ * **单包双壳共用**（下沉自 web 壳, 细则 §5.1）: 两壳的 Host.toast 都走这里, TV 上观感一致。
  *
  * 实现: new Toast(ctx) + setView(自定义玻璃布局 @layout/jc_toast), 复用 @drawable/jc_toast_bg
  * (与 PlayerActivity 内 center_toast 同款: 半透明深色面 + 1px 细描边 + 大圆角 + 白字),
  * 与全局玻璃令牌(colors.xml)一致, 不另造样式. 居中靠下显示, 支持可选左侧图标.
  *
- * WebShellActivity / PlayerActivity / JerocineBridge / UpdateChecker 的所有
- * Toast.makeText(...).show() 均改走此处, 文案不变.
+ * WebShellActivity / NativeShellActivity / PlayerActivity / JerocineBridge / UpdateChecker
+ * 的所有 Toast.makeText(...).show() 均改走此处, 文案不变.
  *
  * 注: setView/new Toast 在 API30+ 对"文本 toast"已弃用, 但对自定义 view toast 仍受支持且按预期工作;
- * minSdk=24, 行为一致.
+ * minSdk=21, 行为一致.
  */
 public final class GlassToast {
 
