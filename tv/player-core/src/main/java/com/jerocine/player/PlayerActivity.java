@@ -973,9 +973,13 @@ private static String failedRequestUrl(Throwable error) {
      * 每 500ms 刷新 `缓冲中 x%`(百分比取 player.getBufferedPercentage()); 离开缓冲态收起。
      * 与普通 toast 共用 centerToast 视图: 期间若有普通 toast介入会被下一拍覆盖 ——
      * 缓冲中百分比是主信号, 可接受。决策逻辑见 {@link PlayerBufferToastPolicy}。
+     *
+     * <p>起播/切集的**广告过滤窗口**除外(见 {@link #isFilteringWindow}): 那时播放器卡在
+     * "等过滤后的清单"上, 分片一个都没开始加载, 百分比恒 0 —— 显示"缓冲中 0%"既是噪音,
+     * 又与"正在准备视频 · 广告过滤中"重复打架(2026-10-12 用户报障)。
      */
     private void updateBufferToast(int state) {
-        switch (PlayerBufferToastPolicy.onState(state, bufferToastOn)) {
+        switch (PlayerBufferToastPolicy.onState(state, bufferToastOn, isFilteringWindow(state))) {
             case START:
                 bufferToastOn = true;
                 // 与 showCenterToast 同款互斥: 停掉中央图标与普通 toast 的定时器
@@ -1502,16 +1506,29 @@ private static String failedRequestUrl(Throwable error) {
         }
     }
 
+    /**
+     * 是否处于**起播/切集的广告过滤窗口**: 缓冲中、正在切集、开着广告过滤、且当前集不是本地。
+     *
+     * <p>这个窗口里播放器在等"过滤后的清单"(端侧 POST /v1/m3u8/filter, master + 子表两趟),
+     * 媒体分片尚未开始装载 —— 所以 `getBufferedPercentage()` 恒 0。
+     * 本判定同时服务两处 UI, 保证口径一致:
+     * <ul>
+     *   <li>{@link #updateFilterLoadingText} —— 显示「正在准备视频 · 广告过滤中」;</li>
+     *   <li>{@link #updateBufferToast} —— **抑制**「缓冲中 x%」(让位给上面那句)。</li>
+     * </ul>
+     * 本地集清单已过滤过, 不存在"过滤中"(统一判定, 见 PlayerModes)。
+     */
+    private boolean isFilteringWindow(int state) {
+        if (state != Player.STATE_BUFFERING) return false;
+        if (!session.episodeSwitching || !session.adFilterOn) return false;
+        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        return !session.isEpisodePlayingLocal(idx);
+    }
+
     private void updateFilterLoadingText(int state) {
         View tv = findViewById(R.id.filter_loading_text);
         if (tv == null) return;
-        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
-        boolean show = state == Player.STATE_BUFFERING
-                && session.episodeSwitching
-                && session.adFilterOn
-                // 本地集清单已过滤过, 不存在"过滤中"(统一判定, 见 PlayerModes)
-                && !session.isEpisodePlayingLocal(idx);
-        tv.setVisibility(show ? View.VISIBLE : View.GONE);
+        tv.setVisibility(isFilteringWindow(state) ? View.VISIBLE : View.GONE);
     }
 
     /** 状态点: 开=绿点, 关=灰点. */
