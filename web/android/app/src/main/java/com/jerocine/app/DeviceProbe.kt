@@ -59,11 +59,19 @@ object DeviceProbe {
         val totalMemoryBytes: Long
     }
 
-    /** 从 SharedPreferences 读用户选择, 缺省 AUTO */
+    /**
+     * 从 SharedPreferences 读用户选择, 缺省 AUTO。
+     *
+     * 归一化比对(2026-10-12 修): 写入端(设置抽屉 {@code JcSettingsDrawer.cycleShellMode}
+     * 与 WebView 不可恢复时的降级 {@code ServerNavigationWebViewClient})统一存**小写**
+     * {@code "auto"/"web"/"native"}, 而本方法原先只认枚举大写名 {@code "WEB"/"NATIVE"},
+     * 于是小写值全部落进 else 分支 → **用户在设置里选「Web」或「原生」被静默忽略**。
+     * 现在两边都认(大小写不敏感), 兼容历史版本写入的大写值。
+     */
     fun readUserMode(prefs: SharedPreferences): ShellMode {
-        return when (prefs.getString(KEY_SHELL_MODE, ShellMode.AUTO.name)) {
-            ShellMode.WEB.name -> ShellMode.WEB
-            ShellMode.NATIVE.name -> ShellMode.NATIVE
+        return when (prefs.getString(KEY_SHELL_MODE, "")?.trim()?.lowercase()) {
+            "web" -> ShellMode.WEB
+            "native" -> ShellMode.NATIVE
             else -> ShellMode.AUTO
         }
     }
@@ -107,22 +115,11 @@ object DeviceProbe {
             get() = android.os.Build.VERSION.SDK_INT
 
         override val webViewMajorVersion: Int by lazy {
-            try {
-                // WebView.getCurrentWebViewPackageName() 是 API 26+ 方法,
-                // minSdk=21 不能直接调用(编译期 Unresolved), 用反射兼容旧版本。
-                // API < 26 时反射抛 NoSuchMethodException → catch 返回 0 → 探针判 native。
-                val method = android.webkit.WebView::class.java
-                    .getMethod("getCurrentWebViewPackageName")
-                val pkgName = method.invoke(null) as? String ?: return@lazy 0
-                val pm = context.packageManager
-                @Suppress("DEPRECATION")
-                val info = pm.getPackageInfo(pkgName, 0)
-                // versionName 形如 "120.0.6099.43" → 取第一段主版本号
-                @Suppress("DEPRECATION")
-                info.versionName?.substringBefore('.')?.toIntOrNull() ?: 0
-            } catch (_: Exception) {
-                0
-            }
+            // 与设备诊断页(**同一份**探测, 2026-10-12 修):
+            // 原先这里自己反射 WebView.getCurrentWebViewPackageName() —— 该 API 已废弃,
+            // 在 API 34+ 上取不到值, 被 catch 吞掉后恒返回 0 → AUTO 永远判原生壳。
+            // 真机实测(API 37): 设备 WebView 实为 Chrome 150(远高于阈值 87), 却一直进原生壳。
+            JcDeviceDiagnostics.webViewMajorOrZero(context)
         }
 
         override val totalMemoryBytes: Long by lazy {

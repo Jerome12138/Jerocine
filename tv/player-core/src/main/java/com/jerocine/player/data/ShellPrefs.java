@@ -15,7 +15,15 @@ public final class ShellPrefs {
     /** SharedPreferences 文件名（两壳共用） */
     public static final String NAME = "jerocine_prefs";
 
-    /** 壳模式（auto / web / native）—— EntryRouter 与设置抽屉共用 */
+    /**
+     * 壳模式（auto / web / native）。
+     *
+     * <p><b>值域固定为小写</b> {@code "auto"} / {@code "web"} / {@code "native"}（缺省 auto）。
+     * 写入端只有两处：设置抽屉的壳模式三态循环、web 壳 WebView 不可恢复时的强制降级；
+     * 读取端为 {@code DeviceProbe.readUserMode} 与两壳的当前值展示。读取端对大小写不敏感
+     * （兼容历史版本写入的枚举大写名），但**新写入一律小写** —— 2026-10-12 曾因此出现
+     * "用户选了 Web/原生却被静默忽略"的真机回归。</p>
+     */
     public static final String KEY_SHELL_MODE = "jc-shell-mode";
 
     /** 服务器地址（web 壳写入；原生壳经 ServiceLocator ⇄ TokenStore 收敛到同一份） */

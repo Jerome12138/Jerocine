@@ -17,8 +17,9 @@ import android.webkit.WebView;
  * 菜单项在两壳显示的字段还不一致。合并后统一收敛到这里（细则 §5.1 / §9 步骤 5.5）。
  *
  * 核心目的：判断当前设备能不能跑 **Web 容器壳**（Capacitor，界面跑在系统 WebView 里）。
- * 单包双壳的设备能力路由器见 {@code com.jerocine.tv.route.DeviceProbe}，两者**同一套阈值**——
- * 阈值常量只在本类定义一次，DeviceProbe 引用它们，避免"注释说同源、实为两处写死"的漂移。
+ * 单包双壳的设备能力路由器见 {@code com.jerocine.app.DeviceProbe}，两者**同一套阈值、
+ * 同一份 WebView 探测**（{@link #webViewMajorOrZero}）—— 阈值与取数都必须同源，避免
+ * "诊断说能跑、路由判原生"的口径分裂。
  *
  * 判定规则（与前端 vite 构建目标对齐）：
  *  - WebView 内核 Chrome &lt; 87 → 不推荐 Web 容器（Vue3 + Vite 产物跑不动）
@@ -41,7 +42,49 @@ public final class JcDeviceDiagnostics {
     /** Web 容器可接受的最低总内存(GB) */
     public static final long MIN_MEMORY_GB = 2L;
 
+    /** API 21-25 上 WebView 独立更新包的常见包名(26+ 直接问系统, 见 installedWebViewMajor) */
+    private static final String[] WEBVIEW_PACKAGES = {
+            "com.google.android.webview", "com.android.webview"};
+
     private JcDeviceDiagnostics() {}
+
+    /**
+     * 当前 WebView 内核主版本；读不到返回 0。
+     *
+     * <p><b>路由({@code DeviceProbe})与诊断页共用这一份实现</b> —— 两处口径必须一致,
+     * 否则会出现"诊断页说满足 Web 容器条件、路由却判原生壳"的矛盾。2026-10-12 真机实测:
+     * 路由原先自己反射 {@code WebView.getCurrentWebViewPackageName()}, 该 API 已废弃,
+     * 在新系统上取不到值而返回 0 → AUTO 恒判原生壳(API 37 设备 WebView 实为 Chrome 150,
+     * 明明达标却一直进不了 Web 壳)。</p>
+     *
+     * <p>轻量: 只读包信息, <b>不构造 WebView</b>(不触发内核加载), 任意线程可调。</p>
+     */
+    public static int webViewMajorOrZero(Context context) {
+        Integer major = installedWebViewMajor(context);
+        return major == null ? 0 : major;
+    }
+
+    /** 已安装 WebView 的内核主版本；读不到返回 null(调用方决定兜底)。 */
+    private static Integer installedWebViewMajor(Context context) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            try {
+                PackageInfo pkg = WebView.getCurrentWebViewPackage();
+                if (pkg != null) return majorOf(pkg.versionName);
+            } catch (Exception ignored) {
+                // 落到按包名探测
+            }
+        }
+        for (String pkgName : WEBVIEW_PACKAGES) {
+            try {
+                PackageInfo pi = context.getPackageManager().getPackageInfo(pkgName, 0);
+                Integer major = majorOf(pi.versionName);
+                if (major != null) return major;
+            } catch (Exception ignored) {
+                // 继续试下一个包名
+            }
+        }
+        return null;
+    }
 
     /** 一次采集到的设备信息快照（纯数据，便于单测直接构造）。 */
     public static final class Info {
@@ -230,7 +273,7 @@ public final class JcDeviceDiagnostics {
             }
         }
         // 2) API 21-25：WebView 可能是独立更新包，按常见包名探测
-        for (String pkgName : new String[]{"com.google.android.webview", "com.android.webview"}) {
+        for (String pkgName : WEBVIEW_PACKAGES) {
             try {
                 PackageInfo pi = context.getPackageManager().getPackageInfo(pkgName, 0);
                 return new WebViewInfo(

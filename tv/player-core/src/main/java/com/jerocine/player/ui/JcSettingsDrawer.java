@@ -22,6 +22,8 @@ import com.jerocine.player.PlayerAdFilterHelper;
 import com.jerocine.player.R;
 import com.jerocine.player.data.ShellPrefs;
 
+import java.util.Locale;
+
 /**
  * 设置抽屉 —— 单包双壳**共用一份**（下沉到 player-core，细则 §5.1 / §6.3）。
  * 命名与设计稿 §6.3 对齐（2026-10-12 由 `SettingsDrawerController` 改名 `JcSettingsDrawer`、
@@ -365,15 +367,29 @@ public class JcSettingsDrawer {
     }
 
     static String nextShellMode(String current) {
-        if ("web".equals(current)) return "native";
-        if ("native".equals(current)) return "auto";
+        String m = normalizeShellMode(current);
+        if ("web".equals(m)) return "native";
+        if ("native".equals(m)) return "auto";
         return "web";
     }
 
     public static String shellModeLabel(String mode) {
-        if ("web".equals(mode)) return "Web";
-        if ("native".equals(mode)) return "原生";
+        String m = normalizeShellMode(mode);
+        if ("web".equals(m)) return "Web";
+        if ("native".equals(m)) return "原生";
         return "自动";
+    }
+
+    /**
+     * 壳模式取值归一(去空白 + 转小写)。
+     *
+     * <p>写入端(本类 {@link #cycleShellMode} 与 web 壳的 WebView 降级)统一存**小写**
+     * {@code auto/web/native}; 历史版本存过枚举大写名。归一后本类的标签/循环顺序才与读取端
+     * {@code DeviceProbe.readUserMode} 完全一致 —— 否则会出现"值是大写 NATIVE、标签却显示
+     * 自动、点一下跳错方向"的诡异状态(2026-10-12 修)。</p>
+     */
+    private static String normalizeShellMode(String mode) {
+        return mode == null ? "" : mode.trim().toLowerCase(Locale.ROOT);
     }
 
     // ==================== UI 辅助方法(从 WebShellActivity 抽取) ====================

@@ -86,6 +86,9 @@ class DeviceProbeTest {
     }
 
     // ---- readUserMode() ----
+    // 写入端(JcSettingsDrawer / ServerNavigationWebViewClient)统一存**小写**,
+    // 历史版本存过枚举大写名 —— 两边都要认(2026-10-12 修真: 原实现只认大写,
+    // 导致用户在设置里选「Web」/「原生」被静默忽略, 全部退化为 AUTO)。
 
     @Test
     fun readUserMode_default_returnsAuto() {
@@ -93,20 +96,55 @@ class DeviceProbeTest {
     }
 
     @Test
-    fun readUserMode_web_returnsWeb() {
-        assertSame(DeviceProbe.ShellMode.WEB,
-            DeviceProbe.readUserMode(fakePrefs(DeviceProbe.ShellMode.WEB.name)))
+    fun readUserMode_lowercaseWeb_returnsWeb() {
+        assertSame(DeviceProbe.ShellMode.WEB, DeviceProbe.readUserMode(fakePrefs("web")))
     }
 
     @Test
-    fun readUserMode_native_returnsNative() {
-        assertSame(DeviceProbe.ShellMode.NATIVE,
-            DeviceProbe.readUserMode(fakePrefs(DeviceProbe.ShellMode.NATIVE.name)))
+    fun readUserMode_lowercaseNative_returnsNative() {
+        assertSame(DeviceProbe.ShellMode.NATIVE, DeviceProbe.readUserMode(fakePrefs("native")))
+    }
+
+    @Test
+    fun readUserMode_lowercaseAuto_returnsAuto() {
+        assertSame(DeviceProbe.ShellMode.AUTO, DeviceProbe.readUserMode(fakePrefs("auto")))
+    }
+
+    @Test
+    fun readUserMode_legacyUppercase_isStillAccepted() {
+        assertSame(DeviceProbe.ShellMode.WEB, DeviceProbe.readUserMode(fakePrefs("WEB")))
+        assertSame(DeviceProbe.ShellMode.NATIVE, DeviceProbe.readUserMode(fakePrefs("NATIVE")))
+    }
+
+    @Test
+    fun readUserMode_mixedCaseAndPadding_isNormalized() {
+        assertSame(DeviceProbe.ShellMode.WEB, DeviceProbe.readUserMode(fakePrefs(" Web ")))
+        assertSame(DeviceProbe.ShellMode.NATIVE, DeviceProbe.readUserMode(fakePrefs("Native")))
     }
 
     @Test
     fun readUserMode_garbage_returnsAuto() {
         assertSame(DeviceProbe.ShellMode.AUTO, DeviceProbe.readUserMode(fakePrefs("invalid_value")))
+    }
+
+    @Test
+    fun readUserMode_emptyString_returnsAuto() {
+        assertSame(DeviceProbe.ShellMode.AUTO, DeviceProbe.readUserMode(fakePrefs("")))
+    }
+
+    /** 写入端写什么, readUserMode 就得读回什么 —— 防"写了 web 却仍判 AUTO"的契约漂移。 */
+    @Test
+    fun readUserMode_roundTripsWithWriterValues() {
+        // JcSettingsDrawer.nextShellMode 产生的值域 + ServerNavigationWebViewClient 的降级值
+        listOf("auto", "web", "native").forEach { written ->
+            val mode = DeviceProbe.readUserMode(fakePrefs(written))
+            val back = when (mode) {
+                DeviceProbe.ShellMode.WEB -> "web"
+                DeviceProbe.ShellMode.NATIVE -> "native"
+                DeviceProbe.ShellMode.AUTO -> "auto"
+            }
+            assertEquals(written, back)
+        }
     }
 
     // ---- resolveTarget() 用户选择优先 ----
