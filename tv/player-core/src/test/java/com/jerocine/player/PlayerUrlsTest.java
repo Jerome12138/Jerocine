@@ -162,7 +162,7 @@ public class PlayerUrlsTest {
     public void clientFilterSkipsLocalPlaylists() {
         // 离线/本地清单(下载时已过滤)不再付 POST; 在线源站仍需要端侧过滤
         assertFalse(PlayerUrls.needsClientSideFilter(
-                "file:///data/user/0/art.jerocine.tv/cache/download_cache/149293/79/playlist.m3u8"));
+                "file:///data/user/0/art.jerocine.app/cache/download_cache/149293/79/playlist.m3u8"));
         assertFalse(PlayerUrls.needsClientSideFilter(
                 "content://com.android.externalstorage/raw/movie.m3u8"));
         assertFalse(PlayerUrls.needsClientSideFilter("FILE:///sdcard/a.m3u8"));

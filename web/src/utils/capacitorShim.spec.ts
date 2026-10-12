@@ -8,7 +8,7 @@ import { installCapacitorShim } from './capacitorShim'
  * 不会注入 window.Capacitor。但壳(Capacitor Bridge / Cordova mock)在 App
  * pause/resume 生命周期会 evaluateJavascript("window.Capacitor.triggerEvent('pause','document')"),
  * 远程页无此对象 → Uncaught TypeError: Cannot read properties of undefined (reading 'triggerEvent')
- * → 被 MainActivity.onConsoleMessage 抓出弹 Toast 打扰用户。
+ * → 被 WebShellActivity.onConsoleMessage 抓出弹 Toast 打扰用户。
  *
  * 垫片职责：保证 window.Capacitor.triggerEvent 存在且为 no-op, 且绝不覆盖真实 Capacitor。
  */

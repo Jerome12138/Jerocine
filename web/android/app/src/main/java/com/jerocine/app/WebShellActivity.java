@@ -60,8 +60,10 @@ public class WebShellActivity extends BridgeActivity
         implements ServerNavigationWebViewClient.WebViewFallbackCallback,
                    SettingsDrawerController.Host {
 
-    static final String PREFS = "jerocine_prefs";
-    static final String KEY_SERVER_URL = "server_url";
+    // 壳层共享 prefs 契约(文件名/键名)只在 com.jerocine.tv.data.ShellPrefs 定义一次 ——
+    // 合并成单包后原生壳读写的是同一份 prefs, 键名漂移会导致"切壳后设置/登录态错配"。
+    static final String PREFS = com.jerocine.tv.data.ShellPrefs.NAME;
+    static final String KEY_SERVER_URL = com.jerocine.tv.data.ShellPrefs.KEY_SERVER_URL;
 
     // ===== 玻璃暗色设计令牌 (与 res/values/colors.xml 对应, 编程式 UI 用) =====
     private static final int GF_BG          = 0xFF0B0B0F; // 应用根背景
@@ -102,7 +104,7 @@ public class WebShellActivity extends BridgeActivity
     private boolean accountLoggedIn;
     /** 当前显示模式覆盖值: tv / desktop / null(=没选过, 壳内默认强制 TV) */
     private String currentDisplayMode;
-    static final String KEY_SHELL_MODE = "jc-shell-mode";
+    static final String KEY_SHELL_MODE = com.jerocine.tv.data.ShellPrefs.KEY_SHELL_MODE;
     /** 断网兜底页 (原生全屏覆盖, 带重试按钮) */
     private FrameLayout offlineOverlay;
 
@@ -153,7 +155,7 @@ public class WebShellActivity extends BridgeActivity
         // AndroidX OnBackPressedDispatcher 完全接管返回(系统手势左滑 / predictive back /
         // 导航栏返回都走这里), 必须注册 OnBackPressedCallback —— 否则左滑手势返回会被
         // dispatcher 默认直接 finish() 退出应用, 绕过 handleBackPressed 的"先回上一页/双击退出"逻辑.
-        // 与 tv 原生壳 MainActivity(onBackPressedDispatcher.addCallback) 机制保持一致.
+        // 与 tv 原生壳 NativeShellActivity(onBackPressedDispatcher.addCallback) 机制保持一致.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
@@ -459,6 +461,10 @@ public class WebShellActivity extends BridgeActivity
                         url = "http://" + url;
                     }
                     prefs().edit().putString(KEY_SERVER_URL, url).apply();
+                    // P2.1 数据一致性: 后端地址也写进公共模块(→ TokenStore)。
+                    // 单包内两个壳必须收敛到同一个地址, 否则切壳模式后会连到不同后端
+                    // (web 壳读 jerocine_prefs/server_url, 原生壳读 TokenStore.server)。
+                    com.jerocine.tv.data.ServiceLocator.setServer(url);
                     loadServer(url);
                 })
                 .create();
@@ -475,6 +481,7 @@ public class WebShellActivity extends BridgeActivity
     // ======================== SettingsDrawerController.Host 实现 ========================
     // 通用设置抽屉以 web 壳原有样式为基础, 原生壳共用; 壳特有操作经此回调。
 
+    @Override public void toast(String msg) { GlassToast.show(this, msg); }
     @Override public void onRefreshPage() {
         if (webViewRef != null) webViewRef.reload();
     }
@@ -512,6 +519,11 @@ public class WebShellActivity extends BridgeActivity
     @Override public String getDisplayModeLabel() {
         return SettingsDrawerLogic.displayModeLabel(currentDisplayMode);
     }
+
+    // ---- 减少动效(原生壳特有; web 壳不显示) ----
+    @Override public boolean hasMotionRow() { return false; }
+    @Override public void onCycleMotion() { }
+    @Override public String getMotionLabel() { return ""; }
 
     // ---- 壳模式(通用) ----
     @Override public void onShellModeChanged(String mode) {
@@ -713,8 +725,7 @@ public class WebShellActivity extends BridgeActivity
         } else {
             sb.append("WebView 内核: 未就绪\n");
         }
-        // Web 嵌入方式支持判定: 低内存 / 老 Android(API<21) / 无 WebView 内核 建议用低配独立 APK
-        int api = Build.VERSION.SDK_INT;
+        // Web 容器适配判定: 内存偏小建议固定原生壳(单包内两壳切换, 不再有"独立版 APK")
         long memGb = 0;
         if (am != null) {
             android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
@@ -722,10 +733,10 @@ public class WebShellActivity extends BridgeActivity
             memGb = mi.totalMem / 1024 / 1024 / 1024;
         }
         sb.append('\n').append("建议: ");
-        if (api < 23 || (memGb > 0 && memGb < 2)) {
-            sb.append("设备偏旧/内存偏小, Web 嵌入方式可能卡顿, 建议改用低配独立版 APK");
+        if (memGb > 0 && memGb < 2) {
+            sb.append("内存偏小, Web 容器可能卡顿; 界面异常时可在「设置 → 壳模式」固定为「原生」(单包内两壳, 无需另装包)");
         } else {
-            sb.append("设备满足 Web 嵌入方式运行要求(WebView 内核正常即可)");
+            sb.append("设备满足 Web 容器运行要求(WebView 内核正常即可); 若界面异常, 启动时会自动降级到原生壳");
         }
         new AlertDialog.Builder(this, com.jerocine.player.R.style.JcPlayerDialog)
                 .setTitle("设备诊断")

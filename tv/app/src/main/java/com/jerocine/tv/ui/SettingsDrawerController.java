@@ -15,20 +15,20 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.jerocine.player.PlayerAdFilterHelper;
 import com.jerocine.player.R;
 import com.jerocine.tv.BuildConfig;
+import com.jerocine.tv.data.ShellPrefs;
 
 /**
  * 统一设置抽屉控制器 —— 从 WebShellActivity.buildSettingsDrawer 抽取,
  * web 壳和原生壳共用同一套右侧玻璃抽屉 UI。
  *
  * 设计原则: 以 web 壳原有抽屉为基础, 通用项(广告过滤/设备诊断/服务器/版本/
- * 检查更新/壳模式/退出)直接处理; 壳特有项(刷新页面/账号登录态/显示模式)
- * 通过 {@link Host} 回调交给各壳实现。原生壳不需要的行(如显示模式)由
- * host.hasDisplayMode()=false 隐藏。
+ * 检查更新/壳模式/退出)直接处理; 壳特有项(刷新页面/账号登录态/显示模式/减少动效)
+ * 通过 {@link Host} 回调交给各壳实现: web 壳有"显示模式"无"减少动效",
+ * 原生壳相反 —— 由 host.hasDisplayMode()/hasMotionRow() 各自隐藏对方那一行。
  *
  * 用法:
  *   controller = new SettingsDrawerController(activity, prefs, host);
@@ -54,11 +54,16 @@ public class SettingsDrawerController {
     static final int GF_KNOB        = 0xFFFFFFFF;
     static final int DRAWER_W_DP = 400;
     static final int ROW_H_DP = 56;
-    /** 壳模式存储键(与 WebShellActivity.KEY_SHELL_MODE 一致) */
-    public static final String KEY_SHELL_MODE = "jc-shell-mode";
+    /**
+     * 壳模式存储键 —— 契约只在 {@link ShellPrefs} 定义一次(与 EntryRouter/DeviceProbe 共用),
+     * 这里保留常量只为兼容既有引用。
+     */
+    public static final String KEY_SHELL_MODE = ShellPrefs.KEY_SHELL_MODE;
 
     /** 壳特有操作回调 —— web 壳和原生壳各自实现 */
     public interface Host {
+        /** 轻提示。web 壳走 GlassToast(玻璃风格, TV 上观感统一), 原生壳走系统 Toast */
+        void toast(String msg);
         /** 刷新页面(web: webView.reload; 原生: 刷新数据) */
         void onRefreshPage();
         /** 退出应用 */
@@ -85,6 +90,18 @@ public class SettingsDrawerController {
         void onCycleDisplayMode();
         /** 当前显示模式标签 */
         String getDisplayModeLabel();
+
+        // ---- 减少动效(原生壳特有; web 壳 hasMotionRow=false 隐藏) ----
+        /**
+         * 是否显示"减少动效"行。
+         * 这是原生壳**唯一**的动画开关入口 —— 抽屉化之前它在全页 SettingsFragment 里,
+         * 抽屉必须保留, 否则用户再也改不了(老设备去抖动全靠它)。
+         */
+        boolean hasMotionRow();
+        /** 循环切换动效档位(auto → on → off) */
+        void onCycleMotion();
+        /** 当前动效档位标签(自动 / 减少 / 完整) */
+        String getMotionLabel();
 
         // ---- 壳模式(通用) ----
         /** 壳模式变更(已写入 prefs; host 可提示重启) */
@@ -118,10 +135,18 @@ public class SettingsDrawerController {
     private View settingsFirstFocus;
     private FrameLayout adFilterSwitch;
     private TextView displayModeValue;
+    private TextView motionValue;
     private TextView shellModeValue;
     private TextView accountAction;
     private TextView accountTitleView;
     private String currentShellMode;
+    /**
+     * 抽屉"逻辑打开"标志 —— 与 overlay 的 visibility 不同步:
+     * hide() 有 180ms 滑出动画, 期间 overlay 仍是 VISIBLE。若用 visibility 当状态,
+     * 动画窗口内再按 MENU 会被判成"已打开"从而只触发 hide(用户按键像被吃掉);
+     * 用独立标志可精确复刻抽屉化之前的 settingsOpen 语义(原 web 壳正是这么做的)。
+     */
+    private boolean open = false;
 
     public SettingsDrawerController(Activity activity, SharedPreferences prefs, Host host) {
         this.activity = activity;
@@ -171,6 +196,7 @@ public class SettingsDrawerController {
         settingsFirstFocus = null;
         adFilterSwitch = null;
         displayModeValue = null;
+        motionValue = null;
         shellModeValue = null;
         accountAction = null;
         accountTitleView = null;
@@ -181,8 +207,7 @@ public class SettingsDrawerController {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.addView(makeText("设置", 20, GF_TEXT, true), new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        head.addView(makeText("v" + BuildConfig.VERSION_NAME
-                + " (" + BuildConfig.VERSION_CODE + ")", 12, GF_TEXT_TER, false));
+        head.addView(makeText(installedVersionText(), 12, GF_TEXT_TER, false));
         ImageView closeBtn = new ImageView(activity);
         closeBtn.setImageResource(R.drawable.ic_close);
         closeBtn.setColorFilter(GF_TEXT_SEC);
@@ -220,8 +245,7 @@ public class SettingsDrawerController {
                     boolean next = !PlayerAdFilterHelper.isAdFilterEnabled(activity);
                     PlayerAdFilterHelper.setAdFilterEnabled(activity, next);
                     refreshToggle(adFilterSwitch, next);
-                    Toast.makeText(activity, next ? "广告过滤已开启" : "广告过滤已关闭",
-                            Toast.LENGTH_SHORT).show();
+                    host.toast(next ? "广告过滤已开启" : "广告过滤已关闭");
                 });
 
         // ---------- 设备 ----------
@@ -245,6 +269,14 @@ public class SettingsDrawerController {
         currentShellMode = host.getCurrentShellMode();
         shellModeValue = addNavRow("壳模式", "自动 / Web / 原生（重启生效）",
                 shellModeLabel(currentShellMode), this::cycleShellMode);
+        if (host.hasMotionRow()) {
+            motionValue = addNavRow("减少动效", "自动 / 减少 / 完整（老设备去抖动）",
+                    host.getMotionLabel(), () -> {
+                        host.onCycleMotion();
+                        // 档位在原生壳里是同步落盘的, 直接回读刷新右侧文案
+                        if (motionValue != null) motionValue.setText(host.getMotionLabel());
+                    });
+        }
         if (host.hasDisplayMode()) {
             displayModeValue = addNavRow("显示模式", "TV → 桌面 → 自动（壳内默认 TV）",
                     host.getDisplayModeLabel(), host::onCycleDisplayMode);
@@ -261,6 +293,7 @@ public class SettingsDrawerController {
         if (settingsOverlay == null) build();
         if (settingsOverlay == null) return;
         fillPanel(); // 每次打开重刷(账号态/服务器地址可能变)
+        open = true;
         settingsOverlay.setVisibility(View.VISIBLE);
         settingsOverlay.setFocusableInTouchMode(true);
         settingsOverlay.setFocusable(true);
@@ -276,17 +309,20 @@ public class SettingsDrawerController {
     }
 
     public void hide() {
-        if (settingsOverlay == null || settingsOverlay.getVisibility() != View.VISIBLE) return;
+        if (!open) return;
+        open = false;
+        if (settingsOverlay == null) return;
         // 滑出动画: 向右滑出后隐藏
         float w = settingsPanelScroll.getWidth() > 0
-                ? settingsPanelScroll.getWidth() : dp(360);
+                ? settingsPanelScroll.getWidth() : dp(DRAWER_W_DP);
         settingsPanelScroll.animate().translationX(w).setDuration(180).withEndAction(
                 () -> { if (settingsOverlay != null) settingsOverlay.setVisibility(View.GONE); }
         ).start();
     }
 
+    /** 逻辑打开态(滑出动画期间即为 false) —— 供 MENU/BACK 切换判定 */
     public boolean isShowing() {
-        return settingsOverlay != null && settingsOverlay.getVisibility() == View.VISIBLE;
+        return open;
     }
 
     /** 登录态变化时刷新账号行(web 壳异步读 web 登录态后调用) */
@@ -327,6 +363,26 @@ public class SettingsDrawerController {
     private int dp(int v) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
                 activity.getResources().getDisplayMetrics());
+    }
+
+    /**
+     * 头部版本号文案。
+     *
+     * ⚠️ 必须读**已安装包**的真实版本: 单包合并后唯一 APK 的版本来自宿主 :app(web.*),
+     *    而本类在 :tvshell 库里 —— 库的 BuildConfig.VERSION_NAME 与宿主**不是同一来源**
+     *    (早期两壳是两个 APK, 各有各的版本号)。直接用库的 BuildConfig 会显示成
+     *    "v1.0.1 (1038)" 这种早已不存在的旧版本号, 用户报障时给的信息就是错的。
+     *    BuildConfig 只作为兜底(取包信息理论上不会失败)。
+     */
+    @SuppressWarnings("deprecation") // getPackageInfo(String,int) 在 API 33 被标记过时, 但全版本可用
+    private String installedVersionText() {
+        try {
+            android.content.pm.PackageInfo pi = activity.getPackageManager()
+                    .getPackageInfo(activity.getPackageName(), 0);
+            return "v" + pi.versionName + " (" + pi.versionCode + ")";
+        } catch (Exception e) {
+            return "v" + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")";
+        }
     }
 
     private TextView makeText(String text, float sp, int color, boolean bold) {

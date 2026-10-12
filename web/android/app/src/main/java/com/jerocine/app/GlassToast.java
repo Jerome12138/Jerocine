@@ -22,7 +22,7 @@ import com.jerocine.player.R;
  * (与 PlayerActivity 内 center_toast 同款: 半透明深色面 + 1px 细描边 + 大圆角 + 白字),
  * 与全局玻璃令牌(colors.xml)一致, 不另造样式. 居中靠下显示, 支持可选左侧图标.
  *
- * MainActivity / PlayerActivity / JerocineBridge / UpdateChecker 的所有
+ * WebShellActivity / PlayerActivity / JerocineBridge / UpdateChecker 的所有
  * Toast.makeText(...).show() 均改走此处, 文案不变.
  *
  * 注: setView/new Toast 在 API30+ 对"文本 toast"已弃用, 但对自定义 view toast 仍受支持且按预期工作;

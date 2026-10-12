@@ -4,7 +4,8 @@ package com.jerocine.app;
  * 设置抽屉的**纯逻辑**(不碰 View / Context) —— 单独成类是为了能在本机跑 JVM 单测
  * (见 app/src/test/java/com/jerocine/app/SettingsDrawerLogicTest.java)。
  *
- * 抽屉本身的构建是编程式 View 组装(MainActivity.buildSettingsDrawer), 只能靠编译 + 真机验收;
+ * 抽屉本身的构建是编程式 View 组装, 已抽到 tv 模块的
+ * {@code com.jerocine.tv.ui.SettingsDrawerController}(web 壳与原生壳共用), 只能靠编译 + 真机验收;
  * 但下面这几处"取值/拼接"逻辑是最容易出错的边界(显示模式三态循环、账号快照解析),
  * 所以明确拆出来覆盖。
  */

@@ -25,10 +25,27 @@ object ServiceLocator {
     internal lateinit var tokenStore: TokenStore
         private set
 
+    /** 仅用于把"后端地址"镜像进壳层共享 prefs(见 setServer), 不持有 Activity */
+    private var appContext: Context? = null
+
     fun init(context: Context) {
-        tokenStore = TokenStore(context.applicationContext)
+        val app = context.applicationContext
+        appContext = app
+        tokenStore = TokenStore(app)
         token = tokenStore.token
         tokenStore.server?.takeIf { it.isNotBlank() }?.let { serverBase = it }
+        // 老 web 壳用户升级到单包后的一次性迁移: 后端地址此前只存在壳层 prefs
+        // (jerocine_prefs/server_url), TokenStore.server 还是空 ⇒ 不迁移的话原生壳会连默认后端。
+        if (tokenStore.server.isNullOrBlank()) {
+            app.getSharedPreferences(ShellPrefs.NAME, Context.MODE_PRIVATE)
+                .getString(ShellPrefs.KEY_SERVER_URL, null)
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let {
+                    serverBase = it
+                    tokenStore.server = it
+                }
+        }
         rebuild()
     }
 
@@ -53,9 +70,18 @@ object ServiceLocator {
             (if (filterAds) "1" else "0") + "&proxyMedia=0"
     }
 
+    /** Java 侧(web 壳 WebShellActivity)也要能调, 故 @JvmStatic, 与 saveToken/currentToken 一致 */
+    @JvmStatic
     fun setServer(url: String) {
         serverBase = url.trim().trimEnd('/')
         if (::tokenStore.isInitialized) tokenStore.server = serverBase
+        // 镜像到壳层共享 prefs —— web 壳读的是 jerocine_prefs/server_url(UpdateChecker /
+        // promptServerUrl 都是它)。单包内两壳必须收敛到同一个后端地址, 否则切换壳模式后
+        // 会连到不同后端。键名只在 ShellPrefs 定义一次。
+        appContext?.getSharedPreferences(ShellPrefs.NAME, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putString(ShellPrefs.KEY_SERVER_URL, serverBase)
+            ?.apply()
         rebuild()
     }
 

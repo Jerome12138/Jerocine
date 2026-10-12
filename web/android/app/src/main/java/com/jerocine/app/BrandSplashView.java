@@ -16,14 +16,15 @@ import android.widget.TextView;
  * 原生品牌首屏(方案 §7) —— 替代原来"黑底 + 裸转圈"的启动动画。
  *
  * 形态: 站点根背景色(@color/jc_bg #0B0B0F) + 居中品牌 logo + 品牌名 + 底部呼吸 loading(三点)。
- * 系统 splash 与页面根背景也用同一色(styles.xml / activity_main) ⇒ 三段无跳变。
+ * 系统 splash(styles.xml 的 AppTheme.NoActionBarLaunch.windowBackground)与它同色 ⇒ 无跳变。
  *
  * 三条硬约束(评审 C9/C10 校正后确认):
  *  1. **不展示白屏**: 现状本就不是白屏(styles.xml 已显式黑底), 这里只是把它品牌化, 不改性能;
  *  2. **不拦截遥控器按键**: 本视图 setFocusable(false) / setClickable(false) ⇒ 不吃 D-pad,
  *     按键直接落到 WebView(否则用户会觉得首屏"假死");
- *  3. **必须有超时兜底**: MainActivity 不能覆盖 WebViewClient(会破坏 Capacitor 注入),
- *     拿不到 onReceivedError —— 所以只能由调用方给一个 15s 超时强制淡出, 露出 WebView 内容/错误。
+ *  3. **必须有超时兜底**: 加载失败信号由 ServerNavigationWebViewClient 提供(它**继承**
+ *     BridgeWebViewClient, 只加导航判定 + 失败计数, 不破坏 Capacitor 注入); 本视图自身
+ *     仍由调用方给一个 15s 超时强制淡出, 避免任何原因导致"卡在首屏"。
  *
  * 淡出由 {@link #fadeOutAndRemove(Runnable)} 驱动(幂等), 200ms 后把自身从父容器移除。
  */

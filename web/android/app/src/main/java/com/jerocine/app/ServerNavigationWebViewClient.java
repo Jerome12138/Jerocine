@@ -92,6 +92,13 @@ class ServerNavigationWebViewClient extends BridgeWebViewClient {
         if (error != null) {
             int code = error.getErrorCode();
             if (code == ERROR_UNSUPPORTED_SCHEME || code == ERROR_FILE_NOT_FOUND) return;
+            // 网络类错误(离线/DNS/超时/连不上)是"链路问题", 不代表这台机器的 WebView 跑不动,
+            // 不能计入降级 —— 否则服务端临时故障时用户连点几次刷新就被永久踢到原生壳。
+            if (isNetworkError(code)) {
+                android.util.Log.i("JerocineWeb", "WebView failure: mainFrame network error "
+                        + code + " —— 不计入降级");
+                return;
+            }
         }
         recordFailure("mainFrame error: " + (error == null ? "?" : error.getErrorCode()));
     }
@@ -102,7 +109,33 @@ class ServerNavigationWebViewClient extends BridgeWebViewClient {
     public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
         super.onReceivedError(view, errorCode, description, failingUrl);
         if (errorCode == ERROR_UNSUPPORTED_SCHEME || errorCode == ERROR_FILE_NOT_FOUND) return;
+        if (isNetworkError(errorCode)) return;
         recordFailure("mainFrame error(legacy): " + errorCode);
+    }
+
+    /**
+     * 网络类错误码 —— 与"WebView 能力不足"无关, 只说明链路/服务端有问题。
+     * ERROR_UNKNOWN(-1) 刻意**不**列入: 渲染进程初始化失败等 WebView 自身故障会落到它。
+     */
+    private boolean isNetworkError(int code) {
+        return code == ERROR_HOST_LOOKUP   // 域名解析失败(离线 / DNS 不通)
+                || code == ERROR_CONNECT   // 连不上主机
+                || code == ERROR_TIMEOUT   // 超时
+                || code == ERROR_IO;       // 读写中断
+    }
+
+    /** 设备当前是否没有可用网络(取不到判定时按"有网"处理, 与 WebShellActivity.isOnline 同口径) */
+    @SuppressWarnings("deprecation")
+    private boolean isOffline() {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    bridge.getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+            return ni == null || !ni.isConnected();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
@@ -124,6 +157,12 @@ class ServerNavigationWebViewClient extends BridgeWebViewClient {
     }
 
     private void recordFailure(String reason) {
+        // 断网时不计数: 离线属于"网络问题", 不是"这台机器跑不动 WebView"。
+        // 少了这道闸, 弱网用户连点几次「刷新页面」就会被永久写死成原生壳(设置持久化)。
+        if (isOffline()) {
+            android.util.Log.i("JerocineWeb", "WebView failure: " + reason + " —— 当前无网络, 不计入降级");
+            return;
+        }
         android.util.Log.w("JerocineWeb", "WebView failure: " + reason
                 + " (consecutive=" + (consecutiveFailures + 1) + "/" + FAIL_THRESHOLD + ")");
         // 距上次成功超过缓冲期才累计; 刚成功过的偶发错误忽略

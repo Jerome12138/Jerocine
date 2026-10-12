@@ -3,12 +3,14 @@
 # Jerocine Android 一键构建
 #
 # 用法:
-#   scripts/build-android.sh web                    # Capacitor 壳应用 art.jerocine.app
-#   scripts/build-android.sh tv                     # 原生 TV 客户端 art.jerocine.tv
-#   scripts/build-android.sh all                    # 两个都打(默认)
-#   scripts/build-android.sh tv --api-base=https://jerocine.art/
+#   scripts/build-android.sh web                    # 单一 APK: Capacitor 壳 + 原生壳(art.jerocine.app)
+#   scripts/build-android.sh all                    # 同 web(单包合并后二者等价)
 #   scripts/build-android.sh web --debug            # 出 debug 包(不需要正式密钥, 仅供本机试装)
 #   scripts/build-android.sh all -- -PwebVersionCode=1042   # -- 之后原样透传给 gradle
+#
+# ⚠️ 单包合并(2026-10-11)后 tv 独立 APK 已取消: tv/app 是 web/android 宿主里的 :tvshell library,
+#    两个壳在同一个包里由 EntryRouterActivity 按设备能力路由。`tv` 目标会明确报错, 不再静默失败。
+#    前端产物不随包发布(WebShell 远程加载线上 SPA), 打包只需 cap sync 占位页。
 #
 # 产物: 各工程 app/build/outputs/apk/<variant>/ 下, 并按下面规则复制一份到系统下载目录:
 #   Jerocine-TV-web-v<版本名>(<构建号>).apk        Capacitor 壳应用
@@ -52,18 +54,19 @@ usage() {
 Jerocine Android 一键构建
 
 用法:
-  scripts/build-android.sh [web|tv|all] [选项] [-- <gradle 参数>...]
+  scripts/build-android.sh [web|all] [选项] [-- <gradle 参数>...]
 
 目标:
-  web          Capacitor 壳应用 (art.jerocine.app)，会先编译前端再灌进壳工程
-  tv           原生 TV 客户端 (art.jerocine.tv)
-  all          两个都打 (默认)
+  web          单包(art.jerocine.app): Capacitor 壳 + 内嵌原生壳, 启动按设备能力路由
+  all          同 web —— 单包合并后两者等价(保留 all 兼容既有脚本)
+  tv           ⚠️ 已取消: tv/app 现为宿主里的 :tvshell library, 不再产出独立 APK
 
 选项:
   --debug              出 debug 包 (不校验正式密钥，仅供本机试装)
   --keep-version       不自动递增构建号，直接用手上的号重打 (会警告重复发版)
-  --api-base=<URL>     TV 包的后端地址 (编译期常量，默认 http://localhost:9000/)
-  --web-base=<URL>     TV 包里二维码指向的 Web 地址
+  --api-base=<URL>     遗留参数(仅写入 :tvshell 的编译期常量, 该常量当前无人引用;
+                       运行时后端地址由应用内「设置 → 服务器地址」填写)
+  --web-base=<URL>     遗留参数, 同上
   -- <参数>...          之后的参数原样传给 gradle，如 -PwebVersionCode=1042
   -h, --help           显示本帮助
 
@@ -443,7 +446,8 @@ version_gate_one() {
 
 # 按本次要构建的目标执行闸门
 # 单包合并后只有一个 APK(applicationId=art.jerocine.app), 水位线统一用 web.*;
-# native.* 保留仅为兼容旧 tv 独立构建, all 模式不再触碰。
+# native.* 保留仅为兼容旧 tv 独立构建的历史数据(合并后不再有任何路径会写它 ——
+# tv 目标在 version_gate 之前就被拒绝, 见 main 段)。
 version_gate() {
   case "$TARGET" in
     web) version_gate_one web web ;;
@@ -510,6 +514,8 @@ build_web() {
 }
 
 build_tv() {
+  # ⚠️ 已不可达 —— tv 目标在 version_gate 之前就被拒绝(见 main 段)。
+  #    保留这份代码只为记录"合并前是怎么打独立 TV 包的", 回滚时照着读即可, 不要直接调用。
   local t="$ROOT/tv"
   [ -f "$t/settings.gradle.kts" ] || die "找不到 $t/settings.gradle.kts"
 
@@ -581,6 +587,15 @@ info "仓库根 $ROOT（$OS，$VARIANT）"
 [ -f "$VERSIONS_FILE" ] || die "找不到版本源文件 $VERSIONS_FILE —— 构建号与版本名都从这里读。"
 info "版本源 $VERSIONS_FILE"
 
+# 单包合并后 tv 目标已取消 —— 必须在 version_gate **之前**拦下:
+# 否则 release 构建会先把 native.* 的构建号 +1 落盘, 再走到 case 里失败, 白白吃掉一个版本号。
+if [ "$TARGET" = "tv" ]; then
+  die "[tv] 单包合并后 tv 独立 APK 已取消：tv/app 现在是宿主里的 :tvshell library。
+  打单一 APK 请用: bash scripts/build-android.sh web (或 all —— 两者等价)。
+  两个壳在同一个包里由 EntryRouterActivity 按设备能力路由;
+  要回到双 APK 需回退合并批次的提交, 不是换个构建参数能切回来。"
+fi
+
 # 正式构建先过"构建号只增不减"闸门（见上文 version_gate）；debug 包不走闸门也不递增。
 if [ "$IS_RELEASE" = 1 ]; then
   version_gate
@@ -604,8 +619,9 @@ TV_APK=""
 
 case "$TARGET" in
   web) build_web ;;
-  tv)  warn "[tv] 单包合并后 tv 独立构建已废弃（tv 源码作为 :tvshell 纳入 web/android）。仍执行旧路径仅供回滚参考。"; build_tv ;;
   all) build_web ;;
+  # tv 已在 version_gate 之前拦下, 这里只是兜底(防止将来有人把那段挪走)
+  *)   die "[tv] 单包合并后 tv 独立 APK 已取消, 请用 web/all(二者等价)。" ;;
 esac
 
 printf '\n构建完成，产物:\n'

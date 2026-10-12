@@ -6,7 +6,7 @@ import java.net.URI;
  * 「站内导航」判定的**纯逻辑**(不碰 View / Context / android.net.Uri) —— 单独成类是为了能在
  * 本机跑 JVM 单测(见 app/src/test/java/com/jerocine/app/ServerNavigationPolicyTest.java)。
  *
- * 背景(2026-10-10 真机实测): web 壳的 SPA 是**远程加载**的(MainActivity.loadServer →
+ * 背景(2026-10-10 真机实测): web 壳的 SPA 是**远程加载**的(WebShellActivity.loadServer →
  * wv.loadUrl("https://jerocine.art")), 而 Capacitor 的 Bridge.launchIntent() 只把
  *   - appUrl 同源(config 里 androidScheme=http ⇒ appUrl = http://localhost), 或
  *   - server.allowNavigation 里列出的 host

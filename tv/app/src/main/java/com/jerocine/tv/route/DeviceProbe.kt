@@ -3,6 +3,7 @@ package com.jerocine.tv.route
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.annotation.VisibleForTesting
+import com.jerocine.tv.data.ShellPrefs
 import kotlin.jvm.JvmStatic
 
 /**
@@ -29,14 +30,22 @@ object DeviceProbe {
     /** 探针最终判定结果 */
     enum class ShellTarget { WEB, NATIVE }
 
-    /** 阈值常量 —— 集中在此, 调阈值不用翻逻辑 */
+    /**
+     * 阈值常量 —— 集中在此, 调阈值不用翻逻辑。
+     *
+     * ⚠️ [MIN_SDK] 在单包合并后是**结构性恒真**的: 合并后的 APK 只有一个 uses-sdk,
+     *    它由 Capacitor 8 的硬要求(内置 Cordova AAR 声明 minSdk 24)决定, 见宿主
+     *    web/android/variables.gradle 的 minSdkVersion=24 ⇒ API<24 的机器根本装不上,
+     *    探针也就永远看不到 sdkInt<24。保留这个判断是为了①万一将来 minSdk 能降下来,
+     *    路由不需要改;②纯逻辑单测仍能覆盖该分支。**低配兜底实际靠内存/WebView 两条阈值。**
+     */
     const val MIN_SDK = 24
     const val MIN_WEBVIEW_MAJOR = 87
     const val MIN_MEMORY_GB = 2L
 
-    /** SharedPreferences 里存用户选择的键 —— 复用 WebShellActivity.PREFS("jerocine_prefs"), 与设置页共用 */
-    const val PREFS_NAME = "jerocine_prefs"
-    const val KEY_SHELL_MODE = "jc-shell-mode"
+    /** prefs 名与"壳模式"键 —— 契约只在 [ShellPrefs] 定义一次, 这里只做别名 */
+    const val PREFS_NAME = ShellPrefs.NAME
+    const val KEY_SHELL_MODE = ShellPrefs.KEY_SHELL_MODE
 
     /**
      * 设备能力抽象 —— 真实实现走 Android API, 单测用假实现。

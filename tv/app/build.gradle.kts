@@ -47,10 +47,13 @@ android {
         val webBase = (project.findProperty("webBase") as String?) ?: "http://localhost/"
         buildConfigField("String", "WEB_BASE_URL", "\"$webBase\"")
 
-        // ⚠️ library 不自动生成 VERSION_NAME / VERSION_CODE，
-        //    而 SettingsFragment 用到了 → 手动补，避免编译失败。
-        buildConfigField("String", "VERSION_NAME", "\"${jcVersion("native.versionName", "nativeVersionName")}\"")
-        buildConfigField("int", "VERSION_CODE", jcVersion("native.versionCode", "nativeVersionCode"))
+        // ⚠️ library 不自动生成 VERSION_NAME / VERSION_CODE, 必须手动补
+        //    (早期 SettingsFragment 直接读它们, 不补就编译失败)。
+        //    单包合并后**只有宿主 :app 一个版本号**(web.*) —— 库的版本若还读 native.*
+        //    就会和真实 APK 版本脱节(抽屉头部/诊断信息会显示早已作废的旧号)。
+        //    这里与宿主同源取值; 运行期展示以 PackageManager 读到的已安装包版本为准。
+        buildConfigField("String", "VERSION_NAME", "\"${jcVersion("web.versionName", "webVersionName")}\"")
+        buildConfigField("int", "VERSION_CODE", jcVersion("web.versionCode", "webVersionCode"))
     }
 
     buildTypes {

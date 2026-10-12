@@ -14,8 +14,8 @@ const config: CapacitorConfig = {
   appName: 'Jerocine影视',
   webDir: 'android-shell-stub',
   server: {
-    // 不写死 server.url. APK 启动时由 MainActivity 弹原生输入框,
-    // 用户填入实际服务器地址后 SharedPreferences 持久化 + webView.loadUrl().
+    // 不写死 server.url. APK 启动时 EntryRouterActivity 按设备能力路由到 WebShellActivity,
+    // 由它弹原生输入框; 用户填入实际服务器地址后 SharedPreferences 持久化 + webView.loadUrl().
     // 这样同一个 APK 可装到不同 TV 连不同 Jerocine 后端.
     androidScheme: 'http',
     cleartext: true

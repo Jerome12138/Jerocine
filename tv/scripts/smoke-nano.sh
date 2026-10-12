@@ -1,9 +1,25 @@
 #!/usr/bin/env bash
 # 坚果 Nano 真机功能 + 性能实测（task #11）
-# 用法：./scripts/smoke-nano.sh <投影仪IP>   用法: ./scripts/smoke-nano.sh <投影仪IP>
+# 用法：./scripts/smoke-nano.sh <投影仪IP>
 #
 # 覆盖：安装 → 冷启动耗时 → 首页(从后端拉数据) → D-pad 导航详情 → ▶播放
 #       → View/XML 滚动帧率(gfxinfo jank) → 崩溃检查。
+#
+# ⚠️ 2026-10-11 单包合并后本脚本**已失效**，在顶上直接拦下（不让它装错包/起错组件）：
+#   - 包名不再是 art.jerocine.tv，唯一包是 art.jerocine.app（applicationId 换了）；
+#   - tv/app 不再产 APK（是宿主里的 :tvshell library），APK 在 web/android/app/build/outputs/apk/；
+#   - launcher 不再是 .MainActivity，而是 .EntryRouterActivity（再路由到两个壳）；
+#   - 宿主 minSdk=24，API 23 的坚果 Nano 已装不上该包 —— 目标设备本身也要重新界定。
+#   需要真机冒烟时，按上述单包口径重写（或先回退合并批次）。当前日常不做端到端/真机测试。
+cat >&2 <<'GUARD'
+[smoke-nano] 单包合并后本脚本已失效，拒绝执行以免装错包 / 起错组件。
+  包名: art.jerocine.tv -> art.jerocine.app
+  launcher: .MainActivity -> .EntryRouterActivity
+  APK: tv/app/... -> web/android/app/build/outputs/apk/{debug,release}/
+  另注: 宿主 minSdk=24, API 23 的坚果 Nano 已装不上。
+  请按仓库根 CLAUDE.md 的单包口径重写冒烟脚本后再用。
+GUARD
+exit 2
 set -uo pipefail
 
 IP="${1:?指定投影仪IP}"

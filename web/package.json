@@ -15,9 +15,9 @@
     "format": "prettier --write src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "cap:sync": "vite build && cap sync android",
+    "cap:sync": "cap sync android",
     "cap:open": "cap open android",
-    "cap:build": "vite build && cap sync android && cap copy android"
+    "cap:build": "cap sync android"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.2",

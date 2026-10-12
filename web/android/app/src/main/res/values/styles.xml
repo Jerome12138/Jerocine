@@ -24,7 +24,7 @@
 
     <!-- Splash 主题 (启动到 onCreate 之间) — 用站点根背景色 #0B0B0F, 之前 @drawable/splash
          是 logo PNG 中心白底, 用户看到的就是白闪.
-         配合 MainActivity.onCreate 里的 installSplashScreen(): 系统 splash 背景同为
+         配合 WebShellActivity.onCreate 里的 installSplashScreen(): 系统 splash 背景同为
          #0B0B0F, 接首帧品牌页(BrandSplashView) 无缝。
          ⚠️ 与 AppTheme.NoActionBar 同理, 主题里**不能**写 android:background —— 本主题
          在 API 31+ 上会**一直**是 Activity 的生效主题(core-splashscreen 的 Impl31 不做

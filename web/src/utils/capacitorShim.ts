@@ -2,12 +2,12 @@
  * Capacitor 兜底垫片。
  *
  * 为什么需要：
- *  本 APK 以「远程加载」方式运行（MainActivity loadUrl https://jerocine.art），
+ *  本 APK 以「远程加载」方式运行（WebShellActivity loadUrl https://jerocine.art），
  *  Capacitor 的 native-bridge.js / window.Capacitor 仅在本地 capacitor:// 资源下注入，
  *  远程页面里不存在。但 Capacitor/Cordova 壳在 App 生命周期（pause / resume）会执行
  *    webView.evaluateJavascript("window.Capacitor.triggerEvent('pause','document')")
  *  远程页无 window.Capacitor → Uncaught TypeError: Cannot read properties of undefined
- *  (reading 'triggerEvent') → 被 MainActivity.onConsoleMessage 抓出来弹 Toast 打扰用户。
+ *  (reading 'triggerEvent') → 被 WebShellActivity.onConsoleMessage 抓出来弹 Toast 打扰用户。
  *
  * 垫片职责：保证 window.Capacitor.triggerEvent 存在且为 no-op。
  *  - 绝不覆盖真实 Capacitor（本地 capacitor:// 模式下 native-bridge 先注入，

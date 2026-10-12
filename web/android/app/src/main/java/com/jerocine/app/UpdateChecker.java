@@ -40,7 +40,7 @@ import okhttp3.Response;
  *   5) "立即更新" → OkHttp 下载到 cache/updates/ → FileProvider 拿 content:// → ACTION_VIEW 启动安装器
  *
  * 触发时机:
- *   - MainActivity onCreate 后 postDelayed 5s 自动调 check(false)
+ *   - WebShellActivity onCreate 后 postDelayed 5s 自动调 check(false)
  *   - 前端"检查更新"按钮 → JerocineBridge.checkUpdate() → check(true)
  */
 public class UpdateChecker {

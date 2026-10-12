@@ -6,26 +6,31 @@ import android.os.Build
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import android.webkit.WebView
+import com.jerocine.tv.route.DeviceProbe
 
 /**
  * 设备诊断信息收集: 安装后异常排查用。
  *
- * 核心目的: 判断当前 TV 能否使用 **Web 嵌入版 APK**(Capacitor 壳, minSdk 24 / Android 7.0+,
- * 界面跑在系统 WebView 里)。老设备(如坚果 Nano: Android 6.0 / Chromium 48)装不上或渲染不了,
- * 应推荐使用本低配独立版。
+ * 核心目的: 判断当前设备能不能跑 **Web 容器壳**(Capacitor, 界面跑在系统 WebView 里)。
+ * 单包合并后两壳在同一个 APK 里(见 [com.jerocine.tv.route.DeviceProbe] 的路由规则):
+ *  - 能跑 WebView 壳 → 走 WebShell(功能全、更新快)
+ *  - 跑不动 → 走 NativeShell(原生 UI, 低配兜底), **不需要另装独立版**
  *
- * 判定规则(与 web/android 的 minSdk、前端 vite 构建目标对齐):
- *  - Android SDK < 24 → 不支持(Web 版 APK 无法安装)
- *  - WebView 内核 Chrome < 87 → 不推荐(网页界面可能白屏/错乱, 建议独立版)
+ * 判定规则(与 DeviceProbe 的阈值同源、与前端 vite 构建目标对齐):
+ *  - WebView 内核 Chrome < 87 → 不推荐 Web 容器(网页界面可能白屏/错乱)
+ *  - 内存 < 2GB → 不推荐(WebView 常驻内存压力大)
  *  - 其余 → 支持
+ *
+ * ⚠️ 不再判"Android 版本够不够装 Web 版 APK": 合并后只有一个 APK, minSdk 由
+ *    Capacitor 决定(24 / Android 7.0), 装得上就说明版本够了。
  */
 object DeviceDiagnostics {
 
-    /** Web 嵌入版(Capacitor)APK 的最低 Android SDK: web/android minSdk 24 */
-    const val WEB_APK_MIN_SDK = 24
+    /** 前端 Vite 构建目标(es2020)要求的最低 Chromium 内核 —— 直接引用路由阈值, 避免两处漂移 */
+    const val MIN_CHROME_FOR_WEB = DeviceProbe.MIN_WEBVIEW_MAJOR
 
-    /** 前端 Vite 构建目标(es2020)要求的最低 Chromium 内核 */
-    const val MIN_CHROME_FOR_WEB = 87
+    /** Web 容器可接受的最低内存(MB) —— 同上, 与 DeviceProbe 的路由阈值同源 */
+    const val MIN_RAM_MB_FOR_WEB = DeviceProbe.MIN_MEMORY_GB * 1024
 
     data class Info(
         val manufacturer: String,
@@ -38,20 +43,22 @@ object DeviceDiagnostics {
         val ramMB: Long,
         val appVersion: String,
     ) {
-        val supportsWebApk: Boolean
-            get() = sdkInt >= WEB_APK_MIN_SDK &&
-                (chromeMajor == null || chromeMajor >= MIN_CHROME_FOR_WEB)
+        /** 能否跑 Web 容器壳(内核与内存两条阈值, 引用 DeviceProbe 同源常量) */
+        val supportsWebShell: Boolean
+            get() = (chromeMajor == null || chromeMajor >= MIN_CHROME_FOR_WEB) &&
+                (ramMB == 0L || ramMB >= MIN_RAM_MB_FOR_WEB)
 
         val verdict: String
             get() = when {
-                sdkInt < WEB_APK_MIN_SDK ->
-                    "本机 Android $androidRelease (API $sdkInt) 低于 Web 嵌入版要求(Android 7.0+)，无法安装 Web 嵌入版 APK；请继续使用本独立版。"
                 chromeMajor != null && chromeMajor < MIN_CHROME_FOR_WEB ->
-                    "本机 WebView 内核 Chrome $chromeMajor 过旧，Web 嵌入版界面可能白屏/错乱；建议使用本独立版。"
+                    "本机 WebView 内核 Chrome $chromeMajor 过旧，Web 容器界面可能白屏/错乱；" +
+                        "可在「设置 → 壳模式」固定为「原生」。"
+                ramMB in 1 until MIN_RAM_MB_FOR_WEB ->
+                    "本机内存 ${ramMB}MB 偏小，Web 容器可能卡顿；如有异常可在「设置 → 壳模式」固定为「原生」。"
                 chromeMajor != null ->
-                    "本机满足 Web 嵌入版 APK 运行条件(Android $androidRelease / WebView Chrome $chromeMajor)，可安装 Web 嵌入版；如使用中异常，请反馈下方诊断信息。"
+                    "本机满足 Web 容器运行条件(Android $androidRelease / WebView Chrome $chromeMajor)。"
                 else ->
-                    "本机 Android 版本满足 Web 嵌入版要求(Android 7.0+)，但 WebView 内核版本未知；可尝试安装 Web 嵌入版，如异常请反馈下方诊断信息。"
+                    "本机 WebView 内核版本未知；若界面异常，可在「设置 → 壳模式」固定为「原生」。"
             }
 
         /** 纯文本汇总(可一键复制发给维护者) */
@@ -62,7 +69,7 @@ object DeviceDiagnostics {
             append("分辨率: ").append(resolution).append('\n')
             append("内存: ").append(ramMB).append(" MB\n")
             append("应用版本: ").append(appVersion).append('\n')
-            append("判定: ").append(if (supportsWebApk) "支持 Web 嵌入版" else "建议使用低配独立版")
+            append("判定: ").append(if (supportsWebShell) "可跑 Web 容器壳" else "建议使用原生壳")
         }
     }
 
@@ -86,7 +93,7 @@ object DeviceDiagnostics {
             ramMB = mi.totalMem / 1024 / 1024
         }
 
-        val label = (context.applicationInfo.loadLabel(context.packageManager) ?: "Jerocine影视 TV").toString()
+        val label = versionLabel(context)
         return Info(
             manufacturer = Build.MANUFACTURER.ifBlank { "unknown" },
             model = Build.MODEL.ifBlank { "unknown" },
@@ -98,6 +105,22 @@ object DeviceDiagnostics {
             ramMB = ramMB,
             appVersion = label,
         )
+    }
+
+    /**
+     * "应用名 版本名(构建号)" —— 原来这里取的是 applicationInfo.loadLabel(应用**名**),
+     * 却挂在"应用版本"标签下, 报障时给不出真正的版本。改为读已安装包的真实版本
+     * (合并后唯一 APK 的版本来自宿主, 库自己的 BuildConfig 不可信)。
+     */
+    private fun versionLabel(context: Context): String {
+        val name = runCatching {
+            context.applicationInfo.loadLabel(context.packageManager)?.toString()
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "Jerocine"
+        val version = runCatching {
+            val pi = context.packageManager.getPackageInfo(context.packageName, 0)
+            "${pi.versionName}(${pi.versionCode})"
+        }.getOrNull()
+        return if (version.isNullOrBlank()) name else "$name $version"
     }
 
     /** 返回 (WebView 描述, Chrome 内核主版本); 描述优先取包版本, 内核版本解析自版本号/UA。 */
