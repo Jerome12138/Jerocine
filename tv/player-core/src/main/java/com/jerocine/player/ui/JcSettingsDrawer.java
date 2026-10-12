@@ -1,7 +1,6 @@
 package com.jerocine.player.ui;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -82,6 +81,17 @@ public class JcSettingsDrawer {
         void onAccountAction();
         /** 账号行信息(标题/副标题/按钮文案/是否登录) */
         AccountInfo getAccountInfo();
+
+        // ---- 壳类型 ----
+        /**
+         * 当前是不是 Web 壳。
+         *
+         * 抽屉据此收敛"某壳专属"的条目与文案 —— 原生壳下"显示模式"之类 web 专属项不出现，
+         * "刷新页面 / 检查更新"的副标题也不能带 web 口径（"重新加载当前站点" / "GET /app/version/latest"
+         * 在原生壳里是无意义的）。比只看 hasDisplayMode()/hasMotionRow() 更直白:
+         * 那两个是"本壳有没有这一行", 这个是"本壳是谁", 加新差异项时判据不漂。
+         */
+        boolean isWebShell();
 
         // ---- 显示模式(web 特有; 原生 hasDisplayMode=false 隐藏) ----
         /** 是否显示"显示模式"行(原生壳返回 false) */
@@ -239,8 +249,11 @@ public class JcSettingsDrawer {
         head.addView(closeBtn, new LinearLayout.LayoutParams(dp(24), dp(24)));
         settingsPanel.addView(head, rowParams(ViewGroup.LayoutParams.WRAP_CONTENT, 8));
 
-        // ---------- 置顶: 刷新页面 ----------
-        addNavRow("刷新页面", "重新加载当前站点", "", () -> {
+        // ---------- 置顶: 刷新 ----------
+        // 文案随壳: web 壳重新加载站点, 原生壳重新拉取当前页数据 —— 原生壳没有"站点"可言。
+        final boolean web = host.isWebShell();
+        addNavRow(web ? "刷新页面" : "刷新数据",
+                web ? "重新加载当前站点" : "重新拉取当前页面内容", "", () -> {
             host.onRefreshPage();
             hide();
         });
@@ -281,7 +294,7 @@ public class JcSettingsDrawer {
                 + " (API " + android.os.Build.VERSION.SDK_INT + ")");
         addInfoRow("构建模式", "APK 构建类型 · 与线上包体无关",
                 isDebuggableBuild() ? "debug" : "release");
-        addNavRow("检查更新", "GET /app/version/latest", "立即检查",
+        addNavRow("检查更新", web ? "GET /app/version/latest" : "查看服务端最新版本", "立即检查",
                 () -> { hide(); host.onCheckUpdate(); });
 
         // ---------- 系统 ----------
@@ -364,6 +377,69 @@ public class JcSettingsDrawer {
         currentShellMode = next;
         if (shellModeValue != null) shellModeValue.setText(shellModeLabel(next));
         host.onShellModeChanged(next);
+    }
+
+    /**
+     * 壳模式切换后的**后果说明**（两壳同源文案）。
+     *
+     * <p>为什么在 core 写死一处：用户切壳前必须知道"会变成什么样" —— Web 壳功能全但低配卡，
+     * 原生壳流畅却没有应用内更新。这段文案两壳必须一字不差，否则同一个设置在两种壳里
+     * 给出不同承诺（与账号行文案同源同理）。
+     */
+    public static String shellModeSwitchMessage(String mode) {
+        String m = normalizeShellMode(mode);
+        if ("web".equals(m)) {
+            return "界面由网页渲染，功能与线上版本一致（含应用内更新）。"
+                    + "低配设备可能较卡；Web 容器不可用时会自动回退原生壳。";
+        }
+        if ("native".equals(m)) {
+            return "界面由本机渲染，流畅省电，适合低配设备。"
+                    + "不含应用内更新等 Web 专属功能。";
+        }
+        return "每次启动按设备能力自动选择：跑得动 Web 容器就用 Web 壳，否则用原生壳。";
+    }
+
+    /**
+     * 壳模式切换确认弹窗：说明后果 + 询问是否立即重启（两壳共用一份）。
+     *
+     * <p>壳模式**只在下次启动生效**（EntryRouterActivity.onCreate 读 prefs 路由），
+     * 所以必须问一句"要不要现在重启"，选"立即重启"就自动重启，别让用户自己去杀进程。
+     */
+    public static void showShellModeSwitchDialog(final Activity activity, String mode) {
+        if (activity == null || activity.isFinishing()) return;
+        JcDialog.message(activity)
+                .title("已切换为「" + shellModeLabel(mode) + "」模式")
+                .message(shellModeSwitchMessage(mode) + "\n\n壳模式重启后生效。")
+                .confirmButton("立即重启", () -> restartApp(activity))
+                .cancelButton("稍后")
+                .show();
+    }
+
+    /**
+     * 重启应用 —— 让 EntryRouterActivity 按新的壳模式重新路由。
+     *
+     * <p>做法：用带 {@code CLEAR_TASK} 的 launcher intent 重建任务栈 —— 清掉当前壳（及其上
+     * 可能压着的播放器/下载页），让 EntryRouterActivity 重新 onCreate 按 prefs 路由。
+     * **不杀进程**。
+     *
+     * <p>为什么不是"杀进程 + 闹钟拉起"（更彻底的写法，先试过但在这台机器上不可用）：
+     * {@code AlarmManager.set} 在 MIUI 上被省电策略拦掉 —— 实测点完"立即重启"进程已死、
+     * 12s 后仍停在桌面没被拉起；换 {@code setExact} 要 SCHEDULE_EXACT_ALARM 权限，
+     * {@code setAlarmClock} 会在状态栏常挂一个闹钟图标。而"切壳"真正需要的只是**重新路由**：
+     * 重建任务栈即可，旧壳 Activity 会被正常销毁（WebView 这类重资源随之释放），
+     * 进程级初始化（ServiceLocator / mediaClient / Coil）本就幂等、不需要重跑。
+     */
+    public static void restartApp(final Activity activity) {
+        try {
+            android.content.Intent launch = activity.getPackageManager()
+                    .getLaunchIntentForPackage(activity.getPackageName());
+            if (launch == null) return;
+            launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    | android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            activity.startActivity(launch);
+        } catch (Exception ignore) {
+            // 拿不到 launcher intent（极罕见）→ 什么都不做，用户手动重开
+        }
     }
 
     static String nextShellMode(String current) {

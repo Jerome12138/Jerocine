@@ -318,11 +318,10 @@ public class WebShellActivity extends BridgeActivity
         runOnUiThread(() -> {
             GlassToast.show(this, "Web 容器异常，切换为原生模式，重启中…",
                     android.widget.Toast.LENGTH_LONG);
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                // 重启应用: 杀掉当前进程 + 系统自动恢复(或用户手动打开)
-                finishAffinity();
-                System.exit(0);
-            }, 1500);
+            // 用 core 的重启(重建任务栈 → EntryRouter 重新路由): 降级后自动进入原生壳。
+            // 旧实现只 finishAffinity + System.exit, 会停在桌面, 用户得自己找图标重开。
+            new android.os.Handler(android.os.Looper.getMainLooper())
+                    .postDelayed(() -> JcSettingsDrawer.restartApp(this), 1500);
         });
     }
 
@@ -515,6 +514,9 @@ public class WebShellActivity extends BridgeActivity
                 : JcSettingsDrawer.AccountInfo.loggedOut();
     }
 
+    // ---- 壳类型 ----
+    @Override public boolean isWebShell() { return true; }
+
     // ---- 显示模式(web 特有; 原生壳 hasDisplayMode=false 隐藏此行) ----
     @Override public boolean hasDisplayMode() { return true; }
     @Override public void onCycleDisplayMode() { cycleDisplayMode(); }
@@ -529,8 +531,8 @@ public class WebShellActivity extends BridgeActivity
 
     // ---- 壳模式(通用) ----
     @Override public void onShellModeChanged(String mode) {
-        GlassToast.show(this, "壳模式已设为 "
-                + JcSettingsDrawer.shellModeLabel(mode) + "，重启后生效");
+        // 说明后果 + 询问是否立即重启 —— 弹窗与文案都在 core(两壳同一份)
+        JcSettingsDrawer.showShellModeSwitchDialog(this, mode);
     }
     @Override public String getCurrentShellMode() {
         return prefs().getString(KEY_SHELL_MODE, "auto");

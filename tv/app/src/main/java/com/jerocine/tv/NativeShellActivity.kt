@@ -268,6 +268,8 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
         }
     }
 
+    override fun isWebShell(): Boolean = false
+
     override fun hasDisplayMode(): Boolean = false
     override fun onCycleDisplayMode() {}
     override fun getDisplayModeLabel(): String = ""
@@ -294,7 +296,8 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
     }
 
     override fun onShellModeChanged(mode: String) {
-        toast("壳模式已设为 ${JcSettingsDrawer.shellModeLabel(mode)}，重启后生效")
+        // 说明后果 + 询问是否立即重启 —— 弹窗与文案都在 core(两壳同一份), 见 JcSettingsDrawer
+        JcSettingsDrawer.showShellModeSwitchDialog(this, mode)
     }
 
     override fun getCurrentShellMode(): String =
