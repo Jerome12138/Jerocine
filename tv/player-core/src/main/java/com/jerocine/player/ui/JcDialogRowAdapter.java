@@ -8,6 +8,8 @@ import android.widget.BaseAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.core.view.ViewCompat;
+
 import com.jerocine.player.R;
 
 import java.util.List;
@@ -26,9 +28,12 @@ final class JcDialogRowAdapter extends BaseAdapter {
     private final List<JcDialogItem> items;
     private final boolean checkable;
     private final int checkedIndex;
+    /** 行左右内边距 —— 与弹窗标题同源({@link JcDialog#contentPaddingX}), 构造时算一次 */
+    private final int padX;
 
     JcDialogRowAdapter(Context c, List<JcDialogItem> items, boolean checkable, int checkedIndex) {
         this.inflater = LayoutInflater.from(c);
+        this.padX = JcDialog.contentPaddingX(c);
         this.items = items;
         this.checkable = checkable;
         this.checkedIndex = checkedIndex;
@@ -54,6 +59,12 @@ final class JcDialogRowAdapter extends BaseAdapter {
         View row = convertView != null
                 ? convertView
                 : inflater.inflate(R.layout.jc_dialog_row, parent, false);
+        if (convertView == null) {
+            // 行左右内边距运行时设置, 见 JcDialog#contentPaddingX 的说明
+            // (布局里写 ?attr/dialogPreferredPadding 会在非 AppCompat 壳主题下 inflate 崩溃)。
+            ViewCompat.setPaddingRelative(row, padX, row.getPaddingTop(),
+                    padX, row.getPaddingBottom());
+        }
         JcDialogItem item = items.get(position);
 
         ImageView radio = row.findViewById(R.id.jc_row_radio);

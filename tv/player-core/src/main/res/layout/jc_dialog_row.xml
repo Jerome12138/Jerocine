@@ -13,9 +13,8 @@
     android:minHeight="36dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:background="@drawable/jc_download_row_bg"
-    android:paddingStart="?attr/dialogPreferredPadding"
-    android:paddingEnd="?attr/dialogPreferredPadding">
+    android:background="@drawable/jc_download_row_bg">
+    <!-- 左右内边距由 JcDialogRowAdapter 运行时设置(与弹窗标题同源), 见 jc_dialog_frame.xml 的说明。 -->
 
     <ImageView
         android:id="@+id/jc_row_radio"

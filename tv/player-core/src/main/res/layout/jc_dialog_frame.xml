@@ -13,12 +13,17 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
+    <!--
+      ⚠️ 左右内边距刻意**不写在 XML**: ?attr/dialogPreferredPadding 是 AppCompat 主题属性,
+      而本布局由 Activity 的 inflater 解析 —— 原生壳主题 Theme.JerocineTV 继承
+      android:Theme.Material.NoActionBar(非 AppCompat)解析不到该属性, TextView 构造即抛
+      UnsupportedOperationException(2026-10-12 真机实测崩溃)。
+      改由 JcDialog 运行时用 contentPaddingX(ctx) 设置(与标题/列表行/自定义内容同一来源)。
+    -->
     <TextView
         android:id="@+id/jc_dialog_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingStart="?attr/dialogPreferredPadding"
-        android:paddingEnd="?attr/dialogPreferredPadding"
         android:paddingTop="16dp"
         android:paddingBottom="16dp"
         android:textSize="17sp"

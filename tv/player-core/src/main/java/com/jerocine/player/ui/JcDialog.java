@@ -13,6 +13,8 @@ import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.core.view.ViewCompat;
+
 import com.jerocine.player.R;
 
 import java.util.ArrayList;
@@ -165,6 +167,11 @@ public final class JcDialog {
     /**
      * 标题/列表行/自定义内容共用的水平内边距 = 主题的 dialogPreferredPadding(默认 24dp)。
      * 自定义 View 的内容区想与标题左对齐时用这个, 别再散写 24dp(主题一改就漂移)。
+     *
+     * <p>⚠️ 用 {@code resolveAttribute(..., true)} 解析并**自带兜底** —— 原生壳主题不是
+     * AppCompat 系, 解析不到该属性时返回 24dp。布局里**不能**写
+     * {@code ?attr/dialogPreferredPadding}: 那样由 Activity inflater 解析, 解析不到会在
+     * View 构造时直接抛 UnsupportedOperationException(2026-10-12 真机实测), 而这里只是取值。</p>
      */
     public static int contentPaddingX(Context c) {
         TypedValue v = new TypedValue();
@@ -191,6 +198,11 @@ public final class JcDialog {
 
         TextView titleView = frame.findViewById(R.id.jc_dialog_title);
         titleView.setText(title);
+        // 左右内边距运行时设置(与列表行/自定义内容同一来源), 上下 16dp 保持 XML 里的值。
+        // 见 contentPaddingX 的说明: 布局里不能写 ?attr/dialogPreferredPadding。
+        final int padX = contentPaddingX(ctx);
+        ViewCompat.setPaddingRelative(titleView,
+                padX, titleView.getPaddingTop(), padX, titleView.getPaddingBottom());
 
         ViewGroup box = frame.findViewById(R.id.jc_dialog_content);
         switch (slot) {
