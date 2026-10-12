@@ -94,7 +94,7 @@ public class SettingsDrawerLogicTest {
 
     // ============ 账号行: __jcAuth.user() 报文解析 ============
     // 只覆盖"解析"(JSON → 登录态 + 昵称)。
-    // 账号行文案(标题/副标题/按钮)已收敛到 core 的 SettingsDrawerController.AccountInfo,
+    // 账号行文案(标题/副标题/按钮)已收敛到 core 的 JcSettingsDrawer.AccountInfo,
     // 由 player-core 的 AccountInfoTest 覆盖 —— 两壳共用同一份字面量。
 
     @Test

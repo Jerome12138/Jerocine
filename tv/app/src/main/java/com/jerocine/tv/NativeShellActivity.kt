@@ -29,14 +29,14 @@ import com.jerocine.tv.ui.view.CategoryLibraryFragment
 import com.jerocine.tv.ui.view.LoginFragment
 import com.jerocine.tv.ui.view.HistoryFragment
 import com.jerocine.tv.ui.view.FavoritesFragment
-import com.jerocine.player.ui.SettingsDrawerController
+import com.jerocine.player.ui.JcSettingsDrawer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.jerocine.player.R as PlayerR
 
-class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
+class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost {
     private val exitGate = DoubleBackExitGate()
-    private var settingsDrawer: SettingsDrawerController? = null
+    private var settingsDrawer: JcSettingsDrawer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -125,7 +125,7 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
 
     fun openSettings() {
         if (settingsDrawer == null) {
-            settingsDrawer = SettingsDrawerController(
+            settingsDrawer = JcSettingsDrawer(
                 this,
                 getSharedPreferences(ShellPrefs.NAME, MODE_PRIVATE),
                 this
@@ -148,7 +148,7 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
         return super.dispatchKeyEvent(event)
     }
 
-    // ==================== SettingsDrawerController.Host 实现 ====================
+    // ==================== JcSettingsDrawer.JcSettingsHost 实现 ====================
 
     override fun onRefreshPage() {
         // 原生壳: 重建当前 fragment 以刷新数据
@@ -257,14 +257,14 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
         }
     }
 
-    override fun getAccountInfo(): SettingsDrawerController.AccountInfo {
+    override fun getAccountInfo(): JcSettingsDrawer.AccountInfo {
         // 文案拼装一律走 core 的工厂(AccountInfo.loggedIn/loggedOut) —— 两壳账号行必须同源,
         // 否则同一个抽屉在两种模式下显示不同的字。这里只喂"登录态 + 昵称"。
         // 原生壳自登录有昵称; web 壳登录只存了 token(昵称在前端 localStorage) ⇒ 传空退回"已登录"。
         return if (ServiceLocator.isLoggedIn) {
-            SettingsDrawerController.AccountInfo.loggedIn(ServiceLocator.tokenStore.userName ?: "")
+            JcSettingsDrawer.AccountInfo.loggedIn(ServiceLocator.tokenStore.userName ?: "")
         } else {
-            SettingsDrawerController.AccountInfo.loggedOut()
+            JcSettingsDrawer.AccountInfo.loggedOut()
         }
     }
 
@@ -294,7 +294,7 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
     }
 
     override fun onShellModeChanged(mode: String) {
-        toast("壳模式已设为 ${SettingsDrawerController.shellModeLabel(mode)}，重启后生效")
+        toast("壳模式已设为 ${JcSettingsDrawer.shellModeLabel(mode)}，重启后生效")
     }
 
     override fun getCurrentShellMode(): String =

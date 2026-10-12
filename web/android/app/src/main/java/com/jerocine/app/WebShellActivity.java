@@ -6,7 +6,7 @@ import com.jerocine.player.data.ServerUrl;
 import com.jerocine.player.ui.BrandSplashView;
 import com.jerocine.player.ui.GlassToast;
 import com.jerocine.player.ui.JcDeviceDiagnostics;
-import com.jerocine.player.ui.SettingsDrawerController;
+import com.jerocine.player.ui.JcSettingsDrawer;
 
 import android.app.AlertDialog;
 import android.content.Context;
@@ -44,6 +44,7 @@ import android.widget.Toast;
 import com.getcapacitor.BridgeActivity;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.content.ContextCompat;
 
 import org.json.JSONObject;
 
@@ -62,37 +63,23 @@ import org.json.JSONObject;
  */
 public class WebShellActivity extends BridgeActivity
         implements ServerNavigationWebViewClient.WebViewFallbackCallback,
-                   SettingsDrawerController.Host {
+                   JcSettingsDrawer.JcSettingsHost {
 
     // 壳层共享 prefs 契约(文件名/键名)只在 com.jerocine.player.data.ShellPrefs 定义一次 ——
     // 合并成单包后原生壳读写的是同一份 prefs, 键名漂移会导致"切壳后设置/登录态错配"。
     static final String PREFS = com.jerocine.player.data.ShellPrefs.NAME;
     static final String KEY_SERVER_URL = com.jerocine.player.data.ShellPrefs.KEY_SERVER_URL;
 
-    // ===== 玻璃暗色设计令牌 (与 res/values/colors.xml 对应, 编程式 UI 用) =====
-    private static final int GF_BG          = 0xFF0B0B0F; // 应用根背景
-    private static final int GF_GLASS       = 0xCC15151C; // 主玻璃面 (对话框/抽屉)
-    private static final int GF_GLASS_SOFT  = 0xB31E1E28; // 次玻璃面 (按钮默认底)
-    private static final int GF_SCRIM       = 0x99000000; // 遮罩
-    private static final int GF_STROKE      = 0x22FFFFFF; // 细描边
-    private static final int GF_TEXT        = 0xFFFFFFFF; // 主文本
-    private static final int GF_TEXT_SEC    = 0xB3FFFFFF; // 次文本
-    private static final int GF_TEXT_TER    = 0x80FFFFFF; // 三级文本
-    private static final int GF_ACCENT      = 0xFF4AD1E5; // 强调青
-    private static final int GF_ACCENT_DIM  = 0x334AD1E5; // 半透明青 (焦点底)
-    private static final int GF_ACCENT_PRESS= 0x554AD1E5; // 按下青底
-    private static final int GF_KNOB        = 0xFFFFFFFF; // 开关圆点 (纯白)
+    // 玻璃暗色设计令牌的**唯一真源**是 player-core 的 res/values/colors.xml（library 资源合并进本模块 R），
+    // 编程式 UI 一律经 col(com.jerocine.player.R.color.jc_*) 取色 —— 壳里不再存第二份十六进制。
+    // 历史: 本类曾与 core 的 JcSettingsDrawer 各有一套完全相同的 GF_* 字面量(共 3 份含资源),
+    // 改色必漏改一处; 2026-10-12 收编(见 docs/单包合并架构复盘与共性件组织方案-2026-10-12.md §3.4)。
     /** 默认服务器地址 — 首次启动直接用, 不再弹输入框 */
     private static final String DEFAULT_SERVER_URL = "https://jerocine.art";
     /** 首页双击返回退出应用的确认窗口 */
     private static final long EXIT_CONFIRM_MS = 2000L;
     /** 品牌首屏最长展示时间 — 超时强制淡出, 露出 WebView 内容/错误(方案 §7.3 兜底) */
     private static final long SPLASH_TIMEOUT_MS = 15000L;
-
-    /** 设置抽屉宽度(抽屉重设计 §4.1: 360 → 400dp, 分组标题 + 副标题需要横向空间) */
-    private static final int DRAWER_W_DP = 400;
-    /** 抽屉行高(D-pad 焦点友好) */
-    private static final int ROW_H_DP = 56;
 
     private long lastExitBackAt = 0L;
     private UpdateChecker updateChecker;
@@ -102,8 +89,8 @@ public class WebShellActivity extends BridgeActivity
     WebView webViewRef;
     /** 当前服务器 host(loadServer 每次刷新) —— 供 ServerNavigationWebViewClient 判定"站内导航" */
     private String currentServerHost;
-    /** 统一设置抽屉控制器(web 壳与原生壳共用) */
-    private SettingsDrawerController settingsDrawer;
+    /** 设置抽屉(core 的 JcSettingsDrawer, web 壳与原生壳共用同一份) */
+    private JcSettingsDrawer settingsDrawer;
     /** 最近一次读到的 web 登录态(决定账号行的动作语义) */
     private boolean accountLoggedIn;
     /** 最近一次读到的 web 昵称(仅用于账号行标题; 拿不到则回退"已登录") */
@@ -129,7 +116,7 @@ public class WebShellActivity extends BridgeActivity
         super.onCreate(savedInstanceState);
         // 底部系统导航栏(手势条/三键条)与页面背景同色 — 装平板/手机时避免黑白条突兀
         if (Build.VERSION.SDK_INT >= 21) {
-            getWindow().setNavigationBarColor(GF_BG);
+            getWindow().setNavigationBarColor(col(com.jerocine.player.R.color.jc_bg));
         }
         // 注入 JS Bridge:
         //  v1 名: JerocinePlayer  (兼容旧 PlayView playVideo/playPlaylist)
@@ -360,7 +347,7 @@ public class WebShellActivity extends BridgeActivity
         if (root == null) return;
         if (offlineOverlay == null) {
             offlineOverlay = new FrameLayout(this);
-            offlineOverlay.setBackgroundColor(GF_BG);
+            offlineOverlay.setBackgroundColor(col(com.jerocine.player.R.color.jc_bg));
             offlineOverlay.setClickable(true); // 吃掉点击, 别穿到下面 WebView
 
             // 居中玻璃卡片 (深色玻璃面 + 细描边 + 大圆角), 内容竖排
@@ -377,14 +364,14 @@ public class WebShellActivity extends BridgeActivity
 
             TextView title = new TextView(this);
             title.setText("网络未连接");
-            title.setTextColor(GF_TEXT);
+            title.setTextColor(col(com.jerocine.player.R.color.jc_text));
             title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
             title.setGravity(Gravity.CENTER);
             col.addView(title);
 
             TextView sub = new TextView(this);
             sub.setText("请检查 WiFi / 网络连接后重试");
-            sub.setTextColor(GF_TEXT_SEC);
+            sub.setTextColor(col(com.jerocine.player.R.color.jc_text_secondary));
             sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
             sub.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
@@ -395,7 +382,7 @@ public class WebShellActivity extends BridgeActivity
 
             Button retry = new Button(this);
             retry.setText("重试");
-            retry.setTextColor(GF_TEXT);
+            retry.setTextColor(col(com.jerocine.player.R.color.jc_text));
             retry.setAllCaps(false);
             retry.setBackground(buildDrawerButtonBg());
             retry.setFocusable(true);
@@ -405,7 +392,7 @@ public class WebShellActivity extends BridgeActivity
 
             Button settings = new Button(this);
             settings.setText("修改服务器地址");
-            settings.setTextColor(GF_TEXT);
+            settings.setTextColor(col(com.jerocine.player.R.color.jc_text));
             settings.setAllCaps(false);
             settings.setBackground(buildDrawerButtonBg());
             settings.setFocusable(true);
@@ -439,8 +426,8 @@ public class WebShellActivity extends BridgeActivity
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         input.setHint("http://server-ip 或 https://domain");
         // 玻璃暗色弹窗里 EditText 用浅色文字/提示, 光标/下划线走强调青
-        input.setTextColor(GF_TEXT);
-        input.setHintTextColor(GF_TEXT_TER);
+        input.setTextColor(col(com.jerocine.player.R.color.jc_text));
+        input.setHintTextColor(col(com.jerocine.player.R.color.jc_text_tertiary));
         int inPad = dp(8);
         LinearLayout inWrap = new LinearLayout(this);
         inWrap.setOrientation(LinearLayout.VERTICAL);
@@ -484,7 +471,16 @@ public class WebShellActivity extends BridgeActivity
                 getResources().getDisplayMetrics());
     }
 
-    // ======================== SettingsDrawerController.Host 实现 ========================
+    /**
+     * 从资源取色 —— 编程式 View 构建的**唯一取色入口**。
+     * 色值唯一真源是 player-core 的 res/values/colors.xml（library 资源合并进本模块 R），
+     * 本类不写任何十六进制（见类顶部注释）。
+     */
+    private int col(int colorResId) {
+        return ContextCompat.getColor(this, colorResId);
+    }
+
+    // ======================== JcSettingsDrawer.JcSettingsHost 实现 ========================
     // 通用设置抽屉以 web 壳原有样式为基础, 原生壳共用; 壳特有操作经此回调。
 
     @Override public void toast(String msg) { GlassToast.show(this, msg); }
@@ -511,12 +507,12 @@ public class WebShellActivity extends BridgeActivity
             hideSettingsDrawer();
         }
     }
-    @Override public SettingsDrawerController.AccountInfo getAccountInfo() {
+    @Override public JcSettingsDrawer.AccountInfo getAccountInfo() {
         // 文案拼装一律走 core 的工厂(loggedIn/loggedOut) —— 两壳账号行必须同源,
         // 否则同一个抽屉在两种模式下显示不同的字。
         return accountLoggedIn
-                ? SettingsDrawerController.AccountInfo.loggedIn(currentAccountName)
-                : SettingsDrawerController.AccountInfo.loggedOut();
+                ? JcSettingsDrawer.AccountInfo.loggedIn(currentAccountName)
+                : JcSettingsDrawer.AccountInfo.loggedOut();
     }
 
     // ---- 显示模式(web 特有; 原生壳 hasDisplayMode=false 隐藏此行) ----
@@ -534,7 +530,7 @@ public class WebShellActivity extends BridgeActivity
     // ---- 壳模式(通用) ----
     @Override public void onShellModeChanged(String mode) {
         GlassToast.show(this, "壳模式已设为 "
-                + SettingsDrawerController.shellModeLabel(mode) + "，重启后生效");
+                + JcSettingsDrawer.shellModeLabel(mode) + "，重启后生效");
     }
     @Override public String getCurrentShellMode() {
         return prefs().getString(KEY_SHELL_MODE, "auto");
@@ -578,8 +574,8 @@ public class WebShellActivity extends BridgeActivity
                     runOnUiThread(() -> {
                         if (settingsDrawer == null) return;
                         settingsDrawer.refreshAccount(accountLoggedIn
-                                ? SettingsDrawerController.AccountInfo.loggedIn(currentAccountName)
-                                : SettingsDrawerController.AccountInfo.loggedOut());
+                                ? JcSettingsDrawer.AccountInfo.loggedIn(currentAccountName)
+                                : JcSettingsDrawer.AccountInfo.loggedOut());
                     });
                 });
     }
@@ -621,16 +617,16 @@ public class WebShellActivity extends BridgeActivity
     /** 抽屉行/按钮背景: 聚焦=青色描边+浅青底, 按下=深青, 常态=玻璃面 */
     private Drawable buildDrawerButtonBg() {
         GradientDrawable focused = new GradientDrawable();
-        focused.setColor(GF_ACCENT_DIM);
+        focused.setColor(col(com.jerocine.player.R.color.jc_accent_dim));
         focused.setCornerRadius(dp(14));
-        focused.setStroke(dp(2), GF_ACCENT);
+        focused.setStroke(dp(2), col(com.jerocine.player.R.color.jc_accent));
         GradientDrawable pressed = new GradientDrawable();
-        pressed.setColor(GF_ACCENT_PRESS);
+        pressed.setColor(col(com.jerocine.player.R.color.jc_accent_press));
         pressed.setCornerRadius(dp(14));
         GradientDrawable normal = new GradientDrawable();
-        normal.setColor(GF_GLASS_SOFT);
+        normal.setColor(col(com.jerocine.player.R.color.jc_glass_soft));
         normal.setCornerRadius(dp(14));
-        normal.setStroke(dp(1), GF_STROKE);
+        normal.setStroke(dp(1), col(com.jerocine.player.R.color.jc_stroke));
         StateListDrawable sld = new StateListDrawable();
         sld.addState(new int[]{android.R.attr.state_focused}, focused);
         sld.addState(new int[]{android.R.attr.state_pressed}, pressed);
@@ -641,9 +637,9 @@ public class WebShellActivity extends BridgeActivity
     /** 玻璃浮层/卡片背景: 半透明深色面 + 1px 细描边 + 大圆角(供抽屉/无网络页等编程式浮层复用)。 */
     private Drawable buildGlassPanelBg(int radiusDp) {
         GradientDrawable g = new GradientDrawable();
-        g.setColor(GF_GLASS);
+        g.setColor(col(com.jerocine.player.R.color.jc_glass));
         g.setCornerRadius(dp(radiusDp));
-        g.setStroke(dp(1), GF_STROKE);
+        g.setStroke(dp(1), col(com.jerocine.player.R.color.jc_stroke));
         return g;
     }
 
@@ -703,7 +699,7 @@ public class WebShellActivity extends BridgeActivity
      *  checkUpdateExposed / promptServerUrlExposed 保持一致。 */
     void showSettingsDrawerExposed() {
         if (settingsDrawer == null) {
-            settingsDrawer = new SettingsDrawerController(this, prefs(), this);
+            settingsDrawer = new JcSettingsDrawer(this, prefs(), this);
         }
         // 抽屉打开时禁掉 WebView 的可聚焦, 不然 D-pad 事件被 WebView 抢走
         if (webViewRef != null) {

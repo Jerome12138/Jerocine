@@ -45,6 +45,12 @@
     <!-- 品牌青 半透明 (焦点底/进度缓冲) -->
     <color name="jc_accent_dim">#334AD1E5</color>
     <color name="jc_accent_press">#554AD1E5</color>
+    <!-- ===== 开关 (设置抽屉里切换控件的轨道/圆点) ===== -->
+    <!-- 关闭态轨道底 (比 jc_stroke 稍亮, 让"关"也看得见) -->
+    <color name="jc_track_off">#33FFFFFF</color>
+    <!-- 圆点 (纯白) -->
+    <color name="jc_knob">#FFFFFFFF</color>
+
     <!-- 品牌紫 (渐变起点) -->
     <color name="jc_purple">#FF7C5CFF</color>
     <color name="jc_purple_press">#FF5848D4</color>

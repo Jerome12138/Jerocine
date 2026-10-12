@@ -16,46 +16,42 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
+
 import com.jerocine.player.PlayerAdFilterHelper;
 import com.jerocine.player.R;
 import com.jerocine.player.data.ShellPrefs;
 
 /**
- * 统一设置抽屉控制器 —— 单包双壳**共用一份**（下沉到 player-core，细则 §5.1 / §6.3）。
+ * 设置抽屉 —— 单包双壳**共用一份**（下沉到 player-core，细则 §5.1 / §6.3）。
+ * 命名与设计稿 §6.3 对齐（2026-10-12 由 `SettingsDrawerController` 改名 `JcSettingsDrawer`、
+ * 内部接口 `Host` 改名 `JcSettingsHost`），与 core `ui` 包其他公共件（`JcDialog` /
+ * `JcDeviceDiagnostics` / `GlassToast`）保持同一命名规范。
  *
  * 合并前 web 壳在 WebShellActivity 里内联约 450 行构建、原生壳是全页 SettingsFragment；
  * 现在两壳都在 onCreate 里 new 出本控制器，外观与交互完全一致
  * （§10 验收项"设置页在两种模式下同一份抽屉、外观一致"）。
  *
  * 设计原则: 通用项(广告过滤/设备诊断/服务器/版本/检查更新/壳模式/退出)直接处理;
- * 壳特有项(刷新页面/账号登录态/显示模式/减少动效)通过 {@link Host} 回调交给各壳实现:
+ * 壳特有项(刷新页面/账号登录态/显示模式/减少动效)通过 {@link JcSettingsHost} 回调交给各壳实现:
  * web 壳有"显示模式"无"减少动效", 原生壳相反 —— 由 host.hasDisplayMode()/hasMotionRow()
  * 各自隐藏对方那一行。
  *
  * 用法:
- *   controller = new SettingsDrawerController(activity, prefs, host);
+ *   controller = new JcSettingsDrawer(activity, prefs, host);
  *   controller.build();          // onCreate 时构建(懒挂载到 android.R.id.content)
  *   controller.show();           // 菜单键/按钮触发
  *   controller.hide();           // 外部点击/返回键
  *   controller.refreshAccount(); // 登录态变化时刷新账号行
  *   controller.refreshDisplayMode(); // web 壳显示模式变化时刷新
  */
-public class SettingsDrawerController {
+public class JcSettingsDrawer {
 
-    // ==================== 设计令牌(与 WebShellActivity 原常量一致) ====================
-    static final int GF_GLASS       = 0xCC15151C;
-    static final int GF_GLASS_SOFT  = 0xB31E1E28;
-    static final int GF_SCRIM       = 0x99000000;
-    static final int GF_STROKE      = 0x22FFFFFF;
-    static final int GF_TEXT        = 0xFFFFFFFF;
-    static final int GF_TEXT_SEC    = 0xB3FFFFFF;
-    static final int GF_TEXT_TER    = 0x80FFFFFF;
-    static final int GF_ACCENT      = 0xFF4AD1E5;
-    static final int GF_ACCENT_DIM  = 0x334AD1E5;
-    static final int GF_ACCENT_PRESS= 0x554AD1E5;
-    static final int GF_KNOB        = 0xFFFFFFFF;
-    static final int DRAWER_W_DP = 400;
-    static final int ROW_H_DP = 56;
+    // ==================== 设计令牌 ====================
+    // ⚠️ 颜色/尺寸的**唯一真源**是 player-core 的 res/values/colors.xml + res/values/dimens.xml。
+    //    本类不再写十六进制/数字字面量 —— 历史上本类与 web 壳的 WebShellActivity 各存一份 GF_*
+    //    与 DRAWER_W_DP/ROW_H_DP(加上资源共 3 份), 改一处色必漏另两处(2026-10-12 收编)。
+    //    编程式构建 View 仍需要 int, 但一律经下面的 {@link #col(int)} / {@link #dimenPx(int)} 从资源解析。
     /**
      * 壳模式存储键 —— 契约只在 {@link ShellPrefs} 定义一次(与 EntryRouter/DeviceProbe 共用),
      * 这里保留常量只为兼容既有引用。
@@ -63,7 +59,7 @@ public class SettingsDrawerController {
     public static final String KEY_SHELL_MODE = ShellPrefs.KEY_SHELL_MODE;
 
     /** 壳特有操作回调 —— web 壳和原生壳各自实现 */
-    public interface Host {
+    public interface JcSettingsHost {
         /** 轻提示 —— 两壳统一走 core 的 {@link GlassToast}(玻璃风格, TV 上观感一致) */
         void toast(String msg);
         /** 刷新页面(web: webView.reload; 原生: 刷新数据) */
@@ -149,7 +145,7 @@ public class SettingsDrawerController {
 
     private final Activity activity;
     private final SharedPreferences prefs;
-    private final Host host;
+    private final JcSettingsHost host;
 
     private FrameLayout settingsOverlay;
     private ScrollView settingsPanelScroll;
@@ -170,7 +166,7 @@ public class SettingsDrawerController {
      */
     private boolean open = false;
 
-    public SettingsDrawerController(Activity activity, SharedPreferences prefs, Host host) {
+    public JcSettingsDrawer(Activity activity, SharedPreferences prefs, JcSettingsHost host) {
         this.activity = activity;
         this.prefs = prefs;
         this.host = host;
@@ -185,7 +181,7 @@ public class SettingsDrawerController {
         if (root == null) return;
 
         settingsOverlay = new FrameLayout(activity);
-        settingsOverlay.setBackgroundColor(GF_SCRIM);
+        settingsOverlay.setBackgroundColor(col(R.color.jc_scrim));
         settingsOverlay.setVisibility(View.GONE);
         settingsOverlay.setClickable(true);
         settingsOverlay.setOnClickListener(v -> hide());
@@ -194,12 +190,12 @@ public class SettingsDrawerController {
 
         settingsPanelScroll = new ScrollView(activity);
         GradientDrawable drawerBg = new GradientDrawable();
-        drawerBg.setColor(GF_GLASS);
-        drawerBg.setStroke(dp(1), GF_STROKE);
+        drawerBg.setColor(col(R.color.jc_glass));
+        drawerBg.setStroke(dp(1), col(R.color.jc_stroke));
         settingsPanelScroll.setBackground(drawerBg);
         settingsPanelScroll.setClickable(true);
         FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(
-                dp(DRAWER_W_DP), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
+                dimenPx(R.dimen.jc_settings_drawer_width), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
         settingsOverlay.addView(settingsPanelScroll, panelLp);
 
         settingsPanel = new LinearLayout(activity);
@@ -227,12 +223,12 @@ public class SettingsDrawerController {
         LinearLayout head = new LinearLayout(activity);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(makeText("设置", 20, GF_TEXT, true), new LinearLayout.LayoutParams(
+        head.addView(makeText("设置", 20, col(R.color.jc_text), true), new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        head.addView(makeText(installedVersionText(), 12, GF_TEXT_TER, false));
+        head.addView(makeText(installedVersionText(), 12, col(R.color.jc_text_tertiary), false));
         ImageView closeBtn = new ImageView(activity);
         closeBtn.setImageResource(R.drawable.ic_close);
-        closeBtn.setColorFilter(GF_TEXT_SEC);
+        closeBtn.setColorFilter(col(R.color.jc_text_secondary));
         closeBtn.setContentDescription("关闭");
         closeBtn.setPadding(dp(4), dp(4), dp(4), dp(4));
         closeBtn.setFocusable(true);
@@ -253,9 +249,9 @@ public class SettingsDrawerController {
         LinearLayout accountRow = makeRowBase(
                 acct.title, acct.subtitle, true, v -> host.onAccountAction());
         accountTitleView = (TextView) ((LinearLayout) accountRow.getChildAt(0)).getChildAt(0);
-        accountAction = makeText(acct.actionText, 13, GF_ACCENT, false);
+        accountAction = makeText(acct.actionText, 13, col(R.color.jc_accent), false);
         addRowTail(accountRow, accountAction);
-        settingsPanel.addView(accountRow, rowParams(dp(ROW_H_DP), 6));
+        settingsPanel.addView(accountRow, rowParams(dimenPx(R.dimen.jc_settings_row_height), 6));
 
         // ---------- 播放 ----------
         addGroupHeader("播放");
@@ -323,7 +319,7 @@ public class SettingsDrawerController {
         // 滑入动画: 从右侧滑入
         settingsPanelScroll.post(() -> {
             float w = settingsPanelScroll.getWidth() > 0
-                    ? settingsPanelScroll.getWidth() : dp(DRAWER_W_DP);
+                    ? settingsPanelScroll.getWidth() : dimenPx(R.dimen.jc_settings_drawer_width);
             settingsPanelScroll.setTranslationX(w);
             settingsPanelScroll.animate().translationX(0f).setDuration(220).start();
             if (settingsFirstFocus != null) settingsFirstFocus.requestFocus();
@@ -336,7 +332,7 @@ public class SettingsDrawerController {
         if (settingsOverlay == null) return;
         // 滑出动画: 向右滑出后隐藏
         float w = settingsPanelScroll.getWidth() > 0
-                ? settingsPanelScroll.getWidth() : dp(DRAWER_W_DP);
+                ? settingsPanelScroll.getWidth() : dimenPx(R.dimen.jc_settings_drawer_width);
         settingsPanelScroll.animate().translationX(w).setDuration(180).withEndAction(
                 () -> { if (settingsOverlay != null) settingsOverlay.setVisibility(View.GONE); }
         ).start();
@@ -388,6 +384,19 @@ public class SettingsDrawerController {
     }
 
     /**
+     * 从资源取色 —— 编程式 View 构建的**唯一取色入口**。
+     * 色值唯一真源是 res/values/colors.xml（见类顶部"设计令牌"说明），本类不写任何十六进制。
+     */
+    private int col(int colorResId) {
+        return ContextCompat.getColor(activity, colorResId);
+    }
+
+    /** 从资源取尺寸(px) —— 尺寸唯一真源是 res/values/dimens.xml */
+    private int dimenPx(int dimenResId) {
+        return (int) activity.getResources().getDimension(dimenResId);
+    }
+
+    /**
      * 头部版本号文案。
      *
      * ⚠️ 必须读**已安装包**的真实版本: 单包合并后唯一 APK 的版本来自宿主 :app(web.*),
@@ -434,13 +443,13 @@ public class SettingsDrawerController {
 
         View bar = new View(activity);
         GradientDrawable barBg = new GradientDrawable();
-        barBg.setColor(GF_ACCENT);
+        barBg.setColor(col(R.color.jc_accent));
         barBg.setCornerRadius(dp(2));
         LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(3), dp(12));
         barLp.bottomMargin = dp(6);
         wrap.addView(bar, barLp);
 
-        TextView t = makeText(label, 12, GF_TEXT_TER, true);
+        TextView t = makeText(label, 12, col(R.color.jc_text_tertiary), true);
         t.setLetterSpacing(0.18f);
         LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -471,11 +480,11 @@ public class SettingsDrawerController {
         LinearLayout col = new LinearLayout(activity);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setGravity(Gravity.CENTER_VERTICAL);
-        TextView t = makeText(title, 16, GF_TEXT, false);
+        TextView t = makeText(title, 16, col(R.color.jc_text), false);
         col.addView(t, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (sub != null && !sub.isEmpty()) {
-            TextView s = makeText(sub, 12, GF_TEXT_SEC, false);
+            TextView s = makeText(sub, 12, col(R.color.jc_text_secondary), false);
             s.setMaxLines(2);
             LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -509,14 +518,14 @@ public class SettingsDrawerController {
         FrameLayout sw = buildToggleSwitch(on);
         if (switchOut != null) switchOut.accept(sw);
         addRowTail(row, sw);
-        settingsPanel.addView(row, rowParams(dp(ROW_H_DP), 6));
+        settingsPanel.addView(row, rowParams(dimenPx(R.dimen.jc_settings_row_height), 6));
     }
 
     private TextView addNavRow(String title, String sub, String value, Runnable action) {
         LinearLayout row = makeRowBase(title, sub, true, v -> action.run());
-        TextView v = makeText(value == null ? "" : value, 13, GF_ACCENT, false);
+        TextView v = makeText(value == null ? "" : value, 13, col(R.color.jc_accent), false);
         addRowTail(row, v);
-        settingsPanel.addView(row, rowParams(dp(ROW_H_DP), 6));
+        settingsPanel.addView(row, rowParams(dimenPx(R.dimen.jc_settings_row_height), 6));
         return v;
     }
 
@@ -526,9 +535,9 @@ public class SettingsDrawerController {
 
     private void addInfoRow(String title, String sub, String value) {
         LinearLayout row = makeRowBase(title, sub, false, null);
-        TextView v = makeText(value == null ? "" : value, 13, GF_TEXT_SEC, false);
+        TextView v = makeText(value == null ? "" : value, 13, col(R.color.jc_text_secondary), false);
         addRowTail(row, v);
-        settingsPanel.addView(row, rowParams(dp(ROW_H_DP), 6));
+        settingsPanel.addView(row, rowParams(dimenPx(R.dimen.jc_settings_row_height), 6));
     }
 
     private FrameLayout buildToggleSwitch(boolean on) {
@@ -538,7 +547,7 @@ public class SettingsDrawerController {
         View knob = new View(activity);
         GradientDrawable knobBg = new GradientDrawable();
         knobBg.setShape(GradientDrawable.OVAL);
-        knobBg.setColor(GF_KNOB);
+        knobBg.setColor(col(R.color.jc_knob));
         knob.setBackground(knobBg);
         sw.addView(knob, knobParams(on));
         sw.setTag(knob);
@@ -560,7 +569,7 @@ public class SettingsDrawerController {
     private void applyToggleLook(FrameLayout sw, boolean on) {
         GradientDrawable track = new GradientDrawable();
         track.setCornerRadius(dp(12));
-        track.setColor(on ? GF_ACCENT : 0x33FFFFFF);
+        track.setColor(on ? col(R.color.jc_accent) : col(R.color.jc_track_off));
         sw.setBackground(track);
     }
 
@@ -574,18 +583,18 @@ public class SettingsDrawerController {
 
     private Drawable buildDrawerButtonBg() {
         GradientDrawable focused = new GradientDrawable();
-        focused.setColor(GF_ACCENT_DIM);
+        focused.setColor(col(R.color.jc_accent_dim));
         focused.setCornerRadius(dp(14));
-        focused.setStroke(dp(2), GF_ACCENT);
+        focused.setStroke(dp(2), col(R.color.jc_accent));
 
         GradientDrawable pressed = new GradientDrawable();
-        pressed.setColor(GF_ACCENT_PRESS);
+        pressed.setColor(col(R.color.jc_accent_press));
         pressed.setCornerRadius(dp(14));
 
         GradientDrawable normal = new GradientDrawable();
-        normal.setColor(GF_GLASS_SOFT);
+        normal.setColor(col(R.color.jc_glass_soft));
         normal.setCornerRadius(dp(14));
-        normal.setStroke(dp(1), GF_STROKE);
+        normal.setStroke(dp(1), col(R.color.jc_stroke));
 
         StateListDrawable sld = new StateListDrawable();
         sld.addState(new int[]{android.R.attr.state_focused}, focused);

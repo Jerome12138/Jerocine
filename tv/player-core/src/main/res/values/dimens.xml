@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  跨壳共享的布局尺寸令牌.
+
+  只放"两壳都要用、且必须同值"的尺寸 —— 例如设置抽屉的宽度与行高(两壳同一份 JcSettingsDrawer
+  构建, 尺寸必须同源)。壳独有的尺寸留在各壳自己的 dimens.xml。
+  历史: 这两项曾以 Java `static final int DRAWER_W_DP / ROW_H_DP` 的形式写在 JcSettingsDrawer
+  (以及 web 壳一份冗余拷贝)里, 现已收归资源唯一真源。
+-->
+<resources>
+    <!-- 设置抽屉宽度 (抽屉重设计: 360 → 400dp, 分组标题 + 副标题需要横向空间) -->
+    <dimen name="jc_settings_drawer_width">400dp</dimen>
+    <!-- 设置抽屉行高 (D-pad 焦点友好) -->
+    <dimen name="jc_settings_row_height">56dp</dimen>
+</resources>

@@ -5,7 +5,7 @@ package com.jerocine.app;
  * (见 app/src/test/java/com/jerocine/app/SettingsDrawerLogicTest.java)。
  *
  * 抽屉本身的构建是编程式 View 组装, 已抽到 tv 模块的
- * {@code com.jerocine.player.ui.SettingsDrawerController}(两壳共用, 已下沉 core), 只能靠编译 + 真机验收;
+ * {@code com.jerocine.player.ui.JcSettingsDrawer}(两壳共用, 已下沉 core), 只能靠编译 + 真机验收;
  * 但下面这几处"取值/拼接"逻辑是最容易出错的边界(显示模式三态循环、账号快照解析),
  * 所以明确拆出来覆盖。
  */
@@ -84,7 +84,7 @@ final class SettingsDrawerLogic {
      * 取 "loggedIn" 后的 true/false, 再取 "name" 后的 JSON 字符串(处理常见转义)。
      *
      * 注意: 这里**只解析**, 不拼装账号行文案 —— 标题/副标题/按钮的字面量在 core 的
-     * {@code SettingsDrawerController.AccountInfo}(loggedIn/loggedOut) 里定义一次, 两壳共用;
+     * {@code JcSettingsDrawer.AccountInfo}(loggedIn/loggedOut) 里定义一次, 两壳共用;
      * 本类只负责把 web 的 JSON 拆成"登录态 + 昵称"喂给那个工厂。
      *
      * @param json 形如 {"loggedIn":true,"name":"x"}; null/"null"/空/异常报文一律归一成未登录
