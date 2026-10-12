@@ -92,7 +92,10 @@ public class SettingsDrawerLogicTest {
         }
     }
 
-    // ============ 账号行(2026-10-10 抽屉改版): __jcAuth.user() 报文解析 ============
+    // ============ 账号行: __jcAuth.user() 报文解析 ============
+    // 只覆盖"解析"(JSON → 登录态 + 昵称)。
+    // 账号行文案(标题/副标题/按钮)已收敛到 core 的 SettingsDrawerController.AccountInfo,
+    // 由 player-core 的 AccountInfoTest 覆盖 —— 两壳共用同一份字面量。
 
     @Test
     public void parseAccountSnapshot_logged_in() {
@@ -100,8 +103,6 @@ public class SettingsDrawerLogicTest {
                 SettingsDrawerLogic.parseAccountSnapshot("{\"loggedIn\":true,\"name\":\"老王\"}");
         org.junit.Assert.assertTrue(s.loggedIn);
         assertEquals("老王", s.name);
-        assertEquals("老王", SettingsDrawerLogic.accountTitle(s));
-        assertEquals("退出", SettingsDrawerLogic.accountActionText(s));
     }
 
     @Test
@@ -109,8 +110,7 @@ public class SettingsDrawerLogicTest {
         SettingsDrawerLogic.AccountSnapshot s =
                 SettingsDrawerLogic.parseAccountSnapshot("{\"loggedIn\":false,\"name\":\"\"}");
         org.junit.Assert.assertFalse(s.loggedIn);
-        assertEquals("未登录", SettingsDrawerLogic.accountTitle(s));
-        assertEquals("登录", SettingsDrawerLogic.accountActionText(s));
+        assertEquals("", s.name);
     }
 
     @Test
@@ -119,8 +119,7 @@ public class SettingsDrawerLogicTest {
         for (String junk : new String[] {null, "null", "", "   ", "not-json", "{\"a\":1}"}) {
             SettingsDrawerLogic.AccountSnapshot s = SettingsDrawerLogic.parseAccountSnapshot(junk);
             org.junit.Assert.assertFalse("junk=" + junk, s.loggedIn);
-            assertEquals("未登录", SettingsDrawerLogic.accountTitle(s));
-            assertEquals("登录", SettingsDrawerLogic.accountActionText(s));
+            assertEquals("", s.name);
         }
     }
 
@@ -140,21 +139,14 @@ public class SettingsDrawerLogicTest {
                 "{ \"name\" : \"小明\" , \"loggedIn\" : true }");
         org.junit.Assert.assertTrue(s.loggedIn);
         assertEquals("小明", s.name);
-        assertEquals("登录中 · 点右侧按钮退出", SettingsDrawerLogic.accountSubtitle(s));
     }
 
     @Test
-    public void accountSubtitle_variants() {
-        SettingsDrawerLogic.AccountSnapshot in =
-                SettingsDrawerLogic.parseAccountSnapshot("{\"loggedIn\":true,\"name\":\"x\"}");
-        SettingsDrawerLogic.AccountSnapshot out = SettingsDrawerLogic.parseAccountSnapshot("null");
-        org.junit.Assert.assertEquals("登录中 · 点右侧按钮退出",
-                SettingsDrawerLogic.accountSubtitle(in));
-        org.junit.Assert.assertEquals("登录后收藏 / 历史 / 跳过设置多端同步",
-                SettingsDrawerLogic.accountSubtitle(out));
-        // 登录了但名字为空 → 标题仍归一成"未登录"(防脏数据把行渲染成空)
+    public void parseAccountSnapshot_logged_in_without_name() {
+        // 登录了但没有 name 字段 → name 归一成空串(由 core 的 loggedIn("") 渲染成"已登录")
         SettingsDrawerLogic.AccountSnapshot weird =
                 SettingsDrawerLogic.parseAccountSnapshot("{\"loggedIn\":true}");
-        assertEquals("未登录", SettingsDrawerLogic.accountTitle(weird));
+        org.junit.Assert.assertTrue(weird.loggedIn);
+        assertEquals("", weird.name);
     }
 }

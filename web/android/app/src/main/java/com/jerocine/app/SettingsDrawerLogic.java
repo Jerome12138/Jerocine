@@ -83,6 +83,10 @@ final class SettingsDrawerLogic {
      * 引它等于让这段逻辑测不了。报文是我们自己的钩子产出的固定形状, 手写足够:
      * 取 "loggedIn" 后的 true/false, 再取 "name" 后的 JSON 字符串(处理常见转义)。
      *
+     * 注意: 这里**只解析**, 不拼装账号行文案 —— 标题/副标题/按钮的字面量在 core 的
+     * {@code SettingsDrawerController.AccountInfo}(loggedIn/loggedOut) 里定义一次, 两壳共用;
+     * 本类只负责把 web 的 JSON 拆成"登录态 + 昵称"喂给那个工厂。
+     *
      * @param json 形如 {"loggedIn":true,"name":"x"}; null/"null"/空/异常报文一律归一成未登录
      */
     static AccountSnapshot parseAccountSnapshot(String json) {
@@ -92,29 +96,6 @@ final class SettingsDrawerLogic {
         boolean loggedIn = containsField(s, "loggedIn") && extractBoolean(s, "loggedIn");
         String name = extractString(s, "name");
         return new AccountSnapshot(loggedIn, name);
-    }
-
-    /** 账号行主标题: 已登录显示昵称, 未登录固定"未登录" */
-    static String accountTitle(AccountSnapshot snapshot) {
-        if (snapshot == null || !snapshot.loggedIn || snapshot.name == null
-                || snapshot.name.isEmpty()) {
-            return "未登录";
-        }
-        return snapshot.name;
-    }
-
-    /** 账号行副标题 */
-    static String accountSubtitle(AccountSnapshot snapshot) {
-        if (snapshot == null || !snapshot.loggedIn) {
-            return "登录后收藏 / 历史 / 跳过设置多端同步";
-        }
-        return "登录中 · 点右侧按钮退出";
-    }
-
-    /** 账号行右侧动作文案(也是动作语义: 登录 / 退出) */
-    static String accountActionText(AccountSnapshot snapshot) {
-        if (snapshot != null && snapshot.loggedIn) return "退出";
-        return "登录";
     }
 
     // ---------- 解析小工具(仅面向我们自己钩子产出的 JSON 形状) ----------

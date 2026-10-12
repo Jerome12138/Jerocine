@@ -112,7 +112,18 @@ public class SettingsDrawerController {
         String getCurrentShellMode();
     }
 
-    /** 账号行快照 */
+    /**
+     * 账号行快照。
+     *
+     * ⚠️ 文案（标题/副标题/按钮）**只在这里定义一次**：抽屉两壳共用，账号行的字面量也必须同源，
+     *    否则同一个抽屉在两种模式下显示不同的字（§10 验收项「外观一致」会名存实亡）。
+     *    历史上 web 壳曾在 {@code SettingsDrawerLogic} 里另写一套 accountTitle/accountSubtitle/
+     *    accountActionText（其中 accountSubtitle 从未被生产代码调用、且 refreshAccountRow 恒传
+     *    "登录后…" 副标题 ⇒ 已登录时显示的是未登录文案），已删除。
+     *    各壳只负责把"登录态 + 昵称"喂进来，拼装一律走下面两个工厂。
+     *
+     * `title` 取昵称（拿不到才退回"已登录"）；`subtitle` 区分已/未登录两句。
+     */
     public static class AccountInfo {
         public final String title;
         public final String subtitle;
@@ -122,8 +133,17 @@ public class SettingsDrawerController {
             this.title = title; this.subtitle = subtitle;
             this.actionText = actionText; this.loggedIn = loggedIn;
         }
+
+        /** 未登录 —— 抽屉两壳唯一来源 */
         public static AccountInfo loggedOut() {
             return new AccountInfo("未登录", "登录后收藏 / 历史 / 跳过设置多端同步", "登录", false);
+        }
+
+        /** 已登录 —— `name` 为昵称，可为 null/空（拿不到昵称时标题退回"已登录"） */
+        public static AccountInfo loggedIn(String name) {
+            String t = (name == null) ? "" : name.trim();
+            return new AccountInfo(t.isEmpty() ? "已登录" : t,
+                    "收藏 / 历史 / 跳过设置多端同步", "退出", true);
         }
     }
 

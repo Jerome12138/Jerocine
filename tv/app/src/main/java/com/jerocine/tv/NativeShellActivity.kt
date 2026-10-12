@@ -258,13 +258,11 @@ class NativeShellActivity : FragmentActivity(), SettingsDrawerController.Host {
     }
 
     override fun getAccountInfo(): SettingsDrawerController.AccountInfo {
+        // 文案拼装一律走 core 的工厂(AccountInfo.loggedIn/loggedOut) —— 两壳账号行必须同源,
+        // 否则同一个抽屉在两种模式下显示不同的字。这里只喂"登录态 + 昵称"。
+        // 原生壳自登录有昵称; web 壳登录只存了 token(昵称在前端 localStorage) ⇒ 传空退回"已登录"。
         return if (ServiceLocator.isLoggedIn) {
-            SettingsDrawerController.AccountInfo(
-                "已登录",
-                "收藏 / 历史 / 跳过设置多端同步",
-                "退出",
-                true
-            )
+            SettingsDrawerController.AccountInfo.loggedIn(ServiceLocator.tokenStore.userName ?: "")
         } else {
             SettingsDrawerController.AccountInfo.loggedOut()
         }

@@ -106,6 +106,8 @@ public class WebShellActivity extends BridgeActivity
     private SettingsDrawerController settingsDrawer;
     /** 最近一次读到的 web 登录态(决定账号行的动作语义) */
     private boolean accountLoggedIn;
+    /** 最近一次读到的 web 昵称(仅用于账号行标题; 拿不到则回退"已登录") */
+    private String currentAccountName = "";
     /** 当前显示模式覆盖值: tv / desktop / null(=没选过, 壳内默认强制 TV) */
     private String currentDisplayMode;
     static final String KEY_SHELL_MODE = com.jerocine.player.data.ShellPrefs.KEY_SHELL_MODE;
@@ -510,11 +512,11 @@ public class WebShellActivity extends BridgeActivity
         }
     }
     @Override public SettingsDrawerController.AccountInfo getAccountInfo() {
-        if (accountLoggedIn) {
-            return new SettingsDrawerController.AccountInfo(
-                    "已登录", "收藏 / 历史 / 跳过设置多端同步", "退出", true);
-        }
-        return SettingsDrawerController.AccountInfo.loggedOut();
+        // 文案拼装一律走 core 的工厂(loggedIn/loggedOut) —— 两壳账号行必须同源,
+        // 否则同一个抽屉在两种模式下显示不同的字。
+        return accountLoggedIn
+                ? SettingsDrawerController.AccountInfo.loggedIn(currentAccountName)
+                : SettingsDrawerController.AccountInfo.loggedOut();
     }
 
     // ---- 显示模式(web 特有; 原生壳 hasDisplayMode=false 隐藏此行) ----
@@ -572,13 +574,12 @@ public class WebShellActivity extends BridgeActivity
                     SettingsDrawerLogic.AccountSnapshot snap =
                             SettingsDrawerLogic.parseAccountSnapshot(value);
                     accountLoggedIn = snap.loggedIn;
+                    currentAccountName = snap.name == null ? "" : snap.name;
                     runOnUiThread(() -> {
                         if (settingsDrawer == null) return;
-                        settingsDrawer.refreshAccount(new SettingsDrawerController.AccountInfo(
-                                SettingsDrawerLogic.accountTitle(snap),
-                                "登录后收藏 / 历史 / 跳过设置多端同步",
-                                SettingsDrawerLogic.accountActionText(snap),
-                                snap.loggedIn));
+                        settingsDrawer.refreshAccount(accountLoggedIn
+                                ? SettingsDrawerController.AccountInfo.loggedIn(currentAccountName)
+                                : SettingsDrawerController.AccountInfo.loggedOut());
                     });
                 });
     }
