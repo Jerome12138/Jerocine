@@ -12,7 +12,6 @@ object ServiceLocator {
 
     /** 默认服务器（可在设置里改，存 prefs） */
     private const val DEFAULT_SERVER = "https://jerocine.art"
-    private const val DEFAULT_MEDIA_SERVER = "http://jerocine.art"
 
     @Volatile
     var token: String? = null
@@ -58,11 +57,20 @@ object ServiceLocator {
 
     private fun apiBase(): String = serverBase.trimEnd('/') + "/api/v1/"
 
-    /** 生产媒体链走 HTTP，规避 Android 6 过期 CA/系统 TLS；登录和业务 API 仍保持 HTTPS。 */
-    fun proxyBase(): String {
-        val base = serverBase.trimEnd('/')
-        return (if (base.equals(DEFAULT_SERVER, ignoreCase = true)) DEFAULT_MEDIA_SERVER else base) + "/api"
-    }
+    /**
+     * 媒体/代理基址 —— **与业务 API 同源同协议(HTTPS)**。
+     *
+     * <p><b>2026-10-12 改</b>: 此前生产环境刻意用 `http://jerocine.art` 规避老设备过期 CA,
+     * 代价是每个请求都要先连 80 端口拿一个 308 再重连 443 —— 而 308 带 `Connection: close`,
+     * 连接无法复用, 于是**每次调用都重付一次 TCP + TLS 握手**。设备实测: 连接建立
+     * 0.13~3.3s、TLS 握手 0.3~3.5s, 抖动极大。端侧广告过滤要连续 POST master + 子表
+     * (每层最多 2 次), 叠加后单次起播凭空多等十几秒(用户报障"去广告时间好长")。
+     *
+     * <p>改直连 HTTPS 后一次连接可复用; 老设备的 CA 问题由客户端兜住 —— 媒体链用的
+     * OkHttp 本身已放宽 TLS 校验({@code ApiClient.mediaOkhttp()} 的 trustAll +
+     * hostnameVerifier), 与 protocol 无关。
+     */
+    fun proxyBase(): String = serverBase.trimEnd('/') + "/api"
 
     /** 服务端处理 m3u8 清单和广告过滤，媒体分片默认由设备直连。 */
     fun m3u8ProxyUrl(rawLink: String, filterAds: Boolean = true): String {
