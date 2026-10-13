@@ -165,13 +165,21 @@ public class PlayerPrefetchHelper {
 
     /** GET 原始清单; 失败返回 null(静默). */
     private byte[] fetch(String url) {
+        final String srcTag = AdFilterTrace.srcTag(url);
+        long t0 = System.nanoTime();
         try {
             Request req = new Request.Builder().url(url).header("User-Agent", USER_AGENT).build();
             try (Response resp = client.newCall(req).execute()) {
-                if (!resp.isSuccessful() || resp.body() == null) return null;
-                return resp.body().bytes();
+                if (!resp.isSuccessful() || resp.body() == null) {
+                    logTrace("prefetch-fetch", srcTag, "fail http=" + resp.code(), t0);
+                    return null;
+                }
+                byte[] body = resp.body().bytes();
+                logTrace("prefetch-fetch", srcTag, "ok http=" + resp.code() + " in=" + body.length, t0);
+                return body;
             }
         } catch (Exception e) {
+            logTrace("prefetch-fetch", srcTag, "fail ex=" + e.getClass().getSimpleName(), t0);
             return null;
         }
     }
@@ -180,6 +188,7 @@ public class PlayerPrefetchHelper {
     private PlayerSession.Prefetched filterViaServer(String srcUrl, byte[] raw) {
         String base = session.proxyBase;
         if (base == null || base.isEmpty()) return null;
+        final String srcTag = AdFilterTrace.srcTag(srcUrl);
         final String url;
         try {
             url = base + "/v1/m3u8/filter?src="
@@ -187,13 +196,17 @@ public class PlayerPrefetchHelper {
         } catch (Exception e) {
             return null;
         }
+        long t0 = System.nanoTime();
         try {
             Request req = new Request.Builder().url(url)
                     .post(RequestBody.create(
                             MediaType.parse("application/vnd.apple.mpegurl"), raw))
                     .build();
             try (Response resp = client.newCall(req).execute()) {
-                if (!resp.isSuccessful() || resp.body() == null) return null;
+                if (!resp.isSuccessful() || resp.body() == null) {
+                    logTrace("prefetch-filter", srcTag, "fail http=" + resp.code(), t0);
+                    return null;
+                }
                 int count = 0;
                 String header = resp.header("X-Ad-Filtered");
                 if (header != null) {
@@ -203,11 +216,23 @@ public class PlayerPrefetchHelper {
                     }
                 }
                 byte[] out = resp.body().bytes();
-                if (out.length == 0) return null;
+                if (out.length == 0) {
+                    logTrace("prefetch-filter", srcTag, "fail empty-body http=" + resp.code(), t0);
+                    return null;
+                }
+                logTrace("prefetch-filter", srcTag,
+                        "ok http=" + resp.code() + " out=" + out.length + " ads=" + count, t0);
                 return new PlayerSession.Prefetched(out, count, System.currentTimeMillis());
             }
         } catch (Exception e) {
+            logTrace("prefetch-filter", srcTag, "fail ex=" + e.getClass().getSimpleName(), t0);
             return null;
         }
+    }
+
+    /** 埋点: 记一行带耗时的路径决策(phase 区分抓取与过滤; 格式见 {@link AdFilterTrace})。 */
+    private static void logTrace(String phase, String srcTag, String decision, long startNanos) {
+        android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.layer(
+                phase, decision, (System.nanoTime() - startNanos) / 1_000_000L, srcTag));
     }
 }

@@ -171,6 +171,16 @@ public class PlayerAdFilterHelper {
         return r.data;
     }
 
+    /** 埋点: 记录本层清单的路径决策(tag/格式见 {@link AdFilterTrace}); 网络耗时由真正的出口各自记录。 */
+    private static void logTrace(String srcTag, String decision) {
+        android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.layer("parse", decision, 0L, srcTag));
+    }
+
+    /** 埋点: 记录升级决策(为什么本集/整源切到服务端代理)。 */
+    private static void logEscalate(String srcTag, String decision) {
+        android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.layer("escalate", decision, 0L, srcTag));
+    }
+
     static byte[] readAll(InputStream in) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
@@ -192,20 +202,37 @@ public class PlayerAdFilterHelper {
      * parse 跑在 loader 线程, 读当前集索引/重建播放器必须回主线程。
      */
     private void escalateToProxy(final String failedUrl) {
-        if (!session.sourceProxyUsable) return;
-        if (session.proxyBase == null || session.proxyBase.isEmpty()) return;
+        final String srcTag = AdFilterTrace.srcTag(failedUrl);
+        if (!session.sourceProxyUsable) { // 服务端抓不到该源, 包了也是 500
+            logEscalate(srcTag, "skip source-not-usable");
+            return;
+        }
+        if (session.proxyBase == null || session.proxyBase.isEmpty()) {
+            logEscalate(srcTag, "skip no-proxy-base");
+            return;
+        }
         // 【关键】在**调用点(loader 线程)**解析失败的是哪一集, 不能在 post 里读"当前索引"。
         // 原实现在 post 里才读 getCurrentMediaItemIndex(): 第5 集起播 → 过滤超时 8s →
         // 用户在这期间按▼切到第 6 集 → post 执行时索引已是 5 → **第 6 集被无端标记
         // forceProxy 并 replaceMediaItem 重建**(打断用户已在看的这一集), 并连带
         // invalidatePrefetch() 把第 6 集已预取好的清单一起清掉。真正失败的第 5 集反被漏标。
         final int failedIdx = indexOfRawUrl(failedUrl);
-        if (failedIdx < 0) return;
+        if (failedIdx < 0) {
+            logEscalate(srcTag, "skip idx-unknown");
+            return;
+        }
         new Handler(Looper.getMainLooper()).post(() -> {
-            if (session.player == null) return;
+            if (session.player == null) {
+                logEscalate(srcTag, "skip player-gone");
+                return;
+            }
             // 用户已经切走了就别动手: 修复"打错集"的最后一层保险
-            if (session.player.getCurrentMediaItemIndex() != failedIdx) return;
+            if (session.player.getCurrentMediaItemIndex() != failedIdx) {
+                logEscalate(srcTag, "skip switched idx=" + failedIdx);
+                return;
+            }
             if (session.forceRawIdx.contains(failedIdx) || session.forceProxyIdx.contains(failedIdx)) {
+                logEscalate(srcTag, "skip already-marked idx=" + failedIdx);
                 return;
             }
             session.forceProxyIdx.add(failedIdx);
@@ -213,10 +240,13 @@ public class PlayerAdFilterHelper {
             // 就粘住, 弱代理源“一集失败, 后面的集跟着失败”(全走代理 + 预取加速被关)。
             // 单次失败只升级本集, 下一集还会重试端侧; 连续失败才认定端侧链路真坏了。
             session.clientFilterFailStreak++;
-            if (FilterEscalationPolicy.shouldStickSource(session.clientFilterFailStreak)) {
+            boolean stick = FilterEscalationPolicy.shouldStickSource(session.clientFilterFailStreak);
+            if (stick) {
                 // 本片源端侧过滤已证明不可靠 → 后续集直接用代理, 免得每集都白等一轮超时
                 session.sourcePreferProxy = true;
             }
+            logEscalate(srcTag, "proxy idx=" + failedIdx
+                    + " streak=" + session.clientFilterFailStreak + " stick=" + stick);
             // 后续集都走代理了, 已预取/在途的端侧清单缓存全部作废(也顺手停掉在途任务)
             session.invalidatePrefetch();
             session.retryCurrentItem(failedIdx, "端侧过滤失败, 已切换服务端过滤");
@@ -253,9 +283,13 @@ public class PlayerAdFilterHelper {
             // parse 跑在 loader 线程, 可能先于主线程的 transition 回调完成。
             session.lastParsedPlaylistUrl = uri.toString();
             if (session.adFilterOn) {
+                // 埋点: 这一层清单(master / 子表)最终走了哪条路 —— 起播慢时用它区分
+                // "在等端侧过滤"与"本来就不需要过滤"。端侧那次的耗时/结果由 M3u8FilterClient 记录。
+                final String srcTag = AdFilterTrace.srcTag(uri.toString());
                 if (!PlayerUrls.needsClientSideFilter(uri.toString())) {
                     // /m3u8/proxy 已在服务端完成过滤与媒体地址改写, 不必再同步 POST 一次
                     session.filterAttempted = true;
+                    logTrace(srcTag, "server-proxy");
                 } else if (session.proxyBase != null && !session.proxyBase.isEmpty()) {
                     // 预取命中: 起播后已把下一集(master + 子表)过滤好放缓存 → 直接用, 不再付 POST 代价
                     PlayerSession.Prefetched cached = session.takePrefetched(uri.toString());
@@ -266,16 +300,20 @@ public class PlayerAdFilterHelper {
                         if (cached.filteredCount > session.pendingFilteredCount) {
                             session.pendingFilteredCount = cached.filteredCount;
                         }
+                        logTrace(srcTag, "prefetch-hit ads=" + cached.filteredCount);
                     } else {
                         byte[] f = filterViaServer(uri.toString(), data);
                         if (f != null) {
                             data = f;
+                            logTrace(srcTag, "client out=" + data.length);
                         } else {
+                            logTrace(srcTag, "client-fail");
                             escalateToProxy(uri.toString()); // 端侧失败 → 本集升级服务端代理(带失败 URL 以定位是哪一集)
                         }
                     }
                 } else {
                     session.filterProxyMissing = true; // 开关开着却没代理地址 → 起播提示"未生效"
+                    logTrace(srcTag, "no-proxy");
                 }
             }
             return delegate.parse(uri, new ByteArrayInputStream(data));

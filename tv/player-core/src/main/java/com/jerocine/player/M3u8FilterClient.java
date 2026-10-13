@@ -133,10 +133,12 @@ public final class M3u8FilterClient {
      * 行为与原 filter() 逐分支等价, 只是每个 null 出口都带上了原因。
      */
     public static Outcome filterDetailed(String proxyBase, String srcUrl, byte[] raw) {
+        final String srcTag = AdFilterTrace.srcTag(srcUrl);
         if (proxyBase == null || proxyBase.isEmpty() || raw == null || raw.length == 0) {
-            return Outcome.fail(FailureCause.NO_FILTER);
+            return endFail(srcTag, 0, 0L, FailureCause.NO_FILTER);
         }
         final String url;
+        final long filterStartNanos = System.nanoTime();
         try {
             String base = proxyBase.endsWith("/")
                     ? proxyBase.substring(0, proxyBase.length() - 1)
@@ -146,14 +148,17 @@ public final class M3u8FilterClient {
             // 服务端按 src 归并的过滤缓存与统计会对不上。
             url = base + "/v1/m3u8/filter?src=" + PlayerUrls.encodeParam(srcUrl);
         } catch (Exception e) {
-            return Outcome.fail(FailureCause.NO_FILTER);
+            return endFail(srcTag, 0, msSince(filterStartNanos), FailureCause.NO_FILTER);
         }
+        android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.begin(srcTag, raw.length));
         for (int attempt = 0; attempt < 2; attempt++) {
             // 用户切集/退出会中断 loader 线程(BufferPrefetcher.cancel → shutdownNow):
             // 此时应尽快放弃, 而不是继续等满一轮超时(最坏 16s×2 层= 30s+ 黑屏)。
             if (Thread.currentThread().isInterrupted()) {
-                return Outcome.fail(FailureCause.CANCELLED);
+                // 本次请求还没发出去: 只记整次汇总, 不记 attempt 行(免得读成"试了一次")
+                return endFail(srcTag, attempt, msSince(filterStartNanos), FailureCause.CANCELLED);
             }
+            final long attemptStartNanos = System.nanoTime();
             try {
                 Request req = new Request.Builder().url(url)
                         .post(RequestBody.create(
@@ -164,7 +169,8 @@ public final class M3u8FilterClient {
                     // 只会再赔一个 RTT, 且 PlayerAdFilterHelper 会紧接着 escalateToProxy
                     // 再付一次"重试+升级+重新 prepare"的代价。直接放弃。
                     if (resp.code() >= 400 && resp.code() < 500) {
-                        return Outcome.fail(FailureCause.REJECTED);
+                        return endAttempt(srcTag, attempt, attemptStartNanos, filterStartNanos,
+                                resp.code(), FailureCause.REJECTED);
                     }
                     if (resp.isSuccessful() && resp.body() != null) {
                         byte[] out;
@@ -172,16 +178,20 @@ public final class M3u8FilterClient {
                             out = readCapped(resp.body(), MAX_PLAYLIST_BYTES);
                         } catch (ResponseTooLargeException e) {
                             // 超限: 不重试(重试同样会超)
-                            return Outcome.fail(FailureCause.TOO_LARGE);
+                            return endAttempt(srcTag, attempt, attemptStartNanos, filterStartNanos,
+                                    resp.code(), FailureCause.TOO_LARGE);
                         } catch (java.io.IOException e) {
                             // 读失败(连接中断/流异常): 瞬时, 与 NETWORK 同待遇 —— 第 1 次失败
                             // 落下去快速重试一次, 第 2 次失败才上报(播放/下载两侧共用此客户端;
                             // 播放侧上报即触发 escalateToProxy, 360 这类 proxyUsable=false 的源
                             // 会直接原始流播放, 所以这里能自己恢复就别上报)
                             if (attempt == 0) {
+                                logAttempt(srcTag, attempt, attemptStartNanos, resp.code(),
+                                        FailureCause.BAD_RESPONSE);
                                 out = null; // 落下去 sleep 重试
                             } else {
-                                return Outcome.fail(FailureCause.BAD_RESPONSE);
+                                return endAttempt(srcTag, attempt, attemptStartNanos, filterStartNanos,
+                                        resp.code(), FailureCause.BAD_RESPONSE);
                             }
                         }
                         if (out != null) {
@@ -193,12 +203,17 @@ public final class M3u8FilterClient {
                                 } catch (NumberFormatException ignore) {
                                 }
                             }
-                            return Outcome.ok(new Result(out, cnt));
+                            return endOk(srcTag, attempt, attemptStartNanos, filterStartNanos,
+                                    resp.code(), out, cnt);
                         }
                         // out == null: 仅"读失败第 1 轮"会走到这里 → 落下去 sleep 重试
                     }
                     // 5xx / 3xx / 无 body → 值得重试一次
-                    if (attempt == 1) return Outcome.fail(FailureCause.NETWORK);
+                    if (attempt == 1) {
+                        return endAttempt(srcTag, attempt, attemptStartNanos, filterStartNanos,
+                                resp.code(), FailureCause.NETWORK);
+                    }
+                    logAttempt(srcTag, attempt, attemptStartNanos, resp.code(), FailureCause.NETWORK);
                 }
             } catch (Exception e) {
                 // 必须重设中断位: OkHttp 的 execute() 在线程被 shutdownNow 中断时抛的异常
@@ -207,18 +222,60 @@ public final class M3u8FilterClient {
                 // 注意 InterruptedException 在 java.lang(默认导入), 不是 java.io。
                 if (e instanceof InterruptedException) {
                     Thread.currentThread().interrupt();
-                    return Outcome.fail(FailureCause.CANCELLED);
+                    return endAttempt(srcTag, attempt, attemptStartNanos, filterStartNanos,
+                            0, FailureCause.CANCELLED);
                 }
-                if (attempt == 1) return Outcome.fail(FailureCause.NETWORK);
+                if (attempt == 1) {
+                    return endAttempt(srcTag, attempt, attemptStartNanos, filterStartNanos,
+                            0, FailureCause.NETWORK);
+                }
+                logAttempt(srcTag, attempt, attemptStartNanos, 0, FailureCause.NETWORK);
             }
             try {
                 Thread.sleep(250);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                return Outcome.fail(FailureCause.CANCELLED);
+                return endFail(srcTag, attempt + 1, msSince(filterStartNanos), FailureCause.CANCELLED);
             }
         }
-        return Outcome.fail(FailureCause.NETWORK);
+        return endFail(srcTag, 2, msSince(filterStartNanos), FailureCause.NETWORK);
+    }
+
+    // ============================ 埋点 ============================
+
+    /** 记单次 attempt 的结果行(非终局: 该轮失败但还要再试一次)。 */
+    private static void logAttempt(String srcTag, int attempt, long attemptStartNanos, int httpCode,
+                                   FailureCause cause) {
+        android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.attempt(
+                attempt + 1, msSince(attemptStartNanos), httpCode, cause.name(), -1, -1, srcTag));
+    }
+
+    /** 单次 attempt 终局失败: 记 attempt 行 + 整次收尾行, 返回带原因的结果。 */
+    private static Outcome endAttempt(String srcTag, int attempt, long attemptStartNanos,
+                                      long filterStartNanos, int httpCode, FailureCause cause) {
+        logAttempt(srcTag, attempt, attemptStartNanos, httpCode, cause);
+        return endFail(srcTag, attempt + 1, msSince(filterStartNanos), cause);
+    }
+
+    /** 单次 attempt 成功(第 attempt+1 次成的): 记 attempt 行 + 整次收尾行。 */
+    private static Outcome endOk(String srcTag, int attempt, long attemptStartNanos, long filterStartNanos,
+                                 int httpCode, byte[] out, int ads) {
+        android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.attempt(
+                attempt + 1, msSince(attemptStartNanos), httpCode, null, out.length, ads, srcTag));
+        android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.end(
+                srcTag, attempt + 1, msSince(filterStartNanos), null, out.length, ads));
+        return Outcome.ok(new Result(out, ads));
+    }
+
+    /** 整次过滤结束(失败): 记收尾行, 返回带原因的结果。 */
+    private static Outcome endFail(String srcTag, int attempts, long totalMs, FailureCause cause) {
+        android.util.Log.i(AdFilterTrace.TAG,
+                AdFilterTrace.end(srcTag, attempts, totalMs, cause.name(), -1, -1));
+        return Outcome.fail(cause);
+    }
+
+    private static long msSince(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000L;
     }
 
     /**
