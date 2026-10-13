@@ -3,7 +3,7 @@
 > ⚠️ **2026-10-11 单包合并**：`tv/app` 已不再是独立 APK，而是宿主 `web/android` 里的 **`:tvshell` library**，
 > 与 Capacitor 壳（`art.jerocine.app`）打进**同一个包**，由 `EntryRouterActivity` 按设备能力路由
 > （低配/WebView 内核过旧 → 进本模块的 `NativeShellActivity`）。因此：
-> - **不再有 `build-android.sh tv` 目标**（传它会明确报错）；打单一 APK 用 `build-android.sh web`（或 `all`，等价）。
+> - **不再有 `build-android.sh tv` 目标**（传它会明确报错）；打单一 APK 用 `build-android.sh all`（或 `web`，等价）。
 > - 本模块**无自己的 applicationId / versionCode / versionName**，版本号跟宿主走 `scripts/android-versions.properties` 的 `web.*`。
 > - 下文「技术栈 / 功能 / 后端」描述对本模块内部仍成立；**构建与签名一节已按单包口径重写**。
 >
@@ -38,11 +38,11 @@ Capacitor(WebView) 方案在该设备上跑不动（WebView 内核 48 远低于�
 本模块**不再单独出包**。打单一 APK（含本壳）在仓库根执行：
 
 ```bash
-scripts/build-android.sh web      # 单包 art.jerocine.app（Capacitor 壳 + 本原生壳）
-scripts/build-android.sh all      # 等价于 web（保留 all 仅为兼容旧脚本）
+scripts/build-android.sh all      # 单包 art.jerocine.app（Capacitor 壳 + 本原生壳）
+scripts/build-android.sh web      # 等价于 all（web 作兼容别名保留）
 ```
 
-Windows 用 Git Bash 执行 `bash scripts/build-android.sh web ...`（PowerShell / cmd 跑不了 .sh）。
+Windows 用 Git Bash 执行 `bash scripts/build-android.sh all ...`（PowerShell / cmd 跑不了 .sh）。
 
 需要 JDK 17+（AGP 8.x 要求，实测 17 可用）与 Android SDK；脚本会自动探测 `ANDROID_HOME`、
 `~/Library/Android/sdk`、`~/Android/Sdk` 并补写 `local.properties`。
@@ -63,8 +63,8 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
 ./gradlew :app:assembleDebug                      # 编出 :tvshell 的 aar（不产 APK）
 ```
 
-> 后端地址**不再走编译期常量**：`-PapiBase=`/`--api-base=` 只是遗留开关，写入的
-> `BuildConfig.API_BASE_URL` 当前无人引用；运行时后端地址由应用内「设置 → 服务器地址」
+> 后端地址**不走编译期常量**：`tv/app` 的 `BuildConfig.API_BASE_URL` 当前无人引用
+> （`-PapiBase=` 传 gradle 仍能写入它）；运行时后端地址由应用内「设置 → 服务器地址」
 > 填写并落在共享 prefs（`jerocine_prefs/server_url`）里。
 
 ## 自测

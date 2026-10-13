@@ -56,7 +56,7 @@ pnpm cap:build    # 等价于 cap:sync（合并后 APK 不再携带前端产物�
 > ⚠️ 单包合并后 **APK 与前端构建解耦**：`capacitor.config` 的 `webDir` 指向 `android-shell-stub`
 > （只有占位 index.html），WebShell 运行时远程加载线上 SPA。故 `cap:*` 不再执行 `vite build`
 > —— 需要部署前端时单独跑 `pnpm build`（产物进 `dist`，由 nginx 发布）。
-> 日常出包直接用仓库根 `scripts/build-android.sh web`。
+> 日常出包直接用仓库根 `scripts/build-android.sh all`。
 
 **前置条件**：JDK 17、Android Studio、Android SDK 36（compileSdk；AGP 8.13 + Capacitor 8 要求）。
 
@@ -64,4 +64,4 @@ pnpm cap:build    # 等价于 cap:sync（合并后 APK 不再携带前端产物�
 - **单包双壳（2026-10-11 合并）**：打包入口 `web/android`，launcher 为 `EntryRouterActivity`，按设备能力路由到
   `WebShellActivity`（本壳）或内嵌的 `:tvshell` `NativeShellActivity`。APK **远程加载**线上站点 URL
   （WebShell 起 WebView 打开远端 SPA），故前端改动部署后对本壳即时生效、无需重发 APK；
-  包内 `assets/public` 只留占位页。**出包用仓库根 `scripts/build-android.sh web`**（不再跑 vite build）。
+  包内 `assets/public` 只留占位页。**出包用仓库根 `scripts/build-android.sh all`**（不再跑 vite build）。

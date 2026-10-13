@@ -39,7 +39,7 @@
 
 | 脚本 | 作用 | 前置 | 产物 |
 |---|---|---|---|
-| `scripts/build-android.sh` | 打安卓包（**单包**：Capacitor 壳 + 内嵌原生壳，启动按设备能力路由），目标 `web` / `all`（等价，后者为兼容保留） | JDK 17+、Android SDK、**正式签名密钥**（仓库外，见下） | `web/android/app/build/outputs/apk/<variant>/`，并复制一份到系统下载目录 |
+| `scripts/build-android.sh` | 打安卓包（**单包**：Capacitor 壳 + 内嵌原生壳，启动按设备能力路由），目标 `all` / `web`（等价，`web` 为兼容别名） | JDK 17+、Android SDK、**正式签名密钥**（仓库外，见下） | `web/android/app/build/outputs/apk/<variant>/`，并复制一份到系统下载目录 |
 
 > ⚠️ **2026-10-11 单包合并**：`tv/app` 已改造为宿主 `web/android` 里的 `:tvshell` library，
 > 与 Capacitor 壳打进同一个 APK（`art.jerocine.app`），由 `EntryRouterActivity` 按设备能力
@@ -51,14 +51,14 @@
 
 ```bash
 scripts/build-android.sh all                                   # 出单包（与 web 等价）
-scripts/build-android.sh web --debug                           # debug 试用包，跳过密钥校验
-scripts/build-android.sh web --keep-version                    # 故意重打同一个构建号（会给重复发版警告）
+scripts/build-android.sh all --debug                           # debug 试用包，跳过密钥校验
+scripts/build-android.sh all --keep-version                    # 故意重打同一个构建号（会给重复发版警告）
 scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原样透传给 gradle
 ```
 
-- 产物命名：`Jerocine-TV-web-v<版本名>(<构建号>).apk`（`web` 就是唯一那个包），debug 追加 `-debug`。
-  例：`Jerocine-TV-web-v1.0.9(1041).apk`。构建号取 APK 产物目录 `output-metadata.json` 里的
-  `versionCode`（gradle 生成的真实值），读不到才退回版本源文件。
+- 产物命名：`Jerocine-TV-v<版本名>(<构建号>).apk`（单包后不再带 `-web`/`-native` 区分），
+  debug 追加 `-debug`。例：`Jerocine-TV-v1.0.10(1108).apk`。构建号取 APK 产物目录
+  `output-metadata.json` 里的 `versionCode`（gradle 生成的真实值），读不到才退回版本源文件。
 - **打包后自动装 pad**：交付成功后 `maybe_adb_install` 检测 `adb devices`，有设备就对最新包执行一次
   `install -r`（成功打日志，无设备静默跳过）。注意 adb.exe 不认 `/d/...` 风格路径，
   脚本内已做 `cygpath -m` 转换 —— 手工装包时同理。

@@ -3,19 +3,18 @@
 # Jerocine Android 一键构建
 #
 # 用法:
-#   scripts/build-android.sh web                    # 单一 APK: Capacitor 壳 + 原生壳(art.jerocine.app)
-#   scripts/build-android.sh all                    # 同 web(单包合并后二者等价)
-#   scripts/build-android.sh web --debug            # 出 debug 包(不需要正式密钥, 仅供本机试装)
+#   scripts/build-android.sh all                    # 单一 APK: Capacitor 壳 + 内嵌原生壳(art.jerocine.app)
+#   scripts/build-android.sh web                    # 同 all(单包合并后二者等价, web 作兼容别名保留)
+#   scripts/build-android.sh all --debug            # 出 debug 包(不需要正式密钥, 仅供本机试装)
 #   scripts/build-android.sh all -- -PwebVersionCode=1042   # -- 之后原样透传给 gradle
 #
-# ⚠️ 单包合并(2026-10-11)后 tv 独立 APK 已取消: tv/app 是 web/android 宿主里的 :tvshell library,
-#    两个壳在同一个包里由 EntryRouterActivity 按设备能力路由。`tv` 目标会明确报错, 不再静默失败。
+# ⚠️ 单包合并(2026-10-11)后只有一个 APK: 两个壳都在里面, 由 EntryRouterActivity 按设备能力路由,
+#    产物不再分 web/native 两套。`tv` 目标会明确报错, 不再静默失败。
 #    前端产物不随包发布(WebShell 远程加载线上 SPA), 打包只需 cap sync 占位页。
 #
-# 产物: 各工程 app/build/outputs/apk/<variant>/ 下, 并按下面规则复制一份到系统下载目录:
-#   Jerocine-TV-web-v<版本名>(<构建号>).apk        Capacitor 壳应用
-#   Jerocine-TV-native-v<版本名>(<构建号>).apk     原生 TV 客户端
-#   debug 包追加 -debug 后缀。例: Jerocine-TV-web-v1.0.9(1041).apk
+# 产物: web/android/app/build/outputs/apk/<variant>/ 下, 并按下面规则复制一份到系统下载目录:
+#   Jerocine-TV-v<版本名>(<构建号>).apk
+#   debug 包追加 -debug 后缀。例: Jerocine-TV-v1.0.10(1108).apk
 #
 # 版本号唯一来源是 scripts/android-versions.properties（构建号千位编号, 1000+迭代号），
 # 本脚本不猜版本, 以 APK 产物目录里的 output-metadata.json 为准。
@@ -43,8 +42,6 @@ VERSIONS_FILE="$ROOT/scripts/android-versions.properties"
 
 TARGET="all"
 VARIANT="Release"
-API_BASE=""
-WEB_BASE=""
 COPIED_COUNT=0
 KEEP_VERSION=0
 EXTRA_GRADLE_ARGS=()
@@ -54,34 +51,33 @@ usage() {
 Jerocine Android 一键构建
 
 用法:
-  scripts/build-android.sh [web|all] [选项] [-- <gradle 参数>...]
+  scripts/build-android.sh [all|web] [选项] [-- <gradle 参数>...]
 
 目标:
-  web          单包(art.jerocine.app): Capacitor 壳 + 内嵌原生壳, 启动按设备能力路由
-  all          同 web —— 单包合并后两者等价(保留 all 兼容既有脚本)
+  all          单一 APK (art.jerocine.app): Capacitor 壳 + 内嵌原生壳, 启动按设备能力路由
+  web          同 all —— 单包合并后只有这一个包, web 作兼容别名保留
   tv           ⚠️ 已取消: tv/app 现为宿主里的 :tvshell library, 不再产出独立 APK
 
 选项:
   --debug              出 debug 包 (不校验正式密钥，仅供本机试装)
   --keep-version       不自动递增构建号，直接用手上的号重打 (会警告重复发版)
-  --api-base=<URL>     遗留参数(仅写入 :tvshell 的编译期常量, 该常量当前无人引用;
-                       运行时后端地址由应用内「设置 → 服务器地址」填写)
-  --web-base=<URL>     遗留参数, 同上
   -- <参数>...          之后的参数原样传给 gradle，如 -PwebVersionCode=1042
   -h, --help           显示本帮助
+
+注: 后端地址**不是构建参数** —— 运行时由应用内「设置 → 服务器地址」填写并落共享 prefs。
+    合并前用于写 TV 独立包编译期常量的 --api-base/--web-base 已随该包取消一并删除。
 
 构建号 (versionCode): 每次正式打包都必须 +1，Android 不允许回退。这一步脚本自动做，
         不用人记 —— 正式构建时若 X.versionCode <= served.X.versionCode 水位线（说明这一版
         已经出过正式包），会自动 +1 并回写 scripts/android-versions.properties；
         交付成功后推进水位线。构建失败不推进，重试不会白烧号。
-        手动改大（> 水位线）会被尊重；-P<kind>VersionCode= 显式覆盖时跳过自动递增。
+        手动改大（> 水位线）会被尊重；-PwebVersionCode= 显式覆盖时跳过自动递增。
 
 版本号: 唯一来源是 scripts/android-versions.properties（构建号 = 1000 + 迭代号），
         发新版改那一个文件即可，本脚本和两个 Gradle 工程都读它。
 
-产物: 各工程 app/build/outputs/apk/<variant>/ 下，并按下面规则复制一份到系统下载目录:
-  Jerocine-TV-web-v<版本名>(<构建号>).apk      Capacitor 壳应用
-  Jerocine-TV-native-v<版本名>(<构建号>).apk   原生 TV 客户端
+产物: web/android/app/build/outputs/apk/<variant>/ 下，并按下面规则复制一份到系统下载目录:
+  Jerocine-TV-v<版本名>(<构建号>).apk
   debug 包追加 -debug 后缀。
 
 跨平台: macOS / Linux 直接跑；Windows 请用 Git Bash:
@@ -99,14 +95,10 @@ for arg in "$@"; do
   fi
   case "$arg" in
     all) TARGET="all" ;;
-    # 目标可累积：web + tv 一起传 = all（此前 TARGET 是单值、后传覆盖前者，
-    # `web tv` 会静默只打 tv、web 被无声丢弃）。单个目标行为不变。
-    web) if [ "$TARGET" = "tv" ]; then TARGET="all"; else TARGET="web"; fi ;;
-    tv|native) if [ "$TARGET" = "web" ]; then TARGET="all"; else TARGET="tv"; fi ;;
+    web) TARGET="web" ;;   # 单包后 all 与 web 等价, 保留 web 作兼容别名
+    tv)  TARGET="tv" ;;    # 已取消 —— 落到 main 段明确报错(不再有"web + tv = all"的累积语义)
     --debug) VARIANT="Debug" ;;
     --keep-version) KEEP_VERSION=1 ;;
-    --api-base=*) API_BASE="${arg#*=}" ;;
-    --web-base=*) WEB_BASE="${arg#*=}" ;;
     --) SEEN_EXTRA=1 ;;
     -h|--help) usage; exit 0 ;;
     *) printf '未知参数: %s\n\n' "$arg" >&2; usage >&2; exit 1 ;;
@@ -444,16 +436,11 @@ version_gate_one() {
   info "[$label] 构建号 $cur 已发布过（水位线 $served）-> 自动 +1 为 $next（已回写版本源文件）"
 }
 
-# 按本次要构建的目标执行闸门
+# 按本次要构建的目标执行闸门。
 # 单包合并后只有一个 APK(applicationId=art.jerocine.app), 水位线统一用 web.*;
-# native.* 保留仅为兼容旧 tv 独立构建的历史数据(合并后不再有任何路径会写它 ——
-# tv 目标在 version_gate 之前就被拒绝, 见 main 段)。
+# 目标 all 与 web 等价, tv 在 version_gate **之前**就被拒绝(见 main 段), 这里无需分支。
 version_gate() {
-  case "$TARGET" in
-    web) version_gate_one web web ;;
-    tv)  version_gate_one native tv ;;
-    all) version_gate_one web web ;;
-  esac
+  version_gate_one web apk
 }
 
 # 从 APK 产物目录的 output-metadata.json 取 versionCode / versionName：
@@ -487,7 +474,7 @@ build_web() {
     timeout_cmd="gtimeout"
   fi
 
-  info "[web] cap sync android（占位页 + 插件同步；超时 ${cap_timeout}s）"
+  info "[apk] cap sync android（占位页 + 插件同步；超时 ${cap_timeout}s）"
   local cap_rc=0
   if [ -n "$timeout_cmd" ]; then
     ( cd "$w" && "$timeout_cmd" "$cap_timeout" ./node_modules/.bin/cap sync android < /dev/null ) || cap_rc=$?
@@ -495,47 +482,22 @@ build_web() {
     warn "未找到 timeout/gtimeout，cap sync 没有超时兜底（macOS: brew install coreutils）。"
     ( cd "$w" && ./node_modules/.bin/cap sync android < /dev/null ) || cap_rc=$?
   fi
-  [ "$cap_rc" -eq 0 ] || die "[web] cap sync 失败或超时（${cap_timeout}s）。正常只需几秒；确实慢就调大预算重跑: JEROCINE_CAP_SYNC_TIMEOUT=1800 bash scripts/build-android.sh web"
+  [ "$cap_rc" -eq 0 ] || die "[apk] cap sync 失败或超时（${cap_timeout}s）。正常只需几秒；确实慢就调大预算重跑: JEROCINE_CAP_SYNC_TIMEOUT=1800 bash scripts/build-android.sh all"
 
   # 验证占位页已灌入 (cap sync 被打断时 assets/public 可能为空)
-  [ -f "$a/app/src/main/assets/public/index.html" ] || die "[web] cap sync 后缺 assets/public/index.html —— 壳工程前端残缺，已中止。"
+  [ -f "$a/app/src/main/assets/public/index.html" ] || die "[apk] cap sync 后缺 assets/public/index.html —— 壳工程前端残缺，已中止。"
 
-  info "[web] 占位页已灌入壳工程（单包合并，不携带前端产物）"
+  info "[apk] 占位页已灌入壳工程（单包合并，不携带前端产物）"
 
   local args=("assemble$VARIANT")
   if [ "${#EXTRA_GRADLE_ARGS[@]}" -gt 0 ]; then
     args+=("${EXTRA_GRADLE_ARGS[@]}")
   fi
-  info "[web] gradle ${args[*]}"
+  info "[apk] gradle ${args[*]}"
   run_gradlew "$a" "${args[@]}"
 
-  WEB_APK="$(newest_apk "$a/app/build/outputs/apk/$VARIANT_LC" || true)"
-  [ -n "$WEB_APK" ] || die "[web] 构建结束但没找到 APK。"
-}
-
-build_tv() {
-  # ⚠️ 已不可达 —— tv 目标在 version_gate 之前就被拒绝(见 main 段)。
-  #    保留这份代码只为记录"合并前是怎么打独立 TV 包的", 回滚时照着读即可, 不要直接调用。
-  local t="$ROOT/tv"
-  [ -f "$t/settings.gradle.kts" ] || die "找不到 $t/settings.gradle.kts"
-
-  local args=(":app:assemble$VARIANT")
-  # TV 的后端地址是编译期常量，不指定就只能连 localhost
-  [ -n "$API_BASE" ] && args+=("-PapiBase=$API_BASE")
-  [ -n "$WEB_BASE" ] && args+=("-PwebBase=$WEB_BASE")
-  if [ "${#EXTRA_GRADLE_ARGS[@]}" -gt 0 ]; then
-    args+=("${EXTRA_GRADLE_ARGS[@]}")
-  fi
-
-  if [ "$IS_RELEASE" = 1 ] && [ -z "$API_BASE" ]; then
-    warn "[tv] 未指定 --api-base，该包会指向默认的 http://localhost:9000/（装到电视上连不通）。"
-  fi
-
-  info "[tv] gradle ${args[*]}"
-  run_gradlew "$t" "${args[@]}"
-
-  TV_APK="$(newest_apk "$t/app/build/outputs/apk/$VARIANT_LC" || true)"
-  [ -n "$TV_APK" ] || die "[tv] 构建结束但没找到 APK。"
+  APK="$(newest_apk "$a/app/build/outputs/apk/$VARIANT_LC" || true)"
+  [ -n "$APK" ] || die "[apk] 构建结束但没找到 APK。"
 }
 
 # ---------------------------------------------------------------- 交付
@@ -543,7 +505,7 @@ build_tv() {
 DOWNLOADS="$(resolve_downloads)"
 
 deliver() {
-  local apk="$1" kind="$2" prefix="$3"
+  local apk="$1" prefix="$2"
 
   if [ "$IS_RELEASE" = 1 ] && printf '%s' "${apk##*/}" | grep -q "unsigned"; then
     die "${apk##*/} 是未签名包 —— 说明签名配置没生效，装不上。请检查 keystore.properties 内容。"
@@ -564,10 +526,10 @@ deliver() {
   # 构建号是千位编号(1000+迭代号)，补足 4 位只是兜底，正常已是 4 位
   build="$(printf '%04d' "${build:-0}" 2>/dev/null || printf '%s' "${build:-0}")"
 
-  # 形如 Jerocine-TV-web-v1.0.9(1041).apk
+  # 形如 Jerocine-TV-v1.0.10(1108).apk
   local suffix="" name
   [ "$IS_RELEASE" = 1 ] || suffix="-debug"
-  name="Jerocine-TV-${kind}-v${ver}(${build})${suffix}.apk"
+  name="Jerocine-TV-v${ver}(${build})${suffix}.apk"
   cp -f -- "$apk" "$DOWNLOADS/$name"
   COPIED_COUNT=$((COPIED_COUNT + 1))
   printf '  %s\n    ← %s\n' "$DOWNLOADS/$name" "$apk"
@@ -588,7 +550,7 @@ info "仓库根 $ROOT（$OS，$VARIANT）"
 info "版本源 $VERSIONS_FILE"
 
 # 单包合并后 tv 目标已取消 —— 必须在 version_gate **之前**拦下:
-# 否则 release 构建会先把 native.* 的构建号 +1 落盘, 再走到 case 里失败, 白白吃掉一个版本号。
+# 否则 release 构建会先把 web.* 的构建号 +1 落盘, 再走到 case 里失败, 白白吃掉一个版本号。
 if [ "$TARGET" = "tv" ]; then
   die "[tv] 单包合并后 tv 独立 APK 已取消：tv/app 现在是宿主里的 :tvshell library。
   打单一 APK 请用: bash scripts/build-android.sh web (或 all —— 两者等价)。
@@ -614,25 +576,21 @@ fi
 ensure_java
 ensure_sdk
 
-WEB_APK=""
-TV_APK=""
+APK=""
 
 case "$TARGET" in
-  web) build_web ;;
-  all) build_web ;;
+  web|all) build_web ;;
   # tv 已在 version_gate 之前拦下, 这里只是兜底(防止将来有人把那段挪走)
-  *)   die "[tv] 单包合并后 tv 独立 APK 已取消, 请用 web/all(二者等价)。" ;;
+  *)   die "[tv] 单包合并后 tv 独立 APK 已取消, 请用 all(或 web —— 二者等价)。" ;;
 esac
 
 printf '\n构建完成，产物:\n'
-if [ -n "$WEB_APK" ]; then deliver "$WEB_APK" web web; fi
-if [ -n "$TV_APK" ]; then deliver "$TV_APK" native native; fi
+if [ -n "$APK" ]; then deliver "$APK" web; fi
 
 printf '\n已复制 %s 个 APK 到 %s\n' "$COPIED_COUNT" "$DOWNLOADS"
 
 # ---- 构建后自动安装(用户要求 2026-10-09): pad 连着就直接装上, 不用手动拷 ----
 maybe_adb_install() {
-  local kind="$1"
   local adb="${LOCALAPPDATA:-}/Android/Sdk/platform-tools/adb.exe"
   adb="${adb//\\//}"   # Windows 路径反斜杠转正斜杠, git-bash 可执行
   if [ ! -x "$adb" ]; then adb="$(command -v adb 2>/dev/null || true)"; fi
@@ -647,9 +605,9 @@ maybe_adb_install() {
     return 0
   fi
   local apk
-  apk="$(ls -t "$DOWNLOADS"/Jerocine-TV-"$kind"-v*.apk 2>/dev/null | head -1)"
+  apk="$(ls -t "$DOWNLOADS"/Jerocine-TV-v*.apk 2>/dev/null | head -1)"
   if [ -z "$apk" ]; then
-    printf '[自动安装] %s 下没找到 %s 的 APK, 跳过。\n' "$DOWNLOADS" "$kind"
+    printf '[自动安装] %s 下没找到 APK, 跳过。\n' "$DOWNLOADS"
     return 0
   fi
   printf '[自动安装] 检测到设备 %s, 安装 %s ...\n' "$dev" "$(basename -- "$apk")"
@@ -663,8 +621,7 @@ maybe_adb_install() {
     warn "自动安装失败(可能设备息屏/未授权 USB 调试/空间不足), 请手动安装: $apk"
   fi
 }
-if [ -n "$WEB_APK" ]; then maybe_adb_install web; fi
-if [ -n "$TV_APK" ]; then maybe_adb_install native; fi
+if [ -n "$APK" ]; then maybe_adb_install; fi
 
 if [ "${#VERSION_AUTOBUMPED[@]}" -gt 0 ]; then
   joined=""
