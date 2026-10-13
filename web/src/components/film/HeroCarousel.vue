@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { HeroItem } from '@/types/film'
 import BaseImage from '@/components/base/BaseImage.vue'
@@ -170,6 +170,22 @@ const hotBadge = computed<string>(() =>
 const hasMeta = computed<boolean>(
   () => !!(score.value || hotBadge.value || active.value?.remarks)
 )
+
+/**
+ * 沉浸式背景图真实宽高比(2026-10-13 用户定稿): src → ratio, img load 时量
+ * naturalWidth/naturalHeight 写入, slide 经 CSS 变量 --jc-hero-ratio 注入
+ * 图片盒与蒙版盒的 aspect-ratio —— 高度 = 盒宽 ÷ 比例, 实现宽度优先等比缩放。
+ * 竖图(naturalW < naturalHeight)比例 ÷0.6: 用户要求裁去上下各 20% 只显示中段,
+ * 盒比例放宽后 object-fit:cover 居中恰好纵向裁掉 40%(上下各 20%)。
+ * 加载前/量不到时由 CSS 回落 16/9。
+ */
+const imgRatios = reactive<Record<string, number>>({})
+function onHeroImgLoad(e: Event, src: string): void {
+  const img = e.target as HTMLImageElement | null
+  if (!img || !img.naturalWidth || !img.naturalHeight) return
+  const raw = img.naturalWidth / img.naturalHeight
+  imgRatios[src] = img.naturalWidth < img.naturalHeight ? raw / 0.6 : raw
+}
 </script>
 
 <template>
@@ -198,11 +214,13 @@ const hasMeta = computed<boolean>(
         class="jc-hero__slide absolute inset-0"
         :class="[
           i === current ? 'opacity-100' : 'opacity-0 pointer-events-none',
-          /* 竖图 slide(无 poster 即 cover 竖图): 水平内边距变量挂 slide,
-           * 图片与下方蒙版共同继承, 各 slide 按自己的方向取矩形 */
+          /* 竖图 slide(无 poster 即 cover 竖图): 比例变量挂 slide,
+           * 图片与下方蒙版共同继承, 各 slide 按自己的比例取矩形 */
           { 'jc-hero__slide--portrait': !it.poster },
         ]"
         :aria-hidden="i !== current"
+        :style="{ '--jc-hero-ratio': imgRatios[it.poster || it.cover || ''] }"
+        @load.capture="onHeroImgLoad($event, it.poster || it.cover || '')"
       >
         <BaseImage
           :src="it.poster || it.cover"
@@ -692,12 +710,21 @@ const hasMeta = computed<boolean>(
  * 实现口径 —— 只 breakout 图片元素本身, DOM 不动:
  *   · 盒子(.jc-hero)几何沿用原版(21/9 + max-height 380 等), 仅关闭圆角裁剪
  *     放行溢出、盒底色透明(图不落在盒内而在背景上);
- *   · .jc-hero__image(BaseImage 根)绝对定位: 水平铺满 100vw 居中, top 上提
- *     (--jc-hero-toplift = 页头高 mobile 56 / md+ 64 + wrapper pt-6, 顶到页面
- *     最顶、垫在 sticky 页头之下), 高度 = 盒高(100%) + 上提 + 下探
- *     (--jc-hero-bleed, 最大 1000px, 2026-10-10 用户定稿); img cover
- *     保持比例。定位包含块是 slide(=盒子), 盒内其它元素不受影响(右侧竖海报
- *     仍锚定 slide, ≥1024 才显示, 位置与原版一致);
+ *   · .jc-hero__image(BaseImage 根)绝对定位: top 上提(--jc-hero-toplift =
+ *     页头高 mobile 56 / md+ 64 + wrapper pt-6, 顶到页面最顶、垫在 sticky
+ *     页头之下)。尺寸为宽度优先等比模型(2026-10-13 用户定稿, 取代旧
+ *     "盒高+上提+bleed 下探" vh 口径 —— 那套高度不随宽度缩, 窄窗下图片
+ *     被 cover 放大裁切):
+ *       盒宽 = min(内容区宽(=轮播盒宽, 2026-10-13 定稿不按视口), 1000px × 真实比例)
+ *       盒高 = 盒宽 ÷ 真实比例(img load 时 JS 量 naturalWidth/Height 注入
+ *              --jc-hero-ratio; 竖图 ÷0.6 = 裁上下各 20%), 下限 = 轮播盒高
+ *              (min-height:100%; 更扁的图托底后 cover 轻裁 —— 用户允许的
+ *              "高度已缩到盒底"分支)
+ *     垂直锚点自适应: 等比高够从页顶盖到盒底 → top:-toplift 铺满+下探;
+ *     不够(窄窗) → 下沉底边贴盒底(top:0), 模块区域完整覆盖、零裁切。
+ *     正常态整图零裁切等比缩放; 高度超出 1000px 上限时宽度同步收窄居中,
+ *     两侧露页面底色由蒙版贴图缘渐隐。定位包含块是 slide(=盒子), 盒内其它
+ *     元素不受影响(右侧竖海报仍锚定 slide, ≥1024 才显示, 位置与原版一致);
  *   · breakout 图必须 pointer-events:none —— 图层覆盖到页头区域后会截胡
  *     nav 的悬停/点击(点击会落到 section 的 gotoDetail);
  *   · 页头可读性: PublicHeader 的 jc-header--top 自带 rgba(0,0,0,.55)→透明
@@ -710,9 +737,6 @@ const hasMeta = computed<boolean>(
  *   · 选择器统一加 html:not([data-mode='tv']) 前缀 —— TV 模式完全不匹配这些
  *     规则, 沿用原有 TV 沉浸 Banner(55vh 模糊铺底)样式。 */
 html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
-  /* 底部下探量 = 背景超出轮播盒底部的部分, 最大 1000px(2026-10-10 用户定稿);
-   * 想调下探深度只改这一个变量 */
-  --jc-hero-bleed: clamp(280px, 68vh, 1000px);
   /* 顶部上提量 = 页头高(mobile 56 / md+ 64) + wrapper pt-6 */
   --jc-hero-toplift: 80px;
 }
@@ -721,65 +745,48 @@ html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
     --jc-hero-toplift: 88px;
   }
 }
-/* 窄屏(<1024): 下探量按页面宽度等比缩小(30vw), 不再吃 280px 保底,
- * 背景高度随宽度收窄而降低, 避免小屏上背景占比过大(2026-10-10 用户定稿) */
-@media (max-width: 1023.98px) {
-  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
-    --jc-hero-bleed: clamp(96px, 30vw, 1000px);
-  }
-}
 html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
   overflow: visible;
   border-radius: 0;
   background-color: transparent;
 }
-/* 水平内边距变量挂 slide(2026-10-11 用户定稿): 图片与 slide 内蒙版共同继承,
- * 各 slide 按自己的方向取矩形 —— 切换时阴影随 slide 交叉淡入淡出, 无跳变。
- * 默认两变量 0 = 铺满 100vw(<1024 维持原观感); ≥1024 两侧各留 5% 视口边距
- * (用户: 原 10% 减半), 竖图(无 poster, slide--portrait)加倍到 10%;
- * 侧栏模式(≥1600)左边距再加倍(右不变)。
- * 水平定位公式: left:50%(slide 中心) + translateX(-50% - side-pad/2) 使元素中心
- * 落在视口中心(对 gutter/容器宽度鲁棒, 已验证), 非对称边距时再加 (L-R)/2 偏移
- * —— 元素中心 = 视口中心 + (L-R)/2, 左缘恰好在 L。 */
-html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide {
-  --jc-hero-inset-l: 0px;
-  --jc-hero-inset-r: 0px;
-}
-@media (min-width: 1024px) {
-  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide {
-    --jc-hero-inset-l: 5vw;
-    --jc-hero-inset-r: 5vw;
-  }
-  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide--portrait {
-    --jc-hero-inset-l: 10vw;
-    --jc-hero-inset-r: 10vw;
-  }
-}
-@media (min-width: 1600px) {
-  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide {
-    --jc-hero-inset-l: 10vw;
-    --jc-hero-inset-r: 5vw;
-  }
-  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__slide--portrait {
-    --jc-hero-inset-l: 20vw;
-    --jc-hero-inset-r: 10vw;
-  }
-}
-/* 图片拉伸: 顶部锚定上提覆盖 sticky 页头顶到页面最顶, 高度 = 盒高+上提+下探
- * (--jc-hero-bleed), img cover 等比铺满; 水平宽度/偏移由继承的 inset 变量驱动 */
+/* 水平尺寸基准 = 内容区(2026-10-13 用户定稿:"大图宽度最大值限制为内容区宽度,
+ * 不按视口"): 图片/蒙版宽度以 slide 盒宽(=布局内容区宽)为 100% 基准, 宽度上限
+ * = 内容区宽; 高度封顶分支(1000px×比例 < 盒宽)时按高度等比收窄并在盒内居中。
+ * 定位 left:50% + translateX(-50%) 对盒居中 —— 与 container-page 内容同一中心线。
+ * 旧的"铺满视口 breakout"逻辑(100vw 宽 + side-pad/2 偏移 + inset 边距变量)整套
+ * 废除。top 公式里的盒宽用 (100vw - side-pad) 作精确等价代理: 内容区宽 = 布局
+ * padding-left(侧栏)之外的视口宽, 纯 CSS 无法在 top 里直接引用包含块宽度做除法
+ * (容器查询单位 X5 内核不支持), 二值恒等。 */
+/* 图片盒(2026-10-13 定稿, 宽度优先等比模型):
+ *   盒宽 W = min(内容区宽, 1000px × 真实比例 r)
+ *   盒高 H = W ÷ r, 下限 = 轮播盒高(min-height:100%, 更扁的图如 21/9 在窄窗
+ *           会被托底、cover 轻裁 —— 用户允许的"高度已缩到盒底"分支)
+ * 正常态 H=W/r 随宽度等比缩(零裁切); 高度封顶分支 H=1000、宽收窄到 1000×r
+ * (此时 H ≥ 盒高+上提恒成立, 锚点公式自然落在 -toplift)。
+ * 垂直锚点自适应(2026-10-13 用户反馈 375 横图被截): 等比高足以从页顶盖到盒底时
+ * top:-toplift 正常铺满+下探; 缩到不够时下沉为底边贴盒底(top:0) —— 移动端横图
+ * (盒也是 16/9)恰好 高度=盒高、完整覆盖模块区域、零裁切, 页头区域让给页面底色
+ * (页头自带渐变玻璃)。竖图 r 已在 JS ÷0.6(裁上下各 20%), cover 居中正好实现。
+ * ⚠️ 比例回退值必须写数字 1.7778 不能写 "16 / 9": top 公式里做除法,
+ * var 替换后 X / 16 / 9 左结合 = X/144(错)。
+ * width/height !important 压过 BaseImage 根内联 100%(不加则不生效, 踩过) */
 html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__image {
   position: absolute;
-  top: calc(-1 * var(--jc-hero-toplift));
-  bottom: auto;
-  left: 50%;
-  width: calc(100vw - var(--jc-hero-inset-l, 0px) - var(--jc-hero-inset-r, 0px)) !important;
-  transform: translateX(
-    calc(
-      -50% - var(--jc-side-pad, 0px) / 2 +
-        (var(--jc-hero-inset-l, 0px) - var(--jc-hero-inset-r, 0px)) / 2
+  top: max(
+    calc(-1 * var(--jc-hero-toplift)),
+    min(
+      calc(100% - (100vw - var(--jc-side-pad, 0px)) / var(--jc-hero-ratio, 1.7778)),
+      0%
     )
   );
-  height: calc(100% + var(--jc-hero-toplift) + var(--jc-hero-bleed)) !important;
+  bottom: auto;
+  left: 50%;
+  width: min(100%, calc(1000px * var(--jc-hero-ratio, 1.7778))) !important;
+  transform: translateX(-50%);
+  height: auto !important;
+  aspect-ratio: var(--jc-hero-ratio, 1.7778);
+  min-height: 100%;
   pointer-events: none;
 }
 /* 图片等比平铺居中(2026-10-10 用户定稿): img 撑满 breakout 层, object-fit: cover
@@ -793,7 +800,9 @@ html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__image :deep(img
   object-position: center;
 }
 /* 四层蒙版(已移入 slide, 与图片同 slide 同矩形, 见模板注释):
- * top 锚点 + 显式高度 + 继承 slide 的 inset 变量驱动水平宽度/偏移。
+ * top 锚点公式/aspect-ratio/min-height 与图片盒完全同款(锚点自适应下沉、
+ * 盒高托底), 宽度 = 图盒宽+16px —— 蒙版恒 ≥ 图盒(宽 +16 使等比高多 ~9px,
+ * 下限兜底时同高), 渐隐永远贴图片真实边缘, 封顶留空时跟随图片收进来无硬边。
  * 水平比图片外扩 8px/侧(width +16px, 居中故两侧均分): 蒙版渐变带边缘是全强度
  * 页面底色, 外扩段落在图外与底色同色不可见 —— 图片与蒙版是两层独立合成, 亚像素
  * 取整可能让最边缘 1px 露出未加阴影的图(亮图右侧细线, 2026-10-11 用户反馈),
@@ -804,17 +813,20 @@ html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-bottom,
 html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-left {
   display: block;
   inset: auto;
-  top: calc(-1 * var(--jc-hero-toplift));
-  bottom: auto;
-  left: 50%;
-  width: calc(100vw - var(--jc-hero-inset-l, 0px) - var(--jc-hero-inset-r, 0px) + 16px);
-  transform: translateX(
-    calc(
-      -50% - var(--jc-side-pad, 0px) / 2 +
-        (var(--jc-hero-inset-l, 0px) - var(--jc-hero-inset-r, 0px)) / 2
+  top: max(
+    calc(-1 * var(--jc-hero-toplift)),
+    min(
+      calc(100% - (100vw - var(--jc-side-pad, 0px)) / var(--jc-hero-ratio, 1.7778)),
+      0%
     )
   );
-  height: calc(100% + var(--jc-hero-toplift) + var(--jc-hero-bleed));
+  bottom: auto;
+  left: 50%;
+  width: calc(min(100%, 1000px * var(--jc-hero-ratio, 1.7778)) + 16px);
+  transform: translateX(-50%);
+  height: auto;
+  aspect-ratio: var(--jc-hero-ratio, 1.7778);
+  min-height: 100%;
 }
 /* 顶部渐隐(用户: 顶部阴影区比其他方向小): 120px 条带压暗垫页头下 */
 html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-top {
@@ -845,13 +857,34 @@ html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-left {
 /* 沉浸式渐变: 顶部轻压暗(垫在页头渐变下再补一层) → 中段透明 → 文字区加深 →
  * 渐隐尾放缓拉长, 让下探区的图"透"出来铺在继续观看区背后 */
 html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-bottom {
+  /* 底部渐隐带区间砍半(2026-10-13 用户要求"阴影效果减小一半"): 起坡 38%→69%、
+   * 半强度点 56%→78%, 阴影带约占层高 62%→31%; 100% 必须保持全强度 --jc-bg-base
+   * (图底边与页面底色无缝融合), 故只能缩带长、不能降透明度, 降了会露硬缝 */
   background-image: linear-gradient(
     180deg,
     rgba(11, 11, 15, 0.25) 0%,
     rgba(11, 11, 15, 0) 14%,
-    rgba(11, 11, 15, 0) 38%,
-    rgba(11, 11, 15, 0.4) 56%,
+    rgba(11, 11, 15, 0) 69%,
+    rgba(11, 11, 15, 0.4) 78%,
     var(--jc-bg-base) 100%
   );
+}
+/* 移动端(<1024): 仅左右阴影范围砍半+减淡一半(2026-10-13 用户要求,
+ * 顶/底维持原效果不减弱 —— 用户追认)。左右渐变贴图缘的端点(全强度
+ * --jc-bg-base)不可减 —— 那是图缘与页面底色无缝融合的关键; 减淡落在:
+ * 中间压暗档位 alpha 减半 + 渐变带长度减半(向各自锚点边收拢) */
+@media (max-width: 1023.98px) {
+  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-right {
+    background-size: clamp(80px, 14vw, 320px) 100%;
+  }
+  html:not([data-mode='tv']) .jc-hero.jc-hero--immersive .jc-hero__mask-left {
+    background-image: linear-gradient(
+      90deg,
+      var(--jc-bg-base) 0%,
+      rgba(11, 11, 15, 0) 9%,
+      rgba(11, 11, 15, 0.275) 24%,
+      rgba(11, 11, 15, 0) 46%
+    );
+  }
 }
 </style>

@@ -85,8 +85,8 @@ const brandSize = computed<number>(() => {
 const scrolled = ref(false)
 /** --top 毛玻璃渐隐系数(2026-10-11 用户定稿): 不量 DOM, 全用固定值 ——
  * 淡出从 FADE_START(≈轮播区/继续观看区分界线)开始, FADE_SPAN 内线性降到 0,
- * 走完即切 --scrolled 实底。轮播盒高(38vh 封顶)与下探区(280~68vh)随屏幕浮动,
- * 固定值取常见桌面屏的中位感觉即可(用户: "差不多就行")。 */
+ * 走完即切 --scrolled 实底。背景高度已改宽度等比+1000 封顶(2026-10-13),
+ * 分界线(轮播盒底)不变, 固定值取常见桌面屏的中位感觉即可(用户: "差不多就行")。 */
 const HERO_FADE_START = 200
 const HERO_FADE_SPAN = 200
 const headerFade = ref(1)

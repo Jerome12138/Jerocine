@@ -336,8 +336,8 @@ async function loadBanners(): Promise<void> {
 
 /* ============ 页头实底门槛(2026-10-10) ============
  * 沉浸式轮播期间页头保持渐变阴影态, 轮播背景(含下探尾)滚出视口后才切毛玻璃实底。
- * 背景层高度由 HeroCarousel 的 --jc-hero-bleed(下探量, 最大 1000px)+上提量驱动,
- * 这里直接量真实图片层的文档底部 —— CSS 怎么改高度 JS 都不用跟着调。 */
+ * 背景层高度由 HeroCarousel 的宽度等比模型驱动(盒宽÷真实比例, 1000 封顶,
+ * 2026-10-13), 这里直接量真实图片层的文档底部 —— CSS 怎么改高度 JS 都不用跟着调。 */
 const uiStore = useUIStore()
 const heroWrapEl = ref<HTMLElement | null>(null)
 function updateHeaderGate(): void {
