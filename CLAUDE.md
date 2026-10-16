@@ -41,19 +41,13 @@
 |---|---|---|---|
 | `scripts/build-android.sh` | 打安卓包（**单包**：Capacitor 壳 + 内嵌原生壳，启动按设备能力路由），目标 `all` / `web`（等价，`web` 为兼容别名） | JDK 17+、Android SDK、**正式签名密钥**（仓库外，见下） | `android/app/build/outputs/apk/<variant>/`，并复制一份到系统下载目录 |
 
-> ⚠️ **2026-10-11 单包合并**：原 `tv/app` 已改造为宿主里的 `:tvshell` library，
+> ⚠️ **2026-10-11 单包合并 + 2026-10-15 结构统一**：原 `tv/app` 已改造为宿主里的 `:tvshell` library，
 > 与 Capacitor 壳打进同一个 APK（`art.jerocine.app`），由 `EntryRouterActivity` 按设备能力
 > 路由到 `WebShellActivity` / `NativeShellActivity`。**`tv` 目标已取消**（传它会明确报错），
 > 前端产物也**不随包发布**（WebShell 远程加载线上 SPA，包内只留占位页）。
 > 要回到"两个独立 APK"需回退合并批次的提交，不是换个构建参数能切回来。
->
-> ⚠️ **2026-10-15 结构统一**：全部安卓代码收敛到**顶层 `android/`** 一个 Gradle 工程
-> （`app` = Capacitor 宿主壳，`tvshell` = 原生 TV 壳 library，`player-core` = 共享层），
-> 旧 `tv/` 独立工程已删除。`web/android` 现在只是一个**本地 junction**（→ `../android`）：
-> Capacitor 硬约定平台目录必须是 `<cap 根>/android`，junction 让 `cap sync` 照常工作；
-> junction 不进 git，clone 后缺失时 `scripts/cap-sync.sh` 会自动补建（或手动：
-> PowerShell `New-Item -ItemType Junction -Path web/android -Target ../android`）。
-> **构建 APK 本身不需要 junction**（cap sync 生成物已入库，见下文「单包构建顺序」）。
+> 全部安卓代码现收敛在**顶层 `android/`** 一个 Gradle 工程；`web/android` 只是本地 junction
+> （Capacitor 平台目录硬约定，不进 git，`scripts/cap-sync.sh` 缺失时自动补建），打 APK 不需要它。
 
 `scripts/build-android.sh` 用法：
 
@@ -70,14 +64,10 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 - **打包后自动装 pad**：交付成功后 `maybe_adb_install` 检测 `adb devices`，有设备就对最新包执行一次
   `install -r`（成功打日志，无设备静默跳过）。注意 adb.exe 不认 `/d/...` 风格路径，
   脚本内已做 `cygpath -m` 转换 —— 手工装包时同理。
-- **产物复制到哪 —— 系统真实「下载」目录**，解析顺序：① `JEROCINE_DOWNLOAD_DIR`（显式指定，最优先）；
-  ② Windows 读注册表 `Shell Folders\{374DE290-123F-4565-9164-39C4925E467B}`（支持用户把"下载"位置
-  改到别的盘，如 `D:\Downloads`）；③ macOS/Linux 走 `xdg-user-dir DOWNLOAD` / `~/Downloads`。
-  **⚠️ `reg.exe` 可能被「命令安全 → 程序黑名单」拦住**（进程起不来，报 `PROGRAM BLOCKED BY SECURITY POLICY`；
-  该拦截**不可批准也不可绕过**，只能在安全中心里移除，且**与"沙箱隔离/完全权限"无关** —— 别混为一谈）。
-  而脚本里这步带 `2>/dev/null ... || true`，**静默无输出** → 会悄悄回退到 `C:\Users\<user>\Downloads`，
-  包就落到了"错"的目录（用户会以为没出包）。
-  这种情况下显式传 `JEROCINE_DOWNLOAD_DIR=/d/Downloads`（Harness 的 `build-android-local.sh` 已按本机注入）。
+- **产物复制到哪 —— 系统真实「下载」目录**：优先 `JEROCINE_DOWNLOAD_DIR` 显式指定，
+  否则按平台解析（Windows 读注册表"下载"位置，macOS/Linux 走 xdg / `~/Downloads`）。
+  本机（WorkBuddy 沙箱）的注册表拦截/静默回退等环境坑见 Harness 私有仓备忘 —— 显式传
+  `JEROCINE_DOWNLOAD_DIR=/d/Downloads` 即可（`build-android-local.sh` 已按本机注入）。
 - **版本号唯一来源：`scripts/android-versions.properties`**（构建号统一千位编号 = 1000 + 迭代号）。
   合并后只有**一个包**（宿主 `android/app`），`android/app/build.gradle` 与 `android/tvshell/build.gradle.kts`
   都读同一组 **`web.*`** 键（`tvshell` 作为 library 与宿主同源，不再有自己的 `native.*` 版本号）；

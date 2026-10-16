@@ -26,6 +26,12 @@
 - **设备登录管理**：单账号多设备登录数与踢出管理
 - **部署自动化**：一键部署脚本（pull → 构建 → 健康检查 → 自动清双层缓存），优雅停机不打断采集
 
+## 近期更新（2026-10）
+
+- **老 Android 兼容**：minSdk 21（Android 5.0 起可安装），Android 6 老投影真机全链路修复；公共层 / TV 壳出包强制 lint `NewApi` 守卫，API 误用出包即拦
+- **老 WebView 兼容**：web 端 plugin-legacy 双产物 + Service Worker 运行时缓存，WebView 61+ 即可跑 Web 壳（现代设备体验零变化）
+- **安卓工程整合**：全部安卓代码收敛到顶层 `android/` 单 Gradle 工程（`app` + `tvshell` + `player-core`），构建链去 cap sync——生成物入库，clone 后直接打 APK
+
 ## 组成
 
 | 模块 | 说明 | 技术栈 |
