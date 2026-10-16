@@ -226,15 +226,30 @@ public class JerocineBridge {
         String type = "none";
         boolean connected = false;
         if (cm != null) {
-            android.net.Network nw = cm.getActiveNetwork();
-            if (nw != null) {
-                NetworkCapabilities caps = cm.getNetworkCapabilities(nw);
-                if (caps != null) {
-                    connected = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) type = "wifi";
-                    else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) type = "cellular";
-                    else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) type = "ethernet";
-                    else type = "other";
+            if (Build.VERSION.SDK_INT >= 23) {
+                // Network API(API 23+) —— 新设备现代写法
+                android.net.Network nw = cm.getActiveNetwork();
+                if (nw != null) {
+                    NetworkCapabilities caps = cm.getNetworkCapabilities(nw);
+                    if (caps != null) {
+                        connected = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+                        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) type = "wifi";
+                        else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) type = "cellular";
+                        else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) type = "ethernet";
+                        else type = "other";
+                    }
+                }
+            } else {
+                // API 21/22 回退: 旧 NetworkInfo API(deprecated 但唯一可用)
+                android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+                if (ni != null && ni.isConnected()) {
+                    connected = true;
+                    switch (ni.getType()) {
+                        case ConnectivityManager.TYPE_WIFI: type = "wifi"; break;
+                        case ConnectivityManager.TYPE_MOBILE: type = "cellular"; break;
+                        case ConnectivityManager.TYPE_ETHERNET: type = "ethernet"; break;
+                        default: type = "other"; break;
+                    }
                 }
             }
         }

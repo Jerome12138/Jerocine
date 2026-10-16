@@ -3,6 +3,7 @@ package com.jerocine.app;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Build;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
@@ -88,6 +89,8 @@ class ServerNavigationWebViewClient extends BridgeWebViewClient {
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         super.onReceivedError(view, request, error);
+        // 本回调只在 API 23+ 触发(WebResourceError 重载本身是 23 新增); 显式守卫满足 lint NewApi
+        if (Build.VERSION.SDK_INT < 23) return;
         if (request == null || !request.isForMainFrame()) return;
         // 忽略一些常见的非致命错误码(如 favicon 404、取消加载)
         if (error != null) {
@@ -145,7 +148,9 @@ class ServerNavigationWebViewClient extends BridgeWebViewClient {
      */
     @Override
     public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
-        recordFailure("render process gone, didCrash=" + (detail != null && detail.didCrash()));
+        // 回调只在 API 26+ 触发(RenderProcessGoneDetail 本身是 26 新增); didCrash 显式守卫满足 lint NewApi
+        boolean didCrash = Build.VERSION.SDK_INT >= 26 && detail != null && detail.didCrash();
+        recordFailure("render process gone, didCrash=" + didCrash);
         // 渲染进程没了, 当前 WebView 已不可用; 直接触发降级, 不等阈值
         triggerFallback();
         return true;

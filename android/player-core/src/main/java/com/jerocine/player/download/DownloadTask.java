@@ -93,7 +93,12 @@ public final class DownloadTask {
         if (raw == null || raw.isEmpty()) return "_";
         String s = raw.replaceAll("[^A-Za-z0-9._-]", "_");
         // 纯点/点点的变体: "..", ".", "...", "._." 等都无意义且可能参与上跳
-        if (s.chars().allMatch(c -> c == '.')) return "_";
+        // (不用 s.chars().allMatch —— IntStream 是 API 24+, Android 6 会崩)
+        boolean allDots = true;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) != '.') { allDots = false; break; }
+        }
+        if (allDots) return "_";
         return s;
     }
 

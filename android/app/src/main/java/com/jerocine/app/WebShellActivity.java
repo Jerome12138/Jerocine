@@ -114,6 +114,7 @@ public class WebShellActivity extends BridgeActivity
         // 在此显式 setTheme 才是所有 API 上一致的做法(必须在任何 View 创建之前)。
         setTheme(R.style.AppTheme_NoActionBar);
         super.onCreate(savedInstanceState);
+        registerBackHandler();
         // 底部系统导航栏(手势条/三键条)与页面背景同色 — 装平板/手机时避免黑白条突兀
         if (Build.VERSION.SDK_INT >= 21) {
             getWindow().setNavigationBarColor(col(com.jerocine.player.R.color.jc_bg));
@@ -782,11 +783,21 @@ public class WebShellActivity extends BridgeActivity
     /**
      * 系统返回 / 触屏返回按钮 / 左滑手势返回(Android 10+ 手势导航) — 统一走 handleBackPressed()。
      * 否则平板/手机装壳版时, 系统返回会直接退掉应用而不是先回上一页。
+     *
+     * <p>现代写法: OnBackPressedDispatcher 替代已废弃的 onBackPressed 重写
+     * (Android 13+ 预测性返回手势要求; 2026-10-15 lint GestureBackNavigation)。在 onCreate 注册。
      */
-    @Override
-    public void onBackPressed() {
-        if (!handleBackPressed()) {
-            super.onBackPressed();
-        }
+    private void registerBackHandler() {
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (!handleBackPressed()) {
+                    // 无 WebView 历史可退 → 放行系统默认(退出)
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    setEnabled(true);
+                }
+            }
+        });
     }
 }

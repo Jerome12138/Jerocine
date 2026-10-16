@@ -65,8 +65,8 @@ public class PlayerPrefetchHelper {
     });
     /** 抓清单用与播放同一套网络栈(壳层可能为老设备放宽了 TLS), 但加总时限 —— 预取卡死不能占线程. */
     private final OkHttpClient client;
-    /** 在途 URL(去重): 同一清单只跑一次. */
-    private final Set<String> inflight = ConcurrentHashMap.newKeySet();
+    /** 在途 URL(去重): 同一清单只跑一次. (不用 newKeySet —— API 24+, 见 PlayerSession#newConcurrentKeySet) */
+    private final Set<String> inflight = java.util.Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     public PlayerPrefetchHelper(PlayerSession session) {
         this.session = session;

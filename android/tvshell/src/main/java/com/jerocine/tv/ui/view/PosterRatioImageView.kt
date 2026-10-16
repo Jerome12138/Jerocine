@@ -2,13 +2,14 @@ package com.jerocine.tv.ui.view
 
 import android.content.Context
 import android.util.AttributeSet
-import android.widget.ImageView
+import androidx.appcompat.widget.AppCompatImageView
 
+/** 海报图固定 4:3 比例。(AppCompatImageView: lint AppCompatCustomView —— 保留 appcompat 的 svg/tint 兼容能力) */
 class PosterRatioImageView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
-) : ImageView(context, attrs, defStyleAttr) {
+) : AppCompatImageView(context, attrs, defStyleAttr) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         super.onMeasure(

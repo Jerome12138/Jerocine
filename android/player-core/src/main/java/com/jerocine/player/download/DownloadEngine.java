@@ -1353,6 +1353,15 @@ public final class DownloadEngine {
 
     /** 自定义 DownloaderFactory — HLS 注入过滤解析器(下载列表=过滤后分片; 原始流兜底任务含潜在广告段, 见 DownloadFilterFallbackPolicy). */
     private static final class DownloaderFactoryImpl implements DownloaderFactory {
+        /**
+         * minSdk 21 无 coreLibraryDesugaring: {@code java.util.function.Supplier} 是 API 24+,
+         * Android 6 老设备(坚果投影)上实现它的 lambda 合成类在链接期解析父接口失败,
+         * 直接 NoClassDefFoundError(2026-10-15 实测)。自定义接口替代, 先例 {@link com.jerocine.player.PlayerDialogHelper}#IntConsumer。
+         */
+        interface ProxyBaseSupplier {
+            String get();
+        }
+
         private final CacheDataSource.Factory dsFactory;
         /**
          * 广告过滤 base 的<b>动态</b>读取入口(不能存成final String)。
@@ -1363,7 +1372,7 @@ public final class DownloadEngine {
          * {@link M3u8FilterClient#filter} 直接返回 null → 进程重启后
          * <b>所有在途下载 100% 失败</b>, 且无法自愈。
          */
-        private final java.util.function.Supplier<String> proxyBaseSupplier;
+        private final ProxyBaseSupplier proxyBaseSupplier;
         private final java.util.Map<String, byte[]> prefetched;
         /**
          * 下载执行线程池. **必须用固定容量池**: media3 SegmentDownloader 会把一个清单里的
@@ -1376,7 +1385,7 @@ public final class DownloadEngine {
                 java.util.concurrent.Executors.newFixedThreadPool(4);
 
         DownloaderFactoryImpl(CacheDataSource.Factory dsFactory,
-                              java.util.function.Supplier<String> proxyBaseSupplier,
+                              ProxyBaseSupplier proxyBaseSupplier,
                               java.util.Map<String, byte[]> prefetched) {
             this.dsFactory = dsFactory;
             this.proxyBaseSupplier = proxyBaseSupplier;

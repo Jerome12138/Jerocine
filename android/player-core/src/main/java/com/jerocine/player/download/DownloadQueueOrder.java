@@ -3,6 +3,7 @@ package com.jerocine.player.download;
 import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -25,10 +26,18 @@ public final class DownloadQueueOrder {
     private DownloadQueueOrder() {
     }
 
-    private static final Comparator<DownloadTask> ORDER = Comparator
-            .comparingInt((DownloadTask t) -> t.episode)
-            .thenComparingLong(t -> t.createdAt)
-            .thenComparing(t -> t.id);
+    /**
+     * 手写 compare —— 不用 Comparator.comparingInt/thenComparing 系列(API 24+)。
+     * minSdk 21 无 coreLibraryDesugaring, Android 6 老设备(坚果投影)上会 NoSuchMethodError。
+     * 排序语义不变: 集号 → 创建时间 → id。
+     */
+    private static final Comparator<DownloadTask> ORDER = (a, b) -> {
+        int byEpisode = Integer.compare(a.episode, b.episode);
+        if (byEpisode != 0) return byEpisode;
+        int byCreated = Long.compare(a.createdAt, b.createdAt);
+        if (byCreated != 0) return byCreated;
+        return a.id.compareTo(b.id);
+    };
 
     /**
      * 从全部任务中选出本轮可激活的 QUEUED 任务(有序)。
@@ -50,7 +59,8 @@ public final class DownloadQueueOrder {
             if (trackedIds != null && trackedIds.contains(t.id)) continue;
             candidates.add(t);
         }
-        candidates.sort(ORDER);
+        // List.sort 是 API 24+ (default 方法), Android 6 会 NoSuchMethodError —— 用 Collections.sort
+        Collections.sort(candidates, ORDER);
         for (int i = 0; i < candidates.size() && out.size() < slots; i++) {
             out.add(candidates.get(i));
         }

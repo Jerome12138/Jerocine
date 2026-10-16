@@ -107,3 +107,15 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
+
+// Android Lint 守卫(同 player-core): NewApi 提为 fatal, 出包时强制拦 API 误用。
+// 本模块只跑在低配老设备(EntryRouter 路由), API 兼容性是硬要求。
+android {
+    lint {
+        error.add("NewApi")
+        // androidx @RestrictTo 误报: NativeShellActivity 覆写 dispatchKeyEvent 调 super 是
+        // 标准 Activity 模式, androidx.core 把 ComponentActivity#dispatchKeyEvent 标了
+        // @RestrictTo(LIBRARY_GROUP) —— 不是 API 兼容性问题, 显式豁免。
+        disable.add("RestrictedApi")
+    }
+}

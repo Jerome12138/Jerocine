@@ -1,6 +1,8 @@
 package com.jerocine.player.download;
 
 import android.content.Context;
+
+import androidx.core.content.ContextCompat;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
@@ -41,14 +43,14 @@ final class RingProgressView extends View {
         float stroke = c.getResources().getDisplayMetrics().density * 2.5f;
         bgPaint.setStyle(Paint.Style.STROKE);
         bgPaint.setStrokeWidth(stroke);
-        bgPaint.setColor(c.getColor(R.color.jc_stroke_faint));
+        bgPaint.setColor(ContextCompat.getColor(c, R.color.jc_stroke_faint));
         arcPaint.setStyle(Paint.Style.STROKE);
         arcPaint.setStrokeWidth(stroke);
-        arcPaint.setColor(c.getColor(R.color.jc_accent));
+        arcPaint.setColor(ContextCompat.getColor(c, R.color.jc_accent));
         arcPaint.setStrokeCap(Paint.Cap.ROUND);
         dangerPaint.setStyle(Paint.Style.STROKE);
         dangerPaint.setStrokeWidth(stroke);
-        dangerPaint.setColor(c.getColor(R.color.jc_danger));
+        dangerPaint.setColor(ContextCompat.getColor(c, R.color.jc_danger));
         dangerPaint.setStrokeCap(Paint.Cap.ROUND);
     }
 

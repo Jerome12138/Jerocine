@@ -12,6 +12,7 @@ import androidx.media3.ui.PlayerView;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -130,9 +131,9 @@ public class PlayerSession {
     volatile java.util.Map<Integer, com.jerocine.player.download.DownloadTask> otherSourceLocalEpisodes =
             java.util.Collections.emptyMap();
     /** 已弹过"别源已下载"提示的集(会话级, 每集只弹一次)。 */
-    public final java.util.Set<Integer> otherSourceToastShown = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    public final java.util.Set<Integer> otherSourceToastShown = newConcurrentKeySet();
     /** 用户显式切回在线的集(底栏「切本地/切在线」; 会话级偏好, 不落盘)。 */
-    public final java.util.Set<Integer> preferOnlineIdx = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    public final java.util.Set<Integer> preferOnlineIdx = newConcurrentKeySet();
 
     // ===== 片源 =====
     final ArrayList<SourceData> sourceList = new ArrayList<>();
@@ -179,11 +180,19 @@ public class PlayerSession {
      * 过滤请求, 或无谓放弃预取。
      */
     /** 代理失败的集 → 强制用原始地址. */
-    final Set<Integer> forceRawIdx = ConcurrentHashMap.newKeySet();
+    final Set<Integer> forceRawIdx = newConcurrentKeySet();
     /** 端侧过滤失败的集 → 强制用服务端代理(proxyMedia=0)。 */
-    final Set<Integer> forceProxyIdx = ConcurrentHashMap.newKeySet();
+    final Set<Integer> forceProxyIdx = newConcurrentKeySet();
     /** 直连失败的集 → 强制全量中转(单集自愈; 与用户的"中转"开关无关). */
-    final Set<Integer> forceRelayIdx = ConcurrentHashMap.newKeySet();
+    final Set<Integer> forceRelayIdx = newConcurrentKeySet();
+
+    /**
+     * ConcurrentHashMap.newKeySet() 的 API 21 等价物 —— newKeySet 是 API 24+,
+     * Android 6 老设备(坚果投影)会 NoSuchMethodError(2026-10-15 lint 全量梳理)。
+     */
+    static <T> Set<T> newConcurrentKeySet() {
+        return Collections.newSetFromMap(new ConcurrentHashMap<T, Boolean>());
+    }
     /**
      * 用户的中转开关(默认关 = 不包代理, 走端侧混合过滤) — 全局生效, 持久化在 PlayerNetworkModeHelper.
      * 开 = 优先走服务端代理且分片全中转(proxyMedia=1)。
@@ -463,7 +472,10 @@ public class PlayerSession {
                 // 多源模式严格匹配源 id, 避免播到另一条线路的缓存;
                 // 单源模式(sourceList 空)拿不到 sourceKey → 接受该片任何源的已完成任务。
                 if (sourceKey != null && !sourceKey.isEmpty() && !sourceKey.equals(t.sourceKey)) {
-                    other.putIfAbsent(t.episode, t); // 别源已完成: 供更多菜单"换源播本地"
+                    // putIfAbsent 是 API 24+ (Map default 方法), Android 6 会 NoSuchMethodError —— 用 containsKey+put
+                    if (!other.containsKey(t.episode)) {
+                        other.put(t.episode, t); // 别源已完成: 供更多菜单"换源播本地"
+                    }
                     continue;
                 }
                 m.put(t.episode, "file://" + p.getAbsolutePath());

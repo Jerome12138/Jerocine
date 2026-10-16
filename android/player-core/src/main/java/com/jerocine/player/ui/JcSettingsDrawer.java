@@ -603,8 +603,17 @@ public class JcSettingsDrawer {
         row.addView(tail, lp);
     }
 
+    /**
+     * minSdk 21 无 coreLibraryDesugaring: {@code java.util.function.Consumer} 是 API 24+,
+     * Android 6 老设备(坚果投影)上实现它的 lambda 合成类链接失败 → NoClassDefFoundError
+     * (2026-10-15 实测)。自定义接口替代, 先例 {@link com.jerocine.player.PlayerDialogHelper}#IntConsumer。
+     */
+    interface Consumer<T> {
+        void accept(T v);
+    }
+
     private void addToggleRow(String title, String sub, boolean on,
-                              java.util.function.Consumer<FrameLayout> switchOut,
+                              Consumer<FrameLayout> switchOut,
                               Runnable onToggle) {
         LinearLayout row = makeRowBase(title, sub, true, v -> onToggle.run());
         FrameLayout sw = buildToggleSwitch(on);

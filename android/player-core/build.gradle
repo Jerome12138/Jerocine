@@ -73,3 +73,17 @@ dependencies {
     // 纯逻辑(URL 策略/画质命名/落点钳位)单测
     testImplementation 'junit:junit:4.13.2'
 }
+
+// Android Lint 守卫: 把 NewApi 提为 fatal —— lintVitalRelease(正式包构建自动运行)只拦 fatal 级,
+// minSdk 21 无 desugaring 的 API 误用从此在出包时强制挡下
+// (2026-10-15 事故: java.util.function/List.sort 在坚果投影 Android 6 上 NoClassDefFoundError)。
+// 注意: 改的是 lint 新检查问题的严重级, 不是豁免 —— 现存问题已全部修干净, 新增即断包。
+android {
+    lint {
+        error 'NewApi'
+        // media3 的 unstable API opt-in 提示(153 处): 本工程锁定 media3 8.x 版本、有意全量使用
+        // 其 unstable API(整个播放层就是这么写的), 该检查是"升级 media3 时要整体评估"的开发提示,
+        // 不是 API 兼容性问题 —— 显式豁免, 升级 media3 时再整体过一遍。
+        disable 'UnsafeOptInUsageError'
+    }
+}

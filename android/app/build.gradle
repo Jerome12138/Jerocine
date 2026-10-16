@@ -136,3 +136,16 @@ try {
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
+
+// Android Lint 策略(2026-10-15 定稿): 本模块**不设** NewApi fatal 守卫 —— 与 player-core/tvshell 分层:
+//   - player-core(公共页面) / tvshell: error 'NewApi', API 兼容性硬要求(低配老设备必经路径)。
+//   - :app(web 壳): EntryRouter 保证 WebShell 只在 API 24+ 设备上执行, 允许使用现代 API,
+//     NewApi 保持默认 error 级(只进 lint 报告, 不断构建)。
+//   ⚠️ 例外纪律: 本模块里的**进程级代码**(JerocineApp / DeviceProbe)在 Android 6 设备上照样执行,
+//   涉及高版本 API 仍须手写 Build.VERSION.SDK_INT guard —— lint 管不到这层约定, 靠评审把关。
+android {
+    lint {
+        // local.properties 是机器相关文件(非源码), Windows 盘符转义属正常写法, 不构成问题
+        disable 'PropertyEscape'
+    }
+}

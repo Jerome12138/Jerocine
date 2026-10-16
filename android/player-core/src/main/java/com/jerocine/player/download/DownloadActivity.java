@@ -20,6 +20,7 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerActivity;
@@ -143,7 +144,7 @@ public class DownloadActivity extends AppCompatActivity {
         if (ab != null) ab.hide();
         // 同因: 亮色主题的 windowBackground 会在转场时白闪, 统一压成深色底。
         getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
-                getColor(R.color.jc_bg)));
+                ContextCompat.getColor(this, R.color.jc_bg)));
         // 问题1: 标题 = "下载管理 · 影片名", 只设一次; 勾选数由底部主按钮文案表达。
         TextView title = findViewById(R.id.tv_download_title);
         title.setText(filmName.isEmpty() ? getString(R.string.download_title)
@@ -651,7 +652,7 @@ public class DownloadActivity extends AppCompatActivity {
         TextView num = new TextView(this);
         // 二轮4: 集号是辅助信息, 14sp 退到集名之下, 不再抢视觉(旧 22sp 过大)。
         num.setTextSize(14);
-        num.setTextColor(getColor(R.color.jc_text_tertiary));
+        num.setTextColor(ContextCompat.getColor(this, R.color.jc_text_tertiary));
         num.setMinWidth(dp(32));
         root.addView(num);
 
@@ -659,13 +660,13 @@ public class DownloadActivity extends AppCompatActivity {
         mid.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
         title.setTextSize(15);
-        title.setTextColor(getColor(R.color.jc_text));
+        title.setTextColor(ContextCompat.getColor(this, R.color.jc_text));
         title.setMaxLines(1);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         mid.addView(title);
         TextView size = new TextView(this);
         size.setTextSize(11);
-        size.setTextColor(getColor(R.color.jc_text_tertiary));
+        size.setTextColor(ContextCompat.getColor(this, R.color.jc_text_tertiary));
         size.setMaxLines(1);
         LinearLayout.LayoutParams sizeLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -786,7 +787,8 @@ public class DownloadActivity extends AppCompatActivity {
         List<String> urls = src.urls;
         List<String> titles = src.titles;
         List<Integer> eps = new ArrayList<>(selected);
-        eps.sort(Integer::compareTo);
+        // List.sort 是 API 24+ (default 方法), Android 6 会 NoSuchMethodError —— 用 Collections.sort
+        java.util.Collections.sort(eps);
         int added = 0;
         int skipped = 0;
         int retried = 0;
@@ -1312,7 +1314,7 @@ public class DownloadActivity extends AppCompatActivity {
             info.setText(infoStr);
             // 失败态用危险红标出, 一眼看出哪条挂了; 其余保持弱化灰。
             info.setTextColor(t.state == DownloadTask.STATE_FAILED
-                    ? getColor(R.color.jc_danger) : getColor(R.color.jc_text_secondary));
+                    ? ContextCompat.getColor(DownloadActivity.this, R.color.jc_danger) : ContextCompat.getColor(DownloadActivity.this, R.color.jc_text_secondary));
             action.setText(actionText(t));
             action.setTag(t);
             action.setOnClickListener(v -> {
@@ -1411,7 +1413,7 @@ public class DownloadActivity extends AppCompatActivity {
 
         TextView name = new TextView(this);
         name.setTextSize(14);
-        name.setTextColor(getColor(R.color.jc_text));
+        name.setTextColor(ContextCompat.getColor(this, R.color.jc_text));
         name.setMaxLines(1);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         row.addView(name, new LinearLayout.LayoutParams(0,
@@ -1419,7 +1421,7 @@ public class DownloadActivity extends AppCompatActivity {
 
         TextView status = new TextView(this);
         status.setTextSize(12);
-        status.setTextColor(getColor(R.color.jc_text_secondary));
+        status.setTextColor(ContextCompat.getColor(this, R.color.jc_text_secondary));
         status.setGravity(Gravity.CENTER);
         row.addView(status, new LinearLayout.LayoutParams(dp(120), ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -1532,13 +1534,13 @@ public class DownloadActivity extends AppCompatActivity {
         left.setOrientation(LinearLayout.VERTICAL);
         TextView name = new TextView(this);
         name.setTextSize(15);
-        name.setTextColor(getColor(R.color.jc_text));
+        name.setTextColor(ContextCompat.getColor(this, R.color.jc_text));
         name.setMaxLines(1);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         left.addView(name);
         TextView info = new TextView(this);
         info.setTextSize(12);
-        info.setTextColor(getColor(R.color.jc_text_secondary));
+        info.setTextColor(ContextCompat.getColor(this, R.color.jc_text_secondary));
         info.setMaxLines(1);
         info.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(

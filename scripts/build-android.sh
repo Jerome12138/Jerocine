@@ -475,6 +475,18 @@ build_web() {
   [ -d "$a/capacitor-cordova-android-plugins/src" ] \
     || die "[apk] 缺 capacitor-cordova-android-plugins/ 源码 —— 请跑 scripts/cap-sync.sh 并提交 diff。"
 
+  # minSdk 21 无 coreLibraryDesugaring: java.util.function 是 API 24+, Android 6 老设备上
+  # 实现它的 lambda 合成类在链接期解析父接口失败 → NoClassDefFoundError(2026-10-15 坚果投影实测)。
+  # 这里只挡最惯犯(整词出现在代码里); 其它 API 24+ 误用(List.sort/putIfAbsent 等)靠 lint NewApi 把关。
+  # 扫描范围仅 tvshell + player-core(2026-10-15 分层): :app(web 壳)经 EntryRouter 只跑在 API 24+,
+  # 允许现代 API, 不受此限 —— 但其进程级代码(JerocineApp/DeviceProbe)老设备照样执行, guard 靠评审。
+  if grep -rn "java\.util\.function" \
+      "$a/tvshell/src/main/java" "$a/player-core/src/main/java" \
+      --include="*.java" --include="*.kt" 2>/dev/null \
+      | grep -v '^\s*[^:]*:[0-9]*:\s*\*\|^\s*[^:]*:[0-9]*:\s*//'; then
+    die "[apk] 源码出现 java.util.function —— minSdk 21 无 desugaring, Android 6 会 NoClassDefFoundError。改用自定义接口(先例 PlayerDialogHelper.IntConsumer / DownloadEngine.ProxyBaseSupplier)。"
+  fi
+
   info "[apk] cap sync 生成物已在位(入库版, 构建不跑 cap sync)"
 
   local args=("assemble$VARIANT")
