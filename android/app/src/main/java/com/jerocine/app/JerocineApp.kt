@@ -4,6 +4,7 @@ import android.app.Application
 import coil.Coil
 import coil.ImageLoader
 import com.jerocine.player.JerocinePlayer
+import com.jerocine.player.data.CrashLog
 import com.jerocine.tv.data.ServiceLocator
 
 /**
@@ -19,6 +20,11 @@ import com.jerocine.tv.data.ServiceLocator
 class JerocineApp : Application() {
     override fun onCreate() {
         super.onCreate()
+
+        // 全局未捕获异常落盘(环形保留 5 份, 诊断页可见摘要) —— 最先装, 让后续初始化
+        // 期间的崩溃也有现场。报告写 filesDir/crashes/, 写完交回系统原 handler, 崩溃流程不变。
+        CrashLog.install(this)
+
         ServiceLocator.init(this)
 
         // 把壳层能力注入公共播放模块(播放器本身不硬编码域名/TLS 策略):

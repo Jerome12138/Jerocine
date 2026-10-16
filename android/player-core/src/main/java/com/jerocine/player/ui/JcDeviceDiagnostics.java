@@ -9,6 +9,8 @@ import android.util.DisplayMetrics;
 import android.view.WindowManager;
 import android.webkit.WebView;
 
+import com.jerocine.player.data.CrashLog;
+
 /**
  * 设备诊断信息收集 —— 单包双壳**共用一份**。
  *
@@ -219,9 +221,16 @@ public final class JcDeviceDiagnostics {
     /** 用项目统一的 JcDialog 展示（铁律：不手写 AlertDialog.Builder）。 */
     public static void show(Activity activity) {
         Info info = collect(activity);
+        // 附最近一次未捕获崩溃的摘要(CrashLog 环形落盘, 见 data/CrashLog) ——
+        // 诊断文本可一键复制发给维护者, 远程取证不用再让用户 adb logcat。
+        String crashSummary = CrashLog.latestSummary(activity);
+        String text = info.toText();
+        if (crashSummary != null) {
+            text += "\n最近崩溃: " + crashSummary;
+        }
         JcDialog.message(activity)
                 .title("设备诊断")
-                .message(info.toText())
+                .message(text)
                 .confirmButton("关闭")
                 .show();
     }
