@@ -1,0 +1,16 @@
+# Jerocine MySQL 配置片段（裸机部署, install.sh 落位到 /etc/mysql/mysql.conf.d/）
+#
+# 与 docker-compose.yml mysql.command 逐项对应。⚠ 安装时序铁律:
+#   本文件必须在 MySQL **首次初始化数据目录之前**就位 —— lower_case_table_names
+#   在 MySQL 8 只允许初始化时设置, 之后改动会直接拒绝启动。
+#   install.sh 已保证顺序(先放配置再 apt install); 手工操作时同样要先放本文件。
+
+[mysqld]
+# 与 compose 一致: 连接认证用 mysql_native_password(8.0.34+ 有 deprecation warning, 无碍)
+default-authentication-plugin=mysql_native_password
+innodb_buffer_pool_size=256M
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+default-time-zone=+8:00
+lower_case_table_names=1
+ngram_token_size=2

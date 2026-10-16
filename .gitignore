@@ -31,6 +31,7 @@ ProvideLogic.go
 
 # 部署密钥与凭据 — 严禁 commit
 deploy/.env
+deploy/bare/bare.env
 deploy/secrets/
 *.pem
 

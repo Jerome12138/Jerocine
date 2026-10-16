@@ -2,6 +2,8 @@
 
 首次部署的完整步骤见 [`docs/部署指南.md`](../docs/部署指南.md)；本文是日常运维参考。
 
+> 备选方案：[`bare/`](./bare/README.md) —— 不依赖 Docker 的裸机部署（同一套产物包与发布语义，服务器侧 systemctl + 原生 nginx/MySQL/Redis）。
+
 ## 目录
 
 ```text

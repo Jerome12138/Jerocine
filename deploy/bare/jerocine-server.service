@@ -1,0 +1,35 @@
+# Jerocine API server systemd unit（裸机部署, install.sh 落位到 /etc/systemd/system/）
+#
+# 与 docker-compose.yml 的 server 服务逐项对齐:
+#   - TimeoutStopSec=40s ⇔ compose stop_grace_period: 40s —— SIGTERM 优雅停机
+#     (server 内部预算 30s 收尾 HTTP + 等采集协程), 超时才 SIGKILL。
+#   - 环境变量在 $PREFIX/server.env（由 bare-lib.sh 从 bare.env 组装）。
+#   - 崩溃自动拉起 ⇔ restart: unless-stopped（on-failure + RestartSec 3s 等价够用;
+#     主动 systemctl stop 不会被打断式拉起）。
+#
+# @PREFIX@ 由 install.sh sed 替换（默认 /opt/jerocine）。
+
+[Unit]
+Description=Jerocine API server (bare-metal deployment)
+Wants=network-online.target
+After=network-online.target mysql.service redis-server.service
+
+[Service]
+Type=simple
+User=jerocine
+Group=jerocine
+WorkingDirectory=@PREFIX@/server
+EnvironmentFile=@PREFIX@/server.env
+ExecStart=@PREFIX@/server/main
+# SIGTERM → server 优雅停机; 40s 后 SIGKILL(与 compose stop_grace_period 一致)
+KillSignal=SIGTERM
+TimeoutStopSec=40s
+Restart=on-failure
+RestartSec=3s
+# 静态二进制 + 本机 mysql/redis, 无需过多加固; 基础加固保留
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

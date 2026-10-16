@@ -111,6 +111,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 ## 部署（Docker Compose）
 
 - **从零部署 / 新机器上线**：先读 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、`.env` 配置清单、部署步骤、验证与排障）；本节只讲日常运维。
+- **备选裸机部署**：目标机器禁装/不想装 Docker 时走 [`deploy/bare/`](./deploy/bare/README.md)——产物包与 `deploy/` 模式完全同源（同一 build 脚本、同一 `lib/web-release.sh` 发布语义），服务器侧换成 systemd + 原生 nginx/MySQL/Redis；改发布链/产物包布局时**两条模式要同步核对**。
 - Docker 栈定义在 `deploy/docker-compose.yml`（service 名 `nginx`/`server`）：
   - `jerocine_nginx`：`web/Dockerfile`（nginx:1.27-alpine 托管 + 反代 /api）。**静态目录已改宿主机挂载**（compose `./data/html:/usr/share/nginx/html`）——镜像内**不再 COPY dist/LICENSE**，前端产物由 `./deploy.sh web` 构建后写入挂载目录。镜像里的 node 构建阶段（含 vue-tsc 门禁 + 布局断言）只在该阶段被依赖时才跑，部署机无需装 node。
   - `jerocine_server`：后端。**常规**走 `deploy/Dockerfile.runtime`（薄镜像：只 `COPY` 本机交叉编译好的二进制，容器内不编译）；**备用**走 `deploy/Dockerfile`（golang:1.27-alpine 现编译 → distroless **nonroot UID 65532**，无 shell）。两者运行形态一致（3601 + 自带 `-healthcheck`）。
