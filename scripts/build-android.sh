@@ -10,9 +10,10 @@
 #
 # ⚠️ 单包合并(2026-10-11)后只有一个 APK: 两个壳都在里面, 由 EntryRouterActivity 按设备能力路由,
 #    产物不再分 web/native 两套。`tv` 目标会明确报错, 不再静默失败。
-#    前端产物不随包发布(WebShell 远程加载线上 SPA), 打包只需 cap sync 占位页。
+#    前端产物不随包发布(WebShell 远程加载线上 SPA), 包内只留占位页(已入库, 构建不跑 cap sync)。
 #
-# 产物: web/android/app/build/outputs/apk/<variant>/ 下, 并按下面规则复制一份到系统下载目录:
+# 产物: android/app/build/outputs/apk/<variant>/ 下(工程在顶层 android/, 2026-10-15 上移;
+#       web/android 只是本地 junction), 并按下面规则复制一份到系统下载目录:
 #   Jerocine-TV-v<版本名>(<构建号>).apk
 #   debug 包追加 -debug 后缀。例: Jerocine-TV-v1.0.10(1108).apk
 #
@@ -56,7 +57,7 @@ Jerocine Android 一键构建
 目标:
   all          单一 APK (art.jerocine.app): Capacitor 壳 + 内嵌原生壳, 启动按设备能力路由
   web          同 all —— 单包合并后只有这一个包, web 作兼容别名保留
-  tv           ⚠️ 已取消: tv/app 现为宿主里的 :tvshell library, 不再产出独立 APK
+  tv           ⚠️ 已取消: 原 tv/app 现为 android/tvshell library, 不再产出独立 APK
 
 选项:
   --debug              出 debug 包 (不校验正式密钥，仅供本机试装)
@@ -76,7 +77,7 @@ Jerocine Android 一键构建
 版本号: 唯一来源是 scripts/android-versions.properties（构建号 = 1000 + 迭代号），
         发新版改那一个文件即可，本脚本和两个 Gradle 工程都读它。
 
-产物: web/android/app/build/outputs/apk/<variant>/ 下，并按下面规则复制一份到系统下载目录:
+产物: android/app/build/outputs/apk/<variant>/ 下（工程在顶层 android/），并按下面规则复制一份到系统下载目录:
   Jerocine-TV-v<版本名>(<构建号>).apk
   debug 包追加 -debug 后缀。
 
@@ -214,7 +215,7 @@ ensure_sdk() {
   export ANDROID_SDK_ROOT="$sdk"
   # local.properties 是机器相关文件(gitignored)。缺失或指向不存在的目录时补写，省掉手工步骤。
   local lp cur
-  for lp in "$ROOT/web/android/local.properties" "$ROOT/tv/local.properties"; do
+  for lp in "$ROOT/android/local.properties"; do
     [ -d "$(dirname -- "$lp")" ] || continue
     cur=""
     [ -f "$lp" ] && cur="$(sed -n 's/^sdk\.dir=//p' "$lp" | head -1 | tr -d '\r' || true)"
@@ -451,43 +452,30 @@ meta_field() {
 }
 
 # 单包合并后 APK 不携带前端产物: WebShell 远程加载线上 SPA,
-# assets/public 仅含 cap sync 灌入的占位 index.html。
-# 不再需要 verify_web_assets (dist→assets 逐文件比对), 改为检查占位页存在即可。
+# assets/public 只含占位页(防白屏兜底)。
+# 2026-10-15 起构建链不再跑 cap sync: 其生成物(占位页/capacitor.config.json/
+# capacitor.plugins.json/res/xml/config.xml/capacitor-cordova-android-plugins)只在
+# 升级 Capacitor / 增删插件 / 改 capacitor.config.ts / 改 android/web-stub 时才会变,
+# 已全部入库 —— 打 APK 不再跑 cap sync / 不需要 node 二进制 / web/android junction。
+# 注意: web/node_modules 仍须在盘(pnpm install 过) —— gradle 经 capacitor.settings.gradle
+# 从中引用 @capacitor/android 运行时(Capacitor 不发 Maven Central, npm 是唯一分发渠道)。
+# 需要重新生成时手动跑 scripts/cap-sync.sh 并提交 diff。
 
 build_web() {
-  local w="$ROOT/web" a="$ROOT/web/android"
-  [ -f "$w/package.json" ] || die "找不到 $w/package.json"
+  local a="$ROOT/android"
 
-  command -v node >/dev/null 2>&1 || die "找不到 node。cap sync 需要 node。"
-  [ -x "$w/node_modules/.bin/cap" ] || die "缺少 $w/node_modules/.bin/cap，请安装 @capacitor/cli。"
+  # 断言 cap sync 生成物在位(防误删/未提交)。缺失说明本仓不完整:
+  # 要么 clone 不完整(生成物已入库不该缺), 要么有人清了它们 —— 跑 scripts/cap-sync.sh 补齐。
+  [ -f "$a/app/src/main/assets/public/index.html" ] \
+    || die "[apk] 缺 android/app/src/main/assets/public/index.html —— cap sync 生成物残缺, 请跑 scripts/cap-sync.sh 并提交 diff。"
+  [ -f "$a/app/src/main/assets/capacitor.config.json" ] \
+    || die "[apk] 缺 capacitor.config.json —— 请跑 scripts/cap-sync.sh 并提交 diff。"
+  [ -f "$a/app/src/main/assets/capacitor.plugins.json" ] \
+    || die "[apk] 缺 capacitor.plugins.json —— 请跑 scripts/cap-sync.sh 并提交 diff。"
+  [ -d "$a/capacitor-cordova-android-plugins/src" ] \
+    || die "[apk] 缺 capacitor-cordova-android-plugins/ 源码 —— 请跑 scripts/cap-sync.sh 并提交 diff。"
 
-  # 注: 前端(web/)独立构建部署到 nginx 容器, APK 不携带前端产物(WebShell 远程加载线上 SPA)。
-  # 打 APK 不需要也不应该校验前端编译状态——两者解耦, 前端有自己的 CI/构建流程。
-
-  # cap sync: 把 android-shell-stub 占位页灌进 assets/public + 同步插件配置。
-  # ⚠️ 必须拿 /dev/null 当 stdin: 非 TTY 环境下 cap sync 会在拷贝完成后读 stdin 阻塞。
-  local cap_timeout="${JEROCINE_CAP_SYNC_TIMEOUT:-300}"
-  local timeout_cmd=""
-  if command -v timeout >/dev/null 2>&1; then
-    timeout_cmd="timeout"
-  elif command -v gtimeout >/dev/null 2>&1; then
-    timeout_cmd="gtimeout"
-  fi
-
-  info "[apk] cap sync android（占位页 + 插件同步；超时 ${cap_timeout}s）"
-  local cap_rc=0
-  if [ -n "$timeout_cmd" ]; then
-    ( cd "$w" && "$timeout_cmd" "$cap_timeout" ./node_modules/.bin/cap sync android < /dev/null ) || cap_rc=$?
-  else
-    warn "未找到 timeout/gtimeout，cap sync 没有超时兜底（macOS: brew install coreutils）。"
-    ( cd "$w" && ./node_modules/.bin/cap sync android < /dev/null ) || cap_rc=$?
-  fi
-  [ "$cap_rc" -eq 0 ] || die "[apk] cap sync 失败或超时（${cap_timeout}s）。正常只需几秒；确实慢就调大预算重跑: JEROCINE_CAP_SYNC_TIMEOUT=1800 bash scripts/build-android.sh all"
-
-  # 验证占位页已灌入 (cap sync 被打断时 assets/public 可能为空)
-  [ -f "$a/app/src/main/assets/public/index.html" ] || die "[apk] cap sync 后缺 assets/public/index.html —— 壳工程前端残缺，已中止。"
-
-  info "[apk] 占位页已灌入壳工程（单包合并，不携带前端产物）"
+  info "[apk] cap sync 生成物已在位(入库版, 构建不跑 cap sync)"
 
   local args=("assemble$VARIANT")
   if [ "${#EXTRA_GRADLE_ARGS[@]}" -gt 0 ]; then
@@ -552,7 +540,7 @@ info "版本源 $VERSIONS_FILE"
 # 单包合并后 tv 目标已取消 —— 必须在 version_gate **之前**拦下:
 # 否则 release 构建会先把 web.* 的构建号 +1 落盘, 再走到 case 里失败, 白白吃掉一个版本号。
 if [ "$TARGET" = "tv" ]; then
-  die "[tv] 单包合并后 tv 独立 APK 已取消：tv/app 现在是宿主里的 :tvshell library。
+  die "[tv] 单包合并后 tv 独立 APK 已取消：原 tv/app 现为 android/tvshell library(宿主内)。
   打单一 APK 请用: bash scripts/build-android.sh web (或 all —— 两者等价)。
   两个壳在同一个包里由 EntryRouterActivity 按设备能力路由;
   要回到双 APK 需回退合并批次的提交, 不是换个构建参数能切回来。"

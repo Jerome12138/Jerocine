@@ -4,19 +4,19 @@
 
 ## ⚠️ 安卓播放器架构事实（agent 先读，勿混淆）
 
-- **web 壳 APK 与 TV 版使用同一个原生安卓播放器**：`tv/player-core` 的 `PlayerActivity`（ExoPlayer/Media3 系）。
+- **web 壳 APK 与 TV 版使用同一个原生安卓播放器**：`android/player-core` 的 `PlayerActivity`（ExoPlayer/Media3 系）。
   **不是网页播放器**。前端 `web/src/views/public/PlayView.vue`（video.js）**只在纯 web 端渲染**。
-- 壳（`web/android`）内 `/play` 路由被 router 守卫拦截 → 直接调 `jerocine.playPlaylist` 派发**原生播放器**；
+- 壳（顶层 `android/` 工程）内 `/play` 路由被 router 守卫拦截 → 直接调 `jerocine.playPlaylist` 派发**原生播放器**；
   `PlayView` 在原生上**根本不挂载**。因此前端样式/行为改动对原生播放器**无效**。
 - **安卓端的一切播放器 UI（控制栏/弹窗/抽屉/过滤提示/下载面板）都是原生实现**（player-core），
-  桌面 web 才用 SPA 里的网页播放器组件。做播放器相关功能时**先在 `tv/player-core` 里找**，别在 web 前端里找。
+  桌面 web 才用 SPA 里的网页播放器组件。做播放器相关功能时**先在 `android/player-core` 里找**，别在 web 前端里找。
 - 详细机制（派发入口/广告过滤阶梯/预取）见下文「Android APK（Capacitor 壳）」小节。
 
 ## 仓库边界（先判断再落笔）
 
 本仓库是**公开代码仓**，只放两类内容：
 
-1. **代码**：`server/` `web/` `tv/` `deploy/`；
+1. **代码**：`server/` `web/` `android/` `deploy/`；
 2. **可公开的通用文档**：部署指南、架构蓝图、README、OpenAPI（放 `docs/`）。
 
 **不要放进来**：个人笔记、工作日志、服务器运维档案/快照、内网地址或端口拓扑、账号与环境细节、任务跟踪——这些属于维护者的**私有开发仓库**（Harness），与本仓分离维护。若发现本仓出现此类内容，提醒维护者移走。拿不准一个文件是否可公开时：默认不放本仓。
@@ -39,13 +39,21 @@
 
 | 脚本 | 作用 | 前置 | 产物 |
 |---|---|---|---|
-| `scripts/build-android.sh` | 打安卓包（**单包**：Capacitor 壳 + 内嵌原生壳，启动按设备能力路由），目标 `all` / `web`（等价，`web` 为兼容别名） | JDK 17+、Android SDK、**正式签名密钥**（仓库外，见下） | `web/android/app/build/outputs/apk/<variant>/`，并复制一份到系统下载目录 |
+| `scripts/build-android.sh` | 打安卓包（**单包**：Capacitor 壳 + 内嵌原生壳，启动按设备能力路由），目标 `all` / `web`（等价，`web` 为兼容别名） | JDK 17+、Android SDK、**正式签名密钥**（仓库外，见下） | `android/app/build/outputs/apk/<variant>/`，并复制一份到系统下载目录 |
 
-> ⚠️ **2026-10-11 单包合并**：`tv/app` 已改造为宿主 `web/android` 里的 `:tvshell` library，
+> ⚠️ **2026-10-11 单包合并**：原 `tv/app` 已改造为宿主里的 `:tvshell` library，
 > 与 Capacitor 壳打进同一个 APK（`art.jerocine.app`），由 `EntryRouterActivity` 按设备能力
 > 路由到 `WebShellActivity` / `NativeShellActivity`。**`tv` 目标已取消**（传它会明确报错），
 > 前端产物也**不随包发布**（WebShell 远程加载线上 SPA，包内只留占位页）。
 > 要回到"两个独立 APK"需回退合并批次的提交，不是换个构建参数能切回来。
+>
+> ⚠️ **2026-10-15 结构统一**：全部安卓代码收敛到**顶层 `android/`** 一个 Gradle 工程
+> （`app` = Capacitor 宿主壳，`tvshell` = 原生 TV 壳 library，`player-core` = 共享层），
+> 旧 `tv/` 独立工程已删除。`web/android` 现在只是一个**本地 junction**（→ `../android`）：
+> Capacitor 硬约定平台目录必须是 `<cap 根>/android`，junction 让 `cap sync` 照常工作；
+> junction 不进 git，clone 后缺失时 `scripts/cap-sync.sh` 会自动补建（或手动：
+> PowerShell `New-Item -ItemType Junction -Path web/android -Target ../android`）。
+> **构建 APK 本身不需要 junction**（cap sync 生成物已入库，见下文「单包构建顺序」）。
 
 `scripts/build-android.sh` 用法：
 
@@ -71,8 +79,8 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
   包就落到了"错"的目录（用户会以为没出包）。
   这种情况下显式传 `JEROCINE_DOWNLOAD_DIR=/d/Downloads`（Harness 的 `build-android-local.sh` 已按本机注入）。
 - **版本号唯一来源：`scripts/android-versions.properties`**（构建号统一千位编号 = 1000 + 迭代号）。
-  合并后只有**一个包**（宿主 `web/android`），`web/android/app/build.gradle` 与 `tv/app/build.gradle.kts`
-  都读同一组 **`web.*`** 键（`tv` 作为 library 与宿主同源，不再有自己的 `native.*` 版本号）；
+  合并后只有**一个包**（宿主 `android/app`），`android/app/build.gradle` 与 `android/tvshell/build.gradle.kts`
+  都读同一组 **`web.*`** 键（`tvshell` 作为 library 与宿主同源，不再有自己的 `native.*` 版本号）；
   `scripts/build-android.sh` 也读它，**发新版只改这一个文件**，别在 `build.gradle` 里写死数字
   （否则产物名会和包内元数据对不上）。
   单次覆盖：`-PwebVersionCode=1042 -PwebVersionName=1.1.0`。
@@ -85,16 +93,19 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
   交付成功后水位线才推进到本次实际构建号，**构建失败不推进**，所以重试仍是同一个号、不白烧号。
   `--keep-version` 关掉自动递增（重发同一版用）；`--` 之后用 `-PwebVersionCode=` 显式指定时
   也跳过递增。脚本自动改过版本源文件时会在结尾提醒提交它。
-- **单包构建顺序**：`cap sync android → gradlew assemble`。**不再跑 `vue-tsc` / `vite build`**
-  —— 前端产物由 nginx 容器独立发布（WebShell 远程加载线上 SPA），APK 只带 `android-shell-stub`
-  占位页，两条构建链彻底解耦（打 APK 不校验前端编译状态，前端有自己的 CI）。脚本对 `cap sync`
-  内建两道保险，别为"顺手简化"改掉：
-  ① `cap sync` 必须重定向 stdin（`< /dev/null`）：**stdin 不是 TTY 时（后台/脚本/CI/agent 里都是）
-  它会在拷贝完成后去读 stdin 并一直阻塞**，全程无输出、看着像卡死（实测 25s 仍在挂；加了重定向 18.5s 正常结束）；
-  ② 出包前断言 `web/android/app/src/main/assets/public/index.html` 存在 —— `cap sync` 会先把该目录
-  删空再重灌，中途被打断就留下残缺占位页，那种包**编译照过、WebShell 却可能起不来**。手工兜底时同样要加 `< /dev/null`。
-  脚本对 `cap sync` 这步另加超时兜底（默认 300s，`JEROCINE_CAP_SYNC_TIMEOUT` 可调）：Linux 用 `timeout`，
-  macOS 无 `timeout` 时自动改用 `gtimeout`，两者都没有就只告警并照常执行（少一层兜底，不影响正确性）。
+- **单包构建顺序（2026-10-15 简化）**：`gradlew assemble` 一步 —— **构建链不再跑 `cap sync`**（也不需要
+  node 二进制 / @capacitor/cli / web/android junction；但 **web/node_modules 仍须在盘**——gradle 经
+  `capacitor.settings.gradle` 从中引用 @capacitor/android 运行时，Capacitor 不发 Maven Central，
+  npm 是唯一分发渠道）。APK 不携带前端产物（WebShell 远程加载线上 SPA），
+  只带 `android/web-stub` 占位页，两条构建链彻底解耦。`cap sync` 的全部生成物（占位页 /
+  `capacitor.config.json` / `capacitor.plugins.json` / `res/xml/config.xml` / cordova 兼容层）
+  **已入库**，它们只在四种情况下才会变：升级 @capacitor/*、增删插件、改 `web/capacitor.config.ts`、
+  改 `android/web-stub/` —— 届时手动跑 `bash scripts/cap-sync.sh` 并**提交 diff**。
+  该脚本内建两道保险（踩过的坑，别"顺手简化"掉）：① `cap sync` 必须重定向 stdin（`< /dev/null`）——
+  **stdin 非 TTY 时（脚本/CI/agent 里都是）它会在拷贝完成后读 stdin 一直阻塞**，全程无输出像卡死；
+  ② sync 后把 `capacitor.settings.gradle` 里的 `../node_modules` 改写成 `../web/node_modules`
+  （cap 按"工程在 web/ 下"生成相对路径，物理落顶层 `android/` 后 gradle 会断链报
+  `:capacitor-android "No variants exist"`）。`build-android.sh` 只断言生成物在位（防误删/未提交）。
 - **release 必须用正式密钥**，脚本找不到就报错退出（不静默降级成 debug 签名）。
   密钥不入库，也**刻意不从工程目录里读**——必须显式指定：目录里放好 `keystore.properties`
   （键名 `storePassword` / `keyAlias` / `keyPassword`）后用 `JEROCINE_KEY_DIR=<目录>` 指过去，
@@ -159,18 +170,20 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 
 ## Android 工程版本控制
 
-- `web/android/` 源码纳入 git。精细忽略：`build/`、`.gradle/`、`local.properties`、`assets/public`(cap 产物)、**`*.keystore`/`*.jks`(发布密钥严禁 commit)**。
+- `android/` 源码纳入 git。精细忽略：`build/`、`.gradle/`、`local.properties`、`capacitor-cordova-android-plugins/build/`、**`*.keystore`/`*.jks`/`keystore.properties`(发布密钥严禁 commit)**。
+  **cap sync 生成物（`app/src/main/assets/public`、`capacitor.config.json`、`capacitor.plugins.json`、`res/xml/config.xml`、cordova 兼容层源码）2026-10-15 起全部入库**——新鲜 clone 直接能打 APK，不跑 cap sync。`web/android/`（junction）不入库。
+- res 的 png 图标受仓库根 `*.png` 全局忽略影响，已在 `android/.gitignore` 用 `!` 强制跟踪（漏一个就编译不过）。
 - **构建水位线回写（`scripts/android-versions.properties`）不单独提交**：跟近期功能改动一起提交即可（amend 进当前功能提交，或随下一个提交）—— 单独的水位线提交只会刷屏提交历史。
-- **APK 构建**：见上文「构建脚本清单」的 `scripts/build-android.sh`（已封装 `pnpm build` + `cap sync android` + `gradlew`，并强制校验正式签名）。手工兜底：`cd web && pnpm build:no-check && npx cap sync android < /dev/null && cd android && ./gradlew assembleDebug`（debug 无需密钥；`< /dev/null` 不能省，见上文 stdin 坑）。
-- **原生播放器只有一个实现：`tv/player-core`**（Java 库，被 `tv` 与 `web/android` 两个工程各自 include，两壳不再自带播放器副本）。
-  - 自定义 Media3 控件布局 `tv/player-core/src/main/res/layout/exo_player_control_view.xml`（进度条下方一排[图标+2字]按钮），按钮绑定在 `PlayerDialogHelper.bindControlButtons()`，**不在** `PlayerActivity`。
+- **APK 构建**：见上文「构建脚本清单」的 `scripts/build-android.sh`（= 校验 cap sync 生成物在位 + `gradlew`，并强制校验正式签名；**不再跑 cap sync**）。手工兜底：`cd android && ./gradlew assembleDebug`（debug 无需密钥）。
+- **原生播放器只有一个实现：`android/player-core`**（Java 库，与 `:app`、`:tvshell` 同在顶层 android/ 一个 Gradle 工程里 include，两壳不再自带播放器副本）。
+  - 自定义 Media3 控件布局 `android/player-core/src/main/res/layout/exo_player_control_view.xml`（进度条下方一排[图标+2字]按钮），按钮绑定在 `PlayerDialogHelper.bindControlButtons()`，**不在** `PlayerActivity`。
   - 该模块**没有 AndroidManifest.xml**：`com.jerocine.player.PlayerActivity` 必须由各壳清单声明（两端都已声明），传参统一走 `PlayerActivity.EXTRA_*` 常量，别写字面量字符串。
   - **播放器资源只在 player-core 定义一份**：壳里出现同名 drawable/color/style 会**覆盖库资源**（改了 core 不生效），要改样式改 core，别在壳里复制副本。
-  - **单包合并后 `tv/player-core` 事实上的角色 = 「单包共享层」**（不只有播放器）：两壳共用的原生 UI 在 `com.jerocine.player.ui`（`JcDialog` / `JcDeviceDiagnostics` / `JcSettingsDrawer` / `GlassToast` / `BrandSplashView`），共用的契约与工具在 `com.jerocine.player.data`（`ShellPrefs` = prefs 名与键名的唯一声明处、`ServerUrl` = 服务器地址归一与站内判定）。**加"两壳都要用"的东西时往这两个包放，别在壳里各写一份**；只有单个壳要的才留壳。依赖方向永远是 `:app → :tvshell → :player-core`，**库不得引用壳的类或资源**。模块名的 `player` 是历史包袱，按"共享层"理解即可（详见私仓 `JerocineHarness/docs/单包合并架构复盘与共性件组织方案-2026-10-12.md`）。
+  - **单包合并后 `android/player-core` 事实上的角色 = 「单包共享层」**（不只有播放器）：两壳共用的原生 UI 在 `com.jerocine.player.ui`（`JcDialog` / `JcDeviceDiagnostics` / `JcSettingsDrawer` / `GlassToast` / `BrandSplashView`），共用的契约与工具在 `com.jerocine.player.data`（`ShellPrefs` = prefs 名与键名的唯一声明处、`ServerUrl` = 服务器地址归一与站内判定）。**加"两壳都要用"的东西时往这两个包放，别在壳里各写一份**；只有单个壳要的才留壳。依赖方向永远是 `:app → :tvshell → :player-core`，**库不得引用壳的类或资源**。模块名的 `player` 是历史包袱，按"共享层"理解即可（详见私仓 `JerocineHarness/docs/单包合并架构复盘与共性件组织方案-2026-10-12.md`）。
   - **进程级的东西放宿主 `:app`**（`com.jerocine.app`）：`JerocineApp`（唯一 Application）、`EntryRouterActivity`（唯一 launcher）、`DeviceProbe`（设备探针/壳路由）都在这里 —— 2026-10-12 从 `:tvshell` 迁来。`:app` 因此也 apply 了 Kotlin 插件（这两个类是 Kotlin），并自己声明 `io.coil-kt:coil`（`:tvshell` 里是 `implementation` 作用域、不会传递上来）。
   - **两壳显示的同一份文案/令牌不得各写一份**：账号行文案在 `JcSettingsDrawer.AccountInfo.loggedIn/loggedOut()` 定义一次；设备能力阈值在 `JcDeviceDiagnostics.MIN_*` 定义一次（`DeviceProbe` 用 `const val` 别名引用）；**颜色/尺寸设计令牌的唯一真源是 core 的 `res/values/colors.xml` + `res/values/dimens.xml`** —— 编程式构建 View 一律经 `col(resId)` / `dimenPx(resId)` 从资源解析（core 的 `JcSettingsDrawer`、web 壳的 `WebShellActivity` 都已收编，壳里不再存第二份 `GF_*` 十六进制）。⚠️ 工程开了 `android.nonTransitiveRClass=true`：**`:app` 的 Java/Kotlin 里引用库资源必须写全限定 `com.jerocine.player.R.color.*`**（`R.color.*` 只含本模块资源）；XML 里的 `@color/jc_*` 不受影响（走合并后的资源命名空间）。
   - **别把"刻意分叉"当冗余清掉**：`jc_tv_dialog_bg` / `jc_tv_toast_bg`（不透明实面，外壳外层用）与 core 的 `jc_dialog_bg` / `jc_toast_bg`（半透明玻璃，播放器内部用）**故意不同名不同值** —— 若同名，壳会覆盖库、把播放器一起改坏。
-  - **播放器内的可见文案以"前端 web 播放器"为唯一基准**（`web/src/views/public/PlayView.vue`，video.js 那套；**不是** `web/android` 壳）。广告过滤角标即五态：`过滤未开启 / 该源无需过滤 / 服务端过滤中 / 未检出广告 / 已过滤 N 段广告`，文案与色调由纯逻辑 `AdFilterStatus` 给出（+2 个 Android 特有态 `过滤未生效 / 过滤失败`），壳层只做 `Tone → drawable` 映射（`jc_badge_dot_{ok,idle,busy}`）。**过滤关掉时不隐藏**（显示"过滤未开启"），只有尚无片源才隐藏 —— 历史上的"开了才显示"会让用户以为功能不存在。改文案两端同步，另有单测锁定优先级。
+  - **播放器内的可见文案以"前端 web 播放器"为唯一基准**（`web/src/views/public/PlayView.vue`，video.js 那套；**不是** `android/app` 壳）。广告过滤角标即五态：`过滤未开启 / 该源无需过滤 / 服务端过滤中 / 未检出广告 / 已过滤 N 段广告`，文案与色调由纯逻辑 `AdFilterStatus` 给出（+2 个 Android 特有态 `过滤未生效 / 过滤失败`），壳层只做 `Tone → drawable` 映射（`jc_badge_dot_{ok,idle,busy}`）。**过滤关掉时不隐藏**（显示"过滤未开启"），只有尚无片源才隐藏 —— 历史上的"开了才显示"会让用户以为功能不存在。改文案两端同步，另有单测锁定优先级。
   - **遥控器按键约定**：`MENU/INFO` = **唤出/收起上下操作栏**（不再弹"播放控制"弹窗 —— 原弹窗里的倍速/选集/换源/过滤/跳过/退出底栏都有按钮，弹窗已删除）；`BACK` = 面板开着先收面板，否则 2s 内双击退出；面板隐藏时 ←→=快进退、↑↓=上/下一集（需再按一次确认）、OK=播/暂。
   - **底栏按钮即全部播放控制**：上集 / 下集 / 选集 / 倍速 / 换源 / **中转** / **过滤** / 跳过 / 退出。加按钮改 `exo_player_control_view.xml` + `PlayerDialogHelper.bindControlButtons`，新增状态往 `PlayerSession.Host` 加渲染出口（别让 helper 直接摸 View）。
   - **两个开关类按钮（中转 / 过滤）的显示约定**：文案**恒定不变**（就叫「中转」「过滤」，不写"切到X"、不写"过滤 开/关"），文字**不随开关变色**（`jc_ctl_btn_text.xml` 只保留 focused/pressed 分支）；开/关状态一律由**左上角状态点**表达（绿=开 `jc_status_dot_on`、灰=关 `jc_status_dot_off`）。实现上这两个按钮各套一层 `FrameLayout`、点作为兄弟 View 叠在 `top|start` —— 不能用 compound drawable 拼点（`JcPlayerCtlBtn` 的 `drawableTint` 会把整块染成单色、绿点一起被染掉）。**改这两个按钮的文案/配色前先看这条**。
@@ -178,11 +191,11 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 
 ## Android APK（Capacitor 壳）
 
-- APK 以**远程加载**站点 URL 运行（不是本地 capacitor:// 资源），见 `web/android` 主 Activity 的 `loadUrl(...)`。因此：
+- APK 以**远程加载**站点 URL 运行（不是本地 capacitor:// 资源），见 `android/app` 主 Activity 的 `loadUrl(...)`。因此：
   - **前端改动部署线上即对 APK 生效**（APK 清缓存重启即可），无需重打 APK。
   - **`window.Capacitor` 不会注入**（远程页）→ 壳在 pause/resume `eval("window.Capacitor.triggerEvent(...)")` 会报 undefined。已用 `src/utils/capacitorShim.ts` 垫片兜底；生产(release)包 `onConsoleMessage` 不再弹 Toast。
 - 断网兜底在**原生层** `WebShellActivity`（`showOfflineOverlay`；原 `MainActivity` 已按路由拆分更名），Web 层兜底覆盖不到纯断网。
-- 视频：APK 内有**原生 ExoPlayer 全屏播放器**（`tv/player-core` 的 `PlayerActivity` + 壳侧 `JerocineBridge` + 前端 `jerocineNative.ts`），`isNative()` 时 `PlayView` 派发给原生、不渲染 video.js。
+- 视频：APK 内有**原生 ExoPlayer 全屏播放器**（`android/player-core` 的 `PlayerActivity` + 壳侧 `JerocineBridge` + 前端 `jerocineNative.ts`），`isNative()` 时 `PlayView` 派发给原生、不渲染 video.js。
 - **⚠️ 原生播放派发有 3 个入口，配置必须同步**（踩过：只 PlayView 带 `proxyBase`，另两条漏，致原生端侧过滤"代理地址未传"不触发）：
   1. `router/index.ts` beforeEach 守卫——**APK 上进 `/play` 会被它拦截**（拉 detail → 直接 `jerocine.playPlaylist` → 重定向 `/filmDetail`），**PlayView 在原生上根本不挂载**（其内的 playPlaylist 派发=原生死代码）。收藏/外链/历史进入走这里。
   2. `FilmDetailView.gotoPlay`——详情页"立即播放/继续观看"直跳原生，**不走 `/play` 路由**。

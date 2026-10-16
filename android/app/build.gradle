@@ -1,0 +1,138 @@
+apply plugin: 'com.android.application'
+// 宿主 :app 现在也承载进程级 Kotlin 代码（JerocineApp / DeviceProbe，2026-10-12 从 :tvshell 迁来），
+// 需要自己 apply Kotlin 插件（版本由根 buildscript classpath 统一提供）。
+apply plugin: 'org.jetbrains.kotlin.android'
+
+// 版本号唯一来源: 仓库根 scripts/android-versions.properties
+// 不要在这里写死数字 —— 改了也只影响这一处, 否则会和 tv / 构建脚本产物名对不上。
+// 临时覆盖: ./gradlew assembleRelease -PwebVersionCode=1042 -PwebVersionName=1.1.0
+// (rootProject = 顶层 android/, 仓库根是其上一级 —— 2026-10-15 工程上移后由 ../../ 改 ../)
+def jcVersionsFile = rootProject.file('../scripts/android-versions.properties')
+def jcVersions = new Properties()
+if (jcVersionsFile.exists()) {
+    jcVersionsFile.withInputStream { jcVersions.load(it) }
+}
+def jcVersionCode = project.findProperty('webVersionCode') ?: jcVersions.getProperty('web.versionCode')
+def jcVersionName = project.findProperty('webVersionName') ?: jcVersions.getProperty('web.versionName')
+if (jcVersionCode == null || jcVersionName == null) {
+    throw new GradleException("读不到版本号, 请检查 ${jcVersionsFile} 里的 web.versionCode / web.versionName")
+}
+
+// 依赖版本唯一来源: 仓库根 scripts/android-versions.properties (dep.*)
+def jcDepsFile = rootProject.file('../scripts/android-versions.properties')
+def jcDeps = new Properties()
+if (jcDepsFile.exists()) {
+    jcDepsFile.withInputStream { jcDeps.load(it) }
+}
+def media3Version = jcDeps.getProperty('dep.media3Version')
+def okhttpVersion = jcDeps.getProperty('dep.okhttpVersion')
+if (media3Version == null || okhttpVersion == null) {
+    throw new GradleException("读不到依赖版本, 请检查 ${jcDepsFile} 里的 dep.media3Version / dep.okhttpVersion")
+}
+
+android {
+    namespace = "com.jerocine.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "art.jerocine.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode jcVersionCode.toString().toInteger()
+        versionName jcVersionName.toString()
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    // :app 现在是 Kotlin/Java 混编（JerocineApp.kt / DeviceProbe.kt）。
+    // 必须显式对齐到 compileOptions 的 Java 17 —— Kotlin 默认 jvmTarget 1.8,
+    // 不一致时 AGP 会直接报 "Inconsistent JVM-target compatibility"。
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    // 签名凭据从环境变量或 keystore.properties(gitignored) 读取, 不硬编码进源码.
+    // 环境变量优先: 它是"本次构建"的权威来源(构建脚本注入正式密钥), 工程里若遗留一份
+    // keystore.properties(换过密钥 / 别人留下的) 不应悄悄盖过它 —— 否则会用一个你没意识到的密钥签名.
+    // 空值视为未设置, 继续向下回退; 两个来源都缺 → signingConfig 留空, release 无法签名发布.
+    // release 缺签名由 scripts/build-android.sh 在构建前拦下(要求只用正式密钥).
+    def ksPropsFile = rootProject.file('keystore.properties')
+    def ksProps = new Properties()
+    if (ksPropsFile.exists()) {
+        ksPropsFile.withInputStream { ksProps.load(it) }
+    }
+    def ksStorePassword = System.getenv('JEROCINE_STORE_PASSWORD') ?: ksProps.getProperty('storePassword')
+    def ksKeyAlias = System.getenv('JEROCINE_KEY_ALIAS') ?: ksProps.getProperty('keyAlias') ?: 'jerocine'
+    def ksKeyPassword = System.getenv('JEROCINE_KEY_PASSWORD') ?: ksProps.getProperty('keyPassword')
+    def ksStoreFile = System.getenv('JEROCINE_KEYSTORE') ? file(System.getenv('JEROCINE_KEYSTORE')) : rootProject.file('jerocine.keystore')
+    def hasSigning = ksStoreFile.exists() && ksStorePassword != null && ksKeyPassword != null
+
+    signingConfigs {
+        release {
+            if (hasSigning) {
+                storeFile ksStoreFile
+                storePassword ksStorePassword
+                keyAlias ksKeyAlias
+                keyPassword ksKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation project(':player-core')
+    // 原生 TV 壳(合并为 library): 提供 NativeShellActivity / DeviceProbe / 原生 UI 页面
+    implementation project(':tvshell')
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+
+    // Media3 ExoPlayer (与公共播放模块 player-core 同版本, 版本号来自 android-versions.properties)
+    implementation "androidx.media3:media3-exoplayer:$media3Version"
+    implementation "androidx.media3:media3-exoplayer-hls:$media3Version"
+    implementation "androidx.media3:media3-exoplayer-dash:$media3Version"
+    implementation "androidx.media3:media3-datasource-okhttp:$media3Version"
+    implementation "androidx.media3:media3-ui:$media3Version"
+    implementation "androidx.media3:media3-session:$media3Version"
+    implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
+
+    // 宿主里的 JerocineApp(Kotlin) 用 Coil 装配"媒体 OkHttp"ImageLoader(老设备 TLS/UA 兜底)。
+    // :tvshell 里是 implementation 作用域, 不会传递到 :app ⇒ 这里必须自己声明(同版本 2.7.0)。
+    implementation "io.coil-kt:coil:2.7.0"
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

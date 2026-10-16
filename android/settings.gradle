@@ -1,0 +1,14 @@
+// 2026-10-15 结构统一: 安卓代码全部收敛到顶层 android/ 一个 Gradle 工程。
+//   app          = Capacitor 壳(宿主, 唯一 APK art.jerocine.app)
+//   tvshell      = 原生 TV 壳 library(原 tv/app)
+//   player-core  = 两壳共享的播放器/共享层
+// web/android 只是本地 junction(-> ../android, Capacitor 硬约定平台目录必须是 <cap 根>/android),
+// 仅手动跑 scripts/cap-sync.sh 时需要(它会自动补建); 日常打 APK 不经过它。
+// clone 后如缺失, 在 web/ 下手动建: New-Item -ItemType Junction web/android -Target ../android
+include ':app'
+include ':player-core'
+include ':tvshell'
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+
+apply from: 'capacitor.settings.gradle'

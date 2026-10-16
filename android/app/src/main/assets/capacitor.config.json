@@ -1,0 +1,19 @@
+{
+	"appId": "art.jerocine.app",
+	"appName": "Jerocine影视",
+	"webDir": "../android/web-stub",
+	"server": {
+		"androidScheme": "http",
+		"cleartext": true
+	},
+	"android": {
+		"allowMixedContent": true,
+		"backgroundColor": "#0b0b0fff"
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 0,
+			"launchAutoHide": true
+		}
+	}
+}

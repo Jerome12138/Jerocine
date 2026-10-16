@@ -4,7 +4,9 @@ import type { CapacitorConfig } from '@capacitor/cli'
  * Jerocine Capacitor 配置（Android TV 打包）
  *
  * - 单包合并后 APK 不携带前端产物: WebShell 远程加载线上 SPA,
- *   webDir 指向 android-shell-stub (仅含占位 index.html), 由 cap sync 灌进 assets/public。
+ *   webDir 指向 ../android/web-stub (仅含占位 index.html), 由 cap sync 灌进 assets/public。
+ *   占位页放顶层 android/ 与其生成物(assets/public)同处一地; 路径相对 cap 根(web/)解析,
+ *   越一级 `..` Capacitor CLI 支持(path.resolve), cap sync 实测通过。
  * - allowMixedContent 打开：第三方采集源可能为 http
  * - 包名 art.jerocine.app（Android TV Leanback Launcher 启动）
  * - SplashScreen 短暂展示主背景色（#0b0b0f）后即进 WebView
@@ -12,7 +14,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 const config: CapacitorConfig = {
   appId: 'art.jerocine.app',
   appName: 'Jerocine影视',
-  webDir: 'android-shell-stub',
+  webDir: '../android/web-stub',
   server: {
     // 不写死 server.url. APK 启动时 EntryRouterActivity 按设备能力路由到 WebShellActivity,
     // 由它弹原生输入框; 用户填入实际服务器地址后 SharedPreferences 持久化 + webView.loadUrl().

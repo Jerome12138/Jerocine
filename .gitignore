@@ -79,3 +79,6 @@ deploy/server/
 # Kotlin 编译缓存(Kotlin 2.x 在每个 Gradle 工程根下生成; 单包合并后 web/android 也会产生)
 .kotlin/
 
+
+# 安卓工程已上移到顶层 android/(2026-10-15); web/android 只是本地 junction(Capacitor 硬约定平台目录), 不入库
+/web/android/
