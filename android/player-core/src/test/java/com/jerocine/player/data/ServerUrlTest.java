@@ -9,7 +9,7 @@ import org.junit.Test;
 
 /**
  * com.jerocine.player.data.ServerUrl 的 JVM 单测(本机可跑, 不需要设备/模拟器):
- *   cd web/android && ./gradlew :player-core:testDebugUnitTest
+ *   cd android && ./gradlew :player-core:testDebugUnitTest
  *
  * 覆盖的真机回归: 顶栏「刷新」按钮(location.reload) 曾被 Capacitor 当外链丢给系统浏览器,
  * 修法就是"服务器 host 的顶层导航留在 WebView" —— 这条判定的边界都在这里钉住。

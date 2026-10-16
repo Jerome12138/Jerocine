@@ -16,7 +16,7 @@ import org.junit.Test
 
 /**
  * 播放地址 / 线路策略(PlayerUrls)的测试已随实现迁到 player-core 模块:
- *   tv/player-core/src/test/java/com/jerocine/player/PlayerUrlsTest.java
+ *   android/player-core/src/test/java/com/jerocine/player/PlayerUrlsTest.java
  * 这里只保留 TV 壳自己的 payload 组装与历史续播逻辑。
  */
 class NativePlayerLauncherTest {

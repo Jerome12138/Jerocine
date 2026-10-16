@@ -57,10 +57,10 @@
     </style>
 
     <!--
-      下载页控件样式 — 只定义在 player-core, **不复用 tv/app 的 JcButton***。
+      下载页控件样式 — 只定义在 player-core, **不复用 tvshell 的 JcButton***。
       原因: 下载页是 player-core 里的两壳共用页面, 而 JcButtonBase/JcButtonPrimary
-      只存在于 tv/app; 库引用壳的资源会让 web/android 壳编译失败(依赖方向必须壳→库)。
-      形态与 tv/app 同款: 48dp 高 / 16sp / 8dp 圆角 / textAllCaps=false。
+      只存在于 tvshell; 库引用壳的资源会让 :app 壳编译失败(依赖方向必须壳→库)。
+      形态与 tvshell 同款: 48dp 高 / 16sp / 8dp 圆角 / textAllCaps=false。
     -->
     <style name="JcDownloadBtnPrimary" parent="android:Widget.Material.Button">
         <item name="android:layout_height">48dp</item>

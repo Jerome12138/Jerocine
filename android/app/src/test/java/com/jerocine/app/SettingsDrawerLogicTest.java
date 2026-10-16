@@ -7,7 +7,7 @@ import org.junit.Test;
 
 /**
  * SettingsDrawerLogic 的 JVM 单测(本机可跑, 不需要设备/模拟器):
- *   cd web/android && ./gradlew :app:testDebugUnitTest
+ *   cd android && ./gradlew :app:testDebugUnitTest
  */
 public class SettingsDrawerLogicTest {
 

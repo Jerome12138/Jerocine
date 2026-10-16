@@ -2,9 +2,9 @@
 <!--
   下载页主按钮背景 — 四态(disabled / focused / pressed / 默认)。
 
-  与 tv/app 的 jc_button_primary 同款形态,但**独立定义**:
-  下载页在 player-core 里, 而 jc_button_primary 只存在于 tv/app;
-  若在此引用 @drawable/jc_button_primary, web/android壳编译会找不到资源。
+  与 tvshell 的 jc_button_primary 同款形态,但**独立定义**:
+  下载页在 player-core 里, 而 jc_button_primary 只存在于 tvshell;
+  若在此引用 @drawable/jc_button_primary, :app 壳编译会找不到资源。
   player-core 与壳层之间的依赖方向必须是壳→库, 不能库→壳。
 
   色值走 player-core 自己的令牌:

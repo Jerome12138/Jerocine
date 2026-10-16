@@ -36,7 +36,7 @@ object DeviceProbe {
      * 这里只做别名，防止"路由一套、诊断一套"的静默漂移。
      *
      * [MIN_SDK] 是真正的路由阈值（不再恒真）：整个包的 minSdk 已降到 21
-     * （见 web/android/variables.gradle），API 21-23 的老设备**装得上**，
+     * （见 android/variables.gradle），API 21-23 的老设备**装得上**，
      * 但启动后会被本探针判为 NATIVE → 进原生壳。这正是"同一个包、低配也能安装
      * 并自动走原生"的设计要点；低配兜底由此阈值 + 内存/WebView 三条共同决定。
      */

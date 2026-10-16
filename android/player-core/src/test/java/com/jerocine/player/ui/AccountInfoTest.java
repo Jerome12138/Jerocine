@@ -8,7 +8,7 @@ import org.junit.Test;
 
 /**
  * {@link JcSettingsDrawer.AccountInfo} 的 JVM 单测（本机可跑，不需要设备/模拟器）：
- *   cd web/android && ./gradlew :player-core:testDebugUnitTest
+ *   cd android && ./gradlew :player-core:testDebugUnitTest
  *
  * 为什么要单测一个"字符串工厂"：设置抽屉是**两壳共用**的，账号行文案只在 core 定义一次，
  * 一旦有人把它改回两边各拼各的，或改了字面量而只改一边，同一个抽屉就会在两种模式下显示不同的字。
