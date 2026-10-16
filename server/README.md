@@ -1,8 +1,8 @@
-# Film Server
+# Jerocine Server
 
-Jerocine 后端（重构后架构，2026-08 起为唯一线上版本）。
+Jerocine 后端。
 
-- 提供前端（web / tv）所需的 `/api/v1` REST API、采集（spider）与管理端接口
+- 提供各端（Web SPA / TV 原生壳 / 安卓壳）所需的 `/api/v1` REST API、采集（spider）与管理端接口
 - Go 1.21 + gin + gorm + go-redis，golang-migrate 管理版本化 DDL
 - 设计原则：MySQL 唯一权威真相；Redis 纯缓存（可回源）；读路径物化 + cache-aside；语义化 HTTP 契约
 - 契约唯一依据：`openapi/openapi.yaml`（OpenAPI 3.1，`/api/v1` 前缀）
@@ -26,7 +26,7 @@ server/
 │  ├─ platform/       基础设施: db / redis / auth / blobstore
 │  ├─ router/         /api/v1 路由注册（85 个端点）
 │  └─ spider/         采集引擎: fetch / parse / engine（XML+JSON 采集源、分页抓取、入库）
-├─ migrations/        golang-migrate 版本化 SQL（替代旧 AutoMigrate，勿手工改库）
+├─ migrations/        golang-migrate 版本化 SQL（勿手工改库）
 ├─ openapi/           API 契约（openapi.yaml）
 ├─ go.mod / go.sum
 └─ README.md
@@ -46,8 +46,8 @@ go run ./cmd/server       # 本地运行（需配置 env，见 docker-compose.ym
 
 ## 部署
 
-镜像由 `deploy/Dockerfile` 构建（golang:1.27-alpine 编译 → distroless nonroot 运行，监听 3601），
-构建上下文为仓库根：`docker compose -p jerocine --env-file .env up -d --build mysql redis migrate film`。
-`migrate` 服务先跑 `migrations/`，`film` 依赖其完成。日常只更新后端：`docker compose build film && docker compose up -d --no-deps film`。
+常规发布 = **本机构建 → SSH 上送 → 服务器解包**：`bash scripts/deploy-server.sh`（详见根
+[`docs/部署指南.md`](../docs/部署指南.md) 与 [`deploy/README.md`](../deploy/README.md)）。
 
-> 历史：2026-05 底按分层蓝图从旧结构（controller/logic/model/plugin/router）全量重构至当前架构，2026-08-03 上线。
+容器：`deploy/Dockerfile.runtime`（常规，薄运行镜像：COPY 本机交叉编译的二进制，distroless nonroot，监听 3601）；
+`deploy/Dockerfile`（备用，容器内 golang 编译）。compose 服务：mysql / redis / migrate / server / nginx。

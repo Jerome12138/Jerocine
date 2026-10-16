@@ -136,7 +136,6 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
     - `cd deploy && ./deploy.sh`            # 常规：server + nginx 容器（**不含前端产物**）
     - `./deploy.sh web`                     # **前端发布（服务器上构建）**：构建产物 → 同步挂载目录 → reload
     - `./deploy.sh server`                  # 只更新后端（服务器上 golang 编译）
-    - `./deploy.sh web-init`                # 【仅迁移】把旧容器镜像内产物搬到挂载目录（**必须在旧容器还活着时**跑）
     - `./deploy.sh web-rollback <TS>`       # 整版回滚（TS 见 `deploy/data/releases/`）
     - 两条前端路径**共用** `deploy/lib/web-release.sh` 的发布语义（版本目录 / 排除 map / 保留 3 版 / 整版快照 / 陈旧根文件清理 / 空挂载守卫），差别只在"产物的二进制从哪来"。
   - **`./deploy.sh nginx` 语义已变**：静态目录改挂载后它只重建 nginx 容器（改 `nginx.conf` 时用），**不产出前端文件** —— 日常"前端更新"一律走 `web`（服务器端）或 `web-deploy`（上传包）。`web`/`web-deploy`/`nginx`/全量部署在必要条件下会**拒绝执行**（防把站点打成 404）。

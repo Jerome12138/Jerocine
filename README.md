@@ -63,7 +63,7 @@ cd server && go test ./...
 cd web && pnpm test
 ```
 
-生产部署：完整从零部署手册见 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、环境变量配置清单、部署步骤、品牌定制、验证与排障）；快速命令参考 [`deploy/README.md`](./deploy/README.md)（`docker compose up -d --build`，nginx 对外 443 直挂 TLS，后端 3601 仅内网）。
+生产部署：从零部署手册见 [`docs/部署指南.md`](./docs/部署指南.md)；日常运维命令速查见 [`deploy/README.md`](./deploy/README.md)。
 
 ## 目录结构
 
@@ -71,13 +71,12 @@ cd web && pnpm test
 Jerocine/
 ├─ web/        # Vue3 SPA（前端产物由 nginx 独立发布；APK 远程加载线上站点）
 ├─ android/    # 安卓单包工程（Capacitor 壳 app + 原生 TV 壳 tvshell + 共享层 player-core）
-├─ server/           # Go 后端（cmd/server 入口 + internal/ 业务 + migrations/ + openapi/）
-└─ deploy/           # 部署编排（docker-compose / Dockerfile / nginx / apk/）
+├─ server/     # Go 后端（cmd/server 入口 + internal/ 业务 + migrations/ + openapi/）
+└─ deploy/     # 部署编排（docker-compose / Dockerfile / nginx / apk/）
 ```
 
 > ℹ️ `web/android` 在 git 里**不存在**——它只是本地 junction（→ `../android`，Capacitor 平台目录硬约定）。
-> **clone 后无需任何处理**：日常打 APK（`scripts/build-android.sh`）不经过它；只有手动跑
-> `scripts/cap-sync.sh` 时才需要，脚本会自动补建（Windows junction / macOS-Linux symlink）。
+> **clone 后无需处理**：打 APK（`scripts/build-android.sh`）不经过它；手动跑 `scripts/cap-sync.sh` 时脚本会自动补建。
 
 各模块细节见各自 README：[server](./server/README.md) · [web](./web/README.md) · [deploy](./deploy/README.md)。
 
