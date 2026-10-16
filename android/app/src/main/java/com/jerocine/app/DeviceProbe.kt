@@ -14,9 +14,9 @@ import kotlin.jvm.JvmStatic
  * - 能跑 → 走 WebShell (Vue3 SPA, 功能全、更新快)
  * - 跑不动 → 走 NativeShell (原生 UI, 低配兜底)
  *
- * 判定阈值(2026-10-11 定稿, 与执行手册一致):
+ * 判定阈值(2026-10-11 定稿; WebView 门槛 2026-10-15 随 web 低版本兼容打包 87→61):
  *   - Android SDK >= 24 (7.0)
- *   - 系统 WebView 主版本 >= 87 (2020年底的 Chrome, 能跑 Vue3 + Vite 产物)
+ *   - 系统 WebView 主版本 >= 61 (web 产物 es2018 + legacy 兼容包, 见 JcDeviceDiagnostics.MIN_WEBVIEW_MAJOR)
  *   - 总内存 >= 2 GB
  * 三者同时满足 → web; 任一不满足 → native。
  *

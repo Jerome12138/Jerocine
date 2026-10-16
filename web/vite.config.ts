@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import legacy from '@vitejs/plugin-legacy'
 import UnoCSS from 'unocss/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
@@ -46,6 +47,18 @@ export default defineConfig({
   plugins: [
     UnoCSS(),
     vue(),
+    // 低版本 WebView 兼容打包(2026-10-15, 方案 B):
+    // - targets chrome61: WebView 61~86 的电视/盒子(无 Play 商店, WebView 停在出厂版)也能跑 web 壳。
+    //   modern 产物经 build.target es2018 降级语法(?. / ?? 由 esbuild 转换)吃下 61+;
+    //   legacy 产物(SystemJS + core-js)给无 ESM 的 <61 浏览器(nomodule 自动分流)。
+    // - modernPolyfills: true —— modern 产物也注入 core-js 补运行时 API 缺口(replaceAll/at 等,
+    //   61~86 区间的 WebView 常缺), modern 用户多下一个 ~10KB 级并行小文件。
+    // - ⚠️ 硬地板 Chrome 49: Vue 3 响应式依赖 Proxy, 无法 polyfill —— 低于它谁来打包都无解,
+    //   壳侧 DeviceProbe 门槛(JcDeviceDiagnostics.MIN_WEBVIEW_MAJOR=61)与此对齐。
+    legacy({
+      targets: ['chrome >= 61'],
+      modernPolyfills: true
+    }),
     AutoImport({
       imports: ['vue', 'vue-router', 'pinia', '@vueuse/core'],
       dts: 'src/types/auto-imports.d.ts',
@@ -86,13 +99,32 @@ export default defineConfig({
         // 导航命中 precache 的 index.html(不是 NetworkFirst); 新鲜度由 SW 更新通道保证
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
-        // 不做 API/字体 runtimeCaching: 字体外链已删除(§5.2), API 一律走网络不缓存
-        runtimeCaching: []
+        // 不做 API/字体 runtimeCaching: 字体外链已删除(§5.2), API 一律走网络不缓存。
+        // 但静态资源要留一条 CacheFirst 运行时缓存(2026-10-15 方案 B): legacy 产物被 globIgnores
+        // 排除在 precache 之外(不让所有设备离线包翻倍), 低版本 WebView 靠这条在首次加载后
+        // 把自己的 bundle 存进 Cache Storage, 二次启动走缓存。产物文件名带 hash 不可变, CacheFirst 安全。
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/assets/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'jc-assets',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] }
+            }
+          }
+        ],
+        // legacy 产物(-legacy-* / legacy-polyfills)不进 precache: 只有 <61 的 WebView 会下载它们,
+        // precache 进清单等于让 100% 的 modern 设备为 0% 用得上的文件付离线包体积。
+        // 低版本设备的缓存由上面 runtimeCaching 的 CacheFirst 在运行时补上。
+        globIgnores: ['**/*legacy*']
       }
     })
   ],
   build: {
-    target: 'es2020',
+    // es2018: modern 产物要能跑在 WebView 61+(es2020 的 ?. / ?? 需要 Chrome 80)。
+    // esbuild 降级语法; 与上面 legacy 插件的 chrome61 targets 同一口径。
+    target: 'es2018',
     cssCodeSplit: true,
     // 版本目录(见顶部 BUILD_TS 说明): 有 TS 时资源落 assets/<TS>/, 否则保持 assets/
     assetsDir: BUILD_TS ? `assets/${BUILD_TS}` : 'assets',

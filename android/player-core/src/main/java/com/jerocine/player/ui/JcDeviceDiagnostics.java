@@ -22,7 +22,7 @@ import android.webkit.WebView;
  * "诊断说能跑、路由判原生"的口径分裂。
  *
  * 判定规则（与前端 vite 构建目标对齐）：
- *  - WebView 内核 Chrome &lt; 87 → 不推荐 Web 容器（Vue3 + Vite 产物跑不动）
+ *  - WebView 内核 Chrome &lt; 61 → 不推荐 Web 容器（现代产物跑不动; 61 以下 ESM 语法支持残缺）
  *  - 内存 &lt; 2GB → 不推荐（WebView 常驻内存压力大）
  *  - 两者都不触发 → 支持
  *
@@ -36,8 +36,13 @@ public final class JcDeviceDiagnostics {
     /** 能跑 WebView 壳的最低 Android SDK（API 24 = 7.0）；低于它路由进原生壳 */
     public static final int MIN_SDK = 24;
 
-    /** 前端 Vite 构建目标(es2020)要求的最低 Chromium 内核主版本 */
-    public static final int MIN_WEBVIEW_MAJOR = 87;
+    /**
+     * Web 前端产物要求的最低 Chromium 内核主版本。
+     * 2026-10-15 起 web 走低版本兼容打包(build.target es2018 + plugin-legacy chrome61 +
+     * core-js modernPolyfills), 61~86 的老 WebView 也能跑 —— 门槛从 87 降到 61。
+     * 硬地板是 Vue 3 的 Proxy 依赖(Chrome 49), 61 留了 ESM/dynamic-import(63 起全)的余量。
+     */
+    public static final int MIN_WEBVIEW_MAJOR = 61;
 
     /** Web 容器可接受的最低总内存(GB) */
     public static final long MIN_MEMORY_GB = 2L;

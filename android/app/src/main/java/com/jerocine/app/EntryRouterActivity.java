@@ -12,7 +12,8 @@ import com.jerocine.tv.NativeShellActivity;
  *
  * 职责: 启动时根据"用户选择 + 设备能力探针"决定走哪个壳, 然后立即转发并 finish 自己。
  * - 用户在设置里选了 web/native → 尊重用户选择
- * - auto(默认) → DeviceProbe 判定: SDK>=24 + WebView>=87 + 内存>=2GB → WebShell, 否则 NativeShell
+ * - auto(默认) → DeviceProbe 判定: SDK>=24 + WebView>=61 + 内存>=2GB → WebShell, 否则 NativeShell
+ *   (WebView 61 门槛 2026-10-15 随 web 低版本兼容打包从 87 降下来)
  *
  * 设计为无 UI 的透明转发页: theme 用 AppTheme.NoActionBarLaunch(与 WebShell 同主题),
  * 用户看到的第一帧就是目标壳的启动画面, 感知不到中间有个路由器。

@@ -115,6 +115,9 @@ bash scripts/deploy-server.sh                # 编译 + 上传 + 发布（一步
   `nginx` / 全量部署在 `data/html` 为空时拒绝执行（提示先 `web`）。两者都不会把站点打空。
 - 产物结构：`index.html`（引用 `/assets/<TS>/…`）+ `sw.js` + `workbox-<hash>.js` + 根静态 + `LICENSE`；
   版本目录 = `data/html/assets/<TS>/`，只保留最近 **3** 版。
+- `assets/<TS>/` 里含 **legacy 兼容产物**（`*-legacy-*.js`，2026-10-15 起 plugin-legacy 给低版本
+  WebView 的双产物之一）：体积比 modern 产物大属预期；`sw.js` 的 precache 已排除它们
+  （`globIgnores`），低版本设备靠运行时 CacheFirst 缓存，发布链路无需特殊处理。
 - `*.map` **不进挂载目录**，归档到 `data/debugmap/<TS>/`（排障用；nginx 另有 `.map → 404` 双保险）。
 - **陈旧根文件清理**：每次发布把"本版放到 html 根的条目名"记进 `data/root-manifest.txt`（挂载目录**之外**，
   不公开）；下次发布据此删掉"上一版有、本版没有"的根文件/目录（改名后的 icons/、被移除的 robots.txt 等）。

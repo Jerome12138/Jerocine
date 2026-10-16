@@ -216,6 +216,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 - **壳路由（`EntryRouterActivity` → `DeviceProbe`）两条契约**（2026-10-12 真机暴露的两个缺陷，都表现为"用户怎么选都进原生壳"）：
   - **`ShellPrefs.KEY_SHELL_MODE` 的值域是小写** `auto` / `web` / `native`（写入端：`JcSettingsDrawer.cycleShellMode` 与 web 壳 WebView 不可恢复时的降级 `ServerNavigationWebViewClient`）。**读取端一律做大小写归一**（`DeviceProbe.readUserMode`、`JcSettingsDrawer.shellModeLabel/nextShellMode` 都归过一）—— 曾因写入小写、读取只认枚举大写名 `WEB/NATIVE`，用户选「Web」/「原生」被静默忽略；大写值还会让标签显示「自动」而点一下跳错方向。
   - **"能不能跑 Web 壳"的判定只有一份**：阈值在 `JcDeviceDiagnostics.MIN_SDK/MIN_WEBVIEW_MAJOR/MIN_MEMORY_GB`，WebView 内核探测走 `JcDeviceDiagnostics.webViewMajorOrZero(ctx)`（`WebView.getCurrentWebViewPackage`，API 26+，**不构造 WebView**、任意线程可调），`DeviceProbe` 引用它们。**别在探针里另写一份取数**：曾因自己反射已废弃的 `getCurrentWebViewPackageName()` 取不到值、被 catch 吞掉后恒返回 0 → 达标设备（Chrome 150 / 7.3GB / API 37）永远进原生壳，且**无日志无报错**。诊断页结论与路由结论必须同源。
+  - **WebView 门槛现值 61**（2026-10-15 起，原 87）：web 前端有低版本兼容打包（`vite.config.ts` 的 plugin-legacy chrome61 + `build.target es2018` + SW 运行时 CacheFirst `jc-assets`），61~86 的老 WebView 能跑 web 壳。**硬地板 Chrome 49** —— Vue 3 响应式依赖 Proxy 无法 polyfill，低于 49 谁来打包都无解。改门槛只动 `MIN_WEBVIEW_MAJOR` 一处，别在探针/文档里抄数字。
 
 ## 播放器弹窗 / 控制面板铁律（player-core，2026-10-09）
 

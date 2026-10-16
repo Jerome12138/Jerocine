@@ -180,7 +180,7 @@ class DeviceProbeTest {
     @Test
     fun thresholdConstants_areExpectedValues() {
         assertEquals(24, MIN_SDK)
-        assertEquals(87, MIN_WEBVIEW_MAJOR)
+        assertEquals(61, MIN_WEBVIEW_MAJOR)
         assertEquals(2L, MIN_MEMORY_GB)
     }
 }
