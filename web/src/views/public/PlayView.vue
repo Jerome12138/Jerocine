@@ -48,6 +48,7 @@ import { normalizeDpadKey } from '@/utils/dpad'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
+import { useWebSettings } from '@/composables/useWebSettings'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
@@ -142,16 +143,14 @@ const visibleRelate = computed(() => limitToRows(relate.value))
 const currentSourceId = ref<string>('')
 /** 当前集索引 */
 const currentEpisodeIndex = ref<number>(0)
-/** 是否自动播放下一集(本地持久化: 原生派发需在详情页/路由守卫读取同一状态) */
-const autoPlayNext = ref<boolean>(readAutoPlayNext())
+/**
+ * 自动连播开关 —— 统一存 useWebSettings(localStorage: jerocine:autoPlayNext),
+ * 与 /settings 配置页、安卓设置抽屉(window.__jcConfig)共用同一份数据源。
+ */
+const { autoPlayNext, setAutoPlayNext } = useWebSettings()
 /** 切换自动连播并持久化 */
 function toggleAutoPlayNext(): void {
-  autoPlayNext.value = !autoPlayNext.value
-  try {
-    localStorage.setItem(AUTO_PLAY_NEXT_KEY, autoPlayNext.value ? '1' : '0')
-  } catch {
-    /* ignore */
-  }
+  setAutoPlayNext(!autoPlayNext.value)
 }
 /** 视频源错误提示文本 */
 const videoErrorMsg = ref<string>('')
@@ -176,56 +175,28 @@ const currentEpisode = computed(() => {
 const currentSrc = ref<string>('')
 
 /**
- * 广告过滤开关 (localStorage 持久化).
- * 开启后, 若当前 src 是 m3u8, 重写为 `${API}/m3u8/proxy?src=<encoded>`,
- * 由后端拉源后剔除疑似广告 segment 再回吐, video.js 透明消费.
- * 非 m3u8 (mp4 / flv 等) 不重写, 走原始 URL.
+ * 广告过滤开关 —— 统一存 useWebSettings(localStorage: jc-ad-filter, 默认开)。
+ * 开启后, 若当前 src 是 m3u8, 按过滤取源方式(filterMode)重写:
+ *   client(默认): 端侧抓 m3u8 → POST /v1/m3u8/filter 服务器只剔广告 → blob 清单播放;
+ *   server: 整条链路走 /v1/m3u8/proxy(服务器抓源+过滤)。
+ * 非 m3u8 (mp4 / flv 等) 不重写, 走原始 URL。
+ * 与 /settings 配置页、安卓设置抽屉共用同一份 useWebSettings 状态。
  */
-const AD_FILTER_LS_KEY = 'jc-ad-filter'
-const adFilter = ref<boolean>(
-  (() => {
-    try {
-      const v = localStorage.getItem(AD_FILTER_LS_KEY)
-      // 未设置时默认开启 (用户没主动关过, 用最佳体验)
-      if (v === null) return true
-      return v === '1'
-    } catch {
-      return true
-    }
-  })()
-)
+const { adFilter, setAdFilter, filterMode, relayCache } = useWebSettings()
 function toggleAdFilter(): void {
-  adFilter.value = !adFilter.value
+  setAdFilter(!adFilter.value)
   if (adFilter.value) {
     toast('success', '广告过滤已开启')
   } else {
     toast('info', '广告过滤已关闭')
   }
 }
-watch(adFilter, (v) => {
-  try {
-    localStorage.setItem(AD_FILTER_LS_KEY, v ? '1' : '0')
-  } catch {
-    /* 隐私模式忽略 */
-  }
-})
 
 /**
- * 中转开关(默认关) — 仅 APK 内有入口(SettingsView 同步写 localStorage + 原生持久化).
- * web 播放器读 localStorage: 开启后 m3u8 起播即走全量中转(proxyMedia=1),
- * 与原生播放器 PlayerNetworkModeHelper 语义一致; 纯浏览器无入口, 默认关.
+ * 中转开关(默认关) —— 统一存 useWebSettings(localStorage: jc-relay-cache)。
+ * web 播放器读该状态: 开启后 m3u8 起播即走全量中转(proxyMedia=1),
+ * 与原生播放器 PlayerNetworkModeHelper 语义一致; /settings 配置页与安卓设置抽屉均可改。
  */
-const RELAY_LS_KEY = 'jc-relay-cache'
-const relayOn = ref<boolean>(
-  (() => {
-    try {
-      const v = localStorage.getItem(RELAY_LS_KEY)
-      return v === '1'
-    } catch {
-      return false
-    }
-  })()
-)
 
 /**
  * 广告过滤结果角标 (I-017, 常驻五态):
@@ -299,6 +270,12 @@ const playSrcType = ref<string>('')
 let currentBlobUrl = ''
 /** resolvePlaySrc 竞态令牌: 仅最新一次的异步结果允许回写 playSrc。 */
 let playSrcToken = 0
+/**
+ * 端侧过滤在途请求控制器: 切集/切源时立即 abort 上一集仍在跑的
+ * "抓 m3u8 + POST 过滤"链路(含 500ms 重试等待), 不让旧请求占着带宽拖慢新集。
+ * token 负责"丢弃旧结果", abort 负责"终止旧请求" —— 两道都要。
+ */
+let srcAbortCtl: AbortController | null = null
 /** 上次已提示过"已过滤 N 段"的 url, 防同一集重复弹(web 端由端侧过滤拿响应头后提示)。 */
 let lastAdFilterToastUrl = ''
 /** 切集 seek + 续播参数: applyCurrentEpisodeToPlayer 写入, 供 armSeekOnce 读取(新源就绪时)。 */
@@ -385,6 +362,35 @@ function revokeCurrentBlob(): void {
   }
 }
 
+/**
+ * 作废当前在途的播放源解析: 令牌 +1(旧结果一律不回写)并 abort 在途请求。
+ * 切集/切源、离开播放页时调用 —— 上一集的过滤链路立刻停, 不再"在原状态等一段时间"。
+ */
+function cancelPendingResolve(): void {
+  playSrcToken++
+  srcAbortCtl?.abort()
+  srcAbortCtl = null
+}
+
+/** 可中断的延时(过滤失败重试的 500ms 等待): abort 时立即 reject, 不白等。 */
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('aborted', 'AbortError'))
+      return
+    }
+    const t = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    function onAbort(): void {
+      window.clearTimeout(t)
+      reject(new DOMException('aborted', 'AbortError'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /** 服务端代理 URL(降级用): 由服务器抓源 + 过滤(分片仍直连, proxyMedia=0). */
 function proxyAdFilterUrl(originalUrl: string): string {
   return `${absApiBase()}/v1/m3u8/proxy?src=${encodeURIComponent(originalUrl)}`
@@ -403,9 +409,13 @@ function clientFilterUrl(originalUrl: string): string {
 /**
  * 抓单张 m3u8 → 送服务器过滤文本 → 返回过滤后文本 + 剔除数。
  * (浏览器抓源无地域封; 服务器只过滤文本不联网, 把分片/子表绝对化。)
+ * signal: 切集/切源时 abort 两次 fetch。
  */
-async function fetchAndFilter(url: string): Promise<{ text: string; filtered: number }> {
-  const raw = await fetch(url, { cache: 'no-store' })
+async function fetchAndFilter(
+  url: string,
+  signal: AbortSignal
+): Promise<{ text: string; filtered: number }> {
+  const raw = await fetch(url, { cache: 'no-store', signal })
   if (!raw.ok) throw new Error(`fetch m3u8 ${raw.status}`)
   const text = await raw.text()
   if (!text) throw new Error('empty m3u8')
@@ -413,7 +423,8 @@ async function fetchAndFilter(url: string): Promise<{ text: string; filtered: nu
     method: 'POST',
     headers: { 'Content-Type': 'application/vnd.apple.mpegurl' },
     body: text,
-    cache: 'no-store'
+    cache: 'no-store',
+    signal
   })
   if (!resp.ok) throw new Error(`filter ${resp.status}`)
   const filteredText = await resp.text()
@@ -440,12 +451,15 @@ function firstChildPlaylist(text: string): string | null {
  * (单清晰度 VOD 通常 1 层), 否则只过滤主表、带广告的子表会被播放器直连绕过。
  * 成功返回 { url, filtered }; 任一步失败抛错(由 resolvePlaySrc 接住做降级)。
  */
-async function clientSideFilter(originalUrl: string): Promise<{ url: string; filtered: number }> {
+async function clientSideFilter(
+  originalUrl: string,
+  signal: AbortSignal
+): Promise<{ url: string; filtered: number }> {
   let cur = originalUrl
   let text = ''
   let filtered = 0
   for (let depth = 0; depth < 3; depth++) {
-    const r = await fetchAndFilter(cur)
+    const r = await fetchAndFilter(cur, signal)
     text = r.text
     filtered += r.filtered
     const child = firstChildPlaylist(text)
@@ -464,6 +478,11 @@ async function clientSideFilter(originalUrl: string): Promise<{ url: string; fil
  */
 async function resolvePlaySrc(originalUrl: string): Promise<void> {
   const token = ++playSrcToken
+  // 上一集仍在跑的过滤链路立即停(abort 在途 fetch + 等待), 不与新集抢带宽
+  srcAbortCtl?.abort()
+  const ctl = new AbortController()
+  srcAbortCtl = ctl
+  const signal = ctl.signal
   // 旧 blob 先记下, 等新 src 写入后再 revoke(避免提前 revoke 导致正在播的清单失效)
   const prevBlob = currentBlobUrl
   currentBlobUrl = ''
@@ -505,17 +524,27 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     return
   }
 
-  // 中转开关(APK 设置页可开): 直连异常时经服务器全量转发(proxyMedia=1).
+  // 中转开关(全量转发, /settings 页或安卓抽屉可开): 直连异常时经服务器全量转发(proxyMedia=1).
   // 服务器明确抓不到该源(adFilterOk===false)时中转无意义 → 走下方端侧混合过滤(浏览器抓).
-  if (relayOn.value && currentSource.value?.adFilterOk !== false) {
+  if (relayCache.value && currentSource.value?.adFilterOk !== false) {
     adFilterBadge.value = { kind: 'proxy', count: 0 }
     commit(proxyRelayUrl(originalUrl), 'application/x-mpegURL', false)
     return
   }
 
+  // 过滤取源方式(jc-filter-mode, /settings 页与安卓抽屉可改):
+  //   server = 云端取源(服务器抓清单+过滤)。服务器在境外、抓源慢, 仅端侧被地域封等场景手动开启。
+  //   client(默认) = 端侧抓清单 → 服务器只做文本过滤(下方)。
+  // 服务器明确抓不到该源(adFilterOk===false)时云端取源必失败 → 落回端侧取源。
+  if (filterMode.value === 'server' && currentSource.value?.adFilterOk !== false) {
+    adFilterBadge.value = { kind: 'proxy', count: 0 }
+    commit(proxyAdFilterUrl(originalUrl), 'application/x-mpegURL', false)
+    return
+  }
+
   // adFilter 开 + m3u8: 端侧混合过滤
   try {
-    const { url, filtered } = await clientSideFilter(originalUrl)
+    const { url, filtered } = await clientSideFilter(originalUrl, signal)
     if (token !== playSrcToken) {
       try {
         URL.revokeObjectURL(url)
@@ -535,11 +564,12 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     return
   } catch {
     if (token !== playSrcToken) return
-    // 端侧过滤失败重试一次(网络抖动/CORS 偶发失败, 避免直接降级导致过滤失效)
+    // 端侧过滤失败重试一次(网络抖动/CORS 偶发失败, 避免直接降级导致过滤失效);
+    // 切集 abort 会在 await/延时处立刻抛 AbortError, 由上方 token 检查丢弃。
     try {
-      await new Promise(r => setTimeout(r, 500))
+      await abortableDelay(500, signal)
       if (token !== playSrcToken) return
-      const retry = await clientSideFilter(originalUrl)
+      const retry = await clientSideFilter(originalUrl, signal)
       if (token !== playSrcToken) {
         try { URL.revokeObjectURL(retry.url) } catch { /* ignore */ }
         return
@@ -859,7 +889,7 @@ async function loadPlayInfo(): Promise<void> {
 }
 
 import { isNative } from '@/utils/jerocineNative'
-import { dispatchNativePlaylist, AUTO_PLAY_NEXT_KEY, readAutoPlayNext } from '@/utils/nativePlay'
+import { dispatchNativePlaylist } from '@/utils/nativePlay'
 import { telemetry } from '@/utils/telemetry'
 import {
   adFilterSuccessMessage,
@@ -1041,38 +1071,53 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
     native.playVideo(ep.link, title)
     return
   }
+  // 切集/切源立即复位(用户要求 2026-10-18): 先作废上一集在途的过滤/加载(abort 全部
+  // 在途 fetch + 作废竞态令牌), 界面立刻切到"新集准备中" —— 不再停留在旧集状态等旧请求跑完。
+  cancelPendingResolve()
+  prefetchAbort?.abort() // 在途的下一集预取一并取消
+  prefetchedEpisodeKey.value = '' // 允许新目标集重新预取
+  adFilterBadge.value = null // 清掉上一集的过滤结果角标, 新集过滤完成后回填
   currentSrc.value = ep.link
   // 续播目标: 该集自身进度 > 跳片头; 短视频/无记录=0。记录到 pending*, 供新源就绪后 armSeekOnce 使用。
   const seekTo = resumeAt > 0 ? resumeAt : skip.intro
   pendingResumeAt = seekTo
   pendingAutoPlay = autoPlay
-  // 旧片源先 pause: 避免切换瞬间旧视频继续播 + 闪旧画面; 新源就绪后 armSeekOnce 负责 seek+续播
+  // 旧片源立即回到初始状态: pause + reset(卸掉旧源、清画面与进度), 新源就绪前只露 loading 层;
+  // reset 若在个别实现上抛错, 退回仅 pause(旧画面仍会被 loading 遮罩盖住)。
   const pOld = player.value
   if (pOld && playerReady.value) {
     try {
       pOld.pause()
+      pOld.reset()
     } catch {
-      // ignore
+      try {
+        pOld.pause()
+      } catch {
+        // ignore
+      }
     }
   }
   // 标记等待新源: playSrc 实际变化(watch(playSrc))后再 arming 一次, 确保监听挂在新源加载之前,
   // 解决"复用播放器 + VHS 切 HLS 源不重发 loadedmetadata"导致卡在暂停态 0 的问题。
   awaitingNewSource = true
-  // 切集/切源立即进入 loading 态: 复用播放器时旧画面会停留到新源就绪, 先盖 loading 层,
-  // 待 armSeekOnce 新源就绪(loadedmetadata/canplay)后再清除, 避免"卡在旧画面"的观感。
+  // 切集/切源立即进入 loading 态: 文案 loadingHint 按过滤开关/取源方式给出"广告过滤中/正在准备视频"。
   loading.value = true
 }
 
 /* ============ 下一集预取(自动连播场景, 消除切集过滤 2-3s) ============
- * 仅当"自动连播开启 + 有下一集 + 距自动切集点 <= 60s"才后台预取下一集 m3u8,
+ * 仅当"自动连播开启 + 过滤取源为云端(server) + 有下一集 + 距自动切集点 <= 60s"才后台预取,
  * 预热服务器 10min 过滤缓存 → 自动切集时直接命中, 不再付"抓源+过滤"全价。
  * 幂等(每源每集只预取一次) + 静默失败(预取失败则切集时再付一次全价, 不影响播放)。
- * 注: 预取预热的是服务端 proxy 过滤缓存, 对走服务端过滤的源(端侧 CORS 失败的源)有效;
- *     走端侧混合过滤的源(如 bf)不查该缓存, 预取仅无害不白做收益。 */
+ * 注: 预取预热的是服务端 proxy 过滤缓存, 只对"云端取源"(filterMode=server)或端侧失败降级
+ *     proxy 的源有效; 默认的端侧混合过滤(浏览器自己抓)不查该缓存 —— 故 client 模式不预取,
+ *     省下一次无效的服务器境外抓源。切集时在途预取立即 abort。 */
 const PREFETCH_LEAD_S = 60
 const prefetchedEpisodeKey = ref('')
+let prefetchAbort: AbortController | null = null
 async function prefetchNextEpisode(): Promise<void> {
   if (!autoPlayNext.value || !hasNext.value) return
+  // 端侧取源(默认)不查服务器过滤缓存, 预取没有收益(见上方注释)
+  if (filterMode.value !== 'server') return
   const nextIdx = currentEpisodeIndex.value + 1
   const key = `${currentSourceId.value}/${nextIdx}`
   if (prefetchedEpisodeKey.value === key) return
@@ -1087,10 +1132,14 @@ async function prefetchNextEpisode(): Promise<void> {
       ?.find((s) => s.id === currentSourceId.value)
       ?.episodes?.[nextIdx]
     if (!ep || !reM3u8.test(ep.link)) return
-    // 预热: 请求服务端 proxy(抓源站+过滤+写缓存), 响应丢弃; 失败静默不重试
-    await fetch(proxyAdFilterUrl(ep.link), { method: 'GET' })
+    // 预热: 请求服务端 proxy(抓源站+过滤+写缓存), 响应丢弃; 失败静默不重试。
+    // 挂 signal: 切集/切源时立即取消在途预取。
+    prefetchAbort?.abort()
+    const ctl = new AbortController()
+    prefetchAbort = ctl
+    await fetch(proxyAdFilterUrl(ep.link), { method: 'GET', signal: ctl.signal })
   } catch {
-    /* 预取失败不影响播放(切集时再付一次全价) */
+    /* 预取失败不影响播放(切集时再付一次全价); abort 走这里被静默吞掉 */
   }
 }
 
@@ -1611,6 +1660,8 @@ onBeforeRouteLeave(() => {
   flushHistory()
   // 卸载播放器（onScopeDispose 也会兜底，但提前 dispose 可避免短暂的画面残留）
   disposePlayer()
+  cancelPendingResolve() // 在途的过滤/加载请求立即终止
+  prefetchAbort?.abort() // 在途的下一集预取一并取消
   revokeCurrentBlob() // 释放端侧过滤遗留的 blob: URL, 防内存泄漏
   if (typeof window !== 'undefined') {
     window.removeEventListener('keydown', handleKeydown)
@@ -1807,7 +1858,7 @@ watch(playerReady, (v) => {
           <button v-if="fastestLineId && fastestLineId !== currentSourceId" type="button" class="jc-pt-btn jc-pt-btn--accent" data-focusable="true" @click="switchToFastest">
             <BaseIcon name="skip-next" size="26px" /><span>最快</span>
           </button>
-          <button type="button" class="jc-pt-btn" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" data-focusable="true" @click="adFilter = !adFilter">
+          <button type="button" class="jc-pt-btn" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" data-focusable="true" @click="toggleAdFilter">
             <BaseIcon name="shield" size="26px" /><span>广告</span>
           </button>
           <button type="button" class="jc-pt-btn" :class="favorited ? 'is-on' : ''" :aria-pressed="favorited" data-focusable="true" @click="toggleFavorite">
@@ -1815,6 +1866,9 @@ watch(playerReady, (v) => {
           </button>
           <button type="button" class="jc-pt-btn" data-focusable="true" @click="openSkipDialog">
             <BaseIcon name="settings" size="26px" /><span>跳过</span>
+          </button>
+          <button type="button" class="jc-pt-btn" data-focusable="true" @click="router.push('/settings')">
+            <BaseIcon name="settings" size="26px" /><span>设置</span>
           </button>
         </div>
 
@@ -1871,7 +1925,7 @@ watch(playerReady, (v) => {
                     <span class="jc-pt-more__item-label">自动连播</span>
                     <span v-if="autoPlayNext" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
-                  <button type="button" class="jc-pt-more__item" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" @click="adFilter = !adFilter">
+                  <button type="button" class="jc-pt-more__item" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" @click="toggleAdFilter">
                     <BaseIcon name="shield" size="16px" />
                     <span class="jc-pt-more__item-label">过滤广告</span>
                     <span v-if="adFilter" class="jc-pt-more__check" aria-hidden="true">✓</span>
@@ -1881,6 +1935,10 @@ watch(playerReady, (v) => {
                   <button type="button" class="jc-pt-more__item" :class="testingLines ? 'is-loading' : ''" @click="testLines(); moreActionsOpen = false">
                     <BaseIcon name="refresh" size="16px" />
                     <span class="jc-pt-more__item-label">播放测速</span>
+                  </button>
+                  <button type="button" class="jc-pt-more__item" @click="router.push('/settings'); moreActionsOpen = false">
+                    <BaseIcon name="settings" size="16px" />
+                    <span class="jc-pt-more__item-label">播放设置</span>
                   </button>
                   <button type="button" class="jc-pt-more__item" @click="openSkipDialog(); moreActionsOpen = false">
                     <BaseIcon name="settings" size="16px" />
