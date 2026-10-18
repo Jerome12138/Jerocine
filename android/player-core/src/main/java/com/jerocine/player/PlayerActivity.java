@@ -121,13 +121,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private final Handler toastHandler = new Handler(Looper.getMainLooper());
     private final Handler iconHandler = new Handler(Looper.getMainLooper());
     private final Handler progressHandler = new Handler(Looper.getMainLooper());
-    /** 缓冲进度 toast 刷新(500ms 一拍, 仅 STATE_BUFFERING 期间运行). */
-    private final Handler bufferHandler = new Handler(Looper.getMainLooper());
 
     /** 最近一次播放状态 — onDestroy 判断是否自然播完 */
     private int lastPlayerState = -1;
-    /** 缓冲进度 toast 是否在显示(与普通 toast 共用 centerToast 视图, 见 bufferTick). */
-    private boolean bufferToastOn = false;
 
     private PlayerSession session;
     private PlayerView playerView;
@@ -335,7 +331,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 lastPlayerState = state;
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 updateControllerAutoHide(); // 暂停/缓冲中面板不主动消失(本地播放同轨)
-                updateBufferToast(state); // 缓冲进度 toast(2026-10-11 用户要求)
             }
 
             @Override
@@ -395,7 +390,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 lastPlayerState = state;
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 updateControllerAutoHide(); // 暂停/缓冲中面板不主动消失
-                updateBufferToast(state); // 缓冲进度 toast(2026-10-11 用户要求)
                 updateFilterLoadingText(state);
                 if (state == Player.STATE_READY) {
                     session.episodeSwitching = false;
@@ -883,7 +877,6 @@ private static String failedRequestUrl(Throwable error) {
         toastHandler.removeCallbacksAndMessages(null);
         iconHandler.removeCallbacksAndMessages(null);
         progressHandler.removeCallbacksAndMessages(null);
-        bufferHandler.removeCallbacksAndMessages(null);
         final ExoPlayer player = session.player;
         boolean playbackEnded = player != null && lastPlayerState == Player.STATE_ENDED;
         // 本地模式: 不向壳层上报播放结局(无 web 心跳/无剧集上下文)
@@ -967,63 +960,6 @@ private static String failedRequestUrl(Throwable error) {
             }
         }, durationMs);
     }
-
-    /**
-     * 缓冲进度 toast(2026-10-11 用户要求): STATE_BUFFERING 期间中央 toast 常驻,
-     * 每 500ms 刷新 `缓冲中 x%`(百分比取 player.getBufferedPercentage()); 离开缓冲态收起。
-     * 与普通 toast 共用 centerToast 视图: 期间若有普通 toast介入会被下一拍覆盖 ——
-     * 缓冲中百分比是主信号, 可接受。决策逻辑见 {@link PlayerBufferToastPolicy}。
-     *
-     * <p>起播/切集的**广告过滤窗口**除外(见 {@link #isFilteringWindow}): 那时播放器卡在
-     * "等过滤后的清单"上, 分片一个都没开始加载, 百分比恒 0 —— 显示"缓冲中 0%"既是噪音,
-     * 又与"正在准备视频 · 广告过滤中"重复打架(2026-10-12 用户报障)。
-     */
-    private void updateBufferToast(int state) {
-        switch (PlayerBufferToastPolicy.onState(state, bufferToastOn, isFilteringWindow(state))) {
-            case START:
-                bufferToastOn = true;
-                // 与 showCenterToast 同款互斥: 停掉中央图标与普通 toast 的定时器
-                if (centerIcon != null) centerIcon.setVisibility(View.GONE);
-                iconHandler.removeCallbacksAndMessages(null);
-                toastHandler.removeCallbacksAndMessages(null);
-                bufferHandler.removeCallbacks(bufferTick);
-                centerToast.setVisibility(View.VISIBLE);
-                bufferHandler.post(bufferTick);
-                break;
-            case STOP:
-                hideBufferToast();
-                break;
-            case KEEP:
-            case IGNORE:
-            default:
-                break;
-        }
-    }
-
-    private void hideBufferToast() {
-        bufferToastOn = false;
-        bufferHandler.removeCallbacks(bufferTick);
-        if (centerToast != null) centerToast.setVisibility(View.GONE);
-        // 若仍处暂停态, 缓冲提示收起后恢复"暂停图标停留"(对齐 showCenterToast 收尾)
-        if (session.player != null && !session.player.getPlayWhenReady()
-                && session.player.getPlaybackState() == Player.STATE_READY) {
-            showCenterIconPersistent(R.drawable.ic_pause);
-        }
-    }
-
-    private final Runnable bufferTick = new Runnable() {
-        @Override
-        public void run() {
-            ExoPlayer p = session.player;
-            if (p == null || lastPlayerState != Player.STATE_BUFFERING) {
-                hideBufferToast();
-                return;
-            }
-            centerToast.setText("缓冲中 " + p.getBufferedPercentage() + "%");
-            centerToast.setVisibility(View.VISIBLE);
-            bufferHandler.postDelayed(this, 500);
-        }
-    };
 
     @Override
     public void showCenterIcon(int drawableRes, long durationMs) {
@@ -1511,11 +1447,8 @@ private static String failedRequestUrl(Throwable error) {
      *
      * <p>这个窗口里播放器在等"过滤后的清单"(端侧 POST /v1/m3u8/filter, master + 子表两趟),
      * 媒体分片尚未开始装载 —— 所以 `getBufferedPercentage()` 恒 0。
-     * 本判定同时服务两处 UI, 保证口径一致:
-     * <ul>
-     *   <li>{@link #updateFilterLoadingText} —— 显示「正在准备视频 · 广告过滤中」;</li>
-     *   <li>{@link #updateBufferToast} —— **抑制**「缓冲中 x%」(让位给上面那句)。</li>
-     * </ul>
+     * 本判定服务 {@link #updateFilterLoadingText} —— 显示「正在准备视频 · 广告过滤中」。
+     * (普通缓冲的「缓冲中 x%」toast 已于 2026-10-18 整体下线, 无需再抑制。)
      * 本地集清单已过滤过, 不存在"过滤中"(统一判定, 见 PlayerModes)。
      */
     private boolean isFilteringWindow(int state) {

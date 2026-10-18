@@ -118,6 +118,25 @@ public class JcSettingsDrawer {
         void onShellModeChanged(String mode);
         /** 当前壳模式(auto/web/native) */
         String getCurrentShellMode();
+
+        // ---- Web 播放设置(web 壳特有; 数据存 web localStorage, 经 window.__jcConfig 桥) ----
+        /**
+         * 读 web 播放设置快照(格式契约见 {@link com.jerocine.player.WebSettingsContract},
+         * 与前端 useWebSettings.webSettingsSnapshot() 对应), 不可用时回调 null。
+         * 回调在主线程(evaluateJavascript 语义)。
+         */
+        void getWebSettings(WebSettingsCallback callback);
+
+        /**
+         * 写一项 web 播放设置(key/值白名单校验在前端 applyWebSetting), 完成后回调最新快照
+         * (失败回调 null —— 抽屉按当前值兜底回显)。回调在主线程。
+         */
+        void setWebSetting(String key, String value, WebSettingsCallback callback);
+    }
+
+    /** Web 设置读写回调(见 {@link JcSettingsHost#getWebSettings}) */
+    public interface WebSettingsCallback {
+        void onResult(String snapshot);
     }
 
     /**
@@ -164,12 +183,22 @@ public class JcSettingsDrawer {
     private LinearLayout settingsPanel;
     private View settingsFirstFocus;
     private FrameLayout adFilterSwitch;
+    private FrameLayout webAdFilterSwitch;
+    private FrameLayout webRelaySwitch;
+    private FrameLayout webAutoNextSwitch;
+    private TextView webFilterModeValue;
     private TextView displayModeValue;
     private TextView motionValue;
     private TextView shellModeValue;
     private TextView accountAction;
     private TextView accountTitleView;
     private String currentShellMode;
+    /**
+     * Web 播放设置快照(k=v; 解析结果, 契约见 {@link com.jerocine.player.WebSettingsContract})。
+     * 异步经 host.getWebSettings 刷新 —— fillPanel 先按旧快照(默认值)渲染, 回调到达后
+     * {@link #applyWebSettingsSnapshot} 就地刷新各行控件。
+     */
+    private java.util.Map<String, String> webSettings = new java.util.LinkedHashMap<>();
     /**
      * 抽屉"逻辑打开"标志 —— 与 overlay 的 visibility 不同步:
      * hide() 有 180ms 滑出动画, 期间 overlay 仍是 VISIBLE。若用 visibility 当状态,
@@ -225,6 +254,10 @@ public class JcSettingsDrawer {
         settingsPanel.removeAllViews();
         settingsFirstFocus = null;
         adFilterSwitch = null;
+        webAdFilterSwitch = null;
+        webRelaySwitch = null;
+        webAutoNextSwitch = null;
+        webFilterModeValue = null;
         displayModeValue = null;
         motionValue = null;
         shellModeValue = null;
@@ -270,16 +303,49 @@ public class JcSettingsDrawer {
 
         // ---------- 播放 ----------
         addGroupHeader("播放");
-        addToggleRow("广告过滤",
-                "剔除 m3u8 插片/跨域广告 · 默认开启",
-                PlayerAdFilterHelper.isAdFilterEnabled(activity),
-                sw -> adFilterSwitch = sw,
-                () -> {
-                    boolean next = !PlayerAdFilterHelper.isAdFilterEnabled(activity);
-                    PlayerAdFilterHelper.setAdFilterEnabled(activity, next);
-                    refreshToggle(adFilterSwitch, next);
-                    host.toast(next ? "广告过滤已开启" : "广告过滤已关闭");
-                });
+        if (web) {
+            // web 壳: 播放开关联动 web 播放器, 一律读写 web localStorage(useWebSettings) ——
+            // 原生 prefs 的 ad_filter_enabled 在 web 壳里没有消费者, 不再展示(避免开关无效的假象)。
+            addToggleRow("广告过滤",
+                    "剔除 m3u8 插片/跨域广告 · 默认开启",
+                    com.jerocine.player.WebSettingsContract.bool(webSettings,
+                            com.jerocine.player.WebSettingsContract.KEY_AD_FILTER, true),
+                    sw -> webAdFilterSwitch = sw,
+                    () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_AD_FILTER,
+                            true, "广告过滤已开启", "广告过滤已关闭"));
+            webFilterModeValue = addNavRow("过滤取源",
+                    "端侧=设备拉清单·服务器只过滤(默认, 服务器在境外取源慢) · 云端=服务器抓取并过滤",
+                    com.jerocine.player.WebSettingsContract.filterModeLabel(
+                            webSettings.get(com.jerocine.player.WebSettingsContract.KEY_FILTER_MODE)),
+                    this::cycleWebFilterMode);
+            addToggleRow("全量中转",
+                    "直连异常时分片也经服务器转发 · 默认关",
+                    com.jerocine.player.WebSettingsContract.bool(webSettings,
+                            com.jerocine.player.WebSettingsContract.KEY_RELAY_CACHE, false),
+                    sw -> webRelaySwitch = sw,
+                    () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_RELAY_CACHE,
+                            false, "全量中转已开启", "全量中转已关闭"));
+            addToggleRow("自动连播",
+                    "一集播完自动播放下一集",
+                    com.jerocine.player.WebSettingsContract.bool(webSettings,
+                            com.jerocine.player.WebSettingsContract.KEY_AUTO_PLAY_NEXT, true),
+                    sw -> webAutoNextSwitch = sw,
+                    () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_AUTO_PLAY_NEXT,
+                            true, "自动连播已开启", "自动连播已关闭"));
+            // 异步刷新: 行先按旧快照渲染, 回调到达后就地改开关/文案
+            host.getWebSettings(this::applyWebSettingsSnapshot);
+        } else {
+            addToggleRow("广告过滤",
+                    "剔除 m3u8 插片/跨域广告 · 默认开启",
+                    PlayerAdFilterHelper.isAdFilterEnabled(activity),
+                    sw -> adFilterSwitch = sw,
+                    () -> {
+                        boolean next = !PlayerAdFilterHelper.isAdFilterEnabled(activity);
+                        PlayerAdFilterHelper.setAdFilterEnabled(activity, next);
+                        refreshToggle(adFilterSwitch, next);
+                        host.toast(next ? "广告过滤已开启" : "广告过滤已关闭");
+                    });
+        }
 
         // ---------- 设备 ----------
         addGroupHeader("设备");
@@ -367,6 +433,52 @@ public class JcSettingsDrawer {
     /** 显示模式变化时刷新行右侧标签(web 壳) */
     public void refreshDisplayMode(String label) {
         if (displayModeValue != null) displayModeValue.setText(label);
+    }
+
+    // ==================== Web 播放设置(web 壳) ====================
+
+    /** 翻转一项 web 布尔设置并回显(成功与否都以回调快照为准刷新开关)。def=该项的默认值。 */
+    private void setWebBool(String key, boolean def, String onMsg, String offMsg) {
+        boolean cur = com.jerocine.player.WebSettingsContract.bool(webSettings, key, def);
+        host.setWebSetting(key, cur ? "0" : "1", snap -> {
+            applyWebSettingsSnapshot(snap);
+            boolean now = com.jerocine.player.WebSettingsContract.bool(webSettings, key, !cur);
+            host.toast(now ? onMsg : offMsg);
+        });
+    }
+
+    /** 过滤取源方式循环切换: 端侧(client, 默认) ↔ 云端(server)。 */
+    private void cycleWebFilterMode() {
+        String next = com.jerocine.player.WebSettingsContract.nextFilterMode(
+                webSettings.get(com.jerocine.player.WebSettingsContract.KEY_FILTER_MODE));
+        host.setWebSetting(com.jerocine.player.WebSettingsContract.KEY_FILTER_MODE, next, snap -> {
+            applyWebSettingsSnapshot(snap);
+            host.toast("server".equals(next)
+                    ? "云端取源: 由服务器抓取并过滤清单"
+                    : "端侧取源: 设备拉清单, 服务器只过滤");
+        });
+    }
+
+    /**
+     * 应用最新 web 设置快照并刷新各行控件(null=读不到, 保留当前显示)。
+     * 回调来自 evaluateJavascript(主线程), fillPanel 重build后旧控件引用已被置空,
+     * refreshToggle/webFilterModeValue 判空即安全。
+     */
+    private void applyWebSettingsSnapshot(String snapshot) {
+        if (snapshot == null) return;
+        java.util.Map<String, String> parsed = com.jerocine.player.WebSettingsContract.parse(snapshot);
+        if (parsed.isEmpty()) return;
+        webSettings = parsed;
+        refreshToggle(webAdFilterSwitch, com.jerocine.player.WebSettingsContract.bool(webSettings,
+                com.jerocine.player.WebSettingsContract.KEY_AD_FILTER, true));
+        refreshToggle(webRelaySwitch, com.jerocine.player.WebSettingsContract.bool(webSettings,
+                com.jerocine.player.WebSettingsContract.KEY_RELAY_CACHE, false));
+        refreshToggle(webAutoNextSwitch, com.jerocine.player.WebSettingsContract.bool(webSettings,
+                com.jerocine.player.WebSettingsContract.KEY_AUTO_PLAY_NEXT, true));
+        if (webFilterModeValue != null) {
+            webFilterModeValue.setText(com.jerocine.player.WebSettingsContract.filterModeLabel(
+                    webSettings.get(com.jerocine.player.WebSettingsContract.KEY_FILTER_MODE)));
+        }
     }
 
     // ==================== 壳模式 ====================

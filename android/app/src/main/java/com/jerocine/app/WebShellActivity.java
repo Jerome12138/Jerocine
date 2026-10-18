@@ -539,6 +539,37 @@ public class WebShellActivity extends BridgeActivity
         return prefs().getString(KEY_SHELL_MODE, "auto");
     }
 
+    // ---- Web 播放设置(经 window.__jcConfig 读写 web localStorage; 契约见 WebSettingsContract) ----
+
+    @Override public void getWebSettings(JcSettingsDrawer.WebSettingsCallback cb) {
+        evalJs("(function(){try{return window.__jcConfig?window.__jcConfig.getAll():null}"
+                + "catch(e){return null}})();",
+                value -> cb.onResult(unwrapJsString(value)));
+    }
+
+    @Override public void setWebSetting(String key, String value, JcSettingsDrawer.WebSettingsCallback cb) {
+        // key/值仅来自本抽屉的白名单调用方, 再做一层字符白名单防注入
+        String k = key == null ? "" : key.replaceAll("[^A-Za-z]", "");
+        String v = value == null ? "" : value.replaceAll("[^A-Za-z0-9]", "");
+        evalJs("(function(){try{if(!window.__jcConfig)return null;"
+                        + "window.__jcConfig.set('" + k + "','" + v + "');"
+                        + "return window.__jcConfig.getAll()}catch(e){return null}})();",
+                r -> cb.onResult(unwrapJsString(r)));
+    }
+
+    /** evaluateJavascript 对字符串回参会包一层 JSON 引号; null 结果回 "null"。解回原始字符串。 */
+    private static String unwrapJsString(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if ("null".equals(s)) return null;
+        if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
+            s = s.substring(1, s.length() - 1)
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\");
+        }
+        return s;
+    }
+
     /** 显示模式三态循环: TV → 桌面 → 自动(清除) → TV…; 经 __jcSetMode 钩子即时生效 */
     private void cycleDisplayMode() {
         String next = SettingsDrawerLogic.nextDisplayMode(currentDisplayMode);

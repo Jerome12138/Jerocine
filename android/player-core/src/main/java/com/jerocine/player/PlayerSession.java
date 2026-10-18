@@ -382,6 +382,11 @@ public class PlayerSession {
         int safeStart = Math.max(0, Math.min(startIndex, items.size() - 1));
         introSkippedForCurrent = false;
         outroPromptShown = false;
+        // 装载即"切集窗口"(2026-10-18 修): setMediaItems 首次装载**不触发** onMediaItemTransition,
+        // 旧逻辑只靠切集路径 markEpisodeSwitching ⇒ 冷启动起播的过滤窗口里
+        // isFilteringWindow 恒 false —— 「正在准备视频 · 广告过滤中」不显示、普通缓冲提示
+        // 也无人抑制。STATE_READY 时统一复位, 本地集/过滤关时 isFilteringWindow 自然为 false。
+        markEpisodeSwitching();
         player.setMediaItems(items, safeStart, Math.max(0L, resumeMs));
         player.prepare();
         player.setPlayWhenReady(true);

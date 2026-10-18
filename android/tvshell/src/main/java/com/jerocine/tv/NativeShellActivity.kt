@@ -304,6 +304,15 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
         getSharedPreferences(ShellPrefs.NAME, MODE_PRIVATE)
             .getString(ShellPrefs.KEY_SHELL_MODE, "auto") ?: "auto"
 
+    // ---- Web 播放设置(仅 web 壳有消费者; 原生壳无 web 层, 恒回调 null, 抽屉按默认值兜底) ----
+    override fun getWebSettings(callback: JcSettingsDrawer.WebSettingsCallback) {
+        callback.onResult(null)
+    }
+
+    override fun setWebSetting(key: String, value: String, callback: JcSettingsDrawer.WebSettingsCallback) {
+        callback.onResult(null)
+    }
+
     override fun onDestroy() {
         JerocinePlayer.config().setCallback(null)
         super.onDestroy()
