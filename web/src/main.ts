@@ -10,6 +10,7 @@ import App from './App.vue'
 import router from './router'
 import { installViewMode } from '@/composables/useViewMode'
 import { installNativeAuthHook } from '@/composables/useNativeAuth'
+import { installWebSettingsHook } from '@/composables/useWebSettings'
 import { installCapacitorShim } from '@/utils/capacitorShim'
 import { telemetry } from '@/utils/telemetry'
 
@@ -46,6 +47,10 @@ installViewMode()
 // 原生壳：挂 window.__jcAuth 供 Java 设置抽屉的「账号」行取登录态 / 调登录退出
 // （须在 app.use(pinia) 之后 —— 钩子内部 useUserStore() 需要 active pinia）
 installNativeAuthHook()
+
+// 挂 window.__jcConfig 供 Java 设置抽屉读写 web 端播放设置(广告过滤/取源方式/中转/连播),
+// 数据存 web localStorage(useWebSettings), 两端改的是同一份。
+installWebSettingsHook()
 
 // 等路由初始导航完成(懒加载 chunk + 异步守卫)后再挂载。
 // 否则首帧 useRoute() 返回 START_LOCATION('/') → layout 误判为 public,

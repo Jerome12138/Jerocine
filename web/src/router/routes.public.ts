@@ -58,9 +58,15 @@ export const publicRoutes: RouteRecordRaw[] = [
     component: () => import('@/views/public/FavoritesView.vue'),
     meta: { layout: 'public', title: '我的收藏' }
   },
-  // /settings 已删（2026-10-10）：TV 的设备级/账号级设置都收进原生抽屉（账号行经
-  // window.__jcAuth 直接读写 web 登录态），SPA 设置页没有存在意义了。
-  // 片头片尾的"按片"设置仍在播放页（useSkipSettings），账号级默认值的数据协议保留备用。
+  // /settings 于 2026-10-10 删除过（当时设置全收进原生抽屉）。2026-10-18 重新加入:
+  // web 状态开关(广告过滤/取源方式/全量中转/自动连播)需要独立配置页,
+  // 数据仍存 web localStorage(useWebSettings 单一数据源), 安卓抽屉经 window.__jcConfig 读写同一份。
+  {
+    path: '/settings',
+    name: 'settings',
+    component: () => import('@/views/public/SettingsView.vue'),
+    meta: { layout: 'public', title: '设置' }
+  },
   {
     path: '/login',
     name: 'login',
