@@ -147,12 +147,81 @@ public static boolean isM3u8(String rawUrl) {
     }
 
     /**
-     * 从(已绝对化的)HLS 清单文本里提取**子清单** URL — master 表的各码率子表, 供端侧预取下钻一层。
+     * 判断 m3u8 文本是否为**媒体列表**(含分片, 有 #EXTINF) —— 区别于 master 主表。
      *
-     * 为什么必须下钻: /v1/m3u8/filter 只做"剔广告 + URI 绝对化", **不改写子表地址**
-     * (服务端 FilterText 以 proxyChild=false 调用)。所以 master 过滤后 ExoPlayer 仍会去抓
-     * **原始 CDN 子表**, 再送一次 filter ⇒ 端侧路径每集要付两次过滤(实测单次 1.4~5.1s)。
-     * 预取器不把子表一起预热, 切集就仍要白等一轮。
+     * <p>master 主表只有变体声明(#EXT-X-STREAM-INF/#EXT-X-MEDIA), 没有任何分片可剔:
+     * 服务端 /v1/m3u8/filter 对它的全部产出就是"URI 绝对化", 而 ExoPlayer 解析时本来就会做。
+     * 所以 master 层可以**整层免 POST**(播放路径 master-direct / 预取器同款), 把端侧路径的
+     * "master + 子表"两趟"上行清单 + 服务器往返"(实测单次 0.13~3.3s)减为一趟。
+     * 判据用 #EXTINF: 按 HLS 规范媒体列表必有它, master/空表没有 —— 与服务端
+     * FilterText"无分片即无事可做"的行为一致, 跳过不丢任何过滤能力。
+     */
+    public static boolean hasMediaSegments(String text) {
+        if (text == null || text.isEmpty()) return false;
+        for (String rawLine : text.split("\r?\n")) {
+            if (rawLine.trim().toUpperCase(Locale.US).startsWith("#EXTINF")) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 相对引用 → 绝对 URL; 解析不了返回 null(调用方跳过即可, 不影响正确性)。
+     *
+     * <p>供预取器在"master 免 POST 直通"后下钻子表: 以前 master 的子表地址是靠服务端
+     * 过滤输出顺手绝对化的, 那一层不再 POST 后需端侧自己解析。先走 java.net.URI
+     * (标准 RFC 3986 resolve); 源 URL 常含未转义字符(空格/中文/|)会抛异常 → 手工兜底
+     * (绝对/协议相对/根相对/路径相对, 含 ".." 消化); 再不行返回 null, 退化为切集时
+     * 现过滤(只损失预取收益)。
+     */
+    public static String absolutize(String ref, String base) {
+        if (ref == null || ref.isEmpty() || base == null || base.isEmpty()) return null;
+        if (ref.startsWith("http://") || ref.startsWith("https://")) return ref;
+        try {
+            return new java.net.URI(base).resolve(new java.net.URI(ref)).toString();
+        } catch (Exception ignore) {
+            // fall through → 手工兜底
+        }
+        if (ref.startsWith("//")) {
+            int schemeEnd = base.indexOf("://");
+            return schemeEnd > 0 ? base.substring(0, schemeEnd) + ":" + ref : null;
+        }
+        int schemeEnd = base.indexOf("://");
+        if (schemeEnd <= 0) return null;
+        int pathStart = schemeEnd + 3;
+        if (ref.startsWith("/")) {
+            int pathSlash = base.indexOf('/', pathStart);
+            return (pathSlash > 0 ? base.substring(0, pathSlash) : base) + ref;
+        }
+        // 路径相对: 以 base 去掉 query/fragment 后的"目录"为基准, 逐段消化 "." / ".."
+        int q = base.indexOf('?', pathStart);
+        String basePath = q > 0 ? base.substring(0, q) : base;
+        int lastSlash = basePath.lastIndexOf('/');
+        String dir = lastSlash >= pathStart ? basePath.substring(0, lastSlash + 1) : basePath + "/";
+        java.util.Deque<String> segs = new java.util.ArrayDeque<>();
+        for (String seg : ref.split("/")) {
+            if (seg.isEmpty() || seg.equals(".")) continue;
+            if (seg.equals("..")) {
+                if (!segs.isEmpty()) segs.pollLast();
+                continue;
+            }
+            segs.addLast(seg);
+        }
+        StringBuilder sb = new StringBuilder(dir);
+        for (String seg : segs) {
+            if (sb.charAt(sb.length() - 1) != '/') sb.append('/');
+            sb.append(seg);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 从 HLS master 文本里提取**子清单** URL — master 表的各码率子表, 供端侧预取下钻一层。
+     * 文本可以是原始 master(相对地址)或已绝对化的过滤输出; 相对地址由调用方
+     * {@link #absolutize} 解析。
+     *
+     * 为什么必须下钻: 端侧路径里 master 层已免 POST(见 {@link #hasMediaSegments}),
+     * 子表(媒体列表)才是唯一要过滤的一层 —— 预取器不把子表一起预热,
+     * 切集就仍要付一次"上行清单 + 服务器往返"(实测单次 1.4~5.1s)。
      *
      * 识别规则: `#EXT-X-STREAM-INF` 之后的第一行(非注释非空)是子清单; `#EXT-X-MEDIA` 的
      * `URI="..."` 也是子清单(备用音轨/字幕)。只收 m3u8 形态的 URI, 去重保序。

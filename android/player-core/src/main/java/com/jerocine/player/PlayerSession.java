@@ -211,6 +211,14 @@ public class PlayerSession {
      * (抹掉会让 READY 的状态提示误报"该源无需过滤"/丢失"已过滤 N 段", 2026-10-10 用户实测)。
      */
     volatile String lastParsedPlaylistUrl = "";
+    /**
+     * 最近一次被"master-direct"直通的 master 地址(loader 线程写/读, 见
+     * {@link PlayerAdFilterHelper.FilterPlaylistParser}): master 层免 POST 后, 子表过滤失败
+     * 升级({@code escalateToProxy})拿到的失败 URL 是**子表地址**, 不在 currentRawUrls 里 ——
+     * 借这里记录的本集 master 反查集索引。media 直链源(无 master)失败时走原路径直接命中,
+     * 不读这个字段。
+     */
+    volatile String currentFilterMasterUrl = "";
 
     // ===== 端侧预取缓存(下一集清单) =====
     /**

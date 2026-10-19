@@ -1445,8 +1445,9 @@ private static String failedRequestUrl(Throwable error) {
     /**
      * 是否处于**起播/切集的广告过滤窗口**: 缓冲中、正在切集、开着广告过滤、且当前集不是本地。
      *
-     * <p>这个窗口里播放器在等"过滤后的清单"(端侧 POST /v1/m3u8/filter, master + 子表两趟),
-     * 媒体分片尚未开始装载 —— 所以 `getBufferedPercentage()` 恒 0。
+     * <p>这个窗口里播放器在等"过滤后的清单"(端侧 POST /v1/m3u8/filter —— master 层已免 POST
+     * 直通, 只有媒体列表一趟, 见 PlayerUrls.hasMediaSegments), 媒体分片尚未开始装载 ——
+     * 所以 `getBufferedPercentage()` 恒 0。
      * 本判定服务 {@link #updateFilterLoadingText} —— 显示「正在准备视频 · 广告过滤中」。
      * (普通缓冲的「缓冲中 x%」toast 已于 2026-10-18 整体下线, 无需再抑制。)
      * 本地集清单已过滤过, 不存在"过滤中"(统一判定, 见 PlayerModes)。

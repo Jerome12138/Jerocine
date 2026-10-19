@@ -17,14 +17,17 @@ import okhttp3.Response;
 /**
  * 下一集清单预取 — 端侧优先路径的加速器.
  *
- * 背景: 端侧优先下每集要过滤**两次**清单(master + 子表, 服务端 FilterText 只绝对化不改写子表),
- * 单次实测 1.4s(小清单)~5.1s(900+ 段大清单) ⇒ 切集白等 3~10s。清单本身很小(上行 ~25KB),
+ * 背景: 端侧优先下每集有一次**在过滤窗口里白等**的媒体列表过滤(服务端 FilterText 只绝对化
+ * 不改写子表; master 层已免 POST 直通, 见 PlayerUrls.hasMediaSegments),
+ * 单次实测 1.4s(小清单)~5.1s(900+ 段大清单) ⇒ 切集白等 1~5s。清单本身很小(上行 ~25KB),
  * 提前抓取代价极低。
  *
  * 只做三件事:
  *   ① 进入片尾窗口后, 后台 GET 下一集的原始清单;
- *   ② POST /v1/m3u8/filter 端侧过滤, 结果写进 {@link PlayerSession} 的预取缓存;
- *   ③ 若是 master 表, 再下钻一层把子表也预热(否则切集仍会卡在子表那次过滤上)。
+ *   ② POST /v1/m3u8/filter 端侧过滤(媒体列表才 POST, master 层免 POST 直通), 结果写进
+ *      {@link PlayerSession} 的预取缓存;
+ *   ③ 若是 master 表, 再下钻一层把子表也预热(否则切集仍会卡在子表那次过滤上);
+ *      master 免 POST 后子表地址不再被服务端顺手绝对化, 由 {@link PlayerUrls#absolutize} 端侧解析。
  *
  * **触发时机 = 距片尾/跳过片尾点 {@link #NEAR_OUTRO_LEAD_MS}(60s) 内**(与 web 播放页的
  * `PREFETCH_LEAD_S` 对齐, 见 {@link PlayerActivity#maybeRefreshPrefetchNearOutro()})。
@@ -142,24 +145,37 @@ public class PlayerPrefetchHelper {
         });
     }
 
-    /** 后台线程: 抓原始清单 → 端侧过滤 → 写缓存; depth=0 时再下钻一层子表. */
+    /** 后台线程: 抓原始清单 → 媒体列表才 POST 过滤(master 免 POST) → 写缓存; depth=0 再下钻一层子表. */
     private void prefetchOne(String url, int depth, int gen) {
         if (gen != session.prefetchGeneration()) return;
         byte[] raw = fetch(url);
         if (raw == null) return;
-        PlayerSession.Prefetched done = filterViaServer(url, raw);
-        if (done == null) return;
-        // 预取与播放共用同一条端侧过滤链路: 成功即清失败连击(见 FilterEscalationPolicy)
-        session.clientFilterFailStreak = 0;
-        session.putPrefetched(url, done.data, done.filteredCount, gen);
+        String text = new String(raw, StandardCharsets.UTF_8);
+        byte[] data = raw;
+        int filteredCount = 0;
+        if (PlayerUrls.hasMediaSegments(text)) {
+            // 媒体列表(广告在这层)才值得 POST; master 层与播放路径 master-direct 一致免 POST
+            PlayerSession.Prefetched done = filterViaServer(url, raw);
+            if (done == null) return;
+            data = done.data;
+            filteredCount = done.filteredCount;
+            // 预取与播放共用同一条端侧过滤链路: 成功即清失败连击(见 FilterEscalationPolicy)
+            session.clientFilterFailStreak = 0;
+        }
+        // master 也照写缓存: 播放路径 master 层已免 POST 直通(不查缓存), 写它纯粹为了让
+        // schedule() 的 REFRESH_MIN_AGE 节流照常工作 —— 不写的话片尾窗口会每 5s 重抓一次 master。
+        session.putPrefetched(url, data, filteredCount, gen);
         if (depth >= MAX_CHILD_DEPTH) return;
         // 子表串行做(1~3 个): 与 master 共用一条预取线程, 不必再开并发.
         // 与 master 同批重做(不看是否已有缓存) —— 保证整棵树的过滤结果同一时间基准, 别一半新鲜一半旧.
-        List<String> children = PlayerUrls.childPlaylistUrls(
-                new String(done.data, StandardCharsets.UTF_8), MAX_CHILD_PLAYLISTS);
+        List<String> children = PlayerUrls.childPlaylistUrls(text, MAX_CHILD_PLAYLISTS);
         for (String child : children) {
             if (gen != session.prefetchGeneration()) return;
-            prefetchOne(child, depth + 1, gen);
+            // master 免 POST 后子表地址不再被服务端顺手绝对化 → 端侧自行解析;
+            // 解析失败跳过该子表(退化为切集时现过滤, 只损失预取收益不影响正确性)
+            String abs = PlayerUrls.absolutize(child, url);
+            if (abs == null) continue;
+            prefetchOne(abs, depth + 1, gen);
         }
     }
 
@@ -192,7 +208,7 @@ public class PlayerPrefetchHelper {
         final String url;
         try {
             url = base + "/v1/m3u8/filter?src="
-                    + java.net.URLEncoder.encode(srcUrl, "UTF-8");
+                    + PlayerUrls.encodeParam(srcUrl);
         } catch (Exception e) {
             return null;
         }

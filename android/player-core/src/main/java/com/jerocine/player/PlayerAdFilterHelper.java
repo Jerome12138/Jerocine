@@ -212,6 +212,11 @@ public class PlayerAdFilterHelper {
         android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.layer("escalate", decision, 0L, srcTag));
     }
 
+    /** 埋点: 子表地址借 master 反查到集索引(升级归因从"子表 URL"落到"第 N 集")。 */
+    private static void logEscalateViaMaster(String srcTag, int idx) {
+        logEscalate(srcTag, "via-master idx=" + idx);
+    }
+
     static byte[] readAll(InputStream in) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
@@ -247,11 +252,20 @@ public class PlayerAdFilterHelper {
         // 用户在这期间按▼切到第 6 集 → post 执行时索引已是 5 → **第 6 集被无端标记
         // forceProxy 并 replaceMediaItem 重建**(打断用户已在看的这一集), 并连带
         // invalidatePrefetch() 把第 6 集已预取好的清单一起清掉。真正失败的第 5 集反被漏标。
-        final int failedIdx = indexOfRawUrl(failedUrl);
-        if (failedIdx < 0) {
+        // master-direct(2026-10-19)之后, 失败 URL 还可能是**子表地址**(媒体层过滤失败),
+        // 不在 currentRawUrls 里 → 借"最近直通的 master"(currentFilterMasterUrl)反查。
+        int resolvedIdx = indexOfRawUrl(failedUrl);
+        if (resolvedIdx < 0 && !session.currentFilterMasterUrl.isEmpty()) {
+            resolvedIdx = indexOfRawUrl(session.currentFilterMasterUrl);
+            if (resolvedIdx >= 0) {
+                logEscalateViaMaster(srcTag, resolvedIdx);
+            }
+        }
+        if (resolvedIdx < 0) {
             logEscalate(srcTag, "skip idx-unknown");
             return;
         }
+        final int failedIdx = resolvedIdx;
         new Handler(Looper.getMainLooper()).post(() -> {
             if (session.player == null) {
                 logEscalate(srcTag, "skip player-gone");
@@ -297,8 +311,10 @@ public class PlayerAdFilterHelper {
     /**
      * 自定义 HLS 播放列表解析器 — 抓到 m3u8 后送 /v1/m3u8/filter 剔广告, 再交默认解析器.
      *
-     * 先查 {@link PlayerSession} 的预取缓存(起播后由 {@link PlayerPrefetchHelper} 提前过滤好的
-     * master + 子表): 命中就直接用, 省掉一次 1.4~5.1s 的 POST —— 这是"切集不再白等"的关键。
+     * 分层动作(2026-10-19 起): master 主表(无分片)免 POST 直通(master-direct,
+     * URI 绝对化由 ExoPlayer 自行完成); 只有媒体列表才查 {@link PlayerSession} 的预取缓存
+     * (起播后由 {@link PlayerPrefetchHelper} 提前过滤好的子表), 命中就直接用 ——
+     * 省掉一次 1.4~5.1s 的 POST, 这是"切集不再白等"的关键。
      */
     class FilterPlaylistParser implements ParsingLoadable.Parser<HlsPlaylist> {
         private final ParsingLoadable.Parser<HlsPlaylist> delegate;
@@ -321,8 +337,22 @@ public class PlayerAdFilterHelper {
                     // /m3u8/proxy 已在服务端完成过滤与媒体地址改写, 不必再同步 POST 一次
                     session.filterAttempted = true;
                     logTrace(srcTag, "server-proxy");
-                } else if (session.proxyBase != null && !session.proxyBase.isEmpty()) {
-                    // 预取命中: 起播后已把下一集(master + 子表)过滤好放缓存 → 直接用, 不再付 POST 代价
+                } else if (session.proxyBase == null || session.proxyBase.isEmpty()) {
+                    session.filterProxyMissing = true; // 开关开着却没代理地址 → 起播提示"未生效"
+                    logTrace(srcTag, "no-proxy");
+                } else if (!PlayerUrls.hasMediaSegments(
+                        new String(data, java.nio.charset.StandardCharsets.UTF_8))) {
+                    // master 主表: 无分片可剔, 过滤的全部产出只是"URI 绝对化" —— ExoPlayer
+                    // 解析时本来就会做。免 POST 直接放行, 省一次"上行清单 + 服务器往返"
+                    // (实测单次 0.13~3.3s): 端侧路径 master+子表两趟 POST 减为一趟,
+                    // 起播/切集的过滤窗口近似减半(2026-10-19 加速)。
+                    // 记录本层 master 地址, 供子表过滤失败升级时反查集索引(见 escalateToProxy)。
+                    session.currentFilterMasterUrl = uri.toString();
+                    logTrace(srcTag, "master-direct");
+                } else {
+                    // 媒体列表(分片在这层, 广告也在这层): 才值得 POST 过滤。
+                    // 先查预取缓存(起播后由 PlayerPrefetchHelper 提前过滤好的子表):
+                    // 命中就直接用, 不再付 POST 的代价 —— 这是"切集不再白等"的关键。
                     PlayerSession.Prefetched cached = session.takePrefetched(uri.toString());
                     if (cached != null) {
                         data = cached.data;
@@ -342,9 +372,6 @@ public class PlayerAdFilterHelper {
                             escalateToProxy(uri.toString()); // 端侧失败 → 本集升级服务端代理(带失败 URL 以定位是哪一集)
                         }
                     }
-                } else {
-                    session.filterProxyMissing = true; // 开关开着却没代理地址 → 起播提示"未生效"
-                    logTrace(srcTag, "no-proxy");
                 }
             }
             return delegate.parse(uri, new ByteArrayInputStream(data));
