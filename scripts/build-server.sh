@@ -140,7 +140,7 @@ mkdir -p "$OUT"
 TS="$(date +%Y%m%d-%H%M%S)"
 SHA="$(git -C "$(to_native "$REPO")" rev-parse --short=7 HEAD 2>/dev/null || printf 'nogit')"
 STAGE="$(cd "$(mktemp -d)" && pwd)"
-trap 'rm -rf "$STAGE"' EXIT
+trap 'rm -rf "$STAGE"; rm -f "$STAGE.pkg.tar"' EXIT
 
 export CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH"
 export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
@@ -149,9 +149,12 @@ info "交叉编译后端 linux/$ARCH（$(go version | awk '{print $3}')）"
 ( cd "$SRV" && go build -trimpath -ldflags="-s -w" -o "$(to_native "$STAGE/main")" ./cmd/server )
 
 check_elf "$STAGE/main" "$ARCH"
-# 补 exec 位(Windows 文件系统上 go 产物默认 644; Git Bash 的 chmod 能落到 tar 的 mode 里)。
-# 双保险 —— 运行镜像侧还有 COPY --chmod=0755 兜底, 但裸用包内容(如手工解包替换)时靠这层。
-chmod 0755 "$STAGE/main"
+# 补 exec 位(Windows 文件系统上 go 产物默认 644)。⚠️ 本机 MSYS 是 noacl 挂载, chmod 对
+# 普通文件是 no-op(2026-10-19 实测 stat 仍 644, 曾据此误以为已修) —— 所以 exec 位改在
+# **tar 层面**强制: 先打不含 main 的主体, 再 `tar --mode` 单独追加 main(GNU tar 把 mode
+# 写进包头字段, 与宿主 FS 无关)。双保险 —— 运行镜像侧还有 COPY --chmod=0755 兜底,
+# 但裸用包内容(如手工解包替换)时靠这层。
+chmod 0755 "$STAGE/main" || true
 
 # ---------------------------------------------------------------- 打包
 
@@ -162,9 +165,13 @@ cp "$SRV/data/ip2region.db" "$STAGE/data/"
 cp "$REPO/LICENSE" "$STAGE/LICENSE"
 
 PKG="$OUT/jerocine-server-$TS-$SHA-linux-$ARCH.tar.gz"
-rm -f "$PKG"
+RAW_TAR="$STAGE.pkg.tar"
+rm -f "$RAW_TAR" "$PKG"
 info "打包 $PKG"
-tar -czf "$PKG" -C "$STAGE" .
+tar -cf "$RAW_TAR" -C "$STAGE" --exclude=./main .
+tar -rf "$RAW_TAR" -C "$STAGE" --mode='u+rwx,go+rx' ./main
+gzip -c "$RAW_TAR" > "$PKG"
+rm -f "$RAW_TAR"
 pkg_has_entry "$PKG" './main' || die "产物包内没有 ./main"
 # 可执行位断言(踩过一次: Windows 上 tar 进包的 main 是 644, distroless nonroot 起容器
 # 直接 permission denied)。tar -tvzf 第 1 列是 mode。
