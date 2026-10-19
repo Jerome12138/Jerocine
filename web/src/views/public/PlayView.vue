@@ -411,22 +411,30 @@ function clientFilterUrl(originalUrl: string): string {
 }
 
 /**
- * 抓单张 m3u8 → 送服务器过滤文本 → 返回过滤后文本 + 剔除数。
- * (浏览器抓源无地域封; 服务器只过滤文本不联网, 把分片/子表绝对化。)
- * signal: 切集/切源时 abort 两次 fetch。
+ * GET 原始清单文本。
+ * signal: 切集/切源时 abort。
  */
-async function fetchAndFilter(
-  url: string,
-  signal: AbortSignal
-): Promise<{ text: string; filtered: number }> {
+async function fetchPlaylist(url: string, signal: AbortSignal): Promise<string> {
   const raw = await fetch(url, { cache: 'no-store', signal })
   if (!raw.ok) throw new Error(`fetch m3u8 ${raw.status}`)
   const text = await raw.text()
   if (!text) throw new Error('empty m3u8')
+  return text
+}
+
+/**
+ * POST 清单文本到服务器过滤(端侧混合过滤的"过滤"半程, 浏览器抓源无地域封;
+ * 服务器只过滤文本不联网, 把分片/子表绝对化)。返回过滤后文本 + 剔除数。
+ */
+async function filterViaServer(
+  url: string,
+  rawText: string,
+  signal: AbortSignal
+): Promise<{ text: string; filtered: number }> {
   const resp = await fetch(clientFilterUrl(url), {
     method: 'POST',
     headers: { 'Content-Type': 'application/vnd.apple.mpegurl' },
-    body: text,
+    body: rawText,
     cache: 'no-store',
     signal
   })
@@ -450,29 +458,64 @@ function firstChildPlaylist(text: string): string | null {
 }
 
 /**
- * 端侧混合过滤: 浏览器抓 m3u8 → 服务器只过滤文本 → blob: 清单。
- * bf 等源对不同 IP 可能返回 master 主表(分片在子表里), 故**跟随 master→子表逐层过滤**
+ * 端侧混合过滤主链路: 逐层抓清单, **只有媒体列表(含分片)才 POST 服务器过滤**。
+ * master 主表没有任何分片可剔(过滤的全部产出只是 URI 绝对化, 浏览器本来就会做)
+ * → 免 POST 直接下钻子表, 把 master+子表两趟"上传清单+服务器往返"(实测单次 0.13~3.3s)
+ * 减为一趟, 过滤窗口近似减半(2026-10-19 加速, 与安卓 master-direct 同款)。
+ * bf 等源对不同 IP 可能返回 master 主表(分片在子表里), 故**跟随 master→子表逐层下钻**
  * (单清晰度 VOD 通常 1 层), 否则只过滤主表、带广告的子表会被播放器直连绕过。
- * 成功返回 { url, filtered }; 任一步失败抛错(由 resolvePlaySrc 接住做降级)。
+ * 成功返回 { text: 最终(已过滤、已绝对化)清单文本, filtered: 剔除数 };
+ * 任一步失败抛错(由 resolvePlaySrc 接住做降级)。
  */
-async function clientSideFilter(
+async function filterPlaylistChain(
   originalUrl: string,
   signal: AbortSignal
-): Promise<{ url: string; filtered: number }> {
+): Promise<{ text: string; filtered: number }> {
   let cur = originalUrl
-  let text = ''
-  let filtered = 0
+  let lastRaw = ''
   for (let depth = 0; depth < 3; depth++) {
-    const r = await fetchAndFilter(cur, signal)
-    text = r.text
-    filtered += r.filtered
-    const child = firstChildPlaylist(text)
-    if (!child) break // 已是媒体表(含分片), 停止
-    cur = child // 是 master, 跟进子表继续过滤(子表才含广告分片)
+    lastRaw = await fetchPlaylist(cur, signal)
+    const child = firstChildPlaylist(lastRaw)
+    if (child) {
+      // master: 子表地址端侧自行绝对化(以前靠服务端过滤输出顺手做)
+      cur = new URL(child, cur).href
+      continue
+    }
+    return filterViaServer(cur, lastRaw, signal) // 媒体列表: 过滤即终点
   }
-  // blob 清单(分片已绝对化, 浏览器可直接播)
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/vnd.apple.mpegurl' }))
-  return { url, filtered }
+  // 异常兜底: 3 层全是 master(病态源) → 把最后一层也 POST 一遍, 行为与旧实现一致
+  return filterViaServer(cur, lastRaw, signal)
+}
+
+/* ============ 端侧取源(client 模式)的下一集过滤结果缓存 ============
+ * 片尾窗口把下一集"抓源+过滤"整个提前跑掉, 过滤文本存这里(key=原始清单 URL);
+ * 自动切集时 resolvePlaySrc 缓存命中 → 直接 blob, 整个过滤窗口归零。
+ * 与安卓 PlayerPrefetchHelper 同款加速器; TTL 10min 与服务端过滤缓存对齐
+ * (m3u8 防盗链 token 通常远长于此)。离开播放页清空。 */
+const FILTERED_TEXT_TTL_MS = 10 * 60_000
+const filteredTextCache = new Map<string, { text: string; filtered: number; at: number }>()
+
+function rememberFilteredText(url: string, text: string, filtered: number): void {
+  filteredTextCache.set(url, { text, filtered, at: Date.now() })
+}
+
+function takeCachedFilteredText(url: string): { text: string; filtered: number } | null {
+  const hit = filteredTextCache.get(url)
+  if (!hit) return null
+  if (Date.now() - hit.at > FILTERED_TEXT_TTL_MS) {
+    filteredTextCache.delete(url)
+    return null
+  }
+  return hit
+}
+
+function clearFilteredTextCache(): void {
+  filteredTextCache.clear()
+}
+
+/** 由(已过滤、已绝对化的)清单文本创建可播 blob: URL —— resolvePlaySrc 的 client 路径终点。 */
+function createFilteredBlob(text: string): string {
+  return URL.createObjectURL(new Blob([text], { type: 'application/vnd.apple.mpegurl' }))
 }
 
 /**
@@ -546,19 +589,24 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     return
   }
 
-  // adFilter 开 + m3u8: 端侧混合过滤 —— 进入即显「广告过滤中」(蓝), 结果落地后按实际回填
+  // adFilter 开 + m3u8: 端侧混合过滤 —— 先查预取缓存(片尾窗口提前过滤好的下一集),
+  // 命中则直接 blob, 整个过滤窗口归零; 未命中才进入过滤(角标显「广告过滤中」, 结果落地回填)
+  const cached = takeCachedFilteredText(originalUrl)
+  if (cached) {
+    commit(createFilteredBlob(cached.text), 'application/x-mpegURL', true)
+    adFilterBadge.value = { kind: cached.filtered > 0 ? 'filtered' : 'clean', count: cached.filtered }
+    if (cached.filtered > 0 && originalUrl !== lastAdFilterToastUrl) {
+      lastAdFilterToastUrl = originalUrl
+      toast('success', adFilterSuccessMessage(cached.filtered))
+    }
+    return
+  }
   adFilterBadge.value = { kind: 'filtering', count: 0 }
   try {
-    const { url, filtered } = await clientSideFilter(originalUrl, signal)
-    if (token !== playSrcToken) {
-      try {
-        URL.revokeObjectURL(url)
-      } catch {
-        /* ignore */
-      }
-      return
-    }
-    commit(url, 'application/x-mpegURL', true)
+    const { text, filtered } = await filterPlaylistChain(originalUrl, signal)
+    rememberFilteredText(originalUrl, text, filtered) // 供"切走再切回"与重试复用
+    if (token !== playSrcToken) return
+    commit(createFilteredBlob(text), 'application/x-mpegURL', true)
     // I-017: 角标常驻反馈过滤结果
     adFilterBadge.value = { kind: filtered > 0 ? 'filtered' : 'clean', count: filtered }
     // 过滤成功提示: 沿用 adFilterSuccessMessage 文案, 数量取响应头 X-Ad-Filtered(不再二次查 stats)
@@ -571,15 +619,14 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     if (token !== playSrcToken) return
     // 端侧过滤失败重试一次(网络抖动/CORS 偶发失败, 避免直接降级导致过滤失效);
     // 切集 abort 会在 await/延时处立刻抛 AbortError, 由上方 token 检查丢弃。
+    // 重试前再查一次缓存 —— 若预取恰好在失败间隙完成, 直接用预取结果, 不再白跑。
     try {
       await abortableDelay(500, signal)
       if (token !== playSrcToken) return
-      const retry = await clientSideFilter(originalUrl, signal)
-      if (token !== playSrcToken) {
-        try { URL.revokeObjectURL(retry.url) } catch { /* ignore */ }
-        return
-      }
-      commit(retry.url, 'application/x-mpegURL', true)
+      const retry = takeCachedFilteredText(originalUrl) ?? (await filterPlaylistChain(originalUrl, signal))
+      if (token !== playSrcToken) return
+      rememberFilteredText(originalUrl, retry.text, retry.filtered)
+      commit(createFilteredBlob(retry.text), 'application/x-mpegURL', true)
       adFilterBadge.value = { kind: retry.filtered > 0 ? 'filtered' : 'clean', count: retry.filtered }
       return
     } catch {
@@ -1109,20 +1156,19 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
   loading.value = true
 }
 
-/* ============ 下一集预取(自动连播场景, 消除切集过滤 2-3s) ============
- * 仅当"自动连播开启 + 过滤取源为云端(server) + 有下一集 + 距自动切集点 <= 60s"才后台预取,
- * 预热服务器 10min 过滤缓存 → 自动切集时直接命中, 不再付"抓源+过滤"全价。
- * 幂等(每源每集只预取一次) + 静默失败(预取失败则切集时再付一次全价, 不影响播放)。
- * 注: 预取预热的是服务端 proxy 过滤缓存, 只对"云端取源"(filterMode=server)或端侧失败降级
- *     proxy 的源有效; 默认的端侧混合过滤(浏览器自己抓)不查该缓存 —— 故 client 模式不预取,
- *     省下一次无效的服务器境外抓源。切集时在途预取立即 abort。 */
+/* ============ 下一集预取(自动连播场景, 消除切集过滤窗口) ============
+ * 仅当"广告过滤开 + 自动连播开启 + 有下一集 + 距自动切集点 <= 60s"才后台预取(幂等+静默失败):
+ *   - 云端取源(server): GET /m3u8/proxy 预热服务器 10min 过滤缓存 → 切集直接命中;
+ *   - 端侧取源(client, 默认): 把下一集"抓源+过滤"整个提前跑掉, 过滤文本存本地缓存
+ *     (filteredTextCache) → 自动切集时 resolvePlaySrc 缓存命中, 过滤窗口归零。
+ * 切集时在途预取立即 abort。 */
 const PREFETCH_LEAD_S = 60
 const prefetchedEpisodeKey = ref('')
 let prefetchAbort: AbortController | null = null
 async function prefetchNextEpisode(): Promise<void> {
-  if (!autoPlayNext.value || !hasNext.value) return
-  // 端侧取源(默认)不查服务器过滤缓存, 预取没有收益(见上方注释)
-  if (filterMode.value !== 'server') return
+  if (!adFilter.value || !autoPlayNext.value || !hasNext.value) return
+  // 中转模式清单由服务器整体包装(proxyMedia=1), 端侧过滤结果没人消费
+  if (relayCache.value && currentSource.value?.adFilterOk !== false) return
   const nextIdx = currentEpisodeIndex.value + 1
   const key = `${currentSourceId.value}/${nextIdx}`
   if (prefetchedEpisodeKey.value === key) return
@@ -1137,12 +1183,19 @@ async function prefetchNextEpisode(): Promise<void> {
       ?.find((s) => s.id === currentSourceId.value)
       ?.episodes?.[nextIdx]
     if (!ep || !reM3u8.test(ep.link)) return
-    // 预热: 请求服务端 proxy(抓源站+过滤+写缓存), 响应丢弃; 失败静默不重试。
     // 挂 signal: 切集/切源时立即取消在途预取。
     prefetchAbort?.abort()
     const ctl = new AbortController()
     prefetchAbort = ctl
-    await fetch(proxyAdFilterUrl(ep.link), { method: 'GET', signal: ctl.signal })
+    if (filterMode.value === 'server' && currentSource.value?.adFilterOk !== false) {
+      // 云端取源: 预热服务端 proxy(抓源站+过滤+写缓存), 响应丢弃; 失败静默不重试。
+      await fetch(proxyAdFilterUrl(ep.link), { method: 'GET', signal: ctl.signal })
+    } else {
+      // 端侧取源(默认): 提前跑完整过滤链(master 免 POST), 过滤文本入本地缓存。
+      // 服务端明确抓不到的源(adFilterOk=false)云端取源必失败, 也落这里走端侧。
+      const r = await filterPlaylistChain(ep.link, ctl.signal)
+      rememberFilteredText(ep.link, r.text, r.filtered)
+    }
   } catch {
     /* 预取失败不影响播放(切集时再付一次全价); abort 走这里被静默吞掉 */
   }
@@ -1667,6 +1720,7 @@ onBeforeRouteLeave(() => {
   disposePlayer()
   cancelPendingResolve() // 在途的过滤/加载请求立即终止
   prefetchAbort?.abort() // 在途的下一集预取一并取消
+  clearFilteredTextCache() // 下一集过滤文本缓存一并清空(换片后旧片源的缓存无意义)
   revokeCurrentBlob() // 释放端侧过滤遗留的 blob: URL, 防内存泄漏
   if (typeof window !== 'undefined') {
     window.removeEventListener('keydown', handleKeydown)
