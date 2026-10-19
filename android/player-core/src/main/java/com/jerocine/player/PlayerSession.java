@@ -316,6 +316,9 @@ public class PlayerSession {
         filterAttempted = false;
         filterFailed = false;
         filterProxyMissing = false;
+        // master-direct 记的"本层 master 地址"属于上一集的话一并清掉 —— 竞态早退分支不清理
+        // (那时它已被新集 parse 覆写, 见上方竞态防护注释)。
+        currentFilterMasterUrl = "";
     }
 
     /** 当前媒体项 URI; player 未就绪/无项返回空串。 */

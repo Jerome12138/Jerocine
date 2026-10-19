@@ -4,9 +4,9 @@ package com.jerocine.player;
  * 广告过滤角标状态 — 纯逻辑(文案 + 色调), 可单测.
  *
  * 文案与色调逐字对齐前端 web 播放器({@code web/src/views/public/PlayView.vue} 的
- * {@code .jc-player-adtag} 五态): 圆点绿=正常/有结果, 灰=未启用/无需过滤, 蓝=服务端处理中.
+ * {@code .jc-player-adtag} 六态): 圆点绿=正常/有结果, 灰=未启用/无需过滤, 蓝=服务端处理中.
  *
- * 五态(与 web 同名同文案):
+ * 六态(与 web 同名同文案):
  *   off         过滤未开启        灰
  *   unsupported 该源无需过滤      灰
  *   proxy       服务端过滤中      蓝   (清单走服务端 /m3u8/proxy, 已过滤但数量未知)
