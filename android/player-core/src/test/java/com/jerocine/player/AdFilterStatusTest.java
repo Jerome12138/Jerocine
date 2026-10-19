@@ -5,7 +5,7 @@ import static org.junit.Assert.assertEquals;
 import org.junit.Test;
 
 /**
- * 广告过滤角标六态纯逻辑测试(文案/色调须与前端 web 播放器一致).
+ * 广告过滤角标七态纯逻辑测试(文案/色调须与前端 web 播放器一致).
  */
 public class AdFilterStatusTest {
 

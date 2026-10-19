@@ -4,9 +4,9 @@ package com.jerocine.player;
  * 广告过滤角标状态 — 纯逻辑(文案 + 色调), 可单测.
  *
  * 文案与色调逐字对齐前端 web 播放器({@code web/src/views/public/PlayView.vue} 的
- * {@code .jc-player-adtag} 六态): 圆点绿=正常/有结果, 灰=未启用/无需过滤, 蓝=服务端处理中.
+ * {@code .jc-player-adtag} 角标): 圆点绿=正常/有结果, 灰=未启用/无需过滤/失败, 蓝=服务端处理中.
  *
- * 六态(与 web 同名同文案):
+ * 七态(与 web 同名同文案):
  *   off         过滤未开启        灰
  *   unsupported 该源无需过滤      灰
  *   proxy       服务端过滤中      蓝   (清单走服务端 /m3u8/proxy, 已过滤但数量未知)
@@ -14,10 +14,11 @@ package com.jerocine.player;
  *                                     此前端侧过滤窗口误显"该源无需过滤")
  *   clean       未检出广告        绿
  *   filtered    已过滤 N 段广告   绿
+ *   failed      过滤失败          灰   (端侧 POST 过滤链路异常, 已回退原始源;
+ *                                     2026-10-19 起 web 同场景同文案, 不再是 Android 特有)
  *
  * Android 特有态(web 无对应场景, 属"必须有差异"):
  *   ineffective 过滤未生效        灰   (壳注入的代理地址缺失, 端侧过滤跑不起来)
- *   failed      过滤失败          灰   (端侧 POST 过滤链路异常, 已回退原始源)
  */
 public final class AdFilterStatus {
 

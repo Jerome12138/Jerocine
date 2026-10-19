@@ -72,3 +72,68 @@ export function buildAdFilterFailureEvent(ctx: AdFilterFailureCtx): {
     }
   }
 }
+
+/* ============ 清单判据 (与安卓 player-core PlayerUrls 同款口径) ============ */
+
+/**
+ * 判断 m3u8 文本是否为**媒体列表**(含分片, 有 #EXTINF) —— 区别于 master 主表。
+ *
+ * 与安卓 {@code PlayerUrls.hasMediaSegments} 同款内容判据: 按 HLS 规范媒体列表
+ * 每个分片必有 #EXTINF, master 主表只有变体声明(#EXT-X-STREAM-INF)没有分片。
+ * 不用 URL 扩展名猜 —— 变体地址不带 .m3u8 后缀的源(token 化 CDN 常见)按扩展名
+ * 会被误判成媒体表, master 层被当媒体层过滤, 带广告的子表被播放器直连绕过。
+ */
+export function hasMediaSegments(text: string): boolean {
+  for (const line of text.split('\n')) {
+    if (line.trim().toUpperCase().startsWith('#EXTINF')) return true
+  }
+  return false
+}
+
+/**
+ * master 主表下钻: 取第一个非注释 URI 作为子清单地址(**不看扩展名**, master/媒体
+ * 的区分只看内容判据 hasMediaSegments), 供过滤链路逐层跟进。
+ * 媒体列表(要就地过滤)或没有任何 URI 的文本返回 null —— 调用方对 null 一律按
+ * "媒体列表 → 就地 POST 过滤"处理, 病态输入退化为与旧实现一致的服务端过滤。
+ */
+export function firstChildPlaylistUrl(text: string): string | null {
+  if (hasMediaSegments(text)) return null
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (!t || t.startsWith('#')) continue
+    return t
+  }
+  return null
+}
+
+/* ============ 角标文案 (与安卓 AdFilterStatus 逐字对齐) ============ */
+
+/** 广告过滤角标状态 — 与安卓 AdFilterStatus 同名同文案(文案在 adFilterBadgeText). */
+export type AdFilterBadgeKind =
+  | 'off'
+  | 'unsupported'
+  | 'proxy'
+  | 'filtering'
+  | 'clean'
+  | 'filtered'
+  | 'failed'
+
+/** 角标文案。色调约定: off/unsupported/failed=灰, proxy/filtering=蓝, clean/filtered=绿。 */
+export function adFilterBadgeText(kind: AdFilterBadgeKind, count: number): string {
+  switch (kind) {
+    case 'off':
+      return '过滤未开启'
+    case 'unsupported':
+      return '该源无需过滤'
+    case 'proxy':
+      return '服务端过滤中'
+    case 'filtering':
+      return '广告过滤中'
+    case 'clean':
+      return '未检出广告'
+    case 'filtered':
+      return `已过滤 ${count} 段广告`
+    case 'failed':
+      return '过滤失败'
+  }
+}

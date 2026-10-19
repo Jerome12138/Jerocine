@@ -199,7 +199,7 @@ function toggleAdFilter(): void {
  */
 
 /**
- * 广告过滤结果角标 (I-017, 常驻六态):
+ * 广告过滤结果角标 (I-017, 常驻七态; 文案与安卓 AdFilterStatus 逐字对齐):
  *   off         = 过滤开关未开 → 「过滤未开启」
  *   unsupported = 非 m3u8 源(mp4 等无广告清单) → 「该源无需过滤」
  *   proxy       = 走服务端代理(云端取源/全量中转/端侧失败降级), 数量未知 → 「服务端过滤中」
@@ -207,30 +207,20 @@ function toggleAdFilter(): void {
  *                 此前该窗口角标整体隐藏, 不反映"正在过滤"的真实状态)
  *   clean       = 端侧过滤跑完但未检出 → 「未检出广告」
  *   filtered    = 端侧过滤检出并剔除 N 段 → 「已过滤 N 段广告」
+ *   failed      = 端侧过滤连败且服务端明确抓不到该源(adFilterOk=false), 已回退原始直链
+ *                 (未过滤, 可能有广告) → 「过滤失败」(2026-10-19 起; 此前该兜底误复用
+ *                 unsupported「该源无需过滤」, 与真实语义相反)
  * 每次集/源切换由 resolvePlaySrc 重置, 常驻播放器右上角。
  */
 interface AdFilterBadge {
-  kind: 'off' | 'unsupported' | 'proxy' | 'filtering' | 'clean' | 'filtered'
+  kind: AdFilterBadgeKind
   count: number
 }
 const adFilterBadge = ref<AdFilterBadge | null>(null)
 const adBadgeText = computed(() => {
   const b = adFilterBadge.value
   if (!b) return ''
-  switch (b.kind) {
-    case 'off':
-      return '过滤未开启'
-    case 'unsupported':
-      return '该源无需过滤'
-    case 'proxy':
-      return '服务端过滤中'
-    case 'filtering':
-      return '广告过滤中'
-    case 'clean':
-      return '未检出广告'
-    case 'filtered':
-      return `已过滤 ${b.count} 段广告`
-  }
+  return adFilterBadgeText(b.kind, b.count)
 })
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '/api'
@@ -445,20 +435,10 @@ async function filterViaServer(
 }
 
 /**
- * 从(已绝对化的)m3u8 文本取第一个子播放列表(.m3u8)绝对 URL;
- * 若第一个非注释 URI 是分片(.ts 等)则说明这是媒体表, 返回 null。
- */
-function firstChildPlaylist(text: string): string | null {
-  for (const line of text.split('\n')) {
-    const t = line.trim()
-    if (!t || t.startsWith('#')) continue
-    return /\.m3u8(\?|#|$)/i.test(t) ? t : null // 首个 URI: 子表→跟进; 分片→已是媒体表
-  }
-  return null
-}
-
-/**
- * 端侧混合过滤主链路: 逐层抓清单, **只有媒体列表(含分片)才 POST 服务器过滤**。
+ * 端侧混合过滤主链路: 逐层抓清单, **只有媒体列表(含分片, #EXTINF 判据)才 POST 服务器过滤**。
+ * master/媒体的判据用内容(#EXTINF, utils.hasMediaSegments, 与安卓 PlayerUrls 同款)而非
+ * URL 扩展名: 变体地址不带 .m3u8 后缀的源按扩展名会被误判成媒体表, master 层被当媒体层
+ * 过滤, 带广告的子表被播放器直连绕过(2026-10-19 修正)。
  * master 主表没有任何分片可剔(过滤的全部产出只是 URI 绝对化, 浏览器本来就会做)
  * → 免 POST 直接下钻子表, 把 master+子表两趟"上传清单+服务器往返"(实测单次 0.13~3.3s)
  * 减为一趟, 过滤窗口近似减半(2026-10-19 加速, 与安卓 master-direct 同款)。
@@ -475,7 +455,7 @@ async function filterPlaylistChain(
   let lastRaw = ''
   for (let depth = 0; depth < 3; depth++) {
     lastRaw = await fetchPlaylist(cur, signal)
-    const child = firstChildPlaylist(lastRaw)
+    const child = firstChildPlaylistUrl(lastRaw)
     if (child) {
       // master: 子表地址端侧自行绝对化(以前靠服务端过滤输出顺手做)
       cur = new URL(child, cur).href
@@ -635,7 +615,7 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     // 重试也失败 → 服务端 m3u8 已知不可达(ad_filter_ok=false)时直接走原始直链
     if (currentSource.value?.adFilterOk === false) {
       reportAdFilterFailure('web')
-      adFilterBadge.value = { kind: 'unsupported', count: 0 }
+      adFilterBadge.value = { kind: 'failed', count: 0 }
       commit(originalUrl, '', false)
       return
     }
@@ -944,8 +924,11 @@ import { isNative } from '@/utils/jerocineNative'
 import { dispatchNativePlaylist } from '@/utils/nativePlay'
 import { telemetry } from '@/utils/telemetry'
 import {
+  adFilterBadgeText,
   adFilterSuccessMessage,
-  buildAdFilterFailureEvent
+  buildAdFilterFailureEvent,
+  firstChildPlaylistUrl,
+  type AdFilterBadgeKind
 } from '@/utils/adFilter'
 
 /**
@@ -2617,9 +2600,10 @@ watch(playerReady, (v) => {
   background-color: #34d399;
   box-shadow: 0 0 6px rgba(52, 211, 153, 0.8);
 }
-/* I-017 六态配色: filtered/clean=绿(默认), off/unsupported=灰, proxy/filtering=蓝(处理中) */
+/* I-017 角标配色: filtered/clean=绿(默认), off/unsupported/failed=灰, proxy/filtering=蓝(处理中) */
 .jc-player-adtag[data-kind='off']::before,
-.jc-player-adtag[data-kind='unsupported']::before {
+.jc-player-adtag[data-kind='unsupported']::before,
+.jc-player-adtag[data-kind='failed']::before {
   background-color: #9ca3af;
   box-shadow: none;
 }

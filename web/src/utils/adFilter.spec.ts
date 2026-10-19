@@ -3,7 +3,10 @@ import {
   parseAdFilterStats,
   adFilterSuccessMessage,
   adFilterHost,
-  buildAdFilterFailureEvent
+  buildAdFilterFailureEvent,
+  hasMediaSegments,
+  firstChildPlaylistUrl,
+  adFilterBadgeText
 } from './adFilter'
 
 describe('parseAdFilterStats', () => {
@@ -70,5 +73,72 @@ describe('buildAdFilterFailureEvent', () => {
     expect(ev.action).toBe('native')
     expect(ev.extra.episode).toBe(-1)
     expect(ev.extra.filmId).toBe('')
+  })
+})
+
+describe('hasMediaSegments (#EXTINF 内容判据, 与安卓 PlayerUrls 同款)', () => {
+  const master = [
+    '#EXTM3U',
+    '#EXT-X-STREAM-INF:BANDWIDTH=1280000',
+    'playlist_b392800.m3u8',
+    '#EXT-X-STREAM-INF:BANDWIDTH=4285000',
+    'playlist_b4285000.m3u8'
+  ].join('\n')
+
+  it('媒体列表(#EXTINF) → true', () => {
+    expect(hasMediaSegments('#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:9.0,\nseg001.ts')).toBe(true)
+  })
+
+  it('master 主表只有变体声明 → false', () => {
+    expect(hasMediaSegments(master)).toBe(false)
+  })
+
+  it('大小写 / CRLF 不敏感', () => {
+    expect(hasMediaSegments('#EXTM3U\r\n#extinf:6.0,\r\nseg001.ts')).toBe(true)
+  })
+
+  it('空文本 → false', () => {
+    expect(hasMediaSegments('')).toBe(false)
+    expect(hasMediaSegments('#EXTM3U\n')).toBe(false)
+  })
+})
+
+describe('firstChildPlaylistUrl (master 下钻, 判据只看内容不看扩展名)', () => {
+  it('master: 首个 URI 即子表 —— **无 .m3u8 后缀的变体地址也跟进**(修: 按扩展名会误判成媒体表, 子表广告被绕过)', () => {
+    const master = [
+      '#EXTM3U',
+      '#EXT-X-STREAM-INF:BANDWIDTH=1280000',
+      'https://cdn.x.com/hls/720/list?token=abc',
+      '#EXT-X-STREAM-INF:BANDWIDTH=4285000',
+      'https://cdn.x.com/hls/1080/list?token=abc'
+    ].join('\n')
+    expect(firstChildPlaylistUrl(master)).toBe('https://cdn.x.com/hls/720/list?token=abc')
+  })
+
+  it('master: 带 .m3u8 后缀的变体照常返回', () => {
+    const master = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nchunklist.m3u8\n'
+    expect(firstChildPlaylistUrl(master)).toBe('chunklist.m3u8')
+  })
+
+  it('媒体列表 → null(即便首个分片 URL 的 query 恰好以 .m3u8 结尾)', () => {
+    const media = '#EXTM3U\n#EXTINF:9.0,\nseg001.ts?next=https://cdn.x.com/other.m3u8\n'
+    expect(firstChildPlaylistUrl(media)).toBeNull()
+  })
+
+  it('空文本 / 全注释(无 URI) → null(调用方退化为就地服务端过滤)', () => {
+    expect(firstChildPlaylistUrl('')).toBeNull()
+    expect(firstChildPlaylistUrl('#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n')).toBeNull()
+  })
+})
+
+describe('adFilterBadgeText (与安卓 AdFilterStatus 逐字对齐)', () => {
+  it('七态文案', () => {
+    expect(adFilterBadgeText('off', 0)).toBe('过滤未开启')
+    expect(adFilterBadgeText('unsupported', 0)).toBe('该源无需过滤')
+    expect(adFilterBadgeText('proxy', 0)).toBe('服务端过滤中')
+    expect(adFilterBadgeText('filtering', 0)).toBe('广告过滤中')
+    expect(adFilterBadgeText('clean', 0)).toBe('未检出广告')
+    expect(adFilterBadgeText('filtered', 3)).toBe('已过滤 3 段广告')
+    expect(adFilterBadgeText('failed', 0)).toBe('过滤失败')
   })
 })
