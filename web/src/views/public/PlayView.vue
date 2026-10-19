@@ -199,16 +199,18 @@ function toggleAdFilter(): void {
  */
 
 /**
- * 广告过滤结果角标 (I-017, 常驻五态):
+ * 广告过滤结果角标 (I-017, 常驻六态):
  *   off         = 过滤开关未开 → 「过滤未开启」
  *   unsupported = 非 m3u8 源(mp4 等无广告清单) → 「该源无需过滤」
- *   proxy       = 端侧抓流失败(如 CORS)降级服务端代理, 数量未知 → 「服务端过滤中」
+ *   proxy       = 走服务端代理(云端取源/全量中转/端侧失败降级), 数量未知 → 「服务端过滤中」
+ *   filtering   = 端侧过滤在途(抓清单+POST 未回, 结果未出) → 「广告过滤中」(2026-10-19 起,
+ *                 此前该窗口角标整体隐藏, 不反映"正在过滤"的真实状态)
  *   clean       = 端侧过滤跑完但未检出 → 「未检出广告」
  *   filtered    = 端侧过滤检出并剔除 N 段 → 「已过滤 N 段广告」
  * 每次集/源切换由 resolvePlaySrc 重置, 常驻播放器右上角。
  */
 interface AdFilterBadge {
-  kind: 'off' | 'unsupported' | 'proxy' | 'clean' | 'filtered'
+  kind: 'off' | 'unsupported' | 'proxy' | 'filtering' | 'clean' | 'filtered'
   count: number
 }
 const adFilterBadge = ref<AdFilterBadge | null>(null)
@@ -222,6 +224,8 @@ const adBadgeText = computed(() => {
       return '该源无需过滤'
     case 'proxy':
       return '服务端过滤中'
+    case 'filtering':
+      return '广告过滤中'
     case 'clean':
       return '未检出广告'
     case 'filtered':
@@ -542,7 +546,8 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     return
   }
 
-  // adFilter 开 + m3u8: 端侧混合过滤
+  // adFilter 开 + m3u8: 端侧混合过滤 —— 进入即显「广告过滤中」(蓝), 结果落地后按实际回填
+  adFilterBadge.value = { kind: 'filtering', count: 0 }
   try {
     const { url, filtered } = await clientSideFilter(originalUrl, signal)
     if (token !== playSrcToken) {
@@ -1763,7 +1768,7 @@ watch(playerReady, (v) => {
               </div>
               <!-- 右上角角标组: 广告过滤 + 分辨率 同行(间距 8px) -->
               <div class="jc-player-badges">
-                <!-- I-017: 广告过滤状态角标(常驻, 右上角, 五态) -->
+                <!-- I-017: 广告过滤状态角标(常驻, 右上角, 六态) -->
                 <div
                   v-if="adFilterBadge"
                   class="jc-player-adtag"
@@ -2558,13 +2563,14 @@ watch(playerReady, (v) => {
   background-color: #34d399;
   box-shadow: 0 0 6px rgba(52, 211, 153, 0.8);
 }
-/* I-017 五态配色: filtered/clean=绿(默认), off/unsupported=灰, proxy=蓝 */
+/* I-017 六态配色: filtered/clean=绿(默认), off/unsupported=灰, proxy/filtering=蓝(处理中) */
 .jc-player-adtag[data-kind='off']::before,
 .jc-player-adtag[data-kind='unsupported']::before {
   background-color: #9ca3af;
   box-shadow: none;
 }
-.jc-player-adtag[data-kind='proxy']::before {
+.jc-player-adtag[data-kind='proxy']::before,
+.jc-player-adtag[data-kind='filtering']::before {
   background-color: #60a5fa;
   box-shadow: 0 0 6px rgba(96, 165, 250, 0.8);
 }

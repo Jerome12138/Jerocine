@@ -50,7 +50,8 @@ const toggles = [
   <section class="jc-settings-page mx-auto w-full max-w-[720px]">
     <h1 class="jc-settings-page__title">设置</h1>
     <p class="jc-settings-page__hint">
-      安卓 App 内也可在「设置抽屉」修改同一批开关；数据保存在本设备的网页存储里。
+      此页设置对全部影片生效，保存在本设备的网页存储里；
+      播放页里针对单片影片的设置（如跳过片头/片尾）按影片单独记忆。
     </p>
 
     <!-- 播放开关 -->
