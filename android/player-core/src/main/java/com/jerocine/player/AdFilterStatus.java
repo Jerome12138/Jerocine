@@ -10,6 +10,8 @@ package com.jerocine.player;
  *   off         过滤未开启        灰
  *   unsupported 该源无需过滤      灰
  *   proxy       服务端过滤中      蓝   (清单走服务端 /m3u8/proxy, 已过滤但数量未知)
+ *   filtering   广告过滤中        蓝   (端侧抓清单+POST 过滤在途, 结果未出; 2026-10-19 起,
+ *                                     此前端侧过滤窗口误显"该源无需过滤")
  *   clean       未检出广告        绿
  *   filtered    已过滤 N 段广告   绿
  *
@@ -25,6 +27,7 @@ public final class AdFilterStatus {
     public static final String KIND_OFF = "off";
     public static final String KIND_UNSUPPORTED = "unsupported";
     public static final String KIND_PROXY = "proxy";
+    public static final String KIND_FILTERING = "filtering";
     public static final String KIND_CLEAN = "clean";
     public static final String KIND_FILTERED = "filtered";
     public static final String KIND_INEFFECTIVE = "ineffective";
@@ -50,6 +53,7 @@ public final class AdFilterStatus {
      * @param proxyMissing   开关开着但没有代理地址(壳未注入)
      * @param hls            当前播的是 HLS 清单(非 HLS 源无从过滤)
      * @param viaServerProxy 当前清单是服务端已经过滤过的 /m3u8/proxy(端侧不再重复过滤)
+     * @param filtering      端侧过滤在途(还没有任何结果; 起播/切集窗口应显"广告过滤中")
      * @param filterFailed   端侧过滤请求失败(已回退原始源)
      * @param filterAttempted 端侧过滤逻辑跑过(用于区分"跑完没检出"和"根本没触发")
      * @param filteredCount  本集剔除的分段数
@@ -59,6 +63,7 @@ public final class AdFilterStatus {
             boolean proxyMissing,
             boolean hls,
             boolean viaServerProxy,
+            boolean filtering,
             boolean filterFailed,
             boolean filterAttempted,
             int filteredCount
@@ -76,6 +81,11 @@ public final class AdFilterStatus {
         // 残留的失败标记(上一集/上一轮端侧 POST 失败)不该盖掉它, 否则角标会一直误报"过滤失败"。
         if (viaServerProxy) {
             return new AdFilterStatus(KIND_PROXY, Tone.BLUE, "服务端过滤中", 0);
+        }
+        // 端侧过滤在途: 起播/切集的第一帧就是真实状态(此前这段窗口误显"该源无需过滤")。
+        // 只在"还没有任何结果"时成立 —— 防御调用方误传: 已有结果(clean/filtered/failed)必须压过它。
+        if (filtering && !filterAttempted && !filterFailed && filteredCount == 0) {
+            return new AdFilterStatus(KIND_FILTERING, Tone.BLUE, "广告过滤中", 0);
         }
         if (filterFailed) {
             return new AdFilterStatus(KIND_FAILED, Tone.GRAY, "过滤失败", 0);

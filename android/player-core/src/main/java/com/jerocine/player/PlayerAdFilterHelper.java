@@ -90,7 +90,7 @@ public class PlayerAdFilterHelper {
         return "";
     }
 
-    /** 求出角标状态(无片源 → null, 壳层隐藏角标). 判据与前端 web 播放器五态一致. */
+    /** 求出角标状态(无片源 → null, 壳层隐藏角标). 判据与前端 web 播放器六态一致. */
     AdFilterStatus currentStatus() {
         String url = currentMediaUrl();
         if (url.isEmpty()) return null;
@@ -101,12 +101,33 @@ public class PlayerAdFilterHelper {
                 session.filterProxyMissing,
                 viaServerProxy || PlayerUrls.isM3u8(url),
                 viaServerProxy,
+                filteringInFlight(url),
                 session.filterFailed,
                 session.filterAttempted,
                 session.pendingFilteredCount);
     }
 
-    /** 刷新角标(五态整句 + 状态点), 由起播/切集/开关切换调用; 无片源时隐藏. */
+    /**
+     * 端侧过滤是否**在途**(角标应显「广告过滤中」): 本集还没有任何过滤结果
+     * (attempted/failed/count 全空) 且 当前清单确实要端侧过滤。
+     *
+     * <p>完全派生、无独立状态位: attempted 由 {@link #filterViaServer} 在**结果落地时**才写,
+     * 所以"POST 已发出还没回"与"切集后还没开始 POST"两种在途都由本判定覆盖 ——
+     * 起播/切集窗口的第一帧就能如实显示(2026-10-19 用户要求), 不再误显"该源无需过滤"。
+     * proxy 清单走「服务端过滤中」、本地集/非 HLS 由 AdFilterStatus 的更高优先级归态。
+     */
+    private boolean filteringInFlight(String url) {
+        if (session.filterAttempted || session.filterFailed
+                || session.pendingFilteredCount > 0) {
+            return false;
+        }
+        if (session.proxyBase == null || session.proxyBase.isEmpty()) return false;
+        if (!PlayerUrls.needsClientSideFilter(url)) return false;
+        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        return !session.isEpisodePlayingLocal(idx);
+    }
+
+    /** 刷新角标(六态整句 + 状态点), 由起播/切集/开关切换调用; 无片源时隐藏. */
     void updateAdFilterBadge() {
         session.host().renderAdFilterBadge(currentStatus());
     }
@@ -131,6 +152,8 @@ public class PlayerAdFilterHelper {
                 return "已过滤 " + st.count + " 段广告";
             case AdFilterStatus.KIND_PROXY:
                 return "本集由服务端过滤";
+            case AdFilterStatus.KIND_FILTERING:
+                return "正在过滤广告"; // 理论上 READY 前结果已落地, 仅防御兜底
             case AdFilterStatus.KIND_CLEAN:
                 return "本集未发现广告";
             default:
@@ -154,21 +177,29 @@ public class PlayerAdFilterHelper {
     /**
      * 同步 POST 原始 m3u8 到 /v1/m3u8/filter, 返回过滤后字节; 失败返回 null(用原始, 优雅降级).
      * 在 loader 线程调用. 网络/重试细节在 {@link M3u8FilterClient}, 这里只维护 session 过滤状态.
+     *
+     * <p>状态写入时机(2026-10-19 调整): {@code filterAttempted} 改在**结果落地时**才写
+     * (原先在 POST 发出前就置 true, 导致过滤中角标误显"未检出广告")。被取消(CANCELLED,
+     * 用户切集/退出中断 loader 线程)时**什么都不写** —— 新集的 reset 已跑或即将跑,
+     * 事后补写 failed=true 会把"过滤失败"脏到新集头上。
      */
     byte[] filterViaServer(String srcUrl, byte[] raw) {
-        session.filterAttempted = true;
-        M3u8FilterClient.Result r = M3u8FilterClient.filter(session.proxyBase, srcUrl, raw);
-        if (r == null) {
+        M3u8FilterClient.Outcome o = M3u8FilterClient.filterDetailed(session.proxyBase, srcUrl, raw);
+        if (o.cause == M3u8FilterClient.FailureCause.CANCELLED) {
+            return null; // 取消 ≠ 失败: 不写状态、不算连击, 让位给新集自己的过滤流程
+        }
+        session.filterAttempted = true; // 结果已出(无论成败): 在途期间角标显「广告过滤中」
+        if (o.result == null) {
             session.filterFailed = true;
             return null;
         }
         // 端侧链路活着: 清失败连击(见 escalateToProxy 的二连才粘策略)
         session.clientFilterFailStreak = 0;
         // master 表 cnt=0、子表才 cnt>0; 取最大, 待 STATE_READY 弹一次状态
-        if (r.filteredCount > session.pendingFilteredCount) {
-            session.pendingFilteredCount = r.filteredCount;
+        if (o.result.filteredCount > session.pendingFilteredCount) {
+            session.pendingFilteredCount = o.result.filteredCount;
         }
-        return r.data;
+        return o.result.data;
     }
 
     /** 埋点: 记录本层清单的路径决策(tag/格式见 {@link AdFilterTrace}); 网络耗时由真正的出口各自记录。 */
