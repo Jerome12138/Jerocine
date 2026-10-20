@@ -4,12 +4,22 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import RegisterView from './RegisterView.vue'
 import { useUserStore } from '@/stores/user'
-import { getRegisterConfig, sendRegisterCode, registerAccount } from '@/api/register'
+import {
+  getRegisterConfig,
+  sendRegisterCode,
+  registerAccount,
+  applyRegister,
+  applyStatus
+} from '@/api/register'
 
 vi.mock('@/api/register', () => ({
   getRegisterConfig: vi.fn(),
   sendRegisterCode: vi.fn(),
-  registerAccount: vi.fn()
+  registerAccount: vi.fn(),
+  applyRegister: vi.fn(),
+  applyStatus: vi.fn(),
+  resendActivation: vi.fn(),
+  activateAccount: vi.fn()
 }))
 
 const router = createRouter({
@@ -54,12 +64,6 @@ describe('RegisterView 自注册(open)', () => {
     mount(RegisterView, { global: { plugins: [router] } })
     await new Promise((r) => setTimeout(r, 10))
     expect(router.currentRoute.value.path).toBe('/login')
-  })
-
-  it('mode=apply(P1 占位) → 显示申请通道即将开放, 不渲染注册表单', async () => {
-    const w = await mountRegister('apply')
-    expect(w.text()).toContain('申请注册通道即将开放')
-    expect(w.find('form').exists()).toBe(false)
   })
 
   it('open: 空表单提交 → 依次提示用户名/密码/邮箱/验证码', async () => {
@@ -163,5 +167,84 @@ describe('RegisterView 自注册(open)', () => {
     await new Promise((r) => setTimeout(r, 10))
     await w.vm.$nextTick()
     expect(w.text()).toContain('邮件通道未配置')
+  })
+})
+
+describe('RegisterView 申请注册(apply)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(sendRegisterCode).mockReset()
+    vi.mocked(applyRegister).mockReset()
+    vi.mocked(applyStatus).mockReset()
+  })
+
+  it('apply → 渲染申请表单, 刻意无密码框', async () => {
+    const w = await mountRegister('apply')
+    expect(w.find('form').exists()).toBe(true)
+    expect(w.find('input[autocomplete="new-password"]').exists()).toBe(false)
+    expect(w.find('textarea').exists()).toBe(true)
+    expect(w.text()).toContain('提交申请')
+  })
+
+  it('apply: 空表单提交 → 依次提示用户名/邮箱/验证码(无密码项)', async () => {
+    const w = await mountRegister('apply')
+    await w.find('form').trigger('submit.prevent')
+    await w.vm.$nextTick()
+    expect(w.text()).toContain('请输入用户名')
+
+    await w.find('input[autocomplete="username"]').setValue('jerry')
+    await w.find('form').trigger('submit.prevent')
+    await w.vm.$nextTick()
+    expect(w.text()).toContain('请输入邮箱')
+
+    await w.find('input[autocomplete="email"]').setValue('a@b.com')
+    await w.find('form').trigger('submit.prevent')
+    await w.vm.$nextTick()
+    expect(w.text()).toContain('请输入验证码')
+    expect(applyRegister).not.toHaveBeenCalled()
+  })
+
+  it('apply: 提交成功 → 审核中状态页(三条预期) + payload 无 password + 自动查进度', async () => {
+    vi.mocked(applyRegister).mockResolvedValue({ applied: true })
+    vi.mocked(applyStatus).mockResolvedValue({ status: 'pending', reason: '', canResend: false })
+
+    const w = await mountRegister('apply')
+    await w.find('input[autocomplete="username"]').setValue('jerry')
+    await w.find('input[autocomplete="email"]').setValue('a@b.com')
+    await w.find('input[autocomplete="one-time-code"]').setValue('654321')
+    await w.find('textarea').setValue('朋友邀请来的')
+    await w.find('form').trigger('submit.prevent')
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(applyRegister).toHaveBeenCalledWith({
+      userName: 'jerry',
+      email: 'a@b.com',
+      reason: '朋友邀请来的',
+      code: '654321'
+    })
+    // 审核中状态页: 三条预期管理(含垃圾箱/数天内/回站查进度)
+    expect(w.text()).toContain('申请已提交')
+    expect(w.text()).toContain('垃圾箱')
+    expect(w.text()).toContain('数天')
+    // 进度面板预填邮箱自动查一次
+    expect(applyStatus).toHaveBeenCalledWith('a@b.com')
+    await w.vm.$nextTick()
+    expect(w.text()).toContain('审核中')
+  })
+
+  it('apply: 同邮箱在途 → 403 原文(审核中提示), 停留表单', async () => {
+    vi.mocked(applyRegister).mockRejectedValue(
+      new Error('注册申请审核中，请等待邮件通知')
+    )
+
+    const w = await mountRegister('apply')
+    await w.find('input[autocomplete="username"]').setValue('jerry')
+    await w.find('input[autocomplete="email"]').setValue('a@b.com')
+    await w.find('input[autocomplete="one-time-code"]').setValue('654321')
+    await w.find('form').trigger('submit.prevent')
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(w.text()).toContain('注册申请审核中，请等待邮件通知')
+    expect(w.find('form').exists()).toBe(true)
   })
 })

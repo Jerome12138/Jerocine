@@ -41,6 +41,7 @@ import * as banner from './banner'
 import * as collect from './collect'
 import * as cron from './cron'
 import * as file from './file'
+import * as register from './register'
 import * as system from './system'
 
 beforeEach(() => {
@@ -200,7 +201,6 @@ describe('manage system api → 新 REST 路由', () => {
     await system.dashboard()
     expect(h.calls[0]).toMatchObject({ method: 'GET', url: '/manage/dashboard' })
   })
-
   it('getBasic → GET /manage/site-config, description→describe/state→bool', async () => {
     const r = await system.getBasic()
     expect(h.calls[0]).toMatchObject({ method: 'GET', url: '/manage/site-config' })
@@ -227,5 +227,31 @@ describe('manage system api → 新 REST 路由', () => {
   it('clearTMDBKey → DELETE /manage/tmdb-key', async () => {
     await system.clearTMDBKey()
     expect(h.calls[0]).toMatchObject({ method: 'DELETE', url: '/manage/tmdb-key' })
+  })
+})
+
+describe('manage register(注册审核) api → 新 REST 路由', () => {
+  it('list → GET /manage/register/applies, status 缺省 -1(不限)', async () => {
+    await register.list()
+    expect(h.calls[0]).toMatchObject({ method: 'GET', url: '/manage/register/applies' })
+  })
+
+  it('approve → POST /manage/register/applies/:id/approve', async () => {
+    await register.approve(7)
+    expect(h.calls[0]).toMatchObject({ method: 'POST', url: '/manage/register/applies/7/approve' })
+  })
+
+  it('reject → POST /manage/register/applies/:id/reject {reason}', async () => {
+    await register.reject(7, '信息不实')
+    expect(h.calls[0]).toMatchObject({
+      method: 'POST',
+      url: '/manage/register/applies/7/reject',
+      body: { reason: '信息不实' }
+    })
+  })
+
+  it('resendActivation → POST /manage/register/applies/:id/resend-activation', async () => {
+    await register.resendActivation(7)
+    expect(h.calls[0]).toMatchObject({ method: 'POST', url: '/manage/register/applies/7/resend-activation' })
   })
 })

@@ -5,9 +5,11 @@ import QRCode from 'qrcode'
 import { useUserStore } from '@/stores/user'
 import * as deviceApi from '@/api/device'
 import * as registerApi from '@/api/register'
+import { ApiError } from '@/types/api'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
+import ApplyStatusPanel from '@/components/auth/ApplyStatusPanel.vue'
 import TvOnScreenKeyboard from '@/components/film/TvOnScreenKeyboard.vue'
 import { useViewMode } from '@/composables/useViewMode'
 
@@ -50,6 +52,9 @@ const redirectTo = computed(() => {
 
 /** 注册入口可见性: off 下线 / open 自由注册 / apply 申请审核。拉取失败按 off 保守处理(不显示入口) */
 const registerMode = ref<'off' | 'open' | 'apply'>('off')
+
+/** apply 模式: 「查询注册申请进度」面板展开态(输邮箱 → 状态/重发/重申) */
+const showApplyQuery = ref(false)
 
 async function loadRegisterMode(): Promise<void> {
   try {
@@ -179,7 +184,13 @@ async function handleLogin(): Promise<void> {
     // login 内部已 fetchInfo，role 就位
     await router.replace(redirectAfterLogin())
   } catch (e: unknown) {
-    errorMsg.value = e instanceof Error ? e.message : '登录失败'
+    let msg = e instanceof Error ? e.message : '登录失败'
+    // apply 模式申请态反馈(仅服务器端 403): 审核中 / 已驳回+理由;
+    // 驳回时补一句重申入口(design §9.4 三通道之三)。
+    if (e instanceof ApiError && e.status === 403 && msg.includes('驳回')) {
+      msg += '，可重新提交申请'
+    }
+    errorMsg.value = msg
   } finally {
     loading.value = false
   }
@@ -529,6 +540,20 @@ async function handleLogin(): Promise<void> {
       >
         立即注册
       </BaseButton>
+    </div>
+
+    <!-- apply 模式: 注册申请进度查询(输邮箱 → 状态/重发/重申; 邮件丢了的兜底通道) -->
+    <div v-if="registerMode === 'apply'" class="flex flex-col items-center gap-[var(--jc-space-3)]">
+      <button
+        v-if="!showApplyQuery"
+        type="button"
+        class="text-muted text-xs hover:text-primary underline"
+        data-focusable="true"
+        @click="showApplyQuery = true"
+      >
+        查询注册申请进度
+      </button>
+      <ApplyStatusPanel v-else @reapply="router.push('/register')" />
     </div>
 
     <p

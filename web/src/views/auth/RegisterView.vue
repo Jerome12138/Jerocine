@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import * as registerApi from '@/api/register'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
+import ApplyStatusPanel from '@/components/auth/ApplyStatusPanel.vue'
 import { useViewMode } from '@/composables/useViewMode'
 
 const route = useRoute()
@@ -13,17 +14,19 @@ const router = useRouter()
 const userStore = useUserStore()
 const { isTV } = useViewMode()
 
-/** 注册模式: off(入口不显示) / open(自由注册, 本表单) / apply(申请审核, P2) */
+/** 注册模式: off(入口不显示) / open(自由注册, 本表单) / apply(申请审核, 无密码) */
 const mode = ref<'open' | 'apply'>('open')
 const smtpReady = ref(true)
 const configLoading = ref(true)
 
-const form = reactive({ userName: '', password: '', email: '', code: '' })
+const form = reactive({ userName: '', password: '', email: '', code: '', reason: '' })
 const showPwd = ref(false)
 const loading = ref(false)
 const sending = ref(false)
 const cooldown = ref(0)
 const errorMsg = ref('')
+/** apply 模式: 提交成功 → 审核中状态页(含进度查询) */
+const submitted = ref(false)
 let cooldownTimer: number | undefined
 
 const redirectTo = computed(() => {
@@ -46,6 +49,10 @@ onMounted(async () => {
   } finally {
     configLoading.value = false
   }
+})
+
+onUnmounted(() => {
+  if (cooldownTimer) window.clearInterval(cooldownTimer)
 })
 
 function startCooldown(): void {
@@ -119,6 +126,46 @@ async function handleRegister(): Promise<void> {
     loading.value = false
   }
 }
+
+/**
+ * apply 模式提交申请: 不收密码, 成功即进「审核中」状态页(设计 §9.1)。
+ * 邮箱已在途(pending/approved 未激活) → 403 审核中提示, 原文透出。
+ */
+async function handleApply(): Promise<void> {
+  errorMsg.value = ''
+  if (!form.userName.trim()) {
+    errorMsg.value = '请输入用户名'
+    return
+  }
+  if (!form.email.trim()) {
+    errorMsg.value = '请输入邮箱'
+    return
+  }
+  if (!form.code.trim()) {
+    errorMsg.value = '请输入验证码'
+    return
+  }
+  loading.value = true
+  try {
+    await registerApi.applyRegister({
+      userName: form.userName.trim(),
+      email: form.email.trim(),
+      reason: form.reason.trim() || undefined,
+      code: form.code.trim()
+    })
+    submitted.value = true
+  } catch (e: unknown) {
+    errorMsg.value = e instanceof Error ? e.message : '申请失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+/** 重新申请(从审核中页/驳回态返回表单) */
+function resetApply(): void {
+  submitted.value = false
+  errorMsg.value = ''
+}
 </script>
 
 <template>
@@ -160,18 +207,127 @@ async function handleRegister(): Promise<void> {
       </p>
     </div>
 
-    <!-- 申请注册(apply)模式: P2 审核链路, 本版本先行占位提示 -->
-    <div
-      v-if="mode === 'apply'"
-      class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-4)] text-center"
+    <!-- 申请注册(apply)表单: 用户名/邮箱/验证码/选填理由 —— 刻意无密码, 激活时才设 -->
+    <form
+      v-if="mode === 'apply' && !submitted"
+      class="flex flex-col gap-[var(--jc-space-4)]"
+      @submit.prevent="handleApply"
     >
-      <p class="text-secondary text-sm leading-[var(--jc-lh-relaxed)]">申请注册通道即将开放。</p>
-      <p class="text-muted text-xs mt-[var(--jc-space-2)]">
-        如需账号请联系管理员开通；管理员可在后台「系统管理 → 用户管理」创建账号。
+      <ManageFormField label="用户名" required>
+        <div class="relative">
+          <BaseIcon
+            name="user"
+            class="absolute left-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted"
+            size="18px"
+          />
+          <input
+            v-model="form.userName"
+            type="text"
+            maxlength="32"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-4)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
+            placeholder="用户名"
+            autocomplete="username"
+            data-focusable="true"
+          />
+        </div>
+      </ManageFormField>
+
+      <ManageFormField label="邮箱" required>
+        <div class="relative">
+          <BaseIcon
+            name="mail"
+            class="absolute left-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted"
+            size="18px"
+          />
+          <input
+            v-model="form.email"
+            type="email"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-4)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
+            placeholder="邮箱"
+            autocomplete="email"
+            data-focusable="true"
+          />
+        </div>
+      </ManageFormField>
+
+      <ManageFormField label="验证码" required>
+        <div class="flex gap-[var(--jc-space-2)]">
+          <div class="relative flex-1">
+          <BaseIcon
+            name="shield"
+            class="absolute left-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted"
+            size="18px"
+          />
+            <input
+              v-model="form.code"
+              type="text"
+              inputmode="numeric"
+              maxlength="6"
+              class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-4)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
+              placeholder="6 位验证码"
+              autocomplete="one-time-code"
+              data-focusable="true"
+            />
+          </div>
+          <BaseButton
+            variant="outline"
+            size="md"
+            :loading="sending"
+            :disabled="cooldown > 0 || !form.email.trim()"
+            class="shrink-0"
+            @click="handleSendCode"
+          >
+            {{ cooldown > 0 ? `${cooldown}s 后重发` : sending ? '发送中…' : '获取验证码' }}
+          </BaseButton>
+        </div>
+      </ManageFormField>
+
+      <ManageFormField label="申请理由" hint="选填：自述或邀请人，管理员审核参考（可空）">
+        <textarea
+          v-model="form.reason"
+          rows="3"
+          maxlength="500"
+          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition resize-y"
+          placeholder="例如：朋友 XXX 邀请来的 / 想追的剧在这里"
+          data-focusable="true"
+        />
+      </ManageFormField>
+
+      <p v-if="errorMsg" class="text-xs text-[var(--jc-danger)] text-center" role="alert">
+        {{ errorMsg }}
       </p>
-      <BaseButton class="mt-[var(--jc-space-4)]" variant="ghost" size="sm" @click="router.replace('/login')">
-        返回登录
+
+      <p v-if="!smtpReady" class="text-xs text-[var(--jc-warning)] text-center">
+        邮件通道未配置，暂时无法注册，请联系管理员。
+      </p>
+
+      <BaseButton variant="gradient" size="lg" :loading="loading" type="submit">
+        提交申请
       </BaseButton>
+    </form>
+
+    <!-- 申请提交成功 → 审核中状态页(设计 §6: 三条预期管理) -->
+    <div v-else-if="mode === 'apply'" class="flex flex-col gap-[var(--jc-space-4)]">
+      <div
+        class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-5)] flex flex-col gap-[var(--jc-space-3)]"
+      >
+        <p class="text-base text-primary font-[var(--jc-fw-semibold)] flex items-center gap-[var(--jc-space-2)]">
+          <BaseIcon name="mail" size="18px" /> 申请已提交，等待审核
+        </p>
+        <ul class="text-xs text-secondary leading-[var(--jc-lh-relaxed)] list-disc pl-[var(--jc-space-5)] flex flex-col gap-[var(--jc-space-1)]">
+          <li>审核结果将通过邮件通知，请查收邮箱（别忘了垃圾箱）。</li>
+          <li>一般是人工审核，通常数天内回复，请耐心等待。</li>
+          <li>可随时回站，用申请邮箱查询进度或重收激活邮件。</li>
+        </ul>
+      </div>
+
+      <ApplyStatusPanel :prefill-email="form.email" @reapply="resetApply" />
+
+      <div class="flex justify-center">
+        <BaseButton variant="ghost" size="sm" @click="router.replace('/login')">
+          返回登录
+        </BaseButton>
+      </div>
     </div>
 
     <!-- 自由注册(open)表单 -->
@@ -283,7 +439,7 @@ async function handleRegister(): Promise<void> {
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit"> 注册 </BaseButton>
     </form>
 
-    <p class="text-muted text-xs text-center">
+    <p v-if="mode === 'open'" class="text-muted text-xs text-center">
       已有账号？
       <button
         type="button"
@@ -299,5 +455,6 @@ async function handleRegister(): Promise<void> {
 
 <style scoped>
 /* RegisterView 复用 LoginView 的 [data-mode='tv'] 体系类(登录卡/note/按钮)，不另起炉灶。
-   样式定义在 LoginView.vue 的 <style> 中(全局 [data-mode='tv'] 作用域)，此处无需重复。 */
+   样式定义在 LoginView.vue 的 <style> 中(全局 [data-mode='tv'] 作用域)，此处无需重复。
+   ApplyStatusPanel 为桌面/移动组件，TV 端注册引导不变。 */
 </style>

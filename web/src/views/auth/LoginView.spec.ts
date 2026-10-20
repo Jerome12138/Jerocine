@@ -4,18 +4,24 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import LoginView from './LoginView.vue'
 import { useUserStore } from '@/stores/user'
-import { getRegisterConfig } from '@/api/register'
+import { getRegisterConfig, applyStatus } from '@/api/register'
+import { ApiError } from '@/types/api'
 
 vi.mock('@/api/register', () => ({
   getRegisterConfig: vi.fn().mockResolvedValue({ mode: 'off', smtpReady: false }),
   sendRegisterCode: vi.fn(),
-  registerAccount: vi.fn()
+  registerAccount: vi.fn(),
+  applyRegister: vi.fn(),
+  applyStatus: vi.fn(),
+  resendActivation: vi.fn(),
+  activateAccount: vi.fn()
 }))
 
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
     { path: '/login', component: LoginView },
+    { path: '/register', component: { template: '<div />' } },
     { path: '/index', component: { template: '<div />' } },
     { path: '/manage/index', component: { template: '<div />' } },
     { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
@@ -141,5 +147,56 @@ describe('LoginView 校验 + autofill 兜底', () => {
     await btn!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
     expect(router.currentRoute.value.path).toBe('/register')
+  })
+})
+
+describe('LoginView apply 模式: 登录申请态反馈 + 进度查询', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(applyStatus).mockReset()
+  })
+
+  async function mountApply() {
+    vi.mocked(getRegisterConfig).mockResolvedValue({ mode: 'apply', smtpReady: true })
+    const w = await mountLogin()
+    await new Promise((r) => setTimeout(r, 10))
+    await w.vm.$nextTick()
+    return w
+  }
+
+  /** 用申请时的用户名尝试登录(账号实际不存在) → 服务端 403 申请态 */
+  async function loginFailWith(err: Error) {
+    const w = await mountApply()
+    const userStore = useUserStore()
+    vi.spyOn(userStore, 'login').mockRejectedValue(err)
+    await w.find('input[autocomplete="username"]').setValue('jerry')
+    await w.find('input[autocomplete="current-password"]').setValue('whatever')
+    await w.find('form').trigger('submit.prevent')
+    await new Promise((r) => setTimeout(r, 10))
+    return w
+  }
+
+  it('pending → 登录失败展示「审核中」原文', async () => {
+    const w = await loginFailWith(new ApiError(403, { message: '注册申请审核中，请等待邮件通知' }))
+    expect(w.text()).toContain('注册申请审核中，请等待邮件通知')
+    // pending 不误导用户重申
+    expect(w.text()).not.toContain('可重新提交申请')
+  })
+
+  it('rejected → 展示驳回理由 + 补「可重新提交申请」入口', async () => {
+    const w = await loginFailWith(new ApiError(403, { message: '注册申请被驳回：邀请人信息无法核实' }))
+    expect(w.text()).toContain('注册申请被驳回：邀请人信息无法核实')
+    expect(w.text()).toContain('可重新提交申请')
+  })
+
+  it('显示「查询注册申请进度」入口, 点击展开进度面板', async () => {
+    vi.mocked(applyStatus).mockResolvedValue({ status: 'pending', reason: '', canResend: false })
+    const w = await mountApply()
+    const entry = w.findAll('button').find((b) => b.text() === '查询注册申请进度')
+    expect(entry).toBeTruthy()
+    await entry!.trigger('click')
+    await w.vm.$nextTick()
+    expect(w.find('input[type="email"]').exists()).toBe(true)
+    expect(w.text()).toContain('查询进度')
   })
 })

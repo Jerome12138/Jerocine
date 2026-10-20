@@ -95,3 +95,25 @@ export interface RegisterPayload {
   email: string
   code: string
 }
+
+/**
+ * POST /auth/register/apply 请求体（apply 模式）。
+ * 刻意无 password: 密码激活时才设(设计 §9.2 —— 申请到审批可能隔数天,
+ * 激活时设当场记得住; pending 行也少一类敏感数据)。
+ */
+export interface ApplyPayload {
+  userName: string
+  email: string
+  reason?: string
+  code: string
+}
+
+/** GET /auth/apply/status 响应（进度查询: 三通道之一, 兜底邮件丢失/过期） */
+export interface ApplyStatusView {
+  /** pending 审核中 / approved 已通过(可重发) / rejected 已驳回 / none 无记录 */
+  status: 'pending' | 'approved' | 'rejected' | 'none'
+  /** 驳回理由(rejected 时) */
+  reason: string
+  /** approved 且未激活 → 激活邮件可重发 */
+  canResend: boolean
+}

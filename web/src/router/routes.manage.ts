@@ -109,6 +109,12 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '邮件与注册' }
   },
   {
+    path: '/manage/register/applies',
+    name: 'manage-register-applies',
+    component: () => import('@/views/manage/user/RegisterApplyListView.vue'),
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '注册审核' }
+  },
+  {
     path: '/manage/user',
     name: 'manage-user',
     component: () => import('@/views/manage/user/UserListView.vue'),

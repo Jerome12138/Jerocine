@@ -9,9 +9,13 @@ import type {
   UserInfo
 } from '@/types/user'
 
-/** POST /auth/login 登录(契约: {account, password}) */
+/**
+ * POST /auth/login 登录(契约: {account, password})。
+ * silent: 登录失败由页面内 errorMsg 展示, 不走全局 toast ——
+ * 尤其 apply 模式申请态反馈(403 审核中/已驳回)会被全局 403 文案误报成"权限不足"。
+ */
 export const login = (data: LoginPayload): Promise<LoginResult> =>
-  http.post<unknown, LoginResult>('/auth/login', { account: data.userName, password: data.password })
+  http.post<unknown, LoginResult>('/auth/login', { account: data.userName, password: data.password }, { silent: true })
 
 /** POST /auth/logout 退出登录 */
 export const logout = (): Promise<void> => http.post<unknown, void>('/auth/logout')

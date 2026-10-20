@@ -453,6 +453,39 @@ export interface ManageUserListResp {
   page: { current: number; size: number; total: number }
 }
 
+/* ============== 注册审核（apply 模式, /manage/register/applies） ============== */
+
+/** 注册申请状态（后端 entity: 0 待审 / 1 已通过待激活 / 2 已驳回） */
+export type RegisterApplyStatus = 0 | 1 | 2
+
+/** 后台审核列表行（后端 entity.RegisterApply; 时间 Go time.Time → RFC3339 串） */
+export interface RegisterApplyRow {
+  id: number
+  userName: string
+  email: string
+  /** 申请自述/邀请人（管理员审核参考） */
+  reason: string
+  /** 申请来源 IP, 识别同源批量申请 */
+  sourceIp: string
+  status: RegisterApplyStatus
+  /** 驳回理由（status=2 时有值） */
+  rejectReason: string
+  reviewedBy: number
+  reviewedAt: string
+  /** 激活完成时间（未激活为零值串） */
+  activatedAt: string
+  createdAt: string
+}
+
+/** 通过 / 驳回 / 补发激活邮件的响应（warning=邮件发送失败原文, 空=已正常发送） */
+export interface RegisterApplyActionResp {
+  id: number
+  approved?: boolean
+  rejected?: boolean
+  resent?: boolean
+  warning: string
+}
+
 /* ============== 邮件与注册配置（后台 /manage/mail/*） ============== */
 
 /** SMTP 服务商预设（后端内置表，仅默认值，host/port/secure 均可手改） */

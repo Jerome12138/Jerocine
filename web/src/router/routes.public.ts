@@ -80,6 +80,13 @@ export const publicRoutes: RouteRecordRaw[] = [
     meta: { layout: 'auth', title: '注册' }
   },
   {
+    // 激活链接落地页: 邮件里的一次性 token → 设密码建号 → 自动登录
+    path: '/activate',
+    name: 'activate',
+    component: () => import('@/views/auth/ActivateView.vue'),
+    meta: { layout: 'auth', title: '激活账号' }
+  },
+  {
     path: '/device',
     name: 'device-confirm',
     component: () => import('@/views/auth/DeviceConfirmView.vue'),
