@@ -557,6 +557,17 @@ components:
           maxLength: 32
           description: 用户名(窗口期被占用时可与申请时不同, 前端回表单改名重试)
         password: { type: string, format: password, minLength: 6, maxLength: 64 }
+    ResetLinkReq:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    ResetPwdReq:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string, description: 重置邮件里的一次性 token, 30 分钟有效 }
+        password: { type: string, format: password, minLength: 6, maxLength: 64 }
     ApplyStatusResp:
       type: object
       required: [status, canResend]
@@ -1467,6 +1478,47 @@ paths:
               schema: { $ref: '#/components/schemas/LoginResp' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/password/reset-link:
+    post:
+      tags: [auth]
+      summary: 忘记密码 — 发一次性重置链接邮件 (30 分钟有效; 防账号枚举, 邮箱是否存在响应一致)
+      operationId: requestPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetLinkReq' }
+      responses:
+        '200':
+          description: 已受理 (无论邮箱是否存在均返回 sent, 不发信时静默)
+          content:
+            application/json:
+              schema: { type: object, properties: { sent: { type: boolean } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/password/reset:
+    post:
+      tags: [auth]
+      summary: 用重置链接设新密码 (一次性 token; 成功后该用户全部设备退出登录)
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPwdReq' }
+      responses:
+        '200':
+          description: 已重置 (旧 JWT 全部失效, 需重新登录)
+          content:
+            application/json:
+              schema: { type: object, properties: { reset: { type: boolean } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 

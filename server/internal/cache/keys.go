@@ -50,6 +50,7 @@ func KeyMailQuota(day string) string          { return "v1:mailquota:" + day }  
 func KeyActivate(token string) string         { return "v1:activate:" + token }                    // 激活 token → apply_id (P2)
 func KeyActivateID(applyID int64) string      { return fmt.Sprintf("v1:activate:id:%d", applyID) } // 反向: apply_id → 当前 token(重发作废旧)
 func KeyReset(token string) string            { return "v1:reset:" + token }                       // 重置密码 token → user_id (P3)
+func KeyResetID(userID int64) string          { return fmt.Sprintf("v1:reset:id:%d", userID) }     // 反向: user_id → 当前 token(重新申请作废旧)
 
 const KeyLockSyncPic = "v1:lock:sync:pic"
 

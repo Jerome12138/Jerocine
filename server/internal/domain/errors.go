@@ -43,6 +43,8 @@ var (
 	ErrApplyPending = errors.New("注册申请审核中，请等待邮件通知")
 	// ErrApplyRejected 登录时发现该账号的注册申请被驳回; 文案含驳回理由, 可重新申请。
 	ErrApplyRejected = errors.New("注册申请被驳回")
+	// ErrResetTokenInvalid 找回密码的重置链接无效/已过期/已使用(P3, 30 分钟单次)。
+	ErrResetTokenInvalid = errors.New("重置链接无效或已过期，请重新申请")
 )
 
 // ApplyRejectedError 携带驳回理由的包装错误: errors.Is(err, ErrApplyRejected) 为真,

@@ -141,6 +141,48 @@ func (h *Handlers) Activate(c *gin.Context) {
 	dto.OK(c, res)
 }
 
+// ---- 公开: 找回密码(P3) ----
+
+// ResetLinkReq POST /auth/password/reset-link 请求体。
+type ResetLinkReq struct {
+	Email string `json:"email"`
+}
+
+// RequestPwdReset POST /auth/password/reset-link {email} — 忘记密码: 发一次性重置链接(30 分钟)。
+// 防账号枚举: 邮箱是否存在响应一致(200 {sent}); 措辞由前端中性化。
+func (h *Handlers) RequestPwdReset(c *gin.Context) {
+	var req ResetLinkReq
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Email) == "" {
+		dto.Error(c, http.StatusUnprocessableEntity, "email required")
+		return
+	}
+	if err := h.Register.RequestPasswordReset(c.Request.Context(), req.Email); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"sent": true})
+}
+
+// ResetPwdReq POST /auth/password/reset 请求体。
+type ResetPwdReq struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
+// ResetPwd POST /auth/password/reset {token, password} — 一次性链接设新密码; 成功后该用户全端登出。
+func (h *Handlers) ResetPwd(c *gin.Context) {
+	var req ResetPwdReq
+	if err := c.ShouldBindJSON(&req); err != nil || req.Token == "" || req.Password == "" {
+		dto.Error(c, http.StatusUnprocessableEntity, "token/password required")
+		return
+	}
+	if err := h.Register.ResetPassword(c.Request.Context(), req.Token, req.Password); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"reset": true})
+}
+
 // ---- 管理后台: 邮件与注册配置(凭据掩码读 / 独立写 / 表单值测试) ----
 
 // GetMailConfig GET /manage/mail/config — 读配置(凭据只回掩码) + 服务商预设表。

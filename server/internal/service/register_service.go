@@ -81,11 +81,12 @@ const (
 )
 
 // 出站邮件类别(频率门/日配额分类别计数, 见 cache.AllowSendMinute)。
-// code=验证码; activate/reject=申请审核链路邮件。全局日配额仍跨类别统一计数。
+// code=验证码; activate/reject=申请审核链路邮件; reset=找回密码链接。全局日配额仍跨类别统一计数。
 const (
 	mailKindCode     = "code"
 	mailKindActivate = "activate"
 	mailKindReject   = "reject"
+	mailKindReset    = "reset"
 )
 
 var emailRe = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)

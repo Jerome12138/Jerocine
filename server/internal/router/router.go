@@ -57,6 +57,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/auth/apply/status", middleware.RateLimit("applystatus", 30, 0.2), h.ApplyStatus)
 	v1.POST("/auth/apply/resend", middleware.RateLimit("applyresend", 10, 0.05), h.ApplyResend)
 	v1.POST("/auth/activate", middleware.RateLimit("activate", 10, 0.05), h.Activate)
+	v1.POST("/auth/password/reset-link", middleware.RateLimit("resetlink", 10, 0.05), h.RequestPwdReset)
+	v1.POST("/auth/password/reset", middleware.RateLimit("resetpwd", 10, 0.05), h.ResetPwd)
 
 	// ---- 用户(Bearer + no-store) ----
 	me := v1.Group("")
