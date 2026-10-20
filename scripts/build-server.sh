@@ -13,7 +13,7 @@
 # 用法:
 #   bash scripts/build-server.sh                    # 默认 linux/amd64
 #   bash scripts/build-server.sh --arch arm64       # 换架构(需与服务器 uname -m 一致)
-#   bash scripts/build-server.sh --out /d/Downloads # 产物包落到哪(默认系统下载目录)
+#   bash scripts/build-server.sh --out /d/Downloads # 产物包落到哪(默认 <repo>/deploy/pkg)
 #
 # 产物包布局(= deploy/Dockerfile.runtime 的 COPY 目标):
 #   main                 linux/<arch> 静态二进制
@@ -43,7 +43,7 @@ usage() {
 用法:
   bash scripts/build-server.sh                     # 默认 linux/amd64
   bash scripts/build-server.sh --arch arm64        # 换架构(须与服务器 uname -m 一致)
-  bash scripts/build-server.sh --out /d/Downloads  # 产物包落到哪(默认系统下载目录)
+  bash scripts/build-server.sh --out /d/Downloads  # 产物包落到哪(默认 <repo>/deploy/pkg)
 
 环境变量:
   JEROCINE_DOWNLOAD_DIR  产物包落地目录(优先级最高)
@@ -80,12 +80,7 @@ resolve_out_dir() {
     if [ -d "$d" ]; then printf '%s' "$d"; return; fi
     warn "JEROCINE_DOWNLOAD_DIR=$JEROCINE_DOWNLOAD_DIR 不是已存在的目录, 忽略"
   fi
-  if [ -d "$HOME/Downloads" ]; then printf '%s' "$HOME/Downloads"; return; fi
-  if [ -n "${USERPROFILE:-}" ]; then
-    d="$(cygpath -u "$USERPROFILE" 2>/dev/null || printf '%s' "$USERPROFILE")/Downloads"
-    if [ -d "$d" ]; then printf '%s' "$d"; return; fi
-  fi
-  printf '%s' "$REPO"
+  printf '%s' "$REPO/deploy/pkg"
 }
 
 file_sha256() {

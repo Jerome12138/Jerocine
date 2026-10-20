@@ -41,7 +41,8 @@ usage() {
   JEROCINE_SSH_HOST      ssh 主机/别名(必填)
   JEROCINE_DEPLOY_DIR    远端 deploy/ 目录(默认 /home/ubuntu/jerocine/deploy)
   JEROCINE_INCOMING_DIR  远端上传落点(默认 <deploy>/incoming)
-  JEROCINE_DOWNLOAD_DIR  本机构建产物落地目录(透传给 build-server.sh)
+  JEROCINE_DOWNLOAD_DIR  本机构建产物落地目录(透传给 build-server.sh, 默认 <repo>/deploy/pkg)
+  JEROCINE_UPLOAD_CMD    自定义上送命令注入(参数: <host> <本地包> <远端路径>)
 EOF
 }
 
@@ -89,22 +90,31 @@ PKG_NAME="$(basename "$PKG_ABS")"
 
 # ---------------------------------------------------------------- 2. 上传
 #
-# 用 `cat <本地文件> | ssh host 'cat > 目标'` —— **不用 scp**：本仓库运维约定里 scp 是禁用的，
-# 单向传文件的既有姿态就是"走 ssh stdin"(见 Harness `.agents/skills/jerocine-ops` §3 通道 B)。
-# 为什么用 `cat |` 而不是更简洁的 `ssh ... < 本地文件`：后者让 ssh 直接把大文件当 stdin，
-# 在带命令沙箱的环境里对 >1MB 的文件会被 SIGTERM；经一个 cat 中间进程则正常。
-# 代价是没有 scp 自带的校验，所以下面显式比对字节数。
+# **不用 scp**：本仓库运维约定里 scp 是禁用的，单向传文件的既有姿态就是
+# "走 ssh stdin"（见 Harness `.agents/skills/jerocine-ops` §3 通道 B）。
+# 通用实现 = 整包直传 + sha256 双端校验（比字节数更严）。
+#
+# JEROCINE_UPLOAD_CMD 注入钩子（可选）：设成自定义上送命令（参数:
+# <host> <本地包> <远端路径>），成功返回 0。用于特殊环境，例如带命令沙箱
+# 的 agent 终端里整包长流会被 SIGTERM 掐死 —— Harness 私有仓用 1MB 分片 +
+# 断点续传的实现注入（scripts/lib/upload-over-ssh.sh），公开仓不背这份复杂度。
 
 info "准备远端目录 $HOST:$INCOMING"
 ssh "$HOST" "mkdir -p '$INCOMING'"
 
 REMOTE_PKG="$INCOMING/$PKG_NAME"
 info "上传 $PKG_NAME"
-local_size="$(wc -c < "$PKG_ABS" | tr -d ' ')"
-cat "$PKG_ABS" | ssh "$HOST" "cat > '$REMOTE_PKG'" || die "上传失败"
-remote_size="$(ssh "$HOST" "wc -c < '$REMOTE_PKG'" | tr -d ' ')"
-[ "$local_size" = "$remote_size" ] || die \
-  "上传后大小不一致(本地 $local_size / 远端 $remote_size) —— 传输被截断，请重试"
+if [ -n "${JEROCINE_UPLOAD_CMD:-}" ]; then
+  # shellcheck disable=SC2086  # 刻意允许 "bash <脚本>" 这种带空格的注入形式
+  $JEROCINE_UPLOAD_CMD "$HOST" "$PKG_ABS" "$REMOTE_PKG" || die "上传失败(见上方日志)"
+else
+  local_sha="$(sha256sum "$PKG_ABS" 2>/dev/null | awk '{print $1}')"
+  cat "$PKG_ABS" | ssh "$HOST" "cat > '$REMOTE_PKG'" || die "上传失败"
+  remote_sha="$(ssh "$HOST" "sha256sum '$REMOTE_PKG'" 2>/dev/null | awk '{print $1}')"
+  [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ] || die \
+    "sha256 校验不一致(本地 ${local_sha:-?} / 远端 ${remote_sha:-?}) —— 传输被截断或截短，请重试"
+  info "sha256 校验一致: ${local_sha:0:12}…"
+fi
 
 # ---------------------------------------------------------------- 3. 远端发布
 

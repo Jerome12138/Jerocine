@@ -83,3 +83,4 @@ deploy/server/
 
 # 安卓工程已上移到顶层 android/(2026-10-15); web/android 只是本地 junction(Capacitor 硬约定平台目录), 不入库
 /web/android/
+deploy/pkg/

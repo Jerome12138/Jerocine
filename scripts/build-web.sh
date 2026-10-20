@@ -12,7 +12,7 @@
 # 用法:
 #   bash scripts/build-web.sh                    # 自动版本号(当前时间 YYYYMMDD-HHMMSS)
 #   bash scripts/build-web.sh --ts 20261010-1830 # 指定版本号(与线上 assets 目录名一致)
-#   bash scripts/build-web.sh --out /d/Downloads # 产物包落到哪(默认系统下载目录)
+#   bash scripts/build-web.sh --out /d/Downloads # 产物包落到哪(默认 <repo>/deploy/pkg)
 #
 # 产物: <out>/jerocine-web-<TS>.tar.gz   包内是 web/dist 的**内容**(index.html 在包根)
 set -euo pipefail
@@ -35,7 +35,7 @@ usage() {
 用法:
   bash scripts/build-web.sh                     # 自动版本号(当前时间 YYYYMMDD-HHMMSS)
   bash scripts/build-web.sh --ts 20261010-1830  # 指定版本号(与线上 assets 目录名一致)
-  bash scripts/build-web.sh --out /d/Downloads  # 产物包落到哪(默认系统下载目录)
+  bash scripts/build-web.sh --out /d/Downloads  # 产物包落到哪(默认 <repo>/deploy/pkg)
 
 环境变量:
   JEROCINE_DOWNLOAD_DIR  产物包落地目录(优先级最高)
@@ -61,9 +61,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-# ---------------------------------------------------------------- 下载目录
-# 与 scripts/build-android.sh 同一套约定: JEROCINE_DOWNLOAD_DIR 显式指定优先。
-# (那边还会读注册表拿真正的"下载"目录, 但本机 reg.exe 被命令黑名单拦住, 这里不做无谓尝试。)
+# ---------------------------------------------------------------- 产物落点
+# 默认落 <repo>/deploy/pkg/（gitignored, 产物不进 git 也不混进个人下载目录）。
+# JEROCINE_DOWNLOAD_DIR 显式指定优先（与 scripts/build-android.sh 同一套约定;
+# 那边还会读注册表拿真正的"下载"目录, 但本机 reg.exe 被命令黑名单拦住, 这里不做无谓尝试）。
 resolve_out_dir() {
   local d="${JEROCINE_DOWNLOAD_DIR:-}"
   if [ -n "$d" ]; then
@@ -71,12 +72,7 @@ resolve_out_dir() {
     if [ -d "$d" ]; then printf '%s' "$d"; return; fi
     warn "JEROCINE_DOWNLOAD_DIR=$JEROCINE_DOWNLOAD_DIR 不是已存在的目录, 忽略"
   fi
-  if [ -d "$HOME/Downloads" ]; then printf '%s' "$HOME/Downloads"; return; fi
-  if [ -n "${USERPROFILE:-}" ]; then
-    d="$(cygpath -u "$USERPROFILE" 2>/dev/null || printf '%s' "$USERPROFILE")/Downloads"
-    if [ -d "$d" ]; then printf '%s' "$d"; return; fi
-  fi
-  printf '%s' "$REPO"
+  printf '%s' "$REPO/deploy/pkg"
 }
 
 file_sha256() {
