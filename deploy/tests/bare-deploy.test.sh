@@ -86,6 +86,12 @@ assert_grep "BLOB 基址不变"              "$env_out" 'BLOB_BASE_URL=/api/uplo
 assert_grep "GIN release"                "$env_out" 'GIN_MODE=release'
 assert_grep "默认 TTL 168h"              "$env_out" 'AUTH_TOKEN_TTL_HOURS=168'
 assert_grep "默认设备数 5"               "$env_out" 'MAX_DEVICE_LOGIN=5'
+assert_grep "邮件链接兜底默认空"          "$env_out" 'MAIL_BASE_URL='
+assert_grep "邮件日配额默认 50"           "$env_out" 'MAIL_DAILY_QUOTA=50'
+# 覆盖: bare.env 显式配了就用配置值(compose 侧 ${VAR:-} 同语义)
+env_override="$(MAIL_BASE_URL=https://jerocine.art MAIL_DAILY_QUOTA=7 bare_derive_server_env "$P")"
+assert_grep "邮件链接兜底可覆盖"          "$env_override" 'MAIL_BASE_URL=https://jerocine.art'
+assert_grep "邮件日配额可覆盖"            "$env_override" 'MAIL_DAILY_QUOTA=7'
 
 bare_write_server_env "$P"
 # MSYS(Git Bash) 的 chmod 是模拟实现, stat 读回 644 属环境噪声 —— 真实 Linux 上 600 生效
