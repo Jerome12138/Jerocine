@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"server/internal/domain/entity"
 )
@@ -213,6 +214,27 @@ type UserRepository interface {
 type TaskRunFilter struct {
 	Status string
 	Type   string
+}
+
+// RegisterApplyRepository 申请注册审核行 (table: register_apply, P2)。
+// 申请时不收密码; 审批通过发一次性激活链接, 用户到站设密码才落 users。
+type RegisterApplyRepository interface {
+	// Create 落一条 pending 申请。
+	Create(ctx context.Context, a *entity.RegisterApply) error
+	// GetById 按 id 取; 未命中返回 domain.ErrNotFound。
+	GetById(ctx context.Context, id int64) (*entity.RegisterApply, error)
+	// GetByEmail 取某邮箱的最新一条申请(重申会新开行); 未命中返回 domain.ErrNotFound。
+	GetByEmail(ctx context.Context, email string) (*entity.RegisterApply, error)
+	// LatestByAccount 按用户名或邮箱取最新一条(登录申请态反馈用); 未命中返回 domain.ErrNotFound。
+	LatestByAccount(ctx context.Context, account string) (*entity.RegisterApply, error)
+	// List 后台列表: status 为 entity.ApplyStatusAny 时不过滤, 按时间倒序分页。
+	List(ctx context.Context, status int8, page Page) ([]entity.RegisterApply, int64, error)
+	// Approve pending → approved(清空驳回理由), 写 reviewed_by/at。影响行数为 0 时返回 ErrConflict。
+	Approve(ctx context.Context, id int64, reviewedBy int64) error
+	// Reject pending → rejected + 必填理由, 写 reviewed_by/at。影响行数为 0 时返回 ErrConflict。
+	Reject(ctx context.Context, id int64, reviewedBy int64, reason string) error
+	// MarkActivated 激活完成(密码设好)时间戳。
+	MarkActivated(ctx context.Context, id int64, at time.Time) error
 }
 
 // TaskRunRepository 任务运行台账。

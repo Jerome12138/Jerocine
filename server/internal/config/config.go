@@ -62,10 +62,12 @@ type TMDBConfig struct {
 	ImageBase string // 默认 https://image.tmdb.org/t/p/
 }
 
-// MailConfig 出站邮件(全局日配额)。SMTP 连接参数走 site_config 后台配置, 不在此;
-// 配额是所有出站邮件(验证码/激活/驳回/重置/测试)统一计数的日上限, 默认 50 封/天。
+// MailConfig 出站邮件。SMTP 连接参数走 site_config 后台配置, 不在此;
+// DailyQuota 是所有出站邮件(验证码/激活/驳回/重置/测试)统一计数的日上限, 默认 50 封/天;
+// BaseURL 为激活/重置链接前缀兜底(站点域名 site_config.domain 优先), 形如 https://jerocine.art。
 type MailConfig struct {
 	DailyQuota int
+	BaseURL    string
 }
 
 // PageSizes 各接口默认页大小, 集中而非散落各 handler。
@@ -112,7 +114,7 @@ func Load() *Config {
 			APIBase:   os.Getenv("TMDB_API_BASE"),
 			ImageBase: os.Getenv("TMDB_IMAGE_BASE"),
 		},
-		Mail:      MailConfig{DailyQuota: envInt("MAIL_DAILY_QUOTA", 50)},
+		Mail:      MailConfig{DailyQuota: envInt("MAIL_DAILY_QUOTA", 50), BaseURL: env("MAIL_BASE_URL", "")},
 		PageSizes: PageSizes{Home: 14, Classify: 21, Filter: 49, Search: 10, Gallery: 39},
 	}
 	if c.Spider.MaxGoroutine <= 0 {

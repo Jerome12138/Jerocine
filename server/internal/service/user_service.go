@@ -24,6 +24,9 @@ type UserService struct {
 	tokens     *auth.TokenManager
 	maxDevices int
 	ttl        time.Duration
+	// applyFeedback 登录时申请态查询(P2 登录即时反馈三通道之一, 设计 §5/§9)。
+	// 由 RegisterService 经 SetApplyLookup 注入(仅 apply 模式启用); nil = 未接线, 维持笼统 ErrUnauthorized。
+	applyFeedback func(ctx context.Context, account string) (status int8, reason string, found bool)
 }
 
 func NewUserService(u repository.UserRepository, h repository.HistoryRepository, f repository.FavoriteRepository, sk repository.SkipSettingRepository, s repository.SearchRepository, tm *auth.TokenManager, maxDevices int, ttl time.Duration) *UserService {
@@ -88,9 +91,20 @@ type FavoriteView struct {
 }
 
 // Login 校验账号密码, 签发 token 并登记到多设备集合。失败统一 ErrUnauthorized(不泄漏原因)。
+// 例外(仅 apply 模式): 账号不存在但存在注册申请时, 返回 ErrApplyPending / ApplyRejectedError
+// —— 申请制站点此信息半公开, 刻意放开以引导用户(设计 §5)。
 func (s *UserService) Login(ctx context.Context, account, password string) (LoginResult, error) {
 	u, err := s.users.GetByName(ctx, account)
 	if err == domain.ErrUserNotFound {
+		if st, reason, ok := s.applyFeedbackFor(ctx, account); ok {
+			if st == entity.ApplyStatusPending {
+				return LoginResult{}, domain.ErrApplyPending
+			}
+			if st == entity.ApplyStatusRejected {
+				return LoginResult{}, &domain.ApplyRejectedError{Reason: reason}
+			}
+			// approved: 激活邮件已发但未激活落号 → 笼统失败(文案会误导, 不予特判)
+		}
 		return LoginResult{}, domain.ErrUnauthorized
 	}
 	if err != nil {
@@ -104,6 +118,19 @@ func (s *UserService) Login(ctx context.Context, account, password string) (Logi
 		return LoginResult{}, domain.ErrUnauthorized
 	}
 	return s.IssueToken(ctx, u)
+}
+
+// SetApplyLookup 注入登录申请态查询(P2)。传 nil 表示不启用。
+func (s *UserService) SetApplyLookup(fn func(ctx context.Context, account string) (int8, string, bool)) {
+	s.applyFeedback = fn
+}
+
+// applyFeedbackFor 安全调用钩子(未接线时零值三连)。
+func (s *UserService) applyFeedbackFor(ctx context.Context, account string) (int8, string, bool) {
+	if s.applyFeedback == nil {
+		return 0, "", false
+	}
+	return s.applyFeedback(ctx, account)
 }
 
 // IssueToken 为用户签发 token 并登记多设备集合(登录/自注册/申请激活共用, 不另造轮子)。

@@ -9,6 +9,9 @@ const (
 	ApplyStatusRejected int8 = 2 // 已驳回(必填理由, 可重申)
 )
 
+// ApplyStatusAny 后台列表筛选哨兵: 不限状态(与 entity.FailureStatusAny 同约定)。
+const ApplyStatusAny int8 = -1
+
 // RegisterApply 申请注册审核行 (table: register_apply)。
 // 刻意不存密码: 申请表单不收密码 —— 审批通过后发一次性激活链接, 用户到站设密码才落 users
 // (设计 §9.2: 申请→审批可能隔数天, 激活时设当场记得住; pending 行少一类敏感数据)。

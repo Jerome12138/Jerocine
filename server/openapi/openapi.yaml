@@ -97,6 +97,12 @@ components:
       required: false
       description: 条件请求 ETag, 命中返回 304。
       schema: { type: string }
+    Id:
+      name: id
+      in: path
+      required: true
+      description: 资源主键
+      schema: { type: integer, format: int64, minimum: 1 }
 
   # ---------------- 通用响应头 ----------------
   headers:
@@ -527,6 +533,53 @@ components:
         password: { type: string, format: password, minLength: 6, maxLength: 64 }
         email: { type: string, format: email }
         code: { type: string, pattern: '^\d{6}$', description: 6 位数字验证码, 5 分钟有效 }
+    RegisterApplyReq:
+      type: object
+      description: apply 模式申请体; 刻意无 password(密码激活时才设, 见设计 §9.2)
+      required: [userName, email, code]
+      properties:
+        userName: { type: string, maxLength: 32 }
+        email: { type: string, format: email }
+        reason: { type: string, maxLength: 500, description: 自述/邀请人, 管理员审核参考 }
+        code: { type: string, pattern: '^\d{6}$' }
+    ApplyResendReq:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    ActivateReq:
+      type: object
+      required: [token, userName, password]
+      properties:
+        token: { type: string, description: 激活邮件里的一次性 token, 7 天有效 }
+        userName:
+          type: string
+          maxLength: 32
+          description: 用户名(窗口期被占用时可与申请时不同, 前端回表单改名重试)
+        password: { type: string, format: password, minLength: 6, maxLength: 64 }
+    ApplyStatusResp:
+      type: object
+      required: [status, canResend]
+      properties:
+        status: { type: string, enum: [pending, approved, rejected, none] }
+        reason: { type: string, description: 驳回理由(rejected 时) }
+        canResend: { type: boolean, description: approved 且未激活 → 可重发激活邮件 }
+    RegisterApplyRow:
+      type: object
+      description: 后台审核列表行(不含密码; 申请表根本不存)
+      required: [id, userName, email, reason, sourceIp, status, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        userName: { type: string }
+        email: { type: string }
+        reason: { type: string }
+        sourceIp: { type: string, description: 申请来源 IP, 识别同源批量申请 }
+        status: { type: integer, enum: [0, 1, 2] }
+        rejectReason: { type: string }
+        reviewedBy: { type: integer, format: int64 }
+        reviewedAt: { type: string, format: date-time }
+        activatedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
     SmtpPreset:
       type: object
       required: [id, name, host, port, secure, note]
@@ -1330,6 +1383,93 @@ paths:
         '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
+  /auth/register/apply:
+    post:
+      tags: [auth]
+      summary: apply 模式提交注册申请 (不收密码; 同邮箱已有在途申请返回 apply_pending)
+      operationId: registerApply
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterApplyReq' }
+      responses:
+        '200':
+          description: 已受理, 等待审核
+          content:
+            application/json:
+              schema: { type: object, properties: { applied: { type: boolean } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/apply/status:
+    get:
+      tags: [auth]
+      summary: 查询注册申请进度 (输邮箱; pending / approved(可重发) / rejected+理由 / none)
+      operationId: applyStatus
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema: { type: string, format: email }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApplyStatusResp' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/apply/resend:
+    post:
+      tags: [auth]
+      summary: 重发激活邮件 (approved 但链接丢了/过期; 作废旧 token, 新链接 7 天有效)
+      operationId: applyResend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplyResendReq' }
+      responses:
+        '200':
+          description: 已重发
+          content:
+            application/json:
+              schema: { type: object, properties: { resent: { type: boolean } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/activate:
+    post:
+      tags: [auth]
+      summary: 激活账号 (一次性 token → 设密码建号 → 自动登录; 用户名窗口期被占可改名重试, token 仍有效)
+      operationId: activate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivateReq' }
+      responses:
+        '200':
+          description: 激活成功, 载荷同登录
+          headers:
+            Cache-Control:
+              description: no-store
+              schema: { type: string }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResp' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
   /me:
     get:
       tags: [me]
@@ -1656,6 +1796,120 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+
+  /manage/register/applies:
+    get:
+      tags: [manage-user]
+      summary: 注册申请列表 (status 缺省不限; 0 待审 / 1 已通过 / 2 已驳回; id desc 分页)
+      operationId: manageListApplies
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - name: status
+          in: query
+          schema: { type: integer, enum: [-1, 0, 1, 2], default: -1 }
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control:
+              description: no-store
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [list, page]
+                properties:
+                  list:
+                    type: array
+                    items: { $ref: '#/components/schemas/RegisterApplyRow' }
+                  page: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/register/applies/{id}/approve:
+    post:
+      tags: [manage-user]
+      summary: 通过申请 (pending → approved + 发激活邮件; 邮件失败不阻断, 响应 warning 透出原因可补发; 重复审批 409)
+      operationId: manageApproveApply
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: 已通过
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer, format: int64 }
+                  approved: { type: boolean }
+                  warning: { type: string, description: 激活邮件发送失败原文(空=已正常发送) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /manage/register/applies/{id}/reject:
+    post:
+      tags: [manage-user]
+      summary: 驳回申请 (理由必填; 驳回邮件失败仅 warning)
+      operationId: manageRejectApply
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 已驳回
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer, format: int64 }
+                  rejected: { type: boolean }
+                  warning: { type: string, description: 驳回邮件发送失败原文(空=已正常发送) }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /manage/register/applies/{id}/resend-activation:
+    post:
+      tags: [manage-user]
+      summary: 补发激活邮件 (approved 且未激活; 作废旧 token 发新链接)
+      operationId: manageResendApplyActivation
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: 已补发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer, format: int64 }
+                  resent: { type: boolean }
+                  warning: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /manage/users:
     get:

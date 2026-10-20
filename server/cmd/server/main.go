@@ -159,6 +159,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	versionRepo := repomysql.NewAppVersionRepository(gdb)
 	fileRepo := repomysql.NewFileRepository(gdb)
 	userRepo := repomysql.NewUserRepository(gdb)
+	applyRepo := repomysql.NewRegisterApplyRepository(gdb)
 	historyRepo := repomysql.NewHistoryRepository(gdb)
 	favoriteRepo := repomysql.NewFavoriteRepository(gdb)
 	skipRepo := repomysql.NewSkipSettingRepository(gdb)
@@ -171,8 +172,10 @@ func buildApp(cfg *config.Config) (*App, error) {
 	filmSvc := service.NewFilmService(searchRepo, movieRepo, playRepo, categoryRepo, healthRepo, sourceRepo, cfg.PageSizes)
 	userSvc := service.NewUserService(userRepo, historyRepo, favoriteRepo, skipRepo, searchRepo, tokenMgr, cfg.JWT.MaxDevices, cfg.JWT.TTL)
 	configSvc := service.NewConfigService(siteRepo, versionRepo)
-	// 自注册 + 邮件通道(注册模式/发码/open 注册; SMTP 凭据在 site_config 热生效)
-	registerSvc := service.NewRegisterService(siteRepo, userRepo, userSvc, cfg.Mail.DailyQuota)
+	// 自注册 + 邮件通道(注册模式/发码/open 注册/apply 申请审核; SMTP 凭据在 site_config 热生效)
+	registerSvc := service.NewRegisterService(siteRepo, userRepo, applyRepo, tx, userSvc, cfg.Mail.DailyQuota, cfg.Mail.BaseURL)
+	// 登录即时反馈(仅 apply 模式): 账号不存在时按申请态返回"审核中/已驳回"
+	userSvc.SetApplyLookup(registerSvc.ApplyFeedback)
 	m3u8Svc := service.NewM3u8Service(cfg.JWT.PrivateKey)
 	telemetrySvc := service.NewTelemetryService(telemetryRepo, searchRepo, favoriteRepo, cfg.TelemetryAllowedHosts, configSvc)
 	// TMDB 客户端: key 运行期热替换 —— 管理后台(优先, 落 site_config)保存/清除即生效; env TMDB_API_KEY 为兜底。

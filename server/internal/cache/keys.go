@@ -6,12 +6,12 @@ import "fmt"
 // 缓存键(db0)与协调态键(db1)分库, 见 platform/db。
 
 // ---- db0 缓存键 ----
-func KeyMovieDetail(mid int64) string { return fmt.Sprintf("v1:movie:detail:%d", mid) }
-func KeyMovieBasic(mid int64) string  { return fmt.Sprintf("v1:movie:basic:%d", mid) }
-func KeyMovieCard(mid int64) string   { return fmt.Sprintf("v1:movie:card:%d", mid) }
-func KeyClassify(pid int64) string    { return fmt.Sprintf("v1:classify:%d", pid) }
-func KeyRelate(mid int64) string      { return fmt.Sprintf("v1:relate:%d", mid) }
-func KeyTagOpts(pid int64) string     { return fmt.Sprintf("v1:tagopts:%d", pid) }
+func KeyMovieDetail(mid int64) string     { return fmt.Sprintf("v1:movie:detail:%d", mid) }
+func KeyMovieBasic(mid int64) string      { return fmt.Sprintf("v1:movie:basic:%d", mid) }
+func KeyMovieCard(mid int64) string       { return fmt.Sprintf("v1:movie:card:%d", mid) }
+func KeyClassify(pid int64) string        { return fmt.Sprintf("v1:classify:%d", pid) }
+func KeyRelate(mid int64) string          { return fmt.Sprintf("v1:relate:%d", mid) }
+func KeyTagOpts(pid int64) string         { return fmt.Sprintf("v1:tagopts:%d", pid) }
 func KeyPlayMulti(matchKey string) string { return fmt.Sprintf("v1:play:multi:%s", matchKey) }
 
 const (
@@ -33,21 +33,23 @@ const (
 )
 
 // ---- db1 协调态键 ----
-func KeyLockSF(key string) string       { return "v1:lock:sf:" + key }
-func KeyLockCron(taskId string) string  { return "v1:lock:cron:" + taskId }
-func KeyRate(scope, ip string) string   { return fmt.Sprintf("v1:rl:%s:%s", scope, ip) }
-func KeyJob(sourceId string) string     { return "v1:job:" + sourceId }
-func KeyToken(userId int64) string      { return fmt.Sprintf("v1:token:%d", userId) }
+func KeyLockSF(key string) string        { return "v1:lock:sf:" + key }
+func KeyLockCron(taskId string) string   { return "v1:lock:cron:" + taskId }
+func KeyRate(scope, ip string) string    { return fmt.Sprintf("v1:rl:%s:%s", scope, ip) }
+func KeyJob(sourceId string) string      { return "v1:job:" + sourceId }
+func KeyToken(userId int64) string       { return fmt.Sprintf("v1:token:%d", userId) }
 func KeySpiderTemp(siteId string) string { return "v1:spider:temp:" + siteId }
 
 // ---- 注册 / 邮件验证码(协调态, 见 cache/regcode.go) ----
+// kind 区分邮件类别, 避免"申请验证码"占掉同邮箱 1 分钟窗口把"激活邮件"挡在门外(审批常紧随申请之后)。
 func KeyRegCode(purpose, email string) string { return "v1:regcode:" + purpose + ":" + email }
-func KeyRegTry(email string) string           { return "v1:regtry:" + email }   // 连续校验失败计数(锁 10min)
-func KeyRegSendMin(email string) string       { return "v1:regsend:min:" + email } // 1 分钟 1 封窗口(NX)
-func KeyRegSendDay(email string) string       { return "v1:regsend:day:" + email } // 邮箱日配额计数
-func KeyMailQuota(day string) string          { return "v1:mailquota:" + day }      // 全局日配额计数(YYYYMMDD)
-func KeyActivate(token string) string         { return "v1:activate:" + token }      // 激活 token → apply_id (P2)
-func KeyReset(token string) string            { return "v1:reset:" + token }         // 重置密码 token → user_id (P3)
+func KeyRegTry(email string) string           { return "v1:regtry:" + email }                      // 连续校验失败计数(锁 10min)
+func KeyRegSendMin(kind, email string) string { return "v1:regsend:min:" + kind + ":" + email }    // 1 分钟 1 封窗口(NX)
+func KeyRegSendDay(kind, email string) string { return "v1:regsend:day:" + kind + ":" + email }    // 邮箱日配额计数
+func KeyMailQuota(day string) string          { return "v1:mailquota:" + day }                     // 全局日配额计数(YYYYMMDD)
+func KeyActivate(token string) string         { return "v1:activate:" + token }                    // 激活 token → apply_id (P2)
+func KeyActivateID(applyID int64) string      { return fmt.Sprintf("v1:activate:id:%d", applyID) } // 反向: apply_id → 当前 token(重发作废旧)
+func KeyReset(token string) string            { return "v1:reset:" + token }                       // 重置密码 token → user_id (P3)
 
 const KeyLockSyncPic = "v1:lock:sync:pic"
 

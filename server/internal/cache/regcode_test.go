@@ -76,21 +76,28 @@ func TestSendWindows(t *testing.T) {
 	newTestCache(t)
 	ctx := context.Background()
 	const email = "d@qq.com"
-	if !AllowSendMinute(ctx, email) {
+	if !AllowSendMinute(ctx, "code", email) {
 		t.Fatal("首封应放行")
 	}
-	if AllowSendMinute(ctx, email) {
+	if AllowSendMinute(ctx, "code", email) {
 		t.Fatal("1 分钟窗口内第二封应拒")
 	}
-	if !AllowSendMinute(ctx, "other@qq.com") {
+	if !AllowSendMinute(ctx, "code", "other@qq.com") {
 		t.Fatal("不同邮箱互不影响")
 	}
-	// 邮箱日配额: 窗口不同邮箱计数
-	if n := CountSendDay(ctx, email); n != 1 {
+	// 不同邮件类别互不占窗: 申请验证码之后, 激活邮件仍可立即发
+	if !AllowSendMinute(ctx, "activate", email) {
+		t.Fatal("激活邮件不应被验证码窗口挡住")
+	}
+	// 邮箱日配额: 按类别分别计数
+	if n := CountSendDay(ctx, "code", email); n != 1 {
 		t.Fatalf("日计数应=1, got %d", n)
 	}
-	if n := CountSendDay(ctx, email); n != 2 {
+	if n := CountSendDay(ctx, "code", email); n != 2 {
 		t.Fatalf("日计数应=2, got %d", n)
+	}
+	if n := CountSendDay(ctx, "activate", email); n != 1 {
+		t.Fatalf("激活类日计数应独立从 1 起, got %d", n)
 	}
 }
 

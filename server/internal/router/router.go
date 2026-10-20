@@ -52,6 +52,11 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/auth/register-config", h.RegisterConfig)
 	v1.POST("/auth/register/code", middleware.RateLimit("regcode", 10, 0.05), h.SendRegisterCode)
 	v1.POST("/auth/register", middleware.RateLimit("register", 10, 0.05), h.RegisterAccount)
+	// 申请制(apply): 提交申请 / 进度查询 / 激活邮件重发 / 激活设密自动登录。
+	v1.POST("/auth/register/apply", middleware.RateLimit("apply", 10, 0.05), h.RegisterApply)
+	v1.GET("/auth/apply/status", middleware.RateLimit("applystatus", 30, 0.2), h.ApplyStatus)
+	v1.POST("/auth/apply/resend", middleware.RateLimit("applyresend", 10, 0.05), h.ApplyResend)
+	v1.POST("/auth/activate", middleware.RateLimit("activate", 10, 0.05), h.Activate)
 
 	// ---- 用户(Bearer + no-store) ----
 	me := v1.Group("")
@@ -90,6 +95,11 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/mail/config", h.GetMailConfig)
 		mg.PUT("/mail/config", h.SaveMailConfig)
 		mg.POST("/mail/test", h.TestMail)
+		// 注册审核(apply 模式): 列表 / 通过(发激活邮件) / 驳回(必填理由) / 激活邮件补发。
+		mg.GET("/register/applies", h.ManageApplies)
+		mg.POST("/register/applies/:id/approve", h.ManageApprove)
+		mg.POST("/register/applies/:id/reject", h.ManageReject)
+		mg.POST("/register/applies/:id/resend-activation", h.ManageResendActivation)
 		// 榜单热度: 手动跑一轮豆瓣榜单刷新(每日 04:00 自动跑, 这里是排障/补跑入口)。
 		mg.POST("/hot/refresh", h.HotRefresh)
 		// 用户管理: 列表(用户名搜索, /users 已有) / 新增(POST /users 已有) / 编辑(用户名+角色) / 删除 / 禁用启用(踢下线) / 重置密码(踢下线)。

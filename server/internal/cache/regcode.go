@@ -76,20 +76,22 @@ func DelRegTry(ctx context.Context, email string) {
 	CoordClient().Del(ctx, KeyRegTry(email))
 }
 
-// AllowSendMinute 同邮箱 1 分钟 1 封: 窗口键存在即拒绝(SET NX)。
-func AllowSendMinute(ctx context.Context, email string) bool {
+// AllowSendMinute 同邮箱同类邮件 1 分钟 1 封: 窗口键存在即拒绝(SET NX)。
+// kind: code(验证码) / activate(激活) / reject(驳回) / reset(重置) —— 分类别计数,
+// 否则申请验证码会占掉同邮箱 1 分钟窗口, 把紧随其后的激活邮件挡在门外。
+func AllowSendMinute(ctx context.Context, kind, email string) bool {
 	if CoordClient() == nil {
 		return true
 	}
-	return CoordClient().SetNX(ctx, KeyRegSendMin(email), 1, time.Minute).Val()
+	return CoordClient().SetNX(ctx, KeyRegSendMin(kind, email), 1, time.Minute).Val()
 }
 
-// CountSendDay 同邮箱当日发送计数 +1, 返回当日累计(含本次)。首封起 TTL 24h。
-func CountSendDay(ctx context.Context, email string) int {
+// CountSendDay 同邮箱同类邮件当日发送计数 +1, 返回当日累计(含本次)。首封起 TTL 24h。
+func CountSendDay(ctx context.Context, kind, email string) int {
 	if CoordClient() == nil {
 		return 0
 	}
-	key := KeyRegSendDay(email)
+	key := KeyRegSendDay(kind, email)
 	n, err := CoordClient().Incr(ctx, key).Result()
 	if err != nil {
 		return 0

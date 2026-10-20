@@ -78,6 +78,104 @@ func (f *fakeSender) Send(to, subject, body string) error {
 	return nil
 }
 
+// ---- P2 替身: 申请审核 repo + 事务管理器 ----
+
+type fakeApplies struct {
+	repository.RegisterApplyRepository
+	rows   []*entity.RegisterApply
+	nextID int64
+}
+
+func (f *fakeApplies) Create(_ context.Context, a *entity.RegisterApply) error {
+	f.nextID++
+	a.Id = f.nextID
+	f.rows = append(f.rows, a)
+	return nil
+}
+
+func (f *fakeApplies) GetById(_ context.Context, id int64) (*entity.RegisterApply, error) {
+	for _, a := range f.rows {
+		if a.Id == id {
+			return a, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeApplies) GetByEmail(_ context.Context, email string) (*entity.RegisterApply, error) {
+	for i := len(f.rows) - 1; i >= 0; i-- {
+		if f.rows[i].Email == email {
+			return f.rows[i], nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeApplies) LatestByAccount(_ context.Context, account string) (*entity.RegisterApply, error) {
+	for i := len(f.rows) - 1; i >= 0; i-- {
+		if f.rows[i].UserName == account || f.rows[i].Email == account {
+			return f.rows[i], nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeApplies) List(_ context.Context, status int8, _ repository.Page) ([]entity.RegisterApply, int64, error) {
+	var out []entity.RegisterApply
+	for _, a := range f.rows {
+		if status == entity.ApplyStatusAny || a.Status == status {
+			out = append(out, *a)
+		}
+	}
+	return out, int64(len(out)), nil
+}
+
+func (f *fakeApplies) Approve(_ context.Context, id int64, reviewedBy int64) error {
+	a, err := f.GetById(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	if a.Status != entity.ApplyStatusPending {
+		return domain.ErrConflict // 幂等闸: 重复审批/已驳回
+	}
+	a.Status = entity.ApplyStatusApproved
+	a.RejectReason = ""
+	a.ReviewedBy = reviewedBy
+	a.ReviewedAt = time.Now()
+	return nil
+}
+
+func (f *fakeApplies) Reject(_ context.Context, id int64, reviewedBy int64, reason string) error {
+	a, err := f.GetById(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	if a.Status != entity.ApplyStatusPending {
+		return domain.ErrConflict
+	}
+	a.Status = entity.ApplyStatusRejected
+	a.RejectReason = reason
+	a.ReviewedBy = reviewedBy
+	a.ReviewedAt = time.Now()
+	return nil
+}
+
+func (f *fakeApplies) MarkActivated(_ context.Context, id int64, at time.Time) error {
+	a, err := f.GetById(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	a.ActivatedAt = at
+	return nil
+}
+
+// fakeTx 无真实事务(替身 repo 本就同步内存), 仅验证 service 把两笔写放进同一 WithinTx。
+type fakeTx struct{}
+
+func (fakeTx) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
 var codeRe = regexp.MustCompile(`验证码: (\d{6})`)
 
 // lastCode 取最后一封验证码邮件里的 6 位码(端到端串联 SendCode → 校验)。
@@ -107,14 +205,27 @@ func newRegisterSvc(t *testing.T, site *entity.SiteConfig, quota int) (*Register
 	setupCache(t)
 	users := newFakeRegUsers()
 	userSvc := NewUserService(users, nil, nil, nil, nil, testTokenManager(t), 5, time.Hour)
-	svc := NewRegisterService(&fakeSiteCfg{cfg: site}, users, userSvc, quota)
+	svc := NewRegisterService(&fakeSiteCfg{cfg: site}, users, &fakeApplies{}, fakeTx{}, userSvc, quota, "https://site.example")
 	fs := &fakeSender{}
 	svc.newSender = func(mailer.Config) (mailer.Sender, error) { return fs, nil }
 	return svc, users, fs
 }
 
+// newRegisterSvcWith 同 newRegisterSvc, 但把 applies/sender 交回调用方(P2 断言审核行用)。
+func newRegisterSvcWith(t *testing.T, site *entity.SiteConfig, quota int) (*RegisterService, *fakeRegUsers, *fakeApplies, *fakeSender) {
+	t.Helper()
+	setupCache(t)
+	users := newFakeRegUsers()
+	userSvc := NewUserService(users, nil, nil, nil, nil, testTokenManager(t), 5, time.Hour)
+	applies := &fakeApplies{}
+	svc := NewRegisterService(&fakeSiteCfg{cfg: site}, users, applies, fakeTx{}, userSvc, quota, "https://site.example")
+	fs := &fakeSender{}
+	svc.newSender = func(mailer.Config) (mailer.Sender, error) { return fs, nil }
+	return svc, users, applies, fs
+}
+
 func clearMinuteWindow(email string) {
-	cache.Del(context.Background(), cache.KeyRegSendMin(email))
+	cache.Del(context.Background(), cache.KeyRegSendMin("code", email))
 }
 
 // ---- RegisterConfig ----
