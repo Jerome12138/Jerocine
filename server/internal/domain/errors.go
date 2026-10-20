@@ -25,6 +25,10 @@ var (
 	ErrMailNotConfigured = errors.New("邮件服务未配置，暂时无法注册")
 	// ErrEmailTaken 邮箱已被注册(唯一索引 uk_users_email; 未验证所有者也统一此文案, 不泄漏)。
 	ErrEmailTaken = errors.New("该邮箱已被注册")
+	// ErrUserNameTaken 用户名被占用(open 注册 / apply 申请 / activate 窗口期查重; mapStatus 409)。
+	// 取代裸 ErrConflict("resource conflict"): 该文案会直达终端用户, 必须可读;
+	// 激活窗口期冲突时前端据此提示改名重试(token 仍有效, 设计 §9.3)。
+	ErrUserNameTaken = errors.New("用户名已被占用")
 	// ErrCodeInvalid 验证码错误(含输错/已消费)。
 	ErrCodeInvalid = errors.New("验证码错误")
 	// ErrCodeExpired 验证码已过期(TTL 5 分钟, Redis 键不存在即过期)。

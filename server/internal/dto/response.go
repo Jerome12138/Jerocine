@@ -83,7 +83,8 @@ func mapStatus(err error) int {
 		errors.Is(err, domain.ErrInvalidMove), errors.Is(err, domain.ErrCodeInvalid),
 		errors.Is(err, domain.ErrCodeExpired):
 		return http.StatusBadRequest
-	case errors.Is(err, domain.ErrConflict), errors.Is(err, domain.ErrEmailTaken):
+	case errors.Is(err, domain.ErrConflict), errors.Is(err, domain.ErrEmailTaken),
+		errors.Is(err, domain.ErrUserNameTaken):
 		return http.StatusConflict
 	case errors.Is(err, domain.ErrUnauthorized):
 		return http.StatusUnauthorized

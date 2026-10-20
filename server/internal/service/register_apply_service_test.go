@@ -74,7 +74,7 @@ func TestApplyGates(t *testing.T) {
 	t.Run("查重先于验证码(不消耗尝试次数)", func(t *testing.T) {
 		svc, users, _ := newRegisterSvc(t, applyModeSite(), 50)
 		users.byName["taken"] = &entity.User{UserName: "taken"}
-		if err := svc.Apply(ctx, "taken", "fresh@qq.com", "", "000000", ""); !errors.Is(err, domain.ErrConflict) {
+		if err := svc.Apply(ctx, "taken", "fresh@qq.com", "", "000000", ""); !errors.Is(err, domain.ErrUserNameTaken) {
 			t.Fatalf("用户名占用: %v", err)
 		}
 		users.byEmail["taken@qq.com"] = &entity.User{Email: "taken@qq.com"}
@@ -196,9 +196,9 @@ func TestActivateRenameOnConflict(t *testing.T) {
 	}
 	token := fs.lastActivateToken(t)
 
-	// 窗口期用户名被 open 注册者占用 → ErrConflict, 但 token 仍有效
+	// 窗口期用户名被 open 注册者占用 → ErrUserNameTaken, 但 token 仍有效
 	svc.users.(*fakeRegUsers).byName["dave"] = &entity.User{UserName: "dave"}
-	if _, err := svc.Activate(ctx, token, "dave", "secret1"); !errors.Is(err, domain.ErrConflict) {
+	if _, err := svc.Activate(ctx, token, "dave", "secret1"); !errors.Is(err, domain.ErrUserNameTaken) {
 		t.Fatalf("用户名占用应 conflict: %v", err)
 	}
 	// 改名重试成功

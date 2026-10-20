@@ -421,7 +421,7 @@ func TestRegisterGates(t *testing.T) {
 		site := base()
 		svc, users, _ := newRegisterSvc(t, site, 50)
 		users.byName["taken"] = &entity.User{UserName: "taken"}
-		if _, err := svc.Register(ctx, "taken", "secret1", "new@qq.com", "000000"); !errors.Is(err, domain.ErrConflict) {
+		if _, err := svc.Register(ctx, "taken", "secret1", "new@qq.com", "000000"); !errors.Is(err, domain.ErrUserNameTaken) {
 			t.Fatalf("用户名占用: %v", err)
 		}
 		users.byEmail["taken@qq.com"] = &entity.User{Email: "taken@qq.com"}

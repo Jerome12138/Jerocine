@@ -194,7 +194,7 @@ func (s *RegisterService) Register(ctx context.Context, userName, password, emai
 	}
 	// 查重先于验证码: 名字/邮箱被占不该消耗用户的验证码尝试次数
 	if _, err := s.users.GetByName(ctx, userName); err == nil {
-		return LoginResult{}, domain.ErrConflict
+		return LoginResult{}, domain.ErrUserNameTaken
 	} else if err != domain.ErrUserNotFound {
 		return LoginResult{}, err
 	}
@@ -243,7 +243,7 @@ func (s *RegisterService) Apply(ctx context.Context, userName, email, reason, co
 	}
 	// 查重先于验证码(不消耗尝试次数): users 名/邮箱 + 未闭环申请
 	if _, err := s.users.GetByName(ctx, userName); err == nil {
-		return domain.ErrConflict
+		return domain.ErrUserNameTaken
 	} else if err != domain.ErrUserNotFound {
 		return err
 	}
@@ -378,7 +378,7 @@ func (s *RegisterService) ApplyList(ctx context.Context, status int8, page repos
 }
 
 // Activate 激活: peek token(不消费) → 校验 → 事务建号(email_verified=1)+激活时间戳 → 消费 token → 自动登录。
-// token 有效性只读校验、最终消费放在事务成功后: 用户名窗口期被占(ErrConflict)时用户改个名重试,
+// token 有效性只读校验、最终消费放在事务成功后: 用户名窗口期被占(ErrUserNameTaken)时用户改个名重试,
 // 链接仍然有效(设计 §9.3)。
 func (s *RegisterService) Activate(ctx context.Context, token, userName, password string) (LoginResult, error) {
 	token = strings.TrimSpace(token)
@@ -405,7 +405,7 @@ func (s *RegisterService) Activate(ctx context.Context, token, userName, passwor
 		return LoginResult{}, err
 	}
 	if _, err := s.users.GetByName(ctx, userName); err == nil {
-		return LoginResult{}, domain.ErrConflict // 前端回表单改名重试(token 仍在)
+		return LoginResult{}, domain.ErrUserNameTaken // 前端回表单改名重试(token 仍在)
 	} else if err != domain.ErrUserNotFound {
 		return LoginResult{}, err
 	}
