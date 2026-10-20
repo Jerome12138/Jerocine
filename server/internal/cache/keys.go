@@ -40,6 +40,15 @@ func KeyJob(sourceId string) string     { return "v1:job:" + sourceId }
 func KeyToken(userId int64) string      { return fmt.Sprintf("v1:token:%d", userId) }
 func KeySpiderTemp(siteId string) string { return "v1:spider:temp:" + siteId }
 
+// ---- 注册 / 邮件验证码(协调态, 见 cache/regcode.go) ----
+func KeyRegCode(purpose, email string) string { return "v1:regcode:" + purpose + ":" + email }
+func KeyRegTry(email string) string           { return "v1:regtry:" + email }   // 连续校验失败计数(锁 10min)
+func KeyRegSendMin(email string) string       { return "v1:regsend:min:" + email } // 1 分钟 1 封窗口(NX)
+func KeyRegSendDay(email string) string       { return "v1:regsend:day:" + email } // 邮箱日配额计数
+func KeyMailQuota(day string) string          { return "v1:mailquota:" + day }      // 全局日配额计数(YYYYMMDD)
+func KeyActivate(token string) string         { return "v1:activate:" + token }      // 激活 token → apply_id (P2)
+func KeyReset(token string) string            { return "v1:reset:" + token }         // 重置密码 token → user_id (P3)
+
 const KeyLockSyncPic = "v1:lock:sync:pic"
 
 // ---- 榜单热度刷新(协调态, 见 service/hot_service.go) ----

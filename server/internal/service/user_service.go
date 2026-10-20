@@ -103,6 +103,11 @@ func (s *UserService) Login(ctx context.Context, account, password string) (Logi
 		// 已禁用: 与密码错误同响应(不泄漏账号状态), 不签发 token
 		return LoginResult{}, domain.ErrUnauthorized
 	}
+	return s.IssueToken(ctx, u)
+}
+
+// IssueToken 为用户签发 token 并登记多设备集合(登录/自注册/申请激活共用, 不另造轮子)。
+func (s *UserService) IssueToken(ctx context.Context, u *entity.User) (LoginResult, error) {
 	token, exp, err := s.tokens.Generate(u.ID, u.UserName, u.Role)
 	if err != nil {
 		return LoginResult{}, err
@@ -175,15 +180,12 @@ func (s *UserService) DevicePoll(ctx context.Context, deviceCode string) (LoginR
 	if err != nil {
 		return LoginResult{}, "", err
 	}
-	token, exp, err := s.tokens.Generate(u.ID, u.UserName, u.Role)
+	res, err := s.IssueToken(ctx, u)
 	if err != nil {
 		return LoginResult{}, "", err
 	}
-	if err := cache.SaveUserToken(ctx, int64(u.ID), token, s.maxDevices, s.ttl); err != nil {
-		return LoginResult{}, "", err
-	}
 	cache.DeleteDeviceCode(ctx, deviceCode, da.UserCode) // 一次性
-	return LoginResult{UserName: u.UserName, Token: token, Expires: exp, Role: u.Role}, "ok", nil
+	return res, "ok", nil
 }
 
 // randHex n 字节加密随机 → 十六进制串。
@@ -248,17 +250,25 @@ func (s *UserService) ChangePassword(ctx context.Context, userID uint, oldPw, ne
 
 // ---- 管理员: 创建/列出用户 ----
 
-func (s *UserService) CreateUser(ctx context.Context, name, password string, role int) (*entity.User, error) {
+// CreateUser 管理员建号(可选 email; 手工建号不强制验证邮箱, email_verified=0)。
+func (s *UserService) CreateUser(ctx context.Context, name, password string, role int, email string) (*entity.User, error) {
 	if _, err := s.users.GetByName(ctx, name); err == nil {
 		return nil, domain.ErrConflict
 	} else if err != domain.ErrUserNotFound {
 		return nil, err
 	}
+	if email = strings.TrimSpace(email); email != "" {
+		if _, err := s.users.GetByEmail(ctx, email); err == nil {
+			return nil, domain.ErrEmailTaken
+		} else if err != domain.ErrUserNotFound {
+			return nil, err
+		}
+	}
 	hashed, err := auth.HashPassword(password)
 	if err != nil {
 		return nil, domain.ErrInvalidArgument
 	}
-	u := &entity.User{UserName: name, Password: hashed, Role: role}
+	u := &entity.User{UserName: name, Password: hashed, Role: role, Email: email}
 	if err := s.users.Create(ctx, u); err != nil {
 		return nil, err
 	}

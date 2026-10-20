@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -75,17 +76,24 @@ func Error(c *gin.Context, status int, msg string) {
 }
 
 func mapStatus(err error) int {
-	switch err {
-	case domain.ErrNotFound, domain.ErrMovieNotFound, domain.ErrUserNotFound:
+	switch {
+	case errors.Is(err, domain.ErrNotFound), errors.Is(err, domain.ErrMovieNotFound), errors.Is(err, domain.ErrUserNotFound):
 		return http.StatusNotFound
-	case domain.ErrInvalidArgument, domain.ErrInvalidSourceID, domain.ErrInvalidMove:
+	case errors.Is(err, domain.ErrInvalidArgument), errors.Is(err, domain.ErrInvalidSourceID),
+		errors.Is(err, domain.ErrInvalidMove), errors.Is(err, domain.ErrCodeInvalid),
+		errors.Is(err, domain.ErrCodeExpired):
 		return http.StatusBadRequest
-	case domain.ErrConflict:
+	case errors.Is(err, domain.ErrConflict), errors.Is(err, domain.ErrEmailTaken):
 		return http.StatusConflict
-	case domain.ErrUnauthorized:
+	case errors.Is(err, domain.ErrUnauthorized):
 		return http.StatusUnauthorized
-	case domain.ErrForbidden:
+	case errors.Is(err, domain.ErrForbidden), errors.Is(err, domain.ErrRegisterDisabled),
+		errors.Is(err, domain.ErrMailNotConfigured), errors.Is(err, domain.ErrApplyPending),
+		errors.Is(err, domain.ErrApplyRejected):
 		return http.StatusForbidden
+	case errors.Is(err, domain.ErrCodeSendTooFast), errors.Is(err, domain.ErrCodeTooManyTries),
+		errors.Is(err, domain.ErrQuotaExceeded):
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusInternalServerError
 	}

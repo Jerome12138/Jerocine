@@ -171,6 +171,8 @@ func buildApp(cfg *config.Config) (*App, error) {
 	filmSvc := service.NewFilmService(searchRepo, movieRepo, playRepo, categoryRepo, healthRepo, sourceRepo, cfg.PageSizes)
 	userSvc := service.NewUserService(userRepo, historyRepo, favoriteRepo, skipRepo, searchRepo, tokenMgr, cfg.JWT.MaxDevices, cfg.JWT.TTL)
 	configSvc := service.NewConfigService(siteRepo, versionRepo)
+	// 自注册 + 邮件通道(注册模式/发码/open 注册; SMTP 凭据在 site_config 热生效)
+	registerSvc := service.NewRegisterService(siteRepo, userRepo, userSvc, cfg.Mail.DailyQuota)
 	m3u8Svc := service.NewM3u8Service(cfg.JWT.PrivateKey)
 	telemetrySvc := service.NewTelemetryService(telemetryRepo, searchRepo, favoriteRepo, cfg.TelemetryAllowedHosts, configSvc)
 	// TMDB 客户端: key 运行期热替换 —— 管理后台(优先, 落 site_config)保存/清除即生效; env TMDB_API_KEY 为兜底。
@@ -197,6 +199,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,
 		Telemetry: telemetrySvc, Manage: manageSvc, Spider: spiderSvc, Banner: bannerSvc,
 		Hot: hotSvc, Tasks: taskSvc, Online: service.NewOnlineService(cacheRdb),
+		Register: registerSvc,
 		Blob: blob, ResetToken: cfg.Spider.ResetToken,
 	}
 

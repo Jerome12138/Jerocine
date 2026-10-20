@@ -194,6 +194,9 @@ type FileRepository interface {
 // UserRepository 用户。
 type UserRepository interface {
 	GetByName(ctx context.Context, name string) (*entity.User, error) // 未命中返回 domain.ErrUserNotFound
+	// GetByEmail 按注册邮箱查(唯一索引 uk_users_email); 未命中返回 domain.ErrUserNotFound。
+	// 注册查重 / 登录时申请态反馈(P2)用。
+	GetByEmail(ctx context.Context, email string) (*entity.User, error)
 	GetById(ctx context.Context, id uint) (*entity.User, error)
 	Create(ctx context.Context, u *entity.User) error
 	List(ctx context.Context, page Page) ([]entity.User, int64, error)

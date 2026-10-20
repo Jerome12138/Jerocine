@@ -31,6 +31,18 @@ func (r *userRepo) GetByName(ctx context.Context, name string) (*entity.User, er
 	return &u, nil
 }
 
+func (r *userRepo) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
+	var u entity.User
+	err := dbFrom(ctx, r.db).Where("email = ?", email).First(&u).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, domain.ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 func (r *userRepo) GetById(ctx context.Context, id uint) (*entity.User, error) {
 	var u entity.User
 	err := dbFrom(ctx, r.db).Where("id = ?", id).First(&u).Error

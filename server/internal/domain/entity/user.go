@@ -16,6 +16,10 @@ type User struct {
 	Role       int    `gorm:"column:role" json:"role"`
 	// 禁用标记: 1=禁用(禁止登录 + 登录态 token 全部清除), 0=正常。管理后台切换。
 	Disabled int `gorm:"column:disabled" json:"disabled"`
+	// Email 注册邮箱(可空, 后台建号的老用户无邮箱); EmailVerified=1 表示走完注册/激活链路。
+	// 邮箱是自注册账号的唯一凭据锚点(唯一索引 uk_users_email; MySQL 唯一索引允许多 NULL)。
+	Email         string `gorm:"column:email" json:"email"`
+	EmailVerified int    `gorm:"column:email_verified" json:"emailVerified"`
 }
 
 func (User) TableName() string { return "users" }

@@ -507,6 +507,69 @@ components:
       properties:
         oldPassword: { type: string, format: password }
         newPassword: { type: string, format: password, minLength: 6 }
+    RegisterConfigResp:
+      type: object
+      required: [mode, smtpReady]
+      properties:
+        mode: { type: string, enum: [off, open, apply], description: off 仅后台建号 / open 自由注册 / apply 申请审核 }
+        smtpReady: { type: boolean, description: 邮件通道可用(未配置时 open/apply 实际不可用) }
+    RegisterCodeReq:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+        purpose: { type: string, enum: [register, reset], default: register, description: reset 为找回密码预留(P3) }
+    RegisterReq:
+      type: object
+      required: [userName, password, email, code]
+      properties:
+        userName: { type: string, maxLength: 32 }
+        password: { type: string, format: password, minLength: 6, maxLength: 64 }
+        email: { type: string, format: email }
+        code: { type: string, pattern: '^\d{6}$', description: 6 位数字验证码, 5 分钟有效 }
+    SmtpPreset:
+      type: object
+      required: [id, name, host, port, secure, note]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        secure: { type: string, enum: [ssl, starttls, none] }
+        note: { type: string, description: 后台展示的注意事项(如 QQ 邮箱须用授权码) }
+    MailConfigResp:
+      type: object
+      description: 凭据只回掩码+是否已配置, 永不回明文(与 TMDB key 同范式)
+      required: [registerMode, smtpEnabled, smtpHost, smtpPort, smtpSecure, smtpUser, smtpFromName, smtpPassSet, presets]
+      properties:
+        registerMode: { type: string, enum: [off, open, apply] }
+        smtpEnabled: { type: integer, enum: [0, 1] }
+        smtpHost: { type: string }
+        smtpPort: { type: integer }
+        smtpSecure: { type: string, enum: [ssl, starttls, none] }
+        smtpUser: { type: string }
+        smtpFromName: { type: string }
+        smtpPassMasked: { type: string, description: 已配置时的掩码(前4…后4); 未配置空串 }
+        smtpPassSet: { type: boolean }
+        presets: { type: array, items: { $ref: '#/components/schemas/SmtpPreset' } }
+    MailConfigUpdate:
+      type: object
+      properties:
+        registerMode: { type: string, enum: [off, open, apply] }
+        smtpEnabled: { type: integer, enum: [0, 1] }
+        smtpHost: { type: string }
+        smtpPort: { type: integer, minimum: 1, maximum: 65535 }
+        smtpSecure: { type: string, enum: [ssl, starttls, none] }
+        smtpUser: { type: string }
+        smtpPass: { type: string, description: 空串=不修改已存值 }
+        smtpFromName: { type: string }
+    MailTestReq:
+      allOf:
+        - $ref: '#/components/schemas/MailConfigUpdate'
+        - type: object
+          required: [to]
+          properties:
+            to: { type: string, format: email, description: 测试收件邮箱 }
     UserInfo:
       type: object
       description: 脱敏 (无 password/salt)。
@@ -1207,6 +1270,66 @@ paths:
           headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /auth/register-config:
+    get:
+      tags: [auth]
+      summary: 注册配置 (登录页据此显隐注册入口; mode 如实返回, smtpReady=false 时 open/apply 实际不可用)
+      operationId: getRegisterConfig
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegisterConfigResp' }
+
+  /auth/register/code:
+    post:
+      tags: [auth]
+      summary: 发送邮箱验证码 (register_mode=off 时拒绝; 同邮箱 1 分钟 1 封 + 日 5 封 + 全局日配额默认 50)
+      operationId: sendRegisterCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterCodeReq' }
+      responses:
+        '200':
+          description: 已发送
+          content:
+            application/json:
+              schema: { type: object, properties: { sent: { type: boolean } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: open 模式自注册 (校验验证码 → 落号 → 直接返回登录态; apply 模式不走本端点)
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterReq' }
+      responses:
+        '200':
+          description: 注册成功, 载荷同登录
+          headers:
+            Cache-Control:
+              description: no-store
+              schema: { type: string }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResp' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
   /me:
     get:
       tags: [me]
@@ -1467,6 +1590,72 @@ paths:
             application/json:
               schema: { type: object, properties: { cleared: { type: boolean } } }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/mail/config:
+    get:
+      tags: [manage-config]
+      summary: 读邮件与注册配置 (凭据只回掩码, 同 TMDB key 范式) + 服务商预设表
+      operationId: manageGetMailConfig
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control:
+              description: no-store
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MailConfigResp' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [manage-config]
+      summary: 写邮件与注册配置 (smtpPass 空串=不修改已存值; 启用前配置必须完整)
+      operationId: manageSaveMailConfig
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MailConfigUpdate' }
+      responses:
+        '200':
+          description: 已保存, 回掩码后的最新配置
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MailConfigResp' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/mail/test:
+    post:
+      tags: [manage-config]
+      summary: 发送测试邮件 (用未保存的表单值直发; 失败时 message 为 SMTP 原文错误, 535/超时定位用)
+      operationId: manageTestMail
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MailTestReq' }
+      responses:
+        '200':
+          description: 已发送
+          content:
+            application/json:
+              schema: { type: object, properties: { sent: { type: boolean } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '502':
+          description: SMTP 服务器不可达/鉴权失败等, message 为原文错误
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /manage/users:
     get:

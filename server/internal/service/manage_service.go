@@ -173,8 +173,18 @@ func (s *ManageService) GetSite(ctx context.Context) (*entity.SiteConfig, error)
 func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) error {
 	// TmdbAPIKey 不走本入口(管理端 json:"-" 绑不进来, 恒为空串): 用库内现值回填,
 	// 防止 UpdateAll upsert 把后台配好的 key 抹成空。
+	// 邮件/注册列(register_mode + smtp_*)同理: 走独立端点 /manage/mail/config 维护,
+	// 本入口(站点基础信息表单)同样回填现值防抹掉。
 	if cur, err := s.siteCfg.Get(ctx); err == nil {
 		c.TmdbAPIKey = cur.TmdbAPIKey
+		c.RegisterMode = cur.RegisterMode
+		c.SmtpEnabled = cur.SmtpEnabled
+		c.SmtpHost = cur.SmtpHost
+		c.SmtpPort = cur.SmtpPort
+		c.SmtpSecure = cur.SmtpSecure
+		c.SmtpUser = cur.SmtpUser
+		c.SmtpPass = cur.SmtpPass
+		c.SmtpFromName = cur.SmtpFromName
 	}
 	if err := s.siteCfg.Save(ctx, c); err != nil {
 		return err
@@ -731,8 +741,9 @@ func (s *ManageService) DeleteVersion(ctx context.Context, id int64) error {
 
 // ---- 用户(委派 UserService) ----
 
-func (s *ManageService) CreateUser(ctx context.Context, name, password string, role int) (*entity.User, error) {
-	return s.users.CreateUser(ctx, name, password, role)
+// CreateUser 管理员建号(可选 email; 手工建号不强制验证邮箱)。
+func (s *ManageService) CreateUser(ctx context.Context, name, password string, role int, email string) (*entity.User, error) {
+	return s.users.CreateUser(ctx, name, password, role, email)
 }
 func (s *ManageService) ListUsers(ctx context.Context, keyword string, page repository.Page) ([]entity.User, int64, error) {
 	return s.users.ManageListUsers(ctx, keyword, page)

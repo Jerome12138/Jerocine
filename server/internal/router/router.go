@@ -47,6 +47,11 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	// 扫码登录(设备码流程): 发码 / 轮询 公开, 确认(confirm)需登录(在 me 组内)
 	v1.POST("/auth/device/code", middleware.RateLimit("devcode", 10, 0.5), h.DeviceCode)
 	v1.POST("/auth/device/poll", middleware.RateLimit("devpoll", 120, 5), h.DevicePoll)
+	// 账号自注册(公开): register_mode=off 时入口关闭; open 自由注册 / apply 申请审核(P2)。
+	// IP 桶之外, 邮箱级频率(1 分钟 1 封 + 日 5 封)与全局日配额在 RegisterService 内控。
+	v1.GET("/auth/register-config", h.RegisterConfig)
+	v1.POST("/auth/register/code", middleware.RateLimit("regcode", 10, 0.05), h.SendRegisterCode)
+	v1.POST("/auth/register", middleware.RateLimit("register", 10, 0.05), h.RegisterAccount)
 
 	// ---- 用户(Bearer + no-store) ----
 	me := v1.Group("")
@@ -81,6 +86,10 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/site-config", h.SaveSiteConfig)
 		mg.POST("/tmdb-key", h.SetTMDBKey)
 		mg.DELETE("/tmdb-key", h.ClearTMDBKey)
+		// 邮件通道与注册模式: 凭据掩码读 / 独立写 / 未保存表单值测试发送(错误原文回显)。
+		mg.GET("/mail/config", h.GetMailConfig)
+		mg.PUT("/mail/config", h.SaveMailConfig)
+		mg.POST("/mail/test", h.TestMail)
 		// 榜单热度: 手动跑一轮豆瓣榜单刷新(每日 04:00 自动跑, 这里是排障/补跑入口)。
 		mg.POST("/hot/refresh", h.HotRefresh)
 		// 用户管理: 列表(用户名搜索, /users 已有) / 新增(POST /users 已有) / 编辑(用户名+角色) / 删除 / 禁用启用(踢下线) / 重置密码(踢下线)。

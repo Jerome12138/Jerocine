@@ -496,12 +496,13 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 		UserName string `json:"userName"`
 		Password string `json:"password"`
 		Role     int    `json:"role"`
+		Email    string `json:"email"` // 可选: 手工建号也可带邮箱(email_verified=0, 不强制验证)
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.UserName == "" || req.Password == "" {
 		dto.Error(c, http.StatusUnprocessableEntity, "userName/password required")
 		return
 	}
-	u, err := h.Manage.CreateUser(c.Request.Context(), req.UserName, req.Password, req.Role)
+	u, err := h.Manage.CreateUser(c.Request.Context(), req.UserName, req.Password, req.Role, req.Email)
 	if err != nil {
 		dto.Fail(c, err)
 		return

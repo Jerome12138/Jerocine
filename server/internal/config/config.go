@@ -23,6 +23,7 @@ type Config struct {
 	Spider                SpiderConfig
 	Blob                  BlobConfig
 	TMDB                  TMDBConfig
+	Mail                  MailConfig
 	PageSizes             PageSizes
 }
 
@@ -59,6 +60,12 @@ type TMDBConfig struct {
 	Lang     string // 检索语言, 默认 zh-CN
 	APIBase  string // 默认 https://api.themoviedb.org/3
 	ImageBase string // 默认 https://image.tmdb.org/t/p/
+}
+
+// MailConfig 出站邮件(全局日配额)。SMTP 连接参数走 site_config 后台配置, 不在此;
+// 配额是所有出站邮件(验证码/激活/驳回/重置/测试)统一计数的日上限, 默认 50 封/天。
+type MailConfig struct {
+	DailyQuota int
 }
 
 // PageSizes 各接口默认页大小, 集中而非散落各 handler。
@@ -105,10 +112,14 @@ func Load() *Config {
 			APIBase:   os.Getenv("TMDB_API_BASE"),
 			ImageBase: os.Getenv("TMDB_IMAGE_BASE"),
 		},
+		Mail:      MailConfig{DailyQuota: envInt("MAIL_DAILY_QUOTA", 50)},
 		PageSizes: PageSizes{Home: 14, Classify: 21, Filter: 49, Search: 10, Gallery: 39},
 	}
 	if c.Spider.MaxGoroutine <= 0 {
 		c.Spider.MaxGoroutine = 32
+	}
+	if c.Mail.DailyQuota <= 0 {
+		c.Mail.DailyQuota = 50
 	}
 	if c.Redis.CacheDB == c.Redis.CoordDB {
 		log.Fatalf("config: REDIS_DB_CACHE 与 REDIS_DB_COORD 不能相同 (均为 %d)", c.Redis.CacheDB)
