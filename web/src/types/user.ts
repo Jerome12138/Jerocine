@@ -75,3 +75,23 @@ export interface ManageUserListResp {
     total: number
   }
 }
+
+/* ============== 账号注册（自注册 open / 申请 apply） ============== */
+
+/** 注册模式：off 仅后台建号 / open 自由注册 / apply 申请审核 */
+export type RegisterMode = 'off' | 'open' | 'apply'
+
+/** GET /auth/register-config */
+export interface RegisterConfig {
+  mode: RegisterMode
+  /** 邮件通道可用；false 时 open/apply 实际不可用（发码被服务端拒绝） */
+  smtpReady: boolean
+}
+
+/** POST /auth/register 请求体 */
+export interface RegisterPayload {
+  userName: string
+  password: string
+  email: string
+  code: string
+}

@@ -103,6 +103,12 @@ export const manageRoutes: RouteRecordRaw[] = [
   },
   { path: '/manage/system/webSite', redirect: '/manage/system/site' },
   {
+    path: '/manage/system/mail',
+    name: 'manage-system-mail',
+    component: () => import('@/views/manage/system/MailConfigView.vue'),
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '邮件与注册' }
+  },
+  {
     path: '/manage/user',
     name: 'manage-user',
     component: () => import('@/views/manage/user/UserListView.vue'),

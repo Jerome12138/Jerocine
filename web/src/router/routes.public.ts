@@ -74,6 +74,12 @@ export const publicRoutes: RouteRecordRaw[] = [
     meta: { layout: 'auth', title: '登录' }
   },
   {
+    path: '/register',
+    name: 'register',
+    component: () => import('@/views/auth/RegisterView.vue'),
+    meta: { layout: 'auth', title: '注册' }
+  },
+  {
     path: '/device',
     name: 'device-confirm',
     component: () => import('@/views/auth/DeviceConfirmView.vue'),

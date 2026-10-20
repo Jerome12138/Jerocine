@@ -4,6 +4,13 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import LoginView from './LoginView.vue'
 import { useUserStore } from '@/stores/user'
+import { getRegisterConfig } from '@/api/register'
+
+vi.mock('@/api/register', () => ({
+  getRegisterConfig: vi.fn().mockResolvedValue({ mode: 'off', smtpReady: false }),
+  sendRegisterCode: vi.fn(),
+  registerAccount: vi.fn()
+}))
 
 const router = createRouter({
   history: createMemoryHistory(),
@@ -112,5 +119,27 @@ describe('LoginView 校验 + autofill 兜底', () => {
     expect(pwdInput.attributes('type')).toBe('text')
     await toggleBtn.trigger('click')
     expect(pwdInput.attributes('type')).toBe('password')
+  })
+
+  it('register-config off(默认) → 保留「注册功能已暂时下线」指引, 不显示注册入口', async () => {
+    const w = await mountLogin()
+    await new Promise((r) => setTimeout(r, 10))
+    await w.vm.$nextTick()
+    expect(w.text()).toContain('注册功能已暂时下线')
+    expect(w.text()).not.toContain('立即注册')
+  })
+
+  it('register-config open → 显示注册入口, 点击跳 /register', async () => {
+    vi.mocked(getRegisterConfig).mockResolvedValue({ mode: 'open', smtpReady: true })
+    const w = await mountLogin()
+    await new Promise((r) => setTimeout(r, 10))
+    await w.vm.$nextTick()
+
+    expect(w.text()).toContain('还没有账号')
+    const btn = w.findAll('button').find((b) => b.text() === '立即注册')
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(router.currentRoute.value.path).toBe('/register')
   })
 })

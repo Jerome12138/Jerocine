@@ -74,6 +74,7 @@ const groups: MenuGroup[] = [
     title: '系统',
     items: [
       { path: '/manage/system/site', label: '站点配置', icon: 'settings' },
+      { path: '/manage/system/mail', label: '邮件与注册', icon: 'mail' },
       { path: '/manage/user', label: '用户管理', icon: 'user' }
     ]
   }

@@ -452,3 +452,46 @@ export interface ManageUserListResp {
   list: ManageUserRow[]
   page: { current: number; size: number; total: number }
 }
+
+/* ============== 邮件与注册配置（后台 /manage/mail/*） ============== */
+
+/** SMTP 服务商预设（后端内置表，仅默认值，host/port/secure 均可手改） */
+export interface SmtpPreset {
+  id: string
+  name: string
+  host: string
+  port: number
+  secure: 'ssl' | 'starttls' | 'none'
+  note: string
+}
+
+/** GET /manage/mail/config 响应（凭据只回掩码，明文永不回传） */
+export interface MailConfigResp {
+  registerMode: 'off' | 'open' | 'apply'
+  smtpEnabled: number
+  smtpHost: string
+  smtpPort: number
+  smtpSecure: 'ssl' | 'starttls' | 'none'
+  smtpUser: string
+  smtpFromName: string
+  smtpPassMasked: string
+  smtpPassSet: boolean
+  presets: SmtpPreset[]
+}
+
+/** PUT /manage/mail/config 请求体（smtpPass 空串 = 不修改已存值） */
+export interface MailConfigUpdate {
+  registerMode: 'off' | 'open' | 'apply'
+  smtpEnabled: number
+  smtpHost: string
+  smtpPort: number
+  smtpSecure: 'ssl' | 'starttls' | 'none'
+  smtpUser: string
+  smtpPass?: string
+  smtpFromName: string
+}
+
+/** POST /manage/mail/test 请求体（表单值 + 测试收件邮箱） */
+export interface MailTestReq extends MailConfigUpdate {
+  to: string
+}

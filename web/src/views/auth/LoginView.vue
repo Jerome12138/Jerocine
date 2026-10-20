@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import QRCode from 'qrcode'
 import { useUserStore } from '@/stores/user'
 import * as deviceApi from '@/api/device'
+import * as registerApi from '@/api/register'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
@@ -47,6 +48,18 @@ const redirectTo = computed(() => {
   return typeof r === 'string' && r ? r : ''
 })
 
+/** 注册入口可见性: off 下线 / open 自由注册 / apply 申请审核。拉取失败按 off 保守处理(不显示入口) */
+const registerMode = ref<'off' | 'open' | 'apply'>('off')
+
+async function loadRegisterMode(): Promise<void> {
+  try {
+    const cfg = await registerApi.getRegisterConfig()
+    registerMode.value = cfg.mode
+  } catch {
+    /* 拉不到配置: 保持 off, 不显示注册入口 */
+  }
+}
+
 /** 用户已登录 → 兜底跳转：优先 redirect，否则按 role 决定 */
 function redirectAfterLogin(): string {
   if (redirectTo.value) return redirectTo.value
@@ -54,6 +67,7 @@ function redirectAfterLogin(): string {
 }
 
 onMounted(async () => {
+  void loadRegisterMode()
   if (!userStore.isLoggedIn) return
   // 旧 token 可能没拉过 info，先尝试取一次 role 再决定跳哪里
   if (!userStore.info) {
@@ -271,12 +285,29 @@ async function handleLogin(): Promise<void> {
           </button>
         </div>
 
-        <!-- 注册下线指引 -->
+        <!-- 注册入口: off=下线指引; open/apply=引导去 PC/手机完成注册(TV 不便输邮箱+验证码) -->
         <div class="jc-tv-login__note">
-          <div class="a">注册功能已暂时下线。</div>
-          <div class="b">
-            如需账号请联系管理员开通；管理员可在后台「系统管理 → 用户管理」创建账号。
-          </div>
+          <template v-if="registerMode === 'off'">
+            <div class="a">注册功能已暂时下线。</div>
+            <div class="b">
+              如需账号请联系管理员开通；管理员可在后台「系统管理 → 用户管理」创建账号。
+            </div>
+          </template>
+          <template v-else>
+            <div class="a">还没有账号？</div>
+            <div class="b">电视端不便输入邮箱与验证码，请在电脑或手机访问本站完成注册。</div>
+          </template>
+        </div>
+        <div v-if="registerMode !== 'off'" class="jc-tv-login__actions">
+          <button
+            type="button"
+            class="jc-tv-btn cyan"
+            data-focusable="true"
+            tabindex="0"
+            @click="router.push('/register')"
+          >
+            注册账号
+          </button>
         </div>
       </template>
 
@@ -472,8 +503,9 @@ async function handleLogin(): Promise<void> {
       </BaseButton>
     </form>
 
-    <!-- 注册指引：公共注册已下线，由管理员后台创建账号 -->
+    <!-- 注册入口: off=下线指引; open/apply=去注册页 -->
     <div
+      v-if="registerMode === 'off'"
       class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-4)] text-center"
     >
       <p class="text-secondary text-sm leading-[var(--jc-lh-relaxed)]">
@@ -482,6 +514,21 @@ async function handleLogin(): Promise<void> {
       <p class="text-muted text-xs mt-[var(--jc-space-2)]">
         如需账号请联系管理员开通；管理员可在后台「系统管理 → 用户管理」创建账号。
       </p>
+    </div>
+    <div
+      v-else
+      class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-4)] text-center"
+    >
+      <p class="text-secondary text-sm leading-[var(--jc-lh-relaxed)]">还没有账号？</p>
+      <p class="text-muted text-xs mt-[var(--jc-space-2)]">注册后即可同步观看历史 / 收藏。</p>
+      <BaseButton
+        class="mt-[var(--jc-space-3)]"
+        variant="outline"
+        size="sm"
+        @click="router.push('/register')"
+      >
+        立即注册
+      </BaseButton>
     </div>
 
     <p
