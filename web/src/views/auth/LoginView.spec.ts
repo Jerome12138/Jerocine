@@ -22,6 +22,7 @@ const router = createRouter({
   routes: [
     { path: '/login', component: LoginView },
     { path: '/register', component: { template: '<div />' } },
+    { path: '/forgot-password', component: { template: '<div />' } },
     { path: '/index', component: { template: '<div />' } },
     { path: '/manage/index', component: { template: '<div />' } },
     { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
@@ -198,5 +199,25 @@ describe('LoginView apply 模式: 登录申请态反馈 + 进度查询', () => {
     await w.vm.$nextTick()
     expect(w.find('input[type="email"]').exists()).toBe(true)
     expect(w.text()).toContain('查询进度')
+  })
+
+  it('显示「忘记密码？」入口, 点击跳 /forgot-password', async () => {
+    vi.mocked(getRegisterConfig).mockResolvedValue({ mode: 'off', smtpReady: false })
+    const w = await mountLogin()
+    const btn = w.findAll('button').find((b) => b.text() === '忘记密码？')
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(router.currentRoute.value.path).toBe('/forgot-password')
+  })
+
+  it('?reset=1(重置成功跳回) → 提示用新密码登录', async () => {
+    vi.mocked(getRegisterConfig).mockResolvedValue({ mode: 'off', smtpReady: false })
+    await router.push('/login?reset=1')
+    await router.isReady()
+    const w = mount(LoginView, { global: { plugins: [router] } })
+    await new Promise((r) => setTimeout(r, 10))
+    await w.vm.$nextTick()
+    expect(w.text()).toContain('密码已重置，请使用新密码登录')
   })
 })

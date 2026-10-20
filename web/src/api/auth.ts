@@ -30,6 +30,17 @@ export const changePassword = (data: ChangePasswordPayload): Promise<void> =>
 /** GET /me 当前登录用户信息 */
 export const getUserInfo = (): Promise<UserInfo> => http.get<unknown, UserInfo>('/me')
 
+/* ============== 找回密码（P3） ============== */
+
+/** POST /auth/password/reset-link {email} 忘记密码 — 发一次性重置链接邮件(30 分钟)；
+ *  防账号枚举: 邮箱是否存在响应一致(200 {sent}) */
+export const requestPasswordReset = (email: string): Promise<{ sent: boolean }> =>
+  http.post<unknown, { sent: boolean }>('/auth/password/reset-link', { email })
+
+/** POST /auth/password/reset {token, password} 用重置链接设新密码; 成功后该用户全部设备下线 */
+export const resetPassword = (data: { token: string; password: string }): Promise<{ reset: boolean }> =>
+  http.post<unknown, { reset: boolean }>('/auth/password/reset', data)
+
 /* ============== 管理员后台用户管理 ============== */
 
 /** POST /manage/users 创建用户 */

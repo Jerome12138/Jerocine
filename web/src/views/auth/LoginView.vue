@@ -296,6 +296,17 @@ async function handleLogin(): Promise<void> {
           </button>
         </div>
 
+        <!-- 忘记密码(P3): TV 不便输邮箱, 引导去电脑/手机走邮件链接 -->
+        <button
+          type="button"
+          class="jc-tv-login__forgot"
+          data-focusable="true"
+          tabindex="0"
+          @click="router.push('/forgot-password')"
+        >
+          忘记密码？
+        </button>
+
         <!-- 注册入口: off=下线指引; open/apply=引导去 PC/手机完成注册(TV 不便输邮箱+验证码) -->
         <div class="jc-tv-login__note">
           <template v-if="registerMode === 'off'">
@@ -501,6 +512,21 @@ async function handleLogin(): Promise<void> {
         </div>
       </ManageFormField>
 
+      <!-- 忘记密码(P3): 重置成功后由 /reset-password 带 reset=1 跳回, 此处给出提示 -->
+      <div class="flex items-center justify-between -mt-[var(--jc-space-2)]">
+        <p v-if="route.query.reset === '1'" class="text-xs text-[var(--jc-success)]">
+          密码已重置，请使用新密码登录
+        </p>
+        <button
+          type="button"
+          class="text-muted text-xs hover:text-primary underline ml-auto"
+          data-focusable="true"
+          @click="router.push('/forgot-password')"
+        >
+          忘记密码？
+        </button>
+      </div>
+
       <p
         v-if="errorMsg"
         class="text-xs text-[var(--jc-danger)] text-center"
@@ -695,6 +721,23 @@ async function handleLogin(): Promise<void> {
   background: rgba(0, 0, 0, 0.25);
   padding: 14px 16px;
   text-align: center;
+}
+
+/* 忘记密码文字链(P3): TV 不便输邮箱, 引导去电脑/手机走邮件链接 */
+[data-mode='tv'] .jc-tv-login__forgot {
+  display: block;
+  margin: 14px auto 0;
+  background: transparent;
+  border: 0;
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+[data-mode='tv'] .jc-tv-login__forgot:hover,
+[data-mode='tv'] .jc-tv-login__forgot:focus-visible {
+  color: var(--jc-text-primary);
 }
 
 [data-mode='tv'] .jc-tv-login__note .a {

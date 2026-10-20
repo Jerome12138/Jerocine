@@ -87,6 +87,20 @@ export const publicRoutes: RouteRecordRaw[] = [
     meta: { layout: 'auth', title: '激活账号' }
   },
   {
+    // 忘记密码: 输邮箱 → 发一次性重置链接(30 分钟)
+    path: '/forgot-password',
+    name: 'forgot-password',
+    component: () => import('@/views/auth/ForgotPasswordView.vue'),
+    meta: { layout: 'auth', title: '忘记密码' }
+  },
+  {
+    // 重置密码落地页: 邮件里的一次性 token → 设新密码 → 全部设备下线回登录
+    path: '/reset-password',
+    name: 'reset-password',
+    component: () => import('@/views/auth/ResetPasswordView.vue'),
+    meta: { layout: 'auth', title: '重置密码' }
+  },
+  {
     path: '/device',
     name: 'device-confirm',
     component: () => import('@/views/auth/DeviceConfirmView.vue'),
