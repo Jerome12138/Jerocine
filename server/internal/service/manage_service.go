@@ -231,10 +231,9 @@ func (s *ManageService) SaveRuntimeSettings(ctx context.Context, in RuntimeSetti
 }
 
 func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) error {
-	// TmdbAPIKey 不走本入口(管理端 json:"-" 绑不进来, 恒为空串): 用库内现值回填,
-	// 防止 UpdateAll upsert 把后台配好的 key 抹成空。
-	// 邮件/注册列(register_mode + smtp_*)同理: 走独立端点 /manage/mail/config 维护,
-	// 本入口(站点基础信息表单)同样回填现值防抹掉。
+	// 本入口只写「站点信息」表单的字段; 其余列在实体上是 json:"-"(管理端绑不进来, 恒为零值),
+	// 而落库是 UpdateAll upsert ⇒ 必须逐列回填库内现值, 否则保存站点信息会把它们清零。
+	// 独立维护的列: TMDB 凭据、邮件与注册(register_mode + smtp_* + 日配额)、运行参数(登录策略/采集并发)。
 	if cur, err := s.siteCfg.Get(ctx); err == nil {
 		c.TmdbAPIKey = cur.TmdbAPIKey
 		c.RegisterMode = cur.RegisterMode
@@ -245,6 +244,10 @@ func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) erro
 		c.SmtpUser = cur.SmtpUser
 		c.SmtpPass = cur.SmtpPass
 		c.SmtpFromName = cur.SmtpFromName
+		c.MailDailyQuota = cur.MailDailyQuota
+		c.AuthTokenTTLHours = cur.AuthTokenTTLHours
+		c.MaxDeviceLogin = cur.MaxDeviceLogin
+		c.SpiderMaxGoroutine = cur.SpiderMaxGoroutine
 	}
 	if err := s.siteCfg.Save(ctx, c); err != nil {
 		return err

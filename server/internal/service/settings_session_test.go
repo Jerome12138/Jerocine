@@ -136,3 +136,33 @@ func TestRuntimeSettingsDefaultsAndSave(t *testing.T) {
 		t.Fatalf("读回不一致: %+v", got)
 	}
 }
+
+// TestSaveSitePreservesIndependentColumns 保存「站点信息」只写表单字段, 其余 json:"-" 列
+// (TMDB 凭据 / SMTP / 邮件日配额 / 登录策略 / 采集并发)必须从库里回填 —— 落库是 UpdateAll,
+// 漏一列就会被清零(邮件配额的坑: 清零后静默回落到默认 50)。挂掉说明回填清单漏了。
+func TestSaveSitePreservesIndependentColumns(t *testing.T) {
+	setupCache(t)
+	site := &entity.SiteConfig{
+		Id: 1, SiteName: "old", Domain: "https://x.example",
+		TmdbAPIKey: "tmdb-key", RegisterMode: RegisterModeApply,
+		SmtpEnabled: 1, SmtpHost: "smtp.qq.com", SmtpPort: 465, SmtpSecure: "ssl",
+		SmtpUser: "bot@qq.com", SmtpPass: "code", SmtpFromName: "J", MailDailyQuota: 7,
+		AuthTokenTTLHours: 720, MaxDeviceLogin: 10, SpiderMaxGoroutine: 8,
+	}
+	m := &ManageService{siteCfg: &fakeSiteCfg{cfg: site}}
+
+	in := &entity.SiteConfig{SiteName: "new", Domain: "https://x.example", Logo: "l"}
+	if err := m.SaveSite(context.Background(), in); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if site.SiteName != "new" || site.Logo != "l" {
+		t.Fatalf("表单字段未落库: %+v", site)
+	}
+	if site.TmdbAPIKey != "tmdb-key" || site.SmtpPass != "code" || site.SmtpHost != "smtp.qq.com" ||
+		site.RegisterMode != RegisterModeApply || site.MailDailyQuota != 7 {
+		t.Fatalf("邮件/TMDB 列被清零: %+v", site)
+	}
+	if site.AuthTokenTTLHours != 720 || site.MaxDeviceLogin != 10 || site.SpiderMaxGoroutine != 8 {
+		t.Fatalf("运行参数被清零: %+v", site)
+	}
+}
