@@ -20,6 +20,7 @@ assert_eq()   { [ "$2" = "$3" ] && ok "$1" || bad "$1 (期望 [$3] 实得 [$2])"
 assert_has()  { [ -e "$2" ] && ok "$1" || bad "$1 (缺少 $2)"; }
 assert_gone() { [ ! -e "$2" ] && ok "$1" || bad "$1 (不该存在 $2)"; }
 assert_grep() { printf '%s' "$2" | grep -qF -- "$3" && ok "$1" || bad "$1 (输出缺 [$3])"; }
+assert_no_grep() { printf '%s' "$2" | grep -qF -- "$3" && bad "$1 (不该出现 [$3])" || ok "$1"; }
 assert_fail() { if ( "$@" ) >/dev/null 2>&1; then bad "应失败但成功了: $*"; else ok "按预期失败: $*"; fi; }
 
 WORK="$(cd "$(mktemp -d)" && pwd)"
@@ -86,12 +87,8 @@ assert_grep "BLOB 基址不变"              "$env_out" 'BLOB_BASE_URL=/api/uplo
 assert_grep "GIN release"                "$env_out" 'GIN_MODE=release'
 assert_grep "默认 TTL 168h"              "$env_out" 'AUTH_TOKEN_TTL_HOURS=168'
 assert_grep "默认设备数 5"               "$env_out" 'MAX_DEVICE_LOGIN=5'
-assert_grep "邮件链接兜底默认空"          "$env_out" 'MAIL_BASE_URL='
-assert_grep "邮件日配额默认 50"           "$env_out" 'MAIL_DAILY_QUOTA=50'
-# 覆盖: bare.env 显式配了就用配置值(compose 侧 ${VAR:-} 同语义)
-env_override="$(MAIL_BASE_URL=https://jerocine.art MAIL_DAILY_QUOTA=7 bare_derive_server_env "$P")"
-assert_grep "邮件链接兜底可覆盖"          "$env_override" 'MAIL_BASE_URL=https://jerocine.art'
-assert_grep "邮件日配额可覆盖"            "$env_override" 'MAIL_DAILY_QUOTA=7'
+# 邮件相关(SMTP/日配额/链接前缀)全在后台 site_config, 不再有任何 MAIL_* 部署变量
+assert_no_grep "无 MAIL_* 部署变量"      "$env_out" 'MAIL_'
 
 bare_write_server_env "$P"
 # MSYS(Git Bash) 的 chmod 是模拟实现, stat 读回 644 属环境噪声 —— 真实 Linux 上 600 生效

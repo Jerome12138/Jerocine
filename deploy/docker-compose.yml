@@ -61,9 +61,6 @@ services:
       JWT_ISSUER: "Jerocine"
       AUTH_TOKEN_TTL_HOURS: "${AUTH_TOKEN_TTL_HOURS:-168}"
       MAX_DEVICE_LOGIN: "${MAX_DEVICE_LOGIN:-5}"
-      # 邮件兜底(账号激活/找回密码链接; SMTP 主体在后台维护, env 只兜底链接前缀与日配额)
-      MAIL_BASE_URL: "${MAIL_BASE_URL:-}"
-      MAIL_DAILY_QUOTA: "${MAIL_DAILY_QUOTA:-50}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
       SPIDER_RESET_TOKEN: "${SPIDER_RESET_TOKEN}"
       MAX_GOROUTINE: "${MAX_GOROUTINE:-32}"
