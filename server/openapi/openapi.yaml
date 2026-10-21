@@ -604,7 +604,7 @@ components:
     MailConfigResp:
       type: object
       description: 凭据只回掩码+是否已配置, 永不回明文(与 TMDB key 同范式)
-      required: [registerMode, smtpEnabled, smtpHost, smtpPort, smtpSecure, smtpUser, smtpFromName, smtpPassSet, presets]
+      required: [registerMode, smtpEnabled, smtpHost, smtpPort, smtpSecure, smtpUser, smtpFromName, mailDailyQuota, smtpPassSet, presets]
       properties:
         registerMode: { type: string, enum: [off, open, apply] }
         smtpEnabled: { type: integer, enum: [0, 1] }
@@ -613,6 +613,7 @@ components:
         smtpSecure: { type: string, enum: [ssl, starttls, none] }
         smtpUser: { type: string }
         smtpFromName: { type: string }
+        mailDailyQuota: { type: integer, minimum: 1, maximum: 1000, description: 全局出站邮件日配额(码/激活/驳回/重置/测试统一计数, 默认 50) }
         smtpPassMasked: { type: string, description: 已配置时的掩码(前4…后4); 未配置空串 }
         smtpPassSet: { type: boolean }
         presets: { type: array, items: { $ref: '#/components/schemas/SmtpPreset' } }
@@ -627,6 +628,7 @@ components:
         smtpUser: { type: string }
         smtpPass: { type: string, description: 空串=不修改已存值 }
         smtpFromName: { type: string }
+        mailDailyQuota: { type: integer, minimum: 1, maximum: 1000, description: 全局出站邮件日配额; 省略或 0 = 不修改 }
     MailTestReq:
       allOf:
         - $ref: '#/components/schemas/MailConfigUpdate'

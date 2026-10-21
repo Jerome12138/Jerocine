@@ -18,18 +18,18 @@ import (
 
 // RequestPasswordReset 发重置链接邮件。防账号枚举: 邮箱不存在时同样静默成功
 // (前端文案中性化"若该邮箱已注册将会收到邮件"); 频率/配额/通道错误照实返回。
-// 顺序: 邮箱格式 → 频率门(分钟窗→邮箱日配额→全局日配额) → 通道门 → 查用户
+// 顺序: 邮箱格式 → 读站点配置 → 频率门(全局日配额→分钟窗→邮箱日配额) → 通道门 → 查用户
 // → 仅存在才作废旧 token 发新链接。
 func (s *RegisterService) RequestPasswordReset(ctx context.Context, email string) error {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if !ValidEmail(email) {
 		return domain.ErrInvalidArgument
 	}
-	if err := s.mailGate(ctx, mailKindReset, email); err != nil {
-		return err
-	}
 	cfg, err := s.siteCfg.Get(ctx)
 	if err != nil {
+		return err
+	}
+	if err := s.mailGate(ctx, cfg, mailKindReset, email); err != nil {
 		return err
 	}
 	sender, err := s.readyMailSender(cfg)
@@ -82,11 +82,8 @@ func (s *RegisterService) ResetPassword(ctx context.Context, token, password str
 	return nil
 }
 
-// resetURL 重置链接: 优先站点域名(site_config.domain), 兜底 env MAIL_BASE_URL(与激活链接同规)。
+// resetURL 重置链接: 用站点域名(site_config.domain)拼(与激活链接同规, 无 env 兜底)。
 func (s *RegisterService) resetURL(cfg *entity.SiteConfig, token string) string {
 	base := strings.TrimRight(strings.TrimSpace(cfg.Domain), "/")
-	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(s.baseURL), "/")
-	}
 	return base + "/reset-password?token=" + token
 }

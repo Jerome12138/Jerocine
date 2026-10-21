@@ -173,7 +173,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	userSvc := service.NewUserService(userRepo, historyRepo, favoriteRepo, skipRepo, searchRepo, tokenMgr, cfg.JWT.MaxDevices, cfg.JWT.TTL)
 	configSvc := service.NewConfigService(siteRepo, versionRepo)
 	// 自注册 + 邮件通道(注册模式/发码/open 注册/apply 申请审核; SMTP 凭据在 site_config 热生效)
-	registerSvc := service.NewRegisterService(siteRepo, userRepo, applyRepo, tx, userSvc, cfg.Mail.DailyQuota, cfg.Mail.BaseURL)
+	registerSvc := service.NewRegisterService(siteRepo, userRepo, applyRepo, tx, userSvc)
 	// 登录即时反馈(仅 apply 模式): 账号不存在时按申请态返回"审核中/已驳回"
 	userSvc.SetApplyLookup(registerSvc.ApplyFeedback)
 	m3u8Svc := service.NewM3u8Service(cfg.JWT.PrivateKey)

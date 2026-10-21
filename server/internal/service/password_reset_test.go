@@ -48,7 +48,7 @@ func (f failUpdateUsers) UpdatePassword(_ context.Context, _ uint, _ string) err
 
 func resetSite() *entity.SiteConfig {
 	s := mailReadySite()
-	s.Domain = "https://jerocine.art" // 链接应优先用站点域名, 不用 baseURL 兜底
+	s.Domain = "https://jerocine.art" // 链接前缀只看站点域名(env 兜底已移除)
 	return s
 }
 
@@ -57,7 +57,7 @@ func newPwdResetSvc(t *testing.T) (*RegisterService, *fakeRegUsers, *fakeSender)
 	setupCache(t)
 	users := newFakeRegUsers()
 	userSvc := NewUserService(users, nil, nil, nil, nil, testTokenManager(t), 5, time.Hour)
-	svc := NewRegisterService(&fakeSiteCfg{cfg: resetSite()}, users, &fakeApplies{}, fakeTx{}, userSvc, 50, "https://env.example")
+	svc := NewRegisterService(&fakeSiteCfg{cfg: resetSite()}, users, &fakeApplies{}, fakeTx{}, userSvc)
 	fs := &fakeSender{}
 	svc.newSender = func(mailer.Config) (mailer.Sender, error) { return fs, nil }
 	return svc, users, fs
@@ -236,7 +236,7 @@ func TestResetPasswordKeepsTokenOnWriteFailure(t *testing.T) {
 	users := newFakeRegUsers()
 	seedResetUser(users)
 	fs := &fakeSender{}
-	svc := NewRegisterService(&fakeSiteCfg{cfg: resetSite()}, failUpdateUsers{users}, &fakeApplies{}, fakeTx{}, nil, 50, "https://env.example")
+	svc := NewRegisterService(&fakeSiteCfg{cfg: resetSite()}, failUpdateUsers{users}, &fakeApplies{}, fakeTx{}, nil)
 	svc.newSender = func(mailer.Config) (mailer.Sender, error) { return fs, nil }
 	ctx := context.Background()
 	if err := svc.RequestPasswordReset(ctx, "jerry@x.com"); err != nil {

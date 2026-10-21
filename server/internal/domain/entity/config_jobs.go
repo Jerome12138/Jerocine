@@ -154,7 +154,10 @@ type SiteConfig struct {
 	SmtpUser     string `gorm:"column:smtp_user" json:"-"`      // SMTP 账号(邮箱地址)
 	SmtpPass     string `gorm:"column:smtp_pass" json:"-"`      // 鉴权信息(授权码/应用专用密码), 永不出网
 	SmtpFromName string `gorm:"column:smtp_from_name" json:"-"` // 发件人显示名
-	UpdatedAt    int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	// MailDailyQuota 出站邮件全局日配额(默认 50, 后台可改): 码/激活/驳回/重置/测试统一计数。
+	// 与 SMTP 组一样 json:"-" —— 对外只经 service.MailConfigView 暴露。
+	MailDailyQuota int   `gorm:"column:mail_daily_quota" json:"-"`
+	UpdatedAt      int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (SiteConfig) TableName() string { return "site_config" }

@@ -22,36 +22,29 @@ import (
 //   - 邮箱验证码只进 Redis(coord DB1), 频率: 同邮箱 1 分钟 1 封 + 日 5 封 + 全局日配额(默认 50);
 //   - open 注册成功直接复用 UserService.IssueToken 签发登录态, 不另造轮子;
 //   - apply 申请不收密码; 审批通过发一次性激活链接(7 天), 用户到站设密码才落 users;
-//   - SMTP 凭据存 site_config(json:"-" 硬隔离), 每次发送按当前配置热构造 sender。
+//   - SMTP 凭据与日配额全存 site_config(json:"-" 硬隔离), 每次发送按当前配置热构造 sender ——
+//     **不读任何邮件相关环境变量**: 部署侧只需数据库与密钥, 运营参数一律后台维护。
 type RegisterService struct {
-	siteCfg repository.SiteConfigRepository
-	users   repository.UserRepository
-	applies repository.RegisterApplyRepository
-	tx      repository.TxManager
-	userSvc *UserService
-	// baseURL 激活链接前缀兜底(站点域名 site_config.domain 为空时用; env MAIL_BASE_URL)。
-	baseURL    string
-	dailyQuota int // 全局出站日配额(默认 50, env MAIL_DAILY_QUOTA 可配)
-	now        func() time.Time
-	newSender  func(cfg mailer.Config) (mailer.Sender, error)
+	siteCfg   repository.SiteConfigRepository
+	users     repository.UserRepository
+	applies   repository.RegisterApplyRepository
+	tx        repository.TxManager
+	userSvc   *UserService
+	now       func() time.Time
+	newSender func(cfg mailer.Config) (mailer.Sender, error)
 }
 
-// NewRegisterService 构造注册服务。dailyQuota<=0 时按 50; tx/applies 为 nil 时 activate 路径不可用(测试按需传)。
+// NewRegisterService 构造注册服务(SMTP/配额/链接前缀全在 site_config, 无 env 参数)。
+// tx/applies 为 nil 时 activate 路径不可用(测试按需传)。
 func NewRegisterService(
 	siteCfg repository.SiteConfigRepository,
 	users repository.UserRepository,
 	applies repository.RegisterApplyRepository,
 	tx repository.TxManager,
 	userSvc *UserService,
-	dailyQuota int,
-	baseURL string,
 ) *RegisterService {
-	if dailyQuota <= 0 {
-		dailyQuota = 50
-	}
 	return &RegisterService{
 		siteCfg: siteCfg, users: users, applies: applies, tx: tx, userSvc: userSvc,
-		baseURL: baseURL, dailyQuota: dailyQuota,
 		now: time.Now, newSender: mailer.NewSender,
 	}
 }
@@ -70,6 +63,10 @@ const (
 	// 申请人自述 reason 是 VARCHAR(500)(两个字段不同), 别混用同一个常量 ——
 	// 否则 256~500 字的驳回理由会被 MySQL 拒写(严格模式 Data too long → 500)。
 	regRejectReasonMax = 255
+	// defaultMailDailyQuota 全局出站日配额默认值(与 site_config.mail_daily_quota 列默认一致)。
+	defaultMailDailyQuota = 50
+	// mailDailyQuotaMax 配额上限(后台填写校验): 防手滑填成天文数字让告警失去意义。
+	mailDailyQuotaMax = 1000
 )
 
 // 注册模式取值(与 site_config.register_mode 对齐)。
@@ -116,6 +113,7 @@ type MailConfigView struct {
 	SmtpSecure     string          `json:"smtpSecure"`
 	SmtpUser       string          `json:"smtpUser"`
 	SmtpFromName   string          `json:"smtpFromName"`
+	MailDailyQuota int             `json:"mailDailyQuota"` // 全局出站日配额(含测试邮件), 默认 50
 	SmtpPassMasked string          `json:"smtpPassMasked"` // 已配置时的掩码(如 a****@qq.com); 未配置空串
 	SmtpPassSet    bool            `json:"smtpPassSet"`
 	Presets        []mailer.Preset `json:"presets"`
@@ -123,14 +121,15 @@ type MailConfigView struct {
 
 // MailConfigInput PUT /manage/mail/config: SmtpPass 空串 = 不修改已存值(掩码回显防误清空)。
 type MailConfigInput struct {
-	RegisterMode string `json:"registerMode"`
-	SmtpEnabled  int    `json:"smtpEnabled"`
-	SmtpHost     string `json:"smtpHost"`
-	SmtpPort     int    `json:"smtpPort"`
-	SmtpSecure   string `json:"smtpSecure"`
-	SmtpUser     string `json:"smtpUser"`
-	SmtpPass     string `json:"smtpPass"`
-	SmtpFromName string `json:"smtpFromName"`
+	RegisterMode   string `json:"registerMode"`
+	SmtpEnabled    int    `json:"smtpEnabled"`
+	SmtpHost       string `json:"smtpHost"`
+	SmtpPort       int    `json:"smtpPort"`
+	SmtpSecure     string `json:"smtpSecure"`
+	SmtpUser       string `json:"smtpUser"`
+	SmtpPass       string `json:"smtpPass"`
+	SmtpFromName   string `json:"smtpFromName"`
+	MailDailyQuota int    `json:"mailDailyQuota"`
 }
 
 // ---- 公开: 配置查询 / 发码 / open 注册 ----
@@ -145,7 +144,7 @@ func (s *RegisterService) RegisterConfig(ctx context.Context) (RegisterConfigVie
 }
 
 // SendCode 发送邮箱验证码(注册/申请/找回共用入口)。
-// 顺序: 模式门 → 邮件通道门 → 邮箱格式 → 频率(分钟窗→邮箱日配额→全局日配额) → 发信。
+// 顺序: 模式门 → 邮件通道门 → 邮箱格式 → 频率(全局日配额→分钟窗→邮箱日配额) → 发信。
 // reset 用途(P3)不受 register_mode 约束。
 func (s *RegisterService) SendCode(ctx context.Context, purpose, email string) error {
 	if purpose != PurposeRegister && purpose != PurposeReset {
@@ -167,7 +166,7 @@ func (s *RegisterService) SendCode(ctx context.Context, purpose, email string) e
 		return err
 	}
 	// 频率(分钟窗优先, 给最具体的错误)
-	if err := s.mailGate(ctx, mailKindCode, email); err != nil {
+	if err := s.mailGate(ctx, cfg, mailKindCode, email); err != nil {
 		return err
 	}
 	code, err := randDigits(6)
@@ -468,6 +467,7 @@ func (s *RegisterService) GetMailConfig(ctx context.Context) (MailConfigView, er
 		SmtpSecure:     normalizeSecure(cfg.SmtpSecure),
 		SmtpUser:       cfg.SmtpUser,
 		SmtpFromName:   cfg.SmtpFromName,
+		MailDailyQuota: s.mailQuota(cfg),
 		SmtpPassMasked: maskSecret(cfg.SmtpPass),
 		SmtpPassSet:    cfg.SmtpPass != "",
 		Presets:        mailer.Presets,
@@ -499,6 +499,17 @@ func (s *RegisterService) SaveMailConfig(ctx context.Context, in MailConfigInput
 	if in.SmtpPass != "" {
 		pass = in.SmtpPass
 	}
+	// 日配额: 0 = 不修改(老客户端不带该字段时保留现值); 非 0 必须落在 1~max。
+	quota := cur.MailDailyQuota
+	if in.MailDailyQuota != 0 {
+		if in.MailDailyQuota < 1 || in.MailDailyQuota > mailDailyQuotaMax {
+			return domain.ErrInvalidArgument
+		}
+		quota = in.MailDailyQuota
+	}
+	if quota <= 0 {
+		quota = defaultMailDailyQuota
+	}
 	mc := mailer.Config{
 		Host: in.SmtpHost, Port: in.SmtpPort, Secure: in.SmtpSecure,
 		User: in.SmtpUser, Pass: pass,
@@ -515,6 +526,7 @@ func (s *RegisterService) SaveMailConfig(ctx context.Context, in MailConfigInput
 	cur.SmtpUser = in.SmtpUser
 	cur.SmtpPass = pass
 	cur.SmtpFromName = in.SmtpFromName
+	cur.MailDailyQuota = quota
 	if err := s.siteCfg.Save(ctx, cur); err != nil {
 		return err
 	}
@@ -532,12 +544,12 @@ func (s *RegisterService) TestMail(ctx context.Context, to string, in MailConfig
 		return domain.ErrInvalidArgument
 	}
 	day := cache.TodayDay(s.now())
-	if cache.ReadMailQuota(ctx, day) >= s.dailyQuota {
-		return domain.ErrQuotaExceeded
-	}
 	cur, err := s.siteCfg.Get(ctx)
 	if err != nil {
 		return err
+	}
+	if cache.ReadMailQuota(ctx, day) >= s.mailQuota(cur) {
+		return domain.ErrQuotaExceeded
 	}
 	pass := cur.SmtpPass
 	if in.SmtpPass != "" {
@@ -564,11 +576,11 @@ func (s *RegisterService) TestMail(ctx context.Context, to string, in MailConfig
 // mailGate 出站邮件频率门(所有非测试出站统一走): 全局日配额 → 分钟窗 → 邮箱日配额。
 //
 //	ErrCodeSendTooFast / ErrQuotaExceeded 含义对用户可读, 直接返回。
-//	全局配额用只读判断且**放行后才计数**: 配额已满时不再消耗分钟窗/邮箱日计数
-//	(否则用户会先收到"发得太快", 且失败尝试被当成已发邮件占额度)。
-func (s *RegisterService) mailGate(ctx context.Context, kind, email string) error {
+//	全局配额取自 site_config(后台可改, 默认 50), 用只读判断且**放行后才计数**:
+//	配额已满时不再消耗分钟窗/邮箱日计数(否则用户会先收到"发得太快", 且失败尝试被当成已发邮件占额度)。
+func (s *RegisterService) mailGate(ctx context.Context, cfg *entity.SiteConfig, kind, email string) error {
 	day := cache.TodayDay(s.now())
-	if cache.ReadMailQuota(ctx, day) >= s.dailyQuota {
+	if cache.ReadMailQuota(ctx, day) >= s.mailQuota(cfg) {
 		return domain.ErrQuotaExceeded
 	}
 	if !cache.AllowSendMinute(ctx, kind, email) {
@@ -579,6 +591,14 @@ func (s *RegisterService) mailGate(ctx context.Context, kind, email string) erro
 	}
 	cache.CountMailQuota(ctx, day)
 	return nil
+}
+
+// mailQuota 全局出站日配额: 读 site_config(后台「邮件与注册」可改), 未配/非法回退默认值。
+func (s *RegisterService) mailQuota(cfg *entity.SiteConfig) int {
+	if cfg != nil && cfg.MailDailyQuota > 0 {
+		return cfg.MailDailyQuota
+	}
+	return defaultMailDailyQuota
 }
 
 // readyMailSender 按当前站点配置热构造 sender; 通道未就绪 → ErrMailNotConfigured。
@@ -601,7 +621,7 @@ func (s *RegisterService) sendActivateMail(ctx context.Context, a *entity.Regist
 	if err != nil {
 		return err
 	}
-	if err := s.mailGate(ctx, mailKindActivate, a.Email); err != nil {
+	if err := s.mailGate(ctx, cfg, mailKindActivate, a.Email); err != nil {
 		return err
 	}
 	token, err := randHex(32)
@@ -626,7 +646,7 @@ func (s *RegisterService) sendRejectMail(ctx context.Context, a *entity.Register
 	if err != nil {
 		return err
 	}
-	if err := s.mailGate(ctx, mailKindReject, a.Email); err != nil {
+	if err := s.mailGate(ctx, cfg, mailKindReject, a.Email); err != nil {
 		return err
 	}
 	if err := sender.Send(a.Email, mailer.RejectSubject, mailer.RejectBody(reason)); err != nil {
@@ -635,12 +655,10 @@ func (s *RegisterService) sendRejectMail(ctx context.Context, a *entity.Register
 	return nil
 }
 
-// activateURL 激活链接: 优先站点域名(site_config.domain), 兜底 env MAIL_BASE_URL, 再兜底相对路径。
+// activateURL 激活链接: 用站点域名(site_config.domain)拼; 域名未配时退化为相对路径
+// (后台「站点配置」必须先填 https:// 开头的完整域名, 否则收件人点开链接无效)。
 func (s *RegisterService) activateURL(cfg *entity.SiteConfig, token string) string {
 	base := strings.TrimRight(strings.TrimSpace(cfg.Domain), "/")
-	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(s.baseURL), "/")
-	}
 	return base + "/activate?token=" + token
 }
 

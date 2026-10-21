@@ -195,18 +195,22 @@ func (f *fakeSender) lastCode(t *testing.T) string {
 func mailReadySite() *entity.SiteConfig {
 	return &entity.SiteConfig{
 		Id: 1, RegisterMode: RegisterModeOpen, SmtpEnabled: 1,
+		Domain:   "https://site.example", // 邮件链接前缀(原 env MAIL_BASE_URL 的角色)
 		SmtpHost: "smtp.qq.com", SmtpPort: 465, SmtpSecure: "ssl",
 		SmtpUser: "bot@qq.com", SmtpPass: "authcode", SmtpFromName: "Jerocine",
+		MailDailyQuota: 50,
 	}
 }
 
 // newRegisterSvc 装配: 真 UserService(IssueToken 路径) + 假 repo + 假 sender。
+// quota 写进 site_config(日配额已从 env 移到后台配置), 保留入参便于用例直接调阈值。
 func newRegisterSvc(t *testing.T, site *entity.SiteConfig, quota int) (*RegisterService, *fakeRegUsers, *fakeSender) {
 	t.Helper()
 	setupCache(t)
 	users := newFakeRegUsers()
 	userSvc := NewUserService(users, nil, nil, nil, nil, testTokenManager(t), 5, time.Hour)
-	svc := NewRegisterService(&fakeSiteCfg{cfg: site}, users, &fakeApplies{}, fakeTx{}, userSvc, quota, "https://site.example")
+	site.MailDailyQuota = quota
+	svc := NewRegisterService(&fakeSiteCfg{cfg: site}, users, &fakeApplies{}, fakeTx{}, userSvc)
 	fs := &fakeSender{}
 	svc.newSender = func(mailer.Config) (mailer.Sender, error) { return fs, nil }
 	return svc, users, fs
@@ -219,7 +223,8 @@ func newRegisterSvcWith(t *testing.T, site *entity.SiteConfig, quota int) (*Regi
 	users := newFakeRegUsers()
 	userSvc := NewUserService(users, nil, nil, nil, nil, testTokenManager(t), 5, time.Hour)
 	applies := &fakeApplies{}
-	svc := NewRegisterService(&fakeSiteCfg{cfg: site}, users, applies, fakeTx{}, userSvc, quota, "https://site.example")
+	site.MailDailyQuota = quota
+	svc := NewRegisterService(&fakeSiteCfg{cfg: site}, users, applies, fakeTx{}, userSvc)
 	fs := &fakeSender{}
 	svc.newSender = func(mailer.Config) (mailer.Sender, error) { return fs, nil }
 	return svc, users, applies, fs
@@ -494,14 +499,45 @@ func TestMailConfigMaskAndSave(t *testing.T) {
 	if v.RegisterMode != RegisterModeOpen || len(v.Presets) < 6 || v.SmtpPort != 465 {
 		t.Fatalf("视图字段不对: %+v", v)
 	}
+	if v.MailDailyQuota != 50 {
+		t.Fatalf("日配额视图应为 50: %d", v.MailDailyQuota)
+	}
 
 	// 未配置时掩码为空
 	site2 := &entity.SiteConfig{Id: 1}
-	svc2, _, _ := newRegisterSvc(t, site2, 50)
+	svc2, _, _ := newRegisterSvc(t, site2, 0) // 0 = 列未配 → 视图回退默认 50
 	v2, _ := svc2.GetMailConfig(ctx)
 	if v2.SmtpPassSet || v2.SmtpPassMasked != "" || v2.RegisterMode != RegisterModeOff {
 		t.Fatalf("未配置视图不对: %+v", v2)
 	}
+	if v2.MailDailyQuota != 50 {
+		t.Fatalf("未配配额应回退 50: %d", v2.MailDailyQuota)
+	}
+
+	t.Run("保存: 日配额可改且越界拒绝/省略保留", func(t *testing.T) {
+		in := MailConfigInput{
+			RegisterMode: "open", SmtpEnabled: 1, SmtpHost: "smtp.qq.com",
+			SmtpPort: 465, SmtpSecure: "ssl", SmtpUser: "a@qq.com", MailDailyQuota: 7,
+		}
+		if err := svc.SaveMailConfig(ctx, in); err != nil {
+			t.Fatalf("改配额: %v", err)
+		}
+		if site.MailDailyQuota != 7 {
+			t.Fatalf("配额未落库: %d", site.MailDailyQuota)
+		}
+		if got, _ := svc.GetMailConfig(ctx); got.MailDailyQuota != 7 {
+			t.Fatalf("读回配额不对: %d", got.MailDailyQuota)
+		}
+		in.MailDailyQuota = mailDailyQuotaMax + 1
+		if err := svc.SaveMailConfig(ctx, in); !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("超额应拒: %v", err)
+		}
+		// 不传(0) = 不修改: 老客户端/旧表单不会把它静默清成 0
+		in.MailDailyQuota = 0
+		if err := svc.SaveMailConfig(ctx, in); err != nil || site.MailDailyQuota != 7 {
+			t.Fatalf("省略字段应保留: err=%v quota=%d", err, site.MailDailyQuota)
+		}
+	})
 
 	t.Run("保存: 启用但配置不完整应拒", func(t *testing.T) {
 		fresh := &entity.SiteConfig{Id: 1} // 库里没配过 pass
