@@ -66,6 +66,18 @@ describe('ResetPasswordView 重置密码落地页', () => {
     expect(resetPassword).not.toHaveBeenCalled()
   })
 
+  it('密码超过 64 位 → 前端拦截(服务端按无效参数拒)', async () => {
+    const w = await mountView()
+    const pwds = w.findAll('input[type="password"]')
+    const long = 'a'.repeat(65)
+    await pwds[0].setValue(long)
+    await pwds[1].setValue(long)
+    await w.find('form').trigger('submit.prevent')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(w.text()).toContain('密码最多 64 位')
+    expect(resetPassword).not.toHaveBeenCalled()
+  })
+
   it('重置成功 → 带 token/password 调端点, 回登录页(带 reset=1)', async () => {
     vi.mocked(resetPassword).mockResolvedValue({ reset: true })
     const w = await mountView()

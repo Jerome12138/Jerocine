@@ -97,6 +97,11 @@ async function handleRegister(): Promise<void> {
     errorMsg.value = '密码至少 6 位'
     return
   }
+  // 与服务端 regPasswordMax 对齐: 超长会被后端按无效参数拒(英文 invalid argument), 前端先拦
+  if (form.password.length > 64) {
+    errorMsg.value = '密码最多 64 位'
+    return
+  }
   if (!form.email.trim()) {
     errorMsg.value = '请输入邮箱'
     return
@@ -361,6 +366,7 @@ function resetApply(): void {
           <input
             v-model="form.password"
             :type="showPwd ? 'text' : 'password'"
+            maxlength="64"
             class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-10)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
             placeholder="密码（至少 6 位）"
             autocomplete="new-password"

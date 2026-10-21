@@ -122,8 +122,8 @@ async function submitReject(): Promise<void> {
     toast('error', '请填写驳回理由（用户可见）')
     return
   }
-  if (reason.length > 500) {
-    toast('error', '驳回理由不能超过 500 字')
+  if (reason.length > 255) {
+    toast('error', '驳回理由不能超过 255 字')
     return
   }
   busy.value = true
@@ -223,11 +223,11 @@ onMounted(load)
     <ManageSheet v-model="rejectOpen" :title="`驳回申请 — ${rejectTarget?.userName ?? ''}`">
       <form class="flex flex-col gap-[var(--jc-space-4)]" @submit.prevent="submitReject">
         <label class="flex flex-col gap-[var(--jc-space-2)]">
-          <span class="text-sm text-secondary">驳回理由（必填，用户登录与进度查询可见，≤500 字）</span>
+          <span class="text-sm text-secondary">驳回理由（必填，用户登录与进度查询可见，≤255 字）</span>
           <textarea
             v-model="rejectReason"
             rows="3"
-            maxlength="500"
+            maxlength="255"
             class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm resize-y"
             placeholder="例如：邀请人信息无法核实 / 请补充联系方式"
             data-focusable="true"

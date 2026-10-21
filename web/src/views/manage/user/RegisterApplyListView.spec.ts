@@ -131,6 +131,13 @@ describe('RegisterApplyListView 注册审核', () => {
     expect(h.reject).not.toHaveBeenCalled()
     expect(h.toast).toHaveBeenCalledWith('error', '请填写驳回理由（用户可见）')
 
+    // 超过 255 字 → 拦截(驳回理由列是 VARCHAR(255), 与申请人自述 reason 的 500 不同)
+    await new DOMWrapper(document.body.querySelector('textarea')!).setValue('理'.repeat(256))
+    form!.dispatchEvent(new Event('submit', { cancelable: true }))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.reject).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', '驳回理由不能超过 255 字')
+
     // 填理由后再提交
     await new DOMWrapper(document.body.querySelector('textarea')!).setValue('邀请人无法核实')
     form!.dispatchEvent(new Event('submit', { cancelable: true }))

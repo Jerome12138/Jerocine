@@ -53,6 +53,10 @@ async function handleActivate(): Promise<void> {
     errorMsg.value = '密码至少 6 位'
     return
   }
+  if (form.password.length > 64) {
+    errorMsg.value = '密码最多 64 位'
+    return
+  }
   if (form.password !== form.confirm) {
     errorMsg.value = '两次输入的密码不一致'
     return
@@ -179,6 +183,7 @@ async function handleActivate(): Promise<void> {
           <input
             v-model="form.password"
             :type="showPwd ? 'text' : 'password'"
+            maxlength="64"
             class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-10)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
             placeholder="密码（至少 6 位）"
             autocomplete="new-password"
@@ -206,6 +211,7 @@ async function handleActivate(): Promise<void> {
           <input
             v-model="form.confirm"
             :type="showPwd ? 'text' : 'password'"
+            maxlength="64"
             class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-4)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
             placeholder="再输一次密码"
             autocomplete="new-password"

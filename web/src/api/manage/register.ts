@@ -23,7 +23,7 @@ export const approve = (id: number): Promise<RegisterApplyActionResp> =>
     { silent: true }
   )
 
-/** POST /manage/register/applies/:id/reject 驳回（理由必填 ≤500; 驳回邮件失败仅 warning） */
+/** POST /manage/register/applies/:id/reject 驳回（理由必填 ≤255，对齐 reject_reason VARCHAR(255); 驳回邮件失败仅 warning） */
 export const reject = (id: number, reason: string): Promise<RegisterApplyActionResp> =>
   http.post<unknown, RegisterApplyActionResp>(
     `/manage/register/applies/${id}/reject`,
