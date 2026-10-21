@@ -177,13 +177,20 @@ const (
 	DefaultAuthTokenTTLHours  = 168 // 7 天
 	DefaultMaxDeviceLogin     = 5
 	DefaultSpiderMaxGoroutine = 32
+	// 采集并发硬上限(2026-10-21 由代码常量搬进后台): 主站每页写三表, 过高会批量死锁;
+	// 从站只写播放源行, 但高并发会触发源站限流(实测 403)。
+	DefaultSpiderMasterWorkers = 12
+	DefaultSpiderSlaveWorkers  = 8
 )
 
 // RuntimeSettings 运行参数视图(全部是"下次才生效"的项, 后台需在文案里讲清)。
 type RuntimeSettings struct {
-	AuthTokenTTLHours  int `json:"authTokenTtlHours"`  // 只影响新签发 token
-	MaxDeviceLogin     int `json:"maxDeviceLogin"`     // 下次登录时按新值裁最旧设备
-	SpiderMaxGoroutine int `json:"spiderMaxGoroutine"` // 下一轮采集生效(主站 12 / 从站 8 另有硬上限)
+	AuthTokenTTLHours int `json:"authTokenTtlHours"` // 只影响新签发 token
+	MaxDeviceLogin    int `json:"maxDeviceLogin"`    // 下次登录时按新值裁最旧设备
+	// SpiderMaxGoroutine 采集并发总上限: 实际并发 = min(本值, 主站/从站硬上限, 页数)。
+	SpiderMaxGoroutine     int `json:"spiderMaxGoroutine"`
+	SpiderMasterMaxWorkers int `json:"spiderMasterMaxWorkers"` // 主站硬上限(默认 12)
+	SpiderSlaveMaxWorkers  int `json:"spiderSlaveMaxWorkers"`  // 从站硬上限(默认 8)
 }
 
 // RuntimeSettings 读当前运行参数(缺省/非法值回退默认)。
@@ -193,9 +200,11 @@ func (s *ManageService) RuntimeSettings(ctx context.Context) (RuntimeSettings, e
 		return RuntimeSettings{}, err
 	}
 	out := RuntimeSettings{
-		AuthTokenTTLHours:  c.AuthTokenTTLHours,
-		MaxDeviceLogin:     c.MaxDeviceLogin,
-		SpiderMaxGoroutine: c.SpiderMaxGoroutine,
+		AuthTokenTTLHours:      c.AuthTokenTTLHours,
+		MaxDeviceLogin:         c.MaxDeviceLogin,
+		SpiderMaxGoroutine:     c.SpiderMaxGoroutine,
+		SpiderMasterMaxWorkers: c.SpiderMasterMaxWorkers,
+		SpiderSlaveMaxWorkers:  c.SpiderSlaveMaxWorkers,
 	}
 	if out.AuthTokenTTLHours <= 0 {
 		out.AuthTokenTTLHours = DefaultAuthTokenTTLHours
@@ -206,14 +215,24 @@ func (s *ManageService) RuntimeSettings(ctx context.Context) (RuntimeSettings, e
 	if out.SpiderMaxGoroutine <= 0 {
 		out.SpiderMaxGoroutine = DefaultSpiderMaxGoroutine
 	}
+	if out.SpiderMasterMaxWorkers <= 0 {
+		out.SpiderMasterMaxWorkers = DefaultSpiderMasterWorkers
+	}
+	if out.SpiderSlaveMaxWorkers <= 0 {
+		out.SpiderSlaveMaxWorkers = DefaultSpiderSlaveWorkers
+	}
 	return out, nil
 }
 
-// SaveRuntimeSettings 写运行参数。范围校验防手滑(登录 1h~1 年、设备 1~50、并发 1~256)。
+// SaveRuntimeSettings 写运行参数。范围校验防手滑
+// (登录 1h~1 年、设备 1~50、采集并发与主站/从站硬上限 1~256)。
+// 三者不强制大小关系: 实际并发取 min, 配小了不会出错, 只是白配。
 func (s *ManageService) SaveRuntimeSettings(ctx context.Context, in RuntimeSettings) error {
 	if in.AuthTokenTTLHours < 1 || in.AuthTokenTTLHours > 8760 ||
 		in.MaxDeviceLogin < 1 || in.MaxDeviceLogin > 50 ||
-		in.SpiderMaxGoroutine < 1 || in.SpiderMaxGoroutine > 256 {
+		in.SpiderMaxGoroutine < 1 || in.SpiderMaxGoroutine > 256 ||
+		in.SpiderMasterMaxWorkers < 1 || in.SpiderMasterMaxWorkers > 256 ||
+		in.SpiderSlaveMaxWorkers < 1 || in.SpiderSlaveMaxWorkers > 256 {
 		return domain.ErrInvalidArgument
 	}
 	c, err := s.siteCfg.Get(ctx)
@@ -223,6 +242,8 @@ func (s *ManageService) SaveRuntimeSettings(ctx context.Context, in RuntimeSetti
 	c.AuthTokenTTLHours = in.AuthTokenTTLHours
 	c.MaxDeviceLogin = in.MaxDeviceLogin
 	c.SpiderMaxGoroutine = in.SpiderMaxGoroutine
+	c.SpiderMasterMaxWorkers = in.SpiderMasterMaxWorkers
+	c.SpiderSlaveMaxWorkers = in.SpiderSlaveMaxWorkers
 	if err := s.siteCfg.Save(ctx, c); err != nil {
 		return err
 	}
@@ -248,6 +269,8 @@ func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) erro
 		c.AuthTokenTTLHours = cur.AuthTokenTTLHours
 		c.MaxDeviceLogin = cur.MaxDeviceLogin
 		c.SpiderMaxGoroutine = cur.SpiderMaxGoroutine
+		c.SpiderMasterMaxWorkers = cur.SpiderMasterMaxWorkers
+		c.SpiderSlaveMaxWorkers = cur.SpiderSlaveMaxWorkers
 	}
 	if err := s.siteCfg.Save(ctx, c); err != nil {
 		return err

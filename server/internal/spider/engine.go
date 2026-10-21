@@ -30,22 +30,45 @@ type Engine struct {
 	blob     blobstore.BlobStore
 	failures repository.CollectFailureRepository // 页级失败台账(可空: 空则只打日志)
 	maxG     int
-	// maxGFn 采集并发上限的运行期提供者(后台「系统设置 → 采集性能」): nil 时用构造期 maxG。
+	// limitsFn 并发上限的运行期提供者(后台「系统设置 → 采集性能」): nil 时用构造期默认。
 	// 每轮采集读取一次, 改动下一轮生效, 不打断进行中的轮次。
-	maxGFn func() int
+	limitsFn func() Limits
 }
 
-// SetConcurrencyProvider 注入并发上限提供者(组合根接 site_config 缓存读)。
-func (e *Engine) SetConcurrencyProvider(fn func() int) { e.maxGFn = fn }
+// Limits 一轮采集的并发上限(总上限 + 主站/从站各自硬上限)。
+type Limits struct {
+	Max    int // 总并发上限
+	Master int // 主站硬上限: 主站每页写 movie+search+play 三表, 过高会批量 InnoDB 死锁
+	Slave  int // 从站硬上限: 从站只写播放源行, 但高并发会触发源站限流(实测 403)
+}
 
-// concurrencyLimit 当前生效的并发上限。
-func (e *Engine) concurrencyLimit() int {
-	if e.maxGFn != nil {
-		if n := e.maxGFn(); n > 0 {
-			return n
-		}
+// DefaultLimits 默认上限(2026-10-21 前是代码常量, 现已搬进后台, 这里只作兜底/构造期默认)。
+func DefaultLimits() Limits { return Limits{Max: 32, Master: 12, Slave: 8} }
+
+// clamp 把非法值(0/负)收敛成默认值, 防止后台写坏数据导致 0 并发或死锁上限消失。
+func (l Limits) clamp() Limits {
+	d := DefaultLimits()
+	if l.Max <= 0 {
+		l.Max = d.Max
 	}
-	return e.maxG
+	if l.Master <= 0 {
+		l.Master = d.Master
+	}
+	if l.Slave <= 0 {
+		l.Slave = d.Slave
+	}
+	return l
+}
+
+// SetLimitsProvider 注入并发上限提供者(组合根接 site_config 读)。
+func (e *Engine) SetLimitsProvider(fn func() Limits) { e.limitsFn = fn }
+
+// limits 当前生效的并发上限: 优先提供者(每轮读一次), 未接线/异常时回落构造期默认。
+func (e *Engine) limits() Limits {
+	if e.limitsFn != nil {
+		return e.limitsFn().clamp()
+	}
+	return Limits{Max: e.maxG, Master: DefaultLimits().Master, Slave: DefaultLimits().Slave}.clamp()
 }
 
 func NewEngine(
@@ -152,15 +175,6 @@ func (e *Engine) collectPage(ctx context.Context, src *entity.CollectSource, pg,
 	return e.collectMasterPage(ctx, src, pg, hours, full)
 }
 
-// masterMaxWorkers 主站并发上限: 主站每页事务写 movie+search+play 三表,
-// 并发过高 → InnoDB 行锁循环等待(Error 1213 Deadlock)批量出现(台账实证)。
-const masterMaxWorkers = 12
-
-// slaveMaxWorkers 从站并发上限: 从站只写播放源行, 单事务比主站轻, 但
-// 高并发仍会对源站 API 构成瞬时冲击(实测 src_ff/tt 403 与限频/反爬相关),
-// 故从站收敛到 8, 降低触发源站限流被拉黑的风险。
-const slaveMaxWorkers = 8
-
 // concurrentPageMin 页数超过该值才允许并发(全量不限页数)。
 // 增量窗口页数少(3h 仅 1~5 页), 单线程几十秒即可完成, 并发没有收益反而增加源站压力;
 // 达到数百页的大窗口才值得并发提速。
@@ -169,25 +183,37 @@ const concurrentPageMin = 200
 // deadlockRetries 页事务死锁重试次数(首次失败后最多再试 2 次)。
 const deadlockRetries = 2
 
+// effectiveWorkers 本轮实际并发数(纯函数, 便于单测):
+//   - 源站要求限速(interval_ms >= 300) 或 增量且页数少 → 1(不并发, 免瞬时冲击)
+//   - 否则 → min(总上限, 主站/从站硬上限, 页数)
+func effectiveWorkers(lim Limits, pageCount int, master, full, throttled bool) int {
+	if throttled || (!full && pageCount <= concurrentPageMin) {
+		return 1
+	}
+	w := lim.Max
+	if master && w > lim.Master {
+		w = lim.Master
+	}
+	if !master && w > lim.Slave {
+		w = lim.Slave
+	}
+	if w > pageCount {
+		w = pageCount
+	}
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
 // runPages 分页采集, 并发策略:
 //   - interval_ms >= 300 → 单线程限速(源站明确要求慢采, 每页间隔 interval_ms)
-//   - 全量(hours<=0) 或 页数 > 200 → 并发: 主站 ≤12 / 从站 ≤8, 且不超过页数
+//   - 全量(hours<=0) 或 页数 > 200 → 并发: min(总上限, 主站/从站硬上限, 页数)
+//     三者均由后台「系统设置 → 采集性能」维护(Limits), 每轮读取一次
 //   - 其余(增量且页数少) → 单线程: 增量页少、完成快, 不并发以免对源站构成瞬时压力
 func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCount, hours int, master, full bool) {
-	workers := 1
 	throttled := src.IntervalMs >= 300
-	if !throttled && (full || pageCount > concurrentPageMin) {
-		workers = e.concurrencyLimit()
-		if workers > pageCount {
-			workers = pageCount
-		}
-		if master && workers > masterMaxWorkers {
-			workers = masterMaxWorkers
-		}
-		if !master && workers > slaveMaxWorkers {
-			workers = slaveMaxWorkers
-		}
-	}
+	workers := effectiveWorkers(e.limits(), pageCount, master, full, throttled)
 
 	pages := make(chan int, pageCount)
 	for i := 1; i <= pageCount; i++ {

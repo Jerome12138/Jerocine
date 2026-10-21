@@ -162,9 +162,15 @@ type SiteConfig struct {
 	AuthTokenTTLHours int `gorm:"column:auth_token_ttl_hours" json:"-"`
 	// MaxDeviceLogin 单账号同时在线设备数: 下次登录时按新值裁掉最旧设备, 不会立即踢人。
 	MaxDeviceLogin int `gorm:"column:max_device_login" json:"-"`
-	// SpiderMaxGoroutine 采集并发上限(主站 12 / 从站 8 另有硬上限, 设更大不生效)。
-	SpiderMaxGoroutine int   `gorm:"column:spider_max_goroutine" json:"-"`
-	UpdatedAt          int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	// SpiderMaxGoroutine 采集并发上限(总): 实际并发 = min(本值, 主站/从站硬上限)。
+	SpiderMaxGoroutine int `gorm:"column:spider_max_goroutine" json:"-"`
+	// SpiderMasterMaxWorkers 主站采集并发硬上限(默认 12): 主站每页写 movie+search+play 三表,
+	// 并发过高会批量 InnoDB 死锁(台账实证), 故单独设上限; 后台可调, 下一轮采集生效。
+	SpiderMasterMaxWorkers int `gorm:"column:spider_master_max_workers" json:"-"`
+	// SpiderSlaveMaxWorkers 从站采集并发硬上限(默认 8): 从站只写播放源行, 但高并发会瞬时冲击
+	// 源站 API(实测 403/限流), 故收敛更低; 后台可调。
+	SpiderSlaveMaxWorkers int   `gorm:"column:spider_slave_max_workers" json:"-"`
+	UpdatedAt             int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (SiteConfig) TableName() string { return "site_config" }

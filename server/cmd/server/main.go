@@ -197,13 +197,18 @@ func buildApp(cfg *config.Config) (*App, error) {
 	tmdbClient := tmdb.New("", cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
 	manageSvc := service.NewManageService(sourceRepo, cronRepo, siteRepo, versionRepo, fileRepo, categoryRepo, searchRepo, movieRepo, playRepo, healthRepo, tx, userSvc, blob, tmdbClient)
 	engine := spider.NewEngine(movieRepo, searchRepo, playRepo, categoryRepo, fileRepo, tx, blob, failureRepo, service.DefaultSpiderMaxGoroutine)
-	// 采集并发上限读 site_config(后台「系统设置 → 采集性能」), 下一轮采集生效。
-	engine.SetConcurrencyProvider(func() int {
-		c, err := configSvc.SiteConfig(context.Background())
-		if err != nil || c == nil || c.SpiderMaxGoroutine <= 0 {
-			return service.DefaultSpiderMaxGoroutine
+	// 采集并发三个上限(总/主站/从站)读 site_config(后台「系统设置 → 采集性能」), 下一轮采集生效。
+	engine.SetLimitsProvider(func() spider.Limits {
+		def := spider.Limits{
+			Max: service.DefaultSpiderMaxGoroutine, Master: service.DefaultSpiderMasterWorkers,
+			Slave: service.DefaultSpiderSlaveWorkers,
 		}
-		return c.SpiderMaxGoroutine
+		c, err := configSvc.SiteConfig(context.Background())
+		if err != nil || c == nil {
+			return def
+		}
+		// 0/负值交给 spider.Limits.clamp 兜底, 这里只做搬运
+		return spider.Limits{Max: c.SpiderMaxGoroutine, Master: c.SpiderMasterMaxWorkers, Slave: c.SpiderSlaveMaxWorkers}
 	})
 	taskRunRepo := repomysql.NewTaskRunRepository(gdb)
 	taskSvc := service.NewTaskRunService(taskRunRepo)

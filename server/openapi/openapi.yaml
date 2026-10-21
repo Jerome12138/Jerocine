@@ -604,11 +604,13 @@ components:
     RuntimeSettings:
       type: object
       description: 运行参数(存 site_config; 都是"下次生效"的项)
-      required: [authTokenTtlHours, maxDeviceLogin, spiderMaxGoroutine]
+      required: [authTokenTtlHours, maxDeviceLogin, spiderMaxGoroutine, spiderMasterMaxWorkers, spiderSlaveMaxWorkers]
       properties:
         authTokenTtlHours: { type: integer, minimum: 1, maximum: 8760, description: 登录态有效期(小时); 只影响之后新签发的 token }
         maxDeviceLogin: { type: integer, minimum: 1, maximum: 50, description: 单账号同时在线设备数; 下次登录时按新值裁掉最旧设备 }
-        spiderMaxGoroutine: { type: integer, minimum: 1, maximum: 256, description: 采集并发上限(主站 12 / 从站 8 另有硬上限); 下一轮采集生效 }
+        spiderMaxGoroutine: { type: integer, minimum: 1, maximum: 256, description: 采集并发总上限; 实际并发 = min(本值, 主站/从站硬上限, 页数) }
+        spiderMasterMaxWorkers: { type: integer, minimum: 1, maximum: 256, description: 主站采集并发硬上限(默认 12); 过高易批量 InnoDB 死锁 }
+        spiderSlaveMaxWorkers: { type: integer, minimum: 1, maximum: 256, description: 从站采集并发硬上限(默认 8); 过高易触发源站限流/403 }
     LoginSession:
       type: object
       description: 一条在线登录会话(当前生效的 token)

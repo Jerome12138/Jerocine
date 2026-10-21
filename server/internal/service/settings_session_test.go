@@ -107,17 +107,30 @@ func TestRuntimeSettingsDefaultsAndSave(t *testing.T) {
 	}
 	if got.AuthTokenTTLHours != DefaultAuthTokenTTLHours ||
 		got.MaxDeviceLogin != DefaultMaxDeviceLogin ||
-		got.SpiderMaxGoroutine != DefaultSpiderMaxGoroutine {
+		got.SpiderMaxGoroutine != DefaultSpiderMaxGoroutine ||
+		got.SpiderMasterMaxWorkers != DefaultSpiderMasterWorkers ||
+		got.SpiderSlaveMaxWorkers != DefaultSpiderSlaveWorkers {
 		t.Fatalf("未配置应回退默认: %+v", got)
 	}
 
+	good := RuntimeSettings{AuthTokenTTLHours: 168, MaxDeviceLogin: 5,
+		SpiderMaxGoroutine: 32, SpiderMasterMaxWorkers: 12, SpiderSlaveMaxWorkers: 8}
+	with := func(f func(*RuntimeSettings)) RuntimeSettings {
+		c := good
+		f(&c)
+		return c
+	}
 	bad := []RuntimeSettings{
-		{AuthTokenTTLHours: 0, MaxDeviceLogin: 5, SpiderMaxGoroutine: 32},
-		{AuthTokenTTLHours: 9000, MaxDeviceLogin: 5, SpiderMaxGoroutine: 32},
-		{AuthTokenTTLHours: 168, MaxDeviceLogin: 0, SpiderMaxGoroutine: 32},
-		{AuthTokenTTLHours: 168, MaxDeviceLogin: 51, SpiderMaxGoroutine: 32},
-		{AuthTokenTTLHours: 168, MaxDeviceLogin: 5, SpiderMaxGoroutine: 0},
-		{AuthTokenTTLHours: 168, MaxDeviceLogin: 5, SpiderMaxGoroutine: 257},
+		with(func(c *RuntimeSettings) { c.AuthTokenTTLHours = 0 }),
+		with(func(c *RuntimeSettings) { c.AuthTokenTTLHours = 9000 }),
+		with(func(c *RuntimeSettings) { c.MaxDeviceLogin = 0 }),
+		with(func(c *RuntimeSettings) { c.MaxDeviceLogin = 51 }),
+		with(func(c *RuntimeSettings) { c.SpiderMaxGoroutine = 0 }),
+		with(func(c *RuntimeSettings) { c.SpiderMaxGoroutine = 257 }),
+		with(func(c *RuntimeSettings) { c.SpiderMasterMaxWorkers = 0 }),
+		with(func(c *RuntimeSettings) { c.SpiderMasterMaxWorkers = 257 }),
+		with(func(c *RuntimeSettings) { c.SpiderSlaveMaxWorkers = 0 }),
+		with(func(c *RuntimeSettings) { c.SpiderSlaveMaxWorkers = 257 }),
 	}
 	for i, in := range bad {
 		if err := m.SaveRuntimeSettings(ctx, in); !errors.Is(err, domain.ErrInvalidArgument) {
@@ -125,11 +138,13 @@ func TestRuntimeSettingsDefaultsAndSave(t *testing.T) {
 		}
 	}
 
-	okIn := RuntimeSettings{AuthTokenTTLHours: 720, MaxDeviceLogin: 10, SpiderMaxGoroutine: 8}
+	okIn := RuntimeSettings{AuthTokenTTLHours: 720, MaxDeviceLogin: 10,
+		SpiderMaxGoroutine: 30, SpiderMasterMaxWorkers: 10, SpiderSlaveMaxWorkers: 6}
 	if err := m.SaveRuntimeSettings(ctx, okIn); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if site.AuthTokenTTLHours != 720 || site.MaxDeviceLogin != 10 || site.SpiderMaxGoroutine != 8 {
+	if site.AuthTokenTTLHours != 720 || site.MaxDeviceLogin != 10 ||
+		site.SpiderMaxGoroutine != 30 || site.SpiderMasterMaxWorkers != 10 || site.SpiderSlaveMaxWorkers != 6 {
 		t.Fatalf("未落库: %+v", site)
 	}
 	if got, _ := m.RuntimeSettings(ctx); got != okIn {
@@ -148,6 +163,7 @@ func TestSaveSitePreservesIndependentColumns(t *testing.T) {
 		SmtpEnabled: 1, SmtpHost: "smtp.qq.com", SmtpPort: 465, SmtpSecure: "ssl",
 		SmtpUser: "bot@qq.com", SmtpPass: "code", SmtpFromName: "J", MailDailyQuota: 7,
 		AuthTokenTTLHours: 720, MaxDeviceLogin: 10, SpiderMaxGoroutine: 8,
+		SpiderMasterMaxWorkers: 9, SpiderSlaveMaxWorkers: 5,
 	}
 	m := &ManageService{siteCfg: &fakeSiteCfg{cfg: site}}
 
@@ -162,7 +178,8 @@ func TestSaveSitePreservesIndependentColumns(t *testing.T) {
 		site.RegisterMode != RegisterModeApply || site.MailDailyQuota != 7 {
 		t.Fatalf("邮件/TMDB 列被清零: %+v", site)
 	}
-	if site.AuthTokenTTLHours != 720 || site.MaxDeviceLogin != 10 || site.SpiderMaxGoroutine != 8 {
+	if site.AuthTokenTTLHours != 720 || site.MaxDeviceLogin != 10 || site.SpiderMaxGoroutine != 8 ||
+		site.SpiderMasterMaxWorkers != 9 || site.SpiderSlaveMaxWorkers != 5 {
 		t.Fatalf("运行参数被清零: %+v", site)
 	}
 }
