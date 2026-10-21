@@ -1,5 +1,12 @@
 import { http } from '../http'
-import type { DailySessionsResp, DashboardStat, OnlineOverview, SiteBasic } from '@/types/manage'
+import type {
+  DailySessionsResp,
+  DashboardStat,
+  LoginSessionResp,
+  OnlineOverview,
+  RuntimeSettings,
+  SiteBasic
+} from '@/types/manage'
 
 // ---- 后端契约 DTO (entity.SiteConfig 子集) ----
 interface SiteConfigDTO {
@@ -76,3 +83,29 @@ export const setTMDBKey = (key: string): Promise<void> =>
 /** DELETE /manage/tmdb-key 清除凭据(横图回填停摆, 已落地图不受影响) */
 export const clearTMDBKey = (): Promise<void> =>
   http.delete<unknown, void>('/manage/tmdb-key')
+
+// ---- 运行参数(账号与安全 / 采集性能) ----
+
+/** GET /manage/settings 读运行参数 */
+export const getRuntimeSettings = (): Promise<RuntimeSettings> =>
+  http.get<unknown, RuntimeSettings>('/manage/settings')
+
+/** PUT /manage/settings 写运行参数（登录策略下次登录生效，采集并发下一轮采集生效） */
+export const updateRuntimeSettings = (data: RuntimeSettings): Promise<RuntimeSettings> =>
+  http.put<unknown, RuntimeSettings>('/manage/settings', data)
+
+// ---- 在线会话(当前生效的登录凭据) ----
+
+/** GET /manage/sessions 最近活跃会话（keyword 过滤用户名/ID/IP） */
+export const listSessions = (params: {
+  keyword?: string
+  limit?: number
+}): Promise<LoginSessionResp> =>
+  http.get<unknown, LoginSessionResp>('/manage/sessions', { params })
+
+/** DELETE /manage/sessions/:id 踢掉单个会话（该 token 立即失效） */
+export const revokeSession = (id: string): Promise<{ id: string; revoked: boolean }> =>
+  http.delete<unknown, { id: string; revoked: boolean }>(
+    `/manage/sessions/${encodeURIComponent(id)}`,
+    { silent: true }
+  )

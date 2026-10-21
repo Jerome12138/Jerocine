@@ -49,7 +49,8 @@ describe('ManageSidebar variant', () => {
     const labels = aside.querySelectorAll('.jc-ms__mini-label')
     expect(labels.length).toBeGreaterThanOrEqual(10)
     expect(Array.from(labels).some((el) => el.textContent === '影片列表')).toBe(true)
-    expect(Array.from(labels).some((el) => el.textContent === '站点配置')).toBe(true)
+    expect(Array.from(labels).some((el) => el.textContent === '系统设置')).toBe(true)
+    expect(Array.from(labels).some((el) => el.textContent === '在线会话')).toBe(true)
   })
 
   it('variant=full → aside style width 220px, 且历史折叠偏好不再生效(折叠已移除)', () => {

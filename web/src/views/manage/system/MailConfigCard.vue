@@ -9,6 +9,10 @@ import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 
+/**
+ * 注册与邮件通道卡片（原「邮件与注册」独立页并入「系统设置」）。
+ * 保存走 PUT /manage/mail/config；凭据只写不读（留空 = 不修改）。
+ */
 const loading = ref(true)
 const submitting = ref(false)
 const testing = ref(false)
@@ -94,7 +98,7 @@ async function submit(): Promise<void> {
     passDraft.value = ''
     passSet.value = data.smtpPassSet
     passMasked.value = data.smtpPassMasked
-    toast('success', '邮件与注册配置已保存')
+    toast('success', '注册与邮件配置已保存')
   } catch (e) {
     toast('error', e instanceof Error ? e.message : '保存失败')
   } finally {
@@ -134,17 +138,19 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="bg-surface rounded-card shadow-card p-[var(--jc-space-6)] max-w-[820px]">
-    <header class="mb-[var(--jc-space-5)]">
-      <h2 class="text-lg font-[var(--jc-fw-semibold)]">邮件与注册</h2>
-      <p class="text-sm text-muted">
-        配置 SMTP 发件通道与注册模式；验证码 / 激活 / 找回密码邮件均经此通道发送。
-        邮件里的链接使用「站点配置 → 域名」，请先填好完整域名（https:// 开头）。
+  <section
+    class="bg-surface rounded-card shadow-card p-[var(--jc-space-6)] flex flex-col gap-[var(--jc-space-5)]"
+  >
+    <header>
+      <h2 class="text-lg font-[var(--jc-fw-semibold)]">注册与邮件通道</h2>
+      <p class="mt-1 text-sm text-muted">
+        注册模式 + SMTP 发件通道；验证码 / 激活 / 找回密码邮件均经此通道发送。
+        邮件里的链接使用上面的「域名」，请先填好完整域名（https:// 开头）。
       </p>
     </header>
 
     <div v-if="loading" class="flex flex-col gap-[var(--jc-space-3)]">
-      <BaseSkeleton v-for="i in 8" :key="i" shape="rect" height="48px" />
+      <BaseSkeleton v-for="i in 8" :key="i" shape="rect" height="44px" />
     </div>
 
     <form v-else class="flex flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">
@@ -158,9 +164,9 @@ onMounted(load)
         </select>
       </ManageFormField>
 
-      <div class="my-[var(--jc-space-5)] border-t border-[var(--jc-border)]" />
+      <div class="border-t border-[var(--jc-border)]" />
 
-      <section class="flex flex-col gap-[var(--jc-space-5)]">
+      <div class="flex flex-col gap-[var(--jc-space-4)]">
         <header class="flex items-center gap-[var(--jc-space-3)]">
           <h3 class="font-[var(--jc-fw-semibold)]">SMTP 发件通道</h3>
           <ManageSwitch
@@ -186,42 +192,44 @@ onMounted(load)
           </select>
         </ManageFormField>
 
-        <div class="flex gap-[var(--jc-space-4)]">
+        <div class="flex flex-col gap-[var(--jc-space-4)] sm:flex-row">
           <ManageFormField class="flex-1" label="SMTP 服务器" required>
             <ManageInput v-model="form.smtpHost" placeholder="smtp.qq.com" />
           </ManageFormField>
-          <ManageFormField class="w-[140px]" label="端口" required>
+          <ManageFormField class="sm:w-[140px]" label="端口" required>
             <ManageInput v-model="form.smtpPort" type="number" />
           </ManageFormField>
         </div>
 
-        <ManageFormField label="加密方式" required>
-          <select
-            v-model="form.smtpSecure"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong"
-            data-focusable="true"
-          >
-            <option value="ssl">SSL（465，隐式 TLS）</option>
-            <option value="starttls">STARTTLS（587，先明文后升级）</option>
-            <option value="none">无加密（不推荐，仅内网调试）</option>
-          </select>
-        </ManageFormField>
+        <div class="flex flex-col gap-[var(--jc-space-4)] sm:flex-row">
+          <ManageFormField class="flex-1" label="加密方式" required>
+            <select
+              v-model="form.smtpSecure"
+              class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong"
+              data-focusable="true"
+            >
+              <option value="ssl">SSL（465，隐式 TLS）</option>
+              <option value="starttls">STARTTLS（587，必须支持升级）</option>
+              <option value="none">无加密（不推荐，仅内网）</option>
+            </select>
+          </ManageFormField>
+          <ManageFormField class="flex-1" label="发件账号" required hint="一般为完整邮箱地址">
+            <ManageInput v-model="form.smtpUser" placeholder="mail@example.com" />
+          </ManageFormField>
+        </div>
 
-        <ManageFormField label="发件账号" required hint="一般为完整邮箱地址">
-          <ManageInput v-model="form.smtpUser" placeholder="mail@example.com" />
-        </ManageFormField>
-
-        <ManageFormField label="授权码 / 密码" required :hint="passHint">
-          <ManageInput
-            v-model="passDraft"
-            type="password"
-            :placeholder="passSet ? '留空 = 不修改' : '输入授权码 / 密码'"
-          />
-        </ManageFormField>
-
-        <ManageFormField label="发件人显示名" hint="收件人看到的昵称，如「Jerocine影视」">
-          <ManageInput v-model="form.smtpFromName" placeholder="Jerocine影视" />
-        </ManageFormField>
+        <div class="flex flex-col gap-[var(--jc-space-4)] sm:flex-row">
+          <ManageFormField class="flex-1" label="授权码 / 密码" required :hint="passHint">
+            <ManageInput
+              v-model="passDraft"
+              type="password"
+              :placeholder="passSet ? '留空 = 不修改' : '输入授权码 / 密码'"
+            />
+          </ManageFormField>
+          <ManageFormField class="flex-1" label="发件人显示名" hint="收件人看到的昵称">
+            <ManageInput v-model="form.smtpFromName" placeholder="Jerocine影视" />
+          </ManageFormField>
+        </div>
 
         <ManageFormField
           label="每日出站上限"
@@ -233,7 +241,7 @@ onMounted(load)
         <p v-if="form.smtpEnabled === 1 && smtpIncomplete" class="text-xs text-[var(--jc-warning)]">
           SMTP 配置不完整：启用后服务器 / 账号 / 授权码均必填，否则发码会被拒绝。
         </p>
-      </section>
+      </div>
 
       <div class="flex justify-end gap-[var(--jc-space-3)]">
         <BaseButton variant="ghost" type="button" @click="load">重置</BaseButton>
@@ -241,7 +249,7 @@ onMounted(load)
       </div>
     </form>
 
-    <div class="my-[var(--jc-space-5)] border-t border-[var(--jc-border)]" />
+    <div class="border-t border-[var(--jc-border)]" />
 
     <section>
       <header class="mb-[var(--jc-space-3)]">
@@ -251,7 +259,7 @@ onMounted(load)
           原始错误（如 535 鉴权失败、连接超时），便于定位。
         </p>
       </header>
-      <div class="flex items-end gap-[var(--jc-space-3)]">
+      <div class="flex flex-col items-stretch gap-[var(--jc-space-3)] sm:flex-row sm:items-end">
         <ManageFormField class="flex-1" label="测试收件邮箱">
           <ManageInput v-model="testTo" placeholder="mail@example.com" />
         </ManageFormField>

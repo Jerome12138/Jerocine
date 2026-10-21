@@ -532,3 +532,32 @@ export interface MailConfigUpdate {
 export interface MailTestReq extends MailConfigUpdate {
   to: string
 }
+
+/** GET/PUT /manage/settings 运行参数（存 site_config，都是"下次生效"） */
+export interface RuntimeSettings {
+  /** 登录有效期(小时)，只影响之后新签发的 token */
+  authTokenTtlHours: number
+  /** 单账号在线设备数，下次登录时裁掉最旧设备 */
+  maxDeviceLogin: number
+  /** 采集并发上限（主站 12 / 从站 8 另有硬上限），下一轮采集生效 */
+  spiderMaxGoroutine: number
+}
+
+/** GET /manage/sessions 一条在线登录会话（当前生效的 token） */
+export interface LoginSessionRow {
+  /** 会话 id(sha256 摘要)，踢人用 */
+  id: string
+  userId: number
+  userName: string
+  ip: string
+  ua: string
+  /** 登录时间(unix 秒) */
+  loginAt: number
+  /** 最近活跃(unix 秒，请求节流 60s) */
+  lastSeen: number
+}
+
+export interface LoginSessionResp {
+  list: LoginSessionRow[]
+  total: number
+}

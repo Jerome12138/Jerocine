@@ -99,14 +99,16 @@ export const manageRoutes: RouteRecordRaw[] = [
     path: '/manage/system/site',
     name: 'manage-system-config',
     component: () => import('@/views/manage/system/SiteConfigView.vue'),
-    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '站点配置' }
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '系统设置' }
   },
   { path: '/manage/system/webSite', redirect: '/manage/system/site' },
+  // 原「邮件与注册」独立页已并入系统设置（注册与邮件通道卡片）
+  { path: '/manage/system/mail', redirect: '/manage/system/site' },
   {
-    path: '/manage/system/mail',
-    name: 'manage-system-mail',
-    component: () => import('@/views/manage/system/MailConfigView.vue'),
-    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '邮件与注册' }
+    path: '/manage/system/sessions',
+    name: 'manage-system-sessions',
+    component: () => import('@/views/manage/system/SessionListView.vue'),
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '在线会话' }
   },
   {
     path: '/manage/register/applies',
