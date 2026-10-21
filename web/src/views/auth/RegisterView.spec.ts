@@ -159,14 +159,19 @@ describe('RegisterView 自注册(open)', () => {
     expect(router.currentRoute.value.path).toBe('/register')
   })
 
-  it('open: smtpReady=false → 提示邮件通道未配置', async () => {
-    vi.mocked(getRegisterConfig).mockResolvedValue({ mode: 'open', smtpReady: false })
-    await router.push('/register')
-    await router.isReady()
-    const w = mount(RegisterView, { global: { plugins: [router] } })
-    await new Promise((r) => setTimeout(r, 10))
-    await w.vm.$nextTick()
-    expect(w.text()).toContain('邮件通道未配置')
+  it('邮件通道未就绪 → 只显示「暂不支持注册」(两种模式都如此, 不暴露技术细节、不渲染表单)', async () => {
+    for (const mode of ['open', 'apply'] as const) {
+      vi.mocked(getRegisterConfig).mockResolvedValue({ mode, smtpReady: false })
+      await router.push('/register')
+      await router.isReady()
+      const w = mount(RegisterView, { global: { plugins: [router] } })
+      await new Promise((r) => setTimeout(r, 10))
+      await w.vm.$nextTick()
+      expect(w.text(), `mode=${mode}`).toContain('暂不支持注册')
+      expect(w.text(), `mode=${mode}`).not.toContain('邮件通道')
+      expect(w.find('form').exists(), `mode=${mode}`).toBe(false)
+      w.unmount()
+    }
   })
 })
 

@@ -21,7 +21,9 @@ const form = reactive({
   smtpPort: 465,
   smtpSecure: 'ssl' as SmtpPreset['secure'],
   smtpUser: '',
-  smtpFromName: ''
+  smtpFromName: '',
+  /** 全局出站日配额（含测试邮件）；后端 1~1000，默认 50 */
+  mailDailyQuota: 50
 })
 /** 授权码输入框只写不读: 留空 = 不修改已存值(与 TMDB Key 同范式) */
 const passDraft = ref('')
@@ -47,6 +49,7 @@ async function load(): Promise<void> {
     form.smtpSecure = data.smtpSecure
     form.smtpUser = data.smtpUser
     form.smtpFromName = data.smtpFromName
+    form.mailDailyQuota = data.mailDailyQuota
     passSet.value = data.smtpPassSet
     passMasked.value = data.smtpPassMasked
   } finally {
@@ -73,11 +76,18 @@ function buildPayload(): MailConfigUpdate {
     smtpSecure: form.smtpSecure,
     smtpUser: form.smtpUser.trim(),
     ...(pass ? { smtpPass: pass } : {}),
-    smtpFromName: form.smtpFromName.trim()
+    smtpFromName: form.smtpFromName.trim(),
+    // 数字框清空时 ManageInput 会给 ''，统一收敛成 0（后端语义：0 = 不修改）
+    mailDailyQuota: Number(form.mailDailyQuota) || 0
   }
 }
 
 async function submit(): Promise<void> {
+  const quota = Number(form.mailDailyQuota) || 0
+  if (quota < 1 || quota > 1000) {
+    toast('error', '每日出站上限需在 1~1000 之间')
+    return
+  }
   submitting.value = true
   try {
     const data = await manageApi.mail.saveMailConfig(buildPayload())
@@ -128,7 +138,8 @@ onMounted(load)
     <header class="mb-[var(--jc-space-5)]">
       <h2 class="text-lg font-[var(--jc-fw-semibold)]">邮件与注册</h2>
       <p class="text-sm text-muted">
-        配置 SMTP 发件通道与注册模式；验证码 / 激活 / 找回密码邮件均经此通道发送
+        配置 SMTP 发件通道与注册模式；验证码 / 激活 / 找回密码邮件均经此通道发送。
+        邮件里的链接使用「站点配置 → 域名」，请先填好完整域名（https:// 开头）。
       </p>
     </header>
 
@@ -210,6 +221,13 @@ onMounted(load)
 
         <ManageFormField label="发件人显示名" hint="收件人看到的昵称，如「Jerocine影视」">
           <ManageInput v-model="form.smtpFromName" placeholder="Jerocine影视" />
+        </ManageFormField>
+
+        <ManageFormField
+          label="每日出站上限"
+          hint="验证码 / 激活 / 驳回 / 找回 / 测试邮件统一计数，超出后当天停发；1~1000，默认 50"
+        >
+          <ManageInput v-model="form.mailDailyQuota" type="number" />
         </ManageFormField>
 
         <p v-if="form.smtpEnabled === 1 && smtpIncomplete" class="text-xs text-[var(--jc-warning)]">

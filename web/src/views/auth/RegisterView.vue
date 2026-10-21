@@ -29,6 +29,10 @@ const errorMsg = ref('')
 const submitted = ref(false)
 let cooldownTimer: number | undefined
 
+/** 对外不可注册: 邮件通道未就绪(或配置拉取失败按不可用处理前先保守渲染)。
+ *  只给用户看「暂不支持」, 不暴露 SMTP/通道这类技术细节 —— 具体原因由后端接口返回给调用方。 */
+const unavailable = computed(() => !configLoading.value && !smtpReady.value)
+
 const redirectTo = computed(() => {
   const r = route.query.redirect
   return typeof r === 'string' && r ? r : ''
@@ -179,8 +183,14 @@ function resetApply(): void {
     <div class="jc-tv-login__logo text-brand-gradient">Jerocine影视</div>
     <div class="jc-tv-login__sub">注册账号</div>
     <div class="jc-tv-login__note">
-      <div class="a">电视端不便输入邮箱与验证码。</div>
-      <div class="b">请在电脑或手机上访问本站完成注册，之后可用扫码或账号密码登录。</div>
+      <div class="a">{{ smtpReady ? '电视端不便输入邮箱与验证码。' : '暂不支持注册。' }}</div>
+      <div class="b">
+        {{
+          smtpReady
+            ? '请在电脑或手机上访问本站完成注册，之后可用扫码或账号密码登录。'
+            : '本站当前未开放注册，请稍后再试。'
+        }}
+      </div>
     </div>
     <div class="jc-tv-login__actions">
       <button
@@ -212,9 +222,25 @@ function resetApply(): void {
       </p>
     </div>
 
+    <!-- 邮件通道未就绪: 对外只说「暂不支持注册」, 不暴露 SMTP 之类的技术细节 -->
+    <div
+      v-if="unavailable"
+      class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-5)] flex flex-col gap-[var(--jc-space-3)] text-center"
+    >
+      <p class="text-base text-primary font-[var(--jc-fw-semibold)]">暂不支持注册</p>
+      <p class="text-sm text-secondary leading-[var(--jc-lh-relaxed)]">
+        本站当前未开放注册，请稍后再试。
+      </p>
+      <div class="flex justify-center">
+        <BaseButton variant="ghost" size="sm" @click="router.replace('/login')">
+          返回登录
+        </BaseButton>
+      </div>
+    </div>
+
     <!-- 申请注册(apply)表单: 用户名/邮箱/验证码/选填理由 —— 刻意无密码, 激活时才设 -->
     <form
-      v-if="mode === 'apply' && !submitted"
+      v-if="!unavailable && mode === 'apply' && !submitted"
       class="flex flex-col gap-[var(--jc-space-4)]"
       @submit.prevent="handleApply"
     >
@@ -302,17 +328,13 @@ function resetApply(): void {
         {{ errorMsg }}
       </p>
 
-      <p v-if="!smtpReady" class="text-xs text-[var(--jc-warning)] text-center">
-        邮件通道未配置，暂时无法注册，请联系管理员。
-      </p>
-
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit">
         提交申请
       </BaseButton>
     </form>
 
     <!-- 申请提交成功 → 审核中状态页(设计 §6: 三条预期管理) -->
-    <div v-else-if="mode === 'apply'" class="flex flex-col gap-[var(--jc-space-4)]">
+    <div v-else-if="!unavailable && mode === 'apply'" class="flex flex-col gap-[var(--jc-space-4)]">
       <div
         class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-5)] flex flex-col gap-[var(--jc-space-3)]"
       >
@@ -336,7 +358,7 @@ function resetApply(): void {
     </div>
 
     <!-- 自由注册(open)表单 -->
-    <form v-else class="flex flex-col gap-[var(--jc-space-4)]" @submit.prevent="handleRegister">
+    <form v-else-if="!unavailable" class="flex flex-col gap-[var(--jc-space-4)]" @submit.prevent="handleRegister">
       <ManageFormField label="用户名" required>
         <div class="relative">
           <BaseIcon
@@ -436,10 +458,6 @@ function resetApply(): void {
 
       <p v-if="errorMsg" class="text-xs text-[var(--jc-danger)] text-center" role="alert">
         {{ errorMsg }}
-      </p>
-
-      <p v-if="!smtpReady" class="text-xs text-[var(--jc-warning)] text-center">
-        邮件通道未配置，暂时无法注册，请联系管理员。
       </p>
 
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit"> 注册 </BaseButton>

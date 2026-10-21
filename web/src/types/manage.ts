@@ -507,6 +507,8 @@ export interface MailConfigResp {
   smtpSecure: 'ssl' | 'starttls' | 'none'
   smtpUser: string
   smtpFromName: string
+  /** 全局出站日配额（码/激活/驳回/重置/测试统一计数；默认 50，1~1000） */
+  mailDailyQuota: number
   smtpPassMasked: string
   smtpPassSet: boolean
   presets: SmtpPreset[]
@@ -522,6 +524,8 @@ export interface MailConfigUpdate {
   smtpUser: string
   smtpPass?: string
   smtpFromName: string
+  /** 0/省略 = 不修改已存值；1~1000 有效 */
+  mailDailyQuota: number
 }
 
 /** POST /manage/mail/test 请求体（表单值 + 测试收件邮箱） */
