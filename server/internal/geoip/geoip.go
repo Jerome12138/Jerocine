@@ -59,6 +59,36 @@ func Search(ip string) string {
 	return searcher.Search(ip)
 }
 
+// SearchISP 返回 ip 的运营商/机构名(数据文件第 5 段, 如 "腾讯云" / "电信"), 查不到返回 ""。
+// 用于把机房/云厂商 IP 与家宽区分开(在线统计的机器人判定), 不参与展示。
+func SearchISP(ip string) string {
+	if searcher == nil {
+		return ""
+	}
+	return searcher.ISP(ip)
+}
+
+// ISP 同 SearchISP 的方法形态。
+func (s *Searcher) ISP(ip string) string {
+	ip = strings.TrimSpace(ip)
+	if ip == "" || isPrivate(ip) {
+		return ""
+	}
+	ipNum := ip2uint(ip)
+	if ipNum == 0 {
+		return ""
+	}
+	parts := strings.Split(s.memorySearch(ipNum), "|")
+	if len(parts) < 5 {
+		return ""
+	}
+	isp := strings.TrimSpace(parts[4])
+	if isp == "0" {
+		return ""
+	}
+	return isp
+}
+
 // Search 查询单个 IP 的归属地。
 func (s *Searcher) Search(ip string) string {
 	ip = strings.TrimSpace(ip)
@@ -112,8 +142,12 @@ func (s *Searcher) memorySearch(ipNum uint32) string {
 }
 
 // readData 按 dataPtr 解码(高字节=长度, 低 24 位=偏移)读取文本(跳过 4B cityID)。
+//
+// ⚠️ 长度字节把 cityID 的 4 字节算在内(实测 8.8.8.8: 文本 "美国|0|0|0|Level3" 19B,
+// 长度字节给 23) ⇒ 文本长度 = dataLen-4。此前少减 4, 会把下一块的头 4 字节粘到
+// 第 5 段(ISP)尾部 —— 展示无害, 但按 ISP 判机房时会读到乱码。
 func (s *Searcher) readData(dataPtr uint32) string {
-	dataLen := int((dataPtr >> 24) & 0xff)
+	dataLen := int((dataPtr>>24)&0xff) - 4
 	off := int(dataPtr & 0x00ffffff)
 	if dataLen <= 0 || off+4+dataLen > len(s.buf) {
 		return ""
