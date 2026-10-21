@@ -34,7 +34,7 @@
 
 ```bash
 cd deploy/bare
-cp bare.env.example bare.env && vi bare.env      # 填生产值
+cp bare.env.example bare.env && vi bare.env      # 填生产值（每个键的用途/必填项见 docs/环境变量参考.md）
 sudo bash install.sh                              # apt 三件套 + 配置落位 + 建库建用户
 # 放 TLS 证书 → /etc/nginx/jerocine-certs/{fullchain,privkey}.pem
 # 上传产物包（本机 build + 上传链路与 docker 模式相同）：

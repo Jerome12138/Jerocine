@@ -15,6 +15,7 @@ deploy/
 ├─ lib/web-release.sh    # 前端发布/回滚纯逻辑（版本目录 / 保留 3 版 / 整版快照）
 ├─ tests/                # web-release + deploy 自我重启的单测（本机可跑，不需要 docker）
 ├─ .env.example          # 环境变量模板（cp 为 .env 后填生产值；.env 不入库）
+│                        # 每个键的用途/默认值/必填项见 ../docs/环境变量参考.md
 ├─ data/nginx/nginx.conf # nginx：SPA 静态托管 + /api 反代 + proxy_cache + SW no-cache
 ├─ secrets/              # JWT RS256 密钥对（不入库，须属 65532:65532）
 ├─ apk/                  # APK 下载目录（须属 65532:65532）

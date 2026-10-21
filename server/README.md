@@ -41,7 +41,7 @@ cd server
 go build ./...            # 编译
 go test ./...             # 单测
 go vet ./...              # 静态检查
-go run ./cmd/server       # 本地运行（需配置 env，见 docker-compose.yml environment 段）
+go run ./cmd/server       # 本地运行（需配置 env，逐项见 docs/环境变量参考.md）
 ```
 
 ## 部署
