@@ -205,9 +205,19 @@ type UserRepository interface {
 	// 管理后台用户管理
 	ListPaged(ctx context.Context, keyword string, page Page) ([]entity.User, int64, error)
 	SetDisabled(ctx context.Context, id uint, disabled bool) error
-	UpdateProfile(ctx context.Context, id uint, name string, role int) error
+	UpdateProfile(ctx context.Context, id uint, p UserProfile) error
 	// Delete 硬删用户, 并连同清理其观看历史/收藏/跳过设置(无外键, 避免孤儿数据)。
 	Delete(ctx context.Context, id uint) error
+}
+
+// UserProfile 后台编辑用户的可改字段(密码走 UpdatePassword)。
+// Email 空串 = 解绑邮箱(落 NULL: users.email 唯一索引下多 NULL 合法, '' 只允许一个)。
+type UserProfile struct {
+	Name  string
+	Role  int
+	Email string
+	// ResetVerified 邮箱发生变化时置真: 管理员直接填的地址没走验证链路, 应重新标记未验证。
+	ResetVerified bool
 }
 
 // TaskRunFilter 任务台账筛选(空字段忽略)。

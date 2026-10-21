@@ -429,9 +429,14 @@ func (s *UserService) ManageResetUserPassword(ctx context.Context, targetID uint
 // ManageUpdateUser 管理后台编辑用户: 改用户名/角色。
 // 保护: 角色变更不允许操作自己(防唯一管理员自锁降权); 用户名不得与他人重复; 角色 0=用户 1=管理员。
 // 角色变化时踢下线, 让权限立即生效(改名不需要)。
-func (s *UserService) ManageUpdateUser(ctx context.Context, operatorID, targetID uint, name string, role int) error {
+func (s *UserService) ManageUpdateUser(ctx context.Context, operatorID, targetID uint, name string, role int, email string) error {
 	name = strings.TrimSpace(name)
+	email = strings.TrimSpace(email)
 	if name == "" || len(name) > 32 || (role != 0 && role != 1) {
+		return domain.ErrInvalidArgument
+	}
+	// 邮箱选填: 留空 = 解绑; 填了必须格式合法且与他人不重复(与建号同口径)
+	if email != "" && (!ValidEmail(email) || runeLen(email) > 128) {
 		return domain.ErrInvalidArgument
 	}
 	target, err := s.users.GetById(ctx, targetID)
@@ -448,7 +453,15 @@ func (s *UserService) ManageUpdateUser(ctx context.Context, operatorID, targetID
 			return err
 		}
 	}
-	if err := s.users.UpdateProfile(ctx, targetID, name, role); err != nil {
+	if email != target.Email && email != "" {
+		if other, err := s.users.GetByEmail(ctx, email); err == nil && other.ID != targetID {
+			return domain.ErrEmailTaken
+		} else if err != nil && err != domain.ErrUserNotFound {
+			return err
+		}
+	}
+	profile := repository.UserProfile{Name: name, Role: role, Email: email, ResetVerified: email != target.Email}
+	if err := s.users.UpdateProfile(ctx, targetID, profile); err != nil {
 		return err
 	}
 	if role != target.Role {

@@ -958,12 +958,14 @@ func (h *Handlers) ManageUserResetPassword(c *gin.Context) {
 }
 
 // manageUserUpdateReq PUT /manage/users/:id 请求体。
+// email 选填: 空串 = 解绑邮箱; 填了服务端校验格式与唯一性(改地址会把 email_verified 重置为 0)。
 type manageUserUpdateReq struct {
 	UserName string `json:"userName"`
 	Role     int    `json:"role"`
+	Email    string `json:"email"`
 }
 
-// ManageUserUpdate 编辑用户(用户名/角色)。角色变化后该用户全部设备下线; 不能改自己的角色。
+// ManageUserUpdate 编辑用户(用户名/角色/邮箱)。角色变化后该用户全部设备下线; 不能改自己的角色。
 func (h *Handlers) ManageUserUpdate(c *gin.Context) {
 	id, ok := pathInt64(c, "id")
 	if !ok || id <= 0 {
@@ -975,11 +977,11 @@ func (h *Handlers) ManageUserUpdate(c *gin.Context) {
 		dto.Error(c, http.StatusBadRequest, "bad body")
 		return
 	}
-	if err := h.User.ManageUpdateUser(c.Request.Context(), uint(currentUserID(c)), uint(id), req.UserName, req.Role); err != nil {
+	if err := h.User.ManageUpdateUser(c.Request.Context(), uint(currentUserID(c)), uint(id), req.UserName, req.Role, req.Email); err != nil {
 		dto.Fail(c, err)
 		return
 	}
-	dto.OK(c, gin.H{"id": id, "userName": req.UserName, "role": req.Role})
+	dto.OK(c, gin.H{"id": id, "userName": req.UserName, "role": req.Role, "email": req.Email})
 }
 
 // ManageUserDelete 删除用户(硬删, 连同其历史/收藏/跳过设置), 删除后踢下线; 不能删除自己。

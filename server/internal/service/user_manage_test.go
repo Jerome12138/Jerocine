@@ -23,17 +23,20 @@ func userPtr(id uint) *entity.User {
 
 type manageFakeUsers struct {
 	repository.UserRepository
-	u           *entity.User // GetById 命中目标
-	other       *entity.User // GetByName 的第二个账号(测重名)
-	listRows    []entity.User
-	gotKeyword  string
-	setDisabled bool
-	setID       uint
-	updatedPw   string
-	updatedID   uint
-	updatedName string
-	updatedRole int
-	deletedID   uint
+	u                    *entity.User // GetById 命中目标
+	other                *entity.User // GetByName 的第二个账号(测重名)
+	listRows             []entity.User
+	gotKeyword           string
+	setDisabled          bool
+	setID                uint
+	updatedPw            string
+	updatedID            uint
+	updatedName          string
+	updatedRole          int
+	updatedEmail         string
+	updatedResetVerified bool
+	emailOwner           *entity.User // GetByEmail 命中(测邮箱被占用)
+	deletedID            uint
 }
 
 func (f *manageFakeUsers) GetByName(_ context.Context, name string) (*entity.User, error) {
@@ -41,6 +44,13 @@ func (f *manageFakeUsers) GetByName(_ context.Context, name string) (*entity.Use
 		if u != nil && u.UserName == name {
 			return u, nil
 		}
+	}
+	return nil, domain.ErrUserNotFound
+}
+
+func (f *manageFakeUsers) GetByEmail(_ context.Context, email string) (*entity.User, error) {
+	if f.emailOwner != nil && f.emailOwner.Email == email {
+		return f.emailOwner, nil
 	}
 	return nil, domain.ErrUserNotFound
 }
@@ -67,8 +77,10 @@ func (f *manageFakeUsers) UpdatePassword(_ context.Context, _ uint, hashed strin
 	return nil
 }
 
-func (f *manageFakeUsers) UpdateProfile(_ context.Context, id uint, name string, role int) error {
-	f.updatedID, f.updatedName, f.updatedRole = id, name, role
+func (f *manageFakeUsers) UpdateProfile(_ context.Context, id uint, p repository.UserProfile) error {
+	f.updatedID, f.updatedName, f.updatedRole = id, p.Name, p.Role
+	f.updatedEmail = p.Email
+	f.updatedResetVerified = p.ResetVerified
 	return nil
 }
 
@@ -150,7 +162,7 @@ func TestManageUpdateUser_RenameAndRole(t *testing.T) {
 	bob.UserName = "bob"
 	fu := &manageFakeUsers{u: bob}
 	s := newManageTestService(t, fu)
-	if err := s.ManageUpdateUser(context.Background(), 7, 9, "bobby", 1); err != nil {
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, "bobby", 1, ""); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	if fu.updatedID != 9 || fu.updatedName != "bobby" || fu.updatedRole != 1 {
@@ -170,7 +182,7 @@ func TestManageUpdateUser_InvalidArgs(t *testing.T) {
 		{"非法角色", "bob", 2},
 	}
 	for _, tc := range cases {
-		if err := s.ManageUpdateUser(context.Background(), 7, 9, tc.userName, tc.role); err != domain.ErrInvalidArgument {
+		if err := s.ManageUpdateUser(context.Background(), 7, 9, tc.userName, tc.role, ""); err != domain.ErrInvalidArgument {
 			t.Fatalf("%s: want ErrInvalidArgument, got %v", tc.name, err)
 		}
 	}
@@ -182,11 +194,11 @@ func TestManageUpdateUser_SelfRoleChangeForbidden(t *testing.T) {
 	bob.Role = entity.RoleUser
 	fu := &manageFakeUsers{u: bob}
 	s := newManageTestService(t, fu)
-	if err := s.ManageUpdateUser(context.Background(), 7, 7, "bob", entity.RoleAdmin); err != domain.ErrInvalidArgument {
+	if err := s.ManageUpdateUser(context.Background(), 7, 7, "bob", entity.RoleAdmin, ""); err != domain.ErrInvalidArgument {
 		t.Fatalf("改自己角色: want ErrInvalidArgument, got %v", err)
 	}
 	// 自己改名(角色不变)是允许的
-	if err := s.ManageUpdateUser(context.Background(), 7, 7, "bobby", entity.RoleUser); err != nil {
+	if err := s.ManageUpdateUser(context.Background(), 7, 7, "bobby", entity.RoleUser, ""); err != nil {
 		t.Fatalf("自己改名: %v", err)
 	}
 }
@@ -198,11 +210,11 @@ func TestManageUpdateUser_DuplicateNameConflict(t *testing.T) {
 	alice.UserName = "alice"
 	fu := &manageFakeUsers{u: bob, other: alice}
 	s := newManageTestService(t, fu)
-	if err := s.ManageUpdateUser(context.Background(), 7, 9, "alice", 0); err != domain.ErrConflict {
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, "alice", 0, ""); err != domain.ErrConflict {
 		t.Fatalf("重名: want ErrConflict, got %v", err)
 	}
 	// 改回自己的名字不冲突
-	if err := s.ManageUpdateUser(context.Background(), 7, 9, "bob", 0); err != nil {
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, "bob", 0, ""); err != nil {
 		t.Fatalf("名字不变: %v", err)
 	}
 }
@@ -242,5 +254,64 @@ func TestLogin_RejectsDisabledUser(t *testing.T) {
 	// 禁用用户: 密码正确也统一 ErrUnauthorized(不泄漏账号状态)
 	if _, err := s.Login(context.Background(), "bob", "secret123"); err != domain.ErrUnauthorized {
 		t.Fatalf("禁用用户登录: want ErrUnauthorized, got %v", err)
+	}
+}
+
+// 编辑用户可改邮箱: 填了要落库并标记未验证(管理员填的地址没走验证链路);
+// 留空 = 解绑; 邮箱没变则不动 email_verified(防止手滑点保存就把已验证状态清掉)。
+func TestManageUpdateUser_Email(t *testing.T) {
+	bob := userPtr(9)
+	bob.UserName = "bob"
+	fu := &manageFakeUsers{u: bob}
+	s := newManageTestService(t, fu)
+	ctx := context.Background()
+
+	if err := s.ManageUpdateUser(ctx, 7, 9, "bob", 0, " bob@example.com "); err != nil {
+		t.Fatalf("改邮箱: %v", err)
+	}
+	if fu.updatedEmail != "bob@example.com" || !fu.updatedResetVerified {
+		t.Fatalf("邮箱未落库/未重置验证态: email=%q reset=%v", fu.updatedEmail, fu.updatedResetVerified)
+	}
+
+	// 邮箱不变(带空格) → 不重置验证态
+	bob.Email = "bob@example.com"
+	if err := s.ManageUpdateUser(ctx, 7, 9, "bob", 0, "bob@example.com"); err != nil {
+		t.Fatalf("邮箱不变: %v", err)
+	}
+	if fu.updatedResetVerified {
+		t.Fatal("邮箱没变不应重置 email_verified")
+	}
+
+	// 留空 = 解绑(ResetVerified 仍需置真, 仓储会把 email 写 NULL)
+	if err := s.ManageUpdateUser(ctx, 7, 9, "bob", 0, ""); err != nil {
+		t.Fatalf("解绑邮箱: %v", err)
+	}
+	if fu.updatedEmail != "" || !fu.updatedResetVerified {
+		t.Fatalf("解绑口径不对: email=%q reset=%v", fu.updatedEmail, fu.updatedResetVerified)
+	}
+}
+
+func TestManageUpdateUser_EmailInvalidOrTaken(t *testing.T) {
+	bob := userPtr(9)
+	bob.UserName = "bob"
+	alice := userPtr(10)
+	alice.UserName = "alice"
+	alice.Email = "alice@example.com"
+	fu := &manageFakeUsers{u: bob, emailOwner: alice}
+	s := newManageTestService(t, fu)
+	ctx := context.Background()
+
+	for _, bad := range []string{"not-an-email", "@x.com", "a@b", strings.Repeat("a", 130) + "@x.com"} {
+		if err := s.ManageUpdateUser(ctx, 7, 9, "bob", 0, bad); err != domain.ErrInvalidArgument {
+			t.Fatalf("格式非法应拒 %q: %v", bad, err)
+		}
+	}
+	if err := s.ManageUpdateUser(ctx, 7, 9, "bob", 0, "alice@example.com"); err != domain.ErrEmailTaken {
+		t.Fatalf("邮箱被占用应拒: %v", err)
+	}
+	// 用自己现有的邮箱不算冲突
+	bob.Email = "alice@example.com"
+	if err := s.ManageUpdateUser(ctx, 7, 9, "bob", 0, "alice@example.com"); err != nil {
+		t.Fatalf("自己现有邮箱不应冲突: %v", err)
 	}
 }

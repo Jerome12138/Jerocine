@@ -107,10 +107,20 @@ func (r *userRepo) SetDisabled(ctx context.Context, id uint, disabled bool) erro
 		Update("disabled", v).Error
 }
 
-// UpdateProfile 管理后台编辑用户: 改用户名/角色(密码走 UpdatePassword)。
-func (r *userRepo) UpdateProfile(ctx context.Context, id uint, name string, role int) error {
-	return dbFrom(ctx, r.db).Model(&entity.User{}).Where("id = ?", id).
-		Updates(map[string]any{"user_name": name, "role": role}).Error
+// UpdateProfile 管理后台编辑用户: 改用户名/角色/邮箱(密码走 UpdatePassword)。
+// 邮箱留空 → 写 NULL(唯一索引: 多 NULL 合法、'' 只允许一个, 与建号口径一致)。
+func (r *userRepo) UpdateProfile(ctx context.Context, id uint, p repository.UserProfile) error {
+	updates := map[string]any{"user_name": p.Name, "role": p.Role}
+	email := strings.TrimSpace(p.Email)
+	if email == "" {
+		updates["email"] = nil
+	} else {
+		updates["email"] = email
+	}
+	if p.ResetVerified || email == "" {
+		updates["email_verified"] = 0
+	}
+	return dbFrom(ctx, r.db).Model(&entity.User{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // Delete 硬删用户并清理其观看历史/收藏/跳过设置。
