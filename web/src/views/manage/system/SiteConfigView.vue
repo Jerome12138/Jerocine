@@ -137,7 +137,7 @@ async function putRuntime(
   try {
     const data = await manageApi.system.updateRuntimeSettings({ ...runtimeSaved, ...patch })
     runtimeSaved = { ...data }
-    Object.assign(runtime, data)
+    // 只更新快照, **不要**把响应整体 assign 回草稿: 另一张卡里未保存的改动会被快照值悄悄冲掉
     toast('success', '运行参数已保存')
   } catch (e) {
     toast('error', e instanceof Error ? e.message : '保存失败')

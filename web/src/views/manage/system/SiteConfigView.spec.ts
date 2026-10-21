@@ -219,3 +219,19 @@ describe('SiteConfigView 采集性能卡（三个上限可配）', () => {
     expect(h.toast).toHaveBeenCalledWith('error', expect.stringContaining('从站并发'))
   })
 })
+
+// 保存一张卡不得冲掉另一张卡的未保存草稿(响应整体 assign 回草稿的回归)
+it('保存「采集性能」后, 「账号与安全」里未保存的草稿原样保留', async () => {
+  h.updateRuntimeSettings.mockImplementation(async (d) => d)
+  const w = await mountView()
+  const account = w
+    .findAll('section')
+    .find((s) => s.text().includes('账号与安全') && s.classes().includes('bg-surface'))!
+  await account.find('input[type="number"]').setValue('900')
+  const spider = w
+    .findAll('section')
+    .find((s) => s.text().includes('采集性能') && s.classes().includes('bg-surface'))!
+  await spider.findAll('button').at(-1)!.trigger('click')
+  await new Promise((r) => setTimeout(r, 10))
+  expect((account.find('input[type="number"]').element as HTMLInputElement).value).toBe('900')
+})

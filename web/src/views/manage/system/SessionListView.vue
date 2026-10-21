@@ -45,8 +45,9 @@ async function load(): Promise<void> {
 async function kick(row: LoginSessionRow): Promise<void> {
   const ok = await confirm({
     title: '踢下线',
-    message: `确定让「${row.userName}」在 ${row.ip || '未知 IP'} 的这次登录失效吗？其它设备不受影响。`,
-    confirmText: '踢下线'
+    desc: `确定让「${row.userName}」在 ${row.ip || '未知 IP'} 的这次登录失效吗？其它设备不受影响。`,
+    okText: '踢下线',
+    danger: true
   })
   if (!ok) return
   revoking.value = row.id

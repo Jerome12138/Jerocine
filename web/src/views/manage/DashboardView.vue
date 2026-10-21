@@ -123,8 +123,9 @@ const statusFilter = ref<'all' | 'watching' | 'online'>('all')
 const filteredSessions = computed(() => {
   const base = timeFilter.value === 'live' ? online.value?.sessions ?? [] : dailySessions.value
   if (statusFilter.value === 'all') return base
-  const want = statusFilter.value === 'watching'
-  return base.filter((s) => s.watching === want)
+  // 按三态筛选: "在线"不能混入已离线的行(历史明细里 30 分钟窗口外的会话)
+  const want = statusFilter.value === 'watching' ? 'watching' : 'online'
+  return base.filter((s) => sessionState(s) === want)
 })
 
 // ---- 在线明细分页: 每页 20 条; 切换时间/状态回到第 1 页, 数据收缩时钳制页码 ----
@@ -144,10 +145,9 @@ watch(filteredSessions, (list) => {
 
 /** 会话状态三态: 在播(绿) / 在线(蓝) / 已离线(灰, 仅历史明细) */
 function sessionState(s: OnlineSession): 'watching' | 'online' | 'offline' {
+  if (s.online === false) return 'offline' // 历史(今日/近7天): 30 分钟窗口外
   if (s.watching) return 'watching'
-  if (s.online) return 'online'
-  if (s.online === false) return 'offline'
-  return 'online' // 实时明细无 online 字段, 均视为在线
+  return 'online' // 实时明细无 online 字段, 均视为在线(30 分钟窗口内)
 }
 
 /** 进入/活跃时间: 实时/今日只显时分秒; 近7天(forceDate)强制补日期 MM-DD 以便跨天区分 */

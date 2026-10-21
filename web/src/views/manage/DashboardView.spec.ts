@@ -100,3 +100,20 @@ describe('DashboardView 在线明细', () => {
     w.unmount()
   })
 })
+
+describe('DashboardView 历史明细状态判定', () => {
+  it('30 分钟窗口外的会话先判「已离线」, 不被最后一次心跳的 watching 盖过', async () => {
+    h.onlineDailySessions.mockResolvedValue({
+      days: 1,
+      sessions: [{ ...session, online: false, watching: true, path: '/index', paths: ['/index'] }]
+    })
+    const w = await mountView()
+    await w.findAll('button').find((b) => b.text() === '今日')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(w.text()).toContain('已离线')
+    // "在播放"筛选不应包含已离线的行
+    await w.findAll('button').find((b) => b.text() === '在播放')!.trigger('click')
+    expect(w.text()).not.toContain('已离线')
+    w.unmount()
+  })
+})
