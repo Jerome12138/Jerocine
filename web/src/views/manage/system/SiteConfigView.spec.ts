@@ -104,4 +104,59 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     expect(values).toContain('smtp.qq.com')
     expect(values).toContain('bot@qq.com')
   })
+
+  /** 卡片 = 顶部 5 个 section; 按标题定位, 返回该卡内的保存按钮 */
+  function cardOf(w: Awaited<ReturnType<typeof mountView>>, title: string) {
+    const card = w.findAll('section').find((s) => s.text().includes(title) && s.classes().includes('bg-surface'))
+    if (!card) throw new Error(`未找到卡片: ${title}`)
+    return card
+  }
+
+  it('每张卡恒占一列: 网格固定 1/2 列, 且没有跨列卡片', async () => {
+    const w = await mountView()
+    const grid = w.find('.grid')
+    expect(grid.classes()).toContain('grid-cols-1')
+    expect(grid.classes()).toContain('xl:grid-cols-2')
+    expect(grid.classes()).not.toContain('2xl:grid-cols-3')
+    for (const cls of w.findAll('section').flatMap((s) => s.classes())) {
+      expect(cls).not.toContain('col-span')
+    }
+  })
+
+  it('账号与安全、采集性能各自独立保存: 只提交本卡字段, 不带另一张卡的未保存草稿', async () => {
+    h.updateRuntimeSettings.mockImplementation(async (d) => d)
+    const w = await mountView()
+    // 在「账号与安全」里改 TTL 但不保存（注意: 全页第一个 number 输入是邮件卡的端口, 不能按序号取）
+    const ttl = cardOf(w, '账号与安全').find('input[type="number"]')
+    await ttl.setValue('900')
+    // 保存「采集性能」: 提交的 TTL 必须是上次落库的 720
+    await cardOf(w, '采集性能').findAll('button').at(-1)!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateRuntimeSettings).toHaveBeenCalledWith({
+      authTokenTtlHours: 720,
+      maxDeviceLogin: 10,
+      spiderMaxGoroutine: 16
+    })
+  })
+
+  it('反过来亦然: 采集并发草稿不影响「账号与安全」的保存', async () => {
+    h.updateRuntimeSettings.mockImplementation(async (d) => d)
+    const w = await mountView()
+    const nums = w.findAll('input[type="number"]')
+    await nums[nums.length - 1].setValue('99') // 采集并发草稿
+    await cardOf(w, '账号与安全').findAll('button').at(-1)!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateRuntimeSettings).toHaveBeenCalledWith({
+      authTokenTtlHours: 720,
+      maxDeviceLogin: 10,
+      spiderMaxGoroutine: 16
+    })
+  })
+
+  it('TMDB 未配置时提示"后台是唯一权威, env 配过的需重存一次"', async () => {
+    const w = await mountView()
+    const text = cardOf(w, 'TMDB 横图').text()
+    expect(text).toContain('未配置')
+    expect(text).toContain('唯一权威')
+  })
 })
