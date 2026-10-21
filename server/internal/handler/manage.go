@@ -17,6 +17,7 @@ import (
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 	"server/internal/dto"
+	"server/internal/platform/mask"
 	"server/internal/service"
 )
 
@@ -35,17 +36,6 @@ type siteConfigResp struct {
 	TmdbKeySet    bool   `json:"tmdbKeySet"`
 }
 
-// maskKey 凭据掩码: 前 4 + … + 后 4; 过短(理论不可达)整串打码。
-func maskKey(key string) string {
-	if key == "" {
-		return ""
-	}
-	if len(key) < 12 {
-		return "••••"
-	}
-	return key[:4] + "…" + key[len(key)-4:]
-}
-
 func (h *Handlers) GetSiteConfig(c *gin.Context) {
 	cfg, err := h.Manage.GetSite(c.Request.Context())
 	if err != nil {
@@ -54,7 +44,7 @@ func (h *Handlers) GetSiteConfig(c *gin.Context) {
 	}
 	dto.OK(c, siteConfigResp{
 		SiteConfig:    *cfg,
-		TmdbKeyMasked: maskKey(cfg.TmdbAPIKey),
+		TmdbKeyMasked: mask.Middle(cfg.TmdbAPIKey),
 		TmdbKeySet:    cfg.TmdbAPIKey != "",
 	})
 }

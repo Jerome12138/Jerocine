@@ -15,6 +15,7 @@ import (
 	"server/internal/domain/repository"
 	"server/internal/platform/auth"
 	"server/internal/platform/mailer"
+	"server/internal/platform/mask"
 )
 
 // RegisterService 账号自注册 + 出站邮件通道(设计 docs/design/账号注册功能设计.md)。
@@ -114,7 +115,7 @@ type MailConfigView struct {
 	SmtpUser       string          `json:"smtpUser"`
 	SmtpFromName   string          `json:"smtpFromName"`
 	MailDailyQuota int             `json:"mailDailyQuota"` // 全局出站日配额(含测试邮件), 默认 50
-	SmtpPassMasked string          `json:"smtpPassMasked"` // 已配置时的掩码(如 a****@qq.com); 未配置空串
+	SmtpPassMasked string          `json:"smtpPassMasked"` // 已配置时的掩码(如 abcd…wxyz, 见 platform/mask); 未配置空串
 	SmtpPassSet    bool            `json:"smtpPassSet"`
 	Presets        []mailer.Preset `json:"presets"`
 }
@@ -468,7 +469,7 @@ func (s *RegisterService) GetMailConfig(ctx context.Context) (MailConfigView, er
 		SmtpUser:       cfg.SmtpUser,
 		SmtpFromName:   cfg.SmtpFromName,
 		MailDailyQuota: s.mailQuota(cfg),
-		SmtpPassMasked: maskSecret(cfg.SmtpPass),
+		SmtpPassMasked: mask.Middle(cfg.SmtpPass),
 		SmtpPassSet:    cfg.SmtpPass != "",
 		Presets:        mailer.Presets,
 	}, nil
@@ -708,17 +709,6 @@ func normalizeSecure(sec string) string {
 	default:
 		return ""
 	}
-}
-
-// maskSecret 凭据掩码: 前 4 + … + 后 4; 过短整串打码(与 handler.maskKey 同规则)。
-func maskSecret(s string) string {
-	if s == "" {
-		return ""
-	}
-	if len(s) < 12 {
-		return "••••"
-	}
-	return s[:4] + "…" + s[len(s)-4:]
 }
 
 // runeLen 按字符数计数 —— 与 MySQL VARCHAR(n) 的 n 同口径, 也与前端 string.length 对齐。
