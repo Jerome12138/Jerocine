@@ -59,16 +59,24 @@ func IsUserTokenValid(ctx context.Context, userId int64, token string) bool {
 	return true
 }
 
-// ClearUserTokens 清掉该用户全部设备 token。
+// ClearUserTokens 清掉该用户全部设备 token(改密/禁用/删除用户时), 顺带清会话元数据。
 func ClearUserTokens(ctx context.Context, userId int64) {
-	if coordRdb != nil {
-		coordRdb.Del(ctx, KeyToken(userId))
+	if coordRdb == nil {
+		return
+	}
+	key := KeyToken(userId)
+	tokens, _ := coordRdb.ZRange(ctx, key, 0, -1).Result()
+	coordRdb.Del(ctx, key)
+	for _, t := range tokens {
+		DeleteSession(ctx, t) // 后台「在线会话」列表随之消失
 	}
 }
 
-// ClearOneToken 仅清当前设备 token。
+// ClearOneToken 仅清当前设备 token(登出/踢单设备), 顺带清该会话元数据。
 func ClearOneToken(ctx context.Context, userId int64, token string) {
-	if coordRdb != nil {
-		coordRdb.ZRem(ctx, KeyToken(userId), token)
+	if coordRdb == nil {
+		return
 	}
+	coordRdb.ZRem(ctx, KeyToken(userId), token)
+	DeleteSession(ctx, token)
 }

@@ -97,6 +97,12 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/mail/config", h.GetMailConfig)
 		mg.PUT("/mail/config", h.SaveMailConfig)
 		mg.POST("/mail/test", h.TestMail)
+		// 运行参数(后台「系统设置」): 登录有效期 / 设备数 / 采集并发 —— 都存 site_config, 保存即改。
+		mg.GET("/settings", h.GetRuntimeSettings)
+		mg.PUT("/settings", h.SaveRuntimeSettings)
+		// 在线会话: 查看当前生效的登录凭据(用户/IP/UA/登录时间/最近活跃) + 踢单设备下线。
+		mg.GET("/sessions", h.ManageSessions)
+		mg.DELETE("/sessions/:id", h.ManageRevokeSession)
 		// 注册审核(apply 模式): 列表 / 通过(发激活邮件) / 驳回(必填理由) / 激活邮件补发。
 		mg.GET("/register/applies", h.ManageApplies)
 		mg.POST("/register/applies/:id/approve", h.ManageApprove)

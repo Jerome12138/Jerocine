@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 	"server/internal/platform/auth"
+	"server/internal/platform/reqctx"
 )
 
 // UserService 认证 + 观看历史 + 收藏编排。
@@ -27,6 +29,25 @@ type UserService struct {
 	// applyFeedback 登录时申请态查询(P2 登录即时反馈三通道之一, 设计 §5/§9)。
 	// 由 RegisterService 经 SetApplyLookup 注入(仅 apply 模式启用); nil = 未接线, 维持笼统 ErrUnauthorized。
 	applyFeedback func(ctx context.Context, account string) (status int8, reason string, found bool)
+	// policy 登录策略(有效期/设备数)提供者: 后台「系统设置 → 账号与安全」维护, 每次签发时读取。
+	// nil 时用构造期兜底值(测试/未接线)。
+	policy func(ctx context.Context) (ttl time.Duration, maxDevices int)
+}
+
+// SetPolicyProvider 注入登录策略读取器(组合根接 site_config; 改动下次登录生效)。
+func (s *UserService) SetPolicyProvider(fn func(ctx context.Context) (time.Duration, int)) {
+	s.policy = fn
+}
+
+// loginPolicy 取当前生效的登录策略, 缺省回退构造期值。
+func (s *UserService) loginPolicy(ctx context.Context) (time.Duration, int) {
+	ttl, maxDevices := s.ttl, s.maxDevices
+	if s.policy != nil {
+		if t, m := s.policy(ctx); t > 0 && m > 0 {
+			ttl, maxDevices = t, m
+		}
+	}
+	return ttl, maxDevices
 }
 
 func NewUserService(u repository.UserRepository, h repository.HistoryRepository, f repository.FavoriteRepository, sk repository.SkipSettingRepository, s repository.SearchRepository, tm *auth.TokenManager, maxDevices int, ttl time.Duration) *UserService {
@@ -133,15 +154,20 @@ func (s *UserService) applyFeedbackFor(ctx context.Context, account string) (int
 	return s.applyFeedback(ctx, account)
 }
 
-// IssueToken 为用户签发 token 并登记多设备集合(登录/自注册/申请激活共用, 不另造轮子)。
+// IssueToken 为用户签发 token 并登记多设备集合 + 会话元数据(登录/自注册/申请激活共用)。
+// 有效期与设备数读后台策略(改动下次登录生效)。
 func (s *UserService) IssueToken(ctx context.Context, u *entity.User) (LoginResult, error) {
-	token, exp, err := s.tokens.Generate(u.ID, u.UserName, u.Role)
+	ttl, maxDevices := s.loginPolicy(ctx)
+	token, exp, err := s.tokens.GenerateWithTTL(u.ID, u.UserName, u.Role, ttl)
 	if err != nil {
 		return LoginResult{}, err
 	}
-	if err := cache.SaveUserToken(ctx, int64(u.ID), token, s.maxDevices, s.ttl); err != nil {
+	if err := cache.SaveUserToken(ctx, int64(u.ID), token, maxDevices, ttl); err != nil {
 		return LoginResult{}, err
 	}
+	// 会话元数据只用于后台「在线会话」展示与踢人, 失败不影响登录
+	info := reqctx.From(ctx)
+	cache.SaveSession(ctx, token, int64(u.ID), u.UserName, info.IP, info.UA, ttl)
 	return LoginResult{UserName: u.UserName, Token: token, Expires: exp, Role: u.Role}, nil
 }
 
@@ -159,6 +185,50 @@ func (s *UserService) Authenticate(ctx context.Context, token string) (*auth.Cla
 
 func (s *UserService) Logout(ctx context.Context, userID uint, token string) {
 	cache.ClearOneToken(ctx, int64(userID), token)
+}
+
+// ---- 后台: 在线会话(当前生效的登录凭据) ----
+
+// LoginSessionView 后台会话行。刻意不含 token 原文(会话 id 已是不可逆摘要)。
+type LoginSessionView struct {
+	ID       string `json:"id"`
+	UserID   int64  `json:"userId"`
+	UserName string `json:"userName"`
+	IP       string `json:"ip"`
+	UA       string `json:"ua"`
+	LoginAt  int64  `json:"loginAt"`  // 登录时间(秒)
+	LastSeen int64  `json:"lastSeen"` // 最近活跃(秒, 请求节流 60s)
+}
+
+// ListLoginSessions 最近活跃的会话列表(keyword 过滤用户名/用户 ID/IP), 供后台查看与踢人。
+func (s *UserService) ListLoginSessions(ctx context.Context, keyword string, limit int) []LoginSessionView {
+	rows := cache.ListSessions(ctx, limit)
+	kw := strings.ToLower(strings.TrimSpace(keyword))
+	out := make([]LoginSessionView, 0, len(rows))
+	for _, r := range rows {
+		if kw != "" &&
+			!strings.Contains(strings.ToLower(r.UserName), kw) &&
+			!strings.Contains(strings.ToLower(r.IP), kw) &&
+			!strings.Contains(strconv.FormatInt(r.UserID, 10), kw) {
+			continue
+		}
+		out = append(out, LoginSessionView{
+			ID: r.ID, UserID: r.UserID, UserName: r.UserName,
+			IP: r.IP, UA: r.UA, LoginAt: r.LoginAt, LastSeen: r.LastSeen,
+		})
+	}
+	return out
+}
+
+// RevokeLoginSession 踢掉单个会话: 摘掉该 token → 中间件下次校验即拒, 其它设备不受影响。
+// 会话不存在(已下线/已过期) 返回 ErrNotFound。
+func (s *UserService) RevokeLoginSession(ctx context.Context, id string) error {
+	meta, ok := cache.SessionByID(ctx, id)
+	if !ok {
+		return domain.ErrNotFound
+	}
+	cache.ClearOneToken(ctx, meta.UserID, meta.Token)
+	return nil
 }
 
 // ---- 扫码登录(设备码流程) ----

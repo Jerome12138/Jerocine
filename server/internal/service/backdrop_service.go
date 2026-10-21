@@ -35,16 +35,15 @@ type BackdropService struct {
 	banners *BannerService // 生效轮播位(缓存), 手动+自动补位同源
 	blob    blobstore.BlobStore
 	client  *tmdb.Client  // key 运行期热替换, 永不为 nil
-	siteCfg repository.SiteConfigRepository // 后台维护的 key(优先)
-	envKey  string                          // 启动 env 兜底, DB 未配置时使用
+	siteCfg repository.SiteConfigRepository // key 唯一权威: 后台「系统设置 → TMDB」(无 env 兜底)
 	kick    chan struct{} // 事件触发通道(容量 1, 多次触发自动合并)
 }
 
 func NewBackdropService(movie repository.MovieRepository, search repository.SearchRepository,
 	banners *BannerService, blob blobstore.BlobStore, client *tmdb.Client,
-	siteCfg repository.SiteConfigRepository, envKey string) *BackdropService {
+	siteCfg repository.SiteConfigRepository) *BackdropService {
 	return &BackdropService{movie: movie, search: search, banners: banners,
-		blob: blob, client: client, siteCfg: siteCfg, envKey: envKey,
+		blob: blob, client: client, siteCfg: siteCfg,
 		kick: make(chan struct{}, 1)}
 }
 
@@ -128,14 +127,15 @@ func (s *BackdropService) tick(ctx context.Context) {
 	}
 }
 
-// currentKey 解析当前生效凭据: 后台 DB 值优先, 未配置回落启动 env。读失败按 env 兜底, 不打断轮次。
+// currentKey 当前生效凭据: 只认后台 site_config(空 = 功能关闭, worker 轻量探测等待)。
 func (s *BackdropService) currentKey(ctx context.Context) string {
-	if s.siteCfg != nil {
-		if c, err := s.siteCfg.Get(ctx); err == nil && c.TmdbAPIKey != "" {
-			return c.TmdbAPIKey
-		}
+	if s.siteCfg == nil {
+		return ""
 	}
-	return s.envKey
+	if c, err := s.siteCfg.Get(ctx); err == nil {
+		return c.TmdbAPIKey
+	}
+	return ""
 }
 
 // carouselMids 汇总轮播影片集合(去重): 生效轮播位的 mid —— 手动配置位 + 自动补位,

@@ -52,6 +52,13 @@ func KeyActivateID(applyID int64) string      { return fmt.Sprintf("v1:activate:
 func KeyReset(token string) string            { return "v1:reset:" + token }                       // 重置密码 token → user_id (P3)
 func KeyResetID(userID int64) string          { return fmt.Sprintf("v1:reset:id:%d", userID) }     // 反向: user_id → 当前 token(重新申请作废旧)
 
+// ---- 登录会话元数据(协调态, 见 cache/session.go) ----
+// KeySession 会话 id(sha256 前 16 字节 hex) → HASH{uid,uname,ip,ua,loginAt,token};
+// 键名不含原始凭据。KeySessionIdx 按最近活跃排序, 供后台会话列表。
+func KeySession(id string) string { return "v1:sess:" + id }
+
+const KeySessionIdx = "v1:sess:idx"
+
 const KeyLockSyncPic = "v1:lock:sync:pic"
 
 // ---- 榜单热度刷新(协调态, 见 service/hot_service.go) ----

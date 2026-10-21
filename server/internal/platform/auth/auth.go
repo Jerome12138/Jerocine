@@ -45,9 +45,18 @@ func NewTokenManager(privPEM, pubPEM []byte, ttl time.Duration, issuer string) (
 	return &TokenManager{priv: priv, pub: pub, ttl: ttl, issuer: issuer}, nil
 }
 
-// Generate 签发 token, 返回 token 串与过期时间戳(秒)。
+// Generate 签发 token, 返回 token 串与过期时间戳(秒)。用构造期的默认 TTL。
 func (t *TokenManager) Generate(userID uint, userName string, role int) (string, int64, error) {
-	exp := time.Now().Add(t.ttl)
+	return t.GenerateWithTTL(userID, userName, role, t.ttl)
+}
+
+// GenerateWithTTL 按指定 TTL 签发(登录策略存后台「账号与安全」, 每次登录读当前值)。
+// ttl<=0 时回退构造期默认值。
+func (t *TokenManager) GenerateWithTTL(userID uint, userName string, role int, ttl time.Duration) (string, int64, error) {
+	if ttl <= 0 {
+		ttl = t.ttl
+	}
+	exp := time.Now().Add(ttl)
 	c := Claims{
 		UserID: userID, UserName: userName, Role: role,
 		RegisteredClaims: jwt.RegisteredClaims{

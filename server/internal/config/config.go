@@ -17,13 +17,10 @@ type Config struct {
 	Redis      RedisConfig
 	JWT        JWTConfig
 	CORS       []string
-	// TelemetryAllowedHosts 埋点 ingest 只接受来源域属于此名单的事件(反扫描/反撞IP域名)。
-	// 匹配 host == base 或 *.base; 默认 jerocine.art。
-	TelemetryAllowedHosts []string
-	Spider                SpiderConfig
-	Blob                  BlobConfig
-	TMDB                  TMDBConfig
-	PageSizes             PageSizes
+	Spider     SpiderConfig
+	Blob       BlobConfig
+	TMDB       TMDBConfig
+	PageSizes  PageSizes
 }
 
 type RedisConfig struct {
@@ -42,8 +39,7 @@ type JWTConfig struct {
 }
 
 type SpiderConfig struct {
-	MaxGoroutine int
-	ResetToken   string // 清库二次确认 token, 常量时间比较
+	ResetToken string // 清库二次确认 token, 常量时间比较
 }
 
 type BlobConfig struct {
@@ -52,12 +48,12 @@ type BlobConfig struct {
 	BaseURL   string // 访问前缀, 如 /api/upload/pic/poster/
 }
 
-// TMDBConfig 横图(backdrop)回填配置。APIKey 为空 → 整个功能关闭(不 fatal, worker 不启动)。
+// TMDBConfig 横图(backdrop)回填配置。API key 只存 site_config(后台「系统设置」维护,
+// 运行期热替换), 这里只剩"基本不会改"的语言与网络地址。
 // 可选 TMDB_API_BASE 支持自建反代; 图片由 worker 下载到本地 blob, 终端不直连 TMDB。
 type TMDBConfig struct {
-	APIKey   string // v3 API Key 或 v4 Read Access Token, 二者自动识别
-	Lang     string // 检索语言, 默认 zh-CN
-	APIBase  string // 默认 https://api.themoviedb.org/3
+	Lang      string // 检索语言, 默认 zh-CN
+	APIBase   string // 默认 https://api.themoviedb.org/3
 	ImageBase string // 默认 https://image.tmdb.org/t/p/
 }
 
@@ -85,14 +81,14 @@ func Load() *Config {
 			PrivateKey: mustKey("JWT_PRIVATE_KEY", "JWT_PRIVATE_KEY_FILE"),
 			PublicKey:  mustKey("JWT_PUBLIC_KEY", "JWT_PUBLIC_KEY_FILE"),
 			Issuer:     env("JWT_ISSUER", "Jerocine"),
-			TTL:        time.Duration(envInt("AUTH_TOKEN_TTL_HOURS", 168)) * time.Hour,
-			MaxDevices: envInt("MAX_DEVICE_LOGIN", 5),
+			// TTL / MaxDevices 只是构造期兜底: 实际生效值读 site_config(后台「账号与安全」),
+			// 由 UserService.SetPolicyProvider 覆盖, 不再读环境变量。
+			TTL:        168 * time.Hour,
+			MaxDevices: 5,
 		},
-		CORS:                  splitNonEmpty(os.Getenv("CORS_ALLOWED_ORIGINS")),
-		TelemetryAllowedHosts: telemetryHosts(),
-		Spider:                SpiderConfig{
-			MaxGoroutine: envInt("MAX_GOROUTINE", 32),
-			ResetToken:   mustEnv("SPIDER_RESET_TOKEN"),
+		CORS: splitNonEmpty(os.Getenv("CORS_ALLOWED_ORIGINS")),
+		Spider: SpiderConfig{
+			ResetToken: mustEnv("SPIDER_RESET_TOKEN"),
 		},
 		Blob: BlobConfig{
 			Driver:   env("BLOB_DRIVER", "local"),
@@ -100,15 +96,11 @@ func Load() *Config {
 			BaseURL:  env("BLOB_BASE_URL", "/api/upload/"),
 		},
 		TMDB: TMDBConfig{
-			APIKey:    os.Getenv("TMDB_API_KEY"),
 			Lang:      env("TMDB_LANG", "zh-CN"),
 			APIBase:   os.Getenv("TMDB_API_BASE"),
 			ImageBase: os.Getenv("TMDB_IMAGE_BASE"),
 		},
 		PageSizes: PageSizes{Home: 14, Classify: 21, Filter: 49, Search: 10, Gallery: 39},
-	}
-	if c.Spider.MaxGoroutine <= 0 {
-		c.Spider.MaxGoroutine = 32
 	}
 	if c.Redis.CacheDB == c.Redis.CoordDB {
 		log.Fatalf("config: REDIS_DB_CACHE 与 REDIS_DB_COORD 不能相同 (均为 %d)", c.Redis.CacheDB)
@@ -121,14 +113,6 @@ func env(key, def string) string {
 		return v
 	}
 	return def
-}
-
-// telemetryHosts 埋点允许的来源域名单(env TELEMETRY_ALLOWED_HOSTS, 逗号分隔), 默认 jerocine.art。
-func telemetryHosts() []string {
-	if v := splitNonEmpty(os.Getenv("TELEMETRY_ALLOWED_HOSTS")); len(v) > 0 {
-		return v
-	}
-	return []string{"jerocine.art"}
 }
 
 func mustEnv(key string) string {
@@ -181,6 +165,6 @@ func splitNonEmpty(s string) []string {
 
 // String 脱敏摘要, 启动日志用 (不打印密钥/密码)。
 func (c *Config) String() string {
-	return fmt.Sprintf("Config{port=%s mysql=*** redis=%s(cache=%d,coord=%d) cors=%v spider.maxG=%d blob=%s}",
-		c.ServerPort, c.Redis.Addr, c.Redis.CacheDB, c.Redis.CoordDB, c.CORS, c.Spider.MaxGoroutine, c.Blob.Driver)
+	return fmt.Sprintf("Config{port=%s mysql=*** redis=%s(cache=%d,coord=%d) cors=%v blob=%s tmdb.lang=%s}",
+		c.ServerPort, c.Redis.Addr, c.Redis.CacheDB, c.Redis.CoordDB, c.CORS, c.Blob.Driver, c.TMDB.Lang)
 }

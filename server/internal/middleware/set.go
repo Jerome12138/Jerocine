@@ -10,6 +10,7 @@ import (
 
 	"server/internal/cache"
 	"server/internal/dto"
+	"server/internal/platform/reqctx"
 	"server/internal/service"
 )
 
@@ -20,10 +21,13 @@ const (
 	CtxToken  = "token"  // string
 )
 
-// Trace 为每个请求生成 trace id(写 ctx + X-Trace-Id 头)。
+// Trace 为每个请求生成 trace id(写 ctx + X-Trace-Id 头), 并把客户端 IP/UA 放进 request context
+// (登录会话元数据要用, 见 platform/reqctx)。
 func Trace() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dto.SetTraceId(c)
+		c.Request = c.Request.WithContext(
+			reqctx.With(c.Request.Context(), c.ClientIP(), c.Request.UserAgent()))
 		c.Next()
 	}
 }
@@ -97,6 +101,8 @@ func AuthToken(us *service.UserService) gin.HandlerFunc {
 		c.Set(CtxUserID, claims.UserID)
 		c.Set(CtxRole, claims.Role)
 		c.Set(CtxToken, token)
+		// 刷新会话"最近活跃"(内部 60s 节流, 不增加每请求写放大)
+		cache.TouchSession(c.Request.Context(), token)
 		c.Next()
 	}
 }

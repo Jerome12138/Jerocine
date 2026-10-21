@@ -170,6 +170,66 @@ func (s *ManageService) GetSite(ctx context.Context) (*entity.SiteConfig, error)
 	return s.siteCfg.Get(ctx)
 }
 
+// ---- 运行参数(后台「系统设置」: 账号与安全 / 采集性能) ----
+
+// 默认值(与 migration 000028 的列默认一致)。DB 为 0 时按此兜底。
+const (
+	DefaultAuthTokenTTLHours  = 168 // 7 天
+	DefaultMaxDeviceLogin     = 5
+	DefaultSpiderMaxGoroutine = 32
+)
+
+// RuntimeSettings 运行参数视图(全部是"下次才生效"的项, 后台需在文案里讲清)。
+type RuntimeSettings struct {
+	AuthTokenTTLHours  int `json:"authTokenTtlHours"`  // 只影响新签发 token
+	MaxDeviceLogin     int `json:"maxDeviceLogin"`     // 下次登录时按新值裁最旧设备
+	SpiderMaxGoroutine int `json:"spiderMaxGoroutine"` // 下一轮采集生效(主站 12 / 从站 8 另有硬上限)
+}
+
+// RuntimeSettings 读当前运行参数(缺省/非法值回退默认)。
+func (s *ManageService) RuntimeSettings(ctx context.Context) (RuntimeSettings, error) {
+	c, err := s.siteCfg.Get(ctx)
+	if err != nil {
+		return RuntimeSettings{}, err
+	}
+	out := RuntimeSettings{
+		AuthTokenTTLHours:  c.AuthTokenTTLHours,
+		MaxDeviceLogin:     c.MaxDeviceLogin,
+		SpiderMaxGoroutine: c.SpiderMaxGoroutine,
+	}
+	if out.AuthTokenTTLHours <= 0 {
+		out.AuthTokenTTLHours = DefaultAuthTokenTTLHours
+	}
+	if out.MaxDeviceLogin <= 0 {
+		out.MaxDeviceLogin = DefaultMaxDeviceLogin
+	}
+	if out.SpiderMaxGoroutine <= 0 {
+		out.SpiderMaxGoroutine = DefaultSpiderMaxGoroutine
+	}
+	return out, nil
+}
+
+// SaveRuntimeSettings 写运行参数。范围校验防手滑(登录 1h~1 年、设备 1~50、并发 1~256)。
+func (s *ManageService) SaveRuntimeSettings(ctx context.Context, in RuntimeSettings) error {
+	if in.AuthTokenTTLHours < 1 || in.AuthTokenTTLHours > 8760 ||
+		in.MaxDeviceLogin < 1 || in.MaxDeviceLogin > 50 ||
+		in.SpiderMaxGoroutine < 1 || in.SpiderMaxGoroutine > 256 {
+		return domain.ErrInvalidArgument
+	}
+	c, err := s.siteCfg.Get(ctx)
+	if err != nil {
+		return err
+	}
+	c.AuthTokenTTLHours = in.AuthTokenTTLHours
+	c.MaxDeviceLogin = in.MaxDeviceLogin
+	c.SpiderMaxGoroutine = in.SpiderMaxGoroutine
+	if err := s.siteCfg.Save(ctx, c); err != nil {
+		return err
+	}
+	cache.InvalidateConfig(ctx)
+	return nil
+}
+
 func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) error {
 	// TmdbAPIKey 不走本入口(管理端 json:"-" 绑不进来, 恒为空串): 用库内现值回填,
 	// 防止 UpdateAll upsert 把后台配好的 key 抹成空。

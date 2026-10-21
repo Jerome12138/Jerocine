@@ -156,8 +156,15 @@ type SiteConfig struct {
 	SmtpFromName string `gorm:"column:smtp_from_name" json:"-"` // 发件人显示名
 	// MailDailyQuota 出站邮件全局日配额(默认 50, 后台可改): 码/激活/驳回/重置/测试统一计数。
 	// 与 SMTP 组一样 json:"-" —— 对外只经 service.MailConfigView 暴露。
-	MailDailyQuota int   `gorm:"column:mail_daily_quota" json:"-"`
-	UpdatedAt      int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	MailDailyQuota int `gorm:"column:mail_daily_quota" json:"-"`
+	// ---- 运行参数(后台「系统设置 → 账号与安全 / 采集性能」维护, 均有安全默认值) ----
+	// AuthTokenTTLHours 登录态有效期(小时): 只影响之后新签发的 token, 已登录设备按原 exp 到期。
+	AuthTokenTTLHours int `gorm:"column:auth_token_ttl_hours" json:"-"`
+	// MaxDeviceLogin 单账号同时在线设备数: 下次登录时按新值裁掉最旧设备, 不会立即踢人。
+	MaxDeviceLogin int `gorm:"column:max_device_login" json:"-"`
+	// SpiderMaxGoroutine 采集并发上限(主站 12 / 从站 8 另有硬上限, 设更大不生效)。
+	SpiderMaxGoroutine int   `gorm:"column:spider_max_goroutine" json:"-"`
+	UpdatedAt          int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (SiteConfig) TableName() string { return "site_config" }

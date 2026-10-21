@@ -30,6 +30,22 @@ type Engine struct {
 	blob     blobstore.BlobStore
 	failures repository.CollectFailureRepository // 页级失败台账(可空: 空则只打日志)
 	maxG     int
+	// maxGFn 采集并发上限的运行期提供者(后台「系统设置 → 采集性能」): nil 时用构造期 maxG。
+	// 每轮采集读取一次, 改动下一轮生效, 不打断进行中的轮次。
+	maxGFn func() int
+}
+
+// SetConcurrencyProvider 注入并发上限提供者(组合根接 site_config 缓存读)。
+func (e *Engine) SetConcurrencyProvider(fn func() int) { e.maxGFn = fn }
+
+// concurrencyLimit 当前生效的并发上限。
+func (e *Engine) concurrencyLimit() int {
+	if e.maxGFn != nil {
+		if n := e.maxGFn(); n > 0 {
+			return n
+		}
+	}
+	return e.maxG
 }
 
 func NewEngine(
@@ -161,7 +177,7 @@ func (e *Engine) runPages(ctx context.Context, src *entity.CollectSource, pageCo
 	workers := 1
 	throttled := src.IntervalMs >= 300
 	if !throttled && (full || pageCount > concurrentPageMin) {
-		workers = e.maxG
+		workers = e.concurrencyLimit()
 		if workers > pageCount {
 			workers = pageCount
 		}

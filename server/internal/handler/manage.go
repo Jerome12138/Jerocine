@@ -489,6 +489,55 @@ func (h *Handlers) TaskRerun(c *gin.Context) {
 	dto.Accepted(c, gin.H{"accepted": true, "type": run.Type})
 }
 
+// ---- 运行参数(后台「系统设置」: 账号与安全 / 采集性能) ----
+
+// GetRuntimeSettings GET /manage/settings — 登录策略与采集并发。
+func (h *Handlers) GetRuntimeSettings(c *gin.Context) {
+	v, err := h.Manage.RuntimeSettings(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, v)
+}
+
+// SaveRuntimeSettings PUT /manage/settings — 保存(1h~1年 / 1~50 设备 / 1~256 并发)。
+// 都是"下次生效"的项: 登录策略在下次登录应用, 采集并发在下一轮采集应用。
+func (h *Handlers) SaveRuntimeSettings(c *gin.Context) {
+	var req service.RuntimeSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	if err := h.Manage.SaveRuntimeSettings(c.Request.Context(), req); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, req)
+}
+
+// ---- 在线会话(当前生效的登录凭据) ----
+
+// ManageSessions GET /manage/sessions?keyword=&limit= — 最近活跃会话(按最近活跃倒序)。
+func (h *Handlers) ManageSessions(c *gin.Context) {
+	list := h.User.ListLoginSessions(c.Request.Context(), c.Query("keyword"), queryInt(c, "limit", 0))
+	dto.OK(c, gin.H{"list": list, "total": len(list)})
+}
+
+// ManageRevokeSession DELETE /manage/sessions/:id — 踢掉单个会话(其它设备不受影响)。
+func (h *Handlers) ManageRevokeSession(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		dto.Error(c, http.StatusBadRequest, "bad id")
+		return
+	}
+	if err := h.User.RevokeLoginSession(c.Request.Context(), id); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"id": id, "revoked": true})
+}
+
 // ---- 用户 ----
 
 func (h *Handlers) CreateUser(c *gin.Context) {

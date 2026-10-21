@@ -172,23 +172,46 @@ func buildApp(cfg *config.Config) (*App, error) {
 	filmSvc := service.NewFilmService(searchRepo, movieRepo, playRepo, categoryRepo, healthRepo, sourceRepo, cfg.PageSizes)
 	userSvc := service.NewUserService(userRepo, historyRepo, favoriteRepo, skipRepo, searchRepo, tokenMgr, cfg.JWT.MaxDevices, cfg.JWT.TTL)
 	configSvc := service.NewConfigService(siteRepo, versionRepo)
+	// 登录策略(有效期/设备数)读 site_config(后台「系统设置 → 账号与安全」), 下次登录生效。
+	userSvc.SetPolicyProvider(func(ctx context.Context) (time.Duration, int) {
+		c, err := configSvc.SiteConfig(ctx)
+		if err != nil || c == nil {
+			return 0, 0
+		}
+		ttl, devices := c.AuthTokenTTLHours, c.MaxDeviceLogin
+		if ttl <= 0 {
+			ttl = service.DefaultAuthTokenTTLHours
+		}
+		if devices <= 0 {
+			devices = service.DefaultMaxDeviceLogin
+		}
+		return time.Duration(ttl) * time.Hour, devices
+	})
 	// 自注册 + 邮件通道(注册模式/发码/open 注册/apply 申请审核; SMTP 凭据在 site_config 热生效)
 	registerSvc := service.NewRegisterService(siteRepo, userRepo, applyRepo, tx, userSvc)
 	// 登录即时反馈(仅 apply 模式): 账号不存在时按申请态返回"审核中/已驳回"
 	userSvc.SetApplyLookup(registerSvc.ApplyFeedback)
 	m3u8Svc := service.NewM3u8Service(cfg.JWT.PrivateKey)
-	telemetrySvc := service.NewTelemetryService(telemetryRepo, searchRepo, favoriteRepo, cfg.TelemetryAllowedHosts, configSvc)
-	// TMDB 客户端: key 运行期热替换 —— 管理后台(优先, 落 site_config)保存/清除即生效; env TMDB_API_KEY 为兜底。
-	tmdbClient := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
+	telemetrySvc := service.NewTelemetryService(telemetryRepo, searchRepo, favoriteRepo, nil, configSvc)
+	// TMDB 客户端: key 只认后台(保存/清除即热替换, 无 env 兜底); 语言与反代地址是"基本不会改"的部署项。
+	tmdbClient := tmdb.New("", cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
 	manageSvc := service.NewManageService(sourceRepo, cronRepo, siteRepo, versionRepo, fileRepo, categoryRepo, searchRepo, movieRepo, playRepo, healthRepo, tx, userSvc, blob, tmdbClient)
-	engine := spider.NewEngine(movieRepo, searchRepo, playRepo, categoryRepo, fileRepo, tx, blob, failureRepo, cfg.Spider.MaxGoroutine)
+	engine := spider.NewEngine(movieRepo, searchRepo, playRepo, categoryRepo, fileRepo, tx, blob, failureRepo, service.DefaultSpiderMaxGoroutine)
+	// 采集并发上限读 site_config(后台「系统设置 → 采集性能」), 下一轮采集生效。
+	engine.SetConcurrencyProvider(func() int {
+		c, err := configSvc.SiteConfig(context.Background())
+		if err != nil || c == nil || c.SpiderMaxGoroutine <= 0 {
+			return service.DefaultSpiderMaxGoroutine
+		}
+		return c.SpiderMaxGoroutine
+	})
 	taskRunRepo := repomysql.NewTaskRunRepository(gdb)
 	taskSvc := service.NewTaskRunService(taskRunRepo)
 	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo, taskSvc)
 	bannerSvc := service.NewBannerService(bannerRepo, filmSvc)
 
 	// TMDB 横图回填 worker: 每轮解析 key(后台 DB > env), 未配置时轻量探测后静默等待。
-	backdropSvc := service.NewBackdropService(movieRepo, searchRepo, bannerSvc, blob, tmdbClient, siteRepo, cfg.TMDB.APIKey)
+	backdropSvc := service.NewBackdropService(movieRepo, searchRepo, bannerSvc, blob, tmdbClient, siteRepo)
 	// 事件挂钩: 采集落库/轮播变更/后台改 key → 立即触发横图重算(20min 兜底扫描之外的主路径)。
 	spiderSvc.OnSettled = backdropSvc.Kick
 	bannerSvc.OnChange = backdropSvc.Kick

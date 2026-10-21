@@ -601,6 +601,26 @@ components:
         port: { type: integer }
         secure: { type: string, enum: [ssl, starttls, none] }
         note: { type: string, description: 后台展示的注意事项(如 QQ 邮箱须用授权码) }
+    RuntimeSettings:
+      type: object
+      description: 运行参数(存 site_config; 都是"下次生效"的项)
+      required: [authTokenTtlHours, maxDeviceLogin, spiderMaxGoroutine]
+      properties:
+        authTokenTtlHours: { type: integer, minimum: 1, maximum: 8760, description: 登录态有效期(小时); 只影响之后新签发的 token }
+        maxDeviceLogin: { type: integer, minimum: 1, maximum: 50, description: 单账号同时在线设备数; 下次登录时按新值裁掉最旧设备 }
+        spiderMaxGoroutine: { type: integer, minimum: 1, maximum: 256, description: 采集并发上限(主站 12 / 从站 8 另有硬上限); 下一轮采集生效 }
+    LoginSession:
+      type: object
+      description: 一条在线登录会话(当前生效的 token)
+      required: [id, userId, userName, ip, ua, loginAt, lastSeen]
+      properties:
+        id: { type: string, description: 会话 id(sha256 前 16 字节 hex); 踢人接口用它 }
+        userId: { type: integer, format: int64 }
+        userName: { type: string }
+        ip: { type: string, description: 登录来源 IP }
+        ua: { type: string, description: 登录时 User-Agent }
+        loginAt: { type: integer, format: int64, description: 登录时间(unix 秒) }
+        lastSeen: { type: integer, format: int64, description: 最近活跃(unix 秒; 请求节流 60s) }
     MailConfigResp:
       type: object
       description: 凭据只回掩码+是否已配置, 永不回明文(与 TMDB key 同范式)
@@ -1784,6 +1804,88 @@ paths:
             application/json:
               schema: { type: object, properties: { cleared: { type: boolean } } }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/settings:
+    get:
+      tags: [manage-config]
+      summary: 读运行参数 (登录有效期 / 设备数 / 采集并发; 均存 site_config)
+      operationId: manageGetSettings
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuntimeSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [manage-config]
+      summary: 写运行参数 (登录策略下次登录生效, 采集并发下一轮采集生效)
+      operationId: manageSaveSettings
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RuntimeSettings' }
+      responses:
+        '200':
+          description: 已保存
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuntimeSettings' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/sessions:
+    get:
+      tags: [manage-user]
+      summary: 在线会话列表 (当前生效的登录凭据 —— 用户 / IP / UA / 登录时间 / 最近活跃, 倒序)
+      operationId: manageListSessions
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: keyword, in: query, schema: { type: string }, description: 用户名 / 用户 ID / IP 模糊过滤 }
+        - { name: limit, in: query, schema: { type: integer, default: 200, maximum: 500 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [list, total]
+                properties:
+                  list:
+                    type: array
+                    items: { $ref: '#/components/schemas/LoginSession' }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/sessions/{id}:
+    delete:
+      tags: [manage-user]
+      summary: 踢掉单个会话 (该 token 立即失效, 其它设备不受影响)
+      operationId: manageRevokeSession
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, description: 会话 id (sha256 摘要) }
+      responses:
+        '200':
+          description: 已踢下线
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  revoked: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /manage/mail/config:
     get:
