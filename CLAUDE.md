@@ -30,6 +30,9 @@
 - **较大改动必写单测**（后端 `go test ./...`，前端 vitest），合并前本地测绿。
 - **前端门禁必须 `pnpm run build`**（= `vue-tsc -p tsconfig.app.json --noEmit && vite build`），不能只跑裸 `vue-tsc --noEmit`：`tsconfig.app.json` 开了 `noUncheckedIndexedAccess` 等严格项，裸 tsc 用宽松配置会漏报（`map[k]` 实为 `T|undefined`）。
 - **方案/架构设计存档到 `docs/`**，不要只留对话里。
+- **凭据展示口径（唯一）**：凡是密钥/授权码/令牌类字段，实体上 `json:"-"` 硬隔离，管理端只回**中间脱敏掩码**
+  `mask.Middle()`（`server/internal/platform/mask`，首 4 + … + 末 4，<12 字符整串 `••••`，空串 = 未配置）。
+  不允许各写一份掩码实现、也不允许回传明文；写路径"留空 = 不修改已存值"（防掩码回显被误清空）。
 - 任何重启线上服务的操作（`docker compose build/up` 等）前先征维护者同意。**采集无需手动暂停**：server 有 SIGTERM 优雅停机（HTTP 收尾 → 等采集协程退出，中断页记失败台账由补采/增量窗口自愈）。
 
 ## 构建脚本清单（新增或改动务必登记到这里）

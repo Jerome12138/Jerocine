@@ -24,41 +24,35 @@
 
 ## 二、配置
 
-### 方式 A（推荐）：管理后台配置，即时生效
+### 方式 A（唯一）：管理后台配置，即时生效
 
-登录管理后台 → **系统 → 站点配置 → TMDB API Key**，粘贴 v3 key 或 v4 token 后点「保存 Key」：
+登录管理后台 → **系统 → 系统设置 → TMDB 横图**，粘贴 v3 key 或 v4 Read Access Token 后点「保存 Key」：
 
 - 保存前服务端会到 TMDB 验真，无效 key 直接拒绝，避免横图静默不回填；
-- 保存即热生效（worker 下一轮立即用新 key），**无需重启**；已配置的 key 只显示掩码（如 `0c06…676b`），明文不可回看；
+- 保存即热生效（worker 下一轮立即用新 key），**无需重启**；已配置的 key 在后台只显示中间脱敏掩码
+  （如 `0c06…676b`，规则与 SMTP 授权码一致），明文不可回看；
 - 「清除」即停用横图回填，已落地的图片不受影响。
 
-### 方式 B（备选）：服务器环境变量
+> **凭据只存数据库，后台是唯一权威**（2026-10-21 起 `TMDB_API_KEY` 环境变量已移除）。
+> **升级注意**：如果你的 key 以前配在 `deploy/.env` 的 `TMDB_API_KEY` 里，升级后数据库里仍是空的，
+> 后台会显示「未配置」且横图回填会停 —— 到上面这个页面重新粘贴保存一次即可，之后 `.env` 里那行可以删掉。
 
-适合部署脚本自动化、或不便登后台的场景。在服务器 `deploy/.env`（与 `docker-compose.yml` 同目录，**不进 git**）追加：
+### 仍然保留的 env（非凭据，基本不用改）
 
 ```bash
-# 必填：v3 API Key 或 v4 Read Access Token，二选一；留空 = 功能关闭
-TMDB_API_KEY=你的key
-
-# 可选：检索结果语言，默认 zh-CN（中文标题/中文简介匹配更准）
-# TMDB_LANG=zh-CN
-
-# 可选：自建 TMDB 反代时替换 API 地址（默认官方）
-# TMDB_API_BASE=https://api.themoviedb.org
-
-# 可选：自建图片反代时替换图片 CDN（默认 https://image.tmdb.org；图片会下载到本地，
-# 此项只影响 worker 下载时走的地址）
-# TMDB_IMAGE_BASE=https://image.tmdb.org
+# 检索结果语言，默认 zh-CN（中文标题/中文简介匹配更准）
+TMDB_LANG=zh-CN
+# 自建 API 反代时才需要（默认官方 https://api.themoviedb.org）
+TMDB_API_BASE=
+# 自建图片反代时才需要（默认官方 https://image.tmdb.org）
+TMDB_IMAGE_BASE=
 ```
 
-重启服务生效（只重建 server 容器，不影响采集）：
-
+改这几项属于启动期配置，改完需要重建 server 容器（纯前端更新不用）：
 ```bash
 cd /path/to/Jerocine/deploy
 docker compose --env-file .env up -d --no-deps server
 ```
-
-> 优先级：**后台配置 > 环境变量**。后台未配置时才回落 env；两者都空 = 功能整体关闭。
 
 ## 三、验证是否生效
 
