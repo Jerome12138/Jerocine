@@ -25,6 +25,9 @@ const (
 	sessionTouchInterval = 60 * time.Second
 	sessionPruneInterval = 512 // 每 N 次 touch 清一次进程内节流表
 	sessionTouchTTL      = 10 * time.Minute
+	// sessionIdxMaxAge 会话索引成员的最长可信年龄: 元数据 TTL 上限是 8760h(365 天),
+	// 超过它一定已过期 ⇒ 登录时顺手按 score 清掉, 防索引只增不减(列表只在取前 N 条时清陈旧项)。
+	sessionIdxMaxAge = 400 * 24 * time.Hour
 )
 
 // SessionMeta 一条登录会话。
@@ -69,6 +72,10 @@ func SaveSession(ctx context.Context, token string, uid int64, userName, ip, ua 
 	pipe.Expire(ctx, KeySession(id), ttl)
 	pipe.ZAdd(ctx, KeySessionIdx, redis.Z{Score: float64(now), Member: id})
 	_, _ = pipe.Exec(ctx)
+	// 索引本身没有 TTL(不能给: 短 TTL 会话登录会顺带把整张索引提前过期),
+	// 改用"按年龄裁剪"兜住无界增长, 失败无所谓(下次登录再试)。
+	cutoff := now - int64(sessionIdxMaxAge/time.Second)
+	coordRdb.ZRemRangeByScore(ctx, KeySessionIdx, "-inf", strconv.FormatInt(cutoff, 10))
 }
 
 // TouchSession 更新"最近活跃"(节流 + 只更新已存在的索引成员, 不复活过期会话)。

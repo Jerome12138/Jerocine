@@ -30,7 +30,13 @@ func SaveUserToken(ctx context.Context, userId int64, token string, maxDevices i
 	}
 	if maxDevices > 0 {
 		if cnt, err := coordRdb.ZCard(ctx, key).Result(); err == nil && cnt > int64(maxDevices) {
+			// 先取到将被剔除的旧 token: 它们的会话元数据也要删, 否则「在线会话」会一直
+			// 显示这些已被设备数上限顶掉的设备(直到 TTL 到期), 点"踢下线"还是空操作。
+			evicted, _ := coordRdb.ZRange(ctx, key, 0, cnt-int64(maxDevices)-1).Result()
 			coordRdb.ZRemRangeByRank(ctx, key, 0, cnt-int64(maxDevices)-1)
+			for _, t := range evicted {
+				DeleteSession(ctx, t)
+			}
 		}
 	}
 	// 故意不设 TTL(见上方说明): 防 volatile-lru 淘汰致掉登录。ttl 参数保留兼容签名。

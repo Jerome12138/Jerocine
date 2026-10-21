@@ -347,9 +347,8 @@ func (s *UserService) ChangePassword(ctx context.Context, userID uint, oldPw, ne
 
 // ---- 管理员: 创建/列出用户 ----
 
-// CreateUser 管理员建号(可选 email; 手工建号不强制验证邮箱, email_verified=0)。
 // CreateUser 后台手工建号。email 可选(空 = 无邮箱老用户口径), 填了必须格式合法且未被占用;
-// 手工建的号 EmailVerified 保持 0(不强制走验证链路), 与注册链路一致由 DB 默认值兜住。
+// 手工建的号 EmailVerified 保持 0(不强制走验证链路, 由 DB 默认值兜住)。
 func (s *UserService) CreateUser(ctx context.Context, name, password string, role int, email string) (*entity.User, error) {
 	if _, err := s.users.GetByName(ctx, name); err == nil {
 		return nil, domain.ErrConflict

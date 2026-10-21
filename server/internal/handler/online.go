@@ -120,10 +120,7 @@ func sanitizePath(p string) string {
 	if i := strings.IndexAny(p, "?#"); i >= 0 {
 		p = p[:i]
 	}
-	if len(p) > 64 {
-		p = p[:64]
-	}
-	return p
+	return truncate(p, 64) // 按 rune 截断: 多字节路径不会切出半个字符
 }
 
 // truncate 超长字段截断(明细表防撑爆)。

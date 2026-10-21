@@ -86,3 +86,53 @@ func TestClearOneTokenRemovesSession(t *testing.T) {
 		t.Fatalf("ClearOneToken 应删会话: %+v", got)
 	}
 }
+
+// TestSaveUserTokenEvictsSession 设备数超限顶掉最旧设备时, 被顶 token 的会话元数据必须连带清掉 ——
+// 否则「在线会话」一直显示这些已被顶掉的设备(直到 TTL 到期), 点"踢下线"也只是空操作。
+func TestSaveUserTokenEvictsSession(t *testing.T) {
+	newTestCache(t)
+	ctx := context.Background()
+	SaveUserToken(ctx, 7, "tok-old", 2, time.Hour)
+	SaveSession(ctx, "tok-old", 7, "alice", "", "", time.Hour)
+	SaveUserToken(ctx, 7, "tok-mid", 2, time.Hour)
+	SaveSession(ctx, "tok-mid", 7, "alice", "", "", time.Hour)
+
+	// 第 3 台设备触发上限 → tok-old 被顶
+	SaveUserToken(ctx, 7, "tok-new", 2, time.Hour)
+	SaveSession(ctx, "tok-new", 7, "alice", "", "", time.Hour)
+
+	// 三次登录在同一秒内(score 相同), 被顶的是 tok-old / tok-mid 中的哪一个由 ZSET 序决定;
+	// 断言"恰好剩 2 条且含 tok-new"即可证明被顶者的会话被连带清理(否则会是 3 条)。
+	list := ListSessions(ctx, 10)
+	if len(list) != 2 {
+		t.Fatalf("被顶设备的会话应消失, 剩 %d 条: %+v", len(list), list)
+	}
+	alive := map[string]bool{}
+	for _, r := range list {
+		alive[r.Token] = true
+	}
+	if !alive["tok-new"] {
+		t.Fatalf("最新设备应在列: %+v", list)
+	}
+	if alive["tok-old"] && alive["tok-mid"] {
+		t.Fatalf("被顶设备的会话没有被清理: %+v", list)
+	}
+}
+
+// TestSaveSessionPrunesAgedIndex 登录时按年龄裁剪索引: 超过最长 TTL(400 天)的成员一定已过期,
+// 应被顺手清掉, 防索引只增不减(列表侧只清"取到的前 N 条"的陈旧项, 够不到的老尾巴靠这里)。
+func TestSaveSessionPrunesAgedIndex(t *testing.T) {
+	mr := newTestCache(t)
+	ctx := context.Background()
+	ancient := float64(time.Now().Add(-500 * 24 * time.Hour).Unix())
+	if _, err := mr.ZAdd(KeySessionIdx, ancient, "ghost"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	SaveSession(ctx, "tok-now", 1, "u", "", "", time.Hour)
+	members, _ := mr.ZMembers(KeySessionIdx)
+	for _, m := range members {
+		if m == "ghost" {
+			t.Fatalf("超龄成员应被裁剪: %v", members)
+		}
+	}
+}

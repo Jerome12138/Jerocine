@@ -337,14 +337,29 @@ func (s *OnlineService) todayStats(ctx context.Context, curPV int64) DailyStats 
 }
 
 // sids2sessions 批量读取会话明细(缺失/解析失败的跳过)。
+// 一次 MGet 取全部: 30 分钟窗口可能有上百条会话, 逐条 GET 会被后台 15s 轮询放大成上百次往返。
 func sids2sessions(ctx context.Context, rdb *redis.Client, sids []string, out []OnlineSession) []OnlineSession {
-	for _, sid := range sids {
-		v, err := rdb.Get(ctx, onlineInfoKey(sid)).Result()
-		if err != nil {
+	if len(sids) == 0 {
+		return out
+	}
+	keys := make([]string, len(sids))
+	for i, sid := range sids {
+		keys[i] = onlineInfoKey(sid)
+	}
+	vals, err := rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return out
+	}
+	for i, v := range vals {
+		if i >= len(sids) || v == nil {
 			continue // 明细过期(清理竞态), 该会话本次跳过
 		}
+		raw, ok := v.(string)
+		if !ok {
+			continue
+		}
 		var sess OnlineSession
-		if json.Unmarshal([]byte(v), &sess) != nil {
+		if json.Unmarshal([]byte(raw), &sess) != nil {
 			continue
 		}
 		out = append(out, sess)
