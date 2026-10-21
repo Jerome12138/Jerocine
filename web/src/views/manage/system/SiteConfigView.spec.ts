@@ -61,7 +61,9 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     h.getRuntimeSettings.mockResolvedValue({
       authTokenTtlHours: 720,
       maxDeviceLogin: 10,
-      spiderMaxGoroutine: 16
+      spiderMaxGoroutine: 16,
+      spiderMasterMaxWorkers: 9,
+      spiderSlaveMaxWorkers: 6
     })
     h.getMailConfig.mockResolvedValue({
       registerMode: 'apply',
@@ -135,7 +137,9 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     expect(h.updateRuntimeSettings).toHaveBeenCalledWith({
       authTokenTtlHours: 720,
       maxDeviceLogin: 10,
-      spiderMaxGoroutine: 16
+      spiderMaxGoroutine: 16,
+      spiderMasterMaxWorkers: 9,
+      spiderSlaveMaxWorkers: 6
     })
   })
 
@@ -149,7 +153,9 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     expect(h.updateRuntimeSettings).toHaveBeenCalledWith({
       authTokenTtlHours: 720,
       maxDeviceLogin: 10,
-      spiderMaxGoroutine: 16
+      spiderMaxGoroutine: 16,
+      spiderMasterMaxWorkers: 9,
+      spiderSlaveMaxWorkers: 6
     })
   })
 
@@ -158,5 +164,58 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     const text = cardOf(w, 'TMDB 横图').text()
     expect(text).toContain('未配置')
     expect(text).toContain('唯一权威')
+  })
+})
+
+describe('SiteConfigView 采集性能卡（三个上限可配）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.values(h).forEach((fn) => fn.mockReset())
+    h.getBasic.mockResolvedValue({
+      siteName: 'Jerocine', logo: '', keyword: '', describe: '',
+      domain: 'https://jerocine.art', state: true, hint: ''
+    })
+    h.getTMDBKey.mockResolvedValue({ masked: '', set: false })
+    h.getMailConfig.mockResolvedValue({
+      registerMode: 'off', smtpEnabled: 0, smtpHost: '', smtpPort: 465, smtpSecure: 'ssl',
+      smtpUser: '', smtpFromName: '', mailDailyQuota: 50,
+      smtpPassMasked: '', smtpPassSet: false, presets: []
+    })
+    h.getRuntimeSettings.mockResolvedValue({
+      authTokenTtlHours: 168,
+      maxDeviceLogin: 5,
+      spiderMaxGoroutine: 32,
+      spiderMasterMaxWorkers: 12,
+      spiderSlaveMaxWorkers: 8
+    })
+  })
+
+  it('三个上限都回填, 保存时一并提交', async () => {
+    h.updateRuntimeSettings.mockImplementation(async (d) => d)
+    const w = await mountView()
+    const card = w.findAll('section').find((s) => s.text().includes('采集性能') && s.classes().includes('bg-surface'))!
+    const nums = card.findAll('input[type="number"]')
+    expect(nums.map((i) => (i.element as HTMLInputElement).value)).toEqual(['32', '12', '8'])
+    await nums[1].setValue('10')
+    await card.findAll('button').at(-1)!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateRuntimeSettings).toHaveBeenCalledWith({
+      authTokenTtlHours: 168,
+      maxDeviceLogin: 5,
+      spiderMaxGoroutine: 32,
+      spiderMasterMaxWorkers: 10,
+      spiderSlaveMaxWorkers: 8
+    })
+  })
+
+  it('任一项越界都在前端拦下', async () => {
+    const w = await mountView()
+    const card = w.findAll('section').find((s) => s.text().includes('采集性能') && s.classes().includes('bg-surface'))!
+    const nums = card.findAll('input[type="number"]')
+    await nums[2].setValue('300')
+    await card.findAll('button').at(-1)!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateRuntimeSettings).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', expect.stringContaining('从站并发'))
   })
 })

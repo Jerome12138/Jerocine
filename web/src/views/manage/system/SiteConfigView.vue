@@ -40,7 +40,9 @@ const keyBusy = ref(false)
 const DEFAULT_RUNTIME: RuntimeSettings = {
   authTokenTtlHours: 168,
   maxDeviceLogin: 5,
-  spiderMaxGoroutine: 32
+  spiderMaxGoroutine: 32,
+  spiderMasterMaxWorkers: 12,
+  spiderSlaveMaxWorkers: 8
 }
 const runtime = reactive<RuntimeSettings>({ ...DEFAULT_RUNTIME })
 let runtimeSaved: RuntimeSettings = { ...DEFAULT_RUNTIME }
@@ -163,13 +165,26 @@ async function saveAccount(): Promise<void> {
   )
 }
 
-/** 采集性能(并发上限) */
+/** 采集性能(总并发 + 主站/从站硬上限) */
 async function saveSpider(): Promise<void> {
-  if (runtime.spiderMaxGoroutine < 1 || runtime.spiderMaxGoroutine > 256) {
-    toast('error', '采集并发需在 1~256 之间')
+  const caps: [number, string][] = [
+    [runtime.spiderMaxGoroutine, '采集并发'],
+    [runtime.spiderMasterMaxWorkers, '主站并发'],
+    [runtime.spiderSlaveMaxWorkers, '从站并发']
+  ]
+  const bad = caps.find(([v]) => v < 1 || v > 256)
+  if (bad) {
+    toast('error', `${bad[1]}需在 1~256 之间`)
     return
   }
-  await putRuntime({ spiderMaxGoroutine: Number(runtime.spiderMaxGoroutine) }, spiderBusy)
+  await putRuntime(
+    {
+      spiderMaxGoroutine: Number(runtime.spiderMaxGoroutine),
+      spiderMasterMaxWorkers: Number(runtime.spiderMasterMaxWorkers),
+      spiderSlaveMaxWorkers: Number(runtime.spiderSlaveMaxWorkers)
+    },
+    spiderBusy
+  )
 }
 
 onMounted(load)
@@ -297,10 +312,22 @@ onMounted(load)
           <p class="mt-1 text-sm text-muted">改动在<b>下一轮采集</b>生效，不打断进行中的轮次</p>
         </header>
         <ManageFormField
-          label="采集并发上限"
-          hint="默认 32；主站另有 12、从站 8 的硬上限，调大不会超过它们"
+          label="采集并发上限（总）"
+          hint="默认 32；实际并发 = min(本值, 主站/从站硬上限, 本轮页数)"
         >
           <ManageInput v-model="runtime.spiderMaxGoroutine" type="number" />
+        </ManageFormField>
+        <ManageFormField
+          label="主站并发硬上限"
+          hint="默认 12；主站每页写影片/检索/播放源三表，过高会批量死锁"
+        >
+          <ManageInput v-model="runtime.spiderMasterMaxWorkers" type="number" />
+        </ManageFormField>
+        <ManageFormField
+          label="从站并发硬上限"
+          hint="默认 8；只写播放源行，但并发过高会触发源站限流（403）"
+        >
+          <ManageInput v-model="runtime.spiderSlaveMaxWorkers" type="number" />
         </ManageFormField>
         <div class="mt-auto flex justify-end">
           <BaseButton variant="gradient" :loading="spiderBusy" @click="saveSpider">保存</BaseButton>

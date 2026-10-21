@@ -446,6 +446,8 @@ export interface BannerBoard {
 
 /** 后台用户行(gorm.Model 序列化: ID/CreatedAt/UpdatedAt 无 json tag, 保持 Go 字段名) */
 export interface ManageUserRow {
+  /** 邮箱（可空：后台手工建号的旧账号没有邮箱） */
+  email?: string
   ID: number
   userName: string
   role: number
@@ -545,8 +547,12 @@ export interface RuntimeSettings {
   authTokenTtlHours: number
   /** 单账号在线设备数，下次登录时裁掉最旧设备 */
   maxDeviceLogin: number
-  /** 采集并发上限（主站 12 / 从站 8 另有硬上限），下一轮采集生效 */
+  /** 采集并发总上限；实际并发 = min(本值, 主站/从站硬上限, 页数)，下一轮采集生效 */
   spiderMaxGoroutine: number
+  /** 主站采集并发硬上限（默认 12）：主站每页写三表，过高易批量死锁 */
+  spiderMasterMaxWorkers: number
+  /** 从站采集并发硬上限（默认 8）：过高易触发源站限流/403 */
+  spiderSlaveMaxWorkers: number
 }
 
 /** GET /manage/sessions 一条在线登录会话（当前生效的 token） */
