@@ -59,6 +59,9 @@ if id jerocine >/dev/null 2>&1; then
   chown -R jerocine:jerocine "$PREFIX/server"
 fi
 
+# ---- 数据库迁移(先于新版启动; 失败即中止, 上一版仍在运行) ----
+bare_run_migrations "$ctx/migrations"
+
 # ---- 重启 + 健康检查 ----
 echo "==> systemctl restart jerocine-server"
 systemctl restart jerocine-server

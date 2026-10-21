@@ -153,9 +153,13 @@ chmod 0755 "$STAGE/main" || true
 
 # ---------------------------------------------------------------- 打包
 
-mkdir -p "$STAGE/static/upload" "$STAGE/data"
+mkdir -p "$STAGE/static/upload" "$STAGE/data" "$STAGE/migrations"
 [ -f "$SRV/data/ip2region.db" ] || die "缺少 $SRV/data/ip2region.db（IP 归属地离线库）"
 cp "$SRV/data/ip2region.db" "$STAGE/data/"
+# 版本化 DDL 随包上送: server-deploy 会把它同步到 deploy/data/migrations 并先于新二进制执行
+# (迁移与二进制同包同版, 消除"代码新/迁移旧"的错位 —— 服务器 git 树落后也不影响发版)。
+ls "$SRV"/migrations/*.sql >/dev/null 2>&1 || die "缺少 $SRV/migrations/*.sql（版本化 DDL）"
+cp "$SRV"/migrations/*.sql "$STAGE/migrations/"
 [ -f "$REPO/LICENSE" ] || die "缺少 $REPO/LICENSE"
 cp "$REPO/LICENSE" "$STAGE/LICENSE"
 
@@ -168,6 +172,10 @@ tar -rf "$RAW_TAR" -C "$STAGE" --mode='u+rwx,go+rx' ./main
 gzip -c "$RAW_TAR" > "$PKG"
 rm -f "$RAW_TAR"
 pkg_has_entry "$PKG" './main' || die "产物包内没有 ./main"
+# 迁移文件数量断言: 源目录有几个 .sql, 包里就得有几个(server-deploy 的自动迁移靠它们)
+mig_src="$(ls "$SRV"/migrations/*.sql | wc -l)"
+mig_pkg="$(tar -tzf "$PKG" | grep -c '^\./migrations/.*\.sql$' || true)"
+[ "$mig_pkg" = "$mig_src" ] || die "包内迁移文件数不符: 源 $mig_src vs 包 $mig_pkg"
 # 可执行位断言(踩过一次: Windows 上 tar 进包的 main 是 644, distroless nonroot 起容器
 # 直接 permission denied)。tar -tvzf 第 1 列是 mode。
 main_mode="$(tar -tvzf "$PKG" './main' | awk '{print $1}')"

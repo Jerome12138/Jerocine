@@ -135,7 +135,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 
     远端对应子命令（一般由上面的脚本调用，排障时可手动跑）：
     - `./deploy.sh web-deploy <pkg>`     # 解包前端包 → 同一套发布语义 → 留档 `data/packages/` → reload
-    - `./deploy.sh server-deploy <pkg>`  # 解包后端包 → 构建 `Dockerfile.runtime` → `up -d --no-build server` → 等健康
+    - `./deploy.sh server-deploy <pkg>`  # 解包后端包 → 自动迁移(包内 migrations, 幂等; 失败中止发布) → 构建 `Dockerfile.runtime` → `up -d --no-build server` → 等健康
   - **备用 —— 在服务器上从某个 commit 构建**（没有本机工具链时才用；`pull → build+up → 等健康 → 自动清两层缓存`）：
     - `cd deploy && ./deploy.sh`            # 常规：server + nginx 容器（**不含前端产物**）
     - `./deploy.sh web`                     # **前端发布（服务器上构建）**：构建产物 → 同步挂载目录 → reload
@@ -148,7 +148,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
     部署后手动清缓存见下节。
   - **全新服务器**：先 `sudo docker compose --env-file .env up -d --build` 拉起全栈，再发布一次前端初始化挂载目录（本机 `scripts/deploy-web.sh`，或服务器上 `./deploy.sh web`）；否则 nginx 探活失败、站点 404。
   - 手工前端变更无意义：产物只能由 `./deploy.sh web` / `web-deploy` 写进挂载目录；单独 `up -d --build --no-deps nginx` 只重建容器、**不发产物**（`--no-deps` 是给"只改 nginx.conf"用的 —— 不带它会顺带重建 server 镜像并跑一次 migrate；实测 compose v5.5.1 **不会** recreate 已运行的 server 容器、采集不中断，但多花一次后端构建）。
-- **DB 迁移（golang-migrate）**：由 compose 独立一次性服务 `migrate`（只 `up`，`restart:no`）跑；`server` `depends_on: migrate(service_completed_successfully)` → `up -d server` 会**先跑完待应用迁移再起 jerocine_server**。只单跑迁移不重启 api：`sudo docker compose run --rm migrate`。迁移文件 `server/migrations/000NNN_*.{up,down}.sql`。
+- **DB 迁移（golang-migrate）**：迁移文件与后端**同包同版**（`build-server.sh` 把 `server/migrations/` 打进产物包），`server-deploy` 解包后同步到 `deploy/data/migrations/` 并**自动 `up`**（幂等，无新迁移不动库；失败中止发布、线上保持旧版）。compose 一次性 `migrate` 服务挂载 `./data/migrations`（**不再读服务器 git 工作树**）；`server` `depends_on: migrate(service_completed_successfully)`。只单跑迁移不重启 api：`sudo docker compose up -d --force-recreate migrate`。
 - **后端 Go 编译/测试**（可用容器跑）：
   `docker run --rm -v "$PWD/server":/src -w /src golang:1.27-alpine sh -c "go build ./... && go test ./internal/..."`
 - **致命坑 — 权限**：`deploy/secrets/*.pem`(JWT key) 和 `deploy/apk/` 必须属 **65532:65532**（distroless nonroot UID），否则 jerocine_server 读不到 key / 写不了 APK 而崩。

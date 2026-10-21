@@ -45,6 +45,8 @@ cd "$(dirname "$0")"   # 总在 deploy/ 下执行, compose 相对路径才正确
 # Web 发布/回滚的纯文件系统逻辑(含本机单测: tests/web-release.test.sh)
 # shellcheck source=lib/web-release.sh
 source ./lib/web-release.sh
+# shellcheck source=lib/db-migrate.sh
+source ./lib/db-migrate.sh
 
 # docker 权限: 可直连用 docker, 否则回退 sudo -n (服务器约定)
 if docker ps >/dev/null 2>&1; then DOCKER=(docker); else DOCKER=(sudo -n docker); fi
@@ -303,10 +305,19 @@ deploy_server_from_pkg() {
   [ -d "$ctx/data" ] || wr_die "包内没有 data/（IP 归属地离线库）"
   [ -d "$ctx/static/upload" ] || wr_die "包内没有 static/upload/（upload 卷挂载点）"
   [ -f "$ctx/LICENSE" ] || wr_die "包内没有 LICENSE"
+  [ -d "$ctx/migrations" ] || wr_die "包内没有 migrations/（版本化 DDL）—— 用新版 scripts/build-server.sh 打包"
 
   echo "==> 构建后端运行镜像(内置本机编译的二进制, 容器内不再编译)"
   # 上下文 = 解包目录(布局见 deploy/Dockerfile.runtime); -f 相对 deploy/(cwd)
   "${DOCKER[@]}" build -f Dockerfile.runtime -t jerocine-server:latest "$ctx"
+  # 迁移先于新二进制运行(顺序不能反): 失败则中止发布, 线上保持旧版本(镜像已 build, 无副作用)。
+  # 无新迁移时 golang-migrate up 幂等秒退, 不会动库。迁移文件与二进制同包同版,
+  # 同步到 data/migrations(compose migrate 服务挂载它, 不再依赖服务器 git 工作树)。
+  if ! run_db_migrations "$ctx/migrations" "data/migrations"; then
+    echo "!! 发布已中止 —— 线上仍是旧版本; 排查: ${COMPOSE[*]} logs migrate" >&2
+    rm -rf "$ctx"
+    exit 1
+  fi
   rm -rf "$ctx"
 
   # --no-build: 直接用刚构建的镜像, 不让 compose 再去跑 Dockerfile 的 golang 编译阶段
@@ -362,6 +373,15 @@ deploy_services() {
   fi
 
   pull_and_reexec
+
+  # 备用路径从 git 树构建: 树里的迁移先同步到 data/migrations(与常规 server-deploy 同一运行时目录),
+  # 否则 compose migrate 挂载的是旧目录内容 —— 新迁移不会被执行。
+  for s in "${services[@]}"; do
+    if [ "$s" = "server" ]; then
+      sync_pkg_migrations "../server/migrations" "data/migrations" || exit 1
+      break
+    fi
+  done
 
   echo "==> compose up -d --build: ${services[*]}"
   # 纯前端必须 --no-deps: nginx depends_on server, 不带会连带重启后端打断采集

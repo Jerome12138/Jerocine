@@ -37,7 +37,7 @@ deploy/
 | `server` | 服务器上编译后端 → 重建容器 |
 | `nginx` | 只重建 nginx 容器（改 nginx.conf 时用），**不产出前端文件** |
 | `web-deploy <pkg>` | 解包本地上传的前端包 → 发布 → 留档 → reload |
-| `server-deploy <pkg>` | 解包后端包 → 薄运行镜像 → 重建容器 → 等健康 → 清缓存 → 留档 |
+| `server-deploy <pkg>` | 解包后端包（含 migrations/）→ 自动迁移（幂等，无新迁移即秒退；失败中止发布）→ 薄运行镜像 → 重建容器 → 等健康 → 清缓存 → 留档 |
 | `web-rollback <TS>` | 整版回滚（`index.html` + `sw.js` + `workbox-*.js` 三件套），TS 见 `data/releases/` |
 
 > `git pull` 后脚本会用新版本重新 exec 自己一次（防脚本执行中被覆写），日志看到两轮 pull 属预期。

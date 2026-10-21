@@ -145,6 +145,25 @@ bare_reload_nginx() {
   systemctl reload nginx
 }
 
+# bare_run_migrations <dir> —— 用 golang-migrate 应用 <dir> 下的迁移(幂等, 无新迁移立即退出)。
+#   bare-deploy 在重启新二进制**之前**调用: 失败即中止发布, 线上保持旧版本。
+#   二进制缺失(MIGRATE_BIN 未装/离线安装失败)时响亮告警并跳过 —— 不阻断发布,
+#   但必须手动跑 migrate.sh, 否则新代码读写新列会 SQL 报错。
+bare_run_migrations() {
+  local dir="$1" bin="${MIGRATE_BIN:-/usr/local/bin/migrate}"
+  if [ ! -d "$dir" ] || ! ls "$dir"/*.sql >/dev/null 2>&1; then
+    echo "==> 包内无 migrations/, 跳过迁移(旧版产物包)"
+    return 0
+  fi
+  if [ ! -x "$bin" ]; then
+    echo "!! 找不到 golang-migrate($bin) —— 本次发布跳过自动迁移。" >&2
+    echo "!! 务必手动执行: MIGRATE_BIN=$bin bash $(dirname "${BASH_SOURCE[0]}")/migrate.sh" >&2
+    return 0
+  fi
+  echo "==> 数据库迁移(golang-migrate up: $dir)"
+  "$bin" -path "$dir" -database "$(bare_migrate_dsn)" up
+}
+
 # bare_migrate_dsn —— golang-migrate 的 mysql DSN(与 compose migrate 服务同一格式, 地址换 127.0.0.1)。
 bare_migrate_dsn() {
   printf 'mysql://%s:%s@tcp(127.0.0.1:3306)/%s?multiStatements=true' \

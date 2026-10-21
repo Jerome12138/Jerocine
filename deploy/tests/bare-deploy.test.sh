@@ -163,6 +163,7 @@ make_pkg "$pkg6" v6
 STUB_CURL_EXIT=1 BARE_HEALTH_TRIES=1 bash bare/bare-deploy.sh "$pkg6" >"$WORK/out6" 2>&1 \
   && bad "健康失败应退出非 0" || ok "健康失败按预期退出非 0"
 assert_grep "失败输出回退指引" "$(cat "$WORK/out6")" "backup"
+
 assert_eq   "新包已安装(等人工处置)" "$(cat "$P/server/static/VERSION")" "v6"
 
 # 校验断言: 缺 LICENSE 的包被拒
@@ -171,6 +172,45 @@ ctx="$WORK/pkgctx-bad"; rm -rf "$ctx"; mkdir -p "$ctx/static/upload"
 pkgbad="$WORK/jerocine-server-20260107-000000-deadbee-linux-amd64.tar.gz"
 tar czf "$pkgbad" -C "$ctx" . 2>/dev/null
 bash bare/bare-deploy.sh "$pkgbad" >/dev/null 2>&1 && bad "缺 data/ 的包应被拒" || ok "缺 data/ 的包按预期被拒"
+
+# ==================== 4.5 bare-deploy 自动迁移 ====================
+echo "# 4.5 bare-deploy 自动迁移"
+# 旧版包(§4 的 make_pkg 不含 migrations/) → 响亮跳过, 不阻断发布
+grep -q "跳过迁移" "$WORK/out1" && ok "无迁移目录的旧包: 跳过迁移" || bad "旧包未按预期跳过迁移"
+
+# 新版包(带 migrations/) + stub migrate → 以包内目录调用 golang-migrate up
+cat > "$STUB/migrate" <<'S'
+#!/usr/bin/env bash
+echo "migrate $*" >> "${STUB_LOG:?}/migrate.log"
+S
+chmod +x "$STUB/migrate"
+pkgm="$WORK/jerocine-server-20260107-120000-deadbee-linux-amd64.tar.gz"
+ctxm="$WORK/pkgmig"; rm -rf "$ctxm"
+mkdir -p "$ctxm/data" "$ctxm/static/upload" "$ctxm/migrations"
+printf '#!/bin/sh\necho server-v7\n' > "$ctxm/main"
+printf 'ipdb\n' > "$ctxm/data/ip2region.db"
+printf 'v7\n' > "$ctxm/static/VERSION"
+printf 'MIT\n' > "$ctxm/LICENSE"
+printf 'ddl\n' > "$ctxm/migrations/000030_demo.up.sql"
+tar czf "$pkgm" -C "$ctxm" main data static migrations LICENSE
+MIGRATE_BIN="$STUB/migrate" BARE_HEALTH_TRIES=1 bash bare/bare-deploy.sh "$pkgm" >"$WORK/out7" 2>&1 \
+  && ok "带迁移的包发布成功" || { bad "带迁移的包发布失败"; cat "$WORK/out7"; }
+assert_grep "当前是 v7"    "$(cat "$P/server/static/VERSION")" "v7"
+grep -qE "migrate -path .+ -database .+ up" "$STUB_LOG/migrate.log" \
+  && ok "以包内迁移目录调用 golang-migrate up" || bad "未调用 golang-migrate"
+# 迁移失败 → 发布中止(systemctl 不该被调用)
+cat > "$STUB/migrate" <<'S'
+#!/usr/bin/env bash
+echo "migrate $*" >> "${STUB_LOG:?}/migrate.log"
+exit 1
+S
+pkg8="$WORK/jerocine-server-20260108-120000-deadbee-linux-amd64.tar.gz"
+tar czf "$pkg8" -C "$ctxm" main data static migrations LICENSE
+before_restart="$(grep -c restart "$STUB_LOG/systemctl.log" || true)"
+MIGRATE_BIN="$STUB/migrate" BARE_HEALTH_TRIES=1 bash bare/bare-deploy.sh "$pkg8" >"$WORK/out8" 2>&1 \
+  && bad "迁移失败应中止发布" || ok "迁移失败按预期中止发布"
+after_restart="$(grep -c restart "$STUB_LOG/systemctl.log" || true)"
+assert_eq "迁移失败不重启服务" "$after_restart" "$before_restart"
 
 # ==================== 5. bare-web-deploy.sh 发布与回滚 ====================
 echo "# 5. bare-web-deploy.sh"

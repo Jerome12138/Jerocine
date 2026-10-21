@@ -24,7 +24,9 @@ services:
     image: migrate/migrate:v4.17.1
     restart: "no"
     volumes:
-      - ../server/migrations:/migrations:ro
+      # 迁移文件由 server-deploy 从产物包同步到 ./data/migrations(与二进制同包同版),
+      # 不再挂 git 工作树 —— 服务器树落后/超前都不影响发版与迁移的配套关系。
+      - ./data/migrations:/migrations:ro
     command:
       - "-path=/migrations"
       - "-database=mysql://${MYSQL_USER:-jerocine}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:-jerocine}?multiStatements=true"
