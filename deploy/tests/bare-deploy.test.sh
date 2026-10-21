@@ -85,15 +85,18 @@ assert_grep "JWT 私钥随 PREFIX"          "$env_out" "JWT_PRIVATE_KEY_FILE=$P/
 assert_grep "BLOB 落 PREFIX 内"          "$env_out" "BLOB_LOCAL_DIR=$P/server/static/upload"
 assert_grep "BLOB 基址不变"              "$env_out" 'BLOB_BASE_URL=/api/upload/'
 assert_grep "GIN release"                "$env_out" 'GIN_MODE=release'
-assert_grep "默认 TTL 168h"              "$env_out" 'AUTH_TOKEN_TTL_HOURS=168'
-assert_grep "默认设备数 5"               "$env_out" 'MAX_DEVICE_LOGIN=5'
+# 登录策略(有效期/设备数)与采集并发已移入后台 site_config, 不再出现在 server.env
+assert_no_grep "无 AUTH_TOKEN_TTL_HOURS" "$env_out" 'AUTH_TOKEN_TTL_HOURS'
+assert_no_grep "无 MAX_DEVICE_LOGIN"     "$env_out" 'MAX_DEVICE_LOGIN'
+assert_no_grep "无 MAX_GOROUTINE"        "$env_out" 'MAX_GOROUTINE'
 # 邮件相关(SMTP/日配额/链接前缀)全在后台 site_config, 不再有任何 MAIL_* 部署变量
 assert_no_grep "无 MAIL_* 部署变量"      "$env_out" 'MAIL_'
-assert_grep "埋点白名单默认域名"          "$env_out" 'TELEMETRY_ALLOWED_HOSTS=jerocine.art'
+# 埋点来源域 = 后台站点域名 + 子域, 不再有 env; TMDB key 只存后台
+assert_no_grep "无 TELEMETRY_ALLOWED_HOSTS" "$env_out" 'TELEMETRY_ALLOWED_HOSTS'
+assert_no_grep "无 TMDB_API_KEY"            "$env_out" 'TMDB_API_KEY'
 assert_grep "TMDB 反代默认空"             "$env_out" 'TMDB_API_BASE='
 # 覆盖: bare.env 显式配了就用配置值(compose 侧 ${VAR:-} 同语义)
-env_override="$(TELEMETRY_ALLOWED_HOSTS=jerocine.art,www.jerocine.art TMDB_API_BASE=https://tmdb.example bare_derive_server_env "$P")"
-assert_grep "埋点白名单可覆盖"            "$env_override" 'TELEMETRY_ALLOWED_HOSTS=jerocine.art,www.jerocine.art'
+env_override="$(TMDB_API_BASE=https://tmdb.example bare_derive_server_env "$P")"
 assert_grep "TMDB 反代可覆盖"             "$env_override" 'TMDB_API_BASE=https://tmdb.example'
 
 bare_write_server_env "$P"
