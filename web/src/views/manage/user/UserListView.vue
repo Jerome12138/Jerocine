@@ -134,13 +134,14 @@ async function submitReset(): Promise<void> {
 // ---- 新增/编辑用户弹窗(editing 为 null 表示新增) ----
 const formOpen = ref(false)
 const editing = ref<ManageUserRow | null>(null)
-const form = reactive({ userName: '', password: '', role: 0 })
+const form = reactive({ userName: '', password: '', role: 0, email: '' })
 
 function openCreate(): void {
   editing.value = null
   form.userName = ''
   form.password = ''
   form.role = 0
+  form.email = ''
   formOpen.value = true
 }
 
@@ -149,6 +150,7 @@ function openEdit(row: ManageUserRow): void {
   form.userName = row.userName
   form.password = ''
   form.role = row.role
+  form.email = '' // 编辑不提供邮箱修改(仅建号时可填), 避免误清空已有邮箱
   formOpen.value = true
 }
 
@@ -165,7 +167,12 @@ async function submitForm(): Promise<void> {
         toast('error', '密码长度需在 6-64 位之间')
         return
       }
-      await manageApi.user.create(name, form.password, form.role)
+      const email = form.email.trim()
+      if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 128)) {
+        toast('error', '邮箱格式不正确（可留空）')
+        return
+      }
+      await manageApi.user.create(name, form.password, form.role, email)
       toast('success', `已创建用户「${name}」`)
     } else {
       if (isSelf(editing.value) && form.role !== editing.value.role) {
@@ -219,8 +226,11 @@ onMounted(load)
     >
       <template #toolbar>
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">用户管理</h2>
-        <div class="flex gap-[var(--jc-space-2)] flex-wrap">
-          <ManageInput v-model="params.keyword" placeholder="用户名关键字" @keydown.enter="search" />
+        <!-- 输入框单独给宽度: ManageInput 自身是 w-full, 直接放进 flex 会独占一行把按钮挤到下一行 -->
+        <div class="flex flex-wrap items-center gap-[var(--jc-space-2)] sm:flex-nowrap">
+          <div class="w-full sm:w-[220px]">
+            <ManageInput v-model="params.keyword" placeholder="用户名关键字" @keydown.enter="search" />
+          </div>
           <BaseButton variant="gradient" size="sm" @click="search">
             <BaseIcon name="search" size="16px" /> 搜索
           </BaseButton>
@@ -286,6 +296,11 @@ onMounted(load)
         <label v-if="!editing" class="flex flex-col gap-[var(--jc-space-2)]">
           <span class="text-sm text-secondary">初始密码(6-64 位)</span>
           <ManageInput v-model="form.password" type="password" placeholder="输入初始密码" />
+        </label>
+        <label v-if="!editing" class="flex flex-col gap-[var(--jc-space-2)]">
+          <span class="text-sm text-secondary">邮箱(选填)</span>
+          <ManageInput v-model="form.email" type="email" placeholder="留空则不绑定邮箱" />
+          <span class="text-xs text-muted">用于后续找回密码; 填了需唯一且格式正确, 不会自动发验证邮件</span>
         </label>
         <label class="flex flex-col gap-[var(--jc-space-2)]">
           <span class="text-sm text-secondary">角色</span>

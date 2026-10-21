@@ -78,6 +78,28 @@ function fmtCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
   return String(n)
 }
+/** 会话访问过的页面(新数据用 paths 多值, 旧数据回落到单值 path) */
+function pathsOf(s: OnlineSession): string[] {
+  if (s.paths && s.paths.length) return s.paths
+  return s.path ? [s.path] : []
+}
+
+/** 机器人请求按原因分布(悬停显示): 合计 = 今日机器人请求 PV */
+const BOT_REASON_LABEL: Record<string, string> = {
+  ua: 'UA 关键词',
+  webdriver: '无头浏览器',
+  header: '缺浏览器头',
+  datacenter: '机房 IP'
+}
+const botBreakdown = computed(() => {
+  const m = online.value?.today?.botReasons
+  if (!m) return ''
+  return Object.entries(m)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${BOT_REASON_LABEL[k] ?? k}：${v}`)
+    .join('\n')
+})
+
 function shortUa(ua: string): string {
   const s = ua.replace(/\s+/g, ' ').trim()
   return s.length > 36 ? `${s.slice(0, 36)}…` : s
@@ -88,7 +110,7 @@ function userLabel(s: { uid?: number; username?: string }): string {
   return s.uid && s.uid > 0 ? `用户 #${s.uid}` : '游客'
 }
 
-/** 时间范围: 实时(90s 窗口) / 今日 / 近7天 */
+/** 时间范围: 近 30 分钟活跃 / 今日 / 近7天 */
 const timeFilter = ref<'live' | 'today' | 'week'>('live')
 function switchTime(t: 'live' | 'today' | 'week'): void {
   if (timeFilter.value === t) return
@@ -226,7 +248,7 @@ const cards = computed(() => {
       </component>
     </div>
 
-    <!-- 在线实时统计: 客户端 30s 心跳, 90s 未上报判离线; UV 登录按 uid / 游客按 IP 去重 -->
+    <!-- 在线统计: 客户端 30s 心跳, 30 分钟内有过活动算在线; UV 登录按 uid / 游客按 IP 去重 -->
     <section v-if="!loading && !error" class="flex flex-col gap-[var(--jc-space-3)]">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-[var(--jc-space-3)]">
         <article class="bg-surface rounded-card shadow-card px-[var(--jc-space-3)] py-[var(--jc-space-2)] flex items-center gap-[var(--jc-space-2)] min-h-[76px]">
@@ -234,7 +256,7 @@ const cards = computed(() => {
             <BaseIcon name="eye" size="18px" />
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
-            <span class="text-secondary text-xs">在线人数（UV）</span>
+            <span class="text-secondary text-xs">活跃人数（UV · 30分钟）</span>
             <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.uv ?? '—' }}
             </span>
@@ -245,7 +267,7 @@ const cards = computed(() => {
             <BaseIcon name="menu" size="18px" />
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
-            <span class="text-secondary text-xs">在线会话（PV）</span>
+            <span class="text-secondary text-xs">活跃会话（PV · 30分钟）</span>
             <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.pv ?? '—' }}
             </span>
@@ -267,7 +289,7 @@ const cards = computed(() => {
             <BaseIcon name="eye" size="18px" />
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
-            <span class="text-secondary text-xs">机器人在线</span>
+            <span class="text-secondary text-xs">机器人来源（30分钟）</span>
             <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.bots ?? '—' }}
             </span>
@@ -308,7 +330,7 @@ const cards = computed(() => {
             <BaseIcon name="chart" size="18px" />
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
-            <span class="text-secondary text-xs">今日峰值在线</span>
+            <span class="text-secondary text-xs">今日峰值活跃</span>
             <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.today?.peak ?? '—' }}
             </span>
@@ -319,7 +341,9 @@ const cards = computed(() => {
             <BaseIcon name="clock" size="18px" />
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
-            <span class="text-secondary text-xs">机器人请求 PV</span>
+            <span class="text-secondary text-xs" :title="botBreakdown || '今日暂无机器人请求'">
+              机器人请求 PV{{ online?.today?.botReasons ? ' ⓘ' : '' }}
+            </span>
             <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.today?.botPV ?? '—' }}
             </span>
@@ -340,7 +364,7 @@ const cards = computed(() => {
                 :class="timeFilter === 'live' ? 'bg-surface shadow text-primary' : 'text-secondary'"
                 @click="switchTime('live')"
               >
-                实时
+                近 30 分钟
               </button>
               <button
                 type="button"
@@ -388,7 +412,7 @@ const cards = computed(() => {
             </div>
           </div>
           <span class="hidden md:inline text-secondary text-xs">
-            {{ timeFilter === 'live' ? '90s 无心跳自动离线 · 15s 自动刷新' : (timeFilter === 'today' ? '今日访问用户 · 在播/在线优先' : '近 7 天访问用户 · 在播/在线优先') }}
+            {{ timeFilter === 'live' ? '近 30 分钟有活动算在线 · 15s 自动刷新' : (timeFilter === 'today' ? '今日访问用户 · 在播/在线优先' : '近 7 天访问用户 · 在播/在线优先') }}
           </span>
         </div>
         <div v-if="filteredSessions.length" class="overflow-x-auto">
@@ -399,7 +423,8 @@ const cards = computed(() => {
                 <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[160px]">IP / 归属地</th>
                 <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[100px]">用户</th>
                 <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[72px]">状态</th>
-                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[140px]">页面</th>
+                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[84px]">访问次数</th>
+                <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[160px]">页面</th>
                 <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[160px]">浏览器</th>
                 <th class="py-2 pr-4 font-normal whitespace-nowrap min-w-[88px]">进入时间</th>
                 <th class="py-2 font-normal whitespace-nowrap min-w-[88px]">最近活跃</th>
@@ -428,7 +453,17 @@ const cards = computed(() => {
                     {{ sessionState(s) === 'watching' ? '在播放' : (sessionState(s) === 'offline' ? '已离线' : '在线') }}
                   </span>
                 </td>
-                <td class="py-2 pr-4 text-secondary max-w-[140px] truncate" :title="s.path">{{ s.path || '—' }}</td>
+                <td class="py-2 pr-4 tabular-nums text-secondary">{{ s.visits ?? '—' }}</td>
+                <td class="py-2 pr-4 text-secondary max-w-[220px]">
+                  <span
+                    v-if="pathsOf(s).length"
+                    class="block truncate cursor-help"
+                    :title="pathsOf(s).join('\n')"
+                  >
+                    {{ pathsOf(s).join('、') }}
+                  </span>
+                  <span v-else>—</span>
+                </td>
                 <td class="py-2 pr-4 text-secondary max-w-[180px] truncate" :title="s.ua">{{ shortUa(s.ua ?? '') }}</td>
                 <td class="py-2 pr-4 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.firstSeen) : fmtDateTime(s.firstSeen, timeFilter === 'week') }}</td>
                 <td class="py-2 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.lastSeen) : fmtDateTime(s.lastSeen, timeFilter === 'week') }}</td>
@@ -441,8 +476,8 @@ const cards = computed(() => {
         </div>
         <BaseEmpty
           v-if="filteredSessions.length === 0"
-          :title="statusFilter === 'all' ? (timeFilter === 'live' ? '当前无人在线' : (timeFilter === 'today' ? '今日暂无访问' : '近 7 天暂无访问')) : '该状态下暂无会话'"
-          :description="timeFilter === 'live' ? '打开网站或播放器后 30s 内出现在这里' : '在播/在播放的用户会优先展示在前面'"
+          :title="statusFilter === 'all' ? (timeFilter === 'live' ? '近 30 分钟无访问' : (timeFilter === 'today' ? '今日暂无访问' : '近 7 天暂无访问')) : '该状态下暂无会话'"
+          :description="timeFilter === 'live' ? '30 分钟内有过访问就会出现在这里' : '在播/在播放的用户会优先展示在前面'"
         />
       </div>
     </section>

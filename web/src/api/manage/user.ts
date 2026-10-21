@@ -21,8 +21,14 @@ export const resetPassword = (id: number, password: string): Promise<unknown> =>
   http.patch(`/manage/users/${id}/password`, { password })
 
 /** POST /manage/users 新增用户(密码 6-64 位) */
-export const create = (userName: string, password: string, role: number): Promise<unknown> =>
-  http.post('/manage/users', { userName, password, role })
+export const create = (
+  userName: string,
+  password: string,
+  role: number,
+  email?: string
+): Promise<unknown> =>
+  // email 可选: 留空 = 无邮箱账号(后台手工建号的旧口径); 填了服务端校验格式与唯一性
+  http.post('/manage/users', { userName, password, role, ...(email ? { email } : {}) })
 
 /** PUT /manage/users/:id 编辑用户(用户名+角色; 角色变化后该用户下线; 不能改自己的角色) */
 export const update = (id: number, userName: string, role: number): Promise<unknown> =>

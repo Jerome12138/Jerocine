@@ -314,13 +314,17 @@ export interface OnlineSession {
   username?: string
   watching: boolean
   ua?: string
-  /** 页面路径(仅 pathname, 不含 query/影片标识) */
+  /** 最近一次心跳的页面路径(仅 pathname, 不含 query/影片标识) */
   path?: string
+  /** 本次统计周期内访问过的页面路径(已去重, 上限 10 条; 每日/近7天明细跨天取最近一天) */
+  paths?: string[]
   /** IP 归属地(离线库回填; 内网/未命中空) */
   ipRegion?: string
+  /** 访问次数: 同一会话距上次心跳 ≥30min 记一次, 跨天重置(近7天为各天之和) */
+  visits?: number
   firstSeen: number
   lastSeen: number
-  /** 仅每日/近7天明细(daily-sessions)返回时有效: 该会话当前是否在线 */
+  /** 仅每日/近7天明细(daily-sessions)返回时有效: 该会话当前是否活跃(30 分钟内有过心跳) */
   online?: boolean
 }
 
@@ -337,7 +341,7 @@ export interface OnlineOverview {
   /** 在线会话数(每个标签/TV 设备一个 sid) */
   pv: number
   watching: number
-  /** 实时机器人在线源数(90s 窗口, 单独统计; 机器人请求不入 uv/pv) */
+  /** 近 30 分钟机器人来源数(单独统计; 机器人请求不入 uv/pv) */
   bots?: number
   /** 今日累计(自然日滚动) */
   today: {
@@ -345,10 +349,12 @@ export interface OnlineOverview {
     uv: number
     /** 今日访问次数(同一会话 ≥30min 间隔计新访问) */
     pv: number
-    /** 今日峰值在线(实时会话数最高值) */
+    /** 今日峰值活跃(30 分钟窗口内的会话数最高值) */
     peak: number
-    /** 今日机器人请求PV(被过滤掉的爬虫请求次数) */
+    /** 今日机器人请求次数(被过滤掉的爬虫心跳) */
     botPV?: number
+    /** 机器人请求按命中原因拆分: ua / webdriver / header / datacenter, 合计等于 botPV */
+    botReasons?: Record<string, number>
   }
   sessions: OnlineSession[]
 }
