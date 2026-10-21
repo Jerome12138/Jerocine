@@ -89,6 +89,12 @@ assert_grep "默认 TTL 168h"              "$env_out" 'AUTH_TOKEN_TTL_HOURS=168'
 assert_grep "默认设备数 5"               "$env_out" 'MAX_DEVICE_LOGIN=5'
 # 邮件相关(SMTP/日配额/链接前缀)全在后台 site_config, 不再有任何 MAIL_* 部署变量
 assert_no_grep "无 MAIL_* 部署变量"      "$env_out" 'MAIL_'
+assert_grep "埋点白名单默认域名"          "$env_out" 'TELEMETRY_ALLOWED_HOSTS=jerocine.art'
+assert_grep "TMDB 反代默认空"             "$env_out" 'TMDB_API_BASE='
+# 覆盖: bare.env 显式配了就用配置值(compose 侧 ${VAR:-} 同语义)
+env_override="$(TELEMETRY_ALLOWED_HOSTS=jerocine.art,www.jerocine.art TMDB_API_BASE=https://tmdb.example bare_derive_server_env "$P")"
+assert_grep "埋点白名单可覆盖"            "$env_override" 'TELEMETRY_ALLOWED_HOSTS=jerocine.art,www.jerocine.art'
+assert_grep "TMDB 反代可覆盖"             "$env_override" 'TMDB_API_BASE=https://tmdb.example'
 
 bare_write_server_env "$P"
 # MSYS(Git Bash) 的 chmod 是模拟实现, stat 读回 644 属环境噪声 —— 真实 Linux 上 600 生效

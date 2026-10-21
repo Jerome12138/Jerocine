@@ -67,9 +67,14 @@ services:
       BLOB_DRIVER: "local"
       BLOB_LOCAL_DIR: "/opt/server/static/upload"
       BLOB_BASE_URL: "/api/upload/"
-      # TMDB 横图回填: 未配置 key 则功能关闭(worker 不启动)
+      # 埋点 ingest 的额外来源域白名单(后台站点域名自动纳入); 补多域名/预览域用
+      TELEMETRY_ALLOWED_HOSTS: "${TELEMETRY_ALLOWED_HOSTS:-jerocine.art}"
+      # TMDB 横图回填: 未配置 key 则功能关闭(worker 不启动); 后台「站点配置」配的 key 优先
       TMDB_API_KEY: "${TMDB_API_KEY:-}"
       TMDB_LANG: "${TMDB_LANG:-zh-CN}"
+      # 自建反代时才需要(留空 = 官方地址/官方图床)
+      TMDB_API_BASE: "${TMDB_API_BASE:-}"
+      TMDB_IMAGE_BASE: "${TMDB_IMAGE_BASE:-}"
       GIN_MODE: release
     volumes:
       - uploads:/opt/server/static/upload
