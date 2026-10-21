@@ -30,9 +30,12 @@ export const create = (
   // email 可选: 留空 = 无邮箱账号(后台手工建号的旧口径); 填了服务端校验格式与唯一性
   http.post('/manage/users', { userName, password, role, ...(email ? { email } : {}) })
 
-/** PUT /manage/users/:id 编辑用户(用户名+角色; 角色变化后该用户下线; 不能改自己的角色) */
-export const update = (id: number, userName: string, role: number): Promise<unknown> =>
-  http.put(`/manage/users/${id}`, { userName, role })
+/**
+ * PUT /manage/users/:id 编辑用户(用户名+角色+邮箱; 角色变化后该用户下线; 不能改自己的角色)
+ * email: 空串 = 解绑邮箱; 改地址会让 email_verified 归 0(管理员填的地址没走验证链路)
+ */
+export const update = (id: number, userName: string, role: number, email?: string): Promise<unknown> =>
+  http.put(`/manage/users/${id}`, { userName, role, ...(email !== undefined ? { email } : {}) })
 
 /** DELETE /manage/users/:id 删除用户(硬删, 连同其历史/收藏; 不能删除自己) */
 export const remove = (id: number): Promise<unknown> => http.delete(`/manage/users/${id}`)

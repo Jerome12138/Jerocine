@@ -150,7 +150,7 @@ function openEdit(row: ManageUserRow): void {
   form.userName = row.userName
   form.password = ''
   form.role = row.role
-  form.email = '' // 编辑不提供邮箱修改(仅建号时可填), 避免误清空已有邮箱
+  form.email = row.email ?? '' // 回填现有邮箱(可改; 清空 = 解绑)
   formOpen.value = true
 }
 
@@ -162,14 +162,14 @@ async function submitForm(): Promise<void> {
   }
   busy.value = true
   try {
+    const email = form.email.trim()
+    if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 128)) {
+      toast('error', '邮箱格式不正确（可留空）')
+      return
+    }
     if (!editing.value) {
       if (form.password.length < 6 || form.password.length > 64) {
         toast('error', '密码长度需在 6-64 位之间')
-        return
-      }
-      const email = form.email.trim()
-      if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 128)) {
-        toast('error', '邮箱格式不正确（可留空）')
         return
       }
       await manageApi.user.create(name, form.password, form.role, email)
@@ -179,7 +179,7 @@ async function submitForm(): Promise<void> {
         toast('error', '不能修改自己的角色')
         return
       }
-      await manageApi.user.update(editing.value.ID, name, form.role)
+      await manageApi.user.update(editing.value.ID, name, form.role, email)
       toast('success', '已保存')
     }
     formOpen.value = false
@@ -297,10 +297,12 @@ onMounted(load)
           <span class="text-sm text-secondary">初始密码(6-64 位)</span>
           <ManageInput v-model="form.password" type="password" placeholder="输入初始密码" />
         </label>
-        <label v-if="!editing" class="flex flex-col gap-[var(--jc-space-2)]">
-          <span class="text-sm text-secondary">邮箱(选填)</span>
+        <label class="flex flex-col gap-[var(--jc-space-2)]">
+          <span class="text-sm text-secondary">邮箱{{ editing ? '' : '(选填)' }}</span>
           <ManageInput v-model="form.email" type="email" placeholder="留空则不绑定邮箱" />
-          <span class="text-xs text-muted">用于后续找回密码; 填了需唯一且格式正确, 不会自动发验证邮件</span>
+          <span class="text-xs text-muted">
+            用于找回密码；填了需唯一且格式正确，不会自动发验证邮件{{ editing ? '；清空即解绑' : '' }}
+          </span>
         </label>
         <label class="flex flex-col gap-[var(--jc-space-2)]">
           <span class="text-sm text-secondary">角色</span>

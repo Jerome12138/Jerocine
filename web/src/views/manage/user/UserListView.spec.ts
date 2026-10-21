@@ -104,3 +104,53 @@ describe('UserListView 用户管理', () => {
     expect(row?.className).toContain('sm:flex-nowrap')
   })
 })
+
+describe('UserListView 编辑用户邮箱', () => {
+  const row = {
+    ID: 9,
+    userName: 'bob',
+    role: 0,
+    disabled: 0,
+    email: 'bob@example.com',
+    CreatedAt: '2026-10-01T10:00:00Z',
+    UpdatedAt: '2026-10-01T10:00:00Z'
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.values(h).forEach((fn) => fn.mockReset())
+    h.list.mockResolvedValue({ list: [row], page: { total: 1, size: 20, current: 1 } })
+    h.update.mockResolvedValue({ id: 9 })
+  })
+
+  async function openEdit() {
+    const w = await mountView()
+    const btn = w.findAll('button').find((b) => b.text() === '编辑')
+    if (!btn) throw new Error('未找到「编辑」按钮')
+    await btn.trigger('click')
+    await w.vm.$nextTick()
+    const form = w.findAll('form').at(-1)!
+    return { w, form, inputs: form.findAll('input') }
+  }
+
+  it('编辑弹窗回填现有邮箱, 改动后随更新请求提交', async () => {
+    const { form, inputs } = await openEdit()
+    const emailInput = inputs.find((i) => (i.element as HTMLInputElement).type === 'email')
+    expect(emailInput, '编辑弹窗应有邮箱输入').toBeTruthy()
+    expect((emailInput!.element as HTMLInputElement).value).toBe('bob@example.com')
+
+    await emailInput!.setValue('bob2@example.com')
+    await form.trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.update).toHaveBeenCalledWith(9, 'bob', 0, 'bob2@example.com')
+  })
+
+  it('清空邮箱 = 解绑(仍提交空串, 由服务端写 NULL)', async () => {
+    const { form, inputs } = await openEdit()
+    const emailInput = inputs.find((i) => (i.element as HTMLInputElement).type === 'email')
+    await emailInput!.setValue('')
+    await form.trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.update).toHaveBeenCalledWith(9, 'bob', 0, '')
+  })
+})
