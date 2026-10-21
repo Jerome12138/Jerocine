@@ -348,7 +348,7 @@ components:
       properties:
         detail: { $ref: '#/components/schemas/FilmDetail' }
         current: { $ref: '#/components/schemas/PlayEpisode' }
-        currentSource: { type: string, description: 当前播放源 id (与 detail.sources[i].id 对应) }
+        currentSource: { type: string, description: "当前播放源 id (与 detail.sources 的 id 对应)" }
         currentEpisode: { type: integer, description: 当前集索引 (从 0 起) }
         related:
           type: array
@@ -436,7 +436,7 @@ components:
       properties:
         titles:
           type: object
-          description: 维度键 → 展示标题 (固定 7 维度: category/plot/area/language/year/...)
+          description: "维度键 → 展示标题 (固定 7 维度 category/plot/area/language/year/...)"
           additionalProperties: { type: string }
         tags:
           type: object
