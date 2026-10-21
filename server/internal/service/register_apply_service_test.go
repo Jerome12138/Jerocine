@@ -63,6 +63,7 @@ func TestApplyGates(t *testing.T) {
 			{strings.Repeat("x", 33), "a@qq.com", "", "123456"},    // 用户名过长
 			{"u1", "bad-email", "", "123456"},                      // 邮箱格式
 			{"u1", "a@qq.com", strings.Repeat("r", 501), "123456"}, // 理由过长
+			{"u1", "a@qq.com", strings.Repeat("理", 501), "123456"}, // 理由过长(上限按字符算)
 			{"u1", "a@qq.com", "", ""},                             // 缺验证码
 		}
 		for i, c := range bad {
@@ -252,6 +253,29 @@ func TestActivateRejectsAfterReject(t *testing.T) {
 	v2, _ := svc.ApplyStatus(ctx, "erin@qq.com")
 	if v2.Status != "pending" {
 		t.Fatalf("重申后应 pending: %+v", v2)
+	}
+}
+
+// TestRejectReasonLength 驳回理由列是 register_apply.reject_reason VARCHAR(255)
+// (申请人自述 reason 才是 VARCHAR(500), 两个字段别混): 上限按**字符数**算 ——
+// 用 len() 数字节会把 86 个汉字的理由误判超限, 而 256 字必须挡在写库之前
+// (否则 MySQL 严格模式 Data too long → 500)。
+func TestRejectReasonLength(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, fs := newRegisterSvcWith(t, applyModeSite(), 50)
+	a := applyByCode(t, svc, fs, "long", "long@qq.com", "")
+
+	if _, err := svc.Reject(ctx, a.Id, 9001, strings.Repeat("理", 256)); !errors.Is(err, domain.ErrInvalidArgument) {
+		t.Fatalf("256 字应拒: %v", err)
+	}
+	if a.Status != entity.ApplyStatusPending {
+		t.Fatalf("超长理由不应改状态: %v", a.Status)
+	}
+	if _, err := svc.Reject(ctx, a.Id, 9001, strings.Repeat("理", 255)); err != nil {
+		t.Fatalf("255 个汉字应通过(按字符算): %v", err)
+	}
+	if a.Status != entity.ApplyStatusRejected || runeLen(a.RejectReason) != 255 {
+		t.Fatalf("驳回未按原样落库: status=%v len=%d", a.Status, runeLen(a.RejectReason))
 	}
 }
 

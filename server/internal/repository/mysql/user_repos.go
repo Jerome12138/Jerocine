@@ -55,8 +55,15 @@ func (r *userRepo) GetById(ctx context.Context, id uint) (*entity.User, error) {
 	return &u, nil
 }
 
+// Create 建号。email 为空时**整列省略**让它落 NULL:
+// uk_users_email 是唯一索引, MySQL 唯一索引允许多个 NULL 但只允许一个 ” ——
+// 若把后台无邮箱建号的零值当成 ” 插进去, 第二个无邮箱用户就会撞唯一键(500)。
 func (r *userRepo) Create(ctx context.Context, u *entity.User) error {
-	return dbFrom(ctx, r.db).Create(u).Error
+	db := dbFrom(ctx, r.db)
+	if strings.TrimSpace(u.Email) == "" {
+		return db.Omit("Email").Create(u).Error
+	}
+	return db.Create(u).Error
 }
 
 func (r *userRepo) List(ctx context.Context, page repository.Page) ([]entity.User, int64, error) {

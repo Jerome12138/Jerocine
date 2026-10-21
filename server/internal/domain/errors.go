@@ -38,7 +38,9 @@ var (
 	// ErrCodeSendTooFast 同邮箱发码太频繁(1 分钟 1 封)。
 	ErrCodeSendTooFast = errors.New("验证码发送太频繁，请稍后再试")
 	// ErrQuotaExceeded 邮箱日配额(5 封/天)或全局日配额(默认 50 封/天)已用尽。
-	ErrQuotaExceeded = errors.New("今日验证码发送次数已达上限，请明天再试")
+	// 文案对"所有出站邮件"通用(码/激活/驳回/重置/测试), 不要写成"验证码"——
+	// 找回密码链接与管理员测试邮件也会撞这个错误。
+	ErrQuotaExceeded = errors.New("今日邮件发送次数已达上限，请明天再试")
 	// ErrApplyPending 登录时发现该账号有审核中的注册申请(仅 apply 模式返回, 见设计 §5)。
 	ErrApplyPending = errors.New("注册申请审核中，请等待邮件通知")
 	// ErrApplyRejected 登录时发现该账号的注册申请被驳回; 文案含驳回理由, 可重新申请。

@@ -113,13 +113,43 @@ func (s *smtpSender) Send(to, subject, body string) error {
 	case SecureSSL, "":
 		return sendImplicitTLS(s.cfg, auth, to, msg)
 	case SecureStartTLS:
-		return smtp.SendMail(s.cfg.addr(), auth, s.cfg.User, []string{to}, msg)
+		// 显式 STARTTLS: 服务器没声明就拒发。**不能用 smtp.SendMail** ——
+		// 它是"能升就升"的机会式加密, 服务器(或被中间人剥掉能力项)不声明 STARTTLS 时
+		// 会把 AUTH 凭据明文发出去, 而管理员选 starttls 的意图就是必须加密。
+		return sendPlainOrStartTLS(s.cfg, auth, to, msg, true)
 	case SecureNone:
-		// 明文: smtp.SendMail 在无 STARTTLS 支持时即可明文完成
-		return smtp.SendMail(s.cfg.addr(), auth, s.cfg.User, []string{to}, msg)
+		// 明文模式(内网/自建): 服务器支持才升级, 不强制。
+		return sendPlainOrStartTLS(s.cfg, auth, to, msg, false)
 	default:
 		return fmt.Errorf("mailer: unknown secure mode %q", s.cfg.Secure)
 	}
+}
+
+// sendPlainOrStartTLS 先明文建连(带拨号/整链路超时), 再按需升级 STARTTLS, 最后走协议。
+// requireTLS=true 时服务器未声明 STARTTLS 直接报错(不降级)。
+func sendPlainOrStartTLS(cfg Config, auth smtp.Auth, to string, msg []byte, requireTLS bool) error {
+	dialer := &net.Dialer{Timeout: SendTimeout}
+	conn, err := dialer.Dial("tcp", cfg.addr())
+	if err != nil {
+		return fmt.Errorf("dial %s: %w", cfg.addr(), err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(SendTimeout))
+	client, err := smtp.NewClient(conn, cfg.Host)
+	if err != nil {
+		return fmt.Errorf("smtp client: %w", err)
+	}
+	defer client.Close()
+	hasTLS, _ := client.Extension("STARTTLS")
+	if requireTLS && !hasTLS {
+		return errors.New("smtp: 服务器未声明 STARTTLS, 已拒绝明文发送凭据(请检查端口与加密方式)")
+	}
+	if hasTLS {
+		if err := client.StartTLS(&tls.Config{ServerName: cfg.Host}); err != nil {
+			return fmt.Errorf("smtp starttls: %w", err)
+		}
+	}
+	return sendWithClient(client, cfg, auth, to, msg)
 }
 
 // sendImplicitTLS 465 隐式 TLS: 先 tls.Dial 建加密通道, 再走 SMTP 协议。
@@ -136,6 +166,11 @@ func sendImplicitTLS(cfg Config, auth smtp.Auth, to string, msg []byte) error {
 		return fmt.Errorf("smtp client: %w", err)
 	}
 	defer client.Close()
+	return sendWithClient(client, cfg, auth, to, msg)
+}
+
+// sendWithClient 已建连(且已按需加密)的会话上跑完 AUTH → MAIL → RCPT → DATA。
+func sendWithClient(client *smtp.Client, cfg Config, auth smtp.Auth, to string, msg []byte) error {
 	if err := client.Auth(auth); err != nil {
 		return fmt.Errorf("smtp auth: %w", err)
 	}

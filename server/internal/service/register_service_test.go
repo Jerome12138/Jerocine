@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -358,14 +359,13 @@ func TestSendCodeRateLimits(t *testing.T) {
 		}
 	})
 	t.Run("全局日配额", func(t *testing.T) {
-		svc, _, _ := newRegisterSvc(t, mailReadySite(), 2) // 全局 2 封
+		svc, _, _ := newRegisterSvc(t, mailReadySite(), 2) // 全局 2 封(跨邮箱共享)
 		for i := 0; i < 2; i++ {
-			clearMinuteWindow("g%d@qq.com")
-			if err := svc.SendCode(ctx, PurposeRegister, "g%d@qq.com"); err != nil {
+			addr := fmt.Sprintf("g%d@qq.com", i)
+			if err := svc.SendCode(ctx, PurposeRegister, addr); err != nil {
 				t.Fatalf("第 %d 封: %v", i+1, err)
 			}
 		}
-		clearMinuteWindow("g2@qq.com")
 		if err := svc.SendCode(ctx, PurposeRegister, "g2@qq.com"); !errors.Is(err, domain.ErrQuotaExceeded) {
 			t.Fatalf("第 3 个邮箱应撞全局配额: %v", err)
 		}
@@ -614,5 +614,36 @@ func TestTestMailUsesFormValues(t *testing.T) {
 			t.Fatalf("got %v", err)
 		}
 		fs.err = nil
+	})
+}
+
+// TestTestMailCountsGlobalQuota 设计 §5: 全局日配额对**所有出站邮件**(码/激活/驳回/重置/测试)
+// 统一计数 —— 测试邮件不能成为绕过配额的旁路, 且只有真发出去才计数(失败不计)。
+func TestTestMailCountsGlobalQuota(t *testing.T) {
+	ctx := context.Background()
+	svc, _, fs := newRegisterSvc(t, mailReadySite(), 1) // 全局 1 封
+	in := MailConfigInput{SmtpHost: "smtp.qq.com", SmtpPort: 465, SmtpSecure: "ssl", SmtpUser: "bot@qq.com", SmtpPass: "code"}
+	day := cache.TodayDay(svc.now())
+
+	t.Run("发送失败不占配额", func(t *testing.T) {
+		fs.err = errors.New("535 auth failed")
+		if err := svc.TestMail(ctx, "me@x.com", in); err == nil {
+			t.Fatal("发送失败应上抛")
+		}
+		if n := cache.ReadMailQuota(ctx, day); n != 0 {
+			t.Fatalf("没真出站不应计数: %d", n)
+		}
+		fs.err = nil
+	})
+	t.Run("发送成功计入并受配额约束", func(t *testing.T) {
+		if err := svc.TestMail(ctx, "me@x.com", in); err != nil {
+			t.Fatalf("首封应成功: %v", err)
+		}
+		if n := cache.ReadMailQuota(ctx, day); n != 1 {
+			t.Fatalf("测试邮件应计入全局配额: %d", n)
+		}
+		if err := svc.TestMail(ctx, "me@x.com", in); !errors.Is(err, domain.ErrQuotaExceeded) {
+			t.Fatalf("配额已满应拒: %v", err)
+		}
 	})
 }

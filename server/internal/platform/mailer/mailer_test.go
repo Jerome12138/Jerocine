@@ -1,7 +1,10 @@
 package mailer
 
 import (
+	"bufio"
 	"encoding/base64"
+	"net"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -35,6 +38,61 @@ func TestNewSenderUnconfigured(t *testing.T) {
 	if err != nil || s == nil {
 		t.Fatalf("完整配置应可构造: %v", err)
 	}
+}
+
+// TestStartTLSRequiresAdvertised 锁住降级风险: starttls 模式下服务器未声明 STARTTLS 必须拒发。
+// 此前用的是 smtp.SendMail("能升就升"), 能力项被剥离时会把 AUTH 凭据明文发出去 ——
+// 管理员选 starttls 的意图恰恰是"必须加密"。
+func TestStartTLSRequiresAdvertised(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		r := bufio.NewReader(conn)
+		if _, err := conn.Write([]byte("220 test ESMTP\r\n")); err != nil {
+			return
+		}
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			upper := strings.ToUpper(line)
+			switch {
+			case strings.HasPrefix(upper, "EHLO"):
+				// 刻意只声明 AUTH, 不声明 STARTTLS(模拟能力项被剥离)
+				_, _ = conn.Write([]byte("250-test\r\n250 AUTH PLAIN LOGIN\r\n"))
+			case strings.HasPrefix(upper, "QUIT"):
+				_, _ = conn.Write([]byte("221 bye\r\n"))
+				return
+			default:
+				_, _ = conn.Write([]byte("502 not implemented\r\n"))
+			}
+		}
+	}()
+
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	s, err := NewSender(Config{Host: host, Port: port, Secure: SecureStartTLS, User: "a@b.com", Pass: "p"})
+	if err != nil {
+		t.Fatalf("NewSender: %v", err)
+	}
+	err = s.Send("to@b.com", "s", "b")
+	if err == nil || !strings.Contains(err.Error(), "STARTTLS") {
+		t.Fatalf("未声明 STARTTLS 应拒发, got %v", err)
+	}
+	ln.Close() // 收掉服务端 goroutine
+	<-done
 }
 
 func TestPresets(t *testing.T) {

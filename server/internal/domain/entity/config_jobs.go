@@ -140,15 +140,20 @@ type SiteConfig struct {
 	TmdbAPIKey string `gorm:"column:tmdb_api_key" json:"-"`
 	// RegisterMode 注册模式: off(仅后台建号) / open(自由注册) / apply(申请审核)。默认 off 保守关。
 	RegisterMode string `gorm:"column:register_mode" json:"registerMode"`
-	// ---- 邮件通道(SMTP)配置。凭据列与 TmdbAPIKey 完全同范式: json:"-" + 掩码 DTO + 独立写端点。
+	// ---- 邮件通道(SMTP)配置。**整组列 json:"-" 硬隔离**:
+	//   - 本实体经 GET /config/site(公开, 无鉴权 + Cache-Control public)直接序列化出网 ——
+	//     smtp_host / smtp_user 属于运维侦察信息(发件邮箱常是站长私人邮箱), 绝不能上公开面;
+	//   - 管理端读走独立掩码 DTO(service.MailConfigView), 写走独立端点 /manage/mail/config;
+	//   - 站点基础信息表单(SaveSiteConfig)绑定本实体时字段被忽略, ManageService.SaveSite
+	//     会从库里回填现值再落库(防 UpdateAll upsert 把 SMTP 配成空)。
 	// DB 明文存储与 tmdb_api_key 同口径(后台本就需登录), 不上应用层加密——保持一致避免双标。
-	SmtpEnabled  int    `gorm:"column:smtp_enabled" json:"smtpEnabled"`   // 总开关: 0 停发(凭据保留)
-	SmtpHost     string `gorm:"column:smtp_host" json:"smtpHost"`         // SMTP 服务器
-	SmtpPort     int    `gorm:"column:smtp_port" json:"smtpPort"`         // 端口(预设 465/587)
-	SmtpSecure   string `gorm:"column:smtp_secure" json:"smtpSecure"`     // ssl / starttls / none
-	SmtpUser     string `gorm:"column:smtp_user" json:"smtpUser"`         // SMTP 账号(邮箱地址)
-	SmtpPass     string `gorm:"column:smtp_pass" json:"-"`                // 鉴权信息(授权码/应用专用密码), 永不出网
-	SmtpFromName string `gorm:"column:smtp_from_name" json:"smtpFromName"` // 发件人显示名
+	SmtpEnabled  int    `gorm:"column:smtp_enabled" json:"-"`   // 总开关: 0 停发(凭据保留)
+	SmtpHost     string `gorm:"column:smtp_host" json:"-"`      // SMTP 服务器
+	SmtpPort     int    `gorm:"column:smtp_port" json:"-"`      // 端口(预设 465/587)
+	SmtpSecure   string `gorm:"column:smtp_secure" json:"-"`    // ssl / starttls / none
+	SmtpUser     string `gorm:"column:smtp_user" json:"-"`      // SMTP 账号(邮箱地址)
+	SmtpPass     string `gorm:"column:smtp_pass" json:"-"`      // 鉴权信息(授权码/应用专用密码), 永不出网
+	SmtpFromName string `gorm:"column:smtp_from_name" json:"-"` // 发件人显示名
 	UpdatedAt    int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 

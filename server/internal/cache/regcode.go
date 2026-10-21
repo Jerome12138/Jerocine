@@ -118,6 +118,19 @@ func CountMailQuota(ctx context.Context, day string) int {
 	return int(n)
 }
 
+// ReadMailQuota 只读全局当日已发数(不 +1)。用于"先判配额再决定要不要发"的闸:
+// 配额满时直接拒, 不必先消耗分钟窗/日计数(否则用户看到的是"发得太快"而不是"配额已满")。
+func ReadMailQuota(ctx context.Context, day string) int {
+	if CoordClient() == nil {
+		return 0
+	}
+	n, err := CoordClient().Get(ctx, KeyMailQuota(day)).Int()
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // TodayDay 当日配额键片段(YYYYMMDD, 本地时区)。
 func TodayDay(now time.Time) string { return now.Format("20060102") }
 

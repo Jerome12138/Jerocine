@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"server/internal/cache"
 	"server/internal/domain"
@@ -65,6 +66,10 @@ const (
 	regPasswordMax = 64
 	regNameMax     = 32 // 与 ManageUpdateUser 同名规则
 	regReasonMax   = 500
+	// regRejectReasonMax 驳回理由上限: 与 register_apply.reject_reason VARCHAR(255) 对齐。
+	// 申请人自述 reason 是 VARCHAR(500)(两个字段不同), 别混用同一个常量 ——
+	// 否则 256~500 字的驳回理由会被 MySQL 拒写(严格模式 Data too long → 500)。
+	regRejectReasonMax = 255
 )
 
 // 注册模式取值(与 site_config.register_mode 对齐)。
@@ -232,7 +237,7 @@ func (s *RegisterService) Apply(ctx context.Context, userName, email, reason, co
 	email = strings.TrimSpace(strings.ToLower(email))
 	reason = strings.TrimSpace(reason)
 	code = strings.TrimSpace(code)
-	if userName == "" || len(userName) > regNameMax || !ValidEmail(email) || code == "" || len(reason) > regReasonMax {
+	if userName == "" || len(userName) > regNameMax || !ValidEmail(email) || code == "" || runeLen(reason) > regReasonMax {
 		return domain.ErrInvalidArgument
 	}
 	cfg, err := s.siteCfg.Get(ctx)
@@ -342,7 +347,7 @@ func (s *RegisterService) Approve(ctx context.Context, id int64, reviewedBy int6
 // Reject 管理员驳回申请(理由必填): pending → rejected + 理由落库, 再发驳回邮件(失败只 warning)。
 func (s *RegisterService) Reject(ctx context.Context, id int64, reviewedBy int64, reason string) (warning string, _ error) {
 	reason = strings.TrimSpace(reason)
-	if reason == "" || len(reason) > regReasonMax {
+	if reason == "" || runeLen(reason) > regRejectReasonMax {
 		return "", domain.ErrInvalidArgument
 	}
 	if err := s.applies.Reject(ctx, id, reviewedBy, reason); err != nil {
@@ -519,10 +524,16 @@ func (s *RegisterService) SaveMailConfig(ctx context.Context, in MailConfigInput
 
 // TestMail 用表单当前值(未保存)直发测试邮件; pass 空则用已存值(掩码回显后无法重输)。
 // 错误原文上抛给 handler 展示给管理员(535 鉴权失败/连接超时定位全靠它)。
+// 设计 §5: 全局日配额对**所有出站邮件**(码/激活/驳回/重置/测试)统一计数 ——
+// 测试邮件同样受配额约束并计数, 否则"发测试邮件"可绕过配额继续打 SMTP。
 func (s *RegisterService) TestMail(ctx context.Context, to string, in MailConfigInput) error {
 	to = strings.TrimSpace(strings.ToLower(to))
 	if !ValidEmail(to) {
 		return domain.ErrInvalidArgument
+	}
+	day := cache.TodayDay(s.now())
+	if cache.ReadMailQuota(ctx, day) >= s.dailyQuota {
+		return domain.ErrQuotaExceeded
 	}
 	cur, err := s.siteCfg.Get(ctx)
 	if err != nil {
@@ -544,24 +555,29 @@ func (s *RegisterService) TestMail(ctx context.Context, to string, in MailConfig
 	if err := sender.Send(to, mailer.TestSubject, mailer.TestBody()); err != nil {
 		return errors.New("测试邮件发送失败: " + err.Error())
 	}
+	cache.CountMailQuota(ctx, day) // 真发出去才计数
 	return nil
 }
 
 // ---- 内部工具 ----
 
-// mailGate 出站邮件频率门(所有非测试出站统一走): 分钟窗 → 邮箱日配额 → 全局日配额。
+// mailGate 出站邮件频率门(所有非测试出站统一走): 全局日配额 → 分钟窗 → 邮箱日配额。
 //
 //	ErrCodeSendTooFast / ErrQuotaExceeded 含义对用户可读, 直接返回。
+//	全局配额用只读判断且**放行后才计数**: 配额已满时不再消耗分钟窗/邮箱日计数
+//	(否则用户会先收到"发得太快", 且失败尝试被当成已发邮件占额度)。
 func (s *RegisterService) mailGate(ctx context.Context, kind, email string) error {
+	day := cache.TodayDay(s.now())
+	if cache.ReadMailQuota(ctx, day) >= s.dailyQuota {
+		return domain.ErrQuotaExceeded
+	}
 	if !cache.AllowSendMinute(ctx, kind, email) {
 		return domain.ErrCodeSendTooFast
 	}
 	if cache.CountSendDay(ctx, kind, email) > emailPerDay {
 		return domain.ErrQuotaExceeded
 	}
-	if cache.CountMailQuota(ctx, cache.TodayDay(s.now())) > s.dailyQuota {
-		return domain.ErrQuotaExceeded
-	}
+	cache.CountMailQuota(ctx, day)
 	return nil
 }
 
@@ -686,6 +702,11 @@ func maskSecret(s string) string {
 	}
 	return s[:4] + "…" + s[len(s)-4:]
 }
+
+// runeLen 按字符数计数 —— 与 MySQL VARCHAR(n) 的 n 同口径, 也与前端 string.length 对齐。
+// 不能用 len(): 它数字节, 一个汉字 3 字节 ⇒ 86 个汉字的驳回理由会被误判超 255 字上限,
+// 而数据库里其实只占了 86 个字符位。
+func runeLen(s string) int { return utf8.RuneCountInString(s) }
 
 // randDigits n 位数字验证码(crypto/rand)。
 func randDigits(n int) (string, error) {

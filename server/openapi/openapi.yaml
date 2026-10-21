@@ -462,7 +462,7 @@ components:
         hint: { type: string, description: 维护提示 }
         tmdbKeyMasked: { type: string, description: TMDB 凭据掩码(如 0c06…676b), 未配置为空串; 明文永不外泄 }
         tmdbKeySet: { type: boolean, description: 是否已配置 TMDB 凭据 }
-      description: TMDB key 本体经 json:"-" 硬隔离, 任何响应不携带; 读写走 /manage/tmdb-key
+      description: TMDB key 与整组 SMTP 列均经 json:"-" 硬隔离, 任何响应不携带; TMDB 走 /manage/tmdb-key, 邮件走 /manage/mail/config(掩码 DTO)
     TMDBKeyUpdate:
       type: object
       required: [key]
@@ -1921,7 +1921,7 @@ paths:
               type: object
               required: [reason]
               properties:
-                reason: { type: string, maxLength: 500 }
+                reason: { type: string, maxLength: 255, description: 驳回理由(落库 reject_reason VARCHAR(255); 申请人自述 reason 才是 500) }
       responses:
         '200':
           description: 已驳回
