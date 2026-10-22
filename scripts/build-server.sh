@@ -129,7 +129,7 @@ check_elf() {
 # ---------------------------------------------------------------- 编译
 
 [ -d "$SRV" ] || die "找不到后端目录: $SRV"
-command -v go >/dev/null 2>&1 || die "本机没有 go（需要 1.27+，与 deploy/Dockerfile 的 golang 版本一致）"
+command -v go >/dev/null 2>&1 || die "本机没有 go（需要 1.27+，与 server/go.mod 的 go 指令一致）"
 
 [ -n "$OUT" ] || OUT="$(resolve_out_dir)"
 OUT="$(cygpath -u "$OUT" 2>/dev/null || printf '%s' "$OUT")"

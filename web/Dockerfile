@@ -1,45 +1,22 @@
-# 多阶段: node 构建前端 → nginx 静态托管.
-# 上下文 = 仓库根 (compose build.context: ..)
-FROM node:20-alpine AS build
-
-WORKDIR /app
-
-# 启用 corepack 并固定 pnpm 9 (pnpm 11 要求 node>=22, 当前 base 是 node:20)
-RUN corepack enable && corepack prepare pnpm@9 --activate
-
-# 先拷锁文件再拷源码, 复用 docker layer 缓存
-COPY web/package.json web/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-
-COPY web/ ./
-
-# 版本目录(方案 §3.1, 构建期注入): 留空 ⇒ 产物仍落 assets/(本地开发/CI 不受影响);
-# 部署脚本传 =YYYYMMDD-HHMMSS ⇒ 产物落 assets/<TS>/, index.html 引用天然带版本目录,
-# Workbox 在同一次 build 里 glob 出的 precache manifest 与线上 URL 自洽(无部署期改写)。
-ARG JC_BUILD_TS=""
-ENV JC_BUILD_TS=${JC_BUILD_TS}
-
-# build = vue-tsc(类型强检验) + vite build; 重构后契约对齐, 生产构建强制类型门禁
-RUN pnpm run build
-
-# 产物布局断言(web/scripts/verify-build-layout.mjs): index.html 站内引用可解析 / 不引用 .map /
-# 注入 JC_BUILD_TS 时资源确实落在 assets/<TS>/ 且 sw.js 的 precache manifest 与之自洽。
-# 放在**构建镜像里**跑 —— 服务器上没有 node, 这里是唯一"能跑且必跑"的位置:
-# 断言不过即构建失败 ⇒ 部署中止, 不会把 404 连篇的产物发上线。
-RUN node scripts/verify-build-layout.mjs
-
-# 运行镜像: nginx 静态托管 + /api/ 反代到 server.
+# nginx **运行镜像**(树内版): 只放仓库版 nginx.conf, 静态产物走宿主机挂载(不进镜像)。
+#
+# 谁在用: `./deploy.sh nginx`(树上运维) —— compose nginx 默认 build(context=仓库根)。
+# 包内工具链模式用的是它的镜像 deploy/Dockerfile.nginx(随产物包 tooling/ 上送,
+# 上下文 = deploy/runtime/), 两者运行 stage 逐行一致, 由
+# deploy/tests/tooling-selfcontain.test.sh 断言(FROM / COPY 目标 / HEALTHCHECK)。
+#
+# ⚠️ 这里曾经还有 node 构建阶段(vite build, 服务于树上 `./deploy.sh web` 现编译) ——
+# 2026-10-22 起该路径已删除: 前端构建只走 scripts/build-web.sh(本机 / CI / 应急容器),
+# 编译不上生产机。文件因此从多阶段瘦身为单阶段。
 FROM nginx:1.27-alpine
 
-# nginx.conf 走仓库版本, 不再依赖宿主机 /opt/film/data/nginx 挂载
+# nginx.conf 走仓库版本(上下文=仓库根, 故路径带 deploy/ 前缀)
 COPY deploy/data/nginx/nginx.conf /etc/nginx/nginx.conf
 
-# 注意: 这里**不再** COPY dist / LICENSE 进镜像 —— 静态目录改由宿主机挂载
-# (compose: ./data/html:/usr/share/nginx/html), 打进镜像只会被挂载点遮蔽,
-# 且会毁掉"保留 3 版 / 整版回滚"的前提(镜像重建即全丢)。产物与 LICENSE 由
-# deploy/lib/web-release.sh 同步进挂载目录(见 deploy.sh web)。
-# 因没有任何 stage 再依赖 build, `docker build` 本文件时会**跳过 node 构建阶段**(很快);
-# 需要产物时用 `--target build` 单独构建复用该阶段(见 deploy.sh web)。
+# **不** COPY dist / LICENSE 进镜像 —— 静态目录由宿主机挂载
+# (compose: ./data/html:/usr/share/nginx/html), 打进镜像只会被挂载点遮蔽, 且会毁掉
+# "保留 3 版 / 整版回滚"的前提(镜像重建即全丢)。产物与 LICENSE 由
+# deploy/lib/web-release.sh 同步进挂载目录(见 deploy.sh web-deploy)。
 
 EXPOSE 80
 

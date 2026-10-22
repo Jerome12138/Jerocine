@@ -6,8 +6,9 @@
 #   scripts/deploy-web.sh  上传产物包并在服务器上执行 ./deploy.sh web-deploy
 #   deploy/deploy.sh web-deploy   解包 → 同一套发布语义 → 留档 data/packages/ → reload
 #
-# 与"在服务器上构建"(./deploy.sh web, 仍保留为备用)相比: 服务器不再需要 node/pnpm
-# 与 docker 构建缓存, 产物版本由本机一次性决定, 包本身留档可事后重发/比对。
+# 与"在服务器上构建"相比: 服务器不需要 node/pnpm 与 docker 构建缓存,
+# 产物版本由本机一次性决定, 包本身留档可事后重发/比对。(树上现编译路径 2026-10-22 已删除;
+# 应急自行构建 = 用 node 容器跑本脚本产包后走 web-deploy, 见部署指南「应急」。)
 #
 # 用法:
 #   bash scripts/build-web.sh                    # 自动版本号(当前时间 YYYYMMDD-HHMMSS)

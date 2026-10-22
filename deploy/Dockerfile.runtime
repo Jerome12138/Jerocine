@@ -5,11 +5,12 @@
 #   本机 scripts/deploy-server.sh  上传到 deploy/incoming/ 并调远端 ./deploy.sh server-deploy
 #   服务器 deploy.sh server-deploy 解包到 deploy/server/ → 以该目录为上下文构建本文件 → up -d
 #
-# 与 deploy/Dockerfile(多阶段 golang:1.27-alpine 现编译)的关系:
+# 与多阶段源码构建配方(2026-10-22 已删除的 deploy/Dockerfile)的关系:
 #   常规 = 本文件 —— 服务器**不需要** golang、不需要 go module 网络、不产生构建缓存
-#          (之前 docker build cache 涨到 13GB 主要就是它);
-#   备用 = Dockerfile —— 没有本机工具链、或想在服务器上从某个 commit 重跑时用(./deploy.sh server)。
-# 两者运行形态一致: distroless static + nonroot(65532) + 监听 3601 + 自带 -healthcheck。
+#          (以前 docker build cache 涨到 13GB 就是树上构建攒的);
+#   应急 = 服务器自行构建(不建议, 编译抢占线上内存/CPU): 用 golang 容器跑
+#          scripts/build-server.sh 产出同格式包, 再走 server-deploy —— 见部署指南「应急」。
+# 运行形态: distroless static + nonroot(65532) + 监听 3601 + 自带 -healthcheck。
 #
 # 构建上下文 = 解包后的产物包目录(deploy/server/), 布局由 scripts/build-server.sh 保证。
 FROM gcr.io/distroless/static-debian12:nonroot

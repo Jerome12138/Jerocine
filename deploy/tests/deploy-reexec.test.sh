@@ -6,7 +6,7 @@
 # 假 git 在 pull 时**改写 deploy.sh**(模拟"拉到新版本"), 于是可以断言:
 #   1) pull 发生 2 次(父进程 + 重启后的子进程), 且只重启一次(防重入标记生效, 不会无限循环);
 #   2) 重启后继续跑 pull 之后的流程, 并且读到的是**改写后**的脚本(即真的重新读盘);
-#   3) 原始子命令参数被完整带过去(没退回默认 server+nginx)。
+#   3) 原始子命令被完整带过去(没掉进用法提示)。
 set -uo pipefail
 
 # 沙箱化开发环境(如 WorkBuddy)会给 rm/unlink/rmdir 注入 safe-delete shim: 带会话 ID 时每次
@@ -49,7 +49,7 @@ cat > "$BIN/git" <<'FAKEGIT'
 #!/usr/bin/env bash
 echo "pull" >> "$REEXEC_TEST_PULLS"
 if [ "${1:-}" = "-C" ] && [ "${3:-}" = "pull" ]; then
-  sed -i 's/compose up -d --build:/compose up -d --build[HOTPATCH]:/' \
+  sed -i 's/compose up -d --build nginx/compose up -d --build[HOTPATCH]: nginx/' \
       "$REEXEC_TEST_REPO/deploy/deploy.sh"
 fi
 exit 0
@@ -68,7 +68,7 @@ assert_eq "只重启一次(防重入标记生效)" \
           "$(grep -c 'JEROCINE_DEPLOY_REEXEC=1' "$LOG" 2>/dev/null || true)" "1"
 assert_eq "重启后继续执行 pull 之后的流程, 且读到的是改写后的脚本" \
           "$(grep -c 'compose up -d --build\[HOTPATCH\]: nginx' "$LOG" 2>/dev/null || true)" "1"
-assert_no "$LOG" "server nginx" "子命令参数被完整带过重启(没退回默认 server+nginx)"
+assert_no "$LOG" "用法: ./deploy.sh" "子命令被完整带过重启(没掉进用法提示)"
 
 echo
 echo "===================================="

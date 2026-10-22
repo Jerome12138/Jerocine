@@ -53,9 +53,8 @@ services:
 
   server:
     container_name: jerocine_server
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    # 镜像只由 server-deploy 按产物包构建(Dockerfile.runtime, --no-build) —— 这里刻意没有
+    # build 段: 编译不上生产机(内存/CPU 争抢 + 13GB build cache 教训)。应急自行构建见部署指南。
     image: jerocine-server:latest
     restart: unless-stopped
     # 优雅停机宽限: SIGTERM 后 server 先收尾 HTTP 再等采集协程(内部预算 30s),
@@ -108,7 +107,7 @@ services:
   nginx:
     container_name: jerocine_nginx
     build:
-      # 默认(树内): 仓库根的 web/Dockerfile —— 模式2「服务器自构建」路径;
+      # 默认(树内): 仓库根的 web/Dockerfile —— `./deploy.sh nginx` 树上运维重建用;
       # deploy.sh 在包内工具链模式下导出 JEROCINE_NGINX_CONTEXT/JEROCINE_NGINX_DOCKERFILE
       # 切成随包上送的薄配方(见 deploy/Dockerfile.nginx 头注)。
       context: ${JEROCINE_NGINX_CONTEXT:-..}
