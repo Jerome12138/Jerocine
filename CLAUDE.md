@@ -136,6 +136,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
     远端对应子命令（一般由上面的脚本调用，排障时可手动跑）：
     - `./deploy.sh web-deploy <pkg>`     # 解包前端包 → 同一套发布语义 → 留档 `data/packages/` → reload
     - `./deploy.sh server-deploy <pkg>`  # 解包后端包 → 自动迁移(包内 migrations, 幂等; 失败中止发布) → 构建 `Dockerfile.runtime` → `up -d --no-build server` → 等健康
+  - **模式1 自包含（2026-10-22 起）**：`build-{server,web}.sh` 把施工工具（`deploy.sh` + `lib/` + `docker-compose.yml` + `Dockerfile.runtime` + `Dockerfile.nginx` + `nginx.conf`）打成产物包的 `tooling/`。服务器端 `*-deploy` 检测到它就同步到固定目录 `deploy/runtime/`（gitignored）并**以包内版本重新 exec 自身** —— 工具链与二进制同包同版，模式1 发布**不再 `git pull`、不要求服务器树最新、无 push 前置**（一次 clone 之后）。旧格式包（无 `tooling/`，回滚场景）走 legacy：`git pull --ff-only` + 树内执行；模式2（树上 `./deploy.sh server|web`）仍以 git 树为前提；首次部署仍要 `git clone`。单测：`deploy/tests/tooling-selfcontain.test.sh`。
   - **备用 —— 在服务器上从某个 commit 构建**（没有本机工具链时才用；`pull → build+up → 等健康 → 自动清两层缓存`）：
     - `cd deploy && ./deploy.sh`            # 常规：server + nginx 容器（**不含前端产物**）
     - `./deploy.sh web`                     # **前端发布（服务器上构建）**：构建产物 → 同步挂载目录 → reload

@@ -20,6 +20,7 @@ deploy/
 ├─ secrets/              # JWT RS256 密钥对（不入库，须属 65532:65532）
 ├─ apk/                  # APK 下载目录（须属 65532:65532）
 ├─ incoming/ · server/   # 上传产物包解包处（不入库）
+├─ runtime/              # 随包 tooling/ 自引导落点（不入库；模式1 发布的实际施工工具）
 └─ data/
    ├─ html/              # 前端产物，挂载给 nginx（不入库，由发布写入）
    ├─ releases/<TS>/     # 每版整版快照（回滚用）
@@ -37,11 +38,11 @@ deploy/
 | `server` | 服务器上编译后端 → 重建容器 |
 | `nginx` | 只重建 nginx 容器（改 nginx.conf 时用），**不产出前端文件** |
 | `web-deploy <pkg>` | 解包本地上传的前端包 → 发布 → 留档 → reload |
-| `server-deploy <pkg>` | 解包后端包（含 migrations/）→ 自动迁移（幂等，无新迁移即秒退；失败中止发布）→ 薄运行镜像 → 重建容器 → 等健康 → 清缓存 → 留档 |
+| `server-deploy <pkg>` | 解包后端包（含 migrations/ 与 tooling/）→ 自引导包内工具链到 `runtime/` → 自动迁移（幂等，无新迁移即秒退；失败中止发布）→ 薄运行镜像 → 重建容器 → 等健康 → 清缓存 → 留档 |
 | `web-rollback <TS>` | 整版回滚（`index.html` + `sw.js` + `workbox-*.js` 三件套），TS 见 `data/releases/` |
 
-> `git pull` 后脚本会用新版本重新 exec 自己一次（防脚本执行中被覆写），日志看到两轮 pull 属预期。
-> **发布边界**：随包上送的只有二进制与迁移文件；部署脚本自身仍由每次发布前的 `git pull --ff-only` 更新 —— 改过部署脚本的发版必须先 push 再发布。旧格式包（无 `migrations/`）会响亮跳过迁移，用于回滚旧版。
+> `git pull` 后脚本会用新版本重新 exec 自己一次（防脚本执行中被覆写），日志看到两轮 pull 属预期 —— 仅**模式2 / legacy 路径**会这样。
+> **发布边界（2026-10-22 起）**：模式1（`server-deploy`/`web-deploy`）的产物包自带 `tooling/`（部署脚本 + lib + compose + Dockerfile + nginx.conf，与二进制同包同版）—— 服务器端自引导到固定目录 `deploy/runtime/` 并以包内版本执行，**不 `git pull`、不要求树最新、无 push 前置**；模式2（树上 `./deploy.sh server|web`）与旧格式包（无 `tooling/`，回滚场景）才走 `git pull --ff-only` + 树内执行。旧格式包（无 `migrations/`）会响亮跳过迁移，用于回滚旧版。
 
 ## 日常更新
 
@@ -72,7 +73,7 @@ bash scripts/deploy-server.sh      # 编译 + 上传 + 发布（一步到位）
 - 每次发布按 `data/root-manifest.txt` 清理"上一版有、本版没有"的根文件（运维手工放进挂载目录的东西不会被误删）
 - 顺序约束：**先写目录、最后 reload**（无 404 窗口）
 - 空挂载守卫：`nginx` / 全量部署在挂载目录 `data/html` 为空时拒绝执行（防空站点 404）
-- 纯逻辑单测：`bash tests/web-release.test.sh`（81 断言）· `bash tests/deploy-reexec.test.sh`（4 断言）
+- 纯逻辑单测：`bash tests/web-release.test.sh`（83 断言）· `bash tests/deploy-reexec.test.sh`（4 断言）· `bash tests/server-migrate.test.sh`（32 断言）· `bash tests/bare-deploy.test.sh`（74 断言）· `bash tests/tooling-selfcontain.test.sh`（66 断言，模式1 自包含端到端）
 
 ## 缓存清理（手动）
 

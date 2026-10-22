@@ -11,6 +11,7 @@
 | 前端 | `data/html` 挂载 → nginx 容器 | `$PREFIX/webdata/html` → 原生 nginx（**复用 `lib/web-release.sh` 全套语义**：排除 map / 保留 3 版 / 整版回滚 / 包留档） |
 | MySQL/Redis/nginx | 官方镜像 | apt 安装 + 配置模板落位 |
 | 数据库迁移 | migrate 容器 | `migrate.sh`（同一 migrations/、同一 schema_migrations 表，两种模式迁移历史连续） |
+| 部署脚本来源 | 随产物包 `tooling/` 自包含（模式1，2026-10-22 起；不再需要服务器 git 树） | **服务器 git 树**（`deploy/bare/`）：日常发布前先 `git pull --ff-only`，与 Docker 模式2 同 |
 | 优雅停机 40s | compose `stop_grace_period` | systemd `TimeoutStopSec=40s` |
 | 健康探针 | 容器 healthcheck（`main -healthcheck`） | 同一端点：`GET /healthz` |
 
