@@ -8,10 +8,10 @@
 
 ```text
 deploy/
-├─ docker-compose.yml    # mysql / redis / migrate / server / nginx（build.context = 仓库根）
+├─ docker-compose.yml    # mysql / redis / migrate / server / nginx（server 无 build 段, 镜像只由 server-deploy 构建）
 ├─ deploy.sh             # 一键部署入口（子命令见下表）
-├─ Dockerfile            # 【备用】后端镜像：golang alpine 编译 → distroless nonroot，监听 3601
-├─ Dockerfile.runtime    # 【常规】后端运行薄镜像：只 COPY 本机编译好的二进制
+├─ Dockerfile.runtime    # 后端运行薄镜像：只 COPY 本机编译好的二进制（distroless nonroot, 监听 3601）
+├─ Dockerfile.nginx      # nginx 运行薄配方（随包上送, 包内工具链模式用）
 ├─ lib/web-release.sh    # 前端发布/回滚纯逻辑（版本目录 / 保留 3 版 / 整版快照）
 ├─ tests/                # web-release + deploy 自我重启的单测（本机可跑，不需要 docker）
 ├─ .env.example          # 环境变量模板（cp 为 .env 后填生产值；.env 不入库）
@@ -20,7 +20,7 @@ deploy/
 ├─ secrets/              # JWT RS256 密钥对（不入库，须属 65532:65532）
 ├─ apk/                  # APK 下载目录（须属 65532:65532）
 ├─ incoming/ · server/   # 上传产物包解包处（不入库）
-├─ runtime/              # 随包 tooling/ 自引导落点（不入库；模式1 发布的实际施工工具）
+├─ runtime/              # 随包 tooling/ 自引导落点（不入库；发布的实际施工工具）
 └─ data/
    ├─ html/              # 前端产物，挂载给 nginx（不入库，由发布写入）
    ├─ releases/<TS>/     # 每版整版快照（回滚用）
@@ -33,16 +33,14 @@ deploy/
 
 | 子命令 | 作用 |
 |---|---|
-| （无参数） | server + nginx 容器重建 → 等健康 → 自动清两层缓存（不含前端产物） |
-| `web` | 服务器上构建前端 → 发布到挂载目录 `data/html` → reload |
-| `server` | 服务器上编译后端 → 重建容器 |
-| `nginx` | 只重建 nginx 容器（改 nginx.conf 时用），**不产出前端文件** |
 | `web-deploy <pkg>` | 解包本地上传的前端包 → 发布 → 留档 → reload |
 | `server-deploy <pkg>` | 解包后端包（含 migrations/ 与 tooling/）→ 自引导包内工具链到 `runtime/` → 自动迁移（幂等，无新迁移即秒退；失败中止发布）→ 薄运行镜像 → 重建容器 → 等健康 → 清缓存 → 留档 |
 | `web-rollback <TS>` | 整版回滚（`index.html` + `sw.js` + `workbox-*.js` 三件套），TS 见 `data/releases/` |
+| `web-init` | 【一次性】把旧容器镜像内产物搬到挂载目录（切挂载迁移用） |
+| `nginx` | 只重建 nginx 容器（树上手工改 nginx.conf 后的运维工具），**不产出前端文件** |
 
-> `git pull` 后脚本会用新版本重新 exec 自己一次（防脚本执行中被覆写），日志看到两轮 pull 属预期 —— 仅**模式2 / legacy 路径**会这样。
-> **发布边界（2026-10-22 起）**：模式1（`server-deploy`/`web-deploy`）的产物包自带 `tooling/`（部署脚本 + lib + compose + Dockerfile + nginx.conf，与二进制同包同版）—— 服务器端自引导到固定目录 `deploy/runtime/` 并以包内版本执行，**不 `git pull`、不要求树最新、无 push 前置**；模式2（树上 `./deploy.sh server|web`）与旧格式包（无 `tooling/`，回滚场景）才走 `git pull --ff-only` + 树内执行。更早的包（无 `migrations/`，自动迁移上线前打的）会响亮跳过迁移，用于回滚旧版。
+> `git pull` 后脚本会用新版本重新 exec 自己一次（防脚本执行中被覆写），日志看到两轮 pull 属预期 —— 仅 **legacy 路径**（旧格式包）会这样。
+> **发布边界（2026-10-22 起，树上现编译已删除）**：产物包自带 `tooling/`（部署脚本 + lib + compose + Dockerfile + nginx.conf，与二进制同包同版）—— 服务器端自引导到固定目录 `deploy/runtime/` 并以包内版本执行，**不 `git pull`、不要求树最新、无 push 前置**；只有旧格式包（无 `tooling/`，回滚场景）走 `git pull --ff-only` + 树内执行。更早的包（无 `migrations/`，自动迁移上线前打的）会响亮跳过迁移，用于回滚旧版。应急自行构建（不建议）：见 `docs/部署指南.md`「应急」。
 
 ## 日常更新
 
@@ -61,19 +59,15 @@ bash scripts/deploy-server.sh      # 编译 + 上传 + 发布（一步到位）
 
 需要 SSH 别名（`~/.ssh/config` 配 `Host jerocine`）。覆盖默认值：`JEROCINE_SSH_HOST` / `JEROCINE_DEPLOY_DIR`（默认 `/home/ubuntu/jerocine/deploy`）/ `JEROCINE_DOWNLOAD_DIR`（本机产物落地目录）。
 
-本机没有工具链时用 `./deploy.sh web` / `./deploy.sh server`（在服务器上构建，见上表）。
-
 ## 前端发布语义
-
-两条发布路径（本机上传包 / 服务器构建）共用同一套语义，差别只在产物从哪来：
 
 - 静态目录是**宿主机挂载** `data/html`（不在镜像内），这是"保留 3 版 / 整版回滚"的前提
 - 版本目录 `assets/<TS>/` 只保留最近 **3** 版；`*.map` 归档到 `data/debugmap/`（不上线）
 - `assets/<TS>/` 含 **legacy 兼容产物**（plugin-legacy 给低版本 WebView 的双产物），体积大属预期；sw.js precache 已排除，发布链无需特殊处理
 - 每次发布按 `data/root-manifest.txt` 清理"上一版有、本版没有"的根文件（运维手工放进挂载目录的东西不会被误删）
 - 顺序约束：**先写目录、最后 reload**（无 404 窗口）
-- 空挂载守卫：`nginx` / 全量部署在挂载目录 `data/html` 为空时拒绝执行（防空站点 404）
-- 纯逻辑单测：`bash tests/web-release.test.sh`（83 断言）· `bash tests/deploy-reexec.test.sh`（4 断言）· `bash tests/server-migrate.test.sh`（32 断言）· `bash tests/bare-deploy.test.sh`（74 断言）· `bash tests/tooling-selfcontain.test.sh`（66 断言，模式1 自包含端到端）
+- 空挂载守卫：`web-deploy` / `nginx` 在挂载目录 `data/html` 为空时拒绝执行（防空站点 404）
+- 纯逻辑单测：`bash tests/web-release.test.sh`（83 断言）· `bash tests/deploy-reexec.test.sh`（4 断言）· `bash tests/server-migrate.test.sh`（32 断言）· `bash tests/bare-deploy.test.sh`（74 断言）· `bash tests/tooling-selfcontain.test.sh`（66 断言，自包含端到端）
 
 ## 缓存清理（手动）
 
