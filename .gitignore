@@ -43,6 +43,7 @@ deploy/data/html/
 deploy/data/releases/
 deploy/data/debugmap/
 deploy/data/packages/
+deploy/data/migrations/
 deploy/data/root-manifest.txt
 
 # 本地上传产物包的落地目录(scripts/deploy-web.sh 先 scp 到这里, 再由 deploy.sh 解包发布)

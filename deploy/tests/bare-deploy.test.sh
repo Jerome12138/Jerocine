@@ -205,12 +205,28 @@ echo "migrate $*" >> "${STUB_LOG:?}/migrate.log"
 exit 1
 S
 pkg8="$WORK/jerocine-server-20260108-120000-deadbee-linux-amd64.tar.gz"
-tar czf "$pkg8" -C "$ctxm" main data static migrations LICENSE
+# v8 与线上(v7)不同内容: 用于观测"失败后磁盘是否恢复成上一版"
+ctx8="$WORK/pkg8ctx"; rm -rf "$ctx8"
+mkdir -p "$ctx8/data" "$ctx8/static/upload" "$ctx8/migrations"
+printf '#!/bin/sh\necho server-v8\n' > "$ctx8/main"
+printf 'ipdb\n' > "$ctx8/data/ip2region.db"
+printf 'v8\n' > "$ctx8/static/VERSION"
+printf 'MIT\n' > "$ctx8/LICENSE"
+printf 'ddl\n' > "$ctx8/migrations/000030_demo.up.sql"
+tar czf "$pkg8" -C "$ctx8" main data static migrations LICENSE
 before_restart="$(grep -c restart "$STUB_LOG/systemctl.log" || true)"
+before_backup="$(ls -1 "$P/backup" 2>/dev/null | wc -l)"
 MIGRATE_BIN="$STUB/migrate" BARE_HEALTH_TRIES=1 bash bare/bare-deploy.sh "$pkg8" >"$WORK/out8" 2>&1 \
   && bad "迁移失败应中止发布" || ok "迁移失败按预期中止发布"
 after_restart="$(grep -c restart "$STUB_LOG/systemctl.log" || true)"
 assert_eq "迁移失败不重启服务" "$after_restart" "$before_restart"
+# 磁盘必须恢复成上一版: 新文件在迁移前就已装进 $PREFIX/server, 只 exit 会留下
+# "新二进制 + 旧结构", 将来说不准哪次重启/开机就跑起没迁移的代码
+grep -q "server-v7" "$P/server/main" && ! grep -q "server-v8" "$P/server/main" \
+  && ok "磁盘已恢复上一版(main=v7, 非 v8)" || bad "迁移失败后磁盘留了新二进制"
+assert_eq "失败发布的备份已恢复(不残留新备份)" \
+  "$(ls -1 "$P/backup" 2>/dev/null | wc -l)" "$before_backup"
+grep -q "已恢复上一版" "$WORK/out8" && ok "输出提示已恢复" || bad "缺少恢复提示"
 
 # ==================== 5. bare-web-deploy.sh 发布与回滚 ====================
 echo "# 5. bare-web-deploy.sh"

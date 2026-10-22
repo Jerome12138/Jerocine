@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# deploy/lib/db-migrate.sh 的单测 —— 用假 docker(stub) 验证"同步 + 执行 + 等待"逻辑,
-# 不需要真实 docker/compose/数据库。跑法: bash tests/server-migrate.test.sh
+# deploy/lib/db-migrate.sh 的单测 + deploy.sh server-deploy 的端到端测试。
+#
+# §1-3  库函数单测: 假 docker(stub) 验证"同步 + 执行 + 等待"逻辑, 不需要真实 docker/compose/数据库。
+# §4    跨模块契约(静态断言): compose 挂载源 / deploy.sh 同步目标 / 包内布局三方一致 ——
+#       这几处漂移的后果都是**静默**的(迁移挂到旧目录, up 幂等秒退"成功", 运行时才 SQL 报错)。
+# §5    deploy.sh server-deploy 端到端: 沙箱副本 + 假 docker/假 git, 验证
+#       "先迁移再起新容器"的顺序、迁移失败中止、旧包(回滚场景)响亮跳过。
+# 跑法: bash tests/server-migrate.test.sh
 set -u
 
 WORK="$(mktemp -d)"
@@ -19,11 +25,13 @@ source "$DEPLOY_DIR/lib/db-migrate.sh"
 STUB="$WORK/stub"; mkdir -p "$STUB" "$WORK/state"
 cat > "$STUB/docker" <<'S'
 #!/usr/bin/env bash
-state="$(dirname "$STUB_STATE")"
-# 只认两种调用形态:
+# 认这些调用形态:
 #   docker compose --env-file .env ps -q migrate   → 输出容器 id
-#   docker compose --env-file .env up -d ...       → 记录调用
-#   docker inspect --format <fmt> <cid>            → 按 fmt 读状态/退出码
+#   docker compose --env-file .env up -d ...       → 记录调用(§5 校验顺序)
+#   docker ps [--format ...]                       → 权限探测 / 结尾状态打印
+#   docker build ...                               → 记录调用
+#   docker exec ...                                → 直接成功(清缓存)
+#   docker inspect --format <fmt> <cid|name>        → 按 fmt 读状态/退出码/健康态
 if [ "$1" = "compose" ]; then
   shift
   case "$1 $2" in
@@ -35,10 +43,16 @@ if [ "$1" = "compose" ]; then
   esac
   exit 1
 fi
+case "$1" in
+  ps)    echo "jerocine_server Up 2 minutes"; exit 0 ;;
+  build) echo "docker build $*" >> "$STUB_STATE/log"; exit 0 ;;
+  exec)  exit 0 ;;
+esac
 if [ "$1" = "inspect" ]; then
   shift
   fmt=""; [ "$1" = "--format" ] && { fmt="$2"; shift 2; }
   case "$fmt" in
+    *Health*)   echo healthy ;;
     *Status*)   cat "$STUB_STATE/status" 2>/dev/null || echo exited ;;
     *ExitCode*) cat "$STUB_STATE/code" 2>/dev/null   || echo 0 ;;
     *) echo "unknown-fmt:$fmt" >&2; exit 1 ;;
@@ -71,6 +85,7 @@ echo exited > "$WORK/state/status"; echo 0 > "$WORK/state/code"
 wait_migrate_container "cid-migrate-1" 5 && ok "exited(0) 判成功" || bad "exited(0) 应成功"
 echo 1 > "$WORK/state/code"
 assert_fail wait_migrate_container "cid-migrate-1" 5
+assert_fail wait_migrate_container "" 5
 echo 0 > "$WORK/state/code"; echo running > "$WORK/state/status"
 wait_migrate_container "cid-migrate-1" 2 && bad "一直 running 应超时失败" || ok "超时按预期失败"
 echo missing > "$WORK/state/status"
@@ -90,6 +105,86 @@ grep -q "up -d --force-recreate migrate" "$WORK/state/log" \
 run_db_migrations "$src" "$dest" >/dev/null && ok "重复执行幂等成功" || bad "重复执行失败"
 grep -c "up -d --force-recreate migrate" "$WORK/state/log" | grep -qx 2 \
   && ok "重复执行也重跑了 migrate(由 migrate up 自身判 no-op)" || bad "第二次未执行"
+
+# ==================== 4. 跨模块契约(静态断言) ====================
+echo "# 4. 跨模块契约"
+# compose 的 migrate 挂载源 与 deploy.sh 的同步目标必须是同一个目录。
+# 两边漂移的后果是静默的: migrate 挂到旧目录 → up 幂等秒退"成功" → 新二进制跑在旧结构上。
+compose_mount="$(grep -oE '[^ ]+:/migrations' "$DEPLOY_DIR/docker-compose.yml" | head -1 | cut -d: -f1)"
+compose_mount="${compose_mount#./}"
+deploy_dest="$(grep -oE 'run_db_migrations "\$ctx/migrations" "[^"]+"' "$DEPLOY_DIR/deploy.sh" \
+  | head -1 | sed 's/.*" "//; s/"$//')"
+assert_eq "compose 挂载源 == deploy.sh 同步目标(防静默漂移)" "$deploy_dest" "$compose_mount"
+# 包内布局契约: build-server.sh 暂存 migrations/ ↔ deploy.sh 识别 $ctx/migrations
+grep -q '"\$STAGE/migrations"' "$DEPLOY_DIR/../scripts/build-server.sh" \
+  && ok "build-server.sh 暂存 migrations/(包内布局上游)" || bad "build-server.sh 未暂存 migrations/"
+grep -q '\[ -d "\$ctx/migrations" \]' "$DEPLOY_DIR/deploy.sh" \
+  && ok "deploy.sh 识别包内 migrations/(包内布局下游)" || bad "deploy.sh 未识别包内 migrations/"
+
+# ==================== 5. deploy.sh server-deploy 端到端 ====================
+echo "# 5. deploy.sh server-deploy 端到端(沙箱副本 + 假 docker/假 git)"
+# 假 git: pull_and_reexec 的 git pull 不依赖真实 git 环境(测的是 deploy 逻辑, 不是 git)
+cat > "$STUB/git" <<'S'
+#!/usr/bin/env bash
+echo "git $*" >> "${STUB_STATE:?}/git.log"
+exit 0
+S
+chmod +x "$STUB/git"
+ROOT="$WORK/repo"; SB="$ROOT/deploy"
+mkdir -p "$SB/lib"
+cp "$DEPLOY_DIR/deploy.sh" "$DEPLOY_DIR/Dockerfile.runtime" "$SB/"
+cp "$DEPLOY_DIR"/lib/*.sh "$SB/lib/"   # 整目录: deploy.sh source 的每个 lib 都必须在沙箱里
+printf 'REDIS_PASSWORD=x\n' > "$SB/.env"   # clear_caches 要 grep 它(pipefail 下缺失会中断发布)
+
+make_server_pkg() {  # $1=输出包 $2=解包上下文目录 $3=1含migrations(新包) 0不含(旧包)
+  local out="$1" d="$2" mig="$3"
+  rm -rf "$d"; mkdir -p "$d/data" "$d/static/upload"
+  printf '#!/bin/sh\necho server\n' > "$d/main"
+  printf 'ipdb\n' > "$d/data/ip2region.db"
+  printf 'MIT\n' > "$d/LICENSE"
+  if [ "$mig" = "1" ]; then
+    mkdir -p "$d/migrations"
+    printf 'ddl\n' > "$d/migrations/000030_demo.up.sql"
+  fi
+  tar czf "$out" -C "$d" main data static LICENSE $([ "$mig" = "1" ] && echo migrations)
+}
+run_deploy() { bash "$SB/deploy.sh" server-deploy "$1" > "$WORK/out" 2>&1; }
+
+# ---- 5.1 新包(含 migrations): 迁移先于新容器, 整套只跑一次 ----
+echo exited > "$WORK/state/status"; echo 0 > "$WORK/state/code"
+: > "$WORK/state/log"; : > "$WORK/state/git.log"
+make_server_pkg "$WORK/pkg-new" "$WORK/ctx-new" 1
+run_deploy "$WORK/pkg-new" && ok "新包发布成功" || { bad "新包发布失败"; cat "$WORK/out"; }
+n_mig="$(grep -n 'up -d --force-recreate migrate' "$WORK/state/log" | head -1 | cut -d: -f1)"
+n_srv="$(grep -n 'up -d --no-build server' "$WORK/state/log" | head -1 | cut -d: -f1)"
+[ -n "$n_mig" ] && [ -n "$n_srv" ] && [ "$n_mig" -lt "$n_srv" ] \
+  && ok "迁移先于新容器启动(顺序不能反)" || bad "迁移/启动顺序错误(migrate=$n_mig server=$n_srv)"
+assert_eq "构建/迁移/重启整套只跑一次(reexec 不重复执行)" \
+  "$(grep -c 'up -d --no-build server' "$WORK/state/log")" "1"
+grep -q 'git -C .. pull --ff-only' "$WORK/state/git.log" \
+  && ok "server-deploy 仍先 git pull(工具链随树更新 —— 当前耦合点, 解耦时同步改本断言)" \
+  || bad "未 git pull"
+
+# ---- 5.2 迁移失败 → 中止发布, 新容器绝不启动 ----
+echo 1 > "$WORK/state/code"
+: > "$WORK/state/log"
+run_deploy "$WORK/pkg-new" && bad "迁移失败应中止发布" || ok "迁移失败按预期中止发布"
+grep -q 'up -d --force-recreate migrate' "$WORK/state/log" \
+  && ok "失败前确实尝试过迁移" || bad "未尝试迁移"
+grep -q 'up -d --no-build server' "$WORK/state/log" \
+  && bad "迁移失败仍启动了新容器(顺序错误!)" || ok "迁移失败不启动新容器"
+grep -q "发布已中止" "$WORK/out" && ok "中止信息明确" || bad "缺少中止信息"
+
+# ---- 5.3 旧包(无 migrations/, 回滚场景): 响亮跳过, 不阻断 ----
+echo 0 > "$WORK/state/code"
+: > "$WORK/state/log"
+make_server_pkg "$WORK/pkg-old" "$WORK/ctx-old" 0
+run_deploy "$WORK/pkg-old" && ok "旧包(回滚)发布成功" || { bad "旧包发布被堵"; cat "$WORK/out"; }
+grep -q "跳过自动迁移" "$WORK/out" && ok "旧包响亮提示跳过迁移" || bad "旧包无跳过提示"
+grep -q 'force-recreate migrate' "$WORK/state/log" \
+  && bad "旧包不该跑迁移" || ok "旧包不触发迁移"
+grep -q 'up -d --no-build server' "$WORK/state/log" \
+  && ok "旧包继续完成发布(回滚路径畅通)" || bad "旧包发布中断"
 
 echo
 echo "结果: pass=$PASS fail=$FAIL"

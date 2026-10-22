@@ -59,8 +59,21 @@ if id jerocine >/dev/null 2>&1; then
   chown -R jerocine:jerocine "$PREFIX/server"
 fi
 
-# ---- 数据库迁移(先于新版启动; 失败即中止, 上一版仍在运行) ----
-bare_run_migrations "$ctx/migrations"
+# ---- 数据库迁移(先于新版启动; 失败即中止并恢复上一版) ----
+# 上面已把新文件装进 $PREFIX/server(运行中的仍是旧 inode): 迁移失败若只 exit,
+# 磁盘留的是"新二进制 + 旧结构", 将来任何一次重启/开机都会跑没迁移的代码 ——
+# 必须把备份 mv 回来, 让磁盘与运行中的进程保持一致(都是旧版)。
+if ! bare_run_migrations "$ctx/migrations"; then
+  echo "!! 迁移失败, 发布中止" >&2
+  if [ -n "$backup_name" ]; then
+    rm -rf "$PREFIX/server"
+    mv "$PREFIX/backup/$backup_name" "$PREFIX/server"
+    echo "   已恢复上一版($PREFIX/server ← $backup_name); 服务未重启, 旧版仍在运行" >&2
+  else
+    echo "   首次安装无备份可恢复; 服务未启动, 排查后重跑本脚本即可(迁移幂等)" >&2
+  fi
+  exit 1
+fi
 
 # ---- 重启 + 健康检查 ----
 echo "==> systemctl restart jerocine-server"

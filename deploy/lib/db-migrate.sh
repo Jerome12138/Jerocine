@@ -10,7 +10,8 @@
 #   - 失败即中止发布: 调用方(server-deploy)在迁移失败时不得重启新二进制, 线上保持旧版本。
 
 # sync_pkg_migrations <src> <dest>
-#   把包内的迁移目录覆盖式拷贝到运行时目录。不删除 dest 里的旧文件: 已应用的迁移记录在
+#   把迁移目录(产物包内; deploy_services 备用路径则为 git 树)覆盖式拷贝到运行时目录。
+#   不删除 dest 里的旧文件: 已应用的迁移记录在
 #   schema_migrations, 留着旧 .sql 反而保留 down 的能力, 目录增长可忽略(几十个小文件)。
 sync_pkg_migrations() {
   local src="$1" dest="$2" n_src n_dest

@@ -41,6 +41,7 @@ deploy/
 | `web-rollback <TS>` | 整版回滚（`index.html` + `sw.js` + `workbox-*.js` 三件套），TS 见 `data/releases/` |
 
 > `git pull` 后脚本会用新版本重新 exec 自己一次（防脚本执行中被覆写），日志看到两轮 pull 属预期。
+> **发布边界**：随包上送的只有二进制与迁移文件；部署脚本自身仍由每次发布前的 `git pull --ff-only` 更新 —— 改过部署脚本的发版必须先 push 再发布。旧格式包（无 `migrations/`）会响亮跳过迁移，用于回滚旧版。
 
 ## 日常更新
 

@@ -157,7 +157,8 @@ bare_run_migrations() {
   fi
   if [ ! -x "$bin" ]; then
     echo "!! 找不到 golang-migrate($bin) —— 本次发布跳过自动迁移。" >&2
-    echo "!! 务必手动执行: MIGRATE_BIN=$bin bash $(dirname "${BASH_SOURCE[0]}")/migrate.sh" >&2
+    echo "!! 务必手动执行(迁移目录用本包, 与二进制同版; 缺省解析 git 树, 可能落后):" >&2
+    echo "   MIGRATE_BIN=$bin MIGRATIONS_DIR=$dir bash $(dirname "${BASH_SOURCE[0]}")/migrate.sh" >&2
     return 0
   fi
   echo "==> 数据库迁移(golang-migrate up: $dir)"

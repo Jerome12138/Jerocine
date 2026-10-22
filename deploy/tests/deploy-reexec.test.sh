@@ -27,7 +27,9 @@ REPO="$WORK/repo"
 BIN="$WORK/bin"
 mkdir -p "$REPO/deploy/lib" "$REPO/deploy/data/html" "$BIN"
 cp "$REAL_DEPLOY" "$REPO/deploy/deploy.sh"
-cp "$REAL_LIB"    "$REPO/deploy/lib/web-release.sh"
+# lib/ 整个拷: deploy.sh source 的每个 lib 文件都必须在沙箱里, 否则 set -e 下
+# 脚本在分发前就退出(pull 次数为 0)。新增 lib 文件时本行自动带上, 不会再踩。
+cp "$(pwd)"/lib/*.sh "$REPO/deploy/lib/"
 printf '<html>x</html>\n' > "$REPO/deploy/data/html/index.html"   # 过"挂载目录未初始化"守卫
 
 # 假 git: 记一次调用; 若是 pull, 则改写 deploy.sh 里"pull 之后才会打印"的那行 ——

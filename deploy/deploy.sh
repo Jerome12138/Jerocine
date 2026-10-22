@@ -305,7 +305,9 @@ deploy_server_from_pkg() {
   [ -d "$ctx/data" ] || wr_die "包内没有 data/（IP 归属地离线库）"
   [ -d "$ctx/static/upload" ] || wr_die "包内没有 static/upload/（upload 卷挂载点）"
   [ -f "$ctx/LICENSE" ] || wr_die "包内没有 LICENSE"
-  [ -d "$ctx/migrations" ] || wr_die "包内没有 migrations/（版本化 DDL）—— 用新版 scripts/build-server.sh 打包"
+  # migrations/ 缺失 = 旧版产物包(自动迁移上线前打的包)。旧包与旧二进制同版, 对当前库
+  # (迁移只加带默认值的列, 只多不少)是兼容的 ⇒ 响亮跳过而非阻断 —— 否则"重新部署旧包"
+  # 这条唯一的 server 回滚路径会被堵死(线上 data/packages/ 就躺着 3 个旧格式包)。
 
   echo "==> 构建后端运行镜像(内置本机编译的二进制, 容器内不再编译)"
   # 上下文 = 解包目录(布局见 deploy/Dockerfile.runtime); -f 相对 deploy/(cwd)
@@ -313,10 +315,15 @@ deploy_server_from_pkg() {
   # 迁移先于新二进制运行(顺序不能反): 失败则中止发布, 线上保持旧版本(镜像已 build, 无副作用)。
   # 无新迁移时 golang-migrate up 幂等秒退, 不会动库。迁移文件与二进制同包同版,
   # 同步到 data/migrations(compose migrate 服务挂载它, 不再依赖服务器 git 工作树)。
-  if ! run_db_migrations "$ctx/migrations" "data/migrations"; then
-    echo "!! 发布已中止 —— 线上仍是旧版本; 排查: ${COMPOSE[*]} logs migrate" >&2
-    rm -rf "$ctx"
-    exit 1
+  if [ -d "$ctx/migrations" ]; then
+    if ! run_db_migrations "$ctx/migrations" "data/migrations"; then
+      echo "!! 发布已中止 —— 线上仍是旧版本; 排查: ${COMPOSE[*]} logs migrate" >&2
+      rm -rf "$ctx"
+      exit 1
+    fi
+  else
+    echo "!! 包内没有 migrations/（旧版产物包）—— 跳过自动迁移" >&2
+    echo "   仅当确认该包与当前数据库结构配套(例如回滚到旧版)时才应继续发布" >&2
   fi
   rm -rf "$ctx"
 
