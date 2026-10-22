@@ -153,9 +153,15 @@ jc_bootstrap_tooling() {
   tar xzf "$pkg" -C "$ctx" ./tooling || { rm -rf "$ctx"; wr_die "解包 tooling/ 失败: $pkg"; }
   [ -f "$ctx/tooling/deploy.sh" ] || { rm -rf "$ctx"; wr_die "tooling/ 里没有 deploy.sh —— 产物包不完整?"; }
 
-  # 同步到固定目录 deploy/runtime/(cwd 此时已是 deploy/)。整目录替换: 旧 tooling 的文件
-  # 不残留(例如某个 lib 文件在新版里被删掉)。
-  rm -rf runtime
+  # 整目录替换: 旧 tooling 的文件不残留(例如某个 lib 文件在新版里被删掉)。
+  # sudo 兜底: docker(root) 可能往 runtime/ 里自动创建过挂载点目录(踩过: 迁移
+  # 挂载解析错时建出 runtime/data/migrations), root 属主普通用户删不掉;
+  # 服务器 docker 全程走 sudo -n, 这里同样用免密 sudo 清理, 没有就报错给手动命令。
+  rm -rf runtime 2>/dev/null || true
+  if [ -d runtime ]; then
+    sudo -n rm -rf runtime || wr_die \
+      "旧 runtime/ 含 root 属主残留且免密 sudo 不可用 —— 手动清理后重跑: sudo rm -rf '$(pwd)/runtime'"
+  fi
   cp -R "$ctx/tooling" runtime
   chmod +x runtime/deploy.sh 2>/dev/null || true
   rm -rf "$ctx"
