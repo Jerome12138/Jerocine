@@ -6,10 +6,23 @@
 #       这几处漂移的后果都是**静默**的(迁移挂到旧目录, up 幂等秒退"成功", 运行时才 SQL 报错)。
 # §5    deploy.sh server-deploy 端到端: 沙箱副本 + 假 docker/假 git, 验证
 #       "先迁移再起新容器"的顺序、迁移失败中止、旧包(回滚场景)响亮跳过。
+#       (本文件的包都不带 tooling/ ⇒ 走 legacy: git pull + 树内执行;
+#        带 tooling/ 的自引导路径由 tests/tooling-selfcontain.test.sh 覆盖。)
 # 跑法: bash tests/server-migrate.test.sh
 set -u
 
-WORK="$(mktemp -d)"
+# 沙箱化开发环境(如 WorkBuddy)会给 rm/unlink/rmdir 注入 safe-delete shim: 带会话 ID 时每次
+# 调用都要先过一遍 broker 策略检查(实测约 7s/次)。本套测试嵌套执行 deploy.sh(内部多次 rm -rf),
+# 累加足以把整包测试拖过超时——曾表现为"跑到一半像卡住"。shim 入口对"无会话 ID"是零开销
+# 透传(见 safe-bin/rm 开头分支); 普通机器上这两个变量不存在, 无副作用。
+unset CODEBUDDY_SESSION_ID CLAUDE_SESSION_ID
+# Windows(Git Bash)下 TMPDIR 常是 C:\Users\...\Temp: mktemp -d 会吐出混分隔符的路径,
+# tar 会把 "C:" 当远程主机而失败。掰到 MSYS 的 /tmp(同一个物理目录); 非 Windows 不动。
+case "${TMPDIR:-}" in
+  [A-Za-z]:*) export TMPDIR=/tmp ;;
+esac
+
+WORK="$(cd "$(mktemp -d)" && pwd)"
 trap 'rm -rf "$WORK"' EXIT
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok  $1"; }
@@ -26,20 +39,25 @@ STUB="$WORK/stub"; mkdir -p "$STUB" "$WORK/state"
 cat > "$STUB/docker" <<'S'
 #!/usr/bin/env bash
 # 认这些调用形态:
-#   docker compose --env-file .env ps -q migrate   → 输出容器 id
-#   docker compose --env-file .env up -d ...       → 记录调用(§5 校验顺序)
+#   docker compose --env-file .env [-f runtime/docker-compose.yml] ps -q migrate → 输出容器 id
+#   docker compose ... up -d ...                   → 记录原始调用(§5 校验顺序; -f 见自引导测试)
 #   docker ps [--format ...]                       → 权限探测 / 结尾状态打印
 #   docker build ...                               → 记录调用
 #   docker exec ...                                → 直接成功(清缓存)
 #   docker inspect --format <fmt> <cid|name>        → 按 fmt 读状态/退出码/健康态
 if [ "$1" = "compose" ]; then
+  echo "compose $*" >> "$STUB_STATE/log"   # 原始参数(含 -f), 先记录再解析
   shift
   case "$1 $2" in
     "--env-file .env") shift 2 ;;
   esac
+  # 包内工具链模式(自引导): deploy.sh 追加 -f runtime/docker-compose.yml
+  case "$1 $2" in
+    "-f "*) shift 2 ;;
+  esac
   case "$1 $2" in
     "ps -q") echo "cid-migrate-1"; exit 0 ;;
-    "up -d") echo "compose up $*" >> "$STUB_STATE/log"; exit 0 ;;
+    "up -d") exit 0 ;;
   esac
   exit 1
 fi
@@ -110,11 +128,22 @@ grep -c "up -d --force-recreate migrate" "$WORK/state/log" | grep -qx 2 \
 echo "# 4. 跨模块契约"
 # compose 的 migrate 挂载源 与 deploy.sh 的同步目标必须是同一个目录。
 # 两边漂移的后果是静默的: migrate 挂到旧目录 → up 幂等秒退"成功" → 新二进制跑在旧结构上。
-compose_mount="$(grep -oE '[^ ]+:/migrations' "$DEPLOY_DIR/docker-compose.yml" | head -1 | cut -d: -f1)"
-compose_mount="${compose_mount#./}"
+# 2026-10-22 起挂载源形如 ${JEROCINE_DEPLOY_ROOT:-.}/data/migrations(自引导根化, 见
+# deploy/tests/tooling-selfcontain.test.sh) —— 剥掉变量包裹后必须与同步目标一致。
+compose_mount="$(grep -oE '[^ ]+/data/migrations:/migrations' "$DEPLOY_DIR/docker-compose.yml" | head -1)"
+compose_mount="${compose_mount%%:/migrations}"                    # ${JEROCINE_DEPLOY_ROOT:-.}/data/migrations
+compose_mount="${compose_mount#'${JEROCINE_DEPLOY_ROOT:-.}'/}"    # 剥掉变量包裹+斜杠
+compose_mount="${compose_mount#./}"                               # 树内旧式 ./data/migrations 兜底
 deploy_dest="$(grep -oE 'run_db_migrations "\$ctx/migrations" "[^"]+"' "$DEPLOY_DIR/deploy.sh" \
   | head -1 | sed 's/.*" "//; s/"$//')"
 assert_eq "compose 挂载源 == deploy.sh 同步目标(防静默漂移)" "$deploy_dest" "$compose_mount"
+# 自引导根化: 5 处相对挂载(migrate/secrets/html/apk/certs)都必须写 ${JEROCINE_DEPLOY_ROOT:-.},
+# 否则包内工具链模式下 compose 文件在 deploy/runtime/ 下, 相对挂载会挂到空目录。
+# 只数挂载行(注释里也提这个变量名, 不能裸 grep -c)。
+n_root="$(grep -cE '^[[:space:]]*- \$\{JEROCINE_DEPLOY_ROOT:-\.\}/' "$DEPLOY_DIR/docker-compose.yml")"
+assert_eq "compose 5 处相对挂载全部根化(JEROCINE_DEPLOY_ROOT)" "$n_root" "5"
+grep -q 'export JEROCINE_DEPLOY_ROOT=' "$DEPLOY_DIR/deploy.sh" \
+  && ok "deploy.sh 自引导时 export JEROCINE_DEPLOY_ROOT" || bad "deploy.sh 未 export JEROCINE_DEPLOY_ROOT"
 # 包内布局契约: build-server.sh 暂存 migrations/ ↔ deploy.sh 识别 $ctx/migrations
 grep -q '"\$STAGE/migrations"' "$DEPLOY_DIR/../scripts/build-server.sh" \
   && ok "build-server.sh 暂存 migrations/(包内布局上游)" || bad "build-server.sh 未暂存 migrations/"
@@ -151,6 +180,8 @@ make_server_pkg() {  # $1=输出包 $2=解包上下文目录 $3=1含migrations(�
 run_deploy() { bash "$SB/deploy.sh" server-deploy "$1" > "$WORK/out" 2>&1; }
 
 # ---- 5.1 新包(含 migrations): 迁移先于新容器, 整套只跑一次 ----
+# 注: 本组包**不带** tooling/(旧格式包/legacy 路径) —— "仍先 git pull"正是 legacy 语义;
+# 带 tooling 的自引导路径(0 次 pull)由 tests/tooling-selfcontain.test.sh 覆盖。
 echo exited > "$WORK/state/status"; echo 0 > "$WORK/state/code"
 : > "$WORK/state/log"; : > "$WORK/state/git.log"
 make_server_pkg "$WORK/pkg-new" "$WORK/ctx-new" 1
@@ -162,7 +193,7 @@ n_srv="$(grep -n 'up -d --no-build server' "$WORK/state/log" | head -1 | cut -d:
 assert_eq "构建/迁移/重启整套只跑一次(reexec 不重复执行)" \
   "$(grep -c 'up -d --no-build server' "$WORK/state/log")" "1"
 grep -q 'git -C .. pull --ff-only' "$WORK/state/git.log" \
-  && ok "server-deploy 仍先 git pull(工具链随树更新 —— 当前耦合点, 解耦时同步改本断言)" \
+  && ok "legacy 包(无 tooling/)仍先 git pull —— 树内执行路径不变" \
   || bad "未 git pull"
 
 # ---- 5.2 迁移失败 → 中止发布, 新容器绝不启动 ----

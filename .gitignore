@@ -52,6 +52,9 @@ deploy/incoming/
 # 后端本地构建产物(Dockerfile.runtime 的 build context; scripts/build-server.sh 解包到此)
 deploy/server/
 
+# 随产物包 tooling/ 自引导同步出来的运行时工具链(deploy.sh 自引导写入, 每次发布自动更新)
+deploy/runtime/
+
 # brainstorming 临时 mockup
 .superpowers/
 

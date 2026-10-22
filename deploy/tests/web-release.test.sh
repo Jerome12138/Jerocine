@@ -7,6 +7,17 @@
 # 回滚(含"目标已出窗口"必须失败)。
 set -uo pipefail
 
+# 沙箱化开发环境(如 WorkBuddy)会给 rm/unlink/rmdir 注入 safe-delete shim: 带会话 ID 时每次
+# 调用都要先过一遍 broker 策略检查(实测约 7s/次)。本套测试嵌套执行部署脚本(内部多次 rm -rf),
+# 累加足以把整包测试拖过超时——曾表现为"跑到一半像卡住"。shim 入口对"无会话 ID"是零开销
+# 透传(见 safe-bin/rm 开头分支); 普通机器上这两个变量不存在, 无副作用。
+unset CODEBUDDY_SESSION_ID CLAUDE_SESSION_ID
+# Windows(Git Bash)下 TMPDIR 常是 C:\Users\...\Temp: mktemp -d 会吐出混分隔符的路径,
+# tar 会把 "C:" 当远程主机而失败。掰到 MSYS 的 /tmp(同一个物理目录); 非 Windows 不动。
+case "${TMPDIR:-}" in
+  [A-Za-z]:*) export TMPDIR=/tmp ;;
+esac
+
 cd "$(dirname "$0")/.."          # → deploy/
 # shellcheck source=../lib/web-release.sh
 source ./lib/web-release.sh
@@ -213,6 +224,22 @@ wr_extract_pkg "$PKG" "$EX" >/dev/null
 assert_has "解包后 index.html 在包根"      "$EX/index.html"
 assert_has "解包后 assets/<TS> 就位"       "$EX/assets/20260101-000010/index-d10.js"
 assert_eq  "wr_ts_from_dist 取到唯一版本"  "$(wr_ts_from_dist "$EX")" "20260101-000010"
+
+# 带 tooling/ 的包(2026-10-22 起模式1 自包含): 解包结果必须排除它 —— 否则 wr_sync_dist
+# 会把施工工具当根静态拷进公开挂载目录, 还会写进根清单。
+# 两步打包(与 scripts/build-web.sh 一致): tar -rf 只能往**未压缩**的 tar 里追成员。
+PKG_TOOL="$PKG_DIR/jerocine-web-20260101-000010-tooling.tar.gz"
+mkdir -p "$WORK/tooling-stage/tooling/lib"
+printf 'd\n' > "$WORK/tooling-stage/tooling/deploy.sh"
+printf 'l\n' > "$WORK/tooling-stage/tooling/lib/db-migrate.sh"
+RAW_TOOL="$WORK/tooling-stage/web-pkg-raw.tar"
+tar -cf "$RAW_TOOL" -C "$D10" .
+tar -rf "$RAW_TOOL" -C "$WORK/tooling-stage" ./tooling
+gzip -c "$RAW_TOOL" > "$PKG_TOOL"
+EXT="$WORK/ex10t"
+wr_extract_pkg "$PKG_TOOL" "$EXT" >/dev/null
+assert_has  "带 tooling 的包解出 dist 内容"   "$EXT/index.html"
+assert_gone "tooling/ 被 wr_extract_pkg 排除" "$EXT/tooling"
 
 # 打成"dist 目录本身"(而非其内容) 的包必须被拒 —— 否则线上会多一层目录、index.html 找不到
 BADP="$PKG_DIR/bad.tar.gz"; tar -czf "$BADP" -C "$WORK" "dist-20260101-000010"

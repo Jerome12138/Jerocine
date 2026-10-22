@@ -1,0 +1,25 @@
+# nginx **运行镜像**(薄): 只放仓库版 nginx.conf, 静态产物走宿主机挂载(不进镜像)。
+#
+# 与 web/Dockerfile 的运行 stage 逐行对应 —— 那是模式2「服务器自构建」用的(上下文=仓库根,
+# 带 node 构建阶段); 本文件随产物包的 tooling/ 上送(模式1 自包含), 构建上下文 =
+# deploy/runtime/(nginx.conf 与本文件同级, 都由 scripts/build-{server,web}.sh 打进 tooling/),
+# 于是 web-deploy 重建 nginx 镜像不再需要服务器 git 树。
+#
+# 一致性契约(改一侧必须同步另一侧, 由 deploy/tests/tooling-selfcontain.test.sh 断言):
+#   - FROM 的基础镜像标签与 web/Dockerfile 运行 stage 相同;
+#   - nginx.conf 的 COPY 目标与 HEALTHCHECK 与 web/Dockerfile 运行 stage 相同。
+FROM nginx:1.27-alpine
+
+# 与 web/Dockerfile 运行 stage 同一份配置(仓库版 deploy/data/nginx/nginx.conf, 随 tooling 打包)
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# 同 web/Dockerfile: **不** COPY dist / LICENSE 进镜像 —— 静态目录由宿主机挂载
+# (compose: ./data/html:/usr/share/nginx/html), 打进镜像只会被挂载点遮蔽, 且会毁掉
+# "保留 3 版 / 整版回滚"的前提(镜像重建即全丢)。产物与 LICENSE 由
+# deploy/lib/web-release.sh 同步进挂载目录(见 deploy.sh web / web-deploy)。
+
+EXPOSE 80
+
+# nginx 镜像自带 wget, healthcheck 直接探 /
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1

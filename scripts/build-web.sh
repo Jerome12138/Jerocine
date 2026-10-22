@@ -15,6 +15,7 @@
 #   bash scripts/build-web.sh --out /d/Downloads # 产物包落到哪(默认 <repo>/deploy/pkg)
 #
 # 产物: <out>/jerocine-web-<TS>.tar.gz   包内是 web/dist 的**内容**(index.html 在包根)
+#                                   + tooling/(部署工具链, 模式1 自包含; 见下方打包段)
 set -euo pipefail
 
 # 与 build-server.sh 同因: **不要**设 MSYS_NO_PATHCONV —— 本脚本的路径全交给 MSYS 自带
@@ -149,9 +150,34 @@ TS_IN_DIST="$(ls -1 "$DIST/assets" 2>/dev/null | grep -E '^[0-9]{8}-[0-9]{6}$' |
 PKG="$OUT/jerocine-web-$TS.tar.gz"
 rm -f "$PKG"
 info "打包 $PKG"
-# 打进包的是 dist 的**内容**(index.html 在包根) —— 服务器端 wr_extract_pkg 就按这个约定校验
-tar -czf "$PKG" -C "$DIST" .
+
+# ---- tooling/ 随包上送(模式1 自包含, 与 scripts/build-server.sh 同一套约定) ----
+# 施工工具(deploy.sh + lib + compose + Dockerfile + nginx.conf)与前端产物同包同版:
+# 服务器端 web-deploy 检测到 tooling/ 就自引导到 deploy/runtime/ 并以包内版本执行 ——
+# 重建 nginx 镜像(含只改 nginx.conf 的发版)不再需要服务器 git 树。
+# ⚠️ 新增部署侧文件时必须加进来, 并同步 deploy/tests/tooling-selfcontain.test.sh 的清单断言。
+TOOLING_SRC="$REPO/deploy"
+TOOLING_STAGE="$(cd "$(mktemp -d)" && pwd)"
+trap 'rm -rf "$TOOLING_STAGE"' EXIT
+mkdir -p "$TOOLING_STAGE/tooling/lib"
+cp "$TOOLING_SRC/deploy.sh" "$TOOLING_STAGE/tooling/"
+cp "$TOOLING_SRC"/lib/*.sh "$TOOLING_STAGE/tooling/lib/"
+cp "$TOOLING_SRC/docker-compose.yml" "$TOOLING_SRC/Dockerfile.runtime" "$TOOLING_SRC/Dockerfile.nginx" \
+   "$TOOLING_SRC/data/nginx/nginx.conf" "$TOOLING_STAGE/tooling/"
+
+# 打进包的是 dist 的**内容**(index.html 在包根) —— 服务器端 wr_extract_pkg 就按这个约定校验;
+# tooling/ 以追加成员的方式进同一个包(它不属于 dist, wr_extract_pkg 会排除掉)。
+# 两步(tar -cf 原始包 → tar -rf 追加 tooling → gzip)而不是直接 -czf: gzip 流无法追加成员。
+RAW_TAR="$TOOLING_STAGE/web-pkg-raw.tar"
+tar -cf "$RAW_TAR" -C "$DIST" .
+tar -rf "$RAW_TAR" -C "$TOOLING_STAGE" ./tooling
+gzip -c "$RAW_TAR" > "$PKG"
 pkg_has_entry "$PKG" './index.html' || die "产物包内没有 ./index.html"
+# tooling/ 完整性断言(同 build-server.sh): 缺一个 = 服务器端 runtime 缺文件
+for f in deploy.sh docker-compose.yml Dockerfile.runtime Dockerfile.nginx nginx.conf \
+         lib/db-migrate.sh lib/web-release.sh; do
+  pkg_has_entry "$PKG" "./tooling/$f" || die "包内 tooling/ 缺少 $f —— 部署工具链不完整"
+done
 
 SIZE="$(du -h "$PKG" | awk '{print $1}')"
 printf '\n产物包: %s  (%s)\n' "$PKG" "$SIZE"

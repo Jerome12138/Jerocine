@@ -20,6 +20,9 @@
 #   static/upload/       upload 卷挂载点(空目录)
 #   data/ip2region.db    IP 归属地离线库
 #   LICENSE
+#   migrations/*.sql     版本化 DDL(与二进制同包同版, 先迁移再起新容器)
+#   tooling/             部署工具链(deploy.sh + lib + compose + Dockerfile + nginx.conf) ——
+#                        服务器端自引导到 deploy/runtime/ 后以其执行; 模式1 发布不依赖 git 树
 set -euo pipefail
 
 # 注意: 这里**不能**像 deploy.sh 那样 `export MSYS_NO_PATHCONV=1`。
@@ -163,6 +166,19 @@ cp "$SRV"/migrations/*.sql "$STAGE/migrations/"
 [ -f "$REPO/LICENSE" ] || die "缺少 $REPO/LICENSE"
 cp "$REPO/LICENSE" "$STAGE/LICENSE"
 
+# ---------------------------------------------------------------- tooling/ 随包上送(模式1 自包含)
+# 施工工具(deploy.sh + lib + compose + Dockerfile + nginx.conf)与二进制同包同版: 服务器端
+# server-deploy 检测到 tooling/ 就自引导到 deploy/runtime/ 并以包内版本执行 —— 发布不再需要
+# 服务器 git 树保持最新。旧格式包(无 tooling/)走 legacy(git pull + 树内执行), 回滚不受影响。
+# ⚠️ 改动 deploy/ 下这几个文件时不必改这里(整目录拷贝); 但**新增**部署侧文件时必须加进来,
+# 并同步 deploy/tests/tooling-selfcontain.test.sh 的打包清单断言。
+TOOLING="$REPO/deploy"
+mkdir -p "$STAGE/tooling/lib"
+cp "$TOOLING/deploy.sh" "$STAGE/tooling/"
+cp "$TOOLING"/lib/*.sh "$STAGE/tooling/lib/"
+cp "$TOOLING/docker-compose.yml" "$TOOLING/Dockerfile.runtime" "$TOOLING/Dockerfile.nginx" \
+   "$TOOLING/data/nginx/nginx.conf" "$STAGE/tooling/"
+
 PKG="$OUT/jerocine-server-$TS-$SHA-linux-$ARCH.tar.gz"
 RAW_TAR="$STAGE.pkg.tar"
 rm -f "$RAW_TAR" "$PKG"
@@ -183,6 +199,12 @@ case "$main_mode" in
   *x*) : ;;
   *) die "包内 ./main 没有可执行位(mode=$main_mode) —— 服务器上容器会起不来" ;;
 esac
+# tooling/ 完整性断言: 自引导依赖的每个文件都必须在包里。缺一个的后果是服务器端
+# deploy/runtime/ 缺文件(自引导时 wr_die, 或更晚才以奇怪方式失败), 宁可打包期就炸。
+for f in deploy.sh docker-compose.yml Dockerfile.runtime Dockerfile.nginx nginx.conf \
+         lib/db-migrate.sh lib/web-release.sh; do
+  pkg_has_entry "$PKG" "./tooling/$f" || die "包内 tooling/ 缺少 $f —— 部署工具链不完整"
+done
 
 printf '\n产物包: %s  (%s)\n' "$PKG" "$(du -h "$PKG" | awk '{print $1}')"
 printf '  sha256: %s\n' "$(file_sha256 "$PKG")"

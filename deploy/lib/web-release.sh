@@ -253,11 +253,15 @@ wr_extract_tar() {
 }
 
 # wr_extract_pkg <pkg> <dest>  —— 解包前端产物包 + 最低限度校验（包内必须是 dist 的**内容**）
+# 排除 ./tooling/: 2026-10-22 起产物包 = dist 内容 + 随包上送的部署工具链(模式1 自包含),
+# 后者由 deploy.sh 的 jc_bootstrap_tooling 单独解到 deploy/runtime/, **不属于 dist** ——
+# 不排除会被 wr_sync_dist 当根静态拷进公开挂载目录(还会写进根清单)。
 wr_extract_pkg() {
   local pkg="${1:-}" dest="${2:-}"
   wr_extract_tar "$pkg" "$dest"
   [ -f "$dest/index.html" ] || wr_die \
     "包内没有 index.html —— 打包时应打进 web/dist 的**内容**(tar -C web/dist .)，不是 dist 目录本身"
+  rm -rf "$dest/tooling"
   return 0
 }
 

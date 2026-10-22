@@ -17,6 +17,15 @@
 #
 # 项目名: 默认 jerocine; 已有旧栈(项目名 film, 数据卷 film_* 前缀)迁移部署时
 # 在 .env 里设 COMPOSE_PROJECT_NAME=film 以延续原数据卷与容器, 否则会另起一套空卷。
+#
+# 相对挂载统一写成 ${JEROCINE_DEPLOY_ROOT:-.}/... : 未设该变量时(树内执行, 现状行为)解析到
+# 本文件所在目录(deploy/); 由 deploy.sh 自引导设为 deploy/ 绝对路径时(包内工具链模式,
+# compose 文件在 deploy/runtime/ 下), 挂载仍解析到同一个 deploy/ 下的 data/ secrets/ apk/ certs。
+# 新增相对挂载时必须沿用该写法, 否则 runtime 模式下会挂到 deploy/runtime/ 下的空目录。
+#
+# nginx 构建(context/dockerfile)同样可用环境变量切换: 树内 = web/Dockerfile(上下文=仓库根,
+# 模式2 服务器自构建); JEROCINE_NGINX_CONTEXT/JEROCINE_NGINX_DOCKERFILE 由 deploy.sh 在
+# 包内工具链模式下导出 = deploy/runtime/ + Dockerfile.nginx(随产物包 tooling/ 上送的薄配方)。
 name: ${COMPOSE_PROJECT_NAME:-jerocine}
 
 services:
@@ -24,9 +33,11 @@ services:
     image: migrate/migrate:v4.17.1
     restart: "no"
     volumes:
-      # 迁移文件由 server-deploy 从产物包同步到 ./data/migrations(与二进制同包同版),
+      # 迁移文件由 server-deploy 从产物包同步到 data/migrations(与二进制同包同版),
       # 不再挂 git 工作树 —— 服务器树落后/超前都不影响发版与迁移的配套关系。
-      - ./data/migrations:/migrations:ro
+      # ${JEROCINE_DEPLOY_ROOT:-.} 见文件头: 包内工具链模式下 compose 在 runtime/ 下执行,
+      # 靠它把挂载根指回 deploy/。
+      - ${JEROCINE_DEPLOY_ROOT:-.}/data/migrations:/migrations:ro
     command:
       - "-path=/migrations"
       - "-database=mysql://${MYSQL_USER:-jerocine}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:-jerocine}?multiStatements=true"
@@ -74,7 +85,7 @@ services:
       GIN_MODE: release
     volumes:
       - uploads:/opt/server/static/upload
-      - ./secrets:/etc/jerocine/secrets:ro
+      - ${JEROCINE_DEPLOY_ROOT:-.}/secrets:/etc/jerocine/secrets:ro
     networks:
       - jerocine-network
     depends_on:
@@ -97,8 +108,11 @@ services:
   nginx:
     container_name: jerocine_nginx
     build:
-      context: ..
-      dockerfile: web/Dockerfile
+      # 默认(树内): 仓库根的 web/Dockerfile —— 模式2「服务器自构建」路径;
+      # deploy.sh 在包内工具链模式下导出 JEROCINE_NGINX_CONTEXT/JEROCINE_NGINX_DOCKERFILE
+      # 切成随包上送的薄配方(见 deploy/Dockerfile.nginx 头注)。
+      context: ${JEROCINE_NGINX_CONTEXT:-..}
+      dockerfile: ${JEROCINE_NGINX_DOCKERFILE:-web/Dockerfile}
     image: jerocine-nginx:latest
     restart: unless-stopped
     ports:
@@ -109,9 +123,9 @@ services:
     volumes:
       # 前端静态产物: 宿主机挂载(替代镜像内 COPY dist) —— 这是"保留 3 版 / 整版回滚"的前提,
       # 镜像重建不再清空线上目录。内容由 deploy.sh web 同步(先写目录, 最后才 reload)。
-      - ./data/html:/usr/share/nginx/html
-      - ./apk:/usr/share/nginx/html/apk:ro
-      - ./certs:/etc/nginx/certs:ro
+      - ${JEROCINE_DEPLOY_ROOT:-.}/data/html:/usr/share/nginx/html
+      - ${JEROCINE_DEPLOY_ROOT:-.}/apk:/usr/share/nginx/html/apk:ro
+      - ${JEROCINE_DEPLOY_ROOT:-.}/certs:/etc/nginx/certs:ro
       - nginx_cache:/var/cache/nginx/api
     networks:
       - jerocine-network
