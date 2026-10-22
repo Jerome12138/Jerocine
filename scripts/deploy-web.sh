@@ -25,6 +25,9 @@ REPO="$(cd -- "$HERE/.." && pwd -P)"
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
+now_s()   { date +%s; }
+fmt_dur() { local s="${1:-0}"; if [ "$s" -ge 60 ]; then printf '%dm%02ds' $((s / 60)) $((s % 60)); else printf '%ss' "$s"; fi; }
+
 usage() {
   cat <<'EOF'
 上传前端产物包并在服务器上发布(常规前端发布手段)
@@ -75,9 +78,16 @@ done
 [ -n "$HOST" ] || die "缺少 ssh 主机：用 --host <ssh> 或设 JEROCINE_SSH_HOST(例如 jerocine)"
 [ -n "$INCOMING" ] || INCOMING="$DEPLOY_DIR/incoming"
 
+T0="$(now_s)"      # 全程计时起点(构建+上传+发布)
+T_BUILD=0; DID_BUILD=0
+T_UPLOAD=0
+T_PUBLISH=0
+
 # ---------------------------------------------------------------- 1. 构建(可选)
 
 if [ -z "$PKG" ]; then
+  DID_BUILD=1
+  _tb="$(now_s)"
   info "本机构建产物包"
   if [ -n "$TS" ]; then
     PKG="$(bash "$HERE/build-web.sh" --ts "$TS" | sed -n 's/^产物包: \([^ ]*\).*/\1/p' | tail -1)"
@@ -85,6 +95,8 @@ if [ -z "$PKG" ]; then
     PKG="$(bash "$HERE/build-web.sh" | sed -n 's/^产物包: \([^ ]*\).*/\1/p' | tail -1)"
   fi
   [ -n "$PKG" ] || die "没能从构建输出里解析出产物包路径"
+  T_BUILD=$(( $(now_s) - _tb ))
+  info "构建耗时 $(fmt_dur "$T_BUILD")"
 fi
 
 [ -f "$PKG" ] || die "找不到产物包: $PKG"
@@ -107,21 +119,33 @@ ssh "$HOST" "mkdir -p '$INCOMING'"
 
 REMOTE_PKG="$INCOMING/$PKG_NAME"
 info "上传 $PKG_NAME"
+_tu="$(now_s)"
 if [ -n "${JEROCINE_UPLOAD_CMD:-}" ]; then
   # shellcheck disable=SC2086  # 刻意允许 "bash <脚本>" 这种带空格的注入形式
   $JEROCINE_UPLOAD_CMD "$HOST" "$PKG_ABS" "$REMOTE_PKG" || die "上传失败(见上方日志)"
 else
   local_sha="$(sha256sum "$PKG_ABS" 2>/dev/null | awk '{print $1}')"
-  cat "$PKG_ABS" | ssh "$HOST" "cat > '$REMOTE_PKG'" || die "上传失败"
+  # 秒传: 远端已有相同文件(上次传完但发布被打断) → sha256 一致即跳过重传
   remote_sha="$(ssh "$HOST" "sha256sum '$REMOTE_PKG'" 2>/dev/null | awk '{print $1}')"
-  [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ] || die \
-    "sha256 校验不一致(本地 ${local_sha:-?} / 远端 ${remote_sha:-?}) —— 传输被截断或截短，请重试"
-  info "sha256 校验一致: ${local_sha:0:12}…"
+  if [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ]; then
+    info "远端已存在相同文件(sha256 ${local_sha:0:12}… 一致) → 跳过上传, 直接复用"
+  else
+    cat "$PKG_ABS" | ssh "$HOST" "cat > '$REMOTE_PKG'" || die "上传失败"
+    remote_sha="$(ssh "$HOST" "sha256sum '$REMOTE_PKG'" 2>/dev/null | awk '{print $1}')"
+    [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ] || die \
+      "sha256 校验不一致(本地 ${local_sha:-?} / 远端 ${remote_sha:-?}) —— 传输被截断或截短，请重试"
+    info "sha256 校验一致: ${local_sha:0:12}…"
+  fi
 fi
+T_UPLOAD=$(( $(now_s) - _tu ))
 
 # ---------------------------------------------------------------- 3. 远端发布
 
 info "远端发布: $DEPLOY_DIR → ./deploy.sh web-deploy $REMOTE_PKG"
+_tp="$(now_s)"
 ssh "$HOST" "cd '$DEPLOY_DIR' && ./deploy.sh web-deploy '$REMOTE_PKG'"
+T_PUBLISH=$(( $(now_s) - _tp ))
 
-info "完成: $PKG_NAME 已发布"
+summary="上传 $(fmt_dur "$T_UPLOAD") + 发布 $(fmt_dur "$T_PUBLISH")"
+if [ "$DID_BUILD" = "1" ]; then summary="构建 $(fmt_dur "$T_BUILD") + $summary"; fi
+info "完成: $PKG_NAME 已发布 —— 总耗时 $(fmt_dur "$(( $(now_s) - T0 ))")（$summary）"
