@@ -135,7 +135,8 @@ pull_and_reexec() {
 # legacy: git pull + 树内执行, 行为与从前完全一致。
 jc_bootstrap_tooling() {
   if [ -n "${JEROCINE_DEPLOY_ROOT:-}" ]; then return 0; fi   # 已在包内工具链里跑, 不重复自引导
-  local pkg="$1" cmd="$2" list ctx
+  local pkg="$1" cmd="$2"; shift 2   # 其余参数原样透传(如 web-deploy 的可选 [TS]), 否则重 exec 后静默丢失
+  local list ctx
   # 包内有没有 tooling/。刻意不用 `tar -tzf | grep -q`: grep 提前退出会让 tar 收 SIGPIPE,
   # 叠加 pipefail 后"明明有"反而判没有, 且结果随条目在包里的位置漂移(踩过, 见
   # build-server.sh 的 pkg_has_entry 注释)。这里用 shell 通配, 零子进程风险。
@@ -160,7 +161,7 @@ jc_bootstrap_tooling() {
   echo "==> 产物包自带部署工具链(tooling/) ⇒ 同步到 $(pwd)/runtime, 并以该版本执行(本发布起不依赖 git)"
   export JEROCINE_DEPLOY_ROOT="$(pwd)"
   # 参数原样透传: pkg 路径的解析语义与 legacy 一致(两边都 cd 到同一个 deploy/)。
-  exec bash "runtime/deploy.sh" "$cmd" "$pkg"
+  exec bash "runtime/deploy.sh" "$cmd" "$pkg" "$@"
 }
 
 # ============================ Web 发布(v2: 挂载 + 版本目录) ============================
@@ -322,7 +323,8 @@ deploy_web_from_pkg() {
 
   # 模式1 自包含: 包内带 tooling/ ⇒ 同步到 deploy/runtime/ 并以包内版本重新执行本命令
   # (不再返回); 旧格式包(无 tooling/, 回滚场景) ⇒ 返回, 继续走下面的 legacy 路径。
-  jc_bootstrap_tooling "$pkg" web-deploy
+  # "${@:2}": web-deploy 的可选 [TS] 等附加参数必须透传, 否则自引导后静默丢失。
+  jc_bootstrap_tooling "$pkg" web-deploy "${@:2}"
 
   require_web_mount_safe
 
@@ -336,9 +338,9 @@ deploy_web_from_pkg() {
   wr_extract_pkg "$pkg" "$tmp"
   ts="$ts_arg"
   [ -n "$ts" ] || ts="$(wr_ts_from_dist "$tmp")"
-  # 包名与包内容不一致时以**包内容**为准, 但要说一声(多半是传错了文件)
+  # 包名与发布版本不一致时说一声(多半是传错了文件; 显式传了 [TS] 时以它为准)
   if pkg_ts="$(wr_pkg_ts "$pkg")" && [ "$pkg_ts" != "$ts" ]; then
-    echo "!! 包名版本($pkg_ts) 与包内 assets 版本($ts) 不一致, 以包内为准" >&2
+    echo "!! 包名版本($pkg_ts) 与发布版本($ts) 不一致, 以发布版本为准" >&2
   fi
 
   echo "==> 发布上传产物包 $pkg (版本 $ts)"
@@ -391,7 +393,7 @@ deploy_server_from_pkg() {
 
   # 模式1 自包含(同 web-deploy): 包内 tooling/ ⇒ 自引导到 deploy/runtime/ 并以包内版本
   # 重新执行本命令; 旧格式包 ⇒ 返回, 走 legacy(git pull + 树内执行)。
-  jc_bootstrap_tooling "$pkg" server-deploy
+  jc_bootstrap_tooling "$pkg" server-deploy "${@:2}"
 
   pull_and_reexec
 

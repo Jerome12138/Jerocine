@@ -2,7 +2,8 @@
 # 本机上传前端产物包并触发服务器发布 —— 常规前端发布的第二步(与 scripts/build-web.sh 配套)。
 #
 # 链路: 本机构建打包(build-web.sh) → SSH 上送到 <deploy>/incoming/ → ssh 执行
-#       ./deploy.sh web-deploy <远端包路径>(解包 → 同一套发布语义 → 留档 data/packages/ → reload)
+#       ./deploy.sh web-deploy <远端包路径>(包内 tooling/ 自引导到 deploy/runtime/ → 同一套发布
+#       语义 → 留档 data/packages/ → reload; 模式1 全程不需要服务器 git pull)
 #
 # 用法:
 #   bash scripts/deploy-web.sh                       # 构建 + 上传 + 发布

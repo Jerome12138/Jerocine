@@ -42,7 +42,7 @@ deploy/
 | `web-rollback <TS>` | 整版回滚（`index.html` + `sw.js` + `workbox-*.js` 三件套），TS 见 `data/releases/` |
 
 > `git pull` 后脚本会用新版本重新 exec 自己一次（防脚本执行中被覆写），日志看到两轮 pull 属预期 —— 仅**模式2 / legacy 路径**会这样。
-> **发布边界（2026-10-22 起）**：模式1（`server-deploy`/`web-deploy`）的产物包自带 `tooling/`（部署脚本 + lib + compose + Dockerfile + nginx.conf，与二进制同包同版）—— 服务器端自引导到固定目录 `deploy/runtime/` 并以包内版本执行，**不 `git pull`、不要求树最新、无 push 前置**；模式2（树上 `./deploy.sh server|web`）与旧格式包（无 `tooling/`，回滚场景）才走 `git pull --ff-only` + 树内执行。旧格式包（无 `migrations/`）会响亮跳过迁移，用于回滚旧版。
+> **发布边界（2026-10-22 起）**：模式1（`server-deploy`/`web-deploy`）的产物包自带 `tooling/`（部署脚本 + lib + compose + Dockerfile + nginx.conf，与二进制同包同版）—— 服务器端自引导到固定目录 `deploy/runtime/` 并以包内版本执行，**不 `git pull`、不要求树最新、无 push 前置**；模式2（树上 `./deploy.sh server|web`）与旧格式包（无 `tooling/`，回滚场景）才走 `git pull --ff-only` + 树内执行。更早的包（无 `migrations/`，自动迁移上线前打的）会响亮跳过迁移，用于回滚旧版。
 
 ## 日常更新
 

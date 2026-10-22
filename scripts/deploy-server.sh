@@ -2,7 +2,8 @@
 # 本机上传后端产物包并触发服务器发布 —— 常规后端发布的第二步(与 scripts/build-server.sh 配套)。
 #
 # 链路: 本机交叉编译打包(build-server.sh) → SSH 上送到 <deploy>/incoming/ → ssh 执行
-#       ./deploy.sh server-deploy <远端包路径>(解包 → 构建薄运行镜像 → 重建容器 → 等健康 → 清缓存)
+#       ./deploy.sh server-deploy <远端包路径>(包内 tooling/ 自引导到 deploy/runtime/ → 自动迁移
+#       → 构建薄运行镜像 → 重建容器 → 等健康 → 清缓存; 模式1 全程不需要服务器 git pull)
 #
 # 用法:
 #   bash scripts/deploy-server.sh                        # 构建 + 上传 + 发布

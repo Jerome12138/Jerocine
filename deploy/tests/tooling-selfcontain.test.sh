@@ -265,6 +265,27 @@ case "$ngx_line" in
 esac
 assert_has "web 产物包留档" "$SB/data/packages/20260101-120000.tar.gz"
 
+# 3.5 自引导参数透传: web-deploy 的可选 [TS] 曾被 exec 静默丢掉(legacy 保留/新格式丢失的不一致)。
+# [TS] 的真实语义 = 多版本 dist 消歧(wr_ts_from_dist 遇 2 个版本目录直接拒), 所以夹具放两个版本。
+echo "# 3.5 自引导参数透传"
+stage2v="$WORK/stage-2v"
+rm -rf "$stage2v"; mkdir -p "$stage2v/assets/20260101-140000" "$stage2v/assets/20260101-150000"
+printf '<html>web</html>\n' > "$stage2v/index.html"
+printf 'js\n'  > "$stage2v/assets/20260101-140000/index-x.js"
+printf 'js2\n' > "$stage2v/assets/20260101-150000/index-y.js"
+printf 'sw\n'  > "$stage2v/sw.js"
+mkdir -p "$stage2v/tooling/lib"
+cp "$SB/deploy.sh" "$stage2v/tooling/deploy.sh"
+printf '\necho "==> [tooling v2 marker]"\n' >> "$stage2v/tooling/deploy.sh"
+cp "$SB"/lib/*.sh "$stage2v/tooling/lib/"
+cp "$SB/docker-compose.yml" "$SB/Dockerfile.runtime" "$SB/Dockerfile.nginx" "$SB/nginx.conf" \
+   "$stage2v/tooling/"
+tar czf "$WORK/jerocine-web-20260101-150000.tar.gz" -C "$stage2v" .
+run_deploy web-deploy "$WORK/jerocine-web-20260101-150000.tar.gz" 20260101-150000 \
+  && ok "带 [TS] 消歧的 web 包发布成功" || { bad "TS 消歧发布失败"; cat "$WORK/out"; }
+grep -q "版本 20260101-150000" "$WORK/out" \
+  && ok "可选 [TS] 经自引导透传(未被 exec 丢弃)" || bad "[TS] 参数在自引导时丢失"
+
 # ==================== 4. 对照(legacy) + 守卫 ====================
 echo "# 4. legacy 对照与守卫"
 # 4.1 同一个包**不带** tooling/ ⇒ legacy: pull 照旧、无标记、compose 无 -f
