@@ -116,7 +116,7 @@ wr_prune_root_stale() {
 # web-init 专用: docker cp 把旧容器产物落到 html/ 之后, 做两件纯文件的事 ——
 #   ① 删掉 docker cp 连带带出的 apk 副本(容器内 /usr/share/nginx/html/apk 是 ./apk 的只读挂载点,
 #      不属于镜像自带产物; 留在挂载目录里会被 ./apk 挂载遮蔽, 还会干扰根清单清理);
-#   ② 写出初始根清单 —— 有了它, 紧随其后的 ./deploy.sh web 才能清掉"旧版有、本版没有"的根文件。
+#   ② 写出初始根清单 —— 有了它, 紧随其后的 web-deploy 才能清掉"旧版有、本版没有"的根文件。
 # 抽成纯函数(不碰 docker/权限)便于本机单测: tests/web-release.test.sh 第 9 组。
 wr_init_after_copy() {
   local data="$1" html="$1/html" entries=() e

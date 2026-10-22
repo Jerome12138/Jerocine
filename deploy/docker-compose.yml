@@ -121,7 +121,7 @@ services:
       TZ: Asia/Shanghai
     volumes:
       # 前端静态产物: 宿主机挂载(替代镜像内 COPY dist) —— 这是"保留 3 版 / 整版回滚"的前提,
-      # 镜像重建不再清空线上目录。内容由 deploy.sh web 同步(先写目录, 最后才 reload)。
+      # 镜像重建不再清空线上目录。内容由 web-deploy 同步(先写目录, 最后才 reload)。
       - ${JEROCINE_DEPLOY_ROOT:-.}/data/html:/usr/share/nginx/html
       - ${JEROCINE_DEPLOY_ROOT:-.}/apk:/usr/share/nginx/html/apk:ro
       - ${JEROCINE_DEPLOY_ROOT:-.}/certs:/etc/nginx/certs:ro

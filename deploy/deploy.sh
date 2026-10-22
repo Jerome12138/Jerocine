@@ -203,16 +203,16 @@ web_init() {
   fi
   echo "==> 从运行中的 jerocine_nginx 容器复制现有产物到 data/html"
   if ! "${DOCKER[@]}" inspect jerocine_nginx >/dev/null 2>&1; then
-    wr_die "找不到 jerocine_nginx 容器; 若线上还没跑过, 直接 ./deploy.sh web 即可"
+    wr_die "找不到 jerocine_nginx 容器; 若线上还没跑过, 直接发布一个前端产物包即可(./deploy.sh web-deploy <pkg>)"
   fi
   mkdir -p data/html
   "${DOCKER[@]}" cp jerocine_nginx:/usr/share/nginx/html/. data/html/
   # docker cp 产物属主是 root(见 chown_to_me 注释): 不归一化则下面删 apk 副本会 Permission denied,
-  # 紧接着的 ./deploy.sh web 覆盖写 html/index.html 也会被拒。
+  # 紧接着的 web-deploy 覆盖写 html/index.html 也会被拒。
   chown_to_me data/html
   if [ ! -f data/html/index.html ]; then
     echo "!! 容器内没有前端产物(可能已是新版镜像 / 已切挂载)。" >&2
-    echo "   直接跑 ./deploy.sh web 用构建产物初始化挂载目录即可。" >&2
+    echo "   直接发布一个前端产物包初始化挂载目录即可: ./deploy.sh web-deploy <pkg>" >&2
     exit 1
   fi
   # 删掉 docker cp 带出的 apk 副本, 并写出初始根清单(详见 lib/web-release.sh 的 wr_init_after_copy)
@@ -230,7 +230,7 @@ web_init() {
       echo "         确认新版上线正常后可手动删除(它们不在自动清理范围内)"
     fi
   fi
-  echo "==> 初始化完成。接着跑 ./deploy.sh web 发布首个带 Service Worker 的版本"
+  echo "==> 初始化完成。接着发布前端产物包: ./deploy.sh web-deploy <pkg>"
 }
 
 # 整版回滚: 快照三件套(index.html + sw.js + workbox-*.js) 一起覆盖回根, 再 reload
@@ -374,7 +374,7 @@ deploy_server_from_pkg() {
   "${COMPOSE[@]}" up -d --no-build server
 
   if ! wait_for_server_healthy; then
-    echo "   回退到容器内编译: ./deploy.sh server" >&2
+    echo "   修复迁移问题后重跑本命令(迁移幂等); 历史包回滚: server-deploy data/packages/<旧包>" >&2
     exit 1
   fi
 
