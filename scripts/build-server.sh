@@ -39,6 +39,24 @@ info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[!]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# with_progress <标签> <命令...> —— 长命令后台跑, 前台每 5s 打一次已用时
+# (go build 无原生进度输出, 编译/首次拉模块动辄几十秒, 不给进度像卡死)。
+with_progress() {
+  local label="$1"; shift
+  local t=0 rc=0 pid
+  "$@" &
+  pid=$!
+  printf '\033[36m==>\033[0m %s' "$label"
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    t=$((t + 5))
+    printf ' [%ds]' "$t"
+  done
+  wait "$pid" || rc=$?
+  printf ' 完成(%ds)\n' "$t"
+  return "$rc"
+}
+
 usage() {
   cat <<'EOF'
 本机交叉编译后端并打包(常规后端发布第一步)
@@ -143,8 +161,9 @@ trap 'rm -rf "$STAGE"; rm -f "$STAGE.pkg.tar"' EXIT
 export CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH"
 export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
 
-info "交叉编译后端 linux/$ARCH（$(go version | awk '{print $3}')）"
-( cd "$SRV" && go build -trimpath -ldflags="-s -w" -o "$(to_native "$STAGE/main")" ./cmd/server )
+do_build() { ( cd "$SRV" && go build -trimpath -ldflags="-s -w" -o "$(to_native "$STAGE/main")" ./cmd/server ); }
+with_progress "交叉编译后端 linux/$ARCH（$(go version | awk '{print $3}')）…" do_build \
+  || die "go build 失败（详见上方 go 报错）"
 
 check_elf "$STAGE/main" "$ARCH"
 # 补 exec 位(Windows 文件系统上 go 产物默认 644)。⚠️ 本机 MSYS 是 noacl 挂载, chmod 对

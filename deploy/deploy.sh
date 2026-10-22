@@ -391,10 +391,14 @@ deploy_server_from_pkg() {
 # 等 jerocine_server 达到 healthy（超时打印日志提示并返回 1）。deploy_nginx 与 server-deploy 共用。
 wait_for_server_healthy() {
   echo "==> 等待 jerocine_server healthy..."
-  local st
-  for _ in $(seq 1 60); do
+  local st i
+  for i in $(seq 1 60); do
     st="$("${DOCKER[@]}" inspect --format '{{.State.Health.Status}}' jerocine_server 2>/dev/null || echo missing)"
-    if [ "$st" = "healthy" ]; then return 0; fi
+    if [ "$st" = "healthy" ]; then
+      echo "==> jerocine_server healthy(第 $i 次探测)"
+      return 0
+    fi
+    printf '  [%03ds] health=%s\n' $((i * 5)) "$st"
     sleep 5
   done
   echo "!! jerocine_server 5 分钟未达 healthy, 请查日志: ${DOCKER[*]} logs jerocine_server" >&2

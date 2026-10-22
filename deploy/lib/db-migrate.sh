@@ -36,6 +36,8 @@ wait_migrate_container() {
       exited) break ;;
       missing) echo "!! migrate 容器不存在: $cid" >&2; return 1 ;;
     esac
+    # 1s 一探但只每 5s 报一次状态(迁移通常几秒完; 长时间卡住时能看到它还活着)
+    if [ $((i % 5)) -eq 0 ]; then printf '  [%03ds] migrate 状态=%s\n' "$i" "$st"; fi
     sleep 1
   done
   if [ "${st:-}" != "exited" ]; then
