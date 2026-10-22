@@ -78,7 +78,16 @@ if [ -n "${JEROCINE_DEPLOY_ROOT:-}" ]; then
   RUNTIME_DF="runtime/Dockerfile.runtime"
   export JEROCINE_NGINX_CONTEXT="$JEROCINE_DEPLOY_ROOT/runtime"
   export JEROCINE_NGINX_DOCKERFILE="Dockerfile.nginx"
-  COMPOSE=("${DOCKER[@]}" compose --env-file .env -f runtime/docker-compose.yml)
+  # ⚠️ sudo 剥环境变量: 服务器 docker 走 `sudo -n docker`(见上), sudo 默认 env_reset,
+  # export 的 JEROCINE_* 到不了 compose 进程 ⇒ YAML 里 ${JEROCINE_DEPLOY_ROOT:-.} 回退成
+  # `.`、按 compose 文件所在目录解析成 runtime/data/migrations(空目录) —— 迁移必挂,
+  # nginx 构建上下文同理(2026-10-22 首次模式1 发布实测)。解法: 把三个值落盘成 compose
+  # 专用 env 文件 —— sudo 剥不掉磁盘文件; 排在 --env-file .env 之后(后读覆盖前者)。
+  # shell 环境的 export 仍保留: 不经 sudo 的环境(本机/用户在 docker 组)行为不变。
+  printf 'JEROCINE_DEPLOY_ROOT=%s\nJEROCINE_NGINX_CONTEXT=%s\nJEROCINE_NGINX_DOCKERFILE=%s\n' \
+    "$JEROCINE_DEPLOY_ROOT" "$JEROCINE_NGINX_CONTEXT" "$JEROCINE_NGINX_DOCKERFILE" \
+    > "$JEROCINE_DEPLOY_ROOT/runtime/deploy.env"
+  COMPOSE=("${DOCKER[@]}" compose --env-file .env --env-file "$JEROCINE_DEPLOY_ROOT/runtime/deploy.env" -f runtime/docker-compose.yml)
 else
   RUNTIME_DF="Dockerfile.runtime"
   COMPOSE=("${DOCKER[@]}" compose --env-file .env)

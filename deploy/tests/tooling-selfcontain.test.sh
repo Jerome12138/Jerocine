@@ -53,9 +53,8 @@ if [ "$1" = "compose" ]; then
   echo "compose $*" >> "$STUB_STATE/log"
   echo "NGINX_CTX=${JEROCINE_NGINX_CONTEXT:-unset} NGINX_DF=${JEROCINE_NGINX_DOCKERFILE:-unset}" >> "$STUB_STATE/log"
   shift
-  case "$1 $2" in
-    "--env-file .env") shift 2 ;;
-  esac
+  # --env-file 可重复出现(.env 与 runtime/deploy.env), 循环剥到没有为止
+  while [ "$1" = "--env-file" ]; do shift 2; done
   # 包内工具链模式(自引导): deploy.sh 追加 -f runtime/docker-compose.yml
   case "$1 $2" in
     "-f "*) shift 2 ;;
@@ -190,6 +189,12 @@ grep -q 'export JEROCINE_DEPLOY_ROOT=' "$DEPLOY_DIR/deploy.sh" \
   && ok "deploy.sh 自引导 export JEROCINE_DEPLOY_ROOT" || bad "未 export JEROCINE_DEPLOY_ROOT"
 grep -qF -- '-f runtime/docker-compose.yml' "$DEPLOY_DIR/deploy.sh" \
   && ok "runtime 模式 compose 用包内副本" || bad "runtime 模式未指定 -f"
+# sudo 剥环境变量(服务器 docker = sudo -n docker): JEROCINE_* 插值必须经磁盘 env 文件
+# 传给 compose(2026-10-22 首次模式1 发布实测: 迁移挂到 runtime/data/migrations 空目录)。
+grep -qF -- '--env-file "$JEROCINE_DEPLOY_ROOT/runtime/deploy.env"' "$DEPLOY_DIR/deploy.sh" \
+  && ok "runtime 模式 compose 附加磁盘 env 文件(sudo 剥不掉)" || bad "缺少 runtime/deploy.env 注入"
+grep -qF 'printf' "$DEPLOY_DIR/deploy.sh" && grep -qF 'JEROCINE_NGINX_DOCKERFILE=%s' "$DEPLOY_DIR/deploy.sh" \
+  && ok "deploy.env 写入三个插值变量(根/nginx 上下文/nginx Dockerfile)" || bad "deploy.env 内容不全"
 grep -qF 'RUNTIME_DF="runtime/Dockerfile.runtime"' "$DEPLOY_DIR/deploy.sh" \
   && ok "runtime 模式 server 镜像用包内 Dockerfile.runtime" || bad "RUNTIME_DF 未切包内副本"
 grep -qF 'exec bash "runtime/deploy.sh"' "$DEPLOY_DIR/deploy.sh" \
@@ -229,6 +234,15 @@ grep -q -- "-f runtime/docker-compose.yml up -d --no-build server" "$WORK/state/
   && ok "server 重建走包内 compose 副本" || bad "server 未用包内 compose"
 grep -q -- "build -f runtime/Dockerfile.runtime" "$WORK/state/log" \
   && ok "server 镜像用包内 Dockerfile.runtime" || bad "server 镜像未用包内 Dockerfile"
+grep -q -- "--env-file $SB/runtime/deploy.env" "$WORK/state/log" \
+  && ok "compose 附加 runtime/deploy.env(插值走磁盘, 免疫 sudo 剥环境)" \
+  || bad "compose 未附加 runtime/deploy.env"
+grep -qF "JEROCINE_DEPLOY_ROOT=$SB" "$SB/runtime/deploy.env" \
+  && ok "deploy.env 含绝对部署根" || bad "deploy.env 缺 JEROCINE_DEPLOY_ROOT"
+grep -qF "JEROCINE_NGINX_CONTEXT=$SB/runtime" "$SB/runtime/deploy.env" \
+  && ok "deploy.env 含 nginx 上下文" || bad "deploy.env 缺 JEROCINE_NGINX_CONTEXT"
+grep -qF "JEROCINE_NGINX_DOCKERFILE=Dockerfile.nginx" "$SB/runtime/deploy.env" \
+  && ok "deploy.env 含 nginx Dockerfile 切换" || bad "deploy.env 缺 JEROCINE_NGINX_DOCKERFILE"
 n_mig="$(grep -n 'force-recreate migrate' "$WORK/state/log" | head -1 | cut -d: -f1)"
 n_srv="$(grep -n 'up -d --no-build server' "$WORK/state/log" | head -1 | cut -d: -f1)"
 [ -n "$n_mig" ] && [ -n "$n_srv" ] && [ "$n_mig" -lt "$n_srv" ] \
@@ -307,6 +321,11 @@ if grep -q -- "-f runtime/docker-compose.yml" "$WORK/state/log"; then
   bad "legacy 模式不该用 -f runtime/compose"
 else
   ok "legacy 模式 compose 仍是树内默认文件"
+fi
+if grep -q -- "deploy.env" "$WORK/state/log"; then
+  bad "legacy 模式不该带 runtime/deploy.env"
+else
+  ok "legacy 模式 compose 无 deploy.env(树内默认插值本来就对)"
 fi
 
 # 4.2 手动直跑 runtime 副本(无 DEPLOY_ROOT) ⇒ 拒绝并指路
