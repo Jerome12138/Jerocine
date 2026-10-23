@@ -21,6 +21,8 @@ export MSYS_NO_PATHCONV=1
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
+# 第 2 层: 各小节(构建/上传/发布)内部的明细, 与 upload-over-ssh.sh 的层级约定一致。
+sub() { printf '  \033[36m==>\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
 now_s()   { date +%s; }
@@ -87,14 +89,16 @@ if [ -z "$PKG" ]; then
   DID_BUILD=1
   _tb="$(now_s)"
   info "本机交叉编译并打包后端"
+  # 构建脚本的 stderr(go/vite 等工具输出)缩进 2 空格作为本节第 2 层; stdout 仍走
+  # 下面的 sed 提取产物包路径。
   if [ -n "$ARCH" ]; then
-    PKG="$(bash "$HERE/build-server.sh" --arch "$ARCH" | sed -n 's/^产物包: \([^ ]*\).*/\1/p' | tail -1)"
+    PKG="$(bash "$HERE/build-server.sh" --arch "$ARCH" 2> >(sed 's/^/  /' >&2) | sed -n 's/^产物包: \([^ ]*\).*/\1/p' | tail -1)"
   else
-    PKG="$(bash "$HERE/build-server.sh" | sed -n 's/^产物包: \([^ ]*\).*/\1/p' | tail -1)"
+    PKG="$(bash "$HERE/build-server.sh" 2> >(sed 's/^/  /' >&2) | sed -n 's/^产物包: \([^ ]*\).*/\1/p' | tail -1)"
   fi
   [ -n "$PKG" ] || die "没能从编译输出里解析出产物包路径"
   T_BUILD=$(( $(now_s) - _tb ))
-  info "构建耗时 $(fmt_dur "$T_BUILD")"
+  sub "构建耗时 $(fmt_dur "$T_BUILD")"
 fi
 
 [ -f "$PKG" ] || die "找不到产物包: $PKG"
@@ -112,11 +116,11 @@ PKG_NAME="$(basename "$PKG_ABS")"
 # 的 agent 终端里整包长流会被 SIGTERM 掐死 —— Harness 私有仓用 1MB 分片 +
 # 断点续传的实现注入（scripts/lib/upload-over-ssh.sh），公开仓不背这份复杂度。
 
-info "准备远端目录 $HOST:$INCOMING"
+info "上传 $PKG_NAME"
+sub "准备远端目录 $HOST:$INCOMING"
 ssh "$HOST" "mkdir -p '$INCOMING'"
 
 REMOTE_PKG="$INCOMING/$PKG_NAME"
-info "上传 $PKG_NAME"
 _tu="$(now_s)"
 if [ -n "${JEROCINE_UPLOAD_CMD:-}" ]; then
   # shellcheck disable=SC2086  # 刻意允许 "bash <脚本>" 这种带空格的注入形式
@@ -126,13 +130,13 @@ else
   # 秒传: 远端已有相同文件(上次传完但发布被打断) → sha256 一致即跳过重传
   remote_sha="$(ssh "$HOST" "sha256sum '$REMOTE_PKG'" 2>/dev/null | awk '{print $1}')"
   if [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ]; then
-    info "远端已存在相同文件(sha256 ${local_sha:0:12}… 一致) → 跳过上传, 直接复用"
+    sub "远端已存在相同文件(sha256 ${local_sha:0:12}… 一致) → 跳过上传, 直接复用"
   else
     cat "$PKG_ABS" | ssh "$HOST" "cat > '$REMOTE_PKG'" || die "上传失败"
     remote_sha="$(ssh "$HOST" "sha256sum '$REMOTE_PKG'" 2>/dev/null | awk '{print $1}')"
     [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ] || die \
       "sha256 校验不一致(本地 ${local_sha:-?} / 远端 ${remote_sha:-?}) —— 传输被截断或截短，请重试"
-    info "sha256 校验一致: ${local_sha:0:12}…"
+    sub "sha256 校验一致: ${local_sha:0:12}…"
   fi
 fi
 T_UPLOAD=$(( $(now_s) - _tu ))
@@ -141,7 +145,9 @@ T_UPLOAD=$(( $(now_s) - _tu ))
 
 info "远端发布: $DEPLOY_DIR → ./deploy.sh server-deploy $REMOTE_PKG"
 _tp="$(now_s)"
-ssh "$HOST" "cd '$DEPLOY_DIR' && ./deploy.sh server-deploy '$REMOTE_PKG'"
+# 远端输出缩进 2 空格, 作为本节(第 1 层「==> 远端发布」)下的第 2 层明细;
+# 2>&1 把 docker build(stderr)一并缩进。pipefail 保住 ssh 退出码(set -e 语义不变)。
+ssh "$HOST" "cd '$DEPLOY_DIR' && ./deploy.sh server-deploy '$REMOTE_PKG'" 2>&1 | sed 's/^/  /'
 T_PUBLISH=$(( $(now_s) - _tp ))
 
 summary="上传 $(fmt_dur "$T_UPLOAD") + 发布 $(fmt_dur "$T_PUBLISH")"
