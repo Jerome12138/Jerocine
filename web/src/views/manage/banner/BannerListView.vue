@@ -188,6 +188,17 @@ function goLabelOf(s: EffectiveSlide): string {
   return '未配置'
 }
 
+/** 跳转列可点击性: 关联影片的跳详情页; 自定义链接仅展示文本 */
+function canJump(s: EffectiveSlide): boolean {
+  return !s.link && !!s.mid && s.mid > 0
+}
+
+/** 豆瓣榜位列文案 */
+function hotLabelOf(s: EffectiveSlide): string {
+  if (!s.hotRank) return '—'
+  return `${s.hotBoard || '豆瓣'} No.${s.hotRank}`
+}
+
 const reasonStyle: Record<InactiveBanner['reason'], { text: string; variant: 'danger' | 'warning' | 'default' }> = {
   disabled: { text: '已停用', variant: 'danger' },
   noimage: { text: '缺横竖图', variant: 'warning' },
@@ -268,22 +279,48 @@ onUnmounted(() => {
           class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)] border-b border-default last:border-b-0"
         >
         <span class="w-4 text-center text-muted text-xs shrink-0">{{ i + 1 }}</span>
+        <!-- 横图列(生效中的宽幅主视觉) -->
         <img
-          v-if="s.image || s.poster"
-          :src="s.image || s.poster"
-          alt=""
+          v-if="s.image"
+          :src="s.image"
+          alt="横图"
           class="w-[96px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0"
         />
         <span
           v-else
           class="w-[96px] h-[54px] grid place-items-center text-muted text-xs rounded-[var(--jc-radius-sm)] bg-elevated shrink-0"
-        >无图</span>
+        >无横图</span>
+        <!-- 竖图列(窄屏兜底海报) -->
+        <img
+          v-if="s.poster"
+          :src="s.poster"
+          alt="竖图"
+          class="w-[36px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0"
+        />
+        <span
+          v-else
+          class="w-[36px] h-[54px] grid place-items-center text-muted text-[10px] rounded-[var(--jc-radius-sm)] bg-elevated shrink-0"
+        >无</span>
         <div class="flex flex-col min-w-0 flex-1">
           <span class="truncate">{{ s.name || '为你推荐' }}</span>
           <span class="text-muted text-xs truncate">
-            {{ s.subtitle || (s.source === 'banner' ? goLabelOf(s) : '热榜自动补入') }}
+            {{ s.subtitle || (s.source === 'banner' ? '' : '热榜自动补入') }}
           </span>
         </div>
+        <!-- 影片元信息(与首页大图描述行同源; 无元信息显示 —) -->
+        <span
+          class="w-[44px] text-center text-xs tabular-nums shrink-0"
+          :class="s.dbScore ? 'text-[var(--jc-warning)]' : 'text-muted'"
+          title="豆瓣评分"
+        >{{ s.dbScore ? s.dbScore.toFixed(1) : '—' }}</span>
+        <span
+          class="w-[96px] text-xs text-secondary truncate hidden xl:inline shrink-0"
+          :title="s.classTag || ''"
+        >{{ s.classTag || '—' }}</span>
+        <span
+          class="w-[120px] text-xs text-secondary truncate hidden lg:inline shrink-0"
+          :title="hotLabelOf(s)"
+        >{{ hotLabelOf(s) }}</span>
         <BaseTag :variant="s.source === 'banner' ? 'success' : 'default'" size="sm" class="shrink-0">
           {{ s.source === 'banner' ? '手动' : '自动' }}
         </BaseTag>
@@ -295,7 +332,14 @@ onUnmounted(() => {
         >
           {{ s.image ? '横图已就绪' : '横图待回填' }}
         </BaseTag>
-        <span class="text-xs text-link w-[120px] truncate hidden lg:block shrink-0">{{ goLabelOf(s) }}</span>
+        <!-- 跳转列: 关联影片可点进详情页; 自定义链接仅展示 -->
+        <RouterLink
+          v-if="canJump(s)"
+          :to="{ path: '/filmDetail', query: { link: String(s.mid) } }"
+          class="text-xs text-link hover:underline w-[120px] truncate hidden lg:inline-block shrink-0"
+          :title="`查看影片详情 ${goLabelOf(s)}`"
+        >{{ goLabelOf(s) }}</RouterLink>
+        <span v-else class="text-xs text-link w-[120px] truncate hidden lg:block shrink-0" :title="goLabelOf(s)">{{ goLabelOf(s) }}</span>
         <div class="flex gap-[var(--jc-space-1)] shrink-0">
           <BaseButton
             variant="ghost" size="sm" :disabled="!canMoveUp(s, i)"
