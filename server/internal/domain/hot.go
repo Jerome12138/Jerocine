@@ -141,9 +141,13 @@ func HotYearFresh(year int, now time.Time) int {
 }
 
 // HotOnAirScore 在播加分: 日更 14 / 周更·月更 12 / 已完结或静态 0。
+//
+// 判定优先级(2026-10-23 审查修正): "更新至/更新到/连载"是在播铁证, 必须先于"全"字判定 ——
+// 防"更新至全40集"这类混排形态被"含全即完结"误杀(线上实测当前无此形态, 纯防御;
+// "全集/N集全/12期全"等无在播字样的才是完结, 落到兜底 0)。
 func HotOnAirScore(remarks string) int {
 	r := strings.TrimSpace(remarks)
-	if r == "" || strings.Contains(r, "完结") || strings.Contains(r, "全") {
+	if r == "" || strings.Contains(r, "完结") {
 		return 0
 	}
 	if strings.Contains(r, "更新至") || strings.Contains(r, "连载") || strings.Contains(r, "更新到") {

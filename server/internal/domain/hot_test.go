@@ -133,6 +133,12 @@ func TestHotOnAirScore(t *testing.T) {
 		{"更新至", HotOnAirOther}, // 边界: 前缀命中即算在播
 		{"", 0},
 		{" 更新至20260911期 ", HotOnAirDaily}, // 去空白后判定
+		// "全"字判定必须在"更新至"之后: 在播铁证优先(2026-10-23 审查修正)
+		{"更新至全40集", HotOnAirOther}, // 混排形态: 在播, 不被"全"误杀
+		{"全集", 0},                   // 无在播字样: 完结形态
+		{"12集全", 0},
+		{"12期全", 0}, // 含"期"但无"更新至", 仍是完结
+		{"全一季", 0},
 	}
 	for _, c := range cases {
 		if got := HotOnAirScore(c.remarks); got != c.want {
