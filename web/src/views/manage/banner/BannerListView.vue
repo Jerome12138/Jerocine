@@ -262,7 +262,7 @@ onUnmounted(() => {
           class="flex items-center gap-[var(--jc-space-2)] py-[var(--jc-space-2)] text-muted text-xs border-b border-default"
         >
           <span class="shrink-0">▾ 以下为候选位</span>
-          <span class="truncate">热榜自动补入 · 会随热榜刷新换新；「编辑」采纳即启用手动位，「禁用」永久屏蔽该影片</span>
+          <span class="truncate">暂不对外生效 · 未采纳的热榜候选会随刷新换新(手动行保持不变)；「编辑」采纳即启用手动位，「禁用」永久屏蔽该影片</span>
         </li>
         <li
           class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)] border-b border-default last:border-b-0"
