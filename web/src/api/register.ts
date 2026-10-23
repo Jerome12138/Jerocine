@@ -11,6 +11,10 @@ import type {
 export const getRegisterConfig = (): Promise<RegisterConfig> =>
   http.get<unknown, RegisterConfig>('/auth/register-config')
 
+/** GET /auth/register/check-username?name= 用户名占用检查（表单失焦即时反馈用） */
+export const checkUserName = (name: string): Promise<{ available: boolean }> =>
+  http.get<unknown, { available: boolean }>('/auth/register/check-username', { params: { name } })
+
 /** POST /auth/register/code 发送邮箱验证码（purpose: register | reset） */
 export const sendRegisterCode = (email: string, purpose = 'register'): Promise<{ sent: boolean }> =>
   http.post<unknown, { sent: boolean }>('/auth/register/code', { email, purpose })

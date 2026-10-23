@@ -50,6 +50,7 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	// 账号自注册(公开): register_mode=off 时入口关闭; open 自由注册 / apply 申请审核(P2)。
 	// IP 桶之外, 邮箱级频率(1 分钟 1 封 + 日 5 封)与全局日配额在 RegisterService 内控。
 	v1.GET("/auth/register-config", h.RegisterConfig)
+	v1.GET("/auth/register/check-username", middleware.RateLimit("regnamecheck", 60, 1), h.CheckUserName)
 	v1.POST("/auth/register/code", middleware.RateLimit("regcode", 10, 0.05), h.SendRegisterCode)
 	v1.POST("/auth/register", middleware.RateLimit("register", 10, 0.05), h.RegisterAccount)
 	// 申请制(apply): 提交申请 / 进度查询 / 激活邮件重发 / 激活设密自动登录。

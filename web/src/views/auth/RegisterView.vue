@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import * as registerApi from '@/api/register'
@@ -175,6 +175,31 @@ function resetApply(): void {
   submitted.value = false
   errorMsg.value = ''
 }
+
+// ---- 用户名失焦查重(open/apply 两表单共用): 可用/占用都在输入框下面即时显示 ----
+const nameState = ref<'idle' | 'checking' | 'ok' | 'taken'>('idle')
+
+async function checkUserName(): Promise<void> {
+  const name = form.userName.trim()
+  if (!name) {
+    nameState.value = 'idle'
+    return
+  }
+  nameState.value = 'checking'
+  try {
+    nameState.value = (await registerApi.checkUserName(name)).available ? 'ok' : 'taken'
+  } catch {
+    nameState.value = 'idle' // 接口异常不打扰填写, 提交时服务端还会把关
+  }
+}
+
+// 用户再次编辑用户名 → 旧结论作废
+watch(
+  () => form.userName,
+  () => {
+    nameState.value = 'idle'
+  }
+)
 </script>
 
 <template>
@@ -259,8 +284,27 @@ function resetApply(): void {
             placeholder="用户名"
             autocomplete="username"
             data-focusable="true"
+            @blur="checkUserName"
           />
         </div>
+        <p
+          v-if="nameState !== 'idle'"
+          class="mt-[var(--jc-space-1)] pl-[var(--jc-space-2)] text-xs"
+          :class="{
+            'text-secondary': nameState === 'checking',
+            'text-[var(--jc-success)]': nameState === 'ok',
+            'text-[var(--jc-danger)]': nameState === 'taken'
+          }"
+          role="status"
+        >
+          {{
+            nameState === 'checking'
+              ? '正在检查用户名…'
+              : nameState === 'ok'
+                ? '该用户名可用'
+                : '该用户名已被占用，换一个试试'
+          }}
+        </p>
       </ManageFormField>
 
       <ManageFormField label="邮箱" required>
@@ -374,8 +418,27 @@ function resetApply(): void {
             placeholder="用户名"
             autocomplete="username"
             data-focusable="true"
+            @blur="checkUserName"
           />
         </div>
+        <p
+          v-if="nameState !== 'idle'"
+          class="mt-[var(--jc-space-1)] pl-[var(--jc-space-2)] text-xs"
+          :class="{
+            'text-secondary': nameState === 'checking',
+            'text-[var(--jc-success)]': nameState === 'ok',
+            'text-[var(--jc-danger)]': nameState === 'taken'
+          }"
+          role="status"
+        >
+          {{
+            nameState === 'checking'
+              ? '正在检查用户名…'
+              : nameState === 'ok'
+                ? '该用户名可用'
+                : '该用户名已被占用，换一个试试'
+          }}
+        </p>
       </ManageFormField>
 
       <ManageFormField label="密码" required>

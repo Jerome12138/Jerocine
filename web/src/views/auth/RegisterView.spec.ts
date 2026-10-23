@@ -9,7 +9,8 @@ import {
   sendRegisterCode,
   registerAccount,
   applyRegister,
-  applyStatus
+  applyStatus,
+  checkUserName
 } from '@/api/register'
 
 vi.mock('@/api/register', () => ({
@@ -19,7 +20,8 @@ vi.mock('@/api/register', () => ({
   applyRegister: vi.fn(),
   applyStatus: vi.fn(),
   resendActivation: vi.fn(),
-  activateAccount: vi.fn()
+  activateAccount: vi.fn(),
+  checkUserName: vi.fn()
 }))
 
 const router = createRouter({
@@ -251,5 +253,65 @@ describe('RegisterView 申请注册(apply)', () => {
 
     expect(w.text()).toContain('注册申请审核中，请等待邮件通知')
     expect(w.find('form').exists()).toBe(true)
+  })
+})
+
+describe('RegisterView 用户名失焦查重(open/apply 共用)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(checkUserName).mockReset()
+  })
+
+  it('open: 失焦查重 → 已占用在输入框下显示红字', async () => {
+    vi.mocked(checkUserName).mockResolvedValue({ available: false })
+    const w = await mountRegister('open')
+    await w.find('input[autocomplete="username"]').setValue('jerry')
+    await w.find('input[autocomplete="username"]').trigger('blur')
+    await new Promise((r) => setTimeout(r, 10))
+    await w.vm.$nextTick()
+    expect(checkUserName).toHaveBeenCalledWith('jerry')
+    expect(w.text()).toContain('该用户名已被占用')
+  })
+
+  it('open: 失焦查重 → 可用显示绿字; 再编辑即清掉旧结论', async () => {
+    vi.mocked(checkUserName).mockResolvedValue({ available: true })
+    const w = await mountRegister('open')
+    const input = w.find('input[autocomplete="username"]')
+    await input.setValue('bob')
+    await input.trigger('blur')
+    await new Promise((r) => setTimeout(r, 10))
+    await w.vm.$nextTick()
+    expect(w.text()).toContain('该用户名可用')
+
+    await input.setValue('bobby')
+    await w.vm.$nextTick()
+    expect(w.text()).not.toContain('该用户名可用')
+  })
+
+  it('open: 空用户名失焦不发请求; 接口异常静默回 idle', async () => {
+    const w = await mountRegister('open')
+    await w.find('input[autocomplete="username"]').setValue('')
+    await w.find('input[autocomplete="username"]').trigger('blur')
+    expect(checkUserName).not.toHaveBeenCalled()
+
+    vi.mocked(checkUserName).mockRejectedValue(new Error('network down'))
+    const input = w.find('input[autocomplete="username"]')
+    await input.setValue('jerry')
+    await input.trigger('blur')
+    await new Promise((r) => setTimeout(r, 10))
+    await w.vm.$nextTick()
+    expect(w.text()).not.toContain('该用户名已被占用')
+    expect(w.text()).not.toContain('该用户名可用')
+  })
+
+  it('apply: 同一失焦查重逻辑在申请表单生效', async () => {
+    vi.mocked(checkUserName).mockResolvedValue({ available: false })
+    const w = await mountRegister('apply')
+    await w.find('input[autocomplete="username"]').setValue('jerry')
+    await w.find('input[autocomplete="username"]').trigger('blur')
+    await new Promise((r) => setTimeout(r, 10))
+    await w.vm.$nextTick()
+    expect(checkUserName).toHaveBeenCalledWith('jerry')
+    expect(w.text()).toContain('该用户名已被占用')
   })
 })

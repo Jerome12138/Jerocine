@@ -90,6 +90,16 @@ func (h *Handlers) RegisterApply(c *gin.Context) {
 	dto.OK(c, gin.H{"applied": true})
 }
 
+// CheckUserName GET /auth/register/check-username?name= — 用户名占用检查(前端失焦即时反馈)。
+func (h *Handlers) CheckUserName(c *gin.Context) {
+	available, err := h.Register.UserNameAvailable(c.Request.Context(), c.Query("name"))
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"available": available})
+}
+
 // ApplyStatus GET /auth/apply/status?email= — 进度查询(邮件丢失/过期兜底通道)。
 func (h *Handlers) ApplyStatus(c *gin.Context) {
 	v, err := h.Register.ApplyStatus(c.Request.Context(), c.Query("email"))
