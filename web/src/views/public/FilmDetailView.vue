@@ -197,9 +197,9 @@ const hotBadge = computed(() => formatHotBadge(detail.value?.hotRank, detail.val
 
 /** 影评外链: 5 个站点按片名搜索。点击新窗口跳转, 悬停显示站名。 */
 const REVIEW_SITES = [
-  { name: '豆瓣', icon: '/site-icons/douban.png', make: (n: string) => `https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(n)}` },
+  { name: '豆瓣', icon: '/site-icons/douban.ico', make: (n: string) => `https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(n)}` },
   { name: '新浪微博', icon: '/site-icons/weibo.ico', make: (n: string) => `https://s.weibo.com/weibo?q=${encodeURIComponent(n)}` },
-  { name: '抖音', icon: '/site-icons/douyin.png', make: (n: string) => `https://www.douyin.com/search/${encodeURIComponent(n)}` },
+  { name: '抖音', icon: '/site-icons/douyin.ico', make: (n: string) => `https://www.douyin.com/search/${encodeURIComponent(n)}` },
   { name: '快手', icon: '/site-icons/kuaishou.ico', make: (n: string) => `https://www.kuaishou.com/search/video?searchKey=${encodeURIComponent(n)}` },
   { name: '百度', icon: '/site-icons/baidu.ico', make: (n: string) => `https://www.baidu.com/s?wd=${encodeURIComponent(n)}` }
 ] as const

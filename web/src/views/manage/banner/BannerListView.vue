@@ -450,7 +450,7 @@ onUnmounted(() => {
             rel="noopener noreferrer"
             class="inline-flex w-[22px] h-[22px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
             :title="`豆瓣搜索「${s.name}」影评`"
-          ><img src="/site-icons/douban.png" alt="豆瓣" class="w-full h-full object-cover" /></a>
+          ><img src="/site-icons/douban.ico" alt="豆瓣" class="w-full h-full object-cover" /></a>
           <BaseButton
             v-if="(s.mid ?? 0) > 0"
             variant="ghost" size="sm"
@@ -575,7 +575,7 @@ onUnmounted(() => {
               rel="noopener noreferrer"
               class="inline-flex w-[22px] h-[22px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
               :title="`豆瓣搜索「${row.meta?.name || row.title}」影评`"
-            ><img src="/site-icons/douban.png" alt="豆瓣" class="w-full h-full object-cover" /></a>
+            ><img src="/site-icons/douban.ico" alt="豆瓣" class="w-full h-full object-cover" /></a>
             <BaseButton
               v-if="row.mid > 0"
               variant="ghost" size="sm"
