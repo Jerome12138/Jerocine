@@ -13,10 +13,17 @@ describe('BaseImage', () => {
     expect(w.exists()).toBe(true)
   })
 
-  it('ratio prop 设置 aspect-ratio style', () => {
+  it('ratio prop 用 padding-bottom 撑比例(不用 aspect-ratio, 兼容 Chrome 66)', () => {
     const w = mount(BaseImage, { props: { src: 'http://x/a.jpg', alt: 'X', ratio: '3/4' } })
     const style = w.find('.jc-base-image').attributes('style') ?? ''
-    // aspect-ratio: 3 / 4 (style 序列化时可能加空格)
-    expect(style).toMatch(/3\s*\/\s*4/)
+    // 3/4 → padding-bottom: 133.3333%; 且 height: 0(老内核盒子塌 0 的根因修复)
+    expect(style).toContain('padding-bottom: 133.3333%')
+    expect(style).not.toContain('aspect-ratio')
+  })
+
+  it('空 ratio 走父控高分支, 不注入 padding', () => {
+    const w = mount(BaseImage, { props: { src: 'http://x/a.jpg', alt: 'X', ratio: '' } })
+    const style = w.find('.jc-base-image').attributes('style') ?? ''
+    expect(style).not.toContain('padding-bottom')
   })
 })

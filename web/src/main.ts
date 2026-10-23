@@ -5,6 +5,8 @@ import 'virtual:uno.css'
 import '@/assets/styles/reset.css'
 import '@/assets/styles/theme.css'
 import '@/assets/styles/tv-cards.css'
+// 老内核兼容层(Chrome<88 flex-gap/aspect-ratio 回退)必须最后加载
+import '@/assets/styles/compat.css'
 
 import App from './App.vue'
 import router from './router'

@@ -18,6 +18,12 @@ import {
 export default defineConfig({
   presets: [presetUno(), presetAttributify(), presetTypography()],
   transformers: [transformerDirectives(), transformerVariantGroup()],
+  // 品牌渐变必须用自定义 rule(对象体直接落 background-image):
+  // `bg-[image:var(...)]` 在 unocss 0.62.4 会被当成 background-color 的值, 生成
+  // `background-color: image:var(...)` 这种**非法 CSS**(浏览器丢弃 + postcss 解析炸)。
+  rules: [
+    ['bg-brand-gradient', { 'background-image': 'var(--jc-brand-gradient)' }]
+  ],
   theme: {
     breakpoints: {
       sm: '360px',
@@ -68,7 +74,7 @@ export default defineConfig({
 
     // 品牌
     ['bg-brand', 'bg-[var(--jc-brand-primary)] hover:bg-[var(--jc-brand-primary-hover)]'],
-    ['bg-brand-gradient', 'bg-[image:var(--jc-brand-gradient)]'],
+    ['bg-brand-gradient', 'bg-brand-gradient'], // → rules 里的 background-image 对象体
     ['text-brand', 'text-[var(--jc-brand-primary)]'],
 
     // 圆角
@@ -95,7 +101,7 @@ export default defineConfig({
     ['absolute-center', 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2'],
 
     // 文字渐变
-    ['text-brand-gradient', 'bg-clip-text text-transparent bg-[image:var(--jc-brand-gradient)]'],
+    ['text-brand-gradient', 'bg-brand-gradient bg-clip-text text-transparent'],
 
     // 卡片
     ['card', 'bg-surface rounded-card shadow-card transition duration-[var(--jc-dur-base)]'],

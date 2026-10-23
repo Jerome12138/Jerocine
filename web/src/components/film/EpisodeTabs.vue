@@ -501,7 +501,9 @@ function stopMarquee(e: Event): void {
 
 <style>
 [data-mode='tv'] .jc-episode-grid {
-  /* P0: 列数自适应 — 大屏更多列, 集名仍够宽不裁; 960 ~6 列, 1920 ~10 列 */
+  /* P0: 列数自适应 — 大屏更多列, 集名仍够宽不裁; 960 ~6 列, 1920 ~10 列
+   * 老内核(Chrome<79)回退: clamp 不识别时整条 grid-template-columns 失效 → 单列堆叠 */
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   grid-template-columns: repeat(auto-fit, minmax(clamp(110px, 11vw, 160px), 1fr));
   gap: var(--jc-space-3);
 }

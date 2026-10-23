@@ -5,7 +5,109 @@ import UnoCSS from 'unocss/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import postcss from 'postcss'
 import { fileURLToPath, URL } from 'node:url'
+
+// 老内核 flex-gap 兼容 PostCSS 插件(2026-10-23, TV 盒 Chrome 66 实测反馈):
+// flex 容器的 gap 在 Chrome < 84 完全失效 —— 对产物 CSS 里所有"display:flex + gap
+// 同条声明"的规则, 在 @supports not (aspect-ratio: 1/1) 闸门下(Chrome 88+/Safari 15
+// 才有 aspect-ratio, 现代内核命中 false 整块跳过, 不产生双重间距)生成 sibling margin
+// 等价回退: 横向容器 margin-left、flex-direction: column 容器 margin-top;
+// grid 的 gap Chrome 66 本就支持, 明确跳过; display 不在同条声明的 gap 规则跳过
+// (那类由 compat.css 的 .flex.gap-[...] 前缀选择器覆盖)。媒体查询上下文原样保留。
+// ⚠️ 接线必须走 generateBundle 后处理而非 postcss.config: 后者会把 UnoCSS 注入的
+// 虚拟 CSS 也拉进 postcss 解析(其产物有 postcss 8 解析不了的语法, 实测报
+// Missed semicolon), 这里跳过 unocss 资产。
+function flexGapCompatPostCSS() {
+  const pending: { selector: string; prop: string; value: string; media: string | null }[] = []
+  return {
+    postcssPlugin: 'flex-gap-compat',
+    Rule(rule: postcss.Rule) {
+      let display = ''
+      let direction = ''
+      let gap = ''
+      rule.each((node) => {
+        if (node.type !== 'decl') return
+        const prop = node.prop.toLowerCase()
+        if (prop === 'display') display = node.value.toLowerCase()
+        else if (prop === 'flex-direction') direction = node.value.toLowerCase()
+        else if (prop === 'gap') gap = node.value.trim()
+      })
+      if (!gap || (display !== 'flex' && display !== 'inline-flex')) return
+      const parts = gap.split(/\s+/)
+      const rowGap = parts[0]
+      const colGap = parts[1] || parts[0]
+      const isColumn = direction.includes('column')
+      const media =
+        rule.parent?.type === 'atrule' && (rule.parent as postcss.AtRule).name === 'media'
+          ? (rule.parent as postcss.AtRule).params
+          : null
+      pending.push({
+        selector: `${rule.selector} > * + *`,
+        prop: isColumn ? 'margin-top' : 'margin-left',
+        value: isColumn ? rowGap : colGap,
+        media
+      })
+    },
+    RootExit(root: postcss.Root) {
+      if (pending.length === 0) return
+      const supports = postcss.atRule({
+        name: 'supports',
+        params: 'not (aspect-ratio: 1 / 1)',
+        raws: { before: '\n/* 以下由 flex-gap-compat 自动生成(老内核 flex gap 回退), 请勿手改 */\n' }
+      })
+      const byMedia = new Map<string, typeof pending>()
+      for (const item of pending) {
+        const key = item.media ?? ''
+        if (!byMedia.has(key)) byMedia.set(key, [])
+        byMedia.get(key)!.push(item)
+      }
+      for (const [media, items] of byMedia) {
+        let container: postcss.AtRule = supports
+        if (media) {
+          container = postcss.atRule({ name: 'media', params: media })
+          supports.append(container)
+        }
+        for (const item of items) {
+          container.append(postcss.rule({ selector: item.selector, nodes: [postcss.decl({ prop: item.prop, value: item.value })] }))
+        }
+      }
+      root.append(supports)
+      pending.length = 0
+    }
+  }
+}
+flexGapCompatPostCSS.postcssPlugin = 'flex-gap-compat'
+
+// 构建期后处理: 逐个 CSS 产物跑上面的插件(跳过 UnoCSS 的虚拟资产)。
+// ⚠️ 必须 enforce: 'post' + 挂在插件列表末尾 —— vite:css-post 会在自己的
+// generateBundle 里重写 CSS 资产内容, normal 阶段的修改会被它整体覆盖。
+async function flexGapCompatPlugin(): Promise<import('vite').Plugin> {
+  return {
+    name: 'flex-gap-compat',
+    enforce: 'post',
+    apply: 'build',
+    async generateBundle(_, bundle) {
+      for (const file of Object.keys(bundle)) {
+        if (!file.endsWith('.css') || file.includes('unocss')) continue
+        const asset = bundle[file]
+        if (asset.type !== 'asset' || typeof asset.source !== 'string') continue
+        try {
+          const result = await postcss([flexGapCompatPostCSS()]).process(asset.source, { from: file })
+          asset.source = result.css
+        } catch (e) {
+          const err = e as { line?: number; column?: number; reason?: string }
+          if (err?.column) {
+            const src = asset.source as string
+            const at = src.split('\n').slice(0, (err.line ?? 1) - 1).join('\n').length + err.column
+            console.error(`[flex-gap-compat] ${file} @${at}: ${err.reason}\n...${src.slice(Math.max(0, at - 120), at + 120)}...`)
+          }
+          throw e
+        }
+      }
+    }
+  }
+}
 
 // 构建期版本目录: 部署脚本注入 JC_BUILD_TS=YYYYMMDD-HHMMSS, 产物落 dist/assets/<TS>/.
 // 目的: 让 index.html 的资源引用与 Workbox precache manifest 在同一次构建里天然自洽
@@ -119,7 +221,9 @@ export default defineConfig({
         // 低版本设备的缓存由上面 runtimeCaching 的 CacheFirst 在运行时补上。
         globIgnores: ['**/*legacy*']
       }
-    })
+    }),
+    // 老内核 flex-gap 回退必须最后跑(enforce post): 见函数内注释
+    await flexGapCompatPlugin()
   ],
   build: {
     // es2018: modern 产物要能跑在 WebView 61+(es2020 的 ?. / ?? 需要 Chrome 80)。

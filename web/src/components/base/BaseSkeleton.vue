@@ -33,8 +33,18 @@ const itemStyle = computed(() => {
     style.height = props.height || '0.85em'
     style.borderRadius = 'var(--jc-radius-sm)'
   } else {
-    if (props.height) style.height = props.height
-    if (props.ratio) style.aspectRatio = props.ratio
+    if (props.height) {
+      style.height = props.height
+    } else if (props.ratio) {
+      // padding-bottom hack 替代 aspect-ratio(Chrome 88+): 老内核(66)下盒子塌 0 高。
+      const m = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(props.ratio.trim())
+      if (m && Number(m[1]) > 0) {
+        style.height = '0'
+        style.paddingBottom = `${((Number(m[2]) / Number(m[1])) * 100).toFixed(4)}%`
+      } else {
+        style.aspectRatio = props.ratio
+      }
+    }
     style.borderRadius = 'var(--jc-radius-lg)'
   }
   return style

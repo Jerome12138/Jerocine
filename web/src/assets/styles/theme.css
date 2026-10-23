@@ -456,7 +456,10 @@ html[data-mode="tv"] body {
    * 导致 html/body/#app 三层各自成为锁死一屏高的独立滚动容器 → 真正滚动的是
    * 最内层 #app, 而 router scrollBehavior{top:0} 只滚 document.scrollingElement(html),
    * 滚错容器 → 进详情页不回顶. clip 同样裁横向溢出但不触发该副作用, 也不建滚动容器,
-   * 滚动回到 document, {top:0} 生效. */
+   * 滚动回到 document, {top:0} 生效.
+   * 老内核(Chrome<90)不认识 clip → 回退 hidden: 有"进详情页不回顶"的已知副作用,
+   * 但比横向能滚出去好得多(2026-10-23 TV 盒 Chrome 66 实测). */
+  overflow-x: hidden;
   overflow-x: clip;
   max-width: 100vw;
   scrollbar-width: none;
@@ -468,6 +471,7 @@ html[data-mode="tv"] body::-webkit-scrollbar {
 /* 防 SPA 根容器溢出 (有些组件用 px 写死宽度可能撑爆) — 同样用 clip 不创建滚动容器 */
 [data-mode="tv"] #app {
   max-width: 100vw;
+  overflow-x: hidden; /* 老内核回退(不认识 clip), 同上 */
   overflow-x: clip;
 }
 
@@ -502,4 +506,27 @@ html[data-mode="tv"] body::-webkit-scrollbar {
 [data-mode="mobile"] .jc-manage select,
 [data-mode="mobile"] .jc-manage textarea {
   min-height: 44px;
+}
+
+/* ============================================================
+ * 老内核(Chrome < 79)clamp() 回退 —— clamp 定义在自定义属性上,
+ * 老内核"声明能存、var() 引用处整条失效", 所以不能用"先写 px 再写 clamp"
+ * 的同属性覆盖(那只会让老内核拿到 clamp 然后失效), 必须用 @supports 分流:
+ * 老内核命中 not 分支拿静态值, 现代内核命中 false 跳过、继续用 clamp。
+ * 静态值取各 clamp 区间的中位偏下(TV 盒 CSS 视口常见 960~1280)。
+ * ============================================================ */
+@supports not (width: clamp(1px, 1vw, 2px)) {
+  :root {
+    --jc-fs-display: 1.9rem; /* clamp(1.75rem, 1.2rem+1.5vw, 2.25rem) 中位 */
+    --jc-fs-hero: 2.75rem;   /* clamp(2.25rem, 3.5vw+0.75rem, 4rem) 中位偏下 */
+  }
+  [data-mode="tv"] {
+    --jc-fs-display: 2.1rem; /* clamp(2rem, 1.6rem+1.4vw, 2.5rem) 中位 */
+    --jc-fs-hero: 3.5rem;    /* clamp(3rem, 4vw+1rem, 4.5rem) 中位偏下 */
+    --jc-tv-safe: 48px;      /* clamp(48px, 5vw, 96px) 下限(960 视口 ≈48) */
+    --jc-tv-safe-y: 27px;    /* clamp(27px, 5vh, 54px) 下限 */
+    --jc-tv-card-min: 200px; /* clamp(180px, 16vw, 260px) 中位偏下 */
+    --jc-tv-hero-h: 320px;   /* clamp(180px, 40vh, 480px) 中位偏下 */
+    --jc-tv-quick-size: 84px;/* clamp(72px, 8vw, 120px) 中位偏下 */
+  }
 }

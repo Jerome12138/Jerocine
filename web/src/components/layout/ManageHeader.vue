@@ -76,7 +76,7 @@ const avatar = computed(() => {
 
 <template>
   <header
-    class="flex-between bg-[image:var(--jc-brand-gradient)] px-[var(--jc-space-6)] h-[56px] sticky top-0 z-[var(--jc-z-header)] shadow-md"
+    class="flex-between bg-brand-gradient px-[var(--jc-space-6)] h-[56px] sticky top-0 z-[var(--jc-z-header)] shadow-md"
   >
     <div class="flex items-center gap-[var(--jc-space-4)] text-white">
       <!-- 汉堡按钮仅移动端渲染: 侧栏折叠已移除, 桌面/平板侧栏常驻无开关 -->

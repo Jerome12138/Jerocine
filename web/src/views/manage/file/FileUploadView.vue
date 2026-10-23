@@ -105,7 +105,7 @@ function onSelect(e: Event): void {
           </div>
           <div class="mt-[var(--jc-space-2)] h-[4px] rounded-full bg-elevated overflow-hidden">
             <div
-              class="h-full bg-[image:var(--jc-brand-gradient)] transition-[width]"
+              class="h-full bg-brand-gradient transition-[width]"
               :style="{ width: `${entry.progress * 100}%` }"
             />
           </div>

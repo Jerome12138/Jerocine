@@ -90,6 +90,9 @@ importers:
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1
+      postcss:
+        specifier: 8.5.14
+        version: 8.5.14
       prettier:
         specifier: 3.4.2
         version: 3.4.2

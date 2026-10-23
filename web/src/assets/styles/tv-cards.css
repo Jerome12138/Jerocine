@@ -179,3 +179,20 @@
 /* ---------- 玻璃卡(登录/确认) ---------- */
 [data-mode="tv"] .jc-tv-glass-card { border-radius: 24px; border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.18)); background: var(--jc-tv-glass, rgba(21,21,28,.88)); padding: 36px 40px; }
 [data-mode="tv"] .jc-tv-input { height: 64px; border-radius: 16px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); color: var(--jc-text-primary); font-size: var(--jc-fs-md); padding: 0 20px; width: 100%; }
+
+/* ============================================================
+ * 老内核兼容层 —— 旧电视盒 WebView(Chrome 66 实测反馈)不认识:
+ *   flex 的 gap(84+) / aspect-ratio(88+) / clamp(79+)。
+ * flex gap 由 vite.config.ts 内联的 flex-gap-compat 插件构建期自动生成回退
+ * (本文件所有 flex 规则的 display 与 gap 同条声明, 均已覆盖), 这里只补两处:
+ * 选集网格列宽 clamp 失效 与 海报盒 aspect-ratio 塌高(子元素全 absolute)。
+ * 闸门 = aspect-ratio 支持性: 现代内核命中 false 整块跳过。
+ * ============================================================ */
+@supports not (aspect-ratio: 1 / 1) {
+  /* 选集网格列宽里的 clamp 老内核整条失效 → 固定轨道 */
+  [data-mode="tv"] .jc-tv-eps { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  /* 海报盒 aspect-ratio → padding-top 撑比例 */
+  [data-mode="tv"] .jc-tv-card .poster { height: 0; padding-top: 133.3333%; }
+  [data-mode="tv"] .jc-tv-card .poster.h { padding-top: 56.25%; }
+  [data-mode="tv"] .jc-tv-hcard .poster { height: 0; padding-top: 56.25%; }
+}

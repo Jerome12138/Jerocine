@@ -38,7 +38,19 @@ const aspectStyle = computed(() => {
     // 空 ratio 表示由父容器控制尺寸（hero 全屏背景等场景）
     return { width: '100%', height: '100%' }
   }
-  return { aspectRatio: props.ratio }
+  // 用 padding-bottom 百分比撑比例, 不用 aspect-ratio —— Chrome 66 等老内核
+  // (旧电视盒 WebView) 不认识 aspect-ratio(88+), 盒子塌成 0 高, 绝对定位的
+  // img 随之为 0 —— 表现就是"卡片图全部不显示"(轮播因走父控高分支幸免)。
+  // padding 百分比相对宽度, 新旧内核行为一致; 子元素全是 absolute inset-0。
+  const m = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(props.ratio.trim())
+  if (m) {
+    const w = Number(m[1])
+    const h = Number(m[2])
+    if (w > 0 && h > 0) {
+      return { width: '100%', height: '0', paddingBottom: `${((h / w) * 100).toFixed(4)}%` }
+    }
+  }
+  return { aspectRatio: props.ratio } // 非 "w/h" 形态兜底
 })
 
 /**

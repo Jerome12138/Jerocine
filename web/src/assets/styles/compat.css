@@ -1,0 +1,47 @@
+/* ============================================================
+ * 老内核(Chrome/WebView < 88)兼容层 —— 旧电视盒 WebView 实测反馈:
+ *   ① flex 容器的 gap 失效(84+ 才支持), 间距全丢;
+ *   ② aspect-ratio 失效(88+), BaseImage 的 JS hack 之外, 组件 CSS 里
+ *      直接写 aspect-ratio 的盒子塌 0 高。
+ * 以 @supports not (aspect-ratio: 1/1) 作为统一闸门: 老内核整块生效,
+ * 现代内核命中 false 全部跳过 —— 不产生双重间距。
+ * (Firefox 63~88 有 flex gap 但无 aspect-ratio, 会双重间距, 占比可忽略。)
+ *
+ * UnoCSS 的 gap-[...] 任意值类没法逐一改模板, 这里按类名等价替代:
+ *   .flex.gap-X > * + * { margin-left: X }   —— 横向 flex
+ *   .flex-col.gap-X > * + * { margin-top: X } —— 纵向 flex(覆盖横向规则)
+ * 换行的 flex-wrap 行会丢失行间距(可接受的降级), grid 容器不受影响
+ * (选择器限定 .flex/.inline-flex 前缀, Chrome 66 的 grid gap 本来就好)。
+ * ============================================================ */
+
+@supports not (aspect-ratio: 1 / 1) {
+  /* ---- ① UnoCSS flex gap 类 → sibling margin ---- */
+  .flex.gap-\[var\(--jc-space-1\)\] > * + *, .inline-flex.gap-\[var\(--jc-space-1\)\] > * + * { margin-left: var(--jc-space-1); }
+  .flex.gap-\[var\(--jc-space-2\)\] > * + *, .inline-flex.gap-\[var\(--jc-space-2\)\] > * + * { margin-left: var(--jc-space-2); }
+  .flex.gap-\[var\(--jc-space-3\)\] > * + *, .inline-flex.gap-\[var\(--jc-space-3\)\] > * + * { margin-left: var(--jc-space-3); }
+  .flex.gap-\[var\(--jc-space-4\)\] > * + *, .inline-flex.gap-\[var\(--jc-space-4\)\] > * + * { margin-left: var(--jc-space-4); }
+  .flex.gap-\[var\(--jc-space-5\)\] > * + *, .inline-flex.gap-\[var\(--jc-space-5\)\] > * + * { margin-left: var(--jc-space-5); }
+  .flex.gap-\[var\(--jc-space-6\)\] > * + *, .inline-flex.gap-\[var\(--jc-space-6\)\] > * + * { margin-left: var(--jc-space-6); }
+  .flex.gap-\[var\(--jc-space-8\)\] > * + *, .inline-flex.gap-\[var\(--jc-space-8\)\] > * + * { margin-left: var(--jc-space-8); }
+  .flex.gap-\[2px\] > * + *, .inline-flex.gap-\[2px\] > * + * { margin-left: 2px; }
+  .flex.gap-\[var\(--jc-list-gap\)\] > * + * { margin-left: var(--jc-list-gap); }
+  .flex.gap-x-\[var\(--jc-space-2\)\] > * + * { margin-left: var(--jc-space-2); }
+
+  /* 纵向 flex 覆盖: 间距挪到 margin-top */
+  .flex-col.gap-\[var\(--jc-space-1\)\] > * + * { margin-left: 0; margin-top: var(--jc-space-1); }
+  .flex-col.gap-\[var\(--jc-space-2\)\] > * + * { margin-left: 0; margin-top: var(--jc-space-2); }
+  .flex-col.gap-\[var\(--jc-space-3\)\] > * + * { margin-left: 0; margin-top: var(--jc-space-3); }
+  .flex-col.gap-\[var\(--jc-space-4\)\] > * + * { margin-left: 0; margin-top: var(--jc-space-4); }
+  .flex-col.gap-\[var\(--jc-space-5\)\] > * + * { margin-left: 0; margin-top: var(--jc-space-5); }
+  .flex-col.gap-\[var\(--jc-space-6\)\] > * + * { margin-left: 0; margin-top: var(--jc-space-6); }
+  .flex-col.gap-\[var\(--jc-space-8\)\] > * + * { margin-left: 0; margin-top: var(--jc-space-8); }
+
+  /* ---- ② 组件 CSS 里"gap 与 display 不同条声明"的 flex 容器 ----
+   * (display 与 gap 同条声明的规则由 vite.config.ts 内联的 flex-gap-compat
+   *  插件构建期覆盖, 见 plugins 末尾)
+   * .jc-film-row__scroll 的 display 在模板类上, 插件不处理 → 这里手补 */
+  .jc-film-row__scroll > * + * { margin-left: var(--jc-rail-gap); }
+
+  /* ---- ③ 组件 CSS 里的 aspect-ratio 盒(子元素全为 absolute 定位) ---- */
+  .jc-player-wrap { height: 0; padding-top: 56.25%; }
+}
