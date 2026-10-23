@@ -31,7 +31,31 @@ const editing = ref<Banner | null>(null)
 /** 采纳自动位时的钉入位置(生效列表下标); undefined = 追加到手动末尾 */
 const adoptSlot = ref<number | undefined>(undefined)
 const showInactive = ref(false)
+/** 立即刷新榜单进行中(ApplyHot + 热榜快照 + 轮播候选派生, 一轮约 1-2 分钟) */
+const refreshing = ref(false)
 let pollTimer: number | undefined
+
+/** 立即刷新榜单: 与每日 04:00 自动刷新共用一把锁, 撞车返 409 */
+async function refreshHot(): Promise<void> {
+  const ok = await confirm({
+    title: '立即刷新榜单？',
+    desc: '拉取豆瓣 8 榜并重算热度、热榜快照与轮播候选位（约 1-2 分钟）。若上一轮刷新未结束会提示稍后再试。',
+    okText: '立即刷新'
+  })
+  if (!ok) return
+  refreshing.value = true
+  try {
+    const rep = await manageApi.banner.refreshHotBoard()
+    window.alert(
+      `榜单刷新完成：抓取 ${rep.fetched} 条 · 匹配 ${rep.matched} 部 · 落库 ${rep.applied} 部 · 耗时 ${(rep.elapsedMs / 1000).toFixed(1)}s`
+    )
+    await load(true)
+  } catch (e) {
+    window.alert((e as { message?: string })?.message || '榜单刷新失败，请稍后重试')
+  } finally {
+    refreshing.value = false
+  }
+}
 
 const active = computed(() => board.value.active ?? [])
 const inactive = computed(() => board.value.inactive ?? [])
@@ -291,6 +315,9 @@ onUnmounted(() => {
         </span>
       </div>
       <div class="flex gap-[var(--jc-space-2)]">
+        <BaseButton variant="ghost" size="sm" :loading="refreshing" :disabled="refreshing" @click="refreshHot">
+          <BaseIcon name="refresh" size="16px" /> 立即刷新榜单
+        </BaseButton>
         <BaseButton variant="ghost" size="sm" @click="load()">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </BaseButton>

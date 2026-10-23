@@ -1,7 +1,11 @@
 import { http } from '../http'
-import type { Banner, BannerBoard } from '@/types/manage'
+import type { Banner, BannerBoard, HotRefreshReport } from '@/types/manage'
 
 const enc = encodeURIComponent
+
+/** POST /manage/hot/refresh 立即刷新豆瓣榜单(ApplyHot + 热榜快照 + 轮播候选派生), 返回本轮观测值 */
+export const refreshHotBoard = (): Promise<HotRefreshReport> =>
+  http.post<unknown, HotRefreshReport>('/manage/hot/refresh')
 
 /** GET /manage/banners/effective 管理视图：生效位(前5, 手动+自动补位) + 未生效配置行 */
 export const board = (): Promise<BannerBoard> =>

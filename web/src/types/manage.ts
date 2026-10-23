@@ -477,6 +477,30 @@ export interface BannerBoard {
   inactive: InactiveBanner[]
 }
 
+/** POST /manage/hot/refresh 返回的一轮榜单刷新观测值(service.HotRefreshReport) */
+export interface HotRefreshReport {
+  at: number
+  /** 榜单条目数(含跨榜重复) */
+  fetched: number
+  /** 匹配到本地影片的部数 */
+  matched: number
+  /** 掉榜回落的部数 */
+  fellOff: number
+  /** 回填 db_id 的部数 */
+  dbIdFilled: number
+  /** 回填 db_score 的部数 */
+  scoreFilled: number
+  /** 快照超期被动回落的部数 */
+  cleared: number
+  /** 实际写入行数(movie 表) */
+  applied: number
+  pages: number
+  empty: number
+  skipped: number
+  elapsedMs: number
+  err?: string
+}
+
 // ---- 用户管理 ----
 
 /** 后台用户行(gorm.Model 序列化: ID/CreatedAt/UpdatedAt 无 json tag, 保持 Go 字段名) */
