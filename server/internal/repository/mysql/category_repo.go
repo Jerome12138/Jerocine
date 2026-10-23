@@ -46,9 +46,14 @@ func (r *categoryRepo) BatchUpsert(ctx context.Context, list []entity.Category) 
 	if len(list) == 0 {
 		return nil
 	}
+	// 冲突时只覆盖采集源给的结构列, **不动 show** —— 管理员手工隐藏的分类(本地开关)
+	// 不能被"分类覆盖/重采"重置回显示(源站 parse 写死 Show:true, 全字段覆盖会把它抹掉)。
+	// 新分类走 INSERT 默认 show=1, 行为不变。
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "id"}},
-		UpdateAll: true,
+		Columns: []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"pid", "name", "sort", "updated_at",
+		}),
 	}).CreateInBatches(list, 200).Error
 }
 

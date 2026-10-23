@@ -83,6 +83,48 @@ func applyDeleted(q *gorm.DB, mode int) *gorm.DB {
 	}
 }
 
+// hiddenCats 查出"隐藏分类"的 id 集: 顶级(show=0)与子分类(show=0)分开返回,
+// 供 pid/cid 两列分别 NOT IN。隐藏顶级分类即隐藏其下全部影片(子分类随父级由
+// 管理端级联置 hide, 即便子级 show 仍为真, 其影片 pid 也命中顶级排除条件)。
+//
+// 分类表只有几十行, 直接每请求现查 —— 换取后台开关即时生效, 不需要任何失效联动
+// (分类树/聚合缓存仍走各自的 TTL 与 InvalidateCategory)。
+func (r *searchRepo) hiddenCats(ctx context.Context) (pids, cids []int64) {
+	var rows []struct {
+		Id   int64
+		Pid  int64
+		Show bool
+	}
+	if err := dbFrom(ctx, r.db).Table("category").Select("id, pid, `show`").Scan(&rows).Error; err != nil {
+		// 查询失败宁可不滤(与旧行为一致), 不连累列表; 记日志便于发现。
+		log.Printf("search_repo: 查隐藏分类失败, 本请求跳过过滤: %v", err)
+		return nil, nil
+	}
+	for _, c := range rows {
+		if c.Show {
+			continue
+		}
+		if c.Pid == 0 {
+			pids = append(pids, c.Id)
+		} else {
+			cids = append(cids, c.Id)
+		}
+	}
+	return pids, cids
+}
+
+// excludeHidden 追加"剔除隐藏分类影片"条件。公开出口统一走这里; 失败/无隐藏分类时原样返回。
+func (r *searchRepo) excludeHidden(ctx context.Context, q *gorm.DB) *gorm.DB {
+	pids, cids := r.hiddenCats(ctx)
+	if len(pids) > 0 {
+		q = q.Where("pid NOT IN ?", pids)
+	}
+	if len(cids) > 0 {
+		q = q.Where("cid NOT IN ?", cids)
+	}
+	return q
+}
+
 // searchUpsertCols 采集回写读模型时参与 ON DUPLICATE KEY UPDATE 的列。
 // 与 movieUpsertCols 同口径: 排除 mid(冲突键)、created_at(首存时间)、deleted_at(软删标记),
 // 保证源站重推不会让已删影片在列表/检索里复活; db_score / year / pub_date / hot_score 走条件更新
@@ -157,7 +199,8 @@ func (r *searchRepo) TopByPidSorted(ctx context.Context, pid int64, s repository
 		limit = 14
 	}
 	var out []entity.MovieSearch
-	err := applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude).
+	// pid=隐藏分类时 pid = ? AND pid NOT IN ? 恒空 —— 隐藏分类页即空榜(导航也不可达)。
+	err := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude)).
 		Where("pid = ?", pid).Order(orderForClassify(s)).Limit(limit).Find(&out).Error
 	return out, err
 }
@@ -169,7 +212,7 @@ func (r *searchRepo) TopHotAll(ctx context.Context, limit int) ([]entity.MovieSe
 		limit = 14
 	}
 	var out []entity.MovieSearch
-	err := applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude).
+	err := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude)).
 		Order(orderHot).Limit(limit).Find(&out).Error
 	return out, err
 }
@@ -185,7 +228,7 @@ func (r *searchRepo) TopScoreByPid(ctx context.Context, pid int64, limit int) ([
 		limit = 14
 	}
 	var out []entity.MovieSearch
-	err := applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude).
+	err := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude)).
 		Where("pid = ? AND db_score > 0 AND name NOT LIKE ?", pid, "%解说%").
 		Order(orderScore).Limit(limit).Find(&out).Error
 	return out, err
@@ -195,13 +238,17 @@ func (r *searchRepo) TopScoreByPid(ctx context.Context, pid int64, limit int) ([
 // (为 0 则前端不渲染入口)。用运行时探测代替"体育/短剧/漫剧"白名单: 切源后自动正确。
 func (r *searchRepo) CountScoredByPid(ctx context.Context, pid int64) (int64, error) {
 	var n int64
-	err := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude).
+	err := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude)).
 		Where("pid = ? AND db_score > 0", pid).Count(&n).Error
 	return n, err
 }
 
 func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, page repository.Page) ([]entity.MovieSearch, int64, error) {
 	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), spec.Deleted)
+	// 仅公开口径剔除隐藏分类(后台回收站/全部要能看到一切)。
+	if spec.Deleted == repository.DeletedExclude {
+		q = r.excludeHidden(ctx, q)
+	}
 	if spec.Pid > 0 {
 		q = q.Where("pid = ?", spec.Pid)
 	}
@@ -243,6 +290,10 @@ func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted 
 	// FULLTEXT ngram 布尔模式, 替代前导通配 LIKE 全表扫。
 	match := "MATCH(name, sub_title) AGAINST (? IN BOOLEAN MODE)"
 	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), deleted)
+	// 仅公开口径(未删)剔除隐藏分类影片 —— 搜索不能成为隐藏分类的漏出通道。
+	if deleted == repository.DeletedExclude {
+		q = r.excludeHidden(ctx, q)
+	}
 	if isAllAsciiLetters(keyword) {
 		// 纯字母 → 可能是拼音首字母: 走 name_pinyin 前缀匹配, 同时兼容片名全文(英文名)。
 		q = q.Where("name_pinyin LIKE ? OR "+match, strings.ToUpper(keyword)+"%", keyword)
@@ -324,7 +375,8 @@ func (r *searchRepo) Related(ctx context.Context, seed repository.RelatedSeed, c
 		candidateLimit = 200
 	}
 	// 同分类 + (名称近似 OR 标签命中), 不再 ORDER BY RAND(); 随机抽样在 service 内存里做。
-	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude).
+	// 种子影片若在隐藏分类(直链进详情), 同分类候选也全在该分类内 → 一并剔除(相关推荐整行走空)。
+	q := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude)).
 		Where("cid = ? AND mid <> ?", seed.Cid, seed.Mid)
 	conds := dbFrom(ctx, r.db)
 	hasCond := false
@@ -500,7 +552,7 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 		C int64
 	}
 	var combos []cntRow
-	if err := applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude).
+	if err := r.excludeHidden(ctx, applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude)).
 		Select("class_tag AS v, COUNT(*) AS c").
 		Where("pid = ? AND class_tag <> ''", pid).Group("class_tag").Scan(&combos).Error; err != nil {
 		return nil, err
@@ -514,14 +566,14 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 	opts.Tags["Plot"] = fallbackLast(topByCount(plotCnt, 10))
 
 	// Area / Language: GROUP BY 取高频
-	opts.Tags["Area"] = fallbackLast(r.groupTop(db, pid, "area", 11))
-	opts.Tags["Language"] = fallbackLast(r.groupTop(db, pid, "language", 6))
+	opts.Tags["Area"] = fallbackLast(r.groupTop(ctx, db, pid, "area", 11))
+	opts.Tags["Language"] = fallbackLast(r.groupTop(ctx, db, pid, "language", 6))
 
 	// Year: 存在的年份倒序。屏蔽未来年份脏数据 —— 最多允许到"明年"(跨年档新片可能标次年),
 	// 后年及以后(> 今年+1)不展示(线上曾出现 2028/2030 的误值)。
 	maxYear := time.Now().In(cstZone).Year() + 1
 	var years []int
-	if err := applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude).
+	if err := r.excludeHidden(ctx, applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude)).
 		Where("pid = ? AND year > 0 AND year <= ?", pid, maxYear).
 		Distinct().Order("year DESC").Limit(12).Pluck("year", &years).Error; err != nil {
 		return nil, err
@@ -570,13 +622,13 @@ func fallbackLast(opts []repository.TagOption) []repository.TagOption {
 	return append(head, tail...)
 }
 
-func (r *searchRepo) groupTop(db *gorm.DB, pid int64, col string, limit int) []repository.TagOption {
+func (r *searchRepo) groupTop(ctx context.Context, db *gorm.DB, pid int64, col string, limit int) []repository.TagOption {
 	type cntRow struct {
 		V string
 		C int64
 	}
 	var rows []cntRow
-	applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude).
+	r.excludeHidden(ctx, applyDeleted(db.Model(&entity.MovieSearch{}), repository.DeletedExclude)).
 		Select(col+" AS v, COUNT(*) AS c").
 		Where("pid = ? AND "+col+" <> ''", pid).Group(col).Order("c DESC").Limit(limit).Scan(&rows)
 	out := make([]repository.TagOption, 0, len(rows))

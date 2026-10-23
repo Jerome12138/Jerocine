@@ -28,7 +28,12 @@ func InvalidateBanners(ctx context.Context) {
 	Del(ctx, KeyBanners)
 }
 
-// InvalidateCategory 分类变更后失效分类树 + 首页。
+// InvalidateCategory 分类变更后失效分类树 + 首页 + 分类页/筛选标签/相关推荐。
+// 分类 show 开关影响影片出口(隐藏分类的影片从列表/搜索剔除), 相关推荐按 cid 聚合、
+// 分类页与筛选标签按 pid 聚合, 都要跟着失效 —— 否则开关后旧缓存继续漏出隐藏分类内容。
 func InvalidateCategory(ctx context.Context) {
 	Del(ctx, KeyCatTree, KeyHomeAgg)
+	DelByPattern(ctx, PatClassify)
+	DelByPattern(ctx, PatTagOpts)
+	DelByPattern(ctx, PatRelate)
 }
