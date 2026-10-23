@@ -497,13 +497,15 @@ const cards = computed(() => {
             class="flex items-center gap-[var(--jc-space-2)] py-1.5 rounded min-h-[52px] hover:bg-elevated transition-colors"
           >
             <span class="w-5 text-secondary text-sm shrink-0">{{ i + 1 }}</span>
-            <BaseImage
-              :src="f.cover"
-              :alt="f.name"
-              ratio="40/54"
-              rounded="rounded-[var(--jc-radius-sm)]"
-              class="w-[36px] shrink-0"
-            />
+            <!-- BaseImage 内部是 width:100% 的比例盒, 需要外层固定宽度的包装(与全站海报用法一致) -->
+            <div class="w-[36px] shrink-0">
+              <BaseImage
+                :src="f.cover"
+                :alt="f.name"
+                ratio="40/54"
+                rounded="rounded-[var(--jc-radius-sm)]"
+              />
+            </div>
             <span class="flex-1 truncate text-sm">{{ f.name }}</span>
             <span class="text-secondary text-xs shrink-0">{{ fmtCount(f.count) }} 次</span>
           </RouterLink>
@@ -523,13 +525,14 @@ const cards = computed(() => {
             class="flex items-center gap-[var(--jc-space-2)] py-1.5 rounded min-h-[52px] hover:bg-elevated transition-colors"
           >
             <span class="w-5 text-secondary text-sm shrink-0">{{ i + 1 }}</span>
-            <BaseImage
-              :src="f.cover"
-              :alt="f.name"
-              ratio="40/54"
-              rounded="rounded-[var(--jc-radius-sm)]"
-              class="w-[36px] shrink-0"
-            />
+            <div class="w-[36px] shrink-0">
+              <BaseImage
+                :src="f.cover"
+                :alt="f.name"
+                ratio="40/54"
+                rounded="rounded-[var(--jc-radius-sm)]"
+              />
+            </div>
             <span class="flex-1 truncate text-sm">{{ f.name }}</span>
             <span class="text-secondary text-xs shrink-0">{{ fmtCount(f.count) }} 收藏</span>
           </RouterLink>

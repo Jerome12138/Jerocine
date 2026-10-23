@@ -337,13 +337,14 @@ watch(statusFilter, loadAll)
             class="jc-tm-row jc-tm-film"
           >
             <span class="w-[24px] text-muted shrink-0">{{ i + 1 }}</span>
-            <BaseImage
-              :src="f.cover"
-              :alt="f.name"
-              ratio="40/54"
-              rounded="rounded-[var(--jc-radius-sm)]"
-              class="w-[40px] shrink-0"
-            />
+            <div class="w-[40px] shrink-0">
+              <BaseImage
+                :src="f.cover"
+                :alt="f.name"
+                ratio="40/54"
+                rounded="rounded-[var(--jc-radius-sm)]"
+              />
+            </div>
             <span class="flex-1 truncate text-sm">{{ f.name }}</span>
             <span class="text-secondary text-sm shrink-0">{{ fmtCount(f.count) }} 次</span>
           </RouterLink>
@@ -362,13 +363,14 @@ watch(statusFilter, loadAll)
             class="jc-tm-row jc-tm-film"
           >
             <span class="w-[24px] text-muted shrink-0">{{ i + 1 }}</span>
-            <BaseImage
-              :src="f.cover"
-              :alt="f.name"
-              ratio="40/54"
-              rounded="rounded-[var(--jc-radius-sm)]"
-              class="w-[40px] shrink-0"
-            />
+            <div class="w-[40px] shrink-0">
+              <BaseImage
+                :src="f.cover"
+                :alt="f.name"
+                ratio="40/54"
+                rounded="rounded-[var(--jc-radius-sm)]"
+              />
+            </div>
             <span class="flex-1 truncate text-sm">{{ f.name }}</span>
             <span class="text-secondary text-sm shrink-0">{{ fmtCount(f.count) }} 收藏</span>
           </RouterLink>
