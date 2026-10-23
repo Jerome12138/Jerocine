@@ -8,14 +8,29 @@ const h = vi.hoisted(() => ({
   board: vi.fn(),
   move: vi.fn(),
   save: vi.fn(),
-  remove: vi.fn()
+  remove: vi.fn(),
+  refreshHotBoard: vi.fn(),
+  fillBackdrop: vi.fn(),
+  confirm: vi.fn()
 }))
 
 vi.mock('@/api', () => ({
   manageApi: {
-    banner: { board: h.board, move: h.move, save: h.save, remove: h.remove }
+    banner: {
+      board: h.board,
+      move: h.move,
+      save: h.save,
+      remove: h.remove,
+      refreshHotBoard: h.refreshHotBoard,
+      fillBackdrop: h.fillBackdrop,
+      // 豆瓣链接按真实实现拼 URL(行渲染时会调用, mock 缺失会让整棵组件树渲染中断)
+      doubanSearchUrl: (name: string) =>
+        `https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(name)}`
+    }
   }
 }))
+
+vi.mock('@/composables/useConfirm', () => ({ confirm: h.confirm }))
 
 function slide(over: Partial<EffectiveSlide> = {}): EffectiveSlide {
   return {
@@ -115,5 +130,34 @@ describe('BannerListView 轮播管理(生效位 + 候选位)', () => {
     const w = await mountView()
     expect(w.text()).toContain('/filmClassify?Pid=1')
     expect(w.findAll('a').find((a) => a.text().includes('filmClassify'))).toBeUndefined()
+  })
+
+  it('「立即刷新榜单」确认后调 refreshHotBoard, 完成后提示本轮报告并重载', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
+    h.confirm.mockResolvedValue(true)
+    h.refreshHotBoard.mockResolvedValue({ fetched: 627, matched: 465, applied: 505, elapsedMs: 97123 })
+    const w = await mountView()
+    const btn = w.findAll('button').find((b) => b.text().includes('立即刷新榜单'))
+    expect(btn, '应渲染「立即刷新榜单」按钮').toBeTruthy()
+    await btn!.trigger('click')
+    expect(h.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: '立即刷新榜单？' }))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.refreshHotBoard).toHaveBeenCalledTimes(1)
+    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('627'))
+    expect(h.board).toHaveBeenCalledTimes(2) // 初载 + 完成后 load(true)
+    alertSpy.mockRestore()
+  })
+
+  it('「横图」按钮: 调 fillBackdrop 并按 status 提示', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
+    h.fillBackdrop.mockResolvedValue({ mid: 1, status: 'filled' })
+    const w = await mountView()
+    const btn = w.findAll('button').find((b) => b.text().includes('横图'))
+    expect(btn, '关联影片行应渲染「横图」按钮').toBeTruthy()
+    await btn!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.fillBackdrop).toHaveBeenCalledWith(1)
+    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('横图已获取'))
+    alertSpy.mockRestore()
   })
 })
