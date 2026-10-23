@@ -230,7 +230,7 @@ func applyGuarantee(
 		if found == nil {
 			continue
 		}
-		// 替换项沿用被替换槽的分数(稳定混排顺序), 只更新成员与来源标记并打保底标。
+		// 替换项按来源榜的权重位重算候选分(与其它候选同一公式), 更新成员与来源标记并打保底标。
 		pool[idx].HotBoardMember = *found
 		pool[idx].SBoard = foundBoard
 		pool[idx].SBRank = found.SBRank

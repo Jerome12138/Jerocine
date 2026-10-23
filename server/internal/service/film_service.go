@@ -219,7 +219,7 @@ func (s *FilmService) SearchByMids(ctx context.Context, mids []int64) ([]entity.
 	return s.search.GetByMids(ctx, mids)
 }
 
-// HotBoard 热榜页分页(不缓存: 维度组合多, 由 handler 层做短缓存)。
+// HotBoard 热榜页分页(不缓存: 维度组合多, 与 /films 同口径交给 nginx api_cache)。
 // board 为空是全榜混排视图(按 hot_score, 枪版动态降级); 指定榜单是该榜视图(按榜位次)。
 func (s *FilmService) HotBoard(ctx context.Context, board string, spec repository.FilterSpec, sort string, page repository.Page) (CardPage, error) {
 	page = page.Normalize(s.pages.Filter)
