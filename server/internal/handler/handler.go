@@ -21,6 +21,7 @@ type Handlers struct {
 	Manage     *service.ManageService
 	Spider     *service.SpiderService
 	Banner     *service.BannerService
+	Backdrop   *service.BackdropService // TMDB 横图回填 worker(单片手动触发用)
 	Hot        *service.HotService // 榜单热度刷新(每日 04:00 自动 + 后台手动触发)
 	Tasks      *service.TaskRunService
 	Online     *service.OnlineService // 内存在线/观看统计(心跳上报)

@@ -229,6 +229,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,
 		Telemetry: telemetrySvc, Manage: manageSvc, Spider: spiderSvc, Banner: bannerSvc,
+		Backdrop: backdropSvc,
 		Hot: hotSvc, Tasks: taskSvc, Online: service.NewOnlineService(cacheRdb),
 		Register: registerSvc,
 		Blob: blob, ResetToken: cfg.Spider.ResetToken,

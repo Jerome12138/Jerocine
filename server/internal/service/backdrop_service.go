@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -190,6 +191,38 @@ func (s *BackdropService) fillOne(ctx context.Context, m *entity.Movie) {
 		log.Printf("[backdrop] update movie_search mid=%d: %v", m.Mid, err)
 	}
 	log.Printf("[backdrop] mid=%d %s → %s", m.Mid, m.Name, localURL)
+}
+
+// FillOne 单片回填横图(后台手动触发): 按 mid 查影片 → TMDB 检索 → 下载 → 双表回填。
+// 复用 worker 的 fillOne 内联逻辑, 但主动回读确认结果并返回状态, 供管理端提示:
+//   already = 原本就有横图, 未重查;  miss    = 命中 TMDB MissMark 哨兵(检索无果, 不回填);
+//   filled  = 本次成功回填;   "" + err = 未生效(网络失败/无 key/检索无果), 详情见 [backdrop] 日志。
+func (s *BackdropService) FillOne(ctx context.Context, mid int64) (string, error) {
+	m, err := s.movie.GetByMid(ctx, mid)
+	if err != nil {
+		return "", err
+	}
+	switch m.Backdrop {
+	case "":
+		// 缺图: 走单片回填(内部打日志, 失败不抛)。
+	case tmdb.MissMark:
+		return "miss", nil // 此前检索无果, 不重复检索(与 worker 同策略)
+	default:
+		return "already", nil
+	}
+	s.fillOne(ctx, m)
+	mm, err := s.movie.GetByMid(ctx, mid)
+	if err != nil {
+		return "", err
+	}
+	switch mm.Backdrop {
+	case "":
+		return "", fmt.Errorf("回填未生效(网络失败或无 TMDB key), 详情见服务端 [backdrop] 日志")
+	case tmdb.MissMark:
+		return "miss", nil
+	default:
+		return "filled", nil
+	}
 }
 
 // sleepCtx 可中断休眠; 返回 false 表示 ctx 已取消。

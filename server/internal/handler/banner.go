@@ -173,3 +173,28 @@ func (h *Handlers) DeleteBanner(c *gin.Context) {
 	}
 	dto.NoContent(c)
 }
+
+// fillBackdropReq POST /manage/backdrop/fill 请求体。
+type fillBackdropReq struct {
+	Mid int64 `json:"mid"`
+}
+
+// BackdropFill POST /manage/backdrop/fill 手动触发单片横图回填(TMDB 检索 → 下载 → 双表更新)。
+// 返回 status: already(已有横图) / miss(检索无果哨兵) / filled(本次回填成功)。
+func (h *Handlers) BackdropFill(c *gin.Context) {
+	var req fillBackdropReq
+	if err := c.ShouldBindJSON(&req); err != nil || req.Mid <= 0 {
+		dto.Error(c, http.StatusBadRequest, "mid 必填且需大于 0")
+		return
+	}
+	if h.Backdrop == nil {
+		dto.Error(c, http.StatusServiceUnavailable, "backdrop worker unavailable")
+		return
+	}
+	status, err := h.Backdrop.FillOne(c.Request.Context(), req.Mid)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"mid": req.Mid, "status": status})
+}
