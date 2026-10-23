@@ -48,6 +48,8 @@ const columns = [
   { key: 'cName' as const, label: '分类', width: '120px' },
   { key: 'year' as const, label: '年份', width: '80px' },
   { key: 'area' as const, label: '地区', width: '100px' },
+  { key: 'dbScore' as const, label: '评分', width: '70px' },
+  { key: 'remarks' as const, label: '备注', width: '140px' },
   { key: 'deletedAt' as const, label: '状态', width: '120px' }
 ]
 
@@ -220,6 +222,16 @@ onMounted(load)
         </div>
         <span v-else-if="col.key === 'name'" class="font-[var(--jc-fw-medium)]">
           {{ row.name }}
+        </span>
+        <span
+          v-else-if="col.key === 'dbScore'"
+          class="tabular-nums"
+          :class="row.dbScore > 0 ? 'text-[var(--jc-warning)]' : 'text-muted'"
+        >
+          {{ row.dbScore > 0 ? row.dbScore.toFixed(1) : '—' }}
+        </span>
+        <span v-else-if="col.key === 'remarks'" class="text-secondary truncate block max-w-[130px]" :title="row.remarks || ''">
+          {{ row.remarks || '—' }}
         </span>
         <BaseTag
           v-else-if="col.key === 'deletedAt'"
