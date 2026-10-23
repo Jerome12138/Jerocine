@@ -31,6 +31,7 @@ const params = reactive({ keyword: '', current: 1, pageSize: 20 })
 const columns = [
   { key: 'ID' as const, label: 'ID', width: '80px' },
   { key: 'userName' as const, label: '用户名' },
+  { key: 'email' as const, label: '邮箱', width: '220px' },
   { key: 'role' as const, label: '角色', width: '100px' },
   { key: 'disabled' as const, label: '状态', width: '100px' },
   { key: 'CreatedAt' as const, label: '注册时间', width: '170px' }
@@ -244,6 +245,9 @@ onMounted(load)
         <span v-if="col.key === 'userName'" class="font-[var(--jc-fw-medium)]">
           {{ row.userName }}
           <BaseTag v-if="isSelf(row)" variant="info" size="xs" class="ml-[var(--jc-space-1)]">当前登录</BaseTag>
+        </span>
+        <span v-else-if="col.key === 'email'" class="text-secondary truncate block max-w-[210px]" :title="row.email || ''">
+          {{ row.email || '—' }}
         </span>
         <BaseTag v-else-if="col.key === 'role'" :variant="row.role === 1 ? 'warning' : 'default'" size="sm">
           {{ roleLabel(row) }}

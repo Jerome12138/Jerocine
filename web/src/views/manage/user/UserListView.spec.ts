@@ -133,6 +133,20 @@ describe('UserListView 编辑用户邮箱', () => {
     return { w, form, inputs: form.findAll('input') }
   }
 
+  it('表格显示邮箱列(有邮箱展示原文, 无邮箱显示 —)', async () => {
+    const w = await mountView()
+    expect(w.text()).toContain('邮箱')
+    expect(w.text()).toContain('bob@example.com')
+
+    h.list.mockResolvedValue({
+      list: [{ ...row, ID: 10, userName: 'noemail', email: '' }],
+      page: { total: 1, size: 20, current: 1 }
+    })
+    const w2 = await mountView()
+    const cells = w2.findAll('td, span').filter((c) => c.text() === '—')
+    expect(cells.length, '无邮箱行应有 — 占位').toBeGreaterThan(0)
+  })
+
   it('编辑弹窗回填现有邮箱, 改动后随更新请求提交', async () => {
     const { form, inputs } = await openEdit()
     const emailInput = inputs.find((i) => (i.element as HTMLInputElement).type === 'email')
