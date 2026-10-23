@@ -16,8 +16,14 @@ import (
 // 缓存太久会出现"到点了但首页还没换"。
 const ttlBanners = 3 * time.Minute
 
-// heroSlideCount 首页轮播位总数: 手动配置位排前, 不足部分由热榜/最新榜自动补位。
+// heroSlideCount 首页轮播**对外生效**位数: 手动配置位排前, 不足部分由热榜/最新榜自动补位。
 const heroSlideCount = 5
+
+// heroBoardCount 后台管理视图展示位数(> 生效位数): 前 heroSlideCount 位对外生效,
+// 其余为热榜候选位 —— 管理员可从这里采纳(启用, 转手动钉位)或屏蔽(禁用, 不再被补位选中)。
+// 候选位是运行时从榜单派生的, 热榜每日刷新后自动换新; 已采纳(手动行)的顺序持久化,
+// 不受刷新影响 —— 这正是"默认展示 10 条、只启用前 5、刷新后已编辑的顺序保持"的落点。
+const heroBoardCount = 10
 
 // 轮播位来源。手动位 = banner 配置行; 自动位 = 榜单派生(无对应配置行)。
 const (
@@ -27,9 +33,9 @@ const (
 
 // BannerService 首页轮播: 前台读取(缓存) + 后台增删改 + 生效位排序/屏蔽。
 //
-// 生效语义(前 heroSlideCount 位, 前台首页大图与管理页共用同一口径):
+// 生效语义(前 heroSlideCount 位对外; 管理视图另有 heroBoardCount 位候选区):
 //  1. 手动位 = 启用 + 生效窗口内 + 有横/竖图的配置行, 按 sort 升序排前;
-//  2. 自动位 = 手动位不足 heroSlideCount 时, 按各区块 hot → latest 顺序补尾;
+//  2. 自动位 = 手动位不足目标位数时, 按各区块 hot → latest 顺序补尾;
 //  3. 铁律: mid 只要在 banner 表出现过(无论启用与否)就不再被自动补位选中 ——
 //     "禁用自动位"即落地为一条禁用配置行(屏蔽该 mid)。
 type BannerService struct {
@@ -71,14 +77,16 @@ type EffectiveSlide struct {
 // InactiveRow 未生效的配置行(管理页折叠区), 不参与展示与自动补位。
 type InactiveRow struct {
 	entity.Banner
-	// Reason 未生效原因: disabled=已停用 / noimage=缺横竖图 / pending=未开始 / expired=已过期 / overflow=超出前5位。
+	// Reason 未生效原因: disabled=已停用 / noimage=缺横竖图 / pending=未开始 / expired=已过期 / overflow=超出管理视图位数。
 	Reason string `json:"reason"`
 }
 
-// Board 后台管理视图: 生效位(前 heroSlideCount) + 未生效配置行。
+// Board 后台管理视图: 生效位 + 未生效配置行。
 type Board struct {
-	Active   []EffectiveSlide `json:"active"`
-	Inactive []InactiveRow    `json:"inactive"`
+	Active []EffectiveSlide `json:"active"`
+	// LiveCount 前 LiveCount 位对外生效(heroSlideCount); 其余 Active 项为候选位。
+	LiveCount int               `json:"liveCount"`
+	Inactive  []InactiveRow     `json:"inactive"`
 }
 
 // activeManual 从全量行里挑出当前生效的手动行, 保持 sort/id 升序。
@@ -95,9 +103,9 @@ func activeManual(rows []entity.Banner, now int64) []entity.Banner {
 	return out
 }
 
-// compose 组装生效轮播位(不缓存)。手动位在前, 不足 heroSlideCount 时自动补位;
-// 手动位超过 heroSlideCount 时截断, 超出部分在 Board 里以 overflow 呈现。
-func (s *BannerService) compose(ctx context.Context) ([]EffectiveSlide, error) {
+// compose 组装轮播位(不缓存), n 为目标位数。手动位在前, 不足 n 时自动补位;
+// 手动位超过 n 时截断, 超出部分在 Board 里以 overflow 呈现。
+func (s *BannerService) compose(ctx context.Context, n int) ([]EffectiveSlide, error) {
 	now := time.Now().UnixMilli()
 	rows, err := s.repo.ListAll(ctx)
 	if err != nil {
@@ -111,7 +119,7 @@ func (s *BannerService) compose(ctx context.Context) ([]EffectiveSlide, error) {
 		}
 	}
 	manualRows := activeManual(rows, now)
-	slides := make([]EffectiveSlide, 0, heroSlideCount)
+	slides := make([]EffectiveSlide, 0, n)
 	for _, b := range manualRows {
 		slides = append(slides, EffectiveSlide{
 			Source: SlideSourceManual, BannerId: b.Id, Mid: b.Mid,
@@ -119,7 +127,7 @@ func (s *BannerService) compose(ctx context.Context) ([]EffectiveSlide, error) {
 			Link: b.Link, Sort: b.Sort, State: b.State,
 		})
 	}
-	if len(slides) < heroSlideCount {
+	if len(slides) < n {
 		home, herr := s.films.Home(ctx)
 		if herr != nil {
 			// 已有手动位就照常返回(自动补位失败不连累前台); 一个都没有才向上报错。
@@ -132,7 +140,7 @@ func (s *BannerService) compose(ctx context.Context) ([]EffectiveSlide, error) {
 		seen := excluded // 复用同一张表: 既排除配置过的 mid, 也对候选去重
 		fill := func(items []entity.MovieSearch) {
 			for _, it := range items {
-				if len(slides) >= heroSlideCount {
+				if len(slides) >= n {
 					return
 				}
 				if it.Mid <= 0 || seen[it.Mid] {
@@ -152,8 +160,8 @@ func (s *BannerService) compose(ctx context.Context) ([]EffectiveSlide, error) {
 			fill(row.Latest)
 		}
 	}
-	if len(slides) > heroSlideCount {
-		slides = slides[:heroSlideCount]
+	if len(slides) > n {
+		slides = slides[:n]
 	}
 	return slides, nil
 }
@@ -161,7 +169,7 @@ func (s *BannerService) compose(ctx context.Context) ([]EffectiveSlide, error) {
 // Public 前台轮播: 生效位列表(手动 + 自动补位, 前 heroSlideCount 位), 带缓存。
 func (s *BannerService) Public(ctx context.Context) ([]EffectiveSlide, error) {
 	slides, _, err := cache.GetOrLoad(ctx, cache.KeyBanners, ttlBanners, func(ctx context.Context) ([]EffectiveSlide, bool, error) {
-		slides, err := s.compose(ctx)
+		slides, err := s.compose(ctx, heroSlideCount)
 		// 元信息补齐放在缓存装载里: 一次 IN 查询(≤5 个 mid), 结果随轮播缓存复用 3min。
 		// 失败只记日志不报错 —— 缺评分/标签不影响轮播可用性, 没必要连累首页。
 		s.enrichMeta(ctx, slides)
@@ -211,24 +219,27 @@ func (s *BannerService) enrichMeta(ctx context.Context, slides []EffectiveSlide)
 	}
 }
 
-// Board 后台管理视图: 生效位 + 未生效配置行(带原因, 管理页折叠区展示)。
+// Board 后台管理视图: 前 heroBoardCount 位(前 heroSlideCount 位生效 + 候选位) + 未生效配置行。
+// 候选位与生效位同一套来源语义(手动排前 + 热榜补尾), 管理页在 LiveCount 处分区展示。
 func (s *BannerService) Board(ctx context.Context) (*Board, error) {
 	now := time.Now().UnixMilli()
 	rows, err := s.repo.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
-	active, err := s.Public(ctx)
+	// 管理视图不走 Public 的 3min 缓存: 管理页 30s 轮询 + 编辑后立即回读, 要看到当下。
+	active, err := s.compose(ctx, heroBoardCount)
 	if err != nil {
 		return nil, err
 	}
+	s.enrichMeta(ctx, active)
 	used := make(map[int64]bool, len(active))
 	for _, sl := range active {
 		if sl.BannerId > 0 {
 			used[sl.BannerId] = true
 		}
 	}
-	board := &Board{Active: active, Inactive: []InactiveRow{}}
+	board := &Board{Active: active, LiveCount: heroSlideCount, Inactive: []InactiveRow{}}
 	for _, b := range rows {
 		if used[b.Id] {
 			continue
@@ -243,7 +254,7 @@ func (s *BannerService) Board(ctx context.Context) (*Board, error) {
 			case b.EndAt > 0 && b.EndAt < now:
 				reason = "expired"
 			default:
-				reason = "overflow"
+				reason = "overflow" // 启用手动行超出管理视图位数(常见于历史上配置过多)
 			}
 		}
 		board.Inactive = append(board.Inactive, InactiveRow{Banner: b, Reason: reason})
@@ -275,13 +286,13 @@ func (s *BannerService) Save(ctx context.Context, b *entity.Banner, slot *int) e
 	return nil
 }
 
-// Move 生效位排序。手动位在手动区内换位; 自动位仅支持上移 = 转为手动位钉在目标位置
-// (自动位是榜单派生, 无行可删, "下移/删除"由 禁用/屏蔽 语义承担)。
+// Move 轮播位排序(管理视图 10 位口径)。手动位在手动区内换位; 自动位仅支持上移 =
+// 转为手动位钉在目标位置(自动位是榜单派生, 无行可删, "下移/删除"由 禁用/屏蔽 语义承担)。
 func (s *BannerService) Move(ctx context.Context, slot int, dir string) error {
 	if dir != "up" && dir != "down" {
 		return domain.ErrInvalidMove
 	}
-	slides, err := s.Public(ctx)
+	slides, err := s.compose(ctx, heroBoardCount)
 	if err != nil {
 		return err
 	}

@@ -439,6 +439,8 @@ export interface InactiveBanner extends Banner {
 /** 后台轮播管理视图：生效位 + 未生效配置行 */
 export interface BannerBoard {
   active: EffectiveSlide[]
+  /** 前 liveCount 位对外生效(首页大图); 其余 active 项为热榜候选位 */
+  liveCount?: number
   inactive: InactiveBanner[]
 }
 

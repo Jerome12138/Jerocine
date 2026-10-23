@@ -13,10 +13,11 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import { confirm } from '@/composables/useConfirm'
 
 /**
- * 首页轮播管理 —— 单一列表 = 首页此刻实际生效的前 5 位, 与前台大图完全同源。
+ * 首页轮播管理 —— 列表 = 前 5 位生效位 + 后 5 位热榜候选位(共 10 位, liveCount 分区)。
  * 手动位(banner): 完整增删改 + 启用/停用 + 上下移;
- * 自动位(热榜补位): 派生数据, 支持编辑采纳(转手动钉位)、禁用屏蔽、上移采纳;
+ * 自动位(热榜补位): 派生数据, 支持编辑采纳(转手动钉位, 即"启用")、禁用屏蔽、上移采纳;
  *   铁律: mid 出现在 banner 表(无论启用与否)就不再被自动补位选中。
+ *   热榜每日刷新会自动换掉未被编辑的候选位; 已采纳的手动行顺序持久化, 不受刷新影响。
  * 未生效区: 停用/缺图/未开始/已过期/超位的配置行, 可启用(转手动)/编辑/删除。
  * 横图 worker 只对生效位的影片回填 TMDB 横图; 轮播一有变动即触发补采。
  */
@@ -33,6 +34,8 @@ let pollTimer: number | undefined
 
 const active = computed(() => board.value.active ?? [])
 const inactive = computed(() => board.value.inactive ?? [])
+/** 对外生效位数(分区线: 之前 = 首页大图实时生效, 之后 = 候选位) */
+const liveCount = computed(() => board.value.liveCount ?? 5)
 /** 可见手动位数(上/下移边界用) */
 const manualCount = computed(() => active.value.filter((s) => s.source === 'banner').length)
 
@@ -190,7 +193,7 @@ const reasonStyle: Record<InactiveBanner['reason'], { text: string; variant: 'da
   noimage: { text: '缺横竖图', variant: 'warning' },
   pending: { text: '未开始', variant: 'default' },
   expired: { text: '已过期', variant: 'default' },
-  overflow: { text: '超出前5位', variant: 'default' }
+  overflow: { text: '超出候选位', variant: 'default' }
 }
 
 function pad(n: number): string {
@@ -230,7 +233,7 @@ onUnmounted(() => {
       <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">首页轮播</h2>
         <span class="text-muted text-xs">
-          与首页大图实时一致 · 手动位排前, 不足 5 位由热榜自动补位 · 每 30 秒刷新
+          前 {{ liveCount }} 位对外生效与首页大图实时一致 · 其余为热榜候选位(采纳即启用) · 每 30 秒刷新
         </span>
       </div>
       <div class="flex gap-[var(--jc-space-2)]">
@@ -251,13 +254,19 @@ onUnmounted(() => {
       暂无生效轮播 —— 无可用配置且片库为空
     </div>
 
-    <!-- 生效位(前 5) -->
+    <!-- 生效位 + 候选位(共 10, liveCount 分区) -->
     <ul v-else class="flex flex-col">
-      <li
-        v-for="(s, i) in active"
-        :key="`${s.source}-${s.bannerId ?? 0}-${s.mid ?? 0}-${i}`"
-        class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)] border-b border-default last:border-b-0"
-      >
+      <template v-for="(s, i) in active" :key="`${s.source}-${s.bannerId ?? 0}-${s.mid ?? 0}-${i}`">
+        <li
+          v-if="i === liveCount && active.length > liveCount"
+          class="flex items-center gap-[var(--jc-space-2)] py-[var(--jc-space-2)] text-muted text-xs border-b border-default"
+        >
+          <span class="shrink-0">▾ 以下为候选位</span>
+          <span class="truncate">热榜自动补入 · 会随热榜刷新换新；「编辑」采纳即启用手动位，「禁用」永久屏蔽该影片</span>
+        </li>
+        <li
+          class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)] border-b border-default last:border-b-0"
+        >
         <span class="w-4 text-center text-muted text-xs shrink-0">{{ i + 1 }}</span>
         <img
           v-if="s.image || s.poster"
@@ -313,7 +322,8 @@ onUnmounted(() => {
             variant="danger" size="sm" @click="s.banner && remove(s.banner)"
           >删除</BaseButton>
         </div>
-      </li>
+        </li>
+      </template>
     </ul>
 
     <!-- 未生效配置行(折叠区) -->
