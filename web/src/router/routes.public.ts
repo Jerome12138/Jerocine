@@ -47,6 +47,13 @@ export const publicRoutes: RouteRecordRaw[] = [
     meta: { layout: 'public', title: '分类筛选' }
   },
   {
+    // 独立热榜页(8 榜并集/单榜筛选 + 年份/地区/语言/分类/排序)。固定导航入口, 不进 category 表。
+    path: '/hotBoard',
+    name: 'hot-board',
+    component: () => import('@/views/public/HotBoardView.vue'),
+    meta: { layout: 'public', title: '热榜' }
+  },
+  {
     path: '/history',
     name: 'history',
     component: () => import('@/views/public/HistoryView.vue'),

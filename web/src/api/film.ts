@@ -9,6 +9,8 @@ import type {
   Filters,
   HomeBanner,
   HomeData,
+  HotBoardFilters,
+  HotBoardQuery,
   NavCategory,
   PlayInfo
 } from '@/types/film'
@@ -37,6 +39,17 @@ export const getFilms = (
   options?: { signal?: AbortSignal }
 ): Promise<Paginated<Card>> =>
   http.get<unknown, Paginated<Card>>('/films', { params: query, signal: options?.signal })
+
+/** GET /hotboard 热榜(8 榜并集或单榜; 普通请求, 不用 SWR —— 筛选/分页实时反映 URL) */
+export const getHotBoard = (
+  query: HotBoardQuery,
+  options?: { signal?: AbortSignal }
+): Promise<Paginated<Card>> =>
+  http.get<unknown, Paginated<Card>>('/hotboard', { params: query, signal: options?.signal })
+
+/** GET /hotboard/filters 热榜筛选维度(榜单固定 8 榜; 年份/地区/语言聚合在榜影片) */
+export const getHotBoardFilters = (): Promise<HotBoardFilters> =>
+  http.get<unknown, HotBoardFilters>('/hotboard/filters')
 
 /** GET /films/classify 分类页三榜(SWR 按 pid) */
 export const getClassify = (pid: number | string): Promise<ClassifyData> =>

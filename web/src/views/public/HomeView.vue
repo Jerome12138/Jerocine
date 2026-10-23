@@ -539,9 +539,8 @@ onBeforeUnmount(() => {
               <span class="t">🔥 热门榜单</span>
               <span class="s">最热抢先看</span>
               <RouterLink
-                v-if="tvFirstPid"
                 class="jc-tv-more"
-                :to="{ path: '/filmClassify', query: { Pid: tvFirstPid } }"
+                to="/hotBoard"
                 data-focusable="true"
                 tabindex="0"
               >更多内容</RouterLink>
@@ -639,6 +638,7 @@ onBeforeUnmount(() => {
           <FilmRow
             v-if="topRanking.length"
             title="🔥 热门榜单"
+            more-link="/hotBoard"
             :items="topRanking"
           />
           <FilmRow

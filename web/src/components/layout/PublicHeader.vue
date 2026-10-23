@@ -565,6 +565,16 @@ watch(
             </RouterLink>
           </div>
         </div>
+        <!-- 固定热榜入口(硬编码, 不进 category 表, 管理端删不掉) -->
+        <RouterLink
+          to="/hotBoard"
+          class="jc-header__nav-link"
+          :class="route.name === 'hot-board' ? 'is-active' : ''"
+          data-focusable="true"
+          tabindex="0"
+        >
+          热榜
+        </RouterLink>
       </nav>
 
       <!-- 中部弹性 (左 spacer) -->
@@ -970,6 +980,15 @@ watch(
               </RouterLink>
             </div>
           </template>
+          <!-- 固定热榜入口 -->
+          <RouterLink
+            to="/hotBoard"
+            class="jc-mnav__link" data-focusable="true"
+            :class="route.name === 'hot-board' ? 'is-active' : ''"
+          >
+            <BaseIcon name="fire" size="16px" class="jc-mnav__link-icon" />
+            <span>热榜</span>
+          </RouterLink>
         </div>
 
         <div class="jc-mnav__group">
@@ -1104,6 +1123,16 @@ watch(
                 </RouterLink>
               </div>
             </template>
+            <!-- 固定热榜入口 -->
+            <RouterLink
+              to="/hotBoard"
+              class="jc-mnav__link" data-focusable="true"
+              :class="route.name === 'hot-board' ? 'is-active' : ''"
+              @click="closeMobile"
+            >
+              <BaseIcon name="fire" size="16px" class="jc-mnav__link-icon" />
+              <span>热榜</span>
+            </RouterLink>
           </div>
 
           <!-- 个人 -->

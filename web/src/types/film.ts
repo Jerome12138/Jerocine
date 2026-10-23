@@ -201,3 +201,31 @@ export interface FilmsQuery {
   page?: number
   size?: number
 }
+
+/** 热榜榜单维度选项(value=豆瓣集合名, label=中文榜名) */
+export interface HotBoardOption {
+  value: string
+  label: string
+}
+
+/** GET /hotboard/filters 响应: 榜单固定 8 榜, 年份/地区/语言由在榜影片聚合 */
+export interface HotBoardFilters {
+  boards: HotBoardOption[]
+  years: number[]
+  areas: string[]
+  languages: string[]
+}
+
+/** GET /hotboard 查询参数(小写, 对齐后端 query) */
+export interface HotBoardQuery {
+  /** 榜单集合名; 空 = 8 榜并集(全站热榜) */
+  board?: string
+  pid?: number
+  year?: number
+  area?: string
+  language?: string
+  /** rank=按位次(默认) / hot=按热度分(全榜并集时可用) */
+  sort?: string
+  page?: number
+  size?: number
+}
