@@ -71,7 +71,7 @@ deploy/runtime/
 # skills/ 是可共享的项目资产(运维手册等), 纳入版本控制; settings.local.json / 锁文件等机器相关文件仍忽略
 .claude/*
 !.claude/skills/
-*.png
+.claude/*.png
 
 # macOS 垃圾文件
 .DS_Store
