@@ -440,14 +440,33 @@ export interface EffectiveSlide {
   hotRank?: number
   /** 榜单中文名(如 "热门电影"; 不在榜缺省) */
   hotBoard?: string
+  /** 候选位: 大陆保底替换进来的位(需求②)。仅后台返回, 管理页标「大陆保底」 */
+  guaranteed?: boolean
   /** 仅后台管理接口返回：手动位对应的完整配置行（编辑表单回填用），前台不返回 */
   banner?: Banner
+}
+
+/** 未生效配置行关联影片的元信息(后端 enrichInactive 按 mid 批量补齐, 需求⑥)。
+ *  已停用/缺图/过期等行也要能在管理页看到评分/标签/榜位/封面, 便于判断是否启用。 */
+export interface InactiveMeta {
+  name?: string
+  dbScore?: number
+  classTag?: string
+  hotRank?: number
+  hotBoard?: string
+  area?: string
+  year?: number
+  remarks?: string
+  cover?: string
+  backdrop?: string
 }
 
 /** 未生效配置行（不参与展示与自动补位，管理页折叠区） */
 export interface InactiveBanner extends Banner {
   /** disabled=已停用 / noimage=缺横竖图 / pending=未开始 / expired=已过期 / overflow=超出前5位 */
   reason: 'disabled' | 'noimage' | 'pending' | 'expired' | 'overflow'
+  /** 关联影片的元信息(无 mid/已删/查不到时缺省) */
+  meta?: InactiveMeta
 }
 
 /** 后台轮播管理视图：生效位 + 未生效配置行 */

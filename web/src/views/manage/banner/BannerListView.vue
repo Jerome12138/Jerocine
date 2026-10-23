@@ -10,6 +10,7 @@ import ManageImageUpload from '@/components/manage/ManageImageUpload.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BaseLightbox from '@/components/base/BaseLightbox.vue'
 import { confirm } from '@/composables/useConfirm'
 
 /**
@@ -38,6 +39,48 @@ const inactive = computed(() => board.value.inactive ?? [])
 const liveCount = computed(() => board.value.liveCount ?? 5)
 /** 可见手动位数(上/下移边界用) */
 const manualCount = computed(() => active.value.filter((s) => s.source === 'banner').length)
+
+/** 图片点击放大(lightbox): 预览地址为空 = 关闭 */
+const previewSrc = ref('')
+const previewAlt = ref('')
+function preview(url?: string, alt?: string): void {
+  if (!url) return
+  previewAlt.value = alt || ''
+  previewSrc.value = url
+}
+
+/* ---- 未生效行元信息(需求⑥: 停用/缺图/过期行也要展示评分/标签/榜位/封面/链接) ---- */
+
+/** 未生效行的展示名: 配置标题 > 关联影片元信息名 > 影片 #mid > 配置 id */
+function inactiveName(row: InactiveBanner): string {
+  return (
+    row.title ||
+    row.meta?.name ||
+    (row.mid > 0 ? `影片 ${row.mid}` : `#${row.id}`)
+  )
+}
+
+/** 未生效行可用封面(优先横图, 再竖图, 再元信息封面/横图) */
+function inactiveImage(row: InactiveBanner): string {
+  return row.image || row.poster || row.meta?.backdrop || row.meta?.cover || ''
+}
+
+/** 未生效行豆瓣榜位文案 */
+function inactiveHotLabel(row: InactiveBanner): string {
+  const r = row.meta?.hotRank ?? 0
+  if (!r) return '—'
+  return `${row.meta?.hotBoard || '豆瓣'} No.${r}`
+}
+
+/** 未生效行是否可跳详情(关联了影片) */
+function inactiveCanJump(row: InactiveBanner): boolean {
+  return !row.link && !!row.mid && row.mid > 0
+}
+function inactiveGoLabel(row: InactiveBanner): string {
+  if (row.link) return row.link
+  if (row.mid > 0) return `影片 #${row.mid}`
+  return '未配置'
+}
 
 interface Form {
   id: number
@@ -244,7 +287,7 @@ onUnmounted(() => {
       <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">首页轮播</h2>
         <span class="text-muted text-xs">
-          前 {{ liveCount }} 位对外生效与首页大图实时一致 · 其余为热榜候选位(采纳即启用) · 每 30 秒刷新
+          共 {{ active.length }} 位 · 前 {{ liveCount }} 位对外生效与首页大图实时一致 · 8 榜前 2 权重混排 · 中国大陆保底 · 每 30 秒刷新
         </span>
       </div>
       <div class="flex gap-[var(--jc-space-2)]">
@@ -273,7 +316,7 @@ onUnmounted(() => {
           class="flex items-center gap-[var(--jc-space-2)] py-[var(--jc-space-2)] text-muted text-xs border-b border-default"
         >
           <span class="shrink-0">▾ 以下为候选位</span>
-          <span class="truncate">暂不对外生效 · 未采纳的热榜候选会随刷新换新(手动行保持不变)；「编辑」采纳即启用手动位，「禁用」永久屏蔽该影片</span>
+          <span class="truncate">8 榜前 2 · 权重混排 · 中国大陆保底 —— 暂不对外生效，未采纳候选随每日榜单刷新换新(手动行保持不变)；「编辑」采纳即启用手动位，「禁用」永久屏蔽该影片</span>
         </li>
         <li
           class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)] border-b border-default last:border-b-0"
@@ -284,7 +327,8 @@ onUnmounted(() => {
           v-if="s.image"
           :src="s.image"
           alt="横图"
-          class="w-[96px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0"
+          class="w-[96px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 cursor-zoom-in"
+          @click="preview(s.image, s.name)"
         />
         <span
           v-else
@@ -295,7 +339,8 @@ onUnmounted(() => {
           v-if="s.poster"
           :src="s.poster"
           alt="竖图"
-          class="w-[36px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0"
+          class="w-[36px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 cursor-zoom-in"
+          @click="preview(s.poster, s.name)"
         />
         <span
           v-else
@@ -323,6 +368,10 @@ onUnmounted(() => {
         >{{ hotLabelOf(s) }}</span>
         <BaseTag :variant="s.source === 'banner' ? 'success' : 'default'" size="sm" class="shrink-0">
           {{ s.source === 'banner' ? '手动' : '自动' }}
+        </BaseTag>
+        <!-- 大陆保底: 候选池里无中国大陆影片时, 用高分大陆片替换同分类最低分槽(需求②) -->
+        <BaseTag v-if="s.guaranteed" variant="warning" size="sm" class="shrink-0" title="中国大陆保底位">
+          大陆保底
         </BaseTag>
         <BaseTag
           v-if="s.source === 'fallback'"
@@ -384,22 +433,72 @@ onUnmounted(() => {
         <li
           v-for="row in inactive"
           :key="row.id"
-          class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)]"
+          class="flex items-center gap-[var(--jc-space-3)] py-[var(--jc-space-2)] border-b border-default last:border-b-0"
         >
+          <!-- 封面(配置图优先, 缺则用关联影片元信息封面; 需求⑥全图可点击放大) -->
           <img
-            v-if="row.image || row.poster"
-            :src="row.image || row.poster"
-            alt=""
-            class="w-[96px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60"
+            v-if="inactiveImage(row)"
+            :src="inactiveImage(row)"
+            :alt="inactiveName(row)"
+            class="w-[96px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60 cursor-zoom-in"
+            @click="preview(inactiveImage(row), inactiveName(row))"
           />
           <span
             v-else
             class="w-[96px] h-[54px] grid place-items-center text-muted text-xs rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60"
           >无图</span>
-          <span class="truncate flex-1 min-w-0 text-secondary">{{ row.title || `#${row.mid > 0 ? '影片 ' + row.mid : row.id}` }}</span>
+          <!-- 竖图列(与生效行对齐) -->
+          <img
+            v-if="row.poster"
+            :src="row.poster"
+            alt="竖图"
+            class="w-[36px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60 cursor-zoom-in hidden md:block"
+            @click="preview(row.poster, inactiveName(row))"
+          />
+          <span
+            v-else
+            class="w-[36px] h-[54px] grid place-items-center text-muted text-[10px] rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60 hidden md:grid"
+          >无</span>
+          <div class="flex flex-col min-w-0 flex-1">
+            <span class="truncate text-secondary">{{ inactiveName(row) }}</span>
+            <span class="text-muted text-xs truncate">
+              <template v-if="row.meta?.dbScore || row.meta?.year || row.meta?.area">
+                <span :class="row.meta?.dbScore ? 'text-[var(--jc-warning)]' : ''">
+                  {{ row.meta?.dbScore ? row.meta.dbScore.toFixed(1) + ' 分' : '' }}
+                </span>
+                <span v-if="row.meta?.year || row.meta?.area">
+                  {{ row.meta?.dbScore ? ' · ' : '' }}{{ [row.meta?.year, row.meta?.area].filter(Boolean).join(' · ') }}
+                </span>
+                <span v-if="row.meta?.remarks"> · {{ row.meta.remarks }}</span>
+              </template>
+              <span v-else>无关联影片元信息</span>
+            </span>
+          </div>
+          <!-- 评分列(与生效行同宽) -->
+          <span
+            class="w-[44px] text-center text-xs tabular-nums shrink-0"
+            :class="row.meta?.dbScore ? 'text-[var(--jc-warning)]' : 'text-muted'"
+            title="豆瓣评分"
+          >{{ row.meta?.dbScore ? row.meta.dbScore.toFixed(1) : '—' }}</span>
+          <span
+            class="w-[96px] text-xs text-secondary truncate hidden xl:inline shrink-0"
+            :title="row.meta?.classTag || ''"
+          >{{ row.meta?.classTag || '—' }}</span>
+          <span
+            class="w-[120px] text-xs text-secondary truncate hidden lg:inline shrink-0"
+            :title="inactiveHotLabel(row)"
+          >{{ inactiveHotLabel(row) }}</span>
           <BaseTag :variant="reasonStyle[row.reason].variant" size="sm" class="shrink-0">
             {{ reasonStyle[row.reason].text }}
           </BaseTag>
+          <!-- 跳转列: 关联影片可点进详情; 自定义链接仅展示 -->
+          <RouterLink
+            v-if="inactiveCanJump(row)"
+            :to="{ path: '/filmDetail', query: { link: String(row.mid) } }"
+            class="text-xs text-link hover:underline w-[120px] truncate hidden lg:inline-block shrink-0"
+            :title="`查看影片详情 ${inactiveGoLabel(row)}`"
+          >{{ inactiveGoLabel(row) }}</RouterLink>
+          <span v-else class="text-xs text-link w-[120px] truncate hidden lg:block shrink-0" :title="inactiveGoLabel(row)">{{ inactiveGoLabel(row) }}</span>
           <div class="flex gap-[var(--jc-space-1)] shrink-0">
             <BaseButton
               v-if="row.state !== 0"
@@ -487,4 +586,7 @@ onUnmounted(() => {
       <BaseButton variant="gradient" :loading="submitting" @click="submit">保存</BaseButton>
     </template>
   </ManageSheet>
+
+  <!-- 全图点击放大(生效/未生效所有封面共享一个 lightbox) -->
+  <BaseLightbox v-model:src="previewSrc" :alt="previewAlt" />
 </template>

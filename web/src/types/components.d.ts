@@ -14,6 +14,7 @@ declare module 'vue' {
     BaseEmpty: typeof import('./../components/base/BaseEmpty.vue')['default']
     BaseIcon: typeof import('./../components/base/BaseIcon.vue')['default']
     BaseImage: typeof import('./../components/base/BaseImage.vue')['default']
+    BaseLightbox: typeof import('./../components/base/BaseLightbox.vue')['default']
     BasePagePlaceholder: typeof import('./../components/base/BasePagePlaceholder.vue')['default']
     BasePagination: typeof import('./../components/base/BasePagination.vue')['default']
     BaseSkeleton: typeof import('./../components/base/BaseSkeleton.vue')['default']
