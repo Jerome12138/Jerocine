@@ -467,3 +467,60 @@ func TestHotService_Due(t *testing.T) {
 		t.Fatal("退避到期后该跑")
 	}
 }
+
+// TestHotService_Refresh_ReleasesLockWhenContextCanceled ctx 中途取消也必须释放锁:
+// 手动刷新经网关时, 60s 读超时先掐 HTTP 连接, 请求 ctx 随之取消 —— 若 Unlock 沿用该
+// ctx, 解锁自身失败, 锁干等 30min TTL 才自解, 期间所有刷新一律 409(2026-10-23 线上事故)。
+// 复现时序: 锁已获取(TryLock 在抓取之前) → 抓取中途 cancel → Refresh 返回"抓取不可信";
+// 断言: 换干净 context 再跑一轮不再 ErrHotBusy(即锁已被释放)。
+func TestHotService_Refresh_ReleasesLockWhenContextCanceled(t *testing.T) {
+	setupCache(t)
+	repo := newHotTestRepo(time.Now())
+
+	// 假豆瓣: 第一个请求停在 proceed 上, 主流程 cancel 后再放行。响应给空榜即可 ——
+	// 本轮注定失败, 我们只关心锁的去留。
+	entered := make(chan struct{}, 1)
+	proceed := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-proceed
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"subject_collection_items":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := douban.New()
+	c.SetBaseURL(srv.URL)
+	c.SetInterval(0)
+
+	svc := NewHotService(repo, nil, c)
+	svc.cols = []douban.Collection{{Name: "movie_hot_gaia", Label: "热门电影", Depth: 308}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type round struct {
+		rep HotRefreshReport
+		err error
+	}
+	ch := make(chan round, 1)
+	go func() {
+		rep, err := svc.Refresh(ctx)
+		ch <- round{rep, err}
+	}()
+
+	<-entered      // 锁已拿到, 抓取请求已发出并悬停
+	cancel()       // 模拟网关掐连接
+	close(proceed) // 放行, 让本轮自然收尾
+	first := <-ch
+	if first.err == nil || first.err == ErrHotBusy {
+		t.Fatalf("第一轮应因 ctx 取消而失败: err=%v rep=%+v", first.err, first.rep)
+	}
+
+	// 锁必须已被释放: 干净 context 再跑一轮 —— 旧实现 Unlock(已取消的 ctx)失败, 这里必 409。
+	// err 无论是"空榜不可信"还是正常报告都不影响本断言, 关注点只有锁。
+	if _, err := svc.Refresh(context.Background()); err == ErrHotBusy {
+		t.Fatal("锁未随 ctx 取消释放: 第二轮撞 409, Unlock 不应沿用已取消的 ctx")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -392,7 +393,16 @@ func (h *Handlers) HotRefresh(c *gin.Context) {
 }
 
 // runHotRefresh 执行一轮榜单刷新并登记任务台账(手动刷新 / 历史任务重跑共用)。
+//
+// 刷新实测 1-2 分钟, 必须与 HTTP 请求生命周期解耦: 网关默认 60s 读超时会先掐连接,
+// 请求 ctx 随之取消, 抓取半路夭折、零落库(2026-10-23 线上事故)。WithoutCancel 保留
+// 请求上的取值, 只剥离取消信号, 另加 10min 硬上限防悬挂 —— 客户端断开只影响响应送达,
+// 服务端照常跑完落库, 结果看任务台账。
 func (h *Handlers) runHotRefresh(ctx context.Context) (service.HotRefreshReport, error) {
+	ctx = context.WithoutCancel(ctx)
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	runId := h.Tasks.Start(entity.TaskRunKindManual, entity.TaskRunHotRefresh, 0, "", "榜单热度刷新", 0)
 	rep, err := h.Hot.Refresh(ctx)
 	if err != nil {

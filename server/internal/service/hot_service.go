@@ -196,7 +196,10 @@ func (s *HotService) Refresh(ctx context.Context) (rep HotRefreshReport, err err
 	if !ok {
 		return rep, ErrHotBusy
 	}
-	defer cache.Unlock(ctx, cache.KeyLockHotRun, token)
+	// 解锁必须不受请求取消影响: 客户端断开(网关超时/用户关页)会取消 ctx, 拿它解锁等于
+	// 放弃释放 —— 锁要干等 30min TTL 才自解, 期间所有手动/自动刷新一律 409(2026-10-23
+	// 线上事故)。与 spider_service 的解锁姿势一致。
+	defer cache.Unlock(context.WithoutCancel(ctx), cache.KeyLockHotRun, token)
 
 	ranked, ferr := s.client.Fetch(ctx, s.cols)
 	st := s.client.Stats()
