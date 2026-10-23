@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import * as registerApi from '@/api/register'
@@ -8,11 +8,13 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import { useViewMode } from '@/composables/useViewMode'
+import { getLastUserName } from '@/utils/lastUsername'
 
 /**
  * ActivateView 激活页(/activate?token=): 一次性激活链接到站 → 设密码 → 自动登录。
  * 用户名窗口期(审批通过→激活之间)可能被 open 注册者占用 → 409 时就地改名重试,
  * token 仍有效(设计 §9.3: peek 只读校验, 事务成功后才消费)。
+ * 用户名失焦查重与注册页同款(可用/占用即时反馈); 进页默认回填上次注册/申请填报的用户名。
  */
 const route = useRoute()
 const router = useRouter()
@@ -28,12 +30,39 @@ const errorMsg = ref('')
 /** 409 用户名被占 → 高亮用户名框提示改名(token 不失效, 可重试) */
 const nameTaken = ref(false)
 
+// ---- 用户名失焦查重(与 RegisterView 同款): 可用/占用在输入框下即时显示 ----
+const nameState = ref<'idle' | 'checking' | 'ok' | 'taken'>('idle')
+
+async function checkUserName(): Promise<void> {
+  const name = form.userName.trim()
+  if (!name) {
+    nameState.value = 'idle'
+    return
+  }
+  nameState.value = 'checking'
+  try {
+    nameState.value = (await registerApi.checkUserName(name)).available ? 'ok' : 'taken'
+  } catch {
+    nameState.value = 'idle' // 接口异常不打扰填写, 提交时服务端还会把关
+  }
+}
+
+// 用户再次编辑用户名 → 旧结论作废
+watch(
+  () => form.userName,
+  () => {
+    nameState.value = 'idle'
+  }
+)
+
 const redirectTo = computed(() => {
   const r = route.query.redirect
   return typeof r === 'string' && r ? r : ''
 })
 
 onMounted(() => {
+  // 默认回填上次注册/申请填报的用户名(同设备同浏览器)
+  form.userName = getLastUserName()
   // 已登录再进激活页无意义: 直接去首页
   if (userStore.isLoggedIn) void router.replace(redirectTo.value || '/index')
 })
@@ -152,7 +181,7 @@ async function handleActivate(): Promise<void> {
         label="用户名"
         required
         :error="nameTaken ? '该用户名已被占用，请更换后重试（激活链接仍然有效）' : ''"
-        :hint="nameTaken ? '' : '申请时填报的用户名；如被占用可在此更换'"
+        :hint="nameState === 'idle' && !nameTaken ? '申请时填报的用户名；如被占用可在此更换' : ''"
       >
         <div class="relative">
           <BaseIcon
@@ -169,8 +198,27 @@ async function handleActivate(): Promise<void> {
             placeholder="用户名"
             autocomplete="username"
             data-focusable="true"
+            @blur="checkUserName"
           />
         </div>
+        <p
+          v-if="nameState !== 'idle'"
+          class="mt-[var(--jc-space-1)] pl-[var(--jc-space-2)] text-xs"
+          :class="{
+            'text-secondary': nameState === 'checking',
+            'text-[var(--jc-success)]': nameState === 'ok',
+            'text-[var(--jc-danger)]': nameState === 'taken'
+          }"
+          role="status"
+        >
+          {{
+            nameState === 'checking'
+              ? '正在检查用户名…'
+              : nameState === 'ok'
+                ? '该用户名可用'
+                : '该用户名已被占用，换一个试试'
+          }}
+        </p>
       </ManageFormField>
 
       <ManageFormField label="密码" required>

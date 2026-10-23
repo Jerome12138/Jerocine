@@ -8,6 +8,7 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ApplyStatusPanel from '@/components/auth/ApplyStatusPanel.vue'
 import { useViewMode } from '@/composables/useViewMode'
+import { saveLastUserName } from '@/utils/lastUsername'
 
 const route = useRoute()
 const router = useRouter()
@@ -123,6 +124,7 @@ async function handleRegister(): Promise<void> {
       code: form.code.trim()
     })
     userStore.setToken(res.token, res.expires)
+    saveLastUserName(form.userName.trim())
     try {
       await userStore.fetchInfo()
     } catch {
@@ -162,6 +164,7 @@ async function handleApply(): Promise<void> {
       reason: form.reason.trim() || undefined,
       code: form.code.trim()
     })
+    saveLastUserName(form.userName.trim())
     submitted.value = true
   } catch (e: unknown) {
     errorMsg.value = e instanceof Error ? e.message : '申请失败'

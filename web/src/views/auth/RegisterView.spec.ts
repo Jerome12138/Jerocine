@@ -55,6 +55,7 @@ function stubUserStore() {
 describe('RegisterView 自注册(open)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    localStorage.clear()
     vi.mocked(sendRegisterCode).mockReset()
     vi.mocked(registerAccount).mockReset()
   })
@@ -142,6 +143,8 @@ describe('RegisterView 自注册(open)', () => {
     expect(userStore.setToken).toHaveBeenCalledWith('tok-1', 123)
     expect(userStore.fetchInfo).toHaveBeenCalled()
     expect(router.currentRoute.value.path).toBe('/index')
+    // 用户名落盘: 激活页/重装场景回填用
+    expect(localStorage.getItem('jc-last-username')).toBe('jerry')
   })
 
   it('open: 注册失败 → 错误原文显示, 不写 token', async () => {
@@ -237,6 +240,8 @@ describe('RegisterView 申请注册(apply)', () => {
     expect(applyStatus).toHaveBeenCalledWith('a@b.com')
     await w.vm.$nextTick()
     expect(w.text()).toContain('审核中')
+    // 用户名落盘: 激活页回填用
+    expect(localStorage.getItem('jc-last-username')).toBe('jerry')
   })
 
   it('apply: 同邮箱在途 → 403 原文(审核中提示), 停留表单', async () => {

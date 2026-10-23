@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import ActivateView from './ActivateView.vue'
 import { useUserStore } from '@/stores/user'
-import { activateAccount } from '@/api/register'
+import { activateAccount, checkUserName } from '@/api/register'
 import { ApiError } from '@/types/api'
 
 vi.mock('@/api/register', () => ({
@@ -14,7 +14,8 @@ vi.mock('@/api/register', () => ({
   applyRegister: vi.fn(),
   applyStatus: vi.fn(),
   resendActivation: vi.fn(),
-  activateAccount: vi.fn()
+  activateAccount: vi.fn(),
+  checkUserName: vi.fn()
 }))
 
 const router = createRouter({
@@ -53,7 +54,9 @@ async function fillAndSubmit(w: Awaited<ReturnType<typeof mountActivate>>) {
 describe('ActivateView 激活页', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    localStorage.clear()
     vi.mocked(activateAccount).mockReset()
+    vi.mocked(checkUserName).mockReset()
   })
 
   it('缺 token → 提示从邮件链接进入, 不出表单', async () => {
@@ -130,5 +133,76 @@ describe('ActivateView 激活页', () => {
 
     expect(w.text()).toContain('激活链接已过期或已被使用')
     expect(w.text()).not.toContain('该用户名已被占用')
+  })
+
+  // ---- 用户名回填 + 失焦查重(与注册页同款) ----
+
+  it('进页默认回填上次注册/申请填报的用户名(jc-last-username)', async () => {
+    localStorage.setItem('jc-last-username', 'jerry-from-register')
+
+    const w = await mountActivate()
+
+    const input = w.find('input[autocomplete="username"]').element as HTMLInputElement
+    expect(input.value).toBe('jerry-from-register')
+  })
+
+  it('无落盘用户名 → 用户名框为空', async () => {
+    const w = await mountActivate()
+
+    const input = w.find('input[autocomplete="username"]').element as HTMLInputElement
+    expect(input.value).toBe('')
+  })
+
+  it('用户名失焦查重: 可用 → 绿色提示', async () => {
+    vi.mocked(checkUserName).mockResolvedValue({ available: true })
+
+    const w = await mountActivate()
+    const input = w.find('input[autocomplete="username"]')
+    await input.setValue('jerry')
+    await input.trigger('blur')
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(checkUserName).toHaveBeenCalledWith('jerry')
+    expect(w.text()).toContain('该用户名可用')
+  })
+
+  it('用户名失焦查重: 占用 → 红色提示', async () => {
+    vi.mocked(checkUserName).mockResolvedValue({ available: false })
+
+    const w = await mountActivate()
+    const input = w.find('input[autocomplete="username"]')
+    await input.setValue('jerry')
+    await input.trigger('blur')
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(w.text()).toContain('该用户名已被占用，换一个试试')
+  })
+
+  it('查重后再次编辑 → 旧结论作废(提示消失)', async () => {
+    vi.mocked(checkUserName).mockResolvedValue({ available: true })
+
+    const w = await mountActivate()
+    const input = w.find('input[autocomplete="username"]')
+    await input.setValue('jerry')
+    await input.trigger('blur')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.text()).toContain('该用户名可用')
+
+    await input.setValue('jerry2')
+    await w.vm.$nextTick()
+    expect(w.text()).not.toContain('该用户名可用')
+  })
+
+  it('查重接口异常 → 静默回 idle, 不打扰填写', async () => {
+    vi.mocked(checkUserName).mockRejectedValue(new Error('network down'))
+
+    const w = await mountActivate()
+    const input = w.find('input[autocomplete="username"]')
+    await input.setValue('jerry')
+    await input.trigger('blur')
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(w.text()).not.toContain('正在检查用户名')
+    expect(w.text()).not.toContain('该用户名可用')
   })
 })
