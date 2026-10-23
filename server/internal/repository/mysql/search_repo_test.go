@@ -2,9 +2,11 @@ package mysql
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
+	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 )
@@ -77,4 +79,70 @@ func TestSearchUpsertColsCoverEntity(t *testing.T) {
 			t.Fatalf("列 %s 在 searchUpsertCols 中=%v, 期望=%v (请同步 searchUpsertCols / searchUpsertExclude)", col, got, want)
 		}
 	}
+}
+
+// TestHotBoardOrder 热榜排序键的 SQL 组装回归保护(方案 §1.1):
+// 单榜默认按该榜位次(枪版片位次后移)/ 全榜默认按热度(枪版动态减一个步长+多榜回血)/
+// score/latest 各分支 / rank 在全榜回落 hot / 未识别 sort(如 recent)同样回落默认。
+func TestHotBoardOrder(t *testing.T) {
+	tc := hotBoardTCExpr
+
+	t.Run("单榜默认=按榜位+枪版位次后移", func(t *testing.T) {
+		got := hotBoardOrder("movie_hot_gaia", "")
+		if !strings.Contains(got, "h.`rank`") {
+			t.Fatalf("单榜默认排序缺少榜位列: %s", got)
+		}
+		if strings.Count(got, tc) != 1 {
+			t.Fatalf("单榜默认排序应恰好引用 1 次枪版表达式, got=%q", got)
+		}
+		if !strings.Contains(got, strconv.Itoa(domain.HotBoardTCRankDrop)+") ASC") {
+			t.Fatalf("单榜默认排序应含枪版位次后移 %d, got=%q", domain.HotBoardTCRankDrop, got)
+		}
+		if got != hotBoardOrder("movie_hot_gaia", "rank") {
+			t.Fatalf("显式 rank 应与默认一致")
+		}
+	})
+
+	t.Run("单榜 hot/score/latest 走各自键且不含枪版表达式", func(t *testing.T) {
+		if got := hotBoardOrder("movie_hot_gaia", "hot"); !strings.Contains(got, "m.hot_score DESC") || strings.Contains(got, tc) {
+			t.Fatalf("单榜 hot 排序异常: %q", got)
+		}
+		if got := hotBoardOrder("movie_hot_gaia", "score"); !strings.Contains(got, "m.db_score DESC") || strings.Contains(got, tc) {
+			t.Fatalf("单榜 score 排序异常: %q", got)
+		}
+		if got := hotBoardOrder("movie_hot_gaia", "latest"); !strings.Contains(got, "m.pub_date DESC") || strings.Contains(got, tc) {
+			t.Fatalf("单榜 latest 排序异常: %q", got)
+		}
+	})
+
+	t.Run("全榜默认=热度+枪版降级+多榜回血", func(t *testing.T) {
+		got := hotBoardOrder("", "")
+		if !strings.Contains(got, "m.hot_score - ") {
+			t.Fatalf("全榜默认排序缺少热度基: %s", got)
+		}
+		if strings.Count(got, tc) != 2 {
+			t.Fatalf("全榜默认排序应引用 2 次枪版表达式(降级+回血), got=%q", got)
+		}
+		if !strings.Contains(got, strconv.Itoa(domain.HotBoardTCStepDrop)) {
+			t.Fatalf("全榜默认排序应含枪版降级步长 %d, got=%q", domain.HotBoardTCStepDrop, got)
+		}
+		wantBonus := "LEAST(GREATEST(COALESCE(b.bc,1)-1,0)*" + strconv.Itoa(domain.HotBoardTCMultiBoardBonus) +
+			"," + strconv.Itoa(domain.HotBoardTCMultiBoardCap) + ")"
+		if !strings.Contains(got, wantBonus) {
+			t.Fatalf("全榜默认排序应含多榜回血 %s, got=%q", wantBonus, got)
+		}
+	})
+
+	t.Run("全榜 rank/recent 回落热度默认", func(t *testing.T) {
+		want := hotBoardOrder("", "")
+		if got := hotBoardOrder("", "rank"); got != want {
+			t.Fatalf("全榜 rank 应回落热度默认")
+		}
+		if got := hotBoardOrder("", "recent"); got != want {
+			t.Fatalf("全榜 recent(未实现)应回落热度默认, got=%q", got)
+		}
+		if got := hotBoardOrder("movie_hot_gaia", "recent"); got != hotBoardOrder("movie_hot_gaia", "") {
+			t.Fatalf("单榜 recent(未实现)应回落榜位默认, got=%q", got)
+		}
+	})
 }

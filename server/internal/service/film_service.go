@@ -230,9 +230,12 @@ func (s *FilmService) HotBoard(ctx context.Context, board string, spec repositor
 	list := make([]entity.MovieSearch, len(members))
 	for i := range members {
 		m := members[i]
-		// 用当前榜单视图的榜/位次覆写代表榜, 前端角标与标题显示"该榜 No.X"。
-		m.MovieSearch.HotBoard = m.SBoard
-		m.MovieSearch.HotRank = m.SBRank
+		// 仅单榜视图用"当前榜单"的榜/位次覆写代表榜, 前端角标与标题显示"该榜 No.X";
+		// 全榜视图的 SBoard/SBRank 即代表榜本身(m.hot_board/m.hot_rank), 无需覆写。
+		if board != "" {
+			m.MovieSearch.HotBoard = m.SBoard
+			m.MovieSearch.HotRank = m.SBRank
+		}
 		list[i] = m.MovieSearch
 	}
 	return CardPage{List: list, Total: total, Page: page}, nil

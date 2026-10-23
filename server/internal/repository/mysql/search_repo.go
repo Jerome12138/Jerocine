@@ -714,9 +714,12 @@ func topByCount(m map[string]int64, n int) []repository.TagOption {
 // ---- 热榜页 / 热榜快照 / 轮播候选 (2026-10-23, 见 docs/热榜页面与轮播候选方案) ----
 
 // hotBoardTCExpr SQL 侧枪版判定, 与 domain.IsLowQualityTelesync 同口径:
-// 中文"枪版/抢先"走 LIKE, 英文 TC/HDTC/TS/CAM/CAMRIP 走 POSIX 词边界(两侧非字母数字)。
+// 中文"枪版/抢先"走 LIKE, 英文 TC/HDTC/TS/CAM/CAMRIP 走 ASCII 词边界。
+// ⚠️ 边界必须用 [^0-9A-Za-z_] 而非 [^[:alnum:]]: 实测 MySQL 8(ICU)的 [[:alnum:]]
+// 会把中文算作字母数字, 导致 "TC高清"/"高清TC" 这种中英紧贴场景漏判;
+// ASCII 集合与 Go 侧 \b(\w=[0-9A-Za-z_]) 严格等价(domain/quality_test 有锁定测试)。
 // 仅用于热榜/轮播的**动态排序**, 不改动落库 hot_score(那会影响全站排序)。
-const hotBoardTCExpr = "(CASE WHEN m.remarks REGEXP '(^|[^[:alnum:]])(HDTC|CAMRIP|CAM|TC|TS)([^[:alnum:]]|$)' OR m.remarks LIKE '%枪版%' OR m.remarks LIKE '%抢先%' THEN 1 ELSE 0 END)"
+const hotBoardTCExpr = "(CASE WHEN m.remarks REGEXP '(^|[^0-9A-Za-z_])(HDTC|CAMRIP|CAM|TC|TS)([^0-9A-Za-z_]|$)' OR m.remarks LIKE '%枪版%' OR m.remarks LIKE '%抢先%' THEN 1 ELSE 0 END)"
 
 // HotBoardMembers 热榜快照成员 JOIN 影片读模型(每日候选派生用)。
 // 剔除软删与隐藏分类; 同一部片命中多个榜会保留多行(候选派生据此算多榜回血)。
