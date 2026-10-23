@@ -156,9 +156,9 @@ onMounted(load)
             </span>
           </div>
           <!-- 影片可见开关: 关闭 = 该分类影片从公开列表/搜索全部剔除(pid 过滤天然覆盖子分类) -->
-          <label class="jc-cat__toggle" @click.stop title="关闭后该分类影片从公开列表与搜索中剔除">
+          <label class="jc-cat__toggle" @click.stop title="关闭后该分类影片从公开列表与搜索中剔除；默认可见">
             <span class="jc-cat__state jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !parent.filmVisible }">
-              {{ parent.filmVisible ? '影片可见' : '影片隐藏' }}
+              影片可见
             </span>
             <ManageSwitch :model-value="parent.filmVisible" @update:model-value="toggleFilmVisible(parent)" />
           </label>
@@ -188,9 +188,9 @@ onMounted(load)
             <span class="jc-cat__cname" :class="{ 'jc-cat--off': !child.show }">{{ child.name }}</span>
             <span class="jc-cat__cid">#{{ child.id }} · {{ filmCountLabel(child) }}</span>
             <div class="jc-cat__cctrl" @click.stop>
-              <label class="jc-cat__toggle" title="关闭后该分类影片从公开列表与搜索中剔除">
+              <label class="jc-cat__toggle" title="关闭后该分类影片从公开列表与搜索中剔除；默认可见">
                 <span class="jc-cat__state jc-cat__state--sm jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !child.filmVisible }">
-                  {{ child.filmVisible ? '可见' : '隐藏' }}
+                  可见
                 </span>
                 <ManageSwitch :model-value="child.filmVisible" @update:model-value="toggleFilmVisible(child)" />
               </label>
@@ -394,7 +394,7 @@ onMounted(load)
   color: var(--jc-danger);
   font-weight: var(--jc-fw-medium);
 }
-/* 分类名旁的影片数在"影片隐藏"时的提示色 */
+/* 分类名旁的影片数在"影片可见关闭"时的提示色 */
 .jc-cat__films-hidden {
   color: var(--jc-danger);
 }
