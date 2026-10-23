@@ -64,6 +64,8 @@ type SearchRepository interface {
 	SearchKeyword(ctx context.Context, keyword string, deleted int, page Page) ([]entity.MovieSearch, int64, error)
 	// CountCreatedSince 统计 created_at(毫秒) >= sinceMillis 的影片数 (仪表盘今日/近一周新增)。
 	CountCreatedSince(ctx context.Context, sinceMillis int64) (int64, error)
+	// CountFilmsByCategory 各分类在架影片数(后台分类管理展示): 返回 pid 维度与 cid 维度两张计数表。
+	CountFilmsByCategory(ctx context.Context) (pids, cids map[int64]int64, err error)
 	// Related 相关推荐候选 (按 cid + 名称/标签, 内存抽样在 service 层)。
 	Related(ctx context.Context, seed RelatedSeed, candidateLimit int) ([]entity.MovieSearch, error)
 	// TagOptions 7 维筛选标签 (查询期 GROUP BY 聚合, 不再靠采集期 ZIncrBy)。

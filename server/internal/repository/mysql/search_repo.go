@@ -83,25 +83,28 @@ func applyDeleted(q *gorm.DB, mode int) *gorm.DB {
 	}
 }
 
-// hiddenCats 查出"隐藏分类"的 id 集: 顶级(show=0)与子分类(show=0)分开返回,
-// 供 pid/cid 两列分别 NOT IN。隐藏顶级分类即隐藏其下全部影片(子分类随父级由
-// 管理端级联置 hide, 即便子级 show 仍为真, 其影片 pid 也命中顶级排除条件)。
+// hiddenCats 查出"影片不可见分类"的 id 集: 顶级(film_visible=0)与子分类(film_visible=0)
+// 分开返回, 供 pid/cid 两列分别 NOT IN。影片不可见的顶级分类即隐藏其下全部影片
+// (即便子级 film_visible 仍为真, 其影片 pid 也命中顶级排除条件)。
+//
+// 注意与 category.show(菜单显隐)的分工: show 只管导航菜单, 影片照常可搜可列表;
+// film_visible 才是根本上的影片可见性。两者独立开关。
 //
 // 分类表只有几十行, 直接每请求现查 —— 换取后台开关即时生效, 不需要任何失效联动
 // (分类树/聚合缓存仍走各自的 TTL 与 InvalidateCategory)。
 func (r *searchRepo) hiddenCats(ctx context.Context) (pids, cids []int64) {
 	var rows []struct {
-		Id   int64
-		Pid  int64
-		Show bool
+		Id          int64
+		Pid         int64
+		FilmVisible bool
 	}
-	if err := dbFrom(ctx, r.db).Table("category").Select("id, pid, `show`").Scan(&rows).Error; err != nil {
+	if err := dbFrom(ctx, r.db).Table("category").Select("id, pid, film_visible").Scan(&rows).Error; err != nil {
 		// 查询失败宁可不滤(与旧行为一致), 不连累列表; 记日志便于发现。
-		log.Printf("search_repo: 查隐藏分类失败, 本请求跳过过滤: %v", err)
+		log.Printf("search_repo: 查影片不可见分类失败, 本请求跳过过滤: %v", err)
 		return nil, nil
 	}
 	for _, c := range rows {
-		if c.Show {
+		if c.FilmVisible {
 			continue
 		}
 		if c.Pid == 0 {
@@ -170,6 +173,34 @@ func (r *searchRepo) CountCreatedSince(ctx context.Context, sinceMillis int64) (
 	err := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude).
 		Where("created_at >= ?", sinceMillis).Count(&n).Error
 	return n, err
+}
+
+// CountFilmsByCategory 各分类在架影片数(后台分类管理展示用): pid 维度(顶级)与
+// cid 维度(子分类)分开 GROUP BY 计数, 软删排除。分类表几十行 × 两查, 管理页低频
+// 调用不加缓存。注意"顶级分类计数"是其 pid 直挂影片数(不含子分类归属的影片)。
+func (r *searchRepo) CountFilmsByCategory(ctx context.Context) (pids, cids map[int64]int64, err error) {
+	pids = map[int64]int64{}
+	cids = map[int64]int64{}
+	type row struct {
+		Grp int64
+		Cnt int64
+	}
+	for _, col := range []string{"pid", "cid"} {
+		var rows []row
+		err = applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude).
+			Select(col + " AS grp, COUNT(*) AS cnt").Group(col).Scan(&rows).Error
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, rw := range rows {
+			if col == "pid" {
+				pids[rw.Grp] = rw.Cnt
+			} else {
+				cids[rw.Grp] = rw.Cnt
+			}
+		}
+	}
+	return pids, cids, nil
 }
 
 func (r *searchRepo) GetByMids(ctx context.Context, mids []int64) ([]entity.MovieSearch, error) {

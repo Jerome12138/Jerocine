@@ -136,7 +136,7 @@ func xmlEpisodeCount(v videoDetail) int {
 func parseCategories(list []filmClass) []entity.Category {
 	out := make([]entity.Category, 0, len(list))
 	for i, c := range list {
-		out = append(out, entity.Category{Id: c.TypeID, Pid: c.TypePid, Name: c.TypeName, Show: true, Sort: i})
+		out = append(out, entity.Category{Id: c.TypeID, Pid: c.TypePid, Name: c.TypeName, Show: true, FilmVisible: true, Sort: i})
 	}
 	return out
 }

@@ -23,6 +23,7 @@ const form = reactive<FilmClass>({
   name: '',
   ename: '',
   show: true,
+  filmVisible: true,
   sort: 0
 })
 
@@ -48,14 +49,14 @@ function openEdit(node: FilmClass): void {
 function openAddTop(): void {
   editing.value = null
   addingUnder.value = ''
-  Object.assign(form, { id: 0, pid: 0, name: '', ename: '', show: true, sort: 0 })
+  Object.assign(form, { id: 0, pid: 0, name: '', ename: '', show: true, filmVisible: true, sort: 0 })
   dialogOpen.value = true
 }
 
 function openAddChild(parent: FilmClass): void {
   editing.value = null
   addingUnder.value = parent.name
-  Object.assign(form, { id: 0, pid: parent.id, name: '', ename: '', show: true, sort: 0 })
+  Object.assign(form, { id: 0, pid: parent.id, name: '', ename: '', show: true, filmVisible: true, sort: 0 })
   dialogOpen.value = true
 }
 
@@ -70,6 +71,18 @@ async function toggleShow(node: FilmClass): Promise<void> {
   }
   await Promise.all(tasks)
   await load()
+}
+
+/** 影片可见开关: 关闭 = 该分类影片从公开列表/搜索全部剔除。
+ *  顶级不需要级联子级 —— 影片过滤按 pid 匹配, 关顶级即覆盖其下全部子分类影片。 */
+async function toggleFilmVisible(node: FilmClass): Promise<void> {
+  await manageApi.film.classUpdate({ ...node, filmVisible: !node.filmVisible })
+  await load()
+}
+
+/** 影片数展示: 缺省(计数失败)显示 — */
+function filmCountLabel(node: FilmClass): string {
+  return typeof node.filmCount === 'number' ? `${node.filmCount} 部` : '—'
 }
 
 async function submit(): Promise<void> {
@@ -103,7 +116,7 @@ onMounted(load)
     <header class="flex items-center justify-between gap-[var(--jc-space-3)] mb-[var(--jc-space-4)]">
       <div class="min-w-0">
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">影视分类管理</h2>
-        <p class="text-sm text-muted truncate">维护顶级与子分类的展示状态、名称与排序</p>
+        <p class="text-sm text-muted truncate">维护顶级与子分类的菜单显隐、影片可见性、名称与排序</p>
       </div>
       <div class="flex items-center gap-[var(--jc-space-2)] shrink-0">
         <BaseButton variant="ghost" size="sm" @click="load">
@@ -137,12 +150,22 @@ onMounted(load)
           <span class="jc-cat__bar" aria-hidden="true" />
           <div class="jc-cat__title">
             <span class="jc-cat__name" :class="{ 'jc-cat--off': !parent.show }">{{ parent.name }}</span>
-            <span class="jc-cat__meta">#{{ parent.id }} · {{ parent.children?.length ?? 0 }} 子分类</span>
+            <span class="jc-cat__meta">
+              #{{ parent.id }} · 排序 {{ parent.sort ?? 0 }} · {{ parent.children?.length ?? 0 }} 子分类 ·
+              <span :class="{ 'jc-cat__films-hidden': !parent.filmVisible }">{{ filmCountLabel(parent) }}</span>
+            </span>
           </div>
-          <!-- 展示开关: 带文字标签, 单独可点不触发整行编辑 -->
-          <label class="jc-cat__toggle" @click.stop>
+          <!-- 影片可见开关: 关闭 = 该分类影片从公开列表/搜索全部剔除(pid 过滤天然覆盖子分类) -->
+          <label class="jc-cat__toggle" @click.stop title="关闭后该分类影片从公开列表与搜索中剔除">
+            <span class="jc-cat__state jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !parent.filmVisible }">
+              {{ parent.filmVisible ? '影片可见' : '影片隐藏' }}
+            </span>
+            <ManageSwitch :model-value="parent.filmVisible" @update:model-value="toggleFilmVisible(parent)" />
+          </label>
+          <!-- 菜单显隐开关: 只控制导航菜单, 影片仍可搜索/在列表看到 -->
+          <label class="jc-cat__toggle" @click.stop title="只控制导航菜单是否显示；影片仍可搜索、在列表看到">
             <span class="jc-cat__state" :class="{ 'jc-cat__state--on': parent.show }">
-              {{ parent.show ? '展示' : '隐藏' }}
+              {{ parent.show ? '菜单显示' : '菜单隐藏' }}
             </span>
             <ManageSwitch :model-value="parent.show" @update:model-value="toggleShow(parent)" />
           </label>
@@ -163,8 +186,14 @@ onMounted(load)
           >
             <span class="jc-cat__dot" :class="{ 'jc-cat__dot--on': child.show }" aria-hidden="true" />
             <span class="jc-cat__cname" :class="{ 'jc-cat--off': !child.show }">{{ child.name }}</span>
-            <span class="jc-cat__cid">#{{ child.id }}</span>
+            <span class="jc-cat__cid">#{{ child.id }} · {{ filmCountLabel(child) }}</span>
             <div class="jc-cat__cctrl" @click.stop>
+              <label class="jc-cat__toggle" title="关闭后该分类影片从公开列表与搜索中剔除">
+                <span class="jc-cat__state jc-cat__state--sm jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !child.filmVisible }">
+                  {{ child.filmVisible ? '可见' : '隐藏' }}
+                </span>
+                <ManageSwitch :model-value="child.filmVisible" @update:model-value="toggleFilmVisible(child)" />
+              </label>
               <label class="jc-cat__toggle">
                 <span class="jc-cat__state jc-cat__state--sm" :class="{ 'jc-cat__state--on': child.show }">
                   {{ child.show ? '展示' : '隐藏' }}
@@ -212,8 +241,14 @@ onMounted(load)
       <ManageFormField label="排序" hint="数字越小越靠前">
         <ManageInput v-model="form.sort!" type="number" />
       </ManageFormField>
-      <ManageFormField label="展示">
+      <ManageFormField label="菜单显示" hint="只控制导航菜单是否显示该分类；隐藏后影片仍可搜索、在列表看到">
         <ManageSwitch v-model="form.show" />
+      </ManageFormField>
+      <ManageFormField
+        label="影片可见"
+        hint="关闭 = 该分类(含子分类)影片从公开列表与搜索全部剔除；详情直链仍可达"
+      >
+        <ManageSwitch v-model="form.filmVisible" />
       </ManageFormField>
     </div>
     <template #footer>
@@ -350,6 +385,18 @@ onMounted(load)
 .jc-cat__state--on {
   color: var(--jc-brand-purple);
   font-weight: var(--jc-fw-medium);
+}
+/* 影片可见开关的文字色(区别于菜单开关的紫色): 可见 = 绿, 隐藏 = 警示红 */
+.jc-cat__state--films {
+  color: var(--jc-success);
+}
+.jc-cat__state--films-off {
+  color: var(--jc-danger);
+  font-weight: var(--jc-fw-medium);
+}
+/* 分类名旁的影片数在"影片隐藏"时的提示色 */
+.jc-cat__films-hidden {
+  color: var(--jc-danger);
 }
 .jc-cat__del {
   display: inline-flex;

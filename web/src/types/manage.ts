@@ -263,7 +263,12 @@ export interface FilmClass {
   pid: number
   name: string
   ename?: string
+  /** 菜单显隐: 只控制导航菜单是否显示该分类, 影片仍可搜索/在列表看到 */
   show: boolean
+  /** 影片可见性: false = 该分类影片从公开列表/搜索全部剔除(与 show 独立) */
+  filmVisible: boolean
+  /** 在架影片数(后端 ListCategories 附带; 计数失败缺省) */
+  filmCount?: number
   sort?: number
   children?: FilmClass[]
 }
@@ -426,6 +431,15 @@ export interface EffectiveSlide {
   link?: string
   sort?: number
   state?: number
+  /** 以下 4 项为后端 enrichMeta 按 mid 补齐的影片元信息(前台首页大图描述行同源):
+   *  豆瓣评分(无分缺省) */
+  dbScore?: number
+  /** 类型标签(如 "动作,冒险"; 无缺省) */
+  classTag?: string
+  /** 豆瓣榜位(1 起; 不在榜缺省) */
+  hotRank?: number
+  /** 榜单中文名(如 "热门电影"; 不在榜缺省) */
+  hotBoard?: string
   /** 仅后台管理接口返回：手动位对应的完整配置行（编辑表单回填用），前台不返回 */
   banner?: Banner
 }

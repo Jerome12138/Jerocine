@@ -782,12 +782,27 @@ func (s *ManageService) DeleteCron(ctx context.Context, id int64) error {
 
 // ListCategories 返回结构化分类树(顶级带 children), 与公开 /categories 同构。
 // 修复: 原返回扁平列表, 但后台 FilmClassView 按 parent.children 渲染 → 子级永空、全平铺。
+// 附带每分类在架影片数(后台展示用); 计数失败只降级为缺省(不连累整树)。
 func (s *ManageService) ListCategories(ctx context.Context) ([]*entity.CategoryNode, error) {
 	cats, err := s.category.All(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return buildTree(cats), nil
+	tree := buildTree(cats)
+	var pids, cids map[int64]int64
+	if pids, cids, err = s.search.CountFilmsByCategory(ctx); err != nil {
+		log.Printf("manage: 分类影片计数失败(降级为不显示): %v", err)
+	} else {
+		for _, node := range tree {
+			v := pids[node.Id]
+			node.FilmCount = &v
+			for _, ch := range node.Children {
+				c := cids[ch.Id]
+				ch.FilmCount = &c
+			}
+		}
+	}
+	return tree, nil
 }
 func (s *ManageService) UpsertCategory(ctx context.Context, c *entity.Category) error {
 	if err := s.category.Upsert(ctx, c); err != nil {
