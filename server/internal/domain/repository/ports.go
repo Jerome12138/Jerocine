@@ -43,6 +43,11 @@ type MovieRepository interface {
 	// ApplyHot 写入榜单热度(db_id/db_score 仅在入参非 0 时回填), 事务内双写 movie 与 movie_search。
 	// 返回 movie 表实际更新的行数。
 	ApplyHot(ctx context.Context, rows []HotRow) (int, error)
+	// ReplaceHotBoardItems 全量替换热榜快照表 hot_board_item(事务内 DELETE ALL + 批量 INSERT)。
+	// 仅在一轮榜单刷新可信且 ApplyHot 成功后调用, 失败保留旧快照(由调用方决定是否调用)。
+	ReplaceHotBoardItems(ctx context.Context, items []HotBoardItem, refreshAt int64) error
+	// ReplaceHotBoardCandidates 全量替换轮播候选表 hot_board_candidate(事务内 DELETE ALL + 批量 INSERT)。
+	ReplaceHotBoardCandidates(ctx context.Context, cands []HotBoardCandidate, refreshAt int64) error
 }
 
 // SearchRepository 物化卡片/检索宽表 (读模型) + 影子表重建。
@@ -58,6 +63,15 @@ type SearchRepository interface {
 	TopScoreByPid(ctx context.Context, pid int64, limit int) ([]entity.MovieSearch, error)
 	// CountScoredByPid 该一级分类有评分的影片数 —— 为 0 时分类页不返回高分榜分区(前端隐藏入口)。
 	CountScoredByPid(ctx context.Context, pid int64) (int64, error)
+	// HotBoardPage 热榜页: board 空=全榜视图(hot_rank>0, 无 JOIN, 按热度动态排序);
+	// board 指定=单榜视图(JOIN hot_board_item, 默认按该榜位次排序)。两种视图都动态对枪版做降级。
+	HotBoardPage(ctx context.Context, board string, spec FilterSpec, sort string, page Page) ([]HotBoardMember, int64, error)
+	// HotBoardMembers 热榜快照成员 JOIN 影片读模型(每日候选派生用; 剔除软删/隐藏分类)。
+	HotBoardMembers(ctx context.Context) ([]HotBoardMember, error)
+	// HotBoardCandidates 读取每日算好的轮播候选(按 weight_pos 升序); 影片可见性由调用方二次校验。
+	HotBoardCandidates(ctx context.Context) ([]HotBoardCandidate, error)
+	// HotBoardFilterFacets 热榜筛选维度(年份/地区/语言, 聚合范围为当前在榜影片)。
+	HotBoardFilterFacets(ctx context.Context) (*HotBoardFilterFacets, error)
 	// Filter 多维筛选分页 (含 pid+sort 的可翻页浏览; 返回数据与总数)。
 	Filter(ctx context.Context, spec FilterSpec, page Page) ([]entity.MovieSearch, int64, error)
 	// SearchKeyword 关键字检索 (FULLTEXT ngram)。deleted 取 DeletedExclude/DeletedOnly/DeletedInclude。

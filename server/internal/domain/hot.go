@@ -1,118 +1,172 @@
 package domain
 
 import (
-	"math"
 	"strings"
 	"time"
 )
 
-// 榜单热度合成分 —— 纯计算, 无副作用, 唯一来源。
+// cstZone 东八区 —— 年份新鲜度跨年边界按北京时间算, 避免服务器为 UTC 时元旦前后少算一年。
+var cstZone = time.FixedZone("CST", 8*3600)
+
+// ---- 热度评分公式(0.1 分一个单位, 落到 movie.hot_score 整型列) ----
 //
-//	榜内: hot_score = HotBoardBase - (rank-1)×HotBoardStep + tiebreak(0–60)
-//	榜外: hot_score = 兜底分(0–30) × 10 → 0–300
-//
-// 设计要点(2026-09-12 调整, 取代旧"位次 60–100 + 兜底相加"模型):
-//
-//  1. **位次严格主导**。旧模型里位次分跨度只有 40 分, 而兜底分(年份+在播+口碑)最高 30 分 ——
-//     无评分的高位次片会被"稍低位次但评分高"的片反超(实测 No.2 被压到 No.30 之后)。
-//     新模型每名之间固定隔 HotBoardStep(=10 分), 榜内排序与豆瓣榜单完全同序,
-//     评分/在播/年份只在**同一位次**内做次序微调(多榜并列 No.2 时评分高的在前)。
-//  2. **评分/在播聚焦榜外兜底**。榜外片没有位次可依, 靠"最近上映 + 在播 + 高分"排兜底序;
-//     榜内片已有豆瓣权威位次, 这些本地信号降为 tiebreak, 权重压到不可能越级。
-//  3. **榜内下限 > 榜外上限**的不变式保留: 深度 308 的榜末位 ≈ 69300 ≫ 300。
-//     HotBoardBase 支持的最大榜单深度约 (HotBoardBase-300)/HotBoardStep ≈ 997, 远超实测 308。
+// 总体设计: 榜单位次严格主导(相邻位次差 100, 远大于任何微调上限), 微调只在同一位次内部排序。
 const (
-	// HotBoardBase 榜内位次分基数: 第 1 名的位次部分。
+	// HotBoardBase 榜单第 1 名的基础分。
 	HotBoardBase = 100000
-	// HotBoardStep 相邻榜位的分差(0.1 分单位, 即每名 10 分)。
-	// tiebreak 上限 60 < 100, 保证任何 tiebreak 组合都不能让低位次反超高位次。
+	// HotBoardStep 相邻位次的分数差(100)。刻意远大于微调上限 HotTiebreakMax,
+	// 保证"第 N 名的最差片"也严格高于"第 N+1 名的最佳片"。
 	HotBoardStep = 100
-	// HotFreshMax 年份新鲜度上限(榜外兜底用)。当前年 = 满分, 之后每老一年减 1。
+
+	// HotFreshMax 年份新鲜度上限(当年上映 +20)。
 	HotFreshMax = 20
-	// HotOnAirDaily 在播加分(日更/周更节目: remarks 形如 "更新至20260911期")。
+	// HotOnAirDaily 日更/在播片加分(略低于当年新片, 但高于去年老片)。
 	HotOnAirDaily = 14
-	// HotOnAirOther 在播加分(其他在播: remarks 形如 "更新至第20集")。
+	// HotOnAirOther 周更/月更在播片加分。
 	HotOnAirOther = 12
-	// HotPraiseMax 口碑分上限。
+	// HotPraiseMax 口碑分上限(豆瓣 10 分制 × 系数, 见 HotPraiseScore)。
 	HotPraiseMax = 10
-	// HotFallbackMax 榜外兜底分上限 = max(年份新鲜度, 在播加分) + 口碑分。
-	HotFallbackMax = HotFreshMax + HotPraiseMax
-	// HotTiebreakMax 榜内同位次 tiebreak 上限(必须 < HotBoardStep, 测试把关)。
-	// 口碑×4(0–40) + 在播(0–14) + 年份新鲜度/3(0–6)。
-	HotTiebreakMax = 4*HotPraiseMax + HotOnAirDaily + HotFreshMax/3
+	// HotFallbackMax 榜外兜底分上限(0.1 分单位), 见 HotFallbackScore。
+	HotFallbackMax = 30
+
+	// hotScoreScale 榜外兜底分放大到 hot_score 列的尺度: 兜底分 0–30 映射到 0–300。
+	// 榜单分本身不再放大(已是 6 万+ 量级, 见 HotBoardBase), 两种尺度在 HotScore 内分流。
+	hotScoreScale = 10
 )
 
-// hotScoreScale 榜外兜底分的存储单位: 0.1 分(0–30 分 → 0–300 档, 与位次分同单位)。
-const hotScoreScale = 10
+// ---- 地区权重(2026-10-23 起并入全站 hot_score, 不再仅限轮播) ----
+//
+// 站内以国产内容为主, 给中国大陆适度加权; 海外内容里美国工业片受众相对广, 小幅加权;
+// 日韩剧受众相对窄, 小幅降权。地区分同时进入"榜内微调"与"榜外兜底", 但任何单项都
+// 不跨越 HotBoardStep(100), 榜单位次依旧严格主导。
+const (
+	HotAreaChinaMainland = 30  // 中国大陆
+	HotAreaUS            = 10  // 美国
+	HotAreaKorea         = -15 // 韩国
+	HotAreaJapan         = -25 // 日本
+	HotAreaMax           = HotAreaChinaMainland
+)
 
-// HotScore 合成热度分 —— **写库就用这个函数**(存储单位 0.1 分):
-//
-//	榜内: HotBoardBase - (rank-1)×HotBoardStep + 同位次 tiebreak(0–60)
-//	榜外: 兜底分 0–30 × 10 → 0–300
-//
-// 旧签名的 depth 参数已移除(新模型位次差是固定档差, 不按榜单深度归一化);
-// 榜单深度只用于抓取完整性校验(见 hot_service)。
-func HotScore(rank, year int, remarks string, dbScore float64, now time.Time) int {
-	if rank <= 0 {
-		return hotScoreScale * HotFallbackScore(year, remarks, dbScore, now)
+// HotAreaScore 地区权重分。area 为影片读模型的 area 字段(如"中国大陆"/"美国"/"韩国"/"日本")。
+// 中国香港/中国台湾等不含"大陆"的归为中性 0, 不做加分。
+func HotAreaScore(area string) int {
+	area = strings.TrimSpace(area)
+	switch {
+	case strings.Contains(area, "大陆") || area == "中国":
+		return HotAreaChinaMainland
+	case strings.Contains(area, "美国"):
+		return HotAreaUS
+	case strings.Contains(area, "韩国"):
+		return HotAreaKorea
+	case strings.Contains(area, "日本"):
+		return HotAreaJapan
+	default:
+		return 0
 	}
-	return HotBoardBase - (rank-1)*HotBoardStep + HotBoardTiebreak(year, remarks, dbScore, now)
+}
+
+// HotTiebreakMax 榜内微调上限 = 口碑(30) + 在播(14) + 年份新鲜度(20) + 地区(30)。
+// 必须 < HotBoardStep(100), 否则相邻位次可能被微调翻转。
+const HotTiebreakMax = 3*HotPraiseMax + HotOnAirDaily + HotFreshMax + HotAreaMax // = 94
+
+// HotScore 一部影片的全站热度分。
+//
+//	rank > 0(在榜): 榜单位次主导, 位次差 100, 微调只在同位次内排序;
+//	rank = 0(掉榜/未上榜): 0–30 的兜底分 ×10, 随内容(年份/在播/口碑/地区)自动更新。
+//
+// 2026-10-23 起新增 area 入参: 地区权重在全站热度分中生效(见 HotAreaScore)。
+func HotScore(rank int, area string, year int, remarks string, dbScore float64, now time.Time) int {
+	if rank <= 0 {
+		return hotScoreScale * HotFallbackScore(year, area, remarks, dbScore, now)
+	}
+	return HotBoardBase - (rank-1)*HotBoardStep + HotBoardTiebreak(year, area, remarks, dbScore, now)
 }
 
 // HotBoardTiebreak 榜内同位次的次序微调(0–HotTiebreakMax):
-// 口碑为主(×4), 在播次之, 年份新鲜度最弱(除 3)。
-// 只在**同一位次**内生效 —— 任意组合都小于相邻位次的 HotBoardStep, 不可能越级。
-func HotBoardTiebreak(year int, remarks string, dbScore float64, now time.Time) int {
-	return HotPraiseScore(dbScore)*4 + HotOnAirBonus(remarks) + HotYearFresh(year, now)/3
+// 口碑(×3, 0–30) + 在播(0–14) + 年份新鲜度(全额 0–20, 2026-10-23 起不再 ÷3) + 地区(−25~+30)。
+// 钳制在 [0, HotTiebreakMax]: 日本/韩国等负地区分最多把微调压到 0, 不产生负的微调分。
+func HotBoardTiebreak(year int, area, remarks string, dbScore float64, now time.Time) int {
+	s := HotPraiseScore(dbScore)*3 + HotOnAirScore(remarks) + HotYearFresh(year, now) + HotAreaScore(area)
+	if s < 0 {
+		return 0
+	}
+	if s > HotTiebreakMax {
+		return HotTiebreakMax
+	}
+	return s
 }
 
-// HotFallbackScore 榜外兜底分(0–30) = max(年份新鲜度, 在播加分) + 口碑分。
-//
-// **取大而非相加**是刻意的: "年份老但一直在更新"的连载内容不能因为年份掉队 ——
-// 2004 年的在播综艺(HK 综艺, remarks="更新至20260911期")年份新鲜度为 0, 靠在播加分 14 顶上。
-// 这类片实测只有 109 部(2020 年前仍在播的占在播库 5.2%), 但正是最需要豁免年份的一批。
-func HotFallbackScore(year int, remarks string, dbScore float64, now time.Time) int {
-	return max(HotYearFresh(year, now), HotOnAirBonus(remarks)) + HotPraiseScore(dbScore)
+// HotFallbackScore 榜外兜底分(0–HotFallbackMax+地区上限):
+// 年份新鲜度 / 在播加分取大者, 加口碑分, 再叠加地区分; 最终钳制为非负。
+func HotFallbackScore(year int, area, remarks string, dbScore float64, now time.Time) int {
+	fresh := HotYearFresh(year, now)
+	onAir := HotOnAirScore(remarks)
+	base := fresh
+	if onAir > base {
+		base = onAir
+	}
+	base += HotPraiseScore(dbScore)
+	if base < 0 {
+		base = 0
+	}
+	if base > HotFallbackMax {
+		base = HotFallbackMax
+	}
+	s := base + HotAreaScore(area)
+	if s < 0 {
+		return 0
+	}
+	// 兜底分上限随最大地区加分抬高, 仍远低于最末位榜单分(×10 后也只 600, 榜单末位 6.9 万+)。
+	if cap := HotFallbackMax + HotAreaMax; s > cap {
+		return cap
+	}
+	return s
 }
 
-// HotYearFresh 年份新鲜度: 当前年满分 20, 每老一年减 1, 到 0 为止; 年份未知(0)不给分。
+// HotYearFresh 年份新鲜度: 当年上映 +20, 每老一年 −2, 10 年及更早归零。
+// 跨年边界(元旦前后)按东八区判定"今年"(与采集/榜单口径一致)。
 func HotYearFresh(year int, now time.Time) int {
 	if year <= 0 {
 		return 0
 	}
-	diff := now.Year() - year
-	if diff <= 0 {
-		return HotFreshMax
+	age := now.In(cstZone).Year() - year
+	if age < 0 {
+		age = 0 // 标了明年(跨年档)按最新处理
 	}
-	if diff >= HotFreshMax {
+	s := HotFreshMax - 2*age
+	if s < 0 {
 		return 0
 	}
-	return HotFreshMax - diff
+	return s
 }
 
-// HotOnAirBonus 在播加分, 按 remarks 形态分两档。
-//
-// 判据是**片名之外的内容字段**(remarks), 不依赖任何分类 id —— 切源重建分类树后依然成立。
-// 实测: 含"期"的 remarks 全部以"更新至"开头, 故无需单独判定 "%期"。
-func HotOnAirBonus(remarks string) int {
+// HotOnAirScore 在播加分: 日更 14 / 周更·月更 12 / 已完结或静态 0。
+func HotOnAirScore(remarks string) int {
 	r := strings.TrimSpace(remarks)
-	if !strings.HasPrefix(r, "更新至") {
+	if r == "" || strings.Contains(r, "完结") || strings.Contains(r, "全") {
 		return 0
 	}
-	if strings.HasSuffix(r, "期") {
-		return HotOnAirDaily
+	if strings.Contains(r, "更新至") || strings.Contains(r, "连载") || strings.Contains(r, "更新到") {
+		// 日更(综艺/短剧按"期")略高于周更月更, 其余在播统一 12。
+		if strings.Contains(r, "期") {
+			return HotOnAirDaily
+		}
+		return HotOnAirOther
 	}
-	return HotOnAirOther
+	return 0
 }
 
-// HotPraiseScore 口碑分 = min(10, round(豆瓣分)); 无评分(0)不给分。
+// HotPraiseScore 豆瓣口碑分(0–10): 直接取 db_score 的整数部分; 无评分(db_score<=0)为 0。
 func HotPraiseScore(dbScore float64) int {
 	if dbScore <= 0 {
 		return 0
 	}
-	v := int(math.Round(dbScore))
-	if v > HotPraiseMax {
+	s := int(dbScore)
+	if s > HotPraiseMax {
 		return HotPraiseMax
 	}
-	return v
+	if s < 0 {
+		return 0
+	}
+	return s
 }

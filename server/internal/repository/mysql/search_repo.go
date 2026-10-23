@@ -710,3 +710,152 @@ func topByCount(m map[string]int64, n int) []repository.TagOption {
 	}
 	return out
 }
+
+// ---- 热榜页 / 热榜快照 / 轮播候选 (2026-10-23, 见 docs/热榜页面与轮播候选方案) ----
+
+// hotBoardTCExpr SQL 侧枪版判定, 与 domain.IsLowQualityTelesync 同口径:
+// 中文"枪版/抢先"走 LIKE, 英文 TC/HDTC/TS/CAM/CAMRIP 走 POSIX 词边界(两侧非字母数字)。
+// 仅用于热榜/轮播的**动态排序**, 不改动落库 hot_score(那会影响全站排序)。
+const hotBoardTCExpr = "(CASE WHEN m.remarks REGEXP '(^|[^[:alnum:]])(HDTC|CAMRIP|CAM|TC|TS)([^[:alnum:]]|$)' OR m.remarks LIKE '%枪版%' OR m.remarks LIKE '%抢先%' THEN 1 ELSE 0 END)"
+
+// HotBoardMembers 热榜快照成员 JOIN 影片读模型(每日候选派生用)。
+// 剔除软删与隐藏分类; 同一部片命中多个榜会保留多行(候选派生据此算多榜回血)。
+func (r *searchRepo) HotBoardMembers(ctx context.Context) ([]repository.HotBoardMember, error) {
+	var out []repository.HotBoardMember
+	q := r.excludeHidden(ctx, dbFrom(ctx, r.db).
+		Table("hot_board_item h").
+		Select("m.*, h.board AS sb_board, h.`rank` AS sb_rank").
+		Joins("JOIN movie_search m ON m.mid = h.mid")).
+		Where("m.deleted_at = 0")
+	err := q.Order("h.board ASC, h.`rank` ASC").Find(&out).Error
+	return out, err
+}
+
+// HotBoardPage 热榜页分页。
+//
+//	board 空: 全榜视图, 查 movie_search(hot_rank>0, 无 JOIN), LEFT JOIN 榜数子查询做"枪版动态降级 + 多榜回血";
+//	board 指定: 单榜视图, JOIN hot_board_item, 默认按该榜位次(枪版片位次后移 HotBoardTCRankDrop)。
+func (r *searchRepo) HotBoardPage(ctx context.Context, board string, spec repository.FilterSpec, sort string, page repository.Page) ([]repository.HotBoardMember, int64, error) {
+	var q *gorm.DB
+	if board = strings.TrimSpace(board); board != "" {
+		q = dbFrom(ctx, r.db).
+			Table("hot_board_item h").
+			Select("m.*, h.board AS sb_board, h.`rank` AS sb_rank").
+			Joins("JOIN movie_search m ON m.mid = h.mid").
+			Where("h.board = ? AND m.deleted_at = 0 AND m.hot_rank > 0", board)
+	} else {
+		q = dbFrom(ctx, r.db).
+			Table("movie_search m").
+			Select("m.*, m.hot_board AS sb_board, m.hot_rank AS sb_rank").
+			Where("m.deleted_at = 0 AND m.hot_rank > 0").
+			// 每片对应子查询一行(1:1), 不放大行数, 只为全榜排序拿到命中榜数。
+			Joins("LEFT JOIN (SELECT mid, COUNT(*) AS bc FROM hot_board_item GROUP BY mid) b ON b.mid = m.mid")
+	}
+	q = r.excludeHidden(ctx, q)
+	if spec.Pid > 0 {
+		q = q.Where("m.pid = ?", spec.Pid)
+	}
+	if spec.Year > 0 {
+		q = q.Where("m.year = ?", spec.Year)
+	}
+	if spec.Area != "" {
+		q = q.Where("m.area = ?", spec.Area)
+	}
+	if spec.Language != "" {
+		q = q.Where("m.language = ?", spec.Language)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var out []repository.HotBoardMember
+	if err := q.Order(hotBoardOrder(board, sort)).
+		Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error; err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
+
+// hotBoardOrder 热榜排序键。
+//
+//	单榜: rank(默认, 枪版位次+1) / hot / score / latest;
+//	全榜: hot(默认, 枪版动态降一个步长、多榜回血) / score / latest; "rank"在全榜无效回落 hot。
+func hotBoardOrder(board, sort string) string {
+	switch sort {
+	case "score":
+		return "m.db_score DESC, m.year DESC, m.mid DESC"
+	case "latest":
+		return "m.year DESC, m.pub_date DESC, m.update_stamp DESC, m.mid DESC"
+	case "hot":
+		return "m.hot_score DESC, m.year DESC, m.update_stamp DESC, m.mid DESC"
+	}
+	if board != "" {
+		// 单榜默认: 该榜位次; 枪版片有效位次后移。
+		return "(h.`rank` + " + hotBoardTCExpr + "*" + strconv.Itoa(domain.HotBoardTCRankDrop) + ") ASC, m.mid ASC"
+	}
+	// 全榜默认: 枪版片动态减一个步长, 多榜命中回血(仅对枪版片); 非枪版片分数不变。
+	adjusted := "m.hot_score - " + hotBoardTCExpr + "*" + strconv.Itoa(domain.HotBoardTCStepDrop) +
+		" + " + hotBoardTCExpr + "*LEAST(GREATEST(COALESCE(b.bc,1)-1,0)*" + strconv.Itoa(domain.HotBoardTCMultiBoardBonus) +
+		"," + strconv.Itoa(domain.HotBoardTCMultiBoardCap) + ")"
+	return adjusted + " DESC, m.year DESC, m.update_stamp DESC, m.mid DESC"
+}
+
+// HotBoardCandidates 读取每日算好的轮播候选(按 weight_pos 升序)。
+// 读时轻量校验: JOIN movie_search, 当场剔除已删/归入隐藏分类的候选项(快照滞后窗口内不漏出)。
+func (r *searchRepo) HotBoardCandidates(ctx context.Context) ([]repository.HotBoardCandidate, error) {
+	var out []repository.HotBoardCandidate
+	q := r.excludeHidden(ctx, dbFrom(ctx, r.db).
+		Table("hot_board_candidate c").
+		Select("c.weight_pos, c.board, c.`rank`, c.mid, c.score, c.guaranteed, c.refresh_at").
+		Joins("JOIN movie_search m ON m.mid = c.mid")).
+		Where("m.deleted_at = 0")
+	err := q.Order("c.weight_pos ASC").Find(&out).Error
+	return out, err
+}
+
+// HotBoardFilterFacets 热榜筛选维度(聚合范围为当前在榜影片 hot_rank>0)。
+// 榜单维度由 service 用 douban.Collections 拼装, 这里只聚合年份/地区/语言。
+func (r *searchRepo) HotBoardFilterFacets(ctx context.Context) (*repository.HotBoardFilterFacets, error) {
+	base := func() *gorm.DB {
+		return r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db).
+			Model(&entity.MovieSearch{}), repository.DeletedExclude)).
+			Where("hot_rank > 0")
+	}
+	maxYear := time.Now().In(cstZone).Year() + 1
+	var years []int
+	if err := base().Where("year > 0 AND year <= ?", maxYear).
+		Distinct().Order("year DESC").Limit(12).Pluck("year", &years).Error; err != nil {
+		return nil, err
+	}
+	collect := func(col string, limit int) ([]string, error) {
+		type cntRow struct {
+			V string
+			C int64
+		}
+		var rows []cntRow
+		if err := base().Select(col+" AS v, COUNT(*) AS c").
+			Where(col+" <> ''").Group(col).Order("c DESC").Limit(limit).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		opts := make([]repository.TagOption, 0, len(rows))
+		for _, x := range rows {
+			opts = append(opts, repository.TagOption{Name: x.V, Value: x.V})
+		}
+		opts = fallbackLast(opts)
+		out := make([]string, 0, len(opts))
+		for _, o := range opts {
+			out = append(out, o.Value)
+		}
+		return out, nil
+	}
+	areas, err := collect("area", 11)
+	if err != nil {
+		return nil, err
+	}
+	langs, err := collect("language", 8)
+	if err != nil {
+		return nil, err
+	}
+	return &repository.HotBoardFilterFacets{Years: years, Areas: areas, Languages: langs}, nil
+}

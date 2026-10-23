@@ -146,7 +146,8 @@ func (r *movieRepo) UpdateBackdrop(ctx context.Context, mid int64, url string) (
 // ---- 榜单热度(见 ports.go 的说明) ----
 
 // hotCandidateCols 候选行只取匹配与算分需要的列, 不拉 content / play_from 这类大字段。
-const hotCandidateCols = "mid, db_id, name, year, remarks, actor, director, db_score"
+// area 用于地区权重(2026-10-23 起进入全站 hot_score 与轮播候选分)。
+const hotCandidateCols = "mid, db_id, name, area, year, remarks, actor, director, db_score"
 
 func (r *movieRepo) HotCandidatesByDbIds(ctx context.Context, dbIds []int64) ([]repository.HotCandidate, error) {
 	if len(dbIds) == 0 {
@@ -234,4 +235,50 @@ func (r *movieRepo) ApplyHot(ctx context.Context, rows []repository.HotRow) (int
 		return nil
 	})
 	return n, err
+}
+
+// ReplaceHotBoardItems 全量替换热榜快照表 hot_board_item(事务内清空 + 批量插入)。
+// 派生数据, 不做增量: 一轮刷新可信后直接整表换新。空切片等价于只清空(不保留旧数据)。
+func (r *movieRepo) ReplaceHotBoardItems(ctx context.Context, items []repository.HotBoardItem, refreshAt int64) error {
+	db := dbFrom(ctx, r.db)
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("DELETE FROM hot_board_item").Error; err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		rows := make([]map[string]any, 0, len(items))
+		for _, it := range items {
+			rows = append(rows, map[string]any{
+				"board": it.Board, "rank": it.Rank, "mid": it.Mid, "refresh_at": refreshAt,
+			})
+		}
+		return tx.Table("hot_board_item").Create(rows).Error
+	})
+}
+
+// ReplaceHotBoardCandidates 全量替换轮播候选表 hot_board_candidate(事务内清空 + 批量插入)。
+func (r *movieRepo) ReplaceHotBoardCandidates(ctx context.Context, cands []repository.HotBoardCandidate, refreshAt int64) error {
+	db := dbFrom(ctx, r.db)
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("DELETE FROM hot_board_candidate").Error; err != nil {
+			return err
+		}
+		if len(cands) == 0 {
+			return nil
+		}
+		rows := make([]map[string]any, 0, len(cands))
+		for _, c := range cands {
+			guaranteed := 0
+			if c.Guaranteed {
+				guaranteed = 1
+			}
+			rows = append(rows, map[string]any{
+				"weight_pos": c.WeightPos, "board": c.Board, "rank": c.Rank, "mid": c.Mid,
+				"score": c.Score, "guaranteed": guaranteed, "refresh_at": refreshAt,
+			})
+		}
+		return tx.Table("hot_board_candidate").Create(rows).Error
+	})
 }

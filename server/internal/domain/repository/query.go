@@ -2,6 +2,8 @@ package repository
 
 // 查询值对象 (纯领域, 无框架依赖)。
 
+import "server/internal/domain/entity"
+
 // Page 分页请求。
 type Page struct {
 	Current int
@@ -76,6 +78,7 @@ type HotCandidate struct {
 	Mid       int64
 	DbId      int64
 	Name      string
+	Area      string
 	Year      int
 	Remarks   string
 	Actor     string
@@ -97,6 +100,46 @@ type HotRow struct {
 	HotScore  int
 	DbId      int64
 	DbScore   float64
+}
+
+// ---- 热榜快照 / 轮播候选 (2026-10-23, 见 docs/热榜页面与轮播候选方案) ----
+
+// HotBoardItem 热榜快照一行: 某个榜(board)的第 Rank 位影片 mid。
+// 同一部片命中多个榜会保留多行(候选派生据此计算多榜回血)。每日榜单刷新成功后全量替换。
+type HotBoardItem struct {
+	Board     string
+	Rank      int
+	Mid       int64
+	RefreshAt int64
+}
+
+// HotBoardCandidate 轮播候选池一行: 每日刷新算好排序与分数后落库(恒 16 位),
+// 轮播 compose 时一次 SELECT 取走, 不再实时重算。
+type HotBoardCandidate struct {
+	WeightPos  int    // 候选池排序位(0..15)
+	Board      string // 来源榜(该候选取位的榜)
+	Rank       int    // 在来源榜的位次
+	Mid        int64
+	Score      int    // 候选分(含 TC 降级/多榜回血/大陆保底)
+	Guaranteed bool   // 是否为"中国大陆保底"替换位
+	RefreshAt  int64
+}
+
+// HotBoardMember 热榜快照 JOIN 影片读模型后的一行 —— 候选派生与热榜页共用。
+// 嵌入 MovieSearch 拿到影片字段(area/year/pid/remarks/cover/backdrop 等),
+// SBoard/SRank 为该成员在快照中的榜与位次(无 JOIN 全榜视图时取影片自身的代表榜)。
+type HotBoardMember struct {
+	entity.MovieSearch `gorm:"embedded"`
+	SBoard             string `gorm:"column:sb_board"`
+	SBRank             int    `gorm:"column:sb_rank"`
+}
+
+// HotBoardFilterFacets 热榜筛选维度的服务端聚合部分(年份/地区/语言)。
+// 榜单维度(boards)由 service 以 douban.Collections 为唯一来源拼装, 不查库。
+type HotBoardFilterFacets struct {
+	Years     []int
+	Areas     []string
+	Languages []string
 }
 
 // TagOption 单个筛选标签。
