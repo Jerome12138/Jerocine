@@ -46,12 +46,14 @@ func (f *fakeBannerRepo) UpdateSort(_ context.Context, id int64, sort int) error
 	return nil
 }
 
-// bannerFilms 构造一个 Home 可用的 FilmService: nav 一个分类, 榜单 n 部影片。
+// bannerFilms 构造一个 Home 可用的 FilmService: nav 一个分类, 榜单 n 部影片,
+// 并注入 8 榜各前 2 的轮播候选(主路径, 见 docs/热榜页面与轮播候选方案 §2)。
 func bannerFilms(t *testing.T, n int) *FilmService {
 	t.Helper()
 	setupCache(t)
+	pool := hotPool(n)
 	fs := newFilmService(
-		&fakeSearch{rows: hotPool(n), hotAll: hotPool(n)},
+		&fakeSearch{rows: pool, hotAll: pool, cands: bannerCandsFrom(pool)},
 		&fakeMovie{}, &fakePlay{},
 		&fakeCategory{cats: []entity.Category{{Id: 1, Pid: 0, Name: "电影", Show: true}}},
 	)
@@ -60,6 +62,24 @@ func bannerFilms(t *testing.T, n int) *FilmService {
 
 func hotPool(n int) []entity.MovieSearch {
 	return hotPoolFrom(1000, n)
+}
+
+// testBoardOrder 8 榜权重顺序(与 service.candidateWeightOrder 对齐, 测试用字面量)。
+var testBoardOrder = []string{
+	"movie_hot_gaia", "tv_hot", "movie_showing", "movie_weekly_best",
+	"tv_chinese_best_weekly", "tv_global_best_weekly", "tv_variety_show", "tv_animation",
+}
+
+// bannerCandsFrom 造 8 榜各前 2 共 16 个候选(按 weight_pos 升序), mid 取 pool 前 16。
+func bannerCandsFrom(pool []entity.MovieSearch) []repository.HotBoardCandidate {
+	out := make([]repository.HotBoardCandidate, 0, 16)
+	for i := 0; i < 16 && i < len(pool); i++ {
+		out = append(out, repository.HotBoardCandidate{
+			WeightPos: i, Board: testBoardOrder[i%8], Rank: i%2 + 1,
+			Mid: pool[i].Mid, Score: 1000 - i,
+		})
+	}
+	return out
 }
 
 // hotPoolFrom 生成 mid = base+1 .. base+n 的影片池(测试用不相交池模拟"热榜换新")。
@@ -129,7 +149,8 @@ func TestBoardShowsTenLiveFive(t *testing.T) {
 // TestBoardManualOrderSurvivesRefresh 管理员已采纳(手动行)的顺序持久化:
 // 热榜刷新(fakeSearch 换一批新片)后, 手动行仍按原 sort 排前, 候选位换新。
 func TestBoardManualOrderSurvivesRefresh(t *testing.T) {
-	fs := &fakeSearch{rows: hotPool(30), hotAll: hotPool(30)}
+	pool := hotPool(30)
+	fs := &fakeSearch{rows: pool, hotAll: pool, cands: bannerCandsFrom(pool)}
 	svc := NewBannerService(&fakeBannerRepo{}, newFilmService(fs, &fakeMovie{}, &fakePlay{},
 		&fakeCategory{cats: []entity.Category{{Id: 1, Pid: 0, Name: "电影", Show: true}}}))
 
@@ -148,9 +169,12 @@ func TestBoardManualOrderSurvivesRefresh(t *testing.T) {
 		t.Fatalf("手动行应排前且保持顺序: %+v", board1.Active[:2])
 	}
 
-	// 热榜刷新: 换一批**不相交**的全新影片(Home 聚合有缓存, 模拟刷新需连缓存一起失效)
-	fs.rows = hotPoolFrom(5000, 50)
-	fs.hotAll = hotPoolFrom(5000, 50)
+	// 热榜刷新: 换一批**不相交**的全新影片(Home 聚合有缓存, 模拟刷新需连缓存一起失效);
+	// 候选快照也随每日榜单换新。
+	newPool := hotPoolFrom(5000, 50)
+	fs.rows = newPool
+	fs.hotAll = newPool
+	fs.cands = bannerCandsFrom(newPool)
 	cache.Del(context.Background(), cache.KeyHomeAgg)
 	board2, err := svc.Board(context.Background())
 	if err != nil {

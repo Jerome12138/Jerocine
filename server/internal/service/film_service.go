@@ -13,6 +13,7 @@ import (
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
+	"server/internal/douban"
 )
 
 // 缓存 TTL(写入时 cache 包自动叠 ±10% 抖动)。
@@ -216,6 +217,75 @@ func (s *FilmService) SearchByMids(ctx context.Context, mids []int64) ([]entity.
 		return nil, nil
 	}
 	return s.search.GetByMids(ctx, mids)
+}
+
+// HotBoard 热榜页分页(不缓存: 维度组合多, 由 handler 层做短缓存)。
+// board 为空是全榜混排视图(按 hot_score, 枪版动态降级); 指定榜单是该榜视图(按榜位次)。
+func (s *FilmService) HotBoard(ctx context.Context, board string, spec repository.FilterSpec, sort string, page repository.Page) (CardPage, error) {
+	page = page.Normalize(s.pages.Filter)
+	members, total, err := s.search.HotBoardPage(ctx, board, spec, sort, page)
+	if err != nil {
+		return CardPage{}, err
+	}
+	list := make([]entity.MovieSearch, len(members))
+	for i := range members {
+		m := members[i]
+		// 用当前榜单视图的榜/位次覆写代表榜, 前端角标与标题显示"该榜 No.X"。
+		m.MovieSearch.HotBoard = m.SBoard
+		m.MovieSearch.HotRank = m.SBRank
+		list[i] = m.MovieSearch
+	}
+	return CardPage{List: list, Total: total, Page: page}, nil
+}
+
+// HotBoardFilters 热榜筛选维度: 榜单固定来自豆瓣 8 榜, 年份/地区/语言由在榜影片聚合。
+func (s *FilmService) HotBoardFilters(ctx context.Context) (*HotBoardFiltersData, error) {
+	facets, err := s.search.HotBoardFilterFacets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	boards := make([]BoardOption, 0, len(douban.Collections))
+	for _, c := range douban.Collections {
+		boards = append(boards, BoardOption{Value: c.Name, Label: c.Label})
+	}
+	return &HotBoardFiltersData{
+		Boards: boards, Years: facets.Years, Areas: facets.Areas, Languages: facets.Languages,
+	}, nil
+}
+
+// BoardCandidates 每日算好的轮播候选(按 weight_pos 顺序, 已剔除软删/隐藏)。
+// 快照为空(部署首日/刷新长期失败)时返回空切片, 调用方据此回退旧补位逻辑。
+func (s *FilmService) BoardCandidates(ctx context.Context) ([]BoardCandidate, error) {
+	rows, err := s.search.HotBoardCandidates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	mids := make([]int64, len(rows))
+	for i, r := range rows {
+		mids[i] = r.Mid
+	}
+	films, err := s.search.GetByMids(ctx, mids)
+	if err != nil {
+		return nil, err
+	}
+	byMid := make(map[int64]entity.MovieSearch, len(films))
+	for _, f := range films {
+		byMid[f.Mid] = f
+	}
+	out := make([]BoardCandidate, 0, len(rows))
+	for _, r := range rows {
+		m, ok := byMid[r.Mid]
+		if !ok {
+			continue // 仓储已剔软删/隐藏, 此处双保险
+		}
+		out = append(out, BoardCandidate{
+			MovieSearch: m, Board: r.Board, Rank: r.Rank, Score: r.Score, Guaranteed: r.Guaranteed,
+		})
+	}
+	return out, nil
 }
 
 // Related 相关推荐(缓存 + 内存均匀抽样, 去 ORDER BY RAND)。found=false 表示影片不存在。

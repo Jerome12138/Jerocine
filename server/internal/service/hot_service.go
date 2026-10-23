@@ -36,6 +36,7 @@ import (
 // 失败退避 1 小时(不与对端死磕, 也不至于整天不重试); 每天最多成功一次。
 type HotService struct {
 	movie  hotRepo
+	boards hotBoardReader
 	client *douban.Client
 	cols   []douban.Collection
 
@@ -43,13 +44,21 @@ type HotService struct {
 	nextRun time.Time // 失败退避到期时间(进程内; 跨副本由 Redis 锁收敛)
 }
 
-// hotRepo 榜单刷新实际用到的仓储能力 —— 刻意只声明这 4 个方法(依赖倒置收窄),
-// repository.MovieRepository 天然满足, 单测可只实现这 4 个。
+// hotRepo 榜单刷新实际用到的仓储能力 —— 刻意只声明用到的方法(依赖倒置收窄),
+// repository.MovieRepository 天然满足, 单测可只实现这几个。
 type hotRepo interface {
 	HotCandidatesByDbIds(ctx context.Context, dbIds []int64) ([]repository.HotCandidate, error)
 	HotCandidatesByKeyword(ctx context.Context, keyword string, limit int) ([]repository.HotCandidate, error)
 	ListHotBoard(ctx context.Context) ([]repository.HotCandidate, error)
 	ApplyHot(ctx context.Context, rows []repository.HotRow) (int, error)
+	ReplaceHotBoardItems(ctx context.Context, items []repository.HotBoardItem, refreshAt int64) error
+	ReplaceHotBoardCandidates(ctx context.Context, cands []repository.HotBoardCandidate, refreshAt int64) error
+}
+
+// hotBoardReader 热榜快照读模型(由 SearchRepository 实现) —— 候选派生需要影片的
+// 地区/年份/分类/remarks 等字段, 这些不在 HotCandidate 里, 需 JOIN movie_search 读回。
+type hotBoardReader interface {
+	HotBoardMembers(ctx context.Context) ([]repository.HotBoardMember, error)
 }
 
 // 刷新节奏与阈值。
@@ -70,8 +79,9 @@ const (
 var ErrHotBusy = errors.New("榜单刷新正在进行中，请稍后再试")
 
 // NewHotService 构造榜单刷新服务(L1 集合清单取 douban.Collections)。
-func NewHotService(movie hotRepo, client *douban.Client) *HotService {
-	return &HotService{movie: movie, client: client, cols: douban.Collections}
+// boards 为热榜快照读模型(SearchRepository), 用于每日派生轮播候选; 传 nil 时跳过快照/候选落库。
+func NewHotService(movie hotRepo, boards hotBoardReader, client *douban.Client) *HotService {
+	return &HotService{movie: movie, boards: boards, client: client, cols: douban.Collections}
 }
 
 // HotRefreshReport 一轮刷新的观测值 —— 日志 + 后台手动触发的回显。
@@ -226,9 +236,66 @@ func (s *HotService) Refresh(ctx context.Context) (rep HotRefreshReport, err err
 	if rep.Applied, err = s.movie.ApplyHot(ctx, rows); err != nil {
 		return rep, err
 	}
+	// 热榜快照 + 轮播候选(派生数据)。它们从热度列重建, 失败不影响已落库的热度, 也不触发整轮退避:
+	// 只记日志, 下一轮刷新会重新全量替换。
+	if serr := s.refreshBoardSnapshot(ctx, ranked, matches, start); serr != nil {
+		log.Printf("[hot] 热榜快照/候选刷新失败(不影响热度列): %v", serr)
+	}
 	// 热度列参与首页/分类页/筛选页排序, 必须主动失效(否则最多滞后一个 TTL)。
 	cache.InvalidateAfterCollect(ctx)
 	return rep, nil
+}
+
+// refreshBoardSnapshot 全量刷新热榜快照表(逐榜逐位, 同片多榜保留多行)并派生轮播候选。
+// 先写快照 → 再 JOIN 读回成员(过软删/隐藏) → 纯函数派生候选 → 写候选表。
+func (s *HotService) refreshBoardSnapshot(ctx context.Context, ranked []douban.Ranked, matches []hotMatch, now time.Time) error {
+	if s.boards == nil {
+		return nil // 未注入读模型(部分单测), 跳过
+	}
+	refreshAt := now.Unix()
+	items := buildBoardItems(ranked, matches)
+	if err := s.movie.ReplaceHotBoardItems(ctx, items, refreshAt); err != nil {
+		return fmt.Errorf("写热榜快照: %w", err)
+	}
+	members, err := s.boards.HotBoardMembers(ctx)
+	if err != nil {
+		return fmt.Errorf("读热榜成员: %w", err)
+	}
+	cands := BuildBoardCandidates(members)
+	if err := s.movie.ReplaceHotBoardCandidates(ctx, cands, refreshAt); err != nil {
+		return fmt.Errorf("写轮播候选: %w", err)
+	}
+	return nil
+}
+
+// buildBoardItems 从全量榜单条目(含同片多榜) + 匹配结果重建逐榜逐位快照。
+// match 内部按 db_id 折叠了代表榜, 这里反向用"豆瓣 id / 归一化片名 → 本地 mid"的映射,
+// 把每个榜的每一位都落一行(同一部片命中 3 个榜就有 3 行), 供热榜页完整名次与多榜回血。
+func buildBoardItems(ranked []douban.Ranked, matches []hotMatch) []repository.HotBoardItem {
+	byID := make(map[int64]int64, len(matches))
+	byTitle := make(map[string]int64, len(matches))
+	for _, m := range matches {
+		if m.Item.Id > 0 {
+			byID[m.Item.Id] = m.Mid
+		}
+		if key := domain.NormalizeName(m.Item.Title); key != "" {
+			byTitle[key] = m.Mid
+		}
+	}
+	items := make([]repository.HotBoardItem, 0, len(ranked))
+	for _, r := range ranked {
+		var mid int64
+		if r.Id > 0 {
+			mid = byID[r.Id]
+		} else if key := domain.NormalizeName(r.Item.Title); key != "" {
+			mid = byTitle[key]
+		}
+		if mid <= 0 || r.Rank <= 0 || r.Collection == "" {
+			continue
+		}
+		items = append(items, repository.HotBoardItem{Board: r.Collection, Rank: r.Rank, Mid: mid})
+	}
+	return items
 }
 
 // clearStaleBoard 快照超期(>72h 未刷新)才把在榜片回落到兜底分。
@@ -257,7 +324,7 @@ func (s *HotService) clearStaleBoard(ctx context.Context, now time.Time) (int, e
 	for _, p := range prev {
 		rows = append(rows, repository.HotRow{
 			Mid:      p.Mid,
-			HotScore: domain.HotScore(0, p.Year, p.Remarks, p.DbScore, now),
+			HotScore: domain.HotScore(0, p.Area, p.Year, p.Remarks, p.DbScore, now),
 		})
 	}
 	n, err := s.movie.ApplyHot(ctx, rows)
@@ -540,7 +607,7 @@ func (s *HotService) buildRows(ctx context.Context, matches []hotMatch, now time
 			score = m.Item.Rating.Value
 			scoreFilled++
 		}
-		row.HotScore = domain.HotScore(m.Rank, m.Local.Year, m.Local.Remarks, score, now)
+		row.HotScore = domain.HotScore(m.Rank, m.Local.Area, m.Local.Year, m.Local.Remarks, score, now)
 		rows = append(rows, row)
 	}
 	for _, p := range prev {
@@ -549,7 +616,7 @@ func (s *HotService) buildRows(ctx context.Context, matches []hotMatch, now time
 		}
 		rows = append(rows, repository.HotRow{
 			Mid:      p.Mid,
-			HotScore: domain.HotScore(0, p.Year, p.Remarks, p.DbScore, now),
+			HotScore: domain.HotScore(0, p.Area, p.Year, p.Remarks, p.DbScore, now),
 		})
 		fellOff++
 	}

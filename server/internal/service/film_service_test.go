@@ -23,6 +23,12 @@ type fakeSearch struct {
 	hotAll   []entity.MovieSearch // 全站跨类别热榜(首页顶层 hot)
 	scoreRow []entity.MovieSearch // 高分榜
 	scored   int64                // 该分类有评分的影片数
+	cands    []repository.HotBoardCandidate // 轮播候选快照(空=快照缺失, 走 home 回退)
+}
+
+// HotBoardCandidates 轮播候选快照; 默认空 → BannerService 回退到首页分区补位。
+func (f *fakeSearch) HotBoardCandidates(_ context.Context) ([]repository.HotBoardCandidate, error) {
+	return f.cands, nil
 }
 
 func (f *fakeSearch) TopByPidSorted(_ context.Context, _ int64, _ repository.ClassifySort, limit int) ([]entity.MovieSearch, error) {

@@ -21,9 +21,10 @@ const heroSlideCount = 5
 
 // heroBoardCount 后台管理视图展示位数(> 生效位数): 前 heroSlideCount 位对外生效,
 // 其余为热榜候选位 —— 管理员可从这里采纳(启用, 转手动钉位)或屏蔽(禁用, 不再被补位选中)。
-// 候选位是运行时从榜单派生的, 热榜每日刷新后自动换新; 已采纳(手动行)的顺序持久化,
-// 不受刷新影响 —— 这正是"默认展示 10 条、只启用前 5、刷新后已编辑的顺序保持"的落点。
-const heroBoardCount = 10
+//
+// 2026-10-23 起候选位改为"8 榜各取前 2 · 权重轮转混排 · 中国大陆保底"(见
+// docs/热榜页面与轮播候选方案 §2), 每榜 2 位共 16, 故此常数 10 → 16。
+const heroBoardCount = 16
 
 // 轮播位来源。手动位 = banner 配置行; 自动位 = 榜单派生(无对应配置行)。
 const (
@@ -70,8 +71,25 @@ type EffectiveSlide struct {
 	ClassTag string  `json:"classTag,omitempty"`
 	HotRank  int     `json:"hotRank,omitempty"`
 	HotBoard string  `json:"hotBoard,omitempty"`
+	// Guaranteed 仅自动候选位: 该位是"中国大陆保底"替换位(管理页打"大陆保底"徽标)。
+	Guaranteed bool `json:"guaranteed,omitempty"`
 	// Banner 仅后台 Board 填充: 手动位对应的完整配置行(编辑表单回填用), 前台不返回。
 	Banner *entity.Banner `json:"banner,omitempty"`
+}
+
+// InactiveMeta 未生效配置行关联影片的元信息(管理页也要展示评分/标签/榜位, 需求⑥)。
+// 配置行本身只有 mid/标题/图, 评分、类型标签、榜位、封面/横图在影片读模型里, 读时补齐。
+type InactiveMeta struct {
+	Name     string  `json:"name,omitempty"`
+	DbScore  float64 `json:"dbScore,omitempty"`
+	ClassTag string  `json:"classTag,omitempty"`
+	HotRank  int     `json:"hotRank,omitempty"`
+	HotBoard string  `json:"hotBoard,omitempty"`
+	Area     string  `json:"area,omitempty"`
+	Year     int     `json:"year,omitempty"`
+	Remarks  string  `json:"remarks,omitempty"`
+	Cover    string  `json:"cover,omitempty"`
+	Backdrop string  `json:"backdrop,omitempty"`
 }
 
 // InactiveRow 未生效的配置行(管理页折叠区), 不参与展示与自动补位。
@@ -79,6 +97,8 @@ type InactiveRow struct {
 	entity.Banner
 	// Reason 未生效原因: disabled=已停用 / noimage=缺横竖图 / pending=未开始 / expired=已过期 / overflow=超出管理视图位数。
 	Reason string `json:"reason"`
+	// Meta 关联影片的元信息(无 mid 或影片已删时为 nil)。
+	Meta *InactiveMeta `json:"meta,omitempty"`
 }
 
 // Board 后台管理视图: 生效位 + 未生效配置行。
@@ -127,30 +147,52 @@ func (s *BannerService) compose(ctx context.Context, n int) ([]EffectiveSlide, e
 			Link: b.Link, Sort: b.Sort, State: b.State,
 		})
 	}
+	seen := excluded // 复用同一张表: 既排除配置过的 mid, 也对候选去重
+	addAuto := func(mid int64, name, subtitle, image, poster, board string, rank int, guaranteed bool) bool {
+		if len(slides) >= n || mid <= 0 || seen[mid] {
+			return false
+		}
+		seen[mid] = true
+		slides = append(slides, EffectiveSlide{
+			Source: SlideSourceAuto, Mid: mid, Name: name,
+			Subtitle: subtitle, Image: image, Poster: poster,
+			HotRank: rank, HotBoard: board, Guaranteed: guaranteed,
+		})
+		return true
+	}
 	if len(slides) < n {
+		// 首选: 每日算好的"8 榜前 2 权重混排 + 大陆保底"候选(一次 SELECT, 顺序即补位顺序)。
+		cands, cerr := s.films.BoardCandidates(ctx)
+		if cerr != nil {
+			// 候选读取失败不致命: 落到下方 home.Rows 回退。
+			log.Printf("[banner] board candidates err, fallback to home rows: %v", cerr)
+		}
+		for _, c := range cands {
+			if len(slides) >= n {
+				break
+			}
+			addAuto(c.Mid, c.Name, c.Remarks, c.Backdrop, c.Cover,
+				douban.BoardLabel(c.Board), c.Rank, c.Guaranteed)
+		}
+	}
+	if len(slides) < n {
+		// 回退: 快照为空(部署首日/刷新长期失败)或候选被屏蔽后不足 → 沿用旧的首页分区补位。
 		home, herr := s.films.Home(ctx)
 		if herr != nil {
-			// 已有手动位就照常返回(自动补位失败不连累前台); 一个都没有才向上报错。
+			// 已有手动位/候选位就照常返回(自动补位失败不连累前台); 一个都没有才向上报错。
 			if len(slides) > 0 {
 				log.Printf("[banner] home agg err, skip auto fill: %v", herr)
 				return slides, nil
 			}
 			return nil, herr
 		}
-		seen := excluded // 复用同一张表: 既排除配置过的 mid, 也对候选去重
 		fill := func(items []entity.MovieSearch) {
 			for _, it := range items {
 				if len(slides) >= n {
 					return
 				}
-				if it.Mid <= 0 || seen[it.Mid] {
-					continue
-				}
-				seen[it.Mid] = true
-				slides = append(slides, EffectiveSlide{
-					Source: SlideSourceAuto, Mid: it.Mid, Name: it.Name,
-					Subtitle: it.Remarks, Image: it.Backdrop, Poster: it.Cover,
-				})
+				addAuto(it.Mid, it.Name, it.Remarks, it.Backdrop, it.Cover,
+					douban.HotBoardLabel(it.Pid, it.HotBoard, it.HotRank), it.HotRank, false)
 			}
 		}
 		for _, row := range home.Rows {
@@ -212,6 +254,10 @@ func (s *BannerService) enrichMeta(ctx context.Context, slides []EffectiveSlide)
 		}
 		slides[i].DbScore = c.DbScore
 		slides[i].ClassTag = c.ClassTag
+		if slides[i].HotRank != 0 {
+			// 候选/回退自动位已带快照榜位(该位取的那个榜), 保留不覆写。
+			continue
+		}
 		slides[i].HotRank = c.HotRank
 		// 与详情页 hotBadge 同口径: 落库的是集合名(movie_hot_gaia), 对外给中文榜单名;
 		// hot_board 缺失时按分类热榜兜底, 避免前台只剩"热门"两个字(用户要求显示全)。
@@ -259,7 +305,45 @@ func (s *BannerService) Board(ctx context.Context) (*Board, error) {
 		}
 		board.Inactive = append(board.Inactive, InactiveRow{Banner: b, Reason: reason})
 	}
+	// 未生效行(禁用/缺图/过期/overflow)也补影片元数据: 管理页对禁用片同样展示评分/标签/榜位/封面。
+	s.enrichInactive(ctx, board.Inactive)
 	return board, nil
+}
+
+// enrichInactive 批量给未生效配置行补影片元信息(一次 IN 查询, 无 mid/已删的行保持 nil)。
+func (s *BannerService) enrichInactive(ctx context.Context, rows []InactiveRow) {
+	if s.films == nil || len(rows) == 0 {
+		return
+	}
+	mids := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		if r.Mid > 0 {
+			mids = append(mids, r.Mid)
+		}
+	}
+	if len(mids) == 0 {
+		return
+	}
+	cards, err := s.films.SearchByMids(ctx, mids)
+	if err != nil {
+		log.Printf("[banner] enrich inactive meta err: %v", err)
+		return
+	}
+	byMid := make(map[int64]entity.MovieSearch, len(cards))
+	for _, c := range cards {
+		byMid[c.Mid] = c
+	}
+	for i := range rows {
+		c, ok := byMid[rows[i].Mid]
+		if !ok {
+			continue
+		}
+		rows[i].Meta = &InactiveMeta{
+			Name: c.Name, DbScore: c.DbScore, ClassTag: c.ClassTag,
+			HotRank: c.HotRank, HotBoard: douban.HotBoardLabel(c.Pid, c.HotBoard, c.HotRank),
+			Area: c.Area, Year: c.Year, Remarks: c.Remarks, Cover: c.Cover, Backdrop: c.Backdrop,
+		}
+	}
 }
 
 // Save 新建(id=0)或按 id 更新。新建时 slot 非空表示钉到生效列表第 slot 位(采纳自动位用),

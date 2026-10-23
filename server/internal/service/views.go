@@ -55,3 +55,26 @@ type CardPage struct {
 	Total int64                `json:"total"`
 	Page  repository.Page      `json:"page"`
 }
+
+// BoardOption 热榜筛选的榜单维度(value=集合名, label=中文名)。
+type BoardOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// HotBoardFiltersData 热榜筛选维度: 榜单固定来自豆瓣 8 榜, 年份/地区/语言由在榜影片聚合。
+type HotBoardFiltersData struct {
+	Boards    []BoardOption `json:"boards"`
+	Years     []int         `json:"years"`
+	Areas     []string      `json:"areas"`
+	Languages []string      `json:"languages"`
+}
+
+// BoardCandidate 轮播候选一位: 影片读模型 + 快照榜位/位次 + 候选分 + 大陆保底标记。
+type BoardCandidate struct {
+	entity.MovieSearch
+	Board      string `json:"board"`
+	Rank       int    `json:"rank"`
+	Score      int    `json:"score"`
+	Guaranteed bool   `json:"guaranteed"`
+}

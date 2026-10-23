@@ -16,11 +16,13 @@ import (
 // ---- 假仓储: 只实现 hotRepo 的 4 个方法 ----
 
 type fakeHotRepo struct {
-	byDbId  map[int64][]repository.HotCandidate // db_id → 本地候选(模拟重复 db_id 的分组)
-	byKw    map[string][]repository.HotCandidate
-	board   []repository.HotCandidate // 当前在榜快照
-	applied []repository.HotRow
-	err     error
+	byDbId     map[int64][]repository.HotCandidate // db_id → 本地候选(模拟重复 db_id 的分组)
+	byKw       map[string][]repository.HotCandidate
+	board      []repository.HotCandidate // 当前在榜快照
+	applied    []repository.HotRow
+	boardItems []repository.HotBoardItem
+	boardCands []repository.HotBoardCandidate
+	err        error
 }
 
 func (f *fakeHotRepo) HotCandidatesByDbIds(_ context.Context, dbIds []int64) ([]repository.HotCandidate, error) {
@@ -42,6 +44,17 @@ func (f *fakeHotRepo) ListHotBoard(context.Context) ([]repository.HotCandidate, 
 func (f *fakeHotRepo) ApplyHot(_ context.Context, rows []repository.HotRow) (int, error) {
 	f.applied = append(f.applied, rows...)
 	return len(rows), nil
+}
+
+// 快照/候选落库: 单测不关心派生结果, 记录最后一次写入即可(boards 传 nil 时不会被调用)。
+func (f *fakeHotRepo) ReplaceHotBoardItems(_ context.Context, items []repository.HotBoardItem, _ int64) error {
+	f.boardItems = items
+	return f.err
+}
+
+func (f *fakeHotRepo) ReplaceHotBoardCandidates(_ context.Context, cands []repository.HotBoardCandidate, _ int64) error {
+	f.boardCands = cands
+	return f.err
 }
 
 // appliedMid 取写入行的 mid 集合。
@@ -130,7 +143,7 @@ func newHotTestRepo(now time.Time) *fakeHotRepo {
 
 func newHotTestService(t *testing.T, repo *fakeHotRepo) *HotService {
 	t.Helper()
-	svc := NewHotService(repo, newHotTestClient(t))
+	svc := NewHotService(repo, nil, newHotTestClient(t))
 	svc.cols = []douban.Collection{{Name: "movie_hot_gaia", Label: "热门电影", Depth: 308}}
 	return svc
 }
@@ -172,8 +185,8 @@ func TestHotService_Refresh_EndToEnd(t *testing.T) {
 	}
 
 	// db_id 精确命中: 位次 4(第 4 条) → 100000 - 3×100 = 99700
-	// + tiebreak(2024 新片 18/3=6 + 豆瓣 8.6→9×4=36) = 99742
-	if r := got[11]; r.HotRank != 4 || r.HotScore != 99742 || r.HotBoard != "movie_hot_gaia" {
+	// + tiebreak(口碑 8.6→8×3=24 + 年份 2024→16) = 99740
+	if r := got[11]; r.HotRank != 4 || r.HotScore != 99740 || r.HotBoard != "movie_hot_gaia" {
 		t.Fatalf("db_id 命中行不对: %+v", r)
 	}
 	// 重复 db_id: 取正片(29748), 不是解说行(61203)
@@ -183,7 +196,7 @@ func TestHotService_Refresh_EndToEnd(t *testing.T) {
 	if _, ok := got[61203]; ok {
 		t.Fatalf("解说行不该上榜: %+v", got[61203])
 	}
-	// 片名兜底: 回填 db_id(源站缺失) + 回填豆瓣分 9.4; 位次 1 → 100000 + tiebreak(2023→17/3=5 + 9×4=36)
+	// 片名兜底: 回填 db_id(源站缺失) + 回填豆瓣分 9.4; 位次 1 → 100000 + tiebreak(口碑 9×3=27 + 年份 2023→14)
 	fill := got[58589]
 	if fill.DbId != hotTestSpecialID || fill.DbScore != 9.4 {
 		t.Fatalf("片名兜底行未回填 db_id/db_score: %+v", fill)
@@ -191,8 +204,8 @@ func TestHotService_Refresh_EndToEnd(t *testing.T) {
 	if fill.HotRank != 1 || fill.HotScore != 100041 {
 		t.Fatalf("片名兜底行分数不对: %+v", fill)
 	}
-	// 掉榜片: 榜位/榜单来源归零 + 分数回落兜底(2019 老片、已完结、无评分 → 年份新鲜度 20-7=13 → 130)
-	if r := got[99]; r.HotRank != 0 || r.HotRankAt != 0 || r.HotBoard != "" || r.HotScore != 130 {
+	// 掉榜片: 榜位/榜单来源归零 + 分数回落兜底(2019 老片、已完结、无评分 → 年份新鲜度 20-14=6 → 60)
+	if r := got[99]; r.HotRank != 0 || r.HotRankAt != 0 || r.HotBoard != "" || r.HotScore != 60 {
 		t.Fatalf("掉榜片应回落兜底分并清空榜单来源: %+v", r)
 	}
 }
@@ -235,7 +248,7 @@ func TestHotService_Refresh_RefusesPartialBoard(t *testing.T) {
 
 	now := time.Now()
 	repo := newHotTestRepo(now)
-	svc := NewHotService(repo, client)
+	svc := NewHotService(repo, nil, client)
 	svc.cols = []douban.Collection{{Name: "movie_hot_gaia", Label: "热门电影", Depth: 308}}
 
 	rep, err := svc.Refresh(context.Background())
@@ -297,7 +310,7 @@ func TestHotService_Refresh_ClearsStaleBoardOnceExpired(t *testing.T) {
 	repo.board = []repository.HotCandidate{
 		{Mid: 99, Name: "四天前的在榜片", Year: 2024, Remarks: "已完结", HotRank: 5, HotRankAt: now.Add(-4 * 24 * time.Hour).Unix()},
 	}
-	svc := NewHotService(repo, client)
+	svc := NewHotService(repo, nil, client)
 	svc.cols = []douban.Collection{{Name: "movie_hot_gaia", Label: "热门电影", Depth: 308}}
 
 	rep, err := svc.Refresh(context.Background())
@@ -307,10 +320,10 @@ func TestHotService_Refresh_ClearsStaleBoardOnceExpired(t *testing.T) {
 	if rep.Cleared != 1 {
 		t.Fatalf("超期快照应被回落: %+v", rep)
 	}
-	// 回落的是**兜底分**(2024 新片 + 无评分 = 18 分 → 存储单位 180), 不是简单清 0
+	// 回落的是**兜底分**(2024 片 + 无评分 + 已完结: 年份 2024→16 → 存储单位 160), 不是简单清 0
 	got := repo.appliedByMid()
 	r, ok := got[99]
-	if !ok || r.HotRank != 0 || r.HotRankAt != 0 || r.HotScore != 180 {
+	if !ok || r.HotRank != 0 || r.HotRankAt != 0 || r.HotScore != 160 {
 		t.Fatalf("超期在榜片应回落到兜底分: %+v", r)
 	}
 }
@@ -368,7 +381,7 @@ func TestHotService_MatchSkipsCommentaryOnlyDbIdGroup(t *testing.T) {
 			"杀死比尔": {{Mid: 30001, DbId: 0, Name: "杀死比尔", Year: 2026, Actor: "甲", Director: "乙"}},
 		},
 	}
-	svc := NewHotService(repo, nil) // match 不依赖 client
+	svc := NewHotService(repo, nil, nil) // match 不依赖 client
 
 	ranked := []douban.Ranked{
 		{Item: douban.Item{Id: 5002, Title: "苍兰诀", Year: "2022"}, Rank: 1, Depth: 10},
@@ -438,7 +451,7 @@ func TestHotKeywordTruncates(t *testing.T) {
 
 // TestHotService_Due 每日刷新时刻判定: 04:00 前不跑, 退避期内不跑。
 func TestHotService_Due(t *testing.T) {
-	svc := NewHotService(nil, nil)
+	svc := NewHotService(nil, nil, nil)
 	day := time.Date(2026, 9, 12, 0, 0, 0, 0, time.Local)
 	if svc.due(day.Add(3 * time.Hour)) {
 		t.Fatal("04:00 前不该跑")

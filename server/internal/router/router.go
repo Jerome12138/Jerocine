@@ -22,6 +22,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/categories/:pid/filters", h.Filters)
 	v1.GET("/films", h.Films)
 	v1.GET("/films/classify", h.Classify)
+	v1.GET("/hotboard", h.HotBoard)
+	v1.GET("/hotboard/filters", h.HotBoardFilters)
 	v1.GET("/films/:mid", h.Detail)
 	v1.GET("/films/:mid/play", h.Play)
 	v1.GET("/films/:mid/related", h.Related)

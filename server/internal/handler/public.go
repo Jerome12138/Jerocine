@@ -71,6 +71,34 @@ func (h *Handlers) Films(c *gin.Context) {
 	dto.Page(c, dto.ToCards(cp.List), cp.Page.Current, cp.Page.Size, cp.Total)
 }
 
+// HotBoard GET /hotboard?board=&pid=&year=&area=&language=&sort=&page=&size=
+// board 为空 = 全榜混排(按 hot_score, 枪版动态降级); board 指定 = 该榜视图(按榜位次)。
+func (h *Handlers) HotBoard(c *gin.Context) {
+	ctx := c.Request.Context()
+	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
+	spec := repository.FilterSpec{
+		Pid: queryInt64(c, "pid"),
+		Area: c.Query("area"), Language: c.Query("language"),
+		Year: queryInt(c, "year", 0),
+	}
+	cp, err := h.Film.HotBoard(ctx, c.Query("board"), spec, c.Query("sort"), page)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.Page(c, dto.ToCards(cp.List), cp.Page.Current, cp.Page.Size, cp.Total)
+}
+
+// HotBoardFilters GET /hotboard/filters —— 榜单固定 + 年份/地区/语言聚合。
+func (h *Handlers) HotBoardFilters(c *gin.Context) {
+	data, err := h.Film.HotBoardFilters(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.WriteCached(c, data, 3600)
+}
+
 // Classify GET /films/classify?pid=
 func (h *Handlers) Classify(c *gin.Context) {
 	ctx := c.Request.Context()

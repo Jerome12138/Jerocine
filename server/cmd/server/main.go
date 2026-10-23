@@ -224,7 +224,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 
 	// 榜单热度刷新: 每日 04:00 拉豆瓣 L1 榜单(8 集合 / 约 675 条 / 18 次请求),
 	// 匹配本地影片后写 hot_rank / hot_rank_at / hot_score, 顺带回填 db_id 与 db_score。
-	hotSvc := service.NewHotService(movieRepo, douban.New())
+	hotSvc := service.NewHotService(movieRepo, searchRepo, douban.New())
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,
