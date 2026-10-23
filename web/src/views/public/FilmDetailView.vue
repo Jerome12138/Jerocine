@@ -195,6 +195,20 @@ const score = computed(() => {
  * (后端 douban.HotBoardLabel 在缺 hot_board 时按分类热榜兜底, pid 4 → 热门动漫)。 */
 const hotBadge = computed(() => formatHotBadge(detail.value?.hotRank, detail.value?.hotBoard))
 
+/** 影评外链: 5 个站点按片名搜索。点击新窗口跳转, 悬停显示站名。 */
+const REVIEW_SITES = [
+  { name: '豆瓣', icon: '/site-icons/douban.png', make: (n: string) => `https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(n)}` },
+  { name: '新浪微博', icon: '/site-icons/weibo.ico', make: (n: string) => `https://s.weibo.com/weibo?q=${encodeURIComponent(n)}` },
+  { name: '抖音', icon: '/site-icons/douyin.png', make: (n: string) => `https://www.douyin.com/search/${encodeURIComponent(n)}` },
+  { name: '快手', icon: '/site-icons/kuaishou.ico', make: (n: string) => `https://www.kuaishou.com/search/video?searchKey=${encodeURIComponent(n)}` },
+  { name: '百度', icon: '/site-icons/baidu.ico', make: (n: string) => `https://www.baidu.com/s?wd=${encodeURIComponent(n)}` }
+] as const
+const reviewLinks = computed(() => {
+  const name = detail.value?.name ?? ''
+  if (!name) return []
+  return REVIEW_SITES.map((s) => ({ name: s.name, icon: s.icon, url: s.make(name) }))
+})
+
 /** 剧情展开 */
 const SUMMARY_LIMIT = 140
 const expanded = ref(false)
@@ -426,6 +440,24 @@ function handleToggleFavorite(): void {
                 <span v-if="hotBadge"><i>热度 </i>{{ hotBadge }}</span>
               </div>
 
+              <!-- 影评外链(TV 同款): 站点图标圆角方形, 悬停显示站名 -->
+              <div v-if="reviewLinks.length" class="jc-detail-tv__reviews">
+                <span class="jc-detail-tv__reviews-label">影评</span>
+                <a
+                  v-for="r in reviewLinks"
+                  :key="r.name"
+                  :href="r.url"
+                  :title="`${r.name} · ${detail.name}`"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="jc-detail-tv__review"
+                  data-focusable="true"
+                  tabindex="0"
+                >
+                  <img :src="r.icon" :alt="r.name" loading="lazy" />
+                </a>
+              </div>
+
               <!-- 简介 ≤3 行 -->
               <p v-if="cleanedContent" class="jc-detail-tv__summary">
                 {{ cleanedContent }}
@@ -574,6 +606,22 @@ function handleToggleFavorite(): void {
                 <dd>{{ hotBadge }}</dd>
               </div>
             </dl>
+
+            <!-- 影评外链: 站点图标圆角方形, 点击新窗口, 悬停显示站名 -->
+            <div v-if="reviewLinks.length" class="jc-detail__reviews">
+              <span class="jc-detail__reviews-label">影评</span>
+              <a
+                v-for="r in reviewLinks"
+                :key="r.name"
+                :href="r.url"
+                :title="`${r.name} · ${detail.name}`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jc-detail__review"
+              >
+                <img :src="r.icon" :alt="r.name" loading="lazy" />
+              </a>
+            </div>
 
             <p v-if="cleanedContent" class="jc-detail__summary">
               {{ displayContent }}
@@ -905,6 +953,53 @@ function handleToggleFavorite(): void {
   min-width: 0;
 }
 
+/* 影评外链行: 图标圆角方形, 悬停提亮 */
+.jc-detail__reviews {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--jc-space-2);
+  margin-top: var(--jc-space-2);
+}
+
+@media (min-width: 768px) {
+  .jc-detail__reviews {
+    justify-content: flex-start;
+  }
+}
+
+.jc-detail__reviews-label {
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-sm);
+  white-space: nowrap;
+}
+
+.jc-detail__review {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  overflow: hidden;
+  background-color: var(--jc-bg-elevated);
+  border: 1px solid var(--jc-border-default);
+  opacity: 0.85;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.jc-detail__review:hover,
+.jc-detail__review:focus-visible {
+  opacity: 1;
+  transform: scale(1.08);
+  outline: none;
+}
+
+.jc-detail__review img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .jc-detail__summary {
   margin: 0;
   color: var(--jc-text-secondary);
@@ -1195,6 +1290,45 @@ function handleToggleFavorite(): void {
 .jc-detail-tv__meta i {
   font-style: normal;
   color: var(--jc-text-muted);
+}
+
+/* TV 影评外链行: 与 meta 同风格, 图标稍大适配 TV 焦点 */
+.jc-detail-tv__reviews {
+  display: flex;
+  align-items: center;
+  gap: var(--jc-space-3);
+}
+
+.jc-detail-tv__reviews-label {
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-sm);
+  white-space: nowrap;
+}
+
+.jc-detail-tv__review {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  overflow: hidden;
+  background-color: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  opacity: 0.85;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.jc-detail-tv__review:hover,
+.jc-detail-tv__review:focus-visible {
+  opacity: 1;
+  transform: scale(1.1);
+  outline: none;
+}
+
+.jc-detail-tv__review img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .jc-detail-tv__summary {
   margin: 0;

@@ -33,7 +33,33 @@ const adoptSlot = ref<number | undefined>(undefined)
 const showInactive = ref(false)
 /** 立即刷新榜单进行中(ApplyHot + 热榜快照 + 轮播候选派生, 一轮约 1-2 分钟) */
 const refreshing = ref(false)
+/** 单片横图回填进行中的 mid 集合(防重复点击) */
+const fillingMids = ref<Set<number>>(new Set())
 let pollTimer: number | undefined
+
+/** 手动触发单片 TMDB 横图回填(轮播管理页「横图」按钮) */
+async function fillBackdrop(mid: number): Promise<void> {
+  if (mid <= 0 || fillingMids.value.has(mid)) return
+  fillingMids.value.add(mid)
+  try {
+    const r = await manageApi.banner.fillBackdrop(mid)
+    const tip =
+      r.status === 'already' ? '已有横图，未重复检索'
+      : r.status === 'miss' ? 'TMDB 检索无果（已标记未命中），暂不回填'
+      : '横图已获取并回填'
+    window.alert(`影片 #${mid}：${tip}`)
+    await load(true)
+  } catch (e) {
+    window.alert((e as { message?: string })?.message || '获取横图失败，请稍后重试')
+  } finally {
+    fillingMids.value.delete(mid)
+  }
+}
+
+/** 豆瓣影评搜索链接(按影片名) */
+function doubanUrl(name: string): string {
+  return manageApi.banner.doubanSearchUrl(name)
+}
 
 /** 立即刷新榜单: 与每日 04:00 自动刷新共用一把锁, 撞车返 409 */
 async function refreshHot(): Promise<void> {
@@ -416,7 +442,22 @@ onUnmounted(() => {
           :title="`查看影片详情 ${goLabelOf(s)}`"
         >{{ goLabelOf(s) }}</RouterLink>
         <span v-else class="text-xs text-link w-[120px] truncate hidden lg:block shrink-0" :title="goLabelOf(s)">{{ goLabelOf(s) }}</span>
-        <div class="flex gap-[var(--jc-space-1)] shrink-0">
+        <div class="flex gap-[var(--jc-space-1)] shrink-0 items-center">
+          <a
+            v-if="s.name"
+            :href="doubanUrl(s.name)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex w-[22px] h-[22px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
+            :title="`豆瓣搜索「${s.name}」影评`"
+          ><img src="/site-icons/douban.png" alt="豆瓣" class="w-full h-full object-cover" /></a>
+          <BaseButton
+            v-if="(s.mid ?? 0) > 0"
+            variant="ghost" size="sm"
+            :loading="fillingMids.has(s.mid!)"
+            title="手动触发 TMDB 检索并回填该片横图"
+            @click="fillBackdrop(s.mid!)"
+          >横图</BaseButton>
           <BaseButton
             variant="ghost" size="sm" :disabled="!canMoveUp(s, i)"
             :title="s.source === 'banner' ? '上移' : '上移（转为手动位）'"
@@ -526,7 +567,22 @@ onUnmounted(() => {
             :title="`查看影片详情 ${inactiveGoLabel(row)}`"
           >{{ inactiveGoLabel(row) }}</RouterLink>
           <span v-else class="text-xs text-link w-[120px] truncate hidden lg:block shrink-0" :title="inactiveGoLabel(row)">{{ inactiveGoLabel(row) }}</span>
-          <div class="flex gap-[var(--jc-space-1)] shrink-0">
+          <div class="flex gap-[var(--jc-space-1)] shrink-0 items-center">
+            <a
+              v-if="row.meta?.name || row.title"
+              :href="doubanUrl(row.meta?.name || row.title || '')"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex w-[22px] h-[22px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
+              :title="`豆瓣搜索「${row.meta?.name || row.title}」影评`"
+            ><img src="/site-icons/douban.png" alt="豆瓣" class="w-full h-full object-cover" /></a>
+            <BaseButton
+              v-if="row.mid > 0"
+              variant="ghost" size="sm"
+              :loading="fillingMids.has(row.mid)"
+              title="手动触发 TMDB 检索并回填该片横图"
+              @click="fillBackdrop(row.mid)"
+            >横图</BaseButton>
             <BaseButton
               v-if="row.state !== 0"
               variant="ghost" size="sm" title="启用后转为手动位"

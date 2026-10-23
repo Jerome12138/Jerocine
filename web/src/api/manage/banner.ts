@@ -24,3 +24,11 @@ export const save = (data: Partial<Banner> & { id: number }, slot?: number): Pro
 /** DELETE /manage/banners/:id */
 export const remove = (id: number): Promise<void> =>
   http.delete<unknown, void>(`/manage/banners/${enc(id)}`)
+
+/** POST /manage/backdrop/fill 手动触发单片 TMDB 横图回填。返回 status: already/miss/filled */
+export const fillBackdrop = (mid: number): Promise<{ mid: number; status: 'already' | 'miss' | 'filled' }> =>
+  http.post<unknown, { mid: number; status: 'already' | 'miss' | 'filled' }>('/manage/backdrop/fill', { mid })
+
+/** 豆瓣影评搜索链接(按片名) */
+export const doubanSearchUrl = (name: string): string =>
+  `https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(name)}`
