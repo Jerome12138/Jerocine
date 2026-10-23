@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { formatDuration, formatBytes, formatDateTime, truncate, formatHotBadge } from './format'
+import {
+  formatDuration,
+  formatBytes,
+  formatDateTime,
+  truncate,
+  formatHotBadge,
+  hotBoardShort,
+  hotBoardFull
+} from './format'
 
 describe('formatDuration', () => {
   it('0 秒 → 00:00', () => expect(formatDuration(0)).toBe('00:00'))
@@ -70,5 +78,44 @@ describe('formatHotBadge', () => {
     expect(formatHotBadge(1, '   ')).toBe('')
     expect(formatHotBadge(1, undefined)).toBe('')
     expect(formatHotBadge(1, null)).toBe('')
+  })
+})
+
+describe('hotBoardShort', () => {
+  it('8 榜全映射 → 短名(平板档角标)', () => {
+    expect(hotBoardShort('热门电影')).toBe('电影')
+    expect(hotBoardShort('热门剧集')).toBe('剧集')
+    expect(hotBoardShort('热门综艺')).toBe('综艺')
+    expect(hotBoardShort('热门动漫')).toBe('动漫')
+    expect(hotBoardShort('正在上映')).toBe('上映')
+    expect(hotBoardShort('一周口碑榜')).toBe('口碑')
+    expect(hotBoardShort('华语口碑剧集榜')).toBe('华语榜')
+    expect(hotBoardShort('全球口碑剧集榜')).toBe('全球榜')
+  })
+
+  it('未知榜 / 空 / 空白 → 回落「热榜」', () => {
+    expect(hotBoardShort('某个新榜')).toBe('热榜')
+    expect(hotBoardShort('')).toBe('热榜')
+    expect(hotBoardShort('   ')).toBe('热榜')
+    expect(hotBoardShort(undefined)).toBe('热榜')
+    expect(hotBoardShort(null)).toBe('热榜')
+  })
+})
+
+describe('hotBoardFull', () => {
+  it('透传全称(去除首尾空白)', () => {
+    expect(hotBoardFull('热门电影')).toBe('热门电影')
+    expect(hotBoardFull('  正在上映 ')).toBe('正在上映')
+  })
+
+  it('非空未知名 → 原样透传(桌面档保留真实榜名, 不丢信息)', () => {
+    expect(hotBoardFull('某个新榜')).toBe('某个新榜')
+  })
+
+  it('空 / 空白 → 回落「热榜」(桌面档不显示空名)', () => {
+    expect(hotBoardFull('')).toBe('热榜')
+    expect(hotBoardFull('   ')).toBe('热榜')
+    expect(hotBoardFull(undefined)).toBe('热榜')
+    expect(hotBoardFull(null)).toBe('热榜')
   })
 })

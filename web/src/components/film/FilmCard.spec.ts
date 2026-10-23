@@ -64,14 +64,43 @@ describe('FilmCard', () => {
     expect(w.find('a').exists()).toBe(true)
   })
 
-  it('hotRank>0 → 显示 🔥Hot N 角标(带火图标); 缺省/0 → 不显示', () => {
+  it('hotRank>0 → 显示火角标; 缺省/0 → 不显示', () => {
     const withRank = mountCard({
       item: { ...baseItem, hotRank: 7 } as never
     })
-    expect(withRank.text()).toContain('Hot 7')
     expect(withRank.find('.jc-film-card__hot-badge svg').exists()).toBe(true)
+    expect(withRank.text()).toContain('No.7')
 
     const noRank = mountCard()
     expect(noRank.find('.jc-film-card__hot-badge').exists()).toBe(false)
+  })
+
+  it('角标三断点: 移动只显位次 / 平板短榜名 / 桌面全榜名', () => {
+    const w = mountCard({
+      item: { ...baseItem, hotRank: 1, hotBoard: '热门电影' } as never
+    })
+    // 三档 span 都在 DOM(jsdom 不应用媒体查询, 由 unocss 类控制显隐)
+    expect(w.find('.jc-film-card__hot-mobile').text()).toBe('No.1')
+    expect(w.find('.jc-film-card__hot-short').text()).toBe('电影 No.1')
+    expect(w.find('.jc-film-card__hot-full').text()).toBe('热门电影 No.1')
+  })
+
+  it('角标 title 挂全称「豆瓣·热门电影 No.1」', () => {
+    const w = mountCard({
+      item: { ...baseItem, hotRank: 1, hotBoard: '热门电影' } as never
+    })
+    expect(w.find('.jc-film-card__hot-badge').attributes('title')).toBe(
+      '豆瓣·热门电影 No.1'
+    )
+  })
+
+  it('未知榜单 → 短名回落「热榜」, 全称档原样透传真实榜名', () => {
+    const w = mountCard({
+      item: { ...baseItem, hotRank: 3, hotBoard: '某个新榜' } as never
+    })
+    // 平板空间小, 短名表未收录 → 兜底「热榜」
+    expect(w.find('.jc-film-card__hot-short').text()).toBe('热榜 No.3')
+    // 桌面空间大, 直接透传后端给的真实全称, 不丢信息
+    expect(w.find('.jc-film-card__hot-full').text()).toBe('某个新榜 No.3')
   })
 })

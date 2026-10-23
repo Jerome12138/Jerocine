@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { Card } from '@/types/film'
 import BaseImage from '@/components/base/BaseImage.vue'
+import { formatHotBadge, hotBoardFull, hotBoardShort } from '@/utils/format'
 
 interface Props {
   item: Card
@@ -61,11 +62,17 @@ const subBelow = computed(() => props.subText || subTextBelow.value)
 /** 角标 remarks：更新到第几集这种关键信息（其它如年份/分类太冗，移到 hover 浮层与详情页） */
 const remarks = computed(() => props.item.remarks || '')
 
-/** 热度榜位角标: 后端榜单刷新任务标过 hotRank(1 起)才显示, 其余卡片不占位 */
-const hotRankText = computed(() => {
-  const r = props.item.hotRank ?? 0
-  return r > 0 ? `Hot ${r}` : ''
-})
+/** 热度榜位角标: 后端榜单刷新任务标过 hotRank(1 起)才显示, 其余卡片不占位。
+ *  三断点响应式: 移动「🔥 No.N」/ 平板「🔥 电影 No.1」(短名) / 桌面「🔥 热门电影 No.1」(全称)。
+ *  文本切换在模板里用 unocss 断点类完成, 这里只给位次与短/全称。 */
+const hotRank = computed(() => props.item.hotRank ?? 0)
+const hasHotRank = computed(() => hotRank.value > 0)
+const hotBoardShortName = computed(() => hotBoardShort(props.item.hotBoard))
+const hotBoardFullName = computed(() => hotBoardFull(props.item.hotBoard))
+/** 悬停 title 与无障碍文案: 完整「豆瓣·热门电影 No.1」 */
+const hotTitle = computed(() =>
+  formatHotBadge(props.item.hotRank, props.item.hotBoard)
+)
 
 /**
  * 评分显示策略：
@@ -111,12 +118,22 @@ const scoreText = computed(() => {
         {{ scoreText }}
       </span>
 
-      <!-- 左上角热度榜位: 火 + Hot N(仅榜单刷新任务标过 hot_rank 的片有) -->
-      <span v-if="hotRankText" class="jc-film-card__hot-badge" aria-label="热度榜位">
+      <!-- 左上角热度榜位: 火 + 三断点文案(移动位次 / 平板短榜名 / 桌面全榜名) -->
+      <span
+        v-if="hasHotRank"
+        class="jc-film-card__hot-badge"
+        :aria-label="hotTitle || '热度榜位'"
+        :title="hotTitle"
+      >
         <svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" aria-hidden="true">
           <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
         </svg>
-        {{ hotRankText }}
+        <!-- 移动 <md: 只留位次, 最短 -->
+        <span class="jc-film-card__hot-mobile inline md:hidden">No.{{ hotRank }}</span>
+        <!-- 平板 md~lg: 短榜名 + 位次 -->
+        <span class="jc-film-card__hot-short hidden md:inline lg:hidden">{{ hotBoardShortName }} No.{{ hotRank }}</span>
+        <!-- 桌面 ≥lg: 全榜名 + 位次 -->
+        <span class="jc-film-card__hot-full hidden lg:inline">{{ hotBoardFullName }} No.{{ hotRank }}</span>
       </span>
 
       <!-- 卡片下部剧集信息 (remarks: 更新至 N 集 / HD / 独播 等), 常驻在封面底部 -->
