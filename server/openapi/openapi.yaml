@@ -279,6 +279,37 @@ components:
           items: { $ref: '#/components/schemas/FilmCard' }
         page: { $ref: '#/components/schemas/PageMeta' }
 
+    # ---------------- 内容: 热榜筛选维度 ----------------
+    HotBoardFilters:
+      type: object
+      required: [boards, years, areas, languages]
+      properties:
+        boards:
+          type: array
+          description: 8 个豆瓣榜单选项 (value=集合名, label=中文榜名; 加榜自动跟上)
+          items:
+            type: object
+            required: [value, label]
+            properties:
+              value:
+                type: string
+                description: 集合名, 如 movie_hot_gaia, 作为 /hotboard 的 board 参数
+              label:
+                type: string
+                description: 中文榜名, 如 热门电影
+        years:
+          type: array
+          items: { type: integer }
+          description: 在榜影片年份 (降序, 不超过今年+1, 限 12)
+        areas:
+          type: array
+          items: { type: string }
+          description: 在榜影片地区 (按量降序, 其它/其他 固定末尾)
+        languages:
+          type: array
+          items: { type: string }
+          description: 在榜影片语言 (按量降序, 其它/其他 固定末尾)
+
     # ---------------- 内容: 详情 ----------------
     PlayEpisode:
       type: object
@@ -291,7 +322,7 @@ components:
       type: object
       required: [id, name, episodes]
       properties:
-        id: { type: string, description: sourceId (站点标识), 与 play?source= 对应 }
+        id: { type: string, description: sourceId (站点标识), 与 play 的 source 参数对应 }
         name: { type: string, description: 播放源名 (playFrom) }
         episodes:
           type: array
@@ -1029,6 +1060,72 @@ paths:
               schema: { $ref: '#/components/schemas/FiltersResp' }
         '304': { $ref: '#/components/responses/NotModified' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /hotboard:
+    get:
+      tags: [content]
+      summary: 热榜 (8 榜并集或单榜筛选; 枪版影片动态降级)
+      description: |
+        - `board` 空 → 全部榜并集 (默认按热度, 枪版片动态减一个步长、多榜命中回血);
+        - `board` 指定 → 该榜完整成员 (默认按榜位次, 枪版片有效位次后移 1);
+        - 其余维度 (pid/year/area/language) 与 /films 同口径;
+        - 单榜视图下卡片 hotBoard/hotRank 覆写为"该榜"的位次 (全榜视图为代表榜)。
+      operationId: listHotBoard
+      parameters:
+        - name: board
+          in: query
+          schema: { type: string }
+          description: 豆瓣集合名 (见 /hotboard/filters.boards.value); 空 = 全部榜并集
+        - name: pid
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: area
+          in: query
+          schema: { type: string }
+        - name: language
+          in: query
+          schema: { type: string }
+        - name: year
+          in: query
+          schema: { type: integer }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [rank, hot, score, latest] }
+          description: rank=榜位(仅 board 指定时有效, 否则回落 hot) / hot=热度 / score=评分 / latest=最新上线
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilmCardPage' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /hotboard/filters:
+    get:
+      tags: [content]
+      summary: 热榜筛选维度 (8 榜固定 + 年份/地区/语言由在榜影片聚合)
+      operationId: getHotBoardFilters
+      parameters:
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotBoardFilters' }
+        '304': { $ref: '#/components/responses/NotModified' }
 
   /films:
     get:
