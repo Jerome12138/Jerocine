@@ -14,7 +14,7 @@ import BaseLightbox from '@/components/base/BaseLightbox.vue'
 import { confirm } from '@/composables/useConfirm'
 
 /**
- * 首页轮播管理 —— 列表 = 前 5 位生效位 + 后 5 位热榜候选位(共 10 位, liveCount 分区)。
+ * 首页轮播管理 —— 列表 = 前 liveCount 位生效位 + 其后热榜候选位(共 heroBoardCount=16 位, liveCount 分区)。
  * 手动位(banner): 完整增删改 + 启用/停用 + 上下移;
  * 自动位(热榜补位): 派生数据, 支持编辑采纳(转手动钉位, 即"启用")、禁用屏蔽、上移采纳;
  *   铁律: mid 出现在 banner 表(无论启用与否)就不再被自动补位选中。
