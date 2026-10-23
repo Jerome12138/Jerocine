@@ -281,6 +281,22 @@ func (s *RegisterService) Apply(ctx context.Context, userName, email, reason, co
 	return nil
 }
 
+// UserNameAvailable 公开查重(GET /auth/register/check-username): 前端失焦即时反馈。
+// 语义与 Apply/Register 的用户名查重一致: users 表已存在同名 → 占用。
+// 不查申请表 —— 申请态用户名无唯一约束, 激活窗口期被占时允许改名(设计 §9.3)。
+func (s *RegisterService) UserNameAvailable(ctx context.Context, name string) (bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > regNameMax {
+		return false, domain.ErrInvalidArgument
+	}
+	if _, err := s.users.GetByName(ctx, name); err == nil {
+		return false, nil
+	} else if err != domain.ErrUserNotFound {
+		return false, err
+	}
+	return true, nil
+}
+
 // ApplyStatusView GET /auth/apply/status: 进度查询三通道之一(邮件丢失/过期兜底)。
 type ApplyStatusView struct {
 	Status    string `json:"status"`    // pending / approved / rejected / none
@@ -304,7 +320,7 @@ func (s *RegisterService) ApplyStatus(ctx context.Context, email string) (ApplyS
 	return ApplyStatusView{
 		Status:    applyStatusName(a.Status),
 		Reason:    a.RejectReason,
-		CanResend: a.Status == entity.ApplyStatusApproved && a.ActivatedAt.IsZero(),
+		CanResend: a.Status == entity.ApplyStatusApproved && a.ActivatedAt == nil,
 	}, nil
 }
 
@@ -321,7 +337,7 @@ func (s *RegisterService) ResendActivation(ctx context.Context, email string) er
 		}
 		return err
 	}
-	if a.Status != entity.ApplyStatusApproved || !a.ActivatedAt.IsZero() {
+	if a.Status != entity.ApplyStatusApproved || a.ActivatedAt != nil {
 		return domain.ErrInvalidArgument // 仅 approved 且未激活可重发
 	}
 	return s.sendActivateMail(ctx, a)
@@ -369,7 +385,7 @@ func (s *RegisterService) ResendActivationByID(ctx context.Context, id int64) (w
 	if err != nil {
 		return "", err
 	}
-	if a.Status != entity.ApplyStatusApproved || !a.ActivatedAt.IsZero() {
+	if a.Status != entity.ApplyStatusApproved || a.ActivatedAt != nil {
 		return "", domain.ErrInvalidArgument // 仅 approved 且未激活可补发
 	}
 	if err := s.sendActivateMail(ctx, a); err != nil {
@@ -401,7 +417,7 @@ func (s *RegisterService) Activate(ctx context.Context, token, userName, passwor
 	if err != nil {
 		return LoginResult{}, domain.ErrCodeExpired
 	}
-	if a.Status != entity.ApplyStatusApproved || !a.ActivatedAt.IsZero() {
+	if a.Status != entity.ApplyStatusApproved || a.ActivatedAt != nil {
 		return LoginResult{}, domain.ErrCodeExpired // 已激活/重放
 	}
 	// 审批→激活窗口期: 邮箱可能被 open 注册者占用(唯一索引), 用户名同理

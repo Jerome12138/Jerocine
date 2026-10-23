@@ -43,8 +43,8 @@ function row(over: Partial<RegisterApplyRow> = {}): RegisterApplyRow {
     status: 0,
     rejectReason: '',
     reviewedBy: 0,
-    reviewedAt: '0001-01-01T00:00:00Z',
-    activatedAt: '0001-01-01T00:00:00Z',
+    reviewedAt: null,
+    activatedAt: null,
     createdAt: '2026-10-20T10:00:00Z',
     ...over
   }

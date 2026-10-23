@@ -178,7 +178,7 @@ func TestApproveAndActivateFlow(t *testing.T) {
 	if u == nil || u.Email != "carl@qq.com" || u.EmailVerified != 1 {
 		t.Fatalf("激活落库用户不对: %+v", u)
 	}
-	if applies.rows[0].ActivatedAt.IsZero() {
+	if applies.rows[0].ActivatedAt == nil {
 		t.Fatal("activated_at 应已写")
 	}
 
@@ -433,4 +433,15 @@ func TestLoginApplyFeedback(t *testing.T) {
 			t.Fatalf("got %v", err)
 		}
 	})
+}
+
+// TestRegisterApplyNullTimes pending 申请行的 reviewed_at/activated_at 必须是 nil 指针
+// (JSON 出 null、落库 NULL) —— 值类型零值会被 GORM 写成 '0000-00-00', MySQL 严格模式
+// 直接拒(Error 1292, 2026-10-23 线上实报)。
+func TestRegisterApplyNullTimes(t *testing.T) {
+	svc, _, fs := newRegisterSvc(t, applyModeSite(), 50)
+	a := applyByCode(t, svc, fs, "dave", "dave@qq.com", "")
+	if a.ReviewedAt != nil || a.ActivatedAt != nil {
+		t.Fatalf("pending 行 reviewed_at/activated_at 应为 nil: %+v", a)
+	}
 }

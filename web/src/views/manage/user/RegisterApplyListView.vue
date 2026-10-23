@@ -69,13 +69,13 @@ function statusVariant(s: RegisterApplyStatus): 'warning' | 'success' | 'danger'
   return s === 0 ? 'warning' : s === 1 ? 'success' : 'danger'
 }
 
-/** Go time.Time 零值序列化为 0001-01-01T00:00:00Z: 据此判"未激活" */
+/** 后端可空时间列: 未激活 activatedAt 为 null(2026-10-23 起不再是 Go 零值串) */
 function isActivated(row: RegisterApplyRow): boolean {
-  return !!row.activatedAt && !row.activatedAt.startsWith('0001')
+  return !!row.activatedAt
 }
 
-function fmtTime(s?: string): string {
-  if (!s || s.startsWith('0001')) return '—'
+function fmtTime(s?: string | null): string {
+  if (!s) return '—'
   const d = new Date(s)
   if (Number.isNaN(d.getTime())) return s
   const p = (n: number): string => String(n).padStart(2, '0')

@@ -142,7 +142,7 @@ func (f *fakeApplies) Approve(_ context.Context, id int64, reviewedBy int64) err
 	a.Status = entity.ApplyStatusApproved
 	a.RejectReason = ""
 	a.ReviewedBy = reviewedBy
-	a.ReviewedAt = time.Now()
+	now := time.Now(); a.ReviewedAt = &now
 	return nil
 }
 
@@ -157,7 +157,7 @@ func (f *fakeApplies) Reject(_ context.Context, id int64, reviewedBy int64, reas
 	a.Status = entity.ApplyStatusRejected
 	a.RejectReason = reason
 	a.ReviewedBy = reviewedBy
-	a.ReviewedAt = time.Now()
+	now := time.Now(); a.ReviewedAt = &now
 	return nil
 }
 
@@ -166,7 +166,7 @@ func (f *fakeApplies) MarkActivated(_ context.Context, id int64, at time.Time) e
 	if err != nil {
 		return err
 	}
-	a.ActivatedAt = at
+	a.ActivatedAt = &at
 	return nil
 }
 
@@ -683,3 +683,31 @@ func TestTestMailCountsGlobalQuota(t *testing.T) {
 		}
 	})
 }
+
+// TestUserNameAvailable 失焦查重端点的 service 语义: 已存在同名 → false;
+// 不存在 → true; 空/超长 → ErrInvalidArgument(前端该态不请求或提示格式错)。
+func TestUserNameAvailable(t *testing.T) {
+	svc, users, _ := newRegisterSvc(t, mailReadySite(), 50)
+	users.byName["alice"] = &entity.User{ID: 1, UserName: "alice"}
+
+	cases := []struct {
+		name  string
+		given string
+		want  bool
+	}{
+		{"已占用", "alice", false},
+		{"可用(含首尾空格裁剪)", "  bob  ", true},
+	}
+	for _, c := range cases {
+		got, err := svc.UserNameAvailable(context.Background(), c.given)
+		if err != nil || got != c.want {
+			t.Fatalf("%s: got=(%v,%v) want=(%v,nil)", c.name, got, err, c.want)
+		}
+	}
+	for _, bad := range []string{"", "   ", strings.Repeat("x", regNameMax+1)} {
+		if _, err := svc.UserNameAvailable(context.Background(), bad); !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("非法名 %q 应 invalid: %v", bad, err)
+		}
+	}
+}
+

@@ -479,9 +479,10 @@ export interface RegisterApplyRow {
   /** 驳回理由（status=2 时有值） */
   rejectReason: string
   reviewedBy: number
-  reviewedAt: string
-  /** 激活完成时间（未激活为零值串） */
-  activatedAt: string
+  /** 审核时间（未审核为 null —— 后端 2026-10-23 起可空时间列出 NULL, 不再是零值串） */
+  reviewedAt: string | null
+  /** 激活完成时间（未激活为 null） */
+  activatedAt: string | null
   createdAt: string
 }
 
