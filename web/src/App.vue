@@ -8,7 +8,7 @@ import { useSiteStore, useNavStore, useHistoryStore } from '@/stores'
 import { buildPlayLink } from '@/stores/history'
 import { jerocine, isNative } from '@/utils/jerocineNative'
 import { telemetry } from '@/utils/telemetry'
-import { startOnlineHeartbeat, touchNativeWatching } from '@/utils/onlineHeartbeat'
+import { startOnlineHeartbeat, trackPageview, touchNativeWatching } from '@/utils/onlineHeartbeat'
 import { confirm } from '@/composables/useConfirm'
 
 // 布局壳静态导入（首屏必须）
@@ -196,7 +196,9 @@ onMounted(() => {
 
   // 全站在线心跳(匿名): 打开页面即在线; 播放状态由 PlayView(video.js) 与
   // native playerProgress 事件分别驱动 watching。
+  // PV: 首次载入由 startOnlineHeartbeat 的首跳计, 之后每次路由切换各计一次(不去重)。
   startOnlineHeartbeat()
+  router.afterEach(() => trackPageview())
 
   // 站点信息 / 顶级导航预热（并行，失败静默，不阻塞页面渲染）
   Promise.all([siteStore.ensureLoaded(), navStore.ensureLoaded()])
