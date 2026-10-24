@@ -71,9 +71,14 @@ func TestIsDatacenter(t *testing.T) {
 		{"43.134.163.79", "", true},   // 腾讯云国际段(线上僵尸会话)
 		{"43.172.183.210", "", true},  // 同上
 		{"47.243.1.1", "", true},      // 阿里云香港
+		{"124.156.196.125", "", true}, // 腾讯云新加坡(2026-10-24 取证: 老段被拉黑后的换段目标)
+		{"124.156.146.175", "", true}, // 腾讯云香港
+		{"35.80.18.144", "", true},    // AWS 美国(2026-10-24 取证)
 		{"120.24.78.68", "阿里云", true}, // ISP 命中
 		{"58.48.225.70", "电信", false}, // 家宽
 		{"112.96.66.1", "联通", false},
+		{"124.157.0.1", "", false},      // 紧邻腾讯云新段的下一段, 不能误伤
+		{"35.84.0.1", "", false},        // 紧邻 AWS 段的下一段
 		{"114.114.114.114", "0", false}, // ISP 为占位 0
 		{"", "", false},
 		{"not-an-ip", "", false},
@@ -108,6 +113,34 @@ func TestIsKnownBot(t *testing.T) {
 	for _, c := range cases {
 		if got := IsKnownBot(c.ua, c.ip); got != c.want {
 			t.Errorf("IsKnownBot(%q,%q)=%v want %v", c.ua, c.ip, got, c.want)
+		}
+	}
+}
+
+// IsBehaviorBot 行为启发式: 只抓"单跳 /filmDetail 且秒退"的会话。
+// 2026-10-24 线上那 28 条腾讯云新段僵尸会话全部是这个画像。
+func TestIsBehaviorBot(t *testing.T) {
+	cases := []struct {
+		name     string
+		paths    []string
+		aliveSec int64
+		visits   int
+		want     bool
+	}{
+		{"腾讯云新段僵尸画像", []string{"/filmDetail"}, 0, 1, true},
+		{"跳了一秒也算", []string{"/filmDetail"}, 1, 1, true},
+		{"真人两跳(停留超 30s)", []string{"/filmDetail"}, 35, 1, false},
+		{"真人从首页逛进来", []string{"/index", "/filmDetail"}, 0, 1, false},
+		{"真人看的是播放页", []string{"/play"}, 0, 1, false},
+		{"真人回访(第二次访问)", []string{"/filmDetail"}, 0, 2, false},
+		{"空 paths", nil, 0, 1, false},
+		{"负存活(时钟漂移)不误判", []string{"/filmDetail"}, -1, 1, false},
+		{"管理后台不算", []string{"/manage/index"}, 0, 1, false},
+	}
+	for _, c := range cases {
+		if got := IsBehaviorBot(c.paths, c.aliveSec, c.visits); got != c.want {
+			t.Errorf("%s: IsBehaviorBot(%v,%d,%d)=%v want %v",
+				c.name, c.paths, c.aliveSec, c.visits, got, c.want)
 		}
 	}
 }

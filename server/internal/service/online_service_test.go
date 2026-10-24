@@ -416,6 +416,31 @@ func TestOnlineService_BotReasons(t *testing.T) {
 	}
 }
 
+// 行为启发式(与 IP/UA 无关): 单跳 /filmDetail + 秒退 ⇒ 换段爬虫, 判 behavior 机器人。
+// 2026-10-24 线上取证: 腾讯云新段 124.156.0.0/16 那 28 条僵尸会话全是这个画像。
+func TestOnlineService_BehaviorBot(t *testing.T) {
+	s, _ := newTestOnlineService(t)
+	ctx := context.Background()
+	hb(s, ctx, pathSess("c1", "1.2.3.4", "/filmDetail")) // 爬虫: 家宽 IP + 正常 UA, 只有一跳
+	hb(s, ctx, pathSess("h1", "5.6.7.8", "/index"))      // 真人: 首页首跳
+	o := s.Overview(ctx)
+	if o.Bots != 1 {
+		t.Fatalf("单跳 /filmDetail 应判 behavior, Bots=%d want 1", o.Bots)
+	}
+	if o.Today.BotReasons[string(botdetect.ReasonBehavior)] != 1 {
+		t.Fatalf("behavior 计数不对: %+v", o.Today.BotReasons)
+	}
+	if o.PV != 1 || len(o.Sessions) != 1 || o.Sessions[0].Sid != "h1" {
+		t.Fatalf("行为机器人不应进明细/UV/PV: %+v", o)
+	}
+	// 真人从首页逛进详情页: paths 累积, 不算行为机器人
+	hb(s, ctx, pathSess("h1", "5.6.7.8", "/filmDetail"))
+	o = s.Overview(ctx)
+	if o.Bots != 1 || len(o.Sessions) != 1 || o.Sessions[0].Sid != "h1" {
+		t.Fatalf("站内浏览真人不应判行为机器人: %+v", o)
+	}
+}
+
 // 近7天明细的"访问次数"= 各天之和(跨天去重保留最近一天的明细, 次数累加)。
 func TestDailySessions_VisitsSummedAcrossDays(t *testing.T) {
 	s, mr := newTestOnlineService(t)

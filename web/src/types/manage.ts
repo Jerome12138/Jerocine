@@ -358,7 +358,7 @@ export interface OnlineOverview {
     peak: number
     /** 今日机器人请求次数(被过滤掉的爬虫心跳) */
     botPV?: number
-    /** 机器人请求按命中原因拆分: ua / webdriver / header / datacenter, 合计等于 botPV */
+    /** 机器人请求按命中原因拆分: ua / webdriver / header / datacenter / behavior, 合计等于 botPV */
     botReasons?: Record<string, number>
   }
   sessions: OnlineSession[]

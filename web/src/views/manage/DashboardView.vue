@@ -89,7 +89,8 @@ const BOT_REASON_LABEL: Record<string, string> = {
   ua: 'UA 关键词',
   webdriver: '无头浏览器',
   header: '缺浏览器头',
-  datacenter: '机房 IP'
+  datacenter: '机房 IP',
+  behavior: '行为异常'
 }
 const botBreakdown = computed(() => {
   const m = online.value?.today?.botReasons

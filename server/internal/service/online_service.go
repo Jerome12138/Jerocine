@@ -159,6 +159,8 @@ func NewOnlineService(rdb *redis.Client) *OnlineService {
 //
 // reason 由调用方(handler)用 botdetect.Classify 判定(能拿到请求头/IP/ISP);
 // 命中即只计机器人(按原因分类), 不入实时与今日统计。
+// 此外本函数内部还有第二道判定 —— botdetect.IsBehaviorBot(单跳 /filmDetail + 秒退):
+// 它换 IP 段就能绕过一切黑名单, 只能靠行为抓(2026-10-24 线上取证后加入)。
 func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession, reason botdetect.Reason) {
 	if sess.Sid == "" {
 		return
@@ -190,6 +192,12 @@ func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession, reaso
 			sess.Visits++ // 距上次 ≥30min: 同一个会话的又一次访问
 		}
 		sess.Paths = mergePaths(prev.Paths, sess.Path)
+	}
+	// 行为启发式(与 IP/UA 无关): 单跳 /filmDetail + 秒退 ⇒ 换段爬虫, 单独分类。
+	// 放在 UA/请求头/IP 判定之后: 能归因到具体原因的优先, 行为规则只兜漏网的。
+	if botdetect.IsBehaviorBot(sess.Paths, sess.LastSeen-sess.FirstSeen, sess.Visits) {
+		s.recordBotHit(ctx, sess, botdetect.ReasonBehavior)
+		return
 	}
 	buf, _ := json.Marshal(sess)
 	// 页面访问(PV)判定: 客户端在"首次载入/路由切换"时带 pv=1, 直接计一次;

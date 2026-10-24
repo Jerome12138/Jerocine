@@ -33,10 +33,13 @@ const (
 	ReasonHeader Reason = "header"
 	// ReasonDatacenter 来源 IP 属于机房/云厂商。
 	ReasonDatacenter Reason = "datacenter"
+	// ReasonBehavior 行为异常: 整个会话只有一跳且唯一页面就是 /filmDetail(与 IP/UA 无关,
+	// 专抓换云段/IP 池的爬虫)。误伤面 = 外链直达影片详情页且秒退的真人, 故单独分类。
+	ReasonBehavior Reason = "behavior"
 )
 
 // AllReasons 全部机器人原因(后台按此顺序展示分布)。
-var AllReasons = []Reason{ReasonUA, ReasonWebDriver, ReasonHeader, ReasonDatacenter}
+var AllReasons = []Reason{ReasonUA, ReasonWebDriver, ReasonHeader, ReasonDatacenter, ReasonBehavior}
 
 // Label 中文短标签(后台展示)。
 func (r Reason) Label() string {
@@ -49,6 +52,8 @@ func (r Reason) Label() string {
 		return "缺浏览器头"
 	case ReasonDatacenter:
 		return "机房 IP"
+	case ReasonBehavior:
+		return "行为异常"
 	default:
 		return "真人"
 	}
@@ -102,6 +107,10 @@ var datacenterISPs = []string{
 
 // datacenterCIDRs 云厂商 IPv4 段(故意保持精简: 只收"几乎不会分配给家宽"的大段)。
 // 43.128.0.0/10 是腾讯云国际段 —— 线上那批僵尸会话全部落在这里, 也是加这张表的原因。
+// 124.156.0.0/16 是腾讯云新加坡/香港段 —— 2026-10-24 线上取证: 老段被拉黑后对方换了
+// 这个新段, 28 条"单跳 /filmDetail"僵尸会话全部落在这里(ip2region 只报新加坡/香港,
+// ISP 关键词抓不到, 只能靠 CIDR)。
+// 35.80.0.0/14 是 AWS 美国段 —— 同日取证的单条漏网(Linux Chrome + 首页 + 0s)。
 // 扩充原则: 能确认归属单一云厂商且不含家宽分配的大段才加, 拿不准就不加。
 var datacenterCIDRs = []string{
 	// 腾讯云
@@ -119,6 +128,10 @@ var datacenterCIDRs = []string{
 	// 中小云 / VPS
 	"164.90.0.0/16", "167.99.0.0/16", "45.32.0.0/16", "108.61.0.0/16",
 	"45.33.0.0/16", "172.104.0.0/15", "104.16.0.0/13",
+	// 腾讯云新加坡/香港(2026-10-24 取证: 老段被拉黑后的换段目标)
+	"124.156.0.0/16",
+	// AWS 美国(2026-10-24 取证)
+	"35.80.0.0/14",
 }
 
 var datacenterPrefixes = mustParsePrefixes(datacenterCIDRs)
@@ -206,4 +219,26 @@ func IsBotUA(ua string) bool {
 // 就是靠这条在读取时清掉的, 否则要等 8 天 TTL 自然过期)。
 func IsKnownBot(ua, ip string) bool {
 	return IsBotUA(ua) || IsDatacenter(ip, "")
+}
+
+// behaviorAliveMaxSec 行为判定允许的最大存活秒数: 只放过"一跳就走"的会话
+// (真人停留稍长就会有第二跳, 30s 心跳间隔 ⇒ 存活 ≤2s 等价于全程只有一次心跳)。
+const behaviorAliveMaxSec int64 = 2
+
+// behaviorPath 行为判定的目标页面: 爬虫从站内任何入口都直奔 /filmDetail
+// (详情页数据是它们唯一目标), 而真人从站内浏览进来 paths 会累积多个页面。
+const behaviorPath = "/filmDetail"
+
+// IsBehaviorBot 行为启发式: 整个会话只有一跳、且唯一页面就是 /filmDetail。
+// 与 IP/UA 无关 —— 专门抓"换云段/IP 池"的爬虫: 2026-10-24 线上取证, 腾讯云新段
+// 124.156.0.0/16 那 28 条僵尸会话全部是"单跳 /filmDetail + 存活 0s + visits=1",
+// 而 UA/请求头/IP 规则对它们全部失明(换成新段即可绕过任何黑名单)。
+//
+// 误伤面: 外链/分享直达影片详情页且几秒内离开的真人 —— 概率低且只影响"在线/访问"
+// 统计(单独计入 behavior 分类, 后台可核对), 与其它原因一样不动鉴权与站点功能。
+func IsBehaviorBot(paths []string, aliveSec int64, visits int) bool {
+	if len(paths) != 1 || paths[0] != behaviorPath {
+		return false
+	}
+	return aliveSec >= 0 && aliveSec <= behaviorAliveMaxSec && visits <= 1
 }
