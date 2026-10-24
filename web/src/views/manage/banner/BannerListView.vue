@@ -44,7 +44,7 @@ async function fillBackdrop(mid: number): Promise<void> {
   try {
     const r = await manageApi.banner.fillBackdrop(mid)
     const tip =
-      r.status === 'already' ? '已有横图，未重复检索'
+      r.status === 'already' ? '该片已有横图（刷新后页面直接展示）'
       : r.status === 'miss' ? 'TMDB 检索无果（已标记未命中），暂不回填'
       : '横图已获取并回填'
     window.alert(`影片 #${mid}：${tip}`)
@@ -110,9 +110,14 @@ function inactiveName(row: InactiveBanner): string {
   )
 }
 
-/** 未生效行可用封面(优先横图, 再竖图, 再元信息封面/横图) */
+/** 未生效行可用横图(横图列专用): 配置横图 > 影片元信息横图。竖图不再占横图列(修复横竖颠倒) */
 function inactiveImage(row: InactiveBanner): string {
-  return row.image || row.poster || row.meta?.backdrop || row.meta?.cover || ''
+  return row.image || row.meta?.backdrop || ''
+}
+
+/** 未生效行可用竖图(竖图列专用): 配置竖图 > 影片元信息封面 */
+function inactivePoster(row: InactiveBanner): string {
+  return row.poster || row.meta?.cover || ''
 }
 
 /** 未生效行豆瓣榜位文案 */
@@ -457,7 +462,7 @@ onUnmounted(() => {
             :loading="fillingMids.has(s.mid!)"
             title="手动触发 TMDB 检索并回填该片横图"
             @click="fillBackdrop(s.mid!)"
-          >横图</BaseButton>
+          >回填横图</BaseButton>
           <BaseButton
             variant="ghost" size="sm" :disabled="!canMoveUp(s, i)"
             :title="s.source === 'banner' ? '上移' : '上移（转为手动位）'"
@@ -476,7 +481,7 @@ onUnmounted(() => {
           <BaseButton
             variant="ghost" size="sm"
             :title="s.source === 'banner' ? '停用' : '停用（屏蔽该影片的自动补位）'"
-            @click="s.source === 'banner' && s.banner ? toggleState(s.banner) : manageApi.banner.save({ id: 0, title: s.name, subtitle: '', image: '', poster: '', mid: s.mid ?? 0, link: '', sort: 0, state: 1, startAt: 0, endAt: 0 }).then(() => load(true))"
+            @click="s.source === 'banner' && s.banner ? toggleState(s.banner) : manageApi.banner.disableByMid(s.mid ?? 0).then(() => load(true))"
           >禁用</BaseButton>
           <BaseButton
             v-if="s.source === 'banner'"
@@ -515,13 +520,13 @@ onUnmounted(() => {
             v-else
             class="w-[96px] h-[54px] grid place-items-center text-muted text-xs rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60"
           >无图</span>
-          <!-- 竖图列(与生效行对齐) -->
+          <!-- 竖图列(与生效行对齐): 配置竖图, 缺则用影片封面 -->
           <img
-            v-if="row.poster"
-            :src="row.poster"
+            v-if="inactivePoster(row)"
+            :src="inactivePoster(row)"
             alt="竖图"
             class="w-[36px] h-[54px] object-cover rounded-[var(--jc-radius-sm)] bg-elevated shrink-0 opacity-60 cursor-zoom-in hidden md:block"
-            @click="preview(row.poster, inactiveName(row))"
+            @click="preview(inactivePoster(row), inactiveName(row))"
           />
           <span
             v-else
@@ -582,7 +587,7 @@ onUnmounted(() => {
               :loading="fillingMids.has(row.mid)"
               title="手动触发 TMDB 检索并回填该片横图"
               @click="fillBackdrop(row.mid)"
-            >横图</BaseButton>
+            >回填横图</BaseButton>
             <BaseButton
               v-if="row.state !== 0"
               variant="ghost" size="sm" title="启用后转为手动位"

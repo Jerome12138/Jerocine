@@ -25,6 +25,10 @@ export const save = (data: Partial<Banner> & { id: number }, slot?: number): Pro
 export const remove = (id: number): Promise<void> =>
   http.delete<unknown, void>(`/manage/banners/${enc(id)}`)
 
+/** POST /manage/banners/disable 幂等屏蔽影片自动补位(候选位「禁用」, 永不重复新增行) */
+export const disableByMid = (mid: number): Promise<BannerBoard> =>
+  http.post<unknown, BannerBoard>('/manage/banners/disable', { mid })
+
 /** POST /manage/backdrop/fill 手动触发单片 TMDB 横图回填。返回 status: already/miss/filled */
 export const fillBackdrop = (mid: number): Promise<{ mid: number; status: 'already' | 'miss' | 'filled' }> =>
   http.post<unknown, { mid: number; status: 'already' | 'miss' | 'filled' }>('/manage/backdrop/fill', { mid })
