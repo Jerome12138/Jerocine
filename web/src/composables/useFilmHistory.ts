@@ -62,17 +62,35 @@ export function useFilmHistory(opts: UseFilmHistoryOptions): UseFilmHistoryRetur
     flush()
   }
 
-  onMounted(() => {
-    if (typeof window !== 'undefined') {
-      window.addEventListener('beforeunload', handleBeforeUnload)
+  // 切后台 / 锁屏 / 被系统回收: beforeunload 在移动端 WebView 里不一定触发,
+  // visibilitychange(hidden) 与 pagehide 更可靠 —— 保证最后一次进度尽量落库
+  function handleVisibilityChange(): void {
+    if (document.visibilityState === 'hidden') {
+      flush()
     }
+  }
+
+  function handlePageHide(): void {
+    flush()
+  }
+
+  onMounted(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handlePageHide)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
   })
 
   onBeforeUnmount(() => {
     flush()
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
+    if (typeof window === 'undefined') {
+      return
     }
+    window.removeEventListener('beforeunload', handleBeforeUnload)
+    window.removeEventListener('pagehide', handlePageHide)
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
   })
 
   return { flush, list: store.list }

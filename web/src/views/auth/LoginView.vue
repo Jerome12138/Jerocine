@@ -202,7 +202,7 @@ async function handleLogin(): Promise<void> {
   <div v-if="isTV" class="jc-tv-login">
     <div class="jc-tv-glass-card jc-tv-login__card">
       <div class="jc-tv-login__logo text-brand-gradient">Jerocine影视</div>
-      <div class="jc-tv-login__sub">登录后可同步观看历史 / 收藏 / 进入后台管理</div>
+      <div class="jc-tv-login__sub">登录后可同步观看历史 / 进度续播 / 收藏</div>
 
       <!-- 登录方式切换: 密码 / 扫码 -->
       <div class="jc-tv-login__tabs">
@@ -394,7 +394,7 @@ async function handleLogin(): Promise<void> {
         登录 Jerocine影视
       </h1>
       <p class="mt-[var(--jc-space-2)] text-secondary text-sm">
-        登录后可同步观看历史 / 收藏 / 进入后台管理
+        登录后可同步观看历史 / 收藏
       </p>
     </div>
 
@@ -554,18 +554,36 @@ async function handleLogin(): Promise<void> {
     </div>
     <div
       v-else
-      class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-4)] text-center"
+      class="rounded-[var(--jc-radius-md)] border border-subtle bg-elevated/60 p-[var(--jc-space-4)]"
     >
-      <p class="text-secondary text-sm leading-[var(--jc-lh-relaxed)]">还没有账号？</p>
-      <p class="text-muted text-xs mt-[var(--jc-space-2)]">注册后即可同步观看历史 / 收藏。</p>
-      <BaseButton
-        class="mt-[var(--jc-space-3)]"
-        variant="outline"
-        size="sm"
-        @click="router.push('/register')"
+      <p class="text-secondary text-sm font-[var(--jc-fw-medium)] text-center">
+        还没有账号？注册后可享受：
+      </p>
+      <ul
+        class="mt-[var(--jc-space-3)] flex flex-col gap-[var(--jc-space-2)] text-muted text-xs leading-[var(--jc-lh-relaxed)]"
       >
-        立即注册
-      </BaseButton>
+        <li class="flex gap-[var(--jc-space-2)]">
+          <span class="shrink-0 text-[var(--jc-brand-cyan)]">›</span>
+          观看历史云端同步：手机 / 平板 / TV 进度互通，接着上次继续看
+        </li>
+        <li class="flex gap-[var(--jc-space-2)]">
+          <span class="shrink-0 text-[var(--jc-brand-cyan)]">›</span>
+          收藏跨设备一致，换设备不丢
+        </li>
+        <li class="flex gap-[var(--jc-space-2)]">
+          <span class="shrink-0 text-[var(--jc-brand-cyan)]">›</span>
+          多设备扫码登录，随时切换设备
+        </li>
+      </ul>
+      <div class="flex justify-center mt-[var(--jc-space-3)]">
+        <BaseButton
+          variant="outline"
+          size="sm"
+          @click="router.push('/register')"
+        >
+          立即注册
+        </BaseButton>
+      </div>
     </div>
 
     <!-- apply 模式: 注册申请进度查询(输邮箱 → 状态/重发/重申; 邮件丢了的兜底通道) -->
