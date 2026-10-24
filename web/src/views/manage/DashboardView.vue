@@ -42,7 +42,7 @@ async function load(): Promise<void> {
 }
 onMounted(load)
 
-// ---- 在线实时统计(独立接口, 15s 轮询): UV 按登录用户/IP 去重, PV=活跃会话数 ----
+// ---- 在线实时统计(独立接口, 15s 轮询): UV 按登录用户/IP 去重, PV=窗口内页面访问次数(不去重) ----
 const online = ref<OnlineOverview | null>(null)
 let onlineTimer: number | undefined
 async function loadOnline(): Promise<void> {
@@ -267,7 +267,7 @@ const cards = computed(() => {
             <BaseIcon name="menu" size="18px" />
           </div>
           <div class="flex flex-col min-w-0 leading-tight">
-            <span class="text-secondary text-xs">活跃会话（PV · 30分钟）</span>
+            <span class="text-secondary text-xs">页面访问（PV · 30分钟）</span>
             <span class="text-[length:var(--jc-fs-lg)] md:text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-black)] tabular-nums truncate">
               {{ online?.pv ?? '—' }}
             </span>
@@ -351,7 +351,7 @@ const cards = computed(() => {
         </article>
       </div>
 
-      <!-- 在线明细表单: 最近活跃倒序, 90s 无心跳自动消失; 可筛选"在播放/在线"分开查看 -->
+      <!-- 在线明细表单: 最近活跃倒序, 30min 无心跳自动消失; 可筛选"在播放/在线"分开查看 -->
       <div class="bg-surface rounded-card shadow-card p-[var(--jc-space-4)]">
         <div class="flex items-center justify-between mb-[var(--jc-space-3)] flex-wrap gap-2">
           <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">

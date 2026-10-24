@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,8 +19,10 @@ import (
 // 口径(活跃 = 近 30 分钟内有心跳, 2026-10-21 由 90s 改为 30min):
 //   - 客户端 30s 一次心跳; 30 分钟内有过心跳即算"活跃/在线", 超过即从实时列表消失。
 //     页面切换/切后台/短暂断网不会再让一个人瞬间"掉线又上线", 数字更接近"正在访问的人"。
-//   - PV = 近 30 分钟活跃会话数: 每(浏览器标签/TV 设备 sid + 出口 IP)一个会话
-//     同一浏览器换网络(IP 变)计 2 个会话行, 可看出同一用户多个网络出口
+//   - PV = 页面访问次数(不去重): 客户端在"首次载入/路由切换"时随心跳带 pv=1 直接计一次;
+//     旧客户端兜底按"首次见到该会话 / 跨天 / 页面路径变化"计。同一页面停留期间的
+//     30s 常规心跳不计 PV(那只是续活, 不是访问)。实时 PV = 近 30 分钟窗口内的页面访问次数,
+//     同一会话反复进同一页面也照计(不去重)
 //   - UV = 去重后活跃人数: 登录用户按 uid 去重, 游客按 IP 去重
 //     (同一用户开多标签/多设备只算 1; 同 IP 多游客合并为 1, 口径偏保守)
 //   - 观看中 = 活跃会话中 watching=true 的会话数
@@ -28,7 +31,7 @@ import (
 //
 // 今日累计(自然日滚动, 键 TTL 48h 自动过期):
 //   - 今日 UV = 当日出现过的去重人数(登录 u:{uid} / 游客 i:{ip}), SET
-//   - 今日 PV = 当日访问次数: 同一 sid 距上次访问 ≥30min 计一次新访问, STRING
+//   - 今日 PV = 当日页面访问次数(同实时 PV 口径, 不去重), STRING
 //   - 今日峰值 = 当日活跃会话数峰值, STRING (Overview 时惰性更新)
 //
 // 机器人过滤: 判定见 platform 层 botdetect(UA / webdriver / 缺浏览器头 / 机房 IP);
@@ -38,6 +41,8 @@ import (
 // 存储:
 //   - ZSET jc:online:act  member=sid#ip(或纯 sid) score=lastSeen(心跳续期; 查询时按窗口 ZREMRANGEBYSCORE)
 //   - STRING jc:online:info:{sid#ip} 会话明细 JSON, TTL 略大于窗口(防 ZSET 清理后孤儿残留)
+//   - ZSET jc:online:pvlog 页面访问流水 member=sid#ip@毫秒 score=发生时刻
+//     (实时 PV = 窗口内 ZCount; 与 act 同一 cutoff 惰性清理)
 type OnlineService struct {
 	rdb    *redis.Client
 	window time.Duration
@@ -57,9 +62,12 @@ type OnlineSession struct {
 	// Path 最近一次心跳的页面路径(兼容旧前端/日志); 展示用 Paths。
 	Path string `json:"path,omitempty"`
 	// Paths 本次统计周期内访问过、去重后的页面路径(按首次出现顺序, 上限 pathsMax)。
-	Paths    []string `json:"paths,omitempty"`
-	Username string   `json:"username,omitempty"`
-	IPRegion string   `json:"ipRegion,omitempty"`
+	Paths []string `json:"paths,omitempty"`
+	// PV 客户端标记的页面访问(首次载入/路由切换的心跳带 true): 服务端直接计一次 PV。
+	// 常规 30s 续活心跳为 false, 由服务端按路径变化兜底判定。
+	PV       bool   `json:"pv,omitempty"`
+	Username string `json:"username,omitempty"`
+	IPRegion string `json:"ipRegion,omitempty"`
 	// Visits 访问次数: 同一会话距上次心跳 ≥30min 记一次, 跨天重置; 明细页展示该列。
 	Visits    int   `json:"visits"`
 	FirstSeen int64 `json:"firstSeen"`
@@ -70,10 +78,12 @@ type OnlineSession struct {
 
 // OnlineOverview 在线概览: 实时 UV/PV/观看中 + 今日累计 + 会话明细(后台表单)。
 type OnlineOverview struct {
-	UV       int             `json:"uv"`
+	// UV 实时在线去重人数(登录按 uid, 游客按 IP)。
+	UV int `json:"uv"`
+	// PV 实时页面访问次数(近 30 分钟窗口内, 不去重)。
 	PV       int             `json:"pv"`
 	Watching int             `json:"watching"`
-	Bots     int             `json:"bots"` // 实时机器人在线源数(90s 窗口, 单独统计)
+	Bots     int             `json:"bots"` // 实时机器人在线源数(30min 窗口, 单独统计)
 	Today    DailyStats      `json:"today"`
 	Sessions []OnlineSession `json:"sessions"`
 }
@@ -81,7 +91,7 @@ type OnlineOverview struct {
 // DailyStats 今日累计(自然日滚动)。
 type DailyStats struct {
 	UV    int `json:"uv"`    // 今日去重人数
-	PV    int `json:"pv"`    // 今日访问次数(同一会话 ≥30min 间隔计新访问)
+	PV    int `json:"pv"`    // 今日页面访问次数(不去重, 同实时 PV 口径)
 	Peak  int `json:"peak"`  // 今日峰值活跃(30min 窗口内的会话数最高值)
 	BotPV int `json:"botPV"` // 今日机器人请求次数(被过滤掉的爬虫心跳)
 	// BotReasons 机器人请求按命中原因拆分的次数(键为 botdetect.Reason: ua/webdriver/header/datacenter),
@@ -90,15 +100,16 @@ type DailyStats struct {
 }
 
 const (
-	onlineActKey  = "jc:online:act"
-	onlineBotsKey = "jc:online:bots" // 实时机器人来源(窗口内), ZSET, 与正常会话隔离
+	onlineActKey   = "jc:online:act"
+	onlinePVLogKey = "jc:online:pvlog" // 页面访问流水(ZSET), 实时 PV = 窗口内条数
+	onlineBotsKey  = "jc:online:bots"  // 实时机器人来源(窗口内), ZSET, 与正常会话隔离
 	// onlineWindow 活跃窗口: 30 分钟内有过心跳即算在线(2026-10-21 由 90s 放宽)。
 	onlineWindow = 30 * time.Minute
 	// onlineInfoTTL 明细 TTL 必须大于窗口, 否则窗口内还能查到 ZSET 成员却读不到明细。
 	onlineInfoTTL = 35 * time.Minute
 
 	dailyTTL = 48 * time.Hour   // 今日统计键 TTL: 覆盖当日全天 + 次日缓冲, 自然滚动
-	visitGap = 30 * time.Minute // 同一 sid 距上次访问 ≥30min 计一次新访问(今日 PV 与会话 Visits 共用)
+	visitGap = 30 * time.Minute // 会话"访问次数"间隔: 距上次心跳 ≥gap 记一次新访问(明细列 Visits 用)
 	// 按日访问日志(明细回溯)TTL: 须支撑后台"近7天"查询 → 7 天 + 1 天缓冲;
 	// 心跳每次续期, 实际留存 = 最后一次心跳 + 8 天。
 	dailyLogTTL = 8 * 24 * time.Hour
@@ -118,12 +129,15 @@ func onlineSessionKey(sid, ip string) string {
 
 func onlineInfoKey(k string) string { return "jc:online:info:" + k }
 
+// pvSeq pvlog member 唯一序号: 同一会话同一毫秒内多次页面访问(快速连续跳转)不互相顶掉。
+// 必须在包级 —— 声明在函数体内每次心跳都会从 0 重计, 同毫秒两条 member 仍会互相顶掉。
+var pvSeq atomic.Uint64
+
 // 今日统计键。
-func dailyKeys(date string) (uv, pv, peak, lastPrefix string) {
+func dailyKeys(date string) (uv, pv, peak string) {
 	return "jc:online:daily:" + date + ":uv",
 		"jc:online:daily:" + date + ":pv",
-		"jc:online:daily:" + date + ":peak",
-		"jc:online:daily:" + date + ":last:" // + sid
+		"jc:online:daily:" + date + ":peak"
 }
 
 // 当日访问日志键(明细回溯): 心跳时同步写一份按日 ZSET + 按日明细, TTL 与今日统计一致。
@@ -178,11 +192,25 @@ func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession, reaso
 		sess.Paths = mergePaths(prev.Paths, sess.Path)
 	}
 	buf, _ := json.Marshal(sess)
+	// 页面访问(PV)判定: 客户端在"首次载入/路由切换"时带 pv=1, 直接计一次;
+	// 旧客户端(无 pv 标记)兜底: 首次见到该会话 / 跨天 / 页面路径发生变化。
+	// 同一页面停留期间的常规心跳(路径不变且无标记)不计 —— 那是续活, 不是访问。
+	pvHit := sess.PV
+	if !pvHit && sess.Path != "" {
+		switch {
+		case prev == nil:
+			pvHit = true
+		case time.Unix(prev.LastSeen, 0).Format("20060102") != date:
+			pvHit = true // 跨天: 今天对同一页面的打开也算一次新访问
+		default:
+			pvHit = sess.Path != prev.Path
+		}
+	}
 	pipe := s.rdb.Pipeline()
 	pipe.ZAdd(ctx, onlineActKey, redis.Z{Score: float64(nowMs), Member: key})
 	pipe.Set(ctx, onlineInfoKey(key), buf, onlineInfoTTL)
 	// ---- 今日累计 ----
-	uvKey, pvKey, _, lastPrefix := dailyKeys(date)
+	uvKey, pvKey, _ := dailyKeys(date)
 	uidKey := "i:" + sess.IP
 	if sess.UID > 0 {
 		uidKey = fmt.Sprintf("u:%d", sess.UID)
@@ -191,13 +219,15 @@ func (s *OnlineService) Heartbeat(ctx context.Context, sess OnlineSession, reaso
 		pipe.SAdd(ctx, uvKey, uidKey)
 		pipe.Expire(ctx, uvKey, dailyTTL)
 	}
-	// 今日 PV: 同一 sid 距上次访问 ≥30min 计一次新访问(首访必计)
-	lastKey := lastPrefix + sess.Sid
-	lastUnix, _ := s.rdb.Get(ctx, lastKey).Int64()
-	if lastUnix == 0 || now.Unix()-lastUnix >= int64(s.gap/time.Second) {
+	// 页面访问: 流水 ZSET(实时 PV 按窗口数) + 今日累计计数
+	if pvHit {
+		pipe.ZAdd(ctx, onlinePVLogKey, redis.Z{
+			Score: float64(nowMs),
+			Member: key + "@" + strconv.FormatInt(nowMs, 10) + "-" +
+				strconv.FormatUint(pvSeq.Add(1), 10), // member 唯一: 同毫秒多条不互相顶掉
+		})
 		pipe.Incr(ctx, pvKey)
 		pipe.Expire(ctx, pvKey, dailyTTL)
-		pipe.Set(ctx, lastKey, now.Unix(), dailyTTL)
 	}
 	// ---- 当日访问日志(明细回溯): 按日 ZSET(最近活跃排序) + 按日明细, TTL 8 天(支撑近7天查询) ----
 	pipe.ZAdd(ctx, dailyLogKey(date), redis.Z{Score: float64(nowMs), Member: key})
@@ -253,16 +283,17 @@ func (s *OnlineService) recordBotHit(ctx context.Context, sess OnlineSession, re
 }
 
 // Overview 返回在线 UV/PV/观看中 + 今日累计与明细(按最近活跃倒序, 由 ZRevRange 保证),
-// 顺带惰性清理过期会话、更新今日峰值。
+// 顺带惰性清理过期会话与页面访问流水、更新今日峰值。
 func (s *OnlineService) Overview(ctx context.Context) OnlineOverview {
 	cutoffMs := time.Now().UnixMilli() - int64(s.window/time.Millisecond)
 	_ = s.rdb.ZRemRangeByScore(ctx, onlineActKey, "0",
 		strconv.FormatInt(cutoffMs, 10)).Err() // 清理失败下轮再试
+	_ = s.rdb.ZRemRangeByScore(ctx, onlinePVLogKey, "0",
+		strconv.FormatInt(cutoffMs, 10)).Err()
 	_ = s.rdb.ZRemRangeByScore(ctx, onlineBotsKey, "0",
 		strconv.FormatInt(cutoffMs, 10)).Err()
 	sessions := make([]OnlineSession, 0, 64)
-	pv, err := s.rdb.ZCard(ctx, onlineActKey).Result()
-	if err == nil && pv > 0 {
+	if n, err := s.rdb.ZCard(ctx, onlineActKey).Result(); err == nil && n > 0 {
 		sids, _ := s.rdb.ZRevRange(ctx, onlineActKey, 0, -1).Result() // 最新活跃在前
 		sessions = sids2sessions(ctx, s.rdb, sids, sessions)
 	}
@@ -301,14 +332,20 @@ func (s *OnlineService) Overview(ctx context.Context) OnlineOverview {
 			watching++
 		}
 	}
-	today := s.todayStats(ctx, pv)
-	return OnlineOverview{UV: uv, PV: len(sessions), Watching: watching, Bots: bots, Today: today, Sessions: sessions}
+	// 实时 PV = 窗口内页面访问次数(不去重)
+	pv := int64(0)
+	if n, err := s.rdb.ZCount(ctx, onlinePVLogKey,
+		strconv.FormatInt(cutoffMs, 10), "+inf").Result(); err == nil {
+		pv = n
+	}
+	today := s.todayStats(ctx, int64(len(sessions)))
+	return OnlineOverview{UV: uv, PV: int(pv), Watching: watching, Bots: bots, Today: today, Sessions: sessions}
 }
 
-// todayStats 读今日 UV/PV/峰值; 当前实时会话数超过峰值时惰性更新。
-func (s *OnlineService) todayStats(ctx context.Context, curPV int64) DailyStats {
+// todayStats 读今日 UV/PV/峰值; 当前活跃会话数超过峰值时惰性更新(峰值口径是会话数, 与 PV 无关)。
+func (s *OnlineService) todayStats(ctx context.Context, curSessions int64) DailyStats {
 	date := time.Now().Format("20060102")
-	uvKey, pvKey, peakKey, _ := dailyKeys(date)
+	uvKey, pvKey, peakKey := dailyKeys(date)
 	t := DailyStats{}
 	if n, err := s.rdb.SCard(ctx, uvKey).Result(); err == nil {
 		t.UV = int(n)
@@ -329,9 +366,9 @@ func (s *OnlineService) todayStats(ctx context.Context, curPV int64) DailyStats 
 			}
 		}
 	}
-	if curPV > int64(t.Peak) {
-		t.Peak = int(curPV)
-		_ = s.rdb.Set(ctx, peakKey, curPV, dailyTTL).Err() // 失败下轮再更新
+	if curSessions > int64(t.Peak) {
+		t.Peak = int(curSessions)
+		_ = s.rdb.Set(ctx, peakKey, curSessions, dailyTTL).Err() // 失败下轮再更新
 	}
 	return t
 }
@@ -368,7 +405,7 @@ func sids2sessions(ctx context.Context, rdb *redis.Client, sids []string, out []
 }
 
 // DailySessions 返回最近 days 天(含今天)出现过的会话明细, 供后台"今日/近7天访问用户"列表。
-// 排序: 在播(watching) 在前 → 当前在线(90s 窗口)其次 → 其余按最近活跃倒序。
+// 排序: 在播(watching) 在前 → 当前在线(30min 窗口)其次 → 其余按最近活跃倒序。
 // 同一会话跨天重复出现时按最近一天去重(取最后一次心跳的明细与时间)。
 func (s *OnlineService) DailySessions(ctx context.Context, days int) []OnlineSession {
 	if days < 1 {

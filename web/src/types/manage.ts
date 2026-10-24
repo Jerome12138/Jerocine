@@ -343,7 +343,7 @@ export interface DailySessionsResp {
 export interface OnlineOverview {
   /** 在线人数: 登录按 uid / 游客按 IP 去重 */
   uv: number
-  /** 在线会话数(每个标签/TV 设备一个 sid) */
+  /** 实时页面访问次数(近 30 分钟窗口内, 不去重; 首载/路由切换各计一次) */
   pv: number
   watching: number
   /** 近 30 分钟机器人来源数(单独统计; 机器人请求不入 uv/pv) */
@@ -352,7 +352,7 @@ export interface OnlineOverview {
   today: {
     /** 今日去重人数 */
     uv: number
-    /** 今日访问次数(同一会话 ≥30min 间隔计新访问) */
+    /** 今日页面访问次数(不去重, 同实时 PV 口径) */
     pv: number
     /** 今日峰值活跃(30 分钟窗口内的会话数最高值) */
     peak: number

@@ -16,9 +16,11 @@ import (
 
 // ---- 在线统计: 客户端心跳上报(公开) + 后台概览/明细(管理) ----
 
-// OnlineHeartbeat 播放器/页面心跳: {sid, watching, path, webdriver}。
+// OnlineHeartbeat 播放器/页面心跳: {sid, watching, path, webdriver, pv}。
 // sid 由客户端按设备/标签生成(localStorage 随机), watching=true 表示正在播放,
 // webdriver 为 navigator.webdriver 原值(无头浏览器默认 true, 是机器人信号之一)。
+// pv=true 表示本次心跳对应一次页面访问(首次载入/路由切换), 计入 PV;
+// 常规 30s 续活心跳不带 pv, 由 service 按路径变化兜底判定。
 // 公开接口 + 限流; 可选携带 Bearer token(登录用户): 服务端解析出 uid,
 // 供后台按"同一用户"去重; 游客按 IP 去重。IP/UA 由服务端从请求取, 不信任客户端。
 // 隐私: path 仅保留页面路径(pathname, 去 query/hash/影片标识), 不收集"在看什么"。
@@ -28,6 +30,7 @@ func (h *Handlers) OnlineHeartbeat(c *gin.Context) {
 		Watching  bool   `json:"watching"`
 		Path      string `json:"path"`
 		WebDriver bool   `json:"webdriver"`
+		PV        bool   `json:"pv"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		dto.Fail(c, domain.ErrInvalidArgument)
@@ -53,6 +56,7 @@ func (h *Handlers) OnlineHeartbeat(c *gin.Context) {
 		Watching: req.Watching,
 		UA:       truncate(c.Request.UserAgent(), 200),
 		Path:     sanitizePath(req.Path),
+		PV:       req.PV,
 	}
 	// 机器人判定放在 handler: 只有这里能同时拿到 UA、请求头、IP 与 IP 归属(ISP)。
 	// 命中即由 service 计入机器人计数, 不进 UV/PV 与明细。
@@ -74,7 +78,7 @@ func heartbeatBotReason(c *gin.Context, ua string, webdriver bool, ip string) bo
 	})
 }
 
-// OnlineOverview 管理后台: 在线 UV(去重人数) / PV(会话数) / 观看中 + 会话明细表单。
+// OnlineOverview 管理后台: 在线 UV(去重人数) / PV(窗口内页面访问次数, 不去重) / 观看中 + 会话明细表单。
 // 明细只读增强: 登录用户回填昵称(uid → userName), 会话回填 IP 归属地(离线库), 查询失败静默。
 func (h *Handlers) OnlineOverview(c *gin.Context) {
 	ov := h.Online.Overview(c.Request.Context())

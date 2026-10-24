@@ -22,7 +22,8 @@ func newTestOnlineService(t *testing.T) (*OnlineService, *miniredis.Miniredis) {
 }
 
 func sess(sid, ip string, uid int64, watching bool) OnlineSession {
-	return OnlineSession{Sid: sid, IP: ip, UID: uid, Watching: watching}
+	// Path 固定给个非空值: PV 现在按"页面访问"计, 无路径的心跳不计 PV
+	return OnlineSession{Sid: sid, IP: ip, UID: uid, Watching: watching, Path: "/p"}
 }
 
 // hb 模拟一次心跳: 真实链路由 handler 用 botdetect.Classify(UA + 请求头 + IP/ISP)判定,
@@ -38,7 +39,7 @@ func hb(s *OnlineService, ctx context.Context, sess OnlineSession) {
 func TestOnlineService_UV_PV_Watching(t *testing.T) {
 	s, _ := newTestOnlineService(t)
 	ctx := context.Background()
-	// 同 IP 三个会话(游客) → UV=1, PV=3
+	// 同 IP 三个会话(游客) → UV=1, PV=3(每个新会话首跳各计一次页面访问)
 	hb(s, ctx, sess("s1", "1.1.1.1", 0, true))
 	hb(s, ctx, sess("s2", "1.1.1.1", 0, false))
 	hb(s, ctx, sess("s3", "1.1.1.1", 0, true))
@@ -92,8 +93,12 @@ func TestOnlineService_HeartbeatRefreshesFirstSeen(t *testing.T) {
 	hb(s, ctx, sess("s1", "1.1.1.1", 0, true)) // 续命
 	time.Sleep(20 * time.Millisecond)
 	o := s.Overview(ctx)
-	if o.PV != 1 {
-		t.Fatalf("续命后应仍在线, got PV=%d", o.PV)
+	if len(o.Sessions) != 1 {
+		t.Fatalf("续命后应仍在线, got %d 行", len(o.Sessions))
+	}
+	// PV 是"窗口内页面访问次数": 40ms 窗口下首次访问已过窗口 → 0(会话仍在, 两者口径不同)
+	if o.PV != 0 {
+		t.Fatalf("访问已过窗口, PV 应归零, got %d", o.PV)
 	}
 	if len(o.Sessions) != 1 || o.Sessions[0].FirstSeen > o.Sessions[0].LastSeen {
 		t.Fatalf("firstSeen 应保持首次进入时间且不晚于 lastSeen, got %+v", o.Sessions[0])
@@ -121,8 +126,8 @@ func TestOnlineService_BotUA_Ignored(t *testing.T) {
 	hb(s, ctx, OnlineSession{Sid: "b2", IP: "9.9.9.10", UA: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"})
 	hb(s, ctx, OnlineSession{Sid: "b3", IP: "9.9.9.11", UA: "Mozilla/5.0 (compatible; Bytespider; spider-feedback@bytedance.com)"})
 	hb(s, ctx, OnlineSession{Sid: "b4", IP: "9.9.9.12", UA: "curl/8.5.0"})
-	// 正常浏览器不入 bot
-	hb(s, ctx, OnlineSession{Sid: "u1", IP: "8.8.8.8", UA: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"})
+	// 机器人按 UA 过滤后不计 PV/UV; 正常用户(带路径首跳)计 1
+	hb(s, ctx, OnlineSession{Sid: "u1", IP: "8.8.8.8", UA: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36", Path: "/p"})
 	o := s.Overview(ctx)
 	if o.PV != 1 || o.UV != 1 || len(o.Sessions) != 1 {
 		t.Fatalf("爬虫应全部忽略, 仅正常浏览器在线: got %+v", o)
@@ -175,18 +180,21 @@ func TestOnlineService_SameSidDifferentIP_SeparateRows(t *testing.T) {
 	if o.UV != 2 {
 		t.Fatalf("UV 应 2(两 IP), got %d", o.UV)
 	}
-	// 同一 sid+IP 续心跳仍合并为一行
+	// 同一 sid+IP 续心跳仍合并为一行; PV: s1 两行各首跳计 1, 续跳路径不变不新增
 	hb(s, ctx, sess("s1", "1.1.1.1", 0, true))
 	o = s.Overview(ctx)
 	if len(o.Sessions) != 2 || o.PV != 2 {
-		t.Fatalf("同 sid+IP 续心跳应仍为 2 行, got %d 行 PV=%d", len(o.Sessions), o.PV)
+		t.Fatalf("同 sid+IP 续心跳应仍为 2 行 PV=2, got %d 行 PV=%d", len(o.Sessions), o.PV)
 	}
-	// 登录用户同 sid 多 IP: 明细分行, UV 按 uid 去重为 1
+	// 登录用户同 sid 多 IP: 明细分行, UV 按 uid 去重为 1; 两个新会话首跳 PV 再 +2
 	hb(s, ctx, sess("u1", "8.8.8.8", 9, true))
 	hb(s, ctx, sess("u1", "9.9.9.9", 9, false))
 	o = s.Overview(ctx)
 	if len(o.Sessions) != 4 {
 		t.Fatalf("登录用户多 IP 应分行, got %d 行", len(o.Sessions))
+	}
+	if o.PV != 4 {
+		t.Fatalf("4 个会话首跳各计一次 PV, got %d", o.PV)
 	}
 	if o.UV != 3 { // 游客两 IP + 登录用户 u1
 		t.Fatalf("UV 应 3, got %d", o.UV)
@@ -285,7 +293,43 @@ func pathSess(sid, ip, path string) OnlineSession {
 	return OnlineSession{Sid: sid, IP: ip, Path: path}
 }
 
-// 访问次数: 距上次心跳 < gap 算同一次访问, >= gap 记一次新的; 跨天从 1 重计。
+// 页面访问(PV)口径: 同页停留只计首跳; 路径变化逐次计(回访旧页也计, 不去重);
+// 客户端 pv=1(刷新/路由打点)同路径也计; 实时窗口过期后归零。
+func TestOnlineService_PageViewSemantics(t *testing.T) {
+	s, _ := newTestOnlineService(t)
+	ctx := context.Background()
+	hb(s, ctx, sess("s1", "1.1.1.1", 0, false)) // 首跳 +1
+	hb(s, ctx, sess("s1", "1.1.1.1", 0, false)) // 同页续跳 不计
+	hb(s, ctx, pathSess("s1", "1.1.1.1", "/p")) // 路径没变 不计
+	if o := s.Overview(ctx); o.PV != 1 {
+		t.Fatalf("同页停留应只计 1 次 PV, got %d", o.PV)
+	}
+	hb(s, ctx, pathSess("s1", "1.1.1.1", "/filmDetail")) // 切页 +1
+	hb(s, ctx, pathSess("s1", "1.1.1.1", "/p"))          // 回到原页 仍 +1(不去重)
+	if o := s.Overview(ctx); o.PV != 3 {
+		t.Fatalf("路径变化应逐次计 PV(不去重), got %d", o.PV)
+	}
+	// 客户端标记 pv=1: 同一路径的刷新也计一次
+	hb(s, ctx, OnlineSession{Sid: "s1", IP: "1.1.1.1", Path: "/p", PV: true})
+	o := s.Overview(ctx)
+	if o.PV != 4 {
+		t.Fatalf("pv=1 的刷新应计一次, got %d", o.PV)
+	}
+	if o.Today.PV != 4 {
+		t.Fatalf("今日 PV 应同步累计为 4, got %+v", o.Today)
+	}
+	// 窗口过期后实时 PV 归零, 今日 PV 不回退
+	s.window = 1 * time.Millisecond
+	time.Sleep(5 * time.Millisecond)
+	if o := s.Overview(ctx); o.PV != 0 {
+		t.Fatalf("窗口过期实时 PV 应归零, got %d", o.PV)
+	}
+	if o := s.Overview(ctx); o.Today.PV != 4 {
+		t.Fatalf("今日 PV 不随窗口过期回退, got %+v", o.Today)
+	}
+}
+
+// 访问次数(Visits, 明细列): 距上次心跳 < gap 算同一次访问, >= gap 记一次新的; 跨天从 1 重计。
 func TestOnlineService_Visits(t *testing.T) {
 	s, _ := newTestOnlineService(t)
 	// 会话时间戳是秒级(展示口径), gap 取 1s 才能在同一测试里跨过去

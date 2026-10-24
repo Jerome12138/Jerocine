@@ -73,6 +73,9 @@ describe('DashboardView 在线明细', () => {
     const text = w.text()
     expect(text).toContain('近 30 分钟')
     expect(text).toContain('活跃人数')
+    // PV 口径 = 窗口内页面访问次数(不去重), 不再是"活跃会话数"
+    expect(text).toContain('页面访问')
+    expect(text).not.toContain('活跃会话')
     expect(text).not.toContain('90s')
     w.unmount()
   })
