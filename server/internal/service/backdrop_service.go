@@ -5,12 +5,13 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/jpeg"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/deepteams/webp"
 
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
@@ -182,8 +183,7 @@ func (s *BackdropService) fillOne(ctx context.Context, m *entity.Movie) {
 		return
 	}
 	imageURL := s.client.ImageURL(path)
-	key := "backdrop/" + strconv.FormatInt(m.Mid, 10) + ".jpg"
-	localURL, err := s.saveBackdrop(ctx, key, imageURL)
+	localURL, err := s.saveBackdrop(ctx, m.Mid, imageURL)
 	if err != nil {
 		log.Printf("[backdrop] download mid=%d %s: %v", m.Mid, imageURL, err)
 		return
@@ -230,19 +230,20 @@ func (s *BackdropService) FillOne(ctx context.Context, mid int64) (string, error
 	}
 }
 
-// backdropJpegQuality TMDB 横图统一重编码质量。w1280 原图 q100 体积常在
-// 300KB-1.5MB, q82 重编码可降 50-70%, 首页/详情下发与存储同步变轻。
-const backdropJpegQuality = 82
+// backdropWebpQuality TMDB 横图统一重编码质量。w1280 原图 q100 体积常在
+// 300KB-1.5MB; webp(有损)在同等观感下比 jpeg 再小 40-60%, 首页/详情下发与存储同步变轻。
+const backdropWebpQuality float32 = 82
 
 // backdropHTTPClient 图片下载专用 client: 大图 30s, 与 TMDB API 检索的 10s 分开。
 // URL 全部由 tmdb.Client.ImageURL 拼装(固定 image.tmdb.org 域名 + API 返回的
 // backdrop_path 作为路径, 无用户可控输入), 不存在 SSRF 逃逸面。
 var backdropHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
-// saveBackdrop 下载 TMDB 横图并压缩落盘: 可解码 → 统一重编码为 JPEG(质量
-// backdropJpegQuality; w1280 不放大, 仅降体积); 解码失败(webp 等)或压缩后
-// 反而更大 → 原样存储。错误语义与旧 SaveFromURL 一致, 不阻塞回填。
-func (s *BackdropService) saveBackdrop(ctx context.Context, objectKey, imageURL string) (string, error) {
+// saveBackdrop 下载 TMDB 横图并压缩落盘(WebP): 可解码 → 统一重编码为 WebP(质量
+// backdropWebpQuality; w1280 不放大, 仅降体积), 键为 backdrop/<mid>.webp;
+// 解码失败或压缩后反而更大 → 原样存储(键 backdrop/<mid>.jpg)。
+// 错误语义与旧 SaveFromURL 一致, 不阻塞回填。
+func (s *BackdropService) saveBackdrop(ctx context.Context, mid int64, imageURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
 		return "", err
@@ -259,14 +260,17 @@ func (s *BackdropService) saveBackdrop(ctx context.Context, objectKey, imageURL 
 	if err != nil {
 		return "", err
 	}
-	compressed := raw
+	out := raw
+	key := "backdrop/" + strconv.FormatInt(mid, 10) + ".jpg"
+	// webp 包 self-register, image.Decode 可直接解 webp 原图(TMDB 若返回 webp 也能走压缩分支)
 	if img, _, derr := image.Decode(bytes.NewReader(raw)); derr == nil {
 		var buf bytes.Buffer
-		if jerr := jpeg.Encode(&buf, img, &jpeg.Options{Quality: backdropJpegQuality}); jerr == nil && buf.Len() < len(raw) {
-			compressed = buf.Bytes()
+		if werr := webp.Encode(&buf, img, &webp.Options{Quality: backdropWebpQuality}); werr == nil && buf.Len() < len(raw) {
+			out = buf.Bytes()
+			key = "backdrop/" + strconv.FormatInt(mid, 10) + ".webp"
 		}
 	}
-	return s.blob.Save(ctx, objectKey, compressed)
+	return s.blob.Save(ctx, key, out)
 }
 
 // sleepCtx 可中断休眠; 返回 false 表示 ctx 已取消。

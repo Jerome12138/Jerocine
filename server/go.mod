@@ -7,6 +7,7 @@ toolchain go1.27.1
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/alicebob/miniredis/v2 v2.39.0
+	github.com/deepteams/webp v1.2.8
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/mozillazg/go-pinyin v0.21.0
