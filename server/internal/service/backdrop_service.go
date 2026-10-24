@@ -1,9 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"io"
 	"log"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -178,7 +183,7 @@ func (s *BackdropService) fillOne(ctx context.Context, m *entity.Movie) {
 	}
 	imageURL := s.client.ImageURL(path)
 	key := "backdrop/" + strconv.FormatInt(m.Mid, 10) + ".jpg"
-	localURL, err := s.blob.SaveFromURL(ctx, key, imageURL)
+	localURL, err := s.saveBackdrop(ctx, key, imageURL)
 	if err != nil {
 		log.Printf("[backdrop] download mid=%d %s: %v", m.Mid, imageURL, err)
 		return
@@ -223,6 +228,45 @@ func (s *BackdropService) FillOne(ctx context.Context, mid int64) (string, error
 	default:
 		return "filled", nil
 	}
+}
+
+// backdropJpegQuality TMDB 横图统一重编码质量。w1280 原图 q100 体积常在
+// 300KB-1.5MB, q82 重编码可降 50-70%, 首页/详情下发与存储同步变轻。
+const backdropJpegQuality = 82
+
+// backdropHTTPClient 图片下载专用 client: 大图 30s, 与 TMDB API 检索的 10s 分开。
+// URL 全部由 tmdb.Client.ImageURL 拼装(固定 image.tmdb.org 域名 + API 返回的
+// backdrop_path 作为路径, 无用户可控输入), 不存在 SSRF 逃逸面。
+var backdropHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+// saveBackdrop 下载 TMDB 横图并压缩落盘: 可解码 → 统一重编码为 JPEG(质量
+// backdropJpegQuality; w1280 不放大, 仅降体积); 解码失败(webp 等)或压缩后
+// 反而更大 → 原样存储。错误语义与旧 SaveFromURL 一致, 不阻塞回填。
+func (s *BackdropService) saveBackdrop(ctx context.Context, objectKey, imageURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := backdropHTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("backdrop fetch %s status %d", imageURL, resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20)) // 32MB 上限, 与 blobstore 一致
+	if err != nil {
+		return "", err
+	}
+	compressed := raw
+	if img, _, derr := image.Decode(bytes.NewReader(raw)); derr == nil {
+		var buf bytes.Buffer
+		if jerr := jpeg.Encode(&buf, img, &jpeg.Options{Quality: backdropJpegQuality}); jerr == nil && buf.Len() < len(raw) {
+			compressed = buf.Bytes()
+		}
+	}
+	return s.blob.Save(ctx, objectKey, compressed)
 }
 
 // sleepCtx 可中断休眠; 返回 false 表示 ctx 已取消。

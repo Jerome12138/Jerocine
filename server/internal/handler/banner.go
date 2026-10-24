@@ -174,6 +174,27 @@ func (h *Handlers) DeleteBanner(c *gin.Context) {
 	dto.NoContent(c)
 }
 
+// disableReq POST /manage/banners/disable 请求体。
+type disableReq struct {
+	Mid int64 `json:"mid"`
+}
+
+// DisableBannerByMid POST /manage/banners/disable 幂等屏蔽影片的自动补位。
+// 候选位「禁用」按钮专用: 该 mid 已有配置行则置停用, 无则新建屏蔽行, 永不重复新增。
+func (h *Handlers) DisableBannerByMid(c *gin.Context) {
+	var req disableReq
+	if err := c.ShouldBindJSON(&req); err != nil || req.Mid <= 0 {
+		dto.Error(c, http.StatusBadRequest, "mid 必填且需大于 0")
+		return
+	}
+	if err := h.Banner.DisableByMid(c.Request.Context(), req.Mid); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	board, err := h.Banner.Board(c.Request.Context())
+	respond(c, board, err)
+}
+
 // fillBackdropReq POST /manage/backdrop/fill 请求体。
 type fillBackdropReq struct {
 	Mid int64 `json:"mid"`

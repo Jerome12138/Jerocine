@@ -33,6 +33,16 @@ func (f *fakeBannerRepo) Create(_ context.Context, b *entity.Banner) error {
 	return nil
 }
 
+func (f *fakeBannerRepo) Update(_ context.Context, b *entity.Banner) error {
+	for i := range f.rows {
+		if f.rows[i].Id == b.Id {
+			f.rows[i] = *b
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
 func (f *fakeBannerRepo) UpdateSort(_ context.Context, id int64, sort int) error {
 	if f.moved == nil {
 		f.moved = map[int64]int{}
@@ -107,6 +117,106 @@ func (f *fakeSearch) GetByMids(_ context.Context, mids []int64) ([]entity.MovieS
 		}
 	}
 	return out, nil
+}
+
+// TestDisableByMidIdempotent 幂等屏蔽: 已有行 → 置停用不新增; 无行 → 只建一条屏蔽行;
+// 重复禁用(含已屏蔽后再次调用)永远只产生一行。
+func TestDisableByMidIdempotent(t *testing.T) {
+	setupCache(t)
+	fs := bannerFilms(t, 30)
+	svc := NewBannerService(&fakeBannerRepo{}, fs)
+	repo := svc.repo.(*fakeBannerRepo)
+
+	// 场景 1: 从未出现过的 mid → 新建一条屏蔽行
+	mid := int64(7001)
+	if err := svc.DisableByMid(context.Background(), mid); err != nil {
+		t.Fatalf("disable new mid: %v", err)
+	}
+	if len(repo.rows) != 1 || repo.rows[0].Mid != mid || repo.rows[0].State != entity.BannerDisabled {
+		t.Fatalf("expect 1 disabled row for new mid, got %+v", repo.rows)
+	}
+
+	// 场景 2: 重复禁用同一 mid → 幂等, 仍只有一行
+	if err := svc.DisableByMid(context.Background(), mid); err != nil {
+		t.Fatalf("disable again: %v", err)
+	}
+	if len(repo.rows) != 1 {
+		t.Fatalf("expect still 1 row after re-disable, got %d", len(repo.rows))
+	}
+
+	// 场景 3: 已有启用行(手动位) → 置停用, 不新增
+	active := entity.Banner{Id: 55, Title: "手动位", Mid: 7002, Image: "x.jpg", State: entity.BannerEnabled, Sort: 0}
+	repo.rows = append(repo.rows, active)
+	if err := svc.DisableByMid(context.Background(), 7002); err != nil {
+		t.Fatalf("disable existing manual row: %v", err)
+	}
+	if len(repo.rows) != 2 {
+		t.Fatalf("expect 2 rows total, got %d", len(repo.rows))
+	}
+	var found *entity.Banner
+	for i := range repo.rows {
+		if repo.rows[i].Mid == 7002 {
+			found = &repo.rows[i]
+		}
+	}
+	if found == nil || found.State != entity.BannerDisabled || found.Id != 55 {
+		t.Fatalf("expect existing row 55 toggled to disabled, got %+v", found)
+	}
+}
+
+// TestBoardManualRowCarriesBannerAndImageFallback Board 手动行必须携带完整配置行
+// (前端删除/停用/编辑按钮依赖 s.banner), 且 Image 为空时用影片已回填的 backdrop 兜底。
+// TestBoardManualRowCarriesBannerAndImageFallback Board 手动行必须携带完整配置行
+// (前端删除/停用/编辑按钮依赖 s.banner); 自动候选位 Image 为空时用影片已回填的
+// backdrop 兜底(修复"回填成功但页面显示无横图" —— 回填写 movie 表, 轮播位 Image
+// 来自 banner.image/榜单快照, 两者不同源)。
+func TestBoardManualRowCarriesBannerAndImageFallback(t *testing.T) {
+	setupCache(t)
+	repo := &fakeBannerRepo{rows: []entity.Banner{
+		{Id: 1, Title: "手动1", Mid: 1001, Image: "manual-1.jpg", Poster: "", State: entity.BannerEnabled, Sort: 0},
+	}}
+	pool := []entity.MovieSearch{
+		{Mid: 1001, Name: "手动1", Pid: 1, Cid: 11},
+		{Mid: 1002, Name: "候选2", Pid: 1, Cid: 11, Backdrop: "backdrop-1002.jpg"},
+	}
+	// 候选首位 = 1002, 快照不带图(Backdrop 空) → 依赖影片侧 backdrop 兜底
+	cands := []repository.HotBoardCandidate{
+		{WeightPos: 0, Board: testBoardOrder[0], Rank: 1, Mid: 1002, Score: 1000},
+	}
+	fs := newFilmService(
+		&fakeSearch{rows: pool, hotAll: pool, cands: cands},
+		&fakeMovie{}, &fakePlay{},
+		&fakeCategory{cats: []entity.Category{{Id: 1, Pid: 0, Name: "电影", Show: true}}},
+	)
+	svc := NewBannerService(repo, fs)
+	board, err := svc.Board(context.Background())
+	if err != nil {
+		t.Fatalf("board: %v", err)
+	}
+	var manual, auto *EffectiveSlide
+	for i := range board.Active {
+		switch board.Active[i].Source {
+		case SlideSourceManual:
+			manual = &board.Active[i]
+		case SlideSourceAuto:
+			auto = &board.Active[i]
+		}
+	}
+	if manual == nil {
+		t.Fatal("expect a manual slide in board")
+	}
+	if manual.Banner == nil || manual.Banner.Id != 1 {
+		t.Fatalf("expect manual slide carries full banner row, got %+v", manual.Banner)
+	}
+	if manual.Image != "manual-1.jpg" {
+		t.Fatalf("expect manual image preserved, got %q", manual.Image)
+	}
+	if auto == nil {
+		t.Fatal("expect an auto candidate slide in board")
+	}
+	if auto.Image != "backdrop-1002.jpg" {
+		t.Fatalf("expect auto image fallback to movie backdrop, got %q", auto.Image)
+	}
 }
 
 // TestBoardShowsTenLiveFive 管理视图展示 10 位、前 5 位生效; 前台仍只出 5 位。

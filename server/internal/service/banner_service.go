@@ -10,6 +10,7 @@ import (
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 	"server/internal/douban"
+	"server/internal/tmdb"
 )
 
 // ttlBanners 轮播列表缓存时长。比站点配置短: 排期(起止时间)会随时间推移自然生效/失效,
@@ -254,6 +255,12 @@ func (s *BannerService) enrichMeta(ctx context.Context, slides []EffectiveSlide)
 		}
 		slides[i].DbScore = c.DbScore
 		slides[i].ClassTag = c.ClassTag
+		// 横图兜底: 配置行/候选快照没图但影片已回填 TMDB 横图时, 管理页与前台大图
+		// 立即用最新 backdrop 展示 —— 修复"回填成功但页面显示无横图"(回填写 movie 表,
+		// 而轮播位的 Image 来自 banner.image / 榜单快照, 两者不同源)。
+		if slides[i].Image == "" && c.Backdrop != "" && c.Backdrop != tmdb.MissMark {
+			slides[i].Image = c.Backdrop
+		}
 		if slides[i].HotRank != 0 {
 			// 候选/回退自动位已带快照榜位(该位取的那个榜), 保留不覆写。
 			continue
@@ -279,6 +286,19 @@ func (s *BannerService) Board(ctx context.Context) (*Board, error) {
 		return nil, err
 	}
 	s.enrichMeta(ctx, active)
+	// 手动行挂完整配置行(编辑/停用/删除按钮的前端回调都要拿它, 修复 s.banner 恒 nil
+	// 导致手动行操作全部短路失效的问题 —— 后台视图与前台 Public 都从这里走)。
+	rowsById := make(map[int64]entity.Banner, len(rows))
+	for _, b := range rows {
+		rowsById[b.Id] = b
+	}
+	for i := range active {
+		if active[i].Source == SlideSourceManual {
+			if b, ok := rowsById[active[i].BannerId]; ok {
+				active[i].Banner = &b
+			}
+		}
+	}
 	used := make(map[int64]bool, len(active))
 	for _, sl := range active {
 		if sl.BannerId > 0 {
@@ -368,6 +388,29 @@ func (s *BannerService) Save(ctx context.Context, b *entity.Banner, slot *int) e
 	cache.InvalidateBanners(ctx)
 	safeNotify("banner", s.OnChange)
 	return nil
+}
+
+// DisableByMid 幂等屏蔽影片的自动补位: mid 已在 banner 表出现过 → 仅将该行置停用
+// (不新增); 未出现过 → 新建一条无图停用行(屏蔽行, 合法形态)。任何场景都只产生一行,
+// 避免此前"候选位每点一次禁用就 Create 一条"在未生效区堆积重复影片。
+func (s *BannerService) DisableByMid(ctx context.Context, mid int64) error {
+	if mid <= 0 {
+		return domain.ErrInvalidArgument
+	}
+	rows, err := s.repo.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	for _, b := range rows {
+		if b.Mid == mid {
+			if b.State == entity.BannerDisabled {
+				return nil // 已屏蔽: 幂等返回
+			}
+			b.State = entity.BannerDisabled
+			return s.Save(ctx, &b, nil)
+		}
+	}
+	return s.Save(ctx, &entity.Banner{Mid: mid, State: entity.BannerDisabled}, nil)
 }
 
 // Move 轮播位排序(管理视图 10 位口径)。手动位在手动区内换位; 自动位仅支持上移 =

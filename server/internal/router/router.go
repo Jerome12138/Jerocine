@@ -115,6 +115,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/hot/refresh", h.HotRefresh)
 		// TMDB 横图: 手动触发单片回填(轮播管理页「获取横图」)。
 		mg.POST("/backdrop/fill", h.BackdropFill)
+		// 轮播屏蔽: 幂等禁用影片自动补位(候选位「禁用」按钮)。
+		mg.POST("/banners/disable", h.DisableBannerByMid)
 		// 用户管理: 列表(用户名搜索, /users 已有) / 新增(POST /users 已有) / 编辑(用户名+角色) / 删除 / 禁用启用(踢下线) / 重置密码(踢下线)。
 		mg.PUT("/users/:id", h.ManageUserUpdate)
 		mg.DELETE("/users/:id", h.ManageUserDelete)
