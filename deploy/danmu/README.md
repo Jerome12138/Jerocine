@@ -25,23 +25,23 @@ Jerocine Go 后端 ──HTTP──▶ danmu-service (本目录, Node)
 
 ```powershell
 # 1) 装运行时依赖（壳自身零框架依赖；上游外部依赖 crypto-js/protobufjs 等由部署构建注入）
-node server.js                      # 监听 127.0.0.1:3611
+node server.js                      # 监听 127.0.0.1:3611（HOST 环境变量可改；容器内由 compose/Dockerfile 设 0.0.0.0）
 
 # 2) 单测（node:test 原生）
 node --test test/
 
 # 3) 冒烟（真实接口，需外网）
-node smoke/smoke_bilibili.cjs       # B站：流浪地球2 seasonId=44847
-node smoke/smoke_scraperkit.cjs     # 腾讯：心动的信号第九季 cid=mzc002003kpyd2m
+node smoke/smoke_bilibili.mjs       # B站：流浪地球2 seasonId=44847
+node smoke/smoke_scraperkit.mjs     # 腾讯：心动的信号第九季 cid=mzc002003kpyd2m
 ```
 
 ## 接口契约（详见 docs/弹幕服务集成方案-2026-10-25.md §8）
 
 | 接口 | 参数 | 返回 |
 |---|---|---|
-| `/danmu/:provider/episodes` | `resourceId`（裸值，壳内加前缀 `cid=`/`seasonId=`）、`episode`（集号）、`episodeName`（可选，综艺期号识别） | `[{ episodeId, episodeTitle, episodeNumber, episodePart, airDate }]` |
-| `/danmu/:provider/segments` | `episodeId`（复合串，必须 encodeURIComponent） | `[{ provider, segmentId, startTime(秒) }]` |
-| `/danmu/:provider/comments` | `episodeId` + `segmentId` | `{ comments: [{ text, time(ms), color, mode }] }` |
+| `/danmu/:provider/episodes` | `resourceId`（裸值，壳内加前缀 `cid=`/`seasonId=`）、`episode`（集号）、`episodeName`（可选，综艺期号识别） | `{ ok, data: { provider, episodes: [...], matched: {episodeId,...} \| null } }` |
+| `/danmu/:provider/segments` | `episodeId`（复合串，必须 encodeURIComponent） | `{ ok, data: [{ provider, segmentId, startTime(秒) }] }` |
+| `/danmu/:provider/comments` | `episodeId` + `segmentId`（缺省 = 整集聚合） | `{ ok, data: [{ text, time(ms), color, mode }] }` |
 
 关键约定（§8.1/8.5）：
 

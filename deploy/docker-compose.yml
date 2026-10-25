@@ -114,6 +114,9 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
+      # 容器内必须听 0.0.0.0（server.js 默认 127.0.0.1 只收 loopback，
+      # 跨容器访问 http://danmu:3611 会被拒 → 弹幕全量静默降级）。
+      HOST: "0.0.0.0"
     networks:
       - jerocine-network
     # 仅容器网络内可达: 不暴露端口, 由 Go 网关经 DANMU_SERVICE_URL(http://danmu:3611)访问。

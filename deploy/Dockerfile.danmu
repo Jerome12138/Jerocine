@@ -17,6 +17,9 @@ LABEL org.opencontainers.image.title="jerocine-danmu"
 
 WORKDIR /opt/danmu
 
+# 容器内听全网卡（server.js 默认 127.0.0.1 只收 loopback；compose 亦显式设 HOST=0.0.0.0 双保险）。
+ENV HOST=0.0.0.0
+
 # --chmod 显式兜底(本机 Git Bash/Windows 打 tar 时无 exec 位问题, node 产物不需要 exec 位,
 # 统一 0644 即可; --chown 让 nonroot 用户可读)。
 COPY --chown=node:node package.json server.js README.md ./
