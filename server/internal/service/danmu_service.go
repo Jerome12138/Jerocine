@@ -121,7 +121,10 @@ func (s *DanmuService) loadDanmuSource(ctx context.Context, mid int64) (DanmuSou
 //  2. comments 接口（episodeId 缺省 segmentId = 整集聚合）一次返回整集弹幕；
 //  3. 结果缓存 v1:danmu:bili:cmt:{seasonID}:{ep}（正 7d / 负 2h，8.6）。
 //
-// 降级：danmu-service 不可用 / 超时 / 无匹配集 → 返回空弹幕 + 无错误（不阻塞播放）。
+// 降级分轨（评审修正）：danmu-service 调用失败（不可用/超时）→ 返回 error，
+// GetOrLoadTTL 对 error 不写缓存 —— 避免容器重启/发布窗口把"无弹幕"负缓存 2h；
+// 业务无数据（无匹配集/壳 ok=false/空弹幕）→ 负缓存 2h（挡低频片重复回源）。
+// handler 对 error 返回 500，前端 .catch 后静默（不阻塞播放，用户体验不变）。
 func (s *DanmuService) DanmuBilibili(ctx context.Context, seasonID string, episode int) ([]DanmuComment, error) {
 	comments, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuBiliCmt(seasonID, episode),
 		danmuSourceTTL, danmuEmptyTTL,
@@ -148,8 +151,8 @@ func (s *DanmuService) loadDanmuBilibili(ctx context.Context, seasonID string, e
 		} `json:"data"`
 	}
 	if err := s.danmuGet(ctx, epsURL, &epsResp); err != nil {
-		log.Printf("[danmu] bilibili episodes 调用失败, 静默降级: %v", err)
-		return nil, false, nil // 负缓存 2h，避免持续打不可用服务
+		log.Printf("[danmu] bilibili episodes 调用失败(不缓存, 下次重试): %v", err)
+		return nil, false, err
 	}
 	if !epsResp.Ok || epsResp.Data.Matched == nil || epsResp.Data.Matched.EpisodeID == "" {
 		return nil, false, nil // 无匹配集：负缓存 2h（评审 7.3 降级口径）
@@ -164,8 +167,8 @@ func (s *DanmuService) loadDanmuBilibili(ctx context.Context, seasonID string, e
 		Data []DanmuComment `json:"data"`
 	}
 	if err := s.danmuGet(ctx, cmtURL, &cmtResp); err != nil {
-		log.Printf("[danmu] bilibili comments 调用失败, 静默降级: %v", err)
-		return nil, false, nil
+		log.Printf("[danmu] bilibili comments 调用失败(不缓存, 下次重试): %v", err)
+		return nil, false, err
 	}
 	if !cmtResp.Ok {
 		return nil, false, nil
@@ -287,8 +290,8 @@ func (s *DanmuService) loadDanmuTencentComments(ctx context.Context, episodeID, 
 		Data []DanmuComment `json:"data"`
 	}
 	if err := s.danmuSegGet(ctx, cmtURL, &resp); err != nil {
-		log.Printf("[danmu] tencent comments 调用失败, 静默降级: %v", err)
-		return nil, false, nil // 负缓存 2h
+		log.Printf("[danmu] tencent comments 调用失败(不缓存, 下次重试): %v", err)
+		return nil, false, err
 	}
 	if !resp.Ok {
 		return nil, false, nil

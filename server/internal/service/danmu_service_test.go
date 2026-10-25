@@ -89,6 +89,8 @@ func TestDanmuBilibiliNoMatch(t *testing.T) {
 	}
 }
 
+// TestDanmuBilibiliServiceDown danmu-service 不可用 → 返回 error（不写负缓存，发布窗口后自愈）；
+// handler 对 error 返 500，前端 .catch 静默无弹幕（不阻塞播放）。
 func TestDanmuBilibiliServiceDown(t *testing.T) {
 	// 直接返回 500 的"不可用"服务
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -98,11 +100,11 @@ func TestDanmuBilibiliServiceDown(t *testing.T) {
 
 	svc := NewDanmuService(nil, nil, srv.URL)
 	comments, err := svc.DanmuBilibili(context.Background(), "44847", 1)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
+	if err == nil {
+		t.Fatal("服务不可用应返回 error（调用失败不缓存，区别于业务无数据的负缓存）")
 	}
 	if len(comments) != 0 {
-		t.Fatalf("comments = %d, want 0 (降级为空弹幕)", len(comments))
+		t.Fatalf("comments = %d, want 0", len(comments))
 	}
 }
 
@@ -224,7 +226,7 @@ func TestDanmuTencentNoMatch(t *testing.T) {
 	}
 }
 
-// TestDanmuTencentCommentsServiceDown 单段弹幕服务不可用 → 空弹幕 + 无错误（不阻塞播放）。
+// TestDanmuTencentCommentsServiceDown 单段弹幕服务不可用 → 返回 error（不写负缓存）。
 func TestDanmuTencentCommentsServiceDown(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
@@ -233,10 +235,10 @@ func TestDanmuTencentCommentsServiceDown(t *testing.T) {
 
 	svc := NewDanmuService(nil, nil, srv.URL)
 	comments, err := svc.DanmuTencentComments(context.Background(), "cid=x&vid=y", "201")
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
+	if err == nil {
+		t.Fatal("服务不可用应返回 error（调用失败不缓存，区别于业务无数据的负缓存）")
 	}
 	if len(comments) != 0 {
-		t.Fatalf("comments = %d, want 0 (降级为空弹幕)", len(comments))
+		t.Fatalf("comments = %d, want 0", len(comments))
 	}
 }
