@@ -26,6 +26,21 @@ export function adFilterSuccessMessage(filtered: number): string {
   return `已过滤 ${filtered} 段广告`
 }
 
+/**
+ * loading 遮罩文案三档（2026-10-25 用户报"已过滤提示已出, 遮罩还显示正在准备视频"后重排）。
+ *
+ * 背景(线上实测 iPhone 12 + Edge): 打开播放页到起播可切三段——
+ *   1. 取数据/等片源(静态资源 + playInfo + 过滤抓清单+POST), 遮罩「正在准备视频」;
+ *   2. 过滤落地(blob/直链已 commit, "已过滤 N 段"toast 已出) → **分片下载+起播缓冲**
+ *      (国际链路实测 1s~数十秒), 此前文案仍停在"正在准备视频", 与真实阶段错位;
+ *   3. canplay → 遮罩收。
+ * srcReady 即"片源已就绪等播放器就绪"标志(commit 成功置位, 切集/切源复位)。
+ */
+export function loadingHintText(opts: { srcReady: boolean; filtering: boolean }): string {
+  if (opts.srcReady) return '正在缓冲视频…'
+  return opts.filtering ? '正在准备视频 · 广告过滤中…' : '正在准备视频…'
+}
+
 /** 取 URL host, 解析失败返回空串. 用于埋点 label 按来源 CDN 聚合. */
 export function adFilterHost(url: string): string {
   try {

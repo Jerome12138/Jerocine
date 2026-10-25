@@ -6,7 +6,8 @@ import {
   buildAdFilterFailureEvent,
   hasMediaSegments,
   firstChildPlaylistUrl,
-  adFilterBadgeText
+  adFilterBadgeText,
+  loadingHintText
 } from './adFilter'
 
 describe('parseAdFilterStats', () => {
@@ -29,6 +30,23 @@ describe('parseAdFilterStats', () => {
 describe('adFilterSuccessMessage', () => {
   it('拼出 N 段广告文案', () => {
     expect(adFilterSuccessMessage(5)).toBe('已过滤 5 段广告')
+  })
+})
+
+describe('loadingHintText', () => {
+  // 2026-10-25 用户报"已过滤 N 段"toast 已出但遮罩仍显示"正在准备视频"(线上实测
+  // iPhone+Edge: 过滤落地到 canplay 还有 1s~数十秒分片下载窗口)。三档逐阶段:
+  it('片源未就绪 + 过滤在途 ⇒ 广告过滤中文案', () => {
+    expect(loadingHintText({ srcReady: false, filtering: true })).toBe('正在准备视频 · 广告过滤中…')
+  })
+
+  it('片源未就绪 + 无过滤 ⇒ 通用准备文案', () => {
+    expect(loadingHintText({ srcReady: false, filtering: false })).toBe('正在准备视频…')
+  })
+
+  it('片源已就绪(过滤落地/直链) ⇒ 降档为缓冲文案, 不再谎称"正在准备"', () => {
+    expect(loadingHintText({ srcReady: true, filtering: true })).toBe('正在缓冲视频…')
+    expect(loadingHintText({ srcReady: true, filtering: false })).toBe('正在缓冲视频…')
   })
 })
 

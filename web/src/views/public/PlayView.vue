@@ -272,6 +272,10 @@ function absApiBase(): string {
 
 /** 实际喂给 player 的可播 src(异步求出); video.js 监听此 ref 切换。 */
 const playSrc = ref<string>('')
+/** 片源已就绪标志(过滤落地/直链 commit 成功置位; 切集/切源/重算复位)。
+ *  就绪后到播放器 canplay 之间是分片下载+起播缓冲窗口(国际链路可达数十秒),
+ *  遮罩文案据此降档为"正在缓冲视频"(2026-10-25 用户报文案与阶段错位后新增)。 */
+const playSrcReady = ref(false)
 /** playSrc 的 mime(blob 清单同样是 hls, 仍报 application/x-mpegURL)。 */
 const playSrcType = ref<string>('')
 /** 当前持有的 blob: URL, 切集/卸载/重算前需 revoke 释放, 防内存泄漏。 */
@@ -542,6 +546,7 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     }
     if (isBlob) currentBlobUrl = url
     playSrc.value = url
+    playSrcReady.value = true
     playSrcType.value = type
     // 写入新 src 后再释放上一集的 blob
     if (prevBlob && prevBlob !== url) {
@@ -1014,6 +1019,7 @@ import {
   adFilterSuccessMessage,
   buildAdFilterFailureEvent,
   firstChildPlaylistUrl,
+  loadingHintText,
   type AdFilterBadgeKind
 } from '@/utils/adFilter'
 
@@ -1221,6 +1227,7 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
   // 标记等待新源: playSrc 实际变化(watch(playSrc))后再 arming 一次, 确保监听挂在新源加载之前,
   // 解决"复用播放器 + VHS 切 HLS 源不重发 loadedmetadata"导致卡在暂停态 0 的问题。
   awaitingNewSource = true
+  playSrcReady.value = false // 新片源未就绪, 遮罩文案回到"正在准备视频"
   // 切集/切源立即进入 loading 态: 文案 loadingHint 按过滤开关/取源方式给出"广告过滤中/正在准备视频"。
   loading.value = true
 }
@@ -1304,11 +1311,32 @@ function onPlayerTimeUpdateForSkipOutro(): void {
 /** ---------- 触屏手势(web 专用; TV/原生播放器不适用) ---------- */
 const isPlayerFullscreen = ref(false)
 
-/** loading 遮罩文案: 广告过滤解析窗口(最长可达数秒)明确告知在干什么, 其余通用 */
-const loadingHint = computed(() => {
-  const ep = currentEpisode.value
-  if (ep && adFilter.value && reM3u8.test(ep.link)) return '正在准备视频 · 广告过滤中…'
-  return '正在准备视频…'
+/** loading 遮罩文案(三档纯函数 loadingHintText, 逐档单测覆盖):
+ *  未就绪+过滤在途「正在准备视频 · 广告过滤中…」/ 未就绪「正在准备视频…」/
+ *  片源已就绪等播放器「正在缓冲视频…」—— 过滤落地到 canplay 之间文案必须反映真实阶段。 */
+const loadingHint = computed(() =>
+  loadingHintText({
+    srcReady: playSrcReady.value,
+    filtering: !!(currentEpisode.value && adFilter.value && reM3u8.test(currentEpisode.value.link))
+  })
+)
+
+/** loading 遮罩兜底: 超过 45s 仍未就绪(极端慢网 / 就绪事件丢失)则撤遮罩 + 提示,
+ *  防无限阻塞(实测正常路径 6~40s; 撤后用户仍可见视频区与控制条, 可手动切源重试)。 */
+const LOADING_FALLBACK_MS = 45_000
+let loadingFallbackTimer: number | undefined
+watch(loading, (v) => {
+  if (loadingFallbackTimer !== undefined) {
+    window.clearTimeout(loadingFallbackTimer)
+    loadingFallbackTimer = undefined
+  }
+  if (!v) return
+  loadingFallbackTimer = window.setTimeout(() => {
+    loadingFallbackTimer = undefined
+    if (!loading.value) return
+    loading.value = false
+    toast('info', '视频加载较慢, 可尝试切换播放源')
+  }, LOADING_FALLBACK_MS)
 })
 
 /** loading 阻塞期禁用播放器手势(双击全屏/长按倍速/滑动 seek) */
@@ -1787,6 +1815,10 @@ onBeforeRouteLeave(() => {
   flushHistory()
   // 卸载播放器（onScopeDispose 也会兜底，但提前 dispose 可避免短暂的画面残留）
   disposePlayer()
+  if (loadingFallbackTimer !== undefined) {
+    window.clearTimeout(loadingFallbackTimer)
+    loadingFallbackTimer = undefined
+  }
   cancelPendingResolve() // 在途的过滤/加载请求立即终止
   prefetchAbort?.abort() // 在途的下一集预取一并取消
   clearFilteredTextCache() // 下一集过滤文本缓存一并清空(换片后旧片源的缓存无意义)
