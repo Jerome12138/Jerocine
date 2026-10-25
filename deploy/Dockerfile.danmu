@@ -1,0 +1,33 @@
+# danmu-service 运行镜像(薄): 只打包本机构建好的 Node 产物
+# (node_modules --production + 上游快照 + 壳代码), 容器内不再安装依赖/编译。
+#
+# 常规部署路径(2026-10-25 起, 与 server 同哲学):
+#   本机 scripts/build-danmu.sh    npm ci --production + 打包(含 tooling/ 自引导)
+#   服务器 ./deploy.sh danmu-deploy <pkg.tar.gz>  解包 → 以该目录为上下文构建本文件 → up -d
+#
+# 为什么不在服务器装: node_modules 裁剪(--omit=dev)含上游快照 4 包与运行时依赖,
+# 在服务器 npm ci 需拉 registry + 跑 postinstall(链接 @rexnow), 慢且不可复现;
+# 本机构建产物与容器内等价, 包可留档比对。compose 的 danmu 服务只写 image, 无 build 段。
+#
+# 构建上下文 = 解包后的产物包目录(deploy/runtime/danmu 或临时解包目录), 布局由 scripts/build-danmu.sh 保证:
+#   package.json  server.js  README.md  lib/  scripts/  smoke/  upstream/  node_modules/
+FROM node:22-alpine
+
+LABEL org.opencontainers.image.title="jerocine-danmu"
+
+WORKDIR /opt/danmu
+
+# --chmod 显式兜底(本机 Git Bash/Windows 打 tar 时无 exec 位问题, node 产物不需要 exec 位,
+# 统一 0644 即可; --chown 让 nonroot 用户可读)。
+COPY --chown=node:node package.json server.js README.md ./
+COPY --chown=node:node lib ./lib
+COPY --chown=node:node scripts ./scripts
+COPY --chown=node:node smoke ./smoke
+COPY --chown=node:node upstream ./upstream
+COPY --chown=node:node node_modules ./node_modules
+
+USER node
+EXPOSE 3611
+
+# 壳 = 原生 node:http 服务(无框架), postinstall 链接的 @rexnow/* 已在 node_modules 内。
+CMD ["node", "server.js"]

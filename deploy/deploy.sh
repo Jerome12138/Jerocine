@@ -3,6 +3,7 @@
 #
 # 用法(在服务器或本机都可, 脚本自动定位 deploy/ 目录):
 #   ./deploy.sh server-deploy <pkg> # 【常规后端发布】解包本地上传的产物包 → 薄运行镜像 → 重建容器
+#   ./deploy.sh danmu-deploy <pkg>  # 【danmu-service 发布】解包本地产物包 → 薄运行镜像(node) → 重建容器
 #   ./deploy.sh web-deploy <pkg>    # 【常规前端发布】解包本地上传的产物包 → 同步 data/html → reload
 #   ./deploy.sh web-rollback <TS>   # 整版回滚(TS 见 data/releases/)
 #   ./deploy.sh nginx               # 只重建 nginx 容器(树上改 nginx.conf 时用), **不发前端产物**
@@ -76,6 +77,7 @@ if docker ps >/dev/null 2>&1; then DOCKER=(docker); else DOCKER=(sudo -n docker)
 # nginx 镜像构建同步切到随包上送的薄配方(deploy/Dockerfile.nginx, 上下文 = deploy/runtime/)。
 if [ -n "${JEROCINE_DEPLOY_ROOT:-}" ]; then
   RUNTIME_DF="runtime/Dockerfile.runtime"
+  DOCKERFILE_DANMU="runtime/Dockerfile.danmu"
   export JEROCINE_NGINX_CONTEXT="$JEROCINE_DEPLOY_ROOT/runtime"
   export JEROCINE_NGINX_DOCKERFILE="Dockerfile.nginx"
   # ⚠️ sudo 剥环境变量: 服务器 docker 走 `sudo -n docker`(见上), sudo 默认 env_reset,
@@ -90,6 +92,7 @@ if [ -n "${JEROCINE_DEPLOY_ROOT:-}" ]; then
   COMPOSE=("${DOCKER[@]}" compose --env-file .env --env-file "$JEROCINE_DEPLOY_ROOT/runtime/deploy.env" -f runtime/docker-compose.yml)
 else
   RUNTIME_DF="Dockerfile.runtime"
+  DOCKERFILE_DANMU="Dockerfile.danmu"
   COMPOSE=("${DOCKER[@]}" compose --env-file .env)
 fi
 
@@ -401,6 +404,47 @@ deploy_server_from_pkg() {
   "${DOCKER[@]}" ps --format '{{.Names}}\t{{.Status}}' | grep jerocine || true
 }
 
+# danmu-service 发布: 解包本地产物包 → 构建薄运行镜像(node) → 重建容器
+#
+# 用法: ./deploy.sh danmu-deploy <pkg.tar.gz>
+#   包由本机 scripts/build-danmu.sh 生成(jerocine-danmu-<TS>-<sha7>.tar.gz),
+#   上传到 deploy/incoming/ 后调本命令(或 scripts/deploy-danmu.sh 一键上传+调用)。
+#   镜像用 deploy/Dockerfile.danmu(只 COPY 本机 npm ci --production 的产物, 容器内不再装)。
+# 与 server-deploy 的差别: 无迁移/无静态资源, 容器起停独立 —— danmu-service 不可用期间
+# Go 网关静默降级"暂无弹幕"(不阻塞播放), 故不等待任何健康检查, 直接 up。
+deploy_danmu_from_pkg() {
+  local pkg="${1:-}"
+  if [ -z "$pkg" ]; then
+    echo "用法: ./deploy.sh danmu-deploy <jerocine-danmu-*.tar.gz>" >&2
+    echo "  (产物包在本机生成: scripts/build-danmu.sh; 上传: scripts/deploy-danmu.sh)" >&2
+    exit 1
+  fi
+  [ -f "$pkg" ] || wr_die "找不到产物包: $pkg"
+
+  jc_bootstrap_tooling "$pkg" danmu-deploy "${@:2}"
+  pull_and_reexec
+
+  local ctx
+  ctx="$(cd "$(mktemp -d)" && pwd)"
+  wr_extract_tar "$pkg" "$ctx"
+  [ -f "$ctx/server.js" ] || wr_die "包内没有 server.js —— 用 scripts/build-danmu.sh 打包"
+  [ -f "$ctx/package.json" ] || wr_die "包内没有 package.json"
+  [ -f "$ctx/lib/scraper.js" ] || wr_die "包内没有 lib/scraper.js（壳核心）"
+  [ -d "$ctx/node_modules" ] || wr_die "包内没有 node_modules/（依赖裁剪产物）"
+  [ -d "$ctx/upstream/packages/scraper-kit" ] || wr_die "包内没有 upstream/packages/scraper-kit（上游快照）"
+
+  echo "==> 构建 danmu 运行镜像(本机 npm 产物, 容器内不再安装)"
+  "${DOCKER[@]}" build -f "$DOCKERFILE_DANMU" -t jerocine-danmu:latest "$ctx"
+  rm -rf "$ctx"
+
+  echo "==> 重建 jerocine_danmu(--no-build)"
+  "${COMPOSE[@]}" up -d --no-build danmu
+
+  archive_server_pkg "$pkg" 2>/dev/null || true # danmu 包也留档(复用归档函数, 不匹配 server 包名则跳过裁剪)
+  echo "==> 完成: danmu-service 已发布(镜像 jerocine-danmu:latest 由 $pkg 构建)"
+  "${DOCKER[@]}" ps --format '{{.Names}}\t{{.Status}}' | grep jerocine || true
+}
+
 # ============================ nginx 重建(树上运维) ============================
 
 # 等 jerocine_server 达到 healthy（超时打印日志提示并返回 1）。deploy_nginx 与 server-deploy 共用。
@@ -471,7 +515,7 @@ cmd="${1:-}"
 # nginx 重建需要树上构建上下文, 必须在树内执行(指路回树内脚本)。
 if [ -n "${JEROCINE_DEPLOY_ROOT:-}" ]; then
   case "$cmd" in
-    server-deploy|web-deploy|web-rollback|web-init) ;;
+    server-deploy|danmu-deploy|web-deploy|web-rollback|web-init) ;;
     *)
       echo "!! '$cmd' 需要服务器 git 树(源码 / 树上构建) —— 请运行树内的 ./deploy.sh" >&2
       echo "   deploy/runtime/ 是随产物包上送的施工工具, 只用于产物包发布(*-deploy 等)" >&2
@@ -484,10 +528,11 @@ case "$cmd" in
   web-init)      shift; web_init "$@" ;;
   web-rollback)  shift; web_rollback_cmd "$@" ;;
   server-deploy) shift; deploy_server_from_pkg "$@" ;;
+  danmu-deploy) shift; deploy_danmu_from_pkg "$@" ;;
   nginx)         deploy_nginx ;;
   *)
     echo "用法: ./deploy.sh <子命令> [参数]" >&2
-    echo "  日常发布(产物包, 推荐): server-deploy|web-deploy <jerocine-*.tar.gz>" >&2
+    echo "  日常发布(产物包, 推荐): server-deploy|danmu-deploy|web-deploy <jerocine-*.tar.gz>" >&2
     echo "  运维: web-rollback <TS> · web-init · nginx(树上改 nginx.conf 后重建容器)" >&2
     echo "  应急(服务器自行构建, 不建议): 用容器跑 scripts/build-*.sh 产包后走 *-deploy" >&2
     echo "                                —— 见 docs/部署指南.md「应急」一节" >&2

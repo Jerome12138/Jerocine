@@ -81,6 +81,8 @@ services:
       TMDB_LANG: "${TMDB_LANG:-zh-CN}"
       TMDB_API_BASE: "${TMDB_API_BASE:-}"
       TMDB_IMAGE_BASE: "${TMDB_IMAGE_BASE:-}"
+      # 弹幕数据服务(danmu-service): 容器网络内服务名; 本地联调用环境变量指向 127.0.0.1:3611。
+      DANMU_SERVICE_URL: "http://danmu:3611"
       GIN_MODE: release
     volumes:
       - uploads:/opt/server/static/upload
@@ -103,6 +105,21 @@ services:
     logging:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }
+
+  danmu:
+    container_name: jerocine_danmu
+    # 镜像只由 danmu-deploy 按产物包构建(Dockerfile.danmu, --no-build) —— 与 server 同哲学:
+    # 依赖(node_modules --production + 上游快照)在本机裁剪好, 编译不上生产机; 这里刻意没有 build 段。
+    image: jerocine-danmu:latest
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    networks:
+      - jerocine-network
+    # 仅容器网络内可达: 不暴露端口, 由 Go 网关经 DANMU_SERVICE_URL(http://danmu:3611)访问。
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   nginx:
     container_name: jerocine_nginx
