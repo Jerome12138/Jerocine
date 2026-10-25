@@ -1,94 +1,49 @@
 /**
- * 弹幕服务 HTTP 适配器（scraper-kit 运行时契约，替代 @rexnow/libs-fetch 的 Fetch）。
+ * 弹幕服务 HTTP 适配器（scraper-kit 运行时契约，替代 @rexnow/libs-fetch 默认 adapter）。
  *
- * 契约：Fetch 把 restOptions（含 base64Data、params 等）原样透传给 adapter；
- * adapter 返回 { data, statusCode, headers }。Scraper 还会用到的能力：
- * - `cookie`（对象，可直接赋值清空）、`setCookie({k:v})`、`getCookie(name)`
- * - `headers`（默认请求头）、`setHeaders({k:v})`
- * - get/post 自动带 cookie jar 并吸收响应 Set-Cookie（优酷 token 链依赖：
- *   ensureTokenCookie 先访问 mmstat/acs 种 cna/_m_h5_tk，再签名拉弹幕）
+ * 契约（上游 packages/fetch/src/index.ts 实证）：
+ * - Fetch.get/post 先经实例 buildHeaders（实例 headers + 实例 cookie + 调用方
+ *   headers 三层合并）再整体传给 adapter —— **adapter 收到的 options.headers
+ *   即最终请求头，原样透传即可**。
+ * - cookie 生命周期全在上游 Fetch 实例层（handleResponse 吸收 Set-Cookie →
+ *   实例 setCookie；优酷 ensureTokenCookie 的 `this.fetch.cookie = {}` 清的是
+ *   实例字段，下轮 buildHeaders 自然不带旧值）。每个 scraper 独立 new Fetch
+ *   （createScraperRegistry），平台间 cookie 天然隔离。
+ *   ⚠️ adapter 层**不做** cookie jar：单例 adapter + 多 Fetch 实例的架构下，
+ *   jar 会把 A 平台的 cookie 透传给 B 平台域名（跨站泄漏），且清空语义
+ *   （this.fetch.cookie = {}）在 adapter 层无法真正生效。
+ * - adapter 返回 { data, statusCode, headers }；Set-Cookie 多值必须合并为
+ *   逗号分隔串（上游 handleResponse 按 split(",") 解析，丢任意一条会导致
+ *   优酷收到 _m_h5_tk_enc 却收不到 _m_h5_tk → 签名 token 空）。
  *
- * 关键：
+ * 关键（集成方案 §8.1 两类坑）：
  * - B站 seg.so protobuf 通道带 `base64Data: true`（options.base64Data），
  *   此时 data 必须返回 **base64 字符串**（上游用 base64ToUint8Array 解码）。
- * - 爱奇艺 cmts .z 弹幕为 **zlib 流**（magic 0x78）且响应**无 Content-Encoding 头**
- *   （Content-Type: application/octet-stream），Node fetch 不会自动解压；
- *   上游 zlibMode 只是标志、无解压实现 → 解压由壳在 adapter 完成（见 readResponse）。
- *   只测腾讯 JSON 路径的适配器会在这里漏掉 → 弹幕 XML 变乱码、fast-xml-parser
- *   报 "Maximum nested tags exceeded"（集成方案 §8.1 同类坑）。
+ * - 爱奇艺 cmts .z 弹幕为 **zlib 流**（magic 0x78）且响应**无 Content-Encoding
+ *   头**（Content-Type: application/octet-stream），Node fetch 不会自动解压；
+ *   上游 zlibMode 只是标志、无解压实现 → 解压由壳在 readResponse 完成。
  */
 import zlib from 'node:zlib';
 
 export function createHttpAdapter({ fetchImpl = globalThis.fetch } = {}) {
-  const ctx = {
-    cookie: {}, // 上游可能整体赋值清空（youku ensureTokenCookie: this.fetch.cookie = {}）
-    headers: {},
-  };
   return {
-    cookie: ctx.cookie,
-    headers: ctx.headers,
-    setCookie(pairs) {
-      Object.assign(ctx.cookie, pairs);
-    },
-    getCookie(name) {
-      return ctx.cookie[name] ?? undefined;
-    },
-    setHeaders(pairs) {
-      Object.assign(ctx.headers, pairs);
-    },
     async get(url, options = {}) {
       const res = await fetchImpl(url, {
-        headers: buildHeaders(ctx, options.headers),
+        headers: options.headers,
         signal: options.signal,
       });
-      absorbSetCookie(ctx, res.headers);
       return readResponse(res, options);
     },
     async post(url, body, options = {}) {
       const res = await fetchImpl(url, {
         method: 'POST',
-        headers: buildHeaders(ctx, { 'Content-Type': 'application/json', ...(options.headers || {}) }),
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
         body: typeof body === 'string' ? body : JSON.stringify(body),
         signal: options.signal,
       });
-      absorbSetCookie(ctx, res.headers);
       return readResponse(res, options);
     },
   };
-}
-
-/** 请求头合并顺序：默认头 → cookie jar → 显式 headers（显式 Cookie 覆盖 jar） */
-function buildHeaders(ctx, explicit) {
-  const out = { ...ctx.headers };
-  const jarCookie = Object.entries(ctx.cookie)
-    .map(([k, v]) => `${k}=${v}`)
-    .join('; ');
-  if (jarCookie) out.Cookie = jarCookie;
-  return { ...out, ...(explicit || {}) };
-}
-
-/** 吸收 Set-Cookie（简版 RFC6265：只记 name=value；过期/删除则移除） */
-function absorbSetCookie(ctx, headers) {
-  let pairs;
-  if (typeof headers.getSetCookie === 'function') {
-    pairs = headers.getSetCookie();
-  } else {
-    const raw = headers.get('set-cookie');
-    pairs = raw ? [raw] : [];
-  }
-  for (const pair of pairs) {
-    const [kv, ...rest] = pair.split(';');
-    const eq = kv.indexOf('=');
-    if (eq <= 0) continue;
-    const name = kv.slice(0, eq).trim();
-    const value = kv.slice(eq + 1).trim();
-    const isExpired = rest.some((part) => {
-      const p = part.trim().toLowerCase();
-      return p.startsWith('expires=') && new Date(part.split('=')[1]).getTime() < Date.now();
-    });
-    if (isExpired) delete ctx.cookie[name];
-    else ctx.cookie[name] = value;
-  }
 }
 
 async function readResponse(res, options) {
@@ -97,8 +52,7 @@ async function readResponse(res, options) {
   for (const [k, v] of res.headers.entries()) {
     if (k === 'set-cookie') {
       // undici entries() 对多值 set-cookie 返回多条 → 合并为逗号分隔串
-      // （@rexnow/libs-fetch handleResponse 按 split(",") 解析；丢失任意一条
-      //   会导致优酷收 _m_h5_tk_enc 却收不到 _m_h5_tk → 签名 token 空）
+      // （@rexnow/libs-fetch handleResponse 按 split(",") 解析）
       headers[k] = headers[k] ? `${headers[k]}, ${v}` : v;
     } else {
       headers[k] = v;

@@ -377,3 +377,22 @@ test('adapter：多值 Set-Cookie 合并为逗号分隔串（优酷 token 链：
   assert.ok(res.headers['set-cookie'].includes('_m_h5_tk_enc=def'));
   assert.match(res.headers['set-cookie'], /,\s/, '应合并为逗号分隔（libs-fetch 按逗号 split 解析）');
 });
+
+test('adapter：Cookie 头原样透传、不凭空添加（跨站泄漏防回归）', async () => {
+  // 上游 Fetch.buildHeaders 已把「实例 headers + 实例 cookie + 调用方 headers」合并进
+  // options.headers，adapter 必须原样透传：显式 Cookie 不被篡改；无 Cookie 时不得
+  // 凭空多一个头（单例 adapter 曾做 cookie jar，会把优酷 cna/_m_h5_tk 透传给腾讯域名）
+  let seen;
+  const mockFetch = async (_url, init) => {
+    seen = init.headers;
+    return { status: 200, headers: new Map(), arrayBuffer: async () => new ArrayBuffer(0) };
+  };
+  const adapter = createHttpAdapter({ fetchImpl: mockFetch });
+
+  await adapter.get('https://x/a', { headers: { Cookie: 'cna=abc' } });
+  assert.equal(seen.Cookie, 'cna=abc', '显式 Cookie 应原样透传');
+
+  await adapter.get('https://x/b', { headers: { 'User-Agent': 'ua' } });
+  assert.ok(!('Cookie' in seen), '上游未组装 Cookie 时 adapter 不得凭空添加');
+  assert.equal(seen['User-Agent'], 'ua');
+});
