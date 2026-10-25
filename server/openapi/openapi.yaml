@@ -1289,6 +1289,66 @@ paths:
         '304': { $ref: '#/components/responses/NotModified' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /films/{mid}/danmu/source:
+    get:
+      tags: [content]
+      summary: 弹幕来源候选（豆瓣 vendors 解析，仅返回平台候选，不暴露 db_id）
+      operationId: getDanmuSource
+      parameters:
+        - name: mid
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider: { type: string, enum: [tencent, iqiyi, youku, bilibili] }
+                        resourceId: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /danmu/bilibili:
+    get:
+      tags: [content]
+      summary: B站弹幕代理（整集弹幕，公开接口需限流）
+      operationId: getDanmuBilibili
+      parameters:
+        - name: seasonId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: episode
+          in: query
+          required: false
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text: { type: string }
+                        time: { type: integer, format: int64, description: 出现时间(毫秒) }
+                        color: { type: integer, description: RGB888 }
+                        mode: { type: integer, description: '1 滚动 / 4 底部 / 5 顶部' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
   /config/site:
     get:
       tags: [content]

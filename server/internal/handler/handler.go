@@ -26,6 +26,7 @@ type Handlers struct {
 	Tasks      *service.TaskRunService
 	Online     *service.OnlineService // 内存在线/观看统计(心跳上报)
 	Register   *service.RegisterService // 自注册 + 邮件通道(注册配置/发码/注册/邮件管理)
+	Danmu      *service.DanmuService // 弹幕: 豆瓣 vendors 候选 + B站弹幕(P0)
 	Blob       blobstore.BlobStore
 	ResetToken string // /manage/spider/reset 二次确认 token
 }

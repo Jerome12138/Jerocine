@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -11,6 +12,45 @@ import (
 	"server/internal/dto"
 	"server/internal/service"
 )
+
+// DanmuSource GET /films/:mid/danmu/source —— 该影片的弹幕来源候选（全平台）。
+// 评审 7.7：前端不碰 dbId，此处只返回平台候选；db_id 为空/无命中由 service 负缓存 2h。
+func (h *Handlers) DanmuSource(c *gin.Context) {
+	mid, ok := pathInt64(c, "mid")
+	if !ok {
+		dto.Error(c, http.StatusBadRequest, "invalid mid")
+		return
+	}
+	resp, err := h.Danmu.DanmuSource(c.Request.Context(), mid)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	if resp.Providers == nil {
+		resp.Providers = []service.DanmuProvider{}
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// DanmuBilibili GET /danmu/bilibili?seasonId=&episode= —— 指定 B站剧集整集弹幕。
+// 评审 7.2：无鉴权公开接口，必须限流（路由层 RateLimit("danmu", 30, 10)）。
+func (h *Handlers) DanmuBilibili(c *gin.Context) {
+	seasonID := strings.TrimSpace(c.Query("seasonId"))
+	if seasonID == "" {
+		dto.Error(c, http.StatusBadRequest, "missing seasonId")
+		return
+	}
+	episode := queryInt(c, "episode", 1)
+	comments, err := h.Danmu.DanmuBilibili(c.Request.Context(), seasonID, episode)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	if comments == nil {
+		comments = []service.DanmuComment{}
+	}
+	c.JSON(http.StatusOK, gin.H{"comments": comments})
+}
 
 // Home GET /home
 func (h *Handlers) Home(c *gin.Context) {
