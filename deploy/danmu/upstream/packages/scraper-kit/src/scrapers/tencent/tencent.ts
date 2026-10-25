@@ -304,7 +304,11 @@ export class TencentScraper extends BaseScraper<typeof tencentIdSchema> {
     );
   }
 
-  private async getEpisodesPage(cid: string, page = 0, context?: EpisodeMatchContext): Promise<ProviderEpisodeInfo[]> {
+  // [本地补丁·Jerocine] 去掉 private：danmu-service 壳依赖此方法做腾讯分页，绕开
+  // selectEpisodeCandidates 的 whole 过滤（详见 Jerocine deploy/danmu/README.md）。
+  // TS private 仅编译期存在（dist 运行时本就可调）；此处显式公开并留存补丁标记 ——
+  // 升级上游重新 clone 后需重新应用本行改动并 rebuild dist，否则壳内守卫会 fail-fast。
+  async getEpisodesPage(cid: string, page = 0, context?: EpisodeMatchContext): Promise<ProviderEpisodeInfo[]> {
     return this.requestEpisodes(
       cid,
       {

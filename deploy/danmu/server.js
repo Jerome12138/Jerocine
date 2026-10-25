@@ -8,7 +8,9 @@
  *
  * 约定：
  * - 单 provider 并发 1（withProviderLock）
- * - 请求级超时：ABORT_MS（默认 30s，覆盖整集聚合最坏 29 段×~350ms ≈ 10s）
+ * - 请求级超时：ABORT_MS（默认 30s，覆盖整集聚合最坏 29 段×~350ms ≈ 10s；
+ *   **从 provider 锁获取后起算**，不含排队等待 —— 否则并发下后到请求的预算被
+ *   排队时间吃掉，Go 侧 3s 短超时会误杀排队中的请求）
  * - 不可用/异常 → JSON { error } + 对应状态码；上游错误静默转 502（Go 侧再降级"暂无弹幕"）
  */
 import { createServer } from 'node:http';
@@ -40,26 +42,31 @@ export function createApp() {
     assertProvider(provider);
     await ensureScraper();
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), ABORT_MS);
 
     const payload = await withProviderLock(provider, async () => {
-      switch (action) {
-        case 'episodes':
-          return await listEpisodes(provider, q.get('resourceId') ?? '', {
-            episode: q.get('episode') ?? undefined,
-            episodeName: q.get('episodeName') ?? undefined,
-          });
-        case 'segments':
-          return await listSegments(provider, q.get('episodeId') ?? '');
-        case 'comments':
-          return await fetchComments(provider, q.get('episodeId') ?? '', q.get('segmentId') ?? undefined, {
-            signal: ac.signal,
-          });
-        default:
-          throw new ScraperError(404, 'unknown action');
+      // 超时计时从锁获取后起算：排队等待不消耗本次抓取预算
+      const timer = setTimeout(() => ac.abort(), ABORT_MS);
+      try {
+        switch (action) {
+          case 'episodes':
+            return await listEpisodes(provider, q.get('resourceId') ?? '', {
+              episode: q.get('episode') ?? undefined,
+              episodeName: q.get('episodeName') ?? undefined,
+              signal: ac.signal,
+            });
+          case 'segments':
+            return await listSegments(provider, q.get('episodeId') ?? '', { signal: ac.signal });
+          case 'comments':
+            return await fetchComments(provider, q.get('episodeId') ?? '', q.get('segmentId') ?? undefined, {
+              signal: ac.signal,
+            });
+          default:
+            throw new ScraperError(404, 'unknown action');
+        }
+      } finally {
+        clearTimeout(timer);
       }
     });
-    clearTimeout(timer);
     json(res, 200, { ok: true, data: payload });
   } catch (err) {
     const status = err instanceof ScraperError ? err.status : 502;

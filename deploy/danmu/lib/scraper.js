@@ -6,6 +6,8 @@
  * - timestamp 上游为秒（B站浮点），壳是唯一秒→毫秒转换点（Math.round(t*1000)）
  * - 段间节流 ≥200ms、单 provider 并发 1
  * - 只启用 bilibili / tencent（上游还支持 iqiyi/youku/mgtv/renren，启用时加白名单一行）
+ * - 腾讯分页依赖上游 getEpisodesPage（TS 层 private，dist 运行时可用；src 已打本地
+ *   补丁显式公开，升级上游需重新应用 —— 见 listEpisodes 内的 fail-fast 守卫）
  */
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -62,13 +64,27 @@ export function toIdString(provider, resourceId) {
  * selectEpisodeCandidates 会把 episodePart 强制过滤为 "whole"（正片"第1期上/中/下"
  * part=upper/middle/lower 被滤掉只剩陪看）；传 episodeName 又走 curated 精选分支
  * （只返回陪看/回放，漏正片）。因此腾讯直接调 getEpisodesPage 分页拿全量原始映射，
- * 匹配逻辑由本壳完成（正片优先 edition=main，支持"第X期[上下中]"解析）。 */
-export async function listEpisodes(provider, resourceId, { episode, episodeName } = {}) {
+ * 匹配逻辑由本壳完成（正片优先 edition=main，支持"第X期[上下中]"解析）。
+ *
+ * getEpisodesPage 在上游 TS 层是 private（dist 运行时仍可调）；src 快照已打本地补丁
+ * 显式公开。上游升级重建后若该方法消失（改 #private / 改名），下面先 fail-fast，
+ * 不会静默退化成"无匹配集 → 无弹幕"。 */
+export async function listEpisodes(provider, resourceId, { episode, episodeName, signal } = {}) {
   const scraper = getScraper(provider);
   let eps;
   if (provider === 'tencent') {
+    if (typeof scraper.getEpisodesPage !== 'function') {
+      throw new ScraperError(
+        500,
+        'vendored scraper-kit 缺少 getEpisodesPage：升级上游后需重新应用本地补丁并 rebuild dist（见 deploy/danmu/README.md 升级流程）',
+      );
+    }
     eps = [];
+    // fullPage = 首页实返条数，即事实上的每页大小（不耦合上游 pageSize 常量：
+    // 上游把 30 改成 20 时，旧写法 "length < 30" 会在第一页就停，少拉一整页）
+    let fullPage = 0;
     for (let page = 0; page < 10; page += 1) {
+      abortIf(signal);
       let pageEps;
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -77,10 +93,14 @@ export async function listEpisodes(provider, resourceId, { episode, episodeName 
         break; // 腾讯超范围页返回 {ret:0,msg:''}（无 data），schema 校验抛错 → 停止翻页
       }
       if (!pageEps?.length) break;
+      if (page === 0) fullPage = pageEps.length;
       eps.push(...pageEps);
-      if (pageEps.length < 30) break;
+      // 短页 = 最后一页（与首页比，不猜上游 pageSize）；总集数不足一页时会多一次
+      // 抛错的探边请求，与"整页到底后抛错"同构，可接受
+      if (pageEps.length < fullPage) break;
     }
   } else {
+    abortIf(signal);
     eps = await scraper.getEpisodes(
       toIdString(provider, resourceId),
       episode !== undefined && episode !== '' ? Number(episode) : undefined,
@@ -110,8 +130,9 @@ export async function listEpisodes(provider, resourceId, { episode, episodeName 
   return { provider, episodes: eps, matched };
 }
 
-export async function listSegments(provider, episodeId) {
+export async function listSegments(provider, episodeId, { signal } = {}) {
   const scraper = getScraper(provider);
+  abortIf(signal);
   return scraper.getSegments(episodeId);
 }
 

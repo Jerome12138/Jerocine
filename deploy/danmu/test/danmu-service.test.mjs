@@ -6,7 +6,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createApp } from '../server.js';
-import { fetchComments, listEpisodes, listSegments, _setRegistryForTest } from '../lib/scraper.js';
+import {
+  fetchComments,
+  listEpisodes,
+  listSegments,
+  ScraperError,
+  _setRegistryForTest,
+} from '../lib/scraper.js';
 import { createHttpAdapter } from '../lib/adapter.js';
 
 function makeFakeScraper(overrides = {}) {
@@ -102,7 +108,12 @@ test('listEpisodes：腾讯走 getEpisodesPage 分页（绕开上游 whole 过�
   _setRegistryForTest({
     scraperMap: {
       tencent: {
-        getEpisodesPage: async () => pageEps,
+        // 单页语义：page 0 返回全量，page ≥1 超范围抛错（与线上腾讯一致；
+        // 不再依赖 "length < 30" 猜页大小，见下方解耦用例）
+        getEpisodesPage: async (cid, page) => {
+          if (page >= 1) throw new Error('ret:0 超范围页');
+          return pageEps;
+        },
       },
     },
   });
@@ -111,6 +122,90 @@ test('listEpisodes：腾讯走 getEpisodesPage 分页（绕开上游 whole 过�
   assert.ok(matched, '应匹配到正片第1期上');
   assert.equal(matched.episodePart, 'upper');
   assert.equal(matched.episodeId, 'cid=mzc&vid=s4102pomt63');
+});
+
+test('listEpisodes：腾讯分页不耦合上游 pageSize 常量（首页仅 2 条也不少拉）', async () => {
+  // 模拟上游把 pageSize 从 30 改成 2：旧写法 "length < 30" 会在第一页就停，丢 4 集
+  let calls = 0;
+  _setRegistryForTest({
+    scraperMap: {
+      tencent: {
+        getEpisodesPage: async (cid, page) => {
+          calls += 1;
+          if (page >= 3) throw new Error('ret:0 超范围页'); // 与线上一致：抛错收边
+          return Array.from({ length: 2 }, (_, i) => ({
+            provider: 'tencent',
+            episodeId: `cid=mzc&vid=p${page}-${i}`,
+            episodeTitle: `第${page * 2 + i + 1}集`,
+            episodeNumber: page * 2 + i + 1,
+            episodeEdition: 'main',
+          }));
+        },
+      },
+    },
+  });
+  const { episodes, matched } = await listEpisodes('tencent', 'mzc002003kpyd2m', { episode: '3' });
+  assert.equal(episodes.length, 6, '3 页 × 2 条应全部拿到');
+  assert.equal(calls, 4, '末页后多一次抛错探边（与线上同构）');
+  assert.equal(matched.episodeNumber, 3);
+});
+
+test('listEpisodes：腾讯短页即末页（不再按 30 猜页大小）', async () => {
+  let calls = 0;
+  _setRegistryForTest({
+    scraperMap: {
+      tencent: {
+        getEpisodesPage: async (cid, page) => {
+          calls += 1;
+          const sizes = [2, 2, 1];
+          const size = sizes[page];
+          if (size === undefined) throw new Error('ret:0 超范围页');
+          return Array.from({ length: size }, (_, i) => ({
+            provider: 'tencent',
+            episodeId: `cid=mzc&vid=s${page}-${i}`,
+            episodeTitle: `第${page * 2 + i + 1}期`,
+            episodeNumber: page * 2 + i + 1,
+            episodeEdition: 'main',
+          }));
+        },
+      },
+    },
+  });
+  const { episodes } = await listEpisodes('tencent', 'mzc002003kpyd2m', { episode: '5' });
+  assert.equal(episodes.length, 5, '短页（1 条）即最后一页，应停在其后');
+  assert.equal(calls, 3, '短页命中后不再多发请求');
+});
+
+test('listEpisodes：腾讯缺 getEpisodesPage → fail-fast 500（上游升级丢方法的静默故障防护）', async () => {
+  _setRegistryForTest({
+    scraperMap: {
+      tencent: { getEpisodes: async () => [] }, // 模拟上游改 #private / 改名后的 dist
+    },
+  });
+  await assert.rejects(
+    () => listEpisodes('tencent', 'mzc002003kpyd2m', { episode: '1' }),
+    (err) => {
+      assert.ok(err instanceof ScraperError);
+      assert.equal(err.status, 500);
+      assert.match(err.message, /getEpisodesPage/);
+      assert.match(err.message, /README/);
+      return true;
+    },
+  );
+});
+
+test('signal：已中止 → listSegments/listEpisodes 抛 504（ABORT_MS 贯通三接口）', async () => {
+  _setRegistryForTest({ scraperMap: { bilibili: makeFakeScraper(), tencent: { getEpisodesPage: async () => [] } } });
+  const ac = new AbortController();
+  ac.abort();
+  await assert.rejects(() => listSegments('bilibili', 'seasonId=1', { signal: ac.signal }), (err) => {
+    assert.equal(err.status, 504);
+    return true;
+  });
+  await assert.rejects(() => listEpisodes('tencent', 'mzc002003kpyd2m', { signal: ac.signal }), (err) => {
+    assert.equal(err.status, 504);
+    return true;
+  });
 });
 
 test('listSegments 直通', async () => {

@@ -20,6 +20,11 @@ Jerocine Go 后端 ──HTTP──▶ danmu-service (本目录, Node)
   不含 node_modules；完整仓库见 fork `qiguo093/Platform-Danmu`）
 - **升级流程**：`git clone` 上游到临时目录 → 按依赖序 `pnpm --filter @rexnow/<pkg> build`
   （utils→storage→fetch→scraper-kit）→ 用新 dist 覆盖 `upstream/packages/*/dist/` → 更新本文件 pin → 重新验证 smoke
+- **⚠️ 本地补丁（升级后必须重新应用）**：`scraper-kit/src/scrapers/tencent/tencent.ts` 的
+  `getEpisodesPage` 在上游是 TS `private`（dist 运行时仍可调），本壳依赖它做腾讯分页
+  （绕开 `selectEpisodeCandidates` 的 whole 过滤）。src 快照已去掉 `private` 并留
+  `[本地补丁·Jerocine]` 标记；升级 clone 后需重新应用该行改动再 build。若漏应用，
+  壳内 `listEpisodes` 有 fail-fast 守卫（缺方法 → 500 + 提示），不会静默无弹幕。
 
 ## 本地运行与验证
 
