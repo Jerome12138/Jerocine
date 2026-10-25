@@ -11,7 +11,31 @@ import (
 
 	"server/internal/cache"
 	"server/internal/domain"
+	"server/internal/domain/entity"
 )
+
+// fakeSiteCfgRepo 测试用内存 site_config（弹幕配置注入）。
+type fakeSiteCfgRepo struct {
+	cfg *entity.SiteConfig
+}
+
+func (f *fakeSiteCfgRepo) Get(ctx context.Context) (*entity.SiteConfig, error) { return f.cfg, nil }
+func (f *fakeSiteCfgRepo) Save(ctx context.Context, c *entity.SiteConfig) error {
+	f.cfg = c
+	return nil
+}
+
+// danmuSvc 构造"后台已启用指定平台"的 DanmuService。
+// 后台配置默认关闭（danmu_enabled=0），自测试改造起所有路径都过配置白名单，
+// 因此用例必须显式开平台，否则 validatePathBProvider 一律 400。
+// DanmuService 直读 site_config repo（不经 ConfigService 缓存），无 Redis 依赖。
+func danmuSvc(url string, providers ...string) *DanmuService {
+	repo := &fakeSiteCfgRepo{cfg: &entity.SiteConfig{
+		DanmuEnabled:   1,
+		DanmuProviders: entity.StringSlice(providers),
+	}}
+	return NewDanmuService(nil, nil, url, repo)
+}
 
 // TestDanmuBilibiliViaService 模拟 danmu-service 两跳响应，验证转发、契约映射与降级。
 //
@@ -52,7 +76,7 @@ func TestDanmuBilibiliViaService(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc := NewDanmuService(nil, nil, srv.URL)
+	svc := danmuSvc(srv.URL, "bilibili")
 	comments, err := svc.DanmuBilibili(context.Background(), "44847", 1)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -81,7 +105,7 @@ func TestDanmuBilibiliNoMatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc := NewDanmuService(nil, nil, srv.URL)
+	svc := danmuSvc(srv.URL, "bilibili")
 	comments, err := svc.DanmuBilibili(context.Background(), "44847", 99)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -100,7 +124,7 @@ func TestDanmuBilibiliServiceDown(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc := NewDanmuService(nil, nil, srv.URL)
+	svc := danmuSvc(srv.URL, "bilibili")
 	comments, err := svc.DanmuBilibili(context.Background(), "44847", 1)
 	if err == nil {
 		t.Fatal("服务不可用应返回 error（调用失败不缓存，区别于业务无数据的负缓存）")
@@ -179,7 +203,7 @@ func TestDanmuTencentChain(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc := NewDanmuService(nil, nil, srv.URL)
+	svc := danmuSvc(srv.URL, "tencent")
 
 	matched, found, err := svc.DanmuEpisodes(context.Background(), "tencent", "mzc002003kpyd2m", 1)
 	if err != nil {
@@ -218,7 +242,7 @@ func TestDanmuTencentNoMatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc := NewDanmuService(nil, nil, srv.URL)
+	svc := danmuSvc(srv.URL, "tencent")
 	_, found, err := svc.DanmuEpisodes(context.Background(), "tencent", "mzc002003kpyd2m", 99)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -235,7 +259,7 @@ func TestDanmuTencentCommentsServiceDown(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc := NewDanmuService(nil, nil, srv.URL)
+	svc := danmuSvc(srv.URL, "tencent")
 	comments, err := svc.DanmuComments(context.Background(), "tencent", "cid=x&vid=y", "201")
 	if err == nil {
 		t.Fatal("服务不可用应返回 error（调用失败不缓存，区别于业务无数据的负缓存）")
@@ -245,10 +269,11 @@ func TestDanmuTencentCommentsServiceDown(t *testing.T) {
 	}
 }
 
-// TestDanmuPathBProviderWhitelist 路径 B provider 白名单（参数化评审修正）：
-// 未启用（iqiyi/youku/mgtv/空串/bilibili）→ ErrInvalidArgument（handler 经 dto.Fail
+// TestDanmuPathBProviderWhitelist 路径 B provider 白名单（后台配置驱动）：
+// 只启用 tencent 时，iqiyi/youku/mgtv/bilibili/空串 → ErrInvalidArgument（handler 经 dto.Fail
 // 映射 400），且不发出任何 HTTP 请求 —— validatePathBProvider 在拼 URL 前拦停，
 // 顺带封死"路由参数进请求路径"的注入面。白名单内的 tencent 不被拦。
+// 另验：后台未启用任何平台（danmuSvc 不给 providers → 白名单空）时 tencent 也 400。
 func TestDanmuPathBProviderWhitelist(t *testing.T) {
 	var hits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +281,7 @@ func TestDanmuPathBProviderWhitelist(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc := NewDanmuService(nil, nil, srv.URL)
+	svc := danmuSvc(srv.URL, "tencent")
 	for _, p := range []string{"iqiyi", "youku", "mgtv", "bilibili", ""} {
 		if _, _, err := svc.DanmuEpisodes(context.Background(), p, "x", 1); !errors.Is(err, domain.ErrInvalidArgument) {
 			t.Fatalf("DanmuEpisodes(%q) err = %v, want ErrInvalidArgument", p, err)
@@ -274,5 +299,18 @@ func TestDanmuPathBProviderWhitelist(t *testing.T) {
 	// tencent 在白名单内：应穿过校验打到 fake（空响应 → 非 JSON 错误，但不是 ErrInvalidArgument）
 	if _, _, err := svc.DanmuEpisodes(context.Background(), "tencent", "x", 1); errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatal("tencent 在白名单内，不应被 validatePathBProvider 拦停")
+	}
+	// 未启用任何平台（后台配置默认关闭）→ tencent 也 400
+	off := danmuSvc(srv.URL)
+	if _, _, err := off.DanmuEpisodes(context.Background(), "tencent", "x", 1); !errors.Is(err, domain.ErrInvalidArgument) {
+		t.Fatalf("未启用任何平台时 tencent err = %v, want ErrInvalidArgument", err)
+	}
+}
+
+// TestDanmuBilibiliDisabled 后台未启用 bilibili → 路径 A（整集聚合）也 400（与路径 B 同一白名单）。
+func TestDanmuBilibiliDisabled(t *testing.T) {
+	svc := danmuSvc("http://127.0.0.1:1", "tencent")
+	if _, err := svc.DanmuBilibili(context.Background(), "44847", 1); !errors.Is(err, domain.ErrInvalidArgument) {
+		t.Fatalf("bilibili 未启用时 DanmuBilibili err = %v, want ErrInvalidArgument", err)
 	}
 }

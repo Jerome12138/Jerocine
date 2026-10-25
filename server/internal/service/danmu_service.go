@@ -30,20 +30,44 @@ const (
 	danmuSegmentTimeout = 3 * time.Second
 )
 
-// danmuPathBProviders 路径 B（分段点播）provider 白名单（8.2：腾讯先落地）。
-// 启用爱奇艺/优酷 = 本表加一行 + danmu-service 壳 ID_PREFIX 加前缀（Go/前端零改动）。
-var danmuPathBProviders = []string{"tencent"}
+// danmuProviderAll 后台可选的弹幕平台全集（须与 danmu-service 壳 ID_PREFIX 同步：
+// 平台要可用，两边都要启用 —— 壳白名单决定上游能否拉，这里决定 Go/前端是否开放）。
+var danmuProviderAll = []string{"bilibili", "tencent", "iqiyi", "youku"}
 
-// validatePathBProvider provider 不在白名单 → ErrInvalidArgument（dto.Fail 映射 400）。
-// 必须在拼 URL 之前调用：provider 来自路由参数，白名单外的值不得进请求路径。
-func validatePathBProvider(provider string) error {
-	for _, p := range danmuPathBProviders {
+// danmuEnabledProviders 后台启用的弹幕平台（总开关 + 白名单过滤）。
+// 返回 nil 表示弹幕整体未启用（DanmuSource 空候选、路径 A/B 全 400）。
+// 直接读 site_config 库现值（不经 ConfigService 缓存 —— v1:cfg:site 是 JSON 序列化
+// 往返，而弹幕两列 json:"-" 会被裁剪成恒零值；同 MailConfig 范式读 repo）。
+func (s *DanmuService) danmuEnabledProviders(ctx context.Context) []string {
+	cfg, err := s.siteCfg.Get(ctx)
+	if err != nil || cfg.DanmuEnabled != 1 || len(cfg.DanmuProviders) == 0 {
+		return nil
+	}
+	allowed := make(map[string]bool, len(danmuProviderAll))
+	for _, p := range danmuProviderAll {
+		allowed[p] = true
+	}
+	out := make([]string, 0, len(cfg.DanmuProviders))
+	for _, p := range cfg.DanmuProviders {
+		if allowed[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// validatePathBProvider provider 未启用 → ErrInvalidArgument（dto.Fail 映射 400）。
+// 必须在拼 URL 之前调用：provider 来自路由参数，未启用的值不得进请求路径。
+// 白名单 = 后台配置（danmu_enabled + danmu_providers），非写死。
+func (s *DanmuService) validatePathBProvider(ctx context.Context, provider string) error {
+	enabled := s.danmuEnabledProviders(ctx)
+	for _, p := range enabled {
 		if p == provider {
 			return nil
 		}
 	}
 	return fmt.Errorf("unsupported danmu provider %q（启用：%s）: %w",
-		provider, strings.Join(danmuPathBProviders, "/"), domain.ErrInvalidArgument)
+		provider, strings.Join(enabled, "/"), domain.ErrInvalidArgument)
 }
 
 // DanmuSourceResp 弹幕来源响应（评审 7.7：不暴露 dbId，只给平台候选）。
@@ -70,16 +94,19 @@ type DanmuService struct {
 	movie    repository.MovieRepository
 	client   *danmu.Client
 	danmuURL string
-	hc       *http.Client // 路径 A：整集聚合 30s
-	segHC    *http.Client // 路径 B：分段点播 3s
+	siteCfg  repository.SiteConfigRepository // 弹幕后台配置（总开关 + 平台白名单，直读库现值）
+	hc       *http.Client                    // 路径 A：整集聚合 30s
+	segHC    *http.Client                    // 路径 B：分段点播 3s
 }
 
-// NewDanmuService 构造弹幕服务。danmuURL 为 danmu-service 基址（config.Danmu.ServiceURL）。
-func NewDanmuService(movie repository.MovieRepository, client *danmu.Client, danmuURL string) *DanmuService {
+// NewDanmuService 构造弹幕服务。danmuURL 为 danmu-service 基址（config.Danmu.ServiceURL）；
+// siteCfg 用于读取后台弹幕配置（默认不启用）。
+func NewDanmuService(movie repository.MovieRepository, client *danmu.Client, danmuURL string, siteCfg repository.SiteConfigRepository) *DanmuService {
 	return &DanmuService{
 		movie:    movie,
 		client:   client,
 		danmuURL: strings.TrimRight(danmuURL, "/"),
+		siteCfg:  siteCfg,
 		hc:       &http.Client{Timeout: danmuServiceTimeout},
 		segHC:    &http.Client{Timeout: danmuSegmentTimeout},
 	}
@@ -100,8 +127,17 @@ func (s *DanmuService) DanmuSource(ctx context.Context, mid int64) (DanmuSourceR
 	return resp, nil
 }
 
-// loadDanmuSource 回源：mid → db_id → 豆瓣 vendors → 平台资源 id。
+// loadDanmuSource 回源：mid → db_id → 豆瓣 vendors → 平台资源 id（按后台配置过滤）。
+// 弹幕未启用 → 空候选负缓存 2h（配置保存时清 v1:danmu:src:*，切换立即生效）。
 func (s *DanmuService) loadDanmuSource(ctx context.Context, mid int64) (DanmuSourceResp, bool, error) {
+	enabled := s.danmuEnabledProviders(ctx)
+	if enabled == nil {
+		return DanmuSourceResp{}, false, nil // 未启用：负缓存 2h
+	}
+	enabledSet := make(map[string]bool, len(enabled))
+	for _, p := range enabled {
+		enabledSet[p] = true
+	}
 	m, err := s.movie.GetByMid(ctx, mid)
 	if err != nil {
 		if errors.Is(err, domain.ErrMovieNotFound) {
@@ -119,7 +155,7 @@ func (s *DanmuService) loadDanmuSource(ctx context.Context, mid int64) (DanmuSou
 	providers := make([]DanmuProvider, 0, len(vendors))
 	for _, v := range vendors {
 		pr, ok := danmu.ParsePlatformResource(v.URI)
-		if !ok {
+		if !ok || !enabledSet[pr.Provider] {
 			continue
 		}
 		providers = append(providers, DanmuProvider{Provider: pr.Provider, ResourceID: pr.ResourceID})
@@ -142,6 +178,10 @@ func (s *DanmuService) loadDanmuSource(ctx context.Context, mid int64) (DanmuSou
 // 业务无数据（无匹配集/壳 ok=false/空弹幕）→ 负缓存 2h（挡低频片重复回源）。
 // handler 对 error 返回 500，前端 .catch 后静默（不阻塞播放，用户体验不变）。
 func (s *DanmuService) DanmuBilibili(ctx context.Context, seasonID string, episode int) ([]DanmuComment, error) {
+	// 受后台配置控制：未启用 bilibili → 400（与路径 B 同一白名单）。
+	if err := s.validatePathBProvider(ctx, "bilibili"); err != nil {
+		return nil, err
+	}
 	comments, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuBiliCmt(seasonID, episode),
 		danmuSourceTTL, danmuEmptyTTL,
 		func(ctx context.Context) ([]DanmuComment, bool, error) {
@@ -250,7 +290,7 @@ type DanmuSegment struct {
 // 返回 found=false 表示无匹配集（前端静默无弹幕）；错误分两档：
 // provider 未启用 → ErrInvalidArgument（400）；danmu-service 不可用 → 500。
 func (s *DanmuService) DanmuEpisodes(ctx context.Context, provider, resourceID string, episode int) (DanmuMatched, bool, error) {
-	if err := validatePathBProvider(provider); err != nil {
+	if err := s.validatePathBProvider(ctx, provider); err != nil {
 		return DanmuMatched{}, false, err
 	}
 	epsURL := fmt.Sprintf("%s/danmu/%s/episodes?resourceId=%s&episode=%d",
@@ -272,7 +312,7 @@ func (s *DanmuService) DanmuEpisodes(ctx context.Context, provider, resourceID s
 
 // DanmuSegments 路径 B 分段索引（segments 接口转发；不缓存，进片一次）。
 func (s *DanmuService) DanmuSegments(ctx context.Context, provider, episodeID string) ([]DanmuSegment, error) {
-	if err := validatePathBProvider(provider); err != nil {
+	if err := s.validatePathBProvider(ctx, provider); err != nil {
 		return nil, err
 	}
 	segURL := fmt.Sprintf("%s/danmu/%s/segments?episodeId=%s", s.danmuURL, provider, url.QueryEscape(episodeID))
@@ -292,7 +332,7 @@ func (s *DanmuService) DanmuSegments(ctx context.Context, provider, episodeID st
 // DanmuComments 路径 B 单段弹幕（comments 接口转发；缓存 v1:danmu:seg）。
 // 降级分轨同路径 A：调用失败 → error（不缓存）；业务无数据 → 负缓存 2h。
 func (s *DanmuService) DanmuComments(ctx context.Context, provider, episodeID, segmentID string) ([]DanmuComment, error) {
-	if err := validatePathBProvider(provider); err != nil {
+	if err := s.validatePathBProvider(ctx, provider); err != nil {
 		return nil, err
 	}
 	comments, _, err := cache.GetOrLoadTTL(ctx,
