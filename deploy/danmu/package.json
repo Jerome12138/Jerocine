@@ -1,0 +1,27 @@
+{
+  "name": "jerocine-danmu-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Jerocine 弹幕数据服务壳（复用上游 @rexnow/scraper-kit，无自研抓取逻辑）",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"test/*.test.mjs\"",
+    "smoke:bilibili": "node smoke/smoke_bilibili.mjs",
+    "smoke:tencent": "node smoke/smoke_scraperkit.mjs",
+    "postinstall": "node scripts/link-rexnow.mjs"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "date-fns": "^4.1.0",
+    "es-toolkit": "^1.39.9",
+    "fast-xml-parser": "^5.2.5",
+    "protobufjs": "^8.4.2",
+    "querystringify": "^2.2.0",
+    "url-parse": "^1.5.10",
+    "zod": "4.0.17"
+  }
+}
