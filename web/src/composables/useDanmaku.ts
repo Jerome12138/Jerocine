@@ -34,6 +34,17 @@ import { prefetchWindow, resolveDanmuProvider, shouldPrefetchNext, toDanmuInputs
 
 export const DANMAKU_PROVIDER_KEY = 'jc-danmaku-provider'
 export const DANMAKU_DEFAULT_PROVIDER = 'bilibili'
+
+/**
+ * 弹幕 UI 状态（用户要求 2026-10-25: 无源/查无/失败都必须有显示, 不许静默）:
+ *   idle         开关关 / 无 mid
+ *   loading      查询装载中
+ *   unsupported  无候选源（接口失败或平台无此片）—— "该片暂无弹幕"
+ *   empty        有候选源但拉不到内容（平台无对应集/分段/内容为空）—— "未找到弹幕"
+ *   failed       装载链路异常（请求失败/弹幕库未加载）—— "弹幕加载失败", 可重试
+ *   ready        已装载, 弹幕可见
+ */
+export type DanmuState = 'idle' | 'loading' | 'unsupported' | 'empty' | 'failed' | 'ready'
 /** 路径 B 预拉窗口：当前段 + 后续 2 段（§六 风险表：腾讯 67 段×100~250KB, 窗口控制请求量） */
 const TENCENT_PREFETCH_SPAN = 3
 /** 预拉提前量（秒）：距下段边界 <1s 就开始拉, 避免边界卡顿 */
@@ -84,6 +95,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   const provider = ref<string>(readProviderPref())
   /** 是否有弹幕可显示（源存在 && 拉取非空; 供 UI 显示状态） */
   const hasDanmaku = ref(false)
+  /** UI 状态机（三态显示的单一来源, 语义见 {@link DanmuState}） */
+  const danmuState = ref<DanmuState>('idle')
 
   let manager: CommentManagerLike | null = null
 
@@ -133,13 +146,15 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     loadedSegs.clear()
   }
 
-  /** 从 t 所在段起装载"当前段 + 后续 2 段"（已装载的跳过；token 竞态保护） */
-  async function loadTencentFrom(t: number, token: number): Promise<void> {
+  /** 从 t 所在段起装载"当前段 + 后续 2 段"（已装载的跳过；token 竞态保护）。
+   *  返回本窗口是否有请求失败（内容空 ≠ 失败, 供上层区分 empty/failed 态）。 */
+  async function loadTencentFrom(t: number, token: number): Promise<boolean> {
     if (!tencentCtx) {
-      return
+      return false
     }
     const { episodeId, segments } = tencentCtx
     const { start, end } = prefetchWindow(segments, t, TENCENT_PREFETCH_SPAN)
+    let anyFail = false
     for (let i = start; i < end; i += 1) {
       const seg = segments[i]
       if (!seg || loadedSegs.has(seg.segmentId)) {
@@ -148,8 +163,12 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       const resp = await filmApi
         .getDanmuTencentComments({ episodeId, segmentId: seg.segmentId })
         .catch(() => null)
-      if (token !== loadToken || !resp?.ok || !resp.data) {
-        return
+      if (token !== loadToken) {
+        return false
+      }
+      if (!resp?.ok || !resp.data) {
+        anyFail = true
+        continue
       }
       const input = toDanmuInputs(resp.data)
       if (input.length > 0) {
@@ -157,6 +176,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       }
       loadedSegs.add(seg.segmentId)
     }
+    return anyFail
   }
 
   /** 跨段预拉：距下段边界 < 提前量且未装载时，从当前时间起再拉一段窗口 */
@@ -174,38 +194,57 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   /* ---------------- 装载（按平台分叉） ---------------- */
 
   let loadToken = 0
-  /** 拉取并装载当前集弹幕（token 防竞态：快速切集时旧请求结果不落地） */
+  /**
+   * 拉取并装载当前集弹幕（token 防竞态：快速切集时旧请求结果不落地）。
+   *
+   * 顺序铁律: **先落 providers（UI 立刻有所指）, 再建 manager 装载内容**。
+   * 曾反过来（先 ensureManager 后取源）叠加模板弹幕层 v-if=providers 非空:
+   * providers 空 → stage 不渲染 → manager 建不起来 → providers 永远为空 ⇒
+   * 按钮/弹幕层/源切换全不显示（2026-10-25 线上实测, 回归见 useDanmaku.spec.ts）。
+   */
   async function loadDanmaku(): Promise<void> {
     const token = ++loadToken
     clearDanmaku()
     resetTencent()
     hasDanmaku.value = false
     if (!opts.enabled.value || !opts.mid.value) {
+      danmuState.value = 'idle'
       return
     }
-    ensureManager()
-    if (!manager) {
-      return
-    }
+    danmuState.value = 'loading'
     const src = await filmApi.getDanmuSource(opts.mid.value).catch(() => null)
-    if (token !== loadToken || !src) {
+    if (token !== loadToken) {
+      return
+    }
+    if (!src) {
+      // 接口失败也按"暂无弹幕"显示 —— 任何查不到弹幕的情况都要有明确反馈, 不许静默
+      providers.value = []
+      danmuState.value = 'unsupported'
       return
     }
     const list = src.providers ?? []
     providers.value = list
     if (list.length === 0) {
+      danmuState.value = 'unsupported'
+      return
+    }
+    ensureManager()
+    if (!manager) {
+      danmuState.value = 'failed' // 弹幕库(window.CommentCoreLibrary)未加载
       return
     }
     // 选中平台：偏好优先；不在候选里时回退 bilibili → 首个（纯函数 resolveDanmuProvider，逐分支单测覆盖）
     const picked = resolveDanmuProvider(list, provider.value, DANMAKU_DEFAULT_PROVIDER)
     if (!picked) {
-      return // list 非空（上方已 return），双保险
+      danmuState.value = 'unsupported' // list 非空（上方已 return），双保险
+      return
     }
     if (picked.fellBack) {
       provider.value = picked.provider // 持久化回写，下次进来不再走回退链
     }
     const sel = picked.entry
     if (!sel.resourceId) {
+      danmuState.value = 'unsupported'
       return
     }
 
@@ -221,11 +260,16 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     const resp = await filmApi
       .getDanmuBilibili({ seasonId: sel.resourceId, episode: Math.max(1, opts.episode.value) })
       .catch(() => null)
-    if (token !== loadToken || !resp) {
+    if (token !== loadToken) {
+      return
+    }
+    if (!resp) {
+      danmuState.value = 'failed'
       return
     }
     const input = toDanmuInputs(resp.comments)
     if (input.length === 0) {
+      danmuState.value = 'empty'
       return
     }
     manager?.load(input)
@@ -235,6 +279,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       manager?.stop()
     }
     hasDanmaku.value = true
+    danmuState.value = 'ready'
   }
 
   /** 路径 B：腾讯分段点播（episodes 匹配 → segments 索引 → 按进度预拉 3 段） */
@@ -242,22 +287,44 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     const eps = await filmApi
       .getDanmuTencentEpisodes({ resourceId: sel.resourceId, episode: Math.max(1, opts.episode.value) })
       .catch(() => null)
-    if (token !== loadToken || !eps?.ok || !eps.data.matched?.episodeId) {
-      return // 无匹配集 → 静默无弹幕
+    if (token !== loadToken) {
+      return
+    }
+    if (!eps?.ok) {
+      danmuState.value = 'failed'
+      return
+    }
+    if (!eps.data.matched?.episodeId) {
+      danmuState.value = 'empty' // 平台无对应集
+      return
     }
     const episodeId = eps.data.matched.episodeId
     const segs = await filmApi.getDanmuTencentSegments(episodeId).catch(() => null)
-    if (token !== loadToken || !segs?.ok || segs.data.length === 0) {
+    if (token !== loadToken) {
+      return
+    }
+    if (!segs?.ok) {
+      danmuState.value = 'failed'
+      return
+    }
+    if (segs.data.length === 0) {
+      danmuState.value = 'empty'
       return
     }
     tencentCtx = { episodeId, segments: segs.data }
-    await loadTencentFrom(playerSeconds(), token)
+    const anyFail = await loadTencentFrom(playerSeconds(), token)
+    if (token !== loadToken) {
+      return
+    }
     if (loadedSegs.size > 0) {
       manager?.time(playerSeconds())
       if (!opts.playing.value) {
         manager?.stop()
       }
       hasDanmaku.value = true
+      danmuState.value = 'ready'
+    } else {
+      danmuState.value = anyFail ? 'failed' : 'empty'
     }
   }
 
@@ -323,5 +390,5 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     manager = null
   })
 
-  return { stage, providers, provider, setProvider, hasDanmaku, reload: () => void loadDanmaku() }
+  return { stage, providers, provider, setProvider, hasDanmaku, danmuState, reload: () => void loadDanmaku() }
 }

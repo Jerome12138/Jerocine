@@ -852,7 +852,44 @@ const danmakuStage = danmaku.stage
 const danmakuProviders = danmaku.providers
 const danmakuProvider = danmaku.provider
 const danmakuSetProvider = danmaku.setProvider
-const danmakuHas = danmaku.hasDanmaku
+const danmakuState = danmaku.danmuState
+
+/**
+ * 弹幕入口三态（用户要求 2026-10-25: 该片不支持 / 没查到 / 加载失败, 都要有显示, 不许静默）:
+ *   可用（ready/loading/idle+开关）→ 正常开关;
+ *   不可用（unsupported/empty/failed）→ 按钮置灰但仍显示, 点击给原因; failed 可重试。
+ * 不用 disabled 属性: TV 遥控器焦点会跳过禁用按钮, 用户看不到原因 —— aria-disabled + 点击反馈。
+ */
+const danmakuUnavailable = computed(
+  () =>
+    danmakuState.value === 'unsupported' ||
+    danmakuState.value === 'empty' ||
+    danmakuState.value === 'failed'
+)
+const danmakuHint = computed(() => {
+  switch (danmakuState.value) {
+    case 'unsupported':
+      return '该片暂无弹幕源'
+    case 'empty':
+      return '未找到弹幕内容'
+    case 'failed':
+      return '弹幕加载失败, 点击重试'
+    default:
+      return ''
+  }
+})
+function onDanmakuEntryClick(): void {
+  if (danmakuState.value === 'failed') {
+    danmaku.reload()
+    toast('info', '正在重新加载弹幕…')
+    return
+  }
+  if (danmakuUnavailable.value) {
+    toast('info', danmakuHint.value)
+    return
+  }
+  toggleDanmaku()
+}
 
 /** 弹幕源显示名（D3：bilibili/tencent 等） */
 function danmakuProviderName(p: string): string {
@@ -1841,12 +1878,15 @@ watch(playerReady, (v) => {
                  (右上角广告角标/手势提示消失的根因)。player 未初始化时宿主为空 → 留在原位。 -->
             <Teleport :to="playerOverlayHost || 'body'" :disabled="!playerOverlayHost">
               <!-- 弹幕层(P0): 独立 DOM 层叠在 video.js 容器内, 全屏同样可见;
-                   不拦截任何指针事件; z-index 置于控制条之下、视频画面之上。 -->
+                   不拦截任何指针事件; z-index 置于控制条之下、视频画面之上。
+                   **常驻不 v-if**: useDanmaku 的 manager 创建依赖 stage 挂载, 而 stage 又曾
+                   v-if=providers 非空 ⇒ 鸡生蛋死锁(providers 永远为空, 按钮全不显示,
+                   2026-10-25 线上实测)。空层无视觉影响(库未装载时无 .cmt 节点), 可见性
+                   由 --off(visibility) 按开关/就绪态控制, 指针事件本就 none。 -->
               <div
-                v-if="danmakuProviders.length > 0"
                 ref="danmakuStage"
                 class="jc-danmaku-stage"
-                :class="{ 'jc-danmaku-stage--off': !danmakuEnabled }"
+                :class="{ 'jc-danmaku-stage--off': !danmakuEnabled || danmakuState !== 'ready' }"
                 aria-hidden="true"
               />
               <!-- 长按临时倍速提示(顶部居中) -->
@@ -1962,13 +2002,14 @@ watch(playerReady, (v) => {
             <BaseIcon name="shield" size="26px" /><span>广告</span>
           </button>
           <button
-            v-if="danmakuProviders.length > 0"
             type="button"
             class="jc-pt-btn"
-            :class="danmakuEnabled ? 'is-on' : ''"
+            :class="[{ 'is-on': danmakuEnabled && !danmakuUnavailable }, danmakuUnavailable ? 'is-disabled' : '']"
             :aria-pressed="danmakuEnabled"
+            :aria-disabled="danmakuUnavailable"
+            :title="danmakuUnavailable ? danmakuHint : danmakuEnabled ? '关闭弹幕' : '开启弹幕'"
             data-focusable="true"
-            @click="toggleDanmaku"
+            @click="onDanmakuEntryClick"
           >
             <BaseIcon name="chat" size="26px" /><span>弹幕</span>
           </button>
@@ -2051,10 +2092,11 @@ watch(playerReady, (v) => {
                     <span class="jc-pt-more__item-label">过滤广告</span>
                     <span v-if="adFilter" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
-                  <button v-if="danmakuProviders.length > 0" type="button" class="jc-pt-more__item" :class="danmakuEnabled ? 'is-on' : ''" :aria-pressed="danmakuEnabled" @click="toggleDanmaku">
+                  <!-- 弹幕开关: 常驻显示(不可用时置灰+原因, 点击给反馈; failed 点击重试) -->
+                  <button type="button" class="jc-pt-more__item" :class="[danmakuEnabled && !danmakuUnavailable ? 'is-on' : '', danmakuUnavailable ? 'is-disabled' : '']" :aria-pressed="danmakuEnabled" :aria-disabled="danmakuUnavailable" @click="onDanmakuEntryClick">
                     <BaseIcon name="chat" size="16px" />
-                    <span class="jc-pt-more__item-label">弹幕</span>
-                    <span v-if="danmakuEnabled" class="jc-pt-more__check" aria-hidden="true">✓</span>
+                    <span class="jc-pt-more__item-label">弹幕<template v-if="danmakuUnavailable"> · {{ danmakuHint }}</template></span>
+                    <span v-if="danmakuEnabled && !danmakuUnavailable" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
                   <button v-if="danmakuProviders.length > 1" type="button" class="jc-pt-more__item" @click="cycleDanmakuProvider(); moreActionsOpen = false">
                     <BaseIcon name="refresh" size="16px" />
@@ -2526,6 +2568,12 @@ watch(playerReady, (v) => {
 .jc-pt-more__item.is-on {
   color: var(--jc-brand-primary);
 }
+/* 弹幕不可用(无源/查无/失败): 置灰但仍可点击(点击给原因, failed 重试) */
+.jc-pt-more__item.is-disabled {
+  color: var(--jc-text-tertiary, var(--jc-text-secondary));
+  opacity: 0.55;
+  cursor: default;
+}
 .jc-pt-more__check {
   flex: 0 0 auto;
   color: var(--jc-brand-primary);
@@ -2899,6 +2947,12 @@ watch(playerReady, (v) => {
 }
 .jc-pt-btn.is-on {
   color: var(--jc-brand-cyan);
+}
+/* 弹幕不可用(无源/查无/失败): 置灰但仍可聚焦可点击(TV 遥控器也要能选中看原因) */
+.jc-pt-btn.is-disabled {
+  color: var(--jc-text-tertiary, var(--jc-text-secondary));
+  opacity: 0.55;
+  cursor: default;
 }
 .jc-pt-btn--primary {
   background-image: var(--jc-brand-gradient);

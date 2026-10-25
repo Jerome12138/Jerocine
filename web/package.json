@@ -13,7 +13,7 @@
     "verify:dist": "node scripts/verify-build-layout.mjs",
     "lint": "eslint . --ext .ts,.vue --fix",
     "format": "prettier --write src/",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism",
     "test:watch": "vitest",
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
