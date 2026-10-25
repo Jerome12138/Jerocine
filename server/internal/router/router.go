@@ -30,6 +30,11 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	// 弹幕: 来源候选(低频, 轻限流) + B站弹幕代理(公开无鉴权, 评审 7.2 必须限流)。
 	v1.GET("/films/:mid/danmu/source", middleware.RateLimit("danmusrc", 30, 5), h.DanmuSource)
 	v1.GET("/danmu/bilibili", middleware.RateLimit("danmu", 30, 10), h.DanmuBilibili)
+	// 路径 B 分段点播（腾讯等）：episodes 分集匹配 / segments 分段索引 / comments 单段弹幕。
+	// 前端按 currentTime 预拉（当前段+后续 2 段），单请求 3s 超时（service segHC）。
+	v1.GET("/danmu/tencent/episodes", middleware.RateLimit("danmu", 30, 10), h.DanmuTencentEpisodes)
+	v1.GET("/danmu/tencent/segments", middleware.RateLimit("danmu", 30, 10), h.DanmuTencentSegments)
+	v1.GET("/danmu/tencent/comments", middleware.RateLimit("danmu", 30, 10), h.DanmuTencentComments)
 	v1.GET("/config/site", h.SiteConfig)
 	v1.GET("/banners", h.HomeBanners)
 	v1.GET("/app/version/latest", h.VersionLatest)

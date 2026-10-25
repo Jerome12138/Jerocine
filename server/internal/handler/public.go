@@ -52,6 +52,70 @@ func (h *Handlers) DanmuBilibili(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"comments": comments})
 }
 
+// DanmuTencentEpisodes GET /danmu/tencent/episodes?resourceId=&episode= —— 腾讯分集匹配。
+// 路径 B 分段点播第一步：拿 matched.episodeId（复合串，前端 encodeURIComponent 后透传）。
+// 无匹配集 → 200 { matched: null }（前端静默无弹幕）；danmu-service 不可用 → 500。
+func (h *Handlers) DanmuTencentEpisodes(c *gin.Context) {
+	resourceID := strings.TrimSpace(c.Query("resourceId"))
+	if resourceID == "" {
+		dto.Error(c, http.StatusBadRequest, "missing resourceId")
+		return
+	}
+	episode := queryInt(c, "episode", 1)
+	matched, found, err := h.Danmu.DanmuTencentEpisodes(c.Request.Context(), resourceID, episode)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	if !found {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"matched": nil}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"matched": matched}})
+}
+
+// DanmuTencentSegments GET /danmu/tencent/segments?episodeId= —— 腾讯弹幕分段索引。
+// episodeId 为复合串（cid=..&vid=..），必须 encodeURIComponent 透传。
+func (h *Handlers) DanmuTencentSegments(c *gin.Context) {
+	episodeID := strings.TrimSpace(c.Query("episodeId"))
+	if episodeID == "" {
+		dto.Error(c, http.StatusBadRequest, "missing episodeId")
+		return
+	}
+	segments, err := h.Danmu.DanmuTencentSegments(c.Request.Context(), episodeID)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	if segments == nil {
+		segments = []service.TencentSegment{}
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "data": segments})
+}
+
+// DanmuTencentComments GET /danmu/tencent/comments?episodeId=&segmentId= —— 腾讯单段弹幕。
+func (h *Handlers) DanmuTencentComments(c *gin.Context) {
+	episodeID := strings.TrimSpace(c.Query("episodeId"))
+	if episodeID == "" {
+		dto.Error(c, http.StatusBadRequest, "missing episodeId")
+		return
+	}
+	segmentID := strings.TrimSpace(c.Query("segmentId"))
+	if segmentID == "" {
+		dto.Error(c, http.StatusBadRequest, "missing segmentId")
+		return
+	}
+	comments, err := h.Danmu.DanmuTencentComments(c.Request.Context(), episodeID, segmentID)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	if comments == nil {
+		comments = []service.DanmuComment{}
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "data": comments})
+}
+
 // Home GET /home
 func (h *Handlers) Home(c *gin.Context) {
 	data, err := h.Film.Home(c.Request.Context())
