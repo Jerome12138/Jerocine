@@ -45,6 +45,29 @@ test('秒→毫秒转换：浮点秒 49.953 → 49953（B站），整数秒 2 �
   assert.equal(comments[1].mode, 4);
 });
 
+test('color 归一到 uint32：腾讯实测给浮点数(16622137.5)，透传会让 Go unmarshal 500', async () => {
+  // 线上踩坑：mid=3 腾讯源 comments 500 —— json: cannot unmarshal number
+  // 16622137.5 into Go struct field .data.100.color of type uint32。
+  _setRegistryForTest({
+    scraperMap: {
+      tencent: makeFakeScraper({
+        getComments: async () => [
+          { content: '浮点色', timestamp: 1, color: 16622137.5, mode: 1 }, // 0xFE0409.5
+          { content: '越界带 alpha', timestamp: 2, color: 4278255360, mode: 1 }, // 0xFF00FF00 > 24 位
+          { content: '负数', timestamp: 3, color: -1, mode: 1 },
+          { content: 'null', timestamp: 4, color: null, mode: 1 },
+        ],
+      }),
+    },
+  });
+  const comments = await fetchComments('tencent', 'cid=mzc002003kpyd2m&vid=x4102k7l6gg', 't/v1/0/30000');
+  assert.equal(comments[0].color, 16622137, '浮点应 floor 到整数（线上实测原值）');
+  assert.equal(comments[1].color, 0x00ff00, '超 24 位按 RGB 掩码截断');
+  assert.equal(comments[2].color, 0xffffff, '负数回退白色');
+  assert.equal(comments[3].color, 0xffffff, 'null 回退白色');
+  for (const c of comments) assert.ok(Number.isInteger(c.color), 'color 必须是整数');
+});
+
 test('整集聚合：不传 segmentId → 遍历所有段并合并（29 段场景），带 ≥200ms 节流', async () => {
   let segCalls = 0;
   let cmtCalls = 0;

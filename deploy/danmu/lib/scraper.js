@@ -171,7 +171,7 @@ export async function fetchComments(provider, episodeId, segmentId, { signal } =
         out.push({
           text: it.content,
           time: Math.round(it.timestamp * 1000), // 秒→毫秒（壳内唯一转换点）
-          color: it.color ?? 0xffffff,
+          color: normalizeColor(it.color),
           mode: it.mode ?? 1,
         });
       }
@@ -202,6 +202,20 @@ export class ScraperError extends Error {
 
 function abortIf(signal) {
   if (signal?.aborted) throw new ScraperError(504, 'request aborted');
+}
+
+/**
+ * 颜色归一到 Go 契约（DanmuComment.Color uint32）—— 壳是唯一规范化点。
+ * 线上实测踩坑：腾讯 comments 的 color 是**浮点数**（如 16622137.5 = 0xFE0409 红），
+ * 原样透传会让 Go json.Unmarshal 到 uint32 直接报错 → 整个 comments 请求 500、
+ * 该段无弹幕（用户侧表现 = "开了弹幕看不到"）。非法值（NaN/负数/空）回退白色；
+ * 超过 24 位的按 RGB 掩码截断（个别平台带 alpha 高位）。
+ */
+function normalizeColor(raw) {
+  if (raw === null || raw === undefined || raw === '') return 0xffffff;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0xffffff;
+  return Math.floor(n) & 0xffffff;
 }
 
 function sleep(ms) {
