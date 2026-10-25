@@ -7,7 +7,8 @@ import {
 } from 'vue'
 import type Player from 'video.js/dist/types/player'
 import { filmApi } from '@/api'
-import type { DanmuComment, DanmuProvider, DanmuTencentSegment } from '@/types/film'
+import type { DanmuProvider, DanmuTencentSegment } from '@/types/film'
+import { prefetchWindow, resolveDanmuProvider, shouldPrefetchNext, toDanmuInputs } from '@/utils/danmu'
 
 /**
  * 弹幕（D3）—— 方案 §8.2 双路径：
@@ -132,30 +133,13 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     loadedSegs.clear()
   }
 
-  /** 取 currentTime 所在段的索引（含 t 的最后一段; 0 段起始为 0） */
-  function segmentIndexAt(t: number): number {
-    if (!tencentCtx) {
-      return 0
-    }
-    const segs = tencentCtx.segments
-    let idx = 0
-    for (let i = 0; i < segs.length; i += 1) {
-      const seg = segs[i]
-      if (seg && seg.startTime <= t) {
-        idx = i
-      }
-    }
-    return idx
-  }
-
   /** 从 t 所在段起装载"当前段 + 后续 2 段"（已装载的跳过；token 竞态保护） */
   async function loadTencentFrom(t: number, token: number): Promise<void> {
     if (!tencentCtx) {
       return
     }
     const { episodeId, segments } = tencentCtx
-    const start = segmentIndexAt(t)
-    const end = Math.min(start + TENCENT_PREFETCH_SPAN, segments.length)
+    const { start, end } = prefetchWindow(segments, t, TENCENT_PREFETCH_SPAN)
     for (let i = start; i < end; i += 1) {
       const seg = segments[i]
       if (!seg || loadedSegs.has(seg.segmentId)) {
@@ -167,12 +151,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       if (token !== loadToken || !resp?.ok || !resp.data) {
         return
       }
-      const input = resp.data.map((c: DanmuComment) => ({
-        stime: c.time / 1000,
-        mode: c.mode,
-        color: c.color,
-        text: c.text
-      }))
+      const input = toDanmuInputs(resp.data)
       if (input.length > 0) {
         manager?.load(input)
       }
@@ -186,9 +165,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return
     }
     const t = playerSeconds()
-    const segs = tencentCtx.segments
-    const next = segs.find((s) => s.startTime > t)
-    if (!next || loadedSegs.has(next.segmentId) || t < next.startTime - TENCENT_PREFETCH_LEAD) {
+    if (!shouldPrefetchNext(tencentCtx.segments, t, TENCENT_PREFETCH_LEAD, loadedSegs)) {
       return
     }
     void loadTencentFrom(t, loadToken)
@@ -219,20 +196,20 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (list.length === 0) {
       return
     }
-    // 选中平台：偏好优先；不在候选里时回退 bilibili → 首个
-    let p = provider.value
-    if (!list.some((it) => it.provider === p)) {
-      p = list.some((it) => it.provider === DANMAKU_DEFAULT_PROVIDER)
-        ? DANMAKU_DEFAULT_PROVIDER
-        : list[0]!.provider // list 非空（上方已 return），首个兜底
-      provider.value = p
+    // 选中平台：偏好优先；不在候选里时回退 bilibili → 首个（纯函数 resolveDanmuProvider，逐分支单测覆盖）
+    const picked = resolveDanmuProvider(list, provider.value, DANMAKU_DEFAULT_PROVIDER)
+    if (!picked) {
+      return // list 非空（上方已 return），双保险
     }
-    const sel = list.find((it) => it.provider === p) ?? list[0]
-    if (!sel?.resourceId) {
+    if (picked.fellBack) {
+      provider.value = picked.provider // 持久化回写，下次进来不再走回退链
+    }
+    const sel = picked.entry
+    if (!sel.resourceId) {
       return
     }
 
-    if (p === 'tencent') {
+    if (picked.provider === 'tencent') {
       await loadTencentEpisode(sel, token)
       return
     }
@@ -247,12 +224,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (token !== loadToken || !resp) {
       return
     }
-    const input = resp.comments.map((c: DanmuComment) => ({
-      stime: c.time / 1000,
-      mode: c.mode,
-      color: c.color,
-      text: c.text
-    }))
+    const input = toDanmuInputs(resp.comments)
     if (input.length === 0) {
       return
     }
