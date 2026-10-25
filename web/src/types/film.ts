@@ -257,3 +257,30 @@ export interface DanmuComment {
 export interface DanmuBilibiliResp {
   comments: DanmuComment[]
 }
+
+/** GET /danmu/tencent/episodes 响应（matched=null 表示无匹配集 → 静默无弹幕） */
+export interface DanmuTencentEpisodesResp {
+  ok: boolean
+  data: {
+    matched: { episodeId: string } | null
+  }
+}
+
+/** 腾讯弹幕分段（startTime 秒） */
+export interface DanmuTencentSegment {
+  provider: string
+  startTime: number
+  segmentId: string
+}
+
+/** GET /danmu/tencent/segments 响应 */
+export interface DanmuTencentSegmentsResp {
+  ok: boolean
+  data: DanmuTencentSegment[]
+}
+
+/** GET /danmu/tencent/comments 响应 */
+export interface DanmuTencentCommentsResp {
+  ok: boolean
+  data: DanmuComment[]
+}

@@ -14,7 +14,10 @@ import type {
   NavCategory,
   PlayInfo,
   DanmuSourceResp,
-  DanmuBilibiliResp
+  DanmuBilibiliResp,
+  DanmuTencentEpisodesResp,
+  DanmuTencentSegmentsResp,
+  DanmuTencentCommentsResp
 } from '@/types/film'
 
 /** GET /home 首页聚合(SWR: 首屏最重, 切回直接复用 + 后台静默刷新) */
@@ -91,3 +94,21 @@ export const getDanmuBilibili = (params: {
   episode: number
 }): Promise<DanmuBilibiliResp> =>
   http.get<unknown, DanmuBilibiliResp>('/danmu/bilibili', { params })
+
+/** GET /danmu/tencent/episodes 腾讯分集匹配（拿 matched.episodeId 复合串，后续须 encodeURIComponent） */
+export const getDanmuTencentEpisodes = (params: {
+  resourceId: string
+  episode: number
+}): Promise<DanmuTencentEpisodesResp> =>
+  http.get<unknown, DanmuTencentEpisodesResp>('/danmu/tencent/episodes', { params })
+
+/** GET /danmu/tencent/segments 腾讯弹幕分段索引（startTime 秒，按段起始排序） */
+export const getDanmuTencentSegments = (episodeId: string): Promise<DanmuTencentSegmentsResp> =>
+  http.get<unknown, DanmuTencentSegmentsResp>('/danmu/tencent/segments', { params: { episodeId } })
+
+/** GET /danmu/tencent/comments 腾讯单段弹幕 */
+export const getDanmuTencentComments = (params: {
+  episodeId: string
+  segmentId: string
+}): Promise<DanmuTencentCommentsResp> =>
+  http.get<unknown, DanmuTencentCommentsResp>('/danmu/tencent/comments', { params })

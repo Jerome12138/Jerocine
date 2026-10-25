@@ -848,8 +848,30 @@ const danmaku = useDanmaku({
   onPlayerEvent: (event, fn) => onPlayerEvent(event, fn)
 })
 const danmakuStage = danmaku.stage
-const danmakuSource = danmaku.available
+/** D3 起：available 改为全平台候选列表（providers）；弹幕按钮/源切换都依赖它 */
+const danmakuProviders = danmaku.providers
+const danmakuProvider = danmaku.provider
+const danmakuSetProvider = danmaku.setProvider
 const danmakuHas = danmaku.hasDanmaku
+
+/** 弹幕源显示名（D3：bilibili/tencent 等） */
+function danmakuProviderName(p: string): string {
+  return { bilibili: 'B站', tencent: '腾讯', iqiyi: '爱奇艺', youku: '优酷' }[p] ?? p
+}
+
+/** 循环切换到下一个弹幕源（工具栏/更多菜单共用） */
+function cycleDanmakuProvider(): void {
+  const list = danmakuProviders.value
+  if (list.length < 2) {
+    return
+  }
+  const cur = danmakuProvider.value
+  const idx = list.findIndex((it) => it.provider === cur)
+  const next = list[(idx + 1) % list.length]
+  if (next) {
+    danmakuSetProvider(next.provider)
+  }
+}
 
 /** ---------- 历史记录 ---------- */
 /** #4: 倒数 5 分钟内不记录播放记忆 —— 看完/退出在片尾附近时, 不写进度,
@@ -1821,7 +1843,7 @@ watch(playerReady, (v) => {
               <!-- 弹幕层(P0): 独立 DOM 层叠在 video.js 容器内, 全屏同样可见;
                    不拦截任何指针事件; z-index 置于控制条之下、视频画面之上。 -->
               <div
-                v-if="danmakuSource"
+                v-if="danmakuProviders.length > 0"
                 ref="danmakuStage"
                 class="jc-danmaku-stage"
                 :class="{ 'jc-danmaku-stage--off': !danmakuEnabled }"
@@ -1940,7 +1962,7 @@ watch(playerReady, (v) => {
             <BaseIcon name="shield" size="26px" /><span>广告</span>
           </button>
           <button
-            v-if="danmakuSource"
+            v-if="danmakuProviders.length > 0"
             type="button"
             class="jc-pt-btn"
             :class="danmakuEnabled ? 'is-on' : ''"
@@ -1949,6 +1971,16 @@ watch(playerReady, (v) => {
             @click="toggleDanmaku"
           >
             <BaseIcon name="chat" size="26px" /><span>弹幕</span>
+          </button>
+          <button
+            v-if="danmakuProviders.length > 1"
+            type="button"
+            class="jc-pt-btn jc-pt-btn--src"
+            data-focusable="true"
+            :title="'切换弹幕源（当前：' + danmakuProviderName(danmakuProvider) + '）'"
+            @click="cycleDanmakuProvider"
+          >
+            <span class="jc-pt-btn-src-label">{{ danmakuProviderName(danmakuProvider) }}</span>
           </button>
           <button type="button" class="jc-pt-btn" :class="favorited ? 'is-on' : ''" :aria-pressed="favorited" data-focusable="true" @click="toggleFavorite">
             <BaseIcon name="star" size="26px" /><span>{{ favorited ? '已收藏' : '收藏' }}</span>
@@ -2019,10 +2051,14 @@ watch(playerReady, (v) => {
                     <span class="jc-pt-more__item-label">过滤广告</span>
                     <span v-if="adFilter" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
-                  <button v-if="danmakuSource" type="button" class="jc-pt-more__item" :class="danmakuEnabled ? 'is-on' : ''" :aria-pressed="danmakuEnabled" @click="toggleDanmaku">
+                  <button v-if="danmakuProviders.length > 0" type="button" class="jc-pt-more__item" :class="danmakuEnabled ? 'is-on' : ''" :aria-pressed="danmakuEnabled" @click="toggleDanmaku">
                     <BaseIcon name="chat" size="16px" />
                     <span class="jc-pt-more__item-label">弹幕</span>
                     <span v-if="danmakuEnabled" class="jc-pt-more__check" aria-hidden="true">✓</span>
+                  </button>
+                  <button v-if="danmakuProviders.length > 1" type="button" class="jc-pt-more__item" @click="cycleDanmakuProvider(); moreActionsOpen = false">
+                    <BaseIcon name="refresh" size="16px" />
+                    <span class="jc-pt-more__item-label">弹幕源：{{ danmakuProviderName(danmakuProvider) }}</span>
                   </button>
                   <div class="jc-pt-more__sep" aria-hidden="true" />
                   <!-- 动作项: 点击后关菜单 -->
@@ -2871,6 +2907,16 @@ watch(playerReady, (v) => {
 .jc-pt-btn--accent {
   color: var(--jc-brand-cyan);
   border: 1px solid var(--jc-brand-cyan);
+}
+/* 弹幕源切换按钮: 与弹幕开关同高, 紧凑标签（D3 新增） */
+.jc-pt-btn--src {
+  min-width: auto;
+  padding-inline: var(--jc-space-4);
+}
+.jc-pt-btn-src-label {
+  font-size: var(--jc-fs-xs) !important;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
 }
 .jc-pt-btn:disabled {
   opacity: 0.4;
