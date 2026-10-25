@@ -170,6 +170,13 @@ type SiteConfig struct {
 	// SpiderSlaveMaxWorkers 从站采集并发硬上限(默认 8): 从站只写播放源行, 但高并发会瞬时冲击
 	// 源站 API(实测 403/限流), 故收敛更低; 后台可调。
 	SpiderSlaveMaxWorkers int   `gorm:"column:spider_slave_max_workers" json:"-"`
+	// ---- 弹幕服务(Danmu)后台配置 ----
+	// DanmuEnabled 弹幕总开关: 0 关闭(默认) / 1 启用。json:"-" 硬隔离:
+	// 公开 /config/site 不带; 管理端读走独立 DTO(GET /manage/danmu-config), 写走独立端点。
+	DanmuEnabled int `gorm:"column:danmu_enabled" json:"-"`
+	// DanmuProviders 启用的弹幕平台白名单(JSON 数组, 可选 bilibili/tencent/iqiyi/youku):
+	// 空 = 未开放任何平台; 与壳 ID_PREFIX(启用平台) 保持一致 —— 平台要可用两边都要开。
+	DanmuProviders StringSlice `gorm:"column:danmu_providers;type:json" json:"-"`
 	UpdatedAt             int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
