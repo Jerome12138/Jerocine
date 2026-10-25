@@ -109,6 +109,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		// 邮件通道与注册模式: 凭据掩码读 / 独立写 / 未保存表单值测试发送(错误原文回显)。
 		mg.GET("/mail/config", h.GetMailConfig)
 		mg.PUT("/mail/config", h.SaveMailConfig)
+		// 弹幕服务后台配置: 总开关 + 开放平台白名单(独立 DTO 端点, 仿 mail/config 范式)。
+		mg.GET("/danmu-config", h.GetDanmuConfig)
+		mg.PUT("/danmu-config", h.SaveDanmuConfig)
 		mg.POST("/mail/test", h.TestMail)
 		// 运行参数(后台「系统设置」): 登录有效期 / 设备数 / 采集并发 —— 都存 site_config, 保存即改。
 		mg.GET("/settings", h.GetRuntimeSettings)

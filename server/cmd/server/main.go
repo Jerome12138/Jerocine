@@ -226,8 +226,9 @@ func buildApp(cfg *config.Config) (*App, error) {
 	// 榜单热度刷新: 每日 04:00 拉豆瓣 L1 榜单(8 集合 / 约 675 条 / 18 次请求),
 	// 匹配本地影片后写 hot_rank / hot_rank_at / hot_score, 顺带回填 db_id 与 db_score。
 	hotSvc := service.NewHotService(movieRepo, searchRepo, douban.New())
-	// 弹幕服务(D2: 豆瓣 vendors 候选 Go 自留 + 分集/弹幕取数走 danmu-service)。
-	danmuSvc := service.NewDanmuService(movieRepo, danmu.New(), cfg.Danmu.ServiceURL)
+	// 弹幕服务(D2: 豆瓣 vendors 候选 Go 自留 + 分集/弹幕取数走 danmu-service;
+	// siteRepo 注入后台配置: danmu_enabled 总开关 + danmu_providers 平台白名单, 直读库现值)。
+	danmuSvc := service.NewDanmuService(movieRepo, danmu.New(), cfg.Danmu.ServiceURL, siteRepo)
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,

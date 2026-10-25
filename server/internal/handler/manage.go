@@ -91,6 +91,37 @@ func (h *Handlers) ClearTMDBKey(c *gin.Context) {
 	dto.OK(c, gin.H{"cleared": true})
 }
 
+// ---- 弹幕服务后台配置 ----
+
+// GetDanmuConfig GET /manage/danmu-config — 弹幕总开关 + 开放平台白名单 + 平台全集。
+func (h *Handlers) GetDanmuConfig(c *gin.Context) {
+	v, err := h.Manage.GetDanmuConfig(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, v)
+}
+
+// SaveDanmuConfig PUT /manage/danmu-config {enabled, providers} — 保存后清弹幕来源缓存, 切换立即生效。
+func (h *Handlers) SaveDanmuConfig(c *gin.Context) {
+	var req service.DanmuConfigInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	if err := h.Manage.SaveDanmuConfig(c.Request.Context(), req); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	v, err := h.Manage.GetDanmuConfig(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, v)
+}
+
 // ---- 采集源 ----
 
 func (h *Handlers) ListSources(c *gin.Context) {

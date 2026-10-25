@@ -50,11 +50,12 @@ func EpKeyOf(episodeID string) string {
 
 // 失效用的 pattern(SCAN, 不用 KEYS)。
 const (
-	PatMovie    = "v1:movie:*"
-	PatClassify = "v1:classify:*"
-	PatRelate   = "v1:relate:*"
-	PatTagOpts  = "v1:tagopts:*"
-	PatPlay     = "v1:play:*"
+	PatMovie       = "v1:movie:*"
+	PatClassify    = "v1:classify:*"
+	PatRelate      = "v1:relate:*"
+	PatTagOpts     = "v1:tagopts:*"
+	PatPlay        = "v1:play:*"
+	PatDanmuSource = "v1:danmu:src:*" // 弹幕来源候选缓存(后台改弹幕配置后全清, 见 ManageService.SaveDanmuConfig)
 )
 
 // ---- db1 协调态键 ----

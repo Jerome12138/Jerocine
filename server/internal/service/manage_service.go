@@ -271,11 +271,84 @@ func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) erro
 		c.SpiderMaxGoroutine = cur.SpiderMaxGoroutine
 		c.SpiderMasterMaxWorkers = cur.SpiderMasterMaxWorkers
 		c.SpiderSlaveMaxWorkers = cur.SpiderSlaveMaxWorkers
+		c.DanmuEnabled = cur.DanmuEnabled
+		c.DanmuProviders = cur.DanmuProviders
 	}
 	if err := s.siteCfg.Save(ctx, c); err != nil {
 		return err
 	}
 	cache.InvalidateConfig(ctx)
+	return nil
+}
+
+// ---- 弹幕服务后台配置（独立 DTO 端点，仿 MailConfig 范式：site_config 两列 json:"-" 硬隔离）----
+
+// DanmuConfigView GET /manage/danmu-config: 弹幕总开关 + 开放平台白名单 + 平台全集。
+type DanmuConfigView struct {
+	Enabled   int                `json:"enabled"`   // 0 关(默认) / 1 开
+	Providers entity.StringSlice `json:"providers"` // 开放平台, 空 = 全关
+	All       []string           `json:"all"`       // 平台全集(前端展示可选, 与壳 ID_PREFIX 同步)
+}
+
+// DanmuConfigInput PUT /manage/danmu-config: enabled 0/1; providers 白名单(未知平台拒绝)。
+type DanmuConfigInput struct {
+	Enabled   int      `json:"enabled"`
+	Providers []string `json:"providers"`
+}
+
+// GetDanmuConfig 读弹幕后台配置。
+func (s *ManageService) GetDanmuConfig(ctx context.Context) (DanmuConfigView, error) {
+	c, err := s.siteCfg.Get(ctx)
+	if err != nil {
+		return DanmuConfigView{}, err
+	}
+	providers := c.DanmuProviders
+	if providers == nil {
+		providers = entity.StringSlice{}
+	}
+	return DanmuConfigView{
+		Enabled:   c.DanmuEnabled,
+		Providers: providers,
+		All:       append([]string(nil), danmuProviderAll...),
+	}, nil
+}
+
+// SaveDanmuConfig 写弹幕后台配置: enabled 0/1; providers 只收平台全集内值(去重保序)。
+// enabled=1 但白名单空 → ErrInvalidArgument（开了总开关却没开放平台，前端出不了弹幕）。
+// 保存后失效配置缓存 + 清 v1:danmu:src:* 来源候选缓存，切换立即生效（下次回源按新白名单解析）。
+func (s *ManageService) SaveDanmuConfig(ctx context.Context, in DanmuConfigInput) error {
+	if in.Enabled != 0 && in.Enabled != 1 {
+		return domain.ErrInvalidArgument
+	}
+	allowed := make(map[string]bool, len(danmuProviderAll))
+	for _, p := range danmuProviderAll {
+		allowed[p] = true
+	}
+	seen := make(map[string]bool, len(in.Providers))
+	providers := entity.StringSlice{}
+	for _, p := range in.Providers {
+		if !allowed[p] {
+			return domain.ErrInvalidArgument
+		}
+		if !seen[p] {
+			seen[p] = true
+			providers = append(providers, p)
+		}
+	}
+	if in.Enabled == 1 && len(providers) == 0 {
+		return domain.ErrInvalidArgument
+	}
+	c, err := s.siteCfg.Get(ctx)
+	if err != nil {
+		return err
+	}
+	c.DanmuEnabled = in.Enabled
+	c.DanmuProviders = providers
+	if err := s.siteCfg.Save(ctx, c); err != nil {
+		return err
+	}
+	cache.InvalidateConfig(ctx)
+	cache.DelByPattern(ctx, cache.PatDanmuSource)
 	return nil
 }
 
