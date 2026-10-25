@@ -177,6 +177,27 @@ test('listEpisodes：腾讯短页即末页（不再按 30 猜页大小）', asyn
   assert.equal(calls, 3, '短页命中后不再多发请求');
 });
 
+test('listEpisodes：腾讯第 0 页失败必须上抛（不可吞成"无匹配集"——那会被 Go 负缓存 2h）', async () => {
+  // 线上实证：新加坡机房遇到过腾讯瞬时失败（限流/5xx）。旧写法 page 0 catch 后 break
+  // → 返回空 candidates → Go 判"无匹配集"负缓存 2h，一次抖动 = 该集 2 小时无弹幕。
+  // page≥1 抛错仍是既定终止信号（超范围页 {ret:0}），静默收边。
+  _setRegistryForTest({
+    scraperMap: {
+      tencent: {
+        getEpisodesPage: async (cid, page) => {
+          if (page === 0) throw new Error('HTTP 403 限流');
+          return [{ provider: 'tencent', episodeId: 'x', episodeNumber: 1, episodeEdition: 'main' }];
+        },
+      },
+    },
+  });
+  await assert.rejects(
+    () => listEpisodes('tencent', 'mzc002003kpyd2m', { episode: '1' }),
+    /403 限流/,
+    '第 0 页故障应原样上抛（壳返 5xx → Go error 不缓存）',
+  );
+});
+
 test('listEpisodes：腾讯缺 getEpisodesPage → fail-fast 500（上游升级丢方法的静默故障防护）', async () => {
   _setRegistryForTest({
     scraperMap: {

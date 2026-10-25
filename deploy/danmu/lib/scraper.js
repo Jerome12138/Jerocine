@@ -94,8 +94,14 @@ export async function listEpisodes(provider, resourceId, { episode, episodeName,
       try {
         // eslint-disable-next-line no-await-in-loop
         pageEps = await scraper.getEpisodesPage(resourceId, page);
-      } catch {
-        break; // 腾讯超范围页返回 {ret:0,msg:''}（无 data），schema 校验抛错 → 停止翻页
+      } catch (e) {
+        // page≥1 抛错 = 翻过尾页（腾讯超范围返回 {ret:0,msg:''}，schema 校验抛错）→
+        // 既定终止信号，静默 break。**page 0 抛错是真故障**（限流/5xx/网络，新加坡
+        // 机房实测遇到过腾讯瞬时失败）：必须上抛 —— 壳返 5xx → Go 得 error 不写负
+        // 缓存、下次重试；若在此 break 会返回"无匹配集"，被 Go 负缓存 2h，一次
+        // 抖动 = 该集 2 小时无弹幕。
+        if (page === 0) throw e;
+        break;
       }
       if (!pageEps?.length) break;
       if (page === 0) fullPage = pageEps.length;

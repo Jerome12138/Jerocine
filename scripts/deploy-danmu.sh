@@ -140,11 +140,18 @@ T_UPLOAD=$(( $(now_s) - _tu ))
 
 # ---------------------------------------------------------------- 3. 远端发布
 
-info "远端发布: $DEPLOY_DIR → ./deploy.sh danmu-deploy $REMOTE_PKG"
+info "远端发布: $DEPLOY_DIR → 包内工具链(runtime/) danmu-deploy $REMOTE_PKG"
 _tp="$(now_s)"
 # 远端输出缩进 2 空格, 作为本节(第 1 层「==> 远端发布」)下的第 2 层明细;
 # 2>&1 把 docker build(stderr)一并缩进。pipefail 保住 ssh 退出码(set -e 语义不变)。
-ssh "$HOST" "cd '$DEPLOY_DIR' && ./deploy.sh danmu-deploy '$REMOTE_PKG'" 2>&1 | sed 's/^/  /'
+#
+# **刻意不走树里的 ./deploy.sh**: danmu-deploy 是 2026-10-25 新增的子命令, 而服务器
+# git 树可能落后于本仓(未 push 时树不会更新) —— 旧树 deploy.sh 不认识该子命令会直接
+# 打用法退出(首次 danmu 发布实测踩到)。包内 tooling/ 与产物包同版本, 先刷新 runtime/
+# 再以包内版本执行, 全程不依赖服务器树状态(与 deploy.sh 内 jc_bootstrap_tooling 同
+# 逻辑; server/web 发布仍走树 ./deploy.sh —— 那两个子命令 10-22 起树里就有)。
+# sudo 兜底: docker(root) 往 runtime/ 建过的挂载点目录普通用户删不掉(见 bootstrap 注释)。
+ssh "$HOST" "cd '$DEPLOY_DIR' && ctx=\$(mktemp -d) && tar xzf '$REMOTE_PKG' -C \$ctx ./tooling && { rm -rf runtime 2>/dev/null; if [ -d runtime ]; then sudo -n rm -rf runtime || exit 1; fi; } && cp -R \$ctx/tooling runtime && chmod +x runtime/deploy.sh && rm -rf \$ctx && JEROCINE_DEPLOY_ROOT='$DEPLOY_DIR' bash runtime/deploy.sh danmu-deploy '$REMOTE_PKG'" 2>&1 | sed 's/^/  /'
 T_PUBLISH=$(( $(now_s) - _tp ))
 
 summary="上传 $(fmt_dur "$T_UPLOAD") + 发布 $(fmt_dur "$T_PUBLISH")"
