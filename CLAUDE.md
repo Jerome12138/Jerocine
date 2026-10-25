@@ -130,11 +130,16 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
     # 后端
     bash scripts/build-server.sh         # 本机 CGO_ENABLED=0 交叉编译 + tar.gz(默认 linux/amd64)
     bash scripts/deploy-server.sh        # 编译 + 上传 + 远端 ./deploy.sh server-deploy
+
+    # 弹幕服务 danmu-service（改 deploy/danmu/ 后；与 server 同哲学：本机 npm 产物，容器内不装）
+    bash scripts/build-danmu.sh          # 本机 npm ci --omit=dev + 打包(含 tooling/ 自引导)
+    bash scripts/deploy-danmu.sh         # 构建 + 上传 + 远端 ./deploy.sh danmu-deploy
     ```
 
     远端对应子命令（一般由上面的脚本调用，排障时可手动跑）：
     - `./deploy.sh web-deploy <pkg>`     # 解包前端包 → 同一套发布语义 → 留档 `data/packages/` → reload
     - `./deploy.sh server-deploy <pkg>`  # 解包后端包 → 自动迁移(包内 migrations, 幂等; 失败中止发布) → 构建 `Dockerfile.runtime` → `up -d --no-build server` → 等健康
+    - `./deploy.sh danmu-deploy <pkg>`   # 解包 danmu 包 → 构建 `Dockerfile.danmu`(node:22-alpine 薄镜像) → `up -d --no-build danmu`（无迁移/无健康检查：不可用期间 Go 静默降级"暂无弹幕"）
   - **模式1 自包含（2026-10-22 起）**：`build-{server,web}.sh` 把施工工具（`deploy.sh` + `lib/` + `docker-compose.yml` + `Dockerfile.runtime` + `Dockerfile.nginx` + `nginx.conf`）打成产物包的 `tooling/`。服务器端 `*-deploy` 检测到它就同步到固定目录 `deploy/runtime/`（gitignored）并**以包内版本重新 exec 自身** —— 工具链与二进制同包同版，发布**不再 `git pull`、不要求服务器树最新、无 push 前置**（一次 clone 之后）。旧格式包（无 `tooling/`，回滚场景）走 legacy：`git pull --ff-only` + 树内执行；首次部署仍要 `git clone`。单测：`deploy/tests/tooling-selfcontain.test.sh`。
   - **应急 —— 服务器自行构建（不建议使用；编译会抢占线上内存/CPU，小内存机器可能 OOM 误伤 MySQL）**：
     树上没有第二套构建配方了，应急就是"让服务器当自己的 CI"——用容器跑同一份构建脚本产出同格式包，再走常规发布：

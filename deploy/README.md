@@ -35,6 +35,7 @@ deploy/
 |---|---|
 | `web-deploy <pkg>` | 解包本地上传的前端包 → 发布 → 留档 → reload |
 | `server-deploy <pkg>` | 解包后端包（含 migrations/ 与 tooling/）→ 自引导包内工具链到 `runtime/` → 自动迁移（幂等，无新迁移即秒退；失败中止发布）→ 薄运行镜像 → 重建容器 → 等健康 → 清缓存 → 留档 |
+| `danmu-deploy <pkg>` | 解包 danmu-service 包（本机 npm 产物 + tooling/）→ 构建 `Dockerfile.danmu`（node:22-alpine 薄镜像）→ `up -d --no-build danmu`（无迁移/无健康检查：不可用期间 Go 网关静默降级"暂无弹幕"） |
 | `web-rollback <TS>` | 整版回滚（`index.html` + `sw.js` + `workbox-*.js` 三件套），TS 见 `data/releases/` |
 | `web-init` | 【一次性】把旧容器镜像内产物搬到挂载目录（切挂载迁移用） |
 | `nginx` | 只重建 nginx 容器（树上手工改 nginx.conf 后的运维工具），**不产出前端文件** |

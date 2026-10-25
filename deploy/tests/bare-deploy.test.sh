@@ -106,9 +106,13 @@ assert_no_grep "无 MAIL_* 部署变量"      "$env_out" 'MAIL_'
 assert_no_grep "无 TELEMETRY_ALLOWED_HOSTS" "$env_out" 'TELEMETRY_ALLOWED_HOSTS'
 assert_no_grep "无 TMDB_API_KEY"            "$env_out" 'TMDB_API_KEY'
 assert_grep "TMDB 反代默认空"             "$env_out" 'TMDB_API_BASE='
-# 覆盖: bare.env 显式配了就用配置值(compose 侧 ${VAR:-} 同语义)
+# danmu-service 基址: bare 模式默认 127.0.0.1:3611(同机; bare 当前不含 danmu 部署, 连不上时 Go 静默降级)
+assert_grep "danmu 指向 127.0.0.1"        "$env_out" 'DANMU_SERVICE_URL=http://127.0.0.1:3611'
+# 覆盖: bare.env 显式配了就用配置值
 env_override="$(TMDB_API_BASE=https://tmdb.example bare_derive_server_env "$P")"
 assert_grep "TMDB 反代可覆盖"             "$env_override" 'TMDB_API_BASE=https://tmdb.example'
+env_danmu_override="$(DANMU_SERVICE_URL=http://127.0.0.1:9999 bare_derive_server_env "$P")"
+assert_grep "danmu 基址可覆盖"            "$env_danmu_override" 'DANMU_SERVICE_URL=http://127.0.0.1:9999'
 
 bare_write_server_env "$P"
 # MSYS(Git Bash) 的 chmod 是模拟实现, stat 读回 644 属环境噪声 —— 真实 Linux 上 600 生效
