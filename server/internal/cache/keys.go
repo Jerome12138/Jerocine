@@ -23,6 +23,10 @@ const (
 	KeyBanners    = "v1:cfg:banners"
 )
 
+// 弹幕相关缓存键（DB0；正缓存 TTL 7d / 负缓存短 TTL 由 service 内写，见 danmu_service.go）。
+func KeyDanmuSource(mid int64) string       { return fmt.Sprintf("v1:danmu:src:%d", mid) }
+func KeyDanmuBiliEps(seasonID string) string { return "v1:danmu:bili:eps:" + seasonID }
+
 // 失效用的 pattern(SCAN, 不用 KEYS)。
 const (
 	PatMovie    = "v1:movie:*"

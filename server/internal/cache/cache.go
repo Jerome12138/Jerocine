@@ -42,6 +42,13 @@ func CoordClient() *redis.Client { return coordRdb }
 
 // GetOrLoad cache-aside 读取。found=false 表示资源不存在(已写负缓存)。
 func GetOrLoad[T any](ctx context.Context, key string, ttl time.Duration, loader func(context.Context) (T, bool, error)) (T, bool, error) {
+	return GetOrLoadTTL(ctx, key, ttl, negTTL, loader)
+}
+
+// GetOrLoadTTL 同 GetOrLoad，但正/负缓存 TTL 可分别指定。
+// 负缓存场景（"该 key 确认无数据，别反复回源"）需要比默认 60s 更长的空缓存时使用
+// （如弹幕 db_id 空 / vendors 无命中，见 service/danmu_service.go）。
+func GetOrLoadTTL[T any](ctx context.Context, key string, ttl, negTTL time.Duration, loader func(context.Context) (T, bool, error)) (T, bool, error) {
 	var zero T
 	// 1. 先查缓存
 	if cacheRdb != nil {
