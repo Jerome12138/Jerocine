@@ -26,6 +26,7 @@
     "@videojs-player/vue": "1.0.0",
     "@vueuse/core": "11.3.0",
     "axios": "1.7.9",
+    "comment-core-library": "0.11.1",
     "pinia": "2.2.6",
     "qrcode": "^1.5.4",
     "video.js": "8.17.4",

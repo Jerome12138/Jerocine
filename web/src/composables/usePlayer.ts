@@ -75,6 +75,7 @@ export type PlayerEventName =
   | 'pause'
   | 'ended'
   | 'timeupdate'
+  | 'seeked'
   | 'error'
   | 'loadedmetadata'
   | 'volumechange'

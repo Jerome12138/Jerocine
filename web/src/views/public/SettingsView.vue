@@ -14,10 +14,12 @@ const {
   filterMode,
   relayCache,
   autoPlayNext,
+  danmaku,
   setAdFilter,
   setFilterMode,
   setRelayCache,
-  setAutoPlayNext
+  setAutoPlayNext,
+  setDanmaku
 } = useWebSettings()
 
 /** 播放设置项: 统一行模型, 模板循环渲染(键名即 localStorage 契约的语义名) */
@@ -42,6 +44,13 @@ const toggles = [
     desc: '一集播完自动播放下一集',
     get: () => autoPlayNext.value,
     set: (v: boolean) => setAutoPlayNext(v)
+  },
+  {
+    key: 'danmaku',
+    title: '弹幕',
+    desc: '播放时显示 B站弹幕（当前集匹配, 无匹配则不显示）',
+    get: () => danmaku.value,
+    set: (v: boolean) => setDanmaku(v)
   }
 ] as const
 </script>

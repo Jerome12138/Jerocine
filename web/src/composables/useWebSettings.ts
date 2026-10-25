@@ -29,6 +29,7 @@ export type FilterMode = 'client' | 'server'
 export const AD_FILTER_KEY = 'jc-ad-filter'
 export const FILTER_MODE_KEY = 'jc-filter-mode'
 export const RELAY_CACHE_KEY = 'jc-relay-cache'
+export const DANMAKU_KEY = 'jc-danmaku'
 
 export const FILTER_MODES: readonly FilterMode[] = ['client', 'server']
 
@@ -58,6 +59,8 @@ const relayCache = ref<boolean>(readBool(RELAY_CACHE_KEY, false))
 const autoPlayNext = ref<boolean>(
   readBool(AUTO_PLAY_NEXT_KEY, true) // 旧约定: 缺省视为开(nativePlay.readAutoPlayNext 同口径)
 )
+/* 弹幕开关(P0): 与播放页/设置页共用; 不进 webSettingsSnapshot(快照契约对应原生抽屉, 弹幕不在抽屉范围) */
+const danmaku = ref<boolean>(readBool(DANMAKU_KEY, true))
 
 function persist(key: string, value: string): void {
   try {
@@ -87,16 +90,23 @@ export function setAutoPlayNext(v: boolean): void {
   persist(AUTO_PLAY_NEXT_KEY, v ? '1' : '0')
 }
 
+export function setDanmaku(v: boolean): void {
+  danmaku.value = v
+  persist(DANMAKU_KEY, v ? '1' : '0')
+}
+
 export function useWebSettings() {
   return {
     adFilter,
     filterMode,
     relayCache,
     autoPlayNext,
+    danmaku,
     setAdFilter,
     setFilterMode,
     setRelayCache,
-    setAutoPlayNext
+    setAutoPlayNext,
+    setDanmaku
   }
 }
 

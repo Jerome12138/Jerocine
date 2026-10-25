@@ -49,6 +49,7 @@ import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { useWebSettings } from '@/composables/useWebSettings'
+import { useDanmaku } from '@/composables/useDanmaku'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
@@ -154,6 +155,19 @@ function toggleAutoPlayNext(): void {
 }
 /** 视频源错误提示文本 */
 const videoErrorMsg = ref<string>('')
+
+/* ============ 弹幕（P0）============ */
+/** 弹幕开关 —— 与 /settings 配置页共用 useWebSettings 单一数据源(localStorage jc-danmaku, 默认开;
+    不进 webSettingsSnapshot 安卓契约, 见 useWebSettings 注释) */
+const { danmaku: danmakuEnabled, setDanmaku: setDanmakuEnabled } = useWebSettings()
+function toggleDanmaku(): void {
+  setDanmakuEnabled(!danmakuEnabled.value)
+  if (danmakuEnabled.value) {
+    toast('info', '弹幕已开启')
+  } else {
+    toast('info', '弹幕已关闭')
+  }
+}
 
 /** ---------- 派生 ---------- */
 const currentSource = computed<PlaySource | null>(() => {
@@ -823,6 +837,19 @@ const {
 
 // 在线心跳 watching 信号: video.js 播放状态实时置位(暂停/结束即回落)。
 watch(paused, (v) => setWebWatching(!v))
+
+/* ============ 弹幕层（P0, 方案 §四之二/§四之三: 独立层叠在 video.js 容器上, 不换播放器引擎） ============ */
+const danmaku = useDanmaku({
+  mid: computed(() => detail.value?.mid),
+  episode: computed(() => currentEpisodeIndex.value + 1),
+  player,
+  playing: computed(() => !paused.value),
+  enabled: danmakuEnabled,
+  onPlayerEvent: (event, fn) => onPlayerEvent(event, fn)
+})
+const danmakuStage = danmaku.stage
+const danmakuSource = danmaku.available
+const danmakuHas = danmaku.hasDanmaku
 
 /** ---------- 历史记录 ---------- */
 /** #4: 倒数 5 分钟内不记录播放记忆 —— 看完/退出在片尾附近时, 不写进度,
@@ -1791,6 +1818,15 @@ watch(playerReady, (v) => {
                  Teleport 进它内部, 否则全屏时 DOM 在全屏元素之外 → 全部不可见
                  (右上角广告角标/手势提示消失的根因)。player 未初始化时宿主为空 → 留在原位。 -->
             <Teleport :to="playerOverlayHost || 'body'" :disabled="!playerOverlayHost">
+              <!-- 弹幕层(P0): 独立 DOM 层叠在 video.js 容器内, 全屏同样可见;
+                   不拦截任何指针事件; z-index 置于控制条之下、视频画面之上。 -->
+              <div
+                v-if="danmakuSource"
+                ref="danmakuStage"
+                class="jc-danmaku-stage"
+                :class="{ 'jc-danmaku-stage--off': !danmakuEnabled }"
+                aria-hidden="true"
+              />
               <!-- 长按临时倍速提示(顶部居中) -->
               <div v-if="gestureRateHint" class="jc-player-gesture jc-player-gesture--rate" aria-hidden="true">
                 {{ gestureRateHint }}
@@ -1903,6 +1939,17 @@ watch(playerReady, (v) => {
           <button type="button" class="jc-pt-btn" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" data-focusable="true" @click="toggleAdFilter">
             <BaseIcon name="shield" size="26px" /><span>广告</span>
           </button>
+          <button
+            v-if="danmakuSource"
+            type="button"
+            class="jc-pt-btn"
+            :class="danmakuEnabled ? 'is-on' : ''"
+            :aria-pressed="danmakuEnabled"
+            data-focusable="true"
+            @click="toggleDanmaku"
+          >
+            <BaseIcon name="chat" size="26px" /><span>弹幕</span>
+          </button>
           <button type="button" class="jc-pt-btn" :class="favorited ? 'is-on' : ''" :aria-pressed="favorited" data-focusable="true" @click="toggleFavorite">
             <BaseIcon name="star" size="26px" /><span>{{ favorited ? '已收藏' : '收藏' }}</span>
           </button>
@@ -1971,6 +2018,11 @@ watch(playerReady, (v) => {
                     <BaseIcon name="shield" size="16px" />
                     <span class="jc-pt-more__item-label">过滤广告</span>
                     <span v-if="adFilter" class="jc-pt-more__check" aria-hidden="true">✓</span>
+                  </button>
+                  <button v-if="danmakuSource" type="button" class="jc-pt-more__item" :class="danmakuEnabled ? 'is-on' : ''" :aria-pressed="danmakuEnabled" @click="toggleDanmaku">
+                    <BaseIcon name="chat" size="16px" />
+                    <span class="jc-pt-more__item-label">弹幕</span>
+                    <span v-if="danmakuEnabled" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
                   <div class="jc-pt-more__sep" aria-hidden="true" />
                   <!-- 动作项: 点击后关菜单 -->
@@ -2116,6 +2168,37 @@ watch(playerReady, (v) => {
 .jc-player:focus,
 .jc-player:focus-visible {
   outline: none;
+}
+
+/* 弹幕层（P0）: 覆盖 video 画面、不拦截指针事件; z-index 1（video 之上、控制条/角标之下） */
+.jc-danmaku-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.jc-danmaku-stage--off {
+  visibility: hidden;
+}
+/* 库动态创建的弹幕节点（div.cmt）, 基础样式; 动画由库内联 transform/transition 驱动 */
+.jc-danmaku-stage :deep(.cmt) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-select: none;
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.85),
+    0 0 1px rgb(0 0 0 / 0.6);
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  line-height: 1.35;
+}
+.jc-danmaku-stage :deep(.cmt) > div {
+  /* 库的 CssAnchorComment 等会包内层 div, 避免内层再带阴影/描边 */
+  text-shadow: inherit;
 }
 
 /* 桌面端最大宽度（>= 1280 居中） */

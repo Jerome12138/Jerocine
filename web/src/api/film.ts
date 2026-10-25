@@ -12,7 +12,9 @@ import type {
   HotBoardFilters,
   HotBoardQuery,
   NavCategory,
-  PlayInfo
+  PlayInfo,
+  DanmuSourceResp,
+  DanmuBilibiliResp
 } from '@/types/film'
 
 /** GET /home 首页聚合(SWR: 首屏最重, 切回直接复用 + 后台静默刷新) */
@@ -78,3 +80,14 @@ export const getPlayInfo = (params: {
 /** GET /films/:mid/related 相关推荐 */
 export const getRelated = (mid: number | string): Promise<Card[]> =>
   http.get<unknown, Card[]>(`/films/${mid}/related`)
+
+/** GET /films/:mid/danmu/source 弹幕来源候选（平台列表；B站为 seasonId） */
+export const getDanmuSource = (mid: number | string): Promise<DanmuSourceResp> =>
+  http.get<unknown, DanmuSourceResp>(`/films/${mid}/danmu/source`)
+
+/** GET /danmu/bilibili 指定 B站剧集整集弹幕（按集号匹配，越界返回空数组） */
+export const getDanmuBilibili = (params: {
+  seasonId: string
+  episode: number
+}): Promise<DanmuBilibiliResp> =>
+  http.get<unknown, DanmuBilibiliResp>('/danmu/bilibili', { params })
