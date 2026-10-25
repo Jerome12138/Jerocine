@@ -34,6 +34,11 @@ func TestRegisterNoConflict(t *testing.T) {
 		// 健康度面板静态段与 GET :id 同级共存
 		"GET /api/v1/manage/collect-sources/health": false,
 		"GET /api/v1/manage/collect-sources/:id":    false,
+		// 弹幕: 路径 A 整集聚合静态段与路径 B :provider 参数段同级共存, 不得冲突
+		"GET /api/v1/danmu/bilibili":              false,
+		"GET /api/v1/danmu/:provider/episodes":   false,
+		"GET /api/v1/danmu/:provider/segments":   false,
+		"GET /api/v1/danmu/:provider/comments":   false,
 	}
 	for _, ri := range r.Routes() {
 		key := ri.Method + " " + ri.Path

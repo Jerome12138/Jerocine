@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"server/internal/cache"
+	"server/internal/domain"
 )
 
 // TestDanmuBilibiliViaService 模拟 danmu-service 两跳响应，验证转发、契约映射与降级。
@@ -155,7 +157,7 @@ func TestDanmuTencentChain(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
-				"data": []TencentSegment{
+				"data": []DanmuSegment{
 					{Provider: "tencent", StartTime: 0, SegmentID: "0"},
 					{Provider: "tencent", StartTime: 201.5, SegmentID: "201"},
 					{Provider: "tencent", StartTime: 401.0, SegmentID: "401"},
@@ -179,7 +181,7 @@ func TestDanmuTencentChain(t *testing.T) {
 
 	svc := NewDanmuService(nil, nil, srv.URL)
 
-	matched, found, err := svc.DanmuTencentEpisodes(context.Background(), "mzc002003kpyd2m", 1)
+	matched, found, err := svc.DanmuEpisodes(context.Background(), "tencent", "mzc002003kpyd2m", 1)
 	if err != nil {
 		t.Fatalf("episodes err: %v", err)
 	}
@@ -187,7 +189,7 @@ func TestDanmuTencentChain(t *testing.T) {
 		t.Fatalf("matched = %+v found=%v", matched, found)
 	}
 
-	segments, err := svc.DanmuTencentSegments(context.Background(), episodeID)
+	segments, err := svc.DanmuSegments(context.Background(), "tencent", episodeID)
 	if err != nil {
 		t.Fatalf("segments err: %v", err)
 	}
@@ -195,7 +197,7 @@ func TestDanmuTencentChain(t *testing.T) {
 		t.Fatalf("segments 映射错误: %+v", segments)
 	}
 
-	comments, err := svc.DanmuTencentComments(context.Background(), episodeID, "201")
+	comments, err := svc.DanmuComments(context.Background(), "tencent", episodeID, "201")
 	if err != nil {
 		t.Fatalf("comments err: %v", err)
 	}
@@ -217,7 +219,7 @@ func TestDanmuTencentNoMatch(t *testing.T) {
 	defer srv.Close()
 
 	svc := NewDanmuService(nil, nil, srv.URL)
-	_, found, err := svc.DanmuTencentEpisodes(context.Background(), "mzc002003kpyd2m", 99)
+	_, found, err := svc.DanmuEpisodes(context.Background(), "tencent", "mzc002003kpyd2m", 99)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -234,11 +236,43 @@ func TestDanmuTencentCommentsServiceDown(t *testing.T) {
 	defer srv.Close()
 
 	svc := NewDanmuService(nil, nil, srv.URL)
-	comments, err := svc.DanmuTencentComments(context.Background(), "cid=x&vid=y", "201")
+	comments, err := svc.DanmuComments(context.Background(), "tencent", "cid=x&vid=y", "201")
 	if err == nil {
 		t.Fatal("服务不可用应返回 error（调用失败不缓存，区别于业务无数据的负缓存）")
 	}
 	if len(comments) != 0 {
 		t.Fatalf("comments = %d, want 0", len(comments))
+	}
+}
+
+// TestDanmuPathBProviderWhitelist 路径 B provider 白名单（参数化评审修正）：
+// 未启用（iqiyi/youku/mgtv/空串/bilibili）→ ErrInvalidArgument（handler 经 dto.Fail
+// 映射 400），且不发出任何 HTTP 请求 —— validatePathBProvider 在拼 URL 前拦停，
+// 顺带封死"路由参数进请求路径"的注入面。白名单内的 tencent 不被拦。
+func TestDanmuPathBProviderWhitelist(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+	}))
+	defer srv.Close()
+
+	svc := NewDanmuService(nil, nil, srv.URL)
+	for _, p := range []string{"iqiyi", "youku", "mgtv", "bilibili", ""} {
+		if _, _, err := svc.DanmuEpisodes(context.Background(), p, "x", 1); !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("DanmuEpisodes(%q) err = %v, want ErrInvalidArgument", p, err)
+		}
+		if _, err := svc.DanmuSegments(context.Background(), p, "x"); !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("DanmuSegments(%q) err = %v, want ErrInvalidArgument", p, err)
+		}
+		if _, err := svc.DanmuComments(context.Background(), p, "x", "201"); !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("DanmuComments(%q) err = %v, want ErrInvalidArgument", p, err)
+		}
+	}
+	if hits != 0 {
+		t.Fatalf("白名单外的 provider 不应打到 danmu-service，实测 %d 次", hits)
+	}
+	// tencent 在白名单内：应穿过校验打到 fake（空响应 → 非 JSON 错误，但不是 ErrInvalidArgument）
+	if _, _, err := svc.DanmuEpisodes(context.Background(), "tencent", "x", 1); errors.Is(err, domain.ErrInvalidArgument) {
+		t.Fatal("tencent 在白名单内，不应被 validatePathBProvider 拦停")
 	}
 }
