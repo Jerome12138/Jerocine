@@ -2,10 +2,12 @@
  * scraper-kit 初始化与 provider 路由（弹幕数据层胶水）。
  *
  * 约定（集成方案 §8）：
- * - resourceId 收裸值，壳内按 provider 加前缀（tencent→`cid=`、bilibili→`seasonId=`）
+ * - resourceId 收裸值，壳内按 provider 加前缀（tencent→`cid=`、bilibili→`seasonId=`
+ *   iqiyi→`entityId=`、youku→`showId=`）
  * - timestamp 上游为秒（B站浮点），壳是唯一秒→毫秒转换点（Math.round(t*1000)）
  * - 段间节流 ≥200ms、单 provider 并发 1
- * - 只启用 bilibili / tencent（上游还支持 iqiyi/youku/mgtv/renren，启用时加白名单一行）
+ * - 启用平台 = ID_PREFIX 的 key（当前 bilibili/tencent/iqiyi/youku；上游还支持
+ *   mgtv/renren，启用时加前缀一行即可）
  * - 腾讯分页依赖上游 getEpisodesPage（TS 层 private，dist 运行时可用；src 已打本地
  *   补丁显式公开，升级上游需重新应用 —— 见 listEpisodes 内的 fail-fast 守卫）
  */
@@ -21,7 +23,10 @@ const SCRAPER_KIT_URL = pathToFileURL(
 const ID_PREFIX = {
   bilibili: 'seasonId=',
   tencent: 'cid=',
+  iqiyi: 'entityId=',
+  youku: 'showId=',
 };
+// 启用平台自动取自 ID_PREFIX：加平台只加前缀一行，白名单/错误提示同步生效
 const ENABLED_PROVIDERS = Object.keys(ID_PREFIX);
 const SEGMENT_GAP_MS = 200; // 段间节流（§8.8，与 Go 侧纪律一致）
 

@@ -10,6 +10,7 @@ import {
   fetchComments,
   listEpisodes,
   listSegments,
+  toIdString,
   ScraperError,
   _setRegistryForTest,
 } from '../lib/scraper.js';
@@ -215,13 +216,21 @@ test('listSegments 直通', async () => {
   assert.equal(segs[1].startTime, 360);
 });
 
+test('toIdString：resourceId 按平台加前缀（腾讯 cid / B站 seasonId / 爱奇艺 entityId / 优酷 showId）', () => {
+  assert.equal(toIdString('tencent', 'mzc002003kpyd2m'), 'cid=mzc002003kpyd2m');
+  assert.equal(toIdString('bilibili', '44847'), 'seasonId=44847');
+  assert.equal(toIdString('iqiyi', '229928700'), 'entityId=229928700');
+  assert.equal(toIdString('youku', 'XNTk3MzA5NzgzMg=='), 'showId=XNTk3MzA5NzgzMg==');
+});
+
 test('HTTP 路由：provider 不在白名单 → 400', async () => {
   const app = createApp();
   const srv = app.listen(0);
   await once(srv, 'listening');
   const port = srv.address().port;
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/danmu/iqiyi/episodes?resourceId=x`);
+    // mgtv 上游支持但未启用（ID_PREFIX 无前缀）→ 400
+    const res = await fetch(`http://127.0.0.1:${port}/danmu/mgtv/episodes?resourceId=x`);
     assert.equal(res.status, 400);
     const body = await res.json();
     assert.match(body.error, /unsupported provider/);
@@ -322,13 +331,49 @@ test('adapter：base64Data=true → data 为 base64 字符串（B站 seg.so prot
 });
 
 test('adapter：JSON 响应正常解析（腾讯 JSON 路径）', async () => {
+  const body = Buffer.from('{"a":1}');
   const mockFetch = async () => ({
     status: 200,
     headers: new Map(),
-    arrayBuffer: async () => new ArrayBuffer(0),
+    arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
     text: async () => '{"a":1}',
   });
   const adapter = createHttpAdapter({ fetchImpl: mockFetch });
   const res = await adapter.get('https://x/api');
   assert.equal(res.data.a, 1);
+});
+
+test('adapter：zlib 流智能解压（爱奇艺 cmts .z 弹幕 XML 通道）', async () => {
+  const zlib = await import('node:zlib');
+  const xml = '<data><count>1</count><danmu><content>测试弹幕</content></danmu></data>';
+  const compressed = zlib.deflateSync(Buffer.from(xml, 'utf8')); // zlib magic 0x78
+  const mockFetch = async () => ({
+    status: 200,
+    headers: new Map([['content-type', 'application/octet-stream']]),
+    arrayBuffer: async () => compressed.buffer.slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength),
+    text: async () => '',
+  });
+  const adapter = createHttpAdapter({ fetchImpl: mockFetch });
+  const res = await adapter.get('https://x/bullet.z');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.data, xml, 'zlib 流应被解压为 XML 文本（否则 fast-xml-parser 报嵌套超限）');
+});
+
+test('adapter：多值 Set-Cookie 合并为逗号分隔串（优酷 token 链：_m_h5_tk 与 _m_h5_tk_enc 都要收到）', async () => {
+  const mockFetch = async () => {
+    const h = new Headers();
+    h.append('set-cookie', '_m_h5_tk=abc_123;Path=/;Domain=youku.com;Max-Age=86400');
+    h.append('set-cookie', '_m_h5_tk_enc=def;Path=/;Domain=youku.com;Max-Age=86400');
+    return {
+      status: 200,
+      headers: h,
+      arrayBuffer: async () => new ArrayBuffer(0),
+      text: async () => '{}',
+    };
+  };
+  const adapter = createHttpAdapter({ fetchImpl: mockFetch });
+  const res = await adapter.get('https://x/token');
+  assert.ok(res.headers['set-cookie'].includes('_m_h5_tk=abc_123'), '第一条 set-cookie 不得丢失');
+  assert.ok(res.headers['set-cookie'].includes('_m_h5_tk_enc=def'));
+  assert.match(res.headers['set-cookie'], /,\s/, '应合并为逗号分隔（libs-fetch 按逗号 split 解析）');
 });
