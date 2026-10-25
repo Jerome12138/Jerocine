@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,8 +154,9 @@ func TestRuntimeSettingsDefaultsAndSave(t *testing.T) {
 }
 
 // TestSaveSitePreservesIndependentColumns 保存「站点信息」只写表单字段, 其余 json:"-" 列
-// (TMDB 凭据 / SMTP / 邮件日配额 / 登录策略 / 采集并发)必须从库里回填 —— 落库是 UpdateAll,
-// 漏一列就会被清零(邮件配额的坑: 清零后静默回落到默认 50)。挂掉说明回填清单漏了。
+// (TMDB 凭据 / SMTP / 邮件日配额 / 登录策略 / 采集并发 / 弹幕开关与白名单)必须从库里回填 ——
+// 落库是 UpdateAll, 漏一列就会被清零(邮件配额的坑: 清零后静默回落到默认 50)。
+// 挂掉说明回填清单漏了。
 func TestSaveSitePreservesIndependentColumns(t *testing.T) {
 	setupCache(t)
 	site := &entity.SiteConfig{
@@ -164,6 +166,7 @@ func TestSaveSitePreservesIndependentColumns(t *testing.T) {
 		SmtpUser: "bot@qq.com", SmtpPass: "code", SmtpFromName: "J", MailDailyQuota: 7,
 		AuthTokenTTLHours: 720, MaxDeviceLogin: 10, SpiderMaxGoroutine: 8,
 		SpiderMasterMaxWorkers: 9, SpiderSlaveMaxWorkers: 5,
+		DanmuEnabled: 1, DanmuProviders: entity.StringSlice{"bilibili", "tencent", "iqiyi"},
 	}
 	m := &ManageService{siteCfg: &fakeSiteCfg{cfg: site}}
 
@@ -181,5 +184,11 @@ func TestSaveSitePreservesIndependentColumns(t *testing.T) {
 	if site.AuthTokenTTLHours != 720 || site.MaxDeviceLogin != 10 || site.SpiderMaxGoroutine != 8 ||
 		site.SpiderMasterMaxWorkers != 9 || site.SpiderSlaveMaxWorkers != 5 {
 		t.Fatalf("运行参数被清零: %+v", site)
+	}
+	if site.DanmuEnabled != 1 {
+		t.Fatalf("弹幕总开关被清零: %+v", site)
+	}
+	if strings.Join([]string(site.DanmuProviders), ",") != "bilibili,tencent,iqiyi" {
+		t.Fatalf("弹幕平台白名单被清零: %+v", site)
 	}
 }

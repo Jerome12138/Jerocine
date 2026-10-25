@@ -12,6 +12,7 @@ import (
 	"server/internal/cache"
 	"server/internal/domain"
 	"server/internal/domain/entity"
+	"server/internal/domain/repository"
 )
 
 // fakeSiteCfgRepo 测试用内存 site_config（弹幕配置注入）。
@@ -312,5 +313,119 @@ func TestDanmuBilibiliDisabled(t *testing.T) {
 	svc := danmuSvc("http://127.0.0.1:1", "tencent")
 	if _, err := svc.DanmuBilibili(context.Background(), "44847", 1); !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("bilibili 未启用时 DanmuBilibili err = %v, want ErrInvalidArgument", err)
+	}
+}
+
+// countingMovie 计数 fake：只实现 GetByMid（其余嵌接口 nil，调了会 panic）。
+type countingMovie struct {
+	repository.MovieRepository
+	onGet func()
+	m     *entity.Movie
+}
+
+func (m *countingMovie) GetByMid(_ context.Context, _ int64) (*entity.Movie, error) {
+	if m.onGet != nil {
+		m.onGet()
+	}
+	if m.m == nil {
+		return &entity.Movie{Mid: 1}, nil
+	}
+	return m.m, nil
+}
+
+// TestDanmuSourceDisabledSkipsUpstream 后台未启用弹幕（总开关关 / 白名单空或 nil）→
+// danmuEnabledProviders 返回 nil → loadDanmuSource 早退：不打 movie repo、不打豆瓣。
+// client 传 nil：若代码越过早退走到 DoubanVendors 会 panic —— 顺带证明分支已拦停。
+func TestDanmuSourceDisabledSkipsUpstream(t *testing.T) {
+	setupCache(t)
+	var hits int
+	movie := &countingMovie{onGet: func() { hits++ }}
+	for _, cfg := range []*entity.SiteConfig{
+		{DanmuEnabled: 0, DanmuProviders: entity.StringSlice{"tencent"}}, // 总开关关
+		{DanmuEnabled: 1, DanmuProviders: entity.StringSlice{}},          // 空白名单
+		{DanmuEnabled: 1, DanmuProviders: nil},                           // nil 白名单
+	} {
+		svc := NewDanmuService(movie, nil, "http://127.0.0.1:1", &fakeSiteCfgRepo{cfg: cfg})
+		if _, err := svc.DanmuSource(context.Background(), 1); err != nil {
+			t.Fatalf("DanmuSource(未启用) err = %v, want nil（静默无弹幕）", err)
+		}
+	}
+	if hits != 0 {
+		t.Fatalf("未启用时不应打 movie repo，实测 %d 次", hits)
+	}
+}
+
+// TestDanmuSourceDbIdZeroSkipsUpstream db_id<=0 → 早退（不打豆瓣）。
+func TestDanmuSourceDbIdZeroSkipsUpstream(t *testing.T) {
+	setupCache(t)
+	svc := danmuSvc("http://127.0.0.1:1", "tencent")
+	svc.movie = &countingMovie{} // Mid=1, DbId=0
+	if _, err := svc.DanmuSource(context.Background(), 1); err != nil {
+		t.Fatalf("DanmuSource(db_id=0) err = %v, want nil", err)
+	}
+}
+
+// TestSaveDanmuConfig 弹幕后台配置读写（manage 端点 service 层，铁律三同步第三点）：
+// 入参校验（enabled 仅 0/1 / 未知平台拒绝 / 开而空白名单拒绝 / 去重）+ 落库读回，
+// 并验证保存后 v1:danmu:src:* 负缓存被清（否则旧"未启用"负缓存继续挡 2h）。
+func TestSaveDanmuConfig(t *testing.T) {
+	setupCache(t)
+	repo := &fakeSiteCfgRepo{cfg: &entity.SiteConfig{Id: 1}}
+	m := &ManageService{siteCfg: repo}
+	ctx := context.Background()
+
+	v, err := m.GetDanmuConfig(ctx)
+	if err != nil {
+		t.Fatalf("GetDanmuConfig: %v", err)
+	}
+	if v.Enabled != 0 || len(v.Providers) != 0 {
+		t.Fatalf("默认应关+空白名单: %+v", v)
+	}
+	if strings.Join(v.All, ",") != "bilibili,tencent,iqiyi,youku" {
+		t.Fatalf("平台全集与壳 ID_PREFIX 不同步: %v", v.All)
+	}
+
+	bad := []DanmuConfigInput{
+		{Enabled: 2, Providers: []string{"tencent"}}, // enabled 越界
+		{Enabled: 1, Providers: []string{"mgtv"}},    // 未知平台
+		{Enabled: 1, Providers: []string{}},          // 开而空白名单
+		{Enabled: 1, Providers: nil},
+	}
+	for _, in := range bad {
+		if err := m.SaveDanmuConfig(ctx, in); !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("SaveDanmuConfig(%+v) err = %v, want ErrInvalidArgument", in, err)
+		}
+	}
+	if repo.cfg.DanmuEnabled != 0 || len(repo.cfg.DanmuProviders) != 0 {
+		t.Fatalf("非法输入不得落库: %+v", repo.cfg)
+	}
+
+	if err := m.SaveDanmuConfig(ctx, DanmuConfigInput{
+		Enabled: 1, Providers: []string{"tencent", "bilibili", "tencent"}, // 去重
+	}); err != nil {
+		t.Fatalf("SaveDanmuConfig: %v", err)
+	}
+	v, err = m.GetDanmuConfig(ctx)
+	if err != nil {
+		t.Fatalf("GetDanmuConfig: %v", err)
+	}
+	if v.Enabled != 1 || strings.Join([]string(v.Providers), ",") != "tencent,bilibili" {
+		t.Fatalf("落库读回不一致: %+v", v)
+	}
+
+	// 负缓存清理：先写一条"未启用"负缓存，保存后应被 DelByPattern 清掉
+	if err := cache.Set(ctx, cache.KeyDanmuSource(1), danmuEmptyTTL, DanmuSourceResp{}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+	if err := m.SaveDanmuConfig(ctx, DanmuConfigInput{Enabled: 0}); err != nil {
+		t.Fatalf("SaveDanmuConfig(关): %v", err)
+	}
+	var loaderCalled bool
+	if _, _, _ = cache.GetOrLoadTTL(ctx, cache.KeyDanmuSource(1), danmuSourceTTL, danmuEmptyTTL,
+		func(context.Context) (DanmuSourceResp, bool, error) {
+			loaderCalled = true
+			return DanmuSourceResp{}, false, nil
+		}); !loaderCalled {
+		t.Fatal("负缓存未清：GetOrLoadTTL 仍命中旧值（SaveDanmuConfig 应 DelByPattern v1:danmu:src:*）")
 	}
 }
