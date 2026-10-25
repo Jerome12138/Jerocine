@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
   getMailConfig: vi.fn(),
   saveMailConfig: vi.fn(),
   testMail: vi.fn(),
+  getDanmuConfig: vi.fn(),
+  saveDanmuConfig: vi.fn(),
   toast: vi.fn()
 }))
 
@@ -32,6 +34,10 @@ vi.mock('@/api', () => ({
       getMailConfig: h.getMailConfig,
       saveMailConfig: h.saveMailConfig,
       testMail: h.testMail
+    },
+    danmu: {
+      getDanmuConfig: h.getDanmuConfig,
+      saveDanmuConfig: h.saveDanmuConfig
     }
   }
 }))
@@ -78,14 +84,46 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
       smtpPassSet: true,
       presets: []
     })
+    h.getDanmuConfig.mockResolvedValue({
+      enabled: 0,
+      providers: [],
+      all: ['bilibili', 'tencent', 'iqiyi', 'youku']
+    })
   })
 
-  it('一个页面内展示全部卡片（站点 / 注册与邮件 / TMDB / 账号与安全 / 采集性能）', async () => {
+  it('一个页面内展示全部卡片（站点 / 注册与邮件 / TMDB / 账号与安全 / 采集性能 / 弹幕服务）', async () => {
     const w = await mountView()
     const text = w.text()
-    for (const title of ['站点信息', '注册与邮件通道', 'TMDB 横图', '账号与安全', '采集性能']) {
+    for (const title of ['站点信息', '注册与邮件通道', 'TMDB 横图', '账号与安全', '采集性能', '弹幕服务']) {
       expect(text, title).toContain(title)
     }
+  })
+
+  it('弹幕卡: 默认不启用, 开启且勾选平台后保存', async () => {
+    h.saveDanmuConfig.mockImplementation(async (d) => ({ enabled: d.enabled, providers: d.providers, all: ['bilibili', 'tencent', 'iqiyi', 'youku'] }))
+    const w = await mountView()
+    expect(h.getDanmuConfig).toHaveBeenCalled()
+    const card = cardOf(w, '弹幕服务')
+    expect(card.text()).toContain('未启用（默认）')
+    // 开启总开关(ManageSwitch 是 button[role=switch])
+    await card.find('button[role="switch"]').trigger('click')
+    // 勾选两个平台(全页卡片里 4 个 checkbox 都在弹幕卡; 但保险起见按卡片内查)
+    const boxes = card.findAll('input[type="checkbox"]')
+    await boxes[0].setValue(true) // bilibili
+    await boxes[2].setValue(true) // iqiyi
+    await card.findAll('button').at(-1)!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 1, providers: ['bilibili', 'iqiyi'] })
+  })
+
+  it('弹幕卡: 开启但未勾选任何平台时前端拦下', async () => {
+    const w = await mountView()
+    const card = cardOf(w, '弹幕服务')
+    await card.find('button[role="switch"]').trigger('click')
+    await card.findAll('button').at(-1)!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.saveDanmuConfig).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', expect.stringContaining('至少勾选'))
   })
 
   it('运行参数从 /manage/settings 读入并回填', async () => {
@@ -181,6 +219,11 @@ describe('SiteConfigView 采集性能卡（三个上限可配）', () => {
       smtpUser: '', smtpFromName: '', mailDailyQuota: 50,
       smtpPassMasked: '', smtpPassSet: false, presets: []
     })
+    h.getDanmuConfig.mockResolvedValue({
+      enabled: 0,
+      providers: [],
+      all: ['bilibili', 'tencent', 'iqiyi', 'youku']
+    })
     h.getRuntimeSettings.mockResolvedValue({
       authTokenTtlHours: 168,
       maxDeviceLogin: 5,
@@ -222,6 +265,30 @@ describe('SiteConfigView 采集性能卡（三个上限可配）', () => {
 
 // 保存一张卡不得冲掉另一张卡的未保存草稿(响应整体 assign 回草稿的回归)
 it('保存「采集性能」后, 「账号与安全」里未保存的草稿原样保留', async () => {
+  setActivePinia(createPinia())
+  Object.values(h).forEach((fn) => fn.mockReset())
+  h.getBasic.mockResolvedValue({
+    siteName: 'Jerocine', logo: '', keyword: '', describe: '',
+    domain: 'https://jerocine.art', state: true, hint: ''
+  })
+  h.getTMDBKey.mockResolvedValue({ masked: '', set: false })
+  h.getMailConfig.mockResolvedValue({
+    registerMode: 'off', smtpEnabled: 0, smtpHost: '', smtpPort: 465, smtpSecure: 'ssl',
+    smtpUser: '', smtpFromName: '', mailDailyQuota: 50,
+    smtpPassMasked: '', smtpPassSet: false, presets: []
+  })
+  h.getDanmuConfig.mockResolvedValue({
+    enabled: 0,
+    providers: [],
+    all: ['bilibili', 'tencent', 'iqiyi', 'youku']
+  })
+  h.getRuntimeSettings.mockResolvedValue({
+    authTokenTtlHours: 168,
+    maxDeviceLogin: 5,
+    spiderMaxGoroutine: 32,
+    spiderMasterMaxWorkers: 12,
+    spiderSlaveMaxWorkers: 8
+  })
   h.updateRuntimeSettings.mockImplementation(async (d) => d)
   const w = await mountView()
   const account = w

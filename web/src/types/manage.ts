@@ -601,6 +601,25 @@ export interface MailTestReq extends MailConfigUpdate {
   to: string
 }
 
+/** 弹幕平台标识（与 danmu-service 壳 ID_PREFIX 一致） */
+export type DanmuProvider = 'bilibili' | 'tencent' | 'iqiyi' | 'youku'
+
+/** GET /manage/danmu-config 响应（弹幕总开关 + 开放平台白名单 + 平台全集） */
+export interface DanmuConfigResp {
+  /** 0 关闭（默认）/ 1 启用 */
+  enabled: number
+  /** 开放平台白名单，空 = 未开放任何平台 */
+  providers: DanmuProvider[]
+  /** 平台全集（前端展示可选，与壳 ID_PREFIX 同步） */
+  all: DanmuProvider[]
+}
+
+/** PUT /manage/danmu-config 请求体 */
+export interface DanmuConfigUpdate {
+  enabled: number
+  providers: DanmuProvider[]
+}
+
 /** GET/PUT /manage/settings 运行参数（存 site_config，都是"下次生效"） */
 export interface RuntimeSettings {
   /** 登录有效期(小时)，只影响之后新签发的 token */

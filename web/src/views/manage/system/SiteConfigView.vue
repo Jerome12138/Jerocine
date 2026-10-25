@@ -10,6 +10,7 @@ import ManageTextarea from '@/components/manage/ManageTextarea.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import MailConfigCard from './MailConfigCard.vue'
+import DanmuConfigCard from './DanmuConfigCard.vue'
 
 /**
  * 系统设置（原「站点配置」+「邮件与注册」合并）。
@@ -250,6 +251,9 @@ onMounted(load)
 
       <!-- 注册与邮件通道(原独立页) -->
       <MailConfigCard />
+
+      <!-- 弹幕服务(后台配置项, 默认不启用) -->
+      <DanmuConfigCard />
 
       <!-- TMDB -->
       <section
