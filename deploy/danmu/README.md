@@ -38,6 +38,8 @@ node --test test/
 # 3) 冒烟（真实接口，需外网）
 node smoke/smoke_bilibili.mjs       # B站：流浪地球2 seasonId=44847
 node smoke/smoke_scraperkit.mjs     # 腾讯：心动的信号第九季 cid=mzc002003kpyd2m
+node smoke/smoke_iqiyi.mjs          # 爱奇艺：流浪地球2 entityId=7292991076670500（回归 zlib 解压）
+node smoke/smoke_youku.mjs          # 优酷：流浪地球2 showId=efcdfcb66fd346f9b2a9（回归多值 set-cookie 合并）
 ```
 
 ## 接口契约（详见 docs/弹幕服务集成方案-2026-10-25.md §8）
@@ -53,7 +55,19 @@ node smoke/smoke_scraperkit.mjs     # 腾讯：心动的信号第九季 cid=mzc0
 - **timestamp 秒→毫秒是壳内唯一转换点**（上游 B站浮点秒/腾讯整数秒，`Math.round(t*1000)`）
 - **fetch adapter 必须自处理 `base64Data`**（B站 seg.so protobuf 通道；`options.base64Data===true` 时返回 base64 字符串）
 - 段间节流 ≥200ms、单 provider 并发 1（与 Go 侧纪律一致）
-- provider 支持：`bilibili` / `tencent`（其余 iqiyi/youku/mgtv/renren 由上游支持，未在本壳启用，启用时在 `lib/scraper.js` 白名单加一行）
+- provider 支持：`bilibili` / `tencent` / `iqiyi` / `youku`（`lib/scraper.js` 的 `ID_PREFIX` 驱动，
+  `ENABLED_PROVIDERS` 自动取 keys；`mgtv` 未启用，作单测 400 用例）
+- 启用新平台 = **壳 `ID_PREFIX` 加前缀 + Go 后台 `/manage/danmu-config` 白名单勾选**，两边都开才可用
+
+## 后台配置（Go 侧总开关，本壳无状态）
+
+- Go 后端 `/manage/danmu-config`（管理后台「系统设置 → 弹幕服务」卡片）控制：
+  - `enabled` 总开关（默认 0 关闭）；`providers` 开放平台白名单（空 = 全关）
+  - 保存后 Go 清 `v1:danmu:src:*` 来源候选缓存，下次进片按新白名单解析
+- **双闸语义**：Go 白名单决定「前端出哪些弹幕源候选 / 网关放行哪些 provider」；
+  壳 `ID_PREFIX` 决定「上游真的能拉」。平台要可用两边都要启用，缺一不可。
+- 关闭/未启用时的行为：`/films/:mid/danmu/source` 返回空候选（前端静默无弹幕）；
+  `/danmu/:provider/*` 未启用 provider → Go 网关 400（不会打到本壳）。
 
 ## 部署（D2 起）
 
