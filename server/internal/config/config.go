@@ -20,6 +20,7 @@ type Config struct {
 	Spider     SpiderConfig
 	Blob       BlobConfig
 	TMDB       TMDBConfig
+	Danmu      DanmuConfig
 	PageSizes  PageSizes
 }
 
@@ -43,9 +44,9 @@ type SpiderConfig struct {
 }
 
 type BlobConfig struct {
-	Driver    string // local | oss
-	LocalDir  string
-	BaseURL   string // 访问前缀, 如 /api/upload/pic/poster/
+	Driver   string // local | oss
+	LocalDir string
+	BaseURL  string // 访问前缀, 如 /api/upload/pic/poster/
 }
 
 // TMDBConfig 横图(backdrop)回填配置。API key 只存 site_config(后台「系统设置」维护,
@@ -55,6 +56,12 @@ type TMDBConfig struct {
 	Lang      string // 检索语言, 默认 zh-CN
 	APIBase   string // 默认 https://api.themoviedb.org/3
 	ImageBase string // 默认 https://image.tmdb.org/t/p/
+}
+
+// DanmuConfig 弹幕数据服务(danmu-service, Node 壳)配置。
+// 容器网络内走 compose 服务名; 本地联调用环境变量指向 127.0.0.1:3611。
+type DanmuConfig struct {
+	ServiceURL string // 默认 http://danmu:3611
 }
 
 // PageSizes 各接口默认页大小, 集中而非散落各 handler。
@@ -99,6 +106,9 @@ func Load() *Config {
 			Lang:      env("TMDB_LANG", "zh-CN"),
 			APIBase:   os.Getenv("TMDB_API_BASE"),
 			ImageBase: os.Getenv("TMDB_IMAGE_BASE"),
+		},
+		Danmu: DanmuConfig{
+			ServiceURL: env("DANMU_SERVICE_URL", "http://danmu:3611"),
 		},
 		PageSizes: PageSizes{Home: 14, Classify: 21, Filter: 49, Search: 10, Gallery: 39},
 	}
@@ -165,6 +175,6 @@ func splitNonEmpty(s string) []string {
 
 // String 脱敏摘要, 启动日志用 (不打印密钥/密码)。
 func (c *Config) String() string {
-	return fmt.Sprintf("Config{port=%s mysql=*** redis=%s(cache=%d,coord=%d) cors=%v blob=%s tmdb.lang=%s}",
-		c.ServerPort, c.Redis.Addr, c.Redis.CacheDB, c.Redis.CoordDB, c.CORS, c.Blob.Driver, c.TMDB.Lang)
+	return fmt.Sprintf("Config{port=%s mysql=*** redis=%s(cache=%d,coord=%d) cors=%v blob=%s tmdb.lang=%s danmu=%s}",
+		c.ServerPort, c.Redis.Addr, c.Redis.CacheDB, c.Redis.CoordDB, c.CORS, c.Blob.Driver, c.TMDB.Lang, c.Danmu.ServiceURL)
 }

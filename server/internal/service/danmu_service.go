@@ -2,9 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"server/internal/cache"
@@ -13,14 +18,14 @@ import (
 	"server/internal/domain/repository"
 )
 
-// 弹幕缓存 TTL：正缓存 7d（db_id/season 资源 id 长期稳定）；负缓存短 TTL 2h
-// （评审 7.6：db_id 空 / 无 vendors / B站无 season 的低频片也要挡住重复打豆瓣）。
+// 弹幕缓存 TTL：正缓存 7d（db_id/season 资源 id/整集弹幕长期稳定）；负缓存短 TTL 2h
+// （评审 7.6：db_id 空 / 无 vendors / 无匹配集 / danmu-service 无弹幕的低频片也要挡住重复打上游）。
 const (
 	danmuSourceTTL = 7 * 24 * time.Hour
-	danmuEpsTTL    = 7 * 24 * time.Hour
 	danmuEmptyTTL  = 2 * time.Hour
-	// maxSegs 一集弹幕分段上限（45min ≈ 8 段；留余量防超长集）。
-	maxSegs = 12
+	// danmuServiceTimeout 路径 A（B站整集聚合）超时：29 段串行 + 段间退避 ≈ 6-10s，
+	// 留 30s 大于最坏聚合耗时（8.2 约定）。danmu-service 不可用/超时 → 静默降级"暂无弹幕"。
+	danmuServiceTimeout = 30 * time.Second
 )
 
 // DanmuSourceResp 弹幕来源响应（评审 7.7：不暴露 dbId，只给平台候选）。
@@ -34,7 +39,7 @@ type DanmuProvider struct {
 	ResourceID string `json:"resourceId"` // 平台侧整剧/整片资源 id
 }
 
-// DanmuComment 对外弹幕条目（对齐 danmupb.Comment 的 JSON 形态）。
+// DanmuComment 对外弹幕条目（对齐 danmu-service 规范化契约 {text,time,color,mode}，毫秒）。
 type DanmuComment struct {
 	Text  string `json:"text"`
 	Time  int64  `json:"time"`
@@ -42,15 +47,22 @@ type DanmuComment struct {
 	Mode  int32  `json:"mode"`
 }
 
-// DanmuService 弹幕服务（P0：vendors 候选 + B站弹幕）。
+// DanmuService 弹幕服务（D2：vendors 候选 Go 自留；分集/弹幕取数走 danmu-service）。
 type DanmuService struct {
-	movie  repository.MovieRepository
-	client *danmu.Client
+	movie    repository.MovieRepository
+	client   *danmu.Client
+	danmuURL string
+	hc       *http.Client
 }
 
-// NewDanmuService 构造弹幕服务。
-func NewDanmuService(movie repository.MovieRepository, client *danmu.Client) *DanmuService {
-	return &DanmuService{movie: movie, client: client}
+// NewDanmuService 构造弹幕服务。danmuURL 为 danmu-service 基址（config.Danmu.ServiceURL）。
+func NewDanmuService(movie repository.MovieRepository, client *danmu.Client, danmuURL string) *DanmuService {
+	return &DanmuService{
+		movie:    movie,
+		client:   client,
+		danmuURL: strings.TrimRight(danmuURL, "/"),
+		hc:       &http.Client{Timeout: danmuServiceTimeout},
+	}
 }
 
 // DanmuSource 按 mid 取弹幕来源候选（全平台，前端按优先级/用户选择取一个）。
@@ -98,97 +110,88 @@ func (s *DanmuService) loadDanmuSource(ctx context.Context, mid int64) (DanmuSou
 	return DanmuSourceResp{Providers: providers}, true, nil
 }
 
-// DanmuBilibili 按 seasonId + 集号取该集全部弹幕（评审 7.4：串行拉全部分段，
-// 前端按 currentTime 过滤后渲染；segment 参数留给后续"按播放进度预拉"优化）。
+// DanmuBilibili 按 seasonId + 集号取该集全部弹幕（路径 A：整集聚合）。
 //
-// 分集匹配（评审 7.3）：B站剧集标题格式混乱（第3集/EP3/数字），统一走
-// danmu.ParseEpisodeNo 提取；电影单集（无集号标题）默认第 1 集；越界/无匹配
-// 静默降级为"暂无弹幕"（不报错、不串集）。
+// D2 起：Go 不再自研 B站 season/seg.so 解析，全部交给 danmu-service——
+//  1. episodes 接口（resourceId=seasonId&episode=ep）拿分集匹配结果 matched.episodeId；
+//  2. comments 接口（episodeId 缺省 segmentId = 整集聚合）一次返回整集弹幕；
+//  3. 结果缓存 v1:danmu:bili:cmt:{seasonID}:{ep}（正 7d / 负 2h，8.6）。
+//
+// 降级：danmu-service 不可用 / 超时 / 无匹配集 → 返回空弹幕 + 无错误（不阻塞播放）。
 func (s *DanmuService) DanmuBilibili(ctx context.Context, seasonID string, episode int) ([]DanmuComment, error) {
-	episodes, err := s.biliEpisodes(ctx, seasonID)
-	if err != nil {
-		return nil, err
-	}
-	target, ok := MatchEpisode(episodes, episode)
-	if !ok {
-		return nil, nil // 无对应集：静默降级
-	}
-	var out []DanmuComment
-	for seg := 1; seg <= maxSegs; seg++ {
-		comments, err := s.client.BiliSeg(ctx, target.Cid, seg)
-		if err != nil {
-			// 分段失败：若已拉到部分数据则截断返回（首版体验优先）；
-			// 首段即失败视为整集无弹幕（接口异常，降级）。
-			if len(out) > 0 {
-				log.Printf("[danmu] season=%s ep=%d seg=%d 失败, 截断返回 %d 条: %v",
-					seasonID, episode, seg, len(out), err)
-				break
-			}
-			log.Printf("[danmu] season=%s ep=%d 首段失败, 视为无弹幕: %v", seasonID, episode, err)
-			return nil, nil
-		}
-		if len(comments) == 0 {
-			break // 空段 = 弹幕到底
-		}
-		for _, cm := range comments {
-			out = append(out, DanmuComment{Text: cm.Content, Time: cm.TimeMS, Color: cm.Color, Mode: cm.Mode})
-		}
-		time.Sleep(200 * time.Millisecond) // 平台频率纪律：段间小幅退避
-	}
-	return out, nil
-}
-
-// biliEpisodes 取 B站剧集列表（正缓存 7d；season 无效 → 负缓存 2h）。
-func (s *DanmuService) biliEpisodes(ctx context.Context, seasonID string) ([]danmu.Episode, error) {
-	eps, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuBiliEps(seasonID), danmuEpsTTL, danmuEmptyTTL,
-		func(ctx context.Context) ([]danmu.Episode, bool, error) {
-			list, err := s.client.BiliEpisodes(ctx, seasonID)
-			if err != nil {
-				return nil, false, err
-			}
-			if len(list) == 0 {
-				return nil, false, nil // 负缓存 2h
-			}
-			return list, true, nil
+	comments, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuBiliCmt(seasonID, episode),
+		danmuSourceTTL, danmuEmptyTTL,
+		func(ctx context.Context) ([]DanmuComment, bool, error) {
+			return s.loadDanmuBilibili(ctx, seasonID, episode)
 		})
 	if err != nil {
 		return nil, err
 	}
-	return eps, nil
+	return comments, nil
 }
 
-// MatchEpisode 按集号匹配剧集（评审 7.3 的表驱动匹配核心，service 层纯函数，可单测）。
-//
-// 规则：
-//  1. requested ≤ 0 视为"默认第 1 集"；
-//  2. 全部标题无集号（电影/单集片，如"正片"）→ 取第一条（默认第 1 集）；
-//  3. 标题集号 == requested → 命中；
-//  4. 越界/无匹配 → ok=false（调用方降级为"暂无弹幕"，不串集）。
-func MatchEpisode(episodes []danmu.Episode, requested int) (danmu.Episode, bool) {
-	if len(episodes) == 0 {
-		return danmu.Episode{}, false
+// loadDanmuBilibili 回源 danmu-service 拉整集弹幕。
+func (s *DanmuService) loadDanmuBilibili(ctx context.Context, seasonID string, episode int) ([]DanmuComment, bool, error) {
+	// 1) 分集匹配（episodes 接口）
+	epsURL := fmt.Sprintf("%s/danmu/bilibili/episodes?resourceId=%s&episode=%d",
+		s.danmuURL, url.QueryEscape(seasonID), episode)
+	var epsResp struct {
+		Ok   bool `json:"ok"`
+		Data struct {
+			Matched *struct {
+				EpisodeID string `json:"episodeId"`
+			} `json:"matched"`
+		} `json:"data"`
 	}
-	// 单集片特例：所有标题都提不出集号 → 整片只算第 1 集。
-	if noEpisodeNumbers(episodes) {
-		return episodes[0], true
+	if err := s.danmuGet(ctx, epsURL, &epsResp); err != nil {
+		log.Printf("[danmu] bilibili episodes 调用失败, 静默降级: %v", err)
+		return nil, false, nil // 负缓存 2h，避免持续打不可用服务
 	}
-	if requested <= 0 {
-		requested = 1
+	if !epsResp.Ok || epsResp.Data.Matched == nil || epsResp.Data.Matched.EpisodeID == "" {
+		return nil, false, nil // 无匹配集：负缓存 2h（评审 7.3 降级口径）
 	}
-	for _, e := range episodes {
-		if danmu.ParseEpisodeNo(e.Title) == requested {
-			return e, true
-		}
+	episodeID := epsResp.Data.Matched.EpisodeID
+
+	// 2) 整集弹幕（comments 接口，episodeId 复合串必须 encodeURIComponent）
+	cmtURL := fmt.Sprintf("%s/danmu/bilibili/comments?episodeId=%s",
+		s.danmuURL, url.QueryEscape(episodeID))
+	var cmtResp struct {
+		Ok   bool           `json:"ok"`
+		Data []DanmuComment `json:"data"`
 	}
-	return danmu.Episode{}, false
+	if err := s.danmuGet(ctx, cmtURL, &cmtResp); err != nil {
+		log.Printf("[danmu] bilibili comments 调用失败, 静默降级: %v", err)
+		return nil, false, nil
+	}
+	if !cmtResp.Ok {
+		return nil, false, nil
+	}
+	if len(cmtResp.Data) == 0 {
+		return nil, false, nil // 负缓存 2h
+	}
+	return cmtResp.Data, true, nil
 }
 
-// noEpisodeNumbers 判断是否"全部标题无集号"（电影/单集片）。
-func noEpisodeNumbers(episodes []danmu.Episode) bool {
-	for _, e := range episodes {
-		if danmu.ParseEpisodeNo(e.Title) > 0 {
-			return false
-		}
+// danmuGet 请求 danmu-service 并解析 JSON。非 200 / JSON 损坏 → error。
+func (s *DanmuService) danmuGet(ctx context.Context, endpoint string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
 	}
-	return true
+	resp, err := s.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("danmu-service status %d", resp.StatusCode)
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("danmu-service 响应非 JSON: %w", err)
+	}
+	return nil
 }

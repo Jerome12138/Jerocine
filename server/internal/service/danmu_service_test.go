@@ -1,51 +1,123 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"server/internal/danmu"
+	"server/internal/cache"
 )
 
-// MatchEpisode 表驱动（评审 7.3：单集片特例 / 越界降级 / 集号匹配）。
-func TestMatchEpisode(t *testing.T) {
-	series := []danmu.Episode{
-		{Cid: 101, Title: "第1集"},
-		{Cid: 102, Title: "第2集"},
-		{Cid: 103, Title: "第3集"},
+// TestDanmuBilibiliViaService 模拟 danmu-service 两跳响应，验证转发、契约映射与降级。
+//
+// 覆盖：
+//  1. episodes 返回 matched.episodeId → comments 整集聚合 → []DanmuComment 毫秒原样映射；
+//  2. danmu-service 无匹配集（matched=null）→ 空弹幕 + 无错误（静默降级）；
+//  3. danmu-service 不可用（500）→ 空弹幕 + 无错误（不阻塞播放）。
+//
+// 注意：测试走真实 Redis 缓存层 GetOrLoadTTL；无 Redis 环境时若 test 包已有
+// 全局初始化跳过逻辑则相应调整（本地门禁以 go build/vet/test 为准）。
+func TestDanmuBilibiliViaService(t *testing.T) {
+	episodeID := "seasonId=44847&aid=867288412&cid=1091578122"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/episodes"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"provider": "bilibili",
+					"episodes": []any{},
+					"matched": map[string]any{
+						"episodeId": episodeID,
+					},
+				},
+			})
+		case strings.Contains(r.URL.Path, "/comments"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": []DanmuComment{
+					{Text: "中国科幻电影的新征程！", Time: 49953, Color: 16777215, Mode: 1},
+					{Text: "好耶", Time: 50100, Color: 0, Mode: 4},
+				},
+			})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	svc := NewDanmuService(nil, nil, srv.URL)
+	comments, err := svc.DanmuBilibili(context.Background(), "44847", 1)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
 	}
-	movie := []danmu.Episode{
-		{Cid: 9001, Title: "正片"},
+	if len(comments) != 2 {
+		t.Fatalf("comments = %d, want 2", len(comments))
 	}
-	movieMulti := []danmu.Episode{
-		{Cid: 9001, Title: "预告片"},
-		{Cid: 9002, Title: "正片"},
+	if comments[0].Text != "中国科幻电影的新征程！" || comments[0].Time != 49953 {
+		t.Fatalf("first comment 映射错误: %+v", comments[0])
 	}
-	cases := []struct {
-		name     string
-		episodes []danmu.Episode
-		req      int
-		wantCid  int64
-		wantOK   bool
-	}{
-		{"第2集命中", series, 2, 102, true},
-		{"第3集命中", series, 3, 103, true},
-		{"越界降级", series, 30, 0, false},
-		{"集号不存在降级", series, 5, 0, false},
-		{"默认第1集", series, 0, 101, true},
-		{"电影单集默认第1集", movie, 1, 9001, true},
-		{"电影单集任意集号取第1", movie, 99, 9001, true},
-		{"多P电影(预告+正片)按序取", movieMulti, 1, 9001, true},
-		{"空列表", nil, 1, 0, false},
+	if comments[1].Mode != 4 {
+		t.Fatalf("mode 映射错误: %+v", comments[1])
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, ok := MatchEpisode(c.episodes, c.req)
-			if ok != c.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, c.wantOK)
-			}
-			if c.wantOK && got.Cid != c.wantCid {
-				t.Fatalf("cid = %d, want %d", got.Cid, c.wantCid)
-			}
+}
+
+func TestDanmuBilibiliNoMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"provider": "bilibili",
+				"episodes": []any{},
+				"matched":  nil, // 无匹配集
+			},
 		})
+	}))
+	defer srv.Close()
+
+	svc := NewDanmuService(nil, nil, srv.URL)
+	comments, err := svc.DanmuBilibili(context.Background(), "44847", 99)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(comments) != 0 {
+		t.Fatalf("comments = %d, want 0", len(comments))
+	}
+}
+
+func TestDanmuBilibiliServiceDown(t *testing.T) {
+	// 直接返回 500 的"不可用"服务
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	svc := NewDanmuService(nil, nil, srv.URL)
+	comments, err := svc.DanmuBilibili(context.Background(), "44847", 1)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(comments) != 0 {
+		t.Fatalf("comments = %d, want 0 (降级为空弹幕)", len(comments))
+	}
+}
+
+// TestEpKeyOf 复合 episodeId → 稳定 16 字符键片段（8.6：不得直接拼 Redis 键）。
+func TestEpKeyOf(t *testing.T) {
+	id := "seasonId=44847&aid=867288412&cid=1091578122"
+	k := cache.EpKeyOf(id)
+	if len(k) != 16 {
+		t.Fatalf("EpKeyOf 长度 = %d, want 16", len(k))
+	}
+	if k2 := cache.EpKeyOf(id); k2 != k {
+		t.Fatalf("EpKeyOf 不稳定: %s vs %s", k, k2)
+	}
+	seg := cache.KeyDanmuSeg("tencent", k, "1")
+	if !strings.HasPrefix(seg, "v1:danmu:seg:tencent:") {
+		t.Fatalf("KeyDanmuSeg 前缀错误: %s", seg)
 	}
 }

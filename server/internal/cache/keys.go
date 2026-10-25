@@ -1,6 +1,10 @@
 package cache
 
-import "fmt"
+import (
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
+)
 
 // Redis key 命名: v1:{域}:{标识}。详情/卡片去 cid(mid 全局唯一)。
 // 缓存键(db0)与协调态键(db1)分库, 见 platform/db。
@@ -24,8 +28,25 @@ const (
 )
 
 // 弹幕相关缓存键（DB0；正缓存 TTL 7d / 负缓存短 TTL 由 service 内写，见 danmu_service.go）。
-func KeyDanmuSource(mid int64) string       { return fmt.Sprintf("v1:danmu:src:%d", mid) }
-func KeyDanmuBiliEps(seasonID string) string { return "v1:danmu:bili:eps:" + seasonID }
+func KeyDanmuSource(mid int64) string { return fmt.Sprintf("v1:danmu:src:%d", mid) }
+
+// KeyDanmuBiliCmt B站整集弹幕内容缓存键（D2 起：Go 不再缓存分集映射，只缓存最终整集弹幕）。
+func KeyDanmuBiliCmt(seasonID string, episode int) string {
+	return fmt.Sprintf("v1:danmu:bili:cmt:%s:%d", seasonID, episode)
+}
+
+// KeyDanmuSeg 分段弹幕内容缓存键（腾讯/爱奇艺等分段点播，P1c 起用；先登记）。
+// epKey = EpKeyOf(episodeId)：episodeId 是 provider 复合串（含 & 且长度不定），
+// 不得直接拼 Redis 键（8.5/8.6 约定）。
+func KeyDanmuSeg(provider, epKey, segmentID string) string {
+	return fmt.Sprintf("v1:danmu:seg:%s:%s:%s", provider, epKey, segmentID)
+}
+
+// EpKeyOf 由 episodeId 复合串派生缓存键片段：sha1 前 8 字节 hex（16 字符）。
+func EpKeyOf(episodeID string) string {
+	h := sha1.Sum([]byte(episodeID))
+	return hex.EncodeToString(h[:8])
+}
 
 // 失效用的 pattern(SCAN, 不用 KEYS)。
 const (

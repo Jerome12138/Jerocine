@@ -20,8 +20,8 @@ import (
 	"gorm.io/gorm"
 
 	"server/internal/config"
-	"server/internal/douban"
 	"server/internal/danmu"
+	"server/internal/douban"
 	"server/internal/geoip"
 	"server/internal/handler"
 	"server/internal/platform/auth"
@@ -226,17 +226,17 @@ func buildApp(cfg *config.Config) (*App, error) {
 	// 榜单热度刷新: 每日 04:00 拉豆瓣 L1 榜单(8 集合 / 约 675 条 / 18 次请求),
 	// 匹配本地影片后写 hot_rank / hot_rank_at / hot_score, 顺带回填 db_id 与 db_score。
 	hotSvc := service.NewHotService(movieRepo, searchRepo, douban.New())
-	// 弹幕服务(P0: 豆瓣 vendors 候选 + B站弹幕; db_id → vendors → season/cid → seg.so)。
-	danmuSvc := service.NewDanmuService(movieRepo, danmu.New())
+	// 弹幕服务(D2: 豆瓣 vendors 候选 Go 自留 + 分集/弹幕取数走 danmu-service)。
+	danmuSvc := service.NewDanmuService(movieRepo, danmu.New(), cfg.Danmu.ServiceURL)
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,
 		Telemetry: telemetrySvc, Manage: manageSvc, Spider: spiderSvc, Banner: bannerSvc,
 		Backdrop: backdropSvc,
-		Hot: hotSvc, Tasks: taskSvc, Online: service.NewOnlineService(cacheRdb),
+		Hot:      hotSvc, Tasks: taskSvc, Online: service.NewOnlineService(cacheRdb),
 		Register: registerSvc,
-		Danmu: danmuSvc,
-		Blob: blob, ResetToken: cfg.Spider.ResetToken,
+		Danmu:    danmuSvc,
+		Blob:     blob, ResetToken: cfg.Spider.ResetToken,
 	}
 
 	return &App{
