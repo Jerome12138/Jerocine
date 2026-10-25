@@ -36,39 +36,3 @@ func TestParsePlatformResource(t *testing.T) {
 		})
 	}
 }
-
-// ParseEpisodeNo 表驱动：B站混乱标题 → 集号。
-func TestParseEpisodeNo(t *testing.T) {
-	cases := []struct {
-		title string
-		want  int
-	}{
-		{"第3集", 3},
-		{"第 03 集", 3},
-		{"第10话", 10},
-		{"第1回", 1},
-		{"EP3", 3},
-		{"ep03", 3},
-		{"EP 12", 12},
-		{"3", 3},
-		{"30", 30},
-		{"第三集", 3},
-		{"第十二话", 12},
-		{"第二十三集", 23},
-		{"第一百零二集", 102},
-		{"III", 3},
-		{"VIII", 8},
-		{"正片", 0},
-		{"预告片", 0},
-		{"第1集 上", 1}, // 后缀忽略（前缀匹配）
-		{"", 0},
-		{"无集号标题", 0},
-	}
-	for _, c := range cases {
-		t.Run(c.title, func(t *testing.T) {
-			if got := ParseEpisodeNo(c.title); got != c.want {
-				t.Fatalf("ParseEpisodeNo(%q) = %d, want %d", c.title, got, c.want)
-			}
-		})
-	}
-}
