@@ -1,0 +1,38 @@
+{
+  "name": "rex-widget",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "deps:check": "manypkg check",
+    "deps:fix": "manypkg fix",
+    "change": "changeset",
+    "version": "changeset version",
+    "postversion": "npm run build",
+    "prerelease": "npm run build",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@changesets/cli": "^2.29.6",
+    "@manypkg/cli": "^0.25.1",
+    "nano-staged": "^0.8.0",
+    "simple-git-hooks": "^2.13.1",
+    "turbo": "^2.5.5",
+    "typescript": "^5.9.3"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npx nano-staged"
+  },
+  "nano-staged": {
+    "*.{js,ts,mjs,cjs,mts,cts}": [
+      "biome check --write"
+    ],
+    "pnpm-lock.yaml": "pnpm dedupe --check"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=22"
+  }
+}

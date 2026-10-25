@@ -1,0 +1,211 @@
+import { base64ToUint8Array } from "../../runtime";
+import { BaseScraper, type ProviderEpisodeInfo, providerCommentItemSchema } from "../base";
+import {
+  type EpisodeMatchContext,
+  isVarietyEpisodeList,
+  parseVarietyEpisodeIdentity,
+  selectEpisodeCandidates,
+  withClientEpisodeNumber,
+} from "../episode-identity";
+import { biliproto } from "./dm.proto";
+import { bilibiliIdSchema, pgcEpisodeResultSchema } from "./schema";
+
+export class BilibiliScraper extends BaseScraper<typeof bilibiliIdSchema> {
+  providerName = "bilibili";
+
+  idSchema = bilibiliIdSchema;
+
+  async parseProviderUrl(url: URL) {
+    if (url.hostname !== "www.bilibili.com" && url.hostname !== "bilibili.com") {
+      return null;
+    }
+
+    const ssMatch = url.pathname.match(/^\/bangumi\/play\/ss(\d+)$/);
+    if (ssMatch) {
+      return { seasonId: ssMatch[1] };
+    }
+
+    const epMatch = url.pathname.match(/^\/bangumi\/play\/ep(\d+)\/?$/);
+    if (epMatch) {
+      return this.getPgcSeasonId(epMatch[1]);
+    }
+
+    return null;
+  }
+
+  constructor() {
+    super();
+    this.fetch.setHeaders({
+      Referer: "https://www.bilibili.com/",
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    });
+  }
+
+  async getEpisodes(idString: string, episodeNumber?: number, context?: EpisodeMatchContext) {
+    const bilibiliId = this.parseIdString(idString);
+    if (!bilibiliId) {
+      return [];
+    }
+    const results: ProviderEpisodeInfo[] = [];
+    const episodes = await this.getPgcEpisodes(bilibiliId.seasonId);
+    const requestedIdentity = parseVarietyEpisodeIdentity(context?.episodeName ?? "");
+    const isVariety =
+      requestedIdentity.episodeNumber !== null ||
+      isVarietyEpisodeList(
+        (episodes ?? [])
+          .flatMap((episode) => [episode.title, episode.show_title, episode.long_title])
+          .filter((title) => !this.episodeBlacklistPattern.test(title)),
+        context,
+      );
+
+    let episodeIndex = 1;
+    for (const item of episodes ?? []) {
+      if (item.badge === "预告") {
+        this.logger.warn("预告，跳过，title：", item.title);
+        continue;
+      }
+      const identity = isVariety
+        ? parseVarietyEpisodeIdentity([item.title, item.show_title, item.long_title].filter(Boolean).join(" "))
+        : { episodeNumber: null, part: "whole" as const, edition: "main" as const };
+      if (!isVariety && this.episodeBlacklistPattern.test(item.title)) {
+        this.logger.warn("黑名单，跳过，title：", item.title);
+        continue;
+      }
+      results.push({
+        provider: this.providerName,
+        episodeId: this.generateIdString({
+          seasonId: bilibiliId.seasonId,
+          aid: item.aid.toString(),
+          cid: item.cid.toString(),
+        }),
+        episodeTitle: item.show_title || item.title,
+        episodeNumber: isVariety ? (identity.episodeNumber ?? 0) : episodeIndex,
+        episodePart: identity.part,
+        episodeEdition: identity.edition,
+      });
+      episodeIndex += 1;
+    }
+    if (bilibiliId.aid && bilibiliId.cid) {
+      const exact = results.find((episode) => {
+        const id = this.parseIdString(episode.episodeId);
+        return id?.aid === bilibiliId.aid && id?.cid === bilibiliId.cid;
+      });
+      return exact ? [withClientEpisodeNumber(exact, episodeNumber)] : [];
+    }
+    return selectEpisodeCandidates(results, episodeNumber, context);
+  }
+
+  async getSegments(episodeId: string) {
+    const { aid, cid, seasonId } = this.parseIdString(episodeId) ?? {};
+    if (!aid || !cid || !seasonId) {
+      return [];
+    }
+    const episodes = await this.getPgcEpisodes(seasonId);
+    const episode = episodes?.find(
+      (ep: { aid: number; cid: number }) => ep.aid === parseInt(aid, 10) && ep.cid === parseInt(cid, 10),
+    );
+    if (!episode) {
+      return [];
+    }
+
+    return Array.from({ length: Math.floor(episode.duration / 1000 / 360) + 1 }, (_, i) => ({
+      provider: this.providerName,
+      startTime: i * 360,
+      segmentId: (i + 1).toString(),
+    }));
+  }
+
+  async getComments(idString: string, segmentId: string) {
+    const { aid, cid, seasonId } = this.parseIdString(idString) ?? {};
+    if (!aid || !cid || !seasonId) {
+      this.logger.warn("aid：", aid, "cid：", cid, "seasonId：", seasonId, "不存在");
+      return null;
+    }
+    const episodes = await this.getPgcEpisodes(seasonId);
+    const episode = episodes?.find(
+      (ep: { aid: number; cid: number }) => ep.aid === parseInt(aid, 10) && ep.cid === parseInt(cid, 10),
+    );
+    if (!episode) {
+      this.logger.warn("未找到分集，aid：", aid, "cid：", cid, "seasonId：", seasonId);
+      return null;
+    }
+    const comments = await this.fetchCommentsForCid(aid, cid, segmentId);
+    if (!comments) {
+      this.logger.warn("未找到弹幕，aid：", aid, "cid：", cid, "segmentId：", segmentId);
+      return null;
+    }
+    return comments.map((comment) => {
+      if (!comment.progress) {
+        return null;
+      }
+      const sanitizedContent = comment.content?.toString().replace(/\0/g, "") || "";
+      if (!sanitizedContent) {
+        return null;
+      }
+      return (
+        providerCommentItemSchema.safeParse({
+          id: comment.id.toString(),
+          timestamp: comment.progress / 1000,
+          mode: comment.mode,
+          color: comment.color,
+          content: sanitizedContent,
+        }).data ?? null
+      );
+    });
+  }
+
+  private async getPgcEpisodes(seasonId: string) {
+    const response = await this.fetch.get("https://api.bilibili.com/pgc/view/web/ep/list", {
+      params: {
+        season_id: seasonId,
+      },
+      schema: pgcEpisodeResultSchema,
+      cache: {
+        cacheKey: `bilibili:episodes:${seasonId}`,
+      },
+    });
+
+    return response.data?.result.episodes;
+  }
+
+  private async getPgcSeasonId(episodeId: string) {
+    const response = await this.fetch.get<{ result?: { season_id?: number | string } }>(
+      "https://api.bilibili.com/pgc/view/web/season",
+      {
+        params: {
+          ep_id: episodeId,
+        },
+        cache: {
+          cacheKey: `bilibili:season:${episodeId}`,
+        },
+      },
+    );
+    const seasonId = response.data?.result?.season_id;
+    if (seasonId === undefined || seasonId === null || seasonId === "") {
+      return null;
+    }
+    return { seasonId: seasonId.toString() };
+  }
+
+  private async fetchCommentsForCid(aid: string, cid: string, segmentIndex: string) {
+    try {
+      const response = await this.fetch.get<string>("https://api.bilibili.com/x/v2/dm/web/seg.so", {
+        params: {
+          type: "1",
+          oid: cid,
+          pid: aid,
+          segment_index: segmentIndex,
+        },
+        base64Data: true,
+      });
+      if (response.statusCode === 404 || response.statusCode === 304) return null;
+      const data = biliproto.community.service.dm.v1.DmSegMobileReply.decode(base64ToUint8Array(response.data));
+      return data.elems;
+    } catch (error) {
+      this.logger.error("获取分段", segmentIndex, "失败，aid：", aid, "cid：", cid, "错误：", error);
+    }
+
+    return null;
+  }
+}

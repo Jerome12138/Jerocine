@@ -1,0 +1,6 @@
+# danmu-service 依赖
+node_modules/
+.pnpm-store/
+
+# 运行时产物（部署时随发布包带上）
+*.log
