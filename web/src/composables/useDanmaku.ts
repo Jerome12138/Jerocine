@@ -7,7 +7,7 @@ import {
 } from 'vue'
 import type Player from 'video.js/dist/types/player'
 import { filmApi } from '@/api'
-import type { DanmuProvider, DanmuTencentSegment } from '@/types/film'
+import type { DanmuComment, DanmuProvider, DanmuTencentSegment } from '@/types/film'
 import { prefetchWindow, resolveDanmuProvider, shouldPrefetchNext, toDanmuInputs } from '@/utils/danmu'
 
 /**
@@ -312,7 +312,29 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     segments: DanmuTencentSegment[]
   }
   let tencentCtx: TencentCtx | null = null
+  /** 已装载段标记（seek 会 clear 后重装；只决定"装不装", 不决定"拉不拉"） */
   const loadedSegs = new Set<string>()
+
+  /* ---------------- 前端内存缓存（请求去重 2026-10-26） ----------------
+   * 目标：同一集内"开关关→开 / 配置(速度)变更重载 / seek 回已装载区域 / 来回切集"不再重复发 HTTP。
+   * 服务端已有 Redis 缓存（DanmuSource 正7d/负2h、B站整集、腾讯段 v1:danmu:seg:* 正7d/负2h），
+   * 这里再加一层内存缓存：命中直接装载，连缓存命中往返都省掉。
+   * 隔离：所有缓存 key 带 mid（+episode+provider），跨集/跨片自动 miss，不存在装错集；
+   * 生命周期 = composable（播放页会话），onScopeDispose 统一清空。 */
+  interface SrcCacheEntry {
+    providers: DanmuProvider[]
+  }
+  const srcCache = new Map<number, SrcCacheEntry>()
+  /** B站整集弹幕（key=`${mid}:${episode}`） */
+  const biliCache = new Map<string, DanmuComment[]>()
+  interface TencentMetaEntry {
+    episodeId: string
+    segments: DanmuTencentSegment[]
+  }
+  /** 腾讯 meta（key=`${mid}:${episode}:${provider}`）：匹配集 + 分段索引 */
+  const tencentMeta = new Map<string, TencentMetaEntry>()
+  /** 腾讯段弹幕数据缓存（key=`${mid}:${episode}:${segmentId}`）：seek 后 loadedSegs.clear 重装时命中不重拉 */
+  const segCache = new Map<string, DanmuComment[]>()
 
   function resetTencent(): void {
     tencentCtx = null
@@ -333,17 +355,23 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       if (!seg || loadedSegs.has(seg.segmentId)) {
         continue
       }
-      const resp = await filmApi
-        .getDanmuTencentComments({ episodeId, segmentId: seg.segmentId })
-        .catch(() => null)
-      if (token !== loadToken) {
-        return false
+      // 段数据缓存命中 ⇒ 直接装载（seek 回已装区域 / 配置切换重载时零请求）
+      let data = segCache.get(`${opts.mid.value}:${opts.episode.value}:${seg.segmentId}`)
+      if (data === undefined) {
+        const resp = await filmApi
+          .getDanmuTencentComments({ episodeId, segmentId: seg.segmentId })
+          .catch(() => null)
+        if (token !== loadToken) {
+          return false
+        }
+        if (!resp?.ok || !resp.data) {
+          anyFail = true
+          continue
+        }
+        data = resp.data
+        segCache.set(`${opts.mid.value}:${opts.episode.value}:${seg.segmentId}`, data)
       }
-      if (!resp?.ok || !resp.data) {
-        anyFail = true
-        continue
-      }
-      const input = toDanmuInputs(resp.data)
+      const input = toDanmuInputs(data)
       if (input.length > 0) {
         manager?.load(input)
         // 段 load 会整体替换 timeline（position 失效）→ 每段装载后立即对齐，
@@ -388,17 +416,28 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return
     }
     danmuState.value = 'loading'
-    const src = await filmApi.getDanmuSource(opts.mid.value).catch(() => null)
-    if (token !== loadToken) {
-      return
+    const mid = opts.mid.value
+    // 源候选缓存命中 ⇒ 零请求（同一集开关/配置切换重载时复用）
+    let list: DanmuProvider[]
+    const srcHit = mid !== undefined ? srcCache.get(mid) : undefined
+    if (srcHit) {
+      list = srcHit.providers
+    } else {
+      const src = await filmApi.getDanmuSource(mid).catch(() => null)
+      if (token !== loadToken) {
+        return
+      }
+      if (!src) {
+        // 接口失败也按"暂无弹幕"显示 —— 任何查不到弹幕的情况都要有明确反馈, 不许静默
+        providers.value = []
+        danmuState.value = 'unsupported'
+        return
+      }
+      list = src.providers ?? []
+      if (mid !== undefined) {
+        srcCache.set(mid, { providers: list })
+      }
     }
-    if (!src) {
-      // 接口失败也按"暂无弹幕"显示 —— 任何查不到弹幕的情况都要有明确反馈, 不许静默
-      providers.value = []
-      danmuState.value = 'unsupported'
-      return
-    }
-    const list = src.providers ?? []
     providers.value = list
     if (list.length === 0) {
       danmuState.value = 'unsupported'
@@ -433,17 +472,30 @@ export function useDanmaku(opts: UseDanmakuOptions) {
 
   /** 路径 A：B站整集聚合（一次拉全, 服务端 29 段串行） */
   async function loadBilibili(sel: DanmuProvider, token: number): Promise<void> {
-    const resp = await filmApi
-      .getDanmuBilibili({ seasonId: sel.resourceId, episode: Math.max(1, opts.episode.value) })
-      .catch(() => null)
-    if (token !== loadToken) {
-      return
+    // loadDanmaku 前置已保证 opts.mid.value 非空（!opts.mid.value 分支 return）
+    const mid = opts.mid.value!
+    const ep = Math.max(1, opts.episode.value)
+    // 整集缓存命中 ⇒ 零请求（同一集开关/配置切换/来回切集重载时复用）
+    let commentsData: DanmuComment[]
+    const biliKey = `${mid}:${ep}`
+    const biliHit = biliCache.get(biliKey)
+    if (biliHit) {
+      commentsData = biliHit
+    } else {
+      const resp = await filmApi
+        .getDanmuBilibili({ seasonId: sel.resourceId, episode: ep })
+        .catch(() => null)
+      if (token !== loadToken) {
+        return
+      }
+      if (!resp) {
+        danmuState.value = 'failed'
+        return
+      }
+      commentsData = resp.comments
+      biliCache.set(biliKey, commentsData)
     }
-    if (!resp) {
-      danmuState.value = 'failed'
-      return
-    }
-    const input = toDanmuInputs(resp.comments)
+    const input = toDanmuInputs(commentsData)
     if (input.length === 0) {
       danmuState.value = 'empty'
       return
@@ -460,34 +512,48 @@ export function useDanmaku(opts: UseDanmakuOptions) {
 
   /** 路径 B：腾讯分段点播（episodes 匹配 → segments 索引 → 按进度预拉 3 段） */
   async function loadTencentEpisode(sel: DanmuProvider, token: number): Promise<void> {
-    const eps = await filmApi
-      .getDanmuTencentEpisodes({ resourceId: sel.resourceId, episode: Math.max(1, opts.episode.value) })
-      .catch(() => null)
-    if (token !== loadToken) {
-      return
+    const mid = opts.mid.value!
+    const ep = Math.max(1, opts.episode.value)
+    // meta（匹配集 + 分段索引）缓存命中 ⇒ 零请求
+    const metaKey = `${mid}:${ep}:${sel.provider}`
+    let episodeId: string
+    let segsData: DanmuTencentSegment[]
+    const metaHit = tencentMeta.get(metaKey)
+    if (metaHit) {
+      episodeId = metaHit.episodeId
+      segsData = metaHit.segments
+    } else {
+      const eps = await filmApi
+        .getDanmuTencentEpisodes({ resourceId: sel.resourceId, episode: ep })
+        .catch(() => null)
+      if (token !== loadToken) {
+        return
+      }
+      if (!eps?.ok) {
+        danmuState.value = 'failed'
+        return
+      }
+      if (!eps.data.matched?.episodeId) {
+        danmuState.value = 'empty' // 平台无对应集
+        return
+      }
+      episodeId = eps.data.matched.episodeId
+      const segs = await filmApi.getDanmuTencentSegments(episodeId).catch(() => null)
+      if (token !== loadToken) {
+        return
+      }
+      if (!segs?.ok) {
+        danmuState.value = 'failed'
+        return
+      }
+      if (segs.data.length === 0) {
+        danmuState.value = 'empty'
+        return
+      }
+      segsData = segs.data
+      tencentMeta.set(metaKey, { episodeId, segments: segsData })
     }
-    if (!eps?.ok) {
-      danmuState.value = 'failed'
-      return
-    }
-    if (!eps.data.matched?.episodeId) {
-      danmuState.value = 'empty' // 平台无对应集
-      return
-    }
-    const episodeId = eps.data.matched.episodeId
-    const segs = await filmApi.getDanmuTencentSegments(episodeId).catch(() => null)
-    if (token !== loadToken) {
-      return
-    }
-    if (!segs?.ok) {
-      danmuState.value = 'failed'
-      return
-    }
-    if (segs.data.length === 0) {
-      danmuState.value = 'empty'
-      return
-    }
-    tencentCtx = { episodeId, segments: segs.data }
+    tencentCtx = { episodeId, segments: segsData }
     const anyFail = await loadTencentFrom(playerSeconds(), token)
     if (token !== loadToken) {
       return
@@ -564,6 +630,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     loadToken++
     clearDanmaku()
     resetTencent()
+    srcCache.clear()
+    biliCache.clear()
+    tencentMeta.clear()
+    segCache.clear()
     manager = null
   })
 

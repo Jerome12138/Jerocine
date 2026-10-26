@@ -112,6 +112,7 @@ function mountHost(mid: number | undefined, enabled = true, attachStage = true) 
   const midRef = ref(mid)
   const enabledRef = ref(enabled)
   const events: string[] = []
+  const triggers: Record<string, () => void> = {}
   const Host = defineComponent({
     setup() {
       const api = useDanmaku({
@@ -122,6 +123,7 @@ function mountHost(mid: number | undefined, enabled = true, attachStage = true) 
         enabled: enabledRef,
         onPlayerEvent: (event, fn) => {
           events.push(event)
+          triggers[event] = fn // 供用例手动触发（seeked 去重断言用）
           return () => undefined
         }
       })
@@ -136,7 +138,7 @@ function mountHost(mid: number | undefined, enabled = true, attachStage = true) 
   const w = mount(Host)
   type Api = ReturnType<typeof useDanmaku>
   const api = (w.vm as unknown as { api: Api }).api
-  return { w, api, midRef, enabledRef, events }
+  return { w, api, midRef, enabledRef, events, triggers }
 }
 
 describe('useDanmaku', () => {
@@ -355,6 +357,74 @@ describe('useDanmaku', () => {
     expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('28px')
     api.updateSettings({ fontSize: 0 })
     expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('')
+  })
+
+  it('请求去重: 同一集开关关→开命中缓存, 不重复发请求', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api, enabledRef } = mountHost(3, true)
+    await flush()
+    expect(m.getDanmuSource).toHaveBeenCalledTimes(1)
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    // 关 → 不发任何请求
+    enabledRef.value = false
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('idle')
+    expect(m.getDanmuSource).toHaveBeenCalledTimes(1)
+    // 再开 → 命中 srcCache + biliCache, 零请求, 直接重载装载
+    enabledRef.value = true
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(m.getDanmuSource).toHaveBeenCalledTimes(1)
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
+    expect(managerInstances[0].load).toHaveBeenCalledTimes(2) // 重载重新装载了一次
+  })
+
+  it('请求去重: 配置(速度)切换重载命中缓存, 不重复发请求', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api } = mountHost(3)
+    await flush()
+    expect(m.getDanmuSource).toHaveBeenCalledTimes(1)
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
+    api.updateSettings({ speed: 3 }) // speedChanged → loadDanmaku 重载（已渲染弹幕按新速度重跑）
+    await flush()
+    expect(m.getDanmuSource).toHaveBeenCalledTimes(1) // 命中缓存, 零请求
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
+    expect(managerInstances[0].options.scroll?.scale).toBe(3)
+    expect(managerInstances[0].load).toHaveBeenCalledTimes(2)
+  })
+
+  it('请求去重: 腾讯 seek 回已装区域命中段缓存, 不重复发请求', async () => {
+    m.getDanmuSource.mockResolvedValue(tencentSrc)
+    mockTencentChain()
+    const { api, triggers } = mountHost(4)
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(m.getDanmuTencentComments).toHaveBeenCalledTimes(2) // 两段首次各拉一次
+    // seeked: loadedSegs.clear 后重装, 段数据命中 segCache ⇒ 零新增请求
+    triggers.seeked()
+    await flush()
+    expect(m.getDanmuTencentComments).toHaveBeenCalledTimes(2)
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+  })
+
+  it('请求去重: 切集(mid 变化)缓存 key 自然失效, 照常重新请求新集', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api, midRef } = mountHost(3)
+    await flush()
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
+    midRef.value = 4
+    await flush()
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(2) // 不同 mid, miss 重新拉
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    // 切回已看过的 3 ⇒ 命中缓存（biliCache.mid===3 仍保留）零请求
+    midRef.value = 3
+    await flush()
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(2)
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
   })
 
   it('readDanmakuSettings: localStorage 损坏/越界回退默认并钳制', async () => {
