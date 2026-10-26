@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,8 +56,48 @@ func TestIsNoise(t *testing.T) {
 	}
 }
 
-func TestIngest_CapsAndStamps(t *testing.T) {
+// 变异验证锚点: 去掉 Ingest 里的 clampRunes 后本用例变红(复现 Error 1406 整批丢失)。
+func TestIngest_ClampsOversizeFields(t *testing.T) {
 	ft := &fakeTelemetry{}
+	svc := NewTelemetryService(ft, nil, nil, []string{"jerocine.art"}, nil)
+	longLabel := strings.Repeat("VIDEOJS: ERROR: (CODE:4 MEDIA_ERR_SRC_NOT_SUPPORTED) ", 10) // 510 runes
+	longUA := strings.Repeat("Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X)", 16) // 832 runes
+	longSession := strings.Repeat("s_abcdef0123456789", 6)                                 // 120 runes
+	longCJK := strings.Repeat("弹", 300)                                                    // 300 runes, 多字节按字符计
+	err := svc.Ingest(context.Background(), []IngestEvent{
+		{Category: "error", Path: "/play", Label: longLabel, SessionId: longSession},
+		{Category: longCJK, Path: "/play", Label: "x"},
+	}, nil, "1.2.3.4", longUA, "jerocine.art")
+	if err != nil {
+		t.Fatalf("ingest err: %v", err)
+	}
+	if len(ft.inserted) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(ft.inserted))
+	}
+	e := ft.inserted[0]
+	if runeLen(e.Label) != telemetryLabelMax || !strings.HasSuffix(e.Label, "…") {
+		t.Fatalf("label not clamped to %d with … suffix: %d runes", telemetryLabelMax, runeLen(e.Label))
+	}
+	if runeLen(e.SessionId) != telemetrySessionMax {
+		t.Fatalf("session not clamped: %d", runeLen(e.SessionId))
+	}
+	if runeLen(ft.inserted[0].Ua) != telemetryUaMax {
+		t.Fatalf("ua not clamped: %d", runeLen(ft.inserted[0].Ua))
+	}
+	if runeLen(ft.inserted[1].Category) != telemetryCategoryMax || !strings.HasSuffix(ft.inserted[1].Category, "…") {
+		t.Fatalf("cjk category not clamped by runes: %d runes", runeLen(ft.inserted[1].Category))
+	}
+	// 边界: 恰好等于列宽不截断、无 … 后缀
+	ft2 := &fakeTelemetry{}
+	svc2 := NewTelemetryService(ft2, nil, nil, nil, nil)
+	exact := strings.Repeat("a", telemetryLabelMax)
+	_ = svc2.Ingest(context.Background(), []IngestEvent{{Category: "error", Path: "/play", Label: exact}}, nil, "1.2.3.4", "UA", "")
+	if got := ft2.inserted[0].Label; got != exact {
+		t.Fatalf("exact-width label should pass through unchanged")
+	}
+}
+
+func TestIngest_CapsAndStamps(t *testing.T) {	ft := &fakeTelemetry{}
 	svc := NewTelemetryService(ft, nil, nil, []string{"jerocine.art"}, nil)
 	events := make([]IngestEvent, 250)
 	for i := range events {

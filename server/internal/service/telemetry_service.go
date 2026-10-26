@@ -198,6 +198,9 @@ type TmEventRow struct {
 }
 
 // Ingest 批量入库。超过 200 条截断; 服务端补 server_ts / ip / ua / userId / extra.host(来源域)。
+// 各文本字段按表列宽截断(rune 计) —— 2026-10-26 线上: 前端把 VIDEOJS 报错全文放进 label,
+// 超过 varchar(255) 使整批 7 条 INSERT 被 Error 1406 整体丢弃(Error 1406 是批级失败,
+// 同批正常事件一并损失), 入库前截断保住同批数据。
 func (s *TelemetryService) Ingest(ctx context.Context, events []IngestEvent, userID *int64, ip, ua, srcHost string) error {
 	if len(events) == 0 {
 		return nil
@@ -205,6 +208,7 @@ func (s *TelemetryService) Ingest(ctx context.Context, events []IngestEvent, use
 	if len(events) > maxIngestBatch {
 		events = events[:maxIngestBatch]
 	}
+	ua = clampRunes(ua, telemetryUaMax)
 	now := time.Now()
 	rows := make([]entity.TelemetryEvent, 0, len(events))
 	for _, e := range events {
@@ -216,12 +220,37 @@ func (s *TelemetryService) Ingest(ctx context.Context, events []IngestEvent, use
 			extra["host"] = srcHost
 		}
 		rows = append(rows, entity.TelemetryEvent{
-			Category: e.Category, Path: e.Path, Label: e.Label, Value: e.Value,
-			Duration: e.Duration, UserId: userID, SessionId: e.SessionId,
-			Ip: ip, Ua: ua, Extra: entity.JSONMap(extra), ClientTs: e.ClientTs, ServerTs: now,
+			Category: clampRunes(e.Category, telemetryCategoryMax),
+			Path:     clampRunes(e.Path, telemetryPathMax),
+			Label:    clampRunes(e.Label, telemetryLabelMax),
+			Value:    e.Value,
+			Duration: e.Duration, UserId: userID,
+			SessionId: clampRunes(e.SessionId, telemetrySessionMax),
+			Ip:        ip, Ua: ua, Extra: entity.JSONMap(extra), ClientTs: e.ClientTs, ServerTs: now,
 		})
 	}
 	return s.repo.BatchInsert(ctx, rows)
+}
+
+// telemetry_*Max = telemetry_event 表各 varchar 列宽(MySQL 按字符计, 与 rune 一致)。
+const (
+	telemetryCategoryMax = 64
+	telemetryPathMax     = 255
+	telemetryLabelMax    = 255
+	telemetrySessionMax  = 64
+	telemetryUaMax       = 512
+)
+
+// clampRunes 按 rune 数截断到 n(MySQL varchar 按字符计); 超长尾部以 … 标记截断发生。
+func clampRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // Overview 看板概览, 时间窗按天。
