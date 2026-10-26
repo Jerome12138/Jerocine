@@ -59,7 +59,7 @@ const fakeEngine = {
   isDestroyed: false
 }
 
-vi.mock('danmaku-lite', () => ({
+vi.mock('danmaku-lite/canvas', () => ({
   createEngine: vi.fn(() => fakeEngine)
 }))
 

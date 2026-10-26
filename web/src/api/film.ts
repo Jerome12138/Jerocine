@@ -90,7 +90,7 @@ export const getDanmuSource = (
   mid: number | string,
   options?: { signal?: AbortSignal }
 ): Promise<DanmuSourceResp> =>
-  http.get<unknown, DanmuSourceResp>(`/films/${mid}/danmu/source`, { signal: options?.signal })
+  http.get<unknown, DanmuSourceResp>(`/films/${mid}/danmu/source`, { signal: options?.signal, silent: true })
 
 /** GET /danmu/bilibili 指定 B站剧集整集弹幕（按集号匹配，越界返回空数组）
  *  options.signal 用于超时/卸载中止。 */
@@ -98,7 +98,7 @@ export const getDanmuBilibili = (
   params: { seasonId: string; episode: number },
   options?: { signal?: AbortSignal }
 ): Promise<DanmuBilibiliResp> =>
-  http.get<unknown, DanmuBilibiliResp>('/danmu/bilibili', { params, signal: options?.signal })
+  http.get<unknown, DanmuBilibiliResp>('/danmu/bilibili', { params, signal: options?.signal, silent: true })
 
 /** GET /danmu/tencent/episodes 腾讯分集匹配（拿 matched.episodeId 复合串，后续须 encodeURIComponent）
  *  options.signal 用于超时/卸载中止。 */
@@ -106,7 +106,7 @@ export const getDanmuTencentEpisodes = (
   params: { resourceId: string; episode: number },
   options?: { signal?: AbortSignal }
 ): Promise<DanmuTencentEpisodesResp> =>
-  http.get<unknown, DanmuTencentEpisodesResp>('/danmu/tencent/episodes', { params, signal: options?.signal })
+  http.get<unknown, DanmuTencentEpisodesResp>('/danmu/tencent/episodes', { params, signal: options?.signal, silent: true })
 
 /** GET /danmu/tencent/segments 腾讯弹幕分段索引（startTime 秒，按段起始排序）
  *  options.signal 用于超时/卸载中止。 */
@@ -116,7 +116,8 @@ export const getDanmuTencentSegments = (
 ): Promise<DanmuTencentSegmentsResp> =>
   http.get<unknown, DanmuTencentSegmentsResp>('/danmu/tencent/segments', {
     params: { episodeId },
-    signal: options?.signal
+    signal: options?.signal,
+    silent: true
   })
 
 /** GET /danmu/tencent/comments 腾讯单段弹幕
@@ -127,5 +128,6 @@ export const getDanmuTencentComments = (
 ): Promise<DanmuTencentCommentsResp> =>
   http.get<unknown, DanmuTencentCommentsResp>('/danmu/tencent/comments', {
     params,
-    signal: options?.signal
+    signal: options?.signal,
+    silent: true
   })
