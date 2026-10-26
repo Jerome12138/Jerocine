@@ -65,9 +65,16 @@ export interface UseDanmakuOptions {
   onPlayerEvent: (event: 'play' | 'pause' | 'seeked' | 'timeupdate', fn: () => void) => () => void
 }
 
-/** 取全局库（index.html 已加载 script）。加载失败返回 null（弹幕静默降级, 不影响播放）。 */
+/** 取全局库（index.html 已加载 script）。加载失败返回 null（弹幕静默降级, 不影响播放）。
+ *  ⚠️ 官方 dist(0.11.0, 与 npm 包逐字节同源)暴露的是**顶层 var CommentManager**,
+ *  并不存在 `window.CommentCoreLibrary` 聚合对象 —— 首版按聚合对象读导致弹幕库
+ *  "加载成功却永远取不到"(线上 2026-10-26 实测, 全部影片归因 failed)。 */
 function library(): CommentCoreLibraryLike | null {
-  return (typeof window !== 'undefined' && window.CommentCoreLibrary) || null
+  if (typeof window === 'undefined') {
+    return null
+  }
+  const CM = window.CommentManager
+  return CM ? { CommentManager: CM } : null
 }
 
 /** 读取/写入源偏好（localStorage, 与开关分开存） */

@@ -46,17 +46,16 @@ let managerInstances: FakeManager[] = []
 
 function installLib(): void {
   managerInstances = []
-  ;(window as unknown as { CommentCoreLibrary?: unknown }).CommentCoreLibrary = {
-    CommentManager: class extends FakeManager {
-      constructor() {
-        super()
-        managerInstances.push(this)
-      }
+  // 与官方 dist(0.11.0)一致: 顶层 var CommentManager 挂 window(无聚合对象)
+  ;(window as unknown as { CommentManager?: unknown }).CommentManager = class extends FakeManager {
+    constructor() {
+      super()
+      managerInstances.push(this)
     }
   }
 }
 function uninstallLib(): void {
-  delete (window as unknown as { CommentCoreLibrary?: unknown }).CommentCoreLibrary
+  delete (window as unknown as { CommentManager?: unknown }).CommentManager
   managerInstances = []
 }
 

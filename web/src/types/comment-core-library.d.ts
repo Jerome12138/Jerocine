@@ -41,5 +41,7 @@ interface DanmakuInputComment {
 }
 
 interface Window {
-  CommentCoreLibrary?: CommentCoreLibraryLike
+  /** ⚠️ 官方 dist(0.11.0)以顶层 var 暴露, 无 window.CommentCoreLibrary 聚合对象;
+   *  script 全局加载后顶层 var 挂到 window, 即 window.CommentManager 可用。 */
+  CommentManager?: new (stage: HTMLElement) => CommentManagerLike
 }
