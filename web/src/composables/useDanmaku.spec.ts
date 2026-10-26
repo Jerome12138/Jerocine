@@ -5,6 +5,7 @@ import {
   useDanmaku,
   readDanmakuSettings,
   DANMAKU_DEFAULT_SETTINGS,
+  DANMAKU_FETCH_TIMEOUTS,
   type DanmuState
 } from './useDanmaku'
 
@@ -92,6 +93,16 @@ function mockTencentChain(opts: { matched?: boolean; commentsOk?: boolean } = {}
   )
 }
 
+/** 永不 settle 的请求桩：直到 signal 中止才 reject（用于超时测试）。 */
+function neverUntilAbort(signal?: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (!signal) return
+    signal.addEventListener('abort', () =>
+      reject(Object.assign(new Error('aborted'), { name: 'CanceledError', code: 'ERR_CANCELED' }))
+    )
+  })
+}
+
 function mountHost(mid: number | undefined, enabled = true, attachStage = true) {
   const midRef = ref(mid)
   const enabledRef = ref(enabled)
@@ -122,6 +133,10 @@ function mountHost(mid: number | undefined, enabled = true, attachStage = true) 
 describe('useDanmaku', () => {
   beforeEach(() => {
     localStorage.clear()
+    // 复位请求超时（超时测试会改小），避免串扰
+    DANMAKU_FETCH_TIMEOUTS.source = 15_000
+    DANMAKU_FETCH_TIMEOUTS.segment = 15_000
+    DANMAKU_FETCH_TIMEOUTS.bilibili = 30_000
     // jsdom 无 ResizeObserver，提供桩避免 ensureEngine 抛错（被 try/catch 捕获会误判 failed）
     ;(globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver = class {
       observe(): void {}
@@ -168,7 +183,8 @@ describe('useDanmaku', () => {
     await flush()
     expect(api.providers.value).toHaveLength(1)
     expect(api.danmuState.value).toBe<DanmuState>('failed') // 容器缺失/引擎未建
-    expect(m.getDanmuBilibili).not.toHaveBeenCalled()
+    // 内容仍会被后台预拉（enabled+playing），只是 stage 缺失引擎未建 → 不渲染；开启后命中缓存瞬时显示
+    expect(m.getDanmuBilibili).toHaveBeenCalled()
   })
 
   it('无候选源（平台无此片）⇒ unsupported, providers 空, 不建引擎', async () => {
@@ -221,6 +237,38 @@ describe('useDanmaku', () => {
     expect(api.danmuState.value).toBe<DanmuState>('failed')
   })
 
+  it('B站整集请求超时(整集30s/分片15s；此处注入极小超时) ⇒ failed 可重试', async () => {
+    DANMAKU_FETCH_TIMEOUTS.bilibili = 30 // ms，加速测试
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockImplementation((_p, opts) => neverUntilAbort(opts?.signal))
+    const { api } = mountHost(3) // enabled+playing → 触发预拉与装载
+    await new Promise((r) => setTimeout(r, 80)) // 越过 30ms 超时
+    await nextTick()
+    expect(api.danmuState.value).toBe<DanmuState>('failed')
+    DANMAKU_FETCH_TIMEOUTS.bilibili = 30_000
+  })
+
+  it('源列表请求超时 ⇒ unsupported（暂无候选, 不阻塞播放）', async () => {
+    DANMAKU_FETCH_TIMEOUTS.source = 30
+    m.getDanmuSource.mockImplementation((_mid, opts) => neverUntilAbort(opts?.signal))
+    const { api } = mountHost(3)
+    await new Promise((r) => setTimeout(r, 80))
+    await nextTick()
+    expect(api.danmuState.value).toBe<DanmuState>('unsupported')
+    DANMAKU_FETCH_TIMEOUTS.source = 15_000
+  })
+
+  it('prefetchContent: 播放中后台预热内容, 切集后新集也预热(并发去重不重复发)', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { midRef } = mountHost(3) // enabled+playing → 挂载即预拉
+    await flush()
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1) // 预拉与装载并发去重
+    midRef.value = 4
+    await flush()
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(2) // 新集预热
+  })
+
   it('腾讯路径: 平台无匹配集 ⇒ empty', async () => {
     m.getDanmuSource.mockResolvedValue(tencentSrc)
     mockTencentChain({ matched: false })
@@ -240,12 +288,19 @@ describe('useDanmaku', () => {
     expect(api.providers.value).toHaveLength(1)
   })
 
-  it('开关关闭 ⇒ idle 且不发任何请求', async () => {
+  it('开关关闭但播放中 ⇒ idle（不显示），但后台已预拉源与内容（首开即命中缓存）', async () => {
     m.getDanmuSource.mockResolvedValue(biliSrc)
-    const { api } = mountHost(3, false)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api, enabledRef } = mountHost(3, false)
     await flush()
-    expect(api.danmuState.value).toBe<DanmuState>('idle')
-    expect(m.getDanmuSource).not.toHaveBeenCalled()
+    expect(api.danmuState.value).toBe<DanmuState>('idle') // 关着，不显示
+    expect(m.getDanmuSource).toHaveBeenCalled() // 源列表后台预热
+    expect(m.getDanmuBilibili).toHaveBeenCalled() // 内容后台预热（播放中）
+    // 开启即命中缓存，零额外请求
+    enabledRef.value = true
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1) // 仅预热那一次
   })
 
   it('开关从关到开 ⇒ 触发装载（UI 打开即有弹幕或三态提示）', async () => {
@@ -268,7 +323,7 @@ describe('useDanmaku', () => {
     await flush()
     expect(api.providers.value).toHaveLength(1)
     expect(api.danmuState.value).toBe<DanmuState>('failed')
-    expect(m.getDanmuBilibili).not.toHaveBeenCalled() // 引擎没建起, 不进装载
+    expect(m.getDanmuBilibili).toHaveBeenCalled() // 后台预热（即使 stage 缺失也先暖缓存，引擎未建则仅不渲染）
   })
 
   it('切集(mid 变化) ⇒ 重新查询, 旧 token 结果不落地', async () => {
@@ -280,7 +335,7 @@ describe('useDanmaku', () => {
     midRef.value = 4
     await flush()
     expect(m.getDanmuSource).toHaveBeenCalledTimes(2)
-    expect(m.getDanmuSource).toHaveBeenLastCalledWith(4)
+    expect(m.getDanmuSource).toHaveBeenLastCalledWith(4, expect.anything())
     expect(api.danmuState.value).toBe<DanmuState>('ready')
   })
 
