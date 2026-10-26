@@ -47,6 +47,7 @@ import { storeToRefs } from 'pinia'
 import { normalizeDpadKey } from '@/utils/dpad'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
+import DanmakuSettingsPanel from '@/components/film/DanmakuSettingsPanel.vue'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { useWebSettings } from '@/composables/useWebSettings'
 import { useDanmaku } from '@/composables/useDanmaku'
@@ -856,7 +857,9 @@ const {
   preload: 'metadata',
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条内常驻「下一集」入口(点击走 playNext, 内部有 hasNext guard)
-  nextEpisode: { onClick: () => playNext() }
+  nextEpisode: { onClick: () => playNext() },
+  // 弹幕设置按钮(插在倍速 1x 左侧): 点击打开设置弹窗
+  danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) }
 })
 
 // 在线心跳 watching 信号: video.js 播放状态实时置位(暂停/结束即回落)。
@@ -877,6 +880,11 @@ const danmakuProviders = danmaku.providers
 const danmakuProvider = danmaku.provider
 const danmakuSetProvider = danmaku.setProvider
 const danmakuState = danmaku.danmuState
+/** 弹幕显示设置（字号/透明度/区域/速度等, 面板实时更新） */
+const danmakuSettings = danmaku.settings
+const danmakuUpdateSettings = danmaku.updateSettings
+/** 弹幕设置弹窗开关 */
+const danmakuSettingsOpen = ref(false)
 
 /**
  * 弹幕入口三态（用户要求 2026-10-25: 该片不支持 / 没查到 / 加载失败, 都要有显示, 不许静默）:
@@ -2248,6 +2256,19 @@ watch(playerReady, (v) => {
         </template>
       </BaseDialog>
 
+      <!-- 弹幕设置弹窗（控制条 1x 左侧按钮打开; 所有项实时生效, 持久化见 useDanmaku） -->
+      <BaseDialog v-model:visible="danmakuSettingsOpen" title="弹幕设置" width="420px">
+        <DanmakuSettingsPanel
+          :settings="danmakuSettings"
+          :enabled="danmakuEnabled && !danmakuUnavailable"
+          :providers="danmakuProviders"
+          :provider="danmakuProvider"
+          @update="danmakuUpdateSettings($event)"
+          @toggle-enabled="onDanmakuEntryClick"
+          @set-provider="(p: string) => { danmakuSetProvider(p); }"
+        />
+      </BaseDialog>
+
         </section>
 
         <!-- 右侧选集 (PC: 视频右边, 与左列等高, 两层 tab 固定仅集列表滚动; 小屏堆叠到下方). -->
@@ -2311,9 +2332,18 @@ watch(playerReady, (v) => {
   z-index: 1;
   overflow: hidden;
   pointer-events: none;
+  /* 默认字号（自适应档 fontSize=0 时生效）:
+     桌面非全屏偏小（用户反馈"非全屏太大、全屏合适", 2026-10-26）;
+     全屏更大; 移动端(窄屏)更小。用户手动选档后由行内 --jc-danmu-size 覆盖。 */
+  --jc-danmu-size: 22px;
 }
 .jc-danmaku-stage--off {
   visibility: hidden;
+}
+/* 弹幕设置: 关闭描边时去掉 text-shadow（库节点行内样式不含 shadow, 见 .cmt 规则） */
+.jc-danmaku-stage--no-outline :deep(.cmt),
+.jc-danmaku-stage--no-outline :deep(.cmt) > div {
+  text-shadow: none !important;
 }
 /* 库动态创建的弹幕节点（div.cmt）, 基础样式; 动画由库内联 transform/transition 驱动 */
 .jc-danmaku-stage :deep(.cmt) {
@@ -2329,10 +2359,26 @@ watch(playerReady, (v) => {
     0 0 1px rgb(0 0 0 / 0.6);
   font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   line-height: 1.35;
+  /* 覆盖库行内默认 25px 字号: 库的 CssScrollComment 渲染时写 style.fontSize,
+     用 !important 才能统一走 --jc-danmu-size（自适应/用户档位） */
+  font-size: var(--jc-danmu-size) !important;
 }
 .jc-danmaku-stage :deep(.cmt) > div {
   /* 库的 CssAnchorComment 等会包内层 div, 避免内层再带阴影/描边 */
   text-shadow: inherit;
+}
+/* 全屏（video.js 全屏元素 = .video-js 容器, 弹幕层 Teleport 在其内）: 字号调大 */
+.vjs-fullscreen .jc-danmaku-stage {
+  --jc-danmu-size: 28px;
+}
+/* 移动端/窄屏: 字号整体收小（含全屏, 屏幕密度高时 28px 仍偏大） */
+@media (max-width: 767px) {
+  .jc-danmaku-stage {
+    --jc-danmu-size: 18px;
+  }
+  .vjs-fullscreen .jc-danmaku-stage {
+    --jc-danmu-size: 24px;
+  }
 }
 
 /* 桌面端最大宽度（>= 1280 居中） */
@@ -2797,6 +2843,23 @@ watch(playerReady, (v) => {
   justify-content: center;
   font-size: 13px;
   line-height: 1;
+}
+/* 弹幕设置按钮(控制条, 插在倍速 1x 左侧): 图标 SVG 居中, 与倍速按钮同尺寸 */
+:deep(.vjs-danmaku-settings-button) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.4em;
+  height: 3em;
+  cursor: pointer;
+}
+:deep(.vjs-danmaku-settings-button svg) {
+  display: block;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.5));
+}
+:deep(.vjs-danmaku-settings-button:hover),
+:deep(.vjs-danmaku-settings-button:focus) {
+  color: var(--jc-brand-primary);
 }
 
 /* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作)

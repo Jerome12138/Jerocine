@@ -60,6 +60,12 @@ export interface UsePlayerOptions {
    */
   nextEpisode?: { onClick: () => void }
   /**
+   * 控制条「弹幕设置」按钮(可选, 插在倍速 1x 左侧):
+   * 提供后注册一个常驻图标按钮, 点击触发 onClick(PlayView 打开弹幕设置弹窗)。
+   * 按钮常驻显示——设置项(字号/透明度等)独立于当前片源是否可用。
+   */
+  danmakuSettings?: { onClick: () => void }
+  /**
    * 弱网模式. 开启后:
    *  - VHS 初始带宽猜测 800kbps (默认 4Mbps), ABR 从低码率起步
    *  - 目标缓冲 15s (默认 30s), 起播更快
@@ -159,6 +165,8 @@ function savePlaybackRate(v: number): void {
 
 /** 当前实例的点击回调(模块级单例: 一页一个 player, init 时注入, dispose 时清空)。 */
 let nextEpisodeHandler: (() => void) | null = null
+/** 弹幕设置按钮回调（同 nextEpisodeHandler 单例模式） */
+let danmakuSettingsHandler: (() => void) | null = null
 
 /** 宽松类型: 只依赖 video.js Component/Button 的运行时行为, 避免 dist types 的私有签名。 */
 interface VjsButtonLike {
@@ -197,6 +205,48 @@ function registerNextEpisodeButton(): boolean {
     }
   }
   vjs.registerComponent('NextEpisodeButton', NextEpisodeButton)
+  return true
+}
+
+/** 弹幕图标 SVG path（与 BaseIcon 'chat' 一致: 气泡+省略号） */
+const DANMAKU_ICON_PATH =
+  'M12 3C6.5 3 2 6.58 2 11c0 2.52 1.42 4.93 3.89 6.38L5 21l3.76-2.08C9.83 19.3 10.9 19.5 12 19.5c5.5 0 10-3.58 10-8s-4.5-8-10-8M7 10.5a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3m5 0a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3m5 0a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3z'
+
+/** 全局注册一次「弹幕设置」图标按钮（不依赖 icon font, 内联 SVG）。 */
+function registerDanmakuSettingsButton(): boolean {
+  const vjs = videojs as unknown as {
+    getComponent: (name: string) => VjsButtonCtor | undefined
+    registerComponent: (name: string, comp: unknown) => void
+  }
+  if (vjs.getComponent('DanmakuSettingsButton')) return true
+  const Button = vjs.getComponent('Button')
+  if (!Button) return false
+  class DanmakuSettingsButton extends Button implements VjsButtonLike {
+    override createEl(tag = 'button', props: Record<string, unknown> = {}): HTMLElement {
+      const el = super.createEl(tag, {
+        ...props,
+        className: 'vjs-control vjs-danmaku-settings-button'
+      }) as HTMLElement
+      el.setAttribute('title', '弹幕设置')
+      el.setAttribute('aria-label', '弹幕设置')
+      const svgNS = 'http://www.w3.org/2000/svg'
+      const svg = document.createElementNS(svgNS, 'svg')
+      svg.setAttribute('viewBox', '0 0 24 24')
+      svg.setAttribute('fill', 'currentColor')
+      svg.setAttribute('width', '20')
+      svg.setAttribute('height', '20')
+      svg.setAttribute('aria-hidden', 'true')
+      const path = document.createElementNS(svgNS, 'path')
+      path.setAttribute('d', DANMAKU_ICON_PATH)
+      svg.appendChild(path)
+      el.appendChild(svg)
+      return el
+    }
+    handleClick(): void {
+      danmakuSettingsHandler?.()
+    }
+  }
+  vjs.registerComponent('DanmakuSettingsButton', DanmakuSettingsButton)
   return true
 }
 
@@ -251,7 +301,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       maxPlaylistRetries: 2
     }
 
-    // 控制条: 常规按钮 + 可选「下一集」(I-018, 插在倍速与全屏之间)
+    // 控制条: 常规按钮 + 可选「下一集」(I-018, 插在倍速与全屏之间) + 可选「弹幕设置」(插在倍速 1x 左侧)
     const controlBarChildren: string[] = [
       'playToggle',
       'volumePanel',
@@ -260,9 +310,15 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       'durationDisplay',
       'progressControl',
       'liveDisplay',
-      'remainingTimeDisplay',
-      'playbackRateMenuButton'
+      'remainingTimeDisplay'
     ]
+    if (opts.danmakuSettings) {
+      if (registerDanmakuSettingsButton()) {
+        danmakuSettingsHandler = opts.danmakuSettings.onClick
+        controlBarChildren.push('DanmakuSettingsButton')
+      }
+    }
+    controlBarChildren.push('playbackRateMenuButton')
     let hasNextBtn = false
     if (opts.nextEpisode) {
       hasNextBtn = registerNextEpisodeButton()
@@ -465,6 +521,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     player.value = null
     ready.value = false
     nextEpisodeHandler = null
+    danmakuSettingsHandler = null
     // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 的 ready 回调重挂
   }
 
