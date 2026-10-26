@@ -58,47 +58,42 @@ function patch(p: Partial<DanmakuSettings>): void {
 
 <template>
   <div class="jc-danmu-panel">
-    <!-- 主开关（用户级） -->
-    <div class="jc-danmu-panel__row jc-danmu-panel__row--main">
-      <div class="jc-danmu-panel__label">
-        <span>弹幕</span>
-        <span class="jc-danmu-panel__hint">默认关闭，可在设置页开启</span>
+    <!-- 弹幕开关：全局(用户级) + 本片(当前影片) 合并一行（去掉各自描述, 缩小间距） -->
+    <div class="jc-danmu-panel__row jc-danmu-panel__row--switches">
+      <div class="jc-danmu-panel__switches">
+        <div class="jc-danmu-switch-item">
+          <span class="jc-danmu-switch-item__label">弹幕</span>
+          <button
+            type="button"
+            class="jc-danmu-switch"
+            :class="{ 'is-on': enabled }"
+            role="switch"
+            :aria-checked="enabled"
+            @click="emit('toggle-enabled')"
+          >
+            <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
+          </button>
+        </div>
+        <div class="jc-danmu-switch-item">
+          <span class="jc-danmu-switch-item__label">本片弹幕</span>
+          <button
+            type="button"
+            class="jc-danmu-switch"
+            :class="{ 'is-on': filmEnabled }"
+            role="switch"
+            :aria-checked="filmEnabled"
+            @click="emit('toggle-film')"
+          >
+            <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        class="jc-danmu-switch"
-        :class="{ 'is-on': enabled }"
-        role="switch"
-        :aria-checked="enabled"
-        @click="emit('toggle-enabled')"
-      >
-        <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
-      </button>
-    </div>
-
-    <!-- 本集弹幕（当前影片覆盖用户级; 用户级关闭时仍可对本集开） -->
-    <div class="jc-danmu-panel__row">
-      <div class="jc-danmu-panel__label">
-        <span>本集弹幕</span>
-        <span class="jc-danmu-panel__hint">仅对当前影片生效</span>
-      </div>
-      <button
-        type="button"
-        class="jc-danmu-switch"
-        :class="{ 'is-on': filmEnabled }"
-        role="switch"
-        :aria-checked="filmEnabled"
-        @click="emit('toggle-film')"
-      >
-        <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
-      </button>
     </div>
 
     <!-- 字号: 档位式, 0=自适应(随全屏/移动端) -->
     <div class="jc-danmu-panel__row">
       <div class="jc-danmu-panel__label">
         <span>字号</span>
-        <span class="jc-danmu-panel__hint">0 为自适应</span>
       </div>
       <div class="jc-danmu-panel__segs">
         <button
@@ -135,7 +130,6 @@ function patch(p: Partial<DanmakuSettings>): void {
     <div class="jc-danmu-panel__row">
       <div class="jc-danmu-panel__label">
         <span>显示区域</span>
-        <span class="jc-danmu-panel__hint">弹幕活动范围占屏幕高度</span>
       </div>
       <div class="jc-danmu-panel__segs">
         <button
@@ -155,7 +149,6 @@ function patch(p: Partial<DanmakuSettings>): void {
     <div class="jc-danmu-panel__row">
       <div class="jc-danmu-panel__label">
         <span>速度</span>
-        <span class="jc-danmu-panel__hint">越大越慢，变更后重载弹幕</span>
       </div>
       <div class="jc-danmu-panel__segs">
         <button
@@ -175,7 +168,6 @@ function patch(p: Partial<DanmakuSettings>): void {
     <div class="jc-danmu-panel__row">
       <div class="jc-danmu-panel__label">
         <span>同屏数量</span>
-        <span class="jc-danmu-panel__hint">同时显示的弹幕条数上限</span>
       </div>
       <div class="jc-danmu-panel__segs">
         <button
@@ -237,7 +229,7 @@ function patch(p: Partial<DanmakuSettings>): void {
 .jc-danmu-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   padding: 2px 0;
 }
 .jc-danmu-panel__row {
@@ -252,7 +244,7 @@ function patch(p: Partial<DanmakuSettings>): void {
 .jc-danmu-panel__label {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
 }
 .jc-danmu-panel__label > span:first-child {
@@ -345,6 +337,26 @@ function patch(p: Partial<DanmakuSettings>): void {
   background: var(--jc-accent, #3b82f6);
   border-color: var(--jc-accent, #3b82f6);
   color: #fff;
+}
+.jc-danmu-panel__row--switches {
+  padding-bottom: 2px;
+}
+.jc-danmu-panel__switches {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+.jc-danmu-switch-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.jc-danmu-switch-item__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--jc-text-primary, #e6e8ee);
 }
 .jc-danmu-switch {
   background: none;
