@@ -65,8 +65,8 @@ export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
   fontSize: 0,
   opacity: 0.8,
   area: 0.5,
-  // 速度默认 1.5（"快"档）：用户要求整体比初始(2=正常)加快一档（档位越大越慢, 映射 1/speed）
-  speed: 1.5,
+  // 速度默认 1（"极快"档 = danmaku speed 1.0, 8s 走完屏）：用户反馈 1.5(12s) 仍偏慢
+  speed: 1,
   // 同屏上限默认 30（2026-10-26: 0=不限时高密度剧集"一窝蜂"铺满; 档位 15/30/50/不限 取 30 = 中）
   limit: 30,
   bottomMode: true,
@@ -234,6 +234,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   let engine: DanmakuEngine | null = null
   /** 容器尺寸变化观察（全屏/移动端旋屏时重算尺寸 + 自适应字号） */
   let resizeObserver: ResizeObserver | null = null
+  /** 最近一次应用到引擎的字号（ResizeObserver 去抖用） */
+  let lastFontSize = 0
 
   /** 把可运行时生效的设置项应用到引擎（透明度/区域/速度/上限/字号/描边）。 */
   function applyEngineSettings(): void {
@@ -243,7 +245,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     engine.setOpacity(s.opacity)
     engine.setSpeed(1 / s.speed) // 档位越大越慢 → 取倒数
     engine.setMaxVisible(s.limit)
-    engine.setFontSize(resolveFontSize())
+    lastFontSize = resolveFontSize()
+    engine.setFontSize(lastFontSize)
     engine.setStrokeWidth(s.outline ? 1.25 : 0)
     engine.setUseTextShadow(s.outline)
   }
@@ -281,7 +284,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         },
         area: settings.value.area,
         opacity: settings.value.opacity,
-        fontSize: resolveFontSize(),
+        fontSize: (lastFontSize = resolveFontSize()),
         speed: 1 / settings.value.speed,
         maxVisible: settings.value.limit,
         overflow: 'drop',
@@ -296,7 +299,12 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       })
       resizeObserver = new ResizeObserver(() => {
         engine?.resize()
-        engine?.setFontSize(resolveFontSize())
+        // 字号去抖: 仅在自适应字号实际变化时才 set, 避免容器尺寸微抖引发频繁重排(视觉抖动)
+        const fs = resolveFontSize()
+        if (fs !== lastFontSize) {
+          lastFontSize = fs
+          engine?.setFontSize(fs)
+        }
       })
       resizeObserver.observe(stage.value)
       applyEngineSettings()
@@ -569,15 +577,35 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       .catch(() => {})
   }
 
-  async function loadDanmaku(): Promise<void> {
+  /** 当前集 key（`mid:episode`）；关→开同集即时恢复用（不重新拉取装载） */
+  function currentLoadKey(): string | null {
+    const mid = opts.mid.value
+    return mid === undefined ? null : `${mid}:${opts.episode.value}`
+  }
+  /** 已成功装载内容的集 key；null = 尚未装载/需重装 */
+  let loadedKey: string | null = null
+
+  async function loadDanmaku(force = false): Promise<void> {
+    const key = currentLoadKey()
+    console.log('[danmaku] loadDanmaku', { force, enabled: opts.enabled.value, key, loadedKey })
     const token = ++loadToken
-    clearDanmaku()
-    resetTencent()
-    hasDanmaku.value = false
-    if (!opts.enabled.value || !opts.mid.value) {
+    if (!opts.enabled.value || !key) {
+      // 关闭: 仅停绘(引擎 enabled=false 保留数据), 不清内容不重置 —— 再开同集即时恢复显示
+      engine?.setEnabled(false)
       danmuState.value = 'idle'
       return
     }
+    if (!force && loadedKey === key && engine) {
+      // 同集已装载(关→开): 直接恢复绘制, 即时显示(避免 clear+重拉造成"开弹幕等好久")
+      console.log('[danmaku] resume loaded content, no reload:', key)
+      engine.setEnabled(true)
+      hasDanmaku.value = true
+      danmuState.value = 'ready'
+      return
+    }
+    clearDanmaku()
+    resetTencent()
+    hasDanmaku.value = false
     danmuState.value = 'loading'
     let list: DanmuProvider[]
     try {
@@ -635,8 +663,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return
     }
     engine?.load(items)
+    loadedKey = currentLoadKey()
     hasDanmaku.value = true
     danmuState.value = 'ready'
+    console.log('[danmaku] bilibili loaded:', items.length, 'items, key =', loadedKey)
   }
 
   async function loadTencentEpisode(sel: DanmuProvider, token: number): Promise<void> {
@@ -655,8 +685,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (token !== loadToken) return
     tencentCtx = { episodeId: entry.episodeId, segments: entry.segments }
     // 引擎经 dataSource 按进度自驱预拉；此处只需确认有段可拉即可标 ready。
+    loadedKey = currentLoadKey()
     hasDanmaku.value = true
     danmuState.value = 'ready'
+    console.log('[danmaku] tencent loaded: episodeId =', entry.episodeId, ', segments =', entry.segments.length, ', key =', loadedKey)
   }
 
   /** 用户手动切换弹幕源（UI 调用） */
@@ -666,7 +698,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
     provider.value = next
     writeProviderPref(next)
-    void loadDanmaku()
+    loadedKey = null // 换源后已装载内容失效
+    void loadDanmaku(true)
   }
 
   /** 更新弹幕显示设置（局部 patch）。
@@ -681,7 +714,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       patch.topMode !== undefined ||
       patch.colored !== undefined
     if (affectsContent) {
-      void loadDanmaku()
+      loadedKey = null // 内容映射参数变了, 已装载内容失效, 重开需重装
+      void loadDanmaku(true)
     } else {
       applyEngineSettings()
     }
@@ -690,13 +724,28 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   /* ---- 开关 / 集号 / 源变化 / stage 挂载（Teleport 后才有值, 纳入触发条件） ---- */
   watch(
     () => [opts.enabled.value, opts.playing.value, opts.mid.value, opts.episode.value, !!stage.value] as const,
-    () => {
+    (cur, prev) => {
+      // 播放/暂停切换: 引擎经 adapter.paused 自停/自走(冻结不清屏), 这里绝不重载 ——
+      // 否则 loadDanmaku 的 clearDanmaku 会把屏上弹幕清空(表现为"暂停弹幕消失")。
+      // 仅在恢复播放时补一次内容预拉。
+      if (
+        prev &&
+        cur[0] === prev[0] && cur[2] === prev[2] && cur[3] === prev[3] && cur[4] === prev[4] &&
+        cur[1] !== prev[1]
+      ) {
+        if (cur[1]) prefetchContent()
+        return
+      }
       // 后台预热：源列表必拉（便宜）；内容在开启弹幕或播放中时预拉，首开即命中缓存瞬时显示
       void ensureSource().catch(() => {})
       prefetchContent()
       void loadDanmaku()
     }
   )
+  /** 诊断日志: 弹幕状态机每次切换都打印(用户要求, 便于排查"弹幕长期不出现") */
+  watch(danmuState, (to, from) => {
+    console.log('[danmaku] state:', from, '→', to)
+  })
 
   onScopeDispose(() => {
     loadToken++
@@ -723,6 +772,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     tencentMetaReq.clear()
     segReq.clear()
     prefetchedKeys.clear()
+    loadedKey = null
   })
 
   return {
@@ -734,6 +784,6 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     danmuState,
     settings,
     updateSettings,
-    reload: () => void loadDanmaku()
+    reload: () => void loadDanmaku(true)
   }
 }

@@ -1410,12 +1410,14 @@ const isPlayerFullscreen = ref(false)
 const danmakuResizing = ref(false)
 let danmakuResizeTimer: ReturnType<typeof setTimeout> | null = null
 watch(isPlayerFullscreen, () => {
+  console.log('[danmaku] fullscreen toggle:', isPlayerFullscreen.value)
+  // 全屏只短暂隐藏防错位; 尺寸/自适应字号由 ResizeObserver→engine.resize()+setFontSize 处理,
+  // 不再 reload(会 clear 清空弹幕导致"全屏后等好久才重新出现")
   danmakuResizing.value = true
   if (danmakuResizeTimer) clearTimeout(danmakuResizeTimer)
   danmakuResizeTimer = setTimeout(() => {
     danmakuResizing.value = false
-    danmaku.reload() // 重新装载（缓存命中，瞬时），以当前字号/区域重渲染已发弹幕
-  }, 350)
+  }, 250)
 })
 onScopeDispose(() => {
   if (danmakuResizeTimer) clearTimeout(danmakuResizeTimer)
@@ -1898,6 +1900,11 @@ onMounted(async () => {
     })
     // 跳片尾自动播下一集 (按 filmId 配置, 默认 60s, 0=关闭)
     onPlayerEvent('timeupdate', onPlayerTimeUpdateForSkipOutro)
+    // 诊断日志: 跳秒(seek)时打印位置与弹幕状态, 便于排查"跳秒后弹幕长期不出现"
+    onPlayerEvent('seeked', () => {
+      const t = player.value?.currentTime?.()
+      console.log('[danmaku] seeked: position =', typeof t === 'number' ? t.toFixed(2) : t, ', state =', danmakuState.value)
+    })
     // 全屏状态: 触屏手势(长按2x/横滑快进退)仅全屏时启用
     onPlayerEvent('fullscreenchange', () => {
       isPlayerFullscreen.value = !!player.value?.isFullscreen()

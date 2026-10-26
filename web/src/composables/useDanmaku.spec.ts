@@ -106,13 +106,14 @@ function neverUntilAbort(signal?: AbortSignal): Promise<never> {
 function mountHost(mid: number | undefined, enabled = true, attachStage = true) {
   const midRef = ref(mid)
   const enabledRef = ref(enabled)
+  const playingRef = ref(true)
   const Host = defineComponent({
     setup() {
       const api = useDanmaku({
         mid: midRef,
         episode: ref(1),
         player: shallowRef(null),
-        playing: ref(true),
+        playing: playingRef,
         enabled: enabledRef,
         // 渲染自驱，onPlayerEvent 仅保留兼容签名，不再订阅
         onPlayerEvent: () => () => undefined
@@ -127,7 +128,7 @@ function mountHost(mid: number | undefined, enabled = true, attachStage = true) 
   })
   const w = mount(Host)
   const api = (w.vm as unknown as { api: ReturnType<typeof useDanmaku> }).api
-  return { w, api, midRef, enabledRef }
+  return { w, api, midRef, enabledRef, playingRef }
 }
 
 describe('useDanmaku', () => {
@@ -226,10 +227,37 @@ describe('useDanmaku', () => {
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('idle')
     expect(fakeEngine.load).not.toHaveBeenCalled() // 关闭态不装载
-    enabledRef.value = true // 重新打开
+    enabledRef.value = true // 首次打开
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 打开后装载一次
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 装载一次
+    // 同集关→开: 即时恢复显示, 不重新拉取装载(免 clear+重拉的"等好久")
+    enabledRef.value = false
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('idle')
+    expect(fakeEngine.setEnabled).toHaveBeenLastCalledWith(false) // 仅停绘, 内容保留
+    expect(fakeEngine.clear).not.toHaveBeenCalled() // 关闭不清屏
+    enabledRef.value = true
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 仍只有初始一次装载
+    expect(fakeEngine.setEnabled).toHaveBeenLastCalledWith(true) // 恢复绘制
+  })
+
+  it('回归·播放/暂停切换不触发重载（暂停弹幕不消失）', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api, playingRef } = mountHost(3)
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    const clearsAfterLoad = fakeEngine.clear.mock.calls.length
+    playingRef.value = false // 暂停
+    await flush()
+    playingRef.value = true // 恢复
+    await flush()
+    expect(fakeEngine.clear.mock.calls.length).toBe(clearsAfterLoad) // 未清屏
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 未重载
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
   })
 
   it('B站路径: comments 空 ⇒ empty（有源无内容）', async () => {  
@@ -362,7 +390,7 @@ describe('useDanmaku', () => {
     // 同屏上限 30、描边开(1.25 + useTextShadow)。
     expect(fakeEngine.setOpacity).toHaveBeenCalledWith(0.8)
     expect(fakeEngine.setArea).toHaveBeenCalledWith(0.5)
-    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(1 / 1.5) // 1/settings.speed（默认 1.5=快一档）
+    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(1) // 1/settings.speed（默认 1 = danmaku 倍率 1.0）
     expect(fakeEngine.setMaxVisible).toHaveBeenCalledWith(30)
     expect(fakeEngine.setStrokeWidth).toHaveBeenCalledWith(1.25)
     expect(fakeEngine.setUseTextShadow).toHaveBeenCalledWith(true)
@@ -410,13 +438,14 @@ describe('useDanmaku', () => {
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('idle')
     expect(m.getDanmuSource).toHaveBeenCalledTimes(1)
-    // 再开 → 命中 srcCache + biliCache, 零请求, 直接重载装载
+    // 再开 → 同集已装载, 即时恢复显示(零请求、零重载)
     enabledRef.value = true
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
     expect(m.getDanmuSource).toHaveBeenCalledTimes(1)
     expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
-    expect(fakeEngine.load).toHaveBeenCalledTimes(2) // 重载重新装载了一次
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 恢复路径, 不重新装载
+    expect(fakeEngine.setEnabled).toHaveBeenLastCalledWith(true)
   })
 
   it('请求去重: 切集(mid 变化)缓存 key 自然失效, 照常重新请求新集', async () => {
@@ -443,7 +472,7 @@ describe('useDanmaku', () => {
     const s = readDanmakuSettings()
     expect(s.fontSize).toBe(64) // 钳制上限
     expect(s.opacity).toBe(1) // 钳制上限
-    expect(s.speed).toBe(1.5) // 非法档位回新默认
+    expect(s.speed).toBe(1) // 非法档位回新默认
     expect(s.limit).toBe(30) // 负数回默认(同屏上限 30)
   })
 
@@ -459,10 +488,10 @@ describe('useDanmaku', () => {
     expect(readDanmakuSettings().speed).toBe(2.5)
   })
 
-  it('readDanmakuSettings: 无记录返回新默认(opacity 0.8 / area 0.5 / speed 2)', () => {
+  it('readDanmakuSettings: 无记录返回新默认(opacity 0.8 / area 0.5 / speed 1)', () => {
     const s = readDanmakuSettings()
     expect(s.opacity).toBe(0.8)
     expect(s.area).toBe(0.5)
-    expect(s.speed).toBe(1.5)
+    expect(s.speed).toBe(1)
   })
 })
