@@ -2322,8 +2322,16 @@ watch(playerReady, (v) => {
         </template>
       </BaseDialog>
 
-      <!-- 弹幕设置弹窗（控制条 1x 左侧按钮打开; 所有项实时生效, 持久化见 useDanmaku） -->
-      <BaseDialog v-model:visible="danmakuSettingsOpen" title="弹幕设置" width="420px">
+      <!-- 弹幕设置弹窗（控制条 1x 左侧按钮打开; 所有项实时生效, 持久化见 useDanmaku）
+           全屏可见关键: Teleport 进 video.js 容器(全屏元素), 否则全屏时弹窗在页面层不可见。
+           playerOverlayHost 未初始化时回退 body(与弹幕层/手势层同款策略)。 -->
+      <BaseDialog
+        v-model:visible="danmakuSettingsOpen"
+        title="弹幕设置"
+        width="420px"
+        compact-title
+        :teleport-to="playerOverlayHost || 'body'"
+      >
         <DanmakuSettingsPanel
           :settings="danmakuSettings"
           :enabled="danmakuEnabled && !danmakuUnavailable"

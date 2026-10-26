@@ -64,7 +64,8 @@ export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
   opacity: 0.8,
   area: 0.5,
   speed: 2,
-  limit: 0,
+  // 同屏上限默认 30（2026-10-26: 0=不限时高密度剧集"一窝蜂"铺满; 档位 15/30/50/不限 取 30）
+  limit: 30,
   bottomMode: true,
   topMode: true,
   colored: true,
@@ -168,7 +169,7 @@ export function readDanmakuSettings(): DanmakuSettings {
       opacity: typeof p.opacity === 'number' ? Math.min(Math.max(p.opacity, 0.1), 1) : 0.8,
       area: (DANMAKU_AREA_STEPS as readonly number[]).includes(p.area as number) ? (p.area as number) : 0.5,
       speed,
-      limit: typeof p.limit === 'number' && p.limit >= 0 ? p.limit : 0
+      limit: typeof p.limit === 'number' && p.limit >= 0 ? p.limit : DANMAKU_DEFAULT_SETTINGS.limit
     }
   } catch {
     return { ...DANMAKU_DEFAULT_SETTINGS }

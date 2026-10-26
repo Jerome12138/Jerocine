@@ -11,7 +11,14 @@
  */
 import type { DanmuComment, DanmuProvider, DanmuTencentSegment } from '@/types/film'
 
-/** CommentCoreLibrary 装载入参（stime 秒） */
+/**
+ * CommentCoreLibrary 装载入参（stime 秒）。
+ * mode 归一（2026-10-26, 流式防重叠）:
+ *   CCL 的滚动/反向滚动(mode 1/2/6)各自独立 CommentSpaceAllocator, 轨道都从顶部/底部起始,
+ *   互不知情 → mode 6(反向滚动)/2(底部反向)与 mode 1(普通滚动)同屏时**交叉重叠**。
+ *   统一归一为 mode 1: 所有滚动弹幕进同一 allocator, 走内置 pathCheck 防重叠轨道分配。
+ *   固定弹幕 mode 4/5 保留（AnchorCommentSpaceAllocator 内部已按行堆叠防重叠）。
+ */
 export interface DanmuLibraryInput {
   stime: number
   mode: number
@@ -19,9 +26,14 @@ export interface DanmuLibraryInput {
   text: string
 }
 
+function normalizeDanmuMode(mode: number): number {
+  if (mode === 2 || mode === 6) return 1
+  return mode
+}
+
 /** 单条弹幕映射：毫秒 → 秒（库约定）。 */
 export function toDanmuInput(c: DanmuComment): DanmuLibraryInput {
-  return { stime: c.time / 1000, mode: c.mode, color: c.color, text: c.text }
+  return { stime: c.time / 1000, mode: normalizeDanmuMode(c.mode), color: c.color, text: c.text }
 }
 
 /** 批量映射（保持顺序；空列表返回空数组，调用方据此跳过 manager.load）。 */

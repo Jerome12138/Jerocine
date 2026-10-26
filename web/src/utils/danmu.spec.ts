@@ -35,6 +35,17 @@ describe('toDanmuInput(s)：毫秒 → 秒映射', () => {
     expect(toDanmuInputs([cmt(1000)])[0]!.stime).toBe(1)
     expect(toDanmuInputs([])).toEqual([])
   })
+
+  it('流式防重叠: mode 2/6（反向滚动）归一为 1，与普通滚动共用同一轨道分配器', () => {
+    expect(toDanmuInput(cmt(1000, { mode: 2 })).mode).toBe(1)
+    expect(toDanmuInput(cmt(1000, { mode: 6 })).mode).toBe(1)
+    expect(toDanmuInputs([cmt(1000, { mode: 6 }), cmt(2000, { mode: 2 }), cmt(3000, { mode: 1 })]).map((i) => i.mode)).toEqual([1, 1, 1])
+  })
+
+  it('流式防重叠: 固定弹幕 mode 4/5 保留（行堆叠由 Anchor 分配器负责）', () => {
+    expect(toDanmuInput(cmt(1000, { mode: 4 })).mode).toBe(4)
+    expect(toDanmuInput(cmt(1000, { mode: 5 })).mode).toBe(5)
+  })
 })
 
 describe('segmentIndexAt：t 所在段索引', () => {

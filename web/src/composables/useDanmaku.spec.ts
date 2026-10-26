@@ -326,12 +326,12 @@ describe('useDanmaku', () => {
     const mgr = managerInstances[0]
     const stage = api.stage.value as HTMLElement
     // 默认(2026-10-26): 自适应字号(无 CSS 变量)、透明度 0.8、区域半屏、速度 2(比旧默认慢一倍)、
-    // 不限量、顶部/底部开、彩色、描边
+    // 同屏上限 30(0=不限改为压密度)、顶部/底部开、彩色、描边
     expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('')
     expect(stage.style.opacity).toBe('0.8')
     expect(stage.style.height).toBe('50%')
     expect(mgr.options.scroll?.scale).toBe(2)
-    expect(mgr.options.limit).toBe(0)
+    expect(mgr.options.limit).toBe(30)
     expect(mgr.filter.allowTypes?.['5']).toBe(true)
     expect(mgr.filter.allowTypes?.['4']).toBe(true)
     expect(stage.classList.contains('jc-danmaku-stage--no-outline')).toBe(false)
@@ -435,7 +435,7 @@ describe('useDanmaku', () => {
     expect(s.fontSize).toBe(64) // 钳制上限
     expect(s.opacity).toBe(1) // 钳制上限
     expect(s.speed).toBe(2) // 非法档位回新默认
-    expect(s.limit).toBe(0) // 负数回默认
+    expect(s.limit).toBe(30) // 负数回默认(同屏上限 30)
   })
 
   it('readDanmakuSettings: 旧速度档(0.5..1.5) ×2 迁移到新档(整体慢一倍)', () => {
