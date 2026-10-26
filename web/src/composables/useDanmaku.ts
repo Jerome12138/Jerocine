@@ -61,9 +61,9 @@ export interface DanmakuSettings {
 export const DANMAKU_SETTINGS_KEY = 'jc-danmaku-settings'
 export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
   fontSize: 0,
-  opacity: 1,
-  area: 0.75,
-  speed: 1,
+  opacity: 0.8,
+  area: 0.5,
+  speed: 2,
   limit: 0,
   bottomMode: true,
   topMode: true,
@@ -74,8 +74,15 @@ export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
 export const DANMAKU_FONT_STEPS = [0, 16, 20, 24, 28, 34] as const
 /** 显示区域档位（1/4 屏 → 全屏） */
 export const DANMAKU_AREA_STEPS = [0.25, 0.5, 0.75, 1] as const
-/** 速度档位 */
-export const DANMAKU_SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5] as const
+/**
+ * 速度档位（= 库 dur 倍率, **数值越大弹幕滚动越慢**——ScrollComment 构造时
+ * dur *= scroll.scale, dur 大 = 穿越时间久 = 慢）。
+ * 2026-10-26 修正: 旧档位 [0.5,0.75,1,1.25,1.5] 标签方向反了(0.5 实为最快),
+ * 且用户反馈整体太快。新档 = 旧档 ×2（整体慢一倍）, 标签 极快/快/正常/较慢/慢。
+ */
+export const DANMAKU_SPEED_STEPS = [1, 1.5, 2, 2.5, 3] as const
+/** 旧速度档位（仅用于 readDanmakuSettings 迁移: 旧值 ×2 映射到新档） */
+export const DANMAKU_OLD_SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5] as const
 /** 同屏上限档位 */
 export const DANMAKU_LIMIT_STEPS = [15, 30, 50, 0] as const
 
@@ -89,8 +96,8 @@ export const DANMAKU_LIMIT_STEPS = [15, 30, 50, 0] as const
  *   ready        已装载, 弹幕可见
  */
 export type DanmuState = 'idle' | 'loading' | 'unsupported' | 'empty' | 'failed' | 'ready'
-/** 路径 B 预拉窗口：当前段 + 后续 2 段（§六 风险表：腾讯 67 段×100~250KB, 窗口控制请求量） */
-const TENCENT_PREFETCH_SPAN = 3
+/** 路径 B 预拉窗口：当前段 + 后续 3 段（2026-10-26 从 3 提到 4：腾讯段较短时跨段空档更少, 单请求 3s 短超时+内容缓存, 成本可控） */
+const TENCENT_PREFETCH_SPAN = 4
 /** 预拉提前量（秒）：距下段边界 <1s 就开始拉, 避免边界卡顿 */
 const TENCENT_PREFETCH_LEAD = 1
 
@@ -144,14 +151,23 @@ export function readDanmakuSettings(): DanmakuSettings {
     const raw = localStorage.getItem(DANMAKU_SETTINGS_KEY)
     if (!raw) return { ...DANMAKU_DEFAULT_SETTINGS }
     const p = JSON.parse(raw) as Partial<DanmakuSettings>
+    // 速度档迁移: 旧档值(0.5/0.75/1/1.25/1.5) ×2 → 新档(整体慢一倍, 语义见 DANMAKU_SPEED_STEPS)
+    let speed = DANMAKU_DEFAULT_SETTINGS.speed
+    if (typeof p.speed === 'number') {
+      if ((DANMAKU_OLD_SPEED_STEPS as readonly number[]).includes(p.speed)) {
+        speed = p.speed * 2
+      } else if ((DANMAKU_SPEED_STEPS as readonly number[]).includes(p.speed)) {
+        speed = p.speed
+      }
+    }
     return {
       ...DANMAKU_DEFAULT_SETTINGS,
       ...p,
       // 数值越界/非法字段钳制到合法范围
       fontSize: typeof p.fontSize === 'number' && p.fontSize >= 0 ? Math.min(p.fontSize, 64) : 0,
-      opacity: typeof p.opacity === 'number' ? Math.min(Math.max(p.opacity, 0.1), 1) : 1,
-      area: (DANMAKU_AREA_STEPS as readonly number[]).includes(p.area as number) ? (p.area as number) : 0.75,
-      speed: (DANMAKU_SPEED_STEPS as readonly number[]).includes(p.speed as number) ? (p.speed as number) : 1,
+      opacity: typeof p.opacity === 'number' ? Math.min(Math.max(p.opacity, 0.1), 1) : 0.8,
+      area: (DANMAKU_AREA_STEPS as readonly number[]).includes(p.area as number) ? (p.area as number) : 0.5,
+      speed,
       limit: typeof p.limit === 'number' && p.limit >= 0 ? p.limit : 0
     }
   } catch {

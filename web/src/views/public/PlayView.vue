@@ -158,9 +158,50 @@ function toggleAutoPlayNext(): void {
 const videoErrorMsg = ref<string>('')
 
 /* ============ 弹幕（P0）============ */
-/** 弹幕开关 —— 与 /settings 配置页共用 useWebSettings 单一数据源(localStorage jc-danmaku, 默认开;
-    不进 webSettingsSnapshot 安卓契约, 见 useWebSettings 注释) */
+/** 弹幕开关（用户级）—— 与 /settings 配置页共用 useWebSettings 单一数据源(localStorage jc-danmaku,
+    2026-10-26 起默认关闭; 不进 webSettingsSnapshot 安卓契约, 见 useWebSettings 注释)。
+    关闭时不调弹幕获取接口。 */
 const { danmaku: danmakuEnabled, setDanmaku: setDanmakuEnabled } = useWebSettings()
+
+/** 本集弹幕开关（当前影片覆盖, 默认跟随用户级=true）: localStorage `jc-danmaku-film:{mid}`,
+    无记录(null) = 跟随用户级。仅对当前影片生效, 与用户级开关做与运算。 */
+const filmDanmakuEnabled = ref<boolean | null>(null)
+function filmDanmakuKey(): string {
+  const id = detail.value?.mid
+  return id === undefined || id === null ? '' : `jc-danmaku-film:${id}`
+}
+function readFilmDanmaku(): void {
+  const key = filmDanmakuKey()
+  if (!key) {
+    filmDanmakuEnabled.value = null
+    return
+  }
+  try {
+    const raw = window.localStorage.getItem(key)
+    filmDanmakuEnabled.value = raw === null ? null : raw !== '0'
+  } catch {
+    filmDanmakuEnabled.value = null
+  }
+}
+function writeFilmDanmaku(v: boolean): void {
+  const key = filmDanmakuKey()
+  if (!key) return
+  try {
+    window.localStorage.setItem(key, v ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+// 进入/切换影片时读取本集偏好
+watch(
+  () => detail.value?.mid,
+  () => {
+    readFilmDanmaku()
+  },
+  { immediate: true }
+)
+/** 实际生效 = 用户级 && 本集（null 视为 true 跟随用户级） */
+const danmakuActive = computed(() => danmakuEnabled.value && filmDanmakuEnabled.value !== false)
 function toggleDanmaku(): void {
   setDanmakuEnabled(!danmakuEnabled.value)
   if (danmakuEnabled.value) {
@@ -168,6 +209,13 @@ function toggleDanmaku(): void {
   } else {
     toast('info', '弹幕已关闭')
   }
+}
+/** 本集弹幕开关切换（播放器弹幕设置面板） */
+function toggleFilmDanmaku(): void {
+  const next = filmDanmakuEnabled.value !== false // null→true, false→true, true→false
+  writeFilmDanmaku(next)
+  filmDanmakuEnabled.value = next
+  toast('info', next ? '本集弹幕已开启' : '本集弹幕已关闭')
 }
 
 /** ---------- 派生 ---------- */
@@ -871,7 +919,8 @@ const danmaku = useDanmaku({
   episode: computed(() => currentEpisodeIndex.value + 1),
   player,
   playing: computed(() => !paused.value),
-  enabled: danmakuEnabled,
+  // 实际生效 = 用户级 && 本集(默认跟随用户级); 任一变化触发 useDanmaku watch 重载
+  enabled: danmakuActive,
   onPlayerEvent: (event, fn) => onPlayerEvent(event, fn)
 })
 const danmakuStage = danmaku.stage
@@ -885,6 +934,21 @@ const danmakuSettings = danmaku.settings
 const danmakuUpdateSettings = danmaku.updateSettings
 /** 弹幕设置弹窗开关 */
 const danmakuSettingsOpen = ref(false)
+
+/** 弹幕设置按钮开启态颜色（is-on class; CSS 见样式段 .vjs-danmaku-settings-button.is-on） */
+function syncDanmakuBtnState(): void {
+  const host = videoEl.value?.closest('.video-js')
+  const btn = host?.querySelector('.vjs-danmaku-settings-button')
+  if (btn) btn.classList.toggle('is-on', danmakuActive.value)
+}
+watch(danmakuActive, syncDanmakuBtnState, { flush: 'post' })
+// 按钮由 usePlayer 在控制条初始化时插入, 首次渲染后可能晚一拍 → 挂载后查两次
+onMounted(() => {
+  nextTick(() => {
+    syncDanmakuBtnState()
+    setTimeout(syncDanmakuBtnState, 300)
+  })
+})
 
 /**
  * 弹幕入口三态（用户要求 2026-10-25: 该片不支持 / 没查到 / 加载失败, 都要有显示, 不许静默）:
@@ -1137,11 +1201,13 @@ function resetSkip(): void {
   const id = detail.value?.mid
   if (id === undefined || id === null) return
   skipSettings.reset(id)
-  draftIntro.value = skipSettings.DEFAULT_INTRO
-  draftOutro.value = skipSettings.DEFAULT_OUTRO
-  draftEnabled.value = true
+  // 恢复默认 = 回到用户级全局默认（未设置过则为内置 90/60）
+  const g = skipSettings.getDefault()
+  draftIntro.value = g.intro
+  draftOutro.value = g.outro
+  draftEnabled.value = g.enabled
   skipDialogOpen.value = false
-  applySkipLive({ intro: skipSettings.DEFAULT_INTRO, outro: skipSettings.DEFAULT_OUTRO })
+  applySkipLive(g.enabled ? { intro: g.intro, outro: g.outro } : { intro: 0, outro: 0 })
 }
 
 /**
@@ -2261,10 +2327,12 @@ watch(playerReady, (v) => {
         <DanmakuSettingsPanel
           :settings="danmakuSettings"
           :enabled="danmakuEnabled && !danmakuUnavailable"
+          :film-enabled="filmDanmakuEnabled !== false"
           :providers="danmakuProviders"
           :provider="danmakuProvider"
           @update="danmakuUpdateSettings($event)"
           @toggle-enabled="onDanmakuEntryClick"
+          @toggle-film="toggleFilmDanmaku"
           @set-provider="(p: string) => { danmakuSetProvider(p); }"
         />
       </BaseDialog>
@@ -2335,7 +2403,7 @@ watch(playerReady, (v) => {
   /* 默认字号（自适应档 fontSize=0 时生效）:
      桌面非全屏偏小（用户反馈"非全屏太大、全屏合适", 2026-10-26）;
      全屏更大; 移动端(窄屏)更小。用户手动选档后由行内 --jc-danmu-size 覆盖。 */
-  --jc-danmu-size: 22px;
+  --jc-danmu-size: 19px;
 }
 .jc-danmaku-stage--off {
   visibility: hidden;
@@ -2374,10 +2442,10 @@ watch(playerReady, (v) => {
 /* 移动端/窄屏: 字号整体收小（含全屏, 屏幕密度高时 28px 仍偏大） */
 @media (max-width: 767px) {
   .jc-danmaku-stage {
-    --jc-danmu-size: 18px;
+    --jc-danmu-size: 16px;
   }
   .vjs-fullscreen .jc-danmaku-stage {
-    --jc-danmu-size: 24px;
+    --jc-danmu-size: 22px;
   }
 }
 
@@ -2859,6 +2927,10 @@ watch(playerReady, (v) => {
 }
 :deep(.vjs-danmaku-settings-button:hover),
 :deep(.vjs-danmaku-settings-button:focus) {
+  color: var(--jc-brand-primary);
+}
+/* 开启态颜色区分: 有效启用(用户级&&本集)时按钮着品牌色, syncDanmakuBtnState 维护 is-on */
+:deep(.vjs-danmaku-settings-button.is-on) {
   color: var(--jc-brand-primary);
 }
 

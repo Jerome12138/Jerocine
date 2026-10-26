@@ -2,9 +2,12 @@
 /**
  * 弹幕设置面板（B站/腾讯式）——由播放页 BaseDialog 承载。
  * 所有项实时生效（localStorage 由 useDanmaku 持久化）：
- *  - 字号: 0=自适应(非全屏小号/全屏大号/移动端更小), 其余为具体 px
+ *  - 字号: 0=自适应(随全屏/移动端), 其余为具体 px
  *  - 透明度/显示区域/描边: CSS 实时全量生效
  *  - 速度/同屏上限/顶部/底部/彩色: 对新弹幕生效（速度变更触发重载）
+ *
+ * 开关层级(2026-10-26): 主开关=用户级(/settings, 默认关); 本集开关=当前影片
+ * 覆盖（跟随用户级, 可对本集单独开/关）。实际生效 = 用户级 && 本集。
  */
 import type { DanmuProvider } from '@/types/film'
 import {
@@ -19,8 +22,10 @@ defineOptions({ name: 'DanmakuSettingsPanel' })
 
 const props = defineProps<{
   settings: DanmakuSettings
-  /** 弹幕主开关（与 /settings 配置页同源） */
+  /** 弹幕主开关（用户级, /settings 同源） */
   enabled: boolean
+  /** 本集弹幕开关（当前影片覆盖, 默认跟随用户级） */
+  filmEnabled: boolean
   providers: DanmuProvider[]
   provider: string
 }>()
@@ -28,6 +33,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update', patch: Partial<DanmakuSettings>): void
   (e: 'toggle-enabled'): void
+  (e: 'toggle-film'): void
   (e: 'set-provider', provider: string): void
 }>()
 
@@ -41,7 +47,8 @@ const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? p
 
 const FONT_LABELS = ['自适应', '极小', '小', '中', '大', '特大'] as const
 const AREA_LABELS = ['1/4屏', '半屏', '3/4屏', '全屏'] as const
-const SPEED_LABELS = ['慢', '较慢', '正常', '快', '极快'] as const
+/** 速度档标签: 数值(库 dur 倍率)越大滚动越慢 */
+const SPEED_LABELS = ['极快', '快', '正常', '较慢', '慢'] as const
 const LIMIT_LABELS = ['少', '中', '多', '不限'] as const
 
 function patch(p: Partial<DanmakuSettings>): void {
@@ -51,11 +58,11 @@ function patch(p: Partial<DanmakuSettings>): void {
 
 <template>
   <div class="jc-danmu-panel">
-    <!-- 主开关 -->
+    <!-- 主开关（用户级） -->
     <div class="jc-danmu-panel__row jc-danmu-panel__row--main">
       <div class="jc-danmu-panel__label">
         <span>弹幕</span>
-        <span class="jc-danmu-panel__hint">开启后按当前集匹配平台弹幕</span>
+        <span class="jc-danmu-panel__hint">默认关闭，可在设置页开启</span>
       </div>
       <button
         type="button"
@@ -69,11 +76,29 @@ function patch(p: Partial<DanmakuSettings>): void {
       </button>
     </div>
 
+    <!-- 本集弹幕（当前影片覆盖用户级; 用户级关闭时仍可对本集开） -->
+    <div class="jc-danmu-panel__row">
+      <div class="jc-danmu-panel__label">
+        <span>本集弹幕</span>
+        <span class="jc-danmu-panel__hint">仅对当前影片生效</span>
+      </div>
+      <button
+        type="button"
+        class="jc-danmu-switch"
+        :class="{ 'is-on': filmEnabled }"
+        role="switch"
+        :aria-checked="filmEnabled"
+        @click="emit('toggle-film')"
+      >
+        <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
+      </button>
+    </div>
+
     <!-- 字号: 档位式, 0=自适应(随全屏/移动端) -->
     <div class="jc-danmu-panel__row">
       <div class="jc-danmu-panel__label">
         <span>字号</span>
-        <span class="jc-danmu-panel__hint">自适应：非全屏小号 / 全屏大号 / 移动端更小</span>
+        <span class="jc-danmu-panel__hint">0 为自适应</span>
       </div>
       <div class="jc-danmu-panel__segs">
         <button
@@ -130,7 +155,7 @@ function patch(p: Partial<DanmakuSettings>): void {
     <div class="jc-danmu-panel__row">
       <div class="jc-danmu-panel__label">
         <span>速度</span>
-        <span class="jc-danmu-panel__hint">变更后重新加载弹幕</span>
+        <span class="jc-danmu-panel__hint">越大越慢，变更后重载弹幕</span>
       </div>
       <div class="jc-danmu-panel__segs">
         <button
@@ -212,7 +237,7 @@ function patch(p: Partial<DanmakuSettings>): void {
 .jc-danmu-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   padding: 2px 0;
 }
 .jc-danmu-panel__row {

@@ -8,6 +8,8 @@
  *   - 安卓 web 壳的设置抽屉经 window.__jcConfig 读写同一份 localStorage。
  */
 import { useWebSettings } from '@/composables/useWebSettings'
+import { useSkipSettings, type SkipConfig } from '@/composables/useSkipSettings'
+import { ref } from 'vue'
 
 const {
   adFilter,
@@ -21,6 +23,34 @@ const {
   setAutoPlayNext,
   setDanmaku
 } = useWebSettings()
+
+/** 跳过片头片尾用户级全局默认（单影片配置优先; 未登录即本地级） */
+const skip = useSkipSettings()
+const skipDefault = ref<SkipConfig>({ ...skip.getDefault() })
+/** 草稿输入（秒）, 保存时写回 */
+const skipIntroDraft = ref(skipDefault.value.intro)
+const skipOutroDraft = ref(skipDefault.value.outro)
+function applySkipDefault(): void {
+  skipDefault.value = { ...skip.getDefault() }
+  skipIntroDraft.value = skipDefault.value.intro
+  skipOutroDraft.value = skipDefault.value.outro
+}
+function saveSkipDefault(): void {
+  const cfg: SkipConfig = {
+    intro: Number(skipIntroDraft.value) || 0,
+    outro: Number(skipOutroDraft.value) || 0,
+    enabled: skipDefault.value.enabled
+  }
+  skip.saveDefault(cfg)
+  applySkipDefault()
+}
+function resetSkipDefault(): void {
+  skip.resetDefault()
+  applySkipDefault()
+}
+function toggleSkipDefault(): void {
+  skipDefault.value = { ...skipDefault.value, enabled: !skipDefault.value.enabled }
+}
 
 /** 播放设置项: 统一行模型, 模板循环渲染(键名即 localStorage 契约的语义名) */
 const toggles = [
@@ -48,7 +78,7 @@ const toggles = [
   {
     key: 'danmaku',
     title: '弹幕',
-    desc: '播放时显示 B站弹幕（当前集匹配, 无匹配则不显示）',
+    desc: '播放时显示平台弹幕 · 默认关闭（需用时打开; 播放器内可对本集单独开）',
     get: () => danmaku.value,
     set: (v: boolean) => setDanmaku(v)
   }
@@ -119,6 +149,73 @@ const toggles = [
         >
           <span v-if="filterMode === 'server'" class="jc-settings-page__seg-check" aria-hidden="true">✓</span>
           云端取源
+        </button>
+      </div>
+    </div>
+
+    <!-- 跳过片头片尾: 用户级全局默认（单影片配置优先） -->
+    <div class="jc-settings-page__group">
+      <div class="jc-settings-page__group-title">跳过片头片尾（默认）</div>
+      <p class="jc-settings-page__hint">
+        对全部影片生效；播放页内对单部影片的跳过设置优先于此处默认值。
+      </p>
+      <button
+        type="button"
+        class="jc-settings-page__row"
+        role="switch"
+        :aria-checked="skipDefault.enabled"
+        data-focusable="true"
+        @click="toggleSkipDefault"
+      >
+        <span class="jc-settings-page__row-main">
+          <span class="jc-settings-page__row-title">启用默认跳过</span>
+          <span class="jc-settings-page__row-desc">关闭后默认不跳过（影片单独设置不受影响）</span>
+        </span>
+        <span class="jc-settings-page__switch" :class="{ 'is-on': skipDefault.enabled }" aria-hidden="true">
+          <span class="jc-settings-page__knob" />
+        </span>
+      </button>
+      <div class="jc-settings-page__row" :class="{ 'jc-settings-page__row--dim': !skipDefault.enabled }">
+        <span class="jc-settings-page__row-main">
+          <span class="jc-settings-page__row-title">片头跳过秒数</span>
+        </span>
+        <input
+          v-model.number="skipIntroDraft"
+          type="number"
+          min="0"
+          max="600"
+          step="10"
+          class="jc-settings-page__num"
+          :disabled="!skipDefault.enabled"
+          data-focusable="true"
+        />
+      </div>
+      <div class="jc-settings-page__row" :class="{ 'jc-settings-page__row--dim': !skipDefault.enabled }">
+        <span class="jc-settings-page__row-main">
+          <span class="jc-settings-page__row-title">片尾跳过秒数</span>
+        </span>
+        <input
+          v-model.number="skipOutroDraft"
+          type="number"
+          min="0"
+          max="600"
+          step="10"
+          class="jc-settings-page__num"
+          :disabled="!skipDefault.enabled"
+          data-focusable="true"
+        />
+      </div>
+      <div class="jc-settings-page__actions">
+        <button type="button" class="jc-settings-page__ghost" data-focusable="true" @click="resetSkipDefault">
+          恢复内置默认
+        </button>
+        <button
+          type="button"
+          class="jc-settings-page__ghost jc-settings-page__ghost--primary"
+          data-focusable="true"
+          @click="saveSkipDefault"
+        >
+          保存默认
         </button>
       </div>
     </div>
@@ -229,5 +326,43 @@ const toggles = [
 }
 .jc-settings-page__seg-check {
   font-size: 0.85em;
+}
+.jc-settings-page__row--dim {
+  opacity: 0.45;
+}
+.jc-settings-page__num {
+  flex: 0 0 auto;
+  width: 96px;
+  padding: 6px 10px;
+  border-radius: var(--jc-radius-md);
+  border: 1px solid var(--jc-border-default);
+  background: var(--jc-bg-surface);
+  color: var(--jc-text-primary);
+  font-size: var(--jc-fs-sm);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.jc-settings-page__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--jc-space-2);
+  padding-top: var(--jc-space-2);
+}
+.jc-settings-page__ghost {
+  padding: 6px 14px;
+  border-radius: var(--jc-radius-md);
+  border: 1px solid var(--jc-border-default);
+  background: transparent;
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  cursor: pointer;
+}
+.jc-settings-page__ghost:hover {
+  border-color: var(--jc-brand-primary);
+  color: var(--jc-brand-primary);
+}
+.jc-settings-page__ghost--primary {
+  color: var(--jc-brand-primary);
+  border-color: var(--jc-brand-primary);
 }
 </style>

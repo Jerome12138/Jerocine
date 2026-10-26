@@ -323,11 +323,12 @@ describe('useDanmaku', () => {
     expect(api.danmuState.value).toBe<DanmuState>('ready')
     const mgr = managerInstances[0]
     const stage = api.stage.value as HTMLElement
-    // 默认: 自适应字号(无 CSS 变量)、全透明、区域 75%、速度 1、不限量、顶部/底部开、彩色、描边
+    // 默认(2026-10-26): 自适应字号(无 CSS 变量)、透明度 0.8、区域半屏、速度 2(比旧默认慢一倍)、
+    // 不限量、顶部/底部开、彩色、描边
     expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('')
-    expect(stage.style.opacity).toBe('1')
-    expect(stage.style.height).toBe('75%')
-    expect(mgr.options.scroll?.scale).toBe(1)
+    expect(stage.style.opacity).toBe('0.8')
+    expect(stage.style.height).toBe('50%')
+    expect(mgr.options.scroll?.scale).toBe(2)
     expect(mgr.options.limit).toBe(0)
     expect(mgr.filter.allowTypes?.['5']).toBe(true)
     expect(mgr.filter.allowTypes?.['4']).toBe(true)
@@ -363,7 +364,27 @@ describe('useDanmaku', () => {
     const s = readDanmakuSettings()
     expect(s.fontSize).toBe(64) // 钳制上限
     expect(s.opacity).toBe(1) // 钳制上限
-    expect(s.speed).toBe(1) // 非法档位回默认
+    expect(s.speed).toBe(2) // 非法档位回新默认
     expect(s.limit).toBe(0) // 负数回默认
+  })
+
+  it('readDanmakuSettings: 旧速度档(0.5..1.5) ×2 迁移到新档(整体慢一倍)', () => {
+    // 旧默认 1(正常) → 新 2(正常); 旧 0.5(最快) → 新 1(最快); 旧 1.5(最慢) → 新 3(最慢)
+    localStorage.setItem('jc-danmaku-settings', JSON.stringify({ speed: 1, opacity: 0.8, area: 0.5 }))
+    expect(readDanmakuSettings().speed).toBe(2)
+    localStorage.setItem('jc-danmaku-settings', JSON.stringify({ speed: 0.5, opacity: 0.8, area: 0.5 }))
+    expect(readDanmakuSettings().speed).toBe(1)
+    localStorage.setItem('jc-danmaku-settings', JSON.stringify({ speed: 1.5, opacity: 0.8, area: 0.5 }))
+    expect(readDanmakuSettings().speed).toBe(3)
+    // 新档值原样保留
+    localStorage.setItem('jc-danmaku-settings', JSON.stringify({ speed: 2.5, opacity: 0.8, area: 0.5 }))
+    expect(readDanmakuSettings().speed).toBe(2.5)
+  })
+
+  it('readDanmakuSettings: 无记录返回新默认(opacity 0.8 / area 0.5 / speed 2)', () => {
+    const s = readDanmakuSettings()
+    expect(s.opacity).toBe(0.8)
+    expect(s.area).toBe(0.5)
+    expect(s.speed).toBe(2)
   })
 })

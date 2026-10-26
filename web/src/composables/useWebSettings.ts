@@ -59,8 +59,9 @@ const relayCache = ref<boolean>(readBool(RELAY_CACHE_KEY, false))
 const autoPlayNext = ref<boolean>(
   readBool(AUTO_PLAY_NEXT_KEY, true) // 旧约定: 缺省视为开(nativePlay.readAutoPlayNext 同口径)
 )
-/* 弹幕开关(P0): 与播放页/设置页共用; 不进 webSettingsSnapshot(快照契约对应原生抽屉, 弹幕不在抽屉范围) */
-const danmaku = ref<boolean>(readBool(DANMAKU_KEY, true))
+/* 弹幕开关(P0): 与播放页/设置页共用; 不进 webSettingsSnapshot(快照契约对应原生抽屉, 弹幕不在抽屉范围)。
+   ⚠️ 2026-10-26 改为默认关闭（用户级/本地级）: 关 = 不调弹幕获取接口; 需要时在设置页打开, 播放器弹幕设置里可对本集再开。 */
+const danmaku = ref<boolean>(readBool(DANMAKU_KEY, false))
 
 function persist(key: string, value: string): void {
   try {

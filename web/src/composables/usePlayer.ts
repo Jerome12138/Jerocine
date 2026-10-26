@@ -208,9 +208,9 @@ function registerNextEpisodeButton(): boolean {
   return true
 }
 
-/** 弹幕图标 SVG path（与 BaseIcon 'chat' 一致: 气泡+省略号） */
+/** 弹幕设置图标 SVG path（Material "tune": 调节滑块, 设置语义比气泡更明确, 2026-10-26 更换） */
 const DANMAKU_ICON_PATH =
-  'M12 3C6.5 3 2 6.58 2 11c0 2.52 1.42 4.93 3.89 6.38L5 21l3.76-2.08C9.83 19.3 10.9 19.5 12 19.5c5.5 0 10-3.58 10-8s-4.5-8-10-8M7 10.5a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3m5 0a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3m5 0a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3z'
+  'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z'
 
 /** 全局注册一次「弹幕设置」图标按钮（不依赖 icon font, 内联 SVG）。 */
 function registerDanmakuSettingsButton(): boolean {
