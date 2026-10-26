@@ -62,7 +62,7 @@ function patch(p: Partial<DanmakuSettings>): void {
     <div class="jc-danmu-panel__row jc-danmu-panel__row--switches">
       <div class="jc-danmu-panel__switches">
         <div class="jc-danmu-switch-item">
-          <span class="jc-danmu-switch-item__label">弹幕</span>
+          <span class="jc-danmu-switch-item__label">弹幕总开关（全局）</span>
           <button
             type="button"
             class="jc-danmu-switch"
@@ -75,7 +75,7 @@ function patch(p: Partial<DanmakuSettings>): void {
           </button>
         </div>
         <div class="jc-danmu-switch-item">
-          <span class="jc-danmu-switch-item__label">本片弹幕</span>
+          <span class="jc-danmu-switch-item__label">本片弹幕开关</span>
           <button
             type="button"
             class="jc-danmu-switch"
@@ -343,12 +343,12 @@ function patch(p: Partial<DanmakuSettings>): void {
 }
 .jc-danmu-panel__switches {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 16px;
   width: 100%;
 }
 .jc-danmu-switch-item {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;

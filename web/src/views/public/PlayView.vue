@@ -213,7 +213,8 @@ function toggleDanmaku(): void {
 }
 /** 本集弹幕开关切换（播放器弹幕设置面板） */
 function toggleFilmDanmaku(): void {
-  const next = filmDanmakuEnabled.value !== false // null→true, false→true, true→false
+  // 基于当前实际状态(danmakuActive 同口径: null/true 视为开)取反：开→关、关→开
+  const next = filmDanmakuEnabled.value === false
   writeFilmDanmaku(next)
   filmDanmakuEnabled.value = next
   toast('info', next ? '本集弹幕已开启' : '本集弹幕已关闭')
@@ -960,8 +961,7 @@ onMounted(() => {
 const danmakuUnavailable = computed(
   () =>
     danmakuState.value === 'unsupported' ||
-    danmakuState.value === 'empty' ||
-    danmakuState.value === 'failed'
+    danmakuState.value === 'empty'
 )
 const danmakuHint = computed(() => {
   switch (danmakuState.value) {
@@ -976,11 +976,7 @@ const danmakuHint = computed(() => {
   }
 })
 function onDanmakuEntryClick(): void {
-  if (danmakuState.value === 'failed') {
-    danmaku.reload()
-    toast('info', '正在重新加载弹幕…')
-    return
-  }
+  // failed 不再拦截开关：允许通过切换(关闭/再开)重试，避免“点开关只 reload、弹幕永远不出现”
   if (danmakuUnavailable.value) {
     toast('info', danmakuHint.value)
     return
@@ -2032,7 +2028,7 @@ watch(playerReady, (v) => {
               <div
                 ref="danmakuStage"
                 class="jc-danmaku-stage"
-                :class="{ 'jc-danmaku-stage--off': !danmakuEnabled || danmakuState !== 'ready', 'jc-danmaku-stage--resizing': danmakuResizing }"
+                :class="{ 'jc-danmaku-stage--off': !danmakuActive || danmakuState !== 'ready', 'jc-danmaku-stage--resizing': danmakuResizing }"
                 aria-hidden="true"
               />
               <!-- 长按临时倍速提示(顶部居中) -->

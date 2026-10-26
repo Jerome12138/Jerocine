@@ -219,6 +219,19 @@ describe('useDanmaku', () => {
     expect(typeof items[0]!.id).toBe('string') // 稳定唯一 id
   })
 
+  it('回归·关闭弹幕后再打开应重新装载并显示（关→开不失效）', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api, enabledRef } = mountHost(3, false) // 初始关闭
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('idle')
+    expect(fakeEngine.load).not.toHaveBeenCalled() // 关闭态不装载
+    enabledRef.value = true // 重新打开
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 打开后装载一次
+  })
+
   it('B站路径: comments 空 ⇒ empty（有源无内容）', async () => {  
     m.getDanmuSource.mockResolvedValue(biliSrc)
     m.getDanmuBilibili.mockResolvedValue({ comments: [] })
