@@ -216,8 +216,10 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
    *  VHS 切档时底层 video 元素触发 resize, 一并监听以实时反映当前画质。 */
   const videoSize = ref<{ width: number; height: number } | null>(null)
 
-  /** 待 ready 后再注册的事件队列 */
-  const pendingListeners: Array<{
+  /** 外部事件订阅(持久): player 重建(dispose→init)后统一重挂。
+   *  曾用一次性 pendingListeners + dispose 清空 —— 旧 player 销毁后弹幕层等外部
+   *  订阅全部蒸发且不再重挂(线上实测: timeupdate 链断, 弹幕静止, 2026-10-26)。 */
+  const listenerRegistry: Array<{
     event: PlayerEventName
     fn: (...args: unknown[]) => void
   }> = []
@@ -349,11 +351,10 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       } catch {
         // ignore
       }
-      // 注册等待中的监听
-      for (const { event, fn } of pendingListeners) {
+      // (重)注册外部订阅 —— registry 持久, player 重建后也会走到这里
+      for (const { event, fn } of listenerRegistry) {
         p.on(event, fn as (...args: unknown[]) => void)
       }
-      pendingListeners.length = 0
     })
 
     p.on('play', () => {
@@ -464,7 +465,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     player.value = null
     ready.value = false
     nextEpisodeHandler = null
-    pendingListeners.length = 0
+    // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 的 ready 回调重挂
   }
 
   function play(): Promise<void> | void {
@@ -511,23 +512,23 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
   }
 
   function on(event: PlayerEventName, fn: (...args: unknown[]) => void): () => void {
+    const entry = { event, fn: fn as (...a: unknown[]) => void }
+    listenerRegistry.push(entry)
     const p = player.value
     if (p && ready.value) {
-      p.on(event, fn as (...a: unknown[]) => void)
-    } else {
-      pendingListeners.push({ event, fn })
+      p.on(event, entry.fn)
     }
     return () => off(event, fn)
   }
 
   function off(event: PlayerEventName, fn: (...args: unknown[]) => void): void {
+    const idx = listenerRegistry.findIndex((x) => x.event === event && x.fn === fn)
+    if (idx >= 0) {
+      listenerRegistry.splice(idx, 1)
+    }
     const p = player.value
     if (p) {
       p.off(event, fn as (...a: unknown[]) => void)
-    }
-    const idx = pendingListeners.findIndex((x) => x.event === event && x.fn === fn)
-    if (idx >= 0) {
-      pendingListeners.splice(idx, 1)
     }
   }
 
