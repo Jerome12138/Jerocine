@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, h, ref, shallowRef, nextTick } from 'vue'
-import { useDanmaku, type DanmuState } from './useDanmaku'
+import {
+  useDanmaku,
+  readDanmakuSettings,
+  DANMAKU_DEFAULT_SETTINGS,
+  type DanmuState
+} from './useDanmaku'
 
 /**
  * useDanmaku composable 测试 —— 覆盖状态机六态 + 2026-10-25 线上死锁回归。
@@ -41,6 +46,20 @@ class FakeManager {
   stop = vi.fn()
   clear = vi.fn()
   seek = vi.fn()
+  // applySettings 会读写 options/filter（真实库同款结构）
+  options: { global?: { opacity?: number; scale?: number }; scroll?: { opacity?: number; scale?: number }; limit?: number } = {
+    scroll: {},
+    limit: 0
+  }
+  filter: {
+    allowTypes: Record<string, boolean>
+    addModifier: ReturnType<typeof vi.fn>
+    removeModifier: ReturnType<typeof vi.fn>
+  } = {
+    allowTypes: {},
+    addModifier: vi.fn(),
+    removeModifier: vi.fn()
+  }
 }
 let managerInstances: FakeManager[] = []
 
@@ -123,6 +142,7 @@ function mountHost(mid: number | undefined, enabled = true, attachStage = true) 
 describe('useDanmaku', () => {
   beforeEach(() => {
     installLib()
+    localStorage.clear()
     m.getDanmuSource.mockReset()
     m.getDanmuBilibili.mockReset()
     m.getDanmuTencentEpisodes.mockReset()
@@ -263,5 +283,87 @@ describe('useDanmaku', () => {
     expect(m.getDanmuSource).toHaveBeenCalledTimes(2)
     expect(m.getDanmuSource).toHaveBeenLastCalledWith(4)
     expect(api.danmuState.value).toBe<DanmuState>('ready')
+  })
+
+  it('回归·一窝蜂: B站整集装载后强制 seek 对齐(防 timeupdate 已推进 lastPosition 导致补发)', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api } = mountHost(3)
+    await flush()
+    const mgr = managerInstances[0]
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(mgr.load).toHaveBeenCalledTimes(1)
+    // 顺序铁律: load → seek → time（time 之前必须 seek 重定位, 否则从 position=0 补发全部历史弹幕）
+    const [loadOrder, seekOrder, timeOrder] = [
+      mgr.load.mock.invocationCallOrder[0],
+      mgr.seek.mock.invocationCallOrder[0],
+      mgr.time.mock.invocationCallOrder[0]
+    ]
+    expect(loadOrder).toBeLessThan(seekOrder)
+    expect(seekOrder).toBeLessThan(timeOrder)
+  })
+
+  it('回归·一窝蜂: 腾讯每段装载后均 seek 对齐(段数=load 次数, 对齐次数=段数+兜底)', async () => {
+    m.getDanmuSource.mockResolvedValue(tencentSrc)
+    mockTencentChain()
+    const { api } = mountHost(4)
+    await flush()
+    const mgr = managerInstances[0]
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(mgr.load).toHaveBeenCalledTimes(2) // segments 2 段
+    // 每段 load 后 alignManager 一次 + loadTencentEpisode 收尾兜底一次
+    expect(mgr.seek).toHaveBeenCalledTimes(3)
+  })
+
+  it('弹幕设置: 默认值 + updateSettings 实时应用到 manager/CSS + 持久化', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api } = mountHost(3)
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    const mgr = managerInstances[0]
+    const stage = api.stage.value as HTMLElement
+    // 默认: 自适应字号(无 CSS 变量)、全透明、区域 75%、速度 1、不限量、顶部/底部开、彩色、描边
+    expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('')
+    expect(stage.style.opacity).toBe('1')
+    expect(stage.style.height).toBe('75%')
+    expect(mgr.options.scroll?.scale).toBe(1)
+    expect(mgr.options.limit).toBe(0)
+    expect(mgr.filter.allowTypes?.['5']).toBe(true)
+    expect(mgr.filter.allowTypes?.['4']).toBe(true)
+    expect(stage.classList.contains('jc-danmaku-stage--no-outline')).toBe(false)
+    // 用户调: 字号 24 + 白色 + 半屏 + 顶部弹幕关 + 描边关
+    api.updateSettings({ fontSize: 24, colored: false, area: 0.5, topMode: false, outline: false })
+    await flush()
+    expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('24px')
+    expect(stage.style.height).toBe('50%')
+    expect(mgr.filter.allowTypes?.['5']).toBe(false)
+    expect(mgr.filter.addModifier).toHaveBeenCalled() // 白色模式注册了颜色改写器
+    expect(stage.classList.contains('jc-danmaku-stage--no-outline')).toBe(true)
+    // 持久化
+    expect(localStorage.getItem('jc-danmaku-settings')).toContain('"fontSize":24')
+  })
+
+  it('弹幕设置: 恢复自适应档字号 ⇒ 移除行内 CSS 变量(交给全屏/移动端 CSS)', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api } = mountHost(3)
+    await flush()
+    const stage = api.stage.value as HTMLElement
+    api.updateSettings({ fontSize: 28 })
+    expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('28px')
+    api.updateSettings({ fontSize: 0 })
+    expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('')
+  })
+
+  it('readDanmakuSettings: localStorage 损坏/越界回退默认并钳制', async () => {
+    localStorage.setItem('jc-danmaku-settings', '{broken json')
+    expect(readDanmakuSettings()).toEqual({ ...DANMAKU_DEFAULT_SETTINGS })
+    localStorage.setItem('jc-danmaku-settings', JSON.stringify({ fontSize: 999, opacity: 9, speed: 0.3, limit: -5 }))
+    const s = readDanmakuSettings()
+    expect(s.fontSize).toBe(64) // 钳制上限
+    expect(s.opacity).toBe(1) // 钳制上限
+    expect(s.speed).toBe(1) // 非法档位回默认
+    expect(s.limit).toBe(0) // 负数回默认
   })
 })

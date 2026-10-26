@@ -19,6 +19,12 @@ interface CommentManagerLike {
     limit?: number
     seekTrigger?: number
   }
+  /** 发送前的过滤/改写器（allowTypes 控模式白名单；modifiers 逐条改写，如改颜色） */
+  filter?: {
+    allowTypes?: Record<string, boolean>
+    addModifier?(fn: (c: DanmakuInputComment) => DanmakuInputComment): void
+    removeModifier?(fn: (c: DanmakuInputComment) => DanmakuInputComment): void
+  }
   timeline: DanmakuInputComment[]
   init(renderer?: 'css' | 'legacy'): void
   load(comments: DanmakuInputComment[]): void

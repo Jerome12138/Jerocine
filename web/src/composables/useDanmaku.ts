@@ -35,6 +35,50 @@ import { prefetchWindow, resolveDanmuProvider, shouldPrefetchNext, toDanmuInputs
 export const DANMAKU_PROVIDER_KEY = 'jc-danmaku-provider'
 export const DANMAKU_DEFAULT_PROVIDER = 'bilibili'
 
+/* ---------------- 弹幕显示设置（2026-10-26, 参考 B站/腾讯设置面板） ---------------- */
+
+export interface DanmakuSettings {
+  /** 字号(px)。0 = 自适应：非全屏小号 / 全屏大号 / 移动端更小（见 PlayView CSS --jc-danmu-size） */
+  fontSize: number
+  /** 弹幕层整体透明度 0-1 */
+  opacity: number
+  /** 显示区域高度占比 0-1（0.25/0.5/0.75/1 对应 1/4 屏·半屏·3/4 屏·全屏） */
+  area: number
+  /** 滚动速度倍率（>1 快、<1 慢；库 dur *= scroll.scale，已渲染弹幕不变，变更触发重载） */
+  speed: number
+  /** 同屏弹幕上限（0 = 不限；库 time() 用 runline+本次数量判断） */
+  limit: number
+  /** 底部弹幕（mode 4） */
+  bottomMode: boolean
+  /** 顶部弹幕（mode 5） */
+  topMode: boolean
+  /** 彩色（false = 全部白色） */
+  colored: boolean
+  /** 描边/阴影 */
+  outline: boolean
+}
+
+export const DANMAKU_SETTINGS_KEY = 'jc-danmaku-settings'
+export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
+  fontSize: 0,
+  opacity: 1,
+  area: 0.75,
+  speed: 1,
+  limit: 0,
+  bottomMode: true,
+  topMode: true,
+  colored: true,
+  outline: true
+}
+/** 字号档位（自适应档 + 4 档可调；B站/腾讯均为档位式） */
+export const DANMAKU_FONT_STEPS = [0, 16, 20, 24, 28, 34] as const
+/** 显示区域档位（1/4 屏 → 全屏） */
+export const DANMAKU_AREA_STEPS = [0.25, 0.5, 0.75, 1] as const
+/** 速度档位 */
+export const DANMAKU_SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5] as const
+/** 同屏上限档位 */
+export const DANMAKU_LIMIT_STEPS = [15, 30, 50, 0] as const
+
 /**
  * 弹幕 UI 状态（用户要求 2026-10-25: 无源/查无/失败都必须有显示, 不许静默）:
  *   idle         开关关 / 无 mid
@@ -94,6 +138,35 @@ function writeProviderPref(provider: string): void {
   }
 }
 
+/** 读取弹幕显示设置（缺省/损坏回默认值） */
+export function readDanmakuSettings(): DanmakuSettings {
+  try {
+    const raw = localStorage.getItem(DANMAKU_SETTINGS_KEY)
+    if (!raw) return { ...DANMAKU_DEFAULT_SETTINGS }
+    const p = JSON.parse(raw) as Partial<DanmakuSettings>
+    return {
+      ...DANMAKU_DEFAULT_SETTINGS,
+      ...p,
+      // 数值越界/非法字段钳制到合法范围
+      fontSize: typeof p.fontSize === 'number' && p.fontSize >= 0 ? Math.min(p.fontSize, 64) : 0,
+      opacity: typeof p.opacity === 'number' ? Math.min(Math.max(p.opacity, 0.1), 1) : 1,
+      area: (DANMAKU_AREA_STEPS as readonly number[]).includes(p.area as number) ? (p.area as number) : 0.75,
+      speed: (DANMAKU_SPEED_STEPS as readonly number[]).includes(p.speed as number) ? (p.speed as number) : 1,
+      limit: typeof p.limit === 'number' && p.limit >= 0 ? p.limit : 0
+    }
+  } catch {
+    return { ...DANMAKU_DEFAULT_SETTINGS }
+  }
+}
+
+function writeDanmakuSettings(s: DanmakuSettings): void {
+  try {
+    localStorage.setItem(DANMAKU_SETTINGS_KEY, JSON.stringify(s))
+  } catch {
+    /* localStorage 不可用时仅本轮生效 */
+  }
+}
+
 export function useDanmaku(opts: UseDanmakuOptions) {
   const stage = ref<HTMLElement | null>(null)
   /** 当前影片可用的弹幕源（全平台候选; 无候选时为空列表） */
@@ -105,7 +178,68 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   /** UI 状态机（三态显示的单一来源, 语义见 {@link DanmuState}） */
   const danmuState = ref<DanmuState>('idle')
 
+  /** 弹幕显示设置（localStorage 持久化, 实时应用到 manager/CSS） */
+  const settings = ref<DanmakuSettings>(readDanmakuSettings())
+
   let manager: CommentManagerLike | null = null
+  /** 白色模式改写器（filter.addModifier 累加, 保存引用以便移除/替换） */
+  let colorModifier: ((c: DanmakuInputComment) => DanmakuInputComment) | null = null
+
+  /** 把 settings 应用到 manager 与 stage（新弹幕生效项 + CSS 实时项）。
+   *  ensureManager 后与 updateSettings 时调用。 */
+  function applySettings(): void {
+    if (!manager || !stage.value) {
+      return
+    }
+    const s = settings.value
+    // CSS 实时项（整层/全部弹幕节点立即生效）
+    stage.value.style.opacity = String(s.opacity)
+    stage.value.style.height = `${Math.round(s.area * 100)}%`
+    if (s.fontSize > 0) {
+      stage.value.style.setProperty('--jc-danmu-size', `${s.fontSize}px`)
+    } else {
+      stage.value.style.removeProperty('--jc-danmu-size') // 自适应（随全屏/移动端）
+    }
+    stage.value.classList.toggle('jc-danmaku-stage--no-outline', !s.outline)
+    // 库配置项（新弹幕生效）
+    manager.options.scroll = { ...manager.options.scroll, scale: s.speed }
+    manager.options.limit = s.limit
+    manager.filter = manager.filter ?? {}
+    manager.filter.allowTypes = {
+      1: true, // 滚动
+      2: true, // 底部滚动（反向）
+      6: true, // 反向滚动
+      4: s.bottomMode,
+      5: s.topMode,
+      7: false,
+      8: false,
+      17: false
+    }
+    // 彩色/白色：modifier 改写每条 color（先移除旧的再添加, 防累加）
+    if (colorModifier) {
+      manager.filter.removeModifier?.(colorModifier)
+      colorModifier = null
+    }
+    if (!s.colored) {
+      colorModifier = (c) => {
+        c.color = 0xffffff
+        return c
+      }
+      manager.filter.addModifier?.(colorModifier)
+    }
+  }
+
+  /** 更新弹幕显示设置（局部 patch）；speed 变更触发重载（已渲染弹幕 dur 固定） */
+  function updateSettings(patch: Partial<DanmakuSettings>): void {
+    const next = { ...settings.value, ...patch }
+    const speedChanged = patch.speed !== undefined && patch.speed !== settings.value.speed
+    settings.value = next
+    writeDanmakuSettings(next)
+    applySettings()
+    if (speedChanged) {
+      void loadDanmaku()
+    }
+  }
 
   /** 重建 manager（stage 挂载后 / 切集重拉前） */
   function ensureManager(): void {
@@ -118,6 +252,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
     manager = new lib.CommentManager(stage.value)
     manager.init('css')
+    applySettings()
   }
 
   /** 清空当前弹幕并停掉动画（切集/关闭/卸载统一入口） */
@@ -127,6 +262,21 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       manager?.clear()
     } catch {
       /* 库内部状态异常时静默降级 */
+    }
+  }
+
+  /** 装载对齐：load 后强制 seek 到当前播放秒再 time。
+   *  ⚠️ 不能只调 time(t)：弹幕装载（异步拉取）期间 timeupdate 已经把
+   *  lastPosition 推进到当前播放时间，load 完成后 time(t) 的 |lastPosition-t|
+   *  会 < seekTrigger(2000ms) 而**不触发 seek** → 从 position=0 起把整集/已装载
+   *  段落里所有 stime<=t 的弹幕一次性补发（2026-10-26 线上截图"一窝蜂"）。
+   *  seek 先把 position 定位到 stime>=t-1，time 只补发边界那条，之后随播放推进逐条出现。 */
+  function alignManager(t: number): void {
+    try {
+      manager?.seek(t)
+      manager?.time(t)
+    } catch {
+      /* 库状态异常时静默降级 */
     }
   }
 
@@ -180,6 +330,9 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       const input = toDanmuInputs(resp.data)
       if (input.length > 0) {
         manager?.load(input)
+        // 段 load 会整体替换 timeline（position 失效）→ 每段装载后立即对齐，
+        // 否则下段 load 后 position 指向新 timeline 的错误位置（漏发或补发）。
+        alignManager(playerSeconds())
       }
       loadedSegs.add(seg.segmentId)
     }
@@ -280,8 +433,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return
     }
     manager?.load(input)
-    // 装载后对齐当前播放进度（若已暂停则保持静止）
-    manager?.time(playerSeconds())
+    // 装载后强制 seek 对齐（见 alignManager 注释：防 timeupdate 已推进 lastPosition 导致补发一窝蜂）
+    alignManager(playerSeconds())
     if (!opts.playing.value) {
       manager?.stop()
     }
@@ -324,7 +477,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return
     }
     if (loadedSegs.size > 0) {
-      manager?.time(playerSeconds())
+      // 对齐播放进度（loadTencentFrom 内已逐段对齐，这里兜底一次）
+      alignManager(playerSeconds())
       if (!opts.playing.value) {
         manager?.stop()
       }
@@ -397,5 +551,15 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     manager = null
   })
 
-  return { stage, providers, provider, setProvider, hasDanmaku, danmuState, reload: () => void loadDanmaku() }
+  return {
+    stage,
+    providers,
+    provider,
+    setProvider,
+    hasDanmaku,
+    danmuState,
+    settings,
+    updateSettings,
+    reload: () => void loadDanmaku()
+  }
 }
