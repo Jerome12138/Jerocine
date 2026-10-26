@@ -38,20 +38,33 @@ describe('toDanmuInput(s)：毫秒 → 秒映射 + 过滤', () => {
   })
 
   it('批量映射保持顺序；空列表 → 空数组', () => {
-    expect(toDanmuInputs([cmt(1000), cmt(3000)])).toHaveLength(2)
-    expect(toDanmuInputs([cmt(1000)])[0]!.time).toBe(1)
+    expect(toDanmuInputs([cmt(1250), cmt(3750)])).toHaveLength(2)
+    expect(toDanmuInputs([cmt(1250)])[0]!.time).toBe(1.25) // 非整秒不打散
     expect(toDanmuInputs([])).toEqual([])
   })
 
-  it('同秒弹幕聚堆打散：相同 time 按序错开小步长，避免齐发列成整齐一列', () => {
+  it('整秒弹幕随机打散：±0.5s 确定性偏移、重新升序、消除齐发列队', () => {
     const items = toDanmuInputs([cmt(10000), cmt(10000), cmt(10000), cmt(10000)])
     expect(items).toHaveLength(4)
-    expect(items[0]!.time).toBe(10)
-    expect(items[1]!.time).toBeCloseTo(10 + 0.3, 3)
-    expect(items[2]!.time).toBeCloseTo(10 + 0.6, 3)
-    expect(items[3]!.time).toBeCloseTo(10 + 0.9, 3)
+    for (const it of items) {
+      expect(it.time).toBeGreaterThanOrEqual(10 - 0.5)
+      expect(it.time).toBeLessThanOrEqual(10 + 0.5)
+    }
+    // 确实散开了(不再全部等于 10)
+    expect(new Set(items.map((i) => i.time)).size).toBeGreaterThan(1)
+    // 重新按 time 升序(引擎 load 要求有序)
+    for (let i = 1; i < items.length; i += 1) {
+      expect(items[i]!.time).toBeGreaterThanOrEqual(items[i - 1]!.time)
+    }
+    // 确定性: 两次映射结果一致(重看/重拉不漂移)
+    const again = toDanmuInputs([cmt(10000), cmt(10000), cmt(10000), cmt(10000)])
+    expect(again.map((i) => i.time)).toEqual(items.map((i) => i.time))
     const ids = new Set(items.map((i) => i.id))
     expect(ids.size).toBe(4) // id 唯一
+  })
+
+  it('非整秒弹幕不打散（已有毫秒级分散）', () => {
+    expect(toDanmuInputs([cmt(10500)])[0]!.time).toBe(10.5)
   })
 
   it('模式归一: 源 1/2/6（滚动类）-> 1（danmaku-lite 无逆向滚动，共用同一轨道分配器）', () => {

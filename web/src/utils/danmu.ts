@@ -65,32 +65,37 @@ export function toDanmuInput(
   }
 }
 
-/** 同秒弹幕聚堆打散步长（秒）与上限：time 相同的弹幕按出现次序错开小步长，
- *  避免同一时刻大量弹幕齐发、列成整齐一列（item 6）。超出上限的极端同秒量交还引擎丢弃。 */
-export const DANMU_TIME_STAGGER = 0.3
-export const DANMU_TIME_STAGGER_CAP = 16
+/** 整秒随机打散幅度（秒）：用户指定前后 0.5s。 */
+export const DANMU_SCATTER_RANGE = 0.5
+
+/** FNV-1a 32bit → [0,1) 确定性伪随机；同一输入恒得同一偏移（重看/重拉不漂移）。 */
+function hashUnit(s: string): number {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return ((h >>> 0) % 1000) / 1000
+}
 
 /**
- * 同秒弹幕聚堆打散：原地修改 items 的 time，使相同 time 的条目按次序错开 DANMU_TIME_STAGGER。
- *  不改动 mode/color/id；items 须已按 time 升序（调用方保证）。
+ * 整秒聚堆随机打散：弹幕源时间基本是整秒精度，同秒（及邻近秒）弹幕齐发会列成整齐一列
+ * （固定步长错开仍显规律、不够自然）。对 time 为整秒的条目叠加确定性伪随机偏移
+ * ±DANMU_SCATTER_RANGE；非整秒条目已有毫秒级分散，不动。偏移种子取条目 id
+ * （id 含 原始time:text:同秒序号，天然区分复读且跨次映射稳定）。处理后按 time 重新升序。
  */
-export function staggerTimes(items: DanmakuItem[]): void {
-  let lastTime = -1
-  let runIdx = 0
+export function scatterTimes(items: DanmakuItem[]): void {
   for (const it of items) {
-    if (it.time === lastTime) runIdx += 1
-    else {
-      lastTime = it.time
-      runIdx = 0
-    }
-    if (runIdx > 0 && runIdx <= DANMU_TIME_STAGGER_CAP) {
-      it.time = Number((it.time + runIdx * DANMU_TIME_STAGGER).toFixed(3))
-    }
+    const rounded = Math.round(it.time)
+    if (Math.abs(it.time - rounded) > 1e-6) continue
+    const jitter = (hashUnit(String(it.id)) - 0.5) * 2 * DANMU_SCATTER_RANGE
+    it.time = Math.max(0, Number((rounded + jitter).toFixed(3)))
   }
+  items.sort((a, b) => a.time - b.time)
 }
 
 /** 批量映射（保持顺序；filter 命中的条目跳过；空列表返回空数组）。
- *  同秒弹幕会按序错开小步长（staggerTimes），缓解齐发列成整齐一列。 */
+ *  整秒弹幕随机打散（scatterTimes），消除齐发列队。 */
 export function toDanmuInputs(
   list: readonly DanmuComment[],
   filter?: DanmuMapFilter,
@@ -102,7 +107,7 @@ export function toDanmuInputs(
     const item = toDanmuInput(c, out.length, filter)
     if (item) out.push(item)
   }
-  staggerTimes(out)
+  scatterTimes(out)
   return out
 }
 

@@ -13,7 +13,7 @@ import {
   resolveDanmuProvider,
   toDanmuInput,
   toDanmuInputs,
-  staggerTimes,
+  scatterTimes,
   type DanmuMapFilter
 } from '@/utils/danmu'
 
@@ -86,6 +86,13 @@ export const DANMAKU_AREA_STEPS = [0.25, 0.5, 0.75, 1] as const
 export const DANMAKU_SPEED_STEPS = [1, 1.5, 2, 2.5, 3] as const
 /** 旧速度档位（仅用于 readDanmakuSettings 迁移: 旧值 ×2 映射到新档） */
 export const DANMAKU_OLD_SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5] as const
+/** 速度档→引擎倍率系数：2026-10-26 用户要求所有档位整体再提一档（每档都快约 40%）,
+ *  映射从 1/speed 改为 1.4/speed（默认档 1 → 引擎 1.4 倍, 约 5.7s 走完屏）。 */
+export const DANMAKU_SPEED_FACTOR = 1.4
+/** 档位值 → danmaku-lite 滚动速度倍率（档位数值越大越慢, 与引擎方向相反）。 */
+export function danmakuSpeedOf(speed: number): number {
+  return DANMAKU_SPEED_FACTOR / speed
+}
 /** 同屏上限档位 */
 export const DANMAKU_LIMIT_STEPS = [15, 30, 50, 0] as const
 
@@ -243,7 +250,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     const s = settings.value
     engine.setArea(s.area)
     engine.setOpacity(s.opacity)
-    engine.setSpeed(1 / s.speed) // 档位越大越慢 → 取倒数
+    engine.setSpeed(danmakuSpeedOf(s.speed))
     engine.setMaxVisible(s.limit)
     lastFontSize = resolveFontSize()
     engine.setFontSize(lastFontSize)
@@ -285,7 +292,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         area: settings.value.area,
         opacity: settings.value.opacity,
         fontSize: (lastFontSize = resolveFontSize()),
-        speed: 1 / settings.value.speed,
+        speed: danmakuSpeedOf(settings.value.speed),
         maxVisible: settings.value.limit,
         overflow: 'drop',
         strokeWidth: settings.value.outline ? 1.25 : 0,
@@ -437,7 +444,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         }
       }
     }
-  staggerTimes(items) // 同秒聚堆打散（item 6）
+  scatterTimes(items) // 整秒弹幕随机打散（±0.5s），消除齐发列队
   return items
 }
 
@@ -584,6 +591,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   }
   /** 已成功装载内容的集 key；null = 尚未装载/需重装 */
   let loadedKey: string | null = null
+  /** B站整集原始弹幕（最近一次装载的）；顶部/底部/彩色切换时内存重映射, 零请求零重载 */
+  let lastBiliComments: DanmuComment[] | null = null
+  /** 当前装载内容的源类型（决定过滤切换走内存重映射还是流式重装） */
+  let activeProviderKind: 'bilibili' | 'tencent' | null = null
 
   async function loadDanmaku(force = false): Promise<void> {
     const key = currentLoadKey()
@@ -663,6 +674,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return
     }
     engine?.load(items)
+    lastBiliComments = commentsData
+    activeProviderKind = 'bilibili'
     loadedKey = currentLoadKey()
     hasDanmaku.value = true
     danmuState.value = 'ready'
@@ -685,6 +698,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (token !== loadToken) return
     tencentCtx = { episodeId: entry.episodeId, segments: entry.segments }
     // 引擎经 dataSource 按进度自驱预拉；此处只需确认有段可拉即可标 ready。
+    lastBiliComments = null
+    activeProviderKind = 'tencent'
     loadedKey = currentLoadKey()
     hasDanmaku.value = true
     danmuState.value = 'ready'
@@ -714,8 +729,23 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       patch.topMode !== undefined ||
       patch.colored !== undefined
     if (affectsContent) {
-      loadedKey = null // 内容映射参数变了, 已装载内容失效, 重开需重装
-      void loadDanmaku(true)
+      // 顶部/底部/彩色切换: B站整集原始数据在内存, 直接重映射+load, 零请求、不清状态机(即时生效);
+      // 腾讯为流式, 走强制重装(segCache 命中, 快)。
+      if (
+        engine &&
+        activeProviderKind === 'bilibili' &&
+        lastBiliComments &&
+        loadedKey !== null &&
+        loadedKey === currentLoadKey()
+      ) {
+        const items = toDanmuInputs(lastBiliComments, currentMapFilter())
+        engine.load(items)
+        applyEngineSettings() // 混合 patch(如同时改描边)也要应用运行时设置
+        console.log('[danmaku] in-memory remap (bottom/top/colored):', items.length, 'items')
+      } else {
+        loadedKey = null // 内容映射参数变了, 已装载内容失效, 重开需重装
+        void loadDanmaku(true)
+      }
     } else {
       applyEngineSettings()
     }
@@ -773,6 +803,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     segReq.clear()
     prefetchedKeys.clear()
     loadedKey = null
+    lastBiliComments = null
+    activeProviderKind = null
   })
 
   return {

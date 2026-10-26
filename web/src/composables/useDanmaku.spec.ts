@@ -72,8 +72,9 @@ const flush = async (): Promise<void> => {
 const biliSrc = { providers: [{ provider: 'bilibili', resourceId: '44847' }] }
 const tencentSrc = { providers: [{ provider: 'tencent', resourceId: 'mzc00200miw8m3y' }] }
 const comments = [
-  { text: '第一条', time: 1000, color: 16777215, mode: 1 },
-  { text: '第二条', time: 2000, color: 16777215, mode: 1 }
+  // 非整秒时间: 整秒会被 scatterTimes 随机打散(±0.5s), 精确断言需避开
+  { text: '第一条', time: 1250, color: 16777215, mode: 1 },
+  { text: '第二条', time: 2750, color: 16777215, mode: 1 }
 ]
 const segments = [
   { provider: 'tencent', startTime: 0, segmentId: 'seg-0' },
@@ -214,7 +215,7 @@ describe('useDanmaku', () => {
     expect(fakeEngine.load).toHaveBeenCalledTimes(1)
     const items = fakeEngine.load.mock.calls[0]![0] as Array<{ id: unknown; time: number; mode: number; color: number }>
     expect(items).toHaveLength(2)
-    expect(items[0]!.time).toBe(1) // 毫秒 1000 → 秒
+    expect(items[0]!.time).toBe(1.25) // 毫秒 1250 → 秒（非整秒, 不被打散）
     expect(items[0]!.mode).toBe(1)
     expect(items[0]!.color).toBe(16777215)
     expect(typeof items[0]!.id).toBe('string') // 稳定唯一 id
@@ -258,6 +259,23 @@ describe('useDanmaku', () => {
     expect(fakeEngine.clear.mock.calls.length).toBe(clearsAfterLoad) // 未清屏
     expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 未重载
     expect(api.danmuState.value).toBe<DanmuState>('ready')
+  })
+
+  it('回归·底部/顶部/彩色切换: B站内存重映射, 零请求零重载即时生效', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api } = mountHost(3)
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
+    const loadsBefore = fakeEngine.load.mock.calls.length
+    const clearsBefore = fakeEngine.clear.mock.calls.length
+    api.updateSettings({ bottomMode: false })
+    await flush()
+    expect(fakeEngine.load.mock.calls.length).toBe(loadsBefore + 1) // 仅内存重映射一次
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1) // 零网络请求
+    expect(fakeEngine.clear.mock.calls.length).toBe(clearsBefore) // 不走 loadDanmaku(无 clear)
+    expect(api.danmuState.value).toBe<DanmuState>('ready') // 状态机未被重置
   })
 
   it('B站路径: comments 空 ⇒ empty（有源无内容）', async () => {  
@@ -390,7 +408,7 @@ describe('useDanmaku', () => {
     // 同屏上限 30、描边开(1.25 + useTextShadow)。
     expect(fakeEngine.setOpacity).toHaveBeenCalledWith(0.8)
     expect(fakeEngine.setArea).toHaveBeenCalledWith(0.5)
-    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(1) // 1/settings.speed（默认 1 = danmaku 倍率 1.0）
+    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(1.4) // danmakuSpeedOf(1) = 1.4/1（系数整体提一档）
     expect(fakeEngine.setMaxVisible).toHaveBeenCalledWith(30)
     expect(fakeEngine.setStrokeWidth).toHaveBeenCalledWith(1.25)
     expect(fakeEngine.setUseTextShadow).toHaveBeenCalledWith(true)
@@ -403,13 +421,13 @@ describe('useDanmaku', () => {
     const { api } = mountHost(3)
     await flush()
     expect(fakeEngine.load).toHaveBeenCalledTimes(1)
-    api.updateSettings({ speed: 3 }) // 运行时 setSpeed(1/3), 不触发 loadDanmaku 重载
+    api.updateSettings({ speed: 3 }) // 运行时 setSpeed(1.4/3), 不触发 loadDanmaku 重载
     await flush()
-    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(1 / 3)
+    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(1.4 / 3)
     expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 未重载
   })
 
-  it('弹幕设置: 底部/顶部/彩色变更 ⇒ 触发重载(重新映射装载)', async () => {
+  it('弹幕设置: 底部/顶部/彩色变更 ⇒ B站内存重映射(零请求, 不重置状态机)', async () => {
     m.getDanmuSource.mockResolvedValue(biliSrc)
     m.getDanmuBilibili.mockResolvedValue({ comments })
     const { api } = mountHost(3)
@@ -417,10 +435,10 @@ describe('useDanmaku', () => {
     expect(fakeEngine.load).toHaveBeenCalledTimes(1)
     api.updateSettings({ bottomMode: false, colored: false, outline: false })
     await flush()
-    // 命中缓存零 HTTP；engine.load 再次调用（重载重新装载过滤后的弹幕）
+    // 零 HTTP；engine.load 再次调用（内存重映射装载过滤后的弹幕）
     expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
     expect(fakeEngine.load).toHaveBeenCalledTimes(2)
-    expect(fakeEngine.setUseTextShadow).toHaveBeenCalledWith(false) // outline 关
+    expect(fakeEngine.setUseTextShadow).toHaveBeenCalledWith(false) // outline 关(混合 patch 仍应用运行时设置)
     // 持久化
     expect(localStorage.getItem('jc-danmaku-settings')).toContain('"bottomMode":false')
   })
