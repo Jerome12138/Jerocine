@@ -2009,9 +2009,9 @@ watch(playerReady, (v) => {
             <Teleport :to="playerOverlayHost || 'body'" :disabled="!playerOverlayHost">
               <!-- 弹幕层(P0): 独立 DOM 层叠在 video.js 容器内, 全屏同样可见;
                    不拦截任何指针事件; z-index 置于控制条之下、视频画面之上。
-                   **常驻不 v-if**: useDanmaku 的 manager 创建依赖 stage 挂载, 而 stage 又曾
+                   **常驻不 v-if**: useDanmaku 的引擎创建依赖 stage 挂载, 而 stage 又曾
                    v-if=providers 非空 ⇒ 鸡生蛋死锁(providers 永远为空, 按钮全不显示,
-                   2026-10-25 线上实测)。空层无视觉影响(库未装载时无 .cmt 节点), 可见性
+                   2026-10-25 线上实测)。空层无视觉影响(引擎未装载时无弹幕节点), 可见性
                    由 --off(visibility) 按开关/就绪态控制, 指针事件本就 none。 -->
               <div
                 ref="danmakuStage"
@@ -2401,60 +2401,19 @@ watch(playerReady, (v) => {
   outline: none;
 }
 
-/* 弹幕层（P0）: 覆盖 video 画面、不拦截指针事件; z-index 1（video 之上、控制条/角标之下） */
+/* 弹幕层（P0）: 覆盖 video 画面、不拦截指针事件; z-index 1（video 之上、控制条/角标之下）。
+ * 渲染由 danmaku-lite（DOM 引擎）负责：引擎自身按 fontSize/fontFamily/strokeWidth/useTextShadow
+ * 写行内样式并驱动 transform 动画，无需 .cmt 类规则，字号自适应由引擎 resolveFontSize 推算。
+ * 容器仅负责定位与裁剪。 */
 .jc-danmaku-stage {
   position: absolute;
   inset: 0;
   z-index: 1;
   overflow: hidden;
   pointer-events: none;
-  /* 默认字号（自适应档 fontSize=0 时生效）:
-     桌面非全屏偏小（用户反馈"非全屏太大、全屏合适", 2026-10-26）;
-     全屏更大; 移动端(窄屏)更小。用户手动选档后由行内 --jc-danmu-size 覆盖。 */
-  --jc-danmu-size: 19px;
 }
 .jc-danmaku-stage--off {
   visibility: hidden;
-}
-/* 弹幕设置: 关闭描边时去掉 text-shadow（库节点行内样式不含 shadow, 见 .cmt 规则） */
-.jc-danmaku-stage--no-outline :deep(.cmt),
-.jc-danmaku-stage--no-outline :deep(.cmt) > div {
-  text-shadow: none !important;
-}
-/* 库动态创建的弹幕节点（div.cmt）, 基础样式; 动画由库内联 transform/transition 驱动 */
-.jc-danmaku-stage :deep(.cmt) {
-  position: absolute;
-  top: 0;
-  left: 0;
-  white-space: nowrap;
-  will-change: transform;
-  user-select: none;
-  -webkit-user-select: none;
-  text-shadow:
-    0 1px 2px rgb(0 0 0 / 0.85),
-    0 0 1px rgb(0 0 0 / 0.6);
-  font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  line-height: 1.35;
-  /* 覆盖库行内默认 25px 字号: 库的 CssScrollComment 渲染时写 style.fontSize,
-     用 !important 才能统一走 --jc-danmu-size（自适应/用户档位） */
-  font-size: var(--jc-danmu-size) !important;
-}
-.jc-danmaku-stage :deep(.cmt) > div {
-  /* 库的 CssAnchorComment 等会包内层 div, 避免内层再带阴影/描边 */
-  text-shadow: inherit;
-}
-/* 全屏（video.js 全屏元素 = .video-js 容器, 弹幕层 Teleport 在其内）: 字号调大 */
-.vjs-fullscreen .jc-danmaku-stage {
-  --jc-danmu-size: 28px;
-}
-/* 移动端/窄屏: 字号整体收小（含全屏, 屏幕密度高时 28px 仍偏大） */
-@media (max-width: 767px) {
-  .jc-danmaku-stage {
-    --jc-danmu-size: 16px;
-  }
-  .vjs-fullscreen .jc-danmaku-stage {
-    --jc-danmu-size: 22px;
-  }
 }
 
 /* 桌面端最大宽度（>= 1280 居中） */

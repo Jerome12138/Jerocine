@@ -5,40 +5,77 @@
  * 源选择回退 / 毫秒→秒映射。useDanmaku 只做装配（播放器事件、请求、状态），
  * 这里只做决策 —— 表驱动用例见 danmu.spec.ts。
  *
- * 契约要点（方案 §8.2）：
- * - 后端/壳返回毫秒（time），CommentCoreLibrary 入参是秒（stime），换算唯一入口在下方
+ * 契约要点：
+ * - 后端/壳返回毫秒（time），danmaku-lite 入参 time 是秒，换算唯一入口在 toDanmuInput
  * - segments 入参须按 startTime 升序（danmu-service 壳保证）
  */
 import type { DanmuComment, DanmuProvider, DanmuTencentSegment } from '@/types/film'
+import type { DanmakuItem } from 'danmaku-lite'
 
 /**
- * CommentCoreLibrary 装载入参（stime 秒）。
- * mode 归一（2026-10-26, 流式防重叠）:
- *   CCL 的滚动/反向滚动(mode 1/2/6)各自独立 CommentSpaceAllocator, 轨道都从顶部/底部起始,
- *   互不知情 → mode 6(反向滚动)/2(底部反向)与 mode 1(普通滚动)同屏时**交叉重叠**。
- *   统一归一为 mode 1: 所有滚动弹幕进同一 allocator, 走内置 pathCheck 防重叠轨道分配。
- *   固定弹幕 mode 4/5 保留（AnchorCommentSpaceAllocator 内部已按行堆叠防重叠）。
+ * 弹幕映射过滤项（避免与 DanmakuSettings 形成循环依赖，用本地结构而非 import 后者）。
  */
-export interface DanmuLibraryInput {
-  stime: number
-  mode: number
-  color: number
-  text: string
+export interface DanmuMapFilter {
+  /** 是否保留底部弹幕（源 mode 4 映射后 = 6） */
+  bottomMode?: boolean
+  /** 是否保留顶部弹幕（源 mode 5 映射后 = 5） */
+  topMode?: boolean
+  /** false = 忽略原色，全部改写为白色 */
+  colored?: boolean
 }
 
+/**
+ * 模式归一（danmaku-lite 约定：1 滚动 / 5 顶部 / 6 底部）：
+ *   - 源 1/2/6（普通滚动 / 反向滚动 / 底部反向滚动）→ 1
+ *     （danmaku-lite 无逆向滚动，统一归并进同一滚动轨道分配器，避免与 1 同屏交叉重叠）
+ *   - 源 4（底部固定）→ 6
+ *   - 源 5（顶部固定）→ 5
+ *   - 其余（3/7/8/17 等后端可能返回的非法值）→ 1（兜底，避免非法值直达引擎）
+ */
 function normalizeDanmuMode(mode: number): number {
-  if (mode === 2 || mode === 6) return 1
-  return mode
+  if (mode === 4) return 6
+  if (mode === 5) return 5
+  return 1
 }
 
-/** 单条弹幕映射：毫秒 → 秒（库约定）。 */
-export function toDanmuInput(c: DanmuComment): DanmuLibraryInput {
-  return { stime: c.time / 1000, mode: normalizeDanmuMode(c.mode), color: c.color, text: c.text }
+/**
+ * 单条弹幕映射：毫秒 → 秒（danmaku-lite 约定 time 为秒），产出 DanmakuItem。
+ * 源 DanmuComment 无 id，用 `time:text:index` 生成稳定唯一 id（同列表内唯一、同数据稳定，供 load 去重）。
+ * filter 命中（关闭底部/顶部/彩色）返回 null，调用方负责跳过。
+ */
+export function toDanmuInput(
+  c: DanmuComment,
+  index = 0,
+  filter?: DanmuMapFilter,
+): DanmakuItem | null {
+  const mapped = normalizeDanmuMode(c.mode)
+  if (filter) {
+    if (mapped === 6 && filter.bottomMode === false) return null
+    if (mapped === 5 && filter.topMode === false) return null
+  }
+  const color = filter && filter.colored === false ? 0xffffff : c.color
+  return {
+    id: `${c.time}:${c.text}:${index}`,
+    text: c.text,
+    time: c.time / 1000,
+    // DanmakuMode 是 const enum（1/5/6）；esbuild 不支持其运行时，
+    // 故不 import 该枚举，仅以 `as DanmakuItem['mode']` 收敛数值类型（类型导入无运行时副作用）。
+    mode: mapped as DanmakuItem['mode'],
+    color
+  }
 }
 
-/** 批量映射（保持顺序；空列表返回空数组，调用方据此跳过 manager.load）。 */
-export function toDanmuInputs(list: readonly DanmuComment[]): DanmuLibraryInput[] {
-  return list.map(toDanmuInput)
+/** 批量映射（保持顺序；filter 命中的条目跳过；空列表返回空数组）。 */
+export function toDanmuInputs(
+  list: readonly DanmuComment[],
+  filter?: DanmuMapFilter,
+): DanmakuItem[] {
+  const out: DanmakuItem[] = []
+  for (let i = 0; i < list.length; i += 1) {
+    const item = toDanmuInput(list[i]!, i, filter)
+    if (item) out.push(item)
+  }
+  return out
 }
 
 /**

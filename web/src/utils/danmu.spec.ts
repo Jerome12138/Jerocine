@@ -19,32 +19,66 @@ function cmt(time: number, extra: Partial<DanmuComment> = {}): DanmuComment {
   return { text: '弹幕', time, color: 0xffffff, mode: 1, ...extra }
 }
 
-describe('toDanmuInput(s)：毫秒 → 秒映射', () => {
-  it('浮点毫秒原样除以 1000（不做二次取整，库内部处理）', () => {
-    expect(toDanmuInput(cmt(49953))).toEqual({ stime: 49.953, mode: 1, color: 0xffffff, text: '弹幕' })
+describe('toDanmuInput(s)：毫秒 → 秒映射 + 过滤', () => {
+  it('浮点毫秒原样除以 1000（不做二次取整，库内部处理）；形状为 DanmakuItem', () => {
+    expect(toDanmuInput(cmt(49953))).toEqual({
+      id: '49953:弹幕:0',
+      text: '弹幕',
+      time: 49.953,
+      mode: 1,
+      color: 0xffffff
+    })
     expect(toDanmuInput(cmt(2000, { mode: 4, color: 0xff0000, text: '底部' }))).toEqual({
-      stime: 2,
-      mode: 4,
-      color: 0xff0000,
+      id: '2000:底部:0',
       text: '底部',
+      time: 2,
+      mode: 6,
+      color: 0xff0000
     })
   })
 
   it('批量映射保持顺序；空列表 → 空数组', () => {
     expect(toDanmuInputs([cmt(1000), cmt(3000)])).toHaveLength(2)
-    expect(toDanmuInputs([cmt(1000)])[0]!.stime).toBe(1)
+    expect(toDanmuInputs([cmt(1000)])[0]!.time).toBe(1)
     expect(toDanmuInputs([])).toEqual([])
   })
 
-  it('流式防重叠: mode 2/6（反向滚动）归一为 1，与普通滚动共用同一轨道分配器', () => {
+  it('模式归一: 源 1/2/6（滚动类）-> 1（danmaku-lite 无逆向滚动，共用同一轨道分配器）', () => {
     expect(toDanmuInput(cmt(1000, { mode: 2 })).mode).toBe(1)
     expect(toDanmuInput(cmt(1000, { mode: 6 })).mode).toBe(1)
-    expect(toDanmuInputs([cmt(1000, { mode: 6 }), cmt(2000, { mode: 2 }), cmt(3000, { mode: 1 })]).map((i) => i.mode)).toEqual([1, 1, 1])
+    expect(
+      toDanmuInputs([cmt(1000, { mode: 6 }), cmt(2000, { mode: 2 }), cmt(3000, { mode: 1 })]).map((i) => i.mode)
+    ).toEqual([1, 1, 1])
   })
 
-  it('流式防重叠: 固定弹幕 mode 4/5 保留（行堆叠由 Anchor 分配器负责）', () => {
-    expect(toDanmuInput(cmt(1000, { mode: 4 })).mode).toBe(4)
+  it('模式归一: 源 4（底部固定）-> 6，源 5（顶部固定）-> 5', () => {
+    expect(toDanmuInput(cmt(1000, { mode: 4 })).mode).toBe(6)
     expect(toDanmuInput(cmt(1000, { mode: 5 })).mode).toBe(5)
+  })
+
+  it('模式兜底: 其余非法 mode（3/7/8/17 等）-> 1（避免非法值直达引擎）', () => {
+    expect(toDanmuInput(cmt(1000, { mode: 3 })).mode).toBe(1)
+    expect(toDanmuInput(cmt(1000, { mode: 7 })).mode).toBe(1)
+    expect(toDanmuInput(cmt(1000, { mode: 8 })).mode).toBe(1)
+    expect(toDanmuInput(cmt(1000, { mode: 17 })).mode).toBe(1)
+  })
+
+  it('过滤: 关闭底部弹幕（mode 6）返回 null', () => {
+    expect(toDanmuInput(cmt(1000, { mode: 4 }), 0, { bottomMode: false })).toBeNull()
+    // 顶部 / 滚动不受 bottomMode 影响
+    expect(toDanmuInput(cmt(1000, { mode: 5 }), 0, { bottomMode: false })).not.toBeNull()
+    expect(toDanmuInput(cmt(1000, { mode: 1 }), 0, { bottomMode: false })).not.toBeNull()
+  })
+
+  it('过滤: 关闭顶部弹幕（mode 5）返回 null', () => {
+    expect(toDanmuInput(cmt(1000, { mode: 5 }), 0, { topMode: false })).toBeNull()
+    expect(toDanmuInput(cmt(1000, { mode: 1 }), 0, { topMode: false })).not.toBeNull()
+  })
+
+  it('过滤: 关闭彩色 -> 颜色改写为 0xffffff', () => {
+    const it = toDanmuInput(cmt(1000, { color: 0xff0000 }), 0, { colored: false })
+    expect(it).not.toBeNull()
+    expect(it!.color).toBe(0xffffff)
   })
 })
 

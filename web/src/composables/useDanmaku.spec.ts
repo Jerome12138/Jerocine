@@ -12,9 +12,13 @@ import {
  * useDanmaku composable 测试 —— 覆盖状态机六态 + 2026-10-25 线上死锁回归。
  *
  * 死锁背景: 模板弹幕层曾 v-if=providers 非空, 而 useDanmaku 又要求 stage 挂载后才建
- * manager ⇒ providers 永远为空、按钮全不显示。修复=模板 stage 常驻(见 PlayView) +
- * composable 先落 providers 再建 manager。回归用例模拟"stage 常驻"的 host, 断言
+ * 引擎 ⇒ providers 永远为空、按钮全不显示。修复=模板 stage 常驻(见 PlayView) +
+ * composable 先落 providers 再建引擎。回归用例模拟"stage 常驻"的 host, 断言
  * 有源时 providers 必非空、链路必走到 ready。
+ *
+ * 渲染层已迁移到 danmaku-lite: 引擎经 adapter 自驱进度、dataSource 自驱腾讯分段,
+ * 故无 manual time/start/stop/seek 联动, 也无 --jc-danmu-size / window.CommentManager。
+ * 这里用假引擎（vi.mock('danmaku-lite')）记录 load/clear/setX 调用做断言。
  */
 
 vi.mock('@/api', () => ({
@@ -37,46 +41,26 @@ const m = filmApi as unknown as {
   getDanmuTencentComments: ReturnType<typeof vi.fn>
 }
 
-/** 假 CommentCoreLibrary: 记录装载动作, 供 ready 路径断言 */
-class FakeManager {
-  init = vi.fn()
-  load = vi.fn()
-  time = vi.fn()
-  start = vi.fn()
-  stop = vi.fn()
-  clear = vi.fn()
-  seek = vi.fn()
-  // applySettings 会读写 options/filter（真实库同款结构）
-  options: { global?: { opacity?: number; scale?: number }; scroll?: { opacity?: number; scale?: number }; limit?: number } = {
-    scroll: {},
-    limit: 0
-  }
-  filter: {
-    allowTypes: Record<string, boolean>
-    addModifier: ReturnType<typeof vi.fn>
-    removeModifier: ReturnType<typeof vi.fn>
-  } = {
-    allowTypes: {},
-    addModifier: vi.fn(),
-    removeModifier: vi.fn()
-  }
+/** 假 danmaku-lite 引擎：记录装载/设置动作，供断言。引擎自驱，这里只 record。 */
+const fakeEngine = {
+  load: vi.fn(),
+  clear: vi.fn(),
+  destroy: vi.fn(),
+  resize: vi.fn(),
+  setArea: vi.fn(),
+  setOpacity: vi.fn(),
+  setSpeed: vi.fn(),
+  setMaxVisible: vi.fn(),
+  setFontSize: vi.fn(),
+  setStrokeWidth: vi.fn(),
+  setUseTextShadow: vi.fn(),
+  setEnabled: vi.fn(),
+  isDestroyed: false
 }
-let managerInstances: FakeManager[] = []
 
-function installLib(): void {
-  managerInstances = []
-  // 与官方 dist(0.11.0)一致: 顶层 var CommentManager 挂 window(无聚合对象)
-  ;(window as unknown as { CommentManager?: unknown }).CommentManager = class extends FakeManager {
-    constructor() {
-      super()
-      managerInstances.push(this)
-    }
-  }
-}
-function uninstallLib(): void {
-  delete (window as unknown as { CommentManager?: unknown }).CommentManager
-  managerInstances = []
-}
+vi.mock('danmaku-lite', () => ({
+  createEngine: vi.fn(() => fakeEngine)
+}))
 
 const flush = async (): Promise<void> => {
   // loadDanmaku 内部串行 await 多个接口; 一个宏任务 tick 足以排空全部微任务
@@ -111,8 +95,6 @@ function mockTencentChain(opts: { matched?: boolean; commentsOk?: boolean } = {}
 function mountHost(mid: number | undefined, enabled = true, attachStage = true) {
   const midRef = ref(mid)
   const enabledRef = ref(enabled)
-  const events: string[] = []
-  const triggers: Record<string, () => void> = {}
   const Host = defineComponent({
     setup() {
       const api = useDanmaku({
@@ -121,30 +103,37 @@ function mountHost(mid: number | undefined, enabled = true, attachStage = true) 
         player: shallowRef(null),
         playing: ref(true),
         enabled: enabledRef,
-        onPlayerEvent: (event, fn) => {
-          events.push(event)
-          triggers[event] = fn // 供用例手动触发（seeked 去重断言用）
-          return () => undefined
-        }
+        // 渲染自驱，onPlayerEvent 仅保留兼容签名，不再订阅
+        onPlayerEvent: () => () => undefined
       })
       return { api }
     },
     render() {
       // 与 PlayView 模板同款: stage 常驻(修复后姿势), ref 直接绑 api.stage。
-      // attachStage=false 模拟"模板回退到 v-if=providers 非空"的旧姿势: stage 不在 DOM。
+      // attachStage=false 模拟回退到 v-if=providers 非空 的旧姿势: stage 不在 DOM。
       return attachStage ? h('div', { ref: this.api.stage }) : h('div')
     }
   })
   const w = mount(Host)
-  type Api = ReturnType<typeof useDanmaku>
-  const api = (w.vm as unknown as { api: Api }).api
-  return { w, api, midRef, enabledRef, events, triggers }
+  const api = (w.vm as unknown as { api: ReturnType<typeof useDanmaku> }).api
+  return { w, api, midRef, enabledRef }
 }
 
 describe('useDanmaku', () => {
   beforeEach(() => {
-    installLib()
     localStorage.clear()
+    // jsdom 无 ResizeObserver，提供桩避免 ensureEngine 抛错（被 try/catch 捕获会误判 failed）
+    ;(globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver = class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    for (const fn of Object.values(fakeEngine)) {
+      if (typeof fn === 'function' && 'mockClear' in (fn as unknown as Record<string, unknown>)) {
+        ;(fn as unknown as { mockClear: () => void }).mockClear()
+      }
+    }
+    fakeEngine.isDestroyed = false
     m.getDanmuSource.mockReset()
     m.getDanmuBilibili.mockReset()
     m.getDanmuTencentEpisodes.mockReset()
@@ -152,7 +141,7 @@ describe('useDanmaku', () => {
     m.getDanmuTencentComments.mockReset()
   })
   afterEach(() => {
-    uninstallLib()
+    delete (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver
   })
 
   it('回归·死锁: stage 常驻 + 有源 ⇒ providers 非空且走到 ready（旧实现此处 providers 恒空）', async () => {
@@ -164,13 +153,12 @@ describe('useDanmaku', () => {
     expect(api.providers.value[0].provider).toBe('tencent')
     expect(api.danmuState.value).toBe<DanmuState>('ready')
     expect(api.hasDanmaku.value).toBe(true)
-    // manager 建起且装载了弹幕
-    expect(managerInstances).toHaveLength(1)
-    expect(managerInstances[0].load).toHaveBeenCalledTimes(2) // 两段各 load 一次(非空)
+    // 腾讯走 dataSource 自驱流式，不直接 engine.load（content 由引擎按进度 fetch）
+    expect(fakeEngine.load).not.toHaveBeenCalled()
   })
 
-  it('回归·死锁顺序: stage 未挂载(模板回退 v-if 的旧姿势) ⇒ providers 仍先落库, UI 有按钮', async () => {
-    // 旧实现先 ensureManager 后取源: stage null ⇒ manager 建不起 ⇒ 提前 return ⇒
+  it('回归·死锁顺序: stage 未挂载(模板回退 v-if 的旧姿势) ⇒ providers 仍先落库, UI 有按钮, 引擎未建 → failed', async () => {
+    // 旧实现先 ensureManager 后取源: stage null ⇒ 引擎建不起 ⇒ 提前 return ⇒
     // providers 恒空、按钮全不显示(2026-10-25 线上事故)。修复后顺序相反, 本用例对顺序敏感。
     // mid 从无到有模拟首播(detail 加载后赋值), 触发 watch → loadDanmaku。
     m.getDanmuSource.mockResolvedValue(biliSrc)
@@ -179,17 +167,16 @@ describe('useDanmaku', () => {
     midRef.value = 3
     await flush()
     expect(api.providers.value).toHaveLength(1)
-    expect(api.danmuState.value).toBe<DanmuState>('failed') // 库建不起, 但入口可见
+    expect(api.danmuState.value).toBe<DanmuState>('failed') // 容器缺失/引擎未建
     expect(m.getDanmuBilibili).not.toHaveBeenCalled()
   })
 
-  it('无候选源（平台无此片）⇒ unsupported, providers 空, 不建 manager', async () => {
+  it('无候选源（平台无此片）⇒ unsupported, providers 空, 不建引擎', async () => {
     m.getDanmuSource.mockResolvedValue({ providers: [] })
     const { api } = mountHost(4)
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('unsupported')
     expect(api.providers.value).toEqual([])
-    expect(managerInstances).toHaveLength(0)
   })
 
   it('source 接口失败 ⇒ unsupported（用户要求查不到也要有显示, 不许静默）', async () => {
@@ -200,17 +187,23 @@ describe('useDanmaku', () => {
     expect(api.providers.value).toEqual([])
   })
 
-  it('B站路径: 拉到弹幕 ⇒ ready 且装载', async () => {
+  it('B站路径: 拉到弹幕 ⇒ ready 且 engine.load 收到 DanmakuItem[]', async () => {
     m.getDanmuSource.mockResolvedValue(biliSrc)
     m.getDanmuBilibili.mockResolvedValue({ comments })
     const { api } = mountHost(3)
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
     expect(api.hasDanmaku.value).toBe(true)
-    expect(managerInstances[0].load).toHaveBeenCalledTimes(1)
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1)
+    const items = fakeEngine.load.mock.calls[0]![0] as Array<{ id: unknown; time: number; mode: number; color: number }>
+    expect(items).toHaveLength(2)
+    expect(items[0]!.time).toBe(1) // 毫秒 1000 → 秒
+    expect(items[0]!.mode).toBe(1)
+    expect(items[0]!.color).toBe(16777215)
+    expect(typeof items[0]!.id).toBe('string') // 稳定唯一 id
   })
 
-  it('B站路径: comments 空 ⇒ empty（有源无内容）', async () => {
+  it('B站路径: comments 空 ⇒ empty（有源无内容）', async () => {  
     m.getDanmuSource.mockResolvedValue(biliSrc)
     m.getDanmuBilibili.mockResolvedValue({ comments: [] })
     const { api } = mountHost(3)
@@ -236,12 +229,14 @@ describe('useDanmaku', () => {
     expect(api.danmuState.value).toBe<DanmuState>('empty')
   })
 
-  it('腾讯路径: comments 请求失败 ⇒ failed（区别于内容空）', async () => {
+  it('腾讯路径: comments 请求失败 ⇒ 仍 ready（流式自驱, 单段失败为瞬时, 引擎重试而非整体 failed）', async () => {
     m.getDanmuSource.mockResolvedValue(tencentSrc)
     mockTencentChain({ commentsOk: false })
     const { api } = mountHost(4)
     await flush()
-    expect(api.danmuState.value).toBe<DanmuState>('failed')
+    // meta + segments 解析成功即标 ready（引擎按进度自驱流式预拉）；单段 comments 拉取失败
+    // 视为瞬时，由引擎后续重试，不把整条链路判 failed（区别于 matched=null 的 empty）。
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
     expect(api.providers.value).toHaveLength(1)
   })
 
@@ -264,14 +259,16 @@ describe('useDanmaku', () => {
     expect(api.danmuState.value).toBe<DanmuState>('ready')
   })
 
-  it('弹幕库未加载 ⇒ providers 仍落库(按钮可显示) + failed 态', async () => {
-    uninstallLib()
+  it('引擎未创建(stage 缺失) ⇒ providers 仍落库(按钮可显示) + failed 态', async () => {
+    // watch 默认非 immediate，需先以 undefined 挂载、再赋 mid 触发 loadDanmaku；
+    // 此时 stage 未挂载（attachStage=false）⇒ ensureEngine 跳过 ⇒ 引擎未建。
     m.getDanmuSource.mockResolvedValue(biliSrc)
-    const { api } = mountHost(3)
+    const { api, midRef } = mountHost(undefined, true, false)
+    midRef.value = 3
     await flush()
     expect(api.providers.value).toHaveLength(1)
     expect(api.danmuState.value).toBe<DanmuState>('failed')
-    expect(m.getDanmuBilibili).not.toHaveBeenCalled() // 库没建起, 不进装载
+    expect(m.getDanmuBilibili).not.toHaveBeenCalled() // 引擎没建起, 不进装载
   })
 
   it('切集(mid 变化) ⇒ 重新查询, 旧 token 结果不落地', async () => {
@@ -287,76 +284,49 @@ describe('useDanmaku', () => {
     expect(api.danmuState.value).toBe<DanmuState>('ready')
   })
 
-  it('回归·一窝蜂: B站整集装载后强制 seek 对齐(防 timeupdate 已推进 lastPosition 导致补发)', async () => {
-    m.getDanmuSource.mockResolvedValue(biliSrc)
-    m.getDanmuBilibili.mockResolvedValue({ comments })
-    const { api } = mountHost(3)
-    await flush()
-    const mgr = managerInstances[0]
-    expect(api.danmuState.value).toBe<DanmuState>('ready')
-    expect(mgr.load).toHaveBeenCalledTimes(1)
-    // 顺序铁律: load → seek → time（time 之前必须 seek 重定位, 否则从 position=0 补发全部历史弹幕）
-    const [loadOrder, seekOrder, timeOrder] = [
-      mgr.load.mock.invocationCallOrder[0],
-      mgr.seek.mock.invocationCallOrder[0],
-      mgr.time.mock.invocationCallOrder[0]
-    ]
-    expect(loadOrder).toBeLessThan(seekOrder)
-    expect(seekOrder).toBeLessThan(timeOrder)
-  })
-
-  it('回归·一窝蜂: 腾讯每段装载后均 seek 对齐(段数=load 次数, 对齐次数=段数+兜底)', async () => {
-    m.getDanmuSource.mockResolvedValue(tencentSrc)
-    mockTencentChain()
-    const { api } = mountHost(4)
-    await flush()
-    const mgr = managerInstances[0]
-    expect(api.danmuState.value).toBe<DanmuState>('ready')
-    expect(mgr.load).toHaveBeenCalledTimes(2) // segments 2 段
-    // 每段 load 后 alignManager 一次 + loadTencentEpisode 收尾兜底一次
-    expect(mgr.seek).toHaveBeenCalledTimes(3)
-  })
-
-  it('弹幕设置: 默认值 + updateSettings 实时应用到 manager/CSS + 持久化', async () => {
+  it('弹幕设置: 默认值运行时应用到引擎 + 持久化', async () => {
     m.getDanmuSource.mockResolvedValue(biliSrc)
     m.getDanmuBilibili.mockResolvedValue({ comments })
     const { api } = mountHost(3)
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    const mgr = managerInstances[0]
-    const stage = api.stage.value as HTMLElement
-    // 默认(2026-10-26): 自适应字号(无 CSS 变量)、透明度 0.8、区域半屏、速度 2(比旧默认慢一倍)、
-    // 同屏上限 30(0=不限改为压密度)、顶部/底部开、彩色、描边
-    expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('')
-    expect(stage.style.opacity).toBe('0.8')
-    expect(stage.style.height).toBe('50%')
-    expect(mgr.options.scroll?.scale).toBe(2)
-    expect(mgr.options.limit).toBe(30)
-    expect(mgr.filter.allowTypes?.['5']).toBe(true)
-    expect(mgr.filter.allowTypes?.['4']).toBe(true)
-    expect(stage.classList.contains('jc-danmaku-stage--no-outline')).toBe(false)
-    // 用户调: 字号 24 + 白色 + 半屏 + 顶部弹幕关 + 描边关
-    api.updateSettings({ fontSize: 24, colored: false, area: 0.5, topMode: false, outline: false })
+    // 默认(2026-10-26): 自适应字号、透明度 0.8、区域半屏(0.5)、速度 2(→引擎 1/2)、
+    // 同屏上限 30、描边开(1.25 + useTextShadow)。
+    expect(fakeEngine.setOpacity).toHaveBeenCalledWith(0.8)
+    expect(fakeEngine.setArea).toHaveBeenCalledWith(0.5)
+    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(0.5) // 1/settings.speed
+    expect(fakeEngine.setMaxVisible).toHaveBeenCalledWith(30)
+    expect(fakeEngine.setStrokeWidth).toHaveBeenCalledWith(1.25)
+    expect(fakeEngine.setUseTextShadow).toHaveBeenCalledWith(true)
+    expect(fakeEngine.setFontSize).toHaveBeenCalledWith(expect.any(Number))
+  })
+
+  it('弹幕设置: 速度变更 ⇒ setSpeed 运行时生效, 不重载(load 次数不变)', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api } = mountHost(3)
     await flush()
-    expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('24px')
-    expect(stage.style.height).toBe('50%')
-    expect(mgr.filter.allowTypes?.['5']).toBe(false)
-    expect(mgr.filter.addModifier).toHaveBeenCalled() // 白色模式注册了颜色改写器
-    expect(stage.classList.contains('jc-danmaku-stage--no-outline')).toBe(true)
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1)
+    api.updateSettings({ speed: 3 }) // 运行时 setSpeed(1/3), 不触发 loadDanmaku 重载
+    await flush()
+    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(1 / 3)
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 未重载
+  })
+
+  it('弹幕设置: 底部/顶部/彩色变更 ⇒ 触发重载(重新映射装载)', async () => {
+    m.getDanmuSource.mockResolvedValue(biliSrc)
+    m.getDanmuBilibili.mockResolvedValue({ comments })
+    const { api } = mountHost(3)
+    await flush()
+    expect(fakeEngine.load).toHaveBeenCalledTimes(1)
+    api.updateSettings({ bottomMode: false, colored: false, outline: false })
+    await flush()
+    // 命中缓存零 HTTP；engine.load 再次调用（重载重新装载过滤后的弹幕）
+    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
+    expect(fakeEngine.load).toHaveBeenCalledTimes(2)
+    expect(fakeEngine.setUseTextShadow).toHaveBeenCalledWith(false) // outline 关
     // 持久化
-    expect(localStorage.getItem('jc-danmaku-settings')).toContain('"fontSize":24')
-  })
-
-  it('弹幕设置: 恢复自适应档字号 ⇒ 移除行内 CSS 变量(交给全屏/移动端 CSS)', async () => {
-    m.getDanmuSource.mockResolvedValue(biliSrc)
-    m.getDanmuBilibili.mockResolvedValue({ comments })
-    const { api } = mountHost(3)
-    await flush()
-    const stage = api.stage.value as HTMLElement
-    api.updateSettings({ fontSize: 28 })
-    expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('28px')
-    api.updateSettings({ fontSize: 0 })
-    expect(stage.style.getPropertyValue('--jc-danmu-size')).toBe('')
+    expect(localStorage.getItem('jc-danmaku-settings')).toContain('"bottomMode":false')
   })
 
   it('请求去重: 同一集开关关→开命中缓存, 不重复发请求', async () => {
@@ -378,36 +348,7 @@ describe('useDanmaku', () => {
     expect(api.danmuState.value).toBe<DanmuState>('ready')
     expect(m.getDanmuSource).toHaveBeenCalledTimes(1)
     expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
-    expect(managerInstances[0].load).toHaveBeenCalledTimes(2) // 重载重新装载了一次
-  })
-
-  it('请求去重: 配置(速度)切换重载命中缓存, 不重复发请求', async () => {
-    m.getDanmuSource.mockResolvedValue(biliSrc)
-    m.getDanmuBilibili.mockResolvedValue({ comments })
-    const { api } = mountHost(3)
-    await flush()
-    expect(m.getDanmuSource).toHaveBeenCalledTimes(1)
-    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
-    api.updateSettings({ speed: 3 }) // speedChanged → loadDanmaku 重载（已渲染弹幕按新速度重跑）
-    await flush()
-    expect(m.getDanmuSource).toHaveBeenCalledTimes(1) // 命中缓存, 零请求
-    expect(m.getDanmuBilibili).toHaveBeenCalledTimes(1)
-    expect(managerInstances[0].options.scroll?.scale).toBe(3)
-    expect(managerInstances[0].load).toHaveBeenCalledTimes(2)
-  })
-
-  it('请求去重: 腾讯 seek 回已装区域命中段缓存, 不重复发请求', async () => {
-    m.getDanmuSource.mockResolvedValue(tencentSrc)
-    mockTencentChain()
-    const { api, triggers } = mountHost(4)
-    await flush()
-    expect(api.danmuState.value).toBe<DanmuState>('ready')
-    expect(m.getDanmuTencentComments).toHaveBeenCalledTimes(2) // 两段首次各拉一次
-    // seeked: loadedSegs.clear 后重装, 段数据命中 segCache ⇒ 零新增请求
-    triggers.seeked()
-    await flush()
-    expect(m.getDanmuTencentComments).toHaveBeenCalledTimes(2)
-    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(fakeEngine.load).toHaveBeenCalledTimes(2) // 重载重新装载了一次
   })
 
   it('请求去重: 切集(mid 变化)缓存 key 自然失效, 照常重新请求新集', async () => {
@@ -439,7 +380,6 @@ describe('useDanmaku', () => {
   })
 
   it('readDanmakuSettings: 旧速度档(0.5..1.5) ×2 迁移到新档(整体慢一倍)', () => {
-    // 旧默认 1(正常) → 新 2(正常); 旧 0.5(最快) → 新 1(最快); 旧 1.5(最慢) → 新 3(最慢)
     localStorage.setItem('jc-danmaku-settings', JSON.stringify({ speed: 1, opacity: 0.8, area: 0.5 }))
     expect(readDanmakuSettings().speed).toBe(2)
     localStorage.setItem('jc-danmaku-settings', JSON.stringify({ speed: 0.5, opacity: 0.8, area: 0.5 }))
