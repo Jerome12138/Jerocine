@@ -13,6 +13,7 @@ import {
   resolveDanmuProvider,
   toDanmuInput,
   toDanmuInputs,
+  staggerTimes,
   type DanmuMapFilter
 } from '@/utils/danmu'
 
@@ -64,8 +65,9 @@ export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
   fontSize: 0,
   opacity: 0.8,
   area: 0.5,
-  speed: 2,
-  // 同屏上限默认 30（2026-10-26: 0=不限时高密度剧集"一窝蜂"铺满; 档位 15/30/50/不限 取 30）
+  // 速度默认 1.5（"快"档）：用户要求整体比初始(2=正常)加快一档（档位越大越慢, 映射 1/speed）
+  speed: 1.5,
+  // 同屏上限默认 30（2026-10-26: 0=不限时高密度剧集"一窝蜂"铺满; 档位 15/30/50/不限 取 30 = 中）
   limit: 30,
   bottomMode: true,
   topMode: true,
@@ -286,7 +288,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         strokeWidth: settings.value.outline ? 1.25 : 0,
         useTextShadow: settings.value.outline,
         fontFamily: "'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
-        scrollGap: 96,
+        // 滚动弹幕最小纵向间距：加大以降低同屏密集重叠（item 2）；配合 overflow:'drop' 无空闲轨道时静默丢弃
+        scrollGap: 140,
         seekThreshold: 0.5,
         // 腾讯分段：引擎按进度窗口自驱 fetch（scheduler.add 追加，不清除屏上弹幕，无闪烁）
         dataSource: { fetch: fetchTencentRange }
@@ -426,8 +429,9 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         }
       }
     }
-    return items
-  }
+  staggerTimes(items) // 同秒聚堆打散（item 6）
+  return items
+}
 
   /* ---------------- 装载（按平台分叉） ----------------
    * 顺序铁律: **先落 providers（UI 立刻有所指）, 再建引擎装载内容**。

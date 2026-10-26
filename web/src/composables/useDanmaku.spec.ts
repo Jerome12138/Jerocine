@@ -349,7 +349,7 @@ describe('useDanmaku', () => {
     // 同屏上限 30、描边开(1.25 + useTextShadow)。
     expect(fakeEngine.setOpacity).toHaveBeenCalledWith(0.8)
     expect(fakeEngine.setArea).toHaveBeenCalledWith(0.5)
-    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(0.5) // 1/settings.speed
+    expect(fakeEngine.setSpeed).toHaveBeenCalledWith(1 / 1.5) // 1/settings.speed（默认 1.5=快一档）
     expect(fakeEngine.setMaxVisible).toHaveBeenCalledWith(30)
     expect(fakeEngine.setStrokeWidth).toHaveBeenCalledWith(1.25)
     expect(fakeEngine.setUseTextShadow).toHaveBeenCalledWith(true)
@@ -430,7 +430,7 @@ describe('useDanmaku', () => {
     const s = readDanmakuSettings()
     expect(s.fontSize).toBe(64) // 钳制上限
     expect(s.opacity).toBe(1) // 钳制上限
-    expect(s.speed).toBe(2) // 非法档位回新默认
+    expect(s.speed).toBe(1.5) // 非法档位回新默认
     expect(s.limit).toBe(30) // 负数回默认(同屏上限 30)
   })
 
@@ -450,6 +450,6 @@ describe('useDanmaku', () => {
     const s = readDanmakuSettings()
     expect(s.opacity).toBe(0.8)
     expect(s.area).toBe(0.5)
-    expect(s.speed).toBe(2)
+    expect(s.speed).toBe(1.5)
   })
 })

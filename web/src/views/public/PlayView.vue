@@ -21,6 +21,7 @@ import {
   computed,
   nextTick,
   onMounted,
+  onScopeDispose,
   ref,
   watch
 } from 'vue'
@@ -1409,6 +1410,21 @@ function onPlayerTimeUpdateForSkipOutro(): void {
 /** ---------- 触屏手势(web 专用; TV/原生播放器不适用) ---------- */
 const isPlayerFullscreen = ref(false)
 
+// 全屏进出：隐藏弹幕层，避免已发射弹幕在尺寸跳变期错位/被裁；尺寸稳定后重载（缓存命中、零请求）以新字号重渲染（item 1）
+const danmakuResizing = ref(false)
+let danmakuResizeTimer: ReturnType<typeof setTimeout> | null = null
+watch(isPlayerFullscreen, () => {
+  danmakuResizing.value = true
+  if (danmakuResizeTimer) clearTimeout(danmakuResizeTimer)
+  danmakuResizeTimer = setTimeout(() => {
+    danmakuResizing.value = false
+    danmaku.reload() // 重新装载（缓存命中，瞬时），以当前字号/区域重渲染已发弹幕
+  }, 350)
+})
+onScopeDispose(() => {
+  if (danmakuResizeTimer) clearTimeout(danmakuResizeTimer)
+})
+
 /** loading 遮罩文案(三档纯函数 loadingHintText, 逐档单测覆盖):
  *  未就绪+过滤在途「正在准备视频 · 广告过滤中…」/ 未就绪「正在准备视频…」/
  *  片源已就绪等播放器「正在缓冲视频…」—— 过滤落地到 canplay 之间文案必须反映真实阶段。 */
@@ -2016,7 +2032,7 @@ watch(playerReady, (v) => {
               <div
                 ref="danmakuStage"
                 class="jc-danmaku-stage"
-                :class="{ 'jc-danmaku-stage--off': !danmakuEnabled || danmakuState !== 'ready' }"
+                :class="{ 'jc-danmaku-stage--off': !danmakuEnabled || danmakuState !== 'ready', 'jc-danmaku-stage--resizing': danmakuResizing }"
                 aria-hidden="true"
               />
               <!-- 长按临时倍速提示(顶部居中) -->
@@ -2413,6 +2429,9 @@ watch(playerReady, (v) => {
   pointer-events: none;
 }
 .jc-danmaku-stage--off {
+  visibility: hidden;
+}
+.jc-danmaku-stage--resizing {
   visibility: hidden;
 }
 

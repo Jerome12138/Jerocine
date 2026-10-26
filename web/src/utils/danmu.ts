@@ -65,16 +65,44 @@ export function toDanmuInput(
   }
 }
 
-/** 批量映射（保持顺序；filter 命中的条目跳过；空列表返回空数组）。 */
+/** 同秒弹幕聚堆打散步长（秒）与上限：time 相同的弹幕按出现次序错开小步长，
+ *  避免同一时刻大量弹幕齐发、列成整齐一列（item 6）。超出上限的极端同秒量交还引擎丢弃。 */
+export const DANMU_TIME_STAGGER = 0.18
+export const DANMU_TIME_STAGGER_CAP = 24
+
+/**
+ * 同秒弹幕聚堆打散：原地修改 items 的 time，使相同 time 的条目按次序错开 DANMU_TIME_STAGGER。
+ *  不改动 mode/color/id；items 须已按 time 升序（调用方保证）。
+ */
+export function staggerTimes(items: DanmakuItem[]): void {
+  let lastTime = -1
+  let runIdx = 0
+  for (const it of items) {
+    if (it.time === lastTime) runIdx += 1
+    else {
+      lastTime = it.time
+      runIdx = 0
+    }
+    if (runIdx > 0 && runIdx <= DANMU_TIME_STAGGER_CAP) {
+      it.time = Number((it.time + runIdx * DANMU_TIME_STAGGER).toFixed(3))
+    }
+  }
+}
+
+/** 批量映射（保持顺序；filter 命中的条目跳过；空列表返回空数组）。
+ *  同秒弹幕会按序错开小步长（staggerTimes），缓解齐发列成整齐一列。 */
 export function toDanmuInputs(
   list: readonly DanmuComment[],
   filter?: DanmuMapFilter,
 ): DanmakuItem[] {
+  if (list.length === 0) return []
+  const sorted = [...list].sort((a, b) => a.time - b.time)
   const out: DanmakuItem[] = []
-  for (let i = 0; i < list.length; i += 1) {
-    const item = toDanmuInput(list[i]!, i, filter)
+  for (const c of sorted) {
+    const item = toDanmuInput(c, out.length, filter)
     if (item) out.push(item)
   }
+  staggerTimes(out)
   return out
 }
 

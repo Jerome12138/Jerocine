@@ -43,6 +43,17 @@ describe('toDanmuInput(s)：毫秒 → 秒映射 + 过滤', () => {
     expect(toDanmuInputs([])).toEqual([])
   })
 
+  it('同秒弹幕聚堆打散：相同 time 按序错开小步长，避免齐发列成整齐一列', () => {
+    const items = toDanmuInputs([cmt(10000), cmt(10000), cmt(10000), cmt(10000)])
+    expect(items).toHaveLength(4)
+    expect(items[0]!.time).toBe(10)
+    expect(items[1]!.time).toBeCloseTo(10 + 0.18, 3)
+    expect(items[2]!.time).toBeCloseTo(10 + 0.36, 3)
+    expect(items[3]!.time).toBeCloseTo(10 + 0.54, 3)
+    const ids = new Set(items.map((i) => i.id))
+    expect(ids.size).toBe(4) // id 唯一
+  })
+
   it('模式归一: 源 1/2/6（滚动类）-> 1（danmaku-lite 无逆向滚动，共用同一轨道分配器）', () => {
     expect(toDanmuInput(cmt(1000, { mode: 2 })).mode).toBe(1)
     expect(toDanmuInput(cmt(1000, { mode: 6 })).mode).toBe(1)
