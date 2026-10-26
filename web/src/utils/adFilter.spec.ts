@@ -7,7 +7,8 @@ import {
   hasMediaSegments,
   firstChildPlaylistUrl,
   adFilterBadgeText,
-  loadingHintText
+  loadingHintText,
+  resolveClientFilterGate
 } from './adFilter'
 
 describe('parseAdFilterStats', () => {
@@ -24,6 +25,27 @@ describe('parseAdFilterStats', () => {
 
   it('小数向下取整', () => {
     expect(parseAdFilterStats({ filtered: 2.9, total: 10.1 })).toEqual({ filtered: 2, total: 10 })
+  })
+})
+
+describe('resolveClientFilterGate', () => {
+  it('有 MSE 一律走端侧 client(blob 清单 VHS 自己抓, 能播)', () => {
+    expect(resolveClientFilterGate({ hasMse: true, adFilterOk: true })).toBe('client')
+    expect(resolveClientFilterGate({ hasMse: true, adFilterOk: false })).toBe('client')
+    expect(resolveClientFilterGate({ hasMse: true, adFilterOk: undefined })).toBe('client')
+  })
+  it('无 MSE(iPhone 原生 HLS): 服务器抓得到该源 → 降级服务端代理过滤', () => {
+    expect(resolveClientFilterGate({ hasMse: false, adFilterOk: true })).toBe('proxy')
+    expect(resolveClientFilterGate({ hasMse: false, adFilterOk: undefined })).toBe('proxy')
+  })
+  it('无 MSE 且服务器明确抓不到(adFilterOk=false): 代理必失败, 直接原始直链', () => {
+    expect(resolveClientFilterGate({ hasMse: false, adFilterOk: false })).toBe('direct')
+  })
+})
+
+describe('adFilterBadgeText · nosupport', () => {
+  it('无 MSE 设备直链回退的角标文案', () => {
+    expect(adFilterBadgeText('nosupport', 0)).toBe('该设备不支持端侧过滤')
   })
 })
 

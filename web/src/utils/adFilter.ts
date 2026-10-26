@@ -123,7 +123,8 @@ export function firstChildPlaylistUrl(text: string): string | null {
 
 /* ============ 角标文案 (与安卓 AdFilterStatus 逐字对齐) ============ */
 
-/** 广告过滤角标状态 — 与安卓 AdFilterStatus 同名同文案(文案在 adFilterBadgeText). */
+/** 广告过滤角标状态 — 与安卓 AdFilterStatus 同名同文案(文案在 adFilterBadgeText)。
+ *  nosupport 为 web 端新增: 设备走原生 HLS(无 MSE), 端侧 blob 清单不可播。 */
 export type AdFilterBadgeKind =
   | 'off'
   | 'unsupported'
@@ -132,6 +133,7 @@ export type AdFilterBadgeKind =
   | 'clean'
   | 'filtered'
   | 'failed'
+  | 'nosupport'
 
 /** 角标文案。色调约定: off/unsupported/failed=灰, proxy/filtering=蓝, clean/filtered=绿。 */
 export function adFilterBadgeText(kind: AdFilterBadgeKind, count: number): string {
@@ -150,5 +152,27 @@ export function adFilterBadgeText(kind: AdFilterBadgeKind, count: number): strin
       return `已过滤 ${count} 段广告`
     case 'failed':
       return '过滤失败'
+    case 'nosupport':
+      return '该设备不支持端侧过滤'
   }
+}
+
+/* ============ 端侧 blob 过滤的可用性闸 ============ */
+
+export type ClientFilterGate = 'client' | 'proxy' | 'direct'
+
+/**
+ * 决定端侧过滤形态: blob 清单只有 MSE 系播放器(video.js VHS / hls.js)能解析;
+ * iPhone Safari 无 MSE, video.js 走原生 HLS —— 原生播放器把 blob 清单当不支持的源,
+ * 直接 CODE:4 MEDIA_ERR_SRC_NOT_SUPPORTED(2026-10-26 WebKit 复现 + 线上 iPhone
+ * 实机同码), 此前一直靠 handleVideoError 兜底"关过滤回退原片"硬扛, iPhone 观众
+ * 实际享受不到过滤还白吃一轮报错。无 MSE 时降级: 服务端代理过滤(服务器抓不到
+ * 该源 adFilterOk=false 时代理必失败, 直接原始直链)。
+ */
+export function resolveClientFilterGate(opts: {
+  hasMse: boolean
+  adFilterOk: boolean | undefined
+}): ClientFilterGate {
+  if (opts.hasMse) return 'client'
+  return opts.adFilterOk === false ? 'direct' : 'proxy'
 }

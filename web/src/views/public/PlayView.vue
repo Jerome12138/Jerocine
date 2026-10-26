@@ -197,6 +197,10 @@ const currentSrc = ref<string>('')
  * 与 /settings 配置页、安卓设置抽屉共用同一份 useWebSettings 状态。
  */
 const { adFilter, setAdFilter, filterMode, relayCache } = useWebSettings()
+/** 端侧 blob 过滤的前提: 浏览器有 MSE(video.js 走 VHS 自己抓流)。
+ *  iPhone Safari 无 MSE → 原生 HLS, blob 清单直接 CODE:4(2026-10-26 线上实证),
+ *  由 resolveClientFilterGate 降级服务端代理/直链。 */
+const hasMse = typeof window !== 'undefined' && typeof window.MediaSource !== 'undefined'
 function toggleAdFilter(): void {
   setAdFilter(!adFilter.value)
   if (adFilter.value) {
@@ -585,6 +589,21 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
   if (filterMode.value === 'server' && currentSource.value?.adFilterOk !== false) {
     adFilterBadge.value = { kind: 'proxy', count: 0 }
     commit(proxyAdFilterUrl(originalUrl), 'application/x-mpegURL', false)
+    return
+  }
+
+  // 无 MSE 的设备(iPhone Safari 等原生 HLS): blob 清单原生播放器解析不了(实测 CODE:4),
+  // 端侧过滤整体不可用 → 服务端代理过滤; 服务器抓不到该源则直接原始直链。
+  // (必须在查 blob 缓存之前 —— 缓存的也是 blob, 原生设备一样播不了)
+  const clientGate = resolveClientFilterGate({ hasMse, adFilterOk: currentSource.value?.adFilterOk })
+  if (clientGate === 'proxy') {
+    adFilterBadge.value = { kind: 'proxy', count: 0 }
+    commit(proxyAdFilterUrl(originalUrl), 'application/x-mpegURL', false)
+    return
+  }
+  if (clientGate === 'direct') {
+    adFilterBadge.value = { kind: 'nosupport', count: 0 }
+    commit(originalUrl, '', false)
     return
   }
 
@@ -1020,6 +1039,7 @@ import {
   buildAdFilterFailureEvent,
   firstChildPlaylistUrl,
   loadingHintText,
+  resolveClientFilterGate,
   type AdFilterBadgeKind
 } from '@/utils/adFilter'
 
@@ -1266,11 +1286,15 @@ async function prefetchNextEpisode(): Promise<void> {
     if (filterMode.value === 'server' && currentSource.value?.adFilterOk !== false) {
       // 云端取源: 预热服务端 proxy(抓源站+过滤+写缓存), 响应丢弃; 失败静默不重试。
       await fetch(proxyAdFilterUrl(ep.link), { method: 'GET', signal: ctl.signal })
-    } else {
-      // 端侧取源(默认): 提前跑完整过滤链(master 免 POST), 过滤文本入本地缓存。
+    } else if (resolveClientFilterGate({ hasMse, adFilterOk: currentSource.value?.adFilterOk }) === 'client') {
+      // 端侧取源(默认, 需 MSE): 提前跑完整过滤链(master 免 POST), 过滤文本入本地缓存。
       // 服务端明确抓不到的源(adFilterOk=false)云端取源必失败, 也落这里走端侧。
       const r = await filterPlaylistChain(ep.link, ctl.signal)
       rememberFilteredText(ep.link, r.text, r.filtered)
+    } else if (currentSource.value?.adFilterOk !== false) {
+      // 原生 HLS 降级代理(gate=proxy): 同样预热服务端 proxy 缓存。
+      // gate=direct(adFilterOk=false): 无过滤形态, 无可预热。
+      await fetch(proxyAdFilterUrl(ep.link), { method: 'GET', signal: ctl.signal })
     }
   } catch {
     /* 预取失败不影响播放(切集时再付一次全价); abort 走这里被静默吞掉 */
@@ -2799,10 +2823,11 @@ watch(playerReady, (v) => {
   background-color: #34d399;
   box-shadow: 0 0 6px rgba(52, 211, 153, 0.8);
 }
-/* I-017 角标配色: filtered/clean=绿(默认), off/unsupported/failed=灰, proxy/filtering=蓝(处理中) */
+/* I-017 角标配色: filtered/clean=绿(默认), off/unsupported/failed/nosupport=灰, proxy/filtering=蓝(处理中) */
 .jc-player-adtag[data-kind='off']::before,
 .jc-player-adtag[data-kind='unsupported']::before,
-.jc-player-adtag[data-kind='failed']::before {
+.jc-player-adtag[data-kind='failed']::before,
+.jc-player-adtag[data-kind='nosupport']::before {
   background-color: #9ca3af;
   box-shadow: none;
 }
