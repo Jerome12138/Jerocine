@@ -6,8 +6,8 @@
  *  - 透明度/显示区域/描边: CSS 实时全量生效
  *  - 速度/同屏上限/顶部/底部/彩色: 对新弹幕生效（速度变更触发重载）
  *
- * 开关层级(2026-10-26): 主开关=用户级(/settings, 默认关); 本集开关=当前影片
- * 覆盖（跟随用户级, 可对本集单独开/关）。实际生效 = 用户级 && 本集。
+ * 开关层级(2026-10-27): 仅保留用户级总开关(默认关); 单影片开关已移除,
+ * 弹幕配置数据全局生效。实际生效 = 全局开关 && 非移动端(移动端不开放弹幕)。
  */
 import type { DanmuProvider } from '@/types/film'
 import {
@@ -22,10 +22,8 @@ defineOptions({ name: 'DanmakuSettingsPanel' })
 
 const props = defineProps<{
   settings: DanmakuSettings
-  /** 弹幕主开关（用户级, /settings 同源） */
+  /** 弹幕主开关（用户级, /settings 同源; 默认关, 随账号/浏览器记忆） */
   enabled: boolean
-  /** 本集弹幕开关（当前影片覆盖, 默认跟随用户级） */
-  filmEnabled: boolean
   providers: DanmuProvider[]
   provider: string
 }>()
@@ -33,7 +31,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update', patch: Partial<DanmakuSettings>): void
   (e: 'toggle-enabled'): void
-  (e: 'toggle-film'): void
   (e: 'set-provider', provider: string): void
 }>()
 
@@ -58,36 +55,21 @@ function patch(p: Partial<DanmakuSettings>): void {
 
 <template>
   <div class="jc-danmu-panel">
-    <!-- 弹幕开关：全局(用户级) + 本片(当前影片) 合并一行（去掉各自描述, 缩小间距） -->
-    <div class="jc-danmu-panel__row jc-danmu-panel__row--switches">
-      <div class="jc-danmu-panel__switches">
-        <div class="jc-danmu-switch-item">
-          <span class="jc-danmu-switch-item__label">弹幕总开关（全局）</span>
-          <button
-            type="button"
-            class="jc-danmu-switch"
-            :class="{ 'is-on': enabled }"
-            role="switch"
-            :aria-checked="enabled"
-            @click="emit('toggle-enabled')"
-          >
-            <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
-          </button>
-        </div>
-        <div class="jc-danmu-switch-item">
-          <span class="jc-danmu-switch-item__label">本片弹幕开关</span>
-          <button
-            type="button"
-            class="jc-danmu-switch"
-            :class="{ 'is-on': filmEnabled }"
-            role="switch"
-            :aria-checked="filmEnabled"
-            @click="emit('toggle-film')"
-          >
-            <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
-          </button>
-        </div>
+    <!-- 弹幕总开关(用户级): 全站唯一开关, 默认关; 已移除单影片开关(2026-10-27) -->
+    <div class="jc-danmu-panel__row jc-danmu-panel__row--main">
+      <div class="jc-danmu-panel__label">
+        <span>弹幕</span>
       </div>
+      <button
+        type="button"
+        class="jc-danmu-switch"
+        :class="{ 'is-on': enabled }"
+        role="switch"
+        :aria-checked="enabled"
+        @click="emit('toggle-enabled')"
+      >
+        <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
+      </button>
     </div>
 
     <!-- 字号: 档位式, 0=自适应(随全屏/移动端) -->
@@ -337,26 +319,6 @@ function patch(p: Partial<DanmakuSettings>): void {
   background: var(--jc-accent, #3b82f6);
   border-color: var(--jc-accent, #3b82f6);
   color: #fff;
-}
-.jc-danmu-panel__row--switches {
-  padding-bottom: 2px;
-}
-.jc-danmu-panel__switches {
-  display: flex;
-  align-items: center;
-  width: 100%;
-}
-.jc-danmu-switch-item {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.jc-danmu-switch-item__label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--jc-text-primary, #e6e8ee);
 }
 .jc-danmu-switch {
   background: none;

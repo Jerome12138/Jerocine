@@ -61,7 +61,7 @@ import posterFallback from '@/assets/play.svg'
 
 const route = useRoute()
 const router = useRouter()
-const { isTV, isDesktop } = useViewMode()
+const { isTV, isDesktop, isMobile } = useViewMode()
 
 /** PC(A方案)按钮"更多"展开态: 一行放不下的低频项收进这里 */
 const moreActionsOpen = ref(false)
@@ -164,45 +164,8 @@ const videoErrorMsg = ref<string>('')
     关闭时不调弹幕获取接口。 */
 const { danmaku: danmakuEnabled, setDanmaku: setDanmakuEnabled } = useWebSettings()
 
-/** 本集弹幕开关（当前影片覆盖, 默认跟随用户级=true）: localStorage `jc-danmaku-film:{mid}`,
-    无记录(null) = 跟随用户级。仅对当前影片生效, 与用户级开关做与运算。 */
-const filmDanmakuEnabled = ref<boolean | null>(null)
-function filmDanmakuKey(): string {
-  const id = detail.value?.mid
-  return id === undefined || id === null ? '' : `jc-danmaku-film:${id}`
-}
-function readFilmDanmaku(): void {
-  const key = filmDanmakuKey()
-  if (!key) {
-    filmDanmakuEnabled.value = null
-    return
-  }
-  try {
-    const raw = window.localStorage.getItem(key)
-    filmDanmakuEnabled.value = raw === null ? null : raw !== '0'
-  } catch {
-    filmDanmakuEnabled.value = null
-  }
-}
-function writeFilmDanmaku(v: boolean): void {
-  const key = filmDanmakuKey()
-  if (!key) return
-  try {
-    window.localStorage.setItem(key, v ? '1' : '0')
-  } catch {
-    /* ignore */
-  }
-}
-// 进入/切换影片时读取本集偏好
-watch(
-  () => detail.value?.mid,
-  () => {
-    readFilmDanmaku()
-  },
-  { immediate: true }
-)
-/** 实际生效 = 用户级 && 本集（null 视为 true 跟随用户级） */
-const danmakuActive = computed(() => danmakuEnabled.value && filmDanmakuEnabled.value !== false)
+/** 实际生效 = 全局开关 && 非移动端（移动端不开放弹幕功能, 入口也不显示） */
+const danmakuActive = computed(() => !isMobile.value && danmakuEnabled.value)
 function toggleDanmaku(): void {
   setDanmakuEnabled(!danmakuEnabled.value)
   if (danmakuEnabled.value) {
@@ -210,14 +173,6 @@ function toggleDanmaku(): void {
   } else {
     toast('info', '弹幕已关闭')
   }
-}
-/** 本集弹幕开关切换（播放器弹幕设置面板） */
-function toggleFilmDanmaku(): void {
-  // 基于当前实际状态(danmakuActive 同口径: null/true 视为开)取反：开→关、关→开
-  const next = filmDanmakuEnabled.value === false
-  writeFilmDanmaku(next)
-  filmDanmakuEnabled.value = next
-  toast('info', next ? '本集弹幕已开启' : '本集弹幕已关闭')
 }
 
 /** ---------- 派生 ---------- */
@@ -908,8 +863,8 @@ const {
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条内常驻「下一集」入口(点击走 playNext, 内部有 hasNext guard)
   nextEpisode: { onClick: () => playNext() },
-  // 弹幕设置按钮(插在倍速 1x 左侧): 点击打开设置弹窗
-  danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) }
+  // 弹幕设置按钮(插在倍速 1x 左侧): 点击打开设置弹窗; 移动端不开放弹幕功能, 不注入按钮
+  ...(isMobile.value ? {} : { danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) } })
 })
 
 // 在线心跳 watching 信号: video.js 播放状态实时置位(暂停/结束即回落)。
@@ -2151,6 +2106,7 @@ watch(playerReady, (v) => {
             <BaseIcon name="shield" size="26px" /><span>广告</span>
           </button>
           <button
+            v-if="!isMobile"
             type="button"
             class="jc-pt-btn"
             :class="[{ 'is-on': danmakuEnabled && !danmakuUnavailable }, danmakuUnavailable ? 'is-disabled' : '']"
@@ -2163,7 +2119,7 @@ watch(playerReady, (v) => {
             <BaseIcon name="chat" size="26px" /><span>弹幕</span>
           </button>
           <button
-            v-if="danmakuProviders.length > 1"
+            v-if="!isMobile && danmakuProviders.length > 1"
             type="button"
             class="jc-pt-btn jc-pt-btn--src"
             data-focusable="true"
@@ -2241,13 +2197,13 @@ watch(playerReady, (v) => {
                     <span class="jc-pt-more__item-label">过滤广告</span>
                     <span v-if="adFilter" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
-                  <!-- 弹幕开关: 常驻显示(不可用时置灰+原因, 点击给反馈; failed 点击重试) -->
-                  <button type="button" class="jc-pt-more__item" :class="[danmakuEnabled && !danmakuUnavailable ? 'is-on' : '', danmakuUnavailable ? 'is-disabled' : '']" :aria-pressed="danmakuEnabled" :aria-disabled="danmakuUnavailable" @click="onDanmakuEntryClick">
+                  <!-- 弹幕开关: 常驻显示(不可用时置灰+原因, 点击给反馈); 移动端不开放弹幕 -->
+                  <button v-if="!isMobile" type="button" class="jc-pt-more__item" :class="[danmakuEnabled && !danmakuUnavailable ? 'is-on' : '', danmakuUnavailable ? 'is-disabled' : '']" :aria-pressed="danmakuEnabled" :aria-disabled="danmakuUnavailable" @click="onDanmakuEntryClick">
                     <BaseIcon name="chat" size="16px" />
                     <span class="jc-pt-more__item-label">弹幕<template v-if="danmakuUnavailable"> · {{ danmakuHint }}</template></span>
                     <span v-if="danmakuEnabled && !danmakuUnavailable" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
-                  <button v-if="danmakuProviders.length > 1" type="button" class="jc-pt-more__item" @click="cycleDanmakuProvider(); moreActionsOpen = false">
+                  <button v-if="!isMobile && danmakuProviders.length > 1" type="button" class="jc-pt-more__item" @click="cycleDanmakuProvider(); moreActionsOpen = false">
                     <BaseIcon name="refresh" size="16px" />
                     <span class="jc-pt-more__item-label">弹幕源：{{ danmakuProviderName(danmakuProvider) }}</span>
                   </button>
@@ -2354,12 +2310,10 @@ watch(playerReady, (v) => {
         <DanmakuSettingsPanel
           :settings="danmakuSettings"
           :enabled="danmakuEnabled && !danmakuUnavailable"
-          :film-enabled="filmDanmakuEnabled !== false"
           :providers="danmakuProviders"
           :provider="danmakuProvider"
           @update="danmakuUpdateSettings($event)"
           @toggle-enabled="onDanmakuEntryClick"
-          @toggle-film="toggleFilmDanmaku"
           @set-provider="(p: string) => { danmakuSetProvider(p); }"
         />
       </BaseDialog>
