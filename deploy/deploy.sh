@@ -496,14 +496,28 @@ deploy_nginx() {
 }
 
 # 清两层缓存: nginx API 代理缓存 + Redis 应用缓存(DB0; DB1 是协调态, 禁动)
+#
+# Redis DB0 清理策略(2026-10-27 由 FLUSHDB 改为白名单精确删除):
+#   此前 FLUSHDB 会把非缓存类 key 一并清掉 —— jc:online:*(当日 PV/UV/峰值等浏览统计,
+#   即"UV 被清"现象)以及 v1:token:/v1:sess:*(登录会话)、v1:activate:/v1:regcode:/
+#   v1:regsend:/v1:regtry:/v1:reset:/v1:mailquota:/v1:devauth:*(注册/重置/激活流程态)、
+#   v1:lock:/v1:job:(任务锁)、v1:rl:(限流计数) —— 全部误伤。
+#   现只删"清了可从 MySQL/上游重建"的缓存前缀白名单, 其余一律保留。
 clear_caches() {
   echo "==> 清 nginx proxy_cache"
   "${DOCKER[@]}" exec jerocine_nginx sh -c 'rm -rf /var/cache/nginx/api/* 2>/dev/null; nginx -s reload 2>/dev/null || true'
 
-  echo "==> 清 Redis 应用缓存(DB0)"
+  echo "==> 清 Redis 应用缓存(白名单前缀; 保留 jc:online 统计与会话/令牌等状态 key)"
   local rp
   rp="$(grep -E '^REDIS_PASSWORD=' .env | head -1 | cut -d= -f2-)"
-  "${DOCKER[@]}" exec -e REDISCLI_AUTH="$rp" jerocine_redis redis-cli --no-auth-warning -n 0 FLUSHDB >/dev/null
+  "${DOCKER[@]}" exec -e REDISCLI_AUTH="$rp" jerocine_redis sh -c '
+    for pat in \
+      "v1:movie:*" "v1:danmu:*" "v1:relate:*" "v1:cat:tree" "v1:home:agg" \
+      "v1:cfg:*" "v1:classify:*" "v1:play:*" "v1:tagopts:*"; do
+      redis-cli --no-auth-warning -n 0 --scan --pattern "$pat" \
+        | xargs -r redis-cli --no-auth-warning -n 0 DEL >/dev/null
+    done
+  ' >/dev/null
 }
 
 # ============================ 子命令分发 ============================
