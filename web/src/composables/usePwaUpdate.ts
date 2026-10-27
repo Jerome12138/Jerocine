@@ -61,8 +61,6 @@ export function usePwaUpdate(): PwaUpdate {
   const hadController = supported && !!navigator.serviceWorker.controller
 
   let listener: (() => void) | null = null
-  /** 主动检测链路的清理(定时器/事件), 与 controllerchange 监听同生命周期 */
-  let cleanupExtra: (() => void) | null = null
 
   onMounted(() => {
     if (!supported) return
@@ -84,40 +82,19 @@ export function usePwaUpdate(): PwaUpdate {
     }
     navigator.serviceWorker.addEventListener('controllerchange', listener)
 
-    // updatefound: 有新版本开始下载(install 中) —— 此刻即亮徽标, 不等预取完成。
-    // 首访(未被 SW 控制)的初次安装不算更新。
+    // updatefound: 有新版本开始下载(install 中) —— 刷新后浏览器导航时机会自动 check sw.js,
+    // 此刻即亮提示, 不等预取完成。首访(未被 SW 控制)的初次安装不算更新。
+    // (2026-10-27 用户确认: 站点无强 web 即时性需求, 不做周期性主动 update 检测)
     navigator.serviceWorker.getRegistration()?.then((reg) => {
       reg?.addEventListener('updatefound', () => {
         if (hadController) updateFound.value = true
       })
     }).catch(() => {})
-
-    // 主动更新检测: 浏览器默认只在导航时 check, SW install 又要预取全部新资源(弱网数十秒),
-    // "发版后刷新也拿不到新版"由此而来 —— 这里周期性 + 可见性恢复时立即 registration.update(),
-    // 让 skipWaiting 的新 SW 尽早激活接管(controllerchange → updateReady → 各头部「新版本」徽标)。
-    let checkTimer: number | undefined
-    const checkNow = (): void => {
-      navigator.serviceWorker.getRegistration()?.then((reg) => reg?.update()).catch(() => {})
-    }
-    const onVisible = (): void => {
-      if (document.visibilityState === 'visible') checkNow()
-    }
-    checkNow()
-    checkTimer = window.setInterval(checkNow, 60_000)
-    document.addEventListener('visibilitychange', onVisible)
-    window.addEventListener('pageshow', onVisible)
-    cleanupExtra = () => {
-      if (checkTimer !== undefined) window.clearInterval(checkTimer)
-      document.removeEventListener('visibilitychange', onVisible)
-      window.removeEventListener('pageshow', onVisible)
-    }
   })
 
   onBeforeUnmount(() => {
     if (listener) navigator.serviceWorker.removeEventListener('controllerchange', listener)
     listener = null
-    if (cleanupExtra) cleanupExtra()
-    cleanupExtra = null
   })
 
   function applyUpdate(): void {

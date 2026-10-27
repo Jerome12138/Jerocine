@@ -44,7 +44,8 @@ const { isTV, isMobile, isTablet } = useViewMode()
 /** 新版本检测/切换: 徽标(brand 右侧) + 移动抽屉「立即更新」菜单项共用 */
 const { updateFound, updateReady, applyUpdate } = usePwaUpdate()
 const pwaUpdateVisible = computed(() => updateFound.value || updateReady.value)
-const pwaUpdateText = computed(() => (updateReady.value ? '立即更新' : '发现更新'))
+/** 文案/图标与 PwaUpdateBadge 徽标一致(发现更新/新版本) */
+const pwaUpdateText = computed(() => (updateReady.value ? '新版本' : '发现更新'))
 
 /**
  * 二级页面左上角"返回"按钮 — 仅 TV 模式显示(触屏用户需要可视返回入口, 遥控器返回键之外),
