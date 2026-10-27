@@ -22,6 +22,7 @@ type UserService struct {
 	history    repository.HistoryRepository
 	favorite   repository.FavoriteRepository
 	skips      repository.SkipSettingRepository
+	web        repository.WebSettingRepository // Web 设置快照(账号记忆, JSON blob); setter 注入, 未接线时方法空转
 	search     repository.SearchRepository // 历史/收藏卡片回填
 	tokens     *auth.TokenManager
 	maxDevices int
@@ -37,6 +38,41 @@ type UserService struct {
 // SetPolicyProvider 注入登录策略读取器(组合根接 site_config; 改动下次登录生效)。
 func (s *UserService) SetPolicyProvider(fn func(ctx context.Context) (time.Duration, int)) {
 	s.policy = fn
+}
+
+// SetWebSettingRepo 注入 Web 设置快照存储(组合根接 mysql; 未注入时方法空转, 测试免传)。
+func (s *UserService) SetWebSettingRepo(r repository.WebSettingRepository) {
+	if s != nil {
+		s.web = r
+	}
+}
+
+// ---- Web 端设置快照(账号记忆, JSON blob 整存整取) ----
+
+// WebSettingGet 取用户 Web 设置快照; 从未存过返回空对象(非错误)。
+func (s *UserService) WebSettingGet(ctx context.Context, userId int64) (entity.JSONMap, error) {
+	if s.web == nil {
+		return entity.JSONMap{}, nil
+	}
+	row, err := s.web.Get(ctx, userId)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil || row.Data == nil {
+		return entity.JSONMap{}, nil
+	}
+	return row.Data, nil
+}
+
+// WebSettingPut 整包覆盖用户 Web 设置快照。
+func (s *UserService) WebSettingPut(ctx context.Context, userId int64, data entity.JSONMap) error {
+	if s.web == nil {
+		return nil // 未接线(测试)空转
+	}
+	if data == nil {
+		data = entity.JSONMap{}
+	}
+	return s.web.Upsert(ctx, &entity.WebSetting{UserId: userId, Data: data})
 }
 
 // loginPolicy 取当前生效的登录策略, 缺省回退构造期值。

@@ -9,6 +9,7 @@ import { buildPlayLink } from '@/stores/history'
 import { jerocine, isNative } from '@/utils/jerocineNative'
 import { telemetry } from '@/utils/telemetry'
 import { startOnlineHeartbeat, trackPageview, touchNativeWatching } from '@/utils/onlineHeartbeat'
+import { startCloudSettingsSync } from '@/composables/useCloudSettings'
 import { confirm } from '@/composables/useConfirm'
 
 // 布局壳静态导入（首屏必须）
@@ -193,6 +194,9 @@ function applyFavicon(url?: string | null): void {
 
 onMounted(() => {
   void maybePromptResume()
+
+  // Web 设置账号记忆: 登录态下拉取云端快照合并本地, 设置变更防抖上报(未登录纯本地)
+  startCloudSettingsSync()
 
   // 全站在线心跳(匿名): 打开页面即在线; 播放状态由 PlayView(video.js) 与
   // native playerProgress 事件分别驱动 watching。

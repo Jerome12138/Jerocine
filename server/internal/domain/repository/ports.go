@@ -301,9 +301,15 @@ type FavoriteRepository interface {
 
 // SkipSettingRepository 每用户每片片头/片尾跳过设置。
 type SkipSettingRepository interface {
-	List(ctx context.Context, userId int64) ([]entity.UserSkipSetting, error)
-	Upsert(ctx context.Context, s *entity.UserSkipSetting) error // (user_id,mid) 冲突则更新
-	Delete(ctx context.Context, userId, mid int64) error
+        List(ctx context.Context, userId int64) ([]entity.UserSkipSetting, error)
+        Upsert(ctx context.Context, s *entity.UserSkipSetting) error // (user_id,mid) 冲突则更新
+        Delete(ctx context.Context, userId, mid int64) error
+}
+
+// WebSettingRepository 每用户 Web 端设置快照 (JSON blob 整存整取, 见 entity.WebSetting)。
+type WebSettingRepository interface {
+        Get(ctx context.Context, userId int64) (*entity.WebSetting, error) // 未存过返回 (nil, nil)
+        Upsert(ctx context.Context, s *entity.WebSetting) error            // (user_id) 冲突则更新
 }
 
 // TelemetryRepository 埋点入库 + 分析查询 + 问题闭环。

@@ -68,6 +68,13 @@ function persist(key: string, value: string): void {
     localStorage.setItem(key, value)
   } catch {
     /* 隐私模式忽略 */
+    return
+  }
+  // 账号记忆: 设置持久化即通知云同步(useCloudSettings 防抖上报 /me/web-settings)
+  try {
+    window.dispatchEvent(new CustomEvent('jc-setting-changed', { detail: { key } }))
+  } catch {
+    /* ignore */
   }
 }
 

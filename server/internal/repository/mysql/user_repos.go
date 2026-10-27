@@ -246,6 +246,33 @@ func (r *skipRepo) Delete(ctx context.Context, userId, mid int64) error {
 	return dbFrom(ctx, r.db).Where("user_id = ? AND mid = ?", userId, mid).Delete(&entity.UserSkipSetting{}).Error
 }
 
+// ---- web_setting (每用户 Web 设置快照, JSON blob 整存整取) ----
+
+type webSettingRepo struct{ db *gorm.DB }
+
+func NewWebSettingRepository(db *gorm.DB) repository.WebSettingRepository {
+	return &webSettingRepo{db: db}
+}
+
+func (r *webSettingRepo) Get(ctx context.Context, userId int64) (*entity.WebSetting, error) {
+	var out entity.WebSetting
+	err := dbFrom(ctx, r.db).Where("user_id = ?", userId).First(&out).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (r *webSettingRepo) Upsert(ctx context.Context, s *entity.WebSetting) error {
+	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"data", "updated_at"}),
+	}).Create(s).Error
+}
+
 // ---- telemetry ----
 
 type telemetryRepo struct{ db *gorm.DB }

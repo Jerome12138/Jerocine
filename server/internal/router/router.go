@@ -93,6 +93,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		me.GET("/me/skip-settings", h.SkipList)
 		me.PUT("/me/skip-settings/:mid", h.SkipSave)
 		me.DELETE("/me/skip-settings/:mid", h.SkipReset)
+		// 账号级 Web 设置快照(弹幕开关/弹幕配置/广告过滤/连播等, JSON blob 整存整取)
+		me.GET("/me/web-settings", h.WebSettingGet)
+		me.PUT("/me/web-settings", h.WebSettingPut)
 	}
 
 	// ---- 管理后台(Bearer + Admin + no-store) ----

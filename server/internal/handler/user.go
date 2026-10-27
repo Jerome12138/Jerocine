@@ -277,3 +277,29 @@ func (h *Handlers) SkipReset(c *gin.Context) {
 	}
 	dto.NoContent(c)
 }
+
+// WebSettingGet GET /me/web-settings (账号级 Web 设置快照, JSON blob 整存整取; 未存过返回空对象)
+func (h *Handlers) WebSettingGet(c *gin.Context) {
+	data, err := h.User.WebSettingGet(c.Request.Context(), currentUserID(c))
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"data": data})
+}
+
+// WebSettingPut PUT /me/web-settings {data: {...}} — 整包覆盖, 合并策略在前端
+func (h *Handlers) WebSettingPut(c *gin.Context) {
+	var req struct {
+		Data entity.JSONMap `json:"data"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	if err := h.User.WebSettingPut(c.Request.Context(), currentUserID(c), req.Data); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"saved": true})
+}

@@ -164,6 +164,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	historyRepo := repomysql.NewHistoryRepository(gdb)
 	favoriteRepo := repomysql.NewFavoriteRepository(gdb)
 	skipRepo := repomysql.NewSkipSettingRepository(gdb)
+	webSettingRepo := repomysql.NewWebSettingRepository(gdb)
 	telemetryRepo := repomysql.NewTelemetryRepository(gdb)
 	healthRepo := repomysql.NewSourceHealthRepository(gdb)
 	failureRepo := repomysql.NewCollectFailureRepository(gdb)
@@ -172,6 +173,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	// services
 	filmSvc := service.NewFilmService(searchRepo, movieRepo, playRepo, categoryRepo, healthRepo, sourceRepo, cfg.PageSizes)
 	userSvc := service.NewUserService(userRepo, historyRepo, favoriteRepo, skipRepo, searchRepo, tokenMgr, cfg.JWT.MaxDevices, cfg.JWT.TTL)
+	userSvc.SetWebSettingRepo(webSettingRepo)
 	configSvc := service.NewConfigService(siteRepo, versionRepo)
 	// 登录策略(有效期/设备数)读 site_config(后台「系统设置 → 账号与安全」), 下次登录生效。
 	userSvc.SetPolicyProvider(func(ctx context.Context) (time.Duration, int) {

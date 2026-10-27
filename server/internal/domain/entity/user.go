@@ -60,4 +60,12 @@ type UserSkipSetting struct {
 	UpdatedAt int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
-func (UserSkipSetting) TableName() string { return "user_skip_setting" }
+func (UserSkipSetting) TableName() string { return "user_skip_setting" }// WebSetting 每用户的 Web 端设置快照 (table: web_setting) — data 为 key→value JSON blob,
+// 前端整存整取(localStorage 镜像): 未登录走本地, 登录后双写云端; 新设置项进 blob 即随账号记忆。
+type WebSetting struct {
+	UserId    int64   `gorm:"column:user_id;primaryKey" json:"userId"`
+	Data      JSONMap `gorm:"column:data;type:json" json:"data"`
+	UpdatedAt int64   `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+}
+
+func (WebSetting) TableName() string { return "web_setting" }

@@ -7,6 +7,7 @@ import {
 } from 'vue'
 import type Player from 'video.js/dist/types/player'
 import { createEngine, type DanmakuEngine, type DanmakuItem } from 'danmaku-lite/canvas'
+import { SETTINGS_APPLIED_EVENT } from '@/utils/settingEvents'
 import { filmApi } from '@/api'
 import type { DanmuComment, DanmuProvider, DanmuTencentSegment } from '@/types/film'
 import {
@@ -220,6 +221,13 @@ function writeDanmakuSettings(s: DanmakuSettings): void {
     localStorage.setItem(DANMAKU_SETTINGS_KEY, JSON.stringify(s))
   } catch {
     /* localStorage 不可用时仅本轮生效 */
+    return
+  }
+  // 账号记忆: 设置持久化即通知云同步(useCloudSettings 防抖上报 /me/web-settings)
+  try {
+    window.dispatchEvent(new CustomEvent('jc-setting-changed', { detail: { key: DANMAKU_SETTINGS_KEY } }))
+  } catch {
+    /* ignore */
   }
 }
 
@@ -776,6 +784,21 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   watch(danmuState, (to, from) => {
     console.log('[danmaku] state:', from, '→', to)
   })
+  /** 云端设置合并到此设备(useCloudSettings 广播): 重读设置; 底部/顶部/彩色类变更需重载映射 */
+  const onCloudApplied = (): void => {
+    const prev = { ...settings.value }
+    settings.value = readDanmakuSettings()
+    applyEngineSettings()
+    if (
+      prev.bottomMode !== settings.value.bottomMode ||
+      prev.topMode !== settings.value.topMode ||
+      prev.colored !== settings.value.colored
+    ) {
+      loadedKey = null
+      void loadDanmaku(true)
+    }
+  }
+  window.addEventListener(SETTINGS_APPLIED_EVENT, onCloudApplied)
 
   onScopeDispose(() => {
     loadToken++
@@ -805,6 +828,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     loadedKey = null
     lastBiliComments = null
     activeProviderKind = null
+    window.removeEventListener(SETTINGS_APPLIED_EVENT, onCloudApplied)
   })
 
   return {
