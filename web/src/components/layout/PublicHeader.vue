@@ -13,6 +13,7 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import PwaUpdateBadge from '@/components/base/PwaUpdateBadge.vue'
+import { usePwaUpdate } from '@/composables/usePwaUpdate'
 import TvHeaderActions from '@/components/layout/TvHeaderActions.vue'
 import LogoMark from '@/components/brand/LogoMark.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
@@ -40,6 +41,10 @@ const uiStore = useUIStore()
 const historyStore = useHistoryStore()
 const userStore = useUserStore()
 const { isTV, isMobile, isTablet } = useViewMode()
+/** 新版本检测/切换: 徽标(brand 右侧) + 移动抽屉「立即更新」菜单项共用 */
+const { updateFound, updateReady, applyUpdate } = usePwaUpdate()
+const pwaUpdateVisible = computed(() => updateFound.value || updateReady.value)
+const pwaUpdateText = computed(() => (updateReady.value ? '立即更新' : '发现更新'))
 
 /**
  * 二级页面左上角"返回"按钮 — 仅 TV 模式显示(触屏用户需要可视返回入口, 遥控器返回键之外),
@@ -1165,6 +1170,19 @@ watch(
               <BaseIcon name="settings" size="16px" class="jc-mnav__link-icon" />
               <span>后台管理</span>
             </RouterLink>
+          </div>
+          <!-- 新版本(检测到即出现; 预取未完成时点击清缓存强制切新版) -->
+          <div v-if="pwaUpdateVisible" class="jc-mnav__group">
+            <div class="jc-mnav__divider" role="separator" aria-label="更新" />
+            <button
+              type="button"
+              class="jc-mnav__link"
+              data-focusable="true"
+              @click="applyUpdate"
+            >
+              <BaseIcon name="refresh" size="16px" class="jc-mnav__link-icon" />
+              <span>{{ pwaUpdateText }}</span>
+            </button>
           </div>
 
           <!-- 账户 -->

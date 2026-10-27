@@ -26,6 +26,8 @@ export interface PwaUpdate {
   applyUpdate: () => void
   /** 当前环境是否支持 Service Worker */
   supported: boolean
+  /** 检测到新版本(开始下载, 可能尚未接管) —— 徽标此刻即亮 */
+  updateFound: Ref<boolean>
 }
 
 /** Service Worker 是否可用(不支持则整体降级为"无更新提示", 不影响主路径) */
@@ -33,20 +35,41 @@ function detectSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serviceWorker' in navigator
 }
 
+/** 清掉本应用的 SW 缓存(precache + 静态 runtime cache)。
+ *  用于"新版本预取未完成就点立即更新": 清掉旧缓存后 reload, 导航请求 miss →
+ *  直接走网络拿新 index.html 与新资源, 立即生效; 新 SW 随后自行完成 install 重建缓存。 */
+async function clearAppCaches(): Promise<void> {
+  try {
+    const keys = await caches.keys()
+    await Promise.all(
+      keys
+        .filter((k) => k.startsWith('workbox') || k === 'jc-assets')
+        .map((k) => caches.delete(k))
+    )
+  } catch {
+    /* Cache API 不可用时忽略 —— reload 后靠浏览器 HTTP 缓存策略兜底 */
+  }
+}
+
 export function usePwaUpdate(): PwaUpdate {
   const supported = detectSupported()
   const updateReady = ref(false)
+  /** 检测到新版本开始下载(install 中, 尚未接管) —— 徽标此刻即出现, 不必等预取完成 */
+  const updateFound = ref(false)
 
   // 进入页面时是否已被 SW 控制 —— 决定 controllerchange 是"初次接管"还是"换新版本"
   const hadController = supported && !!navigator.serviceWorker.controller
 
   let listener: (() => void) | null = null
+  /** 主动检测链路的清理(定时器/事件), 与 controllerchange 监听同生命周期 */
+  let cleanupExtra: (() => void) | null = null
 
   onMounted(() => {
     if (!supported) return
     listener = () => {
       if (!hadController) return // 首次接管, 不是"更新", 不提示
       updateReady.value = true
+      updateFound.value = true
       // 新 SW 已接管 ⇒ 之后 reload 会拿到新 index.html, chunk 404 自愈可重新生效 ⇒ 清闸门
       try {
         sessionStorage.removeItem(CHUNK_RELOAD_GUARD_KEY)
@@ -60,16 +83,54 @@ export function usePwaUpdate(): PwaUpdate {
         .catch(() => {})
     }
     navigator.serviceWorker.addEventListener('controllerchange', listener)
+
+    // updatefound: 有新版本开始下载(install 中) —— 此刻即亮徽标, 不等预取完成。
+    // 首访(未被 SW 控制)的初次安装不算更新。
+    navigator.serviceWorker.getRegistration()?.then((reg) => {
+      reg?.addEventListener('updatefound', () => {
+        if (hadController) updateFound.value = true
+      })
+    }).catch(() => {})
+
+    // 主动更新检测: 浏览器默认只在导航时 check, SW install 又要预取全部新资源(弱网数十秒),
+    // "发版后刷新也拿不到新版"由此而来 —— 这里周期性 + 可见性恢复时立即 registration.update(),
+    // 让 skipWaiting 的新 SW 尽早激活接管(controllerchange → updateReady → 各头部「新版本」徽标)。
+    let checkTimer: number | undefined
+    const checkNow = (): void => {
+      navigator.serviceWorker.getRegistration()?.then((reg) => reg?.update()).catch(() => {})
+    }
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') checkNow()
+    }
+    checkNow()
+    checkTimer = window.setInterval(checkNow, 60_000)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('pageshow', onVisible)
+    cleanupExtra = () => {
+      if (checkTimer !== undefined) window.clearInterval(checkTimer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('pageshow', onVisible)
+    }
   })
 
   onBeforeUnmount(() => {
     if (listener) navigator.serviceWorker.removeEventListener('controllerchange', listener)
     listener = null
+    if (cleanupExtra) cleanupExtra()
+    cleanupExtra = null
   })
 
   function applyUpdate(): void {
-    if (typeof window !== 'undefined') window.location.reload()
+    if (typeof window === 'undefined') return
+    if (updateReady.value) {
+      // 新 SW 已接管: 直接刷新即拿到新 index.html
+      window.location.reload()
+      return
+    }
+    // 新 SW 仍在 install(预取未完): 清掉旧缓存后 reload —— 导航请求 miss precache,
+    // 直接走网络拿新版本, 不等漫长的预取; 新 SW 随后自行完成 install 重建缓存。
+    void clearAppCaches().finally(() => window.location.reload())
   }
 
-  return { updateReady, applyUpdate, supported }
+  return { updateReady, updateFound, applyUpdate, supported }
 }

@@ -6,6 +6,7 @@ import { useUserStore } from '@/stores/user'
 import BaseButton from '@/components/base/BaseButton.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import PwaUpdateBadge from '@/components/base/PwaUpdateBadge.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 
@@ -92,6 +93,9 @@ const avatar = computed(() => {
       </button>
       <!-- 页面标题不再放头部: 各页面内部已有自己的标题, 侧栏顶部有「站点名 后台管理」锚点 -->
     </div>
+
+    <!-- 新版本就绪提示(与公共头部同款): 管理端也即时可见 -->
+    <PwaUpdateBadge />
 
     <div class="relative">
       <button
