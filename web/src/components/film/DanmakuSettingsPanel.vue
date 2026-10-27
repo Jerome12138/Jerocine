@@ -9,6 +9,7 @@
  * 开关层级(2026-10-27): 仅保留用户级总开关(默认关); 单影片开关已移除,
  * 弹幕配置数据全局生效。实际生效 = 全局开关 && 非移动端(移动端不开放弹幕)。
  */
+import { computed } from 'vue'
 import type { DanmuProvider } from '@/types/film'
 import {
   DANMAKU_FONT_STEPS,
@@ -51,25 +52,41 @@ const LIMIT_LABELS = ['少', '中', '多', '不限'] as const
 function patch(p: Partial<DanmakuSettings>): void {
   emit('update', p)
 }
+
+// 主开关行「弹幕源」标签（与开关状态无关）：
+//  - 单源/无源：标签样式「弹幕源 · 腾讯」；无源显示「本集无弹幕」
+//  - 多源：不在此处显示，交给下方「弹幕源」分段切换行
+const showSourceSlot = computed(() => props.providers.length <= 1)
+const sourceHasDanmu = computed(() => props.providers.length > 0)
+const sourceText = computed(() => {
+  if (props.providers.length === 0) return '本集无弹幕'
+  return '弹幕源 · ' + providerLabel(props.provider)
+})
+
 </script>
 
 <template>
   <div class="jc-danmu-panel">
     <!-- 弹幕总开关(用户级): 全站唯一开关, 默认关; 已移除单影片开关(2026-10-27) -->
     <div class="jc-danmu-panel__row jc-danmu-panel__row--main">
-      <div class="jc-danmu-panel__label">
-        <span>弹幕</span>
+      <!-- 左：弹幕标题 + 主开关（开关区域不变） -->
+      <div class="jc-danmu-main-left">
+        <span class="jc-danmu-main-title">弹幕</span>
+        <button
+          type="button"
+          class="jc-danmu-switch"
+          :class="{ 'is-on': enabled }"
+          role="switch"
+          :aria-checked="enabled"
+          @click="emit('toggle-enabled')"
+        >
+          <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
+        </button>
       </div>
-      <button
-        type="button"
-        class="jc-danmu-switch"
-        :class="{ 'is-on': enabled }"
-        role="switch"
-        :aria-checked="enabled"
-        @click="emit('toggle-enabled')"
-      >
-        <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
-      </button>
+      <!-- 右：弹幕源标签（有源「弹幕源 · 腾讯」/ 无源「本集无弹幕」） -->
+      <div class="jc-danmu-main-right">
+        <span v-if="showSourceSlot" class="jc-danmu-source" :class="sourceHasDanmu ? 'is-has' : 'is-none'">{{ sourceText }}</span>
+      </div>
     </div>
 
     <!-- 字号: 档位式, 0=自适应(随全屏/移动端) -->
@@ -222,6 +239,41 @@ function patch(p: Partial<DanmakuSettings>): void {
 }
 .jc-danmu-panel__row--main {
   padding-bottom: 4px;
+}
+.jc-danmu-main-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.jc-danmu-main-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--jc-text-primary, #e6e8ee);
+}
+.jc-danmu-main-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.jc-danmu-source {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.jc-danmu-source.is-has {
+  color: var(--jc-accent, #3b82f6);
+  background: color-mix(in srgb, var(--jc-accent, #3b82f6) 16%, transparent);
+}
+.jc-danmu-source.is-none {
+  color: var(--jc-text-tertiary, #8a8f9c);
+  background: rgba(255, 255, 255, 0.06);
 }
 .jc-danmu-panel__label {
   display: flex;
