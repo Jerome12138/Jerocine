@@ -1402,6 +1402,18 @@ watch(loading, (v) => {
     loadingFallbackTimer = undefined
     if (!loading.value) return
     loading.value = false
+    // 45s 未就绪上报(区分"正在缓冲"卡死: playSrc 已就绪但 canplay 不来 = 视频数据层卡住)
+    telemetry.track('error', {
+      category: 'video-loading-fallback',
+      action: playSrcReady.value ? 'src-ready-stuck' : 'src-not-ready',
+      label: currentSrc.value.slice(0, 160),
+      value: LOADING_FALLBACK_MS,
+      extra: {
+        sourceId: currentSourceId.value,
+        episodeIndex: currentEpisodeIndex.value,
+        filmId: detail.value ? String(detail.value.mid) : undefined
+      }
+    })
     toast('info', '视频加载较慢, 可尝试切换播放源')
   }, LOADING_FALLBACK_MS)
 })
@@ -1724,6 +1736,22 @@ function handleVideoError(): void {
   if (!detail.value) return
   const p = player.value
   if (!p) return
+  // 视频级错误上报(此前无 video error 埋点, iOS 卡"正在缓冲"类问题在遥测里是盲区)
+  const mediaErr = p.error()
+  telemetry.track('error', {
+    category: 'video-error',
+    action: `code:${mediaErr?.code ?? '-'}`,
+    label: currentSrc.value.slice(0, 160),
+    value: currentSourceId.value ? 1 : 0,
+    extra: {
+      mediaMessage: mediaErr?.message ?? '',
+      sourceId: currentSourceId.value,
+      sourceName: currentSource.value?.name,
+      episodeIndex: currentEpisodeIndex.value,
+      filmId: detail.value ? String(detail.value.mid) : undefined,
+      adFilter: adFilter.value
+    }
+  })
   // 出错即解除 loading 遮罩(阻塞态), 后续反馈交给 videoErrorMsg/重试/换源流程, 避免遮罩死锁
   loading.value = false
   // 切集互斥窗口内的 error 是旧源残余事件: 不重试(避免重挂旧 src 与切换打架),
