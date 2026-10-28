@@ -124,6 +124,32 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  danmu_api:
+    container_name: jerocine_danmu_api
+    # 聚合弹幕 API(danmu_api, dandanplay v2 兼容): 未修改官方镜像自部署(AGPL 合规)。
+    # 定位: 第三方播放器端点/兜底源 —— 不参与主链路(Go 网关只连 jerocine_danmu)。
+    # 常驻实例的意义: 弹幕正文缓存(进程内存 + .cache 文件)跨请求生效, EdgeOne
+    # serverless 上无此效果(实测每次整集重拉 33s); 详见 Harness docs/danmu_api-EdgeOne部署指南。
+    image: logvar/danmu-api:latest
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      # 强随机值在 deploy/.env(不入库); 默认 87654321 免鉴权, 绝不能用
+      TOKEN: "${DANMU_API_TOKEN}"
+      ADMIN_TOKEN: "${DANMU_API_ADMIN_TOKEN}"
+      RATE_LIMIT_MAX_REQUESTS: "60"
+    ports:
+      # 仅回环: 服务器上 curl 验证/调试; 对外暴露(nginx api 域 location)待定再开
+      - "127.0.0.1:9321:9321"
+    volumes:
+      # .cache 文件持久化: 常驻进程重建后弹幕/搜索缓存可恢复
+      - ${JEROCINE_DEPLOY_ROOT:-.}/data/danmu-api-cache:/app/.cache
+    networks:
+      - jerocine-network
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
   nginx:
     container_name: jerocine_nginx
     build:
