@@ -138,6 +138,19 @@ services:
       TOKEN: "${DANMU_API_TOKEN}"
       ADMIN_TOKEN: "${DANMU_API_ADMIN_TOKEN}"
       RATE_LIMIT_MAX_REQUESTS: "60"
+      # 接现有 Redis 独立 DB(/2) 与 Go 服务(0/1)隔离: 持久化收藏 + commentId→URL
+      # 映射 + 选择记忆(容器重建后第三方播放器的收藏 id 不失效)。注意: 弹幕正文
+      # 缓存按项目设计仅进程内存, 不进任何 Redis(源码 cache-util.js 白名单)。
+      LOCAL_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
+      # 常驻实例把内存缓存 TTL 从默认 3-5 分钟调到 24h: 热集长期毫秒级命中
+      COMMENT_CACHE_MINUTES: "1440"
+      SEARCH_CACHE_MINUTES: "1440"
+      # 严格标题匹配(防模糊错配) + 过滤预告/花絮(EPISODE_TITLE_FILTER 有内置默认正则)
+      STRICT_TITLE_MATCH: "true"
+      ENABLE_ANIME_EPISODE_FILTER: "true"
+      # TMDB: Key 复用 deploy/.env 现值(不入库); 配合 TITLE_TO_CHINESE 做外语标题转中文
+      TMDB_API_KEY: "${TMDB_API_KEY}"
+      TITLE_TO_CHINESE: "true"
     ports:
       # 仅回环: 服务器上 curl 验证/调试; 对外暴露(nginx api 域 location)待定再开
       - "127.0.0.1:9321:9321"
