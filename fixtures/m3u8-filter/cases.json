@@ -1,0 +1,224 @@
+{
+  "cases": [
+    {
+      "name": "absolutize_mixed",
+      "base": "https://cdn.example.com/play/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:5.0,\nseg0.ts\n#EXTINF:5.0,\n/abs/seg1.ts\n",
+      "filterAds": false,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg0.ts\n#EXTINF:5.0,\nhttps://cdn.example.com/abs/seg1.ts\n",
+        "filtered": 0,
+        "total": 2
+      }
+    },
+    {
+      "name": "cross_domain_drop",
+      "base": "https://cdn.example.com/play/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:5.0,\nseg0.ts\n#EXTINF:2.0,\nhttps://ads.evil.com/ad0.ts\n#EXTINF:5.0,\nseg1.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg0.ts\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg1.ts\n",
+        "filtered": 1,
+        "total": 3
+      }
+    },
+    {
+      "name": "multi_cdn_keep",
+      "base": "https://1080p.huyall.com/play/hls/x/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:5.0,\nhttps://c.baisiweiting.com:18443/hls/p0.ts\n#EXTINF:5.0,\nhttps://c.baisiweiting.com:18443/hls/p1.ts\n#EXTINF:5.0,\nhttps://c.baisiweiting.com:18443/hls/p2.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:5.0,\nhttps://c.baisiweiting.com:18443/hls/p0.ts\n#EXTINF:5.0,\nhttps://c.baisiweiting.com:18443/hls/p1.ts\n#EXTINF:5.0,\nhttps://c.baisiweiting.com:18443/hls/p2.ts\n",
+        "filtered": 0,
+        "total": 3
+      }
+    },
+    {
+      "name": "minority_host_drop",
+      "base": "https://play.x.com/hls/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:5.0,\nhttps://cdnA.com/s0.ts\n#EXTINF:5.0,\nhttps://cdnA.com/s1.ts\n#EXTINF:2.0,\nhttps://ads.evil.com/ad.ts\n#EXTINF:5.0,\nhttps://cdnA.com/s2.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:5.0,\nhttps://cdnA.com/s0.ts\n#EXTINF:5.0,\nhttps://cdnA.com/s1.ts\n#EXTINF:5.0,\nhttps://cdnA.com/s2.ts\n",
+        "filtered": 1,
+        "total": 4
+      }
+    },
+    {
+      "name": "number_outlier_drop",
+      "base": "https://v.lzfile26.com/x/2000k/hls/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nseg5000000.ts\n#EXTINF:4.0,\nseg5000001.ts\n#EXTINF:4.0,\nseg5000002.ts\n#EXTINF:4.0,\nseg5000003.ts\n#EXTINF:4.0,\nseg5000004.ts\n#EXTINF:4.0,\nseg5000005.ts\n#EXTINF:4.0,\nseg5000006.ts\n#EXTINF:4.0,\nseg5000007.ts\n#EXTINF:4.0,\nseg5000008.ts\n#EXTINF:4.0,\nseg5000009.ts\n#EXTINF:4.0,\nseg50184765.ts\n#EXTINF:4.0,\nseg50184766.ts\n#EXTINF:4.0,\nseg5000010.ts\n#EXTINF:4.0,\nseg5000011.ts\n#EXTINF:4.0,\nseg5000012.ts\n#EXTINF:4.0,\nseg5000013.ts\n#EXTINF:4.0,\nseg5000014.ts\n#EXTINF:4.0,\nseg5000015.ts\n#EXTINF:4.0,\nseg5000016.ts\n#EXTINF:4.0,\nseg5000017.ts\n#EXTINF:4.0,\nseg5000018.ts\n#EXTINF:4.0,\nseg5000019.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000000.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000001.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000002.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000003.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000004.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000005.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000006.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000007.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000008.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000009.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000010.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000011.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000012.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000013.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000014.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000015.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000016.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000017.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000018.ts\n#EXTINF:4.0,\nhttps://v.lzfile26.com/x/2000k/hls/seg5000019.ts\n",
+        "filtered": 2,
+        "total": 22
+      }
+    },
+    {
+      "name": "number_cap_keep",
+      "base": "https://h/x/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:4.0,\nseg100.ts\n#EXTINF:4.0,\nseg101.ts\n#EXTINF:4.0,\nseg102.ts\n#EXTINF:4.0,\nseg103.ts\n#EXTINF:4.0,\nseg104.ts\n#EXTINF:4.0,\nseg105.ts\n#EXTINF:4.0,\nseg106.ts\n#EXTINF:4.0,\nseg107.ts\n#EXTINF:4.0,\nseg108.ts\n#EXTINF:4.0,\nseg109.ts\n#EXTINF:4.0,\nseg900000.ts\n#EXTINF:4.0,\nseg900001.ts\n#EXTINF:4.0,\nseg900002.ts\n#EXTINF:4.0,\nseg900003.ts\n#EXTINF:4.0,\nseg900004.ts\n#EXTINF:4.0,\nseg900005.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:4.0,\nhttps://h/x/seg100.ts\n#EXTINF:4.0,\nhttps://h/x/seg101.ts\n#EXTINF:4.0,\nhttps://h/x/seg102.ts\n#EXTINF:4.0,\nhttps://h/x/seg103.ts\n#EXTINF:4.0,\nhttps://h/x/seg104.ts\n#EXTINF:4.0,\nhttps://h/x/seg105.ts\n#EXTINF:4.0,\nhttps://h/x/seg106.ts\n#EXTINF:4.0,\nhttps://h/x/seg107.ts\n#EXTINF:4.0,\nhttps://h/x/seg108.ts\n#EXTINF:4.0,\nhttps://h/x/seg109.ts\n#EXTINF:4.0,\nhttps://h/x/seg900000.ts\n#EXTINF:4.0,\nhttps://h/x/seg900001.ts\n#EXTINF:4.0,\nhttps://h/x/seg900002.ts\n#EXTINF:4.0,\nhttps://h/x/seg900003.ts\n#EXTINF:4.0,\nhttps://h/x/seg900004.ts\n#EXTINF:4.0,\nhttps://h/x/seg900005.ts\n",
+        "filtered": 0,
+        "total": 16
+      }
+    },
+    {
+      "name": "hashed_names_skip",
+      "base": "https://h/x/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:4.0,\nseg_aa.ts\n#EXTINF:4.0,\nseg_bb.ts\n#EXTINF:4.0,\nseg_cc.ts\n#EXTINF:4.0,\nseg_dd.ts\n#EXTINF:4.0,\nseg_ee.ts\n#EXTINF:4.0,\nseg_ff.ts\n#EXTINF:4.0,\nseg_gg.ts\n#EXTINF:4.0,\nseg_hh.ts\n#EXTINF:4.0,\nseg_ii.ts\n#EXTINF:4.0,\nseg_jj.ts\n#EXTINF:4.0,\nseg_kk.ts\n#EXTINF:4.0,\nseg_ll.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:4.0,\nhttps://h/x/seg_aa.ts\n#EXTINF:4.0,\nhttps://h/x/seg_bb.ts\n#EXTINF:4.0,\nhttps://h/x/seg_cc.ts\n#EXTINF:4.0,\nhttps://h/x/seg_dd.ts\n#EXTINF:4.0,\nhttps://h/x/seg_ee.ts\n#EXTINF:4.0,\nhttps://h/x/seg_ff.ts\n#EXTINF:4.0,\nhttps://h/x/seg_gg.ts\n#EXTINF:4.0,\nhttps://h/x/seg_hh.ts\n#EXTINF:4.0,\nhttps://h/x/seg_ii.ts\n#EXTINF:4.0,\nhttps://h/x/seg_jj.ts\n#EXTINF:4.0,\nhttps://h/x/seg_kk.ts\n#EXTINF:4.0,\nhttps://h/x/seg_ll.ts\n",
+        "filtered": 0,
+        "total": 12
+      }
+    },
+    {
+      "name": "no_dominant_cluster_skip",
+      "base": "https://h/x/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:4.0,\nseg100.ts\n#EXTINF:4.0,\nseg101.ts\n#EXTINF:4.0,\nseg102.ts\n#EXTINF:4.0,\nseg103.ts\n#EXTINF:4.0,\nseg104.ts\n#EXTINF:4.0,\nseg500000.ts\n#EXTINF:4.0,\nseg500001.ts\n#EXTINF:4.0,\nseg500002.ts\n#EXTINF:4.0,\nseg500003.ts\n#EXTINF:4.0,\nseg500004.ts\n#EXTINF:4.0,\nseg900000.ts\n#EXTINF:4.0,\nseg900001.ts\n#EXTINF:4.0,\nseg900002.ts\n#EXTINF:4.0,\nseg900003.ts\n#EXTINF:4.0,\nseg900004.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:4.0,\nhttps://h/x/seg100.ts\n#EXTINF:4.0,\nhttps://h/x/seg101.ts\n#EXTINF:4.0,\nhttps://h/x/seg102.ts\n#EXTINF:4.0,\nhttps://h/x/seg103.ts\n#EXTINF:4.0,\nhttps://h/x/seg104.ts\n#EXTINF:4.0,\nhttps://h/x/seg500000.ts\n#EXTINF:4.0,\nhttps://h/x/seg500001.ts\n#EXTINF:4.0,\nhttps://h/x/seg500002.ts\n#EXTINF:4.0,\nhttps://h/x/seg500003.ts\n#EXTINF:4.0,\nhttps://h/x/seg500004.ts\n#EXTINF:4.0,\nhttps://h/x/seg900000.ts\n#EXTINF:4.0,\nhttps://h/x/seg900001.ts\n#EXTINF:4.0,\nhttps://h/x/seg900002.ts\n#EXTINF:4.0,\nhttps://h/x/seg900003.ts\n#EXTINF:4.0,\nhttps://h/x/seg900004.ts\n",
+        "filtered": 0,
+        "total": 15
+      }
+    },
+    {
+      "name": "bf_ep146_adjump",
+      "base": "https://v.fengbao8.com/video/x/ep146/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:2,\n0000000.ts\n#EXTINF:2,\n0000001.ts\n#EXTINF:2,\n0000002.ts\n#EXTINF:2,\n0000003.ts\n#EXTINF:2,\n0000004.ts\n#EXTINF:2,\n0000005.ts\n#EXTINF:2,\n0000006.ts\n#EXTINF:2,\n0000007.ts\n#EXTINF:2,\n0000008.ts\n#EXTINF:2,\n0000009.ts\n#EXTINF:2,\n0000010.ts\n#EXTINF:2,\n0000011.ts\n#EXTINF:2,\n0000012.ts\n#EXTINF:2,\n0000013.ts\n#EXTINF:2,\n0000014.ts\n#EXTINF:2,\n0000015.ts\n#EXTINF:2,\n0000016.ts\n#EXTINF:2,\n0000017.ts\n#EXTINF:2,\n0000018.ts\n#EXTINF:2,\n0000019.ts\n#EXTINF:2,\n0000020.ts\n#EXTINF:2,\n0000021.ts\n#EXTINF:2,\n0000022.ts\n#EXTINF:2,\n0000023.ts\n#EXTINF:2,\n0000024.ts\n#EXTINF:2,\n0000025.ts\n#EXTINF:2,\n0000026.ts\n#EXTINF:2,\n0000027.ts\n#EXTINF:2,\n0000028.ts\n#EXTINF:2,\n0000029.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:3,\n/video/adjump/time/17766952435470000000.ts\n#EXTINF:3,\n/video/adjump/time/17766952435470000001.ts\n#EXTINF:3,\n/video/adjump/time/17766952435470000002.ts\n#EXTINF:3,\n/video/adjump/time/17766952435470000003.ts\n#EXTINF:3,\n/video/adjump/time/17766952435470000004.ts\n#EXTINF:3,\n/video/adjump/time/17766952435470000005.ts\n#EXTINF:3,\n/video/adjump/time/17766952435470000006.ts\n#EXTINF:3,\n/video/adjump/time/17766952435470000007.ts\n#EXTINF:3,\n/video/adjump/time/17766952435470000008.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:2,\n0000030.ts\n#EXTINF:2,\n0000031.ts\n#EXTINF:2,\n0000032.ts\n#EXTINF:2,\n0000033.ts\n#EXTINF:2,\n0000034.ts\n#EXTINF:2,\n0000035.ts\n#EXTINF:2,\n0000036.ts\n#EXTINF:2,\n0000037.ts\n#EXTINF:2,\n0000038.ts\n#EXTINF:2,\n0000039.ts\n#EXTINF:2,\n0000040.ts\n#EXTINF:2,\n0000041.ts\n#EXTINF:2,\n0000042.ts\n#EXTINF:2,\n0000043.ts\n#EXTINF:2,\n0000044.ts\n#EXTINF:2,\n0000045.ts\n#EXTINF:2,\n0000046.ts\n#EXTINF:2,\n0000047.ts\n#EXTINF:2,\n0000048.ts\n#EXTINF:2,\n0000049.ts\n#EXTINF:2,\n0000050.ts\n#EXTINF:2,\n0000051.ts\n#EXTINF:2,\n0000052.ts\n#EXTINF:2,\n0000053.ts\n#EXTINF:2,\n0000054.ts\n#EXTINF:2,\n0000055.ts\n#EXTINF:2,\n0000056.ts\n#EXTINF:2,\n0000057.ts\n#EXTINF:2,\n0000058.ts\n#EXTINF:2,\n0000059.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000000.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000001.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000002.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000003.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000004.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000005.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000006.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000007.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000008.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000009.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000010.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000011.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000012.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000013.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000014.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000015.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000016.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000017.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000018.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000019.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000020.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000021.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000022.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000023.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000024.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000025.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000026.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000027.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000028.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000029.ts\n#EXT-X-DISCONTINUITY\n#EXT-X-DISCONTINUITY\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000030.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000031.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000032.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000033.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000034.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000035.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000036.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000037.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000038.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000039.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000040.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000041.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000042.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000043.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000044.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000045.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000046.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000047.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000048.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000049.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000050.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000051.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000052.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000053.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000054.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000055.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000056.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000057.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000058.ts\n#EXTINF:2,\nhttps://v.fengbao8.com/video/x/ep146/0000059.ts\n",
+        "filtered": 9,
+        "total": 69
+      }
+    },
+    {
+      "name": "cross_domain_counted",
+      "base": "https://play.x.com/hls/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:5,\nhttps://cdnA.com/s0.ts\n#EXTINF:5,\nhttps://cdnA.com/s1.ts\n#EXTINF:2,\nhttps://ads.evil.com/ad.ts\n#EXTINF:5,\nhttps://cdnA.com/s2.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:5,\nhttps://cdnA.com/s0.ts\n#EXTINF:5,\nhttps://cdnA.com/s1.ts\n#EXTINF:5,\nhttps://cdnA.com/s2.ts\n",
+        "filtered": 1,
+        "total": 4
+      }
+    },
+    {
+      "name": "head_short_kept",
+      "base": "https://v.src.com/x/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:0.8,\nseg0.ts\n#EXTINF:0.8,\nseg1.ts\n#EXTINF:0.8,\nseg2.ts\n#EXTINF:0.8,\nseg3.ts\n#EXTINF:4.0,\nseg4.ts\n#EXTINF:4.0,\nseg5.ts\n#EXTINF:4.0,\nseg6.ts\n#EXTINF:4.0,\nseg7.ts\n#EXTINF:4.0,\nseg8.ts\n#EXTINF:4.0,\nseg9.ts\n#EXTINF:4.0,\nseg10.ts\n#EXTINF:4.0,\nseg11.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:0.8,\nhttps://v.src.com/x/seg0.ts\n#EXTINF:0.8,\nhttps://v.src.com/x/seg1.ts\n#EXTINF:0.8,\nhttps://v.src.com/x/seg2.ts\n#EXTINF:0.8,\nhttps://v.src.com/x/seg3.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg4.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg5.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg6.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg7.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg8.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg9.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg10.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg11.ts\n",
+        "filtered": 0,
+        "total": 12
+      }
+    },
+    {
+      "name": "duration_outlier_warn_only",
+      "base": "https://v.src.com/x/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:4.0,\nseg0.ts\n#EXTINF:4.0,\nseg1.ts\n#EXTINF:4.0,\nseg2.ts\n#EXTINF:4.0,\nseg3.ts\n#EXTINF:4.0,\nseg4.ts\n#EXTINF:4.0,\nseg5.ts\n#EXTINF:4.0,\nseg6.ts\n#EXTINF:4.0,\nseg7.ts\n#EXTINF:4.0,\nseg8.ts\n#EXTINF:4.0,\nseg9.ts\n#EXTINF:25.0,\nseg_long.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:4.0,\nhttps://v.src.com/x/seg0.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg1.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg2.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg3.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg4.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg5.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg6.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg7.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg8.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg9.ts\n#EXTINF:25.0,\nhttps://v.src.com/x/seg_long.ts\n",
+        "filtered": 0,
+        "total": 11
+      }
+    },
+    {
+      "name": "short_burst_dropped",
+      "base": "https://v.src.com/x/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:4.0,\nseg0.ts\n#EXTINF:4.0,\nseg1.ts\n#EXTINF:4.0,\nseg2.ts\n#EXTINF:4.0,\nseg3.ts\n#EXTINF:4.0,\nseg4.ts\n#EXTINF:4.0,\nseg5.ts\n#EXTINF:0.8,\nseg_ad0.ts\n#EXTINF:0.8,\nseg_ad1.ts\n#EXTINF:0.8,\nseg_ad2.ts\n#EXTINF:0.8,\nseg_ad3.ts\n#EXTINF:4.0,\nseg6.ts\n#EXTINF:4.0,\nseg7.ts\n#EXTINF:4.0,\nseg8.ts\n#EXTINF:4.0,\nseg9.ts\n#EXTINF:4.0,\nseg10.ts\n#EXTINF:4.0,\nseg11.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:4.0,\nhttps://v.src.com/x/seg0.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg1.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg2.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg3.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg4.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg5.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg6.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg7.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg8.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg9.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg10.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg11.ts\n",
+        "filtered": 4,
+        "total": 16
+      }
+    },
+    {
+      "name": "short_burst_below_threshold_kept",
+      "base": "https://v.src.com/x/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:4.0,\nseg0.ts\n#EXTINF:4.0,\nseg1.ts\n#EXTINF:4.0,\nseg2.ts\n#EXTINF:4.0,\nseg3.ts\n#EXTINF:4.0,\nseg4.ts\n#EXTINF:4.0,\nseg5.ts\n#EXTINF:0.5,\nseg_short1.ts\n#EXTINF:0.5,\nseg_short2.ts\n#EXTINF:4.0,\nseg6.ts\n#EXTINF:4.0,\nseg7.ts\n#EXTINF:4.0,\nseg8.ts\n#EXTINF:4.0,\nseg9.ts\n#EXTINF:4.0,\nseg10.ts\n#EXTINF:4.0,\nseg11.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:4.0,\nhttps://v.src.com/x/seg0.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg1.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg2.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg3.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg4.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg5.ts\n#EXTINF:0.5,\nhttps://v.src.com/x/seg_short1.ts\n#EXTINF:0.5,\nhttps://v.src.com/x/seg_short2.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg6.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg7.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg8.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg9.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg10.ts\n#EXTINF:4.0,\nhttps://v.src.com/x/seg11.ts\n",
+        "filtered": 0,
+        "total": 14
+      }
+    },
+    {
+      "name": "cross_drop_cap_alternating_kept",
+      "base": "https://1080p.huyall.com/play/hls/x/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p0.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p1.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p2.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p3.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p4.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p5.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p6.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p7.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p8.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p9.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p10.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p11.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p0.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p1.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p2.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p3.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p4.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p5.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p6.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p7.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p8.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p9.ts\n#EXTINF:5.0,\nhttps://c1.example.com/hls/p10.ts\n#EXTINF:5.0,\nhttps://c2.example.com/hls/p11.ts\n",
+        "filtered": 0,
+        "total": 12
+      }
+    },
+    {
+      "name": "key_map_child_absolutized",
+      "base": "https://cdn.example.com/play/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nchild.m3u8\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:5.0,\nseg0.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nhttps://cdn.example.com/play/child.m3u8\n#EXT-X-KEY:METHOD=AES-128,URI=\"https://cdn.example.com/play/key.bin\"\n#EXT-X-MAP:URI=\"https://cdn.example.com/play/init.mp4\"\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg0.ts\n",
+        "filtered": 0,
+        "total": 1
+      }
+    },
+    {
+      "name": "master_first_child_absolutized",
+      "base": "https://cdn.example.com/path/master.m3u8",
+      "m3u8": "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\n2000k/mixed.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=4000000\n4000k/mixed.m3u8\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nhttps://cdn.example.com/path/2000k/mixed.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=4000000\nhttps://cdn.example.com/path/4000k/mixed.m3u8\n",
+        "filtered": 0,
+        "total": 0
+      }
+    },
+    {
+      "name": "no_filter_keeps_all",
+      "base": "https://play.x.com/hls/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:5.0,\nhttps://ads.evil.com/ad.ts\n#EXTINF:5.0,\nhttps://cdnA.com/s0.ts\n",
+      "filterAds": false,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:5.0,\nhttps://ads.evil.com/ad.ts\n#EXTINF:5.0,\nhttps://cdnA.com/s0.ts\n",
+        "filtered": 0,
+        "total": 2
+      }
+    },
+    {
+      "name": "query_token_number_outlier",
+      "base": "https://v.cdn.com/x/hls/mixed.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:4.0,\nseg100.ts?token=abc\n#EXTINF:4.0,\nseg101.ts?token=abc\n#EXTINF:4.0,\nseg102.ts?token=abc\n#EXTINF:4.0,\nseg103.ts?token=abc\n#EXTINF:4.0,\nseg104.ts?token=abc\n#EXTINF:4.0,\nseg105.ts?token=abc\n#EXTINF:4.0,\nseg106.ts?token=abc\n#EXTINF:4.0,\nseg107.ts?token=abc\n#EXTINF:4.0,\nseg108.ts?token=abc\n#EXTINF:4.0,\nseg109.ts?token=abc\n#EXTINF:4.0,\nseg900000.ts?token=abc\n#EXTINF:4.0,\nseg900001.ts?token=abc\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg100.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg101.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg102.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg103.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg104.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg105.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg106.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg107.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg108.ts?token=abc\n#EXTINF:4.0,\nhttps://v.cdn.com/x/hls/seg109.ts?token=abc\n",
+        "filtered": 2,
+        "total": 12
+      }
+    },
+    {
+      "name": "single_level_dir_shared_key",
+      "base": "https://cdn.example.com/play/index.m3u8",
+      "m3u8": "#EXTM3U\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg0.ts\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg1.ts\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg2.ts\n",
+      "filterAds": true,
+      "expected": {
+        "text": "#EXTM3U\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg0.ts\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg1.ts\n#EXTINF:5.0,\nhttps://cdn.example.com/play/seg2.ts\n",
+        "filtered": 0,
+        "total": 3
+      }
+    }
+  ]
+}
