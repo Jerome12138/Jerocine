@@ -463,17 +463,18 @@ async function filterViaServer(
 }
 
 /**
- * 端侧混合过滤主链路: 逐层抓清单, **只有媒体列表(含分片, #EXTINF 判据)才 POST 服务器过滤**。
+ * 端侧混合过滤主链路: 逐层抓清单, **只有媒体列表(含分片, #EXTINF 判据)才本地过滤**。
  * master/媒体的判据用内容(#EXTINF, utils.hasMediaSegments, 与安卓 PlayerUrls 同款)而非
  * URL 扩展名: 变体地址不带 .m3u8 后缀的源按扩展名会被误判成媒体表, master 层被当媒体层
  * 过滤, 带广告的子表被播放器直连绕过(2026-10-19 修正)。
  * master 主表没有任何分片可剔(过滤的全部产出只是 URI 绝对化, 浏览器本来就会做)
- * → 免 POST 直接下钻子表, 把 master+子表两趟"上传清单+服务器往返"(实测单次 0.13~3.3s)
- * 减为一趟, 过滤窗口近似减半(2026-10-19 加速, 与安卓 master-direct 同款)。
+ * → 免过滤直接下钻子表, 把 master+子表两趟"上传清单+服务器往返"(实测单次 0.13~3.3s)
+ * 减为零往返(2026-10-19 加速; 2026-10-23 再进一步: 媒体列表由本地 TS 内核过滤,
+ * 免 POST /v1/m3u8/filter, 与安卓 master-direct 同款)。
  * bf 等源对不同 IP 可能返回 master 主表(分片在子表里), 故**跟随 master→子表逐层下钻**
  * (单清晰度 VOD 通常 1 层), 否则只过滤主表、带广告的子表会被播放器直连绕过。
  * 成功返回 { text: 最终(已过滤、已绝对化)清单文本, filtered: 剔除数 };
- * 任一步失败抛错(由 resolvePlaySrc 接住做降级)。
+ * 任一步失败抛错(由 resolvePlaySrc 接住做降级); 本地过滤异常回退服务端 POST。
  */
 async function filterPlaylistChain(
   originalUrl: string,
@@ -489,10 +490,22 @@ async function filterPlaylistChain(
       cur = new URL(child, cur).href
       continue
     }
-    return filterViaServer(cur, lastRaw, signal) // 媒体列表: 过滤即终点
+    // 媒体列表: 本地过滤优先(TS 内核 = Go 移植, 绝对化+过滤一次完成, 免服务端往返);
+    // 纯函数理论上不抛错, 防御性 try 兜底仍走服务端 POST(降级路径保留)
+    try {
+      const r = rewriteM3u8(lastRaw, cur, { filterAds: true })
+      return { text: r.text, filtered: r.filtered }
+    } catch {
+      return filterViaServer(cur, lastRaw, signal)
+    }
   }
-  // 异常兜底: 3 层全是 master(病态源) → 把最后一层也 POST 一遍, 行为与旧实现一致
-  return filterViaServer(cur, lastRaw, signal)
+  // 异常兜底: 3 层全是 master(病态源) → 最后一层也本地过滤, 失败回退服务端 POST
+  try {
+    const r = rewriteM3u8(lastRaw, cur, { filterAds: true })
+    return { text: r.text, filtered: r.filtered }
+  } catch {
+    return filterViaServer(cur, lastRaw, signal)
+  }
 }
 
 /* ============ 端侧取源(client 模式)的下一集过滤结果缓存 ============
@@ -1066,6 +1079,7 @@ import {
   resolveClientFilterGate,
   type AdFilterBadgeKind
 } from '@/utils/adFilter'
+import { rewriteM3u8 } from '@/utils/m3u8Filter'
 
 /**
  * 广告过滤代理播放失败 → 上报埋点存链接, 便于后台分析过滤为何挂.
