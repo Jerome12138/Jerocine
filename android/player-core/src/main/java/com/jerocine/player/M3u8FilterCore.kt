@@ -96,7 +96,8 @@ object M3u8FilterCore {
             adByIdx = numberOutlierAds(segURIs)
             shortByIdx = shortBurstAds(segDurs)
             crossByIdx = crossDomainAds(segURIs, dominant)
-            durationOutliers(segDurs, segURIs) // 仅预警(统计), 不剔除
+            // 时长异常(z-score)预警仅服务端日志用(Go stats.DurOutlier/DurSample);
+            // 客户端 Result 不暴露该统计 → 不在本地内核中计算(避免白跑一趟 O(n))
         }
 
         val out = ArrayList<String>(lines.size)
@@ -219,7 +220,20 @@ object M3u8FilterCore {
         } catch (e: Exception) {
             null
         }
-        if (u != null && u.path != null) p = u.path
+        if (u != null && u.path != null) {
+            p = u.path
+        } else {
+            // URI 严格解析失败(含空格/中文等非法字符; Go url.Parse 对这些字符是宽松解析,
+            // 会成功取到 path) → 手动剥 query/fragment 后按 path 段处理 ——
+            // 防止 query 尾数字污染编号判定(如 "seg0.ts?token=123" 解析失败时误取 123 而非 0,
+            // 导致 num 维度把正常分片误剔)。
+            var q = rawURL
+            val hq = q.indexOf('?')
+            if (hq >= 0) q = q.substring(0, hq)
+            val hf = q.indexOf('#')
+            if (hf >= 0) q = q.substring(0, hf)
+            p = q
+        }
         val slash = p.lastIndexOf('/')
         if (slash >= 0) p = p.substring(slash + 1)
         val dot = p.lastIndexOf('.')
@@ -252,6 +266,9 @@ object M3u8FilterCore {
         val u = try {
             URI(abs)
         } catch (e: Exception) {
+            // URI 严格解析失败(含空格/中文等) → 返回 "": 该片不计入任何归属键。
+            // 与 Go url.Parse(宽松, 能取到 host)的差异: 此处跨域维度对这些异常片失效,
+            // 方向是"漏过滤"而非误删(crossDomainAds 对空键直接跳过), 安全, 不为此引入手动 host 解析。
             return ""
         }
         val host = u.host ?: return ""

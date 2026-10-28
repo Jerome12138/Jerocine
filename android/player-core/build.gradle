@@ -61,6 +61,13 @@ android {
     }
 }
 
+// ============================================================
+// golden 夹具定位说明: M3u8FilterCoreTest 自带双路定位 —— ① classpath("cases.json",
+// 未来若挂 test resource 即命中) ② 文件系统向上回溯(Gradle 单测工作目录恒为模块项目目录,
+// 仓库根 fixtures 在 ../../, 结构固定故稳定)。不再在 Gradle 层挂 resource:
+// AGP library 模块无顶层 test sourceSet, 挂载会配置失败(2026-10-28 实测两次报错)。
+// ============================================================
+
 dependencies {
     implementation 'androidx.core:core:1.13.1'
 

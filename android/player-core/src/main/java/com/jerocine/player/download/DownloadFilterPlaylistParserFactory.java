@@ -54,8 +54,9 @@ public final class DownloadFilterPlaylistParserFactory implements ParsingLoadabl
         // 注意: 必须 android.util.Log —— androidx.media3.common.util.Log 默认 logLevel=WARN,
         // info 全被吞(2026-10-08 排查 DownloadFilter 零日志时踩坑)
         android.util.Log.i(TAG, "parse: " + uri + " rawLen=" + raw.length);
-        // 入队预取命中(master 清单) → 直接用结果; 未命中(进程重启后自愈/重试) → POST 过滤,
-        // 失败按 {@link DownloadFilterFallbackPolicy} 分级(与入队侧同一份策略):
+        // 入队预取命中(master 清单) → 直接用结果; 未命中(进程重启后自愈/重试) → 本地过滤优先
+        // (M3u8FilterCore, Go 内核 Kotlin 移植, 纯函数绝对化+过滤), 本地异常防御性兜底才走
+        // 服务端 POST, 失败按 {@link DownloadFilterFallbackPolicy} 分级(与入队侧同一份策略):
         //   NETWORK/BAD_RESPONSE(读失败) 重试 3 轮后与 NO_FILTER/REJECTED/TOO_LARGE 一样原始流兜底;
         //   CANCELLED → 抛错终止本次解析(取消场景任务已被移除, 抛错只是收尾)。
         // 原始流兜底时没有服务端绝对化 → 相对 URL 按本解析 URI 绝对化(语义对齐 media3,

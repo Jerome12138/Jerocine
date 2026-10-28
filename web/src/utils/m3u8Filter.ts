@@ -309,7 +309,6 @@ export function rewriteM3u8(body: string, base: string | URL, opts: M3u8FilterOp
   let adByIdx: Map<number, boolean> | null = null
   let shortByIdx: Map<number, boolean> | null = null
   let crossByIdx: Map<number, boolean> | null = null
-  let durOutlierIdx: Map<number, boolean> | null = null
   if (opts.filterAds) {
     const segURIs: string[] = []
     const segDurs: number[] = []
@@ -332,8 +331,8 @@ export function rewriteM3u8(body: string, base: string | URL, opts: M3u8FilterOp
     adByIdx = numberOutlierAds(segURIs)
     shortByIdx = shortBurstAds(segDurs)
     crossByIdx = crossDomainAds(segURIs, dominant)
-    const dur = durationOutliers(segDurs, segURIs)
-    durOutlierIdx = dur.outliers
+    // 时长异常(z-score)预警仅服务端日志用(Go stats.DurOutlier/DurSample);
+    // 客户端 Result 不暴露该统计 → 不在本地内核中计算(避免白跑一趟 O(n))
   }
 
   let pendingExtinf = ''
