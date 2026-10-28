@@ -22,7 +22,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 广告过滤 — 端侧混合过滤: 抓到 m3u8 后送 /v1/m3u8/filter 剔广告再交默认解析器.
+ * 广告过滤 — 端侧混合过滤: 抓到 m3u8 后**本地过滤优先**(M3u8FilterCore, Go 内核 Kotlin 移植,
+ * 免 POST /v1/m3u8/filter 服务端往返), 本地异常防御性回退服务端过滤, 再交默认解析器.
  *
  * 这是**主路径**(与 web 播放页一致): 默认不把清单包成服务端代理, 由设备自己抓清单 ——
  * 少一跳服务器回源(起播更快), 且服务端抓不到的源(源站拒机房 IP)也能正常过滤。
@@ -202,6 +203,30 @@ public class PlayerAdFilterHelper {
         return o.result.data;
     }
 
+    /**
+     * 媒体列表本地过滤优先: 用 {@link M3u8FilterCore}(Go 内核 Kotlin 移植)纯函数
+     * 绝对化+过滤一次完成, 免 POST /v1/m3u8/filter 的服务端往返(实测单次 0.13~3.3s → 0)。
+     *
+     * <p>状态写入时机与 {@link #filterViaServer} 一致(结果落地才写 filterAttempted);
+     * 本地成功即视为"端侧链路活着", 清失败连击; 剔除数取最大待 STATE_READY 弹一次状态。
+     * 内核不抛(纯函数), 防御性 catch 回退 {@link #filterViaServer}(服务端降级路径保留)。
+     */
+    byte[] filterLocallyFirst(String srcUrl, byte[] raw) {
+        try {
+            M3u8FilterCore.Result r = M3u8FilterCore.rewriteM3u8(
+                    new String(raw, java.nio.charset.StandardCharsets.UTF_8), srcUrl, true);
+            session.filterAttempted = true; // 结果已出: 在途期间角标显「广告过滤中」
+            session.clientFilterFailStreak = 0; // 端侧链路活着: 清失败连击
+            if (r.getFiltered() > session.pendingFilteredCount) {
+                session.pendingFilteredCount = r.getFiltered();
+            }
+            return r.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Throwable t) {
+            // 本地内核异常(理论不发生) → 回退服务端 POST(含 CANCELLED/状态写入语义)
+            return filterViaServer(srcUrl, raw);
+        }
+    }
+
     /** 埋点: 记录本层清单的路径决策(tag/格式见 {@link AdFilterTrace}); 网络耗时由真正的出口各自记录。 */
     private static void logTrace(String srcTag, String decision) {
         android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.layer("parse", decision, 0L, srcTag));
@@ -309,12 +334,14 @@ public class PlayerAdFilterHelper {
     }
 
     /**
-     * 自定义 HLS 播放列表解析器 — 抓到 m3u8 后送 /v1/m3u8/filter 剔广告, 再交默认解析器.
+     * 自定义 HLS 播放列表解析器 — 抓到 m3u8 后本地过滤优先(免 POST), 再交默认解析器.
      *
-     * 分层动作(2026-10-19 起): master 主表(无分片)免 POST 直通(master-direct,
+     * 分层动作(2026-10-19 起): master 主表(无分片)免过滤直通(master-direct,
      * URI 绝对化由 ExoPlayer 自行完成); 只有媒体列表才查 {@link PlayerSession} 的预取缓存
      * (起播后由 {@link PlayerPrefetchHelper} 提前过滤好的子表), 命中就直接用 ——
-     * 省掉一次 1.4~5.1s 的 POST, 这是"切集不再白等"的关键。
+     * 省掉一次过滤调用, 这是"切集不再白等"的关键。
+     * 2026-10-23: 媒体列表未命中缓存时**本地过滤优先**(M3u8FilterCore, Go 内核 Kotlin 移植),
+     * 免 POST /v1/m3u8/filter 服务端往返; 本地异常防御性回退 POST, POST 失败才升级服务端代理。
      */
     class FilterPlaylistParser implements ParsingLoadable.Parser<HlsPlaylist> {
         private final ParsingLoadable.Parser<HlsPlaylist> delegate;
@@ -350,7 +377,7 @@ public class PlayerAdFilterHelper {
                     session.currentFilterMasterUrl = uri.toString();
                     logTrace(srcTag, "master-direct");
                 } else {
-                    // 媒体列表(分片在这层, 广告也在这层): 才值得 POST 过滤。
+                    // 媒体列表(分片在这层, 广告也在这层): 才值得过滤(本地优先, 免 POST)。
                     // 先查预取缓存(起播后由 PlayerPrefetchHelper 提前过滤好的子表):
                     // 命中就直接用, 不再付 POST 的代价 —— 这是"切集不再白等"的关键。
                     PlayerSession.Prefetched cached = session.takePrefetched(uri.toString());
@@ -363,10 +390,13 @@ public class PlayerAdFilterHelper {
                         }
                         logTrace(srcTag, "prefetch-hit ads=" + cached.filteredCount);
                     } else {
-                        byte[] f = filterViaServer(uri.toString(), data);
+                        // 本地过滤优先: M3u8FilterCore(Go 内核 Kotlin 移植)纯函数绝对化+过滤,
+                        // 免 POST /v1/m3u8/filter 的服务端往返(web 端同款改造, 2026-10-23);
+                        // 内核不抛, 防御性回退 filterViaServer(POST), POST 失败仍升级服务端代理。
+                        byte[] f = filterLocallyFirst(uri.toString(), data);
                         if (f != null) {
                             data = f;
-                            logTrace(srcTag, "client out=" + data.length);
+                            logTrace(srcTag, "local-filter out=" + data.length);
                         } else {
                             logTrace(srcTag, "client-fail");
                             escalateToProxy(uri.toString()); // 端侧失败 → 本集升级服务端代理(带失败 URL 以定位是哪一集)

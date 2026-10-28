@@ -1,4 +1,5 @@
 apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
 
 // ============================================================
 // 公共播放模块 (WebView 壳 + TV 壳共用一份播放器实现)
@@ -54,6 +55,10 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
 }
 
 dependencies {
@@ -69,9 +74,13 @@ dependencies {
     api "androidx.media3:media3-database:${media3Version}"
     implementation "com.google.android.material:material:1.12.0"
     implementation "com.squareup.okhttp3:okhttp:${okhttpVersion}"
+    // Kotlin stdlib(与根工程 kotlin-gradle-plugin 2.0.21 配套)
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
 
     // 纯逻辑(URL 策略/画质命名/落点钳位)单测
     testImplementation 'junit:junit:4.13.2'
+    // M3u8FilterCoreTest 读取 fixtures/m3u8-filter/cases.json(JSON 解析)
+    testImplementation 'com.google.code.gson:gson:2.10.1'
 }
 
 // Android Lint 守卫: 把 NewApi 提为 fatal —— lintVitalRelease(正式包构建自动运行)只拦 fatal 级,
