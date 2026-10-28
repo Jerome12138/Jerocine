@@ -18,6 +18,7 @@ import { useSiteStore } from '@/stores/site'
 import { storeToRefs } from 'pinia'
 import { isNative } from '@/utils/jerocineNative'
 import { formatHotBadge } from '@/utils/format'
+import { resolveBlobUrl } from '@/utils/blobImg'
 import { useViewMode } from '@/composables/useViewMode'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { dispatchNativePlaylist } from '@/utils/nativePlay'
@@ -130,7 +131,7 @@ function takeNames(raw: string | undefined, max = 3): string[] {
 }
 
 /** Hero 背景图: 优先 TMDB 回填的横图(16:9, 构图适合宽幅铺底), 回退竖版 cover（CSS escaping，防御后端字段污染） */
-const heroBg = computed(() => detail.value?.backdrop || detail.value?.cover || '')
+const heroBg = computed(() => resolveBlobUrl(detail.value?.backdrop || detail.value?.cover || ''))
 const heroBgStyle = computed(() => {
   const url = heroBg.value
   if (!url) return undefined

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { resolveBlobUrl } from '@/utils/blobImg'
 
 interface Props {
   src?: string
@@ -89,6 +90,9 @@ const placeholderStyle = computed(() => ({
 function safeSrc(raw: string): string {
   if (!raw) return ''
   if (typeof window === 'undefined') return raw
+  // 相对 blob 图片(/api/upload/...) → API 域绝对地址: 跨域静态部署(web.jerocine.art
+  // 等 EdgeOne 域)下相对路径命中自身 SPA 回退(200 text/html)导致裂图; 同源部署原样。
+  raw = resolveBlobUrl(raw)
   if (window.location.protocol === 'https:' && raw.startsWith('http://')) {
     return 'https://' + raw.slice('http://'.length)
   }
