@@ -17,7 +17,6 @@ data class NativePlayerPayload(
     val skipOutroMs: Long,
     val filmId: String,
     val filmName: String,
-    val proxyBase: String,
 )
 
 @Serializable
@@ -25,11 +24,6 @@ private data class NativeSource(
     val id: String,
     val name: String,
     val episodes: List<NativeEpisode>,
-    /**
-     * 服务端清单可达性(play 接口标注) → 透传给公共播放器决定要不要包装 /m3u8/proxy。
-     * null 时 kotlinx 会省掉该键(encodeDefaults=false), 播放器按"未测=仍走代理"处理。
-     */
-    val adFilterOk: Boolean? = null,
 )
 
 @Serializable
@@ -44,7 +38,6 @@ fun buildNativePlayerPayload(
     requestedEpisode: Int,
     skipIntroSec: Int,
     skipOutroSec: Int,
-    proxyBase: String,
     resumeSec: Double = 0.0,
 ): NativePlayerPayload? {
     val sources = info.detail.sources
@@ -52,7 +45,6 @@ fun buildNativePlayerPayload(
             NativeSource(
                 id = source.id,
                 name = source.name,
-                adFilterOk = source.adFilterOk,
                 episodes = source.episodes
                     .filter { it.link.isNotBlank() }
                     .map { episode ->
@@ -81,7 +73,6 @@ fun buildNativePlayerPayload(
         skipOutroMs = skipOutroSec.coerceAtLeast(0) * 1000L,
         filmId = info.detail.mid.toString(),
         filmName = info.detail.name,
-        proxyBase = proxyBase.trimEnd('/'),
     )
 }
 
@@ -96,7 +87,6 @@ fun launchNativePlayer(context: Context, payload: NativePlayerPayload) {
         putExtra(PlayerActivity.EXTRA_SKIP_OUTRO_MS, payload.skipOutroMs)
         putExtra(PlayerActivity.EXTRA_FILM_ID, payload.filmId)
         putExtra(PlayerActivity.EXTRA_FILM_NAME, payload.filmName)
-        putExtra(PlayerActivity.EXTRA_PROXY_BASE, payload.proxyBase)
     }
     context.startActivity(intent)
 }

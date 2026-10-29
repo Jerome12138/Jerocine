@@ -2,7 +2,6 @@ package com.jerocine.app;
 
 import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerActivity;
-import com.jerocine.player.PlayerNetworkModeHelper;
 import com.jerocine.player.ui.GlassToast;
 
 import android.app.Activity;
@@ -83,8 +82,6 @@ public class JerocineBridge {
                 case "playPlaylist":       return handlePlayPlaylist(args);
                 case "stopPlayer":         return handleStopPlayer();
                 case "setPlayerSpeed":     return handleSetPlayerSpeed(args);
-                case "getNetworkRelay":    return handleGetNetworkRelay();
-                case "setNetworkRelay":    return handleSetNetworkRelay(args);
                 case "checkUpdate":        return handleCheckUpdate();
                 case "openServerSettings": return handleOpenServerSettings();
                 case "openSettings":       return handleOpenSettings();
@@ -307,7 +304,6 @@ public class JerocineBridge {
         it.putExtra(PlayerActivity.EXTRA_FILM_ID, cfg.optString("filmId", ""));
         it.putExtra(PlayerActivity.EXTRA_FILM_NAME, cfg.optString("filmName", ""));
         // 方案B: 代理 base, 原生据此对原始 m3u8 每集自行包装代理过滤
-        it.putExtra(PlayerActivity.EXTRA_PROXY_BASE, cfg.optString("proxyBase", ""));
         runOnUi(() -> activity.startActivity(it));
         return jsonOk();
     }
@@ -320,18 +316,6 @@ public class JerocineBridge {
     private String handleSetPlayerSpeed(JSONObject args) throws Exception {
         float speed = (float) args.optDouble("speed", 1.0);
         JerocinePlayer.control().setSpeed(speed);
-        return jsonOk();
-    }
-
-    /** 读中转开关态(默认关). 与原生播放器/设置抽屉共用 PlayerNetworkModeHelper 同一份持久化. */
-    private String handleGetNetworkRelay() throws Exception {
-        return jsonOk("enabled", PlayerNetworkModeHelper.isRelayEnabled(activity));
-    }
-
-    /** 写中转开关态(enabled). 播放器下一次起播生效; 播放中切换仍走播放器底栏按钮即时重载. */
-    private String handleSetNetworkRelay(JSONObject args) throws Exception {
-        boolean enabled = args.optBoolean("enabled", false);
-        PlayerNetworkModeHelper.setRelayEnabled(activity, enabled);
         return jsonOk();
     }
 

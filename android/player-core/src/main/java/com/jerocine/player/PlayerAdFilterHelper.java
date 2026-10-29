@@ -22,14 +22,11 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 广告过滤 — 端侧混合过滤: 抓到 m3u8 后**本地过滤优先**(M3u8FilterCore, Go 内核 Kotlin 移植,
- * 免 POST /v1/m3u8/filter 服务端往返), 本地异常防御性回退服务端过滤, 再交默认解析器.
+ * 广告过滤 — 端侧本地过滤(唯一路径): 抓到 m3u8 后用 {@link M3u8FilterCore}(Go 内核 Kotlin 移植)
+ * 纯函数绝对化+剔广告, 再交默认解析器。2026-10-28 起服务端过滤/中转(/v1/m3u8/filter、
+ * /v1/m3u8/proxy、升级与中转开关)全部下线, 本类不再有服务端回退。
  *
- * 这是**主路径**(与 web 播放页一致): 默认不把清单包成服务端代理, 由设备自己抓清单 ——
- * 少一跳服务器回源(起播更快), 且服务端抓不到的源(源站拒机房 IP)也能正常过滤。
- * 端侧失败时由 {@link #escalateToProxy()} 升级为服务端 /v1/m3u8/proxy。
- *
- * 状态(开关/代理地址/线路/统计)全部在 {@link PlayerSession}; 本类只负责过滤动作与持久化,
+ * 状态(开关/统计)全部在 {@link PlayerSession}; 本类只负责过滤动作与持久化,
  * 与其它 helper 无互相引用.
  */
 public class PlayerAdFilterHelper {
@@ -67,16 +64,6 @@ public class PlayerAdFilterHelper {
                 .edit().putBoolean(PREF_AD_FILTER, enabled).apply();
     }
 
-    /**
-     * 解析代理 base: 优先壳层传入的 EXTRA_PROXY_BASE; 为空(壳没传 / 旧缓存 / relaunch)时
-     * 用壳注入的兜底地址(见 {@link JerocinePlayer#setDefaultProxyBase}) —— 播放器本身不硬编码域名.
-     */
-    String resolveProxyBase(Intent intent) {
-        String pb = (intent != null) ? intent.getStringExtra(PlayerActivity.EXTRA_PROXY_BASE) : null;
-        if (pb == null || pb.isEmpty()) pb = JerocinePlayer.defaultProxyBase();
-        return pb == null ? "" : pb;
-    }
-
     /** 当前播放清单 URL(player 上媒体项); 未就绪/已释放返回空串. */
     private String currentMediaUrl() {
         try {
@@ -91,17 +78,13 @@ public class PlayerAdFilterHelper {
         return "";
     }
 
-    /** 求出角标状态(无片源 → null, 壳层隐藏角标). 判据与前端 web 播放器六态一致. */
+    /** 求出角标状态(无片源 → null, 壳层隐藏角标). 判据与前端 web 播放器一致. */
     AdFilterStatus currentStatus() {
         String url = currentMediaUrl();
         if (url.isEmpty()) return null;
-        // 服务端代理清单(已在服务端过滤, 端侧不再重复 POST) → 「服务端过滤中」
-        boolean viaServerProxy = url.toLowerCase(Locale.US).contains("/m3u8/proxy?");
         return AdFilterStatus.of(
                 session.adFilterOn,
-                session.filterProxyMissing,
-                viaServerProxy || PlayerUrls.isM3u8(url),
-                viaServerProxy,
+                PlayerUrls.isM3u8(url),
                 filteringInFlight(url),
                 session.filterFailed,
                 session.filterAttempted,
@@ -122,8 +105,7 @@ public class PlayerAdFilterHelper {
                 || session.pendingFilteredCount > 0) {
             return false;
         }
-        if (session.proxyBase == null || session.proxyBase.isEmpty()) return false;
-        if (!PlayerUrls.needsClientSideFilter(url)) return false;
+        if (!PlayerUrls.isM3u8(url)) return false;
         int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
         return !session.isEpisodePlayingLocal(idx);
     }
@@ -145,14 +127,10 @@ public class PlayerAdFilterHelper {
     private static String toastFor(AdFilterStatus st) {
         if (st == null) return "广告过滤未触发";
         switch (st.kind) {
-            case AdFilterStatus.KIND_INEFFECTIVE:
-                return "广告过滤未生效: 代理地址未传(请彻底重启/清缓存或更新到最新)";
             case AdFilterStatus.KIND_FAILED:
                 return "广告过滤失败: 网络异常";
             case AdFilterStatus.KIND_FILTERED:
                 return "已过滤 " + st.count + " 段广告";
-            case AdFilterStatus.KIND_PROXY:
-                return "本集由服务端过滤";
             case AdFilterStatus.KIND_FILTERING:
                 return "正在过滤广告"; // 理论上 READY 前结果已落地, 仅防御兜底
             case AdFilterStatus.KIND_CLEAN:
@@ -166,9 +144,6 @@ public class PlayerAdFilterHelper {
     void toggleAdFilter() {
         session.adFilterOn = !session.adFilterOn;
         prefs().edit().putBoolean(PREF_AD_FILTER, session.adFilterOn).apply();
-        session.forceRawIdx.clear();
-        session.forceProxyIdx.clear();
-        session.clientFilterFailStreak = 0; // 开关切换重载: 端侧链路结论一并作废
         session.reloadCurrentSourceKeepPosition();
         updateAdFilterBadge();
         session.host().renderAdFilterSwitch(session.adFilterOn);
@@ -176,70 +151,28 @@ public class PlayerAdFilterHelper {
     }
 
     /**
-     * 同步 POST 原始 m3u8 到 /v1/m3u8/filter, 返回过滤后字节; 失败返回 null(用原始, 优雅降级).
-     * 在 loader 线程调用. 网络/重试细节在 {@link M3u8FilterClient}, 这里只维护 session 过滤状态.
-     *
-     * <p>状态写入时机(2026-10-19 调整): {@code filterAttempted} 改在**结果落地时**才写
-     * (原先在 POST 发出前就置 true, 导致过滤中角标误显"未检出广告")。被取消(CANCELLED,
-     * 用户切集/退出中断 loader 线程)时**什么都不写** —— 新集的 reset 已跑或即将跑,
-     * 事后补写 failed=true 会把"过滤失败"脏到新集头上。
-     */
-    byte[] filterViaServer(String srcUrl, byte[] raw) {
-        M3u8FilterClient.Outcome o = M3u8FilterClient.filterDetailed(session.proxyBase, srcUrl, raw);
-        if (o.cause == M3u8FilterClient.FailureCause.CANCELLED) {
-            return null; // 取消 ≠ 失败: 不写状态、不算连击, 让位给新集自己的过滤流程
-        }
-        session.filterAttempted = true; // 结果已出(无论成败): 在途期间角标显「广告过滤中」
-        if (o.result == null) {
-            session.filterFailed = true;
-            return null;
-        }
-        // 端侧链路活着: 清失败连击(见 escalateToProxy 的二连才粘策略)
-        session.clientFilterFailStreak = 0;
-        // master 表 cnt=0、子表才 cnt>0; 取最大, 待 STATE_READY 弹一次状态
-        if (o.result.filteredCount > session.pendingFilteredCount) {
-            session.pendingFilteredCount = o.result.filteredCount;
-        }
-        return o.result.data;
-    }
-
-    /**
-     * 媒体列表本地过滤优先: 用 {@link M3u8FilterCore}(Go 内核 Kotlin 移植)纯函数
-     * 绝对化+过滤一次完成, 免 POST /v1/m3u8/filter 的服务端往返(实测单次 0.13~3.3s → 0)。
-     *
-     * <p>状态写入时机与 {@link #filterViaServer} 一致(结果落地才写 filterAttempted);
-     * 本地成功即视为"端侧链路活着", 清失败连击; 剔除数取最大待 STATE_READY 弹一次状态。
-     * 内核不抛(纯函数), 防御性 catch 回退 {@link #filterViaServer}(服务端降级路径保留)。
+     * 媒体列表本地过滤: {@link M3u8FilterCore}(Go 内核 Kotlin 移植)纯函数绝对化+过滤,
+     * 结果落地才写 filterAttempted; 剔除数取最大待 STATE_READY 弹一次状态。
+     * 内核为纯函数不抛; 防御性 catch 返回原始清单(不过滤, 不阻塞播放)。
      */
     byte[] filterLocallyFirst(String srcUrl, byte[] raw) {
         try {
             M3u8FilterCore.Result r = M3u8FilterCore.rewriteM3u8(
                     new String(raw, java.nio.charset.StandardCharsets.UTF_8), srcUrl, true);
             session.filterAttempted = true; // 结果已出: 在途期间角标显「广告过滤中」
-            session.clientFilterFailStreak = 0; // 端侧链路活着: 清失败连击
             if (r.getFiltered() > session.pendingFilteredCount) {
                 session.pendingFilteredCount = r.getFiltered();
             }
             return r.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8);
         } catch (Throwable t) {
-            // 本地内核异常(理论不发生) → 回退服务端 POST(含 CANCELLED/状态写入语义)
-            return filterViaServer(srcUrl, raw);
+            // 本地内核异常(理论不发生) → 原始清单(不过滤, 不阻塞播放); 服务端过滤已下线
+            return raw;
         }
     }
 
     /** 埋点: 记录本层清单的路径决策(tag/格式见 {@link AdFilterTrace}); 网络耗时由真正的出口各自记录。 */
     private static void logTrace(String srcTag, String decision) {
         android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.layer("parse", decision, 0L, srcTag));
-    }
-
-    /** 埋点: 记录升级决策(为什么本集/整源切到服务端代理)。 */
-    private static void logEscalate(String srcTag, String decision) {
-        android.util.Log.i(AdFilterTrace.TAG, AdFilterTrace.layer("escalate", decision, 0L, srcTag));
-    }
-
-    /** 埋点: 子表地址借 master 反查到集索引(升级归因从"子表 URL"落到"第 N 集")。 */
-    private static void logEscalateViaMaster(String srcTag, int idx) {
-        logEscalate(srcTag, "via-master idx=" + idx);
     }
 
     static byte[] readAll(InputStream in) throws IOException {
@@ -253,95 +186,14 @@ public class PlayerAdFilterHelper {
     }
 
     /**
-     * 端侧过滤失败 → 把**本集**升级为服务端清单代理(与 web resolvePlaySrc 的"降级1"一致)。
+     * 自定义 HLS 播放列表解析器 — 抓到 m3u8 后本地过滤, 再交默认解析器.
      *
-     * 为什么要有这一步: 端侧混合过滤是主路径, 它挂掉时不能就这么放着广告播 —— 若服务端抓得到
-     * 这个源(proxyUsable), 就换成 /v1/m3u8/proxy 由服务器抓 + 过滤。
-     *
-     * 防打转(必须): ① 服务端抓不到该源时不升级(包了也是 500); ② 本集已被"回退直连"(forceRawIdx)
-     * 或已升级过(forceProxyIdx)则不再动 —— 否则"直连失败 → 代理 → 代理失败 → 直连"会来回切换。
-     * parse 跑在 loader 线程, 读当前集索引/重建播放器必须回主线程。
-     */
-    private void escalateToProxy(final String failedUrl) {
-        final String srcTag = AdFilterTrace.srcTag(failedUrl);
-        if (!session.sourceProxyUsable) { // 服务端抓不到该源, 包了也是 500
-            logEscalate(srcTag, "skip source-not-usable");
-            return;
-        }
-        if (session.proxyBase == null || session.proxyBase.isEmpty()) {
-            logEscalate(srcTag, "skip no-proxy-base");
-            return;
-        }
-        // 【关键】在**调用点(loader 线程)**解析失败的是哪一集, 不能在 post 里读"当前索引"。
-        // 原实现在 post 里才读 getCurrentMediaItemIndex(): 第5 集起播 → 过滤超时 8s →
-        // 用户在这期间按▼切到第 6 集 → post 执行时索引已是 5 → **第 6 集被无端标记
-        // forceProxy 并 replaceMediaItem 重建**(打断用户已在看的这一集), 并连带
-        // invalidatePrefetch() 把第 6 集已预取好的清单一起清掉。真正失败的第 5 集反被漏标。
-        // master-direct(2026-10-19)之后, 失败 URL 还可能是**子表地址**(媒体层过滤失败),
-        // 不在 currentRawUrls 里 → 借"最近直通的 master"(currentFilterMasterUrl)反查。
-        int resolvedIdx = indexOfRawUrl(failedUrl);
-        if (resolvedIdx < 0 && !session.currentFilterMasterUrl.isEmpty()) {
-            resolvedIdx = indexOfRawUrl(session.currentFilterMasterUrl);
-            if (resolvedIdx >= 0) {
-                logEscalateViaMaster(srcTag, resolvedIdx);
-            }
-        }
-        if (resolvedIdx < 0) {
-            logEscalate(srcTag, "skip idx-unknown");
-            return;
-        }
-        final int failedIdx = resolvedIdx;
-        new Handler(Looper.getMainLooper()).post(() -> {
-            if (session.player == null) {
-                logEscalate(srcTag, "skip player-gone");
-                return;
-            }
-            // 用户已经切走了就别动手: 修复"打错集"的最后一层保险
-            if (session.player.getCurrentMediaItemIndex() != failedIdx) {
-                logEscalate(srcTag, "skip switched idx=" + failedIdx);
-                return;
-            }
-            if (session.forceRawIdx.contains(failedIdx) || session.forceProxyIdx.contains(failedIdx)) {
-                logEscalate(srcTag, "skip already-marked idx=" + failedIdx);
-                return;
-            }
-            session.forceProxyIdx.add(failedIdx);
-            // 2026-10-10 改: 连续 2 集端侧失败才把整片源粘性切代理 —— 用户实测一集瞬时抖动
-            // 就粘住, 弱代理源“一集失败, 后面的集跟着失败”(全走代理 + 预取加速被关)。
-            // 单次失败只升级本集, 下一集还会重试端侧; 连续失败才认定端侧链路真坏了。
-            session.clientFilterFailStreak++;
-            boolean stick = FilterEscalationPolicy.shouldStickSource(session.clientFilterFailStreak);
-            if (stick) {
-                // 本片源端侧过滤已证明不可靠 → 后续集直接用代理, 免得每集都白等一轮超时
-                session.sourcePreferProxy = true;
-            }
-            logEscalate(srcTag, "proxy idx=" + failedIdx
-                    + " streak=" + session.clientFilterFailStreak + " stick=" + stick);
-            // 后续集都走代理了, 已预取/在途的端侧清单缓存全部作废(也顺手停掉在途任务)
-            session.invalidatePrefetch();
-            session.retryCurrentItem(failedIdx, "端侧过滤失败, 已切换服务端过滤");
-        });
-    }
-
-    /** 在当前播放列表里找该URL 对应的集索引; 找不到返回 -1. */
-    private int indexOfRawUrl(String rawUrl) {
-        if (rawUrl == null) return -1;
-        List<String> urls = session.currentRawUrls;
-        for (int i = 0; i < urls.size(); i++) {
-            if (rawUrl.equals(urls.get(i))) return i;
-        }
-        return -1;
-    }
-
-    /**
-     * 自定义 HLS 播放列表解析器 — 抓到 m3u8 后本地过滤优先(免 POST), 再交默认解析器.
-     *
-     * 分层动作(2026-10-19 起): master 主表(无分片)免过滤直通(master-direct,
-     * URI 绝对化由 ExoPlayer 自行完成); 只有媒体列表才查 {@link PlayerSession} 的预取缓存
-     * (起播后由 {@link PlayerPrefetchHelper} 提前过滤好的子表), 命中就直接用 ——
-     * 省掉一次过滤调用, 这是"切集不再白等"的关键。
-     * 2026-10-23: 媒体列表未命中缓存时**本地过滤优先**(M3u8FilterCore, Go 内核 Kotlin 移植),
-     * 免 POST /v1/m3u8/filter 服务端往返; 本地异常防御性回退 POST, POST 失败才升级服务端代理。
+     * 分层动作: master 主表(无分片)免过滤直通(master-direct, URI 绝对化由 ExoPlayer
+     * 自行完成); 只有媒体列表才查 {@link PlayerSession} 的预取缓存(起播后由
+     * {@link PlayerPrefetchHelper} 提前过滤好的子表), 命中就直接用 —— 省掉一次过滤调用,
+     * 这是"切集不再白等"的关键。2026-10-23: 媒体列表未命中缓存时本地过滤
+     * (M3u8FilterCore, Go 内核 Kotlin 移植), 免服务端往返; 2026-10-28 起服务端过滤下线,
+     * 本地为唯一路径。
      */
     class FilterPlaylistParser implements ParsingLoadable.Parser<HlsPlaylist> {
         private final ParsingLoadable.Parser<HlsPlaylist> delegate;
@@ -358,28 +210,16 @@ public class PlayerAdFilterHelper {
             session.lastParsedPlaylistUrl = uri.toString();
             if (session.adFilterOn) {
                 // 埋点: 这一层清单(master / 子表)最终走了哪条路 —— 起播慢时用它区分
-                // "在等端侧过滤"与"本来就不需要过滤"。端侧那次的耗时/结果由 M3u8FilterClient 记录。
+                // "在等端侧过滤"与"本来就不需要过滤"。
                 final String srcTag = AdFilterTrace.srcTag(uri.toString());
-                if (!PlayerUrls.needsClientSideFilter(uri.toString())) {
-                    // /m3u8/proxy 已在服务端完成过滤与媒体地址改写, 不必再同步 POST 一次
-                    session.filterAttempted = true;
-                    logTrace(srcTag, "server-proxy");
-                } else if (session.proxyBase == null || session.proxyBase.isEmpty()) {
-                    session.filterProxyMissing = true; // 开关开着却没代理地址 → 起播提示"未生效"
-                    logTrace(srcTag, "no-proxy");
-                } else if (!PlayerUrls.hasMediaSegments(
+                if (!PlayerUrls.hasMediaSegments(
                         new String(data, java.nio.charset.StandardCharsets.UTF_8))) {
                     // master 主表: 无分片可剔, 过滤的全部产出只是"URI 绝对化" —— ExoPlayer
-                    // 解析时本来就会做。免 POST 直接放行, 省一次"上行清单 + 服务器往返"
-                    // (实测单次 0.13~3.3s): 端侧路径 master+子表两趟 POST 减为一趟,
-                    // 起播/切集的过滤窗口近似减半(2026-10-19 加速)。
-                    // 记录本层 master 地址, 供子表过滤失败升级时反查集索引(见 escalateToProxy)。
-                    session.currentFilterMasterUrl = uri.toString();
+                    // 解析时本来就会做。免过滤直接放行(2026-10-19 加速)。
                     logTrace(srcTag, "master-direct");
                 } else {
-                    // 媒体列表(分片在这层, 广告也在这层): 才值得过滤(本地优先, 免 POST)。
-                    // 先查预取缓存(起播后由 PlayerPrefetchHelper 提前过滤好的子表):
-                    // 命中就直接用, 不再付 POST 的代价 —— 这是"切集不再白等"的关键。
+                    // 媒体列表(分片在这层, 广告也在这层): 先查预取缓存(起播后由
+                    // PlayerPrefetchHelper 提前过滤好的子表), 命中就直接用; 未命中走本地过滤。
                     PlayerSession.Prefetched cached = session.takePrefetched(uri.toString());
                     if (cached != null) {
                         data = cached.data;
@@ -390,17 +230,10 @@ public class PlayerAdFilterHelper {
                         }
                         logTrace(srcTag, "prefetch-hit ads=" + cached.filteredCount);
                     } else {
-                        // 本地过滤优先: M3u8FilterCore(Go 内核 Kotlin 移植)纯函数绝对化+过滤,
-                        // 免 POST /v1/m3u8/filter 的服务端往返(web 端同款改造, 2026-10-23);
-                        // 内核不抛, 防御性回退 filterViaServer(POST), POST 失败仍升级服务端代理。
+                        // 本地过滤: M3u8FilterCore(Go 内核 Kotlin 移植)纯函数绝对化+过滤。
                         byte[] f = filterLocallyFirst(uri.toString(), data);
-                        if (f != null) {
-                            data = f;
-                            logTrace(srcTag, "local-filter out=" + data.length);
-                        } else {
-                            logTrace(srcTag, "client-fail");
-                            escalateToProxy(uri.toString()); // 端侧失败 → 本集升级服务端代理(带失败 URL 以定位是哪一集)
-                        }
+                        data = f;
+                        logTrace(srcTag, "local-filter out=" + data.length);
                     }
                 }
             }

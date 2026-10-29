@@ -16,7 +16,6 @@ class PlaybackCoordinator(
         resumeSec: Double,
         skipIntroSec: Int,
         skipOutroSec: Int,
-        proxyBase: String,
     ): NativePlayerPayload {
         val info = playInfoLoader.load(mid, source.ifBlank { null }, episode)
         return buildNativePlayerPayload(
@@ -25,7 +24,6 @@ class PlaybackCoordinator(
             requestedEpisode = episode,
             skipIntroSec = skipIntroSec,
             skipOutroSec = skipOutroSec,
-            proxyBase = proxyBase,
             resumeSec = resumeSec,
         ) ?: error("播放地址为空")
     }

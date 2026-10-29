@@ -40,9 +40,7 @@ public class PlayerModesTest {
         @Override public String filmId() { return ""; }
         @Override public void toggleAdFilter() { }
         @Override public void renderAdFilterSwitch(boolean on) { }
-        @Override public void toggleNetworkMode() { }
         @Override public void toggleLocalOnline() { }
-        @Override public void renderNetworkMode(boolean relay) { }
         @Override public androidx.media3.ui.PlayerView playerView() { return null; }
         @Override public void renderAdFilterBadge(AdFilterStatus status) { }
         @Override public void renderSpeedText(String label) { }
@@ -149,7 +147,7 @@ public class PlayerModesTest {
 
         // 已下载集 → file:// 本地清单
         assertEquals(LOCAL, s.playbackUriFor(0, RAW));
-        // 未下载集 → 在线路径(mediaUriFor): 过滤开+源可代理+代理地址 → 端侧直连原始地址
+        // 未下载集 → 在线直连原始地址(端侧本地过滤)
         assertEquals("https://cdn.example.com/video/02.m3u8", s.playbackUriFor(1, s.currentRawUrls.get(1)));
         // 用户切在线后 → 回到在线路径
         s.preferOnlineIdx.add(0);
@@ -160,17 +158,14 @@ public class PlayerModesTest {
     public void session_unifiedGates_followPlayingLocal() {
         PlayerSession s = new PlayerSession(new NoopHost());
         s.setRawUrls(Collections.singletonList(RAW));
-        s.proxyBase = "https://example.com/api";
         s.localEpisodePlaylists = single(0, LOCAL);
 
-        // 本地集: 无"线路"概念
+        // 本地集: 本地优先, 且有在线副本可切
         assertTrue(s.isEpisodePlayingLocal(0));
-        assertFalse(s.isRelay(0));
-        assertFalse(s.canSwitchNetworkMode(0));
-        // 在线集(切 preferOnline 后): 线路语义恢复(过滤开+源可代理+代理地址+m3u8 → 可切)
+        assertTrue(s.isEpisodeLocalAvailable(0));
+        // 用户切在线后 → 在线
         s.preferOnlineIdx.add(0);
         assertFalse(s.isEpisodePlayingLocal(0));
-        assertTrue(s.canSwitchNetworkMode(0));
     }
 
     @Test

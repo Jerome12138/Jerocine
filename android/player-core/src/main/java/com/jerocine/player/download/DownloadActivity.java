@@ -55,7 +55,6 @@ public class DownloadActivity extends AppCompatActivity {
     private DownloadEngine engine;
     private String filmId = "";
     private String filmName = "";
-    private String proxyBase = "";
     private List<PlayerSession.SourceData> sources = new ArrayList<>();
     /** 原始 sourcesJson(来自播放器入口): 供"播放"按钮重建完整多源会话, 与在线播放同一状态机。 */
     private String sourcesJson = "";
@@ -123,18 +122,13 @@ public class DownloadActivity extends AppCompatActivity {
         if (filmId == null) filmId = "";
         filmName = in.getStringExtra(PlayerActivity.EXTRA_FILM_NAME);
         if (filmName == null) filmName = "";
-        proxyBase = in.getStringExtra(PlayerActivity.EXTRA_PROXY_BASE);
-        if (proxyBase == null || proxyBase.isEmpty()) {
-            String def = JerocinePlayer.defaultProxyBase();
-            proxyBase = def == null ? "" : def;
-        }
         String sourcesJson = in.getStringExtra(PlayerActivity.EXTRA_SOURCES_JSON);
         if (sourcesJson != null && !sourcesJson.isEmpty()) {
             this.sourcesJson = sourcesJson;
             sources = parseSources(sourcesJson);
         }
 
-        engine = DownloadEngine.get(this, proxyBase);
+        engine = DownloadEngine.get(this);
 
         bindViews();
         // 问题1: 壳层主题(如 web 壳 AppTheme)自带 ActionBar 时, 页顶会挂一条系统亮色标题栏
@@ -316,7 +310,6 @@ public class DownloadActivity extends AppCompatActivity {
                 PlayerSession.SourceData sd = new PlayerSession.SourceData();
                 sd.id = src.optString("id", "");
                 sd.name = src.optString("name", "源 " + (i + 1));
-                sd.adFilterOk = src.isNull("adFilterOk") ? null : src.optBoolean("adFilterOk", true);
                 JSONArray eps = src.optJSONArray("episodes");
                 if (eps != null) {
                     for (int j = 0; j < eps.length(); j++) {
@@ -1730,7 +1723,6 @@ public class DownloadActivity extends AppCompatActivity {
             i.putExtra(PlayerActivity.EXTRA_START_INDEX, t.episode);
             i.putExtra(PlayerActivity.EXTRA_FILM_ID, t.filmId);
             i.putExtra(PlayerActivity.EXTRA_FILM_NAME, t.filmTitle != null ? t.filmTitle : filmName);
-            i.putExtra(PlayerActivity.EXTRA_PROXY_BASE, proxyBase);
         } else {
             i.putExtra(PlayerActivity.EXTRA_URL, "file://" + playlist.getAbsolutePath());
             i.putExtra(PlayerActivity.EXTRA_CACHE_DIR, engine.cacheRoot().getAbsolutePath());

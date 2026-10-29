@@ -6,9 +6,7 @@ import okhttp3.OkHttpClient;
  * 播放器入口 — 壳层唯一装配点.
  *
  * 壳层只经两个句柄与播放器打交道, 播放器本身不硬编码任何业务/品牌信息:
- *   - {@link #config()}  注入三样: callback(播放事件出口) / mediaClient(媒体 OkHttp,
- *     可带壳层自己的 TLS 放宽策略, 老设备 CA 兼容) / defaultProxyBase(未显式传
- *     proxyBase 时的兜底代理地址);
+ *   - {@link #config()}  注入两样: callback(播放事件出口) / mediaClient(媒体 OkHttp);
  *   - {@link #control()} 控制正在播放的实例(停止 / 倍速)与读取播放结局.
  *
  * 这两个都是进程内单例(壳层是 Application 级注入, 实例控制是全局唯一);
@@ -21,7 +19,6 @@ public class JerocinePlayer {
 
         private volatile PlayerActivity.PlayerEventCallback callback;
         private volatile OkHttpClient mediaClient;
-        private volatile String defaultProxyBase = "";
 
         private Config() {}
 
@@ -35,10 +32,6 @@ public class JerocinePlayer {
             mediaClient = client;
         }
 
-        /** 未显式传 proxyBase 时的兜底代理地址; null 视作空串. */
-        public void setDefaultProxyBase(String proxyBase) {
-            defaultProxyBase = proxyBase == null ? "" : proxyBase;
-        }
     }
 
     private static final Config CONFIG = new Config();
@@ -73,7 +66,4 @@ public class JerocinePlayer {
     }
 
     /** 壳层初始化时传入的默认代理基址(下载/过滤模块跨包读取). */
-    public static String defaultProxyBase() {
-        return CONFIG.defaultProxyBase;
-    }
 }

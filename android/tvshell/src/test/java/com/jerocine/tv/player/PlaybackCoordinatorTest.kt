@@ -26,7 +26,6 @@ class PlaybackCoordinatorTest {
             resumeSec = 12.5,
             skipIntroSec = 90,
             skipOutroSec = 60,
-            proxyBase = "https://jerocine.art/api",
         )
 
         assertEquals(Triple(42L, "src_b", 1), requested)
@@ -43,7 +42,7 @@ class PlaybackCoordinatorTest {
         }
 
         val error = runCatching {
-            coordinator.prepare(42, "", 0, 0.0, 0, 0, "https://jerocine.art/api")
+            coordinator.prepare(42, "", 0, 0.0, 0, 0)
         }.exceptionOrNull()
 
         assertEquals(IllegalStateException::class.java, error?.javaClass)

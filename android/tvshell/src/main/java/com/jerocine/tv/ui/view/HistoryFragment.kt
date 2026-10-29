@@ -172,7 +172,6 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                     requestedEpisode = history.episodeNumber(),
                     skipIntroSec = skip?.intro ?: if (isSeries) SkipDefaults.INTRO else 0,
                     skipOutroSec = skip?.outro ?: if (isSeries) SkipDefaults.OUTRO else 0,
-                    proxyBase = ServiceLocator.proxyBase(),
                     resumeSec = history.resumeSeconds(),
                 ) ?: error("播放地址为空")
             }.onSuccess { payload ->

@@ -57,14 +57,8 @@ public class PlayerSession {
         /** 刷新底栏"过滤"按钮左上角状态点(开=绿点/关=灰点). 文案恒定不变色. */
         void renderAdFilterSwitch(boolean on);
 
-        /** 切换线路开关(直连 ⇄ 中转, 由 NetworkModeHelper 实现, 供底栏"中转"按钮调用). */
-        void toggleNetworkMode();
-
         /** 切换当前集 本地 ⇄ 在线(底栏"切本地/切在线"按钮调用; 无本地副本时为 no-op). */
         void toggleLocalOnline();
-
-        /** 刷新底栏"中转"按钮左上角状态点(开=绿点/关=灰点). 文案恒定为"中转". */
-        void renderNetworkMode(boolean relay);
 
         /** 播放器视图 — 壳层装配的实例, helper 做面板显隐/取子控件时经此访问. */
         PlayerView playerView();
@@ -89,11 +83,6 @@ public class PlayerSession {
     public static class SourceData {
         public String id;
         public String name;
-        /**
-         * 服务端能否抓到这个源的清单(play 接口的 adFilterOk 透传)。
-         * null=未测/老壳没传 → 按"可用"处理(保持旧行为); false=服务端抓不到 → 不包装代理。
-         */
-        public Boolean adFilterOk;
         public final ArrayList<String> urls = new ArrayList<>();
         public final ArrayList<String> titles = new ArrayList<>();
     }
@@ -150,41 +139,9 @@ public class PlayerSession {
     /** 本次装载是否走"单URL 兼容模式"(不做任何包装) — 重载时要沿用同一模式. 预取线程会读。 */
     volatile boolean currentBypassFilter = false;
 
-    // ===== 广告过滤 / 线路 =====
-    String proxyBase = "";
+    // ===== 广告过滤 =====
     volatile boolean adFilterOn = true;
-    /**
-     * 当前片源能否走服务端清单代理(来自 adFilterOk)。false ⇒ 清单由设备直连抓 +
-     * 端侧混合过滤剔广告, 且"端侧失败升级代理"/"中转"都不可用(服务端抓不到, 包了也白搭)。
-     * 只有显式 false 才为 false, 未测(null)沿用"可用"。
-     */
-    volatile boolean sourceProxyUsable = true;
-    /**
-     * 本片源端侧过滤已失败过一次 → 后续集直接用服务端代理。
-     * 为什么需要: 端侧过滤是主路径, 若某源的大清单 POST 稳定超时(12s), 没有这个粘性偏好就会
-     * **每集都白等一轮超时**再升级。换片/换源(startFromIntent)时重置。
-     * 2026-10-10 改: 需**连续 2 集**端侧失败({@link FilterEscalationPolicy})才置位 ——
-     * 用户实测一集瞬时抖动就粘住, 弱代理源"一集失败, 后面的集跟着失败"(全走代理+预取被关)。
-     */
-    volatile boolean sourcePreferProxy = false;
-    /** 端侧过滤失败连击(跨集累计, 任意一次端侧过滤成功即清零) — 粘性切代理的判据。 */
-    volatile int clientFilterFailStreak = 0;
     volatile List<String> currentRawUrls = new ArrayList<>();
-    /**
-     * 三个"强制线路"集索引: **主线程写, 预取线程读**(读点在
-     * {@link #mediaUriFor}, 它被 {@code PlayerPrefetchHelper} 的池线程调用)。
-     *
-     * <p>必须用并发集合: 写方会在 {@code onPlayerError} 里 {@code add}, 触发 HashMap 扩容;
-     * 读方同时在 {@code contains}。非并发 HashSet 在 resize 与并发 get 交错时可能读到
-     * 环形桶链(经典死循环)或返回错误结果 → 预取误判线路 → 白发一次注定不被消费的
-     * 过滤请求, 或无谓放弃预取。
-     */
-    /** 代理失败的集 → 强制用原始地址. */
-    final Set<Integer> forceRawIdx = newConcurrentKeySet();
-    /** 端侧过滤失败的集 → 强制用服务端代理(proxyMedia=0)。 */
-    final Set<Integer> forceProxyIdx = newConcurrentKeySet();
-    /** 直连失败的集 → 强制全量中转(单集自愈; 与用户的"中转"开关无关). */
-    final Set<Integer> forceRelayIdx = newConcurrentKeySet();
 
     /**
      * ConcurrentHashMap.newKeySet() 的 API 21 等价物 —— newKeySet 是 API 24+,
@@ -193,16 +150,9 @@ public class PlayerSession {
     static <T> Set<T> newConcurrentKeySet() {
         return Collections.newSetFromMap(new ConcurrentHashMap<T, Boolean>());
     }
-    /**
-     * 用户的中转开关(默认关 = 不包代理, 走端侧混合过滤) — 全局生效, 持久化在 PlayerNetworkModeHelper.
-     * 开 = 优先走服务端代理且分片全中转(proxyMedia=1)。
-     * 与 forceRelayIdx 的差别: 这个是"用户意图", 那个是"单集自愈".
-     */
-    volatile boolean relayOn = false;
     volatile int pendingFilteredCount = 0;
     volatile boolean filterAttempted = false;
     volatile boolean filterFailed = false;
-    volatile boolean filterProxyMissing = false;
     boolean filterToastShownForEpisode = false;
     /**
      * 最近一次清单解析(FilterPlaylistParser.parse)的 URI — parse 在 loader 线程写,
@@ -211,14 +161,6 @@ public class PlayerSession {
      * (抹掉会让 READY 的状态提示误报"该源无需过滤"/丢失"已过滤 N 段", 2026-10-10 用户实测)。
      */
     volatile String lastParsedPlaylistUrl = "";
-    /**
-     * 最近一次被"master-direct"直通的 master 地址(loader 线程写/读, 见
-     * {@link PlayerAdFilterHelper.FilterPlaylistParser}): master 层免 POST 后, 子表过滤失败
-     * 升级({@code escalateToProxy})拿到的失败 URL 是**子表地址**, 不在 currentRawUrls 里 ——
-     * 借这里记录的本集 master 反查集索引。media 直链源(无 master)失败时走原路径直接命中,
-     * 不读这个字段。
-     */
-    volatile String currentFilterMasterUrl = "";
 
     // ===== 端侧预取缓存(下一集清单) =====
     /**
@@ -287,16 +229,9 @@ public class PlayerSession {
         return "";
     }
 
-    /** 设置当前源的"原始" m3u8 列表(供代理包装/反馈/回退). */
+    /** 设置当前源的"原始" m3u8 列表(供回退/遥测). */
     void setRawUrls(List<String> urls) {
         currentRawUrls = new ArrayList<>(urls);
-    }
-
-    /** 切源/切集时重置线路自愈状态. */
-    void resetLineState() {
-        forceRawIdx.clear();
-        forceProxyIdx.clear();
-        forceRelayIdx.clear();
     }
 
     /** 每集起播时重置本集过滤统计(供 STATE_READY 弹一次状态). */
@@ -315,10 +250,6 @@ public class PlayerSession {
         pendingFilteredCount = 0;
         filterAttempted = false;
         filterFailed = false;
-        filterProxyMissing = false;
-        // master-direct 记的"本层 master 地址"属于上一集的话一并清掉 —— 竞态早退分支不清理
-        // (那时它已被新集 parse 覆写, 见上方竞态防护注释)。
-        currentFilterMasterUrl = "";
     }
 
     /** 当前媒体项 URI; player 未就绪/无项返回空串。 */
@@ -338,17 +269,6 @@ public class PlayerSession {
     void loadSourceIntoPlayer(int sourceIdx, int startEpisodeIndex, long resumeMs) {
         if (sourceIdx < 0 || sourceIdx >= sourceList.size()) return;
         SourceData src = sourceList.get(sourceIdx);
-        // 跟随片源切换刷新"服务端能否代理": 服务端抓不到的源(如 bf/360)不能走代理, 也不能中转,
-        // 只能"设备抓清单 + /v1/m3u8/filter 端侧过滤"。
-        sourceProxyUsable = src.adFilterOk == null || src.adFilterOk;
-        // 换源 = 换了一个片源, 上一源"端侧过滤不可靠"的结论不能继承。
-        // 不清的话: 片源 A 有一次弱网超时 → sourcePreferProxy 永久为 true → 切到片源 B 后
-        // PlayerPrefetchHelper.canPrefetch 的 `raw.equals(mediaUriFor(...))` 恒为 false
-        // → **整个新片源的预取加速器被永久关掉**, 而 B 的端侧过滤其实完全正常。
-        if (sourceIdx != currentSourceIndex) {
-            sourcePreferProxy = false;
-            clientFilterFailStreak = 0; // 换源 = 端侧链路结论不继承, 连击一并清零
-        }
         loadPlaylistIntoPlayer(src.urls, src.titles, startEpisodeIndex, resumeMs, false);
     }
 
@@ -382,7 +302,6 @@ public class PlayerSession {
             refreshLocalDownloads(host.filmId(), currentSourceLabel());
         }
         setRawUrls(rawUrls);
-        resetLineState();
         // 装载 = 换片/换源/开关切换: 上一份播放列表的预取清单全部作废(切集不走这里, 缓存能活过切集)
         invalidatePrefetch();
         List<MediaItem> items = new ArrayList<>(rawUrls.size());
@@ -402,7 +321,6 @@ public class PlayerSession {
         player.prepare();
         player.setPlayWhenReady(true);
         host.updateTitleForCurrent();
-        updateNetworkModeUi();
     }
 
     /**
@@ -422,16 +340,6 @@ public class PlayerSession {
         }
         if (currentRawUrls.isEmpty()) return;
         loadPlaylistIntoPlayer(currentRawUrls, playlistTitles, idx, pos, currentBypassFilter);
-    }
-
-    // ============================ 线路 / 自愈 ============================
-
-    String mediaUriFor(int idx, String rawUrl) {
-        // forceProxyIdx = 本集端侧过滤失败后的升级; sourcePreferProxy = 本片源端侧过滤"坏过"的粘性偏好
-        boolean forceProxy = forceProxyIdx.contains(idx) || sourcePreferProxy;
-        return PlayerUrls.buildPlayableUrl(
-                rawUrl, adFilterOn, forceRawIdx.contains(idx), forceProxy, isRelay(idx),
-                sourceProxyUsable, proxyBase);
     }
 
     // ============================ 本地优先播放 ============================
@@ -459,8 +367,7 @@ public class PlayerSession {
                 // 本地优先整个失效(2026-10-08 真机实锤)。这里惰性初始化: 只建 DB/线程池,
                 // 无下载任务时无副作用; 与下载服务(同进程单例)天然共享。
                 try {
-                    e = com.jerocine.player.download.DownloadEngine.get(
-                            context(), proxyBase == null ? "" : proxyBase);
+                    e = com.jerocine.player.download.DownloadEngine.get(context());
                     android.util.Log.i(TAG, "lazy init engine ok=" + (e != null));
                 } catch (Exception ex) {
                     android.util.Log.w(TAG, "lazy init engine FAILED", ex);
@@ -539,7 +446,7 @@ public class PlayerSession {
     String playbackUriFor(int idx, String rawUrl) {
         String local = localEpisodePlaylists.get(idx);
         if (local != null && !preferOnlineIdx.contains(idx)) return local;
-        return mediaUriFor(idx, rawUrl);
+        return rawUrl;
     }
 
     /** 会话是否是"单条本地清单"(下载页无影片上下文播单集), 判据见 {@link PlayerModes}。 */
@@ -574,28 +481,7 @@ public class PlayerSession {
         return t != null && key != null && key.equals(t.sourceKey);
     }
 
-    /** 当前集是否走全量中转: 用户开关开着, 或本集被自愈标记(且没被强制回原始). */
-    boolean isRelay(int idx) {
-        // 本地播放(单集本地/已下载集): 分片在本地, "线路"无指代对象
-        if (isEpisodePlayingLocal(idx)) return false;
-        if (forceRawIdx.contains(idx)) return false;
-        return relayOn || forceRelayIdx.contains(idx);
-    }
-
-    /** 当前视频能否切换线路(仅"直连 CDN 的 m3u8 + 开关开启 + 有代理地址 + 服务端抓得到该源"). */
-    boolean canSwitchNetworkMode(int idx) {
-        // 本地播放没有"线路"概念: 分片在本地缓存/本地盘, 中转/直连都救不了缺失的分片
-        if (isEpisodePlayingLocal(idx)) return false;
-        if (!adFilterOn || !sourceProxyUsable || proxyBase == null || proxyBase.isEmpty()) return false;
-        if (idx < 0 || idx >= currentRawUrls.size()) return false;
-        String raw = currentRawUrls.get(idx).toLowerCase(Locale.US);
-        return raw.contains(".m3u8") && !raw.contains("/m3u8/proxy?");
-    }
-
-    // 手动切换线路(直连 ⇄ 中转)不在这里 —— 它需要读/写 Context 落盘开关态,
-    // 由 PlayerNetworkModeHelper.toggle() 实现, 经 Host.toggleNetworkMode() 转发。
-
-    /** 用当前线路策略重建某集并恢复进度(线路切换 / 失败自愈). */
+    /** 用当前播放策略重建某集并恢复进度(线路切换 / 失败自愈). */
     void retryCurrentItem(int idx, String message) {
         if (player == null || idx < 0 || idx >= currentRawUrls.size()) return;
         final long pos = Math.max(0L, player.getCurrentPosition());
@@ -603,23 +489,17 @@ public class PlayerSession {
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
                 // 重建同一集不会触发 onMediaItemTransition ⇒ 必须在这里显式清过滤状态,
-                // 否则上一轮残留的 filterFailed 会让角标一直显示"过滤失败"(且盖掉正确的"服务端过滤中").
+                // 否则上一轮残留的 filterFailed 会让角标一直显示"过滤失败"。
                 // 顺带把 filterToastShownForEpisode 也复位 → 新链路 READY 后角标与中央提示都会按当前真实态刷新。
                 resetFilterStateForEpisode();
                 player.replaceMediaItem(idx, MediaItem.fromUri(playbackUriFor(idx, raw)));
                 player.seekTo(idx, pos);
                 player.prepare();
                 player.play();
-                updateNetworkModeUi();
                 host.showCenterToast(message, 2500);
             } catch (Exception ignore) {
             }
         });
-    }
-
-    /** 刷新底栏"中转"按钮的状态点 — 经 Host 出 UI, 本类不再直接持有/写 View. */
-    void updateNetworkModeUi() {
-        host.renderNetworkMode(relayOn);
     }
 
     void markEpisodeSwitching() {

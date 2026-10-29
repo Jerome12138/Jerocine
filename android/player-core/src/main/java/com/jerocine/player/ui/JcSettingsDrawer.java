@@ -184,9 +184,7 @@ public class JcSettingsDrawer {
     private View settingsFirstFocus;
     private FrameLayout adFilterSwitch;
     private FrameLayout webAdFilterSwitch;
-    private FrameLayout webRelaySwitch;
     private FrameLayout webAutoNextSwitch;
-    private TextView webFilterModeValue;
     private TextView displayModeValue;
     private TextView motionValue;
     private TextView shellModeValue;
@@ -255,9 +253,7 @@ public class JcSettingsDrawer {
         settingsFirstFocus = null;
         adFilterSwitch = null;
         webAdFilterSwitch = null;
-        webRelaySwitch = null;
         webAutoNextSwitch = null;
-        webFilterModeValue = null;
         displayModeValue = null;
         motionValue = null;
         shellModeValue = null;
@@ -313,18 +309,6 @@ public class JcSettingsDrawer {
                     sw -> webAdFilterSwitch = sw,
                     () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_AD_FILTER,
                             true, "广告过滤已开启", "广告过滤已关闭"));
-            webFilterModeValue = addNavRow("过滤取源",
-                    "端侧=设备拉清单·服务器只过滤(默认, 服务器在境外取源慢) · 云端=服务器抓取并过滤",
-                    com.jerocine.player.WebSettingsContract.filterModeLabel(
-                            webSettings.get(com.jerocine.player.WebSettingsContract.KEY_FILTER_MODE)),
-                    this::cycleWebFilterMode);
-            addToggleRow("全量中转",
-                    "直连异常时分片也经服务器转发 · 默认关",
-                    com.jerocine.player.WebSettingsContract.bool(webSettings,
-                            com.jerocine.player.WebSettingsContract.KEY_RELAY_CACHE, false),
-                    sw -> webRelaySwitch = sw,
-                    () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_RELAY_CACHE,
-                            false, "全量中转已开启", "全量中转已关闭"));
             addToggleRow("自动连播",
                     "一集播完自动播放下一集",
                     com.jerocine.player.WebSettingsContract.bool(webSettings,
@@ -447,22 +431,10 @@ public class JcSettingsDrawer {
         });
     }
 
-    /** 过滤取源方式循环切换: 端侧(client, 默认) ↔ 云端(server)。 */
-    private void cycleWebFilterMode() {
-        String next = com.jerocine.player.WebSettingsContract.nextFilterMode(
-                webSettings.get(com.jerocine.player.WebSettingsContract.KEY_FILTER_MODE));
-        host.setWebSetting(com.jerocine.player.WebSettingsContract.KEY_FILTER_MODE, next, snap -> {
-            applyWebSettingsSnapshot(snap);
-            host.toast("server".equals(next)
-                    ? "云端取源: 由服务器抓取并过滤清单"
-                    : "端侧取源: 设备拉清单, 服务器只过滤");
-        });
-    }
-
     /**
      * 应用最新 web 设置快照并刷新各行控件(null=读不到, 保留当前显示)。
      * 回调来自 evaluateJavascript(主线程), fillPanel 重build后旧控件引用已被置空,
-     * refreshToggle/webFilterModeValue 判空即安全。
+     * refreshToggle 判空即安全。
      */
     private void applyWebSettingsSnapshot(String snapshot) {
         if (snapshot == null) return;
@@ -471,14 +443,8 @@ public class JcSettingsDrawer {
         webSettings = parsed;
         refreshToggle(webAdFilterSwitch, com.jerocine.player.WebSettingsContract.bool(webSettings,
                 com.jerocine.player.WebSettingsContract.KEY_AD_FILTER, true));
-        refreshToggle(webRelaySwitch, com.jerocine.player.WebSettingsContract.bool(webSettings,
-                com.jerocine.player.WebSettingsContract.KEY_RELAY_CACHE, false));
         refreshToggle(webAutoNextSwitch, com.jerocine.player.WebSettingsContract.bool(webSettings,
                 com.jerocine.player.WebSettingsContract.KEY_AUTO_PLAY_NEXT, true));
-        if (webFilterModeValue != null) {
-            webFilterModeValue.setText(com.jerocine.player.WebSettingsContract.filterModeLabel(
-                    webSettings.get(com.jerocine.player.WebSettingsContract.KEY_FILTER_MODE)));
-        }
     }
 
     // ==================== 壳模式 ====================

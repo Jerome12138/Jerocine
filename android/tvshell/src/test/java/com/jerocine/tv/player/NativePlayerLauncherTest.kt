@@ -11,7 +11,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -27,7 +26,7 @@ class NativePlayerLauncherTest {
     }
 
     @Test
-    fun buildNativePlayerPayloadPreservesSourcesAndProxyBase() {
+    fun buildNativePlayerPayloadPreservesSourcesAndEpisodes() {
         val info = PlayInfoResp(
             detail = FilmDetail(
                 mid = 42,
@@ -58,7 +57,6 @@ class NativePlayerLauncherTest {
             requestedEpisode = 1,
             skipIntroSec = 90,
             skipOutroSec = 60,
-            proxyBase = "https://example.com/api"
         )
 
         assertNotNull(payload)
@@ -69,54 +67,11 @@ class NativePlayerLauncherTest {
         assertEquals(60_000L, payload.skipOutroMs)
         assertEquals("42", payload.filmId)
         assertEquals("测试片", payload.filmName)
-        assertEquals("https://example.com/api", payload.proxyBase)
 
         val sources = Json.parseToJsonElement(payload.sourcesJson).jsonArray
         assertEquals("src_a", sources[0].jsonObject["id"]?.jsonPrimitive?.content)
         assertEquals("https://cdn/a01.m3u8", sources[0].jsonObject["episodes"]?.jsonArray?.get(0)?.jsonObject?.get("url")?.jsonPrimitive?.content)
         assertEquals("src_b", sources[1].jsonObject["id"]?.jsonPrimitive?.content)
         assertEquals("测试片 · 02", sources[1].jsonObject["episodes"]?.jsonArray?.get(1)?.jsonObject?.get("title")?.jsonPrimitive?.content)
-    }
-
-    /**
-     * adFilterOk 只在"已知不可达"时透传, 未测(null)必须省略该键 —— 播放器据此区分
-     * "服务端抓不到(跳过代理)" 与 "没测过(沿用走代理的旧行为)"。
-     */
-    @Test
-    fun payloadCarriesAdFilterOkOnlyWhenKnown() {
-        val info = PlayInfoResp(
-            detail = FilmDetail(
-                mid = 7,
-                name = "测试片",
-                sources = listOf(
-                    PlaySource(
-                        id = "src_bad",
-                        name = "bad",
-                        adFilterOk = false,
-                        episodes = listOf(Episode("01", "https://cdn/bad.m3u8"))
-                    ),
-                    PlaySource(
-                        id = "src_unknown",
-                        name = "unknown",
-                        episodes = listOf(Episode("01", "https://cdn/unk.m3u8"))
-                    )
-                )
-            ),
-            currentSource = "src_bad"
-        )
-
-        val payload = buildNativePlayerPayload(
-            info = info,
-            requestedSource = "src_bad",
-            requestedEpisode = 0,
-            skipIntroSec = 0,
-            skipOutroSec = 0,
-            proxyBase = "https://example.com/api"
-        )
-
-        requireNotNull(payload)
-        val sources = Json.parseToJsonElement(payload.sourcesJson).jsonArray
-        assertEquals("false", sources[0].jsonObject["adFilterOk"]?.jsonPrimitive?.content)
-        assertNull(sources[1].jsonObject["adFilterOk"])
     }
 }

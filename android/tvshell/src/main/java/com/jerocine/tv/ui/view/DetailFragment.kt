@@ -202,7 +202,6 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
                     resumeSec = resumeSec,
                     skipIntroSec = skip?.intro ?: if (isSeries) SkipDefaults.INTRO else 0,
                     skipOutroSec = skip?.outro ?: if (isSeries) SkipDefaults.OUTRO else 0,
-                    proxyBase = ServiceLocator.proxyBase(),
                 )
             }.onSuccess { payload ->
                 if (!ServiceLocator.isLoggedIn) {

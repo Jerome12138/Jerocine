@@ -87,7 +87,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     public static final String EXTRA_FILM_NAME = "film_name";
     public static final String EXTRA_SOURCES_JSON = "sources_json";
     public static final String EXTRA_CURRENT_SOURCE_ID = "current_source_id";
-    public static final String EXTRA_PROXY_BASE = "proxy_base";
     public static final String EXTRA_CACHE_DIR = "cache_dir";
 
     /** 播放事件回调 — 壳层实现并设置, 播放器在关键节点触发. */
@@ -144,7 +143,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private ImageView centerIcon;
 
     private PlayerAdFilterHelper adFilterHelper;
-    private PlayerNetworkModeHelper networkModeHelper;
     private PlayerSkipHelper skipHelper;
     private PlayerGestureHelper gestureHelper;
     private PlayerDialogHelper dialogHelper;
@@ -202,7 +200,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         // helper 之间互不引用: 只依赖 session(状态) + session.host()(UI 出口)
         skipHelper = new PlayerSkipHelper(session);
         adFilterHelper = new PlayerAdFilterHelper(this, session);
-        networkModeHelper = new PlayerNetworkModeHelper(this, session);
         gestureHelper = new PlayerGestureHelper(session);
         dialogHelper = new PlayerDialogHelper(session);
         keyEventHelper = new PlayerKeyEventHelper(session);
@@ -220,10 +217,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         sourceHelper = new PlayerSourceHelper(session);
         prefetchHelper = new PlayerPrefetchHelper(session);
 
-        session.proxyBase = adFilterHelper.resolveProxyBase(getIntent());
         // 开关初值统一走静态 getter(键名/默认值定义在 PlayerAdFilterHelper, 不在各处硬编码)
         session.adFilterOn = PlayerAdFilterHelper.isAdFilterEnabled(this);
-        networkModeHelper.applyPersisted(); // 中转默认关(分片直连), 只有用户主动开过才为 true
         // 本地模式不显示广告过滤角标: 隐藏它的 hideOnlineControls() 只在控制面板首次变为
         // VISIBLE 时才被调用(见下方 ControllerVisibilityListener), 而面板默认 GONE
         // (setControllerAutoShow(false)) → 不加守卫的话, 本地文件起播后会闪现一个
@@ -360,9 +355,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
     private void initPlayer() {
         DataSource.Factory cacheFactory = buildCacheFactory();
-        // 端侧混合广告过滤: 全 HLS 内容用自定义播放列表解析器, 抓到 m3u8 后送服务端剔除广告再解析.
-        // 本地清单(file://)天然安全: FilterPlaylistParser 经 PlayerUrls.needsClientSideFilter
-        // 对 file:///content:// 直接放行(不 POST、不升级代理), 无需按会话形态切换解析器 ——
+        // 端侧本地广告过滤: 全 HLS 内容用自定义播放列表解析器, 抓到 m3u8 后用本地内核剔除广告再解析.
+        // 本地清单(file://)是下载时已过滤的产物, 直接放行, 无需按会话形态切换解析器 ——
         // 统一挂在工厂上, 在线/本地分片装载同一条路(2026-10-09 去掉 offlinePlayback 特例)。
         HlsMediaSource.Factory msFactory = new HlsMediaSource.Factory(cacheFactory);
         msFactory.setPlaylistParserFactory(adFilterHelper.new FilterPlaylistParserFactory());
@@ -441,7 +435,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 session.episodeSwitching = true;
                 session.resetFilterStateForEpisode();
                 updateTitleForCurrent();
-                session.updateNetworkModeUi();
                 updateLocalOnlineUi(); // 切集后按新集本地/在线态刷新角标与切换按钮
                 maybeOtherSourceToast();
                 try {
@@ -485,54 +478,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     return;
                 }
 
-                // 直连失败(端侧过滤下设备自己抓清单/分片) → 本集改走全量中转(自愈).
-                // 前两版只在"当前是 proxy 清单"时才自愈; 端侧混合过滤成为主路径后当前地址是**原始 m3u8**,
-                // 所以判据放宽为"失败的不是代理请求本身"(见 PlayerUrls.shouldRetryWithRelay).
-                // 服务端抓不到该源的(proxyUsable=false)中转也无意义, 直接走下面的报错/回退.
-                // 本地播放: 分片要么在缓存/本地盘里, 要么就得重新下载, 换线路/换代理救不了
-                // (file:// 被包进代理只会让服务端去抓一个不存在的本地地址) → 不做任何线路自愈。
-                if (!session.isEpisodePlayingLocal(errIdx) && session.adFilterOn && session.sourceProxyUsable
-                        && PlayerUrls.shouldRetryWithRelay(currentUrl, failedUrl)
-                        && errIdx >= 0 && errIdx < session.currentRawUrls.size()
-                        && !session.forceRelayIdx.contains(errIdx)) {
-                    session.forceRelayIdx.add(errIdx);
-                    session.forceRawIdx.remove(errIdx);
-                    PlayerControl.get().clearPlaybackFailure();
-                    session.retryCurrentItem(errIdx, "直连失败, 已切换中转");
-                    return;
-                }
-                // 【新增第三档自愈】中转也失败后, 再回退到**原始源直连**试一次。
-                // 为什么需要: forceRelayIdx 是本集**永久**标记, 原实现在"已标记"时直接落到
-                // 错误上报 —— 于是"直连失败→切中转→中转也失败"这一条常见路径走到死胡同,
-                // 用户只能退出重进。而实际现场(2004/404)恰恰就是这种形态:
-                // 源站把旧哈希路径删了(index.m3u8 404), 中转只是转发源站响应, 救不了;
-                // 但换回原始源/换一条线路往往能拿到现存的路径。
-                // forceRelay/forceRaw 互斥标记天然限制了重试轮数(每集最多来回一次),
-                // 不会无限循环。
-                if (!session.isEpisodePlayingLocal(errIdx) && session.adFilterOn
-                        && session.forceRelayIdx.contains(errIdx)
-                        && !session.forceRawIdx.contains(errIdx)
-                        && errIdx >= 0 && errIdx < session.currentRawUrls.size()) {
-                    session.forceRawIdx.add(errIdx);
-                    session.forceRelayIdx.remove(errIdx);
-                    PlayerControl.get().clearPlaybackFailure();
-                    session.retryCurrentItem(errIdx, "中转也失败, 已回退原始源");
-                    return;
-                }
-                // 服务端无法抓取清单时, 仅本集回退原始源(广告不过滤, 但保证能放)
-                if (!session.isEpisodePlayingLocal(errIdx) && session.adFilterOn && currentUrl.toLowerCase(Locale.US).contains("/m3u8/proxy")
-                        && !currentUrl.toLowerCase(Locale.US).contains("proxymedia=1")
-                        && (failedUrl.isEmpty()
-                            || failedUrl.toLowerCase(Locale.US).contains("/m3u8/proxy"))
-                        && errIdx >= 0 && errIdx < session.currentRawUrls.size()
-                        && !session.forceRawIdx.contains(errIdx)) {
-                    session.forceRawIdx.add(errIdx);
-                    session.forceRelayIdx.remove(errIdx);
-                    PlayerControl.get().clearPlaybackFailure();
-                    session.retryCurrentItem(errIdx, "清单代理失败, 已切换直连");
-                    return;
-                }
-
                 String causeDetail = "";
                 try {
                     Throwable cause = error.getCause();
@@ -562,11 +507,6 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     p.put("httpStatus", httpFail.statusCode);
                     p.put("failedUrl", ErrorDiag.safeUrl(failedUrl));
                     p.put("episodeIndex", errIdx);
-                    // 自愈状态: 能直接看出"这次上报前是不是已经自愈过"(relayFlagged=true
-                    // 说明已试过中转、rawFlagged=true 说明已试过回退原始源),
-                    // 不用再从日志时序推断。
-                    p.put("relayFlagged", session.forceRelayIdx.contains(errIdx));
-                    p.put("rawFlagged", session.forceRawIdx.contains(errIdx));
                     emit("playerError", p);
                 } catch (Exception ignore) {
                 }
@@ -916,8 +856,6 @@ private static String failedRequestUrl(Throwable error) {
             return;
         }
         setIntent(intent);
-        // 与 onCreate 一致重读代理 base(漏读会致 relaunch 后 proxyBase 用空值 → 切集"过滤未生效")
-        session.proxyBase = adFilterHelper.resolveProxyBase(intent);
         // 与 onCreate 一致地按新片重置跳过设置(含开关), 否则换片会沿用上一片的 skipEnabled
         applySkipSettingsFromIntent(intent);
         session.introSkippedForCurrent = false;
@@ -1032,11 +970,6 @@ private static String failedRequestUrl(Throwable error) {
     }
 
     @Override
-    public void toggleNetworkMode() {
-        networkModeHelper.toggle();
-    }
-
-    @Override
     public void renderAdFilterSwitch(boolean on) {
         // 底栏"过滤"按钮/状态点是 PlayerView 控制视图里懒加载的, 首次刷新时现取
         if (adFilterButton == null && playerView != null) {
@@ -1049,12 +982,6 @@ private static String failedRequestUrl(Throwable error) {
             dotAdFilter = playerView.findViewById(R.id.dot_ad_filter);
         }
         renderStatusDot(dotAdFilter, on);
-    }
-
-    @Override
-    public void renderNetworkMode(boolean relay) {
-        // 中转按钮已移入「更多」菜单: 菜单每次点开重建, 状态文本实时取 session.relayOn,
-        // 无需维护常驻按钮引用; 开关切换的即时反馈由 toggle() 里的 centerToast 承担.
     }
 
     /** 面板显示时绑定「更多」菜单(每次现取, 与其它懒加载控件一致).
@@ -1143,8 +1070,6 @@ private static String failedRequestUrl(Throwable error) {
         if (!curLocal) {
             items.add("缓存缓冲");
             actions.add(this::showBufferDialog);
-            items.add("中转：" + (session.relayOn ? "开" : "关"));
-            actions.add(this::toggleNetworkMode);
         }
         // 本集本地⇄在线切换已移至底栏按钮(去广告右侧, 用户拍板); 菜单里只保留"别源已下载"的换源入口
         android.util.Log.i("JcLocal", "more menu: curIdx=" + curIdx
@@ -1319,13 +1244,10 @@ private static String failedRequestUrl(Throwable error) {
         final boolean playing = session.player.getPlayWhenReady();
         session.player.pause();
         if (bufferPrefetcher != null) bufferPrefetcher.cancel();
-        bufferPrefetcher = new BufferPrefetcher(sCache, session.proxyBase);
-        // 必须用播放器**实际会请求的** URL, 不能用原始源站 URL:
-        // 开了「中转」或本集被自愈/端侧过滤失败升级时, 播放器走的是 /v1/m3u8/proxy 包装地址,
-        // 服务端返回的清单里分片 URL 已被改写为代理地址。SimpleCache 的键就是 URL 字符串,
-        // 两种地址是两个不同的键 → 按源站 URL 预取的分片一条也命中不了,
-        // 表现为"缓冲了但播放依然卡", 白耗带宽和磁盘。
-        final String srcUrl = session.mediaUriFor(idx, session.currentRawUrls.get(idx));
+        // 必须用播放器**实际会请求的** URL: 端侧本地过滤的 blob 清单里分片是源站 CDN
+        // 直链(绝对化), 与原始源站 URL 的路径一致 → SimpleCache 的键就是 URL 字符串,
+        // 直接用原始源站 URL 预取即可命中。
+        final String srcUrl = session.currentRawUrls.get(idx);
         showCenterToast("正在缓冲 " + label + " · 播放暂停", 2200);
         try {
             bufferPrefetcher.start(srcUrl, minutes,
@@ -1367,7 +1289,6 @@ private static String failedRequestUrl(Throwable error) {
         i.putExtra(EXTRA_FILM_NAME, getIntent().getStringExtra(EXTRA_FILM_NAME));
         String sourcesJson = getIntent().getStringExtra(EXTRA_SOURCES_JSON);
         if (sourcesJson != null) i.putExtra(EXTRA_SOURCES_JSON, sourcesJson);
-        i.putExtra(EXTRA_PROXY_BASE, session.proxyBase);
         startActivity(i);
     }
 
@@ -1379,9 +1300,6 @@ private static String failedRequestUrl(Throwable error) {
         sb.append("设备: ").append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append("\n");
         sb.append("WebView 内核: ").append(webViewVersion()).append("\n");
         sb.append("媒体库: media3 1.4.1 (ExoPlayer)\n");
-        sb.append("中转代理: ").append(session.proxyBase == null || session.proxyBase.isEmpty()
-                ? "未配置" : session.proxyBase).append("\n");
-        sb.append("中转开关: ").append(session.relayOn ? "开" : "关").append("\n");
         sb.append("广告过滤: ").append(session.adFilterOn ? "开" : "关").append("\n");
         sb.append("当前片源: ").append(session.currentSourceIndex + 1).append("/")
                 .append(session.sourceList.size());

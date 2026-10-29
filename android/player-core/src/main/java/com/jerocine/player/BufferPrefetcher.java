@@ -67,15 +67,13 @@ public final class BufferPrefetcher {
     }
 
     private final Cache cache;
-    private final String proxyBase;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile boolean cancelled;
     @Nullable
     private volatile CacheWriter activeWriter;
 
-    public BufferPrefetcher(Cache cache, String proxyBase) {
+    public BufferPrefetcher(Cache cache) {
         this.cache = cache;
-        this.proxyBase = proxyBase == null ? "" : proxyBase;
     }
 
     /** 开始预取. minutes: 0 = 本集全部; >0 = 前 N 分钟. */
@@ -114,11 +112,11 @@ public final class BufferPrefetcher {
         // 但实际是纯 VOD。与 DownloadEngine.enqueue 同一修法: master 先下钻第一个 variant
         // (子表才是媒体级清单), 对子表过滤后再解析分片。
         byte[] raw = fetch(srcUrl);
-        M3u8FilterClient.Result r = M3u8FilterClient.filter(proxyBase, srcUrl, raw);
-        if (r == null) {
-            throw new IOException("广告过滤失败");
-        }
-        byte[] data = r.data;
+        // 本地过滤(2026-10-28 起服务端过滤下线): M3u8FilterCore 纯函数绝对化+剔广告。
+        M3u8FilterCore.Result r = M3u8FilterCore.rewriteM3u8(
+                new String(raw, java.nio.charset.StandardCharsets.UTF_8), srcUrl, true);
+        byte[] data = r.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        int filteredCount = r.getFiltered();
         String playlistUrl = srcUrl;
         if (DownloadEngine.isMasterPlaylist(data)) {
             String child = DownloadEngine.firstVariantUrl(data, srcUrl);
@@ -126,11 +124,10 @@ public final class BufferPrefetcher {
                 throw new IOException("master 清单中没有可用的子表");
             }
             byte[] childRaw = fetch(child);
-            M3u8FilterClient.Result cr = M3u8FilterClient.filter(proxyBase, child, childRaw);
-            if (cr == null) {
-                throw new IOException("广告过滤失败(子表)");
-            }
-            data = cr.data;
+            M3u8FilterCore.Result cr = M3u8FilterCore.rewriteM3u8(
+                    new String(childRaw, java.nio.charset.StandardCharsets.UTF_8), child, true);
+            data = cr.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            filteredCount += cr.getFiltered();
             playlistUrl = child; // 分片相对路径按子表 URL 绝对化
         }
         String filtered = new String(data, java.nio.charset.StandardCharsets.UTF_8);

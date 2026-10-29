@@ -25,8 +25,8 @@ import androidx.media3.exoplayer.offline.DownloadService;
 import androidx.media3.exoplayer.offline.Downloader;
 import androidx.media3.exoplayer.offline.DownloaderFactory;
 import androidx.media3.exoplayer.hls.offline.HlsDownloader;
+import com.jerocine.player.M3u8FilterCore;
 
-import com.jerocine.player.M3u8FilterClient;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -56,9 +56,9 @@ import okhttp3.Response;
  *       整条链路(过滤+下载)受暂停/继续控制: 过滤中暂停 → 行留 PAUSED, 恢复后重新出队
  *       (清单已就绪时走快速路径直接注册)。media3 的并发上限只是兜底 —— <b>不能依赖它的内部
  *       排队顺序</b>(同批加入按 id 序、跨批按加入序, 都不受集序控制, 2026-10-10 用户实锤);</li>
- *   <li>广告过滤: 门控出队后 GET 源站清单 → {@link M3u8FilterClient} 过滤 → 清单落库(离线播放用),
+ *   <li>广告过滤: 门控出队后本地内核(M3u8FilterCore)过滤 → 清单落库(离线播放用),
  *       同时注入 {@link DownloadFilterPlaylistParserFactory} 让 HlsDownloader 解析时直接命中预取结果
- *       (master 不再付第二次 POST; 子表仍走 POST)。失败按 {@link DownloadFilterFallbackPolicy}
+ *       (master 不再付第二次 POST; 子表仍走本地过滤)。失败按本地内核防御性兜底
  *       分级: 网络类重试 3 轮后与其余原因一样原始流兜底(落盘前绝对化), 仅取消中止;
  *       过滤中/重试/兜底/失败全程在下载列表可见;</li>
  *   <li>进度/状态: {@link DownloadManager.Listener} 把 Media3 状态映射到 {@link DownloadTask} 并落库;
@@ -84,13 +84,7 @@ public final class DownloadEngine {
     /**
      * 广告过滤接口 base — 可变: {@link #get} 时更新。
      *
-     * <p>volatile 是必需的: 写入方是主线程({@code get}), 读取方是 worker 线程池
-     * ({@link #enqueue} 的 lambda 与 {@link DownloaderFactoryImpl})。没有 happens-before 时
-     * worker 可能读到空串/旧值 →过滤直接返回 null → 任务莫名"广告过滤失败"。
-     *
-     * <p><b>不要再把它以 final 固化进 {@link DownloaderFactoryImpl}</b>(见那里的说明)。
      */
-    private volatile String proxyBase;
     private final File cacheRoot;
     private final SimpleCache cache;
     private final DownloadManager manager;
@@ -123,15 +117,11 @@ public final class DownloadEngine {
     /** 公共 HTTP 客户端(拉源站清单用) — 避免每次入队新建 OkHttpClient. */
     private final OkHttpClient playlistClient;
 
-    public static synchronized DownloadEngine get(Context context, String proxyBase) {
+    public static synchronized DownloadEngine get(Context context) {
         if (sInstance == null) {
-            sInstance = new DownloadEngine(context, proxyBase);
+            sInstance = new DownloadEngine(context);
             return sInstance;
         }
-        // 实例已存在: 只更新过滤接口 base(不 release 重建)。
-        // 之前"proxyBase 不同则重建"会 release 掉在途下载的 manager,
-        // 导致 DownloadActivity/service helper 持有的旧实例失效 → 任务永远 QUEUED、暂停无效。
-        sInstance.proxyBase = proxyBase == null ? "" : proxyBase;
         return sInstance;
     }
 
@@ -141,9 +131,8 @@ public final class DownloadEngine {
         return sInstance;
     }
 
-    private DownloadEngine(Context context, String proxyBase) {
+    private DownloadEngine(Context context) {
         this.appContext = context.getApplicationContext();
-        this.proxyBase = proxyBase == null ? "" : proxyBase;
         // 固定小线程池, **不要用 newCachedThreadPool**:
         // enqueue 会为每个选中集跑一次"拉清单 + 过滤 POST", 300 集就是 300 条并发 HTTPS +
         // 300 个线程, 必然 OOM 并把源站打挂(过滤接口还有 250ms 重试, 更会放大成风暴)。
@@ -200,9 +189,8 @@ public final class DownloadEngine {
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
 
         manager = new DownloadManager(appContext, new DefaultDownloadIndex(provider),
-                // Supplier 而非值: 引擎可能被后续 get(ctx, base) 刷新 proxyBase,
                 // factory 必须读到最新值(进程被杀后服务重建的场景尤其关键)
-                new DownloaderFactoryImpl(dsFactory, () -> this.proxyBase, prefetchedPlaylists));
+                new DownloaderFactoryImpl(dsFactory, prefetchedPlaylists));
         manager.setMaxParallelDownloads(MAX_PARALLEL);
         manager.setMinRetryCount(2);
         manager.addListener(managerListener);
@@ -345,8 +333,7 @@ public final class DownloadEngine {
     /**
      * 崩溃自愈: 上次进程被杀时仍卡在 FILTERING(过滤管线被打断)的任务 → 回 QUEUED 重排队,
      * 由 {@link #activateNext} 按集序重新出队(清单未就绪则重跑过滤, 就绪则走快速路径)。
-     * 三轮前是"直接重跑管线", 现在过滤在队列里, 一切进出都要过门控。服务重建时
-     * {@link JerocineDownloadService} 传 {@code defaultProxyBase()}(非空), 不会因 base 缺失误降级。
+     * 三轮前是"直接重跑管线", 现在过滤在队列里, 一切进出都要过门控。
      */
     private void resetFilteringToQueued() {
         try {
@@ -584,7 +571,6 @@ public final class DownloadEngine {
     // ============================ 入队 / 暂停 / 恢复 / 删除 ============================
 
     /**
-     * 入队一个下载任务: 拉源站清单 → 端侧过滤(失败按 {@link DownloadFilterFallbackPolicy} 分级降级)
      * → 保存清单(离线播用) → 交给 DownloadService. 幂等: 已存在同 id 任务则忽略.
      *
      * <p>降级策略(用户拍板 2026-10-10, 二次确认): 除取消外全部原始流兜底 —— 数据获取类失败
@@ -609,7 +595,6 @@ public final class DownloadEngine {
     }
 
     /**
-     * 过滤管线(门控出队后执行): 拉源站清单 → 端侧过滤(失败按 {@link DownloadFilterFallbackPolicy}
      * 分级降级) → 清单落盘(离线播用) → 注册 media3 下载。
      *
      * <p><b>全程受暂停控制</b>(2026-10-10 三轮): 每个阻塞点之间都有暂停检查点
@@ -618,7 +603,6 @@ public final class DownloadEngine {
      * 过滤期间用户删除(行消失)则静默退出。
      */
     private void runPipeline(DownloadTask task) {
-        final String base = proxyBase;
         DownloadTask fresh = task;
         try {
             checkNotPaused(task.id);
@@ -632,14 +616,7 @@ public final class DownloadEngine {
             byte[] raw = fetchPlaylist(task.srcUrl);
             checkNotPaused(task.id);
             Log.i(TAG, "拉清单完成: " + task.id + " len=" + raw.length);
-            FilterOutcome master = filterWithFallback(base, task.srcUrl, raw, "清单",
-                    pauseAwareFeedback(task.id));
-            if (master.cancelled) {
-                // 仅 worker 关停(引擎 release)等线程中断场景; 用户暂停走检查点不走这里。
-                // 行可能是 FILTERING 残留: 启动自愈(resetFilteringToQueued)会兜回队列。
-                Log.i(TAG, "过滤被中断, 停止管线: " + task.id);
-                return;
-            }
+            FilterOutcome master = filterLocal(task.srcUrl, raw);
             if (master.error != null) {
                 fail(task, master.error);
                 return;
@@ -667,9 +644,7 @@ public final class DownloadEngine {
                 }
                 byte[] childRaw = fetchPlaylist(childUrl);
                 checkNotPaused(task.id);
-                // 子表重试同样回写过程文案(同一行, 文案相同, 幂等)
-                FilterOutcome child = filterWithFallback(base, childUrl, childRaw, "子表",
-                        pauseAwareFeedback(task.id));
+                FilterOutcome child = filterLocal(childUrl, childRaw);
                 if (child.cancelled) {
                     Log.i(TAG, "过滤被中断, 停止管线: " + task.id);
                     return;
@@ -742,24 +717,14 @@ public final class DownloadEngine {
 
     /**
      * 暂停检查点: 行已 PAUSED(或已被删除)时抛 {@link PausedException} 退出管线。
-     * 检查点位置: 管线入口 / 每次"拉清单"网络请求返回后 / 过滤重试轮间隙(见
-     * {@link #pauseAwareFeedback})。用户在单个阻塞请求进行中的暂停, 会在请求返回后的
-     * 下一检查点生效(请求本身不可中断, callTimeout 90s 封顶)。
+     * 检查点位置: 管线入口 / 每次"拉清单"网络请求返回后。用户在单个阻塞请求进行中的暂停,
+     * 会在请求返回后的下一检查点生效(请求本身不可中断, callTimeout 90s 封顶)。
      */
     private void checkNotPaused(String taskId) {
         DownloadTask cur = repository.get(taskId);
         if (cur == null || cur.state == DownloadTask.STATE_PAUSED) {
             throw new PausedException();
         }
-    }
-
-    /** 过滤重试回调: 过程文案上屏 + 顺带做暂停检查(重试轮间隙是天然检查点)。 */
-    private RetryFeedback pauseAwareFeedback(String taskId) {
-        return (attempt, max) -> {
-            checkNotPaused(taskId); // 已暂停 → 抛 PausedException, 立即中止后续重试轮
-            repository.updateFilterNote(taskId, "广告过滤中 · 重试 " + attempt + "/" + max);
-            notifyChanged(taskId);
-        };
     }
 
     /**
@@ -1097,61 +1062,23 @@ public final class DownloadEngine {
         static FilterOutcome err(String msg) {
             return new FilterOutcome(null, 0, false, msg, false);
         }
-
-        static FilterOutcome cancel() {
-            return new FilterOutcome(null, 0, false, null, true);
-        }
-    }
-
-    /** 过滤重试回调 — 把"重试 N/M"即时写进任务行(用户要求过滤过程可见)。 */
-    private interface RetryFeedback {
-        void onRetry(int attempt, int maxRounds);
     }
 
     /**
-     * 过滤一单层清单, 带 {@link DownloadFilterFallbackPolicy} 降级策略(用户拍板 2026-10-10):
-     * NETWORK → 最多 3 轮(每轮内 M3u8FilterClient 自带 1 次快速重试), 耗尽后与
-     * NO_FILTER / REJECTED / TOO_LARGE 一样原始流兜底(调用方需对媒体级清单绝对化);
-     * CANCELLED → 取消。取消失败链路: 中断位已由 client 重设, 这里不再 sleep 直接返回。
-     *
-     * @param feedback 每决定重试一次回调一次(带即将进行的重试轮次), 可为 null(如解析器侧不用)
+     * 过滤一单层清单 — 本地内核({@link M3u8FilterCore}, Go 内核 Kotlin 移植)绝对化+剔广告。
+     * 内核为纯函数不抛; 防御性 catch → 原始流兜底(调用方需对媒体级清单绝对化)。
+     * 2026-10-28 起服务端过滤(/v1/m3u8/filter)下线, 本地为唯一路径。
      */
-    private FilterOutcome filterWithFallback(String base, String url, byte[] rawBytes, String what,
-                                             @Nullable RetryFeedback feedback) {
-        int attempt = 0;
-        while (true) {
-            M3u8FilterClient.Outcome o = M3u8FilterClient.filterDetailed(base, url, rawBytes);
-            if (o.success()) {
-                return FilterOutcome.ok(o.result.data, o.result.filteredCount);
-            }
-            attempt++;
-            DownloadFilterFallbackPolicy.Action a =
-                    DownloadFilterFallbackPolicy.onFilterFailure(o.cause, attempt);
-            switch (a) {
-                case RETRY:
-                    if (feedback != null) {
-                        feedback.onRetry(attempt, DownloadFilterFallbackPolicy.NETWORK_RETRY_ROUNDS);
-                    }
-                    try {
-                        Thread.sleep(300);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return FilterOutcome.cancel();
-                    }
-                    break;
-                case USE_RAW:
-                    // 只记 host, 不记完整 URL: 源站 URL 常带时效签名, 落日志等于扩散凭据
-                    Log.w(TAG, what + "过滤不可用(" + o.cause + "), 按原始流下载: "
-                            + com.jerocine.player.ErrorDiag.safeUrl(url));
-                    return FilterOutcome.raw(rawBytes, 0);
-                case FAIL:
-                    // 仅防御路径(未知/缺失原因), 正常分级到不了这里
-                    return FilterOutcome.err("广告过滤失败, 可重试");
-                case ABORT:
-                default:
-                    Log.i(TAG, what + "过滤被取消");
-                    return FilterOutcome.cancel();
-            }
+    private FilterOutcome filterLocal(String url, byte[] rawBytes) {
+        try {
+            M3u8FilterCore.Result r = M3u8FilterCore.rewriteM3u8(
+                    new String(rawBytes, StandardCharsets.UTF_8), url, true);
+            return FilterOutcome.ok(r.getText().getBytes(StandardCharsets.UTF_8), r.getFiltered());
+        } catch (Throwable t) {
+            // 只记 host, 不记完整 URL: 源站 URL 常带时效签名, 落日志等于扩散凭据
+            Log.w(TAG, "本地过滤异常, 按原始流下载: "
+                    + com.jerocine.player.ErrorDiag.safeUrl(url));
+            return FilterOutcome.raw(rawBytes, 0);
         }
     }
 
@@ -1351,28 +1278,10 @@ public final class DownloadEngine {
         sInstance = null;
     }
 
-    /** 自定义 DownloaderFactory — HLS 注入过滤解析器(下载列表=过滤后分片; 原始流兜底任务含潜在广告段, 见 DownloadFilterFallbackPolicy). */
+    /** 自定义 DownloaderFactory — HLS 注入过滤解析器(下载列表=过滤后分片)。 */
     private static final class DownloaderFactoryImpl implements DownloaderFactory {
-        /**
-         * minSdk 21 无 coreLibraryDesugaring: {@code java.util.function.Supplier} 是 API 24+,
-         * Android 6 老设备(坚果投影)上实现它的 lambda 合成类在链接期解析父接口失败,
-         * 直接 NoClassDefFoundError(2026-10-15 实测)。自定义接口替代, 先例 {@link com.jerocine.player.PlayerDialogHelper}#IntConsumer。
-         */
-        interface ProxyBaseSupplier {
-            String get();
-        }
 
         private final CacheDataSource.Factory dsFactory;
-        /**
-         * 广告过滤 base 的<b>动态</b>读取入口(不能存成final String)。
-         *
-         * <p>曾经把 proxyBase 以 final 固化在构造时, 后果: 进程被系统回收后
-         * {@link JerocineDownloadService} 用空串重建引擎, 之后即使 Activity 再
-         * {@code get(ctx, 真实base)} 刷新了字段, 已创建的 factory 仍拿着旧值 →
-         * {@link M3u8FilterClient#filter} 直接返回 null → 进程重启后
-         * <b>所有在途下载 100% 失败</b>, 且无法自愈。
-         */
-        private final ProxyBaseSupplier proxyBaseSupplier;
         private final java.util.Map<String, byte[]> prefetched;
         /**
          * 下载执行线程池. **必须用固定容量池**: media3 SegmentDownloader 会把一个清单里的
@@ -1385,10 +1294,8 @@ public final class DownloadEngine {
                 java.util.concurrent.Executors.newFixedThreadPool(4);
 
         DownloaderFactoryImpl(CacheDataSource.Factory dsFactory,
-                              ProxyBaseSupplier proxyBaseSupplier,
                               java.util.Map<String, byte[]> prefetched) {
             this.dsFactory = dsFactory;
-            this.proxyBaseSupplier = proxyBaseSupplier;
             this.prefetched = prefetched;
         }
 
@@ -1402,12 +1309,10 @@ public final class DownloadEngine {
             }
             MediaItem item = request.toMediaItem();
             if (type == C.CONTENT_TYPE_HLS) {
-                // 每次现取: 引擎可能被 get() 刷新过 proxyBase, factory 必须跟随
-                String base = proxyBaseSupplier.get();
                 android.util.Log.i(TAG, "createDownloader: HLS " + request.id
                         + " uri=" + request.uri);
                 return new HlsDownloader(item,
-                        new DownloadFilterPlaylistParserFactory(base, prefetched),
+                        new DownloadFilterPlaylistParserFactory(prefetched),
                         dsFactory,
                         executor);
             }

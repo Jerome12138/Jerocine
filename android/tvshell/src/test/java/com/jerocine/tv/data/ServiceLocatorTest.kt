@@ -11,36 +11,31 @@ class ServiceLocatorTest {
     }
 
     /**
-     * 生产环境媒体/代理基址必须与业务 API **同源同协议(HTTPS)**。
+     * 生产环境业务基址必须与 API **同源同协议(HTTPS)**。
      *
      * 2026-10-12 改: 此前生产媒体链刻意降级为 http(规避老设备 CA), 但 80→443 的 308 带
-     * `Connection: close`, 连接无法复用 ⇒ 端侧过滤的每次 POST 都重付一次握手, 叠加后单次
-     * 起播多等十几秒。老设备的 CA 由媒体 OkHttp 的 trustAll 兜住, 不靠降协议。
+     * `Connection: close`, 连接无法复用 ⇒ 每次请求都重付一次握手。老设备的 CA 由媒体
+     * OkHttp 的 trustAll 兜住, 不靠降协议。
      */
     @Test
-    fun productionMediaProxyStaysHttpsToAvoidRedirectHop() {
+    fun productionServerStaysHttpsToAvoidRedirectHop() {
         ServiceLocator.setServer("https://jerocine.art")
 
         assertEquals("https://jerocine.art", ServiceLocator.serverBase)
-        assertEquals("https://jerocine.art/api", ServiceLocator.proxyBase())
-        assertEquals(
-            "https://jerocine.art/api/v1/m3u8/proxy?src=https%3A%2F%2Fcdn.example%2F1.m3u8&filterAds=1&proxyMedia=0",
-            ServiceLocator.m3u8ProxyUrl("https://cdn.example/1.m3u8")
-        )
     }
 
     @Test
-    fun customServerUsesItsOwnMediaProxy() {
+    fun customServerKeepsItsOwnBase() {
         ServiceLocator.setServer("http://localhost:3600")
 
-        assertEquals("http://localhost:3600/api", ServiceLocator.proxyBase())
+        assertEquals("http://localhost:3600", ServiceLocator.serverBase)
     }
 
     /** 自定义 https 后端也必须原样保留 https(不得被"默认服务器"的特例改写协议)。 */
     @Test
-    fun customHttpsServerKeepsHttpsForMediaProxy() {
+    fun customHttpsServerKeepsHttps() {
         ServiceLocator.setServer("https://video.example.com")
 
-        assertEquals("https://video.example.com/api", ServiceLocator.proxyBase())
+        assertEquals("https://video.example.com", ServiceLocator.serverBase)
     }
 }

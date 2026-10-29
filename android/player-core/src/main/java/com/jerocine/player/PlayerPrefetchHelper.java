@@ -8,7 +8,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -109,15 +108,12 @@ public class PlayerPrefetchHelper {
     /** 只有"下一集确实会走端侧过滤"才值得预取. */
     private boolean canPrefetch(int currentIdx) {
         if (!session.adFilterOn) return false;                                        // 过滤关着, 没人查缓存
-        if (session.currentBypassFilter) return false;                                // 单 URL 兼容模式: 不包装也不过滤
-        if (session.proxyBase == null || session.proxyBase.isEmpty()) return false;   // 端侧过滤也要服务端 /v1/m3u8/filter
+        if (session.currentBypassFilter) return false;                                // 单 URL 兼容模式: 不过滤
         int next = currentIdx + 1;
         String raw = rawUrlAt(next);
         if (raw == null || !PlayerUrls.isM3u8(raw)) return false;
-        // 下一集正在播本地(本地优先/单集本地) → 会直接播 file:// 本地清单, 端侧预取纯浪费一次过滤 POST
-        if (session.isEpisodePlayingLocal(next)) return false;
-        // 下一集实际会包代理/走中转(端侧不可用或已升级) → 清单由服务端抓并缓存, 端侧预取无意义
-        return raw.equals(session.mediaUriFor(next, raw));
+        // 下一集正在播本地(本地优先/单集本地) → 会直接播 file:// 本地清单, 端侧预取纯浪费
+        return !session.isEpisodePlayingLocal(next);
     }
 
     private String rawUrlAt(int idx) {
@@ -154,13 +150,11 @@ public class PlayerPrefetchHelper {
         byte[] data = raw;
         int filteredCount = 0;
         if (PlayerUrls.hasMediaSegments(text)) {
-            // 媒体列表(广告在这层)才值得 POST; master 层与播放路径 master-direct 一致免 POST
-            PlayerSession.Prefetched done = filterViaServer(url, raw);
+            // 媒体列表(广告在这层)才值得过滤; master 层与播放路径 master-direct 一致免过滤
+            PlayerSession.Prefetched done = filterLocal(url, raw);
             if (done == null) return;
             data = done.data;
             filteredCount = done.filteredCount;
-            // 预取与播放共用同一条端侧过滤链路: 成功即清失败连击(见 FilterEscalationPolicy)
-            session.clientFilterFailStreak = 0;
         }
         // master 也照写缓存: 播放路径 master 层已免 POST 直通(不查缓存), 写它纯粹为了让
         // schedule() 的 REFRESH_MIN_AGE 节流照常工作 —— 不写的话片尾窗口会每 5s 重抓一次 master。
@@ -200,46 +194,18 @@ public class PlayerPrefetchHelper {
         }
     }
 
-    /** POST 端侧过滤(/v1/m3u8/filter), 返回"过滤后字节 + 剔除段数"; 失败返回 null. */
-    private PlayerSession.Prefetched filterViaServer(String srcUrl, byte[] raw) {
-        String base = session.proxyBase;
-        if (base == null || base.isEmpty()) return null;
+    /** 本地过滤媒体清单(M3u8FilterCore), 返回"过滤后字节 + 剔除段数"; 异常返回 null. */
+    private PlayerSession.Prefetched filterLocal(String srcUrl, byte[] raw) {
         final String srcTag = AdFilterTrace.srcTag(srcUrl);
-        final String url;
-        try {
-            url = base + "/v1/m3u8/filter?src="
-                    + PlayerUrls.encodeParam(srcUrl);
-        } catch (Exception e) {
-            return null;
-        }
         long t0 = System.nanoTime();
         try {
-            Request req = new Request.Builder().url(url)
-                    .post(RequestBody.create(
-                            MediaType.parse("application/vnd.apple.mpegurl"), raw))
-                    .build();
-            try (Response resp = client.newCall(req).execute()) {
-                if (!resp.isSuccessful() || resp.body() == null) {
-                    logTrace("prefetch-filter", srcTag, "fail http=" + resp.code(), t0);
-                    return null;
-                }
-                int count = 0;
-                String header = resp.header("X-Ad-Filtered");
-                if (header != null) {
-                    try {
-                        count = Integer.parseInt(header.trim());
-                    } catch (NumberFormatException ignore) {
-                    }
-                }
-                byte[] out = resp.body().bytes();
-                if (out.length == 0) {
-                    logTrace("prefetch-filter", srcTag, "fail empty-body http=" + resp.code(), t0);
-                    return null;
-                }
-                logTrace("prefetch-filter", srcTag,
-                        "ok http=" + resp.code() + " out=" + out.length + " ads=" + count, t0);
-                return new PlayerSession.Prefetched(out, count, System.currentTimeMillis());
-            }
+            M3u8FilterCore.Result r = M3u8FilterCore.rewriteM3u8(
+                    new String(raw, StandardCharsets.UTF_8), srcUrl, true);
+            logTrace("prefetch-filter", srcTag,
+                    "ok out=" + r.getText().length() + " ads=" + r.getFiltered(), t0);
+            return new PlayerSession.Prefetched(
+                    r.getText().getBytes(StandardCharsets.UTF_8), r.getFiltered(),
+                    System.currentTimeMillis());
         } catch (Exception e) {
             logTrace("prefetch-filter", srcTag, "fail ex=" + e.getClass().getSimpleName(), t0);
             return null;
