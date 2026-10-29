@@ -131,4 +131,39 @@ describe('LiveView', () => {
     await flushPromises()
     expect(w.text()).toContain('直播源加载失败')
   })
+
+  /* ---- 覆盖率补强(2026-10-30) ---- */
+
+  it('频道列表加载失败: 显示错误态而非空白', async () => {
+    m.getLiveChannels.mockRejectedValue(new Error('network'))
+    const w = mountView()
+    await flushPromises()
+    expect(w.text()).toContain('频道列表加载失败，请稍后重试')
+    expect(w.findAll('.jc-live-channel')).toHaveLength(0)
+  })
+
+  it('频道列表为空: 提示该源暂无可用频道', async () => {
+    m.getLiveChannels.mockResolvedValue({ id: 1, name: '主源', channels: [] })
+    const w = mountView()
+    await flushPromises()
+    expect(w.text()).toContain('该直播源暂无可用频道')
+    expect(w.findAll('.jc-live-group')).toHaveLength(0)
+  })
+
+  it('记忆频道不在列表中: 源按记忆恢复, 但频道不高亮', async () => {
+    localStorage.setItem('jc-live-last-channel', JSON.stringify({ sourceId: 2, url: 'http://s/gone' }))
+    const w = mountView()
+    await flushPromises()
+    expect(m.getLiveChannels).toHaveBeenLastCalledWith(2) // 记忆源仍生效
+    expect(w.findAll('.jc-live-channel.is-active')).toHaveLength(0) // url 不在列表, 不回显
+    expect(w.find('.jc-live-loading').exists()).toBe(true) // 播放区停留在"选择频道"提示, 无僵尸画面
+  })
+
+  it('源列表为空时播放器区不渲染(仅空态)', async () => {
+    m.getLiveSources.mockResolvedValue({ sources: [] })
+    const w = mountView()
+    await flushPromises()
+    expect(w.find('.jc-live-grid').exists()).toBe(false)
+    expect(w.find('.jc-live-source-chip').exists()).toBe(false)
+  })
 })
