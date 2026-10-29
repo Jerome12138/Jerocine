@@ -33,7 +33,7 @@ import okhttp3.Response;
  * <p>流程:
  * <pre>
  *   1. 播放暂停(调用方 session.player.pause())
- *   2. GET 当前集原始 m3u8 → M3u8FilterClient 过滤 → 过滤后清单
+ *   2. GET 当前集原始 m3u8 → 本地 M3u8FilterCore 过滤 → 过滤后清单
  *   3. PlaylistSegments 解析 + rangeForMinutes 取前 N 分钟分片
  *   4. 对每个分片 CacheWriter(upstream=OkHttpDataSource, cache=播放缓存, key=源站URL) 顺序写
  *   5. 进度回调(已缓存 x/N 分钟) → 完成回调 → 调用方自动 resume
@@ -84,7 +84,7 @@ public final class BufferPrefetcher {
                 run(srcUrl, minutes, progress, done);
             } catch (Exception e) {
                 // 取消引起的失败要与真实失败区分开。cancel() 会 shutdownNow 中断本线程,
-                // 被打断的 M3u8FilterClient.filter 返回 null → 这里抛 "广告过滤失败"。
+                // 被打断的本地过滤返回 null → 这里抛 "广告过滤失败"。
                 // 若不判cancelled, 用户在"缓冲30分钟"中途改选"缓冲5分钟"时, 旧实例会:
                 //   ①弹一个莫名其妙的"缓存缓冲失败: 广告过滤失败"(实际是用户自己取消的);
                 //   ② 执行 onError 里的 setPlayWhenReady(true) → **在新实例正在写缓存的

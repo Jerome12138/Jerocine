@@ -3,18 +3,17 @@ package com.jerocine.player;
 /**
  * 端侧广告过滤链路的埋点格式 — 纯字符串处理, 不依赖 Android API, 便于单测.
  *
- * <p>为什么单独抽一个类: 过滤链路(抓清单 → POST /v1/m3u8/filter → 交解析器)此前**零日志**,
+ * <p>为什么单独抽一个类: 过滤链路(抓清单 → 本地 M3u8FilterCore 过滤 → 交解析器)此前**零日志**,
  * 起播慢只能靠两侧 curl 反推 —— 回答不了"这一次尝试花了多久、是第几次成的、失败原因是什么"。
  * 需要埋点的出口有三处且分散:
  * <ul>
- *   <li>{@link M3u8FilterClient#filterDetailed} — 每次 attempt 的真实耗时与结果(播放 + 下载共用);</li>
- *   <li>{@link PlayerAdFilterHelper.FilterPlaylistParser} — 这一层清单走了哪条路(预取命中/端侧/代理);</li>
- *   <li>{@link PlayerPrefetchHelper} — 预取链路的抓取与过滤(独立实现, 不走 M3u8FilterClient)。</li>
+ *   <li>{@link PlayerAdFilterHelper.FilterPlaylistParser} — 播放路径: 解析器层的路径决策(预取命中/端侧过滤);</li>
+ *   <li>{@link PlayerPrefetchHelper} — 预取链路: 后台抓取与过滤(独立实现, 不共用播放路径);</li>
  * </ul>
  * 三处共用同一份格式与 {@link #TAG}, 一次 {@code adb logcat | grep JcAdFilter} 就能拼出完整时间线。
  *
  * <p>字段固定为 {@code k=v} 且顺序稳定(attempt/ms/src/http/out/ads/result), 便于
- * {@code grep -o 'ms=[0-9]*'} 这类命令直接取数做分布统计。源地址一律经 {@link #srcTag} 脱敏 ——
+ * {@code grep -o "ms=[0-9]*"} 这类命令直接取数做分布统计。源地址一律经 {@link #srcTag} 脱敏 ——
  * 清单 URL 常带 token/签名, 原样打日志等于把凭据写进 logcat。
  */
 public final class AdFilterTrace {
@@ -65,7 +64,7 @@ public final class AdFilterTrace {
      * @param attempt   第几次尝试(从 1 起)
      * @param elapsedMs 本次尝试耗时(含连接/TLS/上行/下行)
      * @param httpCode  响应码; 未拿到响应(连接失败/超时/取消)传 -1 → 该字段省略
-     * @param cause     失败原因枚举名({@link M3u8FilterClient.FailureCause}); 成功传 null → 输出 result=ok
+     * @param cause     失败原因描述; 成功传 null → 输出 result=ok
      * @param outBytes  过滤后体积; 失败传 -1 → 该字段省略
      * @param ads       本层剔除段数(master 恒 0); 失败传 -1 → 该字段省略
      * @param srcTag    见 {@link #srcTag}
@@ -86,7 +85,7 @@ public final class AdFilterTrace {
     /**
      * 一次过滤的收尾行 — 与 {@link #begin} 成对。
      *
-     * <p>关键信息是 {@code attempts}: 1 = 第一次就成了; 2 = 重试过一次(时间翻倍, 且往往紧跟升级服务端代理)。
+     * <p>关键信息是 {@code attempts}: 1 = 第一次就成了; 2 = 重试过一次(时间翻倍)。
      * {@code totalMs} 是整次过滤(含 attempt 间的退避 sleep)的总耗时。
      */
     public static String end(String srcTag, int attempts, long totalMs, String cause,
@@ -102,10 +101,10 @@ public final class AdFilterTrace {
     }
 
     /**
-     * 路径决策行 — 记录"这一层清单走了哪条路"(预取命中/端侧过滤/服务端代理/无代理/升级代理)。
+     * 路径决策行 — 记录"这一层清单走了哪条路"(预取命中/端侧过滤)。
      *
      * <p>用来解释一次起播为什么快或慢: 命中预取应≈0ms; 走端侧过滤则等于一次 {@code attempt} 的耗时;
-     * 命中服务端代理说明端侧链路已被判定不可靠。
+
      *
      * @param phase    发生位置(parse/prefetch-fetch/prefetch-filter/escalate)
      * @param decision 决策结果

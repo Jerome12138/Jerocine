@@ -49,9 +49,9 @@ public class PlayerAdFilterHelper {
     /**
      * 读取持久化的广告过滤开关(默认开) — 供设置页 / 壳层设置抽屉查询。
      *
-     * 与 {@link PlayerNetworkModeHelper#isRelayEnabled} 同款: 开关态既要在播放器内持久化,
+     * 开关态既要在播放器内持久化,
      * 又要被"播放器之外"(tv 壳设置抽屉 / web 壳设置抽屉)读写, 所以键名只在这里定义一次,
-     * 壳层一律调这两个静态方法 —— 避免各处硬编码 "ad_filter_enabled" 后漂移。
+     * 键名只在 WebSettingsContract / 本类定义一次, 避免各处硬编码 "ad_filter_enabled" 后漂移。
      */
     public static boolean isAdFilterEnabled(Context context) {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

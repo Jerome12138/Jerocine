@@ -23,7 +23,7 @@ import okhttp3.Response;
  *
  * 只做三件事:
  *   ① 进入片尾窗口后, 后台 GET 下一集的原始清单;
- *   ② POST /v1/m3u8/filter 端侧过滤(媒体列表才 POST, master 层免 POST 直通), 结果写进
+ *   ② 本地 M3u8FilterCore 过滤 端侧过滤(媒体列表才 POST, master 层免 POST 直通), 结果写进
  *      {@link PlayerSession} 的预取缓存;
  *   ③ 若是 master 表, 再下钻一层把子表也预热(否则切集仍会卡在子表那次过滤上);
  *      master 免 POST 后子表地址不再被服务端顺手绝对化, 由 {@link PlayerUrls#absolutize} 端侧解析。

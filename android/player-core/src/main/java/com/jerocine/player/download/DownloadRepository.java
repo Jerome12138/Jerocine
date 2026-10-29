@@ -29,7 +29,7 @@ public class DownloadRepository extends SQLiteOpenHelper implements DownloadTask
     /**
      * <b>列表查询的列投影 — 刻意排除 {@code filteredPlaylist}。</b>
      *
-     * <p>该字段是整份过滤后清单, 单集约 77KB(见 {@code M3u8FilterClient} 的量级说明),
+     * <p>该字段是整份过滤后清单, 单集约 77KB(见 player-core 本地过滤模块的量级说明),
      * 几百集就是 20MB+ String。而下载管理页 {@code refreshTasks()} 走 {@link #listAll()},
      * 被 {@code onResume} 和每次状态变化回调触发; media3 的进度通知间隔是 5000ms,
      * 集级并行 3 → 每 5 秒至少 3 次全表扫描 + 全表反序列化, 且都在主线程 —— 会 ANR/OOM。
