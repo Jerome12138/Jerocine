@@ -46,6 +46,7 @@ function selectSource(id: number): void {
   if (id === activeSourceId.value) return
   activeSourceId.value = id
   activeUrl.value = ''
+  playSrc.value = '' // 停掉旧源画面（无高亮的"僵尸播放"）
   void loadChannels(id)
 }
 
@@ -85,23 +86,6 @@ onPlayerEvent('error', () => {
   // 直播源失效常见：频道离线/区域限制 —— 提示换频道
   console.warn('[live] player error, url =', playSrc.value)
 })
-
-/* ---------- 加载 ---------- */
-async function loadSources(): Promise<void> {
-  sourcesLoading.value = true
-  sourcesError.value = ''
-  try {
-    const resp = await liveApi.getLiveSources()
-    sources.value = resp.sources
-    if (resp.sources.length > 0) {
-      await loadChannels(activeSource.value?.id ?? 0)
-    }
-  } catch {
-    sourcesError.value = '直播源加载失败，请稍后重试'
-  } finally {
-    sourcesLoading.value = false
-  }
-}
 
 async function loadChannels(sourceId: number): Promise<void> {
   if (!sourceId) return

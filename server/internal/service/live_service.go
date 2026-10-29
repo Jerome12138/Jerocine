@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -96,7 +97,8 @@ func (s *LiveService) LiveChannels(ctx context.Context, id int64) (LiveChannelsR
 			text, err := s.client.Fetch(ctx, src.URL)
 			if err != nil {
 				// 拉取失败也计入负缓存(5min)：死源不回源（否则每请求最长等 20s），
-				// TTL 到期自动重试，无需人工干预
+				// TTL 到期自动重试，无需人工干预。日志留痕便于排障
+				log.Printf("[live] source %d(%s) 拉取失败(负缓存 5min): %v", src.Id, src.Name, err)
 				return LiveChannelsResp{}, false, nil
 			}
 			chs := live.ParsePlaylist(text)

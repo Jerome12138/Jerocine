@@ -105,7 +105,10 @@ func TestPickEpisodeOrder(t *testing.T) {
 	if e := PickEpisode(eps, 2); e == nil || e.EpisodeID != 12 {
 		t.Fatalf("episodeNumber 命中: %+v", e)
 	}
-	// 2) episodeNumber 缺失时按标题「第N集」
+	// 2) episodeNumber 缺失时按标题「第N集」；季号不是集号（第2季 ≠ 第2集）
+	if e := PickEpisode([]DandanEpisode{{EpisodeID: 31, EpisodeTitle: "第2季"}}, 2); e != nil {
+		t.Fatalf("季号不应命中集号: %+v", e)
+	}
 	titleOnly := []DandanEpisode{{EpisodeID: 21, EpisodeTitle: "第3期 上"}, {EpisodeID: 22, EpisodeTitle: "番外"}}
 	if e := PickEpisode(titleOnly, 3); e == nil || e.EpisodeID != 21 {
 		t.Fatalf("标题命中: %+v", e)

@@ -87,7 +87,8 @@ func (c *DandanClient) get(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		c.base+"/"+url.PathEscape(c.token)+path, nil)
 	if err != nil {
-		return err
+		// 构造失败(parse error)的 err 内嵌完整 URL 含 token, 一并脱敏
+		return fmt.Errorf("danmu aggregate request failed: %w", errors.Unwrap(err))
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -227,7 +228,7 @@ func matchEpisodeNo(title string, episode int) bool {
 				v = v*10 + int(t[j]-'0')
 				j++
 			}
-			if v == episode && j < n {
+			if v == episode && j-i <= 6 && j < n {
 				switch t[j] {
 				case '集', '话', '期':
 					return true
