@@ -65,6 +65,13 @@ export interface UsePlayerOptions {
    */
   danmakuSettings?: { onClick: () => void }
   /**
+   * 控制条「弹幕开关」按钮(可选):
+   * 提供后注册一个常驻图标按钮, 点击触发 onClick 切换弹幕显隐。
+   * 按钮开启态(is-on 着色)由调用方经 syncDanmakuBtnState 类机制外部同步
+   * (ArtPlayer 控件是静态 DOM, 状态类不进响应式)。
+   */
+  danmakuToggle?: { onClick: () => void }
+  /**
    * 弱网模式. 开启后(hls.js 配置):
    *  - 初始带宽估算 800kbps (默认 2Mbps), ABR 从低码率起步
    *  - 目标缓冲 25s (默认 40s), 起播更快
@@ -191,10 +198,15 @@ function saveBandwidth(v: number): void {
 let nextEpisodeHandler: (() => void) | null = null
 /** 弹幕设置按钮回调（同 nextEpisodeHandler 单例模式） */
 let danmakuSettingsHandler: (() => void) | null = null
+/** 弹幕开关按钮回调（同上） */
+let danmakuToggleHandler: (() => void) | null = null
 
 /** 弹幕设置图标 SVG path（Material "tune": 调节滑块, 设置语义比气泡更明确, 2026-10-26 更换） */
 const DANMAKU_ICON_PATH =
   'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z'
+/** 弹幕开关图标 SVG path（气泡 + 弹幕行, Material "chat" 变体） */
+const DANMAKU_TOGGLE_ICON_PATH =
+  'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z'
 
 /** 创建「下一集」按钮内容节点(外层 .art-control 容器由 ArtPlayer 自建)。 */
 function buildNextEpisodeButton(): HTMLElement {
@@ -206,6 +218,16 @@ function buildNextEpisodeButton(): HTMLElement {
 
 /** 创建「弹幕设置」图标按钮内容节点(内联 SVG, 不依赖 icon font)。 */
 function buildDanmakuSettingsButton(): HTMLElement {
+  return buildIconSvg(DANMAKU_ICON_PATH)
+}
+
+/** 创建「弹幕开关」图标按钮内容节点(气泡弹幕行图标)。 */
+function buildDanmakuToggleButton(): HTMLElement {
+  return buildIconSvg(DANMAKU_TOGGLE_ICON_PATH)
+}
+
+/** 20px 内联 SVG 图标节点(填充 currentColor)。 */
+function buildIconSvg(pathD: string): HTMLElement {
   const svgNS = 'http://www.w3.org/2000/svg'
   const svg = document.createElementNS(svgNS, 'svg')
   svg.setAttribute('viewBox', '0 0 24 24')
@@ -214,7 +236,7 @@ function buildDanmakuSettingsButton(): HTMLElement {
   svg.setAttribute('height', '20')
   svg.setAttribute('aria-hidden', 'true')
   const path = document.createElementNS(svgNS, 'path')
-  path.setAttribute('d', DANMAKU_ICON_PATH)
+  path.setAttribute('d', pathD)
   svg.appendChild(path)
   return svg as unknown as HTMLElement
 }
@@ -485,9 +507,20 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     // 倍速面板档位交给调用方配置(不随 ArtPlayer 静态默认漂移), 保证与持久化校验一致
     Artplayer.PLAYBACK_RATE = rateOptions.slice()
 
-    // 控制条自定义按钮: 「弹幕设置」(倍速区左侧) + 「下一集」(全屏按钮之前)
+    // 控制条自定义按钮: 「弹幕开关」+「弹幕设置」(倍速区左侧) + 「下一集」(全屏按钮之前)
     // (ArtPlayer 自建 .art-control 容器, html 只放内容节点; 点击回调绑在容器上)
     const customControls: Artplayer['option']['controls'] = []
+    if (opts.danmakuToggle) {
+      danmakuToggleHandler = opts.danmakuToggle.onClick
+      customControls.push({
+        name: 'danmaku-toggle',
+        position: 'right',
+        index: 10,
+        tooltip: '弹幕开关',
+        html: buildDanmakuToggleButton(),
+        click: () => danmakuToggleHandler?.()
+      })
+    }
     if (opts.danmakuSettings) {
       danmakuSettingsHandler = opts.danmakuSettings.onClick
       customControls.push({
@@ -689,6 +722,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     errorMessage.value = ''
     nextEpisodeHandler = null
     danmakuSettingsHandler = null
+    danmakuToggleHandler = null
     // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 全量重挂
   }
 

@@ -9,33 +9,23 @@ import type Artplayer from 'artplayer'
 import { createEngine, type DanmakuEngine, type DanmakuItem } from 'danmaku-lite/canvas'
 import { SETTINGS_APPLIED_EVENT } from '@/utils/settingEvents'
 import { filmApi } from '@/api'
-import type { DanmuComment, DanmuProvider, DanmuTencentSegment } from '@/types/film'
-import {
-  resolveDanmuProvider,
-  toDanmuInput,
-  toDanmuInputs,
-  scatterTimes,
-  type DanmuMapFilter
-} from '@/utils/danmu'
+import { ApiError } from '@/types/api'
+import type { DanmuComment } from '@/types/film'
+import { toDanmuInputs, type DanmuMapFilter } from '@/utils/danmu'
 
 /**
- * 弹幕（D3）—— 渲染层迁移到 danmaku-lite（方案 A, 2026-10-26）：
+ * 弹幕（D3）—— 渲染层 danmaku-lite + 数据层聚合弹幕服务（2026-10-30）：
  *
- *  - 数据链路（不变）：mid → GET /films/:mid/danmu/source（平台候选）→
- *      - bilibili（路径 A 整集聚合）：seasonId → GET /danmu/bilibili 一次拉整集
- *      - tencent（路径 B 分段点播）：resourceId → episodes 匹配 → segments 索引 →
- *        按 currentTime 由引擎 dataSource 流式预拉 comments
- *  - 渲染引擎：danmaku-lite（Canvas 引擎, 同 API 双引擎, 2026-10-26 由 DOM 切换以提升并发与顺滑度），叠加在播放器容器内独立弹幕层（2026-10-30 起 ArtPlayer 容器）。
+ *  - 数据链路：影片名 + 集号 → GET /danmu/aggregate（服务端按标题匹配作品 → 定位集 →
+ *    整集聚合弹幕，两段缓存 7d）→ 一次拉整集。
+ *    404 = 查无作品/该集（标 unsupported「该片暂无弹幕」）；空列表 = 标 empty；其余错误 = failed 可重试。
+ *  - 渲染引擎：danmaku-lite（Canvas 引擎），叠加在播放器容器内独立弹幕层。
  *    引擎**自驱**：通过 PlayerAdapter（position/paused/duration）每帧读进度，无需手动 time/start/stop/seek。
  *    - 重叠：内置轨道分配器（scrollGap / maxVisible 控制密度）
  *    - 截断/被挡：overflow:'drop'（无空闲轨道时静默丢弃，不再挤到屏外截断）
  *    - 拖动进度一窝蜂：引擎按 seekThreshold 检测大跳，重置后从新位置按时间重发（非整段补发）
- *    - 腾讯分段：DataSourceAdapter.fetch(start,end) 由引擎按 preBuffer 自驱预拉（scheduler.add 追加，不清除屏上弹幕）
- *  - 开关与源偏好持久化（不变）：开关走 useWebSettings；源偏好 jc-danmaku-provider。
+ *  - 显示设置持久化：jc-danmaku-settings（字号/透明度/区域/速度/上限/底部/顶部/彩色/描边）。
  */
-
-export const DANMAKU_PROVIDER_KEY = 'jc-danmaku-provider'
-export const DANMAKU_DEFAULT_PROVIDER = 'bilibili'
 
 /* ---------------- 弹幕显示设置（2026-10-26, 参考 B站/腾讯设置面板） ---------------- */
 
@@ -97,93 +87,10 @@ export function danmakuSpeedOf(speed: number): number {
 /** 同屏上限档位 */
 export const DANMAKU_LIMIT_STEPS = [15, 30, 50, 0] as const
 
-/** 单个弹幕请求超时（ms）：整集聚合容错更大（路径A 29段串行最坏6-10s，服务端本身30s），
- *  分片/源列表 15s。过久即丢弃（AbortController 中止请求），调用方标 failed 可重试。
+/** 单个弹幕请求超时（ms）：整集聚合容错更大（服务端聚合最坏数秒 + 4MB 级响应）。
  *  导出为可变对象便于测试注入极小超时。 */
 export const DANMAKU_FETCH_TIMEOUTS = {
-  source: 15_000,
-  segment: 15_000,
-  bilibili: 30_000
-}
-
-/** 取消类错误判定（AbortController 中止 / axios 超时 ECONNABORTED / axios.isCancel）。 */
-function isAbortErr(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false
-  const e = err as { code?: string; name?: string; __CANCEL__?: unknown }
-  return (
-    e.code === "ERR_CANCELED" ||
-    e.code === "ECONNABORTED" ||
-    e.name === "CanceledError" ||
-    e.__CANCEL__ !== undefined
-  )
-}
-
-/** 业务无数据（无匹配集/无分段）哨兵：区别于取数失败，标 empty 而非 failed。 */
-class DanmakuEmptyError extends Error {}
-
-/** 带超时的请求封装：超时（或外部 abort）自动中止底层请求。
- *  controllers 为本 composable 实例的活跃请求集合，供卸载时统一中止。 */
-function withTimeout<T>
-(
-  factory: (signal: AbortSignal) => Promise<T>,
-  timeoutMs: number,
-  controllers: Set<AbortController>
-): { promise: Promise<T>; ctrl: AbortController } {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  const promise = factory(ctrl.signal).finally(() => {
-    clearTimeout(timer)
-    controllers.delete(ctrl)
-  })
-  controllers.add(ctrl)
-  return { promise, ctrl }
-}
-
-/**
- * 弹幕 UI 状态（用户要求 2026-10-25: 无源/查无/失败都必须有显示, 不许静默）:
- *   idle         开关关 / 无 mid
- *   loading      查询装载中
- *   unsupported  无候选源（接口失败或平台无此片）—— "该片暂无弹幕"
- *   empty        有候选源但拉不到内容（平台无对应集/分段/内容为空）—— "未找到弹幕"
- *   failed       装载链路异常（请求失败/弹幕引擎未创建）—— "弹幕加载失败", 可重试
- *   ready        已装载, 弹幕可见
- */
-export type DanmuState = 'idle' | 'loading' | 'unsupported' | 'empty' | 'failed' | 'ready'
-
-export interface UseDanmakuOptions {
-  /** 影片 mid（空 = 无弹幕） */
-  mid: Ref<number | undefined>
-  /** 集号（1 起；对应我们自己的集序, 服务端按标题匹配平台集） */
-  episode: Ref<number>
-  /** video.js 实例（ready 前为 null；切集后重拉依赖 episode watch 而非实例） */
-  player: ShallowRef<Artplayer | null>
-  /** 播放状态（联动 adapter.paused 用） */
-  playing: Ref<boolean>
-  /** 开关 */
-  enabled: Ref<boolean>
-  /**
-   * 订阅播放器事件（usePlayer.on 的返回签名）。
-   * 注意：渲染已由 danmaku-lite 经 adapter 自驱，无需手动 play/pause/seek 联动；
-   * 该字段保留以兼容 PlayView 调用约定，当前不再订阅。
-   */
-  onPlayerEvent: (event: 'play' | 'pause' | 'seeked' | 'timeupdate', fn: () => void) => () => void
-}
-
-/** 读取/写入源偏好（localStorage, 与开关分开存） */
-function readProviderPref(): string {
-  try {
-    return localStorage.getItem(DANMAKU_PROVIDER_KEY) || DANMAKU_DEFAULT_PROVIDER
-  } catch {
-    return DANMAKU_DEFAULT_PROVIDER
-  }
-}
-
-function writeProviderPref(provider: string): void {
-  try {
-    localStorage.setItem(DANMAKU_PROVIDER_KEY, provider)
-  } catch {
-    /* localStorage 不可用时仅本轮生效 */
-  }
+  aggregate: 30_000
 }
 
 /** 读取弹幕显示设置（缺省/损坏回默认值） */
@@ -231,13 +138,55 @@ function writeDanmakuSettings(s: DanmakuSettings): void {
   }
 }
 
+/** 带超时的请求封装：超时（或外部 abort）自动中止底层请求。
+ *  controllers 为本 composable 实例的活跃请求集合，供卸载时统一中止。 */
+function withTimeout<T>
+(
+  factory: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  controllers: Set<AbortController>
+): { promise: Promise<T>; ctrl: AbortController } {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  const promise = factory(ctrl.signal).finally(() => {
+    clearTimeout(timer)
+    controllers.delete(ctrl)
+  })
+  controllers.add(ctrl)
+  return { promise, ctrl }
+}
+
+/**
+ * 弹幕 UI 状态（无源/查无/失败都必须有显示, 不许静默）:
+ *   idle         开关关 / 无 mid
+ *   loading      查询装载中
+ *   unsupported  查无作品/该集（服务端 404）或影片名缺失 —— "该片暂无弹幕"
+ *   empty        匹配到集但弹幕内容为空（或服务端弹幕开关未开放） —— "未找到弹幕"
+ *   failed       装载链路异常（请求失败/超时/引擎未创建） —— "弹幕加载失败", 可重试
+ *   ready        已装载, 弹幕可见
+ */
+export type DanmuState = 'idle' | 'loading' | 'unsupported' | 'empty' | 'failed' | 'ready'
+
+export interface UseDanmakuOptions {
+  /** 影片 mid（空 = 无弹幕；也作内存缓存键） */
+  mid: Ref<number | undefined>
+  /** 影片名（聚合服务按标题匹配；空 = 无弹幕） */
+  title: Ref<string>
+  /** 年份（可选，提高作品匹配精度） */
+  year: Ref<number | undefined>
+  /** 集号（1 起；对应我们自己的集序, 服务端按集号定位） */
+  episode: Ref<number>
+  /** 播放器实例（ready 前为 null；adapter 每帧读进度） */
+  player: ShallowRef<Artplayer | null>
+  /** 播放状态（联动 adapter.paused 用） */
+  playing: Ref<boolean>
+  /** 开关 */
+  enabled: Ref<boolean>
+}
+
 export function useDanmaku(opts: UseDanmakuOptions) {
   const stage = ref<HTMLElement | null>(null)
-  /** 当前影片可用的弹幕源（全平台候选; 无候选时为空列表） */
-  const providers = ref<DanmuProvider[]>([])
-  /** 当前选中的平台（持久化偏好；候选里没有时回退 bilibili/首个） */
-  const provider = ref<string>(readProviderPref())
-  /** 是否有弹幕可显示（源存在 && 拉取非空; 供 UI 显示状态） */
+  /** 是否有弹幕可显示（装载非空; 供 UI 显示状态） */
   const hasDanmaku = ref(false)
   /** UI 状态机（三态显示的单一来源, 语义见 {@link DanmuState}） */
   const danmuState = ref<DanmuState>('idle')
@@ -274,13 +223,13 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     return Math.min(34, Math.max(16, Math.round(w / 64)))
   }
 
-  /** 当前过滤项（底部/顶部/彩色开关），供映射与 dataSource.fetch 共用。 */
+  /** 当前过滤项（底部/顶部/彩色开关）。 */
   function currentMapFilter(): DanmuMapFilter {
     const s = settings.value
     return { bottomMode: s.bottomMode, topMode: s.topMode, colored: s.colored }
   }
 
-  /** 创建引擎（stage 挂载后调用一次）。adapter 自驱进度，dataSource 自驱腾讯分段预拉。 */
+  /** 创建引擎（stage 挂载后调用一次）。adapter 自驱进度。 */
   function ensureEngine(): void {
     if (engine || !stage.value) return
     try {
@@ -306,11 +255,9 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         strokeWidth: settings.value.outline ? 1.25 : 0,
         // useTextShadow 仅 DOM 引擎有效, Canvas 用原生 strokeText, 已移除
         fontFamily: "'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
-        // 滚动弹幕最小纵向间距：加大以降低同屏密集重叠（item 2）；配合 overflow:'drop' 无空闲轨道时静默丢弃
+        // 滚动弹幕最小纵向间距：加大以降低同屏密集重叠；配合 overflow:'drop' 无空闲轨道时静默丢弃
         scrollGap: 140,
-        seekThreshold: 0.5,
-        // 腾讯分段：引擎按进度窗口自驱 fetch（scheduler.add 追加，不清除屏上弹幕，无闪烁）
-        dataSource: { fetch: fetchTencentRange }
+        seekThreshold: 0.5
       })
       resizeObserver = new ResizeObserver(() => {
         engine?.resize()
@@ -348,249 +295,53 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
   }
 
-  /* ---------------- 腾讯路径 B（分段点播）状态 ---------------- */
-  interface TencentCtx {
-    episodeId: string
-    segments: DanmuTencentSegment[]
-  }
-  let tencentCtx: TencentCtx | null = null
-
-  /* ---------------- 前端内存缓存（请求去重 2026-10-26） ----------------
-   * 目标：同一集内"开关关→开 / 配置(底部·顶部·彩色)变更重载 / seek 回已装载区域 / 来回切集"不再重复发 HTTP。
+  /* ---------------- 取数（内存缓存 + in-flight 去重 + 超时中止） ----------------
    * 服务端已有 Redis 缓存；这里再加一层内存缓存：命中直接装载，连缓存命中往返都省掉。
-   * 隔离：所有缓存 key 带 mid（+episode+provider），跨集/跨片自动 miss；生命周期 = composable，onScopeDispose 清空。 */
-  interface SrcCacheEntry {
-    providers: DanmuProvider[]
-  }
-  const srcCache = new Map<number, SrcCacheEntry>()
-  /** B站整集弹幕（key=`${mid}:${episode}`） */
-  const biliCache = new Map<string, DanmuComment[]>()
-  interface TencentMetaEntry {
-    episodeId: string
-    segments: DanmuTencentSegment[]
-  }
-  /** 腾讯 meta（key=`${mid}:${episode}:${provider}`）：匹配集 + 分段索引 */
-  const tencentMeta = new Map<string, TencentMetaEntry>()
-  /** 腾讯段弹幕数据缓存（key=`${mid}:${episode}:${segmentId}`）：dataSource 重复 fetch 命中不重拉 */
-  const segCache = new Map<string, DanmuComment[]>()
-
+   * 隔离：缓存 key 带 mid+episode，跨集/跨片自动 miss；生命周期 = composable，onScopeDispose 清空。 */
+  /** 整集弹幕（key=`${mid}:${episode}`） */
+  const aggCache = new Map<string, DanmuComment[]>()
+  /** 整集 in-flight 去重 */
+  const aggReq = new Map<string, Promise<DanmuComment[]>>()
   /** 本实例活跃请求控制器集合（卸载/超时统一中止，避免悬挂连接） */
   const activeControllers = new Set<AbortController>()
-  /** 源列表 in-flight 去重 */
-  let sourceReq: Promise<DanmuProvider[]> | null = null
-  /** B站整集 in-flight 去重（key=mid:ep） */
-  const biliReq = new Map<string, Promise<DanmuComment[]>>()
-  /** 腾讯 meta in-flight 去重（key=mid:ep:provider） */
-  const tencentMetaReq = new Map<string, Promise<TencentMetaEntry>>()
-  /** 腾讯单段 in-flight 去重（key=mid:ep:segmentId） */
-  const segReq = new Map<string, Promise<DanmuComment[]>>()
-  /** 已触发内容预取的 (mid:ep) 集合，避免重复后台预热 */
-  const prefetchedKeys = new Set<string>()
 
-  function resetTencent(): void {
-    tencentCtx = null
-  }
-
-  /** 取单段腾讯弹幕（带段缓存 + in-flight 去重 + 15s 超时；失败/超时返回空，不阻断其它段）。 */
-  async function getSegmentComments(
-    episodeId: string,
-    seg: DanmuTencentSegment
-  ): Promise<DanmuComment[]> {
-    const mid = opts.mid.value
-    if (mid === undefined) return []
-    const key = `${mid}:${opts.episode.value}:${seg.segmentId}`
-    const hit = segCache.get(key)
-    if (hit) return hit
-    const existing = segReq.get(key)
-    if (existing) return existing
-    const { promise } = withTimeout(
-      (signal) =>
-        filmApi.getDanmuTencentComments(
-          { episodeId, segmentId: seg.segmentId },
-          { signal }
-        ),
-      DANMAKU_FETCH_TIMEOUTS.segment,
-      activeControllers
-    )
-    const req = promise
-      .then((resp) => {
-        segReq.delete(key)
-        if (!resp?.ok || !resp.data) return [] as DanmuComment[]
-        segCache.set(key, resp.data)
-        return resp.data
-      })
-      .catch(() => {
-        segReq.delete(key)
-        return [] as DanmuComment[] // 单段失败/超时：丢弃该段弹幕，不阻断流式
-      })
-    segReq.set(key, req)
-    return req
-  }
-
-  /** 引擎 dataSource.fetch：把 [start,end) 秒窗口映射到重叠的腾讯段，取各段弹幕并按时间过滤。
-   *  返回 danmaku-lite 的 DanmakuItem[]（已应用底部/顶部/彩色过滤）；引擎排序后调度。 */
-  async function fetchTencentRange(start: number, end: number): Promise<DanmakuItem[]> {
-    const ctx = tencentCtx
-    if (!ctx) return []
-    const myToken = loadToken
-    const filter = currentMapFilter()
-    const items: DanmakuItem[] = []
-    const segs = ctx.segments
-    for (let i = 0; i < segs.length; i += 1) {
-      const seg = segs[i]!
-      if (seg.startTime >= end) break // 段按 startTime 升序，其后皆不重叠
-      const nextStart = i + 1 < segs.length ? segs[i + 1]!.startTime : Infinity
-      if (nextStart <= start) continue // 该段整体在窗口之前
-      const data = await getSegmentComments(ctx.episodeId, seg)
-      if (myToken !== loadToken) return [] // 竞态：已切集/重载，丢弃陈旧结果
-      for (let j = 0; j < data.length; j += 1) {
-        const c = data[j]!
-        const tt = c.time / 1000
-        if (tt >= start && tt < end) {
-          const it = toDanmuInput(c, j, filter)
-          if (it) items.push(it)
-        }
-      }
-    }
-  scatterTimes(items) // 整秒弹幕随机打散（±0.5s），消除齐发列队
-  return items
-}
-
-  /* ---------------- 装载（按平台分叉） ----------------
-   * 顺序铁律: **先落 providers（UI 立刻有所指）, 再建引擎装载内容**。
-   * 曾反过来（先建引擎后取源）叠加模板弹幕层 v-if=providers 非空:
-   * providers 空 → stage 不渲染 → 引擎建不起来 → providers 永远为空 ⇒
-   * 按钮/弹幕层/源切换全不显示（2026-10-25 线上实测, 回归见 useDanmaku.spec.ts）。 */
-  /* ---------------- 源/内容预取（缓存去重 + 超时中止） ----------------
-   * ensureSource / ensureBilibili / ensureTencentMeta: 取数并落入内存缓存；
-   * 同 key 并发复用同一 in-flight Promise（去重）；单请求带超时(整集30s/分片·源15s)，
-   * 过久 AbortController 中止（丢弃），由调用方决定标 failed 还是静默降级。
-   * prefetchContent: 后台预热内容缓存（开启弹幕或播放中时），首开即命中、瞬时显示。 */
-  let loadToken = 0
-
-  /** 取源列表（缓存 + 并发去重）。mid 缺失返回空。 */
-  function ensureSource(): Promise<DanmuProvider[]> {
-    const mid = opts.mid.value
-    if (mid === undefined) return Promise.resolve([])
-    const hit = srcCache.get(mid)
-    if (hit) return Promise.resolve(hit.providers)
-    if (sourceReq) return sourceReq
-    const { promise } = withTimeout(
-      (signal) => filmApi.getDanmuSource(mid, { signal }),
-      DANMAKU_FETCH_TIMEOUTS.source,
-      activeControllers
-    )
-    const req = promise
-      .then((resp) => {
-        sourceReq = null
-        const list = resp?.providers ?? []
-        srcCache.set(mid, { providers: list })
-        return list
-      })
-      .catch((err) => {
-        sourceReq = null
-        throw err
-      })
-    sourceReq = req
-    return req
-  }
-
-  /** 取 B站整集弹幕（缓存 + 并发去重 + 30s 超时）。 */
-  function ensureBilibili(sel: DanmuProvider): Promise<DanmuComment[]> {
+  /** 取整集聚合弹幕（缓存 + 并发去重 + 30s 超时）。 */
+  function ensureAggregate(): Promise<DanmuComment[]> {
     const mid = opts.mid.value
     if (mid === undefined) return Promise.reject(new Error('no mid'))
     const ep = Math.max(1, opts.episode.value)
     const key = `${mid}:${ep}`
-    const hit = biliCache.get(key)
+    const hit = aggCache.get(key)
     if (hit) return Promise.resolve(hit)
-    const existing = biliReq.get(key)
+    const existing = aggReq.get(key)
     if (existing) return existing
     const { promise } = withTimeout(
       (signal) =>
-        filmApi.getDanmuBilibili({ seasonId: sel.resourceId, episode: ep }, { signal }),
-      DANMAKU_FETCH_TIMEOUTS.bilibili,
+        filmApi.getDanmuAggregate(
+          { title: opts.title.value, episode: ep, year: opts.year.value },
+          { signal }
+        ),
+      DANMAKU_FETCH_TIMEOUTS.aggregate,
       activeControllers
     )
     const req = promise
       .then((resp) => {
-        biliReq.delete(key)
+        aggReq.delete(key)
         const data = resp?.comments ?? []
-        biliCache.set(key, data)
+        aggCache.set(key, data)
         return data
       })
       .catch((err) => {
-        biliReq.delete(key)
+        aggReq.delete(key)
         throw err
       })
-    biliReq.set(key, req)
+    aggReq.set(key, req)
     return req
   }
 
-  /** 取腾讯 meta（episodes 匹配 + segments 索引；缓存 + 并发去重 + 15s 超时）。 */
-  function ensureTencentMeta(sel: DanmuProvider): Promise<TencentMetaEntry> {
-    const mid = opts.mid.value
-    if (mid === undefined) return Promise.reject(new Error('no mid'))
-    const ep = Math.max(1, opts.episode.value)
-    const key = `${mid}:${ep}:${sel.provider}`
-    const hit = tencentMeta.get(key)
-    if (hit) return Promise.resolve(hit)
-    const existing = tencentMetaReq.get(key)
-    if (existing) return existing
-    const { promise } = withTimeout(
-      async (signal) => {
-        const eps = await filmApi.getDanmuTencentEpisodes(
-          { resourceId: sel.resourceId, episode: ep },
-          { signal }
-        )
-        if (!eps?.ok || !eps.data.matched?.episodeId) {
-          throw new DanmakuEmptyError() // 无匹配集 → 标 empty，不判 failed
-        }
-        const episodeId = eps.data.matched.episodeId
-        const segs = await filmApi.getDanmuTencentSegments(episodeId, { signal })
-        if (!segs?.ok || segs.data.length === 0) {
-          throw new DanmakuEmptyError()
-        }
-        const entry: TencentMetaEntry = { episodeId, segments: segs.data }
-        tencentMeta.set(key, entry)
-        return entry
-      },
-      DANMAKU_FETCH_TIMEOUTS.segment,
-      activeControllers
-    )
-    const req = promise
-      .then((entry) => {
-        tencentMetaReq.delete(key)
-        return entry
-      })
-      .catch((err) => {
-        tencentMetaReq.delete(key)
-        throw err
-      })
-    tencentMetaReq.set(key, req)
-    return req
-  }
-
-  /** 后台预热内容缓存：开启弹幕或播放中时触发，命中后首开瞬时显示。
-   *  仅在 enabled||playing 时拉内容；源列表由 ensureSource 另行预热。 */
-  function prefetchContent(): void {
-    if (!opts.enabled.value && !opts.playing.value) return
-    const mid = opts.mid.value
-    if (mid === undefined) return
-    const key = `${mid}:${opts.episode.value}`
-    if (prefetchedKeys.has(key)) return
-    prefetchedKeys.add(key)
-    void ensureSource()
-      .then((list) => {
-        const picked = resolveDanmuProvider(list, provider.value, DANMAKU_DEFAULT_PROVIDER)
-        if (!picked) return
-        if (picked.provider === 'tencent') {
-          void ensureTencentMeta(picked.entry).catch(() => {})
-        } else {
-          void ensureBilibili(picked.entry).catch(() => {})
-        }
-      })
-      .catch(() => {})
-  }
+  /* ---------------- 装载 ----------------
+   * 顺序铁律: **先建引擎再装载内容**（stage 由模板常驻渲染, 引擎创建不依赖取数结果）。 */
+  let loadToken = 0
 
   /** 当前集 key（`mid:episode`）；关→开同集即时恢复用（不重新拉取装载） */
   function currentLoadKey(): string | null {
@@ -599,10 +350,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   }
   /** 已成功装载内容的集 key；null = 尚未装载/需重装 */
   let loadedKey: string | null = null
-  /** B站整集原始弹幕（最近一次装载的）；顶部/底部/彩色切换时内存重映射, 零请求零重载 */
-  let lastBiliComments: DanmuComment[] | null = null
-  /** 当前装载内容的源类型（决定过滤切换走内存重映射还是流式重装） */
-  let activeProviderKind: 'bilibili' | 'tencent' | null = null
+  /** 最近一次装载的原始弹幕（顶部/底部/彩色切换时内存重映射, 零请求零重载） */
+  let lastComments: DanmuComment[] | null = null
 
   async function loadDanmaku(force = false): Promise<void> {
     const key = currentLoadKey()
@@ -622,57 +371,26 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       danmuState.value = 'ready'
       return
     }
-    clearDanmaku()
-    resetTencent()
-    hasDanmaku.value = false
-    danmuState.value = 'loading'
-    let list: DanmuProvider[]
-    try {
-      list = await ensureSource()
-    } catch {
-      if (token !== loadToken) return
-      danmuState.value = 'unsupported' // 源列表取数失败（网络/超时） → 暂无候选
-      return
-    }
-    if (token !== loadToken) return
-    providers.value = list
-    if (list.length === 0) {
+    if (!opts.title.value) {
       danmuState.value = 'unsupported'
       return
     }
+    clearDanmaku()
+    hasDanmaku.value = false
+    danmuState.value = 'loading'
     ensureEngine()
     if (!engine) {
       danmuState.value = 'failed' // 弹幕引擎未创建
       return
     }
     applyEngineSettings() // 每次装载（首装或 bottom/top/colored 重载）都刷一遍运行时设置
-    const picked = resolveDanmuProvider(list, provider.value, DANMAKU_DEFAULT_PROVIDER)
-    if (!picked) {
-      danmuState.value = 'unsupported'
-      return
-    }
-    if (picked.fellBack) {
-      provider.value = picked.provider // 持久化回写，下次进来不再走回退链
-    }
-    const sel = picked.entry
-    if (!sel.resourceId) {
-      danmuState.value = 'unsupported'
-      return
-    }
-    if (picked.provider === 'tencent') {
-      await loadTencentEpisode(sel, token)
-      return
-    }
-    await loadBilibili(sel, token)
-  }
-
-  async function loadBilibili(sel: DanmuProvider, token: number): Promise<void> {
     let commentsData: DanmuComment[]
     try {
-      commentsData = await ensureBilibili(sel)
-    } catch {
+      commentsData = await ensureAggregate()
+    } catch (e) {
       if (token !== loadToken) return
-      danmuState.value = 'failed' // 取数失败/超时 → 可重试
+      // 404 = 查无作品/该集 → "该片暂无弹幕"；其余（网络/超时/服务端）→ failed 可重试
+      danmuState.value = e instanceof ApiError && e.status === 404 ? 'unsupported' : 'failed'
       return
     }
     if (token !== loadToken) return
@@ -681,52 +399,16 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       danmuState.value = 'empty'
       return
     }
-    engine?.load(items)
-    lastBiliComments = commentsData
-    activeProviderKind = 'bilibili'
+    engine.load(items)
+    lastComments = commentsData
     loadedKey = currentLoadKey()
     hasDanmaku.value = true
     danmuState.value = 'ready'
-    console.log('[danmaku] bilibili loaded:', items.length, 'items, key =', loadedKey)
-  }
-
-  async function loadTencentEpisode(sel: DanmuProvider, token: number): Promise<void> {
-    let entry: TencentMetaEntry
-    try {
-      entry = await ensureTencentMeta(sel)
-    } catch (e) {
-      if (token !== loadToken) return
-      if (e instanceof DanmakuEmptyError) {
-        danmuState.value = 'empty'
-      } else {
-        danmuState.value = 'failed' // 取数失败/超时 → 可重试
-      }
-      return
-    }
-    if (token !== loadToken) return
-    tencentCtx = { episodeId: entry.episodeId, segments: entry.segments }
-    // 引擎经 dataSource 按进度自驱预拉；此处只需确认有段可拉即可标 ready。
-    lastBiliComments = null
-    activeProviderKind = 'tencent'
-    loadedKey = currentLoadKey()
-    hasDanmaku.value = true
-    danmuState.value = 'ready'
-    console.log('[danmaku] tencent loaded: episodeId =', entry.episodeId, ', segments =', entry.segments.length, ', key =', loadedKey)
-  }
-
-  /** 用户手动切换弹幕源（UI 调用） */
-  function setProvider(next: string): void {
-    if (next === provider.value) {
-      return
-    }
-    provider.value = next
-    writeProviderPref(next)
-    loadedKey = null // 换源后已装载内容失效
-    void loadDanmaku(true)
+    console.log('[danmaku] aggregate loaded:', items.length, 'items, key =', loadedKey)
   }
 
   /** 更新弹幕显示设置（局部 patch）。
-   *  - 底部/顶部/彩色 命中 → 重新映射装载（bilibili 重 load；tencent 清+重流式，均命中缓存零 HTTP）
+   *  - 底部/顶部/彩色 命中 → 原始数据在内存, 直接重映射装载（零请求）
    *  - 其余（透明度/区域/速度/字号/描边/上限）→ 引擎运行时 setX 即时生效，无需重载 */
   function updateSettings(patch: Partial<DanmakuSettings>): void {
     const next = { ...settings.value, ...patch }
@@ -737,16 +419,14 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       patch.topMode !== undefined ||
       patch.colored !== undefined
     if (affectsContent) {
-      // 顶部/底部/彩色切换: B站整集原始数据在内存, 直接重映射+load, 零请求、不清状态机(即时生效);
-      // 腾讯为流式, 走强制重装(segCache 命中, 快)。
+      // 顶部/底部/彩色切换: 整集原始数据在内存, 直接重映射+load, 零请求、不清状态机(即时生效)
       if (
         engine &&
-        activeProviderKind === 'bilibili' &&
-        lastBiliComments &&
+        lastComments &&
         loadedKey !== null &&
         loadedKey === currentLoadKey()
       ) {
-        const items = toDanmuInputs(lastBiliComments, currentMapFilter())
+        const items = toDanmuInputs(lastComments, currentMapFilter())
         engine.load(items)
         applyEngineSettings() // 混合 patch(如同时改描边)也要应用运行时设置
         console.log('[danmaku] in-memory remap (bottom/top/colored):', items.length, 'items')
@@ -759,28 +439,24 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
   }
 
-  /* ---- 开关 / 集号 / 源变化 / stage 挂载（Teleport 后才有值, 纳入触发条件） ---- */
+  /* ---- 开关 / 集号 / 影片 / stage 挂载（Teleport 后才有值, 纳入触发条件） ---- */
   watch(
-    () => [opts.enabled.value, opts.playing.value, opts.mid.value, opts.episode.value, !!stage.value] as const,
+    () => [opts.enabled.value, opts.playing.value, opts.mid.value, opts.episode.value, opts.title.value, !!stage.value] as const,
     (cur, prev) => {
       // 播放/暂停切换: 引擎经 adapter.paused 自停/自走(冻结不清屏), 这里绝不重载 ——
       // 否则 loadDanmaku 的 clearDanmaku 会把屏上弹幕清空(表现为"暂停弹幕消失")。
-      // 仅在恢复播放时补一次内容预拉。
       if (
         prev &&
-        cur[0] === prev[0] && cur[2] === prev[2] && cur[3] === prev[3] && cur[4] === prev[4] &&
+        cur[0] === prev[0] && cur[2] === prev[2] && cur[3] === prev[3] &&
+        cur[4] === prev[4] && cur[5] === prev[5] &&
         cur[1] !== prev[1]
       ) {
-        if (cur[1]) prefetchContent()
         return
       }
-      // 后台预热：源列表必拉（便宜）；内容在开启弹幕或播放中时预拉，首开即命中缓存瞬时显示
-      void ensureSource().catch(() => {})
-      prefetchContent()
       void loadDanmaku()
     }
   )
-  /** 诊断日志: 弹幕状态机每次切换都打印(用户要求, 便于排查"弹幕长期不出现") */
+  /** 诊断日志: 弹幕状态机每次切换都打印(便于排查"弹幕长期不出现") */
   watch(danmuState, (to, from) => {
     console.log('[danmaku] state:', from, '→', to)
   })
@@ -815,27 +491,15 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     resizeObserver?.disconnect()
     engine?.destroy()
     engine = null
-    resetTencent()
-    srcCache.clear()
-    biliCache.clear()
-    tencentMeta.clear()
-    segCache.clear()
-    sourceReq = null
-    biliReq.clear()
-    tencentMetaReq.clear()
-    segReq.clear()
-    prefetchedKeys.clear()
+    aggCache.clear()
+    aggReq.clear()
     loadedKey = null
-    lastBiliComments = null
-    activeProviderKind = null
+    lastComments = null
     window.removeEventListener(SETTINGS_APPLIED_EVENT, onCloudApplied)
   })
 
   return {
     stage,
-    providers,
-    provider,
-    setProvider,
     hasDanmaku,
     danmuState,
     settings,

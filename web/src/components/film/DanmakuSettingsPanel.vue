@@ -7,10 +7,8 @@
  *  - 速度/同屏上限/顶部/底部/彩色: 对新弹幕生效（速度变更触发重载）
  *
  * 开关层级(2026-10-27): 仅保留用户级总开关(默认关); 单影片开关已移除,
- * 弹幕配置数据全局生效。实际生效 = 全局开关 && 非移动端(移动端不开放弹幕)。
+ * 弹幕配置数据全局生效。
  */
-import { computed } from 'vue'
-import type { DanmuProvider } from '@/types/film'
 import {
   DANMAKU_FONT_STEPS,
   DANMAKU_AREA_STEPS,
@@ -21,27 +19,16 @@ import {
 
 defineOptions({ name: 'DanmakuSettingsPanel' })
 
-const props = defineProps<{
+defineProps<{
   settings: DanmakuSettings
   /** 弹幕主开关（用户级, /settings 同源; 默认关, 随账号/浏览器记忆） */
   enabled: boolean
-  providers: DanmuProvider[]
-  provider: string
 }>()
 
 const emit = defineEmits<{
   (e: 'update', patch: Partial<DanmakuSettings>): void
   (e: 'toggle-enabled'): void
-  (e: 'set-provider', provider: string): void
 }>()
-
-const PROVIDER_LABELS: Record<string, string> = {
-  bilibili: 'B站',
-  tencent: '腾讯',
-  iqiyi: '爱奇艺',
-  youku: '优酷'
-}
-const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? p
 
 const FONT_LABELS = ['自适应', '极小', '小', '中', '大', '特大'] as const
 const AREA_LABELS = ['1/4屏', '半屏', '3/4屏', '全屏'] as const
@@ -52,16 +39,6 @@ const LIMIT_LABELS = ['少', '中', '多', '不限'] as const
 function patch(p: Partial<DanmakuSettings>): void {
   emit('update', p)
 }
-
-// 主开关行「弹幕源」标签（与开关状态无关）：
-//  - 单源/无源：标签样式「弹幕源 · 腾讯」；无源显示「本集无弹幕」
-//  - 多源：不在此处显示，交给下方「弹幕源」分段切换行
-const showSourceSlot = computed(() => props.providers.length <= 1)
-const sourceHasDanmu = computed(() => props.providers.length > 0)
-const sourceText = computed(() => {
-  if (props.providers.length === 0) return '本集无弹幕'
-  return '弹幕源 · ' + providerLabel(props.provider)
-})
 
 </script>
 
@@ -83,10 +60,8 @@ const sourceText = computed(() => {
           <span class="jc-danmu-switch__track" aria-hidden="true"><span class="jc-danmu-switch__knob" /></span>
         </button>
       </div>
-      <!-- 右：弹幕源标签（有源「弹幕源 · 腾讯」/ 无源「本集无弹幕」） -->
-      <div class="jc-danmu-main-right">
-        <span v-if="showSourceSlot" class="jc-danmu-source" :class="sourceHasDanmu ? 'is-has' : 'is-none'">{{ sourceText }}</span>
-      </div>
+      <!-- 右：弹幕状态占位（保留行布局对称） -->
+      <div class="jc-danmu-main-right" />
     </div>
 
     <!-- 字号: 档位式, 0=自适应(随全屏/移动端) -->
@@ -200,26 +175,6 @@ const sourceText = computed(() => {
         <span class="jc-danmu-toggle__box" aria-hidden="true">✓</span>
         <span>描边</span>
       </button>
-    </div>
-
-    <!-- 弹幕源（多源时切换） -->
-    <div v-if="providers.length > 1" class="jc-danmu-panel__row">
-      <div class="jc-danmu-panel__label">
-        <span>弹幕源</span>
-        <span class="jc-danmu-panel__hint">当前：{{ providerLabel(provider) }}</span>
-      </div>
-      <div class="jc-danmu-panel__segs">
-        <button
-          v-for="pr in providers"
-          :key="pr.provider"
-          type="button"
-          class="jc-danmu-seg"
-          :class="{ 'is-active': provider === pr.provider }"
-          @click="emit('set-provider', pr.provider)"
-        >
-          {{ providerLabel(pr.provider) }}
-        </button>
-      </div>
     </div>
   </div>
 </template>

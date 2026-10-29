@@ -162,8 +162,8 @@ const videoErrorMsg = ref<string>('')
     关闭时不调弹幕获取接口。 */
 const { danmaku: danmakuEnabled, setDanmaku: setDanmakuEnabled } = useWebSettings()
 
-/** 实际生效 = 全局开关 && 非移动端（移动端不开放弹幕功能, 入口也不显示） */
-const danmakuActive = computed(() => !isMobile.value && danmakuEnabled.value)
+/** 实际生效 = 用户级开关（2026-10-30 起移动端同步开放：控制条提供弹幕开关/设置入口） */
+const danmakuActive = computed(() => danmakuEnabled.value)
 function toggleDanmaku(): void {
   setDanmakuEnabled(!danmakuEnabled.value)
   if (danmakuEnabled.value) {
@@ -772,8 +772,10 @@ const {
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条内常驻「下一集」入口(点击走 playNext, 内部有 hasNext guard)
   nextEpisode: { onClick: () => playNext() },
-  // 弹幕设置按钮(插在倍速区左侧): 点击打开设置弹窗; 移动端不开放弹幕功能, 不注入按钮
-  ...(isMobile.value ? {} : { danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) } })
+  // 控制条弹幕开关(2026-10-30 起移动端同步开放): 点击切用户级开关
+  danmakuToggle: { onClick: () => onDanmakuEntryClick() },
+  // 控制条弹幕设置按钮: 点击打开设置弹窗
+  danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) }
 })
 
 // 在线心跳 watching 信号: 播放器播放状态实时置位(暂停/结束即回落)。
@@ -782,18 +784,16 @@ watch(paused, (v) => setWebWatching(!v))
 /* ============ 弹幕层（P0, 方案 §四之二/§四之三: 独立层叠在播放器容器上, 不换渲染引擎） ============ */
 const danmaku = useDanmaku({
   mid: computed(() => detail.value?.mid),
+  // 聚合弹幕按标题匹配: 影片名 + 年份 + 集号
+  title: computed(() => detail.value?.name ?? ''),
+  year: computed(() => detail.value?.year),
   episode: computed(() => currentEpisodeIndex.value + 1),
   player,
   playing: computed(() => !paused.value),
-  // 实际生效 = 用户级 && 本集(默认跟随用户级); 任一变化触发 useDanmaku watch 重载
-  enabled: danmakuActive,
-  onPlayerEvent: (event, fn) => onPlayerEvent(event, fn)
+  // 实际生效 = 用户级; 任一变化触发 useDanmaku watch 重载
+  enabled: danmakuActive
 })
 const danmakuStage = danmaku.stage
-/** D3 起：available 改为全平台候选列表（providers）；弹幕按钮/源切换都依赖它 */
-const danmakuProviders = danmaku.providers
-const danmakuProvider = danmaku.provider
-const danmakuSetProvider = danmaku.setProvider
 const danmakuState = danmaku.danmuState
 /** 弹幕显示设置（字号/透明度/区域/速度等, 面板实时更新） */
 const danmakuSettings = danmaku.settings
@@ -801,11 +801,13 @@ const danmakuUpdateSettings = danmaku.updateSettings
 /** 弹幕设置弹窗开关 */
 const danmakuSettingsOpen = ref(false)
 
-/** 弹幕设置按钮开启态颜色（is-on class; CSS 见样式段 .art-control-danmaku-settings.is-on） */
+/** 弹幕控制条按钮开启态颜色（is-on class; CSS 见样式段 .art-control-danmaku-*.is-on） */
 function syncDanmakuBtnState(): void {
   const host = player.value?.template.$player
-  const btn = host?.querySelector('.art-control-danmaku-settings')
-  if (btn) btn.classList.toggle('is-on', danmakuActive.value)
+  const toggle = host?.querySelector('.art-control-danmaku-toggle')
+  if (toggle) toggle.classList.toggle('is-on', danmakuActive.value)
+  const settingsBtn = host?.querySelector('.art-control-danmaku-settings')
+  if (settingsBtn) settingsBtn.classList.toggle('is-on', danmakuActive.value)
 }
 watch(danmakuActive, syncDanmakuBtnState, { flush: 'post' })
 // 按钮由 usePlayer 在控制条初始化时插入, 首次渲染后可能晚一拍 → 挂载后查两次
@@ -846,25 +848,6 @@ function onDanmakuEntryClick(): void {
     return
   }
   toggleDanmaku()
-}
-
-/** 弹幕源显示名（D3：bilibili/tencent 等） */
-function danmakuProviderName(p: string): string {
-  return { bilibili: 'B站', tencent: '腾讯', iqiyi: '爱奇艺', youku: '优酷' }[p] ?? p
-}
-
-/** 循环切换到下一个弹幕源（工具栏/更多菜单共用） */
-function cycleDanmakuProvider(): void {
-  const list = danmakuProviders.value
-  if (list.length < 2) {
-    return
-  }
-  const cur = danmakuProvider.value
-  const idx = list.findIndex((it) => it.provider === cur)
-  const next = list[(idx + 1) % list.length]
-  if (next) {
-    danmakuSetProvider(next.provider)
-  }
 }
 
 /** ---------- 历史记录 ---------- */
@@ -1988,7 +1971,6 @@ watch(playerReady, (v) => {
             <BaseIcon name="shield" size="26px" /><span>广告</span>
           </button>
           <button
-            v-if="!isMobile"
             type="button"
             class="jc-pt-btn"
             :class="[{ 'is-on': danmakuEnabled && !danmakuUnavailable }, danmakuUnavailable ? 'is-disabled' : '']"
@@ -1999,16 +1981,6 @@ watch(playerReady, (v) => {
             @click="onDanmakuEntryClick"
           >
             <BaseIcon name="chat" size="26px" /><span>弹幕</span>
-          </button>
-          <button
-            v-if="!isMobile && danmakuProviders.length > 1"
-            type="button"
-            class="jc-pt-btn jc-pt-btn--src"
-            data-focusable="true"
-            :title="'切换弹幕源（当前：' + danmakuProviderName(danmakuProvider) + '）'"
-            @click="cycleDanmakuProvider"
-          >
-            <span class="jc-pt-btn-src-label">{{ danmakuProviderName(danmakuProvider) }}</span>
           </button>
           <button type="button" class="jc-pt-btn" :class="favorited ? 'is-on' : ''" :aria-pressed="favorited" data-focusable="true" @click="toggleFavorite">
             <BaseIcon name="star" size="26px" /><span>{{ favorited ? '已收藏' : '收藏' }}</span>
@@ -2079,15 +2051,11 @@ watch(playerReady, (v) => {
                     <span class="jc-pt-more__item-label">过滤广告</span>
                     <span v-if="adFilter" class="jc-pt-more__check" aria-hidden="true">✓</span>
                   </button>
-                  <!-- 弹幕开关: 常驻显示(不可用时置灰+原因, 点击给反馈); 移动端不开放弹幕 -->
-                  <button v-if="!isMobile" type="button" class="jc-pt-more__item" :class="[danmakuEnabled && !danmakuUnavailable ? 'is-on' : '', danmakuUnavailable ? 'is-disabled' : '']" :aria-pressed="danmakuEnabled" :aria-disabled="danmakuUnavailable" @click="onDanmakuEntryClick">
+                  <!-- 弹幕开关: 常驻显示(不可用时置灰+原因, 点击给反馈) -->
+                  <button type="button" class="jc-pt-more__item" :class="[danmakuEnabled && !danmakuUnavailable ? 'is-on' : '', danmakuUnavailable ? 'is-disabled' : '']" :aria-pressed="danmakuEnabled" :aria-disabled="danmakuUnavailable" @click="onDanmakuEntryClick">
                     <BaseIcon name="chat" size="16px" />
                     <span class="jc-pt-more__item-label">弹幕<template v-if="danmakuUnavailable"> · {{ danmakuHint }}</template></span>
                     <span v-if="danmakuEnabled && !danmakuUnavailable" class="jc-pt-more__check" aria-hidden="true">✓</span>
-                  </button>
-                  <button v-if="!isMobile && danmakuProviders.length > 1" type="button" class="jc-pt-more__item" @click="cycleDanmakuProvider(); moreActionsOpen = false">
-                    <BaseIcon name="refresh" size="16px" />
-                    <span class="jc-pt-more__item-label">弹幕源：{{ danmakuProviderName(danmakuProvider) }}</span>
                   </button>
                   <div class="jc-pt-more__sep" aria-hidden="true" />
                   <!-- 动作项: 点击后关菜单 -->
@@ -2192,11 +2160,8 @@ watch(playerReady, (v) => {
         <DanmakuSettingsPanel
           :settings="danmakuSettings"
           :enabled="danmakuEnabled && !danmakuUnavailable"
-          :providers="danmakuProviders"
-          :provider="danmakuProvider"
           @update="danmakuUpdateSettings($event)"
           @toggle-enabled="onDanmakuEntryClick"
-          @set-provider="(p: string) => { danmakuSetProvider(p); }"
         />
       </BaseDialog>
 
@@ -2707,7 +2672,8 @@ watch(playerReady, (v) => {
 :deep(.art-loading) {
   display: none !important;
 }
-/* 弹幕设置按钮(控制条, 倍速区左侧; 外层 .art-control 容器由 ArtPlayer 自建): 图标居中 */
+/* 弹幕控制条按钮(开关+设置; 外层 .art-control 容器由 ArtPlayer 自建): 图标居中 */
+:deep(.art-control-danmaku-toggle),
 :deep(.art-control-danmaku-settings) {
   display: flex;
   align-items: center;
@@ -2715,11 +2681,13 @@ watch(playerReady, (v) => {
   width: 44px;
   cursor: pointer;
 }
+:deep(.art-control-danmaku-toggle svg),
 :deep(.art-control-danmaku-settings svg) {
   display: block;
   filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.5));
 }
-/* 开启态颜色区分: 有效启用(用户级&&本集)时按钮着品牌色, syncDanmakuBtnState 维护 is-on */
+/* 开启态颜色区分: 有效启用(用户级)时按钮着品牌色, syncDanmakuBtnState 维护 is-on */
+:deep(.art-control-danmaku-toggle.is-on),
 :deep(.art-control-danmaku-settings.is-on) {
   color: var(--jc-brand-primary) !important;
 }

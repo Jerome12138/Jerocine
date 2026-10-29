@@ -256,6 +256,11 @@ export interface DanmuBilibiliResp {
   comments: DanmuComment[]
 }
 
+/** GET /danmu/aggregate 响应（按标题匹配的整集聚合弹幕） */
+export interface DanmuAggregateResp {
+  comments: DanmuComment[]
+}
+
 /** GET /danmu/tencent/episodes 响应（matched=null 表示无匹配集 → 静默无弹幕） */
 export interface DanmuTencentEpisodesResp {
   ok: boolean

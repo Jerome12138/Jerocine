@@ -15,6 +15,7 @@ import type {
   PlayInfo,
   DanmuSourceResp,
   DanmuBilibiliResp,
+  DanmuAggregateResp,
   DanmuTencentEpisodesResp,
   DanmuTencentSegmentsResp,
   DanmuTencentCommentsResp
@@ -99,6 +100,14 @@ export const getDanmuBilibili = (
   options?: { signal?: AbortSignal }
 ): Promise<DanmuBilibiliResp> =>
   http.get<unknown, DanmuBilibiliResp>('/danmu/bilibili', { params, signal: options?.signal, silent: true })
+
+/** GET /danmu/aggregate 按标题匹配的整集聚合弹幕（服务端按 影片名→作品→集 定位）
+ *  options.signal 用于超时/卸载中止。404 = 查无作品/该集（上层标"暂无弹幕"）。 */
+export const getDanmuAggregate = (
+  params: { title: string; episode: number; year?: number },
+  options?: { signal?: AbortSignal }
+): Promise<DanmuAggregateResp> =>
+  http.get<unknown, DanmuAggregateResp>('/danmu/aggregate', { params, signal: options?.signal, silent: true })
 
 /** GET /danmu/tencent/episodes 腾讯分集匹配（拿 matched.episodeId 复合串，后续须 encodeURIComponent）
  *  options.signal 用于超时/卸载中止。 */
