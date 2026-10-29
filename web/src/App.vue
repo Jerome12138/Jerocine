@@ -198,7 +198,7 @@ onMounted(() => {
   // Web 设置账号记忆: 登录态下拉取云端快照合并本地, 设置变更防抖上报(未登录纯本地)
   startCloudSettingsSync()
 
-  // 全站在线心跳(匿名): 打开页面即在线; 播放状态由 PlayView(video.js) 与
+  // 全站在线心跳(匿名): 打开页面即在线; 播放状态由 PlayView(ArtPlayer) 与
   // native playerProgress 事件分别驱动 watching。
   // PV: 首次载入由 startOnlineHeartbeat 的首跳计, 之后每次路由切换各计一次(不去重)。
   startOnlineHeartbeat()

@@ -28,10 +28,9 @@ import {
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { filmApi } from '@/api'
 import type { PlayInfo, PlaySource } from '@/types/film'
-import { usePlayer, resolutionLabel } from '@/composables/usePlayer'
+import { usePlayer, resolutionLabel, isHlsSupported } from '@/composables/usePlayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
-import videojs from 'video.js'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings } from '@/composables/useSkipSettings'
 import type { SkipConfig } from '@/composables/useSkipSettings'
@@ -200,10 +199,10 @@ const currentSrc = ref<string>('')
  * 与 /settings 配置页、安卓设置抽屉共用同一份 useWebSettings 状态。
  */
 const { adFilter, setAdFilter } = useWebSettings()
-/** 端侧 blob 过滤的前提: 浏览器有 MSE(video.js 走 VHS 自己抓流)。
- *  iPhone Safari 无 MSE → 原生 HLS, blob 清单直接 CODE:4(2026-10-26 线上实证)
- *  → 无 MSE 设备走原始直链(不过滤)。 */
-const hasMse = typeof window !== 'undefined' && typeof window.MediaSource !== 'undefined' // 无 MSE 设备(iPhone 原生 HLS)播不了 blob 清单 → 原始直链(不过滤)
+/** 端侧 blob 过滤的前提: 播放器具备 MSE/HLS.js 能力(hls.js 自己抓流)。
+ *  iPhone Safari 无 MSE(且无 ManagedMediaSource) → 原生 HLS, blob 清单直接解析失败
+ *  → 无 HLS.js 能力设备走原始直链(不过滤)。 */
+const hasHlsEngine = isHlsSupported() // 无 MSE 设备(iPhone 原生 HLS)播不了 blob 清单 → 原始直链(不过滤)
 function toggleAdFilter(): void {
   setAdFilter(!adFilter.value)
   if (adFilter.value) {
@@ -247,7 +246,7 @@ const reM3u8 = /\.m3u8(\?|#|$)/i
  * 2026-10-28 服务端 /v1/m3u8/filter/proxy/stream/stats 全线下线, 此函数**纯本地实现**:
  *   a. 浏览器 fetch(原始 m3u8) —— 浏览器没被地域封, 能拿到
  *   b. 本地 TS 内核 rewriteM3u8 剔广告 + 绝对化 (同 Kotlin PlayerAdFilterHelper + Go golden 夹具)
- *   c. 过滤后文本 → Blob → URL.createObjectURL → blob: URL 喂 video.js (绝对清单可直接播)
+ *   c. 过滤后文本 → Blob → URL.createObjectURL → blob: URL 喂播放器 (绝对清单可直接播)
  *   d. 降级: fetch 失败 → 直接用原始直链(不过滤, 保证能播)。
  * 无服务端回退路径。
  *
@@ -255,7 +254,7 @@ const reM3u8 = /\.m3u8(\?|#|$)/i
  * 由 watch(currentSrc + adFilter) 驱动, 用 token 防竞态(切集快时旧异步结果不回写)。
  */
 
-/** 实际喂给 player 的可播 src(异步求出); video.js 监听此 ref 切换。 */
+/** 实际喂给 player 的可播 src(异步求出); usePlayer 监听此 ref 切换。 */
 const playSrc = ref<string>('')
 /** 片源已就绪标志(过滤落地/直链 commit 成功置位; 切集/切源/重算复位)。
  *  就绪后到播放器 canplay 之间是分片下载+起播缓冲窗口(国际链路可达数十秒),
@@ -301,7 +300,7 @@ let autoNextGuardUntil = 0
 /**
  * 新片源就绪后 seek 到本集续播点 + 按需自动续播。
  * 由 watch(playSrc) 在每次切集(playSrc 实际变化)时调用一次; token 去重保证仅首个
- * loadedmetadata/canplay 生效, 且监听挂在"新源加载前", 故即便 VHS 复用 MSE 不重发事件
+ * loadedmetadata/canplay 生效, 且监听挂在"新源加载前", 故即便播放内核复用 MSE 不重发事件
  * 也能可靠 seek/续播, 不会卡在暂停态 0(复用播放器切 HLS 源的常见坑)。
  */
 function armSeekOnce(): void {
@@ -326,13 +325,13 @@ function armSeekOnce(): void {
     const p = player.value
     if (!p) return
     try {
-      const duration = p.duration() ?? 0
+      const duration = p.duration || 0
       if (import.meta.env.DEV) {
         console.debug('[PlayView][切集seek]', { resumeAt, duration, autoPlay })
       }
       // duration 未就绪 / 短视频(<5min) / 跳过位置已超末尾, 都不 seek
       if (duration && duration > 300 && resumeAt >= 0 && resumeAt < duration) {
-        p.currentTime(resumeAt)
+        p.currentTime = resumeAt
         if (isIntroSkip) toast('info', `已跳过片头 ${skip.intro}s`)
       }
     } catch {
@@ -520,10 +519,10 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     return
   }
 
-  // 无 MSE 的设备(iPhone Safari 等原生 HLS): blob 清单原生播放器解析不了(实测 CODE:4),
+  // 无 HLS.js 能力的设备(iPhone Safari 等原生 HLS): blob 清单原生播放器解析不了,
   // 端侧过滤整体不可用, 服务端过滤已下线(2026-10-28) → 直接原始直链(不过滤)。
   // (必须在查 blob 缓存之前 —— 缓存的也是 blob, 原生设备一样播不了)
-  if (!hasMse) {
+  if (!hasHlsEngine) {
     adFilterBadge.value = { kind: 'nosupport', count: 0 }
     commit(originalUrl, '', false)
     return
@@ -664,7 +663,7 @@ watch(currentSrc, (url) => {
  * 切集: playSrc 实际变化(新片源已提交)后才 arming 一次 seek+续播。
  * 关键: 监听必须挂在"新源加载前" —— 这里在 playSrc 变化时触发, 而 usePlayer 的
  * watch(playSrc) 在其后才 player.src(new), 故下方 armSeekOnce 注册的 loadedmetadata/canplay
- * 必然能捕获新源就绪事件, 避免 VHS 复用 MSE 不重发事件导致卡在暂停态 0。
+ * 必然能捕获新源就绪事件, 避免播放内核复用 MSE 不重发事件导致卡在暂停态 0。
  * 仅切集(awaitingNewSource)才走此路径; adFilter 切换由自身逻辑处理, 不冲突。
  */
 watch(playSrc, () => {
@@ -687,7 +686,7 @@ watch(adFilter, () => {
   // 仅 m3u8 源会因开/关过滤实际切换 playSrc(blob/proxy/直链), 非 m3u8 切换是 no-op, 无需补 seek。
   const willChangeSrc = !!currentSrc.value && reM3u8.test(currentSrc.value)
   const resume = playerReady.value && player.value ? playerCurrentTime.value : 0
-  // 重算可播 src; playSrc 变化驱动 video.js 重载
+  // 重算可播 src; playSrc 变化驱动播放器重载
   void resolvePlaySrc(currentSrc.value)
   if (!willChangeSrc || resume <= 0) return
   // 新 src 起播后 seek 回原位置, 体感无中断
@@ -695,7 +694,7 @@ watch(adFilter, () => {
     const p = player.value
     if (!p) return
     try {
-      p.currentTime(resume)
+      p.currentTime = resume
       void playerPlay()
     } catch {
       /* ignore */
@@ -743,7 +742,7 @@ const watchedLinks = computed<string[]>(() => {
 })
 
 /** ---------- 播放器 ---------- */
-const videoEl = ref<HTMLVideoElement | null>(null)
+const playerEl = ref<HTMLDivElement | null>(null)
 const {
   init: initPlayer,
   dispose: disposePlayer,
@@ -751,6 +750,7 @@ const {
   pause: playerPause,
   seekBy: playerSeekBy,
   setVolume: playerSetVolume,
+  load: playerLoad,
   enterTempRate,
   exitTempRate,
   on: onPlayerEvent,
@@ -767,19 +767,19 @@ const {
   autoplay: false,
   volume: 0.6,
   playbackRates: [0.5, 1.0, 1.25, 1.5, 2.0],
-  // 弱网友好默认: preload metadata 而非 auto, 起播更快; 弱网时启用 VHS 低带宽预设
+  // 弱网友好默认: preload metadata 而非 auto, 起播更快; 弱网时启用 hls.js 低带宽预设
   preload: 'metadata',
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条内常驻「下一集」入口(点击走 playNext, 内部有 hasNext guard)
   nextEpisode: { onClick: () => playNext() },
-  // 弹幕设置按钮(插在倍速 1x 左侧): 点击打开设置弹窗; 移动端不开放弹幕功能, 不注入按钮
+  // 弹幕设置按钮(插在倍速区左侧): 点击打开设置弹窗; 移动端不开放弹幕功能, 不注入按钮
   ...(isMobile.value ? {} : { danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) } })
 })
 
-// 在线心跳 watching 信号: video.js 播放状态实时置位(暂停/结束即回落)。
+// 在线心跳 watching 信号: 播放器播放状态实时置位(暂停/结束即回落)。
 watch(paused, (v) => setWebWatching(!v))
 
-/* ============ 弹幕层（P0, 方案 §四之二/§四之三: 独立层叠在 video.js 容器上, 不换播放器引擎） ============ */
+/* ============ 弹幕层（P0, 方案 §四之二/§四之三: 独立层叠在播放器容器上, 不换渲染引擎） ============ */
 const danmaku = useDanmaku({
   mid: computed(() => detail.value?.mid),
   episode: computed(() => currentEpisodeIndex.value + 1),
@@ -801,10 +801,10 @@ const danmakuUpdateSettings = danmaku.updateSettings
 /** 弹幕设置弹窗开关 */
 const danmakuSettingsOpen = ref(false)
 
-/** 弹幕设置按钮开启态颜色（is-on class; CSS 见样式段 .vjs-danmaku-settings-button.is-on） */
+/** 弹幕设置按钮开启态颜色（is-on class; CSS 见样式段 .art-control-danmaku-settings.is-on） */
 function syncDanmakuBtnState(): void {
-  const host = videoEl.value?.closest('.video-js')
-  const btn = host?.querySelector('.vjs-danmaku-settings-button')
+  const host = player.value?.template.$player
+  const btn = host?.querySelector('.art-control-danmaku-settings')
   if (btn) btn.classList.toggle('is-on', danmakuActive.value)
 }
 watch(danmakuActive, syncDanmakuBtnState, { flush: 'post' })
@@ -880,9 +880,9 @@ const { flush: flushHistory } = useFilmHistory({
     // #4: 临近片尾(倒数 5 分钟内)不写历史
     try {
       const p = player.value
-      const duration = p?.duration() ?? 0
+      const duration = p?.duration ?? 0
       if (duration > NO_RECORD_TAIL_SEC) {
-        const remaining = duration - (p?.currentTime() ?? 0)
+        const remaining = duration - (p?.currentTime ?? 0)
         if (remaining <= NO_RECORD_TAIL_SEC) return null
       }
     } catch {
@@ -977,7 +977,7 @@ import { rewriteM3u8 } from '@/utils/m3u8Filter'
 
 /**
  * Android TV 壳 (Jerocine APK) 注入的 JS Bridge.
- * 检测到原生时, PlayView 不渲染 video.js 播放器, 直接交给 ExoPlayer 全屏.
+ * 检测到原生时, PlayView 不渲染 web 播放器, 直接交给 ExoPlayer 全屏.
  */
 function getNativePlayer(): { playPlaylist?: (cfg: string) => void; playVideo?: (u: string, t: string) => void } | undefined {
   if (typeof window === 'undefined') return undefined
@@ -1044,7 +1044,7 @@ function resetSkip(): void {
 }
 
 /**
- * 改跳过设置后立即按新 intro/outro 生效(web video.js; native 走重启不在此路径)。
+ * 改跳过设置后立即按新 intro/outro 生效(web 播放器; native 走重启不在此路径)。
  *  - 片尾: 重置去抖 key, 让新 outro 阈值在下次 timeupdate 立即重新判定(onPlayerTimeUpdateForSkipOutro 每帧读最新配置)。
  *  - 片头: 仅当"还在片头区"(当前进度 < 新 intro 且 < 旧+缓冲, 即用户刚进/刚改没主动拖到正片)才前跳, 避免把正在看正片的用户硬拽走。
  */
@@ -1057,8 +1057,8 @@ function applySkipLive(cfg: { intro: number; outro: number }): void {
   outroPromptKey.value = ''
   // 片头: 只在"仍处片头区"且新片头更靠后时前跳
   try {
-    const duration = p.duration() ?? 0
-    const current = p.currentTime() ?? 0
+    const duration = p.duration || 0
+    const current = p.currentTime || 0
     const INTRO_LIVE_WINDOW = 180 // 当前进度在前 3 分钟内才视为"还在片头区", 可即时前跳
     if (
       cfg.intro > 0 &&
@@ -1067,7 +1067,7 @@ function applySkipLive(cfg: { intro: number; outro: number }): void {
       current < INTRO_LIVE_WINDOW &&
       cfg.intro < duration
     ) {
-      p.currentTime(cfg.intro)
+      p.currentTime = cfg.intro
       toast('info', `已跳过片头 ${cfg.intro}s`)
     }
   } catch {
@@ -1152,7 +1152,7 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
     }
   }
   // 标记等待新源: playSrc 实际变化(watch(playSrc))后再 arming 一次, 确保监听挂在新源加载之前,
-  // 解决"复用播放器 + VHS 切 HLS 源不重发 loadedmetadata"导致卡在暂停态 0 的问题。
+  // 解决"复用播放器切 HLS 源个别内核不重发 loadedmetadata"导致卡在暂停态 0 的问题。
   awaitingNewSource = true
   playSrcReady.value = false // 新片源未就绪, 遮罩文案回到"正在准备视频"
   // 切集/切源立即进入 loading 态: 文案 loadingHint 按过滤开关/取源方式给出"广告过滤中/正在准备视频"。
@@ -1169,7 +1169,7 @@ const prefetchedEpisodeKey = ref('')
 let prefetchAbort: AbortController | null = null
 async function prefetchNextEpisode(): Promise<void> {
   if (!adFilter.value || !autoPlayNext.value || !hasNext.value) return
-  if (!hasMse) return // 无 MSE 设备: 无端侧过滤形态, 无可预热
+  if (!hasHlsEngine) return // 无 HLS.js 能力设备: 无端侧过滤形态, 无可预热
   const nextIdx = currentEpisodeIndex.value + 1
   const key = `${currentSourceId.value}/${nextIdx}`
   if (prefetchedEpisodeKey.value === key) return
@@ -1204,8 +1204,8 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   // 自动连播关闭 → 不自动跳片尾(跳过片尾=进下一集, 属连播范畴); 跳片头不受影响
   if (!autoPlayNext.value) return
   if (skip.outro <= 0 || !hasNext.value) return
-  const duration = p.duration() ?? 0
-  const current = p.currentTime() ?? 0
+  const duration = p.duration || 0
+  const current = p.currentTime || 0
   if (duration <= 300 || current <= 0) return
   const remaining = duration - current
   // 预取下一集: 距自动切集点 <=60s 时后台预热服务器过滤缓存(幂等, 静默, 失败不影响播放)
@@ -1289,12 +1289,12 @@ watch(loading, (v) => {
 
 /** loading 阻塞期禁用播放器手势(双击全屏/长按倍速/滑动 seek) */
 const gesturesEnabled = computed(() => !loading.value)
-/** 控制条可见状态(video.js useractive/userinactive 事件驱动)。
- * 全屏左上角标题层跟随它显隐; 暂停时 video.js 控制条常显 → 用 paused 兜底强制显示。 */
+/** 控制条可见状态(usePlayer 由 ArtPlayer 'control' 事件派生的 useractive/userinactive 驱动)。
+ * 全屏左上角标题层跟随它显隐; 暂停时 ArtPlayer 控制条常显 → 用 paused 兜底强制显示。 */
 const playerControlsVisible = ref(true)
-/** 覆盖层宿主: 全屏元素是 video.js 的 .video-js 容器, 广告角标/手势提示若留在外层 wrap
- * (其兄弟节点), 全屏时会随 DOM 落在全屏元素之外而全部不可见。player 初始化后 video.js
- * 会把 <video> 包进 div.video-js, 此时把宿主指向它, Teleport 即把覆盖层迁进去。 */
+/** 覆盖层宿主: 全屏元素是 ArtPlayer 的 .art-video-player 容器, 广告角标/手势提示若留在
+ * 外层 wrap(其兄弟节点), 全屏时会随 DOM 落在全屏元素之外而全部不可见。player 初始化后
+ * 把宿主指向 art 的根节点, Teleport 即把覆盖层迁进去。 */
 const playerOverlayHost = ref<HTMLElement | null>(null)
 const {
   onTouchStart: onPlayerTouchStart,
@@ -1423,16 +1423,7 @@ function togglePlayerFullscreen(): void {
   const p = player.value
   if (!p) return
   try {
-    if (p.isFullscreen()) {
-      // video.js exitFullscreen 返回 undefined 或 Promise, 个别环境内部 promise 链
-      // 会把非 Promise 值当 Promise 用(s.then is not a function) → 返回值 catch 兜底,
-      // 避免 unhandledrejection 上报。
-      const r = p.exitFullscreen() as Promise<void> | undefined
-      void r?.catch(() => undefined)
-    } else {
-      const r = p.requestFullscreen() as Promise<void> | undefined
-      void r?.catch(() => undefined)
-    }
+    p.fullscreen = !p.fullscreen
   } catch {
     /* ignore */
   }
@@ -1479,13 +1470,13 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
       break
     case 'ArrowUp': {
       e.preventDefault()
-      const cur = player.value?.volume() ?? 0.6
+      const cur = player.value?.volume ?? 0.6
       playerSetVolume(Math.min(1, cur + 0.05))
       break
     }
     case 'ArrowDown': {
       e.preventDefault()
-      const cur = player.value?.volume() ?? 0.6
+      const cur = player.value?.volume ?? 0.6
       playerSetVolume(Math.max(0, cur - 0.05))
       break
     }
@@ -1527,13 +1518,13 @@ function handleTvKeydown(e: KeyboardEvent, key: string, tag: string | undefined)
       break
     case 'ArrowUp': {
       e.preventDefault()
-      const cur = player.value?.volume() ?? 0.6
+      const cur = player.value?.volume ?? 0.6
       playerSetVolume(Math.min(1, cur + 0.05))
       break
     }
     case 'ArrowDown': {
       e.preventDefault()
-      const cur = player.value?.volume() ?? 0.6
+      const cur = player.value?.volume ?? 0.6
       playerSetVolume(Math.max(0, cur - 0.05))
       break
     }
@@ -1606,7 +1597,7 @@ function handleVideoError(): void {
   const p = player.value
   if (!p) return
   // 视频级错误上报(此前无 video error 埋点, iOS 卡"正在缓冲"类问题在遥测里是盲区)
-  const mediaErr = p.error()
+  const mediaErr = p.video?.error ?? null
   telemetry.track('error', {
     category: 'video-error',
     action: `code:${mediaErr?.code ?? '-'}`,
@@ -1653,11 +1644,11 @@ function handleVideoError(): void {
       if (!next || !player.value) return
       const cur = currentTimePersisted.value // 记忆当前时间, 重试后跳回去
       try {
-        player.value.src({ src: next, type: playSrcType.value || guessMime(next) })
+        playerLoad(next, playSrcType.value || guessMime(next))
         if (cur > 0) {
           const off = onPlayerEvent('loadedmetadata', () => {
             try {
-              player.value?.currentTime(cur)
+              if (player.value) player.value.currentTime = cur
             } catch {
               /* ignore */
             }
@@ -1666,7 +1657,7 @@ function handleVideoError(): void {
         }
         void playerPlay()
       } catch {
-        // src 调用本身失败极少见; 直接落到换源
+        // load 调用本身失败极少见; 直接落到换源
         fallbackSwitchSource()
       }
     }, delay)
@@ -1700,7 +1691,7 @@ function fallbackSwitchSource(): void {
 /** 记忆错误发生时的播放进度, 重试后用. */
 const currentTimePersisted = computed(() => {
   try {
-    return player.value?.currentTime() ?? 0
+    return player.value?.currentTime ?? 0
   } catch {
     return 0
   }
@@ -1717,7 +1708,7 @@ function guessMime(url: string): string {
 onMounted(async () => {
   await loadPlayInfo()
   // Native 环境: applyCurrentEpisodeToPlayer 已经把整集 playlist 交给 ExoPlayer 全屏播放,
-  // PlayView 不再需要渲染 video.js, 立即回详情页 (BACK 退 ExoPlayer 后用户看到详情页, 不是空 PlayView)
+  // PlayView 不再需要渲染 web 播放器, 立即回详情页 (BACK 退 ExoPlayer 后用户看到详情页, 不是空 PlayView)
   if (isNative() && detail.value) {
     setTimeout(() => {
       const id = detail.value?.mid
@@ -1731,10 +1722,11 @@ onMounted(async () => {
   }
   // 等 DOM 渲染完成后再 init player
   await nextTick()
-  if (videoEl.value) {
-    initPlayer(videoEl.value)
-    // video.js 初始化后会把 <video> 包进 div.video-js — 它就是全屏元素, 覆盖层宿主指向它
-    playerOverlayHost.value = (videoEl.value.closest('.video-js') as HTMLElement | null)
+  if (playerEl.value) {
+    initPlayer(playerEl.value)
+    // ArtPlayer 初始化后会在容器内构建 .art-video-player 根节点 — 它就是全屏元素,
+    // 覆盖层宿主指向它, Teleport 即把覆盖层迁进去
+    playerOverlayHost.value = (player.value?.template.$player as HTMLElement | null) ?? null
     onPlayerEvent('ended', () => {
       // 自然播完: 清理本集播放记忆(无论是否开自动连播; 开连播时 playNextAuto 内还会清一次, 幂等)
       clearEpisodeMemory(detail.value?.mid, currentSourceId.value, currentEpisodeIndex.value)
@@ -1753,14 +1745,14 @@ onMounted(async () => {
     onPlayerEvent('timeupdate', onPlayerTimeUpdateForSkipOutro)
     // 诊断日志: 跳秒(seek)时打印位置与弹幕状态, 便于排查"跳秒后弹幕长期不出现"
     onPlayerEvent('seeked', () => {
-      const t = player.value?.currentTime?.()
+      const t = player.value?.currentTime
       console.log('[danmaku] seeked: position =', typeof t === 'number' ? t.toFixed(2) : t, ', state =', danmakuState.value)
     })
     // 全屏状态: 触屏手势(长按2x/横滑快进退)仅全屏时启用
     onPlayerEvent('fullscreenchange', () => {
-      isPlayerFullscreen.value = !!player.value?.isFullscreen()
+      isPlayerFullscreen.value = !!player.value?.fullscreen
     })
-    // 控制条显隐(video.js useractive/userinactive): 驱动全屏左上角标题层同步出现/消失
+    // 控制条显隐(ArtPlayer 'control' 事件, usePlayer 派生): 驱动全屏左上角标题层同步出现/消失
     onPlayerEvent('useractive', () => {
       playerControlsVisible.value = true
     })
@@ -1831,7 +1823,7 @@ watch(
 watch(playerReady, (v) => {
   if (v && isTV.value) {
     nextTick(() => {
-      videoEl.value?.focus()
+      playerEl.value?.focus()
     })
   }
 })
@@ -1866,18 +1858,13 @@ watch(playerReady, (v) => {
             @touchend="onPlayerTouchEnd"
             @touchcancel="onPlayerTouchEnd"
           >
-            <video
-              ref="videoEl"
-              class="video-js vjs-default-skin jc-player"
-              playsinline
-              tabindex="0"
-            />
-            <!-- 覆盖层(全屏可见的关键): 全屏元素 = video.js 的 .video-js 容器, 覆盖层必须
+            <div ref="playerEl" class="jc-player" tabindex="0"></div>
+            <!-- 覆盖层(全屏可见的关键): 全屏元素 = ArtPlayer 的 .art-video-player 容器, 覆盖层必须
                  Teleport 进它内部, 否则全屏时 DOM 在全屏元素之外 → 全部不可见
                  (右上角广告角标/手势提示消失的根因)。player 未初始化时宿主为空 → 留在原位。 -->
             <Teleport :to="playerOverlayHost || 'body'" :disabled="!playerOverlayHost">
-              <!-- 弹幕层(P0): 独立 DOM 层叠在 video.js 容器内, 全屏同样可见;
-                   不拦截任何指针事件; z-index 置于控制条之下、视频画面之上。
+              <!-- 弹幕层(P0): 独立 DOM 层叠在播放器容器内, 全屏同样可见;
+                   不拦截任何指针事件; z-index 45 = 视频画面(art z10)之上、控制条(art z60)之下。
                    **常驻不 v-if**: useDanmaku 的引擎创建依赖 stage 挂载, 而 stage 又曾
                    v-if=providers 非空 ⇒ 鸡生蛋死锁(providers 永远为空, 按钮全不显示,
                    2026-10-25 线上实测)。空层无视觉影响(引擎未装载时无弹幕节点), 可见性
@@ -1910,7 +1897,7 @@ watch(playerReady, (v) => {
                 >
                   {{ adBadgeText }}
                 </div>
-                <!-- 分辨率打标: 常驻(广告角标右侧), 反映当前实际画质; VHS 码率切换实时更新,
+                <!-- 分辨率打标: 常驻(广告角标右侧), 反映当前实际画质; hls.js 码率切换实时更新,
                      加载中隐藏(切集瞬间旧分辨率会误导) -->
                 <div
                   v-if="videoSize && !loading"
@@ -1931,7 +1918,7 @@ watch(playerReady, (v) => {
               </div>
               <!-- loading(取数据/过滤解析/切集): 阻塞态, 拦截点击(此前 pointer-events:none 会穿透到
                    控制条, 未就绪也能点全屏), 并给出阶段文案; buffering(播放中缓冲): 仅 spinner, 保持可点暂停。
-                   必须放在 Teleport 内: 全屏元素是 .video-js 容器, 留在外面则全屏时不可见 -->
+                   必须放在 Teleport 内: 全屏元素是 .art-video-player 容器, 留在外面则全屏时不可见 -->
               <div
                 v-if="loading || buffering"
                 class="jc-player-loading"
@@ -2193,7 +2180,7 @@ watch(playerReady, (v) => {
       </BaseDialog>
 
       <!-- 弹幕设置弹窗（控制条 1x 左侧按钮打开; 所有项实时生效, 持久化见 useDanmaku）
-           全屏可见关键: Teleport 进 video.js 容器(全屏元素), 否则全屏时弹窗在页面层不可见。
+           全屏可见关键: Teleport 进播放器容器(全屏元素), 否则全屏时弹窗在页面层不可见。
            playerOverlayHost 未初始化时回退 body(与弹幕层/手势层同款策略)。 -->
       <BaseDialog
         v-model:visible="danmakuSettingsOpen"
@@ -2269,14 +2256,16 @@ watch(playerReady, (v) => {
   outline: none;
 }
 
-/* 弹幕层（P0）: 覆盖 video 画面、不拦截指针事件; z-index 1（video 之上、控制条/角标之下）。
- * 渲染由 danmaku-lite（DOM 引擎）负责：引擎自身按 fontSize/fontFamily/strokeWidth/useTextShadow
+/* 弹幕层（P0）: 覆盖视频画面、不拦截指针事件。
+ * z-index 按 ArtPlayer 内部标尺排布(video=10/poster=11/subtitle=20/layers=40/mask=50/
+ * bottom=60/loading=70): 弹幕 45 = 视频与字幕之上、居中状态图标(50)与控制条(60)之下。
+ * 渲染由 danmaku-lite（Canvas 引擎）负责：引擎自身按 fontSize/fontFamily/strokeWidth
  * 写行内样式并驱动 transform 动画，无需 .cmt 类规则，字号自适应由引擎 resolveFontSize 推算。
  * 容器仅负责定位与裁剪。 */
 .jc-danmaku-stage {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 45;
   overflow: hidden;
   pointer-events: none;
 }
@@ -2297,11 +2286,12 @@ watch(playerReady, (v) => {
 
 /* 加载占位：暗色遮罩 + 胶囊容器内 3 个跳动圆点 + 文字
    (原版仅半透明圆点、无遮罩无 z-index, 亮画面上几乎看不见) */
-/* 触屏手势提示(全屏, Teleport 在 .video-js 内): 长按3x = 顶部居中胶囊; 刮擦 = 底部进度条面板。
-   共用胶囊底样式, 位置/尺寸由修饰类覆盖; 不拦截触摸。 */
+/* 触屏手势提示(全屏, Teleport 在 .art-video-player 内): 长按3x = 顶部居中胶囊; 刮擦 = 底部进度条面板。
+   共用胶囊底样式, 位置/尺寸由修饰类覆盖; 不拦截触摸。
+   z-index 65: ArtPlayer 控制条 .art-bottom 是 60, 提示需盖过它。 */
 .jc-player-gesture {
   position: absolute;
-  z-index: 6;
+  z-index: 65;
   padding: 8px 16px;
   border-radius: 999px;
   background-color: rgba(0, 0, 0, 0.65);
@@ -2366,10 +2356,11 @@ watch(playerReady, (v) => {
   gap: 12px;
   align-items: center;
   justify-content: center;
-  /* 遮罩: 压暗旧画面, 保证 loading 在任何视频底色上都可辨识 */
+  /* 遮罩: 压暗旧画面, 保证 loading 在任何视频底色上都可辨识
+     z-index 75: ArtPlayer loading=70/bottom=60, 阻塞态需盖过控制条 */
   background-color: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(2px);
-  z-index: 5;
+  z-index: 75;
   pointer-events: none;
 }
 /* loading(非 buffering)为阻塞态: 拦截点击, 不穿透到播放器控制条(未就绪不可暂停/全屏) */
@@ -2382,8 +2373,7 @@ watch(playerReady, (v) => {
   font-size: 13px;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
-/* 圆形 spinner: 用显式 px 而非 em —— 本层在 video 外, em 按根字号算不准
-   (video.js 的 .video-js{font-size:10px} 只对播放器内部元素生效)。 */
+/* 圆形 spinner: 用显式 px 而非 em —— 本层在播放器根节点之外, em 按根字号算不准。 */
 .jc-player-loading__spinner {
   width: 44px;
   height: 44px;
@@ -2403,14 +2393,13 @@ watch(playerReady, (v) => {
   position: absolute;
   left: var(--jc-space-3);
   bottom: var(--jc-space-3);
-  /* 盖过 jc-player-loading(z-5): 阻塞期错误提示(重试倒计时等)必须可见 */
-  z-index: 6;
+  /* 盖过 jc-player-loading(z-75): 阻塞期错误提示(重试倒计时等)必须可见 */
+  z-index: 78;
   padding: var(--jc-space-2) var(--jc-space-3);
   background-color: rgba(0, 0, 0, 0.65);
   color: #fff;
   font-size: var(--jc-fs-sm);
   border-radius: var(--jc-radius-md);
-  z-index: 6;
   pointer-events: none;
 }
 
@@ -2696,80 +2685,43 @@ watch(playerReady, (v) => {
   padding: var(--jc-space-4);
 }
 
-/* video.js 控件按钮去除白边 */
+/* ArtPlayer 皮肤: 官方 CSS 变量接入主题色/进度条配色, 其余沿用 ArtPlayer 默认外观 */
+:deep(.art-video-player) {
+  --art-theme: var(--jc-brand-primary);
+  --art-loaded-color: rgba(255, 255, 255, 0.45);
+}
 :deep(video) {
   outline: none !important;
 }
-:deep(.vjs-tech) {
-  border-radius: var(--jc-radius-lg);
+/* 居中播放按钮(art-state, 暂停时显示/点击播放): 加投影保证亮画面可辨识 */
+:deep(.art-state) {
+  color: rgba(255, 255, 255, 0.92);
+  filter: drop-shadow(0 1px 6px rgb(0 0 0 / 0.5));
 }
-:deep(.vjs-control-bar) {
-  background-color: rgba(0, 0, 0, 0.55);
-  font-size: 14px;
-}
-/* 居中播放按钮只保留 video.js 这个小圆圈 (I-006):
-   页面中心原本叠了两个 —— 大的那个来自 poster 占位图 assets/play.svg 里画的圆圈+三角,
-   已从 svg 中移除; 这里保留小圆圈作为中心播放入口, 与左下角 playToggle 并存不重复。 */
-:deep(.vjs-big-play-button) {
-  height: 2em;
-  width: 2em;
-  line-height: 2em;
-  border-radius: 50%;
-  border: none;
-  background-color: rgba(0, 0, 0, 0.6);
-  top: 50%;
-  left: 50%;
-  margin-top: -1em;
-  margin-left: -1em;
-}
-/* loading 期隐藏大播放按钮: 与 loading 遮罩的 spinner 双圆圈叠显不美观
-   (对齐需按 TV/移动/桌面分别特调, 直接隐藏; loading 结束后自动恢复) */
-.jc-player-wrap[data-loading='1'] :deep(.vjs-big-play-button) {
+/* loading 期隐藏居中播放按钮: 与 loading 遮罩的 spinner 双圆圈叠显不美观
+   (loading 结束后自动恢复) */
+.jc-player-wrap[data-loading='1'] :deep(.art-state) {
   display: none;
 }
-:deep(.vjs-play-progress) {
-  background-color: var(--jc-brand-primary);
+/* ArtPlayer 自带 loading spinner 与我们自己的 jc-player-loading(带文案/阻塞态)重复, 隐藏 */
+:deep(.art-loading) {
+  display: none !important;
 }
-:deep(.vjs-load-progress div) {
-  background-color: rgba(255, 255, 255, 0.45);
-}
-:deep(.vjs-slider) {
-  background-color: rgba(255, 255, 255, 0.18);
-}
-/* 倍速按钮的速率文字: video.js 默认 1.5em 偏大, 缩到与时间文字一致;
-   该元素默认绝对定位铺满按钮, 用 flex 精确上下左右居中 */
-:deep(.vjs-playback-rate .vjs-playback-rate-value) {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+/* 弹幕设置按钮(控制条, 倍速区左侧; 外层 .art-control 容器由 ArtPlayer 自建): 图标居中 */
+:deep(.art-control-danmaku-settings) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  line-height: 1;
-}
-/* 弹幕设置按钮(控制条, 插在倍速 1x 左侧): 图标 SVG 居中, 与倍速按钮同尺寸 */
-:deep(.vjs-danmaku-settings-button) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 3.4em;
-  height: 3em;
+  width: 44px;
   cursor: pointer;
 }
-:deep(.vjs-danmaku-settings-button svg) {
+:deep(.art-control-danmaku-settings svg) {
   display: block;
   filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.5));
 }
-:deep(.vjs-danmaku-settings-button:hover),
-:deep(.vjs-danmaku-settings-button:focus) {
-  color: var(--jc-brand-primary);
-}
 /* 开启态颜色区分: 有效启用(用户级&&本集)时按钮着品牌色, syncDanmakuBtnState 维护 is-on */
-:deep(.vjs-danmaku-settings-button.is-on) {
-  color: var(--jc-brand-primary);
+:deep(.art-control-danmaku-settings.is-on) {
+  color: var(--jc-brand-primary) !important;
 }
 
 /* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作)
@@ -2810,12 +2762,13 @@ watch(playerReady, (v) => {
   box-shadow: 0 0 6px rgba(96, 165, 250, 0.8);
 }
 
-/* 右上角角标组(广告过滤 + 分辨率): absolute 定位于播放器右上角, 内部 flex 同行, 间距 8px */
+/* 右上角角标组(广告过滤 + 分辨率): absolute 定位于播放器右上角, 内部 flex 同行, 间距 8px
+   z-index 55: ArtPlayer 居中状态层(mask)是 50, 角标需在其上、控制条(.art-bottom 60)之下 */
 .jc-player-badges {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 10px);
   right: var(--jc-space-2);
-  z-index: 3;
+  z-index: 55;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2844,7 +2797,7 @@ watch(playerReady, (v) => {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 10px);
   left: var(--jc-space-3, 12px);
-  z-index: 3;
+  z-index: 55;
   display: flex;
   align-items: center;
   height: 20px;
@@ -2868,22 +2821,22 @@ watch(playerReady, (v) => {
   }
 }
 
-/* I-018: 控制条「下一集」文字按钮(插在倍速与全屏之间) */
-:deep(.vjs-next-episode-button) {
+/* I-018: 控制条「下一集」文字按钮(全屏按钮之前) */
+:deep(.art-control-next-episode) {
   width: auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 1em;
+  padding: 0 14px;
   cursor: pointer;
   opacity: 0.85;
 }
-:deep(.vjs-next-episode-button:hover),
-:deep(.vjs-next-episode-button:focus-visible) {
+:deep(.art-control-next-episode:hover),
+:deep(.art-control-next-episode:focus-visible) {
   opacity: 1;
 }
-:deep(.vjs-next-episode-button__label) {
-  font-size: 0.8em;
+:deep(.art-control-next-episode__label) {
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   color: #fff;
@@ -2909,11 +2862,13 @@ watch(playerReady, (v) => {
   padding-block: var(--jc-tv-safe);
   padding-inline: var(--jc-tv-safe);
 }
-[data-mode='tv'] .jc-play-view .video-js .vjs-control-bar {
-  font-size: 18px;
-  height: 4em;
+/* TV 远距离观看: 控制条/居中播放按钮放大(ArtPlayer 官方 CSS 变量) */
+[data-mode='tv'] .jc-player-wrap .art-video-player {
+  --art-control-height: 64px;
+  --art-control-icon-size: 28px;
+  --art-state-size: 120px;
 }
-/* TV 远距离观看: spinner 对齐 TV 下的播放按钮(3em @ font-size:10px = 30px) */
+/* TV 远距离观看: spinner 对齐 TV 下放大后的播放按钮 */
 [data-mode='tv'] .jc-player-loading__spinner {
   width: 64px;
   height: 64px;
@@ -2930,19 +2885,13 @@ watch(playerReady, (v) => {
   height: 9px;
 }
 /* TV: 控制条「下一集」按钮放大 */
-[data-mode='tv'] .video-js .vjs-next-episode-button {
-  padding: 0 1.2em;
+[data-mode='tv'] .art-control-next-episode {
+  padding: 0 18px;
 }
-[data-mode='tv'] .video-js .vjs-next-episode-button__label {
+[data-mode='tv'] .art-control-next-episode__label {
   font-size: 15px;
 }
-[data-mode='tv'] .jc-play-view .vjs-big-play-button {
-  height: 3em;
-  width: 3em;
-  line-height: 3em;
-  margin-top: -1.5em;
-  margin-left: -1.5em;
-}
+/* TV: 居中播放按钮(art-state)放大 —— 官方 CSS 变量已在上方统一调整 */
 
 /* ===== TV 工具条 (C: 图标 + 小字, 一排等宽) ===== */
 .jc-play-toolbar--tv {
@@ -3023,8 +2972,8 @@ watch(playerReady, (v) => {
    (左右=进度/空格=暂停/回车=全屏), 焦点导航无意义; TV 模式保留焦点环(D-pad 定位依赖)。 */
 [data-mode]:not([data-mode='tv']) .jc-play-view button:focus,
 [data-mode]:not([data-mode='tv']) .jc-play-view button:focus-visible,
-[data-mode]:not([data-mode='tv']) .jc-play-view .video-js button:focus,
-[data-mode]:not([data-mode='tv']) .jc-play-view .video-js button:focus-visible {
+[data-mode]:not([data-mode='tv']) .jc-play-view .art-video-player .art-control:focus,
+[data-mode]:not([data-mode='tv']) .jc-play-view .art-video-player .art-control:focus-visible {
   outline: none;
   box-shadow: none;
 }
@@ -3081,16 +3030,5 @@ watch(playerReady, (v) => {
   outline: none;
   box-shadow: var(--jc-tv-focus-ring);
 }
-/* TV/安卓壳: video.js 倍速菜单缩小(video.js 原生 1.5em 偏大) */
-[data-mode='tv'] .video-js .vjs-menu-button-popup .vjs-menu {
-  font-size: 14px;
-}
-[data-mode='tv'] .video-js .vjs-menu-button-popup .vjs-menu-item {
-  font-size: 14px;
-  padding: 2px 14px;
-  line-height: 2;
-}
-[data-mode='tv'] .video-js .vjs-menu-button-popup .vjs-menu-item .vjs-menu-item-text {
-  line-height: 1.4;
-}
+/* TV/安卓壳: 倍速/设置面板由 ArtPlayer settings 组件提供, 默认样式已适配触屏, 不再特调 */
 </style>

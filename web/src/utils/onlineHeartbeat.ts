@@ -111,7 +111,7 @@ export function startOnlineHeartbeat(): void {
   document.addEventListener('visibilitychange', onVisibility)
 }
 
-/** Web 播放器(video.js)播放状态: true=播放中, false=暂停/结束。 */
+/** Web 播放器(ArtPlayer)播放状态: true=播放中, false=暂停/结束。 */
 export function setWebWatching(v: boolean): void {
   webWatching = v
 }

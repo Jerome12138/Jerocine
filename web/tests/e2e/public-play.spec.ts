@@ -18,7 +18,7 @@ test.describe('PlayView 播放页', () => {
   })
 
   test('页面标题包含影片名 + 集数', async ({ page }) => {
-    // 播放页 video.js 初始化 + mock 数据返回，给宽松 timeout
+    // 播放页 ArtPlayer 初始化 + mock 数据返回，给宽松 timeout
     await expect(page.locator('.jc-play-info__title')).toContainText(/三体/, {
       timeout: 12_000
     })
@@ -35,7 +35,7 @@ test.describe('PlayView 播放页', () => {
     const btn = page.locator('button').filter({ hasText: /自动连播/ }).first()
     await expect(btn).toBeVisible()
     await expect(btn).toHaveClass(/jc-toggle--on/, { timeout: 5_000 })
-    // 用 force + 等待 stable，避免 video.js 重渲染导致 detach
+    // 用 force + 等待 stable，避免播放器重渲染导致 detach
     await btn.click({ force: true })
     await expect(btn).not.toHaveClass(/jc-toggle--on/, { timeout: 5_000 })
   })

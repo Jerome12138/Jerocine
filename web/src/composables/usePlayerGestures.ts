@@ -1,5 +1,5 @@
 import { onScopeDispose, ref, type Ref } from 'vue'
-import type Player from 'video.js/dist/types/player'
+import type Artplayer from 'artplayer'
 
 /**
  * 触屏手势 composable（web 播放器专用; TV/原生播放器不适用）。
@@ -12,10 +12,10 @@ import type Player from 'video.js/dist/types/player'
  *   底部预览面板(迷你进度条: 目标位置白条 + 当前位置灰点 + 目标时间文本), 长拖节流实时 seek 跟手
  * - 短促轻扫(<300ms 且 <60px) = 固定 ±10s
  * - 控制条/菜单等 UI 上的触摸不参与手势(防误触); 点按路径会阻止合成 click,
- *   避免叠加 video.js 默认的控制条开合
+ *   避免叠加 ArtPlayer 默认的控制条开合与移动端点击播停
  *
  * 提示 UI 由调用方渲染(模板消费 gestureRateHint / gestureSeekHint 两个 ref),
- * 覆盖层需 Teleport 进 video.js 的 .video-js 容器(全屏元素), 否则全屏时不可见。
+ * 覆盖层需 Teleport 进 ArtPlayer 的 .art-video-player 容器(全屏元素), 否则全屏时不可见。
  *
  * 使用：
  *   const { onTouchStart, onTouchMove, onTouchEnd, gestureRateHint, gestureSeekHint } =
@@ -23,8 +23,8 @@ import type Player from 'video.js/dist/types/player'
  *   // 模板: @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @touchcancel="onTouchEnd"
  */
 export interface PlayerGestureOptions {
-  /** video.js 实例(shallowRef 直通, 手势只做即时读写, 不依赖响应式) */
-  player: Ref<Player | null>
+  /** ArtPlayer 实例(shallowRef 直通, 手势只做即时读写, 不依赖响应式) */
+  player: Ref<Artplayer | null>
   paused: Ref<boolean>
   buffering: Ref<boolean>
   /** 仅全屏时启用手势 */
@@ -113,13 +113,13 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
   }
 
   /** 更新刮擦预览: 迷你进度条(目标位置 + 当前位置) + 文本(快进/退量 · 目标时间 · 百分比) */
-  function updateSeekHint(p: Player, target: number): void {
-    const dur = p.duration() ?? 0
+  function updateSeekHint(p: Artplayer, target: number): void {
+    const dur = p.duration || 0
     const pct = (v: number) => Math.min(100, Math.max(0, Math.round((v / (dur || 1)) * 100)))
     const delta = target - gestureSeekBase
     gestureSeekHint.value = {
       percent: pct(target),
-      curPercent: pct(p.currentTime() ?? 0),
+      curPercent: pct(p.currentTime || 0),
       text:
         `${delta >= 0 ? '快进' : '快退'} ${fmtTime(Math.abs(delta))}` +
         ` · ${fmtTime(target)} (${pct(target)}%)`
@@ -135,10 +135,14 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     }, 600)
   }
 
-  /** 触摸落在控制条/菜单等 UI 上时不做手势 */
+  /** 触摸落在控制条/设置面板等 UI 上时不做手势
+   *  (ArtPlayer 结构: .art-bottom > .art-progress/.art-controls > .art-control;
+   *   没有 .art-control-bar 这个类 —— 那是 video.js 的)。 */
   function isGestureTargetUi(e: TouchEvent): boolean {
     const el = e.target as HTMLElement | null
-    return !!el?.closest?.('.vjs-control-bar, .vjs-menu, .vjs-modal-dialog')
+    return !!el?.closest?.(
+      '.art-bottom, .art-control, .art-settings, .art-mask, .art-contextmenus'
+    )
   }
 
   /* ============ 触摸处理器(模板直绑) ============ */
@@ -182,7 +186,7 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
       if (fullscreen.value && Math.abs(dx) > GESTURE_SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy)) {
         clearLongPressTimer()
         gestureMode = 'seek'
-        gestureSeekBase = p.currentTime() ?? 0
+        gestureSeekBase = p.currentTime || 0
         gestureTarget = gestureSeekBase
         gestureLastDx = dx
         gestureLastSeekAt = 0
@@ -191,7 +195,9 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     }
     if (gestureMode !== 'seek') return // 已长按 3x: 移动不转刮擦
     gestureLastDx = dx
-    const dur = p.duration() ?? 0
+    const dur = p.duration || 0
+    // duration 未就绪时 ArtPlayer 的 currentTime setter 会把一切值钳成 0, 不刮擦
+    if (dur <= 0) return
     // 渐进式步进: 方向跟随手势, 步进量只看 |dx| (起步精确 → 越滑越快, 只受片长钳制)
     const offset = scrubOffsetSec(Math.abs(dx))
     gestureTarget = Math.min(
@@ -208,7 +214,7 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     ) {
       gestureLastSeekAt = now
       try {
-        p.currentTime(gestureTarget)
+        p.currentTime = gestureTarget
       } catch {
         /* ignore */
       }
@@ -229,20 +235,22 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
     } else if (gestureMode === 'seek' && p) {
       const dt = Date.now() - gestureStartTime
       if (dt < GESTURE_FLICK_MS && Math.abs(gestureLastDx) < GESTURE_FLICK_PX) {
-        // 短促轻扫: 固定 ±10s
-        const step = gestureLastDx >= 0 ? GESTURE_FLICK_SEEK_SEC : -GESTURE_FLICK_SEEK_SEC
-        const target = Math.max(0, (p.currentTime() ?? 0) + step)
-        try {
-          p.currentTime(target)
-        } catch {
-          /* ignore */
+        // 短促轻扫: 固定 ±10s(duration 未就绪不动作 —— setter 会钳成 0)
+        if (p.duration > 0) {
+          const step = gestureLastDx >= 0 ? GESTURE_FLICK_SEEK_SEC : -GESTURE_FLICK_SEEK_SEC
+          const target = Math.max(0, (p.currentTime || 0) + step)
+          try {
+            p.currentTime = target
+          } catch {
+            /* ignore */
+          }
+          updateSeekHint(p, target)
+          flashSeekHint()
         }
-        updateSeekHint(p, target)
-        flashSeekHint()
       } else {
         // 长拖松手: 落到预览显示的目标点, 提示即清
         try {
-          p.currentTime(gestureTarget)
+          p.currentTime = gestureTarget
         } catch {
           /* ignore */
         }
@@ -256,17 +264,24 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
       const dx = t ? t.clientX - gestureStartX : 0
       const dy = t ? t.clientY - gestureStartY : 0
       if (p && t && dt < TAP_MAX_MS && Math.abs(dx) < GESTURE_SWIPE_TRIGGER_PX && Math.abs(dy) < GESTURE_SWIPE_TRIGGER_PX) {
-        // 阻止合成 click, 避免 video.js 默认行为(切换控制条)与我们自己的播放/暂停叠加
+        // 阻止合成 click, 避免 ArtPlayer 默认行为(移动端切控制条/播停)与我们自己的手势叠加
         if (e.cancelable) e.preventDefault()
+        // 点按即显示控制条(旧 video.js 由 touchstart→useractive 实现; ArtPlayer 的
+        // 控制条开合挂在其自身 click 上, 已被上面的 preventDefault 拦截, 此处补一次)
+        try {
+          p.controls.show = true
+        } catch {
+          /* ignore */
+        }
         clearTapTimer()
         if (tapCount === 1) {
           // 双击: 切换全屏
           tapCount = 0
           try {
-            if (p.isFullscreen()) {
-              p.exitFullscreen()
+            if (p.fullscreen) {
+              p.fullscreen = false
             } else {
-              p.requestFullscreen()
+              p.fullscreen = true
             }
           } catch {
             /* ignore */
@@ -280,7 +295,7 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
             const cur = player.value
             if (!cur) return
             try {
-              if (cur.paused()) {
+              if (cur.video.paused) {
                 // play() 返回 promise: 单击快速切暂停时旧 play() 会被打断 reject(AbortError),
                 // 同步 try/catch 捕获不到, 不 catch 会成 unhandledrejection 被埋点误报。静默吞掉。
                 const ret = cur.play() as Promise<void> | undefined

@@ -5,7 +5,7 @@ import {
   type Ref,
   type ShallowRef
 } from 'vue'
-import type Player from 'video.js/dist/types/player'
+import type Artplayer from 'artplayer'
 import { createEngine, type DanmakuEngine, type DanmakuItem } from 'danmaku-lite/canvas'
 import { SETTINGS_APPLIED_EVENT } from '@/utils/settingEvents'
 import { filmApi } from '@/api'
@@ -25,7 +25,7 @@ import {
  *      - bilibili（路径 A 整集聚合）：seasonId → GET /danmu/bilibili 一次拉整集
  *      - tencent（路径 B 分段点播）：resourceId → episodes 匹配 → segments 索引 →
  *        按 currentTime 由引擎 dataSource 流式预拉 comments
- *  - 渲染引擎：danmaku-lite（Canvas 引擎, 同 API 双引擎, 2026-10-26 由 DOM 切换以提升并发与顺滑度），叠加在 video.js 容器内独立弹幕层。
+ *  - 渲染引擎：danmaku-lite（Canvas 引擎, 同 API 双引擎, 2026-10-26 由 DOM 切换以提升并发与顺滑度），叠加在播放器容器内独立弹幕层（2026-10-30 起 ArtPlayer 容器）。
  *    引擎**自驱**：通过 PlayerAdapter（position/paused/duration）每帧读进度，无需手动 time/start/stop/seek。
  *    - 重叠：内置轨道分配器（scrollGap / maxVisible 控制密度）
  *    - 截断/被挡：overflow:'drop'（无空闲轨道时静默丢弃，不再挤到屏外截断）
@@ -156,7 +156,7 @@ export interface UseDanmakuOptions {
   /** 集号（1 起；对应我们自己的集序, 服务端按标题匹配平台集） */
   episode: Ref<number>
   /** video.js 实例（ready 前为 null；切集后重拉依赖 episode watch 而非实例） */
-  player: ShallowRef<Player | null>
+  player: ShallowRef<Artplayer | null>
   /** 播放状态（联动 adapter.paused 用） */
   playing: Ref<boolean>
   /** 开关 */
@@ -294,7 +294,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
             return !opts.playing.value
           },
           get duration() {
-            return opts.player.value?.duration?.() ?? undefined
+            return opts.player.value?.duration ?? undefined
           }
         },
         area: settings.value.area,
@@ -338,10 +338,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
   }
 
-  /** 当前播放秒数（video.js 实例可用时读实时值，否则 0）。 */
+  /** 当前播放秒数（播放器实例可用时读实时值，否则 0）。 */
   function playerSeconds(): number {
     try {
-      const t = opts.player.value?.currentTime()
+      const t = opts.player.value?.currentTime
       return typeof t === 'number' && Number.isFinite(t) ? t : 0
     } catch {
       return 0

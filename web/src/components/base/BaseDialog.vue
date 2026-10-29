@@ -14,7 +14,7 @@ interface Props {
   showClose?: boolean
   /** 紧凑标题（比默认小一档，轻量弹窗用） */
   compactTitle?: boolean
-  /** Teleport 目标（默认 body）。播放器内弹窗（如弹幕设置）传 video.js 容器，全屏时可见 */
+  /** Teleport 目标（默认 body）。播放器内弹窗（如弹幕设置）传播放器容器，全屏时可见 */
   teleportTo?: string | HTMLElement
 }
 

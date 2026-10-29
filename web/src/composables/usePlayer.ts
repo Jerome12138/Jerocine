@@ -8,31 +8,30 @@ import {
   type Ref,
   type ShallowRef
 } from 'vue'
-import videojs from 'video.js'
-import type Player from 'video.js/dist/types/player'
-// video.js 核心皮肤 CSS — 没有它 .vjs-tech 不会拿到 position:absolute + 100%/100%, 内层 video 会塌成默认 300x150
-import 'video.js/dist/video-js.css'
+import Artplayer from 'artplayer'
+import Hls from 'hls.js'
 
 /**
- * video.js 播放器 composable。
+ * ArtPlayer + hls.js 播放器 composable（2026-10-30 由 video.js/VHS 迁移）。
  *
  * 设计要点：
- * - 实例存 shallowRef，避免被 Vue 反应式深包裹（video.js 内部状态非常多，深包裹会爆栈/性能问题）
- * - 切换 src 不重建 player，只调 player.src(...)，保留 controls / 设置
- * - 暴露 play / pause / seek / setVolume / on / off / dispose 等命令式 API
- * - 监听 ready / play / pause / ended / timeupdate / error 五类标准事件
+ * - 实例存 shallowRef，避免被 Vue 反应式深包裹（播放器内部状态多，深包裹会爆栈/性能问题）
+ * - 切换 src 不重建 player：blob/直链统一走 load()（art.type + art.url），customType 按
+ *   type 分发到 hls.js 加载；mp4 等直链由 ArtPlayer 直接 $video.src
+ * - 暴露 play / pause / seek / setVolume / on / off / dispose 等命令式 API（与旧 video.js 版
+ *   接口一致，调用方 PlayView/useDanmaku/usePlayerGestures 只换底层实现不换契约）
  * - 不在内部触发 router 跳转 / toast，由调用方决定
  *
  * 使用：
- *   const videoEl = ref<HTMLVideoElement | null>(null)
+ *   const containerEl = ref<HTMLDivElement | null>(null)
  *   const { player, ready, init, dispose, play, pause, seek, setVolume, on } = usePlayer({...})
- *   onMounted(() => init(videoEl.value!))
+ *   onMounted(() => init(containerEl.value!))
  */
 
 export interface UsePlayerOptions {
   /** 播放源 url（响应式） */
   src: Ref<string> | string
-  /** 视频 mime 类型，例 'application/x-mpegURL' */
+  /** 视频 mime 类型，例 'application/x-mpegURL'（blob 清单无扩展名，靠它判定走 hls.js） */
   type?: Ref<string | undefined> | string
   /** 海报 */
   poster?: Ref<string | undefined> | string
@@ -55,22 +54,21 @@ export interface UsePlayerOptions {
   preload?: 'none' | 'metadata' | 'auto'
   /**
    * 控制条「下一集」按钮(可选, I-018):
-   * 提供后会在倍速与全屏之间注册一个常驻文字按钮, 点击触发 onClick。
+   * 提供后会在控制条右侧注册一个常驻文字按钮, 点击触发 onClick。
    * 是否真的存在下一集由回调自行判断(如 PlayView.playNext 内部已 guard hasNext)。
    */
   nextEpisode?: { onClick: () => void }
   /**
-   * 控制条「弹幕设置」按钮(可选, 插在倍速 1x 左侧):
+   * 控制条「弹幕设置」按钮(可选):
    * 提供后注册一个常驻图标按钮, 点击触发 onClick(PlayView 打开弹幕设置弹窗)。
    * 按钮常驻显示——设置项(字号/透明度等)独立于当前片源是否可用。
    */
   danmakuSettings?: { onClick: () => void }
   /**
-   * 弱网模式. 开启后:
-   *  - VHS 初始带宽猜测 800kbps (默认 4Mbps), ABR 从低码率起步
-   *  - 目标缓冲 15s (默认 30s), 起播更快
-   *  - buffer-based ABR (基于缓冲长度而非带宽估算), 网络抖动下决策更稳
-   *  - 复用 localStorage 上次的带宽估算, 二次播放更聪明
+   * 弱网模式. 开启后(hls.js 配置):
+   *  - 初始带宽估算 800kbps (默认 2Mbps), ABR 从低码率起步
+   *  - 目标缓冲 25s (默认 40s), 起播更快
+   *  - 复用 localStorage 上次的带宽估算(hls.bandwidthEstimate), 二次播放更聪明
    */
   lowBandwidth?: boolean
 }
@@ -92,8 +90,8 @@ export type PlayerEventName =
   | 'userinactive'
 
 export interface UsePlayerReturn {
-  /** video.js 实例（ready 之前为 null） */
-  player: ShallowRef<Player | null>
+  /** ArtPlayer 实例（ready 之前为 null） */
+  player: ShallowRef<Artplayer | null>
   /** 是否已 ready */
   ready: Ref<boolean>
   /** 当前播放进度（秒） */
@@ -108,8 +106,8 @@ export interface UsePlayerReturn {
   videoSize: Ref<{ width: number; height: number } | null>
   /** 是否处于错误态 */
   errored: ComputedRef<boolean>
-  /** 创建并挂载到目标 video 元素 */
-  init: (el: HTMLVideoElement) => void
+  /** 创建并挂载到目标容器元素 */
+  init: (el: HTMLElement) => void
   /** 销毁实例 */
   dispose: () => void
   play: () => Promise<void> | void
@@ -120,6 +118,8 @@ export interface UsePlayerReturn {
   seekBy: (delta: number) => void
   /** 0–1 */
   setVolume: (v: number) => void
+  /** 装载新源(不重建实例): m3u8/blob → hls.js, 其它直链 → 原生 video.src */
+  load: (url: string, type?: string) => void
   /** 进入临时倍速(手势长按等场景): 直接生效, 不写持久化缓存 */
   enterTempRate: (rate: number) => void
   /** 退出临时倍速, 恢复进入前档位 */
@@ -161,97 +161,116 @@ function savePlaybackRate(v: number): void {
   }
 }
 
-/* ============ 控制条「下一集」按钮 (I-018) ============ */
+/* ============ hls.js 带宽估算持久化(等价 VHS useBandwidthFromLocalStorage) ============ */
+
+const HLS_BW_LS_KEY = 'jc-hls-bandwidth-estimate'
+
+function readSavedBandwidth(): number | null {
+  try {
+    const raw = localStorage.getItem(HLS_BW_LS_KEY)
+    if (!raw) return null
+    const v = Number(raw)
+    // 5kbps ~ 100Mbps 的合理区间外视为脏数据丢弃
+    return Number.isFinite(v) && v >= 5_000 && v <= 100_000_000 ? v : null
+  } catch {
+    return null
+  }
+}
+
+function saveBandwidth(v: number): void {
+  try {
+    if (Number.isFinite(v) && v > 0) localStorage.setItem(HLS_BW_LS_KEY, String(Math.round(v)))
+  } catch {
+    /* 隐私模式忽略 */
+  }
+}
+
+/* ============ 播放器右上角控制条自定义按钮 ============ */
 
 /** 当前实例的点击回调(模块级单例: 一页一个 player, init 时注入, dispose 时清空)。 */
 let nextEpisodeHandler: (() => void) | null = null
 /** 弹幕设置按钮回调（同 nextEpisodeHandler 单例模式） */
 let danmakuSettingsHandler: (() => void) | null = null
 
-/** 宽松类型: 只依赖 video.js Component/Button 的运行时行为, 避免 dist types 的私有签名。 */
-interface VjsButtonLike {
-  createEl(tag?: string, props?: Record<string, unknown>): HTMLElement
-  handleClick(): void
-}
-type VjsButtonCtor = new () => {
-  createEl(tag?: string, props?: Record<string, unknown>): HTMLElement
-}
-
-/** 全局注册一次「下一集」按钮组件(文字按钮, 不依赖 icon font)。 */
-function registerNextEpisodeButton(): boolean {
-  const vjs = videojs as unknown as {
-    getComponent: (name: string) => VjsButtonCtor | undefined
-    registerComponent: (name: string, comp: unknown) => void
-  }
-  if (vjs.getComponent('NextEpisodeButton')) return true
-  const Button = vjs.getComponent('Button')
-  if (!Button) return false
-  class NextEpisodeButton extends Button implements VjsButtonLike {
-    override createEl(tag = 'button', props: Record<string, unknown> = {}): HTMLElement {
-      const el = super.createEl(tag, {
-        ...props,
-        className: 'vjs-control vjs-next-episode-button'
-      }) as HTMLElement
-      el.setAttribute('title', '下一集')
-      el.setAttribute('aria-label', '下一集')
-      const label = document.createElement('span')
-      label.className = 'vjs-next-episode-button__label'
-      label.textContent = '下一集'
-      el.appendChild(label)
-      return el
-    }
-    handleClick(): void {
-      nextEpisodeHandler?.()
-    }
-  }
-  vjs.registerComponent('NextEpisodeButton', NextEpisodeButton)
-  return true
-}
-
 /** 弹幕设置图标 SVG path（Material "tune": 调节滑块, 设置语义比气泡更明确, 2026-10-26 更换） */
 const DANMAKU_ICON_PATH =
   'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z'
 
-/** 全局注册一次「弹幕设置」图标按钮（不依赖 icon font, 内联 SVG）。 */
-function registerDanmakuSettingsButton(): boolean {
-  const vjs = videojs as unknown as {
-    getComponent: (name: string) => VjsButtonCtor | undefined
-    registerComponent: (name: string, comp: unknown) => void
+/** 创建「下一集」按钮内容节点(外层 .art-control 容器由 ArtPlayer 自建)。 */
+function buildNextEpisodeButton(): HTMLElement {
+  const label = document.createElement('span')
+  label.className = 'art-control-next-episode__label'
+  label.textContent = '下一集'
+  return label
+}
+
+/** 创建「弹幕设置」图标按钮内容节点(内联 SVG, 不依赖 icon font)。 */
+function buildDanmakuSettingsButton(): HTMLElement {
+  const svgNS = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(svgNS, 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('fill', 'currentColor')
+  svg.setAttribute('width', '20')
+  svg.setAttribute('height', '20')
+  svg.setAttribute('aria-hidden', 'true')
+  const path = document.createElementNS(svgNS, 'path')
+  path.setAttribute('d', DANMAKU_ICON_PATH)
+  svg.appendChild(path)
+  return svg as unknown as HTMLElement
+}
+
+/** 模块级一次性开关: ArtPlayer 全局行为收敛(右键菜单/版本日志/内建重连与旧 video.js 行为对齐)。 */
+let globalTuned = false
+function tuneGlobals(): void {
+  if (globalTuned) return
+  globalTuned = true
+  Artplayer.LOG_VERSION = false
+  Artplayer.CONTEXTMENU = false
+  // 关闭 ArtPlayer 内建 video:error 自动重连(1s×5 次): 恢复权完全交给上层
+  // PlayView 的重试/换源链路; 且 hls.js 路径不写 video.src, 内建重连的 option.url
+  // 对 blob 源是陈旧值, 双轨重连会互相打架
+  Artplayer.RECONNECT_TIME_MAX = 0
+}
+
+/* ============ 对外事件名 → ArtPlayer 事件名映射 ============
+ * ArtPlayer 对 <video> 原生事件只发 `video:` 前缀版(从不发裸名),
+ * 全屏是 'fullscreen'(非 'fullscreenchange'), 控制条显隐是 'control'(state 参数)。 */
+function mapArtEvent(event: PlayerEventName): string | null {
+  switch (event) {
+    case 'ready':
+      return 'ready'
+    case 'play':
+    case 'pause':
+    case 'ended':
+    case 'timeupdate':
+    case 'seeked':
+    case 'loadedmetadata':
+    case 'volumechange':
+    case 'waiting':
+    case 'canplay':
+      return `video:${event}`
+    case 'fullscreenchange':
+      return 'fullscreen'
+    case 'useractive':
+    case 'userinactive':
+      return 'control'
+    case 'error':
+      return null // 手动分发(见 fireErrorListeners), 不挂实例
   }
-  if (vjs.getComponent('DanmakuSettingsButton')) return true
-  const Button = vjs.getComponent('Button')
-  if (!Button) return false
-  class DanmakuSettingsButton extends Button implements VjsButtonLike {
-    override createEl(tag = 'button', props: Record<string, unknown> = {}): HTMLElement {
-      const el = super.createEl(tag, {
-        ...props,
-        className: 'vjs-control vjs-danmaku-settings-button'
-      }) as HTMLElement
-      el.setAttribute('title', '弹幕设置')
-      el.setAttribute('aria-label', '弹幕设置')
-      const svgNS = 'http://www.w3.org/2000/svg'
-      const svg = document.createElementNS(svgNS, 'svg')
-      svg.setAttribute('viewBox', '0 0 24 24')
-      svg.setAttribute('fill', 'currentColor')
-      svg.setAttribute('width', '20')
-      svg.setAttribute('height', '20')
-      svg.setAttribute('aria-hidden', 'true')
-      const path = document.createElementNS(svgNS, 'path')
-      path.setAttribute('d', DANMAKU_ICON_PATH)
-      svg.appendChild(path)
-      el.appendChild(svg)
-      return el
-    }
-    handleClick(): void {
-      danmakuSettingsHandler?.()
-    }
-  }
-  vjs.registerComponent('DanmakuSettingsButton', DanmakuSettingsButton)
-  return true
+}
+
+/** 外部事件订阅条目: fn 为调用方函数, wrapped 为实际挂到 art 的(可能包装的)函数,
+ *  供 off() 对称解绑。wrapped 用 never[] 参数以同时兼容直通 fn 与 'control' 状态包装。 */
+interface PlayerListener {
+  event: PlayerEventName
+  fn: (...args: unknown[]) => void
+  wrapped?: (...args: never[]) => void
 }
 
 export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
-  const player = shallowRef<Player | null>(null)
+  tuneGlobals()
+
+  const player = shallowRef<Artplayer | null>(null)
   const ready = ref(false)
   const currentTime = ref(0)
   const duration = ref(0)
@@ -262,19 +281,197 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
 
   const errored = computed(() => errorMessage.value.length > 0)
 
-  /** 视频实际分辨率(像素宽高)。videoWidth/videoHeight 在码率切换后更新,
-   *  VHS 切档时底层 video 元素触发 resize, 一并监听以实时反映当前画质。 */
+  /** 视频实际分辨率(像素宽高)。loadedmetadata 拿初始值; hls.js 码率切换(LEVEL_SWITCHED)
+   *  与窗口 resize 后重读, 实时反映当前画质。读取失败防御性跳过(null 直到可读)。 */
   const videoSize = ref<{ width: number; height: number } | null>(null)
 
   /** 外部事件订阅(持久): player 重建(dispose→init)后统一重挂。
    *  曾用一次性 pendingListeners + dispose 清空 —— 旧 player 销毁后弹幕层等外部
    *  订阅全部蒸发且不再重挂(线上实测: timeupdate 链断, 弹幕静止, 2026-10-26)。 */
-  const listenerRegistry: Array<{
-    event: PlayerEventName
-    fn: (...args: unknown[]) => void
-  }> = []
+  const listenerRegistry: PlayerListener[] = []
 
-  function init(el: HTMLVideoElement): void {
+  /** error 特殊分发: hls 致命错误不经过 video 元素 error 事件, 统一由此触发订阅者。 */
+  function fireErrorListeners(): void {
+    for (const { event, fn } of listenerRegistry) {
+      if (event === 'error') fn()
+    }
+  }
+
+  /** 单条注册 → ArtPlayer 事件挂载。error 不直挂(手动分发, 见 fireErrorListeners);
+   *  useractive/userinactive 由 art 'control'(控制条显隐, state 参数)派生, 包装闭包
+   *  存回 entry 供 off() 对称解绑。 */
+  function attachEntryToArt(art: Artplayer, entry: PlayerListener): void {
+    const { event, fn } = entry
+    const artEvent = mapArtEvent(event)
+    if (artEvent === null) return
+    if (event === 'useractive') {
+      entry.wrapped = (state: boolean) => {
+        if (state) fn()
+      }
+    } else if (event === 'userinactive') {
+      entry.wrapped = (state: boolean) => {
+        if (!state) fn()
+      }
+    } else {
+      entry.wrapped = fn
+    }
+    art.on(artEvent as Parameters<Artplayer['on']>[0], entry.wrapped as never)
+  }
+
+  /** 注册表 → ArtPlayer 事件挂载(构造后立即全量挂, 不等 ready —— 否则首个源的
+   *  loadedmetadata 会在挂载前错过, 首播续播 seek 丢失)。 */
+  function attachRegistryToArt(art: Artplayer): void {
+    for (const entry of listenerRegistry) {
+      attachEntryToArt(art, entry)
+    }
+  }
+
+  /** hls 实例的 art 'destroy' 清理回调(换源时先摘旧的再挂新的, 防监听堆积)。 */
+  let hlsDestroyHandler: (() => void) | null = null
+
+  /**
+   * hls.js 挂载(ArtPlayer customType 入口)。
+   * MSE 可用 → hls.js 接管(端侧 blob 清单唯一可播路径); 否则退化原生 HLS
+   * (iPhone Safari, blob 清单播不了, 上层 PlayView 已按 isHlsSupported() 决定喂直链)。
+   */
+  function attachHls(this: Artplayer, video: HTMLVideoElement, url: string): void {
+    const art = this
+    // 换源前保存上一条 hls 会话的带宽估算, 供下次起播直接复用
+    const prevHls = art.hls as Hls | undefined
+    if (prevHls) {
+      saveBandwidth(prevHls.bandwidthEstimate)
+      try {
+        prevHls.destroy()
+      } catch {
+        /* ignore */
+      }
+    }
+    if (hlsDestroyHandler) {
+      try {
+        art.off('destroy', hlsDestroyHandler)
+      } catch {
+        /* ignore */
+      }
+      hlsDestroyHandler = null
+    }
+
+    if (Hls.isSupported()) {
+      const lowBw = opts.lowBandwidth ?? false
+      const hls = new Hls({
+        enableWorker: true,
+        // 抗卡顿缓冲(对齐旧 VHS GOAL_BUFFER_LENGTH 40s/上限 80s; 弱网 25s/50s):
+        // 实测源站 TTFB 0.4-0.9s/分片, 更深缓冲显著减少 rebuffer
+        maxBufferLength: lowBw ? 25 : 40,
+        maxMaxBufferLength: lowBw ? 50 : 80,
+        backBufferLength: 60,
+        // 初始带宽估算: 弱网 800k 起播选低码率; 正常网 2M — 实测源站 1080p 变体约
+        // 800k~2M, 估算偏高会"起播即选高码率→带宽不足→立刻降级", 起播反糊
+        abrEwmaDefaultEstimate: readSavedBandwidth() ?? (lowBw ? 800_000 : 2_000_000),
+        startLevel: -1
+      })
+
+      // 致命错误自愈(先于 loadSource 注册): 网络错重试(上限 3 次, FRAG_BUFFERED 复位),
+      // 媒体错 recoverMediaError(上限 2 次, 第二次轮换音频编解码), 超限销毁并冒泡
+      // error 走上层重试/换源链路
+      let netRetries = 0
+      let mediaRetries = 0
+      hls.on(Hls.Events.ERROR, (_evt, data) => {
+        if (!data.fatal) return
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && netRetries < 3) {
+          netRetries += 1
+          hls.startLoad()
+          return
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRetries < 2) {
+          mediaRetries += 1
+          try {
+            if (mediaRetries === 2) {
+              hls.swapAudioCodec()
+            }
+            hls.recoverMediaError()
+            return
+          } catch {
+            /* 落到销毁 */
+          }
+        }
+        errorMessage.value = data.details || 'hls fatal error'
+        try {
+          hls.destroy()
+        } catch {
+          /* ignore */
+        }
+        fireErrorListeners()
+      })
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        netRetries = 0
+      })
+      // 码率切换后分辨率可能变化 → 重读宽高(等价旧 VHS 的 video resize 监听)
+      hls.on(Hls.Events.LEVEL_SWITCHED, () => readVideoSize(art))
+
+      hls.loadSource(url)
+      hls.attachMedia(video)
+
+      art.hls = hls
+      hlsDestroyHandler = () => {
+        saveBandwidth(hls.bandwidthEstimate)
+        try {
+          hls.destroy()
+        } catch {
+          /* ignore */
+        }
+      }
+      art.on('destroy', hlsDestroyHandler)
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // 原生 HLS(iOS Safari): blob 清单不可播, 喂进来的只会是直链(见 PlayView isHlsSupported 门)
+      video.src = url
+    } else {
+      art.notice.show = '当前浏览器不支持 HLS 播放'
+    }
+  }
+
+  function readVideoSize(art: Artplayer | null): void {
+    const v = art?.video
+    if (!v) return
+    try {
+      const w = v.videoWidth
+      const h = v.videoHeight
+      if (typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0) {
+        videoSize.value = { width: w, height: h }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  /** url 是否按 HLS 装载(端侧 blob 清单无扩展名, 由调用方 mime 或扩展名共同判定)。 */
+  function isHlsUrl(url: string, type?: string): boolean {
+    if (type) return /mpegurl/i.test(type)
+    return /\.m3u8(\?|#|$)/i.test(url)
+  }
+
+  /** 装载新源(不重建实例)。blob: 清单无扩展名, 必须显式 art.type 才能命中 customType。 */
+  function loadInternal(art: Artplayer, url: string, type?: string): void {
+    if (!url) return
+    errorMessage.value = ''
+    if (isHlsUrl(url, type)) {
+      art.type = 'm3u8'
+    } else {
+      art.type = ''
+      // 非 HLS 源: 销毁残留的 hls 会话(否则旧实例带着已关闭的 MediaSource 空转到下次 m3u8)
+      const staleHls = art.hls as Hls | undefined
+      if (staleHls) {
+        try {
+          staleHls.destroy()
+        } catch {
+          /* ignore */
+        }
+        art.hls = undefined
+      }
+    }
+    art.url = url
+  }
+
+  function init(el: HTMLElement): void {
     if (player.value) {
       return
     }
@@ -282,198 +479,164 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     const initialType = unwrap(opts.type)
     const initialPoster = unwrap(opts.poster)
 
-    // VHS (video.js 内置 HLS 引擎) 弱网友好默认.
-    // 低带宽预设 → 初始码率从低开始, 二次播放复用上次带宽估算.
-    const lowBw = opts.lowBandwidth ?? false
-    const vhsOpts: Record<string, unknown> = {
-      // 复用上一次会话估算的带宽 (localStorage), 二次播放不必从默认 4Mbps 重新摸索
-      useBandwidthFromLocalStorage: true,
-      // 复用上一次播放的设备像素比 / 视口大小判断, ABR 决策更快
-      useDevicePixelRatio: true,
-      // 优先使用 navigator.connection.downlink (如可用), 比纯带宽估算反应快
-      useNetworkInformationApi: true,
-      // 基于缓冲长度做 ABR (而非带宽估算). 弱网抖动下避免反复升降级
-      experimentalBufferBasedABR: lowBw,
-      // 初始带宽估算: 弱网 800k 起播选低码率; 正常网 2M — 实测源站 1080p 变体约 800k~2M,
-      // VHS 默认 4M 估算偏高, 慢源站会"起播即选高码率→带宽不足→立刻降级", 起播反糊
-      bandwidth: lowBw ? 800_000 : 2_000_000,
-      // 限制 m3u8 重试次数, 失败快速冒泡给我们的 error 重试逻辑
-      maxPlaylistRetries: 2
-    }
-
-    // 控制条: 常规按钮 + 可选「下一集」(I-018, 插在倍速与全屏之间) + 可选「弹幕设置」(插在倍速 1x 左侧)
-    const controlBarChildren: string[] = [
-      'playToggle',
-      'volumePanel',
-      'currentTimeDisplay',
-      'timeDivider',
-      'durationDisplay',
-      'progressControl',
-      'liveDisplay',
-      'remainingTimeDisplay'
-    ]
-    if (opts.danmakuSettings) {
-      if (registerDanmakuSettingsButton()) {
-        danmakuSettingsHandler = opts.danmakuSettings.onClick
-        controlBarChildren.push('DanmakuSettingsButton')
-      }
-    }
-    controlBarChildren.push('playbackRateMenuButton')
-    let hasNextBtn = false
-    if (opts.nextEpisode) {
-      hasNextBtn = registerNextEpisodeButton()
-      if (hasNextBtn) {
-        nextEpisodeHandler = opts.nextEpisode.onClick
-        controlBarChildren.push('NextEpisodeButton')
-      }
-    }
-    controlBarChildren.push('fullscreenToggle')
-
     // I-019: 倍速本地缓存 —— 记住用户选的倍速, 切源/切集/刷新后自动恢复
     const rateOptions = opts.playbackRates ?? [0.5, 1.0, 1.25, 1.5, 2.0]
     const savedRate = readSavedPlaybackRate(rateOptions)
+    // 倍速面板档位交给调用方配置(不随 ArtPlayer 静态默认漂移), 保证与持久化校验一致
+    Artplayer.PLAYBACK_RATE = rateOptions.slice()
 
-    const p = videojs(el, {
-      controls: true,
-      preload: opts.preload ?? 'metadata',
-      autoplay: opts.autoplay ?? false,
-      loop: opts.loop ?? false,
-      playbackRates: rateOptions,
-      poster: initialPoster,
-      // 移动 Safari 默认全屏播放, playsinline 让它内嵌在页面里播
-      playsinline: true,
-      sources: initialSrc
-        ? [{ src: initialSrc, type: initialType || guessType(initialSrc) }]
-        : [],
-      html5: {
-        vhs: vhsOpts
-      },
-      controlBar: {
-        children: controlBarChildren
-      }
-    })
-
-    // 抗卡顿缓冲: 这是 VHS 的全局静态常量, 改完对所有 player 生效。
-    // 正常网: 目标 40s(默认30)/上限 80s(默认60) — 实测源站 TTFB 0.4-0.9s/分片, 更深缓冲显著减少 rebuffer;
-    // 弱网: 目标 25s(原 15)/上限 50s(原 30) — 起播仍快(metadata preload + 实验性 buffer ABR), 但比原配置多扛几秒卡顿。
-    try {
-      const Vhs = (videojs as unknown as { Vhs?: { GOAL_BUFFER_LENGTH?: number; MAX_GOAL_BUFFER_LENGTH?: number } }).Vhs
-      if (Vhs) {
-        Vhs.GOAL_BUFFER_LENGTH = lowBw ? 25 : 40
-        Vhs.MAX_GOAL_BUFFER_LENGTH = lowBw ? 50 : 80
-      }
-    } catch {
-      /* VHS 版本变化时静默跳过, 不影响播放 */
+    // 控制条自定义按钮: 「弹幕设置」(倍速区左侧) + 「下一集」(全屏按钮之前)
+    // (ArtPlayer 自建 .art-control 容器, html 只放内容节点; 点击回调绑在容器上)
+    const customControls: Artplayer['option']['controls'] = []
+    if (opts.danmakuSettings) {
+      danmakuSettingsHandler = opts.danmakuSettings.onClick
+      customControls.push({
+        name: 'danmaku-settings',
+        position: 'right',
+        index: 15,
+        tooltip: '弹幕设置',
+        html: buildDanmakuSettingsButton(),
+        click: () => danmakuSettingsHandler?.()
+      })
+    }
+    if (opts.nextEpisode) {
+      nextEpisodeHandler = opts.nextEpisode.onClick
+      customControls.push({
+        name: 'next-episode',
+        position: 'right',
+        index: 18,
+        tooltip: '下一集',
+        html: buildNextEpisodeButton(),
+        click: () => nextEpisodeHandler?.()
+      })
     }
 
-    p.on('ready', () => {
+    const art = new Artplayer({
+      container: el as HTMLDivElement,
+      url: initialSrc,
+      poster: initialPoster,
+      // 初始 mime 已知且为 HLS 时直接声明 type, 首个 blob 清单才能命中 customType
+      type: initialSrc && isHlsUrl(initialSrc, initialType) ? 'm3u8' : '',
+      customType: {
+        m3u8: attachHls
+      },
+      autoplay: opts.autoplay ?? false,
+      volume: typeof opts.volume === 'number' ? clamp01(opts.volume) : 0.6,
+      muted: false,
+      loop: opts.loop ?? false,
+      // 移动 Safari 默认全屏播放, playsinline 让它内嵌在页面里播
+      playsInline: true,
+      moreVideoAttr: {
+        // 弱网友好: 仅拉时长 + 起播分片元数据, 不整段预载(hls.js 分片节奏由 maxBufferLength 管)
+        preload: opts.preload ?? 'metadata'
+      },
+      // 键盘/移动端横滑手势全部关闭: 播放控制由自家 usePlayerGestures + handleKeydown
+      // 统一约定(单击播停/双击全屏/长按 3x/渐进刮擦), 避免双重响应
+      hotkey: false,
+      gesture: false,
+      fastForward: false,
+      mutex: true,
+      backdrop: true,
+      setting: true,
+      playbackRate: true,
+      aspectRatio: true,
+      fullscreen: true,
+      fullscreenWeb: true,
+      pip: true,
+      miniProgressBar: true,
+      controls: customControls
+    })
+
+    // 外部订阅构造后立即挂载(不等 ready —— art 的 ready 在首个源 canplay 才触发,
+    // 首播的 loadedmetadata 若等 ready 再挂会错过, 首次进页续播 seek 会丢)
+    attachRegistryToArt(art)
+    suppressProgrammaticNotices(art)
+
+    player.value = art
+
+    art.on('ready', () => {
       ready.value = true
-      try {
-        if (typeof opts.volume === 'number') {
-          p.volume(clamp01(opts.volume))
-        }
-      } catch {
-        // ignore
-      }
       // I-019: ready 时恢复上次倍速
       if (savedRate !== null) {
         try {
-          p.playbackRate(savedRate)
+          art.playbackRate = savedRate
         } catch {
           // ignore
         }
       }
-      // 监听倍速变化: 用户主动选非默认倍速时持久化(见 ratechange 内注释)
-      p.on('ratechange', () => {
-        // 手势临时倍速(长按2x)不持久化, 退出手势即恢复
-        if (tempRateActive) return
-        try {
-          const r = p.playbackRate()
-          // 切源/换 tech 时 video.js 会把倍速重置回 1 并触发 ratechange,
-          // 若无差别保存会把缓存覆盖回 1; 1 即默认值无需记忆, 故只记非 1 倍速。
-          if (typeof r === 'number' && r !== 1 && rateOptions.includes(r)) {
-            savePlaybackRate(r)
-          }
-        } catch {
-          // ignore
-        }
-      })
       // ready 时同步一次 paused，避免 autoplay 早于 'play' 事件挂载导致 UI 反向
       try {
-        const isPaused = p.paused()
-        if (typeof isPaused === 'boolean') {
-          paused.value = isPaused
-        }
+        paused.value = art.video.paused
       } catch {
         // ignore
-      }
-      // (重)注册外部订阅 —— registry 持久, player 重建后也会走到这里
-      for (const { event, fn } of listenerRegistry) {
-        p.on(event, fn as (...args: unknown[]) => void)
       }
     })
 
-    p.on('play', () => {
+    art.on('video:play', () => {
       paused.value = false
     })
-    p.on('pause', () => {
+    art.on('video:pause', () => {
       paused.value = true
     })
-    p.on('timeupdate', () => {
-      const t = p.currentTime()
-      if (typeof t === 'number') {
-        currentTime.value = t
-      }
+    art.on('video:timeupdate', () => {
+      currentTime.value = art.currentTime
     })
-    p.on('loadedmetadata', () => {
-      const d = p.duration()
-      if (typeof d === 'number' && Number.isFinite(d)) {
+    art.on('video:loadedmetadata', () => {
+      const d = art.duration
+      if (Number.isFinite(d)) {
         duration.value = d
       }
-      // I-019: 切源/切集后新 media tech 可能重置倍速, 就绪时重新套用缓存
+      readVideoSize(art)
+      // I-019: 切源/切集后新源可能重置倍速, 就绪时重新套用缓存
       if (savedRate !== null) {
         try {
-          const cur = p.playbackRate()
-          if (typeof cur === 'number' && Math.abs(cur - savedRate) > 1e-6) {
-            p.playbackRate(savedRate)
+          if (Math.abs(art.playbackRate - savedRate) > 1e-6) {
+            art.playbackRate = savedRate
           }
         } catch {
           // ignore
         }
       }
     })
-    p.on('error', () => {
-      const err = p.error()
-      errorMessage.value = err?.message || 'video error'
-    })
-    // 分辨率实时跟踪: loadedmetadata 拿到初始宽高; VHS 码率切换时底层 video 元素
-    // 触发 resize, 重读宽高反映当前实际画质。读取失败防御性跳过(null 直到可读)。
-    const readVideoSize = (): void => {
-      try {
-        const w = p.videoWidth()
-        const h = p.videoHeight()
-        if (typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0) {
-          videoSize.value = { width: w, height: h }
-        }
-      } catch {
-        // ignore
+    art.on('video:durationchange', () => {
+      const d = art.duration
+      if (Number.isFinite(d) && d > 0) {
+        duration.value = d
       }
-    }
-    p.on('loadedmetadata', readVideoSize)
-    p.on('resize', readVideoSize)
-    p.on('canplay', () => {
+    })
+    art.on('video:error', () => {
+      // video:error 收到的是 DOM Event(message 恒 undefined), 真实媒体错误读 video.error
+      const mediaErr = art.video?.error
+      errorMessage.value = mediaErr?.message || 'video error'
+      fireErrorListeners()
+    })
+    art.on('video:canplay', () => {
       errorMessage.value = ''
       buffering.value = false
     })
-    p.on('waiting', () => {
+    art.on('video:waiting', () => {
       // 缓冲中: 显示 loading, 让用户知道点击播放后有响应
       buffering.value = true
     })
-    p.on('playing', () => {
+    art.on('video:playing', () => {
       buffering.value = false
     })
-
-    player.value = p
+    // 窗口/容器尺寸变化后重读分辨率
+    art.on('resize', () => readVideoSize(art))
+    // 倍速持久化: 用户主动选非默认倍速时保存(手势临时倍速不落盘)
+    art.on('video:ratechange', () => {
+      if (tempRateActive) return
+      try {
+        const r = art.playbackRate
+        // 切源/换流时底层会把倍速重置回 1 并触发 ratechange,
+        // 若无差别保存会把缓存覆盖回 1; 1 即默认值无需记忆, 故只记非 1 倍速。
+        if (typeof r === 'number' && r !== 1 && rateOptions.includes(r)) {
+          savePlaybackRate(r)
+        }
+      } catch {
+        // ignore
+      }
+    })
 
     // 响应式 src / poster 切换
     if (typeof opts.src === 'object' && 'value' in (opts.src as object)) {
@@ -483,9 +646,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
           if (!next || !player.value) {
             return
           }
-          errorMessage.value = ''
-          const t = unwrap(opts.type) || guessType(next)
-          player.value.src({ src: next, type: t })
+          loadInternal(player.value, next, unwrap(opts.type))
           // 默认重新尝试播放
           if (opts.autoplay) {
             // 切源/切集时旧 play() promise 可能已被 pause() 打断 → reject(浏览器标准行为),
@@ -501,7 +662,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
         () => unwrap(opts.poster),
         (next) => {
           if (player.value && next) {
-            player.value.poster(next)
+            player.value.poster = next
           }
         }
       )
@@ -514,15 +675,21 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       return
     }
     try {
-      p.dispose()
+      p.destroy(true)
     } catch {
       // ignore
     }
     player.value = null
     ready.value = false
+    currentTime.value = 0
+    duration.value = 0
+    paused.value = true
+    buffering.value = false
+    videoSize.value = null
+    errorMessage.value = ''
     nextEpisodeHandler = null
     danmakuSettingsHandler = null
-    // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 的 ready 回调重挂
+    // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 全量重挂
   }
 
   function play(): Promise<void> | void {
@@ -546,9 +713,14 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     if (!p) {
       return
     }
-    const d = p.duration() || 0
-    const target = Math.max(0, Math.min(seconds, d > 0 ? d : seconds))
-    p.currentTime(target)
+    const d = p.duration || 0
+    // ArtPlayer 的 currentTime setter 会 clamp 到 [0, duration], duration 未就绪时
+    // 任何 seek 都会被钳成 0(等于重置播放) —— 元数据到达前直接忽略
+    if (d <= 0) {
+      return
+    }
+    const target = Math.max(0, Math.min(seconds, d))
+    p.currentTime = target
   }
 
   function seekBy(delta: number): void {
@@ -556,7 +728,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     if (!p) {
       return
     }
-    const cur = p.currentTime() || 0
+    const cur = p.currentTime || 0
     seek(cur + delta)
   }
 
@@ -565,27 +737,51 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     if (!p) {
       return
     }
-    p.volume(clamp01(v))
+    p.volume = clamp01(v)
+    // ArtPlayer volume setter 自带 notice 提示; 程序化设置(键盘/手势)不打扰, 立即清掉
+    try {
+      p.notice.show = ''
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function load(url: string, type?: string): void {
+    const p = player.value
+    if (!p) {
+      return
+    }
+    loadInternal(p, url, type)
   }
 
   function on(event: PlayerEventName, fn: (...args: unknown[]) => void): () => void {
-    const entry = { event, fn: fn as (...a: unknown[]) => void }
+    const entry: PlayerListener = { event, fn: fn as (...a: unknown[]) => void }
     listenerRegistry.push(entry)
     const p = player.value
-    if (p && ready.value) {
-      p.on(event, entry.fn)
+    if (p) {
+      attachEntryToArt(p, entry)
     }
     return () => off(event, fn)
   }
 
   function off(event: PlayerEventName, fn: (...args: unknown[]) => void): void {
     const idx = listenerRegistry.findIndex((x) => x.event === event && x.fn === fn)
-    if (idx >= 0) {
-      listenerRegistry.splice(idx, 1)
+    if (idx < 0) {
+      return
     }
+    const [entry] = listenerRegistry.splice(idx, 1)
+    // 从实例对称解绑(否则一次性监听变永久监听: 重试/切过滤的 seek-back 会在
+    // 后续每次 loadedmetadata 用过期位置重复 seek)
     const p = player.value
-    if (p) {
-      p.off(event, fn as (...a: unknown[]) => void)
+    if (p && entry && entry.wrapped) {
+      const artEvent = mapArtEvent(event)
+      if (artEvent) {
+        try {
+          p.off(artEvent as Parameters<Artplayer['off']>[0], entry.wrapped as never)
+        } catch {
+          /* ignore */
+        }
+      }
     }
   }
 
@@ -593,17 +789,17 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     dispose()
   })
 
-  /** ---- 触屏手势: 临时倍速(长按 2x)。倍速变化不写持久化缓存, 退出即恢复 ---- */
+  /** ---- 触屏手势: 临时倍速(长按 3x)。倍速变化不写持久化缓存, 退出即恢复 ---- */
   let tempRateActive = false
   let tempRateBefore = 1
   function enterTempRate(rate: number): void {
     const p = player.value
     if (!p) return
     try {
-      const cur = p.playbackRate()
+      const cur = p.playbackRate
       tempRateBefore = typeof cur === 'number' ? cur : 1
       tempRateActive = true
-      p.playbackRate(rate)
+      p.playbackRate = rate
     } catch {
       tempRateActive = false
     }
@@ -613,7 +809,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     if (!p || !tempRateActive) return
     tempRateActive = false
     try {
-      p.playbackRate(tempRateBefore)
+      p.playbackRate = tempRateBefore
     } catch {
       // ignore
     }
@@ -635,6 +831,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     seek,
     seekBy,
     setVolume,
+    load,
     enterTempRate,
     exitTempRate,
     on,
@@ -642,22 +839,31 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
   }
 }
 
-/** 简单根据 url 后缀猜测 mime */
-function guessType(url: string): string {
-  const u = url.toLowerCase()
-  if (u.includes('.m3u8')) {
-    return 'application/x-mpegURL'
+/** 程序化 play/pause/倍速的内置 notice(切集自动续播/键盘/手势高频触发)是视觉噪音:
+ *  在实例上包装 notice.show setter 过滤这几类英文文案, 其余(音量等用户操作反馈)保留。 */
+function suppressProgrammaticNotices(art: Artplayer): void {
+  try {
+    const notice = art.notice as unknown as { show: string }
+    const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(notice), 'show')
+    if (!desc?.set || !desc.get) return
+    Object.defineProperty(notice, 'show', {
+      configurable: true,
+      get: desc.get,
+      set(this: unknown, value: string) {
+        if (typeof value === 'string' && /^(Play|Pause|Rate:)/i.test(value.trim())) {
+          return
+        }
+        desc.set!.call(this, value)
+      }
+    })
+  } catch {
+    /* 包装失败仅损失体验, 不影响功能 */
   }
-  if (u.includes('.mpd')) {
-    return 'application/dash+xml'
-  }
-  if (u.includes('.flv')) {
-    return 'video/x-flv'
-  }
-  if (u.includes('.webm')) {
-    return 'video/webm'
-  }
-  return 'video/mp4'
+}
+
+/** 当前浏览器是否具备 MSE/HLS.js 播放条件(端侧 blob 清单可播的前提)。 */
+export function isHlsSupported(): boolean {
+  return Hls.isSupported()
 }
 
 function clamp01(n: number): number {

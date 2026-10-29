@@ -6,7 +6,7 @@ import { ref, computed, type Ref, type ComputedRef } from 'vue'
  * 后端目前没有点赞接口, 暂以 localStorage 持久化 "影片 id -> liked" 映射.
  * 单独抽出来是为了:
  *  - PlayView / FilmDetailView 可复用
- *  - 单测无视图依赖, 不必 mount video.js / pinia
+ *  - 单测无视图依赖, 不必 mount 播放器 / pinia
  *
  * 不和 favoriteStore 合并, 因为收藏是真后端 (登录态绑定), 点赞是匿名本地态.
  */

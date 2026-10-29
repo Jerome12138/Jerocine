@@ -240,7 +240,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vue-vendor': ['vue', 'vue-router', 'pinia'],
-          'video-vendor': ['video.js', '@videojs-player/vue'],
+          'video-vendor': ['artplayer', 'hls.js'],
           'utils-vendor': ['axios', '@vueuse/core']
         }
       }
