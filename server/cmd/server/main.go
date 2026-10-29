@@ -194,7 +194,6 @@ func buildApp(cfg *config.Config) (*App, error) {
 	registerSvc := service.NewRegisterService(siteRepo, userRepo, applyRepo, tx, userSvc)
 	// 登录即时反馈(仅 apply 模式): 账号不存在时按申请态返回"审核中/已驳回"
 	userSvc.SetApplyLookup(registerSvc.ApplyFeedback)
-	m3u8Svc := service.NewM3u8Service(cfg.JWT.PrivateKey)
 	telemetrySvc := service.NewTelemetryService(telemetryRepo, searchRepo, favoriteRepo, nil, configSvc)
 	// TMDB 客户端: key 只认后台(保存/清除即热替换, 无 env 兜底); 语言与反代地址是"基本不会改"的部署项。
 	tmdbClient := tmdb.New("", cfg.TMDB.Lang, cfg.TMDB.APIBase, cfg.TMDB.ImageBase)
@@ -233,7 +232,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	danmuSvc := service.NewDanmuService(movieRepo, danmu.New(), cfg.Danmu.ServiceURL, siteRepo)
 
 	handlers := &handler.Handlers{
-		Film: filmSvc, User: userSvc, Config: configSvc, M3u8: m3u8Svc,
+		Film: filmSvc, User: userSvc, Config: configSvc,
 		Telemetry: telemetrySvc, Manage: manageSvc, Spider: spiderSvc, Banner: bannerSvc,
 		Backdrop: backdropSvc,
 		Hot:      hotSvc, Tasks: taskSvc, Online: service.NewOnlineService(cacheRdb),

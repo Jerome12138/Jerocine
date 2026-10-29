@@ -40,19 +40,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/config/site", h.SiteConfig)
 	v1.GET("/banners", h.HomeBanners)
 	v1.GET("/app/version/latest", h.VersionLatest)
-	// m3u8 代理须为 GET: <video>/hls.js 按 src 拉取 manifest, 无法 POST。
-	v1.GET("/m3u8/proxy", middleware.RateLimit("m3u8", 30, 10), h.M3u8Proxy)
-	// HLS 分片/密钥由 manifest 生成的短期签名 URL 访问，避免低端设备直连 HTTPS CDN。
-	v1.GET("/m3u8/stream", middleware.RateLimit("m3u8stream", 1200, 50), h.M3u8Stream)
-	// m3u8 广告过滤统计: 前端据 filtered>0 弹"已过滤 N 段广告"。
-	v1.GET("/m3u8/stats", middleware.RateLimit("m3u8stats", 30, 10), h.M3u8Stats)
-	// m3u8 端侧混合过滤: 客户端抓流→送文本→服务器只过滤(不抓源), 用于服务器抓不到的源(bf 地域封)。
-	v1.POST("/m3u8/filter", middleware.RateLimit("m3u8filter", 60, 20), h.M3u8Filter)
 	v1.POST("/telemetry/events", middleware.RateLimit("telemetry", 60, 20), h.TelemetryIngest)
 	// 在线心跳上报(公开, 限流): 播放器/页面每 30s 上报一次 {sid, watching}, 供后台在线统计。
 	v1.POST("/online/heartbeat", middleware.RateLimit("onlinehb", 60, 30), h.OnlineHeartbeat)
-	// 广告过滤链路兜底上报(公开, 限流): 播放端实际失败 → 立即标该源 ad_filter_ok=false。
-	v1.POST("/ad-filter/feedback", middleware.RateLimit("adffb", 30, 10), h.AdFilterFeedback)
 
 	// ---- 认证 ----
 	v1.POST("/auth/login", middleware.RateLimit("login", 10, 0.5), h.Login)
@@ -103,7 +93,7 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	mg.Use(middleware.AuthToken(us), middleware.RequireAdmin(), middleware.NoStore())
 	{
 		mg.GET("/dashboard", h.Dashboard)
-		mg.GET("/online/overview", h.OnlineOverview)           // 当前在线人数 / 观看中人数(内存, 实时)
+		mg.GET("/online/overview", h.OnlineOverview)            // 当前在线人数 / 观看中人数(内存, 实时)
 		mg.GET("/online/daily-sessions", h.OnlineDailySessions) // 今日/近7天访问用户明细(?days=1|7)
 		mg.GET("/site-config", h.GetSiteConfig)
 		mg.POST("/site-config", h.SaveSiteConfig)
@@ -191,8 +181,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/films", h.AddFilm)
 		mg.GET("/films/:mid", h.ManageGetFilm)
 		mg.GET("/films/:mid/detail", h.ManageFilmDetail) // 影片 + 全部源与集(实时)
-		mg.DELETE("/films/:mid", h.DeleteFilm)            // 软删(可在回收站恢复)
-		mg.POST("/films/:mid/restore", h.RestoreFilm)     // 从回收站恢复
+		mg.DELETE("/films/:mid", h.DeleteFilm)           // 软删(可在回收站恢复)
+		mg.POST("/films/:mid/restore", h.RestoreFilm)    // 从回收站恢复
 
 		mg.GET("/spider/jobs", h.SpiderJobs)
 		mg.POST("/spider/jobs", h.SpiderStart)
@@ -201,8 +191,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/spider/jobs/:id/cancel", h.SpiderCancel)
 		mg.POST("/spider/reset", h.SpiderReset)
 		mg.POST("/spider/category-cover", h.CategoryCover)
-		mg.POST("/spider/search", h.SpiderSearch)        // 按片名搜索各源(预览, 不落库)
-		mg.POST("/spider/collect-film", h.CollectFilm)   // 按片名采集(单/多/全部源)
+		mg.POST("/spider/search", h.SpiderSearch)      // 按片名搜索各源(预览, 不落库)
+		mg.POST("/spider/collect-film", h.CollectFilm) // 按片名采集(单/多/全部源)
 
 		// 采集失败台账: 页级失败补采(列表 / 触发补采 / 清理已处理)。
 		// 静态段须先于任何 :id 段注册。
@@ -218,8 +208,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/telemetry/most-favorited", h.TelemetryMostFavorited)
 		mg.POST("/telemetry/resolve", h.TelemetryResolve)
 		mg.POST("/telemetry/unresolve", h.TelemetryUnresolve)
-		mg.POST("/telemetry/purge-bots", h.TelemetryPurge)                  // 清理历史脏数据(bot/扫描噪声)
-		mg.POST("/telemetry/purge-api-errors", h.TelemetryPurgeApiErrors)   // 清理误记的 API HTTP 错误历史(api-4xx/5xx)
+		mg.POST("/telemetry/purge-bots", h.TelemetryPurge)                      // 清理历史脏数据(bot/扫描噪声)
+		mg.POST("/telemetry/purge-api-errors", h.TelemetryPurgeApiErrors)       // 清理误记的 API HTTP 错误历史(api-4xx/5xx)
 		mg.POST("/telemetry/purge-errors-before", h.TelemetryPurgeErrorsBefore) // 按龄清理错误(默认删5天前)
 		mg.POST("/telemetry/purge-chunk-noise", h.TelemetryPurgeChunkNoise)     // 清理 chunk 加载失败噪声(部署自愈现象)
 	}

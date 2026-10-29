@@ -34,8 +34,8 @@ type FilmService struct {
 	movie    repository.MovieRepository
 	play     repository.PlaySourceRepository
 	category repository.CategoryRepository
-	health   repository.SourceHealthRepository    // 读: 播放线路按延时排序(可空)
-	sources  repository.CollectSourceRepository    // 读: 播放源 tab 名用采集源维护的 name(可空)
+	health   repository.SourceHealthRepository  // 读: 播放线路按延时排序(可空)
+	sources  repository.CollectSourceRepository // 读: 播放源 tab 名用采集源维护的 name(可空)
 	pages    config.PageSizes
 }
 
@@ -353,7 +353,7 @@ type playLine struct {
 }
 
 // assembleSources 组合多源播放: 主站(按 mid) + 各附属站(按 match_key 命中), 按 (siteId, playFrom) 去重,
-// 再排序 —— 服务端抓不到清单的源(adFilterOk=false)排最后, 其余按实测播放延时升序(默认线路最快;
+// 再排序 —— 按实测播放延时升序, 未测的源排末尾(默认线路最快;
 // 与主站解耦)。用户仍可在播放页手动切到任意源。
 func (s *FilmService) assembleSources(ctx context.Context, m *entity.Movie) ([]PlaySourceView, error) {
 	rows, err := s.play.ListByMid(ctx, m.Mid)
@@ -369,8 +369,6 @@ func (s *FilmService) assembleSources(ctx context.Context, m *entity.Movie) ([]P
 		return nil, err
 	}
 	nameMap := s.sourceNameMap(ctx)
-	// 各源服务端 m3u8 可达性(广告过滤代理链路是否可用): nil=未测, false=播放页直接跳过代理
-	adfMap := s.adFilterMap(ctx)
 	seen := make(map[string]struct{})
 	var lines []playLine
 	add := func(ps entity.MoviePlaySource) {
@@ -387,7 +385,6 @@ func (s *FilmService) assembleSources(ctx context.Context, m *entity.Movie) ([]P
 		lines = append(lines, playLine{
 			View: PlaySourceView{
 				Id: ps.SiteId + ":" + ps.PlayFrom, Name: name, Episodes: ps.Episodes,
-				AdFilterOk: adfMap[ps.SiteId],
 			},
 			SiteId: ps.SiteId,
 		})
@@ -424,59 +421,11 @@ func (s *FilmService) playLatencyMap(ctx context.Context) map[string]int64 {
 	return m
 }
 
-// adFilterMap 各源服务端 m3u8 可达性(nil=未测的源不入表)。健康仓储缺省/出错 → 空表(视为未测)。
-func (s *FilmService) adFilterMap(ctx context.Context) map[string]*bool {
-	if s.health == nil {
-		return nil
-	}
-	hs, err := s.health.List(ctx)
-	if err != nil {
-		return nil
-	}
-	m := make(map[string]*bool, len(hs))
-	for i := range hs {
-		if hs[i].AdFilterOk != nil {
-			ok := *hs[i].AdFilterOk
-			m[hs[i].SourceId] = &ok
-		}
-	}
-	return m
-}
-
-// sortPlayLines 按"预计起播耗时"升序稳定排序(并列保留主站在前的原序)。纯函数, 便于单测。
-// 耗时 = 抽样播放延时(+ 服务端抓不到的源的端侧过滤惩罚), 见 estStartupMs。
+// sortPlayLines 按抽样播放延时升序稳定排序(并列保留主站在前的原序, 未测的源排末尾)。纯函数, 便于单测。
 func sortPlayLines(lines []playLine, lat map[string]int64) {
 	sort.SliceStable(lines, func(i, j int) bool {
-		return estStartupMs(lines[i], lat) < estStartupMs(lines[j], lat)
+		return effPlayLat(lat[lines[i].SiteId]) < effPlayLat(lat[lines[j].SiteId])
 	})
-}
-
-// proxyUnreachablePenaltyMs 服务端抓不到的源(adFilterOk=false)改走端侧混合过滤时多付的成本:
-// 设备自己抓清单 + 上行送 /v1/m3u8/filter, 比走服务端代理多一次设备上行。量级取实测 ——
-// 端侧过滤小清单 ~1.4s、大清单 ~5s, 服务端代理首次回源 0.6~9s。
-//
-// 为什么是"有限惩罚"而不是"排最后"(2026-09-24 用户拍板): 抓不到的源**一样能过滤**(端侧链路,
-// 设备侧抓取常常比服务端回源还快), 用户取向是"能过滤 + 起播快即可, 广告无妨" ——
-// 无条件靠后会把它明明更快的源压到后面。取 1.5s 让"明显更快"的不可达源仍能排到可达源前面。
-const proxyUnreachablePenaltyMs = 1500
-
-// estStartupMs 预计起播耗时。延时为 0(未测/服务端不可达)时返回 MaxInt64 排末尾 ——
-// 这类源没有任何速度样本可依据, 只能殿后(旧行为)。
-func estStartupMs(l playLine, lat map[string]int64) int64 {
-	base := effPlayLat(lat[l.SiteId])
-	if base == math.MaxInt64 {
-		return math.MaxInt64 // 先返回, 避免 + 惩罚时溢出
-	}
-	if !proxyReachable(l) {
-		base += proxyUnreachablePenaltyMs
-	}
-	return base
-}
-
-// proxyReachable 服务端能否代理该源清单(广告过滤的服务端链路)。未测(nil)按"可达"处理:
-// 老库无样本时保持旧行为, 不因未测就把源排到后面。
-func proxyReachable(l playLine) bool {
-	return l.View.AdFilterOk == nil || *l.View.AdFilterOk
 }
 
 func effPlayLat(v int64) int64 {

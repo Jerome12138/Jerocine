@@ -13,20 +13,19 @@ import (
 
 // Handlers 持有全部 service, 提供 gin.HandlerFunc。
 type Handlers struct {
-	Film      *service.FilmService
-	User      *service.UserService
-	Config    *service.ConfigService
-	M3u8      *service.M3u8Service
-	Telemetry *service.TelemetryService
+	Film       *service.FilmService
+	User       *service.UserService
+	Config     *service.ConfigService
+	Telemetry  *service.TelemetryService
 	Manage     *service.ManageService
 	Spider     *service.SpiderService
 	Banner     *service.BannerService
 	Backdrop   *service.BackdropService // TMDB 横图回填 worker(单片手动触发用)
-	Hot        *service.HotService // 榜单热度刷新(每日 04:00 自动 + 后台手动触发)
+	Hot        *service.HotService      // 榜单热度刷新(每日 04:00 自动 + 后台手动触发)
 	Tasks      *service.TaskRunService
-	Online     *service.OnlineService // 内存在线/观看统计(心跳上报)
+	Online     *service.OnlineService   // 内存在线/观看统计(心跳上报)
 	Register   *service.RegisterService // 自注册 + 邮件通道(注册配置/发码/注册/邮件管理)
-	Danmu      *service.DanmuService // 弹幕: 豆瓣 vendors 候选 + B站弹幕(P0)
+	Danmu      *service.DanmuService    // 弹幕: 豆瓣 vendors 候选 + B站弹幕(P0)
 	Blob       blobstore.BlobStore
 	ResetToken string // /manage/spider/reset 二次确认 token
 }

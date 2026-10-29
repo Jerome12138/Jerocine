@@ -20,9 +20,9 @@ const (
 
 // CollectSource 采集源 (table: collect_source) — id 为站点字符串标识。
 type CollectSource struct {
-	Id           string `gorm:"column:id;primaryKey" json:"id"`
-	Name         string `gorm:"column:name" json:"name"`
-	Uri          string `gorm:"column:uri" json:"uri"`
+	Id   string `gorm:"column:id;primaryKey" json:"id"`
+	Name string `gorm:"column:name" json:"name"`
+	Uri  string `gorm:"column:uri" json:"uri"`
 	// SiteUrl 站点网址(可选, 仅后台展示/点名称跳转用), 空 = 未填。
 	SiteUrl      string `gorm:"column:site_url" json:"siteUrl"`
 	ResultModel  int8   `gorm:"column:result_model" json:"resultModel"`
@@ -57,15 +57,15 @@ func (CronTask) TableName() string { return "cron_task" }
 
 // cron_task.model 取值
 const (
-	CronModelAutoAll  int8 = 0 // 自动采集全部启用源
-	CronModelSomeSrc  int8 = 1 // 只采 source_ids 指定的源
-	CronModelRecover  int8 = 2 // 按失败台账补采失败页
+	CronModelAutoAll int8 = 0 // 自动采集全部启用源
+	CronModelSomeSrc int8 = 1 // 只采 source_ids 指定的源
+	CronModelRecover int8 = 2 // 按失败台账补采失败页
 )
 
 // 采集失败台账状态
 const (
-	FailurePending  int8 = 0 // 待补采
-	FailureHandled  int8 = 1 // 已处理
+	FailurePending   int8 = 0  // 待补采
+	FailureHandled   int8 = 1  // 已处理
 	FailureStatusAny int8 = -1 // 查询用: 不限状态
 )
 
@@ -75,7 +75,7 @@ type CollectFailure struct {
 	Id        int64  `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	SourceId  string `gorm:"column:source_id" json:"sourceId"`
 	PageNo    int    `gorm:"column:page_no" json:"pageNo"`
-	Hours     int    `gorm:"column:hours" json:"hours"`      // 0=全量, >0 为增量小时
+	Hours     int    `gorm:"column:hours" json:"hours"` // 0=全量, >0 为增量小时
 	Cause     string `gorm:"column:cause" json:"cause"`
 	Status    int8   `gorm:"column:status" json:"status"`
 	Attempts  int    `gorm:"column:attempts" json:"attempts"`
@@ -96,31 +96,28 @@ const (
 // SourceHealth 采集源健康度 (table: source_health) — 一源一行最新快照 + 连续失败计数。
 // suppressed=true 表示连续失败达阈值被自动停采(与 CollectSource.State 正交, 不互相覆盖)。
 // 测速拆两类: 采集(服务端打采集 API) 与 播放(浏览器端直连 CDN), 各记延时 + 检测时间;
-// SampleM3u8/PlayLatencyMs/AdFilterOk 为服务端抽样 m3u8 的产物, AdFilterOk 决定
-// 服务端代理广告过滤链路是否可用(NULL=未测)。
+// SampleM3u8/PlayLatencyMs 为服务端抽样 m3u8 的产物, 延时供播放线路排序。
 type SourceHealth struct {
-	SourceId          string `gorm:"column:source_id;primaryKey" json:"sourceId"`
-	Status            string `gorm:"column:status" json:"status"`
-	ConsecutiveFails  int    `gorm:"column:consecutive_fails" json:"consecutiveFails"`
-	Suppressed        bool   `gorm:"column:suppressed" json:"suppressed"`
-	LastOk            bool   `gorm:"column:last_ok" json:"lastOk"`
-	LatencyMs         int64  `gorm:"column:latency_ms" json:"latencyMs"`
-	BestMs            int64  `gorm:"column:best_ms" json:"bestMs"`
-	Films             int    `gorm:"column:films" json:"films"`
-	PageCount         int    `gorm:"column:page_count" json:"pageCount"`           // 分页总数(资源最全判定)
-	Total             int    `gorm:"column:total" json:"total"`                    // 目录总片数
-	PlayLatencyMs     int64  `gorm:"column:play_latency_ms" json:"playLatencyMs"`  // 服务端抽样 m3u8 延时(0=未测); >0 即服务端可达(可代理过滤)
-	OkCount           int    `gorm:"column:ok_count" json:"okCount"`
-	Probes            int    `gorm:"column:probes" json:"probes"`
-	Message           string `gorm:"column:message" json:"message"`
-	CheckedAt         int64  `gorm:"column:checked_at" json:"checkedAt"`
-	ApiCheckedAt      int64  `gorm:"column:api_checked_at" json:"apiCheckedAt"`        // 采集速度(服务端 API)检测时间(ms)
-	PlayCheckedAt     int64  `gorm:"column:play_checked_at" json:"playCheckedAt"`      // 播放速度(浏览器端)检测时间(ms)
-	SampleM3u8        string `gorm:"column:sample_m3u8" json:"sampleM3u8"`             // 最近探测解析到的样本 m3u8(端侧播放测速用)
-	PlayLatencyWeb    int64  `gorm:"column:play_latency_web" json:"playLatencyWeb"`    // 浏览器端实测视频加载延时(0=未测)
-	AdFilterOk        *bool  `gorm:"column:ad_filter_ok" json:"adFilterOk"`            // 服务端 m3u8 可达性: nil=未测 true=可代理过滤 false=不可达
-	AdFilterCheckedAt int64  `gorm:"column:ad_filter_checked_at" json:"adFilterCheckedAt"`
-	UpdatedAt         int64  `gorm:"column:updated_at" json:"updatedAt"`
+	SourceId         string `gorm:"column:source_id;primaryKey" json:"sourceId"`
+	Status           string `gorm:"column:status" json:"status"`
+	ConsecutiveFails int    `gorm:"column:consecutive_fails" json:"consecutiveFails"`
+	Suppressed       bool   `gorm:"column:suppressed" json:"suppressed"`
+	LastOk           bool   `gorm:"column:last_ok" json:"lastOk"`
+	LatencyMs        int64  `gorm:"column:latency_ms" json:"latencyMs"`
+	BestMs           int64  `gorm:"column:best_ms" json:"bestMs"`
+	Films            int    `gorm:"column:films" json:"films"`
+	PageCount        int    `gorm:"column:page_count" json:"pageCount"`          // 分页总数(资源最全判定)
+	Total            int    `gorm:"column:total" json:"total"`                   // 目录总片数
+	PlayLatencyMs    int64  `gorm:"column:play_latency_ms" json:"playLatencyMs"` // 服务端抽样 m3u8 延时(0=未测), 供播放线路排序
+	OkCount          int    `gorm:"column:ok_count" json:"okCount"`
+	Probes           int    `gorm:"column:probes" json:"probes"`
+	Message          string `gorm:"column:message" json:"message"`
+	CheckedAt        int64  `gorm:"column:checked_at" json:"checkedAt"`
+	ApiCheckedAt     int64  `gorm:"column:api_checked_at" json:"apiCheckedAt"`     // 采集速度(服务端 API)检测时间(ms)
+	PlayCheckedAt    int64  `gorm:"column:play_checked_at" json:"playCheckedAt"`   // 播放速度(浏览器端)检测时间(ms)
+	SampleM3u8       string `gorm:"column:sample_m3u8" json:"sampleM3u8"`          // 最近探测解析到的样本 m3u8(端侧播放测速用)
+	PlayLatencyWeb   int64  `gorm:"column:play_latency_web" json:"playLatencyWeb"` // 浏览器端实测视频加载延时(0=未测)
+	UpdatedAt        int64  `gorm:"column:updated_at" json:"updatedAt"`
 }
 
 func (SourceHealth) TableName() string { return "source_health" }
@@ -169,7 +166,7 @@ type SiteConfig struct {
 	SpiderMasterMaxWorkers int `gorm:"column:spider_master_max_workers" json:"-"`
 	// SpiderSlaveMaxWorkers 从站采集并发硬上限(默认 8): 从站只写播放源行, 但高并发会瞬时冲击
 	// 源站 API(实测 403/限流), 故收敛更低; 后台可调。
-	SpiderSlaveMaxWorkers int   `gorm:"column:spider_slave_max_workers" json:"-"`
+	SpiderSlaveMaxWorkers int `gorm:"column:spider_slave_max_workers" json:"-"`
 	// ---- 弹幕服务(Danmu)后台配置 ----
 	// DanmuEnabled 弹幕总开关: 0 关闭(默认) / 1 启用。json:"-" 硬隔离:
 	// 公开 /config/site 不带; 管理端读走独立 DTO(GET /manage/danmu-config), 写走独立端点。
@@ -177,7 +174,7 @@ type SiteConfig struct {
 	// DanmuProviders 启用的弹幕平台白名单(JSON 数组, 可选 bilibili/tencent/iqiyi/youku):
 	// 空 = 未开放任何平台; 与壳 ID_PREFIX(启用平台) 保持一致 —— 平台要可用两边都要开。
 	DanmuProviders StringSlice `gorm:"column:danmu_providers;type:json" json:"-"`
-	UpdatedAt             int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	UpdatedAt      int64       `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (SiteConfig) TableName() string { return "site_config" }

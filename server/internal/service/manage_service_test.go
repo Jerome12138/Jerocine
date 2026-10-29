@@ -228,56 +228,27 @@ func TestTestAllSources_FailedSourceRecordsHealth(t *testing.T) {
 }
 
 // TestApplyHealth_SplitFields: 采集测速结果合并 —— ApiCheckedAt 必写;
-// 样本 m3u8 / 广告过滤可达性(成功与失败都写)只在有值时更新; 浏览器端播放字段不受影响。
+// 样本 m3u8 / 播放延时只在有值时更新; 浏览器端播放字段不受影响。
 func TestApplyHealth_SplitFields(t *testing.T) {
 	now := int64(1000)
-	ok := true
 	prev := &entity.SourceHealth{
 		PlayLatencyWeb: 234, PlayCheckedAt: 999, SampleM3u8: "http://old/x.m3u8",
 	}
-	// 成功探测 + m3u8 可达
-	res := CollectTestResult{Ok: true, LatencyMs: 120, PlayLatencyMs: 55, SampleM3u8: "http://new/x.m3u8", AdFilterOk: &ok}
+	res := CollectTestResult{Ok: true, LatencyMs: 120, PlayLatencyMs: 55, SampleM3u8: "http://new/x.m3u8"}
 	h := applyHealth(prev, res, 3, now)
 	if h.ApiCheckedAt != now {
 		t.Fatalf("ApiCheckedAt = %d, want %d", h.ApiCheckedAt, now)
 	}
-	if h.SampleM3u8 != "http://new/x.m3u8" || h.PlayLatencyMs != 55 || h.AdFilterOk == nil || !*h.AdFilterOk {
-		t.Fatalf("广告过滤可达性未正确写入: %+v", h)
+	if h.SampleM3u8 != "http://new/x.m3u8" || h.PlayLatencyMs != 55 {
+		t.Fatalf("样本/延时应正确写入: %+v", h)
 	}
 	if h.PlayLatencyWeb != 234 || h.PlayCheckedAt != 999 {
 		t.Fatalf("浏览器端播放字段不应被采集测速覆盖: %+v", h)
 	}
-	// m3u8 不可达: AdFilterOk=false 也必须落(失败同样有价值)
-	bad := false
-	h2 := applyHealth(nil, CollectTestResult{Ok: true, SampleM3u8: "http://new/x.m3u8", AdFilterOk: &bad}, 3, now)
-	if h2.AdFilterOk == nil || *h2.AdFilterOk {
-		t.Fatalf("m3u8 不可达应写 AdFilterOk=false: %+v", h2)
-	}
-	if h2.AdFilterCheckedAt != now {
-		t.Fatalf("AdFilterCheckedAt = %d, want %d", h2.AdFilterCheckedAt, now)
-	}
-	// 无样本: 不动上次可达性
+	// 无样本: 不动上次样本
 	h3 := applyHealth(prev, CollectTestResult{Ok: true}, 3, now)
-	if h3.AdFilterOk != nil {
-		t.Fatalf("无样本不应写 AdFilterOk: %+v", h3)
-	}
-}
-
-// TestRecordAdFilter: 运行时兜底上报只接受失败(ok=true 直接忽略), 失败立即落库。
-func TestRecordAdFilter(t *testing.T) {
-	hr := &fakeHealthRepo{}
-	ms := &ManageService{health: hr}
-	if err := ms.RecordAdFilter(context.Background(), "lz", true); err != nil {
-		t.Fatal(err)
-	}
-	if hr.upserts != 0 {
-		t.Fatalf("ok=true 不应写库, got upserts=%d", hr.upserts)
-	}
-	if err := ms.RecordAdFilter(context.Background(), "lz", false); err != nil {
-		t.Fatal(err)
-	}
-	if hr.upserts != 1 || hr.last == nil || hr.last.AdFilterOk == nil || *hr.last.AdFilterOk {
-		t.Fatalf("失败上报应写 AdFilterOk=false, got %+v", hr.last)
+	if h3.SampleM3u8 != "http://old/x.m3u8" {
+		t.Fatalf("无样本不应覆盖上次样本: %+v", h3)
 	}
 }
 

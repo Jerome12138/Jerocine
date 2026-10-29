@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -182,7 +180,7 @@ func (h *Handlers) HotBoard(c *gin.Context) {
 	ctx := c.Request.Context()
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
 	spec := repository.FilterSpec{
-		Pid: queryInt64(c, "pid"),
+		Pid:  queryInt64(c, "pid"),
 		Area: c.Query("area"), Language: c.Query("language"),
 		Year: queryInt(c, "year", 0),
 	}
@@ -310,112 +308,6 @@ func (h *Handlers) SiteConfig(c *gin.Context) {
 func (h *Handlers) VersionLatest(c *gin.Context) {
 	channel := int8(queryInt(c, "channel", 0))
 	dto.OK(c, h.Config.LatestVersion(c.Request.Context(), channel))
-}
-
-// M3u8Proxy GET /m3u8/proxy?src=<url>&filterAds=1
-// 必须是 GET: <video>/hls.js 直接把本接口 URL 当 manifest src 拉取。
-// filterAds 默认开启(前端仅在广告过滤开启时才走代理); 传 filterAds=0 可关闭。
-func (h *Handlers) M3u8Proxy(c *gin.Context) {
-	raw := c.Query("src")
-	if raw == "" {
-		dto.Error(c, http.StatusBadRequest, "invalid url")
-		return
-	}
-	filterAds := c.Query("filterAds") != "0"
-	proxyMedia := c.Query("proxyMedia") == "1"
-	content, err := h.M3u8.Proxy(c.Request.Context(), raw, filterAds, proxyMedia)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	c.Header("Cache-Control", "public, max-age=120")
-	c.Data(http.StatusOK, "application/vnd.apple.mpegurl; charset=utf-8", []byte(content))
-}
-
-// M3u8Stream GET /m3u8/stream?src=&exp=&sig=
-// 转发 manifest 生成的签名媒体 URL，支持 Range；不能作为任意 URL 开放代理使用。
-func (h *Handlers) M3u8Stream(c *gin.Context) {
-	resp, err := h.M3u8.OpenStream(
-		c.Request.Context(),
-		c.Query("src"),
-		c.Query("exp"),
-		c.Query("sig"),
-		c.GetHeader("Range"),
-	)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	defer resp.Body.Close()
-	for _, name := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"} {
-		if value := resp.Header.Get(name); value != "" {
-			c.Header(name, value)
-		}
-	}
-	c.Header("Cache-Control", "public, max-age=3600")
-	c.Status(resp.StatusCode)
-	_, _ = io.Copy(c.Writer, resp.Body)
-}
-
-// M3u8Filter POST /m3u8/filter?src=<原始m3u8 URL>  body=raw m3u8 文本  (公开, 端侧混合过滤)
-// 不联网抓源, 只对文本剔广告 + 绝对化, 供服务器抓不到的源(如 bf 地域封)在设备侧抓流后送来过滤。
-func (h *Handlers) M3u8Filter(c *gin.Context) {
-	src := c.Query("src")
-	if src == "" {
-		dto.Error(c, http.StatusBadRequest, "src required")
-		return
-	}
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 8<<20)) // 限 8MB 防滥用
-	if err != nil {
-		dto.Error(c, http.StatusBadRequest, "read body")
-		return
-	}
-	out, st, err := h.M3u8.FilterText(string(body), src)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	c.Header("X-Ad-Filtered", strconv.Itoa(st.Filtered))
-	c.Header("X-Ad-Total", strconv.Itoa(st.Total))
-	c.Data(http.StatusOK, "application/vnd.apple.mpegurl; charset=utf-8", []byte(out))
-}
-
-// M3u8Stats GET /m3u8/stats?src=<url>&filterAds=1
-// 返回该 m3u8 的广告过滤统计 {filtered,total}, 供前端"广告过滤成功"提示判定(filtered>0)。
-// 与 M3u8Proxy 共用缓存, 不额外回源。
-func (h *Handlers) M3u8Stats(c *gin.Context) {
-	raw := c.Query("src")
-	if raw == "" {
-		dto.Error(c, http.StatusBadRequest, "invalid url")
-		return
-	}
-	filterAds := c.Query("filterAds") != "0"
-	st, err := h.M3u8.Stats(c.Request.Context(), raw, filterAds)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	c.Header("Cache-Control", "public, max-age=120")
-	dto.OK(c, st)
-}
-
-// AdFilterFeedback POST /ad-filter/feedback (公开, 限流): 播放端兜底上报广告过滤链路失败,
-// 立即把该源 ad_filter_ok 置 false(不等下一轮定时测速)。运行时只接受失败上报, 单次成功不覆盖定时结论。
-func (h *Handlers) AdFilterFeedback(c *gin.Context) {
-	var body struct {
-		SourceId string `json:"sourceId"`
-		Ok       bool   `json:"ok"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil || body.SourceId == "" {
-		dto.Error(c, http.StatusBadRequest, "invalid body")
-		return
-	}
-	if err := h.Manage.RecordAdFilter(c.Request.Context(), body.SourceId, body.Ok); err != nil {
-		// 未知源/健康设施故障: 静默 204, 不向公开端回显错误细节
-		dto.NoContent(c)
-		return
-	}
-	dto.NoContent(c)
 }
 
 // TelemetryIngest POST /telemetry/events  (公开)

@@ -1,9 +1,9 @@
 package dto
 
 import (
-	"server/internal/douban"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
+	"server/internal/douban"
 	"server/internal/service"
 	"server/internal/tmdb"
 )
@@ -18,15 +18,15 @@ func normBackdrop(b string) string {
 
 // Card 影片卡片(裁剪字段, 跨国线路减重)。
 type Card struct {
-	Mid     int64   `json:"mid"`
-	Name    string  `json:"name"`
-	Cover   string  `json:"cover"`
+	Mid   int64  `json:"mid"`
+	Name  string `json:"name"`
+	Cover string `json:"cover"`
 	// Poster 横图(16:9)。数据列是 movie_search.backdrop; JSON 字段名沿用前端 TS 契约的
 	// poster(前端早已按"有则用、无则回退 cover"预留了该字段), 首页兜底轮播零改动点亮。
-	Poster  string  `json:"poster,omitempty"`
-	Cid     int64   `json:"cid"`
-	Pid     int64   `json:"pid"`
-	CName   string  `json:"cName"`
+	Poster   string  `json:"poster,omitempty"`
+	Cid      int64   `json:"cid"`
+	Pid      int64   `json:"pid"`
+	CName    string  `json:"cName"`
 	SubTitle string  `json:"subTitle"`
 	Area     string  `json:"area"`
 	Year     int     `json:"year"`
@@ -93,12 +93,11 @@ type Episode struct {
 	Link    string `json:"link"`
 }
 
-// PlaySource 一个播放源(契约: id/name/episodes; adFilterOk 服务端 m3u8 可达性, false 时播放页跳过代理过滤)。
+// PlaySource 一个播放源(契约: id/name/episodes)。
 type PlaySource struct {
-	Id         string    `json:"id"`
-	Name       string    `json:"name"`
-	Episodes   []Episode `json:"episodes"`
-	AdFilterOk *bool     `json:"adFilterOk,omitempty"`
+	Id       string    `json:"id"`
+	Name     string    `json:"name"`
+	Episodes []Episode `json:"episodes"`
 }
 
 func toEpisodes(eps []entity.Episode) []Episode {
@@ -112,30 +111,30 @@ func toEpisodes(eps []entity.Episode) []Episode {
 func toSources(srcs []service.PlaySourceView) []PlaySource {
 	out := make([]PlaySource, 0, len(srcs))
 	for _, s := range srcs {
-		out = append(out, PlaySource{Id: s.Id, Name: s.Name, Episodes: toEpisodes(s.Episodes), AdFilterOk: s.AdFilterOk})
+		out = append(out, PlaySource{Id: s.Id, Name: s.Name, Episodes: toEpisodes(s.Episodes)})
 	}
 	return out
 }
 
 // FilmDetail 影片详情(契约: 含 sources)。
 type FilmDetail struct {
-	Mid      int64        `json:"mid"`
-	Name     string       `json:"name"`
-	Cover    string       `json:"cover"`
-	Backdrop string       `json:"backdrop,omitempty"` // 横图(16:9), 详情页 hero 背景用
-	Cid      int64        `json:"cid"`
-	Pid      int64        `json:"pid"`
-	CName    string       `json:"cName"`
-	SubTitle string       `json:"subTitle"`
-	Actor    string       `json:"actor"`
-	Director string       `json:"director"`
-	Area     string       `json:"area"`
-	Language string       `json:"language"`
-	Year     int          `json:"year"`
-	ClassTag string       `json:"classTag"`
-	Remarks  string       `json:"remarks"`
-	State    string       `json:"state"`
-	DbScore  float64      `json:"dbScore"`
+	Mid      int64   `json:"mid"`
+	Name     string  `json:"name"`
+	Cover    string  `json:"cover"`
+	Backdrop string  `json:"backdrop,omitempty"` // 横图(16:9), 详情页 hero 背景用
+	Cid      int64   `json:"cid"`
+	Pid      int64   `json:"pid"`
+	CName    string  `json:"cName"`
+	SubTitle string  `json:"subTitle"`
+	Actor    string  `json:"actor"`
+	Director string  `json:"director"`
+	Area     string  `json:"area"`
+	Language string  `json:"language"`
+	Year     int     `json:"year"`
+	ClassTag string  `json:"classTag"`
+	Remarks  string  `json:"remarks"`
+	State    string  `json:"state"`
+	DbScore  float64 `json:"dbScore"`
 	// PubDate 上映日期(ISO 前缀串, 空 = 源站未提供); HotRank 豆瓣榜位(0 = 不在榜),
 	// 详情页据此显示「上映日期」与「豆瓣热门 No.N」。
 	// HotBoard 榜位来源榜单中文名(如 "热门电影"), 展示成「豆瓣·热门电影 No.2」;
@@ -156,7 +155,7 @@ func ToFilmDetail(d service.FilmDetailData) FilmDetail {
 		Year: m.Year, ClassTag: m.ClassTag, Remarks: m.Remarks, State: m.State, DbScore: m.DbScore,
 		PubDate: m.PubDate, HotRank: m.HotRank,
 		HotBoard: douban.HotBoardLabel(m.Pid, m.HotBoard, m.HotRank),
-		Content: m.Content, PlayFrom: []string(m.PlayFrom), Sources: toSources(d.Sources),
+		Content:  m.Content, PlayFrom: []string(m.PlayFrom), Sources: toSources(d.Sources),
 	}
 }
 

@@ -20,9 +20,9 @@ type fakeSearch struct {
 	repository.SearchRepository
 	topCalls int
 	rows     []entity.MovieSearch
-	hotAll   []entity.MovieSearch // 全站跨类别热榜(首页顶层 hot)
-	scoreRow []entity.MovieSearch // 高分榜
-	scored   int64                // 该分类有评分的影片数
+	hotAll   []entity.MovieSearch           // 全站跨类别热榜(首页顶层 hot)
+	scoreRow []entity.MovieSearch           // 高分榜
+	scored   int64                          // 该分类有评分的影片数
 	cands    []repository.HotBoardCandidate // 轮播候选快照(空=快照缺失, 走 home 回退)
 }
 
@@ -135,53 +135,16 @@ func TestSortPlayLines_EmptyMap(t *testing.T) {
 	}
 }
 
-// 服务端抓不到的源(adFilterOk=false)只加**有限惩罚**, 不是无条件排最后:
-// 它走端侧混合过滤一样能过滤(设备侧抓取常比服务端回源还快), 用户取向是"能过滤 + 起播快即可"(2026-09-24 拍板)。
-func TestSortPlayLines_UnreachableGetsPenaltyNotLast(t *testing.T) {
-	bad, good := false, true
+// 播放线路按抽样延时纯升序(服务端过滤下线后不再有可达性惩罚), 未测(0)排末尾。
+func TestSortPlayLines_LatencyOrder(t *testing.T) {
 	lines := []playLine{
-		{View: PlaySourceView{Id: "a:line", AdFilterOk: &bad}, SiteId: "a"},  // 抓不到, 延时 50 → 50+1500
-		{View: PlaySourceView{Id: "b:line", AdFilterOk: &good}, SiteId: "b"}, // 抓得到, 延时 300
-		{View: PlaySourceView{Id: "c:line", AdFilterOk: &bad}, SiteId: "c"},  // 抓不到, 延时 80 → 80+1500
+		{View: PlaySourceView{Id: "a:line"}, SiteId: "a"},
+		{View: PlaySourceView{Id: "b:line"}, SiteId: "b"},
+		{View: PlaySourceView{Id: "c:line"}, SiteId: "c"},
 	}
-	sortPlayLines(lines, map[string]int64{"a": 50, "b": 300, "c": 80})
+	sortPlayLines(lines, map[string]int64{"a": 300, "b": 50, "c": 0})
 	got := []string{lines[0].SiteId, lines[1].SiteId, lines[2].SiteId}
-	// b(300) < a(1550) < c(1580): 可达源凭惩罚差在前; 两个不可达源之间仍按延时升序
-	want := []string{"b", "a", "c"}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("order = %v, want %v", got, want)
-		}
-	}
-}
-
-// 明显更快的不可达源应能排到可达源前面(惩罚有限 ⇒ 快就该在前)。
-func TestSortPlayLines_FasterUnreachableOutranksReachable(t *testing.T) {
-	bad, good := false, true
-	lines := []playLine{
-		{View: PlaySourceView{Id: "slow:line", AdFilterOk: &good}, SiteId: "slow"}, // 可达但慢 9000
-		{View: PlaySourceView{Id: "fast:line", AdFilterOk: &bad}, SiteId: "fast"},  // 抓不到但快 500 → 2000
-	}
-	sortPlayLines(lines, map[string]int64{"slow": 9000, "fast": 500})
-	got := []string{lines[0].SiteId, lines[1].SiteId}
-	want := []string{"fast", "slow"}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("order = %v, want %v", got, want)
-		}
-	}
-}
-
-// 全片源都抓不到时退化为纯延时升序(仍可用, 只是过滤降级为端侧), 不能因降权把可用源也打乱。
-func TestSortPlayLines_AllUnreachableFallsBackToLatency(t *testing.T) {
-	bad := false
-	lines := []playLine{
-		{View: PlaySourceView{Id: "a:line", AdFilterOk: &bad}, SiteId: "a"},
-		{View: PlaySourceView{Id: "b:line", AdFilterOk: &bad}, SiteId: "b"},
-	}
-	sortPlayLines(lines, map[string]int64{"a": 300, "b": 50})
-	got := []string{lines[0].SiteId, lines[1].SiteId}
-	want := []string{"b", "a"}
+	want := []string{"b", "a", "c"} // c 未测 → MaxInt64 殿后
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("order = %v, want %v", got, want)
