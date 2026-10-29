@@ -581,6 +581,16 @@ watch(
         >
           热榜
         </RouterLink>
+        <!-- 固定直播入口(硬编码, 不进 category 表) -->
+        <RouterLink
+          to="/live"
+          class="jc-header__nav-link"
+          :class="route.name === 'live' ? 'is-active' : ''"
+          data-focusable="true"
+          tabindex="0"
+        >
+          直播
+        </RouterLink>
       </nav>
 
       <!-- 中部弹性 (左 spacer) -->

@@ -16,6 +16,12 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '后台首页' }
   },
   {
+    path: '/manage/live',
+    name: 'manage-live',
+    component: () => import('@/views/manage/live/LiveSourceListView.vue'),
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '直播源' }
+  },
+  {
     path: '/manage/telemetry',
     name: 'manage-telemetry',
     component: () => import('@/views/manage/telemetry/TelemetryView.vue'),

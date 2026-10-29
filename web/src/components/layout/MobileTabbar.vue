@@ -47,6 +47,13 @@ const tabs = computed<TabItem[]>(() => [
     matches: (p) => p.startsWith('/filmClassify') || p.startsWith('/search')
   },
   {
+    key: 'live',
+    to: '/live',
+    label: '直播',
+    icon: 'tv',
+    matches: (p) => p.startsWith('/live')
+  },
+  {
     key: 'history',
     to: '/history',
     label: '历史',

@@ -23,6 +23,12 @@ export const publicRoutes: RouteRecordRaw[] = [
     meta: { layout: 'public', title: '影片详情' }
   },
   {
+    path: '/live',
+    name: 'live',
+    component: () => import('@/views/public/LiveView.vue'),
+    meta: { layout: 'public', title: '直播' }
+  },
+  {
     path: '/play',
     name: 'play',
     component: () => import('@/views/public/PlayView.vue'),

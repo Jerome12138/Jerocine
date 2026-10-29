@@ -23,10 +23,9 @@
 }
 
 /* ---------- 功能卡: 宽扁 + 右大图标 ---------- */
-[data-mode="tv"] .jc-tv-funcs { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--jc-space-4); }
-/* 无设置卡(纯网页 TV, 设置卡 v-if 不渲染) ⇒ 5 列改 4 列, 其余卡按四分占满行宽不留空位
-   (2026-10-10 用户反馈"右侧空一个"); 原生壳仍 5 列不动。 */
-[data-mode="tv"] .jc-tv-funcs--no-settings { grid-template-columns: repeat(4, 1fr); }
+[data-mode="tv"] .jc-tv-funcs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--jc-space-4); }
+/* auto-fit: 空轨道坍缩 ⇒ N 张卡等宽占满行宽（2026-10-30 起功能卡含"直播"共 5-6 张,
+   按卡数自适应, 不再区分有无设置卡写死列数）。 */
 [data-mode="tv"] .jc-tv-fc {
   position: relative; min-height: 72px; padding: 10px 44px 10px 16px; border-radius: var(--jc-radius-xl, 20px);
   border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); overflow: hidden; text-decoration: none;

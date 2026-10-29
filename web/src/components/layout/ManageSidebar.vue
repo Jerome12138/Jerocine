@@ -48,7 +48,8 @@ const groups: MenuGroup[] = [
       { path: '/manage/film', label: '影片列表', icon: 'film' },
       { path: '/manage/film/class', label: '分类管理', icon: 'folder' },
       { path: '/manage/film/add', label: '新增影片', icon: 'plus' },
-      { path: '/manage/banner', label: '首页轮播', icon: 'image' }
+      { path: '/manage/banner', label: '首页轮播', icon: 'image' },
+      { path: '/manage/live', label: '直播源', icon: 'tv' }
     ]
   },
   {

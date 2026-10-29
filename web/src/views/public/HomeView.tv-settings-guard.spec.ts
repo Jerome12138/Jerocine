@@ -121,7 +121,7 @@ describe('HomeView TV「设置」卡 × 原生抽屉', () => {
     mocks.native.value = false
     const wrapper = await mountHome(router)
     expect(wrapper.find('.jc-tv-funcs').classes()).toContain('jc-tv-funcs--no-settings')
-    expect(wrapper.findAll('.jc-tv-fc').length).toBe(4)
+    expect(wrapper.findAll('.jc-tv-fc').length).toBe(5) // 收藏/分类/直播/搜索/我的
   })
 
   it('原生壳: 点「我的」卡 → 也开原生抽屉(账号行在抽屉里), 不跳路由', async () => {

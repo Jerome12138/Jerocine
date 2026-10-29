@@ -518,6 +518,9 @@ onBeforeUnmount(() => {
           <RouterLink class="jc-tv-fc fc-3" :to="tvFirstPid ? { path: '/filmClassify', query: { Pid: tvFirstPid } } : '/filmClassify'" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="film" size="32px" /></span><span class="ti">分类</span><span class="su">剧/影/综/漫</span>
           </RouterLink>
+          <RouterLink class="jc-tv-fc fc-4" to="/live" data-focusable="true" tabindex="0">
+            <span class="ic"><BaseIcon name="tv" size="32px" /></span><span class="ti">直播</span><span class="su">电视频道在线看</span>
+          </RouterLink>
           <RouterLink class="jc-tv-fc fc-4" to="/search" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="search" size="32px" /></span><span class="ti">搜索</span><span class="su">找片更快</span>
           </RouterLink>

@@ -44,6 +44,11 @@ export interface UsePlayerOptions {
   /** 是否使用循环 */
   loop?: boolean
   /**
+   * 直播模式: ArtPlayer isLive（隐藏进度条/时长, 显示 LIVE 标识）,
+   * hls.js 按直播清单自驱跟随。直播页专用。
+   */
+  isLive?: boolean
+  /**
    * preload 策略 (HTMLMediaElement.preload):
    *  - 'none'      不预加载, play() 才拉数据. 极弱网用.
    *  - 'metadata' (默认) 仅拉时长 + 起播分片元数据. 弱网友好.
@@ -557,6 +562,8 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       volume: typeof opts.volume === 'number' ? clamp01(opts.volume) : 0.6,
       muted: false,
       loop: opts.loop ?? false,
+      // 直播模式: 隐藏进度/时长, hls.js 直播跟随
+      isLive: opts.isLive ?? false,
       // 移动 Safari 默认全屏播放, playsinline 让它内嵌在页面里播
       playsInline: true,
       moreVideoAttr: {
