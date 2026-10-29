@@ -91,6 +91,10 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 		return
 	}
 	year := queryInt(c, "year", 0)
+	// 年份仅作匹配打分: 越界值按 0 处理(避免 year=2 之类把标题含"2"的作品全部加分)
+	if year < 1900 || year > 2100 {
+		year = 0
+	}
 	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode)
 	if err != nil {
 		dto.Fail(c, err)

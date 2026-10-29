@@ -83,6 +83,11 @@ async function save(): Promise<void> {
     toast('warning', '名称与地址必填')
     return
   }
+  const lu = form.url.trim().toLowerCase()
+  if (!lu.startsWith('http://') && !lu.startsWith('https://')) {
+    toast('warning', '地址需以 http(s):// 开头')
+    return
+  }
   saving.value = true
   try {
     const payload = { ...form, name: form.name.trim(), url: form.url.trim() }
@@ -164,7 +169,11 @@ onMounted(load)
         </div>
         <div class="jc-livemgr__meta">
           <span class="jc-livemgr__count">
-            {{ channelCounts[s.id] === undefined ? '频道数加载中…' : channelCounts[s.id] === null ? '频道数获取失败' : `${channelCounts[s.id]} 个频道` }}
+            <!-- 停用源公开端点 404 是预期, 显示 — 而非"获取失败" -->
+            <template v-if="s.state !== 0">—</template>
+            <template v-else-if="channelCounts[s.id] === undefined">频道数加载中…</template>
+            <template v-else-if="channelCounts[s.id] === null">频道数获取失败</template>
+            <template v-else>{{ channelCounts[s.id] }} 个频道</template>
           </span>
           <span class="jc-livemgr__sort">排序 {{ s.sort }}</span>
         </div>

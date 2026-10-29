@@ -300,6 +300,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
    * 隔离：缓存 key 带 mid+episode，跨集/跨片自动 miss；生命周期 = composable，onScopeDispose 清空。 */
   /** 整集弹幕（key=`${mid}:${episode}`） */
   const aggCache = new Map<string, DanmuComment[]>()
+  /** FIFO 上限: 整集弹幕可到 MB 级, 长剧来回切集防内存膨胀 */
+  const AGG_CACHE_MAX = 8
   /** 整集 in-flight 去重 */
   const aggReq = new Map<string, Promise<DanmuComment[]>>()
   /** 本实例活跃请求控制器集合（卸载/超时统一中止，避免悬挂连接） */
@@ -329,6 +331,11 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         aggReq.delete(key)
         const data = resp?.comments ?? []
         aggCache.set(key, data)
+        // FIFO 淘汰最旧集（当前 key 刚 set 置于末尾, 淘汰从头开始且跳过当前 key）
+        if (aggCache.size > AGG_CACHE_MAX) {
+          const first = aggCache.keys().next().value
+          if (first !== undefined && first !== key) aggCache.delete(first)
+        }
         return data
       })
       .catch((err) => {

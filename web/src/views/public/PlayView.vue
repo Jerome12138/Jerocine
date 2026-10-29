@@ -59,7 +59,7 @@ import posterFallback from '@/assets/play.svg'
 
 const route = useRoute()
 const router = useRouter()
-const { isTV, isDesktop, isMobile } = useViewMode()
+const { isTV, isDesktop } = useViewMode()
 
 /** PC(A方案)按钮"更多"展开态: 一行放不下的低频项收进这里 */
 const moreActionsOpen = ref(false)
@@ -842,7 +842,12 @@ const danmakuHint = computed(() => {
   }
 })
 function onDanmakuEntryClick(): void {
-  // failed 不再拦截开关：允许通过切换(关闭/再开)重试，避免“点开关只 reload、弹幕永远不出现”
+  // failed: 直接重试装载（提示文案即「弹幕加载失败, 点击重试」）
+  if (danmakuState.value === 'failed') {
+    danmaku.reload()
+    return
+  }
+  // 不可用(unsupported/empty): 给原因, 不静默
   if (danmakuUnavailable.value) {
     toast('info', danmakuHint.value)
     return
@@ -2908,16 +2913,6 @@ watch(playerReady, (v) => {
 .jc-pt-btn--accent {
   color: var(--jc-brand-cyan);
   border: 1px solid var(--jc-brand-cyan);
-}
-/* 弹幕源切换按钮: 与弹幕开关同高, 紧凑标签（D3 新增） */
-.jc-pt-btn--src {
-  min-width: auto;
-  padding-inline: var(--jc-space-4);
-}
-.jc-pt-btn-src-label {
-  font-size: var(--jc-fs-xs) !important;
-  letter-spacing: 0.02em;
-  opacity: 0.9;
 }
 .jc-pt-btn:disabled {
   opacity: 0.4;

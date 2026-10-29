@@ -317,8 +317,14 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
    *  订阅全部蒸发且不再重挂(线上实测: timeupdate 链断, 弹幕静止, 2026-10-26)。 */
   const listenerRegistry: PlayerListener[] = []
 
-  /** error 特殊分发: hls 致命错误不经过 video 元素 error 事件, 统一由此触发订阅者。 */
+  /** error 特殊分发: hls 致命错误不经过 video 元素 error 事件, 统一由此触发订阅者。
+   *  1s 去抖: hls fatal destroy 后媒体层常再补一个 video:error, 双触发会把上层
+   *  重试计数双扣、重复排重试任务。 */
+  let lastErrorDispatchAt = 0
   function fireErrorListeners(): void {
+    const now = Date.now()
+    if (now - lastErrorDispatchAt < 1000) return
+    lastErrorDispatchAt = now
     for (const { event, fn } of listenerRegistry) {
       if (event === 'error') fn()
     }
@@ -577,9 +583,10 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       fastForward: false,
       mutex: true,
       backdrop: true,
-      setting: true,
-      playbackRate: true,
-      aspectRatio: true,
+      // 直播模式不带倍速/画面比例（点播语义, 直播改倍速会造成缓冲漂移）
+      setting: !(opts.isLive ?? false),
+      playbackRate: !(opts.isLive ?? false),
+      aspectRatio: !(opts.isLive ?? false),
       fullscreen: true,
       fullscreenWeb: true,
       pip: true,

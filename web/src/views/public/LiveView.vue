@@ -38,6 +38,9 @@ const groups = computed(() => groupChannels(channels.value))
 /** 当前选中频道（回显高亮 + 记忆恢复用 localStorage） */
 const activeUrl = ref('')
 const LAST_CHANNEL_KEY = 'jc-live-last-channel'
+/** 频道按 HLS 装载：IPTV 地址大量无 .m3u8 后缀（带 token/查询串），显式声明 mime
+ *  让 usePlayer 走 hls.js 而非 video.src 直链 */
+const HLS_TYPE = 'application/x-mpegURL'
 
 function selectSource(id: number): void {
   if (id === activeSourceId.value) return
@@ -69,6 +72,7 @@ const {
   errored
 } = usePlayer({
   src: playSrc,
+  type: HLS_TYPE,
   poster: undefined,
   autoplay: false,
   volume: 0.6,
@@ -117,45 +121,49 @@ async function loadChannels(sourceId: number): Promise<void> {
   }
 }
 
-/** 记忆恢复：上次看的源/频道（跨刷新） */
-function restoreLast(): void {
+/** 读取上次观看记忆（源 + 频道地址）。 */
+function readLast(): { sourceId?: number; url?: string } | null {
   try {
     const raw = localStorage.getItem(LAST_CHANNEL_KEY)
-    if (!raw) return
-    const saved = JSON.parse(raw) as { sourceId?: number; url?: string }
-    if (saved.sourceId && sources.value.some((s) => s.id === saved.sourceId)) {
-      activeSourceId.value = saved.sourceId
-    }
+    return raw ? (JSON.parse(raw) as { sourceId?: number; url?: string }) : null
   } catch {
-    /* ignore */
+    return null
   }
 }
 
-/** 频道列表就绪后恢复上次频道（只恢复 URL，不自动播放 —— 浏览器自动播放策略不允许） */
-watch(
-  [channels, channelsLoading],
-  async ([list, loading]) => {
-    if (loading || !activeUrl.value || list.length === 0) return
-    if (!list.some((c) => c.url === activeUrl.value)) {
-      activeUrl.value = ''
-    }
-  },
-  { deep: false }
-)
+/** 频道列表就绪后恢复上次频道（只装载画面不自动播放 —— 浏览器自动播放策略不允许） */
+function restoreUrlIn(list: LiveChannel[]): void {
+  const saved = readLast()
+  if (saved?.url && list.some((c) => c.url === saved.url)) {
+    activeUrl.value = saved.url
+    playSrc.value = saved.url
+  }
+}
 
 onMounted(async () => {
-  restoreLast()
-  await loadSources()
-  // 记忆的频道直接装载画面（暂停态展示首帧，用户点播放/切频道即为手势）
+  // 先读记忆源（loadSources 内在 sources 落地后校正 activeSourceId），
+  // 再按该源拉频道列表，频道就绪后恢复上次频道
+  const savedSourceId = readLast()?.sourceId
+  sourcesLoading.value = true
+  sourcesError.value = ''
   try {
-    const raw = localStorage.getItem(LAST_CHANNEL_KEY)
-    const saved = raw ? (JSON.parse(raw) as { url?: string }) : null
-    if (saved?.url && channels.value.some((c) => c.url === saved.url)) {
-      activeUrl.value = saved.url
-      playSrc.value = saved.url
+    const resp = await liveApi.getLiveSources()
+    sources.value = resp.sources
+    if (resp.sources.length > 0) {
+      // 记忆源优先；无记忆(或不存在的源)落到第一个源 —— activeSourceId 必须显式落值,
+      // 否则 selectChannel 写入的记忆 sourceId 恒为 0
+      if (savedSourceId && resp.sources.some((s) => s.id === savedSourceId)) {
+        activeSourceId.value = savedSourceId
+      } else {
+        activeSourceId.value = resp.sources[0]!.id
+      }
+      await loadChannels(activeSourceId.value)
+      restoreUrlIn(channels.value)
     }
   } catch {
-    /* ignore */
+    sourcesError.value = '直播源加载失败，请稍后重试'
+  } finally {
+    sourcesLoading.value = false
   }
   await nextTick()
   if (playerEl.value) {
@@ -183,7 +191,7 @@ const pageTitle = '直播'
     <div v-else class="jc-live-grid">
       <!-- 播放器区 -->
       <section class="jc-live-main">
-        <div class="jc-live-player-wrap" :data-loading="channelsLoading ? '1' : '0'">
+        <div class="jc-live-player-wrap">
           <div ref="playerEl" class="jc-live-player" tabindex="0"></div>
           <div v-if="channelsLoading || !playSrc" class="jc-live-loading" role="status" aria-live="polite">
             <BaseSkeleton variant="rect" class="jc-live-loading__box" />

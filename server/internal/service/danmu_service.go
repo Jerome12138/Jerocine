@@ -418,12 +418,17 @@ func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, e
 	if err != nil {
 		return DanmuAggregateResp{}, err
 	}
+	// 负缓存命中/空结果回零值结构：JSON 输出 comments:null 违背契约, 归一为空数组
+	if resp.Comments == nil {
+		resp.Comments = []DanmuComment{}
+	}
 	return resp, nil
 }
 
 // resolveAggregateEpisode 两跳定位集：关键词 → 作品（缓存 7d）→ 分集列表（缓存 7d）→ 集。
+// 缓存键掺入 year：同标题不同年份（多季）各自缓存，避免先到请求把后到年份串到错误季。
 func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string, year, episode int) (int64, error) {
-	kwKey := cache.EpKeyOf(danmu.NormalizeTitle(title))
+	kwKey := cache.EpKeyOf(fmt.Sprintf("%s|%d", danmu.NormalizeTitle(title), year))
 	anime, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdAnime(kwKey), danmuSourceTTL, danmuEmptyTTL,
 		func(ctx context.Context) (*danmu.DandanAnime, bool, error) {
 			animes, err := s.dandan.SearchAnime(ctx, title)

@@ -3,6 +3,7 @@ package danmu
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,9 +49,9 @@ type DandanAnime struct {
 
 // DandanEpisode 一个可取弹幕的分集。
 type DandanEpisode struct {
-	EpisodeID      int64  `json:"episodeId"`
-	EpisodeTitle   string `json:"episodeTitle"`
-	EpisodeNumber  string `json:"episodeNumber"`
+	EpisodeID     int64  `json:"episodeId"`
+	EpisodeTitle  string `json:"episodeTitle"`
+	EpisodeNumber string `json:"episodeNumber"`
 }
 
 // searchResp GET /api/v2/search/anime。
@@ -81,6 +82,7 @@ type commentResp struct {
 }
 
 // get 统一请求：token 路径前缀 + JSON 解码（body 上限 48MB —— 整集聚合弹幕实测 4-5MB）。
+// transport 错误统一脱敏（url.Error 的 Error() 会内嵌完整 URL 含 token，绝不能透传出去）。
 func (c *DandanClient) get(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		c.base+"/"+url.PathEscape(c.token)+path, nil)
@@ -89,7 +91,8 @@ func (c *DandanClient) get(ctx context.Context, path string, out any) error {
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return err
+		// 只保留底层原因（超时/连接拒绝等），剥离含 token 的 URL
+		return fmt.Errorf("danmu aggregate request failed: %w", errors.Unwrap(err))
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 48<<20))
@@ -188,6 +191,7 @@ func PickAnime(animes []DandanAnime, keyword string, year, episode int) *DandanA
 //   - episodeNumber 精确等于集号（服务端给的是字符串数字）；
 //   - 回退标题「第N集/话/期」或纯数字段；
 //   - 再回退按 1 起下标。
+//
 // 全部未命中返回 nil（调用方标 empty）。
 func PickEpisode(eps []DandanEpisode, episode int) *DandanEpisode {
 	if episode <= 0 || len(eps) == 0 {
@@ -225,7 +229,7 @@ func matchEpisodeNo(title string, episode int) bool {
 			}
 			if v == episode && j < n {
 				switch t[j] {
-				case '集', '话', '期', '季':
+				case '集', '话', '期':
 					return true
 				}
 			}
@@ -239,7 +243,8 @@ func matchEpisodeNo(title string, episode int) bool {
 				v = v*10 + int(t[j]-'0')
 				j++
 			}
-			if v == episode && (j >= n || t[j] == ' ' || t[j] == ']' || t[j] == '】') {
+			// 数字段限长(≤6 位): 超长数字串(时间戳/日期样式)不参与集号判定, 也防溢出回绕
+			if j-i <= 6 && v == episode && (j >= n || t[j] == ' ' || t[j] == ']' || t[j] == '】') {
 				return true
 			}
 		}

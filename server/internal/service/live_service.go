@@ -16,9 +16,9 @@ import (
 // 直播源频道解析缓存：源站清单低频变更，30min 足够新鲜；空解析（拉不到/解析为空）
 // 负缓存 5min，避免源站抖动时每请求都打源站。
 const (
-	liveChannelsTTL     = 30 * time.Minute
-	liveChannelsNegTTL  = 5 * time.Minute
-	liveChanPatFmt      = "v1:live:ch:%d:*" // 单源频道缓存失效 pattern（SCAN）
+	liveChannelsTTL    = 30 * time.Minute
+	liveChannelsNegTTL = 5 * time.Minute
+	liveChanPatFmt     = "v1:live:ch:%d:*" // 单源频道缓存失效 pattern（SCAN）
 )
 
 // LiveSourceBrief 公开直播源（不含 url/remark —— 频道地址属于内部信息）。
@@ -95,7 +95,9 @@ func (s *LiveService) LiveChannels(ctx context.Context, id int64) (LiveChannelsR
 		func(ctx context.Context) (LiveChannelsResp, bool, error) {
 			text, err := s.client.Fetch(ctx, src.URL)
 			if err != nil {
-				return LiveChannelsResp{}, false, err
+				// 拉取失败也计入负缓存(5min)：死源不回源（否则每请求最长等 20s），
+				// TTL 到期自动重试，无需人工干预
+				return LiveChannelsResp{}, false, nil
 			}
 			chs := live.ParsePlaylist(text)
 			out := make([]LiveChannelView, 0, len(chs))
@@ -111,6 +113,12 @@ func (s *LiveService) LiveChannels(ctx context.Context, id int64) (LiveChannelsR
 		})
 	if err != nil {
 		return LiveChannelsResp{}, err
+	}
+	// 负缓存命中回零值结构：channels:null 违背契约, 归一为空数组（id/name 回填源信息）
+	if resp.Channels == nil {
+		resp.Channels = []LiveChannelView{}
+		resp.ID = src.Id
+		resp.Name = src.Name
 	}
 	return resp, nil
 }
@@ -133,7 +141,11 @@ func (s *LiveService) CreateLiveSource(ctx context.Context, in LiveSourceInput) 
 }
 
 // UpdateLiveSource 管理端：整体覆盖直播源（地址变更 → 频道缓存键自然更换）。
+// state 必填：整体覆盖语义下，缺省会导致停用中的源被静默重新启用。
 func (s *LiveService) UpdateLiveSource(ctx context.Context, id int64, in LiveSourceInput) error {
+	if in.State == nil {
+		return fmt.Errorf("缺少 state 字段: %w", domain.ErrInvalidArgument)
+	}
 	e, err := in.validate()
 	if err != nil {
 		return err
@@ -173,6 +185,10 @@ func (in LiveSourceInput) validate() (*entity.LiveSource, error) {
 	if len(url) > 1024 {
 		return nil, fmt.Errorf("直播源地址过长: %w", domain.ErrInvalidArgument)
 	}
+	remark := strings.TrimSpace(in.Remark)
+	if len([]rune(remark)) > 255 {
+		return nil, fmt.Errorf("备注过长(≤255 字): %w", domain.ErrInvalidArgument)
+	}
 	state := entity.LiveSourceEnabled
 	if in.State != nil {
 		if *in.State != entity.LiveSourceEnabled && *in.State != entity.LiveSourceDisabled {
@@ -183,7 +199,7 @@ func (in LiveSourceInput) validate() (*entity.LiveSource, error) {
 	return &entity.LiveSource{
 		Name:   name,
 		URL:    url,
-		Remark: strings.TrimSpace(in.Remark),
+		Remark: remark,
 		Sort:   in.Sort,
 		State:  state,
 	}, nil

@@ -1385,7 +1385,7 @@ paths:
                         color: { type: integer, description: RGB888 }
                         mode: { type: integer, description: '1 滚动 / 4 底部 / 5 顶部' }
         '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '404': { $ref: '#/components/responses/NotFound' }        '429': { : '#/components/responses/TooManyRequests' }
 
   /live/sources:
     get:
@@ -1407,6 +1407,8 @@ paths:
                       properties:
                         id: { type: integer, format: int64 }
                         name: { type: string }
+        '429': { : '#/components/responses/TooManyRequests' }
+
 
   /live/sources/{id}/channels:
     get:

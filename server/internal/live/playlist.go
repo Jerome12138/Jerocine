@@ -4,6 +4,7 @@ package live
 
 import (
 	"bufio"
+	"log"
 	"strings"
 )
 
@@ -72,6 +73,10 @@ func ParsePlaylist(text string) []Channel {
 			}
 			pending = -1
 		}
+	}
+	// 超长行(>1MB)等扫描错误: 保留已解析条目并记录, 不静默截断
+	if err := sc.Err(); err != nil {
+		log.Printf("[live] playlist scan error: %v", err)
 	}
 	// 末尾悬挂（有 EXTINF 无地址）丢弃
 	if pending >= 0 && pending < len(out) {

@@ -230,19 +230,6 @@ export interface HotBoardQuery {
 
 /* ============ 弹幕（P0：豆瓣 vendors 候选 + B站弹幕代理） ============ */
 
-/** 一个可拉弹幕的平台（与播放源互不关联，见方案 §四之二） */
-export interface DanmuProvider {
-  /** tencent / iqiyi / youku / bilibili */
-  provider: string
-  /** 平台侧整剧/整片资源 id（B站为 seasonId） */
-  resourceId: string
-}
-
-/** GET /films/:mid/danmu/source 响应（不暴露 db_id，评审 7.7） */
-export interface DanmuSourceResp {
-  providers: DanmuProvider[]
-}
-
 /** 单条弹幕（后端代理返回，时间轴毫秒） */
 export interface DanmuComment {
   text: string
@@ -251,39 +238,8 @@ export interface DanmuComment {
   mode: number
 }
 
-/** GET /danmu/bilibili 响应 */
-export interface DanmuBilibiliResp {
-  comments: DanmuComment[]
-}
-
 /** GET /danmu/aggregate 响应（按标题匹配的整集聚合弹幕） */
 export interface DanmuAggregateResp {
   comments: DanmuComment[]
 }
 
-/** GET /danmu/tencent/episodes 响应（matched=null 表示无匹配集 → 静默无弹幕） */
-export interface DanmuTencentEpisodesResp {
-  ok: boolean
-  data: {
-    matched: { episodeId: string } | null
-  }
-}
-
-/** 腾讯弹幕分段（startTime 秒） */
-export interface DanmuTencentSegment {
-  provider: string
-  startTime: number
-  segmentId: string
-}
-
-/** GET /danmu/tencent/segments 响应 */
-export interface DanmuTencentSegmentsResp {
-  ok: boolean
-  data: DanmuTencentSegment[]
-}
-
-/** GET /danmu/tencent/comments 响应 */
-export interface DanmuTencentCommentsResp {
-  ok: boolean
-  data: DanmuComment[]
-}

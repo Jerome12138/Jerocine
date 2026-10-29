@@ -12,5 +12,3 @@ CREATE TABLE IF NOT EXISTS live_source (
   updated_at BIGINT        NOT NULL,
   KEY idx_state_sort(state, sort)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
--- 回滚 000035: 移除直播源配置表。
-DROP TABLE IF EXISTS live_source;
