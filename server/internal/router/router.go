@@ -39,6 +39,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/danmu/:provider/episodes", middleware.RateLimit("danmu", 30, 10), h.DanmuEpisodes)
 	v1.GET("/danmu/:provider/segments", middleware.RateLimit("danmu", 30, 10), h.DanmuSegments)
 	v1.GET("/danmu/:provider/comments", middleware.RateLimit("danmu", 30, 10), h.DanmuComments)
+	// 直播: 源列表(轻) + 频道解析(服务端拉 m3u + 缓存, 公开无鉴权必须限流)。
+	v1.GET("/live/sources", middleware.RateLimit("live", 60, 30), h.LiveSources)
+	v1.GET("/live/sources/:id/channels", middleware.RateLimit("live", 30, 30), h.LiveChannels)
 	v1.GET("/config/site", h.SiteConfig)
 	v1.GET("/banners", h.HomeBanners)
 	v1.GET("/app/version/latest", h.VersionLatest)
@@ -108,6 +111,11 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/danmu-config", h.GetDanmuConfig)
 		mg.PUT("/danmu-config", h.SaveDanmuConfig)
 		mg.POST("/mail/test", h.TestMail)
+		// 直播源管理: 列表/新增/改/删（改删清该源频道缓存, 见 LiveService）。
+		mg.GET("/live-sources", h.ListLiveSources)
+		mg.POST("/live-sources", h.CreateLiveSource)
+		mg.PUT("/live-sources/:id", h.UpdateLiveSource)
+		mg.DELETE("/live-sources/:id", h.DeleteLiveSource)
 		// 运行参数(后台「系统设置」): 登录有效期 / 设备数 / 采集并发 —— 都存 site_config, 保存即改。
 		mg.GET("/settings", h.GetRuntimeSettings)
 		mg.PUT("/settings", h.SaveRuntimeSettings)

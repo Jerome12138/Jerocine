@@ -1387,6 +1387,58 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /live/sources:
+    get:
+      tags: [content]
+      summary: 直播源列表（启用中，直播页源切换）
+      operationId: getLiveSources
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer, format: int64 }
+                        name: { type: string }
+
+  /live/sources/{id}/channels:
+    get:
+      tags: [content]
+      summary: 直播源频道列表（服务端解析 m3u，带缓存；停用/不存在 → 404）
+      operationId: getLiveChannels
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer, format: int64 }
+                  name: { type: string }
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        group: { type: string }
+                        logo: { type: string }
+                        url: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /config/site:
     get:
       tags: [content]

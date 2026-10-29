@@ -93,6 +93,61 @@ func (h *Handlers) ClearTMDBKey(c *gin.Context) {
 
 // ---- 弹幕服务后台配置 ----
 
+// ---- 直播源管理（/manage/live-sources） ----
+
+// ListLiveSources GET /manage/live-sources — 全量直播源（含停用）。
+func (h *Handlers) ListLiveSources(c *gin.Context) {
+	list, err := h.Live.ListLiveSources(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	if list == nil {
+		list = []entity.LiveSource{}
+	}
+	c.JSON(http.StatusOK, gin.H{"sources": list})
+}
+
+// CreateLiveSource POST /manage/live-sources {name,url,remark,sort,state}
+func (h *Handlers) CreateLiveSource(c *gin.Context) {
+	var req service.LiveSourceInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	src, err := h.Live.CreateLiveSource(c.Request.Context(), req)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	respond(c, src, nil)
+}
+
+// UpdateLiveSource PUT /manage/live-sources/:id {name,url,remark,sort,state} — 整体覆盖。
+func (h *Handlers) UpdateLiveSource(c *gin.Context) {
+	id, ok := pathInt64(c, "id")
+	if !ok {
+		dto.Error(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req service.LiveSourceInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	respond(c, nil, h.Live.UpdateLiveSource(c.Request.Context(), id, req))
+}
+
+// DeleteLiveSource DELETE /manage/live-sources/:id — 删除并清该源频道缓存。
+func (h *Handlers) DeleteLiveSource(c *gin.Context) {
+	id, ok := pathInt64(c, "id")
+	if !ok {
+		dto.Error(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	respond(c, nil, h.Live.DeleteLiveSource(c.Request.Context(), id))
+}
+
 // GetDanmuConfig GET /manage/danmu-config — 弹幕总开关 + 开放平台白名单 + 平台全集。
 func (h *Handlers) GetDanmuConfig(c *gin.Context) {
 	v, err := h.Manage.GetDanmuConfig(c.Request.Context())

@@ -191,6 +191,20 @@ type BannerRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// LiveSourceRepository 直播源（m3u 播放列表）配置。
+type LiveSourceRepository interface {
+	// ListEnabled 启用的直播源, 按 sort/id 升序（公开端点）。
+	ListEnabled(ctx context.Context) ([]entity.LiveSource, error)
+	// ListAll 后台全量列表, 按 sort/id 升序。
+	ListAll(ctx context.Context) ([]entity.LiveSource, error)
+	// Get 按 id 取单条; 不存在返回 domain.ErrNotFound。
+	Get(ctx context.Context, id int64) (*entity.LiveSource, error)
+	Create(ctx context.Context, s *entity.LiveSource) error
+	// Update 按 id 整体覆盖可编辑字段。
+	Update(ctx context.Context, s *entity.LiveSource) error
+	Delete(ctx context.Context, id int64) error
+}
+
 // AppVersionRepository APK 版本。
 type AppVersionRepository interface {
 	Latest(ctx context.Context, channel int8) (*entity.AppVersion, error)

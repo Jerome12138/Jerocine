@@ -23,6 +23,7 @@ import (
 	"server/internal/danmu"
 	"server/internal/douban"
 	"server/internal/geoip"
+	"server/internal/live"
 	"server/internal/handler"
 	"server/internal/platform/auth"
 	"server/internal/platform/blobstore"
@@ -230,6 +231,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	// 弹幕服务(D2: 豆瓣 vendors 候选 Go 自留 + 分集/弹幕取数走 danmu-service;
 	// siteRepo 注入后台配置: danmu_enabled 总开关 + danmu_providers 平台白名单, 直读库现值)。
 	danmuSvc := service.NewDanmuService(movieRepo, danmu.New(), danmu.NewDandan(cfg.Danmu.APIURL, cfg.Danmu.APIToken), cfg.Danmu.ServiceURL, siteRepo)
+	liveSvc := service.NewLiveService(repomysql.NewLiveSourceRepository(gdb), live.NewClient())
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc,
@@ -237,7 +239,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 		Backdrop: backdropSvc,
 		Hot:      hotSvc, Tasks: taskSvc, Online: service.NewOnlineService(cacheRdb),
 		Register: registerSvc,
-		Danmu:    danmuSvc,
+		Danmu:    danmuSvc, Live: liveSvc,
 		Blob:     blob, ResetToken: cfg.Spider.ResetToken,
 	}
 
