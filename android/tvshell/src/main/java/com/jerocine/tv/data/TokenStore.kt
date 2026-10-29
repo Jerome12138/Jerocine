@@ -41,7 +41,7 @@ class TokenStore(context: Context) {
         get() = sp.getString(KEY_USER, null)
         set(v) { sp.edit().putString(KEY_USER, v).apply() }
 
-    /** 服务器地址（同一 APK 连不同后端） */
+    /** 站点地址（web 壳加载页；接口域 2026-10-29 起由构建注入, 不再跟这里走） */
     var server: String?
         get() = sp.getString(KEY_SERVER, null)
         set(v) { sp.edit().putString(KEY_SERVER, v).apply() }

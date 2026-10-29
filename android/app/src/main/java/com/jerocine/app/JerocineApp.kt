@@ -25,7 +25,14 @@ class JerocineApp : Application() {
         // 期间的崩溃也有现场。报告写 filesDir/crashes/, 写完交回系统原 handler, 崩溃流程不变。
         CrashLog.install(this)
 
-        ServiceLocator.init(this)
+        // 构建期域名注入(Harness 私有层持有真实值; 公开仓自构建落 .invalid 占位):
+        //   API_BASE = 原生接口根(含 /api, 形状同前端 VITE_API_BASE) —— 接口域运行时不可变;
+        //   WEB_BASE = 出厂站点地址(web 壳加载页默认, 设置抽屉仍可改)。
+        ServiceLocator.init(
+            this,
+            injectedApiBase = BuildConfig.JEROCINE_API_BASE,
+            injectedWebBase = BuildConfig.JEROCINE_WEB_BASE,
+        )
 
         // 把壳层能力注入公共播放模块(播放器本身不硬编码域名/TLS 策略):
         //  - mediaClient: 放宽 TLS + 浏览器 UA 的媒体链, 老设备 CA 太旧时也能拉流

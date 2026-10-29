@@ -66,9 +66,11 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
 ./gradlew :app:assembleDebug                      # 编出 :tvshell 的 aar（不产 APK）
 ```
 
-> 后端地址**不走编译期常量**：`tv/app` 的 `BuildConfig.API_BASE_URL` 当前无人引用
-> （`-PapiBase=` 传 gradle 仍能写入它）；运行时后端地址由应用内「设置 → 服务器地址」
-> 填写并落在共享 prefs（`jerocine_prefs/server_url`）里。
+> 域名参数（2026-10-29 起）：**公开仓不存真实域名**。安卓自身接口的根由 :app 的
+> `BuildConfig.JEROCINE_API_BASE` 构建期注入（形状同前端 `VITE_API_BASE`：含 `/api`、不含 `/v1`，
+> gradle property `-PjerocineApiBase` 或环境变量 `JEROCINE_API_BASE`；未注入时接口回退
+> `serverBase + /api/v1/` 旧行为）；出厂站点地址同理走 `JEROCINE_WEB_BASE`。运行时「设置 →
+> 站点地址」只改页面加载地址（落共享 prefs `jerocine_prefs/server_url`），不影响接口域。
 
 ## 自测
 

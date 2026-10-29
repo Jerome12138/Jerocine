@@ -190,10 +190,12 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
     }
 
     /**
-     * 服务器地址编辑 —— 原生壳的**唯一**后端切换入口(低配机跑不了 web 壳,
+     * 站点地址编辑 —— 原生壳的**唯一**站点切换入口(低配机跑不了 web 壳,
      * 之前的实现只是提示"请去 web 壳改", 等于把入口关了)。
      * 保存走 ServiceLocator.setServer, 它会同时写 TokenStore 与壳层共享 prefs,
-     * 保证切壳模式后两壳连的是同一个后端。
+     * 保证切壳模式后两壳加载的是同一个站点。
+     * 2026-10-29 解耦: 这里只改"页面站点地址"; 安卓自身接口域由构建注入
+     * (JEROCINE_API_BASE), 不随本入口漂移。
      */
     override fun onServerUrlEdit() {
         val density = resources.displayMetrics.density
@@ -220,7 +222,7 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(58)))
         }
         JcDialog.custom(this)
-            .title("服务器地址")
+            .title("站点地址")
             .content(wrap)
             .confirmButton("保存", Runnable {
                 val url = ServerUrl.normalize(input.text.toString())

@@ -30,6 +30,22 @@ if (media3Version == null || okhttpVersion == null) {
     throw new GradleException("读不到依赖版本, 请检查 ${jcDepsFile} 里的 dep.media3Version / dep.okhttpVersion")
 }
 
+// ---------------------------------------------------------------- 构建期域名注入
+// 公开仓**不存真实域名** —— 接口根与出厂站点地址由私有构建层(Harness)注入, 这里只提供参数机制。
+//   JEROCINE_API_BASE  接口根, 形状与前端 VITE_API_BASE 一致: 含 /api、不含版本号
+//                      (如 https://api.jerocine.art/api), 代码侧拼 /v1/xxx。
+//                      /api 是部署拓扑(反代挂载点)属配置; /v1 是代码契约(DTO/端点形状)属代码。
+//   JEROCINE_WEB_BASE  出厂站点地址(web 壳加载页/设置抽屉的默认值, 如 https://jerocine.art)。
+// 优先级: gradle property(-PjerocineApiBase) > 环境变量 > 占位默认。
+// 占位用 .invalid(RFC 2606 保留 TLD): 公开仓自构建不注入时"明确没配后端"而非悄悄连错家;
+// 两者都注入才有完整功能的 APK。
+def jcApiBase = (project.findProperty('jerocineApiBase')
+        ?: System.getenv('JEROCINE_API_BASE')
+        ?: 'https://api.jerocine.invalid/api').toString()
+def jcWebBase = (project.findProperty('jerocineWebBase')
+        ?: System.getenv('JEROCINE_WEB_BASE')
+        ?: 'https://jerocine.invalid').toString()
+
 android {
     namespace = "com.jerocine.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -39,6 +55,10 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode jcVersionCode.toString().toInteger()
         versionName jcVersionName.toString()
+        // 构建期域名注入(见文件头说明): 编译期写死进 BuildConfig, 运行时不可变 ——
+        // 接口域与"设置抽屉改的站点地址"解耦(2026-10-29)。
+        buildConfigField "String", "JEROCINE_API_BASE", "\"${jcApiBase}\""
+        buildConfigField "String", "JEROCINE_WEB_BASE", "\"${jcWebBase}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

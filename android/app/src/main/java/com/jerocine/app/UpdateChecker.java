@@ -31,7 +31,7 @@ import okhttp3.Response;
  * UpdateChecker - APK 自升级.
  *
  * 流程:
- *   1) check(userTriggered) 异步 GET <server>/api/version/latest
+ *   1) check(userTriggered) 异步 GET <接口根>/v1/app/version/latest
  *      Authorization: Bearer <jwt>  (jwt 由 JerocineBridge.setAuthToken 写到 SharedPreferences,
  *      未登录 = 不带 header → 后端按 stable 返)
  *   2) 比较 remoteCode vs BuildConfig.VERSION_CODE
@@ -50,7 +50,8 @@ public class UpdateChecker {
     private static final String PREFS = "jerocine_update";
     private static final String KEY_IGNORED_VERSION = "ignored_version_code";
     private static final String KEY_AUTH_TOKEN = "auth_token";
-    private static final String VERSION_PATH = "/api/v1/app/version/latest?channel=1";
+    /** 版本检查端点(相对接口根 /api/v1; 构建注入 JEROCINE_API_BASE 时拼在其后, 回退时拼在站点域 /api 后) */
+    private static final String VERSION_LATEST_PATH = "/v1/app/version/latest?channel=1";
 
     private final Activity activity;
     private final OkHttpClient client;
@@ -92,13 +93,21 @@ public class UpdateChecker {
      * @param userTriggered true=用户在 UI 点的, 即使无更新也提示 + 忽略 ignored_version
      */
     public void check(boolean userTriggered) {
-        String serverUrl = activity.getSharedPreferences(WebShellActivity.PREFS, Context.MODE_PRIVATE)
-                .getString(WebShellActivity.KEY_SERVER_URL, null);
-        if (serverUrl == null || serverUrl.isEmpty()) {
-            if (userTriggered) toast("尚未设置服务器地址");
-            return;
+        // 接口域与站点地址解耦(2026-10-29): 注入 JEROCINE_API_BASE 时版本检查走接口根,
+        // 不随"设置抽屉改的站点地址"漂移; 未注入(公开仓自构建)回退旧行为(站点域 + /api)。
+        String injectedApiBase = BuildConfig.JEROCINE_API_BASE;
+        String versionUrl;
+        if (injectedApiBase != null && !injectedApiBase.trim().isEmpty()) {
+            versionUrl = injectedApiBase.trim().replaceAll("/$", "") + VERSION_LATEST_PATH;
+        } else {
+            String serverUrl = activity.getSharedPreferences(WebShellActivity.PREFS, Context.MODE_PRIVATE)
+                    .getString(WebShellActivity.KEY_SERVER_URL, null);
+            if (serverUrl == null || serverUrl.isEmpty()) {
+                if (userTriggered) toast("尚未设置站点地址");
+                return;
+            }
+            versionUrl = serverUrl.replaceAll("/$", "") + "/api" + VERSION_LATEST_PATH;
         }
-        String versionUrl = serverUrl.replaceAll("/$", "") + VERSION_PATH;
         String token = readAuthToken(activity);
 
         Request.Builder b = new Request.Builder().url(versionUrl);

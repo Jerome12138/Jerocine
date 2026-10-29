@@ -74,8 +74,8 @@ public class WebShellActivity extends BridgeActivity
     // 编程式 UI 一律经 col(com.jerocine.player.R.color.jc_*) 取色 —— 壳里不再存第二份十六进制。
     // 历史: 本类曾与 core 的 JcSettingsDrawer 各有一套完全相同的 GF_* 字面量(共 3 份含资源),
     // 改色必漏改一处; 2026-10-12 收编(见 docs/单包合并架构复盘与共性件组织方案-2026-10-12.md §3.4)。
-    /** 默认服务器地址 — 首次启动直接用, 不再弹输入框 */
-    private static final String DEFAULT_SERVER_URL = "https://jerocine.art";
+    /** 出厂站点地址(web 壳加载页默认, 设置抽屉可改) —— 构建期注入(JEROCINE_WEB_BASE), 公开仓不含真实域名 */
+    private static final String DEFAULT_SERVER_URL = BuildConfig.JEROCINE_WEB_BASE;
     /** 首页双击返回退出应用的确认窗口 */
     private static final long EXIT_CONFIRM_MS = 2000L;
     /** 品牌首屏最长展示时间 — 超时强制淡出, 露出 WebView 内容/错误(方案 §7.3 兜底) */
@@ -386,7 +386,7 @@ public class WebShellActivity extends BridgeActivity
                     loadServer(prefs().getString(KEY_SERVER_URL, DEFAULT_SERVER_URL)));
 
             Button settings = new Button(this);
-            settings.setText("修改服务器地址");
+            settings.setText("修改站点地址");
             settings.setTextColor(col(com.jerocine.player.R.color.jc_text));
             settings.setAllCaps(false);
             settings.setBackground(buildDrawerButtonBg());
@@ -435,7 +435,7 @@ public class WebShellActivity extends BridgeActivity
         }
 
         AlertDialog dlg = new AlertDialog.Builder(this, com.jerocine.player.R.style.JcPlayerDialog)
-                .setTitle(isReset ? "重置 Jerocine 服务器地址" : "请输入 Jerocine 服务器地址")
+                .setTitle(isReset ? "重置 Jerocine 站点地址" : "请输入 Jerocine 站点地址")
                 .setView(inWrap)
                 .setCancelable(false)
                 .setPositiveButton("确定", (d, w) -> {
