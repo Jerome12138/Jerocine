@@ -66,6 +66,12 @@ public static boolean isM3u8(String rawUrl) {
         return false;
     }
 
+    /** byte[] 版本，与上面的 String 版本判据完全一致。 */
+    public static boolean hasMediaSegments(byte[] data) {
+        if (data == null || data.length == 0) return false;
+        return hasMediaSegments(new String(data, java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     /**
      * 相对引用 → 绝对 URL; 解析不了返回 null(调用方跳过即可, 不影响正确性)。
      *

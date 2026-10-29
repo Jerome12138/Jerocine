@@ -26,6 +26,7 @@ import androidx.media3.exoplayer.offline.Downloader;
 import androidx.media3.exoplayer.offline.DownloaderFactory;
 import androidx.media3.exoplayer.hls.offline.HlsDownloader;
 import com.jerocine.player.M3u8FilterCore;
+import com.jerocine.player.PlayerUrls;
 
 
 import java.io.File;
@@ -635,7 +636,7 @@ public final class DownloadEngine {
             // HlsDownloader 对 master URI 解析直接命中这份媒体清单(分片全绝对化),
             // 不再需要下钻; 离线播放 file://playlist.m3u8 同理命中缓存。
             byte[] playlistData = master.data;
-            if (isMasterPlaylist(playlistData)) {
+            if (!PlayerUrls.hasMediaSegments(playlistData)) {
                 Log.i(TAG, "master 清单, 下钻子表: " + task.id);
                 String childUrl = firstVariantUrl(playlistData, task.srcUrl);
                 if (childUrl == null || childUrl.isEmpty()) {
@@ -1080,17 +1081,6 @@ public final class DownloadEngine {
                     + com.jerocine.player.ErrorDiag.safeUrl(url));
             return FilterOutcome.raw(rawBytes, 0);
         }
-    }
-
-    /** 是否 master 清单(含 #EXT-X-STREAM-INF; 见到 #EXTINF 即媒体级清单, 立即否定)。
-     *  public: BufferPrefetcher(缓冲)同样要先下钻 master, 同一套判定。 */
-    public static boolean isMasterPlaylist(byte[] data) {
-        for (String rawLine : new String(data, StandardCharsets.UTF_8).split("\\r?\\n")) {
-            String line = rawLine.trim();
-            if (line.startsWith("#EXT-X-STREAM-INF")) return true;
-            if (line.startsWith("#EXTINF")) return false;
-        }
-        return false;
     }
 
     /**

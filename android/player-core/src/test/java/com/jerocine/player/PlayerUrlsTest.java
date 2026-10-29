@@ -132,7 +132,7 @@ public class PlayerUrlsTest {
                 "720p/index.m3u8");
         assertFalse(PlayerUrls.hasMediaSegments(master));
         assertFalse(PlayerUrls.hasMediaSegments("#EXTM3U"));
-        assertFalse(PlayerUrls.hasMediaSegments(null));
+        assertFalse(PlayerUrls.hasMediaSegments((String) null));
         assertFalse(PlayerUrls.hasMediaSegments(""));
 
         // 媒体列表: 有 #EXTINF → true(要 POST 过滤)

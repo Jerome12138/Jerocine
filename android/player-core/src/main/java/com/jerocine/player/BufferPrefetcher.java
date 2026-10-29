@@ -11,6 +11,7 @@ import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.CacheWriter;
 import androidx.media3.datasource.okhttp.OkHttpDataSource;
 
+import com.jerocine.player.PlayerUrls;
 import com.jerocine.player.download.DownloadEngine;
 import com.jerocine.player.download.PlaylistSegments;
 
@@ -118,7 +119,7 @@ public final class BufferPrefetcher {
         byte[] data = r.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8);
         int filteredCount = r.getFiltered();
         String playlistUrl = srcUrl;
-        if (DownloadEngine.isMasterPlaylist(data)) {
+        if (!PlayerUrls.hasMediaSegments(data)) {
             String child = DownloadEngine.firstVariantUrl(data, srcUrl);
             if (child == null) {
                 throw new IOException("master 清单中没有可用的子表");
