@@ -3,8 +3,8 @@ package com.jerocine.player.download;
 /**
  * 整份 m3u8 清单的相对 URL 绝对化 — <b>原始流兜底下载专用</b>。纯 Java, JVM 可测。
  *
- * <p>服务端 FilterText 在剔广告的同时会把分片 URL 绝对化; 原始流兜底路径
- * ({@link DownloadFilterFallbackPolicy} USE_RAW)拿不到这份服务, 而 playlist.m3u8 落盘后由
+ * <p>本地过滤内核在剔广告的同时会把分片 URL 绝对化; 原始流兜底路径
+ * (DownloadEngine 原始流兜底, 见 {@code filterLocal})拿不到这份服务, 而 playlist.m3u8 落盘后由
  * file:// 播放 —— 相对分片会按 file:// 目录解析, 直接播不出来。因此原始流媒体级清单
  * 落盘前必须按其真实来源 URL 绝对化(语义对齐 media3 的 RFC 3986 解析,
  * 保证下载缓存 key 与播放期解析出的 URL 一致, 分片才能命中本地缓存)。

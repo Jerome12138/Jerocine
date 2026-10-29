@@ -61,7 +61,7 @@ public final class DownloadTask {
     public long totalBytes;
     /** 失败原因(用户可读文案); FILTERING 阶段临时承载过程文案(如"广告过滤中 · 重试 2/3") */
     public String error;
-    /** true = 过滤失败按策略原始流兜底(见 DownloadFilterFallbackPolicy), 离线播放含潜在广告段 */
+    /** true = 过滤失败按策略原始流兜底(见 DownloadEngine.filterLocal), 离线播放含潜在广告段 */
     public boolean rawFallback;
     /** 下载缓存区目录 download_cache/&lt;filmId&gt;/&lt;episode&gt; */
     public String cacheDir;

@@ -574,10 +574,9 @@ public final class DownloadEngine {
     /**
      * → 保存清单(离线播用) → 交给 DownloadService. 幂等: 已存在同 id 任务则忽略.
      *
-     * <p>降级策略(用户拍板 2026-10-10, 二次确认): 除取消外全部原始流兜底 —— 数据获取类失败
-     * (NETWORK/BAD_RESPONSE)先重试 3 轮, 耗尽后与其他原因(NO_FILTER/REJECTED/TOO_LARGE)一样
-     * <b>原始流兜底</b>(媒体级清单落盘前按来源 URL 绝对化, 见 {@link HlsPlaylistAbsolutizer};
-     * 产物含潜在广告段, 用户明确接受该取舍)。
+     * <p>过滤失败兜底(用户拍板 2026-10-10): 本地内核异常时<b>原始流兜底</b>
+     * (媒体级清单落盘前按来源 URL 绝对化, 见 {@link HlsPlaylistAbsolutizer};
+     * 产物含潜在广告段, 用户明确接受该取舍); 任务取消走 {@link #checkNotPaused} 静默退出。
      */
     public void enqueue(DownloadTask task) {
         // 【2026-10-10 三轮】入队只落 QUEUED 行(显示"排队中"), 过滤挪到门控出队后
@@ -618,10 +617,6 @@ public final class DownloadEngine {
             checkNotPaused(task.id);
             Log.i(TAG, "拉清单完成: " + task.id + " len=" + raw.length);
             FilterOutcome master = filterLocal(task.srcUrl, raw);
-            if (master.error != null) {
-                fail(task, master.error);
-                return;
-            }
             Log.i(TAG, "过滤完成(" + (master.rawFallback ? "原始流兜底" : "filtered=" + master.filteredCount) + "): " + task.id);
             boolean rawFlag = master.rawFallback;
             // 【2026-10-08 根修 "0KB+秒完成+离线播放走网络"】源 URL 常是 **master 清单**
@@ -646,14 +641,6 @@ public final class DownloadEngine {
                 byte[] childRaw = fetchPlaylist(childUrl);
                 checkNotPaused(task.id);
                 FilterOutcome child = filterLocal(childUrl, childRaw);
-                if (child.cancelled) {
-                    Log.i(TAG, "过滤被中断, 停止管线: " + task.id);
-                    return;
-                }
-                if (child.error != null) {
-                    fail(task, child.error);
-                    return;
-                }
                 playlistData = child.data;
                 rawFlag |= child.rawFallback;
                 // 原始流兜底时没有服务端绝对化 —— 子表(媒体级)相对分片按子表 URL 绝对化,
@@ -1035,33 +1022,24 @@ public final class DownloadEngine {
         }
     }
 
-    /** {@link #filterWithFallback} 的结果: data/error/cancelled 互斥使用。 */
+    /** {@link #filterLocal} 的结果: 成功(过滤后)或原始流兜底, 二选一。 */
     private static final class FilterOutcome {
-        final byte[] data;            // 成功(过滤后或原始流兜底)
-        final int filteredCount;      // 成功时被剔除的广告段数(原始流兜底 = 0)
+        final byte[] data;            // 过滤后清单或原始流兜底
+        final int filteredCount;      // 被剔除的广告段数(原始流兜底 = 0)
         final boolean rawFallback;    // true = 原始流兜底(调用方需对媒体级清单绝对化)
-        final String error;           // 重试耗尽等需要任务 FAIL 的消息
-        final boolean cancelled;      // 任务被取消(静默退出, 不写 error)
 
-        private FilterOutcome(byte[] data, int filteredCount, boolean rawFallback,
-                              String error, boolean cancelled) {
+        private FilterOutcome(byte[] data, int filteredCount, boolean rawFallback) {
             this.data = data;
             this.filteredCount = filteredCount;
             this.rawFallback = rawFallback;
-            this.error = error;
-            this.cancelled = cancelled;
         }
 
         static FilterOutcome ok(byte[] data, int cnt) {
-            return new FilterOutcome(data, cnt, false, null, false);
+            return new FilterOutcome(data, cnt, false);
         }
 
         static FilterOutcome raw(byte[] data, int cnt) {
-            return new FilterOutcome(data, cnt, true, null, false);
-        }
-
-        static FilterOutcome err(String msg) {
-            return new FilterOutcome(null, 0, false, msg, false);
+            return new FilterOutcome(data, cnt, true);
         }
     }
 

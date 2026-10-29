@@ -124,6 +124,16 @@ public class PlayerUrlsTest {
     // ⇒ 整层免 POST: 播放路径(parse)与预取器共用 hasMediaSegments 判据。
 
     @Test
+    public void hasMediaSegments_ByteOverloadMatchesString() {
+        // byte[] 重载(下载/缓冲路径)与 String 版判据一致; null/空安全
+        assertTrue(PlayerUrls.hasMediaSegments(
+                "#EXTM3U\r\n#EXTINF:6.0,\r\nseg001.ts".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertFalse(PlayerUrls.hasMediaSegments("#EXTM3U".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertFalse(PlayerUrls.hasMediaSegments((byte[]) null));
+        assertFalse(PlayerUrls.hasMediaSegments(new byte[0]));
+    }
+
+    @Test
     public void hasMediaSegmentsDistinguishesMediaFromMaster() {
         // master: 只有变体声明 → false(免 POST)
         String master = String.join("\n",

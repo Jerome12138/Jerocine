@@ -180,7 +180,10 @@ object M3u8FilterCore {
         return try {
             base.resolve(ref).toString()
         } catch (e: Exception) {
-            ref
+            // java.net.URI 拒绝未转义字符(空格/中文/| 等): 委托 PlayerUrls 的手工 RFC3986 兜底
+            // (协议相对/根相对/路径相对 + ".." 消化), 否则过滤产物留相对引用 ——
+            // 下载落盘 file:// 离线播放时这些分片会脱靶。
+            PlayerUrls.absolutize(ref, base.toString()) ?: ref
         }
     }
 
@@ -207,7 +210,8 @@ object M3u8FilterCore {
         if (j >= 0) rest = rest.substring(0, j).trim()
         if (rest.isEmpty()) return null
         val d = rest.toDoubleOrNull() ?: return null
-        if (d < 0) return null
+        // 对齐 TS 内核的 Number.isFinite 拒绝: "Infinity"/"NaN" 字面量不是合法时长
+        if (d < 0 || !d.isFinite()) return null
         return d
     }
 
@@ -286,7 +290,8 @@ object M3u8FilterCore {
     /** 统计本列表内分片(非子列表)归属键, 返回出现最多者(真实内容)。 */
     @JvmStatic
     fun dominantSegmentKey(lines: List<String>, base: URI?): String {
-        val counts = HashMap<String, Int>()
+        // LinkedHashMap: 平票取先出现者(对齐 TS 按插入序); 三端一致性不依赖散列序
+        val counts = LinkedHashMap<String, Int>()
         for (ln in lines) {
             val t = ln.trim()
             if (t.isEmpty() || t.startsWith("#")) continue

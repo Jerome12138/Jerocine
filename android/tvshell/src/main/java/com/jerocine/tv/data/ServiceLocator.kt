@@ -10,7 +10,8 @@ import com.jerocine.tv.BuildConfig
  *
  * 2026-10-29 解耦: "安卓自身调用的接口域"与"页面站点地址"分离 ——
  *   - 接口根: 构建期注入(JEROCINE_API_BASE, 含 /api 不含 /v1, 形状同前端 VITE_API_BASE),
- *     运行时不可变, 未注入(空)时回退 serverBase 旧行为(公开仓自构建仍可用);
+ *     运行时不可变; 未注入时构建期占位为 *.invalid(见 :app build.gradle, 防"悄悄连错家")
+ *     —— 接口全失败, 必须注入真实域; 仅显式空注入(-PjerocineApiBase="")才回退旧行为;
  *   - 站点地址: serverBase, 设置抽屉可改, 只影响 web 壳加载页 / device 登录页。
  */
 object ServiceLocator {
@@ -80,8 +81,8 @@ object ServiceLocator {
 
     /**
      * 当前生效的接口根(到 /api/v1, 无尾斜杠; Retrofit baseUrl 再补 "/")。
-     * 注入优先; 未注入回退 serverBase 旧行为 —— 公开仓自构建(不注入)连接自己部署的后端。
-     * 诊断/测试可读。
+     * 注入优先; 仅显式空注入(构建期 -PjerocineApiBase="")才回退 serverBase 旧行为 ——
+     * 默认构建占位为 *.invalid(见 :app build.gradle), 该回退对普通自构建不可达。诊断/测试可读。
      */
     val effectiveApiBase: String
         get() {

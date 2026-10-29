@@ -68,8 +68,9 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # 或用 Android Studio 打开
 
 > 域名参数（2026-10-29 起）：**公开仓不存真实域名**。安卓自身接口的根由 :app 的
 > `BuildConfig.JEROCINE_API_BASE` 构建期注入（形状同前端 `VITE_API_BASE`：含 `/api`、不含 `/v1`，
-> gradle property `-PjerocineApiBase` 或环境变量 `JEROCINE_API_BASE`；未注入时接口回退
-> `serverBase + /api/v1/` 旧行为）；出厂站点地址同理走 `JEROCINE_WEB_BASE`。运行时「设置 →
+> gradle property `-PjerocineApiBase` 或环境变量 `JEROCINE_API_BASE`；未注入时构建期占位为
+> `*.invalid`（接口全失败，须注入真实域；仅显式空注入才回退 `serverBase` 旧行为）；
+> 出厂站点地址同理走 `JEROCINE_WEB_BASE`。运行时「设置 →
 > 站点地址」只改页面加载地址（落共享 prefs `jerocine_prefs/server_url`），不影响接口域。
 
 ## 自测

@@ -95,10 +95,10 @@ public class PlayerAdFilterHelper {
      * 端侧过滤是否**在途**(角标应显「广告过滤中」): 本集还没有任何过滤结果
      * (attempted/failed/count 全空) 且 当前清单确实要端侧过滤。
      *
-     * <p>完全派生、无独立状态位: attempted 由 {@link #filterViaServer} 在**结果落地时**才写,
-     * 所以"POST 已发出还没回"与"切集后还没开始 POST"两种在途都由本判定覆盖 ——
+     * <p>完全派生、无独立状态位: attempted/failed 由 {@link #filterLocallyFirst} 在**结果落地时**才写,
+     * 所以"过滤已发起还没回"与"切集后还没开始过滤"两种在途都由本判定覆盖 ——
      * 起播/切集窗口的第一帧就能如实显示(2026-10-19 用户要求), 不再误显"该源无需过滤"。
-     * proxy 清单走「服务端过滤中」、本地集/非 HLS 由 AdFilterStatus 的更高优先级归态。
+     * 本地集/非 HLS 由 AdFilterStatus 的更高优先级归态。
      */
     private boolean filteringInFlight(String url) {
         if (session.filterAttempted || session.filterFailed
@@ -165,7 +165,9 @@ public class PlayerAdFilterHelper {
             }
             return r.getText().getBytes(java.nio.charset.StandardCharsets.UTF_8);
         } catch (Throwable t) {
-            // 本地内核异常(理论不发生) → 原始清单(不过滤, 不阻塞播放); 服务端过滤已下线
+            // 本地内核异常(理论不发生) → 原始清单(不过滤, 不阻塞播放)。
+            // 必须置 filterFailed: 否则角标会永久卡在「广告过滤中」(filteringInFlight 看不到任何结果)。
+            session.filterFailed = true;
             return raw;
         }
     }

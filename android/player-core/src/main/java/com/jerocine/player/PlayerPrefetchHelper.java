@@ -17,16 +17,16 @@ import okhttp3.Response;
  * 下一集清单预取 — 端侧优先路径的加速器.
  *
  * 背景: 端侧优先下每集有一次**在过滤窗口里白等**的媒体列表过滤(服务端 FilterText 只绝对化
- * 不改写子表; master 层已免 POST 直通, 见 PlayerUrls.hasMediaSegments),
+ * 不改写子表; master 层已免过滤直通, 见 PlayerUrls.hasMediaSegments),
  * 单次实测 1.4s(小清单)~5.1s(900+ 段大清单) ⇒ 切集白等 1~5s。清单本身很小(上行 ~25KB),
  * 提前抓取代价极低。
  *
  * 只做三件事:
  *   ① 进入片尾窗口后, 后台 GET 下一集的原始清单;
- *   ② 本地 M3u8FilterCore 过滤 端侧过滤(媒体列表才 POST, master 层免 POST 直通), 结果写进
+ *   ② 本地 M3u8FilterCore 过滤(媒体列表才过滤, master 层免过滤直通), 结果写进
  *      {@link PlayerSession} 的预取缓存;
  *   ③ 若是 master 表, 再下钻一层把子表也预热(否则切集仍会卡在子表那次过滤上);
- *      master 免 POST 后子表地址不再被服务端顺手绝对化, 由 {@link PlayerUrls#absolutize} 端侧解析。
+ *      master 免过滤后子表地址由 {@link PlayerUrls#absolutize} 端侧绝对化。
  *
  * **触发时机 = 距片尾/跳过片尾点 {@link #NEAR_OUTRO_LEAD_MS}(60s) 内**(与 web 播放页的
  * `PREFETCH_LEAD_S` 对齐, 见 {@link PlayerActivity#maybeRefreshPrefetchNearOutro()})。
@@ -35,7 +35,7 @@ import okhttp3.Response;
  * 不值当每集多烧一次服务端过滤。宁可只保留**切集前那一刻一定新鲜**的这一路。
  *
  * 消费方是 {@link PlayerAdFilterHelper.FilterPlaylistParser}: 解析到清单时先查缓存, 命中就直接用,
- * 不再付 POST 的代价。**只预取"下一集会走端侧过滤"的情形** —— 本集走代理/中转、过滤关闭、
+ * 不再付过滤往返的代价。**只预取"下一集会走端侧过滤"的情形** —— 过滤关闭、
  * 单 URL 兼容模式都直接跳过(那些路径由服务端自己缓存, 端侧预取纯属白做)。
  *
  * 幂等 + 静默失败: 同一 URL 不重复在途; 预取失败当没预取, 切集时按原路径再付一次全价, 不影响播放。
@@ -141,7 +141,7 @@ public class PlayerPrefetchHelper {
         });
     }
 
-    /** 后台线程: 抓原始清单 → 媒体列表才 POST 过滤(master 免 POST) → 写缓存; depth=0 再下钻一层子表. */
+    /** 后台线程: 抓原始清单 → 媒体列表才本地过滤(master 免过滤) → 写缓存; depth=0 再下钻一层子表. */
     private void prefetchOne(String url, int depth, int gen) {
         if (gen != session.prefetchGeneration()) return;
         byte[] raw = fetch(url);
@@ -156,7 +156,7 @@ public class PlayerPrefetchHelper {
             data = done.data;
             filteredCount = done.filteredCount;
         }
-        // master 也照写缓存: 播放路径 master 层已免 POST 直通(不查缓存), 写它纯粹为了让
+        // master 也照写缓存: 播放路径 master 层已免过滤直通(不查缓存), 写它纯粹为了让
         // schedule() 的 REFRESH_MIN_AGE 节流照常工作 —— 不写的话片尾窗口会每 5s 重抓一次 master。
         session.putPrefetched(url, data, filteredCount, gen);
         if (depth >= MAX_CHILD_DEPTH) return;
@@ -165,7 +165,7 @@ public class PlayerPrefetchHelper {
         List<String> children = PlayerUrls.childPlaylistUrls(text, MAX_CHILD_PLAYLISTS);
         for (String child : children) {
             if (gen != session.prefetchGeneration()) return;
-            // master 免 POST 后子表地址不再被服务端顺手绝对化 → 端侧自行解析;
+            // master 免过滤后子表地址由端侧自行绝对化;
             // 解析失败跳过该子表(退化为切集时现过滤, 只损失预取收益不影响正确性)
             String abs = PlayerUrls.absolutize(child, url);
             if (abs == null) continue;
