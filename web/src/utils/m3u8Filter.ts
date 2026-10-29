@@ -343,7 +343,6 @@ export function rewriteM3u8(body: string, base: string | URL, opts: M3u8FilterOp
   let short = 0
   let hasDisc = false
   let segIdx = -1
-  let justAfterDisc = false
 
   for (const ln of lines) {
     const t = ln.trim()
@@ -358,7 +357,6 @@ export function rewriteM3u8(body: string, base: string | URL, opts: M3u8FilterOp
     if (t.startsWith('#')) {
       if (t.startsWith('#EXT-X-DISCONTINUITY')) {
         hasDisc = true
-        justAfterDisc = true
       }
       out.push(rewriteTagURI(ln, baseURL))
       continue
@@ -374,7 +372,6 @@ export function rewriteM3u8(body: string, base: string | URL, opts: M3u8FilterOp
     }
     total += 1
     segIdx += 1
-    if (justAfterDisc) justAfterDisc = false
     if (opts.filterAds && pendingExtinf !== '') {
       const crossDrop = crossByIdx?.get(segIdx) ?? false
       const numDrop = !crossDrop && (adByIdx?.get(segIdx) ?? false)
