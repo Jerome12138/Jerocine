@@ -48,6 +48,24 @@ func EpKeyOf(episodeID string) string {
 	return hex.EncodeToString(h[:8])
 }
 
+// ---- 聚合弹幕（dandanplay v2 兼容，按标题匹配；DB0，正 7d/负 2h 由 service 定） ----
+
+// KeyDanmuDdAnime 关键词搜索结果缓存键（kwKey = EpKeyOf(归一化关键词)）。
+func KeyDanmuDdAnime(kwKey string) string { return fmt.Sprintf("v1:danmu:dd:anime:%s", kwKey) }
+
+// KeyDanmuDdEps 作品分集列表缓存键。
+func KeyDanmuDdEps(animeID int64) string { return fmt.Sprintf("v1:danmu:dd:eps:%d", animeID) }
+
+// KeyDanmuDdCmt 整集弹幕内容缓存键（episodeId 为聚合服务数值 id）。
+func KeyDanmuDdCmt(episodeID int64) string { return fmt.Sprintf("v1:danmu:dd:cmt:%d", episodeID) }
+
+// ---- 直播源频道解析（DB0） ----
+
+// KeyLiveChannels 直播源频道解析缓存键（urlKey = EpKeyOf(源 url)，源地址变更即自然换键）。
+func KeyLiveChannels(sourceID int64, urlKey string) string {
+	return fmt.Sprintf("v1:live:ch:%d:%s", sourceID, urlKey)
+}
+
 // 失效用的 pattern(SCAN, 不用 KEYS)。
 const (
 	PatMovie       = "v1:movie:*"

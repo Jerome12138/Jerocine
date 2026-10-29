@@ -93,6 +93,7 @@ type DanmuComment struct {
 type DanmuService struct {
 	movie    repository.MovieRepository
 	client   *danmu.Client
+	dandan   *danmu.DandanClient // 聚合弹幕（dandanplay v2 兼容，按标题匹配）
 	danmuURL string
 	siteCfg  repository.SiteConfigRepository // 弹幕后台配置（总开关 + 平台白名单，直读库现值）
 	hc       *http.Client                    // 路径 A：整集聚合 30s
@@ -101,10 +102,11 @@ type DanmuService struct {
 
 // NewDanmuService 构造弹幕服务。danmuURL 为 danmu-service 基址（config.Danmu.ServiceURL）；
 // siteCfg 用于读取后台弹幕配置（默认不启用）。
-func NewDanmuService(movie repository.MovieRepository, client *danmu.Client, danmuURL string, siteCfg repository.SiteConfigRepository) *DanmuService {
+func NewDanmuService(movie repository.MovieRepository, client *danmu.Client, dandan *danmu.DandanClient, danmuURL string, siteCfg repository.SiteConfigRepository) *DanmuService {
 	return &DanmuService{
 		movie:    movie,
 		client:   client,
+		dandan:   dandan,
 		danmuURL: strings.TrimRight(danmuURL, "/"),
 		siteCfg:  siteCfg,
 		hc:       &http.Client{Timeout: danmuServiceTimeout},
@@ -366,4 +368,95 @@ func (s *DanmuService) loadDanmuSegComments(ctx context.Context, provider, episo
 		return nil, false, nil // 负缓存 2h
 	}
 	return resp.Data, true, nil
+}
+
+// ---------------------------------------------------------------------------
+// 聚合弹幕（dandanplay v2 兼容，按标题匹配，与平台 vendors 链路相互独立）。
+// 三段缓存：关键词搜索 7d / 作品分集 7d / 整集内容 7d（负缓存均 2h）。
+// 服务未配置（无基址/令牌）或后台总开关关闭 → 静默降级为空弹幕，不影响播放。
+// ---------------------------------------------------------------------------
+
+// DanmuAggregateResp 聚合弹幕响应（复用 DanmuComment 毫秒契约）。
+type DanmuAggregateResp struct {
+	Comments []DanmuComment `json:"comments"`
+}
+
+// danmuMasterEnabled 聚合链路总开关（与平台链路共用 danmu_enabled，不套平台白名单）。
+func (s *DanmuService) danmuMasterEnabled(ctx context.Context) bool {
+	cfg, err := s.siteCfg.Get(ctx)
+	return err == nil && cfg.DanmuEnabled == 1
+}
+
+// DanmuAggregate 按标题 + 集号取整集弹幕。查无作品/无该集 → domain.ErrNotFound（404，
+// 前端标"该片暂无弹幕"）；取数异常 → 原样上抛（前端标失败可重试）。
+func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, episode int) (DanmuAggregateResp, error) {
+	if strings.TrimSpace(title) == "" {
+		return DanmuAggregateResp{}, fmt.Errorf("missing title: %w", domain.ErrInvalidArgument)
+	}
+	empty := DanmuAggregateResp{Comments: []DanmuComment{}}
+	// 未配置聚合服务或后台关闭：空弹幕（不报错，前端标"未找到弹幕"）
+	if s.dandan == nil || !s.dandan.Enabled() || !s.danmuMasterEnabled(ctx) {
+		return empty, nil
+	}
+	episodeID, err := s.resolveAggregateEpisode(ctx, title, year, episode)
+	if err != nil {
+		return DanmuAggregateResp{}, err
+	}
+	resp, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdCmt(episodeID), danmuSourceTTL, danmuEmptyTTL,
+		func(ctx context.Context) (DanmuAggregateResp, bool, error) {
+			raw, err := s.dandan.Comments(ctx, episodeID)
+			if err != nil {
+				return DanmuAggregateResp{}, false, err
+			}
+			parsed := danmu.ParseDandanComments(raw)
+			out := make([]DanmuComment, len(parsed))
+			for i := range parsed {
+				out[i] = DanmuComment{Text: parsed[i].Text, Time: parsed[i].Time, Color: parsed[i].Color, Mode: parsed[i].Mode}
+			}
+			return DanmuAggregateResp{Comments: out}, len(out) > 0, nil
+		})
+	if err != nil {
+		return DanmuAggregateResp{}, err
+	}
+	return resp, nil
+}
+
+// resolveAggregateEpisode 两跳定位集：关键词 → 作品（缓存 7d）→ 分集列表（缓存 7d）→ 集。
+func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string, year, episode int) (int64, error) {
+	kwKey := cache.EpKeyOf(danmu.NormalizeTitle(title))
+	anime, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdAnime(kwKey), danmuSourceTTL, danmuEmptyTTL,
+		func(ctx context.Context) (*danmu.DandanAnime, bool, error) {
+			animes, err := s.dandan.SearchAnime(ctx, title)
+			if err != nil {
+				return nil, false, err
+			}
+			picked := danmu.PickAnime(animes, title, year, episode)
+			if picked == nil {
+				return nil, false, nil // 查无作品 → 负缓存 2h
+			}
+			cp := *picked
+			return &cp, true, nil
+		})
+	if err != nil {
+		return 0, err
+	}
+	if anime == nil {
+		return 0, fmt.Errorf("aggregate anime not found: %w", domain.ErrNotFound)
+	}
+	eps, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdEps(anime.AnimeID), danmuSourceTTL, danmuEmptyTTL,
+		func(ctx context.Context) ([]danmu.DandanEpisode, bool, error) {
+			list, err := s.dandan.Bangumi(ctx, anime.AnimeID)
+			if err != nil {
+				return nil, false, err
+			}
+			return list, len(list) > 0, nil
+		})
+	if err != nil {
+		return 0, err
+	}
+	ep := danmu.PickEpisode(eps, episode)
+	if ep == nil {
+		return 0, fmt.Errorf("aggregate episode not found %s#%d: %w", anime.AnimeTitle, episode, domain.ErrNotFound)
+	}
+	return ep.EpisodeID, nil
 }

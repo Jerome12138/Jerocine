@@ -35,7 +35,7 @@ func danmuSvc(url string, providers ...string) *DanmuService {
 		DanmuEnabled:   1,
 		DanmuProviders: entity.StringSlice(providers),
 	}}
-	return NewDanmuService(nil, nil, url, repo)
+	return NewDanmuService(nil, nil, nil, url, repo)
 }
 
 // TestDanmuBilibiliViaService 模拟 danmu-service 两跳响应，验证转发、契约映射与降级。
@@ -345,7 +345,7 @@ func TestDanmuSourceDisabledSkipsUpstream(t *testing.T) {
 		{DanmuEnabled: 1, DanmuProviders: entity.StringSlice{}},          // 空白名单
 		{DanmuEnabled: 1, DanmuProviders: nil},                           // nil 白名单
 	} {
-		svc := NewDanmuService(movie, nil, "http://127.0.0.1:1", &fakeSiteCfgRepo{cfg: cfg})
+		svc := NewDanmuService(movie, nil, nil, "http://127.0.0.1:1", &fakeSiteCfgRepo{cfg: cfg})
 		if _, err := svc.DanmuSource(context.Background(), 1); err != nil {
 			t.Fatalf("DanmuSource(未启用) err = %v, want nil（静默无弹幕）", err)
 		}

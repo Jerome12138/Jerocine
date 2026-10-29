@@ -83,6 +83,9 @@ services:
       TMDB_IMAGE_BASE: "${TMDB_IMAGE_BASE:-}"
       # 弹幕数据服务(danmu-service): 容器网络内服务名; 本地联调用环境变量指向 127.0.0.1:3611。
       DANMU_SERVICE_URL: "http://danmu:3611"
+      # 聚合弹幕服务(dandanplay v2 兼容): 容器网络内服务名 + 访问令牌(deploy/.env, 与 danmu_api 服务共用)。
+      DANMU_API_URL: "http://danmu_api:9321"
+      DANMU_API_TOKEN: "${DANMU_API_TOKEN}"
       GIN_MODE: release
     volumes:
       - uploads:/opt/server/static/upload

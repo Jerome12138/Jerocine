@@ -229,7 +229,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	hotSvc := service.NewHotService(movieRepo, searchRepo, douban.New())
 	// 弹幕服务(D2: 豆瓣 vendors 候选 Go 自留 + 分集/弹幕取数走 danmu-service;
 	// siteRepo 注入后台配置: danmu_enabled 总开关 + danmu_providers 平台白名单, 直读库现值)。
-	danmuSvc := service.NewDanmuService(movieRepo, danmu.New(), cfg.Danmu.ServiceURL, siteRepo)
+	danmuSvc := service.NewDanmuService(movieRepo, danmu.New(), danmu.NewDandan(cfg.Danmu.APIURL, cfg.Danmu.APIToken), cfg.Danmu.ServiceURL, siteRepo)
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc,

@@ -50,6 +50,29 @@ func (h *Handlers) DanmuBilibili(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"comments": comments})
 }
 
+// DanmuAggregate GET /danmu/aggregate?title=&episode=&year= —— 按标题匹配的整集聚合弹幕。
+// 与平台链路（/danmu/:provider/*）相互独立：按影片名搜索作品 → 定位集 → 整集弹幕。
+// 公开无鉴权必须限流（路由层 RateLimit("danmu", 30, 10)）；查无作品/集 → 404。
+func (h *Handlers) DanmuAggregate(c *gin.Context) {
+	title := strings.TrimSpace(c.Query("title"))
+	if title == "" {
+		dto.Error(c, http.StatusBadRequest, "missing title")
+		return
+	}
+	episode := queryInt(c, "episode", 1)
+	if episode < 1 || episode > 9999 {
+		dto.Error(c, http.StatusBadRequest, "invalid episode")
+		return
+	}
+	year := queryInt(c, "year", 0)
+	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // DanmuEpisodes GET /danmu/:provider/episodes?resourceId=&episode= —— 路径 B 分集匹配。
 // provider 白名单在 service（未启用 → 400 ErrInvalidArgument，dto.Fail 自动映射）。
 // 路径 B 分段点播第一步：拿 matched.episodeId（复合串，前端 encodeURIComponent 后透传）。

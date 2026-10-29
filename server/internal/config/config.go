@@ -58,10 +58,14 @@ type TMDBConfig struct {
 	ImageBase string // 默认 https://image.tmdb.org/t/p/
 }
 
-// DanmuConfig 弹幕数据服务(danmu-service, Node 壳)配置。
-// 容器网络内走 compose 服务名; 本地联调用环境变量指向 127.0.0.1:3611。
+// DanmuConfig 弹幕数据服务配置。
+// 容器网络内走 compose 服务名; 本地联调用环境变量指向 127.0.0.1。
 type DanmuConfig struct {
-	ServiceURL string // 默认 http://danmu:3611
+	ServiceURL string // danmu-service(Node 壳)基址, 默认 http://danmu:3611
+	// 聚合弹幕服务（dandanplay v2 兼容，按标题匹配）：基址 + 访问令牌。
+	// 令牌只存服务端绝不下发前端；未配置时聚合链路静默降级为无弹幕。
+	APIURL   string // 默认 http://danmu_api:9321
+	APIToken string // 环境变量 DANMU_API_TOKEN
 }
 
 // PageSizes 各接口默认页大小, 集中而非散落各 handler。
@@ -109,6 +113,8 @@ func Load() *Config {
 		},
 		Danmu: DanmuConfig{
 			ServiceURL: env("DANMU_SERVICE_URL", "http://danmu:3611"),
+			APIURL:     env("DANMU_API_URL", "http://danmu_api:9321"),
+			APIToken:   os.Getenv("DANMU_API_TOKEN"),
 		},
 		PageSizes: PageSizes{Home: 14, Classify: 21, Filter: 49, Search: 10, Gallery: 39},
 	}

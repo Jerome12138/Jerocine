@@ -1349,6 +1349,44 @@ paths:
                         mode: { type: integer, description: '1 滚动 / 4 底部 / 5 顶部' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
+  /danmu/aggregate:
+    get:
+      tags: [content]
+      summary: 聚合弹幕（按标题匹配整集弹幕，公开接口需限流）
+      operationId: getDanmuAggregate
+      parameters:
+        - name: title
+          in: query
+          required: true
+          schema: { type: string }
+        - name: episode
+          in: query
+          required: false
+          schema: { type: integer, default: 1 }
+        - name: year
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text: { type: string }
+                        time: { type: integer, format: int64, description: 出现时间(毫秒) }
+                        color: { type: integer, description: RGB888 }
+                        mode: { type: integer, description: '1 滚动 / 4 底部 / 5 顶部' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /config/site:
     get:
       tags: [content]
