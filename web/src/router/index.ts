@@ -67,7 +67,7 @@ router.beforeEach(async (to) => {
     if (!detail?.sources?.length) {
       return { path: '/filmDetail', query: { link: id }, replace: true }
     }
-    // 统一派发(映射源+建历史+skip+proxyBase 全在一处, 避免多入口漏字段)
+    // 统一派发(映射源+建历史+skip 全在一处, 避免多入口漏字段)
     const { dispatchNativePlaylist } = await import('@/utils/nativePlay')
     dispatchNativePlaylist(
       detail,

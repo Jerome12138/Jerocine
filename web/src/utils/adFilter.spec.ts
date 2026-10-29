@@ -1,47 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseAdFilterStats,
   adFilterSuccessMessage,
-  adFilterHost,
-  buildAdFilterFailureEvent,
   hasMediaSegments,
   firstChildPlaylistUrl,
   adFilterBadgeText,
-  loadingHintText,
-  resolveClientFilterGate
+  loadingHintText
 } from './adFilter'
-
-describe('parseAdFilterStats', () => {
-  it('解析顶层 filtered/total (dto.OK 直返, 无 data 外层)', () => {
-    expect(parseAdFilterStats({ filtered: 3, total: 120 })).toEqual({ filtered: 3, total: 120 })
-  })
-
-  it('缺字段 / 非法输入一律归 0, 不抛错', () => {
-    expect(parseAdFilterStats(null)).toEqual({ filtered: 0, total: 0 })
-    expect(parseAdFilterStats('oops')).toEqual({ filtered: 0, total: 0 })
-    expect(parseAdFilterStats({ filtered: '3' })).toEqual({ filtered: 0, total: 0 })
-    expect(parseAdFilterStats({ filtered: -1, total: -5 })).toEqual({ filtered: 0, total: 0 })
-  })
-
-  it('小数向下取整', () => {
-    expect(parseAdFilterStats({ filtered: 2.9, total: 10.1 })).toEqual({ filtered: 2, total: 10 })
-  })
-})
-
-describe('resolveClientFilterGate', () => {
-  it('有 MSE 一律走端侧 client(blob 清单 VHS 自己抓, 能播)', () => {
-    expect(resolveClientFilterGate({ hasMse: true, adFilterOk: true })).toBe('client')
-    expect(resolveClientFilterGate({ hasMse: true, adFilterOk: false })).toBe('client')
-    expect(resolveClientFilterGate({ hasMse: true, adFilterOk: undefined })).toBe('client')
-  })
-  it('无 MSE(iPhone 原生 HLS): 服务器抓得到该源 → 降级服务端代理过滤', () => {
-    expect(resolveClientFilterGate({ hasMse: false, adFilterOk: true })).toBe('proxy')
-    expect(resolveClientFilterGate({ hasMse: false, adFilterOk: undefined })).toBe('proxy')
-  })
-  it('无 MSE 且服务器明确抓不到(adFilterOk=false): 代理必失败, 直接原始直链', () => {
-    expect(resolveClientFilterGate({ hasMse: false, adFilterOk: false })).toBe('direct')
-  })
-})
 
 describe('adFilterBadgeText · nosupport', () => {
   it('无 MSE 设备直链回退的角标文案', () => {
@@ -69,50 +33,6 @@ describe('loadingHintText', () => {
   it('片源已就绪(过滤落地/直链) ⇒ 降档为缓冲文案, 不再谎称"正在准备"', () => {
     expect(loadingHintText({ srcReady: true, filtering: true })).toBe('正在缓冲视频…')
     expect(loadingHintText({ srcReady: true, filtering: false })).toBe('正在缓冲视频…')
-  })
-})
-
-describe('adFilterHost', () => {
-  it('取 host', () => {
-    expect(adFilterHost('https://ads.evil.com/a.ts?x=1')).toBe('ads.evil.com')
-  })
-  it('非法 URL 返回空串', () => {
-    expect(adFilterHost('not a url')).toBe('')
-  })
-})
-
-describe('buildAdFilterFailureEvent', () => {
-  it('category=adfilter-fail, label=host, extra 存原始+代理链接', () => {
-    const ev = buildAdFilterFailureEvent({
-      channel: 'web',
-      originalUrl: 'https://cdn.x.com/play/index.m3u8',
-      proxyUrl: 'https://site/api/v1/m3u8/proxy?src=enc',
-      sourceId: 's1',
-      sourceName: 'HD(lz)',
-      episodeIndex: 2,
-      filmId: '100',
-      filmName: '片名'
-    })
-    expect(ev.category).toBe('adfilter-fail')
-    expect(ev.action).toBe('web')
-    expect(ev.label).toBe('cdn.x.com')
-    expect(ev.extra.src).toBe('https://cdn.x.com/play/index.m3u8')
-    expect(ev.extra.proxyUrl).toBe('https://site/api/v1/m3u8/proxy?src=enc')
-    expect(ev.extra.sourceName).toBe('HD(lz)')
-    expect(ev.extra.episode).toBe(2)
-    expect(ev.extra.channel).toBe('web')
-  })
-
-  it('缺省字段有兜底, label 退化为 unknown', () => {
-    const ev = buildAdFilterFailureEvent({
-      channel: 'native',
-      originalUrl: 'bad-url',
-      proxyUrl: ''
-    })
-    expect(ev.label).toBe('unknown')
-    expect(ev.action).toBe('native')
-    expect(ev.extra.episode).toBe(-1)
-    expect(ev.extra.filmId).toBe('')
   })
 })
 
@@ -165,17 +85,16 @@ describe('firstChildPlaylistUrl (master 下钻, 判据只看内容不看扩展�
     expect(firstChildPlaylistUrl(media)).toBeNull()
   })
 
-  it('空文本 / 全注释(无 URI) → null(调用方退化为就地服务端过滤)', () => {
+  it('空文本 / 全注释(无 URI) → null(调用方按无过滤形态处理)', () => {
     expect(firstChildPlaylistUrl('')).toBeNull()
     expect(firstChildPlaylistUrl('#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n')).toBeNull()
   })
 })
 
 describe('adFilterBadgeText (与安卓 AdFilterStatus 逐字对齐)', () => {
-  it('七态文案', () => {
+  it('六态文案(2026-10-28: proxy 态随服务端过滤下线移除)', () => {
     expect(adFilterBadgeText('off', 0)).toBe('过滤未开启')
     expect(adFilterBadgeText('unsupported', 0)).toBe('该源无需过滤')
-    expect(adFilterBadgeText('proxy', 0)).toBe('服务端过滤中')
     expect(adFilterBadgeText('filtering', 0)).toBe('广告过滤中')
     expect(adFilterBadgeText('clean', 0)).toBe('未检出广告')
     expect(adFilterBadgeText('filtered', 3)).toBe('已过滤 3 段广告')

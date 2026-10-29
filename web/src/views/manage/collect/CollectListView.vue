@@ -20,7 +20,7 @@ const rows = ref<CollectSource[]>([])
 const loading = ref(true)
 
 // ---- 健康度 / 测速 (持久化, 含自动停采) ----
-// 测速拆两类: 测采集(服务端打采集 API, 顺带判定广告过滤可达性) / 测播放(浏览器端直连 CDN 计时)。
+// 测速拆两类: 测采集(服务端打采集 API, 取中位延时与成功概率) / 测播放(浏览器端直连 CDN 计时)。
 const health = reactive<Record<string, SourceHealthRow>>({})
 const testingId = ref('') // 正在「测采集」的源 id
 const testingPlayId = ref('') // 正在「测播放」的源 id
@@ -44,7 +44,6 @@ const badges = computed<Record<string, Badge>>(() => {
       `已采集 ${h.collected} / 目录 ${h.total} 片`,
       `采集 ${h.latencyMs > 0 ? `${h.latencyMs}ms` : '未测'}`,
       `播放 ${h.playLatencyWeb > 0 ? `${h.playLatencyWeb}ms` : '未测'}`,
-      `广告过滤 ${h.adFilterOk === null || h.adFilterOk === undefined ? '未测' : h.adFilterOk ? '可用' : '不可达'}`,
       `成功 ${h.okCount}/${h.probes}`,
       when
     ].join(' · ')
@@ -123,7 +122,7 @@ async function loadHealth(): Promise<void> {
   }
 }
 
-// 「测采集」: 服务端打采集 API(3 次探测取中位), 顺带产出广告过滤可达性, 写健康度
+// 「测采集」: 服务端打采集 API(3 次探测取中位), 写健康度
 async function runApiTest(row: CollectSource): Promise<void> {
   testingId.value = row.id
   try {
@@ -301,26 +300,8 @@ function playLatInfo(id: string): { text: string; variant: LatVariant; title: st
   }
 }
 
-// 「广告过滤」列: 服务端 m3u8 可达性 → 服务端代理过滤链路是否可用
-function adFilterInfo(id: string): { text: string; variant: LatVariant; title: string } {
-  const h = health[id]
-  if (!h || h.adFilterOk === null || h.adFilterOk === undefined) {
-    return { text: '—', variant: 'default', title: '尚未判定(测采集时自动判定)' }
-  }
-  const when = h.adFilterAt ? new Date(h.adFilterAt).toLocaleString() : ''
-  if (!h.adFilterOk) {
-    return {
-      text: '✗ 不可达',
-      variant: 'danger',
-      title: `服务端拉不到 m3u8, 服务端代理过滤不可用; 播放时自动走端侧过滤(浏览器抓流→服务器仅过滤文本), 端侧也失败才直链不过滤 · ${when}`
-    }
-  }
-  return {
-    text: '✓ 可用',
-    variant: 'success',
-    title: `服务端 m3u8 ${h.playLatencyMs > 0 ? `${h.playLatencyMs}ms` : ''} 可代理过滤 · ${when}`
-  }
-}
+// 「播放延时」列: 端侧过滤已下线, 保留采集/播放两列测速供源站质量评估
+// 「广告过滤」列: 已随服务端代理/中转下线移除 (2026-10-28)
 
 async function load(): Promise<void> {
   loading.value = true
@@ -610,13 +591,6 @@ onMounted(() => {
           >
             {{ playLatInfo(row.id).text }}
           </BaseTag>
-          <BaseTag
-            :variant="adFilterInfo(row.id).variant"
-            size="xs"
-            :title="`广告过滤 · ${adFilterInfo(row.id).title}`"
-          >
-            {{ adFilterInfo(row.id).text }}
-          </BaseTag>
         </div>
       </template>
       <span v-else>{{ row[col.key] ?? '—' }}</span>
@@ -628,7 +602,7 @@ onMounted(() => {
           variant="ghost"
           size="sm"
           :loading="testingId === row.id"
-          title="服务端: 采集 API 延时 + m3u8 可达性(广告过滤)"
+          title="服务端: 采集 API 延时 + 成功率"
           @click="runApiTest(row)"
         >
           测采集

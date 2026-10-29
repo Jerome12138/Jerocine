@@ -40,7 +40,6 @@ import { useSiteStore } from '@/stores/site'
 import { toast } from '@/api/http'
 import { useViewMode } from '@/composables/useViewMode'
 import { measureLine } from '@/composables/usePlaySpeedTest'
-import { reportAdFilterFailure as postAdFilterFailure } from '@/api/manage/collect'
 import { useNetworkHint } from '@/composables/useNetworkHint'
 import { useLocalLikes } from '@/composables/useLocalLikes'
 import { useFavoriteStore } from '@/stores/favorite'
@@ -196,17 +195,15 @@ const currentSrc = ref<string>('')
 
 /**
  * 广告过滤开关 —— 统一存 useWebSettings(localStorage: jc-ad-filter, 默认开)。
- * 开启后, 若当前 src 是 m3u8, 按过滤取源方式(filterMode)重写:
- *   client(默认): 端侧抓 m3u8 → POST /v1/m3u8/filter 服务器只剔广告 → blob 清单播放;
- *   server: 整条链路走 /v1/m3u8/proxy(服务器抓源+过滤)。
+ * 开启后, 若当前 src 是 m3u8: 浏览器抓 m3u8 → TS 内核绝对化+剔广告 → blob 清单播放;
  * 非 m3u8 (mp4 / flv 等) 不重写, 走原始 URL。
  * 与 /settings 配置页、安卓设置抽屉共用同一份 useWebSettings 状态。
  */
-const { adFilter, setAdFilter, filterMode, relayCache } = useWebSettings()
+const { adFilter, setAdFilter } = useWebSettings()
 /** 端侧 blob 过滤的前提: 浏览器有 MSE(video.js 走 VHS 自己抓流)。
- *  iPhone Safari 无 MSE → 原生 HLS, blob 清单直接 CODE:4(2026-10-26 线上实证),
- *  由 resolveClientFilterGate 降级服务端代理/直链。 */
-const hasMse = typeof window !== 'undefined' && typeof window.MediaSource !== 'undefined'
+ *  iPhone Safari 无 MSE → 原生 HLS, blob 清单直接 CODE:4(2026-10-26 线上实证)
+ *  → 无 MSE 设备走原始直链(不过滤)。 */
+const hasMse = typeof window !== 'undefined' && typeof window.MediaSource !== 'undefined' // 无 MSE 设备(iPhone 原生 HLS)播不了 blob 清单 → 原始直链(不过滤)
 function toggleAdFilter(): void {
   setAdFilter(!adFilter.value)
   if (adFilter.value) {
@@ -216,11 +213,6 @@ function toggleAdFilter(): void {
   }
 }
 
-/**
- * 中转开关(默认关) —— 统一存 useWebSettings(localStorage: jc-relay-cache)。
- * web 播放器读该状态: 开启后 m3u8 起播即走全量中转(proxyMedia=1),
- * 与原生播放器 PlayerNetworkModeHelper 语义一致; /settings 配置页与安卓设置抽屉均可改。
- */
 
 /**
  * 广告过滤结果角标 (I-017, 常驻七态; 文案与安卓 AdFilterStatus 逐字对齐):
@@ -231,9 +223,10 @@ function toggleAdFilter(): void {
  *                 此前该窗口角标整体隐藏, 不反映"正在过滤"的真实状态)
  *   clean       = 端侧过滤跑完但未检出 → 「未检出广告」
  *   filtered    = 端侧过滤检出并剔除 N 段 → 「已过滤 N 段广告」
- *   failed      = 端侧过滤连败且服务端明确抓不到该源(adFilterOk=false), 已回退原始直链
+ *   failed      = 端侧过滤链路整体失败(无结果), 已回退原始直链
  *                 (未过滤, 可能有广告) → 「过滤失败」(2026-10-19 起; 此前该兜底误复用
  *                 unsupported「该源无需过滤」, 与真实语义相反)
+ *   nosupport   = 无 MSE 设备(iPhone Safari 等), 端侧 blob 清单不可播 → 「该源无需过滤」
  * 每次集/源切换由 resolvePlaySrc 重置, 常驻播放器右上角。
  */
 interface AdFilterBadge {
@@ -247,34 +240,16 @@ const adBadgeText = computed(() => {
   return adFilterBadgeText(b.kind, b.count)
 })
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '/api'
 const reM3u8 = /\.m3u8(\?|#|$)/i
 
-/**
- * 把原始视频 URL 包成"广告过滤代理" URL.
- *   - adFilter=false 或非 m3u8 → 原样返回
- *   - APK 经过 native 调用, 必须返回绝对 URL (data scheme 不识相对)
- */
-function wrapAdFilterUrl(originalUrl: string): string {
-  if (!originalUrl || !adFilter.value || !reM3u8.test(originalUrl)) return originalUrl
-  // 注意补 /v1: API_BASE 仅到 /api, 真实接口在 /api/v1 下(与 http 实例 baseURL 一致)
-  return `${absApiBase()}/v1/m3u8/proxy?src=${encodeURIComponent(originalUrl)}`
-}
-
-/** 绝对 API base(到 /api). 方案B 下传给原生, 由原生自行拼 /v1/m3u8/proxy. */
-function absApiBase(): string {
-  const isAbs = /^https?:\/\//i.test(API_BASE)
-  return isAbs ? API_BASE : (typeof window !== 'undefined' ? window.location.origin : '') + API_BASE
-}
-
-/* ============ Web 端侧混合广告过滤 (端侧抓流 → 服务器仅过滤文本 → blob 清单播放) ============
+/* ============ Web 端侧混合广告过滤 (端侧抓流 → blob 清单播放) ============
  *
- * 背景: 旧方案 adFilter 开时把 src 包成 `${API}/v1/m3u8/proxy?src=...`, 由【服务器】抓原始
- * m3u8 再过滤。但 bf 等源被地域封, 服务器抓不到 → 500。改为端侧混合:
- *   a. 浏览器 fetch(原始 m3u8)  ——浏览器没被地域封, 能拿到
- *   b. POST /v1/m3u8/filter?src=<原始url>  body=该文本 → 服务器只剔广告 + 把分片绝对化(不联网)
+ * 2026-10-28 服务端 /v1/m3u8/filter/proxy/stream/stats 全线下线, 此函数**纯本地实现**:
+ *   a. 浏览器 fetch(原始 m3u8) —— 浏览器没被地域封, 能拿到
+ *   b. 本地 TS 内核 rewriteM3u8 剔广告 + 绝对化 (同 Kotlin PlayerAdFilterHelper + Go golden 夹具)
  *   c. 过滤后文本 → Blob → URL.createObjectURL → blob: URL 喂 video.js (绝对清单可直接播)
- *   d. 降级链: b 步任一失败 → 退回服务端 /m3u8/proxy; 浏览器 fetch 原始失败 → 用原始直链(不过滤)
+ *   d. 降级: fetch 失败 → 直接用原始直链(不过滤, 保证能播)。
+ * 无服务端回退路径。
  *
  * effectiveSrc 由同步 computed 改为【异步求出】写入 playSrc ref(下方 resolvePlaySrc),
  * 由 watch(currentSrc + adFilter) 驱动, 用 token 防竞态(切集快时旧异步结果不回写)。
@@ -413,21 +388,6 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** 服务端代理 URL(降级用): 由服务器抓源 + 过滤(分片仍直连, proxyMedia=0). */
-function proxyAdFilterUrl(originalUrl: string): string {
-  return `${absApiBase()}/v1/m3u8/proxy?src=${encodeURIComponent(originalUrl)}`
-}
-
-/** 全量中转 URL: 分片也经服务器转发(proxyMedia=1). 与原生 PlayerUrls.relay 语义一致. */
-function proxyRelayUrl(originalUrl: string): string {
-  return `${absApiBase()}/v1/m3u8/proxy?src=${encodeURIComponent(originalUrl)}&filterAds=1&proxyMedia=1`
-}
-
-/** 端侧混合过滤接口 URL。 */
-function clientFilterUrl(originalUrl: string): string {
-  return `${absApiBase()}/v1/m3u8/filter?src=${encodeURIComponent(originalUrl)}`
-}
-
 /**
  * GET 原始清单文本。
  * signal: 切集/切源时 abort。
@@ -441,40 +401,16 @@ async function fetchPlaylist(url: string, signal: AbortSignal): Promise<string> 
 }
 
 /**
- * POST 清单文本到服务器过滤(端侧混合过滤的"过滤"半程, 浏览器抓源无地域封;
- * 服务器只过滤文本不联网, 把分片/子表绝对化)。返回过滤后文本 + 剔除数。
- */
-async function filterViaServer(
-  url: string,
-  rawText: string,
-  signal: AbortSignal
-): Promise<{ text: string; filtered: number }> {
-  const resp = await fetch(clientFilterUrl(url), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/vnd.apple.mpegurl' },
-    body: rawText,
-    cache: 'no-store',
-    signal
-  })
-  if (!resp.ok) throw new Error(`filter ${resp.status}`)
-  const filteredText = await resp.text()
-  if (!filteredText) throw new Error('empty filtered')
-  return { text: filteredText, filtered: Number(resp.headers.get('X-Ad-Filtered') ?? '0') || 0 }
-}
-
-/**
- * 端侧混合过滤主链路: 逐层抓清单, **只有媒体列表(含分片, #EXTINF 判据)才本地过滤**。
+ * 端侧本地过滤主链路: 逐层抓清单, **只有媒体列表(含分片, #EXTINF 判据)才本地过滤**。
  * master/媒体的判据用内容(#EXTINF, utils.hasMediaSegments, 与安卓 PlayerUrls 同款)而非
  * URL 扩展名: 变体地址不带 .m3u8 后缀的源按扩展名会被误判成媒体表, master 层被当媒体层
  * 过滤, 带广告的子表被播放器直连绕过(2026-10-19 修正)。
  * master 主表没有任何分片可剔(过滤的全部产出只是 URI 绝对化, 浏览器本来就会做)
- * → 免过滤直接下钻子表, 把 master+子表两趟"上传清单+服务器往返"(实测单次 0.13~3.3s)
- * 减为零往返(2026-10-19 加速; 2026-10-23 再进一步: 媒体列表由本地 TS 内核过滤,
- * 免 POST /v1/m3u8/filter, 与安卓 master-direct 同款)。
+ * → 免过滤直接下钻子表(2026-10-19 加速)。
  * bf 等源对不同 IP 可能返回 master 主表(分片在子表里), 故**跟随 master→子表逐层下钻**
  * (单清晰度 VOD 通常 1 层), 否则只过滤主表、带广告的子表会被播放器直连绕过。
  * 成功返回 { text: 最终(已过滤、已绝对化)清单文本, filtered: 剔除数 };
- * 任一步失败抛错(由 resolvePlaySrc 接住做降级); 本地过滤异常回退服务端 POST。
+ * 抓取失败抛错(由 resolvePlaySrc 接住走直链)。服务端过滤已下线(2026-10-28), 无服务端回退。
  */
 async function filterPlaylistChain(
   originalUrl: string,
@@ -490,22 +426,13 @@ async function filterPlaylistChain(
       cur = new URL(child, cur).href
       continue
     }
-    // 媒体列表: 本地过滤优先(TS 内核 = Go 移植, 绝对化+过滤一次完成, 免服务端往返);
-    // 纯函数理论上不抛错, 防御性 try 兜底仍走服务端 POST(降级路径保留)
-    try {
-      const r = rewriteM3u8(lastRaw, cur, { filterAds: true })
-      return { text: r.text, filtered: r.filtered }
-    } catch {
-      return filterViaServer(cur, lastRaw, signal)
-    }
-  }
-  // 异常兜底: 3 层全是 master(病态源) → 最后一层也本地过滤, 失败回退服务端 POST
-  try {
+    // 媒体列表: 本地 TS 内核过滤(绝对化+三维判定一次完成)
     const r = rewriteM3u8(lastRaw, cur, { filterAds: true })
     return { text: r.text, filtered: r.filtered }
-  } catch {
-    return filterViaServer(cur, lastRaw, signal)
   }
+  // 异常兜底: 3 层全是 master(病态源) → 最后一层也本地过滤
+  const r = rewriteM3u8(lastRaw, cur, { filterAds: true })
+  return { text: r.text, filtered: r.filtered }
 }
 
 /* ============ 端侧取源(client 模式)的下一集过滤结果缓存 ============
@@ -593,34 +520,10 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     return
   }
 
-  // 中转开关(全量转发, /settings 页或安卓抽屉可开): 直连异常时经服务器全量转发(proxyMedia=1).
-  // 服务器明确抓不到该源(adFilterOk===false)时中转无意义 → 走下方端侧混合过滤(浏览器抓).
-  if (relayCache.value && currentSource.value?.adFilterOk !== false) {
-    adFilterBadge.value = { kind: 'proxy', count: 0 }
-    commit(proxyRelayUrl(originalUrl), 'application/x-mpegURL', false)
-    return
-  }
-
-  // 过滤取源方式(jc-filter-mode, /settings 页与安卓抽屉可改):
-  //   server = 云端取源(服务器抓清单+过滤)。服务器在境外、抓源慢, 仅端侧被地域封等场景手动开启。
-  //   client(默认) = 端侧抓清单 → 服务器只做文本过滤(下方)。
-  // 服务器明确抓不到该源(adFilterOk===false)时云端取源必失败 → 落回端侧取源。
-  if (filterMode.value === 'server' && currentSource.value?.adFilterOk !== false) {
-    adFilterBadge.value = { kind: 'proxy', count: 0 }
-    commit(proxyAdFilterUrl(originalUrl), 'application/x-mpegURL', false)
-    return
-  }
-
   // 无 MSE 的设备(iPhone Safari 等原生 HLS): blob 清单原生播放器解析不了(实测 CODE:4),
-  // 端侧过滤整体不可用 → 服务端代理过滤; 服务器抓不到该源则直接原始直链。
+  // 端侧过滤整体不可用, 服务端过滤已下线(2026-10-28) → 直接原始直链(不过滤)。
   // (必须在查 blob 缓存之前 —— 缓存的也是 blob, 原生设备一样播不了)
-  const clientGate = resolveClientFilterGate({ hasMse, adFilterOk: currentSource.value?.adFilterOk })
-  if (clientGate === 'proxy') {
-    adFilterBadge.value = { kind: 'proxy', count: 0 }
-    commit(proxyAdFilterUrl(originalUrl), 'application/x-mpegURL', false)
-    return
-  }
-  if (clientGate === 'direct') {
+  if (!hasMse) {
     adFilterBadge.value = { kind: 'nosupport', count: 0 }
     commit(originalUrl, '', false)
     return
@@ -669,16 +572,9 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     } catch {
       if (token !== playSrcToken) return
     }
-    // 重试也失败 → 服务端 m3u8 已知不可达(ad_filter_ok=false)时直接走原始直链
-    if (currentSource.value?.adFilterOk === false) {
-      reportAdFilterFailure('web')
-      adFilterBadge.value = { kind: 'failed', count: 0 }
-      commit(originalUrl, '', false)
-      return
-    }
-    // 降级 1: 退回服务端 proxy(服务器能抓的源仍可过滤); 端侧拿不到过滤数, 角标转「服务端过滤中」
-    adFilterBadge.value = { kind: 'proxy', count: 0 }
-    commit(proxyAdFilterUrl(originalUrl), 'application/x-mpegURL', false)
+    // 重试也失败(抓源失败/源不可达) → 原始直链不过滤(角标「过滤失败」), 不阻塞播放
+    adFilterBadge.value = { kind: 'failed', count: 0 }
+    commit(originalUrl, '', false)
   }
 }
 
@@ -1073,40 +969,11 @@ import { telemetry } from '@/utils/telemetry'
 import {
   adFilterBadgeText,
   adFilterSuccessMessage,
-  buildAdFilterFailureEvent,
   firstChildPlaylistUrl,
   loadingHintText,
-  resolveClientFilterGate,
   type AdFilterBadgeKind
 } from '@/utils/adFilter'
 import { rewriteM3u8 } from '@/utils/m3u8Filter'
-
-/**
- * 广告过滤代理播放失败 → 上报埋点存链接, 便于后台分析过滤为何挂.
- * 由 web(video.js)/native(ExoPlayer) 两处"回退原片"逻辑调用.
- */
-function reportAdFilterFailure(channel: 'web' | 'native'): void {
-  const ep = currentEpisode.value
-  const originalUrl = ep?.link ?? currentSrc.value
-  if (!originalUrl) return
-  telemetry.track(
-    'error',
-    buildAdFilterFailureEvent({
-      channel,
-      originalUrl,
-      proxyUrl: wrapAdFilterUrl(originalUrl),
-      sourceId: currentSourceId.value,
-      sourceName: currentSource.value?.name,
-      episodeIndex: currentEpisodeIndex.value,
-      filmId: detail.value ? String(detail.value.mid) : undefined,
-      filmName: detail.value?.name
-    })
-  )
-  // 兜底上报到服务端: 立即把该源 ad_filter_ok 置 false(播放信息缓存过期时也能即时生效),
-  // 后续观众跳过死掉的代理过滤链路。fire-and-forget, 失败静默(遥测已留痕)。
-  const siteId = currentSourceId.value.split(':')[0] ?? ''
-  if (siteId) void postAdFilterFailure(siteId).catch(() => {})
-}
 
 /**
  * Android TV 壳 (Jerocine APK) 注入的 JS Bridge.
@@ -1227,7 +1094,7 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
   // 接通历史: filmId + filmName 让 native 周期回传 playerProgress, App.vue 写历史
   const src = currentSource.value
   if (isNative() && detail.value && src) {
-    // 统一派发(与详情页 gotoPlay / 路由守卫共用 dispatchNativePlaylist: 映射源+建历史+skip+proxyBase 一处)
+    // 统一派发(与详情页 gotoPlay / 路由守卫共用 dispatchNativePlaylist: 映射源+建历史+skip 一处)
     dispatchNativePlaylist(detail.value, src.id, currentEpisodeIndex.value, resumeAt)
     return
   }
@@ -1235,8 +1102,8 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
   const native = getNativePlayer()
   if (native?.playPlaylist && src) {
     const movieName = detail.value?.name ?? ''
-    // 一律给**原始地址**: 包不包 /m3u8/proxy 由原生自己按 adFilterOk 决定(端侧混合过滤优先),
-    // web 层预包装会让原生看不到 adFilterOk 而白撞一次代理(实测失败源要等 2~15s 才回退)。
+    // 一律给**原始地址**: 端侧本地过滤成为唯一路径(服务端过滤/代理/中转均已下线),
+    // 原生按 adFilter 开关决定是否在 PlayerAdFilterHelper 走本地内核, web 层无需预包装。
     const episodes = src.episodes.map((e) => ({
       url: e.link,
       title: `${movieName} · ${e.episode ?? ''}`.trim()
@@ -1294,7 +1161,6 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
 
 /* ============ 下一集预取(自动连播场景, 消除切集过滤窗口) ============
  * 仅当"广告过滤开 + 自动连播开启 + 有下一集 + 距自动切集点 <= 60s"才后台预取(幂等+静默失败):
- *   - 云端取源(server): GET /m3u8/proxy 预热服务器 10min 过滤缓存 → 切集直接命中;
  *   - 端侧取源(client, 默认): 把下一集"抓源+过滤"整个提前跑掉, 过滤文本存本地缓存
  *     (filteredTextCache) → 自动切集时 resolvePlaySrc 缓存命中, 过滤窗口归零。
  * 切集时在途预取立即 abort。 */
@@ -1303,8 +1169,7 @@ const prefetchedEpisodeKey = ref('')
 let prefetchAbort: AbortController | null = null
 async function prefetchNextEpisode(): Promise<void> {
   if (!adFilter.value || !autoPlayNext.value || !hasNext.value) return
-  // 中转模式清单由服务器整体包装(proxyMedia=1), 端侧过滤结果没人消费
-  if (relayCache.value && currentSource.value?.adFilterOk !== false) return
+  if (!hasMse) return // 无 MSE 设备: 无端侧过滤形态, 无可预热
   const nextIdx = currentEpisodeIndex.value + 1
   const key = `${currentSourceId.value}/${nextIdx}`
   if (prefetchedEpisodeKey.value === key) return
@@ -1323,19 +1188,9 @@ async function prefetchNextEpisode(): Promise<void> {
     prefetchAbort?.abort()
     const ctl = new AbortController()
     prefetchAbort = ctl
-    if (filterMode.value === 'server' && currentSource.value?.adFilterOk !== false) {
-      // 云端取源: 预热服务端 proxy(抓源站+过滤+写缓存), 响应丢弃; 失败静默不重试。
-      await fetch(proxyAdFilterUrl(ep.link), { method: 'GET', signal: ctl.signal })
-    } else if (resolveClientFilterGate({ hasMse, adFilterOk: currentSource.value?.adFilterOk }) === 'client') {
-      // 端侧取源(默认, 需 MSE): 提前跑完整过滤链(master 免 POST), 过滤文本入本地缓存。
-      // 服务端明确抓不到的源(adFilterOk=false)云端取源必失败, 也落这里走端侧。
-      const r = await filterPlaylistChain(ep.link, ctl.signal)
-      rememberFilteredText(ep.link, r.text, r.filtered)
-    } else if (currentSource.value?.adFilterOk !== false) {
-      // 原生 HLS 降级代理(gate=proxy): 同样预热服务端 proxy 缓存。
-      // gate=direct(adFilterOk=false): 无过滤形态, 无可预热。
-      await fetch(proxyAdFilterUrl(ep.link), { method: 'GET', signal: ctl.signal })
-    }
+    // 端侧取源(需 MSE): 提前跑完整过滤链(master 免过滤), 过滤文本入本地缓存。
+    const r = await filterPlaylistChain(ep.link, ctl.signal)
+    rememberFilteredText(ep.link, r.text, r.filtered)
   } catch {
     /* 预取失败不影响播放(切集时再付一次全价); abort 走这里被静默吞掉 */
   }
@@ -1780,7 +1635,6 @@ function handleVideoError(): void {
     currentSrc.value &&
     reM3u8.test(currentSrc.value)
   ) {
-    reportAdFilterFailure('web') // 存链接备查
     adFilter.value = false
     toast('warning', '广告过滤异常, 已回退原片')
     return
@@ -1919,7 +1773,6 @@ onMounted(async () => {
     // APK native ExoPlayer 报错回调: 方案B 下原生已自行"本集回退原始源", 仅当原始源也失败才会
     // 走到这里(真·失败)。不再全局关广告过滤(那会让一次抖动后所有集都不过滤), 只上报+提示切源。
     ;(window as unknown as { __jerocineNativeError?: () => void }).__jerocineNativeError = () => {
-      reportAdFilterFailure('native') // 存链接备查
       toast('error', '播放失败, 请尝试切换其他播放源')
     }
   }

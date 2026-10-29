@@ -1,25 +1,10 @@
 /**
- * adFilter - 广告过滤的成功提示 / 失败埋点纯逻辑.
+ * adFilter - 广告过滤的成功提示 / 角标纯逻辑.
  *
  * 抽成纯函数便于单测; PlayView.vue 负责副作用(fetch / toast / telemetry).
- *  - 成功: GET /m3u8/stats?src=... 返回 {filtered,total}(dto.OK 直返, 无 data 外层),
- *          filtered>0 时提示"已过滤 N 段广告".
- *  - 失败: 播放代理 URL 报错回退原片时, 上报 category=adfilter-fail 埋点, 存原始 + 代理链接备查.
+ *  - 成功: 本地内核(m3u8Filter.rewriteM3u8)返回 filtered>0 时提示"已过滤 N 段广告".
+ *  - 服务端过滤已下线(2026-10-28): 端侧本地过滤是唯一路径, 无 MSE 设备走原始直链.
  */
-
-/** 后端 /m3u8/stats 契约 (server M3u8Stats), dto.OK 直返顶层字段. */
-export interface AdFilterStats {
-  filtered: number
-  total: number
-}
-
-/** 宽松解析 stats 响应: 非法/缺字段一律归 0, 不抛错. */
-export function parseAdFilterStats(body: unknown): AdFilterStats {
-  const o = (body ?? {}) as Record<string, unknown>
-  const filtered = typeof o.filtered === 'number' && o.filtered > 0 ? Math.floor(o.filtered) : 0
-  const total = typeof o.total === 'number' && o.total > 0 ? Math.floor(o.total) : 0
-  return { filtered, total }
-}
 
 /** 成功提示文案. */
 export function adFilterSuccessMessage(filtered: number): string {
@@ -39,53 +24,6 @@ export function adFilterSuccessMessage(filtered: number): string {
 export function loadingHintText(opts: { srcReady: boolean; filtering: boolean }): string {
   if (opts.srcReady) return '正在缓冲视频…'
   return opts.filtering ? '正在准备视频 · 广告过滤中…' : '正在准备视频…'
-}
-
-/** 取 URL host, 解析失败返回空串. 用于埋点 label 按来源 CDN 聚合. */
-export function adFilterHost(url: string): string {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return ''
-  }
-}
-
-export interface AdFilterFailureCtx {
-  /** 'web' = video.js 报错; 'native' = 原生 ExoPlayer 报错回调 */
-  channel: 'web' | 'native'
-  /** 原始片源 URL(未包代理) */
-  originalUrl: string
-  /** 实际喂播放器的代理 URL */
-  proxyUrl: string
-  sourceId?: string
-  sourceName?: string
-  episodeIndex?: number
-  filmId?: string
-  filmName?: string
-}
-
-/** telemetry.track('error', ...) 的入参; 把链接存进 extra 便于后台按 host 聚合 + 复现. */
-export function buildAdFilterFailureEvent(ctx: AdFilterFailureCtx): {
-  category: string
-  action: string
-  label: string
-  extra: Record<string, unknown>
-} {
-  return {
-    category: 'adfilter-fail',
-    action: ctx.channel,
-    label: adFilterHost(ctx.originalUrl) || 'unknown',
-    extra: {
-      src: ctx.originalUrl,
-      proxyUrl: ctx.proxyUrl,
-      sourceId: ctx.sourceId ?? '',
-      sourceName: ctx.sourceName ?? '',
-      episode: ctx.episodeIndex ?? -1,
-      filmId: ctx.filmId ?? '',
-      filmName: ctx.filmName ?? '',
-      channel: ctx.channel
-    }
-  }
 }
 
 /* ============ 清单判据 (与安卓 player-core PlayerUrls 同款口径) ============ */
@@ -124,26 +62,24 @@ export function firstChildPlaylistUrl(text: string): string | null {
 /* ============ 角标文案 (与安卓 AdFilterStatus 逐字对齐) ============ */
 
 /** 广告过滤角标状态 — 与安卓 AdFilterStatus 同名同文案(文案在 adFilterBadgeText)。
- *  nosupport 为 web 端新增: 设备走原生 HLS(无 MSE), 端侧 blob 清单不可播。 */
+ *  nosupport 为 web 端新增: 设备走原生 HLS(无 MSE), 端侧 blob 清单不可播。
+ *  2026-10-28: 'proxy'(服务端过滤中) 随服务端过滤下线移除。 */
 export type AdFilterBadgeKind =
   | 'off'
   | 'unsupported'
-  | 'proxy'
   | 'filtering'
   | 'clean'
   | 'filtered'
   | 'failed'
   | 'nosupport'
 
-/** 角标文案。色调约定: off/unsupported/failed=灰, proxy/filtering=蓝, clean/filtered=绿。 */
+/** 角标文案。色调约定: off/unsupported/failed=灰, filtering=蓝, clean/filtered=绿。 */
 export function adFilterBadgeText(kind: AdFilterBadgeKind, count: number): string {
   switch (kind) {
     case 'off':
       return '过滤未开启'
     case 'unsupported':
       return '该源无需过滤'
-    case 'proxy':
-      return '服务端过滤中'
     case 'filtering':
       return '广告过滤中'
     case 'clean':
@@ -155,24 +91,4 @@ export function adFilterBadgeText(kind: AdFilterBadgeKind, count: number): strin
     case 'nosupport':
       return '该设备不支持端侧过滤'
   }
-}
-
-/* ============ 端侧 blob 过滤的可用性闸 ============ */
-
-export type ClientFilterGate = 'client' | 'proxy' | 'direct'
-
-/**
- * 决定端侧过滤形态: blob 清单只有 MSE 系播放器(video.js VHS / hls.js)能解析;
- * iPhone Safari 无 MSE, video.js 走原生 HLS —— 原生播放器把 blob 清单当不支持的源,
- * 直接 CODE:4 MEDIA_ERR_SRC_NOT_SUPPORTED(2026-10-26 WebKit 复现 + 线上 iPhone
- * 实机同码), 此前一直靠 handleVideoError 兜底"关过滤回退原片"硬扛, iPhone 观众
- * 实际享受不到过滤还白吃一轮报错。无 MSE 时降级: 服务端代理过滤(服务器抓不到
- * 该源 adFilterOk=false 时代理必失败, 直接原始直链)。
- */
-export function resolveClientFilterGate(opts: {
-  hasMse: boolean
-  adFilterOk: boolean | undefined
-}): ClientFilterGate {
-  if (opts.hasMse) return 'client'
-  return opts.adFilterOk === false ? 'direct' : 'proxy'
 }

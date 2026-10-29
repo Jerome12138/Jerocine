@@ -4,16 +4,11 @@ import {
   AD_FILTER_KEY,
   AUTO_PLAY_NEXT_KEY,
   DANMAKU_KEY,
-  FILTER_MODE_KEY,
-  RELAY_CACHE_KEY,
   setAdFilter,
   setAutoPlayNext,
-  setDanmaku,
-  setFilterMode,
-  setRelayCache
+  setDanmaku
 } from '@/composables/useWebSettings'
 import { DANMAKU_SETTINGS_KEY } from '@/composables/useDanmaku'
-import type { FilterMode } from '@/composables/useWebSettings'
 import { SETTING_CHANGED_EVENT, SETTINGS_APPLIED_EVENT } from '@/utils/settingEvents'
 import { useUserStore } from '@/stores/user'
 
@@ -25,13 +20,13 @@ import { useUserStore } from '@/stores/user'
  *  - 云端是 localStorage 指定 key 的镜像(字符串原样); 服务端只存不解释,
  *    新设置项把 key 加进 SYNC_KEYS 即随账号记忆。
  *  - 防回环: apply(拉取合并)期间忽略 changed 事件; 幂等, 多一次上报也无碍。
+ *
+ * 历史(2026-10-28 下线): filterMode/relayCache 已随服务端 m3u8 过滤/中转链路删除移除。
  */
 
 /** 参与账号记忆的 localStorage key(值按字符串原样镜像) */
 const SYNC_KEYS: readonly string[] = [
   AD_FILTER_KEY,
-  FILTER_MODE_KEY,
-  RELAY_CACHE_KEY,
   AUTO_PLAY_NEXT_KEY,
   DANMAKU_KEY,
   DANMAKU_SETTINGS_KEY
@@ -83,9 +78,7 @@ function apply(data: Record<string, unknown>): void {
     // 同步模块级单例 ref(setter 会再 persist 一次同值, 幂等无害)
     if (key === DANMAKU_KEY) setDanmaku(cloud === '1')
     else if (key === AD_FILTER_KEY) setAdFilter(cloud === '1')
-    else if (key === RELAY_CACHE_KEY) setRelayCache(cloud === '1')
     else if (key === AUTO_PLAY_NEXT_KEY) setAutoPlayNext(cloud === '1')
-    else if (key === FILTER_MODE_KEY) setFilterMode(cloud as FilterMode)
     // jc-danmaku-settings 由 applied 事件 → useDanmaku 重载(响应式 ref 无法感知第三方写入 localStorage)
   }
   if (changed) {

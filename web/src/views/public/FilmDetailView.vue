@@ -256,7 +256,7 @@ function gotoPlay(sourceId: string, episodeIndex: number, resumeSec = 0): void {
     })
   }
   if (isNative()) {
-    // 统一派发(映射源+建历史+skip+proxyBase 全在 dispatchNativePlaylist 一处)
+    // 统一派发(映射源+建历史+skip 全在 dispatchNativePlaylist 一处)
     if (dispatchNativePlaylist(d, sourceId, episodeIndex, resumeSec)) return
     // 数据不全, 回退到 web 路由让 PlayView 自己拉
   }

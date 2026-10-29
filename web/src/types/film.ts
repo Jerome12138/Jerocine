@@ -98,8 +98,6 @@ export interface PlaySource {
   id: string
   name: string
   episodes: Episode[]
-  /** 服务端 m3u8 可达性(广告过滤代理链路): false=直接走直链跳过过滤代理; undefined=未测 */
-  adFilterOk?: boolean
 }
 
 /** 影片详情(字段扁平 + 多源) */

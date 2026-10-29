@@ -112,7 +112,7 @@ export interface SourceHealthRow {
   pageCount: number
   collected: number // 已采集片数(该源 movie_play_source 行数, 实时)
   total: number // 目录总片数(资源最全)
-  playLatencyMs: number // 服务端抽样 m3u8 延时(0=未测, 广告过滤可达性)
+  playLatencyMs: number // 服务端抽样 m3u8 延时(0=未测, 播放线路排序用)
   okCount: number
   probes: number
   consecutiveFails: number
@@ -124,9 +124,6 @@ export interface SourceHealthRow {
   playCheckedAt: number
   /** 样本 m3u8(端侧播放测速用) */
   sampleM3u8: string
-  /** 服务端 m3u8 可达性: null=未测 */
-  adFilterOk: boolean | null
-  adFilterAt: number
 }
 
 /** GET /manage/collect-sources/health 健康度面板 */
@@ -144,10 +141,6 @@ export const sampleM3u8 = async (id: string): Promise<string> => {
 /** POST /manage/collect-sources/:id/play-latency 浏览器端播放测速结果回传落库 */
 export const recordPlayLatency = (id: string, ms: number): Promise<void> =>
   http.post<unknown, void>(`/manage/collect-sources/${enc(id)}/play-latency`, { ms })
-
-/** POST /ad-filter/feedback (公开) 播放端兜底上报: 广告过滤链路实际失败 → 立即标不可达 */
-export const reportAdFilterFailure = (sourceId: string): Promise<void> =>
-  http.post<unknown, void>('/ad-filter/feedback', { sourceId, ok: false })
 
 // ============ 采集任务 / 控制 ============
 

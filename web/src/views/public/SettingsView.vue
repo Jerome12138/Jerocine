@@ -13,13 +13,9 @@ import { ref } from 'vue'
 
 const {
   adFilter,
-  filterMode,
-  relayCache,
   autoPlayNext,
   danmaku,
   setAdFilter,
-  setFilterMode,
-  setRelayCache,
   setAutoPlayNext,
   setDanmaku
 } = useWebSettings()
@@ -60,13 +56,6 @@ const toggles = [
     desc: '剔除 m3u8 插片/跨域广告 · 默认开启',
     get: () => adFilter.value,
     set: (v: boolean) => setAdFilter(v)
-  },
-  {
-    key: 'relayCache',
-    title: '全量中转',
-    desc: '直连异常时分片也经服务器转发(流量走服务器, 默认关)',
-    get: () => relayCache.value,
-    set: (v: boolean) => setRelayCache(v)
   },
   {
     key: 'autoPlayNext',
@@ -114,43 +103,6 @@ const toggles = [
           <span class="jc-settings-page__knob" />
         </span>
       </button>
-
-      <!-- 过滤取源方式: 端侧取源(默认) / 云端取源 -->
-      <div class="jc-settings-page__row" role="radiogroup" aria-label="过滤取源方式">
-        <span class="jc-settings-page__row-main">
-          <span class="jc-settings-page__row-title">过滤取源方式</span>
-          <span class="jc-settings-page__row-desc">
-            端侧取源 = 设备自己拉 m3u8、服务器只做过滤（推荐, 服务器在境外取源慢）；
-            云端取源 = 由服务器抓取并过滤，仅设备被源站地域封锁时使用
-          </span>
-        </span>
-      </div>
-      <div class="jc-settings-page__segment" role="radiogroup" aria-label="过滤取源方式">
-        <button
-          type="button"
-          class="jc-settings-page__seg-btn"
-          :class="{ 'is-active': filterMode === 'client' }"
-          role="radio"
-          :aria-checked="filterMode === 'client'"
-          data-focusable="true"
-          @click="setFilterMode('client')"
-        >
-          <span v-if="filterMode === 'client'" class="jc-settings-page__seg-check" aria-hidden="true">✓</span>
-          端侧取源
-        </button>
-        <button
-          type="button"
-          class="jc-settings-page__seg-btn"
-          :class="{ 'is-active': filterMode === 'server' }"
-          role="radio"
-          :aria-checked="filterMode === 'server'"
-          data-focusable="true"
-          @click="setFilterMode('server')"
-        >
-          <span v-if="filterMode === 'server'" class="jc-settings-page__seg-check" aria-hidden="true">✓</span>
-          云端取源
-        </button>
-      </div>
     </div>
 
     <!-- 跳过片头片尾: 用户级全局默认（单影片配置优先） -->

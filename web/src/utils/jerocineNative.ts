@@ -40,17 +40,6 @@ interface CallResult {
 
 type EventHandler = (payload: unknown) => void
 
-/**
- * 绝对 API base(到 /api)。派发原生播放器时作为 proxyBase 传入, 原生据此拼 /v1/m3u8/filter
- * 做端侧广告过滤。三个派发入口(PlayView / 详情页直跳 / 路由快捷路径)统一用它,
- * 避免某些入口漏传致原生"代理地址未传"、广告过滤不触发。
- */
-export function absApiBase(): string {
-  const apiBase = (import.meta.env.VITE_API_BASE as string | undefined) || '/api'
-  const isAbs = /^https?:\/\//i.test(apiBase)
-  return isAbs ? apiBase : (typeof window !== 'undefined' ? window.location.origin : '') + apiBase
-}
-
 function getBridge(): NativeBridge | undefined {
   if (typeof window === 'undefined') return undefined
   const w = window as unknown as { JerocineNative?: NativeBridge; JerocinePlayer?: NativeBridge }
@@ -206,11 +195,6 @@ export const jerocine = {
     sources?: Array<{
       id: string
       name: string
-      /**
-       * 服务端 m3u8 可达性(play 接口标注): false ⇒ 原生不包装 /m3u8/proxy, 走直链 +
-       * 端侧混合过滤。undefined(未测) 时保持旧行为(仍走代理)。
-       */
-      adFilterOk?: boolean
       episodes: Array<{ url: string; title?: string }>
     }>
     /** v3 多源: 初始选中的源 id (找不到时默认 sources[0]) */
@@ -225,8 +209,6 @@ export const jerocine = {
     autoNext?: boolean
     filmId?: string
     filmName?: string
-    /** 方案B: 传原始 m3u8 + 代理 base, 由原生每集自行包装代理过滤(不再 web 预包装) */
-    proxyBase?: string
     /** 初始广告过滤开关(原生以自身持久化为准, 仅作初值参考) */
     adFilter?: boolean
   }): void {
