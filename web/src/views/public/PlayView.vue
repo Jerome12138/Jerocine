@@ -831,7 +831,6 @@ const danmaku = useDanmaku({
   year: computed(() => detail.value?.year),
   episode: computed(() => currentEpisodeIndex.value + 1),
   player,
-  playing: computed(() => !paused.value),
   // 实际生效 = 用户级; 任一变化触发 useDanmaku watch 重载
   enabled: danmakuActive
 })
@@ -1803,6 +1802,11 @@ onBeforeRouteLeave(() => {
   if (loadingFallbackTimer !== undefined) {
     window.clearTimeout(loadingFallbackTimer)
     loadingFallbackTimer = undefined
+  }
+  // 移动端 10s 兜底定时器同样清理(否则离页后仍触发, 向已卸载组件的 loading 写值 + 误报埋点)
+  if (mobileExtraTimeout !== undefined) {
+    window.clearTimeout(mobileExtraTimeout)
+    mobileExtraTimeout = undefined
   }
   cancelPendingResolve() // 在途的过滤/加载请求立即终止
   prefetchAbort?.abort() // 在途的下一集预取一并取消

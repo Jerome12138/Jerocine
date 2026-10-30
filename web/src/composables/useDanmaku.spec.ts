@@ -76,7 +76,6 @@ const comments = [
 function mountHost(mid: number | undefined, enabled = true, withPlayer = true) {
   const midRef = ref(mid)
   const enabledRef = ref(enabled)
-  const playingRef = ref(true)
   const titleRef = ref('庆余年 第二季')
   const yearRef = ref<number | undefined>(2024)
   const episodeRef = ref(1)
@@ -89,7 +88,6 @@ function mountHost(mid: number | undefined, enabled = true, withPlayer = true) {
         year: yearRef,
         episode: episodeRef,
         player: playerRef,
-        playing: playingRef,
         enabled: enabledRef
       })
       return { api }
@@ -100,7 +98,7 @@ function mountHost(mid: number | undefined, enabled = true, withPlayer = true) {
   })
   const w = mount(Host)
   const api = (w.vm as unknown as { api: ReturnType<typeof useDanmaku> }).api
-  return { w, api, midRef, enabledRef, titleRef, playingRef, episodeRef, playerRef }
+  return { w, api, midRef, enabledRef, titleRef, episodeRef, playerRef }
 }
 
 describe('useDanmaku', () => {
@@ -153,16 +151,31 @@ describe('useDanmaku', () => {
     expect(api.hasDanmaku.value).toBe(false)
   })
 
-  it('接口失败（网络/超时）⇒ failed 可重试', async () => {
+  it('接口失败（网络/超时）⇒ 自动重试 1 次后 failed 可手动重试恢复', async () => {
     m.getDanmuAggregate.mockRejectedValue(new ApiError(500))
     const { api } = mountHost(4)
-    await flush()
+    // 重试链: 首次 + 1 次重试(1s 退避) → failed
+    await new Promise((r) => setTimeout(r, 1400))
+    await nextTick()
     expect(api.danmuState.value).toBe<DanmuState>('failed')
-    // reload 重试后恢复
+    expect(m.getDanmuAggregate).toHaveBeenCalledTimes(2) // 500 非 404 → 重试 1 次
+    // reload(手动)重试后恢复
     m.getDanmuAggregate.mockResolvedValue({ comments })
     api.reload()
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
+  })
+
+  it('聚合偶发失败 → 自动重试成功即恢复(不落 failed)', async () => {
+    // 首次 500, 重试成功 —— E2E 发现的生产偶发失败场景
+    m.getDanmuAggregate
+      .mockRejectedValueOnce(new ApiError(500))
+      .mockResolvedValue({ comments })
+    const { api } = mountHost(4)
+    await new Promise((r) => setTimeout(r, 1400))
+    await nextTick()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(api.hasDanmaku.value).toBe(true)
   })
 
   it('无影片名 ⇒ unsupported（聚合按标题匹配, 无标题无从匹配）', async () => {
@@ -214,7 +227,7 @@ describe('useDanmaku', () => {
     expect(items.some((it) => it.mode === 2)).toBe(false) // 底部(2)被过滤
   })
 
-  it('请求超时 ⇒ failed（withTimeout 中止）', async () => {
+  it('请求超时 ⇒ 两次都超时才 failed（withTimeout 中止 + 重试链）', async () => {
     DANMAKU_FETCH_TIMEOUTS.aggregate = 20
     m.getDanmuAggregate.mockImplementation(
       (_params: unknown, options?: { signal?: AbortSignal }) =>
@@ -225,11 +238,11 @@ describe('useDanmaku', () => {
         })
     )
     const { api } = mountHost(4)
-    await flush()
-    // 等 20ms 超时定时器真正触发后再断言
-    await new Promise((r) => setTimeout(r, 60))
+    // 重试链: 首次 20ms + 退避 1s + 重试 20ms → failed
+    await new Promise((r) => setTimeout(r, 1400))
     await nextTick()
     expect(api.danmuState.value).toBe<DanmuState>('failed')
+    expect(m.getDanmuAggregate).toHaveBeenCalledTimes(2) // 超时重试 1 次
   })
 
   it('设置读写: readDanmakuSettings 缺省回默认 + 越界钳制 + 旧速度档迁移', () => {
@@ -312,18 +325,7 @@ describe('useDanmaku', () => {
     expect(items.some((it) => it.mode === 2)).toBe(false)
   })
 
-  it('播放/暂停切换不触发重载(渲染跟随由插件自驱)', async () => {
-    m.getDanmuAggregate.mockResolvedValue({ comments })
-    const { api, playingRef } = mountHost(3)
-    await flush()
-    expect(api.danmuState.value).toBe<DanmuState>('ready')
-    playingRef.value = false
-    await flush()
-    playingRef.value = true
-    await flush()
-    expect(m.getDanmuAggregate).toHaveBeenCalledTimes(1)
-    expect(fakePlugin.load).toHaveBeenCalledTimes(1)
-  })
+
 
   it('云端设置合并事件: 重读设置, 内容映射变化(彩色)触发重载且全白', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })

@@ -3,7 +3,7 @@ import type Artplayer from 'artplayer'
 import type { Danmu } from 'artplayer-plugin-danmuku'
 import { ApiError } from '@/types/api'
 import { filmApi } from '@/api'
-import type { DanmuComment } from '@/types/film'
+import type { DanmuComment, DanmuAggregateResp } from '@/types/film'
 import { toDanmuInputs, type DanmuMapFilter } from '@/utils/danmu'
 import { SETTINGS_APPLIED_EVENT } from '@/utils/settingEvents'
 
@@ -85,10 +85,15 @@ export function danmakuSpeedOf(speed: number): number {
 }
 
 /** 单个弹幕请求超时（ms）：整集聚合容错更大（服务端聚合最坏数秒 + 4MB 级响应）。
+ *  60s: 4MB 大响应在弱链路/代理下实测 9-13s, 30s 曾出现偶发超时(E2E 发现) —— 放宽到 60s。
  *  导出为可变对象便于测试注入极小超时。 */
 export const DANMAKU_FETCH_TIMEOUTS = {
-  aggregate: 30_000
+  aggregate: 60_000
 }
+
+/** 聚合请求自动重试次数（仅超时/网络错; 404 不重试）:
+ *  E2E 实测生产/代理链路偶发 4MB 响应中途失败(21.7s/4.2s transferSize=0), 一次重试可恢复。 */
+export const DANMAKU_AGG_RETRIES = 1
 
 /** 读取弹幕显示设置（缺省/损坏回默认值） */
 export function readDanmakuSettings(): DanmakuSettings {
@@ -175,8 +180,6 @@ export interface UseDanmakuOptions {
   episode: Ref<number>
   /** 播放器实例（ready 前为 null；插件实例从 art.plugins 取） */
   player: ShallowRef<Artplayer | null>
-  /** 播放状态（插件自驱跟随, 这里仅作语义保留/测试桩用） */
-  playing: Ref<boolean>
   /** 开关 */
   enabled: Ref<boolean>
 }
@@ -252,17 +255,42 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (hit) return Promise.resolve(hit)
     const existing = aggReq.get(key)
     if (existing) return existing
-    const { promise } = withTimeout(
-      (signal) =>
-        filmApi.getDanmuAggregate(
-          { title: opts.title.value, episode: ep, year: opts.year.value },
-          { signal }
-        ),
-      DANMAKU_FETCH_TIMEOUTS.aggregate,
-      activeControllers
-    )
-    const req = promise
+    console.log('[danmaku] agg request START', key, 'timeout =', DANMAKU_FETCH_TIMEOUTS.aggregate)
+    const t0 = performance.now()
+    /** 单次请求（带超时）。失败(非 404)时由外层重试 DANMAKU_AGG_RETRIES 次。 */
+    const attempt = (): Promise<DanmuAggregateResp> => {
+      const { promise } = withTimeout(
+        (signal) =>
+          filmApi.getDanmuAggregate(
+            { title: opts.title.value, episode: ep, year: opts.year.value },
+            { signal }
+          ),
+        DANMAKU_FETCH_TIMEOUTS.aggregate,
+        activeControllers
+      )
+      return promise
+    }
+    /** 重试包装: 404 立即上抛(查无作品, 语义态); 其余(超时/网络/5xx)退避后重试。 */
+    const withRetry = async (): Promise<DanmuAggregateResp> => {
+      let lastErr: unknown
+      for (let i = 0; i <= DANMAKU_AGG_RETRIES; i++) {
+        if (i > 0) {
+          console.warn('[danmaku] agg retry', i, '/', DANMAKU_AGG_RETRIES, 'key =', key)
+          await new Promise((r) => setTimeout(r, 1000 * i))
+        }
+        try {
+          return await attempt()
+        } catch (err) {
+          lastErr = err
+          // 404 = 查无作品/该集 —— 语义结果, 重试无意义
+          if (err instanceof ApiError && err.status === 404) throw err
+        }
+      }
+      throw lastErr
+    }
+    const req = withRetry()
       .then((resp) => {
+        console.log('[danmaku] agg request OK', key, Math.round(performance.now() - t0) + 'ms, comments =', resp?.comments?.length ?? 0)
         aggReq.delete(key)
         const data = resp?.comments ?? []
         aggCache.set(key, data)
@@ -274,6 +302,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         return data
       })
       .catch((err) => {
+        const isAbort = (err as { code?: string })?.code === 'ERR_CANCELED'
+        console.warn('[danmaku] agg request FAIL', key, Math.round(performance.now() - t0) + 'ms', isAbort ? '(timeout abort)' : (err instanceof ApiError ? `ApiError ${err.status}` : String(err).slice(0, 80)))
         aggReq.delete(key)
         throw err
       })
