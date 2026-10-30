@@ -67,6 +67,7 @@ function selectChannel(ch: LiveChannel): void {
 /* ---------- 播放器（isLive） ---------- */
 const playerEl = ref<HTMLDivElement | null>(null)
 const playSrc = ref('')
+const buffering = ref(false)
 const {
   init: initPlayer,
   dispose: disposePlayer,
@@ -85,9 +86,16 @@ const {
   preload: 'metadata'
 })
 
+onPlayerEvent('waiting', () => {
+  buffering.value = true
+})
+onPlayerEvent('playing', () => {
+  buffering.value = false
+})
 onPlayerEvent('error', () => {
   // 直播源失效常见：频道离线/区域限制 —— 提示换频道
   console.warn('[live] player error, url =', playSrc.value)
+  buffering.value = false
 })
 
 async function loadChannels(sourceId: number): Promise<void> {
@@ -183,6 +191,11 @@ const pageTitle = '直播'
           <div v-if="channelsLoading || !playSrc" class="jc-live-loading" role="status" aria-live="polite">
             <BaseSkeleton variant="rect" class="jc-live-loading__box" />
             <span class="jc-live-loading__text">{{ channelsLoading ? '正在加载频道…' : '选择一个频道开始观看' }}</span>
+          </div>
+          <!-- 播放中缓冲 indicator (直播流加载慢时给用户反馈) -->
+          <div v-if="buffering" class="jc-live-buffering" role="status" aria-live="polite">
+            <span class="jc-live-buffering__spinner" />
+            <span class="jc-live-buffering__text">缓冲中…</span>
           </div>
         </div>
         <!-- 源切换（多源时展示） -->
@@ -323,6 +336,34 @@ const pageTitle = '直播'
 .jc-live-error {
   color: var(--jc-danger, #ef4444);
   font-size: var(--jc-fs-sm);
+}
+/* 直播缓冲中 overlay (播放中 rebuffer 时显示 spinner + 文案) */
+.jc-live-buffering {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background-color: rgba(0, 0, 0, 0.45);
+  z-index: 70;
+  pointer-events: none;
+}
+.jc-live-buffering__spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  animation: jc-live-spin 0.8s linear infinite;
+}
+@keyframes jc-live-spin {
+  to { transform: rotate(360deg); }
+}
+.jc-live-buffering__text {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
 }
 
 /* 频道列表 */

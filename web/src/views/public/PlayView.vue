@@ -49,7 +49,7 @@ import RelatedList from '@/components/film/RelatedList.vue'
 import DanmakuSettingsPanel from '@/components/film/DanmakuSettingsPanel.vue'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { useWebSettings } from '@/composables/useWebSettings'
-import { useDanmaku } from '@/composables/useDanmaku'
+import { useDanmaku, DANMAKU_FONT_STEPS, DANMAKU_AREA_STEPS, DANMAKU_SPEED_STEPS, DANMAKU_LIMIT_STEPS } from '@/composables/useDanmaku'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
@@ -59,7 +59,7 @@ import posterFallback from '@/assets/play.svg'
 
 const route = useRoute()
 const router = useRouter()
-const { isTV, isDesktop } = useViewMode()
+const { isTV, isDesktop, isMobile } = useViewMode()
 
 /** PC(A方案)按钮"更多"展开态: 一行放不下的低频项收进这里 */
 const moreActionsOpen = ref(false)
@@ -758,12 +758,16 @@ const {
   // 弱网友好默认: preload metadata 而非 auto, 起播更快; 弱网时启用 hls.js 低带宽预设
   preload: 'metadata',
   lowBandwidth: isSlowNetwork.value,
-  // I-018: 控制条内常驻「下一集」入口(仅 PC, 移动端不展示)
-  ...(isDesktop.value ? { nextEpisode: { onClick: () => playNext() } } : {}),
-  // 控制条弹幕开关(仅 PC 展示独立按钮; 移动端无此入口, 开关功能已整合进弹幕设置弹窗)
+  // I-018: 控制条内常驻「下一集」图标入口(左置, 始终展示; 移动端无文字仅图标)
+  nextEpisode: { onClick: () => playNext() },
+  // 控制条弹幕开关(PC 展示; 移动端隐藏, 开关功能在弹幕设置弹窗内)
   ...(isDesktop.value ? { danmakuToggle: { onClick: () => onDanmakuEntryClick() } } : {}),
   // 控制条弹幕设置按钮: 点击打开设置弹窗
-  danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) }
+  danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) },
+  // 控制条播放设置按钮: 点击打开连播/过滤/弹幕入口面板(移动端整合控制)
+  playSettings: { onClick: () => (playSettingsOpen.value = !playSettingsOpen.value) },
+  // 移动端: 隐藏画中画/网页全屏按钮(屏幕小、手势已覆盖, 节省控制条空间)
+  isMobile: isMobile.value
 })
 
 // 在线心跳 watching 信号: 播放器播放状态实时置位(暂停/结束即回落)。
@@ -788,6 +792,8 @@ const danmakuSettings = danmaku.settings
 const danmakuUpdateSettings = danmaku.updateSettings
 /** 弹幕设置弹窗开关 */
 const danmakuSettingsOpen = ref(false)
+/** 播放设置面板开关(连播/过滤/弹幕入口) */
+const playSettingsOpen = ref(false)
 
 /** 弹幕控制条按钮开启态颜色（is-on class; CSS 见样式段 .art-control-danmaku-*.is-on） */
 function syncDanmakuBtnState(): void {
@@ -1264,6 +1270,27 @@ watch(loading, (v) => {
 
 /** loading 阻塞期禁用播放器手势(双击全屏/长按倍速/滑动 seek) */
 const gesturesEnabled = computed(() => !loading.value)
+/** 移动端 extra timeout: mobile/hls.js blob URL 在 loading 持续 10s 后强制撤遮罩,
+ *  作为 video:playing 事件补充兜底(极端情况下 playing 延迟过久, 避免用户无限等待)。
+ *  与 25s LOADING_FALLBACK_MS 配合: 先触发的生效, 互不干扰。 */
+let mobileExtraTimeout: number | undefined
+watch(loading, (v) => {
+  if (mobileExtraTimeout !== undefined) {
+    window.clearTimeout(mobileExtraTimeout)
+    mobileExtraTimeout = undefined
+  }
+  if (!v || !isMobile.value) return
+  mobileExtraTimeout = window.setTimeout(() => {
+    mobileExtraTimeout = undefined
+    if (!loading.value) return
+    loading.value = false
+    telemetry.track('action', {
+      category: 'video-loading-mobile-extra',
+      action: 'fallback-clear',
+      label: currentSrc.value.slice(0, 160)
+    })
+  }, 10_000)
+})
 /** 控制条可见状态(usePlayer 由 ArtPlayer 'control' 事件派生的 useractive/userinactive 驱动)。
  * 全屏左上角标题层跟随它显隐; 暂停时 ArtPlayer 控制条常显 → 用 paused 兜底强制显示。 */
 const playerControlsVisible = ref(true)
@@ -1907,6 +1934,41 @@ watch(playerReady, (v) => {
               <div v-if="videoErrorMsg" class="jc-player-error" role="alert">
                 {{ videoErrorMsg }}
               </div>
+              <!-- 播放设置面板(连播/过滤/弹幕入口): 放 Teleport 内确保全屏可见;
+                   z-index 65 = 控制条(art z60)之上、loading(art z70)之下 -->
+              <div
+                v-if="playSettingsOpen"
+                class="jc-play-settings-panel"
+                @click.stop
+              >
+                <div class="jc-play-settings-panel__header">播放设置</div>
+                <div class="jc-play-settings-panel__list">
+                  <button type="button" class="jc-play-settings-panel__row" :class="{ 'is-on': autoPlayNext }" @click="toggleAutoPlayNext">
+                    <BaseIcon name="autoplay" size="18px" class="jc-play-settings-panel__icon" />
+                    <span class="jc-play-settings-panel__label">自动连播</span>
+                    <span class="jc-play-settings-panel__check" aria-hidden="true">{{ autoPlayNext ? '✓' : '' }}</span>
+                  </button>
+                  <button type="button" class="jc-play-settings-panel__row" :class="{ 'is-on': adFilter }" @click="toggleAdFilter">
+                    <BaseIcon name="shield" size="18px" class="jc-play-settings-panel__icon" />
+                    <span class="jc-play-settings-panel__label">过滤广告</span>
+                    <span class="jc-play-settings-panel__check" aria-hidden="true">{{ adFilter ? '✓' : '' }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="jc-play-settings-panel__row"
+                    :class="{ 'is-on': danmakuEnabled && !danmakuUnavailable, 'is-disabled': danmakuUnavailable }"
+                    @click="onDanmakuEntryClick"
+                  >
+                    <BaseIcon name="chat" size="18px" class="jc-play-settings-panel__icon" />
+                    <span class="jc-play-settings-panel__label">
+                      弹幕
+                      <template v-if="danmakuUnavailable"> · {{ danmakuHint }}</template>
+                    </span>
+                    <span class="jc-play-settings-panel__check" aria-hidden="true">{{ danmakuEnabled && !danmakuUnavailable ? '✓' : '' }}</span>
+                  </button>
+                </div>
+                <button type="button" class="jc-play-settings-panel__close" @click="playSettingsOpen = false">关闭</button>
+              </div>
             </Teleport>
           </div>
 
@@ -2139,23 +2201,126 @@ watch(playerReady, (v) => {
         </template>
       </BaseDialog>
 
-      <!-- 弹幕设置弹窗（控制条 1x 左侧按钮打开; 所有项实时生效, 持久化见 useDanmaku）
-           全屏可见关键: Teleport 进播放器容器(全屏元素), 否则全屏时弹窗在页面层不可见。
-           playerOverlayHost 未初始化时回退 body(与弹幕层/手势层同款策略)。 -->
-      <BaseDialog
-        v-model:visible="danmakuSettingsOpen"
-        title="弹幕设置"
-        width="420px"
-        compact-title
-        :teleport-to="playerOverlayHost || 'body'"
+      <!-- 弹幕设置面板(控制条齿轮按钮打开; 所有项实时生效, 持久化见 useDanmaku)
+           放 Teleport 内确保全屏可见, 与播放设置面板同款内嵌样式 -->
+      <div
+        v-if="danmakuSettingsOpen"
+        class="jc-play-settings-panel jc-play-settings-panel--danmaku"
+        @click.stop
       >
-        <DanmakuSettingsPanel
-          :settings="danmakuSettings"
-          :enabled="danmakuEnabled && !danmakuUnavailable"
-          @update="danmakuUpdateSettings($event)"
-          @toggle-enabled="onDanmakuEntryClick"
-        />
-      </BaseDialog>
+        <div class="jc-play-settings-panel__header">弹幕设置</div>
+        <div class="jc-play-settings-panel__list">
+          <!-- 弹幕总开关 -->
+          <button
+            type="button"
+            class="jc-play-settings-panel__row"
+            :class="{ 'is-on': danmakuEnabled && !danmakuUnavailable, 'is-disabled': danmakuUnavailable }"
+            @click="onDanmakuEntryClick"
+          >
+            <BaseIcon name="chat" size="18px" class="jc-play-settings-panel__icon" />
+            <span class="jc-play-settings-panel__label">
+              弹幕
+              <template v-if="danmakuUnavailable"> · {{ danmakuHint }}</template>
+            </span>
+            <span class="jc-play-settings-panel__check" aria-hidden="true">{{ danmakuEnabled && !danmakuUnavailable ? '✓' : '' }}</span>
+          </button>
+        </div>
+        <!-- 字号 -->
+        <div class="jc-play-settings-panel__section">
+          <div class="jc-play-settings-panel__section-label">字号</div>
+          <div class="jc-play-settings-panel__segs">
+            <button
+              v-for="(px, i) in DANMAKU_FONT_STEPS"
+              :key="px"
+              type="button"
+              class="jc-play-settings-panel__seg"
+              :class="{ 'is-active': danmakuSettings.fontSize === px }"
+              @click="danmakuUpdateSettings({ fontSize: px })"
+            >
+              {{ ['自适应', '极小', '小', '中', '大', '特大'][i] }}
+            </button>
+          </div>
+        </div>
+        <!-- 透明度 -->
+        <div class="jc-play-settings-panel__section">
+          <div class="jc-play-settings-panel__section-label">透明度 {{ Math.round(danmakuSettings.opacity * 100) }}%</div>
+          <input
+            type="range"
+            min="10"
+            max="100"
+            step="5"
+            class="jc-play-settings-panel__range"
+            :value="Math.round(danmakuSettings.opacity * 100)"
+            @input="danmakuUpdateSettings({ opacity: Number(($event.target as HTMLInputElement).value) / 100 })"
+          />
+        </div>
+        <!-- 显示区域 -->
+        <div class="jc-play-settings-panel__section">
+          <div class="jc-play-settings-panel__section-label">显示区域</div>
+          <div class="jc-play-settings-panel__segs">
+            <button
+              v-for="(a, i) in DANMAKU_AREA_STEPS"
+              :key="a"
+              type="button"
+              class="jc-play-settings-panel__seg"
+              :class="{ 'is-active': danmakuSettings.area === a }"
+              @click="danmakuUpdateSettings({ area: a })"
+            >
+              {{ ['1/4屏', '半屏', '3/4屏', '全屏'][i] }}
+            </button>
+          </div>
+        </div>
+        <!-- 速度 -->
+        <div class="jc-play-settings-panel__section">
+          <div class="jc-play-settings-panel__section-label">速度</div>
+          <div class="jc-play-settings-panel__segs">
+            <button
+              v-for="(s, i) in DANMAKU_SPEED_STEPS"
+              :key="s"
+              type="button"
+              class="jc-play-settings-panel__seg"
+              :class="{ 'is-active': danmakuSettings.speed === s }"
+              @click="danmakuUpdateSettings({ speed: s })"
+            >
+              {{ ['极快', '快', '正常', '较慢', '慢'][i] }}
+            </button>
+          </div>
+        </div>
+        <!-- 同屏数量 -->
+        <div class="jc-play-settings-panel__section">
+          <div class="jc-play-settings-panel__section-label">同屏数量</div>
+          <div class="jc-play-settings-panel__segs">
+            <button
+              v-for="(n, i) in DANMAKU_LIMIT_STEPS"
+              :key="n"
+              type="button"
+              class="jc-play-settings-panel__seg"
+              :class="{ 'is-active': danmakuSettings.limit === n }"
+              @click="danmakuUpdateSettings({ limit: n })"
+            >
+              {{ ['少', '中', '多', '不限'][i] }}
+            </button>
+          </div>
+        </div>
+        <!-- 模式开关 -->
+        <div class="jc-play-settings-panel__grid">
+          <button type="button" class="jc-play-settings-panel__toggle" :class="{ 'is-on': danmakuSettings.topMode }" @click="danmakuUpdateSettings({ topMode: !danmakuSettings.topMode })">
+            顶部
+          </button>
+          <button type="button" class="jc-play-settings-panel__toggle" :class="{ 'is-on': danmakuSettings.bottomMode }" @click="danmakuUpdateSettings({ bottomMode: !danmakuSettings.bottomMode })">
+            底部
+          </button>
+          <button type="button" class="jc-play-settings-panel__toggle" :class="{ 'is-on': danmakuSettings.colored }" @click="danmakuUpdateSettings({ colored: !danmakuSettings.colored })">
+            彩色
+          </button>
+          <button type="button" class="jc-play-settings-panel__toggle" :class="{ 'is-on': danmakuSettings.outline }" @click="danmakuUpdateSettings({ outline: !danmakuSettings.outline })">
+            描边
+          </button>
+        </div>
+        <button type="button" class="jc-play-settings-panel__close" @click="danmakuSettingsOpen = false">关闭</button>
+      </div>
+
+      <!-- 播放设置面板已移入 Teleport (见上方)，全屏可见。此处不再重复渲染。 -->
 
         </section>
 
@@ -2664,25 +2829,6 @@ watch(playerReady, (v) => {
 :deep(.art-loading) {
   display: none !important;
 }
-/* 弹幕控制条按钮(开关+设置; 外层 .art-control 容器由 ArtPlayer 自建): 图标居中 */
-:deep(.art-control-danmaku-toggle),
-:deep(.art-control-danmaku-settings) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  cursor: pointer;
-}
-:deep(.art-control-danmaku-toggle svg),
-:deep(.art-control-danmaku-settings svg) {
-  display: block;
-  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.5));
-}
-/* 开启态颜色区分: 有效启用(用户级)时按钮着品牌色, syncDanmakuBtnState 维护 is-on */
-:deep(.art-control-danmaku-toggle.is-on),
-:deep(.art-control-danmaku-settings.is-on) {
-  color: var(--jc-brand-primary) !important;
-}
 
 /* I-017: 广告过滤结果角标(播放器右上角, 常驻不遮操作)
    top 加 safe-area: 全屏时移动端可能出现状态栏, 顶部留出空隙; 与左上角标题同基线对齐 */
@@ -2781,27 +2927,46 @@ watch(playerReady, (v) => {
   }
 }
 
-/* I-018: 控制条「下一集」文字按钮(全屏按钮之前) */
-:deep(.art-control-next-episode) {
-  width: auto;
+/* 控制条自定义按钮(下一集/弹幕开关/弹幕设置): 统一图标样式 + hover 微变色 */
+:deep(.art-control-next-episode),
+:deep(.art-control-danmaku-toggle),
+:deep(.art-control-danmaku-settings) {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 14px;
+  width: 44px;
+  height: 44px;
   cursor: pointer;
-  opacity: 0.85;
+  opacity: 0.82;
+  transition: opacity var(--jc-dur-fast) var(--jc-ease-standard),
+              color var(--jc-dur-fast) var(--jc-ease-standard);
 }
 :deep(.art-control-next-episode:hover),
-:deep(.art-control-next-episode:focus-visible) {
+:deep(.art-control-danmaku-toggle:hover),
+:deep(.art-control-danmaku-settings:hover),
+:deep(.art-control-next-episode:focus-visible),
+:deep(.art-control-danmaku-toggle:focus-visible),
+:deep(.art-control-danmaku-settings:focus-visible) {
   opacity: 1;
 }
-:deep(.art-control-next-episode__label) {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  color: #fff;
-  user-select: none;
-  white-space: nowrap;
+:deep(.art-control-next-episode svg),
+:deep(.art-control-danmaku-toggle svg),
+:deep(.art-control-danmaku-settings svg) {
+  display: block;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5));
+}
+/* 开启态颜色: 弹幕有效启用时按钮着品牌色 */
+:deep(.art-control-danmaku-toggle.is-on),
+:deep(.art-control-danmaku-settings.is-on) {
+  color: var(--jc-brand-primary) !important;
+}
+/* 下一集(左置): 与播放按钮间隔, TV 远距离加大 */
+:deep(.art-control-next-episode) {
+  margin-right: 4px;
+}
+[data-mode='tv'] :deep(.art-control-next-episode) {
+  width: 52px;
+  height: 52px;
 }
 
 /* 移动端：标题块换行 + 按钮组靠右 */
@@ -2844,12 +3009,10 @@ watch(playerReady, (v) => {
   width: 9px;
   height: 9px;
 }
-/* TV: 控制条「下一集」按钮放大 */
+/* TV: 控制条「下一集」图标放大 */
 [data-mode='tv'] .art-control-next-episode {
-  padding: 0 18px;
-}
-[data-mode='tv'] .art-control-next-episode__label {
-  font-size: 15px;
+  width: 52px;
+  height: 52px;
 }
 /* TV: 居中播放按钮(art-state)放大 —— 官方 CSS 变量已在上方统一调整 */
 
@@ -2981,4 +3144,155 @@ watch(playerReady, (v) => {
   box-shadow: var(--jc-tv-focus-ring);
 }
 /* TV/安卓壳: 倍速/设置面板由 ArtPlayer settings 组件提供, 默认样式已适配触屏, 不再特调 */
+
+/* ===== 播放设置内嵌面板 (控制条齿轮按钮打开) ===== */
+.jc-play-settings-panel {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  right: 8px;
+  z-index: 80;
+  background: rgba(16, 18, 24, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--jc-radius-lg);
+  padding: 12px 0;
+  min-width: 200px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.92);
+}
+.jc-play-settings-panel__header {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 14px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 4px;
+}
+.jc-play-settings-panel__list {
+  display: flex;
+  flex-direction: column;
+}
+.jc-play-settings-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
+}
+.jc-play-settings-panel__row:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.jc-play-settings-panel__row.is-on {
+  color: var(--jc-brand-primary);
+}
+.jc-play-settings-panel__row.is-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.jc-play-settings-panel__icon {
+  flex: none;
+  opacity: 0.85;
+}
+.jc-play-settings-panel__label {
+  flex: 1;
+  font-size: 14px;
+}
+.jc-play-settings-panel__check {
+  font-size: 13px;
+  opacity: 0.7;
+}
+.jc-play-settings-panel__close {
+  margin-top: 6px;
+  padding: 8px 14px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+  transition: color var(--jc-dur-fast) var(--jc-ease-standard);
+}
+.jc-play-settings-panel__close:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+/* 弹幕设置扩展样式(字号/透明度/区域/速度/同屏/模式开关) */
+.jc-play-settings-panel__section {
+  padding: 8px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.jc-play-settings-panel__section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.jc-play-settings-panel__segs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.jc-play-settings-panel__seg {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--jc-dur-fast) var(--jc-ease-standard);
+}
+.jc-play-settings-panel__seg:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.95);
+}
+.jc-play-settings-panel__seg.is-active {
+  border-color: var(--jc-brand-primary);
+  background: color-mix(in srgb, var(--jc-brand-primary) 22%, transparent);
+  color: var(--jc-brand-primary);
+}
+.jc-play-settings-panel__range {
+  width: 100%;
+  accent-color: var(--jc-brand-primary);
+  height: 4px;
+}
+.jc-play-settings-panel__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.jc-play-settings-panel__toggle {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--jc-dur-fast) var(--jc-ease-standard);
+  text-align: center;
+}
+.jc-play-settings-panel__toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+}
+.jc-play-settings-panel__toggle.is-on {
+  border-color: color-mix(in srgb, var(--jc-brand-primary) 60%, transparent);
+  color: var(--jc-brand-primary);
+  background: color-mix(in srgb, var(--jc-brand-primary) 15%, transparent);
+}
 </style>

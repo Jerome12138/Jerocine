@@ -77,12 +77,22 @@ export interface UsePlayerOptions {
    */
   danmakuToggle?: { onClick: () => void }
   /**
+   * 控制条「播放设置」按钮(可选):
+   * 提供后注册一个常驻图标按钮, 点击触发 onClick(PlayView 打开播放设置面板)。
+   */
+  playSettings?: { onClick: () => void }
+  /**
    * 弱网模式. 开启后(hls.js 配置):
    *  - 初始带宽估算 800kbps (默认 2Mbps), ABR 从低码率起步
    *  - 目标缓冲 25s (默认 40s), 起播更快
    *  - 复用 localStorage 上次的带宽估算(hls.bandwidthEstimate), 二次播放更聪明
    */
   lowBandwidth?: boolean
+  /**
+   * 移动端标志: true 时自动隐藏画中画(PIP)和网页全屏按钮
+   * (移动端屏幕小、操作习惯不同, 这两个功能极少使用且占用控制条空间)。
+   */
+  isMobile?: boolean
 }
 
 export type PlayerEventName =
@@ -206,25 +216,35 @@ let nextEpisodeHandler: (() => void) | null = null
 let danmakuSettingsHandler: (() => void) | null = null
 /** 弹幕开关按钮回调（同上） */
 let danmakuToggleHandler: (() => void) | null = null
+/** 播放设置按钮回调 */
+let playSettingsHandler: (() => void) | null = null
 
-/** 弹幕设置图标 SVG path（Material "tune": 调节滑块, 设置语义比气泡更明确, 2026-10-26 更换） */
+/** 弹幕设置图标 SVG path（Material "tune": 调节滑块） */
 const DANMAKU_ICON_PATH =
   'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z'
-/** 弹幕开关图标 SVG path（气泡 + 弹幕行, Material "chat" 变体） */
+/** 弹幕开关图标 SVG path（空心气泡 — 未开启态; is-on 态通过 CSS 填充色区分） */
 const DANMAKU_TOGGLE_ICON_PATH =
   'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z'
+/** 下一集图标 SVG path (skip-next, Material) */
+const NEXT_EPISODE_ICON_PATH =
+  'M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z'
+/** 播放设置图标 SVG path (settings/gear, Material) */
+const PLAY_SETTINGS_ICON_PATH =
+  'M19.14 12.94c.04-.3.06-.61.06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94c0 .31.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6s3.6 1.62 3.6 3.6s-1.62 3.6-3.6 3.6z'
 
-/** 创建「下一集」按钮内容节点(外层 .art-control 容器由 ArtPlayer 自建)。 */
+/** 创建「下一集」图标按钮内容节点(SVG skip-next, 无文字标签)。 */
 function buildNextEpisodeButton(): HTMLElement {
-  const label = document.createElement('span')
-  label.className = 'art-control-next-episode__label'
-  label.textContent = '下一集'
-  return label
+  return buildIconSvg(NEXT_EPISODE_ICON_PATH)
 }
 
 /** 创建「弹幕设置」图标按钮内容节点(内联 SVG, 不依赖 icon font)。 */
 function buildDanmakuSettingsButton(): HTMLElement {
   return buildIconSvg(DANMAKU_ICON_PATH)
+}
+
+/** 创建「播放设置」图标按钮内容节点(gear SVG)。 */
+function buildPlaySettingsButton(): HTMLElement {
+  return buildIconSvg(PLAY_SETTINGS_ICON_PATH)
 }
 
 /** 创建「弹幕开关」图标按钮内容节点(气泡弹幕行图标)。 */
@@ -520,9 +540,20 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     // 倍速面板档位交给调用方配置(不随 ArtPlayer 静态默认漂移), 保证与持久化校验一致
     Artplayer.PLAYBACK_RATE = rateOptions.slice()
 
-    // 控制条自定义按钮: 「弹幕开关」+「弹幕设置」(倍速区左侧) + 「下一集」(全屏按钮之前)
+    // 控制条自定义按钮: 「下一集」(播放按钮右侧) + 「弹幕开关」+「弹幕设置」(全屏按钮之前)
     // (ArtPlayer 自建 .art-control 容器, html 只放内容节点; 点击回调绑在容器上)
     const customControls: Artplayer['option']['controls'] = []
+    if (opts.nextEpisode) {
+      nextEpisodeHandler = opts.nextEpisode.onClick
+      customControls.push({
+        name: 'next-episode',
+        position: 'left',
+        index: 15,
+        tooltip: '下一集',
+        html: buildNextEpisodeButton(),
+        click: () => nextEpisodeHandler?.()
+      })
+    }
     if (opts.danmakuToggle) {
       danmakuToggleHandler = opts.danmakuToggle.onClick
       customControls.push({
@@ -534,6 +565,17 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
         click: () => danmakuToggleHandler?.()
       })
     }
+    if (opts.playSettings) {
+      playSettingsHandler = opts.playSettings.onClick
+      customControls.push({
+        name: 'play-settings',
+        position: 'right',
+        index: 15,
+        tooltip: '播放设置',
+        html: buildPlaySettingsButton(),
+        click: () => playSettingsHandler?.()
+      })
+    }
     if (opts.danmakuSettings) {
       danmakuSettingsHandler = opts.danmakuSettings.onClick
       customControls.push({
@@ -543,17 +585,6 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
         tooltip: '弹幕设置',
         html: buildDanmakuSettingsButton(),
         click: () => danmakuSettingsHandler?.()
-      })
-    }
-    if (opts.nextEpisode) {
-      nextEpisodeHandler = opts.nextEpisode.onClick
-      customControls.push({
-        name: 'next-episode',
-        position: 'right',
-        index: 18,
-        tooltip: '下一集',
-        html: buildNextEpisodeButton(),
-        click: () => nextEpisodeHandler?.()
       })
     }
 
@@ -590,8 +621,9 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       playbackRate: !(opts.isLive ?? false),
       aspectRatio: !(opts.isLive ?? false),
       fullscreen: true,
-      fullscreenWeb: true,
-      pip: true,
+      // 移动端不展示画中画和网页全屏(屏幕小、手势已覆盖等效操作, 节省控制条空间)
+      fullscreenWeb: !(opts.isMobile ?? false),
+      pip: !(opts.isMobile ?? false),
       miniProgressBar: true,
       controls: customControls
     })
@@ -739,6 +771,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     nextEpisodeHandler = null
     danmakuSettingsHandler = null
     danmakuToggleHandler = null
+    playSettingsHandler = null
     // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 全量重挂
   }
 
