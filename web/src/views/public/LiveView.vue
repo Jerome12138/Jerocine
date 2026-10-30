@@ -35,6 +35,18 @@ const activeSource = computed<LiveSource | null>(() => {
 
 /** 分组视图（保序聚合） */
 const groups = computed(() => groupChannels(channels.value))
+
+/** 频道可用性判定（探源结果; 未探测=null 不标记）: CORS 不通或流离线 → 置灰+角标 */
+function channelUnavailable(ch: LiveChannel): boolean {
+  if (ch.cors === false || ch.alive === false) return true
+  return false
+}
+/** 角标文案: cors 优先(跨域受限是站点级硬约束, 比"离线"信息量大) */
+function channelBadgeText(ch: LiveChannel): string {
+  if (ch.cors === false) return '跨域受限'
+  if (ch.alive === false) return '离线'
+  return ''
+}
 /** 当前选中频道（回显高亮 + 记忆恢复用 localStorage） */
 const activeUrl = ref('')
 const LAST_CHANNEL_KEY = 'jc-live-last-channel'
@@ -257,12 +269,15 @@ const pageTitle = '直播'
                 :key="ch.url"
                 type="button"
                 class="jc-live-channel"
-                :class="{ 'is-active': ch.url === activeUrl }"
+                :class="{ 'is-active': ch.url === activeUrl, 'is-unavailable': channelUnavailable(ch) }"
+                :title="channelUnavailable(ch) ? channelBadgeText(ch) : undefined"
                 :data-focusable="isTV ? 'true' : undefined"
                 @click="selectChannel(ch)"
               >
                 <img v-if="ch.logo" :src="ch.logo" alt="" class="jc-live-channel__logo" loading="lazy" />
                 <span class="jc-live-channel__name">{{ ch.name }}</span>
+                <!-- 探源标记: CORS 不通(浏览器拉不到) / 流离线 —— 仍可点击强试, 置灰+角标提示 -->
+                <span v-if="channelUnavailable(ch)" class="jc-live-channel__badge">{{ channelBadgeText(ch) }}</span>
               </button>
             </div>
           </div>
@@ -450,6 +465,25 @@ const pageTitle = '直播'
 }
 .jc-live-channel:hover {
   background-color: var(--jc-bg-elevated);
+}
+/* 探源不可用频道: 置灰 + 角标(仍可点击强试, 用户可能有自己的代理环境) */
+.jc-live-channel.is-unavailable {
+  opacity: 0.45;
+  filter: grayscale(0.9);
+}
+.jc-live-channel.is-unavailable:hover {
+  opacity: 0.7;
+}
+.jc-live-channel__badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--jc-text-tertiary, rgba(255, 255, 255, 0.5));
+  white-space: nowrap;
 }
 .jc-live-channel.is-active {
   border-color: var(--jc-brand-primary);

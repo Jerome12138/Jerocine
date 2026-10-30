@@ -1,9 +1,11 @@
 package cache
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"time"
 )
 
 // Redis key 命名: v1:{域}:{标识}。详情/卡片去 cid(mid 全局唯一)。
@@ -47,6 +49,12 @@ func KeyDanmuSeg(provider, epKey, segmentID string) string {
 func EpKeyOf(episodeID string) string {
 	h := sha1.Sum([]byte(episodeID))
 	return hex.EncodeToString(h[:8])
+}
+
+// KeyLiveHealth 单频道探源健康缓存（DB0）。value = JSON{alive,cors,at}，TTL 由 service 定。
+// srcKey/urlKey 均为 EpKeyOf 哈希（url 是用户可控长串，同 8.5/8.6 约定不得直拼键）。
+func KeyLiveHealth(srcKey, urlKey string) string {
+	return fmt.Sprintf("v1:live:health:%s:%s", srcKey, urlKey)
 }
 
 // ---- 聚合弹幕（dandanplay v2 兼容，按标题匹配；DB0，正 7d/负 2h 由 service 定） ----
@@ -113,3 +121,33 @@ const KeyLockHotRun = "v1:lock:hot:run"
 // KeyLockHotDaily 每日一次的成功标记(按本地日期): 抢到即说明今天还没成功跑过。
 // TTL 25h(>24h)覆盖跨天, 重启/多副本也不会当天重复拉榜单。
 func KeyLockHotDaily(date string) string { return "v1:lock:hot:daily:" + date }
+
+// LiveHealthGetAll 批量读频道探源健康（key 顺序与返回顺序一致; miss 位返回 nil）。
+func LiveHealthGetAll(ctx context.Context, srcKey string, urlKeys []string) ([]string, error) {
+	if cacheRdb == nil || len(urlKeys) == 0 {
+		return make([]string, len(urlKeys)), nil
+	}
+	keys := make([]string, len(urlKeys))
+	for i, u := range urlKeys {
+		keys[i] = KeyLiveHealth(srcKey, u)
+	}
+	vals, err := cacheRdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(vals))
+	for i, v := range vals {
+		if str, ok := v.(string); ok {
+			out[i] = str
+		}
+	}
+	return out, nil
+}
+
+// LiveHealthSet 写单频道探源健康（JSON 由调用方序列化）。
+func LiveHealthSet(ctx context.Context, srcKey, urlKey, value string, ttl time.Duration) error {
+	if cacheRdb == nil {
+		return nil
+	}
+	return cacheRdb.Set(ctx, KeyLiveHealth(srcKey, urlKey), value, ttl).Err()
+}

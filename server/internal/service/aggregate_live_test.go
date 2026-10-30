@@ -263,7 +263,7 @@ func TestLiveServiceChannels(t *testing.T) {
 		2: {Id: 2, Name: "停用源", URL: m3uSrv.URL + "/off.m3u", State: entity.LiveSourceDisabled},
 		3: {Id: 3, Name: "死源", URL: deadSrv.URL + "/dead.m3u", State: entity.LiveSourceEnabled},
 	}}
-	svc := NewLiveService(repo, live.NewClient())
+	svc := NewLiveService(repo, nil, live.NewClient())
 
 	// ---- a) 正常解析 + 缓存 ----
 	resp, err := svc.LiveChannels(ctx, 1)

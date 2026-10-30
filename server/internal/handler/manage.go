@@ -148,6 +148,76 @@ func (h *Handlers) DeleteLiveSource(c *gin.Context) {
 	respond(c, nil, h.Live.DeleteLiveSource(c.Request.Context(), id))
 }
 
+// ---- 直播频道管理（/manage/live-channels） ----
+
+// ListLiveChannelsManage GET /manage/live-channels?sourceId= — 解析频道+覆盖层合并（含隐藏项）。
+func (h *Handlers) ListLiveChannelsManage(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Query("sourceId"), 10, 64)
+	if err != nil || id <= 0 {
+		dto.Error(c, http.StatusBadRequest, "invalid sourceId")
+		return
+	}
+	resp, err := h.Live.ListChannelsManage(c.Request.Context(), id)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// UpsertLiveChannel PUT /manage/live-channels {sourceId,url,name,groupName,hidden,displayName}
+// — 频道覆盖层写入（解析频道隐藏/改名; 自定义频道增改）。
+func (h *Handlers) UpsertLiveChannel(c *gin.Context) {
+	var req service.LiveChannelInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := h.Live.UpsertChannelState(c.Request.Context(), req); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	respond(c, nil, nil)
+}
+
+// DeleteLiveChannel DELETE /manage/live-channels?sourceId=&url= — 自定义物理删/解析置 hidden。
+func (h *Handlers) DeleteLiveChannel(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Query("sourceId"), 10, 64)
+	if err != nil || id <= 0 {
+		dto.Error(c, http.StatusBadRequest, "invalid sourceId")
+		return
+	}
+	url := strings.TrimSpace(c.Query("url"))
+	if url == "" {
+		dto.Error(c, http.StatusBadRequest, "missing url")
+		return
+	}
+	if err := h.Live.DeleteChannel(c.Request.Context(), id, url); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	respond(c, nil, nil)
+}
+
+// ProbeLiveChannels POST /manage/live-channels/probe {sourceId} — 批量探源(并发, 写健康缓存)。
+// 最坏耗时 ≈ 频道数/并发 × 超时, 150 频道 ≈ 50s 内; 前端 axios 超时 80s 兜住。
+func (h *Handlers) ProbeLiveChannels(c *gin.Context) {
+	var req struct {
+		SourceID int64  `json:"sourceId"`
+		Origin   string `json:"origin"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.SourceID <= 0 {
+		dto.Error(c, http.StatusBadRequest, "invalid sourceId")
+		return
+	}
+	results, err := h.Live.ProbeChannels(c.Request.Context(), req.SourceID, strings.TrimSpace(req.Origin))
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"results": results})
+}
+
 // GetDanmuConfig GET /manage/danmu-config — 弹幕总开关 + 开放平台白名单 + 平台全集。
 func (h *Handlers) GetDanmuConfig(c *gin.Context) {
 	v, err := h.Manage.GetDanmuConfig(c.Request.Context())

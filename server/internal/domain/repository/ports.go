@@ -205,6 +205,18 @@ type LiveSourceRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// LiveChannelStateRepository 直播频道状态（覆盖层）。
+type LiveChannelStateRepository interface {
+	// ListBySource 该源全部覆盖条目(含隐藏/自定义), 按 id 升序。
+	ListBySource(ctx context.Context, sourceID int64) ([]entity.LiveChannelState, error)
+	// Upsert 按 (source_id, url) 覆盖写入(hidden/display_name/name/group_name/is_custom)。
+	Upsert(ctx context.Context, st *entity.LiveChannelState) error
+	// Delete 物理删除(自定义频道的删除); 不存在返回 domain.ErrNotFound。
+	Delete(ctx context.Context, sourceID int64, url string) error
+	// DeleteBySource 删该源全部覆盖条目(源删除时级联)。
+	DeleteBySource(ctx context.Context, sourceID int64) error
+}
+
 // AppVersionRepository APK 版本。
 type AppVersionRepository interface {
 	Latest(ctx context.Context, channel int8) (*entity.AppVersion, error)

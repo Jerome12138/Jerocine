@@ -19,6 +19,10 @@ export interface LiveChannel {
   group: string
   logo: string
   url: string
+  /** 探源: 流可达（null = 未探测） */
+  alive?: boolean | null
+  /** 探源: 响应带 Access-Control-Allow-Origin（false = 浏览器跨域拉不到, 前台置灰） */
+  cors?: boolean | null
 }
 
 export interface LiveChannelsResp {
@@ -54,4 +58,40 @@ export interface LiveSourceInput {
   sort: number
   /** 0 启用 / 1 停用；缺省启用 */
   state: number
+}
+
+/** 频道覆盖层写入（解析频道 hidden/displayName; 自定义频道 name/groupName） */
+export interface LiveChannelInput {
+  sourceId: number
+  url: string
+  name?: string
+  groupName?: string
+  hidden?: boolean
+  displayName?: string
+}
+
+/** 后台频道视图（解析+覆盖层合并, 含隐藏项） */
+export interface LiveChannelManage {
+  name: string
+  group: string
+  url: string
+  hidden: boolean
+  isCustom: boolean
+  displayName: string
+  alive?: boolean | null
+  cors?: boolean | null
+}
+
+export interface LiveChannelsManageResp {
+  id: number
+  name: string
+  channels: LiveChannelManage[]
+}
+
+/** 单频道探源结果 */
+export interface LiveProbeResult {
+  url: string
+  name: string
+  alive: boolean
+  cors: boolean
 }

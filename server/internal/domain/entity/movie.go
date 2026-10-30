@@ -3,31 +3,31 @@ package entity
 // Movie 影片详情主表 (table: movie)。
 // mid 全局唯一主键, 不嵌 cid → 详情可凭 mid 一跳直查 (Redis key v1:movie:detail:{mid})。
 type Movie struct {
-	Mid          int64       `gorm:"column:mid;primaryKey" json:"mid"`
-	Cid          int64       `gorm:"column:cid" json:"cid"`
-	Pid          int64       `gorm:"column:pid" json:"pid"`
-	Name         string      `gorm:"column:name" json:"name"`
-	SubTitle     string      `gorm:"column:sub_title" json:"subTitle"`
-	CName        string      `gorm:"column:c_name" json:"cName"`
-	EnName       string      `gorm:"column:en_name" json:"enName"`
-	Initial      string      `gorm:"column:initial" json:"initial"`
-	ClassTag     string      `gorm:"column:class_tag" json:"classTag"`
-	Area         string      `gorm:"column:area" json:"area"`
-	Language     string      `gorm:"column:language" json:"language"`
-	Year         int         `gorm:"column:year" json:"year"`
+	Mid      int64  `gorm:"column:mid;primaryKey" json:"mid"`
+	Cid      int64  `gorm:"column:cid" json:"cid"`
+	Pid      int64  `gorm:"column:pid" json:"pid"`
+	Name     string `gorm:"column:name" json:"name"`
+	SubTitle string `gorm:"column:sub_title" json:"subTitle"`
+	CName    string `gorm:"column:c_name" json:"cName"`
+	EnName   string `gorm:"column:en_name" json:"enName"`
+	Initial  string `gorm:"column:initial" json:"initial"`
+	ClassTag string `gorm:"column:class_tag" json:"classTag"`
+	Area     string `gorm:"column:area" json:"area"`
+	Language string `gorm:"column:language" json:"language"`
+	Year     int    `gorm:"column:year" json:"year"`
 	// PubDate 上映日期, 源站 vod_pubdate 规范化后的 ISO 前缀串: "2026-09-11" / "2026-07" /
 	// "2007" / ""(源站未提供)。精度自描述, 字典序=时间序, 可直接参与 ORDER BY。
-	PubDate      string      `gorm:"column:pub_date;size:10" json:"pubDate"`
-	Actor        string      `gorm:"column:actor" json:"actor"`
-	Director     string      `gorm:"column:director" json:"director"`
-	Writer       string      `gorm:"column:writer" json:"writer"`
-	Content      string      `gorm:"column:content" json:"content"`
-	DbId         int64       `gorm:"column:db_id" json:"dbId"`
-	DbScore      float64     `gorm:"column:db_score;type:decimal(3,1)" json:"dbScore"`
-	Hits         int64       `gorm:"column:hits" json:"hits"`
-	State        string      `gorm:"column:state" json:"state"`
-	Remarks      string      `gorm:"column:remarks" json:"remarks"`
-	Cover        string      `gorm:"column:cover" json:"cover"`
+	PubDate  string  `gorm:"column:pub_date;size:10" json:"pubDate"`
+	Actor    string  `gorm:"column:actor" json:"actor"`
+	Director string  `gorm:"column:director" json:"director"`
+	Writer   string  `gorm:"column:writer" json:"writer"`
+	Content  string  `gorm:"column:content" json:"content"`
+	DbId     int64   `gorm:"column:db_id" json:"dbId"`
+	DbScore  float64 `gorm:"column:db_score;type:decimal(3,1)" json:"dbScore"`
+	Hits     int64   `gorm:"column:hits" json:"hits"`
+	State    string  `gorm:"column:state" json:"state"`
+	Remarks  string  `gorm:"column:remarks" json:"remarks"`
+	Cover    string  `gorm:"column:cover" json:"cover"`
 	// Backdrop 横图(16:9, 详情页 hero / 轮播兜底)。由后台 TMDB worker 下载到本地 blob 后回填,
 	// 采集 upsert 不覆盖该列(见 movieUpsertExclude); "-" 为"检索无果"哨兵, 对外 DTO 归一为空串。
 	Backdrop string `gorm:"column:backdrop" json:"backdrop"`
@@ -36,11 +36,11 @@ type Movie struct {
 	// HotRank=当前榜位(0 不在榜) / HotRankAt=本轮抓取时间(Unix 秒) / HotScore=合成热度分 /
 	// HotBoard=榜位来源集合名(如 movie_hot_gaia, 详情页展示"哪个榜的 No.X") /
 	// DbIdSrc=movie.db_id 来源(0 源站自带 / 1 榜单回填)。
-	HotRank   int    `gorm:"column:hot_rank" json:"hotRank"`
-	HotRankAt int64  `gorm:"column:hot_rank_at" json:"hotRankAt"`
-	HotBoard  string `gorm:"column:hot_board" json:"hotBoard"`
-	HotScore  int    `gorm:"column:hot_score" json:"hotScore"`
-	DbIdSrc   int8   `gorm:"column:db_id_src" json:"dbIdSrc"`
+	HotRank      int         `gorm:"column:hot_rank" json:"hotRank"`
+	HotRankAt    int64       `gorm:"column:hot_rank_at" json:"hotRankAt"`
+	HotBoard     string      `gorm:"column:hot_board" json:"hotBoard"`
+	HotScore     int         `gorm:"column:hot_score" json:"hotScore"`
+	DbIdSrc      int8        `gorm:"column:db_id_src" json:"dbIdSrc"`
 	PlayFrom     StringSlice `gorm:"column:play_from;type:json" json:"playFrom"`
 	DownFrom     string      `gorm:"column:down_from" json:"downFrom"`
 	ReleaseStamp int64       `gorm:"column:release_stamp" json:"releaseStamp"`
@@ -63,27 +63,27 @@ const (
 // MovieSearch 物化卡片/检索宽表 (table: movie_search) — CQRS 读模型。
 // cover 进表 → 列表/卡片一次查询出, 无需回填 Redis basic 或 join files。
 type MovieSearch struct {
-	Mid          int64   `gorm:"column:mid;primaryKey" json:"mid"`
-	Cid          int64   `gorm:"column:cid" json:"cid"`
-	Pid          int64   `gorm:"column:pid" json:"pid"`
-	Name         string  `gorm:"column:name" json:"name"`
-	SubTitle     string  `gorm:"column:sub_title" json:"subTitle"`
-	CName        string  `gorm:"column:c_name" json:"cName"`
-	ClassTag     string  `gorm:"column:class_tag" json:"classTag"`
-	Area         string  `gorm:"column:area" json:"area"`
-	Language     string  `gorm:"column:language" json:"language"`
-	Year         int     `gorm:"column:year" json:"year"`
+	Mid      int64  `gorm:"column:mid;primaryKey" json:"mid"`
+	Cid      int64  `gorm:"column:cid" json:"cid"`
+	Pid      int64  `gorm:"column:pid" json:"pid"`
+	Name     string `gorm:"column:name" json:"name"`
+	SubTitle string `gorm:"column:sub_title" json:"subTitle"`
+	CName    string `gorm:"column:c_name" json:"cName"`
+	ClassTag string `gorm:"column:class_tag" json:"classTag"`
+	Area     string `gorm:"column:area" json:"area"`
+	Language string `gorm:"column:language" json:"language"`
+	Year     int    `gorm:"column:year" json:"year"`
 	// PubDate 上映日期(ISO 前缀串), 与 movie.pub_date 同源, 供卡片/详情展示与排序 tiebreak。
-	PubDate      string  `gorm:"column:pub_date;size:10" json:"pubDate"`
-	Initial      string  `gorm:"column:initial" json:"initial"`
-	NamePinyin   string  `gorm:"column:name_pinyin" json:"namePinyin"` // 片名拼音首字母串(大写), 首字母搜索用
-	State        string  `gorm:"column:state" json:"state"`
-	Remarks      string  `gorm:"column:remarks" json:"remarks"`
-	DbScore      float64 `gorm:"column:db_score;type:decimal(3,1)" json:"dbScore"`
-	Hits         int64   `gorm:"column:hits" json:"hits"`
-	Cover        string  `gorm:"column:cover" json:"cover"`
+	PubDate    string  `gorm:"column:pub_date;size:10" json:"pubDate"`
+	Initial    string  `gorm:"column:initial" json:"initial"`
+	NamePinyin string  `gorm:"column:name_pinyin" json:"namePinyin"` // 片名拼音首字母串(大写), 首字母搜索用
+	State      string  `gorm:"column:state" json:"state"`
+	Remarks    string  `gorm:"column:remarks" json:"remarks"`
+	DbScore    float64 `gorm:"column:db_score;type:decimal(3,1)" json:"dbScore"`
+	Hits       int64   `gorm:"column:hits" json:"hits"`
+	Cover      string  `gorm:"column:cover" json:"cover"`
 	// Backdrop 横图, 与 movie.backdrop 由 worker 双写同步(采集 upsert 不覆盖, 见 searchUpsertExclude)。
-	Backdrop     string  `gorm:"column:backdrop" json:"backdrop"`
+	Backdrop string `gorm:"column:backdrop" json:"backdrop"`
 	// 榜单热度列, 与 movie 同列同源(由 hot_service 双写)。属"本地计算列":
 	// 采集 upsert 不覆盖(见 searchUpsertExclude); 全量重采走影子表重建, 换表前从 movie 回灌。
 	HotRank      int    `gorm:"column:hot_rank" json:"hotRank"`
@@ -91,10 +91,10 @@ type MovieSearch struct {
 	HotBoard     string `gorm:"column:hot_board" json:"hotBoard"`
 	HotScore     int    `gorm:"column:hot_score" json:"hotScore"`
 	DbIdSrc      int8   `gorm:"column:db_id_src" json:"dbIdSrc"`
-	ReleaseStamp int64   `gorm:"column:release_stamp" json:"releaseStamp"`
-	UpdateStamp  int64   `gorm:"column:update_stamp" json:"updateStamp"`
-	CreatedAt    int64   `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
-	UpdatedAt    int64   `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	ReleaseStamp int64  `gorm:"column:release_stamp" json:"releaseStamp"`
+	UpdateStamp  int64  `gorm:"column:update_stamp" json:"updateStamp"`
+	CreatedAt    int64  `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
+	UpdatedAt    int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 	// DeletedAt 软删除标记的读模型镜像; 由 movie.deleted_at 同步而来(见 SearchRepository.SyncDeletedFromMovie)。
 	// 公开列表/检索/推荐全部带 deleted_at = 0 过滤, 后台列表可显式查已删。
 	DeletedAt int64 `gorm:"column:deleted_at" json:"deletedAt"`

@@ -1,5 +1,12 @@
 import { http } from '../http'
-import type { LiveSourceManage, LiveSourceInput, LiveChannelsResp } from '@/types/live'
+import type {
+  LiveSourceManage,
+  LiveSourceInput,
+  LiveChannelsResp,
+  LiveChannelsManageResp,
+  LiveChannelInput,
+  LiveProbeResult
+} from '@/types/live'
 
 /** GET /manage/live-sources 全量直播源（含停用） */
 export const listLiveSources = (): Promise<{ sources: LiveSourceManage[] }> =>
@@ -20,3 +27,28 @@ export const deleteLiveSource = (id: number): Promise<void> =>
 /** GET /live/sources/:id/channels 频道数预览（复用公开解析端点; 停用源会 404） */
 export const previewChannels = (id: number): Promise<LiveChannelsResp> =>
   http.get<unknown, LiveChannelsResp>(`/live/sources/${id}/channels`, { silent: true })
+
+/** GET /manage/live-channels?sourceId= 频道列表（解析+覆盖层合并, 含隐藏项 + 探源标记） */
+export const listLiveChannels = (sourceId: number): Promise<LiveChannelsManageResp> =>
+  http.get<unknown, LiveChannelsManageResp>('/manage/live-channels', {
+    params: { sourceId },
+    silent: true
+  })
+
+/** PUT /manage/live-channels 频道覆盖层写入（隐藏/改名/自定义频道增改） */
+export const upsertLiveChannel = (data: LiveChannelInput): Promise<void> =>
+  http.put('/manage/live-channels', data)
+
+/** DELETE /manage/live-channels?sourceId=&url= 删频道（自定义物理删/解析置 hidden） */
+export const deleteLiveChannel = (sourceId: number, url: string): Promise<void> =>
+  http.delete('/manage/live-channels', { params: { sourceId, url } })
+
+/** POST /manage/live-channels/probe 批量探源（CORS/活性, 写健康缓存; 最坏 ≈50s） */
+export const probeLiveChannels = (
+  sourceId: number
+): Promise<{ results: LiveProbeResult[] }> =>
+  http.post<unknown, { results: LiveProbeResult[] }>(
+    '/manage/live-channels/probe',
+    { sourceId },
+    { timeout: 120_000 }
+  )
