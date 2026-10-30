@@ -11,50 +11,6 @@ import (
 	"server/internal/service"
 )
 
-// DanmuSource GET /films/:mid/danmu/source —— 该影片的弹幕来源候选（全平台）。
-// 评审 7.7：前端不碰 dbId，此处只返回平台候选；db_id 为空/无命中由 service 负缓存 2h。
-func (h *Handlers) DanmuSource(c *gin.Context) {
-	mid, ok := pathInt64(c, "mid")
-	if !ok {
-		dto.Error(c, http.StatusBadRequest, "invalid mid")
-		return
-	}
-	resp, err := h.Danmu.DanmuSource(c.Request.Context(), mid)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	if resp.Providers == nil {
-		resp.Providers = []service.DanmuProvider{}
-	}
-	c.JSON(http.StatusOK, resp)
-}
-
-// DanmuBilibili GET /danmu/bilibili?seasonId=&episode= —— 指定 B站剧集整集弹幕。
-// 评审 7.2：无鉴权公开接口，必须限流（路由层 RateLimit("danmu", 30, 10)）。
-func (h *Handlers) DanmuBilibili(c *gin.Context) {
-	seasonID := strings.TrimSpace(c.Query("seasonId"))
-	if seasonID == "" {
-		dto.Error(c, http.StatusBadRequest, "missing seasonId")
-		return
-	}
-	episode := queryInt(c, "episode", 1)
-	// 范围校验对齐聚合接口(1..9999): 无界值直达上游 URL 与缓存键
-	if episode < 1 || episode > 9999 {
-		dto.Error(c, http.StatusBadRequest, "invalid episode")
-		return
-	}
-	comments, err := h.Danmu.DanmuBilibili(c.Request.Context(), seasonID, episode)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	if comments == nil {
-		comments = []service.DanmuComment{}
-	}
-	c.JSON(http.StatusOK, gin.H{"comments": comments})
-}
-
 // LiveSources GET /live/sources —— 启用的直播源列表（直播页源切换）。
 func (h *Handlers) LiveSources(c *gin.Context) {
 	resp, err := h.Live.LiveSources(c.Request.Context())
@@ -81,8 +37,9 @@ func (h *Handlers) LiveChannels(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// DanmuAggregate GET /danmu/aggregate?title=&episode=&year= —— 按标题匹配的整集聚合弹幕。
-// 与平台链路（/danmu/:provider/*）相互独立：按影片名搜索作品 → 定位集 → 整集弹幕。
+// DanmuAggregate GET /danmu/aggregate?title=&episode=&year=&from=&to= —— 按标题匹配的聚合弹幕。
+// from/to（秒, 可选）: 分片过滤 time∈[from,to) —— 前端懒加载起播段+按进度预取；
+// 缺省返回整集。响应 total = 整集总条数（与 comments 数对比判断是否拉完）。
 // 公开无鉴权必须限流（路由层 RateLimit("danmu", 30, 10)）；查无作品/集 → 404。
 func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	title := strings.TrimSpace(c.Query("title"))
@@ -104,77 +61,21 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	if year < 1900 || year > 2100 {
 		year = 0
 	}
-	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode)
+	from := queryInt(c, "from", 0)
+	to := queryInt(c, "to", 0)
+	// 分片参数合理性: from/to 负值按缺省(整集)处理; to 不得小于 from
+	if from < 0 {
+		from = 0
+	}
+	if to < from {
+		to = 0
+	}
+	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to)
 	if err != nil {
 		dto.Fail(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
-}
-
-// DanmuEpisodes GET /danmu/:provider/episodes?resourceId=&episode= —— 路径 B 分集匹配。
-// provider 白名单在 service（未启用 → 400 ErrInvalidArgument，dto.Fail 自动映射）。
-// 路径 B 分段点播第一步：拿 matched.episodeId（复合串，前端 encodeURIComponent 后透传）。
-// 无匹配集 → 200 { matched: null }（前端静默无弹幕）；danmu-service 不可用 → 500。
-func (h *Handlers) DanmuEpisodes(c *gin.Context) {
-	resourceID := strings.TrimSpace(c.Query("resourceId"))
-	if resourceID == "" {
-		dto.Error(c, http.StatusBadRequest, "missing resourceId")
-		return
-	}
-	episode := queryInt(c, "episode", 1)
-	matched, found, err := h.Danmu.DanmuEpisodes(c.Request.Context(), c.Param("provider"), resourceID, episode)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	if !found {
-		c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"matched": nil}})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"matched": matched}})
-}
-
-// DanmuSegments GET /danmu/:provider/segments?episodeId= —— 路径 B 弹幕分段索引。
-// episodeId 为复合串（cid=..&vid=..），必须 encodeURIComponent 透传。
-func (h *Handlers) DanmuSegments(c *gin.Context) {
-	episodeID := strings.TrimSpace(c.Query("episodeId"))
-	if episodeID == "" {
-		dto.Error(c, http.StatusBadRequest, "missing episodeId")
-		return
-	}
-	segments, err := h.Danmu.DanmuSegments(c.Request.Context(), c.Param("provider"), episodeID)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	if segments == nil {
-		segments = []service.DanmuSegment{}
-	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "data": segments})
-}
-
-// DanmuComments GET /danmu/:provider/comments?episodeId=&segmentId= —— 路径 B 单段弹幕。
-func (h *Handlers) DanmuComments(c *gin.Context) {
-	episodeID := strings.TrimSpace(c.Query("episodeId"))
-	if episodeID == "" {
-		dto.Error(c, http.StatusBadRequest, "missing episodeId")
-		return
-	}
-	segmentID := strings.TrimSpace(c.Query("segmentId"))
-	if segmentID == "" {
-		dto.Error(c, http.StatusBadRequest, "missing segmentId")
-		return
-	}
-	comments, err := h.Danmu.DanmuComments(c.Request.Context(), c.Param("provider"), episodeID, segmentID)
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	if comments == nil {
-		comments = []service.DanmuComment{}
-	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "data": comments})
 }
 
 // Home GET /home

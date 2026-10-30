@@ -28,17 +28,11 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/films/:mid/play", h.Play)
 	v1.GET("/films/:mid/related", h.Related)
 	// 弹幕: 来源候选(低频, 轻限流) + B站弹幕代理(公开无鉴权, 评审 7.2 必须限流)。
-	v1.GET("/films/:mid/danmu/source", middleware.RateLimit("danmusrc", 30, 5), h.DanmuSource)
-	v1.GET("/danmu/bilibili", middleware.RateLimit("danmu", 30, 10), h.DanmuBilibili)
 	// 聚合弹幕(按标题匹配, 公开无鉴权必须限流): 静态段, 与下方 :provider 参数段共存。
 	v1.GET("/danmu/aggregate", middleware.RateLimit("danmu", 30, 10), h.DanmuAggregate)
 	// 路径 B 分段点播（腾讯等）：episodes 分集匹配 / segments 分段索引 / comments 单段弹幕。
 	// 前端按 currentTime 预拉（当前段+后续 2 段），单请求 3s 超时（service segHC）。
 	// :provider 参数化（入口统一走 service.validatePathBProvider 白名单校验，未启用 → 400）；
-	// 与上方 /danmu/bilibili 静态段同级共存，gin 静态优先，互不冲突。
-	v1.GET("/danmu/:provider/episodes", middleware.RateLimit("danmu", 30, 10), h.DanmuEpisodes)
-	v1.GET("/danmu/:provider/segments", middleware.RateLimit("danmu", 30, 10), h.DanmuSegments)
-	v1.GET("/danmu/:provider/comments", middleware.RateLimit("danmu", 30, 10), h.DanmuComments)
 	// 直播: 源列表(轻) + 频道解析(服务端拉 m3u + 缓存, 公开无鉴权必须限流)。
 	v1.GET("/live/sources", middleware.RateLimit("live", 60, 30), h.LiveSources)
 	v1.GET("/live/sources/:id/channels", middleware.RateLimit("live", 30, 30), h.LiveChannels)

@@ -61,7 +61,6 @@ type TMDBConfig struct {
 // DanmuConfig 弹幕数据服务配置。
 // 容器网络内走 compose 服务名; 本地联调用环境变量指向 127.0.0.1。
 type DanmuConfig struct {
-	ServiceURL string // danmu-service(Node 壳)基址, 默认 http://danmu:3611
 	// 聚合弹幕服务（dandanplay v2 兼容，按标题匹配）：基址 + 访问令牌。
 	// 令牌只存服务端绝不下发前端；未配置时聚合链路静默降级为无弹幕。
 	APIURL   string // 默认 http://danmu_api:9321
@@ -112,9 +111,8 @@ func Load() *Config {
 			ImageBase: os.Getenv("TMDB_IMAGE_BASE"),
 		},
 		Danmu: DanmuConfig{
-			ServiceURL: env("DANMU_SERVICE_URL", "http://danmu:3611"),
-			APIURL:     env("DANMU_API_URL", "http://danmu_api:9321"),
-			APIToken:   os.Getenv("DANMU_API_TOKEN"),
+			APIURL:   env("DANMU_API_URL", "http://danmu_api:9321"),
+			APIToken: os.Getenv("DANMU_API_TOKEN"),
 		},
 		PageSizes: PageSizes{Home: 14, Classify: 21, Filter: 49, Search: 10, Gallery: 39},
 	}
@@ -182,5 +180,5 @@ func splitNonEmpty(s string) []string {
 // String 脱敏摘要, 启动日志用 (不打印密钥/密码)。
 func (c *Config) String() string {
 	return fmt.Sprintf("Config{port=%s mysql=*** redis=%s(cache=%d,coord=%d) cors=%v blob=%s tmdb.lang=%s danmu=%s}",
-		c.ServerPort, c.Redis.Addr, c.Redis.CacheDB, c.Redis.CoordDB, c.CORS, c.Blob.Driver, c.TMDB.Lang, c.Danmu.ServiceURL)
+		c.ServerPort, c.Redis.Addr, c.Redis.CacheDB, c.Redis.CoordDB, c.CORS, c.Blob.Driver, c.TMDB.Lang, c.Danmu.APIURL)
 }

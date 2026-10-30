@@ -2,13 +2,8 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -31,12 +26,34 @@ const (
 	danmuSegmentTimeout = 3 * time.Second
 )
 
+// DanmuService 弹幕服务（聚合链路: danmu_api dandanplay v2; 旧 vendors/分段链路已下线 2026-10-31）。
+type DanmuService struct {
+	movie   repository.MovieRepository
+	dandan  *danmu.DandanClient             // 聚合弹幕（dandanplay v2 兼容，按标题匹配）
+	siteCfg repository.SiteConfigRepository // 弹幕后台配置（总开关，直读库现值）
+
+	// 弹幕启用配置进程内快照(30s TTL, 见 danmuCfgSnapshot): 热路径免每请求查库 + DB 故障容错
+	cfgMu   sync.Mutex
+	cfgSnap *danmuCfgSnapshot
+	cfgAt   time.Time
+}
+
+// NewDanmuService 构造弹幕服务（聚合链路）。
+// siteCfg 用于读取后台弹幕配置（默认不启用）。
+func NewDanmuService(movie repository.MovieRepository, dandan *danmu.DandanClient, siteCfg repository.SiteConfigRepository) *DanmuService {
+	return &DanmuService{
+		movie:   movie,
+		dandan:  dandan,
+		siteCfg: siteCfg,
+	}
+}
+
 // danmuProviderAll 后台可选的弹幕平台全集（须与 danmu-service 壳 ID_PREFIX 同步：
 // 平台要可用，两边都要启用 —— 壳白名单决定上游能否拉，这里决定 Go/前端是否开放）。
 var danmuProviderAll = []string{"bilibili", "tencent", "iqiyi", "youku"}
 
 // danmuCfgSnapshot 弹幕启用配置快照（进程内 30s TTL）：
-//   - 热路径（validatePathBProvider/danmuMasterEnabled 每请求调用）不再每请求打 MySQL；
+//   - 热路径（danmuMasterEnabled 每请求调用）不再每请求打 MySQL；
 //   - 瞬时 DB 故障时沿用旧快照（无旧快照才上抛），不再把错误误判成"未启用"毒化负缓存 2h
 //     （P1: site_config 查询出错曾被当 nil 处理，负缓存语义污染）。
 //   - 后台改配置最长 30s 延迟生效（弹幕开关类变更可接受；如需立即生效可在保存路径加失效钩子）。
@@ -79,45 +96,6 @@ func (s *DanmuService) danmuCfgSnapshot(ctx context.Context) (danmuCfgSnapshot, 
 	return snap, nil
 }
 
-// danmuEnabledProviders 后台启用的弹幕平台（总开关 + 白名单过滤），30s 快照。
-// err = 配置读取失败且无旧快照（调用方上抛，禁止当"未启用"处理）。
-// providers == nil = 弹幕整体未启用（DanmuSource 空候选负缓存、路径 A/B 全 400）。
-func (s *DanmuService) danmuEnabledProviders(ctx context.Context) ([]string, error) {
-	snap, err := s.danmuCfgSnapshot(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return snap.providers, nil
-}
-
-// validatePathBProvider provider 未启用 → ErrInvalidArgument（dto.Fail 映射 400）。
-// 必须在拼 URL 之前调用：provider 来自路由参数，未启用的值不得进请求路径。
-// 白名单 = 后台配置（danmu_enabled + danmu_providers），非写死。
-func (s *DanmuService) validatePathBProvider(ctx context.Context, provider string) error {
-	enabled, err := s.danmuEnabledProviders(ctx)
-	if err != nil {
-		return err
-	}
-	for _, p := range enabled {
-		if p == provider {
-			return nil
-		}
-	}
-	return fmt.Errorf("unsupported danmu provider %q（启用：%s）: %w",
-		provider, strings.Join(enabled, "/"), domain.ErrInvalidArgument)
-}
-
-// DanmuSourceResp 弹幕来源响应（评审 7.7：不暴露 dbId，只给平台候选）。
-type DanmuSourceResp struct {
-	Providers []DanmuProvider `json:"providers"`
-}
-
-// DanmuProvider 一个可拉弹幕的平台。
-type DanmuProvider struct {
-	Provider   string `json:"provider"`   // tencent / iqiyi / youku / bilibili
-	ResourceID string `json:"resourceId"` // 平台侧整剧/整片资源 id
-}
-
 // DanmuComment 对外弹幕条目（对齐 danmu-service 规范化契约 {text,time,color,mode}，毫秒）。
 type DanmuComment struct {
 	Text  string `json:"text"`
@@ -126,307 +104,6 @@ type DanmuComment struct {
 	Mode  int32  `json:"mode"`
 }
 
-// DanmuService 弹幕服务（D2：vendors 候选 Go 自留；分集/弹幕取数走 danmu-service）。
-type DanmuService struct {
-	movie    repository.MovieRepository
-	client   *danmu.Client
-	dandan   *danmu.DandanClient // 聚合弹幕（dandanplay v2 兼容，按标题匹配）
-	danmuURL string
-	siteCfg  repository.SiteConfigRepository // 弹幕后台配置（总开关 + 平台白名单，直读库现值）
-	hc       *http.Client                    // 路径 A：整集聚合 30s
-	segHC    *http.Client                    // 路径 B：分段点播 3s
-
-	// 弹幕启用配置进程内快照(30s TTL, 见 danmuCfgSnapshot): 热路径免每请求查库 + DB 故障容错
-	cfgMu   sync.Mutex
-	cfgSnap *danmuCfgSnapshot
-	cfgAt   time.Time
-}
-
-// NewDanmuService 构造弹幕服务。danmuURL 为 danmu-service 基址（config.Danmu.ServiceURL）；
-// siteCfg 用于读取后台弹幕配置（默认不启用）。
-func NewDanmuService(movie repository.MovieRepository, client *danmu.Client, dandan *danmu.DandanClient, danmuURL string, siteCfg repository.SiteConfigRepository) *DanmuService {
-	return &DanmuService{
-		movie:    movie,
-		client:   client,
-		dandan:   dandan,
-		danmuURL: strings.TrimRight(danmuURL, "/"),
-		siteCfg:  siteCfg,
-		hc:       &http.Client{Timeout: danmuServiceTimeout},
-		segHC:    &http.Client{Timeout: danmuSegmentTimeout},
-	}
-}
-
-// DanmuSource 按 mid 取弹幕来源候选（全平台，前端按优先级/用户选择取一个）。
-//
-// 缓存：命中（解析出 ≥1 平台）→ 正缓存 7d；未命中（db_id 空 / vendors 空 / 全部解析不出）
-// → 负缓存 2h（GetOrLoadTTL 的 negTTL），避免冷门片每次播放都打豆瓣。
-func (s *DanmuService) DanmuSource(ctx context.Context, mid int64) (DanmuSourceResp, error) {
-	resp, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuSource(mid), danmuSourceTTL, danmuEmptyTTL,
-		func(ctx context.Context) (DanmuSourceResp, bool, error) {
-			return s.loadDanmuSource(ctx, mid)
-		})
-	if err != nil {
-		return DanmuSourceResp{}, err
-	}
-	return resp, nil
-}
-
-// loadDanmuSource 回源：mid → db_id → 豆瓣 vendors → 平台资源 id（按后台配置过滤）。
-// 弹幕未启用 → 空候选负缓存 2h（配置保存时清 v1:danmu:src:*，切换立即生效）。
-func (s *DanmuService) loadDanmuSource(ctx context.Context, mid int64) (DanmuSourceResp, bool, error) {
-	enabled, err := s.danmuEnabledProviders(ctx)
-	if err != nil {
-		return DanmuSourceResp{}, false, err // 配置读取失败: 上抛(error 不进缓存, 不毒化负缓存)
-	}
-	if enabled == nil {
-		return DanmuSourceResp{}, false, nil // 未启用：负缓存 2h
-	}
-	enabledSet := make(map[string]bool, len(enabled))
-	for _, p := range enabled {
-		enabledSet[p] = true
-	}
-	m, err := s.movie.GetByMid(ctx, mid)
-	if err != nil {
-		if errors.Is(err, domain.ErrMovieNotFound) {
-			return DanmuSourceResp{}, false, nil
-		}
-		return DanmuSourceResp{}, false, err
-	}
-	if m.DbId <= 0 {
-		return DanmuSourceResp{}, false, nil // 负缓存 2h
-	}
-	vendors, err := s.client.DoubanVendors(ctx, fmt.Sprintf("%d", m.DbId))
-	if err != nil {
-		return DanmuSourceResp{}, false, err
-	}
-	providers := make([]DanmuProvider, 0, len(vendors))
-	for _, v := range vendors {
-		pr, ok := danmu.ParsePlatformResource(v.URI)
-		if !ok || !enabledSet[pr.Provider] {
-			continue
-		}
-		providers = append(providers, DanmuProvider{Provider: pr.Provider, ResourceID: pr.ResourceID})
-	}
-	if len(providers) == 0 {
-		return DanmuSourceResp{}, false, nil // 负缓存 2h
-	}
-	return DanmuSourceResp{Providers: providers}, true, nil
-}
-
-// DanmuBilibili 按 seasonId + 集号取该集全部弹幕（路径 A：整集聚合）。
-//
-// D2 起：Go 不再自研 B站 season/seg.so 解析，全部交给 danmu-service——
-//  1. episodes 接口（resourceId=seasonId&episode=ep）拿分集匹配结果 matched.episodeId；
-//  2. comments 接口（episodeId 缺省 segmentId = 整集聚合）一次返回整集弹幕；
-//  3. 结果缓存 v1:danmu:bili:cmt:{seasonID}:{ep}（正 7d / 负 2h，8.6）。
-//
-// 降级分轨（评审修正）：danmu-service 调用失败（不可用/超时）→ 返回 error，
-// GetOrLoadTTL 对 error 不写缓存 —— 避免容器重启/发布窗口把"无弹幕"负缓存 2h；
-// 业务无数据（无匹配集/壳 ok=false/空弹幕）→ 负缓存 2h（挡低频片重复回源）。
-// handler 对 error 返回 500，前端 .catch 后静默（不阻塞播放，用户体验不变）。
-func (s *DanmuService) DanmuBilibili(ctx context.Context, seasonID string, episode int) ([]DanmuComment, error) {
-	// 受后台配置控制：未启用 bilibili → 400（与路径 B 同一白名单）。
-	if err := s.validatePathBProvider(ctx, "bilibili"); err != nil {
-		return nil, err
-	}
-	comments, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuBiliCmt(seasonID, episode),
-		danmuSourceTTL, danmuEmptyTTL,
-		func(ctx context.Context) ([]DanmuComment, bool, error) {
-			return s.loadDanmuBilibili(ctx, seasonID, episode)
-		})
-	if err != nil {
-		return nil, err
-	}
-	return comments, nil
-}
-
-// loadDanmuBilibili 回源 danmu-service 拉整集弹幕。
-func (s *DanmuService) loadDanmuBilibili(ctx context.Context, seasonID string, episode int) ([]DanmuComment, bool, error) {
-	// 1) 分集匹配（episodes 接口）
-	epsURL := fmt.Sprintf("%s/danmu/bilibili/episodes?resourceId=%s&episode=%d",
-		s.danmuURL, url.QueryEscape(seasonID), episode)
-	var epsResp struct {
-		Ok   bool `json:"ok"`
-		Data struct {
-			Matched *struct {
-				EpisodeID string `json:"episodeId"`
-			} `json:"matched"`
-		} `json:"data"`
-	}
-	if err := s.danmuGet(ctx, epsURL, &epsResp); err != nil {
-		log.Printf("[danmu] bilibili episodes 调用失败(不缓存, 下次重试): %v", err)
-		return nil, false, err
-	}
-	if !epsResp.Ok || epsResp.Data.Matched == nil || epsResp.Data.Matched.EpisodeID == "" {
-		return nil, false, nil // 无匹配集：负缓存 2h（评审 7.3 降级口径）
-	}
-	episodeID := epsResp.Data.Matched.EpisodeID
-
-	// 2) 整集弹幕（comments 接口，episodeId 复合串必须 encodeURIComponent）
-	cmtURL := fmt.Sprintf("%s/danmu/bilibili/comments?episodeId=%s",
-		s.danmuURL, url.QueryEscape(episodeID))
-	var cmtResp struct {
-		Ok   bool           `json:"ok"`
-		Data []DanmuComment `json:"data"`
-	}
-	if err := s.danmuGet(ctx, cmtURL, &cmtResp); err != nil {
-		log.Printf("[danmu] bilibili comments 调用失败(不缓存, 下次重试): %v", err)
-		return nil, false, err
-	}
-	if !cmtResp.Ok {
-		return nil, false, nil
-	}
-	if len(cmtResp.Data) == 0 {
-		return nil, false, nil // 负缓存 2h
-	}
-	return cmtResp.Data, true, nil
-}
-
-// danmuGet 请求 danmu-service 并解析 JSON。非 200 / JSON 损坏 → error。
-func (s *DanmuService) danmuGet(ctx context.Context, endpoint string, out any) error {
-	return s.danmuGetWith(ctx, s.hc, endpoint, out)
-}
-
-// danmuSegGet 路径 B 专用：3s 短超时（分段点播单请求，8.2 约定）。
-func (s *DanmuService) danmuSegGet(ctx context.Context, endpoint string, out any) error {
-	return s.danmuGetWith(ctx, s.segHC, endpoint, out)
-}
-
-func (s *DanmuService) danmuGetWith(ctx context.Context, hc *http.Client, endpoint string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("danmu-service status %d", resp.StatusCode)
-	}
-	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("danmu-service 响应非 JSON: %w", err)
-	}
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// 路径 B：腾讯/爱奇艺/优酷 分段点播（8.2）。前端按 currentTime 预拉（当前段+后续 2 段）。
-// 与 B站整集聚合的差异：单请求 3s 超时、episodes/segments 不缓存（进片一次）、
-// 单段内容缓存 v1:danmu:seg:{provider}:{epKey}:{segmentId}（8.6，正 7d/负 2h）。
-// ---------------------------------------------------------------------------
-
-// DanmuMatched 分集匹配结果（matched.episodeId 为复合串，透传时须 encodeURIComponent）。
-type DanmuMatched struct {
-	EpisodeID string `json:"episodeId"`
-}
-
-// DanmuSegment 弹幕分段（startTime 秒，壳按段起始排序；segmentId 透传壳）。
-type DanmuSegment struct {
-	Provider  string  `json:"provider"`
-	StartTime float64 `json:"startTime"`
-	SegmentID string  `json:"segmentId"`
-}
-
-// DanmuEpisodes 路径 B 分集匹配（episodes 接口转发；provider 须在白名单）。
-// 返回 found=false 表示无匹配集（前端静默无弹幕）；错误分两档：
-// provider 未启用 → ErrInvalidArgument（400）；danmu-service 不可用 → 500。
-func (s *DanmuService) DanmuEpisodes(ctx context.Context, provider, resourceID string, episode int) (DanmuMatched, bool, error) {
-	if err := s.validatePathBProvider(ctx, provider); err != nil {
-		return DanmuMatched{}, false, err
-	}
-	epsURL := fmt.Sprintf("%s/danmu/%s/episodes?resourceId=%s&episode=%d",
-		s.danmuURL, provider, url.QueryEscape(resourceID), episode)
-	var resp struct {
-		Ok   bool `json:"ok"`
-		Data struct {
-			Matched *DanmuMatched `json:"matched"`
-		} `json:"data"`
-	}
-	if err := s.danmuSegGet(ctx, epsURL, &resp); err != nil {
-		return DanmuMatched{}, false, fmt.Errorf("%s episodes: %w", provider, err)
-	}
-	if !resp.Ok || resp.Data.Matched == nil || resp.Data.Matched.EpisodeID == "" {
-		return DanmuMatched{}, false, nil
-	}
-	return *resp.Data.Matched, true, nil
-}
-
-// DanmuSegments 路径 B 分段索引（segments 接口转发；不缓存，进片一次）。
-func (s *DanmuService) DanmuSegments(ctx context.Context, provider, episodeID string) ([]DanmuSegment, error) {
-	if err := s.validatePathBProvider(ctx, provider); err != nil {
-		return nil, err
-	}
-	segURL := fmt.Sprintf("%s/danmu/%s/segments?episodeId=%s", s.danmuURL, provider, url.QueryEscape(episodeID))
-	var resp struct {
-		Ok   bool           `json:"ok"`
-		Data []DanmuSegment `json:"data"`
-	}
-	if err := s.danmuSegGet(ctx, segURL, &resp); err != nil {
-		return nil, fmt.Errorf("%s segments: %w", provider, err)
-	}
-	if !resp.Ok {
-		return nil, fmt.Errorf("%s segments: ok=false", provider)
-	}
-	return resp.Data, nil
-}
-
-// DanmuComments 路径 B 单段弹幕（comments 接口转发；缓存 v1:danmu:seg）。
-// 降级分轨同路径 A：调用失败 → error（不缓存）；业务无数据 → 负缓存 2h。
-func (s *DanmuService) DanmuComments(ctx context.Context, provider, episodeID, segmentID string) ([]DanmuComment, error) {
-	if err := s.validatePathBProvider(ctx, provider); err != nil {
-		return nil, err
-	}
-	comments, _, err := cache.GetOrLoadTTL(ctx,
-		cache.KeyDanmuSeg(provider, cache.EpKeyOf(episodeID), segmentID),
-		danmuSourceTTL, danmuEmptyTTL,
-		func(ctx context.Context) ([]DanmuComment, bool, error) {
-			return s.loadDanmuSegComments(ctx, provider, episodeID, segmentID)
-		})
-	if err != nil {
-		return nil, err
-	}
-	return comments, nil
-}
-
-// loadDanmuSegComments 回源 danmu-service 拉单段弹幕。
-func (s *DanmuService) loadDanmuSegComments(ctx context.Context, provider, episodeID, segmentID string) ([]DanmuComment, bool, error) {
-	cmtURL := fmt.Sprintf("%s/danmu/%s/comments?episodeId=%s&segmentId=%s",
-		s.danmuURL, provider, url.QueryEscape(episodeID), url.QueryEscape(segmentID))
-	var resp struct {
-		Ok   bool           `json:"ok"`
-		Data []DanmuComment `json:"data"`
-	}
-	if err := s.danmuSegGet(ctx, cmtURL, &resp); err != nil {
-		log.Printf("[danmu] %s comments 调用失败(不缓存, 下次重试): %v", provider, err)
-		return nil, false, err
-	}
-	if !resp.Ok {
-		return nil, false, nil
-	}
-	if len(resp.Data) == 0 {
-		return nil, false, nil // 负缓存 2h
-	}
-	return resp.Data, true, nil
-}
-
-// ---------------------------------------------------------------------------
-// 聚合弹幕（dandanplay v2 兼容，按标题匹配，与平台 vendors 链路相互独立）。
-// 三段缓存：关键词搜索 7d / 作品分集 7d / 整集内容 7d（负缓存均 2h）。
-// 服务未配置（无基址/令牌）或后台总开关关闭 → 静默降级为空弹幕，不影响播放。
-// ---------------------------------------------------------------------------
-
-// DanmuAggregateResp 聚合弹幕响应（复用 DanmuComment 毫秒契约）。
-type DanmuAggregateResp struct {
-	Comments []DanmuComment `json:"comments"`
-}
-
-// danmuMasterEnabled 聚合链路总开关（与平台链路共用 danmu_enabled，不套平台白名单）。
 func (s *DanmuService) danmuMasterEnabled(ctx context.Context) bool {
 	snap, err := s.danmuCfgSnapshot(ctx)
 	if err != nil {
@@ -436,9 +113,19 @@ func (s *DanmuService) danmuMasterEnabled(ctx context.Context) bool {
 	return snap.masterOn
 }
 
+// DanmuAggregateResp 聚合弹幕响应（复用 DanmuComment 毫秒契约）。
+// Total = 整集总条数：from/to 分片过滤时供前端判断是否已拉完全集。
+type DanmuAggregateResp struct {
+	Comments []DanmuComment `json:"comments"`
+	Total    int            `json:"total,omitempty"` // 整集总条数: from/to 分片过滤时供前端判断是否拉完
+}
+
 // DanmuAggregate 按标题 + 集号取整集弹幕。查无作品/无该集 → domain.ErrNotFound（404，
 // 前端标"该片暂无弹幕"）；取数异常 → 原样上抛（前端标失败可重试）。
-func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, episode int) (DanmuAggregateResp, error) {
+// from/to（秒, 可选 to=0 视为无穷）: 分片过滤 time∈[from*1000, to*1000) —— 前端懒加载
+// 起播段+按进度预取；上游/整集缓存仍整集粒度（分片只在响应层过滤, 上游只打一次）。
+// Total 恒为整集总条数（过滤后 Comments 条数与之对比可判断是否拉完）。
+func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, episode, from, to int) (DanmuAggregateResp, error) {
 	if strings.TrimSpace(title) == "" {
 		return DanmuAggregateResp{}, fmt.Errorf("missing title: %w", domain.ErrInvalidArgument)
 	}
@@ -470,6 +157,21 @@ func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, e
 	// 负缓存命中/空结果回零值结构：JSON 输出 comments:null 违背契约, 归一为空数组
 	if resp.Comments == nil {
 		resp.Comments = []DanmuComment{}
+	}
+	resp.Total = len(resp.Comments)
+	// 分片过滤(秒 → 毫秒半开区间): from<0 视为 0; to<=0 视为无穷; 非分片请求原样整集返回
+	if from > 0 || to > 0 {
+		lo, hi := int64(from)*1000, int64(to)*1000
+		if lo < 0 {
+			lo = 0
+		}
+		filtered := make([]DanmuComment, 0, len(resp.Comments))
+		for _, c := range resp.Comments {
+			if c.Time >= lo && (hi <= 0 || c.Time < hi) {
+				filtered = append(filtered, c)
+			}
+		}
+		resp.Comments = filtered
 	}
 	return resp, nil
 }

@@ -348,7 +348,6 @@ func (s *ManageService) SaveDanmuConfig(ctx context.Context, in DanmuConfigInput
 		return err
 	}
 	cache.InvalidateConfig(ctx)
-	cache.DelByPattern(ctx, cache.PatDanmuSource)
 	return nil
 }
 
