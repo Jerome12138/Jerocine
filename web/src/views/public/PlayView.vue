@@ -760,9 +760,7 @@ const {
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条内常驻「下一集」图标入口(左置, 始终展示; 移动端无文字仅图标)
   nextEpisode: { onClick: () => playNext() },
-  // 控制条弹幕开关(PC 展示; 移动端隐藏, 开关功能在弹幕设置弹窗内)
-  ...(isDesktop.value ? { danmakuToggle: { onClick: () => onDanmakuEntryClick() } } : {}),
-  // 控制条弹幕设置按钮: 点击打开设置弹窗
+  // 控制条弹幕设置按钮: 点击打开设置弹窗(移动端/桌面端均显示)
   danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) },
   // 控制条播放设置按钮: 点击打开连播/过滤/弹幕入口面板(移动端整合控制)
   playSettings: { onClick: () => (playSettingsOpen.value = !playSettingsOpen.value) },
