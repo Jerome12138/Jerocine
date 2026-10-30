@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, h, ref, shallowRef, nextTick } from 'vue'
 import {
@@ -15,8 +15,9 @@ import { ApiError } from '@/types/api'
  * useDanmaku composable 测试 —— 聚合单源数据流（标题+集号 → /danmu/aggregate）
  * 状态机覆盖 + 关→开恢复 + 过滤重映射 + 超时。
  *
- * 渲染层为 danmaku-lite：引擎经 adapter 自驱进度，这里用假引擎
- * （vi.mock('danmaku-lite/canvas')）记录 load/clear/setX 调用做断言。
+ * 渲染层为 artplayer-plugin-danmuku（2026-10-30 换引擎）：插件实例挂在
+ * art.plugins.artplayerPluginDanmuku 上, 这里用假 player + 假插件实例
+ * （记录 load/config/show/hide 调用做断言）。
  */
 
 vi.mock('@/api', () => ({
@@ -31,26 +32,21 @@ const m = filmApi as unknown as {
   getDanmuAggregate: ReturnType<typeof vi.fn>
 }
 
-/** 假 danmaku-lite 引擎：记录装载/设置动作，供断言。引擎自驱，这里只 record。 */
-const fakeEngine = {
-  load: vi.fn(),
-  clear: vi.fn(),
-  destroy: vi.fn(),
-  resize: vi.fn(),
-  setArea: vi.fn(),
-  setOpacity: vi.fn(),
-  setSpeed: vi.fn(),
-  setMaxVisible: vi.fn(),
-  setFontSize: vi.fn(),
-  setStrokeWidth: vi.fn(),
-  setUseTextShadow: vi.fn(),
-  setEnabled: vi.fn(),
-  isDestroyed: false
+/** 假弹幕插件实例：记录装载/设置/显隐动作，供断言。 */
+const fakePlugin = {
+  load: vi.fn(async () => undefined),
+  config: vi.fn(),
+  show: vi.fn(),
+  hide: vi.fn(),
+  reset: vi.fn()
 }
 
-vi.mock('danmaku-lite/canvas', () => ({
-  createEngine: vi.fn(() => fakeEngine)
-}))
+/** 带 plugins 挂点的假 Artplayer 实例（useDanmaku 只取 plugins[name]）。 */
+function makeFakeArt(withPlugin = true) {
+  return {
+    plugins: withPlugin ? { artplayerPluginDanmuku: fakePlugin } : {}
+  } as unknown as import('artplayer').default
+}
 
 const flush = async (): Promise<void> => {
   // loadDanmaku 内部 await 接口; 一个宏任务 tick 足以排空全部微任务
@@ -65,13 +61,14 @@ const comments = [
   { text: '底部条', time: 3400, color: 16711680, mode: 4 }
 ]
 
-function mountHost(mid: number | undefined, enabled = true, attachStage = true) {
+function mountHost(mid: number | undefined, enabled = true, withPlayer = true) {
   const midRef = ref(mid)
   const enabledRef = ref(enabled)
   const playingRef = ref(true)
   const titleRef = ref('庆余年 第二季')
   const yearRef = ref<number | undefined>(2024)
   const episodeRef = ref(1)
+  const playerRef = shallowRef<import('artplayer').default | null>(withPlayer ? makeFakeArt() : null)
   const Host = defineComponent({
     setup() {
       const api = useDanmaku({
@@ -79,21 +76,19 @@ function mountHost(mid: number | undefined, enabled = true, attachStage = true) 
         title: titleRef,
         year: yearRef,
         episode: episodeRef,
-        player: shallowRef(null),
+        player: playerRef,
         playing: playingRef,
         enabled: enabledRef
       })
       return { api }
     },
     render() {
-      // 与 PlayView 模板同款: stage 常驻, ref 直接绑 api.stage。
-      // attachStage=false 模拟 stage 不在 DOM（引擎建不起 → failed）。
-      return attachStage ? h('div', { ref: this.api.stage }) : h('div')
+      return h('div')
     }
   })
   const w = mount(Host)
   const api = (w.vm as unknown as { api: ReturnType<typeof useDanmaku> }).api
-  return { w, api, midRef, enabledRef, titleRef, playingRef, episodeRef }
+  return { w, api, midRef, enabledRef, titleRef, playingRef, episodeRef, playerRef }
 }
 
 describe('useDanmaku', () => {
@@ -101,42 +96,33 @@ describe('useDanmaku', () => {
     localStorage.clear()
     // 复位请求超时（超时测试会改小），避免串扰
     DANMAKU_FETCH_TIMEOUTS.aggregate = 30_000
-    // jsdom 无 ResizeObserver，提供桩避免 ensureEngine 抛错（被 try/catch 捕获会误判 failed）
-    ;(globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver = class {
-      observe(): void {}
-      unobserve(): void {}
-      disconnect(): void {}
-    }
-    for (const fn of Object.values(fakeEngine)) {
+    for (const fn of Object.values(fakePlugin)) {
       if (typeof fn === 'function' && 'mockClear' in (fn as unknown as Record<string, unknown>)) {
         ;(fn as unknown as { mockClear: () => void }).mockClear()
       }
     }
-    fakeEngine.isDestroyed = false
     m.getDanmuAggregate.mockReset()
   })
-  afterEach(() => {
-    delete (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver
-  })
 
-  it('正常链路: 聚合接口返回弹幕 ⇒ ready 且 engine.load 收到 DanmakuItem[]', async () => {
+  it('正常链路: 聚合接口返回弹幕 ⇒ ready 且 plugin.load 收到插件 Danmu[]', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
     const { api } = mountHost(3)
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
     expect(api.hasDanmaku.value).toBe(true)
-    expect(fakeEngine.load).toHaveBeenCalledTimes(1)
+    expect(fakePlugin.load).toHaveBeenCalledTimes(1)
     expect(m.getDanmuAggregate).toHaveBeenCalledWith(
       { title: '庆余年 第二季', episode: 1, year: 2024 },
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
-    const items = fakeEngine.load.mock.calls[0]![0] as Array<{ id: unknown; time: number; mode: number; color: number }>
+    const items = fakePlugin.load.mock.calls[0]![0] as Array<{ time: number; mode: number; color: string; text: string }>
     expect(items).toHaveLength(3)
     expect(items[0]!.time).toBe(1.25) // 毫秒 1250 → 秒（非整秒, 不被打散）
-    expect(items[0]!.mode).toBe(1)
-    // 源 mode 4 → danmaku-lite 6（底部）
-    expect(items[2]!.mode).toBe(6)
-    expect(typeof items[0]!.id).toBe('string') // 稳定唯一 id
+    expect(items[0]!.mode).toBe(0)
+    expect(items[0]!.color).toBe('#ffffff')
+    // 源 mode 4 → 插件 2（底部）
+    expect(items[2]!.mode).toBe(2)
+    expect(items[2]!.color).toBe('#ff0000')
   })
 
   it('404（查无作品/该集）⇒ unsupported「该片暂无弹幕」', async () => {
@@ -144,7 +130,7 @@ describe('useDanmaku', () => {
     const { api } = mountHost(4)
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('unsupported')
-    expect(fakeEngine.load).not.toHaveBeenCalled()
+    expect(fakePlugin.load).not.toHaveBeenCalled()
   })
 
   it('接口空列表 ⇒ empty「未找到弹幕」', async () => {
@@ -169,11 +155,14 @@ describe('useDanmaku', () => {
 
   it('无影片名 ⇒ unsupported（聚合按标题匹配, 无标题无从匹配）', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
-    const { api, titleRef } = mountHost(3)
+    // 初始关闭: 避免 immediate 装载后"同集已装载→恢复显示"分支抢先（title 置空不改变集 key）
+    const { api, titleRef, enabledRef } = mountHost(3, false)
+    await flush()
     titleRef.value = ''
+    enabledRef.value = true
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('unsupported')
-    expect(m.getDanmuAggregate).not.toHaveBeenCalled()
+    expect(m.getDanmuAggregate).not.toHaveBeenCalled() // 无标题无从匹配
   })
 
   it('回归·关闭弹幕后再打开应重新装载并显示（关→开不失效）', async () => {
@@ -181,36 +170,36 @@ describe('useDanmaku', () => {
     const { api, enabledRef } = mountHost(3, false) // 初始关闭
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('idle')
-    expect(fakeEngine.load).not.toHaveBeenCalled() // 关闭态不装载
+    expect(fakePlugin.load).not.toHaveBeenCalled() // 关闭态不装载
+    expect(fakePlugin.hide).toHaveBeenCalled() // 关闭态隐藏弹幕层
     enabledRef.value = true // 首次打开
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 装载一次
+    expect(fakePlugin.load).toHaveBeenCalledTimes(1) // 装载一次
     // 同集关→开: 即时恢复显示, 不重新拉取装载(免 clear+重拉的"等好久")
     enabledRef.value = false
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('idle')
-    expect(fakeEngine.setEnabled).toHaveBeenLastCalledWith(false) // 仅停绘, 内容保留
-    expect(fakeEngine.clear).not.toHaveBeenCalled() // 关闭不清屏
+    expect(fakePlugin.hide).toHaveBeenCalled() // 仅隐藏, 内容保留
     enabledRef.value = true
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 未重载
+    expect(fakePlugin.load).toHaveBeenCalledTimes(1) // 未重载
     expect(m.getDanmuAggregate).toHaveBeenCalledTimes(1) // 命中内存缓存
   })
 
-  it('底部/顶部/彩色过滤: 内存重映射, 不再发请求', async () => {
+  it('底部/顶部过滤: 内存重映射, 不再发请求', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
     const { api } = mountHost(3)
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    fakeEngine.load.mockClear()
+    fakePlugin.load.mockClear()
     api.updateSettings({ bottomMode: false })
     await flush()
-    expect(fakeEngine.load).toHaveBeenCalledTimes(1) // 内存重映射
+    expect(fakePlugin.load).toHaveBeenCalledTimes(1) // 内存重映射
     expect(m.getDanmuAggregate).toHaveBeenCalledTimes(1) // 零请求
-    const items = fakeEngine.load.mock.calls[0]![0] as Array<{ mode: number }>
-    expect(items.some((it) => it.mode === 6)).toBe(false) // 底部(6)被过滤
+    const items = fakePlugin.load.mock.calls[0]![0] as Array<{ mode: number }>
+    expect(items.some((it) => it.mode === 2)).toBe(false) // 底部(2)被过滤
   })
 
   it('请求超时 ⇒ failed（withTimeout 中止）', async () => {
@@ -247,15 +236,27 @@ describe('useDanmaku', () => {
     expect(readDanmakuSettings()).toEqual(DANMAKU_DEFAULT_SETTINGS)
   })
 
-  it('stage 缺失(引擎建不起) ⇒ failed', async () => {
+  it('player 缺失(插件取不到) ⇒ failed', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
     const { api, episodeRef } = mountHost(3, true, false)
     await flush()
-    expect(api.danmuState.value).toBe<DanmuState>('idle') // stage 未挂载, watch 未触发
-    episodeRef.value = 2 // 任一依赖变化 → loadDanmaku → ensureEngine 拿不到引擎
+    // player 为 null: watch 仍触发 loadDanmaku, 但插件取不到 → failed 短路
+    expect(api.danmuState.value).toBe<DanmuState>('failed')
+    episodeRef.value = 2
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('failed')
-    expect(m.getDanmuAggregate).not.toHaveBeenCalled() // 先建引擎后取数, 引擎失败即短路
+    expect(m.getDanmuAggregate).not.toHaveBeenCalled() // 插件缺失即短路, 不发请求
+  })
+
+  it('player 就绪后补装载(watch player 触发)', async () => {
+    m.getDanmuAggregate.mockResolvedValue({ comments })
+    const { api, playerRef } = mountHost(3, true, false)
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('failed')
+    playerRef.value = makeFakeArt()
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(fakePlugin.load).toHaveBeenCalledTimes(1)
   })
 
   it('内存缓存 FIFO: 超过 8 集淘汰最旧集, 回看重新拉取', async () => {
@@ -272,32 +273,34 @@ describe('useDanmaku', () => {
     expect(m.getDanmuAggregate).toHaveBeenCalledTimes(10)
   })
 
-  it('updateSettings 非内容项: 引擎运行时生效, 不重载', async () => {
+  it('updateSettings 非内容项: 插件 config 即时生效, 不重载', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
     const { api } = mountHost(3)
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    fakeEngine.load.mockClear()
+    fakePlugin.load.mockClear()
     api.updateSettings({ opacity: 0.5, fontSize: 20 })
     await flush()
-    expect(fakeEngine.setOpacity).toHaveBeenLastCalledWith(0.5)
-    expect(fakeEngine.setFontSize).toHaveBeenLastCalledWith(20) // 固定字号档直接生效
-    expect(fakeEngine.load).not.toHaveBeenCalled()
+    expect(fakePlugin.config).toHaveBeenCalled()
+    const cfg = fakePlugin.config.mock.calls.at(-1)![0] as { opacity: number; fontSize: number }
+    expect(cfg.opacity).toBe(0.5)
+    expect(cfg.fontSize).toBe(20) // 固定字号档直接生效
+    expect(fakePlugin.load).not.toHaveBeenCalled()
   })
 
   it('updateSettings 内容项但无已装内容: 标记失效重载, 开关后按新映射装载', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
-    const { api, enabledRef } = mountHost(3, false) // 初始关闭: 无 engine/lastComments
+    const { api, enabledRef } = mountHost(3, false) // 初始关闭
     api.updateSettings({ bottomMode: false })
     await flush()
     enabledRef.value = true
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    const items = fakeEngine.load.mock.calls.at(-1)![0] as Array<{ mode: number }>
-    expect(items.some((it) => it.mode === 6)).toBe(false)
+    const items = fakePlugin.load.mock.calls.at(-1)![0] as Array<{ mode: number }>
+    expect(items.some((it) => it.mode === 2)).toBe(false)
   })
 
-  it('播放/暂停切换不重载(引擎经 adapter.paused 自驱)', async () => {
+  it('播放/暂停切换不触发重载(渲染跟随由插件自驱)', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
     const { api, playingRef } = mountHost(3)
     await flush()
@@ -307,28 +310,27 @@ describe('useDanmaku', () => {
     playingRef.value = true
     await flush()
     expect(m.getDanmuAggregate).toHaveBeenCalledTimes(1)
-    expect(fakeEngine.load).toHaveBeenCalledTimes(1)
+    expect(fakePlugin.load).toHaveBeenCalledTimes(1)
   })
 
   it('云端设置合并事件: 重读设置, 内容映射变化(彩色)触发重载且全白', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
     const { api } = mountHost(3)
     await flush()
-    expect(fakeEngine.load).toHaveBeenCalledTimes(1)
+    expect(fakePlugin.load).toHaveBeenCalledTimes(1)
     localStorage.setItem('jc-danmaku-settings', JSON.stringify({ colored: false }))
     window.dispatchEvent(new CustomEvent(SETTINGS_APPLIED_EVENT))
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    const items = fakeEngine.load.mock.calls.at(-1)![0] as Array<{ color: number }>
+    const items = fakePlugin.load.mock.calls.at(-1)![0] as Array<{ color: string }>
     expect(items.length).toBeGreaterThan(0)
-    expect(items.every((it) => it.color === 16777215)).toBe(true) // colored:false → 全白
+    expect(items.every((it) => it.color === '#ffffff')).toBe(true) // colored:false → 全白
   })
 
-  it('卸载清理: engine.destroy 调用且不抛错', async () => {
+  it('卸载清理: 不抛错(插件随 player.destroy 销毁, 这里只清缓存/中止请求)', async () => {
     m.getDanmuAggregate.mockResolvedValue({ comments })
     const { w } = mountHost(3)
     await flush()
-    w.unmount()
-    expect(fakeEngine.destroy).toHaveBeenCalledTimes(1)
+    expect(() => w.unmount()).not.toThrow()
   })
 })

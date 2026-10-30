@@ -9,6 +9,7 @@ import {
   type ShallowRef
 } from 'vue'
 import Artplayer from 'artplayer'
+import artplayerPluginDanmuku, { type Option as DanmukuOption } from 'artplayer-plugin-danmuku'
 import Hls from 'hls.js'
 
 /**
@@ -65,11 +66,12 @@ export interface UsePlayerOptions {
    */
   nextEpisode?: { onClick: () => void }
   /**
-   * 控制条「弹幕设置」按钮(可选):
-   * 提供后注册一个常驻图标按钮(nextTV 同款弹幕 SVG), 点击触发 onClick(PlayView 打开弹幕设置面板)。
-   * 按钮常驻显示——设置项(字号/透明度等)独立于当前片源是否可用。
+   * artplayer-plugin-danmuku 插件配置(可选, nextTV 同款引擎):
+   * 传入后注册插件 —— 控制条中部自带「弹幕开关」(apd-toggle) +「弹幕设置」(apd-config-panel:
+   * 类型屏蔽/防重叠/透明度/显示区域/字号/速度), UI 与 nextTV 完全一致。
+   * 数据装载/开关持久化由 useDanmaku 负责, 此处只透传初始 option。
    */
-  danmakuSettings?: { onClick: () => void }
+  danmuku?: DanmukuOption
   /**
    * ArtPlayer 原生设置面板(settings 齿轮)自定义项(可选, nextTV 同款范式):
    * 透传给 ArtPlayer 的 settings 配置 —— 弹幕开关/过滤广告/自动连播等开关项
@@ -215,8 +217,6 @@ function saveBandwidth(v: number): void {
 
 /** 当前实例的点击回调(模块级单例: 一页一个 player, init 时注入, dispose 时清空)。 */
 let nextEpisodeHandler: (() => void) | null = null
-/** 弹幕设置按钮回调（同 nextEpisodeHandler 单例模式） */
-let danmakuSettingsHandler: (() => void) | null = null
 
 /** 下一集图标 SVG(nextTV usePlayer.js 原样拷贝, skip-next) */
 export const NEXTTV_NEXT_EPISODE_SVG =
@@ -234,11 +234,6 @@ export const NEXTTV_AUTOPLAY_SVG =
 /** 创建「下一集」图标按钮内容节点(nextTV 原样 SVG 字符串 → DOM)。 */
 function buildNextEpisodeButton(): HTMLElement {
   return svgStringToNode(NEXTTV_NEXT_EPISODE_SVG)
-}
-
-/** 创建「弹幕设置」图标按钮内容节点(nextTV 弹幕 SVG → DOM)。 */
-function buildDanmakuSettingsButton(): HTMLElement {
-  return svgStringToNode(NEXTTV_DANMAKU_SVG)
 }
 
 /** SVG 字符串 → DOM 节点(nextTV 图标写法: 22x22 viewBox 24 fill currentColor)。
@@ -529,8 +524,9 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     // 倍速面板档位交给调用方配置(不随 ArtPlayer 静态默认漂移), 保证与持久化校验一致
     Artplayer.PLAYBACK_RATE = rateOptions.slice()
 
-    // 控制条自定义按钮(nextTV 范式): 「下一集」(播放按钮右侧) + 「弹幕设置」(全屏按钮之前)
-    // 弹幕开关/过滤广告/自动连播收进 ArtPlayer 原生 settings 齿轮面板(opts.settings 透传)
+    // 控制条自定义按钮(nextTV 范式): 「下一集」(播放按钮右侧)。
+    // 弹幕开关/弹幕设置由 artplayer-plugin-danmuku 插件自带(控制条中部 apd-toggle/apd-config),
+    // 过滤广告/自动连播收进 ArtPlayer 原生 settings 齿轮面板(opts.settings 透传)
     const customControls: Artplayer['option']['controls'] = []
     if (opts.nextEpisode) {
       nextEpisodeHandler = opts.nextEpisode.onClick
@@ -543,22 +539,18 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
         click: () => nextEpisodeHandler?.()
       })
     }
-    if (opts.danmakuSettings) {
-      danmakuSettingsHandler = opts.danmakuSettings.onClick
-      customControls.push({
-        name: 'danmaku-settings',
-        position: 'right',
-        index: 15,
-        tooltip: '弹幕设置',
-        html: buildDanmakuSettingsButton(),
-        click: () => danmakuSettingsHandler?.()
-      })
+    // 弹幕插件(nextTV 同款): UI(开关/设置面板/发射器)与设置持久化由插件全托管
+    const plugins: Artplayer['option']['plugins'] = []
+    if (opts.danmuku) {
+      plugins.push(artplayerPluginDanmuku(opts.danmuku))
     }
 
-    const art = new Artplayer({
+    // ArtPlayer option 校验对「显式存在但值为 undefined」的 key 会抛 Type Error
+    // (poster: undefined 曾让 LiveView 构造直接失败 → 点击频道毫无反应),
+    // 可选字段仅在确有值时传入。
+    const artOptions: Artplayer['option'] = {
       container: el as HTMLDivElement,
       url: initialSrc,
-      poster: initialPoster,
       // 初始 mime 已知且为 HLS 时直接声明 type, 首个 blob 清单才能命中 customType
       type: initialSrc && isHlsUrl(initialSrc, initialType) ? 'm3u8' : '',
       customType: {
@@ -592,10 +584,21 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       fullscreenWeb: !(opts.isMobile ?? false),
       pip: !(opts.isMobile ?? false),
       miniProgressBar: true,
-      // 原生设置面板自定义项(弹幕开关/过滤广告/自动连播, nextTV 同款范式; 直播模式 setting=false 自动隐藏)
-      settings: opts.settings,
       controls: customControls
-    })
+    }
+    // 原生设置面板自定义项(弹幕开关/过滤广告/自动连播, nextTV 同款范式; 直播模式 setting=false 自动隐藏)
+    if (opts.settings) {
+      artOptions.settings = opts.settings
+    }
+    // 弹幕插件(nextTV 同款): 控制条中部开关 + 弹幕设置面板由插件托管
+    if (plugins.length > 0) {
+      artOptions.plugins = plugins
+    }
+    if (initialPoster) {
+      artOptions.poster = initialPoster
+    }
+
+    const art = new Artplayer(artOptions)
 
     // 外部订阅构造后立即挂载(不等 ready —— art 的 ready 在首个源 canplay 才触发,
     // 首播的 loadedmetadata 若等 ready 再挂会错过, 首次进页续播 seek 会丢)
@@ -738,7 +741,6 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     videoSize.value = null
     errorMessage.value = ''
     nextEpisodeHandler = null
-    danmakuSettingsHandler = null
     // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 全量重挂
   }
 

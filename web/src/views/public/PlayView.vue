@@ -50,7 +50,7 @@ import RelatedList from '@/components/film/RelatedList.vue'
 import DanmakuSettingsPanel from '@/components/film/DanmakuSettingsPanel.vue'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { useWebSettings } from '@/composables/useWebSettings'
-import { useDanmaku, DANMAKU_FONT_STEPS, DANMAKU_AREA_STEPS, DANMAKU_SPEED_STEPS, DANMAKU_LIMIT_STEPS } from '@/composables/useDanmaku'
+import { useDanmaku, readDanmakuSettings, danmakuSpeedOf } from '@/composables/useDanmaku'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
@@ -162,6 +162,9 @@ const videoErrorMsg = ref<string>('')
     2026-10-26 起默认关闭; 不进 webSettingsSnapshot 安卓契约, 见 useWebSettings 注释)。
     关闭时不调弹幕获取接口。 */
 const { danmaku: danmakuEnabled, setDanmaku: setDanmakuEnabled } = useWebSettings()
+
+/** 弹幕显示设置初始值（localStorage 持久化; 供 usePlayer 构造时映射为插件初始 config） */
+const danmakuSettingsInit = readDanmakuSettings()
 
 /** 实际生效 = 用户级开关（2026-10-30 起移动端同步开放：控制条提供弹幕开关/设置入口） */
 const danmakuActive = computed(() => danmakuEnabled.value)
@@ -762,8 +765,20 @@ const {
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条「下一集」图标入口(所有模式注册; 移动端非全屏由 CSS 隐藏, 见 .jc-player--mobile)
   nextEpisode: { onClick: () => playNext() },
-  // 控制条弹幕设置按钮: 点击打开弹幕设置面板(nextTV 弹幕图标, 移动端/桌面端均显示)
-  danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) },
+  // 弹幕插件(nextTV 同款引擎): 控制条中部开关 + 弹幕设置面板由插件原生提供。
+  // 初始 danmuku 空数组, 数据由 useDanmaku 装载后 plugin.load(); 显示设置映射见 useDanmaku.applyPluginSettings。
+  danmuku: {
+    danmuku: [],
+    speed: danmakuSpeedOf(danmakuSettingsInit.speed),
+    opacity: danmakuSettingsInit.opacity,
+    fontSize: danmakuSettingsInit.fontSize > 0 ? danmakuSettingsInit.fontSize : 23,
+    margin: [10, `${Math.round((1 - danmakuSettingsInit.area) * 100)}%`],
+    antiOverlap: true,
+    // 发射器(自己发弹幕)关: 站点只读弹幕, 无发送后端
+    emitter: false,
+    synchronousPlayback: true,
+    filter: (d) => d.text.length <= 100
+  },
   // 原生显示设置面板(nextTV 范式): 弹幕开关/过滤广告/自动连播收进播放器自带齿轮面板
   settings: [
     {
@@ -807,7 +822,8 @@ const {
 // 在线心跳 watching 信号: 播放器播放状态实时置位(暂停/结束即回落)。
 watch(paused, (v) => setWebWatching(!v))
 
-/* ============ 弹幕层（P0, 方案 §四之二/§四之三: 独立层叠在播放器容器上, 不换渲染引擎） ============ */
+/* ============ 弹幕（artplayer-plugin-danmuku, nextTV 同款引擎） ============
+ * 渲染层/控制条开关/弹幕设置面板全部由插件托管; 本层只喂数据 + 用户级开关持久化。 */
 const danmaku = useDanmaku({
   mid: computed(() => detail.value?.mid),
   // 聚合弹幕按标题匹配: 影片名 + 年份 + 集号
@@ -819,28 +835,7 @@ const danmaku = useDanmaku({
   // 实际生效 = 用户级; 任一变化触发 useDanmaku watch 重载
   enabled: danmakuActive
 })
-const danmakuStage = danmaku.stage
 const danmakuState = danmaku.danmuState
-/** 弹幕显示设置（字号/透明度/区域/速度等, 面板实时更新） */
-const danmakuSettings = danmaku.settings
-const danmakuUpdateSettings = danmaku.updateSettings
-/** 弹幕设置弹窗开关 */
-const danmakuSettingsOpen = ref(false)
-
-/** 弹幕控制条按钮开启态颜色（is-on class; CSS 见样式段 .art-control-danmaku-settings.is-on） */
-function syncDanmakuBtnState(): void {
-  const host = player.value?.template.$player
-  const settingsBtn = host?.querySelector('.art-control-danmaku-settings')
-  if (settingsBtn) settingsBtn.classList.toggle('is-on', danmakuActive.value)
-}
-watch(danmakuActive, syncDanmakuBtnState, { flush: 'post' })
-// 按钮由 usePlayer 在控制条初始化时插入, 首次渲染后可能晚一拍 → 挂载后查两次
-onMounted(() => {
-  nextTick(() => {
-    syncDanmakuBtnState()
-    setTimeout(syncDanmakuBtnState, 300)
-  })
-})
 
 /** R4 外部同步: 弹幕/过滤广告/自动连播状态变化时, 同步更新 ArtPlayer 原生 settings 面板对应项的
  * switch 勾选态与 tooltip 文案。触发源: 面板齿轮开关/onSwitch 路径 + 此处外部 watch 路径(设置页/
@@ -1256,23 +1251,6 @@ function onPlayerTimeUpdateForSkipOutro(): void {
 
 /** ---------- 触屏手势(web 专用; TV/原生播放器不适用) ---------- */
 const isPlayerFullscreen = ref(false)
-
-// 全屏进出：隐藏弹幕层，避免已发射弹幕在尺寸跳变期错位/被裁；尺寸稳定后重载（缓存命中、零请求）以新字号重渲染（item 1）
-const danmakuResizing = ref(false)
-let danmakuResizeTimer: ReturnType<typeof setTimeout> | null = null
-watch(isPlayerFullscreen, () => {
-  console.log('[danmaku] fullscreen toggle:', isPlayerFullscreen.value)
-  // 全屏只短暂隐藏防错位; 尺寸/自适应字号由 ResizeObserver→engine.resize()+setFontSize 处理,
-  // 不再 reload(会 clear 清空弹幕导致"全屏后等好久才重新出现")
-  danmakuResizing.value = true
-  if (danmakuResizeTimer) clearTimeout(danmakuResizeTimer)
-  danmakuResizeTimer = setTimeout(() => {
-    danmakuResizing.value = false
-  }, 250)
-})
-onScopeDispose(() => {
-  if (danmakuResizeTimer) clearTimeout(danmakuResizeTimer)
-})
 
 /** loading 遮罩文案(三档纯函数 loadingHintText, 逐档单测覆盖):
  *  未就绪+过滤在途「正在准备视频 · 广告过滤中…」/ 未就绪「正在准备视频…」/
@@ -1912,18 +1890,8 @@ watch(playerReady, (v) => {
                  Teleport 进它内部, 否则全屏时 DOM 在全屏元素之外 → 全部不可见
                  (右上角广告角标/手势提示消失的根因)。player 未初始化时宿主为空 → 留在原位。 -->
             <Teleport :to="playerOverlayHost || 'body'" :disabled="!playerOverlayHost">
-              <!-- 弹幕层(P0): 独立 DOM 层叠在播放器容器内, 全屏同样可见;
-                   不拦截任何指针事件; z-index 45 = 视频画面(art z10)之上、控制条(art z60)之下。
-                   **常驻不 v-if**: useDanmaku 的引擎创建依赖 stage 挂载, 而 stage 又曾
-                   v-if=providers 非空 ⇒ 鸡生蛋死锁(providers 永远为空, 按钮全不显示,
-                   2026-10-25 线上实测)。空层无视觉影响(引擎未装载时无弹幕节点), 可见性
-                   由 --off(visibility) 按开关/就绪态控制, 指针事件本就 none。 -->
-              <div
-                ref="danmakuStage"
-                class="jc-danmaku-stage"
-                :class="{ 'jc-danmaku-stage--off': !danmakuActive || danmakuState !== 'ready', 'jc-danmaku-stage--resizing': danmakuResizing }"
-                aria-hidden="true"
-              />
+              <!-- 弹幕渲染层由 artplayer-plugin-danmuku 插件自建(画布层), 不再需要独立 stage;
+                   插件的开关/设置面板挂在控制条中部, 全屏/非全屏均可见 -->
               <!-- 长按临时倍速提示(顶部居中) -->
               <div v-if="gestureRateHint" class="jc-player-gesture jc-player-gesture--rate" aria-hidden="true">
                 {{ gestureRateHint }}
@@ -1981,127 +1949,7 @@ watch(playerReady, (v) => {
               <div v-if="videoErrorMsg" class="jc-player-error" role="alert">
                 {{ videoErrorMsg }}
               </div>
-              <!-- 弹幕设置面板(控制条齿轮按钮打开; 所有项实时生效, 持久化见 useDanmaku)
-                   必须 Teleport 进 .art-video-player: 全屏元素是 $player 容器, 面板必须在其内才能全屏可见 -->
-              <div
-                v-if="danmakuSettingsOpen"
-                class="jc-play-settings-panel jc-play-settings-panel--danmaku"
-                @click.stop
-              >
-                <div class="jc-play-settings-panel__header">弹幕设置</div>
-                <div class="jc-play-settings-panel__list">
-                  <!-- 弹幕总开关 -->
-                  <button
-                    type="button"
-                    class="jc-play-settings-panel__row"
-                    :class="{ 'is-on': danmakuEnabled && !danmakuUnavailable, 'is-disabled': danmakuUnavailable }"
-                    @click="onDanmakuEntryClick"
-                  >
-                    <!-- nextTV 同款弹幕图标, 与 settings 面板中的弹幕项图标一致 -->
-                    <svg class="jc-play-settings-panel__icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                      <path d="M20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4ZM5 8H11V10H5V8ZM5 12H9V14H5V12ZM19 16H5V14H13V16H19ZM19 12H11V10H19V12ZM19 8H13V10H19V8Z" />
-                    </svg>
-                    <span class="jc-play-settings-panel__label">
-                      弹幕
-                      <template v-if="danmakuUnavailable"> · {{ danmakuHint }}</template>
-                    </span>
-                    <span class="jc-play-settings-panel__check" aria-hidden="true">{{ danmakuEnabled && !danmakuUnavailable ? '✓' : '' }}</span>
-                  </button>
-                </div>
-                <!-- 字号 -->
-                <div class="jc-play-settings-panel__section">
-                  <div class="jc-play-settings-panel__section-label">字号</div>
-                  <div class="jc-play-settings-panel__segs">
-                    <button
-                      v-for="(px, i) in DANMAKU_FONT_STEPS"
-                      :key="px"
-                      type="button"
-                      class="jc-play-settings-panel__seg"
-                      :class="{ 'is-active': danmakuSettings.fontSize === px }"
-                      @click="danmakuUpdateSettings({ fontSize: px })"
-                    >
-                      {{ ['自适应', '极小', '小', '中', '大', '特大'][i] }}
-                    </button>
-                  </div>
-                </div>
-                <!-- 透明度 -->
-                <div class="jc-play-settings-panel__section">
-                  <div class="jc-play-settings-panel__section-label">透明度 {{ Math.round(danmakuSettings.opacity * 100) }}%</div>
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    step="5"
-                    class="jc-play-settings-panel__range"
-                    :value="Math.round(danmakuSettings.opacity * 100)"
-                    @input="danmakuUpdateSettings({ opacity: Number(($event.target as HTMLInputElement).value) / 100 })"
-                  />
-                </div>
-                <!-- 显示区域 -->
-                <div class="jc-play-settings-panel__section">
-                  <div class="jc-play-settings-panel__section-label">显示区域</div>
-                  <div class="jc-play-settings-panel__segs">
-                    <button
-                      v-for="(a, i) in DANMAKU_AREA_STEPS"
-                      :key="a"
-                      type="button"
-                      class="jc-play-settings-panel__seg"
-                      :class="{ 'is-active': danmakuSettings.area === a }"
-                      @click="danmakuUpdateSettings({ area: a })"
-                    >
-                      {{ ['1/4屏', '半屏', '3/4屏', '全屏'][i] }}
-                    </button>
-                  </div>
-                </div>
-                <!-- 速度 -->
-                <div class="jc-play-settings-panel__section">
-                  <div class="jc-play-settings-panel__section-label">速度</div>
-                  <div class="jc-play-settings-panel__segs">
-                    <button
-                      v-for="(s, i) in DANMAKU_SPEED_STEPS"
-                      :key="s"
-                      type="button"
-                      class="jc-play-settings-panel__seg"
-                      :class="{ 'is-active': danmakuSettings.speed === s }"
-                      @click="danmakuUpdateSettings({ speed: s })"
-                    >
-                      {{ ['极快', '快', '正常', '较慢', '慢'][i] }}
-                    </button>
-                  </div>
-                </div>
-                <!-- 同屏数量 -->
-                <div class="jc-play-settings-panel__section">
-                  <div class="jc-play-settings-panel__section-label">同屏数量</div>
-                  <div class="jc-play-settings-panel__segs">
-                    <button
-                      v-for="(n, i) in DANMAKU_LIMIT_STEPS"
-                      :key="n"
-                      type="button"
-                      class="jc-play-settings-panel__seg"
-                      :class="{ 'is-active': danmakuSettings.limit === n }"
-                      @click="danmakuUpdateSettings({ limit: n })"
-                    >
-                      {{ ['少', '中', '多', '不限'][i] }}
-                    </button>
-                  </div>
-                </div>
-                <!-- 模式开关 -->
-                <div class="jc-play-settings-panel__grid">
-                  <button type="button" class="jc-play-settings-panel__toggle" :class="{ 'is-on': danmakuSettings.topMode }" @click="danmakuUpdateSettings({ topMode: !danmakuSettings.topMode })">
-                    顶部
-                  </button>
-                  <button type="button" class="jc-play-settings-panel__toggle" :class="{ 'is-on': danmakuSettings.bottomMode }" @click="danmakuUpdateSettings({ bottomMode: !danmakuSettings.bottomMode })">
-                    底部
-                  </button>
-                  <button type="button" class="jc-play-settings-panel__toggle" :class="{ 'is-on': danmakuSettings.colored }" @click="danmakuUpdateSettings({ colored: !danmakuSettings.colored })">
-                    彩色
-                  </button>
-                  <button type="button" class="jc-play-settings-panel__toggle" :class="{ 'is-on': danmakuSettings.outline }" @click="danmakuUpdateSettings({ outline: !danmakuSettings.outline })">
-                    描边
-                  </button>
-                </div>
-                <button type="button" class="jc-play-settings-panel__close" @click="danmakuSettingsOpen = false">关闭</button>
-              </div>
+              <!-- 弹幕设置面板已由 artplayer-plugin-danmuku 插件原生提供(apd-config-panel), 自建面板已删 -->
             </Teleport>
           </div>
 
@@ -2376,24 +2224,17 @@ watch(playerReady, (v) => {
   outline: none;
 }
 
-/* 弹幕层（P0）: 覆盖视频画面、不拦截指针事件。
- * z-index 按 ArtPlayer 内部标尺排布(video=10/poster=11/subtitle=20/layers=40/mask=50/
- * bottom=60/loading=70): 弹幕 45 = 视频与字幕之上、居中状态图标(50)与控制条(60)之下。
- * 渲染由 danmaku-lite（Canvas 引擎）负责：引擎自身按 fontSize/fontFamily/strokeWidth
- * 写行内样式并驱动 transform 动画，无需 .cmt 类规则，字号自适应由引擎 resolveFontSize 推算。
- * 容器仅负责定位与裁剪。 */
-.jc-danmaku-stage {
-  position: absolute;
-  inset: 0;
-  z-index: 45;
-  overflow: hidden;
-  pointer-events: none;
+/* 弹幕渲染层已由 artplayer-plugin-danmuku 插件自建(画布层挂在 .art-video-player 内),
+ * 不再需要独立 stage 容器; 插件 UI(apd-toggle 开关 / apd-config-panel 设置面板)样式由插件内置。 */
+
+/* 移动端非全屏: 隐藏插件的「弹幕开关」按钮(apd-toggle, 控制条中部) —— 用户要求 A2:
+ * 移动端非全屏不放弹幕开关; 全屏时恢复(容器类 .art-fullscreen 加在 .art-video-player 上)。
+ * 弹幕设置面板(apd-config-panel)不受影响, 任何端都可打开。 */
+.jc-player--mobile :deep(.apd-toggle) {
+  display: none !important;
 }
-.jc-danmaku-stage--off {
-  visibility: hidden;
-}
-.jc-danmaku-stage--resizing {
-  visibility: hidden;
+.jc-player--mobile :deep(.art-video-player.art-fullscreen) .apd-toggle {
+  display: flex !important;
 }
 
 /* 桌面端最大宽度（>= 1280 居中） */
@@ -2904,31 +2745,28 @@ watch(playerReady, (v) => {
   }
 }
 
-/* 控制条自定义按钮(下一集/弹幕设置): nextTV 同款样式 + ArtPlayer art-icon 标准尺寸 */
-:deep(.art-control-next-episode),
-:deep(.art-control-danmaku-settings) {
+/* 控制条自定义按钮(下一集): nextTV 同款样式 + ArtPlayer art-icon 标准尺寸。
+ * 弹幕开关/设置按钮已由 artplayer-plugin-danmuku 原生提供(apd-toggle/apd-config),
+ * hover 微变色(opacity .75→1 + 图标 scale)走 ArtPlayer/插件内置效果, 与 nextTV 完全一致。 */
+:deep(.art-control-next-episode) {
   /* 容器: 沿用 ArtPlayer 默认 --art-control-height(46px), hover 时恢复全 opacity */
   cursor: pointer;
   opacity: var(--art-control-opacity, .75);
   transition: opacity var(--art-transition-duration, .2s) ease;
 }
 :deep(.art-control-next-episode:hover),
-:deep(.art-control-danmaku-settings:hover),
-:deep(.art-control-next-episode:focus-visible),
-:deep(.art-control-danmaku-settings:focus-visible) {
+:deep(.art-control-next-episode:focus-visible) {
   opacity: 1;
 }
-/* 按钮内的 art-icon 图标: 尺寸与 ArtPlayer 内置图标(--art-control-icon-size)保持一致 */
-:deep(.art-control-next-episode .art-icon),
-:deep(.art-control-danmaku-settings .art-icon) {
+/* 按钮内的 art-icon 图标: 尺寸与 ArtPlayer 内置图标(--art-control-icon-size)保持一致,
+ * hover 微放大与内置按钮同款(scale var(--art-control-icon-scale)) */
+:deep(.art-control-next-episode .art-icon) {
   height: var(--art-control-icon-size, 36px);
   width: var(--art-control-icon-size, 36px);
-  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5));
+  transition: transform var(--art-transition-duration, .2s) ease;
 }
-/* 开启态颜色: 弹幕有效启用时按钮着品牌色 */
-:deep(.art-control-danmaku-settings.is-on .art-icon),
-:deep(.art-control-danmaku-settings.is-on) {
-  color: var(--jc-brand-primary) !important;
+:deep(.art-control-next-episode:hover .art-icon) {
+  transform: scale(var(--art-control-icon-scale, 1.1));
 }
 /* 下一集(左置): 与播放按钮间隔, TV 远距离加大 */
 :deep(.art-control-next-episode) {

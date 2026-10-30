@@ -5,61 +5,67 @@
  * 整秒打散。useDanmaku 只做装配（播放器事件、请求、状态），这里只做决策 ——
  * 表驱动用例见 danmu.spec.ts。
  *
- * 契约要点：后端返回毫秒（time），danmaku-lite 入参 time 是秒，换算唯一入口在 toDanmuInput。
+ * 契约要点：后端返回毫秒（time），artplayer-plugin-danmuku 入参 time 是秒，
+ * 换算唯一入口在 toDanmuInput。输出为插件 Danmu 格式（mode 0 滚动 / 1 顶部 / 2 底部,
+ * color '#RRGGBB'）。
  */
 import type { DanmuComment } from '@/types/film'
-import type { DanmakuItem } from 'danmaku-lite'
+import type { Danmu } from 'artplayer-plugin-danmuku'
 
 /**
  * 弹幕映射过滤项（避免与 DanmakuSettings 形成循环依赖，用本地结构而非 import 后者）。
  */
 export interface DanmuMapFilter {
-  /** 是否保留底部弹幕（源 mode 4 映射后 = 6） */
+  /** 是否保留底部弹幕（源 mode 4） */
   bottomMode?: boolean
-  /** 是否保留顶部弹幕（源 mode 5 映射后 = 5） */
+  /** 是否保留顶部弹幕（源 mode 5） */
   topMode?: boolean
   /** false = 忽略原色，全部改写为白色 */
   colored?: boolean
+  /** true = 弹幕带描边（插件 Danmu.border） */
+  outline?: boolean
 }
 
 /**
- * 模式归一（danmaku-lite 约定：1 滚动 / 5 顶部 / 6 底部）：
- *   - 源 1/2/6（普通滚动 / 反向滚动 / 底部反向滚动）→ 1
- *     （danmaku-lite 无逆向滚动，统一归并进同一滚动轨道分配器，避免与 1 同屏交叉重叠）
- *   - 源 4（底部固定）→ 6
- *   - 源 5（顶部固定）→ 5
- *   - 其余（3/7/8/17 等后端可能返回的非法值）→ 1（兜底，避免非法值直达引擎）
+ * 模式归一（artplayer-plugin-danmuku 约定：0 滚动 / 1 顶部 / 2 底部）：
+ *   - 源 1/2/3/6/7/8（普通滚动 / 反向滚动 / 各种滚动变体）→ 0（插件无逆向滚动, 统一归并）
+ *   - 源 4（底部固定）→ 2
+ *   - 源 5（顶部固定）→ 1
+ *   - 其余非法值 → 0（兜底）
  */
-function normalizeDanmuMode(mode: number): number {
-  if (mode === 4) return 6
-  if (mode === 5) return 5
-  return 1
+function normalizeDanmuMode(mode: number): 0 | 1 | 2 {
+  if (mode === 4) return 2
+  if (mode === 5) return 1
+  return 0
+}
+
+/** 十进制颜色 → '#RRGGBB'（插件 Danmu.color 为 CSS 颜色字符串）。 */
+export function danmuColorToHex(color: number): string {
+  const v = Number.isFinite(color) && color > 0 ? Math.floor(color) : 0xffffff
+  return `#${(v & 0xffffff).toString(16).padStart(6, '0')}`
 }
 
 /**
- * 单条弹幕映射：毫秒 → 秒（danmaku-lite 约定 time 为秒），产出 DanmakuItem。
- * 源 DanmuComment 无 id，用 `time:text:index` 生成稳定唯一 id（同列表内唯一、同数据稳定，供 load 去重）。
- * filter 命中（关闭底部/顶部/彩色）返回 null，调用方负责跳过。
+ * 单条弹幕映射：毫秒 → 秒（插件约定 time 为秒），产出插件 Danmu。
+ * filter 命中（关闭底部/顶部）返回 null，调用方负责跳过。
  */
 export function toDanmuInput(
   c: DanmuComment,
   index = 0,
   filter?: DanmuMapFilter,
-): DanmakuItem | null {
+): Danmu | null {
   const mapped = normalizeDanmuMode(c.mode)
   if (filter) {
-    if (mapped === 6 && filter.bottomMode === false) return null
-    if (mapped === 5 && filter.topMode === false) return null
+    if (mapped === 2 && filter.bottomMode === false) return null
+    if (mapped === 1 && filter.topMode === false) return null
   }
-  const color = filter && filter.colored === false ? 0xffffff : c.color
+  const color = filter && filter.colored === false ? '#ffffff' : danmuColorToHex(c.color)
   return {
-    id: `${c.time}:${c.text}:${index}`,
     text: c.text,
     time: c.time / 1000,
-    // DanmakuMode 是 const enum（1/5/6）；esbuild 不支持其运行时，
-    // 故不 import 该枚举，仅以 `as DanmakuItem['mode']` 收敛数值类型（类型导入无运行时副作用）。
-    mode: mapped as DanmakuItem['mode'],
-    color
+    mode: mapped,
+    color,
+    border: filter?.outline === true
   }
 }
 
@@ -79,17 +85,19 @@ function hashUnit(s: string): number {
 /**
  * 整秒聚堆随机打散：弹幕源时间基本是整秒精度，同秒（及邻近秒）弹幕齐发会列成整齐一列
  * （固定步长错开仍显规律、不够自然）。对 time 为整秒的条目叠加确定性伪随机偏移
- * ±DANMU_SCATTER_RANGE；非整秒条目已有毫秒级分散，不动。偏移种子取条目 id
- * （id 含 原始time:text:同秒序号，天然区分复读且跨次映射稳定）。处理后按 time 重新升序。
+ * ±DANMU_SCATTER_RANGE；非整秒条目已有毫秒级分散，不动。偏移种子取条目序号
+ * （同数据稳定）。处理后按 time 重新升序。
  */
-export function scatterTimes(items: DanmakuItem[]): void {
-  for (const it of items) {
-    const rounded = Math.round(it.time)
-    if (Math.abs(it.time - rounded) > 1e-6) continue
-    const jitter = (hashUnit(String(it.id)) - 0.5) * 2 * DANMU_SCATTER_RANGE
+export function scatterTimes(items: Danmu[]): void {
+  for (let i = 0; i < items.length; i += 1) {
+    const it = items[i]!
+    const t = it.time ?? 0
+    const rounded = Math.round(t)
+    if (Math.abs(t - rounded) > 1e-6) continue
+    const jitter = (hashUnit(`${t}:${it.text}:${i}`) - 0.5) * 2 * DANMU_SCATTER_RANGE
     it.time = Math.max(0, Number((rounded + jitter).toFixed(3)))
   }
-  items.sort((a, b) => a.time - b.time)
+  items.sort((a, b) => (a.time ?? 0) - (b.time ?? 0))
 }
 
 /** 批量映射（保持顺序；filter 命中的条目跳过；空列表返回空数组）。
@@ -97,10 +105,10 @@ export function scatterTimes(items: DanmakuItem[]): void {
 export function toDanmuInputs(
   list: readonly DanmuComment[],
   filter?: DanmuMapFilter,
-): DanmakuItem[] {
+): Danmu[] {
   if (list.length === 0) return []
   const sorted = [...list].sort((a, b) => a.time - b.time)
-  const out: DanmakuItem[] = []
+  const out: Danmu[] = []
   for (const c of sorted) {
     const item = toDanmuInput(c, out.length, filter)
     if (item) out.push(item)

@@ -52,11 +52,14 @@ function selectSource(id: number): void {
   void loadChannels(id)
 }
 
+/** 点击频道后的待起播标志: 用户点击 = 有手势, 但 playerPlay 在装载完成前调用是 no-op
+ *  (autoplay:false 时 ArtPlayer 装载新源不会自动起播), 等 canplay 后补一次 play。 */
+let pendingPlay = false
+
 function selectChannel(ch: LiveChannel): void {
   activeUrl.value = ch.url
+  pendingPlay = true
   playSrc.value = ch.url
-  // 用户点击 = 已有手势，自动起播
-  void playerPlay()
   try {
     localStorage.setItem(LAST_CHANNEL_KEY, JSON.stringify({ sourceId: activeSourceId.value, url: ch.url }))
   } catch {
@@ -74,11 +77,12 @@ const {
   play: playerPlay,
   pause: playerPause,
   on: onPlayerEvent,
+  player,
   errored
 } = usePlayer({
   src: playSrc,
   type: HLS_TYPE,
-  poster: undefined,
+  // 不传 poster: ArtPlayer option 校验对显式 undefined 会抛 Type Error(播放器构造失败 → 点击频道无反应)
   autoplay: false,
   volume: 0.6,
   // 直播模式: 隐藏进度/时长, hls.js 直播跟随
@@ -90,7 +94,31 @@ onPlayerEvent('waiting', () => {
   buffering.value = true
 })
 onPlayerEvent('playing', () => {
+  pendingPlay = false
   buffering.value = false
+})
+onPlayerEvent('canplay', () => {
+  // 点击频道后装载完成 → 补起播(见 selectChannel pendingPlay 注释)。
+  // 用 art 原生 play(): usePlayer.playerPlay 会吞掉 NotAllowedError, 无法感知失败降级。
+  if (!pendingPlay) return
+  pendingPlay = false
+  const p = player.value
+  if (!p) return
+  const ret = p.play() as Promise<void> | undefined
+  if (ret && typeof ret.catch === 'function') {
+    ret.catch(() => {
+      // 手势激活窗口已过(慢流装载超时) → 浏览器拒绝有声播放 → 静音降级起播,
+      // 用户点击控制条音量按钮(手势)即可恢复声音
+      p.muted = true
+      const r2 = p.play() as Promise<void> | undefined
+      void r2?.catch(() => undefined)
+      try {
+        p.notice.show = '已静音起播，点击音量按钮开启声音'
+      } catch {
+        /* ignore */
+      }
+    })
+  }
 })
 onPlayerEvent('error', () => {
   // 直播源失效常见：频道离线/区域限制 —— 提示换频道
