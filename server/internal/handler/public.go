@@ -85,6 +85,10 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 		dto.Error(c, http.StatusBadRequest, "missing title")
 		return
 	}
+	if len([]rune(title)) > 128 {
+		dto.Error(c, http.StatusBadRequest, "title too long")
+		return
+	}
 	episode := queryInt(c, "episode", 1)
 	if episode < 1 || episode > 9999 {
 		dto.Error(c, http.StatusBadRequest, "invalid episode")

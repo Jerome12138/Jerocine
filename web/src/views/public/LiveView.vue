@@ -46,7 +46,9 @@ function selectSource(id: number): void {
   if (id === activeSourceId.value) return
   activeSourceId.value = id
   activeUrl.value = ''
-  playSrc.value = '' // 停掉旧源画面（无高亮的"僵尸播放"）
+  // 真正停播(usePlayer 的 src watcher 对空串 early-return, 仅清值是 no-op)
+  playerPause()
+  playSrc.value = ''
   void loadChannels(id)
 }
 
@@ -69,6 +71,7 @@ const {
   init: initPlayer,
   dispose: disposePlayer,
   play: playerPlay,
+  pause: playerPause,
   on: onPlayerEvent,
   errored
 } = usePlayer({

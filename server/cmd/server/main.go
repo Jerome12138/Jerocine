@@ -23,8 +23,8 @@ import (
 	"server/internal/danmu"
 	"server/internal/douban"
 	"server/internal/geoip"
-	"server/internal/live"
 	"server/internal/handler"
+	"server/internal/live"
 	"server/internal/platform/auth"
 	"server/internal/platform/blobstore"
 	"server/internal/platform/db"
@@ -240,7 +240,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 		Hot:      hotSvc, Tasks: taskSvc, Online: service.NewOnlineService(cacheRdb),
 		Register: registerSvc,
 		Danmu:    danmuSvc, Live: liveSvc,
-		Blob:     blob, ResetToken: cfg.Spider.ResetToken,
+		Blob: blob, ResetToken: cfg.Spider.ResetToken,
 	}
 
 	return &App{

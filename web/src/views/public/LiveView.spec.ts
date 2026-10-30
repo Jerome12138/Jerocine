@@ -19,6 +19,7 @@ vi.mock('@/composables/usePlayer', () => ({
     init: vi.fn(),
     dispose: vi.fn(),
     play: vi.fn().mockResolvedValue(undefined),
+    pause: vi.fn(),
     on: vi.fn(() => () => undefined),
     errored: { value: false },
     player: { value: null },
