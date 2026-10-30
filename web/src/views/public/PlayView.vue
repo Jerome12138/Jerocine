@@ -59,7 +59,7 @@ import posterFallback from '@/assets/play.svg'
 
 const route = useRoute()
 const router = useRouter()
-const { isTV, isDesktop } = useViewMode()
+const { isTV, isDesktop, isMobile } = useViewMode()
 
 /** PC(A方案)按钮"更多"展开态: 一行放不下的低频项收进这里 */
 const moreActionsOpen = ref(false)
@@ -205,11 +205,6 @@ const { adFilter, setAdFilter } = useWebSettings()
 const hasHlsEngine = isHlsSupported() // 无 MSE 设备(iPhone 原生 HLS)播不了 blob 清单 → 原始直链(不过滤)
 function toggleAdFilter(): void {
   setAdFilter(!adFilter.value)
-  if (adFilter.value) {
-    toast('success', '广告过滤已开启')
-  } else {
-    toast('info', '广告过滤已关闭')
-  }
 }
 
 
@@ -272,8 +267,6 @@ let playSrcToken = 0
  * token 负责"丢弃旧结果", abort 负责"终止旧请求" —— 两道都要。
  */
 let srcAbortCtl: AbortController | null = null
-/** 上次已提示过"已过滤 N 段"的 url, 防同一集重复弹(web 端由端侧过滤拿响应头后提示)。 */
-let lastAdFilterToastUrl = ''
 /** 切集 seek + 续播参数: applyCurrentEpisodeToPlayer 写入, 供 armSeekOnce 读取(新源就绪时)。 */
 let pendingResumeAt = 0
 let pendingAutoPlay = false
@@ -312,11 +305,14 @@ function armSeekOnce(): void {
   let fired = false
   const offL = onPlayerEvent('loadedmetadata', run)
   const offC = onPlayerEvent('canplay', run)
+  // mobile/hls.js blob URL 上 canplay 偶发不触发, video:waiting 是更稳定的"已开始起播"信号
+  const offW = onPlayerEvent('waiting', run)
   function run(): void {
     if (fired || myToken !== seekArmToken) return
     fired = true
     offL()
     offC()
+    offW()
     switchInFlight = false // 新片源已就绪, 解除切集互斥
     autoNextGuardUntil = Date.now() + AUTO_NEXT_COOLDOWN_MS // 就绪后 10s 自动连播冷却
     // 新源就绪事件(loadedmetadata/canplay)已触发: 立即清除切集时挂起的 loading 态,
@@ -534,10 +530,6 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
   if (cached) {
     commit(createFilteredBlob(cached.text), 'application/x-mpegURL', true)
     adFilterBadge.value = { kind: cached.filtered > 0 ? 'filtered' : 'clean', count: cached.filtered }
-    if (cached.filtered > 0 && originalUrl !== lastAdFilterToastUrl) {
-      lastAdFilterToastUrl = originalUrl
-      toast('success', adFilterSuccessMessage(cached.filtered))
-    }
     return
   }
   adFilterBadge.value = { kind: 'filtering', count: 0 }
@@ -548,11 +540,6 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
     commit(createFilteredBlob(text), 'application/x-mpegURL', true)
     // I-017: 角标常驻反馈过滤结果
     adFilterBadge.value = { kind: filtered > 0 ? 'filtered' : 'clean', count: filtered }
-    // 过滤成功提示: 沿用 adFilterSuccessMessage 文案, 数量取响应头 X-Ad-Filtered(不再二次查 stats)
-    if (filtered > 0 && originalUrl !== lastAdFilterToastUrl) {
-      lastAdFilterToastUrl = originalUrl
-      toast('success', adFilterSuccessMessage(filtered))
-    }
     return
   } catch {
     if (token !== playSrcToken) return
@@ -770,10 +757,10 @@ const {
   // 弱网友好默认: preload metadata 而非 auto, 起播更快; 弱网时启用 hls.js 低带宽预设
   preload: 'metadata',
   lowBandwidth: isSlowNetwork.value,
-  // I-018: 控制条内常驻「下一集」入口(点击走 playNext, 内部有 hasNext guard)
-  nextEpisode: { onClick: () => playNext() },
-  // 控制条弹幕开关(2026-10-30 起移动端同步开放): 点击切用户级开关
-  danmakuToggle: { onClick: () => onDanmakuEntryClick() },
+  // I-018: 控制条内常驻「下一集」入口(仅 PC, 移动端不展示)
+  ...(isDesktop.value ? { nextEpisode: { onClick: () => playNext() } } : {}),
+  // 控制条弹幕开关(仅 PC 展示独立按钮; 移动端无此入口, 开关功能已整合进弹幕设置弹窗)
+  ...(isDesktop.value ? { danmakuToggle: { onClick: () => onDanmakuEntryClick() } } : {}),
   // 控制条弹幕设置按钮: 点击打开设置弹窗
   danmakuSettings: { onClick: () => (danmakuSettingsOpen.value = true) }
 })
@@ -956,7 +943,6 @@ import { dispatchNativePlaylist } from '@/utils/nativePlay'
 import { telemetry } from '@/utils/telemetry'
 import {
   adFilterBadgeText,
-  adFilterSuccessMessage,
   firstChildPlaylistUrl,
   loadingHintText,
   type AdFilterBadgeKind
@@ -1247,7 +1233,7 @@ const loadingHint = computed(() =>
 
 /** loading 遮罩兜底: 超过 45s 仍未就绪(极端慢网 / 就绪事件丢失)则撤遮罩 + 提示,
  *  防无限阻塞(实测正常路径 6~40s; 撤后用户仍可见视频区与控制条, 可手动切源重试)。 */
-const LOADING_FALLBACK_MS = 45_000
+const LOADING_FALLBACK_MS = 25_000
 let loadingFallbackTimer: number | undefined
 watch(loading, (v) => {
   if (loadingFallbackTimer !== undefined) {

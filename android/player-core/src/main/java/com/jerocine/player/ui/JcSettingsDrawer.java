@@ -327,7 +327,6 @@ public class JcSettingsDrawer {
                         boolean next = !PlayerAdFilterHelper.isAdFilterEnabled(activity);
                         PlayerAdFilterHelper.setAdFilterEnabled(activity, next);
                         refreshToggle(adFilterSwitch, next);
-                        host.toast(next ? "广告过滤已开启" : "广告过滤已关闭");
                     });
         }
 
