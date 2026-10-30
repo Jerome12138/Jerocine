@@ -59,7 +59,7 @@ import posterFallback from '@/assets/play.svg'
 
 const route = useRoute()
 const router = useRouter()
-const { isTV, isDesktop, isMobile } = useViewMode()
+const { isTV, isDesktop } = useViewMode()
 
 /** PC(A方案)按钮"更多"展开态: 一行放不下的低频项收进这里 */
 const moreActionsOpen = ref(false)
@@ -316,7 +316,7 @@ function armSeekOnce(): void {
     offP()
     switchInFlight = false // 新片源已就绪, 解除切集互斥
     autoNextGuardUntil = Date.now() + AUTO_NEXT_COOLDOWN_MS // 就绪后 10s 自动连播冷却
-    // 新源就绪事件(loadedmetadata/canplay)已触发: 立即清除切集时挂起的 loading 态,
+    // 就绪信号(loadedmetadata/canplay/playing 任一触发): 立即清除切集时挂起的 loading 态,
     // 露出新集画面。放在 seek/play 之前, 即便 player 此刻为空也不会让 loading 卡住。
     loading.value = false
     const p = player.value
@@ -1232,8 +1232,8 @@ const loadingHint = computed(() =>
   })
 )
 
-/** loading 遮罩兜底: 超过 45s 仍未就绪(极端慢网 / 就绪事件丢失)则撤遮罩 + 提示,
- *  防无限阻塞(实测正常路径 6~40s; 撤后用户仍可见视频区与控制条, 可手动切源重试)。 */
+/** loading 遮罩兜底: 超过 25s 仍未就绪(极端慢网 / 就绪事件丢失)则撤遮罩 + 提示,
+ *  防无限阻塞(正常路径 2~8s; 撤后用户仍可见视频区与控制条, 可手动切源重试)。 */
 const LOADING_FALLBACK_MS = 25_000
 let loadingFallbackTimer: number | undefined
 watch(loading, (v) => {
@@ -1246,7 +1246,7 @@ watch(loading, (v) => {
     loadingFallbackTimer = undefined
     if (!loading.value) return
     loading.value = false
-    // 45s 未就绪上报(区分"正在缓冲"卡死: playSrc 已就绪但 canplay 不来 = 视频数据层卡住)
+    // 25s 未就绪上报(区分"正在缓冲"卡死: playSrc 已就绪但 playing 不来 = 视频数据层卡住)
     telemetry.track('error', {
       category: 'video-loading-fallback',
       action: playSrcReady.value ? 'src-ready-stuck' : 'src-not-ready',
