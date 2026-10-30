@@ -321,6 +321,16 @@ public class WebShellActivity extends BridgeActivity
         });
     }
 
+    // Capacitor BridgeActivity.onDestroy 是 public —— 保持同可见性(缩小即编译错)。
+    @Override
+    public void onDestroy() {
+        // 进程级静态单例(JerocinePlayer.Config)的回调捕获了本 Activity 的 webViewRef ——
+        // 不清掉会钉住整个 Activity+WebView 泄漏, 且回调继续向已销毁 WebView evaluateJavascript。
+        // 同 NativeShellActivity.onDestroy 范式。
+        JerocinePlayer.config().setCallback(null);
+        super.onDestroy();
+    }
+
     /** 当前是否有可用网络连接 (拿不到判定时按"有网"处理, 避免误拦) */
     @SuppressWarnings("deprecation")
     private boolean isOnline() {

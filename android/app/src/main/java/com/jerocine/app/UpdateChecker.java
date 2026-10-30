@@ -168,6 +168,9 @@ public class UpdateChecker {
 
     private void showUpdateDialog(int remoteCode, String remoteName, String apkUrl,
                                   String changelog, boolean force, String channel) {
+        // OkHttp 回调异步到达时 Activity 可能已 finish(WebView 不可恢复降级 restartApp / 双击退出):
+        // 对已销毁 Activity show AlertDialog → BadTokenException 闪退。同 JcSettingsDrawer 守卫范式。
+        if (activity.isFinishing() || activity.isDestroyed()) return;
         if (apkUrl == null || apkUrl.isEmpty()) {
             toast("远程版本未配置 apkUrl, 暂不能更新");
             return;
