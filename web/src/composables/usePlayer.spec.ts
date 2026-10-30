@@ -686,30 +686,30 @@ describe('usePlayer — hls.js 自愈链路', () => {
 
 describe('usePlayer — dispose 与回调单例', () => {
   it('dispose 清空控制条回调单例: 旧控件点击失效, 重建后新回调生效', () => {
-    const toggle1 = vi.fn()
-    const { api } = mountHost({ src: MP4, danmakuToggle: { onClick: toggle1 } })
+    const settings1 = vi.fn()
+    const { api } = mountHost({ src: MP4, danmakuSettings: { onClick: settings1 } })
     api.init(document.createElement('div'))
     const art1 = lastArt()
     api.dispose()
     expect(art1.destroy).toHaveBeenCalledWith(true)
     // 单例已清空: 旧控件点击不触发(也不抛错)
     const oldCtrl = (art1.option.controls as Array<{ name: string; click: () => void }>).find(
-      (c) => c.name === 'danmaku-toggle'
+      (c) => c.name === 'danmaku-settings'
     )!
     oldCtrl.click()
-    expect(toggle1).not.toHaveBeenCalled()
+    expect(settings1).not.toHaveBeenCalled()
     // 重复 dispose 安全
     api.dispose()
-    // 重新 init 注册新 toggle → 新回调生效 → 再 dispose 不报错
-    const toggle2 = vi.fn()
-    const h2 = mountHost({ src: MP4, danmakuToggle: { onClick: toggle2 } })
+    // 重新 init 注册新 settings → 新回调生效 → 再 dispose 不报错
+    const settings2 = vi.fn()
+    const h2 = mountHost({ src: MP4, danmakuSettings: { onClick: settings2 } })
     h2.api.init(document.createElement('div'))
     const art2 = lastArt()
     const newCtrl = (art2.option.controls as Array<{ name: string; click: () => void }>).find(
-      (c) => c.name === 'danmaku-toggle'
+      (c) => c.name === 'danmaku-settings'
     )!
     newCtrl.click()
-    expect(toggle2).toHaveBeenCalledTimes(1)
+    expect(settings2).toHaveBeenCalledTimes(1)
     h2.api.dispose()
   })
 
@@ -745,31 +745,53 @@ describe('usePlayer — 导出工具函数', () => {
 })
 
 describe('usePlayer — 补充盲区(覆盖率补强)', () => {
-  it('控制条三自定义按钮: 注册顺序/文案/点击回调', () => {
-    const toggle = vi.fn()
+  it('控制条自定义按钮: 只注册 nextEpisode(左)+ danmakuSettings(右); 无 danmakuToggle/playSettings', () => {
     const settings = vi.fn()
     const next = vi.fn()
     const { api } = mountHost({
       src: MP4,
-      danmakuToggle: { onClick: toggle },
       danmakuSettings: { onClick: settings },
       nextEpisode: { onClick: next }
     })
     api.init(document.createElement('div'))
     const ctrls = lastArtOption().controls as Array<{
       name: string
-      tooltip: string
       position: string
       click: () => void
     }>
-    expect(ctrls.map((c) => c.name)).toEqual(['danmaku-toggle', 'danmaku-settings', 'next-episode'])
-    expect(ctrls.every((c) => c.position === 'right')).toBe(true)
-    ctrls.find((c) => c.name === 'danmaku-toggle')!.click()
-    ctrls.find((c) => c.name === 'danmaku-settings')!.click()
-    ctrls.find((c) => c.name === 'next-episode')!.click()
-    expect(toggle).toHaveBeenCalledTimes(1)
+    // next-episode 在左侧(index=15), danmaku-settings 在右侧(index=15)
+    const nextCtrl = ctrls.find((c) => c.name === 'next-episode')
+    const settingsCtrl = ctrls.find((c) => c.name === 'danmaku-settings')
+    expect(nextCtrl).toBeTruthy()
+    expect(nextCtrl!.position).toBe('left')
+    expect(settingsCtrl).toBeTruthy()
+    expect(settingsCtrl!.position).toBe('right')
+    // 不应出现已被移除的 danmaku-toggle / playSettings
+    expect(ctrls.every((c) => c.name !== 'danmaku-toggle')).toBe(true)
+    expect(ctrls.every((c) => c.name !== 'play-settings')).toBe(true)
+    settingsCtrl!.click()
+    nextCtrl!.click()
     expect(settings).toHaveBeenCalledTimes(1)
     expect(next).toHaveBeenCalledTimes(1)
+  })
+
+  it('settings 选项透传: 三项自定义开关项(弹幕/过滤广告/自动连播)', () => {
+    const { api } = mountHost({
+      src: MP4,
+      settings: [
+        { name: 'jc-danmaku', html: '弹幕', switch: true, onSwitch: () => false },
+        { name: 'jc-ad', html: '去广告', switch: false, onSwitch: () => true },
+        { name: 'jc-autoplay', html: '连播', switch: true, onSwitch: () => true }
+      ] as Artplayer['option']['settings']
+    })
+    api.init(document.createElement('div'))
+    const settings = lastArtOption().settings as Array<{ name: string; html: string; switch: boolean }>
+    expect(Array.isArray(settings)).toBe(true)
+    expect(settings.length).toBe(3)
+    expect(settings.map((s) => s.name)).toEqual(['jc-danmaku', 'jc-ad', 'jc-autoplay'])
+    expect(settings[0].switch).toBe(true)
+    expect(settings[1].switch).toBe(false)
+    expect(settings[2].switch).toBe(true)
   })
 
   it("on('ready') → art 'ready'; on('userinactive') → 'control' 包装(state=false 才透传)", () => {

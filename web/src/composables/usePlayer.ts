@@ -59,28 +59,24 @@ export interface UsePlayerOptions {
   preload?: 'none' | 'metadata' | 'auto'
   /**
    * 控制条「下一集」按钮(可选, I-018):
-   * 提供后会在控制条右侧注册一个常驻文字按钮, 点击触发 onClick。
-   * 是否真的存在下一集由回调自行判断(如 PlayView.playNext 内部已 guard hasNext)。
+   * 提供后会在控制条播放按钮右侧注册一个常驻图标按钮(nextTV 同款 skip-next SVG),
+   * 点击触发 onClick。是否真的存在下一集由回调自行判断(如 PlayView.playNext 内部已 guard hasNext)。
+   * 移动端不传此项(用户要求: 移动端非全屏不放下一集按钮)。
    */
   nextEpisode?: { onClick: () => void }
   /**
    * 控制条「弹幕设置」按钮(可选):
-   * 提供后注册一个常驻图标按钮, 点击触发 onClick(PlayView 打开弹幕设置弹窗)。
+   * 提供后注册一个常驻图标按钮(nextTV 同款弹幕 SVG), 点击触发 onClick(PlayView 打开弹幕设置面板)。
    * 按钮常驻显示——设置项(字号/透明度等)独立于当前片源是否可用。
    */
   danmakuSettings?: { onClick: () => void }
   /**
-   * 控制条「弹幕开关」按钮(可选):
-   * 提供后注册一个常驻图标按钮, 点击触发 onClick 切换弹幕显隐。
-   * 按钮开启态(is-on 着色)由调用方经 syncDanmakuBtnState 类机制外部同步
-   * (ArtPlayer 控件是静态 DOM, 状态类不进响应式)。
+   * ArtPlayer 原生设置面板(settings 齿轮)自定义项(可选, nextTV 同款范式):
+   * 透传给 ArtPlayer 的 settings 配置 —— 弹幕开关/过滤广告/自动连播等开关项
+   * 全部收进播放器自带显示设置面板, 控制条不放自建齿轮按钮。
+   * 注意: 仅非直播模式生效(setting 面板直播模式隐藏)。
    */
-  danmakuToggle?: { onClick: () => void }
-  /**
-   * 控制条「播放设置」按钮(可选):
-   * 提供后注册一个常驻图标按钮, 点击触发 onClick(PlayView 打开播放设置面板)。
-   */
-  playSettings?: { onClick: () => void }
+  settings?: Artplayer['option']['settings']
   /**
    * 弱网模式. 开启后(hls.js 配置):
    *  - 初始带宽估算 800kbps (默认 2Mbps), ABR 从低码率起步
@@ -151,6 +147,13 @@ export interface UsePlayerReturn {
   on: (event: PlayerEventName, fn: (...args: unknown[]) => void) => () => void
   /** 直接 off（与 on 配合） */
   off: (event: PlayerEventName, fn: (...args: unknown[]) => void) => void
+  /**
+   * 外部同步原生 settings 面板开关项状态(弹幕开关/过滤广告/自动连播):
+   * 调用方在 danmakuEnabled/adFilter/autoPlayNext 等状态变化后触发,
+   * 内部通过 ArtPlayer `setting.update({name,switch,tooltip})` 刷新面板对应项。
+   * name 必须与构造时 settings 数组中同名项一致(详见 PlayView settings 配置)。
+   */
+  updateSettings: (item: { name: string; switch?: boolean; tooltip?: string }) => void
 }
 
 function unwrap<T>(v: Ref<T> | T): T {
@@ -214,57 +217,43 @@ function saveBandwidth(v: number): void {
 let nextEpisodeHandler: (() => void) | null = null
 /** 弹幕设置按钮回调（同 nextEpisodeHandler 单例模式） */
 let danmakuSettingsHandler: (() => void) | null = null
-/** 弹幕开关按钮回调（同上） */
-let danmakuToggleHandler: (() => void) | null = null
-/** 播放设置按钮回调 */
-let playSettingsHandler: (() => void) | null = null
 
-/** 弹幕设置图标 SVG path（Material "tune": 调节滑块） */
-const DANMAKU_ICON_PATH =
-  'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z'
-/** 弹幕开关图标 SVG path（空心气泡 — 未开启态; is-on 态通过 CSS 填充色区分） */
-const DANMAKU_TOGGLE_ICON_PATH =
-  'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z'
-/** 下一集图标 SVG path (skip-next, Material) */
-const NEXT_EPISODE_ICON_PATH =
-  'M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z'
-/** 播放设置图标 SVG path (settings/gear, Material) */
-const PLAY_SETTINGS_ICON_PATH =
-  'M19.14 12.94c.04-.3.06-.61.06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94c0 .31.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6s3.6 1.62 3.6 3.6s-1.62 3.6-3.6 3.6z'
+/** 下一集图标 SVG(nextTV usePlayer.js 原样拷贝, skip-next) */
+export const NEXTTV_NEXT_EPISODE_SVG =
+  '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>'
+/** 弹幕图标 SVG(nextTV settings 面板"弹幕"项原样拷贝: 圆角矩形+弹幕行) */
+export const NEXTTV_DANMAKU_SVG =
+  '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4ZM5 8H11V10H5V8ZM5 12H9V14H5V12ZM19 16H5V14H13V16H19ZM19 12H11V10H19V12ZM19 8H13V10H19V8Z" fill="currentColor"/></svg>'
+/** 去广告图标 SVG(nextTV settings 面板"去广告"项原样拷贝: AD 文字) */
+export const NEXTTV_AD_SVG =
+  '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><text x="50%" y="50%" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="currentColor">AD</text></svg>'
+/** 自动连播图标 SVG(nextTV 无此项, 按 nextTV 图标写法自绘: 圆环+播放三角) */
+export const NEXTTV_AUTOPLAY_SVG =
+  '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 20C16.4 20 20 16.4 20 12C20 7.6 16.4 4 12 4C7.6 4 4 7.6 4 12C4 16.4 7.6 20 12 20ZM12 22C6.5 22 2 17.5 2 12C2 6.5 6.5 2 12 2C17.5 2 22 6.5 22 12C22 17.5 17.5 22 12 22ZM10.1 7.5L16.5 12L10.1 16.5V7.5Z" fill="currentColor"/></svg>'
 
-/** 创建「下一集」图标按钮内容节点(SVG skip-next, 无文字标签)。 */
+/** 创建「下一集」图标按钮内容节点(nextTV 原样 SVG 字符串 → DOM)。 */
 function buildNextEpisodeButton(): HTMLElement {
-  return buildIconSvg(NEXT_EPISODE_ICON_PATH)
+  return svgStringToNode(NEXTTV_NEXT_EPISODE_SVG)
 }
 
-/** 创建「弹幕设置」图标按钮内容节点(内联 SVG, 不依赖 icon font)。 */
+/** 创建「弹幕设置」图标按钮内容节点(nextTV 弹幕 SVG → DOM)。 */
 function buildDanmakuSettingsButton(): HTMLElement {
-  return buildIconSvg(DANMAKU_ICON_PATH)
+  return svgStringToNode(NEXTTV_DANMAKU_SVG)
 }
 
-/** 创建「播放设置」图标按钮内容节点(gear SVG)。 */
-function buildPlaySettingsButton(): HTMLElement {
-  return buildIconSvg(PLAY_SETTINGS_ICON_PATH)
-}
-
-/** 创建「弹幕开关」图标按钮内容节点(气泡弹幕行图标)。 */
-function buildDanmakuToggleButton(): HTMLElement {
-  return buildIconSvg(DANMAKU_TOGGLE_ICON_PATH)
-}
-
-/** 20px 内联 SVG 图标节点(填充 currentColor)。 */
-function buildIconSvg(pathD: string): HTMLElement {
-  const svgNS = 'http://www.w3.org/2000/svg'
-  const svg = document.createElementNS(svgNS, 'svg')
-  svg.setAttribute('viewBox', '0 0 24 24')
-  svg.setAttribute('fill', 'currentColor')
-  svg.setAttribute('width', '20')
-  svg.setAttribute('height', '20')
-  svg.setAttribute('aria-hidden', 'true')
-  const path = document.createElementNS(svgNS, 'path')
-  path.setAttribute('d', pathD)
-  svg.appendChild(path)
-  return svg as unknown as HTMLElement
+/** SVG 字符串 → DOM 节点(nextTV 图标写法: 22x22 viewBox 24 fill currentColor)。
+ * 外层包裹 .art-icon div: 与 ArtPlayer 内置按钮一致, 自动享受 --art-control-icon-size
+ * 缩放到 ArtPlayer 控制的 icon 尺寸, 并继承 art-icon hover scale 效果。 */
+function svgStringToNode(svgStr: string): HTMLElement {
+  const wrapper = document.createElement('i')
+  wrapper.className = 'art-icon'
+  const template = document.createElement('template')
+  template.innerHTML = svgStr.trim()
+  const node = template.content.firstElementChild
+  if (!node) throw new Error('invalid svg string')
+  node.setAttribute('aria-hidden', 'true')
+  wrapper.appendChild(node)
+  return wrapper as HTMLElement
 }
 
 /** 模块级一次性开关: ArtPlayer 全局行为收敛(右键菜单/版本日志/内建重连与旧 video.js 行为对齐)。 */
@@ -540,8 +529,8 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     // 倍速面板档位交给调用方配置(不随 ArtPlayer 静态默认漂移), 保证与持久化校验一致
     Artplayer.PLAYBACK_RATE = rateOptions.slice()
 
-    // 控制条自定义按钮: 「下一集」(播放按钮右侧) + 「弹幕开关」+「弹幕设置」(全屏按钮之前)
-    // (ArtPlayer 自建 .art-control 容器, html 只放内容节点; 点击回调绑在容器上)
+    // 控制条自定义按钮(nextTV 范式): 「下一集」(播放按钮右侧) + 「弹幕设置」(全屏按钮之前)
+    // 弹幕开关/过滤广告/自动连播收进 ArtPlayer 原生 settings 齿轮面板(opts.settings 透传)
     const customControls: Artplayer['option']['controls'] = []
     if (opts.nextEpisode) {
       nextEpisodeHandler = opts.nextEpisode.onClick
@@ -552,28 +541,6 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
         tooltip: '下一集',
         html: buildNextEpisodeButton(),
         click: () => nextEpisodeHandler?.()
-      })
-    }
-    if (opts.danmakuToggle) {
-      danmakuToggleHandler = opts.danmakuToggle.onClick
-      customControls.push({
-        name: 'danmaku-toggle',
-        position: 'right',
-        index: 10,
-        tooltip: '弹幕开关',
-        html: buildDanmakuToggleButton(),
-        click: () => danmakuToggleHandler?.()
-      })
-    }
-    if (opts.playSettings) {
-      playSettingsHandler = opts.playSettings.onClick
-      customControls.push({
-        name: 'play-settings',
-        position: 'right',
-        index: 15,
-        tooltip: '播放设置',
-        html: buildPlaySettingsButton(),
-        click: () => playSettingsHandler?.()
       })
     }
     if (opts.danmakuSettings) {
@@ -625,6 +592,8 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       fullscreenWeb: !(opts.isMobile ?? false),
       pip: !(opts.isMobile ?? false),
       miniProgressBar: true,
+      // 原生设置面板自定义项(弹幕开关/过滤广告/自动连播, nextTV 同款范式; 直播模式 setting=false 自动隐藏)
+      settings: opts.settings,
       controls: customControls
     })
 
@@ -770,8 +739,6 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     errorMessage.value = ''
     nextEpisodeHandler = null
     danmakuSettingsHandler = null
-    danmakuToggleHandler = null
-    playSettingsHandler = null
     // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 全量重挂
   }
 
@@ -898,6 +865,16 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     }
   }
 
+  /** 外部同步 ArtPlayer 原生 settings 面板开关项: 弹幕/过滤广告/自动连播等。
+   * 通过 setting.update({name,switch,tooltip}) 刷新面板对应项 DOM 状态。 */
+  function updateSettings(item: { name: string; switch?: boolean; tooltip?: string }): void {
+    const p = player.value
+    if (!p) return
+    // setting.update 内部会 Object.assign(option, item) 并 re-render;
+    // 若 item 无 switch/tooltip 则不触发重绘, 直接透传保持兼容
+    try { p.setting.update(item as never) } catch { /* ignore */ }
+  }
+
   return {
     player,
     ready,
@@ -918,7 +895,8 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     enterTempRate,
     exitTempRate,
     on,
-    off
+    off,
+    updateSettings
   }
 }
 
