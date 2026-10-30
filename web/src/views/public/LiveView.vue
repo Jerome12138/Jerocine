@@ -52,8 +52,8 @@ function selectSource(id: number): void {
   void loadChannels(id)
 }
 
-/** 点击频道后的待起播标志: 用户点击 = 有手势, 但 playerPlay 在装载完成前调用是 no-op
- *  (autoplay:false 时 ArtPlayer 装载新源不会自动起播), 等 canplay 后补一次 play。 */
+/** 点击频道后的待起播标志: 用户点击 = 有手势, 但自动播放需等装载完成(autoplay:false 时
+ *  ArtPlayer 装载新源不会自动起播), 等 canplay 后补一次 play(见 onPlayerEvent('canplay'))。 */
 let pendingPlay = false
 
 function selectChannel(ch: LiveChannel): void {
@@ -74,7 +74,6 @@ const buffering = ref(false)
 const {
   init: initPlayer,
   dispose: disposePlayer,
-  play: playerPlay,
   pause: playerPause,
   on: onPlayerEvent,
   player,

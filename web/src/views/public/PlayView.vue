@@ -47,7 +47,6 @@ import { storeToRefs } from 'pinia'
 import { normalizeDpadKey } from '@/utils/dpad'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
-import DanmakuSettingsPanel from '@/components/film/DanmakuSettingsPanel.vue'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { useWebSettings } from '@/composables/useWebSettings'
 import { useDanmaku, readDanmakuSettings, danmakuSpeedOf } from '@/composables/useDanmaku'
@@ -773,10 +772,11 @@ const {
     opacity: danmakuSettingsInit.opacity,
     fontSize: danmakuSettingsInit.fontSize > 0 ? danmakuSettingsInit.fontSize : 23,
     margin: [10, `${Math.round((1 - danmakuSettingsInit.area) * 100)}%`],
-    antiOverlap: true,
+    antiOverlap: danmakuSettingsInit.antiOverlap,
     // 发射器(自己发弹幕)关: 站点只读弹幕, 无发送后端
     emitter: false,
     synchronousPlayback: true,
+    // 装载前过滤: 超长文本(搬运字幕/广告尾缀)直接丢弃; 上限对齐聚合源单条常见最大长度
     filter: (d) => d.text.length <= 100
   },
   // 原生显示设置面板(nextTV 范式): 弹幕开关/过滤广告/自动连播收进播放器自带齿轮面板
@@ -2960,154 +2960,5 @@ watch(playerReady, (v) => {
 }
 /* TV/安卓壳: 倍速/设置面板由 ArtPlayer settings 组件提供, 默认样式已适配触屏, 不再特调 */
 
-/* ===== 播放设置内嵌面板 (控制条齿轮按钮打开) ===== */
-.jc-play-settings-panel {
-  position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
-  right: 8px;
-  z-index: 80;
-  background: rgba(16, 18, 24, 0.92);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--jc-radius-lg);
-  padding: 12px 0;
-  min-width: 200px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-  color: rgba(255, 255, 255, 0.92);
-}
-.jc-play-settings-panel__header {
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.5);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 0 14px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 4px;
-}
-.jc-play-settings-panel__list {
-  display: flex;
-  flex-direction: column;
-}
-.jc-play-settings-panel__row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  width: 100%;
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 14px;
-  cursor: pointer;
-  text-align: left;
-  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-play-settings-panel__row:hover {
-  background: rgba(255, 255, 255, 0.07);
-}
-.jc-play-settings-panel__row.is-on {
-  color: var(--jc-brand-primary);
-}
-.jc-play-settings-panel__row.is-disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.jc-play-settings-panel__icon {
-  flex: none;
-  opacity: 0.85;
-}
-.jc-play-settings-panel__label {
-  flex: 1;
-  font-size: 14px;
-}
-.jc-play-settings-panel__check {
-  font-size: 13px;
-  opacity: 0.7;
-}
-.jc-play-settings-panel__close {
-  margin-top: 6px;
-  padding: 8px 14px;
-  width: 100%;
-  background: none;
-  border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: center;
-  transition: color var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-play-settings-panel__close:hover {
-  color: rgba(255, 255, 255, 0.85);
-}
-/* 弹幕设置扩展样式(字号/透明度/区域/速度/同屏/模式开关) */
-.jc-play-settings-panel__section {
-  padding: 8px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-.jc-play-settings-panel__section-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.45);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-.jc-play-settings-panel__segs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.jc-play-settings-panel__seg {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-play-settings-panel__seg:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.95);
-}
-.jc-play-settings-panel__seg.is-active {
-  border-color: var(--jc-brand-primary);
-  background: color-mix(in srgb, var(--jc-brand-primary) 22%, transparent);
-  color: var(--jc-brand-primary);
-}
-.jc-play-settings-panel__range {
-  width: 100%;
-  accent-color: var(--jc-brand-primary);
-  height: 4px;
-}
-.jc-play-settings-panel__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 8px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-.jc-play-settings-panel__toggle {
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--jc-dur-fast) var(--jc-ease-standard);
-  text-align: center;
-}
-.jc-play-settings-panel__toggle:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
-}
-.jc-play-settings-panel__toggle.is-on {
-  border-color: color-mix(in srgb, var(--jc-brand-primary) 60%, transparent);
-  color: var(--jc-brand-primary);
-  background: color-mix(in srgb, var(--jc-brand-primary) 15%, transparent);
-}
+
 </style>

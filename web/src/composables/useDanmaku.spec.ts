@@ -41,10 +41,22 @@ const fakePlugin = {
   reset: vi.fn()
 }
 
-/** 带 plugins 挂点的假 Artplayer 实例（useDanmaku 只取 plugins[name]）。 */
+/** 带 plugins 挂点 + 事件总线的假 Artplayer 实例（useDanmaku 取 plugins[name] 并挂 :config 监听）。 */
 function makeFakeArt(withPlugin = true) {
+  const handlers = new Map<string, Array<(...a: unknown[]) => void>>()
   return {
-    plugins: withPlugin ? { artplayerPluginDanmuku: fakePlugin } : {}
+    plugins: withPlugin ? { artplayerPluginDanmuku: fakePlugin } : {},
+    on: (e: string, cb: (...a: unknown[]) => void) => {
+      const arr = handlers.get(e) ?? []
+      arr.push(cb)
+      handlers.set(e, arr)
+    },
+    off: (e: string, cb: (...a: unknown[]) => void) => {
+      handlers.set(e, (handlers.get(e) ?? []).filter((x) => x !== cb))
+    },
+    emit: (e: string, ...a: unknown[]) => {
+      for (const cb of [...(handlers.get(e) ?? [])]) cb(...a)
+    }
   } as unknown as import('artplayer').default
 }
 
@@ -332,5 +344,53 @@ describe('useDanmaku', () => {
     const { w } = mountHost(3)
     await flush()
     expect(() => w.unmount()).not.toThrow()
+  })
+
+  /* ---------------- 插件面板 → 持久化回写(:config 事件, 2026-10-31 审查补) ---------------- */
+
+  it(':config 事件回写: 用户在插件面板改动 → jc-danmaku-settings 持久化(档位吸附)', async () => {
+    m.getDanmuAggregate.mockResolvedValue({ comments })
+    const { api, playerRef } = mountHost(3)
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    // 模拟插件面板滑动: 透明度 0.55 / 字号 28 / 区域滑到 45% 底部偏移(→吸附 0.5 档) / 速度 7.5s(→档 2) / 关防重叠
+    ;(playerRef.value as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit(
+      'artplayerPluginDanmuku:config',
+      { opacity: 0.55, fontSize: 28, margin: [10, '45%'], speed: 7.5, antiOverlap: false }
+    )
+    await flush()
+    const s = api.settings.value
+    expect(s.opacity).toBe(0.55)
+    expect(s.fontSize).toBe(28)
+    expect(s.area).toBe(0.5) // 45% 偏移 → 面积 0.55 → 吸附最近档 0.5
+    expect(s.speed).toBe(2) // 7.5s → 档 2
+    expect(s.antiOverlap).toBe(false)
+    // 持久化落库
+    expect(JSON.parse(localStorage.getItem('jc-danmaku-settings')!)).toMatchObject({
+      opacity: 0.55,
+      fontSize: 28,
+      antiOverlap: false
+    })
+  })
+
+  it(':config 防回环: applyPluginSettings 主动 config 后, 同值事件不产生变更', async () => {
+    m.getDanmuAggregate.mockResolvedValue({ comments })
+    const { api, playerRef } = mountHost(3)
+    await flush()
+    const before = api.settings.value
+    // 模拟 useDanmaku 自身 applyPluginSettings 触发的 config 事件(值与 settings 一致)
+    const cur = api.settings.value
+    ;(playerRef.value as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit(
+      'artplayerPluginDanmuku:config',
+      {
+        opacity: cur.opacity,
+        fontSize: cur.fontSize > 0 ? cur.fontSize : 23,
+        margin: [10, `${Math.round((1 - cur.area) * 100)}%`],
+        speed: 7.5, // 默认档 2 → 7.5s
+        antiOverlap: cur.antiOverlap
+      }
+    )
+    await flush()
+    expect(api.settings.value).toEqual(before) // 无差异 → 不回写
   })
 })

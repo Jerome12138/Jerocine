@@ -49,6 +49,8 @@ export interface DanmakuSettings {
   colored: boolean
   /** 描边（插件 Danmu.border） */
   outline: boolean
+  /** 防重叠（插件 antiOverlap；插件设置面板可改, 经 :config 事件回写持久化） */
+  antiOverlap: boolean
 }
 
 export const DANMAKU_SETTINGS_KEY = 'jc-danmaku-settings'
@@ -63,7 +65,8 @@ export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
   bottomMode: true,
   topMode: true,
   colored: true,
-  outline: true
+  outline: true,
+  antiOverlap: true
 }
 /** 字号档位（自适应档 + 4 档可调；B站/腾讯均为档位式） */
 export const DANMAKU_FONT_STEPS = [0, 16, 20, 24, 28, 34] as const
@@ -80,8 +83,6 @@ export const DANMAKU_OLD_SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5] as const
 export function danmakuSpeedOf(speed: number): number {
   return Math.min(10, 5 + (speed - 1) * 2)
 }
-/** 同屏上限档位 —— 已废弃, 保留仅为兼容旧设置面板数据 */
-export const DANMAKU_LIMIT_STEPS = [15, 30, 50, 0] as const
 
 /** 单个弹幕请求超时（ms）：整集聚合容错更大（服务端聚合最坏数秒 + 4MB 级响应）。
  *  导出为可变对象便于测试注入极小超时。 */
@@ -222,7 +223,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         margin: [10, `${Math.round((1 - s.area) * 100)}%`],
         fontSize: s.fontSize > 0 ? s.fontSize : 23,
         speed: danmakuSpeedOf(s.speed),
-        antiOverlap: true
+        antiOverlap: s.antiOverlap
       })
     } catch {
       /* 插件未就绪时静默 */
@@ -373,7 +374,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         loadedKey === currentLoadKey()
       ) {
         const items = toDanmuInputs(lastComments, currentMapFilter())
-        void plugin()?.load(items)
+        // 插件 load 失败会 reject(内部 validator/转换抛错), 不 catch 会变 unhandledrejection
+        plugin()?.load(items).catch(() => undefined)
         applyPluginSettings() // 混合 patch(如同时改字号)也要应用运行时设置
       } else {
         loadedKey = null // 内容映射参数变了, 已装载内容失效, 重开需重装
@@ -384,6 +386,73 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
   }
 
+  /**
+   * 插件设置面板 → 本地持久化回写。
+   * 插件面板所有改动(滑条/开关)都经 danmuku.config() → art.emit('artplayerPluginDanmuku:config')。
+   * 我们 applyPluginSettings() 主动 config 时 option 与 settings 一致 → 无差异 → 不回写(天然防回环);
+   * 用户在插件面板改动 → 有差异 → 回写 jc-danmaku-settings, 下次进页初始 config 不丢。
+   * visible(显示开关)/modes(类型屏蔽) 为会话级显示层状态, 有意不持久化。
+   */
+  function onPluginConfig(artOption: Record<string, unknown>): void {
+    const s = { ...settings.value }
+    let changed = false
+    const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+    const op = num(artOption.opacity)
+    if (op !== null && Math.abs(op - s.opacity) > 1e-3) {
+      s.opacity = Math.min(Math.max(op, 0.1), 1)
+      changed = true
+    }
+    const fs = num(artOption.fontSize)
+    if (fs !== null && fs !== (s.fontSize > 0 ? s.fontSize : 23)) {
+      // 插件面板字号为连续滑条(非档位), 直接落值; 0(自适应档) 只能从我们这边设
+      s.fontSize = Math.round(fs)
+      changed = true
+    }
+    const margin = artOption.margin
+    if (Array.isArray(margin) && typeof margin[1] === 'string' && margin[1].endsWith('%')) {
+      const bottomPct = Number.parseFloat(margin[1])
+      if (Number.isFinite(bottomPct)) {
+        const area = Math.round((1 - Math.min(Math.max(bottomPct, 0), 100) / 100) * 100) / 100
+        if (!DANMAKU_AREA_STEPS.includes(area as 0.25 | 0.5 | 0.75 | 1)) {
+          // 插件滑条是连续值, 吸附到最近档位(与设置面板档位语义一致)
+          const nearest = DANMAKU_AREA_STEPS.reduce((a, b) =>
+            Math.abs(b - area) < Math.abs(a - area) ? b : a
+          )
+          if (nearest !== s.area) {
+            s.area = nearest
+            changed = true
+          }
+        } else if (area !== s.area) {
+          s.area = area
+          changed = true
+        }
+      }
+    }
+    const sp = num(artOption.speed)
+    if (sp !== null) {
+      // 反查档位: 持续秒 [5,6,7.5,9,10] → [1,1.5,2,2.5,3]; 非档位值吸附最近档
+      const step = (DANMAKU_SPEED_STEPS as readonly number[]).find(
+        (st) => Math.abs(danmakuSpeedOf(st) - sp) < 0.3
+      )
+      if (step !== undefined && step !== s.speed) {
+        s.speed = step
+        changed = true
+      }
+    }
+    if (typeof artOption.antiOverlap === 'boolean' && artOption.antiOverlap !== s.antiOverlap) {
+      s.antiOverlap = artOption.antiOverlap
+      changed = true
+    }
+    if (changed) {
+      settings.value = s
+      writeDanmakuSettings(s)
+    }
+  }
+
+  /** :config 事件 handler（具名函数, 供重建实例时对称 off） */
+  const onPluginConfigHandler = (option: unknown): void =>
+    onPluginConfig((option ?? {}) as Record<string, unknown>)
+
   /* ---- 开关 / 集号 / 影片（纳入触发条件; immediate: 初始 enabled=true 的老用户进页即装载） ---- */
   watch(
     () => [opts.enabled.value, opts.mid.value, opts.episode.value, opts.title.value] as const,
@@ -392,10 +461,28 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     },
     { immediate: true }
   )
-  /** 播放器实例变化（init 完成/重建）后插件才可用 → 补一次装载 */
-  watch(opts.player, (v) => {
-    if (v) void loadDanmaku()
-  })
+  /** 播放器实例变化（init 完成/重建）后插件才可用 → 补一次装载 + 挂 :config 持久化回写。
+   *  immediate: player 已就绪时（测试桩/热重建）也要挂上监听。 */
+  watch(
+    opts.player,
+    (art, prevArt) => {
+      if (prevArt) {
+        try {
+          prevArt.off('artplayerPluginDanmuku:config', onPluginConfigHandler)
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!art) return
+      try {
+        art.on('artplayerPluginDanmuku:config', onPluginConfigHandler)
+      } catch {
+        /* ignore */
+      }
+      void loadDanmaku()
+    },
+    { immediate: true }
+  )
   /** 诊断日志: 弹幕状态机每次切换都打印(便于排查"弹幕长期不出现") */
   watch(danmuState, (to, from) => {
     console.log('[danmaku] state:', from, '→', to)
