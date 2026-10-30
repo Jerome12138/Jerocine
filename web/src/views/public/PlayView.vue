@@ -305,14 +305,15 @@ function armSeekOnce(): void {
   let fired = false
   const offL = onPlayerEvent('loadedmetadata', run)
   const offC = onPlayerEvent('canplay', run)
-  // mobile/hls.js blob URL 上 canplay 偶发不触发, video:waiting 是更稳定的"已开始起播"信号
-  const offW = onPlayerEvent('waiting', run)
+  // video:playing 是"真正开始播放"的唯一可靠信号(canplay 在移动端 blob URL 上偶发不触发,
+  // video:waiting 会在播放中反复触发故不能用作一次性就绪信号)。三选一先到的即触发 run。
+  const offP = onPlayerEvent('playing', run)
   function run(): void {
     if (fired || myToken !== seekArmToken) return
     fired = true
     offL()
     offC()
-    offW()
+    offP()
     switchInFlight = false // 新片源已就绪, 解除切集互斥
     autoNextGuardUntil = Date.now() + AUTO_NEXT_COOLDOWN_MS // 就绪后 10s 自动连播冷却
     // 新源就绪事件(loadedmetadata/canplay)已触发: 立即清除切集时挂起的 loading 态,
