@@ -57,6 +57,12 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	// 信任内网反代(生产: nginx 容器, docker 私有网段)。gin 默认信任所有代理会取 XFF 最左值,
+	// 伪造 X-Forwarded-For 即可绕过登录限流(ClientIP 可控)。XFF 用 $proxy_add_x_forwarded_for
+	// 追加模式: 真实直连 IP 落在伪造值右侧, 从右向左取第一个非受信地址即真实客户端。
+	if err := r.SetTrustedProxies([]string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}); err != nil {
+		log.Printf("SetTrustedProxies: %v", err)
+	}
 	r.GET("/livez", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	r.GET("/healthz", app.health)
 	r.Static(cfg.Blob.BaseURL, cfg.Blob.LocalDir) // 本地图片访问(生产由 nginx 托管)
@@ -76,7 +82,16 @@ func main() {
 	// 启动榜单热度刷新调度(每日 04:00 拉豆瓣榜单 → hot_rank/hot_score)
 	app.hotSvc.Start(rootCtx)
 
-	srv := &http.Server{Addr: ":" + cfg.ServerPort, Handler: r}
+	// 超时收敛: 无超时的 Server 可被慢连接(slowloris)长期占住 fd。
+	// ReadHeaderTimeout 短; Read/Write 长于最坏请求(弹幕聚合 30s 上游/大图上传); Idle 收敛 keep-alive。
+	srv := &http.Server{
+		Addr:              ":" + cfg.ServerPort,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       120 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       90 * time.Second,
+	}
 	serveErr := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

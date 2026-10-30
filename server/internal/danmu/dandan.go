@@ -88,7 +88,11 @@ func (c *DandanClient) get(ctx context.Context, path string, out any) error {
 		c.base+"/"+url.PathEscape(c.token)+path, nil)
 	if err != nil {
 		// 构造失败(parse error)的 err 内嵌完整 URL 含 token, 一并脱敏
-		return fmt.Errorf("danmu aggregate request failed: %w", errors.Unwrap(err))
+		// (Unwrap 可能为 nil —— 非 wrap 型错误时兜底用原 err)
+		if u := errors.Unwrap(err); u != nil {
+			err = u
+		}
+		return fmt.Errorf("danmu aggregate request failed: %w", err)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {

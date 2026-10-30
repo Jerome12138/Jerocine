@@ -11,6 +11,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -26,8 +27,8 @@ var (
 )
 
 const (
-	negSentinel = "\x00__nil__"     // 负缓存哨兵值
-	negTTL      = 60 * time.Second  // 负缓存 TTL(固定不抖)
+	negSentinel = "\x00__nil__"    // 负缓存哨兵值
+	negTTL      = 60 * time.Second // 负缓存 TTL(固定不抖)
 )
 
 // Init 注入缓存/协调 redis 客户端(由 platform/db 在启动期调用)。
@@ -196,11 +197,19 @@ func (g *flightGroup) Do(key string, fn func() (flightResult, error)) (flightRes
 	g.m[key] = c
 	g.mu.Unlock()
 
-	c.res, c.err = fn()
-
-	g.mu.Lock()
-	delete(g.m, key)
-	g.mu.Unlock()
-	c.wg.Done()
+	// panic 隔离: fn panic 时 delete/Done 仍必须执行, 否则该 key 的等待者
+	// 永久阻塞在 wg.Wait() 且 m[key] 永不清除(后续请求全部挂起 + goroutine 泄漏)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.err = fmt.Errorf("cache: singleflight panic on %s: %v", key, r)
+			}
+			g.mu.Lock()
+			delete(g.m, key)
+			g.mu.Unlock()
+			c.wg.Done()
+		}()
+		c.res, c.err = fn()
+	}()
 	return c.res, c.err
 }

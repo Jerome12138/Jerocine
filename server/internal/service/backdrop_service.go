@@ -41,9 +41,9 @@ type BackdropService struct {
 	search  repository.SearchRepository
 	banners *BannerService // 生效轮播位(缓存), 手动+自动补位同源
 	blob    blobstore.BlobStore
-	client  *tmdb.Client  // key 运行期热替换, 永不为 nil
+	client  *tmdb.Client                    // key 运行期热替换, 永不为 nil
 	siteCfg repository.SiteConfigRepository // key 唯一权威: 后台「系统设置 → TMDB」(无 env 兜底)
-	kick    chan struct{} // 事件触发通道(容量 1, 多次触发自动合并)
+	kick    chan struct{}                   // 事件触发通道(容量 1, 多次触发自动合并)
 }
 
 func NewBackdropService(movie repository.MovieRepository, search repository.SearchRepository,
@@ -90,8 +90,19 @@ func (s *BackdropService) loop(ctx context.Context) {
 		case <-s.kick: // 采集完成/轮播变更: 立即重算
 		case <-sweep.C: // 兜底扫描
 		}
-		s.tick(ctx)
+		// recover 下沉到每轮: 单轮 panic 只损失该轮, worker 常驻(顶层的 recover 只兜 loop 之外)
+		runSafely("[backdrop]", func() { s.tick(ctx) })
 	}
+}
+
+// runSafely 单轮执行包裹: worker 循环内逐轮 recover, 单轮 panic 不终结 worker。
+func runSafely(name string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("%s tick panic: %v", name, r)
+		}
+	}()
+	fn()
 }
 
 // safeNotify 调用事件回调并隔离 panic —— 回调是 worker 的触发器, 绝不连累采集/轮播主流程。
@@ -200,8 +211,9 @@ func (s *BackdropService) fillOne(ctx context.Context, m *entity.Movie) {
 
 // FillOne 单片回填横图(后台手动触发): 按 mid 查影片 → TMDB 检索 → 下载 → 双表回填。
 // 复用 worker 的 fillOne 内联逻辑, 但主动回读确认结果并返回状态, 供管理端提示:
-//   already = 原本就有横图, 未重查;  miss    = 命中 TMDB MissMark 哨兵(检索无果, 不回填);
-//   filled  = 本次成功回填;   "" + err = 未生效(网络失败/无 key/检索无果), 详情见 [backdrop] 日志。
+//
+//	already = 原本就有横图, 未重查;  miss    = 命中 TMDB MissMark 哨兵(检索无果, 不回填);
+//	filled  = 本次成功回填;   "" + err = 未生效(网络失败/无 key/检索无果), 详情见 [backdrop] 日志。
 func (s *BackdropService) FillOne(ctx context.Context, mid int64) (string, error) {
 	m, err := s.movie.GetByMid(ctx, mid)
 	if err != nil {

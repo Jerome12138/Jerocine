@@ -39,6 +39,11 @@ func (h *Handlers) DanmuBilibili(c *gin.Context) {
 		return
 	}
 	episode := queryInt(c, "episode", 1)
+	// 范围校验对齐聚合接口(1..9999): 无界值直达上游 URL 与缓存键
+	if episode < 1 || episode > 9999 {
+		dto.Error(c, http.StatusBadRequest, "invalid episode")
+		return
+	}
 	comments, err := h.Danmu.DanmuBilibili(c.Request.Context(), seasonID, episode)
 	if err != nil {
 		dto.Fail(c, err)

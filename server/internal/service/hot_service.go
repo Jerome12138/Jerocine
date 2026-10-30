@@ -128,7 +128,8 @@ func (s *HotService) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.tick(ctx)
+			// recover 下沉到每轮(同 backdrop): 单轮 panic 不终结榜单刷新 worker
+			runSafely("[hot]", func() { s.tick(ctx) })
 		}
 	}
 }

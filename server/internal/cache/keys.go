@@ -10,13 +10,12 @@ import (
 // 缓存键(db0)与协调态键(db1)分库, 见 platform/db。
 
 // ---- db0 缓存键 ----
-func KeyMovieDetail(mid int64) string     { return fmt.Sprintf("v1:movie:detail:%d", mid) }
-func KeyMovieBasic(mid int64) string      { return fmt.Sprintf("v1:movie:basic:%d", mid) }
-func KeyMovieCard(mid int64) string       { return fmt.Sprintf("v1:movie:card:%d", mid) }
-func KeyClassify(pid int64) string        { return fmt.Sprintf("v1:classify:%d", pid) }
-func KeyRelate(mid int64) string          { return fmt.Sprintf("v1:relate:%d", mid) }
-func KeyTagOpts(pid int64) string         { return fmt.Sprintf("v1:tagopts:%d", pid) }
-func KeyPlayMulti(matchKey string) string { return fmt.Sprintf("v1:play:multi:%s", matchKey) }
+func KeyMovieDetail(mid int64) string { return fmt.Sprintf("v1:movie:detail:%d", mid) }
+func KeyMovieBasic(mid int64) string  { return fmt.Sprintf("v1:movie:basic:%d", mid) }
+func KeyMovieCard(mid int64) string   { return fmt.Sprintf("v1:movie:card:%d", mid) }
+func KeyClassify(pid int64) string    { return fmt.Sprintf("v1:classify:%d", pid) }
+func KeyRelate(mid int64) string      { return fmt.Sprintf("v1:relate:%d", mid) }
+func KeyTagOpts(pid int64) string     { return fmt.Sprintf("v1:tagopts:%d", pid) }
 
 const (
 	KeyCatTree    = "v1:cat:tree"
@@ -31,8 +30,10 @@ const (
 func KeyDanmuSource(mid int64) string { return fmt.Sprintf("v1:danmu:src:%d", mid) }
 
 // KeyDanmuBiliCmt B站整集弹幕内容缓存键（D2 起：Go 不再缓存分集映射，只缓存最终整集弹幕）。
+// seasonID 来自用户输入(路由参数)，经 EpKeyOf 哈希定长化 —— 限制不合法输入制造无界键
+// (公开限流接口可批量造 key 撑 Redis 内存；同 episodeID 的 8.5/8.6 约定)。
 func KeyDanmuBiliCmt(seasonID string, episode int) string {
-	return fmt.Sprintf("v1:danmu:bili:cmt:%s:%d", seasonID, episode)
+	return fmt.Sprintf("v1:danmu:bili:cmt:%s:%d", EpKeyOf(seasonID), episode)
 }
 
 // KeyDanmuSeg 分段弹幕内容缓存键（腾讯/爱奇艺等分段点播，P1c 起用；先登记）。
@@ -72,7 +73,6 @@ const (
 	PatClassify    = "v1:classify:*"
 	PatRelate      = "v1:relate:*"
 	PatTagOpts     = "v1:tagopts:*"
-	PatPlay        = "v1:play:*"
 	PatDanmuSource = "v1:danmu:src:*" // 弹幕来源候选缓存(后台改弹幕配置后全清, 见 ManageService.SaveDanmuConfig)
 )
 

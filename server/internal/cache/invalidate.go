@@ -3,14 +3,13 @@ package cache
 import "context"
 
 // InvalidateAfterCollect 采集完成后统一失效内容缓存。
-// 根治旧代码 clearCache 漏清 RelateMovie 的问题: 这里把首页/分类树/分类页/推荐/标签/详情/多源全部清掉。
+// 根治旧代码 clearCache 漏清 RelateMovie 的问题: 这里把首页/分类树/分类页/推荐/标签/详情全部清掉。
 func InvalidateAfterCollect(ctx context.Context) {
 	Del(ctx, KeyHomeAgg, KeyCatTree, KeyCfgSources)
 	DelByPattern(ctx, PatClassify)
 	DelByPattern(ctx, PatRelate)
 	DelByPattern(ctx, PatTagOpts)
 	DelByPattern(ctx, PatMovie)
-	DelByPattern(ctx, PatPlay)
 }
 
 // InvalidateMovie 单部影片变更后失效其详情/卡片/基本信息 + 受影响的聚合页。

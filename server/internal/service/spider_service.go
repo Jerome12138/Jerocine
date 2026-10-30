@@ -566,7 +566,9 @@ func (s *SpiderService) recoverOnePage(ctx context.Context, src *entity.CollectS
 		log.Printf("spider: 源 %s 正在采集, 失败记录 %d 顺延", src.Id, f.Id)
 		return domain.ErrConflict
 	}
-	defer cache.Unlock(ctx, lockKey, token)
+	// Unlock 必须脱离取消(同 runOne): 停机取消时用已取消 ctx 解锁失败 → 6h TTL 锁残留
+	// 卡死补采。分布式锁的收尾动作不随停机取消。
+	defer cache.Unlock(context.WithoutCancel(ctx), lockKey, token)
 	if _, err := s.engine.CollectOnePage(ctx, src, f.PageNo, f.Hours); err != nil {
 		log.Printf("spider: 补采 %s 第 %d 页失败: %v", src.Id, f.PageNo, err)
 		return err

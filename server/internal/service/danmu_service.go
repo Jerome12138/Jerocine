@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"server/internal/cache"
@@ -34,33 +35,69 @@ const (
 // 平台要可用，两边都要启用 —— 壳白名单决定上游能否拉，这里决定 Go/前端是否开放）。
 var danmuProviderAll = []string{"bilibili", "tencent", "iqiyi", "youku"}
 
-// danmuEnabledProviders 后台启用的弹幕平台（总开关 + 白名单过滤）。
-// 返回 nil 表示弹幕整体未启用（DanmuSource 空候选、路径 A/B 全 400）。
-// 直接读 site_config 库现值（不经 ConfigService 缓存 —— v1:cfg:site 是 JSON 序列化
-// 往返，而弹幕两列 json:"-" 会被裁剪成恒零值；同 MailConfig 范式读 repo）。
-func (s *DanmuService) danmuEnabledProviders(ctx context.Context) []string {
+// danmuCfgSnapshot 弹幕启用配置快照（进程内 30s TTL）：
+//   - 热路径（validatePathBProvider/danmuMasterEnabled 每请求调用）不再每请求打 MySQL；
+//   - 瞬时 DB 故障时沿用旧快照（无旧快照才上抛），不再把错误误判成"未启用"毒化负缓存 2h
+//     （P1: site_config 查询出错曾被当 nil 处理，负缓存语义污染）。
+//   - 后台改配置最长 30s 延迟生效（弹幕开关类变更可接受；如需立即生效可在保存路径加失效钩子）。
+type danmuCfgSnapshot struct {
+	masterOn  bool
+	providers []string // nil = 总开关关（未启用）
+}
+
+const danmuCfgCacheTTL = 30 * time.Second
+
+func (s *DanmuService) danmuCfgSnapshot(ctx context.Context) (danmuCfgSnapshot, error) {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	if s.cfgSnap != nil && time.Since(s.cfgAt) < danmuCfgCacheTTL {
+		return *s.cfgSnap, nil
+	}
 	cfg, err := s.siteCfg.Get(ctx)
-	if err != nil || cfg.DanmuEnabled != 1 || len(cfg.DanmuProviders) == 0 {
-		return nil
+	if err != nil {
+		// 刷新失败: 有旧快照沿用(容错降级), 无旧快照上抛(调用方不得把它当"未启用"写负缓存)
+		if s.cfgSnap != nil {
+			log.Printf("danmu: site_config refresh failed, using stale snapshot: %v", err)
+			return *s.cfgSnap, nil
+		}
+		return danmuCfgSnapshot{}, err
 	}
-	allowed := make(map[string]bool, len(danmuProviderAll))
-	for _, p := range danmuProviderAll {
-		allowed[p] = true
-	}
-	out := make([]string, 0, len(cfg.DanmuProviders))
-	for _, p := range cfg.DanmuProviders {
-		if allowed[p] {
-			out = append(out, p)
+	snap := danmuCfgSnapshot{masterOn: cfg.DanmuEnabled == 1}
+	if snap.masterOn && len(cfg.DanmuProviders) > 0 {
+		allowed := make(map[string]bool, len(danmuProviderAll))
+		for _, p := range danmuProviderAll {
+			allowed[p] = true
+		}
+		for _, p := range cfg.DanmuProviders {
+			if allowed[p] {
+				snap.providers = append(snap.providers, p)
+			}
 		}
 	}
-	return out
+	s.cfgSnap = &snap
+	s.cfgAt = time.Now()
+	return snap, nil
+}
+
+// danmuEnabledProviders 后台启用的弹幕平台（总开关 + 白名单过滤），30s 快照。
+// err = 配置读取失败且无旧快照（调用方上抛，禁止当"未启用"处理）。
+// providers == nil = 弹幕整体未启用（DanmuSource 空候选负缓存、路径 A/B 全 400）。
+func (s *DanmuService) danmuEnabledProviders(ctx context.Context) ([]string, error) {
+	snap, err := s.danmuCfgSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return snap.providers, nil
 }
 
 // validatePathBProvider provider 未启用 → ErrInvalidArgument（dto.Fail 映射 400）。
 // 必须在拼 URL 之前调用：provider 来自路由参数，未启用的值不得进请求路径。
 // 白名单 = 后台配置（danmu_enabled + danmu_providers），非写死。
 func (s *DanmuService) validatePathBProvider(ctx context.Context, provider string) error {
-	enabled := s.danmuEnabledProviders(ctx)
+	enabled, err := s.danmuEnabledProviders(ctx)
+	if err != nil {
+		return err
+	}
 	for _, p := range enabled {
 		if p == provider {
 			return nil
@@ -98,6 +135,11 @@ type DanmuService struct {
 	siteCfg  repository.SiteConfigRepository // 弹幕后台配置（总开关 + 平台白名单，直读库现值）
 	hc       *http.Client                    // 路径 A：整集聚合 30s
 	segHC    *http.Client                    // 路径 B：分段点播 3s
+
+	// 弹幕启用配置进程内快照(30s TTL, 见 danmuCfgSnapshot): 热路径免每请求查库 + DB 故障容错
+	cfgMu   sync.Mutex
+	cfgSnap *danmuCfgSnapshot
+	cfgAt   time.Time
 }
 
 // NewDanmuService 构造弹幕服务。danmuURL 为 danmu-service 基址（config.Danmu.ServiceURL）；
@@ -132,7 +174,10 @@ func (s *DanmuService) DanmuSource(ctx context.Context, mid int64) (DanmuSourceR
 // loadDanmuSource 回源：mid → db_id → 豆瓣 vendors → 平台资源 id（按后台配置过滤）。
 // 弹幕未启用 → 空候选负缓存 2h（配置保存时清 v1:danmu:src:*，切换立即生效）。
 func (s *DanmuService) loadDanmuSource(ctx context.Context, mid int64) (DanmuSourceResp, bool, error) {
-	enabled := s.danmuEnabledProviders(ctx)
+	enabled, err := s.danmuEnabledProviders(ctx)
+	if err != nil {
+		return DanmuSourceResp{}, false, err // 配置读取失败: 上抛(error 不进缓存, 不毒化负缓存)
+	}
 	if enabled == nil {
 		return DanmuSourceResp{}, false, nil // 未启用：负缓存 2h
 	}
@@ -383,8 +428,12 @@ type DanmuAggregateResp struct {
 
 // danmuMasterEnabled 聚合链路总开关（与平台链路共用 danmu_enabled，不套平台白名单）。
 func (s *DanmuService) danmuMasterEnabled(ctx context.Context) bool {
-	cfg, err := s.siteCfg.Get(ctx)
-	return err == nil && cfg.DanmuEnabled == 1
+	snap, err := s.danmuCfgSnapshot(ctx)
+	if err != nil {
+		// 读取失败且无旧快照: 短暂降级视为关闭(不报错, 聚合返回空弹幕), 恢复后自愈
+		return false
+	}
+	return snap.masterOn
 }
 
 // DanmuAggregate 按标题 + 集号取整集弹幕。查无作品/无该集 → domain.ErrNotFound（404，
@@ -426,9 +475,11 @@ func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, e
 }
 
 // resolveAggregateEpisode 两跳定位集：关键词 → 作品（缓存 7d）→ 分集列表（缓存 7d）→ 集。
-// 缓存键掺入 year：同标题不同年份（多季）各自缓存，避免先到请求把后到年份串到错误季。
+// 缓存键掺入 year + episode：同标题不同年份（多季）各自缓存，避免先到请求把后到年份
+// 串到错误季；掺 episode 是因为 PickAnime 打分含集数项(EpisodeCount>=episode+1)，
+// 同标题同年不同集号共享 pick 会把后到请求定位到先到请求按其集号选出的作品。
 func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string, year, episode int) (int64, error) {
-	kwKey := cache.EpKeyOf(fmt.Sprintf("%s|%d", danmu.NormalizeTitle(title), year))
+	kwKey := cache.EpKeyOf(fmt.Sprintf("%s|%d|%d", danmu.NormalizeTitle(title), year, episode))
 	anime, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdAnime(kwKey), danmuSourceTTL, danmuEmptyTTL,
 		func(ctx context.Context) (*danmu.DandanAnime, bool, error) {
 			animes, err := s.dandan.SearchAnime(ctx, title)

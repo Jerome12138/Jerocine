@@ -24,12 +24,12 @@ const jobTTL = 24 * time.Hour // job hash 兜底过期, 避免残留
 
 // JobProgress 采集进度快照。
 type JobProgress struct {
-	SourceId  string `json:"sourceId"`
-	Name      string `json:"name"`
-	Total     int    `json:"total"`
-	Done      int    `json:"done"`
-	Failed    int    `json:"failed"`
-	State     string `json:"state"`
+	SourceId string `json:"sourceId"`
+	Name     string `json:"name"`
+	Total    int    `json:"total"`
+	Done     int    `json:"done"`
+	Failed   int    `json:"failed"`
+	State    string `json:"state"`
 	// StartedAt 任务开始时间(unix 秒, 0=未知)。
 	StartedAt int64 `json:"startedAt"`
 	// Hour 采集时长: -1 全量 / >0 增量小时。0 表示未知(旧数据)。

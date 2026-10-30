@@ -8,8 +8,9 @@ import (
 
 // 扫码登录(设备码流程, 协调态 db1)。
 // deviceCode(长随机, 待登录端轮询用) ↔ userCode(短码, 二维码给手机扫确认)。
-//   v1:devauth:dc:<deviceCode> → JSON{userCode,status,userId}
-//   v1:devauth:uc:<userCode>   → deviceCode(确认时按短码反查)
+//
+//	v1:devauth:dc:<deviceCode> → JSON{userCode,status,userId}
+//	v1:devauth:uc:<userCode>   → deviceCode(确认时按短码反查)
 const (
 	DeviceCodePending    = "pending"
 	DeviceCodeAuthorized = "authorized"

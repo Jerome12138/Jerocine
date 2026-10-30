@@ -22,6 +22,9 @@ func (p Page) Normalize(defSize int) Page {
 	if s > 200 {
 		s = 200 // 硬上限防滥用
 	}
+	if c > 10000 {
+		c = 10000 // 页码上界: 防超大值 Offset 溢出为负(500)与深翻页慢查询
+	}
 	return Page{Current: c, Size: s}
 }
 
@@ -120,8 +123,8 @@ type HotBoardCandidate struct {
 	Board      string // 来源榜(该候选取位的榜)
 	Rank       int    // 在来源榜的位次
 	Mid        int64
-	Score      int    // 候选分(含 TC 降级/多榜回血/大陆保底)
-	Guaranteed bool   // 是否为"中国大陆保底"替换位
+	Score      int  // 候选分(含 TC 降级/多榜回血/大陆保底)
+	Guaranteed bool // 是否为"中国大陆保底"替换位
 	RefreshAt  int64
 }
 
