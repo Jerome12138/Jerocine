@@ -241,5 +241,7 @@ export interface DanmuComment {
 /** GET /danmu/aggregate 响应（按标题匹配的整集聚合弹幕） */
 export interface DanmuAggregateResp {
   comments: DanmuComment[]
+  /** 整集总条数: 分片过滤(from/to)时供前端判断是否已拉完全集 */
+  total?: number
 }
 

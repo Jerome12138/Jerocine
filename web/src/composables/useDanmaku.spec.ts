@@ -46,6 +46,7 @@ function makeFakeArt(withPlugin = true) {
   const handlers = new Map<string, Array<(...a: unknown[]) => void>>()
   return {
     plugins: withPlugin ? { artplayerPluginDanmuku: fakePlugin } : {},
+    currentTime: 700,
     on: (e: string, cb: (...a: unknown[]) => void) => {
       const arr = handlers.get(e) ?? []
       arr.push(cb)
@@ -121,8 +122,9 @@ describe('useDanmaku', () => {
     expect(api.danmuState.value).toBe<DanmuState>('ready')
     expect(api.hasDanmaku.value).toBe(true)
     expect(fakePlugin.load).toHaveBeenCalledTimes(1)
+    // 首拉起播段 [0, 900)（分片懒加载）
     expect(m.getDanmuAggregate).toHaveBeenCalledWith(
-      { title: '庆余年 第二季', episode: 1, year: 2024 },
+      { title: '庆余年 第二季', episode: 1, year: 2024, from: 0, to: 900 },
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
     const items = fakePlugin.load.mock.calls[0]![0] as Array<{ time: number; mode: number; color: string; text: string }>
@@ -394,5 +396,56 @@ describe('useDanmaku', () => {
     )
     await flush()
     expect(api.settings.value).toEqual(before) // 无差异 → 不回写
+  })
+
+  it('分片预取: 播放进度过缓冲区 → 拉下一段并入池(去重合并, total 越过即停)', async () => {
+    // 首段 [0,900): 2 条(time 1.25s/2.75s); 第二段 [900,1800): 服务端返回 1 条 time=1000s(=1_000_000ms)
+    m.getDanmuAggregate
+      .mockResolvedValueOnce({ comments: comments, total: 4 })
+      .mockResolvedValueOnce({
+        comments: [{ text: '后段条目', time: 1_000_000, color: 16777215, mode: 1 }],
+        total: 4
+      })
+    const { api, playerRef } = mountHost(3)
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    expect(fakePlugin.load).toHaveBeenCalledTimes(1)
+    const firstLoad = fakePlugin.load.mock.calls[0]![0] as Array<{ time: number }>
+    expect(firstLoad.length).toBe(3) // 首段 3 条
+
+    // 模拟播放进入 700s(> 900-300 缓冲区) → timeupdate 预取触发
+    ;(playerRef.value as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit('video:timeupdate')
+    await flush()
+    await new Promise((r) => setTimeout(r, 20))
+    await flush()
+    expect(fakePlugin.load).toHaveBeenCalledTimes(2) // 预取段已合并装载
+    const secondLoad = fakePlugin.load.mock.calls[1]![0] as Array<{ time: number; text: string }>
+    expect(secondLoad.length).toBe(4) // 池 3+1
+    expect(secondLoad.some((it) => it.text === '后段条目' && it.time > 900 && it.time < 1100)).toBe(true)
+    // 池已含 total(3) 条 → 再触发不请求(已拉完)
+    const callsAfterDone = m.getDanmuAggregate.mock.calls.length
+    ;(playerRef.value as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit('video:timeupdate')
+    await flush()
+    expect(m.getDanmuAggregate.mock.calls.length).toBe(callsAfterDone)
+  })
+
+  it('分片预取: 失败回滚游标(下个 tick 重试同段)', async () => {
+    m.getDanmuAggregate
+      .mockResolvedValueOnce({ comments: comments, total: 3 })
+      .mockRejectedValueOnce(new Error('net error'))
+      .mockResolvedValueOnce({ comments: [{ text: '重试成功', time: 1_200_000, color: 16777215, mode: 1 }], total: 4 })
+    const { api, playerRef } = mountHost(3)
+    await flush()
+    expect(api.danmuState.value).toBe<DanmuState>('ready')
+    // 第一次预取失败(net error) → 回滚游标
+    ;(playerRef.value as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit('video:timeupdate')
+    await flush()
+    await new Promise((r) => setTimeout(r, 50))
+    // 第二次触发改用 seeked(无节流): 重试(内部 1s 退避) —— 等够退避+请求+装载
+    ;(playerRef.value as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit('video:seeked')
+    await new Promise((r) => setTimeout(r, 1600))
+    await flush()
+    const last = fakePlugin.load.mock.calls.at(-1)![0] as Array<{ text: string }>
+    expect(last.some((it) => it.text === '重试成功')).toBe(true)
   })
 })

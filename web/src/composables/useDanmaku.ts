@@ -236,7 +236,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   /* ---------------- 取数（内存缓存 + in-flight 去重 + 超时中止） ----------------
    * 服务端已有 Redis 缓存；这里再加一层内存缓存：命中直接装载，连缓存命中往返都省掉。
    * 隔离：缓存 key 带 mid+episode，跨集/跨片自动 miss；生命周期 = composable，onScopeDispose 清空。 */
-  /** 整集弹幕（key=`${mid}:${episode}`） */
+  /** 已加载段弹幕池（key=`${mid}:${episode}`）—— 分片懒加载: 池随段追加, 装载时全量重建 */
   const aggCache = new Map<string, DanmuComment[]>()
   /** FIFO 上限: 整集弹幕可到 MB 级, 长剧来回切集防内存膨胀 */
   const AGG_CACHE_MAX = 8
@@ -245,24 +245,31 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   /** 本实例活跃请求控制器集合（卸载/超时统一中止，避免悬挂连接） */
   const activeControllers = new Set<AbortController>()
 
-  /** 取整集聚合弹幕（缓存 + 并发去重 + 30s 超时）。 */
-  function ensureAggregate(): Promise<DanmuComment[]> {
+  /** 分片大小（秒）: 15min/段。首拉起播段, 播放中按进度预取 —— 4MB 整集响应在弱链路
+   *  实测 9-30s(E2E 曾 30s 超时), 分片后单段 ≈ 数百 KB, 首屏弹幕秒级可用。 */
+  const SEGMENT_SEC = 900
+  /** 分片取数范围状态（每集重置）: 已连续加载到的秒数 / 整集总条数（0 = 未知）。 */
+  let segLoadedTo = 0
+  let segTotal = 0
+  /** 分片取数 in-flight 去重（同段并发只发一次）。 */
+  let segInflight: Promise<void> | null = null
+
+  /** 取弹幕分片（内存池 + 并发去重 + 超时重试）。返回该片的弹幕（已并入池）。 */
+  function ensureAggregate(from = 0, to = 0): Promise<DanmuComment[]> {
     const mid = opts.mid.value
     if (mid === undefined) return Promise.reject(new Error('no mid'))
     const ep = Math.max(1, opts.episode.value)
     const key = `${mid}:${ep}`
-    const hit = aggCache.get(key)
-    if (hit) return Promise.resolve(hit)
     const existing = aggReq.get(key)
     if (existing) return existing
-    console.log('[danmaku] agg request START', key, 'timeout =', DANMAKU_FETCH_TIMEOUTS.aggregate)
+    console.log('[danmaku] agg request START', key, `range=[${from},${to})`, 'timeout =', DANMAKU_FETCH_TIMEOUTS.aggregate)
     const t0 = performance.now()
     /** 单次请求（带超时）。失败(非 404)时由外层重试 DANMAKU_AGG_RETRIES 次。 */
     const attempt = (): Promise<DanmuAggregateResp> => {
       const { promise } = withTimeout(
         (signal) =>
           filmApi.getDanmuAggregate(
-            { title: opts.title.value, episode: ep, year: opts.year.value },
+            { title: opts.title.value, episode: ep, year: opts.year.value, from, to },
             { signal }
           ),
         DANMAKU_FETCH_TIMEOUTS.aggregate,
@@ -290,15 +297,28 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
     const req = withRetry()
       .then((resp) => {
-        console.log('[danmaku] agg request OK', key, Math.round(performance.now() - t0) + 'ms, comments =', resp?.comments?.length ?? 0)
+        console.log('[danmaku] agg request OK', key, Math.round(performance.now() - t0) + 'ms, comments =', resp?.comments?.length ?? 0, 'total =', resp?.total ?? '?')
         aggReq.delete(key)
         const data = resp?.comments ?? []
-        aggCache.set(key, data)
+        // 分片池合并: 追加新段（去重——同 time+text 的重复条目丢弃, 服务端段边界半开区间理论不重, 双保险）
+        const pool = aggCache.get(key) ?? []
+        const seen = new Set(pool.map((c) => `${c.time}:${c.text}`))
+        let added = 0
+        for (const c of data) {
+          const sig = `${c.time}:${c.text}`
+          if (seen.has(sig)) continue
+          seen.add(sig)
+          pool.push(c)
+          added++
+        }
+        aggCache.set(key, pool)
+        if (resp?.total) segTotal = resp.total
         // FIFO 淘汰最旧集（当前 key 刚 set 置于末尾, 淘汰从头开始且跳过当前 key）
         if (aggCache.size > AGG_CACHE_MAX) {
           const first = aggCache.keys().next().value
           if (first !== undefined && first !== key) aggCache.delete(first)
         }
+        console.log('[danmaku] pool merged:', added, 'added,', pool.length, 'total')
         return data
       })
       .catch((err) => {
@@ -322,8 +342,26 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   }
   /** 已成功装载内容的集 key；null = 尚未装载/需重装 */
   let loadedKey: string | null = null
-  /** 最近一次装载的原始弹幕（顶部/底部/彩色切换时内存重映射, 零请求零重载） */
+  /** 已装载内容对应的弹幕池（当前集的分片合并池; 顶部/底部/彩色切换时内存重映射, 零请求零重载） */
   let lastComments: DanmuComment[] | null = null
+
+  /** 把当前池装载进插件（分片追加/设置重映射共用入口）。池空 → empty 态。 */
+  async function loadPoolIntoPlugin(p: DanmukuPluginLike, token: number): Promise<boolean> {
+    const pool = aggCache.get(currentLoadKey() ?? '') ?? []
+    lastComments = pool.length > 0 ? pool : null
+    const items = toDanmuInputs(pool, currentMapFilter())
+    if (items.length === 0) {
+      danmuState.value = 'empty'
+      return false
+    }
+    try {
+      await p.load(items)
+    } catch {
+      if (token === loadToken) danmuState.value = 'failed'
+      return false
+    }
+    return true
+  }
 
   async function loadDanmaku(force = false): Promise<void> {
     const key = currentLoadKey()
@@ -353,9 +391,11 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return
     }
     applyPluginSettings() // 每次装载（首装或 bottom/top/colored 重载）都刷一遍运行时设置
-    let commentsData: DanmuComment[]
+    // 新集: 重置分片游标, 首拉起播段 [0, SEGMENT_SEC)
+    segLoadedTo = 0
+    segTotal = 0
     try {
-      commentsData = await ensureAggregate()
+      await ensureAggregate(0, SEGMENT_SEC)
     } catch (e) {
       if (token !== loadToken) return
       // 404 = 查无作品/该集 → "该片暂无弹幕"；其余（网络/超时/服务端）→ failed 可重试
@@ -364,23 +404,48 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return
     }
     if (token !== loadToken) return
-    const items = toDanmuInputs(commentsData, currentMapFilter())
-    if (items.length === 0) {
-      danmuState.value = 'empty'
-      return
-    }
-    try {
-      await p.load(items)
-    } catch {
-      if (token !== loadToken) return
-      danmuState.value = 'failed'
-      return
-    }
-    lastComments = commentsData
+    segLoadedTo = SEGMENT_SEC
+    if (!(await loadPoolIntoPlugin(p, token))) return
+    if (token !== loadToken) return
     loadedKey = currentLoadKey()
     hasDanmaku.value = true
     danmuState.value = 'ready'
     if (opts.enabled.value) p.show()
+  }
+
+  /**
+   * 分片预取（节流入口, 由播放器 timeupdate/seeked 事件驱动）:
+   * 播放进入"已加载尾部 - 300s"缓冲区或 seek 跳出已加载区 → 拉下一段并合并装载。
+   * total 已知且 loadedTo 越过 total 对应时长（近似: 本段返回 0 条）→ 拉完, 不再请求。
+   */
+  let prefetchBusy = false
+  async function prefetchUpcoming(currentSec: number): Promise<void> {
+    if (prefetchBusy || !opts.enabled.value || segTotal === 0) return
+    if (currentSec < segLoadedTo - 300) return // 未进缓冲区（含 seek 回跳到已加载区）
+    const key = currentLoadKey()
+    if (!key || aggCache.get(key) === undefined) return // 主装载未完成/已换集
+    const prefetchedOnce = segLoadedTo > SEGMENT_SEC
+    if (prefetchedOnce && lastComments !== null && lastComments.length >= segTotal && segTotal > 0) return
+    prefetchBusy = true
+    const token = loadToken
+    const from = segLoadedTo
+    const to = from + SEGMENT_SEC
+    try {
+      const seg = await ensureAggregate(from, to)
+      if (token !== loadToken) return
+      segLoadedTo = to
+      const p = plugin()
+      if (!p) return
+      await loadPoolIntoPlugin(p, token)
+      console.log('[danmaku] segment loaded', `[${from},${to})`, seg.length, 'items, pool =', lastComments?.length ?? 0)
+    } catch (e) {
+      // 预取失败静默(下个 tick 重试); 404 说明整集不存在后续段(段超界) → 也静默
+      console.warn('[danmaku] prefetch FAIL', `[${from},${to})`, e instanceof ApiError ? `ApiError ${e.status}` : String(e).slice(0, 60))
+      // 允许重试: 回滚游标到本次段起点(避免卡死在失败段)
+      if (token === loadToken) segLoadedTo = from
+    } finally {
+      prefetchBusy = false
+    }
   }
 
   /** 更新弹幕显示设置（局部 patch）。
@@ -479,6 +544,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
   }
 
+  /** 分片预取的 timeupdate/seeked handler（具名引用, 供重建实例时对称 off） */
+  let onPrefetchTick: ((...a: unknown[]) => void) | null = null
+  let onPrefetchSeek: ((...a: unknown[]) => void) | null = null
+
   /** :config 事件 handler（具名函数, 供重建实例时对称 off） */
   const onPluginConfigHandler = (option: unknown): void =>
     onPluginConfig((option ?? {}) as Record<string, unknown>)
@@ -502,10 +571,51 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         } catch {
           /* ignore */
         }
+        if (onPrefetchTick) {
+          try {
+            prevArt.off('video:timeupdate', onPrefetchTick as never)
+          } catch {
+            /* ignore */
+          }
+        }
+        if (onPrefetchSeek) {
+          try {
+            prevArt.off('video:seeked', onPrefetchSeek as never)
+          } catch {
+            /* ignore */
+          }
+        }
       }
       if (!art) return
       try {
         art.on('artplayerPluginDanmuku:config', onPluginConfigHandler)
+      } catch {
+        /* ignore */
+      }
+      // 分片预取触发: timeupdate 节流 10s + seeked(跳出已加载区立即补)
+      let lastTick = 0
+      onPrefetchTick = () => {
+        const now = Date.now()
+        if (now - lastTick < 10_000) return
+        lastTick = now
+        try {
+          const t = art.currentTime
+          if (typeof t === 'number' && Number.isFinite(t)) void prefetchUpcoming(t)
+        } catch {
+          /* ignore */
+        }
+      }
+      onPrefetchSeek = () => {
+        try {
+          const t = art.currentTime
+          if (typeof t === 'number' && Number.isFinite(t)) void prefetchUpcoming(t)
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        art.on('video:timeupdate', onPrefetchTick as never)
+        art.on('video:seeked', onPrefetchSeek as never)
       } catch {
         /* ignore */
       }
