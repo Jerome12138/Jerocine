@@ -89,6 +89,7 @@ export type PlayerEventName =
   | 'ready'
   | 'play'
   | 'pause'
+  | 'playing'
   | 'ended'
   | 'timeupdate'
   | 'seeked'
@@ -268,6 +269,7 @@ function mapArtEvent(event: PlayerEventName): string | null {
       return 'ready'
     case 'play':
     case 'pause':
+    case 'playing':
     case 'ended':
     case 'timeupdate':
     case 'seeked':
