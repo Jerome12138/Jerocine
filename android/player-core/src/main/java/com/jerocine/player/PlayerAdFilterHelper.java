@@ -115,39 +115,20 @@ public class PlayerAdFilterHelper {
         session.host().renderAdFilterBadge(currentStatus());
     }
 
-    /** 起播时按本集实际过滤结果给一次明确提示 + 刷新角标(让"有没有过滤掉"肉眼可见). */
+    /** 起播时按本集实际过滤结果刷新角标(常驻可见 —— 中央 toast 已随 R8 全链清理,
+     *  与 web 端同口径: 角标承担"有没有过滤掉"的反馈, 不再弹一次性提示). */
     void showFilterStatus() {
-        AdFilterStatus st = currentStatus();
-        session.host().renderAdFilterBadge(st);
-        if (!session.adFilterOn) return; // 主动关了过滤: 角标已常驻"过滤未开启", 不再弹中央提示
-        session.host().showCenterToast(toastFor(st), 2200);
+        session.host().renderAdFilterBadge(currentStatus());
     }
 
-    /** 中央提示文案(角标状态 → 一句话), 与角标语义保持一致. */
-    private static String toastFor(AdFilterStatus st) {
-        if (st == null) return "广告过滤未触发";
-        switch (st.kind) {
-            case AdFilterStatus.KIND_FAILED:
-                return "广告过滤失败: 网络异常";
-            case AdFilterStatus.KIND_FILTERED:
-                return "已过滤 " + st.count + " 段广告";
-            case AdFilterStatus.KIND_FILTERING:
-                return "正在过滤广告"; // 理论上 READY 前结果已落地, 仅防御兜底
-            case AdFilterStatus.KIND_CLEAN:
-                return "本集未发现广告";
-            default:
-                return "该源无需过滤";
-        }
-    }
-
-    /** 切换广告过滤: 持久化 + 重载当前集(保留进度) + 刷新标. */
+    /** 切换广告过滤: 持久化 + 重载当前集(保留进度) + 刷新标.
+     *  中央 toast 已随 R8 全链清理: 开关态由常驻角标/开关位承载, 不弹一次性提示. */
     void toggleAdFilter() {
         session.adFilterOn = !session.adFilterOn;
         prefs().edit().putBoolean(PREF_AD_FILTER, session.adFilterOn).apply();
         session.reloadCurrentSourceKeepPosition();
         updateAdFilterBadge();
         session.host().renderAdFilterSwitch(session.adFilterOn);
-        session.host().showCenterToast(session.adFilterOn ? "广告过滤已开启" : "广告过滤已关闭", 1200);
     }
 
     /**

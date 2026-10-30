@@ -307,15 +307,13 @@ public class JcSettingsDrawer {
                     com.jerocine.player.WebSettingsContract.bool(webSettings,
                             com.jerocine.player.WebSettingsContract.KEY_AD_FILTER, true),
                     sw -> webAdFilterSwitch = sw,
-                    () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_AD_FILTER,
-                            true, "广告过滤已开启", "广告过滤已关闭"));
+                    () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_AD_FILTER, true));
             addToggleRow("自动连播",
                     "一集播完自动播放下一集",
                     com.jerocine.player.WebSettingsContract.bool(webSettings,
                             com.jerocine.player.WebSettingsContract.KEY_AUTO_PLAY_NEXT, true),
                     sw -> webAutoNextSwitch = sw,
-                    () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_AUTO_PLAY_NEXT,
-                            true, "自动连播已开启", "自动连播已关闭"));
+                    () -> setWebBool(com.jerocine.player.WebSettingsContract.KEY_AUTO_PLAY_NEXT, true));
             // 异步刷新: 行先按旧快照渲染, 回调到达后就地改开关/文案
             host.getWebSettings(this::applyWebSettingsSnapshot);
         } else {
@@ -421,13 +419,10 @@ public class JcSettingsDrawer {
     // ==================== Web 播放设置(web 壳) ====================
 
     /** 翻转一项 web 布尔设置并回显(成功与否都以回调快照为准刷新开关)。def=该项的默认值。 */
-    private void setWebBool(String key, boolean def, String onMsg, String offMsg) {
+    /** web 壳抽屉开关写入: 保存后快照回调就地刷新开关位(不弹 toast —— 开关态即反馈). */
+    private void setWebBool(String key, boolean def) {
         boolean cur = com.jerocine.player.WebSettingsContract.bool(webSettings, key, def);
-        host.setWebSetting(key, cur ? "0" : "1", snap -> {
-            applyWebSettingsSnapshot(snap);
-            boolean now = com.jerocine.player.WebSettingsContract.bool(webSettings, key, !cur);
-            host.toast(now ? onMsg : offMsg);
-        });
+        host.setWebSetting(key, cur ? "0" : "1", snap -> applyWebSettingsSnapshot(snap));
     }
 
     /**
