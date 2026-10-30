@@ -2780,12 +2780,13 @@ watch(playerReady, (v) => {
   width: 52px;
   height: 52px;
 }
-/* 移动端: 非全屏隐藏「下一集」(用户要求 A1); 原生全屏时 $player 带 .art-fullscreen 恢复显示 */
+/* 移动端: 非全屏隐藏「下一集」(用户要求 A1); 原生全屏时 $player 带 .art-fullscreen 恢复显示。
+ * !important 必须: ArtPlayer 的 .art-control{display:flex} 是运行时后注入 <style>, 同特异性会反超本文件的打包 CSS。 */
 .jc-player--mobile :deep(.art-control-next-episode) {
-  display: none;
+  display: none !important;
 }
 .jc-player--mobile :deep(.art-video-player.art-fullscreen) .art-control-next-episode {
-  display: flex;
+  display: flex !important;
 }
 
 /* 移动端：标题块换行 + 按钮组靠右 */
