@@ -1005,6 +1005,15 @@ watch(
             <BaseIcon name="fire" size="16px" class="jc-mnav__link-icon" />
             <span>热榜</span>
           </RouterLink>
+          <!-- 固定直播入口 -->
+          <RouterLink
+            to="/live"
+            class="jc-mnav__link" data-focusable="true"
+            :class="route.name === 'live' ? 'is-active' : ''"
+          >
+            <BaseIcon name="tv" size="16px" class="jc-mnav__link-icon" />
+            <span>直播</span>
+          </RouterLink>
         </div>
 
         <div class="jc-mnav__group">
@@ -1148,6 +1157,16 @@ watch(
             >
               <BaseIcon name="fire" size="16px" class="jc-mnav__link-icon" />
               <span>热榜</span>
+            </RouterLink>
+            <!-- 固定直播入口 -->
+            <RouterLink
+              to="/live"
+              class="jc-mnav__link" data-focusable="true"
+              :class="route.name === 'live' ? 'is-active' : ''"
+              @click="closeMobile"
+            >
+              <BaseIcon name="tv" size="16px" class="jc-mnav__link-icon" />
+              <span>直播</span>
             </RouterLink>
           </div>
 
