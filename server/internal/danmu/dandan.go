@@ -142,7 +142,9 @@ func (c *DandanClient) Comments(ctx context.Context, episodeID int64) ([]DandanR
 	if err != nil {
 		return nil, err
 	}
-	if !out.Success {
+	// 实测上游对缓存命中的整集也会带 success:false(内部标志), 但 comments 完整 ——
+	// 以数据为准: 有弹幕就返回, 仅在空数据且显式失败时报错
+	if !out.Success && len(out.Comments) == 0 {
 		return nil, fmt.Errorf("danmu aggregate comment 失败: %s", out.ErrorMessage)
 	}
 	return out.Comments, nil

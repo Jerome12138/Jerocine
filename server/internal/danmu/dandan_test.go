@@ -145,6 +145,19 @@ func TestParseDandanComments(t *testing.T) {
 	}
 }
 
+func TestDandanCommentSuccessFalseWithData(t *testing.T) {
+	// 实测: 上游对缓存命中的整集可能带 success:false 但 comments 完整 —— 以数据为准
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"count":1,"comments":[{"cid":1,"p":"1.5,1,255,[qq]","m":"a"}],"success":false,"errorMessage":""}`))
+	}))
+	defer srv.Close()
+	c := NewDandan(srv.URL, "t")
+	out, err := c.Comments(context.Background(), 1)
+	if err != nil || len(out) != 1 || out[0].M != "a" {
+		t.Fatalf("success=false 有数据应返回: %v %+v", err, out)
+	}
+}
+
 func TestDandanCommentErrorResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"success":false,"errorMessage":"boom"}`))
