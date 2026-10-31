@@ -8,7 +8,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import { liveApi } from '@/api'
 import type { LiveChannel, LiveSource } from '@/types/live'
-import { groupChannels } from '@/utils/live'
+import { groupChannels, probeLiveChannelsLimited, type LiveProbeResult } from '@/utils/live'
 import { usePlayer } from '@/composables/usePlayer'
 import { useViewMode } from '@/composables/useViewMode'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
@@ -52,11 +52,13 @@ function channelBadgeText(ch: LiveChannel): string {
 /** 当前选中频道（回显高亮 + 记忆恢复用 localStorage） */
 const activeUrl = ref('')
 const LAST_CHANNEL_KEY = 'jc-live-last-channel'
-/** 端侧探源结果缓存（sourceId → { urlHash → ProbeResult }），过期 24h */
-interface ProbeResult { url: string; alive: boolean; cors: boolean }
+/** 端侧探源结果缓存（sourceId → { urlHash → 结果+时间戳 }），过期 24h */
 const PROBE_CACHE_KEY = 'jc-live-probe-cache'
 const PROBE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const PROBE_TIMEOUT_MS = 5000
+/** 探源并发上限：工作池固定连接数（浏览器级并发），防对同一 IPTV 源瞬间打满触发封禁 */
+const PROBE_CONCURRENCY = 6
+type ProbeCacheEntry = LiveProbeResult & { ts: number }
 function fnv1aHash(s: string): string {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) {
@@ -65,11 +67,11 @@ function fnv1aHash(s: string): string {
   }
   return (h >>> 0).toString(36)
 }
-function readProbeCache(): Record<number, Record<string, ProbeResult & { ts: number }>> {
+function readProbeCache(): Record<number, Record<string, ProbeCacheEntry>> {
   try {
     const raw = localStorage.getItem(PROBE_CACHE_KEY)
     if (!raw) return {}
-    return JSON.parse(raw) as Record<number, Record<string, ProbeResult & { ts: number }>>
+    return JSON.parse(raw) as Record<number, Record<string, ProbeCacheEntry>>
   } catch {
     return {}
   }
@@ -90,43 +92,23 @@ async function probeChannels(sourceId: number, chs: LiveChannel[]): Promise<void
     return !stored || Date.now() - stored.ts > PROBE_CACHE_TTL_MS
   })
   if (dirty.length === 0) return
-  // 并发探源: fetch(no-cors) 成功 = 网络可达; TypeError = CORS 拦截/协议拒绝; AbortError = 超时
-  const results = await Promise.allSettled(
-    dirty.map((ch) => {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS)
-      return fetch(ch.url, { mode: 'no-cors', signal: ctrl.signal, redirect: 'follow' })
-        .then(() => {
-          clearTimeout(timer)
-          return { url: ch.url, alive: true, cors: true } as ProbeResult
-        })
-        .catch((err): ProbeResult => {
-          clearTimeout(timer)
-          if (err.name === 'AbortError') return { url: ch.url, alive: false, cors: false }
-          // no-cors 模式下 fetch 只会在网络错误/CORS 拦截时抛 TypeError
-          // 区分 CORS 拦截(SecurityError) 和其他网络错误
-          const isCors = err instanceof DOMException && err.name === 'SecurityError'
-          return { url: ch.url, alive: !isCors, cors: false }
-        })
-    }),
-  )
-  // 合并结果到缓存 + 更新 channels 数组
   const merged = { ...srcCache }
-  for (const ch of dirty) {
-    delete merged[fnv1aHash(ch.url)] // 清除旧条目
-  }
-  for (const r of results) {
-    if (r.status === 'fulfilled') {
-      const result = r.value
-      const key = fnv1aHash(result.url)
-      merged[key] = { ...result, ts: Date.now() }
-      const ch = chs.find((c) => c.url === result.url)
+  for (const ch of dirty) delete merged[fnv1aHash(ch.url)]
+  // 限流并发探源（工作池），结果随到随写：频道角标渐进点亮
+  await probeLiveChannelsLimited(
+    dirty.map((c) => c.url),
+    PROBE_CONCURRENCY,
+    PROBE_TIMEOUT_MS,
+    fetch,
+    (r) => {
+      merged[fnv1aHash(r.url)] = { ...r, ts: Date.now() }
+      const ch = chs.find((c) => c.url === r.url)
       if (ch) {
-        ch.alive = result.alive
-        ch.cors = result.cors
+        ch.alive = r.alive
+        ch.cors = r.cors
       }
-    }
-  }
+    },
+  )
   cache[sourceId] = merged
   writeProbeCache(cache)
 }
