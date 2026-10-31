@@ -493,37 +493,32 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
   currentBlobUrl = ''
 
   const commit = (url: string, type: string, isBlob: boolean): void => {
-    if (token !== playSrcToken) {
-      // 已被更新的请求取代: 本次产生的 blob 立即 revoke; 同时回收 prevBlob ——
-      // 快速连切 A→B→C 时 B 的 stale commit 不会触达 prevBlob(此时为空), 若不在此
-      // 统一回收, A 的 blob1 在 B 的 stale 分支里无人释放(P2-5 泄漏)。此时旧源已被
-      // pOld.reset() 卸载, blob 无在用风险。
-      if (isBlob) {
-        try {
-          URL.revokeObjectURL(url)
-        } catch {
-          /* ignore */
+    // 复审项9: prevBlob 回收用 finally 统一覆盖所有 return 路径(含 abort/token 失配的
+    // 直接 return —— 旧实现只在正常路径与不可达 stale 分支回收, A→B→C 连切仍漏 blobA)。
+    // 此时旧源已被 pOld.reset() 卸载, prevBlob 无在用风险。
+    try {
+      if (token !== playSrcToken) {
+        // 已被更新的请求取代: 本次产生的 blob 立即 revoke 防泄漏
+        if (isBlob) {
+          try {
+            URL.revokeObjectURL(url)
+          } catch {
+            /* ignore */
+          }
         }
+        return
       }
+      if (isBlob) currentBlobUrl = url
+      playSrc.value = url
+      playSrcReady.value = true
+      playSrcType.value = type
+    } finally {
       if (prevBlob && prevBlob !== url) {
         try {
           URL.revokeObjectURL(prevBlob)
         } catch {
           /* ignore */
         }
-      }
-      return
-    }
-    if (isBlob) currentBlobUrl = url
-    playSrc.value = url
-    playSrcReady.value = true
-    playSrcType.value = type
-    // 写入新 src 后再释放上一集的 blob
-    if (prevBlob && prevBlob !== url) {
-      try {
-        URL.revokeObjectURL(prevBlob)
-      } catch {
-        /* ignore */
       }
     }
   }
@@ -697,6 +692,12 @@ watch(adFilter, () => {
   }
   // 仅 m3u8 源会因开/关过滤实际切换 playSrc(blob/proxy/直链), 非 m3u8 切换是 no-op, 无需补 seek。
   const willChangeSrc = !!currentSrc.value && reM3u8.test(currentSrc.value)
+  // P3-14(复审项14): 重算期间给阻塞反馈 —— 旧实现画面冻结在旧帧无 spinner, 用户以为卡死连点。
+  // 就绪后由现有 loadedmetadata/canplay 链路解除。
+  if (willChangeSrc) {
+    loading.value = true
+    playSrcReady.value = false
+  }
   const resume = playerReady.value && player.value ? playerCurrentTime.value : 0
   // 重算可播 src; playSrc 变化驱动播放器重载
   void resolvePlaySrc(currentSrc.value)
@@ -1567,14 +1568,15 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
 
 /** TV: 保留 D-pad 焦点导航语义 —— OK/空格激活焦点按钮, 无焦点时控制播放器 */
 function handleTvKeydown(e: KeyboardEvent, key: string, tag: string | undefined): void {
-  // 方向键收敛(P1-3): 空间导航(capture 层)已把方向键用于焦点移动且不 stopPropagation ——
-  // 焦点在任一 data-focusable 元素上时, 本函数不得再叠加 seek/音量(双重响应)。
-  // 焦点在播放器容器/页面空白(无 data-focusable 祖先)时才由本函数控制播放器。
+  // 方向键收敛(P1-3, 复审项2 重写): 空间导航 capture 层移动焦点后, 事后读
+  // document.activeElement 已是移动后位置(兜底 seek 永不可达) —— 改判 **e.target**:
+  // 事件派发时的目标(播放器容器/页面空白)才是"用户意图操作播放器"的信号;
+  // e.target 落在 data-focusable 控件上则交给空间导航移动焦点。
   const arrowKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']
   if (arrowKeys.includes(key)) {
-    const el = document.activeElement as HTMLElement | null
+    const el = e.target as HTMLElement | null
     if (el && el.closest('[data-focusable="true"]')) {
-      return // 焦点在可聚焦控件上: 空间导航已消费, 不叠加播放器操作
+      return // 用户意图在控件间移动焦点: 交给空间导航
     }
   }
   switch (key) {
@@ -1678,34 +1680,38 @@ function resetRetry(): void {
   fallbackRounds = 0
 }
 
-function handleVideoError(): void {
+function handleVideoError(fromDeferred = false): void {
   if (!detail.value) return
   const p = player.value
   if (!p) return
-  // 视频级错误上报(此前无 video error 埋点, iOS 卡"正在缓冲"类问题在遥测里是盲区)
+  // 视频级错误上报(此前无 video error 埋点, iOS 卡"正在缓冲"类问题在遥测里是盲区)。
+  // 延迟重入(复审项3: 500ms 循环)只报一次, 防无上限刷屏
   const mediaErr = p.video?.error ?? null
-  telemetry.track('error', {
-    category: 'video-error',
-    action: `code:${mediaErr?.code ?? '-'}`,
-    label: currentSrc.value.slice(0, 160),
-    value: currentSourceId.value ? 1 : 0,
-    extra: {
-      mediaMessage: mediaErr?.message ?? '',
-      sourceId: currentSourceId.value,
-      sourceName: currentSource.value?.name,
-      episodeIndex: currentEpisodeIndex.value,
-      filmId: detail.value ? String(detail.value.mid) : undefined,
-      adFilter: adFilter.value
-    }
-  })
+  if (!fromDeferred) {
+    telemetry.track('error', {
+      category: 'video-error',
+      action: `code:${mediaErr?.code ?? '-'}`,
+      label: currentSrc.value.slice(0, 160),
+      value: currentSourceId.value ? 1 : 0,
+      extra: {
+        mediaMessage: mediaErr?.message ?? '',
+        sourceId: currentSourceId.value,
+        sourceName: currentSource.value?.name,
+        episodeIndex: currentEpisodeIndex.value,
+        filmId: detail.value ? String(detail.value.mid) : undefined,
+        adFilter: adFilter.value
+      }
+    })
+  }
   // 出错即解除 loading 遮罩(阻塞态), 后续反馈交给 videoErrorMsg/重试/换源流程, 避免遮罩死锁
   loading.value = false
   // 切集互斥窗口内的 error 大多是旧源残余事件: 不立即重试(避免重挂旧 src 与切换打架)。
   // 但"新集本身死链"的 error 也落在窗口内且互斥永不解除(死链无就绪信号) —— 延迟重评估:
-  // 500ms 后窗口仍未解除(新源一直没就绪), 视为新源错误补走重试/换源; 已解除则为残余, 忽略。
+  // 500ms 后窗口仍未解除(新源一直没就绪), 以 fromDeferred 绕过互斥守卫补走重试/换源;
+  // 已解除则为残余, 忽略。(复审项3: 无 fromDeferred 时二次调用仍命中守卫 → 无限自调度)
   if (switchInFlight) {
     window.setTimeout(() => {
-      if (switchInFlight) handleVideoError()
+      if (switchInFlight) handleVideoError(true)
     }, 500)
     return
   }

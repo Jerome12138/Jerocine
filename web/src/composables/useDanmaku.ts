@@ -264,7 +264,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (mid === undefined) return Promise.reject(new Error('no mid'))
     const ep = Math.max(1, opts.episode.value)
     const key = `${mid}:${ep}`
-    const existing = aggReq.get(key)
+    // 复审提示项: in-flight 去重 key 掺 range —— 预取在途时 force 重载同集
+    // 若共享 key 会拿到错误 range 的响应造成池缺段
+    const flightKey = `${key}#${from}-${to}`
+    const existing = aggReq.get(flightKey)
     if (existing) return existing
     console.log('[danmaku] agg request START', key, `range=[${from},${to})`, 'timeout =', DANMAKU_FETCH_TIMEOUTS.aggregate)
     const t0 = performance.now()
@@ -302,7 +305,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     const req = withRetry()
       .then((resp) => {
         console.log('[danmaku] agg request OK', key, Math.round(performance.now() - t0) + 'ms, comments =', resp?.comments?.length ?? 0, 'total =', resp?.total ?? '?')
-        aggReq.delete(key)
+        aggReq.delete(flightKey)
         const data = resp?.comments ?? []
         // 分片池合并: 追加新段（去重——同 time+text 的重复条目丢弃, 服务端段边界半开区间理论不重, 双保险）
         const pool = aggCache.get(key) ?? []
@@ -328,10 +331,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       .catch((err) => {
         const isAbort = (err as { code?: string })?.code === 'ERR_CANCELED'
         console.warn('[danmaku] agg request FAIL', key, Math.round(performance.now() - t0) + 'ms', isAbort ? '(timeout abort)' : (err instanceof ApiError ? `ApiError ${err.status}` : String(err).slice(0, 80)))
-        aggReq.delete(key)
+        aggReq.delete(flightKey)
         throw err
       })
-    aggReq.set(key, req)
+    aggReq.set(flightKey, req)
     return req
   }
 
@@ -483,9 +486,13 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     } catch (e) {
       // 404 = 查无作品/该集语义态 —— 该集后续段必然同样 404, 置 segFinished 永久停止预取
       // (否则短集片尾缓冲区里每 10s tick 循环请求到切集); 其余(网络/超时)回滚游标下个 tick 重试
+      // 复审项13: 404 分支也需 token 守卫 —— 换集后旧集在途请求迟到 404 会污染新集的
+      // segFinished(新集预取永久停止 + 空态误判)
       if (e instanceof ApiError && e.status === 404) {
-        segFinished = true
-        console.warn('[danmaku] prefetch 404 → 该集后续段停止预取', `[${failFrom},+900)`)
+        if (token === loadToken) {
+          segFinished = true
+          console.warn('[danmaku] prefetch 404 → 该集后续段停止预取', `[${failFrom},+900)`)
+        }
       } else {
         console.warn('[danmaku] prefetch FAIL', String(e).slice(0, 60))
         if (token === loadToken) segLoadedTo = failFrom
