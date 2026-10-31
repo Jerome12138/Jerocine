@@ -123,6 +123,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
   },
+  // 构建号注入(2026-10-31): 页面靠它判断"自己是不是旧版"(SW 更新徽标, 见 usePwaUpdate)。
+  // 与 assetsDir 同源(BUILD_TS) —— 本页 JS 与它落盘的资源目录永远一致; 未注入时为空串,
+  // 消费侧自动回退到旧语义(有 SW 接管就提示)。
+  define: {
+    __APP_BUILD__: JSON.stringify(BUILD_TS)
+  },
   server: {
     host: '0.0.0.0',
     port: 3600,

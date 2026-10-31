@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, h, nextTick } from 'vue'
-import { usePwaUpdate } from './usePwaUpdate'
+import { usePwaUpdate, isPageStale, parseBuildTag, type PwaUpdateDeps } from './usePwaUpdate'
 import { CHUNK_RELOAD_GUARD_KEY } from '@/utils/chunkReload'
 
 vi.mock('@/utils/telemetry', () => ({
@@ -41,6 +41,19 @@ const Host = defineComponent({
     return h('div')
   }
 })
+
+/** 带依赖注入的宿主(构建号/探测函数可注入, 生产路径走默认实现) */
+function mountWithDeps(deps: PwaUpdateDeps) {
+  const HostWithDeps = defineComponent({
+    setup() {
+      return { api: usePwaUpdate(deps) }
+    },
+    render() {
+      return h('div')
+    }
+  })
+  return mount(HostWithDeps)
+}
 
 type Api = ReturnType<typeof usePwaUpdate>
 const apiOf = (w: ReturnType<typeof mount>): Api =>
@@ -106,5 +119,107 @@ describe('usePwaUpdate', () => {
 
     w.unmount()
     expect(sw.listeners.size).toBe(0)
+  })
+
+  // ---- 2026-10-31 修: 判据由"控制器换过"改为"构建号比对" ----
+  // 报障场景: 旧页面点橙色「发现更新」⇒ 清缓存+reload(页面已是新版, 但控制器还是旧 SW)
+  //          ⇒ 新 SW 随后激活 claim, controllerchange 二次触发 ⇒ 误报蓝色「新版本」。
+
+  it('构建号相同 → 页面已是最新, 不再提示(报障回归)', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: '20261029-120000',
+      probeLatestBuild: async () => '20261029-120000'
+    })
+    await nextTick()
+
+    await fire(sw)
+    await flushPromises()
+
+    expect(apiOf(w).updateReady.value).toBe(false)
+    expect(apiOf(w).updateFound.value).toBe(false)
+  })
+
+  it('构建号不同 → 页面确实落后, 正常提示"新版本"', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: '20261029-120000',
+      probeLatestBuild: async () => '20261031-101010'
+    })
+    await nextTick()
+
+    await fire(sw)
+    await flushPromises()
+
+    expect(apiOf(w).updateReady.value).toBe(true)
+    expect(apiOf(w).updateFound.value).toBe(true)
+  })
+
+  it('探测失败(空串/抛错) → 保守提示, 不让 TV 常驻停在旧版', async () => {
+    for (const probe of [async () => '', async () => Promise.reject(new Error('offline'))]) {
+      removeFakeSW()
+      const sw = installFakeSW({ state: 'activated' })
+      const w = mountWithDeps({ ownBuild: '20261029-120000', probeLatestBuild: probe })
+      await nextTick()
+
+      await fire(sw)
+      await flushPromises()
+
+      expect(apiOf(w).updateReady.value).toBe(true)
+      w.unmount()
+    }
+  })
+
+  it('首访(无 controller)不发起构建号探测', async () => {
+    const probe = vi.fn(async () => '20261031-101010')
+    const sw = installFakeSW(null)
+    const w = mountWithDeps({ ownBuild: '20261029-120000', probeLatestBuild: probe })
+    await nextTick()
+
+    await fire(sw)
+    await flushPromises()
+
+    expect(probe).not.toHaveBeenCalled()
+    expect(apiOf(w).updateReady.value).toBe(false)
+  })
+
+  it('未注入构建号(dev/旧构建) → 沿用旧语义: 有接管即提示', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: '', probeLatestBuild: async () => '20261031-101010' })
+    await nextTick()
+
+    await fire(sw)
+    await flushPromises()
+
+    expect(apiOf(w).updateReady.value).toBe(true)
+  })
+
+  describe('isPageStale / parseBuildTag', () => {
+    const base = { hadController: true, ownBuild: 'a', latestBuild: 'a' }
+
+    it('首访(无 controller) 一律不算更新', () => {
+      expect(isPageStale({ ...base, hadController: false, latestBuild: 'b' })).toBe(false)
+    })
+
+    it('构建号相同 = 页面已最新', () => {
+      expect(isPageStale(base)).toBe(false)
+    })
+
+    it('构建号不同 = 页面落后', () => {
+      expect(isPageStale({ ...base, latestBuild: 'b' })).toBe(true)
+    })
+
+    it('任一构建号未知 = 保守视为落后', () => {
+      expect(isPageStale({ ...base, ownBuild: '' })).toBe(true)
+      expect(isPageStale({ ...base, latestBuild: '' })).toBe(true)
+    })
+
+    it('parseBuildTag 从 index.html 取 assets/<TS>/', () => {
+      expect(parseBuildTag('<script src="/assets/20261031-101010/index-abc.js"></script>')).toBe(
+        '20261031-101010'
+      )
+      expect(parseBuildTag('<script src="/assets/index-abc.js"></script>')).toBe('')
+      expect(parseBuildTag('')).toBe('')
+    })
   })
 })
