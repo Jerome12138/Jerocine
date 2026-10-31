@@ -33,7 +33,7 @@ if (media3Version == null || okhttpVersion == null) {
 // ---------------------------------------------------------------- 构建期域名注入
 // 公开仓**不存真实域名** —— 接口根与出厂站点地址由私有构建层(Harness)注入, 这里只提供参数机制。
 //   JEROCINE_API_BASE  接口根, 形状与前端 VITE_API_BASE 一致: 含 /api、不含版本号
-//                      (如 https://api.jerocine.art/api), 代码侧拼 /v1/xxx。
+//                      (如 https://jerocine.art/api), 代码侧拼 /v1/xxx。
 //                      /api 是部署拓扑(反代挂载点)属配置; /v1 是代码契约(DTO/端点形状)属代码。
 //   JEROCINE_WEB_BASE  出厂站点地址(web 壳加载页/设置抽屉的默认值, 如 https://jerocine.art)。
 // 优先级: gradle property(-PjerocineApiBase) > 环境变量 > 占位默认。
