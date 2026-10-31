@@ -110,11 +110,11 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/live-sources", h.CreateLiveSource)
 		mg.PUT("/live-sources/:id", h.UpdateLiveSource)
 		mg.DELETE("/live-sources/:id", h.DeleteLiveSource)
-		// 直播频道管理: 覆盖层(隐藏/改名/自定义频道增删改) + 批量探源(CORS/活性, 结果写 Redis)。
+		// 直播频道管理: 覆盖层(隐藏/改名/自定义频道增删改)。
+		// 探源改为端侧执行(服务器无 IPv6 出口, 服务端探测误伤 IPv6-only 源)。
 		mg.GET("/live-channels", h.ListLiveChannelsManage)
 		mg.PUT("/live-channels", h.UpsertLiveChannel)
 		mg.DELETE("/live-channels", h.DeleteLiveChannel)
-		mg.POST("/live-channels/probe", h.ProbeLiveChannels)
 		// 运行参数(后台「系统设置」): 登录有效期 / 设备数 / 采集并发 —— 都存 site_config, 保存即改。
 		mg.GET("/settings", h.GetRuntimeSettings)
 		mg.PUT("/settings", h.SaveRuntimeSettings)

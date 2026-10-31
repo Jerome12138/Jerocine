@@ -42,13 +42,3 @@ export const upsertLiveChannel = (data: LiveChannelInput): Promise<void> =>
 /** DELETE /manage/live-channels?sourceId=&url= 删频道（自定义物理删/解析置 hidden） */
 export const deleteLiveChannel = (sourceId: number, url: string): Promise<void> =>
   http.delete('/manage/live-channels', { params: { sourceId, url } })
-
-/** POST /manage/live-channels/probe 批量探源（CORS/活性, 写健康缓存; 最坏 ≈50s） */
-export const probeLiveChannels = (
-  sourceId: number
-): Promise<{ results: LiveProbeResult[] }> =>
-  http.post<unknown, { results: LiveProbeResult[] }>(
-    '/manage/live-channels/probe',
-    { sourceId },
-    { timeout: 120_000 }
-  )

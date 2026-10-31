@@ -199,25 +199,6 @@ func (h *Handlers) DeleteLiveChannel(c *gin.Context) {
 	respond(c, nil, nil)
 }
 
-// ProbeLiveChannels POST /manage/live-channels/probe {sourceId} — 批量探源(并发, 写健康缓存)。
-// 最坏耗时 ≈ 频道数/并发 × 超时, 150 频道 ≈ 50s 内; 前端 axios 超时 80s 兜住。
-func (h *Handlers) ProbeLiveChannels(c *gin.Context) {
-	var req struct {
-		SourceID int64  `json:"sourceId"`
-		Origin   string `json:"origin"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.SourceID <= 0 {
-		dto.Error(c, http.StatusBadRequest, "invalid sourceId")
-		return
-	}
-	results, err := h.Live.ProbeChannels(c.Request.Context(), req.SourceID, strings.TrimSpace(req.Origin))
-	if err != nil {
-		dto.Fail(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"results": results})
-}
-
 // GetDanmuConfig GET /manage/danmu-config — 弹幕总开关 + 开放平台白名单 + 平台全集。
 func (h *Handlers) GetDanmuConfig(c *gin.Context) {
 	v, err := h.Manage.GetDanmuConfig(c.Request.Context())

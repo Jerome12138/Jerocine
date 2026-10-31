@@ -145,9 +145,10 @@ func (s *LiveService) LiveChannels(ctx context.Context, id int64) (LiveChannelsR
 		resp.ID = src.Id
 		resp.Name = src.Name
 	}
-	// 合并覆盖层(隐藏/改名/自定义频道追加) + 探源健康标记。覆盖层读取失败仅降级(不挡频道列表)。
+	// 合并覆盖层(隐藏/改名/自定义频道追加)。覆盖层读取失败仅降级(不挡频道列表)。
+	// 探源交由浏览器端侧执行——服务器无 IPv6 出口导致 IPv6-only 源全标记不可达，
+	// 但客户端浏览器通常有 IPv6 直连能力，服务端探测反而误伤可用频道。
 	s.applyChannelOverrides(ctx, src.Id, &resp)
-	s.attachHealth(ctx, src.Id, resp.Channels)
 	return resp, nil
 }
 

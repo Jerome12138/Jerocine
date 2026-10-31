@@ -36,20 +36,101 @@ const activeSource = computed<LiveSource | null>(() => {
 /** 分组视图（保序聚合） */
 const groups = computed(() => groupChannels(channels.value))
 
-/** 频道可用性判定（探源结果; 未探测=null 不标记）: CORS 不通或流离线 → 置灰+角标 */
+/** 频道可用性判定（端侧探源结果; 未探测=null 不标记）:
+ *  仅 cors===false 是硬约束(浏览器跨域必拒)。
+ *  alive 等端侧探测结果后才有意义，不单独作为禁用条件。 */
 function channelUnavailable(ch: LiveChannel): boolean {
-  if (ch.cors === false || ch.alive === false) return true
+  if (ch.cors === false) return true
   return false
 }
-/** 角标文案: cors 优先(跨域受限是站点级硬约束, 比"离线"信息量大) */
+/** 角标文案: 端侧探源标记 */
 function channelBadgeText(ch: LiveChannel): string {
   if (ch.cors === false) return '跨域受限'
-  if (ch.alive === false) return '离线'
+  if (ch.alive === false) return '不可达'
   return ''
 }
 /** 当前选中频道（回显高亮 + 记忆恢复用 localStorage） */
 const activeUrl = ref('')
 const LAST_CHANNEL_KEY = 'jc-live-last-channel'
+/** 端侧探源结果缓存（sourceId → { urlHash → ProbeResult }），过期 24h */
+interface ProbeResult { alive: boolean; cors: boolean }
+const PROBE_CACHE_KEY = 'jc-live-probe-cache'
+const PROBE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const PROBE_TIMEOUT_MS = 5000
+function fnv1aHash(s: string): string {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0).toString(36)
+}
+function readProbeCache(): Record<number, Record<string, ProbeResult & { ts: number }>> {
+  try {
+    const raw = localStorage.getItem(PROBE_CACHE_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as Record<number, Record<string, ProbeResult & { ts: number }>>
+  } catch {
+    return {}
+  }
+}
+function writeProbeCache(cache: typeof readProbeCache()): void {
+  try {
+    localStorage.setItem(PROBE_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    /* ignore */
+  }
+}
+async function probeChannels(sourceId: number, chs: LiveChannel[]): Promise<void> {
+  // 全部已探过且未过期 → 跳过
+  const cache = readProbeCache()
+  const srcCache = cache[sourceId] ?? {}
+  const dirty = chs.filter((c) => {
+    const stored = srcCache[fnv1aHash(c.url)]
+    return !stored || Date.now() - stored.ts > PROBE_CACHE_TTL_MS
+  })
+  if (dirty.length === 0) return
+  // 并发探源: fetch(no-cors) 成功 = 网络可达; TypeError = CORS 拦截/协议拒绝; AbortError = 超时
+  const results = await Promise.allSettled(
+    dirty.map((ch) => {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS)
+      return fetch(ch.url, { mode: 'no-cors', signal: ctrl.signal, redirect: 'follow' })
+        .then(() => {
+          clearTimeout(timer)
+          return { url: ch.url, alive: true, cors: true } as ProbeResult
+        })
+        .catch((err): ProbeResult => {
+          clearTimeout(timer)
+          if (err.name === 'AbortError') return { url: ch.url, alive: false, cors: false }
+          // no-cors 模式下 fetch 只会在网络错误/CORS 拦截时抛 TypeError
+          // 区分 CORS 拦截(SecurityError) 和其他网络错误
+          const isCors = err instanceof DOMException && err.name === 'SecurityError'
+          return { url: ch.url, alive: !isCors, cors: false }
+        })
+    }),
+  )
+  // 合并结果到缓存 + 更新 channels 数组
+  const merged = { ...srcCache }
+  for (const ch of dirty) {
+    delete merged[fnv1aHash(ch.url)] // 清除旧条目
+  }
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      const result = r.value
+      const key = fnv1aHash(result.url)
+      merged[key] = { ...result, ts: Date.now() }
+      const ch = chs.find((c) => c.url === result.url)
+      if (ch) {
+        ch.alive = result.alive
+        ch.cors = result.cors
+      }
+    }
+  }
+  cache[sourceId] = merged
+  writeProbeCache(cache)
+}
+
 /** 频道按 HLS 装载：IPTV 地址大量无 .m3u8 后缀（带 token/查询串），显式声明 mime
  *  让 usePlayer 走 hls.js 而非 video.src 直链 */
 const HLS_TYPE = 'application/x-mpegURL'
@@ -161,6 +242,9 @@ async function loadChannels(sourceId: number): Promise<void> {
     channels.value = resp.channels
     if (resp.channels.length === 0) {
       channelsError.value = '该直播源暂无可用频道'
+    } else {
+      // 端侧探源: 仅对未缓存/过期条目探测, 不阻塞频道列表展示
+      void probeChannels(sourceId, channels.value)
     }
   } catch {
     channelsError.value = '频道列表加载失败，请稍后重试'

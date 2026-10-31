@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * 管理端·直播源维护：多直播源增删改/启停/排序 + 频道管理（开关/改名/增删/探源）。
+ * 管理端·直播源维护：多直播源增删改/启停/排序 + 频道管理（开关/改名/增删）。
  * 后端：GET/POST /manage/live-sources，PUT/DELETE /manage/live-sources/:id
- *   GET/PUT/DELETE /manage/live-channels，POST /manage/live-channels/probe
- * （改/删服务端自动清该源频道缓存，公开端点立即生效）。
+ *   GET/PUT/DELETE /manage/live-channels
+ * 探源改为端侧执行——服务器无 IPv6 出口导致探测结果不可靠。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
@@ -143,8 +143,6 @@ const chLoading = ref(false)
 const chList = ref<LiveChannelManage[]>([])
 const chSearch = ref('')
 const chSaving = ref(false)
-/** 探源进行中（批量最坏 ≈50s） */
-const probing = ref(false)
 /** 自定义频道新增弹窗 */
 const customOpen = ref(false)
 const customForm = reactive({ name: '', groupName: '', url: '' })
@@ -159,12 +157,6 @@ const chFiltered = computed(() => {
   return chList.value.filter(
     (c) => c.name.toLowerCase().includes(kw) || c.group.toLowerCase().includes(kw) || c.url.toLowerCase().includes(kw)
   )
-})
-/** 探源统计（最近一次结果从列表标记聚合） */
-const chProbeStats = computed(() => {
-  const probed = chList.value.filter((c) => c.alive !== undefined && c.alive !== null)
-  const ok = probed.filter((c) => c.alive && c.cors).length
-  return { total: chList.value.length, probed: probed.length, ok }
 })
 
 async function openChannels(s: LiveSourceManage): Promise<void> {
@@ -285,24 +277,6 @@ async function removeChannel(c: LiveChannelManage): Promise<void> {
   }
 }
 
-/** 批量探源（CORS/活性）：结果写服务端缓存 → 前台频道列表带置灰标记 */
-async function probe(): Promise<void> {
-  if (!chSource.value || probing.value) return
-  probing.value = true
-  try {
-    toast('info', `开始探测 ${chList.value.length} 个频道，约需 1 分钟…`)
-    const resp = await manageApi.live.probeLiveChannels(chSource.value.id)
-    const okCors = resp.results.filter((r) => r.cors).length
-    const okAlive = resp.results.filter((r) => r.alive).length
-    toast('success', `探测完成：${okAlive} 可达 / ${okCors} 可跨域（共 ${resp.results.length}）`)
-    await loadChannels(chSource.value.id)
-  } catch {
-    /* 拦截器已 toast（含超时） */
-  } finally {
-    probing.value = false
-  }
-}
-
 onMounted(load)
 </script>
 
@@ -390,13 +364,9 @@ onMounted(load)
             <BaseIcon name="plus" size="14px" />
             添加自定义频道
           </BaseButton>
-          <BaseButton variant="gradient" size="sm" :loading="probing" @click="probe">
-            {{ probing ? '探测中…' : 'CORS 探源' }}
-          </BaseButton>
         </div>
         <p class="jc-chmgr__hint">
-          共 {{ chList.length }} 个频道，可跨域 {{ chProbeStats.ok }} / 已探测 {{ chProbeStats.probed }}。
-          探源结果供前台频道置灰标记（跨域受限/离线）。
+          共 {{ chList.length }} 个频道。探源改为端侧执行，前台自动探测可访问性。
         </p>
         <BaseSkeleton v-if="chLoading" variant="rect" class="jc-chmgr__skeleton" />
         <div v-else class="jc-chmgr__list">
