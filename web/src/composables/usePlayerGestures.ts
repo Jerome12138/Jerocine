@@ -224,7 +224,11 @@ export function usePlayerGestures(opts: PlayerGestureOptions) {
 
   function onTouchEnd(e: TouchEvent): void {
     if (opts.enabled && !opts.enabled.value) {
+      // disabled(loading/切集窗口)期间松手: 长按可能已进入 3x 临时倍速 —— 不退出会
+      // 把 3x 带到新集且提示胶囊常驻(切集置 enabled=false 使后续 touchmove/touchend 全短路)
       gestureMode = 'none'
+      opts.exitTempRate()
+      gestureRateHint.value = ''
       return
     }
     clearLongPressTimer()

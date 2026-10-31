@@ -14,7 +14,7 @@ import { useViewMode } from '@/composables/useViewMode'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 
-const { isTV } = useViewMode()
+const { isTV, isMobile } = useViewMode()
 
 /* ---------- 数据 ---------- */
 const sources = ref<LiveSource[]>([])
@@ -58,8 +58,14 @@ function selectSource(id: number): void {
   if (id === activeSourceId.value) return
   activeSourceId.value = id
   activeUrl.value = ''
-  // 真正停播(usePlayer 的 src watcher 对空串 early-return, 仅清值是 no-op)
+  // 真正停播: usePlayer 的 src watcher 对空串 early-return(仅清值是 no-op), 旧 hls 若不
+  // 显式卸载会以直播跟随模式继续后台拉流 —— ArtPlayer reset() = removeAttribute src + load。
   playerPause()
+  try {
+    player.value?.reset()
+  } catch {
+    /* ignore */
+  }
   playSrc.value = ''
   void loadChannels(id)
 }
@@ -71,6 +77,11 @@ let pendingPlay = false
 function selectChannel(ch: LiveChannel): void {
   activeUrl.value = ch.url
   pendingPlay = true
+  // 同 URL 重复点击(hls fatal 自毁后重试): playSrc watcher 对同值不触发 —— 强制走 load
+  if (playSrc.value === ch.url && errored.value) {
+    playerLoad(ch.url, HLS_TYPE)
+    return
+  }
   playSrc.value = ch.url
   try {
     localStorage.setItem(LAST_CHANNEL_KEY, JSON.stringify({ sourceId: activeSourceId.value, url: ch.url }))
@@ -87,6 +98,7 @@ const {
   init: initPlayer,
   dispose: disposePlayer,
   pause: playerPause,
+  load: playerLoad,
   on: onPlayerEvent,
   player,
   errored
@@ -98,6 +110,8 @@ const {
   volume: 0.6,
   // 直播模式: 隐藏进度/时长, hls.js 直播跟随
   isLive: true,
+  // 移动端隐藏画中画/网页全屏(与 PlayView 同口径)
+  isMobile: isMobile.value,
   preload: 'metadata'
 })
 

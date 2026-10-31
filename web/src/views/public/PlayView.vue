@@ -311,12 +311,23 @@ function armSeekOnce(): void {
   // video:playing 是"真正开始播放"的唯一可靠信号(canplay 在移动端 blob URL 上偶发不触发,
   // video:waiting 会在播放中反复触发故不能用作一次性就绪信号)。三选一先到的即触发 run。
   const offP = onPlayerEvent('playing', run)
-  function run(): void {
-    if (fired || myToken !== seekArmToken) return
-    fired = true
+  // 作废时也要解绑: token 失配(窗口内再次切集)后本组监听永不触发 run —— 不解绑则
+  // 每次快速切集泄漏 3 个监听直到播放器销毁。
+  let detached = false
+  const detachAll = (): void => {
+    if (detached) return
+    detached = true
     offL()
     offC()
     offP()
+  }
+  function run(): void {
+    if (fired || myToken !== seekArmToken) {
+      detachAll()
+      return
+    }
+    fired = true
+    detachAll()
     switchInFlight = false // 新片源已就绪, 解除切集互斥
     autoNextGuardUntil = Date.now() + AUTO_NEXT_COOLDOWN_MS // 就绪后 10s 自动连播冷却
     // 就绪信号(loadedmetadata/canplay/playing 任一触发): 立即清除切集时挂起的 loading 态,
@@ -763,7 +774,7 @@ const {
   preload: 'metadata',
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条「下一集」图标入口(所有模式注册; 移动端非全屏由 CSS 隐藏, 见 .jc-player--mobile)
-  nextEpisode: { onClick: () => playNext() },
+  nextEpisode: { onClick: () => playNext(undefined) },
   // 弹幕插件(nextTV 同款引擎): 控制条中部开关 + 弹幕设置面板由插件原生提供。
   // 初始 danmuku 空数组, 数据由 useDanmaku 装载后 plugin.load(); 显示设置映射见 useDanmaku.applyPluginSettings。
   danmuku: {
@@ -897,6 +908,12 @@ const NO_RECORD_TAIL_SEC = 300
 const { flush: flushHistory } = useFilmHistory({
   collect: () => {
     if (!detail.value || !currentEpisode.value) {
+      return null
+    }
+    // P0 守卫: player 已 dispose(onBeforeUnmount 的二次 flush)时 playerCurrentTime 已被
+    // 复位为 0 —— 此时写入会把 onBeforeRouteLeave flush 的正确进度覆盖成 0(续播失效)。
+    // player 活着才collect(片尾保护在下方, 依赖 p.duration)。
+    if (!player.value) {
       return null
     }
     // #4: 临近片尾(倒数 5 分钟内)不写历史
@@ -1414,7 +1431,7 @@ function clearEpisodeMemory(filmId: number | string | undefined | null, srcId: s
  * 残余 timeupdate/ended 会以"新集"身份再次通过去抖, 不拦截就会再跳一集, 且把旧播放头写进
  * 中间集的历史(进度串集); ②就绪后 10s 冷却, 防个别源就绪后仍迟到触发残余事件。
  * 手动切集按钮不受任何一道限制。 */
-function playNextAuto(): void {
+function playNextAuto(forceAutoPlay = false): void {
   if (switchInFlight) return
   if (Date.now() < autoNextGuardUntil) return
   if (!hasNext.value) return
@@ -1422,15 +1439,16 @@ function playNextAuto(): void {
   const filmId = detail.value?.mid
   const srcId = currentSourceId.value
   const epIdx = currentEpisodeIndex.value
-  playNext()
+  playNext(forceAutoPlay)
   clearEpisodeMemory(filmId, srcId, epIdx)
 }
 
-function playNext(): void {
+function playNext(autoPlay?: boolean): void {
   if (!hasNext.value) return
   selectEpisode({
     sourceId: currentSourceId.value,
-    episodeIndex: currentEpisodeIndex.value + 1
+    episodeIndex: currentEpisodeIndex.value + 1,
+    autoPlay
   })
 }
 
@@ -1517,6 +1535,16 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
 
 /** TV: 保留 D-pad 焦点导航语义 —— OK/空格激活焦点按钮, 无焦点时控制播放器 */
 function handleTvKeydown(e: KeyboardEvent, key: string, tag: string | undefined): void {
+  // 方向键收敛(P1-3): 空间导航(capture 层)已把方向键用于焦点移动且不 stopPropagation ——
+  // 焦点在任一 data-focusable 元素上时, 本函数不得再叠加 seek/音量(双重响应)。
+  // 焦点在播放器容器/页面空白(无 data-focusable 祖先)时才由本函数控制播放器。
+  const arrowKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']
+  if (arrowKeys.includes(key)) {
+    const el = document.activeElement as HTMLElement | null
+    if (el && el.closest('[data-focusable="true"]')) {
+      return // 焦点在可聚焦控件上: 空间导航已消费, 不叠加播放器操作
+    }
+  }
   switch (key) {
     case ' ':
     case 'Spacebar':
@@ -1639,9 +1667,15 @@ function handleVideoError(): void {
   })
   // 出错即解除 loading 遮罩(阻塞态), 后续反馈交给 videoErrorMsg/重试/换源流程, 避免遮罩死锁
   loading.value = false
-  // 切集互斥窗口内的 error 是旧源残余事件: 不重试(避免重挂旧 src 与切换打架),
-  // 新源就绪(互斥解除)后若仍出错会正常走重试/换源。
-  if (switchInFlight) return
+  // 切集互斥窗口内的 error 大多是旧源残余事件: 不立即重试(避免重挂旧 src 与切换打架)。
+  // 但"新集本身死链"的 error 也落在窗口内且互斥永不解除(死链无就绪信号) —— 延迟重评估:
+  // 500ms 后窗口仍未解除(新源一直没就绪), 视为新源错误补走重试/换源; 已解除则为残余, 忽略。
+  if (switchInFlight) {
+    window.setTimeout(() => {
+      if (switchInFlight) handleVideoError()
+    }, 500)
+    return
+  }
 
   // 首次 error 且 adFilter 在用 → 推测过滤链路(端侧 blob / 服务端 proxy)故障, 关过滤回退原片
   // (Web 端: 关 adFilter → watch(adFilter) 重算 playSrc 为原始直链; APK 端见 native 内 Toast)
@@ -1698,10 +1732,14 @@ function fallbackSwitchSource(): void {
   if (!detail.value) return
   // 切集互斥窗口内不做自动换源: 旧源在切换瞬间的 error 属于残余事件, 等新源就绪后再评估
   if (switchInFlight) return
-  videoErrorMsg.value = '当前播放源不可用，正在尝试切换…'
   const sources = detail.value.sources
   const curIdx = sources.findIndex((s) => s.id === currentSourceId.value)
-  if (curIdx < 0 || sources.length <= 1) return
+  // 单源影片没有可换的目标: 直接给终态文案, 不落"正在尝试切换"的空头承诺
+  if (curIdx < 0 || sources.length <= 1) {
+    videoErrorMsg.value = '播放失败，请稍后重试或更换播放源（右上角「更多」）'
+    return
+  }
+  videoErrorMsg.value = '当前播放源不可用，正在尝试切换…'
   const nextIdx = (curIdx + 1) % sources.length
   if (nextIdx === curIdx) return
   const targetSource = sources[nextIdx]
@@ -1756,7 +1794,7 @@ onMounted(async () => {
       // 自然播完: 清理本集播放记忆(无论是否开自动连播; 开连播时 playNextAuto 内还会清一次, 幂等)
       clearEpisodeMemory(detail.value?.mid, currentSourceId.value, currentEpisodeIndex.value)
       if (autoPlayNext.value && hasNext.value) {
-        playNextAuto()
+        playNextAuto(true)
       }
     })
     onPlayerEvent('error', () => {
@@ -1994,7 +2032,7 @@ watch(playerReady, (v) => {
           role="toolbar"
           aria-label="播放操作"
         >
-          <button type="button" class="jc-pt-btn jc-pt-btn--primary" :disabled="!hasNext" data-focusable="true" @click="playNext">
+          <button type="button" class="jc-pt-btn jc-pt-btn--primary" :disabled="!hasNext" data-focusable="true" @click="playNext(undefined)">
             <BaseIcon name="skip-next" size="26px" /><span>下一集</span>
           </button>
           <button type="button" class="jc-pt-btn" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" data-focusable="true" @click="toggleAutoPlayNext">
@@ -2038,7 +2076,7 @@ watch(playerReady, (v) => {
         <div v-else class="jc-play-toolbar jc-play-toolbar--main">
           <!-- 组1 播放控制 -->
           <div class="jc-pt-group jc-pt-group--primary">
-            <BaseButton variant="gradient" size="sm" :disabled="!hasNext" @click="playNext">
+            <BaseButton variant="gradient" size="sm" :disabled="!hasNext" @click="() => playNext()">
               <template #icon><BaseIcon name="skip-next" size="18px" /></template>
               下集
             </BaseButton>

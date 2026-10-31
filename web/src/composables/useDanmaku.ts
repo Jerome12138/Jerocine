@@ -27,6 +27,8 @@ interface DanmukuPluginLike {
   show: () => unknown
   hide: () => unknown
   reset: () => unknown
+  /** 插件当前配置(visible 供换集后判断是否恢复显示) */
+  readonly option: { visible?: boolean }
 }
 
 export interface DanmakuSettings {
@@ -253,6 +255,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   let segTotal = 0
   /** 分片取数 in-flight 去重（同段并发只发一次）。 */
   let segInflight: Promise<void> | null = null
+  /** 该集后续段永久停预取标记(404 语义态); 换集重置。 */
+  let segFinished = false
 
   /** 取弹幕分片（内存池 + 并发去重 + 超时重试）。返回该片的弹幕（已并入池）。 */
   function ensureAggregate(from = 0, to = 0): Promise<DanmuComment[]> {
@@ -351,7 +355,11 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     lastComments = pool.length > 0 ? pool : null
     const items = toDanmuInputs(pool, currentMapFilter())
     if (items.length === 0) {
-      danmuState.value = 'empty'
+      // empty 边缘: 首段(0-900s)无弹幕但整集可能有(后段) —— 预取拉到数据时由
+      // prefetchUpcoming 回写 ready/loadedKey, 这里仅当"池空且无后续段可拉"才是真 empty
+      if (!(segTotal > pool.length && segFinished !== true)) {
+        danmuState.value = 'empty'
+      }
       return false
     }
     try {
@@ -361,6 +369,18 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       return false
     }
     return true
+  }
+
+  /** 换集装载后是否恢复显示: 尊重用户在插件控制条上的显隐选择(apd-toggle 是会话级
+   *  开关 —— 用户刚关掉弹幕, 换集后被 show() 强制重开属于状态覆盖)。 */
+  function pluginWantsShow(): boolean {
+    const p = plugin()
+    if (!p) return true
+    try {
+      return p.option.visible !== false
+    } catch {
+      return true
+    }
   }
 
   async function loadDanmaku(force = false): Promise<void> {
@@ -394,6 +414,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     // 新集: 重置分片游标, 首拉起播段 [0, SEGMENT_SEC)
     segLoadedTo = 0
     segTotal = 0
+    segFinished = false
     try {
       await ensureAggregate(0, SEGMENT_SEC)
     } catch (e) {
@@ -410,7 +431,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     loadedKey = currentLoadKey()
     hasDanmaku.value = true
     danmuState.value = 'ready'
-    if (opts.enabled.value) p.show()
+    if (opts.enabled.value && pluginWantsShow()) p.show()
   }
 
   /**
@@ -420,7 +441,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
    */
   let prefetchBusy = false
   async function prefetchUpcoming(currentSec: number): Promise<void> {
-    if (prefetchBusy || !opts.enabled.value || segTotal === 0) return
+    if (prefetchBusy || !opts.enabled.value || segTotal === 0 || segFinished) return
     if (currentSec < segLoadedTo - 300) return // 未进缓冲区（含 seek 回跳到已加载区）
     const key = currentLoadKey()
     if (!key || aggCache.get(key) === undefined) return // 主装载未完成/已换集
@@ -436,13 +457,25 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       segLoadedTo = to
       const p = plugin()
       if (!p) return
-      await loadPoolIntoPlugin(p, token)
+      const loaded = await loadPoolIntoPlugin(p, token)
+      // empty 边缘修复: 首段无弹幕停 empty, 预取拉到数据 → 回写 ready(按钮态恢复)
+      if (loaded && token === loadToken && danmuState.value === 'empty') {
+        loadedKey = currentLoadKey()
+        hasDanmaku.value = true
+        danmuState.value = 'ready'
+        if (opts.enabled.value && pluginWantsShow()) p.show()
+      }
       console.log('[danmaku] segment loaded', `[${from},${to})`, seg.length, 'items, pool =', lastComments?.length ?? 0)
     } catch (e) {
-      // 预取失败静默(下个 tick 重试); 404 说明整集不存在后续段(段超界) → 也静默
-      console.warn('[danmaku] prefetch FAIL', `[${from},${to})`, e instanceof ApiError ? `ApiError ${e.status}` : String(e).slice(0, 60))
-      // 允许重试: 回滚游标到本次段起点(避免卡死在失败段)
-      if (token === loadToken) segLoadedTo = from
+      // 404 = 查无作品/该集语义态 —— 该集后续段必然同样 404, 置 segFinished 永久停止预取
+      // (否则短集片尾缓冲区里每 10s tick 循环请求到切集); 其余(网络/超时)回滚游标下个 tick 重试
+      if (e instanceof ApiError && e.status === 404) {
+        segFinished = true
+        console.warn('[danmaku] prefetch 404 → 该集后续段停止预取', `[${from},${to})`)
+      } else {
+        console.warn('[danmaku] prefetch FAIL', `[${from},${to})`, e instanceof ApiError ? `ApiError ${e.status}` : String(e).slice(0, 60))
+        if (token === loadToken) segLoadedTo = from
+      }
     } finally {
       prefetchBusy = false
     }
