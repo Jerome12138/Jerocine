@@ -43,6 +43,12 @@ deploy/
 > `git pull` 后脚本会用新版本重新 exec 自己一次（防脚本执行中被覆写），日志看到两轮 pull 属预期 —— 仅 **legacy 路径**（旧格式包）会这样。
 > **发布边界（2026-10-22 起，树上现编译已删除）**：产物包自带 `tooling/`（部署脚本 + lib + compose + Dockerfile + nginx.conf，与二进制同包同版）—— 服务器端自引导到固定目录 `deploy/runtime/` 并以包内版本执行，**不 `git pull`、不要求树最新、无 push 前置**；只有旧格式包（无 `tooling/`，回滚场景）走 `git pull --ff-only` + 树内执行。更早的包（无 `migrations/`，自动迁移上线前打的）会响亮跳过迁移，用于回滚旧版。应急自行构建（不建议）：见 `docs/部署指南.md`「应急」。
 
+> **⚠️ 手动 compose 的 env 真相（2026-10-31 事故）**：容器实际使用的 compose 是 `deploy/runtime/docker-compose.yml`
+> （随最近一次 server-deploy 落地，配套 `runtime/deploy.env` 上下文）。在树内 `~/jerocine/deploy` 手跑
+> `docker compose up -d` 会以**树内版本**重建容器 —— 树内 env 落后于 runtime 时（如缺 `DANMU_API_TOKEN`）
+> 会**静默丢功能**（弹幕全空 12h 实录，`Enabled()=false` 降级不报错）。手动操作请镜像 deploy.sh 的参数：
+> `cd ~/jerocine/deploy && sudo docker compose --env-file .env --env-file runtime/deploy.env -f runtime/docker-compose.yml up -d <svc>`
+
 ## 日常更新
 
 常规做法 = **本机构建 → 压缩包上传 → 服务器只解包**（服务器不需要 Node/pnpm/Go，也不攒 docker 构建缓存）：

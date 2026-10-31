@@ -26,6 +26,12 @@
 # nginx 构建(context/dockerfile)同样可用环境变量切换: 树内 = web/Dockerfile(上下文=仓库根,
 # 模式2 服务器自构建); JEROCINE_NGINX_CONTEXT/JEROCINE_NGINX_DOCKERFILE 由 deploy.sh 在
 # 包内工具链模式下导出 = deploy/runtime/ + Dockerfile.nginx(随产物包 tooling/ 上送的薄配方)。
+#
+# ⚠ 树内手跑 compose 的风险(2026-10-31 事故): 容器实际按 runtime/docker-compose.yml(随包上送)创建;
+#   树内版本 env 落后时(如缺 DANMU_API_TOKEN)手跑 up -d 会以树内版本静默重建容器丢功能
+#   (弹幕客户端 Enabled()=false → 接口恒 200 空列表零报错, 弹幕全空 12h 实录)。
+#   手动操作请镜像 deploy.sh 参数:
+#   docker compose --env-file .env --env-file runtime/deploy.env -f runtime/docker-compose.yml up -d <svc>
 name: ${COMPOSE_PROJECT_NAME:-jerocine}
 
 services:
