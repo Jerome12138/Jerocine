@@ -494,10 +494,20 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
 
   const commit = (url: string, type: string, isBlob: boolean): void => {
     if (token !== playSrcToken) {
-      // 已被更新的请求取代: 若本次产生了 blob, 立即 revoke 防泄漏
+      // 已被更新的请求取代: 本次产生的 blob 立即 revoke; 同时回收 prevBlob ——
+      // 快速连切 A→B→C 时 B 的 stale commit 不会触达 prevBlob(此时为空), 若不在此
+      // 统一回收, A 的 blob1 在 B 的 stale 分支里无人释放(P2-5 泄漏)。此时旧源已被
+      // pOld.reset() 卸载, blob 无在用风险。
       if (isBlob) {
         try {
           URL.revokeObjectURL(url)
+        } catch {
+          /* ignore */
+        }
+      }
+      if (prevBlob && prevBlob !== url) {
+        try {
+          URL.revokeObjectURL(prevBlob)
         } catch {
           /* ignore */
         }
@@ -1058,9 +1068,14 @@ function openSkipDialog(): void {
 function saveSkip(): void {
   const id = detail.value?.mid
   if (id === undefined || id === null) return
+  // P3-18: 片尾秒数 clamp 到本集剩余时长的 1/10(至少 30s) —— 防止"保存 600s 剩余 20min
+  // → 下个 timeupdate 立即触发跳集"的观感 bug; clamp 只影响本次生效值, 存库仍是用户输入。
+  const duration = player.value?.duration || 0
+  const remaining = duration > 0 ? Math.max(0, duration - (player.value?.currentTime || 0)) : Infinity
+  const outroCap = Math.max(30, Math.floor(remaining / 10))
   const cfg: SkipConfig = {
     intro: Number(draftIntro.value) || 0,
-    outro: Number(draftOutro.value) || 0,
+    outro: Math.min(Number(draftOutro.value) || 0, outroCap),
     enabled: draftEnabled.value
   }
   skipSettings.save(id, cfg)
@@ -1213,14 +1228,19 @@ async function prefetchNextEpisode(): Promise<void> {
   if (prefetchedEpisodeKey.value === key) return
   prefetchedEpisodeKey.value = key
   try {
-    const data: PlayInfo = await filmApi.getPlayInfo({
-      mid: String(route.query.id ?? ''),
-      source: currentSourceId.value,
-      episode: nextIdx
-    })
-    const ep = data?.detail?.sources
-      ?.find((s) => s.id === currentSourceId.value)
-      ?.episodes?.[nextIdx]
+    // 集表已在内存(detail.sources 含全部源完整集表) —— 直接读, 空才回源
+    // (旧实现每集多打一次全量 PlayInfo, 片尾 60s 窗口与切集竞争)
+    let ep = currentSource.value?.episodes?.[nextIdx]
+    if (!ep) {
+      const data: PlayInfo = await filmApi.getPlayInfo({
+        mid: String(route.query.id ?? ''),
+        source: currentSourceId.value,
+        episode: nextIdx
+      })
+      ep = data?.detail?.sources
+        ?.find((s) => s.id === currentSourceId.value)
+        ?.episodes?.[nextIdx]
+    }
     if (!ep || !reM3u8.test(ep.link)) return
     // 挂 signal: 切集/切源时立即取消在途预取。
     prefetchAbort?.abort()
@@ -1309,6 +1329,10 @@ watch(loading, (v) => {
 })
 
 /** loading 阻塞期禁用播放器手势(双击全屏/长按倍速/滑动 seek) */
+/** A6-19: 影片没有任何可播源(检测源全空) → 显式空态而非黑播放器卡 25s 兜底 */
+const noPlayableSources = computed(
+  () => !!detail.value && (!detail.value.sources || detail.value.sources.length === 0)
+)
 const gesturesEnabled = computed(() => !loading.value)
 /** 移动端 extra timeout: mobile/hls.js blob URL 在 loading 持续 10s 后强制撤遮罩,
  *  作为 video:playing 事件补充兜底(极端情况下 playing 延迟过久, 避免用户无限等待)。
@@ -1490,6 +1514,11 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
   switch (key) {
     case ' ':
     case 'Spacebar':
+      // 焦点在选集/工具条等交互区控件上时放行原生激活(P2-13: 全局劫持曾让纯键盘用户
+      // 无法操作集列表) —— 仅焦点游离时才接管为播放器快捷键
+      if (onUiButton && target?.closest?.('.jc-play-grid__aside, .jc-play-toolbar, .jc-pt-more__panel')) {
+        return
+      }
       e.preventDefault()
       if (onUiButton) target?.blur()
       if (paused.value) {
@@ -1499,6 +1528,9 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
       }
       break
     case 'Enter':
+      if (onUiButton && target?.closest?.('.jc-play-grid__aside, .jc-play-toolbar, .jc-pt-more__panel')) {
+        return
+      }
       e.preventDefault()
       if (onUiButton) target?.blur()
       togglePlayerFullscreen()
@@ -1643,6 +1675,7 @@ function resetRetry(): void {
     window.clearTimeout(retryTimer)
     retryTimer = undefined
   }
+  fallbackRounds = 0
 }
 
 function handleVideoError(): void {
@@ -1728,6 +1761,8 @@ function handleVideoError(): void {
   fallbackSwitchSource()
 }
 
+/** 全源轮换计数: 每次自动换源 +1, 全部轮换完后停止自动切换给终态(P2-7)。 */
+let fallbackRounds = 0
 function fallbackSwitchSource(): void {
   if (!detail.value) return
   // 切集互斥窗口内不做自动换源: 旧源在切换瞬间的 error 属于残余事件, 等新源就绪后再评估
@@ -1739,6 +1774,12 @@ function fallbackSwitchSource(): void {
     videoErrorMsg.value = '播放失败，请稍后重试或更换播放源（右上角「更多」）'
     return
   }
+  // 全部源都轮换过一轮 → 停止自动切换给终态(视频区点击/重试入口可手动再试)
+  if (fallbackRounds >= sources.length) {
+    videoErrorMsg.value = '所有播放源均不可用，请稍后点击画面重试'
+    return
+  }
+  fallbackRounds += 1
   videoErrorMsg.value = '当前播放源不可用，正在尝试切换…'
   const nextIdx = (curIdx + 1) % sources.length
   if (nextIdx === curIdx) return
@@ -1918,7 +1959,13 @@ watch(playerReady, (v) => {
       <div class="jc-play-grid">
         <section class="jc-play-grid__main flex flex-col gap-[var(--jc-space-5)]">
           <!-- 播放器容器 -->
+          <BaseEmpty
+            v-if="noPlayableSources"
+            title="该影片暂无可播放剧集"
+            description="可尝试切换其它影片, 或稍后再来"
+          />
           <div
+            v-else
             class="jc-player-wrap"
             :data-loading="loading ? '1' : '0'"
             @touchstart="onPlayerTouchStart"
@@ -2628,7 +2675,11 @@ watch(playerReady, (v) => {
     flex: 1 1 0;
     min-width: 0;
   }
-  /* 集网格: 占满剩余高度 + 纵向滚动 + 滚轮顺畅. 右侧窄栏每行 2 个(用户指定), 细滚动条 */
+  /* 集网格: 占满剩余高度 + 纵向滚动 + 滚轮顺畅. 右侧窄栏每行 2 个(用户指定), 细滚动条.
+     A2-5: 排除 TV —— 本规则特异性(0,3,0)反超 EpisodeTabs 的 TV 自适应列数(0,2,0) */
+  [data-mode='tv'] .jc-play-grid__aside :deep(.jc-episode-grid) {
+    grid-template-columns: repeat(auto-fit, minmax(clamp(110px, 11vw, 160px), 1fr));
+  }
   .jc-play-grid__aside :deep(.jc-episode-grid) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     flex: 1 1 auto;
@@ -2767,7 +2818,8 @@ watch(playerReady, (v) => {
   display: flex;
   align-items: center;
   height: 20px;
-  max-width: 68%;
+  /* A1-2: 显式让位右上角标组(390px 全屏下 68% 会与角标相接) */
+  max-width: calc(100% - 220px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2831,6 +2883,11 @@ watch(playerReady, (v) => {
 @media (max-width: 767px) {
   .jc-play-info {
     align-items: flex-start;
+  }
+  /* A5-17: 移动端触控目标 ≥44px(命中区拉高, 视觉尺寸用 padding 补偿不改) */
+  .jc-play-toolbar .jc-btn,
+  .jc-pt-more__item {
+    min-height: 44px;
   }
 }
 </style>
@@ -2939,12 +2996,11 @@ watch(playerReady, (v) => {
   color: var(--jc-text-primary);
 }
 
-/* 桌面/移动(非 TV): 点击按钮产生的焦点框去掉 —— 键盘已全局接管为播放器控制
-   (左右=进度/空格=暂停/回车=全屏), 焦点导航无意义; TV 模式保留焦点环(D-pad 定位依赖)。 */
-[data-mode]:not([data-mode='tv']) .jc-play-view button:focus,
-[data-mode]:not([data-mode='tv']) .jc-play-view button:focus-visible,
-[data-mode]:not([data-mode='tv']) .jc-play-view .art-video-player .art-control:focus,
-[data-mode]:not([data-mode='tv']) .jc-play-view .art-video-player .art-control:focus-visible {
+/* 桌面/移动(非 TV): 只灭鼠标点击落下的 :focus 焦点框; :focus-visible(键盘 Tab)保留
+   —— WCAG 2.4.7 焦点可见性(此前连键盘焦点环一起灭, 键盘用户在工具条/菜单里丢失位置)。
+   TV 模式保留焦点环(D-pad 定位依赖)。 */
+[data-mode]:not([data-mode='tv']) .jc-play-view button:focus:not(:focus-visible),
+[data-mode]:not([data-mode='tv']) .jc-play-view .art-video-player .art-control:focus:not(:focus-visible) {
   outline: none;
   box-shadow: none;
 }

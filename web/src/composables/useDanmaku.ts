@@ -449,12 +449,26 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (prefetchedOnce && lastComments !== null && lastComments.length >= segTotal && segTotal > 0) return
     prefetchBusy = true
     const token = loadToken
-    const from = segLoadedTo
-    const to = from + SEGMENT_SEC
+    let failFrom = -1 // 本次预取循环最后尝试的段起点(失败回滚用; 声明在 try 外供 catch 引用)
     try {
-      const seg = await ensureAggregate(from, to)
-      if (token !== loadToken) return
-      segLoadedTo = to
+      // 循环补段直到追上播放位置 + 一段缓冲(第1轮坑②: 大跨度 seek 旧实现一次只补一段,
+      // 靠 10s tick 逐段追, 追帧期间目标区弹幕缺失) —— 上限 8 段(2h)防极端长视频长循环。
+      let pulled = 0
+      for (let i = 0; i < 8; i++) {
+        const from = segLoadedTo
+        const to = from + SEGMENT_SEC
+        // 追上播放位置 + 一段缓冲 → 停
+        if (from > currentSec + SEGMENT_SEC) break
+        failFrom = from
+        const seg = await ensureAggregate(from, to)
+        if (token !== loadToken) return
+        segLoadedTo = to
+        pulled += seg.length
+        // 404/拉完判定: 本段 0 条且 pool 已达 total → 无后续
+        const pool = aggCache.get(currentLoadKey() ?? '') ?? []
+        if (segTotal > 0 && pool.length >= segTotal) break
+      }
+      if (pulled === 0) return
       const p = plugin()
       if (!p) return
       const loaded = await loadPoolIntoPlugin(p, token)
@@ -465,16 +479,16 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         danmuState.value = 'ready'
         if (opts.enabled.value && pluginWantsShow()) p.show()
       }
-      console.log('[danmaku] segment loaded', `[${from},${to})`, seg.length, 'items, pool =', lastComments?.length ?? 0)
+      console.log('[danmaku] segments loaded, pulled =', pulled, ', pool =', lastComments?.length ?? 0)
     } catch (e) {
       // 404 = 查无作品/该集语义态 —— 该集后续段必然同样 404, 置 segFinished 永久停止预取
       // (否则短集片尾缓冲区里每 10s tick 循环请求到切集); 其余(网络/超时)回滚游标下个 tick 重试
       if (e instanceof ApiError && e.status === 404) {
         segFinished = true
-        console.warn('[danmaku] prefetch 404 → 该集后续段停止预取', `[${from},${to})`)
+        console.warn('[danmaku] prefetch 404 → 该集后续段停止预取', `[${failFrom},+900)`)
       } else {
-        console.warn('[danmaku] prefetch FAIL', `[${from},${to})`, e instanceof ApiError ? `ApiError ${e.status}` : String(e).slice(0, 60))
-        if (token === loadToken) segLoadedTo = from
+        console.warn('[danmaku] prefetch FAIL', String(e).slice(0, 60))
+        if (token === loadToken) segLoadedTo = failFrom
       }
     } finally {
       prefetchBusy = false
