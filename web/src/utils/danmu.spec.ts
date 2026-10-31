@@ -84,14 +84,10 @@ describe('toDanmuInput(s)：毫秒 → 秒映射 + 过滤（artplayer-plugin-dan
     expect(toDanmuInput(cmt(1000, { mode: 1 }), 0, { topMode: false })).not.toBeNull()
   })
 
-  it('过滤: 关闭彩色 -> 颜色改写为 #ffffff；outline -> border: true', () => {
+  it('过滤: 关闭彩色 -> 颜色改写为 #ffffff', () => {
     const it = toDanmuInput(cmt(1000, { color: 0xff0000 }), 0, { colored: false })
     expect(it).not.toBeNull()
     expect(it!.color).toBe('#ffffff')
-    const outlined = toDanmuInput(cmt(1000), 0, { outline: true })
-    expect(outlined!.border).toBe(true)
-    const plain = toDanmuInput(cmt(1000))
-    expect(plain!.border).toBe(false)
   })
 
   it('danmuColorToHex: 十进制 → #RRGGBB（非法/0 兜底白色）', () => {

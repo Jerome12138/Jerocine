@@ -22,8 +22,6 @@ export interface DanmuMapFilter {
   topMode?: boolean
   /** false = 忽略原色，全部改写为白色 */
   colored?: boolean
-  /** true = 弹幕带描边（插件 Danmu.border） */
-  outline?: boolean
 }
 
 /**
@@ -64,8 +62,7 @@ export function toDanmuInput(
     text: c.text,
     time: c.time / 1000,
     mode: mapped,
-    color,
-    border: filter?.outline === true
+    color
   }
 }
 

@@ -49,8 +49,6 @@ export interface DanmakuSettings {
   topMode: boolean
   /** 彩色（false = 全部白色） */
   colored: boolean
-  /** 描边（插件 Danmu.border） */
-  outline: boolean
   /** 防重叠（插件 antiOverlap；插件设置面板可改, 经 :config 事件回写持久化） */
   antiOverlap: boolean
 }
@@ -67,7 +65,6 @@ export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
   bottomMode: true,
   topMode: true,
   colored: true,
-  outline: true,
   antiOverlap: true
 }
 /** 字号档位（自适应档 + 4 档可调；B站/腾讯均为档位式） */
@@ -210,10 +207,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
   }
 
-  /** 当前过滤项（底部/顶部/彩色/描边开关）。 */
+  /** 当前过滤项（底部/顶部/彩色开关）。 */
   function currentMapFilter(): DanmuMapFilter {
     const s = settings.value
-    return { bottomMode: s.bottomMode, topMode: s.topMode, colored: s.colored, outline: s.outline }
+    return { bottomMode: s.bottomMode, topMode: s.topMode, colored: s.colored }
   }
 
   /** 把可运行时生效的设置项应用到插件（透明度/区域/字号/速度/防重叠）。 */
@@ -512,10 +509,9 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     const affectsContent =
       patch.bottomMode !== undefined ||
       patch.topMode !== undefined ||
-      patch.colored !== undefined ||
-      patch.outline !== undefined
+      patch.colored !== undefined
     if (affectsContent) {
-      // 顶部/底部/彩色/描边切换: 整集原始数据在内存, 直接重映射+load, 零请求、不清状态机(即时生效)
+      // 顶部/底部/彩色切换: 整集原始数据在内存, 直接重映射+load, 零请求、不清状态机(即时生效)
       if (
         plugin() &&
         lastComments &&
@@ -689,8 +685,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (
       prev.bottomMode !== settings.value.bottomMode ||
       prev.topMode !== settings.value.topMode ||
-      prev.colored !== settings.value.colored ||
-      prev.outline !== settings.value.outline
+      prev.colored !== settings.value.colored
     ) {
       loadedKey = null
       void loadDanmaku(true)
