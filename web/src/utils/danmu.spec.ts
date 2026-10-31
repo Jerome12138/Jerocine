@@ -12,15 +12,13 @@ describe('toDanmuInput(s)：毫秒 → 秒映射 + 过滤（artplayer-plugin-dan
       text: '弹幕',
       time: 49.953,
       mode: 0,
-      color: '#ffffff',
-      border: false
+      color: '#ffffff'
     })
     expect(toDanmuInput(cmt(2000, { mode: 4, color: 0xff0000, text: '底部' }))).toEqual({
       text: '底部',
       time: 2,
       mode: 2,
-      color: '#ff0000',
-      border: false
+      color: '#ff0000'
     })
   })
 

@@ -53,7 +53,7 @@ function channelBadgeText(ch: LiveChannel): string {
 const activeUrl = ref('')
 const LAST_CHANNEL_KEY = 'jc-live-last-channel'
 /** 端侧探源结果缓存（sourceId → { urlHash → ProbeResult }），过期 24h */
-interface ProbeResult { alive: boolean; cors: boolean }
+interface ProbeResult { url: string; alive: boolean; cors: boolean }
 const PROBE_CACHE_KEY = 'jc-live-probe-cache'
 const PROBE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const PROBE_TIMEOUT_MS = 5000
@@ -74,7 +74,7 @@ function readProbeCache(): Record<number, Record<string, ProbeResult & { ts: num
     return {}
   }
 }
-function writeProbeCache(cache: typeof readProbeCache()): void {
+function writeProbeCache(cache: ReturnType<typeof readProbeCache>): void {
   try {
     localStorage.setItem(PROBE_CACHE_KEY, JSON.stringify(cache))
   } catch {
