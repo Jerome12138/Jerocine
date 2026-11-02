@@ -27,6 +27,8 @@ data class HomeNavItem(
 
 fun mapHomeNavigation(dashboard: HomeDashboard): List<HomeNavItem> = dashboard.home.rows
     .asSequence()
+    // 000037: show=顶栏导航显示(仅一级有意义; 旧 server 不返回时 show=true 默认 true 兼容)
+    .filter { it.nav.show }
     .map { HomeNavItem(it.nav.id, it.nav.name.ifBlank { "分类" }) }
     .distinctBy(HomeNavItem::id)
     .take(4)

@@ -36,6 +36,10 @@ data class NavCategory(
     val id: Long = 0,
     val pid: Long = 0,
     val name: String = "",
+    // 000037 三开关拆分: show=顶栏导航显示(仅一级有意义; 旧 server 不返回时默认 true 兼容),
+    // sidebarShow=侧边栏显示(一级+二级各自独立; tvshell 暂无侧边栏消费).
+    val show: Boolean = true,
+    val sidebarShow: Boolean = true,
     val children: List<NavCategory> = emptyList()
 )
 
