@@ -960,7 +960,8 @@ func (s *ManageService) SearchFilms(ctx context.Context, spec repository.FilterS
 		err   error
 	)
 	if kw := strings.TrimSpace(spec.Keyword); kw != "" {
-		list, total, err = s.search.SearchKeyword(ctx, kw, spec.Deleted, page)
+		// 管理端口径: IncludeHidden 由 handler 恒置 true —— 后台列表/搜索不过滤影片可见性。
+		list, total, err = s.search.SearchKeyword(ctx, kw, spec.Deleted, spec.IncludeHidden, page)
 	} else {
 		list, total, err = s.search.Filter(ctx, spec, page)
 	}

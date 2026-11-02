@@ -282,8 +282,9 @@ func (r *searchRepo) CountScoredByPid(ctx context.Context, pid int64) (int64, er
 
 func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, page repository.Page) ([]entity.MovieSearch, int64, error) {
 	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), spec.Deleted)
-	// 仅公开口径剔除隐藏分类(后台回收站/全部要能看到一切)。
-	if spec.Deleted == repository.DeletedExclude {
+	// 仅公开口径剔除隐藏分类(后台回收站/全部要能看到一切; 管理端口径 IncludeHidden
+	// 下"在架"也不剔除 —— 后台影片管理要求所有影片可见、可搜)。
+	if spec.Deleted == repository.DeletedExclude && !spec.IncludeHidden {
 		q = r.excludeHidden(ctx, q)
 	}
 	// 一级分类口径同 TopByPidSorted: pid=X(子分类影片) OR cid=X(直挂影片, XML 源 pid=0)。
@@ -320,7 +321,7 @@ func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, pag
 	return out, total, nil
 }
 
-func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted int, page repository.Page) ([]entity.MovieSearch, int64, error) {
+func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted int, includeHidden bool, page repository.Page) ([]entity.MovieSearch, int64, error) {
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
 		return nil, 0, nil
@@ -329,7 +330,8 @@ func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted 
 	match := "MATCH(name, sub_title) AGAINST (? IN BOOLEAN MODE)"
 	q := applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), deleted)
 	// 仅公开口径(未删)剔除隐藏分类影片 —— 搜索不能成为隐藏分类的漏出通道。
-	if deleted == repository.DeletedExclude {
+	// 管理端口径(includeHidden=true)放开: 后台要能列出/搜到所有影片(含隐藏分类的)。
+	if deleted == repository.DeletedExclude && !includeHidden {
 		q = r.excludeHidden(ctx, q)
 	}
 	if isAllAsciiLetters(keyword) {

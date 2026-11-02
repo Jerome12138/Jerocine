@@ -61,6 +61,10 @@ type FilterSpec struct {
 	// Deleted 软删除态过滤: DeletedExclude(0, 公开默认) / DeletedOnly(1) / DeletedInclude(-1)。
 	// 零值即"仅未删", 所以公开调用方无需关心该字段。
 	Deleted int
+	// IncludeHidden 管理端口径: true = 不剔除"影片不可见分类"(film_visible=0)下的影片。
+	// 管理后台的影片列表/搜索要求所有影片都可见(含被隐藏分类的), 只有公开读路径
+	// (列表/搜索/推荐)才做 hiddenCats 剔除。零值 false = 公开口径, 公开调用方无需关心。
+	IncludeHidden bool
 }
 
 // RelatedSeed 相关推荐种子 (来自当前影片)。

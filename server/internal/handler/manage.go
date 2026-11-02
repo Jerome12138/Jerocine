@@ -743,9 +743,10 @@ func (h *Handlers) ManageFilms(c *gin.Context) {
 	if cid == 0 {
 		cid = queryInt64(c, "category")
 	}
+	// IncludeHidden 恒 true: 管理后台影片列表/搜索不受"影片可见"开关影响, 所有影片都可见。
 	spec := repository.FilterSpec{
 		Keyword: c.Query("keyword"), Pid: queryInt64(c, "pid"), Cid: cid,
-		Deleted: deletedMode(c.Query("status")),
+		Deleted: deletedMode(c.Query("status")), IncludeHidden: true,
 	}
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
 	res, err := h.Manage.SearchFilms(c.Request.Context(), spec, page)

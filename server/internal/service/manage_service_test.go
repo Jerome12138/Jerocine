@@ -16,16 +16,18 @@ import (
 // fakeSearchKW 仅覆写 Filter / SearchKeyword 以验证 SearchFilms 的关键字分支(其余方法未实现, 被调用即 panic)。
 type fakeSearchKW struct {
 	repository.SearchRepository
-	filterCalls  int
-	keywordCalls int
-	lastKeyword  string
+	filterCalls   int
+	keywordCalls  int
+	lastKeyword   string
+	lastSpec      repository.FilterSpec
 }
 
-func (f *fakeSearchKW) Filter(context.Context, repository.FilterSpec, repository.Page) ([]entity.MovieSearch, int64, error) {
+func (f *fakeSearchKW) Filter(_ context.Context, spec repository.FilterSpec, _ repository.Page) ([]entity.MovieSearch, int64, error) {
 	f.filterCalls++
+	f.lastSpec = spec
 	return nil, 0, nil
 }
-func (f *fakeSearchKW) SearchKeyword(_ context.Context, kw string, _ int, _ repository.Page) ([]entity.MovieSearch, int64, error) {
+func (f *fakeSearchKW) SearchKeyword(_ context.Context, kw string, _ int, _ bool, _ repository.Page) ([]entity.MovieSearch, int64, error) {
 	f.keywordCalls++
 	f.lastKeyword = kw
 	return nil, 0, nil
@@ -46,15 +48,19 @@ func TestSearchFilms_KeywordRoutesToFullText(t *testing.T) {
 	}
 }
 
-// 无关键字 → 走分类/筛选(Filter)。
+// 无关键字 → 走分类/筛选(Filter), 且 FilterSpec 原样透传(含管理端口径 IncludeHidden)。
 func TestSearchFilms_NoKeywordUsesFilter(t *testing.T) {
 	fs := &fakeSearchKW{}
 	ms := &ManageService{search: fs}
-	if _, err := ms.SearchFilms(context.Background(), repository.FilterSpec{Pid: 2}, repository.Page{}); err != nil {
+	spec := repository.FilterSpec{Pid: 2, IncludeHidden: true}
+	if _, err := ms.SearchFilms(context.Background(), spec, repository.Page{}); err != nil {
 		t.Fatal(err)
 	}
 	if fs.filterCalls != 1 || fs.keywordCalls != 0 {
 		t.Fatalf("应只调 Filter: filter=%d keyword=%d", fs.filterCalls, fs.keywordCalls)
+	}
+	if fs.lastSpec != spec {
+		t.Fatalf("FilterSpec 应原样透传(含 IncludeHidden), got %+v want %+v", fs.lastSpec, spec)
 	}
 }
 

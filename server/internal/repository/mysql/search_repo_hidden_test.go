@@ -120,11 +120,57 @@ func TestHiddenCatFilter_SearchKeyword(t *testing.T) {
 	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
 		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
 
-	if _, _, err := repo.SearchKeyword(context.Background(), "abc", repository.DeletedExclude, repository.Page{}); err != nil {
+	if _, _, err := repo.SearchKeyword(context.Background(), "abc", repository.DeletedExclude, false, repository.Page{}); err != nil {
 		t.Fatalf("SearchKeyword: %v", err)
 	}
 	if !strings.Contains(*last, "pid NOT IN") {
 		t.Fatalf("搜索 SQL 缺少隐藏过滤: %s", *last)
+	}
+}
+
+// TestHiddenCatFilter_SearchKeyword_ManageBypass 管理端口径(includeHidden=true)的关键字搜索:
+// 不发 category 现查, 也不注入 NOT IN —— 后台要能搜到所有影片(含隐藏分类的)。
+func TestHiddenCatFilter_SearchKeyword_ManageBypass(t *testing.T) {
+	gdb, mock, last := newMockDBCapture(t)
+	repo := NewSearchRepository(gdb)
+
+	mock.ExpectQuery("SELECT count(.+) FROM `movie_search`"). // 仅此两条: 无 category 现查
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
+
+	if _, _, err := repo.SearchKeyword(context.Background(), "abc", repository.DeletedExclude, true, repository.Page{}); err != nil {
+		t.Fatalf("SearchKeyword(manage): %v", err)
+	}
+	if strings.Contains(*last, "NOT IN") {
+		t.Fatalf("管理口径搜索不应注入隐藏过滤: %s", *last)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("管理口径搜索不应现查 category: %v", err)
+	}
+}
+
+// TestHiddenCatFilter_ManageIncludeHidden 管理端口径(IncludeHidden=true, 在架口径)的列表:
+// DeletedExclude 本会走 hiddenCats, 但 IncludeHidden 放开 —— 不现查 category、不注入 NOT IN,
+// 后台「在架」tab 必须能看到/搜到影片不可见分类下的影片(管理后台不受可见性影响)。
+func TestHiddenCatFilter_ManageIncludeHidden(t *testing.T) {
+	gdb, mock, last := newMockDBCapture(t)
+	repo := NewSearchRepository(gdb)
+
+	mock.ExpectQuery("SELECT (.+) FROM `movie_search`"). // 仅此两条: 无 category 现查
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
+
+	spec := repository.FilterSpec{Deleted: repository.DeletedExclude, IncludeHidden: true}
+	if _, _, err := repo.Filter(context.Background(), spec, repository.Page{}); err != nil {
+		t.Fatalf("Filter(manage): %v", err)
+	}
+	if strings.Contains(*last, "NOT IN") {
+		t.Fatalf("管理口径在架列表不应注入隐藏过滤: %s", *last)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("管理口径不应现查 category(出现多余查询): %v", err)
 	}
 }
 

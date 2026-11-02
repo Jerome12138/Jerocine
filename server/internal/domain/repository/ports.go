@@ -75,7 +75,8 @@ type SearchRepository interface {
 	// Filter 多维筛选分页 (含 pid+sort 的可翻页浏览; 返回数据与总数)。
 	Filter(ctx context.Context, spec FilterSpec, page Page) ([]entity.MovieSearch, int64, error)
 	// SearchKeyword 关键字检索 (FULLTEXT ngram)。deleted 取 DeletedExclude/DeletedOnly/DeletedInclude。
-	SearchKeyword(ctx context.Context, keyword string, deleted int, page Page) ([]entity.MovieSearch, int64, error)
+	// includeHidden=false(公开口径)剔除隐藏分类影片, true(管理口径)不过滤 —— 见 FilterSpec.IncludeHidden。
+	SearchKeyword(ctx context.Context, keyword string, deleted int, includeHidden bool, page Page) ([]entity.MovieSearch, int64, error)
 	// CountCreatedSince 统计 created_at(毫秒) >= sinceMillis 的影片数 (仪表盘今日/近一周新增)。
 	CountCreatedSince(ctx context.Context, sinceMillis int64) (int64, error)
 	// CountFilmsByCategory 各分类在架影片数(后台分类管理展示): 返回 pid 维度与 cid 维度两张计数表。

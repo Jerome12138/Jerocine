@@ -340,7 +340,7 @@ func (s *FilmService) Filter(ctx context.Context, spec repository.FilterSpec, pa
 // Search 关键字检索分页(FULLTEXT)。
 func (s *FilmService) Search(ctx context.Context, keyword string, page repository.Page) (CardPage, error) {
 	page = page.Normalize(s.pages.Search)
-	list, total, err := s.search.SearchKeyword(ctx, keyword, repository.DeletedExclude, page)
+	list, total, err := s.search.SearchKeyword(ctx, keyword, repository.DeletedExclude, false, page)
 	if err != nil {
 		return CardPage{}, err
 	}
