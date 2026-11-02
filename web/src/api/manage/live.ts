@@ -21,13 +21,13 @@ export const createLiveSource = (data: LiveSourceInput): Promise<LiveSourceManag
 
 /** PUT /manage/live-sources/:id 整体覆盖直播源 */
 export const updateLiveSource = (id: number, data: LiveSourceInput): Promise<void> =>
-  http.put(`/manage/live-sources/${id}`, data).finally(() => {
+  http.put(`/manage/live-sources/${id}`, data).then(() => {
     invalidateCache('live:')
   })
 
 /** DELETE /manage/live-sources/:id 删除直播源 */
 export const deleteLiveSource = (id: number): Promise<void> =>
-  http.delete(`/manage/live-sources/${id}`).finally(() => {
+  http.delete(`/manage/live-sources/${id}`).then(() => {
     invalidateCache('live:')
   })
 
