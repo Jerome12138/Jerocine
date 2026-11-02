@@ -81,6 +81,10 @@ export interface ManageFilmSearchParams {
   keyword?: string
   pid?: number
   cid?: number
+  /** 分类级联多选(000037 批次): 逗号分隔的分类 id 串(`catIds=5,9`) —— 勾顶级命中其
+   *  全部子分类影片(pid=父顶级), 勾子级/直挂命中 cid; 与 pid/cid 单值互斥使用。
+   *  用逗号串而非数组: axios 默认数组序列化是 catIds[]=/repeated, gin c.Query 只认单值。 */
+  catIds?: string
   page?: number
   size?: number
   /** 软删态过滤：active=仅在架(默认) / deleted=回收站 / all=全部 */

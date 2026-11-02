@@ -174,6 +174,50 @@ func TestHiddenCatFilter_ManageIncludeHidden(t *testing.T) {
 	}
 }
 
+// TestFilter_CatIDs 分类多选(后台级联筛选)的 SQL 形状: (pid IN ids OR cid IN ids) ——
+// 勾顶级命中子分类影片(pid=父顶级), 勾子级/直挂命中 cid, 单条件覆盖两种归属。
+func TestFilter_CatIDs(t *testing.T) {
+	gdb, mock, last := newMockDBCapture(t)
+	repo := NewSearchRepository(gdb)
+
+	mock.ExpectQuery("SELECT count(.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
+
+	spec := repository.FilterSpec{Deleted: repository.DeletedExclude, IncludeHidden: true, CatIDs: []int64{5, 9}}
+	if _, _, err := repo.Filter(context.Background(), spec, repository.Page{}); err != nil {
+		t.Fatalf("Filter(catIds): %v", err)
+	}
+	for _, frag := range []string{"pid IN", "OR cid IN"} {
+		if !strings.Contains(*last, frag) {
+			t.Fatalf("分类多选 SQL 缺少 %q: %s", frag, *last)
+		}
+	}
+}
+
+// TestFilter_CatIDs_IntersectHidden 公开口径下分类多选与隐藏过滤**叠加**:
+// excludeHidden 的 NOT IN 与 CatIDs 的 IN 共存 —— 勾中隐藏分类时影片仍被剔除
+// (公开端不存在"借多选把隐藏分类影片翻出来"的漏出通道)。
+func TestFilter_CatIDs_IntersectHidden(t *testing.T) {
+	gdb, mock, last := newMockDBCapture(t)
+	repo := NewSearchRepository(gdb)
+
+	expectHiddenCats(mock, []driver.Value{int64(5), int64(0), false})
+	mock.ExpectQuery("SELECT count(.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
+
+	spec := repository.FilterSpec{Deleted: repository.DeletedExclude, CatIDs: []int64{5, 3}}
+	if _, _, err := repo.Filter(context.Background(), spec, repository.Page{}); err != nil {
+		t.Fatalf("Filter(catIds+hidden): %v", err)
+	}
+	if !strings.Contains(*last, "pid NOT IN") || !strings.Contains(*last, "pid IN") {
+		t.Fatalf("公开口径多选应同时含隐藏剔除与分类匹配: %s", *last)
+	}
+}
+
 // TestCategoryBatchUpsertPreservesShow 采集覆盖/重采回写分类时**不得覆盖本地 show / film_visible**:
 // 源站 parse 写死 Show/FilmVisible:true, 全字段覆盖曾把管理员手工隐藏的分类重置回显示。
 // 锁 SQL 形状: ON DUPLICATE KEY UPDATE 只含结构列, 不含 show / film_visible。

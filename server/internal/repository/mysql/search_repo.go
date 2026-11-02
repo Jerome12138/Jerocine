@@ -294,6 +294,12 @@ func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, pag
 	if spec.Cid > 0 {
 		q = q.Where("cid = ?", spec.Cid)
 	}
+	// 分类多选(后台级联筛选): 顶级分类的子分类影片 pid 恒为父顶级 id, 直挂影片 cid=分类
+	// 自身 —— (pid IN ids OR cid IN ids) 一个条件同时覆盖两种归属, 与 (pid=X OR cid=X)
+	// 的单选口径同源; excludeHidden 的 NOT IN 叠加其上, 公开口径下隐藏分类命中即被剔除。
+	if len(spec.CatIDs) > 0 {
+		q = q.Where("(pid IN ? OR cid IN ?)", spec.CatIDs, spec.CatIDs)
+	}
 	if spec.Area != "" {
 		q = q.Where("area = ?", spec.Area)
 	}

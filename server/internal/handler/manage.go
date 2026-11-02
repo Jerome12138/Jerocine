@@ -744,9 +744,11 @@ func (h *Handlers) ManageFilms(c *gin.Context) {
 		cid = queryInt64(c, "category")
 	}
 	// IncludeHidden 恒 true: 管理后台影片列表/搜索不受"影片可见"开关影响, 所有影片都可见。
+	// catIds=1,2,3 分类级联多选(前端确定后传入); 与 pid/cid 单值互斥使用(前端保证)。
 	spec := repository.FilterSpec{
 		Keyword: c.Query("keyword"), Pid: queryInt64(c, "pid"), Cid: cid,
 		Deleted: deletedMode(c.Query("status")), IncludeHidden: true,
+		CatIDs: queryInt64s(c, "catIds"),
 	}
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
 	res, err := h.Manage.SearchFilms(c.Request.Context(), spec, page)

@@ -3,9 +3,9 @@ package handler
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
-
 	"server/internal/middleware"
 	"server/internal/platform/blobstore"
 	"server/internal/service"
@@ -50,6 +50,22 @@ func queryInt(c *gin.Context, name string, def int) int {
 		}
 	}
 	return def
+}
+
+// queryInt64s 解析逗号分隔的 int64 列表(`catIds=1,2,3`); 空串/全非法段返回 nil。
+// 非法段跳过不报错 —— 筛选参数宽松处理, 解析不出值就当没传。
+func queryInt64s(c *gin.Context, name string) []int64 {
+	raw := c.Query(name)
+	if raw == "" {
+		return nil
+	}
+	var out []int64
+	for _, part := range strings.Split(raw, ",") {
+		if n, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil && n > 0 {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func currentUserID(c *gin.Context) int64 {

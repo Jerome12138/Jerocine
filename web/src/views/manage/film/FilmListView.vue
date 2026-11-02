@@ -94,6 +94,8 @@ async function load(): Promise<void> {
       keyword: params.name,
       pid: params.pid,
       cid: params.cid,
+      // 分类级联多选: appliedCatIds 才是生效态(pending 勾选不算), 空集不传(拦截器会清理 undefined)
+      catIds: appliedCatIds.value.size ? [...appliedCatIds.value].join(',') : undefined,
       status: status.value,
       page: params.current,
       size: params.pageSize

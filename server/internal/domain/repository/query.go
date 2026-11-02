@@ -65,6 +65,10 @@ type FilterSpec struct {
 	// 管理后台的影片列表/搜索要求所有影片都可见(含被隐藏分类的), 只有公开读路径
 	// (列表/搜索/推荐)才做 hiddenCats 剔除。零值 false = 公开口径, 公开调用方无需关心。
 	IncludeHidden bool
+	// CatIDs 分类多选(后台影片管理的级联筛选): 非空时按 (pid IN ids OR cid IN ids) 匹配
+	// —— 勾顶级命中其全部子分类影片(pid=父顶级), 勾子级/直挂命中 cid, 与 Pid/Cid 单值
+	// 条件 AND 叠加(前端互斥使用: 传了 catIds 就不再传 pid/cid)。公开端不接收该字段, 恒 nil。
+	CatIDs []int64
 }
 
 // RelatedSeed 相关推荐种子 (来自当前影片)。

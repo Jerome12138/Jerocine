@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func TestSearchFilms_NoKeywordUsesFilter(t *testing.T) {
 	if fs.filterCalls != 1 || fs.keywordCalls != 0 {
 		t.Fatalf("应只调 Filter: filter=%d keyword=%d", fs.filterCalls, fs.keywordCalls)
 	}
-	if fs.lastSpec != spec {
+	if !reflect.DeepEqual(fs.lastSpec, spec) {
 		t.Fatalf("FilterSpec 应原样透传(含 IncludeHidden), got %+v want %+v", fs.lastSpec, spec)
 	}
 }
