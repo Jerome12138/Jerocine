@@ -10,9 +10,9 @@ import BaseImage from '@/components/base/BaseImage.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
+import ManageCascader from '@/components/manage/ManageCascader.vue'
 import { confirm } from '@/composables/useConfirm'
 import { toast } from '@/api/http'
-import TreeCategoryCheck from './TreeCategoryCheck.vue'
 
 const MAX_TREE_DEPTH = 4
 
@@ -23,8 +23,9 @@ const busy = ref(false)
 const total = ref(0)
 const pageSize = ref(20)
 const status = ref<ManageFilmStatus>('active')
-// 分类多选: id → checked
+// 分类多选: id → checked; 点击确定后才应用筛选, pending 为中间态
 const selectedCatIds = ref<Set<number>>(new Set())
+const appliedCatIds = ref<Set<number>>(new Set())
 const categoryTree = ref<FilmClass[]>([])
 const treeLoading = ref(false)
 const treePopperOpen = ref(false)
@@ -56,14 +57,6 @@ const columns = [
 
 // ---- 分类树工具 ----
 
-function flattenCats(nodes: FilmClass[], out: FilmClass[] = []): FilmClass[] {
-  for (const n of nodes) {
-    out.push(n)
-    if (n.children?.length) flattenCats(n.children, out)
-  }
-  return out
-}
-
 async function loadTree(): Promise<void> {
   if (categoryTree.value.length) return
   treeLoading.value = true
@@ -74,31 +67,9 @@ async function loadTree(): Promise<void> {
   }
 }
 
-/** 返回被选中节点的全部子孙 id(含自身), 用于整棵子树联动 */
-function descendantIds(node: FilmClass): number[] {
-  const ids = [node.id]
-  if (node.children?.length) {
-    for (const child of node.children) ids.push(...descendantIds(child))
-  }
-  return ids
-}
-
-function isNodeDescendantSelected(node: FilmClass): boolean {
-  return (node.children ?? []).some((c) => selectedCatIds.value.has(c.id))
-}
-
-function toggleNode(node: FilmClass): void {
-  const ids = descendantIds(node)
-  const allChecked = ids.every((id) => selectedCatIds.value.has(id))
-  if (allChecked) {
-    for (const id of ids) selectedCatIds.value.delete(id)
-  } else {
-    for (const id of ids) selectedCatIds.value.add(id)
-  }
-  applyCatFilter()
-}
-
 function applyCatFilter(): void {
+  // 用 pending 态把"当前勾选"同步为"已应用", 并清掉表单 pid/cid 重新加载
+  appliedCatIds.value = new Set(selectedCatIds.value)
   params.pid = 0
   params.cid = 0
   params.current = 1
@@ -107,7 +78,11 @@ function applyCatFilter(): void {
 
 function clearCatFilter(): void {
   selectedCatIds.value.clear()
-  applyCatFilter()
+  appliedCatIds.value.clear()
+  params.pid = 0
+  params.cid = 0
+  params.current = 1
+  load()
 }
 
 // ---- 影片列表 ----
@@ -236,23 +211,18 @@ onMounted(() => {
           </div>
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
-          <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
-          <BaseButton variant="gradient" size="sm" @click="search">
-            <BaseIcon name="search" size="16px" /> 搜索
-          </BaseButton>
-
-          <!-- 分类筛选(多选树) -->
+          <!-- 分类筛选(级联选择器, 放左边) -->
           <div class="relative">
             <BaseButton
               variant="ghost"
               size="sm"
-              :class="{ 'border-brand-purple/50': selectedCatIds.size > 0 }"
+              :class="{ 'border-brand-purple/50': appliedCatIds.size > 0 }"
               @click="void loadTree().then(() => (treePopperOpen = !treePopperOpen))"
             >
               <BaseIcon name="menu" size="16px" class="mr-1" />
               分类筛选
-              <BaseTag v-if="selectedCatIds.size > 0" variant="purple" size="xs" class="ml-1">
-                {{ selectedCatIds.size }}
+              <BaseTag v-if="appliedCatIds.size > 0" variant="purple" size="xs" class="ml-1">
+                {{ appliedCatIds.size }}
               </BaseTag>
             </BaseButton>
             <!-- 下拉树面板 -->
@@ -263,23 +233,34 @@ onMounted(() => {
             >
               <div v-if="treeLoading" class="text-sm text-muted py-2 text-center">加载中…</div>
               <template v-else-if="categoryTree.length">
-                <TreeCategoryCheck
+                <ManageCascader
                   :nodes="categoryTree"
                   :selected="selectedCatIds"
-                  @toggle="toggleNode"
+                  @change="selectedCatIds = $event"
                 />
               </template>
               <div v-else class="text-sm text-muted py-2 text-center">暂无分类</div>
               <div class="border-t border-subtle mt-2 pt-2 flex justify-end gap-2">
                 <BaseButton variant="ghost" size="sm" @click="clearCatFilter">清除筛选</BaseButton>
-                <BaseButton variant="gradient" size="sm" @click="treePopperOpen = false">确定</BaseButton>
+                <BaseButton
+                  variant="gradient"
+                  size="sm"
+                  :disabled="!selectedCatIds.size"
+                  @click="applyCatFilter(); treePopperOpen = false"
+                >确定</BaseButton>
               </div>
             </div>
           </div>
-
-          <BaseButton variant="ghost" size="sm" @click="router.push('/manage/film/add')">
-            <BaseIcon name="plus" size="16px" /> 新增
-          </BaseButton>
+          <!-- 搜索 + 新增(放右边, 与分类筛选同行不折行) -->
+          <div class="flex gap-[var(--jc-space-2)] flex-1 min-w-0">
+            <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
+            <BaseButton variant="gradient" size="sm" @click="search">
+              <BaseIcon name="search" size="16px" /> 搜索
+            </BaseButton>
+            <BaseButton variant="ghost" size="sm" @click="router.push('/manage/film/add')">
+              <BaseIcon name="plus" size="16px" /> 新增
+            </BaseButton>
+          </div>
         </div>
       </template>
 

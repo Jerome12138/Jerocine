@@ -232,10 +232,8 @@ onMounted(load)
             @keydown.enter="openEdit(child)"
           >
             <span class="jc-cat__dot" :class="{ 'jc-cat__dot--on': child.filmVisible }" aria-hidden="true" />
-            <span class="jc-cat__cname">
-              {{ child.name }}
-              <span class="jc-cat__meta-inline">#{{ child.id }} · {{ filmCountLabel(child) }}</span>
-            </span>
+            <span class="jc-cat__cname">{{ child.name }}</span>
+            <span class="jc-cat__cid">#{{ child.id }} · {{ filmCountLabel(child) }}</span>
           <div class="jc-cat__cctrl" @click.stop>
             <label class="jc-cat__toggle" title="关闭后该分类影片从公开列表与搜索中剔除；默认可见">
                 <span class="jc-cat__state jc-cat__state--sm jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !child.filmVisible }">
