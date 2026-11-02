@@ -152,12 +152,13 @@ function sidebarChildren(nav: NavCategory): NavCategory[] {
 
 /** 直播入口显隐(000038 三开关拆分 + 直播开关):
  *  - hasLiveSources: 复用 swrGet('live:sources') 缓存, 有源 = /live/sources.sources.length > 0
- *  - liveNavEnabled: 站点配置开关, 默认 true(迁移前行为); 无源时前端所有直播入口强制隐藏
- *  - liveTopNavVisible: 顶栏/TV 顶栏是否显示直播 = hasLiveSources && liveNavEnabled !== false
+ *  - liveNavEnabled: 站点配置开关(后端 int 直出 1/0), 默认显示(undefined/1), 0 隐藏;
+ *    无源时前端所有直播入口强制隐藏。⚠ 判断用 `!== 0`, 勿用布尔比较(0 !== false 恒真)。
+ *  - liveTopNavVisible: 顶栏/TV 顶栏是否显示直播 = hasLiveSources && liveNavEnabled !== 0
  *  注意: 侧边栏/抽屉按 hasLiveSources 固定显示(不设开关, 用户原话). */
 let liveSourcesChecked = false
 const hasLiveSources = ref(false)
-const liveNavEnabled = computed(() => basic.value?.liveNavEnabled !== false)
+const liveNavEnabled = computed(() => basic.value?.liveNavEnabled !== 0)
 const liveTopNavVisible = computed(() => hasLiveSources.value && liveNavEnabled.value)
 // 首次访问公开布局时触发一次源列表请求; 后续由 live 页面自己的 swr 共享缓存兜底,
 // 本文件不重复打接口(复用同一 key 'live:sources').
