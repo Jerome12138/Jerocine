@@ -31,7 +31,8 @@ import { getLiveSources } from '@/api/live'
  * - 移动端：搜索收成图标 + 抽屉式导航
  * - TV：高度 96px，导航字号放大
  *
- * 数据：useSiteStore / useNavStore / useHistoryStore（不在此处 ensureLoaded，由 App.vue 预热）
+ * 数据：useSiteStore / useNavStore / useHistoryStore（均由 App.vue 预热；本组件仅在挂载时机
+ * 复用 navStore.ensureLoaded() 兜底触发一次 live:sources 预热，见 script 中 liveSourcesChecked 段）
  */
 
 const route = useRoute()
@@ -162,14 +163,18 @@ const liveNavEnabled = computed(() => basic.value?.liveNavEnabled !== 0)
 const liveTopNavVisible = computed(() => hasLiveSources.value && liveNavEnabled.value)
 // 首次访问公开布局时触发一次源列表请求; 后续由 live 页面自己的 swr 共享缓存兜底,
 // 本文件不重复打接口(复用同一 key 'live:sources').
-navStore.ensureLoaded().finally(() => {
-  if (!liveSourcesChecked) {
-    liveSourcesChecked = true
-    getLiveSources()
-      .then((resp) => { hasLiveSources.value = (resp?.sources?.length ?? 0) > 0 })
-      .catch(() => { hasLiveSources.value = false })
-  }
-})
+// ensureLoaded 此处仅作"站点预热已完成"的挂载时机(nav 本身由 App.vue 预热);
+// catch 吞掉 nav 加载失败 —— live:sources 预热不因 nav 失败而中断, 且不得产生 unhandled rejection.
+navStore.ensureLoaded()
+  .catch(() => { /* 拦截器已统一 toast */ })
+  .finally(() => {
+    if (!liveSourcesChecked) {
+      liveSourcesChecked = true
+      getLiveSources()
+        .then((resp) => { hasLiveSources.value = (resp?.sources?.length ?? 0) > 0 })
+        .catch(() => { hasLiveSources.value = false })
+    }
+  })
 
 /** 搜索 */
 const keyword = ref<string>(typeof route.query.search === 'string' ? route.query.search : '')
