@@ -208,9 +208,10 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         // 不做 API/字体 runtimeCaching: 字体外链已删除(§5.2), API 一律走网络不缓存。
-        // 但静态资源要留一条 CacheFirst 运行时缓存(2026-10-15 方案 B): legacy 产物被 globIgnores
-        // 排除在 precache 之外(不让所有设备离线包翻倍), 低版本 WebView 靠这条在首次加载后
-        // 把自己的 bundle 存进 Cache Storage, 二次启动走缓存。产物文件名带 hash 不可变, CacheFirst 安全。
+        // 但静态资源要留一条运行时缓存(2026-10-15 方案 B, 2026-11-02 改 NetworkFirst):
+        // legacy 产物被 globIgnores 排除在 precache 之外(不让所有设备离线包翻倍), 低版本
+        // WebView 靠这条在首次加载后把自己的 bundle 存进 Cache Storage, 二次启动弱网/离线
+        // 时回退缓存。产物文件名带 hash 不可变, 缓存内容安全。
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/assets/'),
@@ -228,7 +229,8 @@ export default defineConfig({
         ],
         // legacy 产物(-legacy-* / legacy-polyfills)不进 precache: 只有 <61 的 WebView 会下载它们,
         // precache 进清单等于让 100% 的 modern 设备为 0% 用得上的文件付离线包体积。
-        // 低版本设备的缓存由上面 runtimeCaching 的 CacheFirst 在运行时补上。
+        // 低版本设备的缓存由上面 runtimeCaching 的 NetworkFirst 在运行时补上(命中缓存
+        // 回退时 Cache Storage 里已有上次成功下载的 bundle)。
         globIgnores: ['**/*legacy*']
       }
     }),
