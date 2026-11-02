@@ -30,4 +30,25 @@ describe('ManageTextarea', () => {
     expect(cls).toContain('w-full')
     expect(cls).toContain('min-h-[88px]')
   })
+
+  it('maxlength 透传原生属性 (复核 #11)', () => {
+    const w = mount(ManageTextarea, { props: { modelValue: '', maxlength: 255 } })
+    expect(w.find('textarea').attributes('maxlength')).toBe('255')
+  })
+
+  it('maxlength 接受字符串值', () => {
+    const w = mount(ManageTextarea, { props: { modelValue: '', maxlength: '500' } })
+    expect(w.find('textarea').attributes('maxlength')).toBe('500')
+  })
+
+  it('disabled → 原生属性 + 置灰类', () => {
+    const w = mount(ManageTextarea, { props: { modelValue: '', disabled: true } })
+    expect(w.find('textarea').attributes('disabled')).toBeDefined()
+    expect(w.find('textarea').classes()).toContain('disabled:opacity-50')
+  })
+
+  it('disabled 默认不渲染属性', () => {
+    const w = mount(ManageTextarea, { props: { modelValue: '' } })
+    expect(w.find('textarea').attributes('disabled')).toBeUndefined()
+  })
 })

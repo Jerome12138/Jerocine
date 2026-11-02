@@ -1,19 +1,21 @@
 <script setup lang="ts">
 interface Props {
-  modelValue: string | number
+  /** 数字字段空值约定（复核 #10）: type=number 清空后为 undefined, 页面提交前 Number() 收口 */
+  modelValue: string | number | undefined
   placeholder?: string
   type?: string
   disabled?: boolean
 }
 const props = defineProps<Props>()
-const emit = defineEmits<{ 'update:modelValue': [value: string | number] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string | number | undefined] }>()
 
 function onInput(e: Event): void {
   const v = (e.target as HTMLInputElement).value
   if (props.type === 'number') {
-    // 空字符串保持空，不强转 0；其它走 Number；NaN 时透传原值避免误转
+    // 清空 → emit undefined（原 emit '' 造成 string 空串混入数字字段的隐性类型漂移）;
+    // 其它走 Number; NaN 时透传原值避免误转
     if (v === '') {
-      emit('update:modelValue', '')
+      emit('update:modelValue', undefined)
       return
     }
     const n = Number(v)
@@ -26,7 +28,7 @@ function onInput(e: Event): void {
 
 <template>
   <input
-    :value="props.modelValue"
+    :value="props.modelValue ?? ''"
     :type="props.type ?? 'text'"
     :placeholder="props.placeholder"
     :disabled="props.disabled"

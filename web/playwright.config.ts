@@ -15,7 +15,8 @@ import { defineConfig, devices } from '@playwright/test'
  * 注: 前端 mock 适配器已移除(见 main.ts), e2e 需要本地后端在跑, 否则打数据的用例会失败。
  */
 
-const PORT = 3600
+// 3622: 避开主工作区/本机可能占用的 3600, 保证 e2e 起的是本 worktree 的代码
+const PORT = 3622
 const baseURL = `http://127.0.0.1:${PORT}`
 
 export default defineConfig({
@@ -104,9 +105,12 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run dev',
+    // 显式传 --port: vite.config 的 server.port 是 3600, 不传会起在 3600/漂移到 3601,
+    // 与上面 PORT 脱节导致 webServer 永远等不到就绪; --strictPort 让被占时快速失败而非漂移
+    command: `npm run dev -- --port ${PORT} --strictPort`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    // 恒为 false: 即使本机已有同端口/旧实例也不复用, 确保测的是当前 worktree 代码
+    reuseExistingServer: false,
     timeout: 120_000
   }
 })

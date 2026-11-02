@@ -40,10 +40,27 @@ describe('ManageInput', () => {
     expect(w.emitted('update:modelValue')?.[0]).toEqual([42])
   })
 
-  it('type=number 空串 emit 空串 (不强转 0)', async () => {
+  it('type=number 清空 → emit undefined (数字字段空值约定, 复核 #10)', async () => {
     const w = mount(ManageInput, { props: { modelValue: 1, type: 'number' } })
     await w.find('input').setValue('')
+    expect(w.emitted('update:modelValue')?.[0]).toEqual([undefined])
+  })
+
+  it('type=number 输入 3 → emit [3]', async () => {
+    const w = mount(ManageInput, { props: { modelValue: undefined, type: 'number' } })
+    await w.find('input').setValue('3')
+    expect(w.emitted('update:modelValue')?.[0]).toEqual([3])
+  })
+
+  it('type=text 清空 → 仍 emit 空串 (行为不变)', async () => {
+    const w = mount(ManageInput, { props: { modelValue: 'abc' } })
+    await w.find('input').setValue('')
     expect(w.emitted('update:modelValue')?.[0]).toEqual([''])
+  })
+
+  it('modelValue=undefined → 输入框显示空串 (不显示 "undefined")', () => {
+    const w = mount(ManageInput, { props: { modelValue: undefined } })
+    expect((w.find('input').element as HTMLInputElement).value).toBe('')
   })
 
   it('class 含 w-full 和 min-h-[44px] (P4 mobile)', () => {

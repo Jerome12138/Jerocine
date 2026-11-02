@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 显式导入: 不依赖 unplugin 自动注册(复核 #16, 与 BaseDialog 同步补齐)
+import BaseIcon from '@/components/base/BaseIcon.vue'
+
 interface Props {
   title?: string
   description?: string

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import { acquireOverlay, releaseOverlay, isTopOverlay } from '@/composables/useOverlayStack'
 
 /**
  * 图片点击放大(lightbox) —— 全屏遮罩 + 原图等比 contain + 点击空白/ESC 关闭。
@@ -25,35 +26,36 @@ const emit = defineEmits<{
 
 const visible = computed(() => !!props.src)
 
+/** 本实例在弹层栈中的层序; null = 未打开 */
+let overlaySeq: number | null = null
+
+function releaseOverlaySlot(): void {
+  if (overlaySeq !== null) {
+    releaseOverlay(overlaySeq)
+    overlaySeq = null
+  }
+}
+
 function close(): void {
   emit('update:src', '')
 }
 
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') {
-    e.stopPropagation()
+  // ESC 只归属最顶层弹层(复核 #7); 归属判断由栈承担, 不再 stopPropagation
+  if (e.key === 'Escape' && overlaySeq !== null && isTopOverlay(overlaySeq)) {
     close()
   }
-}
-
-function setModalFlag(open: boolean): void {
-  if (typeof document === 'undefined') return
-  if (open) document.body.setAttribute('data-jc-modal-open', '1')
-  else document.body.removeAttribute('data-jc-modal-open')
 }
 
 watch(
   visible,
   (v) => {
-    if (typeof document === 'undefined') return
     if (v) {
       window.addEventListener('keydown', onKeydown)
-      document.body.style.overflow = 'hidden'
-      setModalFlag(true)
+      overlaySeq = acquireOverlay()
     } else {
       window.removeEventListener('keydown', onKeydown)
-      document.body.style.overflow = ''
-      setModalFlag(false)
+      releaseOverlaySlot()
     }
   },
   { immediate: true }
@@ -61,10 +63,7 @@ watch(
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  if (typeof document !== 'undefined') {
-    document.body.style.overflow = ''
-    setModalFlag(false)
-  }
+  releaseOverlaySlot()
 })
 </script>
 

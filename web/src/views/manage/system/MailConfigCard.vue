@@ -24,13 +24,13 @@ const form = reactive({
   registerMode: 'off' as MailConfigResp['registerMode'],
   smtpEnabled: 0,
   smtpHost: '',
-  // ManageInput 数字框清空时会发 ''（见 normalizePort 的回落处理）
-  smtpPort: 465 as number | '',
+  // ManageInput 数字框清空后会发 undefined（见 normalizePort 的回落处理）
+  smtpPort: 465 as number | undefined,
   smtpSecure: 'ssl' as SmtpPreset['secure'],
   smtpUser: '',
   smtpFromName: '',
   /** 全局出站日配额（含测试邮件）；后端 1~1000，默认 50 */
-  mailDailyQuota: 50 as number | ''
+  mailDailyQuota: 50 as number | undefined
 })
 /** 授权码输入框只写不读: 留空 = 不修改已存值(与 TMDB Key 同范式) */
 const passDraft = ref('')
@@ -77,9 +77,9 @@ function applyPreset(id: string): void {
   form.smtpSecure = p.secure
 }
 
-/** 端口归一: 数字框清空时 ManageInput 给 ''，回落默认 465；其余转数字 */
+/** 端口归一: 数字框清空时 ManageInput 给 undefined，回落默认 465；其余转数字 */
 function normalizePort(): number {
-  if (form.smtpPort === '') return 465
+  if (form.smtpPort === undefined) return 465
   const n = Number(form.smtpPort)
   return Number.isNaN(n) ? 0 : n
 }
@@ -95,7 +95,7 @@ function buildPayload(): MailConfigUpdate {
     smtpUser: form.smtpUser.trim(),
     ...(pass ? { smtpPass: pass } : {}),
     smtpFromName: form.smtpFromName.trim(),
-    // 数字框清空时 ManageInput 会给 ''，统一收敛成 0（后端语义：0 = 不修改，保留现值）
+    // 数字框清空时 ManageInput 会给 undefined，统一收敛成 0（后端语义：0 = 不修改，保留现值）
     mailDailyQuota: Number(form.mailDailyQuota) || 0
   }
 }

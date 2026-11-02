@@ -133,6 +133,11 @@ const ConfirmDialog = defineAsyncComponent(
   () => import('@/components/base/BaseConfirmDialog.vue')
 )
 
+// 管理弹窗宿主（openManageDialog 函数化弹窗的渲染端, manage 区约定使用方）
+const ManageDialogHost = defineAsyncComponent(
+  () => import('@/components/manage/ManageDialogHost.vue')
+)
+
 // 路由切换中央 iOS spinner (覆盖所有 layout)
 const RouteSpinner = defineAsyncComponent(
   () => import('@/components/layout/RouteSpinner.vue')
@@ -475,6 +480,7 @@ onMounted(() => {
   </component>
   <ToastContainer />
   <ConfirmDialog />
+  <ManageDialogHost />
   <ApiProgressBar />
   <RouteSpinner />
 </template>

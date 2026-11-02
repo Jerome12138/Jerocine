@@ -35,4 +35,26 @@ describe('BaseDialog', () => {
     expect(document.body.textContent).toContain('自定义标题')
     w.unmount()
   })
+
+  it('双弹层: ESC 只关最顶层; 顶层关闭释放后 ESC 再关底层', async () => {
+    const wA = mount(BaseDialog, { props: { visible: true, title: 'A' }, attachTo: document.body })
+    await wA.vm.$nextTick()
+    const wB = mount(BaseDialog, { props: { visible: true, title: 'B' }, attachTo: document.body })
+    await wB.vm.$nextTick()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await wB.vm.$nextTick()
+    expect(wB.emitted('update:visible')?.length).toBe(1)
+    expect(wA.emitted('update:visible')).toBeUndefined()
+
+    // 父组件响应 emit → B 真正关闭并释放层序
+    await wB.setProps({ visible: false })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await wA.vm.$nextTick()
+    expect(wA.emitted('update:visible')?.length).toBe(1)
+
+    await wA.setProps({ visible: false })
+    wA.unmount()
+    wB.unmount()
+  })
 })

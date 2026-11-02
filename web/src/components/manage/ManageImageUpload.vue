@@ -7,6 +7,7 @@ import { ref } from 'vue'
 import { manageApi } from '@/api'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BaseImage from '@/components/base/BaseImage.vue'
 import ManageInput from './ManageInput.vue'
 
 const props = withDefaults(defineProps<{
@@ -19,7 +20,11 @@ const props = withDefaults(defineProps<{
   placeholder: '也可直接粘贴图片 URL'
 })
 
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: string): void
+  /** 拖入/选中的文件不是图片时发出（页面自行 toast, 组件不直接提示） */
+  (e: 'reject', file: File): void
+}>()
 
 const uploading = ref(false)
 const progress = ref(0)
@@ -31,7 +36,8 @@ function pick(): void {
   fileInput.value?.click()
 }
 
-async function upload(file: File): Promise<void> {
+async function uploadFile(file: File | undefined): Promise<void> {
+  if (!file) return
   error.value = ''
   uploading.value = true
   progress.value = 0
@@ -51,14 +57,19 @@ async function upload(file: File): Promise<void> {
 function onSelect(e: Event): void {
   const target = e.target as HTMLInputElement
   const file = target.files?.[0]
-  if (file) void upload(file)
+  void uploadFile(file)
   target.value = '' // 允许重复选同一文件
 }
 
 function onDrop(e: DragEvent): void {
   dragOver.value = false
   const file = e.dataTransfer?.files?.[0]
-  if (file) void upload(file)
+  // 非图片不进入上传（复核 #5）: 页面监听 reject 自行提示
+  if (file && !file.type.startsWith('image/')) {
+    emit('reject', file)
+    return
+  }
+  void uploadFile(file)
 }
 
 function clear(): void {
@@ -78,11 +89,13 @@ function clear(): void {
         @drop.prevent="onDrop"
         :class="dragOver ? 'border-strong' : ''"
       >
-        <img
+        <!-- BaseImage 预览: 获得裂图兜底(复核 #11); ratio='' 走父控高分让给外层 aspectRatio -->
+        <BaseImage
           v-if="props.modelValue"
           :src="props.modelValue"
           alt="预览"
-          class="w-full h-full object-cover"
+          ratio=""
+          fit="cover"
         />
         <span v-else class="text-muted text-xs">无图</span>
         <div

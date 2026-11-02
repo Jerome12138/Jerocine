@@ -34,10 +34,13 @@ function isChecked(node: FilmClass): boolean {
   return props.selected.has(node.id)
 }
 
-/** 仅子孙中有选中且自身未选中 → indeterminate */
+/** 子孙(递归全部层)中有选中且自身未选中 → indeterminate (复核 #14: 仅查直接子级会漏第 3/4 层叶子) */
 function isPartialChecked(node: FilmClass): boolean {
   if (!node.children?.length) return false
-  return node.children.some((c) => props.selected.has(c.id)) && !isChecked(node)
+  return (
+    descendantIds(node).some((id) => id !== node.id && props.selected.has(id)) &&
+    !isChecked(node)
+  )
 }
 
 /**

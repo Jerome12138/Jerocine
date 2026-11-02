@@ -38,4 +38,23 @@ describe('BasePagination', () => {
     // Pagination 用单字符 … (HORIZONTAL ELLIPSIS) 不是三个英文点
     expect(w.text()).toMatch(/…|\.\.\./)
   })
+
+  // ---- T2 越界钳制: total 收缩(末页删空)后越界 current 回传, 不发 change ----
+  it('current=9 越界(totalPages=1) → emit update:current=[[1]] 且不 emit change', () => {
+    const w = mount(BasePagination, { props: { current: 9, pageSize: 5, total: 5 } })
+    expect(w.emitted('update:current')).toEqual([[1]])
+    expect(w.emitted('change')).toBeUndefined()
+  })
+
+  it('current=12 越界(totalPages=4) → emit update:current=[[4]]', () => {
+    const w = mount(BasePagination, { props: { current: 12, pageSize: 10, total: 40 } })
+    expect(w.emitted('update:current')).toEqual([[4]])
+    expect(w.emitted('change')).toBeUndefined()
+  })
+
+  it('current=2 在正常范围内 → 不 emit 任何钳制事件', () => {
+    const w = mount(BasePagination, { props: { current: 2, pageSize: 10, total: 40 } })
+    expect(w.emitted('update:current')).toBeUndefined()
+    expect(w.emitted('change')).toBeUndefined()
+  })
 })

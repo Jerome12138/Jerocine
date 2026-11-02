@@ -10,7 +10,7 @@ import { reactive } from 'vue'
  * 状态由模块顶层单例维护，App.vue 中挂载唯一 ConfirmDialog 监听 state.visible 渲染。
  */
 
-interface ConfirmOptions {
+export interface ConfirmOptions {
   title: string
   desc?: string
   okText?: string

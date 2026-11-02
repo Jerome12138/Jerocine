@@ -22,7 +22,6 @@ function toggle(): void {
     data-focusable="true"
     @click="toggle"
   >
-    <span class="jc-switch__hit" aria-hidden="true" />
     <span
       class="jc-switch__knob inline-block rounded-full bg-white transition-transform"
       :class="props.modelValue ? 'jc-switch__knob--on' : 'jc-switch__knob--off'"
@@ -37,14 +36,14 @@ function toggle(): void {
   height: 28px;
   /* 作为 flex 子项时不被压缩 (否则窄屏下 track 塌缩, 只剩圆形 knob) */
   flex-shrink: 0;
-  /* 触控目标至少 44x44，通过 ::before 拓展但不影响布局 */
   position: relative;
+  /* 触控命中区: ::after 向四周扩 8px, 实际可点区 60x44(兑现 44px 最小触控标准, 复核 #9)。
+     旧 .jc-switch__hit 是 pointer-events:none 的伪触控区, 不生效, 已删 */
 }
-.jc-switch__hit {
+.jc-switch::after {
+  content: '';
   position: absolute;
   inset: -8px;
-  /* 透明扩展点击区到 60x44，符合 44px 触控目标 */
-  pointer-events: none;
 }
 .jc-switch__knob {
   width: 22px;

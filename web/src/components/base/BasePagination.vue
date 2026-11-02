@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 
 interface Props {
   current: number
@@ -20,6 +20,19 @@ const emit = defineEmits<{
 
 const totalPages = computed(() =>
   Math.max(1, Math.ceil(props.total / Math.max(1, props.pageSize)))
+)
+
+// 越界钳制(复核 #2): total 收缩(如末页删空)后 current 超出总页数时,
+// 只回传 update:current 让持有方归位, 不 emit change —— 避免"钳制 + 重载"双触发。
+// immediate: 挂载即越界(如恢复数据后 total 变小)也要纠正一次。
+watch(
+  totalPages,
+  (tp) => {
+    if (props.current > tp) {
+      emit('update:current', tp)
+    }
+  },
+  { immediate: true }
 )
 
 const pages = computed<Array<number | '...'>>(() => {

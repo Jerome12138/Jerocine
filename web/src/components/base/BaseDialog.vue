@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import BaseIcon from '@/components/base/BaseIcon.vue'
+import { acquireOverlay, releaseOverlay, isTopOverlay } from '@/composables/useOverlayStack'
 
 interface Props {
   visible: boolean
@@ -35,6 +37,16 @@ const emit = defineEmits<{
 
 const dialogEl = ref<HTMLElement | null>(null)
 
+/** 本实例在弹层栈中的层序; null = 未打开 */
+let overlaySeq: number | null = null
+
+function releaseOverlaySlot(): void {
+  if (overlaySeq !== null) {
+    releaseOverlay(overlaySeq)
+    overlaySeq = null
+  }
+}
+
 function handleClose(): void {
   emit('update:visible', false)
   emit('close')
@@ -48,17 +60,10 @@ function onOverlay(): void {
 
 function onKeydown(e: KeyboardEvent): void {
   if (!props.visible) return
-  if (e.key === 'Escape' && props.closeOnEsc) {
-    e.stopPropagation()
+  // ESC 只归属最顶层弹层(叠层时底层不响应, 复核 #7); 归属判断由栈承担, 不再 stopPropagation
+  if (e.key === 'Escape' && props.closeOnEsc && overlaySeq !== null && isTopOverlay(overlaySeq)) {
     handleClose()
   }
-}
-
-// 给 body 加 data-jc-modal-open, 让空间导航 Esc 让位给本对话框 (TV 弹窗里按 Esc 不应整页回退)
-function setModalFlag(open: boolean): void {
-  if (typeof document === 'undefined') return
-  if (open) document.body.setAttribute('data-jc-modal-open', '1')
-  else document.body.removeAttribute('data-jc-modal-open')
 }
 
 watch(
@@ -66,15 +71,15 @@ watch(
   async (v) => {
     if (v) {
       window.addEventListener('keydown', onKeydown)
-      document.body.style.overflow = 'hidden'
-      setModalFlag(true)
+      // 打开 = 申请一层: 首层给 body 加 data-jc-modal-open(空间导航 Esc 让位, TV 弹窗里按
+      // Esc 不应整页回退)+ overflow 滚动锁; 多层叠开时计数持有, 谁先关谁释放
+      overlaySeq = acquireOverlay()
       await nextTick()
       // 自动聚焦到对话框，便于键盘 / 遥控器
       dialogEl.value?.focus()
     } else {
       window.removeEventListener('keydown', onKeydown)
-      document.body.style.overflow = ''
-      setModalFlag(false)
+      releaseOverlaySlot()
     }
   },
   { immediate: true }
@@ -82,8 +87,7 @@ watch(
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  document.body.style.overflow = ''
-  setModalFlag(false)
+  releaseOverlaySlot()
 })
 
 const wrapStyle = computed(() => ({
