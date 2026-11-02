@@ -10,6 +10,7 @@ import { episodeLabel, progressPercent } from '@/composables/useTimeBucket'
 import { isExternalLink } from '@/utils/url'
 import { formatHotBadge } from '@/utils/format'
 import { useTvSettingsEntry } from '@/composables/useTvSettingsEntry'
+import { getLiveSources } from '@/api/live'
 import HeroCarousel from '@/components/film/HeroCarousel.vue'
 import FilmRow from '@/components/film/FilmRow.vue'
 import ContinueWatchingRow from '@/components/film/ContinueWatchingRow.vue'
@@ -39,6 +40,9 @@ interface IndexState {
 
 const { isTV } = useViewMode()
 const { limitToRows } = useGridRowsLimit()
+
+/** 000038: TV 金刚区直播卡仅按有无源决定显示(不受顶栏 liveNavEnabled 开关控制)。 */
+const hasLiveSources = ref(false)
 
 const state = ref<IndexState>({
   loading: true,
@@ -375,6 +379,12 @@ onMounted(() => {
   remeasureHeaderGate()
   window.addEventListener('resize', onWinResize)
   if (isTV.value) restartTvHeroTimer()
+  // TV 金刚区直播卡: 只看有无源(用户原话"不受开关控制"), 复用在顶部 PublicHeader 同一缓存 key
+  // 'live:sources', 此处只是让 key 在 HomeView 渲染阶段预热(若该 key 还没被其他页面触发过)。
+  // hasLiveSources 是 ref, 有值即可; 不 await, 加载态下卡片默认隐藏(0 源时)更合理。
+  void getLiveSources().then((resp) => {
+    hasLiveSources.value = (resp?.sources?.length ?? 0) > 0
+  }).catch(() => { hasLiveSources.value = false })
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onWinResize)
@@ -518,7 +528,14 @@ onBeforeUnmount(() => {
           <RouterLink class="jc-tv-fc fc-3" :to="tvFirstPid ? { path: '/filmClassify', query: { Pid: tvFirstPid } } : '/filmClassify'" data-focusable="true" tabindex="0">
             <span class="ic"><BaseIcon name="film" size="32px" /></span><span class="ti">分类</span><span class="su">剧/影/综/漫</span>
           </RouterLink>
-          <RouterLink class="jc-tv-fc fc-4" to="/live" data-focusable="true" tabindex="0">
+          <!-- 直播卡: 无源时隐藏(用户原话 "tv金刚区不受开关控制", 只看有无源) -->
+          <RouterLink
+            v-if="hasLiveSources"
+            class="jc-tv-fc fc-4"
+            to="/live"
+            data-focusable="true"
+            tabindex="0"
+          >
             <span class="ic"><BaseIcon name="tv" size="32px" /></span><span class="ti">直播</span><span class="su">电视频道在线看</span>
           </RouterLink>
           <RouterLink class="jc-tv-fc fc-4" to="/search" data-focusable="true" tabindex="0">

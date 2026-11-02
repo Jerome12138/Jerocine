@@ -110,6 +110,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/live-sources", h.CreateLiveSource)
 		mg.PUT("/live-sources/:id", h.UpdateLiveSource)
 		mg.DELETE("/live-sources/:id", h.DeleteLiveSource)
+		// 直播顶栏入口开关(web/TV 顶栏是否显示"直播"; 侧边栏固定显示不消费此列)。
+		mg.GET("/live-nav", h.GetLiveNav)
+		mg.PUT("/live-nav", h.SaveLiveNav)
 		// 直播频道管理: 覆盖层(隐藏/改名/自定义频道增删改)。
 		// 探源改为端侧执行(服务器无 IPv6 出口, 服务端探测误伤 IPv6-only 源)。
 		mg.GET("/live-channels", h.ListLiveChannelsManage)

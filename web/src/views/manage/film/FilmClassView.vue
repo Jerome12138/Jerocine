@@ -23,6 +23,7 @@ const form = reactive<FilmClass>({
   name: '',
   ename: '',
   show: true,
+  sidebarShow: true,
   filmVisible: true,
   sort: 0
 })
@@ -49,34 +50,44 @@ function openEdit(node: FilmClass): void {
 function openAddTop(): void {
   editing.value = null
   addingUnder.value = ''
-  Object.assign(form, { id: 0, pid: 0, name: '', ename: '', show: true, filmVisible: true, sort: 0 })
+  Object.assign(form, { id: 0, pid: 0, name: '', ename: '', show: true, sidebarShow: true, filmVisible: true, sort: 0 })
   dialogOpen.value = true
 }
 
 function openAddChild(parent: FilmClass): void {
   editing.value = null
   addingUnder.value = parent.name
-  Object.assign(form, { id: 0, pid: parent.id, name: '', ename: '', show: true, filmVisible: true, sort: 0 })
+  Object.assign(form, { id: 0, pid: parent.id, name: '', ename: '', show: true, sidebarShow: true, filmVisible: true, sort: 0 })
   dialogOpen.value = true
 }
 
 async function toggleShow(node: FilmClass): Promise<void> {
   const next = !node.show
-  const tasks = [manageApi.film.classUpdate({ ...node, show: next })]
-  // 关闭父级 → 级联关闭其全部已展示的子级 (子级独立, 不会自动恢复)
-  if (!next && node.children?.length) {
-    for (const child of node.children) {
-      if (child.show) tasks.push(manageApi.film.classUpdate({ ...child, show: false }))
-    }
-  }
-  await Promise.all(tasks)
+  await manageApi.film.classUpdate({ ...node, show: next })
+  await load()
+}
+
+async function toggleSidebarShow(node: FilmClass): Promise<void> {
+  const next = !node.sidebarShow
+  await manageApi.film.classUpdate({ ...node, sidebarShow: next })
   await load()
 }
 
 /** 影片可见开关: 关闭 = 该分类影片从公开列表/搜索全部剔除。
- *  顶级不需要级联子级 —— 影片过滤按 pid 匹配, 关顶级即覆盖其下全部子分类影片。 */
+ *  服务端强制联动(000037 迁移: film_visible=false 时节点+子孙 show/sidebarShow 一并置 false);
+ *  前端同步级联更新视觉, 避免刷新后还看到"亮着"的开关。 */
 async function toggleFilmVisible(node: FilmClass): Promise<void> {
-  await manageApi.film.classUpdate({ ...node, filmVisible: !node.filmVisible })
+  const next = !node.filmVisible
+  const tasks: Promise<unknown>[] = [manageApi.film.classUpdate({ ...node, filmVisible: next })]
+  // 关 → 本节点与子孙两开关置 false; 开 → 不动子孙(show/sidebarShow 可各自独立打开).
+  if (!next && node.children?.length) {
+    for (const child of node.children) {
+      if (child.show || child.sidebarShow) {
+        tasks.push(manageApi.film.classUpdate({ ...child, show: false, sidebarShow: false }))
+      }
+    }
+  }
+  await Promise.all(tasks)
   await load()
 }
 
@@ -162,12 +173,27 @@ onMounted(load)
             </span>
             <ManageSwitch :model-value="parent.filmVisible" @update:model-value="toggleFilmVisible(parent)" />
           </label>
-          <!-- 菜单显隐开关: 只控制导航菜单, 影片仍可搜索/在列表看到 -->
-          <label class="jc-cat__toggle" @click.stop title="只控制导航菜单是否显示；影片仍可搜索、在列表看到">
-            <span class="jc-cat__state" :class="{ 'jc-cat__state--on': parent.show }">
-              {{ parent.show ? '菜单显示' : '菜单隐藏' }}
+          <!-- 侧边栏显示开关: 控制桌面常驻侧栏 + 移动抽屉中该子分类的显隐; 二级无顶栏显示(仅一级有意义) -->
+          <label class="jc-cat__toggle" :title="`侧边栏显示${parent.sidebarShow ? '' : '（已关）'}`">
+            <span class="jc-cat__state" :class="{ 'jc-cat__state--on': parent.sidebarShow }">
+              {{ parent.sidebarShow ? '侧栏显示' : '侧栏隐藏' }}
             </span>
-            <ManageSwitch :model-value="parent.show" @update:model-value="toggleShow(parent)" />
+            <ManageSwitch
+              :model-value="parent.sidebarShow"
+              :disabled="!parent.filmVisible"
+              @update:model-value="toggleSidebarShow(parent)"
+            />
+          </label>
+          <!-- 顶栏导航显示开关: 仅一级有效, 控制 web/TV 顶部一级导航 -->
+          <label class="jc-cat__toggle" title="只控制顶部导航栏是否显示该一级分类; 隐藏后影片仍可搜索、在列表看到">
+            <span class="jc-cat__state" :class="{ 'jc-cat__state--on': parent.show }">
+              {{ parent.show ? '顶栏显示' : '顶栏隐藏' }}
+            </span>
+            <ManageSwitch
+              :model-value="parent.show"
+              :disabled="!parent.filmVisible"
+              @update:model-value="toggleShow(parent)"
+            />
           </label>
         </div>
 
@@ -187,19 +213,23 @@ onMounted(load)
             <span class="jc-cat__dot" :class="{ 'jc-cat__dot--on': child.show }" aria-hidden="true" />
             <span class="jc-cat__cname" :class="{ 'jc-cat--off': !child.show }">{{ child.name }}</span>
             <span class="jc-cat__cid">#{{ child.id }} · {{ filmCountLabel(child) }}</span>
-            <div class="jc-cat__cctrl" @click.stop>
-              <label class="jc-cat__toggle" title="关闭后该分类影片从公开列表与搜索中剔除；默认可见">
-                <span class="jc-cat__state jc-cat__state--sm jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !child.filmVisible }">
-                  可见
-                </span>
-                <ManageSwitch :model-value="child.filmVisible" @update:model-value="toggleFilmVisible(child)" />
-              </label>
-              <label class="jc-cat__toggle">
-                <span class="jc-cat__state jc-cat__state--sm" :class="{ 'jc-cat__state--on': child.show }">
-                  {{ child.show ? '展示' : '隐藏' }}
-                </span>
-                <ManageSwitch :model-value="child.show" @update:model-value="toggleShow(child)" />
-              </label>
+          <div class="jc-cat__cctrl" @click.stop>
+            <label class="jc-cat__toggle" title="关闭后该分类影片从公开列表与搜索中剔除；默认可见">
+              <span class="jc-cat__state jc-cat__state--sm jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !child.filmVisible }">
+                可见
+              </span>
+              <ManageSwitch :model-value="child.filmVisible" @update:model-value="toggleFilmVisible(child)" />
+            </label>
+            <label class="jc-cat__toggle" :title="`侧边栏显示${child.sidebarShow ? '' : '（已关）'}`">
+              <span class="jc-cat__state jc-cat__state--sm" :class="{ 'jc-cat__state--on': child.sidebarShow }">
+                {{ child.sidebarShow ? '侧栏显示' : '侧栏隐藏' }}
+              </span>
+              <ManageSwitch
+                :model-value="child.sidebarShow"
+                :disabled="!child.filmVisible"
+                @update:model-value="toggleSidebarShow(child)"
+              />
+            </label>
               <button
                 type="button"
                 class="jc-cat__del"
@@ -241,12 +271,19 @@ onMounted(load)
       <ManageFormField label="排序" hint="数字越小越靠前">
         <ManageInput v-model="form.sort!" type="number" />
       </ManageFormField>
-      <ManageFormField label="菜单显示" hint="只控制导航菜单是否显示该分类；隐藏后影片仍可搜索、在列表看到">
+      <ManageFormField
+        v-if="form.pid === 0"
+        label="顶栏显示"
+        hint="控制 web/TV 顶部一级导航是否显示该分类; 隐藏后影片仍可搜索、在列表看到"
+      >
         <ManageSwitch v-model="form.show" />
+      </ManageFormField>
+      <ManageFormField label="侧边栏显示" hint="控制桌面常驻侧栏 + 移动抽屉中该分类的显隐（一级+二级各自独立）">
+        <ManageSwitch v-model="form.sidebarShow" />
       </ManageFormField>
       <ManageFormField
         label="影片可见"
-        hint="关闭 = 该分类(含子分类)影片从公开列表与搜索全部剔除；详情直链仍可达"
+        hint="关闭 = 该分类(含子分类)影片从公开列表与搜索全部剔除；详情直链仍可达; 关闭后侧边栏/顶栏开关会被强制禁用"
       >
         <ManageSwitch v-model="form.filmVisible" />
       </ManageFormField>

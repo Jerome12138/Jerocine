@@ -199,6 +199,32 @@ func (h *Handlers) DeleteLiveChannel(c *gin.Context) {
 	respond(c, nil, nil)
 }
 
+// GetLiveNav GET /manage/live-nav — 直播顶栏入口开关。
+func (h *Handlers) GetLiveNav(c *gin.Context) {
+	on, err := h.Manage.GetLiveNav(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"liveNavEnabled": on})
+}
+
+// SaveLiveNav PUT /manage/live-nav {liveNavEnabled} — 保存后失效配置缓存, 公开 /config/site 即时生效。
+func (h *Handlers) SaveLiveNav(c *gin.Context) {
+	var req struct {
+		LiveNavEnabled bool `json:"liveNavEnabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	if err := h.Manage.SaveLiveNav(c.Request.Context(), req.LiveNavEnabled); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"liveNavEnabled": req.LiveNavEnabled})
+}
+
 // GetDanmuConfig GET /manage/danmu-config — 弹幕总开关 + 开放平台白名单 + 平台全集。
 func (h *Handlers) GetDanmuConfig(c *gin.Context) {
 	v, err := h.Manage.GetDanmuConfig(c.Request.Context())

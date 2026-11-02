@@ -12,6 +12,11 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
  * 察觉不到这种「用法回退」), 本用例会红。
  */
 
+vi.mock('@/api/live', () => ({
+  // 有源 → 金刚区直播卡可见(否则 0 源全隐藏会少一张卡, 破坏"5 张"计数断言)
+  getLiveSources: () => Promise.resolve({ sources: [{ id: 1, name: 'mock', url: 'http://x', state: 0, sort: 0 }] })
+}))
+
 const mocks = vi.hoisted(() => ({
   openSettings: vi.fn(),
   native: { value: true }

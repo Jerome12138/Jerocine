@@ -18,6 +18,25 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
 
 const loading = ref(true)
+/** 直播顶栏入口开关 (000038): 挂载时一次读, 保存后页面不会自动刷新因此需用户返回重进;
+ * 若希望刷新后同步, 可监听路由变化在此重新 load, 现阶段够用。 */
+const liveNavOn = ref(true)
+async function loadLiveNav(): Promise<void> {
+  try {
+    const v = await manageApi.live.getLiveNav()
+    liveNavOn.value = v.liveNavEnabled !== false
+  } catch {
+    liveNavOn.value = true // 后端缺字段或异常兜底为开, 与迁移前行为一致
+  }
+}
+async function toggleLiveNav(on: boolean): Promise<void> {
+  try {
+    await manageApi.live.updateLiveNav(on)
+    liveNavOn.value = on
+  } catch {
+    /* 拦截器已 toast */
+  }
+}
 const sources = ref<LiveSourceManage[]>([])
 /** 频道数预览（id → 数量；加载中/失败为 null） */
 const channelCounts = ref<Record<number, number | null>>({})
@@ -277,7 +296,9 @@ async function removeChannel(c: LiveChannelManage): Promise<void> {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await Promise.all([load(), loadLiveNav()])
+})
 </script>
 
 <template>
@@ -287,10 +308,22 @@ onMounted(load)
         <h1 class="jc-livemgr__title">直播源</h1>
         <p class="jc-livemgr__desc">维护直播页的 m3u 播放列表源；保存/停用后公开频道列表立即刷新。</p>
       </div>
-      <BaseButton variant="gradient" @click="openCreate">
-        <BaseIcon name="plus" size="16px" />
-        新增直播源
-      </BaseButton>
+      <div class="flex items-center gap-[var(--jc-space-3)]">
+        <label class="jc-livemgr__toggle-label" :title="`直播顶栏入口${liveNavOn ? '（已开）' : '（已关）'}: 仅控制 web/TV 顶部导航是否显示「直播」; 侧边栏固定显示, 不受此开关控制`">
+          <span class="jc-livemgr__toggle-state" :class="{ 'jc-livemgr__toggle-state--on': liveNavOn }">
+            {{ liveNavOn ? '顶栏显示' : '顶栏隐藏' }}
+          </span>
+          <ManageSwitch
+            :model-value="liveNavOn"
+            :disabled="loading"
+            @update:model-value="toggleLiveNav"
+          />
+        </label>
+        <BaseButton variant="gradient" @click="openCreate">
+          <BaseIcon name="plus" size="16px" />
+          新增直播源
+        </BaseButton>
+      </div>
     </header>
 
     <BaseSkeleton v-if="loading" variant="rect" class="jc-livemgr__skeleton" />
@@ -618,5 +651,24 @@ onMounted(load)
   text-align: center;
   color: var(--jc-text-secondary);
   font-size: var(--jc-fs-sm);
+}
+
+/* 直播顶栏开关(000038) */
+.jc-livemgr__toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jc-space-2);
+  cursor: pointer;
+  font-size: var(--jc-fs-sm);
+}
+.jc-livemgr__toggle-state {
+  color: var(--jc-text-muted);
+  min-width: 3.6em;
+  text-align: right;
+  user-select: none;
+}
+.jc-livemgr__toggle-state--on {
+  color: var(--jc-brand-purple);
+  font-weight: var(--jc-fw-medium);
 }
 </style>

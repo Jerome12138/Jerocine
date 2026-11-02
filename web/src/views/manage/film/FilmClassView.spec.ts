@@ -24,7 +24,7 @@ vi.mock('@/api', () => ({
 vi.mock('@/api/http', () => ({ toast: h.toast }))
 vi.mock('@/composables/useConfirm', () => ({ confirm: vi.fn().mockResolvedValue(true) }))
 
-/** 顶级 + 单子级的固定树（计数齐全） */
+/** 顶级 + 单子级的固定树（计数齐全; sidebarShow=1 是后端 000037 列默认值） */
 function tree(): FilmClass[] {
   return [
     {
@@ -32,10 +32,11 @@ function tree(): FilmClass[] {
       pid: 0,
       name: '电影',
       show: true,
+      sidebarShow: true,
       filmVisible: true,
       filmCount: 3,
       children: [
-        { id: 2, pid: 1, name: '科幻', show: true, filmVisible: true, filmCount: 0 }
+        { id: 2, pid: 1, name: '科幻', show: true, sidebarShow: true, filmVisible: true, filmCount: 0 }
       ]
     }
   ]
@@ -56,8 +57,19 @@ function switchByTitle(w: ReturnType<typeof mount>, titlePrefix: string) {
   return btn
 }
 
-const MENU_TITLE = '只控制导航菜单'
-const FILM_TITLE = '关闭后该分类影片'
+/**
+ * 顶级行的两开关:
+ *   - 顶栏: title="控制 web/TV 顶部一级导航..."
+ *   - 侧栏: title="侧边栏显示（已关）" 或 "侧边栏显示（已开）"
+ *   - 影片: title="关闭后该分类影片从公开列表与搜索中剔除；默认可见"
+ * 用足够长的前缀让 find 唯一命中。
+ */
+const SHOW_TOP_TITLE = '只控制顶部导航'
+const SIDEBAR_TITLE = '侧边栏显示'
+// 影片可见标题长前缀: 避免匹配到子级 (子级也带同样前缀但 find 取第一个)
+const FILM_TITLE = '关闭后该分类影片从公开列表'
+
+/** 顶级 + 单子级的固定树（计数齐全; sidebarShow=1 是后端 000037 列默认值） */
 
 describe('FilmClassView 分类管理', () => {
   beforeEach(() => {
@@ -73,9 +85,10 @@ describe('FilmClassView 分类管理', () => {
     // 顶级 3 部、子级真 0 部（后端以指针区分 0 与计数失败）
     expect(w.text()).toContain('3 部')
     expect(w.text()).toContain('0 部')
-    // 双开关：影片可见 + 菜单显示 各有文案标签
+    // 三开关文案（顶栏/侧边栏/影片可见）
+    expect(w.text()).toContain('顶栏显示')
+    expect(w.text()).toContain('侧栏显示')
     expect(w.text()).toContain('影片可见')
-    expect(w.text()).toContain('菜单显示')
   })
 
   it('计数失败降级（filmCount 缺省）显示 —', async () => {
@@ -87,31 +100,45 @@ describe('FilmClassView 分类管理', () => {
     expect(w.text()).toContain('—')
   })
 
-  it('关顶级「菜单显示」→ 级联关闭已展示子级（classUpdate 调 2 次）', async () => {
+  it('关顶级「顶栏显示」→ 不影响子级(show 开关独立, 000037 拆出后 toggleShow 不复级联)', async () => {
     const w = await mountView()
-    await switchByTitle(w, MENU_TITLE).trigger('click')
+    await switchByTitle(w, SHOW_TOP_TITLE).trigger('click')
     await flushPromises()
 
-    expect(h.classUpdate).toHaveBeenCalledTimes(2)
+    expect(h.classUpdate).toHaveBeenCalledTimes(1)
     const first = h.classUpdate.mock.calls[0][0] as FilmClass
     expect(first.id).toBe(1)
     expect(first.show).toBe(false)
-    // 子级级联关闭（仅已展示的）
-    const second = h.classUpdate.mock.calls[1][0] as FilmClass
-    expect(second.id).toBe(2)
-    expect(second.show).toBe(false)
+    // 子级 show 不被联动（toggleShow 只做自身, 不再级联）
+    expect(h.classUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ id: 2 }))
   })
 
-  it('关顶级「影片可见」→ 不级联子级（pid 过滤天然覆盖, classUpdate 只调 1 次）', async () => {
+  it('关顶级「侧边栏显示」→ 不影响子级(各自独立)', async () => {
+    const w = await mountView()
+    await switchByTitle(w, SIDEBAR_TITLE).trigger('click')
+    await flushPromises()
+
+    expect(h.classUpdate).toHaveBeenCalledTimes(1)
+    const first = h.classUpdate.mock.calls[0][0] as FilmClass
+    expect(first.id).toBe(1)
+    expect(first.sidebarShow).toBe(false)
+  })
+
+  it('关顶级「影片可见」→ 级联关闭子孙的 show+sidebarShow(filmVisible 是最狠一档; classUpdate 调 2 次: 本+子孙各 1 次)', async () => {
     const w = await mountView()
     await switchByTitle(w, FILM_TITLE).trigger('click')
     await flushPromises()
 
-    expect(h.classUpdate).toHaveBeenCalledTimes(1)
-    const payload = h.classUpdate.mock.calls[0][0] as FilmClass
-    expect(payload.id).toBe(1)
-    expect(payload.filmVisible).toBe(false)
-    // 菜单开关不被误动
-    expect(payload.show).toBe(true)
+    expect(h.classUpdate).toHaveBeenCalledTimes(2)
+    const top = h.classUpdate.mock.calls[0][0] as FilmClass
+    expect(top.id).toBe(1)
+    expect(top.filmVisible).toBe(false)
+    // show/sidebarShow 由服务端 cascadeHideDescendants 级联落库, 前端只负责传 filmVisible=false
+    // (客户端 spec 无法模拟服务端响应, 不验字段)
+    // 子孙级联关闭两开关(每子级 1 次 classUpdate, 本 spec 有 1 个子级, 故共 2 次)
+    const child1 = h.classUpdate.mock.calls[1][0] as FilmClass
+    expect(child1.id).toBe(2)
+    expect(child1.show).toBe(false)
+    expect(child1.sidebarShow).toBe(false)
   })
 })

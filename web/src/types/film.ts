@@ -4,11 +4,14 @@
  *       dbScore:number、mid 主键、详情字段扁平(无 descriptor)。
  */
 
-/** 导航分类(带子分类) */
+/** 导航分类(带子分类)。show=顶栏导航显示(仅一级有意义), sidebarShow=侧边栏显示
+ *  (一级+二级各自可设; 顶栏悬停下拉子分类也跟随此开关)。旧后端不下发时默认 true。 */
 export interface NavCategory {
   id: number
   pid: number
   name: string
+  show?: boolean
+  sidebarShow?: boolean
   children?: NavCategory[]
 }
 

@@ -8,6 +8,8 @@ export interface SiteConfig {
   description: string
   state: number
   hint: string
+  /** 直播顶栏入口开关(000038): true=显示, false=隐藏; 无启用源时前端自动全隐, 该开关不生效 */
+  liveNavEnabled?: boolean
   updatedAt: number
 }
 

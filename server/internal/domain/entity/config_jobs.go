@@ -174,7 +174,11 @@ type SiteConfig struct {
 	// DanmuProviders 启用的弹幕平台白名单(JSON 数组, 可选 bilibili/tencent/iqiyi/youku):
 	// 空 = 未开放任何平台; 与壳 ID_PREFIX(启用平台) 保持一致 —— 平台要可用两边都要开。
 	DanmuProviders StringSlice `gorm:"column:danmu_providers;type:json" json:"-"`
-	UpdatedAt      int64       `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	// LiveNavEnabled 直播顶栏入口开关(000038): 有启用直播源的前提下, web/TV 顶栏导航
+	// 是否显示"直播"。非敏感展示开关, 随公开 GET /config/site 直接下发(侧边栏/抽屉
+	// 固定显示不消费此列; 无源时前端按 /live/sources 空列表隐藏一切入口)。
+	LiveNavEnabled int   `gorm:"column:live_nav_enabled" json:"liveNavEnabled"`
+	UpdatedAt      int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (SiteConfig) TableName() string { return "site_config" }

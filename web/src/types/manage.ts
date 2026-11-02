@@ -263,9 +263,12 @@ export interface FilmClass {
   pid: number
   name: string
   ename?: string
-  /** 菜单显隐: 只控制导航菜单是否显示该分类, 影片仍可搜索/在列表看到 */
+  /** 顶栏导航显示: 000037 起仅一级有意义(二级不再消费此列), 控制 web/TV 顶部导航 */
   show: boolean
-  /** 影片可见性: false = 该分类影片从公开列表/搜索全部剔除(与 show 独立) */
+  /** 侧边栏显示: 桌面常驻侧栏 + 移动抽屉, 一级与二级各自独立可设(000037 新增) */
+  sidebarShow: boolean
+  /** 影片可见性: false = 该分类影片从公开列表/搜索全部剔除(与 show/sidebarShow 独立);
+   * 服务端强制联动: 置 false 时节点+子孙两开关一并置 false */
   filmVisible: boolean
   /** 在架影片数(后端 ListCategories 附带; 计数失败缺省) */
   filmCount?: number

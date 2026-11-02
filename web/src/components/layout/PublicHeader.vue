@@ -18,6 +18,8 @@ import TvHeaderActions from '@/components/layout/TvHeaderActions.vue'
 import LogoMark from '@/components/brand/LogoMark.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import type { NavCategory } from '@/types/film'
+import { getLiveSources } from '@/api/live'
 
 /**
  * 公开端 Header
@@ -137,8 +139,36 @@ onBeforeUnmount(() => {
 /** 站名 */
 const siteName = computed(() => basic.value?.siteName || 'Jerocine影视')
 
-/** 顶部 6 项导航 */
-const topNav = computed(() => navList.value.slice(0, 6))
+/** 顶部 6 项导航(顶栏口径: 一级 show=true; 侧边栏/抽屉用 sideNav, 口径 sidebarShow) */
+const topNav = computed(() => navList.value.filter((n) => n.show !== false).slice(0, 6))
+
+/** 侧边栏一级分类(桌面常驻侧栏 + 移动抽屉共用): sidebarShow=true, 一级+二级独立开关 */
+const sideNav = computed(() => navList.value.filter((n) => n.sidebarShow !== false))
+
+/** 顶栏悬停下拉子分类跟随"侧边栏显示"开关(菜单可见性口径统一) */
+function sidebarChildren(nav: NavCategory): NavCategory[] {
+  return (nav.children ?? []).filter((s) => s.sidebarShow !== false)
+}
+
+/** 直播入口显隐(000038 三开关拆分 + 直播开关):
+ *  - hasLiveSources: 复用 swrGet('live:sources') 缓存, 有源 = /live/sources.sources.length > 0
+ *  - liveNavEnabled: 站点配置开关, 默认 true(迁移前行为); 无源时前端所有直播入口强制隐藏
+ *  - liveTopNavVisible: 顶栏/TV 顶栏是否显示直播 = hasLiveSources && liveNavEnabled !== false
+ *  注意: 侧边栏/抽屉按 hasLiveSources 固定显示(不设开关, 用户原话). */
+let liveSourcesChecked = false
+const hasLiveSources = ref(false)
+const liveNavEnabled = computed(() => basic.value?.liveNavEnabled !== false)
+const liveTopNavVisible = computed(() => hasLiveSources.value && liveNavEnabled.value)
+// 首次访问公开布局时触发一次源列表请求; 后续由 live 页面自己的 swr 共享缓存兜底,
+// 本文件不重复打接口(复用同一 key 'live:sources').
+navStore.ensureLoaded().finally(() => {
+  if (!liveSourcesChecked) {
+    liveSourcesChecked = true
+    getLiveSources()
+      .then((resp) => { hasLiveSources.value = (resp?.sources?.length ?? 0) > 0 })
+      .catch(() => { hasLiveSources.value = false })
+  }
+})
 
 /** 搜索 */
 const keyword = ref<string>(typeof route.query.search === 'string' ? route.query.search : '')
@@ -558,10 +588,10 @@ watch(
           >
             {{ nav.name }}
           </RouterLink>
-          <!-- 二级子分类悬停下拉 -->
-          <div v-if="nav.children?.length" class="jc-header__subnav">
+          <!-- 二级子分类悬停下拉(跟随"侧边栏显示"开关) -->
+          <div v-if="sidebarChildren(nav).length" class="jc-header__subnav">
             <RouterLink
-              v-for="sub in nav.children"
+              v-for="sub in sidebarChildren(nav)"
               :key="sub.id"
               :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
               class="jc-header__subnav-link"
@@ -581,8 +611,9 @@ watch(
         >
           热榜
         </RouterLink>
-        <!-- 固定直播入口(硬编码, 不进 category 表) -->
+        <!-- 固定直播入口(硬编码, 不进 category 表; 000038: 有源且 liveNavEnabled=1 时可见, 否则隐藏) -->
         <RouterLink
+          v-if="liveTopNavVisible"
           to="/live"
           class="jc-header__nav-link"
           :class="route.name === 'live' ? 'is-active' : ''"
@@ -972,7 +1003,7 @@ watch(
             <BaseIcon name="home" size="16px" class="jc-mnav__link-icon" />
             <span>首页</span>
           </RouterLink>
-          <template v-for="nav in topNav" :key="nav.id">
+          <template v-for="nav in sideNav" :key="nav.id">
             <RouterLink
               :to="{ path: '/filmClassify', query: { Pid: nav.id } }"
               class="jc-mnav__link" data-focusable="true"
@@ -982,11 +1013,11 @@ watch(
               <span>{{ nav.name }}</span>
             </RouterLink>
             <div
-              v-if="nav.children?.length"
+              v-if="sidebarChildren(nav).length"
               class="flex flex-wrap gap-[var(--jc-space-2)] pl-[var(--jc-space-8)] pb-[var(--jc-space-2)]"
             >
               <RouterLink
-                v-for="sub in nav.children"
+                v-for="sub in sidebarChildren(nav)"
                 :key="sub.id"
                 :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
                 class="text-xs text-secondary bg-[rgba(255,255,255,0.08)] px-[10px] py-[4px] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
@@ -1005,8 +1036,9 @@ watch(
             <BaseIcon name="fire" size="16px" class="jc-mnav__link-icon" />
             <span>热榜</span>
           </RouterLink>
-          <!-- 固定直播入口 -->
+          <!-- 固定直播入口(侧边栏固定显示: 只看有无源, 不设开关) -->
           <RouterLink
+            v-if="hasLiveSources"
             to="/live"
             class="jc-mnav__link" data-focusable="true"
             :class="route.name === 'live' ? 'is-active' : ''"
@@ -1122,7 +1154,7 @@ watch(
               <span>首页</span>
             </RouterLink>
             <!-- 分类(两级): 父级链到分类首页, 子级链到筛选库 -->
-            <template v-for="nav in topNav" :key="nav.id">
+            <template v-for="nav in sideNav" :key="nav.id">
               <RouterLink
                 :to="{ path: '/filmClassify', query: { Pid: nav.id } }"
                 class="jc-mnav__link" data-focusable="true"
@@ -1133,11 +1165,11 @@ watch(
                 <span>{{ nav.name }}</span>
               </RouterLink>
               <div
-                v-if="nav.children?.length"
+                v-if="sidebarChildren(nav).length"
                 class="flex flex-wrap gap-[var(--jc-space-2)] pl-[var(--jc-space-8)] pb-[var(--jc-space-2)]"
               >
                 <RouterLink
-                  v-for="sub in nav.children"
+                  v-for="sub in sidebarChildren(nav)"
                   :key="sub.id"
                   :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
                   class="text-xs text-secondary bg-[rgba(255,255,255,0.08)] px-[10px] py-[4px] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
@@ -1158,8 +1190,9 @@ watch(
               <BaseIcon name="fire" size="16px" class="jc-mnav__link-icon" />
               <span>热榜</span>
             </RouterLink>
-            <!-- 固定直播入口 -->
+            <!-- 固定直播入口(移动抽屉固定显示: 只看有无源, 不设开关) -->
             <RouterLink
+              v-if="hasLiveSources"
               to="/live"
               class="jc-mnav__link" data-focusable="true"
               :class="route.name === 'live' ? 'is-active' : ''"

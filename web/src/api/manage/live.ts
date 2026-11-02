@@ -42,3 +42,11 @@ export const upsertLiveChannel = (data: LiveChannelInput): Promise<void> =>
 /** DELETE /manage/live-channels?sourceId=&url= 删频道（自定义物理删/解析置 hidden） */
 export const deleteLiveChannel = (sourceId: number, url: string): Promise<void> =>
   http.delete('/manage/live-channels', { params: { sourceId, url } })
+
+/** GET /manage/live-nav 直播顶栏入口开关(000038) */
+export const getLiveNav = (): Promise<{ liveNavEnabled: boolean }> =>
+  http.get<unknown, { liveNavEnabled: boolean }>('/manage/live-nav')
+
+/** PUT /manage/live-nav {liveNavEnabled} 写直播顶栏开关并失效配置缓存 */
+export const updateLiveNav = (liveNavEnabled: boolean): Promise<void> =>
+  http.put<unknown, void>('/manage/live-nav', { liveNavEnabled })
