@@ -1,4 +1,5 @@
 import { http } from '../http'
+import { invalidateCache } from '@/utils/swrCache'
 import type {
   LiveSourceManage,
   LiveSourceInput,
@@ -14,15 +15,21 @@ export const listLiveSources = (): Promise<{ sources: LiveSourceManage[] }> =>
 
 /** POST /manage/live-sources 新增直播源 */
 export const createLiveSource = (data: LiveSourceInput): Promise<LiveSourceManage> =>
-  http.post<unknown, LiveSourceManage>('/manage/live-sources', data)
+  http.post<unknown, LiveSourceManage>('/manage/live-sources', data).finally(() => {
+    invalidateCache('live:')
+  })
 
 /** PUT /manage/live-sources/:id 整体覆盖直播源 */
 export const updateLiveSource = (id: number, data: LiveSourceInput): Promise<void> =>
-  http.put(`/manage/live-sources/${id}`, data)
+  http.put(`/manage/live-sources/${id}`, data).finally(() => {
+    invalidateCache('live:')
+  })
 
 /** DELETE /manage/live-sources/:id 删除直播源 */
 export const deleteLiveSource = (id: number): Promise<void> =>
-  http.delete(`/manage/live-sources/${id}`)
+  http.delete(`/manage/live-sources/${id}`).finally(() => {
+    invalidateCache('live:')
+  })
 
 /** GET /live/sources/:id/channels 频道数预览（复用公开解析端点; 停用源会 404） */
 export const previewChannels = (id: number): Promise<LiveChannelsResp> =>
