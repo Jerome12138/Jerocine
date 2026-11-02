@@ -60,6 +60,24 @@ class HomeSectionMapperTest {
         assertEquals(listOf(1L, 2L, 3L, 4L), mapHomeNavigation(dashboard).map { it.id })
     }
 
+    // 000037: show=false 的分类不出现在顶栏导航(旧 server 默认 true, 兼容).
+    @Test
+    fun filtersHiddenNavCategories() {
+        val dashboard = HomeDashboard(
+            home = HomeResp(
+                rows = listOf(
+                    row(1, "电影", cards(10, 3), cards(20, 3)),
+                    row(2, "动漫", cards(30, 3), cards(40, 3)).copy(
+                        nav = NavCategory(id = 2, pid = 0, name = "动漫", show = false)
+                    ),
+                    row(3, "综艺", cards(50, 3), cards(60, 3)),
+                ),
+            ),
+        )
+
+        assertEquals(listOf(1L, 3L), mapHomeNavigation(dashboard).map { it.id })
+    }
+
     private fun row(id: Long, name: String, hot: List<Card>, latest: List<Card>) = HomeRow(
         nav = NavCategory(id = id, pid = 0, name = name),
         hot = hot,
