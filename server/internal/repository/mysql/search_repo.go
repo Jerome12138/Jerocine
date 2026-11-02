@@ -83,9 +83,10 @@ func applyDeleted(q *gorm.DB, mode int) *gorm.DB {
 	}
 }
 
-// hiddenCats 查出"影片不可见分类"的 id 集: 顶级(film_visible=0)与子分类(film_visible=0)
-// 分开返回, 供 pid/cid 两列分别 NOT IN。影片不可见的顶级分类即隐藏其下全部影片
-// (即便子级 film_visible 仍为真, 其影片 pid 也命中顶级排除条件)。
+// hiddenCats 查出"影片不可见分类"的 id 集, 分两组供 pid/cid 两列分别 NOT IN:
+//   - pids(顶级 id): 子分类影片的 pid 恒为父顶级 id, 靠它隐藏"影片不可见顶级"下的子分类影片;
+//   - cids(全部不可见 id, 顶级+子级): 直挂影片(cid=分类自身)可能在顶级(pid=0, XML 源/
+//     maccms type_id_1=0 的直挂写法)也可能在子级, 统一按 cid 排除才不漏。
 //
 // 注意与 category.show(菜单显隐)的分工: show 只管导航菜单, 影片照常可搜可列表;
 // film_visible 才是根本上的影片可见性。两者独立开关。
@@ -107,10 +108,9 @@ func (r *searchRepo) hiddenCats(ctx context.Context) (pids, cids []int64) {
 		if c.FilmVisible {
 			continue
 		}
+		cids = append(cids, c.Id)
 		if c.Pid == 0 {
 			pids = append(pids, c.Id)
-		} else {
-			cids = append(cids, c.Id)
 		}
 	}
 	return pids, cids
@@ -175,9 +175,11 @@ func (r *searchRepo) CountCreatedSince(ctx context.Context, sinceMillis int64) (
 	return n, err
 }
 
-// CountFilmsByCategory 各分类在架影片数(后台分类管理展示用): pid 维度(顶级)与
-// cid 维度(子分类)分开 GROUP BY 计数, 软删排除。分类表几十行 × 两查, 管理页低频
-// 调用不加缓存。注意"顶级分类计数"是其 pid 直挂影片数(不含子分类归属的影片)。
+// CountFilmsByCategory 各分类在架影片数(后台分类管理展示用): pid 维度与 cid 维度分开
+// GROUP BY 计数, 软删排除。分类表几十行 × 两查, 管理页低频调用不加缓存。
+// 口径: 子分类计数 = cids[子id]; 顶级计数 = pids[顶级id](其子分类影片, pid 恒为父顶级 id)
+// + cids[顶级id](直挂影片, XML 源/maccms type_id_1=0 写法下 pid=0 只有 cid) ——
+// 装配在 manage_service.ListCategories 合并, 两侧不会重复计数(pid 与 cid 恒不同值)。
 func (r *searchRepo) CountFilmsByCategory(ctx context.Context) (pids, cids map[int64]int64, err error) {
 	pids = map[int64]int64{}
 	cids = map[int64]int64{}
@@ -230,9 +232,11 @@ func (r *searchRepo) TopByPidSorted(ctx context.Context, pid int64, s repository
 		limit = 14
 	}
 	var out []entity.MovieSearch
-	// pid=隐藏分类时 pid = ? AND pid NOT IN ? 恒空 —— 隐藏分类页即空榜(导航也不可达)。
+	// 一级分类口径 = pid=X(子分类影片, pid 恒为父顶级 id) OR cid=X(直挂影片: XML 源与
+	// maccms type_id_1=0 的写法里直挂影片 pid=0、只有 cid=X, 只按 pid 查会整类漏光)。
+	// pid=隐藏分类时 (pid=? AND pid NOT IN ?) 恒空 —— 隐藏分类页即空榜(导航也不可达)。
 	err := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude)).
-		Where("pid = ?", pid).Order(orderForClassify(s)).Limit(limit).Find(&out).Error
+		Where("(pid = ? OR cid = ?)", pid, pid).Order(orderForClassify(s)).Limit(limit).Find(&out).Error
 	return out, err
 }
 
@@ -259,8 +263,9 @@ func (r *searchRepo) TopScoreByPid(ctx context.Context, pid int64, limit int) ([
 		limit = 14
 	}
 	var out []entity.MovieSearch
+	// 一级分类口径同 TopByPidSorted: pid=X(子分类影片) OR cid=X(直挂影片)。
 	err := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude)).
-		Where("pid = ? AND db_score > 0 AND name NOT LIKE ?", pid, "%解说%").
+		Where("(pid = ? OR cid = ?) AND db_score > 0 AND name NOT LIKE ?", pid, pid, "%解说%").
 		Order(orderScore).Limit(limit).Find(&out).Error
 	return out, err
 }
@@ -269,8 +274,9 @@ func (r *searchRepo) TopScoreByPid(ctx context.Context, pid int64, limit int) ([
 // (为 0 则前端不渲染入口)。用运行时探测代替"体育/短剧/漫剧"白名单: 切源后自动正确。
 func (r *searchRepo) CountScoredByPid(ctx context.Context, pid int64) (int64, error) {
 	var n int64
+	// 一级分类口径同 TopByPidSorted: pid=X(子分类影片) OR cid=X(直挂影片)。
 	err := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db).Model(&entity.MovieSearch{}), repository.DeletedExclude)).
-		Where("pid = ? AND db_score > 0", pid).Count(&n).Error
+		Where("(pid = ? OR cid = ?) AND db_score > 0", pid, pid).Count(&n).Error
 	return n, err
 }
 
@@ -280,8 +286,9 @@ func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, pag
 	if spec.Deleted == repository.DeletedExclude {
 		q = r.excludeHidden(ctx, q)
 	}
+	// 一级分类口径同 TopByPidSorted: pid=X(子分类影片) OR cid=X(直挂影片, XML 源 pid=0)。
 	if spec.Pid > 0 {
-		q = q.Where("pid = ?", spec.Pid)
+		q = q.Where("(pid = ? OR cid = ?)", spec.Pid, spec.Pid)
 	}
 	if spec.Cid > 0 {
 		q = q.Where("cid = ?", spec.Cid)

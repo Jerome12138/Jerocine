@@ -421,6 +421,7 @@ func (e *Engine) upsertMaster(ctx context.Context, src *entity.CollectSource, mo
 	if len(movies) == 0 {
 		return nil
 	}
+	e.backfillPid(ctx, movies)
 	// 图片同步: 下载封面到本地, 把 cover 改写为本地 URL(写库前完成, 列表/详情即用本地图)
 	var fileRows []entity.FileInfo
 	if src.SyncPictures && e.blob != nil {
@@ -450,6 +451,41 @@ func (e *Engine) upsertMaster(ctx context.Context, src *entity.CollectSource, mo
 		_ = e.files.Create(ctx, &fileRows[i]) // 图片元数据 best-effort
 	}
 	return nil
+}
+
+// backfillPid 给 pid=0 的影片按 category 表回填父分类 id: cid 是子分类时 pid=父顶级 id
+// (XML 源不回传 type_pid, maccms XML 路径恒写 pid=0); cid 是顶级分类(直挂)则保持 pid=0,
+// 读取侧统一按 (pid=X OR cid=X) 口径兜底, 两种写法都能被一级分类列表/计数命中。
+// 分类表几十行, 每批落库前现查一次; 查失败按原样落库(不阻塞采集, 与封面下载同级 best-effort)。
+func (e *Engine) backfillPid(ctx context.Context, movies []entity.Movie) {
+	need := false
+	for i := range movies {
+		if movies[i].Pid == 0 && movies[i].Cid > 0 {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return
+	}
+	cats, err := e.category.All(ctx)
+	if err != nil {
+		log.Printf("spider: 回填 pid 查分类失败(本批按原样落库): %v", err)
+		return
+	}
+	parent := make(map[int64]int64, len(cats))
+	for _, c := range cats {
+		if c.Pid != 0 {
+			parent[c.Id] = c.Pid
+		}
+	}
+	for i := range movies {
+		if movies[i].Pid == 0 && movies[i].Cid > 0 {
+			if p, ok := parent[movies[i].Cid]; ok {
+				movies[i].Pid = p
+			}
+		}
+	}
 }
 
 func (e *Engine) collectSlavePage(ctx context.Context, src *entity.CollectSource, pg, hours int) error {
