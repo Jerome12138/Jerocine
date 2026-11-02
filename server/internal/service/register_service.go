@@ -394,9 +394,10 @@ func (s *RegisterService) ResendActivationByID(ctx context.Context, id int64) (w
 	return "", nil
 }
 
-// ApplyList 后台申请列表(status 为 entity.ApplyStatusAny 时不过滤), 按时间倒序分页。
-func (s *RegisterService) ApplyList(ctx context.Context, status int8, page repository.Page) ([]entity.RegisterApply, int64, error) {
-	return s.applies.List(ctx, status, page)
+// ApplyList 后台申请列表(status 为 entity.ApplyStatusAny 时不过滤; keyword 按用户名/邮箱模糊),
+// 按时间倒序分页。
+func (s *RegisterService) ApplyList(ctx context.Context, keyword string, status int8, page repository.Page) ([]entity.RegisterApply, int64, error) {
+	return s.applies.List(ctx, keyword, status, page)
 }
 
 // Activate 激活: peek token(不消费) → 校验 → 事务建号(email_verified=1)+激活时间戳 → 消费 token → 自动登录。

@@ -38,6 +38,7 @@ export interface TelemetryEventRow {
   category: string
   action: string
   label: string
+  /** 按 issue(category,path,label) 聚合后的累计发生次数 (SUM(value)), 非单批计数 */
   value: number
   path: string
   userId: number
@@ -45,6 +46,8 @@ export interface TelemetryEventRow {
   platform: string
   appVersion: string
   extra: string
+  /** 该 issue 在窗口内的上报批次数 (COUNT(*)) */
+  batchCount?: number
   resolution?: IssueResolution
   issueStatus: IssueStatus
 }
@@ -73,13 +76,15 @@ export interface ApiPerfItem {
 export const overview = (days = 7): Promise<OverviewResp> =>
   http.get('/manage/telemetry/overview', { params: { days } })
 
+/** 看板 status 过滤: active=未解决+重启(默认) | resolved | reopened | expired(解决>30天) | all */
+export type IssueStatusFilter = 'active' | 'resolved' | 'reopened' | 'expired' | 'all'
+
 export const listEvents = (params: {
   type?: string
   days?: number
   limit?: number
   offset?: number
-  /** active=未解决+重启+宽限期(默认) | all | resolved | reopened */
-  status?: 'active' | 'all' | 'resolved' | 'reopened'
+  status?: IssueStatusFilter
 }): Promise<ListEventsResp> =>
   http.get('/manage/telemetry/events', { params })
 

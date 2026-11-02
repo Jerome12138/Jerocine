@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -63,8 +64,13 @@ func (r *registerApplyRepo) LatestByAccount(ctx context.Context, account string)
 	return &a, nil
 }
 
-func (r *registerApplyRepo) List(ctx context.Context, status int8, page repository.Page) ([]entity.RegisterApply, int64, error) {
+// List 后台申请列表: status 为 ApplyStatusAny 时不过滤; keyword 非空按用户名/邮箱模糊过滤(与
+// 管理端用户列表 ListPaged 同口径), 申请一多可按人查找而不是只能翻页。
+func (r *registerApplyRepo) List(ctx context.Context, keyword string, status int8, page repository.Page) ([]entity.RegisterApply, int64, error) {
 	q := dbFrom(ctx, r.db).Model(&entity.RegisterApply{})
+	if kw := strings.TrimSpace(keyword); kw != "" {
+		q = q.Where("user_name LIKE ? OR email LIKE ?", "%"+kw+"%", "%"+kw+"%")
+	}
 	if status != entity.ApplyStatusAny {
 		q = q.Where("status = ?", status)
 	}

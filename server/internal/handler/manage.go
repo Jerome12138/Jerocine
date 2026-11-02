@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,7 +26,11 @@ import (
 // ---- 仪表盘 / 站点配置 ----
 
 func (h *Handlers) Dashboard(c *gin.Context) {
-	d := h.Manage.Dashboard(c.Request.Context())
+	d, err := h.Manage.Dashboard(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
 	d.PendingFails = h.Spider.PendingFailureCount(c.Request.Context())
 	dto.OK(c, d)
 }
@@ -555,18 +560,23 @@ func (h *Handlers) HotRefresh(c *gin.Context) {
 	dto.OK(c, rep)
 }
 
-// runHotRefresh 执行一轮榜单刷新并登记任务台账(手动刷新 / 历史任务重跑共用)。
+// runHotRefresh 执行一轮榜单刷新并登记任务台账(手动刷新内联等待用)。
 //
 // 刷新实测 1-2 分钟, 必须与 HTTP 请求生命周期解耦: 网关默认 60s 读超时会先掐连接,
 // 请求 ctx 随之取消, 抓取半路夭折、零落库(2026-10-23 线上事故)。WithoutCancel 保留
 // 请求上的取值, 只剥离取消信号, 另加 10min 硬上限防悬挂 —— 客户端断开只影响响应送达,
 // 服务端照常跑完落库, 结果看任务台账。
 func (h *Handlers) runHotRefresh(ctx context.Context) (service.HotRefreshReport, error) {
+	runId := h.Tasks.Start(entity.TaskRunKindManual, entity.TaskRunHotRefresh, 0, "", "榜单热度刷新", 0)
+	return h.execHotRefresh(ctx, runId)
+}
+
+// execHotRefresh 跑一轮刷新并把结果写回台账行(runId 须已登记)。同步执行。
+func (h *Handlers) execHotRefresh(ctx context.Context, runId int64) (service.HotRefreshReport, error) {
 	ctx = context.WithoutCancel(ctx)
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	runId := h.Tasks.Start(entity.TaskRunKindManual, entity.TaskRunHotRefresh, 0, "", "榜单热度刷新", 0)
 	rep, err := h.Hot.Refresh(ctx)
 	if err != nil {
 		status := entity.TaskRunFailed
@@ -580,6 +590,23 @@ func (h *Handlers) runHotRefresh(ctx context.Context) (service.HotRefreshReport,
 		rep.Fetched, rep.Matched, rep.Applied, rep.ElapsedMs)
 	h.Tasks.Finish(runId, entity.TaskRunSuccess, 0, 0, 0, msg, "")
 	return rep, nil
+}
+
+// startHotRefreshAsync 后台受理一轮榜单刷新(历史任务重跑用): 先同步登记台账行,
+// 随即脱离请求生命周期执行 —— 刷新实测 1-2 分钟, 内联跑必被网关 60s 读超时先掐断,
+// 客户端误报"重跑失败"而服务端照常跑完(与 2026-10-23 事故同根因)。结果写回台账,
+// 页面轮询/翻历史页签可见。
+func (h *Handlers) startHotRefreshAsync() {
+	runId := h.Tasks.Start(entity.TaskRunKindManual, entity.TaskRunHotRefresh, 0, "", "榜单热度刷新", 0)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("manage: hot_refresh 后台执行 panic: %v", r)
+				h.Tasks.Finish(runId, entity.TaskRunFailed, 0, 0, 0, "", "后台执行 panic")
+			}
+		}()
+		_, _ = h.execHotRefresh(context.Background(), runId)
+	}()
 }
 
 // ---- 任务管理(运行台账) ----
@@ -598,13 +625,15 @@ func (h *Handlers) TaskRuns(c *gin.Context) {
 }
 
 // TaskOverview GET /manage/tasks/overview 任务管理页统计卡。
-// Running = Redis 活跃采集 job(在跑/暂停) + 台账 running 行数。
+// Running = Redis 活跃采集 job(在跑/暂停) + 台账 running 行数, 两侧按源 id 去重:
+// 一次采集会同时有 Redis job(engine.Collect→JobStart)与台账 running 行
+// (StartCollect 登记), 不去重的话一个任务被数成两个。
 func (h *Handlers) TaskOverview(c *gin.Context) {
 	jobs, _ := h.Spider.Jobs(c.Request.Context())
-	active := 0
+	active := make(map[string]bool)
 	for _, j := range jobs {
 		if j.State == cache.JobRunning || j.State == cache.JobPaused {
-			active++
+			active[j.SourceId] = true
 		}
 	}
 	o := h.Tasks.Overview(c.Request.Context(), active, h.Spider.PendingFailureCount(c.Request.Context()))
@@ -641,10 +670,8 @@ func (h *Handlers) TaskRerun(c *gin.Context) {
 			dto.Error(c, http.StatusServiceUnavailable, "hot service unavailable")
 			return
 		}
-		if _, err := h.runHotRefresh(c.Request.Context()); err != nil {
-			dto.Fail(c, err)
-			return
-		}
+		// 后台受理: 刷新 1-2 分钟, 内联跑会被网关 60s 读超时掐断, 客户端必然误报失败。
+		h.startHotRefreshAsync()
 	default:
 		dto.Error(c, http.StatusBadRequest, "unsupported task type: "+run.Type)
 		return
@@ -745,8 +772,11 @@ func (h *Handlers) ManageFilms(c *gin.Context) {
 	}
 	// IncludeHidden 恒 true: 管理后台影片列表/搜索不受"影片可见"开关影响, 所有影片都可见。
 	// catIds=1,2,3 分类级联多选(前端确定后传入); 与 pid/cid 单值互斥使用(前端保证)。
+	// sort=hot|latest|update_stamp|score(白名单见 search_repo.allowedSort, 空走默认热度);
+	// 关键字与无关键字两条路径都消费该字段, 保证列表排序口径一致。
 	spec := repository.FilterSpec{
 		Keyword: c.Query("keyword"), Pid: queryInt64(c, "pid"), Cid: cid,
+		Sort:    c.Query("sort"),
 		Deleted: deletedMode(c.Query("status")), IncludeHidden: true,
 		CatIDs: queryInt64s(c, "catIds"),
 	}
@@ -910,17 +940,16 @@ func (h *Handlers) SpiderStart(c *gin.Context) {
 	dto.Accepted(c, gin.H{"sourceId": req.SourceId, "accepted": true})
 }
 
+// SpiderPause/SpiderResume/SpiderCancel 此前忽略服务层结果恒返 {"ok":true}:
+// 任务不存在/已结束、Redis 不可用都假成功。现在 respond 传播错误(404/409/5xx)。
 func (h *Handlers) SpiderPause(c *gin.Context) {
-	h.Spider.PauseJob(c.Request.Context(), c.Param("id"))
-	dto.OK(c, gin.H{"ok": true})
+	respond(c, gin.H{"ok": true}, h.Spider.PauseJob(c.Request.Context(), c.Param("id")))
 }
 func (h *Handlers) SpiderResume(c *gin.Context) {
-	h.Spider.ResumeJob(c.Request.Context(), c.Param("id"))
-	dto.OK(c, gin.H{"ok": true})
+	respond(c, gin.H{"ok": true}, h.Spider.ResumeJob(c.Request.Context(), c.Param("id")))
 }
 func (h *Handlers) SpiderCancel(c *gin.Context) {
-	h.Spider.CancelJob(c.Request.Context(), c.Param("id"))
-	dto.OK(c, gin.H{"ok": true})
+	respond(c, gin.H{"ok": true}, h.Spider.CancelJob(c.Request.Context(), c.Param("id")))
 }
 
 func (h *Handlers) SpiderReset(c *gin.Context) {
@@ -1115,6 +1144,7 @@ type manageUserPasswordReq struct {
 }
 
 // ManageUserResetPassword 管理员重置用户密码(不校验旧密码), 重置后该用户全部设备下线。
+// 不能重置自己的密码(重置即清全部 token, 会把当前会话也踢下线)。
 func (h *Handlers) ManageUserResetPassword(c *gin.Context) {
 	id, ok := pathInt64(c, "id")
 	if !ok || id <= 0 {
@@ -1126,7 +1156,7 @@ func (h *Handlers) ManageUserResetPassword(c *gin.Context) {
 		dto.Error(c, http.StatusBadRequest, "bad body")
 		return
 	}
-	if err := h.User.ManageResetUserPassword(c.Request.Context(), uint(id), req.Password); err != nil {
+	if err := h.User.ManageResetUserPassword(c.Request.Context(), uint(currentUserID(c)), uint(id), req.Password); err != nil {
 		dto.Fail(c, err)
 		return
 	}

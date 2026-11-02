@@ -46,8 +46,8 @@ const toDTO = (v: CollectSource): SourceDTO => ({
 })
 
 /** GET /manage/collect-sources 采集源列表 */
-export const list = async (): Promise<CollectSource[]> => {
-  const data = await http.get<unknown, SourceDTO[]>('/manage/collect-sources')
+export const list = async (config?: AxiosRequestConfig): Promise<CollectSource[]> => {
+  const data = await http.get<unknown, SourceDTO[]>('/manage/collect-sources', config)
   return (data ?? []).map(toView)
 }
 
@@ -91,12 +91,12 @@ export interface SourceTestRow extends SourceTest {
 }
 
 /** POST /manage/collect-sources/:id/test 单源测速(连续探测 ac=detail) */
-export const test = (id: string): Promise<SourceTest> =>
-  http.post<unknown, SourceTest>(`/manage/collect-sources/${enc(id)}/test`)
+export const test = (id: string, config?: AxiosRequestConfig): Promise<SourceTest> =>
+  http.post<unknown, SourceTest>(`/manage/collect-sources/${enc(id)}/test`, undefined, config)
 
 /** POST /manage/collect-sources/test 全部源并发测速 */
-export const testAll = (): Promise<SourceTestRow[]> =>
-  http.post<unknown, SourceTestRow[]>('/manage/collect-sources/test')
+export const testAll = (config?: AxiosRequestConfig): Promise<SourceTestRow[]> =>
+  http.post<unknown, SourceTestRow[]>('/manage/collect-sources/test', undefined, config)
 
 /** 采集源健康度(持久化, 含自动停采标记) */
 export interface SourceHealthRow {
@@ -139,8 +139,8 @@ export const sampleM3u8 = async (id: string): Promise<string> => {
 }
 
 /** POST /manage/collect-sources/:id/play-latency 浏览器端播放测速结果回传落库 */
-export const recordPlayLatency = (id: string, ms: number): Promise<void> =>
-  http.post<unknown, void>(`/manage/collect-sources/${enc(id)}/play-latency`, { ms })
+export const recordPlayLatency = (id: string, ms: number, config?: AxiosRequestConfig): Promise<void> =>
+  http.post<unknown, void>(`/manage/collect-sources/${enc(id)}/play-latency`, { ms }, config)
 
 // ============ 采集任务 / 控制 ============
 
@@ -149,26 +149,28 @@ export const startSpider = (data: CollectParams, config?: AxiosRequestConfig): P
   http.post<unknown, void>('/manage/spider/jobs', { sourceId: data.id, duration: data.time }, config)
 
 /** POST /manage/spider/reset 清空全部影片 + 全量重采 (confirm 须匹配服务端令牌, 不可逆) */
-export const resetSpider = (confirm: string): Promise<void> =>
-  http.post<unknown, void>('/manage/spider/reset', { confirm })
+export const resetSpider = (confirm: string, config?: AxiosRequestConfig): Promise<void> =>
+  http.post<unknown, void>('/manage/spider/reset', { confirm }, config)
 
 /** 采集任务进度 (后端 cache.JobProgress → 视图模型) */
 export interface SpiderJob {
   sourceId: string
   sourceName: string
-  state: 'pending' | 'running' | 'paused' | 'done' | 'error' | 'canceled'
+  /** 服务端仅有 running/paused/canceled/done/error 五态(cache/jobprogress.go), 无排队态 */
+  state: 'running' | 'paused' | 'done' | 'error' | 'canceled'
   totalPages: number
   donePages: number
   failedPages: number
-  /** 已用时长 ms(由 startedAt 推算; 无则 0) */
+  /** 已用时长 ms; 已结束任务由 endedAt 冻结, 运行中为 now-startedAt */
   elapsedMs: number
   /** 采集时长: -1 全量 / >0 增量小时(0=未知, 重跑时按此还原) */
   hour: number
   /** 开始时间 unix 秒 */
   startedAt: number
+  /** 结束时间 unix 秒(0=运行中/未知) */
+  endedAt: number
   /** 失败原因(error 态) */
   error?: string
-  note?: string
 }
 
 interface JobProgressDTO {
@@ -179,40 +181,46 @@ interface JobProgressDTO {
   failed: number
   state: SpiderJob['state']
   startedAt?: number
+  endedAt?: number
   hour?: number
   error?: string
 }
 
 /** GET /manage/spider/jobs 当前 + 近 30 分钟内结束的采集任务 */
-export const spiderJobs = async (): Promise<SpiderJob[]> => {
-  const data = await http.get<unknown, JobProgressDTO[]>('/manage/spider/jobs')
+export const spiderJobs = async (config?: AxiosRequestConfig): Promise<SpiderJob[]> => {
+  const data = await http.get<unknown, JobProgressDTO[]>('/manage/spider/jobs', config)
   const now = Date.now()
-  return (data ?? []).map((j) => ({
-    sourceId: j.sourceId,
-    sourceName: j.name,
-    state: j.state,
-    totalPages: j.total,
-    donePages: j.done,
-    failedPages: j.failed,
-    hour: j.hour ?? 0,
-    startedAt: j.startedAt ?? 0,
-    error: j.error,
-    elapsedMs: j.startedAt ? now - j.startedAt * 1000 : 0,
-    note: undefined
-  }))
+  return (data ?? []).map((j) => {
+    const startedMs = (j.startedAt ?? 0) * 1000
+    // 已结束任务用 endedAt 冻结用时, 不再随轮询虚增(服务端 GC 前最长虚增 30 分钟)
+    const endMs = (j.endedAt && j.endedAt > 0 ? j.endedAt * 1000 : now)
+    return {
+      sourceId: j.sourceId,
+      sourceName: j.name,
+      state: j.state,
+      totalPages: j.total,
+      donePages: j.done,
+      failedPages: j.failed,
+      hour: j.hour ?? 0,
+      startedAt: j.startedAt ?? 0,
+      endedAt: j.endedAt ?? 0,
+      error: j.error,
+      elapsedMs: startedMs ? Math.max(0, endMs - startedMs) : 0
+    }
+  })
 }
 
 /** POST /manage/spider/jobs/:id/pause (id 即 sourceId) */
-export const spiderJobPause = (id: string): Promise<void> =>
-  http.post<unknown, void>(`/manage/spider/jobs/${enc(id)}/pause`)
+export const spiderJobPause = (id: string, config?: AxiosRequestConfig): Promise<void> =>
+  http.post<unknown, void>(`/manage/spider/jobs/${enc(id)}/pause`, undefined, config)
 
 /** POST /manage/spider/jobs/:id/resume */
-export const spiderJobResume = (id: string): Promise<void> =>
-  http.post<unknown, void>(`/manage/spider/jobs/${enc(id)}/resume`)
+export const spiderJobResume = (id: string, config?: AxiosRequestConfig): Promise<void> =>
+  http.post<unknown, void>(`/manage/spider/jobs/${enc(id)}/resume`, undefined, config)
 
 /** POST /manage/spider/jobs/:id/cancel */
-export const spiderJobCancel = (id: string): Promise<void> =>
-  http.post<unknown, void>(`/manage/spider/jobs/${enc(id)}/cancel`)
+export const spiderJobCancel = (id: string, config?: AxiosRequestConfig): Promise<void> =>
+  http.post<unknown, void>(`/manage/spider/jobs/${enc(id)}/cancel`, undefined, config)
 
 // ============ 采集失败台账（页级失败补采） ============
 
@@ -228,16 +236,21 @@ export const failures = (params?: {
   status?: number
   page?: number
   size?: number
-}): Promise<FailurePage> =>
-  http.get<unknown, FailurePage>('/manage/collect-failures', { params })
+}, config?: AxiosRequestConfig): Promise<FailurePage> =>
+  http.get<unknown, FailurePage>('/manage/collect-failures', { params, ...config })
 
 /** POST /manage/collect-failures/recover {ids?}
  *  ids 为空 → 补采全部待处理；非空 → 只补这些。后台异步执行，接口立即返回 202。 */
-export const recoverFailures = (ids?: number[]): Promise<{ accepted: boolean; pending: number }> =>
-  http.post<unknown, { accepted: boolean; pending: number }>('/manage/collect-failures/recover', {
-    ids: ids ?? []
-  })
+export const recoverFailures = (
+  ids?: number[],
+  config?: AxiosRequestConfig
+): Promise<{ accepted: boolean; pending: number }> =>
+  http.post<unknown, { accepted: boolean; pending: number }>(
+    '/manage/collect-failures/recover',
+    { ids: ids ?? [] },
+    config
+  )
 
 /** DELETE /manage/collect-failures/handled 清理已处理记录 */
-export const clearHandledFailures = (): Promise<{ deleted: number }> =>
-  http.delete<unknown, { deleted: number }>('/manage/collect-failures/handled')
+export const clearHandledFailures = (config?: AxiosRequestConfig): Promise<{ deleted: number }> =>
+  http.delete<unknown, { deleted: number }>('/manage/collect-failures/handled', config)

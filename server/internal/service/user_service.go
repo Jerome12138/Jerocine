@@ -236,10 +236,20 @@ type LoginSessionView struct {
 	LastSeen int64  `json:"lastSeen"` // 最近活跃(秒, 请求节流 60s)
 }
 
+// sessionSearchWindow 带 keyword 搜索时的取数窗口(= cache.ListSessions 的硬上限):
+// 搜索必须先取全窗口再过滤, 否则只覆盖"最近 limit 条" —— 更早的会话明明还在缓存里却搜不到。
+const sessionSearchWindow = 500
+
 // ListLoginSessions 最近活跃的会话列表(keyword 过滤用户名/用户 ID/IP), 供后台查看与踢人。
+// 无 keyword: 取最近 limit 条(0 归默认); 带 keyword: 无视 limit、窗口拉满到缓存上限再过滤,
+// 让搜索能命中窗口内任意会话, 而不只是最近 limit 条。
 func (s *UserService) ListLoginSessions(ctx context.Context, keyword string, limit int) []LoginSessionView {
-	rows := cache.ListSessions(ctx, limit)
 	kw := strings.ToLower(strings.TrimSpace(keyword))
+	fetch := limit
+	if kw != "" {
+		fetch = sessionSearchWindow
+	}
+	rows := cache.ListSessions(ctx, fetch)
 	out := make([]LoginSessionView, 0, len(rows))
 	for _, r := range rows {
 		if kw != "" &&
@@ -384,10 +394,14 @@ func (s *UserService) ChangePassword(ctx context.Context, userID uint, oldPw, ne
 // ---- 管理员: 创建/列出用户 ----
 
 // CreateUser 后台手工建号。email 可选(空 = 无邮箱老用户口径), 填了必须格式合法且未被占用;
-// 手工建的号 EmailVerified 保持 0(不强制走验证链路, 由 DB 默认值兜住)。
+// 用户名 1-32 字符(runeLen 与 ManageUpdateUser 同口径 —— 不然建得出 32 字节的汉字长名,
+// 之后编辑保存永远 400, "建得起、改不了"); 手工建的号 EmailVerified 保持 0(不强制走验证链路, 由 DB 默认值兜住)。
 func (s *UserService) CreateUser(ctx context.Context, name, password string, role int, email string) (*entity.User, error) {
+	if name == "" || runeLen(name) > 32 {
+		return nil, domain.ErrInvalidArgument
+	}
 	if _, err := s.users.GetByName(ctx, name); err == nil {
-		return nil, domain.ErrConflict
+		return nil, domain.ErrUserNameTaken
 	} else if err != domain.ErrUserNotFound {
 		return nil, err
 	}
@@ -443,7 +457,12 @@ func (s *UserService) ManageSetUserDisabled(ctx context.Context, operatorID, tar
 }
 
 // ManageResetUserPassword 管理员重置任意用户密码(不校验旧密码), 重置后踢下线。
-func (s *UserService) ManageResetUserPassword(ctx context.Context, targetID uint, newPassword string) error {
+// 保护: 不能重置自己的密码 —— 重置即 ClearUserTokens 会把自己当前会话也踢下线,
+// 且绕过旧密码校验, 与禁用/删除同口径收严(防唯一管理员自锁)。
+func (s *UserService) ManageResetUserPassword(ctx context.Context, operatorID, targetID uint, newPassword string) error {
+	if operatorID == targetID {
+		return domain.ErrInvalidArgument
+	}
 	if len(newPassword) < 6 || len(newPassword) > 64 {
 		return domain.ErrInvalidArgument
 	}
@@ -467,7 +486,7 @@ func (s *UserService) ManageResetUserPassword(ctx context.Context, targetID uint
 func (s *UserService) ManageUpdateUser(ctx context.Context, operatorID, targetID uint, name string, role int, email string) error {
 	name = strings.TrimSpace(name)
 	email = strings.TrimSpace(email)
-	if name == "" || len(name) > 32 || (role != 0 && role != 1) {
+	if name == "" || runeLen(name) > 32 || (role != 0 && role != 1) {
 		return domain.ErrInvalidArgument
 	}
 	// 邮箱选填: 留空 = 解绑; 填了必须格式合法且与他人不重复(与建号同口径)
@@ -483,7 +502,8 @@ func (s *UserService) ManageUpdateUser(ctx context.Context, operatorID, targetID
 	}
 	if name != target.UserName {
 		if other, err := s.users.GetByName(ctx, name); err == nil && other.ID != targetID {
-			return domain.ErrConflict
+			// 用户名直达文案: 用 ErrUserNameTaken("用户名已被占用"), 不用裸 ErrConflict("resource conflict")
+			return domain.ErrUserNameTaken
 		} else if err != nil && err != domain.ErrUserNotFound {
 			return err
 		}

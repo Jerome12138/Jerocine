@@ -18,6 +18,20 @@ var (
 	ErrInvalidSourceID = errors.New("invalid source id: 小写字母开头, 仅小写字母/数字/下划线, 2~32 字符")
 	// ErrInvalidMove 轮播位排序请求无法执行: 越界 / 已在边界 / 自动位不可下移(恒在尾部)。
 	ErrInvalidMove = errors.New("无法移动：已在边界或目标位无效")
+	// ---- 采集源管理 ----
+	// 以下三条取代裸 ErrConflict/ErrInvalidArgument("resource conflict"/"invalid argument"):
+	// 这些文案会经管理页 toast 直达终端用户, 必须可读(教训同 ErrUserNameTaken, 见上)。
+	// ErrSourceUriTaken 采集 URI 已被其他源占用(UpsertSource 查重 409)。
+	ErrSourceUriTaken = errors.New("该采集 URI 已被其他源使用")
+	// ErrMasterUndeletable 主站禁删: 先把该源等级改为附属再删(DeleteSource 409)。
+	ErrMasterUndeletable = errors.New("主站不可删除，请先将其等级改为附属")
+	// ErrSourceDisabled 对已停用的源触发采集(StartCollect 400)。
+	ErrSourceDisabled = errors.New("该源已停用，请先启用后再采集")
+	// ---- 采集任务控制 ----
+	// ErrJobNotFound 暂停/继续/取消的目标任务不存在(已被 GC / 从未启动 / 已结束)。
+	ErrJobNotFound = errors.New("采集任务不存在或已结束，请刷新")
+	// ErrJobStateConflict 任务控制前置状态不符(如对已结束任务点暂停): 状态已变化, 刷新后重试。
+	ErrJobStateConflict = errors.New("采集任务状态已变化，请刷新后重试")
 	// ---- 账号注册 / 邮箱验证码 (docs/design/账号注册功能设计.md) ----
 	// ErrRegisterDisabled 注册模式为 off(仅后台建号), 公开注册入口关闭。
 	ErrRegisterDisabled = errors.New("注册未开启")

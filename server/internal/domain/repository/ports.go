@@ -76,7 +76,9 @@ type SearchRepository interface {
 	Filter(ctx context.Context, spec FilterSpec, page Page) ([]entity.MovieSearch, int64, error)
 	// SearchKeyword 关键字检索 (FULLTEXT ngram)。deleted 取 DeletedExclude/DeletedOnly/DeletedInclude。
 	// includeHidden=false(公开口径)剔除隐藏分类影片, true(管理口径)不过滤 —— 见 FilterSpec.IncludeHidden。
-	SearchKeyword(ctx context.Context, keyword string, deleted int, includeHidden bool, page Page) ([]entity.MovieSearch, int64, error)
+	// sort 为排序键(hot/latest/update_stamp/score 及旧别名, 白名单见 search_repo.allowedSort);
+	// 空/未识别时回退 update_stamp DESC(与历史行为一致 —— 公开搜索固定最近更新)。
+	SearchKeyword(ctx context.Context, keyword string, deleted int, includeHidden bool, sort string, page Page) ([]entity.MovieSearch, int64, error)
 	// CountCreatedSince 统计 created_at(毫秒) >= sinceMillis 的影片数 (仪表盘今日/近一周新增)。
 	CountCreatedSince(ctx context.Context, sinceMillis int64) (int64, error)
 	// CountFilmsByCategory 各分类在架影片数(后台分类管理展示): 返回 pid 维度与 cid 维度两张计数表。
@@ -123,6 +125,8 @@ type CategoryRepository interface {
 	Upsert(ctx context.Context, c *entity.Category) error
 	BatchUpsert(ctx context.Context, list []entity.Category) error
 	Delete(ctx context.Context, id int64) error
+	// DeleteByPid 删除某节点的全部直接子分类(树只有两级, 级联删除用)。
+	DeleteByPid(ctx context.Context, pid int64) error
 }
 
 // CollectSourceRepository 采集源。
@@ -280,8 +284,9 @@ type RegisterApplyRepository interface {
 	GetByEmail(ctx context.Context, email string) (*entity.RegisterApply, error)
 	// LatestByAccount 按用户名或邮箱取最新一条(登录申请态反馈用); 未命中返回 domain.ErrNotFound。
 	LatestByAccount(ctx context.Context, account string) (*entity.RegisterApply, error)
-	// List 后台列表: status 为 entity.ApplyStatusAny 时不过滤, 按时间倒序分页。
-	List(ctx context.Context, status int8, page Page) ([]entity.RegisterApply, int64, error)
+	// List 后台列表: status 为 entity.ApplyStatusAny 时不过滤; keyword 非空按用户名/邮箱模糊过滤;
+	// 按时间倒序分页。
+	List(ctx context.Context, keyword string, status int8, page Page) ([]entity.RegisterApply, int64, error)
 	// Approve pending → approved(清空驳回理由), 写 reviewed_by/at。影响行数为 0 时返回 ErrConflict。
 	Approve(ctx context.Context, id int64, reviewedBy int64) error
 	// Reject pending → rejected + 必填理由, 写 reviewed_by/at。影响行数为 0 时返回 ErrConflict。
@@ -303,7 +308,9 @@ type TaskRunRepository interface {
 	// CountSince 统计某时间点后的成功/失败任务数(统计卡用)。
 	CountSince(ctx context.Context, sinceMs int64) (success, failed int64, err error)
 	// CountRunning 运行中(running)任务数(统计卡用)。
-	CountRunning(ctx context.Context) (int64, error)
+	// excludeSourceIds 非空时剔除这些源的行 —— 同一次采集同时有 Redis 活跃 job 与
+	// 台账 running 行, 统计卡把两口径直加前先按源去重, 避免一个任务数成两个。
+	CountRunning(ctx context.Context, excludeSourceIds []string) (int64, error)
 	// MarkInterrupted 把全部 running 行标记为 failed(服务重启导致的中断), 避免幽灵"运行中"行。
 	MarkInterrupted(ctx context.Context) error
 }
@@ -367,6 +374,10 @@ type TelemetryRepository interface {
 	OverviewStats(ctx context.Context, sinceUnix int64) (OverviewStats, error)
 	ApiPerfByAction(ctx context.Context, sinceUnix int64, limit int) ([]ActionPerfAgg, error)
 	ApiActionValues(ctx context.Context, sinceUnix int64, action string, limit int) ([]float64, error)
-	ListEventsByType(ctx context.Context, sinceUnix int64, frontendType string, limit, offset int) ([]entity.TelemetryEvent, int64, error)
+	// ListErrorIssues 按 issue(category,path,label) 聚合错误事件(见 TelemetryIssueAgg), latest_ts 倒序。
+	// 不分页: 聚合后行数=窗口内 distinct issue 数, 状态过滤在 service 侧(需 resolution 时间分类),
+	// total=过滤后计数, 分页由 service 内存完成 —— 旧实现先 SQL LIMIT 再内存过滤会把
+	// 窗口外的 resolved/reopened 行永久挤出列表。
+	ListErrorIssues(ctx context.Context, sinceUnix int64, frontendType string) ([]TelemetryIssueAgg, error)
 	GetResolutions(ctx context.Context, keyHashes []string) (map[string]*entity.TelemetryIssueResolution, error)
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -104,6 +105,7 @@ type issueReq struct {
 	Path     string `json:"path"`
 	Label    string `json:"label"`
 	CommitId string `json:"commitId"`
+	Note     string `json:"note"`
 }
 
 // TelemetryResolve POST /manage/telemetry/resolve
@@ -113,7 +115,12 @@ func (h *Handlers) TelemetryResolve(c *gin.Context) {
 		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
 		return
 	}
-	if err := h.Telemetry.ResolveIssue(c.Request.Context(), req.Category, req.Path, req.Label, req.CommitId); err != nil {
+	commitId := strings.TrimSpace(req.CommitId)
+	if commitId == "" {
+		dto.Error(c, http.StatusUnprocessableEntity, "commitId 不能为空")
+		return
+	}
+	if err := h.Telemetry.ResolveIssue(c.Request.Context(), req.Category, req.Path, req.Label, commitId, strings.TrimSpace(req.Note)); err != nil {
 		dto.Fail(c, err)
 		return
 	}

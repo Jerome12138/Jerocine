@@ -6,6 +6,7 @@ import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
+import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
@@ -25,6 +26,10 @@ const loading = ref(true)
 const busy = ref(false)
 const total = ref(0)
 const pageSize = ref(20)
+/** 加载失败态: 与"确实没有用户"的空态区分开, 提供重试入口 */
+const loadError = ref('')
+// 请求序号: 仅采纳最后一次请求的响应, 防快速搜索/翻页时旧响应后到覆盖新结果
+let loadSeq = 0
 
 const params = reactive({ keyword: '', current: 1, pageSize: 20 })
 
@@ -38,19 +43,37 @@ const columns = [
 ]
 
 async function load(): Promise<void> {
+  const seq = ++loadSeq
   loading.value = true
+  loadError.value = ''
   try {
     const resp = await manageApi.user.list({
       keyword: params.keyword,
       page: params.current,
       size: params.pageSize
     })
+    if (seq !== loadSeq) return // 已有更新的请求在途/完成, 丢弃旧响应
     rows.value = resp.list ?? []
     total.value = resp.page?.total ?? 0
     pageSize.value = resp.page?.size ?? params.pageSize
+    // 末页删空回夹: 删掉末页最后一条(或搜索过滤后)页码越界会落进空页, 回夹到最后一页重拉一次
+    const size = resp.page?.size ?? params.pageSize
+    const pageCount = Math.max(1, Math.ceil(total.value / size))
+    if (!rows.value.length && params.current > 1 && total.value > 0 && pageCount < params.current) {
+      params.current = pageCount
+      return load()
+    }
+  } catch (e) {
+    if (seq !== loadSeq) return
+    // 失败保留错误态: 不冒充"未找到用户"; http 拦截器已全局 toast, 这里落页面内文案
+    loadError.value = (e as Error).message ?? '加载失败'
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
+}
+
+function retryLoad(): void {
+  load()
 }
 
 function search(): void {
@@ -157,7 +180,8 @@ function openEdit(row: ManageUserRow): void {
 
 async function submitForm(): Promise<void> {
   const name = form.userName.trim()
-  if (!name || name.length > 32) {
+  // 按码点计数与服务端 runeLen 同口径(string.length 按 UTF-16 单元, emoji 等代理对会算 2)
+  if (!name || [...name].length > 32) {
     toast('error', '用户名需为 1-32 个字符')
     return
   }
@@ -217,7 +241,18 @@ onMounted(load)
 
 <template>
   <div class="flex flex-col gap-[var(--jc-space-4)]">
+    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"未找到用户" -->
+    <section v-if="loadError && !rows.length" class="bg-surface rounded-card shadow-card">
+      <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
+        <BaseEmpty title="加载失败" :description="loadError" hide-icon />
+        <BaseButton variant="outline" size="sm" @click="retryLoad">
+          <BaseIcon name="refresh" size="16px" /> 重试
+        </BaseButton>
+      </div>
+    </section>
+
     <ManageTable
+      v-else
       :columns="columns"
       :rows="rows"
       row-key="ID"
@@ -265,7 +300,8 @@ onMounted(load)
           <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="toggleDisabled(row)">
             {{ row.disabled === 1 ? '启用' : '禁用' }}
           </BaseButton>
-          <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openReset(row)">重置密码</BaseButton>
+          <!-- 重置密码对自己的行禁用: 重置即清目标用户全部 token, 会把自己当前会话也踢下线(服务端同样校验) -->
+          <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="openReset(row)">重置密码</BaseButton>
           <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="removeUser(row)">删除</BaseButton>
         </div>
       </template>

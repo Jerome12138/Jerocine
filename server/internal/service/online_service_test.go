@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -461,8 +462,56 @@ func TestDailySessions_VisitsSummedAcrossDays(t *testing.T) {
 	if row.Visits != 3 {
 		t.Fatalf("跨天访问次数应累加为 3, got %d (%+v)", row.Visits, row)
 	}
-	if !row.Online {
+	if row.Online == nil || !*row.Online {
 		t.Fatalf("刚心跳过应标记在线: %+v", row)
+	}
+}
+
+// daily-sessions 的 wire 契约: 离线会话必须显式输出 "online":false(此前 bool+omitempty
+// 把 false 整体丢掉, 前端"已离线"三态判定永不命中 —— 2026-11-03 管理端复核修复)。
+func TestDailySessions_OnlineFlagWireShape(t *testing.T) {
+	s, mr := newTestOnlineService(t)
+	ctx := context.Background()
+	// 离线会话: 仅昨日日志, 最后心跳在 30 分钟窗口外
+	y := time.Now().AddDate(0, 0, -1).Format("20060102")
+	off := OnlineSession{Sid: "off", IP: "2.2.2.2", Watching: true,
+		FirstSeen: time.Now().Add(-25 * time.Hour).Unix(), LastSeen: time.Now().Add(-24 * time.Hour).Unix()}
+	buf, _ := json.Marshal(off)
+	if _, err := mr.ZAdd("jc:online:daily:"+y+":log", float64(off.LastSeen*1000), "off#2.2.2.2"); err != nil {
+		t.Fatalf("seed log: %v", err)
+	}
+	if err := mr.Set("jc:online:daily:"+y+":info:off#2.2.2.2", string(buf)); err != nil {
+		t.Fatalf("seed info: %v", err)
+	}
+	// 在线会话: 刚心跳过(IP 用家宽段, 3.x.x.x 命中机房黑名单会被过滤)
+	hb(s, ctx, sess("on", "5.6.7.8", 0, false))
+
+	list := s.DailySessions(ctx, 2)
+	if len(list) != 2 {
+		t.Fatalf("应有 2 条会话, got %d: %+v", len(list), list)
+	}
+	for _, row := range list {
+		j, err := json.Marshal(row)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if row.Sid == "off" {
+			if !strings.Contains(string(j), `"online":false`) {
+				t.Fatalf("离线会话 JSON 必须显式带 online:false, got %s", j)
+			}
+		} else if row.Sid == "on" {
+			if !strings.Contains(string(j), `"online":true`) {
+				t.Fatalf("在线会话 JSON 应带 online:true, got %s", j)
+			}
+		}
+	}
+	// 实时 overview 不带 online 字段(保持省略, 前端实时视图不判离线)
+	ov, err := json.Marshal(s.Overview(ctx).Sessions)
+	if err != nil {
+		t.Fatalf("marshal overview: %v", err)
+	}
+	if strings.Contains(string(ov), `"online"`) {
+		t.Fatalf("实时明细不应输出 online 字段, got %s", ov)
 	}
 }
 

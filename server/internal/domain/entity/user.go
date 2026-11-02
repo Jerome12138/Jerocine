@@ -8,9 +8,10 @@ const (
 	RoleAdmin int = 1 // 管理员
 )
 
-// User 用户 (table: users) — 保留软删除(管理员维护、极少删)。
+// User 用户 (table: users)。管理端删除走 Unscoped 硬删(userRepo.Delete),
+// DeletedAt 列仅为 gorm.Model 惯例保留(迁移表结构不动, 查询一律默认作用域)。
 type User struct {
-	gorm.Model        // ID / CreatedAt / UpdatedAt / DeletedAt(软删)
+	gorm.Model        // ID / CreatedAt / UpdatedAt / DeletedAt(列保留, 删除为硬删)
 	UserName   string `gorm:"column:user_name" json:"userName"`
 	Password   string `gorm:"column:password" json:"-"`
 	Role       int    `gorm:"column:role" json:"role"`

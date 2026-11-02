@@ -73,7 +73,10 @@ type OnlineSession struct {
 	FirstSeen int64 `json:"firstSeen"`
 	LastSeen  int64 `json:"lastSeen"`
 	// Online 仅每日/近7天明细(dailySessions)返回时有效: 该会话当前是否活跃(30min 窗口内有过心跳)。
-	Online bool `json:"online,omitempty"`
+	// 必须用指针 + omitempty: 实时 overview/心跳落库不置(序列化时整体省略),
+	// 而离线会话要显式输出 "online":false —— 此前用 bool+omitempty 时 false 被整体丢掉,
+	// 前端"已离线"三态判定永不命中, 历史会话全被错标为在线(2026-11-03 管理端复核修复)。
+	Online *bool `json:"online,omitempty"`
 }
 
 // OnlineOverview 在线概览: 实时 UV/PV/观看中 + 今日累计 + 会话明细(后台表单)。
@@ -496,7 +499,8 @@ func (s *OnlineService) DailySessions(ctx context.Context, days int) []OnlineSes
 		if b.visits > 0 {
 			sess.Visits = b.visits
 		}
-		sess.Online = active[m]
+		on := active[m]
+		sess.Online = &on
 		out = append(out, sess)
 	}
 	// 排序: 在播 > 在线 > 离线; 同级按最近活跃倒序
@@ -506,7 +510,7 @@ func (s *OnlineService) DailySessions(ctx context.Context, days int) []OnlineSes
 		if aw != bw {
 			return aw
 		}
-		ao, bo := a.Online, b.Online
+		ao, bo := a.Online != nil && *a.Online, b.Online != nil && *b.Online
 		if ao != bo {
 			return ao
 		}

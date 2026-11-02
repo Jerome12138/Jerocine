@@ -11,7 +11,9 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseLightbox from '@/components/base/BaseLightbox.vue'
+import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import { confirm } from '@/composables/useConfirm'
+import { toast } from '@/api/http'
 
 /**
  * 首页轮播管理 —— 列表 = 前 liveCount 位生效位 + 其后热榜候选位(共 heroBoardCount=16 位, liveCount 分区)。
@@ -25,6 +27,8 @@ import { confirm } from '@/composables/useConfirm'
 
 const board = ref<BannerBoard>({ active: [], inactive: [] })
 const loading = ref(true)
+/** 初次/手动加载失败时的错误文案(非 silent 加载才置位; 30s 轮询失败不打扰) */
+const loadError = ref('')
 const sheetOpen = ref(false)
 const submitting = ref(false)
 const editing = ref<Banner | null>(null)
@@ -35,6 +39,8 @@ const showInactive = ref(false)
 const refreshing = ref(false)
 /** 单片横图回填进行中的 mid 集合(防重复点击) */
 const fillingMids = ref<Set<number>>(new Set())
+/** 行内变更操作(排序/启停/屏蔽/删除)进行中: 统一禁用全部行内按钮, 防快速连点并发互踩 */
+const inFlight = ref(false)
 let pollTimer: number | undefined
 
 /** 手动触发单片 TMDB 横图回填(轮播管理页「横图」按钮) */
@@ -47,10 +53,10 @@ async function fillBackdrop(mid: number): Promise<void> {
       r.status === 'already' ? '该片已有横图（刷新后页面直接展示）'
       : r.status === 'miss' ? 'TMDB 检索无果（已标记未命中），暂不回填'
       : '横图已获取并回填'
-    window.alert(`影片 #${mid}：${tip}`)
+    toast(r.status === 'filled' ? 'success' : 'info', `影片 #${mid}：${tip}`)
     await load(true)
   } catch (e) {
-    window.alert((e as { message?: string })?.message || '获取横图失败，请稍后重试')
+    toast('error', (e as { message?: string })?.message || '获取横图失败，请稍后重试')
   } finally {
     fillingMids.value.delete(mid)
   }
@@ -72,12 +78,14 @@ async function refreshHot(): Promise<void> {
   refreshing.value = true
   try {
     const rep = await manageApi.banner.refreshHotBoard()
-    window.alert(
+    toast(
+      'success',
       `榜单刷新完成：抓取 ${rep.fetched} 条 · 匹配 ${rep.matched} 部 · 落库 ${rep.applied} 部 · 耗时 ${(rep.elapsedMs / 1000).toFixed(1)}s`
     )
     await load(true)
   } catch (e) {
-    window.alert((e as { message?: string })?.message || '榜单刷新失败，请稍后重试')
+    // refreshHotBoard 已 silent: true(关闭拦截器通用提示), 失败文案由这里给出
+    toast('error', (e as { message?: string })?.message || '榜单刷新失败，请稍后重试')
   } finally {
     refreshing.value = false
   }
@@ -145,6 +153,9 @@ interface Form {
   poster: string
   mid: string
   link: string
+  /** 排序值: 编辑时原样回传(sort 由排序操作统一维护, 服务端 Update 会把请求值写库,
+   *  丢掉会让该行在 ListAll 的 sort ASC 里排到最前); 新增固定 0, 服务端自行 maxSort+1 */
+  sort: number
   state: number
   startStr: string
   endStr: string
@@ -155,16 +166,19 @@ const form = reactive<Form>(blank())
 function blank(): Form {
   return {
     id: 0, title: '', subtitle: '', image: '', poster: '',
-    mid: '', link: '', state: 0, startStr: '', endStr: ''
+    mid: '', link: '', sort: 0, state: 0, startStr: '', endStr: ''
   }
 }
 
 async function load(silent = false): Promise<void> {
-  if (!silent) loading.value = true
+  if (!silent) {
+    loading.value = true
+    loadError.value = ''
+  }
   try {
     board.value = (await manageApi.banner.board()) ?? { active: [], inactive: [] }
   } catch (e) {
-    if (!silent) console.error('load banner board failed', e)
+    if (!silent) loadError.value = (e as { message?: string })?.message || '加载失败'
   } finally {
     if (!silent) loading.value = false
   }
@@ -188,6 +202,7 @@ function openEdit(row: Banner): void {
     poster: row.poster,
     mid: row.mid > 0 ? String(row.mid) : '',
     link: row.link,
+    sort: row.sort,
     state: row.state,
     startStr: msToLocal(row.startAt),
     endStr: msToLocal(row.endAt)
@@ -210,17 +225,17 @@ function adoptSlide(s: EffectiveSlide, slot: number): void {
 
 async function submit(): Promise<void> {
   if (!form.image && !form.poster) {
-    window.alert('至少需要上传横图或竖图')
+    toast('error', '至少需要上传横图或竖图')
     return
   }
   if (!form.link.trim() && !(Number(form.mid) > 0)) {
-    window.alert('需要配置跳转：关联影片 ID 或自定义链接')
+    toast('error', '需要配置跳转：关联影片 ID 或自定义链接')
     return
   }
   const startAt = localToMs(form.startStr)
   const endAt = localToMs(form.endStr)
   if (startAt > 0 && endAt > 0 && endAt < startAt) {
-    window.alert('结束时间不能早于开始时间')
+    toast('error', '结束时间不能早于开始时间')
     return
   }
   submitting.value = true
@@ -233,7 +248,7 @@ async function submit(): Promise<void> {
       poster: form.poster,
       mid: Number(form.mid) > 0 ? Number(form.mid) : 0,
       link: form.link.trim(),
-      sort: 0,
+      sort: form.sort,
       state: form.state,
       startAt,
       endAt
@@ -241,6 +256,8 @@ async function submit(): Promise<void> {
     sheetOpen.value = false
     adoptSlot.value = undefined
     await load(true)
+  } catch {
+    // 失败提示由 http 拦截器统一 toast; 表单保持打开, 用户可修正后重试
   } finally {
     submitting.value = false
   }
@@ -248,13 +265,42 @@ async function submit(): Promise<void> {
 
 /** 生效位排序: 手动位换位 / 自动位上移采纳(后端返回新 Board) */
 async function move(i: number, dir: 'up' | 'down'): Promise<void> {
-  board.value = await manageApi.banner.move(i, dir)
+  if (inFlight.value) return
+  inFlight.value = true
+  try {
+    board.value = await manageApi.banner.move(i, dir)
+  } catch {
+    // 错误已由 http 拦截器统一 toast; board 保持原值
+  } finally {
+    inFlight.value = false
+  }
 }
 
 /** 启用/停用配置行(停用自动补位里的 mid = 屏蔽) */
 async function toggleState(row: Banner): Promise<void> {
-  await manageApi.banner.save({ ...row, state: row.state === 0 ? 1 : 0 })
-  await load(true)
+  if (inFlight.value) return
+  inFlight.value = true
+  try {
+    await manageApi.banner.save({ ...row, state: row.state === 0 ? 1 : 0 })
+    await load(true)
+  } catch {
+    // 错误已由 http 拦截器统一 toast
+  } finally {
+    inFlight.value = false
+  }
+}
+
+/** 候选位「禁用」: 屏蔽影片的自动补位(后端返回新 Board) */
+async function disableByMid(mid: number): Promise<void> {
+  if (inFlight.value || mid <= 0) return
+  inFlight.value = true
+  try {
+    board.value = await manageApi.banner.disableByMid(mid)
+  } catch {
+    // 错误已由 http 拦截器统一 toast; board 保持原值
+  } finally {
+    inFlight.value = false
+  }
 }
 
 async function remove(row: Banner): Promise<void> {
@@ -265,8 +311,16 @@ async function remove(row: Banner): Promise<void> {
     danger: true
   })
   if (!ok) return
-  await manageApi.banner.remove(row.id)
-  await load(true)
+  if (inFlight.value) return
+  inFlight.value = true
+  try {
+    await manageApi.banner.remove(row.id)
+    await load(true)
+  } catch {
+    // 错误已由 http 拦截器统一 toast
+  } finally {
+    inFlight.value = false
+  }
 }
 
 function canMoveUp(s: EffectiveSlide, i: number): boolean {
@@ -322,6 +376,28 @@ function localToMs(s: string): number {
   return Number.isNaN(t) ? 0 : t
 }
 
+/** 未生效行排期文案: 让「未开始/已过期」的判断依据(何时起/止)可见。
+ *  返回 'YYYY-MM-DD HH:mm 起/止/~ …'; 未配置排期返回空串 */
+function scheduleLabel(row: InactiveBanner): string {
+  const fmt = (ms: number): string => {
+    const t = msToLocal(ms)
+    return t ? t.replace('T', ' ') : ''
+  }
+  const s = fmt(row.startAt)
+  const e = fmt(row.endAt)
+  if (s && e) return `${s} ~ ${e}`
+  if (s) return `${s} 起`
+  if (e) return `${e} 止`
+  return ''
+}
+
+/** 未生效行能否「启用」: 纯屏蔽行(disableByMid 产生的无图停用行)启用必被服务端
+ *  422 拒绝(启用中轮播至少需要横图或竖图), 按钮常假 —— 直接隐藏, 引导走编辑补图 */
+function canEnable(row: InactiveBanner): boolean {
+  if (row.state === 0) return false
+  return !(row.reason === 'disabled' && !row.image && !row.poster)
+}
+
 onMounted(() => {
   load()
   pollTimer = window.setInterval(() => {
@@ -359,6 +435,11 @@ onUnmounted(() => {
     </div>
 
     <div v-if="loading" class="text-muted text-sm py-[var(--jc-space-6)] text-center">加载中…</div>
+    <BaseEmpty
+      v-else-if="loadError"
+      :title="`加载失败：${loadError}`"
+      description="点击右上角「刷新」重试"
+    />
     <div
       v-else-if="!active.length"
       class="text-muted text-sm py-[var(--jc-space-6)] text-center"
@@ -464,28 +545,28 @@ onUnmounted(() => {
             @click="fillBackdrop(s.mid!)"
           >回填横图</BaseButton>
           <BaseButton
-            variant="ghost" size="sm" :disabled="!canMoveUp(s, i)"
+            variant="ghost" size="sm" :disabled="!canMoveUp(s, i) || inFlight"
             :title="s.source === 'banner' ? '上移' : '上移（转为手动位）'"
             @click="move(i, 'up')"
           >↑</BaseButton>
           <BaseButton
-            variant="ghost" size="sm" :disabled="!canMoveDown(s, i)"
+            variant="ghost" size="sm" :disabled="!canMoveDown(s, i) || inFlight"
             :title="s.source === 'banner' ? '下移' : '自动位恒在尾部'"
             @click="move(i, 'down')"
           >↓</BaseButton>
           <BaseButton
             v-if="s.source === 'banner'"
-            variant="ghost" size="sm" @click="s.banner && openEdit(s.banner)"
+            variant="ghost" size="sm" :disabled="inFlight" @click="s.banner && openEdit(s.banner)"
           >编辑</BaseButton>
-          <BaseButton v-else variant="ghost" size="sm" @click="adoptSlide(s, i)">编辑</BaseButton>
+          <BaseButton v-else variant="ghost" size="sm" :disabled="inFlight" @click="adoptSlide(s, i)">编辑</BaseButton>
           <BaseButton
-            variant="ghost" size="sm"
+            variant="ghost" size="sm" :disabled="inFlight"
             :title="s.source === 'banner' ? '停用' : '停用（屏蔽该影片的自动补位）'"
-            @click="s.source === 'banner' && s.banner ? toggleState(s.banner) : manageApi.banner.disableByMid(s.mid ?? 0).then(() => load(true))"
+            @click="s.source === 'banner' && s.banner ? toggleState(s.banner) : disableByMid(s.mid ?? 0)"
           >禁用</BaseButton>
           <BaseButton
             v-if="s.source === 'banner'"
-            variant="danger" size="sm" @click="s.banner && remove(s.banner)"
+            variant="danger" size="sm" :disabled="inFlight" @click="s.banner && remove(s.banner)"
           >删除</BaseButton>
         </div>
         </li>
@@ -547,6 +628,12 @@ onUnmounted(() => {
               <span v-else>无关联影片元信息</span>
             </span>
           </div>
+          <!-- 排期列(需求⑦: 未开始/已过期的判断依据要能看到时间) -->
+          <span
+            v-if="row.startAt || row.endAt"
+            class="text-muted text-xs whitespace-nowrap shrink-0"
+            title="排期（生效起 ~ 生效止）"
+          >{{ scheduleLabel(row) }}</span>
           <!-- 评分列(与生效行同宽) -->
           <span
             class="w-[44px] text-center text-xs tabular-nums shrink-0"
@@ -589,12 +676,13 @@ onUnmounted(() => {
               @click="fillBackdrop(row.mid)"
             >回填横图</BaseButton>
             <BaseButton
-              v-if="row.state !== 0"
+              v-if="canEnable(row)"
               variant="ghost" size="sm" title="启用后转为手动位"
+              :disabled="inFlight"
               @click="toggleState(row)"
             >启用</BaseButton>
-            <BaseButton variant="ghost" size="sm" @click="openEdit(row)">编辑</BaseButton>
-            <BaseButton variant="danger" size="sm" @click="remove(row)">删除</BaseButton>
+            <BaseButton variant="ghost" size="sm" :disabled="inFlight" @click="openEdit(row)">编辑</BaseButton>
+            <BaseButton variant="danger" size="sm" :disabled="inFlight" @click="remove(row)">删除</BaseButton>
           </div>
         </li>
       </ul>

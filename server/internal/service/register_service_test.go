@@ -121,12 +121,19 @@ func (f *fakeApplies) LatestByAccount(_ context.Context, account string) (*entit
 	return nil, domain.ErrNotFound
 }
 
-func (f *fakeApplies) List(_ context.Context, status int8, _ repository.Page) ([]entity.RegisterApply, int64, error) {
+func (f *fakeApplies) List(_ context.Context, keyword string, status int8, _ repository.Page) ([]entity.RegisterApply, int64, error) {
+	kw := strings.ToLower(strings.TrimSpace(keyword))
 	var out []entity.RegisterApply
 	for _, a := range f.rows {
-		if status == entity.ApplyStatusAny || a.Status == status {
-			out = append(out, *a)
+		if status != entity.ApplyStatusAny && a.Status != status {
+			continue
 		}
+		if kw != "" &&
+			!strings.Contains(strings.ToLower(a.UserName), kw) &&
+			!strings.Contains(strings.ToLower(a.Email), kw) {
+			continue
+		}
+		out = append(out, *a)
 	}
 	return out, int64(len(out)), nil
 }

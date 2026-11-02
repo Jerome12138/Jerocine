@@ -368,13 +368,22 @@ func TestApplyListStatusFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, total, err := svc.ApplyList(ctx, entity.ApplyStatusAny, repository.Page{Current: 1, Size: 20})
+	all, total, err := svc.ApplyList(ctx, "", entity.ApplyStatusAny, repository.Page{Current: 1, Size: 20})
 	if err != nil || total != 2 || len(all) != 2 {
 		t.Fatalf("全量列表不对: total=%d len=%d err=%v", total, len(all), err)
 	}
-	pend, _, _ := svc.ApplyList(ctx, entity.ApplyStatusPending, repository.Page{Current: 1, Size: 20})
+	pend, _, _ := svc.ApplyList(ctx, "", entity.ApplyStatusPending, repository.Page{Current: 1, Size: 20})
 	if len(pend) != 1 || pend[0].UserName != "u2" {
 		t.Fatalf("pending 过滤不对: %+v", pend)
+	}
+	// keyword 按用户名/邮箱模糊过滤
+	byName, _, _ := svc.ApplyList(ctx, "u2", entity.ApplyStatusAny, repository.Page{Current: 1, Size: 20})
+	if len(byName) != 1 || byName[0].UserName != "u2" {
+		t.Fatalf("keyword 用户名过滤不对: %+v", byName)
+	}
+	byEmail, _, _ := svc.ApplyList(ctx, "u1@qq", entity.ApplyStatusAny, repository.Page{Current: 1, Size: 20})
+	if len(byEmail) != 1 || byEmail[0].UserName != "u1" {
+		t.Fatalf("keyword 邮箱过滤不对: %+v", byEmail)
 	}
 }
 

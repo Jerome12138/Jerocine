@@ -193,6 +193,7 @@ type TmEventRow struct {
 	Platform    string                           `json:"platform"`
 	AppVersion  string                           `json:"appVersion"`
 	Extra       string                           `json:"extra"`
+	BatchCount  int64                            `json:"batchCount"`
 	Resolution  *entity.TelemetryIssueResolution `json:"resolution,omitempty"`
 	IssueStatus string                           `json:"issueStatus"`
 }
@@ -301,7 +302,9 @@ func (s *TelemetryService) ApiPerf(ctx context.Context, days, limit int) ([]TmAp
 }
 
 // ErrorEvents 看板错误列表: 按前端事件类型(extra.type)过滤 + 问题闭环 issueStatus + status 过滤。
-// 返回的 total 为该 type 命中总数(状态过滤前), rows 为当前页过滤后行。
+// 按 issue(category,path,label) 聚合(与 resolution 闭环同粒度), value=SUM(value) 累计次数,
+// batchCount=该 issue 的上报批次数; 状态过滤后 total=过滤总数, limit/offset 在内存分页
+// (聚合行数=窗口内 distinct issue 数, 量级可控)。
 func (s *TelemetryService) ErrorEvents(ctx context.Context, days int, frontendType, status string, limit, offset int) ([]TmEventRow, int64, error) {
 	if days <= 0 {
 		days = 7
@@ -312,29 +315,40 @@ func (s *TelemetryService) ErrorEvents(ctx context.Context, days int, frontendTy
 	if offset < 0 {
 		offset = 0
 	}
-	raw, total, err := s.repo.ListEventsByType(ctx, sinceUnixDays(days), frontendType, limit, offset)
+	aggs, err := s.repo.ListErrorIssues(ctx, sinceUnixDays(days), frontendType)
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(raw) == 0 {
-		return []TmEventRow{}, total, nil
+	if len(aggs) == 0 {
+		return []TmEventRow{}, 0, nil
 	}
-	hashes := make([]string, len(raw))
-	for i, e := range raw {
-		hashes[i] = IssueKey(e.Category, e.Path, e.Label)
+	hashes := make([]string, len(aggs))
+	for i, a := range aggs {
+		hashes[i] = IssueKey(a.Category, a.Path, a.Label)
 	}
 	resoMap, _ := s.repo.GetResolutions(ctx, hashes)
 	now := time.Now()
-	out := make([]TmEventRow, 0, len(raw))
-	for i, e := range raw {
+	out := make([]TmEventRow, 0, len(aggs))
+	for i, a := range aggs {
 		res := resoMap[hashes[i]]
-		st := classifyIssueStatus(res, e.ServerTs, now)
+		st := classifyIssueStatus(res, a.Latest.ServerTs, now)
 		if !statusMatches(status, st) {
 			continue
 		}
-		out = append(out, toEventRow(e, res, st))
+		row := toEventRow(a.Latest, res, st)
+		row.Value = a.TotalValue
+		row.BatchCount = a.BatchCount
+		out = append(out, row)
 	}
-	return out, total, nil
+	total := int64(len(out))
+	if offset >= len(out) {
+		return []TmEventRow{}, total, nil
+	}
+	end := offset + limit
+	if end > len(out) {
+		end = len(out)
+	}
+	return out[offset:end], total, nil
 }
 
 func (s *TelemetryService) Events(ctx context.Context, f repository.TelemetryFilter, page repository.Page) ([]entity.TelemetryEvent, int64, error) {
@@ -426,28 +440,30 @@ func sinceUnixDays(days int) int64 {
 	return time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
 }
 
-// ResolveIssue 标记问题已解决(key=sha1(category|path|label)), 关联 commitId。
-func (s *TelemetryService) ResolveIssue(ctx context.Context, category, path, label, commitId string) error {
+// ResolveIssue 标记问题已解决(key=sha1(category|path|label)), 关联 commitId + 备注。
+func (s *TelemetryService) ResolveIssue(ctx context.Context, category, path, label, commitId, note string) error {
 	key := IssueKey(category, path, label)
 	now := time.Now().UnixMilli()
 	res := &entity.TelemetryIssueResolution{
 		KeyHash: key, Category: category, Path: path, Label: label,
-		ResolvedCommitId: commitId, Resolved: true, CreatedAt: now, UpdatedAt: now,
+		ResolvedCommitId: commitId, Note: note, Resolved: true, CreatedAt: now, UpdatedAt: now,
 	}
 	return s.repo.UpsertResolution(ctx, res)
 }
 
-// UnresolveIssue 撤销解决标记, reopened_count +1。
+// UnresolveIssue 撤销解决标记, reopened_count +1。note 保留原值(撤销不清掉上次的解决备注)。
 func (s *TelemetryService) UnresolveIssue(ctx context.Context, category, path, label string) error {
 	key := IssueKey(category, path, label)
 	reopened := 1
+	note := ""
 	if cur, err := s.repo.GetResolution(ctx, key); err == nil && cur != nil {
 		reopened = cur.ReopenedCount + 1
+		note = cur.Note
 	}
 	now := time.Now().UnixMilli()
 	res := &entity.TelemetryIssueResolution{
 		KeyHash: key, Category: category, Path: path, Label: label,
-		Resolved: false, ReopenedCount: reopened, CreatedAt: now, UpdatedAt: now,
+		Note: note, Resolved: false, ReopenedCount: reopened, CreatedAt: now, UpdatedAt: now,
 	}
 	return s.repo.UpsertResolution(ctx, res)
 }

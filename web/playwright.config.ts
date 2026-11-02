@@ -11,7 +11,8 @@ import { defineConfig, devices } from '@playwright/test'
  *  - desktop-2k                           2560 x 1440
  *  - tv                                   1920 x 1080  (启用 ?mode=tv)
  *
- * 测试时自动启动 dev server（VITE_USE_MOCK=1 走 mock 数据）。
+ * 测试时自动启动 dev server（dev proxy 转发到本地后端 127.0.0.1:3601）。
+ * 注: 前端 mock 适配器已移除(见 main.ts), e2e 需要本地后端在跑, 否则打数据的用例会失败。
  */
 
 const PORT = 3600
@@ -106,9 +107,6 @@ export default defineConfig({
     command: 'npm run dev',
     url: baseURL,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    env: {
-      VITE_USE_MOCK: '1'
-    }
+    timeout: 120_000
   }
 })

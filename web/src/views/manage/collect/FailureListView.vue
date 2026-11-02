@@ -26,6 +26,7 @@ const STATUS_TABS = [
 const rows = ref<CollectFailure[]>([])
 const sourceNames = ref<Record<string, string>>({})
 const loading = ref(true)
+const loadError = ref('') // 列表加载失败: 明确报错+重试, 不伪装成"暂无失败记录"
 const busy = ref(false)
 const status = ref<number>(0)
 const page = ref(1)
@@ -42,14 +43,24 @@ const columns = [
   { key: 'createdAt' as const, label: '失败时间', width: '170px' }
 ]
 
+// 请求序号守卫: 快速切 tab/翻页时多个请求并发在飞, 只采纳最新一次的响应,
+// 防止慢的旧响应后到覆盖 rows/total 造成"标签在全部、数据是已处理"的错位
+let loadSeq = 0
+
 async function load(): Promise<void> {
+  const my = ++loadSeq
   loading.value = true
+  loadError.value = ''
   try {
     const resp = await collectApi.failures({ status: status.value, page: page.value, size: size.value })
+    if (my !== loadSeq) return // 旧响应后到, 丢弃
     rows.value = Array.isArray(resp?.list) ? resp.list : []
     total.value = resp?.page?.total ?? rows.value.length
+  } catch (e) {
+    if (my !== loadSeq) return
+    loadError.value = (e as Error)?.message ?? '加载失败'
   } finally {
-    loading.value = false
+    if (my === loadSeq) loading.value = false
   }
 }
 
@@ -80,8 +91,11 @@ function changePage(p: number): void {
 async function recover(ids?: number[]): Promise<void> {
   busy.value = true
   try {
-    const r = await collectApi.recoverFailures(ids)
+    // silent: 拦截器的通用"操作成功"与下面具体文案会叠两条
+    const r = await collectApi.recoverFailures(ids, { silent: true })
     toast('success', `已提交补采，当前待补采 ${r?.pending ?? '?'} 条，稍后刷新查看`)
+    // 补采提交后徽标/按钮可用性要跟上: 立即重查 pending 数
+    void loadPending()
     // 后台异步执行，给一点时间让服务端开始跑；不需要立刻刷新
     if (status.value === 1) await load()
   } catch (e) {
@@ -101,9 +115,10 @@ async function clearHandled(): Promise<void> {
   if (!ok) return
   busy.value = true
   try {
-    const r = await collectApi.clearHandledFailures()
+    const r = await collectApi.clearHandledFailures({ silent: true })
     toast('success', `已清理 ${r?.deleted ?? 0} 条`)
     await load()
+    void loadPending()
   } catch (e) {
     toast('error', (e as Error).message ?? '清理失败')
   } finally {
@@ -111,17 +126,20 @@ async function clearHandled(): Promise<void> {
   }
 }
 
-const pendingCount = ref(0)
+// 待补采徽标: null = 尚未成功拿到(不冒充 0), 0 = 确认无待补采。
+// 此前只在挂载时取一次且失败归 0 → 探测请求一挂, 「补采全部」被永久误禁用且无重试入口。
+const pendingCount = ref<number | null>(null)
 async function loadPending(): Promise<void> {
   try {
     const resp = await collectApi.failures({ status: 0, page: 1, size: 1 })
     pendingCount.value = resp?.page?.total ?? 0
   } catch {
-    pendingCount.value = 0
+    /* 失败保持原值(首次为 null), 不归 0 —— 宁可多给一次补采入口, 不误禁用 */
   }
 }
 
-const canRecoverAll = computed(() => pendingCount.value > 0)
+// pendingCount=null(未知)时不因徽标缺失而禁用「补采全部」; 确认为 0 才禁
+const canRecoverAll = computed(() => pendingCount.value === null || pendingCount.value > 0)
 
 function srcLabel(id: string): string {
   return sourceNames.value[id] ?? id
@@ -139,14 +157,28 @@ function fmtTime(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+/** 工具栏「刷新」: 列表与待补采徽标一起重查(此前只调 load, 徽标不更新) */
+async function refresh(): Promise<void> {
+  await Promise.all([load(), loadPending()])
+}
+
 onMounted(async () => {
   await Promise.all([loadSources(), loadPending()])
   await load()
-})
-</script>
+})</script>
 
 <template>
   <div class="flex flex-col gap-[var(--jc-space-4)]">
+    <!-- 加载失败: 明确报错 + 重试, 不落"暂无失败记录"空态 -->
+    <div
+      v-if="loadError"
+      class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)]"
+    >
+      <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
+      <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
+      <BaseButton variant="outline" size="sm" class="ml-auto" @click="refresh">点击重试</BaseButton>
+    </div>
+
     <ManageTable
       :columns="columns"
       :rows="rows"
@@ -167,12 +199,12 @@ onMounted(async () => {
               @click="switchStatus(t.value)"
             >
               {{ t.label }}
-              <template v-if="t.value === 0 && pendingCount > 0">（{{ pendingCount }}）</template>
+              <template v-if="t.value === 0 && pendingCount !== null && pendingCount > 0">（{{ pendingCount }}）</template>
             </BaseButton>
           </div>
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap">
-          <BaseButton variant="ghost" size="sm" @click="load">
+          <BaseButton variant="ghost" size="sm" @click="refresh">
             <BaseIcon name="refresh" size="16px" /> 刷新
           </BaseButton>
           <BaseButton

@@ -138,12 +138,22 @@ func (e *Engine) Collect(ctx context.Context, src *entity.CollectSource, hours i
 	if master {
 		cache.InvalidateAfterCollect(finCtx(ctx))
 	}
-	if cache.JobReadState(ctx, src.Id) != cache.JobCanceled {
+	// 收尾区分自然完成与中断: 此前只豁免 canceled, 且用可能已取消的 ctx 读状态
+	// (停机时 Redis 读失败得 "" ≠ canceled 必然误判) —— 停机会把暂停中/进行中的任务
+	// 洗成"已完成", 监控页进度 <100% 却显示完成, 管理员看不出任务被中断(每次发版必现)。
+	// 现改用 finCtx 读状态: 用户取消保持 canceled; 暂停中被停机 / 停机且未采满 → 标记
+	// error("服务重启中断"); 其余(自然跑完)置 done。
+	st := cache.JobReadState(finCtx(ctx), src.Id)
+	snap, _ := cache.JobSnapshot(finCtx(ctx), src.Id)
+	switch {
+	case st == cache.JobCanceled:
+		// 用户取消: 保持 canceled, 不改写
+	case st == cache.JobPaused || (ctx.Err() != nil && snap.Total > 0 && snap.Done < snap.Total):
+		cache.JobFail(finCtx(ctx), src.Id, "服务重启中断，可重新触发采集")
+	default:
 		// 采集成功打一行完整日志: 此前成功路径完全无日志, 排障时"任务在跑却看不到活动"。
-		if p, e2 := cache.JobSnapshot(finCtx(ctx), src.Id); e2 == nil {
-			log.Printf("spider: 采集完成 src=%s name=%s total=%d done=%d failed=%d",
-				src.Id, p.Name, p.Total, p.Done, p.Failed)
-		}
+		log.Printf("spider: 采集完成 src=%s name=%s total=%d done=%d failed=%d",
+			src.Id, snap.Name, snap.Total, snap.Done, snap.Failed)
 		cache.JobSetState(finCtx(ctx), src.Id, cache.JobDone)
 	}
 	return nil

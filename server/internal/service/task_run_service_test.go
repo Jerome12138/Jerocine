@@ -86,12 +86,17 @@ func (f *fakeTaskRunRepo) CountSince(_ context.Context, sinceMs int64) (int64, i
 	}
 	return succ, fail, nil
 }
-func (f *fakeTaskRunRepo) CountRunning(_ context.Context) (int64, error) {
+func (f *fakeTaskRunRepo) CountRunning(_ context.Context, excludeSourceIds []string) (int64, error) {
+	exclude := make(map[string]bool, len(excludeSourceIds))
+	for _, id := range excludeSourceIds {
+		exclude[id] = true
+	}
 	var n int64
 	for _, r := range f.rows {
-		if r.Status == entity.TaskRunRunning {
-			n++
+		if r.Status != entity.TaskRunRunning || exclude[r.SourceId] {
+			continue
 		}
+		n++
 	}
 	return n, nil
 }
@@ -114,7 +119,7 @@ func TestTaskRunService_MarkInterrupted(t *testing.T) {
 	svc.Start(entity.TaskRunKindCron, entity.TaskRunCollect, 3, "", "定时任务#3", 24)
 	svc.MarkInterrupted(ctx)
 
-	if o := svc.Overview(ctx, 0, 0); o.Running != 0 || o.TodayFailed != 1 {
+	if o := svc.Overview(ctx, nil, 0); o.Running != 0 || o.TodayFailed != 1 {
 		t.Fatalf("中断后统计不符: %+v", o)
 	}
 	list, _, _ := svc.List(ctx, entity.TaskRunFailed, "", repository.Page{Current: 1, Size: 20})
@@ -145,7 +150,7 @@ func TestTaskRunService_Lifecycle(t *testing.T) {
 
 	// 统计: 今天的失败数 = 1, 运行中 = 0
 	svc.Start(entity.TaskRunKindCron, entity.TaskRunRecover, 3, "", "定时任务#3", 0)
-	o := svc.Overview(ctx, 0, 5)
+	o := svc.Overview(ctx, nil, 5)
 	if o.TodayFailed != 1 || o.Running != 1 || o.PendingFailures != 5 {
 		t.Fatalf("overview 不符: %+v", o)
 	}
@@ -168,8 +173,38 @@ func TestTaskRunService_NilRepoNoop(t *testing.T) {
 	if _, err := svc.Get(context.Background(), 1); err != ErrTasksUnavailable {
 		t.Fatalf("nil 仓库 Get 应报 ErrTasksUnavailable, got %v", err)
 	}
-	if o := svc.Overview(context.Background(), 2, 3); o.Running != 2 || o.PendingFailures != 3 {
+	if o := svc.Overview(context.Background(), map[string]bool{"a": true, "b": true}, 3); o.Running != 2 || o.PendingFailures != 3 {
 		t.Fatalf("nil 仓库 Overview 应保留注入值: %+v", o)
+	}
+}
+
+// 运行中去重: 一次采集同时有 Redis 活跃 job 与台账 running 行,
+// Overview 须按源 id 剔除台账侧行, 不把同一任务数成两个。
+func TestTaskRunService_OverviewDedupActiveJobs(t *testing.T) {
+	repo := &fakeTaskRunRepo{}
+	svc := NewTaskRunService(repo)
+	ctx := context.Background()
+
+	// 手动单源采集中: Redis job(src_a) + 台账 running 行(source_id=src_a) 并存
+	svc.Start(entity.TaskRunKindManual, entity.TaskRunCollect, 0, "src_a", "手动采集：源A", 24)
+	// 另一条与 Redis job 无关的 running 行(如榜单刷新, source_id 为空)照常计入
+	svc.Start(entity.TaskRunKindManual, entity.TaskRunHotRefresh, 0, "", "榜单热度刷新", 0)
+
+	active := map[string]bool{"src_a": true, "src_b": true} // src_b 只有 job 没有台账行
+	o := svc.Overview(ctx, active, 0)
+	if o.Running != 3 {
+		t.Fatalf("去重后运行中应为 3(job src_a/src_b 计 2 + 空源台账行 1, 台账 src_a 被剔除): %+v", o)
+	}
+
+	// 无去重时会双计: 与旧行为(2 job + 2 台账行 = 4)对照, 恰好少 1
+	if o2 := svc.Overview(ctx, map[string]bool{"src_a": true}, 0); o2.Running != 2 {
+		t.Fatalf("job src_a 与台账 src_a 行应合并为 1(再加空源行): %+v", o2)
+	}
+
+	// 台账行对应源无活跃 job 时不被误剔
+	o = svc.Overview(ctx, map[string]bool{"src_b": true}, 0)
+	if o.Running != 3 {
+		t.Fatalf("无重叠时应全计(job 1 + 台账 2): %+v", o)
 	}
 }
 

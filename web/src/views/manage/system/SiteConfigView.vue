@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
 import { toast } from '@/api/http'
+import { confirm } from '@/composables/useConfirm'
 import type { RuntimeSettings, SiteBasic } from '@/types/manage'
 import { useSiteStore } from '@/stores/site'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
@@ -19,6 +20,8 @@ import DanmuConfigCard from './DanmuConfigCard.vue'
  */
 const siteStore = useSiteStore()
 const loading = ref(true)
+/** 首屏加载失败: 各卡保存禁用 —— 否则空表单/默认值会把库内配置整体覆盖掉 */
+const loadError = ref(false)
 const submitting = ref(false)
 const form = reactive<SiteBasic>({
   siteName: '',
@@ -50,8 +53,10 @@ let runtimeSaved: RuntimeSettings = { ...DEFAULT_RUNTIME }
 const accountBusy = ref(false)
 const spiderBusy = ref(false)
 
-async function loadKey(): Promise<void> {
-  const k = await manageApi.system.getTMDBKey()
+/** 读 TMDB 掩码状态。初次加载直接复用 getBasic 已取回的响应（省一次同端点请求）；
+ *  保存/清除 Key 后不传参，走独立 GET 拿最新状态。 */
+async function loadKey(initial?: { masked: string; set: boolean }): Promise<void> {
+  const k = initial ?? (await manageApi.system.getTMDBKey())
   tmdb.masked = k.masked
   tmdb.set = k.set
 }
@@ -82,6 +87,13 @@ async function saveKey(): Promise<void> {
 }
 
 async function clearKey(): Promise<void> {
+  const ok = await confirm({
+    title: '清除 TMDB Key',
+    desc: '清除后横图（backdrop）回填停用，已落地图不受影响。确定清除吗？',
+    okText: '清除',
+    danger: true
+  })
+  if (!ok) return
   keyBusy.value = true
   try {
     await manageApi.system.clearTMDBKey()
@@ -96,16 +108,37 @@ async function clearKey(): Promise<void> {
 
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = false
   try {
     const data = await manageApi.system.getBasic()
     Object.assign(form, data)
-    await Promise.all([loadKey(), loadRuntime()])
+    // TMDB 掩码直接复用本次响应, 不再对同一端点发第二个 GET
+    loadKey(data)
+    await loadRuntime()
+  } catch {
+    // 失败必须拦住: 表单是空字段、运行参数是默认值, 此时允许保存会把库内配置整体覆盖
+    loadError.value = true
   } finally {
     loading.value = false
   }
 }
 
+/** 只重取站点基础信息回填本卡表单 —— 不动运行参数/TMDB, 避免冲掉别的卡里未保存的草稿 */
+async function resetBasic(): Promise<void> {
+  try {
+    const data = await manageApi.system.getBasic()
+    Object.assign(form, data)
+    loadKey(data)
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '重置失败')
+  }
+}
+
 async function submit(): Promise<void> {
+  if (!form.siteName.trim()) {
+    toast('error', '请填写站点名称')
+    return
+  }
   submitting.value = true
   try {
     await manageApi.system.updateBasic({ ...form })
@@ -202,6 +235,17 @@ onMounted(load)
       </div>
     </header>
 
+    <!-- 加载失败: 明确错误态 + 重试; 各卡保存禁用, 防止以空值/默认值覆盖库内配置 -->
+    <section
+      v-if="loadError"
+      class="bg-surface rounded-card shadow-card p-[var(--jc-space-4)] flex flex-wrap items-center justify-between gap-[var(--jc-space-3)]"
+    >
+      <p class="text-sm text-[var(--jc-danger)]">
+        系统设置加载失败：为避免用空值 / 默认值覆盖线上配置，各卡片的保存按钮已禁用。
+      </p>
+      <BaseButton variant="outline" size="sm" @click="load">重试</BaseButton>
+    </section>
+
     <div class="grid grid-cols-1 gap-[var(--jc-space-5)] xl:grid-cols-2">
       <!-- 站点信息 -->
       <section
@@ -243,8 +287,15 @@ onMounted(load)
           </ManageFormField>
 
           <div class="mt-auto flex justify-end gap-[var(--jc-space-3)]">
-            <BaseButton variant="ghost" type="button" @click="load">重置</BaseButton>
-            <BaseButton variant="gradient" type="submit" :loading="submitting">保存</BaseButton>
+            <BaseButton variant="ghost" type="button" @click="resetBasic">重置</BaseButton>
+            <BaseButton
+              variant="gradient"
+              type="submit"
+              :loading="submitting"
+              :disabled="loadError"
+            >
+              保存
+            </BaseButton>
           </div>
         </form>
       </section>
@@ -281,10 +332,17 @@ onMounted(load)
           <ManageInput v-model="newKey" placeholder="粘贴 v3 API Key 或 v4 Read Access Token" />
         </ManageFormField>
         <div class="mt-auto flex justify-end gap-[var(--jc-space-3)]">
-          <BaseButton v-if="tmdb.set" variant="ghost" :disabled="keyBusy" @click="clearKey">
+          <BaseButton
+            v-if="tmdb.set"
+            variant="ghost"
+            :disabled="keyBusy || loadError"
+            @click="clearKey"
+          >
             清除
           </BaseButton>
-          <BaseButton variant="gradient" :loading="keyBusy" @click="saveKey">保存 Key</BaseButton>
+          <BaseButton variant="gradient" :loading="keyBusy" :disabled="loadError" @click="saveKey">
+            保存 Key
+          </BaseButton>
         </div>
       </section>
 
@@ -303,7 +361,14 @@ onMounted(load)
           <ManageInput v-model="runtime.maxDeviceLogin" type="number" />
         </ManageFormField>
         <div class="mt-auto flex justify-end">
-          <BaseButton variant="gradient" :loading="accountBusy" @click="saveAccount">保存</BaseButton>
+          <BaseButton
+            variant="gradient"
+            :loading="accountBusy"
+            :disabled="loadError"
+            @click="saveAccount"
+          >
+            保存
+          </BaseButton>
         </div>
       </section>
 
@@ -334,7 +399,14 @@ onMounted(load)
           <ManageInput v-model="runtime.spiderSlaveMaxWorkers" type="number" />
         </ManageFormField>
         <div class="mt-auto flex justify-end">
-          <BaseButton variant="gradient" :loading="spiderBusy" @click="saveSpider">保存</BaseButton>
+          <BaseButton
+            variant="gradient"
+            :loading="spiderBusy"
+            :disabled="loadError"
+            @click="saveSpider"
+          >
+            保存
+          </BaseButton>
         </div>
       </section>
     </div>

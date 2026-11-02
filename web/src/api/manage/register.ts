@@ -7,8 +7,9 @@ import type { RegisterApplyActionResp, RegisterApplyRow } from '@/types/manage'
  * 邮件失败不阻断 —— 响应 warning 透出 SMTP 原文, 后台可补发。
  */
 
-/** GET /manage/register/applies 申请列表（status 缺省 -1 不限; 0 待审/1 已通过/2 已驳回; 时间倒序分页） */
+/** GET /manage/register/applies 申请列表（status 缺省 -1 不限; 0 待审/1 已通过/2 已驳回; keyword 按用户名/邮箱模糊; 时间倒序分页） */
 export const list = (params: {
+  keyword?: string
   status?: number
   page?: number
   size?: number

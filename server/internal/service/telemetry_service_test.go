@@ -15,6 +15,8 @@ type fakeTelemetry struct {
 	inserted   []entity.TelemetryEvent
 	upserted   *entity.TelemetryIssueResolution
 	existing   *entity.TelemetryIssueResolution
+	issues     []repository.TelemetryIssueAgg
+	reso       map[string]*entity.TelemetryIssueResolution
 }
 
 func (f *fakeTelemetry) BatchInsert(_ context.Context, list []entity.TelemetryEvent) error {
@@ -30,6 +32,18 @@ func (f *fakeTelemetry) GetResolution(context.Context, string) (*entity.Telemetr
 func (f *fakeTelemetry) UpsertResolution(_ context.Context, r *entity.TelemetryIssueResolution) error {
 	f.upserted = r
 	return nil
+}
+func (f *fakeTelemetry) ListErrorIssues(context.Context, int64, string) ([]repository.TelemetryIssueAgg, error) {
+	return f.issues, nil
+}
+func (f *fakeTelemetry) GetResolutions(_ context.Context, hashes []string) (map[string]*entity.TelemetryIssueResolution, error) {
+	m := make(map[string]*entity.TelemetryIssueResolution, len(hashes))
+	for _, h := range hashes {
+		if r, ok := f.reso[h]; ok {
+			m[h] = r
+		}
+	}
+	return m, nil
 }
 
 func TestIsNoise(t *testing.T) {
@@ -184,18 +198,78 @@ func TestStatusMatches(t *testing.T) {
 func TestResolveUnresolve(t *testing.T) {
 	ft := &fakeTelemetry{}
 	svc := NewTelemetryService(ft, nil, nil, []string{"jerocine.art"}, nil)
-	if err := svc.ResolveIssue(context.Background(), "api", "/films", "slow", "abc123"); err != nil {
+	if err := svc.ResolveIssue(context.Background(), "api", "/films", "slow", "abc123", "改了重试逻辑"); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if ft.upserted == nil || !ft.upserted.Resolved || ft.upserted.ResolvedCommitId != "abc123" {
+	if ft.upserted == nil || !ft.upserted.Resolved || ft.upserted.ResolvedCommitId != "abc123" || ft.upserted.Note != "改了重试逻辑" {
 		t.Fatalf("resolve upsert: %+v", ft.upserted)
 	}
-	// unresolve 时 reopened_count 应基于已存在记录 +1
-	ft.existing = &entity.TelemetryIssueResolution{ReopenedCount: 2}
+	// unresolve 时 reopened_count 应基于已存在记录 +1, 且保留原 note
+	ft.existing = &entity.TelemetryIssueResolution{ReopenedCount: 2, Note: "改了重试逻辑"}
 	if err := svc.UnresolveIssue(context.Background(), "api", "/films", "slow"); err != nil {
 		t.Fatalf("unresolve: %v", err)
 	}
-	if ft.upserted.Resolved || ft.upserted.ReopenedCount != 3 {
+	if ft.upserted.Resolved || ft.upserted.ReopenedCount != 3 || ft.upserted.Note != "改了重试逻辑" {
 		t.Fatalf("unresolve upsert: %+v", ft.upserted)
+	}
+}
+
+// 变异验证锚点: 把 ErrorEvents 的 statusMatches 过滤删掉 / total 改回过滤前计数 /
+// 行的 Value 改回单批值, 本用例分别变红。
+func TestErrorEvents_AggregatesFiltersPaginates(t *testing.T) {
+	ft := &fakeTelemetry{}
+	now := time.Now()
+	ft.issues = []repository.TelemetryIssueAgg{
+		// unresolved: 累计 5 次 / 3 批
+		{Category: "js-error", Label: "boom", TotalValue: 5, BatchCount: 3,
+			Latest: entity.TelemetryEvent{Category: "js-error", Label: "boom", ServerTs: now.Add(-1 * time.Hour)}},
+		// resolved(解决 24h 内未再触发)
+		{Category: "js-error", Label: "fixed", TotalValue: 9, BatchCount: 2,
+			Latest: entity.TelemetryEvent{Category: "js-error", Label: "fixed", ServerTs: now.Add(-2 * time.Hour)}},
+		// expired(解决 >30 天)
+		{Category: "js-error", Label: "old", TotalValue: 1, BatchCount: 1,
+			Latest: entity.TelemetryEvent{Category: "js-error", Label: "old", ServerTs: now.Add(-1 * time.Hour)}},
+	}
+	ft.reso = map[string]*entity.TelemetryIssueResolution{
+		IssueKey("js-error", "", "fixed"): {Resolved: true, UpdatedAt: now.Add(-24 * time.Hour).UnixMilli()},
+		IssueKey("js-error", "", "old"):   {Resolved: true, UpdatedAt: now.Add(-40 * 24 * time.Hour).UnixMilli()},
+	}
+	svc := NewTelemetryService(ft, nil, nil, nil, nil)
+
+	// active(默认) 只含 unresolved+reopened
+	rows, total, err := svc.ErrorEvents(context.Background(), 7, "error", "active", 100, 0)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if total != 1 || len(rows) != 1 || rows[0].Label != "boom" {
+		t.Fatalf("active: total=%d rows=%+v", total, rows)
+	}
+	if rows[0].Value != 5 || rows[0].BatchCount != 3 {
+		t.Fatalf("聚合值: value=%v batchCount=%v want 5/3", rows[0].Value, rows[0].BatchCount)
+	}
+
+	// all: total=过滤后总数(3), 与返回行数解耦
+	rows, total, err = svc.ErrorEvents(context.Background(), 7, "error", "all", 2, 0)
+	if err != nil || total != 3 || len(rows) != 2 {
+		t.Fatalf("all page1: err=%v total=%d len=%d", err, total, len(rows))
+	}
+	rows, total, err = svc.ErrorEvents(context.Background(), 7, "error", "all", 2, 2)
+	if err != nil || total != 3 || len(rows) != 1 || rows[0].Label != "old" {
+		t.Fatalf("all page2: err=%v total=%d rows=%+v", err, total, rows)
+	}
+	// offset 越界 → 空页但 total 保留
+	rows, total, err = svc.ErrorEvents(context.Background(), 7, "error", "all", 2, 99)
+	if err != nil || total != 3 || len(rows) != 0 {
+		t.Fatalf("all offset 越界: err=%v total=%d len=%d", err, total, len(rows))
+	}
+
+	// resolved / expired 精确过滤
+	for _, c := range []struct{ status, label string }{
+		{"resolved", "fixed"}, {"expired", "old"},
+	} {
+		rows, total, err := svc.ErrorEvents(context.Background(), 7, "error", c.status, 100, 0)
+		if err != nil || total != 1 || len(rows) != 1 || rows[0].Label != c.label {
+			t.Fatalf("%s: err=%v total=%d rows=%+v", c.status, err, total, rows)
+		}
 	}
 }

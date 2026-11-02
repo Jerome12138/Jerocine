@@ -14,6 +14,8 @@ import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
  * 保存走 PUT /manage/mail/config；凭据只写不读（留空 = 不修改）。
  */
 const loading = ref(true)
+/** 加载失败: 展示错误态 + 重试 —— 默认值表单可直接把线上注册模式/SMTP 开关静默覆盖, 必须拦住 */
+const loadError = ref(false)
 const submitting = ref(false)
 const testing = ref(false)
 const presets = ref<SmtpPreset[]>([])
@@ -22,12 +24,13 @@ const form = reactive({
   registerMode: 'off' as MailConfigResp['registerMode'],
   smtpEnabled: 0,
   smtpHost: '',
-  smtpPort: 465,
+  // ManageInput 数字框清空时会发 ''（见 normalizePort 的回落处理）
+  smtpPort: 465 as number | '',
   smtpSecure: 'ssl' as SmtpPreset['secure'],
   smtpUser: '',
   smtpFromName: '',
   /** 全局出站日配额（含测试邮件）；后端 1~1000，默认 50 */
-  mailDailyQuota: 50
+  mailDailyQuota: 50 as number | ''
 })
 /** 授权码输入框只写不读: 留空 = 不修改已存值(与 TMDB Key 同范式) */
 const passDraft = ref('')
@@ -43,6 +46,7 @@ const modeOptions: { value: MailConfigResp['registerMode']; label: string }[] = 
 
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = false
   try {
     const data = await manageApi.mail.getMailConfig()
     presets.value = data.presets
@@ -56,6 +60,9 @@ async function load(): Promise<void> {
     form.mailDailyQuota = data.mailDailyQuota
     passSet.value = data.smtpPassSet
     passMasked.value = data.smtpPassMasked
+  } catch {
+    // 失败时不按默认值渲染可编辑表单: registerMode/SMTP 开关会被静默写坏
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -70,26 +77,44 @@ function applyPreset(id: string): void {
   form.smtpSecure = p.secure
 }
 
+/** 端口归一: 数字框清空时 ManageInput 给 ''，回落默认 465；其余转数字 */
+function normalizePort(): number {
+  if (form.smtpPort === '') return 465
+  const n = Number(form.smtpPort)
+  return Number.isNaN(n) ? 0 : n
+}
+
 function buildPayload(): MailConfigUpdate {
   const pass = passDraft.value.trim()
   return {
     registerMode: form.registerMode,
     smtpEnabled: form.smtpEnabled,
     smtpHost: form.smtpHost.trim(),
-    smtpPort: form.smtpPort,
+    smtpPort: normalizePort(),
     smtpSecure: form.smtpSecure,
     smtpUser: form.smtpUser.trim(),
     ...(pass ? { smtpPass: pass } : {}),
     smtpFromName: form.smtpFromName.trim(),
-    // 数字框清空时 ManageInput 会给 ''，统一收敛成 0（后端语义：0 = 不修改）
+    // 数字框清空时 ManageInput 会给 ''，统一收敛成 0（后端语义：0 = 不修改，保留现值）
     mailDailyQuota: Number(form.mailDailyQuota) || 0
   }
 }
 
 async function submit(): Promise<void> {
+  // 启用 SMTP 但配置不完整: 前端先拦下, 别让后端一句英文 "invalid argument" 让管理员无从下手
+  if (form.smtpEnabled === 1 && smtpIncomplete.value) {
+    toast('error', '启用 SMTP 需填写服务器 / 账号 / 授权码')
+    return
+  }
+  const port = normalizePort()
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    toast('error', 'SMTP 端口需为 1~65535 的整数')
+    return
+  }
+  // 0 = 不修改（后端保留现值），1~1000 为合法区间
   const quota = Number(form.mailDailyQuota) || 0
-  if (quota < 1 || quota > 1000) {
-    toast('error', '每日出站上限需在 1~1000 之间')
+  if (quota !== 0 && (quota < 1 || quota > 1000)) {
+    toast('error', '每日出站上限需在 1~1000 之间（清空表示不修改）')
     return
   }
   submitting.value = true
@@ -113,6 +138,11 @@ async function submitTest(): Promise<void> {
     toast('error', '请先填写测试收件邮箱')
     return
   }
+  // 与 server ValidEmail 同则的格式预校验: 别让 400 "invalid argument" 代替人话
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    toast('error', '测试收件邮箱格式不正确')
+    return
+  }
   testing.value = true
   try {
     await manageApi.mail.testMail({ ...buildPayload(), to })
@@ -127,6 +157,17 @@ async function submitTest(): Promise<void> {
 const smtpIncomplete = computed(
   () => !form.smtpHost.trim() || !form.smtpUser.trim() || !(passSet.value || passDraft.value.trim())
 )
+
+/** 邮件通道不可用警告: 覆盖两种情况 —— 启用了但配置不完整 / 注册模式(open/apply)依赖邮件通道却没开或没配好 */
+const mailChannelWarning = computed(() => {
+  if (form.registerMode !== 'off' && (form.smtpEnabled === 0 || smtpIncomplete.value)) {
+    return '当前注册模式依赖邮件通道：请先启用并配好 SMTP（服务器 / 账号 / 授权码），否则注册邮件会发送失败。'
+  }
+  if (form.smtpEnabled === 1 && smtpIncomplete.value) {
+    return 'SMTP 配置不完整：启用后服务器 / 账号 / 授权码均必填，否则发码会被拒绝。'
+  }
+  return ''
+})
 
 const passHint = computed(() =>
   passSet.value
@@ -151,6 +192,17 @@ onMounted(load)
 
     <div v-if="loading" class="flex flex-col gap-[var(--jc-space-3)]">
       <BaseSkeleton v-for="i in 8" :key="i" shape="rect" height="44px" />
+    </div>
+
+    <div
+      v-else-if="loadError"
+      class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-8)]"
+    >
+      <p class="text-sm text-[var(--jc-danger)]">
+        邮件与注册配置读取失败：为避免用默认值覆盖线上配置（注册模式 / SMTP
+        开关），已禁用编辑与保存。
+      </p>
+      <BaseButton variant="outline" size="sm" @click="load">重试</BaseButton>
     </div>
 
     <form v-else class="flex flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">
@@ -238,8 +290,8 @@ onMounted(load)
           <ManageInput v-model="form.mailDailyQuota" type="number" />
         </ManageFormField>
 
-        <p v-if="form.smtpEnabled === 1 && smtpIncomplete" class="text-xs text-[var(--jc-warning)]">
-          SMTP 配置不完整：启用后服务器 / 账号 / 授权码均必填，否则发码会被拒绝。
+        <p v-if="mailChannelWarning" class="text-xs text-[var(--jc-warning)]">
+          {{ mailChannelWarning }}
         </p>
       </div>
 

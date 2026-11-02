@@ -11,9 +11,11 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { confirm } from '@/composables/useConfirm'
+import { toast } from '@/api/http'
 
 const tree = ref<FilmClass[]>([])
 const loading = ref(true)
+const loadError = ref('')
 const dialogOpen = ref(false)
 const submitting = ref(false)
 const editing = ref<FilmClass | null>(null)
@@ -21,7 +23,6 @@ const form = reactive<FilmClass>({
   id: 0,
   pid: 0,
   name: '',
-  ename: '',
   show: true,
   sidebarShow: true,
   filmVisible: true,
@@ -30,8 +31,12 @@ const form = reactive<FilmClass>({
 
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = ''
   try {
     tree.value = await manageApi.film.classTree()
+  } catch (e) {
+    // 失败走显式错误态+重试, 不冒充"暂无分类数据"(全局拦截器已 toast, 页面主体不能撒谎)
+    loadError.value = (e as Error).message ?? '加载失败'
   } finally {
     loading.value = false
   }
@@ -50,14 +55,14 @@ function openEdit(node: FilmClass): void {
 function openAddTop(): void {
   editing.value = null
   addingUnder.value = ''
-  Object.assign(form, { id: 0, pid: 0, name: '', ename: '', show: true, sidebarShow: true, filmVisible: true, sort: 0 })
+  Object.assign(form, { id: 0, pid: 0, name: '', show: true, sidebarShow: true, filmVisible: true, sort: 0 })
   dialogOpen.value = true
 }
 
 function openAddChild(parent: FilmClass): void {
   editing.value = null
   addingUnder.value = parent.name
-  Object.assign(form, { id: 0, pid: parent.id, name: '', ename: '', show: true, sidebarShow: true, filmVisible: true, sort: 0 })
+  Object.assign(form, { id: 0, pid: parent.id, name: '', show: true, sidebarShow: true, filmVisible: true, sort: 0 })
   dialogOpen.value = true
 }
 
@@ -77,13 +82,22 @@ function updateNodeById(id: number, patch: Partial<FilmClass>): boolean {
 async function toggleShow(node: FilmClass): Promise<void> {
   const next = !node.show
   updateNodeById(node.id, { show: next })
-  await manageApi.film.classUpdate({ ...node, show: next })
+  try {
+    await manageApi.film.classUpdate({ ...node, show: next })
+  } catch {
+    // 拦截器已 toast 失败原因; 回滚乐观更新, 不与服务端真实状态漂移
+    updateNodeById(node.id, { show: !next })
+  }
 }
 
 async function toggleSidebarShow(node: FilmClass): Promise<void> {
   const next = !node.sidebarShow
   updateNodeById(node.id, { sidebarShow: next })
-  await manageApi.film.classUpdate({ ...node, sidebarShow: next })
+  try {
+    await manageApi.film.classUpdate({ ...node, sidebarShow: next })
+  } catch {
+    updateNodeById(node.id, { sidebarShow: !next })
+  }
 }
 
 /** 影片可见开关: 关闭 = 该分类影片从公开列表/搜索全部剔除。
@@ -91,17 +105,28 @@ async function toggleSidebarShow(node: FilmClass): Promise<void> {
  *  前端同步级联更新视觉(本地 tree ref 就地改, 避免重拉整棵树)。 */
 async function toggleFilmVisible(node: FilmClass): Promise<void> {
   const next = !node.filmVisible
+  // 记录子级原值: 失败时连同级联视觉一起回滚
+  const cascaded = !next && node.children?.length
+    ? node.children.map((c) => ({ id: c.id, show: c.show, sidebarShow: c.sidebarShow }))
+    : []
   updateNodeById(node.id, { filmVisible: next })
-  if (!next && node.children?.length) {
-    for (const child of node.children) {
-      updateNodeById(child.id, { show: false, sidebarShow: false })
+  if (cascaded.length) {
+    for (const c of cascaded) {
+      updateNodeById(c.id, { show: false, sidebarShow: false })
     }
   }
   // API 只发本节点: 关 → 子孙 show/sidebarShow 的级联落库由服务端 cascadeHideDescendants
   // 兜底(子级 filmVisible 不动, 顶级恢复可见时子级行为不突变); 开 → 只本节点恢复,
   // 子孙两开关保持 false 由用户手动逐个开。保存后服务端 InvalidateCategory, 下次
   // load() 即最新值 —— 前端不重复发子级请求(级联 API 由服务端单点负责, 避免双份写)。
-  await manageApi.film.classUpdate({ ...node, filmVisible: next })
+  try {
+    await manageApi.film.classUpdate({ ...node, filmVisible: next })
+  } catch {
+    updateNodeById(node.id, { filmVisible: !next })
+    for (const c of cascaded) {
+      updateNodeById(c.id, { show: c.show, sidebarShow: c.sidebarShow })
+    }
+  }
 }
 
 /** 影片数展示: 缺省(计数失败)显示 — */
@@ -110,11 +135,24 @@ function filmCountLabel(node: FilmClass): string {
 }
 
 async function submit(): Promise<void> {
+  if (submitting.value) return
+  const name = form.name.trim()
+  if (!name) {
+    toast('error', '请填写分类名称')
+    return
+  }
   submitting.value = true
   try {
-    await manageApi.film.classUpdate({ ...form })
+    await manageApi.film.classUpdate({
+      ...form,
+      name,
+      // number input 清空后是空串, 原样上送服务端 int 绑定会 422 invalid body → 归一 0
+      sort: Number(form.sort) || 0
+    })
     dialogOpen.value = false
     await load()
+  } catch {
+    // 拦截器已 toast 失败原因; 弹窗停留供用户修正
   } finally {
     submitting.value = false
   }
@@ -128,11 +166,18 @@ async function remove(node: FilmClass): Promise<void> {
     danger: true
   })
   if (!ok) return
-  await manageApi.film.classDel(node.id)
-  await load()
+  try {
+    // 服务端同事务级联删直接子分类(000039 起 DeleteCategory), 与文案一致
+    await manageApi.film.classDel(node.id)
+    await load()
+  } catch {
+    // 拦截器已 toast 失败原因
+  }
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+})
 </script>
 
 <template>
@@ -155,6 +200,14 @@ onMounted(load)
 
     <div v-if="loading" class="flex flex-col gap-[var(--jc-space-3)]">
       <BaseSkeleton v-for="i in 4" :key="i" shape="rect" height="64px" />
+    </div>
+
+    <!-- 加载失败: 显式错误态+重试, 不冒充"暂无分类数据" -->
+    <div v-else-if="loadError" class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-8)]">
+      <BaseEmpty title="加载失败" :description="loadError" hide-icon />
+      <BaseButton variant="outline" size="sm" @click="load">
+        <BaseIcon name="refresh" size="16px" /> 重试
+      </BaseButton>
     </div>
 
     <BaseEmpty v-else-if="!tree.length" description="暂无分类数据" />
@@ -208,6 +261,18 @@ onMounted(load)
               @update:model-value="toggleShow(parent)"
             />
           </label>
+          <!-- 删除入口(此前只有子级行有): 服务端同事务级联删子分类, 文案与之对齐 -->
+          <span class="jc-cat__cctrl" @click.stop>
+            <button
+              type="button"
+              class="jc-cat__del"
+              :aria-label="`删除 ${parent.name}`"
+              data-focusable="true"
+              @click="remove(parent)"
+            >
+              <BaseIcon name="trash" size="16px" />
+            </button>
+          </span>
         </div>
 
         <!-- 子级 (始终渲染, 末尾保留新增子分类入口) -->
@@ -277,9 +342,6 @@ onMounted(load)
     <div class="flex flex-col gap-[var(--jc-space-4)]">
       <ManageFormField label="名称" required>
         <ManageInput v-model="form.name" placeholder="例如：动作片" />
-      </ManageFormField>
-      <ManageFormField label="英文名">
-        <ManageInput v-model="form.ename!" placeholder="可选" />
       </ManageFormField>
       <ManageFormField label="排序" hint="数字越小越靠前">
         <ManageInput v-model="form.sort!" type="number" />

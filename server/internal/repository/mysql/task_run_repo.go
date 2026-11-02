@@ -99,10 +99,16 @@ func (r *taskRunRepo) CountSince(ctx context.Context, sinceMs int64) (success, f
 	return row.Success, row.Failed, nil
 }
 
-func (r *taskRunRepo) CountRunning(ctx context.Context) (int64, error) {
+// CountRunning 统计 running 行数; excludeSourceIds 非空时剔除同名源的行
+// (那些源已有 Redis 活跃 job, 统计卡另一口径已计入, 不剔会双计)。
+// 非采集行(hot_refresh/recover 等)source_id 为空串, 不在任何排除名单里, 照常计入。
+func (r *taskRunRepo) CountRunning(ctx context.Context, excludeSourceIds []string) (int64, error) {
+	q := dbFrom(ctx, r.db).Model(&entity.TaskRun{}).Where("status = ?", entity.TaskRunRunning)
+	if len(excludeSourceIds) > 0 {
+		q = q.Where("source_id NOT IN ?", excludeSourceIds)
+	}
 	var n int64
-	err := dbFrom(ctx, r.db).Model(&entity.TaskRun{}).
-		Where("status = ?", entity.TaskRunRunning).Count(&n).Error
+	err := q.Count(&n).Error
 	return n, err
 }
 

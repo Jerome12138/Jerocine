@@ -45,7 +45,7 @@ export const list = async (params: { current?: number }): Promise<PhotoWallResp>
     page: {
       total: resp.page?.total ?? 0,
       current: resp.page?.current ?? 1,
-      pageSize: resp.page?.size ?? 39,
+      size: resp.page?.size ?? 39,
       pageCount: resp.page?.pageCount ?? 0
     }
   }
@@ -58,12 +58,16 @@ export const remove = (id: string | number): Promise<void> =>
 /** POST /manage/files 单文件上传(multipart), 返回图片访问 URL */
 export const upload = async (
   form: FormData,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<string> => {
   const res = await http.post<unknown, { id: number; link: string; objectKey: string }>(
     '/manage/files',
     form,
     {
+      // silent: 多文件上传时逐个弹「操作成功」/错误 toast 会刷屏, 反馈完全交给调用方行内状态
+      silent: true,
+      signal,
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (e) => {
         if (onProgress && e.total) {
@@ -72,5 +76,7 @@ export const upload = async (
       }
     }
   )
-  return res?.link ?? ''
+  // 空 link 视为失败: 静默吞掉会让进度走满却无任何结果(对齐 ManageImageUpload 的守卫)
+  if (!res?.link) throw new Error('上传成功但未返回文件地址')
+  return res.link
 }

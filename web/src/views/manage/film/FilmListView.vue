@@ -10,6 +10,7 @@ import BaseImage from '@/components/base/BaseImage.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
+import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import ManageCascader from '@/components/manage/ManageCascader.vue'
 import { confirm } from '@/composables/useConfirm'
 import { toast } from '@/api/http'
@@ -23,18 +24,33 @@ const busy = ref(false)
 const total = ref(0)
 const pageSize = ref(20)
 const status = ref<ManageFilmStatus>('active')
+// 加载失败态(空态+重试按钮, 不再让失败被呈现成"未找到影片")
+const loadError = ref('')
+// 请求序号守卫: 快速切页签/翻页时, 只有最后一次请求允许写 rows/total
+let loadSeq = 0
 // 分类多选: id → checked; 点击确定后才应用筛选, pending 为中间态
 const selectedCatIds = ref<Set<number>>(new Set())
 const appliedCatIds = ref<Set<number>>(new Set())
 const categoryTree = ref<FilmClass[]>([])
 const treeLoading = ref(false)
+const treeError = ref('')
 const treePopperOpen = ref(false)
+const catFilterRef = ref<HTMLElement | null>(null)
 
 const STATUS_TABS: { value: ManageFilmStatus; label: string }[] = [
   { value: 'active', label: '在架' },
   { value: 'deleted', label: '回收站' },
   { value: 'all', label: '全部' }
 ]
+
+// 排序: 与 server allowedSort 白名单对齐(hot/latest/update_stamp/score), 默认热度
+const SORT_OPTIONS = [
+  { value: 'hot', label: '热度' },
+  { value: 'latest', label: '最新上映' },
+  { value: 'update_stamp', label: '最近更新' },
+  { value: 'score', label: '评分' }
+] as const
+const sort = ref<string>('hot')
 
 const params = reactive({
   name: '',
@@ -57,17 +73,31 @@ const columns = [
 
 // ---- 分类树工具 ----
 
-async function loadTree(): Promise<void> {
-  if (categoryTree.value.length) return
+async function loadTree(force = false): Promise<void> {
+  if (!force && (categoryTree.value.length || treeLoading.value)) return
   treeLoading.value = true
+  treeError.value = ''
   try {
     categoryTree.value = await manageApi.film.classTree()
+  } catch (e) {
+    // 失败保留错误态: 弹层里显示错误文案+重试, 不冒充"暂无分类"
+    treeError.value = (e as Error).message ?? '加载失败'
   } finally {
     treeLoading.value = false
   }
 }
 
+function retryTree(): void {
+  void loadTree(true)
+}
+
 function applyCatFilter(): void {
+  // 关键字与分类筛选互斥(server 端有关键字即走 FULLTEXT 检索, 分类条件会被丢弃):
+  // 应用分类筛选时清空关键词, 两边都不会"看起来生效实则被忽略"。
+  if (params.name.trim()) {
+    params.name = ''
+    toast('info', '分类筛选与关键词搜索互斥，已清空关键词')
+  }
   // 用 pending 态把"当前勾选"同步为"已应用", 并清掉表单 pid/cid 重新加载
   appliedCatIds.value = new Set(selectedCatIds.value)
   params.pid = 0
@@ -77,8 +107,8 @@ function applyCatFilter(): void {
 }
 
 function clearCatFilter(): void {
-  selectedCatIds.value.clear()
-  appliedCatIds.value.clear()
+  selectedCatIds.value = new Set()
+  appliedCatIds.value = new Set()
   params.pid = 0
   params.cid = 0
   params.current = 1
@@ -88,7 +118,9 @@ function clearCatFilter(): void {
 // ---- 影片列表 ----
 
 async function load(): Promise<void> {
+  const seq = ++loadSeq
   loading.value = true
+  loadError.value = ''
   try {
     const resp = await manageApi.film.searchList({
       keyword: params.name,
@@ -97,18 +129,42 @@ async function load(): Promise<void> {
       // 分类级联多选: appliedCatIds 才是生效态(pending 勾选不算), 空集不传(拦截器会清理 undefined)
       catIds: appliedCatIds.value.size ? [...appliedCatIds.value].join(',') : undefined,
       status: status.value,
+      sort: sort.value,
       page: params.current,
       size: params.pageSize
     })
+    if (seq !== loadSeq) return // 已有更新的请求在途/完成, 丢弃旧响应
     rows.value = resp.list ?? []
     total.value = resp.page?.total ?? 0
     pageSize.value = resp.page?.size ?? params.pageSize
+    // 末页删空回夹: 回收站删完/恢复完当前页可能整体消失, server 只夹 1..10000
+    // 不回夹页数范围 → 停在超出实际页数的空页。此处回夹到最后一页重拉一次。
+    const size = resp.page?.size ?? params.pageSize
+    const pageCount = Math.max(1, Math.ceil(total.value / size))
+    if (!rows.value.length && params.current > 1 && total.value > 0 && pageCount < params.current) {
+      params.current = pageCount
+      return load()
+    }
+  } catch (e) {
+    if (seq !== loadSeq) return
+    loadError.value = (e as Error).message ?? '加载失败'
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
+function retryLoad(): void {
+  load()
+}
+
 function search(): void {
+  // 关键字与分类筛选互斥(同 applyCatFilter): 关键词搜索时清掉分类筛选,
+  // 否则工具栏徽标仍显示"筛选生效中", 实际结果已混入其他分类。
+  if (params.name.trim() && appliedCatIds.value.size) {
+    selectedCatIds.value = new Set()
+    appliedCatIds.value = new Set()
+    toast('info', '关键词搜索不区分分类，已清除分类筛选')
+  }
   params.current = 1
   load()
 }
@@ -118,6 +174,17 @@ function switchStatus(next: ManageFilmStatus): void {
   status.value = next
   params.current = 1
   load()
+}
+
+function setSort(next: string): void {
+  if (sort.value === next) return
+  sort.value = next
+  params.current = 1
+  load()
+}
+
+function onSortChange(e: Event): void {
+  setSort((e.target as HTMLSelectElement).value)
 }
 
 function changePage(p: number): void {
@@ -152,7 +219,8 @@ async function removeFilm(row: ManageFilmRow): Promise<void> {
   if (!ok) return
   busy.value = true
   try {
-    await manageApi.film.softDelete(row.mid)
+    // silent: 关闭拦截器的通用「操作成功」, 由页面给定制文案
+    await manageApi.film.softDelete(row.mid, { silent: true })
     toast('success', '已移入回收站')
     await load()
   } catch (e) {
@@ -171,7 +239,7 @@ async function restoreFilm(row: ManageFilmRow): Promise<void> {
   if (!ok) return
   busy.value = true
   try {
-    await manageApi.film.restore(row.mid)
+    await manageApi.film.restore(row.mid, { silent: true })
     toast('success', '已恢复')
     await load()
   } catch (e) {
@@ -181,6 +249,15 @@ async function restoreFilm(row: ManageFilmRow): Promise<void> {
   }
 }
 
+// 分类筛选弹层: 点击面板外 / ESC 关闭(此前只能靠再点按钮或「确定」, 弹层会驻留遮挡)
+function closeCatPopper(): void {
+  treePopperOpen.value = false
+}
+onClickOutside(catFilterRef, closeCatPopper)
+useEventListener(window, 'keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && treePopperOpen.value) closeCatPopper()
+})
+
 onMounted(() => {
   void loadTree()
   void load()
@@ -189,7 +266,18 @@ onMounted(() => {
 
 <template>
   <div class="flex flex-col gap-[var(--jc-space-4)]">
+    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"未找到影片" -->
+    <section v-if="loadError && !rows.length" class="bg-surface rounded-card shadow-card">
+      <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
+        <BaseEmpty title="加载失败" :description="loadError" hide-icon />
+        <BaseButton variant="outline" size="sm" @click="retryLoad">
+          <BaseIcon name="refresh" size="16px" /> 重试
+        </BaseButton>
+      </div>
+    </section>
+
     <ManageTable
+      v-else
       :columns="columns"
       :rows="rows"
       row-key="mid"
@@ -214,7 +302,7 @@ onMounted(() => {
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
           <!-- 分类筛选(级联选择器, 放左边) -->
-          <div class="relative">
+          <div ref="catFilterRef" class="relative">
             <BaseButton
               variant="ghost"
               size="sm"
@@ -234,6 +322,10 @@ onMounted(() => {
               @click.stop
             >
               <div v-if="treeLoading" class="text-sm text-muted py-2 text-center">加载中…</div>
+              <div v-else-if="treeError" class="flex flex-col items-center gap-2 py-2">
+                <span class="text-sm text-[var(--jc-danger)]">分类树加载失败：{{ treeError }}</span>
+                <BaseButton variant="outline" size="sm" @click="retryTree">重试</BaseButton>
+              </div>
               <template v-else-if="categoryTree.length">
                 <ManageCascader
                   :nodes="categoryTree"
@@ -253,6 +345,16 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <!-- 排序: 热度/最新上映/最近更新/评分(server allowedSort 白名单) -->
+          <select
+            :value="sort"
+            class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong cursor-pointer"
+            data-focusable="true"
+            aria-label="排序方式"
+            @change="onSortChange"
+          >
+            <option v-for="o in SORT_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
           <!-- 搜索 + 新增(放右边, 与分类筛选同行不折行) -->
           <div class="flex gap-[var(--jc-space-2)] flex-1 min-w-0">
             <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
@@ -290,6 +392,27 @@ onMounted(() => {
           <BaseTag v-if="isDeleted(row)" variant="danger" size="xs">已删</BaseTag>
           <BaseIcon name="chevron-right" size="20px" class="text-secondary shrink-0" />
         </div>
+        <!-- 移动端操作行: 此前页面覆盖 mobile-card 插槽后删除/恢复入口完全不可达 -->
+        <div
+          class="mt-[var(--jc-space-3)] pt-[var(--jc-space-3)] border-t border-subtle flex gap-[var(--jc-space-2)] justify-end"
+          @click.stop
+        >
+          <BaseButton variant="ghost" size="sm" @click="viewDetail(row)">查看</BaseButton>
+          <BaseButton
+            v-if="isDeleted(row)"
+            variant="ghost"
+            size="sm"
+            :disabled="busy"
+            @click="restoreFilm(row)"
+          >恢复</BaseButton>
+          <BaseButton
+            v-else
+            variant="ghost"
+            size="sm"
+            :disabled="busy"
+            @click="removeFilm(row)"
+          >删除</BaseButton>
+        </div>
       </template>
 
       <template #cell="{ row, col }">
@@ -317,7 +440,8 @@ onMounted(() => {
         >
           {{ isDeleted(row) ? '回收站' : '在架' }}
         </BaseTag>
-        <span v-else>{{ row[col.key] ?? '—' }}</span>
+        <!-- || 兜底: 0(年份)与空串(分类/地区)同样显示 —, 与 remarks/dbScore 口径一致 -->
+        <span v-else>{{ row[col.key] || '—' }}</span>
       </template>
 
       <template #actions="{ row }">

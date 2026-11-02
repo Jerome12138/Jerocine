@@ -125,9 +125,13 @@ func (r *userRepo) UpdateProfile(ctx context.Context, id uint, p repository.User
 
 // Delete 硬删用户并清理其观看历史/收藏/跳过设置。
 // users 表无外键约束, 单事务删四张表避免孤儿数据; 用户不存在时返回 ErrUserNotFound。
+// 用户行必须 Unscoped 真硬删: gorm.Model 自带 DeletedAt, 默认 Delete 只置 deleted_at ——
+// 行还占着唯一键 uk_user_name, 且 GetByName 走默认作用域查不到软删行, 建号查重会放行,
+// 再 INSERT 同名用户直接撞唯一键 500; 且本事务已把历史/收藏/跳过设置一并硬删,
+// 软删行没有任何可恢复意义, 管理端"永久删除"文案即以此为准。
 func (r *userRepo) Delete(ctx context.Context, id uint) error {
 	return dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
-		res := tx.Where("id = ?", id).Delete(&entity.User{})
+		res := tx.Unscoped().Where("id = ?", id).Delete(&entity.User{})
 		if res.Error != nil {
 			return res.Error
 		}
@@ -328,6 +332,6 @@ func (r *telemetryRepo) GetResolution(ctx context.Context, keyHash string) (*ent
 func (r *telemetryRepo) UpsertResolution(ctx context.Context, res *entity.TelemetryIssueResolution) error {
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key_hash"}},
-		DoUpdates: clause.AssignmentColumns([]string{"resolved", "resolved_commit_id", "reopened_count", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"resolved", "resolved_commit_id", "note", "reopened_count", "updated_at"}),
 	}).Create(res).Error
 }

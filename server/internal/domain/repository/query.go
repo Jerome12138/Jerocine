@@ -211,6 +211,19 @@ type ActionPerfAgg struct {
 	Avg    float64
 }
 
+// TelemetryIssueAgg 按 issue(category,path,label) 聚合的错误事件行。
+// 看板错误列表的问题粒度与 resolution 闭环一致: 同一 issue 反复触发只占一行,
+// TotalValue=SUM(value) 累计发生次数, BatchCount=COUNT(*) 上报批次数,
+// Latest=该 issue 最新一条原始事件(extra/userId/platform 等明细取自它)。
+type TelemetryIssueAgg struct {
+	Category   string
+	Path       string
+	Label      string
+	TotalValue float64
+	BatchCount int64
+	Latest     entity.TelemetryEvent
+}
+
 // TelemetryFilter 事件列表筛选。
 type TelemetryFilter struct {
 	Category  string

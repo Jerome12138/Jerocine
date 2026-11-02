@@ -39,6 +39,8 @@ async function load(): Promise<void> {
   if (results[2].status === 'fulfilled') mostFavorited.value = results[2].value
   if (results[3].status === 'fulfilled') teleOv.value = results[3].value
   loading.value = false
+  // 「今日/近7天」明细只在此前切换时拉取过一次, 刷新时顺带重拉当前时间段(实时视图走 15s 轮询)
+  if (timeFilter.value !== 'live') void loadDaily(timeFilter.value === 'week' ? 7 : 1)
 }
 onMounted(load)
 
@@ -62,12 +64,16 @@ onUnmounted(() => {
 
 // ---- 今日/近7天访问用户明细: 切换时拉取一次, 排序(在播→在线→最近活跃)由后端保证 ----
 const dailySessions = ref<OnlineSession[]>([])
+const dailyError = ref('')
 async function loadDaily(days: number): Promise<void> {
+  // 先清空再拉取: 不沿用上一时间段的明细(切换瞬间与失败时都以空态呈现, 避免数据错标)
+  dailySessions.value = []
+  dailyError.value = ''
   try {
     const resp = await manageApi.system.onlineDailySessions(days)
     dailySessions.value = resp.sessions
-  } catch {
-    /* 失败静默, 保留上次数据 */
+  } catch (e) {
+    dailyError.value = e instanceof Error ? e.message : '明细加载失败'
   }
 }
 
@@ -126,10 +132,10 @@ const filteredSessions = computed(() => {
   if (statusFilter.value === 'all') return base
   // 按三态筛选: "在线"不能混入已离线的行(历史明细里 30 分钟窗口外的会话)
   const want = statusFilter.value === 'watching' ? 'watching' : 'online'
-  return base.filter((s) => sessionState(s) === want)
+  return base.filter((s) => sessionState(s, timeFilter.value !== 'live') === want)
 })
 
-// ---- 在线明细分页: 每页 20 条; 切换时间/状态回到第 1 页, 数据收缩时钳制页码 ----
+// ---- 在线明细分页: 每页 10 条; 切换时间/状态回到第 1 页, 数据收缩时钳制页码 ----
 const PAGE_SIZE = 10
 const page = ref(1)
 const pagedSessions = computed(() => {
@@ -145,10 +151,17 @@ watch(filteredSessions, (list) => {
 })
 
 /** 会话状态三态: 在播(绿) / 在线(蓝) / 已离线(灰, 仅历史明细) */
-function sessionState(s: OnlineSession): 'watching' | 'online' | 'offline' {
-  if (s.online === false) return 'offline' // 历史(今日/近7天): 30 分钟窗口外
+function sessionState(s: OnlineSession, historical: boolean): 'watching' | 'online' | 'offline' {
+  // 历史(今日/近7天): 服务端 online 为 true 才算在线 —— 缺省与明确 false 都判已离线
+  // (服务端曾因 omitempty 丢掉 false, 按 !== true 判定对两种线上形态都成立);
+  // 实时明细无 online 字段(30 分钟窗口内), 均视为在线。
+  if (historical) {
+    if (s.online !== true) return 'offline'
+  } else if (s.online === false) {
+    return 'offline'
+  }
   if (s.watching) return 'watching'
-  return 'online' // 实时明细无 online 字段, 均视为在线(30 分钟窗口内)
+  return 'online'
 }
 
 /** 进入/活跃时间: 实时/今日只显时分秒; 近7天(forceDate)强制补日期 MM-DD 以便跨天区分 */
@@ -445,13 +458,13 @@ const cards = computed(() => {
                 <td class="py-2 pr-4">
                   <span
                     class="inline-flex items-center gap-1 text-xs"
-                    :class="sessionState(s) === 'watching' ? 'text-[#34d399]' : (sessionState(s) === 'offline' ? 'text-[#94a3b8]' : 'text-[#3b82f6]')"
+                    :class="sessionState(s, timeFilter !== 'live') === 'watching' ? 'text-[#34d399]' : (sessionState(s, timeFilter !== 'live') === 'offline' ? 'text-[#94a3b8]' : 'text-[#3b82f6]')"
                   >
                     <span
                       class="w-1.5 h-1.5 rounded-full"
-                      :class="sessionState(s) === 'watching' ? 'bg-[#34d399]' : (sessionState(s) === 'offline' ? 'bg-[#94a3b8]' : 'bg-[#3b82f6]')"
+                      :class="sessionState(s, timeFilter !== 'live') === 'watching' ? 'bg-[#34d399]' : (sessionState(s, timeFilter !== 'live') === 'offline' ? 'bg-[#94a3b8]' : 'bg-[#3b82f6]')"
                     />
-                    {{ sessionState(s) === 'watching' ? '在播放' : (sessionState(s) === 'offline' ? '已离线' : '在线') }}
+                    {{ sessionState(s, timeFilter !== 'live') === 'watching' ? '在播放' : (sessionState(s, timeFilter !== 'live') === 'offline' ? '已离线' : '在线') }}
                   </span>
                 </td>
                 <td class="py-2 pr-4 tabular-nums text-secondary">{{ s.visits ?? '—' }}</td>
@@ -477,8 +490,8 @@ const cards = computed(() => {
         </div>
         <BaseEmpty
           v-if="filteredSessions.length === 0"
-          :title="statusFilter === 'all' ? (timeFilter === 'live' ? '近 30 分钟无访问' : (timeFilter === 'today' ? '今日暂无访问' : '近 7 天暂无访问')) : '该状态下暂无会话'"
-          :description="timeFilter === 'live' ? '30 分钟内有过访问就会出现在这里' : '在播/在播放的用户会优先展示在前面'"
+          :title="dailyError ? `明细加载失败：${dailyError}` : (statusFilter === 'all' ? (timeFilter === 'live' ? '近 30 分钟无访问' : (timeFilter === 'today' ? '今日暂无访问' : '近 7 天暂无访问')) : '该状态下暂无会话')"
+          :description="dailyError ? '点击右上角「刷新」重试' : (timeFilter === 'live' ? '30 分钟内有过访问就会出现在这里' : '在播/在播放的用户会优先展示在前面')"
         />
       </div>
     </section>

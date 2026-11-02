@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -22,6 +23,17 @@ const (
 
 const jobTTL = 24 * time.Hour // job hash 兜底过期, 避免残留
 
+// 任务控制面哨兵(暂停/继续/取消的前置校验)。service 层翻译为领域错误映射 HTTP 状态;
+// 此前 handler 恒返 {"ok":true}, 这些失败全部静默 → 管理页假阳性。
+var (
+	// ErrCoordUnavailable 协调 Redis 未接入, 任务控制无从谈起(报 5xx 而非假成功)。
+	ErrCoordUnavailable = errors.New("任务协调存储不可用")
+	// ErrJobNotFound job 键不存在: 已被 GC / 从未启动 / 已结束。
+	ErrJobNotFound = errors.New("采集任务不存在或已结束")
+	// ErrJobStateMismatch job 当前状态与操作前置不符(如 paused 才可 resume)。
+	ErrJobStateMismatch = errors.New("采集任务状态已变化")
+)
+
 // JobProgress 采集进度快照。
 type JobProgress struct {
 	SourceId string `json:"sourceId"`
@@ -34,6 +46,9 @@ type JobProgress struct {
 	StartedAt int64 `json:"startedAt"`
 	// Hour 采集时长: -1 全量 / >0 增量小时。0 表示未知(旧数据)。
 	Hour int `json:"hour"`
+	// EndedAt 任务结束时间(unix 秒, 0=运行中/未知)。监控页据此冻结已结束任务的用时,
+	// 不再每轮轮询都拿 now-startedAt 虚增(最长虚增到 30min GC)。
+	EndedAt int64 `json:"endedAt,omitempty"`
 	// Error 失败原因(仅 error 态有值; 页面据此展示失败提示与重跑依据)。
 	Error string `json:"error,omitempty"`
 }
@@ -90,6 +105,44 @@ func JobSetState(ctx context.Context, sourceId, state string) {
 	if isTerminalState(state) {
 		coordRdb.HSet(ctx, key, "endedAt", time.Now().Unix())
 	}
+}
+
+// JobControl 任务控制面(暂停/继续/取消): 校验 job 存在且处于允许的前置状态后写新状态。
+// from 为空 = 不校验当前状态。管理页的每个控制操作都经此走错误传播 —— Redis 不可用、
+// job 已 GC、状态已漂移(如对已结束任务点暂停)都不再吞成假成功。
+func JobControl(ctx context.Context, sourceId, to string, from ...string) error {
+	if coordRdb == nil {
+		return ErrCoordUnavailable
+	}
+	key := KeyJob(sourceId)
+	if len(from) > 0 {
+		cur, err := coordRdb.HGet(ctx, key, "state").Result()
+		if errors.Is(err, redis.Nil) {
+			return ErrJobNotFound
+		}
+		if err != nil {
+			return err
+		}
+		okState := false
+		for _, f := range from {
+			if cur == f {
+				okState = true
+				break
+			}
+		}
+		if !okState {
+			return ErrJobStateMismatch
+		}
+	}
+	if err := coordRdb.HSet(ctx, key, "state", to).Err(); err != nil {
+		return err
+	}
+	if isTerminalState(to) {
+		if err := coordRdb.HSet(ctx, key, "endedAt", time.Now().Unix()).Err(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // JobFail 标记任务失败并记录原因(替代裸 JobSetState(JobError) —— 失败原因要在
@@ -176,6 +229,7 @@ func fillJob(p *JobProgress, m map[string]string) {
 	p.Failed = atoi(m["failed"])
 	p.StartedAt, _ = strconv.ParseInt(m["startedAt"], 10, 64)
 	p.Hour = atoi(m["hour"])
+	p.EndedAt, _ = strconv.ParseInt(m["endedAt"], 10, 64)
 	p.Error = m["error"]
 }
 

@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"server/internal/cache"
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/platform/reqctx"
@@ -190,5 +192,73 @@ func TestSaveSitePreservesIndependentColumns(t *testing.T) {
 	}
 	if strings.Join([]string(site.DanmuProviders), ",") != "bilibili,tencent,iqiyi" {
 		t.Fatalf("弹幕平台白名单被清零: %+v", site)
+	}
+}
+
+// TestSaveSiteRejectsEmptySiteName 站名必填: 绑定实体无 binding 规则, 服务层兜底防空站名落库
+// (空格串也算空 —— 管理端手滑全空格提交不该静默写掉库内站名)。
+func TestSaveSiteRejectsEmptySiteName(t *testing.T) {
+	setupCache(t)
+	site := &entity.SiteConfig{Id: 1, SiteName: "old", Domain: "https://x.example"}
+	m := &ManageService{siteCfg: &fakeSiteCfg{cfg: site}}
+
+	for _, name := range []string{"", "   "} {
+		err := m.SaveSite(context.Background(), &entity.SiteConfig{SiteName: name})
+		if !errors.Is(err, domain.ErrInvalidArgument) {
+			t.Fatalf("空站名 %q 应 ErrInvalidArgument, got %v", name, err)
+		}
+	}
+	if site.SiteName != "old" {
+		t.Fatalf("被拒的保存不该动库内值: %q", site.SiteName)
+	}
+	if err := m.SaveSite(context.Background(), &entity.SiteConfig{SiteName: "新站名"}); err != nil {
+		t.Fatalf("非空站名应放行: %v", err)
+	}
+	if site.SiteName != "新站名" {
+		t.Fatalf("正常保存未落库: %q", site.SiteName)
+	}
+}
+
+// TestLoginSessionSearchWidensWindow 带 keyword 时取数窗口放宽到缓存上限: 搜索必须能命中
+// "最近 limit 条"之外的会话(否则管理员面对 >limit 会话量时搜不到更早的行还不自知)。
+// 用可控的 token(会话 id = sha256(token) 前 16 字节)保证等分下字典序确定性:
+// 201 个 "ff.." filler 排在 "00.." needle 前面 ⇒ 无 keyword 取 200 条时 needle 必然不在窗口内。
+func TestLoginSessionSearchWidensWindow(t *testing.T) {
+	setupCache(t)
+	svc := NewUserService(nil, nil, nil, nil, nil, testTokenManager(t), 5, time.Hour)
+	ctx := reqctx.With(context.Background(), "9.9.9.9", "UA-X")
+
+	// 穷举 token 使会话 id 命中目标十六进制前缀(sha256 均匀, 平均 256 次内命中)
+	tokenWithIDPrefix := func(tag, want string) string {
+		t.Helper()
+		for i := 0; i < 1<<20; i++ {
+			tok := fmt.Sprintf("%s-%d", tag, i)
+			if strings.HasPrefix(cache.SessionID(tok), want) {
+				return tok
+			}
+		}
+		t.Fatalf("找不到前缀 %s 的 token", want)
+		return ""
+	}
+
+	// needle 最先写入(最老/分最低), 201 个 filler 在后
+	needle := tokenWithIDPrefix("needle", "00")
+	cache.SaveSession(ctx, needle, 1, "needle-老会话", "8.8.8.8", "UA-OLD", time.Hour)
+	for i := 0; i < 201; i++ {
+		tok := tokenWithIDPrefix(fmt.Sprintf("bulk-%d", i), "ff")
+		cache.SaveSession(ctx, tok, int64(10+i), fmt.Sprintf("bulk-%d", i), "1.1.1.1", "UA", time.Hour)
+	}
+
+	// 无 keyword: 行为不变 —— 仍按 limit 截断(201 filler + needle 共 202 行, 只回 200)
+	if got := svc.ListLoginSessions(ctx, "", 200); len(got) != 200 {
+		t.Fatalf("无 keyword 应保持 limit 截断: got %d", len(got))
+	}
+	// 带 keyword: 窗口放宽, 最老的 needle 也能搜到(修复前它落在最近 200 条之外, 搜不到)
+	got := svc.ListLoginSessions(ctx, "needle", 200)
+	if len(got) != 1 || got[0].UserName != "needle-老会话" {
+		t.Fatalf("keyword 搜索应命中窗口外会话: %+v", got)
+	}
+	if got := svc.ListLoginSessions(ctx, "8.8.8.8", 200); len(got) != 1 {
+		t.Fatalf("按 IP 搜索窗口外会话失败: %+v", got)
 	}
 }

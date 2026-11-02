@@ -120,7 +120,7 @@ func TestHiddenCatFilter_SearchKeyword(t *testing.T) {
 	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
 		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
 
-	if _, _, err := repo.SearchKeyword(context.Background(), "abc", repository.DeletedExclude, false, repository.Page{}); err != nil {
+	if _, _, err := repo.SearchKeyword(context.Background(), "abc", repository.DeletedExclude, false, "", repository.Page{}); err != nil {
 		t.Fatalf("SearchKeyword: %v", err)
 	}
 	if !strings.Contains(*last, "pid NOT IN") {
@@ -139,7 +139,7 @@ func TestHiddenCatFilter_SearchKeyword_ManageBypass(t *testing.T) {
 	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
 		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
 
-	if _, _, err := repo.SearchKeyword(context.Background(), "abc", repository.DeletedExclude, true, repository.Page{}); err != nil {
+	if _, _, err := repo.SearchKeyword(context.Background(), "abc", repository.DeletedExclude, true, "", repository.Page{}); err != nil {
 		t.Fatalf("SearchKeyword(manage): %v", err)
 	}
 	if strings.Contains(*last, "NOT IN") {

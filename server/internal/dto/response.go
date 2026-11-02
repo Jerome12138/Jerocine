@@ -77,14 +77,17 @@ func Error(c *gin.Context, status int, msg string) {
 
 func mapStatus(err error) int {
 	switch {
-	case errors.Is(err, domain.ErrNotFound), errors.Is(err, domain.ErrMovieNotFound), errors.Is(err, domain.ErrUserNotFound):
+	case errors.Is(err, domain.ErrNotFound), errors.Is(err, domain.ErrMovieNotFound), errors.Is(err, domain.ErrUserNotFound),
+		errors.Is(err, domain.ErrJobNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, domain.ErrInvalidArgument), errors.Is(err, domain.ErrInvalidSourceID),
 		errors.Is(err, domain.ErrInvalidMove), errors.Is(err, domain.ErrCodeInvalid),
-		errors.Is(err, domain.ErrCodeExpired), errors.Is(err, domain.ErrResetTokenInvalid):
+		errors.Is(err, domain.ErrCodeExpired), errors.Is(err, domain.ErrResetTokenInvalid),
+		errors.Is(err, domain.ErrSourceDisabled):
 		return http.StatusBadRequest
 	case errors.Is(err, domain.ErrConflict), errors.Is(err, domain.ErrEmailTaken),
-		errors.Is(err, domain.ErrUserNameTaken):
+		errors.Is(err, domain.ErrUserNameTaken), errors.Is(err, domain.ErrSourceUriTaken),
+		errors.Is(err, domain.ErrMasterUndeletable), errors.Is(err, domain.ErrJobStateConflict):
 		return http.StatusConflict
 	case errors.Is(err, domain.ErrUnauthorized):
 		return http.StatusUnauthorized

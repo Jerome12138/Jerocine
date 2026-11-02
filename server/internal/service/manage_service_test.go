@@ -17,10 +17,11 @@ import (
 // fakeSearchKW 仅覆写 Filter / SearchKeyword 以验证 SearchFilms 的关键字分支(其余方法未实现, 被调用即 panic)。
 type fakeSearchKW struct {
 	repository.SearchRepository
-	filterCalls   int
-	keywordCalls  int
-	lastKeyword   string
-	lastSpec      repository.FilterSpec
+	filterCalls  int
+	keywordCalls int
+	lastKeyword  string
+	lastSort     string
+	lastSpec     repository.FilterSpec
 }
 
 func (f *fakeSearchKW) Filter(_ context.Context, spec repository.FilterSpec, _ repository.Page) ([]entity.MovieSearch, int64, error) {
@@ -28,9 +29,10 @@ func (f *fakeSearchKW) Filter(_ context.Context, spec repository.FilterSpec, _ r
 	f.lastSpec = spec
 	return nil, 0, nil
 }
-func (f *fakeSearchKW) SearchKeyword(_ context.Context, kw string, _ int, _ bool, _ repository.Page) ([]entity.MovieSearch, int64, error) {
+func (f *fakeSearchKW) SearchKeyword(_ context.Context, kw string, _ int, _ bool, sort string, _ repository.Page) ([]entity.MovieSearch, int64, error) {
 	f.keywordCalls++
 	f.lastKeyword = kw
+	f.lastSort = sort
 	return nil, 0, nil
 }
 
@@ -46,6 +48,24 @@ func TestSearchFilms_KeywordRoutesToFullText(t *testing.T) {
 	}
 	if fs.lastKeyword != "凡人" {
 		t.Fatalf("关键字应 trim, got %q", fs.lastKeyword)
+	}
+}
+
+// 关键字路径的 sort: 未指定回退热度(与无关键字 defaultSort 同口径), 指定则原样透传。
+func TestSearchFilms_KeywordSortFallbackAndPassthrough(t *testing.T) {
+	fs := &fakeSearchKW{}
+	ms := &ManageService{search: fs}
+	if _, err := ms.SearchFilms(context.Background(), repository.FilterSpec{Keyword: "凡人"}, repository.Page{}); err != nil {
+		t.Fatal(err)
+	}
+	if fs.lastSort != "hot" {
+		t.Fatalf("未指定 sort 应回退 hot, got %q", fs.lastSort)
+	}
+	if _, err := ms.SearchFilms(context.Background(), repository.FilterSpec{Keyword: "凡人", Sort: "score"}, repository.Page{}); err != nil {
+		t.Fatal(err)
+	}
+	if fs.lastSort != "score" {
+		t.Fatalf("sort 应透传, got %q", fs.lastSort)
 	}
 }
 

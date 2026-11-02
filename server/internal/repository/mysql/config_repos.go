@@ -52,9 +52,19 @@ func (r *sourceRepo) ExistsByUri(ctx context.Context, uri, excludeId string) (bo
 	return n > 0, err
 }
 
+// Upsert 冲突(同 id 已存在, 即编辑/启停走 PUT)时只更新管理页可编辑列。
+// 此前 UpdateAll:true 全列覆盖, 而前端 PUT DTO 不透传 grade_score/created_at:
+//   - grade_score 是同等级源的人工优先级(List 按 grade ASC, grade_score DESC 排序消费),
+//     绑定 JSON 里缺该字段 → 落 0, 任何一次编辑/启停都会把已调好的优先级静默清零;
+//   - created_at 是建档时间, 不应随编辑刷新。
+// 两者均为服务端管辖字段, 在仓储层排除, 不依赖各调用方自觉透传。
 func (r *sourceRepo) Upsert(ctx context.Context, s *entity.CollectSource) error {
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "id"}}, UpdateAll: true,
+		Columns: []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"name", "uri", "site_url", "result_model", "grade",
+			"sync_pictures", "collect_type", "interval_ms", "state", "updated_at",
+		}),
 	}).Create(s).Error
 }
 

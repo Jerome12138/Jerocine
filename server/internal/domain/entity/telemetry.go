@@ -30,6 +30,7 @@ type TelemetryIssueResolution struct {
 	Path             string `gorm:"column:path" json:"path"`
 	Label            string `gorm:"column:label" json:"label"`
 	ResolvedCommitId string `gorm:"column:resolved_commit_id" json:"resolvedCommitId"`
+	Note             string `gorm:"column:note" json:"note"`
 	Resolved         bool   `gorm:"column:resolved" json:"resolved"`
 	ReopenedCount    int    `gorm:"column:reopened_count" json:"reopenedCount"`
 	CreatedAt        int64  `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`

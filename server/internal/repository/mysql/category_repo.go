@@ -61,3 +61,7 @@ func (r *categoryRepo) BatchUpsert(ctx context.Context, list []entity.Category) 
 func (r *categoryRepo) Delete(ctx context.Context, id int64) error {
 	return dbFrom(ctx, r.db).Where("id = ?", id).Delete(&entity.Category{}).Error
 }
+
+func (r *categoryRepo) DeleteByPid(ctx context.Context, pid int64) error {
+	return dbFrom(ctx, r.db).Where("pid = ?", pid).Delete(&entity.Category{}).Error
+}

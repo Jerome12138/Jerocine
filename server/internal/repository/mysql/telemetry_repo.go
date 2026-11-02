@@ -123,19 +123,62 @@ func (r *telemetryRepo) ApiActionValues(ctx context.Context, sinceUnix int64, ac
 	return values, err
 }
 
-// ListEventsByType 按 extra.type(前端事件类型, 如 error) 过滤分页, server_ts 倒序。
-func (r *telemetryRepo) ListEventsByType(ctx context.Context, sinceUnix int64, frontendType string, limit, offset int) ([]entity.TelemetryEvent, int64, error) {
-	q := r.sinceQuery(ctx, sinceUnix)
-	if frontendType != "" {
-		q = q.Where("extra->>'$.type' = ?", frontendType)
+// ListErrorIssues 按 issue(category,path,label) 聚合错误事件, latest_ts 倒序。
+// 两条 SQL: ①GROUP BY 出聚合(SUM(value) 累计次数 / COUNT(*) 批次数 / MAX(server_ts));
+// ②行值 IN 子查询取每个 issue 最新一条原始事件(extra/userId/platform 明细取自它)。
+// 同一 (category,path,label,server_ts) 恰好撞车时取一条, 看板展示无影响。
+func (r *telemetryRepo) ListErrorIssues(ctx context.Context, sinceUnix int64, frontendType string) ([]repository.TelemetryIssueAgg, error) {
+	typeQ := func(q *gorm.DB) *gorm.DB {
+		if frontendType != "" {
+			q = q.Where("extra->>'$.type' = ?", frontendType)
+		}
+		return q
 	}
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, 0, err
+	var aggs []struct {
+		Category   string
+		Path       string
+		Label      string
+		TotalValue float64
+		BatchCount int64
+		LatestTs   time.Time
 	}
-	var out []entity.TelemetryEvent
-	err := q.Order("server_ts DESC").Limit(limit).Offset(offset).Find(&out).Error
-	return out, total, err
+	if err := typeQ(r.sinceQuery(ctx, sinceUnix)).
+		Select("category, path, label, SUM(value) AS total_value, COUNT(*) AS batch_count, MAX(server_ts) AS latest_ts").
+		Group("category, path, label").Order("latest_ts DESC").Scan(&aggs).Error; err != nil {
+		return nil, err
+	}
+	out := make([]repository.TelemetryIssueAgg, 0, len(aggs))
+	if len(aggs) == 0 {
+		return out, nil
+	}
+	sub := typeQ(r.sinceQuery(ctx, sinceUnix)).
+		Select("category, path, label, MAX(server_ts)").
+		Group("category, path, label")
+	var reps []entity.TelemetryEvent
+	if err := typeQ(r.sinceQuery(ctx, sinceUnix)).
+		Where("(category, path, label, server_ts) IN (?)", sub).
+		Order("server_ts DESC").Find(&reps).Error; err != nil {
+		return nil, err
+	}
+	type issueKey struct{ c, p, l string }
+	latest := make(map[issueKey]entity.TelemetryEvent, len(reps))
+	for _, e := range reps {
+		k := issueKey{e.Category, e.Path, e.Label}
+		if _, dup := latest[k]; !dup {
+			latest[k] = e
+		}
+	}
+	for _, a := range aggs {
+		agg := repository.TelemetryIssueAgg{
+			Category: a.Category, Path: a.Path, Label: a.Label,
+			TotalValue: a.TotalValue, BatchCount: a.BatchCount,
+		}
+		if e, ok := latest[issueKey{a.Category, a.Path, a.Label}]; ok {
+			agg.Latest = e
+		}
+		out = append(out, agg)
+	}
+	return out, nil
 }
 
 // DeleteChunkNoise 清理 chunk 加载失败类噪声错误(部署后旧 hash 自愈现象, 非真异常):

@@ -1,6 +1,10 @@
 # web e2e 测试
 
-基于 **Playwright + Mock** 的端到端 UI 测试。
+基于 **Playwright** 的端到端 UI 测试。
+
+> ⚠️ 前端 Mock 适配器已在重构中移除（见 `src/main.ts`，`src/mock/` 目录已删除，源码无任何
+> `VITE_USE_MOCK` 消费点）。e2e 通过 dev proxy 打真实后端（`127.0.0.1:3601`），跑测试前需先
+> 启动本地后端，否则断言列表数据的用例（首页 / 管理端等）会失败。
 
 ## 目录
 
@@ -14,7 +18,8 @@ tests/e2e/
 ├── public-history.spec.ts           # HistoryView：空态 / 卡片 / 移除 / BaseConfirmDialog
 ├── manage-auth-dashboard.spec.ts    # 鉴权重定向 + Login + Dashboard
 ├── manage-collect-cron.spec.ts      # 采集源 + 定时任务 CRUD + 确认弹窗
-└── manage-film-file.spec.ts         # 影片管理 + 文件库
+├── manage-film-file.spec.ts         # 影片管理 + 文件库
+└── manage-system-sessions.spec.ts   # 在线会话(页面级路由拦截, 不依赖本地后端)
 ```
 
 ## 运行
@@ -48,14 +53,10 @@ pnpm exec playwright show-report
 
 > 全部用 Chromium 引擎跑，避免 WebKit 二次下载（200+MB）。
 
-## Mock 数据
+## 运行前提
 
-测试默认通过 `webServer.env.VITE_USE_MOCK = '1'` 启动 dev 服务器，所有 API 走 `src/mock/`：
-- 6 部完整影片，每部 2 个源（Big Buck Bunny / Mux 测试 HLS）
-- 用户端 8 接口 + 管理端 27 接口全覆盖
-- 管理端可"增删改"（内存 mock，刷新重置）
-
-直接命中真后端：`unset VITE_USE_MOCK` 后 `pnpm dev`。
+dev server 由 playwright `webServer` 自动拉起，API 请求经 vite proxy（见 `vite.config.ts`
+`server.proxy`）转发到本地后端 `127.0.0.1:3601`（可用 `JEROCINE_DEV_PROXY` 覆盖目标）。
 
 ## helpers 用法
 
@@ -76,7 +77,7 @@ await setViewMode(page, 'tv')
 ## 故障排查
 
 - **ERR_CONNECTION_REFUSED**：dev server 未起，手动 `pnpm dev` 后再 `playwright test`，或杀掉占用 3600 端口的旧进程。
-- **mock 不生效**：检查 `.env.development` 中 `VITE_USE_MOCK=1`；mock 安装走 `main.ts` 顶层 await，必须在 dev 模式才生效（生产构建被 tree-shake 掉）。
+- **列表/接口数据为空或断言失败**：确认本地后端（127.0.0.1:3601）已启动——前端 mock 已移除，e2e 打的是真实后端。
 - **WebKit 启动失败**：本仓库强制 `browserName: 'chromium'`，不需要 webkit。
 
 ## 报告

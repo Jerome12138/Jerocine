@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import UserListView from './UserListView.vue'
+import BasePagination from '@/components/base/BasePagination.vue'
+import { confirm } from '@/composables/useConfirm'
+import { useUserStore } from '@/stores/user'
 
 const h = vi.hoisted(() => ({
   list: vi.fn(),
@@ -166,5 +169,245 @@ describe('UserListView 编辑用户邮箱', () => {
     await form.trigger('submit')
     await new Promise((r) => setTimeout(r, 10))
     expect(h.update).toHaveBeenCalledWith(9, 'bob', 0, '')
+  })
+})
+
+// ---- 危险操作(禁用/删除/重置密码)与自保护 ----
+
+describe('UserListView 危险操作与自保护', () => {
+  const row = {
+    ID: 9,
+    userName: 'bob',
+    role: 0,
+    disabled: 0,
+    email: '',
+    CreatedAt: '2026-10-01T10:00:00Z',
+    UpdatedAt: '2026-10-01T10:00:00Z'
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.values(h).forEach((fn) => fn.mockReset())
+    h.list.mockResolvedValue({ list: [row], page: { total: 1, size: 20, current: 1 } })
+    vi.mocked(confirm).mockResolvedValue(true)
+  })
+
+  it('禁用: confirm 弹文案与危险样式, 确认后 setDisabled(id, true) 并刷新', async () => {
+    const w = await mountView()
+    const btn = w.findAll('tbody button').find((b) => b.text() === '禁用')!
+    await btn.trigger('click')
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '禁用「bob」？',
+        danger: true,
+        okText: '禁用'
+      })
+    )
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.setDisabled).toHaveBeenCalledWith(9, true)
+    expect(h.toast).toHaveBeenCalledWith('success', '已禁用')
+    expect(h.list).toHaveBeenCalledTimes(2)
+  })
+
+  it('启用: 同一按钮按当前状态翻转文案与参数', async () => {
+    h.list.mockResolvedValue({
+      list: [{ ...row, disabled: 1 }],
+      page: { total: 1, size: 20, current: 1 }
+    })
+    const w = await mountView()
+    const btn = w.findAll('tbody button').find((b) => b.text() === '启用')!
+    await btn.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.setDisabled).toHaveBeenCalledWith(9, false)
+    expect(h.toast).toHaveBeenCalledWith('success', '已启用')
+  })
+
+  it('禁用失败: toast error, 不误报成功', async () => {
+    h.setDisabled.mockRejectedValue(new Error('服务器繁忙'))
+    const w = await mountView()
+    await w.findAll('tbody button').find((b) => b.text() === '禁用')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.toast).toHaveBeenCalledWith('error', '服务器繁忙')
+  })
+
+  it('删除: confirm 描述不可恢复, 确认后 remove(id) 并刷新', async () => {
+    const w = await mountView()
+    await w.findAll('tbody button').find((b) => b.text() === '删除')!.trigger('click')
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '删除「bob」？',
+        danger: true,
+        okText: '删除'
+      })
+    )
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.remove).toHaveBeenCalledWith(9)
+    expect(h.list).toHaveBeenCalledTimes(2)
+  })
+
+  it('自己的行: 禁用/重置密码/删除按钮 disabled, 编辑仍可用', async () => {
+    setActivePinia(createPinia())
+    useUserStore().info = { id: 9 }
+    const w = await mountView()
+    const buttons = Object.fromEntries(
+      w.findAll('tbody button').map((b) => [b.text(), b])
+    )
+    expect(buttons['禁用']!.attributes('disabled')).toBeDefined()
+    expect(buttons['重置密码']!.attributes('disabled')).toBeDefined()
+    expect(buttons['删除']!.attributes('disabled')).toBeDefined()
+    expect(buttons['编辑']!.attributes('disabled')).toBeUndefined()
+  })
+
+  it('重置密码: 弹窗提交, <6 位前端拦截, 合法后 resetPassword(id, pw)', async () => {
+    const w = await mountView()
+    await w.findAll('tbody button').find((b) => b.text() === '重置密码')!.trigger('click')
+    await w.vm.$nextTick()
+    const form = w.findAll('form').at(-1)!
+    const pw = form.find('input[type="password"]')
+    expect(pw.exists()).toBe(true)
+
+    await pw.setValue('123')
+    await form.trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.resetPassword).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', '密码长度需在 6-64 位之间')
+
+    await pw.setValue('newpass1')
+    await form.trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.resetPassword).toHaveBeenCalledWith(9, 'newpass1')
+  })
+
+  it('改自己的角色被前端拦截(select 锁定 + 提交检查)', async () => {
+    setActivePinia(createPinia())
+    useUserStore().info = { id: 9 }
+    const w = await mountView()
+    await w.findAll('tbody button').find((b) => b.text() === '编辑')!.trigger('click')
+    await w.vm.$nextTick()
+    const form = w.findAll('form').at(-1)!
+    const select = form.find('select')
+    // 角色下拉对自己的行锁定
+    expect((select.element as HTMLSelectElement).disabled).toBe(true)
+    // 程序化解锁改值, 覆盖提交时的第二道拦截(正常 UI 改不动, 防御纵深)
+    ;(select.element as HTMLSelectElement).disabled = false
+    await select.setValue('1')
+    await form.trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.update).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', '不能修改自己的角色')
+  })
+
+  it('建号用户名长度按字符数与后端 runeLen 同口径: 32 个汉字放行, 33 个拦截', async () => {
+    const w = await mountView()
+    const { form, inputs } = await openCreate(w)
+    await inputs[0].setValue('汉'.repeat(33))
+    await inputs[1].setValue('secret1')
+    await form.trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.create).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', '用户名需为 1-32 个字符')
+
+    await inputs[0].setValue('汉'.repeat(32))
+    await form.trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.create).toHaveBeenCalledWith('汉'.repeat(32), 'secret1', 0, '')
+  })
+
+  it('建号密码 <6 位前端拦截, 不发请求', async () => {
+    const w = await mountView()
+    const { form, inputs } = await openCreate(w)
+    await inputs[0].setValue('shortpw')
+    await inputs[1].setValue('12345')
+    await form.trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.create).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', '密码长度需在 6-64 位之间')
+  })
+})
+
+// ---- 加载/搜索/翻页 ----
+
+describe('UserListView 加载与翻页', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.values(h).forEach((fn) => fn.mockReset())
+    h.list.mockResolvedValue({ list: [], page: { total: 0, size: 20, current: 1 } })
+    vi.mocked(confirm).mockResolvedValue(true)
+  })
+
+  it('搜索: 关键字随请求提交且回到第 1 页', async () => {
+    const w = await mountView()
+    expect(h.list).toHaveBeenCalledWith({ keyword: '', page: 1, size: 20 })
+    const toolbar = w.find('header')
+    await toolbar.find('input').setValue('ali')
+    await toolbar.findAll('button').find((b) => b.text().includes('搜索'))!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.list).toHaveBeenLastCalledWith({ keyword: 'ali', page: 1, size: 20 })
+  })
+
+  it('翻页: 页码随请求提交', async () => {
+    const w = await mountView()
+    w.findComponent(BasePagination).vm.$emit('change', 2)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.list).toHaveBeenLastCalledWith({ keyword: '', page: 2, size: 20 })
+  })
+
+  it('加载失败: 呈现错误态与重试按钮, 不冒充"未找到用户"; 重试成功恢复列表', async () => {
+    h.list.mockRejectedValueOnce(new Error('网络断了'))
+    const w = await mountView()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(w.text()).toContain('加载失败')
+    expect(w.text()).not.toContain('未找到用户')
+
+    h.list.mockResolvedValue({
+      list: [{ ID: 1, userName: 'alice', role: 0, disabled: 0, CreatedAt: '', UpdatedAt: '' }],
+      page: { total: 1, size: 20, current: 1 }
+    })
+    await w.findAll('button').find((b) => b.text().includes('重试'))!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(w.text()).toContain('alice')
+  })
+
+  it('末页删空回夹: 删除后页码越界自动回夹到最后一页重拉', async () => {
+    let total = 21 // 第 2 页只有 1 条
+    let page2Rows = [{ ID: 9, userName: 'tail', role: 0, disabled: 0, CreatedAt: '', UpdatedAt: '' }]
+    h.list.mockImplementation(async (p: { page?: number }) => ({
+      list: p.page === 2 ? page2Rows : [],
+      page: { total, size: 20, current: p.page ?? 1 }
+    }))
+    h.remove.mockImplementation(async () => {
+      total = 20 // 删除后只剩 20 条 = 1 页, 原第 2 页的行消失
+      page2Rows = []
+    })
+    const w = await mountView()
+    w.findComponent(BasePagination).vm.$emit('change', 2)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.list).toHaveBeenLastCalledWith({ keyword: '', page: 2, size: 20 })
+
+    await w.findAll('tbody button').find((b) => b.text() === '删除')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(h.remove).toHaveBeenCalledWith(9)
+    // 越界的第 2 页被自动回夹回第 1 页
+    expect(h.list).toHaveBeenLastCalledWith({ keyword: '', page: 1, size: 20 })
+  })
+
+  it('竞态守卫: 旧响应后到不覆盖新结果', async () => {
+    let resolveStale!: (v: unknown) => void
+    h.list.mockImplementationOnce(() => new Promise((res) => (resolveStale = res)))
+    h.list.mockImplementationOnce(async () => ({
+      list: [{ ID: 2, userName: 'fresh', role: 0, disabled: 0, CreatedAt: '', UpdatedAt: '' }],
+      page: { total: 1, size: 20, current: 1 }
+    }))
+    const w = await mountView()
+    // 初始 load(seq=1)仍挂起, 点搜索发起 load(seq=2)并先返回
+    w.find('header').find('input').setValue('x')
+    await w.find('header').findAll('button').find((b) => b.text().includes('搜索'))!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(w.text()).toContain('fresh')
+
+    resolveStale({ list: [{ ID: 1, userName: 'stale', role: 0, disabled: 0, CreatedAt: '', UpdatedAt: '' }], page: { total: 1, size: 20, current: 1 } })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(w.text()).toContain('fresh')
+    expect(w.text()).not.toContain('stale')
   })
 })

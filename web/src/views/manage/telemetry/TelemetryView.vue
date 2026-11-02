@@ -20,24 +20,32 @@ import type {
   OverviewResp,
   TelemetryEventRow,
   FilmStat,
-  ApiPerfItem
+  ApiPerfItem,
+  IssueStatusFilter
 } from '@/api/manage/telemetry'
+import { toast } from '@/api/http'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
+import BaseEmpty from '@/components/base/BaseEmpty.vue'
+import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import { confirm } from '@/composables/useConfirm'
 
+const PAGE_SIZE = 100
 const days = ref<number>(7)
 const overview = ref<OverviewResp | null>(null)
 const errors = ref<TelemetryEventRow[]>([])
+/** 服务端状态过滤后的总数(供计数徽标与「加载更多」), 与已加载行数解耦 */
+const total = ref(0)
 const hotFilms = ref<FilmStat[]>([])
 const mostFavorited = ref<FilmStat[]>([])
 const apiPerf = ref<ApiPerfItem[]>([])
 const loading = ref(false)
+const error = ref('')
 const expanded = ref<Record<number, boolean>>({})
 
 const DAYS_OPTIONS = [
@@ -46,23 +54,35 @@ const DAYS_OPTIONS = [
   { value: 30, label: '近 30 天' }
 ]
 
-async function loadAll(): Promise<void> {
+/** 请求序号: 快速切换时间窗/筛选时只采纳最后一次请求的结果, 旧慢响应丢弃 */
+let reqSeq = 0
+
+async function loadAll(append = false): Promise<void> {
+  const seq = ++reqSeq
+  if (!append) error.value = ''
   loading.value = true
+  const offset = append ? errors.value.length : 0
   try {
     const [ov, errs, hf, mf, ap] = await Promise.all([
       telemetryApi.overview(days.value),
-      telemetryApi.listEvents({ type: 'error', days: days.value, limit: 100, status: statusFilter.value }),
+      telemetryApi.listEvents({ type: 'error', days: days.value, limit: PAGE_SIZE, offset, status: statusFilter.value }),
       telemetryApi.hotFilms(days.value, 10),
       telemetryApi.mostFavorited(10),
       telemetryApi.apiPerf(days.value, 10)
     ])
+    if (seq !== reqSeq) return // 已被更新的请求取代
     overview.value = ov
-    errors.value = errs.rows ?? []
+    const rows = errs.rows ?? []
+    errors.value = append ? [...errors.value, ...rows] : rows
+    total.value = errs.total ?? errors.value.length
     hotFilms.value = hf ?? []
     mostFavorited.value = mf ?? []
     apiPerf.value = ap ?? []
+  } catch (e) {
+    if (seq !== reqSeq) return
+    error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
-    loading.value = false
+    if (seq === reqSeq) loading.value = false
   }
 }
 
@@ -116,13 +136,13 @@ function parsedExtraEntries(raw: string): Array<[string, string]> {
 }
 
 /** ============ 问题闭环 ============ */
-const statusFilter = ref<'active' | 'all' | 'resolved' | 'reopened'>('active')
-const STATUS_OPTIONS = [
-  { value: 'active' as const, label: '活跃 (未解决 + 重启)' },
-  { value: 'reopened' as const, label: '已重启 (解决后 24h 仍出现)' },
-  { value: 'resolved' as const, label: '已解决 (≤30天)' },
-  { value: 'expired' as const, label: '过期 (>30天)' },
-  { value: 'all' as const, label: '全部' }
+const statusFilter = ref<IssueStatusFilter>('active')
+const STATUS_OPTIONS: Array<{ value: IssueStatusFilter; label: string }> = [
+  { value: 'active', label: '活跃 (未解决 + 重启)' },
+  { value: 'reopened', label: '已重启 (解决后 24h 仍出现)' },
+  { value: 'resolved', label: '已解决 (≤30天)' },
+  { value: 'expired', label: '过期 (>30天)' },
+  { value: 'all', label: '全部' }
 ]
 
 const resolveDialog = ref<{
@@ -141,33 +161,54 @@ function openResolve(row: TelemetryEventRow): void {
   }
 }
 
+const saving = ref(false)
+const undoingId = ref<number | null>(null)
+
 async function submitResolve(): Promise<void> {
   const r = resolveDialog.value.row
-  if (!r) return
+  if (!r || saving.value) return
+  const commitId = resolveDialog.value.commitId.trim()
+  // commitId 必填: 服务端同样校验(空值 422), 前端先行拦截避免无效提交
+  if (!commitId) {
+    toast('error', '请填写修复 commit ID')
+    return
+  }
+  saving.value = true
   try {
     await telemetryApi.resolveIssue({
       category: r.category,
       path: r.path,
       label: r.label,
-      commitId: resolveDialog.value.commitId.trim(),
+      commitId,
       note: resolveDialog.value.note.trim()
     })
     resolveDialog.value.open = false
     void loadAll()
   } catch {
     // 拦截器已 toast
+  } finally {
+    saving.value = false
   }
 }
 
 async function undoResolve(row: TelemetryEventRow): Promise<void> {
+  if (undoingId.value !== null) return
   const ok = await confirm({
     title: '撤销已解决', desc: '撤销后此问题重回未解决列表, 继续累计计数.'
   })
   if (!ok) return
-  await telemetryApi.unresolveIssue({
-    category: row.category, path: row.path, label: row.label
-  })
-  void loadAll()
+  // in-flight 守卫: 双击双发会让服务端 reopened_count 重复 +1
+  undoingId.value = row.id
+  try {
+    await telemetryApi.unresolveIssue({
+      category: row.category, path: row.path, label: row.label
+    })
+    void loadAll()
+  } catch {
+    // 拦截器已 toast
+  } finally {
+    undoingId.value = null
+  }
 }
 
 function statusVariant(s: TelemetryEventRow['issueStatus']): 'default' | 'success' | 'warning' | 'danger' {
@@ -187,9 +228,15 @@ function statusText(s: TelemetryEventRow['issueStatus']): string {
   } as Record<string, string>)[s] ?? s
 }
 
-onMounted(loadAll)
-watch(days, loadAll)
-watch(statusFilter, loadAll)
+/** 未知影片兜底: 影片已从 search 索引清除时服务端只有 mid+count, 避免渲染空白行 */
+function filmName(f: FilmStat): string {
+  return f.name || `未知影片 (mid:${f.mid})`
+}
+
+onMounted(() => void loadAll())
+// 注意不能把 loadAll 直接作为 watch 回调: 新值会被当成 append 参数
+watch(days, () => void loadAll())
+watch(statusFilter, () => void loadAll())
 </script>
 
 <template>
@@ -204,12 +251,32 @@ watch(statusFilter, loadAll)
         >
           <option v-for="o in DAYS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
-        <BaseButton variant="ghost" size="sm" :loading="loading" @click="loadAll">
+        <BaseButton variant="ghost" size="sm" :loading="loading" @click="loadAll()">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </BaseButton>
       </div>
     </header>
 
+    <!-- 初次加载骨架: 加载中不渲染空态文案, 与「确实没数据」区分 -->
+    <template v-if="!overview && !error">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-[var(--jc-space-4)] mb-[var(--jc-space-6)]">
+        <BaseSkeleton v-for="i in 4" :key="i" shape="rect" height="84px" />
+      </div>
+      <BaseSkeleton shape="rect" height="260px" />
+    </template>
+
+    <!-- 加载失败: 与空态区分, 提供重试 -->
+    <BaseEmpty
+      v-else-if="error"
+      :title="`加载失败：${error}`"
+      description="网络或服务端异常, 请稍后重试"
+    >
+      <template #action>
+        <BaseButton size="sm" variant="outline" @click="loadAll()">重试</BaseButton>
+      </template>
+    </BaseEmpty>
+
+    <template v-else>
     <!-- 顶部数字卡 -->
     <section class="grid grid-cols-2 md:grid-cols-4 gap-[var(--jc-space-4)] mb-[var(--jc-space-6)]">
       <div class="jc-tm-card">
@@ -234,7 +301,7 @@ watch(statusFilter, loadAll)
     <section class="mb-[var(--jc-space-6)]">
       <header class="flex items-center justify-between mb-[var(--jc-space-3)] gap-[var(--jc-space-3)] flex-wrap">
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">
-          错误 <span class="text-muted text-sm">({{ errors.length }})</span>
+          错误 <span class="text-muted text-sm">({{ total || errors.length }})</span>
         </h2>
         <select
           v-model="statusFilter"
@@ -250,7 +317,7 @@ watch(statusFilter, loadAll)
           <span class="w-[100px]">状态</span>
           <span class="w-[90px]">分类</span>
           <span class="w-[170px]">路径</span>
-          <span class="w-[50px] text-right">次数</span>
+          <span class="w-[70px] text-right">累计次数</span>
           <span class="flex-1">描述</span>
           <span class="w-[80px]"></span>
         </div>
@@ -262,8 +329,8 @@ watch(statusFilter, loadAll)
           </span>
           <span class="w-[90px]"><BaseTag variant="default" size="xs">{{ row.category || row.type }}</BaseTag></span>
           <span class="w-[170px] text-xs font-mono text-secondary truncate">{{ row.path || '-' }}</span>
-          <span class="w-[50px] text-right text-xs font-mono" :class="(row.value ?? 1) > 1 ? 'text-warning font-bold' : 'text-muted'">
-            x{{ row.value ?? 1 }}
+          <span class="w-[70px] text-right text-xs font-mono" :class="(row.value ?? 1) > 1 ? 'text-warning font-bold' : 'text-muted'">
+            {{ row.value ?? 1 }}
           </span>
           <span class="flex-1 min-w-0 text-sm">
             <span class="block" :class="expanded[row.id] ? 'whitespace-pre-wrap break-all' : 'truncate'">{{ row.label }}</span>
@@ -291,9 +358,17 @@ watch(statusFilter, loadAll)
             <BaseButton
               v-else
               variant="ghost" size="sm"
+              :loading="undoingId === row.id"
+              :disabled="undoingId !== null && undoingId !== row.id"
               @click="undoResolve(row)"
             >撤销</BaseButton>
           </span>
+        </div>
+        <!-- 服务端状态过滤后 total 大于已加载行数时提供加载更多(每页 100 条) -->
+        <div v-if="errors.length < total" class="flex justify-center py-[var(--jc-space-3)]">
+          <BaseButton variant="ghost" size="sm" :loading="loading" @click="loadAll(true)">
+            加载更多 (还剩 {{ total - errors.length }})
+          </BaseButton>
         </div>
       </div>
     </section>
@@ -320,7 +395,7 @@ watch(statusFilter, loadAll)
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="resolveDialog.open = false">取消</BaseButton>
-        <BaseButton variant="primary" @click="submitResolve">保存</BaseButton>
+        <BaseButton variant="primary" :loading="saving" @click="submitResolve">保存</BaseButton>
       </template>
     </BaseDialog>
 
@@ -340,12 +415,12 @@ watch(statusFilter, loadAll)
             <div class="w-[40px] shrink-0">
               <BaseImage
                 :src="f.cover"
-                :alt="f.name"
+                :alt="filmName(f)"
                 ratio="40/54"
                 rounded="rounded-[var(--jc-radius-sm)]"
               />
             </div>
-            <span class="flex-1 truncate text-sm">{{ f.name }}</span>
+            <span class="flex-1 truncate text-sm">{{ filmName(f) }}</span>
             <span class="text-secondary text-sm shrink-0">{{ fmtCount(f.count) }} 次</span>
           </RouterLink>
         </div>
@@ -366,12 +441,12 @@ watch(statusFilter, loadAll)
             <div class="w-[40px] shrink-0">
               <BaseImage
                 :src="f.cover"
-                :alt="f.name"
+                :alt="filmName(f)"
                 ratio="40/54"
                 rounded="rounded-[var(--jc-radius-sm)]"
               />
             </div>
-            <span class="flex-1 truncate text-sm">{{ f.name }}</span>
+            <span class="flex-1 truncate text-sm">{{ filmName(f) }}</span>
             <span class="text-secondary text-sm shrink-0">{{ fmtCount(f.count) }} 收藏</span>
           </RouterLink>
         </div>
@@ -399,6 +474,7 @@ watch(statusFilter, loadAll)
         </div>
       </section>
     </div>
+    </template>
   </div>
 </template>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { CronTask, CollectSource } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
@@ -15,9 +15,13 @@ import { confirm } from '@/composables/useConfirm'
 const rows = ref<CronTask[]>([])
 const sources = ref<CollectSource[]>([])
 const loading = ref(true)
+const loadError = ref('') // 列表加载失败: 明确报错+重试, 不伪装成"暂无定时任务"
+const keyword = ref('') // 客户端关键字过滤(ID/表达式/备注)
 const dialogOpen = ref(false)
 const submitting = ref(false)
 const editing = ref<CronTask | null>(null)
+const busyId = ref('') // 正在执行行内操作(立即执行/启停)的任务 id, 防连点并发
+const formError = ref('') // 弹窗表单校验错误, 内联展示
 
 const form = reactive<CronTask>({
   id: '',
@@ -79,23 +83,49 @@ function lastRunText(s?: string): string {
   }
 }
 
+/** 关键字过滤: 命中 ID / Cron 表达式 / 备注(服务端暂无分页, 前端过滤即可) */
+const filteredRows = computed<CronTask[]>(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) return rows.value
+  return rows.value.filter(
+    (r) =>
+      r.id.toLowerCase().includes(kw) ||
+      r.spec.toLowerCase().includes(kw) ||
+      (r.remark ?? '').toLowerCase().includes(kw)
+  )
+})
+
 /** 立即执行一次(不改变调度表, 在任务管理-历史中登记为手动任务) */
 async function runNow(row: CronTask): Promise<void> {
+  // 服务端 TriggerCron 无锁且拒绝已停用任务(400), 前端先拦: 停用禁点 + 行内防重
+  if (busyId.value || !row.state) return
   const ok = await confirm({
     title: '立即执行',
     desc: `手动触发任务「${row.id}」执行一次? 完成后可在 任务管理-历史记录 查看结果.`,
     okText: '执行'
   })
   if (!ok) return
-  await manageApi.cron.runNow(row.id)
-  await load()
+  busyId.value = row.id
+  try {
+    await manageApi.cron.runNow(row.id)
+    await load()
+  } catch {
+    /* 全局拦截器已 toast, 这里只兜住 unhandled rejection */
+  } finally {
+    busyId.value = ''
+  }
 }
 
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = ''
   try {
     const resp = await manageApi.cron.list()
     rows.value = Array.isArray(resp) ? resp : []
+  } catch (e) {
+    // 失败明确报错并可重试: 此前无 catch, 加载失败会复位居 rows 为空,
+    // 表格落到"暂无定时任务"空态, 与错误事实矛盾
+    loadError.value = e instanceof Error ? e.message : '加载定时任务失败'
   } finally {
     loading.value = false
   }
@@ -108,35 +138,83 @@ async function load(): Promise<void> {
 
 function openAdd(): void {
   editing.value = null
+  formError.value = ''
   Object.assign(form, { id: '', ids: [], time: 24, spec: '', model: 0, state: true, remark: '' })
   dialogOpen.value = true
 }
 
 function openEdit(row: CronTask): void {
   editing.value = row
+  formError.value = ''
   // 深拷贝 ids 数组，否则 toggleId 会污染列表 row
   Object.assign(form, { ...row, ids: [...(row.ids ?? [])] })
   dialogOpen.value = true
 }
 
+/**
+ * 服务端 cron.WithSeconds() 解析表达式, 要求 秒 分 时 日 月 周 共 6 字段;
+ * 逐字段宽松放行 数字/`*`/范围`-`/步进`/`/列表`,`/Quartz `?`/月周英文名。
+ * 服务端 UpsertCron 不校验, 空/坏表达式入库后 AddFunc 报错只记日志,
+ * 任务永远不调度却显示"运行中", 必须在提交前拦住。
+ */
+function specValid(spec: string): boolean {
+  const fields = spec.trim().split(/\s+/)
+  if (fields.length !== 6) return false
+  return fields.every((f) => /^[\d*\/,\-?A-Za-z]+$/.test(f) && !/^[\/,\-?]+$/.test(f))
+}
+
 async function submit(): Promise<void> {
+  const spec = form.spec.trim()
+  if (!spec) {
+    formError.value = '请填写 Cron 表达式（秒 分 时 日 月 周）'
+    return
+  }
+  if (!specValid(spec)) {
+    formError.value = 'Cron 表达式需为 6 个字段：秒 分 时 日 月 周（如 0 0 3 * * *）'
+    return
+  }
+  // time 落库后 0/负数会被服务端引擎反转为全量采集, 必须为 ≥1 整数
+  const time = Number(form.time)
+  if (!Number.isInteger(time) || time < 1) {
+    formError.value = '采集时长需为不小于 1 的整数（小时），清空或填 0 会触发全量采集'
+    return
+  }
+  if (form.model === 1 && form.ids.length === 0) {
+    formError.value = '任务类型为「仅更新所选资源站」时，请至少勾选一个资源站'
+    return
+  }
+  formError.value = ''
   submitting.value = true
   try {
+    form.spec = spec
+    form.time = time
     if (editing.value) await manageApi.cron.update({ ...form })
     else await manageApi.cron.add({ ...form })
     dialogOpen.value = false
     await load()
+  } catch (e) {
+    // 服务端错误全局拦截器已 toast; 保存失败保持弹窗打开, 错误不丢
+    formError.value = e instanceof Error ? e.message : '保存失败'
   } finally {
     submitting.value = false
   }
 }
 
 async function toggleState(row: CronTask): Promise<void> {
-  await manageApi.cron.change({ ...row, state: !row.state })
-  await load()
+  if (busyId.value) return
+  busyId.value = row.id
+  try {
+    await manageApi.cron.change({ ...row, state: !row.state })
+    await load()
+  } catch {
+    /* 全局拦截器已 toast, 这里只兜住 unhandled rejection */
+  } finally {
+    busyId.value = ''
+  }
 }
 
 async function remove(row: CronTask): Promise<void> {
+  if (busyId.value) return
   const ok = await confirm({
     title: '确认删除任务？',
     desc: `任务「${row.id}」删除后不可恢复`,
@@ -144,8 +222,15 @@ async function remove(row: CronTask): Promise<void> {
     danger: true
   })
   if (!ok) return
-  await manageApi.cron.remove(row.id)
-  await load()
+  busyId.value = row.id
+  try {
+    await manageApi.cron.remove(row.id)
+    await load()
+  } catch {
+    /* 全局拦截器已 toast, 这里只兜住 unhandled rejection */
+  } finally {
+    busyId.value = ''
+  }
 }
 
 function toggleId(id: string): void {
@@ -158,16 +243,31 @@ onMounted(load)
 </script>
 
 <template>
+  <!-- 加载失败: 明确报错 + 重试, 不落到"暂无定时任务"空态 -->
+  <div
+    v-if="loadError && !loading"
+    class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)] mb-[var(--jc-space-3)]"
+  >
+    <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
+    <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
+    <BaseButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</BaseButton>
+  </div>
+
   <ManageTable
     :columns="columns"
-    :rows="rows"
+    :rows="filteredRows"
     row-key="id"
     :loading="loading"
-    empty="暂无定时任务"
+    :empty="loadError ? undefined : '暂无定时任务，点击右上角新增'"
   >
     <template #toolbar>
       <h2 class="text-lg font-[var(--jc-fw-semibold)]">定时任务</h2>
-      <div class="flex gap-[var(--jc-space-2)]">
+      <div class="flex gap-[var(--jc-space-2)] items-center">
+        <ManageInput
+          v-model="keyword"
+          placeholder="搜索 ID / 表达式 / 备注"
+          class="w-[180px]"
+        />
         <BaseButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </BaseButton>
@@ -195,7 +295,7 @@ onMounted(load)
         {{ row.id }}
       </span>
       <span v-else-if="col.key === 'lastRunAt'" class="flex items-center gap-[var(--jc-space-1)]">
-        <BaseTag v-if="row.lastStatus" :variant="lastRunVariant(row.lastStatus)" size="xs">
+        <BaseTag :variant="lastRunVariant(row.lastStatus)" size="xs">
           {{ lastRunText(row.lastStatus) }}
         </BaseTag>
         <span class="text-xs text-muted whitespace-nowrap">{{ fmtRunTime(row.lastRunAt) }}</span>
@@ -210,12 +310,31 @@ onMounted(load)
 
     <template #actions="{ row }">
       <div class="flex gap-[var(--jc-space-1)] justify-end">
-        <BaseButton variant="ghost" size="sm" @click="toggleState(row)">
+        <BaseButton
+          variant="ghost"
+          size="sm"
+          :loading="busyId === row.id"
+          :disabled="!!busyId && busyId !== row.id"
+          @click="toggleState(row)"
+        >
           {{ row.state ? '停止' : '启动' }}
         </BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="runNow(row)">立即执行</BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="openEdit(row)">编辑</BaseButton>
-        <BaseButton variant="danger" size="sm" @click="remove(row)">删除</BaseButton>
+        <!-- 已停用任务服务端必拒(400 invalid argument), 本地禁用并提示 -->
+        <BaseButton
+          variant="ghost"
+          size="sm"
+          :disabled="!row.state || !!busyId"
+          :title="row.state ? undefined : '任务已停用，请先启动'"
+          @click="runNow(row)"
+        >
+          立即执行
+        </BaseButton>
+        <BaseButton variant="ghost" size="sm" :disabled="!!busyId" @click="openEdit(row)">
+          编辑
+        </BaseButton>
+        <BaseButton variant="danger" size="sm" :disabled="!!busyId" @click="remove(row)">
+          删除
+        </BaseButton>
       </div>
     </template>
   </ManageTable>
@@ -258,8 +377,8 @@ onMounted(load)
           </BaseTag>
         </div>
       </ManageFormField>
-      <ManageFormField label="采集时长（小时）" required>
-        <ManageInput v-model="form.time" type="number" placeholder="24" />
+      <ManageFormField label="采集时长（小时）" required hint="填 0 或负数会被服务端按全量采集执行">
+        <ManageInput v-model="form.time" type="number" min="1" step="1" placeholder="24" />
       </ManageFormField>
       <ManageFormField label="备注">
         <ManageInput v-model="form.remark!" placeholder="可选" />
@@ -267,6 +386,7 @@ onMounted(load)
       <ManageFormField label="启用">
         <ManageSwitch v-model="form.state" />
       </ManageFormField>
+      <p v-if="formError" class="text-xs text-[var(--jc-danger)]">{{ formError }}</p>
     </div>
     <template #footer>
       <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>

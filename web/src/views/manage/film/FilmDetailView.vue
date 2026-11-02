@@ -45,12 +45,15 @@ const candidatePicking = ref(false)
 
 const movie = computed(() => data.value?.movie ?? null)
 const sources = computed(() => data.value?.sources ?? [])
+/** 影片是否在回收站(软删): 公开读路径把已删影片当不存在, 跳转按钮需禁用并提示 */
+const isDeletedMovie = computed(() => (movie.value?.deletedAt ?? 0) > 0)
 
 /**
  * 合并行: 以「全部采集源 ∪ 详情中出现的源」为全集, 按 siteId 聚合。
  * - episodes: 该 siteId 在详情里所有 playFrom 的集数总和(0 = 未采集);
  * - master / siteName: 优先取采集源元信息, 缺失再回退详情/siteId;
- * - collected: episodes > 0。
+ * - collected: episodes > 0;
+ * - disabled: 源已停用(服务端仍允许单源手动采, 但要标出来避免误判可用状态)。
  */
 interface MergedSource {
   siteId: string
@@ -58,6 +61,7 @@ interface MergedSource {
   master: boolean
   episodes: number
   collected: boolean
+  disabled: boolean
 }
 
 const mergedSources = computed<MergedSource[]>(() => {
@@ -85,7 +89,8 @@ const mergedSources = computed<MergedSource[]>(() => {
       siteName: c.name || d?.name || c.id,
       master: c.grade === 0,
       episodes: d?.episodes ?? 0,
-      collected: (d?.episodes ?? 0) > 0
+      collected: (d?.episodes ?? 0) > 0,
+      disabled: !c.state
     })
   }
 
@@ -97,7 +102,8 @@ const mergedSources = computed<MergedSource[]>(() => {
       siteName: d.name || siteId,
       master: d.master,
       episodes: d.episodes,
-      collected: d.episodes > 0
+      collected: d.episodes > 0,
+      disabled: false
     })
   }
 
@@ -121,19 +127,21 @@ async function load(): Promise<void> {
   }
 }
 
-/** 采集单源: collectFilm({ sourceId, mid }) → 处理 collected / candidates */
+/** 采集单源: collectFilm({ sourceId, mid }) → 处理 collected / candidates。
+ *  silent=true: 拦截器不再弹通用「操作成功」—— 单源采集业务失败时 HTTP 仍是 200,
+ *  结果内 error 字段才代表真实成败, 由 handleCollectResult 自管提示, 避免自相矛盾双 toast。 */
 async function collectOne(row: MergedSource): Promise<void> {
   if (!mid.value) return
   collecting.value[row.siteId] = true
   try {
-    const res = await manageApi.film.collectFilm({
-      sourceId: row.siteId,
-      mid: Number(mid.value)
-    })
+    const res = await manageApi.film.collectFilm(
+      { sourceId: row.siteId, mid: Number(mid.value) },
+      { silent: true }
+    )
     const hit = pickResult(res, row.siteId)
     await handleCollectResult(hit, row.siteName, row.siteId)
-  } catch {
-    // http 拦截器已 toast 错误
+  } catch (e) {
+    toast('error', (e as Error).message ?? '采集请求失败')
   } finally {
     collecting.value[row.siteId] = false
   }
@@ -179,17 +187,17 @@ async function handleCollectResult(
   toast('error', `${sourceName} 未搜到此片`)
 }
 
-/** 候选弹框选定某版本: collectFilm({ sourceId, vodId }) → 成功重载 */
+/** 候选弹框选定某版本: collectFilm({ sourceId, vodId }) → 成功重载(silent 自管提示, 同 collectOne) */
 async function onPickCandidate(h: SourceSearchHit): Promise<void> {
   const { sourceId, sourceName } = candidateDialog.value
   if (!sourceId) return
   candidatePicking.value = true
   collecting.value[sourceId] = true
   try {
-    const res = await manageApi.film.collectFilm({
-      sourceId,
-      vodId: h.sourceVodId
-    })
+    const res = await manageApi.film.collectFilm(
+      { sourceId, vodId: h.sourceVodId },
+      { silent: true }
+    )
     const hit = pickResult(res, sourceId)
     if (hit && !hit.error && hit.collected > 0) {
       toast('success', `${sourceName} 采集完成, 入库 ${hit.collected} 集`)
@@ -200,37 +208,43 @@ async function onPickCandidate(h: SourceSearchHit): Promise<void> {
     } else {
       toast('error', `${sourceName} 采集未入库`)
     }
-  } catch {
-    // http 拦截器已 toast 错误
+  } catch (e) {
+    toast('error', (e as Error).message ?? '采集请求失败')
   } finally {
     candidatePicking.value = false
     collecting.value[sourceId] = false
   }
 }
 
-/** 去公开详情页(公开路由约定 query.link 承载 mid) */
+/** 去公开详情页(公开路由约定 query.link 承载 mid)。已软删影片公开页视为不存在, 不跳 */
 function gotoDetail(): void {
-  if (!mid.value) return
+  if (!mid.value || isDeletedMovie.value) return
   router.push({ path: '/filmDetail', query: { link: mid.value } })
 }
 
-/** 去公开播放页: source 用 `siteId:playFrom` 形式(与后端 PlaySource.id 对齐) */
+/** 去公开播放页: source 用 `siteId:playFrom` 形式(与后端 PlaySource.id 对齐)。已软删不跳 */
 function gotoPlay(): void {
-  if (!mid.value) return
+  if (!mid.value || isDeletedMovie.value) return
   const first = sources.value[0]
   const query: Record<string, string> = { id: mid.value, episode: '0' }
   if (first) query.source = `${first.siteId}:${first.playFrom}`
   router.push({ path: '/play', query })
 }
 
-onMounted(async () => {
-  await load()
-  // 采集源列表加载失败不阻断详情展示(此时只展示已采集源)
+/** 采集源列表(独立于详情加载, 失败不阻断详情, 但要显式提示——否则"按源补采"悄悄不可用) */
+const sourceListError = ref('')
+async function loadSources(): Promise<void> {
+  sourceListError.value = ''
   try {
     collectSources.value = await manageApi.collect.list()
-  } catch {
-    /* 忽略 */
+  } catch (e) {
+    sourceListError.value = (e as Error).message ?? '加载失败'
   }
+}
+
+onMounted(async () => {
+  await load()
+  await loadSources()
 })
 </script>
 
@@ -242,7 +256,8 @@ onMounted(async () => {
         <BaseButton
           variant="outline"
           size="sm"
-          :disabled="!movie"
+          :disabled="!movie || isDeletedMovie"
+          :title="isDeletedMovie ? '影片在回收站，公开页不可见；请先在影片列表「回收站」页签恢复' : ''"
           @click="gotoDetail"
         >
           <BaseIcon name="film" size="16px" /> 去详情页
@@ -250,7 +265,8 @@ onMounted(async () => {
         <BaseButton
           variant="gradient"
           size="sm"
-          :disabled="!sources.length"
+          :disabled="!sources.length || isDeletedMovie"
+          :title="isDeletedMovie ? '影片在回收站，公开页不可见；请先在影片列表「回收站」页签恢复' : ''"
           @click="gotoPlay"
         >
           <BaseIcon name="play" size="16px" /> 去播放页
@@ -280,6 +296,7 @@ onMounted(async () => {
             </span>
           </h3>
           <div class="flex flex-wrap gap-[var(--jc-space-2)]">
+            <BaseTag v-if="isDeletedMovie" variant="danger">回收站</BaseTag>
             <BaseTag v-if="movie.cName" variant="purple">{{ movie.cName }}</BaseTag>
             <BaseTag v-if="movie.year">{{ movie.year }}</BaseTag>
             <BaseTag v-if="movie.area">{{ movie.area }}</BaseTag>
@@ -308,6 +325,16 @@ onMounted(async () => {
           </h4>
         </div>
 
+        <!-- 源列表加载失败: 显式提示(否则"未采集"行整体消失, 按源补采能力悄悄不可用) -->
+        <div
+          v-if="sourceListError"
+          class="flex items-center gap-[var(--jc-space-2)] mb-[var(--jc-space-3)] text-sm text-[var(--jc-warning)] flex-wrap"
+        >
+          <BaseIcon name="info" size="14px" />
+          <span>采集源列表加载失败，仅显示已采集源：{{ sourceListError }}</span>
+          <BaseButton variant="ghost" size="sm" @click="loadSources">重试</BaseButton>
+        </div>
+
         <BaseEmpty v-if="!mergedSources.length" description="暂无采集源" />
 
         <div v-else class="flex flex-col gap-[var(--jc-space-2)]">
@@ -318,6 +345,7 @@ onMounted(async () => {
           >
             <span class="font-[var(--jc-fw-medium)] text-primary">{{ row.siteName }}</span>
             <BaseTag v-if="row.master" variant="brand" size="xs">主站</BaseTag>
+            <BaseTag v-if="row.disabled" variant="warning" size="xs">已停用</BaseTag>
             <BaseTag v-if="row.collected" variant="success" size="xs">{{ row.episodes }} 集</BaseTag>
             <BaseTag v-else variant="default" size="xs">未采集</BaseTag>
             <div class="flex-1" />
@@ -325,6 +353,7 @@ onMounted(async () => {
               :variant="row.collected ? 'outline' : 'primary'"
               size="sm"
               :loading="collecting[row.siteId]"
+              :title="row.disabled ? '该源已停用，仅此处可手动采集' : ''"
               @click="collectOne(row)"
             >
               <BaseIcon name="magic" size="16px" /> {{ row.collected ? '重采' : '采集' }}

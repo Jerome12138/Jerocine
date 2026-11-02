@@ -3,7 +3,9 @@ package entity
 // Category 分类 (table: category) — 父子用 pid 关联, 行级 CRUD。
 // 终态: category 是 MySQL 权威真相, Redis v1:cat:tree 仅缓存整树, miss 回源重建。
 type Category struct {
-	Id   int64  `gorm:"column:id;primaryKey" json:"id"`
+	// Id 主键自增(000039 起列带 AUTO_INCREMENT, 标签与列对齐 —— 手工新增分类以 id=0
+	// 走 Upsert, gorm 需知道由 DB 分配 id; 采集来源的分类(BatchUpsert)始终带真实 id)。
+	Id   int64  `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	Pid  int64  `gorm:"column:pid" json:"pid"`
 	Name string `gorm:"column:name" json:"name"`
 	// Show 顶栏导航显示(web+TV 顶部一级导航; 000037 起仅一级有意义, 二级不再消费此列)。

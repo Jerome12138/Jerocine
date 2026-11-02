@@ -13,6 +13,7 @@ import type {
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
+import ManageImageUpload from '@/components/manage/ManageImageUpload.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -22,13 +23,12 @@ import SourceCandidateDialog from '@/components/manage/SourceCandidateDialog.vue
 
 const router = useRouter()
 const tree = ref<FilmClass[]>([])
+const treeError = ref('')
 const submitting = ref(false)
-const uploading = ref(false)
-const uploadProgress = ref(0)
-const fileInput = ref<HTMLInputElement | null>(null)
 
 // ============ 按片名搜索站点影片 + 采集 ============
 const collectSources = ref<CollectSource[]>([])
+const sourcesError = ref('')
 const spiderKeyword = ref('')
 const searching = ref(false)
 const collecting = ref(false)
@@ -37,18 +37,39 @@ const searched = ref(false)
 /** 选中的源 id 集合(供采集勾选) */
 const checked = ref<Record<string, boolean>>({})
 
-/** 已勾选的源 id 列表 */
+/** 已勾选的源 id 列表(停用源不可勾, 服务端 resolveSources 也会静默丢弃停用源) */
 const checkedIds = computed(() =>
-  collectSources.value.filter((s) => checked.value[s.id]).map((s) => s.id)
+  collectSources.value.filter((s) => s.state && checked.value[s.id]).map((s) => s.id)
 )
+/** 可勾选的启用源数(全为 0 时按钮组置灰) */
+const enabledSourceCount = computed(() => collectSources.value.filter((s) => s.state).length)
 
 function toggleAll(on: boolean): void {
   const next: Record<string, boolean> = {}
-  for (const s of collectSources.value) next[s.id] = on
+  for (const s of collectSources.value) next[s.id] = on && s.state
   checked.value = next
 }
 
-/** 搜索各源命中影片(预览不落库) */
+/** 加载分类树/采集源: 失败置各自错误态+重试入口, 不再静默吞掉 */
+async function loadTree(): Promise<void> {
+  treeError.value = ''
+  try {
+    tree.value = await manageApi.film.classTree()
+  } catch (e) {
+    treeError.value = (e as Error).message ?? '加载失败'
+  }
+}
+
+async function loadSources(): Promise<void> {
+  sourcesError.value = ''
+  try {
+    collectSources.value = await manageApi.collect.list()
+  } catch (e) {
+    sourcesError.value = (e as Error).message ?? '加载失败'
+  }
+}
+
+/** 搜索各源命中影片(预览不落库)。注意: 服务端空 sources = 全部启用源, 不受下方勾选影响 */
 async function searchSpider(): Promise<void> {
   const kw = spiderKeyword.value.trim()
   if (!kw) {
@@ -84,7 +105,8 @@ function reportCollect(res: SourceFilmResult[]): void {
   }
 }
 
-/** 采集: ids 为空数组表示采集全部启用源 */
+/** 采集: ids 为空数组表示采集全部启用源。silent=true 自管结果提示, 避免拦截器
+ *  「操作成功」与 reportCollect 的「N 个源采集失败」同时出现 */
 async function collect(ids: string[]): Promise<void> {
   const kw = spiderKeyword.value.trim()
   if (!kw) {
@@ -94,13 +116,13 @@ async function collect(ids: string[]): Promise<void> {
   collecting.value = true
   try {
     const res = normalizeCollectResult(
-      await manageApi.film.collectFilm({ keyword: kw, sources: ids })
+      await manageApi.film.collectFilm({ keyword: kw, sources: ids }, { silent: true })
     )
     results.value = res
     searched.value = true
     reportCollect(res)
-  } catch {
-    // http 拦截器已 toast
+  } catch (e) {
+    toast('error', (e as Error).message ?? '采集请求失败')
   } finally {
     collecting.value = false
   }
@@ -136,12 +158,12 @@ function hitKey(sourceId: string, vodId: number): string {
   return `${sourceId}:${vodId}`
 }
 
-/** 命中条目精确采集: 用户已亲选具体版本 → collectFilm({ sourceId, vodId }) */
+/** 命中条目精确采集: 用户已亲选具体版本 → collectFilm({ sourceId, vodId })(silent 自管提示) */
 async function collectHit(sourceId: string, sourceName: string, h: SourceSearchHit): Promise<void> {
   const key = hitKey(sourceId, h.sourceVodId)
   hitCollecting.value[key] = true
   try {
-    const res = await manageApi.film.collectFilm({ sourceId, vodId: h.sourceVodId })
+    const res = await manageApi.film.collectFilm({ sourceId, vodId: h.sourceVodId }, { silent: true })
     const list = normalizeCollectResult(res)
     const hit = list.find((r) => r.sourceId === sourceId) ?? list[0]
     if (hit?.error) {
@@ -151,8 +173,8 @@ async function collectHit(sourceId: string, sourceName: string, h: SourceSearchH
     } else {
       toast('error', `${sourceName} · ${h.name} 采集未入库`)
     }
-  } catch {
-    // http 拦截器已 toast
+  } catch (e) {
+    toast('error', (e as Error).message ?? '采集请求失败')
   } finally {
     hitCollecting.value[key] = false
   }
@@ -169,13 +191,13 @@ function openCandidates(r: SourceFilmResult): void {
   }
 }
 
-/** 候选弹框选定某版本 → 精确采集 */
+/** 候选弹框选定某版本 → 精确采集(silent 自管提示) */
 async function onPickCandidate(h: SourceSearchHit): Promise<void> {
   const { sourceId, sourceName } = candidateDialog.value
   if (!sourceId) return
   candidatePicking.value = true
   try {
-    const res = await manageApi.film.collectFilm({ sourceId, vodId: h.sourceVodId })
+    const res = await manageApi.film.collectFilm({ sourceId, vodId: h.sourceVodId }, { silent: true })
     const list = normalizeCollectResult(res)
     const hit = list.find((r) => r.sourceId === sourceId) ?? list[0]
     if (hit?.error) {
@@ -186,8 +208,8 @@ async function onPickCandidate(h: SourceSearchHit): Promise<void> {
     } else {
       toast('error', `${sourceName} · ${h.name} 采集未入库`)
     }
-  } catch {
-    // http 拦截器已 toast
+  } catch (e) {
+    toast('error', (e as Error).message ?? '采集请求失败')
   } finally {
     candidatePicking.value = false
   }
@@ -207,51 +229,36 @@ const form = reactive({
   classTag: '',
   content: ''
 })
+/** 字段级错误(ManageFormField error prop 展示) */
+const nameError = ref('')
+const yearError = ref('')
 
-onMounted(async () => {
-  try {
-    tree.value = await manageApi.film.classTree()
-  } catch {
-    /* 忽略 */
-  }
-  try {
-    collectSources.value = await manageApi.collect.list()
-  } catch {
-    /* 忽略 */
-  }
+onMounted(() => {
+  void loadTree()
+  void loadSources()
 })
 
-async function handleUpload(e: Event): Promise<void> {
-  const target = e.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-  uploading.value = true
-  uploadProgress.value = 0
-  try {
-    const fd = new FormData()
-    fd.append('file', file)
-    const res = await manageApi.file.upload(fd, (p) => {
-      uploadProgress.value = p
-    })
-    form.picture = res
-  } finally {
-    uploading.value = false
-    // 清空 input value 允许重复选择同一文件
-    target.value = ''
-  }
-}
-
-function pickFile(): void {
-  fileInput.value?.click()
-}
-
 async function submit(): Promise<void> {
+  if (submitting.value) return
+  nameError.value = ''
+  yearError.value = ''
+  const name = form.name.trim()
+  if (!name) {
+    nameError.value = '请填写影片名'
+    return
+  }
+  const yearStr = String(form.year).trim()
+  if (yearStr && !/^\d{4}$/.test(yearStr)) {
+    yearError.value = '年份需为 4 位数字（如 2024），可留空'
+    return
+  }
   submitting.value = true
   try {
     await manageApi.film.add({
-      name: form.name,
+      name,
       enName: form.enName,
-      cid: form.cid,
+      // number input 清空后是空串, 原样上送服务端 int64 绑定会 422 invalid body → 归一 0(与 year 同口径)
+      cid: Number(form.cid) || 0,
       pid: form.pid,
       cover: form.picture,
       area: form.area,
@@ -262,6 +269,8 @@ async function submit(): Promise<void> {
       content: form.content
     })
     router.push('/manage/film')
+  } catch {
+    // 拦截器已 toast 失败原因; 表单停留供用户修正
   } finally {
     submitting.value = false
   }
@@ -274,7 +283,10 @@ async function submit(): Promise<void> {
     <section class="bg-surface rounded-card shadow-card p-[var(--jc-space-6)]">
       <header class="mb-[var(--jc-space-4)]">
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">按片名采集</h2>
-        <p class="text-sm text-muted">输入片名搜索各采集源命中结果，勾选源后采集入库（预览不落库）</p>
+        <p class="text-sm text-muted">
+          输入片名搜索各启用采集源的命中结果（预览不落库，搜索固定覆盖全部启用源）；
+          勾选源仅作用于采集入库
+        </p>
       </header>
 
       <!-- 搜索栏 -->
@@ -290,34 +302,59 @@ async function submit(): Promise<void> {
         </BaseButton>
       </div>
 
+      <!-- 源列表加载失败: 显式提示+重试(此前静默吞掉, 整个勾选区块无声消失) -->
+      <div
+        v-if="sourcesError"
+        class="flex items-center gap-[var(--jc-space-2)] flex-wrap mb-[var(--jc-space-4)] text-sm text-[var(--jc-warning)]"
+      >
+        <BaseIcon name="info" size="14px" />
+        <span>采集源列表加载失败：{{ sourcesError }}</span>
+        <BaseButton variant="ghost" size="sm" @click="loadSources">重试</BaseButton>
+      </div>
+
       <!-- 源勾选 + 采集动作 -->
-      <div v-if="collectSources.length" class="flex flex-col gap-[var(--jc-space-3)] mb-[var(--jc-space-4)]">
+      <div v-else-if="collectSources.length" class="flex flex-col gap-[var(--jc-space-3)] mb-[var(--jc-space-4)]">
         <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap text-sm">
           <span class="text-muted">采集源：</span>
           <label
             v-for="s in collectSources"
             :key="s.id"
-            class="flex items-center gap-[var(--jc-space-1)] cursor-pointer text-secondary"
+            class="flex items-center gap-[var(--jc-space-1)] text-secondary"
+            :class="s.state ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'"
           >
             <input
               v-model="checked[s.id]"
               type="checkbox"
+              :disabled="!s.state"
               class="accent-[var(--jc-brand-primary)]"
               data-focusable="true"
             />
             <span>{{ s.name }}</span>
             <BaseTag v-if="s.grade === 0" variant="brand" size="xs">主站</BaseTag>
+            <BaseTag v-if="!s.state" variant="warning" size="xs">已停用</BaseTag>
           </label>
           <div class="flex gap-[var(--jc-space-2)]">
-            <BaseButton variant="ghost" size="sm" @click="toggleAll(true)">全选</BaseButton>
+            <BaseButton variant="ghost" size="sm" :disabled="!enabledSourceCount" @click="toggleAll(true)">全选</BaseButton>
             <BaseButton variant="ghost" size="sm" @click="toggleAll(false)">清空</BaseButton>
           </div>
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap">
-          <BaseButton variant="primary" size="sm" :loading="collecting" @click="collectChecked">
+          <BaseButton
+            variant="primary"
+            size="sm"
+            :loading="collecting"
+            :disabled="!enabledSourceCount"
+            @click="collectChecked"
+          >
             <BaseIcon name="magic" size="16px" /> 采集选中源
           </BaseButton>
-          <BaseButton variant="outline" size="sm" :loading="collecting" @click="collectAll">
+          <BaseButton
+            variant="outline"
+            size="sm"
+            :loading="collecting"
+            :disabled="!enabledSourceCount"
+            @click="collectAll"
+          >
             <BaseIcon name="magic" size="16px" /> 采集全部源
           </BaseButton>
         </div>
@@ -406,7 +443,7 @@ async function submit(): Promise<void> {
         class="grid grid-cols-1 md:grid-cols-2 gap-[var(--jc-space-5)]"
         @submit.prevent="submit"
       >
-        <ManageFormField label="影片名" required>
+        <ManageFormField label="影片名" required :error="nameError">
           <ManageInput v-model="form.name" />
         </ManageFormField>
         <ManageFormField label="英文名">
@@ -414,49 +451,30 @@ async function submit(): Promise<void> {
         </ManageFormField>
 
         <ManageFormField label="顶级分类 (Pid)">
-          <select
-            v-model="form.pid"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
-            data-focusable="true"
-          >
-            <option :value="0">请选择</option>
-            <option v-for="t in tree" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select>
+          <div class="flex flex-col gap-[var(--jc-space-2)]">
+            <select
+              v-model="form.pid"
+              class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
+              data-focusable="true"
+            >
+              <option :value="0">请选择</option>
+              <option v-for="t in tree" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+            <div v-if="treeError" class="flex items-center gap-[var(--jc-space-2)] text-xs text-[var(--jc-danger)] flex-wrap">
+              <span>分类树加载失败：{{ treeError }}</span>
+              <BaseButton variant="ghost" size="sm" @click="loadTree">重试</BaseButton>
+            </div>
+          </div>
         </ManageFormField>
         <ManageFormField label="子分类 (Cid)">
           <ManageInput v-model="form.cid" type="number" />
         </ManageFormField>
 
-        <ManageFormField label="海报">
-          <div class="flex items-center gap-[var(--jc-space-3)]">
-            <div class="w-[80px] h-[110px] rounded-[var(--jc-radius-md)] overflow-hidden bg-elevated">
-              <BaseImage v-if="form.picture" :src="form.picture" alt="poster" ratio="3/4" />
-              <div v-else class="w-full h-full flex-center text-muted text-xs">暂无</div>
-            </div>
-            <div class="flex flex-col gap-[var(--jc-space-2)]">
-              <input
-                ref="fileInput"
-                type="file"
-                accept="image/*"
-                class="hidden"
-                @change="handleUpload"
-              />
-              <BaseButton
-                variant="ghost"
-                size="sm"
-                type="button"
-                :loading="uploading"
-                @click="pickFile"
-              >
-                <BaseIcon name="upload" size="16px" />
-                {{ uploading ? `上传中 ${Math.round(uploadProgress * 100)}%` : '选择图片' }}
-              </BaseButton>
-              <ManageInput v-model="form.picture" placeholder="或粘贴图片 URL" />
-            </div>
-          </div>
+        <ManageFormField label="海报" class="md:col-span-2">
+          <ManageImageUpload v-model="form.picture" ratio="2/3" placeholder="或粘贴图片 URL" />
         </ManageFormField>
 
-        <ManageFormField label="年份">
+        <ManageFormField label="年份" :error="yearError">
           <ManageInput v-model="form.year" placeholder="2024" />
         </ManageFormField>
         <ManageFormField label="地区">

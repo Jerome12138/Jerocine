@@ -10,11 +10,14 @@ import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 
 /**
  * 弹幕服务卡片（后台配置项，默认不启用）。
- * 保存走 PUT /manage/danmu-config；总开关 + 平台白名单独立保存，保存即生效
- * （后端保存后清 v1:danmu:src:* 来源候选缓存，下次进片按新白名单解析）。
- * 平台要可用需「壳 ID_PREFIX」同步启用 —— 本卡片只控制 Go/前端开放面。
+ * 保存走 PUT /manage/danmu-config；总开关 + 平台白名单整体保存。
+ * 生效路径：后端保存后失效配置缓存，弹幕服务的进程内配置快照 30s 刷新 —— 最长 30s 延迟生效。
+ * 平台白名单当前仅随配置存库（预留开放面控制，与壳 ID_PREFIX 对应），
+ * 聚合链路（dandanplay 按标题整集匹配）暂不按平台过滤。
  */
 const loading = ref(true)
+/** 加载失败: 展示错误态, 不渲染可编辑的默认表单 —— 否则误点保存会把 {enabled:0} 写库全局关停 */
+const loadError = ref(false)
 const submitting = ref(false)
 
 const form = reactive({
@@ -40,11 +43,15 @@ function toggleProvider(p: DanmuProvider, on: boolean): void {
 
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = false
   try {
     const data = await manageApi.danmu.getDanmuConfig()
     form.enabled = data.enabled
     form.providers = data.providers
     allProviders.value = data.all
+  } catch {
+    // 失败时不以默认值(enabled=0)渲染可编辑表单: 误点保存会把全局弹幕关停
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -82,13 +89,24 @@ onMounted(load)
     <header>
       <h2 class="text-lg font-[var(--jc-fw-semibold)]">弹幕服务</h2>
       <p class="mt-1 text-sm text-muted">
-        总开关默认关闭；开启后按开放平台在播放页提供弹幕来源候选（B站整集聚合 /
-        腾讯 / 爱奇艺 / 优酷分段点播）。
+        总开关默认关闭；开启后播放页按标题提供 dandanplay
+        聚合弹幕（整集匹配）。平台勾选为开放面白名单（与弹幕壳
+        ID_PREFIX 对应），当前聚合链路不按平台过滤。
       </p>
     </header>
 
     <div v-if="loading" class="flex flex-col gap-[var(--jc-space-3)]">
       <BaseSkeleton v-for="i in 5" :key="i" shape="rect" height="44px" />
+    </div>
+
+    <div
+      v-else-if="loadError"
+      class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-8)]"
+    >
+      <p class="text-sm text-[var(--jc-danger)]">
+        弹幕配置读取失败：为避免误存默认值（全局关停），已禁用编辑与保存。
+      </p>
+      <BaseButton variant="outline" size="sm" @click="load">重试</BaseButton>
     </div>
 
     <form v-else class="flex flex-1 flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">
@@ -108,7 +126,7 @@ onMounted(load)
       >
         <ManageFormField
           label="开放平台"
-          hint="勾选平台后，播放页才会为该片解析并展示对应弹幕源；至少勾选一个"
+          hint="勾选的平台作为开放面白名单保存（当前聚合弹幕按标题匹配、不按平台过滤）；启用时至少勾选一个"
         >
           <div class="flex flex-col gap-2">
             <label
@@ -129,7 +147,7 @@ onMounted(load)
         </ManageFormField>
 
         <p v-if="form.providers.length === 0" class="text-xs text-[var(--jc-warning)]">
-          尚未勾选任何平台：即便总开关开启，播放页也不会出现弹幕。
+          尚未勾选任何平台：启用状态下无法保存（服务端要求至少一个开放平台）。
         </p>
       </div>
 

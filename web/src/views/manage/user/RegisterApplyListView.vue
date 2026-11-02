@@ -4,7 +4,10 @@ import { manageApi } from '@/api'
 import type { RegisterApplyRow, RegisterApplyStatus } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
+import ManageInput from '@/components/manage/ManageInput.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
+import BaseEmpty from '@/components/base/BaseEmpty.vue'
+import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import { confirm } from '@/composables/useConfirm'
@@ -21,8 +24,12 @@ const loading = ref(true)
 const busy = ref(false)
 const total = ref(0)
 const pageSize = ref(20)
+/** 加载失败态: 与"确实没有申请"的空态区分开, 提供重试入口 */
+const loadError = ref('')
+// 请求序号: 仅采纳最后一次请求的响应, 防快速切筛选/翻页时旧响应后到覆盖新列表
+let loadSeq = 0
 /** -1 不限 / 0 待审 / 1 已通过 / 2 已驳回 */
-const params = reactive({ status: -1, current: 1, pageSize: 20 })
+const params = reactive({ keyword: '', status: -1, current: 1, pageSize: 20 })
 
 const columns = [
   { key: 'id' as const, label: 'ID', width: '70px' },
@@ -35,19 +42,43 @@ const columns = [
 ]
 
 async function load(): Promise<void> {
+  const seq = ++loadSeq
   loading.value = true
+  loadError.value = ''
   try {
     const resp = await manageApi.register.list({
+      keyword: params.keyword,
       status: params.status,
       page: params.current,
       size: params.pageSize
     })
+    if (seq !== loadSeq) return // 已有更新的请求在途/完成, 丢弃旧响应
     rows.value = resp.list ?? []
     total.value = resp.page?.total ?? 0
     pageSize.value = resp.page?.size ?? params.pageSize
+    // 末页删空回夹: 通过/驳回后当前页可能整体消失, 页码越界会落进空页, 回夹到最后一页重拉一次
+    const size = resp.page?.size ?? params.pageSize
+    const pageCount = Math.max(1, Math.ceil(total.value / size))
+    if (!rows.value.length && params.current > 1 && total.value > 0 && pageCount < params.current) {
+      params.current = pageCount
+      return load()
+    }
+  } catch (e) {
+    if (seq !== loadSeq) return
+    // 失败保留错误态: 不冒充"暂无注册申请"; http 拦截器已全局 toast, 这里落页面内文案
+    loadError.value = (e as Error).message ?? '加载失败'
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
+}
+
+function retryLoad(): void {
+  load()
+}
+
+function search(): void {
+  params.current = 1
+  load()
 }
 
 function changeStatus(s: number): void {
@@ -159,7 +190,18 @@ onMounted(load)
 
 <template>
   <div class="flex flex-col gap-[var(--jc-space-4)]">
+    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"暂无注册申请" -->
+    <section v-if="loadError && !rows.length" class="bg-surface rounded-card shadow-card">
+      <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
+        <BaseEmpty title="加载失败" :description="loadError" hide-icon />
+        <BaseButton variant="outline" size="sm" @click="retryLoad">
+          <BaseIcon name="refresh" size="16px" /> 重试
+        </BaseButton>
+      </div>
+    </section>
+
     <ManageTable
+      v-else
       :columns="columns"
       :rows="rows"
       row-key="id"
@@ -169,27 +211,47 @@ onMounted(load)
     >
       <template #toolbar>
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">注册审核</h2>
-        <select
-          v-model.number="params.status"
-          class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm"
-          data-focusable="true"
-          @change="changeStatus(params.status)"
-        >
-          <option :value="-1">全部状态</option>
-          <option :value="0">待审</option>
-          <option :value="1">已通过</option>
-          <option :value="2">已驳回</option>
-        </select>
+        <!-- 输入框单独给宽度: ManageInput 自身是 w-full, 直接放进 flex 会独占一行把按钮挤到下一行 -->
+        <div class="flex flex-wrap items-center gap-[var(--jc-space-2)] sm:flex-nowrap">
+          <div class="w-full sm:w-[220px]">
+            <ManageInput v-model="params.keyword" placeholder="用户名 / 邮箱" @keydown.enter="search" />
+          </div>
+          <BaseButton variant="gradient" size="sm" @click="search">
+            <BaseIcon name="search" size="16px" /> 搜索
+          </BaseButton>
+          <select
+            v-model.number="params.status"
+            class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm"
+            data-focusable="true"
+            @change="changeStatus(params.status)"
+          >
+            <option :value="-1">全部状态</option>
+            <option :value="0">待审</option>
+            <option :value="1">已通过</option>
+            <option :value="2">已驳回</option>
+          </select>
+        </div>
         <span class="text-xs text-muted">申请制站点：通过后自动发激活邮件，用户到站设密码即注册成功</span>
       </template>
 
       <template #cell="{ row, col }">
         <span v-if="col.key === 'userName'" class="font-[var(--jc-fw-medium)]">{{ row.userName }}</span>
-        <BaseTag v-else-if="col.key === 'status'" :variant="statusVariant(row.status)" size="sm">
-          {{ statusName(row.status) }}
-        </BaseTag>
+        <!-- 已驳回行附当初填写的驳回理由(用户登录可见的那份), 不用翻审核记录 -->
+        <div v-else-if="col.key === 'status'" class="flex flex-col gap-[var(--jc-space-1)]">
+          <BaseTag :variant="statusVariant(row.status)" size="sm">{{ statusName(row.status) }}</BaseTag>
+          <span
+            v-if="row.status === 2 && row.rejectReason"
+            class="text-xs text-secondary break-all"
+            :title="row.rejectReason"
+          >
+            理由：{{ row.rejectReason }}
+          </span>
+        </div>
         <span v-else-if="col.key === 'reason'" class="text-xs text-secondary">{{ row.reason || '—' }}</span>
-        <span v-else-if="col.key === 'createdAt'">{{ fmtTime(row.createdAt) }}</span>
+        <span v-else-if="col.key === 'createdAt'" class="flex flex-col gap-[var(--jc-space-1)]">
+          {{ fmtTime(row.createdAt) }}
+          <span v-if="row.reviewedAt" class="text-xs text-muted">审核：{{ fmtTime(row.reviewedAt) }}</span>
+        </span>
         <span v-else class="text-xs">{{ row[col.key] ?? '—' }}</span>
       </template>
 

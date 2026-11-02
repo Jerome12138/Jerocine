@@ -35,8 +35,9 @@ export const onlineOverview = (): Promise<OnlineOverview> =>
 export const onlineDailySessions = (days: number): Promise<DailySessionsResp> =>
   http.get<unknown, DailySessionsResp>('/manage/online/daily-sessions', { params: { days } })
 
-/** GET /manage/site-config 站点基础配置 */
-export const getBasic = async (): Promise<SiteBasic> => {
+/** GET /manage/site-config 站点基础配置（响应同端点还带 TMDB 掩码状态，一并返回 ——
+ *  页面初次加载一次取全，避免 getBasic/getTMDBKey 对同一接口连打两枪） */
+export const getBasic = async (): Promise<SiteBasic & TMDBKeyState> => {
   const c = await http.get<unknown, SiteConfigDTO>('/manage/site-config')
   return {
     siteName: c.siteName,
@@ -45,7 +46,9 @@ export const getBasic = async (): Promise<SiteBasic> => {
     describe: c.description,
     domain: c.domain,
     state: c.state === 0,
-    hint: c.hint
+    hint: c.hint,
+    masked: c.tmdbKeyMasked ?? '',
+    set: c.tmdbKeySet ?? false
   }
 }
 

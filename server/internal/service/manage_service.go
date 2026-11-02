@@ -141,27 +141,36 @@ type DashboardData struct {
 	PendingFails int64 `json:"pendingFails"` // 待补采的失败页数(由 handler 从采集服务注入)
 }
 
-func (s *ManageService) Dashboard(ctx context.Context) DashboardData {
+// Dashboard 仪表盘统计。任一查询失败必须显式返回错误 —— 此前五处 `err == nil` 静默吞错,
+// DB 异常时影片总数/今日新增等全部显示为假的 0, 前端无从区分"真的是 0"与"查询失败"
+// (2026-11-03 管理端复核修复; handler 据此返回失败, 前端走既有错误态提示重试)。
+func (s *ManageService) Dashboard(ctx context.Context) (DashboardData, error) {
 	d := DashboardData{}
-	if _, total, err := s.search.Filter(ctx, repository.FilterSpec{}, repository.Page{Current: 1, Size: 1}); err == nil {
-		d.FilmCount = total
+	_, total, err := s.search.Filter(ctx, repository.FilterSpec{}, repository.Page{Current: 1, Size: 1})
+	if err != nil {
+		return d, err
 	}
-	if srcs, err := s.sources.List(ctx, true); err == nil { // 仅启用源
-		d.CollectCount = int64(len(srcs))
+	d.FilmCount = total
+	srcs, err := s.sources.List(ctx, true) // 仅启用源
+	if err != nil {
+		return d, err
 	}
-	if crons, err := s.crons.List(ctx); err == nil {
-		d.CronCount = int64(len(crons))
+	d.CollectCount = int64(len(srcs))
+	crons, err := s.crons.List(ctx)
+	if err != nil {
+		return d, err
 	}
+	d.CronCount = int64(len(crons))
 	// 今日/近一周新增 (created_at 毫秒; 用服务端本地时区, 部署为北京时间)
 	now := time.Now()
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	if n, err := s.search.CountCreatedSince(ctx, startOfToday.UnixMilli()); err == nil {
-		d.TodayNew = n
+	if d.TodayNew, err = s.search.CountCreatedSince(ctx, startOfToday.UnixMilli()); err != nil {
+		return d, err
 	}
-	if n, err := s.search.CountCreatedSince(ctx, now.AddDate(0, 0, -7).UnixMilli()); err == nil {
-		d.WeekNew = n
+	if d.WeekNew, err = s.search.CountCreatedSince(ctx, now.AddDate(0, 0, -7).UnixMilli()); err != nil {
+		return d, err
 	}
-	return d
+	return d, nil
 }
 
 // ---- 站点配置 ----
@@ -255,6 +264,10 @@ func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) erro
 	// 本入口只写「站点信息」表单的字段; 其余列在实体上是 json:"-"(管理端绑不进来, 恒为零值),
 	// 而落库是 UpdateAll upsert ⇒ 必须逐列回填库内现值, 否则保存站点信息会把它们清零。
 	// 独立维护的列: TMDB 凭据、邮件与注册(register_mode + smtp_* + 日配额)、运行参数(登录策略/采集并发)。
+	// 站名必填: 前端标了红星, 但绑定实体无 binding 规则, 这里兜底防空站名落库。
+	if strings.TrimSpace(c.SiteName) == "" {
+		return domain.ErrInvalidArgument
+	}
 	if cur, err := s.siteCfg.Get(ctx); err == nil {
 		c.TmdbAPIKey = cur.TmdbAPIKey
 		c.RegisterMode = cur.RegisterMode
@@ -347,7 +360,8 @@ func (s *ManageService) GetDanmuConfig(ctx context.Context) (DanmuConfigView, er
 
 // SaveDanmuConfig 写弹幕后台配置: enabled 0/1; providers 只收平台全集内值(去重保序)。
 // enabled=1 但白名单空 → ErrInvalidArgument（开了总开关却没开放平台，前端出不了弹幕）。
-// 保存后失效配置缓存 + 清 v1:danmu:src:* 来源候选缓存，切换立即生效（下次回源按新白名单解析）。
+// 保存后失效配置缓存; 弹幕服务按进程内 30s 配置快照生效（最长 30s 延迟, 见 danmu_service.go
+// danmuCfgSnapshot —— 如需立即生效可在保存路径加快照失效钩子）。
 func (s *ManageService) SaveDanmuConfig(ctx context.Context, in DanmuConfigInput) error {
 	if in.Enabled != 0 && in.Enabled != 1 {
 		return domain.ErrInvalidArgument
@@ -450,7 +464,7 @@ func (s *ManageService) UpsertSource(ctx context.Context, src *entity.CollectSou
 		return err
 	}
 	if dup {
-		return domain.ErrConflict
+		return domain.ErrSourceUriTaken // 文案直达管理页, 不用裸 ErrConflict
 	}
 	if err := s.sources.Upsert(ctx, src); err != nil {
 		return err
@@ -465,7 +479,7 @@ func (s *ManageService) DeleteSource(ctx context.Context, id string) error {
 		return err
 	}
 	if src.Grade == entity.GradeMaster {
-		return domain.ErrConflict // 主站禁删
+		return domain.ErrMasterUndeletable // 文案直达管理页, 不用裸 ErrConflict
 	}
 	if err := s.sources.Delete(ctx, id); err != nil {
 		return err
@@ -873,6 +887,10 @@ func (s *ManageService) ListCategories(ctx context.Context) ([]*entity.CategoryN
 // 是最狠的一档, 本节点与全部子孙的 show/sidebar_show 必须一并置 false —— 影片都搜不到
 // 列不出了, 导航入口就不允许还亮着(前端开关同步禁用置灰, 这里是服务端兜底)。
 func (s *ManageService) UpsertCategory(ctx context.Context, c *entity.Category) error {
+	// 服务端兜底: 前端有 trim 校验, 这里挡 API 直调 —— 空名分类会污染树节点。
+	if strings.TrimSpace(c.Name) == "" {
+		return domain.ErrInvalidArgument
+	}
 	if !c.FilmVisible {
 		c.Show = false
 		c.SidebarShow = false
@@ -910,8 +928,16 @@ func (s *ManageService) cascadeHideDescendants(ctx context.Context, id int64) er
 	}
 	return nil
 }
+// DeleteCategory 删除分类。树只有两级: 级联先删直接子分类再删本节点(同事务) ——
+// 只删单行会留下 pid 悬空的孤儿行, buildTree 会静默丢弃它们(公开导航与本页一起消失
+// 但行残留, 永远无法再管理)。与前端确认文案「及其全部子分类将被永久删除」对齐。
 func (s *ManageService) DeleteCategory(ctx context.Context, id int64) error {
-	if err := s.category.Delete(ctx, id); err != nil {
+	if err := s.tx.WithinTx(ctx, func(ctx context.Context) error {
+		if err := s.category.DeleteByPid(ctx, id); err != nil {
+			return err
+		}
+		return s.category.Delete(ctx, id)
+	}); err != nil {
 		return err
 	}
 	cache.InvalidateCategory(ctx)
@@ -961,7 +987,12 @@ func (s *ManageService) SearchFilms(ctx context.Context, spec repository.FilterS
 	)
 	if kw := strings.TrimSpace(spec.Keyword); kw != "" {
 		// 管理端口径: IncludeHidden 由 handler 恒置 true —— 后台列表/搜索不过滤影片可见性。
-		list, total, err = s.search.SearchKeyword(ctx, kw, spec.Deleted, spec.IncludeHidden, page)
+		// sort 透传(空回退热度, 与无关键字路径 defaultSort 同口径), 保证有无关键词排序一致。
+		sort := spec.Sort
+		if sort == "" {
+			sort = "hot"
+		}
+		list, total, err = s.search.SearchKeyword(ctx, kw, spec.Deleted, spec.IncludeHidden, sort, page)
 	} else {
 		list, total, err = s.search.Filter(ctx, spec, page)
 	}

@@ -131,7 +131,7 @@ func (s *SpiderService) StartCollect(sourceId string, hours int) error {
 		return err
 	}
 	if src.State != entity.StateEnabled {
-		return domain.ErrInvalidArgument
+		return domain.ErrSourceDisabled // 文案直达管理页, 不用裸 ErrInvalidArgument
 	}
 	s.jobs.Add(1)
 	go func() {
@@ -404,14 +404,33 @@ func (s *SpiderService) BatchCollect(ctx context.Context, hours int, ids ...stri
 func (s *SpiderService) Jobs(ctx context.Context) ([]cache.JobProgress, error) {
 	return cache.JobList(ctx)
 }
-func (s *SpiderService) PauseJob(ctx context.Context, sourceId string) {
-	cache.JobSetState(ctx, sourceId, cache.JobPaused)
+
+// jobCtrlErr 把 cache 任务控制面哨兵翻译为领域错误(mapStatus → HTTP 状态):
+// 不存在 → 404, 状态前置不符 → 409, 其余(Redis 不可用/写失败)原样透传 → 500。
+func jobCtrlErr(err error) error {
+	switch {
+	case errors.Is(err, cache.ErrJobNotFound):
+		return domain.ErrJobNotFound
+	case errors.Is(err, cache.ErrJobStateMismatch):
+		return domain.ErrJobStateConflict
+	default:
+		return err
+	}
 }
-func (s *SpiderService) ResumeJob(ctx context.Context, sourceId string) {
-	cache.JobSetState(ctx, sourceId, cache.JobRunning)
+
+// PauseJob/ResumeJob/CancelJob 此前无返回值且不校验前置, handler 恒返 {"ok":true}:
+// Redis 写失败/任务已被 GC 都静默吞掉, 管理页拿到假阳性。现在校验 + 逐层传播错误。
+
+func (s *SpiderService) PauseJob(ctx context.Context, sourceId string) error {
+	return jobCtrlErr(cache.JobControl(ctx, sourceId, cache.JobPaused, cache.JobRunning))
 }
-func (s *SpiderService) CancelJob(ctx context.Context, sourceId string) {
-	cache.JobSetState(ctx, sourceId, cache.JobCanceled)
+
+func (s *SpiderService) ResumeJob(ctx context.Context, sourceId string) error {
+	return jobCtrlErr(cache.JobControl(ctx, sourceId, cache.JobRunning, cache.JobPaused))
+}
+
+func (s *SpiderService) CancelJob(ctx context.Context, sourceId string) error {
+	return jobCtrlErr(cache.JobControl(ctx, sourceId, cache.JobCanceled, cache.JobRunning, cache.JobPaused))
 }
 
 // FilmZero 清空影片库(/spider/reset)。

@@ -23,8 +23,8 @@ func userPtr(id uint) *entity.User {
 
 type manageFakeUsers struct {
 	repository.UserRepository
-	u                    *entity.User // GetById 命中目标
-	other                *entity.User // GetByName 的第二个账号(测重名)
+	u                    *entity.User  // GetById 命中目标
+	other                *entity.User  // GetByName 的第二个账号(测重名)
 	listRows             []entity.User
 	gotKeyword           string
 	setDisabled          bool
@@ -37,6 +37,7 @@ type manageFakeUsers struct {
 	updatedResetVerified bool
 	emailOwner           *entity.User // GetByEmail 命中(测邮箱被占用)
 	deletedID            uint
+	created              *entity.User // Create 落库的行(测建号)
 }
 
 func (f *manageFakeUsers) GetByName(_ context.Context, name string) (*entity.User, error) {
@@ -92,6 +93,11 @@ func (f *manageFakeUsers) Delete(_ context.Context, id uint) error {
 	return nil
 }
 
+func (f *manageFakeUsers) Create(_ context.Context, u *entity.User) error {
+	f.created = u
+	return nil
+}
+
 func newManageTestService(t *testing.T, u repository.UserRepository) *UserService {
 	t.Helper()
 	return NewUserService(u, nil, nil, nil, nil, testTokenManager(t), 2, time.Hour)
@@ -133,15 +139,52 @@ func TestManageSetUserDisabled_DisableAndEnable(t *testing.T) {
 func TestManageResetUserPassword(t *testing.T) {
 	fu := &manageFakeUsers{u: userPtr(9)}
 	s := newManageTestService(t, fu)
+	// 不能重置自己的密码(重置即清全部 token, 会把当前会话也踢下线)
+	if err := s.ManageResetUserPassword(context.Background(), 9, 9, "newpass123"); err != domain.ErrInvalidArgument {
+		t.Fatalf("重置自己: want ErrInvalidArgument, got %v", err)
+	}
+	// 目标不存在
+	if err := s.ManageResetUserPassword(context.Background(), 7, 99, "newpass123"); err != domain.ErrUserNotFound {
+		t.Fatalf("目标不存在: want ErrUserNotFound, got %v", err)
+	}
 	// 过短拒绝
-	if err := s.ManageResetUserPassword(context.Background(), 9, "123"); err != domain.ErrInvalidArgument {
+	if err := s.ManageResetUserPassword(context.Background(), 7, 9, "123"); err != domain.ErrInvalidArgument {
 		t.Fatalf("过短密码: want ErrInvalidArgument, got %v", err)
 	}
-	if err := s.ManageResetUserPassword(context.Background(), 9, "newpass123"); err != nil {
+	if err := s.ManageResetUserPassword(context.Background(), 7, 9, "newpass123"); err != nil {
 		t.Fatalf("reset: %v", err)
 	}
 	if fu.updatedPw == "" || fu.updatedPw == "newpass123" {
 		t.Fatal("密码必须哈希后落库")
+	}
+}
+
+// CreateUser 用户名 1-32 字符按 rune 计(与 ManageUpdateUser 同口径):
+// 超长建号会产出"建得起、之后编辑永远 400"的账号; 重名返回 ErrUserNameTaken(用户直达文案)。
+func TestManageCreateUser_NameRules(t *testing.T) {
+	fu := &manageFakeUsers{u: userPtr(9)}
+	fu.u.UserName = "bob"
+	s := newManageTestService(t, fu)
+	ctx := context.Background()
+
+	// 32 个汉字(96 字节)合法 —— 长度按字符数不按字节
+	if _, err := s.CreateUser(ctx, strings.Repeat("汉", 32), "secret1", 0, ""); err != nil {
+		t.Fatalf("32 个汉字应放行: %v", err)
+	}
+	if fu.created == nil || fu.created.UserName != strings.Repeat("汉", 32) {
+		t.Fatalf("建号未落库: %+v", fu.created)
+	}
+	// 33 个汉字拒绝(旧实现 len()>32 之外, 建号原本完全不限制)
+	if _, err := s.CreateUser(ctx, strings.Repeat("汉", 33), "secret1", 0, ""); err != domain.ErrInvalidArgument {
+		t.Fatalf("33 个汉字: want ErrInvalidArgument, got %v", err)
+	}
+	// 空名拒绝
+	if _, err := s.CreateUser(ctx, "", "secret1", 0, ""); err != domain.ErrInvalidArgument {
+		t.Fatalf("空用户名: want ErrInvalidArgument, got %v", err)
+	}
+	// 重名: 用户直达文案 ErrUserNameTaken(不再是 resource conflict)
+	if _, err := s.CreateUser(ctx, "bob", "secret1", 0, ""); err != domain.ErrUserNameTaken {
+		t.Fatalf("重名建号: want ErrUserNameTaken, got %v", err)
 	}
 }
 
@@ -210,12 +253,21 @@ func TestManageUpdateUser_DuplicateNameConflict(t *testing.T) {
 	alice.UserName = "alice"
 	fu := &manageFakeUsers{u: bob, other: alice}
 	s := newManageTestService(t, fu)
-	if err := s.ManageUpdateUser(context.Background(), 7, 9, "alice", 0, ""); err != domain.ErrConflict {
-		t.Fatalf("重名: want ErrConflict, got %v", err)
+	// 重名: 用户直达文案 ErrUserNameTaken("用户名已被占用"), 不再是裸 ErrConflict("resource conflict")
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, "alice", 0, ""); err != domain.ErrUserNameTaken {
+		t.Fatalf("重名: want ErrUserNameTaken, got %v", err)
 	}
 	// 改回自己的名字不冲突
 	if err := s.ManageUpdateUser(context.Background(), 7, 9, "bob", 0, ""); err != nil {
 		t.Fatalf("名字不变: %v", err)
+	}
+	// 长度按 rune 计: 32 个汉字合法, 33 个拒绝(旧 len()>32 字节口径下 11 个汉字就改不动)
+	bob.UserName = strings.Repeat("汉", 32)
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, strings.Repeat("汉", 32), 0, ""); err != nil {
+		t.Fatalf("32 个汉字应放行: %v", err)
+	}
+	if err := s.ManageUpdateUser(context.Background(), 7, 9, strings.Repeat("汉", 33), 0, ""); err != domain.ErrInvalidArgument {
+		t.Fatalf("33 个汉字: want ErrInvalidArgument, got %v", err)
 	}
 }
 

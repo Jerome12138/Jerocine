@@ -25,6 +25,8 @@ export interface ManageMovie {
   remarks?: string
   subTitle?: string
   state?: string
+  /** 软删时间(ms), >0 = 影片在回收站(后台详情接口含已软删影片并回传该字段) */
+  deletedAt?: number
 }
 
 /** GET /manage/films/:mid/detail 响应 */
@@ -87,6 +89,8 @@ export interface ManageFilmSearchParams {
   catIds?: string
   page?: number
   size?: number
+  /** 排序键: hot(热度, 默认) / latest(最新上映) / update_stamp(最近更新) / score(评分) */
+  sort?: string
   /** 软删态过滤：active=仅在架(默认) / deleted=回收站 / all=全部 */
   status?: ManageFilmStatus
 }
@@ -266,7 +270,6 @@ export interface FilmClass {
   id: number
   pid: number
   name: string
-  ename?: string
   /** 顶栏导航显示: 000037 起仅一级有意义(二级不再消费此列), 控制 web/TV 顶部导航 */
   show: boolean
   /** 侧边栏显示: 桌面常驻侧栏 + 移动抽屉, 一级与二级各自独立可设(000037 新增) */
@@ -290,11 +293,11 @@ export interface FileItem {
   createdAt?: number
 }
 
-/** 后端通用分页 */
+/** 后端通用分页(字段名对齐服务端 dto.PageMeta: current/size/total/pageCount) */
 export interface BackendPage {
   total: number
   current: number
-  pageSize: number
+  size: number
   pageCount?: number
 }
 

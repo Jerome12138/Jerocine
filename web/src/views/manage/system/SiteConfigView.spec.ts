@@ -44,6 +44,10 @@ vi.mock('@/api', () => ({
 
 vi.mock('@/api/http', () => ({ toast: h.toast }))
 
+vi.mock('@/composables/useConfirm', () => ({ confirm: vi.fn().mockResolvedValue(true) }))
+
+import { confirm } from '@/composables/useConfirm'
+
 async function mountView() {
   const w = mount(SiteConfigView)
   await new Promise((r) => setTimeout(r, 20))
@@ -301,4 +305,289 @@ it('保存「采集性能」后, 「账号与安全」里未保存的草稿原�
   await spider.findAll('button').at(-1)!.trigger('click')
   await new Promise((r) => setTimeout(r, 10))
   expect((account.find('input[type="number"]').element as HTMLInputElement).value).toBe('900')
+})
+
+// ---- 站点信息保存链路 / TMDB / load 失败态 / 邮件卡不变量 ----
+
+function cardOf(w: Awaited<ReturnType<typeof mountView>>, title: string) {
+  const card = w
+    .findAll('section')
+    .find((s) => s.text().includes(title) && s.classes().includes('bg-surface'))
+  if (!card) throw new Error(`未找到卡片: ${title}`)
+  return card
+}
+
+function baseBasic(over: Record<string, unknown> = {}) {
+  return {
+    siteName: 'Jerocine', logo: '', keyword: '', describe: '',
+    domain: 'https://jerocine.art', state: true, hint: '',
+    masked: '', set: false, // getBasic 同响应附带 TMDB 掩码状态(修复后不再二次 GET)
+    ...over
+  }
+}
+
+function baseMail(over: Record<string, unknown> = {}) {
+  return {
+    registerMode: 'apply', smtpEnabled: 1, smtpHost: 'smtp.qq.com', smtpPort: 465,
+    smtpSecure: 'ssl', smtpUser: 'bot@qq.com', smtpFromName: 'Jerocine',
+    mailDailyQuota: 50, smtpPassMasked: '••••', smtpPassSet: true, presets: [],
+    ...over
+  }
+}
+
+describe('SiteConfigView 站点信息 / TMDB / load 失败态', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.values(h).forEach((fn) => fn.mockReset())
+    vi.mocked(confirm).mockResolvedValue(true)
+    h.getBasic.mockResolvedValue(baseBasic())
+    h.getTMDBKey.mockResolvedValue({ masked: '0c06…676b', set: true })
+    h.getRuntimeSettings.mockResolvedValue({
+      authTokenTtlHours: 168, maxDeviceLogin: 5,
+      spiderMaxGoroutine: 32, spiderMasterMaxWorkers: 12, spiderSlaveMaxWorkers: 8
+    })
+    h.getMailConfig.mockResolvedValue(baseMail())
+    h.getDanmuConfig.mockResolvedValue({
+      enabled: 0, providers: [], all: ['bilibili', 'tencent', 'iqiyi', 'youku']
+    })
+  })
+
+  it('站点信息保存: 提交全字段 payload + 更新共享 store + success toast', async () => {
+    h.updateBasic.mockResolvedValue(undefined)
+    const w = await mountView()
+    const site = cardOf(w, '站点信息')
+    await site.find('input').setValue('新站名')
+    await site.find('form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateBasic).toHaveBeenCalledWith(
+      expect.objectContaining({ siteName: '新站名' })
+    )
+    expect(h.toast).toHaveBeenCalledWith('success', '站点信息已保存')
+  })
+
+  it('站点名称为空(或纯空格)时前端拦下, 不发请求', async () => {
+    const w = await mountView()
+    const site = cardOf(w, '站点信息')
+    await site.find('input').setValue('   ')
+    await site.find('form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateBasic).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', '请填写站点名称')
+  })
+
+  it('TMDB 保存: 空 key 拦截; 有效 key 走 setTMDBKey 并清空输入', async () => {
+    h.setTMDBKey.mockResolvedValue(undefined)
+    const w = await mountView()
+    const tmdb = cardOf(w, 'TMDB 横图')
+    const keyInput = tmdb.find('input')
+    // 空 key 拦截
+    await tmdb.findAll('button').find((b) => b.text() === '保存 Key')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.setTMDBKey).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', expect.stringContaining('请输入'))
+    // 有效 key
+    await keyInput.setValue('my-tmdb-key')
+    await tmdb.findAll('button').find((b) => b.text() === '保存 Key')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.setTMDBKey).toHaveBeenCalledWith('my-tmdb-key')
+    expect((keyInput.element as HTMLInputElement).value).toBe('')
+    expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('已保存'))
+  })
+
+  it('TMDB 清除(破坏性): confirm 取消不动手; 确认后调 clearTMDBKey', async () => {
+    h.getBasic.mockResolvedValue(baseBasic({ masked: '0c06…676b', set: true }))
+    h.clearTMDBKey.mockResolvedValue(undefined)
+    const w = await mountView()
+    const tmdb = cardOf(w, 'TMDB 横图')
+    expect(tmdb.text()).toContain('已配置')
+    const clear = tmdb.findAll('button').find((b) => b.text() === '清除')!
+    // 取消: 不调清除
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    await clear.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.clearTMDBKey).not.toHaveBeenCalled()
+    // 确认: 清除 + 重拉掩码 + success toast
+    vi.mocked(confirm).mockResolvedValueOnce(true)
+    await clear.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }))
+    expect(h.clearTMDBKey).toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('已清除'))
+  })
+
+  it('账号与安全范围校验: TTL 1~8760、设备数 1~50 越界拦截', async () => {
+    const w = await mountView()
+    const card = cardOf(w, '账号与安全')
+    const nums = card.findAll('input[type="number"]')
+    await nums[0].setValue('9000')
+    await card.findAll('button').at(-1)!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateRuntimeSettings).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', expect.stringContaining('1~8760'))
+
+    await nums[0].setValue('720')
+    await nums[1].setValue('51')
+    await card.findAll('button').at(-1)!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateRuntimeSettings).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', expect.stringContaining('1~50'))
+  })
+
+  it('load 失败: 错误横幅 + 各卡保存禁用; 重试成功后恢复', async () => {
+    h.getBasic.mockRejectedValueOnce(new Error('boom'))
+    const w = await mountView()
+    expect(w.text()).toContain('加载失败')
+    // 站点表单渲染了空字段, 但保存禁用
+    const siteSave = cardOf(w, '站点信息').findAll('button').find((b) => b.text() === '保存')!
+    expect(siteSave.attributes('disabled')).toBeDefined()
+    const accountSave = cardOf(w, '账号与安全').findAll('button').find((b) => b.text() === '保存')!
+    expect(accountSave.attributes('disabled')).toBeDefined()
+    // 保存被拦: 点了也不发请求
+    await siteSave.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.updateBasic).not.toHaveBeenCalled()
+    // 重试恢复
+    await w.findAll('button').find((b) => b.text() === '重试')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(w.text()).not.toContain('加载失败')
+    expect(
+      cardOf(w, '账号与安全').findAll('button').find((b) => b.text() === '保存')!
+        .attributes('disabled')
+    ).toBeUndefined()
+  })
+
+  it('站点卡「重置」只重取基础信息, 不重拉运行参数/TMDB(保住别卡草稿)', async () => {
+    const w = await mountView()
+    expect(h.getBasic).toHaveBeenCalledTimes(1)
+    const site = cardOf(w, '站点信息')
+    await site.find('input').setValue('未保存草稿')
+    await site.findAll('button').find((b) => b.text() === '重置')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.getBasic).toHaveBeenCalledTimes(2)
+    // 运行参数没有重新拉取; 草稿被库内值覆盖回 'Jerocine'
+    expect(h.getRuntimeSettings).toHaveBeenCalledTimes(1)
+    expect((site.find('input').element as HTMLInputElement).value).toBe('Jerocine')
+  })
+})
+
+describe('SiteConfigView 邮件卡（注册与邮件通道不变量）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.values(h).forEach((fn) => fn.mockReset())
+    h.getBasic.mockResolvedValue(baseBasic())
+    h.getTMDBKey.mockResolvedValue({ masked: '', set: false })
+    h.getRuntimeSettings.mockResolvedValue({
+      authTokenTtlHours: 168, maxDeviceLogin: 5,
+      spiderMaxGoroutine: 32, spiderMasterMaxWorkers: 12, spiderSlaveMaxWorkers: 8
+    })
+    h.getMailConfig.mockResolvedValue(baseMail())
+    h.getDanmuConfig.mockResolvedValue({
+      enabled: 0, providers: [], all: ['bilibili', 'tencent', 'iqiyi', 'youku']
+    })
+  })
+
+  /** 邮件卡内输入顺序: host / 端口(number) / 账号 / 授权码(password) / 显示名 / 配额(number) / 测试邮箱 */
+  function mailCard(w: Awaited<ReturnType<typeof mountView>>) {
+    return cardOf(w, '注册与邮件通道')
+  }
+
+  it('保存成功: 留空授权码 payload 不带 smtpPass; 填了才带上', async () => {
+    h.saveMailConfig.mockResolvedValue({ smtpPassSet: true, smtpPassMasked: '••••' })
+    const w = await mountView()
+    const card = mailCard(w)
+    await card.find('form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.saveMailConfig).toHaveBeenCalledTimes(1)
+    const p1 = h.saveMailConfig.mock.calls[0][0]
+    expect(p1).not.toHaveProperty('smtpPass')
+
+    await card.find('input[type="password"]').setValue('new-secret')
+    await card.find('form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    const p2 = h.saveMailConfig.mock.calls[1][0]
+    expect(p2).toHaveProperty('smtpPass', 'new-secret')
+  })
+
+  it('清空日配额按 0=不修改放行(payload mailDailyQuota: 0)', async () => {
+    h.saveMailConfig.mockResolvedValue({ smtpPassSet: true, smtpPassMasked: '••••' })
+    const w = await mountView()
+    const card = mailCard(w)
+    const quota = card.findAll('input[type="number"]')[1]
+    await quota.setValue('')
+    await card.find('form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.saveMailConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ mailDailyQuota: 0 })
+    )
+    expect(h.toast).not.toHaveBeenCalledWith('error', expect.stringContaining('1~1000'))
+  })
+
+  it('清空端口回落默认 465; 越界端口中文拦下', async () => {
+    h.saveMailConfig.mockResolvedValue({ smtpPassSet: true, smtpPassMasked: '••••' })
+    const w = await mountView()
+    const card = mailCard(w)
+    const port = card.findAll('input[type="number"]')[0]
+    await port.setValue('')
+    await card.find('form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.saveMailConfig).toHaveBeenCalledWith(expect.objectContaining({ smtpPort: 465 }))
+
+    await port.setValue('70000')
+    await card.find('form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.toast).toHaveBeenCalledWith('error', expect.stringContaining('1~65535'))
+    expect(h.saveMailConfig).toHaveBeenCalledTimes(1)
+  })
+
+  it('启用 SMTP 但配置不完整: 前端中文拦下, 不发 PUT', async () => {
+    h.getMailConfig.mockResolvedValue(
+      baseMail({ registerMode: 'off', smtpHost: '', smtpUser: '', smtpPassSet: false })
+    )
+    const w = await mountView()
+    const card = mailCard(w)
+    expect(card.text()).toContain('SMTP 配置不完整')
+    await card.find('form').trigger('submit')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.saveMailConfig).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', expect.stringContaining('启用 SMTP'))
+  })
+
+  it('注册模式 open/apply 而邮件通道不可用: 展示联动警告', async () => {
+    h.getMailConfig.mockResolvedValue(baseMail({ registerMode: 'open', smtpEnabled: 0 }))
+    const w = await mountView()
+    expect(mailCard(w).text()).toContain('依赖邮件通道')
+  })
+
+  it('测试邮件: testMail 收到表单值 + 收件人; 非法邮箱格式中文拦下', async () => {
+    h.testMail.mockResolvedValue({})
+    const w = await mountView()
+    const card = mailCard(w)
+    const testTo = card.findAll('input').at(-1)!
+    // 非法格式
+    await testTo.setValue('not-an-email')
+    await card.findAll('button').find((b) => b.text() === '发送测试邮件')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.testMail).not.toHaveBeenCalled()
+    expect(h.toast).toHaveBeenCalledWith('error', '测试收件邮箱格式不正确')
+    // 合法格式
+    await testTo.setValue('admin@example.com')
+    await card.findAll('button').find((b) => b.text() === '发送测试邮件')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.testMail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'admin@example.com', smtpHost: 'smtp.qq.com', smtpPort: 465 })
+    )
+    expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('已发送'))
+  })
+
+  it('GET 失败: 错误态占位(无表单可编辑), 重试后恢复', async () => {
+    h.getMailConfig.mockRejectedValueOnce(new Error('boom'))
+    const w = await mountView()
+    const card = mailCard(w)
+    expect(card.text()).toContain('读取失败')
+    expect(card.find('form').exists()).toBe(false)
+    h.getMailConfig.mockResolvedValue(baseMail())
+    await card.findAll('button').find((b) => b.text() === '重试')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(card.find('form').exists()).toBe(true)
+  })
 })

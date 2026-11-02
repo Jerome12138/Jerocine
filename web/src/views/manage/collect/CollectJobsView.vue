@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as collectApi from '@/api/manage/collect'
 import type { SpiderJob } from '@/api/manage/collect'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -9,37 +9,58 @@ import { confirm } from '@/composables/useConfirm'
 
 /**
  * 采集任务监控
- *  - 2 秒轮询 spiderJobs 接口
- *  - 每条任务显示进度条 + 已用时长 + 状态标签
+ *  - 轮询 spiderJobs 接口: 有活跃任务 5s / 全部结束 30s; 轮询失败不中断链条(下轮继续)
+ *  - 每条任务显示进度条 + 已用时长 + 状态标签, error 态展示服务端落库的失败原因
  *  - running → 可暂停 / 取消, paused → 可继续 / 取消
  *  - 已结束 (done/error/canceled) 30 分钟后服务端 GC 自动消失
  */
 
 const jobs = ref<SpiderJob[]>([])
 const loading = ref(false)
+const loadFailed = ref(false) // 最近一次轮询失败: 提示"显示的是上次数据", 不落入空态误导
 let timer: number | undefined
 const POLL_ACTIVE_MS = 5000  // 有正在跑/暂停的任务: 5s 一刷 (原来 2s 太频繁)
 const POLL_IDLE_MS = 30_000  // 全是已完成: 30s 一刷, 等 GC 即可
 
+// 服务端只有 running/paused/canceled/done/error 五态, 无排队态(cache/jobprogress.go)
 const hasActive = (list: SpiderJob[]): boolean =>
-  list.some((j) => j.state === 'running' || j.state === 'paused' || j.state === 'pending')
+  list.some((j) => j.state === 'running' || j.state === 'paused')
 
 async function load(): Promise<void> {
   loading.value = true
   try {
     const r = await collectApi.spiderJobs()
-    jobs.value = Array.isArray(r) ? r : []
+    jobs.value = sortJobs(Array.isArray(r) ? r : [])
+    loadFailed.value = false
+  } catch {
+    // 轮询失败只标记错误态, 保留上次数据; 续链由 pollTick 无条件执行, 不会断
+    loadFailed.value = true
   } finally {
     loading.value = false
   }
-  // 根据当前是否有活跃任务动态调轮询节奏 — 用户反馈"任务都已完成还在轮询"
+}
+
+// 排序: 运行中/暂停置顶, 其余(已结束)在后; 组内按开始时间倒序(未知时间排最后)。
+// 服务端按 Redis SCAN 顺序返回, 不排序则卡片顺序跨轮询漂移, 难扫读。
+function sortJobs(list: SpiderJob[]): SpiderJob[] {
+  const active = (s: SpiderJob['state']): number => (s === 'running' || s === 'paused' ? 0 : 1)
+  return [...list].sort((a, b) => {
+    const byActive = active(a.state) - active(b.state)
+    if (byActive !== 0) return byActive
+    return b.startedAt - a.startedAt
+  })
+}
+
+// 续链与取数分离: 取数失败也必须无条件续排, 否则一次网络抖动就永久停轮询
+function pollTick(): void {
+  void load()
   schedulePoll()
 }
 
 function schedulePoll(): void {
   if (timer !== undefined) window.clearTimeout(timer)
   const delay = hasActive(jobs.value) ? POLL_ACTIVE_MS : POLL_IDLE_MS
-  timer = window.setTimeout(load, delay)
+  timer = window.setTimeout(pollTick, delay)
 }
 
 function stopPoll(): void {
@@ -49,10 +70,11 @@ function stopPoll(): void {
   }
 }
 
-onMounted(() => {
-  void load() // load 内部会自调 schedulePoll
-})
+onMounted(pollTick)
 onBeforeUnmount(stopPoll)
+
+// 操作进行中的任务(卡片级防重): 操作期间禁用该卡片全部按钮
+const busyId = ref('')
 
 function fmtElapsed(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '-'
@@ -69,6 +91,13 @@ function fmtPercent(j: SpiderJob): number {
   return Math.min(100, Math.floor((j.donePages / j.totalPages) * 100))
 }
 
+// 时长标签: hour=-1 全量 / >0 增量; 0 是服务端"未知"(旧数据), 不冒充"全量"
+function hourLabel(hour: number): string {
+  if (hour === -1) return '全量'
+  if (hour > 0) return `近 ${hour}h`
+  return '时长未知'
+}
+
 function stateVariant(s: SpiderJob['state']): 'default' | 'brand' | 'warning' | 'success' | 'danger' {
   switch (s) {
     case 'running': return 'brand'
@@ -82,7 +111,6 @@ function stateVariant(s: SpiderJob['state']): 'default' | 'brand' | 'warning' | 
 
 function stateText(s: SpiderJob['state']): string {
   return ({
-    pending: '排队中',
     running: '采集中',
     paused: '已暂停',
     done: '已完成',
@@ -91,40 +119,56 @@ function stateText(s: SpiderJob['state']): string {
   } as Record<string, string>)[s] ?? s
 }
 
-async function pause(id: string): Promise<void> {
+async function pause(j: SpiderJob): Promise<void> {
+  if (busyId.value) return
+  busyId.value = j.sourceId
   try {
-    await collectApi.spiderJobPause(id)
+    await collectApi.spiderJobPause(j.sourceId)
     toast('success', '已暂停')
-    void load()
+    await load()
   } catch (e) {
     toast('error', (e as Error).message ?? '暂停失败')
+  } finally {
+    busyId.value = ''
   }
 }
 
-async function resume(id: string): Promise<void> {
+async function resume(j: SpiderJob): Promise<void> {
+  if (busyId.value) return
+  busyId.value = j.sourceId
   try {
-    await collectApi.spiderJobResume(id)
+    await collectApi.spiderJobResume(j.sourceId)
     toast('success', '已继续')
-    void load()
+    await load()
   } catch (e) {
     toast('error', (e as Error).message ?? '继续失败')
+  } finally {
+    busyId.value = ''
   }
 }
 
 async function cancelJob(j: SpiderJob): Promise<void> {
+  if (busyId.value) return
   const ok = await confirm({
     title: '取消采集任务',
-    desc: `确认取消 [${j.sourceName}] 的采集? 已完成的页面会保留, 未完成的页面会丢弃.`
+    desc: `确认取消 [${j.sourceName}] 的采集? 已完成的页面会保留, 未完成的页面会丢弃.`,
+    // 破坏性操作(未完成页面会丢弃)走危险样式
+    danger: true
   })
   if (!ok) return
+  busyId.value = j.sourceId
   try {
     await collectApi.spiderJobCancel(j.sourceId)
     toast('success', '已取消')
-    void load()
+    await load()
   } catch (e) {
     toast('error', (e as Error).message ?? '取消失败')
+  } finally {
+    busyId.value = ''
   }
 }
+
+const hasJobs = computed(() => jobs.value.length > 0)
 </script>
 
 <template>
@@ -137,7 +181,17 @@ async function cancelJob(j: SpiderJob): Promise<void> {
       </div>
     </header>
 
-    <div v-if="jobs.length === 0" class="jc-tm-empty">
+    <!-- 有旧数据但上次刷新失败: 顶部浅提示, 列表仍展示 -->
+    <div v-if="loadFailed && hasJobs" class="jc-job__stale text-center mb-[var(--jc-space-3)]">
+      上次刷新失败, 以下为最近一次数据.
+    </div>
+
+    <div v-if="loadFailed && !hasJobs" class="jc-tm-empty">
+      加载失败, 暂时拿不到任务列表.
+      <BaseButton variant="outline" size="sm" class="mt-[var(--jc-space-3)]" @click="pollTick">点击重试</BaseButton>
+    </div>
+
+    <div v-else-if="!loadFailed && !hasJobs" class="jc-tm-empty">
       暂无正在运行 / 最近 30 分钟内结束的采集任务. 去
       <RouterLink to="/manage/collect" class="text-link">采集源列表</RouterLink>
       启动一个.
@@ -149,7 +203,7 @@ async function cancelJob(j: SpiderJob): Promise<void> {
           <span class="jc-job__name">{{ j.sourceName }}</span>
           <BaseTag :variant="stateVariant(j.state)" size="sm">{{ stateText(j.state) }}</BaseTag>
           <span class="text-muted text-xs ml-auto">
-            {{ j.hour > 0 ? `近 ${j.hour}h` : '全量' }} · 用时 {{ fmtElapsed(j.elapsedMs) }}
+            {{ hourLabel(j.hour) }} · 用时 {{ fmtElapsed(j.elapsedMs) }}
           </span>
         </header>
 
@@ -168,26 +222,33 @@ async function cancelJob(j: SpiderJob): Promise<void> {
           </span>
         </div>
 
+        <!-- 失败原因: 服务端 JobFail 落库, 排障不必再跳 /manage/tasks -->
+        <div v-if="j.state === 'error' && j.error" class="jc-job__error">
+          <span class="flex-1 break-all">{{ j.error }}</span>
+        </div>
+
         <div class="jc-job__actions">
           <BaseButton
             v-if="j.state === 'running'"
             variant="outline"
             size="sm"
-            @click="pause(j.sourceId)"
+            :disabled="!!busyId"
+            @click="pause(j)"
           >暂停</BaseButton>
           <BaseButton
             v-if="j.state === 'paused'"
             variant="primary"
             size="sm"
-            @click="resume(j.sourceId)"
+            :disabled="!!busyId"
+            @click="resume(j)"
           >继续</BaseButton>
           <BaseButton
             v-if="j.state === 'running' || j.state === 'paused'"
             variant="danger"
             size="sm"
+            :disabled="!!busyId"
             @click="cancelJob(j)"
           >取消</BaseButton>
-          <span v-if="j.note" class="text-muted text-xs ml-auto">{{ j.note }}</span>
         </div>
       </article>
     </div>
@@ -245,6 +306,27 @@ async function cancelJob(j: SpiderJob): Promise<void> {
   display: flex;
   gap: var(--jc-space-2);
   align-items: center;
+}
+/* 失败原因红色错误框(样式同 TaskManageView 的 jc-job__error) */
+.jc-job__error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--jc-space-2);
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-color-danger, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--jc-radius-sm);
+  padding: var(--jc-space-2) var(--jc-space-3);
+}
+/* 有旧数据但上次刷新失败: 顶部一条浅提示 */
+.jc-job__stale {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-text-muted);
+  background: var(--jc-bg-elevated);
+  border: 1px solid var(--jc-border-subtle);
+  border-radius: var(--jc-radius-sm);
+  padding: var(--jc-space-2) var(--jc-space-3);
 }
 .jc-tm-empty {
   padding: var(--jc-space-12) var(--jc-space-4);

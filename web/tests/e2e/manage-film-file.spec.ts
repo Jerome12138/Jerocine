@@ -90,3 +90,21 @@ test.describe('管理端 文件库', () => {
     await dialog.locator('button').filter({ hasText: /取消/ }).click()
   })
 })
+
+test.describe('管理端 文件上传', () => {
+  // 挂载冒烟(数据无关, 但与全部 manage e2e 同前提: 需本地后端过 /user/info 守卫)
+  test('上传页挂载: 拖拽区/文件输入(带 accept)/清空按钮就位', async ({ page }) => {
+    await fakeLogin(page)
+    await muteImages(page)
+    await page.goto('/manage/file/upload')
+    await waitAppReady(page)
+
+    const fileInput = page.locator('input[type="file"]')
+    await expect(fileInput).toBeAttached()
+    await expect(fileInput).toHaveAttribute('accept', 'image/*,video/*')
+    await expect(page.getByText('将文件拖到此处')).toBeVisible()
+    await expect(page.locator('button').filter({ hasText: /清空记录/ })).toBeVisible()
+    // 无记录时列表不渲染
+    await expect(page.locator('ul li')).toHaveCount(0)
+  })
+})

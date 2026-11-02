@@ -1,4 +1,5 @@
 import { http } from '../http'
+import type { AxiosRequestConfig } from 'axios'
 import type {
   CollectFilmPayload,
   FilmAddPayload,
@@ -44,13 +45,17 @@ export const classUpdate = (data: FilmClass): Promise<void> =>
 export const add = (data: FilmAddPayload): Promise<void> =>
   http.post<unknown, void>('/manage/films', data)
 
-/** DELETE /manage/films/:mid 软删影片（可在回收站恢复） */
-export const softDelete = (mid: number | string): Promise<void> =>
-  http.delete<unknown, void>(`/manage/films/${mid}`)
+/** DELETE /manage/films/:mid 软删影片（可在回收站恢复）。config.silent=true 关闭拦截器的「操作成功」 toast，由调用方自管提示 */
+export const softDelete = (
+  mid: number | string,
+  config?: AxiosRequestConfig
+): Promise<void> => http.delete<unknown, void>(`/manage/films/${mid}`, config)
 
-/** POST /manage/films/:mid/restore 从回收站恢复影片 */
-export const restore = (mid: number | string): Promise<void> =>
-  http.post<unknown, void>(`/manage/films/${mid}/restore`)
+/** POST /manage/films/:mid/restore 从回收站恢复影片。config.silent=true 关闭拦截器的「操作成功」 toast，由调用方自管提示 */
+export const restore = (
+  mid: number | string,
+  config?: AxiosRequestConfig
+): Promise<void> => http.post<unknown, void>(`/manage/films/${mid}/restore`, undefined, config)
 
 /** GET /manage/films/:mid/detail 后台影片详情(实时全源全集) */
 export const detail = (mid: number | string): Promise<ManageFilmDetailResp> =>
@@ -68,13 +73,18 @@ export const searchSources = (
  * - 单源精确({sourceId, mid|keyword|vodId}) → 返回**单个** SourceFilmResult(可能含 candidates);
  * - 多源({keyword, sources?}) → 返回 SourceFilmResult[]。
  * 调用方用 normalizeCollectResult / Array.isArray 归一化处理。
+ * config.silent=true 关闭拦截器的「操作成功」 toast —— 采集结果成败交由调用方按
+ * 结果内 error/collected 字段自管提示(单源采集业务失败时 HTTP 仍是 200, 拦截器的
+ * 成功 toast 会与页面的「采集失败」toast 同时出现, 自相矛盾)。
  */
 export const collectFilm = (
-  payload: CollectFilmPayload
+  payload: CollectFilmPayload,
+  config?: AxiosRequestConfig
 ): Promise<SourceFilmResult | SourceFilmResult[]> =>
   http.post<unknown, SourceFilmResult | SourceFilmResult[]>(
     '/manage/spider/collect-film',
-    payload
+    payload,
+    config
   )
 
 /** 把 collectFilm 返回(单个或数组)归一为数组, 便于统一遍历 */

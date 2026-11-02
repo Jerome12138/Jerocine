@@ -97,15 +97,17 @@ func (s *TaskRunService) LatestByCron(ctx context.Context, cronIds []int64) (map
 
 // TaskOverview 任务管理页统计卡。
 type TaskOverview struct {
-	Running         int   `json:"running"`         // 运行中任务数(活跃采集 job + 台账 running)
+	Running         int   `json:"running"`         // 运行中任务数(活跃采集 job + 台账 running, 按源 id 去重)
 	TodaySuccess    int64 `json:"todaySuccess"`    // 今日成功任务数
 	TodayFailed     int64 `json:"todayFailed"`     // 今日失败任务数
 	PendingFailures int64 `json:"pendingFailures"` // 待补采失败页数
 }
 
-// Overview 统计卡。running 由调用方把 Redis 活跃采集 job 数合并进来。
-func (s *TaskRunService) Overview(ctx context.Context, runningJobs int, pendingFailures int64) TaskOverview {
-	o := TaskOverview{Running: runningJobs, PendingFailures: pendingFailures}
+// Overview 统计卡。activeJobs 为 Redis 活跃采集 job 的源 id 集合(在跑/暂停):
+// 一次采集同时有 Redis job 与台账 running 行, 台账侧剔除同名源的行再并入,
+// 否则"运行中任务数"对同一任务双计(手动单源显 2, cron 批量 N 源显 N+1)。
+func (s *TaskRunService) Overview(ctx context.Context, activeJobs map[string]bool, pendingFailures int64) TaskOverview {
+	o := TaskOverview{Running: len(activeJobs), PendingFailures: pendingFailures}
 	if !s.enabled() {
 		return o
 	}
@@ -115,15 +117,19 @@ func (s *TaskRunService) Overview(ctx context.Context, runningJobs int, pendingF
 	if err == nil {
 		o.TodaySuccess, o.TodayFailed = succ, fail
 	}
-	o.Running += s.countRunning(ctx)
+	o.Running += s.countRunning(ctx, activeJobs)
 	return o
 }
 
-func (s *TaskRunService) countRunning(ctx context.Context) int {
+func (s *TaskRunService) countRunning(ctx context.Context, activeJobs map[string]bool) int {
 	if !s.enabled() {
 		return 0
 	}
-	n, err := s.runs.CountRunning(ctx)
+	exclude := make([]string, 0, len(activeJobs))
+	for id := range activeJobs {
+		exclude = append(exclude, id)
+	}
+	n, err := s.runs.CountRunning(ctx, exclude)
 	if err != nil {
 		return 0
 	}

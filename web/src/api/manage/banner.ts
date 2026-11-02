@@ -3,9 +3,11 @@ import type { Banner, BannerBoard, HotRefreshReport } from '@/types/manage'
 
 const enc = encodeURIComponent
 
-/** POST /manage/hot/refresh 立即刷新豆瓣榜单(ApplyHot + 热榜快照 + 轮播候选派生), 返回本轮观测值 */
+/** POST /manage/hot/refresh 立即刷新豆瓣榜单(ApplyHot + 热榜快照 + 轮播候选派生), 返回本轮观测值。
+ *  实测 1-2 分钟(服务端 10min 硬上限), 必须覆盖 http 实例默认 80s timeout, 否则 axios 超时
+ *  中止后前端报"刷新失败", 而服务端 WithoutCancel 照常跑完落库(manage.go runHotRefresh)。 */
 export const refreshHotBoard = (): Promise<HotRefreshReport> =>
-  http.post<unknown, HotRefreshReport>('/manage/hot/refresh')
+  http.post<unknown, HotRefreshReport>('/manage/hot/refresh', undefined, { timeout: 600_000, silent: true })
 
 /** GET /manage/banners/effective 管理视图：生效位(前5, 手动+自动补位) + 未生效配置行 */
 export const board = (): Promise<BannerBoard> =>
@@ -29,9 +31,10 @@ export const remove = (id: number): Promise<void> =>
 export const disableByMid = (mid: number): Promise<BannerBoard> =>
   http.post<unknown, BannerBoard>('/manage/banners/disable', { mid })
 
-/** POST /manage/backdrop/fill 手动触发单片 TMDB 横图回填。返回 status: already/miss/filled */
+/** POST /manage/backdrop/fill 手动触发单片 TMDB 横图回填。返回 status: already/miss/filled。
+ *  silent: 结果按 status 定制文案(silent 关闭拦截器通用「操作成功」), 由调用方自管提示 */
 export const fillBackdrop = (mid: number): Promise<{ mid: number; status: 'already' | 'miss' | 'filled' }> =>
-  http.post<unknown, { mid: number; status: 'already' | 'miss' | 'filled' }>('/manage/backdrop/fill', { mid })
+  http.post<unknown, { mid: number; status: 'already' | 'miss' | 'filled' }>('/manage/backdrop/fill', { mid }, { silent: true })
 
 /** 豆瓣影评搜索链接(按片名) */
 export const doubanSearchUrl = (name: string): string =>

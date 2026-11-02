@@ -5,19 +5,24 @@
  *   GET/PUT/DELETE /manage/live-channels
  * 探源改为端侧执行——服务器无 IPv6 出口导致探测结果不可靠。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { manageApi } from '@/api'
 import { toast } from '@/api/http'
+import { confirm } from '@/composables/useConfirm'
 import type { LiveChannelManage, LiveSourceManage } from '@/types/live'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BasePagination from '@/components/base/BasePagination.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
 
 const loading = ref(true)
+/** 加载失败信息（非空时显示错误态 + 重试，不显示空态文案） */
+const error = ref('')
 /** 直播顶栏入口开关 (000038): 挂载时一次读, 保存后页面不会自动刷新因此需用户返回重进;
  * 若希望刷新后同步, 可监听路由变化在此重新 load, 现阶段够用。 */
 const liveNavOn = ref(true)
@@ -43,20 +48,25 @@ const channelCounts = ref<Record<number, number | null>>({})
 
 async function load(): Promise<void> {
   loading.value = true
+  error.value = ''
   try {
     const resp = await manageApi.live.listLiveSources()
     sources.value = resp.sources
     void loadCounts()
-  } catch {
-    /* 拦截器已 toast */
+  } catch (e) {
+    // 拦截器已 toast; 页面同时显示错误态(而非空态) + 重试
+    error.value = e instanceof Error && e.message ? e.message : '加载失败'
   } finally {
     loading.value = false
   }
 }
 
-/** 逐源预取频道数（编辑/启停后刷新）—— 并发 1 逐个拉，避免小机器一次性打满 */
+/** 逐源预取频道数（编辑/启停后刷新）—— 并发 1 逐个拉，避免小机器一次性打满。
+ * 停用源跳过：公开预览端点对停用源一律 404，白打请求还消耗 live 限流配额；
+ * 端点语义限制——「拉取成功但 0 频道」与「拉取失败」在 200 空列表下无法区分，失败已单独显示。 */
 async function loadCounts(): Promise<void> {
   for (const s of sources.value) {
+    if (s.state !== 0) continue
     try {
       const resp = await manageApi.live.previewChannels(s.id)
       channelCounts.value = { ...channelCounts.value, [s.id]: resp.channels.length }
@@ -108,9 +118,14 @@ async function save(): Promise<void> {
     toast('warning', '地址需以 http(s):// 开头')
     return
   }
+  // v-model.number 在输入框清空后是 ''（非数字原样保留），'' 送后端会绑定 422——按 0 兜底；
+  // 小数静默取整（Go 端 Sort 为 int，1.5 同样 422）
+  const numericSort = typeof form.sort === 'number' && Number.isFinite(form.sort)
+  const sort = numericSort ? Math.trunc(form.sort) : 0
+  if (!numericSort) toast('warning', '排序需为整数，已按 0 处理')
   saving.value = true
   try {
-    const payload = { ...form, name: form.name.trim(), url: form.url.trim() }
+    const payload = { ...form, name: form.name.trim(), url: form.url.trim(), sort }
     if (editingId.value === null) {
       await manageApi.live.createLiveSource(payload)
       toast('success', '直播源已添加')
@@ -127,8 +142,13 @@ async function save(): Promise<void> {
   }
 }
 
+/** 行级 in-flight 守卫：停用/启用、删除进行中时禁用该行按钮，防重复提交 */
+const rowBusyId = ref<number | null>(null)
+
 async function toggleState(s: LiveSourceManage): Promise<void> {
+  if (rowBusyId.value !== null) return
   const next = s.state === 0 ? 1 : 0
+  rowBusyId.value = s.id
   try {
     await manageApi.live.updateLiveSource(s.id, {
       name: s.name,
@@ -141,17 +161,29 @@ async function toggleState(s: LiveSourceManage): Promise<void> {
     await load()
   } catch {
     /* 拦截器已 toast */
+  } finally {
+    rowBusyId.value = null
   }
 }
 
 async function remove(s: LiveSourceManage): Promise<void> {
-  if (!window.confirm(`确认删除直播源「${s.name}」？频道列表将一并失效。`)) return
+  if (rowBusyId.value !== null) return
+  const ok = await confirm({
+    title: '确认删除直播源？',
+    desc: `「${s.name}」删除后频道列表将一并失效。`,
+    okText: '删除',
+    danger: true
+  })
+  if (!ok) return
+  rowBusyId.value = s.id
   try {
     await manageApi.live.deleteLiveSource(s.id)
     toast('success', '已删除')
     await load()
   } catch {
     /* 拦截器已 toast */
+  } finally {
+    rowBusyId.value = null
   }
 }
 
@@ -178,10 +210,22 @@ const chFiltered = computed(() => {
   )
 })
 
+/** 频道列表前端分页：m3u 源动辄上千频道，整表渲染会卡死弹窗（先过滤再分页） */
+const CH_PAGE_SIZE = 100
+const chPage = ref(1)
+const chPaged = computed(() => {
+  const start = (chPage.value - 1) * CH_PAGE_SIZE
+  return chFiltered.value.slice(start, start + CH_PAGE_SIZE)
+})
+watch(chSearch, () => {
+  chPage.value = 1
+})
+
 async function openChannels(s: LiveSourceManage): Promise<void> {
   chSource.value = s
   chOpen.value = true
   chSearch.value = ''
+  chPage.value = 1
   await loadChannels(s.id)
 }
 
@@ -199,7 +243,7 @@ async function loadChannels(id: number): Promise<void> {
 
 /** 开关：解析频道与自定义频道都走 upsert（hidden 翻转，其余字段保留） */
 async function toggleChannel(c: LiveChannelManage): Promise<void> {
-  if (!chSource.value) return
+  if (!chSource.value || chSaving.value) return
   chSaving.value = true
   try {
     await manageApi.live.upsertLiveChannel({
@@ -219,23 +263,35 @@ async function toggleChannel(c: LiveChannelManage): Promise<void> {
   }
 }
 
-/** 改名（解析频道：display_name 覆盖） */
+/** 改名（解析频道：display_name 覆盖; 自定义频道：直接改 name） */
 function openRename(c: LiveChannelManage): void {
   renameTarget.value = c
-  renameForm.displayName = c.displayName || (c.isCustom ? '' : c.name)
+  renameForm.displayName = c.isCustom ? c.name : c.displayName || c.name
   renameOpen.value = true
 }
 
 async function saveRename(): Promise<void> {
   if (!chSource.value || !renameTarget.value) return
+  const name = renameForm.displayName.trim()
+  const isCustom = renameTarget.value.isCustom
+  if (isCustom && !name) {
+    toast('warning', '自定义频道名不能为空')
+    return
+  }
   chSaving.value = true
   try {
     await manageApi.live.upsertLiveChannel({
       sourceId: chSource.value.id,
       url: renameTarget.value.url,
-      displayName: renameForm.displayName.trim()
+      // upsert 是整行覆盖写：必须带回当前 hidden，否则改名会把已隐藏频道重置为显示
+      hidden: renameTarget.value.hidden,
+      // 自定义频道没有 displayName 语义（服务端要求 name 必填），改名走 name；
+      // groupName 一并带回，避免整行覆盖把分组清空。
+      name: isCustom ? name : undefined,
+      groupName: isCustom ? renameTarget.value.group : undefined,
+      displayName: isCustom ? undefined : name
     })
-    toast('success', '显示名已保存')
+    toast('success', isCustom ? '频道名已保存' : '显示名已保存')
     renameOpen.value = false
     await loadChannels(chSource.value.id)
   } catch {
@@ -284,15 +340,23 @@ async function saveCustom(): Promise<void> {
 
 /** 删除频道：自定义物理删 / 解析频道置 hidden（服务端自动分流） */
 async function removeChannel(c: LiveChannelManage): Promise<void> {
-  if (!chSource.value) return
-  const tip = c.isCustom ? '确认删除自定义频道' : '确认隐藏频道（源重解析后仍保持隐藏）'
-  if (!window.confirm(`${tip}「${c.name}」？`)) return
+  if (!chSource.value || chSaving.value) return
+  const ok = await confirm({
+    title: c.isCustom ? '确认删除自定义频道？' : '确认隐藏并移除频道？',
+    desc: c.isCustom ? `「${c.name}」将被物理删除。` : `「${c.name}」将从列表移除；源重解析后仍保持隐藏。`,
+    okText: c.isCustom ? '删除' : '隐藏并移除',
+    danger: true
+  })
+  if (!ok) return
+  chSaving.value = true
   try {
     await manageApi.live.deleteLiveChannel(chSource.value.id, c.url)
     toast('success', '已删除')
     await loadChannels(chSource.value.id)
   } catch {
     /* 拦截器已 toast */
+  } finally {
+    chSaving.value = false
   }
 }
 
@@ -328,6 +392,11 @@ onMounted(async () => {
 
     <BaseSkeleton v-if="loading" variant="rect" class="jc-livemgr__skeleton" />
 
+    <div v-else-if="error" class="jc-livemgr__error">
+      <p>直播源加载失败：{{ error }}</p>
+      <BaseButton variant="outline" size="sm" @click="load">重试</BaseButton>
+    </div>
+
     <div v-else-if="sources.length === 0" class="jc-livemgr__empty">还没有直播源，点击右上角「新增直播源」添加第一个。</div>
 
     <div v-else class="jc-livemgr__list">
@@ -355,8 +424,12 @@ onMounted(async () => {
         <div class="jc-livemgr__actions">
           <BaseButton variant="ghost" size="sm" @click="openChannels(s)">频道管理</BaseButton>
           <BaseButton variant="ghost" size="sm" @click="openEdit(s)">编辑</BaseButton>
-          <BaseButton variant="ghost" size="sm" @click="toggleState(s)">{{ s.state === 0 ? '停用' : '启用' }}</BaseButton>
-          <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" @click="remove(s)">删除</BaseButton>
+          <BaseButton variant="ghost" size="sm" :disabled="rowBusyId === s.id" @click="toggleState(s)">
+            {{ s.state === 0 ? '停用' : '启用' }}
+          </BaseButton>
+          <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="rowBusyId === s.id" @click="remove(s)">
+            删除
+          </BaseButton>
         </div>
       </div>
     </div>
@@ -402,29 +475,41 @@ onMounted(async () => {
           共 {{ chList.length }} 个频道。探源改为端侧执行，前台自动探测可访问性。
         </p>
         <BaseSkeleton v-if="chLoading" variant="rect" class="jc-chmgr__skeleton" />
-        <div v-else class="jc-chmgr__list">
-          <div v-for="c in chFiltered" :key="c.url" class="jc-chmgr__item" :class="{ 'is-hidden': c.hidden }">
-            <div class="jc-chmgr__info">
-              <div class="jc-chmgr__name">
-                {{ c.name }}
-                <span v-if="c.isCustom" class="jc-chmgr__tag">自定义</span>
-                <span v-if="c.hidden" class="jc-chmgr__tag is-off">已隐藏</span>
-                <span v-if="c.alive === false" class="jc-chmgr__tag is-off">离线</span>
-                <span v-if="c.cors === false" class="jc-chmgr__tag is-off">跨域受限</span>
-                <span v-if="c.cors === true && c.alive === true" class="jc-chmgr__tag is-ok">可用</span>
+        <template v-else>
+          <div class="jc-chmgr__list">
+            <div v-for="c in chPaged" :key="c.url" class="jc-chmgr__item" :class="{ 'is-hidden': c.hidden }">
+              <div class="jc-chmgr__info">
+                <div class="jc-chmgr__name">
+                  {{ c.name }}
+                  <span v-if="c.isCustom" class="jc-chmgr__tag">自定义</span>
+                  <span v-if="c.hidden" class="jc-chmgr__tag is-off">已隐藏</span>
+                  <span v-if="c.alive === false" class="jc-chmgr__tag is-off">离线</span>
+                  <span v-if="c.cors === false" class="jc-chmgr__tag is-off">跨域受限</span>
+                  <span v-if="c.cors === true && c.alive === true" class="jc-chmgr__tag is-ok">可用</span>
+                </div>
+                <div class="jc-chmgr__url">{{ c.url }}</div>
               </div>
-              <div class="jc-chmgr__url">{{ c.url }}</div>
+              <div class="jc-chmgr__actions">
+                <BaseButton variant="ghost" size="sm" :disabled="chSaving" @click="toggleChannel(c)">
+                  {{ c.hidden ? '显示' : '隐藏' }}
+                </BaseButton>
+                <BaseButton variant="ghost" size="sm" :disabled="chSaving" @click="openRename(c)">改名</BaseButton>
+                <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="chSaving" @click="removeChannel(c)">
+                  {{ c.isCustom ? '删除' : '隐藏并移除' }}
+                </BaseButton>
+              </div>
             </div>
-            <div class="jc-chmgr__actions">
-              <BaseButton variant="ghost" size="sm" @click="toggleChannel(c)">{{ c.hidden ? '显示' : '隐藏' }}</BaseButton>
-              <BaseButton variant="ghost" size="sm" @click="openRename(c)">改名</BaseButton>
-              <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" @click="removeChannel(c)">
-                {{ c.isCustom ? '删除' : '隐藏并移除' }}
-              </BaseButton>
-            </div>
+            <p v-if="chFiltered.length === 0" class="jc-chmgr__empty">无匹配频道</p>
           </div>
-          <p v-if="chFiltered.length === 0" class="jc-chmgr__empty">无匹配频道</p>
-        </div>
+          <!-- 超过一页才出现分页; 搜索/翻页均前端内存过滤, 不打接口 -->
+          <BasePagination
+            v-if="chFiltered.length > CH_PAGE_SIZE"
+            :current="chPage"
+            :page-size="CH_PAGE_SIZE"
+            :total="chFiltered.length"
+            @update:current="chPage = $event"
+          />
+        </template>
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="chOpen = false">关闭</BaseButton>
@@ -450,10 +535,18 @@ onMounted(async () => {
       </template>
     </BaseDialog>
 
-    <!-- 频道改名（解析频道 display_name 覆盖） -->
-    <BaseDialog v-model:visible="renameOpen" :title="`显示名 · ${renameTarget?.name ?? ''}`" width="420px">
+    <!-- 频道改名（解析频道 display_name 覆盖; 自定义频道改 name） -->
+    <BaseDialog
+      v-model:visible="renameOpen"
+      :title="renameTarget?.isCustom ? `改名 · ${renameTarget?.name ?? ''}` : `显示名 · ${renameTarget?.name ?? ''}`"
+      width="420px"
+    >
       <div class="jc-livemgr__form">
-        <ManageFormField label="显示名" hint="留空 = 恢复解析名">
+        <ManageFormField
+          :label="renameTarget?.isCustom ? '频道名' : '显示名'"
+          :hint="renameTarget?.isCustom ? '' : '留空 = 恢复解析名'"
+          :required="renameTarget?.isCustom"
+        >
           <ManageInput v-model="renameForm.displayName" :maxlength="255" />
         </ManageFormField>
       </div>
@@ -489,6 +582,16 @@ onMounted(async () => {
   padding: var(--jc-space-8) var(--jc-space-4);
   text-align: center;
   color: var(--jc-text-secondary);
+  background-color: var(--jc-bg-surface);
+  border-radius: var(--jc-radius-md);
+}
+.jc-livemgr__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--jc-space-3);
+  padding: var(--jc-space-8) var(--jc-space-4);
+  color: var(--jc-danger, #ef4444);
   background-color: var(--jc-bg-surface);
   border-radius: var(--jc-radius-md);
 }

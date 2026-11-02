@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { CollectSource } from '@/types/manage'
 import type { SourceHealthRow } from '@/api/manage/collect'
@@ -18,6 +18,7 @@ import { toast } from '@/api/http'
 
 const rows = ref<CollectSource[]>([])
 const loading = ref(true)
+const loadError = ref('') // 列表加载失败: 明确报错+重试, 不伪装成"暂无采集源"
 
 // ---- 健康度 / 测速 (持久化, 含自动停采) ----
 // 测速拆两类: 测采集(服务端打采集 API, 取中位延时与成功概率) / 测播放(浏览器端直连 CDN 计时)。
@@ -116,7 +117,14 @@ function cycleSort(): void {
 async function loadHealth(): Promise<void> {
   try {
     const list = await manageApi.collect.health()
-    for (const r of list) health[r.id] = r
+    // 按返回 list 整体重建: 此前只增不删, 已删源/被 GC 的健康条目会残留,
+    // 汇总计数把幽灵条目算进去(untested 甚至被挤成负数)
+    const next: Record<string, SourceHealthRow> = {}
+    for (const r of list ?? []) next[r.id] = r
+    Object.keys(health).forEach((k) => {
+      if (!(k in next)) delete health[k]
+    })
+    Object.assign(health, next)
   } catch {
     /* 忽略, 面板降级为无数据 */
   }
@@ -126,7 +134,8 @@ async function loadHealth(): Promise<void> {
 async function runApiTest(row: CollectSource): Promise<void> {
   testingId.value = row.id
   try {
-    const res = await manageApi.collect.test(row.id)
+    // silent: http 拦截器对非 silent 写操作自动弹"操作成功", 会与本页具体文案叠两条
+    const res = await manageApi.collect.test(row.id, { silent: true })
     await loadHealth()
     toast('success', `「${row.name}」采集 ${res.latencyMs > 0 ? `${res.latencyMs}ms` : '失败'} · ${res.message}`)
   } catch (e: unknown) {
@@ -151,7 +160,7 @@ async function runPlayTest(row: CollectSource): Promise<void> {
       toast('error', `「${row.name}」播放测速失败: 无可用分片`)
       return
     }
-    await manageApi.collect.recordPlayLatency(row.id, ms)
+    await manageApi.collect.recordPlayLatency(row.id, ms, { silent: true })
     await loadHealth()
     toast('success', `「${row.name}」播放 ${ms}ms`)
   } catch (e: unknown) {
@@ -165,7 +174,7 @@ async function runPlayTest(row: CollectSource): Promise<void> {
 async function runApiTestAll(): Promise<void> {
   testingAll.value = true
   try {
-    const list = await manageApi.collect.testAll()
+    const list = await manageApi.collect.testAll({ silent: true })
     await loadHealth()
     sortMode.value = 'api'
     toast('success', `采集测速完成: ${list.filter((r) => r.ok).length}/${list.length} 可用`)
@@ -192,7 +201,7 @@ async function runPlayTestAll(): Promise<void> {
         if (!sample) continue
         const ms = await measureLine(sample)
         if (ms < 0) continue
-        await manageApi.collect.recordPlayLatency(row.id, ms)
+        await manageApi.collect.recordPlayLatency(row.id, ms, { silent: true })
         okCount++
       } catch {
         /* 单源失败不影响其余 */
@@ -211,6 +220,8 @@ async function runPlayTestAll(): Promise<void> {
 const dialogOpen = ref(false)
 const submitting = ref(false)
 const editing = ref<CollectSource | null>(null)
+// 表单保存失败的弹窗内联错误(与重置库存弹窗的 resetError 同款)
+const formError = ref('')
 
 // 重置库存 dialog
 const resetDialogOpen = ref(false)
@@ -305,9 +316,14 @@ function playLatInfo(id: string): { text: string; variant: LatVariant; title: st
 
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = ''
   try {
     const resp = await manageApi.collect.list()
     rows.value = Array.isArray(resp) ? resp : []
+  } catch (e: unknown) {
+    // 失败明确报错并可重试: 此前无 catch, 加载失败复位居 rows 为空,
+    // ManageTable 空态"暂无采集源, 点击右上角新增"把故障伪装成空库
+    loadError.value = e instanceof Error ? e.message : '加载采集源失败'
   } finally {
     loading.value = false
   }
@@ -331,6 +347,7 @@ function openAdd(): void {
   resetForm()
   // 新增源默认: 附属站 + 采集间隔 3000ms (编辑时仍用源自身值)
   form.interval = DEFAULT_INTERVAL
+  formError.value = ''
   dialogOpen.value = true
 }
 
@@ -340,6 +357,7 @@ function openEdit(row: CollectSource): void {
   Object.assign(form, { ...row })
   // 旧数据可能无 siteUrl 字段, 归一为字符串
   form.siteUrl = row.siteUrl ?? ''
+  formError.value = ''
   dialogOpen.value = true
 }
 
@@ -347,27 +365,61 @@ function openEdit(row: CollectSource): void {
 // id 是主键且被播放源/失败台账/健康表以字符串引用(无外键), 落库后不可改。
 const SOURCE_ID_RE = /^[a-z][a-z0-9_]{1,31}$/
 const SITE_URL_RE = /^https?:\/\/\S+$/
+// 采集 URI 与站点网址同一规则: 必须 http(s):// 完整链接
+const SOURCE_URI_RE = /^https?:\/\/\S+$/
 
-// 校验 + 保存; 返回是否成功(失败已 toast)
+// 校验 + 保存; 返回是否成功(失败已在弹窗内联/toast 提示)
 async function saveForm(): Promise<boolean> {
+  formError.value = ''
   if (!SOURCE_ID_RE.test(form.id.trim())) {
-    toast('error', '资源站标识不合法：小写字母开头，仅小写字母/数字/下划线，2~32 字符')
+    formError.value = '资源站标识不合法：小写字母开头，仅小写字母/数字/下划线，2~32 字符'
     return false
   }
   form.id = form.id.trim()
+  // 名称/采集 URI 表单标注 required, 服务端 UpsertSource 亦不查非空 —— 前置守住,
+  // 否则空 uri 源落库后采集探测必失败(且第二个空 uri 会被 ExistsByUri 误判成冲突)
+  if (!form.name.trim()) {
+    formError.value = '请填写名称'
+    return false
+  }
+  form.name = form.name.trim()
+  const uri = form.uri.trim()
+  if (!uri || !SOURCE_URI_RE.test(uri)) {
+    formError.value = '采集 URI 需为 http(s):// 开头的完整链接'
+    return false
+  }
+  form.uri = uri
   const siteUrl = (form.siteUrl ?? '').trim()
   if (siteUrl && !SITE_URL_RE.test(siteUrl)) {
-    toast('error', '站点网址需为 http(s):// 开头的完整链接, 或留空')
+    formError.value = '站点网址需为 http(s):// 开头的完整链接, 或留空'
     return false
   }
   form.siteUrl = siteUrl
+  // 多主站防护: 服务端不校验 grade=0 唯一, 误设双主站后两个都因主站禁删而卡死
+  if (form.grade === 0) {
+    const currentMaster = rows.value.find((r) => r.grade === 0 && r.id !== form.id)
+    if (currentMaster) {
+      const ok = await confirm({
+        title: '确认再设一个主站？',
+        desc: `「${currentMaster.name}」已是主站。主站并非唯一，实际主站由排序内定，且主站不可删除 —— 请确认是否继续。`,
+        okText: '仍然保存'
+      })
+      if (!ok) return false
+    }
+  }
   submitting.value = true
   try {
     if (editing.value) await manageApi.collect.update({ ...form })
     else await manageApi.collect.add({ ...form })
     dialogOpen.value = false
     await load()
+    await loadHealth() // 新增/编辑后健康面板同步(新源出现/主站变更影响汇总)
     return true
+  } catch (e: unknown) {
+    // 弹窗内联展示服务端错误(如"该采集 URI 已被其他源使用"),
+    // 此前无 catch, ApiError 上抛成未处理 rejection 且弹窗无法就地显示
+    formError.value = e instanceof Error ? e.message : '保存失败'
+    return false
   } finally {
     submitting.value = false
   }
@@ -385,16 +437,28 @@ async function submitAndTest(): Promise<void> {
   if (row) await runApiTest(row)
 }
 
+// 行级 in-flight 标记: 启停/采集请求期间禁用该行按钮, 防连点翻转状态或重复触发任务
+const busyId = ref('')
+
 async function toggleState(row: CollectSource): Promise<void> {
-  // 列表接口可能未返回完整字段，先用 find 拉全量再翻转 state
-  let full: CollectSource = row
+  if (busyId.value) return
+  busyId.value = row.id
   try {
-    full = (await manageApi.collect.find(row.id)) ?? row
-  } catch {
-    /* 忽略，回退用 row */
+    // 列表接口可能未返回完整字段，先用 find 拉全量再翻转 state
+    let full: CollectSource = row
+    try {
+      full = (await manageApi.collect.find(row.id)) ?? row
+    } catch {
+      /* 忽略，回退用 row */
+    }
+    await manageApi.collect.change({ ...full, state: !full.state })
+    await load()
+    await loadHealth()
+  } catch (e: unknown) {
+    toast('error', e instanceof Error ? e.message : '切换状态失败')
+  } finally {
+    busyId.value = ''
   }
-  await manageApi.collect.change({ ...full, state: !full.state })
-  await load()
 }
 
 async function remove(row: CollectSource): Promise<void> {
@@ -405,11 +469,20 @@ async function remove(row: CollectSource): Promise<void> {
     danger: true
   })
   if (!ok) return
-  await manageApi.collect.remove(row.id)
-  await load()
+  try {
+    await manageApi.collect.remove(row.id)
+    // 同步清掉该源的健康条目: 此前只 load 不清 health, 幽灵条目残留进汇总计数
+    delete health[row.id]
+    await load()
+    await loadHealth()
+  } catch (e: unknown) {
+    toast('error', e instanceof Error ? e.message : '删除失败')
+  }
 }
 
 async function startSpider(row: CollectSource): Promise<void> {
+  if (busyId.value || !row.state) return // 停用源服务端必拒(400), 直接置灰禁点
+  busyId.value = row.id
   const hours = spiderHours.value
   const label = HOURS_OPTIONS.find(o => o.value === hours)?.label ?? `${hours}h`
   try {
@@ -423,6 +496,8 @@ async function startSpider(row: CollectSource): Promise<void> {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '触发采集失败'
     toast('error', msg)
+  } finally {
+    busyId.value = ''
   }
 }
 
@@ -440,7 +515,7 @@ async function submitReset(): Promise<void> {
   }
   resetSubmitting.value = true
   try {
-    await manageApi.collect.resetSpider(resetKey.value)
+    await manageApi.collect.resetSpider(resetKey.value, { silent: true })
     toast('success', '影视数据已重置, 全量采集已开始, 请耐心等待')
     resetDialogOpen.value = false
   } catch (e: unknown) {
@@ -450,29 +525,62 @@ async function submitReset(): Promise<void> {
   }
 }
 
+// ---- 健康面板低频轮询(30s): 健康调度器自动停采/恢复、后台采集完成后汇总与徽标自行更新,
+// 不必手动点刷新; 弹窗打开时暂停, 避免表单填写中途行序/数据跳动。参照 BannerListView。
+const HEALTH_POLL_MS = 30_000
+let healthTimer: number | undefined
+function scheduleHealthPoll(): void {
+  stopHealthPoll()
+  healthTimer = window.setInterval(() => {
+    if (dialogOpen.value || resetDialogOpen.value || testingAll.value || testingPlayAll.value) return
+    void loadHealth()
+  }, HEALTH_POLL_MS)
+}
+function stopHealthPoll(): void {
+  if (healthTimer !== undefined) {
+    window.clearInterval(healthTimer)
+    healthTimer = undefined
+  }
+}
+onBeforeUnmount(stopHealthPoll)
+
 onMounted(() => {
   void load()
   void loadHealth()
+  scheduleHealthPoll()
 })
 </script>
 
 <template>
+  <!-- 加载失败: 明确报错 + 重试, 不落到"暂无采集源"空态 -->
+  <div
+    v-if="loadError && !loading"
+    class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)] mb-[var(--jc-space-3)]"
+  >
+    <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
+    <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
+    <BaseButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</BaseButton>
+  </div>
+
   <ManageTable
     :columns="columns"
     :rows="displayRows"
     row-key="id"
     :loading="loading"
     actions-width="300px"
-    empty="暂无采集源，点击右上角新增"
+    :empty="loadError ? undefined : '暂无采集源，点击右上角新增'"
   >
     <template #toolbar>
       <div class="min-w-0">
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">采集源管理</h2>
-        <p v-if="hasAnyHealth" class="text-xs text-muted mt-[var(--jc-space-1)] flex flex-wrap gap-x-[var(--jc-space-2)]">
-          <span class="text-[var(--jc-success)]">健康 {{ healthSummary.healthy }}</span>
-          <span v-if="healthSummary.degraded" class="text-[var(--jc-warning)]">降级 {{ healthSummary.degraded }}</span>
-          <span v-if="healthSummary.down" class="text-[var(--jc-danger)]">已停采 {{ healthSummary.down }}</span>
-          <span v-if="healthSummary.untested">未测 {{ healthSummary.untested }}</span>
+        <p class="text-xs text-muted mt-[var(--jc-space-1)] flex flex-wrap gap-x-[var(--jc-space-2)]">
+          <template v-if="hasAnyHealth">
+            <span class="text-[var(--jc-success)]">健康 {{ healthSummary.healthy }}</span>
+            <span v-if="healthSummary.degraded" class="text-[var(--jc-warning)]">降级 {{ healthSummary.degraded }}</span>
+            <span v-if="healthSummary.down" class="text-[var(--jc-danger)]">已停采 {{ healthSummary.down }}</span>
+            <span v-if="healthSummary.untested">未测 {{ healthSummary.untested }}</span>
+          </template>
+          <span v-else class="text-muted">健康面板尚未检测</span>
         </p>
       </div>
       <div class="flex gap-[var(--jc-space-2)] items-center flex-wrap">
@@ -616,12 +724,34 @@ onMounted(() => {
         >
           测播放
         </BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="startSpider(row)">采集</BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="toggleState(row)">
+        <BaseButton
+          variant="ghost"
+          size="sm"
+          :disabled="!row.state || busyId === row.id"
+          :title="row.state ? '触发采集任务' : '源已停用, 请先启用'"
+          @click="startSpider(row)"
+        >采集</BaseButton>
+        <BaseButton
+          variant="ghost"
+          size="sm"
+          :loading="busyId === row.id"
+          :disabled="!!busyId && busyId !== row.id"
+          @click="toggleState(row)"
+        >
           {{ row.state ? '停用' : '启用' }}
         </BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="openEdit(row)">编辑</BaseButton>
-        <BaseButton variant="danger" size="sm" @click="remove(row)">删除</BaseButton>
+        <BaseButton
+          variant="ghost"
+          size="sm"
+          :disabled="!!busyId"
+          @click="openEdit(row)"
+        >编辑</BaseButton>
+        <BaseButton
+          variant="danger"
+          size="sm"
+          :disabled="!!busyId"
+          @click="remove(row)"
+        >删除</BaseButton>
       </div>
     </template>
   </ManageTable>
@@ -691,6 +821,7 @@ onMounted(() => {
       <ManageFormField label="启用">
         <ManageSwitch v-model="form.state" />
       </ManageFormField>
+      <p v-if="formError" class="text-xs text-[var(--jc-danger)]">{{ formError }}</p>
     </div>
     <template #footer>
       <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>

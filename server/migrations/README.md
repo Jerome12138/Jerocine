@@ -19,6 +19,7 @@
 | 000016_normalize_source_ids | 采集源 id 规整（huya/sb → src_ 前缀），同步四处字符串引用 |
 | 000017_movie_backdrop | movie / movie_search 加 backdrop 列（TMDB 横图回填） |
 | 000018_site_tmdb_key | site_config 加 tmdb_api_key（TMDB 凭据管理后台化，明文不出库） |
+| 000040_telemetry_issue_resolution_note | telemetry_issue_resolution 加 note 列（标记解决的备注落库） |
 
 ## 运行
 迁移文件含多条语句，MySQL DSN 需带 `multiStatements=true`。

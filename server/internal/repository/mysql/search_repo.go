@@ -327,7 +327,9 @@ func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, pag
 	return out, total, nil
 }
 
-func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted int, includeHidden bool, page repository.Page) ([]entity.MovieSearch, int64, error) {
+// SearchKeyword 关键字检索。sort 为排序键(白名单 allowedSort), 空/未识别回退
+// update_stamp DESC —— 公开搜索历史行为恒为最近更新, 管理后台由 service 层显式传键。
+func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted int, includeHidden bool, sort string, page repository.Page) ([]entity.MovieSearch, int64, error) {
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
 		return nil, 0, nil
@@ -346,12 +348,16 @@ func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted 
 	} else {
 		q = q.Where(match, keyword)
 	}
+	order := allowedSort[sort]
+	if order == "" {
+		order = orderRecent
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var out []entity.MovieSearch
-	if err := q.Order("update_stamp DESC").Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error; err != nil {
+	if err := q.Order(order).Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error; err != nil {
 		return nil, 0, err
 	}
 	return out, total, nil

@@ -250,11 +250,11 @@ func (h *Handlers) TestMail(c *gin.Context) {
 
 // ---- 管理后台: 注册审核(apply 模式) ----
 
-// ManageApplies GET /manage/register/applies?status=&page=&size= — 申请列表(分页, 时间倒序)。
+// ManageApplies GET /manage/register/applies?keyword=&status=&page=&size= — 申请列表(用户名/邮箱模糊搜索, 分页, 时间倒序)。
 func (h *Handlers) ManageApplies(c *gin.Context) {
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
 	status := int8(queryInt(c, "status", int(entity.ApplyStatusAny)))
-	list, total, err := h.Register.ApplyList(c.Request.Context(), status, page)
+	list, total, err := h.Register.ApplyList(c.Request.Context(), c.Query("keyword"), status, page)
 	if err != nil {
 		dto.Fail(c, err)
 		return

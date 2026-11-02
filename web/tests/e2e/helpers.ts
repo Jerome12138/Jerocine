@@ -11,17 +11,16 @@ export async function waitAppReady(page: Page): Promise<void> {
 }
 
 /**
- * 模拟登录：写真实结构（utils/token.ts 用 'auth' key + JSON 包装）
- *  { key: 'auth-token', value: '<token>' }
+ * 模拟登录：写 utils/token.ts 现行结构
+ *   localStorage['auth-token'] = '<token>' (+ 'auth-expires' 过期秒, 可省)
+ * 旧版 'auth'={key,value} 包装会被 getToken() 当残留主动清除(见 token.ts LEGACY_KEY),
+ * 写旧结构 = 没登录, 路由守卫会把页面打回 /login。
  *
  * @param opts.role 0 普通用户 / 1 管理员（默认 1）
- *                  store fetchInfo 时仍会从 mock /user/info 拉真实 role；
- *                  但路由守卫在 store.info 缺失时也会 fetchInfo 兜底，
- *                  mock 默认返回 ADMIN_USER（role=1），传 0 时这个 helper
- *                  额外注入一个 dicebear 提示窗，但不修改 mock 返回值。
- *                  若需测试普通用户身份，应用层会从 /user/info 拿真实 role。
- *                  本项目 mock /user/info 总返回 ADMIN_USER，实测 role=1 视角。
- *                  因此 role=0 路径建议走"表单登录 alice"的真实流程。
+ *                  store fetchInfo 时仍会从后端 /user/info 拉真实 role;
+ *                  但路由守卫在 store.info 缺失时也会 fetchInfo 兜底。
+ *                  注意: mock 适配器已移除(main.ts), e2e 需本地后端或页面级路由拦截
+ *                  提供数据, 本 helper 只负责把"已登录"状态写进存储。
  */
 export async function fakeLogin(
   page: Page,
@@ -29,9 +28,11 @@ export async function fakeLogin(
 ): Promise<void> {
   const role = opts.role ?? 1
   await page.addInitScript((r) => {
-    const auth = { key: 'auth-token', value: 'mock-token-e2e' }
-    localStorage.setItem('auth', JSON.stringify(auth))
-    // 暂存预期角色，让 mock /user/info 选择性返回（见 mock/handlers）
+    // 现行结构: token 明文 + 过期时间(unix 秒), 见 utils/token.ts setToken
+    localStorage.setItem('auth-token', 'mock-token-e2e')
+    // 给一个远期过期时间, 避免 getToken() 按已过期清 token
+    localStorage.setItem('auth-expires', String(Math.floor(Date.now() / 1000) + 3600))
+    // 暂存预期角色，让后端/拦截按需选择返回（预留, 现无 mock 消费方）
     localStorage.setItem('__mock_role', String(r))
   }, role)
 }
