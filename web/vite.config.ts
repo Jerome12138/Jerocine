@@ -214,9 +214,13 @@ export default defineConfig({
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/assets/'),
-            handler: 'CacheFirst',
+            // NetworkFirst: 先走网络; 网络失败不向 cache.put() 写(避免 "Failed to execute 'put' on 'Cache'" 错),
+            // 回退到 stale-while-revalidate 已有的本地缓存(对 hash 文件名安全).
+            // 3 秒网络超时: 弱网/离线时快速 fallback, 不等太久.
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'jc-assets',
+              networkTimeoutSeconds: 3,
               expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [200] }
             }

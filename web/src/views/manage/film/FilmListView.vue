@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { manageApi } from '@/api'
-import type { ManageFilmRow, ManageFilmStatus } from '@/types/manage'
+import type { FilmClass, ManageFilmRow, ManageFilmStatus } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -12,12 +12,9 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import { confirm } from '@/composables/useConfirm'
 import { toast } from '@/api/http'
+import TreeCategoryCheck from './TreeCategoryCheck.vue'
 
-/**
- * 影片管理。
- * 删除走软删：影片打上删除时间戳后从公开页面消失，但仍在库中，可在「回收站」页签恢复。
- * 不做物理删除是因为采集源随时会把同一部片再推一遍，删了早晚会被长回来。
- */
+const MAX_TREE_DEPTH = 4
 
 const router = useRouter()
 const rows = ref<ManageFilmRow[]>([])
@@ -26,6 +23,11 @@ const busy = ref(false)
 const total = ref(0)
 const pageSize = ref(20)
 const status = ref<ManageFilmStatus>('active')
+// 分类多选: id → checked
+const selectedCatIds = ref<Set<number>>(new Set())
+const categoryTree = ref<FilmClass[]>([])
+const treeLoading = ref(false)
+const treePopperOpen = ref(false)
 
 const STATUS_TABS: { value: ManageFilmStatus; label: string }[] = [
   { value: 'active', label: '在架' },
@@ -33,7 +35,6 @@ const STATUS_TABS: { value: ManageFilmStatus; label: string }[] = [
   { value: 'all', label: '全部' }
 ]
 
-/** 后端 query 字段：keyword / pid / cid / status / page / size */
 const params = reactive({
   name: '',
   pid: 0,
@@ -52,6 +53,64 @@ const columns = [
   { key: 'remarks' as const, label: '备注', width: '140px' },
   { key: 'deletedAt' as const, label: '状态', width: '120px' }
 ]
+
+// ---- 分类树工具 ----
+
+function flattenCats(nodes: FilmClass[], out: FilmClass[] = []): FilmClass[] {
+  for (const n of nodes) {
+    out.push(n)
+    if (n.children?.length) flattenCats(n.children, out)
+  }
+  return out
+}
+
+async function loadTree(): Promise<void> {
+  if (categoryTree.value.length) return
+  treeLoading.value = true
+  try {
+    categoryTree.value = await manageApi.film.classTree()
+  } finally {
+    treeLoading.value = false
+  }
+}
+
+/** 返回被选中节点的全部子孙 id(含自身), 用于整棵子树联动 */
+function descendantIds(node: FilmClass): number[] {
+  const ids = [node.id]
+  if (node.children?.length) {
+    for (const child of node.children) ids.push(...descendantIds(child))
+  }
+  return ids
+}
+
+function isNodeDescendantSelected(node: FilmClass): boolean {
+  return (node.children ?? []).some((c) => selectedCatIds.value.has(c.id))
+}
+
+function toggleNode(node: FilmClass): void {
+  const ids = descendantIds(node)
+  const allChecked = ids.every((id) => selectedCatIds.value.has(id))
+  if (allChecked) {
+    for (const id of ids) selectedCatIds.value.delete(id)
+  } else {
+    for (const id of ids) selectedCatIds.value.add(id)
+  }
+  applyCatFilter()
+}
+
+function applyCatFilter(): void {
+  params.pid = 0
+  params.cid = 0
+  params.current = 1
+  load()
+}
+
+function clearCatFilter(): void {
+  selectedCatIds.value.clear()
+  applyCatFilter()
+}
+
+// ---- 影片列表 ----
 
 async function load(): Promise<void> {
   loading.value = true
@@ -91,9 +150,7 @@ function changePage(p: number): void {
 
 function viewDetail(row: ManageFilmRow): void {
   const idStr = String(row.mid ?? '').trim()
-  if (!idStr) {
-    return
-  }
+  if (!idStr) return
   router.push({ path: '/manage/film/detail', query: { id: idStr } })
 }
 
@@ -147,7 +204,10 @@ async function restoreFilm(row: ManageFilmRow): Promise<void> {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void loadTree()
+  void load()
+})
 </script>
 
 <template>
@@ -175,11 +235,48 @@ onMounted(load)
             </BaseButton>
           </div>
         </div>
-        <div class="flex gap-[var(--jc-space-2)] flex-wrap">
+        <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
           <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
           <BaseButton variant="gradient" size="sm" @click="search">
             <BaseIcon name="search" size="16px" /> 搜索
           </BaseButton>
+
+          <!-- 分类筛选(多选树) -->
+          <div class="relative">
+            <BaseButton
+              variant="ghost"
+              size="sm"
+              :class="{ 'border-brand-purple/50': selectedCatIds.size > 0 }"
+              @click="void loadTree().then(() => (treePopperOpen = !treePopperOpen))"
+            >
+              <BaseIcon name="menu" size="16px" class="mr-1" />
+              分类筛选
+              <BaseTag v-if="selectedCatIds.size > 0" variant="purple" size="xs" class="ml-1">
+                {{ selectedCatIds.size }}
+              </BaseTag>
+            </BaseButton>
+            <!-- 下拉树面板 -->
+            <div
+              v-if="treePopperOpen"
+              class="absolute z-50 top-full left-0 mt-1 bg-surface border border-subtle rounded-lg shadow-lg p-3 min-w-[220px] max-h-[420px] overflow-y-auto"
+              @click.stop
+            >
+              <div v-if="treeLoading" class="text-sm text-muted py-2 text-center">加载中…</div>
+              <template v-else-if="categoryTree.length">
+                <TreeCategoryCheck
+                  :nodes="categoryTree"
+                  :selected="selectedCatIds"
+                  @toggle="toggleNode"
+                />
+              </template>
+              <div v-else class="text-sm text-muted py-2 text-center">暂无分类</div>
+              <div class="border-t border-subtle mt-2 pt-2 flex justify-end gap-2">
+                <BaseButton variant="ghost" size="sm" @click="clearCatFilter">清除筛选</BaseButton>
+                <BaseButton variant="gradient" size="sm" @click="treePopperOpen = false">确定</BaseButton>
+              </div>
+            </div>
+          </div>
+
           <BaseButton variant="ghost" size="sm" @click="router.push('/manage/film/add')">
             <BaseIcon name="plus" size="16px" /> 新增
           </BaseButton>
@@ -208,11 +305,7 @@ onMounted(load)
             </span>
           </div>
           <BaseTag v-if="isDeleted(row)" variant="danger" size="xs">已删</BaseTag>
-          <BaseIcon
-            name="chevron-right"
-            size="20px"
-            class="text-secondary shrink-0"
-          />
+          <BaseIcon name="chevron-right" size="20px" class="text-secondary shrink-0" />
         </div>
       </template>
 

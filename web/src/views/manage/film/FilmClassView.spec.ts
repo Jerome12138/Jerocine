@@ -124,21 +124,16 @@ describe('FilmClassView 分类管理', () => {
     expect(first.sidebarShow).toBe(false)
   })
 
-  it('关顶级「影片可见」→ 级联关闭子孙的 show+sidebarShow(filmVisible 是最狠一档; classUpdate 调 2 次: 本+子孙各 1 次)', async () => {
+  it('关顶级「影片可见」→ 前端只发本节点 filmVisible=false(级联由服务端 cascadeHideDescendants 负责); classUpdate 调 1 次', async () => {
     const w = await mountView()
     await switchByTitle(w, FILM_TITLE).trigger('click')
     await flushPromises()
 
-    expect(h.classUpdate).toHaveBeenCalledTimes(2)
+    expect(h.classUpdate).toHaveBeenCalledTimes(1)
     const top = h.classUpdate.mock.calls[0][0] as FilmClass
     expect(top.id).toBe(1)
     expect(top.filmVisible).toBe(false)
-    // show/sidebarShow 由服务端 cascadeHideDescendants 级联落库, 前端只负责传 filmVisible=false
-    // (客户端 spec 无法模拟服务端响应, 不验字段)
-    // 子孙级联关闭两开关(每子级 1 次 classUpdate, 本 spec 有 1 个子级, 故共 2 次)
-    const child1 = h.classUpdate.mock.calls[1][0] as FilmClass
-    expect(child1.id).toBe(2)
-    expect(child1.show).toBe(false)
-    expect(child1.sidebarShow).toBe(false)
+    // 子孙 show/sidebarShow 的级联关闭由服务端 cascadeHideDescendants 落库,
+    // 前端只负责向服务提交 filmVisible=false; 服务返回 InvalidateCategory 后下次 load() 拿到最新状态.
   })
 })

@@ -61,34 +61,55 @@ function openAddChild(parent: FilmClass): void {
   dialogOpen.value = true
 }
 
+// toggleHelper: 在 tree ref 里按 id 找到节点并就地更新字段(避免全页重载)。
+// 返回 true = 找到了(需要走 API 路径), false = 没找到(仅本地预览, 仍发 API 但不清树)。
+function updateNodeById(id: number, patch: Partial<FilmClass>): boolean {
+  function walk(list: FilmClass[]): boolean {
+    for (const n of list) {
+      if (n.id === id) { Object.assign(n, patch); return true }
+      if (n.children?.length && walk(n.children)) return true
+    }
+    return false
+  }
+  return walk(tree.value)
+}
+
 async function toggleShow(node: FilmClass): Promise<void> {
   const next = !node.show
+  updateNodeById(node.id, { show: next })
   await manageApi.film.classUpdate({ ...node, show: next })
-  await load()
 }
 
 async function toggleSidebarShow(node: FilmClass): Promise<void> {
   const next = !node.sidebarShow
+  updateNodeById(node.id, { sidebarShow: next })
   await manageApi.film.classUpdate({ ...node, sidebarShow: next })
-  await load()
 }
 
 /** 影片可见开关: 关闭 = 该分类影片从公开列表/搜索全部剔除。
  *  服务端强制联动(000037 迁移: film_visible=false 时节点+子孙 show/sidebarShow 一并置 false);
- *  前端同步级联更新视觉, 避免刷新后还看到"亮着"的开关。 */
+ *  前端同步级联更新视觉(本地 tree ref 就地改, 避免重拉整棵树)。 */
 async function toggleFilmVisible(node: FilmClass): Promise<void> {
   const next = !node.filmVisible
-  const tasks: Promise<unknown>[] = [manageApi.film.classUpdate({ ...node, filmVisible: next })]
-  // 关 → 本节点与子孙两开关置 false; 开 → 不动子孙(show/sidebarShow 可各自独立打开).
+  updateNodeById(node.id, { filmVisible: next })
   if (!next && node.children?.length) {
+    for (const child of node.children) {
+      updateNodeById(child.id, { show: false, sidebarShow: false })
+    }
+  }
+  // 关 → 只改本节点 filmVisible; 开 → 本节点 filmVisible=true (子孙 show/sidebarShow 用户手动控制).
+  // 注意: 级联 show/sidebarShow=false 由服务端 cascadeHideDescendants 落库;
+  // 服务端每次 save 后也会发 InvalidateCategory, 下次 load() 会拿到最新值.
+  await manageApi.film.classUpdate({ ...node, filmVisible: next })
+  if (!next && node.children?.length) {
+    const tasks = []
     for (const child of node.children) {
       if (child.show || child.sidebarShow) {
         tasks.push(manageApi.film.classUpdate({ ...child, show: false, sidebarShow: false }))
       }
     }
+    await Promise.all(tasks)
   }
-  await Promise.all(tasks)
-  await load()
 }
 
 /** 影片数展示: 缺省(计数失败)显示 — */
@@ -160,7 +181,7 @@ onMounted(load)
         >
           <span class="jc-cat__bar" aria-hidden="true" />
           <div class="jc-cat__title">
-            <span class="jc-cat__name" :class="{ 'jc-cat--off': !parent.show }">{{ parent.name }}</span>
+            <span class="jc-cat__name" :class="{ 'jc-cat--off': !parent.filmVisible }">{{ parent.name }}</span>
             <span class="jc-cat__meta">
               #{{ parent.id }} · 排序 {{ parent.sort ?? 0 }} · {{ parent.children?.length ?? 0 }} 子分类 ·
               <span :class="{ 'jc-cat__films-hidden': !parent.filmVisible }">{{ filmCountLabel(parent) }}</span>
@@ -168,8 +189,8 @@ onMounted(load)
           </div>
           <!-- 影片可见开关: 关闭 = 该分类影片从公开列表/搜索全部剔除(pid 过滤天然覆盖子分类) -->
           <label class="jc-cat__toggle" @click.stop title="关闭后该分类影片从公开列表与搜索中剔除；默认可见">
-            <span class="jc-cat__state jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !parent.filmVisible }">
-              影片可见
+              <span class="jc-cat__state jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !parent.filmVisible }">
+              {{ parent.filmVisible ? '可见' : '不可见' }}
             </span>
             <ManageSwitch :model-value="parent.filmVisible" @update:model-value="toggleFilmVisible(parent)" />
           </label>
@@ -210,14 +231,16 @@ onMounted(load)
             @click="openEdit(child)"
             @keydown.enter="openEdit(child)"
           >
-            <span class="jc-cat__dot" :class="{ 'jc-cat__dot--on': child.show }" aria-hidden="true" />
-            <span class="jc-cat__cname" :class="{ 'jc-cat--off': !child.show }">{{ child.name }}</span>
-            <span class="jc-cat__cid">#{{ child.id }} · {{ filmCountLabel(child) }}</span>
+            <span class="jc-cat__dot" :class="{ 'jc-cat__dot--on': child.filmVisible }" aria-hidden="true" />
+            <span class="jc-cat__cname">
+              {{ child.name }}
+              <span class="jc-cat__meta-inline">#{{ child.id }} · {{ filmCountLabel(child) }}</span>
+            </span>
           <div class="jc-cat__cctrl" @click.stop>
             <label class="jc-cat__toggle" title="关闭后该分类影片从公开列表与搜索中剔除；默认可见">
-              <span class="jc-cat__state jc-cat__state--sm jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !child.filmVisible }">
-                可见
-              </span>
+                <span class="jc-cat__state jc-cat__state--sm jc-cat__state--films" :class="{ 'jc-cat__state--films-off': !child.filmVisible }">
+                  {{ child.filmVisible ? '可见' : '不可见' }}
+                </span>
               <ManageSwitch :model-value="child.filmVisible" @update:model-value="toggleFilmVisible(child)" />
             </label>
             <label class="jc-cat__toggle" :title="`侧边栏显示${child.sidebarShow ? '' : '（已关）'}`">
