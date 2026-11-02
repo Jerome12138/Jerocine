@@ -97,19 +97,11 @@ async function toggleFilmVisible(node: FilmClass): Promise<void> {
       updateNodeById(child.id, { show: false, sidebarShow: false })
     }
   }
-  // 关 → 只改本节点 filmVisible; 开 → 本节点 filmVisible=true (子孙 show/sidebarShow 用户手动控制).
-  // 注意: 级联 show/sidebarShow=false 由服务端 cascadeHideDescendants 落库;
-  // 服务端每次 save 后也会发 InvalidateCategory, 下次 load() 会拿到最新值.
+  // API 只发本节点: 关 → 子孙 show/sidebarShow 的级联落库由服务端 cascadeHideDescendants
+  // 兜底(子级 filmVisible 不动, 顶级恢复可见时子级行为不突变); 开 → 只本节点恢复,
+  // 子孙两开关保持 false 由用户手动逐个开。保存后服务端 InvalidateCategory, 下次
+  // load() 即最新值 —— 前端不重复发子级请求(级联 API 由服务端单点负责, 避免双份写)。
   await manageApi.film.classUpdate({ ...node, filmVisible: next })
-  if (!next && node.children?.length) {
-    const tasks = []
-    for (const child of node.children) {
-      if (child.show || child.sidebarShow) {
-        tasks.push(manageApi.film.classUpdate({ ...child, show: false, sidebarShow: false }))
-      }
-    }
-    await Promise.all(tasks)
-  }
 }
 
 /** 影片数展示: 缺省(计数失败)显示 — */
@@ -232,7 +224,7 @@ onMounted(load)
             @keydown.enter="openEdit(child)"
           >
             <span class="jc-cat__dot" :class="{ 'jc-cat__dot--on': child.filmVisible }" aria-hidden="true" />
-            <span class="jc-cat__cname">{{ child.name }}</span>
+            <span class="jc-cat__cname" :class="{ 'jc-cat--off': !child.filmVisible }">{{ child.name }}</span>
             <span class="jc-cat__cid">#{{ child.id }} · {{ filmCountLabel(child) }}</span>
           <div class="jc-cat__cctrl" @click.stop>
             <label class="jc-cat__toggle" title="关闭后该分类影片从公开列表与搜索中剔除；默认可见">
@@ -297,10 +289,11 @@ onMounted(load)
         label="顶栏显示"
         hint="控制 web/TV 顶部一级导航是否显示该分类; 隐藏后影片仍可搜索、在列表看到"
       >
-        <ManageSwitch v-model="form.show" />
+        <!-- filmVisible=false 时置灰: 服务端会强制级联置 false, 表单与行内开关口径一致 -->
+        <ManageSwitch v-model="form.show" :disabled="!form.filmVisible" />
       </ManageFormField>
       <ManageFormField label="侧边栏显示" hint="控制桌面常驻侧栏 + 移动抽屉中该分类的显隐（一级+二级各自独立）">
-        <ManageSwitch v-model="form.sidebarShow" />
+        <ManageSwitch v-model="form.sidebarShow" :disabled="!form.filmVisible" />
       </ManageFormField>
       <ManageFormField
         label="影片可见"
@@ -399,8 +392,9 @@ onMounted(load)
   background-color: var(--jc-success);
 }
 .jc-cat__cname {
+  /* 不撑满行: 名称后紧跟 #id·N部 meta(用户要求), 只在名称过长时收缩截断 */
+  flex: 0 1 auto;
   min-width: 0;
-  flex: 1;
   color: var(--jc-text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -408,6 +402,7 @@ onMounted(load)
 }
 .jc-cat__cid {
   flex-shrink: 0;
+  margin-left: var(--jc-space-2);
   font-size: var(--jc-fs-xs);
   color: var(--jc-text-muted);
   font-family: var(--jc-font-mono);
@@ -422,6 +417,8 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: var(--jc-space-2);
+  /* cname 不再撑满行, 控制区自己推到行尾 */
+  margin-left: auto;
   flex-shrink: 0;
 }
 .jc-cat__toggle {
