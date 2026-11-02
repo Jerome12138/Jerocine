@@ -293,3 +293,134 @@ func TestUpsertSource_RejectsInvalidID(t *testing.T) {
 		}
 	}
 }
+
+// fakeCatAll 仅覆写 All: ListCategories 的分类树来源。
+type fakeCatAll struct {
+	repository.CategoryRepository
+	cats []entity.Category
+}
+
+func (f *fakeCatAll) All(context.Context) ([]entity.Category, error) { return f.cats, nil }
+
+// fakeCountFilms 仅覆写 CountFilmsByCategory: 分类影片计数来源。
+type fakeCountFilms struct {
+	repository.SearchRepository
+	pids, cids map[int64]int64
+}
+
+func (f *fakeCountFilms) CountFilmsByCategory(context.Context) (map[int64]int64, map[int64]int64, error) {
+	return f.pids, f.cids, nil
+}
+
+// TestListCategories_TopCountIncludesDirect 顶级分类计数 = pids(子分类影片, pid 恒为父顶级
+// id) + cids(直挂影片, XML 源/maccms type_id_1=0 写法下 pid=0 只有 cid), 与公开列表
+// (pid=X OR cid=X) 同口径 —— 修复"AI漫剧计数 0 但影片在架"的显示口径。
+func TestListCategories_TopCountIncludesDirect(t *testing.T) {
+	ms := &ManageService{
+		category: &fakeCatAll{cats: []entity.Category{
+			{Id: 1, Pid: 0, Name: "电影"},
+			{Id: 2, Pid: 1, Name: "动作"},
+		}},
+		search: &fakeCountFilms{
+			pids: map[int64]int64{1: 30},             // 子分类影片(pid=1)
+			cids: map[int64]int64{1: 12, 2: 30},      // 直挂(顶级1) + 子分类2
+		},
+	}
+	tree, err := ms.ListCategories(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree) != 1 || tree[0].Id != 1 {
+		t.Fatalf("树形不符: %v", tree)
+	}
+	if tree[0].FilmCount == nil || *tree[0].FilmCount != 42 {
+		t.Fatalf("顶级计数应为 30+12=42, got %v", tree[0].FilmCount)
+	}
+	if len(tree[0].Children) != 1 || tree[0].Children[0].FilmCount == nil || *tree[0].Children[0].FilmCount != 30 {
+		t.Fatalf("子分类计数应为 30, got %v", tree[0].Children)
+	}
+}
+
+// fakeCatUpsert 记录 Upsert 调用: 验证三开关强制联动的级联隐藏。
+type fakeCatUpsert struct {
+	repository.CategoryRepository
+	cats    []entity.Category
+	upserts []entity.Category
+}
+
+func (f *fakeCatUpsert) All(context.Context) ([]entity.Category, error) { return f.cats, nil }
+
+func (f *fakeCatUpsert) Upsert(_ context.Context, c *entity.Category) error {
+	// 模拟 DB 行为: 按 id 覆盖(新行 append)。
+	found := false
+	for i := range f.cats {
+		if f.cats[i].Id == c.Id {
+			f.cats[i] = *c
+			found = true
+			break
+		}
+	}
+	if !found {
+		f.cats = append(f.cats, *c)
+	}
+	f.upserts = append(f.upserts, *c)
+	return nil
+}
+
+// TestUpsertCategory_FilmInvisibleForcesNavOff 影片可见性置 false 是最狠一档:
+// 服务端必须强制联动 —— 本节点 show/sidebar_show 置 false, 且全部子孙的
+// show/sidebar_show 也一并置 false(前端开关同步禁用, 这里是服务端兜底)。
+// 子级 filmVisible 不动(顶级 film_visible=0 时 pid NOT IN 已剔除子级影片,
+// 顶级恢复可见时子级影片行为不突变)。
+func TestUpsertCategory_FilmInvisibleForcesNavOff(t *testing.T) {
+	fr := &fakeCatUpsert{cats: []entity.Category{
+		{Id: 1, Pid: 0, Name: "顶级", Show: true, SidebarShow: true, FilmVisible: true},
+		{Id: 11, Pid: 1, Name: "子类A", Show: true, SidebarShow: true, FilmVisible: true},
+		{Id: 12, Pid: 1, Name: "子类B", Show: false, SidebarShow: false, FilmVisible: true},
+	}}
+	ms := &ManageService{category: fr}
+
+	// 管理端提交: 影片不可见(其余字段被前端照旧传上来, 可能仍是 true)
+	err := ms.UpsertCategory(context.Background(), &entity.Category{
+		Id: 1, Pid: 0, Name: "顶级", Show: true, SidebarShow: true, FilmVisible: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	top := fr.cats[0]
+	if top.Show || top.SidebarShow {
+		t.Fatalf("filmVisible=false 应强制 show/sidebarShow=false: %+v", top)
+	}
+	byId := map[int64]entity.Category{}
+	for _, c := range fr.cats {
+		byId[c.Id] = c
+	}
+	if byId[11].Show || byId[11].SidebarShow {
+		t.Fatalf("子类A 应被级联隐藏: %+v", byId[11])
+	}
+	if byId[11].FilmVisible != true {
+		t.Fatalf("子类A filmVisible 不应被改: %+v", byId[11])
+	}
+	if byId[12].Show || byId[12].SidebarShow {
+		t.Fatalf("子类B 本已隐藏: %+v", byId[12])
+	}
+}
+
+// TestUpsertCategory_VisibleNoCascade 影片可见的分类保存不做级联, 正常落库。
+func TestUpsertCategory_VisibleNoCascade(t *testing.T) {
+	fr := &fakeCatUpsert{cats: []entity.Category{
+		{Id: 1, Pid: 0, Name: "顶级", Show: false, SidebarShow: false, FilmVisible: true},
+	}}
+	ms := &ManageService{category: fr}
+	if err := ms.UpsertCategory(context.Background(), &entity.Category{
+		Id: 1, Pid: 0, Name: "顶级", Show: true, SidebarShow: true, FilmVisible: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fr.upserts) != 1 {
+		t.Fatalf("可见分类保存不应触发级联 Upsert: %d 次", len(fr.upserts))
+	}
+	if !fr.cats[0].Show || !fr.cats[0].SidebarShow {
+		t.Fatalf("开关应按提交值落库: %+v", fr.cats[0])
+	}
+}

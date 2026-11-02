@@ -73,7 +73,12 @@ func (s *FilmService) CategoryTree(ctx context.Context) ([]*entity.CategoryNode,
 	return tree, err
 }
 
-// NavCategories 返回导航用的一级可展示分类。
+// NavCategories 返回公开侧一级分类(影片可见口径)。
+//
+// 000037 三开关拆分后: 顶栏(show)/侧边栏(sidebarShow)的过滤下放到**消费端**——
+// 公开 GET /categories 与首页都直出开关字段, web/TV 前端与 tvshell 各自按位过滤;
+// 服务端只保留 filmVisible=false 的剔除(影片不可见 = 搜不到列不出, 分类入口本身
+// 也不该出现)。子分类同样只滤 filmVisible。
 func (s *FilmService) NavCategories(ctx context.Context) ([]*entity.CategoryNode, error) {
 	tree, err := s.CategoryTree(ctx)
 	if err != nil {
@@ -81,9 +86,17 @@ func (s *FilmService) NavCategories(ctx context.Context) ([]*entity.CategoryNode
 	}
 	var nav []*entity.CategoryNode
 	for _, n := range tree {
-		if n.Show {
-			nav = append(nav, n)
+		if !n.FilmVisible {
+			continue
 		}
+		children := make([]*entity.CategoryNode, 0, len(n.Children))
+		for _, ch := range n.Children {
+			if ch.FilmVisible {
+				children = append(children, ch)
+			}
+		}
+		n.Children = children
+		nav = append(nav, n)
 	}
 	return nav, nil
 }

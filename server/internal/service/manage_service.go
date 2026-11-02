@@ -273,6 +273,38 @@ func (s *ManageService) SaveSite(ctx context.Context, c *entity.SiteConfig) erro
 		c.SpiderSlaveMaxWorkers = cur.SpiderSlaveMaxWorkers
 		c.DanmuEnabled = cur.DanmuEnabled
 		c.DanmuProviders = cur.DanmuProviders
+		// live_nav_enabled 不在「站点信息」表单里(updateBasic 是显式字段列表), 走独立
+		// /manage/live-nav 端点维护; 这里回填防 UpdateAll 清零。
+		c.LiveNavEnabled = cur.LiveNavEnabled
+	}
+	if err := s.siteCfg.Save(ctx, c); err != nil {
+		return err
+	}
+	cache.InvalidateConfig(ctx)
+	return nil
+}
+
+// ---- 直播顶栏入口开关（独立小端点: 一个布尔不值得进「站点信息」表单字段列表）----
+
+// GetLiveNav 读直播顶栏开关(000038 live_nav_enabled, 0 值兜底为开=迁移前行为)。
+func (s *ManageService) GetLiveNav(ctx context.Context) (bool, error) {
+	c, err := s.siteCfg.Get(ctx)
+	if err != nil {
+		return false, err
+	}
+	return c.LiveNavEnabled != 0, nil
+}
+
+// SaveLiveNav 写直播顶栏开关并失效配置缓存(公开 /config/site 下次回源即带新值)。
+func (s *ManageService) SaveLiveNav(ctx context.Context, enabled bool) error {
+	c, err := s.siteCfg.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		c.LiveNavEnabled = 1
+	} else {
+		c.LiveNavEnabled = 0
 	}
 	if err := s.siteCfg.Save(ctx, c); err != nil {
 		return err
@@ -824,7 +856,10 @@ func (s *ManageService) ListCategories(ctx context.Context) ([]*entity.CategoryN
 		log.Printf("manage: 分类影片计数失败(降级为不显示): %v", err)
 	} else {
 		for _, node := range tree {
-			v := pids[node.Id]
+			// 顶级计数 = pids(子分类影片, pid 恒为父顶级 id) + cids(直挂影片, XML 源
+			// /maccms type_id_1=0 写法下 pid=0 只有 cid) —— 与公开列表 (pid=X OR cid=X)
+			// 同口径; 两侧值恒不同(pid≠cid), 相加不重复计数。
+			v := pids[node.Id] + cids[node.Id]
 			node.FilmCount = &v
 			for _, ch := range node.Children {
 				c := cids[ch.Id]
@@ -834,11 +869,45 @@ func (s *ManageService) ListCategories(ctx context.Context) ([]*entity.CategoryN
 	}
 	return tree, nil
 }
+// UpsertCategory 保存分类(管理端)。三开关强制联动: filmVisible=false 时"影片整体不可见"
+// 是最狠的一档, 本节点与全部子孙的 show/sidebar_show 必须一并置 false —— 影片都搜不到
+// 列不出了, 导航入口就不允许还亮着(前端开关同步禁用置灰, 这里是服务端兜底)。
 func (s *ManageService) UpsertCategory(ctx context.Context, c *entity.Category) error {
+	if !c.FilmVisible {
+		c.Show = false
+		c.SidebarShow = false
+	}
 	if err := s.category.Upsert(ctx, c); err != nil {
 		return err
 	}
+	if !c.FilmVisible {
+		if err := s.cascadeHideDescendants(ctx, c.Id); err != nil {
+			return err
+		}
+	}
 	cache.InvalidateCategory(ctx)
+	return nil
+}
+
+// cascadeHideDescendants 把 id 的全部子孙分类(树只有两级, 即直接子级)的
+// show/sidebar_show 置 false —— 子级 filmVisible 不动(顶级 film_visible=0 时
+// hiddenCats 的 pid NOT IN 已把子级影片全部剔除, 子级影片可见开关保留原值,
+// 顶级恢复可见时子级行为不突变)。
+func (s *ManageService) cascadeHideDescendants(ctx context.Context, id int64) error {
+	cats, err := s.category.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, c := range cats {
+		if c.Pid != id || (!c.Show && !c.SidebarShow) {
+			continue
+		}
+		c.Show = false
+		c.SidebarShow = false
+		if err := s.category.Upsert(ctx, &c); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 func (s *ManageService) DeleteCategory(ctx context.Context, id int64) error {

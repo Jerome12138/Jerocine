@@ -180,3 +180,65 @@ func TestCountFilmsByCategory(t *testing.T) {
 		t.Fatalf("计数不符: pids=%v cids=%v", pids, cids)
 	}
 }
+
+// TestHiddenCats_CidCoversTopHidden 不可见顶级分类的 id 必须同时进 cid 排除集:
+// XML 源/maccms type_id_1=0 写法下直挂影片 pid=0、只有 cid=顶级id, 若 cid 集只含
+// 子分类, 这些影片会从隐藏顶级分类漏出(pid=0 不命中 pid NOT IN)。
+func TestHiddenCats_CidCoversTopHidden(t *testing.T) {
+	gdb, mock, _ := newMockDBCapture(t)
+	repo := NewSearchRepository(gdb)
+
+	expectHiddenCats(mock,
+		[]driver.Value{int64(5), int64(0), false}, // 顶级影片不可见
+		[]driver.Value{int64(9), int64(5), false}, // 子分类影片不可见
+		[]driver.Value{int64(3), int64(0), true},  // 正常顶级
+	)
+
+	pids, cids := repo.(*searchRepo).hiddenCats(context.Background())
+	if len(pids) != 1 || pids[0] != 5 {
+		t.Fatalf("pid 排除集应只含顶级不可见 id [5], got %v", pids)
+	}
+	if len(cids) != 2 || cids[0] != 5 || cids[1] != 9 {
+		t.Fatalf("cid 排除集应含全部不可见 id(顶级5+子级9), got %v", cids)
+	}
+}
+
+// TestPidFilter_DirectFilmORCid 一级分类列表口径 = (pid=X OR cid=X):
+// 直挂影片(pid=0, cid=X)只按 pid 查会整类漏光 —— AI漫剧计数 0 但搜得到的根因之一。
+func TestPidFilter_DirectFilmORCid(t *testing.T) {
+	gdb, mock, last := newMockDBCapture(t)
+	repo := NewSearchRepository(gdb)
+
+	expectHiddenCats(mock)
+	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
+
+	if _, err := repo.TopByPidSorted(context.Background(), 5, repository.SortRecent, 10); err != nil {
+		t.Fatalf("TopByPidSorted: %v", err)
+	}
+	if !strings.Contains(*last, "pid = ? OR cid = ?") && !strings.Contains(*last, "pid = ? OR cid=?") {
+		t.Fatalf("TopByPidSorted 缺少 (pid=X OR cid=X) 口径: %s", *last)
+	}
+
+	expectHiddenCats(mock)
+	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
+	if _, err := repo.TopScoreByPid(context.Background(), 5, 10); err != nil {
+		t.Fatalf("TopScoreByPid: %v", err)
+	}
+	if !strings.Contains(*last, "OR cid") {
+		t.Fatalf("TopScoreByPid 缺少 (pid=X OR cid=X) 口径: %s", *last)
+	}
+
+	expectHiddenCats(mock)
+	mock.ExpectQuery("SELECT count(.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT (.+) FROM `movie_search`").
+		WillReturnRows(sqlmock.NewRows([]string{"mid"}))
+	if _, _, err := repo.Filter(context.Background(), repository.FilterSpec{Pid: 5}, repository.Page{}); err != nil {
+		t.Fatalf("Filter: %v", err)
+	}
+	if !strings.Contains(*last, "OR cid") {
+		t.Fatalf("Filter 缺少 (pid=X OR cid=X) 口径: %s", *last)
+	}
+}

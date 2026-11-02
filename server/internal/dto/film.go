@@ -183,14 +183,18 @@ type HomeRow struct {
 
 // NavCategory 导航分类(带子分类)。
 type NavCategory struct {
-	Id       int64         `json:"id"`
-	Pid      int64         `json:"pid"`
-	Name     string        `json:"name"`
-	Children []NavCategory `json:"children,omitempty"`
+	Id   int64  `json:"id"`
+	Pid  int64  `json:"pid"`
+	Name string `json:"name"`
+	// Show 顶栏导航显示(仅一级有意义; tvshell 旧模型无此字段靠默认 true 兼容)。
+	Show bool `json:"show"`
+	// SidebarShow 侧边栏显示(一级+二级各自可设; 顶栏悬停下拉子分类也跟随此开关)。
+	SidebarShow bool          `json:"sidebarShow"`
+	Children    []NavCategory `json:"children,omitempty"`
 }
 
 func toNav(n *entity.CategoryNode) NavCategory {
-	nc := NavCategory{Id: n.Id, Pid: n.Pid, Name: n.Name}
+	nc := NavCategory{Id: n.Id, Pid: n.Pid, Name: n.Name, Show: n.Show, SidebarShow: n.SidebarShow}
 	for _, ch := range n.Children {
 		nc.Children = append(nc.Children, toNav(ch))
 	}

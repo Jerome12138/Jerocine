@@ -6,9 +6,14 @@ type Category struct {
 	Id   int64  `gorm:"column:id;primaryKey" json:"id"`
 	Pid  int64  `gorm:"column:pid" json:"pid"`
 	Name string `gorm:"column:name" json:"name"`
-	Show bool   `gorm:"column:show" json:"show"`
-	// FilmVisible 影片可见性: false = 该分类影片从公开列表/搜索全部剔除(详情直链仍可达)。
-	// 与 Show(菜单显隐)拆分: 菜单藏了影片仍可被搜到; 影片藏了才是根本上看不到。
+	// Show 顶栏导航显示(web+TV 顶部一级导航; 000037 起仅一级有意义, 二级不再消费此列)。
+	Show bool `gorm:"column:show" json:"show"`
+	// SidebarShow 侧边栏显示(桌面常驻侧栏 + 移动抽屉, 一级与二级各自独立可设)。
+	// 000037 从 show 拆出: 顶栏与侧边栏显隐解耦, 存量值 = 原 show。
+	SidebarShow bool `gorm:"column:sidebar_show" json:"sidebarShow"`
+	// FilmVisible 影片可见性: false = 该分类影片从公开列表/搜索/推荐全部剔除(详情直链仍可达)。
+	// 与 Show/SidebarShow(菜单显隐)拆分: 菜单藏了影片仍可被搜到; 影片藏了才是根本上看不到。
+	// 置 false 时服务层强制联动: 本节点与全部子孙的 show/sidebar_show 一并置 false。
 	// Category 经公开 GET /categories 直出(无鉴权), 此列为普通布尔, 无敏感泄露面。
 	FilmVisible bool  `gorm:"column:film_visible" json:"filmVisible"`
 	Sort        int   `gorm:"column:sort" json:"sort"`

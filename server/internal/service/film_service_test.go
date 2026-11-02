@@ -205,8 +205,8 @@ func TestHome_CacheAsideAndCompose(t *testing.T) {
 		hotAll: []entity.MovieSearch{{Mid: 9, Name: "跨类热片", Cover: "c9"}},
 	}
 	fc := &fakeCategory{cats: []entity.Category{
-		{Id: 1, Pid: 0, Name: "电影", Show: true},
-		{Id: 11, Pid: 1, Name: "动作", Show: true},
+		{Id: 1, Pid: 0, Name: "电影", Show: true, SidebarShow: true, FilmVisible: true},
+		{Id: 11, Pid: 1, Name: "动作", Show: true, SidebarShow: true, FilmVisible: true},
 	}}
 	svc := newFilmService(fs, &fakeMovie{}, &fakePlay{}, fc)
 
@@ -290,3 +290,37 @@ func TestDetail_FoundAndNotFound(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestNavCategories_FilmVisibleOnly 公开分类只按影片可见性剔除(000037 三开关拆分):
+// 顶栏(show)/侧边栏(sidebarShow)的过滤下放消费端, 服务端只滤 filmVisible=false
+// (影片不可见 = 分类入口也不该出现); 子分类同样只滤 filmVisible。
+func TestNavCategories_FilmVisibleOnly(t *testing.T) {
+	setupCache(t)
+	fs := &fakeSearch{}
+	fc := &fakeCategory{cats: []entity.Category{
+		{Id: 1, Pid: 0, Name: "顶栏隐侧栏显", Show: false, SidebarShow: true, FilmVisible: true},
+		{Id: 2, Pid: 0, Name: "影片不可见", Show: true, SidebarShow: true, FilmVisible: false},
+		{Id: 3, Pid: 0, Name: "全开", Show: true, SidebarShow: true, FilmVisible: true},
+		{Id: 31, Pid: 3, Name: "侧栏隐子类", Show: true, SidebarShow: false, FilmVisible: true},
+		{Id: 32, Pid: 3, Name: "影片不可见子类", Show: true, SidebarShow: true, FilmVisible: false},
+	}}
+	svc := newFilmService(fs, &fakeMovie{}, &fakePlay{}, fc)
+
+	nav, err := svc.NavCategories(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nav) != 2 {
+		t.Fatalf("影片不可见顶级(2)应被剔除, 剩 1/3: %+v", nav)
+	}
+	byId := map[int64]*entity.CategoryNode{}
+	for _, n := range nav {
+		byId[n.Id] = n
+	}
+	if _, ok := byId[2]; ok {
+		t.Fatal("filmVisible=false 顶级不应出现在公开分类")
+	}
+	if len(byId[3].Children) != 1 || byId[3].Children[0].Id != 31 {
+		t.Fatalf("子分类只滤 filmVisible: %+v", byId[3].Children)
+	}
+}
