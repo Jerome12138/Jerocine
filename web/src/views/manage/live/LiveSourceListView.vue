@@ -18,6 +18,7 @@ import type { LiveChannelManage, LiveSourceManage } from '@/types/live'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import type { Column } from '@/components/manage/ManageTable.vue'
+import { probeLiveChannelsLimited } from '@/utils/live'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
@@ -227,6 +228,93 @@ async function loadChannels(id: number): Promise<void> {
 
 /** 频道操作(开关/改名/自定义/删除)共享一实例: 任一在途全部行按钮禁用, 防重复提交 */
 const { busy: chBusy, run: runCh } = useAsyncAction()
+
+/* ---------- 频道可访问性探测(端侧) ----------
+ * 用本机浏览器网络逐个探测当前(过滤后)频道; 低频限流(固定小并发 + 请求间隔),
+ * 避免瞬间大量连接被 IPTV 源站限流/封禁。结果写回行对象, 供角标渐进点亮。 */
+const chProbing = ref(false)
+const chProbeDone = ref(0)
+const PROBE_CONCURRENCY = 3
+const PROBE_TIMEOUT_MS = 6000
+const PROBE_DELAY_MS = 150
+
+async function probeChannels(): Promise<void> {
+  if (chProbing.value) return
+  const targets = chFiltered.value.filter((c) => !!c.url)
+  if (!targets.length) {
+    toast('info', '没有可探测的频道')
+    return
+  }
+  const byUrl = new Map(targets.map((c) => [c.url, c] as const))
+  chProbing.value = true
+  chProbeDone.value = 0
+  try {
+    const results = await probeLiveChannelsLimited(
+      targets.map((c) => c.url),
+      PROBE_CONCURRENCY,
+      PROBE_TIMEOUT_MS,
+      fetch,
+      (r) => {
+        const c = byUrl.get(r.url)
+        if (c) {
+          c.alive = r.alive
+          c.cors = r.cors
+        }
+        chProbeDone.value++
+      },
+      PROBE_DELAY_MS
+    )
+    const ok = results.filter((r) => r.alive && r.cors).length
+    toast('success', `探测完成：${results.length} 个频道，可用 ${ok} 个`)
+  } finally {
+    chProbing.value = false
+  }
+}
+
+/* ---------- 一键隐藏不可用频道 ----------
+ * 基于探测结果(alive===false)批量隐藏; 复用 upsert(整行覆盖): 解析频道写 displayName、
+ * 自定义频道写 name/groupName, 统一 hidden=true(可逆, 列表里「显示」可还原)。
+ * 逐个发起 + 轻间隔, 避免瞬间打爆接口。 */
+const chHideDone = ref(0)
+const unavailableCount = computed(
+  () => chFiltered.value.filter((c) => c.alive === false && !c.hidden).length
+)
+
+async function hideUnavailable(): Promise<void> {
+  if (!chSource.value) return
+  const targets = chFiltered.value.filter((c) => c.alive === false && !c.hidden)
+  if (!targets.length) return
+  chHideDone.value = 0
+  await runCh({
+    confirm: {
+      title: `隐藏 ${targets.length} 个不可用频道？`,
+      desc: '把探测判定为「离线」的频道从公开列表隐藏（可逆：列表里点「显示」还原；自定义频道同样只隐藏、不删除）。',
+      okText: '一键隐藏'
+    },
+    action: async () => {
+      for (const c of targets) {
+        await manageApi.live.upsertLiveChannel(
+          {
+            sourceId: chSource.value!.id,
+            url: c.url,
+            hidden: true,
+            // 整行覆盖写: 解析频道带 displayName, 自定义频道带 name/groupName(否则会被清空)
+            name: c.isCustom ? c.name : undefined,
+            groupName: c.isCustom ? c.group : undefined,
+            displayName: c.isCustom ? undefined : c.displayName
+          },
+          { silent: true }
+        )
+        c.hidden = true
+        chHideDone.value++
+        // 轻间隔, 避免瞬间打爆接口
+        await new Promise((r) => setTimeout(r, 80))
+      }
+    },
+    successMsg: `已隐藏 ${targets.length} 个不可用频道`,
+    after: () => loadChannels(chSource.value!.id)
+  })
+}
 
 /** 开关：解析频道与自定义频道都走 upsert（hidden 翻转，其余字段保留） */
 async function toggleChannel(c: LiveChannelManage): Promise<void> {
@@ -459,9 +547,27 @@ onMounted(async () => {
             <BaseIcon name="plus" size="14px" />
             添加自定义频道
           </ManageButton>
+          <ManageButton variant="outline" size="sm" :loading="chProbing" :disabled="chProbing" @click="probeChannels">
+            <BaseIcon name="magic" size="14px" />
+            探测可访问性
+          </ManageButton>
+          <ManageButton
+            variant="outline"
+            size="sm"
+            :disabled="chBusy || chProbing || unavailableCount === 0"
+            @click="hideUnavailable"
+          >
+            <BaseIcon name="eye-off" size="14px" />
+            隐藏不可用 ({{ unavailableCount }})
+          </ManageButton>
         </div>
         <p class="jc-chmgr__hint">
-          共 {{ chList.length }} 个频道。探源改为端侧执行，前台自动探测可访问性。
+          共 {{ chList.length }} 个频道。
+          <template v-if="chProbing">
+            正在用本机网络探测 {{ chProbeDone }}/{{ chFiltered.length }}（限流 {{ PROBE_CONCURRENCY }} 并发 · 每个间隔 {{ PROBE_DELAY_MS }}ms，避免被源站屏蔽）…
+          </template>
+          <template v-else-if="chBusy && chHideDone > 0">正在隐藏不可用频道 {{ chHideDone }} 个…</template>
+          <template v-else>先点「探测可访问性」判活，再「隐藏不可用」一键隐藏离线频道（均可逆）。</template>
         </p>
         <BaseSkeleton v-if="chLoading" variant="rect" class="jc-chmgr__skeleton" />
         <template v-else>

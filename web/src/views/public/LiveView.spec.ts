@@ -167,4 +167,17 @@ describe('LiveView', () => {
     expect(w.find('.jc-live-grid').exists()).toBe(false)
     expect(w.find('.jc-live-source-chip').exists()).toBe(false)
   })
+
+  it('频道图标: 无 logo 或加载失败 → 渲染默认图标兜底(避免破图)', async () => {
+    const w = mountView()
+    await flushPromises()
+    // CCTV-5 / 湖南卫视 无 logo → 直接兜底图标
+    expect(w.findAll('.jc-live-channel__logo--fallback')).toHaveLength(2)
+    // CCTV-1 有 logo → 先渲染 img; 触发 error 后换成兜底图标
+    const img = w.find('img.jc-live-channel__logo')
+    expect(img.exists()).toBe(true)
+    await img.trigger('error')
+    expect(w.find('img.jc-live-channel__logo').exists()).toBe(false)
+    expect(w.findAll('.jc-live-channel__logo--fallback')).toHaveLength(3)
+  })
 })

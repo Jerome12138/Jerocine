@@ -454,4 +454,73 @@ describe('LiveSourceListView 直播源管理', () => {
     expect(h.deleteLiveChannel).toHaveBeenCalledWith(1, 'http://stream.example.com/1.m3u8', SILENT)
     expect(h.listLiveChannels).toHaveBeenCalledTimes(2) // 打开面板 + 删除后重拉
   })
+
+  it('探测可访问性: 端侧逐个探测(限流), 角标按结果点亮「可用」', async () => {
+    h.listLiveChannels.mockResolvedValue({
+      id: 1,
+      name: '主源',
+      channels: [
+        channel({ name: 'A', url: 'http://s/a.m3u8' }),
+        channel({ name: 'B', url: 'http://s/b.m3u8' })
+      ]
+    })
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+    const w = await mountView()
+    await btn(w, '频道管理')!.trigger('click')
+    await flushPromises()
+    const probe = w.findAll('button').find((b) => b.text().includes('探测可访问性'))
+    expect(probe, '应渲染「探测可访问性」按钮').toBeTruthy()
+    await probe!.trigger('click')
+    // 探测走限流(每个请求后 sleep 150ms), 等真实定时器跑完
+    await new Promise((r) => setTimeout(r, 280))
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2) // 两个频道各探一次(cors 模式即成功)
+    expect(w.text()).toContain('可用')
+    vi.unstubAllGlobals()
+  })
+
+  it('一键隐藏不可用: 探测出的离线频道 → 确认后逐个 upsert(hidden) 隐藏', async () => {
+    h.listLiveChannels.mockResolvedValue({
+      id: 1,
+      name: '主源',
+      channels: [
+        channel({ name: 'OK', url: 'http://s/ok.m3u8' }),
+        channel({ name: 'DOWN', url: 'http://s/down.m3u8' })
+      ]
+    })
+    // 探测: ok 可达, down 两段式都失败 → 离线
+    const fetchMock = vi.fn((u: RequestInfo | URL) => {
+      const s = String(u)
+      return s.includes('down')
+        ? Promise.reject(new TypeError('down'))
+        : Promise.resolve({ ok: true } as Response)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const w = await mountView()
+    await btn(w, '频道管理')!.trigger('click')
+    await flushPromises()
+    await w.findAll('button').find((b) => b.text().includes('探测可访问性'))!.trigger('click')
+    await new Promise((r) => setTimeout(r, 280))
+    await flushPromises()
+    expect(w.text()).toContain('离线')
+
+    const hideBtn = w.findAll('button').find((b) => b.text().includes('隐藏不可用'))
+    expect(hideBtn, '应渲染「隐藏不可用」按钮').toBeTruthy()
+    expect(hideBtn!.text()).toContain('1')
+
+    h.confirm.mockResolvedValue(true)
+    await hideBtn!.trigger('click')
+    await flushPromises()
+    expect(h.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('隐藏 1 个不可用频道') })
+    )
+    await new Promise((r) => setTimeout(r, 160))
+    await flushPromises()
+    expect(h.upsertLiveChannel).toHaveBeenCalledTimes(1)
+    const p = h.upsertLiveChannel.mock.calls[0][0]
+    expect(p.url).toBe('http://s/down.m3u8')
+    expect(p.hidden).toBe(true)
+    vi.unstubAllGlobals()
+  })
 })

@@ -69,6 +69,8 @@ export async function probeLiveChannel(
 /**
  * 限流并发探源：固定工作池上限（同一 IPTV 源的瞬间连接数可控，防被源站封禁），
  * 每个结果经 onResult 随到随回调（频道角标渐进点亮），全部完成后返回结果数组。
+ * delayMs > 0 时，每个请求之间再插入间隔（pid 级节流），用于后台批量探测进一步降低
+ * 被源站限流/封禁的风险。
  */
 export async function probeLiveChannelsLimited(
   urls: readonly string[],
@@ -76,9 +78,11 @@ export async function probeLiveChannelsLimited(
   timeoutMs: number,
   fetchImpl: typeof fetch = fetch,
   onResult?: (r: LiveProbeResult) => void,
+  delayMs = 0,
 ): Promise<LiveProbeResult[]> {
   const out: LiveProbeResult[] = []
   let idx = 0
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
   const workers = Array.from(
     { length: Math.max(1, Math.min(concurrency, urls.length)) },
     async () => {
@@ -89,6 +93,7 @@ export async function probeLiveChannelsLimited(
           out.push(r)
           onResult?.(r)
         }
+        if (delayMs > 0) await sleep(delayMs)
       }
     },
   )

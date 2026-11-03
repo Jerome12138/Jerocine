@@ -120,4 +120,19 @@ describe('probeLiveChannelsLimited：限流并发池', () => {
     expect(rs.find((r) => r.url.endsWith('bad'))!.alive).toBe(false)
     expect(rs.filter((r) => r.alive)).toHaveLength(2)
   })
+
+  it('delayMs>0: 每个请求之间插入间隔(节流), 仍全部完成', async () => {
+    const urls = ['http://x/d0', 'http://x/d1', 'http://x/d2']
+    const delayMs = 25
+    const times: number[] = []
+    const fetchImpl = ((_url: RequestInfo | URL) => {
+      times.push(performance.now())
+      return Promise.resolve({ ok: true } as Response)
+    }) as unknown as typeof fetch
+    const rs = await probeLiveChannelsLimited(urls, 1, 500, fetchImpl, undefined, delayMs)
+    expect(rs).toHaveLength(3)
+    for (let i = 1; i < times.length; i++) {
+      expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(delayMs - 5)
+    }
+  })
 })

@@ -5,7 +5,7 @@
  *  - 频道数据 = 服务端解析 m3u（带缓存），切源 = 切 liveSourceId 重新拉频道
  *  - TV 模式：频道/源/分组均为 data-focusable，遥控器空间导航可用
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, nextTick } from 'vue'
 import { liveApi } from '@/api'
 import type { LiveChannel, LiveSource } from '@/types/live'
 import { groupChannels, probeLiveChannelsLimited, type LiveProbeResult } from '@/utils/live'
@@ -13,6 +13,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useViewMode } from '@/composables/useViewMode'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
+import BaseIcon from '@/components/base/BaseIcon.vue'
 
 const { isTV, isMobile } = useViewMode()
 
@@ -59,6 +60,9 @@ const PROBE_TIMEOUT_MS = 5000
 /** 探源并发上限：工作池固定连接数（浏览器级并发），防对同一 IPTV 源瞬间打满触发封禁 */
 const PROBE_CONCURRENCY = 6
 type ProbeCacheEntry = LiveProbeResult & { ts: number }
+
+/** 图标加载失败的频道 url 集合 → 渲染默认图标(源站 logo 常失效/防盗链) */
+const logoFailed = reactive(new Set<string>())
 function fnv1aHash(s: string): string {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) {
@@ -354,7 +358,17 @@ const pageTitle = '直播'
                 :data-focusable="isTV ? 'true' : undefined"
                 @click="selectChannel(ch)"
               >
-                <img v-if="ch.logo" :src="ch.logo" alt="" class="jc-live-channel__logo" loading="lazy" />
+                <img
+                  v-if="ch.logo && !logoFailed.has(ch.url)"
+                  :src="ch.logo"
+                  alt=""
+                  class="jc-live-channel__logo"
+                  loading="lazy"
+                  @error="logoFailed.add(ch.url)"
+                />
+                <span v-else class="jc-live-channel__logo jc-live-channel__logo--fallback" aria-hidden="true">
+                  <BaseIcon name="tv" size="16px" />
+                </span>
                 <span class="jc-live-channel__name">{{ ch.name }}</span>
                 <!-- 探源标记: CORS 不通(浏览器拉不到) / 流离线 —— 仍可点击强试, 置灰+角标提示 -->
                 <span v-if="channelUnavailable(ch)" class="jc-live-channel__badge">{{ channelBadgeText(ch) }}</span>
@@ -575,6 +589,14 @@ const pageTitle = '直播'
   object-fit: contain;
   flex: none;
   border-radius: 4px;
+}
+/* 图标缺失/加载失败: 统一默认图标, 避免浏览器破图 */
+.jc-live-channel__logo--fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--jc-text-muted);
+  background: rgba(148, 163, 184, 0.15);
 }
 .jc-live-channel__name {
   overflow: hidden;
