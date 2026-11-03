@@ -408,7 +408,7 @@ async function submit(): Promise<void> {
                 <BaseImage v-if="h.cover" :src="h.cover" :alt="h.name" ratio="3/4" />
               </div>
               <div class="min-w-0 flex-1 flex flex-col gap-[2px]">
-                <span class="text-sm text-primary truncate">{{ h.name }}</span>
+                <span class="text-sm text-primary truncate">{{ h.name || `未知影片（#${h.sourceVodId}）` }}</span>
                 <span class="text-xs text-muted truncate">
                   {{ [h.year || '', h.typeName, h.remarks].filter(Boolean).join(' · ') || '—' }}
                 </span>

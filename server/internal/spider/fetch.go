@@ -1,10 +1,12 @@
 package spider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,6 +19,32 @@ import (
 )
 
 const fetchMaxBytes = 16 << 20 // 单页响应上限 16MB
+
+// 源返回体守卫: 部分采集源不支持按名搜索(直接回纯文本, 如 okzyw 的「暂不支持搜索」),
+// 或返回空体/HTML 错误页。若直接 json/xml.Unmarshal, 会把这些情况变成
+// `invalid character '暂' looking for beginning of value` / `unexpected end of JSON input`
+// 之类的语法错误原样抛给管理端, 难以理解。这里统一转为可读错误。
+func badJSONBody(body []byte, op string) error {
+	b := bytes.TrimSpace(body)
+	if len(b) == 0 {
+		return fmt.Errorf("%s失败: 源返回为空(源站故障或被反爬)", op)
+	}
+	if b[0] != '{' && b[0] != '[' {
+		return fmt.Errorf("%s失败: 源未返回可解析数据(该源可能不支持此操作)", op)
+	}
+	return nil
+}
+
+func badXMLBody(body []byte, op string) error {
+	b := bytes.TrimSpace(body)
+	if len(b) == 0 {
+		return fmt.Errorf("%s失败: 源返回为空(源站故障或被反爬)", op)
+	}
+	if b[0] != '<' {
+		return fmt.Errorf("%s失败: 源未返回可解析数据(该源可能不支持此操作)", op)
+	}
+	return nil
+}
 
 // Fetcher 采集站 HTTP 客户端(防 SSRF)。
 type Fetcher struct {
@@ -61,6 +89,9 @@ func (f *Fetcher) Probe(ctx context.Context, src *entity.CollectSource) (ProbeRe
 
 // parseDetailJSON 纯函数: 解析 JSON 详情页, 返回片数/分页数/总数/首条 m3u8 样本(便于单测)。
 func parseDetailJSON(body []byte) (films, pageCount, total int, sampleM3u8 string, err error) {
+	if err = badJSONBody(body, "采集"); err != nil {
+		return
+	}
 	var dp filmDetailPage
 	if err = json.Unmarshal(body, &dp); err != nil {
 		return
@@ -76,6 +107,9 @@ func parseDetailJSON(body []byte) (films, pageCount, total int, sampleM3u8 strin
 
 // parseDetailXML 纯函数: 解析 XML 详情页, 返回片数/分页数(XML 不取 total/m3u8 样本)。
 func parseDetailXML(body []byte) (films, pageCount int, err error) {
+	if err = badXMLBody(body, "采集"); err != nil {
+		return
+	}
 	var rss rssDetail
 	if err = xml.Unmarshal(body, &rss); err != nil {
 		return
@@ -213,6 +247,9 @@ func (f *Fetcher) SearchJSONDetails(ctx context.Context, src *entity.CollectSour
 	if err != nil {
 		return nil, err
 	}
+	if err := badJSONBody(body, "按名搜索"); err != nil {
+		return nil, err
+	}
 	var dp filmDetailPage
 	if err := json.Unmarshal(body, &dp); err != nil {
 		return nil, err
@@ -224,6 +261,9 @@ func (f *Fetcher) SearchJSONDetails(ctx context.Context, src *entity.CollectSour
 func (f *Fetcher) SearchXMLDetails(ctx context.Context, src *entity.CollectSource, wd string, pg int) ([]videoDetail, error) {
 	body, err := f.fetch(ctx, src.Uri, searchParams(pg, wd))
 	if err != nil {
+		return nil, err
+	}
+	if err := badXMLBody(body, "按名搜索"); err != nil {
 		return nil, err
 	}
 	var rss rssDetail
@@ -248,6 +288,9 @@ func (f *Fetcher) IdsJSONDetails(ctx context.Context, src *entity.CollectSource,
 	if err != nil {
 		return nil, err
 	}
+	if err := badJSONBody(body, "按 id 采集"); err != nil {
+		return nil, err
+	}
 	var dp filmDetailPage
 	if err := json.Unmarshal(body, &dp); err != nil {
 		return nil, err
@@ -259,6 +302,9 @@ func (f *Fetcher) IdsJSONDetails(ctx context.Context, src *entity.CollectSource,
 func (f *Fetcher) IdsXMLDetails(ctx context.Context, src *entity.CollectSource, ids string) ([]videoDetail, error) {
 	body, err := f.fetch(ctx, src.Uri, idsParams(ids))
 	if err != nil {
+		return nil, err
+	}
+	if err := badXMLBody(body, "按 id 采集"); err != nil {
 		return nil, err
 	}
 	var rss rssDetail
@@ -278,6 +324,9 @@ func (f *Fetcher) Categories(ctx context.Context, src *entity.CollectSource) ([]
 	p.Set("pg", "1")
 	body, err := f.fetch(ctx, src.Uri, p)
 	if err != nil {
+		return nil, err
+	}
+	if err := badJSONBody(body, "分类采集"); err != nil {
 		return nil, err
 	}
 	var lp filmListPage

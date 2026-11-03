@@ -1,6 +1,7 @@
 package spider
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -97,5 +98,47 @@ func TestJoinIds(t *testing.T) {
 	}
 	if got := joinIds([]int64{0, -5}); got != "" {
 		t.Fatalf("全非正数应为空, got %q", got)
+	}
+}
+
+// 源返回纯文本(如 okzyw 的「暂不支持搜索」): 给可读错误, 而非 json 语法错误。
+func TestBadJSONBody_PlainText(t *testing.T) {
+	err := badJSONBody([]byte("暂不支持搜索"), "按名搜索")
+	if err == nil {
+		t.Fatal("expected error for non-JSON body")
+	}
+	if !strings.Contains(err.Error(), "不支持") {
+		t.Fatalf("error should be human-readable, got %q", err.Error())
+	}
+}
+
+// 空响应体(源站故障/反爬)。
+func TestBadBody_Empty(t *testing.T) {
+	if err := badJSONBody([]byte("  \n"), "按名搜索"); err == nil || !strings.Contains(err.Error(), "为空") {
+		t.Fatalf("expected empty-body error, got %v", err)
+	}
+	if err := badXMLBody(nil, "按名搜索"); err == nil {
+		t.Fatal("expected error for empty XML body")
+	}
+}
+
+// 正常 JSON(对象/数组)与 XML 首字符应放行。
+func TestBadBody_OK(t *testing.T) {
+	if err := badJSONBody([]byte(`{"code":1}`), "采集"); err != nil {
+		t.Fatalf("json object should pass: %v", err)
+	}
+	if err := badJSONBody([]byte(`[]`), "采集"); err != nil {
+		t.Fatalf("json array should pass: %v", err)
+	}
+	if err := badXMLBody([]byte("<rss/>"), "采集"); err != nil {
+		t.Fatalf("xml should pass: %v", err)
+	}
+}
+
+// parseDetailJSON 对纯文本也应报可读错误(不暴露 json 语法细节)。
+func TestParseDetailJSON_PlainText(t *testing.T) {
+	_, _, _, _, err := parseDetailJSON([]byte("暂不支持搜索"))
+	if err == nil || !strings.Contains(err.Error(), "可解析") {
+		t.Fatalf("expected readable error, got %v", err)
 	}
 }

@@ -99,4 +99,11 @@ describe('SourceCandidateDialog', () => {
     expect(document.querySelector('li[data-focusable="true"]')).toBeNull()
     w.unmount()
   })
+
+  it('候选缺名称(源站未返回) → 名称位兜底「未知影片（#id）」, 不出现空白行', async () => {
+    const w = mountDialog({ candidates: [hit({ name: '', sourceVodId: 909 })] })
+    await w.vm.$nextTick()
+    expect(document.body.textContent).toContain('未知影片（#909）')
+    w.unmount()
+  })
 })
