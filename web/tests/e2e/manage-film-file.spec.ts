@@ -14,7 +14,8 @@ test.describe('管理端 影片列表', () => {
   })
 
   test('列表至少 1 行', async ({ page }) => {
-    const rows = page.locator('table tbody tr')
+    // ManageTable 双形态：桌面为表格行，移动端(<768)为卡片流
+    const rows = page.locator('table tbody tr, .jc-card-list > article')
     await expect(rows.first()).toBeVisible({ timeout: 5_000 })
     expect(await rows.count()).toBeGreaterThan(0)
   })

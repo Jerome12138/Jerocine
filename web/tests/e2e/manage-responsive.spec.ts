@@ -2,14 +2,18 @@ import { test, expect } from '@playwright/test'
 import { fakeLogin, muteImages, waitAppReady } from './helpers'
 
 /**
- * Manage 后台响应式 smoke (P5):
+ * Manage 后台响应式 smoke:
  * 验证关键 manage 页在 mobile-portrait / tablet / desktop 三视口下:
  *  - 页面无 JS error 加载完毕
- *  - mobile: 顶部汉堡按钮可见, sidebar 默认收起 (drawer translate-x-full)
- *  - tablet: sidebar w-[64px] 图标栏常驻
- *  - desktop: sidebar w-[220px] 或 w-[64px] 完整菜单常驻
+ *  - mobile (<768): 顶部汉堡按钮可见, 侧栏为抽屉(drawer), 默认不渲染, 点击后滑出
+ *  - tablet (768–1023): 侧栏为 mini 图标栏, 固定宽 72px（inline style）
+ *  - desktop (>=1024): 侧栏为 full 完整菜单, 固定宽 220px（inline style）
  *
- * 用 fakeLogin (admin role=1) 跳过表单登录, 走 mock dev server.
+ * 断点与形态来源: useViewMode(<768 mobile / <1024 tablet / else desktop) +
+ * ManageLayout(:variant="isMobile?'drawer':isTablet?'mini':'full'"), 侧栏宽度由
+ * ManageSidebar 的 inline style 给出（collapsed ? 72px : 220px），不是 w-* 类。
+ *
+ * 用 fakeLogin (admin role=1) 跳过表单登录; 数据类断言不在此 spec（仅结构 smoke）。
  */
 
 const MANAGE_PAGES = [
@@ -40,31 +44,35 @@ test.describe('manage 响应式 smoke', () => {
     })
   }
 
-  test('mobile: 汉堡按钮存在, sidebar 默认 translate-x-full 收起', async ({ page }, testInfo) => {
+  test('mobile: 汉堡按钮存在, 侧栏抽屉默认关闭/点击滑出', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-portrait', '仅 mobile-portrait 跑')
     await page.goto('/manage/index')
     await waitAppReady(page)
     // 汉堡按钮 (sr-only "打开菜单" 文案)
     const hamburger = page.locator('header button').filter({ hasText: '打开菜单' })
     await expect(hamburger).toBeVisible()
-    // sidebar 默认 -translate-x-full (drawer 关闭)
-    await expect(page.locator('aside')).toHaveClass(/-translate-x-full/)
-    // 点击汉堡 → 滑出
+    // 抽屉默认关闭: v-if 不渲染面板
+    await expect(page.locator('.jc-drawer-panel')).toHaveCount(0)
+    // 点击汉堡 → 抽屉滑出 (ManageSidebar drawer 变体)
     await hamburger.click()
-    await expect(page.locator('aside')).toHaveClass(/translate-x-0/)
+    await expect(page.locator('.jc-drawer-panel')).toBeVisible()
   })
 
-  test('tablet: sidebar w-[64px] icon-rail 常驻', async ({ page }, testInfo) => {
+  test('tablet: 侧栏 mini 图标栏常驻, 固定宽 72px', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'tablet', '仅 tablet 跑')
     await page.goto('/manage/index')
     await waitAppReady(page)
-    await expect(page.locator('aside')).toHaveClass(/w-\[64px\]/)
+    const aside = page.locator('aside')
+    await expect(aside).toBeVisible()
+    await expect(aside).toHaveCSS('width', '72px')
   })
 
-  test('desktop: sidebar w-[220px] 或 w-[64px] 常驻 (按用户折叠偏好)', async ({ page }, testInfo) => {
+  test('desktop: 侧栏 full 完整菜单常驻, 固定宽 220px', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', '仅 desktop 跑')
     await page.goto('/manage/index')
     await waitAppReady(page)
-    await expect(page.locator('aside')).toHaveClass(/w-\[(220|64)px\]/)
+    const aside = page.locator('aside')
+    await expect(aside).toBeVisible()
+    await expect(aside).toHaveCSS('width', '220px')
   })
 })
