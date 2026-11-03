@@ -4,7 +4,6 @@ import { createPinia } from 'pinia'
 import FilmListView from './FilmListView.vue'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
-import ManageSelect from '@/components/manage/ManageSelect.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import { FILM_STATUS_TABS, FILM_STATUS_TAG_MAP } from '@/views/manage/constants'
 import type { ManageFilmRow, ManageFilmSearchResp } from '@/types/manage'
@@ -175,25 +174,31 @@ describe('FilmListView 影片管理', () => {
     expect(last.page).toBe(1)
   })
 
-  it('排序换 ManageSelect: aria-label 保留, 切换带 sort=score 且页码重置', async () => {
+  it('排序改按钮+菜单: aria-label 保留, 选择「评分」→ sort=score 且页码重置', async () => {
     const w = await mountView()
-    expect(w.findComponent(ManageSelect).exists()).toBe(true)
-    const sel = w.find('select[aria-label="排序方式"]')
-    expect(sel.exists()).toBe(true)
-    await sel.setValue('score')
+    const trigger = w.find('button[aria-label="排序方式"]')
+    expect(trigger.exists()).toBe(true)
+    await trigger.trigger('click')
+    await flushPromises()
+    const opt = w.findAll('button').find((b) => b.text().includes('评分'))
+    expect(opt, '评分选项应存在').toBeTruthy()
+    await opt!.trigger('click')
     await flushPromises()
     const last = h.searchList.mock.calls.at(-1)[0]
     expect(last.sort).toBe('score')
     expect(last.page).toBe(1)
   })
 
-  it('分类筛选 pending→applied: 勾子级 → 确定 → catIds 生效且弹层关闭', async () => {
+  it('分类筛选 pending→applied: 级联展开选子级 → 确定 → catIds 生效且弹层关闭', async () => {
     const w = await mountView()
     await w.findAll('button').find((b) => b.text().includes('分类筛选'))!.trigger('click')
     await flushPromises()
     const panel = w.find('div.top-full')
     expect(panel.exists()).toBe(true)
-    // 勾选子分类"科幻"(第二个 checkbox)
+    // EP 风格级联: 先点开顶级「电影」在右侧展开子级列
+    await panel.findAll('[role="button"]').find((r) => r.text().includes('电影'))!.trigger('click')
+    await flushPromises()
+    // 展开后出现两列两个复选框(电影 / 科幻)
     const boxes = panel.findAll('input[type="checkbox"]')
     expect(boxes.length).toBe(2)
     await boxes[1].setValue()

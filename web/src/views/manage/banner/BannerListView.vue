@@ -9,6 +9,7 @@ import BaseLightbox from '@/components/base/BaseLightbox.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import { openManageDialog, manageDialogState } from '@/composables/useManageDialog'
 import { useAsyncAction } from '@/composables/useAsyncAction'
+import { useViewMode } from '@/composables/useViewMode'
 import { toast } from '@/api/http'
 import BannerFormDialog from './BannerFormDialog.vue'
 import type { BannerFormInitial } from './BannerFormDialog.vue'
@@ -36,6 +37,9 @@ let pollTimer: number | undefined
 // 各写请求一律 silent:true 关拦截器提示; 成功提示口径:
 //   排序/启停/屏蔽不弹 toast(看板即时回读即反馈), 删除/保存/回填/榜单刷新有定制文案。
 const { busy, run } = useAsyncAction()
+
+/** 移动端(<768)渲染卡片流; 桌面端保持原有密集行 */
+const { isMobile } = useViewMode()
 
 /** 手动触发单片 TMDB 横图回填(轮播管理页「横图」按钮); 按 status 定制文案留在 action 内 */
 async function fillBackdrop(mid: number): Promise<void> {
@@ -365,7 +369,96 @@ onUnmounted(() => {
       暂无生效轮播 —— 无可用配置且片库为空
     </div>
 
-    <!-- 生效位 + 候选位(共 10, liveCount 分区) -->
+    <!-- 移动端: 卡片流(桌面端保持下方密集行) -->
+    <div v-else-if="isMobile" class="flex flex-col gap-[var(--jc-space-3)]">
+      <template v-for="(s, i) in active" :key="`m-${s.source}-${s.bannerId ?? 0}-${s.mid ?? 0}-${i}`">
+        <div
+          v-if="i === liveCount && active.length > liveCount"
+          class="rounded-[var(--jc-radius-md)] border border-default bg-elevated p-[var(--jc-space-3)] text-muted text-xs"
+        >
+          <div class="mb-[var(--jc-space-1)] font-[var(--jc-fw-medium)]">▾ 以下为候选位</div>
+          <div>8 榜前 2 · 权重混排 · 中国大陆保底 —— 暂不对外生效，未采纳候选随每日榜单刷新换新(手动行保持不变)；「编辑」采纳即启用手动位，「禁用」永久屏蔽该影片</div>
+        </div>
+        <article class="rounded-[var(--jc-radius-md)] border border-default bg-elevated p-[var(--jc-space-3)] flex flex-col gap-[var(--jc-space-2)]">
+          <div class="flex items-start gap-[var(--jc-space-3)]">
+            <span class="w-4 text-center text-muted text-xs shrink-0 pt-1">{{ i + 1 }}</span>
+            <div class="w-[104px] h-[58px] shrink-0 rounded-[var(--jc-radius-sm)] overflow-hidden bg-elevated grid place-items-center">
+              <img
+                v-if="s.image"
+                :src="s.image"
+                alt="横图"
+                class="w-full h-full object-cover cursor-zoom-in"
+                @click="preview(s.image, s.name)"
+              />
+              <span v-else class="text-muted text-xs">无横图</span>
+            </div>
+            <div class="min-w-0 flex-1 flex flex-col gap-[var(--jc-space-1)]">
+              <span class="truncate">{{ s.name || '为你推荐' }}</span>
+              <span class="text-muted text-xs truncate">
+                {{ s.subtitle || (s.source === 'banner' ? '' : '热榜自动补入') }}
+              </span>
+              <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
+                <BaseTag :variant="s.source === 'banner' ? 'success' : 'default'" size="sm">
+                  {{ s.source === 'banner' ? '手动' : '自动' }}
+                </BaseTag>
+                <BaseTag v-if="s.guaranteed" variant="warning" size="sm">大陆保底</BaseTag>
+                <BaseTag v-if="s.source === 'fallback'" :variant="s.image ? 'success' : 'warning'" size="sm">
+                  {{ s.image ? '横图已就绪' : '横图待回填' }}
+                </BaseTag>
+                <span
+                  v-if="s.dbScore"
+                  class="text-xs tabular-nums text-[var(--jc-warning)]"
+                >{{ s.dbScore.toFixed(1) }} 分</span>
+                <span
+                  v-if="hotLabelOf(s) !== '—'"
+                  class="text-xs text-secondary truncate"
+                  :title="hotLabelOf(s)"
+                >{{ hotLabelOf(s) }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-[var(--jc-space-1)] flex-wrap justify-end border-t border-subtle pt-[var(--jc-space-2)]">
+            <RouterLink
+              v-if="canJump(s)"
+              :to="{ path: '/filmDetail', query: { link: String(s.mid) } }"
+              class="text-xs text-link hover:underline mr-auto"
+            >查看详情</RouterLink>
+            <span v-else class="text-xs text-secondary truncate mr-auto" :title="goLabelOf(s)">{{ goLabelOf(s) }}</span>
+            <a
+              v-if="s.name"
+              :href="doubanUrl(s.name)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex w-[26px] h-[26px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
+              :title="`豆瓣搜索「${s.name}」影评`"
+            ><img src="/site-icons/douban.ico" alt="豆瓣" class="w-full h-full object-cover" /></a>
+            <BaseButton
+              v-if="(s.mid ?? 0) > 0"
+              variant="ghost" size="sm"
+              :loading="fillingMids.has(s.mid!)"
+              @click="fillBackdrop(s.mid!)"
+            >回填横图</BaseButton>
+            <BaseButton variant="ghost" size="sm" :disabled="!canMoveUp(s, i) || busy" @click="move(i, 'up')">↑</BaseButton>
+            <BaseButton variant="ghost" size="sm" :disabled="!canMoveDown(s, i) || busy" @click="move(i, 'down')">↓</BaseButton>
+            <BaseButton
+              v-if="s.source === 'banner'"
+              variant="ghost" size="sm" :disabled="busy" @click="s.banner && openEdit(s.banner)"
+            >编辑</BaseButton>
+            <BaseButton v-else variant="ghost" size="sm" :disabled="busy" @click="adoptSlide(s, i)">编辑</BaseButton>
+            <BaseButton
+              variant="ghost" size="sm" :disabled="busy"
+              @click="s.source === 'banner' && s.banner ? toggleState(s.banner) : disableByMid(s.mid ?? 0)"
+            >禁用</BaseButton>
+            <BaseButton
+              v-if="s.source === 'banner'"
+              variant="danger" size="sm" :disabled="busy" @click="s.banner && remove(s.banner)"
+            >删除</BaseButton>
+          </div>
+        </article>
+      </template>
+    </div>
+
+    <!-- 桌面端: 密集行; 生效位 + 候选位(共 10, liveCount 分区) -->
     <ul v-else class="flex flex-col">
       <template v-for="(s, i) in active" :key="`${s.source}-${s.bannerId ?? 0}-${s.mid ?? 0}-${i}`">
         <li
@@ -501,7 +594,76 @@ onUnmounted(() => {
         <span>{{ showInactive ? '▾' : '▸' }}</span>
         <span>未生效（{{ inactive.length }} · 不参与展示与自动补位）</span>
       </button>
-      <ul v-if="showInactive" class="flex flex-col pb-[var(--jc-space-2)]">
+      <!-- 移动端: 未生效卡片流 -->
+      <div v-if="isMobile && showInactive" class="flex flex-col gap-[var(--jc-space-3)] pb-[var(--jc-space-2)]">
+        <article
+          v-for="row in inactive"
+          :key="`m-${row.id}`"
+          class="rounded-[var(--jc-radius-md)] border border-default bg-elevated p-[var(--jc-space-3)] flex flex-col gap-[var(--jc-space-2)]"
+        >
+          <div class="flex items-start gap-[var(--jc-space-3)]">
+            <div class="w-[104px] h-[58px] shrink-0 rounded-[var(--jc-radius-sm)] overflow-hidden bg-elevated grid place-items-center opacity-70">
+              <img
+                v-if="inactiveImage(row)"
+                :src="inactiveImage(row)"
+                :alt="inactiveName(row)"
+                class="w-full h-full object-cover cursor-zoom-in"
+                @click="preview(inactiveImage(row), inactiveName(row))"
+              />
+              <span v-else class="text-muted text-xs">无图</span>
+            </div>
+            <div class="min-w-0 flex-1 flex flex-col gap-[var(--jc-space-1)]">
+              <span class="truncate text-secondary">{{ inactiveName(row) }}</span>
+              <span class="text-muted text-xs truncate">
+                <template v-if="row.meta?.dbScore || row.meta?.year || row.meta?.area">
+                  {{ [row.meta?.year, row.meta?.area].filter(Boolean).join(' · ') }}
+                  <span v-if="row.meta?.remarks"> · {{ row.meta.remarks }}</span>
+                </template>
+                <span v-else>无关联影片元信息</span>
+              </span>
+              <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
+                <BaseTag :variant="reasonStyle[row.reason].variant" size="sm">
+                  {{ reasonStyle[row.reason].text }}
+                </BaseTag>
+                <span v-if="row.meta?.dbScore" class="text-xs tabular-nums text-[var(--jc-warning)]">
+                  {{ row.meta.dbScore.toFixed(1) }} 分
+                </span>
+                <span v-if="inactiveHotLabel(row) !== '—'" class="text-xs text-secondary truncate">{{ inactiveHotLabel(row) }}</span>
+                <span v-if="scheduleLabel(row)" class="text-xs text-muted">{{ scheduleLabel(row) }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-[var(--jc-space-1)] flex-wrap justify-end border-t border-subtle pt-[var(--jc-space-2)]">
+            <RouterLink
+              v-if="inactiveCanJump(row)"
+              :to="{ path: '/filmDetail', query: { link: String(row.mid) } }"
+              class="text-xs text-link hover:underline mr-auto"
+            >查看详情</RouterLink>
+            <span v-else class="text-xs text-secondary truncate mr-auto" :title="inactiveGoLabel(row)">{{ inactiveGoLabel(row) }}</span>
+            <a
+              v-if="row.meta?.name || row.title"
+              :href="doubanUrl(row.meta?.name || row.title || '')"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex w-[26px] h-[26px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
+              :title="`豆瓣搜索「${row.meta?.name || row.title}」影评`"
+            ><img src="/site-icons/douban.ico" alt="豆瓣" class="w-full h-full object-cover" /></a>
+            <BaseButton
+              v-if="row.mid > 0"
+              variant="ghost" size="sm"
+              :loading="fillingMids.has(row.mid)"
+              @click="fillBackdrop(row.mid)"
+            >回填横图</BaseButton>
+            <BaseButton
+              v-if="canEnable(row)"
+              variant="ghost" size="sm" :disabled="busy" @click="toggleState(row)"
+            >启用</BaseButton>
+            <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</BaseButton>
+            <BaseButton variant="danger" size="sm" :disabled="busy" @click="remove(row)">删除</BaseButton>
+          </div>
+        </article>
+      </div>
+      <ul v-if="!isMobile && showInactive" class="flex flex-col pb-[var(--jc-space-2)]">
         <li
           v-for="row in inactive"
           :key="row.id"

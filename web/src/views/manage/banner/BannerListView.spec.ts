@@ -8,6 +8,7 @@ import {
   manageDialogState,
   manageDialogHostMounted
 } from '@/composables/useManageDialog'
+import { useViewMode } from '@/composables/useViewMode'
 import type { Banner, BannerBoard, EffectiveSlide, InactiveBanner } from '@/types/manage'
 
 const h = vi.hoisted(() => ({
@@ -126,6 +127,7 @@ afterEach(async () => {
   w?.unmount()
   wh = null
   w = null
+  useViewMode().setMode('desktop')
   await flushPromises()
 })
 
@@ -544,5 +546,43 @@ describe('BannerListView 未生效折叠区', () => {
       undefined,
       { silent: true }
     )
+  })
+})
+
+describe('BannerListView 移动端卡片流', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    h.board.mockResolvedValue(board())
+  })
+
+  it('移动端(<768)渲染卡片流: 生效位卡片含行内操作', async () => {
+    useViewMode().setMode('mobile')
+    const w = await mountView()
+    // 10 张生效位卡片(候选位分区为 div, 不计入 article)
+    expect(w.findAll('article').length).toBe(10)
+    expect(w.text()).toContain('以下为候选位')
+    const card = w.findAll('article').find((c) => c.text().includes('片3'))
+    expect(card, '应渲染含片3的卡片').toBeTruthy()
+    expect(card!.findAll('button').some((b) => b.text().includes('禁用'))).toBe(true)
+    expect(card!.findAll('button').some((b) => b.text().includes('编辑'))).toBe(true)
+  })
+
+  it('移动端未生效区展开后渲染卡片', async () => {
+    useViewMode().setMode('mobile')
+    h.board.mockResolvedValue({
+      ...board(),
+      inactive: [
+        {
+          id: 31, title: '停用位', subtitle: '', image: 'i.jpg', poster: '',
+          mid: 0, link: '', sort: 1, state: 0, startAt: 0, endAt: 0, reason: 'disabled'
+        }
+      ]
+    })
+    const w = await mountView()
+    await expandInactive(w)
+    const card = w.findAll('article').find((c) => c.text().includes('停用位'))
+    expect(card, '应渲染未生效卡片').toBeTruthy()
+    expect(card!.findAll('button').some((b) => b.text().includes('删除'))).toBe(true)
   })
 })

@@ -496,18 +496,37 @@ onMounted(() => {
   box-shadow: var(--jc-shadow-focus-ring);
 }
 
-/* ---- 移动端: 隐藏次要信息 + 放大触控 ---- */
+/* ---- 移动端: 隐藏次要信息 + 保留开关文案(换行排布) + 放大触控 ---- */
 @media (max-width: 640px) {
   .jc-cat__meta,
   .jc-cat__cid {
     display: none;
   }
-  .jc-cat__state {
-    display: none;
-  }
   .jc-cat__parent,
   .jc-cat__child {
     min-height: 52px;
+    flex-wrap: wrap;
+    row-gap: var(--jc-space-2);
+  }
+  /* 开关文案在移动端保留: 此前 display:none 导致只剩裸开关, 用户不知道开的是「影片可见/侧栏/顶栏」哪个 */
+  .jc-cat__state {
+    font-size: var(--jc-fs-xs);
+    min-width: 0;
+    text-align: left;
+  }
+  /* 父级: 名称独占首行, 三开关 + 删除落到次行 */
+  .jc-cat__parent .jc-cat__title {
+    flex: 1 1 100%;
+  }
+  .jc-cat__parent .jc-cat__cctrl {
+    margin-left: 0;
+  }
+  /* 子级: 圆点 + 名称留首行, 控制簇独占次行 */
+  .jc-cat__child .jc-cat__cctrl {
+    margin-left: 0;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    row-gap: var(--jc-space-2);
   }
 }
 </style>

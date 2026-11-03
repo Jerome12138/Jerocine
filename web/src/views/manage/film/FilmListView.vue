@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { manageApi } from '@/api'
 import type { FilmClass, ManageFilmRow, ManageFilmStatus } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import type { Column } from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
-import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import ManageCascader from '@/components/manage/ManageCascader.vue'
@@ -20,7 +19,6 @@ import { usePagedList } from '@/composables/usePagedList'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import { formatDateTime } from '@/utils/format'
 import { FILM_STATUS_TABS, FILM_STATUS_TAG_MAP } from '@/views/manage/constants'
-import type { SelectOption } from '@/components/manage/ManageSelect.vue'
 
 const router = useRouter()
 // ---- 列表骨架: usePagedList 收敛 load/search/翻页/末页回夹/竞态守卫/loading/loadError ----
@@ -31,13 +29,19 @@ const params = reactive({
 })
 const status = ref<ManageFilmStatus>('active')
 // 排序: 与 server allowedSort 白名单对齐(hot/latest/update_stamp/score), 默认热度
-const SORT_OPTIONS: SelectOption[] = [
-  { value: 'hot', label: '热度' },
-  { value: 'latest', label: '最新上映' },
-  { value: 'update_stamp', label: '最近更新' },
-  { value: 'score', label: '评分' }
+interface SortOption { value: string; label: string; icon: string }
+const SORT_OPTIONS: SortOption[] = [
+  { value: 'hot', label: '热度', icon: 'fire' },
+  { value: 'latest', label: '最新上映', icon: 'film' },
+  { value: 'update_stamp', label: '最近更新', icon: 'refresh' },
+  { value: 'score', label: '评分', icon: 'star' }
 ]
 const sort = ref<string>('hot')
+const sortOpen = ref(false)
+const sortRef = ref<HTMLElement | null>(null)
+const currentSort = computed<SortOption>(
+  () => SORT_OPTIONS.find((o) => o.value === sort.value) ?? SORT_OPTIONS[0]!
+)
 
 // 分类多选: id → checked; 点击确定后才应用筛选, pending 为中间态
 const selectedCatIds = ref<Set<number>>(new Set())
@@ -141,6 +145,12 @@ function setSort(next: string | number): void {
   paged.search()
 }
 
+/** 热度下拉菜单选择排序项(与分类筛选同款按钮 + 菜单) */
+function pickSort(v: string): void {
+  sortOpen.value = false
+  setSort(v)
+}
+
 function viewDetail(row: ManageFilmRow): void {
   const idStr = String(row.mid ?? '').trim()
   if (!idStr) return
@@ -178,13 +188,20 @@ function restoreFilm(row: ManageFilmRow): void {
   })
 }
 
-// 分类筛选弹层: 点击面板外 / ESC 关闭(此前只能靠再点按钮或「确定」, 弹层会驻留遮挡)
+// 分类筛选弹层 / 热度菜单: 点击外部 / ESC 关闭(此前只能靠再点按钮或「确定」, 弹层会驻留遮挡)
 function closeCatPopper(): void {
   treePopperOpen.value = false
 }
+function closeSortMenu(): void {
+  sortOpen.value = false
+}
 onClickOutside(catFilterRef, closeCatPopper)
+onClickOutside(sortRef, closeSortMenu)
 useEventListener(window, 'keydown', (e: KeyboardEvent) => {
-  if (e.key === 'Escape' && treePopperOpen.value) closeCatPopper()
+  if (e.key === 'Escape') {
+    if (treePopperOpen.value) closeCatPopper()
+    if (sortOpen.value) closeSortMenu()
+  }
 })
 
 onMounted(() => {
@@ -224,9 +241,7 @@ onMounted(() => {
         <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
           <h2 class="text-lg font-[var(--jc-fw-semibold)]">影片管理</h2>
           <ManageTabs :model-value="status" :tabs="FILM_STATUS_TABS" @update:model-value="switchStatus" />
-        </div>
-        <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
-          <!-- 分类筛选(级联选择器, 放左边) -->
+          <!-- 分类筛选(级联选择器): 紧随页签, 放左侧 -->
           <div ref="catFilterRef" class="relative">
             <BaseButton
               variant="ghost"
@@ -240,10 +255,10 @@ onMounted(() => {
                 {{ appliedCatIds.size }}
               </BaseTag>
             </BaseButton>
-            <!-- 下拉树面板 -->
+            <!-- 下拉级联面板(多列逐级展开) -->
             <div
               v-if="treePopperOpen"
-              class="absolute z-50 top-full left-0 mt-1 bg-surface border border-subtle rounded-lg shadow-lg p-3 min-w-[220px] max-h-[420px] overflow-y-auto"
+              class="absolute z-50 top-full left-0 mt-1 bg-surface border border-subtle rounded-lg shadow-lg p-3 min-w-[260px] max-h-[420px] overflow-auto"
               @click.stop
             >
               <div v-if="treeLoading" class="text-sm text-muted py-2 text-center">加载中…</div>
@@ -270,14 +285,33 @@ onMounted(() => {
               </div>
             </div>
           </div>
-          <!-- 排序: 热度/最新上映/最近更新/评分(server allowedSort 白名单) -->
-          <ManageSelect
-            :model-value="sort"
-            :options="SORT_OPTIONS"
-            aria-label="排序方式"
-            @update:model-value="setSort"
-          />
-          <!-- 搜索 + 新增(放右边, 与分类筛选同行不折行) -->
+          <!-- 热度(排序): 与分类筛选同款按钮 + 下拉菜单; server allowedSort 白名单 -->
+          <div ref="sortRef" class="relative">
+            <BaseButton variant="ghost" size="sm" aria-label="排序方式" @click="sortOpen = !sortOpen">
+              <BaseIcon :name="currentSort.icon" size="16px" class="mr-1" />
+              {{ currentSort.label }}
+              <BaseIcon name="chevron-down" size="14px" class="ml-1" />
+            </BaseButton>
+            <div
+              v-if="sortOpen"
+              class="absolute z-50 top-full left-0 mt-1 bg-surface border border-subtle rounded-lg shadow-lg py-1 min-w-[140px]"
+              @click.stop
+            >
+              <button
+                v-for="opt in SORT_OPTIONS"
+                :key="opt.value"
+                type="button"
+                class="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-[rgba(255,255,255,0.06)]"
+                :class="{ 'text-brand-purple': sort === opt.value }"
+                @click="pickSort(opt.value)"
+              >
+                <BaseIcon :name="opt.icon" size="14px" /> {{ opt.label }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <!-- 右侧: 搜索 + 新增 -->
+        <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
           <div class="flex gap-[var(--jc-space-2)] flex-1 min-w-0">
             <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
             <BaseButton variant="gradient" size="sm" @click="search">
