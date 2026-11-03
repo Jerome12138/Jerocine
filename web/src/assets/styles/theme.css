@@ -174,6 +174,21 @@
   --jc-radius-2xl: 28px;
   --jc-radius-full: 9999px;
 
+  /* ---------- 管理端控件尺寸 (随视口宽度分档: 移动<768 / 常规 / 宽屏≥1280; TV 另覆盖) ---------- */
+  --jc-ctrl-h: 36px;          /* 标准控件高(输入/下拉/标准按钮) */
+  --jc-ctrl-h-sm: 30px;       /* 小号控件高 */
+  --jc-ctrl-h-lg: 42px;       /* 大号控件高 */
+  --jc-ctrl-fs: 0.875rem;     /* 标准控件字号(14) */
+  --jc-ctrl-fs-sm: 0.8125rem; /* 小号(13) */
+  --jc-ctrl-fs-lg: 0.9375rem; /* 大号(15) */
+  --jc-ctrl-px: 12px;         /* 水平内边距 */
+  --jc-ctrl-px-sm: 10px;
+  --jc-ctrl-px-lg: 16px;
+  --jc-ctrl-radius: var(--jc-radius-md);
+  --jc-switch-w: 40px;        /* 开关轨道宽 */
+  --jc-switch-h: 20px;        /* 开关轨道高 */
+  --jc-switch-knob: 16px;     /* 开关圆点直径 */
+
   /* ---------- 阴影 ---------- */
   --jc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --jc-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -267,6 +282,42 @@
   }
 }
 
+/* 管理端控件尺寸 — 移动档(<768): 最小档(越窄越小) */
+@media (max-width: 767px) {
+  :root {
+    --jc-ctrl-h: 32px;
+    --jc-ctrl-h-sm: 28px;
+    --jc-ctrl-h-lg: 36px;
+    --jc-ctrl-fs: 0.8125rem;
+    --jc-ctrl-fs-sm: 0.75rem;
+    --jc-ctrl-fs-lg: 0.875rem;
+    --jc-ctrl-px: 10px;
+    --jc-ctrl-px-sm: 8px;
+    --jc-ctrl-px-lg: 14px;
+    --jc-switch-w: 32px;
+    --jc-switch-h: 16px;
+    --jc-switch-knob: 12px;
+  }
+}
+
+/* 管理端控件尺寸 — 宽屏档(≥1280): 略放大 */
+@media (min-width: 1280px) {
+  :root {
+    --jc-ctrl-h: 40px;
+    --jc-ctrl-h-sm: 32px;
+    --jc-ctrl-h-lg: 46px;
+    --jc-ctrl-fs: 0.9375rem;
+    --jc-ctrl-fs-sm: 0.875rem;
+    --jc-ctrl-fs-lg: 1rem;
+    --jc-ctrl-px: 14px;
+    --jc-ctrl-px-sm: 12px;
+    --jc-ctrl-px-lg: 18px;
+    --jc-switch-w: 44px;
+    --jc-switch-h: 22px;
+    --jc-switch-knob: 18px;
+  }
+}
+
 /* 影片卡片网格 —— 各列表页(历史 / 收藏 / 搜索 / 分类 / 猜你喜欢)统一使用,
    列数与间距取自上面的阶梯, 因此与首页横滚行、FilmGrid 组件永远同列数。 */
 .jc-card-grid {
@@ -332,6 +383,20 @@ body {
   --jc-tv-safe: clamp(48px, 5vw, 96px); /* P0: overscan 安全区 ~5%(原 16~48 偏小, 10-foot 须更大留边) */
   --jc-tv-safe-y: clamp(27px, 5vh, 54px); /* P0: 纵向安全区 ~5% */
   --jc-table-cell-py: 12px; /* 表格行高略增, 10-foot 视距行密度保可读 */
+
+  /* 管理端控件尺寸 — TV(10-foot 视距)统一放大 */
+  --jc-ctrl-h: 48px;
+  --jc-ctrl-h-sm: 40px;
+  --jc-ctrl-h-lg: 56px;
+  --jc-ctrl-fs: 1.125rem;
+  --jc-ctrl-fs-sm: 1rem;
+  --jc-ctrl-fs-lg: 1.25rem;
+  --jc-ctrl-px: 20px;
+  --jc-ctrl-px-sm: 16px;
+  --jc-ctrl-px-lg: 24px;
+  --jc-switch-w: 64px;
+  --jc-switch-h: 36px;
+  --jc-switch-knob: 30px;
 
   /* 字号阶梯（2026-09-23 起为 TV 的**唯一**基准, 别再在组件里硬编码字号）
    *
@@ -499,18 +564,12 @@ html[data-mode="tv"] body::-webkit-scrollbar {
     box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-/* P4: manage 区 mobile 触摸目标 (WCAG 44x44pt 下限) — 兜底未单独加 min-h 的元素 */
-/* .jc-switch 自带 44x28 视觉尺寸(且含 flex-shrink:0 防塌), 需排除, 否则 44px min-height
-   把高度撑到与宽度相等(44x44 + rounded-full) → 开关显示为正圆 */
-[data-mode="mobile"] .jc-manage button:not(.jc-switch),
+/* manage 在 mobile 的触控兜底(36px): 仅兜底未自带尺寸的裸按钮/角色按钮;
+   走令牌的 .jc-btn 与表单控件自带尺寸不兜底(以便"越窄越小"); .jc-switch 自带轨道尺寸, 排除。 */
+[data-mode="mobile"] .jc-manage button:not(.jc-switch):not(.jc-btn),
 [data-mode="mobile"] .jc-manage a[role="button"],
 [data-mode="mobile"] .jc-manage [data-focusable="true"][role="button"] {
-  min-height: 44px;
-}
-[data-mode="mobile"] .jc-manage input:not([type="checkbox"]):not([type="radio"]),
-[data-mode="mobile"] .jc-manage select,
-[data-mode="mobile"] .jc-manage textarea {
-  min-height: 44px;
+  min-height: 36px;
 }
 
 /* ============================================================

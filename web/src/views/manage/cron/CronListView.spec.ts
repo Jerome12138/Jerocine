@@ -307,8 +307,7 @@ describe('CronListView 表单校验', () => {
     await openAdd(w)
     const modelSelect = w.findAll('select').find((s) => s.isVisible())!
     expect(modelSelect.attributes('aria-label')).toBe('任务类型')
-    expect(modelSelect.classes()).toContain('min-h-[44px]')
-    expect(modelSelect.classes()).toContain('md:min-h-[36px]')
+    expect(modelSelect.classes()).toContain('min-h-[var(--jc-ctrl-h)]')
     expect(modelSelect.attributes('data-focusable')).toBe('true')
     // 数字 option 原类型 emit → model=1 联动显示资源站列表
     await modelSelect.setValue('1')

@@ -42,10 +42,10 @@ describe('ManageSwitch', () => {
     expect(mount(ManageSwitch, { props: { modelValue: false, size: 'large' } }).find('button').attributes('data-size')).toBe('large')
   })
 
-  it('移动端(<768) 自动小尺寸', () => {
+  it('尺寸由 size 决定, 不再按设备强制小尺寸(移动端未传 size 仍为 default)', () => {
     useViewMode().setMode('mobile')
     const w = mount(ManageSwitch, { props: { modelValue: false } })
-    expect(w.find('button').attributes('data-size')).toBe('small')
+    expect(w.find('button').attributes('data-size')).toBe('default')
   })
 
   it('loading: 不 emit 且按钮禁用', async () => {

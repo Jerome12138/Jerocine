@@ -84,7 +84,7 @@ const avatar = computed(() => {
       <button
         v-if="props.showHamburger"
         type="button"
-        class="text-white/90 hover:text-white text-xl min-h-[44px] min-w-[44px] flex items-center justify-center"
+        class="text-white/90 hover:text-white text-xl !min-h-[44px] !min-w-[44px] flex items-center justify-center"
         data-focusable="true"
         @click="emit('toggle-drawer')"
       >

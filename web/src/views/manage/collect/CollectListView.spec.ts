@@ -149,8 +149,7 @@ describe('CollectListView 采集源列表', () => {
     for (const s of selects) {
       const cls = s.classes()
       expect(cls).toContain('bg-elevated')
-      expect(cls).toContain('min-h-[44px]')
-      expect(cls).toContain('md:min-h-[36px]')
+      expect(cls).toContain('min-h-[var(--jc-ctrl-h)]')
       expect(s.attributes('data-focusable')).toBe('true')
     }
     expect(selects[0]!.attributes('aria-label')).toBe('采集时长')

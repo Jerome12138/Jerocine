@@ -22,7 +22,7 @@ function onInput(e: Event): void {
     :rows="props.rows ?? 4"
     :maxlength="props.maxlength"
     :disabled="props.disabled"
-    class="w-full min-h-[88px] bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition resize-y disabled:opacity-50"
+    class="w-full min-h-[calc(var(--jc-ctrl-h)*2.4)] bg-elevated text-primary border border-default rounded-[var(--jc-ctrl-radius)] px-[var(--jc-ctrl-px)] py-[var(--jc-space-2)] text-[length:var(--jc-ctrl-fs)] outline-none focus:border-strong focus:shadow-focus transition resize-y disabled:opacity-50"
     data-focusable="true"
     @input="onInput"
   />

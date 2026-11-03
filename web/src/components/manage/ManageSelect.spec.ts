@@ -64,11 +64,10 @@ describe('ManageSelect 统一下拉', () => {
     expect(w.emitted('update:modelValue')![0]).toEqual(['failed'])
   })
 
-  it('class 与 ManageInput 同族: bg-elevated + min-h-[44px]', () => {
+  it('class 与 ManageInput 同族: bg-elevated + 控件高度令牌', () => {
     const w = mount(ManageSelect, { props: { modelValue: 0, options: OPTIONS } })
     const cls = w.find('select').classes()
     expect(cls).toContain('bg-elevated')
-    expect(cls).toContain('min-h-[44px]')
-    expect(cls).toContain('md:min-h-[36px]')
+    expect(cls).toContain('min-h-[var(--jc-ctrl-h)]')
   })
 })

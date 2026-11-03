@@ -63,11 +63,10 @@ describe('ManageInput', () => {
     expect((w.find('input').element as HTMLInputElement).value).toBe('')
   })
 
-  it('class 含 w-full 和 min-h-[44px] (P4 mobile)', () => {
+  it('class 含 w-full 和 控件高度令牌', () => {
     const w = mount(ManageInput, { props: { modelValue: '' } })
     const cls = w.find('input').classes()
     expect(cls).toContain('w-full')
-    expect(cls).toContain('min-h-[44px]')
-    expect(cls).toContain('md:min-h-[36px]')
+    expect(cls).toContain('min-h-[var(--jc-ctrl-h)]')
   })
 })

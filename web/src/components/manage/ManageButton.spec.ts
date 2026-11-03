@@ -40,10 +40,10 @@ describe('ManageButton (EP 风格 + 旧 API 兼容)', () => {
     expect(mount(ManageButton, { props: { size: 'small' } }).find('button').attributes('data-size')).toBe('small')
   })
 
-  it('移动端(<768) 自动小尺寸', () => {
+  it('尺寸由 size 决定, 不再按设备强制小尺寸(移动端未传 size 仍为 default)', () => {
     useViewMode().setMode('mobile')
     const w = mount(ManageButton)
-    expect(w.find('button').attributes('data-size')).toBe('small')
+    expect(w.find('button').attributes('data-size')).toBe('default')
   })
 
   it('loading: 按钮禁用且 click 不 emit', async () => {

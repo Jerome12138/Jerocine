@@ -24,11 +24,11 @@ describe('ManageTextarea', () => {
     expect(w.emitted('update:modelValue')?.[0]).toEqual(['multi\nline'])
   })
 
-  it('class 含 w-full 和 min-h-[88px] (P4 mobile)', () => {
+  it('class 含 w-full 和 控件高度令牌 (min-h calc)', () => {
     const w = mount(ManageTextarea, { props: { modelValue: '' } })
     const cls = w.find('textarea').classes()
     expect(cls).toContain('w-full')
-    expect(cls).toContain('min-h-[88px]')
+    expect(cls).toContain('min-h-[calc(var(--jc-ctrl-h)*2.4)]')
   })
 
   it('maxlength 透传原生属性 (复核 #11)', () => {

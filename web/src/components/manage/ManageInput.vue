@@ -32,7 +32,7 @@ function onInput(e: Event): void {
     :type="props.type ?? 'text'"
     :placeholder="props.placeholder"
     :disabled="props.disabled"
-    class="w-full min-h-[44px] md:min-h-[36px] bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition disabled:opacity-50"
+    class="w-full min-h-[var(--jc-ctrl-h)] bg-elevated text-primary border border-default rounded-[var(--jc-ctrl-radius)] px-[var(--jc-ctrl-px)] py-[var(--jc-space-2)] text-[length:var(--jc-ctrl-fs)] outline-none focus:border-strong focus:shadow-focus transition disabled:opacity-50"
     data-focusable="true"
     @input="onInput"
   />

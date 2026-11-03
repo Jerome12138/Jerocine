@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useViewMode } from '@/composables/useViewMode'
 
 /**
  * 管理端 Button（Element Plus 风格封装，自研、零依赖）
@@ -48,8 +47,6 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{ (e: 'click', evt: MouseEvent): void }>()
 
-const { isMobile } = useViewMode()
-
 const NATIVE_TYPES: readonly NativeType[] = ['button', 'submit', 'reset']
 const isNativeType = computed(() => NATIVE_TYPES.includes(props.type as NativeType))
 
@@ -76,9 +73,8 @@ const styleType = computed<BtnType>(() => {
   return isNativeType.value ? 'default' : (props.type as BtnType)
 })
 
-/** 归一化尺寸: 兼容旧 sm/md/lg/xl; 移动端一律小尺寸 */
+/** 归一化尺寸: 兼容旧 sm/md/lg/xl; 实际像素由 --jc-ctrl-* 令牌随视口宽度分档 */
 const normSize = computed<BtnSize>(() => {
-  if (isMobile.value) return 'small'
   switch (props.size) {
     case 'sm':
     case 'small':
@@ -96,20 +92,20 @@ const sizeClass = computed(() => {
   if (props.circle) {
     switch (normSize.value) {
       case 'small':
-        return 'w-8 h-8 text-[length:var(--jc-fs-sm)]'
+        return 'w-[var(--jc-ctrl-h-sm)] h-[var(--jc-ctrl-h-sm)] text-[length:var(--jc-ctrl-fs-sm)]'
       case 'large':
-        return 'w-12 h-12 text-[length:var(--jc-fs-md)]'
+        return 'w-[var(--jc-ctrl-h-lg)] h-[var(--jc-ctrl-h-lg)] text-[length:var(--jc-ctrl-fs-lg)]'
       default:
-        return 'w-10 h-10 text-[length:var(--jc-fs-md)]'
+        return 'w-[var(--jc-ctrl-h)] h-[var(--jc-ctrl-h)] text-[length:var(--jc-ctrl-fs)]'
     }
   }
   switch (normSize.value) {
     case 'small':
-      return 'h-8 px-3 text-[length:var(--jc-fs-sm)] gap-[var(--jc-space-1)]'
+      return 'h-[var(--jc-ctrl-h-sm)] px-[var(--jc-ctrl-px-sm)] text-[length:var(--jc-ctrl-fs-sm)] gap-[var(--jc-space-1)]'
     case 'large':
-      return 'h-12 px-6 text-[length:var(--jc-fs-md)] gap-[var(--jc-space-2)]'
+      return 'h-[var(--jc-ctrl-h-lg)] px-[var(--jc-ctrl-px-lg)] text-[length:var(--jc-ctrl-fs-lg)] gap-[var(--jc-space-2)]'
     default:
-      return 'h-10 px-4 text-[length:var(--jc-fs-md)] gap-[var(--jc-space-2)]'
+      return 'h-[var(--jc-ctrl-h)] px-[var(--jc-ctrl-px)] text-[length:var(--jc-ctrl-fs)] gap-[var(--jc-space-2)]'
   }
 })
 
@@ -200,8 +196,8 @@ function handleClick(e: MouseEvent): void {
 
 <style scoped>
 .jc-btn {
-  /* 触控命中区不小于 44 */
-  min-height: 44px;
+  /* 尺寸由 --jc-ctrl-* 令牌随视口宽度分档; min-height 兜底触控命中区 */
+  min-height: var(--jc-ctrl-h);
 }
 
 .jc-btn-transition {
@@ -213,10 +209,10 @@ function handleClick(e: MouseEvent): void {
 }
 
 .jc-btn[data-size='small'] {
-  min-height: 32px;
+  min-height: var(--jc-ctrl-h-sm);
 }
 .jc-btn[data-size='large'] {
-  min-height: 48px;
+  min-height: var(--jc-ctrl-h-lg);
 }
 
 .jc-btn-gradient {

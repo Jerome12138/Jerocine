@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useViewMode } from '@/composables/useViewMode'
 
 /**
  * 管理端 Switch（Element Plus 风格封装，自研、零依赖）
  *
  * props: v-model(modelValue) / disabled / loading / size(large|default|small) / activeText / inactiveText
- * 尺寸: 移动端(<768) 自动小尺寸。
+ * 尺寸: 由 --jc-switch-* 令牌随视口宽度分档(移动/常规/宽屏/TV), 不再按设备二元切换。
  */
 interface Props {
   modelValue: boolean
@@ -26,10 +25,8 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 
-const { isMobile } = useViewMode()
-
-/** 移动端一律小尺寸 */
-const normSize = computed(() => (isMobile.value ? 'small' : props.size))
+/** 尺寸档透传给 data-size; 实际像素由 --jc-switch-* 令牌随视口分档 */
+const normSize = computed(() => props.size)
 
 const hasText = computed(() => !!(props.activeText || props.inactiveText))
 
@@ -68,12 +65,19 @@ function toggle(): void {
 
 <style scoped>
 .jc-switch {
-  /* 默认(medium): 40 x 20 */
-  width: 40px;
-  height: 20px;
+  /* 尺寸由 --jc-switch-* 令牌随视口宽度分档; scale 供 size 档整体缩放 */
+  --jc-switch-scale: 1;
+  width: calc(var(--jc-switch-w) * var(--jc-switch-scale));
+  height: calc(var(--jc-switch-h) * var(--jc-switch-scale));
   /* 作为 flex 子项时不被压垮 */
   flex-shrink: 0;
-  /* 触控命中区: ::after 向四周扩 10px, 实际可点 ≥ 40x40 */
+  /* 触控命中区: ::after 向四周扩 10px */
+}
+.jc-switch[data-size='small'] {
+  --jc-switch-scale: 0.85;
+}
+.jc-switch[data-size='large'] {
+  --jc-switch-scale: 1.25;
 }
 .jc-switch::after {
   content: '';
@@ -89,47 +93,15 @@ function toggle(): void {
 
 .jc-switch__knob {
   position: relative;
-  width: 16px;
-  height: 16px;
+  width: calc(var(--jc-switch-knob) * var(--jc-switch-scale));
+  height: calc(var(--jc-switch-knob) * var(--jc-switch-scale));
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 .jc-switch__knob--off {
-  transform: translateX(2px);
+  transform: translateX(calc(2px * var(--jc-switch-scale)));
 }
 .jc-switch__knob--on {
-  transform: translateX(22px);
-}
-
-/* small: 32 x 16 */
-.jc-switch[data-size='small'] {
-  width: 32px;
-  height: 16px;
-}
-.jc-switch[data-size='small'] .jc-switch__knob {
-  width: 12px;
-  height: 12px;
-}
-.jc-switch[data-size='small'] .jc-switch__knob--off {
-  transform: translateX(2px);
-}
-.jc-switch[data-size='small'] .jc-switch__knob--on {
-  transform: translateX(18px);
-}
-
-/* large: 50 x 24 */
-.jc-switch[data-size='large'] {
-  width: 50px;
-  height: 24px;
-}
-.jc-switch[data-size='large'] .jc-switch__knob {
-  width: 20px;
-  height: 20px;
-}
-.jc-switch[data-size='large'] .jc-switch__knob--off {
-  transform: translateX(2px);
-}
-.jc-switch[data-size='large'] .jc-switch__knob--on {
-  transform: translateX(28px);
+  transform: translateX(calc((var(--jc-switch-w) - var(--jc-switch-knob) - 2px) * var(--jc-switch-scale)));
 }
 
 /* 内联文字: 圆点两侧留出文字空间 */
@@ -189,21 +161,7 @@ function toggle(): void {
 </style>
 
 <style>
-/* TV 模式放大(全局, 与既有约定一致) */
-[data-mode='tv'] .jc-switch {
-  width: 64px;
-  height: 36px;
-}
-[data-mode='tv'] .jc-switch__knob {
-  width: 30px;
-  height: 30px;
-}
-[data-mode='tv'] .jc-switch__knob--off {
-  transform: translateX(3px);
-}
-[data-mode='tv'] .jc-switch__knob--on {
-  transform: translateX(31px);
-}
+/* TV 模式: 尺寸已由 --jc-switch-* 令牌在 theme.css 的 [data-mode='tv'] 中统一放大, 这里只补 focus 环 */
 [data-mode='tv'] .jc-switch:focus,
 [data-mode='tv'] .jc-switch:focus-visible {
   box-shadow: var(--jc-tv-focus-ring);

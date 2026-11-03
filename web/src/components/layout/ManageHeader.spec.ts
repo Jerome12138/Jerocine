@@ -52,11 +52,11 @@ describe('ManageHeader 汉堡按钮分支', () => {
     expect(hamburger(w).find('.sr-only').text()).toBe('打开菜单')
   })
 
-  it('汉堡按钮含 min-h-[44px] min-w-[44px] (WCAG 触摸目标)', async () => {
+  it('汉堡按钮含 !min-h-[44px] !min-w-[44px] (WCAG 触摸目标, important 压过移动端 36px 兜底)', async () => {
     const w = await mountHeader({ showHamburger: true })
     const cls = hamburger(w).classes()
-    expect(cls).toContain('min-h-[44px]')
-    expect(cls).toContain('min-w-[44px]')
+    expect(cls).toContain('!min-h-[44px]')
+    expect(cls).toContain('!min-w-[44px]')
   })
 
   it('头部不再重复页面标题(各页面内部已有标题)', async () => {
