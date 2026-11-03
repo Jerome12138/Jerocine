@@ -366,7 +366,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
 </script>
 
 <template>
-  <div class="container-page flex min-h-0 flex-col py-[var(--jc-space-5)]">
+  <div class="container-page flex flex-1 min-h-0 flex-col py-[var(--jc-space-5)]">
     <header class="flex items-center justify-between mb-[var(--jc-space-5)]">
       <div>
         <h1 class="text-2xl font-[var(--jc-fw-semibold)]">任务管理</h1>

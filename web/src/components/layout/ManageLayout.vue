@@ -35,7 +35,7 @@ onMounted(async () => {
 
 <template>
   <div
-    class="jc-manage min-h-screen flex bg-base text-primary"
+    class="jc-manage h-screen overflow-hidden flex bg-base text-primary"
     :data-mode="mode"
   >
     <ManageSidebar
@@ -44,7 +44,7 @@ onMounted(async () => {
       @close="closeDrawer"
     />
     <div
-      class="flex-1 flex flex-col min-w-0 transition-[margin] duration-[var(--jc-dur-base)]"
+      class="flex-1 flex flex-col min-w-0 min-h-0 transition-[margin] duration-[var(--jc-dur-base)]"
       :style="{ marginLeft: rightMarginLeft }"
     >
       <ManageHeader
@@ -52,10 +52,10 @@ onMounted(async () => {
         @toggle-drawer="drawerOpen = !drawerOpen"
       />
       <main
-        class="flex-1 flex flex-col min-h-0 overflow-x-auto min-w-0 p-[var(--jc-space-3)] md:p-[var(--jc-space-4)] lg:p-[var(--jc-space-6)]"
+        class="flex-1 flex flex-col min-h-0 overflow-hidden min-w-0 p-[var(--jc-space-3)] md:p-[var(--jc-space-4)] lg:p-[var(--jc-space-6)]"
       >
         <!-- 内容包裹层: 桌面封顶 1440px 居中(页面过空治理, D5) + 高度链贯通(表格 fit 依赖, D1) -->
-        <div class="jc-manage-main mx-auto flex w-full min-h-0 flex-1 flex-col max-w-[var(--jc-content-max-w)]">
+        <div class="jc-manage-main mx-auto flex w-full min-h-0 flex-1 flex-col overflow-y-auto max-w-[var(--jc-content-max-w)]">
           <slot />
         </div>
       </main>

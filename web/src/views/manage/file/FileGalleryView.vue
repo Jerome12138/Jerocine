@@ -92,7 +92,7 @@ async function remove(item: FileItem): Promise<void> {
 </script>
 
 <template>
-  <section class="flex min-h-0 flex-col gap-[var(--jc-space-4)]">
+  <section class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-4)]">
     <header class="flex items-center justify-between">
       <div>
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">文件库</h2>

@@ -604,7 +604,7 @@ onMounted(() => {
 
 <template>
   <!-- 页面根: flex 高度链(.jc-manage-main 提供), 表格 fit 自适应 -->
-  <div class="flex min-h-0 flex-col gap-[var(--jc-space-3)]">
+  <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-3)]">
   <!-- 加载失败: 明确报错 + 重试, 不落到"暂无采集源"空态 -->
   <div
     v-if="loadError && !loading"
@@ -637,13 +637,14 @@ onMounted(() => {
         </p>
       </div>
       <div class="flex gap-[var(--jc-space-2)] items-center flex-wrap">
-        <label class="text-sm text-secondary">采集时长:</label>
-        <ManageSelect
-          v-model="spiderHours"
-          :options="HOURS_OPTIONS"
-          aria-label="采集时长"
-          class="w-[140px]"
-        />
+        <label class="text-sm text-secondary shrink-0">采集时长:</label>
+        <div class="w-[120px] shrink-0">
+          <ManageSelect
+            v-model="spiderHours"
+            :options="HOURS_OPTIONS"
+            aria-label="采集时长"
+          />
+        </div>
         <ManageButton variant="ghost" size="sm" :loading="testingAll" @click="runApiTestAll">
           <BaseIcon name="refresh" size="16px" /> 全部测采集
         </ManageButton>

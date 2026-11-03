@@ -91,7 +91,7 @@ describe('CollectJobsView 采集任务监控', () => {
       job({ sourceId: 'p', sourceName: '暂停中', state: 'paused', startedAt: 1_700_000_200 })
     ])
     const w = await mountView()
-    const names = w.findAll('article .jc-job__name').map((n) => n.text())
+    const names = w.findAll('.jc-job__name').map((n) => n.text())
     // 活跃组: startedAt 降序 → 运行A(900) 运行B(100) 暂停中(200); 组内降序后 暂停中 在 B 后? 200>100
     expect(names).toEqual(['运行A', '暂停中', '运行B', '旧完成'])
     w.unmount()
@@ -130,13 +130,13 @@ describe('CollectJobsView 采集任务监控', () => {
 
   it('状态标签经 StatusTag 渲染: running→brand 底色, error→danger 底色', async () => {
     const w = await mountView()
-    const runningTag = w.findAll('article .jc-tag').find((t) => t.text() === '采集中')!
+    const runningTag = w.findAll('.jc-tag').find((t) => t.text() === '采集中')!
     expect(runningTag.classes()).toContain('bg-[var(--jc-brand-primary)]')
     w.unmount()
 
     h.spiderJobs.mockResolvedValue([job({ state: 'error' })])
     const w2 = await mountView()
-    const errorTag = w2.findAll('article .jc-tag').find((t) => t.text() === '出错')!
+    const errorTag = w2.findAll('.jc-tag').find((t) => t.text() === '出错')!
     expect(errorTag.classes()).toContain('bg-[var(--jc-danger-soft)]')
     w2.unmount()
   })

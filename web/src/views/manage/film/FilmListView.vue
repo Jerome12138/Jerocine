@@ -211,7 +211,7 @@ onMounted(() => {
 
 <template>
   <!-- 页面根只提供纵向 flex + 间距; 表格高度链由 ManageLayout .jc-manage-main(表格线 T0)贯通 -->
-  <div class="flex min-h-0 flex-col gap-[var(--jc-space-4)]">
+  <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-4)]">
     <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"未找到影片" -->
     <section
       v-if="paged.loadError.value && !paged.rows.value.length"

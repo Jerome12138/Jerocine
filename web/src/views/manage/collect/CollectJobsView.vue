@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as collectApi from '@/api/manage/collect'
 import type { SpiderJob } from '@/api/manage/collect'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageTable from '@/components/manage/ManageTable.vue'
+import type { Column } from '@/components/manage/ManageTable.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -10,7 +12,7 @@ import { useAsyncAction } from '@/composables/useAsyncAction'
 /**
  * 采集任务监控
  *  - 轮询 spiderJobs 接口: 有活跃任务 5s / 全部结束 30s; 轮询失败不中断链条(下轮继续)
- *  - 每条任务显示进度条 + 已用时长 + 状态标签, error 态展示服务端落库的失败原因
+ *  - 表格展示: 任务 / 状态 / 进度条 / 用时(增量口径) ; error 态在任务列下展示失败原因
  *  - running → 可暂停 / 取消, paused → 可继续 / 取消
  *  - 已结束 (done/error/canceled) 30 分钟后服务端 GC 自动消失
  *  - 操作经 useAsyncAction: busy 防连点 + 单点 toast(写请求 silent, 不与拦截器叠提示)
@@ -51,7 +53,7 @@ async function load(): Promise<void> {
 }
 
 // 排序: 运行中/暂停置顶, 其余(已结束)在后; 组内按开始时间倒序(未知时间排最后)。
-// 服务端按 Redis SCAN 顺序返回, 不排序则卡片顺序跨轮询漂移, 难扫读。
+// 服务端按 Redis SCAN 顺序返回, 不排序则行顺序跨轮询漂移, 难扫读。
 function sortJobs(list: SpiderJob[]): SpiderJob[] {
   const active = (s: SpiderJob['state']): number => (s === 'running' || s === 'paused' ? 0 : 1)
   return [...list].sort((a, b) => {
@@ -83,7 +85,7 @@ function stopPoll(): void {
 onMounted(pollTick)
 onBeforeUnmount(stopPoll)
 
-// 操作进行中: busy 期间禁用全部卡片按钮(经 useAsyncAction 单点收敛)
+// 操作进行中: busy 期间禁用全部行按钮(经 useAsyncAction 单点收敛)
 const { busy, run } = useAsyncAction()
 
 function fmtElapsed(ms: number): string {
@@ -107,6 +109,28 @@ function hourLabel(hour: number): string {
   if (hour > 0) return `近 ${hour}h`
   return '时长未知'
 }
+
+/** 表格行: 任务 + 派生「进度文案」「用时文案」 */
+interface JobRow extends SpiderJob {
+  progressText: string
+  elapsedText: string
+}
+const rows = computed<JobRow[]>(() =>
+  jobs.value.map((j) => ({
+    ...j,
+    progressText: `已完成 ${j.donePages} 页 / 共 ${j.totalPages || '?'} 页${
+      j.failedPages > 0 ? ` · 失败 ${j.failedPages} 页` : ''
+    } · 进度 ${fmtPercent(j)}%`,
+    elapsedText: `${hourLabel(j.hour)} · 用时 ${fmtElapsed(j.elapsedMs)}`
+  }))
+)
+
+const columns: Column<JobRow>[] = [
+  { key: 'sourceName', label: '任务' },
+  { key: 'state', label: '状态', width: '110px' },
+  { key: 'progressText', label: '进度' },
+  { key: 'elapsedText', label: '用时', width: '190px' }
+]
 
 async function pause(j: SpiderJob): Promise<void> {
   await run({
@@ -142,8 +166,8 @@ const hasJobs = computed(() => jobs.value.length > 0)
 </script>
 
 <template>
-  <div class="container-page py-[var(--jc-space-5)]">
-    <header class="flex items-center justify-between mb-[var(--jc-space-5)]">
+  <div class="container-page flex flex-1 min-h-0 flex-col py-[var(--jc-space-5)]">
+    <header class="flex items-center justify-between mb-[var(--jc-space-4)] shrink-0">
       <h1 class="text-2xl font-[var(--jc-fw-semibold)]">采集任务监控</h1>
       <div class="flex items-center gap-[var(--jc-space-3)]">
         <span class="text-muted text-sm" v-if="loading">刷新中…</span>
@@ -152,7 +176,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
     </header>
 
     <!-- 有旧数据但上次刷新失败: 顶部浅提示, 列表仍展示 -->
-    <div v-if="loadFailed && hasJobs" class="jc-job__stale text-center mb-[var(--jc-space-3)]">
+    <div v-if="loadFailed && hasJobs" class="jc-job__stale text-center mb-[var(--jc-space-3)] shrink-0">
       上次刷新失败, 以下为最近一次数据.
     </div>
 
@@ -167,83 +191,90 @@ const hasJobs = computed(() => jobs.value.length > 0)
       启动一个.
     </div>
 
-    <div v-else class="flex flex-col gap-[var(--jc-space-4)]">
-      <article v-for="j in jobs" :key="j.sourceId" class="jc-job">
-        <header class="jc-job__head">
-          <span class="jc-job__name">{{ j.sourceName }}</span>
-          <StatusTag :value="j.state" :map="JOB_STATE_MAP" />
-          <span class="text-muted text-xs ml-auto">
-            {{ hourLabel(j.hour) }} · 用时 {{ fmtElapsed(j.elapsedMs) }}
+    <ManageTable
+      v-else
+      :columns="columns"
+      :rows="rows"
+      row-key="sourceId"
+      :loading="loading"
+      actions-width="200px"
+    >
+      <template #cell="{ row, col }">
+        <div v-if="col.key === 'sourceName'" class="flex flex-col gap-[var(--jc-space-2)] min-w-0">
+          <span class="jc-job__name truncate">{{ row.sourceName }}</span>
+          <!-- 失败原因: 服务端 JobFail 落库, 排障不必再跳 /manage/tasks -->
+          <span v-if="row.state === 'error' && row.error" class="jc-job__error">
+            <span class="flex-1 break-all">{{ row.error }}</span>
           </span>
-        </header>
-
-        <div class="jc-job__bar">
+        </div>
+        <StatusTag v-else-if="col.key === 'state'" :value="row.state" :map="JOB_STATE_MAP" />
+        <div v-else-if="col.key === 'progressText'" class="jc-job__bar">
           <div
             class="jc-job__bar-fill"
-            :class="{ 'jc-job__bar-fill--paused': j.state === 'paused' }"
-            :style="{ width: fmtPercent(j) + '%' }"
+            :class="{ 'jc-job__bar-fill--paused': row.state === 'paused' }"
+            :style="{ width: fmtPercent(row) + '%' }"
           />
-          <span class="jc-job__bar-text">
-            已完成 {{ j.donePages }} 页 / 共 {{ j.totalPages || '?' }} 页
-            <template v-if="j.failedPages > 0">
-              · <span class="text-danger">失败 {{ j.failedPages }} 页</span>
-            </template>
-            · 进度 {{ fmtPercent(j) }}%
-          </span>
+          <span class="jc-job__bar-text">{{ row.progressText }}</span>
         </div>
+        <span v-else-if="col.key === 'elapsedText'" class="text-muted text-xs">{{ row.elapsedText }}</span>
+        <span v-else>{{ row[col.key] }}</span>
+      </template>
 
-        <!-- 失败原因: 服务端 JobFail 落库, 排障不必再跳 /manage/tasks -->
-        <div v-if="j.state === 'error' && j.error" class="jc-job__error">
-          <span class="flex-1 break-all">{{ j.error }}</span>
-        </div>
-
-        <div class="jc-job__actions">
+      <template #actions="{ row }">
+        <div class="flex gap-[var(--jc-space-1)] justify-end flex-wrap">
           <ManageButton
-            v-if="j.state === 'running'"
-            variant="outline"
-            size="sm"
-            :disabled="busy"
-            @click="pause(j)"
+            v-if="row.state === 'running'"
+            variant="outline" size="sm" :disabled="busy" @click="pause(row)"
           >暂停</ManageButton>
           <ManageButton
-            v-if="j.state === 'paused'"
-            variant="primary"
-            size="sm"
-            :disabled="busy"
-            @click="resume(j)"
+            v-if="row.state === 'paused'"
+            variant="primary" size="sm" :disabled="busy" @click="resume(row)"
           >继续</ManageButton>
           <ManageButton
-            v-if="j.state === 'running' || j.state === 'paused'"
-            variant="danger"
-            size="sm"
-            :disabled="busy"
-            @click="cancelJob(j)"
+            v-if="row.state === 'running' || row.state === 'paused'"
+            variant="danger" size="sm" :disabled="busy" @click="cancelJob(row)"
           >取消</ManageButton>
         </div>
-      </article>
-    </div>
+      </template>
+
+      <template #mobile-card="{ row }">
+        <div class="flex flex-col gap-[var(--jc-space-2)]">
+          <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
+            <span class="jc-job__name">{{ row.sourceName }}</span>
+            <StatusTag :value="row.state" :map="JOB_STATE_MAP" />
+          </div>
+          <div class="jc-job__bar">
+            <div
+              class="jc-job__bar-fill"
+              :class="{ 'jc-job__bar-fill--paused': row.state === 'paused' }"
+              :style="{ width: fmtPercent(row) + '%' }"
+            />
+            <span class="jc-job__bar-text">{{ row.progressText }}</span>
+          </div>
+          <span v-if="row.state === 'error' && row.error" class="jc-job__error">
+            <span class="flex-1 break-all">{{ row.error }}</span>
+          </span>
+          <div class="flex items-center justify-between gap-[var(--jc-space-2)] flex-wrap">
+            <span class="text-muted text-xs">{{ row.elapsedText }}</span>
+            <div class="flex gap-[var(--jc-space-1)] flex-wrap justify-end">
+              <ManageButton v-if="row.state === 'running'" variant="outline" size="sm" :disabled="busy" @click="pause(row)">暂停</ManageButton>
+              <ManageButton v-if="row.state === 'paused'" variant="primary" size="sm" :disabled="busy" @click="resume(row)">继续</ManageButton>
+              <ManageButton
+                v-if="row.state === 'running' || row.state === 'paused'"
+                variant="danger" size="sm" :disabled="busy" @click="cancelJob(row)"
+              >取消</ManageButton>
+            </div>
+          </div>
+        </div>
+      </template>
+    </ManageTable>
   </div>
 </template>
 
 <style scoped>
-.jc-job {
-  background: var(--jc-bg-elevated);
-  border: 1px solid var(--jc-border-subtle);
-  border-radius: var(--jc-radius-md);
-  padding: var(--jc-space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--jc-space-3);
-}
-.jc-job__head {
-  display: flex;
-  align-items: center;
-  gap: var(--jc-space-3);
-  flex-wrap: wrap;
-}
 .jc-job__name {
   font-weight: var(--jc-fw-semibold);
-  font-size: var(--jc-fs-md);
+  font-size: var(--jc-fs-sm);
 }
 .jc-job__bar {
   position: relative;
@@ -251,6 +282,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
   background: rgba(255, 255, 255, 0.05);
   border-radius: var(--jc-radius-sm);
   overflow: hidden;
+  min-width: 220px;
 }
 .jc-job__bar-fill {
   position: absolute;
@@ -271,11 +303,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
   font-size: var(--jc-fs-xs);
   color: var(--jc-text-primary);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-}
-.jc-job__actions {
-  display: flex;
-  gap: var(--jc-space-2);
-  align-items: center;
+  white-space: nowrap;
 }
 /* 失败原因红色错误框(样式同 TaskManageView 的 jc-job__error) */
 .jc-job__error {

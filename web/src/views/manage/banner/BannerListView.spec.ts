@@ -138,12 +138,12 @@ function btn(w: VueWrapper, text: string) {
   return found!
 }
 
-/** 定位某行的 li, 返回行内文案含 text 的按钮查找器 */
+/** 定位某行的 tr, 返回行内文案含 text 的按钮查找器 */
 function rowOps(w: VueWrapper, rowText: string) {
-  const li = w.findAll('li').find((l) => l.text().includes(rowText))
-  expect(li, `应渲染「${rowText}」所在行`).toBeTruthy()
+  const tr = w.findAll('tr').find((l) => l.text().includes(rowText))
+  expect(tr, `应渲染「${rowText}」所在行`).toBeTruthy()
   return (text: string) => {
-    const found = li!.findAll('button').find((b) => b.text().includes(text))
+    const found = tr!.findAll('button').find((b) => b.text().includes(text))
     expect(found, `行内应渲染「${text}」按钮`).toBeTruthy()
     return found!
   }
@@ -151,7 +151,7 @@ function rowOps(w: VueWrapper, rowText: string) {
 
 /** 展开未生效折叠区 */
 async function expandInactive(w: VueWrapper): Promise<void> {
-  await btn(w, '未生效（').trigger('click')
+  await btn(w, '未生效').trigger('click')
   await flushPromises()
 }
 
@@ -162,22 +162,23 @@ describe('BannerListView 轮播管理(生效位 + 候选位)', () => {
     h.board.mockResolvedValue(board())
   })
 
-  it('展示全部 10 位, 并在 liveCount 处分区(生效位/候选位提示)', async () => {
+  it('展示全部 10 位, 并标注生效/候选分区', async () => {
     const w = await mountView()
-    expect(w.text()).toContain('以下为候选位')
     expect(w.text()).toContain('前 5 位对外生效')
-    // 10 个数据行(分区提示行不算): 每行有编号或名称
     expect(w.text()).toContain('片10')
+    // liveCount=5: 前 5 位「生效」, 后 5 位「候选」(分区标签)
+    expect(w.findAll('.jc-tag').filter((t) => t.text() === '生效').length).toBe(5)
+    expect(w.findAll('.jc-tag').filter((t) => t.text() === '候选').length).toBe(5)
   })
 
-  it('无候选位(全部手动且不足 liveCount)时不渲染分区提示', async () => {
+  it('无候选位(全部手动且不足 liveCount)时不出现候选标签', async () => {
     h.board.mockResolvedValue({
       active: [slide({ source: 'banner', name: 'A' }), slide({ source: 'banner', name: 'B' })],
       liveCount: 5,
       inactive: []
     })
     const w = await mountView()
-    expect(w.text()).not.toContain('以下为候选位')
+    expect(w.text()).not.toContain('候选')
     expect(w.text()).toContain('A')
   })
 
@@ -522,13 +523,13 @@ describe('BannerListView 未生效折叠区', () => {
     const w = await mountView()
     await expandInactive(w)
     // 无图的纯屏蔽行(#12): 无启用按钮
-    const blocked = w.findAll('li').find((l) => l.text().includes('影片 55'))
+    const blocked = w.findAll('tr').find((l) => l.text().includes('影片 55'))
     expect(blocked, '应渲染纯屏蔽行').toBeTruthy()
     expect(blocked!.findAll('button').some((b) => b.text().includes('启用'))).toBe(false)
     // 有图停用行(#13)与已过期行(#11, state=0)分别可启用/不可启用
-    const withImg = w.findAll('li').find((l) => l.text().includes('有图停用'))
+    const withImg = w.findAll('tr').find((l) => l.text().includes('有图停用'))
     expect(withImg!.findAll('button').some((b) => b.text().includes('启用'))).toBe(true)
-    const expired = w.findAll('li').find((l) => l.text().includes('过期位'))
+    const expired = w.findAll('tr').find((l) => l.text().includes('过期位'))
     expect(expired!.findAll('button').some((b) => b.text().includes('启用'))).toBe(false)
   })
 
@@ -537,7 +538,7 @@ describe('BannerListView 未生效折叠区', () => {
     await expandInactive(w)
     expect(w.text()).toContain('无关联影片元信息')
     // 有图停用行点「启用」→ save(state 翻转为 0)
-    const withImg = w.findAll('li').find((l) => l.text().includes('有图停用'))
+    const withImg = w.findAll('tr').find((l) => l.text().includes('有图停用'))
     const enable = withImg!.findAll('button').find((b) => b.text().includes('启用'))
     await enable!.trigger('click')
     await flushPromises()
@@ -559,9 +560,9 @@ describe('BannerListView 移动端卡片流', () => {
   it('移动端(<768)渲染卡片流: 生效位卡片含行内操作', async () => {
     useViewMode().setMode('mobile')
     const w = await mountView()
-    // 10 张生效位卡片(候选位分区为 div, 不计入 article)
+    // 10 张生效位卡片(候选项显示「候选」标签, 非独立分区行)
     expect(w.findAll('article').length).toBe(10)
-    expect(w.text()).toContain('以下为候选位')
+    expect(w.text()).toContain('候选')
     const card = w.findAll('article').find((c) => c.text().includes('片3'))
     expect(card, '应渲染含片3的卡片').toBeTruthy()
     expect(card!.findAll('button').some((b) => b.text().includes('禁用'))).toBe(true)

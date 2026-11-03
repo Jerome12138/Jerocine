@@ -135,7 +135,7 @@ async function openReset(row: ManageUserRow): Promise<void> {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-col gap-[var(--jc-space-4)]">
+  <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-4)]">
     <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"未找到用户" -->
     <section v-if="paged.loadError.value && !paged.rows.value.length" class="bg-surface rounded-card shadow-card">
       <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">

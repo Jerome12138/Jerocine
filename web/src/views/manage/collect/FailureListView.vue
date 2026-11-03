@@ -148,7 +148,7 @@ onMounted(async () => {
 })</script>
 
 <template>
-  <div class="flex min-h-0 flex-col gap-[var(--jc-space-4)]">
+  <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-4)]">
     <!-- 加载失败: 明确报错 + 重试, 不落"暂无失败记录"空态 -->
     <div
       v-if="loadError"

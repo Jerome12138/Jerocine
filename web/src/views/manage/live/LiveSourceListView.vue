@@ -16,6 +16,8 @@ import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import type { LiveChannelManage, LiveSourceManage } from '@/types/live'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageTable from '@/components/manage/ManageTable.vue'
+import type { Column } from '@/components/manage/ManageTable.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
@@ -55,6 +57,31 @@ async function toggleLiveNav(on: boolean): Promise<void> {
 const sources = ref<LiveSourceManage[]>([])
 /** 频道数预览（id → 数量；加载中/失败为 null） */
 const channelCounts = ref<Record<number, number | null>>({})
+
+/** 频道数展示文案: 停用源显示 — (公开端点 404 属预期), 加载中/失败分别提示 */
+function countText(s: LiveSourceManage): string {
+  if (s.state !== 0) return '—'
+  const v = channelCounts.value[s.id]
+  if (v === undefined) return '加载中…'
+  if (v === null) return '获取失败'
+  return `${v} 个频道`
+}
+
+/** 表格行: 源 + 派生「频道数」文案列 */
+interface LiveSourceRow extends LiveSourceManage {
+  channelCountText: string
+}
+const rows = computed<LiveSourceRow[]>(() =>
+  sources.value.map((s) => ({ ...s, channelCountText: countText(s) }))
+)
+
+const columns: Column<LiveSourceRow>[] = [
+  { key: 'name', label: '名称' },
+  { key: 'url', label: '地址' },
+  { key: 'remark', label: '备注', width: '160px' },
+  { key: 'channelCountText', label: '频道数', width: '120px' },
+  { key: 'sort', label: '排序', width: '80px' }
+]
 
 async function load(): Promise<void> {
   loading.value = true
@@ -323,8 +350,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="jc-livemgr flex min-h-0 flex-col">
-    <header class="jc-livemgr__head">
+  <div class="jc-livemgr flex flex-1 min-h-0 flex-col">
+    <header class="jc-livemgr__head shrink-0">
       <div>
         <h1 class="jc-livemgr__title">直播源</h1>
         <p class="jc-livemgr__desc">维护直播页的 m3u 播放列表源；保存/停用后公开频道列表立即刷新。</p>
@@ -347,49 +374,81 @@ onMounted(async () => {
       </div>
     </header>
 
-    <BaseSkeleton v-if="loading" variant="rect" class="jc-livemgr__skeleton" />
-
-    <div v-else-if="error" class="jc-livemgr__error">
+    <div v-if="error" class="jc-livemgr__error">
       <p>直播源加载失败：{{ error }}</p>
       <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
     </div>
 
-    <div v-else-if="sources.length === 0" class="jc-livemgr__empty">还没有直播源，点击右上角「新增直播源」添加第一个。</div>
-
-    <div v-else class="jc-livemgr__list">
-      <div v-for="s in sources" :key="s.id" class="jc-livemgr__item">
-        <div class="jc-livemgr__info">
-          <div class="jc-livemgr__name">
-            {{ s.name }}
-            <span class="jc-livemgr__badge" :class="s.state === 0 ? 'is-on' : 'is-off'">
-              {{ s.state === 0 ? '启用中' : '已停用' }}
-            </span>
-          </div>
-          <div class="jc-livemgr__url">{{ s.url }}</div>
-          <div v-if="s.remark" class="jc-livemgr__remark">{{ s.remark }}</div>
-        </div>
-        <div class="jc-livemgr__meta">
-          <span class="jc-livemgr__count">
-            <!-- 停用源公开端点 404 是预期, 显示 — 而非"获取失败" -->
-            <template v-if="s.state !== 0">—</template>
-            <template v-else-if="channelCounts[s.id] === undefined">频道数加载中…</template>
-            <template v-else-if="channelCounts[s.id] === null">频道数获取失败</template>
-            <template v-else>{{ channelCounts[s.id] }} 个频道</template>
+    <ManageTable
+      v-else
+      :columns="columns"
+      :rows="rows"
+      row-key="id"
+      :loading="loading"
+      empty="还没有直播源，点击右上角「新增直播源」添加第一个。"
+      actions-width="230px"
+    >
+      <template #cell="{ row, col }">
+        <div v-if="col.key === 'name'" class="flex items-center gap-[var(--jc-space-2)] min-w-0">
+          <span class="truncate font-[var(--jc-fw-medium)]">{{ row.name }}</span>
+          <span class="jc-livemgr__badge shrink-0" :class="row.state === 0 ? 'is-on' : 'is-off'">
+            {{ row.state === 0 ? '启用中' : '已停用' }}
           </span>
-          <span class="jc-livemgr__sort">排序 {{ s.sort }}</span>
         </div>
-        <div class="jc-livemgr__actions">
-          <ManageButton variant="ghost" size="sm" @click="openChannels(s)">频道管理</ManageButton>
-          <ManageButton variant="ghost" size="sm" @click="openEdit(s)">编辑</ManageButton>
-          <ManageButton variant="ghost" size="sm" :disabled="rowBusy" @click="toggleState(s)">
-            {{ s.state === 0 ? '停用' : '启用' }}
+        <span
+          v-else-if="col.key === 'url'"
+          class="text-secondary text-xs truncate block max-w-[340px]"
+          :title="row.url"
+        >{{ row.url }}</span>
+        <span
+          v-else-if="col.key === 'remark'"
+          class="text-secondary text-xs truncate block max-w-[160px]"
+          :title="row.remark"
+        >{{ row.remark || '—' }}</span>
+        <span v-else-if="col.key === 'channelCountText'" class="text-secondary text-xs">{{ row.channelCountText }}</span>
+        <span v-else>{{ row[col.key] }}</span>
+      </template>
+
+      <template #actions="{ row }">
+        <div class="flex gap-[var(--jc-space-1)] justify-end flex-wrap">
+          <ManageButton variant="ghost" size="sm" @click="openChannels(row)">频道管理</ManageButton>
+          <ManageButton variant="ghost" size="sm" @click="openEdit(row)">编辑</ManageButton>
+          <ManageButton variant="ghost" size="sm" :disabled="rowBusy" @click="toggleState(row)">
+            {{ row.state === 0 ? '停用' : '启用' }}
           </ManageButton>
-          <ManageButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="rowBusy" @click="remove(s)">
+          <ManageButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="rowBusy" @click="remove(row)">
             删除
           </ManageButton>
         </div>
-      </div>
-    </div>
+      </template>
+
+      <template #mobile-card="{ row }">
+        <div class="flex flex-col gap-[var(--jc-space-2)]">
+          <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
+            <span class="font-[var(--jc-fw-medium)]">{{ row.name }}</span>
+            <span class="jc-livemgr__badge" :class="row.state === 0 ? 'is-on' : 'is-off'">
+              {{ row.state === 0 ? '启用中' : '已停用' }}
+            </span>
+          </div>
+          <span class="text-secondary text-xs break-all">{{ row.url }}</span>
+          <span v-if="row.remark" class="text-secondary text-xs">{{ row.remark }}</span>
+          <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap text-xs text-secondary">
+            <span>{{ row.channelCountText }}</span>
+            <span>排序 {{ row.sort }}</span>
+          </div>
+          <div class="flex gap-[var(--jc-space-2)] flex-wrap justify-end border-t border-subtle pt-[var(--jc-space-2)]">
+            <ManageButton variant="ghost" size="sm" @click="openChannels(row)">频道管理</ManageButton>
+            <ManageButton variant="ghost" size="sm" @click="openEdit(row)">编辑</ManageButton>
+            <ManageButton variant="ghost" size="sm" :disabled="rowBusy" @click="toggleState(row)">
+              {{ row.state === 0 ? '停用' : '启用' }}
+            </ManageButton>
+            <ManageButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="rowBusy" @click="remove(row)">
+              删除
+            </ManageButton>
+          </div>
+        </div>
+      </template>
+    </ManageTable>
 
     <!-- 频道管理面板(组件式 ManageSheet: 复杂管理面, 非表单弹窗) -->
     <ManageSheet v-model="chOpen" :title="`频道管理 · ${chSource?.name ?? ''}`" width="720px" mobile-mode="fullsheet">

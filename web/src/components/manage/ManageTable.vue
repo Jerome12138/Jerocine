@@ -468,6 +468,8 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
 .jc-table--fit {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .jc-table__scroll {

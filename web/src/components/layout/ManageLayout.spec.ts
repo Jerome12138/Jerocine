@@ -93,6 +93,15 @@ describe('ManageLayout 响应式接入', () => {
     expect(w.find('main .test-slot').exists()).toBe(true)
   })
 
+  it('高度自适应: 根 h-screen+overflow-hidden, main overflow-hidden, 内容层 overflow-y-auto', async () => {
+    const w = await mountLayout()
+    const root = w.find('div.jc-manage').classes()
+    expect(root).toContain('h-screen')
+    expect(root).toContain('overflow-hidden')
+    expect(w.find('main').classes()).toContain('overflow-hidden')
+    expect(w.find('main .jc-manage-main').classes()).toContain('overflow-y-auto')
+  })
+
   it('desktop 模式: ManageSidebar 收到 variant=full', async () => {
     forceMode('desktop')
     const w = await mountLayout()

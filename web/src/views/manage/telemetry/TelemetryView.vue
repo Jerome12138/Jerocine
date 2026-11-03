@@ -198,7 +198,9 @@ watch(statusFilter, () => void loadAll())
     <header class="flex items-center justify-between mb-[var(--jc-space-5)]">
       <h1 class="text-2xl font-[var(--jc-fw-semibold)]">埋点监控</h1>
       <div class="flex items-center gap-[var(--jc-space-3)]">
-        <ManageSelect v-model="days" :options="DAYS_OPTIONS" aria-label="时间范围" class="w-[120px]" />
+        <div class="w-[120px] shrink-0">
+          <ManageSelect v-model="days" :options="DAYS_OPTIONS" aria-label="时间范围" />
+        </div>
         <ManageButton variant="ghost" size="sm" :loading="loading" @click="loadAll()">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </ManageButton>
@@ -251,7 +253,9 @@ watch(statusFilter, () => void loadAll())
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">
           错误 <span class="text-muted text-sm">({{ total || errors.length }})</span>
         </h2>
-        <ManageSelect v-model="statusFilter" :options="STATUS_OPTIONS" aria-label="状态筛选" class="w-[190px]" />
+        <div class="w-[190px] shrink-0">
+          <ManageSelect v-model="statusFilter" :options="STATUS_OPTIONS" aria-label="状态筛选" />
+        </div>
       </header>
       <div class="jc-tm-table">
         <div class="jc-tm-table__head">

@@ -233,7 +233,7 @@ onMounted(load)
 
 <template>
   <!-- 页面根: flex 高度链(.jc-manage-main 提供), 表格 fit 自适应 -->
-  <div class="flex min-h-0 flex-col gap-[var(--jc-space-3)]">
+  <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-3)]">
   <!-- 加载失败: 明确报错 + 重试, 不落到"暂无定时任务"空态 -->
   <div
     v-if="loadError && !loading"
