@@ -10,6 +10,7 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
+import { formatShortDateTime } from '@/utils/format'
 
 const data = ref<DashboardStat | null>(null)
 const loading = ref(true)
@@ -77,9 +78,6 @@ async function loadDaily(days: number): Promise<void> {
   }
 }
 
-function fmtTime(sec: number): string {
-  return new Date(sec * 1000).toLocaleTimeString('zh-CN', { hour12: false })
-}
 function fmtCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
   return String(n)
@@ -164,20 +162,6 @@ function sessionState(s: OnlineSession, historical: boolean): 'watching' | 'onli
   return 'online'
 }
 
-/** 进入/活跃时间: 实时/今日只显时分秒; 近7天(forceDate)强制补日期 MM-DD 以便跨天区分 */
-function fmtDateTime(sec: number, forceDate = false): string {
-  const d = new Date(sec * 1000)
-  const now = new Date()
-  const sameDay =
-    !forceDate &&
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  const t = d.toLocaleTimeString('zh-CN', { hour12: false })
-  if (sameDay) return t
-  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${t}`
-}
-
 const cards = computed(() => {
   if (!data.value) return []
   const d = data.value
@@ -213,7 +197,7 @@ const cards = computed(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--jc-space-6)]">
+  <div class="flex min-h-0 flex-col gap-[var(--jc-space-6)]">
     <header class="flex items-center justify-between">
       <h2 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">仪表盘</h2>
       <button
@@ -479,8 +463,8 @@ const cards = computed(() => {
                   <span v-else>—</span>
                 </td>
                 <td class="py-2 pr-4 text-secondary max-w-[180px] truncate" :title="s.ua">{{ shortUa(s.ua ?? '') }}</td>
-                <td class="py-2 pr-4 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.firstSeen) : fmtDateTime(s.firstSeen, timeFilter === 'week') }}</td>
-                <td class="py-2 tabular-nums text-secondary">{{ timeFilter === 'live' ? fmtTime(s.lastSeen) : fmtDateTime(s.lastSeen, timeFilter === 'week') }}</td>
+                <td class="py-2 pr-4 tabular-nums text-secondary">{{ formatShortDateTime(s.firstSeen * 1000) }}</td>
+                <td class="py-2 tabular-nums text-secondary">{{ formatShortDateTime(s.lastSeen * 1000) }}</td>
               </tr>
             </tbody>
           </table>

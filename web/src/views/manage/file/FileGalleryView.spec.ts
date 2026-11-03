@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import FileGalleryView from './FileGalleryView.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
+import ManageTabs from '@/components/manage/ManageTabs.vue'
 import type { FileItem } from '@/types/manage'
 
 const h = vi.hoisted(() => ({
@@ -76,17 +77,20 @@ describe('FileGalleryView 文件库', () => {
     expect(h.list).toHaveBeenCalledTimes(2)
   })
 
-  it('翻页: 页码随请求提交', async () => {
+  it('翻页: 页码随请求提交(v-model:current 接法, usePagedList 的 current watch 触发加载)', async () => {
     const w = await mountView()
-    w.findComponent(BasePagination).vm.$emit('change', 2)
+    w.findComponent(BasePagination).vm.$emit('update:current', 2)
     await tick()
     expect(h.list).toHaveBeenLastCalledWith({ current: 2 })
   })
 
-  it('类型筛选: 客户端过滤图片/视频, 空类型有独立文案', async () => {
+  it('类型筛选: ManageTabs 页签(aria 语义), 客户端过滤图片/视频, 空类型有独立文案', async () => {
     const w = await mountView()
+    // 页签形态统一: ManageTabs pill(role=tablist/tab + aria-selected)
+    expect(w.find('[role="tablist"]').exists()).toBe(true)
+    expect(w.findComponent(ManageTabs).exists()).toBe(true)
     const pick = (label: string) =>
-      w.findAll('button').find((b) => b.text() === label)!
+      w.findAll('[role="tab"]').find((b) => b.text() === label)!
 
     await pick('视频').trigger('click')
     expect(w.text()).toContain('c.mp4')
@@ -102,7 +106,7 @@ describe('FileGalleryView 文件库', () => {
       page: { total: 1, size: 39, current: 1, pageCount: 1 }
     })
     const w2 = await mountView()
-    await w2.findAll('button').find((b) => b.text() === '视频')!.trigger('click')
+    await w2.findAll('[role="tab"]').find((b) => b.text() === '视频')!.trigger('click')
     expect(w2.text()).toContain('该类型下暂无文件')
     expect(w2.text()).not.toContain('尚无文件')
 
@@ -120,7 +124,8 @@ describe('FileGalleryView 文件库', () => {
       expect.objectContaining({ title: '确认删除？', danger: true, okText: '删除' })
     )
     await tick()
-    expect(h.remove).toHaveBeenCalledWith(1)
+    // silent: 写操作提示收敛到 useAsyncAction 单点(消拦截器+页面双重 toast)
+    expect(h.remove).toHaveBeenCalledWith(1, { silent: true })
     expect(h.list).toHaveBeenCalledTimes(2) // 初始 + 删除后刷新
     expect(h.toast).toHaveBeenCalledWith('success', '已删除')
 
@@ -167,14 +172,14 @@ describe('FileGalleryView 文件库', () => {
       page2 = []
     })
     const w = await mountView()
-    w.findComponent(BasePagination).vm.$emit('change', 2)
+    w.findComponent(BasePagination).vm.$emit('update:current', 2)
     await tick()
     expect(h.list).toHaveBeenLastCalledWith({ current: 2 })
 
     await w.findAll('button').find((b) => b.text() === '删除')!.trigger('click')
     await tick()
     await tick()
-    expect(h.remove).toHaveBeenCalledWith(9)
+    expect(h.remove).toHaveBeenCalledWith(9, { silent: true })
     // 越界的第 2 页被自动回缩回第 1 页重拉
     expect(h.list).toHaveBeenLastCalledWith({ current: 1 })
   })

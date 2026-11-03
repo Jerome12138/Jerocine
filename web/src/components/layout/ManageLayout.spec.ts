@@ -67,6 +67,27 @@ describe('ManageLayout 响应式接入', () => {
     expect(cls).toContain('lg:p-[var(--jc-space-6)]')
   })
 
+  it('main 含高度链类 flex flex-col min-h-0 (表格 fit 依赖)', async () => {
+    const w = await mountLayout()
+    const cls = w.find('main').classes()
+    expect(cls).toContain('flex-col')
+    expect(cls).toContain('min-h-0')
+  })
+
+  it('main 内存在 .jc-manage-main 内容包裹层: 居中封顶 1440px + 高度链', async () => {
+    const w = await mountLayout()
+    const inner = w.find('main .jc-manage-main')
+    expect(inner.exists()).toBe(true)
+    const cls = inner.classes()
+    expect(cls).toContain('mx-auto')
+    expect(cls).toContain('max-w-[var(--jc-content-max-w)]')
+    expect(cls).toContain('min-h-0')
+    expect(cls).toContain('flex-1')
+    expect(cls).toContain('flex-col')
+    // slot 内容落在包裹层内
+    expect(inner.find('.test-slot').exists()).toBe(true)
+  })
+
   it('slot 内容渲染到 main 区', async () => {
     const w = await mountLayout()
     expect(w.find('main .test-slot').exists()).toBe(true)

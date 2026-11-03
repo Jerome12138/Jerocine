@@ -2,7 +2,6 @@
 import { onMounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
 import { toast } from '@/api/http'
-import { confirm } from '@/composables/useConfirm'
 import type { RuntimeSettings, SiteBasic } from '@/types/manage'
 import { useSiteStore } from '@/stores/site'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
@@ -10,6 +9,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 import MailConfigCard from './MailConfigCard.vue'
 import DanmuConfigCard from './DanmuConfigCard.vue'
 
@@ -17,12 +17,14 @@ import DanmuConfigCard from './DanmuConfigCard.vue'
  * 系统设置（原「站点配置」+「邮件与注册」合并）。
  * 卡片式响应式布局: 窄屏 1 列 / 宽屏 2 列, **每张卡恒占一列**(不再有跨列卡片, 避免行内留空、
  * 上下对不齐); 每张卡各自独立保存, 互不影响。
+ *
+ * 写操作口径: useAsyncAction 收敛 busy+toast 单点, 请求传 {silent:true} 关拦截器提示
+ * (成功/失败文案由 run 单点负责); 各卡独立实例, busy 互不影响。
  */
 const siteStore = useSiteStore()
 const loading = ref(true)
 /** 首屏加载失败: 各卡保存禁用 —— 否则空表单/默认值会把库内配置整体覆盖掉 */
 const loadError = ref(false)
-const submitting = ref(false)
 const form = reactive<SiteBasic>({
   siteName: '',
   logo: '',
@@ -33,10 +35,15 @@ const form = reactive<SiteBasic>({
   hint: ''
 })
 
+// ---- 各卡独立 useAsyncAction(busy 分卡互不影响) ----
+const { busy: submitting, run: runSite } = useAsyncAction()
+const { busy: keyBusy, run: runKey } = useAsyncAction()
+const { busy: accountBusy, run: runAccount } = useAsyncAction()
+const { busy: spiderBusy, run: runSpider } = useAsyncAction()
+
 // ---- TMDB 凭据(独立于基础配置保存, 明文永不回传) ----
 const tmdb = reactive({ masked: '', set: false })
 const newKey = ref('')
-const keyBusy = ref(false)
 
 // ---- 运行参数(账号与安全 / 采集性能) ----
 // 两张卡绑同一组草稿字段, 但**各自独立提交**: 保存时用 runtimeSaved(上次落库快照)补齐
@@ -50,8 +57,6 @@ const DEFAULT_RUNTIME: RuntimeSettings = {
 }
 const runtime = reactive<RuntimeSettings>({ ...DEFAULT_RUNTIME })
 let runtimeSaved: RuntimeSettings = { ...DEFAULT_RUNTIME }
-const accountBusy = ref(false)
-const spiderBusy = ref(false)
 
 /** 读 TMDB 掩码状态。初次加载直接复用 getBasic 已取回的响应（省一次同端点请求）；
  *  保存/清除 Key 后不传参，走独立 GET 拿最新状态。 */
@@ -73,37 +78,30 @@ async function saveKey(): Promise<void> {
     toast('error', '请输入 TMDB API Key 或 Read Access Token')
     return
   }
-  keyBusy.value = true
-  try {
-    await manageApi.system.setTMDBKey(key)
-    newKey.value = ''
-    await loadKey()
-    toast('success', 'TMDB Key 已保存, 横图回填即将生效')
-  } catch (e) {
-    toast('error', e instanceof Error ? e.message : '保存失败')
-  } finally {
-    keyBusy.value = false
-  }
+  await runKey({
+    action: async () => {
+      await manageApi.system.setTMDBKey(key, { silent: true })
+      newKey.value = ''
+      await loadKey()
+    },
+    successMsg: 'TMDB Key 已保存, 横图回填即将生效'
+  })
 }
 
 async function clearKey(): Promise<void> {
-  const ok = await confirm({
-    title: '清除 TMDB Key',
-    desc: '清除后横图（backdrop）回填停用，已落地图不受影响。确定清除吗？',
-    okText: '清除',
-    danger: true
+  await runKey({
+    confirm: {
+      title: '清除 TMDB Key',
+      desc: '清除后横图（backdrop）回填停用，已落地图不受影响。确定清除吗？',
+      okText: '清除',
+      danger: true
+    },
+    action: async () => {
+      await manageApi.system.clearTMDBKey({ silent: true })
+      await loadKey()
+    },
+    successMsg: '已清除 TMDB Key, 横图回填已停用'
   })
-  if (!ok) return
-  keyBusy.value = true
-  try {
-    await manageApi.system.clearTMDBKey()
-    await loadKey()
-    toast('success', '已清除 TMDB Key, 横图回填已停用')
-  } catch (e) {
-    toast('error', e instanceof Error ? e.message : '清除失败')
-  } finally {
-    keyBusy.value = false
-  }
 }
 
 async function load(): Promise<void> {
@@ -139,45 +137,39 @@ async function submit(): Promise<void> {
     toast('error', '请填写站点名称')
     return
   }
-  submitting.value = true
-  try {
-    await manageApi.system.updateBasic({ ...form })
-    // 本地映射到共享 store(后端字段 description/state 与页面 describe/state:boolean 不同)
-    siteStore.basic = {
-      id: 1,
-      siteName: form.siteName,
-      domain: form.domain ?? '',
-      logo: form.logo,
-      keyword: form.keyword,
-      description: form.describe,
-      state: form.state ? 0 : 1,
-      hint: form.hint ?? '',
-      updatedAt: Date.now()
-    }
-    toast('success', '站点信息已保存')
-  } catch (e) {
-    toast('error', e instanceof Error ? e.message : '保存失败')
-  } finally {
-    submitting.value = false
-  }
+  await runSite({
+    action: async () => {
+      await manageApi.system.updateBasic({ ...form }, { silent: true })
+      // 本地映射到共享 store(后端字段 description/state 与页面 describe/state:boolean 不同)
+      siteStore.basic = {
+        id: 1,
+        siteName: form.siteName,
+        domain: form.domain ?? '',
+        logo: form.logo,
+        keyword: form.keyword,
+        description: form.describe,
+        state: form.state ? 0 : 1,
+        hint: form.hint ?? '',
+        updatedAt: Date.now()
+      }
+    },
+    successMsg: '站点信息已保存'
+  })
 }
 
 /** 提交运行参数: 只取本卡字段, 其余用上次快照(见 runtimeSaved 注释) */
 async function putRuntime(
   patch: Partial<RuntimeSettings>,
-  busy: typeof accountBusy
+  run: typeof runAccount
 ): Promise<void> {
-  busy.value = true
-  try {
-    const data = await manageApi.system.updateRuntimeSettings({ ...runtimeSaved, ...patch })
-    runtimeSaved = { ...data }
-    // 只更新快照, **不要**把响应整体 assign 回草稿: 另一张卡里未保存的改动会被快照值悄悄冲掉
-    toast('success', '运行参数已保存')
-  } catch (e) {
-    toast('error', e instanceof Error ? e.message : '保存失败')
-  } finally {
-    busy.value = false
-  }
+  await run({
+    action: async () => {
+      const data = await manageApi.system.updateRuntimeSettings({ ...runtimeSaved, ...patch }, { silent: true })
+      // 只更新快照, **不要**把响应整体 assign 回草稿: 另一张卡里未保存的改动会被快照值悄悄冲掉
+      runtimeSaved = { ...data }
+    },
+    successMsg: '运行参数已保存'
+  })
 }
 
 /** 账号与安全(登录有效期 + 设备数上限) */
@@ -195,7 +187,7 @@ async function saveAccount(): Promise<void> {
       authTokenTtlHours: Number(runtime.authTokenTtlHours),
       maxDeviceLogin: Number(runtime.maxDeviceLogin)
     },
-    accountBusy
+    runAccount
   )
 }
 
@@ -217,7 +209,7 @@ async function saveSpider(): Promise<void> {
       spiderMasterMaxWorkers: Number(runtime.spiderMasterMaxWorkers),
       spiderSlaveMaxWorkers: Number(runtime.spiderSlaveMaxWorkers)
     },
-    spiderBusy
+    runSpider
   )
 }
 

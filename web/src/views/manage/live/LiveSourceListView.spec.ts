@@ -1,6 +1,13 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import LiveSourceListView from './LiveSourceListView.vue'
+import LiveSourceFormDialog from './LiveSourceFormDialog.vue'
+import ManageDialogHost from '@/components/manage/ManageDialogHost.vue'
+import {
+  answerManageDialog,
+  manageDialogState,
+  manageDialogHostMounted
+} from '@/composables/useManageDialog'
 import type { LiveChannelManage, LiveSourceManage } from '@/types/live'
 
 const h = vi.hoisted(() => ({
@@ -63,9 +70,16 @@ function channel(over: Partial<LiveChannelManage> = {}): LiveChannelManage {
   }
 }
 
+let host: VueWrapper | null = null
+
 async function mountView() {
   const w = mount(LiveSourceListView, {
-    // BaseDialog Teleport 到 body, stub 掉让弹窗内容内联渲染可查
+    // ManageSheet/Teleport 到 body, stub 掉让弹窗内容内联渲染可查
+    global: { stubs: { teleport: true } }
+  })
+  // 新增/编辑源表单经 openManageDialog 发起: 需挂 Host(共享模块单例)
+  host = mount(ManageDialogHost, {
+    attachTo: document.body,
     global: { stubs: { teleport: true } }
   })
   await flushPromises()
@@ -73,12 +87,29 @@ async function mountView() {
   return w
 }
 
-function btn(w: ReturnType<typeof mount>, text: string) {
-  return w.findAll('button').find((b) => b.text().trim() === text)
+afterEach(async () => {
+  host?.unmount()
+  host = null
+  document.body.innerHTML = ''
+  manageDialogHostMounted.value = false
+  if (manageDialogState.resolve) answerManageDialog({ type: 'close' })
+  manageDialogState.visible = false
+  manageDialogState.title = ''
+  manageDialogState.component = null
+  manageDialogState.props = {}
+  manageDialogState.mobileMode = 'sheet'
+  manageDialogState.width = undefined
+  await flushPromises()
+})
+
+const SILENT = { silent: true }
+
+function btn(w: VueWrapper | null, text: string) {
+  return w!.findAll('button').find((b) => b.text().trim() === text)
 }
 
-function inputByPlaceholder(w: ReturnType<typeof mount>, ph: string) {
-  return w.findAll('input').find((i) => i.attributes('placeholder') === ph)
+function inputByPlaceholder(w: VueWrapper | null, ph: string) {
+  return w!.findAll('input').find((i) => i.attributes('placeholder') === ph)
 }
 
 describe('LiveSourceListView 直播源管理', () => {
@@ -133,7 +164,7 @@ describe('LiveSourceListView 直播源管理', () => {
   it('点击顶栏开关调 updateLiveNav 并翻转状态', async () => {
     const w = await mountView()
     await w.find('[role="switch"]').trigger('click')
-    expect(h.updateLiveNav).toHaveBeenCalledWith(false)
+    expect(h.updateLiveNav).toHaveBeenCalledWith(false, SILENT)
     await flushPromises()
     expect(w.find('[role="switch"]').attributes('aria-checked')).toBe('false')
     expect(w.text()).toContain('顶栏隐藏')
@@ -181,7 +212,7 @@ describe('LiveSourceListView 直播源管理', () => {
     await btn(w, '删除')!.trigger('click')
     await flushPromises()
     await flushPromises()
-    expect(h.deleteLiveSource).toHaveBeenCalledWith(1)
+    expect(h.deleteLiveSource).toHaveBeenCalledWith(1, SILENT)
     expect(h.listLiveSources).toHaveBeenCalledTimes(2) // 初载 + 删除后 load
   })
 
@@ -189,41 +220,58 @@ describe('LiveSourceListView 直播源管理', () => {
     const w = await mountView()
     await btn(w, '停用')!.trigger('click')
     await flushPromises()
-    expect(h.updateLiveSource).toHaveBeenCalledWith(1, {
-      name: '主源',
-      url: 'https://example.com/a.m3u',
-      remark: '',
-      sort: 0,
-      state: 1
-    })
+    expect(h.updateLiveSource).toHaveBeenCalledWith(
+      1,
+      {
+        name: '主源',
+        url: 'https://example.com/a.m3u',
+        remark: '',
+        sort: 0,
+        state: 1
+      },
+      SILENT
+    )
   })
 
-  it('新增源: 校验通过后 createLiveSource, 清空的排序按 0 兜底送出(F10)', async () => {
+  it('新增源(函数化弹窗): 校验通过后 createLiveSource, 清空的排序按 0 兜底送出(F10)', async () => {
     const w = await mountView()
     await btn(w, '新增直播源')!.trigger('click')
-    await inputByPlaceholder(w, '如： IPTV 主源')!.setValue('新源')
-    await inputByPlaceholder(w, 'http(s):// 开头的 .m3u / .m3u8 地址')!.setValue('https://x.example.com/b.m3u')
-    // 排序输入框(type=number)清空 → ManageInput 发出 '' → save 时应按 0 送出而非 ''
-    const sortInput = w.findAll('input').find((i) => i.attributes('type') === 'number')
+    await flushPromises()
+    // 表单经 ManageDialogHost 渲染, 断言与操作走 Host wrapper
+    const dlg = host!.findComponent(LiveSourceFormDialog)
+    expect(dlg.exists(), '新增直播源应经 openManageDialog 发起').toBe(true)
+    await inputByPlaceholder(host, '如： IPTV 主源')!.setValue('新源')
+    await inputByPlaceholder(host, 'http(s):// 开头的 .m3u / .m3u8 地址')!.setValue('https://x.example.com/b.m3u')
+    // 排序输入框(type=number)清空 → ManageInput 发出 undefined → save 时应按 0 送出而非 ''
+    const sortInput = host!.findAll('input').find((i) => i.attributes('type') === 'number')
     expect(sortInput).toBeTruthy()
     await sortInput!.setValue('')
-    await btn(w, '保存')!.trigger('click')
+    await btn(host, '保存')!.trigger('click')
     await flushPromises()
     expect(h.createLiveSource).toHaveBeenCalledTimes(1)
     const payload = h.createLiveSource.mock.calls[0][0]
     expect(payload.sort).toBe(0)
     expect(payload.name).toBe('新源')
     expect(payload.url).toBe('https://x.example.com/b.m3u')
+    expect(h.createLiveSource).toHaveBeenLastCalledWith(expect.anything(), SILENT)
     expect(h.toast).toHaveBeenCalledWith('warning', '排序需为整数，已按 0 处理')
   })
 
-  it('编辑源: 正常整数排序原样送出', async () => {
+  it('编辑源(函数化弹窗回填): 正常整数排序原样送出', async () => {
     h.listLiveSources.mockResolvedValue({ sources: [source({ sort: 7 })] })
     const w = await mountView()
     await btn(w, '编辑')!.trigger('click')
-    await btn(w, '保存')!.trigger('click')
     await flushPromises()
-    expect(h.updateLiveSource).toHaveBeenCalledWith(1, expect.objectContaining({ sort: 7, name: '主源' }))
+    const dlg = host!.findComponent(LiveSourceFormDialog)
+    expect(dlg.exists()).toBe(true)
+    expect(dlg.props('initial')).toMatchObject({ id: 1, name: '主源', sort: 7 })
+    await btn(host, '保存')!.trigger('click')
+    await flushPromises()
+    expect(h.updateLiveSource).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ sort: 7, name: '主源' }),
+      SILENT
+    )
     expect(h.toast).not.toHaveBeenCalledWith('warning', expect.stringContaining('排序'))
   })
 
@@ -403,7 +451,7 @@ describe('LiveSourceListView 直播源管理', () => {
     await btn(w, '隐藏并移除')!.trigger('click')
     await flushPromises()
     await flushPromises()
-    expect(h.deleteLiveChannel).toHaveBeenCalledWith(1, 'http://stream.example.com/1.m3u8')
+    expect(h.deleteLiveChannel).toHaveBeenCalledWith(1, 'http://stream.example.com/1.m3u8', SILENT)
     expect(h.listLiveChannels).toHaveBeenCalledTimes(2) // 打开面板 + 删除后重拉
   })
 })

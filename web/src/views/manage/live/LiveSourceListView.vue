@@ -4,21 +4,29 @@
  * 后端：GET/POST /manage/live-sources，PUT/DELETE /manage/live-sources/:id
  *   GET/PUT/DELETE /manage/live-channels
  * 探源改为端侧执行——服务器无 IPv6 出口导致探测结果不可靠。
+ *
+ * 弹窗口径: 新增/编辑直播源(含独立校验+提交)经 openManageDialog 函数化发起;
+ * 频道面板与一次性小弹窗(自定义频道/改名)保留组件式但迁 ManageSheet(移动端得 sheet
+ * 形态 + ESC 弹层栈)。写操作: useAsyncAction 收敛 —— 源行级共用一实例(替代 rowBusyId
+ * 互斥)、频道操作共用一实例(替代 chSaving 互斥, 保住「任一在途全行禁用」语义),
+ * 请求传 {silent:true}, 文案由 run/业务分支单点。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { manageApi } from '@/api'
 import { toast } from '@/api/http'
-import { confirm } from '@/composables/useConfirm'
 import type { LiveChannelManage, LiveSourceManage } from '@/types/live'
 import BaseButton from '@/components/base/BaseButton.vue'
-import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
+import ManageSheet from '@/components/manage/ManageSheet.vue'
+import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
-import ManageSwitch from '@/components/manage/ManageSwitch.vue'
-import ManageTextarea from '@/components/manage/ManageTextarea.vue'
+import { openManageDialog } from '@/composables/useManageDialog'
+import { useAsyncAction } from '@/composables/useAsyncAction'
+import LiveSourceFormDialog from './LiveSourceFormDialog.vue'
+import type { LiveSourceFormPayload } from './LiveSourceFormDialog.vue'
 
 const loading = ref(true)
 /** 加载失败信息（非空时显示错误态 + 重试，不显示空态文案） */
@@ -34,13 +42,15 @@ async function loadLiveNav(): Promise<void> {
     liveNavOn.value = true // 后端缺字段或异常兜底为开, 与迁移前行为一致
   }
 }
+// 顶栏开关独立实例: 与源行/频道操作互不阻塞
+const { run: runNav } = useAsyncAction()
 async function toggleLiveNav(on: boolean): Promise<void> {
-  try {
-    await manageApi.live.updateLiveNav(on)
-    liveNavOn.value = on
-  } catch {
-    /* 拦截器已 toast */
-  }
+  await runNav({
+    action: async () => {
+      await manageApi.live.updateLiveNav(on, { silent: true })
+      liveNavOn.value = on
+    }
+  })
 }
 const sources = ref<LiveSourceManage[]>([])
 /** 频道数预览（id → 数量；加载中/失败为 null） */
@@ -76,115 +86,63 @@ async function loadCounts(): Promise<void> {
   }
 }
 
-/* ---------- 编辑弹窗 ---------- */
-const dialogOpen = ref(false)
-const saving = ref(false)
-const editingId = ref<number | null>(null) // null = 新增
-const form = reactive({
-  name: '',
-  url: '',
-  remark: '',
-  sort: 0,
-  state: 0
-})
-
-function openCreate(): void {
-  editingId.value = null
-  form.name = ''
-  form.url = ''
-  form.remark = ''
-  form.sort = 0
-  form.state = 0
-  dialogOpen.value = true
+/* ---------- 新增/编辑弹窗(函数化) ---------- */
+async function openCreate(): Promise<void> {
+  const payload = await openManageDialog<LiveSourceFormPayload>({
+    title: '新增直播源',
+    component: LiveSourceFormDialog,
+    mobileMode: 'sheet'
+  })
+  if (!payload) return
+  await load()
 }
 
-function openEdit(s: LiveSourceManage): void {
-  editingId.value = s.id
-  form.name = s.name
-  form.url = s.url
-  form.remark = s.remark
-  form.sort = s.sort
-  form.state = s.state
-  dialogOpen.value = true
+async function openEdit(s: LiveSourceManage): Promise<void> {
+  const payload = await openManageDialog<LiveSourceFormPayload>({
+    title: '编辑直播源',
+    component: LiveSourceFormDialog,
+    props: { initial: s },
+    mobileMode: 'sheet'
+  })
+  if (!payload) return
+  await load()
 }
 
-async function save(): Promise<void> {
-  if (!form.name.trim() || !form.url.trim()) {
-    toast('warning', '名称与地址必填')
-    return
-  }
-  const lu = form.url.trim().toLowerCase()
-  if (!lu.startsWith('http://') && !lu.startsWith('https://')) {
-    toast('warning', '地址需以 http(s):// 开头')
-    return
-  }
-  // v-model.number 在输入框清空后是 ''（非数字原样保留），'' 送后端会绑定 422——按 0 兜底；
-  // 小数静默取整（Go 端 Sort 为 int，1.5 同样 422）
-  const numericSort = typeof form.sort === 'number' && Number.isFinite(form.sort)
-  const sort = numericSort ? Math.trunc(form.sort) : 0
-  if (!numericSort) toast('warning', '排序需为整数，已按 0 处理')
-  saving.value = true
-  try {
-    const payload = { ...form, name: form.name.trim(), url: form.url.trim(), sort }
-    if (editingId.value === null) {
-      await manageApi.live.createLiveSource(payload)
-      toast('success', '直播源已添加')
-    } else {
-      await manageApi.live.updateLiveSource(editingId.value, payload)
-      toast('success', '直播源已保存')
-    }
-    dialogOpen.value = false
-    await load()
-  } catch {
-    /* 拦截器已 toast */
-  } finally {
-    saving.value = false
-  }
-}
-
-/** 行级 in-flight 守卫：停用/启用、删除进行中时禁用该行按钮，防重复提交 */
-const rowBusyId = ref<number | null>(null)
+/** 源行级操作(停用/启用、删除)共享一实例: 互斥防重复提交 */
+const { busy: rowBusy, run: runSource } = useAsyncAction()
 
 async function toggleState(s: LiveSourceManage): Promise<void> {
-  if (rowBusyId.value !== null) return
   const next = s.state === 0 ? 1 : 0
-  rowBusyId.value = s.id
-  try {
-    await manageApi.live.updateLiveSource(s.id, {
-      name: s.name,
-      url: s.url,
-      remark: s.remark,
-      sort: s.sort,
-      state: next
-    })
-    toast('success', next === 0 ? '已启用' : '已停用')
-    await load()
-  } catch {
-    /* 拦截器已 toast */
-  } finally {
-    rowBusyId.value = null
-  }
+  await runSource({
+    action: () =>
+      manageApi.live.updateLiveSource(
+        s.id,
+        {
+          name: s.name,
+          url: s.url,
+          remark: s.remark,
+          sort: s.sort,
+          state: next
+        },
+        { silent: true }
+      ),
+    successMsg: next === 0 ? '已启用' : '已停用',
+    after: () => load()
+  })
 }
 
 async function remove(s: LiveSourceManage): Promise<void> {
-  if (rowBusyId.value !== null) return
-  const ok = await confirm({
-    title: '确认删除直播源？',
-    desc: `「${s.name}」删除后频道列表将一并失效。`,
-    okText: '删除',
-    danger: true
+  await runSource({
+    confirm: {
+      title: '确认删除直播源？',
+      desc: `「${s.name}」删除后频道列表将一并失效。`,
+      okText: '删除',
+      danger: true
+    },
+    action: () => manageApi.live.deleteLiveSource(s.id, { silent: true }),
+    successMsg: '已删除',
+    after: () => load()
   })
-  if (!ok) return
-  rowBusyId.value = s.id
-  try {
-    await manageApi.live.deleteLiveSource(s.id)
-    toast('success', '已删除')
-    await load()
-  } catch {
-    /* 拦截器已 toast */
-  } finally {
-    rowBusyId.value = null
-  }
 }
 
 /* ---------- 频道管理面板（按源打开） ---------- */
@@ -193,7 +151,6 @@ const chSource = ref<LiveSourceManage | null>(null)
 const chLoading = ref(false)
 const chList = ref<LiveChannelManage[]>([])
 const chSearch = ref('')
-const chSaving = ref(false)
 /** 自定义频道新增弹窗 */
 const customOpen = ref(false)
 const customForm = reactive({ name: '', groupName: '', url: '' })
@@ -235,32 +192,35 @@ async function loadChannels(id: number): Promise<void> {
     const resp = await manageApi.live.listLiveChannels(id)
     chList.value = resp.channels
   } catch {
-    /* 拦截器已 toast */
+    /* silent 请求 + run 之外的手拉: 失败由拦截器统一提示 */
   } finally {
     chLoading.value = false
   }
 }
 
+/** 频道操作(开关/改名/自定义/删除)共享一实例: 任一在途全部行按钮禁用, 防重复提交 */
+const { busy: chBusy, run: runCh } = useAsyncAction()
+
 /** 开关：解析频道与自定义频道都走 upsert（hidden 翻转，其余字段保留） */
 async function toggleChannel(c: LiveChannelManage): Promise<void> {
-  if (!chSource.value || chSaving.value) return
-  chSaving.value = true
-  try {
-    await manageApi.live.upsertLiveChannel({
-      sourceId: chSource.value.id,
-      url: c.url,
-      name: c.isCustom ? c.name : undefined,
-      groupName: c.isCustom ? c.group : undefined,
-      hidden: !c.hidden,
-      displayName: c.isCustom ? undefined : c.displayName
-    })
-    c.hidden = !c.hidden
-    toast('success', c.hidden ? '已隐藏' : '已显示')
-  } catch {
-    /* 拦截器已 toast */
-  } finally {
-    chSaving.value = false
-  }
+  if (!chSource.value) return
+  await runCh({
+    action: async () => {
+      await manageApi.live.upsertLiveChannel(
+        {
+          sourceId: chSource.value!.id,
+          url: c.url,
+          name: c.isCustom ? c.name : undefined,
+          groupName: c.isCustom ? c.group : undefined,
+          hidden: !c.hidden,
+          displayName: c.isCustom ? undefined : c.displayName
+        },
+        { silent: true }
+      )
+      c.hidden = !c.hidden
+      toast('success', c.hidden ? '已隐藏' : '已显示')
+    }
+  })
 }
 
 /** 改名（解析频道：display_name 覆盖; 自定义频道：直接改 name） */
@@ -273,32 +233,34 @@ function openRename(c: LiveChannelManage): void {
 async function saveRename(): Promise<void> {
   if (!chSource.value || !renameTarget.value) return
   const name = renameForm.displayName.trim()
-  const isCustom = renameTarget.value.isCustom
+  const target = renameTarget.value
+  const isCustom = target.isCustom
   if (isCustom && !name) {
     toast('warning', '自定义频道名不能为空')
     return
   }
-  chSaving.value = true
-  try {
-    await manageApi.live.upsertLiveChannel({
-      sourceId: chSource.value.id,
-      url: renameTarget.value.url,
-      // upsert 是整行覆盖写：必须带回当前 hidden，否则改名会把已隐藏频道重置为显示
-      hidden: renameTarget.value.hidden,
-      // 自定义频道没有 displayName 语义（服务端要求 name 必填），改名走 name；
-      // groupName 一并带回，避免整行覆盖把分组清空。
-      name: isCustom ? name : undefined,
-      groupName: isCustom ? renameTarget.value.group : undefined,
-      displayName: isCustom ? undefined : name
-    })
-    toast('success', isCustom ? '频道名已保存' : '显示名已保存')
-    renameOpen.value = false
-    await loadChannels(chSource.value.id)
-  } catch {
-    /* 拦截器已 toast */
-  } finally {
-    chSaving.value = false
-  }
+  await runCh({
+    action: () =>
+      manageApi.live.upsertLiveChannel(
+        {
+          sourceId: chSource.value!.id,
+          url: target.url,
+          // upsert 是整行覆盖写：必须带回当前 hidden，否则改名会把已隐藏频道重置为显示
+          hidden: target.hidden,
+          // 自定义频道没有 displayName 语义（服务端要求 name 必填），改名走 name；
+          // groupName 一并带回，避免整行覆盖把分组清空。
+          name: isCustom ? name : undefined,
+          groupName: isCustom ? target.group : undefined,
+          displayName: isCustom ? undefined : name
+        },
+        { silent: true }
+      ),
+    successMsg: isCustom ? '频道名已保存' : '显示名已保存',
+    after: () => {
+      renameOpen.value = false
+      return loadChannels(chSource.value!.id)
+    }
+  })
 }
 
 /** 自定义频道新增 */
@@ -320,44 +282,39 @@ async function saveCustom(): Promise<void> {
     toast('warning', '地址需以 http(s):// 开头')
     return
   }
-  chSaving.value = true
-  try {
-    await manageApi.live.upsertLiveChannel({
-      sourceId: chSource.value.id,
-      url: customForm.url.trim(),
-      name: customForm.name.trim(),
-      groupName: customForm.groupName.trim()
-    })
-    toast('success', '自定义频道已添加')
-    customOpen.value = false
-    await loadChannels(chSource.value.id)
-  } catch {
-    /* 拦截器已 toast */
-  } finally {
-    chSaving.value = false
-  }
+  await runCh({
+    action: () =>
+      manageApi.live.upsertLiveChannel(
+        {
+          sourceId: chSource.value!.id,
+          url: customForm.url.trim(),
+          name: customForm.name.trim(),
+          groupName: customForm.groupName.trim()
+        },
+        { silent: true }
+      ),
+    successMsg: '自定义频道已添加',
+    after: () => {
+      customOpen.value = false
+      return loadChannels(chSource.value!.id)
+    }
+  })
 }
 
 /** 删除频道：自定义物理删 / 解析频道置 hidden（服务端自动分流） */
 async function removeChannel(c: LiveChannelManage): Promise<void> {
-  if (!chSource.value || chSaving.value) return
-  const ok = await confirm({
-    title: c.isCustom ? '确认删除自定义频道？' : '确认隐藏并移除频道？',
-    desc: c.isCustom ? `「${c.name}」将被物理删除。` : `「${c.name}」将从列表移除；源重解析后仍保持隐藏。`,
-    okText: c.isCustom ? '删除' : '隐藏并移除',
-    danger: true
+  if (!chSource.value) return
+  await runCh({
+    confirm: {
+      title: c.isCustom ? '确认删除自定义频道？' : '确认隐藏并移除频道？',
+      desc: c.isCustom ? `「${c.name}」将被物理删除。` : `「${c.name}」将从列表移除；源重解析后仍保持隐藏。`,
+      okText: c.isCustom ? '删除' : '隐藏并移除',
+      danger: true
+    },
+    action: () => manageApi.live.deleteLiveChannel(chSource.value!.id, c.url, { silent: true }),
+    successMsg: '已删除',
+    after: () => loadChannels(chSource.value!.id)
   })
-  if (!ok) return
-  chSaving.value = true
-  try {
-    await manageApi.live.deleteLiveChannel(chSource.value.id, c.url)
-    toast('success', '已删除')
-    await loadChannels(chSource.value.id)
-  } catch {
-    /* 拦截器已 toast */
-  } finally {
-    chSaving.value = false
-  }
 }
 
 onMounted(async () => {
@@ -366,7 +323,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="jc-livemgr">
+  <div class="jc-livemgr flex min-h-0 flex-col">
     <header class="jc-livemgr__head">
       <div>
         <h1 class="jc-livemgr__title">直播源</h1>
@@ -424,45 +381,18 @@ onMounted(async () => {
         <div class="jc-livemgr__actions">
           <BaseButton variant="ghost" size="sm" @click="openChannels(s)">频道管理</BaseButton>
           <BaseButton variant="ghost" size="sm" @click="openEdit(s)">编辑</BaseButton>
-          <BaseButton variant="ghost" size="sm" :disabled="rowBusyId === s.id" @click="toggleState(s)">
+          <BaseButton variant="ghost" size="sm" :disabled="rowBusy" @click="toggleState(s)">
             {{ s.state === 0 ? '停用' : '启用' }}
           </BaseButton>
-          <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="rowBusyId === s.id" @click="remove(s)">
+          <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="rowBusy" @click="remove(s)">
             删除
           </BaseButton>
         </div>
       </div>
     </div>
 
-    <BaseDialog v-model:visible="dialogOpen" :title="editingId === null ? '新增直播源' : '编辑直播源'" width="480px">
-      <div class="jc-livemgr__form">
-        <ManageFormField label="名称" required>
-          <ManageInput v-model="form.name" placeholder="如： IPTV 主源" :maxlength="64" />
-        </ManageFormField>
-        <ManageFormField label="m3u 播放列表地址" required>
-          <ManageInput v-model="form.url" placeholder="http(s):// 开头的 .m3u / .m3u8 地址" :maxlength="1024" />
-        </ManageFormField>
-        <ManageFormField label="备注">
-          <ManageTextarea v-model="form.remark" placeholder="可选；记录来源/更新方式等" :maxlength="255" />
-        </ManageFormField>
-        <ManageFormField label="排序" hint="越小越靠前">
-          <ManageInput v-model.number="form.sort" type="number" />
-        </ManageFormField>
-        <ManageFormField label="状态">
-          <label class="jc-livemgr__switch">
-            <input v-model.number="form.state" type="checkbox" :true-value="0" :false-value="1" />
-            <span>{{ form.state === 0 ? '启用' : '停用' }}</span>
-          </label>
-        </ManageFormField>
-      </div>
-      <template #footer>
-        <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>
-        <BaseButton variant="gradient" :loading="saving" @click="save">保存</BaseButton>
-      </template>
-    </BaseDialog>
-
-    <!-- 频道管理面板 -->
-    <BaseDialog v-model:visible="chOpen" :title="`频道管理 · ${chSource?.name ?? ''}`" width="720px">
+    <!-- 频道管理面板(组件式 ManageSheet: 复杂管理面, 非表单弹窗) -->
+    <ManageSheet v-model="chOpen" :title="`频道管理 · ${chSource?.name ?? ''}`" width="720px" mobile-mode="fullsheet">
       <div class="jc-chmgr">
         <div class="jc-chmgr__toolbar">
           <ManageInput v-model="chSearch" placeholder="搜索频道名/分组/地址" class="jc-chmgr__search" />
@@ -490,11 +420,11 @@ onMounted(async () => {
                 <div class="jc-chmgr__url">{{ c.url }}</div>
               </div>
               <div class="jc-chmgr__actions">
-                <BaseButton variant="ghost" size="sm" :disabled="chSaving" @click="toggleChannel(c)">
+                <BaseButton variant="ghost" size="sm" :disabled="chBusy" @click="toggleChannel(c)">
                   {{ c.hidden ? '显示' : '隐藏' }}
                 </BaseButton>
-                <BaseButton variant="ghost" size="sm" :disabled="chSaving" @click="openRename(c)">改名</BaseButton>
-                <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="chSaving" @click="removeChannel(c)">
+                <BaseButton variant="ghost" size="sm" :disabled="chBusy" @click="openRename(c)">改名</BaseButton>
+                <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="chBusy" @click="removeChannel(c)">
                   {{ c.isCustom ? '删除' : '隐藏并移除' }}
                 </BaseButton>
               </div>
@@ -514,11 +444,11 @@ onMounted(async () => {
       <template #footer>
         <BaseButton variant="ghost" @click="chOpen = false">关闭</BaseButton>
       </template>
-    </BaseDialog>
+    </ManageSheet>
 
-    <!-- 自定义频道新增 -->
-    <BaseDialog v-model:visible="customOpen" title="添加自定义频道" width="480px">
-      <div class="jc-livemgr__form">
+    <!-- 自定义频道新增(一次性内联小弹窗 → 组件式 ManageSheet) -->
+    <ManageSheet v-model="customOpen" title="添加自定义频道" width="480px">
+      <div class="flex flex-col gap-[var(--jc-space-3)]">
         <ManageFormField label="频道名" required>
           <ManageInput v-model="customForm.name" placeholder="如：CCTV-1 综合" :maxlength="255" />
         </ManageFormField>
@@ -531,17 +461,17 @@ onMounted(async () => {
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="customOpen = false">取消</BaseButton>
-        <BaseButton variant="gradient" :loading="chSaving" @click="saveCustom">添加</BaseButton>
+        <BaseButton variant="gradient" :loading="chBusy" @click="saveCustom">添加</BaseButton>
       </template>
-    </BaseDialog>
+    </ManageSheet>
 
     <!-- 频道改名（解析频道 display_name 覆盖; 自定义频道改 name） -->
-    <BaseDialog
-      v-model:visible="renameOpen"
+    <ManageSheet
+      v-model="renameOpen"
       :title="renameTarget?.isCustom ? `改名 · ${renameTarget?.name ?? ''}` : `显示名 · ${renameTarget?.name ?? ''}`"
       width="420px"
     >
-      <div class="jc-livemgr__form">
+      <div class="flex flex-col gap-[var(--jc-space-3)]">
         <ManageFormField
           :label="renameTarget?.isCustom ? '频道名' : '显示名'"
           :hint="renameTarget?.isCustom ? '' : '留空 = 恢复解析名'"
@@ -552,9 +482,9 @@ onMounted(async () => {
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="renameOpen = false">取消</BaseButton>
-        <BaseButton variant="gradient" :loading="chSaving" @click="saveRename">保存</BaseButton>
+        <BaseButton variant="gradient" :loading="chBusy" @click="saveRename">保存</BaseButton>
       </template>
-    </BaseDialog>
+    </ManageSheet>
   </div>
 </template>
 
@@ -658,17 +588,6 @@ onMounted(async () => {
 }
 .jc-livemgr__danger {
   color: var(--jc-danger, #ef4444);
-}
-.jc-livemgr__form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--jc-space-3);
-}
-.jc-livemgr__switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
 }
 
 /* ---------- 频道管理面板 ---------- */

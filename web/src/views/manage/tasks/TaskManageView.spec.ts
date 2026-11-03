@@ -259,6 +259,29 @@ describe('TaskManageView 任务管理', () => {
     expect(h.spiderJobCancel).not.toHaveBeenCalled()
     w.unmount()
   })
+
+  it('页签 ManageTabs(underline): role=tablist/tab + jc-tabs--underline; 筛选下拉 ManageSelect 化(补 TV 聚焦)', async () => {
+    h.runs.mockResolvedValue({ list: [run()], page: page(40) })
+    const w = await mountView()
+    const tablist = w.find('[role="tablist"]')
+    expect(tablist.exists()).toBe(true)
+    expect(tablist.classes()).toContain('jc-tabs--underline')
+    const tabs = w.findAll('[role="tab"]')
+    expect(tabs).toHaveLength(3)
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+    for (const t of tabs) expect(t.attributes('data-focusable')).toBe('true')
+
+    await gotoTab(w, '历史记录')
+    // 两处筛选下拉: data-focusable(TV 聚焦缺口修复) + aria-label
+    const selects = w.findAll('select')
+    expect(selects[0]!.attributes('data-focusable')).toBe('true')
+    expect(selects[0]!.attributes('aria-label')).toBe('状态')
+    expect(selects[1]!.attributes('aria-label')).toBe('类型')
+    // 内置分页: 表格 fit + footer 分页条
+    expect(w.find('section').classes()).toContain('jc-table--fit')
+    expect(w.find('footer').exists()).toBe(true)
+    w.unmount()
+  })
 })
 
 describe('TaskManageView 轮询', () => {

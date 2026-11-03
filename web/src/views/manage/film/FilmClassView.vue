@@ -1,33 +1,21 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { FilmClass } from '@/types/manage'
-import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
-import ManageFormField from '@/components/manage/ManageFormField.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
-import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
-import { confirm } from '@/composables/useConfirm'
-import { toast } from '@/api/http'
+import { useAsyncAction } from '@/composables/useAsyncAction'
+import { openManageDialog } from '@/composables/useManageDialog'
+import FilmClassFormDialog from './FilmClassFormDialog.vue'
 
 const tree = ref<FilmClass[]>([])
 const loading = ref(true)
 const loadError = ref('')
-const dialogOpen = ref(false)
-const submitting = ref(false)
-const editing = ref<FilmClass | null>(null)
-const form = reactive<FilmClass>({
-  id: 0,
-  pid: 0,
-  name: '',
-  show: true,
-  sidebarShow: true,
-  filmVisible: true,
-  sort: 0
-})
+
+const { run } = useAsyncAction()
 
 async function load(): Promise<void> {
   loading.value = true
@@ -42,28 +30,33 @@ async function load(): Promise<void> {
   }
 }
 
-// 新增时记录目标父级名(空 = 新增顶级)
-const addingUnder = ref<string>('')
+// ---- 弹窗: openManageDialog 函数化发起, 表单校验/提交自治于 FilmClassFormDialog ----
+
+async function openDialog(options: {
+  title: string
+  initial: FilmClass | null
+  pid?: number
+}): Promise<void> {
+  const payload = await openManageDialog<FilmClass>({
+    title: options.title,
+    component: FilmClassFormDialog,
+    props: { initial: options.initial, pid: options.pid },
+    mobileMode: 'sheet'
+  })
+  // null = 取消/ESC/遮罩; confirm = 保存成功(弹窗内已落库), 页面重拉树
+  if (payload) await load()
+}
 
 function openEdit(node: FilmClass): void {
-  editing.value = node
-  addingUnder.value = ''
-  Object.assign(form, { ...node })
-  dialogOpen.value = true
+  void openDialog({ title: '编辑分类', initial: node })
 }
 
 function openAddTop(): void {
-  editing.value = null
-  addingUnder.value = ''
-  Object.assign(form, { id: 0, pid: 0, name: '', show: true, sidebarShow: true, filmVisible: true, sort: 0 })
-  dialogOpen.value = true
+  void openDialog({ title: '新增顶级分类', initial: null })
 }
 
 function openAddChild(parent: FilmClass): void {
-  editing.value = null
-  addingUnder.value = parent.name
-  Object.assign(form, { id: 0, pid: parent.id, name: '', show: true, sidebarShow: true, filmVisible: true, sort: 0 })
-  dialogOpen.value = true
+  void openDialog({ title: `在「${parent.name}」下新增子分类`, initial: null, pid: parent.id })
 }
 
 // toggleHelper: 在 tree ref 里按 id 找到节点并就地更新字段(避免全页重载)。
@@ -79,54 +72,63 @@ function updateNodeById(id: number, patch: Partial<FilmClass>): boolean {
   return walk(tree.value)
 }
 
-async function toggleShow(node: FilmClass): Promise<void> {
-  const next = !node.show
-  updateNodeById(node.id, { show: next })
-  try {
-    await manageApi.film.classUpdate({ ...node, show: next })
-  } catch {
-    // 拦截器已 toast 失败原因; 回滚乐观更新, 不与服务端真实状态漂移
-    updateNodeById(node.id, { show: !next })
-  }
+/** 开关写操作统一走 useAsyncAction: silent 关拦截器双响, 失败 toast 由 run 单点;
+ *  成功不弹 toast(开关视觉翻转即反馈)。乐观更新在 action 内, 失败回滚后 rethrow。 */
+function toggleAction(node: FilmClass, patch: Partial<FilmClass>, rollback: Partial<FilmClass>): void {
+  void run({
+    action: async () => {
+      updateNodeById(node.id, patch)
+      try {
+        await manageApi.film.classUpdate({ ...node, ...patch }, { silent: true })
+      } catch (e) {
+        // 回滚乐观更新, 不与服务端真实状态漂移
+        updateNodeById(node.id, rollback)
+        throw e
+      }
+    }
+  })
 }
 
-async function toggleSidebarShow(node: FilmClass): Promise<void> {
-  const next = !node.sidebarShow
-  updateNodeById(node.id, { sidebarShow: next })
-  try {
-    await manageApi.film.classUpdate({ ...node, sidebarShow: next })
-  } catch {
-    updateNodeById(node.id, { sidebarShow: !next })
-  }
+function toggleShow(node: FilmClass): void {
+  toggleAction(node, { show: !node.show }, { show: node.show })
+}
+
+function toggleSidebarShow(node: FilmClass): void {
+  toggleAction(node, { sidebarShow: !node.sidebarShow }, { sidebarShow: node.sidebarShow })
 }
 
 /** 影片可见开关: 关闭 = 该分类影片从公开列表/搜索全部剔除。
  *  服务端强制联动(000037 迁移: film_visible=false 时节点+子孙 show/sidebarShow 一并置 false);
  *  前端同步级联更新视觉(本地 tree ref 就地改, 避免重拉整棵树)。 */
-async function toggleFilmVisible(node: FilmClass): Promise<void> {
+function toggleFilmVisible(node: FilmClass): void {
   const next = !node.filmVisible
   // 记录子级原值: 失败时连同级联视觉一起回滚
   const cascaded = !next && node.children?.length
     ? node.children.map((c) => ({ id: c.id, show: c.show, sidebarShow: c.sidebarShow }))
     : []
-  updateNodeById(node.id, { filmVisible: next })
-  if (cascaded.length) {
-    for (const c of cascaded) {
-      updateNodeById(c.id, { show: false, sidebarShow: false })
+  void run({
+    action: async () => {
+      updateNodeById(node.id, { filmVisible: next })
+      if (cascaded.length) {
+        for (const c of cascaded) {
+          updateNodeById(c.id, { show: false, sidebarShow: false })
+        }
+      }
+      // API 只发本节点: 关 → 子孙 show/sidebarShow 的级联落库由服务端 cascadeHideDescendants
+      // 兜底(子级 filmVisible 不动, 顶级恢复可见时子级行为不突变); 开 → 只本节点恢复,
+      // 子孙两开关保持 false 由用户手动逐个开。保存后服务端 InvalidateCategory, 下次
+      // load() 即最新值 —— 前端不重复发子级请求(级联 API 由服务端单点负责, 避免双份写)。
+      try {
+        await manageApi.film.classUpdate({ ...node, filmVisible: next }, { silent: true })
+      } catch (e) {
+        updateNodeById(node.id, { filmVisible: !next })
+        for (const c of cascaded) {
+          updateNodeById(c.id, { show: c.show, sidebarShow: c.sidebarShow })
+        }
+        throw e
+      }
     }
-  }
-  // API 只发本节点: 关 → 子孙 show/sidebarShow 的级联落库由服务端 cascadeHideDescendants
-  // 兜底(子级 filmVisible 不动, 顶级恢复可见时子级行为不突变); 开 → 只本节点恢复,
-  // 子孙两开关保持 false 由用户手动逐个开。保存后服务端 InvalidateCategory, 下次
-  // load() 即最新值 —— 前端不重复发子级请求(级联 API 由服务端单点负责, 避免双份写)。
-  try {
-    await manageApi.film.classUpdate({ ...node, filmVisible: next })
-  } catch {
-    updateNodeById(node.id, { filmVisible: !next })
-    for (const c of cascaded) {
-      updateNodeById(c.id, { show: c.show, sidebarShow: c.sidebarShow })
-    }
-  }
+  })
 }
 
 /** 影片数展示: 缺省(计数失败)显示 — */
@@ -134,45 +136,18 @@ function filmCountLabel(node: FilmClass): string {
   return typeof node.filmCount === 'number' ? `${node.filmCount} 部` : '—'
 }
 
-async function submit(): Promise<void> {
-  if (submitting.value) return
-  const name = form.name.trim()
-  if (!name) {
-    toast('error', '请填写分类名称')
-    return
-  }
-  submitting.value = true
-  try {
-    await manageApi.film.classUpdate({
-      ...form,
-      name,
-      // number input 清空后是空串, 原样上送服务端 int 绑定会 422 invalid body → 归一 0
-      sort: Number(form.sort) || 0
-    })
-    dialogOpen.value = false
-    await load()
-  } catch {
-    // 拦截器已 toast 失败原因; 弹窗停留供用户修正
-  } finally {
-    submitting.value = false
-  }
-}
-
-async function remove(node: FilmClass): Promise<void> {
-  const ok = await confirm({
-    title: '确认删除分类？',
-    desc: `「${node.name}」及其全部子分类将被永久删除`,
-    okText: '删除',
-    danger: true
+function remove(node: FilmClass): void {
+  void run({
+    confirm: {
+      title: '确认删除分类？',
+      desc: `「${node.name}」及其全部子分类将被永久删除`,
+      okText: '删除',
+      danger: true
+    },
+    action: () => manageApi.film.classDel(node.id, { silent: true }),
+    successMsg: '已删除',
+    after: () => load()
   })
-  if (!ok) return
-  try {
-    // 服务端同事务级联删直接子分类(000039 起 DeleteCategory), 与文案一致
-    await manageApi.film.classDel(node.id)
-    await load()
-  } catch {
-    // 拦截器已 toast 失败原因
-  }
 }
 
 onMounted(() => {
@@ -333,42 +308,6 @@ onMounted(() => {
       </article>
     </div>
   </section>
-
-  <ManageSheet
-    v-model="dialogOpen"
-    :title="editing ? '编辑分类' : addingUnder ? `在「${addingUnder}」下新增子分类` : '新增顶级分类'"
-    mobile-mode="sheet"
-  >
-    <div class="flex flex-col gap-[var(--jc-space-4)]">
-      <ManageFormField label="名称" required>
-        <ManageInput v-model="form.name" placeholder="例如：动作片" />
-      </ManageFormField>
-      <ManageFormField label="排序" hint="数字越小越靠前">
-        <ManageInput v-model="form.sort!" type="number" />
-      </ManageFormField>
-      <ManageFormField
-        v-if="form.pid === 0"
-        label="顶栏显示"
-        hint="控制 web/TV 顶部一级导航是否显示该分类; 隐藏后影片仍可搜索、在列表看到"
-      >
-        <!-- filmVisible=false 时置灰: 服务端会强制级联置 false, 表单与行内开关口径一致 -->
-        <ManageSwitch v-model="form.show" :disabled="!form.filmVisible" />
-      </ManageFormField>
-      <ManageFormField label="侧边栏显示" hint="控制桌面常驻侧栏 + 移动抽屉中该分类的显隐（一级+二级各自独立）">
-        <ManageSwitch v-model="form.sidebarShow" :disabled="!form.filmVisible" />
-      </ManageFormField>
-      <ManageFormField
-        label="影片可见"
-        hint="关闭 = 该分类(含子分类)影片从公开列表与搜索全部剔除；详情直链仍可达; 关闭后侧边栏/顶栏开关会被强制禁用"
-      >
-        <ManageSwitch v-model="form.filmVisible" />
-      </ManageFormField>
-    </div>
-    <template #footer>
-      <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>
-      <BaseButton variant="gradient" :loading="submitting" @click="submit">保存</BaseButton>
-    </template>
-  </ManageSheet>
 </template>
 
 <style scoped>

@@ -68,7 +68,7 @@ describe('DanmuConfigCard 弹幕服务卡', () => {
     await w.findAll('input[type="checkbox"]')[0].setValue(true) // bilibili
     await w.findAll('button').find((b) => b.text() === '保存')!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 1, providers: ['bilibili'] })
+    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 1, providers: ['bilibili'] }, { silent: true })
     expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('已保存'))
     // 响应回填: 勾选状态与开关一致
     expect(w.findAll('input[type="checkbox"]')[0].element as HTMLInputElement).toBeTruthy()
@@ -93,7 +93,7 @@ describe('DanmuConfigCard 弹幕服务卡', () => {
     const w = await mountCard()
     await w.findAll('button').find((b) => b.text() === '保存')!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 0, providers: [] })
+    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 0, providers: [] }, { silent: true })
     expect(h.toast).not.toHaveBeenCalledWith('error', expect.stringContaining('至少勾选'))
   })
 
@@ -108,7 +108,7 @@ describe('DanmuConfigCard 弹幕服务卡', () => {
     await boxes[1].setValue(false) // 取消 tencent
     await w.findAll('button').find((b) => b.text() === '保存')!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 1, providers: ['bilibili'] })
+    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 1, providers: ['bilibili'] }, { silent: true })
   })
 
   it('重置: 只重拉本卡配置(getDanmuConfig), 不发保存请求', async () => {

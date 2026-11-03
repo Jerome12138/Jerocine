@@ -7,10 +7,16 @@ import type { CollectFailure, TaskOverview, TaskRun } from '@/types/manage'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
-import BasePagination from '@/components/base/BasePagination.vue'
 import ManageTable, { type Column } from '@/components/manage/ManageTable.vue'
-import { confirm } from '@/composables/useConfirm'
+import ManageTabs from '@/components/manage/ManageTabs.vue'
+import type { TabItem } from '@/components/manage/ManageTabs.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
+import StatusTag from '@/components/manage/StatusTag.vue'
+import type { StatusMap } from '@/components/manage/StatusTag.vue'
+import { usePagedList } from '@/composables/usePagedList'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 import { toast } from '@/api/http'
+import { formatDateTime } from '@/utils/format'
 
 /**
  * 任务管理: 统一展示全部定时/手动任务。
@@ -20,12 +26,27 @@ import { toast } from '@/api/http'
  *   (重跑是后台受理: 榜单刷新实测 1-2 分钟, 服务端登记台账后即返回 202, 结果看历史)
  * - 失败记录: 页级失败台账(待补采, 分页) + 补采全部/单条
  *
- * 提示口径: 写操作传 { silent: true } 自管提示(拦截器的通用"操作成功"/错误 toast 会与
- * 页面差异化文案叠两条); 后台轮询用的读接口也 silent, 失败只降级页内状态不刷 toast。
+ * 提示口径: 写操作经 useAsyncAction 单点提示 + { silent: true }(拦截器的通用提示关闭,
+ * 页面差异化文案不与拦截器叠两条); 后台轮询用的读接口也 silent, 失败只降级页内状态不刷 toast。
  */
 type TabKey = 'running' | 'history' | 'failures'
 
 const activeTab = ref<TabKey>('running')
+
+// 状态词汇表 → StatusTag(替代 jobStateVariant/Text 等自写映射)
+const JOB_STATE_MAP: StatusMap = {
+  running: { label: '采集中', variant: 'brand' },
+  paused: { label: '已暂停', variant: 'warning' },
+  done: { label: '已完成', variant: 'success' },
+  error: { label: '失败', variant: 'danger' },
+  canceled: { label: '已取消', variant: 'danger' }
+}
+const RUN_STATUS_MAP: StatusMap = {
+  running: { label: '运行中', variant: 'brand' },
+  success: { label: '成功', variant: 'success' },
+  failed: { label: '失败', variant: 'danger' },
+  canceled: { label: '已取消', variant: 'warning' }
+}
 
 // ---- 统计卡 ----
 const ov = ref<TaskOverview>({ running: 0, todaySuccess: 0, todayFailed: 0, pendingFailures: 0 })
@@ -35,28 +56,56 @@ const jobs = ref<SpiderJob[]>([])
 const jobsLoading = ref(false)
 const jobsError = ref('') // 列表加载失败: 页内错误态+重试, 不伪装成"暂无任务"
 
-// ---- 历史台账 ----
-const runs = ref<TaskRun[]>([])
-const runsLoading = ref(false)
+// ---- 历史台账(usePagedList: 筛选 runStatus/runType 闭包捕获, elapsedMs 派生在 fetch 映射) ----
 const runStatus = ref('')
 const runType = ref('')
-const runPage = ref(1)
-const runTotal = ref(0)
 const RUN_SIZE = 20
 
 interface RunRow extends TaskRun {
   elapsedMs: number
 }
-const runRows = computed<RunRow[]>(() =>
-  runs.value.map((r) => ({ ...r, elapsedMs: Math.max(0, r.endedAt - r.startedAt) }))
-)
 
-// ---- 失败台账(待补采) ----
-const failures = ref<CollectFailure[]>([])
-const failTotal = ref(0)
-const failPage = ref(1)
+const {
+  rows: runRows,
+  total: runTotal,
+  current: runPage,
+  pageSize: runPageSize,
+  loading: runsLoading,
+  search: searchRuns,
+  load: loadRuns
+} = usePagedList<RunRow>({
+  fetch: async (page, size) => {
+    const resp = await tasksApi.runs({
+      status: runStatus.value || undefined,
+      type: runType.value || undefined,
+      page,
+      size
+    })
+    return {
+      list: (resp?.list ?? []).map((r) => ({ ...r, elapsedMs: Math.max(0, r.endedAt - r.startedAt) })),
+      total: resp?.page?.total ?? 0
+    }
+  },
+  immediate: false
+})
+
+// ---- 失败台账(待补采, usePagedList; 本页只看待补采 status=0) ----
 const FAIL_SIZE = 20 // 与补采中心页(/manage/collect/failures)对齐
-const failBusy = ref(false)
+const {
+  rows: failures,
+  total: failTotal,
+  current: failPage,
+  pageSize: failPageSize,
+  load: loadFailures
+} = usePagedList<CollectFailure>({
+  fetch: async (page, size) => {
+    const resp = await collectApi.failures({ status: 0, page, size }, { silent: true })
+    return { list: resp?.list ?? [], total: resp?.page?.total ?? 0 }
+  },
+  pageSize: FAIL_SIZE,
+  immediate: false
+})
+
 const sourceNames = ref<Record<string, string>>({})
 
 const POLL_ACTIVE_MS = 5000
@@ -65,7 +114,7 @@ let timer: number | undefined
 
 const hasActive = (): boolean =>
   jobs.value.some((j) => j.state === 'running' || j.state === 'paused') ||
-  runs.value.some((r) => r.status === 'running')
+  runRows.value.some((r) => r.status === 'running')
 
 async function loadOverview(): Promise<void> {
   try {
@@ -85,37 +134,6 @@ async function loadJobs(): Promise<void> {
     jobsError.value = (e as Error)?.message ?? '加载运行中任务失败'
   } finally {
     jobsLoading.value = false
-  }
-}
-
-async function loadRuns(): Promise<void> {
-  runsLoading.value = true
-  try {
-    const resp = await tasksApi.runs({
-      status: runStatus.value || undefined,
-      type: runType.value || undefined,
-      page: runPage.value,
-      size: RUN_SIZE
-    })
-    runs.value = resp?.list ?? []
-    runTotal.value = resp?.page?.total ?? 0
-  } catch {
-    /* 错误提示由 http 拦截器全局弹, 这里不重复 */
-  } finally {
-    runsLoading.value = false
-  }
-}
-
-async function loadFailures(): Promise<void> {
-  try {
-    const resp = await collectApi.failures(
-      { status: 0, page: failPage.value, size: FAIL_SIZE },
-      { silent: true }
-    )
-    failures.value = resp?.list ?? []
-    failTotal.value = resp?.page?.total ?? 0
-  } catch {
-    /* 失败台账加载失败不阻塞 */
   }
 }
 
@@ -166,79 +184,52 @@ onMounted(() => {
 
 onBeforeUnmount(stopPoll)
 
-// ---- 运行中 job 操作 ----
-// 卡片级防连点: 操作请求在途时禁用该卡片全部按钮(双击重跑会登记两条台账,
-// 第二条被服务端判同源冲突记成 canceled 垃圾行)
-const busyId = ref('')
+// ---- 写操作: useAsyncAction 单点提示(busy 防连点, silent 关拦截器提示) ----
+const { busy, run } = useAsyncAction()
 
 async function pause(id: string): Promise<void> {
-  if (busyId.value) return
-  busyId.value = id
-  try {
-    await collectApi.spiderJobPause(id, { silent: true })
-    toast('success', '已暂停')
-    void loadJobs()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '暂停失败')
-  } finally {
-    busyId.value = ''
-  }
+  await run({
+    action: () => collectApi.spiderJobPause(id, { silent: true }),
+    successMsg: '已暂停',
+    after: loadJobs
+  })
 }
 
 async function resume(id: string): Promise<void> {
-  if (busyId.value) return
-  busyId.value = id
-  try {
-    await collectApi.spiderJobResume(id, { silent: true })
-    toast('success', '已继续')
-    void loadJobs()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '继续失败')
-  } finally {
-    busyId.value = ''
-  }
+  await run({
+    action: () => collectApi.spiderJobResume(id, { silent: true }),
+    successMsg: '已继续',
+    after: loadJobs
+  })
 }
 
 async function cancelJob(j: SpiderJob): Promise<void> {
-  const ok = await confirm({
-    title: '取消采集任务',
-    desc: `确认取消 [${j.sourceName}] 的采集? 已完成的页面会保留, 未完成的页面会丢弃.`
+  await run({
+    confirm: {
+      title: '取消采集任务',
+      desc: `确认取消 [${j.sourceName}] 的采集? 已完成的页面会保留, 未完成的页面会丢弃.`
+    },
+    action: () => collectApi.spiderJobCancel(j.sourceId, { silent: true }),
+    successMsg: '已取消',
+    after: loadJobs
   })
-  if (!ok) return
-  if (busyId.value) return
-  busyId.value = j.sourceId
-  try {
-    await collectApi.spiderJobCancel(j.sourceId, { silent: true })
-    toast('success', '已取消')
-    void loadJobs()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '取消失败')
-  } finally {
-    busyId.value = ''
-  }
 }
 
 /** 重跑一个已失败的采集 job: 按原时长(hour)重新触发同源采集 */
 async function rerunJob(j: SpiderJob): Promise<void> {
-  const ok = await confirm({
-    title: '重跑采集任务',
-    desc: `重新采集 [${j.sourceName}]? 时长 ${j.hour > 0 ? `近 ${j.hour}h` : '全量'}.`
+  await run({
+    confirm: {
+      title: '重跑采集任务',
+      desc: `重新采集 [${j.sourceName}]? 时长 ${j.hour > 0 ? `近 ${j.hour}h` : '全量'}.`
+    },
+    action: () =>
+      collectApi.startSpider(
+        { id: j.sourceId, ids: [], time: j.hour > 0 ? j.hour : -1, batch: false },
+        { silent: true }
+      ),
+    successMsg: '已重新触发',
+    after: loadJobs
   })
-  if (!ok) return
-  if (busyId.value) return
-  busyId.value = j.sourceId
-  try {
-    await collectApi.startSpider(
-      { id: j.sourceId, ids: [], time: j.hour > 0 ? j.hour : -1, batch: false },
-      { silent: true }
-    )
-    toast('success', '已重新触发')
-    void loadJobs()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '重跑失败')
-  } finally {
-    busyId.value = ''
-  }
 }
 
 // ---- 历史台账操作 ----
@@ -247,66 +238,44 @@ async function rerunJob(j: SpiderJob): Promise<void> {
 const rerunBusyId = ref(0)
 
 async function rerunRun(r: TaskRun): Promise<void> {
-  const ok = await confirm({
-    title: '重跑任务',
-    desc: `重新执行 [${r.name}]? 会登记一条新的任务记录.`
-  })
-  if (!ok) return
-  if (rerunBusyId.value) return
   rerunBusyId.value = r.id
-  try {
-    await tasksApi.rerun(r.id, { silent: true })
+  await run({
+    confirm: {
+      title: '重跑任务',
+      desc: `重新执行 [${r.name}]? 会登记一条新的任务记录.`
+    },
+    action: () => tasksApi.rerun(r.id, { silent: true }),
     // 后台受理: 服务端登记台账后即返回, 榜单刷新要跑 1-2 分钟, 不在这里等结果
-    toast('success', '已提交, 结果见历史记录')
-    runPage.value = 1
-    void loadRuns()
-    void loadOverview()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '重跑提交失败')
-  } finally {
-    rerunBusyId.value = 0
-  }
+    successMsg: '已提交, 结果见历史记录',
+    after: () => {
+      runPage.value = 1
+      return Promise.all([loadRuns(), loadOverview()]).then(() => undefined)
+    }
+  })
+  rerunBusyId.value = 0
 }
 
+// 筛选变更 → 回第 1 页重查(search 在第 1 页时直接 load)
 function changeRunStatus(): void {
-  runPage.value = 1
-  void loadRuns()
-}
-
-function changeRunPage(p: number): void {
-  runPage.value = p
-  void loadRuns()
-}
-
-function changeFailPage(p: number): void {
-  failPage.value = p
-  void loadFailures()
+  searchRuns()
 }
 
 // ---- 失败记录操作 ----
 async function recover(ids?: number[]): Promise<void> {
-  failBusy.value = true
-  try {
-    const r = await collectApi.recoverFailures(ids, { silent: true })
-    toast('success', `已提交补采 (待处理 ${r.pending} 条)`)
-    void loadFailures()
-    void loadOverview()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '补采提交失败')
-  } finally {
-    failBusy.value = false
-  }
+  await run({
+    action: async () => {
+      const r = await collectApi.recoverFailures(ids, { silent: true })
+      // 动态成功文案(带服务端回填的 pending 数) → action 内自管, run 不再传静态 successMsg
+      toast('success', `已提交补采 (待处理 ${r.pending} 条)`)
+      void loadFailures()
+      void loadOverview()
+    }
+  })
 }
 
 // ---- 展示格式化 ----
-function pad(n: number): string {
-  return String(n).padStart(2, '0')
-}
-
 function fmtTime(ms: number): string {
-  if (!ms) return '—'
-  const d = new Date(ms)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return ms ? formatDateTime(ms) : '—'
 }
 
 function fmtDuration(ms: number): string {
@@ -322,68 +291,6 @@ function fmtDuration(ms: number): string {
 function fmtPercent(j: SpiderJob): number {
   if (j.totalPages <= 0) return 0
   return Math.min(100, Math.round((j.donePages / j.totalPages) * 100))
-}
-
-function jobStateVariant(s: SpiderJob['state']): 'default' | 'brand' | 'warning' | 'success' | 'danger' {
-  switch (s) {
-    case 'running':
-      return 'brand'
-    case 'paused':
-      return 'warning'
-    case 'done':
-      return 'success'
-    case 'error':
-      return 'danger'
-    default:
-      return 'default'
-  }
-}
-
-function jobStateText(s: SpiderJob['state']): string {
-  switch (s) {
-    case 'running':
-      return '采集中'
-    case 'paused':
-      return '已暂停'
-    case 'done':
-      return '已完成'
-    case 'error':
-      return '失败'
-    case 'canceled':
-      return '已取消'
-    default:
-      return '等待中'
-  }
-}
-
-function runStatusVariant(s: TaskRun['status']): 'default' | 'brand' | 'success' | 'danger' | 'warning' {
-  switch (s) {
-    case 'running':
-      return 'brand'
-    case 'success':
-      return 'success'
-    case 'failed':
-      return 'danger'
-    case 'canceled':
-      return 'warning'
-    default:
-      return 'default'
-  }
-}
-
-function runStatusText(s: TaskRun['status']): string {
-  switch (s) {
-    case 'running':
-      return '运行中'
-    case 'success':
-      return '成功'
-    case 'failed':
-      return '失败'
-    case 'canceled':
-      return '已取消'
-    default:
-      return s
-  }
 }
 
 function runKindText(kind: TaskRun['kind']): string {
@@ -430,22 +337,36 @@ const canRecoverAll = computed(() => ov.value.pendingFailures > 0)
 const statCard = (_label: string, _value: number | string, danger = false): string =>
   `stat-card${danger ? ' stat-card--danger' : ''}`
 
-interface TabItem {
-  key: TabKey
-  label: string
-}
-const tabs = computed<TabItem[]>(() => [
+// 历史台账筛选下拉(value 保字符串类型)
+const RUN_STATUS_OPTIONS = [
+  { label: '全部', value: '' },
+  { label: '运行中', value: 'running' },
+  { label: '成功', value: 'success' },
+  { label: '失败', value: 'failed' },
+  { label: '已取消', value: 'canceled' }
+]
+const RUN_TYPE_OPTIONS = [
+  { label: '全部', value: '' },
+  { label: '采集', value: 'collect' },
+  { label: '补采', value: 'recover' },
+  { label: '分类覆盖', value: 'category_cover' },
+  { label: '榜单刷新', value: 'hot_refresh' }
+]
+
+// 下划线页签(ManageTabs): count 徽标替代旧「运行中 (N)」内联文案
+const tabs = computed<TabItem<TabKey>[]>(() => [
   {
-    key: 'running',
-    label: `运行中 (${jobs.value.filter((j) => j.state === 'running' || j.state === 'paused').length})`
+    value: 'running',
+    label: '运行中',
+    count: jobs.value.filter((j) => j.state === 'running' || j.state === 'paused').length
   },
-  { key: 'history', label: `历史记录 (${runTotal.value})` },
-  { key: 'failures', label: '失败记录' }
+  { value: 'history', label: '历史记录', count: runTotal.value },
+  { value: 'failures', label: '失败记录' }
 ])
 </script>
 
 <template>
-  <div class="container-page py-[var(--jc-space-5)]">
+  <div class="container-page flex min-h-0 flex-col py-[var(--jc-space-5)]">
     <header class="flex items-center justify-between mb-[var(--jc-space-5)]">
       <div>
         <h1 class="text-2xl font-[var(--jc-fw-semibold)]">任务管理</h1>
@@ -479,22 +400,14 @@ const tabs = computed<TabItem[]>(() => [
       </div>
     </div>
 
-    <!-- 页签 -->
-    <div class="flex items-center gap-[var(--jc-space-2)] border-b border-subtle mb-[var(--jc-space-4)]">
-      <button
-        v-for="t in tabs"
-        :key="t.key"
-        class="px-[var(--jc-space-4)] py-[var(--jc-space-2)] text-sm transition-colors border-b-2 -mb-px"
-        :class="
-          activeTab === t.key
-            ? 'border-[var(--jc-brand-purple)] text-[var(--jc-brand-purple)] font-[var(--jc-fw-medium)]'
-            : 'border-transparent text-muted hover:text-primary'
-        "
-        @click="switchTab(t.key)"
-      >
-        {{ t.label }}
-      </button>
-    </div>
+    <!-- 页签(ManageTabs underline) -->
+    <ManageTabs
+      class="mb-[var(--jc-space-4)]"
+      :model-value="activeTab"
+      :tabs="tabs"
+      variant="underline"
+      @update:model-value="switchTab"
+    />
 
     <!-- ===== 运行中 ===== -->
     <template v-if="activeTab === 'running'">
@@ -519,7 +432,7 @@ const tabs = computed<TabItem[]>(() => [
         <article v-for="j in jobs" :key="j.sourceId" class="jc-job">
           <header class="jc-job__head">
             <span class="jc-job__name">{{ j.sourceName }}</span>
-            <BaseTag :variant="jobStateVariant(j.state)" size="sm">{{ jobStateText(j.state) }}</BaseTag>
+            <StatusTag :value="j.state" :map="JOB_STATE_MAP" />
             <span class="text-muted text-xs ml-auto">
               {{ j.hour > 0 ? `近 ${j.hour}h` : '全量' }} · 用时 {{ fmtDuration(j.elapsedMs) }}
             </span>
@@ -551,28 +464,28 @@ const tabs = computed<TabItem[]>(() => [
               v-if="j.state === 'running'"
               variant="outline"
               size="sm"
-              :disabled="!!busyId"
+              :disabled="busy"
               @click="pause(j.sourceId)"
             >暂停</BaseButton>
             <BaseButton
               v-if="j.state === 'paused'"
               variant="primary"
               size="sm"
-              :disabled="!!busyId"
+              :disabled="busy"
               @click="resume(j.sourceId)"
             >继续</BaseButton>
             <BaseButton
               v-if="j.state === 'running' || j.state === 'paused'"
               variant="danger"
               size="sm"
-              :disabled="!!busyId"
+              :disabled="busy"
               @click="cancelJob(j)"
             >取消</BaseButton>
             <BaseButton
               v-if="j.state === 'error' || j.state === 'canceled'"
               variant="primary"
               size="sm"
-              :disabled="!!busyId"
+              :disabled="busy"
               @click="rerunJob(j)"
             >重跑</BaseButton>
           </div>
@@ -582,28 +495,37 @@ const tabs = computed<TabItem[]>(() => [
 
     <!-- ===== 历史记录 ===== -->
     <template v-else-if="activeTab === 'history'">
-      <ManageTable :columns="historyColumns" :rows="runRows" row-key="id" :loading="runsLoading" :empty="'暂无任务记录'">
+      <ManageTable
+        :columns="historyColumns"
+        :rows="runRows"
+        row-key="id"
+        :loading="runsLoading"
+        :total="runTotal"
+        v-model:current="runPage"
+        :page-size="runPageSize"
+        :empty="'暂无任务记录'"
+      >
         <template #toolbar>
           <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
             <label class="text-sm text-muted flex items-center gap-[var(--jc-space-1)]">
               状态
-              <select v-model="runStatus" class="jc-select" @change="changeRunStatus">
-                <option value="">全部</option>
-                <option value="running">运行中</option>
-                <option value="success">成功</option>
-                <option value="failed">失败</option>
-                <option value="canceled">已取消</option>
-              </select>
+              <ManageSelect
+                v-model="runStatus"
+                :options="RUN_STATUS_OPTIONS"
+                aria-label="状态"
+                class="w-[120px]"
+                @update:model-value="changeRunStatus"
+              />
             </label>
             <label class="text-sm text-muted flex items-center gap-[var(--jc-space-1)]">
               类型
-              <select v-model="runType" class="jc-select" @change="changeRunStatus">
-                <option value="">全部</option>
-                <option value="collect">采集</option>
-                <option value="recover">补采</option>
-                <option value="category_cover">分类覆盖</option>
-                <option value="hot_refresh">榜单刷新</option>
-              </select>
+              <ManageSelect
+                v-model="runType"
+                :options="RUN_TYPE_OPTIONS"
+                aria-label="类型"
+                class="w-[120px]"
+                @update:model-value="changeRunStatus"
+              />
             </label>
           </div>
         </template>
@@ -627,7 +549,7 @@ const tabs = computed<TabItem[]>(() => [
             <span class="text-xs text-muted">{{ runTypeText(row.type) }}</span>
           </template>
           <template v-else-if="col.key === 'status'">
-            <BaseTag :variant="runStatusVariant(row.status)" size="sm">{{ runStatusText(row.status) }}</BaseTag>
+            <StatusTag :value="row.status" :map="RUN_STATUS_MAP" />
           </template>
           <template v-else-if="col.key === 'message'">
             <span class="text-xs text-muted break-all" :title="row.message">{{ row.message || '—' }}</span>
@@ -639,9 +561,6 @@ const tabs = computed<TabItem[]>(() => [
           <template v-else-if="col.key === 'elapsedMs'">
             <span class="text-xs text-muted">{{ fmtDuration(row.elapsedMs) }}</span>
           </template>
-          <template v-else>
-            {{ (row as unknown as Record<string, unknown>)[col.key] ?? '—' }}
-          </template>
         </template>
 
         <template #actions="{ row }">
@@ -650,7 +569,7 @@ const tabs = computed<TabItem[]>(() => [
               v-if="row.status === 'failed'"
               variant="primary"
               size="sm"
-              :disabled="rerunBusyId === row.id"
+              :disabled="rerunBusyId === row.id || busy"
               @click="rerunRun(row)"
             >
               {{ rerunBusyId === row.id ? '提交中…' : '重跑' }}
@@ -660,20 +579,19 @@ const tabs = computed<TabItem[]>(() => [
           </div>
         </template>
       </ManageTable>
-
-      <div class="flex justify-end mt-[var(--jc-space-3)]">
-        <BasePagination
-          :total="runTotal"
-          :current="runPage"
-          :page-size="RUN_SIZE"
-          @change="changeRunPage"
-        />
-      </div>
     </template>
 
     <!-- ===== 失败记录 ===== -->
     <template v-else>
-      <ManageTable :columns="failureColumns" :rows="failures" row-key="id" :empty="'暂无待补采的失败页'">
+      <ManageTable
+        :columns="failureColumns"
+        :rows="failures"
+        row-key="id"
+        :total="failTotal"
+        v-model:current="failPage"
+        :page-size="failPageSize"
+        :empty="'暂无待补采的失败页'"
+      >
         <template #toolbar>
           <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
             <span class="text-sm text-muted">
@@ -683,9 +601,9 @@ const tabs = computed<TabItem[]>(() => [
             <BaseButton
               variant="primary"
               size="sm"
-              :disabled="!canRecoverAll || failBusy"
+              :disabled="!canRecoverAll || busy"
               @click="recover()"
-            >{{ failBusy ? '提交中…' : '补采全部' }}</BaseButton>
+            >{{ busy ? '提交中…' : '补采全部' }}</BaseButton>
             <RouterLink to="/manage/collect/failures" class="text-link text-sm">查看完整补采中心 →</RouterLink>
           </div>
         </template>
@@ -704,7 +622,7 @@ const tabs = computed<TabItem[]>(() => [
             <BaseTag variant="warning" size="sm">待补采</BaseTag>
           </template>
           <template v-else>
-            {{ (row as unknown as Record<string, unknown>)[col.key] ?? '—' }}
+            {{ row[col.key] ?? '—' }}
           </template>
         </template>
 
@@ -713,21 +631,12 @@ const tabs = computed<TabItem[]>(() => [
             <BaseButton
               variant="outline"
               size="sm"
-              :disabled="failBusy"
+              :disabled="busy"
               @click="recover([row.id])"
             >补采</BaseButton>
           </div>
         </template>
       </ManageTable>
-
-      <div class="flex justify-end mt-[var(--jc-space-3)]">
-        <BasePagination
-          :total="failTotal"
-          :current="failPage"
-          :page-size="FAIL_SIZE"
-          @change="changeFailPage"
-        />
-      </div>
     </template>
   </div>
 </template>
@@ -822,13 +731,5 @@ const tabs = computed<TabItem[]>(() => [
   background: var(--jc-bg-elevated);
   border: 1px dashed var(--jc-border-subtle);
   border-radius: var(--jc-radius-md);
-}
-.jc-select {
-  background: var(--jc-bg-elevated);
-  border: 1px solid var(--jc-border-subtle);
-  border-radius: var(--jc-radius-sm);
-  color: var(--jc-text-primary);
-  font-size: var(--jc-fs-sm);
-  padding: var(--jc-space-1) var(--jc-space-2);
 }
 </style>

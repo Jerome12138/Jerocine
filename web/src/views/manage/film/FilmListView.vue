@@ -4,74 +4,82 @@ import { useRouter } from 'vue-router'
 import { manageApi } from '@/api'
 import type { FilmClass, ManageFilmRow, ManageFilmStatus } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
+import type { Column } from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
+import ManageTabs from '@/components/manage/ManageTabs.vue'
+import StatusTag from '@/components/manage/StatusTag.vue'
+import ManageCascader from '@/components/manage/ManageCascader.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
-import BasePagination from '@/components/base/BasePagination.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
-import ManageCascader from '@/components/manage/ManageCascader.vue'
-import { confirm } from '@/composables/useConfirm'
 import { toast } from '@/api/http'
-
-const MAX_TREE_DEPTH = 4
+import { usePagedList } from '@/composables/usePagedList'
+import { useAsyncAction } from '@/composables/useAsyncAction'
+import { formatDateTime } from '@/utils/format'
+import { FILM_STATUS_TABS, FILM_STATUS_TAG_MAP } from '@/views/manage/constants'
+import type { SelectOption } from '@/components/manage/ManageSelect.vue'
 
 const router = useRouter()
-const rows = ref<ManageFilmRow[]>([])
-const loading = ref(true)
-const busy = ref(false)
-const total = ref(0)
-const pageSize = ref(20)
+// ---- 列表骨架: usePagedList 收敛 load/search/翻页/末页回夹/竞态守卫/loading/loadError ----
+const params = reactive({
+  name: '',
+  pid: 0,
+  cid: 0
+})
 const status = ref<ManageFilmStatus>('active')
-// 加载失败态(空态+重试按钮, 不再让失败被呈现成"未找到影片")
-const loadError = ref('')
-// 请求序号守卫: 快速切页签/翻页时, 只有最后一次请求允许写 rows/total
-let loadSeq = 0
+// 排序: 与 server allowedSort 白名单对齐(hot/latest/update_stamp/score), 默认热度
+const SORT_OPTIONS: SelectOption[] = [
+  { value: 'hot', label: '热度' },
+  { value: 'latest', label: '最新上映' },
+  { value: 'update_stamp', label: '最近更新' },
+  { value: 'score', label: '评分' }
+]
+const sort = ref<string>('hot')
+
 // 分类多选: id → checked; 点击确定后才应用筛选, pending 为中间态
 const selectedCatIds = ref<Set<number>>(new Set())
 const appliedCatIds = ref<Set<number>>(new Set())
+
+const paged = usePagedList<ManageFilmRow>({
+  fetch: (page, size) =>
+    manageApi.film
+      .searchList({
+        keyword: params.name,
+        pid: params.pid,
+        cid: params.cid,
+        // 分类级联多选: appliedCatIds 才是生效态(pending 勾选不算), 空集不传(拦截器会清理 undefined)
+        catIds: appliedCatIds.value.size ? [...appliedCatIds.value].join(',') : undefined,
+        status: status.value,
+        sort: sort.value,
+        page,
+        size
+      })
+      .then((r) => ({ list: r.list ?? [], total: r.page?.total ?? 0 }))
+})
+
+// ---- 写操作: useAsyncAction 收敛 busy+confirm+toast+reload(请求 silent, 文案 run 单点) ----
+const { busy, run } = useAsyncAction()
+
+const columns: Column<ManageFilmRow>[] = [
+  { key: 'cover', label: '海报', width: '90px' },
+  { key: 'name', label: '名称' },
+  { key: 'cName', label: '分类', width: '120px' },
+  { key: 'year', label: '年份', width: '80px' },
+  { key: 'area', label: '地区', width: '100px' },
+  { key: 'dbScore', label: '评分', width: '70px' },
+  { key: 'remarks', label: '备注', width: '140px' },
+  { key: 'deletedAt', label: '状态', width: '120px' }
+]
+
+// ---- 分类树(筛选弹层) ----
 const categoryTree = ref<FilmClass[]>([])
 const treeLoading = ref(false)
 const treeError = ref('')
 const treePopperOpen = ref(false)
 const catFilterRef = ref<HTMLElement | null>(null)
-
-const STATUS_TABS: { value: ManageFilmStatus; label: string }[] = [
-  { value: 'active', label: '在架' },
-  { value: 'deleted', label: '回收站' },
-  { value: 'all', label: '全部' }
-]
-
-// 排序: 与 server allowedSort 白名单对齐(hot/latest/update_stamp/score), 默认热度
-const SORT_OPTIONS = [
-  { value: 'hot', label: '热度' },
-  { value: 'latest', label: '最新上映' },
-  { value: 'update_stamp', label: '最近更新' },
-  { value: 'score', label: '评分' }
-] as const
-const sort = ref<string>('hot')
-
-const params = reactive({
-  name: '',
-  pid: 0,
-  cid: 0,
-  current: 1,
-  pageSize: 20
-})
-
-const columns = [
-  { key: 'cover' as const, label: '海报', width: '90px' },
-  { key: 'name' as const, label: '名称' },
-  { key: 'cName' as const, label: '分类', width: '120px' },
-  { key: 'year' as const, label: '年份', width: '80px' },
-  { key: 'area' as const, label: '地区', width: '100px' },
-  { key: 'dbScore' as const, label: '评分', width: '70px' },
-  { key: 'remarks' as const, label: '备注', width: '140px' },
-  { key: 'deletedAt' as const, label: '状态', width: '120px' }
-]
-
-// ---- 分类树工具 ----
 
 async function loadTree(force = false): Promise<void> {
   if (!force && (categoryTree.value.length || treeLoading.value)) return
@@ -98,63 +106,15 @@ function applyCatFilter(): void {
     params.name = ''
     toast('info', '分类筛选与关键词搜索互斥，已清空关键词')
   }
-  // 用 pending 态把"当前勾选"同步为"已应用", 并清掉表单 pid/cid 重新加载
+  // 用 pending 态把"当前勾选"同步为"已应用", 并重新加载
   appliedCatIds.value = new Set(selectedCatIds.value)
-  params.pid = 0
-  params.cid = 0
-  params.current = 1
-  load()
+  paged.search()
 }
 
 function clearCatFilter(): void {
   selectedCatIds.value = new Set()
   appliedCatIds.value = new Set()
-  params.pid = 0
-  params.cid = 0
-  params.current = 1
-  load()
-}
-
-// ---- 影片列表 ----
-
-async function load(): Promise<void> {
-  const seq = ++loadSeq
-  loading.value = true
-  loadError.value = ''
-  try {
-    const resp = await manageApi.film.searchList({
-      keyword: params.name,
-      pid: params.pid,
-      cid: params.cid,
-      // 分类级联多选: appliedCatIds 才是生效态(pending 勾选不算), 空集不传(拦截器会清理 undefined)
-      catIds: appliedCatIds.value.size ? [...appliedCatIds.value].join(',') : undefined,
-      status: status.value,
-      sort: sort.value,
-      page: params.current,
-      size: params.pageSize
-    })
-    if (seq !== loadSeq) return // 已有更新的请求在途/完成, 丢弃旧响应
-    rows.value = resp.list ?? []
-    total.value = resp.page?.total ?? 0
-    pageSize.value = resp.page?.size ?? params.pageSize
-    // 末页删空回夹: 回收站删完/恢复完当前页可能整体消失, server 只夹 1..10000
-    // 不回夹页数范围 → 停在超出实际页数的空页。此处回夹到最后一页重拉一次。
-    const size = resp.page?.size ?? params.pageSize
-    const pageCount = Math.max(1, Math.ceil(total.value / size))
-    if (!rows.value.length && params.current > 1 && total.value > 0 && pageCount < params.current) {
-      params.current = pageCount
-      return load()
-    }
-  } catch (e) {
-    if (seq !== loadSeq) return
-    loadError.value = (e as Error).message ?? '加载失败'
-  } finally {
-    if (seq === loadSeq) loading.value = false
-  }
-}
-
-function retryLoad(): void {
-  load()
+  paged.search()
 }
 
 function search(): void {
@@ -165,31 +125,20 @@ function search(): void {
     appliedCatIds.value = new Set()
     toast('info', '关键词搜索不区分分类，已清除分类筛选')
   }
-  params.current = 1
-  load()
+  paged.search()
 }
 
 function switchStatus(next: ManageFilmStatus): void {
   if (status.value === next) return
   status.value = next
-  params.current = 1
-  load()
+  paged.search()
 }
 
-function setSort(next: string): void {
-  if (sort.value === next) return
-  sort.value = next
-  params.current = 1
-  load()
-}
-
-function onSortChange(e: Event): void {
-  setSort((e.target as HTMLSelectElement).value)
-}
-
-function changePage(p: number): void {
-  params.current = p
-  load()
+function setSort(next: string | number): void {
+  const v = String(next)
+  if (sort.value === v) return
+  sort.value = v
+  paged.search()
 }
 
 function viewDetail(row: ManageFilmRow): void {
@@ -202,51 +151,31 @@ function isDeleted(row: ManageFilmRow): boolean {
   return (row.deletedAt ?? 0) > 0
 }
 
-function fmtTime(ms?: number): string {
-  if (!ms) return '—'
-  const d = new Date(ms)
-  const p = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+function removeFilm(row: ManageFilmRow): void {
+  void run({
+    confirm: {
+      title: `删除《${row.name}》？`,
+      desc: '影片会从站内所有列表与详情页隐藏，但不会真正删除，可在「回收站」页签恢复。',
+      okText: '删除',
+      danger: true
+    },
+    action: () => manageApi.film.softDelete(row.mid, { silent: true }),
+    successMsg: '已移入回收站',
+    after: () => paged.load()
+  })
 }
 
-async function removeFilm(row: ManageFilmRow): Promise<void> {
-  const ok = await confirm({
-    title: `删除《${row.name}》？`,
-    desc: '影片会从站内所有列表与详情页隐藏，但不会真正删除，可在「回收站」页签恢复。',
-    okText: '删除',
-    danger: true
+function restoreFilm(row: ManageFilmRow): void {
+  void run({
+    confirm: {
+      title: `恢复《${row.name}》？`,
+      desc: '恢复后影片会重新出现在公开列表与详情页。',
+      okText: '恢复'
+    },
+    action: () => manageApi.film.restore(row.mid, { silent: true }),
+    successMsg: '已恢复',
+    after: () => paged.load()
   })
-  if (!ok) return
-  busy.value = true
-  try {
-    // silent: 关闭拦截器的通用「操作成功」, 由页面给定制文案
-    await manageApi.film.softDelete(row.mid, { silent: true })
-    toast('success', '已移入回收站')
-    await load()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '删除失败')
-  } finally {
-    busy.value = false
-  }
-}
-
-async function restoreFilm(row: ManageFilmRow): Promise<void> {
-  const ok = await confirm({
-    title: `恢复《${row.name}》？`,
-    desc: '恢复后影片会重新出现在公开列表与详情页。',
-    okText: '恢复'
-  })
-  if (!ok) return
-  busy.value = true
-  try {
-    await manageApi.film.restore(row.mid, { silent: true })
-    toast('success', '已恢复')
-    await load()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '恢复失败')
-  } finally {
-    busy.value = false
-  }
 }
 
 // 分类筛选弹层: 点击面板外 / ESC 关闭(此前只能靠再点按钮或「确定」, 弹层会驻留遮挡)
@@ -260,17 +189,20 @@ useEventListener(window, 'keydown', (e: KeyboardEvent) => {
 
 onMounted(() => {
   void loadTree()
-  void load()
 })
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--jc-space-4)]">
+  <!-- 页面根只提供纵向 flex + 间距; 表格高度链由 ManageLayout .jc-manage-main(表格线 T0)贯通 -->
+  <div class="flex min-h-0 flex-col gap-[var(--jc-space-4)]">
     <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"未找到影片" -->
-    <section v-if="loadError && !rows.length" class="bg-surface rounded-card shadow-card">
+    <section
+      v-if="paged.loadError.value && !paged.rows.value.length"
+      class="bg-surface rounded-card shadow-card"
+    >
       <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
-        <BaseEmpty title="加载失败" :description="loadError" hide-icon />
-        <BaseButton variant="outline" size="sm" @click="retryLoad">
+        <BaseEmpty title="加载失败" :description="paged.loadError.value" hide-icon />
+        <BaseButton variant="outline" size="sm" @click="paged.load()">
           <BaseIcon name="refresh" size="16px" /> 重试
         </BaseButton>
       </div>
@@ -279,26 +211,19 @@ onMounted(() => {
     <ManageTable
       v-else
       :columns="columns"
-      :rows="rows"
+      :rows="paged.rows.value"
       row-key="mid"
-      :loading="loading"
+      :loading="paged.loading.value"
+      :total="paged.total.value"
+      v-model:current="paged.current.value"
+      :page-size="paged.pageSize.value"
       empty="未找到影片"
       actions-width="160px"
     >
       <template #toolbar>
         <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
           <h2 class="text-lg font-[var(--jc-fw-semibold)]">影片管理</h2>
-          <div class="flex gap-[var(--jc-space-1)]">
-            <BaseButton
-              v-for="t in STATUS_TABS"
-              :key="t.value"
-              :variant="status === t.value ? 'gradient' : 'ghost'"
-              size="sm"
-              @click="switchStatus(t.value)"
-            >
-              {{ t.label }}
-            </BaseButton>
-          </div>
+          <ManageTabs :model-value="status" :tabs="FILM_STATUS_TABS" @update:model-value="switchStatus" />
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
           <!-- 分类筛选(级联选择器, 放左边) -->
@@ -346,15 +271,12 @@ onMounted(() => {
             </div>
           </div>
           <!-- 排序: 热度/最新上映/最近更新/评分(server allowedSort 白名单) -->
-          <select
-            :value="sort"
-            class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong cursor-pointer"
-            data-focusable="true"
+          <ManageSelect
+            :model-value="sort"
+            :options="SORT_OPTIONS"
             aria-label="排序方式"
-            @change="onSortChange"
-          >
-            <option v-for="o in SORT_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-          </select>
+            @update:model-value="setSort"
+          />
           <!-- 搜索 + 新增(放右边, 与分类筛选同行不折行) -->
           <div class="flex gap-[var(--jc-space-2)] flex-1 min-w-0">
             <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
@@ -432,14 +354,14 @@ onMounted(() => {
         <span v-else-if="col.key === 'remarks'" class="text-secondary truncate block max-w-[130px]" :title="row.remarks || ''">
           {{ row.remarks || '—' }}
         </span>
-        <BaseTag
+        <!-- 状态列: StatusTag 统一「状态值→文案/variant」映射 -->
+        <StatusTag
           v-else-if="col.key === 'deletedAt'"
-          :variant="isDeleted(row) ? 'danger' : 'success'"
+          :value="isDeleted(row) ? 'deleted' : 'active'"
+          :map="FILM_STATUS_TAG_MAP"
           size="sm"
-          :title="isDeleted(row) ? `删除于 ${fmtTime(row.deletedAt)}` : ''"
-        >
-          {{ isDeleted(row) ? '回收站' : '在架' }}
-        </BaseTag>
+          :title="isDeleted(row) ? `删除于 ${formatDateTime(row.deletedAt ?? 0)}` : ''"
+        />
         <!-- || 兜底: 0(年份)与空串(分类/地区)同样显示 —, 与 remarks/dbScore 口径一致 -->
         <span v-else>{{ row[col.key] || '—' }}</span>
       </template>
@@ -464,12 +386,5 @@ onMounted(() => {
         </div>
       </template>
     </ManageTable>
-
-    <BasePagination
-      :current="params.current"
-      :page-size="pageSize"
-      :total="total"
-      @change="changePage"
-    />
   </div>
 </template>

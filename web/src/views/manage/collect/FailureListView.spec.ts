@@ -89,6 +89,26 @@ describe('FailureListView 采集失败台账', () => {
     w.unmount()
   })
 
+  it('页签 ManageTabs 化: role=tab/aria-selected/count 徽标; 表格内置分页(无独立分页组件)', async () => {
+    h.failures.mockResolvedValue(pageResp([failureRow()], 45))
+    const w = await mountView()
+    const tabs = w.findAll('[role="tab"]')
+    expect(tabs).toHaveLength(3)
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+    expect(tabs[2]!.attributes('aria-selected')).toBe('false')
+    // count 徽标在 pill 页签内
+    expect(tabs[0]!.text()).toContain('（45）')
+    // 内置分页: footer 存在且表格根挂 jc-table--fit; 页面不再拼独立 BasePagination 区块
+    expect(w.find('footer').exists()).toBe(true)
+    expect(w.find('section').classes()).toContain('jc-table--fit')
+
+    // 翻页保留当前 tab 筛选
+    await w.find('button[aria-label="next page"]').trigger('click')
+    await flushPromises()
+    expect(h.failures).toHaveBeenLastCalledWith({ status: 0, page: 2, size: 20 })
+    w.unmount()
+  })
+
   it('快速切 tab: 只采纳最新一次响应(旧响应后到被丢弃)', async () => {
     let releaseSlow!: (v: unknown) => void
     const slow = new Promise((r) => (releaseSlow = r))

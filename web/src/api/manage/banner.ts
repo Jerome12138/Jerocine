@@ -1,4 +1,5 @@
 import { http } from '../http'
+import type { AxiosRequestConfig } from 'axios'
 import type { Banner, BannerBoard, HotRefreshReport } from '@/types/manage'
 
 const enc = encodeURIComponent
@@ -13,23 +14,25 @@ export const refreshHotBoard = (): Promise<HotRefreshReport> =>
 export const board = (): Promise<BannerBoard> =>
   http.get<unknown, BannerBoard>('/manage/banners/effective')
 
-/** POST /manage/banners/move 生效位排序（手动位换位 / 自动位上移转手动），返回新 Board */
-export const move = (slot: number, dir: 'up' | 'down'): Promise<BannerBoard> =>
-  http.post<unknown, BannerBoard>('/manage/banners/move', { slot, dir })
+/** POST /manage/banners/move 生效位排序（手动位换位 / 自动位上移转手动），返回新 Board;
+ *  config 透传(调用方 silent:true 时提示由 useAsyncAction 单点负责) */
+export const move = (slot: number, dir: 'up' | 'down', config?: AxiosRequestConfig): Promise<BannerBoard> =>
+  http.post<unknown, BannerBoard>('/manage/banners/move', { slot, dir }, config)
 
-/** POST /manage/banners 新建（slot = 钉入位置，采纳自动位时传）；PUT /manage/banners/:id 更新 */
-export const save = (data: Partial<Banner> & { id: number }, slot?: number): Promise<Banner> =>
+/** POST /manage/banners 新建（slot = 钉入位置，采纳自动位时传）；PUT /manage/banners/:id 更新;
+ *  config 透传(调用方 silent:true 时提示由 useAsyncAction 单点负责) */
+export const save = (data: Partial<Banner> & { id: number }, slot?: number, config?: AxiosRequestConfig): Promise<Banner> =>
   data.id > 0
-    ? http.put<unknown, Banner>(`/manage/banners/${enc(data.id)}`, data)
-    : http.post<unknown, Banner>('/manage/banners', slot === undefined ? data : { ...data, slot })
+    ? http.put<unknown, Banner>(`/manage/banners/${enc(data.id)}`, data, config)
+    : http.post<unknown, Banner>('/manage/banners', slot === undefined ? data : { ...data, slot }, config)
 
 /** DELETE /manage/banners/:id */
-export const remove = (id: number): Promise<void> =>
-  http.delete<unknown, void>(`/manage/banners/${enc(id)}`)
+export const remove = (id: number, config?: AxiosRequestConfig): Promise<void> =>
+  http.delete<unknown, void>(`/manage/banners/${enc(id)}`, config)
 
 /** POST /manage/banners/disable 幂等屏蔽影片自动补位(候选位「禁用」, 永不重复新增行) */
-export const disableByMid = (mid: number): Promise<BannerBoard> =>
-  http.post<unknown, BannerBoard>('/manage/banners/disable', { mid })
+export const disableByMid = (mid: number, config?: AxiosRequestConfig): Promise<BannerBoard> =>
+  http.post<unknown, BannerBoard>('/manage/banners/disable', { mid }, config)
 
 /** POST /manage/backdrop/fill 手动触发单片 TMDB 横图回填。返回 status: already/miss/filled。
  *  silent: 结果按 status 定制文案(silent 关闭拦截器通用「操作成功」), 由调用方自管提示 */

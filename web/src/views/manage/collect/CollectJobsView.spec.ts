@@ -97,11 +97,11 @@ describe('CollectJobsView 采集任务监控', () => {
     w.unmount()
   })
 
-  it('暂停/继续/取消: 调对应接口 + toast + 立即重拉', async () => {
+  it('暂停/继续/取消: 调对应接口(silent) + toast + 立即重拉', async () => {
     const w = await mountView()
     await w.findAll('button').find((b) => b.text().trim() === '暂停')!.trigger('click')
     await flushPromises()
-    expect(h.pause).toHaveBeenCalledWith('src_a')
+    expect(h.pause).toHaveBeenCalledWith('src_a', { silent: true })
     expect(h.toast).toHaveBeenCalledWith('success', '已暂停')
     expect(h.spiderJobs).toHaveBeenCalledTimes(2) // 初载 + 操作后重拉
 
@@ -111,7 +111,7 @@ describe('CollectJobsView 采集任务监控', () => {
     await flushPromises()
     await w.findAll('button').find((b) => b.text().trim() === '继续')!.trigger('click')
     await flushPromises()
-    expect(h.resume).toHaveBeenCalledWith('src_a')
+    expect(h.resume).toHaveBeenCalledWith('src_a', { silent: true })
     expect(h.toast).toHaveBeenCalledWith('success', '已继续')
 
     h.confirm.mockResolvedValue(false) // 取消弹窗点"取消"
@@ -123,9 +123,22 @@ describe('CollectJobsView 采集任务监控', () => {
     h.confirm.mockResolvedValue(true)
     await w.findAll('button').find((b) => b.text().trim() === '取消')!.trigger('click')
     await flushPromises()
-    expect(h.cancel).toHaveBeenCalledWith('src_a')
+    expect(h.cancel).toHaveBeenCalledWith('src_a', { silent: true })
     expect(h.toast).toHaveBeenCalledWith('success', '已取消')
     w.unmount()
+  })
+
+  it('状态标签经 StatusTag 渲染: running→brand 底色, error→danger 底色', async () => {
+    const w = await mountView()
+    const runningTag = w.findAll('article .jc-tag').find((t) => t.text() === '采集中')!
+    expect(runningTag.classes()).toContain('bg-[var(--jc-brand-primary)]')
+    w.unmount()
+
+    h.spiderJobs.mockResolvedValue([job({ state: 'error' })])
+    const w2 = await mountView()
+    const errorTag = w2.findAll('article .jc-tag').find((t) => t.text() === '出错')!
+    expect(errorTag.classes()).toContain('bg-[var(--jc-danger-soft)]')
+    w2.unmount()
   })
 
   it('操作进行中: 卡片按钮禁用防连点', async () => {

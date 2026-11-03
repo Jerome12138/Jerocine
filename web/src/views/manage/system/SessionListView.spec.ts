@@ -155,6 +155,31 @@ describe('SessionListView 在线会话', () => {
     ).toBeUndefined()
   })
 
+  it('写操作互斥收敛单点: 任一 revoke 在途, 全部踢下线按钮禁用(useAsyncAction 共享 busy)', async () => {
+    h.list.mockResolvedValue({
+      list: [row({ id: 'a', userName: 'alice' }), row({ id: 'b', userName: 'bob' })],
+      total: 2
+    })
+    let resolveRevoke!: () => void
+    h.revoke.mockImplementation(() => new Promise<void>((r) => (resolveRevoke = r)))
+    const w = await mountView()
+    // 踢第一行(挂起)
+    await w.findAll('button').find((b) => b.text() === '踢下线')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 10))
+    const kickBtns = w.findAll('tbody button').filter((b) => b.text() === '踢下线')
+    expect(kickBtns).toHaveLength(2)
+    // 两行按钮都被禁用(此前 revoking===row.id 仅禁单行)
+    for (const b of kickBtns) {
+      expect(b.attributes('disabled')).toBeDefined()
+    }
+    resolveRevoke()
+    await new Promise((r) => setTimeout(r, 10))
+    // after 会重拉列表重渲染, 必须重新查询(旧 wrapper 指向已卸载节点)
+    for (const b of w.findAll('tbody button').filter((b) => b.text() === '踢下线')) {
+      expect(b.attributes('disabled')).toBeUndefined()
+    }
+  })
+
   it('踢下线失败(非 404): error toast 且不刷新列表', async () => {
     h.list.mockResolvedValue({ list: [row()], total: 1 })
     h.revoke.mockRejectedValueOnce(new ApiError(500))

@@ -141,6 +141,18 @@ describe('DashboardView 在线明细', () => {
     expect(title).toContain('UA 关键词：2')
     w.unmount()
   })
+
+  it('进入/最近活跃时间统一短格式 MM-DD HH:mm(utils 单一来源, 实时/历史同口径)', async () => {
+    const w = await mountView()
+    const row = w.findAll('tbody tr')[0]!
+    // 实时视图此前为纯 HH:mm:ss, 统一后带日期(跨日可读)
+    expect(row.text()).toMatch(/\d{2}-\d{2} \d{2}:\d{2}/)
+    // 「今日」历史视图同口径
+    await clickBtn(w, '今日')
+    const dailyRowEl = w.findAll('tbody tr')[0]!
+    expect(dailyRowEl.text()).toMatch(/\d{2}-\d{2} \d{2}:\d{2}/)
+    w.unmount()
+  })
 })
 
 describe('DashboardView 历史明细状态判定(锁定 daily-sessions wire 契约)', () => {

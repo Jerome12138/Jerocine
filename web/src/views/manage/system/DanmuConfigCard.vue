@@ -7,6 +7,7 @@ import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
  * 弹幕服务卡片（后台配置项，默认不启用）。
@@ -14,11 +15,12 @@ import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
  * 生效路径：后端保存后失效配置缓存，弹幕服务的进程内配置快照 30s 刷新 —— 最长 30s 延迟生效。
  * 平台白名单当前仅随配置存库（预留开放面控制，与壳 ID_PREFIX 对应），
  * 聚合链路（dandanplay 按标题整集匹配）暂不按平台过滤。
+ * 写操作口径: useAsyncAction + {silent:true}, 成功/失败文案 run 单点。
  */
 const loading = ref(true)
 /** 加载失败: 展示错误态, 不渲染可编辑的默认表单 —— 否则误点保存会把 {enabled:0} 写库全局关停 */
 const loadError = ref(false)
-const submitting = ref(false)
+const { busy: submitting, run } = useAsyncAction()
 
 const form = reactive({
   enabled: 0,
@@ -62,21 +64,21 @@ async function submit(): Promise<void> {
     toast('error', '启用弹幕需至少勾选一个开放平台')
     return
   }
-  submitting.value = true
-  try {
-    const data = await manageApi.danmu.saveDanmuConfig({
-      enabled: form.enabled,
-      providers: form.providers
-    })
-    form.enabled = data.enabled
-    form.providers = data.providers
-    allProviders.value = data.all
-    toast('success', '弹幕配置已保存，播放页下次进片生效')
-  } catch (e) {
-    toast('error', e instanceof Error ? e.message : '保存失败')
-  } finally {
-    submitting.value = false
-  }
+  await run({
+    action: async () => {
+      const data = await manageApi.danmu.saveDanmuConfig(
+        {
+          enabled: form.enabled,
+          providers: form.providers
+        },
+        { silent: true }
+      )
+      form.enabled = data.enabled
+      form.providers = data.providers
+      allProviders.value = data.all
+    },
+    successMsg: '弹幕配置已保存，播放页下次进片生效'
+  })
 }
 
 onMounted(load)

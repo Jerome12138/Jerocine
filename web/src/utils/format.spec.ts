@@ -3,6 +3,7 @@ import {
   formatDuration,
   formatBytes,
   formatDateTime,
+  formatShortDateTime,
   truncate,
   formatHotBadge,
   hotBoardShort,
@@ -51,6 +52,21 @@ describe('formatDateTime', () => {
   it('月日时分都补零', () => {
     const d = new Date(2026, 0, 5, 3, 7)
     expect(formatDateTime(d)).toBe('2026-01-05 03:07')
+  })
+})
+
+describe('formatShortDateTime', () => {
+  it('Date 入参 → MM-DD HH:mm', () => {
+    expect(formatShortDateTime(new Date(2026, 0, 2, 3, 4))).toBe('01-02 03:04')
+  })
+
+  it('字符串入参 → MM-DD HH:mm（内部转 Date）', () => {
+    expect(formatShortDateTime('2026-01-02T03:04:05')).toBe('01-02 03:04')
+  })
+
+  it('非法输入 → -', () => {
+    expect(formatShortDateTime('not-a-date')).toBe('-')
+    expect(formatShortDateTime(NaN)).toBe('-')
   })
 })
 

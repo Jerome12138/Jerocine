@@ -1,4 +1,5 @@
 import { http } from '../http'
+import type { AxiosRequestConfig } from 'axios'
 
 export interface OverviewResp {
   pv: number
@@ -88,21 +89,22 @@ export const listEvents = (params: {
 }): Promise<ListEventsResp> =>
   http.get('/manage/telemetry/events', { params })
 
-/** 标记某 issue 已解决 — key = (category,path,label) 必须与 telemetry 行一致 */
+/** 标记某 issue 已解决 — key = (category,path,label) 必须与 telemetry 行一致;
+ *  config 透传(调用方 silent:true 时提示由 useAsyncAction 单点负责) */
 export const resolveIssue = (body: {
   category: string
   path: string
   label: string
   commitId: string
   note?: string
-}): Promise<void> => http.post('/manage/telemetry/resolve', body)
+}, config?: AxiosRequestConfig): Promise<void> => http.post('/manage/telemetry/resolve', body, config)
 
 /** 撤销解决 (重新标记为未解决) */
 export const unresolveIssue = (body: {
   category: string
   path: string
   label: string
-}): Promise<void> => http.post('/manage/telemetry/unresolve', body)
+}, config?: AxiosRequestConfig): Promise<void> => http.post('/manage/telemetry/unresolve', body, config)
 
 /** 热点视频 — 按访问量 (PV) 排序. hours = days * 24, 服务端默认 168h(7天) */
 export const hotFilms = (days = 7, limit = 10): Promise<FilmStat[]> =>

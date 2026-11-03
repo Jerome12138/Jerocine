@@ -79,4 +79,14 @@ describe('ManageHeader 汉堡按钮分支', () => {
     const w = await mountHeader({})
     expect(w.text()).toContain('老王')
   })
+
+  // ---- 壳层布局回归锁(C 线 §1): flex-between 是无定义死类, header 曾竖排溢出 ----
+  it('header 为横向 flex 行且左右分布(items-center + justify-between), 死类 flex-between 不回归', async () => {
+    const w = await mountHeader({})
+    const cls = w.find('header').classes()
+    expect(cls).toContain('flex')
+    expect(cls).toContain('items-center')
+    expect(cls).toContain('justify-between')
+    expect(cls).not.toContain('flex-between')
+  })
 })

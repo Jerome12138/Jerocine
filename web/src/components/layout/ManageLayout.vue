@@ -52,9 +52,12 @@ onMounted(async () => {
         @toggle-drawer="drawerOpen = !drawerOpen"
       />
       <main
-        class="flex-1 overflow-x-auto min-w-0 p-[var(--jc-space-3)] md:p-[var(--jc-space-4)] lg:p-[var(--jc-space-6)]"
+        class="flex-1 flex flex-col min-h-0 overflow-x-auto min-w-0 p-[var(--jc-space-3)] md:p-[var(--jc-space-4)] lg:p-[var(--jc-space-6)]"
       >
-        <slot />
+        <!-- 内容包裹层: 桌面封顶 1440px 居中(页面过空治理, D5) + 高度链贯通(表格 fit 依赖, D1) -->
+        <div class="jc-manage-main mx-auto flex w-full min-h-0 flex-1 flex-col max-w-[var(--jc-content-max-w)]">
+          <slot />
+        </div>
       </main>
     </div>
   </div>

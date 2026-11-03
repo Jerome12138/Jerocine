@@ -227,6 +227,22 @@ describe('CronListView 定时任务列表', () => {
     w.unmount()
   })
 
+  it('状态/类型/上次运行列经 StatusTag 渲染, 时间走 formatShortDateTime, 表格 fit', async () => {
+    h.list.mockResolvedValue([
+      row({ id: '1', state: true, lastStatus: 'success', lastRunAt: new Date(2026, 0, 2, 3, 4).getTime() })
+    ])
+    const w = await mountView()
+    expect(w.find('section').classes()).toContain('jc-table--fit')
+    // 状态列 StatusTag(布尔键 true → 运行中/success)
+    const tags = w.findAll('tbody .jc-tag')
+    expect(tags.find((t) => t.text() === '运行中')!.classes()).toContain('bg-[var(--jc-success-soft)]')
+    // lastStatus 列 StatusTag(成功/success)
+    expect(tags.find((t) => t.text() === '成功')!.classes()).toContain('bg-[var(--jc-success-soft)]')
+    // 短时间格式 01-02 03:04 由 formatShortDateTime 输出
+    expect(w.text()).toMatch(/01-02 03:04/)
+    w.unmount()
+  })
+
   it('删除: 确认(danger)后调 remove 并重拉; 取消不调', async () => {
     const w = await mountView()
     await btn(w, '删除')!.trigger('click')
@@ -283,6 +299,21 @@ describe('CronListView 表单校验', () => {
     await flushPromises()
     expect(w.text()).toContain('Cron 表达式需为 6 个字段')
     expect(h.add).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('任务类型下拉 ManageSelect 化: aria-label + 同族 class + data-focusable', async () => {
+    const w = await mountView()
+    await openAdd(w)
+    const modelSelect = w.findAll('select').find((s) => s.isVisible())!
+    expect(modelSelect.attributes('aria-label')).toBe('任务类型')
+    expect(modelSelect.classes()).toContain('min-h-[44px]')
+    expect(modelSelect.classes()).toContain('md:min-h-[36px]')
+    expect(modelSelect.attributes('data-focusable')).toBe('true')
+    // 数字 option 原类型 emit → model=1 联动显示资源站列表
+    await modelSelect.setValue('1')
+    await flushPromises()
+    expect(w.text()).toContain('资源站列表')
     w.unmount()
   })
 

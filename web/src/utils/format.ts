@@ -32,13 +32,28 @@ export function formatBytes(bytes: number): string {
   return `${v.toFixed(v < 10 ? 2 : 1)} ${units[i]}`
 }
 
+/** 时间入参归一为 Date; 非法返回 null */
+function toDate(ts: number | string | Date): Date | null {
+  const d = ts instanceof Date ? ts : new Date(ts)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 /** 时间戳（ms） → YYYY-MM-DD HH:mm */
 export function formatDateTime(ts: number | string | Date): string {
-  const d = ts instanceof Date ? ts : new Date(ts)
-  if (Number.isNaN(d.getTime())) {
+  const d = toDate(ts)
+  if (!d) {
     return '-'
   }
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** 短格式: MM-DD HH:mm（任务上次运行 / Dashboard 场景; 秒级时间戳由调用处 *1000） */
+export function formatShortDateTime(ts: number | string | Date): string {
+  const d = toDate(ts)
+  if (!d) {
+    return '-'
+  }
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /** 截断 + ellipsis */

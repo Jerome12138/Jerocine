@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { FileItem } from '@/types/manage'
 import BaseImage from '@/components/base/BaseImage.vue'
@@ -8,34 +8,38 @@ import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
-import { confirm } from '@/composables/useConfirm'
-import { toast } from '@/api/http'
+import ManageTabs from '@/components/manage/ManageTabs.vue'
+import { usePagedList } from '@/composables/usePagedList'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
  * 文件库: 分页网格 + 客户端「图片/视频」类型筛选 + 删除。
  * 服务端 fileType 存的是扩展名(见 server UploadImage: TrimPrefix(ext, ".")), item.type 即扩展名,
  * 据此区分图片/视频; 关键字搜索需服务端 ListFiles 加参数, 暂未提供(现仅分页)。
+ *
+ * 分页状态收敛 usePagedList(rows/total/current/翻页/末页回夹/请求序号守卫),
+ * 网格 UI 保留 BasePagination(v-model:current 受控接法) —— 媒体网格不套 ManageTable。
  */
 
-const items = ref<FileItem[]>([])
-const loading = ref(true)
-/** 写操作(删除)在途: 期间禁用全部删除按钮, 防并发删多张 + 多个 load 竞争 */
-const busy = ref(false)
-const total = ref(0)
-const pageSize = ref(39)
-/** 加载失败态: 与"确实没有文件"的空态区分开, 提供重试入口 */
-const loadError = ref('')
-// 请求序号: 仅采纳最后一次请求的响应, 防快速翻页时旧响应后到覆盖新结果
-let loadSeq = 0
+// 分页大小与后端 ListFiles 默认一致(服务端按 39 返回, 回夹计算依赖它)
+const SERVER_PAGE_SIZE = 39
 
-const params = reactive({ current: 1 })
+const paged = usePagedList<FileItem>({
+  fetch: (page) =>
+    manageApi.file.list({ current: page }).then((resp) => ({
+      list: resp.list ?? [],
+      total: resp.page?.total ?? 0
+    })),
+  pageSize: SERVER_PAGE_SIZE
+})
+const { rows, total, current, pageSize, loading, loadError, load } = paged
 
 type TypeFilter = 'all' | 'image' | 'video'
 const typeFilter = ref<TypeFilter>('all')
-const filterOptions: Array<{ label: string; value: TypeFilter }> = [
-  { label: '全部', value: 'all' },
-  { label: '图片', value: 'image' },
-  { label: '视频', value: 'video' }
+const filterOptions: Array<{ value: TypeFilter; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'image', label: '图片' },
+  { value: 'video', label: '视频' }
 ]
 
 const VIDEO_EXTS = new Set([
@@ -64,84 +68,38 @@ function isVideo(item: FileItem): boolean {
 }
 
 const visibleItems = computed<FileItem[]>(() => {
-  if (typeFilter.value === 'all') return items.value
+  if (typeFilter.value === 'all') return rows.value
   const wantVideo = typeFilter.value === 'video'
-  return items.value.filter((it) => isVideo(it) === wantVideo)
+  return rows.value.filter((it) => isVideo(it) === wantVideo)
 })
 
-async function load(): Promise<void> {
-  const seq = ++loadSeq
-  loading.value = true
-  loadError.value = ''
-  try {
-    const resp = await manageApi.file.list({ current: params.current })
-    if (seq !== loadSeq) return // 已有更新的请求在途/完成, 丢弃旧响应
-    items.value = resp.list ?? []
-    total.value = resp.page?.total ?? 0
-    pageSize.value = resp.page?.size ?? 39
-    // 末页删空回夹: 删掉末页全部条目后页码越界会落在空页, 回夹到最后一页重拉一次
-    const size = resp.page?.size ?? 39
-    const pageCount = Math.max(1, Math.ceil(total.value / size))
-    if (!items.value.length && params.current > 1 && total.value > 0 && pageCount < params.current) {
-      params.current = pageCount
-      return load()
-    }
-  } catch (e) {
-    if (seq !== loadSeq) return
-    // 失败保留错误态: 不冒充"尚无文件"; http 拦截器已全局 toast, 这里落页面内文案
-    loadError.value = (e as Error).message ?? '加载失败'
-  } finally {
-    if (seq === loadSeq) loading.value = false
-  }
-}
+// 写操作(删除): busy 统一防并发; silent 关拦截器提示, 成功/失败文案由 run 单点负责
+const { busy, run } = useAsyncAction()
 
 async function remove(item: FileItem): Promise<void> {
-  if (busy.value) return
-  const ok = await confirm({
-    title: '确认删除？',
-    desc: `文件「${item.name}」将被永久删除`,
-    okText: '删除',
-    danger: true
+  await run({
+    confirm: {
+      title: '确认删除？',
+      desc: `文件「${item.name}」将被永久删除`,
+      okText: '删除',
+      danger: true
+    },
+    action: () => manageApi.file.remove(item.id, { silent: true }),
+    successMsg: '已删除',
+    after: () => load()
   })
-  if (!ok) return
-  busy.value = true
-  try {
-    await manageApi.file.remove(item.id)
-    toast('success', '已删除')
-    await load()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '删除失败')
-  } finally {
-    busy.value = false
-  }
 }
-
-function changePage(p: number): void {
-  params.current = p
-  load()
-}
-
-onMounted(load)
 </script>
 
 <template>
-  <section class="flex flex-col gap-[var(--jc-space-4)]">
+  <section class="flex min-h-0 flex-col gap-[var(--jc-space-4)]">
     <header class="flex items-center justify-between">
       <div>
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">文件库</h2>
         <p class="text-sm text-muted">站点已上传的图片 / 视频资源</p>
       </div>
       <div class="flex items-center gap-[var(--jc-space-2)]">
-        <BaseButton
-          v-for="opt in filterOptions"
-          :key="opt.value"
-          :variant="typeFilter === opt.value ? 'primary' : 'ghost'"
-          size="sm"
-          :data-focusable="true"
-          @click="typeFilter = opt.value"
-        >
-          {{ opt.label }}
-        </BaseButton>
+        <ManageTabs v-model="typeFilter" :tabs="filterOptions" />
         <BaseButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </BaseButton>
@@ -157,7 +115,7 @@ onMounted(load)
 
     <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"尚无文件" -->
     <section
-      v-else-if="loadError && !items.length"
+      v-else-if="loadError && !rows.length"
       class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]"
     >
       <BaseEmpty title="加载失败" :description="loadError" hide-icon />
@@ -210,11 +168,6 @@ onMounted(load)
       </article>
     </div>
 
-    <BasePagination
-      :current="params.current"
-      :page-size="pageSize"
-      :total="total"
-      @change="changePage"
-    />
+    <BasePagination v-model:current="current" :page-size="pageSize" :total="total" />
   </section>
 </template>

@@ -23,17 +23,19 @@ import type {
   ApiPerfItem,
   IssueStatusFilter
 } from '@/api/manage/telemetry'
-import { toast } from '@/api/http'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
-import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
-import ManageInput from '@/components/manage/ManageInput.vue'
-import ManageFormField from '@/components/manage/ManageFormField.vue'
-import { confirm } from '@/composables/useConfirm'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
+import StatusTag from '@/components/manage/StatusTag.vue'
+import type { StatusMap } from '@/components/manage/StatusTag.vue'
+import { openManageDialog } from '@/composables/useManageDialog'
+import { useAsyncAction } from '@/composables/useAsyncAction'
+import { formatDateTime } from '@/utils/format'
+import TelemetryResolveDialog from './TelemetryResolveDialog.vue'
 
 const PAGE_SIZE = 100
 const days = ref<number>(7)
@@ -53,6 +55,14 @@ const DAYS_OPTIONS = [
   { value: 7, label: '近 7 天' },
   { value: 30, label: '近 30 天' }
 ]
+
+/** issueStatus → StatusTag 词汇表(状态值→文案/variant 统一走 StatusTag) */
+const ISSUE_STATUS_MAP: StatusMap = {
+  unresolved: { label: '未处理', variant: 'danger' },
+  reopened: { label: '已重启', variant: 'warning' },
+  resolved: { label: '已解决', variant: 'success' },
+  expired: { label: '已过期', variant: 'default' }
+}
 
 /** 请求序号: 快速切换时间窗/筛选时只采纳最后一次请求的结果, 旧慢响应丢弃 */
 let reqSeq = 0
@@ -97,16 +107,6 @@ function fmtCount(v: number): string {
   return String(v)
 }
 
-function fmtTime(s: string): string {
-  if (!s) return ''
-  try {
-    const d = new Date(s)
-    return d.toLocaleString('zh-CN', { hour12: false })
-  } catch {
-    return s
-  }
-}
-
 function toggleExpand(id: number): void {
   expanded.value[id] = !expanded.value[id]
 }
@@ -145,87 +145,41 @@ const STATUS_OPTIONS: Array<{ value: IssueStatusFilter; label: string }> = [
   { value: 'all', label: '全部' }
 ]
 
-const resolveDialog = ref<{
-  open: boolean
-  row: TelemetryEventRow | null
-  commitId: string
-  note: string
-}>({ open: false, row: null, commitId: '', note: '' })
-
-function openResolve(row: TelemetryEventRow): void {
-  resolveDialog.value = {
-    open: true,
-    row,
-    commitId: row.resolution?.resolvedCommitId ?? '',
-    note: row.resolution?.note ?? ''
-  }
+// 标记解决: 函数化弹窗(表单含独立校验/提交 → openManageDialog, 内容组件自治), 成功后重拉列表
+async function openResolve(row: TelemetryEventRow): Promise<void> {
+  const done = await openManageDialog<boolean>({
+    title: '标记问题已解决',
+    component: TelemetryResolveDialog,
+    props: { row },
+    mobileMode: 'sheet'
+  })
+  if (!done) return
+  void loadAll()
 }
 
-const saving = ref(false)
+// 撤销解决: confirm + silent 请求 + 单点提示统一走 useAsyncAction
+const { busy, run } = useAsyncAction()
 const undoingId = ref<number | null>(null)
 
-async function submitResolve(): Promise<void> {
-  const r = resolveDialog.value.row
-  if (!r || saving.value) return
-  const commitId = resolveDialog.value.commitId.trim()
-  // commitId 必填: 服务端同样校验(空值 422), 前端先行拦截避免无效提交
-  if (!commitId) {
-    toast('error', '请填写修复 commit ID')
-    return
-  }
-  saving.value = true
-  try {
-    await telemetryApi.resolveIssue({
-      category: r.category,
-      path: r.path,
-      label: r.label,
-      commitId,
-      note: resolveDialog.value.note.trim()
-    })
-    resolveDialog.value.open = false
-    void loadAll()
-  } catch {
-    // 拦截器已 toast
-  } finally {
-    saving.value = false
-  }
-}
-
 async function undoResolve(row: TelemetryEventRow): Promise<void> {
-  if (undoingId.value !== null) return
-  const ok = await confirm({
-    title: '撤销已解决', desc: '撤销后此问题重回未解决列表, 继续累计计数.'
-  })
-  if (!ok) return
-  // in-flight 守卫: 双击双发会让服务端 reopened_count 重复 +1
   undoingId.value = row.id
   try {
-    await telemetryApi.unresolveIssue({
-      category: row.category, path: row.path, label: row.label
+    await run({
+      confirm: {
+        title: '撤销已解决',
+        desc: '撤销后此问题重回未解决列表, 继续累计计数.'
+      },
+      action: () =>
+        telemetryApi.unresolveIssue(
+          { category: row.category, path: row.path, label: row.label },
+          { silent: true }
+        ),
+      successMsg: '已撤销，问题重回未解决列表',
+      after: () => loadAll()
     })
-    void loadAll()
-  } catch {
-    // 拦截器已 toast
   } finally {
     undoingId.value = null
   }
-}
-
-function statusVariant(s: TelemetryEventRow['issueStatus']): 'default' | 'success' | 'warning' | 'danger' {
-  switch (s) {
-    case 'unresolved': return 'danger'
-    case 'reopened': return 'warning'
-    case 'resolved': return 'success'
-    default: return 'default'
-  }
-}
-function statusText(s: TelemetryEventRow['issueStatus']): string {
-  return ({
-    'unresolved': '未处理',
-    'reopened': '已重启',
-    'resolved': '已解决',
-    'expired': '已过期'
-  } as Record<string, string>)[s] ?? s
 }
 
 /** 未知影片兜底: 影片已从 search 索引清除时服务端只有 mid+count, 避免渲染空白行 */
@@ -244,13 +198,7 @@ watch(statusFilter, () => void loadAll())
     <header class="flex items-center justify-between mb-[var(--jc-space-5)]">
       <h1 class="text-2xl font-[var(--jc-fw-semibold)]">埋点监控</h1>
       <div class="flex items-center gap-[var(--jc-space-3)]">
-        <select
-          v-model.number="days"
-          class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)]"
-          data-focusable="true"
-        >
-          <option v-for="o in DAYS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-        </select>
+        <ManageSelect v-model="days" :options="DAYS_OPTIONS" aria-label="时间范围" class="w-[120px]" />
         <BaseButton variant="ghost" size="sm" :loading="loading" @click="loadAll()">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </BaseButton>
@@ -303,13 +251,7 @@ watch(statusFilter, () => void loadAll())
         <h2 class="text-lg font-[var(--jc-fw-semibold)]">
           错误 <span class="text-muted text-sm">({{ total || errors.length }})</span>
         </h2>
-        <select
-          v-model="statusFilter"
-          class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm"
-          data-focusable="true"
-        >
-          <option v-for="o in STATUS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-        </select>
+        <ManageSelect v-model="statusFilter" :options="STATUS_OPTIONS" aria-label="状态筛选" class="w-[190px]" />
       </header>
       <div class="jc-tm-table">
         <div class="jc-tm-table__head">
@@ -323,9 +265,9 @@ watch(statusFilter, () => void loadAll())
         </div>
         <div v-if="errors.length === 0" class="jc-tm-empty">暂无错误</div>
         <div v-for="row in errors" :key="row.id" class="jc-tm-row" @click="toggleExpand(row.id)">
-          <span class="w-[150px] text-xs text-muted font-mono">{{ fmtTime(row.serverTs) }}</span>
+          <span class="w-[150px] text-xs text-muted font-mono">{{ formatDateTime(row.serverTs) }}</span>
           <span class="w-[100px]">
-            <BaseTag :variant="statusVariant(row.issueStatus)" size="xs">{{ statusText(row.issueStatus) }}</BaseTag>
+            <StatusTag :value="row.issueStatus" :map="ISSUE_STATUS_MAP" size="xs" />
           </span>
           <span class="w-[90px]"><BaseTag variant="default" size="xs">{{ row.category || row.type }}</BaseTag></span>
           <span class="w-[170px] text-xs font-mono text-secondary truncate">{{ row.path || '-' }}</span>
@@ -373,31 +315,7 @@ watch(statusFilter, () => void loadAll())
       </div>
     </section>
 
-    <!-- 标记已解决 Dialog -->
-    <BaseDialog v-model:visible="resolveDialog.open" title="标记问题已解决">
-      <div v-if="resolveDialog.row" class="flex flex-col gap-[var(--jc-space-3)]">
-        <div class="text-sm text-secondary">
-          <div><b>分类:</b> {{ resolveDialog.row.category }}</div>
-          <div><b>路径:</b> {{ resolveDialog.row.path || '-' }}</div>
-          <div><b>描述:</b> {{ resolveDialog.row.label }}</div>
-        </div>
-        <ManageFormField label="修复 commit ID" required hint="git log 拿首 7-12 位">
-          <ManageInput v-model="resolveDialog.commitId" placeholder="e.g. c68eff0" />
-        </ManageFormField>
-        <ManageFormField label="备注 (可选)">
-          <ManageInput v-model="resolveDialog.note" placeholder="改了什么 / 为什么" />
-        </ManageFormField>
-        <p class="text-xs text-muted">
-          标记后立即从活跃列表移除. 24 小时内的重复触发视为旧缓存/旧 deploy 遗留, 不算
-          重开. 24 小时后到 30 天内若再次出现 → 自动变 "已重启" 重回活跃列表; 30 天都没
-          再出现则状态变 "过期", 仍不显示.
-        </p>
-      </div>
-      <template #footer>
-        <BaseButton variant="ghost" @click="resolveDialog.open = false">取消</BaseButton>
-        <BaseButton variant="primary" :loading="saving" @click="submitResolve">保存</BaseButton>
-      </template>
-    </BaseDialog>
+    <!-- 标记已解决弹窗已函数化: openManageDialog + TelemetryResolveDialog(见 script) -->
 
     <div class="grid md:grid-cols-2 gap-[var(--jc-space-5)] mb-[var(--jc-space-6)]">
       <!-- 热点视频 -->

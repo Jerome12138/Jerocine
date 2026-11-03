@@ -5,19 +5,21 @@ import { toast } from '@/api/http'
 import type { MailConfigUpdate, MailConfigResp, SmtpPreset } from '@/types/manage'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
+import type { SelectOption } from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
  * 注册与邮件通道卡片（原「邮件与注册」独立页并入「系统设置」）。
  * 保存走 PUT /manage/mail/config；凭据只写不读（留空 = 不修改）。
+ * 写操作口径: useAsyncAction + {silent:true}, 成功/失败文案 run 单点。
  */
 const loading = ref(true)
 /** 加载失败: 展示错误态 + 重试 —— 默认值表单可直接把线上注册模式/SMTP 开关静默覆盖, 必须拦住 */
 const loadError = ref(false)
-const submitting = ref(false)
-const testing = ref(false)
 const presets = ref<SmtpPreset[]>([])
 
 const form = reactive({
@@ -38,11 +40,26 @@ const passSet = ref(false)
 const passMasked = ref('')
 const testTo = ref('')
 
-const modeOptions: { value: MailConfigResp['registerMode']; label: string }[] = [
+const modeOptions: SelectOption[] = [
   { value: 'off', label: '关闭（仅后台创建账号）' },
   { value: 'open', label: '开放注册（邮箱验证码，注册即登录）' },
   { value: 'apply', label: '申请审核（提交申请 → 管理员审核 → 邮件激活）' }
 ]
+
+const SECURE_OPTIONS: SelectOption[] = [
+  { value: 'ssl', label: 'SSL（465，隐式 TLS）' },
+  { value: 'starttls', label: 'STARTTLS（587，必须支持升级）' },
+  { value: 'none', label: '无加密（不推荐，仅内网）' }
+]
+
+/** 服务商预设是临时选择(仅回填, 不入库): 初值 undefined 走 ManageSelect placeholder */
+const presetId = ref<string | number | undefined>(undefined)
+const presetOptions = computed<SelectOption[]>(() =>
+  presets.value.map((p) => ({ value: p.id, label: `${p.name}${p.note ? ` — ${p.note}` : ''}` }))
+)
+
+const { busy: submitting, run } = useAsyncAction()
+const { busy: testing, run: runTest } = useAsyncAction()
 
 async function load(): Promise<void> {
   loading.value = true
@@ -69,8 +86,8 @@ async function load(): Promise<void> {
 }
 
 /** 选预设仅回填 host/port/secure 默认值; 不在预设表内的服务商手改即可 */
-function applyPreset(id: string): void {
-  const p = presets.value.find((x) => x.id === id)
+function applyPreset(id: string | number): void {
+  const p = presets.value.find((x) => x.id === String(id))
   if (!p) return
   form.smtpHost = p.host
   form.smtpPort = p.port
@@ -117,18 +134,15 @@ async function submit(): Promise<void> {
     toast('error', '每日出站上限需在 1~1000 之间（清空表示不修改）')
     return
   }
-  submitting.value = true
-  try {
-    const data = await manageApi.mail.saveMailConfig(buildPayload())
-    passDraft.value = ''
-    passSet.value = data.smtpPassSet
-    passMasked.value = data.smtpPassMasked
-    toast('success', '注册与邮件配置已保存')
-  } catch (e) {
-    toast('error', e instanceof Error ? e.message : '保存失败')
-  } finally {
-    submitting.value = false
-  }
+  await run({
+    action: async () => {
+      const data = await manageApi.mail.saveMailConfig(buildPayload(), { silent: true })
+      passDraft.value = ''
+      passSet.value = data.smtpPassSet
+      passMasked.value = data.smtpPassMasked
+    },
+    successMsg: '注册与邮件配置已保存'
+  })
 }
 
 /** 测试邮件与保存解耦: 用当前表单值直发, 失败回显 SMTP 原文错误便于定位 */
@@ -143,15 +157,10 @@ async function submitTest(): Promise<void> {
     toast('error', '测试收件邮箱格式不正确')
     return
   }
-  testing.value = true
-  try {
-    await manageApi.mail.testMail({ ...buildPayload(), to })
-    toast('success', `测试邮件已发送至 ${to}，请查收`)
-  } catch (e) {
-    toast('error', e instanceof Error ? e.message : '发送失败')
-  } finally {
-    testing.value = false
-  }
+  await runTest({
+    action: () => manageApi.mail.testMail({ ...buildPayload(), to }, { silent: true }),
+    successMsg: `测试邮件已发送至 ${to}，请查收`
+  })
 }
 
 const smtpIncomplete = computed(
@@ -207,13 +216,12 @@ onMounted(load)
 
     <form v-else class="flex flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">
       <ManageFormField label="注册模式" hint="open 需配置邮件通道；apply 的激活邮件同样经 SMTP 发送">
-        <select
-          v-model="form.registerMode"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong"
-          data-focusable="true"
-        >
-          <option v-for="o in modeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-        </select>
+        <ManageSelect
+          :model-value="form.registerMode"
+          :options="modeOptions"
+          aria-label="注册模式"
+          @update:model-value="form.registerMode = $event as MailConfigResp['registerMode']"
+        />
       </ManageFormField>
 
       <div class="border-t border-[var(--jc-border)]" />
@@ -232,16 +240,13 @@ onMounted(load)
           label="服务商预设"
           hint="仅回填 host / 端口 / 加密方式的默认值；不在列表内选「自定义」后手填即可"
         >
-          <select
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong"
-            data-focusable="true"
-            @change="applyPreset(($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">选择预设（可跳过）</option>
-            <option v-for="p in presets" :key="p.id" :value="p.id">
-              {{ p.name }}{{ p.note ? ` — ${p.note}` : '' }}
-            </option>
-          </select>
+          <ManageSelect
+            v-model="presetId"
+            :options="presetOptions"
+            placeholder="选择预设（可跳过）"
+            aria-label="服务商预设"
+            @update:model-value="applyPreset"
+          />
         </ManageFormField>
 
         <div class="flex flex-col gap-[var(--jc-space-4)] sm:flex-row">
@@ -255,15 +260,12 @@ onMounted(load)
 
         <div class="flex flex-col gap-[var(--jc-space-4)] sm:flex-row">
           <ManageFormField class="flex-1" label="加密方式" required>
-            <select
-              v-model="form.smtpSecure"
-              class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong"
-              data-focusable="true"
-            >
-              <option value="ssl">SSL（465，隐式 TLS）</option>
-              <option value="starttls">STARTTLS（587，必须支持升级）</option>
-              <option value="none">无加密（不推荐，仅内网）</option>
-            </select>
+            <ManageSelect
+              :model-value="form.smtpSecure"
+              :options="SECURE_OPTIONS"
+              aria-label="加密方式"
+              @update:model-value="form.smtpSecure = $event as SmtpPreset['secure']"
+            />
           </ManageFormField>
           <ManageFormField class="flex-1" label="发件账号" required hint="一般为完整邮箱地址">
             <ManageInput v-model="form.smtpUser" placeholder="mail@example.com" />

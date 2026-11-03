@@ -1,19 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { Banner, BannerBoard, EffectiveSlide, InactiveBanner } from '@/types/manage'
-import ManageInput from '@/components/manage/ManageInput.vue'
-import ManageSwitch from '@/components/manage/ManageSwitch.vue'
-import ManageFormField from '@/components/manage/ManageFormField.vue'
-import ManageSheet from '@/components/manage/ManageSheet.vue'
-import ManageImageUpload from '@/components/manage/ManageImageUpload.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseLightbox from '@/components/base/BaseLightbox.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
-import { confirm } from '@/composables/useConfirm'
+import { openManageDialog, manageDialogState } from '@/composables/useManageDialog'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 import { toast } from '@/api/http'
+import BannerFormDialog from './BannerFormDialog.vue'
+import type { BannerFormInitial } from './BannerFormDialog.vue'
 
 /**
  * 首页轮播管理 —— 列表 = 前 liveCount 位生效位 + 其后热榜候选位(共 heroBoardCount=16 位, liveCount 分区)。
@@ -29,34 +27,32 @@ const board = ref<BannerBoard>({ active: [], inactive: [] })
 const loading = ref(true)
 /** 初次/手动加载失败时的错误文案(非 silent 加载才置位; 30s 轮询失败不打扰) */
 const loadError = ref('')
-const sheetOpen = ref(false)
-const submitting = ref(false)
-const editing = ref<Banner | null>(null)
-/** 采纳自动位时的钉入位置(生效列表下标); undefined = 追加到手动末尾 */
-const adoptSlot = ref<number | undefined>(undefined)
 const showInactive = ref(false)
-/** 立即刷新榜单进行中(ApplyHot + 热榜快照 + 轮播候选派生, 一轮约 1-2 分钟) */
-const refreshing = ref(false)
 /** 单片横图回填进行中的 mid 集合(防重复点击) */
 const fillingMids = ref<Set<number>>(new Set())
-/** 行内变更操作(排序/启停/屏蔽/删除)进行中: 统一禁用全部行内按钮, 防快速连点并发互踩 */
-const inFlight = ref(false)
 let pollTimer: number | undefined
 
-/** 手动触发单片 TMDB 横图回填(轮播管理页「横图」按钮) */
+// 写操作统一 useAsyncAction: busy 全局防连点(行内按钮 :disabled)、confirm、失败 toast 单点。
+// 各写请求一律 silent:true 关拦截器提示; 成功提示口径:
+//   排序/启停/屏蔽不弹 toast(看板即时回读即反馈), 删除/保存/回填/榜单刷新有定制文案。
+const { busy, run } = useAsyncAction()
+
+/** 手动触发单片 TMDB 横图回填(轮播管理页「横图」按钮); 按 status 定制文案留在 action 内 */
 async function fillBackdrop(mid: number): Promise<void> {
   if (mid <= 0 || fillingMids.value.has(mid)) return
   fillingMids.value.add(mid)
   try {
-    const r = await manageApi.banner.fillBackdrop(mid)
-    const tip =
-      r.status === 'already' ? '该片已有横图（刷新后页面直接展示）'
-      : r.status === 'miss' ? 'TMDB 检索无果（已标记未命中），暂不回填'
-      : '横图已获取并回填'
-    toast(r.status === 'filled' ? 'success' : 'info', `影片 #${mid}：${tip}`)
-    await load(true)
-  } catch (e) {
-    toast('error', (e as { message?: string })?.message || '获取横图失败，请稍后重试')
+    await run({
+      action: async () => {
+        const r = await manageApi.banner.fillBackdrop(mid) // API 内已 silent
+        const tip =
+          r.status === 'already' ? '该片已有横图（刷新后页面直接展示）'
+          : r.status === 'miss' ? 'TMDB 检索无果（已标记未命中），暂不回填'
+          : '横图已获取并回填'
+        toast(r.status === 'filled' ? 'success' : 'info', `影片 #${mid}：${tip}`)
+        await load(true)
+      }
+    })
   } finally {
     fillingMids.value.delete(mid)
   }
@@ -69,26 +65,22 @@ function doubanUrl(name: string): string {
 
 /** 立即刷新榜单: 与每日 04:00 自动刷新共用一把锁, 撞车返 409 */
 async function refreshHot(): Promise<void> {
-  const ok = await confirm({
-    title: '立即刷新榜单？',
-    desc: '拉取豆瓣 8 榜并重算热度、热榜快照与轮播候选位（约 1-2 分钟）。若上一轮刷新未结束会提示稍后再试。',
-    okText: '立即刷新'
+  await run({
+    confirm: {
+      title: '立即刷新榜单？',
+      desc: '拉取豆瓣 8 榜并重算热度、热榜快照与轮播候选位（约 1-2 分钟）。若上一轮刷新未结束会提示稍后再试。',
+      okText: '立即刷新'
+    },
+    action: async () => {
+      // refreshHotBoard 已 silent: true, 动态报告文案(带服务端观测值)由 action 自管
+      const rep = await manageApi.banner.refreshHotBoard()
+      toast(
+        'success',
+        `榜单刷新完成：抓取 ${rep.fetched} 条 · 匹配 ${rep.matched} 部 · 落库 ${rep.applied} 部 · 耗时 ${(rep.elapsedMs / 1000).toFixed(1)}s`
+      )
+    },
+    after: () => load(true)
   })
-  if (!ok) return
-  refreshing.value = true
-  try {
-    const rep = await manageApi.banner.refreshHotBoard()
-    toast(
-      'success',
-      `榜单刷新完成：抓取 ${rep.fetched} 条 · 匹配 ${rep.matched} 部 · 落库 ${rep.applied} 部 · 耗时 ${(rep.elapsedMs / 1000).toFixed(1)}s`
-    )
-    await load(true)
-  } catch (e) {
-    // refreshHotBoard 已 silent: true(关闭拦截器通用提示), 失败文案由这里给出
-    toast('error', (e as { message?: string })?.message || '榜单刷新失败，请稍后重试')
-  } finally {
-    refreshing.value = false
-  }
 }
 
 const active = computed(() => board.value.active ?? [])
@@ -145,25 +137,7 @@ function inactiveGoLabel(row: InactiveBanner): string {
   return '未配置'
 }
 
-interface Form {
-  id: number
-  title: string
-  subtitle: string
-  image: string
-  poster: string
-  mid: string
-  link: string
-  /** 排序值: 编辑时原样回传(sort 由排序操作统一维护, 服务端 Update 会把请求值写库,
-   *  丢掉会让该行在 ListAll 的 sort ASC 里排到最前); 新增固定 0, 服务端自行 maxSort+1 */
-  sort: number
-  state: number
-  startStr: string
-  endStr: string
-}
-
-const form = reactive<Form>(blank())
-
-function blank(): Form {
+function blankForm(): BannerFormInitial {
   return {
     id: 0, title: '', subtitle: '', image: '', poster: '',
     mid: '', link: '', sort: 0, state: 0, startStr: '', endStr: ''
@@ -184,17 +158,24 @@ async function load(silent = false): Promise<void> {
   }
 }
 
+/** 表单函数化: 标题逻辑留在页面, 校验/提交自治于 BannerFormDialog, 成功后重拉 Board */
+async function openForm(initial: BannerFormInitial, adoptSlot?: number): Promise<void> {
+  const done = await openManageDialog<boolean>({
+    title: initial.id > 0 ? '编辑轮播' : adoptSlot !== undefined ? '采纳自动位' : '新增轮播',
+    component: BannerFormDialog,
+    props: { initial, adoptSlot },
+    mobileMode: 'fullsheet'
+  })
+  if (!done) return
+  await load(true)
+}
+
 function openAdd(): void {
-  editing.value = null
-  adoptSlot.value = undefined
-  Object.assign(form, blank())
-  sheetOpen.value = true
+  void openForm(blankForm())
 }
 
 function openEdit(row: Banner): void {
-  editing.value = row
-  adoptSlot.value = undefined
-  Object.assign(form, {
+  void openForm({
     id: row.id,
     title: row.title,
     subtitle: row.subtitle,
@@ -207,120 +188,63 @@ function openEdit(row: Banner): void {
     startStr: msToLocal(row.startAt),
     endStr: msToLocal(row.endAt)
   })
-  sheetOpen.value = true
 }
 
 /** 采纳自动位: 预填当前生效内容(含已回填横图), 保存后转手动位并钉在原位置 */
 function adoptSlide(s: EffectiveSlide, slot: number): void {
-  editing.value = null
-  adoptSlot.value = slot
-  Object.assign(form, blank())
-  form.title = s.name
-  form.subtitle = s.subtitle ?? ''
-  form.image = s.image ?? ''
-  form.poster = s.poster ?? ''
-  form.mid = s.mid && s.mid > 0 ? String(s.mid) : ''
-  sheetOpen.value = true
-}
-
-async function submit(): Promise<void> {
-  if (!form.image && !form.poster) {
-    toast('error', '至少需要上传横图或竖图')
-    return
-  }
-  if (!form.link.trim() && !(Number(form.mid) > 0)) {
-    toast('error', '需要配置跳转：关联影片 ID 或自定义链接')
-    return
-  }
-  const startAt = localToMs(form.startStr)
-  const endAt = localToMs(form.endStr)
-  if (startAt > 0 && endAt > 0 && endAt < startAt) {
-    toast('error', '结束时间不能早于开始时间')
-    return
-  }
-  submitting.value = true
-  try {
-    await manageApi.banner.save({
-      id: form.id,
-      title: form.title,
-      subtitle: form.subtitle,
-      image: form.image,
-      poster: form.poster,
-      mid: Number(form.mid) > 0 ? Number(form.mid) : 0,
-      link: form.link.trim(),
-      sort: form.sort,
-      state: form.state,
-      startAt,
-      endAt
-    }, adoptSlot.value)
-    sheetOpen.value = false
-    adoptSlot.value = undefined
-    await load(true)
-  } catch {
-    // 失败提示由 http 拦截器统一 toast; 表单保持打开, 用户可修正后重试
-  } finally {
-    submitting.value = false
-  }
+  void openForm(
+    {
+      ...blankForm(),
+      title: s.name,
+      subtitle: s.subtitle ?? '',
+      image: s.image ?? '',
+      poster: s.poster ?? '',
+      mid: s.mid && s.mid > 0 ? String(s.mid) : ''
+    },
+    slot
+  )
 }
 
 /** 生效位排序: 手动位换位 / 自动位上移采纳(后端返回新 Board) */
 async function move(i: number, dir: 'up' | 'down'): Promise<void> {
-  if (inFlight.value) return
-  inFlight.value = true
-  try {
-    board.value = await manageApi.banner.move(i, dir)
-  } catch {
-    // 错误已由 http 拦截器统一 toast; board 保持原值
-  } finally {
-    inFlight.value = false
-  }
+  await run({
+    action: async () => {
+      board.value = await manageApi.banner.move(i, dir, { silent: true })
+    }
+  })
 }
 
 /** 启用/停用配置行(停用自动补位里的 mid = 屏蔽) */
 async function toggleState(row: Banner): Promise<void> {
-  if (inFlight.value) return
-  inFlight.value = true
-  try {
-    await manageApi.banner.save({ ...row, state: row.state === 0 ? 1 : 0 })
-    await load(true)
-  } catch {
-    // 错误已由 http 拦截器统一 toast
-  } finally {
-    inFlight.value = false
-  }
+  await run({
+    action: () =>
+      manageApi.banner.save({ ...row, state: row.state === 0 ? 1 : 0 }, undefined, { silent: true }),
+    after: () => load(true)
+  })
 }
 
 /** 候选位「禁用」: 屏蔽影片的自动补位(后端返回新 Board) */
 async function disableByMid(mid: number): Promise<void> {
-  if (inFlight.value || mid <= 0) return
-  inFlight.value = true
-  try {
-    board.value = await manageApi.banner.disableByMid(mid)
-  } catch {
-    // 错误已由 http 拦截器统一 toast; board 保持原值
-  } finally {
-    inFlight.value = false
-  }
+  if (mid <= 0) return
+  await run({
+    action: async () => {
+      board.value = await manageApi.banner.disableByMid(mid, { silent: true })
+    }
+  })
 }
 
 async function remove(row: Banner): Promise<void> {
-  const ok = await confirm({
-    title: '确认删除这张轮播？',
-    desc: `「${row.title || `#${row.id}`}」删除后不可恢复`,
-    okText: '删除',
-    danger: true
+  await run({
+    confirm: {
+      title: '确认删除这张轮播？',
+      desc: `「${row.title || `#${row.id}`}」删除后不可恢复`,
+      okText: '删除',
+      danger: true
+    },
+    action: () => manageApi.banner.remove(row.id, { silent: true }),
+    successMsg: '已删除',
+    after: () => load(true)
   })
-  if (!ok) return
-  if (inFlight.value) return
-  inFlight.value = true
-  try {
-    await manageApi.banner.remove(row.id)
-    await load(true)
-  } catch {
-    // 错误已由 http 拦截器统一 toast
-  } finally {
-    inFlight.value = false
-  }
 }
 
 function canMoveUp(s: EffectiveSlide, i: number): boolean {
@@ -370,12 +294,6 @@ function msToLocal(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function localToMs(s: string): number {
-  if (!s) return 0
-  const t = new Date(s).getTime()
-  return Number.isNaN(t) ? 0 : t
-}
-
 /** 未生效行排期文案: 让「未开始/已过期」的判断依据(何时起/止)可见。
  *  返回 'YYYY-MM-DD HH:mm 起/止/~ …'; 未配置排期返回空串 */
 function scheduleLabel(row: InactiveBanner): string {
@@ -401,7 +319,7 @@ function canEnable(row: InactiveBanner): boolean {
 onMounted(() => {
   load()
   pollTimer = window.setInterval(() => {
-    if (!sheetOpen.value) load(true) // 表单打开时暂停轮询, 避免编辑中被覆盖
+    if (!manageDialogState.visible) load(true) // 表单弹窗打开时暂停轮询, 避免编辑中被覆盖
   }, 30_000)
 })
 
@@ -422,7 +340,7 @@ onUnmounted(() => {
         </span>
       </div>
       <div class="flex gap-[var(--jc-space-2)]">
-        <BaseButton variant="ghost" size="sm" :loading="refreshing" :disabled="refreshing" @click="refreshHot">
+        <BaseButton variant="ghost" size="sm" :loading="busy" :disabled="busy" @click="refreshHot">
           <BaseIcon name="refresh" size="16px" /> 立即刷新榜单
         </BaseButton>
         <BaseButton variant="ghost" size="sm" @click="load()">
@@ -545,28 +463,28 @@ onUnmounted(() => {
             @click="fillBackdrop(s.mid!)"
           >回填横图</BaseButton>
           <BaseButton
-            variant="ghost" size="sm" :disabled="!canMoveUp(s, i) || inFlight"
+            variant="ghost" size="sm" :disabled="!canMoveUp(s, i) || busy"
             :title="s.source === 'banner' ? '上移' : '上移（转为手动位）'"
             @click="move(i, 'up')"
           >↑</BaseButton>
           <BaseButton
-            variant="ghost" size="sm" :disabled="!canMoveDown(s, i) || inFlight"
+            variant="ghost" size="sm" :disabled="!canMoveDown(s, i) || busy"
             :title="s.source === 'banner' ? '下移' : '自动位恒在尾部'"
             @click="move(i, 'down')"
           >↓</BaseButton>
           <BaseButton
             v-if="s.source === 'banner'"
-            variant="ghost" size="sm" :disabled="inFlight" @click="s.banner && openEdit(s.banner)"
+            variant="ghost" size="sm" :disabled="busy" @click="s.banner && openEdit(s.banner)"
           >编辑</BaseButton>
-          <BaseButton v-else variant="ghost" size="sm" :disabled="inFlight" @click="adoptSlide(s, i)">编辑</BaseButton>
+          <BaseButton v-else variant="ghost" size="sm" :disabled="busy" @click="adoptSlide(s, i)">编辑</BaseButton>
           <BaseButton
-            variant="ghost" size="sm" :disabled="inFlight"
+            variant="ghost" size="sm" :disabled="busy"
             :title="s.source === 'banner' ? '停用' : '停用（屏蔽该影片的自动补位）'"
             @click="s.source === 'banner' && s.banner ? toggleState(s.banner) : disableByMid(s.mid ?? 0)"
           >禁用</BaseButton>
           <BaseButton
             v-if="s.source === 'banner'"
-            variant="danger" size="sm" :disabled="inFlight" @click="s.banner && remove(s.banner)"
+            variant="danger" size="sm" :disabled="busy" @click="s.banner && remove(s.banner)"
           >删除</BaseButton>
         </div>
         </li>
@@ -678,90 +596,18 @@ onUnmounted(() => {
             <BaseButton
               v-if="canEnable(row)"
               variant="ghost" size="sm" title="启用后转为手动位"
-              :disabled="inFlight"
+              :disabled="busy"
               @click="toggleState(row)"
             >启用</BaseButton>
-            <BaseButton variant="ghost" size="sm" :disabled="inFlight" @click="openEdit(row)">编辑</BaseButton>
-            <BaseButton variant="danger" size="sm" :disabled="inFlight" @click="remove(row)">删除</BaseButton>
+            <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</BaseButton>
+            <BaseButton variant="danger" size="sm" :disabled="busy" @click="remove(row)">删除</BaseButton>
           </div>
         </li>
       </ul>
     </div>
   </div>
 
-  <ManageSheet v-model="sheetOpen" :title="editing ? '编辑轮播' : adoptSlot !== undefined ? '采纳自动位' : '新增轮播'" mobile-mode="fullsheet">
-    <div class="flex flex-col gap-[var(--jc-space-4)]">
-      <ManageFormField label="标题" hint="留空则前台显示「为你推荐」">
-        <ManageInput
-          :model-value="form.title"
-          placeholder="如：本周强推"
-          @update:model-value="(v) => (form.title = String(v))"
-        />
-      </ManageFormField>
-
-      <ManageFormField label="副标题" hint="展示在大标题下方的一行简介">
-        <ManageInput
-          :model-value="form.subtitle"
-          placeholder="可选"
-          @update:model-value="(v) => (form.subtitle = String(v))"
-        />
-      </ManageFormField>
-
-      <ManageFormField label="横图（宽幅主视觉）" required hint="建议 21:9 或 16:9，桌面/大屏首屏主图">
-        <ManageImageUpload v-model="form.image" ratio="21/9" />
-      </ManageFormField>
-
-      <ManageFormField label="竖图（窄屏兜底）" hint="建议 2:3；只给竖图时会用模糊铺底 + 侧栏竖海报">
-        <ManageImageUpload v-model="form.poster" ratio="2/3" />
-      </ManageFormField>
-
-      <ManageFormField label="关联影片 ID" hint="填 mid 则点击进入该片详情；与自定义链接二选一">
-        <ManageInput
-          :model-value="form.mid"
-          type="number"
-          placeholder="如 12345"
-          @update:model-value="(v) => (form.mid = String(v))"
-        />
-      </ManageFormField>
-
-      <ManageFormField label="自定义链接" hint="站内路径（/filmClassify?Pid=1）或外链（https://…）；优先于关联影片">
-        <ManageInput
-          :model-value="form.link"
-          placeholder="/filmClassify?Pid=1 或 https://…"
-          @update:model-value="(v) => (form.link = String(v))"
-        />
-      </ManageFormField>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-[var(--jc-space-4)]">
-        <ManageFormField label="生效开始" hint="留空 = 立即">
-          <ManageInput
-            :model-value="form.startStr"
-            type="datetime-local"
-            @update:model-value="(v) => (form.startStr = String(v))"
-          />
-        </ManageFormField>
-        <ManageFormField label="生效结束" hint="留空 = 长期">
-          <ManageInput
-            :model-value="form.endStr"
-            type="datetime-local"
-            @update:model-value="(v) => (form.endStr = String(v))"
-          />
-        </ManageFormField>
-      </div>
-
-      <ManageFormField label="启用">
-        <ManageSwitch
-          :model-value="form.state === 0"
-          @update:model-value="(v) => (form.state = v ? 0 : 1)"
-        />
-      </ManageFormField>
-    </div>
-
-    <template #footer>
-      <BaseButton variant="ghost" @click="sheetOpen = false">取消</BaseButton>
-      <BaseButton variant="gradient" :loading="submitting" @click="submit">保存</BaseButton>
-    </template>
-  </ManageSheet>
+  <!-- 轮播新增/编辑/采纳表单已函数化: openForm → openManageDialog + BannerFormDialog(见 script) -->
 
   <!-- 全图点击放大(生效/未生效所有封面共享一个 lightbox) -->
   <BaseLightbox v-model:src="previewSrc" :alt="previewAlt" />

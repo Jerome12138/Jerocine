@@ -53,7 +53,7 @@ export const getBasic = async (): Promise<SiteBasic & TMDBKeyState> => {
 }
 
 /** POST /manage/site-config 更新站点基础配置 */
-export const updateBasic = (data: SiteBasic): Promise<void> =>
+export const updateBasic = (data: SiteBasic, config?: { silent?: boolean }): Promise<void> =>
   http.post<unknown, void>('/manage/site-config', {
     id: 1,
     siteName: data.siteName,
@@ -63,7 +63,7 @@ export const updateBasic = (data: SiteBasic): Promise<void> =>
     description: data.describe,
     state: data.state ? 0 : 1,
     hint: data.hint ?? ''
-  })
+  }, config)
 
 // ---- TMDB 凭据(独立端点, 明文永不回传) ----
 
@@ -80,12 +80,12 @@ export const getTMDBKey = async (): Promise<TMDBKeyState> => {
 }
 
 /** POST /manage/tmdb-key 保存凭据(v3 key / v4 token), 服务端验真后热生效 */
-export const setTMDBKey = (key: string): Promise<void> =>
-  http.post<unknown, void>('/manage/tmdb-key', { key })
+export const setTMDBKey = (key: string, config?: { silent?: boolean }): Promise<void> =>
+  http.post<unknown, void>('/manage/tmdb-key', { key }, config)
 
 /** DELETE /manage/tmdb-key 清除凭据(横图回填停摆, 已落地图不受影响) */
-export const clearTMDBKey = (): Promise<void> =>
-  http.delete<unknown, void>('/manage/tmdb-key')
+export const clearTMDBKey = (config?: { silent?: boolean }): Promise<void> =>
+  http.delete<unknown, void>('/manage/tmdb-key', config)
 
 // ---- 运行参数(账号与安全 / 采集性能) ----
 
@@ -94,8 +94,10 @@ export const getRuntimeSettings = (): Promise<RuntimeSettings> =>
   http.get<unknown, RuntimeSettings>('/manage/settings')
 
 /** PUT /manage/settings 写运行参数（登录策略下次登录生效，采集并发下一轮采集生效） */
-export const updateRuntimeSettings = (data: RuntimeSettings): Promise<RuntimeSettings> =>
-  http.put<unknown, RuntimeSettings>('/manage/settings', data)
+export const updateRuntimeSettings = (
+  data: RuntimeSettings,
+  config?: { silent?: boolean }
+): Promise<RuntimeSettings> => http.put<unknown, RuntimeSettings>('/manage/settings', data, config)
 
 // ---- 在线会话(当前生效的登录凭据) ----
 

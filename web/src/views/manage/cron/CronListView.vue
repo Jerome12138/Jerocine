@@ -4,13 +4,35 @@ import { manageApi } from '@/api'
 import type { CronTask, CollectSource } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
+import StatusTag from '@/components/manage/StatusTag.vue'
+import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { confirm } from '@/composables/useConfirm'
+import { formatShortDateTime } from '@/utils/format'
+
+// 状态/类型列 → StatusTag 词汇表(替代 lastRunVariant/lastRunText 等自写映射)
+const CRON_STATE_MAP: StatusMap = {
+  true: { label: '运行中', variant: 'success' },
+  false: { label: '停止', variant: 'default' }
+}
+const CRON_MODEL_MAP: StatusMap = {
+  0: { label: '自动', variant: 'purple' },
+  1: { label: '指定', variant: 'purple' },
+  2: { label: '补采', variant: 'purple' }
+}
+const RUN_STATUS_MAP: StatusMap = {
+  success: { label: '成功', variant: 'success' },
+  failed: { label: '失败', variant: 'danger' },
+  running: { label: '运行中', variant: 'brand' },
+  canceled: { label: '已取消', variant: 'warning' }
+}
+const RUN_STATUS_FALLBACK = { label: '无记录', variant: 'default' } as const
 
 const rows = ref<CronTask[]>([])
 const sources = ref<CollectSource[]>([])
@@ -43,45 +65,12 @@ const columns = [
   { key: 'remark' as const, label: '备注' }
 ]
 
-function pad(n: number): string {
-  return String(n).padStart(2, '0')
-}
-
-function fmtRunTime(ms?: number): string {
-  if (!ms) return '—'
-  const d = new Date(ms)
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function lastRunVariant(s?: string): 'default' | 'success' | 'danger' | 'brand' | 'warning' {
-  switch (s) {
-    case 'success':
-      return 'success'
-    case 'failed':
-      return 'danger'
-    case 'running':
-      return 'brand'
-    case 'canceled':
-      return 'warning'
-    default:
-      return 'default'
-  }
-}
-
-function lastRunText(s?: string): string {
-  switch (s) {
-    case 'success':
-      return '成功'
-    case 'failed':
-      return '失败'
-    case 'running':
-      return '运行中'
-    case 'canceled':
-      return '已取消'
-    default:
-      return '无记录'
-  }
-}
+// 任务类型下拉(value 保数字类型)
+const MODEL_OPTIONS = [
+  { value: 0, label: '自动更新已启用站点' },
+  { value: 1, label: '仅更新所选资源站' },
+  { value: 2, label: '补采失败页' }
+]
 
 /** 关键字过滤: 命中 ID / Cron 表达式 / 备注(服务端暂无分页, 前端过滤即可) */
 const filteredRows = computed<CronTask[]>(() => {
@@ -243,10 +232,12 @@ onMounted(load)
 </script>
 
 <template>
+  <!-- 页面根: flex 高度链(.jc-manage-main 提供), 表格 fit 自适应 -->
+  <div class="flex min-h-0 flex-col gap-[var(--jc-space-3)]">
   <!-- 加载失败: 明确报错 + 重试, 不落到"暂无定时任务"空态 -->
   <div
     v-if="loadError && !loading"
-    class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)] mb-[var(--jc-space-3)]"
+    class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)]"
   >
     <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
     <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
@@ -278,12 +269,8 @@ onMounted(load)
     </template>
 
     <template #cell="{ row, col }">
-      <BaseTag v-if="col.key === 'state'" :variant="row.state ? 'success' : 'default'">
-        {{ row.state ? '运行中' : '停止' }}
-      </BaseTag>
-      <BaseTag v-else-if="col.key === 'model'" variant="purple" size="xs">
-        {{ row.model === 0 ? '自动' : row.model === 2 ? '补采' : '指定' }}
-      </BaseTag>
+      <StatusTag v-if="col.key === 'state'" :value="row.state" :map="CRON_STATE_MAP" />
+      <StatusTag v-else-if="col.key === 'model'" :value="row.model" :map="CRON_MODEL_MAP" size="xs" />
       <code
         v-else-if="col.key === 'spec'"
         class="font-[var(--jc-font-mono)] text-[length:var(--jc-fs-xs)] text-[var(--jc-text-link)]"
@@ -295,10 +282,10 @@ onMounted(load)
         {{ row.id }}
       </span>
       <span v-else-if="col.key === 'lastRunAt'" class="flex items-center gap-[var(--jc-space-1)]">
-        <BaseTag :variant="lastRunVariant(row.lastStatus)" size="xs">
-          {{ lastRunText(row.lastStatus) }}
-        </BaseTag>
-        <span class="text-xs text-muted whitespace-nowrap">{{ fmtRunTime(row.lastRunAt) }}</span>
+        <StatusTag :value="row.lastStatus" :map="RUN_STATUS_MAP" :fallback="RUN_STATUS_FALLBACK" size="xs" />
+        <span class="text-xs text-muted whitespace-nowrap">
+          {{ row.lastRunAt ? formatShortDateTime(row.lastRunAt) : '—' }}
+        </span>
         <span
           v-if="row.lastError"
           class="text-xs text-danger break-all"
@@ -345,15 +332,7 @@ onMounted(load)
         <ManageInput v-model="form.spec" placeholder="0 0 3 * * *" />
       </ManageFormField>
       <ManageFormField label="任务类型" required>
-        <select
-          v-model.number="form.model"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
-          data-focusable="true"
-        >
-          <option :value="0">自动更新已启用站点</option>
-          <option :value="1">仅更新所选资源站</option>
-          <option :value="2">补采失败页</option>
-        </select>
+        <ManageSelect v-model="form.model" :options="MODEL_OPTIONS" aria-label="任务类型" />
       </ManageFormField>
       <ManageFormField
         v-if="form.model === 1"
@@ -393,4 +372,5 @@ onMounted(load)
       <BaseButton variant="gradient" :loading="submitting" @click="submit">保存</BaseButton>
     </template>
   </ManageSheet>
+  </div>
 </template>

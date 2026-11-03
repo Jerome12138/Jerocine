@@ -1,4 +1,5 @@
 import { http } from '../http'
+import type { AxiosRequestConfig } from 'axios'
 import type { PhotoWallResp, FileItem } from '@/types/manage'
 
 // ---- 后端契约 DTO (entity.FileInfo + dto.Paginated) ----
@@ -51,9 +52,9 @@ export const list = async (params: { current?: number }): Promise<PhotoWallResp>
   }
 }
 
-/** DELETE /manage/files/:id 删除 */
-export const remove = (id: string | number): Promise<void> =>
-  http.delete<unknown, void>(`/manage/files/${id}`)
+/** DELETE /manage/files/:id 删除; config 透传(调用方 silent:true 时提示由 useAsyncAction 单点负责) */
+export const remove = (id: string | number, config?: AxiosRequestConfig): Promise<void> =>
+  http.delete<unknown, void>(`/manage/files/${id}`, config)
 
 /** POST /manage/files 单文件上传(multipart), 返回图片访问 URL */
 export const upload = async (

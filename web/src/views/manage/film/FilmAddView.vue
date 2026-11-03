@@ -12,6 +12,7 @@ import type {
 } from '@/types/manage'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
 import ManageImageUpload from '@/components/manage/ManageImageUpload.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -20,18 +21,21 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import SourceCandidateDialog from '@/components/manage/SourceCandidateDialog.vue'
+import { useAsyncAction } from '@/composables/useAsyncAction'
+import type { SelectOption } from '@/components/manage/ManageSelect.vue'
 
 const router = useRouter()
 const tree = ref<FilmClass[]>([])
 const treeError = ref('')
-const submitting = ref(false)
+
+// 写操作统一 useAsyncAction: busy 并发拦截 + 失败 toast 单点; 请求一律 silent
+const { busy, run } = useAsyncAction()
 
 // ============ 按片名搜索站点影片 + 采集 ============
 const collectSources = ref<CollectSource[]>([])
 const sourcesError = ref('')
 const spiderKeyword = ref('')
 const searching = ref(false)
-const collecting = ref(false)
 const results = ref<SourceFilmResult[]>([])
 const searched = ref(false)
 /** 选中的源 id 集合(供采集勾选) */
@@ -105,27 +109,24 @@ function reportCollect(res: SourceFilmResult[]): void {
   }
 }
 
-/** 采集: ids 为空数组表示采集全部启用源。silent=true 自管结果提示, 避免拦截器
- *  「操作成功」与 reportCollect 的「N 个源采集失败」同时出现 */
+/** 采集: ids 为空数组表示采集全部启用源。silent=true 自管结果提示(业务成败是
+ *  HTTP 200 里的 error 字段, 由 reportCollect 汇报), 异常 toast 由 run 单点 */
 async function collect(ids: string[]): Promise<void> {
   const kw = spiderKeyword.value.trim()
   if (!kw) {
     toast('error', '请输入片名关键字')
     return
   }
-  collecting.value = true
-  try {
-    const res = normalizeCollectResult(
-      await manageApi.film.collectFilm({ keyword: kw, sources: ids }, { silent: true })
-    )
-    results.value = res
-    searched.value = true
-    reportCollect(res)
-  } catch (e) {
-    toast('error', (e as Error).message ?? '采集请求失败')
-  } finally {
-    collecting.value = false
-  }
+  await run({
+    action: async () => {
+      const res = normalizeCollectResult(
+        await manageApi.film.collectFilm({ keyword: kw, sources: ids }, { silent: true })
+      )
+      results.value = res
+      searched.value = true
+      reportCollect(res)
+    }
+  })
 }
 
 function collectChecked(): void {
@@ -158,26 +159,25 @@ function hitKey(sourceId: string, vodId: number): string {
   return `${sourceId}:${vodId}`
 }
 
-/** 命中条目精确采集: 用户已亲选具体版本 → collectFilm({ sourceId, vodId })(silent 自管提示) */
+/** 命中条目精确采集: 用户已亲选具体版本 → collectFilm({ sourceId, vodId })(异常 toast 由 run 单点) */
 async function collectHit(sourceId: string, sourceName: string, h: SourceSearchHit): Promise<void> {
   const key = hitKey(sourceId, h.sourceVodId)
   hitCollecting.value[key] = true
-  try {
-    const res = await manageApi.film.collectFilm({ sourceId, vodId: h.sourceVodId }, { silent: true })
-    const list = normalizeCollectResult(res)
-    const hit = list.find((r) => r.sourceId === sourceId) ?? list[0]
-    if (hit?.error) {
-      toast('error', `${sourceName} 采集失败: ${hit.error}`)
-    } else if (hit && hit.collected > 0) {
-      toast('success', `${sourceName} · ${h.name} 采集完成, 入库 ${hit.collected} 集`)
-    } else {
-      toast('error', `${sourceName} · ${h.name} 采集未入库`)
+  await run({
+    action: async () => {
+      const res = await manageApi.film.collectFilm({ sourceId, vodId: h.sourceVodId }, { silent: true })
+      const list = normalizeCollectResult(res)
+      const hit = list.find((r) => r.sourceId === sourceId) ?? list[0]
+      if (hit?.error) {
+        toast('error', `${sourceName} 采集失败: ${hit.error}`)
+      } else if (hit && hit.collected > 0) {
+        toast('success', `${sourceName} · ${h.name} 采集完成, 入库 ${hit.collected} 集`)
+      } else {
+        toast('error', `${sourceName} · ${h.name} 采集未入库`)
+      }
     }
-  } catch (e) {
-    toast('error', (e as Error).message ?? '采集请求失败')
-  } finally {
-    hitCollecting.value[key] = false
-  }
+  })
+  hitCollecting.value[key] = false
 }
 
 /** 打开某源的候选选择弹框(多源采集返回 candidates 时) */
@@ -191,28 +191,27 @@ function openCandidates(r: SourceFilmResult): void {
   }
 }
 
-/** 候选弹框选定某版本 → 精确采集(silent 自管提示) */
+/** 候选弹框选定某版本 → 精确采集(异常 toast 由 run 单点) */
 async function onPickCandidate(h: SourceSearchHit): Promise<void> {
   const { sourceId, sourceName } = candidateDialog.value
   if (!sourceId) return
   candidatePicking.value = true
-  try {
-    const res = await manageApi.film.collectFilm({ sourceId, vodId: h.sourceVodId }, { silent: true })
-    const list = normalizeCollectResult(res)
-    const hit = list.find((r) => r.sourceId === sourceId) ?? list[0]
-    if (hit?.error) {
-      toast('error', `${sourceName} 采集失败: ${hit.error}`)
-    } else if (hit && hit.collected > 0) {
-      toast('success', `${sourceName} · ${h.name} 采集完成, 入库 ${hit.collected} 集`)
-      candidateDialog.value.visible = false
-    } else {
-      toast('error', `${sourceName} · ${h.name} 采集未入库`)
+  await run({
+    action: async () => {
+      const res = await manageApi.film.collectFilm({ sourceId, vodId: h.sourceVodId }, { silent: true })
+      const list = normalizeCollectResult(res)
+      const hit = list.find((r) => r.sourceId === sourceId) ?? list[0]
+      if (hit?.error) {
+        toast('error', `${sourceName} 采集失败: ${hit.error}`)
+      } else if (hit && hit.collected > 0) {
+        toast('success', `${sourceName} · ${h.name} 采集完成, 入库 ${hit.collected} 集`)
+        candidateDialog.value.visible = false
+      } else {
+        toast('error', `${sourceName} · ${h.name} 采集未入库`)
+      }
     }
-  } catch (e) {
-    toast('error', (e as Error).message ?? '采集请求失败')
-  } finally {
-    candidatePicking.value = false
-  }
+  })
+  candidatePicking.value = false
 }
 
 // ============ 手动新增表单 ============
@@ -233,13 +232,18 @@ const form = reactive({
 const nameError = ref('')
 const yearError = ref('')
 
+/** 顶级分类下拉: 「请选择」= 0(顶级), 其余为分类树一级节点(数字 value 原类型回传) */
+const pidOptions = computed<SelectOption[]>(() => [
+  { label: '请选择', value: 0 },
+  ...tree.value.map((t) => ({ label: t.name, value: t.id }))
+])
+
 onMounted(() => {
   void loadTree()
   void loadSources()
 })
 
 async function submit(): Promise<void> {
-  if (submitting.value) return
   nameError.value = ''
   yearError.value = ''
   const name = form.name.trim()
@@ -252,28 +256,29 @@ async function submit(): Promise<void> {
     yearError.value = '年份需为 4 位数字（如 2024），可留空'
     return
   }
-  submitting.value = true
-  try {
-    await manageApi.film.add({
-      name,
-      enName: form.enName,
-      // number input 清空后是空串, 原样上送服务端 int64 绑定会 422 invalid body → 归一 0(与 year 同口径)
-      cid: Number(form.cid) || 0,
-      pid: form.pid,
-      cover: form.picture,
-      area: form.area,
-      year: Number(form.year) || 0,
-      director: form.director,
-      actor: form.actor,
-      classTag: form.classTag,
-      content: form.content
-    })
-    router.push('/manage/film')
-  } catch {
-    // 拦截器已 toast 失败原因; 表单停留供用户修正
-  } finally {
-    submitting.value = false
-  }
+  await run({
+    action: () =>
+      manageApi.film.add(
+        {
+          name,
+          enName: form.enName,
+          // ManageInput number 清空后是 undefined, 原样上送服务端 int64 绑定会 422 invalid body → 归一 0(与 year 同口径)
+          cid: Number(form.cid) || 0,
+          pid: form.pid,
+          cover: form.picture,
+          area: form.area,
+          year: Number(form.year) || 0,
+          director: form.director,
+          actor: form.actor,
+          classTag: form.classTag,
+          content: form.content
+        },
+        { silent: true }
+      ),
+    after: () => {
+      router.push('/manage/film')
+    }
+  })
 }
 </script>
 
@@ -342,7 +347,7 @@ async function submit(): Promise<void> {
           <BaseButton
             variant="primary"
             size="sm"
-            :loading="collecting"
+            :loading="busy"
             :disabled="!enabledSourceCount"
             @click="collectChecked"
           >
@@ -351,7 +356,7 @@ async function submit(): Promise<void> {
           <BaseButton
             variant="outline"
             size="sm"
-            :loading="collecting"
+            :loading="busy"
             :disabled="!enabledSourceCount"
             @click="collectAll"
           >
@@ -452,14 +457,7 @@ async function submit(): Promise<void> {
 
         <ManageFormField label="顶级分类 (Pid)">
           <div class="flex flex-col gap-[var(--jc-space-2)]">
-            <select
-              v-model="form.pid"
-              class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
-              data-focusable="true"
-            >
-              <option :value="0">请选择</option>
-              <option v-for="t in tree" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
+            <ManageSelect v-model="form.pid" :options="pidOptions" aria-label="顶级分类" />
             <div v-if="treeError" class="flex items-center gap-[var(--jc-space-2)] text-xs text-[var(--jc-danger)] flex-wrap">
               <span>分类树加载失败：{{ treeError }}</span>
               <BaseButton variant="ghost" size="sm" @click="loadTree">重试</BaseButton>
@@ -496,7 +494,7 @@ async function submit(): Promise<void> {
 
         <div class="md:col-span-2 flex justify-end gap-[var(--jc-space-3)]">
           <BaseButton variant="ghost" type="button" @click="router.back()">取消</BaseButton>
-          <BaseButton variant="gradient" type="submit" :loading="submitting">保存</BaseButton>
+          <BaseButton variant="gradient" type="submit" :loading="busy">保存</BaseButton>
         </div>
       </form>
     </section>

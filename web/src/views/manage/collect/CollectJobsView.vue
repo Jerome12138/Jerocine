@@ -3,9 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as collectApi from '@/api/manage/collect'
 import type { SpiderJob } from '@/api/manage/collect'
 import BaseButton from '@/components/base/BaseButton.vue'
-import BaseTag from '@/components/base/BaseTag.vue'
-import { toast } from '@/api/http'
-import { confirm } from '@/composables/useConfirm'
+import StatusTag from '@/components/manage/StatusTag.vue'
+import type { StatusMap } from '@/components/manage/StatusTag.vue'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
  * 采集任务监控
@@ -13,7 +13,17 @@ import { confirm } from '@/composables/useConfirm'
  *  - 每条任务显示进度条 + 已用时长 + 状态标签, error 态展示服务端落库的失败原因
  *  - running → 可暂停 / 取消, paused → 可继续 / 取消
  *  - 已结束 (done/error/canceled) 30 分钟后服务端 GC 自动消失
+ *  - 操作经 useAsyncAction: busy 防连点 + 单点 toast(写请求 silent, 不与拦截器叠提示)
  */
+
+// 任务状态 → StatusTag 词汇表(与 TaskManageView 的 JOB_STATE_MAP 同源口径)
+const JOB_STATE_MAP: StatusMap = {
+  running: { label: '采集中', variant: 'brand' },
+  paused: { label: '已暂停', variant: 'warning' },
+  done: { label: '已完成', variant: 'success' },
+  error: { label: '出错', variant: 'danger' },
+  canceled: { label: '已取消', variant: 'danger' }
+}
 
 const jobs = ref<SpiderJob[]>([])
 const loading = ref(false)
@@ -73,8 +83,8 @@ function stopPoll(): void {
 onMounted(pollTick)
 onBeforeUnmount(stopPoll)
 
-// 操作进行中的任务(卡片级防重): 操作期间禁用该卡片全部按钮
-const busyId = ref('')
+// 操作进行中: busy 期间禁用全部卡片按钮(经 useAsyncAction 单点收敛)
+const { busy, run } = useAsyncAction()
 
 function fmtElapsed(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '-'
@@ -98,74 +108,34 @@ function hourLabel(hour: number): string {
   return '时长未知'
 }
 
-function stateVariant(s: SpiderJob['state']): 'default' | 'brand' | 'warning' | 'success' | 'danger' {
-  switch (s) {
-    case 'running': return 'brand'
-    case 'paused': return 'warning'
-    case 'done': return 'success'
-    case 'error':
-    case 'canceled': return 'danger'
-    default: return 'default'
-  }
-}
-
-function stateText(s: SpiderJob['state']): string {
-  return ({
-    running: '采集中',
-    paused: '已暂停',
-    done: '已完成',
-    error: '出错',
-    canceled: '已取消'
-  } as Record<string, string>)[s] ?? s
-}
-
 async function pause(j: SpiderJob): Promise<void> {
-  if (busyId.value) return
-  busyId.value = j.sourceId
-  try {
-    await collectApi.spiderJobPause(j.sourceId)
-    toast('success', '已暂停')
-    await load()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '暂停失败')
-  } finally {
-    busyId.value = ''
-  }
+  await run({
+    action: () => collectApi.spiderJobPause(j.sourceId, { silent: true }),
+    successMsg: '已暂停',
+    after: load
+  })
 }
 
 async function resume(j: SpiderJob): Promise<void> {
-  if (busyId.value) return
-  busyId.value = j.sourceId
-  try {
-    await collectApi.spiderJobResume(j.sourceId)
-    toast('success', '已继续')
-    await load()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '继续失败')
-  } finally {
-    busyId.value = ''
-  }
+  await run({
+    action: () => collectApi.spiderJobResume(j.sourceId, { silent: true }),
+    successMsg: '已继续',
+    after: load
+  })
 }
 
 async function cancelJob(j: SpiderJob): Promise<void> {
-  if (busyId.value) return
-  const ok = await confirm({
-    title: '取消采集任务',
-    desc: `确认取消 [${j.sourceName}] 的采集? 已完成的页面会保留, 未完成的页面会丢弃.`,
+  await run({
     // 破坏性操作(未完成页面会丢弃)走危险样式
-    danger: true
+    confirm: {
+      title: '取消采集任务',
+      desc: `确认取消 [${j.sourceName}] 的采集? 已完成的页面会保留, 未完成的页面会丢弃.`,
+      danger: true
+    },
+    action: () => collectApi.spiderJobCancel(j.sourceId, { silent: true }),
+    successMsg: '已取消',
+    after: load
   })
-  if (!ok) return
-  busyId.value = j.sourceId
-  try {
-    await collectApi.spiderJobCancel(j.sourceId)
-    toast('success', '已取消')
-    await load()
-  } catch (e) {
-    toast('error', (e as Error).message ?? '取消失败')
-  } finally {
-    busyId.value = ''
-  }
 }
 
 const hasJobs = computed(() => jobs.value.length > 0)
@@ -201,7 +171,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
       <article v-for="j in jobs" :key="j.sourceId" class="jc-job">
         <header class="jc-job__head">
           <span class="jc-job__name">{{ j.sourceName }}</span>
-          <BaseTag :variant="stateVariant(j.state)" size="sm">{{ stateText(j.state) }}</BaseTag>
+          <StatusTag :value="j.state" :map="JOB_STATE_MAP" />
           <span class="text-muted text-xs ml-auto">
             {{ hourLabel(j.hour) }} · 用时 {{ fmtElapsed(j.elapsedMs) }}
           </span>
@@ -232,21 +202,21 @@ const hasJobs = computed(() => jobs.value.length > 0)
             v-if="j.state === 'running'"
             variant="outline"
             size="sm"
-            :disabled="!!busyId"
+            :disabled="busy"
             @click="pause(j)"
           >暂停</BaseButton>
           <BaseButton
             v-if="j.state === 'paused'"
             variant="primary"
             size="sm"
-            :disabled="!!busyId"
+            :disabled="busy"
             @click="resume(j)"
           >继续</BaseButton>
           <BaseButton
             v-if="j.state === 'running' || j.state === 'paused'"
             variant="danger"
             size="sm"
-            :disabled="!!busyId"
+            :disabled="busy"
             @click="cancelJob(j)"
           >取消</BaseButton>
         </div>

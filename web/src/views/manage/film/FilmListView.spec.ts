@@ -2,6 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import FilmListView from './FilmListView.vue'
+import ManageTable from '@/components/manage/ManageTable.vue'
+import ManageTabs from '@/components/manage/ManageTabs.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
+import StatusTag from '@/components/manage/StatusTag.vue'
+import { FILM_STATUS_TABS, FILM_STATUS_TAG_MAP } from '@/views/manage/constants'
 import type { ManageFilmRow, ManageFilmSearchResp } from '@/types/manage'
 import { useViewMode } from '@/composables/useViewMode'
 
@@ -97,6 +102,51 @@ describe('FilmListView 影片管理', () => {
     expect(w.text()).toContain('在架')
   })
 
+  it('表格内置分页: 分页条渲染在 ManageTable 内部(页面不再自拼独立分页)', async () => {
+    const w = await mountView()
+    // 全页唯一分页 nav, 且位于 ManageTable 组件子树内
+    expect(w.findAll('nav[aria-label="pagination"]').length).toBe(1)
+    expect(w.findComponent(ManageTable).find('nav[aria-label="pagination"]').exists()).toBe(true)
+  })
+
+  it('内置分页交互: 点击第 2 页 → searchList 收到 page=2(v-model:current 驱动)', async () => {
+    h.searchList.mockResolvedValue(resp([row({ mid: 2 })], 61).body)
+    const w = await mountView()
+    const page2 = w.findAll('nav button').find((b) => b.text().trim() === '2')
+    expect(page2, '第 2 页按钮应存在').toBeTruthy()
+    await page2!.trigger('click')
+    await flushPromises()
+    expect(h.searchList.mock.calls.at(-1)[0].page).toBe(2)
+  })
+
+  it('页签换 ManageTabs: role=tablist/tab + aria-selected, 切页签重置页码', async () => {
+    const w = await mountView()
+    expect(w.findComponent(ManageTabs).exists()).toBe(true)
+    const tablist = w.find('[role="tablist"]')
+    expect(tablist.exists()).toBe(true)
+    const tabs = tablist.findAll('[role="tab"]')
+    expect(tabs.map((t) => t.text().trim())).toEqual(['在架', '回收站', '全部'])
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+    await tabs[1]!.trigger('click')
+    await flushPromises()
+    expect(h.searchList.mock.calls.at(-1)[0].status).toBe('deleted')
+    expect(h.searchList.mock.calls.at(-1)[0].page).toBe(1)
+  })
+
+  it('页签数据源提升到 views/manage/constants: FILM_STATUS_TABS 与状态映射一致', () => {
+    expect(FILM_STATUS_TABS.map((t) => t.label)).toEqual(['在架', '回收站', '全部'])
+    expect(FILM_STATUS_TAG_MAP.active).toEqual({ label: '在架', variant: 'success' })
+    expect(FILM_STATUS_TAG_MAP.deleted).toEqual({ label: '回收站', variant: 'danger' })
+  })
+
+  it('状态列换 StatusTag: value/map 驱动(在架=success, 回收站=danger)', async () => {
+    const w = await mountView()
+    const tags = w.findComponent(ManageTable).findAllComponents(StatusTag)
+    expect(tags.length).toBe(1)
+    expect(tags[0]!.props('value')).toBe('active')
+    expect(tags[0]!.props('map')).toEqual(FILM_STATUS_TAG_MAP)
+  })
+
   it('deletedAt>0 的行显示回收站标签(带删除时间 title)', async () => {
     h.searchList.mockResolvedValue(resp([row({ mid: 9, deletedAt: 1767000000000 })]).body)
     const w = await mountView()
@@ -125,8 +175,9 @@ describe('FilmListView 影片管理', () => {
     expect(last.page).toBe(1)
   })
 
-  it('排序下拉 → 请求带 sort=score 且页码重置', async () => {
+  it('排序换 ManageSelect: aria-label 保留, 切换带 sort=score 且页码重置', async () => {
     const w = await mountView()
+    expect(w.findComponent(ManageSelect).exists()).toBe(true)
     const sel = w.find('select[aria-label="排序方式"]')
     expect(sel.exists()).toBe(true)
     await sel.setValue('score')

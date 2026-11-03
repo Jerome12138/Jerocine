@@ -33,17 +33,17 @@ export const classFind = async (id: number): Promise<FilmClass | undefined> => {
   return walk(await classTree())
 }
 
-/** DELETE /manage/categories/:id 删除分类 */
-export const classDel = (id: number): Promise<void> =>
-  http.delete<unknown, void>(`/manage/categories/${id}`)
+/** DELETE /manage/categories/:id 删除分类。config.silent=true 关闭拦截器的「操作成功」 toast，由调用方自管提示 */
+export const classDel = (id: number, config?: AxiosRequestConfig): Promise<void> =>
+  http.delete<unknown, void>(`/manage/categories/${id}`, config)
 
-/** POST /manage/categories 新增 / 修改分类（upsert） */
-export const classUpdate = (data: FilmClass): Promise<void> =>
-  http.post<unknown, void>('/manage/categories', data)
+/** POST /manage/categories 新增 / 修改分类（upsert）。config.silent=true 关闭拦截器 toast，由调用方自管提示 */
+export const classUpdate = (data: FilmClass, config?: AxiosRequestConfig): Promise<void> =>
+  http.post<unknown, void>('/manage/categories', data, config)
 
-/** POST /manage/films 新增影片 */
-export const add = (data: FilmAddPayload): Promise<void> =>
-  http.post<unknown, void>('/manage/films', data)
+/** POST /manage/films 新增影片。config.silent=true 关闭拦截器的「操作成功」 toast，由调用方自管提示 */
+export const add = (data: FilmAddPayload, config?: AxiosRequestConfig): Promise<void> =>
+  http.post<unknown, void>('/manage/films', data, config)
 
 /** DELETE /manage/films/:mid 软删影片（可在回收站恢复）。config.silent=true 关闭拦截器的「操作成功」 toast，由调用方自管提示 */
 export const softDelete = (

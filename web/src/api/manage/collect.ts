@@ -64,12 +64,12 @@ export const update = (data: CollectSource): Promise<void> =>
   http.put<unknown, void>(`/manage/collect-sources/${enc(data.id)}`, toDTO(data))
 
 /** PUT /manage/collect-sources/:id 切换状态 / 同步图片(整体 upsert) */
-export const change = (data: CollectSource): Promise<void> =>
-  http.put<unknown, void>(`/manage/collect-sources/${enc(data.id)}`, toDTO(data))
+export const change = (data: CollectSource, config?: AxiosRequestConfig): Promise<void> =>
+  http.put<unknown, void>(`/manage/collect-sources/${enc(data.id)}`, toDTO(data), config)
 
 /** DELETE /manage/collect-sources/:id 删除 */
-export const remove = (id: string): Promise<void> =>
-  http.delete<unknown, void>(`/manage/collect-sources/${enc(id)}`)
+export const remove = (id: string, config?: AxiosRequestConfig): Promise<void> =>
+  http.delete<unknown, void>(`/manage/collect-sources/${enc(id)}`, config)
 
 // ============ 实测延时 / 成功率 ============
 

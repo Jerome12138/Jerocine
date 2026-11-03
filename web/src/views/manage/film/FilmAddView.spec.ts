@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { defineComponent } from 'vue'
 import FilmAddView from './FilmAddView.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
 import type {
   CollectSource,
   FilmAddPayload,
@@ -206,7 +207,7 @@ describe('FilmAddView 影片新增', () => {
     expect(h.toast).toHaveBeenCalledWith('error', '请先勾选采集源')
   })
 
-  it('建片提交 payload: cid 清空归 0(不再 422), 成功后跳列表', async () => {
+  it('建片提交 payload: cid 清空归 0(不再 422), add 带 silent, 成功后跳列表', async () => {
     const w = await mountView()
     const manual = manualSection(w)
     await manual.find('input').setValue('手动建的片')
@@ -217,11 +218,52 @@ describe('FilmAddView 影片新增', () => {
     await flushPromises()
 
     expect(h.add).toHaveBeenCalledTimes(1)
+    expect(h.add.mock.calls[0][1]).toEqual({ silent: true })
     const payload = h.add.mock.calls[0][0] as FilmAddPayload
     expect(payload.name).toBe('手动建的片')
     expect(payload.cid).toBe(0)
     expect(payload.year).toBe(0)
     expect(h.push).toHaveBeenCalledWith('/manage/film')
+  })
+
+  it('顶级分类下拉换 ManageSelect: 数字 value 按原类型回传并进 payload', async () => {
+    const w = await mountView()
+    const sel = w.findComponent(ManageSelect)
+    expect(sel.exists()).toBe(true)
+    // 「请选择」(0) + 分类树选项
+    const optionTexts = sel.findAll('option').map((o) => o.text())
+    expect(optionTexts).toContain('请选择')
+    expect(optionTexts).toContain('电影')
+    // 选择顶级分类(id=1, 数字) → 提交 payload.pid === 1
+    const manual = manualSection(w)
+    await manual.find('input').setValue('手动建的片')
+    await sel.find('select').setValue('1')
+    await manual.find('form').trigger('submit')
+    await flushPromises()
+    const payload = h.add.mock.calls[0][0] as FilmAddPayload
+    expect(payload.pid).toBe(1)
+  })
+
+  it('采集并发拦截: 采集进行中再点采集按钮不重复发请求(useAsyncAction busy)', async () => {
+    let resolveCollect!: (v: SourceFilmResult[]) => void
+    h.collectFilm.mockImplementationOnce(
+      () => new Promise<SourceFilmResult[]>((r) => (resolveCollect = r))
+    )
+    const w = await mountView()
+    await w.find('input[placeholder*="影片名关键字"]').setValue('流浪地球')
+    await w.findAll('button').find((b) => b.text().includes('采集全部源'))!.trigger('click')
+    await flushPromises()
+    expect(h.collectFilm).toHaveBeenCalledTimes(1)
+    // 挂起期间再点采集 → 被 busy 拦截
+    await w.findAll('button').find((b) => b.text().includes('采集全部源'))!.trigger('click')
+    await flushPromises()
+    expect(h.collectFilm).toHaveBeenCalledTimes(1)
+    resolveCollect([{ sourceId: 'a', sourceName: '源A', master: true, collected: 1 }])
+    await flushPromises()
+    // 释放后可再次发起
+    await w.findAll('button').find((b) => b.text().includes('采集全部源'))!.trigger('click')
+    await flushPromises()
+    expect(h.collectFilm).toHaveBeenCalledTimes(2)
   })
 
   it('建片提交: year 非 4 位数字被拦截并展示字段级错误', async () => {

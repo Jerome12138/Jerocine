@@ -137,6 +137,10 @@
   --jc-gutter-tablet: 24px;
   --jc-gutter-desktop: 40px;
 
+  /* ---------- 管理表格密度 ---------- */
+  /* 桌面紧凑行密度（ManageTable 单元格纵向 padding）; TV 下放宽保遥控可读 */
+  --jc-table-cell-py: 10px;
+
   /* ---------- 卡片 (3:4 影视封面) ---------- */
   --jc-card-aspect: 3 / 4;
   --jc-card-radius: 12px;
@@ -327,6 +331,7 @@ body {
    * 详情容器全部溢出. 改成 vw-based 自适应即可在任意 CSS 视口宽下正确显示. */
   --jc-tv-safe: clamp(48px, 5vw, 96px); /* P0: overscan 安全区 ~5%(原 16~48 偏小, 10-foot 须更大留边) */
   --jc-tv-safe-y: clamp(27px, 5vh, 54px); /* P0: 纵向安全区 ~5% */
+  --jc-table-cell-py: 12px; /* 表格行高略增, 10-foot 视距行密度保可读 */
 
   /* 字号阶梯（2026-09-23 起为 TV 的**唯一**基准, 别再在组件里硬编码字号）
    *

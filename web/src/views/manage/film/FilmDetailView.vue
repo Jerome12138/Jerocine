@@ -18,6 +18,7 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import SourceCandidateDialog from '@/components/manage/SourceCandidateDialog.vue'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 
 const route = useRoute()
 const router = useRouter()
@@ -127,24 +128,26 @@ async function load(): Promise<void> {
   }
 }
 
-/** 采集单源: collectFilm({ sourceId, mid }) → 处理 collected / candidates。
- *  silent=true: 拦截器不再弹通用「操作成功」—— 单源采集业务失败时 HTTP 仍是 200,
- *  结果内 error 字段才代表真实成败, 由 handleCollectResult 自管提示, 避免自相矛盾双 toast。 */
+/** 采集写操作统一 useAsyncAction: busy 并发拦截(重操作全局串行), 异常 toast 由 run
+ *  单点; silent=true 关拦截器通用「操作成功」—— 单源采集业务失败时 HTTP 仍是 200,
+ *  结果内 error 字段才代表真实成败, 由 handleCollectResult 自管提示。 */
+const { busy, run } = useAsyncAction()
+
+/** 采集单源: collectFilm({ sourceId, mid }) → 处理 collected / candidates */
 async function collectOne(row: MergedSource): Promise<void> {
   if (!mid.value) return
   collecting.value[row.siteId] = true
-  try {
-    const res = await manageApi.film.collectFilm(
-      { sourceId: row.siteId, mid: Number(mid.value) },
-      { silent: true }
-    )
-    const hit = pickResult(res, row.siteId)
-    await handleCollectResult(hit, row.siteName, row.siteId)
-  } catch (e) {
-    toast('error', (e as Error).message ?? '采集请求失败')
-  } finally {
-    collecting.value[row.siteId] = false
-  }
+  await run({
+    action: async () => {
+      const res = await manageApi.film.collectFilm(
+        { sourceId: row.siteId, mid: Number(mid.value) },
+        { silent: true }
+      )
+      const hit = pickResult(res, row.siteId)
+      await handleCollectResult(hit, row.siteName, row.siteId)
+    }
+  })
+  collecting.value[row.siteId] = false
 }
 
 /** 从(单个/数组)结果里取对应源结果 */
@@ -187,33 +190,32 @@ async function handleCollectResult(
   toast('error', `${sourceName} 未搜到此片`)
 }
 
-/** 候选弹框选定某版本: collectFilm({ sourceId, vodId }) → 成功重载(silent 自管提示, 同 collectOne) */
+/** 候选弹框选定某版本: collectFilm({ sourceId, vodId }) → 成功重载(异常 toast 由 run 单点) */
 async function onPickCandidate(h: SourceSearchHit): Promise<void> {
   const { sourceId, sourceName } = candidateDialog.value
   if (!sourceId) return
   candidatePicking.value = true
   collecting.value[sourceId] = true
-  try {
-    const res = await manageApi.film.collectFilm(
-      { sourceId, vodId: h.sourceVodId },
-      { silent: true }
-    )
-    const hit = pickResult(res, sourceId)
-    if (hit && !hit.error && hit.collected > 0) {
-      toast('success', `${sourceName} 采集完成, 入库 ${hit.collected} 集`)
-      candidateDialog.value.visible = false
-      await load()
-    } else if (hit?.error) {
-      toast('error', `${sourceName} 采集失败: ${hit.error}`)
-    } else {
-      toast('error', `${sourceName} 采集未入库`)
+  await run({
+    action: async () => {
+      const res = await manageApi.film.collectFilm(
+        { sourceId, vodId: h.sourceVodId },
+        { silent: true }
+      )
+      const hit = pickResult(res, sourceId)
+      if (hit && !hit.error && hit.collected > 0) {
+        toast('success', `${sourceName} 采集完成, 入库 ${hit.collected} 集`)
+        candidateDialog.value.visible = false
+        await load()
+      } else if (hit?.error) {
+        toast('error', `${sourceName} 采集失败: ${hit.error}`)
+      } else {
+        toast('error', `${sourceName} 采集未入库`)
+      }
     }
-  } catch (e) {
-    toast('error', (e as Error).message ?? '采集请求失败')
-  } finally {
-    candidatePicking.value = false
-    collecting.value[sourceId] = false
-  }
+  })
+  candidatePicking.value = false
+  collecting.value[sourceId] = false
 }
 
 /** 去公开详情页(公开路由约定 query.link 承载 mid)。已软删影片公开页视为不存在, 不跳 */
@@ -353,6 +355,7 @@ onMounted(async () => {
               :variant="row.collected ? 'outline' : 'primary'"
               size="sm"
               :loading="collecting[row.siteId]"
+              :disabled="busy"
               :title="row.disabled ? '该源已停用，仅此处可手动采集' : ''"
               @click="collectOne(row)"
             >

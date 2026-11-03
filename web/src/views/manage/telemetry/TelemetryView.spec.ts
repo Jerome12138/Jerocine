@@ -1,6 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import TelemetryView from './TelemetryView.vue'
+import ManageDialogHost from '@/components/manage/ManageDialogHost.vue'
+import {
+  answerManageDialog,
+  manageDialogState,
+  manageDialogHostMounted
+} from '@/composables/useManageDialog'
 import type { ListEventsResp, OverviewResp, TelemetryEventRow, FilmStat } from '@/api/manage/telemetry'
 
 const h = vi.hoisted(() => ({
@@ -44,19 +50,60 @@ function film(over: Partial<FilmStat> = {}): FilmStat {
   return { mid: 1, name: '好片', cover: 'c.jpg', count: 3, ...over }
 }
 
+/** 页面 + 弹窗 Host 一起挂(共享 useManageDialog 模块单例); 弹窗内容断言走 Host wrapper。
+ *  两个 mount 必须共享同一份 stubs: VTU 多 app 共享全局 stub 注册表, 后挂的 Host 若不带
+ *  RouterLink stub 会把页面的 stub 顶掉(Vue warn: Component is missing template or render
+ *  function: { name: 'RouterLink' }), 热点/收藏影片行渲染为空。 */
+const STUBS = { RouterLink: { template: '<a><slot /></a>' }, teleport: true }
+
+let w: VueWrapper | null = null
+let wh: VueWrapper | null = null
+
 async function mountView(): Promise<VueWrapper> {
-  const w = mount(TelemetryView, {
-    global: {
-      // RouterLink: 测试环境无路由; teleport: BaseDialog 内容内联渲染可查
-      stubs: {
-        RouterLink: { template: '<a><slot /></a>' },
-        teleport: true
-      }
-    }
-  })
-  await flushPromises()
+  const both = await mountAll()
+  w = both.w
+  wh = both.wh
   return w
 }
+
+async function mountAll(): Promise<{ w: VueWrapper; wh: VueWrapper }> {
+  const page = mount(TelemetryView, {
+    global: {
+      // RouterLink: 测试环境无路由; teleport: ManageSheet 内容内联渲染可查
+      stubs: STUBS
+    }
+  })
+  const host = mount(ManageDialogHost, {
+    attachTo: document.body,
+    global: { stubs: STUBS }
+  })
+  await flushPromises()
+  return { w: page, wh: host }
+}
+
+// useManageDialog 模块单例复位(测试间隔离, 同 FilmClassView.spec)
+beforeEach(() => {
+  document.body.innerHTML = ''
+  manageDialogHostMounted.value = false
+  if (manageDialogState.resolve) {
+    answerManageDialog({ type: 'close' })
+  }
+  manageDialogState.visible = false
+  manageDialogState.title = ''
+  manageDialogState.component = null
+  manageDialogState.props = {}
+  manageDialogState.mobileMode = 'sheet'
+  manageDialogState.width = undefined
+})
+
+afterEach(async () => {
+  // 先卸 Host(待决弹窗 resolve(null)), 再卸页面
+  wh?.unmount()
+  w?.unmount()
+  wh = null
+  w = null
+  await flushPromises()
+})
 
 function btn(w: VueWrapper, text: string) {
   const found = w.findAll('button').find((b) => b.text().includes(text))
@@ -210,26 +257,31 @@ describe('TelemetryView 问题闭环(resolve/unresolve)', () => {
   })
 
   it('标记解决: commitId 为空拦截提交(toast, 不发请求); 填写后提交 trim 过的 body 并重拉', async () => {
-    const w = await mountView()
-    await btn(w, '标记解决').trigger('click')
-    const commitInput = w.find('input[placeholder="e.g. c68eff0"]')
-    const noteInput = w.find('input[placeholder="改了什么 / 为什么"]')
+    await mountView()
+    await btn(w!, '标记解决').trigger('click')
+    await flushPromises()
+    const commitInput = wh!.find('input[placeholder="e.g. c68eff0"]')
+    const noteInput = wh!.find('input[placeholder="改了什么 / 为什么"]')
     expect(commitInput.exists()).toBe(true)
 
-    await btn(w, '保存').trigger('click')
+    await btn(wh!, '保存').trigger('click')
     expect(h.toast).toHaveBeenCalledWith('error', '请填写修复 commit ID')
     expect(h.resolveIssue).not.toHaveBeenCalled()
 
     await commitInput.setValue('  abc123  ')
     await noteInput.setValue('  改了重试逻辑  ')
-    await btn(w, '保存').trigger('click')
+    await btn(wh!, '保存').trigger('click')
     await flushPromises()
-    expect(h.resolveIssue).toHaveBeenCalledWith({
-      category: 'js-error', path: '/play', label: 'boom',
-      commitId: 'abc123', note: '改了重试逻辑'
-    })
+    // silent: 写操作提示收敛到 useAsyncAction 单点(弹窗内成功「已标记解决」/失败单条)
+    expect(h.resolveIssue).toHaveBeenCalledWith(
+      {
+        category: 'js-error', path: '/play', label: 'boom',
+        commitId: 'abc123', note: '改了重试逻辑'
+      },
+      { silent: true }
+    )
     expect(h.listEvents).toHaveBeenCalledTimes(2) // 初载 + 保存后重拉
-    expect(w.find('input[placeholder="e.g. c68eff0"]').exists()).toBe(false) // 对话框关闭
+    expect(wh!.find('input[placeholder="e.g. c68eff0"]').exists()).toBe(false) // 对话框关闭
   })
 
   it('撤销解决: 需确认, 取消不调接口, 确认后调用并重拉', async () => {
@@ -248,7 +300,11 @@ describe('TelemetryView 问题闭环(resolve/unresolve)', () => {
     await btn(w, '撤销').trigger('click')
     await flushPromises()
     expect(h.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: '撤销已解决' }))
-    expect(h.unresolveIssue).toHaveBeenCalledWith({ category: 'js-error', path: '/play', label: 'boom' })
+    // silent: 写操作提示收敛到 useAsyncAction 单点
+    expect(h.unresolveIssue).toHaveBeenCalledWith(
+      { category: 'js-error', path: '/play', label: 'boom' },
+      { silent: true }
+    )
     expect(h.listEvents).toHaveBeenCalledTimes(2)
   })
 

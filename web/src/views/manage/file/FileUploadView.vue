@@ -99,7 +99,8 @@ async function clearEntries(): Promise<void> {
 </script>
 
 <template>
-  <section class="flex flex-col gap-[var(--jc-space-5)] max-w-[960px]">
+  <!-- 页面级 max-width hack 移除(桌面密度由 ManageLayout .jc-manage-main 统一封顶 1440px 居中) -->
+  <section class="flex min-h-0 flex-col gap-[var(--jc-space-5)]">
     <header>
       <h2 class="text-lg font-[var(--jc-fw-semibold)]">文件上传</h2>
       <p class="text-sm text-muted">支持图片 / 视频片段等，拖拽或点击上传，单文件不超过 64MB</p>

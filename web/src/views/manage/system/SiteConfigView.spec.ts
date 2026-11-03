@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import SiteConfigView from './SiteConfigView.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
 
 const h = vi.hoisted(() => ({
   getBasic: vi.fn(),
@@ -117,7 +118,7 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     await boxes[2].setValue(true) // iqiyi
     await card.findAll('button').at(-1)!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 1, providers: ['bilibili', 'iqiyi'] })
+    expect(h.saveDanmuConfig).toHaveBeenCalledWith({ enabled: 1, providers: ['bilibili', 'iqiyi'] }, { silent: true })
   })
 
   it('弹幕卡: 开启但未勾选任何平台时前端拦下', async () => {
@@ -140,13 +141,16 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     expect(values).toContain('16')
   })
 
-  it('邮件卡: 原独立页的注册模式与 SMTP 字段都在设置页内', async () => {
+  it('邮件卡: 原独立页的注册模式与 SMTP 字段都在设置页内, 三个手写 select 换 ManageSelect', async () => {
     const w = await mountView()
     expect(h.getMailConfig).toHaveBeenCalled()
     expect(w.text()).toContain('申请审核')
     const values = w.findAll('input').map((i) => (i.element as HTMLInputElement).value)
     expect(values).toContain('smtp.qq.com')
     expect(values).toContain('bot@qq.com')
+    // 注册模式 / 服务商预设 / 加密方式 → ManageSelect(复核#3: 8 页 3 种手写写法统一)
+    const card = cardOf(w, '注册与邮件通道')
+    expect(card.findAllComponents(ManageSelect).length).toBeGreaterThanOrEqual(3)
   })
 
   /** 卡片 = 顶部 5 个 section; 按标题定位, 返回该卡内的保存按钮 */
@@ -176,13 +180,16 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     // 保存「采集性能」: 提交的 TTL 必须是上次落库的 720
     await cardOf(w, '采集性能').findAll('button').at(-1)!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.updateRuntimeSettings).toHaveBeenCalledWith({
-      authTokenTtlHours: 720,
-      maxDeviceLogin: 10,
-      spiderMaxGoroutine: 16,
-      spiderMasterMaxWorkers: 9,
-      spiderSlaveMaxWorkers: 6
-    })
+    expect(h.updateRuntimeSettings).toHaveBeenCalledWith(
+      {
+        authTokenTtlHours: 720,
+        maxDeviceLogin: 10,
+        spiderMaxGoroutine: 16,
+        spiderMasterMaxWorkers: 9,
+        spiderSlaveMaxWorkers: 6
+      },
+      { silent: true }
+    )
   })
 
   it('反过来亦然: 采集并发草稿不影响「账号与安全」的保存', async () => {
@@ -192,13 +199,16 @@ describe('SiteConfigView 系统设置（卡片式）', () => {
     await nums[nums.length - 1].setValue('99') // 采集并发草稿
     await cardOf(w, '账号与安全').findAll('button').at(-1)!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.updateRuntimeSettings).toHaveBeenCalledWith({
-      authTokenTtlHours: 720,
-      maxDeviceLogin: 10,
-      spiderMaxGoroutine: 16,
-      spiderMasterMaxWorkers: 9,
-      spiderSlaveMaxWorkers: 6
-    })
+    expect(h.updateRuntimeSettings).toHaveBeenCalledWith(
+      {
+        authTokenTtlHours: 720,
+        maxDeviceLogin: 10,
+        spiderMaxGoroutine: 16,
+        spiderMasterMaxWorkers: 9,
+        spiderSlaveMaxWorkers: 6
+      },
+      { silent: true }
+    )
   })
 
   it('TMDB 未配置时提示"后台是唯一权威, env 配过的需重存一次"', async () => {
@@ -246,13 +256,16 @@ describe('SiteConfigView 采集性能卡（三个上限可配）', () => {
     await nums[1].setValue('10')
     await card.findAll('button').at(-1)!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.updateRuntimeSettings).toHaveBeenCalledWith({
-      authTokenTtlHours: 168,
-      maxDeviceLogin: 5,
-      spiderMaxGoroutine: 32,
-      spiderMasterMaxWorkers: 10,
-      spiderSlaveMaxWorkers: 8
-    })
+    expect(h.updateRuntimeSettings).toHaveBeenCalledWith(
+      {
+        authTokenTtlHours: 168,
+        maxDeviceLogin: 5,
+        spiderMaxGoroutine: 32,
+        spiderMasterMaxWorkers: 10,
+        spiderSlaveMaxWorkers: 8
+      },
+      { silent: true }
+    )
   })
 
   it('任一项越界都在前端拦下', async () => {
@@ -360,7 +373,8 @@ describe('SiteConfigView 站点信息 / TMDB / load 失败态', () => {
     await site.find('form').trigger('submit')
     await new Promise((r) => setTimeout(r, 10))
     expect(h.updateBasic).toHaveBeenCalledWith(
-      expect.objectContaining({ siteName: '新站名' })
+      expect.objectContaining({ siteName: '新站名' }),
+      { silent: true }
     )
     expect(h.toast).toHaveBeenCalledWith('success', '站点信息已保存')
   })
@@ -389,7 +403,7 @@ describe('SiteConfigView 站点信息 / TMDB / load 失败态', () => {
     await keyInput.setValue('my-tmdb-key')
     await tmdb.findAll('button').find((b) => b.text() === '保存 Key')!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.setTMDBKey).toHaveBeenCalledWith('my-tmdb-key')
+    expect(h.setTMDBKey).toHaveBeenCalledWith('my-tmdb-key', { silent: true })
     expect((keyInput.element as HTMLInputElement).value).toBe('')
     expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('已保存'))
   })
@@ -411,7 +425,7 @@ describe('SiteConfigView 站点信息 / TMDB / load 失败态', () => {
     await clear.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
     expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }))
-    expect(h.clearTMDBKey).toHaveBeenCalled()
+    expect(h.clearTMDBKey).toHaveBeenCalledWith({ silent: true })
     expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('已清除'))
   })
 
@@ -517,7 +531,8 @@ describe('SiteConfigView 邮件卡（注册与邮件通道不变量）', () => {
     await card.find('form').trigger('submit')
     await new Promise((r) => setTimeout(r, 10))
     expect(h.saveMailConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ mailDailyQuota: 0 })
+      expect.objectContaining({ mailDailyQuota: 0 }),
+      { silent: true }
     )
     expect(h.toast).not.toHaveBeenCalledWith('error', expect.stringContaining('1~1000'))
   })
@@ -530,7 +545,7 @@ describe('SiteConfigView 邮件卡（注册与邮件通道不变量）', () => {
     await port.setValue('')
     await card.find('form').trigger('submit')
     await new Promise((r) => setTimeout(r, 10))
-    expect(h.saveMailConfig).toHaveBeenCalledWith(expect.objectContaining({ smtpPort: 465 }))
+    expect(h.saveMailConfig).toHaveBeenCalledWith(expect.objectContaining({ smtpPort: 465 }), { silent: true })
 
     await port.setValue('70000')
     await card.find('form').trigger('submit')
@@ -574,7 +589,8 @@ describe('SiteConfigView 邮件卡（注册与邮件通道不变量）', () => {
     await card.findAll('button').find((b) => b.text() === '发送测试邮件')!.trigger('click')
     await new Promise((r) => setTimeout(r, 10))
     expect(h.testMail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'admin@example.com', smtpHost: 'smtp.qq.com', smtpPort: 465 })
+      expect.objectContaining({ to: 'admin@example.com', smtpHost: 'smtp.qq.com', smtpPort: 465 }),
+      { silent: true }
     )
     expect(h.toast).toHaveBeenCalledWith('success', expect.stringContaining('已发送'))
   })

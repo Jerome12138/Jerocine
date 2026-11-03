@@ -241,4 +241,26 @@ describe('FilmDetailView 影片详情', () => {
     expect((gotoDetail.element as HTMLButtonElement).disabled).toBe(false)
     expect(w.text()).not.toContain('回收站')
   })
+
+  it('采集并发拦截: 采集中再点其它源不重复发请求(写操作统一 useAsyncAction busy)', async () => {
+    let resolveB!: (v: SourceFilmResult) => void
+    h.collectFilm.mockImplementationOnce(
+      () => new Promise<SourceFilmResult>((r) => (resolveB = r))
+    )
+    const w = await mountView()
+    // 点源B(挂起中)
+    await rowByName(w, '源B').find('button').trigger('click')
+    await flushPromises()
+    expect(h.collectFilm).toHaveBeenCalledTimes(1)
+    // 挂起期间点源A → 被 busy 拦截, 不发第二个请求
+    await rowByName(w, '源A').find('button').trigger('click')
+    await flushPromises()
+    expect(h.collectFilm).toHaveBeenCalledTimes(1)
+    resolveB({ sourceId: 'b', sourceName: '源B', master: false, collected: 0 })
+    await flushPromises()
+    // 释放后可再次发起
+    await rowByName(w, '源A').find('button').trigger('click')
+    await flushPromises()
+    expect(h.collectFilm).toHaveBeenCalledTimes(2)
+  })
 })

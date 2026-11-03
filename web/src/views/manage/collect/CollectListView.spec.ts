@@ -129,6 +129,34 @@ describe('CollectListView 采集源列表', () => {
     w.unmount()
   })
 
+  it('表格默认 fit 高度自适应模式(jc-table--fit) + 派生列经 render 渲染', async () => {
+    const w = await mountView()
+    // fit 模式: 根 section 挂 jc-table--fit
+    expect(w.find('section').classes()).toContain('jc-table--fit')
+    // 采集片数派生列(collected) / 测速列(health) 数据照常渲染
+    expect(w.text()).toContain('8/100')
+    expect(w.text()).toContain('采120ms')
+    w.unmount()
+  })
+
+  it('工具栏与表单下拉均为 ManageSelect: 同族 class + aria-label + data-focusable', async () => {
+    const w = await mountView()
+    // 打开新增弹窗后: 工具栏采集时长 + 弹窗内返回类型/站点等级/资源类型 共 4 个
+    await btn(w, '新增')!.trigger('click')
+    await flushPromises()
+    const selects = w.findAll('select')
+    expect(selects.length).toBeGreaterThanOrEqual(4)
+    for (const s of selects) {
+      const cls = s.classes()
+      expect(cls).toContain('bg-elevated')
+      expect(cls).toContain('min-h-[44px]')
+      expect(cls).toContain('md:min-h-[36px]')
+      expect(s.attributes('data-focusable')).toBe('true')
+    }
+    expect(selects[0]!.attributes('aria-label')).toBe('采集时长')
+    w.unmount()
+  })
+
   it('加载失败展示错误态与重试, 不落"暂无采集源"空态', async () => {
     h.list.mockRejectedValue(new Error('网络错误'))
     const w = await mountView()
@@ -185,14 +213,17 @@ describe('CollectListView 采集源列表', () => {
     w.unmount()
   })
 
-  it('启停: 拉全量后翻转 state 提交, 完成后重拉列表与健康', async () => {
+  it('启停: 拉全量后翻转 state 提交(silent), 完成后重拉列表与健康', async () => {
     h.find.mockResolvedValue(row())
     const w = await mountView()
     await btn(w, '停用')!.trigger('click')
     await flushPromises()
     await flushPromises()
     expect(h.find).toHaveBeenCalledWith('src_a')
-    expect(h.change).toHaveBeenCalledWith(expect.objectContaining({ id: 'src_a', state: false }))
+    expect(h.change).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'src_a', state: false }),
+      { silent: true }
+    )
     expect(h.list).toHaveBeenCalledTimes(2)
     w.unmount()
   })
@@ -213,15 +244,27 @@ describe('CollectListView 采集源列表', () => {
     w.unmount()
   })
 
-  it('删除: 确认(danger)后调 remove 并清掉该源健康条目', async () => {
+  it('删除: 确认(danger)后调 remove(silent) 并清掉该源健康条目', async () => {
     const w = await mountView()
     await btn(w, '删除')!.trigger('click')
     await flushPromises()
     await flushPromises()
     expect(h.confirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true, okText: '删除' }))
-    expect(h.remove).toHaveBeenCalledWith('src_a')
+    expect(h.remove).toHaveBeenCalledWith('src_a', { silent: true })
     // health 重建不含已删源
     expect(w.text()).toContain('健康 1')
+    w.unmount()
+  })
+
+  it('删除失败: 单一错误提示来源(useAsyncAction), 无页面手写 catch toast 叠加', async () => {
+    h.remove.mockRejectedValue(new Error('删除失败原因'))
+    const w = await mountView()
+    await btn(w, '删除')!.trigger('click')
+    await flushPromises()
+    await flushPromises()
+    const errorToasts = h.toast.mock.calls.filter((c) => c[0] === 'error')
+    expect(errorToasts).toHaveLength(1)
+    expect(errorToasts[0]![1]).toBe('删除失败原因')
     w.unmount()
   })
 })

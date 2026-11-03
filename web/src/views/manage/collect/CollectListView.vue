@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { CollectSource } from '@/types/manage'
 import type { SourceHealthRow } from '@/api/manage/collect'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import type { Column } from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
+import type { StatusMap } from '@/components/manage/StatusTag.vue'
+import StatusTag from '@/components/manage/StatusTag.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -13,8 +16,15 @@ import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { confirm } from '@/composables/useConfirm'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 import { measureLine } from '@/composables/usePlaySpeedTest'
 import { toast } from '@/api/http'
+
+// 启停状态列: 布尔状态 → StatusTag 词汇表
+const SOURCE_STATE_MAP: StatusMap = {
+  true: { label: '启用', variant: 'success' },
+  false: { label: '停用', variant: 'default' }
+}
 
 const rows = ref<CollectSource[]>([])
 const loading = ref(true)
@@ -238,6 +248,23 @@ const HOURS_OPTIONS = [
   { value: -1, label: '全量' }
 ]
 
+// 表单下拉选项(value 保数字类型, ManageSelect 按原类型 emit)
+const RESULT_MODEL_OPTIONS = [
+  { value: 0, label: 'JSON' },
+  { value: 1, label: 'XML' }
+]
+const GRADE_OPTIONS = [
+  { value: 0, label: '主站' },
+  { value: 1, label: '附属' }
+]
+const COLLECT_TYPE_OPTIONS = [
+  { value: 0, label: '视频' },
+  { value: 1, label: '文章' },
+  { value: 2, label: '演员' },
+  { value: 3, label: '角色' },
+  { value: 4, label: '网站' }
+]
+
 // siteUrl 在 CollectSource 上可选, 表单里恒有值 → 收窄为必有字符串(ManageInput 需要)
 const form = reactive<CollectSource & { siteUrl: string }>({
   id: '',
@@ -255,20 +282,56 @@ const form = reactive<CollectSource & { siteUrl: string }>({
 // 新增源默认值: 附属站 + 采集间隔 3000ms
 const DEFAULT_INTERVAL = 3000
 
-// 采集片数 / 延迟 为健康度派生列, 无对应 CollectSource 字段, 用 sentinel key (#cell 内按字符串匹配)
-// 单条断言为 Column, 避免整数组断言触发 TS "类型不充分重叠" 报错
-const derivedCol = (key: string, label: string, width: string): Column<CollectSource> =>
-  ({ key, label, width }) as Column<CollectSource>
-
-// 模板里按 sentinel key 匹配派生列; col.key 类型为 keyof CollectSource, 与 'collected'/'latency'
-// 字面量无重叠会被 vue-tsc 判 no-overlap, 故经 string 拓宽再比较
-const isColKey = (col: Column<CollectSource>, key: string): boolean => (col.key as string) === key
-
+// 采集片数 / 测速 为健康度派生列, 无对应 CollectSource 字段 —— Column.key 已放宽为 string,
+// 直接声明派生列并用 render 内联渲染(替代旧 sentinel key + #cell 字符串匹配 + as 断言 hack)。
+// 名称列保留 #cell 插槽(富链接内容), 状态列 render 走 StatusTag。
 const columns: Column<CollectSource>[] = [
   { key: 'name', label: '名称' },
-  derivedCol('collected', '采集片数', '120px'),
-  derivedCol('health', '测速', '240px'),
-  { key: 'state', label: '状态', width: '80px', align: 'center' }
+  {
+    key: 'collected',
+    label: '采集片数',
+    width: '120px',
+    render: (row) => {
+      const hr = health[row.id]
+      const title = badges.value[row.id]?.title
+      const children = [
+        h('span', { class: 'font-[var(--jc-font-mono)] text-sm', title }, collectedText(row.id))
+      ]
+      if (hr?.suppressed || hr?.status === 'down') {
+        children.push(h(BaseTag, { variant: 'danger', size: 'xs', title }, () => '已停采'))
+      } else if (hr?.status === 'degraded') {
+        children.push(
+          h(BaseTag, { variant: 'warning', size: 'xs', title }, () => `降级${hr.consecutiveFails}×`)
+        )
+      }
+      return h('div', { class: 'flex items-center gap-[var(--jc-space-1)] flex-wrap' }, children)
+    }
+  },
+  {
+    key: 'health',
+    label: '测速',
+    width: '240px',
+    render: (row) =>
+      h('div', { class: 'flex items-center gap-[var(--jc-space-1)] flex-wrap' }, [
+        h(
+          BaseTag,
+          { variant: apiLatInfo(row.id).variant, size: 'xs', title: apiLatInfo(row.id).title },
+          () => apiLatInfo(row.id).text
+        ),
+        h(
+          BaseTag,
+          { variant: playLatInfo(row.id).variant, size: 'xs', title: playLatInfo(row.id).title },
+          () => playLatInfo(row.id).text
+        )
+      ])
+  },
+  {
+    key: 'state',
+    label: '状态',
+    width: '80px',
+    align: 'center',
+    render: (row) => h(StatusTag, { value: row.state, map: SOURCE_STATE_MAP })
+  }
 ]
 
 // 采集片数文案: 已采 / 总(目录)
@@ -438,46 +501,42 @@ async function submitAndTest(): Promise<void> {
 }
 
 // 行级 in-flight 标记: 启停/采集请求期间禁用该行按钮, 防连点翻转状态或重复触发任务
+// (写操作的确认/toast/重载由 useAsyncAction 单点负责, 写请求 silent 不与拦截器叠提示)
 const busyId = ref('')
+const { run } = useAsyncAction()
 
 async function toggleState(row: CollectSource): Promise<void> {
   if (busyId.value) return
   busyId.value = row.id
-  try {
-    // 列表接口可能未返回完整字段，先用 find 拉全量再翻转 state
-    let full: CollectSource = row
-    try {
-      full = (await manageApi.collect.find(row.id)) ?? row
-    } catch {
-      /* 忽略，回退用 row */
+  await run({
+    action: async () => {
+      // 列表接口可能未返回完整字段，先用 find 拉全量再翻转 state
+      const full = (await manageApi.collect.find(row.id).catch(() => row)) ?? row
+      await manageApi.collect.change({ ...full, state: !full.state }, { silent: true })
+    },
+    after: async () => {
+      await load()
+      await loadHealth()
     }
-    await manageApi.collect.change({ ...full, state: !full.state })
-    await load()
-    await loadHealth()
-  } catch (e: unknown) {
-    toast('error', e instanceof Error ? e.message : '切换状态失败')
-  } finally {
-    busyId.value = ''
-  }
+  })
+  busyId.value = ''
 }
 
 async function remove(row: CollectSource): Promise<void> {
-  const ok = await confirm({
-    title: '确认删除采集源？',
-    desc: `「${row.name}」删除后不可恢复`,
-    okText: '删除',
-    danger: true
+  await run({
+    confirm: {
+      title: '确认删除采集源？',
+      desc: `「${row.name}」删除后不可恢复`,
+      okText: '删除',
+      danger: true
+    },
+    action: () => manageApi.collect.remove(row.id, { silent: true }),
+    after: () => {
+      // 同步清掉该源的健康条目: 此前只 load 不清 health, 幽灵条目残留进汇总计数
+      delete health[row.id]
+      return Promise.all([load(), loadHealth()]).then(() => undefined)
+    }
   })
-  if (!ok) return
-  try {
-    await manageApi.collect.remove(row.id)
-    // 同步清掉该源的健康条目: 此前只 load 不清 health, 幽灵条目残留进汇总计数
-    delete health[row.id]
-    await load()
-    await loadHealth()
-  } catch (e: unknown) {
-    toast('error', e instanceof Error ? e.message : '删除失败')
-  }
 }
 
 async function startSpider(row: CollectSource): Promise<void> {
@@ -485,20 +544,12 @@ async function startSpider(row: CollectSource): Promise<void> {
   busyId.value = row.id
   const hours = spiderHours.value
   const label = HOURS_OPTIONS.find(o => o.value === hours)?.label ?? `${hours}h`
-  try {
-    await manageApi.collect.startSpider({
-      id: row.id,
-      ids: [],
-      time: hours,
-      batch: false
-    }, { silent: true } as never)
-    toast('success', `已触发「${row.name}」${label} 采集任务`)
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : '触发采集失败'
-    toast('error', msg)
-  } finally {
-    busyId.value = ''
-  }
+  await run({
+    action: () =>
+      manageApi.collect.startSpider({ id: row.id, ids: [], time: hours, batch: false }, { silent: true }),
+    successMsg: `已触发「${row.name}」${label} 采集任务`
+  })
+  busyId.value = ''
 }
 
 function openReset(): void {
@@ -552,10 +603,12 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- 页面根: flex 高度链(.jc-manage-main 提供), 表格 fit 自适应 -->
+  <div class="flex min-h-0 flex-col gap-[var(--jc-space-3)]">
   <!-- 加载失败: 明确报错 + 重试, 不落到"暂无采集源"空态 -->
   <div
     v-if="loadError && !loading"
-    class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)] mb-[var(--jc-space-3)]"
+    class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)]"
   >
     <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
     <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
@@ -585,15 +638,12 @@ onMounted(() => {
       </div>
       <div class="flex gap-[var(--jc-space-2)] items-center flex-wrap">
         <label class="text-sm text-secondary">采集时长:</label>
-        <select
-          v-model.number="spiderHours"
-          class="bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm min-h-[44px] md:min-h-[36px]"
-          data-focusable="true"
-        >
-          <option v-for="opt in HOURS_OPTIONS" :key="opt.value" :value="opt.value">
-            {{ opt.label }}
-          </option>
-        </select>
+        <ManageSelect
+          v-model="spiderHours"
+          :options="HOURS_OPTIONS"
+          aria-label="采集时长"
+          class="w-[140px]"
+        />
         <BaseButton variant="ghost" size="sm" :loading="testingAll" @click="runApiTestAll">
           <BaseIcon name="refresh" size="16px" /> 全部测采集
         </BaseButton>
@@ -615,93 +665,42 @@ onMounted(() => {
       </div>
     </template>
 
-    <template #cell="{ row, col }">
-      <BaseTag v-if="col.key === 'state'" :variant="row.state ? 'success' : 'default'">
-        {{ row.state ? '启用' : '停用' }}
-      </BaseTag>
+    <template #cell="{ row }">
       <!-- 名称列: 名称(有站点网址时可点跳转) + 类型/角色徽标 + URI 副行 -->
-      <template v-else-if="col.key === 'name'">
-        <div class="flex flex-col gap-[var(--jc-space-1)] min-w-0">
-          <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
-            <a
-              v-if="row.siteUrl"
-              :href="row.siteUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="font-[var(--jc-fw-medium)] text-primary underline decoration-dotted underline-offset-4 hover:text-[var(--jc-brand-primary)]"
-              :title="`打开站点网址: ${row.siteUrl}`"
-            >{{ row.name }}</a>
-            <span v-else class="font-[var(--jc-fw-medium)] text-primary">{{ row.name }}</span>
-            <BaseTag variant="default" size="xs" title="接口返回类型">
-              {{ row.resultModel === 0 ? 'JSON' : 'XML' }}
-            </BaseTag>
-            <BaseTag v-if="health[row.id]?.isMaster" variant="purple" size="xs" title="当前主站(决定影片目录)">
-              主站
-            </BaseTag>
-            <BaseTag
-              v-else-if="row.id === recommendedMasterId"
-              variant="success"
-              size="xs"
-              title="健康源中目录最全, 建议设为主站(换主站会重排 mid, 需手动确认)"
-            >
-              荐主站
-            </BaseTag>
-          </div>
-          <span
-            class="text-muted text-xs font-[var(--jc-font-mono)] truncate max-w-[280px]"
-            :title="row.uri"
-          >
-            {{ row.uri }}
-          </span>
-        </div>
-      </template>
-      <!-- 采集片数列: 已采 / 目录总片数 (+ 停采/降级状态徽标) -->
-      <template v-else-if="isColKey(col, 'collected')">
-        <div class="flex items-center gap-[var(--jc-space-1)] flex-wrap">
-          <span
-            class="font-[var(--jc-font-mono)] text-sm"
-            :title="badges[row.id]?.title"
-          >
-            {{ collectedText(row.id) }}
-          </span>
-          <BaseTag
-            v-if="health[row.id]?.suppressed || health[row.id]?.status === 'down'"
-            variant="danger"
-            size="xs"
-            :title="badges[row.id]?.title"
-          >
-            已停采
+      <!-- (状态/采集片数/测速列已改 Column.render, 不再走插槽) -->
+      <div class="flex flex-col gap-[var(--jc-space-1)] min-w-0">
+        <div class="flex items-center gap-[var(--jc-space-2)] flex-wrap">
+          <a
+            v-if="row.siteUrl"
+            :href="row.siteUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-[var(--jc-fw-medium)] text-primary underline decoration-dotted underline-offset-4 hover:text-[var(--jc-brand-primary)]"
+            :title="`打开站点网址: ${row.siteUrl}`"
+          >{{ row.name }}</a>
+          <span v-else class="font-[var(--jc-fw-medium)] text-primary">{{ row.name }}</span>
+          <BaseTag variant="default" size="xs" title="接口返回类型">
+            {{ row.resultModel === 0 ? 'JSON' : 'XML' }}
+          </BaseTag>
+          <BaseTag v-if="health[row.id]?.isMaster" variant="purple" size="xs" title="当前主站(决定影片目录)">
+            主站
           </BaseTag>
           <BaseTag
-            v-else-if="health[row.id]?.status === 'degraded'"
-            variant="warning"
+            v-else-if="row.id === recommendedMasterId"
+            variant="success"
             size="xs"
-            :title="badges[row.id]?.title"
+            title="健康源中目录最全, 建议设为主站(换主站会重排 mid, 需手动确认)"
           >
-            降级{{ health[row.id]?.consecutiveFails }}×
+            荐主站
           </BaseTag>
         </div>
-      </template>
-      <!-- 测速列: 采集延时 / 播放延时 / 广告过滤可达性 三合一, 各带完整 tooltip -->
-      <template v-else-if="isColKey(col, 'health')">
-        <div class="flex items-center gap-[var(--jc-space-1)] flex-wrap">
-          <BaseTag
-            :variant="apiLatInfo(row.id).variant"
-            size="xs"
-            :title="apiLatInfo(row.id).title"
-          >
-            {{ apiLatInfo(row.id).text }}
-          </BaseTag>
-          <BaseTag
-            :variant="playLatInfo(row.id).variant"
-            size="xs"
-            :title="playLatInfo(row.id).title"
-          >
-            {{ playLatInfo(row.id).text }}
-          </BaseTag>
-        </div>
-      </template>
-      <span v-else>{{ row[col.key] ?? '—' }}</span>
+        <span
+          class="text-muted text-xs font-[var(--jc-font-mono)] truncate max-w-[280px]"
+          :title="row.uri"
+        >
+          {{ row.uri }}
+        </span>
+      </div>
     </template>
 
     <template #actions="{ row }">
@@ -777,37 +776,17 @@ onMounted(() => {
         <ManageInput v-model="form.siteUrl" placeholder="https://example.com" />
       </ManageFormField>
       <ManageFormField label="返回类型" required>
-        <select
-          v-model.number="form.resultModel"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
-          data-focusable="true"
-        >
-          <option :value="0">JSON</option>
-          <option :value="1">XML</option>
-        </select>
+        <ManageSelect
+          v-model="form.resultModel"
+          :options="RESULT_MODEL_OPTIONS"
+          aria-label="返回类型"
+        />
       </ManageFormField>
       <ManageFormField label="站点等级">
-        <select
-          v-model.number="form.grade"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
-          data-focusable="true"
-        >
-          <option :value="0">主站</option>
-          <option :value="1">附属</option>
-        </select>
+        <ManageSelect v-model="form.grade" :options="GRADE_OPTIONS" aria-label="站点等级" />
       </ManageFormField>
       <ManageFormField label="资源类型">
-        <select
-          v-model.number="form.collectType"
-          class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-3)]"
-          data-focusable="true"
-        >
-          <option :value="0">视频</option>
-          <option :value="1">文章</option>
-          <option :value="2">演员</option>
-          <option :value="3">角色</option>
-          <option :value="4">网站</option>
-        </select>
+        <ManageSelect v-model="form.collectType" :options="COLLECT_TYPE_OPTIONS" aria-label="资源类型" />
       </ManageFormField>
       <ManageFormField label="采集间隔（毫秒）">
         <ManageInput v-model="form.interval" type="number" placeholder="0" />
@@ -853,4 +832,5 @@ onMounted(() => {
       </BaseButton>
     </template>
   </ManageSheet>
+  </div>
 </template>

@@ -1,7 +1,13 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import BannerListView from './BannerListView.vue'
+import ManageDialogHost from '@/components/manage/ManageDialogHost.vue'
+import {
+  answerManageDialog,
+  manageDialogState,
+  manageDialogHostMounted
+} from '@/composables/useManageDialog'
 import type { Banner, BannerBoard, EffectiveSlide, InactiveBanner } from '@/types/manage'
 
 const h = vi.hoisted(() => ({
@@ -73,22 +79,55 @@ function bannerRow(over: Partial<Banner> = {}): Banner {
   }
 }
 
+/** 页面 + 弹窗 Host 一起挂(共享 useManageDialog 模块单例); 弹窗内容断言走 Host wrapper。
+ *  两个 mount 必须共享同一份 stubs(VTU 多 app 共享全局 stub 注册表, 后挂者会顶掉先挂者的
+ *  stub —— 同 TelemetryView.spec 实证), RouterLink/teleport/ManageImageUpload 三者缺一不可。 */
+const STUBS = {
+  RouterLink: { template: '<a><slot /></a>' },
+  teleport: true,
+  ManageImageUpload: ImgUploadStub
+}
+
+let w: VueWrapper | null = null
+let wh: VueWrapper | null = null
+
 async function mountView(): Promise<VueWrapper> {
-  const w = mount(BannerListView, {
-    global: {
-      plugins: [createPinia()],
-      // RouterLink: 测试环境无路由; teleport: ManageSheet 内容内联渲染可查;
-      // ManageImageUpload: 点击写入横图的 stub, 供表单通过图片校验
-      stubs: {
-        RouterLink: { template: '<a><slot /></a>' },
-        teleport: true,
-        ManageImageUpload: ImgUploadStub
-      }
-    }
+  const page = mount(BannerListView, {
+    global: { plugins: [createPinia()], stubs: STUBS }
+  })
+  const host = mount(ManageDialogHost, {
+    attachTo: document.body,
+    global: { stubs: STUBS }
   })
   await flushPromises()
-  return w
+  w = page
+  wh = host
+  return page
 }
+
+// useManageDialog 模块单例复位(测试间隔离, 同 FilmClassView.spec)
+beforeEach(() => {
+  document.body.innerHTML = ''
+  manageDialogHostMounted.value = false
+  if (manageDialogState.resolve) {
+    answerManageDialog({ type: 'close' })
+  }
+  manageDialogState.visible = false
+  manageDialogState.title = ''
+  manageDialogState.component = null
+  manageDialogState.props = {}
+  manageDialogState.mobileMode = 'sheet'
+  manageDialogState.width = undefined
+})
+
+afterEach(async () => {
+  // 先卸 Host(待决弹窗 resolve(null)), 再卸页面
+  wh?.unmount()
+  w?.unmount()
+  wh = null
+  w = null
+  await flushPromises()
+})
 
 /** 找文案含 text 的第一个按钮 */
 function btn(w: VueWrapper, text: string) {
@@ -247,7 +286,8 @@ describe('BannerListView 行内操作(move/toggle/disable/remove)', () => {
     })
     await rowOps(w, '片2')('↑').trigger('click')
     await flushPromises()
-    expect(h.move).toHaveBeenCalledWith(1, 'up')
+    // silent: 写操作提示收敛到 useAsyncAction 单点
+    expect(h.move).toHaveBeenCalledWith(1, 'up', { silent: true })
     expect(w.text()).toContain('新位2')
   })
 
@@ -288,9 +328,11 @@ describe('BannerListView 行内操作(move/toggle/disable/remove)', () => {
     const w = await mountView()
     await rowOps(w, '片1')('禁用').trigger('click')
     await flushPromises()
-    // toggleState 只传 payload 一个实参
+    // toggleState: payload + 无 slot + silent 配参
     expect(h.save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 7, state: 1, sort: row.sort })
+      expect.objectContaining({ id: 7, state: 1, sort: row.sort }),
+      undefined,
+      { silent: true }
     )
     expect(h.board).toHaveBeenCalledTimes(2) // 初载 + load(true)
   })
@@ -299,7 +341,7 @@ describe('BannerListView 行内操作(move/toggle/disable/remove)', () => {
     const w = await mountView()
     await rowOps(w, '片3')('禁用').trigger('click')
     await flushPromises()
-    expect(h.disableByMid).toHaveBeenCalledWith(3)
+    expect(h.disableByMid).toHaveBeenCalledWith(3, { silent: true })
     expect(h.save).not.toHaveBeenCalled()
   })
 
@@ -321,7 +363,7 @@ describe('BannerListView 行内操作(move/toggle/disable/remove)', () => {
     await rowOps(w, '片1')('删除').trigger('click')
     await flushPromises()
     expect(h.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: '确认删除这张轮播？' }))
-    expect(h.remove).toHaveBeenCalledWith(7)
+    expect(h.remove).toHaveBeenCalledWith(7, { silent: true })
     expect(h.board).toHaveBeenCalledTimes(2)
   })
 })
@@ -337,39 +379,43 @@ describe('BannerListView 表单(新增/编辑/采纳)', () => {
   it('三条校验分支: 缺图 / 缺跳转 / 结束早于开始 → toast error 且不提交', async () => {
     const w = await mountView()
     await btn(w, '新增').trigger('click')
-    const saveBtn = btn(w, '保存')
+    await flushPromises()
+    // 表单函数化后经 Host 渲染, 校验/提交在 BannerFormDialog 内自治
+    const saveBtn = () => btn(wh!, '保存')
 
-    await saveBtn.trigger('click')
+    await saveBtn().trigger('click')
     expect(h.toast).toHaveBeenCalledWith('error', '至少需要上传横图或竖图')
     expect(h.save).not.toHaveBeenCalled()
 
     // stub 点击写入横图, 但仍无跳转
-    await w.find('.img-upload-stub').trigger('click')
-    await saveBtn.trigger('click')
+    await wh!.find('.img-upload-stub').trigger('click')
+    await saveBtn().trigger('click')
     expect(h.toast).toHaveBeenCalledWith('error', '需要配置跳转：关联影片 ID 或自定义链接')
     expect(h.save).not.toHaveBeenCalled()
 
     // 填 mid + 起止时间(结束 < 开始)
-    await w.find('input[placeholder="如 12345"]').setValue('123')
-    const times = w.findAll('input[type="datetime-local"]')
-    await times[0].setValue('2026-01-02T08:00')
-    await times[1].setValue('2026-01-01T08:00')
-    await saveBtn.trigger('click')
+    await wh!.find('input[placeholder="如 12345"]').setValue('123')
+    const times = wh!.findAll('input[type="datetime-local"]')
+    await times[0]!.setValue('2026-01-02T08:00')
+    await times[1]!.setValue('2026-01-01T08:00')
+    await saveBtn().trigger('click')
     expect(h.toast).toHaveBeenCalledWith('error', '结束时间不能早于开始时间')
     expect(h.save).not.toHaveBeenCalled()
   })
 
-  it('新增保存: id 0 / sort 0(服务端自行 maxSort+1) / 不带 slot', async () => {
+  it('新增保存: id 0 / sort 0(服务端自行 maxSort+1) / 不带 slot; save 携 silent', async () => {
     const w = await mountView()
     await btn(w, '新增').trigger('click')
-    await w.find('.img-upload-stub').trigger('click')
-    await w.find('input[placeholder="如 12345"]').setValue('123')
-    await btn(w, '保存').trigger('click')
+    await flushPromises()
+    await wh!.find('.img-upload-stub').trigger('click')
+    await wh!.find('input[placeholder="如 12345"]').setValue('123')
+    await btn(wh!, '保存').trigger('click')
     await flushPromises()
     expect(h.save).toHaveBeenCalledTimes(1)
-    const [payload, slot] = h.save.mock.calls[0]
+    const [payload, slot, config] = h.save.mock.calls[0]
     expect(payload).toMatchObject({ id: 0, sort: 0, mid: 123, state: 0 })
     expect(slot).toBeUndefined()
+    expect(config).toEqual({ silent: true })
     expect(h.board).toHaveBeenCalledTimes(2) // 初载 + 保存后 load(true)
   })
 
@@ -382,8 +428,9 @@ describe('BannerListView 表单(新增/编辑/采纳)', () => {
     })
     const w = await mountView()
     await rowOps(w, '片1')('编辑').trigger('click')
+    await flushPromises()
     // 表单已预填, 直接保存(只改标题的场景也应保住排序)
-    await btn(w, '保存').trigger('click')
+    await btn(wh!, '保存').trigger('click')
     await flushPromises()
     expect(h.save).toHaveBeenCalledTimes(1)
     const [payload, slot] = h.save.mock.calls[0]
@@ -400,11 +447,13 @@ describe('BannerListView 表单(新增/编辑/采纳)', () => {
     const w = await mountView()
     await expandInactive(w)
     await rowOps(w, '过期位')('编辑').trigger('click')
-    await btn(w, '保存').trigger('click')
+    await flushPromises()
+    await btn(wh!, '保存').trigger('click')
     await flushPromises()
     expect(h.save).toHaveBeenCalledWith(
       expect.objectContaining({ id: 21, sort: 9 }),
-      undefined
+      undefined,
+      { silent: true }
     )
   })
 
@@ -412,7 +461,8 @@ describe('BannerListView 表单(新增/编辑/采纳)', () => {
     const w = await mountView()
     // board() 默认前 2 位手动, 片3 在下标 2(候选位第一行)
     await rowOps(w, '片3')('编辑').trigger('click')
-    await btn(w, '保存').trigger('click')
+    await flushPromises()
+    await btn(wh!, '保存').trigger('click')
     await flushPromises()
     expect(h.save).toHaveBeenCalledTimes(1)
     const [payload, slot] = h.save.mock.calls[0]
@@ -490,7 +540,9 @@ describe('BannerListView 未生效折叠区', () => {
     await enable!.trigger('click')
     await flushPromises()
     expect(h.save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 13, state: 0, sort: 11 })
+      expect.objectContaining({ id: 13, state: 0, sort: 11 }),
+      undefined,
+      { silent: true }
     )
   })
 })
