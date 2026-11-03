@@ -8,7 +8,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSelect from '@/components/manage/ManageSelect.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import type { StatusMap } from '@/components/manage/StatusTag.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { toast } from '@/api/http'
@@ -122,9 +122,9 @@ async function resend(row: RegisterApplyRow): Promise<void> {
     <section v-if="paged.loadError.value && !paged.rows.value.length" class="bg-surface rounded-card shadow-card">
       <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
         <BaseEmpty title="加载失败" :description="paged.loadError.value" hide-icon />
-        <BaseButton variant="outline" size="sm" @click="paged.load()">
+        <ManageButton variant="outline" size="sm" @click="paged.load()">
           <BaseIcon name="refresh" size="16px" /> 重试
-        </BaseButton>
+        </ManageButton>
       </div>
     </section>
 
@@ -147,9 +147,9 @@ async function resend(row: RegisterApplyRow): Promise<void> {
           <div class="w-full sm:w-[220px]">
             <ManageInput v-model="params.keyword" placeholder="用户名 / 邮箱" @keydown.enter="paged.search()" />
           </div>
-          <BaseButton variant="gradient" size="sm" @click="paged.search()">
+          <ManageButton variant="gradient" size="sm" @click="paged.search()">
             <BaseIcon name="search" size="16px" /> 搜索
-          </BaseButton>
+          </ManageButton>
           <div class="w-[140px]">
             <ManageSelect
               :model-value="params.status"
@@ -186,10 +186,10 @@ async function resend(row: RegisterApplyRow): Promise<void> {
       <template #actions="{ row }">
         <div class="flex gap-[var(--jc-space-1)] justify-end">
           <template v-if="row.status === 0">
-            <BaseButton variant="ghost" size="sm" :disabled="busy" @click="approve(row)">通过</BaseButton>
-            <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openReject(row)">驳回</BaseButton>
+            <ManageButton variant="ghost" size="sm" :disabled="busy" @click="approve(row)">通过</ManageButton>
+            <ManageButton variant="ghost" size="sm" :disabled="busy" @click="openReject(row)">驳回</ManageButton>
           </template>
-          <BaseButton
+          <ManageButton
             v-else-if="row.status === 1 && !isActivated(row)"
             variant="ghost"
             size="sm"
@@ -197,7 +197,7 @@ async function resend(row: RegisterApplyRow): Promise<void> {
             @click="resend(row)"
           >
             补发激活邮件
-          </BaseButton>
+          </ManageButton>
           <span v-else class="text-xs text-muted">—</span>
         </div>
       </template>

@@ -6,7 +6,7 @@ import BaseImage from '@/components/base/BaseImage.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
 import { usePagedList } from '@/composables/usePagedList'
@@ -100,9 +100,9 @@ async function remove(item: FileItem): Promise<void> {
       </div>
       <div class="flex items-center gap-[var(--jc-space-2)]">
         <ManageTabs v-model="typeFilter" :tabs="filterOptions" />
-        <BaseButton variant="ghost" size="sm" @click="load">
+        <ManageButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
-        </BaseButton>
+        </ManageButton>
       </div>
     </header>
 
@@ -119,9 +119,9 @@ async function remove(item: FileItem): Promise<void> {
       class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]"
     >
       <BaseEmpty title="加载失败" :description="loadError" hide-icon />
-      <BaseButton variant="outline" size="sm" @click="load">
+      <ManageButton variant="outline" size="sm" @click="load">
         <BaseIcon name="refresh" size="16px" /> 重试
-      </BaseButton>
+      </ManageButton>
     </section>
 
     <BaseEmpty

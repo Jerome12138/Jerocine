@@ -5,7 +5,7 @@
  */
 import { ref } from 'vue'
 import { manageApi } from '@/api'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import ManageInput from './ManageInput.vue'
@@ -113,13 +113,13 @@ function clear(): void {
           @update:model-value="(v) => emit('update:modelValue', String(v))"
         />
         <div class="flex gap-[var(--jc-space-2)] flex-wrap">
-          <BaseButton variant="ghost" size="sm" :loading="uploading" @click="pick">
+          <ManageButton variant="ghost" size="sm" :loading="uploading" @click="pick">
             <BaseIcon name="upload" size="16px" />
             {{ uploading ? `上传中 ${Math.round(progress * 100)}%` : '选择图片' }}
-          </BaseButton>
-          <BaseButton v-if="props.modelValue" variant="ghost" size="sm" @click="clear">
+          </ManageButton>
+          <ManageButton v-if="props.modelValue" variant="ghost" size="sm" @click="clear">
             清除
-          </BaseButton>
+          </ManageButton>
         </div>
         <span v-if="error" class="text-xs text-[var(--jc-danger)]">{{ error }}</span>
       </div>

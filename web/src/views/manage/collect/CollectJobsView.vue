@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as collectApi from '@/api/manage/collect'
 import type { SpiderJob } from '@/api/manage/collect'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -147,7 +147,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
       <h1 class="text-2xl font-[var(--jc-fw-semibold)]">采集任务监控</h1>
       <div class="flex items-center gap-[var(--jc-space-3)]">
         <span class="text-muted text-sm" v-if="loading">刷新中…</span>
-        <BaseButton variant="outline" size="sm" @click="load">手动刷新</BaseButton>
+        <ManageButton variant="outline" size="sm" @click="load">手动刷新</ManageButton>
       </div>
     </header>
 
@@ -158,7 +158,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
 
     <div v-if="loadFailed && !hasJobs" class="jc-tm-empty">
       加载失败, 暂时拿不到任务列表.
-      <BaseButton variant="outline" size="sm" class="mt-[var(--jc-space-3)]" @click="pollTick">点击重试</BaseButton>
+      <ManageButton variant="outline" size="sm" class="mt-[var(--jc-space-3)]" @click="pollTick">点击重试</ManageButton>
     </div>
 
     <div v-else-if="!loadFailed && !hasJobs" class="jc-tm-empty">
@@ -198,27 +198,27 @@ const hasJobs = computed(() => jobs.value.length > 0)
         </div>
 
         <div class="jc-job__actions">
-          <BaseButton
+          <ManageButton
             v-if="j.state === 'running'"
             variant="outline"
             size="sm"
             :disabled="busy"
             @click="pause(j)"
-          >暂停</BaseButton>
-          <BaseButton
+          >暂停</ManageButton>
+          <ManageButton
             v-if="j.state === 'paused'"
             variant="primary"
             size="sm"
             :disabled="busy"
             @click="resume(j)"
-          >继续</BaseButton>
-          <BaseButton
+          >继续</ManageButton>
+          <ManageButton
             v-if="j.state === 'running' || j.state === 'paused'"
             variant="danger"
             size="sm"
             :disabled="busy"
             @click="cancelJob(j)"
-          >取消</BaseButton>
+          >取消</ManageButton>
         </div>
       </article>
     </div>

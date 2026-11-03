@@ -4,7 +4,7 @@ import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import type { ManageUserRow } from '@/types/manage'
 import ManageInput from '@/components/manage/ManageInput.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -53,8 +53,8 @@ function submit(): void {
       <ManageInput v-model="password" type="password" placeholder="输入新密码" />
     </label>
     <div class="flex justify-end gap-[var(--jc-space-2)]">
-      <BaseButton variant="ghost" size="sm" @click="cancel">取消</BaseButton>
-      <BaseButton variant="gradient" size="sm" type="submit" :loading="busy">确认重置</BaseButton>
+      <ManageButton variant="ghost" size="sm" @click="cancel">取消</ManageButton>
+      <ManageButton variant="gradient" size="sm" type="submit" :loading="busy">确认重置</ManageButton>
     </div>
   </form>
 </template>

@@ -7,7 +7,7 @@ import ManageTabs from '@/components/manage/ManageTabs.vue'
 import type { TabItem } from '@/components/manage/ManageTabs.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import type { StatusMap } from '@/components/manage/StatusTag.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { toast } from '@/api/http'
 import { usePagedList } from '@/composables/usePagedList'
@@ -156,7 +156,7 @@ onMounted(async () => {
     >
       <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
       <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-      <BaseButton variant="outline" size="sm" class="ml-auto" @click="refresh">点击重试</BaseButton>
+      <ManageButton variant="outline" size="sm" class="ml-auto" @click="refresh">点击重试</ManageButton>
     </div>
 
     <ManageTable
@@ -176,20 +176,20 @@ onMounted(async () => {
           <ManageTabs :model-value="status" :tabs="statusTabs" @update:model-value="switchStatus" />
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap">
-          <BaseButton variant="ghost" size="sm" @click="refresh">
+          <ManageButton variant="ghost" size="sm" @click="refresh">
             <BaseIcon name="refresh" size="16px" /> 刷新
-          </BaseButton>
-          <BaseButton
+          </ManageButton>
+          <ManageButton
             variant="gradient"
             size="sm"
             :disabled="busy || !canRecoverAll"
             @click="recover()"
           >
             补采全部待处理
-          </BaseButton>
-          <BaseButton variant="ghost" size="sm" :disabled="busy" @click="clearHandled">
+          </ManageButton>
+          <ManageButton variant="ghost" size="sm" :disabled="busy" @click="clearHandled">
             清理已处理
-          </BaseButton>
+          </ManageButton>
         </div>
       </template>
 
@@ -206,13 +206,13 @@ onMounted(async () => {
 
       <template #actions="{ row }">
         <div class="flex gap-[var(--jc-space-1)] justify-end">
-          <BaseButton
+          <ManageButton
             v-if="row.status === 0"
             variant="ghost"
             size="sm"
             :disabled="busy"
             @click="recover([row.id])"
-          >补采</BaseButton>
+          >补采</ManageButton>
           <span v-else class="text-muted text-xs">—</span>
         </div>
       </template>

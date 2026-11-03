@@ -15,7 +15,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
 import ManageImageUpload from '@/components/manage/ManageImageUpload.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
@@ -302,9 +302,9 @@ async function submit(): Promise<void> {
           class="flex-1 min-w-[200px]"
           @keydown.enter="searchSpider"
         />
-        <BaseButton variant="gradient" size="sm" :loading="searching" @click="searchSpider">
+        <ManageButton variant="gradient" size="sm" :loading="searching" @click="searchSpider">
           <BaseIcon name="search" size="16px" /> 搜索
-        </BaseButton>
+        </ManageButton>
       </div>
 
       <!-- 源列表加载失败: 显式提示+重试(此前静默吞掉, 整个勾选区块无声消失) -->
@@ -314,7 +314,7 @@ async function submit(): Promise<void> {
       >
         <BaseIcon name="info" size="14px" />
         <span>采集源列表加载失败：{{ sourcesError }}</span>
-        <BaseButton variant="ghost" size="sm" @click="loadSources">重试</BaseButton>
+        <ManageButton variant="ghost" size="sm" @click="loadSources">重试</ManageButton>
       </div>
 
       <!-- 源勾选 + 采集动作 -->
@@ -339,12 +339,12 @@ async function submit(): Promise<void> {
             <BaseTag v-if="!s.state" variant="warning" size="xs">已停用</BaseTag>
           </label>
           <div class="flex gap-[var(--jc-space-2)]">
-            <BaseButton variant="ghost" size="sm" :disabled="!enabledSourceCount" @click="toggleAll(true)">全选</BaseButton>
-            <BaseButton variant="ghost" size="sm" @click="toggleAll(false)">清空</BaseButton>
+            <ManageButton variant="ghost" size="sm" :disabled="!enabledSourceCount" @click="toggleAll(true)">全选</ManageButton>
+            <ManageButton variant="ghost" size="sm" @click="toggleAll(false)">清空</ManageButton>
           </div>
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap">
-          <BaseButton
+          <ManageButton
             variant="primary"
             size="sm"
             :loading="busy"
@@ -352,8 +352,8 @@ async function submit(): Promise<void> {
             @click="collectChecked"
           >
             <BaseIcon name="magic" size="16px" /> 采集选中源
-          </BaseButton>
-          <BaseButton
+          </ManageButton>
+          <ManageButton
             variant="outline"
             size="sm"
             :loading="busy"
@@ -361,7 +361,7 @@ async function submit(): Promise<void> {
             @click="collectAll"
           >
             <BaseIcon name="magic" size="16px" /> 采集全部源
-          </BaseButton>
+          </ManageButton>
         </div>
       </div>
 
@@ -394,7 +394,7 @@ async function submit(): Promise<void> {
           >
             <BaseIcon name="info" size="14px" />
             <span>该源同名多版本，请在下方命中列表点具体版本采集，或</span>
-            <BaseButton variant="ghost" size="sm" @click="openCandidates(r)">选择版本</BaseButton>
+            <ManageButton variant="ghost" size="sm" @click="openCandidates(r)">选择版本</ManageButton>
           </div>
 
           <!-- 命中影片列表(每条可单独采集) -->
@@ -414,14 +414,14 @@ async function submit(): Promise<void> {
                 </span>
                 <span class="text-xs text-muted">{{ h.episodes }} 集</span>
               </div>
-              <BaseButton
+              <ManageButton
                 variant="outline"
                 size="sm"
                 :loading="hitCollecting[`${r.sourceId}:${h.sourceVodId}`]"
                 @click="collectHit(r.sourceId, r.sourceName, h)"
               >
                 <BaseIcon name="magic" size="16px" /> 采集
-              </BaseButton>
+              </ManageButton>
             </div>
           </div>
         </div>
@@ -460,7 +460,7 @@ async function submit(): Promise<void> {
             <ManageSelect v-model="form.pid" :options="pidOptions" aria-label="顶级分类" />
             <div v-if="treeError" class="flex items-center gap-[var(--jc-space-2)] text-xs text-[var(--jc-danger)] flex-wrap">
               <span>分类树加载失败：{{ treeError }}</span>
-              <BaseButton variant="ghost" size="sm" @click="loadTree">重试</BaseButton>
+              <ManageButton variant="ghost" size="sm" @click="loadTree">重试</ManageButton>
             </div>
           </div>
         </ManageFormField>
@@ -493,8 +493,8 @@ async function submit(): Promise<void> {
         </ManageFormField>
 
         <div class="md:col-span-2 flex justify-end gap-[var(--jc-space-3)]">
-          <BaseButton variant="ghost" type="button" @click="router.back()">取消</BaseButton>
-          <BaseButton variant="gradient" type="submit" :loading="busy">保存</BaseButton>
+          <ManageButton variant="ghost" type="button" @click="router.back()">取消</ManageButton>
+          <ManageButton variant="gradient" type="submit" :loading="busy">保存</ManageButton>
         </div>
       </form>
     </section>

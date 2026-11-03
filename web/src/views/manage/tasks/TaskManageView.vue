@@ -4,7 +4,7 @@ import * as collectApi from '@/api/manage/collect'
 import * as tasksApi from '@/api/manage/tasks'
 import type { SpiderJob } from '@/api/manage/collect'
 import type { CollectFailure, TaskOverview, TaskRun } from '@/types/manage'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageTable, { type Column } from '@/components/manage/ManageTable.vue'
@@ -376,7 +376,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       </div>
       <div class="flex items-center gap-[var(--jc-space-3)]">
         <span class="text-muted text-sm" v-if="jobsLoading || runsLoading">刷新中…</span>
-        <BaseButton variant="outline" size="sm" @click="loadAll">手动刷新</BaseButton>
+        <ManageButton variant="outline" size="sm" @click="loadAll">手动刷新</ManageButton>
       </div>
     </header>
 
@@ -418,7 +418,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       <div v-else-if="jobsError && jobs.length === 0" class="jc-tm-empty">
         加载失败: {{ jobsError }}.
         <div class="mt-[var(--jc-space-3)]">
-          <BaseButton variant="outline" size="sm" @click="loadJobs">点击重试</BaseButton>
+          <ManageButton variant="outline" size="sm" @click="loadJobs">点击重试</ManageButton>
         </div>
       </div>
 
@@ -460,34 +460,34 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
           </div>
 
           <div class="jc-job__actions">
-            <BaseButton
+            <ManageButton
               v-if="j.state === 'running'"
               variant="outline"
               size="sm"
               :disabled="busy"
               @click="pause(j.sourceId)"
-            >暂停</BaseButton>
-            <BaseButton
+            >暂停</ManageButton>
+            <ManageButton
               v-if="j.state === 'paused'"
               variant="primary"
               size="sm"
               :disabled="busy"
               @click="resume(j.sourceId)"
-            >继续</BaseButton>
-            <BaseButton
+            >继续</ManageButton>
+            <ManageButton
               v-if="j.state === 'running' || j.state === 'paused'"
               variant="danger"
               size="sm"
               :disabled="busy"
               @click="cancelJob(j)"
-            >取消</BaseButton>
-            <BaseButton
+            >取消</ManageButton>
+            <ManageButton
               v-if="j.state === 'error' || j.state === 'canceled'"
               variant="primary"
               size="sm"
               :disabled="busy"
               @click="rerunJob(j)"
-            >重跑</BaseButton>
+            >重跑</ManageButton>
           </div>
         </article>
       </div>
@@ -565,7 +565,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
 
         <template #actions="{ row }">
           <div class="flex gap-[var(--jc-space-1)] justify-end">
-            <BaseButton
+            <ManageButton
               v-if="row.status === 'failed'"
               variant="primary"
               size="sm"
@@ -573,7 +573,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               @click="rerunRun(row)"
             >
               {{ rerunBusyId === row.id ? '提交中…' : '重跑' }}
-            </BaseButton>
+            </ManageButton>
             <span v-else-if="row.status === 'running'" class="text-muted text-xs flex items-center">执行中…</span>
             <span v-else class="text-muted text-xs">—</span>
           </div>
@@ -598,12 +598,12 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               待补采 <span class="font-[var(--jc-fw-semibold)] text-primary">{{ ov.pendingFailures }}</span> 页
               · 共 {{ failTotal }} 条
             </span>
-            <BaseButton
+            <ManageButton
               variant="primary"
               size="sm"
               :disabled="!canRecoverAll || busy"
               @click="recover()"
-            >{{ busy ? '提交中…' : '补采全部' }}</BaseButton>
+            >{{ busy ? '提交中…' : '补采全部' }}</ManageButton>
             <RouterLink to="/manage/collect/failures" class="text-link text-sm">查看完整补采中心 →</RouterLink>
           </div>
         </template>
@@ -628,12 +628,12 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
 
         <template #actions="{ row }">
           <div class="flex justify-end">
-            <BaseButton
+            <ManageButton
               variant="outline"
               size="sm"
               :disabled="busy"
               @click="recover([row.id])"
-            >补采</BaseButton>
+            >补采</ManageButton>
           </div>
         </template>
       </ManageTable>

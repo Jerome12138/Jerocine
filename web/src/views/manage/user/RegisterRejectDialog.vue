@@ -4,7 +4,7 @@ import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import type { RegisterApplyRow } from '@/types/manage'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -70,8 +70,8 @@ function submit(): void {
     </label>
     <p class="text-xs text-muted">驳回后该邮箱仍可重新提交申请；通知邮件发送失败不影响驳回结果。</p>
     <div class="flex justify-end gap-[var(--jc-space-2)]">
-      <BaseButton variant="ghost" size="sm" @click="cancel">取消</BaseButton>
-      <BaseButton variant="gradient" size="sm" type="submit" :loading="busy">确认驳回</BaseButton>
+      <ManageButton variant="ghost" size="sm" @click="cancel">取消</ManageButton>
+      <ManageButton variant="gradient" size="sm" type="submit" :loading="busy">确认驳回</ManageButton>
     </div>
   </form>
 </template>

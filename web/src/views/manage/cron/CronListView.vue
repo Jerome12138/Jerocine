@@ -7,7 +7,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
@@ -241,7 +241,7 @@ onMounted(load)
   >
     <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
     <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-    <BaseButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</BaseButton>
+    <ManageButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</ManageButton>
   </div>
 
   <ManageTable
@@ -259,12 +259,12 @@ onMounted(load)
           placeholder="搜索 ID / 表达式 / 备注"
           class="w-[180px]"
         />
-        <BaseButton variant="ghost" size="sm" @click="load">
+        <ManageButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
-        </BaseButton>
-        <BaseButton variant="gradient" size="sm" @click="openAdd">
+        </ManageButton>
+        <ManageButton variant="gradient" size="sm" @click="openAdd">
           <BaseIcon name="plus" size="16px" /> 新增
-        </BaseButton>
+        </ManageButton>
       </div>
     </template>
 
@@ -297,7 +297,7 @@ onMounted(load)
 
     <template #actions="{ row }">
       <div class="flex gap-[var(--jc-space-1)] justify-end">
-        <BaseButton
+        <ManageButton
           variant="ghost"
           size="sm"
           :loading="busyId === row.id"
@@ -305,9 +305,9 @@ onMounted(load)
           @click="toggleState(row)"
         >
           {{ row.state ? '停止' : '启动' }}
-        </BaseButton>
+        </ManageButton>
         <!-- 已停用任务服务端必拒(400 invalid argument), 本地禁用并提示 -->
-        <BaseButton
+        <ManageButton
           variant="ghost"
           size="sm"
           :disabled="!row.state || !!busyId"
@@ -315,13 +315,13 @@ onMounted(load)
           @click="runNow(row)"
         >
           立即执行
-        </BaseButton>
-        <BaseButton variant="ghost" size="sm" :disabled="!!busyId" @click="openEdit(row)">
+        </ManageButton>
+        <ManageButton variant="ghost" size="sm" :disabled="!!busyId" @click="openEdit(row)">
           编辑
-        </BaseButton>
-        <BaseButton variant="danger" size="sm" :disabled="!!busyId" @click="remove(row)">
+        </ManageButton>
+        <ManageButton variant="danger" size="sm" :disabled="!!busyId" @click="remove(row)">
           删除
-        </BaseButton>
+        </ManageButton>
       </div>
     </template>
   </ManageTable>
@@ -368,8 +368,8 @@ onMounted(load)
       <p v-if="formError" class="text-xs text-[var(--jc-danger)]">{{ formError }}</p>
     </div>
     <template #footer>
-      <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>
-      <BaseButton variant="gradient" :loading="submitting" @click="submit">保存</BaseButton>
+      <ManageButton variant="ghost" @click="dialogOpen = false">取消</ManageButton>
+      <ManageButton variant="gradient" :loading="submitting" @click="submit">保存</ManageButton>
     </template>
   </ManageSheet>
   </div>

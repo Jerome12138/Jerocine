@@ -7,7 +7,7 @@ import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -123,8 +123,8 @@ function submit(): void {
       </label>
     </ManageFormField>
     <div class="flex justify-end gap-[var(--jc-space-3)] pt-[var(--jc-space-2)]">
-      <BaseButton variant="ghost" @click="cancel">取消</BaseButton>
-      <BaseButton variant="gradient" :loading="busy" @click="submit">保存</BaseButton>
+      <ManageButton variant="ghost" @click="cancel">取消</ManageButton>
+      <ManageButton variant="gradient" :loading="busy" @click="submit">保存</ManageButton>
     </div>
   </div>
 </template>

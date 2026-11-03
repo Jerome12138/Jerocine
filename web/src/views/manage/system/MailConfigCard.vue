@@ -8,7 +8,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSelect from '@/components/manage/ManageSelect.vue'
 import type { SelectOption } from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
@@ -211,7 +211,7 @@ onMounted(load)
         邮件与注册配置读取失败：为避免用默认值覆盖线上配置（注册模式 / SMTP
         开关），已禁用编辑与保存。
       </p>
-      <BaseButton variant="outline" size="sm" @click="load">重试</BaseButton>
+      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
     </div>
 
     <form v-else class="flex flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">
@@ -298,8 +298,8 @@ onMounted(load)
       </div>
 
       <div class="flex justify-end gap-[var(--jc-space-3)]">
-        <BaseButton variant="ghost" type="button" @click="load">重置</BaseButton>
-        <BaseButton variant="gradient" type="submit" :loading="submitting">保存</BaseButton>
+        <ManageButton variant="ghost" type="button" @click="load">重置</ManageButton>
+        <ManageButton variant="gradient" type="submit" :loading="submitting">保存</ManageButton>
       </div>
     </form>
 
@@ -317,7 +317,7 @@ onMounted(load)
         <ManageFormField class="flex-1" label="测试收件邮箱">
           <ManageInput v-model="testTo" placeholder="mail@example.com" />
         </ManageFormField>
-        <BaseButton variant="outline" :loading="testing" @click="submitTest">发送测试邮件</BaseButton>
+        <ManageButton variant="outline" :loading="testing" @click="submitTest">发送测试邮件</ManageButton>
       </div>
     </section>
   </section>

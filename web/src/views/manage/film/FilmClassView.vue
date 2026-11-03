@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { FilmClass } from '@/types/manage'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -163,13 +163,13 @@ onMounted(() => {
         <p class="text-sm text-muted truncate">维护顶级与子分类的菜单显隐、影片可见性、名称与排序</p>
       </div>
       <div class="flex items-center gap-[var(--jc-space-2)] shrink-0">
-        <BaseButton variant="ghost" size="sm" @click="load">
+        <ManageButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" />
           <span class="hidden sm:inline">刷新</span>
-        </BaseButton>
-        <BaseButton variant="gradient" size="sm" @click="openAddTop">
+        </ManageButton>
+        <ManageButton variant="gradient" size="sm" @click="openAddTop">
           <BaseIcon name="plus" size="16px" /> 新增分类
-        </BaseButton>
+        </ManageButton>
       </div>
     </header>
 
@@ -180,9 +180,9 @@ onMounted(() => {
     <!-- 加载失败: 显式错误态+重试, 不冒充"暂无分类数据" -->
     <div v-else-if="loadError" class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-8)]">
       <BaseEmpty title="加载失败" :description="loadError" hide-icon />
-      <BaseButton variant="outline" size="sm" @click="load">
+      <ManageButton variant="outline" size="sm" @click="load">
         <BaseIcon name="refresh" size="16px" /> 重试
-      </BaseButton>
+      </ManageButton>
     </div>
 
     <BaseEmpty v-else-if="!tree.length" description="暂无分类数据" />

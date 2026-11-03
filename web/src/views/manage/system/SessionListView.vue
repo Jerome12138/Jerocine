@@ -7,7 +7,7 @@ import type { LoginSessionRow } from '@/types/manage'
 import { useUserStore } from '@/stores/user'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import { formatDateTime } from '@/utils/format'
@@ -103,7 +103,7 @@ onMounted(load)
     <section v-if="loadError && !rows.length" class="bg-surface rounded-card shadow-card">
       <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
         <BaseEmpty title="加载失败" description="在线会话读取失败，请重试" hide-icon />
-        <BaseButton variant="outline" size="sm" @click="load">重试</BaseButton>
+        <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
       </div>
     </section>
 
@@ -129,8 +129,8 @@ onMounted(load)
               @keydown.enter="load"
             />
           </div>
-          <BaseButton variant="outline" size="sm" @click="load">查询</BaseButton>
-          <BaseButton variant="ghost" size="sm" @click="load">刷新</BaseButton>
+          <ManageButton variant="outline" size="sm" @click="load">查询</ManageButton>
+          <ManageButton variant="ghost" size="sm" @click="load">刷新</ManageButton>
         </div>
       </template>
 
@@ -156,14 +156,14 @@ onMounted(load)
 
       <template #actions="{ row }">
         <div class="flex justify-end">
-          <BaseButton
+          <ManageButton
             variant="ghost"
             size="sm"
             :disabled="busy"
             @click="kick(row)"
           >
             踢下线
-          </BaseButton>
+          </ManageButton>
         </div>
       </template>
     </ManageTable>

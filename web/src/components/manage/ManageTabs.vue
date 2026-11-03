@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="V extends string | number = string">
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 
 /**
  * 统一页签形态（复核 #13）:
@@ -61,7 +61,7 @@ function onSelect(value: V): void {
   </div>
 
   <div v-else class="flex gap-[var(--jc-space-1)] flex-wrap" role="tablist">
-    <BaseButton
+    <ManageButton
       v-for="t in props.tabs"
       :key="String(t.value)"
       :variant="props.modelValue === t.value ? 'gradient' : 'ghost'"
@@ -73,6 +73,6 @@ function onSelect(value: V): void {
     >
       {{ t.label }}
       <span v-if="t.count !== undefined && t.count > 0" class="jc-tabs__count">（{{ t.count }}）</span>
-    </BaseButton>
+    </ManageButton>
   </div>
 </template>

@@ -15,7 +15,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import type { LiveChannelManage, LiveSourceManage } from '@/types/live'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
@@ -340,10 +340,10 @@ onMounted(async () => {
             @update:model-value="toggleLiveNav"
           />
         </label>
-        <BaseButton variant="gradient" @click="openCreate">
+        <ManageButton variant="gradient" @click="openCreate">
           <BaseIcon name="plus" size="16px" />
           新增直播源
-        </BaseButton>
+        </ManageButton>
       </div>
     </header>
 
@@ -351,7 +351,7 @@ onMounted(async () => {
 
     <div v-else-if="error" class="jc-livemgr__error">
       <p>直播源加载失败：{{ error }}</p>
-      <BaseButton variant="outline" size="sm" @click="load">重试</BaseButton>
+      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
     </div>
 
     <div v-else-if="sources.length === 0" class="jc-livemgr__empty">还没有直播源，点击右上角「新增直播源」添加第一个。</div>
@@ -379,14 +379,14 @@ onMounted(async () => {
           <span class="jc-livemgr__sort">排序 {{ s.sort }}</span>
         </div>
         <div class="jc-livemgr__actions">
-          <BaseButton variant="ghost" size="sm" @click="openChannels(s)">频道管理</BaseButton>
-          <BaseButton variant="ghost" size="sm" @click="openEdit(s)">编辑</BaseButton>
-          <BaseButton variant="ghost" size="sm" :disabled="rowBusy" @click="toggleState(s)">
+          <ManageButton variant="ghost" size="sm" @click="openChannels(s)">频道管理</ManageButton>
+          <ManageButton variant="ghost" size="sm" @click="openEdit(s)">编辑</ManageButton>
+          <ManageButton variant="ghost" size="sm" :disabled="rowBusy" @click="toggleState(s)">
             {{ s.state === 0 ? '停用' : '启用' }}
-          </BaseButton>
-          <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="rowBusy" @click="remove(s)">
+          </ManageButton>
+          <ManageButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="rowBusy" @click="remove(s)">
             删除
-          </BaseButton>
+          </ManageButton>
         </div>
       </div>
     </div>
@@ -396,10 +396,10 @@ onMounted(async () => {
       <div class="jc-chmgr">
         <div class="jc-chmgr__toolbar">
           <ManageInput v-model="chSearch" placeholder="搜索频道名/分组/地址" class="jc-chmgr__search" />
-          <BaseButton variant="outline" size="sm" @click="openCustom">
+          <ManageButton variant="outline" size="sm" @click="openCustom">
             <BaseIcon name="plus" size="14px" />
             添加自定义频道
-          </BaseButton>
+          </ManageButton>
         </div>
         <p class="jc-chmgr__hint">
           共 {{ chList.length }} 个频道。探源改为端侧执行，前台自动探测可访问性。
@@ -420,13 +420,13 @@ onMounted(async () => {
                 <div class="jc-chmgr__url">{{ c.url }}</div>
               </div>
               <div class="jc-chmgr__actions">
-                <BaseButton variant="ghost" size="sm" :disabled="chBusy" @click="toggleChannel(c)">
+                <ManageButton variant="ghost" size="sm" :disabled="chBusy" @click="toggleChannel(c)">
                   {{ c.hidden ? '显示' : '隐藏' }}
-                </BaseButton>
-                <BaseButton variant="ghost" size="sm" :disabled="chBusy" @click="openRename(c)">改名</BaseButton>
-                <BaseButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="chBusy" @click="removeChannel(c)">
+                </ManageButton>
+                <ManageButton variant="ghost" size="sm" :disabled="chBusy" @click="openRename(c)">改名</ManageButton>
+                <ManageButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="chBusy" @click="removeChannel(c)">
                   {{ c.isCustom ? '删除' : '隐藏并移除' }}
-                </BaseButton>
+                </ManageButton>
               </div>
             </div>
             <p v-if="chFiltered.length === 0" class="jc-chmgr__empty">无匹配频道</p>
@@ -442,7 +442,7 @@ onMounted(async () => {
         </template>
       </div>
       <template #footer>
-        <BaseButton variant="ghost" @click="chOpen = false">关闭</BaseButton>
+        <ManageButton variant="ghost" @click="chOpen = false">关闭</ManageButton>
       </template>
     </ManageSheet>
 
@@ -460,8 +460,8 @@ onMounted(async () => {
         </ManageFormField>
       </div>
       <template #footer>
-        <BaseButton variant="ghost" @click="customOpen = false">取消</BaseButton>
-        <BaseButton variant="gradient" :loading="chBusy" @click="saveCustom">添加</BaseButton>
+        <ManageButton variant="ghost" @click="customOpen = false">取消</ManageButton>
+        <ManageButton variant="gradient" :loading="chBusy" @click="saveCustom">添加</ManageButton>
       </template>
     </ManageSheet>
 
@@ -481,8 +481,8 @@ onMounted(async () => {
         </ManageFormField>
       </div>
       <template #footer>
-        <BaseButton variant="ghost" @click="renameOpen = false">取消</BaseButton>
-        <BaseButton variant="gradient" :loading="chBusy" @click="saveRename">保存</BaseButton>
+        <ManageButton variant="ghost" @click="renameOpen = false">取消</ManageButton>
+        <ManageButton variant="gradient" :loading="chBusy" @click="saveRename">保存</ManageButton>
       </template>
     </ManageSheet>
   </div>

@@ -7,7 +7,7 @@ import type { Column } from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import type { StatusMap } from '@/components/manage/StatusTag.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
@@ -140,9 +140,9 @@ async function openReset(row: ManageUserRow): Promise<void> {
     <section v-if="paged.loadError.value && !paged.rows.value.length" class="bg-surface rounded-card shadow-card">
       <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
         <BaseEmpty title="加载失败" :description="paged.loadError.value" hide-icon />
-        <BaseButton variant="outline" size="sm" @click="paged.load()">
+        <ManageButton variant="outline" size="sm" @click="paged.load()">
           <BaseIcon name="refresh" size="16px" /> 重试
-        </BaseButton>
+        </ManageButton>
       </div>
     </section>
 
@@ -165,12 +165,12 @@ async function openReset(row: ManageUserRow): Promise<void> {
           <div class="w-full sm:w-[220px]">
             <ManageInput v-model="params.keyword" placeholder="用户名关键字" @keydown.enter="paged.search()" />
           </div>
-          <BaseButton variant="gradient" size="sm" @click="paged.search()">
+          <ManageButton variant="gradient" size="sm" @click="paged.search()">
             <BaseIcon name="search" size="16px" /> 搜索
-          </BaseButton>
-          <BaseButton variant="gradient" size="sm" @click="openCreate">
+          </ManageButton>
+          <ManageButton variant="gradient" size="sm" @click="openCreate">
             <BaseIcon name="plus" size="16px" /> 新增用户
-          </BaseButton>
+          </ManageButton>
         </div>
       </template>
 
@@ -190,13 +190,13 @@ async function openReset(row: ManageUserRow): Promise<void> {
 
       <template #actions="{ row }">
         <div class="flex gap-[var(--jc-space-1)] justify-end">
-          <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</BaseButton>
-          <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="toggleDisabled(row)">
+          <ManageButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</ManageButton>
+          <ManageButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="toggleDisabled(row)">
             {{ row.disabled === 1 ? '启用' : '禁用' }}
-          </BaseButton>
+          </ManageButton>
           <!-- 重置密码对自己的行禁用: 重置即清目标用户全部 token, 会把自己当前会话也踢下线(服务端同样校验) -->
-          <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="openReset(row)">重置密码</BaseButton>
-          <BaseButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="removeUser(row)">删除</BaseButton>
+          <ManageButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="openReset(row)">重置密码</ManageButton>
+          <ManageButton variant="ghost" size="sm" :disabled="busy || isSelf(row)" @click="removeUser(row)">删除</ManageButton>
         </div>
       </template>
     </ManageTable>

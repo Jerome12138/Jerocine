@@ -11,7 +11,7 @@ import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -612,7 +612,7 @@ onMounted(() => {
   >
     <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
     <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-    <BaseButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</BaseButton>
+    <ManageButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</ManageButton>
   </div>
 
   <ManageTable
@@ -644,24 +644,24 @@ onMounted(() => {
           aria-label="采集时长"
           class="w-[140px]"
         />
-        <BaseButton variant="ghost" size="sm" :loading="testingAll" @click="runApiTestAll">
+        <ManageButton variant="ghost" size="sm" :loading="testingAll" @click="runApiTestAll">
           <BaseIcon name="refresh" size="16px" /> 全部测采集
-        </BaseButton>
-        <BaseButton variant="ghost" size="sm" :loading="testingPlayAll" @click="runPlayTestAll">
+        </ManageButton>
+        <ManageButton variant="ghost" size="sm" :loading="testingPlayAll" @click="runPlayTestAll">
           <BaseIcon name="refresh" size="16px" /> 全部测播放
-        </BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="cycleSort">
+        </ManageButton>
+        <ManageButton variant="ghost" size="sm" @click="cycleSort">
           {{ SORT_LABELS[sortMode] }}
-        </BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="load">
+        </ManageButton>
+        <ManageButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
-        </BaseButton>
-        <BaseButton variant="danger" size="sm" @click="openReset">
+        </ManageButton>
+        <ManageButton variant="danger" size="sm" @click="openReset">
           <BaseIcon name="trash" size="16px" /> 重置库存
-        </BaseButton>
-        <BaseButton variant="gradient" size="sm" @click="openAdd">
+        </ManageButton>
+        <ManageButton variant="gradient" size="sm" @click="openAdd">
           <BaseIcon name="plus" size="16px" /> 新增
-        </BaseButton>
+        </ManageButton>
       </div>
     </template>
 
@@ -705,7 +705,7 @@ onMounted(() => {
 
     <template #actions="{ row }">
       <div class="flex gap-[var(--jc-space-1)] justify-end items-center flex-wrap">
-        <BaseButton
+        <ManageButton
           variant="ghost"
           size="sm"
           :loading="testingId === row.id"
@@ -713,8 +713,8 @@ onMounted(() => {
           @click="runApiTest(row)"
         >
           测采集
-        </BaseButton>
-        <BaseButton
+        </ManageButton>
+        <ManageButton
           variant="ghost"
           size="sm"
           :loading="testingPlayId === row.id"
@@ -722,15 +722,15 @@ onMounted(() => {
           @click="runPlayTest(row)"
         >
           测播放
-        </BaseButton>
-        <BaseButton
+        </ManageButton>
+        <ManageButton
           variant="ghost"
           size="sm"
           :disabled="!row.state || busyId === row.id"
           :title="row.state ? '触发采集任务' : '源已停用, 请先启用'"
           @click="startSpider(row)"
-        >采集</BaseButton>
-        <BaseButton
+        >采集</ManageButton>
+        <ManageButton
           variant="ghost"
           size="sm"
           :loading="busyId === row.id"
@@ -738,19 +738,19 @@ onMounted(() => {
           @click="toggleState(row)"
         >
           {{ row.state ? '停用' : '启用' }}
-        </BaseButton>
-        <BaseButton
+        </ManageButton>
+        <ManageButton
           variant="ghost"
           size="sm"
           :disabled="!!busyId"
           @click="openEdit(row)"
-        >编辑</BaseButton>
-        <BaseButton
+        >编辑</ManageButton>
+        <ManageButton
           variant="danger"
           size="sm"
           :disabled="!!busyId"
           @click="remove(row)"
-        >删除</BaseButton>
+        >删除</ManageButton>
       </div>
     </template>
   </ManageTable>
@@ -803,13 +803,13 @@ onMounted(() => {
       <p v-if="formError" class="text-xs text-[var(--jc-danger)]">{{ formError }}</p>
     </div>
     <template #footer>
-      <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>
-      <BaseButton variant="gradient" :loading="submitting" @click="submit">
+      <ManageButton variant="ghost" @click="dialogOpen = false">取消</ManageButton>
+      <ManageButton variant="gradient" :loading="submitting" @click="submit">
         保存
-      </BaseButton>
-      <BaseButton variant="gradient" :loading="submitting" @click="submitAndTest">
+      </ManageButton>
+      <ManageButton variant="gradient" :loading="submitting" @click="submitAndTest">
         保存并测速
-      </BaseButton>
+      </ManageButton>
     </template>
   </ManageSheet>
 
@@ -826,10 +826,10 @@ onMounted(() => {
       <p v-if="resetError" class="text-xs text-[var(--jc-danger)]">{{ resetError }}</p>
     </div>
     <template #footer>
-      <BaseButton variant="ghost" @click="resetDialogOpen = false">取消</BaseButton>
-      <BaseButton variant="danger" :loading="resetSubmitting" @click="submitReset">
+      <ManageButton variant="ghost" @click="resetDialogOpen = false">取消</ManageButton>
+      <ManageButton variant="danger" :loading="resetSubmitting" @click="submitReset">
         确认重置
-      </BaseButton>
+      </ManageButton>
     </template>
   </ManageSheet>
   </div>

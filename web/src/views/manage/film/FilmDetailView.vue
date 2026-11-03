@@ -14,7 +14,7 @@ import type {
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import SourceCandidateDialog from '@/components/manage/SourceCandidateDialog.vue'
@@ -255,7 +255,7 @@ onMounted(async () => {
     <header class="flex items-center justify-between mb-[var(--jc-space-5)] flex-wrap gap-[var(--jc-space-3)]">
       <h2 class="text-lg font-[var(--jc-fw-semibold)]">影片详情</h2>
       <div class="flex gap-[var(--jc-space-2)] flex-wrap">
-        <BaseButton
+        <ManageButton
           variant="outline"
           size="sm"
           :disabled="!movie || isDeletedMovie"
@@ -263,8 +263,8 @@ onMounted(async () => {
           @click="gotoDetail"
         >
           <BaseIcon name="film" size="16px" /> 去详情页
-        </BaseButton>
-        <BaseButton
+        </ManageButton>
+        <ManageButton
           variant="gradient"
           size="sm"
           :disabled="!sources.length || isDeletedMovie"
@@ -272,8 +272,8 @@ onMounted(async () => {
           @click="gotoPlay"
         >
           <BaseIcon name="play" size="16px" /> 去播放页
-        </BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="router.back()">返回</BaseButton>
+        </ManageButton>
+        <ManageButton variant="ghost" size="sm" @click="router.back()">返回</ManageButton>
       </div>
     </header>
 
@@ -334,7 +334,7 @@ onMounted(async () => {
         >
           <BaseIcon name="info" size="14px" />
           <span>采集源列表加载失败，仅显示已采集源：{{ sourceListError }}</span>
-          <BaseButton variant="ghost" size="sm" @click="loadSources">重试</BaseButton>
+          <ManageButton variant="ghost" size="sm" @click="loadSources">重试</ManageButton>
         </div>
 
         <BaseEmpty v-if="!mergedSources.length" description="暂无采集源" />
@@ -351,7 +351,7 @@ onMounted(async () => {
             <BaseTag v-if="row.collected" variant="success" size="xs">{{ row.episodes }} 集</BaseTag>
             <BaseTag v-else variant="default" size="xs">未采集</BaseTag>
             <div class="flex-1" />
-            <BaseButton
+            <ManageButton
               :variant="row.collected ? 'outline' : 'primary'"
               size="sm"
               :loading="collecting[row.siteId]"
@@ -360,7 +360,7 @@ onMounted(async () => {
               @click="collectOne(row)"
             >
               <BaseIcon name="magic" size="16px" /> {{ row.collected ? '重采' : '采集' }}
-            </BaseButton>
+            </ManageButton>
           </div>
         </div>
       </section>

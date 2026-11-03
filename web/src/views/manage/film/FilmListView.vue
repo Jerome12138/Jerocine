@@ -9,7 +9,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import ManageCascader from '@/components/manage/ManageCascader.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
@@ -219,9 +219,9 @@ onMounted(() => {
     >
       <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
         <BaseEmpty title="加载失败" :description="paged.loadError.value" hide-icon />
-        <BaseButton variant="outline" size="sm" @click="paged.load()">
+        <ManageButton variant="outline" size="sm" @click="paged.load()">
           <BaseIcon name="refresh" size="16px" /> 重试
-        </BaseButton>
+        </ManageButton>
       </div>
     </section>
 
@@ -243,7 +243,7 @@ onMounted(() => {
           <ManageTabs :model-value="status" :tabs="FILM_STATUS_TABS" @update:model-value="switchStatus" />
           <!-- 分类筛选(级联选择器): 紧随页签, 放左侧 -->
           <div ref="catFilterRef" class="relative">
-            <BaseButton
+            <ManageButton
               variant="ghost"
               size="sm"
               :class="{ 'border-brand-purple/50': appliedCatIds.size > 0 }"
@@ -254,7 +254,7 @@ onMounted(() => {
               <BaseTag v-if="appliedCatIds.size > 0" variant="purple" size="xs" class="ml-1">
                 {{ appliedCatIds.size }}
               </BaseTag>
-            </BaseButton>
+            </ManageButton>
             <!-- 下拉级联面板(多列逐级展开) -->
             <div
               v-if="treePopperOpen"
@@ -264,7 +264,7 @@ onMounted(() => {
               <div v-if="treeLoading" class="text-sm text-muted py-2 text-center">加载中…</div>
               <div v-else-if="treeError" class="flex flex-col items-center gap-2 py-2">
                 <span class="text-sm text-[var(--jc-danger)]">分类树加载失败：{{ treeError }}</span>
-                <BaseButton variant="outline" size="sm" @click="retryTree">重试</BaseButton>
+                <ManageButton variant="outline" size="sm" @click="retryTree">重试</ManageButton>
               </div>
               <template v-else-if="categoryTree.length">
                 <ManageCascader
@@ -275,23 +275,23 @@ onMounted(() => {
               </template>
               <div v-else class="text-sm text-muted py-2 text-center">暂无分类</div>
               <div class="border-t border-subtle mt-2 pt-2 flex justify-end gap-2">
-                <BaseButton variant="ghost" size="sm" @click="clearCatFilter">清除筛选</BaseButton>
-                <BaseButton
+                <ManageButton variant="ghost" size="sm" @click="clearCatFilter">清除筛选</ManageButton>
+                <ManageButton
                   variant="gradient"
                   size="sm"
                   :disabled="!selectedCatIds.size"
                   @click="applyCatFilter(); treePopperOpen = false"
-                >确定</BaseButton>
+                >确定</ManageButton>
               </div>
             </div>
           </div>
           <!-- 热度(排序): 与分类筛选同款按钮 + 下拉菜单; server allowedSort 白名单 -->
           <div ref="sortRef" class="relative">
-            <BaseButton variant="ghost" size="sm" aria-label="排序方式" @click="sortOpen = !sortOpen">
+            <ManageButton variant="ghost" size="sm" aria-label="排序方式" @click="sortOpen = !sortOpen">
               <BaseIcon :name="currentSort.icon" size="16px" class="mr-1" />
               {{ currentSort.label }}
               <BaseIcon name="chevron-down" size="14px" class="ml-1" />
-            </BaseButton>
+            </ManageButton>
             <div
               v-if="sortOpen"
               class="absolute z-50 top-full left-0 mt-1 bg-surface border border-subtle rounded-lg shadow-lg py-1 min-w-[140px]"
@@ -314,12 +314,12 @@ onMounted(() => {
         <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
           <div class="flex gap-[var(--jc-space-2)] flex-1 min-w-0">
             <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
-            <BaseButton variant="gradient" size="sm" @click="search">
+            <ManageButton variant="gradient" size="sm" @click="search">
               <BaseIcon name="search" size="16px" /> 搜索
-            </BaseButton>
-            <BaseButton variant="ghost" size="sm" @click="router.push('/manage/film/add')">
+            </ManageButton>
+            <ManageButton variant="ghost" size="sm" @click="router.push('/manage/film/add')">
               <BaseIcon name="plus" size="16px" /> 新增
-            </BaseButton>
+            </ManageButton>
           </div>
         </div>
       </template>
@@ -353,21 +353,21 @@ onMounted(() => {
           class="mt-[var(--jc-space-3)] pt-[var(--jc-space-3)] border-t border-subtle flex gap-[var(--jc-space-2)] justify-end"
           @click.stop
         >
-          <BaseButton variant="ghost" size="sm" @click="viewDetail(row)">查看</BaseButton>
-          <BaseButton
+          <ManageButton variant="ghost" size="sm" @click="viewDetail(row)">查看</ManageButton>
+          <ManageButton
             v-if="isDeleted(row)"
             variant="ghost"
             size="sm"
             :disabled="busy"
             @click="restoreFilm(row)"
-          >恢复</BaseButton>
-          <BaseButton
+          >恢复</ManageButton>
+          <ManageButton
             v-else
             variant="ghost"
             size="sm"
             :disabled="busy"
             @click="removeFilm(row)"
-          >删除</BaseButton>
+          >删除</ManageButton>
         </div>
       </template>
 
@@ -402,21 +402,21 @@ onMounted(() => {
 
       <template #actions="{ row }">
         <div class="flex gap-[var(--jc-space-1)] justify-end">
-          <BaseButton variant="ghost" size="sm" @click="viewDetail(row)">查看</BaseButton>
-          <BaseButton
+          <ManageButton variant="ghost" size="sm" @click="viewDetail(row)">查看</ManageButton>
+          <ManageButton
             v-if="isDeleted(row)"
             variant="ghost"
             size="sm"
             :disabled="busy"
             @click="restoreFilm(row)"
-          >恢复</BaseButton>
-          <BaseButton
+          >恢复</ManageButton>
+          <ManageButton
             v-else
             variant="ghost"
             size="sm"
             :disabled="busy"
             @click="removeFilm(row)"
-          >删除</BaseButton>
+          >删除</ManageButton>
         </div>
       </template>
     </ManageTable>

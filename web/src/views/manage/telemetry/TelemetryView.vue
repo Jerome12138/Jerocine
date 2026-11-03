@@ -23,7 +23,7 @@ import type {
   ApiPerfItem,
   IssueStatusFilter
 } from '@/api/manage/telemetry'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
@@ -199,9 +199,9 @@ watch(statusFilter, () => void loadAll())
       <h1 class="text-2xl font-[var(--jc-fw-semibold)]">埋点监控</h1>
       <div class="flex items-center gap-[var(--jc-space-3)]">
         <ManageSelect v-model="days" :options="DAYS_OPTIONS" aria-label="时间范围" class="w-[120px]" />
-        <BaseButton variant="ghost" size="sm" :loading="loading" @click="loadAll()">
+        <ManageButton variant="ghost" size="sm" :loading="loading" @click="loadAll()">
           <BaseIcon name="refresh" size="16px" /> 刷新
-        </BaseButton>
+        </ManageButton>
       </div>
     </header>
 
@@ -220,7 +220,7 @@ watch(statusFilter, () => void loadAll())
       description="网络或服务端异常, 请稍后重试"
     >
       <template #action>
-        <BaseButton size="sm" variant="outline" @click="loadAll()">重试</BaseButton>
+        <ManageButton size="sm" variant="outline" @click="loadAll()">重试</ManageButton>
       </template>
     </BaseEmpty>
 
@@ -292,25 +292,25 @@ watch(statusFilter, () => void loadAll())
             </div>
           </span>
           <span class="w-[80px]" @click.stop>
-            <BaseButton
+            <ManageButton
               v-if="row.issueStatus === 'unresolved' || row.issueStatus === 'reopened'"
               variant="primary" size="sm"
               @click="openResolve(row)"
-            >{{ row.issueStatus === 'reopened' ? '重标解决' : '标记解决' }}</BaseButton>
-            <BaseButton
+            >{{ row.issueStatus === 'reopened' ? '重标解决' : '标记解决' }}</ManageButton>
+            <ManageButton
               v-else
               variant="ghost" size="sm"
               :loading="undoingId === row.id"
               :disabled="undoingId !== null && undoingId !== row.id"
               @click="undoResolve(row)"
-            >撤销</BaseButton>
+            >撤销</ManageButton>
           </span>
         </div>
         <!-- 服务端状态过滤后 total 大于已加载行数时提供加载更多(每页 100 条) -->
         <div v-if="errors.length < total" class="flex justify-center py-[var(--jc-space-3)]">
-          <BaseButton variant="ghost" size="sm" :loading="loading" @click="loadAll(true)">
+          <ManageButton variant="ghost" size="sm" :loading="loading" @click="loadAll(true)">
             加载更多 (还剩 {{ total - errors.length }})
-          </BaseButton>
+          </ManageButton>
         </div>
       </div>
     </section>

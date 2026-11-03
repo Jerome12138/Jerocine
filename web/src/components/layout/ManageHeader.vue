@@ -3,7 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/user'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import PwaUpdateBadge from '@/components/base/PwaUpdateBadge.vue'
@@ -160,10 +160,10 @@ const avatar = computed(() => {
         </p>
       </div>
       <template #footer>
-        <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>
-        <BaseButton variant="gradient" :loading="submitting" @click="submitPwd">
+        <ManageButton variant="ghost" @click="dialogOpen = false">取消</ManageButton>
+        <ManageButton variant="gradient" :loading="submitting" @click="submitPwd">
           确认
-        </BaseButton>
+        </ManageButton>
       </template>
     </ManageSheet>
   </header>

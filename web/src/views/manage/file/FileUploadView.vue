@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { manageApi } from '@/api'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import { confirm } from '@/composables/useConfirm'
@@ -173,8 +173,8 @@ async function clearEntries(): Promise<void> {
       </li>
     </ul>
 
-    <BaseButton variant="ghost" size="sm" @click="clearEntries">
+    <ManageButton variant="ghost" size="sm" @click="clearEntries">
       清空记录
-    </BaseButton>
+    </ManageButton>
   </section>
 </template>

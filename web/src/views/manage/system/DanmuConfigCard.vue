@@ -5,7 +5,7 @@ import { toast } from '@/api/http'
 import type { DanmuConfigResp, DanmuProvider } from '@/types/manage'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
@@ -108,7 +108,7 @@ onMounted(load)
       <p class="text-sm text-[var(--jc-danger)]">
         弹幕配置读取失败：为避免误存默认值（全局关停），已禁用编辑与保存。
       </p>
-      <BaseButton variant="outline" size="sm" @click="load">重试</BaseButton>
+      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
     </div>
 
     <form v-else class="flex flex-1 flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">
@@ -154,8 +154,8 @@ onMounted(load)
       </div>
 
       <div class="mt-auto flex justify-end gap-[var(--jc-space-3)]">
-        <BaseButton variant="ghost" type="button" @click="load">重置</BaseButton>
-        <BaseButton variant="gradient" type="button" :loading="submitting" @click="submit">保存</BaseButton>
+        <ManageButton variant="ghost" type="button" @click="load">重置</ManageButton>
+        <ManageButton variant="gradient" type="button" :loading="submitting" @click="submit">保存</ManageButton>
       </div>
     </form>
   </section>

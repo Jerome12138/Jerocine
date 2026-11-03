@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { Banner, BannerBoard, EffectiveSlide, InactiveBanner } from '@/types/manage'
-import BaseButton from '@/components/base/BaseButton.vue'
+import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseLightbox from '@/components/base/BaseLightbox.vue'
@@ -344,15 +344,15 @@ onUnmounted(() => {
         </span>
       </div>
       <div class="flex gap-[var(--jc-space-2)]">
-        <BaseButton variant="ghost" size="sm" :loading="busy" :disabled="busy" @click="refreshHot">
+        <ManageButton variant="ghost" size="sm" :loading="busy" :disabled="busy" @click="refreshHot">
           <BaseIcon name="refresh" size="16px" /> 立即刷新榜单
-        </BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="load()">
+        </ManageButton>
+        <ManageButton variant="ghost" size="sm" @click="load()">
           <BaseIcon name="refresh" size="16px" /> 刷新
-        </BaseButton>
-        <BaseButton variant="gradient" size="sm" @click="openAdd">
+        </ManageButton>
+        <ManageButton variant="gradient" size="sm" @click="openAdd">
           <BaseIcon name="plus" size="16px" /> 新增
-        </BaseButton>
+        </ManageButton>
       </div>
     </div>
 
@@ -432,27 +432,27 @@ onUnmounted(() => {
               class="inline-flex w-[26px] h-[26px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
               :title="`豆瓣搜索「${s.name}」影评`"
             ><img src="/site-icons/douban.ico" alt="豆瓣" class="w-full h-full object-cover" /></a>
-            <BaseButton
+            <ManageButton
               v-if="(s.mid ?? 0) > 0"
               variant="ghost" size="sm"
               :loading="fillingMids.has(s.mid!)"
               @click="fillBackdrop(s.mid!)"
-            >回填横图</BaseButton>
-            <BaseButton variant="ghost" size="sm" :disabled="!canMoveUp(s, i) || busy" @click="move(i, 'up')">↑</BaseButton>
-            <BaseButton variant="ghost" size="sm" :disabled="!canMoveDown(s, i) || busy" @click="move(i, 'down')">↓</BaseButton>
-            <BaseButton
+            >回填横图</ManageButton>
+            <ManageButton variant="ghost" size="sm" :disabled="!canMoveUp(s, i) || busy" @click="move(i, 'up')">↑</ManageButton>
+            <ManageButton variant="ghost" size="sm" :disabled="!canMoveDown(s, i) || busy" @click="move(i, 'down')">↓</ManageButton>
+            <ManageButton
               v-if="s.source === 'banner'"
               variant="ghost" size="sm" :disabled="busy" @click="s.banner && openEdit(s.banner)"
-            >编辑</BaseButton>
-            <BaseButton v-else variant="ghost" size="sm" :disabled="busy" @click="adoptSlide(s, i)">编辑</BaseButton>
-            <BaseButton
+            >编辑</ManageButton>
+            <ManageButton v-else variant="ghost" size="sm" :disabled="busy" @click="adoptSlide(s, i)">编辑</ManageButton>
+            <ManageButton
               variant="ghost" size="sm" :disabled="busy"
               @click="s.source === 'banner' && s.banner ? toggleState(s.banner) : disableByMid(s.mid ?? 0)"
-            >禁用</BaseButton>
-            <BaseButton
+            >禁用</ManageButton>
+            <ManageButton
               v-if="s.source === 'banner'"
               variant="danger" size="sm" :disabled="busy" @click="s.banner && remove(s.banner)"
-            >删除</BaseButton>
+            >删除</ManageButton>
           </div>
         </article>
       </template>
@@ -548,37 +548,37 @@ onUnmounted(() => {
             class="inline-flex w-[22px] h-[22px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
             :title="`豆瓣搜索「${s.name}」影评`"
           ><img src="/site-icons/douban.ico" alt="豆瓣" class="w-full h-full object-cover" /></a>
-          <BaseButton
+          <ManageButton
             v-if="(s.mid ?? 0) > 0"
             variant="ghost" size="sm"
             :loading="fillingMids.has(s.mid!)"
             title="手动触发 TMDB 检索并回填该片横图"
             @click="fillBackdrop(s.mid!)"
-          >回填横图</BaseButton>
-          <BaseButton
+          >回填横图</ManageButton>
+          <ManageButton
             variant="ghost" size="sm" :disabled="!canMoveUp(s, i) || busy"
             :title="s.source === 'banner' ? '上移' : '上移（转为手动位）'"
             @click="move(i, 'up')"
-          >↑</BaseButton>
-          <BaseButton
+          >↑</ManageButton>
+          <ManageButton
             variant="ghost" size="sm" :disabled="!canMoveDown(s, i) || busy"
             :title="s.source === 'banner' ? '下移' : '自动位恒在尾部'"
             @click="move(i, 'down')"
-          >↓</BaseButton>
-          <BaseButton
+          >↓</ManageButton>
+          <ManageButton
             v-if="s.source === 'banner'"
             variant="ghost" size="sm" :disabled="busy" @click="s.banner && openEdit(s.banner)"
-          >编辑</BaseButton>
-          <BaseButton v-else variant="ghost" size="sm" :disabled="busy" @click="adoptSlide(s, i)">编辑</BaseButton>
-          <BaseButton
+          >编辑</ManageButton>
+          <ManageButton v-else variant="ghost" size="sm" :disabled="busy" @click="adoptSlide(s, i)">编辑</ManageButton>
+          <ManageButton
             variant="ghost" size="sm" :disabled="busy"
             :title="s.source === 'banner' ? '停用' : '停用（屏蔽该影片的自动补位）'"
             @click="s.source === 'banner' && s.banner ? toggleState(s.banner) : disableByMid(s.mid ?? 0)"
-          >禁用</BaseButton>
-          <BaseButton
+          >禁用</ManageButton>
+          <ManageButton
             v-if="s.source === 'banner'"
             variant="danger" size="sm" :disabled="busy" @click="s.banner && remove(s.banner)"
-          >删除</BaseButton>
+          >删除</ManageButton>
         </div>
         </li>
       </template>
@@ -648,18 +648,18 @@ onUnmounted(() => {
               class="inline-flex w-[26px] h-[26px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
               :title="`豆瓣搜索「${row.meta?.name || row.title}」影评`"
             ><img src="/site-icons/douban.ico" alt="豆瓣" class="w-full h-full object-cover" /></a>
-            <BaseButton
+            <ManageButton
               v-if="row.mid > 0"
               variant="ghost" size="sm"
               :loading="fillingMids.has(row.mid)"
               @click="fillBackdrop(row.mid)"
-            >回填横图</BaseButton>
-            <BaseButton
+            >回填横图</ManageButton>
+            <ManageButton
               v-if="canEnable(row)"
               variant="ghost" size="sm" :disabled="busy" @click="toggleState(row)"
-            >启用</BaseButton>
-            <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</BaseButton>
-            <BaseButton variant="danger" size="sm" :disabled="busy" @click="remove(row)">删除</BaseButton>
+            >启用</ManageButton>
+            <ManageButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</ManageButton>
+            <ManageButton variant="danger" size="sm" :disabled="busy" @click="remove(row)">删除</ManageButton>
           </div>
         </article>
       </div>
@@ -748,21 +748,21 @@ onUnmounted(() => {
               class="inline-flex w-[22px] h-[22px] rounded-[5px] overflow-hidden opacity-80 hover:opacity-100 shrink-0"
               :title="`豆瓣搜索「${row.meta?.name || row.title}」影评`"
             ><img src="/site-icons/douban.ico" alt="豆瓣" class="w-full h-full object-cover" /></a>
-            <BaseButton
+            <ManageButton
               v-if="row.mid > 0"
               variant="ghost" size="sm"
               :loading="fillingMids.has(row.mid)"
               title="手动触发 TMDB 检索并回填该片横图"
               @click="fillBackdrop(row.mid)"
-            >回填横图</BaseButton>
-            <BaseButton
+            >回填横图</ManageButton>
+            <ManageButton
               v-if="canEnable(row)"
               variant="ghost" size="sm" title="启用后转为手动位"
               :disabled="busy"
               @click="toggleState(row)"
-            >启用</BaseButton>
-            <BaseButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</BaseButton>
-            <BaseButton variant="danger" size="sm" :disabled="busy" @click="remove(row)">删除</BaseButton>
+            >启用</ManageButton>
+            <ManageButton variant="ghost" size="sm" :disabled="busy" @click="openEdit(row)">编辑</ManageButton>
+            <ManageButton variant="danger" size="sm" :disabled="busy" @click="remove(row)">删除</ManageButton>
           </div>
         </li>
       </ul>
