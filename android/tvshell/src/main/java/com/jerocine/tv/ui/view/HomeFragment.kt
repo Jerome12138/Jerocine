@@ -135,6 +135,10 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     }
 
     private fun openCategory(pid: Long) {
+        if (pid == LIVE_NAV_ID) {
+            (requireActivity() as NativeShellActivity).openLive()
+            return
+        }
         (requireActivity() as NativeShellActivity).openCategory(pid)
     }
 

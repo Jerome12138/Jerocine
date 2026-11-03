@@ -8,9 +8,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, nextTick } from 'vue'
 import { liveApi } from '@/api'
 import type { LiveChannel, LiveSource } from '@/types/live'
-import { groupChannels, probeLiveChannelsLimited, type LiveProbeResult } from '@/utils/live'
+import { groupChannels, probeLiveChannelsLimited, readLiveLast, writeLiveLast, type LiveProbeResult } from '@/utils/live'
 import { usePlayer } from '@/composables/usePlayer'
 import { useViewMode } from '@/composables/useViewMode'
+import { isNative } from '@/utils/jerocineNative'
+import { dispatchNativeLive } from '@/utils/nativeLive'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -52,7 +54,6 @@ function channelBadgeText(ch: LiveChannel): string {
 }
 /** 当前选中频道（回显高亮 + 记忆恢复用 localStorage） */
 const activeUrl = ref('')
-const LAST_CHANNEL_KEY = 'jc-live-last-channel'
 /** 端侧探源结果缓存（sourceId → { urlHash → 结果+时间戳 }），过期 24h */
 const PROBE_CACHE_KEY = 'jc-live-probe-cache'
 const PROBE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
@@ -63,6 +64,11 @@ type ProbeCacheEntry = LiveProbeResult & { ts: number }
 
 /** 图标加载失败的频道 url 集合 → 渲染默认图标(源站 logo 常失效/防盗链) */
 const logoFailed = reactive(new Set<string>())
+
+/** 是否运行在原生壳(APK: WebShell/NativeShell 的 WebView)内 —— 是则点频道交给原生播放器 */
+const isNativeShell = isNative()
+/** 原生壳: 备齐「各源频道」, 以便 playPlaylist 一次带上全部源(播放器内可换源) */
+const nativeChannels = ref<Map<number, LiveChannel[]>>(new Map())
 function fnv1aHash(s: string): string {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) {
@@ -142,6 +148,22 @@ function selectSource(id: number): void {
 let pendingPlay = false
 
 function selectChannel(ch: LiveChannel): void {
+  // 原生壳: 交给原生播放器(播放器内自带「换源/切频道」面板), 不在网页内播放
+  if (isNativeShell && nativeChannels.value.has(activeSourceId.value)) {
+    const idx = channels.value.indexOf(ch)
+    const dispatched = dispatchNativeLive(
+      sources.value,
+      nativeChannels.value,
+      activeSourceId.value,
+      idx < 0 ? 0 : idx,
+      ch.name || '直播'
+    )
+    if (dispatched) {
+      activeUrl.value = ch.url
+      rememberLast(ch)
+      return
+    }
+  }
   activeUrl.value = ch.url
   pendingPlay = true
   // 同 URL 重复点击(hls fatal 自毁后重试): playSrc watcher 对同值不触发 —— 强制走 load
@@ -150,11 +172,18 @@ function selectChannel(ch: LiveChannel): void {
     return
   }
   playSrc.value = ch.url
-  try {
-    localStorage.setItem(LAST_CHANNEL_KEY, JSON.stringify({ sourceId: activeSourceId.value, url: ch.url }))
-  } catch {
-    /* 隐私模式忽略 */
-  }
+  rememberLast(ch)
+}
+
+/** 记住上次观看(源 + 频道地址) */
+function rememberLast(ch: LiveChannel): void {
+  writeLiveLast({
+    sourceId: activeSourceId.value,
+    url: ch.url,
+    sourceName: sources.value.find((s) => s.id === activeSourceId.value)?.name ?? '',
+    channelName: ch.name,
+    ts: Date.now()
+  })
 }
 
 /* ---------- 播放器（isLive） ---------- */
@@ -226,6 +255,11 @@ async function loadChannels(sourceId: number): Promise<void> {
   try {
     const resp = await liveApi.getLiveChannels(sourceId)
     channels.value = resp.channels
+    if (isNativeShell) {
+      const next = new Map(nativeChannels.value)
+      next.set(sourceId, resp.channels)
+      nativeChannels.value = next
+    }
     if (resp.channels.length === 0) {
       channelsError.value = '该直播源暂无可用频道'
     } else {
@@ -239,19 +273,26 @@ async function loadChannels(sourceId: number): Promise<void> {
   }
 }
 
-/** 读取上次观看记忆（源 + 频道地址）。 */
-function readLast(): { sourceId?: number; url?: string } | null {
-  try {
-    const raw = localStorage.getItem(LAST_CHANNEL_KEY)
-    return raw ? (JSON.parse(raw) as { sourceId?: number; url?: string }) : null
-  } catch {
-    return null
-  }
+/** 原生壳: 预取其余源的频道(当前源已随列表加载), 供播放器内「换源」一步到位 */
+async function prefetchNativeChannels(): Promise<void> {
+  if (!isNativeShell) return
+  const next = new Map(nativeChannels.value)
+  await Promise.all(
+    sources.value.map(async (s) => {
+      if (next.has(s.id)) return
+      try {
+        next.set(s.id, (await liveApi.getLiveChannels(s.id)).channels)
+      } catch {
+        next.set(s.id, [])
+      }
+    })
+  )
+  nativeChannels.value = next
 }
 
 /** 频道列表就绪后恢复上次频道（只装载画面不自动播放 —— 浏览器自动播放策略不允许） */
 function restoreUrlIn(list: LiveChannel[]): void {
-  const saved = readLast()
+  const saved = readLiveLast()
   if (saved?.url && list.some((c) => c.url === saved.url)) {
     activeUrl.value = saved.url
     playSrc.value = saved.url
@@ -261,7 +302,7 @@ function restoreUrlIn(list: LiveChannel[]): void {
 onMounted(async () => {
   // 先读记忆源（loadSources 内在 sources 落地后校正 activeSourceId），
   // 再按该源拉频道列表，频道就绪后恢复上次频道
-  const savedSourceId = readLast()?.sourceId
+  const savedSourceId = readLiveLast()?.sourceId
   sourcesLoading.value = true
   sourcesError.value = ''
   try {
@@ -277,6 +318,7 @@ onMounted(async () => {
       }
       await loadChannels(activeSourceId.value)
       restoreUrlIn(channels.value)
+      void prefetchNativeChannels()
     }
   } catch {
     sourcesError.value = '直播源加载失败，请稍后重试'
@@ -313,7 +355,7 @@ const pageTitle = '直播'
           <div ref="playerEl" class="jc-live-player" tabindex="0"></div>
           <div v-if="channelsLoading || !playSrc" class="jc-live-loading" role="status" aria-live="polite">
             <BaseSkeleton variant="rect" class="jc-live-loading__box" />
-            <span class="jc-live-loading__text">{{ channelsLoading ? '正在加载频道…' : '选择一个频道开始观看' }}</span>
+            <span class="jc-live-loading__text">{{ channelsLoading ? '正在加载频道…' : (isNativeShell ? '选择一个频道（将用系统播放器播放）' : '选择一个频道开始观看') }}</span>
           </div>
           <!-- 播放中缓冲 indicator (直播流加载慢时给用户反馈) -->
           <div v-if="buffering" class="jc-live-buffering" role="status" aria-live="polite">

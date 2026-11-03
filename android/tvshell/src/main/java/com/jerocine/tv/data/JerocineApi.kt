@@ -57,4 +57,11 @@ interface JerocineApi {
 
     @GET("app/version/latest")
     suspend fun latestVersion(@Query("channel") channel: Int = 0): AppVersion
+
+    // 直播（公开）
+    @GET("live/sources")
+    suspend fun liveSources(): LiveSourcesResp
+
+    @GET("live/sources/{id}/channels")
+    suspend fun liveChannels(@Path("id") id: Long): LiveChannelsResp
 }

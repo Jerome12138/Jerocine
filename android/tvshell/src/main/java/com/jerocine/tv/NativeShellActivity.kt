@@ -29,6 +29,9 @@ import com.jerocine.tv.ui.view.CategoryLibraryFragment
 import com.jerocine.tv.ui.view.LoginFragment
 import com.jerocine.tv.ui.view.HistoryFragment
 import com.jerocine.tv.ui.view.FavoritesFragment
+import com.jerocine.tv.data.LiveLastViewed
+import com.jerocine.tv.player.buildLivePlayerPayload
+import com.jerocine.tv.player.launchNativePlayer
 import com.jerocine.player.ui.JcSettingsDrawer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,6 +40,8 @@ import com.jerocine.player.R as PlayerR
 class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost {
     private val exitGate = DoubleBackExitGate()
     private var settingsDrawer: JcSettingsDrawer? = null
+    /** 直播起播在途标志：防连点重复拉数据/重复起播放器 */
+    private var liveLaunching = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,6 +126,56 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
             .replace(R.id.page_container, FavoritesFragment.newInstance())
             .addToBackStack(FavoritesFragment::class.java.simpleName)
             .commit()
+    }
+
+    /**
+     * 直播：不进频道列表页，直接拉「全部源 + 频道」→ 起原生播放器。
+     * 换源 = 播放器「源」面板，切频道 = 播放器「选集」面板（与影片换源/切集同一套 UI）。
+     * 起点优先恢复上次观看的源/频道（LiveLastViewed），否则第一个源的第一个频道。
+     */
+    fun openLive() {
+        if (liveLaunching) return
+        liveLaunching = true
+        lifecycleScope.launch {
+            try {
+                val (sources, channelsBySource) = ServiceLocator.liveRepository.loadAll()
+                if (sources.isEmpty()) {
+                    GlassToast.show(this@NativeShellActivity, "暂无直播源")
+                    return@launch
+                }
+                val last = LiveLastViewed.read(this@NativeShellActivity)
+                    ?.takeIf { sel -> sources.any { it.id == sel.sourceId } }
+                val payload = buildLivePlayerPayload(
+                    sources = sources,
+                    channelsBySource = channelsBySource,
+                    currentSourceId = last?.sourceId ?: sources.first().id,
+                    startChannelIndex = last?.index ?: 0,
+                )
+                if (payload == null) {
+                    GlassToast.show(this@NativeShellActivity, "暂无可播放的直播频道")
+                    return@launch
+                }
+                // 记「上次观看」（源 + 频道，带名字）——供下次起播定位 + 历史页「直播」条目展示
+                val startSourceId = payload.currentSourceId.toLongOrNull() ?: sources.first().id
+                val startSource = sources.firstOrNull { it.id == startSourceId } ?: sources.first()
+                val startChannel = (channelsBySource[startSource.id] ?: emptyList()).getOrNull(payload.startIndex)
+                LiveLastViewed.write(
+                    this@NativeShellActivity,
+                    LiveLastViewed.Selection(
+                        sourceId = startSource.id,
+                        index = payload.startIndex,
+                        sourceName = startSource.name,
+                        channelName = startChannel?.name.orEmpty(),
+                        ts = System.currentTimeMillis(),
+                    ),
+                )
+                launchNativePlayer(this@NativeShellActivity, payload)
+            } catch (e: Exception) {
+                GlassToast.show(this@NativeShellActivity, "直播加载失败，请稍后重试")
+            } finally {
+                liveLaunching = false
+            }
+        }
     }
 
     fun openSettings() {

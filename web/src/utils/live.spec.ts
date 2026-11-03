@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   groupChannels,
   LIVE_DEFAULT_GROUP,
   probeLiveChannel,
-  probeLiveChannelsLimited
+  probeLiveChannelsLimited,
+  readLiveLast,
+  writeLiveLast,
+  clearLiveLast,
+  liveLastLabel
 } from './live'
 import type { LiveChannel } from '@/types/live'
 
@@ -134,5 +138,38 @@ describe('probeLiveChannelsLimited：限流并发池', () => {
     for (let i = 1; i < times.length; i++) {
       expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(delayMs - 5)
     }
+  })
+})
+
+describe('上次观看记忆 (read/write/clear/label)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('往返读写；损坏数据返回 null', () => {
+    expect(readLiveLast()).toBeNull()
+    writeLiveLast({ sourceId: 3, url: 'http://s/c1', sourceName: 'iptv-org', channelName: 'CCTV-1' })
+    expect(readLiveLast()).toEqual({
+      sourceId: 3,
+      url: 'http://s/c1',
+      sourceName: 'iptv-org',
+      channelName: 'CCTV-1'
+    })
+    localStorage.setItem('jc-live-last-channel', '{bad json')
+    expect(readLiveLast()).toBeNull()
+  })
+
+  it('clearLiveLast 清除记忆', () => {
+    writeLiveLast({ sourceId: 1, url: 'u' })
+    clearLiveLast()
+    expect(readLiveLast()).toBeNull()
+  })
+
+  it('liveLastLabel 拼「源 · 频道」，缺项自动省略', () => {
+    expect(liveLastLabel({ sourceName: 'iptv-org', channelName: 'CCTV-1' })).toBe('iptv-org · CCTV-1')
+    expect(liveLastLabel({ sourceName: 'iptv-org' })).toBe('iptv-org')
+    expect(liveLastLabel({ channelName: 'CCTV-1' })).toBe('CCTV-1')
+    expect(liveLastLabel(null)).toBe('')
+    expect(liveLastLabel({})).toBe('')
   })
 })

@@ -83,9 +83,28 @@ router.beforeEach(async (to) => {
   }
 })
 
+/**
+ * Native (APK) 模式拦截 /live 路由 —— 不渲染 web 直播页, 直接拉「全部源+频道」并
+ * jerocine.playPlaylist 拉起原生播放器（播放器内换源/切频道）。派发成功落首页,
+ * 避免退出播放器后停在空白 /live; 无桥/无源/拉取失败则放行 web /live 兜底。
+ * 浏览器模式不受影响 (isNative false)。
+ */
+router.beforeEach(async (to) => {
+  if (to.path !== '/live') return
+  // 异步 import 避免增加首屏 router bundle
+  const { isNative } = await import('@/utils/jerocineNative')
+  if (!isNative()) return
+  try {
+    const { dispatchNativeLiveForRoute } = await import('@/utils/nativeLive')
+    if (await dispatchNativeLiveForRoute()) return { path: '/index', replace: true }
+  } catch {
+    /* 拉数据失败 → 放行 web /live 兜底 */
+  }
+  return
+})
+
 // Telemetry: 路由变化记 PV (含 query 串)
-router.afterEach((to) => {
-  void import('@/utils/telemetry').then(({ telemetry }) =>
+router.afterEach((to) => {  void import('@/utils/telemetry').then(({ telemetry }) =>
     telemetry.trackPv(to.fullPath)
   )
 })

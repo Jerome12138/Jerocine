@@ -2,7 +2,9 @@
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useHistoryStore, useUserStore } from '@/stores'
+import type { HistoryRecord } from '@/stores/history'
 import { buildPlayLink, recordToCard } from '@/stores/history'
+import { clearLiveLast, liveLastLabel, readLiveLast, LIVE_COVER_SVG, LIVE_HISTORY_ID } from '@/utils/live'
 import { useViewMode } from '@/composables/useViewMode'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
@@ -27,7 +29,33 @@ const { isTV } = useViewMode()
 /** TV「管理」模式: 开启后点卡片=删除该条 (遥控器点不中海报上的小✕角标, 改整卡删除) */
 const manageMode = ref(false)
 
-const items = computed(() => list.value)
+/**
+ * 观看历史里的「直播」置顶条目：把整个直播当一个影片，**只记最新一条**（本地专用，不入后端历史）。
+ * 数据来自上次直播记忆；点击回 /live（原生壳由路由守卫转原生播放器）。
+ */
+const liveRecord = ref<HistoryRecord | null>(null)
+function syncLiveRecord(): void {
+  const last = readLiveLast()
+  liveRecord.value = last
+    ? {
+        id: LIVE_HISTORY_ID,
+        name: '直播',
+        link: '/live',
+        episode: liveLastLabel(last),
+        // 用真实播放时间，让它按时间参与排序（不置顶）
+        timeStamp: last.ts ?? Date.now(),
+        picture: LIVE_COVER_SVG
+      }
+    : null
+}
+syncLiveRecord()
+
+/** 影片历史 + 「直播」条目，统一按播放时间倒序（直播不置顶） */
+const items = computed(() => {
+  const live = liveRecord.value
+  if (!live) return list.value
+  return [...list.value, live].sort((a, b) => (b.timeStamp ?? 0) - (a.timeStamp ?? 0))
+})
 
 /** 按时间分桶 (今天/本周/本月/更早) */
 const groups = computed(() => groupByTimeBucket(items.value))
@@ -67,6 +95,9 @@ async function handleClear(): Promise<void> {
   })
   if (ok) {
     historyStore.clear()
+    // 「直播」条目不属后端历史，是本地专用 —— 清空历史时一并清掉
+    clearLiveLast()
+    syncLiveRecord()
   }
 }
 

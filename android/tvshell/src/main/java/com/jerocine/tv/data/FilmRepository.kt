@@ -5,7 +5,7 @@ import retrofit2.HttpException
 /** 业务异常：从 RFC7807 problem+json 提取 message */
 class ApiException(val status: Int, message: String) : Exception(message)
 
-private inline fun <T> call(block: () -> T): T = try {
+internal inline fun <T> call(block: () -> T): T = try {
     block()
 } catch (e: HttpException) {
     val msg = runCatching {

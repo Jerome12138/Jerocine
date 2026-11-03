@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
 import com.jerocine.tv.R
+import com.jerocine.tv.data.LiveLastViewed
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.ui.HistoryRow
 import com.jerocine.tv.ui.historyUpdatedLabel
@@ -106,19 +107,29 @@ class HistoryAdapter(
                 itemView.translationZ = 8f
             }
             history = row.history
+            val isLive = history.mid == LiveLastViewed.LIVE_HISTORY_MID
             val card = history.previewCard()
             itemView.tag = history.mid
-            itemView.contentDescription = card.name
-            cover.loadTvBackdrop(card.cover)
-            episode.text = history.episodeLabel()
-            title.text = card.name
-            meta.text = listOf(
-                history.source().ifBlank { "默认线路" },
-                historyUpdatedLabel(history),
-            )
-                .joinToString(" · ")
+            itemView.contentDescription = if (isLive) "直播" else card.name
+            if (isLive) {
+                // 「直播」条目：封面用矢量图标（本地专用虚拟条目，无海报图）
+                cover.dispose()
+                cover.setImageResource(R.drawable.ic_live)
+            } else {
+                cover.loadTvBackdrop(card.cover)
+            }
+            episode.text = if (isLive) history.remarks.ifBlank { history.cName } else history.episodeLabel()
+            title.text = if (isLive) "直播" else card.name
+            meta.text = if (isLive) {
+                listOf(history.cName, historyUpdatedLabel(history)).filter { it.isNotBlank() }.joinToString(" · ")
+            } else {
+                listOf(
+                    history.source().ifBlank { "默认线路" },
+                    historyUpdatedLabel(history),
+                ).joinToString(" · ")
+            }
             progress.progress = (history.progressFraction() * 1000).toInt()
-            progress.isVisible = history.progressFraction() > 0f
+            progress.isVisible = !isLive && history.progressFraction() > 0f
             bindMode(manageMode)
         }
 

@@ -61,4 +61,8 @@ private class FakeJerocineApi : JerocineApi {
 
     override suspend fun latestVersion(channel: Int): AppVersion =
         AppVersion(versionCode = 2, versionName = "0.2.0")
+
+    override suspend fun liveSources(): LiveSourcesResp = LiveSourcesResp()
+
+    override suspend fun liveChannels(id: Long): LiveChannelsResp = LiveChannelsResp()
 }

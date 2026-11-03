@@ -48,7 +48,7 @@ class HomeSectionMapperTest {
     }
 
     @Test
-    fun mapsAtMostFourTopLevelNavigationItems() {
+    fun mapsAtMostFourTopLevelNavigationItemsPlusLive() {
         val dashboard = HomeDashboard(
             home = HomeResp(
                 rows = (1L..6L).map { id ->
@@ -57,7 +57,11 @@ class HomeSectionMapperTest {
             ),
         )
 
-        assertEquals(listOf(1L, 2L, 3L, 4L), mapHomeNavigation(dashboard).map { it.id })
+        // 直播固定最前, 其后是最多 4 个一级分类
+        val nav = mapHomeNavigation(dashboard)
+        assertEquals(LIVE_NAV_ID, nav.first().id)
+        assertEquals("直播", nav.first().title)
+        assertEquals(listOf(LIVE_NAV_ID, 1L, 2L, 3L, 4L), nav.map { it.id })
     }
 
     // 000037: show=false 的分类不出现在顶栏导航(旧 server 默认 true, 兼容).
@@ -75,7 +79,7 @@ class HomeSectionMapperTest {
             ),
         )
 
-        assertEquals(listOf(1L, 3L), mapHomeNavigation(dashboard).map { it.id })
+        assertEquals(listOf(LIVE_NAV_ID, 1L, 3L), mapHomeNavigation(dashboard).map { it.id })
     }
 
     private fun row(id: Long, name: String, hot: List<Card>, latest: List<Card>) = HomeRow(

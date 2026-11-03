@@ -180,4 +180,28 @@ describe('LiveView', () => {
     expect(w.find('img.jc-live-channel__logo').exists()).toBe(false)
     expect(w.findAll('.jc-live-channel__logo--fallback')).toHaveLength(3)
   })
+
+  it('原生壳(WebShell): 点频道交给原生播放器 playPlaylist, 不在网页内播放', async () => {
+    const invoke = vi.fn(() => '{"ok":true}')
+    ;(window as unknown as Record<string, unknown>).JerocinePlayer = { invoke }
+    try {
+      const w = mountView()
+      await flushPromises()
+      await w.findAll('.jc-live-channel')[0]!.trigger('click')
+      await flushPromises()
+      expect(invoke).toHaveBeenCalledWith('playPlaylist', expect.any(String))
+      const cfg = JSON.parse(invoke.mock.calls[0]![1] as string) as {
+        currentSourceId: string
+        filmId: string
+        sources: Array<{ episodes: Array<{ url: string }> }>
+      }
+      expect(cfg.currentSourceId).toBe('1')
+      expect(cfg.filmId).toBe('')
+      expect(cfg.sources[0]!.episodes[0]!.url).toBe('http://s/cctv1')
+      // 播放器区提示切换为「系统播放器」
+      expect(w.text()).toContain('系统播放器')
+    } finally {
+      delete (window as unknown as Record<string, unknown>).JerocinePlayer
+    }
+  })
 })

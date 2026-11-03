@@ -6,6 +6,58 @@ import type { LiveChannel, LiveChannelGroup } from '@/types/live'
 /** 未标注分组的频道归入该组（与服务端 DefaultGroup 同值）。 */
 export const LIVE_DEFAULT_GROUP = '其他'
 
+/** 上次观看频道记忆的 localStorage 键（网页 /live 与原生壳守卫共用，单一来源） */
+export const LIVE_LAST_CHANNEL_KEY = 'jc-live-last-channel'
+
+/** 观看历史里「直播」条目的伪 id（把整个直播当一个影片，只记最新一条；本地专用不外传） */
+export const LIVE_HISTORY_ID = '-1'
+
+/** 「直播」历史条的封面（SVG 矢量，零请求、随主题自适应） */
+export const LIVE_COVER_SVG = '/live-cover.svg'
+
+export interface LiveLast {
+  sourceId?: number
+  url?: string
+  sourceName?: string
+  channelName?: string
+  /** 本次播放时间（毫秒）——历史条目按它参与排序（不置顶） */
+  ts?: number
+}
+
+/** 读上次观看（源 + 频道）；无/损坏返回 null */
+export function readLiveLast(): LiveLast | null {
+  try {
+    const raw = localStorage.getItem(LIVE_LAST_CHANNEL_KEY)
+    return raw ? (JSON.parse(raw) as LiveLast) : null
+  } catch {
+    return null
+  }
+}
+
+/** 写上次观看（隐私模式等写入失败静默忽略） */
+export function writeLiveLast(value: LiveLast): void {
+  try {
+    localStorage.setItem(LIVE_LAST_CHANNEL_KEY, JSON.stringify(value))
+  } catch {
+    /* 隐私模式忽略 */
+  }
+}
+
+/** 清除上次观看（清空历史时一并清掉「直播」条目） */
+export function clearLiveLast(): void {
+  try {
+    localStorage.removeItem(LIVE_LAST_CHANNEL_KEY)
+  } catch {
+    /* 隐私模式忽略 */
+  }
+}
+
+/** 上次观看的展示名（源 · 频道），空则返回空串 */
+export function liveLastLabel(last: LiveLast | null | undefined): string {
+  if (!last) return ''
+  return [last.sourceName, last.channelName].filter(Boolean).join(' · ')
+}
+
 /**
  * 频道按分组聚合（保持首次出现顺序；组内保序）。
  * 服务端已按源文件顺序返回频道，这里只做分组归拢，不排序不打乱。

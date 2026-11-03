@@ -134,6 +134,9 @@ describe('buildPlayLink (续播链接实时拼)', () => {
   })
   it('缺 source/episodeIndex → 兜底空源/第0集索引', () => {
     expect(buildPlayLink({ id: '7' })).toBe('/play?id=7&source=&episode=0')
+
+    // 「直播」历史条（本地专用伪 id）→ 回 /live，而不是 /play
+    expect(buildPlayLink({ id: '-1' })).toBe('/live')
   })
 })
 

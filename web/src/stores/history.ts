@@ -2,6 +2,7 @@ import { defineStore, storeToRefs } from 'pinia'
 import { ref, toRaw, watch } from 'vue'
 import { COOKIE_KEYS, getCookie, setCookie } from '@/utils/cookie'
 import { logger } from '@/utils/logger'
+import { LIVE_HISTORY_ID } from '@/utils/live'
 import { useUserStore } from './user'
 
 /**
@@ -197,6 +198,8 @@ export function buildPlayLink(rec: {
   episodeIndex?: number
   currentTime?: number
 }): string {
+  // 「直播」历史条（本地专用，id = LIVE_HISTORY_ID）：回 /live；原生壳由路由守卫转原生播放器
+  if (rec.id === LIVE_HISTORY_ID) return '/live'
   const ct = Math.floor(rec.currentTime ?? 0)
   return (
     `/play?id=${rec.id}&source=${encodeURIComponent(rec.source ?? '')}&episode=${rec.episodeIndex ?? 0}` +

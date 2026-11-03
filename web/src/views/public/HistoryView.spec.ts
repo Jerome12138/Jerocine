@@ -85,4 +85,32 @@ describe('HistoryView smoke', () => {
     const clearBtn = buttons.find(b => b.text().includes('清空'))
     expect(clearBtn).toBeTruthy()
   })
+
+  it('「直播」条目按播放时间排序, 不置顶', async () => {
+    setActivePinia(createPinia())
+    // 今天看的影片
+    useHistoryStore().record({
+      id: '1',
+      name: '影片A',
+      link: '/play?id=1&source=x&episode=0',
+      episode: '第 1 集'
+    } as never)
+    // 直播记忆：1 天前（应落在「本周」桶，排在今天之后）
+    localStorage.setItem(
+      'jc-live-last-channel',
+      JSON.stringify({
+        sourceId: 1,
+        url: 'http://s/c1',
+        sourceName: 'iptv-org',
+        channelName: 'CCTV-1',
+        ts: Date.now() - 24 * 60 * 60 * 1000
+      })
+    )
+    const w = await mountView()
+    const text = w.text()
+    expect(text).toContain('影片A')
+    expect(text).toContain('直播')
+    // 直播未置顶：今天的影片出现在直播之前
+    expect(text.indexOf('影片A')).toBeLessThan(text.indexOf('直播'))
+  })
 })

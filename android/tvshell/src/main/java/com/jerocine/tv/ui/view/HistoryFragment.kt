@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.HistoryItem
+import com.jerocine.tv.data.LiveLastViewed
 import com.jerocine.tv.data.LocalHistoryRecord
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.data.SkipDefaults
@@ -28,6 +29,8 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
     private var items = emptyList<HistoryItem>()
     private var manageMode = false
     private var contentRevealed = false
+    /** 首次拉取完成标志：onResume 里据此决定是否重新绑定（让直播条目时间跟随） */
+    private var itemsInitialized = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val list = view.findViewById<RecyclerView>(R.id.history_list)
@@ -61,6 +64,33 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
         loadHistory()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 从播放器返回后重新绑定：让「直播」条目的时间/排序跟着更新（不重新拉网）
+        if (itemsInitialized) bindItems()
+    }
+
+    /** 本机是否有「直播」上次观看记忆（决定空态与清空按钮） */
+    private fun hasLiveEntry(): Boolean = LiveLastViewed.read(requireContext()) != null
+
+    /**
+     * 「直播」条目：把整个直播当**一个影片**（伪 mid），只记最新一条，**按播放时间参与排序**（不置顶）。
+     * 展示用字段寄存在 cName(源名) / remarks(频道名) 上，封面由 HistoryAdapter 用矢量图标渲染。
+     */
+    private fun historyWithLive(): List<HistoryItem> {
+        val selection = LiveLastViewed.read(requireContext()) ?: return items
+        val live = HistoryItem(
+            mid = LiveLastViewed.LIVE_HISTORY_MID,
+            name = "直播",
+            cName = selection.sourceName,
+            remarks = selection.channelName,
+            updatedAt = selection.ts,
+            createdAt = selection.ts,
+        )
+        // 统一按时间倒序，直播条目落进对应时间桶的对应位置
+        return (items + live).sortedByDescending { it.updatedAt }
+    }
+
     private fun loadHistory() {
         showLoading(true)
         viewLifecycleOwner.lifecycleScope.launch {
@@ -69,6 +99,7 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
             } else {
                 ServiceLocator.tokenStore.localHistories().map { it.toHistoryItem() }
             }
+            itemsInitialized = true
             bindItems()
             showLoading(false)
         }
@@ -76,7 +107,7 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
 
     private fun bindItems() {
         val view = view ?: return
-        val rows = flattenHistoryRows(groupHistoryForTv(items))
+        val rows = flattenHistoryRows(groupHistoryForTv(historyWithLive()))
         historyAdapter.submitList(rows) {
             if (!contentRevealed) {
                 contentRevealed = true
@@ -94,12 +125,14 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
             "本地历史 · 仅当前设备 · 共 ${items.size} 条"
         }
         view.findViewById<TextView>(R.id.history_message).apply {
-            text = if (items.isEmpty()) "还没有观看记录" else ""
-            isVisible = items.isEmpty()
+            // 有「直播」置顶条目时不算"没有记录"
+            text = if (items.isEmpty() && !hasLiveEntry()) "还没有观看记录" else ""
+            isVisible = items.isEmpty() && !hasLiveEntry()
         }
         view.findViewById<RecyclerView>(R.id.history_list).isVisible = items.isNotEmpty()
         view.findViewById<Button>(R.id.history_manage).isVisible = items.isNotEmpty()
-        view.findViewById<Button>(R.id.history_clear).isVisible = items.isNotEmpty()
+        // 「清空」在仅有直播条目时也要可用(否则清不掉那条本地条目)
+        view.findViewById<Button>(R.id.history_clear).isVisible = items.isNotEmpty() || hasLiveEntry()
         if (items.isEmpty()) {
             manageMode = false
             historyAdapter.manageMode = false
@@ -115,6 +148,12 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
     }
 
     private fun deleteHistory(history: HistoryItem) {
+        // 「直播」条目是本地专用：删除 = 清掉上次直播记忆
+        if (history.mid == LiveLastViewed.LIVE_HISTORY_MID) {
+            LiveLastViewed.clear(requireContext())
+            bindItems()
+            return
+        }
         viewLifecycleOwner.lifecycleScope.launch {
             val deleted = if (ServiceLocator.isLoggedIn) {
                 ServiceLocator.userRepository.historyDelete(history.mid)
@@ -139,12 +178,19 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                 items = emptyList()
                 manageMode = false
                 historyAdapter.manageMode = false
+                // 清空历史同时清掉「直播」条目（它不属后端历史，是本地专用）
+                LiveLastViewed.clear(requireContext())
                 bindItems()
             }
         }
     }
 
     private fun startPlayback(history: HistoryItem) {
+        // 「直播」伪条目：不进影片播放链路，直接进直播（从上次频道起播）
+        if (history.mid == LiveLastViewed.LIVE_HISTORY_MID) {
+            (requireActivity() as NativeShellActivity).openLive()
+            return
+        }
         val status = view?.findViewById<TextView>(R.id.history_play_status) ?: return
         status.text = "正在准备播放..."
         status.isVisible = true

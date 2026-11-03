@@ -149,6 +149,10 @@ object ServiceLocator {
     lateinit var userRepository: UserRepository
         private set
 
+    @Volatile
+    lateinit var liveRepository: LiveRepository
+        private set
+
     /** API 用 OkHttp（严格 TLS，携带登录 token） */
     @Volatile
     lateinit var httpClient: okhttp3.OkHttpClient
@@ -168,5 +172,6 @@ object ServiceLocator {
         val retrofit = ApiClient.retrofit(apiBase(), httpClient)
         repository = FilmRepository(retrofit.create(JerocineApi::class.java))
         userRepository = UserRepository(retrofit.create(UserApi::class.java))
+        liveRepository = LiveRepository(retrofit.create(JerocineApi::class.java))
     }
 }
