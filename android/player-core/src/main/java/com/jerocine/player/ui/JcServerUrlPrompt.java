@@ -8,8 +8,6 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 
-import androidx.core.content.ContextCompat;
-
 import com.jerocine.player.R;
 import com.jerocine.player.data.ServerUrl;
 
@@ -55,16 +53,17 @@ public final class JcServerUrlPrompt {
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         input.setSingleLine(true);
         // 玻璃暗色弹窗里 EditText 用浅色文字/提示 —— 两壳原实现同款
-        input.setTextColor(ContextCompat.getColor(activity, R.color.jc_text));
-        input.setHintTextColor(ContextCompat.getColor(activity, R.color.jc_text_tertiary));
+        // (取色/取尺寸一律走 JcUi 唯一入口 —— A3 令牌入口铁律, R1 评审收编)
+        input.setTextColor(JcUi.col(activity, R.color.jc_text));
+        input.setHintTextColor(JcUi.col(activity, R.color.jc_text_tertiary));
 
         // 与 JcDialog 标题左对齐(内边距来自主题 dialogPreferredPadding, 不散写 24dp)
         int padX = JcDialog.contentPaddingX(activity);
         LinearLayout wrap = new LinearLayout(activity);
         wrap.setOrientation(LinearLayout.VERTICAL);
-        wrap.setPadding(padX, dp(activity, 8), padX, 0);
+        wrap.setPadding(padX, JcUi.dp(activity, 8), padX, 0);
         wrap.addView(input, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 58)));
+                ViewGroup.LayoutParams.MATCH_PARENT, JcUi.dp(activity, 58)));
 
         JcDialog.custom(activity)
                 .title("站点地址")
@@ -104,9 +103,5 @@ public final class JcServerUrlPrompt {
             s = "http://" + s;
         }
         return s;
-    }
-
-    private static int dp(Context c, int v) {
-        return (int) (v * c.getResources().getDisplayMetrics().density);
     }
 }
