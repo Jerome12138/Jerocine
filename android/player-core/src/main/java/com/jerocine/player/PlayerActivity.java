@@ -1137,7 +1137,9 @@ private static String failedRequestUrl(Throwable error) {
         // 本地/在线分集判定: 本地集的"缓冲/中转"无指代对象(分片已在本地), 不展示
         int curIdx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
         boolean curLocal = curIdx >= 0 && session.isEpisodePlayingLocal(curIdx);
-        if (!curLocal) {
+        // 直播会话不展示"缓存缓冲": 滑窗直播的分片很快滑出窗口, 把当前快照写缓存语义无意义
+        // 且占用 LRU(Q④ 只短路了自动预取, 此为 BufferPrefetcher 触发点的同口径追补, 第1轮评审)。
+        if (!curLocal && !session.isLiveNow()) {
             items.add("缓存缓冲");
             actions.add(this::showBufferDialog);
         }

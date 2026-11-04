@@ -142,7 +142,10 @@ public boolean dispatchKeyEvent(KeyEvent event) {
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                if (session.isLiveNow()) return true; // Q③ 直播: 屏蔽 ±10s seek(进度行已隐藏, 焦点不应在进度条)
+                // Q③ 直播: 屏蔽 ±10s seek —— 只挡"焦点在进度条上"的方向键(进度行直播已 GONE,
+                // onSeekbar 恒 false, 实际到不了这里, 属防御性保留); 无条件吞键会连底栏按钮行的
+                // ←/→ 焦点导航一并屏蔽, 直播面板将够不着换源/选集/下集(第1轮评审修复)。
+                if (session.isLiveNow() && onSeekbar) return true;
                 if (onSeekbar) {
                     seekRelative(code == KeyEvent.KEYCODE_DPAD_LEFT
                             ? -seekStepFor(event, false)

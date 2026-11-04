@@ -107,8 +107,10 @@ public class PlayerPrefetchHelper {
 
     /** 只有"下一集确实会走端侧过滤"才值得预取. (包级可见仅供单测; 见 PlayerPrefetchHelperTest) */
     boolean canPrefetch(int currentIdx) {
-        // Q④: 直播短路 —— 直播没有"下一集", 冻结滑窗里预取只会空转烧请求
-        if (session.isLive) return false;
+        // Q④: 直播短路 —— 直播没有"下一集", 冻结滑窗里预取只会空转烧请求。
+        // 口径与 UI 统一用 isLiveNow()(载荷标志 OR media3 时间线兜底): 旧载荷没带标志的
+        // 直播内容经时间线兜底同样不预取(第1轮评审口径统一)。
+        if (session.isLiveNow()) return false;
         if (!session.adFilterOn) return false;                                        // 过滤关着, 没人查缓存
         if (session.currentBypassFilter) return false;                                // 单 URL 兼容模式: 不过滤
         int next = currentIdx + 1;

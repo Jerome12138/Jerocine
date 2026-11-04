@@ -169,20 +169,29 @@ object M3u8FilterCore {
      * 剔段三维启发(cross/num/short)都基于"窗口内容静态"假设, 对动态滑窗是纯干扰面。
      * master 多变体表无 MEDIA-SEQUENCE, 不会误命中(且 master 本就走 master-direct 直通);
      * 直播结束定档的表带 ENDLIST, 判 false, 照常剔段。
+     *
+     * 逃生口(第1轮评审): 带 `#EXT-X-PLAYLIST-TYPE:VOD` 的表恒判非直播 —— 非规范野源存在
+     * "VOD 带 MEDIA-SEQUENCE 且缺 ENDLIST"的形态(违反 RFC 8216 §4.3.3.2, VOD 必须有
+     * ENDLIST), 此时以 VOD 权威声明为准, 照常剔段; PLAYLIST-TYPE:EVENT(增长型直播)不适用。
      */
     @JvmStatic
     fun isLiveMediaPlaylist(body: String): Boolean {
         var hasMediaSequence = false
         var hasEndList = false
+        var playlistTypeVod = false
         for (ln in body.split('\n')) {
             val t = ln.trim()
             if (t.startsWith("#EXT-X-MEDIA-SEQUENCE")) {
                 hasMediaSequence = true
             } else if (t.startsWith("#EXT-X-ENDLIST")) {
                 hasEndList = true
+            } else if (t.startsWith("#EXT-X-PLAYLIST-TYPE") &&
+                t.substringAfter(':').trim().equals("VOD", ignoreCase = true)
+            ) {
+                playlistTypeVod = true
             }
         }
-        return hasMediaSequence && !hasEndList
+        return hasMediaSequence && !hasEndList && !playlistTypeVod
     }
 
     private fun safeUri(s: String?): URI? {

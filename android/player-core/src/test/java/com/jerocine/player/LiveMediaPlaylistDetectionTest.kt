@@ -90,4 +90,33 @@ class LiveMediaPlaylistDetectionTest {
         val body = "  #EXT-X-MEDIA-SEQUENCE:5  \n\t#EXTINF:6.0,\na.ts\n"
         assertTrue(M3u8FilterCore.isLiveMediaPlaylist(body))
     }
+
+    @Test
+    fun vodWithPlaylistTypeButNoEndList_notLive() {
+        // 逃生口(第1轮评审): 非规范 VOD 带 MEDIA-SEQUENCE 且缺 ENDLIST(违反 RFC 8216
+        // §4.3.3.2 的野源确实存在) → 以 PLAYLIST-TYPE:VOD 权威声明为准, 恒判非直播, 照常剔段
+        val body = """
+            #EXTM3U
+            #EXT-X-PLAYLIST-TYPE:VOD
+            #EXT-X-TARGETDURATION:8
+            #EXT-X-MEDIA-SEQUENCE:0
+            #EXTINF:8.0,
+            seg1.ts
+        """.trimIndent()
+        assertFalse(M3u8FilterCore.isLiveMediaPlaylist(body))
+    }
+
+    @Test
+    fun playlistTypeEvent_stillLive() {
+        // PLAYLIST-TYPE:EVENT 是增长型直播表, 不适用 VOD 逃生口, 照旧按直播判定
+        val body = """
+            #EXTM3U
+            #EXT-X-PLAYLIST-TYPE:EVENT
+            #EXT-X-TARGETDURATION:8
+            #EXT-X-MEDIA-SEQUENCE:100
+            #EXTINF:8.0,
+            seg1.ts
+        """.trimIndent()
+        assertTrue(M3u8FilterCore.isLiveMediaPlaylist(body))
+    }
 }
