@@ -173,7 +173,7 @@ onMounted(async () => {
       <template #toolbar>
         <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
           <h2 class="text-lg font-[var(--jc-fw-semibold)]">采集失败台账</h2>
-          <ManageTabs :model-value="status" :tabs="statusTabs" @update:model-value="switchStatus" />
+          <ManageTabs variant="segment" :model-value="status" :tabs="statusTabs" @update:model-value="switchStatus" />
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap">
           <ManageButton variant="ghost" size="sm" @click="refresh">

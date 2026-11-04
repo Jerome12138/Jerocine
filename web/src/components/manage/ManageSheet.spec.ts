@@ -137,6 +137,21 @@ describe('ManageSheet', () => {
     w2.unmount()
   })
 
+  it('modal 面板带 max-w-[94vw] 窄口兜底类(D⑦); width prop 内联 maxWidth 行为不变', async () => {
+    forceMode('desktop')
+    const w = mount(ManageSheet, {
+      props: { modelValue: true, title: 'T', width: '880px' },
+      attachTo: document.body
+    })
+    await w.vm.$nextTick()
+    const modal = document.querySelector('.jc-sheet--modal') as HTMLElement
+    // 窄口兜底(规格 §4): 面板恒挂 94vw 上限类, 窄窗(<720px)打开弹窗不溢出
+    expect(modal.classList.contains('max-w-[94vw]')).toBe(true)
+    // width prop 语义不变: 内联 maxWidth 仍为调用点值(优先级高于类, 与既有用例口径一致)
+    expect(modal.style.maxWidth).toBe('880px')
+    w.unmount()
+  })
+
   it('无 title → modal 内仍渲染关闭按钮且可关', async () => {
     forceMode('desktop')
     const w = mount(ManageSheet, {

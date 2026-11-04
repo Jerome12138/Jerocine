@@ -36,6 +36,20 @@ describe('BaseDialog', () => {
     w.unmount()
   })
 
+  it('面板 maxWidth=94vw 窄口兜底(D⑦), 调用点 width 仍原样生效', async () => {
+    const w = mount(BaseDialog, {
+      props: { visible: true, title: 'T', width: '880px' },
+      attachTo: document.body
+    })
+    await w.vm.$nextTick()
+    const dialog = document.querySelector('.jc-dialog') as HTMLElement
+    // 窄口兜底(规格 §4): maxWidth 统一 94vw, 窄窗(<720px)打开弹窗不溢出
+    expect(dialog.style.maxWidth).toBe('94vw')
+    // 调用点 width 不动(D⑦): 保持固定 px
+    expect(dialog.style.width).toBe('880px')
+    w.unmount()
+  })
+
   it('双弹层: ESC 只关最顶层; 顶层关闭释放后 ESC 再关底层', async () => {
     const wA = mount(BaseDialog, { props: { visible: true, title: 'A' }, attachTo: document.body })
     await wA.vm.$nextTick()

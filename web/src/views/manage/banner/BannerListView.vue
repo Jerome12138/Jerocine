@@ -385,7 +385,7 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <ManageTabs :model-value="view" :tabs="tabs" @update:model-value="view = $event" />
+    <ManageTabs variant="segment" :model-value="view" :tabs="tabs" @update:model-value="view = $event" />
 
     <BaseEmpty
       v-if="loadError"

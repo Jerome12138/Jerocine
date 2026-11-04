@@ -239,7 +239,7 @@ onMounted(() => {
       <template #toolbar>
         <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
           <h2 class="text-lg font-[var(--jc-fw-semibold)]">影片管理</h2>
-          <ManageTabs :model-value="status" :tabs="FILM_STATUS_TABS" @update:model-value="switchStatus" />
+          <ManageTabs variant="segment" :model-value="status" :tabs="FILM_STATUS_TABS" @update:model-value="switchStatus" />
           <!-- 分类筛选(级联选择器): 紧随页签, 放左侧 -->
           <div ref="catFilterRef" class="relative">
             <ManageButton

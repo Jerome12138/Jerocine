@@ -92,7 +92,9 @@ onBeforeUnmount(() => {
 
 const wrapStyle = computed(() => ({
   width: props.width,
-  maxWidth: 'calc(100vw - 32px)'
+  // 窄口兜底(规格 §4/D⑦): 统一 max-width 94vw(原 calc(100vw - 32px) 槽位同义收窄),
+  // 不用 CSS min()(Chrome 79+ 才支持, legacy chrome61 不可用), 调用点 width 保持固定 px
+  maxWidth: '94vw'
 }))
 </script>
 

@@ -95,10 +95,11 @@ onBeforeUnmount(() => {
         class="jc-sheet__overlay fixed inset-0 z-[var(--jc-z-overlay,90)] bg-black/60"
         @click.self="onOverlayClick"
       >
-        <!-- modal (desktop/tablet) -->
+        <!-- modal (desktop/tablet); max-w-[94vw] = 窄口兜底(规格 §4/D⑦, 不用 CSS min() 因 chrome61 不支持):
+             width 90% 内联本身已不溢出, 该类为与其他弹窗统一的兜底; 内联 maxWidth(width prop) 优先级更高, 调用点行为不变 -->
         <div
           v-if="variant === 'modal'"
-          class="jc-sheet--modal absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-elevated rounded-[var(--jc-radius-md)] shadow-card-lg overflow-hidden flex flex-col max-h-[90vh]"
+          class="jc-sheet--modal max-w-[94vw] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-elevated rounded-[var(--jc-radius-md)] shadow-card-lg overflow-hidden flex flex-col max-h-[90vh]"
           :style="{ width: '90%', maxWidth: width }"
           @click.stop
         >

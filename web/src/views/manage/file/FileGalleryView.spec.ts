@@ -86,7 +86,7 @@ describe('FileGalleryView 文件库', () => {
 
   it('类型筛选: ManageTabs 页签(aria 语义), 客户端过滤图片/视频, 空类型有独立文案', async () => {
     const w = await mountView()
-    // 页签形态统一: ManageTabs pill(role=tablist/tab + aria-selected)
+    // 页签形态统一: ManageTabs segment(role=tablist/tab + aria-selected)
     expect(w.find('[role="tablist"]').exists()).toBe(true)
     expect(w.findComponent(ManageTabs).exists()).toBe(true)
     const pick = (label: string) =>

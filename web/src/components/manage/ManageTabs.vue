@@ -1,9 +1,7 @@
 <script setup lang="ts" generic="V extends string | number = string">
-import ManageButton from '@/components/manage/ManageButton.vue'
-
 /**
- * 统一页签形态（复核 #13）:
- *  - pill（默认）= 按钮组（BaseButton: active gradient / 其余 ghost，现状同构）
+ * 统一页签形态（复核 #13 / 规格 §3.3）:
+ *  - segment（默认）= 胶囊组，逐像素照抄仪表盘在线明细手写胶囊（D①: pill 渐变按钮组已删除）
  *  - underline = 下划线 tab（底边框高亮）
  * 无障碍: role=tablist/tab + aria-selected; 一切项恒 data-focusable（TV 遥控）。
  */
@@ -20,10 +18,10 @@ const props = withDefaults(
   defineProps<{
     modelValue: V
     tabs: TabItem<V>[]
-    /** 'pill' = 按钮组（默认）; 'underline' = 下划线 tab */
-    variant?: 'pill' | 'underline'
+    /** 'segment' = 胶囊组（默认）; 'underline' = 下划线 tab */
+    variant?: 'segment' | 'underline'
   }>(),
-  { variant: 'pill' }
+  { variant: 'segment' }
 )
 const emit = defineEmits<{ 'update:modelValue': [value: V] }>()
 
@@ -60,19 +58,21 @@ function onSelect(value: V): void {
     </button>
   </div>
 
-  <div v-else class="flex gap-[var(--jc-space-1)] flex-wrap" role="tablist">
-    <ManageButton
+  <!-- segment（默认）: 类名与仪表盘手写胶囊逐字一致（min-h-[28px]/text-xs 定值见 D⑨, 无 hover 类） -->
+  <div v-else class="flex rounded-full bg-elevated p-0.5 text-xs" role="tablist">
+    <button
       v-for="t in props.tabs"
       :key="String(t.value)"
-      :variant="props.modelValue === t.value ? 'gradient' : 'ghost'"
-      size="sm"
+      type="button"
       role="tab"
+      class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
+      :class="props.modelValue === t.value ? 'bg-surface shadow text-primary' : 'text-secondary'"
       :aria-selected="props.modelValue === t.value"
       data-focusable="true"
       @click="onSelect(t.value)"
     >
       {{ t.label }}
       <span v-if="t.count !== undefined && t.count > 0" class="jc-tabs__count">（{{ t.count }}）</span>
-    </ManageButton>
+    </button>
   </div>
 </template>

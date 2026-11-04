@@ -10,6 +10,8 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
+import ManageTabs from '@/components/manage/ManageTabs.vue'
+import type { TabItem } from '@/components/manage/ManageTabs.vue'
 import { formatShortDateTime } from '@/utils/format'
 
 const data = ref<DashboardStat | null>(null)
@@ -125,6 +127,19 @@ function switchTime(t: 'live' | 'today' | 'week'): void {
 
 /** 在线/在播放分开显示: 状态筛选 tab */
 const statusFilter = ref<'all' | 'watching' | 'online'>('all')
+
+// 在线明细两组 segment 页签数据源(D②: 手写胶囊迁 ManageTabs, 切换逻辑 switchTime/statusFilter 不动);
+// 文案与 value 与原手写版逐字一致, 泛型收窄保证 emit 值可直接喂 switchTime/回填 ref
+const TIME_TABS: TabItem<'live' | 'today' | 'week'>[] = [
+  { value: 'live', label: '近 30 分钟' },
+  { value: 'today', label: '今日' },
+  { value: 'week', label: '近 7 天' }
+]
+const STATUS_TABS: TabItem<'all' | 'watching' | 'online'>[] = [
+  { value: 'all', label: '全部' },
+  { value: 'watching', label: '在播放' },
+  { value: 'online', label: '在线' }
+]
 const filteredSessions = computed(() => {
   const base = timeFilter.value === 'live' ? online.value?.sessions ?? [] : dailySessions.value
   if (statusFilter.value === 'all') return base
@@ -354,60 +369,20 @@ const cards = computed(() => {
         <div class="flex items-center justify-between mb-[var(--jc-space-3)] flex-wrap gap-2">
           <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
             <h3 class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)]">在线明细</h3>
-            <!-- 时间范围: 实时 / 今日 / 近7天 -->
-            <div class="flex rounded-full bg-elevated p-0.5 text-xs">
-              <button
-                type="button"
-                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
-                :class="timeFilter === 'live' ? 'bg-surface shadow text-primary' : 'text-secondary'"
-                @click="switchTime('live')"
-              >
-                近 30 分钟
-              </button>
-              <button
-                type="button"
-                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
-                :class="timeFilter === 'today' ? 'bg-surface shadow text-primary' : 'text-secondary'"
-                @click="switchTime('today')"
-              >
-                今日
-              </button>
-              <button
-                type="button"
-                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
-                :class="timeFilter === 'week' ? 'bg-surface shadow text-primary' : 'text-secondary'"
-                @click="switchTime('week')"
-              >
-                近 7 天
-              </button>
-            </div>
+            <!-- 时间范围: 实时 / 今日 / 近7天 (D②: 手写胶囊迁 ManageTabs segment, 视觉逐像素照抄) -->
+            <ManageTabs
+              variant="segment"
+              :model-value="timeFilter"
+              :tabs="TIME_TABS"
+              @update:model-value="switchTime"
+            />
             <!-- 状态筛选: 全部 / 在播放 / 在线 -->
-            <div class="flex rounded-full bg-elevated p-0.5 text-xs">
-              <button
-                type="button"
-                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
-                :class="statusFilter === 'all' ? 'bg-surface shadow text-primary' : 'text-secondary'"
-                @click="statusFilter = 'all'"
-              >
-                全部
-              </button>
-              <button
-                type="button"
-                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
-                :class="statusFilter === 'watching' ? 'bg-surface shadow text-primary' : 'text-secondary'"
-                @click="statusFilter = 'watching'"
-              >
-                在播放
-              </button>
-              <button
-                type="button"
-                class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
-                :class="statusFilter === 'online' ? 'bg-surface shadow text-primary' : 'text-secondary'"
-                @click="statusFilter = 'online'"
-              >
-                在线
-              </button>
-            </div>
+            <ManageTabs
+              variant="segment"
+              :model-value="statusFilter"
+              :tabs="STATUS_TABS"
+              @update:model-value="statusFilter = $event"
+            />
           </div>
           <span class="hidden md:inline text-secondary text-xs">
             {{ timeFilter === 'live' ? '近 30 分钟有活动算在线 · 15s 自动刷新' : (timeFilter === 'today' ? '今日访问用户 · 在播/在线优先' : '近 7 天访问用户 · 在播/在线优先') }}

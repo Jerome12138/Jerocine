@@ -99,7 +99,7 @@ async function remove(item: FileItem): Promise<void> {
         <p class="text-sm text-muted">站点已上传的图片 / 视频资源</p>
       </div>
       <div class="flex items-center gap-[var(--jc-space-2)]">
-        <ManageTabs v-model="typeFilter" :tabs="filterOptions" />
+        <ManageTabs v-model="typeFilter" :tabs="filterOptions" variant="segment" />
         <ManageButton variant="ghost" size="sm" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </ManageButton>

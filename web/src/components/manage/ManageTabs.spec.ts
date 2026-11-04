@@ -42,12 +42,38 @@ describe('ManageTabs 页签', () => {
     expect(w.findAll('[role="tab"]')[1]!.classes()).toContain('jc-tab--active')
   })
 
-  it('pill 态(默认): active 项 BaseButton gradient, 非 active ghost', () => {
+  it('segment 态(默认): 容器胶囊底, active 项 bg-surface+shadow+text-primary, 非 active text-secondary', () => {
+    // 视觉契约(规格 §3.3/D①): 逐像素照抄仪表盘手写胶囊, 类名即契约本身
     const w = mount(ManageTabs, { props: { modelValue: 0, tabs: TABS } })
     expect(w.find('[role="tablist"]').classes()).not.toContain('jc-tabs--underline')
+    const list = w.find('[role="tablist"]')
+    for (const c of ['flex', 'rounded-full', 'bg-elevated', 'p-0.5', 'text-xs']) {
+      expect(list.classes()).toContain(c)
+    }
     const btns = w.findAll('[role="tab"]')
-    expect(btns[0]!.classes()).toContain('jc-btn-gradient')
-    expect(btns[1]!.classes()).toContain('bg-transparent')
+    expect(btns[0]!.classes()).toContain('bg-surface')
+    expect(btns[0]!.classes()).toContain('shadow')
+    expect(btns[0]!.classes()).toContain('text-primary')
+    expect(btns[1]!.classes()).toContain('text-secondary')
+    expect(btns[1]!.classes()).not.toContain('bg-surface')
+    expect(btns[1]!.classes()).not.toContain('shadow')
+  })
+
+  it('segment 项: min-h-[28px] 定值(D⑨)、无 hover 类(照抄现状), 且不再有按钮组样式(jc-btn-gradient 随 pill 删除)', () => {
+    const w = mount(ManageTabs, { props: { modelValue: 0, tabs: TABS } })
+    for (const b of w.findAll('[role="tab"]')) {
+      expect(b.classes()).toContain('min-h-[28px]')
+      expect(b.classes()).toContain('rounded-full')
+      // 无 hover 类: 未激活项恒 text-secondary, 与仪表盘原版一致
+      for (const c of b.classes()) expect(c.startsWith('hover:')).toBe(false)
+    }
+    expect(w.html()).not.toContain('jc-btn-gradient')
+  })
+
+  it('variant="segment" 显式传入与默认一致', () => {
+    const w = mount(ManageTabs, { props: { modelValue: 0, tabs: TABS, variant: 'segment' } })
+    expect(w.find('[role="tablist"]').classes()).toContain('bg-elevated')
+    expect(w.findAll('[role="tab"]')[0]!.classes()).toContain('bg-surface')
   })
 
   it('count > 0 渲染数字徽标, 无 count 不渲染', () => {
