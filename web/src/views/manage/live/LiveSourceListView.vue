@@ -23,6 +23,7 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
@@ -179,6 +180,14 @@ const chSource = ref<LiveSourceManage | null>(null)
 const chLoading = ref(false)
 const chList = ref<LiveChannelManage[]>([])
 const chSearch = ref('')
+/** 状态筛选: all=全部 / up=可用(alive≠false) / down=不可用(alive=false) / unprobed=未探测 */
+const chFilterStatus = ref<'all' | 'up' | 'down' | 'unprobed'>('all')
+const CH_STATUS_OPTIONS = [
+  { value: 'all', label: '全部状态' },
+  { value: 'up', label: '可用' },
+  { value: 'down', label: '不可用' },
+  { value: 'unprobed', label: '未探测' }
+]
 /** 自定义频道新增弹窗 */
 const customOpen = ref(false)
 const customForm = reactive({ name: '', groupName: '', url: '' })
@@ -189,10 +198,14 @@ const renameForm = reactive({ displayName: '' })
 
 const chFiltered = computed(() => {
   const kw = chSearch.value.trim().toLowerCase()
-  if (!kw) return chList.value
-  return chList.value.filter(
-    (c) => c.name.toLowerCase().includes(kw) || c.group.toLowerCase().includes(kw) || c.url.toLowerCase().includes(kw)
-  )
+  const status = chFilterStatus.value
+  return chList.value.filter((c) => {
+    if (status === 'up' && c.alive === false) return false
+    if (status === 'down' && c.alive !== false) return false
+    if (status === 'unprobed' && c.alive !== undefined) return false
+    if (!kw) return true
+    return c.name.toLowerCase().includes(kw) || c.group.toLowerCase().includes(kw) || c.url.toLowerCase().includes(kw)
+  })
 })
 
 /** 频道列表前端分页：m3u 源动辄上千频道，整表渲染会卡死弹窗（先过滤再分页） */
@@ -202,7 +215,7 @@ const chPaged = computed(() => {
   const start = (chPage.value - 1) * CH_PAGE_SIZE
   return chFiltered.value.slice(start, start + CH_PAGE_SIZE)
 })
-watch(chSearch, () => {
+watch([chSearch, chFilterStatus], () => {
   chPage.value = 1
 })
 
@@ -272,9 +285,8 @@ async function probeChannels(): Promise<void> {
 }
 
 /* ---------- 一键隐藏不可用频道 ----------
- * 基于探测结果(alive===false)批量隐藏; 复用 upsert(整行覆盖): 解析频道写 displayName、
- * 自定义频道写 name/groupName, 统一 hidden=true(可逆, 列表里「显示」可还原)。
- * 逐个发起 + 轻间隔, 避免瞬间打爆接口。 */
+ * 基于探测结果(alive===false)批量隐藏：**一次批量接口**提交 urls（不再逐条打接口）。
+ * 语义：解析频道=覆盖层置 hidden（可逆）、自定义频道同样只隐藏不删除。 */
 const chHideDone = ref(0)
 const unavailableCount = computed(
   () => chFiltered.value.filter((c) => c.alive === false && !c.hidden).length
@@ -292,26 +304,45 @@ async function hideUnavailable(): Promise<void> {
       okText: '一键隐藏'
     },
     action: async () => {
-      for (const c of targets) {
-        await manageApi.live.upsertLiveChannel(
-          {
-            sourceId: chSource.value!.id,
-            url: c.url,
-            hidden: true,
-            // 整行覆盖写: 解析频道带 displayName, 自定义频道带 name/groupName(否则会被清空)
-            name: c.isCustom ? c.name : undefined,
-            groupName: c.isCustom ? c.group : undefined,
-            displayName: c.isCustom ? undefined : c.displayName
-          },
-          { silent: true }
-        )
+      const res = await manageApi.live.hideLiveChannelsBatch(
+        chSource.value!.id,
+        targets.map((c) => c.url),
+        true,
+        { silent: true }
+      )
+      targets.forEach((c) => {
         c.hidden = true
-        chHideDone.value++
-        // 轻间隔, 避免瞬间打爆接口
-        await new Promise((r) => setTimeout(r, 80))
-      }
+      })
+      chHideDone.value = res.affected ?? targets.length
     },
     successMsg: `已隐藏 ${targets.length} 个不可用频道`,
+    after: () => loadChannels(chSource.value!.id)
+  })
+}
+
+/** 单频道探源：只探这一条（低频单请求），结果写回该行 */
+async function probeOne(c: LiveChannelManage): Promise<void> {
+  if (!c.url || chProbing.value) return
+  const results = await probeLiveChannelsLimited([c.url], 1, PROBE_TIMEOUT_MS, fetch, undefined, 0)
+  const r = results[0]
+  if (!r) return
+  c.alive = r.alive
+  c.cors = r.cors
+}
+
+/** 按源重新拉取频道：服务端清缓存重抓 m3u；内容有更新的隐藏频道自动恢复显示 */
+async function refreshChannels(): Promise<void> {
+  if (!chSource.value) return
+  await runCh({
+    confirm: {
+      title: '重新拉取该源的频道数据？',
+      desc: '会重新抓取该源的 m3u 并解析：内容有更新的隐藏频道会自动恢复显示。',
+      okText: '重新拉取'
+    },
+    action: async () => {
+      const res = await manageApi.live.refreshLiveChannels(chSource.value!.id, { silent: true })
+      toast('success', `已重新拉取：共 ${res.total} 个频道，恢复显示 ${res.restored} 个`)
+    },
     after: () => loadChannels(chSource.value!.id)
   })
 }
@@ -421,9 +452,9 @@ async function removeChannel(c: LiveChannelManage): Promise<void> {
   if (!chSource.value) return
   await runCh({
     confirm: {
-      title: c.isCustom ? '确认删除自定义频道？' : '确认隐藏并移除频道？',
-      desc: c.isCustom ? `「${c.name}」将被物理删除。` : `「${c.name}」将从列表移除；源重解析后仍保持隐藏。`,
-      okText: c.isCustom ? '删除' : '隐藏并移除',
+      title: c.isCustom ? '确认删除自定义频道？' : '确认移除该频道？',
+      desc: c.isCustom ? `「${c.name}」将被物理删除。` : `「${c.name}」将从列表移除（解析频道=置为隐藏，源重解析后仍保持隐藏）。`,
+      okText: c.isCustom ? '删除' : '移除',
       danger: true
     },
     action: () => manageApi.live.deleteLiveChannel(chSource.value!.id, c.url, { silent: true }),
@@ -539,13 +570,20 @@ onMounted(async () => {
     </ManageTable>
 
     <!-- 频道管理面板(组件式 ManageSheet: 复杂管理面, 非表单弹窗) -->
-    <ManageSheet v-model="chOpen" :title="`频道管理 · ${chSource?.name ?? ''}`" width="720px" mobile-mode="fullsheet">
+    <ManageSheet v-model="chOpen" :title="`频道管理 · ${chSource?.name ?? ''}`" width="1120px" mobile-mode="fullsheet">
       <div class="jc-chmgr">
         <div class="jc-chmgr__toolbar">
           <ManageInput v-model="chSearch" placeholder="搜索频道名/分组/地址" class="jc-chmgr__search" />
+          <div class="w-[150px] shrink-0">
+            <ManageSelect v-model="chFilterStatus" :options="CH_STATUS_OPTIONS" aria-label="状态筛选" />
+          </div>
           <ManageButton variant="outline" size="sm" @click="openCustom">
             <BaseIcon name="plus" size="14px" />
             添加自定义频道
+          </ManageButton>
+          <ManageButton variant="outline" size="sm" :disabled="chBusy || chProbing" @click="refreshChannels">
+            <BaseIcon name="refresh" size="14px" />
+            重新拉取频道
           </ManageButton>
           <ManageButton variant="outline" size="sm" :loading="chProbing" :disabled="chProbing" @click="probeChannels">
             <BaseIcon name="magic" size="14px" />
@@ -585,12 +623,13 @@ onMounted(async () => {
                 <div class="jc-chmgr__url">{{ c.url }}</div>
               </div>
               <div class="jc-chmgr__actions">
+                <ManageButton variant="ghost" size="sm" :disabled="chProbing" @click="probeOne(c)">探测</ManageButton>
                 <ManageButton variant="ghost" size="sm" :disabled="chBusy" @click="toggleChannel(c)">
                   {{ c.hidden ? '显示' : '隐藏' }}
                 </ManageButton>
                 <ManageButton variant="ghost" size="sm" :disabled="chBusy" @click="openRename(c)">改名</ManageButton>
                 <ManageButton variant="ghost" size="sm" class="jc-livemgr__danger" :disabled="chBusy" @click="removeChannel(c)">
-                  {{ c.isCustom ? '删除' : '隐藏并移除' }}
+                  移除
                 </ManageButton>
               </div>
             </div>

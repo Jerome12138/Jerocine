@@ -46,6 +46,22 @@ export const listLiveChannels = (sourceId: number): Promise<LiveChannelsManageRe
 export const upsertLiveChannel = (data: LiveChannelInput, config?: { silent?: boolean }): Promise<void> =>
   http.put('/manage/live-channels', data, config)
 
+/** POST /manage/live-channels/hide-batch 批量隐藏/显示（一次请求处理多频道，避免逐条打接口） */
+export const hideLiveChannelsBatch = (
+  sourceId: number,
+  urls: string[],
+  hidden: boolean,
+  config?: { silent?: boolean }
+): Promise<{ affected: number }> =>
+  http.post<unknown, { affected: number }>('/manage/live-channels/hide-batch', { sourceId, urls, hidden }, config)
+
+/** POST /manage/live-sources/:id/refresh 按源重新拉取频道（清缓存重抓 m3u；内容有更新的隐藏频道自动恢复显示） */
+export const refreshLiveChannels = (
+  id: number,
+  config?: { silent?: boolean }
+): Promise<{ total: number; restored: number }> =>
+  http.post<unknown, { total: number; restored: number }>(`/manage/live-sources/${id}/refresh`, {}, config)
+
 /** DELETE /manage/live-channels?sourceId=&url= 删频道（自定义物理删/解析置 hidden） */
 export const deleteLiveChannel = (sourceId: number, url: string, config?: { silent?: boolean }): Promise<void> =>
   http.delete('/manage/live-channels', { params: { sourceId, url }, ...config })

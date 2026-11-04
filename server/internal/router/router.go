@@ -117,6 +117,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		// 探源改为端侧执行(服务器无 IPv6 出口, 服务端探测误伤 IPv6-only 源)。
 		mg.GET("/live-channels", h.ListLiveChannelsManage)
 		mg.PUT("/live-channels", h.UpsertLiveChannel)
+		mg.POST("/live-channels/hide-batch", h.SetLiveChannelsHidden)
+		mg.POST("/live-sources/:id/refresh", h.RefreshLiveSourceChannels)
 		mg.DELETE("/live-channels", h.DeleteLiveChannel)
 		// 运行参数(后台「系统设置」): 登录有效期 / 设备数 / 采集并发 —— 都存 site_config, 保存即改。
 		mg.GET("/settings", h.GetRuntimeSettings)

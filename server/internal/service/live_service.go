@@ -501,6 +501,120 @@ func (s *LiveService) invalidateChannelCache(ctx context.Context, sourceID int64
 	cache.DelByPattern(context.WithoutCancel(ctx), fmt.Sprintf(liveChanPatFmt, sourceID))
 }
 
+// ---- 批量操作（管理端） ----
+
+// LiveChannelBatchInput 批量隐藏/显示入参（一次请求处理多频道，避免前端逐条调用）。
+type LiveChannelBatchInput struct {
+	SourceID int64    `json:"sourceId"`
+	URLs     []string `json:"urls"`
+	Hidden   *bool    `json:"hidden"`
+}
+
+// SetChannelsHidden 批量置隐藏/显示（解析频道=覆盖层置位；自定义频道同样只置位，不物理删）。
+// 单次请求内串行 upsert（保留既有 displayName/isCustom/名称），末尾统一失效该源缓存。
+// 返回实际处理条数。
+func (s *LiveService) SetChannelsHidden(ctx context.Context, in LiveChannelBatchInput) (int, error) {
+	if in.SourceID <= 0 || len(in.URLs) == 0 || in.Hidden == nil {
+		return 0, fmt.Errorf("sourceId/urls/hidden 必填: %w", domain.ErrInvalidArgument)
+	}
+	if _, err := s.repo.Get(ctx, in.SourceID); err != nil {
+		return 0, err
+	}
+	existing, err := s.state.ListBySource(ctx, in.SourceID)
+	if err != nil {
+		return 0, err
+	}
+	prev := make(map[string]entity.LiveChannelState, len(existing))
+	for _, st := range existing {
+		prev[st.URL] = st
+	}
+	hidden := entity.LiveChannelVisible
+	if *in.Hidden {
+		hidden = entity.LiveChannelHidden
+	}
+	done := 0
+	for _, raw := range in.URLs {
+		url := strings.TrimSpace(raw)
+		if url == "" {
+			continue
+		}
+		st := &entity.LiveChannelState{SourceId: in.SourceID, URL: url, Hidden: hidden}
+		if p, ok := prev[url]; ok { // 保留既有覆盖字段，避免整行覆盖丢数据
+			st.Name, st.GroupName, st.DisplayName, st.IsCustom = p.Name, p.GroupName, p.DisplayName, p.IsCustom
+		}
+		if err := s.state.Upsert(ctx, st); err != nil {
+			return done, err
+		}
+		done++
+	}
+	s.invalidateChannelCache(ctx, in.SourceID)
+	return done, nil
+}
+
+// RefreshChannelsResult 按源重新拉取的汇总。
+type RefreshChannelsResult struct {
+	Total    int `json:"total"`    // 本次解析到的频道数
+	Restored int `json:"restored"` // 因「内容有更新」而恢复显示的隐藏频道数
+}
+
+// RefreshSourceChannels 按源重新拉取频道：清缓存 → 重新抓取解析 m3u → 同步覆盖层。
+// 「内容有更新才恢复显示」：对隐藏中的解析频道，若其解析出的名称/分组与上次记录不同，
+// 视为内容已更新 → 取消隐藏；同时把本次解析值记为"上次值"供下次比对。
+// （url 变化的频道天然恢复：覆盖层按 url 对齐，新 url 无覆盖 = 可见。）
+func (s *LiveService) RefreshSourceChannels(ctx context.Context, sourceID int64) (RefreshChannelsResult, error) {
+	src, err := s.repo.Get(ctx, sourceID)
+	if err != nil {
+		return RefreshChannelsResult{}, err
+	}
+	s.invalidateChannelCache(ctx, sourceID) // 解析缓存与公开列表同前缀，一并失效→下次读即重新抓取
+	fresh := s.parseChannels(ctx, src)
+	res := RefreshChannelsResult{Total: len(fresh)}
+
+	states, err := s.state.ListBySource(ctx, sourceID)
+	if err != nil {
+		return res, err
+	}
+	byURL := make(map[string]live.Channel, len(fresh))
+	for _, ch := range fresh {
+		byURL[ch.URL] = ch
+	}
+	dirty := false
+	for i := range states {
+		st := &states[i]
+		if st.IsCustom == entity.LiveChannelCustom {
+			continue // 自定义频道不参与 m3u 同步
+		}
+		ch, ok := byURL[st.URL]
+		if !ok {
+			continue // 该 url 已下架：保留覆盖（隐藏态无害）
+		}
+		name, group := strings.TrimSpace(ch.Name), strings.TrimSpace(ch.Group)
+		if st.Hidden == entity.LiveChannelHidden {
+			// 上次已记录解析值且本次不同 → 内容有更新 → 恢复显示
+			if (st.Name != "" || st.GroupName != "") && (st.Name != name || st.GroupName != group) {
+				st.Hidden = entity.LiveChannelVisible
+				res.Restored++
+			}
+		}
+		if st.Name != name || st.GroupName != group {
+			st.Name, st.GroupName = name, group // 记为"上次解析值"，供下次比对
+			if err := s.state.Upsert(ctx, st); err != nil {
+				return res, err
+			}
+			dirty = true
+		} else if res.Restored > 0 && st.Hidden == entity.LiveChannelVisible && st.Name == name {
+			if err := s.state.Upsert(ctx, st); err != nil {
+				return res, err
+			}
+			dirty = true
+		}
+	}
+	if dirty {
+		s.invalidateChannelCache(ctx, sourceID)
+	}
+	return res, nil
+}
+
 // ---- 探源（管理端） ----
 
 // ProbeResultView 单频道探源结果（管理端返回体）。

@@ -186,6 +186,36 @@ func (h *Handlers) UpsertLiveChannel(c *gin.Context) {
 }
 
 // DeleteLiveChannel DELETE /manage/live-channels?sourceId=&url= — 自定义物理删/解析置 hidden。
+// SetLiveChannelsHidden POST /manage/live-channels/hide-batch {sourceId, urls, hidden}
+func (h *Handlers) SetLiveChannelsHidden(c *gin.Context) {
+	var req service.LiveChannelBatchInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusBadRequest, "invalid body")
+		return
+	}
+	n, err := h.Live.SetChannelsHidden(c.Request.Context(), req)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	respond(c, gin.H{"affected": n}, nil)
+}
+
+// RefreshLiveSourceChannels POST /manage/live-sources/:id/refresh
+func (h *Handlers) RefreshLiveSourceChannels(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		dto.Error(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	res, err := h.Live.RefreshSourceChannels(c.Request.Context(), id)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	respond(c, res, nil)
+}
+
 func (h *Handlers) DeleteLiveChannel(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Query("sourceId"), 10, 64)
 	if err != nil || id <= 0 {

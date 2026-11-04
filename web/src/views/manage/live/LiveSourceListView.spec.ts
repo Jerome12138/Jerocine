@@ -20,6 +20,8 @@ const h = vi.hoisted(() => ({
   deleteLiveSource: vi.fn(),
   listLiveChannels: vi.fn(),
   upsertLiveChannel: vi.fn(),
+  hideLiveChannelsBatch: vi.fn(() => Promise.resolve({ affected: 1 })),
+  refreshLiveChannels: vi.fn(() => Promise.resolve({ total: 2, restored: 0 })),
   deleteLiveChannel: vi.fn(),
   toast: vi.fn(),
   confirm: vi.fn()
@@ -37,6 +39,8 @@ vi.mock('@/api', () => ({
       deleteLiveSource: h.deleteLiveSource,
       listLiveChannels: h.listLiveChannels,
       upsertLiveChannel: h.upsertLiveChannel,
+      hideLiveChannelsBatch: h.hideLiveChannelsBatch,
+      refreshLiveChannels: h.refreshLiveChannels,
       deleteLiveChannel: h.deleteLiveChannel
     }
   }
@@ -441,14 +445,14 @@ describe('LiveSourceListView 直播源管理', () => {
     await btn(w, '频道管理')!.trigger('click')
     await flushPromises()
     h.confirm.mockResolvedValue(false)
-    await btn(w, '隐藏并移除')!.trigger('click')
+    await btn(w, '移除')!.trigger('click')
     expect(h.confirm).toHaveBeenCalledWith(
-      expect.objectContaining({ danger: true, okText: '隐藏并移除' })
+      expect.objectContaining({ danger: true, okText: '移除' })
     )
     expect(h.deleteLiveChannel).not.toHaveBeenCalled()
 
     h.confirm.mockResolvedValue(true)
-    await btn(w, '隐藏并移除')!.trigger('click')
+    await btn(w, '移除')!.trigger('click')
     await flushPromises()
     await flushPromises()
     expect(h.deleteLiveChannel).toHaveBeenCalledWith(1, 'http://stream.example.com/1.m3u8', SILENT)
@@ -517,10 +521,12 @@ describe('LiveSourceListView 直播源管理', () => {
     )
     await new Promise((r) => setTimeout(r, 160))
     await flushPromises()
-    expect(h.upsertLiveChannel).toHaveBeenCalledTimes(1)
-    const p = h.upsertLiveChannel.mock.calls[0][0]
-    expect(p.url).toBe('http://s/down.m3u8')
-    expect(p.hidden).toBe(true)
+    // 批量隐藏走批量接口（一次提交 urls，不再逐条打接口）
+    expect(h.hideLiveChannelsBatch).toHaveBeenCalledTimes(1)
+    const [sid, urls, hidden] = h.hideLiveChannelsBatch.mock.calls[0] as [number, string[], boolean]
+    expect(sid).toBe(1)
+    expect(urls).toEqual(['http://s/down.m3u8'])
+    expect(hidden).toBe(true)
     vi.unstubAllGlobals()
   })
 })
