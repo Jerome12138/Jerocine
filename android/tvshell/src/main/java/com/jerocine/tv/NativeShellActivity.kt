@@ -1,22 +1,16 @@
 package com.jerocine.tv
 
-import android.content.Context
 import android.os.Bundle
 import android.os.SystemClock
-import android.text.InputType
-import android.view.ViewGroup
-import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
-import android.widget.LinearLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.jerocine.player.ui.GlassToast
 import com.jerocine.player.ui.JcDeviceDiagnostics
 import com.jerocine.player.ui.JcDialog
+import com.jerocine.player.ui.JcServerUrlPrompt
 import com.jerocine.tv.data.HistoryReq
 import com.jerocine.tv.data.ServiceLocator
-import com.jerocine.player.data.ServerUrl
 import com.jerocine.player.data.ShellPrefs
 import com.jerocine.tv.data.isPlayerHistoryEvent
 import com.jerocine.player.JerocinePlayer
@@ -35,7 +29,6 @@ import com.jerocine.tv.player.launchNativePlayer
 import com.jerocine.player.ui.JcSettingsDrawer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import com.jerocine.player.R as PlayerR
 
 class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost {
     private val exitGate = DoubleBackExitGate()
@@ -255,55 +248,13 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
      * (JEROCINE_API_BASE), 不随本入口漂移。
      */
     override fun onServerUrlEdit() {
-        val density = resources.displayMetrics.density
-        fun dp(v: Int) = (v * density).toInt()
-        val input = EditText(this).apply {
-            setText(ServiceLocator.serverBase)
-            setSelection(text.length)
-            hint = "https://example.com"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            isSingleLine = true
-            setTextColor(androidx.core.content.ContextCompat.getColor(
-                this@NativeShellActivity, PlayerR.color.jc_text))
-            setHintTextColor(androidx.core.content.ContextCompat.getColor(
-                this@NativeShellActivity, PlayerR.color.jc_text_tertiary))
-            setBackgroundResource(R.drawable.jc_input)
-            setPadding(dp(16), 0, dp(16), 0)
+        // 弹窗与归一化都在 core 的 JcServerUrlPrompt(两壳同一份); 本壳回调只做持久化+反馈
+        JcServerUrlPrompt.show(this, ServiceLocator.serverBase) { url ->
+            runCatching { ServiceLocator.setServer(url) }
+                .onSuccess { toast("已保存：${ServiceLocator.serverBase}") }
+                .onFailure { toast(it.message ?: "保存失败") }
         }
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            // 与 JcDialog 标题左对齐(内边距来自主题 dialogPreferredPadding, 不散写 24dp)
-            val padX = JcDialog.contentPaddingX(this@NativeShellActivity)
-            setPadding(padX, dp(8), padX, 0)
-            addView(input, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(58)))
-        }
-        JcDialog.custom(this)
-            .title("站点地址")
-            .content(wrap)
-            .confirmButton("保存", Runnable {
-                val url = ServerUrl.normalize(input.text.toString())
-                if (url.isBlank()) {
-                    toast("地址不能为空")
-                    return@Runnable
-                }
-                runCatching { ServiceLocator.setServer(withScheme(url)) }
-                    .onSuccess { toast("已保存：${ServiceLocator.serverBase}") }
-                    .onFailure { toast(it.message ?: "保存失败") }
-            })
-            .cancelButton("取消")
-            .show()
-        // 原生壳没有 web 壳那样的地址栏, 弹窗出来直接拉起软键盘(遥控器/触控都要能输入)
-        input.requestFocus()
-        input.postDelayed({
-            (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
-                ?.showSoftInput(input, 0)
-        }, 200)
     }
-
-    /** 缺协议头时补 http:// —— 与 web 壳 promptServerUrl 的归一化保持一致 */
-    private fun withScheme(url: String): String =
-        if (url.startsWith("http://") || url.startsWith("https://")) url else "http://$url"
 
     override fun getServerUrl(): String = ServiceLocator.serverBase
 

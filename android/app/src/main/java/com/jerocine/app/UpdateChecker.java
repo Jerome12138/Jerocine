@@ -1,7 +1,6 @@
 package com.jerocine.app;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -10,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 
 import com.jerocine.player.ui.GlassToast;
+import com.jerocine.player.ui.JcDialog;
 
 import androidx.core.content.FileProvider;
 
@@ -36,7 +36,7 @@ import okhttp3.Response;
  *      未登录 = 不带 header → 后端按 stable 返)
  *   2) 比较 remoteCode vs BuildConfig.VERSION_CODE
  *   3) remote <= 本地: userTriggered 提示"已是最新版", 否则静默
- *   4) remote > 本地: 弹 AlertDialog
+ *   4) remote > 本地: 弹 JcDialog.message
  *        - force=true: 不能取消, 必须升 (取消按钮隐藏)
  *        - 否则: "暂不更新" 记 ignored_version 不再打扰直到下个版本
  *   5) "立即更新" → OkHttp 下载到 cache/updates/ → FileProvider 拿 content:// → ACTION_VIEW 启动安装器
@@ -182,19 +182,22 @@ public class UpdateChecker {
                 : changelog;
         if (force) msg = "[强制更新] " + msg;
 
-        AlertDialog.Builder b = new AlertDialog.Builder(activity, com.jerocine.player.R.style.JcPlayerDialog)
-                .setTitle(title)
-                .setMessage(msg)
-                .setCancelable(!force)
-                .setPositiveButton("立即更新", (d, w) -> downloadAndInstall(apkUrl, remoteName));
+        // 铁律: 弹窗一律走 JcDialog(三入口), 禁手写 AlertDialog。
+        // force = 不能取消(返回键也不行, cancelable(false)) + 省「暂不更新」;
+        // 非 force 点「暂不更新」记账 ignored_version, 本版本不再打扰。
+        JcDialog d = JcDialog.message(activity)
+                .title(title)
+                .message(msg)
+                .cancelable(!force)
+                .confirmButton("立即更新", () -> downloadAndInstall(apkUrl, remoteName));
         if (!force) {
-            b.setNegativeButton("暂不更新", (d, w) ->
+            d.cancelButton("暂不更新", () ->
                     activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                             .edit()
                             .putInt(KEY_IGNORED_VERSION, remoteCode)
                             .apply());
         }
-        b.show();
+        d.show();
     }
 
     private void downloadAndInstall(String apkUrl, String versionName) {

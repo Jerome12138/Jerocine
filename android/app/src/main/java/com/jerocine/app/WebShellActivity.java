@@ -6,9 +6,9 @@ import com.jerocine.player.data.ServerUrl;
 import com.jerocine.player.ui.BrandSplashView;
 import com.jerocine.player.ui.GlassToast;
 import com.jerocine.player.ui.JcDeviceDiagnostics;
+import com.jerocine.player.ui.JcServerUrlPrompt;
 import com.jerocine.player.ui.JcSettingsDrawer;
 
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.drawable.Drawable;
@@ -20,7 +20,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.InputType;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -33,7 +32,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -193,7 +191,7 @@ public class WebShellActivity extends BridgeActivity
 
     /** 暴露给 JerocineBridge 调用的"重置服务器地址" */
     public void promptServerUrlExposed() {
-        promptServerUrl(true);
+        promptServerUrl();
     }
 
     @Override
@@ -404,7 +402,7 @@ public class WebShellActivity extends BridgeActivity
             LinearLayout.LayoutParams setLp = new LinearLayout.LayoutParams(dp(240), dp(54));
             setLp.topMargin = dp(14);
             col.addView(settings, setLp);
-            settings.setOnClickListener(v -> promptServerUrl(true));
+            settings.setOnClickListener(v -> promptServerUrl());
 
             root.addView(offlineOverlay, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -425,48 +423,17 @@ public class WebShellActivity extends BridgeActivity
         if (offlineOverlay != null) offlineOverlay.setVisibility(View.GONE);
     }
 
-    /** 弹输入框. isReset=true 时初始填上当前已存的 URL, 方便修改 */
-    private void promptServerUrl(boolean isReset) {
-        final EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        input.setHint("http://server-ip 或 https://domain");
-        // 玻璃暗色弹窗里 EditText 用浅色文字/提示, 光标/下划线走强调青
-        input.setTextColor(col(com.jerocine.player.R.color.jc_text));
-        input.setHintTextColor(col(com.jerocine.player.R.color.jc_text_tertiary));
-        int inPad = dp(8);
-        LinearLayout inWrap = new LinearLayout(this);
-        inWrap.setOrientation(LinearLayout.VERTICAL);
-        inWrap.setPadding(dp(24), inPad, dp(24), 0);
-        inWrap.addView(input);
-        String existing = prefs().getString(KEY_SERVER_URL, "");
-        if (existing != null && !existing.isEmpty()) {
-            input.setText(existing);
-            input.setSelection(existing.length());
-        }
-
-        AlertDialog dlg = new AlertDialog.Builder(this, com.jerocine.player.R.style.JcPlayerDialog)
-                .setTitle(isReset ? "重置 Jerocine 站点地址" : "请输入 Jerocine 站点地址")
-                .setView(inWrap)
-                .setCancelable(false)
-                .setPositiveButton("确定", (d, w) -> {
-                    String url = input.getText().toString().trim();
-                    if (url.isEmpty()) {
-                        GlassToast.show(this, "地址不能为空");
-                        promptServerUrl(isReset);
-                        return;
-                    }
-                    if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                        url = "http://" + url;
-                    }
-                    prefs().edit().putString(KEY_SERVER_URL, url).apply();
-                    // P2.1 数据一致性: 后端地址也写进公共模块(→ TokenStore)。
-                    // 单包内两个壳必须收敛到同一个地址, 否则切壳模式后会连到不同后端
-                    // (web 壳读 jerocine_prefs/server_url, 原生壳读 TokenStore.server)。
-                    com.jerocine.tv.data.ServiceLocator.setServer(url);
-                    loadServer(url);
-                })
-                .create();
-        dlg.show();
+    /** 弹站点地址输入框 —— 弹窗与归一化下沉在 core 的 JcServerUrlPrompt(两壳同一份),
+     *  本壳只保留保存回调: 写 prefs + 镜像 ServiceLocator + 重新加载。 */
+    private void promptServerUrl() {
+        JcServerUrlPrompt.show(this, prefs().getString(KEY_SERVER_URL, ""), url -> {
+            prefs().edit().putString(KEY_SERVER_URL, url).apply();
+            // P2.1 数据一致性: 后端地址也写进公共模块(→ TokenStore)。
+            // 单包内两个壳必须收敛到同一个地址, 否则切壳模式后会连到不同后端
+            // (web 壳读 jerocine_prefs/server_url, 原生壳读 TokenStore.server)。
+            com.jerocine.tv.data.ServiceLocator.setServer(url);
+            loadServer(url);
+        });
     }
 
     // ======================== Native 设置侧边栏 (按 MENU 唤出) ========================
@@ -495,7 +462,7 @@ public class WebShellActivity extends BridgeActivity
     @Override public void onExitApp() { finishAffinity(); }
     @Override public void onCheckUpdate() { checkUpdateExposed(); }
     @Override public void onDeviceDiagnostics() { JcDeviceDiagnostics.show(this); }
-    @Override public void onServerUrlEdit() { promptServerUrl(true); }
+    @Override public void onServerUrlEdit() { promptServerUrl(); }
     @Override public String getServerUrl() {
         return prefs().getString(KEY_SERVER_URL, "");
     }
@@ -580,20 +547,6 @@ public class WebShellActivity extends BridgeActivity
         String next = SettingsDrawerLogic.nextDisplayMode(currentDisplayMode);
         applyViewMode(next);
         GlassToast.show(this, SettingsDrawerLogic.displayModeToast(next));
-    }
-
-    /** 账号行动作: 未登录 → web 的登录页(redirect 回当前页); 已登录 → web 的退出流程 */
-    private void onAccountActionClick() {
-        if (webViewRef == null) return;
-        if (accountLoggedIn) {
-            evalJs("window.__jcAuth && window.__jcAuth.logout();");
-            GlassToast.show(this, "已退出登录");
-            // web 端 logout 是异步(后端注销 + 清 token): 延迟重查一次刷行内文案
-            new Handler(Looper.getMainLooper()).postDelayed(this::refreshAccountRow, 800);
-        } else {
-            evalJs("window.__jcAuth && window.__jcAuth.login();");
-            hideSettingsDrawer(); // 登录是页面导航(登录完 redirect 回来), 抽屉没必要留着
-        }
     }
 
     /**
@@ -696,41 +649,6 @@ public class WebShellActivity extends BridgeActivity
                         + "catch(e){return false}})();",
                 null);
         hideSettingsDrawer();
-    }
-
-    /** 抓 WebView 实际宽 + 屏幕宽 + data-mode + 滚动宽 — 帮排查"页面太宽"是哪一层的事 */
-    private void showDiagToast() {
-        if (webViewRef == null) {
-            GlassToast.show(this, "WebView 未就绪", Toast.LENGTH_LONG);
-            return;
-        }
-        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        final String prefix = "屏: " + dm.widthPixels + "x" + dm.heightPixels
-                + " density=" + dm.density
-                + "\nWebView: " + webViewRef.getWidth() + "x" + webViewRef.getHeight();
-        webViewRef.evaluateJavascript(
-                "(function(){try{return JSON.stringify({" +
-                        "innerW:window.innerWidth," +
-                        "innerH:window.innerHeight," +
-                        "docW:document.documentElement.scrollWidth," +
-                        "docH:document.documentElement.scrollHeight," +
-                        "dpr:window.devicePixelRatio," +
-                        "mode:document.documentElement.getAttribute('data-mode')," +
-                        "ua:navigator.userAgent.slice(0,80)" +
-                        "})}catch(e){return JSON.stringify({err:String(e)})}})()",
-                value -> {
-                    String stripped = value == null ? "null"
-                            : value.replaceAll("^\"|\"$", "").replace("\\\"", "\"");
-                    final String msg = prefix + "\nweb: " + stripped;
-                    runOnUiThread(() -> {
-                        new AlertDialog.Builder(this, com.jerocine.player.R.style.JcPlayerDialog)
-                                .setTitle("诊断")
-                                .setMessage(msg)
-                                .setPositiveButton("OK", null)
-                                .show();
-                    });
-                }
-        );
     }
 
     /** 打开原生设置抽屉 — 供 MENU 键(dispatchKeyEvent) 与 JerocineBridge 的

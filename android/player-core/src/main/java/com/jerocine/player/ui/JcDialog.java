@@ -58,6 +58,8 @@ public final class JcDialog {
     private CharSequence positiveText;
     private Runnable positiveAction;
     private CharSequence negativeText;
+    private Runnable negativeAction;
+    private boolean cancelable = true;
 
     private JcDialog(Context ctx, int slot) {
         this.ctx = ctx;
@@ -158,7 +160,22 @@ public final class JcDialog {
     }
 
     public JcDialog cancelButton(CharSequence text) {
+        return cancelButton(text, null);
+    }
+
+    /** 负向按钮: 自定义文案 + 动作(先执行动作再关闭)。 */
+    public JcDialog cancelButton(CharSequence text, Runnable action) {
         this.negativeText = text != null ? text : "取消";
+        this.negativeAction = action;
+        return this;
+    }
+
+    /**
+     * 返回键/点外部是否可关闭(默认 true, 即 AlertDialog 原生语义)。
+     * 「强制更新」等必须让用户点正向按钮的场景用 {@code cancelable(false)}。
+     */
+    public JcDialog cancelable(boolean v) {
+        this.cancelable = v;
         return this;
     }
 
@@ -225,6 +242,7 @@ public final class JcDialog {
         }
 
         dialog.setView(frame);
+        dialog.setCancelable(cancelable);
         dialog.show();
         capHeight(dialog);
         return dialog;
@@ -289,7 +307,10 @@ public final class JcDialog {
         }
         if (negativeText != null) {
             neg.setText(negativeText);
-            neg.setOnClickListener(v -> dialog.dismiss());
+            neg.setOnClickListener(v -> {
+                if (negativeAction != null) negativeAction.run();
+                dialog.dismiss();
+            });
         } else {
             neg.setVisibility(View.GONE);
         }
