@@ -64,3 +64,13 @@ refactor(android): core 下沉                ← C4
 refactor(android): 令牌补齐                 ← C5
 fix(web)/fix(android): 第N轮评审修复         ← 逐轮(如需)
 ```
+
+## 门禁凭据补录（R3 评审 F1）
+
+> 背景：C1(6129a9f)/C5(d0b91ed) 提交信息正文漏记门禁、R1 修复 a903116 改 android 代码亦无凭据行。以下为 2026-11-05 于 HEAD 补跑；佐证口径：`git diff daec1ff..HEAD --stat -- web` 与 `git diff d0b91ed..HEAD --stat -- android` 均为空——web 代码自 C2、android 代码自 C5 起零改动，故补跑结论即当时代码的门禁结论（C2/C3/C4 当次凭据已在各自提交信息正文）。规格 §3 所写 `node <pnpm.cjs>` 为占位符，仓库无 pnpm.cjs，实际用全局 pnpm 等价执行。
+
+| 条目号 | 命令 | 结果 |
+|---|---|---|
+| C1-6 web 门禁 | `pnpm run test` / `pnpm run type-check`（在 web/ 下） | vitest **138 文件 1396 例全绿**（178s）；vue-tsc 零错误退出；与 C2 daec1ff 提交信息所载当次计数（138/1396+vue-tsc）一致 |
+| C5-2 三模块单测 | `bash android/gradlew -p android :player-core:test :tvshell:test :app:testDebugUnitTest` | **BUILD SUCCESSFUL**；:player-core **276** / :tvshell **72** / :app **39**，failures=0 |
+| R1 修复 a903116 当次实跑补录 | 同上三模块命令（2026-11-05 06:52 对改动后代码实际执行，非补跑） | BUILD SUCCESSFUL；测试结果 XML（player-core 34 类/tvshell 25 类/app 4 类）合计 276/72/39 例零失败；此后重跑任务 UP-TO-DATE 证 android 代码未再变 |
