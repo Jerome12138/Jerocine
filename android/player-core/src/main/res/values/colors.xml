@@ -45,6 +45,9 @@
     <!-- 品牌青 半透明 (焦点底/进度缓冲) -->
     <color name="jc_accent_dim">#334AD1E5</color>
     <color name="jc_accent_press">#554AD1E5</color>
+    <!-- 跳过设置 stepper 按钮按下态深青(jc_step_btn_bg.xml pressed; 与 jc_accent_press 不同物,
+         组件化二期 A6 由散写 hex 收敛而来, 值不变) -->
+    <color name="jc_step_btn_press">#FF2BB8CC</color>
     <!-- ===== 开关 (设置抽屉里切换控件的轨道/圆点) ===== -->
     <!-- 关闭态轨道底 (比 jc_stroke 稍亮, 让"关"也看得见) -->
     <color name="jc_track_off">#33FFFFFF</color>

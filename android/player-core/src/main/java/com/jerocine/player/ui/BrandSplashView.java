@@ -38,9 +38,11 @@ public class BrandSplashView extends FrameLayout {
     /** 淡出时长(方案 §7.3) */
     static final long FADE_OUT_MS = 200L;
 
-    private static final int JC_BG = 0xFF0B0B0F;      // 与站点根背景一致
-    private static final int JC_TEXT = 0x99FFFFFF;    // 品牌名: 白 60%
-    private static final int JC_ACCENT = 0xFF4AD1E5;  // 呼吸点: 强调青
+    // 背景与强调青收敛到 colors.xml 令牌(值不变): 存资源 id, 使用处经 JcUi.col 解析
+    private static final int JC_BG = R.color.jc_bg;         // 与站点根背景一致(#0B0B0F)
+    private static final int JC_TEXT = 0x99FFFFFF;          // 品牌名: 白 60% —— 无对应令牌
+    // (jc_text_secondary #B3FFFFFF / jc_text_tertiary #80FFFFFF 均不等值), 字面量刻意保留
+    private static final int JC_ACCENT = R.color.jc_accent; // 呼吸点: 强调青(#FF4AD1E5)
 
     private boolean hidden = false;
 
@@ -55,7 +57,7 @@ public class BrandSplashView extends FrameLayout {
     }
 
     private void build() {
-        setBackgroundColor(JC_BG);
+        setBackgroundColor(JcUi.col(getContext(), JC_BG));
         // 不拦截任何输入: 不可聚焦 ⇒ 不参与焦点/D-pad 分发; 不可点 ⇒ 不吃触摸
         setFocusable(false);
         setFocusableInTouchMode(false);
@@ -105,7 +107,7 @@ public class BrandSplashView extends FrameLayout {
             View dot = new View(getContext());
             GradientDrawable bg = new GradientDrawable();
             bg.setShape(GradientDrawable.OVAL);
-            bg.setColor(JC_ACCENT);
+            bg.setColor(JcUi.col(getContext(), JC_ACCENT));
             dot.setBackground(bg);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dotSize, dotSize);
             lp.leftMargin = dp(4);

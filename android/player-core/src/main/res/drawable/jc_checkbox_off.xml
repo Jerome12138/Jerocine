@@ -3,6 +3,8 @@
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="11dp" />
+    <!-- #66FFFFFF 刻意字面量保留: 无对应令牌(jc_stroke #22 / jc_stroke_faint #14 /
+         jc_progress_buffered #55 均不等值), 值不变 -->
     <stroke android:width="2dp" android:color="#66FFFFFF" />
     <size android:width="22dp" android:height="22dp" />
 </shape>

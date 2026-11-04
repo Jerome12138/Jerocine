@@ -27,6 +27,7 @@ import androidx.media3.exoplayer.offline.DownloaderFactory;
 import androidx.media3.exoplayer.hls.offline.HlsDownloader;
 import com.jerocine.player.M3u8FilterCore;
 import com.jerocine.player.PlayerUrls;
+import com.jerocine.player.ui.GlassToast;
 
 
 import java.io.File;
@@ -476,8 +477,8 @@ public final class DownloadEngine {
     private void showLowStorageToastOnce() {
         if (lowStorageToastShown) return;
         lowStorageToastShown = true;
-        mainHandler.post(() -> Toast.makeText(appContext,
-                DownloadStorageGate.toastText(), Toast.LENGTH_LONG).show());
+        mainHandler.post(() -> GlassToast.show(appContext,
+                DownloadStorageGate.toastText(), Toast.LENGTH_LONG));
     }
 
     /** 保存 listener 引用 — release 时按实例移除(removeListener(null) 语义不明确, 避免). */

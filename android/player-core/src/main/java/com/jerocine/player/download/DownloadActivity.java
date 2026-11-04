@@ -26,6 +26,7 @@ import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerActivity;
 import com.jerocine.player.PlayerSession;
 import com.jerocine.player.R;
+import com.jerocine.player.ui.GlassToast;
 import com.jerocine.player.ui.JcUi;
 
 import org.json.JSONArray;
@@ -1744,7 +1745,7 @@ public class DownloadActivity extends AppCompatActivity {
     }
 
     private void toast(String msg) {
-        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show();
+        GlassToast.show(this, msg);
     }
 
     /** 运行时权限申请码(仅用于日志/回调区分)。 */

@@ -12,4 +12,6 @@
     <dimen name="jc_settings_drawer_width">400dp</dimen>
     <!-- 设置抽屉行高 (D-pad 焦点友好) -->
     <dimen name="jc_settings_row_height">56dp</dimen>
+    <!-- GlassToast 底部偏移 (居中靠下: 避开全面屏手势区, 又不挡正中内容; 值不变收敛自散写 96dp) -->
+    <dimen name="jc_toast_bottom_offset">96dp</dimen>
 </resources>

@@ -232,13 +232,13 @@ public class PlayerDialogHelper {
         sw.setText(skipLabel);
         sw.setChecked(session.skipEnabled);
         sw.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
-        sw.setTextColor(0xFFFFFFFF);
+        sw.setTextColor(com.jerocine.player.ui.JcUi.col(ctx(), R.color.jc_text));
         ll.addView(sw);
 
         final TextView introValue = new TextView(ctx());
         final TextView outroValue = new TextView(ctx());
-        introValue.setTextColor(0xFFFFFFFF);
-        outroValue.setTextColor(0xFFFFFFFF);
+        introValue.setTextColor(com.jerocine.player.ui.JcUi.col(ctx(), R.color.jc_text));
+        outroValue.setTextColor(com.jerocine.player.ui.JcUi.col(ctx(), R.color.jc_text));
         // 操作即时生效: stepper 直接改 session 的 skip 值, 无需"保存"
         final LinearLayout introRow = makeStepperRow(pad, -60, -10, 10, 60, delta -> {
             session.skipIntroMs = Math.max(0, session.skipIntroMs + delta * 1000L);

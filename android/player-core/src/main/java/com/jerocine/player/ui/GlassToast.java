@@ -64,8 +64,10 @@ public final class GlassToast {
         toast.setDuration(duration == Toast.LENGTH_LONG ? Toast.LENGTH_LONG : Toast.LENGTH_SHORT);
         toast.setView(view);
         // 居中靠下: 比默认底部略上, 避开全面屏手势区, 又不挡正中内容.
+        // 偏移量收归 dimens 令牌(值不变: 96dp, 原散写 (int)(96*density) 与 getDimension 同为
+        // 96*density 的同精度浮点乘法, 截断一致).
         toast.setGravity(Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM, 0,
-                (int) (96 * ctx.getResources().getDisplayMetrics().density));
+                JcUi.dimenPx(ctx, R.dimen.jc_toast_bottom_offset));
         toast.show();
     }
 }
