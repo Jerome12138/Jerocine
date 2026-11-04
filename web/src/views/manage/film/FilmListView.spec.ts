@@ -209,7 +209,9 @@ describe('FilmListView 影片管理', () => {
     await panel.findAll('button').find((b) => b.text() === '确定')!.trigger('click')
     await flushPromises()
     const last = h.searchList.mock.calls.at(-1)[0]
-    expect(last.catIds).toBe('2')
+    // D⑩ 祖先归一: 科幻(2)是「电影(1)」的唯一子级且被全勾 → 补齐父 id 1,
+    // 直挂"电影"的影片(pid=0,cid=1)不再漏(部分勾选的祖先则不补, 见 catFilter.spec)
+    expect(last.catIds).toBe('2,1')
     // 弹层关闭
     expect(w.find('div.top-full').exists()).toBe(false)
   })

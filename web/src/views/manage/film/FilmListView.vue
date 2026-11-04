@@ -17,6 +17,7 @@ import BaseTag from '@/components/base/BaseTag.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import FilmCollectDialog from './FilmCollectDialog.vue'
 import FilmManualAddDialog from './FilmManualAddDialog.vue'
+import { normalizeCatIds } from './catFilter'
 import { toast } from '@/api/http'
 import { usePagedList } from '@/composables/usePagedList'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -116,8 +117,11 @@ function applyCatFilter(): void {
     params.name = ''
     toast('info', '分类筛选与关键词搜索互斥，已清空关键词')
   }
-  // 用 pending 态把"当前勾选"同步为"已应用", 并重新加载
-  appliedCatIds.value = new Set(selectedCatIds.value)
+  // 用 pending 态把"当前勾选"经祖先归一同步为"已应用", 并重新加载。
+  // 祖先归一(规格 D⑩): 服务端 (pid IN OR cid IN) 只做精确成员匹配 —— 勾顶级传顶级 id
+  // 命中全部子分类+直挂影片; 子级全勾时补齐父 id, 否则直挂父级的影片(pid=0,cid=父id)必漏;
+  // 部分勾选的祖先不反推补入, 防止 pid IN (父id) 把未勾兄弟子分类影片一并过匹配。
+  appliedCatIds.value = normalizeCatIds(selectedCatIds.value, categoryTree.value)
   paged.search()
 }
 
