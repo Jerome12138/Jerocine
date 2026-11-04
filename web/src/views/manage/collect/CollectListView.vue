@@ -643,6 +643,7 @@ onMounted(() => {
             v-model="spiderHours"
             :options="HOURS_OPTIONS"
             aria-label="采集时长"
+            size="sm"
           />
         </div>
         <ManageButton variant="ghost" size="sm" :loading="testingAll" @click="runApiTestAll">

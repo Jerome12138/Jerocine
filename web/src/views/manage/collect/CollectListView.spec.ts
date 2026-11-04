@@ -139,20 +139,19 @@ describe('CollectListView 采集源列表', () => {
     w.unmount()
   })
 
-  it('工具栏与表单下拉均为 ManageSelect: 同族 class + aria-label + data-focusable', async () => {
+  it('工具栏与表单下拉均为 ManageSelect: aria-label + data-focusable(行为口径)', async () => {
     const w = await mountView()
-    // 打开新增弹窗后: 工具栏采集时长 + 弹窗内返回类型/站点等级/资源类型 共 4 个
+    // 打开新增弹窗后: 工具栏采集时长 + 弹窗内返回类型/站点等级/资源类型 共 4 个触发钮
     await btn(w, '新增')!.trigger('click')
     await flushPromises()
-    const selects = w.findAll('select')
-    expect(selects.length).toBeGreaterThanOrEqual(4)
-    for (const s of selects) {
-      const cls = s.classes()
-      expect(cls).toContain('bg-elevated')
-      expect(cls).toContain('min-h-[var(--jc-ctrl-h)]')
-      expect(s.attributes('data-focusable')).toBe('true')
+    const triggers = w.findAll('button[aria-haspopup="listbox"]')
+    expect(triggers.length).toBeGreaterThanOrEqual(4)
+    for (const t of triggers) {
+      expect(t.attributes('data-focusable')).toBe('true')
+      expect(t.attributes('aria-label')).toBeTruthy()
     }
-    expect(selects[0]!.attributes('aria-label')).toBe('采集时长')
+    // DOM 序第一个 = 工具栏采集时长
+    expect(triggers[0]!.attributes('aria-label')).toBe('采集时长')
     w.unmount()
   })
 
@@ -361,10 +360,13 @@ describe('CollectListView 表单校验', () => {
     const w = await mountView()
     const slaveRow = w.findAll('tbody tr').find((tr) => tr.text().includes('源A'))!
     await slaveRow.findAll('button').find((b) => b.text().trim() === '编辑')!.trigger('click')
-    // select 顺序: 采集时长(工具栏) / 返回类型 / 站点等级 / 资源类型
-    const selects = w.findAll('select').filter((s) => s.isVisible())
-    const gradeSelect = selects[2]
-    await gradeSelect.setValue('0')
+    // ManageSelect v2 交互: 站点等级切「主站」(value 0, 原类型)
+    const gradeTrigger = w.findAll('button[aria-haspopup="listbox"]').find(
+      (b) => b.attributes('aria-label') === '站点等级'
+    )
+    expect(gradeTrigger, '站点等级下拉应存在').toBeTruthy()
+    await gradeTrigger!.trigger('click')
+    await w.findAll('[role="option"]').find((o) => o.text().includes('主站'))!.trigger('click')
     h.confirm.mockResolvedValue(false)
     await btn(w, '保存')!.trigger('click')
     await flushPromises()

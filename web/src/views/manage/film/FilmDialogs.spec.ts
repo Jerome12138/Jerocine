@@ -266,13 +266,13 @@ describe('FilmManualAddDialog 手动新增', () => {
 
   it('顶级分类下拉换 ManageSelect: 数字 value 按原类型回传并进 payload', async () => {
     const w = await mountManual()
-    const sel = w.findComponent(ManageSelect)
-    expect(sel.exists()).toBe(true)
-    const optionTexts = sel.findAll('option').map((o) => o.text())
-    expect(optionTexts).toContain('请选择')
-    expect(optionTexts).toContain('电影')
+    expect(w.findComponent(ManageSelect).exists()).toBe(true)
+    // v2 自绘浮层: 未选中 → 触发钮显示 placeholder「请选择」; 选项含「电影」
+    const trigger = w.find('button[aria-haspopup="listbox"]')
+    expect(trigger.text()).toBe('请选择')
+    await trigger.trigger('click')
+    await w.findAll('[role="option"]').find((o) => o.text() === '电影')!.trigger('click')
     await w.find('input').setValue('手动建的片')
-    await sel.find('select').setValue('1')
     await w.find('form').trigger('submit')
     await flushPromises()
     const payload = h.add.mock.calls[0][0] as FilmAddPayload

@@ -85,6 +85,16 @@ function inputByPlaceholder(w: ReturnType<typeof mount>, ph: string) {
   return w.findAll('input').find((i) => i.attributes('placeholder') === ph)
 }
 
+/** ManageSelect v2(自绘浮层)交互辅助: 按 aria-label 打开浮层并点选指定文案的选项(行为断言口径) */
+async function pickSelect(w: ReturnType<typeof mount>, ariaLabel: string, optionLabel: string) {
+  const trig = w.findAll('button[aria-haspopup="listbox"]').find((b) => b.attributes('aria-label') === ariaLabel)
+  if (!trig) throw new Error(`未找到下拉触发钮: ${ariaLabel}`)
+  await trig.trigger('click')
+  const opt = w.findAll('[role="option"]').find((o) => o.text().includes(optionLabel))
+  if (!opt) throw new Error(`未找到选项: ${optionLabel}`)
+  await opt.trigger('click')
+}
+
 describe('CronListView 定时任务列表', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -302,15 +312,16 @@ describe('CronListView 表单校验', () => {
     w.unmount()
   })
 
-  it('任务类型下拉 ManageSelect 化: aria-label + 同族 class + data-focusable', async () => {
+  it('任务类型下拉 ManageSelect 化: aria-label + data-focusable + 数字 value 原类型联动', async () => {
     const w = await mountView()
     await openAdd(w)
-    const modelSelect = w.findAll('select').find((s) => s.isVisible())!
-    expect(modelSelect.attributes('aria-label')).toBe('任务类型')
-    expect(modelSelect.classes()).toContain('min-h-[var(--jc-ctrl-h)]')
-    expect(modelSelect.attributes('data-focusable')).toBe('true')
+    const modelTrigger = w.findAll('button[aria-haspopup="listbox"]').find(
+      (b) => b.attributes('aria-label') === '任务类型'
+    )
+    expect(modelTrigger, '任务类型应为 ManageSelect 触发钮').toBeTruthy()
+    expect(modelTrigger!.attributes('data-focusable')).toBe('true')
     // 数字 option 原类型 emit → model=1 联动显示资源站列表
-    await modelSelect.setValue('1')
+    await pickSelect(w, '任务类型', '仅更新所选资源站')
     await flushPromises()
     expect(w.text()).toContain('资源站列表')
     w.unmount()
@@ -333,8 +344,9 @@ describe('CronListView 表单校验', () => {
     const w = await mountView()
     await openAdd(w)
     await fill(w)
-    const modelSelect = w.findAll('select').find((s) => s.isVisible())!
-    await modelSelect.setValue('1')
+    const modelSelect = w.findAll('select').find((s) => s.isVisible())
+    expect(modelSelect).toBeUndefined() // v2: 自绘浮层, 页面无裸 <select>
+    await pickSelect(w, '任务类型', '仅更新所选资源站')
     await flushPromises()
     await btn(w, '保存')!.trigger('click')
     await flushPromises()

@@ -126,6 +126,7 @@ onMounted(load)
             <ManageInput
               v-model="keyword"
               placeholder="用户名 / 用户 ID / IP"
+              size="sm"
               @keydown.enter="load"
             />
           </div>

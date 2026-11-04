@@ -594,3 +594,15 @@ html[data-mode="tv"] body::-webkit-scrollbar {
     --jc-tv-quick-size: 84px;/* clamp(72px, 8vw, 120px) 中位偏下 */
   }
 }
+
+/* ============================================================
+ * 全局隐藏 number input 原生 spinner（规格 §3.6/D⑥）
+ * 管理端数字字段（采集间隔/端口/年份等）以键盘输入为准, 原生上下小箭头
+ * 与控件高度档不协调且暴露浏览器默认观感; -webkit-appearance 在
+ * chrome61 可用（项目 legacy 内核基线）。
+ * ============================================================ */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

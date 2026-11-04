@@ -6,6 +6,7 @@ import type { FilmClass, ManageFilmRow, ManageFilmStatus } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import type { Column } from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import ManageCascader from '@/components/manage/ManageCascader.vue'
@@ -43,11 +44,10 @@ const SORT_OPTIONS: SortOption[] = [
   { value: 'score', label: '评分', icon: 'star' }
 ]
 const sort = ref<string>('hot')
-const sortOpen = ref(false)
-const sortRef = ref<HTMLElement | null>(null)
-const currentSort = computed<SortOption>(
-  () => SORT_OPTIONS.find((o) => o.value === sort.value) ?? SORT_OPTIONS[0]!
-)
+/** 排序图标: ManageSelect 槽位拿到的 option/selected 是 SelectOption 类型, 按 value 查回 icon */
+function sortIconOf(v: string | number | undefined): string {
+  return SORT_OPTIONS.find((o) => String(o.value) === String(v))?.icon ?? 'fire'
+}
 
 // 分类多选: id → checked; 点击确定后才应用筛选, pending 为中间态
 const selectedCatIds = ref<Set<number>>(new Set())
@@ -151,12 +151,6 @@ function setSort(next: string | number): void {
   paged.search()
 }
 
-/** 热度下拉菜单选择排序项(与分类筛选同款按钮 + 菜单) */
-function pickSort(v: string): void {
-  sortOpen.value = false
-  setSort(v)
-}
-
 function viewDetail(row: ManageFilmRow): void {
   const idStr = String(row.mid ?? '').trim()
   if (!idStr) return
@@ -194,13 +188,11 @@ function restoreFilm(row: ManageFilmRow): void {
   })
 }
 
-// 分类筛选弹层 / 热度菜单: 点击外部 / ESC 关闭(此前只能靠再点按钮或「确定」, 弹层会驻留遮挡)
-// 内联 onClickOutside + keydown 监听已下沉 useDismiss(规格 §3.1), 两个浮层各一份, 行为不变
+// 分类筛选弹层: 点击外部 / ESC 关闭(此前只能靠再点按钮或「确定」, 弹层会驻留遮挡)
+// 内联 onClickOutside + keydown 监听已下沉 useDismiss(规格 §3.1); 热度排序并入
+// ManageSelect v2 后其外点/ESC 由组件内部的 useDismiss 接管, 页面不再自管
 useDismiss(catFilterRef, treePopperOpen, () => {
   treePopperOpen.value = false
-})
-useDismiss(sortRef, sortOpen, () => {
-  sortOpen.value = false
 })
 
 onMounted(() => {
@@ -284,35 +276,33 @@ onMounted(() => {
               </div>
             </div>
           </div>
-          <!-- 热度(排序): 与分类筛选同款按钮 + 下拉菜单; server allowedSort 白名单 -->
-          <div ref="sortRef" class="relative">
-            <ManageButton variant="ghost" size="sm" aria-label="排序方式" @click="sortOpen = !sortOpen">
-              <BaseIcon :name="currentSort.icon" size="16px" class="mr-1" />
-              {{ currentSort.label }}
-              <BaseIcon name="chevron-down" size="14px" class="ml-1" />
-            </ManageButton>
-            <div
-              v-if="sortOpen"
-              class="absolute z-50 top-full left-0 mt-1 bg-surface border border-subtle rounded-lg shadow-lg py-1 min-w-[140px]"
-              @click.stop
+          <!-- 热度(排序): 手写下拉浮层已并入 ManageSelect v2(规格 D⑤, 消灭最后一处手写浮层);
+               trigger 槽 = icon+label+chevron, option 槽 = icon+label; server allowedSort 白名单 -->
+          <div class="w-[140px]">
+            <ManageSelect
+              :model-value="sort"
+              :options="SORT_OPTIONS"
+              aria-label="排序方式"
+              size="sm"
+              @update:model-value="setSort"
             >
-              <button
-                v-for="opt in SORT_OPTIONS"
-                :key="opt.value"
-                type="button"
-                class="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-[rgba(255,255,255,0.06)]"
-                :class="{ 'text-brand-purple': sort === opt.value }"
-                @click="pickSort(opt.value)"
-              >
-                <BaseIcon :name="opt.icon" size="14px" /> {{ opt.label }}
-              </button>
-            </div>
+              <template #trigger="{ selected }">
+                <BaseIcon :name="sortIconOf(selected?.value)" size="16px" class="shrink-0" />
+                <span class="truncate">{{ selected?.label ?? '热度' }}</span>
+                <BaseIcon name="chevron-down" size="14px" class="shrink-0 text-secondary" />
+              </template>
+              <template #option="{ option }">
+                <span class="flex items-center gap-[var(--jc-space-2)]">
+                  <BaseIcon :name="sortIconOf(option.value)" size="14px" /> {{ option.label }}
+                </span>
+              </template>
+            </ManageSelect>
           </div>
         </div>
         <!-- 右侧: 搜索 + 新增 -->
         <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
           <div class="flex gap-[var(--jc-space-2)] flex-1 min-w-0">
-            <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
+            <ManageInput v-model="params.name" placeholder="影片名关键字" size="sm" @keydown.enter="search" />
             <ManageButton variant="gradient" size="sm" @click="search">
               <BaseIcon name="search" size="16px" /> 搜索
             </ManageButton>

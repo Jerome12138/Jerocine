@@ -224,8 +224,9 @@ describe('RegisterApplyListView 筛选与错误分支', () => {
     w.findComponent(ManageTable).vm.$emit('update:current', 2)
     await flushPromises()
     expect(h.list).toHaveBeenLastCalledWith({ keyword: '', status: -1, page: 2, size: 20 })
-    // 切状态 → 回第 1 页 + 新 status(数字 value 原类型)
-    await w.find('select').setValue('0')
+    // 切状态 → 回第 1 页 + 新 status(数字 value 原类型; ManageSelect v2: 打开浮层点选「待审」)
+    await w.find('button[aria-haspopup="listbox"]').trigger('click')
+    await w.findAll('[role="option"]').find((o) => o.text().includes('待审'))!.trigger('click')
     await flushPromises()
     expect(h.list).toHaveBeenLastCalledWith({ keyword: '', status: 0, page: 1, size: 20 })
   })
@@ -340,7 +341,8 @@ describe('RegisterApplyListView 筛选与错误分支', () => {
       page: { current: 1, size: 20, total: 1 }
     }))
     const { w } = await mountAll()
-    await w.find('select').setValue('0')
+    await w.find('button[aria-haspopup="listbox"]').trigger('click')
+    await w.findAll('[role="option"]').find((o) => o.text().includes('待审'))!.trigger('click')
     await flushPromises()
     expect(w.text()).toContain('fresh')
 

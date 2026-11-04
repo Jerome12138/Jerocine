@@ -111,9 +111,15 @@ function btn(w: VueWrapper, text: string) {
   return found!
 }
 
-/** 页面上两个 select: [0]=时间窗(days), [1]=状态筛选(statusFilter) */
-function daysSelect(w: VueWrapper) { return w.findAll('select')[0] }
-function statusSelect(w: VueWrapper) { return w.findAll('select')[1] }
+/** ManageSelect v2(自绘浮层)交互辅助: 按 aria-label 打开浮层并点选指定文案的选项(行为断言口径) */
+async function pickSelect(w: VueWrapper, ariaLabel: string, optionLabel: string): Promise<void> {
+  const trig = w.findAll('button[aria-haspopup="listbox"]').find((b) => b.attributes('aria-label') === ariaLabel)
+  if (!trig) throw new Error(`未找到下拉触发钮: ${ariaLabel}`)
+  await trig.trigger('click')
+  const opt = w.findAll('[role="option"]').find((o) => o.text().includes(optionLabel))
+  if (!opt) throw new Error(`未找到选项: ${optionLabel}`)
+  await opt.trigger('click')
+}
 
 describe('TelemetryView 埋点监控看板(渲染)', () => {
   beforeEach(() => {
@@ -196,7 +202,7 @@ describe('TelemetryView 筛选联动', () => {
 
   it('切换时间窗: 5 个指标全部按新窗口重拉', async () => {
     const w = await mountView()
-    await daysSelect(w).setValue('30')
+    await pickSelect(w, '时间范围', '近 30 天')
     await flushPromises()
     expect(h.overview).toHaveBeenLastCalledWith(30)
     expect(h.listEvents).toHaveBeenLastCalledWith({ type: 'error', days: 30, limit: 100, offset: 0, status: 'active' })
@@ -205,7 +211,8 @@ describe('TelemetryView 筛选联动', () => {
 
   it('切换状态筛选: listEvents 带新 status 且 offset 重置', async () => {
     const w = await mountView()
-    await statusSelect(w).setValue('resolved')
+    // 「已重启」文案也含"解决"二字 → 用完整文案定位避免歧义
+    await pickSelect(w, '状态筛选', '已解决 (≤30天)')
     await flushPromises()
     expect(h.listEvents).toHaveBeenLastCalledWith({ type: 'error', days: 7, limit: 100, offset: 0, status: 'resolved' })
   })
@@ -219,7 +226,7 @@ describe('TelemetryView 筛选联动', () => {
     })
     await flushPromises()
     // 第一轮(listEvents 挂起)未完成时切时间窗 → 第二轮请求立即返回
-    await daysSelect(w).setValue('30')
+    await pickSelect(w, '时间范围', '近 30 天')
     await flushPromises()
     expect(w.text()).toContain('新数据')
     resolveOld({ total: 1, rows: [row({ id: 9, label: '旧数据' })] })

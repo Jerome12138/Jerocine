@@ -163,7 +163,7 @@ async function openReset(row: ManageUserRow): Promise<void> {
         <!-- 输入框单独给宽度: ManageInput 自身是 w-full, 直接放进 flex 会独占一行把按钮挤到下一行 -->
         <div class="flex flex-wrap items-center gap-[var(--jc-space-2)] sm:flex-nowrap">
           <div class="w-full sm:w-[220px]">
-            <ManageInput v-model="params.keyword" placeholder="用户名关键字" @keydown.enter="paged.search()" />
+            <ManageInput v-model="params.keyword" placeholder="用户名关键字" size="sm" @keydown.enter="paged.search()" />
           </div>
           <ManageButton variant="gradient" size="sm" @click="paged.search()">
             <BaseIcon name="search" size="16px" /> 搜索

@@ -70,3 +70,31 @@ describe('ManageInput', () => {
     expect(cls).toContain('min-h-[var(--jc-ctrl-h)]')
   })
 })
+
+describe('ManageInput size 档(规格 §3.6/D⑥, 与 ManageButton/ManageSelect 同构)', () => {
+  it('默认 default 档: --jc-ctrl-h/px/fs 令牌(现状不变)', () => {
+    const w = mount(ManageInput, { props: { modelValue: '' } })
+    const cls = w.find('input').classes()
+    expect(cls).toContain('min-h-[var(--jc-ctrl-h)]')
+    expect(cls).toContain('px-[var(--jc-ctrl-px)]')
+    expect(cls).toContain('text-[length:var(--jc-ctrl-fs)]')
+  })
+
+  it('size=sm: --jc-ctrl-*-sm 三档令牌(工具栏与 sm 按钮同高)', () => {
+    const w = mount(ManageInput, { props: { modelValue: '', size: 'sm' } })
+    const cls = w.find('input').classes()
+    expect(cls).toContain('min-h-[var(--jc-ctrl-h-sm)]')
+    expect(cls).toContain('px-[var(--jc-ctrl-px-sm)]')
+    expect(cls).toContain('text-[length:var(--jc-ctrl-fs-sm)]')
+    // 不再挂 default 档
+    expect(cls).not.toContain('min-h-[var(--jc-ctrl-h)]')
+  })
+
+  it('size=lg: --jc-ctrl-*-lg 三档令牌', () => {
+    const w = mount(ManageInput, { props: { modelValue: '', size: 'lg' } })
+    const cls = w.find('input').classes()
+    expect(cls).toContain('min-h-[var(--jc-ctrl-h-lg)]')
+    expect(cls).toContain('px-[var(--jc-ctrl-px-lg)]')
+    expect(cls).toContain('text-[length:var(--jc-ctrl-fs-lg)]')
+  })
+})

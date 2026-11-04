@@ -112,6 +112,17 @@ async function gotoTab(w: ReturnType<typeof mount>, label: string) {
   await flushPromises()
 }
 
+/** ManageSelect v2(自绘浮层)交互辅助: 按 aria-label 打开浮层并点选指定文案的选项(行为断言口径) */
+async function pickSelect(w: ReturnType<typeof mount>, ariaLabel: string, optionLabel: string) {
+  const trig = w.findAll('button[aria-haspopup="listbox"]').find((b) => b.attributes('aria-label') === ariaLabel)
+  if (!trig) throw new Error(`未找到下拉触发钮: ${ariaLabel}`)
+  await trig.trigger('click')
+  const opt = w.findAll('[role="option"]').find((o) => o.text().includes(optionLabel))
+  if (!opt) throw new Error(`未找到选项: ${optionLabel}`)
+  await opt.trigger('click')
+  await flushPromises()
+}
+
 describe('TaskManageView 任务管理', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -163,8 +174,8 @@ describe('TaskManageView 任务管理', () => {
     await gotoTab(w, '历史记录')
     expect(h.runs).toHaveBeenCalledWith({ status: undefined, type: undefined, page: 1, size: 20 })
 
-    // 筛选变更 → 页码重置为 1
-    await w.findAll('select')[0]!.setValue('failed')
+    // 筛选变更 → 页码重置为 1(ManageSelect v2: 打开浮层点选「失败」)
+    await pickSelect(w, '状态', '失败')
     expect(h.runs).toHaveBeenLastCalledWith({ status: 'failed', type: undefined, page: 1, size: 20 })
 
     // 翻到第 2 页 → 保留筛选
@@ -173,7 +184,7 @@ describe('TaskManageView 任务管理', () => {
     expect(h.runs).toHaveBeenLastCalledWith({ status: 'failed', type: undefined, page: 2, size: 20 })
 
     // 再改类型筛选 → 页码再次重置
-    await w.findAll('select')[1]!.setValue('collect')
+    await pickSelect(w, '类型', '采集')
     expect(h.runs).toHaveBeenLastCalledWith({ status: 'failed', type: 'collect', page: 1, size: 20 })
     w.unmount()
   })
@@ -272,11 +283,11 @@ describe('TaskManageView 任务管理', () => {
     for (const t of tabs) expect(t.attributes('data-focusable')).toBe('true')
 
     await gotoTab(w, '历史记录')
-    // 两处筛选下拉: data-focusable(TV 聚焦缺口修复) + aria-label
-    const selects = w.findAll('select')
-    expect(selects[0]!.attributes('data-focusable')).toBe('true')
-    expect(selects[0]!.attributes('aria-label')).toBe('状态')
-    expect(selects[1]!.attributes('aria-label')).toBe('类型')
+    // 两处筛选下拉(ManageSelect v2 触发钮): data-focusable(TV 聚焦缺口修复) + aria-label
+    const triggers = w.findAll('button[aria-haspopup="listbox"]')
+    expect(triggers[0]!.attributes('data-focusable')).toBe('true')
+    expect(triggers[0]!.attributes('aria-label')).toBe('状态')
+    expect(triggers[1]!.attributes('aria-label')).toBe('类型')
     // 内置分页: 表格 fit + footer 分页条
     expect(w.find('section').classes()).toContain('jc-table--fit')
     expect(w.find('footer').exists()).toBe(true)

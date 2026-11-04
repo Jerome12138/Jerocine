@@ -199,7 +199,8 @@ watch(statusFilter, () => void loadAll())
       <h1 class="text-2xl font-[var(--jc-fw-semibold)]">埋点监控</h1>
       <div class="flex items-center gap-[var(--jc-space-3)]">
         <div class="w-[120px] shrink-0">
-          <ManageSelect v-model="days" :options="DAYS_OPTIONS" aria-label="时间范围" />
+          <!-- size=sm: 与同行「刷新」按钮(--jc-ctrl-h-sm)同高(规格 §3.6/D⑥) -->
+          <ManageSelect v-model="days" :options="DAYS_OPTIONS" aria-label="时间范围" size="sm" />
         </div>
         <ManageButton variant="ghost" size="sm" :loading="loading" @click="loadAll()">
           <BaseIcon name="refresh" size="16px" /> 刷新

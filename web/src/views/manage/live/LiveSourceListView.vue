@@ -573,9 +573,10 @@ onMounted(async () => {
     <ManageSheet v-model="chOpen" :title="`频道管理 · ${chSource?.name ?? ''}`" width="1120px" mobile-mode="fullsheet">
       <div class="jc-chmgr">
         <div class="jc-chmgr__toolbar">
-          <ManageInput v-model="chSearch" placeholder="搜索频道名/分组/地址" class="jc-chmgr__search" />
+          <ManageInput v-model="chSearch" placeholder="搜索频道名/分组/地址" size="sm" class="jc-chmgr__search" />
           <div class="w-[150px] shrink-0">
-            <ManageSelect v-model="chFilterStatus" :options="CH_STATUS_OPTIONS" aria-label="状态筛选" />
+            <!-- size=sm: 与同行一排 outline sm 按钮同高(规格 §3.6/D⑥) -->
+            <ManageSelect v-model="chFilterStatus" :options="CH_STATUS_OPTIONS" aria-label="状态筛选" size="sm" />
           </div>
           <ManageButton variant="outline" size="sm" @click="openCustom">
             <BaseIcon name="plus" size="14px" />

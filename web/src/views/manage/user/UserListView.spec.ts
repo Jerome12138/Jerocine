@@ -402,7 +402,7 @@ describe('UserListView 编辑用户邮箱(函数化弹窗回填)', () => {
     expect(h.update).toHaveBeenCalledWith(9, 'bob', 0, '', SILENT)
   })
 
-  it('改自己的角色被前端拦截(select 锁定 + 提交检查)', async () => {
+  it('改自己的角色被前端拦截(ManageSelect 锁定 + 提交检查)', async () => {
     const { w, wh } = await mountAll()
     // mountAll 里已建 pinia, 登录态须在挂载后设置; 且要先于「编辑」点击(点击时页面把 selfId 传给弹窗)
     useUserStore().info = { id: 9 }
@@ -411,12 +411,12 @@ describe('UserListView 编辑用户邮箱(函数化弹窗回填)', () => {
     await flushPromises()
     const dlg = wh.findComponent(UserFormDialog)
     expect(dlg.exists()).toBe(true)
-    const select = dlg.find('select')
+    const sel = dlg.findComponent(ManageSelect)
+    expect(sel.exists(), '角色应为 ManageSelect').toBe(true)
     // 角色下拉对自己的行锁定
-    expect((select.element as HTMLSelectElement).disabled).toBe(true)
-    // 程序化解锁改值, 覆盖提交时的第二道拦截(正常 UI 改不动, 防御纵深)
-    ;(select.element as HTMLSelectElement).disabled = false
-    await select.setValue('1')
+    expect(sel.props('disabled')).toBe(true)
+    // 程序化 emit 改值, 覆盖提交时的第二道拦截(正常 UI 改不动, 防御纵深)
+    sel.vm.$emit('update:modelValue', 1)
     await dlg.find('form').trigger('submit')
     await flushPromises()
     expect(h.update).not.toHaveBeenCalled()

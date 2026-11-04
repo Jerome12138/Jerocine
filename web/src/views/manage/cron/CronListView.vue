@@ -257,6 +257,7 @@ onMounted(load)
         <ManageInput
           v-model="keyword"
           placeholder="搜索 ID / 表达式 / 备注"
+          size="sm"
           class="w-[180px]"
         />
         <ManageButton variant="ghost" size="sm" @click="load">
