@@ -7,6 +7,7 @@ import BaseTag from '@/components/base/BaseTag.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
+import SkeletonGrid from '@/components/base/SkeletonGrid.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
@@ -361,7 +362,9 @@ function handleToggleFavorite(): void {
     <template v-if="loading">
       <div class="jc-detail__hero jc-detail__hero--skeleton">
         <div class="jc-detail__hero-inner container-page">
-          <BaseSkeleton
+          <SkeletonGrid
+            layout="lines"
+            :count="1"
             shape="rect"
             width="100%"
             ratio="3/4"

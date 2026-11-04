@@ -59,9 +59,10 @@
 [data-mode="tv"] .jc-tv-card { display: block; text-decoration: none; color: var(--jc-text-primary); min-width: 0; }
 [data-mode="tv"] .jc-tv-card .poster { aspect-ratio: 3/4; border-radius: var(--jc-radius-md, 8px); border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); position: relative; overflow: hidden; background: var(--jc-bg-elevated); }
 [data-mode="tv"] .jc-tv-card .poster.h { aspect-ratio: 16/9; }
-/* 角标(集数/评分): badge 字号(11px) + 左右内边距 4px(上下 1px) —— 左右留白比上一版的 2px 舒展,
-   但仍比桌面的 5~6px 紧凑, 兼顾"不打架"与"不显空". */
-[data-mode="tv"] .jc-tv-card .ep { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: var(--jc-fs-badge); padding: 1px 4px; border-radius: 5px; background: var(--jc-brand-gradient); color: #fff; }
+/* 角标(评分): badge 字号(11px) + 左右内边距 4px(上下 1px) —— 左右留白比上一版的 2px 舒展,
+   但仍比桌面的 5~6px 紧凑, 兼顾"不打架"与"不显空".
+   (集数角标 .ep 的同位规则已随 W1d 删除: 全仓唯一渲染点在历史页 jc-tv-hcard 卡,
+   HistoryView 的 [data-mode='tv'] .jc-tv-hcard .ep 全属性覆盖本条, 删除零视觉差) */
 [data-mode="tv"] .jc-tv-card .score { position: absolute; top: 6px; right: 6px; z-index: 2; font-size: var(--jc-fs-badge); font-weight: 700; color: #ffc107; background: rgba(0,0,0,.72); padding: 1px 4px; border-radius: 5px; }
 [data-mode="tv"] .jc-tv-card .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 3; background: rgba(255,255,255,.25); }
 [data-mode="tv"] .jc-tv-card .pbar i { display: block; height: 100%; background: var(--jc-brand-gradient); }

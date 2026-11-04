@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import * as authApi from '@/api/auth'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BasePasswordField from '@/components/base/BasePasswordField.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import { useViewMode } from '@/composables/useViewMode'
 
@@ -94,31 +95,13 @@ onMounted(() => {
 
     <form v-if="token" class="flex flex-col gap-[var(--jc-space-4)]" @submit.prevent="handleReset">
       <ManageFormField label="新密码" required>
-        <div class="relative">
-          <BaseIcon
-            name="lock"
-            class="absolute left-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted"
-            size="18px"
-          />
-          <input
-            v-model="form.password"
-            :type="showPwd ? 'text' : 'password'"
-            maxlength="64"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-10)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
-            placeholder="新密码（至少 6 位）"
-            autocomplete="new-password"
-            data-focusable="true"
-          />
-          <button
-            type="button"
-            class="absolute right-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted hover:text-primary"
-            data-focusable="true"
-            aria-label="切换密码可见性"
-            @click="showPwd = !showPwd"
-          >
-            <BaseIcon :name="showPwd ? 'eye-off' : 'eye'" size="18px" />
-          </button>
-        </div>
+        <BasePasswordField
+          v-model="form.password"
+          v-model:visible="showPwd"
+          maxlength="64"
+          placeholder="新密码（至少 6 位）"
+          autocomplete="new-password"
+        />
       </ManageFormField>
 
       <ManageFormField label="确认新密码" required>

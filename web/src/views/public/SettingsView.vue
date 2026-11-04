@@ -10,6 +10,7 @@
 import { useWebSettings } from '@/composables/useWebSettings'
 import { useSkipSettings, type SkipConfig } from '@/composables/useSkipSettings'
 import { ref } from 'vue'
+import BaseSwitchRow from '@/components/base/BaseSwitchRow.vue'
 
 const {
   adFilter,
@@ -85,24 +86,14 @@ const toggles = [
     <!-- 播放开关 -->
     <div class="jc-settings-page__group">
       <div class="jc-settings-page__group-title">播放</div>
-      <button
+      <BaseSwitchRow
         v-for="t in toggles"
         :key="t.key"
-        type="button"
-        class="jc-settings-page__row"
-        role="switch"
-        :aria-checked="t.get()"
-        data-focusable="true"
-        @click="t.set(!t.get())"
-      >
-        <span class="jc-settings-page__row-main">
-          <span class="jc-settings-page__row-title">{{ t.title }}</span>
-          <span class="jc-settings-page__row-desc">{{ t.desc }}</span>
-        </span>
-        <span class="jc-settings-page__switch" :class="{ 'is-on': t.get() }" aria-hidden="true">
-          <span class="jc-settings-page__knob" />
-        </span>
-      </button>
+        :title="t.title"
+        :desc="t.desc"
+        :model-value="t.get()"
+        @update:model-value="t.set($event)"
+      />
     </div>
 
     <!-- 跳过片头片尾: 用户级全局默认（单影片配置优先） -->
@@ -111,22 +102,12 @@ const toggles = [
       <p class="jc-settings-page__hint">
         对全部影片生效；播放页内对单部影片的跳过设置优先于此处默认值。
       </p>
-      <button
-        type="button"
-        class="jc-settings-page__row"
-        role="switch"
-        :aria-checked="skipDefault.enabled"
-        data-focusable="true"
-        @click="toggleSkipDefault"
-      >
-        <span class="jc-settings-page__row-main">
-          <span class="jc-settings-page__row-title">启用默认跳过</span>
-          <span class="jc-settings-page__row-desc">关闭后默认不跳过（影片单独设置不受影响）</span>
-        </span>
-        <span class="jc-settings-page__switch" :class="{ 'is-on': skipDefault.enabled }" aria-hidden="true">
-          <span class="jc-settings-page__knob" />
-        </span>
-      </button>
+      <BaseSwitchRow
+        title="启用默认跳过"
+        desc="关闭后默认不跳过（影片单独设置不受影响）"
+        :model-value="skipDefault.enabled"
+        @update:model-value="toggleSkipDefault"
+      />
       <div class="jc-settings-page__row" :class="{ 'jc-settings-page__row--dim': !skipDefault.enabled }">
         <span class="jc-settings-page__row-main">
           <span class="jc-settings-page__row-title">片头跳过秒数</span>
@@ -213,72 +194,8 @@ const toggles = [
   color: inherit;
   cursor: pointer;
 }
-.jc-settings-page__row-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.jc-settings-page__row-title {
-  font-size: var(--jc-fs-base);
-  color: var(--jc-text-primary);
-}
-.jc-settings-page__row-desc {
-  font-size: var(--jc-fs-xs);
-  color: var(--jc-text-secondary);
-  line-height: var(--jc-lh-snug);
-}
-.jc-settings-page__switch {
-  flex: 0 0 auto;
-  width: 44px;
-  height: 24px;
-  border-radius: 12px;
-  background: var(--jc-bg-surface);
-  position: relative;
-  transition: background 0.15s ease;
-}
-.jc-settings-page__switch.is-on {
-  background: var(--jc-brand-primary);
-}
-.jc-settings-page__knob {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.15s ease;
-}
-.jc-settings-page__switch.is-on .jc-settings-page__knob {
-  transform: translateX(20px);
-}
-.jc-settings-page__segment {
-  display: flex;
-  gap: var(--jc-space-2);
-  padding: 0 0 var(--jc-space-3);
-}
-.jc-settings-page__seg-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 14px;
-  border-radius: var(--jc-radius-md);
-  border: 1px solid var(--jc-border-default);
-  background: transparent;
-  color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
-  cursor: pointer;
-}
-.jc-settings-page__seg-btn.is-active {
-  border-color: var(--jc-brand-primary);
-  color: var(--jc-brand-primary);
-  background: transparent;
-}
-.jc-settings-page__seg-check {
-  font-size: 0.85em;
-}
+/* 开关行的 __row-main/__row-title/__row-desc/__switch/__knob 已随 W1a 收敛进
+   BaseSwitchRow/BaseSwitch(值不变); 本处 __row 留存供下方数字行使用。 */
 .jc-settings-page__row--dim {
   opacity: 0.45;
 }

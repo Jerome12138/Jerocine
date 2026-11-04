@@ -317,7 +317,7 @@ void load()
 
       <!-- loading 骨架 -->
       <div v-if="loading && list.length === 0" class="flex flex-col gap-[var(--jc-space-4)]">
-        <BaseSkeleton :count="5" height="180px" />
+        <SkeletonGrid :count="5" layout="lines" height="180px" />
       </div>
 
       <!-- 最佳匹配大卡 (bilibili 风格首条放大) -->

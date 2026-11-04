@@ -5,6 +5,8 @@ import { useHistoryStore } from '@/stores'
 import { recordToCard, buildPlayLink, type HistoryRecord } from '@/stores/history'
 import { progressPercent, episodeLabel, formatRelativeTime } from '@/composables/useTimeBucket'
 import FilmCard from '@/components/film/FilmCard.vue'
+import EpisodeBadge from '@/components/base/EpisodeBadge.vue'
+import SectionHeader from '@/components/base/SectionHeader.vue'
 
 /**
  * 首页「继续观看」横滚区 —— 用户要求首页顶部展示观看历史。
@@ -37,8 +39,14 @@ function epLabel(rec: HistoryRecord): string {
     class="jc-continue"
     aria-label="继续观看"
   >
-    <header class="container-page jc-continue__header">
-      <h2 class="jc-continue__title">继续观看</h2>
+    <!-- 区块标题(W1e): header/h2 类经 props 整组传入逐字保留(钩子类被 TV 全局覆盖规则
+         命中); 右侧「更多」链接走插槽 —— jc-continue__more 的 hover 样式在页面 scoped 内,
+         插槽内容在父作用域编译才能继续命中 -->
+    <SectionHeader
+      title="继续观看"
+      header-class="container-page jc-continue__header flex items-end justify-between gap-[var(--jc-space-4)] mb-[var(--jc-space-3)]"
+      title-class="jc-continue__title text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
+    >
       <RouterLink
         to="/history"
         class="jc-continue__more"
@@ -48,7 +56,7 @@ function epLabel(rec: HistoryRecord): string {
         更多
         <BaseIcon name="chevron-right" size="16px" />
       </RouterLink>
-    </header>
+    </SectionHeader>
 
     <div class="jc-continue__viewport">
       <div class="jc-continue__scroll" data-focus-zone="rail">
@@ -62,10 +70,10 @@ function epLabel(rec: HistoryRecord): string {
           :progress="pct(rec.currentTime, rec.duration)"
           :sub-text="formatRelativeTime(rec.timeStamp)"
         >
-          <!-- 左上角"看到第 N 集"角标(沿用改动前的样式与位置); 左下角 remarks 由
+          <!-- 左上角"看到第 N 集"角标(样式与位置随 W1d 收敛进 EpisodeBadge); 左下角 remarks 由
                recordToCard 提供(item.remarks), 与首页其他影片卡同款 -->
           <template #poster-overlay>
-            <span v-if="epLabel(rec)" class="jc-continue__ep">{{ epLabel(rec) }}</span>
+            <EpisodeBadge v-if="epLabel(rec)">{{ epLabel(rec) }}</EpisodeBadge>
           </template>
         </FilmCard>
         <div class="jc-continue__edge" aria-hidden="true" />
@@ -81,19 +89,8 @@ function epLabel(rec: HistoryRecord): string {
   display: flex;
   flex-direction: column;
 }
-.jc-continue__header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--jc-space-4);
-  margin-bottom: var(--jc-space-3);
-}
-.jc-continue__title {
-  font-size: var(--jc-fs-lg);
-  font-weight: var(--jc-fw-bold);
-  color: var(--jc-text-primary);
-  line-height: var(--jc-lh-snug);
-}
+/* 区块标题的 __header/__title 样式已随 W1e 收敛进 SectionHeader(值以 uno 工具类等价承载;
+   钩子类 jc-continue__header/__title 保留, TV 全局覆盖规则依赖它们) */
 .jc-continue__more {
   color: var(--jc-text-link);
   font-size: var(--jc-fs-sm);
@@ -143,24 +140,7 @@ function epLabel(rec: HistoryRecord): string {
   );
 }
 
-/* "看到第 N 集" 角标: 海报左上角(沿用改动前的视觉: 品牌渐变 + 圆角 + 白字) */
-.jc-continue__ep {
-  position: absolute;
-  top: var(--jc-space-2);
-  left: var(--jc-space-2);
-  z-index: 2;
-  max-width: calc(100% - var(--jc-space-2) * 2);
-  padding: 2px 8px;
-  border-radius: var(--jc-radius-sm);
-  background-image: var(--jc-brand-gradient);
-  color: #fff;
-  font-size: var(--jc-fs-xs);
-  font-weight: var(--jc-fw-semibold);
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* "看到第 N 集" 角标样式已随 W1d 收敛进 EpisodeBadge(variant=rail, 值不变) */
 </style>
 
 <style>

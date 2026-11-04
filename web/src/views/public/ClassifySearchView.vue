@@ -241,14 +241,13 @@ function tvGoPage(delta: number): void {
       <!-- ===== 右: 结果网格 ===== -->
       <main class="jc-cs-tv__main">
         <!-- 骨架 -->
-        <div v-if="loading && films.length === 0" class="jc-tv-grid">
-          <BaseSkeleton
-            v-for="i in 12"
-            :key="i"
-            height="auto"
-            ratio="3/4"
-          />
-        </div>
+        <SkeletonGrid
+          v-if="loading && films.length === 0"
+          :count="12"
+          layout="poster-tv"
+          height="auto"
+          ratio="3/4"
+        />
 
         <!-- 网格 -->
         <div v-else-if="films.length > 0" class="jc-tv-grid">
@@ -357,17 +356,13 @@ function tvGoPage(delta: number): void {
       </div>
 
       <!-- 骨架 -->
-      <div
+      <SkeletonGrid
         v-if="loading && films.length === 0"
-        class="jc-card-grid"
-      >
-        <BaseSkeleton
-          v-for="i in 12"
-          :key="i"
-          height="auto"
-          ratio="3/4"
-        />
-      </div>
+        :count="12"
+        layout="poster"
+        height="auto"
+        ratio="3/4"
+      />
 
       <!-- 网格列表 -->
       <FilmGrid v-else-if="films.length > 0" :items="films" />

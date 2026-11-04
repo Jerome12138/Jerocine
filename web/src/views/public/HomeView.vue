@@ -17,6 +17,8 @@ import ContinueWatchingRow from '@/components/film/ContinueWatchingRow.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
+import SectionHeader from '@/components/base/SectionHeader.vue'
+import SkeletonGrid from '@/components/base/SkeletonGrid.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import type { Card, HeroItem, HomeBanner, HomeData } from '@/types/film'
@@ -407,13 +409,7 @@ onBeforeUnmount(() => {
         <div v-for="i in 3" :key="i" class="flex flex-col gap-[var(--jc-space-3)]">
           <BaseSkeleton shape="text" width="160px" height="24px" />
           <div class="jc-home__row-skeleton">
-            <BaseSkeleton
-              v-for="j in 7"
-              :key="j"
-              shape="rect"
-              ratio="3/4"
-              width="100%"
-            />
+            <SkeletonGrid :count="7" layout="items" shape="rect" ratio="3/4" width="100%" />
           </div>
         </div>
       </div>
@@ -681,10 +677,15 @@ onBeforeUnmount(() => {
           class="jc-home__recommend container-page"
           aria-label="猜你喜欢"
         >
-          <header class="jc-home__recommend-header">
-            <h2 class="jc-home__recommend-title">猜你喜欢</h2>
+          <!-- 区块标题(W1e): header/h2 类经 props 整组传入(本页为 items-baseline/fs-xl 变体,
+               与默认 items-end/fs-lg 不同, 故整组显式给出), 右侧 tip 走插槽(父作用域 scoped 生效) -->
+          <SectionHeader
+            title="猜你喜欢"
+            header-class="jc-home__recommend-header flex items-baseline justify-between gap-[var(--jc-space-3)] mb-[var(--jc-space-5)]"
+            title-class="jc-home__recommend-title text-[length:var(--jc-fs-xl)] font-[var(--jc-fw-bold)] text-primary"
+          >
             <span class="jc-home__recommend-tip">基于浏览数据混合推荐</span>
-          </header>
+          </SectionHeader>
           <div class="jc-home__recommend-grid">
             <FilmCard
               v-for="(item, idx) in limitToRows(recommendGrid)"
@@ -719,19 +720,8 @@ onBeforeUnmount(() => {
   padding-block: var(--jc-space-8) var(--jc-space-16);
 }
 
-.jc-home__recommend-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: var(--jc-space-5);
-  gap: var(--jc-space-3);
-}
-
-.jc-home__recommend-title {
-  font-size: var(--jc-fs-xl);
-  font-weight: var(--jc-fw-bold);
-  color: var(--jc-text-primary);
-}
+/* 区块标题的 __recommend-header/__recommend-title 样式已随 W1e 收敛进 SectionHeader
+   (值以 uno 工具类等价承载; 钩子类保留供全局选择器命中) */
 
 .jc-home__recommend-tip {
   font-size: var(--jc-fs-xs);

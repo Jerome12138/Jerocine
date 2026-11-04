@@ -54,6 +54,7 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BaseSwitch from '@/components/base/BaseSwitch.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import posterFallback from '@/assets/play.svg'
 
@@ -2211,9 +2212,7 @@ watch(playerReady, (v) => {
             data-focusable="true"
             @click="draftEnabled = !draftEnabled"
           >
-            <span class="jc-skip-switch__track" aria-hidden="true">
-              <span class="jc-skip-switch__thumb" />
-            </span>
+            <BaseSwitch :model-value="draftEnabled" size="sm" />
             <span class="jc-skip-switch__label">启用跳过</span>
             <span class="jc-skip-switch__state">{{ draftEnabled ? '已开启' : '已关闭' }}</span>
           </button>
@@ -3013,6 +3012,7 @@ watch(playerReady, (v) => {
 }
 
 /* ============ 跳过设置弹窗: 启用跳过总开关 ============ */
+/* 轨道/滑块样式已随 W1a 收敛进 BaseSwitch(size=sm, 值不变) */
 .jc-skip-switch {
   display: flex;
   align-items: center;
@@ -3024,31 +3024,6 @@ watch(playerReady, (v) => {
   border-radius: var(--jc-radius-md);
   cursor: pointer;
   transition: border-color var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-skip-switch__track {
-  position: relative;
-  flex: none;
-  width: 36px;
-  height: 20px;
-  border-radius: 999px;
-  background-color: var(--jc-text-muted);
-  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-skip-switch.is-on .jc-skip-switch__track {
-  background-color: var(--jc-brand-primary);
-}
-.jc-skip-switch__thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background-color: #fff;
-  transition: transform var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-skip-switch.is-on .jc-skip-switch__thumb {
-  transform: translateX(16px);
 }
 .jc-skip-switch__label {
   font-size: var(--jc-fs-sm);

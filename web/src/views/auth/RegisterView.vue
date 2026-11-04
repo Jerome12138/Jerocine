@@ -5,6 +5,7 @@ import { useUserStore } from '@/stores/user'
 import * as registerApi from '@/api/register'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BasePasswordField from '@/components/base/BasePasswordField.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ApplyStatusPanel from '@/components/auth/ApplyStatusPanel.vue'
 import { useViewMode } from '@/composables/useViewMode'
@@ -445,31 +446,13 @@ watch(
       </ManageFormField>
 
       <ManageFormField label="密码" required>
-        <div class="relative">
-          <BaseIcon
-            name="lock"
-            class="absolute left-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted"
-            size="18px"
-          />
-          <input
-            v-model="form.password"
-            :type="showPwd ? 'text' : 'password'"
-            maxlength="64"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-10)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
-            placeholder="密码（至少 6 位）"
-            autocomplete="new-password"
-            data-focusable="true"
-          />
-          <button
-            type="button"
-            class="absolute right-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted hover:text-primary"
-            data-focusable="true"
-            aria-label="切换密码可见性"
-            @click="showPwd = !showPwd"
-          >
-            <BaseIcon :name="showPwd ? 'eye-off' : 'eye'" size="18px" />
-          </button>
-        </div>
+        <BasePasswordField
+          v-model="form.password"
+          v-model:visible="showPwd"
+          maxlength="64"
+          placeholder="密码（至少 6 位）"
+          autocomplete="new-password"
+        />
       </ManageFormField>
 
       <ManageFormField label="邮箱" required>

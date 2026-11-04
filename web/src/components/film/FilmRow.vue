@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Card } from '@/types/film'
 import FilmCard from './FilmCard.vue'
+import SectionHeader from '@/components/base/SectionHeader.vue'
 
 interface Props {
   title?: string
@@ -119,27 +120,15 @@ function getItemKey(item: Card, idx: number): string | number {
 
 <template>
   <section class="jc-film-row">
-    <header
+    <!-- 区块标题(W1e): header/h2 类经 props 整组传入逐字保留 —— container-page 与
+         jc-film-row__title 被 TV 全局覆盖规则命中(本文件 [data-mode='tv'] 两处) -->
+    <SectionHeader
       v-if="title || moreTo"
-      class="container-page flex items-end justify-between gap-[var(--jc-space-4)] mb-[var(--jc-space-3)]"
-    >
-      <h2
-        v-if="title"
-        class="jc-film-row__title text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
-      >
-        {{ title }}
-      </h2>
-      <RouterLink
-        v-if="moreTo"
-        :to="moreTo"
-        class="text-link text-[length:var(--jc-fs-sm)] inline-flex items-center gap-[var(--jc-space-1)] shrink-0"
-        data-focusable="true"
-        tabindex="0"
-      >
-        更多
-        <BaseIcon name="chevron-right" size="16px" />
-      </RouterLink>
-    </header>
+      :title="title"
+      :more-to="moreTo"
+      header-class="container-page flex items-end justify-between gap-[var(--jc-space-4)] mb-[var(--jc-space-3)]"
+      title-class="jc-film-row__title text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
+    />
 
     <div
       ref="viewportEl"

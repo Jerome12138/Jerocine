@@ -5,7 +5,7 @@ import * as filmApi from '@/api/film'
 import type { Card, ClassifyData } from '@/types/film'
 import FilmGrid from '@/components/film/FilmGrid.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
-import BaseIcon from '@/components/base/BaseIcon.vue'
+import SectionHeader from '@/components/base/SectionHeader.vue'
 import { useQuerySync } from '@/composables/useQuerySync'
 import { useAbortable } from '@/composables/useAbortable'
 import { useNavStore } from '@/stores'
@@ -224,15 +224,7 @@ const tvAllEmpty = computed(
     >
       <div v-for="n in 3" :key="n" class="flex flex-col gap-[var(--jc-space-4)]">
         <BaseSkeleton width="240px" height="36px" />
-        <div class="jc-tv-grid">
-          <BaseSkeleton
-            v-for="i in 6"
-            :key="i"
-            width="100%"
-            height="280px"
-            ratio="3/4"
-          />
-        </div>
+        <SkeletonGrid :count="6" layout="poster-tv" height="280px" ratio="3/4" />
       </div>
     </div>
 
@@ -361,13 +353,7 @@ const tvAllEmpty = computed(
           class="grid gap-[var(--jc-list-gap)]"
           style="grid-template-columns: repeat(var(--jc-list-cols), minmax(0, 1fr))"
         >
-          <BaseSkeleton
-            v-for="i in 12"
-            :key="i"
-            width="100%"
-            height="0"
-            ratio="3/4"
-          />
+          <SkeletonGrid :count="12" layout="items" height="0" ratio="3/4" />
         </div>
       </div>
     </div>
@@ -382,20 +368,8 @@ const tvAllEmpty = computed(
         :key="sec.key"
         v-show="isReady(sec.items)"
       >
-        <header class="flex items-end justify-between gap-[var(--jc-space-4)] mb-[var(--jc-space-3)]">
-          <h2 class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]">
-            {{ sec.title }}
-          </h2>
-          <RouterLink
-            :to="moreLink(sec.sort)"
-            class="text-link text-[length:var(--jc-fs-sm)] inline-flex items-center gap-[var(--jc-space-1)] shrink-0"
-            data-focusable="true"
-            tabindex="0"
-          >
-            更多
-            <BaseIcon name="chevron-right" size="16px" />
-          </RouterLink>
-        </header>
+        <!-- 区块标题(W1e): 默认形态 = 本页原款(header/h2/更多链接逐字同) -->
+        <SectionHeader :title="sec.title" :more-to="moreLink(sec.sort)" />
         <FilmGrid :items="sec.items" />
       </section>
 

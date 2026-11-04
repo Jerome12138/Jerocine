@@ -8,6 +8,7 @@ import * as registerApi from '@/api/register'
 import { ApiError } from '@/types/api'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BasePasswordField from '@/components/base/BasePasswordField.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ApplyStatusPanel from '@/components/auth/ApplyStatusPanel.vue'
 import TvOnScreenKeyboard from '@/components/film/TvOnScreenKeyboard.vue'
@@ -38,11 +39,12 @@ const kbdValue = computed(() =>
 
 // 浏览器 autofill 不触发 v-model 的 input event, 提交时从 DOM 兜底同步
 const usernameInput = ref<HTMLInputElement | null>(null)
-const passwordInput = ref<HTMLInputElement | null>(null)
+// 密码框已组件化(BasePasswordField), ref 拿到组件实例, 原生 input 经 expose 的 input 取
+const passwordInput = ref<{ input: HTMLInputElement | null } | null>(null)
 
 function syncAutofill(): void {
   if (usernameInput.value && !form.username) form.username = usernameInput.value.value
-  if (passwordInput.value && !form.password) form.password = passwordInput.value.value
+  if (passwordInput.value?.input && !form.password) form.password = passwordInput.value.input.value
 }
 
 const redirectTo = computed(() => {
@@ -253,32 +255,18 @@ async function handleLogin(): Promise<void> {
         <!-- 密码 + 显隐 -->
         <div class="jc-tv-login__field">
           <span class="jc-tv-login__lab">密码 <b>*</b></span>
-          <div class="jc-tv-login__wrap">
-            <BaseIcon name="lock" class="jc-tv-login__ic" size="20px" />
-            <input
-              ref="passwordInput"
-              v-model="form.password"
-              :type="showPwd ? 'text' : 'password'"
-              class="jc-tv-input jc-tv-login__input"
-              placeholder="密码"
-              autocomplete="current-password"
-              data-focusable="true"
-              tabindex="0"
-              @focus="kbdTarget = 'password'"
-              @keydown.enter="handleLogin"
-              @change="form.password = ($event.target as HTMLInputElement).value"
-            />
-            <button
-              type="button"
-              class="jc-tv-login__ic-r"
-              data-focusable="true"
-              tabindex="0"
-              aria-label="切换密码可见性"
-              @click="showPwd = !showPwd"
-            >
-              <BaseIcon :name="showPwd ? 'eye-off' : 'eye'" size="20px" />
-            </button>
-          </div>
+          <BasePasswordField
+            ref="passwordInput"
+            v-model="form.password"
+            v-model:visible="showPwd"
+            variant="tv"
+            placeholder="密码"
+            autocomplete="current-password"
+            tabindex="0"
+            @focus="kbdTarget = 'password'"
+            @keydown.enter="handleLogin"
+            @change="form.password = ($event.target as HTMLInputElement).value"
+          />
         </div>
 
         <p v-if="errorMsg" class="jc-tv-login__err" role="alert">{{ errorMsg }}</p>
@@ -483,33 +471,15 @@ async function handleLogin(): Promise<void> {
       </ManageFormField>
 
       <ManageFormField label="密码" required>
-        <div class="relative">
-          <BaseIcon
-            name="lock"
-            class="absolute left-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted"
-            size="18px"
-          />
-          <input
-            ref="passwordInput"
-            v-model="form.password"
-            :type="showPwd ? 'text' : 'password'"
-            class="w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-10)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
-            placeholder="密码"
-            autocomplete="current-password"
-            data-focusable="true"
-            @keydown.enter="handleLogin"
-            @change="form.password = ($event.target as HTMLInputElement).value"
-          />
-          <button
-            type="button"
-            class="absolute right-[var(--jc-space-3)] top-1/2 -translate-y-1/2 text-muted hover:text-primary"
-            data-focusable="true"
-            aria-label="切换密码可见性"
-            @click="showPwd = !showPwd"
-          >
-            <BaseIcon :name="showPwd ? 'eye-off' : 'eye'" size="18px" />
-          </button>
-        </div>
+        <BasePasswordField
+          ref="passwordInput"
+          v-model="form.password"
+          v-model:visible="showPwd"
+          placeholder="密码"
+          autocomplete="current-password"
+          @keydown.enter="handleLogin"
+          @change="form.password = ($event.target as HTMLInputElement).value"
+        />
       </ManageFormField>
 
       <!-- 忘记密码(P3): 重置成功后由 /reset-password 带 reset=1 跳回, 此处给出提示 -->
@@ -696,20 +666,7 @@ async function handleLogin(): Promise<void> {
   pointer-events: none;
 }
 
-[data-mode='tv'] .jc-tv-login__ic-r {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  opacity: 0.7;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  color: inherit;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
+/* 密码框的眼睛样式(__ic-r)已随 W1b 收敛进 BasePasswordField(variant=tv) */
 
 [data-mode='tv'] .jc-tv-login__input {
   padding-left: 46px;

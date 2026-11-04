@@ -11,6 +11,7 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
+import EpisodeBadge from '@/components/base/EpisodeBadge.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
 import { confirm } from '@/composables/useConfirm'
 import {
@@ -316,14 +317,14 @@ function handleRemove(id: string, e: Event): void {
             :sub-text="formatRelativeTime(record.timeStamp)"
           >
             <template #poster-overlay>
-              <!-- 左上角"看到第 N 集"(沿用改动前的角标与位置); 左下角 remarks 由
+              <!-- 左上角"看到第 N 集"(角标随 W1d 收敛进 EpisodeBadge, 位置与截断不变); 左下角 remarks 由
                    recordToCard 提供, 与普通影片卡一致 -->
-              <span
+              <EpisodeBadge
                 v-if="episodeLabel(record.episode, record.episodeIndex)"
-                class="jc-history-ep"
+                variant="page"
               >
                 {{ episodeLabel(record.episode, record.episodeIndex) }}
-              </span>
+              </EpisodeBadge>
               <button
                 type="button"
                 class="absolute top-[var(--jc-space-2)] right-[var(--jc-space-2)] z-4 w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
@@ -366,25 +367,7 @@ function handleRemove(id: string, e: Event): void {
   outline: none;
 }
 
-/* 左上角"看到第 N 集"角标: 与首页「继续观看」行同款(品牌渐变胶囊 + 白字) */
-.jc-history-ep {
-  position: absolute;
-  top: var(--jc-space-2);
-  left: var(--jc-space-2);
-  z-index: 4;
-  /* 预留右上角删除按钮(24px)的位置, 过长集名截断 */
-  max-width: calc(100% - var(--jc-space-2) * 2 - 28px);
-  padding: 2px 8px;
-  border-radius: var(--jc-radius-sm);
-  background-image: var(--jc-brand-gradient);
-  color: #fff;
-  font-size: var(--jc-fs-xs);
-  font-weight: var(--jc-fw-semibold);
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* 左上角"看到第 N 集"角标样式已随 W1d 收敛进 EpisodeBadge(variant=page, 值不变) */
 </style>
 
 <!-- ============ TV (雷鸟) 专属样式: 非 scoped, 仅 [data-mode=tv] 作用域 ============ -->

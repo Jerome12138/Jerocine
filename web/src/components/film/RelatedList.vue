@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Card } from '@/types/film'
 import FilmCard from './FilmCard.vue'
+import SectionHeader from '@/components/base/SectionHeader.vue'
 
 interface Props {
   items: Card[]
@@ -17,12 +18,8 @@ withDefaults(defineProps<Props>(), {
     v-if="items.length"
     class="jc-related-list flex flex-col gap-[var(--jc-space-4)]"
   >
-    <h2
-      v-if="title"
-      class="text-[length:var(--jc-fs-lg)] font-[var(--jc-fw-bold)] text-primary leading-[var(--jc-lh-snug)]"
-    >
-      {{ title }}
-    </h2>
+    <!-- 区块标题(W1e): 裸 h2 形态(无 header 包装/更多链接), 默认类与原逐字同 -->
+    <SectionHeader v-if="title" :title="title" bare />
     <div class="jc-related-list__grid">
       <FilmCard
         v-for="(item, idx) in items"
