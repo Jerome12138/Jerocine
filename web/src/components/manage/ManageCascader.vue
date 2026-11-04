@@ -8,6 +8,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { FilmClass } from '@/types/manage'
+import ManageCheckbox from '@/components/manage/ManageCheckbox.vue'
 
 /** 最多展开层数(防止极端长链把列撑爆): 允许 5 列(层级 0..4) */
 const MAX_DEPTH = 4
@@ -109,13 +110,13 @@ const activeId = computed(() => activePath.value[activePath.value.length - 1] ??
         @click="onNodeClick(node, level)"
         @keydown.enter="onNodeClick(node, level)"
       >
-        <input
-          type="checkbox"
-          class="jc-cas__check"
-          :checked="isChecked(node)"
+        <!-- ManageCheckbox 统一勾选框: 半选(indeterminate)由组件手控 DOM prop 直写 -->
+        <ManageCheckbox
+          class="shrink-0"
+          :model-value="isChecked(node)"
           :indeterminate="isPartialChecked(node)"
           @click.stop
-          @change="onCheck(node)"
+          @update:model-value="onCheck(node)"
         />
         <span
           class="jc-cas__name"
@@ -167,11 +168,6 @@ const activeId = computed(() => activePath.value[activePath.value.length - 1] ??
 
 .jc-cas__row--active {
   background-color: rgba(124, 77, 255, 0.16);
-}
-
-.jc-cas__check {
-  flex-shrink: 0;
-  accent-color: var(--jc-brand-purple);
 }
 
 .jc-cas__name {

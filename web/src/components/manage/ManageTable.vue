@@ -4,6 +4,7 @@ import { useEventListener } from '@vueuse/core'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
+import ManageCheckbox from '@/components/manage/ManageCheckbox.vue'
 import { useViewMode } from '@/composables/useViewMode'
 
 export interface ColumnFilterOption {
@@ -346,7 +347,7 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
                     class="jc-th-filter inline-flex items-center justify-center w-6 h-6 rounded-[var(--jc-radius-sm)] transition-colors"
                     :class="
                       isFilterActive(col)
-                        ? 'jc-th-filter--active text-[var(--jc-brand)]'
+                        ? 'jc-th-filter--active text-[var(--jc-brand-primary)]'
                         : 'text-muted hover:text-secondary'
                     "
                     data-focusable="true"
@@ -373,20 +374,17 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
                     class="jc-th-filter__panel absolute left-0 top-full z-20 mt-[var(--jc-space-1)] min-w-[140px] rounded-[var(--jc-radius-md)] border border-subtle bg-elevated p-[var(--jc-space-2)] shadow-card"
                   >
                     <template v-if="col.filter.multiple">
-                      <label
+                      <!-- ManageCheckbox 统一勾选框: 原裸 input 的悬空 token(--jc-brand)随之消灭;
+                           选项行样式经 attrs 透传到组件根 label -->
+                      <ManageCheckbox
                         v-for="opt in col.filter.options"
                         :key="String(opt.value)"
-                        class="flex items-center gap-[var(--jc-space-2)] rounded-[var(--jc-radius-sm)] px-[var(--jc-space-2)] py-[var(--jc-space-1)] cursor-pointer hover:bg-[rgba(255,255,255,0.06)]"
+                        class="w-full rounded-[var(--jc-radius-sm)] px-[var(--jc-space-2)] py-[var(--jc-space-1)] hover:bg-[rgba(255,255,255,0.06)]"
+                        :model-value="isOptionHit(col.filter, opt)"
+                        @update:model-value="onFilterOptionClick(col, opt)"
                       >
-                        <input
-                          type="checkbox"
-                          class="accent-[var(--jc-brand)]"
-                          :checked="isOptionHit(col.filter, opt)"
-                          data-focusable="true"
-                          @change="onFilterOptionClick(col, opt)"
-                        />
                         <span class="text-sm">{{ opt.label }}</span>
-                      </label>
+                      </ManageCheckbox>
                     </template>
                     <template v-else>
                       <button

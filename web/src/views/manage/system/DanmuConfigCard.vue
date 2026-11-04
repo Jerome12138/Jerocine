@@ -4,6 +4,7 @@ import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import type { DanmuConfigResp, DanmuProvider } from '@/types/manage'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
+import ManageCheckbox from '@/components/manage/ManageCheckbox.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
@@ -131,20 +132,18 @@ onMounted(load)
           hint="勾选的平台作为开放面白名单保存（当前聚合弹幕按标题匹配、不按平台过滤）；启用时至少勾选一个"
         >
           <div class="flex flex-col gap-2">
-            <label
+            <!-- ManageCheckbox 统一勾选框: 原裸 input 的 accent 悬空 token(--jc-primary)随之消灭;
+                 卡片样式经 attrs 透传到组件根 label, 文案与平台码走默认 slot -->
+            <ManageCheckbox
               v-for="p in allProviders"
               :key="p"
-              class="flex cursor-pointer items-center gap-2 rounded-[var(--jc-radius-md)] border border-default bg-elevated px-3 py-2 text-sm hover:border-strong"
+              class="w-full rounded-[var(--jc-radius-md)] border border-default bg-elevated px-3 py-2 text-sm hover:border-strong"
+              :model-value="form.providers.includes(p)"
+              @update:model-value="toggleProvider(p, $event)"
             >
-              <input
-                type="checkbox"
-                class="h-4 w-4 accent-[var(--jc-primary)]"
-                :checked="form.providers.includes(p)"
-                @change="toggleProvider(p, ($event.target as HTMLInputElement).checked)"
-              />
               <span class="text-primary">{{ providerLabels[p] ?? p }}</span>
               <code class="ml-auto text-xs text-muted">{{ p }}</code>
-            </label>
+            </ManageCheckbox>
           </div>
         </ManageFormField>
 

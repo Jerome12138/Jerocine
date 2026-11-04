@@ -19,6 +19,7 @@ import FilmManualAddDialog from './FilmManualAddDialog.vue'
 import { toast } from '@/api/http'
 import { usePagedList } from '@/composables/usePagedList'
 import { useAsyncAction } from '@/composables/useAsyncAction'
+import { useDismiss } from '@/composables/useDismiss'
 import { formatDateTime } from '@/utils/format'
 import { FILM_STATUS_TABS, FILM_STATUS_TAG_MAP } from '@/views/manage/constants'
 
@@ -194,19 +195,12 @@ function restoreFilm(row: ManageFilmRow): void {
 }
 
 // 分类筛选弹层 / 热度菜单: 点击外部 / ESC 关闭(此前只能靠再点按钮或「确定」, 弹层会驻留遮挡)
-function closeCatPopper(): void {
+// 内联 onClickOutside + keydown 监听已下沉 useDismiss(规格 §3.1), 两个浮层各一份, 行为不变
+useDismiss(catFilterRef, treePopperOpen, () => {
   treePopperOpen.value = false
-}
-function closeSortMenu(): void {
+})
+useDismiss(sortRef, sortOpen, () => {
   sortOpen.value = false
-}
-onClickOutside(catFilterRef, closeCatPopper)
-onClickOutside(sortRef, closeSortMenu)
-useEventListener(window, 'keydown', (e: KeyboardEvent) => {
-  if (e.key === 'Escape') {
-    if (treePopperOpen.value) closeCatPopper()
-    if (sortOpen.value) closeSortMenu()
-  }
 })
 
 onMounted(() => {

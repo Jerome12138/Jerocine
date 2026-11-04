@@ -6,6 +6,7 @@ import { normalizeCollectResult } from '@/api/manage/film'
 import type { CollectSource, SourceFilmResult, SourceSearchHit } from '@/types/manage'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageCheckbox from '@/components/manage/ManageCheckbox.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -255,23 +256,20 @@ watch(
       <div v-else-if="collectSources.length" class="flex flex-col gap-[var(--jc-space-3)]">
         <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap text-sm">
           <span class="text-muted">采集源：</span>
-          <label
+          <!-- ManageCheckbox 统一勾选框: 停用源禁用态(半透明+不可点)由组件 disabled 承担;
+               checked 记录值可能是 undefined(未勾过), 显式归一为 boolean 对齐组件 modelValue 类型 -->
+          <ManageCheckbox
             v-for="s in collectSources"
             :key="s.id"
-            class="flex items-center gap-[var(--jc-space-1)] text-secondary"
-            :class="s.state ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'"
+            class="text-secondary"
+            :model-value="checked[s.id] === true"
+            :disabled="!s.state"
+            @update:model-value="checked[s.id] = $event"
           >
-            <input
-              v-model="checked[s.id]"
-              type="checkbox"
-              :disabled="!s.state"
-              class="accent-[var(--jc-brand-primary)]"
-              data-focusable="true"
-            />
             <span>{{ s.name }}</span>
             <BaseTag v-if="s.grade === 0" variant="brand" size="xs">主站</BaseTag>
             <BaseTag v-if="!s.state" variant="warning" size="xs">已停用</BaseTag>
-          </label>
+          </ManageCheckbox>
           <div class="flex gap-[var(--jc-space-2)]">
             <ManageButton variant="ghost" size="sm" :disabled="!enabledSourceCount" @click="toggleAll(true)">
               全选
