@@ -54,3 +54,9 @@ feat(android): 直播 isLive 贯通+频道并行+进入反馈                  �
 fix(server): 直播上游拉取超时 20s→8s + docs 同步                    ← PD
 fix(android): 第N轮评审修复                                        ← 逐轮(如需)
 ```
+
+## 门禁凭据补记(2026-11-05 第3轮评审)
+
+- **PA 批次(75862c9)**:当笔 commit message 未带门禁凭据(PA3 门禁=android 三模块单测)。缓解事实:后续 f8b2907(PB)/bf47bb4(PC) 的 message 记录了同组门禁全绿(含累积代码),回归风险低;本轮终验再以 assembleDebug + 三模块单测重跑覆盖(凭据见第3轮评审修复 commit body)。
+- **评审修复批(a954cb2/53080e8)**:当笔 message 同样未带凭据;自第3轮起,每笔修复 commit 的 body 附当轮实跑门禁输出(套数/例数/结果),本笔即首个载体。
+- 53080e8 的 server 行为变更(RefreshSourceChannels 先抓后失效)已补两分支单测 `TestRefreshSourceChannelsCacheSafety` 并随本轮 go test 门禁落凭据。

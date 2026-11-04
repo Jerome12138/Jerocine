@@ -36,6 +36,7 @@
 - Web:`node <pnpm.cjs> -C <web> run test`(P-C 触碰 web 时)
 - Server:`go -C <worktree>/server test ./...`(P-D)
 - 新逻辑必须带单测(BufferPrefetcher 修复的 catch 分支、isLive 解析、直播清单判定函数用纯函数抽出便于测试)
+  - (2026-11-05 第3轮评审注记)BufferPrefetcher catch 分支与 PlayerActivity 实例身份守卫位于 Activity 匿名类/回调内,仓内无 Robolectric,JVM 单测不可达 —— 按铁律5如实记此处:该两处以第2轮评审码审 + §4 真机验收第3条(缓冲暂停/恢复语义)覆盖,不作纯函数抽取(实例身份比对抽函数无断言价值);isLive 解析与直播清单判定已各有单测(PlayerSessionLiveTest/LiveMediaPlaylistDetectionTest);RefreshSourceChannels 缓存安全已补 TestRefreshSourceChannelsCacheSafety(成功失效/抓取失败不动/空表不动三分支)
 
 ## 3. 铁律
 
