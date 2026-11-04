@@ -13,9 +13,10 @@ type Client struct {
 	hc *http.Client
 }
 
-// NewClient 构造。清单文件小（几十 KB 级）+ 源站响应慢是常态，给 20s。
+// NewClient 构造。清单文件小（几十 KB 级）；冷缓存时频道列表会逐源串行替抓，
+// 20s 的坏源会把直播首开拖到分钟级 —— 2026-11-05 起收紧为 8s（拉不动的源由负缓存兜底）。
 func NewClient() *Client {
-	return &Client{hc: &http.Client{Timeout: 20 * time.Second}}
+	return &Client{hc: &http.Client{Timeout: 8 * time.Second}}
 }
 
 // Fetch 拉取 m3u 文本（body 上限 16MB，防异常源拖垮内存）。
