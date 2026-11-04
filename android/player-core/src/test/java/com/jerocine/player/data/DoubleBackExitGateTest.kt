@@ -1,4 +1,4 @@
-package com.jerocine.tv
+package com.jerocine.player.data
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

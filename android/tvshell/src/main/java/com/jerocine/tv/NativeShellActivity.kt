@@ -9,6 +9,7 @@ import com.jerocine.player.ui.GlassToast
 import com.jerocine.player.ui.JcDeviceDiagnostics
 import com.jerocine.player.ui.JcDialog
 import com.jerocine.player.ui.JcServerUrlPrompt
+import com.jerocine.player.data.DoubleBackExitGate
 import com.jerocine.tv.data.HistoryReq
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.player.data.ShellPrefs

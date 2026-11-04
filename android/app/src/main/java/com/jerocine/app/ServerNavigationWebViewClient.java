@@ -10,6 +10,7 @@ import android.webkit.WebView;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
+import com.jerocine.player.data.NetLink;
 import com.jerocine.player.data.ServerUrl;
 
 /**
@@ -128,17 +129,26 @@ class ServerNavigationWebViewClient extends BridgeWebViewClient {
                 || code == ERROR_IO;       // 读写中断
     }
 
-    /** 设备当前是否没有可用网络(取不到判定时按"有网"处理, 与 WebShellActivity.isOnline 同口径) */
+    /**
+     * 设备当前是否没有可用网络 —— 判定公式下沉 core 的 NetLink(组件化二期 A5)。
+     *
+     * <p>口径与 WebShellActivity.isOnline **同向**(取不到判定时按"有网"处理 —— 本方法
+     * 原注释既有约定, 故经 {@code !NetLink.isOnline(..., FAIL_OPEN)} 表达, 不用 FAIL_CLOSED):
+     * cm==null→不算离线 / 探测异常→不算离线 / ni==null→离线 / isConnected 决定 —— 与旧实现
+     * 逐分支等值, 一条都不改(改错方向会把弱网用户的链路抖动误计为 WebView 失败, 永久踢进原生壳)。
+     * NetLink.FAIL_CLOSED(判定不了按"无网")作为保守方向保留在纯函数里, 由 NetLinkTest 锁定。</p>
+     */
     @SuppressWarnings("deprecation")
     private boolean isOffline() {
         try {
             android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
                     bridge.getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return false;
+            if (cm == null) return !NetLink.isOnline(null, NetLink.FAIL_OPEN);
             android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
-            return ni == null || !ni.isConnected();
+            return !NetLink.isOnline(ni == null ? Boolean.FALSE : ni.isConnected(),
+                    NetLink.FAIL_OPEN);
         } catch (Exception e) {
-            return false;
+            return !NetLink.isOnline(null, NetLink.FAIL_OPEN);
         }
     }
 

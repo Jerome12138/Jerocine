@@ -11,15 +11,13 @@ import com.jerocine.player.ui.JcSettingsDrawer;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.StateListDrawable;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -40,9 +38,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.getcapacitor.BridgeActivity;
+import com.jerocine.player.data.DoubleBackExitGate;
+import com.jerocine.player.data.NetLink;
+import com.jerocine.player.ui.JcUi;
 
 import androidx.activity.OnBackPressedCallback;
-import androidx.core.content.ContextCompat;
 
 import org.json.JSONObject;
 
@@ -69,7 +69,8 @@ public class WebShellActivity extends BridgeActivity
     static final String KEY_SERVER_URL = com.jerocine.player.data.ShellPrefs.KEY_SERVER_URL;
 
     // 玻璃暗色设计令牌的**唯一真源**是 player-core 的 res/values/colors.xml（library 资源合并进本模块 R），
-    // 编程式 UI 一律经 col(com.jerocine.player.R.color.jc_*) 取色 —— 壳里不再存第二份十六进制。
+    // 编程式 UI 一律经 col(com.jerocine.player.R.color.jc_*) 取色（公式下沉 core 的 JcUi，见 dp/col 转引）——
+    // 壳里不再存第二份十六进制。
     // 历史: 本类曾与 core 的 JcSettingsDrawer 各有一套完全相同的 GF_* 字面量(共 3 份含资源),
     // 改色必漏改一处; 2026-10-12 收编(见 docs/单包合并架构复盘与共性件组织方案-2026-10-12.md §3.4)。
     /** 出厂站点地址(web 壳加载页默认, 设置抽屉可改) —— 构建期注入(JEROCINE_WEB_BASE), 公开仓不含真实域名 */
@@ -79,7 +80,11 @@ public class WebShellActivity extends BridgeActivity
     /** 品牌首屏最长展示时间 — 超时强制淡出, 露出 WebView 内容/错误(方案 §7.3 兜底) */
     private static final long SPLASH_TIMEOUT_MS = 15000L;
 
-    private long lastExitBackAt = 0L;
+    /**
+     * 双击返回退出确认窗口 —— 纯逻辑在 core 的 DoubleBackExitGate(组件化二期 A4 下沉,
+     * 与原生壳 NativeShellActivity 同一份); 时钟用 elapsedRealtime(单调), 与原生壳一致。
+     */
+    private final DoubleBackExitGate exitGate = new DoubleBackExitGate(EXIT_CONFIRM_MS);
     private UpdateChecker updateChecker;
     /** 启动品牌首屏(替代原裸转圈) */
     private BrandSplashView brandSplash;
@@ -329,17 +334,24 @@ public class WebShellActivity extends BridgeActivity
         super.onDestroy();
     }
 
-    /** 当前是否有可用网络连接 (拿不到判定时按"有网"处理, 避免误拦) */
+    /**
+     * 当前是否有可用网络连接 —— 判定公式下沉 core 的 NetLink(组件化二期 A5)。
+     * 方向 = {@code FAIL_OPEN}: 拿不到 ConnectivityManager / 探测异常时按"有网"兜底,
+     * 避免把有网用户误拦在离线兜底页(下行 loadServer 的前置判定, 错拦代价高)。
+     * 与旧实现的逐分支对照: cm==null→有网 / 探测异常→有网 / ni==null→无网 /
+     * isConnected 决定 —— 全部保持不变。
+     */
     @SuppressWarnings("deprecation")
     private boolean isOnline() {
         try {
             ConnectivityManager cm =
                     (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return true;
+            if (cm == null) return NetLink.isOnline(null, NetLink.FAIL_OPEN);
             NetworkInfo ni = cm.getActiveNetworkInfo();
-            return ni != null && ni.isConnected();
+            return NetLink.isOnline(ni == null ? Boolean.FALSE : ni.isConnected(),
+                    NetLink.FAIL_OPEN);
         } catch (Exception e) {
-            return true;
+            return NetLink.isOnline(null, NetLink.FAIL_OPEN);
         }
     }
 
@@ -357,7 +369,7 @@ public class WebShellActivity extends BridgeActivity
             LinearLayout col = new LinearLayout(this);
             col.setOrientation(LinearLayout.VERTICAL);
             col.setGravity(Gravity.CENTER);
-            col.setBackground(buildGlassPanelBg(20));
+            col.setBackground(JcUi.glassPanelBg(this, 20));
             int cardPad = dp(36);
             col.setPadding(cardPad, cardPad, cardPad, cardPad);
             FrameLayout.LayoutParams colLp = new FrameLayout.LayoutParams(
@@ -387,7 +399,7 @@ public class WebShellActivity extends BridgeActivity
             retry.setText("重试");
             retry.setTextColor(col(com.jerocine.player.R.color.jc_text));
             retry.setAllCaps(false);
-            retry.setBackground(buildDrawerButtonBg());
+            retry.setBackground(JcUi.glassButtonBg(this));
             retry.setFocusable(true);
             col.addView(retry, new LinearLayout.LayoutParams(dp(240), dp(54)));
             retry.setOnClickListener(v ->
@@ -397,7 +409,7 @@ public class WebShellActivity extends BridgeActivity
             settings.setText("修改站点地址");
             settings.setTextColor(col(com.jerocine.player.R.color.jc_text));
             settings.setAllCaps(false);
-            settings.setBackground(buildDrawerButtonBg());
+            settings.setBackground(JcUi.glassButtonBg(this));
             settings.setFocusable(true);
             LinearLayout.LayoutParams setLp = new LinearLayout.LayoutParams(dp(240), dp(54));
             setLp.topMargin = dp(14);
@@ -438,9 +450,10 @@ public class WebShellActivity extends BridgeActivity
 
     // ======================== Native 设置侧边栏 (按 MENU 唤出) ========================
 
+    // dp()/col() 公式已下沉 core 的 JcUi(组件化二期 A3, 值不变) —— 这里一行转引, 调用点保持不变。
+
     private int dp(int v) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
-                getResources().getDisplayMetrics());
+        return JcUi.dp(this, v);
     }
 
     /**
@@ -449,7 +462,7 @@ public class WebShellActivity extends BridgeActivity
      * 本类不写任何十六进制（见类顶部注释）。
      */
     private int col(int colorResId) {
-        return ContextCompat.getColor(this, colorResId);
+        return JcUi.col(this, colorResId);
     }
 
     // ======================== JcSettingsDrawer.JcSettingsHost 实现 ========================
@@ -606,34 +619,7 @@ public class WebShellActivity extends BridgeActivity
                 });
     }
 
-    /** 抽屉行/按钮背景: 聚焦=青色描边+浅青底, 按下=深青, 常态=玻璃面 */
-    private Drawable buildDrawerButtonBg() {
-        GradientDrawable focused = new GradientDrawable();
-        focused.setColor(col(com.jerocine.player.R.color.jc_accent_dim));
-        focused.setCornerRadius(dp(14));
-        focused.setStroke(dp(2), col(com.jerocine.player.R.color.jc_accent));
-        GradientDrawable pressed = new GradientDrawable();
-        pressed.setColor(col(com.jerocine.player.R.color.jc_accent_press));
-        pressed.setCornerRadius(dp(14));
-        GradientDrawable normal = new GradientDrawable();
-        normal.setColor(col(com.jerocine.player.R.color.jc_glass_soft));
-        normal.setCornerRadius(dp(14));
-        normal.setStroke(dp(1), col(com.jerocine.player.R.color.jc_stroke));
-        StateListDrawable sld = new StateListDrawable();
-        sld.addState(new int[]{android.R.attr.state_focused}, focused);
-        sld.addState(new int[]{android.R.attr.state_pressed}, pressed);
-        sld.addState(android.util.StateSet.WILD_CARD, normal);
-        return sld;
-    }
-
-    /** 玻璃浮层/卡片背景: 半透明深色面 + 1px 细描边 + 大圆角(供抽屉/无网络页等编程式浮层复用)。 */
-    private Drawable buildGlassPanelBg(int radiusDp) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(col(com.jerocine.player.R.color.jc_glass));
-        g.setCornerRadius(dp(radiusDp));
-        g.setStroke(dp(1), col(com.jerocine.player.R.color.jc_stroke));
-        return g;
-    }
+    /** 抽屉行/按钮背景已下沉 core 的 JcUi.glassButtonBg(两份逐行合并, 值不变)。 */
 
     /**
      * 应用显示模式(tv / desktop / null=自动): 交前端 useViewMode 的 window.__jcSetMode 钩子
@@ -715,15 +701,19 @@ public class WebShellActivity extends BridgeActivity
                     new ValueCallback<String>() {
                         @Override
                         public void onReceiveValue(String value) {
-                            if ("true".equals(value)) return;
+                            if ("true".equals(value)) {
+                                // 前端消费了返回 = 路由栈变化 → 对齐原生壳"backstack 变化 reset"语义
+                                // (NativeShellActivity 的 addOnBackStackChangedListener): 取消上一次
+                                // "再按一次退出"的未决窗口, 避免在页间往返后回到首页的第一次 BACK
+                                // 还落在旧窗口里直接退出。
+                                exitGate.reset();
+                                return;
+                            }
                             // 前端没消费 = 已在首页 → 双击返回退出应用 (与遥控器返回一致)
                             runOnUiThread(() -> {
-                                long t = System.currentTimeMillis();
-                                if (t - lastExitBackAt < EXIT_CONFIRM_MS) {
-                                    lastExitBackAt = 0L;
+                                if (exitGate.shouldExit(SystemClock.elapsedRealtime())) {
                                     finishAffinity(); // 真正退出应用
                                 } else {
-                                    lastExitBackAt = t;
                                     GlassToast.show(WebShellActivity.this, "再按一次退出应用");
                                 }
                             });

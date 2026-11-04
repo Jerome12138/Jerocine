@@ -26,6 +26,7 @@ import com.jerocine.player.JerocinePlayer;
 import com.jerocine.player.PlayerActivity;
 import com.jerocine.player.PlayerSession;
 import com.jerocine.player.R;
+import com.jerocine.player.ui.JcUi;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -106,8 +107,9 @@ public class DownloadActivity extends AppCompatActivity {
     private long lastBytes = -1;
     private long lastTs = 0;
 
+    /** dp 换算已下沉 core 的 JcUi —— 保留本类历史的 +0.5f 四舍五入语义(JcUi.dpRound, 值不变)。 */
     private int dp(float v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+        return JcUi.dpRound(this, v);
     }
 
     // ============================ 生命周期 ============================

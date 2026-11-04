@@ -2,9 +2,7 @@ package com.jerocine.player.ui;
 
 import android.app.Activity;
 import android.content.SharedPreferences;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.StateListDrawable;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -14,8 +12,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-
-import androidx.core.content.ContextCompat;
 
 import com.jerocine.player.PlayerAdFilterHelper;
 import com.jerocine.player.R;
@@ -52,7 +48,7 @@ public class JcSettingsDrawer {
     // ⚠️ 颜色/尺寸的**唯一真源**是 player-core 的 res/values/colors.xml + res/values/dimens.xml。
     //    本类不再写十六进制/数字字面量 —— 历史上本类与 web 壳的 WebShellActivity 各存一份 GF_*
     //    与 DRAWER_W_DP/ROW_H_DP(加上资源共 3 份), 改一处色必漏另两处(2026-10-12 收编)。
-    //    编程式构建 View 仍需要 int, 但一律经下面的 {@link #col(int)} / {@link #dimenPx(int)} 从资源解析。
+    //    编程式构建 View 仍需要 int, 但一律经 JcUi.col(...) / JcUi.dimenPx(...) 从资源解析。
     /**
      * 壳模式存储键 —— 契约只在 {@link ShellPrefs} 定义一次(与 EntryRouter/DeviceProbe 共用),
      * 这里保留常量只为兼容既有引用。
@@ -540,11 +536,10 @@ public class JcSettingsDrawer {
         return mode == null ? "" : mode.trim().toLowerCase(Locale.ROOT);
     }
 
-    // ==================== UI 辅助方法(从 WebShellActivity 抽取) ====================
+    // ==================== UI 辅助方法(公式已下沉 core 的 JcUi, 这里仅一行转引保调用点不变) ====================
 
     private int dp(int v) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
-                activity.getResources().getDisplayMetrics());
+        return JcUi.dp(activity, v);
     }
 
     /**
@@ -552,12 +547,12 @@ public class JcSettingsDrawer {
      * 色值唯一真源是 res/values/colors.xml（见类顶部"设计令牌"说明），本类不写任何十六进制。
      */
     private int col(int colorResId) {
-        return ContextCompat.getColor(activity, colorResId);
+        return JcUi.col(activity, colorResId);
     }
 
     /** 从资源取尺寸(px) —— 尺寸唯一真源是 res/values/dimens.xml */
     private int dimenPx(int dimenResId) {
-        return (int) activity.getResources().getDimension(dimenResId);
+        return JcUi.dimenPx(activity, dimenResId);
     }
 
     /**
@@ -631,7 +626,7 @@ public class JcSettingsDrawer {
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackground(buildDrawerButtonBg());
+        row.setBackground(JcUi.glassButtonBg(activity));
         int padH = dp(16);
         row.setPadding(padH, 0, padH, 0);
         row.setFocusable(focusable);
@@ -752,27 +747,5 @@ public class JcSettingsDrawer {
         klp.leftMargin = dp(3);
         klp.rightMargin = dp(3);
         return klp;
-    }
-
-    private Drawable buildDrawerButtonBg() {
-        GradientDrawable focused = new GradientDrawable();
-        focused.setColor(col(R.color.jc_accent_dim));
-        focused.setCornerRadius(dp(14));
-        focused.setStroke(dp(2), col(R.color.jc_accent));
-
-        GradientDrawable pressed = new GradientDrawable();
-        pressed.setColor(col(R.color.jc_accent_press));
-        pressed.setCornerRadius(dp(14));
-
-        GradientDrawable normal = new GradientDrawable();
-        normal.setColor(col(R.color.jc_glass_soft));
-        normal.setCornerRadius(dp(14));
-        normal.setStroke(dp(1), col(R.color.jc_stroke));
-
-        StateListDrawable sld = new StateListDrawable();
-        sld.addState(new int[]{android.R.attr.state_focused}, focused);
-        sld.addState(new int[]{android.R.attr.state_pressed}, pressed);
-        sld.addState(android.util.StateSet.WILD_CARD, normal);
-        return sld;
     }
 }

@@ -49,9 +49,9 @@ public class BrandSplashView extends FrameLayout {
         build();
     }
 
+    /** dp 换算已下沉 core 的 JcUi(值不变, 一行转引) */
     private int dp(int v) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
-                getResources().getDisplayMetrics());
+        return JcUi.dp(getContext(), v);
     }
 
     private void build() {
