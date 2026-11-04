@@ -448,8 +448,9 @@ async function filterPlaylistChain(
 /* ============ 端侧取源(client 模式)的下一集过滤结果缓存 ============
  * 片尾窗口把下一集"抓源+过滤"整个提前跑掉, 过滤文本存这里(key=原始清单 URL);
  * 自动切集时 resolvePlaySrc 缓存命中 → 直接 blob, 整个过滤窗口归零。
- * 与安卓 PlayerPrefetchHelper 同款加速器; TTL 10min 与服务端过滤缓存对齐
- * (m3u8 防盗链 token 通常远长于此)。离开播放页清空。 */
+ * 与安卓 PlayerPrefetchHelper 同款加速器; TTL 10min 与安卓端预取 TTL
+ * (PlayerSession.PREFETCH_TTL_MS)对齐(m3u8 防盗链 token 通常远长于此; 服务端过滤缓存
+ * 已随 2026-10-28 下线, 无对齐对象)。离开播放页清空。 */
 const FILTERED_TEXT_TTL_MS = 10 * 60_000
 const filteredTextCache = new Map<string, { text: string; filtered: number; at: number }>()
 
