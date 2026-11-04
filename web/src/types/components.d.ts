@@ -15,7 +15,6 @@ declare module 'vue' {
     BaseIcon: typeof import('./../components/base/BaseIcon.vue')['default']
     BaseImage: typeof import('./../components/base/BaseImage.vue')['default']
     BaseLightbox: typeof import('./../components/base/BaseLightbox.vue')['default']
-    BasePagePlaceholder: typeof import('./../components/base/BasePagePlaceholder.vue')['default']
     BasePagination: typeof import('./../components/base/BasePagination.vue')['default']
     BasePasswordField: typeof import('./../components/base/BasePasswordField.vue')['default']
     BaseSkeleton: typeof import('./../components/base/BaseSkeleton.vue')['default']
@@ -23,11 +22,15 @@ declare module 'vue' {
     BaseSwitchRow: typeof import('./../components/base/BaseSwitchRow.vue')['default']
     BaseTag: typeof import('./../components/base/BaseTag.vue')['default']
     BaseToastContainer: typeof import('./../components/base/BaseToastContainer.vue')['default']
+    CardCornerRemove: typeof import('./../components/base/CardCornerRemove.vue')['default']
     EpisodeBadge: typeof import('./../components/base/EpisodeBadge.vue')['default']
+    FilmResultSection: typeof import('./../components/base/FilmResultSection.vue')['default']
+    ListPageHeader: typeof import('./../components/base/ListPageHeader.vue')['default']
     PwaUpdateBadge: typeof import('./../components/base/PwaUpdateBadge.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SectionHeader: typeof import('./../components/base/SectionHeader.vue')['default']
     SkeletonGrid: typeof import('./../components/base/SkeletonGrid.vue')['default']
+    TvResultBoard: typeof import('./../components/base/TvResultBoard.vue')['default']
   }
 }

@@ -3,11 +3,7 @@ import { computed, ref } from 'vue'
 import * as filmApi from '@/api/film'
 import type { Card, FilterTag, Filters } from '@/types/film'
 import type { PageMeta } from '@/types/api'
-import FilmGrid from '@/components/film/FilmGrid.vue'
-import FilmCard from '@/components/film/FilmCard.vue'
-import FilmFilterBar, {
-  type FilterGroup
-} from '@/components/film/FilmFilterBar.vue'
+import type { FilterGroup } from '@/components/film/FilmFilterBar.vue'
 import { useQuerySync } from '@/composables/useQuerySync'
 import { useAbortable } from '@/composables/useAbortable'
 import { useViewMode } from '@/composables/useViewMode'
@@ -161,143 +157,55 @@ function onPaginate(p: number): void {
   }
 }
 
-/** TV 分支翻页: 边界保护后复用 onPaginate */
+/** TV 页头"第 X / Y 页"计数; 翻页边界保护已随 W2a 收编进 TvResultBoard(越界不上抛) */
 const tvPageCount = computed(() => Math.max(1, page.value.pageCount || 1))
 const tvCurrent = computed(() => page.value.current || 1)
-function tvGoPage(delta: number): void {
-  const next = tvCurrent.value + delta
-  if (next < 1 || next > tvPageCount.value) return
-  onPaginate(next)
-}
 </script>
 
 <template>
-  <!-- ===================== TV 分支 (雷鸟卡片式: 左右分屏) ===================== -->
-  <section
+  <!-- ===================== TV 分支 (雷鸟卡片式: 左右分屏, W2a 收编进 TvResultBoard) ===================== -->
+  <TvResultBoard
     v-if="isTV"
     class="jc-cs-tv container-page py-[var(--jc-space-6)]"
+    :loading="loading"
+    :loaded="loaded"
+    :error-msg="errorMsg"
+    error-description="请检查链接中的 Pid 参数"
+    :films="films"
+    :page="page"
+    :filter-groups="filterGroups"
+    empty-title="无符合条件的影片"
+    @filter-change="onFilterChange"
+    @paginate="onPaginate"
   >
     <!-- 标题切换: 电视剧(分类页) | 电视剧库(当前筛选页, 渐变高亮) + 结果统计 -->
-    <div v-if="titleName" class="jc-cs-tv__head jc-tv-sec">
-      <RouterLink
-        :to="{ path: '/filmClassify', query: { Pid: pidStr } }"
-        class="jc-cs-tv__title-link"
-        data-focusable="true"
-        tabindex="0"
-      >
-        {{ titleName }}
-      </RouterLink>
-      <span class="jc-cs-tv__title-divider" aria-hidden="true">|</span>
-      <RouterLink
-        :to="{ path: '/filmClassifySearch', query: { Pid: pidStr } }"
-        class="jc-cs-tv__title-active"
-        data-focusable="true"
-        tabindex="0"
-      >
-        {{ titleName }}库
-      </RouterLink>
-      <span v-if="page.total > 0" class="jc-cs-tv__count">
-        共 <strong>{{ page.total }}</strong> 部影片 · 第 {{ tvCurrent }} / {{ tvPageCount }} 页
-      </span>
-    </div>
-
-    <!-- 错误态 -->
-    <BaseEmpty
-      v-if="!loading && errorMsg"
-      :title="errorMsg"
-      description="请检查链接中的 Pid 参数"
-    />
-
-    <div v-else class="jc-cs-tv__split">
-      <!-- ===== 左: 竖向筛选分区栏 ===== -->
-      <aside
-        v-if="filterGroups.length > 0"
-        class="jc-cs-tv__filter"
-      >
-        <div
-          v-for="group in filterGroups"
-          :key="group.key"
-          class="jc-cs-tv__grp"
+    <template #head>
+      <div v-if="titleName" class="jc-cs-tv__head jc-tv-sec">
+        <RouterLink
+          :to="{ path: '/filmClassify', query: { Pid: pidStr } }"
+          class="jc-cs-tv__title-link"
+          data-focusable="true"
+          tabindex="0"
         >
-          <div class="jc-cs-tv__grp-title">{{ group.title }}</div>
-          <div class="jc-cs-tv__grp-chips">
-            <button
-              v-for="opt in group.options"
-              :key="String(opt.value)"
-              type="button"
-              class="jc-tv-chip jc-cs-tv__chip"
-              :class="String(opt.value) === String(group.current) ? 'sel' : ''"
-              data-focusable="true"
-              tabindex="0"
-              :aria-pressed="String(opt.value) === String(group.current)"
-              @click="onFilterChange({ key: group.key, value: opt.value })"
-            >
-              {{ opt.label }}
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <!-- ===== 右: 结果网格 ===== -->
-      <main class="jc-cs-tv__main">
-        <!-- 骨架 -->
-        <SkeletonGrid
-          v-if="loading && films.length === 0"
-          :count="12"
-          layout="poster-tv"
-          height="auto"
-          ratio="3/4"
-        />
-
-        <!-- 网格 -->
-        <div v-else-if="films.length > 0" class="jc-tv-grid">
-          <FilmCard
-            v-for="item in films"
-            :key="item.mid"
-            :item="item"
-            :show-title-below="true"
-          />
-        </div>
-
-        <!-- 空态 -->
-        <BaseEmpty
-          v-else-if="!loading && loaded"
-          title="无符合条件的影片"
-          description="试试切换其他筛选条件"
-        />
-
-        <!-- 翻页 -->
-        <div
-          v-if="!loading && page.total > 0 && tvPageCount > 1"
-          class="jc-cs-tv__pager"
+          {{ titleName }}
+        </RouterLink>
+        <span class="jc-cs-tv__title-divider" aria-hidden="true">|</span>
+        <RouterLink
+          :to="{ path: '/filmClassifySearch', query: { Pid: pidStr } }"
+          class="jc-cs-tv__title-active"
+          data-focusable="true"
+          tabindex="0"
         >
-          <button
-            type="button"
-            class="jc-tv-btn"
-            :disabled="tvCurrent <= 1"
-            data-focusable="true"
-            tabindex="0"
-            @click="tvGoPage(-1)"
-          >
-            上一页
-          </button>
-          <span class="jc-cs-tv__pager-info">{{ tvCurrent }} / {{ tvPageCount }}</span>
-          <button
-            type="button"
-            class="jc-tv-btn cyan"
-            :disabled="tvCurrent >= tvPageCount"
-            data-focusable="true"
-            tabindex="0"
-            @click="tvGoPage(1)"
-          >
-            下一页
-          </button>
-        </div>
-      </main>
-    </div>
-  </section>
+          {{ titleName }}库
+        </RouterLink>
+        <span v-if="page.total > 0" class="jc-cs-tv__count">
+          共 <strong>{{ page.total }}</strong> 部影片 · 第 {{ tvCurrent }} / {{ tvPageCount }} 页
+        </span>
+      </div>
+    </template>
+  </TvResultBoard>
 
-  <!-- ===================== 桌面 / 移动分支 (原样保留) ===================== -->
+  <!-- ===================== 桌面 / 移动分支 (W2b 收编进 FilmResultSection) ===================== -->
   <div v-else class="jc-classify-search container-page py-[var(--jc-space-6)]">
     <!-- 顶部 title 切换：当前页选中"XX 库" -->
     <header
@@ -331,60 +239,16 @@ function tvGoPage(delta: number): void {
     />
 
     <template v-else>
-      <!-- 筛选栏 (sticky 吸顶, bilibili 风格保持滚动时可见) -->
-      <div
-        v-if="filterGroups.length > 0"
-        class="jc-classify-search__filter-wrap"
-      >
-        <FilmFilterBar
-          :groups="filterGroups"
-          @change="onFilterChange"
-        />
-      </div>
-
-      <!-- 结果统计 -->
-      <div
-        v-if="page.total > 0"
-        class="jc-classify-search__count flex items-baseline justify-between mb-[var(--jc-space-4)] mt-[var(--jc-space-5)]"
-      >
-        <p class="text-secondary text-[length:var(--jc-fs-sm)]">
-          共 <strong class="text-primary">{{ page.total }}</strong> 部影片
-        </p>
-        <span class="text-muted text-[length:var(--jc-fs-xs)]">
-          第 {{ page.current || 1 }} / {{ Math.max(1, page.pageCount || 1) }} 页
-        </span>
-      </div>
-
-      <!-- 骨架 -->
-      <SkeletonGrid
-        v-if="loading && films.length === 0"
-        :count="12"
-        layout="poster"
-        height="auto"
-        ratio="3/4"
-      />
-
-      <!-- 网格列表 -->
-      <FilmGrid v-else-if="films.length > 0" :items="films" />
-
-      <!-- 分页 -->
-      <div
-        v-if="!loading && page.total > 0"
-        class="mt-[var(--jc-space-8)] flex justify-center"
-      >
-        <BasePagination
-          :current="page.current || 1"
-          :page-size="page.size || 49"
-          :total="page.total"
-          @change="onPaginate"
-        />
-      </div>
-
-      <!-- 空状态 -->
-      <BaseEmpty
-        v-if="!loading && loaded && films.length === 0 && !errorMsg"
-        title="无符合条件的影片"
-        description="试试切换其他筛选条件"
+      <FilmResultSection
+        :loading="loading"
+        :loaded="loaded"
+        :error-msg="errorMsg"
+        :films="films"
+        :page="page"
+        :filter-groups="filterGroups"
+        empty-title="无符合条件的影片"
+        @filter-change="onFilterChange"
+        @paginate="onPaginate"
       />
     </template>
   </div>
@@ -433,36 +297,10 @@ function tvGoPage(delta: number): void {
   }
 }
 
-/* 筛选栏: mobile 不 sticky (避免占满半屏), md+ 才吸顶 */
-.jc-classify-search__filter-wrap {
-  background-color: rgba(11, 11, 15, 0.92);
-  margin-inline: calc(-1 * var(--jc-gutter-mobile));
-  padding: var(--jc-space-2) var(--jc-gutter-mobile);
-  border-bottom: 1px solid var(--jc-border-subtle);
-}
-@media (min-width: 768px) {
-  .jc-classify-search__filter-wrap {
-    /* 取消 sticky 吸顶: 滚动后固定在顶部太占位置, 改为随页面滚走 */
-    padding: var(--jc-space-3) var(--jc-gutter-tablet);
-    margin-inline: calc(-1 * var(--jc-gutter-tablet));
-  }
-}
-
-@media (min-width: 768px) {
-  .jc-classify-search__filter-wrap {
-    margin-inline: calc(-1 * var(--jc-gutter-tablet));
-    padding-inline: var(--jc-gutter-tablet);
-  }
-}
-
-@media (min-width: 1024px) {
-  .jc-classify-search__filter-wrap {
-    margin-inline: calc(-1 * var(--jc-gutter-desktop));
-    padding-inline: var(--jc-gutter-desktop);
-  }
-}
-
-/* ===================== TV 分支专属样式 ===================== */
+/* ===================== TV 分支专属样式 =====================
+   (筛选栏吸边/分屏/竖栏 chip/翻页样式已随 W2a/W2b 分别收编进
+   TvResultBoard / FilmResultSection; 这里只剩页头 —— 头部 DOM 由本视图
+   经 #head 插槽提供, scoped 命中插槽内容, 故页头样式必须留在本文件) */
 .jc-cs-tv__head {
   margin-bottom: var(--jc-space-3);
 }
@@ -499,74 +337,5 @@ function tvGoPage(delta: number): void {
 }
 .jc-cs-tv__count strong {
   color: var(--jc-brand-cyan);
-}
-
-/* 左右分屏: 左固定宽筛选栏 + 右弹性结果网格 */
-.jc-cs-tv__split {
-  display: grid;
-  /* 左筛选占 2 列宽 / 右影片占 4 列(用户指定 6 等分: 2 + 4) */
-  grid-template-columns: 2fr 4fr;
-  gap: var(--jc-space-6);
-  align-items: start;
-}
-
-/* 左: 玻璃面板 + 分区 */
-.jc-cs-tv__filter {
-  border-radius: var(--jc-radius-xl, 20px);
-  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
-  background: var(--jc-tv-glass, rgba(21, 21, 28, 0.88));
-  padding: var(--jc-space-4) var(--jc-space-4) var(--jc-space-5);
-}
-.jc-cs-tv__grp {
-  padding: var(--jc-space-3) 0;
-}
-.jc-cs-tv__grp + .jc-cs-tv__grp {
-  border-top: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
-}
-.jc-cs-tv__grp-title {
-  font-size: var(--jc-fs-sm);
-  font-weight: var(--jc-fw-semibold);
-  color: var(--jc-text-muted);
-  margin-bottom: var(--jc-space-2);
-}
-.jc-cs-tv__grp-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--jc-space-2);
-}
-/* 竖栏空间窄, chip 再收一档(高 40→34 / 内边距 16→10 / 字号 sm→xs):
-   左栏只有 2/6 屏宽, 原来的尺寸一屏放不下几个选项 */
-.jc-cs-tv__chip {
-  height: 34px;
-  padding: 0 10px;
-  font-size: var(--jc-fs-xs);
-}
-
-/* 右: 结果主区 — 影片固定 4 列(用户指定) */
-.jc-cs-tv__main {
-  min-width: 0;
-}
-.jc-cs-tv__main .jc-tv-grid {
-  grid-template-columns: repeat(4, 1fr);
-}
-
-/* 翻页 */
-.jc-cs-tv__pager {
-  margin-top: var(--jc-space-8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--jc-space-4);
-}
-.jc-cs-tv__pager-info {
-  color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-base);
-  font-weight: var(--jc-fw-semibold);
-  min-width: 72px;
-  text-align: center;
-}
-.jc-cs-tv__pager .jc-tv-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 </style>

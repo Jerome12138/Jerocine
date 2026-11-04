@@ -117,32 +117,20 @@ function toCard(record: FavoriteRecord): Card {
     </div>
   </section>
 
-  <!-- ===================== 桌面 / 移动分支 (原样保留) ===================== -->
+  <!-- ===================== 桌面 / 移动分支 (页头/删除钮已随 W2c 收编) ===================== -->
   <section
     v-else
     class="container-page py-[var(--jc-space-6)]"
   >
-    <header class="flex items-center justify-between mb-[var(--jc-space-5)] flex-wrap gap-[var(--jc-space-3)]">
-      <div>
-        <h1 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">我的收藏</h1>
-        <p class="text-sm text-muted mt-[var(--jc-space-1)] flex items-center gap-[var(--jc-space-2)] flex-wrap">
-          <BaseTag :variant="remoteMode ? 'purple' : 'default'" size="xs">
-            {{ remoteMode ? '云端' : '本地' }}
-          </BaseTag>
-          <span>{{ sourceLabel }}</span>
-          <span>·</span>
-          <span>共 {{ items.length }} 部</span>
-          <span v-if="remoteLoading" class="text-link">同步中…</span>
-        </p>
-      </div>
-      <RouterLink
-        v-if="!isLoggedIn"
-        to="/login"
-        class="jc-link-btn"
-      >
-        登录以云端同步
-      </RouterLink>
-    </header>
+    <ListPageHeader
+      title="我的收藏"
+      :source-label="sourceLabel"
+      :remote-mode="remoteMode"
+      :count="items.length"
+      unit="部"
+      :remote-loading="remoteLoading"
+      :logged-in="isLoggedIn"
+    />
 
     <BaseEmpty
       v-if="!items.length"
@@ -171,14 +159,11 @@ function toCard(record: FavoriteRecord): Card {
             fit="cover"
           />
 
-          <button
-            type="button"
-            class="absolute top-[var(--jc-space-2)] right-[var(--jc-space-2)] z-2 w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
-            :aria-label="`取消收藏 ${record.name}`"
+          <CardCornerRemove
+            z-class="z-2"
+            :label="`取消收藏 ${record.name}`"
             @click="handleRemove(record.id, $event)"
-          >
-            <BaseIcon name="close" size="14px" />
-          </button>
+          />
 
           <div class="absolute inset-0 bg-[linear-gradient(180deg,transparent_50%,rgba(0,0,0,0.85)_100%)] opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity" />
         </div>
@@ -197,23 +182,7 @@ function toCard(record: FavoriteRecord): Card {
 </template>
 
 <style scoped>
-.jc-link-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--jc-radius-sm);
-  background-color: rgba(155, 73, 231, 0.16);
-  color: var(--jc-text-link);
-  font-size: var(--jc-fs-sm);
-  text-decoration: none;
-  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-link-btn:hover,
-.jc-link-btn:focus-visible {
-  background-color: rgba(155, 73, 231, 0.28);
-  outline: none;
-}
+/* .jc-link-btn 视觉已随 W2c 收敛进 ListPageHeader */
 .jc-fav-card {
   text-decoration: none;
   outline: none;

@@ -10,7 +10,6 @@ import BaseImage from '@/components/base/BaseImage.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
-import BaseTag from '@/components/base/BaseTag.vue'
 import EpisodeBadge from '@/components/base/EpisodeBadge.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
 import { confirm } from '@/composables/useConfirm'
@@ -252,29 +251,18 @@ function handleRemove(id: string, e: Event): void {
     </template>
   </section>
 
-  <!-- ============ 桌面 / 移动 分支 (原样保留) ============ -->
+  <!-- ============ 桌面 / 移动 分支 (页头/删除钮已随 W2c 收编) ============ -->
   <section v-else class="container-page py-[var(--jc-space-6)]">
-    <header class="flex items-center justify-between mb-[var(--jc-space-5)] flex-wrap gap-[var(--jc-space-3)]">
-      <div>
-        <h1 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">观看历史</h1>
-        <p class="text-sm text-muted mt-[var(--jc-space-1)] flex items-center gap-[var(--jc-space-2)] flex-wrap">
-          <BaseTag :variant="remoteMode ? 'purple' : 'default'" size="xs">
-            {{ remoteMode ? '云端' : '本地' }}
-          </BaseTag>
-          <span>{{ sourceLabel }}</span>
-          <span>·</span>
-          <span>共 {{ items.length }} 条</span>
-          <span v-if="remoteLoading" class="text-link">同步中…</span>
-        </p>
-      </div>
-      <div class="flex items-center gap-[var(--jc-space-2)]">
-        <RouterLink
-          v-if="!isLoggedIn"
-          to="/login"
-          class="jc-link-btn"
-        >
-          登录以云端同步
-        </RouterLink>
+    <ListPageHeader
+      title="观看历史"
+      :source-label="sourceLabel"
+      :remote-mode="remoteMode"
+      :count="items.length"
+      unit="条"
+      :remote-loading="remoteLoading"
+      :logged-in="isLoggedIn"
+    >
+      <template #actions>
         <BaseButton
           v-if="items.length"
           variant="ghost"
@@ -284,8 +272,8 @@ function handleRemove(id: string, e: Event): void {
           <BaseIcon name="trash" size="16px" />
           清空
         </BaseButton>
-      </div>
-    </header>
+      </template>
+    </ListPageHeader>
 
     <BaseEmpty
       v-if="!items.length"
@@ -325,14 +313,11 @@ function handleRemove(id: string, e: Event): void {
               >
                 {{ episodeLabel(record.episode, record.episodeIndex) }}
               </EpisodeBadge>
-              <button
-                type="button"
-                class="absolute top-[var(--jc-space-2)] right-[var(--jc-space-2)] z-4 w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
-                :aria-label="`从历史中移除 ${record.name}`"
+              <CardCornerRemove
+                z-class="z-4"
+                :label="`从历史中移除 ${record.name}`"
                 @click="handleRemove(record.id, $event)"
-              >
-                <BaseIcon name="close" size="14px" />
-              </button>
+              />
 
               <div
                 v-if="formatProgress(record.currentTime)"
@@ -349,23 +334,7 @@ function handleRemove(id: string, e: Event): void {
 </template>
 
 <style scoped>
-.jc-link-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--jc-radius-sm);
-  background-color: rgba(155, 73, 231, 0.16);
-  color: var(--jc-text-link);
-  font-size: var(--jc-fs-sm);
-  text-decoration: none;
-  transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-link-btn:hover,
-.jc-link-btn:focus-visible {
-  background-color: rgba(155, 73, 231, 0.28);
-  outline: none;
-}
+/* .jc-link-btn 视觉已随 W2c 收敛进 ListPageHeader */
 
 /* 左上角"看到第 N 集"角标样式已随 W1d 收敛进 EpisodeBadge(variant=page, 值不变) */
 </style>
