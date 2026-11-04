@@ -1244,6 +1244,10 @@ private static String failedRequestUrl(Throwable error) {
         final boolean playing = session.player.getPlayWhenReady();
         session.player.pause();
         if (bufferPrefetcher != null) bufferPrefetcher.cancel();
+        // cancel 会 shutdownNow 旧实例的线程池, 旧实例不可复用 → 每次都用新签名(单参 sCache)
+        // 重建; 69d9efb 重写本文件时删掉了这行实例化, start 必现 NPE 被 catch 吃成
+        // 「缓存缓冲启动失败: 未知错误」(2026-11-05 排查报告 §④)。
+        bufferPrefetcher = new BufferPrefetcher(sCache);
         // 必须用播放器**实际会请求的** URL: 端侧本地过滤的 blob 清单里分片是源站 CDN
         // 直链(绝对化), 与原始源站 URL 的路径一致 → SimpleCache 的键就是 URL 字符串,
         // 直接用原始源站 URL 预取即可命中。
@@ -1276,6 +1280,7 @@ private static String failedRequestUrl(Throwable error) {
         } catch (Exception e) {
             // start() 同步抛异常(如线程池已 shutdown)→ 不会触发回调,
             // 上面捕获的 playing 就丢了, 播放会停在暂停态无人恢复。
+            android.util.Log.w("PlayerActivity", "buffer prefetch failed", e);
             bufferPrefetcher = null;
             showCenterToast("缓存缓冲启动失败: "
                     + (e.getMessage() == null ? "未知错误" : e.getMessage()), 2400);

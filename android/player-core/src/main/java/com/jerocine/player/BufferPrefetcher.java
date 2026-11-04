@@ -45,7 +45,8 @@ import okhttp3.Response;
 public final class BufferPrefetcher {
 
     private static final String TAG = "BufferPrefetcher";
-    private static final String UA = "Jerocine/1.0 (Android)";
+    /** 与播放侧 UA 一致(PlayerActivity setUserAgent "Jerocine/1.0 (Android TV)"): UA 敏感源两边不一致会缓存 miss. */
+    private static final String UA = "Jerocine/1.0 (Android TV)";
     /** 公共 HTTP 客户端(拉清单 + 写分片) — 避免每次预取新建 OkHttpClient. */
     private static final OkHttpClient HTTP = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
