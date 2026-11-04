@@ -164,6 +164,27 @@ describe('ManageSelect v2: 浮层开关与 dismiss', () => {
     expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
     expect(document.activeElement).toBe(findTrigger(wrapper).element)
   })
+
+  it('弹窗内 ESC 只关浮层不关弹窗(ManageSheet/BaseDialog 组合场景, R1 评审 ESC 穿透)', async () => {
+    // 模拟外层弹窗: 开窗时先注册 window bubble keydown(BaseDialog:73 / ManageSheet:75 同款时序)
+    const dialogEsc = vi.fn()
+    window.addEventListener('keydown', dialogEsc)
+    wrapper = mount(ManageSelect, {
+      attachTo: document.body,
+      props: { modelValue: 0, options: OPTIONS }
+    })
+    await openPanel(wrapper)
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(true)
+
+    // 焦点在触发钮(弹窗内焦点保持的现状)上按 ESC: useDismiss 捕获段消费并阻断传播
+    findTrigger(wrapper).element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+    expect(dialogEsc).not.toHaveBeenCalled()
+
+    window.removeEventListener('keydown', dialogEsc)
+  })
 })
 
 describe('ManageSelect v2: 键盘导航(useListNavigation §3.2)', () => {
@@ -193,6 +214,19 @@ describe('ManageSelect v2: 键盘导航(useListNavigation §3.2)', () => {
     expect(activeIndex(wrapper)).toBe(2)
     await findTrigger(wrapper).trigger('keydown', { key: 'Home' })
     expect(activeIndex(wrapper)).toBe(0)
+  })
+
+  it('a11y: 键盘 active 项经 aria-activedescendant 暴露(绑定 option id), 关闭态不挂', async () => {
+    wrapper = mount(ManageSelect, { props: { modelValue: 2, options: OPTIONS } })
+    const t = findTrigger(wrapper)
+    // 关闭态: 不挂 aria-activedescendant
+    expect(t.attributes('aria-activedescendant')).toBeUndefined()
+    await openPanel(wrapper)
+    // 打开态初始 active=选中项(索引 2): 指向该 option 的 id
+    expect(t.attributes('aria-activedescendant')).toBe(findOptions(wrapper)[2]!.attributes('id'))
+    // ↓ 移动后跟随 active 项
+    await findTrigger(wrapper).trigger('keydown', { key: 'ArrowDown' })
+    expect(t.attributes('aria-activedescendant')).toBe(findOptions(wrapper)[0]!.attributes('id'))
   })
 
   it('空列表: 浮层可开但无选项, 方向键/Enter 不动作不抛错', async () => {
@@ -272,14 +306,20 @@ describe('ManageSelect v2: 槽位与尺寸档', () => {
     // 全屏遮罩存在(拦截触发钮再点的 toggle, 防"点外关闭→click 重开")
     expect(document.body.querySelector('[data-select-backdrop]')).not.toBeNull()
 
-    // 选项点击(anchor 内)不关闭
+    // 外点关闭(useDismiss 锚切到浮层自身分支): pointerdown 落在锚外(body) → 收起
+    firePointerDown(document.body)
+    await nextTick()
+    expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+
+    // 重开 → 选项点击(anchor 内)不关闭
+    await openPanel(wrapper)
     const opt = document.body.querySelector('[role="option"]') as HTMLElement
     opt.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
     expect(wrapper.emitted('update:modelValue')).toBeTruthy()
     expect(document.body.querySelector('[role="listbox"]')).toBeNull()
 
-    // 重开 → ESC 关闭(useDismiss 锚在浮层自身, 照常接管)
+    // 再重开 → ESC 关闭(useDismiss 锚在浮层自身, 照常接管)
     await openPanel(wrapper)
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await nextTick()

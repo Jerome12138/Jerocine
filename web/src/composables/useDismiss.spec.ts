@@ -14,6 +14,10 @@ function firePointerDown(el: Element): void {
 function fireKeydown(key: string): void {
   window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
 }
+/** 从真实元素派发 keydown(带完整捕获→冒泡传播路径), 用于验证跨层级阻断 */
+function fireKeydownOn(el: Element, key: string): void {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+}
 
 /** 宿主组件: anchor 是「触发钮+浮层」的容器, 另造一个 body 下的外部节点模拟 anchor 外点击 */
 function mountHost() {
@@ -67,6 +71,30 @@ describe('useDismiss', () => {
     expect(t.onClose).not.toHaveBeenCalled()
     fireKeydown('Escape')
     expect(t.onClose).toHaveBeenCalledTimes(1)
+    t.cleanup()
+  })
+
+  it('ESC 消费不穿透: 外层弹窗(document bubble)的 ESC 监听不触发(ManageSheet 内 select 场景)', async () => {
+    // 模拟 ManageSheet/BaseDialog: 弹窗先挂 document bubble keydown(开窗时注册),
+    // 随后弹窗内的浮层(useDismiss)打开 —— ESC 应只关浮层, 不把弹窗一起关掉(R1 评审 ESC 穿透)
+    const dialogEsc = vi.fn()
+    document.addEventListener('keydown', dialogEsc)
+    const t = mountHost()
+    t.isOpen.value = true
+    await nextTick()
+
+    // 事件从 anchor 内真实元素派发: 捕获段(window)先于 document bubble 命中浮层监听
+    fireKeydownOn(t.innerButton, 'Escape')
+    expect(t.onClose).toHaveBeenCalledTimes(1)
+    expect(dialogEsc).not.toHaveBeenCalled()
+
+    // 关闭态不再阻断: ESC 恢复穿透到外层弹窗
+    t.isOpen.value = false
+    await nextTick()
+    fireKeydownOn(t.innerButton, 'Escape')
+    expect(dialogEsc).toHaveBeenCalledTimes(1)
+
+    document.removeEventListener('keydown', dialogEsc)
     t.cleanup()
   })
 

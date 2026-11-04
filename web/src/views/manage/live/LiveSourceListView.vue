@@ -27,6 +27,7 @@ import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import { openManageDialog } from '@/composables/useManageDialog'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import LiveSourceFormDialog from './LiveSourceFormDialog.vue'
@@ -493,10 +494,14 @@ onMounted(async () => {
       </div>
     </header>
 
-    <div v-if="error" class="jc-livemgr__error">
-      <p>直播源加载失败：{{ error }}</p>
-      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
-    </div>
+    <!-- 加载失败错误态: 收口 ManageErrorState plain 形态(§6 组合组件), 视觉沿用原 jc-livemgr__error -->
+    <ManageErrorState
+      v-if="error"
+      variant="plain"
+      title="直播源加载失败"
+      :description="error"
+      @retry="load"
+    />
 
     <ManageTable
       v-else
@@ -720,16 +725,7 @@ onMounted(async () => {
   background-color: var(--jc-bg-surface);
   border-radius: var(--jc-radius-md);
 }
-.jc-livemgr__error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--jc-space-3);
-  padding: var(--jc-space-8) var(--jc-space-4);
-  color: var(--jc-danger, #ef4444);
-  background-color: var(--jc-bg-surface);
-  border-radius: var(--jc-radius-md);
-}
+/* 加载失败错误块样式已收口 ManageErrorState plain 形态(§6 组合组件) */
 .jc-livemgr__list {
   display: flex;
   flex-direction: column;

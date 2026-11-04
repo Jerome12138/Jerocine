@@ -11,10 +11,10 @@ import ManageTabs from '@/components/manage/ManageTabs.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import ManageCascader from '@/components/manage/ManageCascader.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
-import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import FilmCollectDialog from './FilmCollectDialog.vue'
 import FilmManualAddDialog from './FilmManualAddDialog.vue'
 import { normalizeCatIds } from './catFilter'
@@ -207,18 +207,13 @@ onMounted(() => {
 <template>
   <!-- 页面根只提供纵向 flex + 间距; 表格高度链由 ManageLayout .jc-manage-main(表格线 T0)贯通 -->
   <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-4)]">
-    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"未找到影片" -->
-    <section
+    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"未找到影片"(错误卡收口 ManageErrorState §6) -->
+    <ManageErrorState
       v-if="paged.loadError.value && !paged.rows.value.length"
-      class="bg-surface rounded-card shadow-card"
-    >
-      <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
-        <BaseEmpty title="加载失败" :description="paged.loadError.value" hide-icon />
-        <ManageButton variant="outline" size="sm" @click="paged.load()">
-          <BaseIcon name="refresh" size="16px" /> 重试
-        </ManageButton>
-      </div>
-    </section>
+      title="加载失败"
+      :description="paged.loadError.value"
+      @retry="paged.load()"
+    />
 
     <ManageTable
       v-else

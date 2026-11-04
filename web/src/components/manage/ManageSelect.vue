@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { useDismiss } from '@/composables/useDismiss'
 import { useListNavigation } from '@/composables/useListNavigation'
@@ -9,6 +9,7 @@ import { useListNavigation } from '@/composables/useListNavigation'
  * - API 向后兼容: options/placeholder/disabled/ariaLabel/原类型 emit, 9 个使用页零改动。
  * - 逻辑全部下沉共享 composables: useDismiss(外点+ESC) / useListNavigation(键盘导航)。
  * - 触发钮与 ManageInput 同族外观 + size 三档 --jc-ctrl-* 令牌(§3.6/D⑥)。
+ * - a11y(R1 评审): 焦点恒留触发钮, 键盘 active 项经 aria-activedescendant 播报(option 带唯一 id)。
  * - teleport(D⑧ 预留): 弹窗内实测裁剪时浮层 Teleport 到 body + fixed 定位(触发钮几何);
  *   该模式下 useDismiss 的锚切到浮层自身(组件根覆盖不到 body 子树), 并渲染全屏遮罩
  *   拦截触发钮的再点击——否则"外点关闭 → click 冒到触发钮 → 立即重开"。
@@ -44,6 +45,9 @@ const isOpen = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
 const triggerRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
+
+/** 组件内唯一前缀: option id 供 aria-activedescendant 引用, 同页多实例不能撞 id */
+const uid = useId()
 
 /** 选中项: 按 String(value) 匹配(保留 v1 语义, 数字 value 不被字符串化) */
 const selected = computed<SelectOption | undefined>(() =>
@@ -92,6 +96,17 @@ const { activeIndex, onKeydown: onListKeydown, open: resetActive } = useListNavi
   },
   onConfirm: confirmIndex,
   onClose: close
+})
+
+/**
+ * 读屏播报锚点(a11y 增强, R1 评审): 焦点恒留触发钮, 键盘 active 项经
+ * aria-activedescendant 暴露给 AT —— 方向键移动时读屏器可播报当前项(WAI-ARIA listbox 模式)。
+ * 仅打开态且 active 项存在时挂, 关闭/空列表不挂。
+ */
+const activeDescendant = computed(() => {
+  if (!isOpen.value) return undefined
+  const opt = props.options[activeIndex.value]
+  return opt ? `jc-opt-${uid}-${activeIndex.value}` : undefined
 })
 
 // ---- teleport 模式浮层定位: 触发钮几何 → fixed 坐标(+4px = 内联浮层 mt-1 同款间距) ----
@@ -158,6 +173,7 @@ useDismiss(
       :aria-label="props.ariaLabel"
       aria-haspopup="listbox"
       :aria-expanded="isOpen"
+      :aria-activedescendant="activeDescendant"
       :data-focusable="props.disabled ? undefined : 'true'"
       class="w-full flex items-center justify-between gap-[var(--jc-space-2)] bg-elevated text-primary border border-default rounded-[var(--jc-ctrl-radius)] outline-none focus:border-strong focus:shadow-focus transition disabled:opacity-50 disabled:cursor-not-allowed"
       :class="sizeClass"
@@ -188,6 +204,7 @@ useDismiss(
         <button
           v-for="(opt, i) in props.options"
           :key="String(opt.value)"
+          :id="`jc-opt-${uid}-${i}`"
           type="button"
           role="option"
           :aria-selected="isSelected(opt)"

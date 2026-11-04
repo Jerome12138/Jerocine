@@ -4,6 +4,7 @@ import { manageApi } from '@/api'
 import type { FilmClass } from '@/types/manage'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageIconButton from '@/components/manage/ManageIconButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -238,15 +239,7 @@ onMounted(() => {
           </label>
           <!-- 删除入口(此前只有子级行有): 服务端同事务级联删子分类, 文案与之对齐 -->
           <span class="jc-cat__cctrl" @click.stop>
-            <button
-              type="button"
-              class="jc-cat__del"
-              :aria-label="`删除 ${parent.name}`"
-              data-focusable="true"
-              @click="remove(parent)"
-            >
-              <BaseIcon name="trash" size="16px" />
-            </button>
+            <ManageIconButton icon="trash" :label="`删除 ${parent.name}`" @click="remove(parent)" />
           </span>
         </div>
 
@@ -283,15 +276,7 @@ onMounted(() => {
                 @update:model-value="toggleSidebarShow(child)"
               />
             </label>
-              <button
-                type="button"
-                class="jc-cat__del"
-                :aria-label="`删除 ${child.name}`"
-                data-focusable="true"
-                @click="remove(child)"
-              >
-                <BaseIcon name="trash" size="16px" />
-              </button>
+              <ManageIconButton icon="trash" :label="`删除 ${child.name}`" @click="remove(child)" />
             </div>
           </li>
           <li>
@@ -454,26 +439,7 @@ onMounted(() => {
 .jc-cat__films-hidden {
   color: var(--jc-danger);
 }
-.jc-cat__del {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--jc-radius-md);
-  color: var(--jc-text-muted);
-  transition:
-    color var(--jc-dur-fast) var(--jc-ease-standard),
-    background-color var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-cat__del:hover {
-  color: var(--jc-danger);
-  background-color: rgba(255, 255, 255, 0.06);
-}
-.jc-cat__del:focus-visible {
-  outline: none;
-  box-shadow: var(--jc-shadow-focus-ring);
-}
+/* 删除钮样式已收口 ManageIconButton(§6 组合组件): 36px 定值 + hover danger + 焦点环随组件 */
 
 /* ---- 新增子分类 ---- */
 .jc-cat__add {

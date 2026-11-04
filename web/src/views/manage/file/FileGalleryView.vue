@@ -7,6 +7,7 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageIconButton from '@/components/manage/ManageIconButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
 import { usePagedList } from '@/composables/usePagedList'
@@ -154,15 +155,9 @@ async function remove(item: FileItem): Promise<void> {
           <div class="flex items-center justify-between text-muted">
             <span v-if="extOf(item)" class="uppercase">{{ extOf(item) }}</span>
             <span v-else />
-            <button
-              class="hover:text-[var(--jc-danger)] disabled:opacity-40 disabled:pointer-events-none"
-              type="button"
-              data-focusable="true"
-              :disabled="busy"
-              @click="remove(item)"
-            >
+            <ManageIconButton :disabled="busy" @click="remove(item)">
               删除
-            </button>
+            </ManageIconButton>
           </div>
         </div>
       </article>

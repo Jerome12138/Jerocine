@@ -10,6 +10,8 @@ import { ref, watchEffect } from 'vue'
  *   还原为 props 值再上报，父级不回写时保持受控语义（更新经 :checked 写回）。
  * - indeterminate 是 DOM prop 而非 attribute，经 watchEffect 直写，
  *   不走 Vue 模板绑定，避免重渲染把它重置回 false。
+ * - checked 与 indeterminate 双真时 indeterminate 优先（只渲染横杠）；现有调用点不会双真，
+ *   该取舍经 spec 固化（R1 评审）。
  * - input 保留几何位置（absolute + 0 尺寸）供 TV 空间导航按 DOM 寻焦。
  */
 interface Props {

@@ -33,6 +33,17 @@ describe('ManageCheckbox', () => {
     expect(w.find('.jc-checkbox__bar').exists()).toBe(true)
   })
 
+  it('checked 与 indeterminate 双真 → indeterminate 优先, 只渲染横杠不渲染白勾(取舍固化)', () => {
+    // 现有调用点(ManageCascader.isPartialChecked)不会双真; 该组合规格未定义视觉契约,
+    // 以组件实现为准固化: v-if indeterminate 分支优先, 横杠覆盖白勾
+    const w = mount(ManageCheckbox, { props: { modelValue: true, indeterminate: true } })
+    const el = input(w).element as HTMLInputElement
+    expect(el.checked).toBe(true)
+    expect(el.indeterminate).toBe(true)
+    expect(w.find('.jc-checkbox__bar').exists()).toBe(true)
+    expect(w.find('svg polyline').exists()).toBe(false)
+  })
+
   it('indeterminate 翻 false → DOM indeterminate 复位(手控直写, 不被 Vue 重置)', async () => {
     const w = mount(ManageCheckbox, { props: { modelValue: false, indeterminate: true } })
     await w.setProps({ indeterminate: false })
