@@ -557,18 +557,27 @@ type RefreshChannelsResult struct {
 	Restored int `json:"restored"` // 因「内容有更新」而恢复显示的隐藏频道数
 }
 
-// RefreshSourceChannels 按源重新拉取频道：清缓存 → 重新抓取解析 m3u → 同步覆盖层。
+// RefreshSourceChannels 按源重新拉取频道：重新抓取解析 m3u → 成功才清缓存 → 同步覆盖层。
 // 「内容有更新才恢复显示」：对隐藏中的解析频道，若其解析出的名称/分组与上次记录不同，
 // 视为内容已更新 → 取消隐藏；同时把本次解析值记为"上次值"供下次比对。
 // （url 变化的频道天然恢复：覆盖层按 url 对齐，新 url 无覆盖 = 可见。）
+// 第2轮评审改为"先抓后失效"：parseChannels 与公开读共用 8s client，旧序"清缓存→再抓"
+// 在 8~20s 才响应的慢源上会把原本可用的公开频道缓存刷成"回源失败→5min 负缓存空频道"。
 func (s *LiveService) RefreshSourceChannels(ctx context.Context, sourceID int64) (RefreshChannelsResult, error) {
 	src, err := s.repo.Get(ctx, sourceID)
 	if err != nil {
 		return RefreshChannelsResult{}, err
 	}
-	s.invalidateChannelCache(ctx, sourceID) // 解析缓存与公开列表同前缀，一并失效→下次读即重新抓取
 	fresh := s.parseChannels(ctx, src)
 	res := RefreshChannelsResult{Total: len(fresh)}
+	if res.Total == 0 {
+		// 抓取失败（parseChannels 出错返回 nil），或抓到 0 频道的空表（ParsePlaylist 对
+		// 空表返回 nil，二者不可分）→ 一律不动缓存：现有正缓存保留至 30min TTL 自然过期，
+		// 管理端仍能看到 Total=0 的刷新结果。空表时覆盖层同步本就是空操作（byURL 为空
+		// 全部 continue），提前返回不改变语义。
+		return res, nil
+	}
+	s.invalidateChannelCache(ctx, sourceID) // 解析缓存与公开列表同前缀，一并失效→下次读即重新抓取
 
 	states, err := s.state.ListBySource(ctx, sourceID)
 	if err != nil {

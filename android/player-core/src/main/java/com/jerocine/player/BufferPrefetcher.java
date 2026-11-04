@@ -78,7 +78,14 @@ public final class BufferPrefetcher {
         this.cache = cache;
     }
 
-    /** 开始预取. minutes: 0 = 本集全部; >0 = 前 N 分钟. */
+    /**
+     * 开始预取. minutes: 0 = 本集全部; >0 = 前 N 分钟.
+     *
+     * <p>契约(第2轮评审钉死): <b>一实例一次 start</b> —— 正常结束在 finally shutdown 线程池,
+     * cancel() 走 shutdownNow, 实例用毕即不可复用(复用会同步抛 RejectedExecutionException,
+     * 或因 cancelled 永不复位而秒回"已取消"); 调用方每次缓冲都应 new 新实例
+     * (PlayerActivity.startBufferPrefetch 即为每次重建)。
+     */
     public void start(final String srcUrl, final double minutes,
                       final ProgressListener progress, final CompletionListener done) {
         worker.execute(() -> {
@@ -88,9 +95,13 @@ public final class BufferPrefetcher {
                 // 取消引起的失败要与真实失败区分开。cancel() 会 shutdownNow 中断本线程,
                 // 被打断的本地过滤返回 null → 这里抛 "广告过滤失败"。
                 // 若不判cancelled, 用户在"缓冲30分钟"中途改选"缓冲5分钟"时, 旧实例会:
-                //   ①弹一个莫名其妙的"缓存缓冲失败: 广告过滤失败"(实际是用户自己取消的);
-                //   ② 执行 onError 里的 setPlayWhenReady(true) → **在新实例正在写缓存的
-                //      同时恢复播放**, 把"缓冲中暂停"的语义彻底破坏。
+                //   ① 弹一个莫名其妙的"缓存缓冲失败: 广告过滤失败"(实际是用户自己取消的)
+                //     → 下面的 cancelled 分支把它换成 onError("已取消");
+                //   ② 执行 onError 里的 setPlayWhenReady(true) → 在新实例写缓存的同时恢复
+                //      播放, 破坏"缓冲中暂停" —— **cancelled 分支挡不住这一半**(它照走
+                //      onError 回调), 实际由调用方 PlayerActivity 的实例身份守卫解决:
+                //      旧实例回调到达时 bufferPrefetcher 已指向新实例, 直接丢弃
+                //      (第2轮评审: 修正本注释此前声称本分支已修复②的误导)。
                 if (cancelled) {
                     post(() -> done.onError("已取消"));
                     return;

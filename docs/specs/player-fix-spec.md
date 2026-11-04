@@ -19,7 +19,7 @@
 |---|---|---|
 | Q① | **P1 清单免缓存**:为 HlsMediaSource 换自定义 HlsDataSourceFactory——`C.DATA_TYPE_MANIFEST` 走裸 DefaultDataSource(OkHttp),分片继续走 CacheDataSource | 根因修复;动播放器装载核心;实施前**先核对本仓 media3 实际版本的 API 形态**(gradle 缓存里看 HlsDataSourceFactory/Factory 构造),不符则 escalate |
 | Q② | **P2 报错兜底**:onPlayerError 对 `ERROR_CODE_BEHIND_LIVE_WINDOW` 及 cause 为 PlaylistReset/BehindLive → seekToDefaultPosition()+prepare(),不弹错退出;其余异常路径不变 | media3 标准处方 |
-| Q③ | **P3 isLive 贯通**:直播载荷加 `isLive`(TV LivePlayer.kt buildLivePlayerPayload + web utils/nativeLive.ts)→ PlayerActivity EXTRA → PlayerSession;控制面板显隐时若 `session.isLive` 或 `player.isCurrentMediaItemLive()` → 隐藏进度行(exo_position/TimeBar/exo_duration)并屏蔽 ±10s seek;布局文件不动 DOM 结构只加显隐 | 双入口(TV/web 壳)都要带上标志 |
+| Q③ | **P3 isLive 贯通**:直播载荷加 `isLive`(TV LivePlayer.kt buildLivePlayerPayload + web utils/nativeLive.ts)→ PlayerActivity EXTRA → PlayerSession;控制面板显隐时若 `session.isLive` 或 `player.isCurrentMediaItemLive()` → 隐藏进度行(exo_position/TimeBar/exo_duration)并屏蔽 ±10s seek;布局文件不改行内结构只加显隐(允许加显隐锚点 id,第2轮评审措辞对齐) | 双入口(TV/web 壳)都要带上标志 |
 | Q④ | **P7 直播短路预取**:canPrefetch(PlayerPrefetchHelper.java:109-117)对 isLive 恒 false | 依赖 Q③ 的标志 |
 | Q⑤ | **P9 直播媒体表跳过本地过滤**:媒体清单无 `#EXT-X-ENDLIST` 且含 `#EXT-X-MEDIA-SEQUENCE` → 不做 M3u8FilterCore 剔段(只 absolutize 直通) | 消除剔段对滑窗的干扰面;master 层本就直通 |
 | Q⑥ | **P4 TV 频道并行**:LiveRepository.loadAll for 循环 → coroutine 并行(语义对齐 web Promise.all),保持返回顺序稳定 | — |

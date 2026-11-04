@@ -211,6 +211,8 @@ export const jerocine = {
     filmName?: string
     /** 初始广告过滤开关(原生以自身持久化为准, 仅作初值参考) */
     adFilter?: boolean
+    /** Q③ 直播标志: 原生据此隐藏进度行/禁seek/短路预取; 影片不传=false */
+    isLive?: boolean
   }): void {
     this.call('playPlaylist', cfg as unknown as Record<string, unknown>)
   },

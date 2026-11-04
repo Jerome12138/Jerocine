@@ -1320,6 +1320,12 @@ private static String failedRequestUrl(Throwable error) {
         // 重建; 69d9efb 重写本文件时删掉了这行实例化, start 必现 NPE 被 catch 吃成
         // 「缓存缓冲启动失败: 未知错误」(2026-11-05 排查报告 §④)。
         bufferPrefetcher = new BufferPrefetcher(sCache);
+        // 实例身份守卫(第2轮评审修复): 闭包捕获本次发起缓冲的实例, 回调首行比对字段。
+        // 缓冲#1 途中改选缓冲#2 时, startBufferPrefetch 在主线程同步执行 cancel#1→new#2→
+        // #2.start —— #1 被中断后在主线程 post 的 onError("已取消")必在 #2 start 之后才被
+        // main looper 送达, 不丢弃的话会按 #1 闭包里的 playing 恢复播放, 破坏 #2 的
+        // "缓冲中暂停"语义(BufferPrefetcher.start 注释里的②, 由本守卫而非 cancelled 分支解决)。
+        final BufferPrefetcher startedInstance = bufferPrefetcher;
         // 必须用播放器**实际会请求的** URL: 端侧本地过滤的 blob 清单里分片是源站 CDN
         // 直链(绝对化), 与原始源站 URL 的路径一致 → SimpleCache 的键就是 URL 字符串,
         // 直接用原始源站 URL 预取即可命中。
@@ -1339,12 +1345,14 @@ private static String failedRequestUrl(Throwable error) {
                 new BufferPrefetcher.CompletionListener() {
                     @Override
                     public void onComplete() {
+                        if (bufferPrefetcher != startedInstance) return; // 已被新缓冲顶替的旧实例: 静默丢弃
                         showCenterToast("缓存完成 · 已恢复播放", 2200);
                         if (session.player != null && playing) session.player.setPlayWhenReady(true);
                     }
 
                     @Override
                     public void onError(String message) {
+                        if (bufferPrefetcher != startedInstance) return; // 旧实例的"已取消"不再 toast/恢复播放
                         showCenterToast(message, 2400);
                         if (session.player != null && playing) session.player.setPlayWhenReady(true);
                     }
