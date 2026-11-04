@@ -157,7 +157,8 @@ function goPage(delta: number): void {
 <style scoped>
 /* 以下规则自 ClassifySearchView.vue TV 分支样式逐字迁入(值不变);
    HotBoardView 的 .jc-hb-tv 前缀抄写副本随 DOM 收编一并删除。
-   页头(__head/__title-*/__count)仍在各视图 —— 那部分样式留在调用方。 */
+   页头(__head、__title-* 与 __count)仍在各视图 —— 那部分样式留在调用方。
+   (注: 通配星号后不能紧跟斜杠, 否则会把块注释提前关闭 —— 终验 build 门禁修复) */
 
 /* 左右分屏: 左固定宽筛选栏 + 右弹性结果网格 */
 .jc-cs-tv__split {
