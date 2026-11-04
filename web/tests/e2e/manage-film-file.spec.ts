@@ -26,24 +26,28 @@ test.describe('管理端 影片列表', () => {
   })
 })
 
-test.describe('管理端 影片新增', () => {
-  test('海报上传按钮可触发 file picker（label 修复回归）', async ({ page }) => {
+test.describe('管理端 影片新增（影片列表页两个入口弹窗）', () => {
+  test('手动新增弹窗: 海报上传按钮可触发 file picker（label 修复回归）', async ({ page }) => {
     await fakeLogin(page)
     await muteImages(page)
-    await page.goto('/manage/film/add')
+    // 独立页 /manage/film/add 已收编为弹窗: 点工具栏「手动新增」打开
+    await page.goto('/manage/film')
     await waitAppReady(page)
+    await page.locator('button').filter({ hasText: '手动新增' }).click()
+    const sheet = page.locator('.jc-sheet__overlay')
+    await expect(sheet).toBeVisible()
 
-    const fileInput = page.locator('input[type="file"]').first()
+    const fileInput = sheet.locator('input[type="file"]').first()
     await expect(fileInput).toBeAttached()
 
     // 验证按钮 click → file input click 桥接（无法真触发系统文件框，但能监听 input click 事件）
-    const pickBtn = page.locator('button').filter({ hasText: /选择图片/ })
+    const pickBtn = sheet.locator('button').filter({ hasText: /选择图片/ })
     let clicked = false
     await page.exposeFunction('onInputClicked', () => {
       clicked = true
     })
     await page.evaluate(() => {
-      const input = document.querySelector('input[type="file"]') as HTMLElement
+      const input = document.querySelector('.jc-sheet__overlay input[type="file"]') as HTMLElement
       input?.addEventListener('click', () => {
         (window as unknown as { onInputClicked?: () => void }).onInputClicked?.()
       })
@@ -52,17 +56,34 @@ test.describe('管理端 影片新增', () => {
     expect(clicked).toBe(true)
   })
 
-  test('数字 input 清空后不强转 0', async ({ page }) => {
+  test('手动新增弹窗: 数字 input 清空后不强转 0', async ({ page }) => {
     await fakeLogin(page)
     await muteImages(page)
-    await page.goto('/manage/film/add')
+    await page.goto('/manage/film')
     await waitAppReady(page)
+    await page.locator('button').filter({ hasText: '手动新增' }).click()
+    const sheet = page.locator('.jc-sheet__overlay')
+    await expect(sheet).toBeVisible()
 
-    const cidInput = page.locator('input[type="number"]').first()
+    const cidInput = sheet.locator('input[type="number"]').first()
     await cidInput.fill('5')
     await expect(cidInput).toHaveValue('5')
     await cidInput.fill('')
     await expect(cidInput).toHaveValue('')
+  })
+
+  test('采集新片弹窗: 片名关键字搜索栏可输入', async ({ page }) => {
+    await fakeLogin(page)
+    await muteImages(page)
+    await page.goto('/manage/film')
+    await waitAppReady(page)
+    await page.locator('button').filter({ hasText: '采集新片' }).click()
+    const sheet = page.locator('.jc-sheet__overlay')
+    await expect(sheet).toBeVisible()
+    const kw = sheet.locator('input[placeholder*="影片名关键字"]')
+    await expect(kw).toBeVisible()
+    await kw.fill('流浪地球')
+    await expect(kw).toHaveValue('流浪地球')
   })
 })
 

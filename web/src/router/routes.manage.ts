@@ -78,12 +78,6 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '首页轮播' }
   },
   {
-    path: '/manage/film/add',
-    name: 'manage-film-add',
-    component: () => import('@/views/manage/film/FilmAddView.vue'),
-    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '新增影片' }
-  },
-  {
     path: '/manage/film/detail',
     name: 'manage-film-detail',
     component: () => import('@/views/manage/film/FilmDetailView.vue'),

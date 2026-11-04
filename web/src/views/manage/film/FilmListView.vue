@@ -14,6 +14,8 @@ import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
+import FilmCollectDialog from './FilmCollectDialog.vue'
+import FilmManualAddDialog from './FilmManualAddDialog.vue'
 import { toast } from '@/api/http'
 import { usePagedList } from '@/composables/usePagedList'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -21,6 +23,9 @@ import { formatDateTime } from '@/utils/format'
 import { FILM_STATUS_TABS, FILM_STATUS_TAG_MAP } from '@/views/manage/constants'
 
 const router = useRouter()
+// ---- 新增入口(拆成两个弹窗): 采集新片 / 手动新增(原独立页 FilmAddView 收编) ----
+const collectOpen = ref(false)
+const manualOpen = ref(false)
 // ---- 列表骨架: usePagedList 收敛 load/search/翻页/末页回夹/竞态守卫/loading/loadError ----
 const params = reactive({
   name: '',
@@ -317,8 +322,11 @@ onMounted(() => {
             <ManageButton variant="gradient" size="sm" @click="search">
               <BaseIcon name="search" size="16px" /> 搜索
             </ManageButton>
-            <ManageButton variant="ghost" size="sm" @click="router.push('/manage/film/add')">
-              <BaseIcon name="plus" size="16px" /> 新增
+            <ManageButton variant="outline" size="sm" @click="collectOpen = true">
+              <BaseIcon name="magic" size="16px" /> 采集新片
+            </ManageButton>
+            <ManageButton variant="ghost" size="sm" @click="manualOpen = true">
+              <BaseIcon name="plus" size="16px" /> 手动新增
             </ManageButton>
           </div>
         </div>
@@ -420,5 +428,9 @@ onMounted(() => {
         </div>
       </template>
     </ManageTable>
+
+    <!-- 采集新片 / 手动新增(原 FilmAddView 独立页收编为弹窗; 成功即刷新列表) -->
+    <FilmCollectDialog v-model="collectOpen" @saved="paged.load()" />
+    <FilmManualAddDialog v-model="manualOpen" @saved="paged.load()" />
   </div>
 </template>

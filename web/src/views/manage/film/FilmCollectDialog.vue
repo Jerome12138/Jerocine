@@ -1,20 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
 import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import { normalizeCollectResult } from '@/api/manage/film'
-import type {
-  CollectSource,
-  FilmClass,
-  SourceFilmResult,
-  SourceSearchHit
-} from '@/types/manage'
-import ManageFormField from '@/components/manage/ManageFormField.vue'
+import type { CollectSource, SourceFilmResult, SourceSearchHit } from '@/types/manage'
+import ManageSheet from '@/components/manage/ManageSheet.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
-import ManageSelect from '@/components/manage/ManageSelect.vue'
-import ManageTextarea from '@/components/manage/ManageTextarea.vue'
-import ManageImageUpload from '@/components/manage/ManageImageUpload.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -22,16 +13,28 @@ import BaseTag from '@/components/base/BaseTag.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import SourceCandidateDialog from '@/components/manage/SourceCandidateDialog.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
-import type { SelectOption } from '@/components/manage/ManageSelect.vue'
 
-const router = useRouter()
-const tree = ref<FilmClass[]>([])
-const treeError = ref('')
+/**
+ * 采集新片弹窗（原独立页 views/manage/film/FilmAddView.vue 的「按片名采集」段收编而来）。
+ *
+ * 与「手动新增」拆成两个入口：本弹窗只做按片名搜索各采集源 + 采集入库。
+ * 搜索固定覆盖全部启用源（预览不落库）；勾选源仅作用于采集入库。
+ * 采集到内容后 emit('saved')，由影片列表刷新；同名多版本复用 SourceCandidateDialog。
+ */
+const props = defineProps<{ modelValue: boolean }>()
+const emit = defineEmits<{
+  (e: 'update:modelValue', v: boolean): void
+  (e: 'saved'): void
+}>()
+
+const visible = computed({
+  get: () => props.modelValue,
+  set: (v) => emit('update:modelValue', v)
+})
 
 // 写操作统一 useAsyncAction: busy 并发拦截 + 失败 toast 单点; 请求一律 silent
 const { busy, run } = useAsyncAction()
 
-// ============ 按片名搜索站点影片 + 采集 ============
 const collectSources = ref<CollectSource[]>([])
 const sourcesError = ref('')
 const spiderKeyword = ref('')
@@ -54,16 +57,7 @@ function toggleAll(on: boolean): void {
   checked.value = next
 }
 
-/** 加载分类树/采集源: 失败置各自错误态+重试入口, 不再静默吞掉 */
-async function loadTree(): Promise<void> {
-  treeError.value = ''
-  try {
-    tree.value = await manageApi.film.classTree()
-  } catch (e) {
-    treeError.value = (e as Error).message ?? '加载失败'
-  }
-}
-
+/** 加载采集源: 失败置错误态+重试入口, 不再静默吞掉 */
 async function loadSources(): Promise<void> {
   sourcesError.value = ''
   try {
@@ -125,6 +119,7 @@ async function collect(ids: string[]): Promise<void> {
       results.value = res
       searched.value = true
       reportCollect(res)
+      if (res.some((r) => !r.error && (r.collected ?? 0) > 0)) emit('saved')
     }
   })
 }
@@ -172,6 +167,7 @@ async function collectHit(sourceId: string, sourceName: string, h: SourceSearchH
         toast('error', `${sourceName} 采集失败: ${hit.error}`)
       } else if (hit && hit.collected > 0) {
         toast('success', `${sourceName} · ${h.name} 采集完成, 入库 ${hit.collected} 集`)
+        emit('saved')
       } else {
         toast('error', `${sourceName} · ${h.name} 采集未入库`)
       }
@@ -206,6 +202,7 @@ async function onPickCandidate(h: SourceSearchHit): Promise<void> {
       } else if (hit && hit.collected > 0) {
         toast('success', `${sourceName} · ${h.name} 采集完成, 入库 ${hit.collected} 集`)
         candidateDialog.value.visible = false
+        emit('saved')
       } else {
         toast('error', `${sourceName} · ${h.name} 采集未入库`)
       }
@@ -214,88 +211,25 @@ async function onPickCandidate(h: SourceSearchHit): Promise<void> {
   candidatePicking.value = false
 }
 
-// ============ 手动新增表单 ============
-const form = reactive({
-  name: '',
-  enName: '',
-  cid: 0,
-  pid: 0,
-  picture: '',
-  year: '',
-  area: '',
-  director: '',
-  actor: '',
-  classTag: '',
-  content: ''
-})
-/** 字段级错误(ManageFormField error prop 展示) */
-const nameError = ref('')
-const yearError = ref('')
-
-/** 顶级分类下拉: 「请选择」= 0(顶级), 其余为分类树一级节点(数字 value 原类型回传) */
-const pidOptions = computed<SelectOption[]>(() => [
-  { label: '请选择', value: 0 },
-  ...tree.value.map((t) => ({ label: t.name, value: t.id }))
-])
-
-onMounted(() => {
-  void loadTree()
-  void loadSources()
-})
-
-async function submit(): Promise<void> {
-  nameError.value = ''
-  yearError.value = ''
-  const name = form.name.trim()
-  if (!name) {
-    nameError.value = '请填写影片名'
-    return
-  }
-  const yearStr = String(form.year).trim()
-  if (yearStr && !/^\d{4}$/.test(yearStr)) {
-    yearError.value = '年份需为 4 位数字（如 2024），可留空'
-    return
-  }
-  await run({
-    action: () =>
-      manageApi.film.add(
-        {
-          name,
-          enName: form.enName,
-          // ManageInput number 清空后是 undefined, 原样上送服务端 int64 绑定会 422 invalid body → 归一 0(与 year 同口径)
-          cid: Number(form.cid) || 0,
-          pid: form.pid,
-          cover: form.picture,
-          area: form.area,
-          year: Number(form.year) || 0,
-          director: form.director,
-          actor: form.actor,
-          classTag: form.classTag,
-          content: form.content
-        },
-        { silent: true }
-      ),
-    after: () => {
-      router.push('/manage/film')
-    }
-  })
-}
+watch(
+  visible,
+  (v) => {
+    if (v) void loadSources()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
-  <div class="flex flex-col gap-[var(--jc-space-6)] max-w-[960px]">
-    <!-- ============ 按片名搜索站点影片 + 采集 ============ -->
-    <section class="bg-surface rounded-card shadow-card p-[var(--jc-space-6)]">
-      <header class="mb-[var(--jc-space-4)]">
-        <h2 class="text-lg font-[var(--jc-fw-semibold)]">按片名采集</h2>
-        <p class="text-sm text-muted">
-          输入片名搜索各启用采集源的命中结果（预览不落库，搜索固定覆盖全部启用源）；
-          勾选源仅作用于采集入库
-        </p>
-      </header>
+  <ManageSheet v-model="visible" title="采集新片" width="880px">
+    <div class="flex flex-col gap-[var(--jc-space-4)]">
+      <p class="text-sm text-muted">
+        输入片名搜索各启用采集源的命中结果（预览不落库，搜索固定覆盖全部启用源）；
+        勾选源仅作用于采集入库
+      </p>
 
       <!-- 搜索栏 -->
-      <div class="flex gap-[var(--jc-space-2)] flex-wrap mb-[var(--jc-space-4)]">
+      <div class="flex gap-[var(--jc-space-2)] flex-wrap">
         <ManageInput
           v-model="spiderKeyword"
           placeholder="影片名关键字，如 流浪地球"
@@ -310,7 +244,7 @@ async function submit(): Promise<void> {
       <!-- 源列表加载失败: 显式提示+重试(此前静默吞掉, 整个勾选区块无声消失) -->
       <div
         v-if="sourcesError"
-        class="flex items-center gap-[var(--jc-space-2)] flex-wrap mb-[var(--jc-space-4)] text-sm text-[var(--jc-warning)]"
+        class="flex items-center gap-[var(--jc-space-2)] flex-wrap text-sm text-[var(--jc-warning)]"
       >
         <BaseIcon name="info" size="14px" />
         <span>采集源列表加载失败：{{ sourcesError }}</span>
@@ -318,7 +252,7 @@ async function submit(): Promise<void> {
       </div>
 
       <!-- 源勾选 + 采集动作 -->
-      <div v-else-if="collectSources.length" class="flex flex-col gap-[var(--jc-space-3)] mb-[var(--jc-space-4)]">
+      <div v-else-if="collectSources.length" class="flex flex-col gap-[var(--jc-space-3)]">
         <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap text-sm">
           <span class="text-muted">采集源：</span>
           <label
@@ -339,7 +273,9 @@ async function submit(): Promise<void> {
             <BaseTag v-if="!s.state" variant="warning" size="xs">已停用</BaseTag>
           </label>
           <div class="flex gap-[var(--jc-space-2)]">
-            <ManageButton variant="ghost" size="sm" :disabled="!enabledSourceCount" @click="toggleAll(true)">全选</ManageButton>
+            <ManageButton variant="ghost" size="sm" :disabled="!enabledSourceCount" @click="toggleAll(true)">
+              全选
+            </ManageButton>
             <ManageButton variant="ghost" size="sm" @click="toggleAll(false)">清空</ManageButton>
           </div>
         </div>
@@ -426,9 +362,13 @@ async function submit(): Promise<void> {
           </div>
         </div>
       </div>
-    </section>
+    </div>
 
-    <!-- 同名多版本选择对话框(详情页与新增页共用组件) -->
+    <template #footer>
+      <ManageButton variant="ghost" @click="visible = false">关闭</ManageButton>
+    </template>
+
+    <!-- 同名多版本选择(复用组件; 自带弹层, 由 overlay 栈管理 ESC 层级) -->
     <SourceCandidateDialog
       v-model:visible="candidateDialog.visible"
       :candidates="candidateDialog.list"
@@ -436,67 +376,5 @@ async function submit(): Promise<void> {
       :picking="candidatePicking"
       @pick="onPickCandidate"
     />
-
-    <!-- ============ 手动新增影片 ============ -->
-    <section class="bg-surface rounded-card shadow-card p-[var(--jc-space-6)]">
-      <header class="mb-[var(--jc-space-5)]">
-        <h2 class="text-lg font-[var(--jc-fw-semibold)]">手动新增影片</h2>
-        <p class="text-sm text-muted">手动录入一部影片信息（采集源会自动同步，此页用于补录）</p>
-      </header>
-
-      <form
-        class="grid grid-cols-1 md:grid-cols-2 gap-[var(--jc-space-5)]"
-        @submit.prevent="submit"
-      >
-        <ManageFormField label="影片名" required :error="nameError">
-          <ManageInput v-model="form.name" />
-        </ManageFormField>
-        <ManageFormField label="英文名">
-          <ManageInput v-model="form.enName" />
-        </ManageFormField>
-
-        <ManageFormField label="顶级分类 (Pid)">
-          <div class="flex flex-col gap-[var(--jc-space-2)]">
-            <ManageSelect v-model="form.pid" :options="pidOptions" aria-label="顶级分类" />
-            <div v-if="treeError" class="flex items-center gap-[var(--jc-space-2)] text-xs text-[var(--jc-danger)] flex-wrap">
-              <span>分类树加载失败：{{ treeError }}</span>
-              <ManageButton variant="ghost" size="sm" @click="loadTree">重试</ManageButton>
-            </div>
-          </div>
-        </ManageFormField>
-        <ManageFormField label="子分类 (Cid)">
-          <ManageInput v-model="form.cid" type="number" />
-        </ManageFormField>
-
-        <ManageFormField label="海报" class="md:col-span-2">
-          <ManageImageUpload v-model="form.picture" ratio="2/3" placeholder="或粘贴图片 URL" />
-        </ManageFormField>
-
-        <ManageFormField label="年份" :error="yearError">
-          <ManageInput v-model="form.year" placeholder="2024" />
-        </ManageFormField>
-        <ManageFormField label="地区">
-          <ManageInput v-model="form.area" placeholder="中国大陆" />
-        </ManageFormField>
-        <ManageFormField label="导演">
-          <ManageInput v-model="form.director" />
-        </ManageFormField>
-        <ManageFormField label="主演">
-          <ManageInput v-model="form.actor" placeholder="逗号分隔" />
-        </ManageFormField>
-        <ManageFormField label="标签">
-          <ManageInput v-model="form.classTag" placeholder="逗号分隔" />
-        </ManageFormField>
-
-        <ManageFormField label="剧情简介" class="md:col-span-2">
-          <ManageTextarea v-model="form.content" :rows="6" />
-        </ManageFormField>
-
-        <div class="md:col-span-2 flex justify-end gap-[var(--jc-space-3)]">
-          <ManageButton variant="ghost" type="button" @click="router.back()">取消</ManageButton>
-          <ManageButton variant="gradient" type="submit" :loading="busy">保存</ManageButton>
-        </div>
-      </form>
-    </section>
-  </div>
+  </ManageSheet>
 </template>
