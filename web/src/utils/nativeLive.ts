@@ -17,6 +17,9 @@ export interface LivePlaylistCfg {
   startIndex: number
   filmId: string
   filmName: string
+  /** Q③ 直播标志: JerocineBridge 读它写 EXTRA_IS_LIVE → PlayerSession.isLive
+   *  （原生播放器据此隐藏进度行/屏蔽 ±10s seek/短路预取）。旧载荷无此键 = false 向后兼容。 */
+  isLive: boolean
 }
 
 /**
@@ -48,7 +51,9 @@ export function buildLivePlaylistCfg(
     startIndex: Math.min(Math.max(startChannelIndex, 0), selected.episodes.length - 1),
     // 非数字 filmId：避免原生回传 playerProgress 时被 web 当作影片进度处理
     filmId: '',
-    filmName
+    filmName,
+    // Q③: 直播载荷恒带 isLive=true（TV 壳 LivePlayer.buildLivePlayerPayload 同款标志）
+    isLive: true
   }
 }
 

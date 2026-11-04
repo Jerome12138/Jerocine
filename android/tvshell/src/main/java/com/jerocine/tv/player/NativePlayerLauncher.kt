@@ -17,6 +17,8 @@ data class NativePlayerPayload(
     val skipOutroMs: Long,
     val filmId: String,
     val filmName: String,
+    /** 直播标志(Q③): 直播载荷必须 true → 播放器隐藏进度行/屏蔽 ±10s seek/短路预取; 影片缺省 false。 */
+    val isLive: Boolean = false,
 )
 
 @Serializable
@@ -87,6 +89,7 @@ fun launchNativePlayer(context: Context, payload: NativePlayerPayload) {
         putExtra(PlayerActivity.EXTRA_SKIP_OUTRO_MS, payload.skipOutroMs)
         putExtra(PlayerActivity.EXTRA_FILM_ID, payload.filmId)
         putExtra(PlayerActivity.EXTRA_FILM_NAME, payload.filmName)
+        putExtra(PlayerActivity.EXTRA_IS_LIVE, payload.isLive)
     }
     context.startActivity(intent)
 }

@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.view.KeyEvent;
 
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
@@ -142,6 +143,33 @@ public class PlayerSession {
     // ===== 广告过滤 =====
     volatile boolean adFilterOn = true;
     volatile List<String> currentRawUrls = new ArrayList<>();
+
+    // ===== 直播(Q③ isLive 贯通) =====
+    /**
+     * 直播会话标志 — 来自启动载荷:
+     *   TV 壳 {@code LivePlayer.buildLivePlayerPayload}(NativePlayerPayload.isLive) 与
+     *   web 壳 {@code JerocineBridge.handlePlayPlaylist}(cfg.isLive) 各自写
+     *   {@link PlayerActivity#EXTRA_IS_LIVE}, 由 {@link PlayerSourceHelper} 解析到这里。
+     *
+     * <p><b>缺省 false = 向后兼容</b>: 旧壳/旧载荷没有该 extra 的一律按 VOD 处理,
+     * 进度条/±10s seek/预取行为不变。UI 显隐与 seek 屏蔽看 {@link #isLiveNow()}
+     * (载荷标志 OR media3 时间线判定, 后者兜底"标志没带上"的情形)。
+     */
+    boolean isLive = false;
+
+    /** 直播判定统一出口: 载荷标志优先, media3 时间线兜底。 */
+    boolean isLiveNow() {
+        return isLiveState(isLive, player);
+    }
+
+    /**
+     * 纯函数抽出便于 JVM 单测(session.player 是 ExoPlayer 具体类型, 测试塞不进 fake)。
+     * 与 {@link PlayerModes} 同款"判据只写一份"的约定。
+     */
+    static boolean isLiveState(boolean payloadLive, Player player) {
+        if (payloadLive) return true;
+        return player != null && player.isCurrentMediaItemLive();
+    }
 
     /**
      * ConcurrentHashMap.newKeySet() 的 API 21 等价物 —— newKeySet 是 API 24+,

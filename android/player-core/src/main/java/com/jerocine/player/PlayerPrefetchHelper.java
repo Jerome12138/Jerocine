@@ -105,8 +105,10 @@ public class PlayerPrefetchHelper {
 
     // ============================ 内部 ============================
 
-    /** 只有"下一集确实会走端侧过滤"才值得预取. */
-    private boolean canPrefetch(int currentIdx) {
+    /** 只有"下一集确实会走端侧过滤"才值得预取. (包级可见仅供单测; 见 PlayerPrefetchHelperTest) */
+    boolean canPrefetch(int currentIdx) {
+        // Q④: 直播短路 —— 直播没有"下一集", 冻结滑窗里预取只会空转烧请求
+        if (session.isLive) return false;
         if (!session.adFilterOn) return false;                                        // 过滤关着, 没人查缓存
         if (session.currentBypassFilter) return false;                                // 单 URL 兼容模式: 不过滤
         int next = currentIdx + 1;

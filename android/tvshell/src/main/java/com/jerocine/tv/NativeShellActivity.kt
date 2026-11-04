@@ -138,6 +138,8 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
         liveLaunching = true
         lifecycleScope.launch {
             try {
+                // Q⑦: 拉频道前给进入反馈 —— 冷缓存时服务端替抓上游可能要数秒, 零反馈像卡死
+                GlassToast.show(this@NativeShellActivity, "正在进入直播…")
                 val (sources, channelsBySource) = ServiceLocator.liveRepository.loadAll()
                 if (sources.isEmpty()) {
                     GlassToast.show(this@NativeShellActivity, "暂无直播源")

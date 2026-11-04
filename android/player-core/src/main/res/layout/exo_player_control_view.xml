@@ -29,8 +29,10 @@
         android:paddingTop="24dp"
         android:paddingBottom="18dp">
 
-        <!-- 进度行: 当前时间 — seekbar — 总时长 -->
+        <!-- 进度行: 当前时间 — seekbar — 总时长。
+             jc_progress_row 仅作显隐锚点(Q③ 直播整行 GONE, 见 PlayerActivity), 不改行内结构。 -->
         <LinearLayout
+            android:id="@+id/jc_progress_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"

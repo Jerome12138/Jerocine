@@ -47,6 +47,11 @@ describe('buildLivePlaylistCfg：直播 → playPlaylist 映射', () => {
     const cfg = buildLivePlaylistCfg([src(1, 'A')], new Map([[1, [ch('')]]]), 1, 0)!
     expect(cfg.sources[0]!.episodes[0]!.title).toBe('频道')
   })
+
+  it('载荷带 isLive=true（Q③: 原生播放器据此隐藏进度行/禁 seek/短路预取）', () => {
+    const cfg = buildLivePlaylistCfg([src(1, 'A')], new Map([[1, [ch('a1')]]]), 1, 0)!
+    expect(cfg.isLive).toBe(true)
+  })
 })
 
 describe('dispatchNativeLive：桥在场才派发', () => {
@@ -70,6 +75,8 @@ describe('dispatchNativeLive：桥在场才派发', () => {
     }
     expect(cfg!.currentSourceId).toBe('1')
     expect(cfg!.filmName).toBe('CCTV1')
+    // 派发到原生桥的 JSON 同样要带 isLive 标志（JerocineBridge 读它写 EXTRA）
+    expect(cfg!.isLive).toBe(true)
   })
 
   it('有桥但无可用频道 → 不派发', () => {

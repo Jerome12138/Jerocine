@@ -113,11 +113,13 @@ public boolean dispatchKeyEvent(KeyEvent event) {
             switch (code) {
                 case KeyEvent.KEYCODE_DPAD_LEFT:
                 case KeyEvent.KEYCODE_MEDIA_REWIND:
+                    if (session.isLiveNow()) return true; // Q③ 直播: 屏蔽 ±10s seek(静默吞键)
                     seekRelative(-seekStepFor(event, false));
                     showPanelIfHidden(); // 快进快退自动浮现面板(2026-10-11 用户要求)
                     return true;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
                 case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                    if (session.isLiveNow()) return true;
                     seekRelative(seekStepFor(event, true));
                     showPanelIfHidden();
                     return true;
@@ -140,6 +142,7 @@ public boolean dispatchKeyEvent(KeyEvent event) {
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (session.isLiveNow()) return true; // Q③ 直播: 屏蔽 ±10s seek(进度行已隐藏, 焦点不应在进度条)
                 if (onSeekbar) {
                     seekRelative(code == KeyEvent.KEYCODE_DPAD_LEFT
                             ? -seekStepFor(event, false)
@@ -245,8 +248,9 @@ public boolean dispatchKeyEvent(KeyEvent event) {
     /**
      * 进度条 ↓ 进底部按钮行: 上次选中记忆优先, 否则行内第一个可见按钮
      * (决策见 {@link PlayerBottomRowFocus}; 行内无可见按钮时返回 false 走默认焦点搜索)。
+     * 包级可见: PlayerActivity 的直播分支(Q③ 进度行隐藏)复用同一份落焦逻辑, 不复制。
      */
-    private boolean focusBottomRow() {
+    boolean focusBottomRow() {
         PlayerView pv = session.host().playerView();
         if (pv == null) return false;
         int target = PlayerBottomRowFocus.pick(session.lastBottomBtnId, id -> {

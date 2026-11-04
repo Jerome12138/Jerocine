@@ -64,5 +64,8 @@ fun buildLivePlayerPayload(
         // 非数字 filmId：TV 壳 handlePlayerEvent 以 toLongOrNull 兜底 → 直播不会写入影视历史
         filmId = "",
         filmName = filmName,
+        // Q③: 直播标志 → PlayerActivity.EXTRA_IS_LIVE → PlayerSession.isLive
+        // （播放器据此隐藏进度行/屏蔽 ±10s seek/短路预取）
+        isLive = true,
     )
 }

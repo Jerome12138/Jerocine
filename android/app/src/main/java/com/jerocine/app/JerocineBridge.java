@@ -303,6 +303,9 @@ public class JerocineBridge {
         it.putExtra(PlayerActivity.EXTRA_AUTO_NEXT, cfg.optBoolean("autoNext", true));
         it.putExtra(PlayerActivity.EXTRA_FILM_ID, cfg.optString("filmId", ""));
         it.putExtra(PlayerActivity.EXTRA_FILM_NAME, cfg.optString("filmName", ""));
+        // Q③: 直播标志(web nativeLive.ts 载荷带 isLive) → PlayerSession.isLive;
+        // 缺省 false = 旧载荷/影片播放向后兼容。
+        it.putExtra(PlayerActivity.EXTRA_IS_LIVE, cfg.optBoolean("isLive", false));
         // 方案B: 代理 base, 原生据此对原始 m3u8 每集自行包装代理过滤
         runOnUi(() -> activity.startActivity(it));
         return jsonOk();

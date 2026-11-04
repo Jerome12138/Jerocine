@@ -31,6 +31,9 @@ public class PlayerSourceHelper {
         int startIndex = intent.getIntExtra(PlayerActivity.EXTRA_START_INDEX, 0);
         long resumeMs = intent.getLongExtra(PlayerActivity.EXTRA_RESUME_MS, 0L);
         session.lastMediaItemIndex = startIndex;
+        // Q③: 直播标志(EXTRA_IS_LIVE) → session。缺省 false = 旧载荷向后兼容(按 VOD 处理)。
+        // 本地文件模式(ACTION_VIEW)不经此处, isLive 恒 false —— 本地文件没有直播语义。
+        session.isLive = intent.getBooleanExtra(PlayerActivity.EXTRA_IS_LIVE, false);
 
         // v3: 多源模式
         String sourcesJson = intent.getStringExtra(PlayerActivity.EXTRA_SOURCES_JSON);

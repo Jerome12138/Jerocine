@@ -32,6 +32,18 @@ class LivePlayerTest {
         assertEquals("", p.filmId)
         assertEquals(0L, p.resumeMs)
         assertEquals(0L, p.skipIntroMs)
+        // Q③: 直播载荷必须带 isLive=true → 播放器按它隐藏进度行/屏蔽 ±10s seek/短路预取
+        assertTrue(p.isLive)
+    }
+
+    @Test
+    fun livePayloadAlwaysFlagsIsLive() {
+        val sources = listOf(LiveSource(1, "A"))
+        val map = mapOf(1L to listOf(ch("c1")))
+
+        val p = buildLivePlayerPayload(sources, map, currentSourceId = 1, startChannelIndex = 0)!!
+
+        assertTrue(p.isLive)
     }
 
     @Test

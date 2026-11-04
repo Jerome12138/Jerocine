@@ -104,6 +104,9 @@ public class PlayerGestureHelper {
                 float dx = ev.getX() - gestureStartX;
                 float dy = ev.getY() - gestureStartY;
                 if (gestureMode == 0) {
+                    // Q③ 直播: 横滑刮擦/轻扫 ±10s 都属"seek"手势, 与隐藏进度行同一意图面 —— 不启动。
+                    // (长按 2x 是倍速不是 seek, 保留。)
+                    if (session.isLiveNow()) return true;
                     if (Math.abs(dx) > GESTURE_SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy)) {
                         pv.removeCallbacks(gestureLongPressRunnable);
                         gestureMode = 2;

@@ -88,6 +88,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     public static final String EXTRA_FILM_NAME = "film_name";
     public static final String EXTRA_SOURCES_JSON = "sources_json";
     public static final String EXTRA_CURRENT_SOURCE_ID = "current_source_id";
+    /** 直播标志(Q③): TV buildLivePlayerPayload / web nativeLive.ts / JerocineBridge 三入口都要带上;
+     *  旧载荷不传 = false(向后兼容, 一律按 VOD 处理)。 */
+    public static final String EXTRA_IS_LIVE = "is_live";
     public static final String EXTRA_CACHE_DIR = "cache_dir";
 
     /** 播放事件回调 — 壳层实现并设置, 播放器在关键节点触发. */
@@ -265,7 +268,17 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 bindMoreMenu(); // 在线与本地模式都要(本地=选择本地文件/诊断)
                 bindBottomFocusMemory(); // 底部按钮行焦点记忆(进度条 ↓ 恢复上次选中)
                 updateLocalOnlineUi(); // 按当前集本地/在线态刷新角标与切换按钮(每面板次显隐都要重算)
+                // Q③ 直播: 无进度概念 —— 整行隐藏(位置/时间条/时长), 焦点直落底部按钮行;
+                // ±10s seek 的屏蔽在 PlayerKeyEventHelper/PlayerGestureHelper(session.isLiveNow)。
+                View progressRow = playerView.findViewById(R.id.jc_progress_row);
+                if (progressRow != null) {
+                    progressRow.setVisibility(session.isLiveNow() ? View.GONE : View.VISIBLE);
+                }
                 playerView.post(() -> {
+                    if (session.isLiveNow()) {
+                        keyEventHelper.focusBottomRow();
+                        return;
+                    }
                     View prog = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
                     if (prog != null) prog.requestFocus();
                 });
