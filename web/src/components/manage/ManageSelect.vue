@@ -166,9 +166,13 @@ useDismiss(
 
 <template>
   <div ref="rootRef" class="relative">
+    <!-- role=combobox(R2 评审): aria-activedescendant 需挂在组合部件角色上才被 AT 采纳,
+         button 角色不承载该属性 —— 补 combobox 后与原生 select 的读屏暴露方式一致
+         (aria-expanded/aria-haspopup="listbox"/aria-activedescendant 即 APG select-only 组合框模式) -->
     <button
       ref="triggerRef"
       type="button"
+      role="combobox"
       :disabled="props.disabled"
       :aria-label="props.ariaLabel"
       aria-haspopup="listbox"
@@ -201,6 +205,10 @@ useDismiss(
         :style="props.teleport ? teleportPos : undefined"
         @click.stop
       >
+        <!-- 双指示取舍(R2 评审, 待 TV 实测): 选项带 data-focusable(TV 空间导航可把 DOM 焦点移入选项,
+             键盘焦点环落在聚焦项)而键盘高亮是 activeIndex 的 bg 类 —— 指针/TV 直选聚焦项时 Enter 走
+             原生 click 确认聚焦项, 与 activeIndex 高亮可短暂分叉呈双高亮; 结果一致(确认的都是聚焦项),
+             若实测分叉观感明显, 再在选项聚焦时同步 activeIndex -->
         <button
           v-for="(opt, i) in props.options"
           :key="String(opt.value)"

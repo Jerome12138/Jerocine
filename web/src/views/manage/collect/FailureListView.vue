@@ -121,7 +121,7 @@ async function loadPending(): Promise<void> {
 // pendingCount=null(未知)时不因徽标缺失而禁用「补采全部」; 确认为 0 才禁
 const canRecoverAll = computed(() => pendingCount.value === null || pendingCount.value > 0)
 
-// 状态页签(pill): 待补采带 count 徽标(未知 null 不冒充 0 → 不渲染徽标)
+// 状态页签(segment, D① 后 pill 分支已删): 待补采带 count 徽标(未知 null 不冒充 0 → 不渲染徽标)
 const statusTabs = computed<TabItem<number>[]>(() => [
   { value: 0, label: '待补采', count: pendingCount.value ?? undefined },
   { value: 1, label: '已处理' },

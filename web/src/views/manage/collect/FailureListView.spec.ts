@@ -96,7 +96,7 @@ describe('FailureListView 采集失败台账', () => {
     expect(tabs).toHaveLength(3)
     expect(tabs[0]!.attributes('aria-selected')).toBe('true')
     expect(tabs[2]!.attributes('aria-selected')).toBe('false')
-    // count 徽标在 pill 页签内
+    // count 徽标在 segment 页签内(D① 后默认 variant=segment)
     expect(tabs[0]!.text()).toContain('（45）')
     // 内置分页: footer 存在且表格根挂 jc-table--fit; 页面不再拼独立 BasePagination 区块
     expect(w.find('footer').exists()).toBe(true)

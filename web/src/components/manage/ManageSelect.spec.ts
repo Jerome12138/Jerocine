@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import ManageSelect from './ManageSelect.vue'
@@ -216,9 +216,11 @@ describe('ManageSelect v2: 键盘导航(useListNavigation §3.2)', () => {
     expect(activeIndex(wrapper)).toBe(0)
   })
 
-  it('a11y: 键盘 active 项经 aria-activedescendant 暴露(绑定 option id), 关闭态不挂', async () => {
+  it('a11y: 触发钮 role=combobox 承载 aria-activedescendant(绑定 option id), 关闭态不挂', async () => {
     wrapper = mount(ManageSelect, { props: { modelValue: 2, options: OPTIONS } })
     const t = findTrigger(wrapper)
+    // R2 评审: aria-activedescendant 须挂组合部件角色(button 角色不承载), 补 role=combobox
+    expect(t.attributes('role')).toBe('combobox')
     // 关闭态: 不挂 aria-activedescendant
     expect(t.attributes('aria-activedescendant')).toBeUndefined()
     await openPanel(wrapper)
