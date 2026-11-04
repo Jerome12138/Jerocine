@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -106,6 +107,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
     private static final long CACHE_SIZE = 1024L * 1024L * 1024L; // 1GB
     private static final long PROGRESS_TICK_MS = 5000L;
+    /** 播放侧 UA(清单/分片同一份) — 源站可能按 UA 给不同表, 各数据源必须一致。 */
+    private static final String MEDIA_UA = "Jerocine/1.0 (Android TV)";
 
     /** 进程内单例, 避免重开时 "Another SimpleCache instance" 报错 — 进程级资源, 必须静态. */
     private static SimpleCache sCache;
@@ -151,6 +154,11 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private PlayerPrefetchHelper prefetchHelper;
     /** 缓存缓冲(网络差预取, 更多菜单触发); 退出时 cancel. */
     private BufferPrefetcher bufferPrefetcher;
+    /** Q② 直播 behind-live/reset 兜底防循环闸门(短窗限次). */
+    private final PlayerLiveErrorPolicy.RecoveryGate liveRecoveryGate =
+            new PlayerLiveErrorPolicy.RecoveryGate(
+                    PlayerLiveErrorPolicy.MAX_RECOVERS_PER_WINDOW,
+                    PlayerLiveErrorPolicy.RECOVERY_WINDOW_MS);
 
     // ============================ 生命周期 ============================
 
@@ -354,11 +362,16 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     }
 
     private void initPlayer() {
-        DataSource.Factory cacheFactory = buildCacheFactory();
+        OkHttpClient http = buildMediaHttp();
+        DataSource.Factory cacheFactory = buildCacheFactory(http);
+        DataSource.Factory manifestFactory = buildManifestDataSourceFactory(http);
         // 端侧本地广告过滤: 全 HLS 内容用自定义播放列表解析器, 抓到 m3u8 后用本地内核剔除广告再解析.
         // 本地清单(file://)是下载时已过滤的产物, 直接放行, 无需按会话形态切换解析器 ——
         // 统一挂在工厂上, 在线/本地分片装载同一条路(2026-10-09 去掉 offlinePlayback 特例)。
-        HlsMediaSource.Factory msFactory = new HlsMediaSource.Factory(cacheFactory);
+        // Q①(2026-11-05): DATA_TYPE_MANIFEST(master/媒体清单)绕过 SimpleCache 每次回源 ——
+        // 直播清单被缓存成静态快照 → PlaylistStuckException 的根因; 分片维持 CacheDataSource。
+        HlsMediaSource.Factory msFactory = new HlsMediaSource.Factory(
+                new HlsManifestSplitDataSourceFactory(manifestFactory, cacheFactory));
         msFactory.setPlaylistParserFactory(adFilterHelper.new FilterPlaylistParserFactory());
         msFactory.setAllowChunklessPreparation(true);
         // 解码: 硬解吃不消时回退软解; 异步队列送解码(全机型强制开)
@@ -452,6 +465,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
 
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
+                // Q②(2026-11-05) 直播兜底: behind-live/reset 类 → seekToDefaultPosition+prepare
+                // 重定位滑窗边缘, 不弹错不退出; 防循环由 RecoveryGate 短窗限次。其余路径原样。
+                if (maybeRecoverBehindLive(error)) return;
                 PlayerControl.get().markPlaybackFailed();
                 String currentUrl = "";
                 try {
@@ -531,6 +547,29 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         progressHandler.postDelayed(progressTick, PROGRESS_TICK_MS);
     }
 
+    /**
+     * Q②(2026-11-05) — 直播 behind-live/reset 类报错自愈: {@code seekToDefaultPosition()}
+     * 跳回当前滑窗边缘 + {@code prepare()} 重新装载, 不弹错不退出。
+     * 判定与限次在 {@link PlayerLiveErrorPolicy}(纯逻辑, 带单测); 短窗内额度用尽即拒绝,
+     * 让报错走原路径(可见性优先, 防兜底重试死循环)。
+     *
+     * @return true = 已兜底(调用方短路, 不再走报错路径)
+     */
+    private boolean maybeRecoverBehindLive(PlaybackException error) {
+        if (session.player == null) return false;
+        if (!PlayerLiveErrorPolicy.isBehindLiveError(error.errorCode, error.getCause())) {
+            return false;
+        }
+        if (!liveRecoveryGate.tryAcquire(SystemClock.elapsedRealtime())) {
+            android.util.Log.w("PlayerActivity", "live recovery suppressed by loop guard");
+            return false;
+        }
+        android.util.Log.w("PlayerActivity", "behind-live/reset -> seekToDefaultPosition+prepare");
+        session.player.seekToDefaultPosition();
+        session.player.prepare();
+        return true;
+    }
+
     /** 5s 一次发 playerProgress 给壳层(含 filmId + episodeIndex + position). 不传 duration(仅退出时落). */
     private final Runnable progressTick = new Runnable() {
         @Override
@@ -571,7 +610,38 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         prefetchHelper.schedule();
     }
 
-    private DataSource.Factory buildCacheFactory() {
+    /**
+     * 播放侧共享 HTTP 客户端(清单与分片同一实例, 共享连接池):
+     * connect/read 用 30s 无数据超时; 不设整次请求总时限, 否则长分片/MP4 会在固定时间被掐断.
+     * 壳层可注入自己的媒体客户端(放宽 TLS 兼容老设备), 未注入则自建.
+     */
+    private static OkHttpClient buildMediaHttp() {
+        OkHttpClient injected = JerocinePlayer.mediaClient();
+        OkHttpClient.Builder builder = (injected != null)
+                ? injected.newBuilder() : new OkHttpClient.Builder();
+        return builder
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .callTimeout(0, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build();
+    }
+
+    /**
+     * Q①(2026-11-05): 清单(master/媒体表)数据源 —— 绕过 SimpleCache, 每 targetDuration
+     * 轮询都拿到最新表。DefaultDataSource 包装 OkHttp 上游: file:// 本地下载集清单委给
+     * FileDataSource(见下 buildCacheFactory 内注释), http(s) 走 OkHttp, 两类来源都通。
+     */
+    private DataSource.Factory buildManifestDataSourceFactory(OkHttpClient http) {
+        OkHttpDataSource.Factory okHttp = new OkHttpDataSource.Factory(http)
+                .setUserAgent(MEDIA_UA);
+        return new androidx.media3.datasource.DefaultDataSource.Factory(this, okHttp);
+    }
+
+    private DataSource.Factory buildCacheFactory(OkHttpClient http) {
         // 进程内单例; 若 intent 指定了不同的缓存目录(如离线播放指到下载缓存区),
         // 释放旧实例并重建, 否则继续用播放缓存(video_cache)
         File wantDir = resolveCacheDir();
@@ -598,22 +668,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                         new StandaloneDatabaseProvider(getApplicationContext()));
             }
         }
-        // connect/read 用 30s 无数据超时; 不设整次请求总时限, 否则长分片/MP4 会在固定时间被掐断.
-        // 壳层可注入自己的媒体客户端(放宽 TLS 兼容老设备), 未注入则自建.
-        OkHttpClient injected = JerocinePlayer.mediaClient();
-        OkHttpClient.Builder builder = (injected != null)
-                ? injected.newBuilder() : new OkHttpClient.Builder();
-        OkHttpClient http = builder
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .writeTimeout(30, TimeUnit.SECONDS)
-                .callTimeout(0, TimeUnit.SECONDS)
-                .retryOnConnectionFailure(true)
-                .followRedirects(true)
-                .followSslRedirects(true)
-                .build();
+        // HTTP 客户端构建抽至 buildMediaHttp(): 与清单免缓存数据源共享同一实例/连接池
         OkHttpDataSource.Factory okHttp = new OkHttpDataSource.Factory(http)
-                .setUserAgent("Jerocine/1.0 (Android TV)");
+                .setUserAgent(MEDIA_UA);
         // 【2026-10-08 修"离线播放 Malformed URL"】上游必须包一层 DefaultDataSource:
         // 离线播放的清单是 file://(下载时过滤落库的本地副本), OkHttpDataSource 对
         // 非 http(s) 直接抛 "Malformed URL"; DefaultDataSource 会把 file:// 委给

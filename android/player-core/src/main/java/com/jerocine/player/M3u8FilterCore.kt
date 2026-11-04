@@ -163,6 +163,28 @@ object M3u8FilterCore {
 
     // ============================ 内部纯函数 ============================
 
+    /**
+     * 直播媒体表判定(Q⑤, 2026-11-05): 无 `#EXT-X-ENDLIST`(滑窗持续滚动)且含
+     * `#EXT-X-MEDIA-SEQUENCE`(媒体序列滚动号)。命中 ⇒ 调用方应跳过剔段、仅 URI 绝对化:
+     * 剔段三维启发(cross/num/short)都基于"窗口内容静态"假设, 对动态滑窗是纯干扰面。
+     * master 多变体表无 MEDIA-SEQUENCE, 不会误命中(且 master 本就走 master-direct 直通);
+     * 直播结束定档的表带 ENDLIST, 判 false, 照常剔段。
+     */
+    @JvmStatic
+    fun isLiveMediaPlaylist(body: String): Boolean {
+        var hasMediaSequence = false
+        var hasEndList = false
+        for (ln in body.split('\n')) {
+            val t = ln.trim()
+            if (t.startsWith("#EXT-X-MEDIA-SEQUENCE")) {
+                hasMediaSequence = true
+            } else if (t.startsWith("#EXT-X-ENDLIST")) {
+                hasEndList = true
+            }
+        }
+        return hasMediaSequence && !hasEndList
+    }
+
     private fun safeUri(s: String?): URI? {
         if (s == null || s.isEmpty()) return null
         return try {

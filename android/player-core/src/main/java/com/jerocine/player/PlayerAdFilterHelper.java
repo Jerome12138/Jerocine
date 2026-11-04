@@ -135,11 +135,16 @@ public class PlayerAdFilterHelper {
      * 媒体列表本地过滤: {@link M3u8FilterCore}(Go 内核 Kotlin 移植)纯函数绝对化+过滤,
      * 结果落地才写 filterAttempted; 剔除数取最大待 STATE_READY 弹一次状态。
      * 内核为纯函数不抛; 防御性 catch 返回原始清单(不过滤, 不阻塞播放)。
+     *
+     * <p>Q⑤(2026-11-05): 直播媒体表(无 {@code #EXT-X-ENDLIST} 且含 {@code #EXT-X-MEDIA-SEQUENCE})
+     * 跳过剔段, 只保留 URI 绝对化(剔段三维启发对滚动滑窗是纯干扰面)。filterAttempted 照写、
+     * 剔除数恒 0 —— 否则 filteringInFlight 会让角标永久卡在「广告过滤中」。
      */
     byte[] filterLocallyFirst(String srcUrl, byte[] raw) {
         try {
-            M3u8FilterCore.Result r = M3u8FilterCore.rewriteM3u8(
-                    new String(raw, java.nio.charset.StandardCharsets.UTF_8), srcUrl, true);
+            String text = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+            boolean liveMedia = M3u8FilterCore.isLiveMediaPlaylist(text);
+            M3u8FilterCore.Result r = M3u8FilterCore.rewriteM3u8(text, srcUrl, !liveMedia);
             session.filterAttempted = true; // 结果已出: 在途期间角标显「广告过滤中」
             if (r.getFiltered() > session.pendingFilteredCount) {
                 session.pendingFilteredCount = r.getFiltered();
