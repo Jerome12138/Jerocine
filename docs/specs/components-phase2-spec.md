@@ -46,6 +46,6 @@
 
 ## 4. 真机验收清单（交付用户）
 
-1. 安卓：双壳弹窗（服务器地址/更新弹窗/诊断）在**原生壳**点一遍（非 AppCompat 主题）；离线兜底页两按钮；弱网降级方向（fail-closed 不把有网用户踢进原生壳）；双击退出；下载页 Toast；播放器跳过面板/弹窗视觉与改前一致（令牌替换零漂移）。R1 评审补注（A2/A4 统一的预期形态变化，避免验收误报回归）：① web 壳服务器地址弹窗改统一原生壳形态——标题「重置/请输入 Jerocine 站点地址」→「站点地址」、hint 改 https 示例、由不可取消变可取消并新增「取消」钮、空输入不再重弹（仅 GlassToast「地址不能为空」，确认钮后必 dismiss）；② 双击退出下沉 DoubleBackExitGate 后时钟源 System.currentTimeMillis→SystemClock.elapsedRealtime（跨墙钟跳变不再误判），且窗口判定含端点 0..2000ms——恰好 2000ms 整点由「不退出」变「退出」（1ms 边界差，对齐原生壳既有 gate 语义），窗口值 2000ms 不变
+1. 安卓：双壳弹窗（服务器地址/更新弹窗/诊断）在**原生壳**点一遍（非 AppCompat 主题）；离线兜底页两按钮；弱网降级方向（fail-closed 不把有网用户踢进原生壳）；双击退出；下载页 Toast；播放器跳过面板/弹窗视觉与改前一致（令牌替换零漂移）。R1 评审补注（A2/A4 统一的预期形态变化，避免验收误报回归）：① web 壳服务器地址弹窗改统一原生壳形态——标题「重置/请输入 Jerocine 站点地址」→「站点地址」、hint 改 https 示例、由不可取消变可取消并新增「取消」钮、空输入不再重弹（仅 GlassToast「地址不能为空」，确认钮后必 dismiss）、弹窗弹出后自动拉起软键盘（requestFocus + 200ms postDelayed showSoftInput，原生壳既有行为；旧 web 壳手写弹窗无此逻辑，R2 评审补）；② 双击退出下沉 DoubleBackExitGate 后时钟源 System.currentTimeMillis→SystemClock.elapsedRealtime（跨墙钟跳变不再误判），且窗口判定含端点 0..2000ms——恰好 2000ms 整点由「不退出」变「退出」（1ms 边界差，对齐原生壳既有 gate 语义），窗口值 2000ms 不变；web 壳另新增「前端 gfTvBack 消费返回时 exitGate.reset()」——对齐原生壳 backstack 变化 reset 语义，消除跨页旧窗口误触退出（旧实现前端消费时直接 return，未决窗口跨页存活；R2 评审补）
 2. web：登录/注册/激活/重置 4 页密码框；SettingsView 与 PlayView 跳过弹窗两尺寸开关；ClassifySearch/HotBoard 桌面+TV 两形态；收藏/历史页头与卡角删除；首页/详情/行组件的角标与区块标题；chrome61 低配真机抽查
 3. 现有 e2e（用户自跑）：manage spec 不受本期影响（本期未动 manage 区）
