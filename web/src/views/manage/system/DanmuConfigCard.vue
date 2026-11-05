@@ -109,7 +109,7 @@ onMounted(load)
       <p class="text-sm text-[var(--jc-danger)]">
         弹幕配置读取失败：为避免误存默认值（全局关停），已禁用编辑与保存。
       </p>
-      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
+      <ManageButton variant="outline" @click="load">重试</ManageButton>
     </div>
 
     <form v-else class="flex flex-1 flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">

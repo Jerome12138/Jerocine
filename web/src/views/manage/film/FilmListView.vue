@@ -235,7 +235,6 @@ onMounted(() => {
           <div ref="catFilterRef" class="relative">
             <ManageButton
               variant="ghost"
-              size="sm"
               :class="{ 'border-brand-purple/50': appliedCatIds.size > 0 }"
               @click="void loadTree().then(() => (treePopperOpen = !treePopperOpen))"
             >
@@ -282,7 +281,6 @@ onMounted(() => {
               :model-value="sort"
               :options="SORT_OPTIONS"
               aria-label="排序方式"
-              size="sm"
               @update:model-value="setSort"
             >
               <template #trigger="{ selected }">
@@ -301,14 +299,14 @@ onMounted(() => {
         <!-- 右侧: 搜索 + 新增 -->
         <div class="flex gap-[var(--jc-space-2)] flex-wrap items-center">
           <div class="flex gap-[var(--jc-space-2)] flex-1 min-w-0">
-            <ManageInput v-model="params.name" placeholder="影片名关键字" size="sm" @keydown.enter="search" />
-            <ManageButton variant="gradient" size="sm" @click="search">
+            <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
+            <ManageButton variant="gradient" @click="search">
               <BaseIcon name="search" size="16px" /> 搜索
             </ManageButton>
-            <ManageButton variant="outline" size="sm" @click="collectOpen = true">
+            <ManageButton variant="outline" @click="collectOpen = true">
               <BaseIcon name="magic" size="16px" /> 采集新片
             </ManageButton>
-            <ManageButton variant="ghost" size="sm" @click="manualOpen = true">
+            <ManageButton variant="ghost" @click="manualOpen = true">
               <BaseIcon name="plus" size="16px" /> 手动新增
             </ManageButton>
           </div>

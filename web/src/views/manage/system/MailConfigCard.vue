@@ -211,7 +211,7 @@ onMounted(load)
         邮件与注册配置读取失败：为避免用默认值覆盖线上配置（注册模式 / SMTP
         开关），已禁用编辑与保存。
       </p>
-      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
+      <ManageButton variant="outline" @click="load">重试</ManageButton>
     </div>
 
     <form v-else class="flex flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">

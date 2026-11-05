@@ -164,11 +164,11 @@ onMounted(() => {
         <p class="text-sm text-muted truncate">维护顶级与子分类的菜单显隐、影片可见性、名称与排序</p>
       </div>
       <div class="flex items-center gap-[var(--jc-space-2)] shrink-0">
-        <ManageButton variant="ghost" size="sm" @click="load">
+        <ManageButton variant="ghost" @click="load">
           <BaseIcon name="refresh" size="16px" />
           <span class="hidden sm:inline">刷新</span>
         </ManageButton>
-        <ManageButton variant="gradient" size="sm" @click="openAddTop">
+        <ManageButton variant="gradient" @click="openAddTop">
           <BaseIcon name="plus" size="16px" /> 新增分类
         </ManageButton>
       </div>
@@ -181,7 +181,7 @@ onMounted(() => {
     <!-- 加载失败: 显式错误态+重试, 不冒充"暂无分类数据" -->
     <div v-else-if="loadError" class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-8)]">
       <BaseEmpty title="加载失败" :description="loadError" hide-icon />
-      <ManageButton variant="outline" size="sm" @click="load">
+      <ManageButton variant="outline" @click="load">
         <BaseIcon name="refresh" size="16px" /> 重试
       </ManageButton>
     </div>

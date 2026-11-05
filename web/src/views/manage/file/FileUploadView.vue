@@ -173,7 +173,7 @@ async function clearEntries(): Promise<void> {
       </li>
     </ul>
 
-    <ManageButton variant="ghost" size="sm" @click="clearEntries">
+    <ManageButton variant="ghost" @click="clearEntries">
       清空记录
     </ManageButton>
   </section>

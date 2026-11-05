@@ -373,13 +373,13 @@ onUnmounted(() => {
         </span>
       </div>
       <div class="flex gap-[var(--jc-space-2)]">
-        <ManageButton variant="ghost" size="sm" :loading="busy" :disabled="busy" @click="refreshHot">
+        <ManageButton variant="ghost" :loading="busy" :disabled="busy" @click="refreshHot">
           <BaseIcon name="refresh" size="16px" /> 立即刷新榜单
         </ManageButton>
-        <ManageButton variant="ghost" size="sm" @click="load()">
+        <ManageButton variant="ghost" @click="load()">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </ManageButton>
-        <ManageButton variant="gradient" size="sm" @click="openAdd">
+        <ManageButton variant="gradient" @click="openAdd">
           <BaseIcon name="plus" size="16px" /> 新增
         </ManageButton>
       </div>

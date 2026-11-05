@@ -40,7 +40,7 @@ const plainText = computed(() => (props.description ? `${props.title}：${props.
   <section v-if="props.variant === 'card'" class="bg-surface rounded-card shadow-card">
     <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
       <BaseEmpty :title="props.title" :description="props.description" hide-icon />
-      <ManageButton variant="outline" size="sm" @click="emit('retry')">
+      <ManageButton variant="outline" @click="emit('retry')">
         <BaseIcon name="refresh" size="16px" /> {{ props.retryLabel }}
       </ManageButton>
     </div>
@@ -51,6 +51,6 @@ const plainText = computed(() => (props.description ? `${props.title}：${props.
     class="flex flex-col items-center gap-[var(--jc-space-3)] rounded-[var(--jc-radius-md)] bg-surface px-[var(--jc-space-4)] py-[var(--jc-space-8)]"
   >
     <p class="text-[var(--jc-danger)]">{{ plainText }}</p>
-    <ManageButton variant="outline" size="sm" @click="emit('retry')">{{ props.retryLabel }}</ManageButton>
+    <ManageButton variant="outline" @click="emit('retry')">{{ props.retryLabel }}</ManageButton>
   </div>
 </template>

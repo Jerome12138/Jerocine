@@ -156,7 +156,7 @@ onMounted(async () => {
     >
       <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
       <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-      <ManageButton variant="outline" size="sm" class="ml-auto" @click="refresh">点击重试</ManageButton>
+      <ManageButton variant="outline" class="ml-auto" @click="refresh">点击重试</ManageButton>
     </div>
 
     <ManageTable
@@ -176,18 +176,17 @@ onMounted(async () => {
           <ManageTabs variant="segment" :model-value="status" :tabs="statusTabs" @update:model-value="switchStatus" />
         </div>
         <div class="flex gap-[var(--jc-space-2)] flex-wrap">
-          <ManageButton variant="ghost" size="sm" @click="refresh">
+          <ManageButton variant="ghost" @click="refresh">
             <BaseIcon name="refresh" size="16px" /> 刷新
           </ManageButton>
           <ManageButton
             variant="gradient"
-            size="sm"
             :disabled="busy || !canRecoverAll"
             @click="recover()"
           >
             补采全部待处理
           </ManageButton>
-          <ManageButton variant="ghost" size="sm" :disabled="busy" @click="clearHandled">
+          <ManageButton variant="ghost" :disabled="busy" @click="clearHandled">
             清理已处理
           </ManageButton>
         </div>

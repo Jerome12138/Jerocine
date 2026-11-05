@@ -241,7 +241,7 @@ onMounted(load)
   >
     <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
     <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-    <ManageButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</ManageButton>
+    <ManageButton variant="outline" class="ml-auto" @click="load">点击重试</ManageButton>
   </div>
 
   <ManageTable
@@ -257,13 +257,12 @@ onMounted(load)
         <ManageInput
           v-model="keyword"
           placeholder="搜索 ID / 表达式 / 备注"
-          size="sm"
           class="w-[180px]"
         />
-        <ManageButton variant="ghost" size="sm" @click="load">
+        <ManageButton variant="ghost" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </ManageButton>
-        <ManageButton variant="gradient" size="sm" @click="openAdd">
+        <ManageButton variant="gradient" @click="openAdd">
           <BaseIcon name="plus" size="16px" /> 新增
         </ManageButton>
       </div>

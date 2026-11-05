@@ -122,7 +122,7 @@ async function resend(row: RegisterApplyRow): Promise<void> {
     <section v-if="paged.loadError.value && !paged.rows.value.length" class="bg-surface rounded-card shadow-card">
       <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
         <BaseEmpty title="加载失败" :description="paged.loadError.value" hide-icon />
-        <ManageButton variant="outline" size="sm" @click="paged.load()">
+        <ManageButton variant="outline" @click="paged.load()">
           <BaseIcon name="refresh" size="16px" /> 重试
         </ManageButton>
       </div>
@@ -145,9 +145,9 @@ async function resend(row: RegisterApplyRow): Promise<void> {
         <!-- 输入框单独给宽度: ManageInput 自身是 w-full, 直接放进 flex 会独占一行把按钮挤到下一行 -->
         <div class="flex flex-wrap items-center gap-[var(--jc-space-2)] sm:flex-nowrap">
           <div class="w-full sm:w-[220px]">
-            <ManageInput v-model="params.keyword" placeholder="用户名 / 邮箱" size="sm" @keydown.enter="paged.search()" />
+            <ManageInput v-model="params.keyword" placeholder="用户名 / 邮箱" @keydown.enter="paged.search()" />
           </div>
-          <ManageButton variant="gradient" size="sm" @click="paged.search()">
+          <ManageButton variant="gradient" @click="paged.search()">
             <BaseIcon name="search" size="16px" /> 搜索
           </ManageButton>
           <div class="w-[140px]">
@@ -155,7 +155,6 @@ async function resend(row: RegisterApplyRow): Promise<void> {
               :model-value="params.status"
               :options="STATUS_OPTIONS"
               aria-label="状态筛选"
-              size="sm"
               @update:model-value="onStatusChange"
             />
           </div>

@@ -103,7 +103,7 @@ onMounted(load)
     <section v-if="loadError && !rows.length" class="bg-surface rounded-card shadow-card">
       <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
         <BaseEmpty title="加载失败" description="在线会话读取失败，请重试" hide-icon />
-        <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
+        <ManageButton variant="outline" @click="load">重试</ManageButton>
       </div>
     </section>
 
@@ -126,12 +126,11 @@ onMounted(load)
             <ManageInput
               v-model="keyword"
               placeholder="用户名 / 用户 ID / IP"
-              size="sm"
               @keydown.enter="load"
             />
           </div>
-          <ManageButton variant="outline" size="sm" @click="load">查询</ManageButton>
-          <ManageButton variant="ghost" size="sm" @click="load">刷新</ManageButton>
+          <ManageButton variant="outline" @click="load">查询</ManageButton>
+          <ManageButton variant="ghost" @click="load">刷新</ManageButton>
         </div>
       </template>
 

@@ -612,7 +612,7 @@ onMounted(() => {
   >
     <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
     <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-    <ManageButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</ManageButton>
+    <ManageButton variant="outline" class="ml-auto" @click="load">点击重试</ManageButton>
   </div>
 
   <ManageTable
@@ -643,25 +643,24 @@ onMounted(() => {
             v-model="spiderHours"
             :options="HOURS_OPTIONS"
             aria-label="采集时长"
-            size="sm"
           />
         </div>
-        <ManageButton variant="ghost" size="sm" :loading="testingAll" @click="runApiTestAll">
+        <ManageButton variant="ghost" :loading="testingAll" @click="runApiTestAll">
           <BaseIcon name="refresh" size="16px" /> 全部测采集
         </ManageButton>
-        <ManageButton variant="ghost" size="sm" :loading="testingPlayAll" @click="runPlayTestAll">
+        <ManageButton variant="ghost" :loading="testingPlayAll" @click="runPlayTestAll">
           <BaseIcon name="refresh" size="16px" /> 全部测播放
         </ManageButton>
-        <ManageButton variant="ghost" size="sm" @click="cycleSort">
+        <ManageButton variant="ghost" @click="cycleSort">
           {{ SORT_LABELS[sortMode] }}
         </ManageButton>
-        <ManageButton variant="ghost" size="sm" @click="load">
+        <ManageButton variant="ghost" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </ManageButton>
-        <ManageButton variant="danger" size="sm" @click="openReset">
+        <ManageButton variant="danger" @click="openReset">
           <BaseIcon name="trash" size="16px" /> 重置库存
         </ManageButton>
-        <ManageButton variant="gradient" size="sm" @click="openAdd">
+        <ManageButton variant="gradient" @click="openAdd">
           <BaseIcon name="plus" size="16px" /> 新增
         </ManageButton>
       </div>

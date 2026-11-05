@@ -257,7 +257,6 @@ onMounted(async () => {
       <div class="flex gap-[var(--jc-space-2)] flex-wrap">
         <ManageButton
           variant="outline"
-          size="sm"
           :disabled="!movie || isDeletedMovie"
           :title="isDeletedMovie ? '影片在回收站，公开页不可见；请先在影片列表「回收站」页签恢复' : ''"
           @click="gotoDetail"
@@ -266,14 +265,13 @@ onMounted(async () => {
         </ManageButton>
         <ManageButton
           variant="gradient"
-          size="sm"
           :disabled="!sources.length || isDeletedMovie"
           :title="isDeletedMovie ? '影片在回收站，公开页不可见；请先在影片列表「回收站」页签恢复' : ''"
           @click="gotoPlay"
         >
           <BaseIcon name="play" size="16px" /> 去播放页
         </ManageButton>
-        <ManageButton variant="ghost" size="sm" @click="router.back()">返回</ManageButton>
+        <ManageButton variant="ghost" @click="router.back()">返回</ManageButton>
       </div>
     </header>
 
@@ -334,7 +332,7 @@ onMounted(async () => {
         >
           <BaseIcon name="info" size="14px" />
           <span>采集源列表加载失败，仅显示已采集源：{{ sourceListError }}</span>
-          <ManageButton variant="ghost" size="sm" @click="loadSources">重试</ManageButton>
+          <ManageButton variant="ghost" @click="loadSources">重试</ManageButton>
         </div>
 
         <BaseEmpty v-if="!mergedSources.length" description="暂无采集源" />

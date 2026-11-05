@@ -53,8 +53,8 @@ function submit(): void {
       <ManageInput v-model="password" type="password" placeholder="输入新密码" />
     </label>
     <div class="flex justify-end gap-[var(--jc-space-2)]">
-      <ManageButton variant="ghost" size="sm" @click="cancel">取消</ManageButton>
-      <ManageButton variant="gradient" size="sm" type="submit" :loading="busy">确认重置</ManageButton>
+      <ManageButton variant="ghost" @click="cancel">取消</ManageButton>
+      <ManageButton variant="gradient" type="submit" :loading="busy">确认重置</ManageButton>
     </div>
   </form>
 </template>

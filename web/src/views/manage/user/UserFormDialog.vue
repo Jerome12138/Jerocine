@@ -115,8 +115,8 @@ function submit(): void {
       <span v-if="isSelf" class="text-xs text-muted">不能修改自己的角色</span>
     </label>
     <div class="flex justify-end gap-[var(--jc-space-2)]">
-      <ManageButton variant="ghost" size="sm" @click="cancel">取消</ManageButton>
-      <ManageButton variant="gradient" size="sm" type="submit" :loading="busy">
+      <ManageButton variant="ghost" @click="cancel">取消</ManageButton>
+      <ManageButton variant="gradient" type="submit" :loading="busy">
         {{ isEdit ? '保存' : '创建' }}
       </ManageButton>
     </div>

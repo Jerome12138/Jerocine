@@ -235,7 +235,7 @@ onMounted(load)
       <p class="text-sm text-[var(--jc-danger)]">
         系统设置加载失败：为避免用空值 / 默认值覆盖线上配置，各卡片的保存按钮已禁用。
       </p>
-      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
+      <ManageButton variant="outline" @click="load">重试</ManageButton>
     </section>
 
     <div class="grid grid-cols-1 gap-[var(--jc-space-5)] xl:grid-cols-2">

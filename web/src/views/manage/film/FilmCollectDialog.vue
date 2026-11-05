@@ -237,7 +237,7 @@ watch(
           class="flex-1 min-w-[200px]"
           @keydown.enter="searchSpider"
         />
-        <ManageButton variant="gradient" size="sm" :loading="searching" @click="searchSpider">
+        <ManageButton variant="gradient" :loading="searching" @click="searchSpider">
           <BaseIcon name="search" size="16px" /> 搜索
         </ManageButton>
       </div>
@@ -249,7 +249,7 @@ watch(
       >
         <BaseIcon name="info" size="14px" />
         <span>采集源列表加载失败：{{ sourcesError }}</span>
-        <ManageButton variant="ghost" size="sm" @click="loadSources">重试</ManageButton>
+        <ManageButton variant="ghost" @click="loadSources">重试</ManageButton>
       </div>
 
       <!-- 源勾选 + 采集动作 -->
@@ -280,7 +280,6 @@ watch(
         <div class="flex gap-[var(--jc-space-2)] flex-wrap">
           <ManageButton
             variant="primary"
-            size="sm"
             :loading="busy"
             :disabled="!enabledSourceCount"
             @click="collectChecked"
@@ -289,7 +288,6 @@ watch(
           </ManageButton>
           <ManageButton
             variant="outline"
-            size="sm"
             :loading="busy"
             :disabled="!enabledSourceCount"
             @click="collectAll"

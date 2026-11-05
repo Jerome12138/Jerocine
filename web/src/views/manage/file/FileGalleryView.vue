@@ -101,7 +101,7 @@ async function remove(item: FileItem): Promise<void> {
       </div>
       <div class="flex items-center gap-[var(--jc-space-2)]">
         <ManageTabs v-model="typeFilter" :tabs="filterOptions" variant="segment" />
-        <ManageButton variant="ghost" size="sm" @click="load">
+        <ManageButton variant="ghost" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </ManageButton>
       </div>
@@ -120,7 +120,7 @@ async function remove(item: FileItem): Promise<void> {
       class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]"
     >
       <BaseEmpty title="加载失败" :description="loadError" hide-icon />
-      <ManageButton variant="outline" size="sm" @click="load">
+      <ManageButton variant="outline" @click="load">
         <BaseIcon name="refresh" size="16px" /> 重试
       </ManageButton>
     </section>
