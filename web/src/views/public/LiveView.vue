@@ -499,11 +499,14 @@ const pageTitle = '直播'
   gap: var(--jc-space-2);
 }
 .jc-live-source-chip {
-  padding: 6px 14px;
+  display: inline-flex; /* 2026-11-05 三档统一: 改定高后自带居中(原 6px/14px 内距撑出的 ≈35 作废) */
+  align-items: center;
+  height: var(--jc-ctrl-h);
+  padding: 0 var(--jc-ctrl-px);
   border-radius: 999px;
   background-color: var(--jc-bg-surface);
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   cursor: pointer;
   transition: background-color var(--jc-dur-fast) var(--jc-ease-standard), color var(--jc-dur-fast) var(--jc-ease-standard);
 }

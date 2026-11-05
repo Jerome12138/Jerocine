@@ -202,12 +202,13 @@ const toggles = [
 .jc-settings-page__num {
   flex: 0 0 auto;
   width: 96px;
-  padding: 6px 10px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 三档统一: 原 6px/10px 内距撑出的 ≈35 作废 */
+  padding: 0 var(--jc-ctrl-px);
   border-radius: var(--jc-radius-md);
   border: 1px solid var(--jc-border-default);
   background: var(--jc-bg-surface);
   color: var(--jc-text-primary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -218,12 +219,15 @@ const toggles = [
   padding-top: var(--jc-space-2);
 }
 .jc-settings-page__ghost {
-  padding: 6px 14px;
+  display: inline-flex; /* 2026-11-05 三档统一: 改定高后自带居中(原 6px/14px 内距撑出的 ≈35 作废) */
+  align-items: center;
+  height: var(--jc-ctrl-h);
+  padding: 0 var(--jc-ctrl-px);
   border-radius: var(--jc-radius-md);
   border: 1px solid var(--jc-border-default);
   background: transparent;
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   cursor: pointer;
 }
 .jc-settings-page__ghost:hover {

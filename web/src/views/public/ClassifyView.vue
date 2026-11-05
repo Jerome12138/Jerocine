@@ -407,12 +407,12 @@ const tvAllEmpty = computed(
 .jc-classify__cat {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0 var(--jc-space-4);
+  min-height: var(--jc-ctrl-h); /* 2026-11-05 三档统一: 原 36 定值作废 */
+  padding: 0 var(--jc-ctrl-px);
   border-radius: var(--jc-radius-full);
   background-color: var(--jc-bg-elevated);
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   font-weight: var(--jc-fw-medium);
   text-decoration: none;
   transition:

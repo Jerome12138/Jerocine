@@ -67,11 +67,12 @@ defineProps<{
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 三档统一: 原 6px/12px 内距撑出的 ≈34 作废 */
+  padding: 0 var(--jc-ctrl-px);
   border-radius: var(--jc-radius-sm);
   background-color: rgba(155, 73, 231, 0.16);
   color: var(--jc-text-link);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   text-decoration: none;
   transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
 }

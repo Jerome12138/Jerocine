@@ -217,7 +217,7 @@ const cards = computed(() => {
       <h2 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">仪表盘</h2>
       <button
         type="button"
-        class="text-sm text-link hover:underline min-h-[44px] px-[var(--jc-space-3)]"
+        class="jc-hotarea text-[length:var(--jc-ctrl-fs)] text-link hover:underline min-h-[var(--jc-ctrl-h)] px-[var(--jc-ctrl-px)]"
         @click="load"
       >
         刷新
