@@ -13,6 +13,12 @@ interface Props {
   pageSize?: number
   /** 各线路实测播放延时 ms (-1=失败, undefined=未测) */
   speeds?: Record<string, number>
+  /** 测速进行中(PlayView testingLines): true 时测速点全部显示为脉冲 loading 态(方案 §C6 #1) */
+  speedTesting?: boolean
+  /** 正在播放的源 id(可选, 方案 §C6 #3): 该源不等于当前浏览(active)源时, tab 上出 ▶ 小标。
+   *  播放页(PlayView)也传 currentSourceId, 但播放页 playing==active 恒成立 → 不出标("播放页=激活态");
+   *  详情页浏览态切走后, ▶ 提示真正的播放所在源("FilmDetail 已知则传"= resumeRecord?.source)。 */
+  playingSourceId?: string
   /** 影片名 — 用于去掉集名里冗余的剧名前缀(如"我是谁 第01集"→"第01集") */
   filmName?: string
 }
@@ -23,6 +29,8 @@ const props = withDefaults(defineProps<Props>(), {
   watchedLinks: () => [],
   pageSize: 30,
   speeds: () => ({}),
+  speedTesting: false,
+  playingSourceId: '',
   filmName: ''
 })
 
@@ -38,7 +46,7 @@ function cleanEpisodeName(name: string): string {
   return stripped || n
 }
 
-/** 最快线路 id (用于高亮 ⚡) */
+/** 最快线路 id (用于测速色点分级) */
 const fastestId = computed(() => {
   let id = ''
   let best = Infinity
@@ -52,17 +60,26 @@ const fastestId = computed(() => {
   }
   return id
 })
-function speedLabel(id: string): string {
-  const v = props.speeds[id]
-  if (v === undefined) return ''
-  if (v < 0) return '✗'
-  return id === fastestId.value ? `⚡${v}ms` : `${v}ms`
+/** 测速展示(方案 §C6 #1): ⚡数值文本降级为色点 — 绿(--fast)=最快线 / 黄(--mid)=已测一般 / 红(--fail)=失败(-1) /
+ *  脉冲(--loading)=测速进行中; 数值走 title 悬浮不再占版面。
+ *  渲染条件: 已测出值, 或测速进行中(全点转脉冲)。undefined=未测且未在测 → 不渲染。 */
+function speedDot(id: string): boolean {
+  return props.speedTesting || props.speeds[id] !== undefined
 }
-function speedClass(id: string): string {
+function speedDotClass(id: string): string {
+  if (props.speedTesting) return 'jc-source-tab__speed--loading'
   const v = props.speeds[id]
   if (v === undefined) return ''
   if (v < 0) return 'jc-source-tab__speed--fail'
-  return id === fastestId.value ? 'jc-source-tab__speed--fast' : 'jc-source-tab__speed--ok'
+  return id === fastestId.value ? 'jc-source-tab__speed--fast' : 'jc-source-tab__speed--mid'
+}
+function speedTitle(id: string): string {
+  // 测速中全点转脉冲(含上一轮旧值), title 同步统一为"测速中…"
+  if (props.speedTesting) return '测速中…'
+  const v = props.speeds[id]
+  if (v === undefined) return '测速中…'
+  if (v < 0) return '测速失败'
+  return `${v}ms`
 }
 
 const emit = defineEmits<{
@@ -165,29 +182,39 @@ function stopMarquee(e: Event): void {
 
 <template>
   <section class="jc-episodes flex flex-col gap-[var(--jc-space-4)]">
-    <!-- 播放源 Tab(每个 tab 右上角已带该源集数徽标, 不再单独显示"共 N 集") -->
+    <!-- 播放源 Tab(每个 tab 右上角已带该源集数徽标, 不再单独显示"共 N 集")
+         源条保留 border-b 作层级分隔(方案 §C6 #5): 源=导航层(带底线), 集/分段=内容层(纯胶囊无线)。
+         内层横滚容器不再重复 v-if(单源时整条不渲染, 方案 §C6 #9 合并重复判断)。 -->
     <div
       v-if="sources.length > 1"
       class="jc-source-bar flex items-center gap-[var(--jc-space-4)] border-b border-default"
     >
-      <div
-        v-if="sources.length > 1"
-        class="jc-source-tabs flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
-      >
+      <div class="jc-source-tabs flex items-center gap-[var(--jc-space-6)] overflow-x-auto">
         <button
           v-for="s in sources"
           :key="s.id"
-          class="jc-source-tab"
+          class="jc-source-tab jc-hotarea"
           :class="s.id === activeSourceId ? 'jc-source-tab--active' : ''"
           data-focusable="true"
           tabindex="0"
           :aria-selected="s.id === activeSourceId"
           @click="selectSource(s.id)"
         >
+          <!-- ▶ 正在播放的源(方案 §C6 #3): 仅当播放源 ≠ 当前浏览(active)源时出标;
+               播放页 playing==active 恒成立 → 永不出标(播放态即激活态) -->
+          <span
+            v-if="s.id === playingSourceId && s.id !== activeSourceId"
+            class="jc-source-tab__playing"
+            aria-hidden="true"
+          >▶</span>
           <span class="jc-source-tab__name">{{ s.name }}</span>
-          <span v-if="speedLabel(s.id)" class="jc-source-tab__speed" :class="speedClass(s.id)">
-            {{ speedLabel(s.id) }}
-          </span>
+          <!-- 测速色点(方案 §C6 #1): 绿=最快/黄=一般/红=失败/脉冲=测速中; 数值进 title -->
+          <span
+            v-if="speedDot(s.id)"
+            class="jc-source-tab__speed"
+            :class="speedDotClass(s.id)"
+            :title="speedTitle(s.id)"
+          />
           <!-- 右上角集数徽标: 显示「该源」自己的集数, 区别于条尾「共 N 集」(当前源) -->
           <span
             v-if="s.episodes.length"
@@ -227,7 +254,7 @@ function stopMarquee(e: Event): void {
       <button
         v-for="{ ep, idx } in visibleEpisodes"
         :key="ep.link + '-' + idx"
-        class="jc-episode-chip"
+        class="jc-episode-chip jc-hotarea"
         :class="[
           ep.link === currentEpisode ? 'jc-episode-chip--active' : '',
           watchedLinks.includes(ep.link) ? 'jc-episode-chip--watched' : ''
@@ -253,21 +280,34 @@ function stopMarquee(e: Event): void {
 </template>
 
 <style scoped>
-/* 源 tab 外层条: 左侧 tab 列表占据剩余宽并可横滚, 右侧"共 N 集"固定钉右上角不随滚动 */
+/* 源 tab 外层条: 左侧 tab 列表占据剩余宽并可横滚(旧"共 N 集"钉角布局已移除, 死样式 .jc-source-count 已删) */
 .jc-source-tabs {
   flex: 1 1 auto;
   min-width: 0;
   /* 纵向留白 + 不裁纵向, 让焦点框/激活态完整显示(避免被祖先 overflow 截断) */
   overflow-y: visible;
   padding-block: 6px;
+  /* ===== 横滚 affordance(方案 §C6 #4) — chrome61 双声明回退(参照本文件 TV 块 grid 先例):
+     先写老内核可解析的声明, 后写标准声明; 老内核不识别标准值时整条声明失效, 自然落到上一条。 ===== */
+  /* 双侧渐隐: -webkit-mask(chrome61 可解析) + 标准 mask(Chrome 120+ 起);
+     mask 固定在滚动容器可视框上, 内容滚过时两端淡出。老到不认 mask 的内核 → 无渐隐, 无害。 */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+  /* scroll-snap proximity: 老语法(chrome61 认识但无 snap 点时零效果, 兜底无害) + 现代轴语法 */
+  scroll-snap-type: proximity;
+  scroll-snap-type: x proximity;
+  /* 隐藏滚动条(affordance 由双侧渐隐承担): 标准属性(Firefox/Chrome 121+) + 下方 ::-webkit-scrollbar(chrome61) */
+  scrollbar-width: none;
 }
-.jc-source-count {
-  flex: 0 0 auto;
-  margin-left: auto;
-  white-space: nowrap;
-  color: var(--jc-text-muted);
-  font-size: var(--jc-fs-sm);
-  font-weight: var(--jc-fw-medium);
+.jc-source-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* 触达热区(方案 §C6 #2): 源 tab/集格视觉高度 <44px, 命中面积靠 .jc-hotarea(theme.css §三)外扩补偿;
+   横向相邻(源 tab 行 / 集格 gap 8px 档)按 4px inset 收窄, 防命中区重叠 */
+.jc-source-tab,
+.jc-episode-chip {
+  --jc-hotarea-inset: 4px;
 }
 
 .jc-source-tab {
@@ -285,6 +325,7 @@ function stopMarquee(e: Event): void {
   cursor: pointer;
   white-space: nowrap;
   min-height: var(--jc-ctrl-h);
+  scroll-snap-align: start;
   transition:
     color var(--jc-dur-fast) var(--jc-ease-standard),
     background-color var(--jc-dur-fast) var(--jc-ease-standard);
@@ -295,7 +336,9 @@ function stopMarquee(e: Event): void {
   background-color: rgba(255, 255, 255, 0.06);
 }
 
-/* 选中态: 仅渐变背景(胶囊), 不再加被祖先 overflow 裁切的下划线/描边 */
+/* 选中态: 仅渐变背景(胶囊), 不再加被祖先 overflow 裁切的下划线/描边。
+ * 光圈语义(方案 §C6 #7, 维持现状并写明): 源 tab=导航层 → 激活只上渐变胶囊,
+ * 不加紫色光圈(内容层独占, 见 .jc-episode-chip--active 注释)。 */
 .jc-source-tab--active {
   color: #fff;
   font-weight: var(--jc-fw-semibold);
@@ -312,20 +355,53 @@ function stopMarquee(e: Event): void {
   outline-offset: 2px;
 }
 
-/* 线路测速延时小标 */
+/* 线路测速色点(方案 §C6 #1): ⚡数值文本降级为 7px 色点, 数值走 title 悬浮不再撑宽 tab。
+ * 绿(--fast)=最快线 / 黄(--mid)=已测一般 / 红(--fail)=失败 / 脉冲(--loading)=测速进行中 */
 .jc-source-tab__speed {
+  display: inline-block;
+  flex: 0 0 auto;
   margin-left: var(--jc-space-1);
-  font-size: var(--jc-fs-xs);
-  font-weight: var(--jc-fw-medium);
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  vertical-align: middle;
 }
 .jc-source-tab__speed--fast {
-  color: var(--jc-success);
+  background-color: var(--jc-success);
 }
-.jc-source-tab__speed--ok {
-  color: var(--jc-text-muted);
+.jc-source-tab__speed--mid {
+  background-color: var(--jc-warning);
 }
 .jc-source-tab__speed--fail {
-  color: var(--jc-danger);
+  background-color: var(--jc-danger);
+}
+.jc-source-tab__speed--loading {
+  background-color: var(--jc-text-muted);
+  animation: jc-speed-pulse 1.1s var(--jc-ease-standard, ease) infinite;
+}
+@keyframes jc-speed-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jc-source-tab__speed--loading {
+    animation: none;
+  }
+}
+
+/* ▶ 正在播放的源小标(方案 §C6 #3): 仅详情页浏览态切走播放源时渲染(见模板处注释) */
+.jc-source-tab__playing {
+  margin-right: var(--jc-space-1);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--jc-brand-primary);
 }
 
 /* 源 tab 右上角集数徽标 — 小巧, 绝对定位不挤压 tab 文字布局 */
@@ -355,22 +431,23 @@ function stopMarquee(e: Event): void {
   color: var(--jc-brand-primary, #6d28d9);
 }
 
-/* 分段 chip (1-30 / 31-60 ...)
- * 纯色胶囊: 不加 border / 光圈。原先激活态的 box-shadow 紫色光圈会被
- * 外层 scroll/overflow 容器按直角硬切(上/左被截断, 右/下正常渐隐),
- * 看起来像"被胶囊切掉的边框", 故整体去掉描边装饰, 激活态只留渐变胶囊。
- * 内部留白收紧: 高 32→28, 左右 14→10 (TV 由下方覆盖保持原尺寸)。 */
+/* 分段 chip (1-30 / 31-60 ...) — 方案 §C6 #6: 改 ghost 风格, 与源 tab(渐变胶囊激活态)拉开层级。
+ * 基态透明底 + hover 白色洗地(对齐 BaseButton ghost 语言); 激活=白底+主色字(去渐变)。
+ * 高度绑 --jc-ctrl-h-sm、字号绑 --jc-ctrl-fs-sm(与源 tab 拉开一档; 2026-11-05 三档统一 §二.B)。
+ * 光圈语义(方案 §C6 #7, 维持现状并写明): seg=导航层 → 不加紫色光圈
+ * (历史: 原激活态 box-shadow 紫圈会被外层 scroll/overflow 容器按直角硬切, 已去;
+ *  内容层独占光圈, 见 .jc-episode-chip--active 注释)。 */
 .jc-episode-seg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: var(--jc-ctrl-h-sm); /* 集数 seg: 绑小号档(方案 §二.B) */
+  height: var(--jc-ctrl-h-sm);
   padding: 0 var(--jc-ctrl-px);
   border: none;
   border-radius: var(--jc-chip-radius, 9999px);
-  background-color: var(--jc-bg-elevated);
+  background-color: transparent;
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs-sm);
   font-weight: var(--jc-fw-medium);
   cursor: pointer;
   transition:
@@ -378,12 +455,13 @@ function stopMarquee(e: Event): void {
     color var(--jc-dur-fast) var(--jc-ease-standard);
 }
 .jc-episode-seg:hover {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.06);
   color: var(--jc-text-primary);
 }
+/* 激活=白底+主色字(方案 §C6 #6, 去 --jc-brand-gradient); 置于 :hover 之后, hover 洗地不覆盖激活态 */
 .jc-episode-seg--active {
-  background-image: var(--jc-brand-gradient);
-  color: #fff;
+  background-color: #fff;
+  color: var(--jc-brand-primary);
 }
 
 /* 每行集数: 减少列数, 给每集文字更多宽度(集名可能较长, 如"第01集 高清").
@@ -422,7 +500,8 @@ function stopMarquee(e: Event): void {
     background-color var(--jc-dur-fast) var(--jc-ease-standard),
     color var(--jc-dur-fast) var(--jc-ease-standard),
     transform var(--jc-dur-fast) var(--jc-ease-standard);
-  overflow: hidden;
+  /* 基态不裁切(方案 §C6 #2): overflow:hidden 会把自身 .jc-hotarea::after 外扩热区一并裁掉(热区失效);
+   * 长名截断由 __label ellipsis 承担, marquee 态自行恢复裁切(见 .is-marquee)。 */
 }
 
 /* 2026-11-05 B4 清尾: 原 768→36 / 1024→38 的定值阶梯已删除,
@@ -439,6 +518,8 @@ function stopMarquee(e: Event): void {
   outline-offset: 2px;
 }
 
+/* 激活态(内容层)保留紫光圈 — 光圈语义(方案 §C6 #7, 维持现状并写明):
+ * 集 chip=内容层 → 激活上渐变+紫光圈; 源 tab/分段=导航层 → 无光圈(见各自规则注释)。 */
 .jc-episode-chip--active {
   background-image: var(--jc-brand-gradient);
   color: #fff;
@@ -463,9 +544,12 @@ function stopMarquee(e: Event): void {
   white-space: nowrap;
 }
 
-/* 文字超出按钮时(hover/聚焦), 左对齐起始 + 横向轮播完整集名 */
+/* 文字超出按钮时(hover/聚焦), 左对齐起始 + 横向轮播完整集名;
+ * marquee 态恢复裁切(基态已放开 overflow 给热区让路, 见 .jc-episode-chip 注释),
+ * 防轮播文字溢出胶囊 */
 .jc-episode-chip.is-marquee {
   justify-content: flex-start;
+  overflow: hidden;
 }
 .jc-episode-chip.is-marquee .jc-episode-chip__label {
   max-width: none;
@@ -500,11 +584,16 @@ function stopMarquee(e: Event): void {
   gap: var(--jc-space-3);
 }
 [data-mode='tv'] .jc-episode-chip {
+  /* ===== TV 40px 豁免(方案 §C6 #8, 注释强化) =====
+   * 例外口径(三档方案 docs/方案-web控件三档标准统一-2026-11-05.md): TV 为独立档、全不动 —
+   * §二.B "EpisodeTabs 全绑 --jc-ctrl-h/-fs/-px; TV 覆盖不动"、§五.5 "TV 不动(独立档)"、
+   * §六.D "TV 档保持 48/40/56 —— 默认保持"、§7.3 验收豁免表 "所有 [data-mode='tv'] 域全不动"。
+   * 即本块 40px 定值不随 web 24/28/32 ladder 收紧, 保留遥控器十米可点性; 下方 seg 28px / 源 tab 40px 同口径。 */
   height: 40px;
   font-size: var(--jc-fs-sm);
   padding: 0 8px;
 }
-/* TV: 分段胶囊随 Web 收紧档位缩小, 保持触控可点 */
+/* TV: 分段胶囊保持 28px 定值(TV 独立档豁免, 口径见 .jc-episode-chip TV 块注释) */
 [data-mode='tv'] .jc-episode-seg {
   height: 28px;
   padding: 0 12px;
@@ -520,6 +609,7 @@ function stopMarquee(e: Event): void {
   color: var(--jc-text-primary);
 }
 [data-mode='tv'] .jc-source-tab {
+  /* TV 40px 豁免(TV 独立档, 口径同 .jc-episode-chip TV 块注释) */
   height: 40px;
   font-size: var(--jc-fs-sm);
   padding: 0 var(--jc-space-3);
@@ -530,9 +620,6 @@ function stopMarquee(e: Event): void {
   height: 18px;
   font-size: 11px;
   padding: 0 5px;
-}
-[data-mode='tv'] .jc-source-count {
-  font-size: var(--jc-fs-sm);
 }
 [data-mode='tv'] .jc-source-tab:focus,
 [data-mode='tv'] .jc-source-tab:focus-visible {
@@ -549,5 +636,21 @@ function stopMarquee(e: Event): void {
 }
 [data-mode='tv'] .jc-episodes {
   padding-block: 4px;
+}
+
+/* 方案 §C6 #9: 移动端无 hover(marquee 不可达), active 集格两行常显完整名, 不再永远截断。
+ * data-mode 口径与 theme.css 移动端兜底一致; 非 active chip 仍走 ellipsis + marquee(hover/focus)。
+ * 极端超长名兜底: 两行 -webkit-line-clamp 后仍裁(chrome61 支持 -webkit-box 语法)。
+ * 注: 换行后 label 无横向溢出, marquee 测量 shift<=2 自然不触发, 两态共存无冲突。 */
+[data-mode='mobile'] .jc-episode-chip--active {
+  height: auto;
+  min-height: var(--jc-ctrl-h);
+}
+[data-mode='mobile'] .jc-episode-chip--active .jc-episode-chip__label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
 }
 </style>

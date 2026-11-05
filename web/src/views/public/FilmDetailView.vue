@@ -508,7 +508,9 @@ function handleToggleFavorite(): void {
             </div>
           </div>
 
-          <!-- ===== 选集 (复用现有 EpisodeTabs 组件) ===== -->
+          <!-- ===== 选集 (复用现有 EpisodeTabs 组件)
+               playing-source-id: "正在播放的源"已知则传(=续播记录的源, 方案 §C6 #3) —
+               浏览态切走该源时, tab 上出 ▶ 小标提示播放所在源; 浏览到该源时其本身即激活态, 不重复出标 -->
           <section v-if="detail.sources?.length" class="jc-detail-tv__section" aria-label="选集">
             <div class="jc-tv-sec">
               <span class="t">选集</span>
@@ -519,6 +521,7 @@ function handleToggleFavorite(): void {
             <EpisodeTabs
               :sources="detail.sources"
               :current-source-id="activeSourceId"
+              :playing-source-id="resumeRecord?.source ?? ''"
               :current-episode="resumeRecord ? (detail.sources.find(s => s.id === resumeRecord!.source)?.episodes?.[resumeRecord!.episodeIndex]?.link ?? '') : ''"
               :watched-links="[]"
               :page-size="30"
@@ -700,6 +703,7 @@ function handleToggleFavorite(): void {
         <EpisodeTabs
           :sources="detail.sources"
           :current-source-id="activeSourceId"
+          :playing-source-id="resumeRecord?.source ?? ''"
           :current-episode="resumeRecord ? (detail.sources.find(s => s.id === resumeRecord!.source)?.episodes?.[resumeRecord!.episodeIndex]?.link ?? '') : ''"
           :watched-links="[]"
           :page-size="30"

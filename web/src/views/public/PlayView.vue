@@ -2265,12 +2265,16 @@ watch(playerReady, (v) => {
 
         </section>
 
-        <!-- 右侧选集 (PC: 视频右边, 与左列等高, 两层 tab 固定仅集列表滚动; 小屏堆叠到下方). -->
+        <!-- 右侧选集 (PC: 视频右边, 与左列等高, 两层 tab 固定仅集列表滚动; 小屏堆叠到下方).
+             playing-source-id: 播放页 playing==active 恒成立 → 组件按"播放页=激活态"语义不出 ▶ 标(方案 §C6 #3, 契约补全);
+             speed-testing: 测速进行中 → 源 tab 测速点转脉冲(方案 §C6 #1). -->
         <aside v-if="detail" class="jc-play-grid__aside">
           <div class="jc-play-grid__aside-inner">
             <EpisodeTabs
               :sources="detail.sources"
               :current-source-id="currentSourceId"
+              :playing-source-id="currentSourceId"
+              :speed-testing="testingLines"
               :current-episode="currentEpisode?.link ?? ''"
               :watched-links="watchedLinks"
               :speeds="lineSpeeds"
