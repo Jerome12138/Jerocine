@@ -1507,6 +1507,10 @@ function playPrev(): void {
 
 /** ---------- §C7 全屏选集面板 ---------- */
 function openEpisodePicker(): void {
+  // 齿轮设置面板(.art-settings z=90)高于本面板(z=65), 且本面板 @click.stop 不触发 ArtPlayer
+  // 点外关闭 → 若设置面板已开, 两面板会同屏叠放(第2轮评审 C7-4); 打开选集面板前先收掉它
+  const p = player.value
+  if (p && p.setting.show) p.setting.show = false
   episodePickerOpen.value = true
 }
 
@@ -2127,6 +2131,7 @@ watch(playerReady, (v) => {
                 class="jc-fs-picker"
                 role="dialog"
                 aria-label="选集"
+                aria-modal="true"
                 data-focusable="true"
                 @click.stop
                 @touchstart.stop
