@@ -211,6 +211,9 @@ else
 fi
 grep -q '^deploy/data/nginx/private/$' "$REPO_DIR/.gitignore" \
   && ok ".gitignore 排除 deploy/data/nginx/private/" || bad ".gitignore 未排除 private 目录"
+# dsh/browser 反代宿主服务(dsh-auth-caddy)走 host.docker.internal——被删掉时测试会全绿但 dsh 直接 502
+grep -qF '"host.docker.internal:host-gateway"' "$DEPLOY_DIR/docker-compose.yml" \
+  && ok "compose 为反代上游保留 host.docker.internal 映射" || bad "compose 缺 extra_hosts host.docker.internal"
 
 # 1.4 deploy.sh 自引导接线: export 根 / -f 包内 compose / 包内 Dockerfile / 重 exec / 守卫名单
 grep -q 'export JEROCINE_DEPLOY_ROOT=' "$DEPLOY_DIR/deploy.sh" \
