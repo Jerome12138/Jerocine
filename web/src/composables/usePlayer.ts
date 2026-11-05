@@ -66,6 +66,14 @@ export interface UsePlayerOptions {
    */
   nextEpisode?: { onClick: () => void }
   /**
+   * 控制条「选集」按钮(可选, 方案 §C7 全屏选集):
+   * 提供后在控制条**右侧区**注册一个列表图标按钮(与 next-episode 同范式), 点击触发 open ——
+   * 调用方 PlayView 借此打开 Teleport 进 art 根的全屏选集面板(复用 EpisodeTabs)。
+   * 控件本体恒注册(构造期不知道全屏态); 非全屏时由 PlayView 样式按 art 根的
+   * art-fullscreen / art-fullscreen-web 类隐藏(.jc-player 内 :deep 规则)。
+   */
+  episodePicker?: { open: () => void }
+  /**
    * artplayer-plugin-danmuku 插件配置(可选, nextTV 同款引擎):
    * 传入后注册插件 —— 控制条中部自带「弹幕开关」(apd-toggle) +「弹幕设置」(apd-config-panel:
    * 类型屏蔽/防重叠/透明度/显示区域/字号/速度), UI 与 nextTV 完全一致。
@@ -107,6 +115,7 @@ export type PlayerEventName =
   | 'waiting'
   | 'canplay'
   | 'fullscreenchange'
+  | 'fullscreenwebchange'
   | 'useractive'
   | 'userinactive'
 
@@ -217,10 +226,16 @@ function saveBandwidth(v: number): void {
 
 /** 当前实例的点击回调(模块级单例: 一页一个 player, init 时注入, dispose 时清空)。 */
 let nextEpisodeHandler: (() => void) | null = null
+/** 「选集」控件回调单例(方案 §C7, 与 nextEpisodeHandler 同范式: init 注入 / dispose 清空)。 */
+let episodePickerHandler: (() => void) | null = null
 
 /** 下一集图标 SVG(nextTV usePlayer.js 原样拷贝, skip-next) */
 export const NEXTTV_NEXT_EPISODE_SVG =
   '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>'
+/** 选集列表图标 SVG(方案 §C7; nextTV 无此图标, 按 nextTV 图标写法自绘: Material playlist-play,
+ *  22x22 viewBox 24 fill currentColor —— 三行列表 + 播放三角, 语义"剧集列表") */
+export const NEXTTV_EPISODE_LIST_SVG =
+  '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9H3v2h16V9zM3 5h16v2H3V5zm0 8h8v2H3v-2zm12 0v6l4.5-3-4.5-3z"/></svg>'
 /** 弹幕图标 SVG(nextTV settings 面板"弹幕"项原样拷贝: 圆角矩形+弹幕行) */
 export const NEXTTV_DANMAKU_SVG =
   '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4ZM5 8H11V10H5V8ZM5 12H9V14H5V12ZM19 16H5V14H13V16H19ZM19 12H11V10H19V12ZM19 8H13V10H19V8Z" fill="currentColor"/></svg>'
@@ -234,6 +249,11 @@ export const NEXTTV_AUTOPLAY_SVG =
 /** 创建「下一集」图标按钮内容节点(nextTV 原样 SVG 字符串 → DOM)。 */
 function buildNextEpisodeButton(): HTMLElement {
   return svgStringToNode(NEXTTV_NEXT_EPISODE_SVG)
+}
+
+/** 创建「选集」列表图标按钮内容节点(方案 §C7, 同 .art-icon 包裹范式)。 */
+function buildEpisodePickerButton(): HTMLElement {
+  return svgStringToNode(NEXTTV_EPISODE_LIST_SVG)
 }
 
 /** SVG 字符串 → DOM 节点(nextTV 图标写法: 22x22 viewBox 24 fill currentColor)。
@@ -284,6 +304,10 @@ function mapArtEvent(event: PlayerEventName): string | null {
       return `video:${event}`
     case 'fullscreenchange':
       return 'fullscreen'
+    // 网页全屏(桌面, 补 §C7 缺口): art 事件名 'fullscreenWeb'(setter 内 emit, 见 artplayer dist
+    // def(art,'fullscreenWeb')), 布尔 state 直通
+    case 'fullscreenwebchange':
+      return 'fullscreenWeb'
     case 'useractive':
     case 'userinactive':
       return 'control'
@@ -539,6 +563,18 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
         click: () => nextEpisodeHandler?.()
       })
     }
+    // 控制条「选集」按钮(方案 §C7, next-episode 同范式): 右侧区列表图标, 点击交回调开 Teleport 面板。
+    // 控件恒注册; 非全屏态的显隐由 PlayView 按 art 根类(art-fullscreen/art-fullscreen-web)CSS 控制
+    if (opts.episodePicker) {
+      episodePickerHandler = opts.episodePicker.open
+      customControls.push({
+        name: 'episode-picker',
+        position: 'right',
+        tooltip: '选集',
+        html: buildEpisodePickerButton(),
+        click: () => episodePickerHandler?.()
+      })
+    }
     // 弹幕插件(nextTV 同款): UI(开关/设置面板/发射器)与设置持久化由插件全托管
     const plugins: Artplayer['option']['plugins'] = []
     if (opts.danmuku) {
@@ -741,6 +777,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     videoSize.value = null
     errorMessage.value = ''
     nextEpisodeHandler = null
+    episodePickerHandler = null
     // listenerRegistry 保留: 外部订阅随 composable 生命周期, 重建后由 init 全量重挂
   }
 

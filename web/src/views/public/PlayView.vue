@@ -788,6 +788,9 @@ const {
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条「下一集」图标入口(所有模式注册; 移动端非全屏由 CSS 隐藏, 见 .jc-player--mobile)
   nextEpisode: { onClick: () => playNext(undefined) },
+  // 方案 §C7: 控制条「选集」按钮(右侧区列表图标) → 打开 Teleport 全屏选集面板。
+  // 按钮显隐不在此控制(构造期不知全屏态), 非全屏由样式按 art 根类(art-fullscreen/art-fullscreen-web)隐藏
+  episodePicker: { open: openEpisodePicker },
   // 弹幕插件(nextTV 同款引擎): 控制条中部开关 + 弹幕设置面板由插件原生提供。
   // 初始 danmuku 空数组, 数据由 useDanmaku 装载后 plugin.load(); 显示设置映射见 useDanmaku.applyPluginSettings。
   danmuku: {
@@ -1291,6 +1294,21 @@ function onPlayerTimeUpdateForSkipOutro(): void {
 /** ---------- 触屏手势(web 专用; TV/原生播放器不适用) ---------- */
 const isPlayerFullscreen = ref(false)
 
+/** 网页全屏标志(方案 §C7): 与 isPlayerFullscreen 分离 —— 后者还驱动触屏手势启用(语义=真全屏),
+ *  网页全屏(桌面 fullscreenWeb)只参与选集触发条件, 混入会误启手势。值在 onMounted 里与
+ *  真全屏一起由 fullscreenchange/fullscreenwebchange 双事件重读同步。 */
+const isPlayerFullscreenWeb = ref(false)
+/** §C7 全屏选集面板开关: 控制条「选集」按钮唤出, Esc/面板内切集换源收起 */
+const episodePickerOpen = ref(false)
+/** 选集触发条件: 真全屏或网页全屏(补此前只翻 fullscreen 的缺口) */
+const episodePickerAvailable = computed(
+  () => isPlayerFullscreen.value || isPlayerFullscreenWeb.value
+)
+watch(episodePickerAvailable, (v) => {
+  // 退出全屏(真/网页)瞬间收起面板: 触发条件失效, 面板无处安放
+  if (!v) episodePickerOpen.value = false
+})
+
 /** loading 遮罩文案(三档纯函数 loadingHintText, 逐档单测覆盖):
  *  未就绪+过滤在途「正在准备视频 · 广告过滤中…」/ 未就绪「正在准备视频…」/
  *  片源已就绪等播放器「正在缓冲视频…」—— 过滤落地到 canplay 之间文案必须反映真实阶段。 */
@@ -1487,6 +1505,28 @@ function playPrev(): void {
   })
 }
 
+/** ---------- §C7 全屏选集面板 ---------- */
+function openEpisodePicker(): void {
+  episodePickerOpen.value = true
+}
+
+function closeEpisodePicker(): void {
+  episodePickerOpen.value = false
+}
+
+/** 面板内选集/换源: 复用页面级 selectEpisode / changeSource —— 数据流零新增, 弹幕/过滤/进度
+ *  自动接管(方案 §C7); 操作后收面板。同源点击在 EpisodeTabs.selectSource 已 guard(不 emit);
+ *  同集点击 selectEpisode 内部幂等, 收面板即用户意图。 */
+function handlePickerSelect(payload: { sourceId: string; episodeIndex: number }): void {
+  selectEpisode(payload)
+  closeEpisodePicker()
+}
+
+function handlePickerChangeSource(sourceId: string): void {
+  changeSource(sourceId)
+  closeEpisodePicker()
+}
+
 /** ---------- 键盘 / D-pad ---------- */
 /** 回车切换全屏/非全屏(桌面语义, 与触摸双击一致) */
 function togglePlayerFullscreen(): void {
@@ -1505,6 +1545,12 @@ function togglePlayerFullscreen(): void {
 function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement | null): void {
   const tag = target?.tagName?.toLowerCase()
   const onUiButton = tag === 'button' || tag === 'a'
+  // §C7: Esc 优先关选集面板(全屏内最上层浮层, 先于下方弹层分支; 关了面板, 下次 Esc 才走弹层/返回)
+  if (key === 'Escape' && episodePickerOpen.value) {
+    e.preventDefault()
+    closeEpisodePicker()
+    return
+  }
   // 弹层打开时键盘交给弹层自身: Esc 关弹层而非返回, Enter/空格不劫持(防误切全屏等)
   if (moreActionsOpen.value || skipDialogOpen.value) {
     if (key === 'Escape') {
@@ -1519,7 +1565,7 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
     case 'Spacebar':
       // 焦点在选集/工具条等交互区控件上时放行原生激活(P2-13: 全局劫持曾让纯键盘用户
       // 无法操作集列表) —— 仅焦点游离时才接管为播放器快捷键
-      if (onUiButton && target?.closest?.('.jc-play-grid__aside, .jc-play-toolbar, .jc-pt-more__panel')) {
+      if (onUiButton && target?.closest?.('.jc-play-grid__aside, .jc-play-toolbar, .jc-pt-more__panel, .jc-fs-picker')) {
         return
       }
       e.preventDefault()
@@ -1531,7 +1577,7 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
       }
       break
     case 'Enter':
-      if (onUiButton && target?.closest?.('.jc-play-grid__aside, .jc-play-toolbar, .jc-pt-more__panel')) {
+      if (onUiButton && target?.closest?.('.jc-play-grid__aside, .jc-play-toolbar, .jc-pt-more__panel, .jc-fs-picker')) {
         return
       }
       e.preventDefault()
@@ -1618,6 +1664,12 @@ function handleTvKeydown(e: KeyboardEvent, key: string, tag: string | undefined)
       break
     }
     case 'Escape':
+      // §C7: 选集面板打开时 Esc 先关面板(与桌面分支同语义), 关了面板才返回详情页
+      if (episodePickerOpen.value) {
+        e.preventDefault()
+        closeEpisodePicker()
+        return
+      }
       // 返回详情页
       e.preventDefault()
       goBackToDetail()
@@ -1860,16 +1912,35 @@ onMounted(async () => {
       const t = player.value?.currentTime
       console.log('[danmaku] seeked: position =', typeof t === 'number' ? t.toFixed(2) : t, ', state =', danmakuState.value)
     })
-    // 全屏状态: 触屏手势(长按2x/横滑快进退)仅全屏时启用
-    onPlayerEvent('fullscreenchange', () => {
-      isPlayerFullscreen.value = !!player.value?.fullscreen
-    })
+    // 全屏状态: 触屏手势(长按2x/横滑快进退)仅真全屏启用。§C7: 两个 art 事件都重读两标志 ——
+    // 进真全屏时 artplayer 会先退网页全屏(art.fullscreenWeb=false, dist def(art,'fullscreenWeb')),
+    // 只在各自事件里各读一个会漏掉联动; fullscreenwebchange 补齐网页全屏缺口(此前只翻 fullscreen)
+    const syncFullscreenFlags = (): void => {
+      const p = player.value
+      isPlayerFullscreen.value = !!p?.fullscreen
+      isPlayerFullscreenWeb.value = !!p?.fullscreenWeb
+    }
+    onPlayerEvent('fullscreenchange', syncFullscreenFlags)
+    onPlayerEvent('fullscreenwebchange', syncFullscreenFlags)
     // 控制条显隐(ArtPlayer 'control' 事件, usePlayer 派生): 驱动全屏左上角标题层同步出现/消失
     onPlayerEvent('useractive', () => {
       playerControlsVisible.value = true
     })
     onPlayerEvent('userinactive', () => {
       playerControlsVisible.value = false
+      // §C7 useractive 语义核对: ArtPlayer 在 video:timeupdate 里按 CONTROL_HIDE_TIME(3s)收控制条
+      // (dist Control 组件), 收起条件含 isHover($bottom) —— 选集面板不在 $bottom 范围, 播放中会被
+      // 当作"无操作"收走, 「选集」按钮跟着消失, 面板无法再经按钮收起。面板打开期间收到 userinactive
+      // 立即把 controls.show 重新置 true('control' true 会复位 art 的隐藏计时器, 桌面 mousemove /
+      // 点击路径不变); 同步链内类名先移后加, 无视觉闪烁。面板关掉后不干预, 恢复原生显隐节奏。
+      if (episodePickerOpen.value) {
+        const p = player.value
+        try {
+          if (p) p.controls.show = true
+        } catch {
+          /* ignore */
+        }
+      }
     })
   }
   if (typeof window !== 'undefined') {
@@ -2046,6 +2117,50 @@ watch(playerReady, (v) => {
               <div v-if="videoErrorMsg" class="jc-player-error" role="alert">
                 {{ videoErrorMsg }}
               </div>
+              <!-- §C7 全屏选集面板(方案 B): 控制条「选集」按钮唤出, Teleport 进 art 根保证全屏可见;
+                   复用 EpisodeTabs, props 与右侧 aside 同款(含 playing-source-id)。触发条件=真全屏或
+                   网页全屏(episodePickerAvailable, 补 fullscreenWeb 缺口); @click.stop + touch
+                   stopPropagation: 点击不穿透到 art(防误触发播放器行为), 触摸不上冒 jc-player-wrap
+                   (防横滑刮擦手势误 seek)。z-index 65 盖过控制条(.art-bottom z=60), 样式见 .jc-fs-picker -->
+              <div
+                v-if="episodePickerOpen && episodePickerAvailable && detail"
+                class="jc-fs-picker"
+                role="dialog"
+                aria-label="选集"
+                data-focusable="true"
+                @click.stop
+                @touchstart.stop
+                @touchmove.stop
+                @touchend.stop
+                @touchcancel.stop
+              >
+                <div class="jc-fs-picker__head">
+                  <span class="jc-fs-picker__title">选集</span>
+                  <button
+                    type="button"
+                    class="jc-fs-picker__close"
+                    aria-label="关闭选集"
+                    data-focusable="true"
+                    @click.stop="closeEpisodePicker"
+                  >
+                    <BaseIcon name="close" size="16px" />
+                  </button>
+                </div>
+                <div class="jc-fs-picker__body">
+                  <EpisodeTabs
+                    :sources="detail.sources"
+                    :current-source-id="currentSourceId"
+                    :playing-source-id="currentSourceId"
+                    :speed-testing="testingLines"
+                    :current-episode="currentEpisode?.link ?? ''"
+                    :watched-links="watchedLinks"
+                    :speeds="lineSpeeds"
+                    :film-name="detail.name"
+                    @change-source="handlePickerChangeSource"
+                    @select="handlePickerSelect"
+                  />
+                </div>
+              </div>
               <!-- 弹幕设置面板已由 artplayer-plugin-danmuku 插件原生提供(apd-config-panel), 自建面板已删 -->
             </Teleport>
           </div>
@@ -2196,7 +2311,11 @@ watch(playerReady, (v) => {
         </div>
       </header>
 
-      <!-- 跳片头片尾设置 (按 filmId 持久化在 localStorage / 登录后随账号同步) -->
+      <!-- 跳片头片尾设置 (按 filmId 持久化在 localStorage / 登录后随账号同步)
+           §C7 留档(记录不修): BaseDialog 默认 teleport 到 body(teleportTo 默认 'body', BaseDialog.vue),
+           而全屏元素是 art 根(.art-video-player) —— 若本弹窗在全屏内唤起将不可见(DOM 落在全屏元素外)。
+           当前跳过设置入口只在页面工具条/「更多」菜单, 全屏内不可达(无入口, 修了反而扩范围, 方案 §C7
+           拍板不动); 预案 = BaseDialog.teleportTo 指向 playerOverlayHost(能力已预留)。 -->
       <BaseDialog v-model:visible="skipDialogOpen" title="跳过片头/片尾" width="380px">
         <div class="flex flex-col gap-[var(--jc-space-4)]">
           <p class="text-sm text-secondary">
@@ -2406,6 +2525,131 @@ watch(playerReady, (v) => {
 .jc-player-gesture__text {
   text-align: center;
   font-size: 13px;
+}
+
+/* ===== §C7 全屏选集面板(Teleport 进 art 根) ===== */
+/* 「选集」控件按钮: 非全屏隐藏, 真/网页全屏显示(art 根类 art-fullscreen / art-fullscreen-web 驱动,
+   桌面/移动一致)。显示时保留 .art-control 的 flex 布局。 */
+.jc-player :deep(.art-control-episode-picker) {
+  display: none;
+}
+.jc-player :deep(.art-fullscreen) .art-control-episode-picker,
+.jc-player :deep(.art-fullscreen-web) .art-control-episode-picker {
+  display: flex;
+}
+
+/* 面板: 桌面=右侧抽屉 360px 全高 / 移动(<768, 与 .jc-player--mobile 视口口径一致)=底部抽屉 60vh 全宽。
+   毛玻璃站点卡片风: chrome61 禁新增 backdrop-filter(铁律) → 高不透明 elevated 底 + 描边 + 投影承担层次。
+   z-index 65: 盖过控制条(.art-bottom z=60), 与手势提示同层。 */
+.jc-fs-picker {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  z-index: 65;
+  background-color: var(--jc-bg-elevated);
+  border-left: 1px solid var(--jc-border-ctrl);
+  border-radius: var(--jc-radius-lg) 0 0 var(--jc-radius-lg);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+@media (max-width: 767px) {
+  .jc-fs-picker {
+    top: auto;
+    left: 0;
+    right: 0;
+    width: auto;
+    height: 60vh;
+    border-left: none;
+    border-top: 1px solid var(--jc-border-ctrl);
+    border-radius: var(--jc-radius-lg) var(--jc-radius-lg) 0 0;
+    box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.5);
+  }
+}
+
+.jc-fs-picker__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--jc-space-3) var(--jc-space-4);
+  border-bottom: 1px solid var(--jc-border-default);
+}
+.jc-fs-picker__title {
+  font-size: var(--jc-fs-base);
+  font-weight: var(--jc-fw-bold);
+  color: var(--jc-text-primary);
+}
+.jc-fs-picker__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--jc-border-default);
+  border-radius: var(--jc-radius-md);
+  background-color: transparent;
+  color: var(--jc-text-secondary);
+  cursor: pointer;
+}
+.jc-fs-picker__close:hover {
+  color: var(--jc-text-primary);
+  background-color: rgba(255, 255, 255, 0.06);
+}
+/* TV 焦点环(面板关闭钮): 与 jc-pt-btn 同 token, 空间导航定位依赖 */
+[data-mode='tv'] .jc-fs-picker__close:focus,
+[data-mode='tv'] .jc-fs-picker__close:focus-visible {
+  outline: none;
+  box-shadow: var(--jc-tv-focus-ring);
+}
+
+/* 面板内容区: 两层 tab(源条/分段)固定, 集网格占满剩余高纵滚 —— 与右侧 aside(§C6 前既有收口)同款 */
+.jc-fs-picker__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--jc-space-3) var(--jc-space-4) var(--jc-space-5);
+}
+.jc-fs-picker__body :deep(.jc-episodes) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.jc-fs-picker__body :deep(.jc-source-bar),
+.jc-fs-picker__body :deep(.jc-episode-segments) {
+  flex: 0 0 auto;
+}
+.jc-fs-picker__body :deep(.jc-source-tabs) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* 集格列数: 360px 抽屉 ≈3 列 / 移动底部抽屉自适应; TV 例外不覆盖 —— 组件自带
+   [data-mode='tv'] auto-fit(clamp 110-160px)为 TV 调优, :not() 守卫避免样式序之争 */
+[data-mode]:not([data-mode='tv']) .jc-fs-picker__body :deep(.jc-episode-grid) {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+.jc-fs-picker__body :deep(.jc-episode-grid) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* clip 另一轴, 避免 CSS 规范把 overflow-y 强制成 auto 造成嵌套滚动 */
+  overflow-x: clip;
+  overscroll-behavior: contain;
+  align-content: start;
+  padding-right: var(--jc-space-1);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+.jc-fs-picker__body :deep(.jc-episode-grid)::-webkit-scrollbar {
+  width: 8px;
+}
+.jc-fs-picker__body :deep(.jc-episode-grid)::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
 }
 
 .jc-player-loading {
