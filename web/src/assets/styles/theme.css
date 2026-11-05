@@ -157,8 +157,8 @@
   --jc-sidebar-width-collapsed: 64px;
 
   /* ---------- chip (筛选/分类入口) ---------- */
-  --jc-chip-height: 32px;
-  --jc-chip-padding-x: 14px;
+  --jc-chip-height: 28px; /* 平板新值(移动 24 / 桌面 32 见各档) */
+  --jc-chip-padding-x: 10px;
   --jc-chip-radius: 9999px; /* 全圆 */
 
   /* ---------- 进度条 ---------- */
@@ -174,20 +174,27 @@
   --jc-radius-2xl: 28px;
   --jc-radius-full: 9999px;
 
-  /* ---------- 管理端控件尺寸 (随视口宽度分档: 移动<768 / 常规 / 宽屏≥1280; TV 另覆盖) ---------- */
-  --jc-ctrl-h: 36px;          /* 标准控件高(输入/下拉/标准按钮) */
-  --jc-ctrl-h-sm: 30px;       /* 小号控件高 */
-  --jc-ctrl-h-lg: 42px;       /* 大号控件高 */
-  --jc-ctrl-fs: 0.875rem;     /* 标准控件字号(14) */
-  --jc-ctrl-fs-sm: 0.8125rem; /* 小号(13) */
-  --jc-ctrl-fs-lg: 0.9375rem; /* 大号(15) */
-  --jc-ctrl-px: 12px;         /* 水平内边距 */
-  --jc-ctrl-px-sm: 10px;
-  --jc-ctrl-px-lg: 16px;
-  --jc-ctrl-radius: var(--jc-radius-md);
-  --jc-switch-w: 40px;        /* 开关轨道宽 */
-  --jc-switch-h: 20px;        /* 开关轨道高 */
-  --jc-switch-knob: 16px;     /* 开关圆点直径 */
+  /* ---------- 管理端控件尺寸 ----------
+   * 模型(2026-11-05 定, 见 docs/方案-web控件三档标准统一-2026-11-05.md §一/§六 A′):
+   *   · **标准档按端决定**(移动 24 / 平板 28 / 桌面 32 / TV 48) —— 组件默认**不标 size** 即跟随;
+   *   · sm/lg 是"相对标准"的**派生档**: 只写公式, 不逐端重复写值(4 端 × 3 档 → 4 个标准值 + 3 条公式);
+   *     语义与 EP/主流库一致(small = 比标准小一档 / large = 大一档);
+   *   · 移动端 `-sm` **钉死 = 标准**: 最小端本就全员紧凑, 不派生更小值(避免 20px 触达)。
+   * 口径: 组件只引用令牌, 不自己写断点; 端判断只用于形态差异(布局/焦点), 不用于尺寸。 */
+  --jc-ctrl-h: 28px;                              /* 标准档(平板 768~1279 = 新默认) */
+  --jc-ctrl-h-sm: calc(var(--jc-ctrl-h) - 4px);   /* 小号 = 标准 −4 */
+  --jc-ctrl-h-lg: calc(var(--jc-ctrl-h) + 8px);   /* 大号 = 标准 +8 */
+  --jc-ctrl-fs: 13px;                             /* 标准控件字号 */
+  --jc-ctrl-fs-sm: calc(var(--jc-ctrl-fs) - 1px);
+  --jc-ctrl-fs-lg: calc(var(--jc-ctrl-fs) + 1px);
+  --jc-ctrl-px: 10px;                             /* 标准水平内距 */
+  --jc-ctrl-px-sm: calc(var(--jc-ctrl-px) - 2px);
+  --jc-ctrl-px-lg: calc(var(--jc-ctrl-px) + 2px);
+  --jc-ctrl-py: 3px;                              /* 控件纵向内距(新增: 24px 档下不再撑爆) */
+  --jc-ctrl-radius: var(--jc-radius-md);          /* 8px 不动(避免未要求的视觉漂移) */
+  --jc-switch-w: 36px;                            /* 开关轨道宽(平板新值) */
+  --jc-switch-h: 18px;                            /* 开关轨道高 */
+  --jc-switch-knob: 14px;                         /* 开关圆点直径 */
 
   /* ---------- 阴影 ---------- */
   --jc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -282,39 +289,36 @@
   }
 }
 
-/* 管理端控件尺寸 — 移动档(<768): 最小档(越窄越小) */
+/* 管理端控件尺寸 — 移动档(<768): 标准 24; sm 钉死 = 标准 */
 @media (max-width: 767px) {
   :root {
-    --jc-ctrl-h: 32px;
-    --jc-ctrl-h-sm: 28px;
-    --jc-ctrl-h-lg: 36px;
-    --jc-ctrl-fs: 0.8125rem;
-    --jc-ctrl-fs-sm: 0.75rem;
-    --jc-ctrl-fs-lg: 0.875rem;
-    --jc-ctrl-px: 10px;
-    --jc-ctrl-px-sm: 8px;
-    --jc-ctrl-px-lg: 14px;
+    --jc-ctrl-h: 24px;
+    --jc-ctrl-h-sm: 24px; /* 钉死: 移动端不派生更小值(标准即紧凑档) */
+    --jc-ctrl-fs: 12px;
+    --jc-ctrl-fs-sm: 12px; /* 同上钉死 */
+    --jc-ctrl-px: 8px;
+    --jc-ctrl-px-sm: 8px; /* 同上钉死 */
+    --jc-ctrl-py: 2px;
     --jc-switch-w: 32px;
     --jc-switch-h: 16px;
     --jc-switch-knob: 12px;
+    --jc-chip-height: 24px;
+    --jc-chip-padding-x: 8px;
   }
 }
 
-/* 管理端控件尺寸 — 宽屏档(≥1280): 略放大 */
+/* 管理端控件尺寸 — 桌面档(≥1280): 标准 32(sm/lg 由公式派生) */
 @media (min-width: 1280px) {
   :root {
-    --jc-ctrl-h: 40px;
-    --jc-ctrl-h-sm: 32px;
-    --jc-ctrl-h-lg: 46px;
-    --jc-ctrl-fs: 0.9375rem;
-    --jc-ctrl-fs-sm: 0.875rem;
-    --jc-ctrl-fs-lg: 1rem;
-    --jc-ctrl-px: 14px;
-    --jc-ctrl-px-sm: 12px;
-    --jc-ctrl-px-lg: 18px;
-    --jc-switch-w: 44px;
-    --jc-switch-h: 22px;
-    --jc-switch-knob: 18px;
+    --jc-ctrl-h: 32px;
+    --jc-ctrl-fs: 14px;
+    --jc-ctrl-px: 12px;
+    --jc-ctrl-py: 4px;
+    --jc-switch-w: 40px;
+    --jc-switch-h: 20px;
+    --jc-switch-knob: 16px;
+    --jc-chip-height: 32px;
+    --jc-chip-padding-x: 14px;
   }
 }
 
@@ -384,7 +388,7 @@ body {
   --jc-tv-safe-y: clamp(27px, 5vh, 54px); /* P0: 纵向安全区 ~5% */
   --jc-table-cell-py: 12px; /* 表格行高略增, 10-foot 视距行密度保可读 */
 
-  /* 管理端控件尺寸 — TV(10-foot 视距)统一放大 */
+  /* 管理端控件尺寸 — TV(10-foot 视距)统一放大 —— **TV 独立档, 不参与三档统一**(方案 §一) */
   --jc-ctrl-h: 48px;
   --jc-ctrl-h-sm: 40px;
   --jc-ctrl-h-lg: 56px;
@@ -394,6 +398,7 @@ body {
   --jc-ctrl-px: 20px;
   --jc-ctrl-px-sm: 16px;
   --jc-ctrl-px-lg: 24px;
+  --jc-ctrl-py: 8px; /* 保持 TV 现状(未纳入本次 2/3/4 缩紧) */
   --jc-switch-w: 64px;
   --jc-switch-h: 36px;
   --jc-switch-knob: 30px;
@@ -564,12 +569,13 @@ html[data-mode="tv"] body::-webkit-scrollbar {
     box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-/* manage 在 mobile 的触控兜底(36px): 仅兜底未自带尺寸的裸按钮/角色按钮;
-   走令牌的 .jc-btn 与表单控件自带尺寸不兜底(以便"越窄越小"); .jc-switch 自带轨道尺寸, 排除。 */
+/* manage 在 mobile 的触控兜底: 仅兜底未自带尺寸的裸按钮/角色按钮, 高度**绑标准档令牌**
+   (2026-11-05: 原写死 36px → 改 var(--jc-ctrl-h); 走令牌的 .jc-btn 与表单控件自带尺寸不兜底;
+    .jc-switch 自带轨道尺寸, 排除。触达不足由 §三 的伪元素热区解决) */
 [data-mode="mobile"] .jc-manage button:not(.jc-switch):not(.jc-btn),
 [data-mode="mobile"] .jc-manage a[role="button"],
 [data-mode="mobile"] .jc-manage [data-focusable="true"][role="button"] {
-  min-height: 36px;
+  min-height: var(--jc-ctrl-h);
 }
 
 /* ============================================================

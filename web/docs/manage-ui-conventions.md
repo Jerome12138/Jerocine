@@ -9,9 +9,15 @@
 
 ## 尺寸档位（§3.6/§5）
 
-- 表单控件（input/select/checkbox/switch/button）尺寸一律走 `--jc-ctrl-*`/`--jc-switch-*` 令牌：四档（移动 <768 = 32/28/36；常规 = 36/30/42；宽屏 ≥1280 = 40/32/46；TV = 48/40/56）自动生效，**禁止新写固定 px 高度**。
+- **尺寸模型（2026-11-05 统一，见 `docs/方案-web控件三档标准统一-2026-11-05.md`）**：
+  **标准档按端决定** —— 移动 <768 = **24**／平板（默认）= **28**／桌面 ≥1280 = **32**／TV `[data-mode='tv']` = **48**；
+  组件**默认不标 size 即跟随**。`sm`/`lg` 是**相对标准的派生档**（`sm = 标准 −4`、`lg = 标准 +8`，只写公式、不逐端写值），
+  语义与 EP/主流库一致（small = 小一档）。**移动端 `sm` 钉死 = 标准**（最小端本就全员紧凑，不派生 20px）。
+- 所有控件（input/select/checkbox/switch/button/chip）尺寸一律走 `--jc-ctrl-*`／`--jc-switch-*`／`--jc-chip-*`，
+  **禁止新写固定 px 高度**；端判断只用于形态（布局/焦点），**不用于尺寸**。
 - ManageInput/ManageSelect 用 `size?: 'sm' | 'default' | 'lg'`（默认 default）；与 sm 按钮同行的工具栏控件用 `sm`。
-- 刻意定值例外（保留，不算违规）：segment 胶囊 28px、BasePagination 页码 chip 44px、ManageTable 表头筛选钮 24px、Dashboard 刷新按钮 44px。
+- 唯一两档豁免：`BasePagination` 移动页号 chip = **28**（相邻数字触达密度；平板/桌面 = 标准 32）。
+- 例外定值复核清单（违反即修）：segment 胶囊页签、ManageTable 表头筛选钮、Dashboard 刷新按钮 —— 一律绑 `--jc-ctrl-h`。
 - 浮层统一 `max-h-[320px]` 内滚动，四档一致。
 
 ## 交互与可访问性（§3/§7）
