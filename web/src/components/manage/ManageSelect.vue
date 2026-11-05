@@ -179,7 +179,7 @@ useDismiss(
       :aria-expanded="isOpen"
       :aria-activedescendant="activeDescendant"
       :data-focusable="props.disabled ? undefined : 'true'"
-      class="w-full flex items-center justify-between gap-[var(--jc-space-2)] bg-elevated text-primary border border-default rounded-[var(--jc-ctrl-radius)] outline-none focus:border-strong focus:shadow-focus transition disabled:opacity-50 disabled:cursor-not-allowed"
+      class="w-full flex items-center justify-between gap-[var(--jc-space-2)] bg-elevated text-primary border border-ctrl rounded-[var(--jc-ctrl-radius)] outline-none focus:border-ctrl-focus focus:shadow-focus transition disabled:opacity-50 disabled:cursor-not-allowed"
       :class="sizeClass"
       @click="onTriggerClick"
       @keydown="onTriggerKeydown"

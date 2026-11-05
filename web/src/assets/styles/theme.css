@@ -27,6 +27,9 @@
   --jc-border-subtle: rgba(255, 255, 255, 0.06);
   --jc-border-default: rgba(255, 255, 255, 0.12);
   --jc-border-strong: rgba(255, 255, 255, 0.24);
+  /* 控件描边专用档(输入/选择/勾选静默态): 0.12/0.24 在深色底+小尺寸下几乎不可见(2026-11-05 用户反馈) */
+  --jc-border-ctrl: rgba(255, 255, 255, 0.3);
+  --jc-border-ctrl-focus: rgba(255, 255, 255, 0.55);
   --jc-border-brand: #e50914;
 
   /* ---------- 状态 ---------- */

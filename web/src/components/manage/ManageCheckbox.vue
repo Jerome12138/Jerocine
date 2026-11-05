@@ -72,7 +72,7 @@ function onChange(e: Event): void {
       :class="
         modelValue || indeterminate
           ? 'jc-checkbox__box--on border-[var(--jc-brand-primary)] bg-[var(--jc-brand-primary)]'
-          : 'border-strong bg-elevated'
+          : 'border-ctrl bg-elevated'
       "
     >
       <svg v-if="indeterminate" viewBox="0 0 12 12" class="jc-checkbox__bar h-2 w-2" aria-hidden="true">
@@ -95,9 +95,9 @@ function onChange(e: Event): void {
 </template>
 
 <style scoped>
-/* hover 提亮：仅未选中态（border-strong → 更亮一档），选中色块不随 hover 变化 */
+/* hover 提亮：仅未选中态（border-ctrl → focus 档），选中色块不随 hover 变化 */
 .jc-checkbox:hover .jc-checkbox__box:not(.jc-checkbox__box--on) {
-  border-color: var(--jc-text-muted);
+  border-color: var(--jc-border-ctrl-focus);
 }
 /* 键盘焦点环画在方框上（input 本体 0 尺寸不可见），与全局 focus-ring 令牌同源 */
 .jc-checkbox__input:focus-visible + .jc-checkbox__box {

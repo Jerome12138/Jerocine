@@ -59,8 +59,9 @@ function onSelect(value: V): void {
   </div>
 
   <!-- segment（默认）: 胶囊页签 —— 2026-11-05 起**全绑令牌**（高 sm/标准/lg、字号、内外距随三档自适应）；
-       激活 bg-surface+shadow / 未激活 text-secondary 的视觉规则不变；容器 p-0.5 保持 -->
-  <div v-else class="flex rounded-full bg-elevated p-0.5" role="tablist">
+       激活 bg-surface+shadow / 未激活 text-secondary 的视觉规则不变；容器 p-0.5 保持；
+       w-fit 防止被 flex 列父容器(flex-col 默认 stretch)拉满整行(2026-11-05 轮播管理页反馈), 行内父容器不受影响 -->
+  <div v-else class="flex w-fit rounded-full bg-elevated p-0.5" role="tablist">
     <button
       v-for="t in props.tabs"
       :key="String(t.value)"
