@@ -1,8 +1,7 @@
 package com.jerocine.tv.ui
 
+import com.jerocine.player.ui.EpisodeSegments
 import com.jerocine.tv.data.PlaySource
-
-const val DETAIL_EPISODE_PAGE_SIZE = 30
 
 data class DetailPlaybackSelection(
     val sourceId: String,
@@ -26,7 +25,7 @@ fun initialDetailPlaybackSelection(
     return DetailPlaybackSelection(
         sourceId = source?.id.orEmpty(),
         episodeIndex = episode,
-        segmentIndex = episode / DETAIL_EPISODE_PAGE_SIZE,
+        segmentIndex = EpisodeSegments.checkedSegment(episode),
     )
 }
 
@@ -40,14 +39,17 @@ fun switchDetailSource(
     requestedEpisode = currentEpisode,
 )
 
-fun detailEpisodeSegments(
-    episodeCount: Int,
-    pageSize: Int = DETAIL_EPISODE_PAGE_SIZE,
-): List<DetailEpisodeSegment> {
-    if (episodeCount <= pageSize || pageSize <= 0) return emptyList()
-    return (0 until episodeCount step pageSize).map { start ->
-        val end = minOf(start + pageSize, episodeCount) - 1
-        DetailEpisodeSegment(start, end, "${start + 1}-${end + 1}")
+/**
+ * 详情页选集分段(闭区间 [start,end])。分段数学唯一实现在 core {@link EpisodeSegments}
+ * (与 Web 端"30 集一档"同源, 收编 tvshell 双写);本函数只负责 tvshell 的
+ * 闭区间拆包与 "1-30" 标签拼装。>30 集才分段, ≤30 返回空(不分段)。
+ */
+fun detailEpisodeSegments(episodeCount: Int): List<DetailEpisodeSegment> {
+    if (episodeCount <= EpisodeSegments.PER_SEG) return emptyList()
+    return (0 until EpisodeSegments.count(episodeCount)).map { seg ->
+        val start = EpisodeSegments.startOf(seg)
+        val end = EpisodeSegments.endOf(seg, episodeCount)
+        DetailEpisodeSegment(start, end - 1, "${start + 1}-$end")
     }
 }
 

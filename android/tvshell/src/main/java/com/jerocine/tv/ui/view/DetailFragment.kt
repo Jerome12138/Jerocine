@@ -24,6 +24,7 @@ import com.jerocine.tv.data.LocalFavoriteRecord
 import com.jerocine.tv.data.LocalHistoryRecord
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.data.SkipDefaults
+import com.jerocine.player.ui.JcUi
 import com.jerocine.tv.data.detailResumeHistory
 import com.jerocine.tv.player.PlaybackCoordinator
 import com.jerocine.tv.player.launchNativePlayer
@@ -351,7 +352,7 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
         val rows = ceil(visibleRange.count() / EPISODE_COLUMNS.toDouble()).toInt().coerceAtLeast(1)
         view.findViewById<RecyclerView>(R.id.detail_episode_list).layoutParams =
             view.findViewById<RecyclerView>(R.id.detail_episode_list).layoutParams.apply {
-                height = (rows * EPISODE_ROW_HEIGHT_DP * resources.displayMetrics.density).toInt()
+                height = JcUi.dp(requireContext(), rows * EPISODE_ROW_HEIGHT_DP)
             }
     }
 
