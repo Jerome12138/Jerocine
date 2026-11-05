@@ -324,7 +324,8 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
                 <button
                   v-if="canSort(col)"
                   type="button"
-                  class="jc-th-sort inline-flex items-center gap-[2px] hover:text-primary transition-colors"
+                  class="jc-hotarea jc-th-sort inline-flex items-center gap-[2px] hover:text-primary transition-colors"
+                  style="--jc-hotarea-inset: 4px"
                   data-focusable="true"
                   @click="onSortClick(col)"
                 >
@@ -344,7 +345,8 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
                 >
                   <button
                     type="button"
-                    class="jc-th-filter inline-flex items-center justify-center w-6 h-6 rounded-[var(--jc-radius-sm)] transition-colors"
+                    class="jc-hotarea jc-th-filter inline-flex items-center justify-center w-[var(--jc-ctrl-h)] h-[var(--jc-ctrl-h)] rounded-[var(--jc-radius-sm)] transition-colors"
+                    style="--jc-hotarea-inset: 4px"
                     :class="
                       isFilterActive(col)
                         ? 'jc-th-filter--active text-[var(--jc-brand-primary)]'

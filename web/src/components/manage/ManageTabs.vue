@@ -41,7 +41,7 @@ function onSelect(value: V): void {
       :key="String(t.value)"
       type="button"
       role="tab"
-      class="jc-tab px-[var(--jc-space-4)] py-[var(--jc-space-2)] text-sm transition-colors border-b-2 -mb-px inline-flex items-center gap-[var(--jc-space-1)]"
+      class="jc-tab px-[var(--jc-space-4)] py-[var(--jc-ctrl-py)] text-[length:var(--jc-ctrl-fs)] transition-colors border-b-2 -mb-px inline-flex items-center gap-[var(--jc-space-1)]"
       :class="
         props.modelValue === t.value
           ? 'jc-tab--active border-[var(--jc-brand-purple)] text-[var(--jc-brand-purple)] font-[var(--jc-fw-medium)]'
@@ -58,14 +58,15 @@ function onSelect(value: V): void {
     </button>
   </div>
 
-  <!-- segment（默认）: 类名与仪表盘手写胶囊逐字一致（min-h-[28px]/text-xs 定值见 D⑨, 无 hover 类） -->
-  <div v-else class="flex rounded-full bg-elevated p-0.5 text-xs" role="tablist">
+  <!-- segment（默认）: 胶囊页签 —— 2026-11-05 起**全绑令牌**（高 sm/标准/lg、字号、内外距随三档自适应）；
+       激活 bg-surface+shadow / 未激活 text-secondary 的视觉规则不变；容器 p-0.5 保持 -->
+  <div v-else class="flex rounded-full bg-elevated p-0.5" role="tablist">
     <button
       v-for="t in props.tabs"
       :key="String(t.value)"
       type="button"
       role="tab"
-      class="px-3 py-1 rounded-full min-h-[28px] transition-colors"
+      class="px-[var(--jc-ctrl-px)] py-[var(--jc-ctrl-py)] rounded-full min-h-[var(--jc-ctrl-h)] text-[length:var(--jc-ctrl-fs)] transition-colors"
       :class="props.modelValue === t.value ? 'bg-surface shadow text-primary' : 'text-secondary'"
       :aria-selected="props.modelValue === t.value"
       data-focusable="true"

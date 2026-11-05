@@ -569,6 +569,19 @@ html[data-mode="tv"] body::-webkit-scrollbar {
     box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
+/* ---------- 触达热区（方案 §三：视觉 24~32px 的控件靠伪元素补回 ≈44px 命中面积） ----------
+ * 用法: 给视觉尺寸 <44px 的控件加 `.jc-hotarea`；默认向外扩 6px。
+ *       横向相邻控件（间距 8px 档）用内联 `style="--jc-hotarea-inset: 4px"` 收窄, 避免命中重叠；
+ *       纵向相邻无此限制。备注: 父容器 overflow:hidden 处扩区会被裁掉（可接受）。 */
+.jc-hotarea {
+  position: relative;
+}
+.jc-hotarea::after {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--jc-hotarea-inset, 6px));
+}
+
 /* manage 在 mobile 的触控兜底: 仅兜底未自带尺寸的裸按钮/角色按钮, 高度**绑标准档令牌**
    (2026-11-05: 原写死 36px → 改 var(--jc-ctrl-h); 走令牌的 .jc-btn 与表单控件自带尺寸不兜底;
     .jc-switch 自带轨道尺寸, 排除。触达不足由 §三 的伪元素热区解决) */

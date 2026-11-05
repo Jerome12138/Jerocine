@@ -4,20 +4,21 @@ import ManageIconButton from './ManageIconButton.vue'
 
 /**
  * ManageIconButton(§6 组合组件, R1 评审裁决实施)用例:
- *   icon 形态(trash+aria-label+36px 定值) / 文字形态(槽内容+hover danger) /
+ *   icon 形态(trash+aria-label+尺寸绑 --jc-ctrl-h+热区) / 文字形态(槽内容+hover danger) /
  *   hover 变 danger 契约类 / focus-visible 焦点环 / disabled 摘 data-focusable / click emit。
  */
 
 describe('ManageIconButton', () => {
-  it('icon 形态: BaseIcon 渲染 + aria-label + data-focusable + 36px 定值类(D⑨ 不走 --jc-ctrl-h)', () => {
+  it('icon 形态: BaseIcon 渲染 + aria-label + data-focusable + 尺寸绑 --jc-ctrl-h + 热区', () => {
     const w = mount(ManageIconButton, { props: { icon: 'trash', label: '删除 分类A' } })
     const btn = w.find('button')
     expect(btn.find('svg').exists()).toBe(true)
     expect(btn.attributes('aria-label')).toBe('删除 分类A')
     expect(btn.attributes('data-focusable')).toBe('true')
     expect(btn.attributes('type')).toBe('button')
-    expect(btn.classes()).toContain('w-[36px]')
-    expect(btn.classes()).toContain('h-[36px]')
+    expect(btn.classes()).toContain('w-[var(--jc-ctrl-h)]')
+    expect(btn.classes()).toContain('h-[var(--jc-ctrl-h)]')
+    expect(btn.classes()).toContain('jc-hotarea')
     expect(btn.classes()).toContain('jc-icon-btn--icon')
   })
 

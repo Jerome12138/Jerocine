@@ -89,7 +89,7 @@ function onChange(e: Event): void {
         />
       </svg>
     </span>
-    <span v-if="label" class="text-sm">{{ label }}</span>
+      <span v-if="label" class="text-[length:var(--jc-ctrl-fs)]">{{ label }}</span>
     <slot />
   </label>
 </template>

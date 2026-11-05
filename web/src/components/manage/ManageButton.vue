@@ -110,7 +110,7 @@ const sizeClass = computed(() => {
 })
 
 const roundClass = computed(() =>
-  props.round || props.circle ? 'rounded-full' : 'rounded-[var(--jc-radius-md)]'
+      props.round || props.circle ? 'rounded-full' : 'rounded-[var(--jc-ctrl-radius)]'
 )
 
 /** 旧 variant 样式(与 BaseButton 一致, 保证既有外观/jc-btn-gradient 断言不变) */

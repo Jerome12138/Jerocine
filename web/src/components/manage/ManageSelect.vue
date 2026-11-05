@@ -217,7 +217,7 @@ useDismiss(
           role="option"
           :aria-selected="isSelected(opt)"
           :data-focusable="true"
-          class="w-full text-left px-3 py-1.5 text-sm hover:bg-[rgba(255,255,255,0.06)]"
+              class="w-full text-left px-[var(--jc-ctrl-px)] py-[var(--jc-ctrl-py)] text-[length:var(--jc-ctrl-fs)] hover:bg-[rgba(255,255,255,0.06)]"
           :class="{
             'text-[var(--jc-brand-purple)]': isSelected(opt),
             'bg-[rgba(255,255,255,0.06)]': i === activeIndex
