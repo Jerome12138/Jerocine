@@ -30,14 +30,15 @@ const emit = defineEmits<{
 const sizeClass = computed(() => {
   switch (props.size) {
     case 'sm':
-      return 'h-8 px-3 text-[length:var(--jc-fs-sm)] gap-[var(--jc-space-1)]'
+      return 'h-[var(--jc-ctrl-h-sm)] px-[var(--jc-ctrl-px-sm)] text-[length:var(--jc-ctrl-fs-sm)] gap-[var(--jc-space-1)]'
     case 'lg':
-      return 'h-12 px-6 text-[length:var(--jc-fs-md)] gap-[var(--jc-space-2)]'
+      return 'h-[var(--jc-ctrl-h-lg)] px-[var(--jc-ctrl-px-lg)] text-[length:var(--jc-ctrl-fs-lg)] gap-[var(--jc-space-2)]'
     case 'xl':
-      return 'h-14 px-8 text-[length:var(--jc-fs-lg)] gap-[var(--jc-space-2)] rounded-[var(--jc-radius-xl)]'
+      // xl 0 使用(仅兼容保留): 与 lg 同档, 避免第四套尺寸
+      return 'h-[var(--jc-ctrl-h-lg)] px-[var(--jc-ctrl-px-lg)] text-[length:var(--jc-ctrl-fs-lg)] gap-[var(--jc-space-2)] rounded-[var(--jc-radius-xl)]'
     case 'md':
     default:
-      return 'h-10 px-4 text-[length:var(--jc-fs-md)] gap-[var(--jc-space-2)]'
+      return 'h-[var(--jc-ctrl-h)] px-[var(--jc-ctrl-px)] text-[length:var(--jc-ctrl-fs)] gap-[var(--jc-space-2)]'
   }
 })
 
@@ -91,9 +92,14 @@ function handleClick(e: MouseEvent): void {
 
 <style scoped>
 .jc-btn {
-  /* 触控命中区不小于 44 */
-  min-height: 44px;
-  /* sm 尺寸通过外层填充补足 */
+  /* 视觉高度由 sizeClass 绑 --jc-ctrl-h*(2026-11-05 三档统一: 原 min-height:44 兜底已删除);
+     触达靠伪元素热区(方案 §三): 视觉 24~32 → 命中面积 ≈44; 横向相邻行用 4px 防重叠 */
+  position: relative;
+}
+.jc-btn::after {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--jc-hotarea-inset, 4px));
 }
 
 .jc-btn-transition {
@@ -103,10 +109,6 @@ function handleClick(e: MouseEvent): void {
     transform var(--jc-dur-base) var(--jc-ease-standard),
     opacity var(--jc-dur-base) var(--jc-ease-standard);
 }
-.jc-btn[data-size='sm'] {
-  min-height: 32px;
-}
-
 .jc-btn-gradient {
   background-image: var(--jc-brand-gradient);
 }

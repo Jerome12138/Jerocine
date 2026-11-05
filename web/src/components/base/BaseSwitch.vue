@@ -39,12 +39,13 @@ withDefaults(
 </template>
 
 <style scoped>
-/* —— lg(44×24): 原样迁移自 SettingsView —— */
+/* —— lg: 绑 --jc-switch-*(scale=1) —— */
 .jc-settings-page__switch {
+  --jc-sw-scale: 1;
   flex: 0 0 auto;
-  width: 44px;
-  height: 24px;
-  border-radius: 12px;
+  width: calc(var(--jc-switch-w) * var(--jc-sw-scale));
+  height: calc(var(--jc-switch-h) * var(--jc-sw-scale));
+  border-radius: calc(var(--jc-switch-h) * var(--jc-sw-scale) / 2);
   background: var(--jc-bg-surface);
   position: relative;
   transition: background 0.15s ease;
@@ -54,24 +55,25 @@ withDefaults(
 }
 .jc-settings-page__knob {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
+  top: calc(3px * var(--jc-sw-scale));
+  left: calc(3px * var(--jc-sw-scale));
+  width: calc(var(--jc-switch-knob) * var(--jc-sw-scale));
+  height: calc(var(--jc-switch-knob) * var(--jc-sw-scale));
   border-radius: 50%;
   background: #fff;
   transition: transform 0.15s ease;
 }
 .jc-settings-page__switch.is-on .jc-settings-page__knob {
-  transform: translateX(20px);
+  transform: translateX(calc((var(--jc-switch-w) - var(--jc-switch-knob) - 6px) * var(--jc-sw-scale)));
 }
 
-/* —— sm(36×20): 原样迁移自 PlayView 跳过弹窗 —— */
+/* —— sm: 绑 --jc-switch-*(scale=0.85, 兼容原 36×20 档) —— */
 .jc-skip-switch__track {
+  --jc-sw-scale: 0.85;
   position: relative;
   flex: none;
-  width: 36px;
-  height: 20px;
+  width: calc(var(--jc-switch-w) * var(--jc-sw-scale));
+  height: calc(var(--jc-switch-h) * var(--jc-sw-scale));
   border-radius: 999px;
   background-color: var(--jc-text-muted);
   transition: background-color var(--jc-dur-fast) var(--jc-ease-standard);
@@ -81,15 +83,15 @@ withDefaults(
 }
 .jc-skip-switch__thumb {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
+  top: calc(2px * var(--jc-sw-scale));
+  left: calc(2px * var(--jc-sw-scale));
+  width: calc(var(--jc-switch-knob) * var(--jc-sw-scale));
+  height: calc(var(--jc-switch-knob) * var(--jc-sw-scale));
   border-radius: 50%;
   background-color: #fff;
   transition: transform var(--jc-dur-fast) var(--jc-ease-standard);
 }
 .jc-skip-switch__track.is-on .jc-skip-switch__thumb {
-  transform: translateX(16px);
+  transform: translateX(calc((var(--jc-switch-w) - var(--jc-switch-knob) - 4px) * var(--jc-sw-scale)));
 }
 </style>

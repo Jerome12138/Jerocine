@@ -274,17 +274,17 @@ function stopMarquee(e: Event): void {
   position: relative;
   background: transparent;
   border: none;
-  /* 内部留白收紧: 高 40→36, 左右 12→10 (各断点一致, TV 由下方覆盖保持原尺寸) */
-  height: 36px;
+  /* 2026-11-05 三档统一: 绑 --jc-ctrl-h(随端 24/28/32); TV 由下方覆盖保持原尺寸 */
+  height: var(--jc-ctrl-h);
   margin-block: 4px;
-  padding: 0 10px;
+  padding: 0 var(--jc-ctrl-px);
   border-radius: var(--jc-chip-radius, 9999px);
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-md);
+  font-size: var(--jc-ctrl-fs);
   font-weight: var(--jc-fw-medium);
   cursor: pointer;
   white-space: nowrap;
-  min-height: 36px;
+  min-height: var(--jc-ctrl-h);
   transition:
     color var(--jc-dur-fast) var(--jc-ease-standard),
     background-color var(--jc-dur-fast) var(--jc-ease-standard);
@@ -364,8 +364,8 @@ function stopMarquee(e: Event): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  padding: 0 10px;
+  height: var(--jc-ctrl-h-sm); /* 集数 seg: 绑小号档(方案 §二.B) */
+  padding: 0 var(--jc-ctrl-px);
   border: none;
   border-radius: var(--jc-chip-radius, 9999px);
   background-color: var(--jc-bg-elevated);
@@ -408,13 +408,13 @@ function stopMarquee(e: Event): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* 内部留白收紧(各断点): 高 38/40/42→34/36/38, 左右 8→6 */
-  height: 34px;
-  padding: 0 6px;
+  /* 2026-11-05 三档统一: 绑标准档(原 38/40/42→34/36/38 定值阶梯作废) */
+  height: var(--jc-ctrl-h);
+  padding: 0 var(--jc-ctrl-px-sm);
   border-radius: var(--jc-radius-md);
   background-color: var(--jc-bg-elevated);
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs-sm);
   font-weight: var(--jc-fw-semibold);
   border: none;
   cursor: pointer;
@@ -427,7 +427,7 @@ function stopMarquee(e: Event): void {
 
 @media (min-width: 768px) {
   .jc-episode-chip {
-    height: 36px;
+    height: var(--jc-ctrl-h); /* 与标准档一致(原 36 定值阶梯作废) */
   }
 }
 @media (min-width: 1024px) {

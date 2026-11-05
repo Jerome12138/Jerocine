@@ -21,7 +21,7 @@ const emit = defineEmits<{
 <template>
   <button
     type="button"
-    class="absolute top-[var(--jc-space-2)] right-[var(--jc-space-2)] w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
+    class="jc-hotarea absolute top-[var(--jc-space-2)] right-[var(--jc-space-2)] w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
     :class="zClass"
     :aria-label="label"
     @click="emit('click', $event)"

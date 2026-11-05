@@ -8,7 +8,7 @@ import CardCornerRemove from './CardCornerRemove.vue'
  * 点击上抛原生事件(由调用方 preventDefault/stopPropagation + 移除)。
  */
 describe('CardCornerRemove', () => {
-  it('按钮结构与公共类逐字保留(24px 圆形半透明底 + close 图标)', () => {
+  it('按钮结构与公共类逐字保留(24px 圆形半透明底 + close 图标 + 触达热区)', () => {
     const w = mount(CardCornerRemove, {
       props: { label: '取消收藏 X', zClass: 'z-2' }
     })
@@ -16,6 +16,7 @@ describe('CardCornerRemove', () => {
     expect(btn.attributes('type')).toBe('button')
     expect(btn.attributes('aria-label')).toBe('取消收藏 X')
     expect(btn.classes()).toEqual([
+      'jc-hotarea', // 2026-11-05 三档统一: 视觉保持 24px(恰为移动标准), 命中面积靠热区补
       'absolute',
       'top-[var(--jc-space-2)]',
       'right-[var(--jc-space-2)]',
