@@ -8,6 +8,7 @@ import type { TabItem } from '@/components/manage/ManageTabs.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { toast } from '@/api/http'
 import { usePagedList } from '@/composables/usePagedList'
@@ -149,15 +150,15 @@ onMounted(async () => {
 
 <template>
   <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-4)]">
-    <!-- 加载失败: 明确报错 + 重试, 不落"暂无失败记录"空态 -->
-    <div
+    <!-- 加载失败: 明确报错 + 重试, 不落"暂无失败记录"空态(§C8#1 收口 ManageErrorState banner) -->
+    <ManageErrorState
       v-if="loadError"
-      class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)]"
-    >
-      <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
-      <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-      <ManageButton variant="outline" class="ml-auto" @click="refresh">点击重试</ManageButton>
-    </div>
+      variant="banner"
+      title="加载失败"
+      :description="loadError"
+      retry-label="点击重试"
+      @retry="refresh"
+    />
 
     <ManageTable
       :columns="columns"

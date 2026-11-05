@@ -2,7 +2,7 @@
 import BaseIcon from './BaseIcon.vue'
 
 /**
- * 桌面区块标题(W1e): h2 + 右上「更多 ›」。TV 版 jc-tv-sec 不在本件范围(规格后置)。
+ * 桌面区块标题(W1e): h2 + 右上「更多 ›」。TV 版 jc-tv-sec 已随 §C8#5 收编进 TvSectionHeader(非本件范围)。
  * - 默认类 = ClassifyView 桌面同款(FilmRow 的 header/h2/链接与它逐字相同):
  *   header flex items-end justify-between gap-4 mb-3 / h2 fs-lg 粗体 primary snug /
  *   更多链接 text-link fs-sm + data-focusable + tabindex=0 + chevron-right 16px。

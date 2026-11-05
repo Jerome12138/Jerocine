@@ -4,7 +4,7 @@ import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import type { ManageUserRow } from '@/types/manage'
 import ManageInput from '@/components/manage/ManageInput.vue'
-import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -52,9 +52,7 @@ function submit(): void {
       <span class="text-sm text-secondary">新密码(6-64 位, 重置后该用户全部设备下线)</span>
       <ManageInput v-model="password" type="password" placeholder="输入新密码" />
     </label>
-    <div class="flex justify-end gap-[var(--jc-space-2)]">
-      <ManageButton variant="ghost" @click="cancel">取消</ManageButton>
-      <ManageButton variant="gradient" type="submit" :loading="busy">确认重置</ManageButton>
-    </div>
+    <!-- footer(§C8#2 收口 ManageFormActions): 短弹窗原款 gap-2, type=submit 走表单 @submit -->
+    <ManageFormActions :busy="busy" confirm-text="确认重置" :gap="2" @cancel="cancel" />
   </form>
 </template>

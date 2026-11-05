@@ -13,6 +13,7 @@ import BasePagination from '@/components/base/BasePagination.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
 import type { TabItem } from '@/components/manage/ManageTabs.vue'
 import { formatShortDateTime } from '@/utils/format'
+import { useClientPagedList } from '@/composables/useClientPagedList'
 
 const data = ref<DashboardStat | null>(null)
 const loading = ref(true)
@@ -148,19 +149,12 @@ const filteredSessions = computed(() => {
   return base.filter((s) => sessionState(s, timeFilter.value !== 'live') === want)
 })
 
-// ---- 在线明细分页: 每页 10 条; 切换时间/状态回到第 1 页, 数据收缩时钳制页码 ----
+// ---- 在线明细分页: 每页 10 条; 切换时间/状态回到第 1 页, 数据收缩时钳制页码
+// (§C8#3 收口 useClientPagedList: 切片+末页钳制样板单点化, 筛选回页仍由本件 watch 负责) ----
 const PAGE_SIZE = 10
-const page = ref(1)
-const pagedSessions = computed(() => {
-  const start = (page.value - 1) * PAGE_SIZE
-  return filteredSessions.value.slice(start, start + PAGE_SIZE)
-})
+const { page, paged: pagedSessions } = useClientPagedList(filteredSessions, PAGE_SIZE)
 watch([timeFilter, statusFilter], () => {
   page.value = 1
-})
-watch(filteredSessions, (list) => {
-  const max = Math.max(1, Math.ceil(list.length / PAGE_SIZE))
-  if (page.value > max) page.value = max
 })
 
 /** 会话状态三态: 在播(绿) / 在线(蓝) / 已离线(灰, 仅历史明细) */

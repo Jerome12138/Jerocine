@@ -7,7 +7,7 @@ import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
-import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -122,9 +122,14 @@ function submit(): void {
         </span>
       </label>
     </ManageFormField>
-    <div class="flex justify-end gap-[var(--jc-space-3)] pt-[var(--jc-space-2)]">
-      <ManageButton variant="ghost" @click="cancel">取消</ManageButton>
-      <ManageButton variant="gradient" :loading="busy" @click="submit">保存</ManageButton>
-    </div>
+    <!-- footer(§C8#2 收口 ManageFormActions): 本件无 <form>, 提交钮点击驱动(confirm-type=button) -->
+    <ManageFormActions
+      :busy="busy"
+      confirm-text="保存"
+      pt
+      confirm-type="button"
+      @cancel="cancel"
+      @confirm="submit"
+    />
   </div>
 </template>

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import * as authApi from '@/api/auth'
 import BaseButton from '@/components/base/BaseButton.vue'
+import BaseFormMessage from '@/components/base/BaseFormMessage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import { useViewMode } from '@/composables/useViewMode'
@@ -105,9 +106,8 @@ async function handleSubmit(): Promise<void> {
         </div>
       </ManageFormField>
 
-      <p v-if="errorMsg" class="text-xs text-[var(--jc-danger)] text-center" role="alert">
-        {{ errorMsg }}
-      </p>
+      <!-- 错误行(§C8#4 收口 BaseFormMessage) -->
+      <BaseFormMessage :message="errorMsg" />
 
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit">
         发送重置链接

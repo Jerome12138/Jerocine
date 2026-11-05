@@ -8,6 +8,7 @@ import * as registerApi from '@/api/register'
 import { ApiError } from '@/types/api'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BaseFormMessage from '@/components/base/BaseFormMessage.vue'
 import BasePasswordField from '@/components/base/BasePasswordField.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ApplyStatusPanel from '@/components/auth/ApplyStatusPanel.vue'
@@ -497,13 +498,8 @@ async function handleLogin(): Promise<void> {
         </button>
       </div>
 
-      <p
-        v-if="errorMsg"
-        class="text-xs text-[var(--jc-danger)] text-center"
-        role="alert"
-      >
-        {{ errorMsg }}
-      </p>
+      <!-- 错误行(§C8#4 收口 BaseFormMessage: role=alert 单点化); TV 分支(上)保留 jc-tv-login__err 原款不动 -->
+      <BaseFormMessage :message="errorMsg" />
 
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit">
         登录

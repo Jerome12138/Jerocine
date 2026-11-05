@@ -11,6 +11,7 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import EpisodeBadge from '@/components/base/EpisodeBadge.vue'
+import TvSectionHeader from '@/components/base/TvSectionHeader.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
 import { confirm } from '@/composables/useConfirm'
 import {
@@ -189,10 +190,7 @@ function handleRemove(id: string, e: Event): void {
         :key="group.bucket"
         class="jc-tv-history__group"
       >
-        <div class="jc-tv-sec">
-          <span class="t">{{ group.label }}</span>
-          <span class="s">{{ group.items.length }} 条</span>
-        </div>
+        <TvSectionHeader :title="group.label" :sub="`${group.items.length} 条`" />
         <div class="jc-tv-grid">
           <RouterLink
             v-for="record in group.items"

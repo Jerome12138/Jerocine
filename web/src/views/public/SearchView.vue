@@ -7,6 +7,7 @@ import type { PageMeta } from '@/types/api'
 import FilmGrid from '@/components/film/FilmGrid.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
 import TvOnScreenKeyboard from '@/components/film/TvOnScreenKeyboard.vue'
+import TvSectionHeader from '@/components/base/TvSectionHeader.vue'
 import { useQuerySync } from '@/composables/useQuerySync'
 import { useAbortable } from '@/composables/useAbortable'
 import { useViewMode } from '@/composables/useViewMode'
@@ -173,18 +174,19 @@ void load()
         <!-- 历史搜索 (searchHistory, 支持清空) — 原来的"热门搜索"(用顶层分类名伪装的假热词)已删:
              那只是把分类名当热词摆一遍, 对用户没有信息量, 不如把位置让给真正会用到的历史搜索。 -->
         <div v-if="searchHistory.length" class="jc-search-tv__block">
-          <div class="jc-tv-sec">
-            <span class="t">🕘 历史搜索</span>
-            <button
-              type="button"
-              class="jc-search-tv__clear"
-              data-focusable="true"
-              tabindex="0"
-              @click="clearHistory"
-            >
-              清空
-            </button>
-          </div>
+          <TvSectionHeader title="🕘 历史搜索">
+            <template #more>
+              <button
+                type="button"
+                class="jc-search-tv__clear"
+                data-focusable="true"
+                tabindex="0"
+                @click="clearHistory"
+              >
+                清空
+              </button>
+            </template>
+          </TvSectionHeader>
           <div class="jc-search-tv__chiprow">
             <span
               v-for="kw in searchHistory"
@@ -219,11 +221,8 @@ void load()
       <div class="jc-search-tv__right">
         <!-- 已搜索: 联想词 + 结果网格 -->
         <template v-if="oldSearch">
-          <!-- 结果区标题 -->
-          <div class="jc-tv-sec">
-            <span class="t">搜索结果</span>
-            <span class="s">「{{ oldSearch }}」命中 {{ page.total }} 部</span>
-          </div>
+          <!-- 结果区标题(§C8#5 收编 TvSectionHeader) -->
+          <TvSectionHeader title="搜索结果" :sub="`「${oldSearch}」命中 ${page.total} 部`" />
 
           <!-- loading 骨架 -->
           <div v-if="loading && list.length === 0" class="jc-search-tv__skeleton">

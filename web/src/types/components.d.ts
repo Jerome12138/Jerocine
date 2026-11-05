@@ -12,6 +12,7 @@ declare module 'vue' {
     BaseConfirmDialog: typeof import('./../components/base/BaseConfirmDialog.vue')['default']
     BaseDialog: typeof import('./../components/base/BaseDialog.vue')['default']
     BaseEmpty: typeof import('./../components/base/BaseEmpty.vue')['default']
+    BaseFormMessage: typeof import('./../components/base/BaseFormMessage.vue')['default']
     BaseIcon: typeof import('./../components/base/BaseIcon.vue')['default']
     BaseImage: typeof import('./../components/base/BaseImage.vue')['default']
     BaseLightbox: typeof import('./../components/base/BaseLightbox.vue')['default']
@@ -32,5 +33,6 @@ declare module 'vue' {
     SectionHeader: typeof import('./../components/base/SectionHeader.vue')['default']
     SkeletonGrid: typeof import('./../components/base/SkeletonGrid.vue')['default']
     TvResultBoard: typeof import('./../components/base/TvResultBoard.vue')['default']
+    TvSectionHeader: typeof import('./../components/base/TvSectionHeader.vue')['default']
   }
 }

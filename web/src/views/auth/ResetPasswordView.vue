@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as authApi from '@/api/auth'
 import BaseButton from '@/components/base/BaseButton.vue'
+import BaseFormMessage from '@/components/base/BaseFormMessage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePasswordField from '@/components/base/BasePasswordField.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
@@ -123,9 +124,8 @@ onMounted(() => {
         </div>
       </ManageFormField>
 
-      <p v-if="errorMsg" class="text-xs text-[var(--jc-danger)] text-center" role="alert">
-        {{ errorMsg }}
-      </p>
+      <!-- 错误行(§C8#4 收口 BaseFormMessage) -->
+      <BaseFormMessage :message="errorMsg" />
 
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit">
         确认重置

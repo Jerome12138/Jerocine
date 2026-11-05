@@ -9,7 +9,7 @@ import ManageSelect from '@/components/manage/ManageSelect.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
-import BaseEmpty from '@/components/base/BaseEmpty.vue'
+import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { toast } from '@/api/http'
 import { confirm } from '@/composables/useConfirm'
@@ -118,15 +118,13 @@ async function resend(row: RegisterApplyRow): Promise<void> {
 
 <template>
   <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-4)]">
-    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"暂无注册申请" -->
-    <section v-if="paged.loadError.value && !paged.rows.value.length" class="bg-surface rounded-card shadow-card">
-      <div class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]">
-        <BaseEmpty title="加载失败" :description="paged.loadError.value" hide-icon />
-        <ManageButton variant="outline" @click="paged.load()">
-          <BaseIcon name="refresh" size="16px" /> 重试
-        </ManageButton>
-      </div>
-    </section>
+    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"暂无注册申请"(§C8#1 收口 ManageErrorState card) -->
+    <ManageErrorState
+      v-if="paged.loadError.value && !paged.rows.value.length"
+      title="加载失败"
+      :description="paged.loadError.value"
+      @retry="paged.load()"
+    />
 
     <ManageTable
       v-else

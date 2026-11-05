@@ -4,6 +4,7 @@ import { manageApi } from '@/api'
 import type { FilmClass } from '@/types/manage'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import ManageIconButton from '@/components/manage/ManageIconButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
@@ -178,13 +179,9 @@ onMounted(() => {
       <BaseSkeleton v-for="i in 4" :key="i" shape="rect" height="64px" />
     </div>
 
-    <!-- 加载失败: 显式错误态+重试, 不冒充"暂无分类数据" -->
-    <div v-else-if="loadError" class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-8)]">
-      <BaseEmpty title="加载失败" :description="loadError" hide-icon />
-      <ManageButton variant="outline" @click="load">
-        <BaseIcon name="refresh" size="16px" /> 重试
-      </ManageButton>
-    </div>
+    <!-- 加载失败: 显式错误态+重试, 不冒充"暂无分类数据"(§C8#1 收口 ManageErrorState card;
+         方案明列接受 py-8→py-10 与卡片底色壳的微变) -->
+    <ManageErrorState v-else-if="loadError" title="加载失败" :description="loadError" @retry="load" />
 
     <BaseEmpty v-else-if="!tree.length" description="暂无分类数据" />
 

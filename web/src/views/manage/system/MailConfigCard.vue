@@ -9,6 +9,7 @@ import ManageSelect from '@/components/manage/ManageSelect.vue'
 import type { SelectOption } from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
@@ -297,10 +298,8 @@ onMounted(load)
         </p>
       </div>
 
-      <div class="flex justify-end gap-[var(--jc-space-3)]">
-        <ManageButton variant="ghost" type="button" @click="load">重置</ManageButton>
-        <ManageButton variant="gradient" type="submit" :loading="submitting">保存</ManageButton>
-      </div>
+      <!-- footer(§C8#2 收口 ManageFormActions): 卡片表单原款 gap-3 无 pt, 左钮=重置(load) -->
+      <ManageFormActions :busy="submitting" confirm-text="保存" cancel-text="重置" @cancel="load" />
     </form>
 
     <div class="border-t border-[var(--jc-border)]" />

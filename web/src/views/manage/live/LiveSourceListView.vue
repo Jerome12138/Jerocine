@@ -28,6 +28,7 @@ import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageErrorState from '@/components/manage/ManageErrorState.vue'
+import { useClientPagedList } from '@/composables/useClientPagedList'
 import { openManageDialog } from '@/composables/useManageDialog'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import LiveSourceFormDialog from './LiveSourceFormDialog.vue'
@@ -209,13 +210,11 @@ const chFiltered = computed(() => {
   })
 })
 
-/** 频道列表前端分页：m3u 源动辄上千频道，整表渲染会卡死弹窗（先过滤再分页） */
+/** 频道列表前端分页：m3u 源动辄上千频道，整表渲染会卡死弹窗（先过滤再分页）
+ * (§C8#3 收口 useClientPagedList —— 顺带修原款缺末页钳制的 bug: 筛选变窄后 chPage
+ * 停在越界页只能看空表, 现数据收缩自动钳回最后一个有效页) */
 const CH_PAGE_SIZE = 100
-const chPage = ref(1)
-const chPaged = computed(() => {
-  const start = (chPage.value - 1) * CH_PAGE_SIZE
-  return chFiltered.value.slice(start, start + CH_PAGE_SIZE)
-})
+const { page: chPage, paged: chPaged } = useClientPagedList(chFiltered, CH_PAGE_SIZE)
 watch([chSearch, chFilterStatus], () => {
   chPage.value = 1
 })

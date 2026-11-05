@@ -7,6 +7,7 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import ManageIconButton from '@/components/manage/ManageIconButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
@@ -114,16 +115,9 @@ async function remove(item: FileItem): Promise<void> {
       <BaseSkeleton v-for="i in 8" :key="i" shape="rect" height="160px" />
     </div>
 
-    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"尚无文件" -->
-    <section
-      v-else-if="loadError && !rows.length"
-      class="flex flex-col items-center gap-[var(--jc-space-3)] py-[var(--jc-space-10)]"
-    >
-      <BaseEmpty title="加载失败" :description="loadError" hide-icon />
-      <ManageButton variant="outline" @click="load">
-        <BaseIcon name="refresh" size="16px" /> 重试
-      </ManageButton>
-    </section>
+    <!-- 加载失败且无旧数据可显示: 明确错误态+重试, 不冒充"尚无文件"(§C8#1 收口 ManageErrorState card;
+         原款缺卡片底色壳, 审计按 card×4 归类, 收口后与其他三页 card 形态对齐) -->
+    <ManageErrorState v-else-if="loadError && !rows.length" title="加载失败" :description="loadError" @retry="load" />
 
     <BaseEmpty
       v-else-if="!visibleItems.length"

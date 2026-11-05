@@ -5,6 +5,7 @@ import { useUserStore } from '@/stores/user'
 import * as registerApi from '@/api/register'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BaseFormMessage from '@/components/base/BaseFormMessage.vue'
 import BasePasswordField from '@/components/base/BasePasswordField.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ApplyStatusPanel from '@/components/auth/ApplyStatusPanel.vue'
@@ -372,9 +373,8 @@ watch(
         />
       </ManageFormField>
 
-      <p v-if="errorMsg" class="text-xs text-[var(--jc-danger)] text-center" role="alert">
-        {{ errorMsg }}
-      </p>
+      <!-- 错误行(§C8#4 收口 BaseFormMessage) -->
+      <BaseFormMessage :message="errorMsg" />
 
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit">
         提交申请
@@ -505,9 +505,8 @@ watch(
         </div>
       </ManageFormField>
 
-      <p v-if="errorMsg" class="text-xs text-[var(--jc-danger)] text-center" role="alert">
-        {{ errorMsg }}
-      </p>
+      <!-- 错误行(§C8#4 收口 BaseFormMessage) -->
+      <BaseFormMessage :message="errorMsg" />
 
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit"> 注册 </BaseButton>
     </form>

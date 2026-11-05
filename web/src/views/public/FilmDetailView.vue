@@ -9,6 +9,7 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import SkeletonGrid from '@/components/base/SkeletonGrid.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import TvSectionHeader from '@/components/base/TvSectionHeader.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
@@ -512,12 +513,7 @@ function handleToggleFavorite(): void {
                playing-source-id: "正在播放的源"已知则传(=续播记录的源, 方案 §C6 #3) —
                浏览态切走该源时, tab 上出 ▶ 小标提示播放所在源; 浏览到该源时其本身即激活态, 不重复出标 -->
           <section v-if="detail.sources?.length" class="jc-detail-tv__section" aria-label="选集">
-            <div class="jc-tv-sec">
-              <span class="t">选集</span>
-              <span class="s">
-                共 {{ detail.sources[0]?.episodes?.length ?? 0 }} 集 · {{ detail.sources.length }} 条线路
-              </span>
-            </div>
+            <TvSectionHeader title="选集" :sub="`共 ${detail.sources[0]?.episodes?.length ?? 0} 集 · ${detail.sources.length} 条线路`" />
             <EpisodeTabs
               :sources="detail.sources"
               :current-source-id="activeSourceId"
@@ -533,9 +529,7 @@ function handleToggleFavorite(): void {
 
           <!-- ===== 相关推荐 (jc-tv-grid 6 列 FilmCard) ===== -->
           <section v-if="visibleRelate.length" class="jc-detail-tv__section" aria-label="相关推荐">
-            <div class="jc-tv-sec">
-              <span class="t">相关推荐</span>
-            </div>
+            <TvSectionHeader title="相关推荐" />
             <div class="jc-tv-grid jc-detail-tv__relate-grid">
               <FilmCard
                 v-for="item in visibleRelate"

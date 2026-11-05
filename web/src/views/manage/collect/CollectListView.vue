@@ -12,6 +12,7 @@ import StatusTag from '@/components/manage/StatusTag.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -605,15 +606,15 @@ onMounted(() => {
 <template>
   <!-- 页面根: flex 高度链(.jc-manage-main 提供), 表格 fit 自适应 -->
   <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-3)]">
-  <!-- 加载失败: 明确报错 + 重试, 不落到"暂无采集源"空态 -->
-  <div
+  <!-- 加载失败: 明确报错 + 重试, 不落到"暂无采集源"空态(§C8#1 收口 ManageErrorState banner) -->
+  <ManageErrorState
     v-if="loadError && !loading"
-    class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)]"
-  >
-    <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
-    <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-    <ManageButton variant="outline" class="ml-auto" @click="load">点击重试</ManageButton>
-  </div>
+    variant="banner"
+    title="加载失败"
+    :description="loadError"
+    retry-label="点击重试"
+    @retry="load"
+  />
 
   <ManageTable
     :columns="columns"

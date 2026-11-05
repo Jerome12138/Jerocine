@@ -4,7 +4,7 @@ import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import type { RegisterApplyRow } from '@/types/manage'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
-import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -69,9 +69,7 @@ function submit(): void {
       />
     </label>
     <p class="text-xs text-muted">驳回后该邮箱仍可重新提交申请；通知邮件发送失败不影响驳回结果。</p>
-    <div class="flex justify-end gap-[var(--jc-space-2)]">
-      <ManageButton variant="ghost" @click="cancel">取消</ManageButton>
-      <ManageButton variant="gradient" type="submit" :loading="busy">确认驳回</ManageButton>
-    </div>
+    <!-- footer(§C8#2 收口 ManageFormActions): 短弹窗原款 gap-2, type=submit 走表单 @submit -->
+    <ManageFormActions :busy="busy" confirm-text="确认驳回" :gap="2" @cancel="cancel" />
   </form>
 </template>

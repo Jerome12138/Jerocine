@@ -18,6 +18,7 @@ import FilmCard from '@/components/film/FilmCard.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import SectionHeader from '@/components/base/SectionHeader.vue'
+import TvSectionHeader from '@/components/base/TvSectionHeader.vue'
 import SkeletonGrid from '@/components/base/SkeletonGrid.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -438,10 +439,11 @@ onBeforeUnmount(() => {
         <!-- ① 顶部: 近期历史(3 片同款影片卡显当前集数) + 推荐轮播, 各占一半 -->
         <div class="jc-home-tv__top" :class="{ 'no-recent': !tvRecent.length }">
           <section v-if="tvRecent.length" class="jc-tv-panel z1">
-            <div class="jc-tv-sec">
-              <span class="t">⏱ 近期历史</span>
-              <RouterLink class="jc-tv-more" to="/history" data-focusable="true" tabindex="0">全部</RouterLink>
-            </div>
+            <TvSectionHeader title="⏱ 近期历史">
+              <template #more>
+                <RouterLink class="jc-tv-more" to="/history" data-focusable="true" tabindex="0">全部</RouterLink>
+              </template>
+            </TvSectionHeader>
             <div class="jc-tv-p3">
               <RouterLink
                 v-for="rec in tvRecent"
@@ -551,16 +553,16 @@ onBeforeUnmount(() => {
         <!-- ④ 专区面板: 热门榜单 + 最新上架 (每块≤3 张 FilmCard) -->
         <div class="jc-tv-duo">
           <section v-if="tvHotPanel.length" class="jc-tv-panel z1">
-            <div class="jc-tv-sec">
-              <span class="t">🔥 热门榜单</span>
-              <span class="s">最热抢先看</span>
-              <RouterLink
-                class="jc-tv-more"
-                to="/hotBoard"
-                data-focusable="true"
-                tabindex="0"
-              >更多内容</RouterLink>
-            </div>
+            <TvSectionHeader title="🔥 热门榜单" sub="最热抢先看">
+              <template #more>
+                <RouterLink
+                  class="jc-tv-more"
+                  to="/hotBoard"
+                  data-focusable="true"
+                  tabindex="0"
+                >更多内容</RouterLink>
+              </template>
+            </TvSectionHeader>
             <div class="jc-tv-p3">
               <FilmCard
                 v-for="item in tvHotPanel"
@@ -571,16 +573,16 @@ onBeforeUnmount(() => {
             </div>
           </section>
           <section v-if="tvLatestPanel.length" class="jc-tv-panel z2">
-            <div class="jc-tv-sec">
-              <span class="t">🆕 最新上架</span>
-              <span class="s">每日更新</span>
-              <RouterLink
-                class="jc-tv-more"
-                :to="{ path: '/filmClassify', query: { Pid: tvLatestPid } }"
-                data-focusable="true"
-                tabindex="0"
-              >查看全部</RouterLink>
-            </div>
+            <TvSectionHeader title="🆕 最新上架" sub="每日更新">
+              <template #more>
+                <RouterLink
+                  class="jc-tv-more"
+                  :to="{ path: '/filmClassify', query: { Pid: tvLatestPid } }"
+                  data-focusable="true"
+                  tabindex="0"
+                >查看全部</RouterLink>
+              </template>
+            </TvSectionHeader>
             <div class="jc-tv-p3">
               <FilmCard
                 v-for="item in tvLatestPanel"
@@ -600,16 +602,16 @@ onBeforeUnmount(() => {
             class="jc-tv-panel"
             :class="idx % 2 === 0 ? 'z1' : 'z3'"
           >
-            <div class="jc-tv-sec">
-              <span class="t">{{ p.name }}</span>
-              <span class="s">{{ catSubtitle(p.name) }}</span>
-              <RouterLink
-                class="jc-tv-more"
-                :to="{ path: '/filmClassify', query: { Pid: p.id } }"
-                data-focusable="true"
-                tabindex="0"
-              >更多</RouterLink>
-            </div>
+            <TvSectionHeader :title="p.name" :sub="catSubtitle(p.name)">
+              <template #more>
+                <RouterLink
+                  class="jc-tv-more"
+                  :to="{ path: '/filmClassify', query: { Pid: p.id } }"
+                  data-focusable="true"
+                  tabindex="0"
+                >更多</RouterLink>
+              </template>
+            </TvSectionHeader>
             <div class="jc-tv-p3">
               <FilmCard
                 v-for="item in p.items"

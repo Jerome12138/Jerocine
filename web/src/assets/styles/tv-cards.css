@@ -81,12 +81,8 @@
 [data-mode="tv"] .jc-tv-card[data-focusable="true"]:focus, [data-mode="tv"] .jc-tv-card[data-focusable="true"]:focus-visible { transform: none; box-shadow: none; }
 [data-mode="tv"] .jc-tv-card[data-focusable="true"]:focus .poster, [data-mode="tv"] .jc-tv-card[data-focusable="true"]:focus-visible .poster { transform: scale(var(--jc-tv-focus-scale-card, 1.18)); box-shadow: var(--jc-tv-focus-ring); z-index: 5; transition: transform var(--jc-dur-focus, 200ms) var(--jc-ease-spring), box-shadow var(--jc-dur-focus, 200ms) var(--jc-ease-standard); }
 
-/* ---------- 区块标题 ---------- */
-/* 板块标题(近期历史/热门榜单…)落到 base(18) —— 用户反馈"再小一点"; 副标题同步降到 xs,
-   否则 18/15 只差一档看着一样大. */
-[data-mode="tv"] .jc-tv-sec { display: flex; align-items: baseline; margin-bottom: 12px; }
-[data-mode="tv"] .jc-tv-sec .t { font-size: var(--jc-fs-base); font-weight: var(--jc-fw-bold); }
-[data-mode="tv"] .jc-tv-sec .s { font-size: var(--jc-fs-xs); color: var(--jc-text-muted); margin-left: 8px; }
+/* ---------- 区块标题(jc-tv-sec 三条规则已随 §C8#5 整类迁入 TvSectionHeader 组件,
+   值/特异性/data-mode 门控不变; 本文件只剩 jc-tv-more 胶囊) ---------- */
 
 /* ---------- 分类卡(带副标题) ---------- */
 [data-mode="tv"] .jc-tv-cat {

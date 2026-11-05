@@ -4,15 +4,15 @@
  * (BaseSwitchRow / 调用方自建按钮), 本件纯视觉、aria-hidden。
  *
  * size 双档 = 两处既有视觉逐字收敛(两档圆角/底色/滑块尺寸/位移/过渡均不同, 严禁互相"统一"):
- *   - lg(44×24): SettingsView 行内开关原样式(jc-settings-page__switch/__knob);
- *   - sm(36×20): PlayView 跳过弹窗开关原样式(jc-skip-switch__track/__thumb;
+ *   - lg = --jc-switch-* 三档自适应(scale=1; SettingsView 行内开关原款类 jc-settings-page__switch/__knob);
+ *   - sm = --jc-switch-* 三档自适应(scale=0.85; PlayView 跳过弹窗原款类 jc-skip-switch__track/__thumb;
  *     is-on 状态类由原「按钮上」移到轨道自身, 计算样式等价)。
  */
 withDefaults(
   defineProps<{
     /** 开关状态(视觉, 不产生交互) */
     modelValue?: boolean
-    /** lg=44×24(默认) / sm=36×20 */
+    /** lg=--jc-switch-* 三档自适应(scale=1, 默认) / sm=同令牌 scale=0.85 */
     size?: 'lg' | 'sm'
   }>(),
   { modelValue: false, size: 'lg' }

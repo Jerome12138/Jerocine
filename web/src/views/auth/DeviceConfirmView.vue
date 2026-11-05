@@ -5,6 +5,7 @@ import { useUserStore } from '@/stores/user'
 import { useViewMode } from '@/composables/useViewMode'
 import * as deviceApi from '@/api/device'
 import BaseButton from '@/components/base/BaseButton.vue'
+import TvSectionHeader from '@/components/base/TvSectionHeader.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -57,10 +58,7 @@ function goHome(): void {
 <template>
   <!-- ============ TV(雷鸟卡片式) ============ -->
   <div v-if="isTV" class="jc-tv-device">
-    <div class="jc-tv-sec jc-tv-device__sec">
-      <span class="t">📱 设备登录</span>
-      <span class="s">扫码授权后请回到那台设备，已自动登录</span>
-    </div>
+    <TvSectionHeader class="jc-tv-device__sec" title="📱 设备登录" sub="扫码授权后请回到那台设备，已自动登录" />
 
     <div class="jc-tv-glass-card jc-tv-device__card">
       <h1 class="jc-tv-device__title text-brand-gradient">扫码登录确认</h1>

@@ -178,9 +178,10 @@ const tvCurrent = computed(() => page.value.current || 1)
     @filter-change="onFilterChange"
     @paginate="onPaginate"
   >
-    <!-- 标题切换: 电视剧(分类页) | 电视剧库(当前筛选页, 渐变高亮) + 结果统计 -->
+    <!-- 标题切换: 电视剧(分类页) | 电视剧库(当前筛选页, 渐变高亮) + 结果统计
+         (§C8#5 收编 TvSectionHeader, 异形头走默认槽自绘; 页头样式留在本文件的理由不变 —— scoped 命中插槽内容) -->
     <template #head>
-      <div v-if="titleName" class="jc-cs-tv__head jc-tv-sec">
+      <TvSectionHeader v-if="titleName" class="jc-cs-tv__head">
         <RouterLink
           :to="{ path: '/filmClassify', query: { Pid: pidStr } }"
           class="jc-cs-tv__title-link"
@@ -201,7 +202,7 @@ const tvCurrent = computed(() => page.value.current || 1)
         <span v-if="page.total > 0" class="jc-cs-tv__count">
           共 <strong>{{ page.total }}</strong> 部影片 · 第 {{ tvCurrent }} / {{ tvPageCount }} 页
         </span>
-      </div>
+      </TvSectionHeader>
     </template>
   </TvResultBoard>
 
@@ -307,7 +308,7 @@ const tvCurrent = computed(() => page.value.current || 1)
 .jc-cs-tv__title-link,
 .jc-cs-tv__title-active {
   text-decoration: none;
-  /* 与分类页(ClassifyView)页头同级 —— 那边标题走 jc-tv-sec .t = var(--jc-fs-base),
+  /* 与分类页(ClassifyView)页头同级 —— 那边标题走 TvSectionHeader 的 .t = var(--jc-fs-base),
      这里必须显式给同一个 token, 否则会回到 2xl(36) 比分类页大一大截(用户反馈过不一致) */
   font-size: var(--jc-fs-base);
   font-weight: var(--jc-fw-bold);
