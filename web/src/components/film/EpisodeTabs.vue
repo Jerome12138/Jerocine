@@ -425,16 +425,8 @@ function stopMarquee(e: Event): void {
   overflow: hidden;
 }
 
-@media (min-width: 768px) {
-  .jc-episode-chip {
-    height: var(--jc-ctrl-h); /* 与标准档一致(原 36 定值阶梯作废) */
-  }
-}
-@media (min-width: 1024px) {
-  .jc-episode-chip {
-    height: 38px;
-  }
-}
+/* 2026-11-05 B4 清尾: 原 768→36 / 1024→38 的定值阶梯已删除,
+   选集 chip 全端统一走 --jc-ctrl-h(基础规则见文件上方) */
 
 .jc-episode-chip:hover {
   background-color: rgba(255, 255, 255, 0.08);

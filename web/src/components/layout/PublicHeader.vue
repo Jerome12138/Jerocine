@@ -1135,7 +1135,7 @@ watch(
           <span class="jc-mnav__brand">{{ siteName }}</span>
           <button
             type="button"
-            class="jc-mnav__close"
+            class="jc-hotarea jc-mnav__close"
             aria-label="关闭菜单"
             data-focusable="true"
             @click="closeMobile"
@@ -1941,7 +1941,7 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: var(--jc-space-2);
-  height: 36px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 B4 清尾: 原 36 定值作废 */
   padding: 0 var(--jc-space-3);
   border-radius: var(--jc-radius-full);
   background-color: rgba(255, 255, 255, 0.08);
@@ -1965,7 +1965,7 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: var(--jc-space-2);
-  height: 40px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 B4 清尾: 原 40 定值作废 */
   padding: 2px var(--jc-space-2);
   border-radius: var(--jc-radius-full);
   /* 宽度跟随内容, 不被父级 flex 拉伸; 防止整体撑宽 */
@@ -2089,7 +2089,7 @@ watch(
   display: flex;
   align-items: center;
   margin: 0 var(--jc-gutter-mobile) var(--jc-space-3);
-  height: 40px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 B4 清尾: 原 40 定值作废 */
   background-color: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--jc-radius-full);
@@ -2214,8 +2214,8 @@ html[data-mode='tv'] .jc-mnav--side {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: var(--jc-ctrl-h); /* 2026-11-05 B4 清尾: 原 36 定值作废 */
+  height: var(--jc-ctrl-h);
   background: transparent;
   border: none;
   color: var(--jc-text-muted);

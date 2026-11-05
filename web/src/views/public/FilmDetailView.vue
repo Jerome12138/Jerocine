@@ -1035,14 +1035,9 @@ function handleToggleFavorite(): void {
   justify-content: center;
 }
 
-/* 操作按钮整体收一档: 原为 size="lg"(48px 高 / 左右 24px / 18px 字),
- * 现走 md 档(40px 高 / 左右 16px), 字号再收到 16px。
- * 基类 .jc-btn 有 min-height:44px 的下限(触控命中区), 会把 md 的 40px 顶回 44px,
- * 所以这里显式放开下限 —— 该块是详情页核心操作区, 40px 仍满足命中需求。 */
-.jc-detail__cta :deep(.jc-btn) {
-  min-height: 40px;
-  font-size: var(--jc-fs-base);
-}
+/* 2026-11-05 B4 清尾: 原 `:deep(.jc-btn){min-height:40px;font-size:base}` 已删除 ——
+   该覆盖是为绕开当时 BaseButton 的 min-height:44px 兜底而写; B3 删除兜底后,
+   size="md" 的 CTA 直接跟随 --jc-ctrl-h(24/28/32), 不再需要逐页 :deep hack。 */
 
 @media (min-width: 768px) {
   .jc-detail__cta {
