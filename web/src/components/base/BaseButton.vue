@@ -93,7 +93,8 @@ function handleClick(e: MouseEvent): void {
 <style scoped>
 .jc-btn {
   /* 视觉高度由 sizeClass 绑 --jc-ctrl-h*(2026-11-05 三档统一: 原 min-height:44 兜底已删除);
-     触达靠伪元素热区(方案 §三): 视觉 24~32 → 命中面积 ≈44; 横向相邻行用 4px 防重叠 */
+     触达靠伪元素热区(方案 §三, 数学 2026-11-05 审查修正): 4px inset → 24 视觉命中 32×32 /
+     32 视觉命中 40×40; ≈44 仅 6px inset + 32 视觉成立; 横向相邻行用 4px 防重叠 */
   position: relative;
 }
 .jc-btn::after {

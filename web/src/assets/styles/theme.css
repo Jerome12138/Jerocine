@@ -572,7 +572,7 @@ html[data-mode="tv"] body::-webkit-scrollbar {
     box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-/* ---------- 触达热区（方案 §三：视觉 24~32px 的控件靠伪元素补回 ≈44px 命中面积） ----------
+/* ---------- 触达热区（方案 §三；数学 2026-11-05 审查修正：4px inset → 24 视觉命中 32×32 / 32 视觉命中 40×40，≈44 仅 6px inset+32 视觉成立） ----------
  * 用法: 给视觉尺寸 <44px 的控件加 `.jc-hotarea`；默认向外扩 6px。
  *       横向相邻控件（间距 8px 档）用内联 `style="--jc-hotarea-inset: 4px"` 收窄, 避免命中重叠；
  *       纵向相邻无此限制。备注: 父容器 overflow:hidden 处扩区会被裁掉（可接受）。 */

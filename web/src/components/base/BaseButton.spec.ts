@@ -38,4 +38,16 @@ describe('BaseButton', () => {
     const w = mount(BaseButton, { props: { block: true } })
     expect(w.find('button').classes()).toContain('w-full')
   })
+
+  it('size 三档映射高度令牌: sm→--jc-ctrl-h-sm / md→--jc-ctrl-h / lg→--jc-ctrl-h-lg', () => {
+    // 2026-11-05 三档统一(A′ 派生档: sm=标准−4/lg=标准+8)后锁定 size→令牌映射, 防回归定值高度
+    const sm = mount(BaseButton, { props: { size: 'sm' } })
+    expect(sm.find('button').classes()).toContain('h-[var(--jc-ctrl-h-sm)]')
+
+    const md = mount(BaseButton) // 默认 md
+    expect(md.find('button').classes()).toContain('h-[var(--jc-ctrl-h)]')
+
+    const lg = mount(BaseButton, { props: { size: 'lg' } })
+    expect(lg.find('button').classes()).toContain('h-[var(--jc-ctrl-h-lg)]')
+  })
 })

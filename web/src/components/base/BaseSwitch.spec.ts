@@ -4,7 +4,7 @@ import BaseSwitch from './BaseSwitch.vue'
 
 /**
  * W1a 开关视觉件 — 两尺寸视觉契约(规格 §1 W1a):
- *   lg = 44×24(SettingsView 行内开关原款类 jc-settings-page__switch/__knob)
+ *   lg = --jc-switch-* 三档自适应(scale=1; SettingsView 行内开关原款类 jc-settings-page__switch/__knob)
  *   sm = 36×20(PlayView 跳过弹窗原款类 jc-skip-switch__track/__thumb)
  * 两档圆角/底色/滑块尺寸/位移各不相同, 视觉契约以类名逐字锁定。
  * 交互语义(role=switch/aria-checked)归外层按钮(BaseSwitchRow/调用方), 本件纯视觉 aria-hidden。
