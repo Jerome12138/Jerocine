@@ -20,6 +20,7 @@ COPY deploy/data/nginx/nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 80
 
-# nginx 镜像自带 wget, healthcheck 直接探 /
+# nginx 镜像自带 wget; 探 /healthz 而非 / —— 80 现在会把 / 301 到 https://127.0.0.1/,
+# wget 跟随过去会因证书 CN 不匹配失败(容器永远 unhealthy)。
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1
+  CMD wget -qO- http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1

@@ -163,16 +163,26 @@ services:
     image: jerocine-nginx:latest
     restart: unless-stopped
     ports:
-      # TLS 直接由本容器终结(单机单站, 不再套外层反代); 宿主 80 让给其他服务, 公网仅暴露 443
+      # TLS 直接由本容器终结(单机单站, 不再套外层反代)。
+      # 80: 2026-11-05 起映射宿主 —— 容器内不做业务, 只把明文统一 301 到 https
+      # (server 块见 nginx.conf 的 default_server; 另留 /healthz 供健康检查)。
+      - "80:80"
       - "443:443"
     environment:
       TZ: Asia/Shanghai
+    # private 目录里的站点若要反代**宿主机上**的服务(不跑在容器里的), 需用
+    # host.docker.internal 指向上游 —— 没有这条, 该名字在容器内解析不了, 相关 location 502。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # 前端静态产物: 宿主机挂载(替代镜像内 COPY dist) —— 这是"保留 3 版 / 整版回滚"的前提,
       # 镜像重建不再清空线上目录。内容由 web-deploy 同步(先写目录, 最后才 reload)。
       - ${JEROCINE_DEPLOY_ROOT:-.}/data/html:/usr/share/nginx/html
       - ${JEROCINE_DEPLOY_ROOT:-.}/apk:/usr/share/nginx/html/apk:ro
       - ${JEROCINE_DEPLOY_ROOT:-.}/certs:/etc/nginx/certs:ro
+      # 私有附加站点(与 jerocine 无关、由 JerocineHarness 维护): nginx.conf 末尾
+      # include /etc/nginx/conf.d/private/*.conf 加载。目录空/不存在时 include 不报错。
+      - ${JEROCINE_DEPLOY_ROOT:-.}/data/nginx/private:/etc/nginx/conf.d/private:ro
       - nginx_cache:/var/cache/nginx/api
     networks:
       - jerocine-network

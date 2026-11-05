@@ -17,12 +17,15 @@ deploy/
 ├─ .env.example          # 环境变量模板（cp 为 .env 后填生产值；.env 不入库）
 │                        # 每个键的用途/默认值/必填项见 ../docs/环境变量参考.md
 ├─ data/nginx/nginx.conf # nginx：SPA 静态托管 + /api 反代 + proxy_cache + SW no-cache
+│                        # 80 只做 301→https + /healthz；末尾 include conf.d/private/*.conf
+│                        # （私有附加站点入口，配置本体在私有仓，不入库）
 ├─ secrets/              # JWT RS256 密钥对（不入库，须属 65532:65532）
 ├─ apk/                  # APK 下载目录（须属 65532:65532）
 ├─ incoming/ · server/   # 上传产物包解包处（不入库）
 ├─ runtime/              # 随包 tooling/ 自引导落点（不入库；发布的实际施工工具）
 └─ data/
    ├─ html/              # 前端产物，挂载给 nginx（不入库，由发布写入）
+   ├─ nginx/private/     # 与本站无关的附加站点 server 块（不入库；由私有仓同步）
    ├─ releases/<TS>/     # 每版整版快照（回滚用）
    ├─ debugmap/<TS>/     # 归档 sourcemap（挂载目录之外 ⇒ 公网不可达）
    ├─ packages/          # 上传包留档（可重发/比对，各保留 5 份）

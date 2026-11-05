@@ -150,6 +150,8 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
     cd deploy && ./deploy.sh server-deploy deploy/pkg/jerocine-server-*.tar.gz
     ```
   - **`./deploy.sh nginx` 语义**：只重建 nginx 容器（树上手工改 `nginx.conf` 后的运维工具），**不产出前端文件** —— 前端更新一律走 `web-deploy`。`web-deploy`/`nginx` 在 `data/html` 未初始化时会**拒绝执行**（防把站点打成 404）。
+  - **与本站无关的站点禁止写进 `nginx.conf`**（2026-11-05）：`nginx.conf` 是构建进镜像的，任何一次发布重建都会覆盖。别的自建服务（远程浏览器、dsh 等）一律放宿主机 `data/nginx/private/*.conf`（**不入库**，由私有仓 `JerocineHarness/deploy-config/nginx/` 同步，`scripts/sync-private-nginx.sh`），由 `nginx.conf` 末尾的 `include /etc/nginx/conf.d/private/*.conf;` 加载；compose 以 `:ro` 挂载该目录，通配 include 对空目录不报错。
+  - **80 端口语义**：已映射宿主机，但容器内不做业务 —— `default_server` 只提供 `301 → https://$host$request_uri` 与 `GET /healthz`；其余 server 块**只 listen 443**。healthcheck 必须探 `/healthz`（探 `/` 会被 wget 跟随 301 到 `https://127.0.0.1/`，证书 CN 不匹配 → 永远 unhealthy）。
   - 脚本对 docker 无权限时自动回退 `sudo -n docker`；采集**无需手动暂停**（优雅停机自愈）。
   - **全新服务器**：`git clone` → 按部署指南配 `.env` → 用应急/本机方式产出前端包走 `web-deploy` 初始化挂载目录；否则 nginx 探活失败、站点 404。
   - 手工前端变更无意义：产物只能由 `web-deploy` 写进挂载目录；单独 `up -d --build --no-deps nginx` 只重建容器、**不发产物**（树内 `./deploy.sh nginx` 同）。

@@ -170,9 +170,13 @@ src_ngx="${copy_ngx#COPY }"; src_ngx="${src_ngx%% *}"
 src_web="${copy_web#COPY }"; src_web="${src_web%% *}"
 assert_eq "COPY 源 basename 一致(上下文不同: 仓库根 vs deploy/runtime)" \
   "${src_ngx##*/}" "${src_web##*/}"
-hc_web="$(grep -o 'wget -qO- http://127.0.0.1/' "$REPO_DIR/web/Dockerfile" | head -1)"
-hc_ngx="$(grep -o 'wget -qO- http://127.0.0.1/' "$DEPLOY_DIR/Dockerfile.nginx" | head -1)"
+hc_web="$(grep -oE 'wget -qO- http://127\.0\.0\.1/[^ ]*' "$REPO_DIR/web/Dockerfile" | head -1)"
+hc_ngx="$(grep -oE 'wget -qO- http://127\.0\.0\.1/[^ ]*' "$DEPLOY_DIR/Dockerfile.nginx" | head -1)"
 assert_eq "HEALTHCHECK 探活命令一致" "$hc_ngx" "$hc_web"
+# 80 端口现在只做 301(→ https) + /healthz 两条; 探 / 会被 wget 跟随到 https://127.0.0.1/,
+# 证书 CN 不匹配 ⇒ 永远 unhealthy。所以探活路径必须是 /healthz。
+assert_eq "HEALTHCHECK 走 /healthz(不被 80→443 的 301 影响)" \
+  "$hc_web" "wget -qO- http://127.0.0.1/healthz"
 
 # 1.3 compose: 5 处挂载根化 + nginx 构建可切换
 for m in data/migrations secrets data/html apk certs; do
@@ -183,6 +187,30 @@ grep -qF '${JEROCINE_NGINX_CONTEXT:-..}' "$DEPLOY_DIR/docker-compose.yml" \
   && ok "nginx 构建上下文可切换(默认树内 ..)" || bad "nginx context 不可切换"
 grep -qF '${JEROCINE_NGINX_DOCKERFILE:-web/Dockerfile}' "$DEPLOY_DIR/docker-compose.yml" \
   && ok "nginx Dockerfile 可切换(默认树内 web/Dockerfile)" || bad "nginx dockerfile 不可切换"
+
+# 1.3.1 私有附加站点入口(2026-11-05): 公开仓只留 include + 挂载, 实际配置在私有仓。
+# 约定: private 目录 :ro 挂载 + nginx.conf 末尾通配 include + .gitignore 排除 —— 三者缺一
+# 会让「私有站点的 nginx 配置」要么加载不到, 要么误入公开仓。
+grep -qF 'include /etc/nginx/conf.d/private/*.conf;' "$DEPLOY_DIR/data/nginx/nginx.conf" \
+  && ok "nginx.conf 有 private 目录 include 入口" || bad "nginx.conf 缺 private include 入口"
+grep -qE '^[[:space:]]*- \$\{JEROCINE_DEPLOY_ROOT:-\.\}/data/nginx/private:/etc/nginx/conf\.d/private:ro$' \
+  "$DEPLOY_DIR/docker-compose.yml" \
+  && ok "compose 挂载 private 目录(:ro)" || bad "compose 未挂载 private 目录"
+grep -qE '^[[:space:]]*- "80:80"$' "$DEPLOY_DIR/docker-compose.yml" \
+  && ok "compose 映射宿主机 80" || bad "compose 未映射 80"
+grep -q 'listen 80 default_server;' "$DEPLOY_DIR/data/nginx/nginx.conf" \
+  && ok "80 有 default_server(301 入口)" || bad "80 缺 default_server"
+# acme.sh 的 jerocine.art 走 webroot 模式, 续期靠 80 上取 /.well-known/acme-challenge/<token>;
+# 80 若把它也 301 掉, LE 跟随到 https 会被 SPA 回退成 index.html ⇒ 续期必失败。
+grep -qF 'location ^~ /.well-known/acme-challenge/' "$DEPLOY_DIR/data/nginx/nginx.conf" \
+  && ok "80 上为 ACME webroot 校验留了例外(不被 301 吞掉)" || bad "80 缺 ACME webroot 例外"
+if grep -qE '^\s*listen 80;\s*$' "$DEPLOY_DIR/data/nginx/nginx.conf"; then
+  bad "除 301 入口外不该再有 listen 80(明文入口应唯一)"
+else
+  ok "明文入口唯一(其余 server 只 listen 443)"
+fi
+grep -q '^deploy/data/nginx/private/$' "$REPO_DIR/.gitignore" \
+  && ok ".gitignore 排除 deploy/data/nginx/private/" || bad ".gitignore 未排除 private 目录"
 
 # 1.4 deploy.sh 自引导接线: export 根 / -f 包内 compose / 包内 Dockerfile / 重 exec / 守卫名单
 grep -q 'export JEROCINE_DEPLOY_ROOT=' "$DEPLOY_DIR/deploy.sh" \
@@ -199,7 +227,9 @@ grep -qF 'RUNTIME_DF="runtime/Dockerfile.runtime"' "$DEPLOY_DIR/deploy.sh" \
   && ok "runtime 模式 server 镜像用包内 Dockerfile.runtime" || bad "RUNTIME_DF 未切包内副本"
 grep -qF 'exec bash "runtime/deploy.sh"' "$DEPLOY_DIR/deploy.sh" \
   && ok "自引导以包内版本重新 exec" || bad "未重新 exec 包内版本"
-grep -qF 'server-deploy|web-deploy|web-rollback|web-init' "$DEPLOY_DIR/deploy.sh" \
+# 名单以 deploy.sh 的白名单 case 为准(2026-11-05 补 danmu-deploy —— 此前断言漏了它,
+# 属于测试漂移而非守卫缺失: danmu 随包发布也走 runtime/, 必须留在名单里)。
+grep -qF 'server-deploy|danmu-deploy|web-deploy|web-rollback|web-init)' "$DEPLOY_DIR/deploy.sh" \
   && ok "runtime 模式白名单守卫存在" || bad "缺少 runtime 模式守卫名单"
 
 # 1.5 .gitignore 收录 deploy/runtime/(自引导产物, 不入库)

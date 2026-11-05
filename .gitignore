@@ -46,6 +46,12 @@ deploy/data/packages/
 deploy/data/migrations/
 deploy/data/root-manifest.txt
 
+# 私有附加站点的 nginx 配置(远程浏览器 browser.* / dsh.* 等, 与本站无关)。
+# 由私有仓 JerocineHarness/deploy-config/nginx/ 维护并同步到服务器该目录;
+# nginx.conf 末尾 include 本目录(通配, 空目录不报错), 容器内 :ro 挂载。
+# 公开仓只保留"入口", 配置本体**不得**入库。
+deploy/data/nginx/private/
+
 # 本地上传产物包的落地目录(scripts/deploy-web.sh 先 scp 到这里, 再由 deploy.sh 解包发布)
 deploy/incoming/
 
