@@ -238,7 +238,7 @@ function scrollTabs(dir: -1 | 1): void {
  * 集名是否「全部偏短」(如「第13集」「03」) —— 短名时集格宽度折半（用户 2026-11-06 要求）。
  * 口径：当前源**全部集**清洗后片名长度 ≤ 4 才算（用全部集而非当前分段，避免翻分段时列数跳变）。
  */
-const SHORT_EPISODE_NAME_MAX = 4
+const SHORT_EPISODE_NAME_MAX = 5
 const allEpisodeNamesShort = computed(() => {
   const src = props.sources.find((s) => s.id === activeSourceId.value) ?? props.sources[0]
   const eps = src?.episodes ?? []
@@ -254,7 +254,7 @@ const allEpisodeNamesShort = computed(() => {
          内层横滚容器不再重复 v-if(单源时整条不渲染, 方案 §C6 #9 合并重复判断)。 -->
     <div
       v-if="sources.length > 1"
-      class="jc-source-bar flex items-center gap-[var(--jc-space-4)] border-b border-default"
+      class="jc-source-bar flex items-center gap-[var(--jc-space-2)] border-b border-default"
     >
       <!-- 翻页箭头(2026-11-06): 鼠标点着翻一排, 同时作为「还能左右滑」的提示;
            到两端时对应箭头禁用; 无溢出时整对不渲染 -->
@@ -352,6 +352,7 @@ const allEpisodeNamesShort = computed(() => {
       v-if="visibleEpisodes.length"
       class="jc-episode-grid jc-scrollauto"
       :class="{ 'jc-episode-grid--compact': allEpisodeNamesShort }"
+      @scroll="onAutoHideScroll"
     >
       <button
         v-for="{ ep, idx } in visibleEpisodes"
@@ -393,11 +394,9 @@ const allEpisodeNamesShort = computed(() => {
   overflow-x: auto;
   overflow-y: hidden;
   padding-block: 6px;
-  /* 隐藏滚动条(affordance 由下方"按可滚方向"显隐的渐隐承担): 标准属性 + 下方 ::-webkit-scrollbar */
-  scrollbar-width: none;
-}
-.jc-source-tabs::-webkit-scrollbar {
-  display: none;
+  /* 滚动条统一交给 .jc-scrollauto(在网格/源条上) —— 原地的 scrollbar-width:none 与
+   * ::-webkit-scrollbar{display:none} 必须删掉: 组件样式在 theme.css 之后注入,
+   * 同特异性会把 .jc-scrollauto 的显形规则盖回"永远隐藏"(2026-11-06 用户反馈"一直看不到")。 */
 }
 
 /* 横滚渐隐(2026-11-06): 由 JS 按实际可滚方向加类 —— 滑到头就不再显示该侧阴影。
@@ -415,15 +414,16 @@ const allEpisodeNamesShort = computed(() => {
   mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
 }
 
-/* 源条翻页箭头(2026-11-06): 与源 tab 同语言的次级按钮; 到头禁用(降透明度 + not-allowed) */
+/* 源条翻页箭头(2026-11-06): 与源 tab 同语言的次级按钮; 到头禁用(降透明度 + not-allowed)。
+ * 尺寸取小号档(-sm), 与两侧间距由 .jc-source-bar 的 gap(--jc-space-2) 控制, 整体更紧凑。 */
 .jc-source-arrow {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: var(--jc-ctrl-h);
-  height: var(--jc-ctrl-h);
-  min-width: var(--jc-ctrl-h);
+  width: var(--jc-ctrl-h-sm);
+  height: var(--jc-ctrl-h-sm);
+  min-width: var(--jc-ctrl-h-sm);
   border: none;
   border-radius: var(--jc-ctrl-radius);
   background: transparent;
@@ -807,8 +807,20 @@ const allEpisodeNamesShort = computed(() => {
   padding-block: 4px;
 }
 
-/* 2026-11-06 用户报「移动端当前集文本没超出隐藏，未播放时正常」——
- * 成因是早期方案 §C6 #9 给「移动端当前集」开了两行常显完整名：chip 高度固定,
- * 第二行直接溢出且不再走 ellipsis。整块移除 ⇒ 当前集与其他集一致：单行 ellipsis
- * + hover/聚焦 marquee（移动端无 hover 时靠聚焦, 与其余 chip 同口径）。 */
+/* 移动端集名：**所有集一律**最多两行, 第二行仍溢出则裁(用户 2026-11-06 要求)。
+ * 此前只给「当前集」开两行 → 成了唯一漏出文字的异类; 现统一口径, 与是否播放无关。
+ * 高度随之放开(固定高度放不下两行): height auto + min-height 保住标准档下沿。
+ * chrome61 支持 -webkit-box 老语法, 故不写标准 line-clamp(-webkit-line-clamp 即可)。 */
+[data-mode='mobile'] .jc-episode-chip {
+  height: auto;
+  min-height: var(--jc-ctrl-h);
+}
+[data-mode='mobile'] .jc-episode-chip__label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+  text-overflow: clip;
+}
 </style>

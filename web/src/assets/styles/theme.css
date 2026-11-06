@@ -366,30 +366,35 @@ body {
 .jc-field:focus-visible,
 .jc-field:focus-within {
   outline: none;
+  /* 关键: 控件类上还挂着 `focus:shadow-focus`( = --jc-shadow-focus-ring 的青色 3px 环),
+   * 只杀 outline 不杀它会继续冒蓝框 —— 2026-11-06 二次修复。聚焦语言 = 紫色描边(--jc-border-ctrl-focus)。 */
+  box-shadow: none;
 }
 
 /* ===== 滚动条自动显隐（2026-11-06）=====
- * 与侧栏 .jc-mnav__body 既有范式同款：静止时隐藏, 滚动中显 6px 细条, 停止 700ms 后收起
- * （.is-scrolling 由 composables/useAutoHideScrollbar 加/删）。
- * 纵向/横向通用。给滚动容器加 class="jc-scrollauto" 即可。 */
+ * 语义: 始终**占位** thin 细条(不产生布局跳动), 但拇指透明 —— 静止看不见, 滚动中 .is-scrolling
+ * 让拇指显形, 停止 700ms 后收起（.is-scrolling 由 composables/useAutoHideScrollbar 加/删）。
+ * 为什么不用 scrollbar-width: none↔thin 切换: 部分内核下切换不生效导致"永远看不到滚动条"
+ * (2026-11-06 用户反馈), 改成"常占位 + 拇指透明↔可见"在 Chrome 与老 WebKit 上都稳。
+ * 同时给外层阻断滚动链: 内层滑到头不再带动外层(overscroll-behavior: contain)。 */
 .jc-scrollauto {
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  overscroll-behavior: contain;
 }
 .jc-scrollauto.is-scrolling {
-  scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
 }
 .jc-scrollauto::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-.jc-scrollauto.is-scrolling::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 .jc-scrollauto::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.28);
+  background-color: transparent;
   border-radius: var(--jc-radius-full);
+}
+.jc-scrollauto.is-scrolling::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.28);
 }
 .jc-scrollauto::-webkit-scrollbar-track {
   background: transparent;

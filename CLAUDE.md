@@ -226,6 +226,20 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 - ⚠️ **主题 style 禁止挂无前缀 appcompat attr**（`listChoiceIndicatorSingle` / `listPreferredItemHeightSmall` 等）：库单独编译不报错，壳层 `:app` 资源链接时才炸 `attr not found`（实测 1081 打包失败）。圆圈/行高覆盖一律用 `android:` 前缀属性。
 - ⚠️ **布局里禁止写 `?attr/<appcompat 属性>`**（如 `?attr/dialogPreferredPadding`）：弹窗布局由 **Activity 的 inflater** 解析，而原生壳主题 `Theme.JerocineTV` 继承 `android:Theme.Material.NoActionBar`（**非 AppCompat**）→ 解析不到该属性 → `TextView`/`View` 构造直接抛 `UnsupportedOperationException: Failed to resolve attribute at index N`，**点开即崩**（2026-10-12 真机实测：原生壳里「设备诊断」「服务器地址」「检查更新」三个入口全崩；web 壳/播放器主题恰好是 AppCompat 系所以一直没暴露）。要主题属性就在**代码里** `resolveAttribute(...)` 取值 —— `JcDialog.contentPaddingX(ctx)` 就是这个范式（带 24dp 兜底），界面内边距一律用它，别在 XML 里引 appcompat attr。**改任何两壳共用的布局后，务必在原生壳里也点一遍**（只有它主题不是 AppCompat）。
 
+## Web CSS 层叠约定（2026-11-06 三次踩坑后固化）
+
+**加载顺序**：`virtual:uno.css` → `reset` → `theme.css` → `tv-cards` → `auth-tv` → `compat`
+→（组件 `<style>` 随各自 chunk 注入，**最晚**）。同特异性下「后者胜」，由此定三条硬约定：
+
+1. **theme.css 里凡会被 UnoCSS 工具类使用的属性（`position` / `outline` / `box-shadow` / `overflow` 等），一律用 `:where()` 包一层**（特异性归零，让工具类优先）。
+   反例事故①：`.jc-hotarea { position: relative }` 压掉 `.absolute` → 卡角删除钮漂到左下 / 被裁掉。
+2. **组件样式会压过 theme.css 的通用类** ⇒ 组件内不要再写「否定型」规则。
+   反例事故②：`.jc-source-tabs::-webkit-scrollbar { display: none }` 把 `.jc-scrollauto` 的「滚动显形」盖掉 → 滚动条永远看不见。
+3. **聚焦样式分两处，且「蓝框」有两个来源**：全局 `:focus-visible { outline: 青 }` 只服务键盘可达性；表单控件统由 `.jc-field` 接管 —— 必须**同时**清 `outline` **和** `box-shadow`（`focus:shadow-focus` 是青色的 `--jc-shadow-focus-ring` 3px 环），只留 `--jc-border-ctrl-focus`（品牌紫）描边。
+   反例事故③：只杀 outline 不杀 shadow → 蓝框照旧。
+
+**防呆**：`web/src/assets/styles/style-guards.spec.ts` 对以上不变量做静态断言，改坏即红。
+
 ## TV / WebView 已知约束
 
 - TV 焦点环是 `box-shadow`/`outline`，会被祖先 `overflow:hidden/auto/clip` 上下裁切；横滚行/tab 条需留纵向 padding 或用 outline。

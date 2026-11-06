@@ -60,7 +60,7 @@ defineExpose({ input: inputEl })
       :class="
         variant === 'tv'
           ? 'jc-tv-input jc-tv-login__input'
-          : 'w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-10)] py-[var(--jc-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition'
+          : 'jc-field w-full bg-elevated text-primary border border-default rounded-[var(--jc-radius-full)] pl-[var(--jc-space-10)] pr-[var(--jc-space-10)] py-[var(--jc-space-3)] text-sm outline-none focus:border-ctrl-focus transition'
       "
       data-focusable="true"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"

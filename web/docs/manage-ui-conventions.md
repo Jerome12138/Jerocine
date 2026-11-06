@@ -46,6 +46,20 @@
   - `ManageSelect` 触发器 / `ManageCheckbox` 保留 `border-ctrl`（它们需要轮廓定义形状）。
 - **反例（违反即修）**：控件底与容器底取同一档 → 只能靠描边区分，控件进了弹窗就糊成一片（本批即由此修复）。
 
+## 滚动条与层叠约定（2026-11-06）
+
+- **滚动条显隐**：滚动容器一律加 `class="jc-scrollauto"` + `@scroll="onScroll"`（`composables/useAutoHideScrollbar`）。
+  语义 = **常占位 thin 细条（不产生布局跳动）+ 拇指透明→滚动时显形→停止 700ms 收起**。
+  - 不要用 `scrollbar-width: none ↔ thin` 切换（部分内核下切换不生效 → “永远看不到滚动条”）。
+  - 已落地：选源横向条、选集网格、管理后台主区（`.jc-manage-main`）。
+- **内层滑到头不带动外层**：`.jc-scrollauto` 自带 `overscroll-behavior: contain`（滚动链的标准解法，无需 JS）。
+- **层叠（同特异性后者胜）** —— `virtual:uno.css` → … → `theme.css` → 组件 `<style>`：
+  - theme.css 中「会被工具类使用的属性」用 `:where()` 包一层（见 CLAUDE.md「Web CSS 层叠约定」）；
+  - 组件内不要写否定型规则去盖 theme.css 的通用类（滚动条 / position / outline 三类都栽过）。
+- **选源条细节**（2026-11-06）：源胶囊 `min-width` 移动 40 / 平板 46 / 桌面 52；左右翻页箭头取 `--jc-ctrl-h-sm`、与外层间距用 `--jc-space-2`；左右渐隐与箭头**共用同一份可滚状态**（滑到头则隐藏该侧阴影 / 禁用对应箭头）。
+- **集格**：集名「全部偏短」（≤5 字）→ 列数翻倍（宽约折半，间隙由 `1fr` 分配自动扣除）；**移动端所有集一律最多两行**（`-webkit-line-clamp: 2`），不区分是否当前集。
+
+
 ## 页面标题两种合法形态（2026-11-06 归一）
 
 - **列表页**：标题在工具栏内，用 `<h2 class="text-lg font-[var(--jc-fw-semibold)]">`（12 个列表页一律不动）。
