@@ -3009,8 +3009,10 @@ watch(
   .jc-play-info {
     align-items: flex-start;
   }
-  /* A5-17: 移动端触控目标 ≥44px(命中区拉高, 视觉尺寸用 padding 补偿不改) */
-  .jc-play-toolbar .jc-btn,
+  /* 主按钮行高度交给档位(size="lg" → 移动端 --jc-ctrl-h-lg = 32)；
+   * 原 A5-17 写死 min-height:44 会把 lg 顶回 44 —— 2026-11-06 用户据此提问, 故移除。
+   * 触控目标由 BaseButton 自带 .jc-btn::after 热区补足(32 + 2×4px = 40, 相邻 8px 间距不重叠)。
+   * 「更多」菜单里的行是列表行（非工具栏按钮），保留 44 行高。 */
   .jc-pt-more__item {
     min-height: 44px;
   }

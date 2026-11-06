@@ -466,9 +466,21 @@ const allEpisodeNamesShort = computed(() => {
   cursor: pointer;
   white-space: nowrap;
   min-height: var(--jc-ctrl-h);
-  transition:
-    color var(--jc-dur-fast) var(--jc-ease-standard),
-    background-color var(--jc-dur-fast) var(--jc-ease-standard);
+  /* 宽度下限(2026-11-06 用户要求): 桌面 52 / 平板 46 / 移动 40 —— 短源名不再缩成小点,
+   * 一排也更齐整。断点与 theme.css 的档位断点一致。 */
+  min-width: 46px;
+}
+
+@media (max-width: 767px) {
+  .jc-source-tab {
+    min-width: 40px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .jc-source-tab {
+    min-width: 52px;
+  }
 }
 
 .jc-source-tab:hover {
@@ -795,19 +807,8 @@ const allEpisodeNamesShort = computed(() => {
   padding-block: 4px;
 }
 
-/* 方案 §C6 #9: 移动端无 hover(marquee 不可达), active 集格两行常显完整名, 不再永远截断。
- * data-mode 口径与 theme.css 移动端兜底一致; 非 active chip 仍走 ellipsis + marquee(hover/focus)。
- * 极端超长名兜底: 两行 -webkit-line-clamp 后仍裁(chrome61 支持 -webkit-box 语法)。
- * 注: 换行后 label 无横向溢出, marquee 测量 shift<=2 自然不触发, 两态共存无冲突。 */
-[data-mode='mobile'] .jc-episode-chip--active {
-  height: auto;
-  min-height: var(--jc-ctrl-h);
-}
-[data-mode='mobile'] .jc-episode-chip--active .jc-episode-chip__label {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  white-space: normal;
-}
+/* 2026-11-06 用户报「移动端当前集文本没超出隐藏，未播放时正常」——
+ * 成因是早期方案 §C6 #9 给「移动端当前集」开了两行常显完整名：chip 高度固定,
+ * 第二行直接溢出且不再走 ellipsis。整块移除 ⇒ 当前集与其他集一致：单行 ellipsis
+ * + hover/聚焦 marquee（移动端无 hover 时靠聚焦, 与其余 chip 同口径）。 */
 </style>
