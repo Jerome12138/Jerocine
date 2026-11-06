@@ -68,6 +68,12 @@ describe('样式防呆：CSS 层叠陷阱', () => {
     expect(read('../../components/layout/ManageLayout.vue')).toMatch(/jc-scrollauto jc-scroll-[xy]/)
   })
 
+  it('组件里不得给集格写死 overscroll-behavior（会盖掉 .jc-scroll-y 的"可滚才锁"门控）', () => {
+    // 反例(2026-11-06 实测): PlayView 里 `.jc-play-grid__aside :deep(.jc-episode-grid){overscroll-behavior:contain}`
+    // 特异性高于 theme.css 的门控规则 → 网格无可滚内容时把滚轮整个吃掉。
+    expect(read('../../views/public/PlayView.vue')).not.toMatch(/jc-episode-grid[^{]*\{[^}]*overscroll-behavior/)
+  })
+
   it('选源条不得自行隐藏滚动条（组件样式晚于 theme.css，会盖掉 .jc-scrollauto）', () => {
     const tabs = read('../../components/film/EpisodeTabs.vue')
     expect(tabs).not.toMatch(/\.jc-source-tabs\s*\{[^}]*scrollbar-width:\s*none/)

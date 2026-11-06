@@ -1536,6 +1536,20 @@ function closeEpisodePicker(): void {
   episodePickerOpen.value = false
 }
 
+/**
+ * 点面板外任意处自动关闭 —— 与播放器自带设置浮窗同款交互（2026-11-06 用户要求）。
+ * 用捕获阶段监听，且**刻意排除控制条**(.art-bottom)：这样再点一次「选集」按钮仍是 toggle 开合，
+ * 而不是"先被这里关掉、再被按钮打开"。
+ */
+function onDocPointerDown(e: PointerEvent): void {
+  if (!episodePickerOpen.value) return
+  const t = e.target as HTMLElement | null
+  if (!t || t.closest('.jc-fs-picker') || t.closest('.art-bottom')) return
+  closeEpisodePicker()
+}
+onMounted(() => document.addEventListener('pointerdown', onDocPointerDown, true))
+onScopeDispose(() => document.removeEventListener('pointerdown', onDocPointerDown, true))
+
 /** 面板内选集/换源: 复用页面级 selectEpisode / changeSource —— 数据流零新增, 弹幕/过滤/进度
  *  自动接管(方案 §C7); 操作后收面板。同源点击在 EpisodeTabs.selectSource 已 guard(不 emit);
  *  同集点击 selectEpisode 内部幂等, 收面板即用户意图。 */
@@ -2787,11 +2801,13 @@ watch(
     min-height: 0;
     overflow-y: auto;
     /* clip 另一轴, 避免 CSS 规范把 overflow-y 强制成 auto 造成嵌套滚动 */
-    overflow-x: clip;
-    overscroll-behavior: contain;
-    align-content: start;
-    padding-right: var(--jc-space-1);
-    /* 滚动条改由 .jc-scrollauto(EpisodeTabs 挂在网格上) 统一接管 */
+  overflow-x: clip;
+  align-content: start;
+  padding-right: var(--jc-space-1);
+  /* 滚动条与滚动链统一由 .jc-scrollauto + .jc-scroll-y（EpisodeTabs 挂在网格上）接管：
+     静止隐藏 / 滚动显细条 / **可滚时才锁纵向滚动链**。
+     原先这里写死的 `overscroll-behavior: contain` 会在网格无可滚内容时把滚轮整个吃掉
+     （实测：鼠标在其上滚，内层不动、外层也不动）—— 2026-11-06 移除。 */
   }
   /* 短名紧凑：右栏默认 2 列 → 折半 4 列 */
   .jc-play-grid__aside :deep(.jc-episode-grid--compact) {
