@@ -539,7 +539,7 @@ watch(
         tabindex="0"
         @click="mobileMenuOpen = !mobileMenuOpen"
       >
-        <BaseIcon name="menu" size="22px" />
+        <BaseIcon name="menu" size="1em" />
       </button>
 
       <!-- 二级页面返回按钮: 非首页(且非 TV — TV 走遥控器返回键)时显示, 与 gfTvBack 同语义 -->
@@ -552,7 +552,7 @@ watch(
         tabindex="0"
         @click="goBack"
       >
-        <BaseIcon name="arrow-left" size="22px" />
+        <BaseIcon name="arrow-left" size="1em" />
       </button>
 
       <!-- 站名 / Logo -->
@@ -640,7 +640,7 @@ watch(
           role="search"
           @submit.prevent="submitSearch"
         >
-          <BaseIcon name="search" size="18px" class="jc-header__search-icon" />
+          <BaseIcon name="search" size="1em" class="jc-header__search-icon" />
           <input
             v-model="keyword"
             type="search"
@@ -752,7 +752,7 @@ watch(
         tabindex="0"
         @click="mobileSearchOpen = !mobileSearchOpen"
       >
-        <BaseIcon :name="mobileSearchOpen ? 'close' : 'search'" size="22px" />
+        <BaseIcon :name="mobileSearchOpen ? 'close' : 'search'" size="1em" />
       </button>
 
       <!-- (TV 顶部已精简: 搜索/历史/我的 入口下沉到首页金刚区, 顶部只留居中频道导航) -->
@@ -774,7 +774,7 @@ watch(
           :aria-expanded="historyOpen"
           @click="toggleHistory"
         >
-          <BaseIcon name="history" size="22px" />
+          <BaseIcon name="history" size="1em" />
         </button>
         <Transition name="jc-fade">
           <div
@@ -835,7 +835,7 @@ watch(
         tabindex="0"
         @click="gotoLogin"
       >
-        <BaseIcon name="user" size="18px" />
+        <BaseIcon name="user" size="1em" class="jc-header__btn-icon" />
         <span class="hidden md:inline">登录</span>
       </button>
 
@@ -864,7 +864,7 @@ watch(
           <span class="jc-header__username hidden xl:inline">
             {{ displayName }}
           </span>
-          <BaseIcon name="chevron-down" size="14px" class="hidden xl:inline" />
+          <BaseIcon name="chevron-down" size="1em" class="jc-header__btn-icon-xs hidden xl:inline" />
         </button>
 
         <Transition name="jc-fade">
@@ -959,7 +959,7 @@ watch(
         role="search"
         @submit.prevent="submitSearch"
       >
-        <BaseIcon name="search" size="18px" class="jc-header__search-icon" />
+        <BaseIcon name="search" size="1em" class="jc-header__search-icon" />
         <input
           v-model="keyword"
           type="search"
@@ -2415,6 +2415,69 @@ html[data-mode='tv'] .jc-mnav--side {
 .jc-mobile-overlay-fade-enter-from,
 .jc-mobile-overlay-fade-leave-to {
   opacity: 0;
+}
+
+/* ============================================================
+ * 顶栏顶部控件：统一高度 + 内件等比（2026-11-06）
+ *
+ * 高度：web 走 lg 档 —— 桌面 40 / 平板 36 / 移动 32（用户要求「顶栏控件保持 40px」）；
+ *       TV 由末段 [data-mode='tv'] 覆盖为 48（= TV 标准档，保持 TV 原观感）。
+ * 内件：控件里的图标 / 头像一律由 --jc-header-ctrl-h 派生，于是控件随视口变矮时
+ *       图标 / 头像同步缩小。（修：原图标写死 22/18/14px、头像写死 32px，高度从 40 收到
+ *       32/24 后不跟着缩，观感拥挤。）
+ * 比例：桌面 40 时分别 = 22 / 18 / 14 / 32，与改动前的写死值逐一等值 ⇒ 桌面观感不变。
+ * 位置：置于 scoped 段末尾 —— 同特异性下靠书写顺序覆盖上文各处旧声明（免散改十余处）。
+ * ============================================================ */
+.jc-header__nav-link,
+.jc-header__search,
+.jc-header__icon-btn,
+.jc-header__login-btn,
+.jc-header__user-btn {
+  --jc-header-ctrl-h: var(--jc-ctrl-h-lg);
+  --jc-header-icon: calc(var(--jc-header-ctrl-h) * 0.55);    /* 40 → 22 */
+  --jc-header-icon-sm: calc(var(--jc-header-ctrl-h) * 0.45); /* 40 → 18 */
+  --jc-header-icon-xs: calc(var(--jc-header-ctrl-h) * 0.35); /* 40 → 14 */
+  --jc-header-avatar: calc(var(--jc-header-ctrl-h) - 8px);   /* 40 → 32 */
+}
+.jc-header__nav-link,
+.jc-header__search,
+.jc-header__login-btn,
+.jc-header__user-btn {
+  height: var(--jc-header-ctrl-h);
+}
+.jc-header__icon-btn {
+  width: var(--jc-header-ctrl-h);
+  height: var(--jc-header-ctrl-h);
+  min-width: var(--jc-header-ctrl-h);
+  /* 图标按钮内只有图标 → 用 font-size 驱动 size="1em" 的图标（图标随控件等比缩） */
+  font-size: var(--jc-header-icon);
+}
+/* 图标（size="1em" + 各自 font-size）/ 头像（img，直接给宽高） */
+.jc-header__search-icon,
+.jc-header__btn-icon {
+  font-size: var(--jc-header-icon-sm);
+}
+/* 搜索框内件几何同步等比：桌面 40 时 left=12 / 文本左内距=38，与改动前写死值等值 */
+.jc-header__search-icon {
+  left: calc(var(--jc-header-ctrl-h) * 0.3);
+}
+.jc-header__search {
+  padding: 0 14px 0 calc(var(--jc-header-ctrl-h) * 0.95);
+}
+.jc-header__btn-icon-xs {
+  font-size: var(--jc-header-icon-xs);
+}
+.jc-header__avatar {
+  width: var(--jc-header-avatar);
+  height: var(--jc-header-avatar);
+}
+/* TV：保持 48（= TV 标准档），内件随之按 48 派生；TV 的 height:48px 覆盖在全局块内 */
+[data-mode='tv'] .jc-header__nav-link,
+[data-mode='tv'] .jc-header__search,
+[data-mode='tv'] .jc-header__icon-btn,
+[data-mode='tv'] .jc-header__login-btn,
+[data-mode='tv'] .jc-header__user-btn {
+  --jc-header-ctrl-h: 48px;
 }
 </style>
 
