@@ -16,6 +16,7 @@
  *   save(filmId, { intro: 30, outro: 0, enabled: true })
  *   saveDefault({ intro: 60, outro: 30, enabled: true })   // 全局默认(设置页)
  */
+import { getCurrentScope, onScopeDispose } from 'vue'
 import { getToken } from '@/utils/token'
 import * as skipApi from '@/api/skip'
 
@@ -31,6 +32,59 @@ export const DEFAULT_SKIP_KEY = 'jc-skip-default'
  */
 export function normalizeSkipSec(n: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+}
+
+/* ---------------- 账号回写（防抖 2s） ----------------
+ * 2026-11-06 用户要求：时长设置调接口要防抖。播放器设置浮窗里连点「±10s」/ 连敲数字会高频改动，
+ * 每次都 PUT 既浪费又容易被限流；本地 localStorage 仍然**立即**写（播放行为不受影响），
+ * 只有「回写账号」这一步延迟到停手 2s 后只发最后一次。 */
+
+/** 回写账号的防抖窗口（ms）。 */
+export const SKIP_SAVE_DEBOUNCE_MS = 2000
+
+/** 挂起中的回写任务：filmId → { 定时器, 待发配置 } */
+const pendingSkipSaves = new Map<string, { timer: ReturnType<typeof setTimeout>; filmId: number; cfg: SkipConfig }>()
+
+/** 回写账号的唯一出口（未登录 / 失败一律静默，不影响本地）。 */
+async function pushSkipSave(filmId: number, cfg: SkipConfig): Promise<void> {
+  if (!getToken()) return
+  try {
+    await skipApi.skipSave(filmId, cfg.intro, cfg.outro, cfg.enabled)
+  } catch {
+    /* 失败静默：本地已写，账号回写下次再补 */
+  }
+}
+
+/** 防抖调度：同一片在窗口内的多次改动只保留最后一次。 */
+function scheduleSkipSave(filmId: number, cfg: SkipConfig): void {
+  if (typeof window === 'undefined') return
+  const key = String(filmId)
+  const prev = pendingSkipSaves.get(key)
+  if (prev) clearTimeout(prev.timer)
+  const timer = setTimeout(() => {
+    pendingSkipSaves.delete(key)
+    void pushSkipSave(filmId, cfg)
+  }, SKIP_SAVE_DEBOUNCE_MS)
+  pendingSkipSaves.set(key, { timer, filmId, cfg })
+}
+
+/** 取消某片的挂起回写（reset 必须调，否则 2s 后又被 PUT 写回来）。 */
+function cancelSkipSave(filmId: number): void {
+  const key = String(filmId)
+  const p = pendingSkipSaves.get(key)
+  if (p) {
+    clearTimeout(p.timer)
+    pendingSkipSaves.delete(key)
+  }
+}
+
+/** 立即把挂起的回写全部发出（作用域销毁时调用，避免防抖窗口内离开页面丢掉最后一次改动）。 */
+export function flushSkipSaves(): void {
+  for (const p of [...pendingSkipSaves.values()]) {
+    clearTimeout(p.timer)
+    void pushSkipSave(p.filmId, p.cfg)
+  }
+  pendingSkipSaves.clear()
 }
 
 export interface SkipConfig {
@@ -96,6 +150,10 @@ export interface UseSkipSettings {
 }
 
 export function useSkipSettings(): UseSkipSettings {
+  // 作用域销毁（离开播放页/组件卸载）时把挂起的回写发出去，避免防抖窗口内丢掉最后一次改动。
+  // getCurrentScope() 兜底：本 composable 也会在组件作用域外被调用（如 nativePlay 的工具函数），
+  // 那时不注册，避免 Vue 的 "onScopeDispose called outside of a scope" 警告。
+  if (getCurrentScope()) onScopeDispose(flushSkipSaves)
   const get = (filmId: string | number): SkipConfig =>
     getRaw(filmId) ?? getGlobalRaw() ?? { intro: DEFAULT_INTRO_SEC, outro: DEFAULT_OUTRO_SEC, enabled: true }
   return {
@@ -112,10 +170,8 @@ export function useSkipSettings(): UseSkipSettings {
       } catch {
         /* 配额满 / 隐私模式 -> 忽略 */
       }
-      // 已登录: 异步回写账号(跨设备), 失败静默不影响本地
-      if (getToken()) {
-        void skipApi.skipSave(Number(filmId), safe.intro, safe.outro, safe.enabled).catch(() => {})
-      }
+      // 已登录: 防抖 2s 回写账号(跨设备), 失败静默不影响本地
+      scheduleSkipSave(Number(filmId), safe)
     },
     effective(filmId) {
       const cfg = get(filmId)
@@ -128,6 +184,8 @@ export function useSkipSettings(): UseSkipSettings {
       } catch {
         /* ignore */
       }
+      // 先取消挂起的防抖回写, 否则 2s 后会把刚删掉的配置又 PUT 回来
+      cancelSkipSave(Number(filmId))
       if (getToken()) {
         void skipApi.skipReset(Number(filmId)).catch(() => {})
       }

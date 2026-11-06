@@ -28,7 +28,7 @@ import {
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { filmApi } from '@/api'
 import type { PlayInfo, PlaySource } from '@/types/film'
-import { usePlayer, resolutionLabel, isHlsSupported, NEXTTV_DANMAKU_SVG, NEXTTV_AD_SVG, NEXTTV_AUTOPLAY_SVG } from '@/composables/usePlayer'
+import { usePlayer, resolutionLabel, isHlsSupported, NEXTTV_AD_SVG, NEXTTV_AUTOPLAY_SVG } from '@/composables/usePlayer'
 import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
@@ -821,24 +821,16 @@ const {
     // 装载前过滤: 超长文本(搬运字幕/广告尾缀)直接丢弃; 上限对齐聚合源单条常见最大长度
     filter: (d) => d.text.length <= 100
   },
-  // 原生显示设置面板(nextTV 范式): 弹幕开关/过滤广告/自动连播收进播放器自带齿轮面板
+  // 原生显示设置面板(nextTV 范式): 过滤广告/自动连播/跳过片头片尾收进播放器自带齿轮面板
+  // （「弹幕」开关 2026-11-06 已从本面板移除 —— 控制条上插件自带的 .apd-toggle 就是同一个开关，两处并存属重复入口）
   // ⚠️ 必须写成 getter：对象字面量在 **setup 期** 求值，而下面用到的 skipCfgOf()/mountSkipNumControl()
   //    依赖 setup 更晚才声明的 skipSettings 等；直接写值会踩 TDZ
   //    （两次实测：Cannot access 'skipSettings' / 'SKIP_SEC_OPTIONS' before initialization）。
   //    getter 会推迟到 usePlayer 真正读 opts.settings 时（= 建播放器，此时 detail 已就绪）再求值。
   get settings() {
+    // 注意：这里**没有**「弹幕」开关 —— 控制条上插件自带的 `.apd-toggle` 就是同一个开关，
+    // 两处并存属重复入口（2026-11-06 用户要求去掉显示设置浮窗里的那一份）。
     return [
-    {
-      name: 'jc-danmaku-switch',
-      html: '弹幕',
-      icon: NEXTTV_DANMAKU_SVG,
-      tooltip: danmakuEnabled.value ? '已开启' : '已关闭',
-      switch: danmakuEnabled.value,
-      onSwitch: () => {
-        onDanmakuEntryClick()
-        return danmakuEnabled.value
-      }
-    },
     {
       name: 'jc-ad-filter-switch',
       html: '过滤广告',
@@ -880,18 +872,27 @@ const {
     {
       name: 'jc-skip-intro',
       html: '片头时长(s)',
-      mounted: (_panel, item) => {
+      // 必须是「button」类型（有 onClick 即 button）：selector 类型且 selector 为空时，点行会走
+      // Setting.check() → `t.$parent.tooltip = t.html`，而**顶层设置项的 $parent 是 undefined**
+      // → 实测报「Cannot set properties of undefined (setting 'tooltip')」；button 类型只写项自身的
+      // t.tooltip（有 setter），不碰 $parent。另外也只有在 button/switch/range 下 artplayer 才会用
+      // 我们给的 icon（selector 类型一律渲染默认对勾）。
+      icon: JC_SKIP_INTRO_SVG,
+      onClick: () => '',
+      mounted: (_row, item) => {
         skipIntroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
-        if (skipIntroRowEl) mountSkipNumControl(skipIntroRowEl, 'intro', JC_SKIP_INTRO_SVG)
+        if (skipIntroRowEl) mountSkipNumControl(skipIntroRowEl, 'intro')
         syncSkipSettingRows()
       }
     },
     {
       name: 'jc-skip-outro',
       html: '片尾时长(s)',
-      mounted: (_panel, item) => {
+      icon: JC_SKIP_OUTRO_SVG,
+      onClick: () => '',
+      mounted: (_row, item) => {
         skipOutroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
-        if (skipOutroRowEl) mountSkipNumControl(skipOutroRowEl, 'outro', JC_SKIP_OUTRO_SVG)
+        if (skipOutroRowEl) mountSkipNumControl(skipOutroRowEl, 'outro')
         syncSkipSettingRows()
       }
     }
@@ -957,15 +958,13 @@ watch(danmuNone, (none) => {
   })
 })
 
-/** R4 外部同步: 弹幕/过滤广告/自动连播状态变化时, 同步更新 ArtPlayer 原生 settings 面板对应项的
- * switch 勾选态与 tooltip 文案。触发源: 面板齿轮开关/onSwitch 路径 + 此处外部 watch 路径(设置页/
+/** R4 外部同步: 过滤广告/自动连播状态变化时, 同步更新 ArtPlayer 原生 settings 面板对应项的
+ *  switch 勾选态与 tooltip 文案。触发源: 面板齿轮开关/onSwitch 路径 + 此处外部 watch 路径(设置页/
  * 更多菜单点击已删, 剩余可能来自其他组件/页面切换等)。
+ *  （弹幕那一项已随「去掉重复弹幕开关」移除，故不再有 danmakuEnabled 的同步 watch。）
  *
  * 每项 watch 只做 switch+tooltip 透传; setting.update({name, switch, tooltip}) 内部走
  * Object.assign(option, newItem) + remove + add, 会重绘该 DOM 节点。 */
-watch(danmakuEnabled, (v) => {
-  updateSettings({ name: 'jc-danmaku-switch', switch: v, tooltip: v ? '已开启' : '已关闭' })
-}, { flush: 'post' })
 watch(adFilter, (v) => {
   updateSettings({ name: 'jc-ad-filter-switch', switch: v, tooltip: v ? '已开启' : '已关闭' })
 }, { flush: 'post' })
@@ -996,6 +995,10 @@ const danmakuHint = computed(() => {
       return ''
   }
 })
+/** 弹幕入口点击（三态分流：加载失败→重试 / 不可用→给原因 / 否则开关）。
+ *  2026-11-06 起显示设置浮窗里那份「弹幕」开关已移除 → 本函数**当前无调用方**，
+ *  保留是因为它承载「失败可重试」「不可用给出原因」两段分流逻辑，
+ *  后续若要给控制条 `.apd-toggle` 接同样分流可直接复用。 */
 function onDanmakuEntryClick(): void {
   // failed: 直接重试装载（提示文案即「弹幕加载失败, 点击重试」）
   if (danmakuState.value === 'failed') {
@@ -1186,14 +1189,12 @@ function syncSkipSettingRows(): void {
 
 /**
  * 把「片头/片尾时长」行右侧渲染成「[−] 数字 [＋]」控件（2026-11-06 用户要求）：
- *  - artplayer 的 settings 行只有 selector/switch/range 三种右侧控件，没有数字输入 → 在行的 mounted 里自行注入；
- *  - 输入只收非负整数（键入时过滤非数字，失焦/回车/点加减时钳到 ≥0）；
+ *  - artplayer 的 settings 行没有「数字输入」这种右侧控件类型 → 在行的 mounted 里自行注入到 `.art-setting-item-right`；
+ *  - 行本身是「button」类型（见 settings 里两项的 icon/onClick 注释），图标与点击行为都归我们；
+ *  - 输入只收非负整数（键入时过滤非数字；失焦/回车/点加减时经 normalizeSkipSec 钳到 ≥0）；
  *  - 左右按钮每点一次 ±10s。
  */
-function mountSkipNumControl(row: HTMLElement, field: 'intro' | 'outro', icon: string): void {
-  // 图标：走默认 selector 类型只能拿到"对勾"，这里直接换成跳片头/片尾的语义图标
-  const iconEl = row.querySelector<HTMLElement>('.art-setting-item-left-icon')
-  if (iconEl) iconEl.innerHTML = icon
+function mountSkipNumControl(row: HTMLElement, field: 'intro' | 'outro'): void {
   const right = row.querySelector<HTMLElement>('.art-setting-item-right')
   if (!right || right.dataset.jcSkipNum === '1') return
   right.dataset.jcSkipNum = '1'
@@ -1215,12 +1216,10 @@ function mountSkipNumControl(row: HTMLElement, field: 'intro' | 'outro', icon: s
     applySkipCfg(field === 'intro' ? { ...cfg, intro: v } : { ...cfg, outro: v })
   }
   input.value = String(normalizeSkipSec(skipCfgOf()[field]))
-  // 行本身带 selector 残留的点击态 → 控件内的指针事件就地拦掉，不冒泡给行
+  // 行本身带点击行为 → 控件内的指针事件就地拦掉，不冒泡给行
   for (const ev of ['click', 'pointerdown', 'mousedown', 'touchstart']) {
     right.addEventListener(ev, (e) => e.stopPropagation())
   }
-  // 行还是 selector 类型：点行非控件区会被 artplayer 打上 .art-current 高亮，点完立刻摘掉
-  row.addEventListener('click', () => row.classList.remove('art-current'))
   right.querySelector('[data-step="-10"]')?.addEventListener('click', () => commit(read() - 10))
   right.querySelector('[data-step="10"]')?.addEventListener('click', () => commit(read() + 10))
   // 键入即过滤：只留数字（非负整数）

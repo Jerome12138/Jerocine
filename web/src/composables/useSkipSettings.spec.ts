@@ -1,8 +1,21 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useSkipSettings, DEFAULT_SKIP_KEY, normalizeSkipSec } from './useSkipSettings'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import * as skipApi from '@/api/skip'
+import {
+  useSkipSettings,
+  DEFAULT_SKIP_KEY,
+  normalizeSkipSec,
+  flushSkipSaves,
+  SKIP_SAVE_DEBOUNCE_MS
+} from './useSkipSettings'
 
-vi.mock('@/utils/token', () => ({ getToken: () => '' }))
-vi.mock('@/api/skip', () => ({ skipSave: vi.fn(), skipReset: vi.fn(), skipList: vi.fn() }))
+/** getToken 做成可变：默认匿名（既有用例口径不变），防抖回写用例里置为已登录 */
+const auth = vi.hoisted(() => ({ token: '' }))
+vi.mock('@/utils/token', () => ({ getToken: () => auth.token }))
+vi.mock('@/api/skip', () => ({
+  skipSave: vi.fn(() => Promise.resolve()),
+  skipReset: vi.fn(() => Promise.resolve()),
+  skipList: vi.fn(() => Promise.resolve([]))
+}))
 
 /**
  * useSkipSettings —— 2026-10-26 新增用户级全局默认层:
@@ -12,6 +25,43 @@ vi.mock('@/api/skip', () => ({ skipSave: vi.fn(), skipReset: vi.fn(), skipList: 
 describe('useSkipSettings', () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  // 排干挂起的防抖定时器，避免跨用例残留（匿名态下发不出去，纯清理）
+  afterEach(() => {
+    flushSkipSaves()
+  })
+
+  it('save 回写账号防抖 2s：连改只发最后一次；reset 取消挂起；flush 立即发', () => {
+    const saveMock = vi.mocked(skipApi.skipSave)
+    saveMock.mockClear()
+    auth.token = 't'
+    vi.useFakeTimers()
+    try {
+      const s = useSkipSettings()
+      s.save(1, { intro: 10, outro: 5, enabled: true })
+      s.save(1, { intro: 20, outro: 5, enabled: true })
+      s.save(1, { intro: 30, outro: 5, enabled: true })
+      expect(saveMock).not.toHaveBeenCalled() // 防抖窗口内一次都不发
+      vi.advanceTimersByTime(SKIP_SAVE_DEBOUNCE_MS)
+      expect(saveMock).toHaveBeenCalledTimes(1) // 只发最后一次
+      expect(saveMock).toHaveBeenLastCalledWith(1, 30, 5, true)
+
+      // reset 必须取消挂起的回写，否则 2s 后会把刚删掉的配置又 PUT 回来
+      s.save(2, { intro: 40, outro: 5, enabled: true })
+      s.reset(2)
+      vi.advanceTimersByTime(SKIP_SAVE_DEBOUNCE_MS)
+      expect(saveMock).toHaveBeenCalledTimes(1)
+
+      // flush 立即发（防抖窗口内离开页面不丢最后一次改动）
+      s.save(3, { intro: 50, outro: 5, enabled: true })
+      flushSkipSaves()
+      expect(saveMock).toHaveBeenCalledTimes(2)
+      expect(saveMock).toHaveBeenLastCalledWith(3, 50, 5, true)
+    } finally {
+      auth.token = ''
+      vi.useRealTimers()
+    }
   })
 
   it('normalizeSkipSec: 非负整数归一化（负数不得翻正 —— 「−10s」按钮回归防呆）', () => {
