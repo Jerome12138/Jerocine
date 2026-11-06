@@ -77,7 +77,7 @@ const toggles = [
 
 <template>
   <section class="jc-settings-page mx-auto w-full max-w-[720px]">
-    <h1 class="jc-settings-page__title">设置</h1>
+      <h1 class="jc-settings-page__title">全局播放设置</h1>
     <p class="jc-settings-page__hint">
       此页设置对全部影片生效，保存在本设备的网页存储里；
       播放页里针对单片影片的设置（如跳过片头/片尾）按影片单独记忆。

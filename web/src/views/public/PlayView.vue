@@ -844,6 +844,43 @@ const {
         toggleAutoPlayNext()
         return autoPlayNext.value
       }
+    },
+    // —— 跳过片头片尾（2026-11-06 从「更多」面板迁入，3 行）——
+    // 注：此处按「用户级全局默认」构建初值（此刻 detail 尚未加载）；播放器就绪后
+    // 由 syncSkipSettingsUI() 用本片真实配置重建，selector 的预选值随之刷新。
+    {
+      name: 'jc-skip-switch',
+      html: '跳过片头片尾',
+      tooltip: skipCfgOf().enabled ? '已开启' : '已关闭',
+      switch: skipCfgOf().enabled,
+      onSwitch: () => {
+        const cfg = skipCfgOf()
+        const next = { ...cfg, enabled: !cfg.enabled }
+        applySkipCfg(next)
+        return next.enabled
+      }
+    },
+    {
+      name: 'jc-skip-intro',
+      html: '跳过片头',
+      tooltip: '片头自动跳过的秒数',
+      mounted: (_panel, item) => {
+        skipIntroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
+        syncSkipSettingRows()
+      },
+      selector: skipSecSelector(skipCfgOf().intro),
+      onSelect: (item) => applySkipCfg({ ...skipCfgOf(), intro: Number(item.value) || 0 })
+    },
+    {
+      name: 'jc-skip-outro',
+      html: '跳过片尾',
+      tooltip: '片尾自动跳过的秒数',
+      mounted: (_panel, item) => {
+        skipOutroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
+        syncSkipSettingRows()
+      },
+      selector: skipSecSelector(skipCfgOf().outro),
+      onSelect: (item) => applySkipCfg({ ...skipCfgOf(), outro: Number(item.value) || 0 })
     }
   ] as Artplayer['option']['settings'],
   // 移动端: 隐藏画中画/网页全屏按钮(屏幕小、手势已覆盖, 节省控制条空间)
@@ -875,6 +912,17 @@ const danmuNone = computed(
 )
 /** 有弹幕、但用户把弹幕关掉了 → 隐藏设置按钮（开关保留，方便再打开） */
 const danmuOff = computed(() => !danmuNone.value && !danmakuActive.value)
+
+/** 本集无弹幕时：置灰的弹幕开关/设置按钮**不允许点击、也不能弹出面板**。
+ *  用捕获阶段拦掉并阻止冒泡（不能靠 pointer-events:none —— 那会连带让 title 悬停提示失效）。 */
+function onWrapClickCapture(e: MouseEvent): void {
+  if (!danmuNone.value) return
+  const t = e.target as HTMLElement | null
+  if (t?.closest('.apd-toggle') || t?.closest('.apd-config')) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
 
 /** 本集无弹幕时给插件的弹幕开关/设置按钮挂原生 title 提示（插件 DOM 由插件渲染，只能就近改属性） */
 watch(danmuNone, (none) => {
@@ -1077,53 +1125,73 @@ const outroTriggeredKey = ref('')
 /** 片尾跳过前 10s 预告去抖(每集只提示一次) */
 const outroPromptKey = ref('')
 
-/** 跳过设置弹窗 */
-const skipDialogOpen = ref(false)
-const draftIntro = ref(skipSettings.DEFAULT_INTRO)
-const draftOutro = ref(skipSettings.DEFAULT_OUTRO)
-/** 跳过总开关(草稿): 关闭后本剧不跳, 秒数保留 */
-const draftEnabled = ref(true)
-function openSkipDialog(): void {
+/* ============ 跳过片头片尾（2026-11-06：由「更多」面板弹窗迁入播放器设置浮窗，3 行）============
+ * 行结构：开关 / 跳过片头时长 / 跳过片尾时长；时长用 selector（同「播放速度」那款），10s 一档 0–180s；
+ * 开关关闭时长两行隐藏（artplayer 无原生条件显隐 → 在行的 mounted 里拿到 $item 后自行 display 控制）。
+ * 值仍按影片持久化（useSkipSettings.save），写回后即时生效（applySkipLive）。 */
+const SKIP_SEC_OPTIONS = Array.from({ length: 19 }, (_, i) => i * 10) // 0,10,…,180
+
+/** 当前影片的跳过配置（未设置过 → 用户级全局默认 / 内置 90/60） */
+function skipCfgOf(): SkipConfig {
   const id = detail.value?.mid
-  const cfg: SkipConfig =
-    id === undefined || id === null
-      ? { intro: skipSettings.DEFAULT_INTRO, outro: skipSettings.DEFAULT_OUTRO, enabled: true }
-      : skipSettings.get(id)
-  draftIntro.value = cfg.intro
-  draftOutro.value = cfg.outro
-  draftEnabled.value = cfg.enabled
-  skipDialogOpen.value = true
+  return id === undefined || id === null ? skipSettings.getDefault() : skipSettings.get(id)
 }
-function saveSkip(): void {
+
+/** 写回当前影片配置并即时生效（开关关 → 按 0/0 生效，秒数保留） */
+function applySkipCfg(cfg: SkipConfig): void {
   const id = detail.value?.mid
   if (id === undefined || id === null) return
-  // P3-18: 片尾秒数 clamp 到本集剩余时长的 1/10(至少 30s) —— 防止"保存 600s 剩余 20min
-  // → 下个 timeupdate 立即触发跳集"的观感 bug; clamp 只影响本次生效值, 存库仍是用户输入。
-  const duration = player.value?.duration || 0
-  const remaining = duration > 0 ? Math.max(0, duration - (player.value?.currentTime || 0)) : Infinity
-  const outroCap = Math.max(30, Math.floor(remaining / 10))
-  const cfg: SkipConfig = {
-    intro: Number(draftIntro.value) || 0,
-    outro: Math.min(Number(draftOutro.value) || 0, outroCap),
-    enabled: draftEnabled.value
-  }
   skipSettings.save(id, cfg)
-  skipDialogOpen.value = false
-  // 总开关关闭 → 按 0/0 生效(等于不跳), 秒数已存
   applySkipLive(cfg.enabled ? { intro: cfg.intro, outro: cfg.outro } : { intro: 0, outro: 0 })
+  syncSkipSettingRows()
 }
-function resetSkip(): void {
-  const id = detail.value?.mid
-  if (id === undefined || id === null) return
-  skipSettings.reset(id)
-  // 恢复默认 = 回到用户级全局默认（未设置过则为内置 90/60）
-  const g = skipSettings.getDefault()
-  draftIntro.value = g.intro
-  draftOutro.value = g.outro
-  draftEnabled.value = g.enabled
-  skipDialogOpen.value = false
-  applySkipLive(g.enabled ? { intro: g.intro, outro: g.outro } : { intro: 0, outro: 0 })
+
+/** 时长两行的 DOM 句柄（行的 mounted 里拿到，用于"开关关则隐藏"） */
+let skipIntroRowEl: HTMLElement | null = null
+let skipOutroRowEl: HTMLElement | null = null
+function syncSkipSettingRows(): void {
+  const on = skipCfgOf().enabled
+  for (const el of [skipIntroRowEl, skipOutroRowEl]) {
+    if (el) el.style.display = on ? '' : 'none'
+  }
 }
+
+/** 时长选择器项（当前值预选，artplayer 依 default 高亮） */
+function skipSecSelector(cur: number): Array<{ html: string; value: number; default: boolean }> {
+  return SKIP_SEC_OPTIONS.map((v) => ({ html: `${v} 秒`, value: v, default: v === cur }))
+}
+
+/** 播放器就绪 / 换片后：把三行的状态同步成「当前影片的真实配置」
+ *  （setting.update = 移除后重建，所以 selector 的预选值也会被刷新） */
+function syncSkipSettingsUI(): void {
+  const p = player.value
+  if (!p) return
+  const cfg = skipCfgOf()
+  p.setting?.update({
+    name: 'jc-skip-switch',
+    html: '跳过片头片尾',
+    switch: cfg.enabled,
+    tooltip: cfg.enabled ? '已开启' : '已关闭'
+  })
+  p.setting?.update({
+    name: 'jc-skip-intro',
+    html: '跳过片头',
+    switch: undefined,
+    selector: skipSecSelector(cfg.intro)
+  })
+  p.setting?.update({
+    name: 'jc-skip-outro',
+    html: '跳过片尾',
+    switch: undefined,
+    selector: skipSecSelector(cfg.outro)
+  })
+  syncSkipSettingRows()
+}
+
+/** 播放器就绪 & 换片时同步跳过设置行（player 为 shallowRef，init 后才有值） */
+watch([player, () => detail.value?.mid], ([p]) => {
+  if (p) nextTick(syncSkipSettingsUI)
+})
 
 /**
  * 改跳过设置后立即按新 intro/outro 生效(web 播放器; native 走重启不在此路径)。
@@ -1609,11 +1677,10 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
     return
   }
   // 弹层打开时键盘交给弹层自身: Esc 关弹层而非返回, Enter/空格不劫持(防误切全屏等)
-  if (moreActionsOpen.value || skipDialogOpen.value) {
+  if (moreActionsOpen.value) {
     if (key === 'Escape') {
       e.preventDefault()
       moreActionsOpen.value = false
-      skipDialogOpen.value = false
     }
     return
   }
@@ -2026,6 +2093,7 @@ watch(
             v-else
             class="jc-player-wrap"
         :class="{ 'is-danmu-none': danmuNone, 'is-danmu-off': danmuOff }"
+        @click.capture="onWrapClickCapture"
             :data-loading="loading ? '1' : '0'"
             @touchstart="onPlayerTouchStart"
             @touchmove="onPlayerTouchMove"
@@ -2200,6 +2268,7 @@ watch(
             <!-- 分享: 点击复制链接 -->
             <BaseButton variant="ghost" size="lg" :aria-label="shareLabel" :title="shareLabel" @click="handleShare">
               <template #icon><BaseIcon name="share" size="18px" /></template>
+              {{ shareLabel }}
             </BaseButton>
             <!-- 更多: 收纳 自动连播 / 过滤广告 / 线路测速 / 跳过设置 -->
             <div class="jc-pt-more">
@@ -2218,11 +2287,7 @@ watch(
                   </button>
                   <button type="button" class="jc-pt-more__item" @click="router.push('/settings'); moreActionsOpen = false">
                     <BaseIcon name="settings" size="16px" />
-                    <span class="jc-pt-more__item-label">播放设置</span>
-                  </button>
-                  <button type="button" class="jc-pt-more__item" @click="openSkipDialog(); moreActionsOpen = false">
-                    <BaseIcon name="settings" size="16px" />
-                    <span class="jc-pt-more__item-label">跳过设置</span>
+                    <span class="jc-pt-more__item-label">全局播放设置</span>
                   </button>
                   <button type="button" class="jc-pt-more__item" @click="clearFilmCache">
                     <BaseIcon name="trash" size="16px" />
@@ -2235,72 +2300,9 @@ watch(
         </div>
       </header>
 
-      <!-- 跳片头片尾设置 (按 filmId 持久化在 localStorage / 登录后随账号同步)
-           §C7 留档(记录不修): BaseDialog 默认 teleport 到 body(teleportTo 默认 'body', BaseDialog.vue),
-           而全屏元素是 art 根(.art-video-player) —— 若本弹窗在全屏内唤起将不可见(DOM 落在全屏元素外)。
-           当前跳过设置入口只在页面工具条/「更多」菜单, 全屏内不可达(无入口, 修了反而扩范围, 方案 §C7
-           拍板不动); 预案 = BaseDialog.teleportTo 指向 playerOverlayHost(能力已预留)。 -->
-      <BaseDialog v-model:visible="skipDialogOpen" title="跳过片头/片尾" width="380px">
-        <div class="flex flex-col gap-[var(--jc-space-4)]">
-          <p class="text-sm text-secondary">
-            仅对本剧生效。保存后<strong>立即生效</strong>(片尾阈值即时更新; 若仍在片头区会自动跳过新片头)。
-          </p>
-          <!-- 总开关: 关掉 = 本剧不跳, 秒数原样保留(不用把秒数改成 0 丢原值) -->
-          <button
-            type="button"
-            class="jc-skip-switch"
-            :class="{ 'is-on': draftEnabled }"
-            role="switch"
-            :aria-checked="draftEnabled"
-            data-focusable="true"
-            @click="draftEnabled = !draftEnabled"
-          >
-            <BaseSwitch :model-value="draftEnabled" size="sm" />
-            <span class="jc-skip-switch__label">启用跳过</span>
-            <span class="jc-skip-switch__state">{{ draftEnabled ? '已开启' : '已关闭' }}</span>
-          </button>
-          <label
-            class="flex items-center gap-[var(--jc-space-3)]"
-            :class="{ 'opacity-40': !draftEnabled }"
-          >
-            <span class="w-[80px] text-sm">片头 (秒)</span>
-            <input
-              v-model.number="draftIntro"
-              type="number"
-              min="0"
-              max="600"
-              step="10"
-              :disabled="!draftEnabled"
-              class="flex-1 bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-base"
-              data-focusable="true"
-            />
-          </label>
-          <label
-            class="flex items-center gap-[var(--jc-space-3)]"
-            :class="{ 'opacity-40': !draftEnabled }"
-          >
-            <span class="w-[80px] text-sm">片尾 (秒)</span>
-            <input
-              v-model.number="draftOutro"
-              type="number"
-              min="0"
-              max="600"
-              step="10"
-              :disabled="!draftEnabled"
-              class="flex-1 bg-elevated text-primary border border-default rounded-[var(--jc-radius-md)] px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-base"
-              data-focusable="true"
-            />
-          </label>
-          <p class="text-xs text-muted">
-            默认 90 / 60。设为 0 = 不跳; 关闭上方开关 = 本剧不跳(秒数仍保留)。
-          </p>
-        </div>
-        <template #footer>
-          <BaseButton variant="ghost" @click="resetSkip">恢复默认</BaseButton>
-          <BaseButton variant="ghost" @click="skipDialogOpen = false">取消</BaseButton>
-          <BaseButton variant="gradient" @click="saveSkip">保存</BaseButton>
-        </template>
-      </BaseDialog>
+      <!-- 跳过片头/片尾设置已迁入**播放器设置浮窗**（2026-11-06 用户要求；3 行：开关 / 片头 / 片尾，
+           时长用 10s 一档 0–180s 的 selector）。顺带修掉此处原留档问题：原 BaseDialog 默认 teleport 到
+           body，全屏内唤起会落在全屏元素外不可见；现在入口在播放器设置面板里，全屏下天然可见。 -->
 
 
       <!-- 播放设置面板已移入 Teleport (见上方)，全屏可见。此处不再重复渲染。 -->
