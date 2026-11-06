@@ -98,7 +98,8 @@ compat.css        （老内核回退，必须最后）
 1. `.jc-hotarea` 的 `position` 必须写在 `:where(...)` 里；
 2. `.jc-field:focus*` 必须**同时**含 `outline: none` 与 `box-shadow: none`；
 3. `--jc-border-ctrl-focus` 必须是品牌紫（`155, 73, 231`）；
-4. `.jc-scrollauto` 必须是「常占位 `thin` + 透明拇指 + `overscroll-behavior: contain`」，且不得出现 `scrollbar-width: none`；
+4. `.jc-scrollauto` 必须是「常占位 `thin` + 透明拇指」；**`overscroll-behavior` 不得写在裸 `.jc-scrollauto` 上**，
+   只能挂在 `.is-scrollable` + 轴向修饰（`jc-scroll-x` / `jc-scroll-y`）上，且另一轴留 `auto`；
 5. 选源条（`EpisodeTabs.vue`）不得再自行 `scrollbar-width: none` / `::-webkit-scrollbar{display:none}`。
 
 **新增防呆**：往里加一条 `it(...)` 即可 —— 典型形态是「读某个文件 → 断言含 / 不含某段文本」。

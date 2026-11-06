@@ -52,7 +52,11 @@
   语义 = **常占位 thin 细条（不产生布局跳动）+ 拇指透明→滚动时显形→停止 700ms 收起**。
   - 不要用 `scrollbar-width: none ↔ thin` 切换（部分内核下切换不生效 → “永远看不到滚动条”）。
   - 已落地：选源横向条、选集网格、管理后台主区（`.jc-manage-main`）。
-- **内层滑到头不带动外层**：`.jc-scrollauto` 自带 `overscroll-behavior: contain`（滚动链的标准解法，无需 JS）。
+- **内层滑到头不带动外层（滚动链）**：`overscroll-behavior` **只在「自身真的可滚」时、且只锁真正滚动的那一轴**：
+  容器加 `class="jc-scrollauto"` 之外还要声明轴向 —— 横向条 `jc-scroll-x`、纵向容器 `jc-scroll-y`；
+  `.is-scrollable` 由 `useAutoHideScrollbar`（按 `scrollHeight/Width vs client*`）自动维护。
+  ⚠️ 反例（2026-11-06 实测）：把 `overscroll-behavior: contain` 无条件写在裸 `.jc-scrollauto` 上 ——
+  元素**无可滚内容**时它会把滚轮一并吃掉，表现为「鼠标放在该区域滚，内层不动、外层也不动」。
 - **层叠（同特异性后者胜）** —— `virtual:uno.css` → … → `theme.css` → 组件 `<style>`：
   - theme.css 中「会被工具类使用的属性」用 `:where()` 包一层（见 CLAUDE.md「Web CSS 层叠约定」）；
   - 组件内不要写否定型规则去盖 theme.css 的通用类（滚动条 / position / outline 三类都栽过）。
