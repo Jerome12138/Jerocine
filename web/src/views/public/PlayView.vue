@@ -60,7 +60,7 @@ import posterFallback from '@/assets/play.svg'
 
 const route = useRoute()
 const router = useRouter()
-const { isTV, isDesktop, isMobile } = useViewMode()
+const { isMobile } = useViewMode()
 
 /** PC(A方案)按钮"更多"展开态: 一行放不下的低频项收进这里 */
 const moreActionsOpen = ref(false)
@@ -1618,71 +1618,6 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
   }
 }
 
-/** TV: 保留 D-pad 焦点导航语义 —— OK/空格激活焦点按钮, 无焦点时控制播放器 */
-function handleTvKeydown(e: KeyboardEvent, key: string, tag: string | undefined): void {
-  // 方向键收敛(P1-3, 复审项2 重写): 空间导航 capture 层移动焦点后, 事后读
-  // document.activeElement 已是移动后位置(兜底 seek 永不可达) —— 改判 **e.target**:
-  // 事件派发时的目标(播放器容器/页面空白)才是"用户意图操作播放器"的信号;
-  // e.target 落在 data-focusable 控件上则交给空间导航移动焦点。
-  const arrowKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']
-  if (arrowKeys.includes(key)) {
-    const el = e.target as HTMLElement | null
-    if (el && el.closest('[data-focusable="true"]')) {
-      return // 用户意图在控件间移动焦点: 交给空间导航
-    }
-  }
-  switch (key) {
-    case ' ':
-    case 'Spacebar':
-    case 'Enter': {
-      // OK / 空格：暂停 / 播放（仅当焦点不在按钮上）
-      if (tag === 'button' || tag === 'a') {
-        return
-      }
-      e.preventDefault()
-      if (paused.value) {
-        void playerPlay()
-      } else {
-        playerPause()
-      }
-      break
-    }
-    case 'ArrowLeft':
-      e.preventDefault()
-      playerSeekBy(-10)
-      break
-    case 'ArrowRight':
-      e.preventDefault()
-      playerSeekBy(10)
-      break
-    case 'ArrowUp': {
-      e.preventDefault()
-      const cur = player.value?.volume ?? 0.6
-      playerSetVolume(Math.min(1, cur + 0.05))
-      break
-    }
-    case 'ArrowDown': {
-      e.preventDefault()
-      const cur = player.value?.volume ?? 0.6
-      playerSetVolume(Math.max(0, cur - 0.05))
-      break
-    }
-    case 'Escape':
-      // §C7: 选集面板打开时 Esc 先关面板(与桌面分支同语义), 关了面板才返回详情页
-      if (episodePickerOpen.value) {
-        e.preventDefault()
-        closeEpisodePicker()
-        return
-      }
-      // 返回详情页
-      e.preventDefault()
-      goBackToDetail()
-      break
-    default:
-      break
-  }
-}
-
 function handleKeydown(e: KeyboardEvent): void {
   // 输入框聚焦时不拦截
   const target = e.target as HTMLElement | null
@@ -1691,11 +1626,7 @@ function handleKeydown(e: KeyboardEvent): void {
     return
   }
   const key = normalizeDpadKey(e)
-  if (isTV.value) {
-    handleTvKeydown(e, key, tag)
-  } else {
-    handleDesktopKeydown(e, key, target)
-  }
+  handleDesktopKeydown(e, key, target)
 }
 
 /** #3: 清理本视频的播放缓存 —— 删除该片全部观看历史(影片级 + 所有源/集的独立进度),
@@ -2010,15 +1941,6 @@ watch(
     }
   }
 )
-
-/** TV 模式下首次进入页面把焦点放到播放器（playerReady 后） */
-watch(playerReady, (v) => {
-  if (v && isTV.value) {
-    nextTick(() => {
-      playerEl.value?.focus()
-    })
-  }
-})
 </script>
 
 <template>
@@ -2200,55 +2122,10 @@ watch(playerReady, (v) => {
               </RouterLink>
             </div>
 
-        <!-- TV 端 (C 方案): 图标工具条, 一排等宽图标+小字 -->
-        <div
-          v-if="isTV"
-          class="jc-play-toolbar jc-play-toolbar--tv"
-          role="toolbar"
-          aria-label="播放操作"
-        >
-          <button type="button" class="jc-pt-btn jc-pt-btn--primary" :disabled="!hasNext" data-focusable="true" @click="playNext(undefined)">
-            <BaseIcon name="skip-next" size="26px" /><span>下一集</span>
-          </button>
-          <button type="button" class="jc-pt-btn" :class="autoPlayNext ? 'is-on' : ''" :aria-pressed="autoPlayNext" data-focusable="true" @click="toggleAutoPlayNext">
-            <BaseIcon name="autoplay" size="26px" /><span>连播</span>
-          </button>
-          <button type="button" class="jc-pt-btn" :class="testingLines ? 'is-loading' : ''" data-focusable="true" @click="testLines">
-            <BaseIcon name="refresh" size="26px" /><span>测速</span>
-          </button>
-          <button v-if="fastestLineId && fastestLineId !== currentSourceId" type="button" class="jc-pt-btn jc-pt-btn--accent" data-focusable="true" @click="switchToFastest">
-            <BaseIcon name="skip-next" size="26px" /><span>最快</span>
-          </button>
-          <button type="button" class="jc-pt-btn" :class="adFilter ? 'is-on' : ''" :aria-pressed="adFilter" data-focusable="true" @click="toggleAdFilter">
-            <BaseIcon name="shield" size="26px" /><span>广告</span>
-          </button>
-          <button
-            type="button"
-            class="jc-pt-btn"
-            :class="[{ 'is-on': danmakuEnabled && !danmakuUnavailable }, danmakuUnavailable ? 'is-disabled' : '']"
-            :aria-pressed="danmakuEnabled"
-            :aria-disabled="danmakuUnavailable"
-            :title="danmakuUnavailable ? danmakuHint : danmakuEnabled ? '关闭弹幕' : '开启弹幕'"
-            data-focusable="true"
-            @click="onDanmakuEntryClick"
-          >
-            <BaseIcon name="chat" size="26px" /><span>弹幕</span>
-          </button>
-          <button type="button" class="jc-pt-btn" :class="favorited ? 'is-on' : ''" :aria-pressed="favorited" data-focusable="true" @click="toggleFavorite">
-            <BaseIcon name="star" size="26px" /><span>{{ favorited ? '已收藏' : '收藏' }}</span>
-          </button>
-          <button type="button" class="jc-pt-btn" data-focusable="true" @click="openSkipDialog">
-            <BaseIcon name="settings" size="26px" /><span>跳过</span>
-          </button>
-          <button type="button" class="jc-pt-btn" data-focusable="true" @click="router.push('/settings')">
-            <BaseIcon name="settings" size="26px" /><span>设置</span>
-          </button>
-        </div>
-
         <!-- PC / 移动: 主操作区只留高频(下集 / 收藏 / 切到最快);
              自动连播 / 过滤广告 / 线路测速 / 跳过设置 默认收进"更多"下拉, 减少拥挤。
              桌面端由 .jc-play-info 的栅格放到标题行右侧(与影片名同行), 移动端留在标签行下方。 -->
-        <div v-else class="jc-play-toolbar jc-play-toolbar--main">
+        <div class="jc-play-toolbar jc-play-toolbar--main">
           <!-- 组1 播放控制 -->
           <div class="jc-pt-group jc-pt-group--primary">
             <BaseButton variant="gradient" size="sm" :disabled="!hasNext" @click="() => playNext()">
@@ -2278,8 +2155,8 @@ watch(playerReady, (v) => {
               <template #icon><BaseIcon name="skip-next" size="18px" /></template>
               切到最快
             </BaseButton>
-            <!-- 分享: TV 无复制场景不显示; 桌面/移动/Pad 显示, 点击复制链接 -->
-            <BaseButton v-if="!isTV" variant="ghost" size="sm" :aria-label="shareLabel" :title="shareLabel" @click="handleShare">
+            <!-- 分享: 点击复制链接 -->
+            <BaseButton variant="ghost" size="sm" :aria-label="shareLabel" :title="shareLabel" @click="handleShare">
               <template #icon><BaseIcon name="share" size="18px" /></template>
             </BaseButton>
             <!-- 更多: 收纳 自动连播 / 过滤广告 / 线路测速 / 跳过设置 -->
@@ -2605,7 +2482,7 @@ watch(playerReady, (v) => {
   color: var(--jc-text-primary);
   background-color: rgba(255, 255, 255, 0.06);
 }
-/* TV 焦点环(面板关闭钮): 与 jc-pt-btn 同 token, 空间导航定位依赖 */
+/* TV 焦点环(面板关闭钮): 统一 --jc-tv-focus-ring token(纯 TV 浏览器直开 /play 的兜底场景) */
 [data-mode='tv'] .jc-fs-picker__close:focus,
 [data-mode='tv'] .jc-fs-picker__close:focus-visible {
   outline: none;
@@ -2732,7 +2609,7 @@ watch(playerReady, (v) => {
 /* 平板及以上(≥768px): 首行 = 标题(可单行省略) + 操作按钮组(靠右), 标签行独占第二行。
    断点对齐 useViewMode 的 tablet 档(768-1023) —— 900px 左右也能把按钮收到标题行右侧;
    仅移动端(<768)保持"按钮另起一行"。
-   仅在渲染了 PC/移动按钮组(非 TV)时切换为栅格 —— TV 工具条保持整行在下方。 */
+   仅在渲染了 PC/移动按钮组时切换为栅格(:has 守卫, TV 分支已删但保留守卫不动级联)。 */
 @media (min-width: 768px) {
   .jc-play-info:has(.jc-play-toolbar--main) {
     display: grid;
@@ -3189,71 +3066,6 @@ watch(playerReady, (v) => {
   height: 52px;
 }
 /* TV: 居中播放按钮(art-state)放大 —— 官方 CSS 变量已在上方统一调整 */
-
-/* ===== TV 工具条 (C: 图标 + 小字, 一排等宽) ===== */
-.jc-play-toolbar--tv {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--jc-space-3);
-  /* 焦点环不被裁 */
-  padding-block: 8px;
-}
-.jc-pt-btn {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 88px;
-  padding: var(--jc-space-3) var(--jc-space-3);
-  background-color: var(--jc-bg-elevated);
-  border: none;
-  border-radius: var(--jc-radius-md);
-  color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
-  font-weight: var(--jc-fw-medium);
-  cursor: pointer;
-  transition:
-    background-color var(--jc-dur-fast) var(--jc-ease-standard),
-    color var(--jc-dur-fast) var(--jc-ease-standard);
-}
-.jc-pt-btn span {
-  font-size: var(--jc-fs-sm);
-  white-space: nowrap;
-}
-.jc-pt-btn.is-on {
-  color: var(--jc-brand-cyan);
-}
-/* 弹幕不可用(无源/查无/失败): 置灰但仍可聚焦可点击(TV 遥控器也要能选中看原因) */
-.jc-pt-btn.is-disabled {
-  color: var(--jc-text-tertiary, var(--jc-text-secondary));
-  opacity: 0.55;
-  cursor: default;
-}
-.jc-pt-btn--primary {
-  background-image: var(--jc-brand-gradient);
-  color: #fff;
-}
-.jc-pt-btn--accent {
-  color: var(--jc-brand-cyan);
-  border: 1px solid var(--jc-brand-cyan);
-}
-.jc-pt-btn:disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
-.jc-pt-btn.is-loading {
-  opacity: 0.6;
-  pointer-events: none;
-}
-/* TV 焦点: 细环(不被裁), 统一 token */
-[data-mode='tv'] .jc-pt-btn:focus,
-[data-mode='tv'] .jc-pt-btn:focus-visible {
-  outline: none;
-  box-shadow: var(--jc-tv-focus-ring);
-  background-color: rgba(255, 255, 255, 0.1);
-  color: var(--jc-text-primary);
-}
 
 /* 桌面/移动(非 TV): 只灭鼠标点击落下的 :focus 焦点框; :focus-visible(键盘 Tab)保留
    —— WCAG 2.4.7 焦点可见性(此前连键盘焦点环一起灭, 键盘用户在工具条/菜单里丢失位置)。
