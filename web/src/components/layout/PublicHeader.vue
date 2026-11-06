@@ -1026,7 +1026,7 @@ watch(
                 v-for="sub in sidebarChildren(nav)"
                 :key="sub.id"
                 :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
-                class="inline-flex items-center h-[var(--jc-ctrl-h)] text-[length:var(--jc-ctrl-fs)] text-secondary bg-[rgba(255,255,255,0.08)] px-[var(--jc-ctrl-px)] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
+                class="inline-flex items-center h-[var(--jc-ctrl-h-sm)] text-[length:var(--jc-ctrl-fs-sm)] text-secondary bg-[rgba(255,255,255,0.08)] px-[var(--jc-ctrl-px-sm)] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
                 data-focusable="true"
               >
                 {{ sub.name }}
@@ -1178,7 +1178,7 @@ watch(
                   v-for="sub in sidebarChildren(nav)"
                   :key="sub.id"
                   :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
-                  class="inline-flex items-center h-[var(--jc-ctrl-h)] text-[length:var(--jc-ctrl-fs)] text-secondary bg-[rgba(255,255,255,0.08)] px-[var(--jc-ctrl-px)] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
+                  class="inline-flex items-center h-[var(--jc-ctrl-h-sm)] text-[length:var(--jc-ctrl-fs-sm)] text-secondary bg-[rgba(255,255,255,0.08)] px-[var(--jc-ctrl-px-sm)] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
                   data-focusable="true"
                   @click="closeMobile"
                 >
