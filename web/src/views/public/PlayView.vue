@@ -898,6 +898,8 @@ const danmaku = useDanmaku({
   title: computed(() => detail.value?.name ?? ''),
   year: computed(() => detail.value?.year),
   episode: computed(() => currentEpisodeIndex.value + 1),
+  // 集名（可选）：后端据此按「同日期/同期号 + 同变体」对集（综艺类集序号与弹幕库期号会错位）
+  episodeName: computed(() => currentEpisode.value?.episode ?? ''),
   player,
   // 实际生效 = 用户级; 任一变化触发 useDanmaku watch 重载
   enabled: danmakuActive

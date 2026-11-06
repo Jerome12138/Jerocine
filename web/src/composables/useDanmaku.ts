@@ -177,6 +177,10 @@ export interface UseDanmakuOptions {
   year: Ref<number | undefined>
   /** 集号（1 起；对应我们自己的集序, 服务端按集号定位） */
   episode: Ref<number>
+  /** App 侧集名（如「20260803(第1期上)」）—— 传给后端做「同日期/同期号 + 同变体」的集匹配
+   *  （综艺类第三方源集序号与弹幕库期号普遍错位，只有集名能对上；留空则走旧策略）。
+   *  可选：老调用方（含测试夹具）不传即等同留空。 */
+  episodeName?: Ref<string>
   /** 播放器实例（ready 前为 null；插件实例从 art.plugins 取） */
   player: ShallowRef<Artplayer | null>
   /** 开关 */
@@ -260,7 +264,9 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     const mid = opts.mid.value
     if (mid === undefined) return Promise.reject(new Error('no mid'))
     const ep = Math.max(1, opts.episode.value)
-    const key = `${mid}:${ep}`
+    // 注意：必须与 currentLoadKey() 用**同一个** key —— 两处格式不一致会导致「写进 aggCache、读不到」
+    // （2026-11-06 踩过：cache key 加了集名后忘了同步这里，整条链路恒 empty）
+    const key = currentLoadKey() ?? `${mid}:${ep}`
     // 复审提示项: in-flight 去重 key 掺 range —— 预取在途时 force 重载同集
     // 若共享 key 会拿到错误 range 的响应造成池缺段
     const flightKey = `${key}#${from}-${to}`
@@ -272,8 +278,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     const attempt = (): Promise<DanmuAggregateResp> => {
       const { promise } = withTimeout(
         (signal) =>
-          filmApi.getDanmuAggregate(
-            { title: opts.title.value, episode: ep, year: opts.year.value, from, to },
+    filmApi.getDanmuAggregate(
+      { title: opts.title.value, episode: ep, year: opts.year.value, from, to, epTitle: opts.episodeName?.value ?? '' },
             { signal }
           ),
         DANMAKU_FETCH_TIMEOUTS.aggregate,
@@ -342,7 +348,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   /** 当前集 key（`mid:episode`）；关→开同集即时恢复用（不重新拉取装载） */
   function currentLoadKey(): string | null {
     const mid = opts.mid.value
-    return mid === undefined ? null : `${mid}:${opts.episode.value}`
+    return mid === undefined ? null : `${mid}:${opts.episode.value}:${opts.episodeName?.value ?? ''}`
   }
   /** 已成功装载内容的集 key；null = 尚未装载/需重装 */
   let loadedKey: string | null = null
@@ -604,7 +610,7 @@ export function useDanmaku(opts: UseDanmakuOptions) {
 
   /* ---- 开关 / 集号 / 影片（纳入触发条件; immediate: 初始 enabled=true 的老用户进页即装载） ---- */
   watch(
-    () => [opts.enabled.value, opts.mid.value, opts.episode.value, opts.title.value] as const,
+    () => [opts.enabled.value, opts.mid.value, opts.episode.value, opts.title.value, opts.episodeName?.value ?? ''] as const,
     () => {
       void loadDanmaku()
     },
