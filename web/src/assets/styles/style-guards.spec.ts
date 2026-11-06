@@ -68,6 +68,13 @@ describe('样式防呆：CSS 层叠陷阱', () => {
     expect(read('../../components/layout/ManageLayout.vue')).toMatch(/jc-scrollauto jc-scroll-[xy]/)
   })
 
+  it('选集浮窗「点外关闭」必须精确排除选集按钮（标记属性两端一致）', () => {
+    // 反例(2026-11-06): 一开始把整条控制栏 .art-bottom 都排除 → 点控制条不关、点视频才关，行为不一致。
+    expect(read('../../composables/usePlayer.ts')).toMatch(/setAttribute\('data-jc-episode-picker'/)
+    expect(read('../../views/public/PlayView.vue')).toMatch(/closest\('\[data-jc-episode-picker\]'\)/)
+    expect(read('../../views/public/PlayView.vue')).not.toMatch(/closest\('\.art-bottom'\)/)
+  })
+
   it('组件里不得给集格写死 overscroll-behavior（会盖掉 .jc-scroll-y 的"可滚才锁"门控）', () => {
     // 反例(2026-11-06 实测): PlayView 里 `.jc-play-grid__aside :deep(.jc-episode-grid){overscroll-behavior:contain}`
     // 特异性高于 theme.css 的门控规则 → 网格无可滚内容时把滚轮整个吃掉。

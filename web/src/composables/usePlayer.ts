@@ -251,9 +251,13 @@ function buildNextEpisodeButton(): HTMLElement {
   return svgStringToNode(NEXTTV_NEXT_EPISODE_SVG)
 }
 
-/** 创建「选集」列表图标按钮内容节点(方案 §C7, 同 .art-icon 包裹范式)。 */
+/** 创建「选集」列表图标按钮内容节点(方案 §C7, 同 .art-icon 包裹范式)。
+ *  打上 `data-jc-episode-picker` 标记：供 PlayView 的「点外关闭」**精确**排除本按钮
+ *  （artplayer 的控件 DOM 只有 `.art-control` 类、不带 name，只能靠自标记区分）。 */
 function buildEpisodePickerButton(): HTMLElement {
-  return svgStringToNode(NEXTTV_EPISODE_LIST_SVG)
+  const node = svgStringToNode(NEXTTV_EPISODE_LIST_SVG)
+  node.setAttribute('data-jc-episode-picker', '')
+  return node
 }
 
 /** SVG 字符串 → DOM 节点(nextTV 图标写法: 22x22 viewBox 24 fill currentColor)。

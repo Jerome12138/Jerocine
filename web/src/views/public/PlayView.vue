@@ -1538,13 +1538,15 @@ function closeEpisodePicker(): void {
 
 /**
  * 点面板外任意处自动关闭 —— 与播放器自带设置浮窗同款交互（2026-11-06 用户要求）。
- * 用捕获阶段监听，且**刻意排除控制条**(.art-bottom)：这样再点一次「选集」按钮仍是 toggle 开合，
- * 而不是"先被这里关掉、再被按钮打开"。
+ * 用捕获阶段监听；**只排除「选集」按钮自己**（靠 usePlayer 打的 data-jc-episode-picker 标记）：
+ *   · 点控制条其它按钮（播放/音量/全屏/设置…）→ 关面板 ✓ 与"点视频关闭"一致；
+ *   · 点「选集」按钮本身 → 交给按钮的 toggle 开合 ✓
+ *     （若把整条控制栏都排除，就会变成"点控制条不关、点视频才关"的不一致行为）
  */
 function onDocPointerDown(e: PointerEvent): void {
   if (!episodePickerOpen.value) return
   const t = e.target as HTMLElement | null
-  if (!t || t.closest('.jc-fs-picker') || t.closest('.art-bottom')) return
+  if (!t || t.closest('.jc-fs-picker') || t.closest('[data-jc-episode-picker]')) return
   closeEpisodePicker()
 }
 onMounted(() => document.addEventListener('pointerdown', onDocPointerDown, true))
