@@ -2603,15 +2603,8 @@ watch(
 }
 
 /* ===== §C7 全屏选集面板(Teleport 进 art 根) ===== */
-/* 「选集」控件按钮: 非全屏隐藏, 真/网页全屏显示(art 根类 art-fullscreen / art-fullscreen-web 驱动,
-   桌面/移动一致)。显示时保留 .art-control 的 flex 布局。 */
-.jc-player :deep(.art-control-episode-picker) {
-  display: none;
-}
-.jc-player :deep(.art-fullscreen) .art-control-episode-picker,
-.jc-player :deep(.art-fullscreen-web) .art-control-episode-picker {
-  display: flex;
-}
+/* 「选集」控件按钮的显隐规则已挪到文末的**全局样式块**（2026-11-06）：
+   需要匹配被 artplayer 搬进 <body> 的播放器元素，作用域（祖先）选择器够不到，见那里的注释。 */
 
 /* 全屏选集面板（2026-11-06 重做）：对齐**播放器自带设置浮窗**(.art-settings)的样式与定位 ——
  * 右下角贴控制条上沿、max-height 60vh、rgba(0,0,0,.75) + 背景模糊、圆角 6px、内容自身滚动。
@@ -3255,5 +3248,18 @@ watch(
 }
 /* TV/安卓壳: 倍速/设置面板由 ArtPlayer settings 组件提供, 默认样式已适配触屏, 不再特调 */
 
+/* ===== 「选集」控件按钮：仅**真全屏**显示（2026-11-06 修「非全屏也有选集按钮」）=====
+ * 为什么原来会漏：旧规则是作用域祖先选择器 `.jc-player .art-control-episode-picker`。
+ *   artplayer 的**网页全屏**（`fullscreenWebInBody` 默认 true）会把整个 `.art-video-player`
+ *   搬进 `<body>`（退出时再搬回）—— 那一刻所有 `.jc-player …` 祖先选择器全部失效，
+ *   按钮退回 artplayer 自带的 `.art-controls .art-control{display:flex}`，于是在
+ *   「看着像非全屏」的网页全屏里、以及进出网页全屏的瞬间露了出来。
+ * 改法：只看**播放器元素自身的类**，不再依赖祖先链（元素搬到 <body> 也照样命中）。
+ *   非真全屏一律隐藏 —— 网页全屏也不再显示（用户 2026-11-06 要求非全屏不显示；
+ *   上一版"网页全屏也显示"的取舍随之取消）。
+ * 特异性 (0,3,0) 高于 artplayer 的 `.art-controls .art-control` (0,2,0)，无需 !important。 */
+.art-video-player:not(.art-fullscreen) .art-control-episode-picker {
+  display: none;
+}
 
 </style>

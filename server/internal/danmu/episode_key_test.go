@@ -15,7 +15,19 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"20260807(第1期陪看上)", EpisodeKey{Date: "20260807", Num: 1, Part: "上", Variant: "陪看"}},
 		{"20260731(先导片上)", EpisodeKey{Date: "20260731", Part: "上", Variant: "先导"}},
 		{"20260805(超前彩蛋)", EpisodeKey{Date: "20260805", Variant: "彩蛋|超前"}},
-		{"20260128未公开特辑", EpisodeKey{Date: "20260128", Variant: "未公开|特辑"}},
+		// 无意义后缀（会员/未公开/未播/直拍/完整版/未删减）解析前剔除 → 等价于「20260128特辑」
+		{"20260128未公开特辑", EpisodeKey{Date: "20260128", Variant: "特辑"}},
+		{"20260803完整版", EpisodeKey{Date: "20260803"}},
+		{"20260805超前彩蛋未播", EpisodeKey{Date: "20260805", Variant: "彩蛋|超前"}},
+		{"会员版", EpisodeKey{}},
+		// 主/次部分细分（2026-11-06）：中（上）/ 中（下）不再塌成同一键
+		{"20260818中（下）", EpisodeKey{Date: "20260818", Part: "中", Sub: "下"}},
+		{"20260831中上", EpisodeKey{Date: "20260831", Part: "中", Sub: "上"}},
+		{"第3期中（上）", EpisodeKey{Num: 3, Part: "中", Sub: "上"}},
+		{"第3期中（下）", EpisodeKey{Num: 3, Part: "中", Sub: "下"}},
+		{"第3期中", EpisodeKey{Num: 3, Part: "中"}},
+		// 摘要正文里的 上/下 不算次部分（必须紧邻、最多隔一个左括号）
+		{"第1期中：上集回顾", EpisodeKey{Num: 1, Part: "中"}},
 		{"20260921上", EpisodeKey{Date: "20260921", Part: "上"}},
 		{"20250803", EpisodeKey{Date: "20250803"}},
 		{"第9期上", EpisodeKey{Num: 9, Part: "上"}},
@@ -53,6 +65,11 @@ func TestSameEpisode_KeyRules(t *testing.T) {
 		{"E圆号同 → 同集", ParseEpisodeKey("E01.220705"), ParseEpisodeKey("E01"), true},
 		{"无特征键之间不判同(避免误配)", ParseEpisodeKey("正片"), ParseEpisodeKey("正片"), false},
 		{"App 有变体、库无变体 → 判不同(宁缺勿错)", ParseEpisodeKey("20250712(加更篇)"), ParseEpisodeKey("第7期"), false},
+		// 2026-11-06 修订：主/次部分必须一致（此前被日期/期号相同掩盖）
+		{"库「第3期中（上）」vs「第3期中（下）」→ 次部分不同, 判不同", ParseEpisodeKey("第3期中（上）"), ParseEpisodeKey("第3期中（下）"), false},
+		{"App「第3期中」vs 库「第3期中（上）」→ 一方无次部分, 视为通配, 判同", ParseEpisodeKey("第3期中"), ParseEpisodeKey("第3期中（上）"), true},
+		{"同日期不同支：「20260803上」vs「20260803中」→ 判不同(日期不再掩盖主部分)", ParseEpisodeKey("20260803上"), ParseEpisodeKey("20260803中"), false},
+		{"同日期不同次支：「20260818中（下）」vs「20260818中（上）」→ 判不同", ParseEpisodeKey("20260818中（下）"), ParseEpisodeKey("20260818中（上）"), false},
 	}
 	for _, c := range cases {
 		if got := SameEpisode(c.a, c.b); got != c.want {
