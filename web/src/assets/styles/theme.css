@@ -29,7 +29,7 @@
   --jc-border-strong: rgba(255, 255, 255, 0.24);
   /* 控件描边专用档(输入/选择/勾选静默态): 0.12/0.24 在深色底+小尺寸下几乎不可见(2026-11-05 用户反馈) */
   --jc-border-ctrl: rgba(255, 255, 255, 0.3);
-  --jc-border-ctrl-focus: rgba(255, 255, 255, 0.55);
+  --jc-border-ctrl-focus: rgba(155, 73, 231, 0.55);
   --jc-border-brand: #e50914;
 
   /* ---------- 状态 ---------- */
@@ -354,8 +354,45 @@ body {
 :focus-visible {
   outline: 2px solid var(--jc-brand-cyan);
   outline-offset: 2px;
-  box-shadow: var(--jc-shadow-focus-ring);
-  transition: box-shadow var(--jc-dur-fast) var(--jc-ease-standard);
+}
+
+/* ===== 表单控件(输入/多行/选择)聚焦：不套上面这条全局青色 outline，只留紫色描边 =====
+ * 2026-11-06 用户报：管理后台点进输入框/选择框会冒出"只在 TV 上见过"的青色粗框 ——
+ * 成因同 2026-11-05 的 .jc-hotarea 事故：全局 :focus-visible(theme.css) 在 uno.css 之后加载，
+ * 同特异性下把控件自带的 .outline-none 压掉了。
+ * 这里用 (0,2,0) 的 .jc-field 明确压过全局 (0,1,0)；描边颜色由 --jc-border-ctrl-focus(紫)给。
+ * 非表单控件（按钮/链接/卡片）仍保留全局青色焦点环，键盘可达性不降级。 */
+.jc-field:focus,
+.jc-field:focus-visible,
+.jc-field:focus-within {
+  outline: none;
+}
+
+/* ===== 滚动条自动显隐（2026-11-06）=====
+ * 与侧栏 .jc-mnav__body 既有范式同款：静止时隐藏, 滚动中显 6px 细条, 停止 700ms 后收起
+ * （.is-scrolling 由 composables/useAutoHideScrollbar 加/删）。
+ * 纵向/横向通用。给滚动容器加 class="jc-scrollauto" 即可。 */
+.jc-scrollauto {
+  scrollbar-width: none;
+}
+.jc-scrollauto.is-scrolling {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+.jc-scrollauto::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.jc-scrollauto.is-scrolling::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.jc-scrollauto::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.28);
+  border-radius: var(--jc-radius-full);
+}
+.jc-scrollauto::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* ============================================================

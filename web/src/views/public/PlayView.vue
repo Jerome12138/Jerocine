@@ -2523,15 +2523,11 @@ watch(
   overscroll-behavior: contain;
   align-content: start;
   padding-right: var(--jc-space-1);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  /* 滚动条改由 .jc-scrollauto(EpisodeTabs 挂在网格上) 统一接管：静止隐藏, 滚动显 6px 细条 */
 }
-.jc-fs-picker__body :deep(.jc-episode-grid)::-webkit-scrollbar {
-  width: 8px;
-}
-.jc-fs-picker__body :deep(.jc-episode-grid)::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+/* 短名紧凑：本面板默认 auto-fill(96px 下限) → 折半用 48px 下限 */
+[data-mode]:not([data-mode='tv']) .jc-fs-picker__body :deep(.jc-episode-grid--compact) {
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
 }
 
 .jc-player-loading {
@@ -2826,18 +2822,11 @@ watch(
     overscroll-behavior: contain;
     align-content: start;
     padding-right: var(--jc-space-1);
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    /* 滚动条改由 .jc-scrollauto(EpisodeTabs 挂在网格上) 统一接管 */
   }
-  .jc-play-grid__aside :deep(.jc-episode-grid)::-webkit-scrollbar {
-    width: 8px;
-  }
-  .jc-play-grid__aside :deep(.jc-episode-grid)::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-  }
-  .jc-play-grid__aside :deep(.jc-episode-grid)::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.35);
+  /* 短名紧凑：右栏默认 2 列 → 折半 4 列 */
+  .jc-play-grid__aside :deep(.jc-episode-grid--compact) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

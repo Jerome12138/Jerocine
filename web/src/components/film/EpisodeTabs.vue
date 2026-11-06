@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useAutoHideScrollbar } from '@/composables/useAutoHideScrollbar'
 import type { PlaySource } from '@/types/film'
 
 interface Props {
@@ -217,6 +218,33 @@ watch(
   () => props.sources,
   () => nextTick(syncScrollFade)
 )
+/** 滚动条自隐：选源横向条 / 集数网格滚动时显 6px 细条，停止 700ms 收起（用户 2026-11-06 要求） */
+const { onScroll: onAutoHideScroll } = useAutoHideScrollbar()
+
+/** 容器滚动 → 同时刷新「可滚方向」(渐隐 / 箭头禁用态) 与滚动条显隐 */
+function onTabsScroll(e: Event): void {
+  syncScrollFade()
+  onAutoHideScroll(e)
+}
+
+/** 箭头翻页：点一次滑一排(≈可视宽 80%, 留一点上下文); 到两端时对应箭头 disabled */
+function scrollTabs(dir: -1 | 1): void {
+  const el = tabsEl.value
+  if (!el) return
+  el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: 'smooth' })
+}
+
+/**
+ * 集名是否「全部偏短」(如「第13集」「03」) —— 短名时集格宽度折半（用户 2026-11-06 要求）。
+ * 口径：当前源**全部集**清洗后片名长度 ≤ 4 才算（用全部集而非当前分段，避免翻分段时列数跳变）。
+ */
+const SHORT_EPISODE_NAME_MAX = 4
+const allEpisodeNamesShort = computed(() => {
+  const src = props.sources.find((s) => s.id === activeSourceId.value) ?? props.sources[0]
+  const eps = src?.episodes ?? []
+  if (!eps.length) return false
+  return eps.every((e) => cleanEpisodeName(e.episode).length <= SHORT_EPISODE_NAME_MAX)
+})
 </script>
 
 <template>
@@ -228,11 +256,25 @@ watch(
       v-if="sources.length > 1"
       class="jc-source-bar flex items-center gap-[var(--jc-space-4)] border-b border-default"
     >
+      <!-- 翻页箭头(2026-11-06): 鼠标点着翻一排, 同时作为「还能左右滑」的提示;
+           到两端时对应箭头禁用; 无溢出时整对不渲染 -->
+      <button
+        v-if="canScrollLeft || canScrollRight"
+        type="button"
+        class="jc-source-arrow jc-hotarea"
+        :disabled="!canScrollLeft"
+        data-focusable="true"
+        tabindex="0"
+        aria-label="往前一排线路"
+        @click="scrollTabs(-1)"
+      >
+        <BaseIcon name="chevron-left" size="1em" />
+      </button>
       <div
         ref="tabsEl"
-        class="jc-source-tabs flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
+        class="jc-source-tabs jc-scrollauto flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
         :class="{ 'is-fade-left': canScrollLeft, 'is-fade-right': canScrollRight }"
-        @scroll="syncScrollFade"
+        @scroll="onTabsScroll"
       >
         <button
           v-for="s in sources"
@@ -269,6 +311,18 @@ watch(
           </span>
         </button>
       </div>
+      <button
+        v-if="canScrollLeft || canScrollRight"
+        type="button"
+        class="jc-source-arrow jc-hotarea"
+        :disabled="!canScrollRight"
+        data-focusable="true"
+        tabindex="0"
+        aria-label="往后一排线路"
+        @click="scrollTabs(1)"
+      >
+        <BaseIcon name="chevron-right" size="1em" />
+      </button>
     </div>
 
     <!-- 分段切换 (集数 > pageSize 时显示) -->
@@ -294,7 +348,11 @@ watch(
     </div>
 
     <!-- 集数网格 -->
-    <div v-if="visibleEpisodes.length" class="jc-episode-grid">
+    <div
+      v-if="visibleEpisodes.length"
+      class="jc-episode-grid jc-scrollauto"
+      :class="{ 'jc-episode-grid--compact': allEpisodeNamesShort }"
+    >
       <button
         v-for="{ ep, idx } in visibleEpisodes"
         :key="ep.link + '-' + idx"
@@ -355,6 +413,34 @@ watch(
 .jc-source-tabs.is-fade-left.is-fade-right {
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
   mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+}
+
+/* 源条翻页箭头(2026-11-06): 与源 tab 同语言的次级按钮; 到头禁用(降透明度 + not-allowed) */
+.jc-source-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--jc-ctrl-h);
+  height: var(--jc-ctrl-h);
+  min-width: var(--jc-ctrl-h);
+  border: none;
+  border-radius: var(--jc-ctrl-radius);
+  background: transparent;
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-ctrl-fs-sm);
+  cursor: pointer;
+  transition:
+    color var(--jc-dur-fast) var(--jc-ease-standard),
+    background-color var(--jc-dur-fast) var(--jc-ease-standard);
+}
+.jc-source-arrow:hover:not(:disabled) {
+  color: var(--jc-text-primary);
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.jc-source-arrow:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
 }
 
 /* 触达热区(方案 §C6 #2): 源 tab/集格视觉高度 <44px, 命中面积靠 .jc-hotarea(theme.css §三)外扩补偿;
@@ -537,6 +623,18 @@ watch(
   .jc-episode-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: var(--jc-space-3);
+  }
+}
+
+/* 集名「全部偏短」(「第13集」「03」) → 集格宽折半：列数翻倍。
+ * 口径注：用 1fr 分配时, 多出来的那批间隙已在分配里扣掉, 所以不会溢出、也不用手写 calc；
+ * 净效果 = (W-7g)/8, 比"原文宽一半"(W-3g)/8 再小 g/2 ≈ 4px —— 这就是用户说的"记得扣去边距"。 */
+.jc-episode-grid--compact {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+@media (min-width: 768px) {
+  .jc-episode-grid--compact {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
   }
 }
 

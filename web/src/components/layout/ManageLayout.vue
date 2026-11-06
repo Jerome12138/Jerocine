@@ -5,6 +5,10 @@ import { useSiteStore } from '@/stores/site'
 import { useViewMode } from '@/composables/useViewMode'
 import ManageHeader from './ManageHeader.vue'
 import ManageSidebar from './ManageSidebar.vue'
+import { useAutoHideScrollbar } from '@/composables/useAutoHideScrollbar'
+
+/** 管理后台主区滚动条：滚动时显形、停止 700ms 后收起（用户 2026-11-06 要求） */
+const mainScroll = useAutoHideScrollbar()
 
 const userStore = useUserStore()
 const siteStore = useSiteStore()
@@ -55,7 +59,10 @@ onMounted(async () => {
         class="flex-1 flex flex-col min-h-0 overflow-hidden min-w-0 p-[var(--jc-space-3)] md:p-[var(--jc-space-4)] lg:p-[var(--jc-space-6)]"
       >
         <!-- 内容包裹层: 桌面封顶 1440px 居中(页面过空治理, D5) + 高度链贯通(表格 fit 依赖, D1) -->
-        <div class="jc-manage-main mx-auto flex w-full min-h-0 flex-1 flex-col overflow-y-auto max-w-[var(--jc-content-max-w)]">
+        <div
+          class="jc-manage-main jc-scrollauto mx-auto flex w-full min-h-0 flex-1 flex-col overflow-y-auto max-w-[var(--jc-content-max-w)]"
+          @scroll="mainScroll.onScroll"
+        >
           <slot />
         </div>
       </main>
