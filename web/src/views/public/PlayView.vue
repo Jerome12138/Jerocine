@@ -867,6 +867,25 @@ const danmaku = useDanmaku({
 })
 const danmakuState = danmaku.danmuState
 
+/** 本集无弹幕（2026-11-06 用户要求）：弹幕库无此作品/此集，或匹配到但弹幕为空 —— 两者对用户是同一件事。
+ *  后端聚合接口对"找不到"目前返回 404（unsupported），"匹配到但空"返回 200+空（empty）—— 这里统一处理，
+ *  等后端把"找不到"也统一成 200+空之后，本判定无需改动。 */
+const danmuNone = computed(
+  () => danmakuState.value === 'unsupported' || danmakuState.value === 'empty'
+)
+/** 有弹幕、但用户把弹幕关掉了 → 隐藏设置按钮（开关保留，方便再打开） */
+const danmuOff = computed(() => !danmuNone.value && !danmakuActive.value)
+
+/** 本集无弹幕时给插件的弹幕开关/设置按钮挂原生 title 提示（插件 DOM 由插件渲染，只能就近改属性） */
+watch(danmuNone, (none) => {
+  const root = playerEl.value
+  if (!root) return
+  root.querySelectorAll<HTMLElement>('.apd-toggle, .apd-config').forEach((el) => {
+    if (none) el.setAttribute('title', '本集无弹幕')
+    else el.removeAttribute('title')
+  })
+})
+
 /** R4 外部同步: 弹幕/过滤广告/自动连播状态变化时, 同步更新 ArtPlayer 原生 settings 面板对应项的
  * switch 勾选态与 tooltip 文案。触发源: 面板齿轮开关/onSwitch 路径 + 此处外部 watch 路径(设置页/
  * 更多菜单点击已删, 剩余可能来自其他组件/页面切换等)。
@@ -2006,6 +2025,7 @@ watch(
           <div
             v-else
             class="jc-player-wrap"
+        :class="{ 'is-danmu-none': danmuNone, 'is-danmu-off': danmuOff }"
             :data-loading="loading ? '1' : '0'"
             @touchstart="onPlayerTouchStart"
             @touchmove="onPlayerTouchMove"
@@ -2356,7 +2376,19 @@ watch(
   display: none !important;
 }
 .jc-player--mobile :deep(.art-video-player.art-fullscreen) .apd-toggle {
-  display: flex !important;
+  display: none;
+}
+
+/* 本集无弹幕（2026-11-06 用户要求）：置灰插件的弹幕开关与设置按钮，悬停由原生 title 提示"本集无弹幕"
+ * （title 在 <script> 里按 danmuNone 就近挂到插件节点上）。刻意保留 pointer-events —— 否则 title 悬停不触发。 */
+.jc-player-wrap.is-danmu-none :deep(.apd-toggle),
+.jc-player-wrap.is-danmu-none :deep(.apd-config) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* 有弹幕但用户把弹幕关掉了 → 隐藏设置按钮（开关本身保留，便于再打开） */
+.jc-player-wrap.is-danmu-off :deep(.apd-config) {
+  display: none;
 }
 
 /* 桌面端最大宽度（>= 1280 居中） */
