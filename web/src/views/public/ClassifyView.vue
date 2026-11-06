@@ -6,6 +6,7 @@ import type { Card, ClassifyData } from '@/types/film'
 import FilmGrid from '@/components/film/FilmGrid.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
 import SectionHeader from '@/components/base/SectionHeader.vue'
+import TvSectionHeader from '@/components/base/TvSectionHeader.vue'
 import { useQuerySync } from '@/composables/useQuerySync'
 import { useAbortable } from '@/composables/useAbortable'
 import { useNavStore } from '@/stores'
@@ -185,11 +186,9 @@ const tvAllEmpty = computed(
   >
     <!-- 顶部一级分类已由全局胶囊导航提供, 分类页不再重复 chip bar -->
 
-    <!-- 标题区: 「分类」当前 + 「分类库」入口 (filmClassifySearch) -->
-    <div
-      v-if="data.title?.name"
-      class="jc-classify-tv__title jc-tv-sec"
-    >
+    <!-- 标题区: 「分类」当前 + 「分类库」入口 (filmClassifySearch)
+         (§C8#5 收编 TvSectionHeader, 异形头走默认槽自绘: 渐变标题/分隔符带自有类, .t/.s 保留取迁入样式) -->
+    <TvSectionHeader v-if="data.title?.name" class="jc-classify-tv__title">
       <span class="jc-classify-tv__title-grad t">{{ data.title?.name }}</span>
       <span class="jc-classify-tv__title-sep s" aria-hidden="true">|</span>
       <RouterLink
@@ -208,7 +207,7 @@ const tvAllEmpty = computed(
           {{ data.title?.name }}库 ›
         </a>
       </RouterLink>
-    </div>
+    </TvSectionHeader>
 
     <!-- 错误态 -->
     <BaseEmpty
@@ -236,26 +235,26 @@ const tvAllEmpty = computed(
         :key="sec.key"
         class="jc-classify-tv__section"
       >
-        <div class="jc-tv-sec">
-          <span class="t">{{ sec.title }}</span>
-          <span class="s">{{ sec.sub }}</span>
-          <RouterLink
-            v-slot="{ navigate, href }"
-            :to="moreLink(sec.sort)"
-            custom
-          >
-            <a
-              class="jc-tv-more"
-              :href="href"
-              data-focusable="true"
-              tabindex="0"
-              @click="navigate"
-              @keydown.enter="() => navigate()"
+        <TvSectionHeader :title="sec.title" :sub="sec.sub">
+          <template #more>
+            <RouterLink
+              v-slot="{ navigate, href }"
+              :to="moreLink(sec.sort)"
+              custom
             >
-              更多 ›
-            </a>
-          </RouterLink>
-        </div>
+              <a
+                class="jc-tv-more"
+                :href="href"
+                data-focusable="true"
+                tabindex="0"
+                @click="navigate"
+                @keydown.enter="() => navigate()"
+              >
+                更多 ›
+              </a>
+            </RouterLink>
+          </template>
+        </TvSectionHeader>
         <div class="jc-tv-grid">
           <FilmCard
             v-for="item in sec.items"
@@ -407,12 +406,12 @@ const tvAllEmpty = computed(
 .jc-classify__cat {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0 var(--jc-space-4);
+  min-height: var(--jc-ctrl-h); /* 2026-11-05 三档统一: 原 36 定值作废 */
+  padding: 0 var(--jc-ctrl-px);
   border-radius: var(--jc-radius-full);
   background-color: var(--jc-bg-elevated);
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   font-weight: var(--jc-fw-medium);
   text-decoration: none;
   transition:
@@ -483,9 +482,9 @@ const tvAllEmpty = computed(
 .jc-classify-tv__title {
   align-items: center;
 }
-/* 页头标题字号**不在这里给** —— 该元素同时带 jc-tv-sec 的 .t 类, 由全局
-   [data-mode='tv'] .jc-tv-sec .t(= --jc-fs-base) 定档; 这里再写一次会被全局规则按
-   特异性压掉, 只会误导后来人(筛选页就是照它抄才抄出 2xl 的不一致). */
+/* 页头标题字号**不在这里给** —— 该元素同时带 jc-tv-sec 的 .t 类, 由 TvSectionHeader
+   组件样式(原 tv-cards.css 全局规则整类迁入, 值/特异性不变)定档 = --jc-fs-base;
+   这里再写一次会被它按特异性压掉, 只会误导后来人(筛选页就是照它抄才抄出 2xl 的不一致). */
 .jc-classify-tv__title-grad {
   font-weight: var(--jc-fw-bold);
   background-image: var(--jc-brand-gradient);

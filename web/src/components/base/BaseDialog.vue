@@ -133,7 +133,7 @@ const wrapStyle = computed(() => ({
             </slot>
             <button
               v-if="showClose"
-              class="jc-dialog-close shrink-0 inline-flex items-center justify-center text-muted hover:text-primary"
+                class="jc-hotarea jc-dialog-close shrink-0 inline-flex items-center justify-center text-muted hover:text-primary"
               data-focusable="true"
               tabindex="0"
               aria-label="close dialog"
@@ -170,8 +170,8 @@ const wrapStyle = computed(() => ({
   backdrop-filter: blur(4px);
 }
 .jc-dialog-close {
-  width: 36px;
-  height: 36px;
+  width: var(--jc-ctrl-h); /* 2026-11-05: 原 36px 定值 → 绑标准档(TV 56 覆盖保持) */
+  height: var(--jc-ctrl-h);
   border-radius: var(--jc-radius-md);
   background: transparent;
   border: none;

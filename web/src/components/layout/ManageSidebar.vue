@@ -109,7 +109,7 @@ function onItemClick(): void {
             </span>
             <button
               type="button"
-              class="w-9 h-9 flex items-center justify-center text-muted hover:text-primary rounded bg-transparent border-0 cursor-pointer"
+              class="jc-hotarea w-[var(--jc-ctrl-h)] h-[var(--jc-ctrl-h)] flex items-center justify-center text-muted hover:text-primary rounded bg-transparent border-0 cursor-pointer"
               aria-label="关闭菜单"
               data-focusable="true"
               @click="emit('close')"

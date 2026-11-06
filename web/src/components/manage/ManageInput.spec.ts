@@ -78,6 +78,8 @@ describe('ManageInput size 档(规格 §3.6/D⑥, 与 ManageButton/ManageSelect 
     expect(cls).toContain('min-h-[var(--jc-ctrl-h)]')
     expect(cls).toContain('px-[var(--jc-ctrl-px)]')
     expect(cls).toContain('text-[length:var(--jc-ctrl-fs)]')
+    // B2 撑爆修复: py 绑 --jc-ctrl-py(2/3/4), 不再吃 --jc-space-2 定值
+    expect(cls).toContain('py-[var(--jc-ctrl-py)]')
   })
 
   it('size=sm: --jc-ctrl-*-sm 三档令牌(工具栏与 sm 按钮同高)', () => {

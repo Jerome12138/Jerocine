@@ -37,7 +37,7 @@ function pick(key: string, value: string | number): void {
     >
       <!-- 标题与"首行选项"垂直居中: min-height 对齐胶囊高度, 选项换行时标题保持钉在首行 -->
       <div
-        class="jc-filter-row__title shrink-0 text-secondary text-[length:var(--jc-fs-sm)] font-[var(--jc-fw-medium)] flex items-center min-h-[36px]"
+        class="jc-filter-row__title shrink-0 text-secondary text-[length:var(--jc-fs-sm)] font-[var(--jc-fw-medium)] flex items-center min-h-[var(--jc-ctrl-h)]"
       >
         {{ group.title }}
       </div>
@@ -72,12 +72,12 @@ function pick(key: string, value: string | number): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 36px;
-  padding: 0 var(--jc-space-3);
+  height: var(--jc-ctrl-h); /* 2026-11-05 三档统一: 绑标准档(原 36 定值作废) */
+  padding: 0 var(--jc-ctrl-px);
   border-radius: var(--jc-chip-radius, 9999px);
   background-color: transparent;
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   font-weight: var(--jc-fw-medium);
   border: none;
   cursor: pointer;
@@ -118,12 +118,7 @@ function pick(key: string, value: string | number): void {
   .jc-filter-row__title {
     min-height: 0;
   }
-  /* 移动端: 胶囊与四周留白整体收一档, 一屏能多放几个选项 */
-  .jc-filter-chip {
-    height: 30px;
-    padding: 0 var(--jc-space-2);
-    font-size: var(--jc-fs-xs);
-  }
+  /* 移动端: 高度/字号/内距已由令牌自动收窄(24/12/8), 此处只保留排布差异 */
   .jc-filter-row__chips {
     gap: var(--jc-space-1) var(--jc-space-2);
   }

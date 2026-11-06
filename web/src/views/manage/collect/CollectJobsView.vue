@@ -171,7 +171,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
       <h1 class="text-2xl font-[var(--jc-fw-semibold)]">采集任务监控</h1>
       <div class="flex items-center gap-[var(--jc-space-3)]">
         <span class="text-muted text-sm" v-if="loading">刷新中…</span>
-        <ManageButton variant="outline" size="sm" @click="load">手动刷新</ManageButton>
+        <ManageButton variant="outline" @click="load">手动刷新</ManageButton>
       </div>
     </header>
 
@@ -182,7 +182,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
 
     <div v-if="loadFailed && !hasJobs" class="jc-tm-empty">
       加载失败, 暂时拿不到任务列表.
-      <ManageButton variant="outline" size="sm" class="mt-[var(--jc-space-3)]" @click="pollTick">点击重试</ManageButton>
+      <ManageButton variant="outline" class="mt-[var(--jc-space-3)]" @click="pollTick">点击重试</ManageButton>
     </div>
 
     <div v-else-if="!loadFailed && !hasJobs" class="jc-tm-empty">

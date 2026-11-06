@@ -7,6 +7,7 @@ import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageCheckbox from '@/components/manage/ManageCheckbox.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
@@ -109,7 +110,7 @@ onMounted(load)
       <p class="text-sm text-[var(--jc-danger)]">
         弹幕配置读取失败：为避免误存默认值（全局关停），已禁用编辑与保存。
       </p>
-      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
+      <ManageButton variant="outline" @click="load">重试</ManageButton>
     </div>
 
     <form v-else class="flex flex-1 flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">
@@ -152,10 +153,16 @@ onMounted(load)
         </p>
       </div>
 
-      <div class="mt-auto flex justify-end gap-[var(--jc-space-3)]">
-        <ManageButton variant="ghost" type="button" @click="load">重置</ManageButton>
-        <ManageButton variant="gradient" type="button" :loading="submitting" @click="submit">保存</ManageButton>
-      </div>
+      <!-- footer(§C8#2 收口 ManageFormActions): 卡片长表单原款 sticky 吸底 + 点击驱动(confirm-type=button, 表单 @submit 的回车路径仍在) -->
+      <ManageFormActions
+        :busy="submitting"
+        confirm-text="保存"
+        cancel-text="重置"
+        sticky
+        confirm-type="button"
+        @cancel="load"
+        @confirm="submit"
+      />
     </form>
   </section>
 </template>

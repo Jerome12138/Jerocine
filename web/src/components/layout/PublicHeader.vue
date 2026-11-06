@@ -532,7 +532,7 @@ watch(
            desktop md+ 隐. 移动端复用 mobileMenuOpen 抽屉. -->
       <button
         v-show="isMobile"
-        class="jc-header__icon-btn"
+        class="jc-hotarea jc-header__icon-btn"
         type="button"
         aria-label="打开菜单"
         data-focusable="true"
@@ -545,7 +545,7 @@ watch(
       <!-- 二级页面返回按钮: 非首页(且非 TV — TV 走遥控器返回键)时显示, 与 gfTvBack 同语义 -->
       <button
         v-if="showBackButton"
-        class="jc-header__back-btn jc-header__icon-btn"
+        class="jc-hotarea jc-header__back-btn jc-header__icon-btn"
         type="button"
         aria-label="返回上一页"
         data-focusable="true"
@@ -724,7 +724,7 @@ watch(
                   <span class="jc-header__suggest-row-text">{{ kw }}</span>
                   <button
                     type="button"
-                    class="jc-header__suggest-row-x"
+                    class="jc-hotarea jc-header__suggest-row-x"
                     :aria-label="`删除历史 ${kw}`"
                     @click="removeHistoryItem(kw, $event)"
                   >
@@ -745,7 +745,7 @@ watch(
 
       <!-- 移动端搜索图标 -->
       <button
-        class="jc-header__icon-btn md:!hidden"
+        class="jc-hotarea jc-header__icon-btn md:!hidden"
         type="button"
         aria-label="搜索"
         data-focusable="true"
@@ -765,9 +765,9 @@ watch(
         @mouseleave="!isTV && deferCloseHistory()"
       >
         <button
-          class="jc-header__icon-btn"
-          type="button"
-          aria-label="观看历史"
+        class="jc-hotarea jc-header__icon-btn"
+        type="button"
+        aria-label="观看历史"
           aria-haspopup="menu"
           data-focusable="true"
           tabindex="0"
@@ -1026,7 +1026,7 @@ watch(
                 v-for="sub in sidebarChildren(nav)"
                 :key="sub.id"
                 :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
-                class="text-xs text-secondary bg-[rgba(255,255,255,0.08)] px-[10px] py-[4px] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
+                class="inline-flex items-center h-[var(--jc-ctrl-h)] text-[length:var(--jc-ctrl-fs)] text-secondary bg-[rgba(255,255,255,0.08)] px-[var(--jc-ctrl-px)] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
                 data-focusable="true"
               >
                 {{ sub.name }}
@@ -1135,7 +1135,7 @@ watch(
           <span class="jc-mnav__brand">{{ siteName }}</span>
           <button
             type="button"
-            class="jc-mnav__close"
+            class="jc-hotarea jc-mnav__close"
             aria-label="关闭菜单"
             data-focusable="true"
             @click="closeMobile"
@@ -1178,7 +1178,7 @@ watch(
                   v-for="sub in sidebarChildren(nav)"
                   :key="sub.id"
                   :to="{ path: '/filmClassifySearch', query: { Pid: nav.id, Category: sub.id } }"
-                  class="text-xs text-secondary bg-[rgba(255,255,255,0.08)] px-[10px] py-[4px] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
+                  class="inline-flex items-center h-[var(--jc-ctrl-h)] text-[length:var(--jc-ctrl-fs)] text-secondary bg-[rgba(255,255,255,0.08)] px-[var(--jc-ctrl-px)] rounded-[var(--jc-radius-full)] hover:text-primary no-underline"
                   data-focusable="true"
                   @click="closeMobile"
                 >
@@ -1471,10 +1471,10 @@ watch(
   position: relative;
   display: inline-flex;
   align-items: center;
-  height: 40px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 三档统一: 原 40 定值作废(4px 内距属导航项间距, 并入布局不缩放) */
   padding: 0 4px;
   color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   font-weight: var(--jc-fw-medium);
   text-decoration: none;
   white-space: nowrap;
@@ -1562,7 +1562,7 @@ watch(
 /* 搜索 - bilibili 风格常驻框; 宽度随视口收缩(固定 480 在 ~1000px 视口会把右侧用户头像挤出容器) */
 .jc-header__search {
   position: relative;
-  height: 40px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 三档统一: 原 40 定值作废 */
   width: clamp(180px, 24vw, 520px);
   max-width: 100%;
   /* 解除 flex 子项 min-content 下限, 允许被压缩到比 clamp 更窄(顶栏空间的"缓冲垫") */
@@ -1599,7 +1599,7 @@ watch(
   border: none;
   outline: none;
   color: var(--jc-text-primary);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
 }
 
 /* iOS Safari: input font-size < 16px focus 时会自动 zoom (不还原).
@@ -1817,9 +1817,9 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
+  width: var(--jc-ctrl-h); /* 2026-11-05 三档统一: 原 44 定值作废(触达靠 .jc-hotarea) */
+  height: var(--jc-ctrl-h);
+  min-width: var(--jc-ctrl-h);
   background: transparent;
   border: none;
   border-radius: var(--jc-radius-md);
@@ -1941,7 +1941,7 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: var(--jc-space-2);
-  height: 36px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 B4 清尾: 原 36 定值作废 */
   padding: 0 var(--jc-space-3);
   border-radius: var(--jc-radius-full);
   background-color: rgba(255, 255, 255, 0.08);
@@ -1965,7 +1965,7 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: var(--jc-space-2);
-  height: 40px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 B4 清尾: 原 40 定值作废 */
   padding: 2px var(--jc-space-2);
   border-radius: var(--jc-radius-full);
   /* 宽度跟随内容, 不被父级 flex 拉伸; 防止整体撑宽 */
@@ -2089,7 +2089,7 @@ watch(
   display: flex;
   align-items: center;
   margin: 0 var(--jc-gutter-mobile) var(--jc-space-3);
-  height: 40px;
+  height: var(--jc-ctrl-h); /* 2026-11-05 B4 清尾: 原 40 定值作废 */
   background-color: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--jc-radius-full);
@@ -2214,8 +2214,8 @@ html[data-mode='tv'] .jc-mnav--side {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: var(--jc-ctrl-h); /* 2026-11-05 B4 清尾: 原 36 定值作废 */
+  height: var(--jc-ctrl-h);
   background: transparent;
   border: none;
   color: var(--jc-text-muted);

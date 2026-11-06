@@ -28,6 +28,7 @@ import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageErrorState from '@/components/manage/ManageErrorState.vue'
+import { useClientPagedList } from '@/composables/useClientPagedList'
 import { openManageDialog } from '@/composables/useManageDialog'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import LiveSourceFormDialog from './LiveSourceFormDialog.vue'
@@ -209,13 +210,11 @@ const chFiltered = computed(() => {
   })
 })
 
-/** 频道列表前端分页：m3u 源动辄上千频道，整表渲染会卡死弹窗（先过滤再分页） */
+/** 频道列表前端分页：m3u 源动辄上千频道，整表渲染会卡死弹窗（先过滤再分页）
+ * (§C8#3 收口 useClientPagedList —— 顺带修原款缺末页钳制的 bug: 筛选变窄后 chPage
+ * 停在越界页只能看空表, 现数据收缩自动钳回最后一个有效页) */
 const CH_PAGE_SIZE = 100
-const chPage = ref(1)
-const chPaged = computed(() => {
-  const start = (chPage.value - 1) * CH_PAGE_SIZE
-  return chFiltered.value.slice(start, start + CH_PAGE_SIZE)
-})
+const { page: chPage, paged: chPaged } = useClientPagedList(chFiltered, CH_PAGE_SIZE)
 watch([chSearch, chFilterStatus], () => {
   chPage.value = 1
 })
@@ -473,7 +472,7 @@ onMounted(async () => {
   <div class="jc-livemgr flex flex-1 min-h-0 flex-col">
     <header class="jc-livemgr__head shrink-0">
       <div>
-        <h1 class="jc-livemgr__title">直播源</h1>
+        <h1 class="text-2xl font-[var(--jc-fw-semibold)]">直播源</h1>
         <p class="jc-livemgr__desc">维护直播页的 m3u 播放列表源；保存/停用后公开频道列表立即刷新。</p>
       </div>
       <div class="flex items-center gap-[var(--jc-space-3)]">
@@ -578,26 +577,25 @@ onMounted(async () => {
     <ManageSheet v-model="chOpen" :title="`频道管理 · ${chSource?.name ?? ''}`" width="1120px" mobile-mode="fullsheet">
       <div class="jc-chmgr">
         <div class="jc-chmgr__toolbar">
-          <ManageInput v-model="chSearch" placeholder="搜索频道名/分组/地址" size="sm" class="jc-chmgr__search" />
+          <ManageInput v-model="chSearch" placeholder="搜索频道名/分组/地址" class="jc-chmgr__search" />
           <div class="w-[150px] shrink-0">
-            <!-- size=sm: 与同行一排 outline sm 按钮同高(规格 §3.6/D⑥) -->
-            <ManageSelect v-model="chFilterStatus" :options="CH_STATUS_OPTIONS" aria-label="状态筛选" size="sm" />
+            <!-- 工具栏行不标 size: 随标准档, 与同行归一后的 default 按钮同高(B5 size 归一) -->
+            <ManageSelect v-model="chFilterStatus" :options="CH_STATUS_OPTIONS" aria-label="状态筛选" />
           </div>
-          <ManageButton variant="outline" size="sm" @click="openCustom">
+          <ManageButton variant="outline" @click="openCustom">
             <BaseIcon name="plus" size="14px" />
             添加自定义频道
           </ManageButton>
-          <ManageButton variant="outline" size="sm" :disabled="chBusy || chProbing" @click="refreshChannels">
+          <ManageButton variant="outline" :disabled="chBusy || chProbing" @click="refreshChannels">
             <BaseIcon name="refresh" size="14px" />
             重新拉取频道
           </ManageButton>
-          <ManageButton variant="outline" size="sm" :loading="chProbing" :disabled="chProbing" @click="probeChannels">
+          <ManageButton variant="outline" :loading="chProbing" :disabled="chProbing" @click="probeChannels">
             <BaseIcon name="magic" size="14px" />
             探测可访问性
           </ManageButton>
           <ManageButton
             variant="outline"
-            size="sm"
             :disabled="chBusy || chProbing || unavailableCount === 0"
             @click="hideUnavailable"
           >
@@ -705,10 +703,6 @@ onMounted(async () => {
   justify-content: space-between;
   gap: var(--jc-space-4);
   margin-bottom: var(--jc-space-5);
-}
-.jc-livemgr__title {
-  font-size: var(--jc-fs-lg);
-  font-weight: var(--jc-fw-bold);
 }
 .jc-livemgr__desc {
   margin-top: 4px;

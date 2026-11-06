@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
             <h3 v-if="title" class="font-[var(--jc-fw-semibold)] text-primary">{{ title }}</h3>
             <button
               type="button"
-              class="text-muted hover:text-primary min-h-[44px] min-w-[44px] flex items-center justify-center"
+              class="jc-hotarea text-muted hover:text-primary min-h-[var(--jc-ctrl-h)] min-w-[var(--jc-ctrl-h)] flex items-center justify-center"
               :class="title ? '' : 'ml-auto'"
               data-focusable="true"
               @click="close"
@@ -154,7 +154,7 @@ onBeforeUnmount(() => {
           <header class="px-[var(--jc-space-4)] py-[var(--jc-space-3)] border-b border-subtle flex items-center justify-between min-h-[56px]">
             <button
               type="button"
-              class="flex items-center gap-[var(--jc-space-2)] text-link min-h-[44px] min-w-[44px]"
+              class="jc-hotarea flex items-center gap-[var(--jc-space-2)] text-link min-h-[var(--jc-ctrl-h)] min-w-[var(--jc-ctrl-h)]"
               data-focusable="true"
               @click="close"
             >
@@ -162,7 +162,7 @@ onBeforeUnmount(() => {
               <span>返回</span>
             </button>
             <h3 v-if="title" class="font-[var(--jc-fw-semibold)] text-primary flex-1 text-center truncate">{{ title }}</h3>
-            <div class="min-w-[44px]">
+            <div class="min-w-[var(--jc-ctrl-h)]">
               <slot name="header-action" />
             </div>
           </header>

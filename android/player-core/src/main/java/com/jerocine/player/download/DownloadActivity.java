@@ -344,7 +344,7 @@ public class DownloadActivity extends AppCompatActivity {
         llSources.removeAllViews();
         for (int i = 0; i < sources.size(); i++) {
             final int idx = i;
-            Button b = createChip(sources.get(i).name);
+            Button b = chip(sources.get(i).name, false);
             b.setOnClickListener(v -> {
                 currentSource = idx;
                 selected.clear();
@@ -359,24 +359,41 @@ public class DownloadActivity extends AppCompatActivity {
     }
 
     /**
-     * chip 统一构造 — 源按钮与分段按钮共用。
+     * chip 统一构造 — 源按钮/分段按钮(compact=false)与行内小操作按钮(compact=true)共用。
+     * (2026-11-06 C8 收编: 原 createChip / smallAction 两份逐字段合并, 各形态值不变。)
      *
      * <p>必须显式铺样式: {@code new Button(this)} 走的是 Material 默认主题(亮色实底+大圆角),
      * 在深色玻璃页面上非常突兀; 且默认背景不含 state_focused 分支 → D-pad 看不到焦点。
+     * (问题2/5: 旧 smallAction 继承壳层 Material 主题 —— web 壳 AppTheme 是 Light.DarkActionBar,
+     * 按钮渲染成亮灰实底深色字, 与整页深色玻璃风格完全脱节(2026-10-08 pad 截图实锤)。)
+     *
+     * <p>两形态差异逐字段保持原值:
+     * compact=false(原 createChip): textSize 14 / padding 14-8 / 自带 wrap 内容 LayoutParams+边距;
+     * compact=true(原 smallAction): textSize 13 / minWidth+minHeight=0 / padding 12-5 /
+     * 不设 LayoutParams(由调用方 addView(view, lp) 定制边距)。
      */
-    private Button createChip(String label) {
+    private Button chip(String label, boolean compact) {
         Button b = new Button(this, null, 0);// null, 0 = 不套默认 Material 样式
         b.setText(label);
-        b.setTextSize(14);
+        b.setTextSize(compact ? 13 : 14);
         b.setAllCaps(false);
-        b.setPadding(dp(14), dp(8), dp(14), dp(8));
+        if (compact) {
+            b.setMinWidth(0);
+            b.setMinHeight(0);
+            b.setPadding(dp(12), dp(5), dp(12), dp(5));
+        } else {
+            b.setPadding(dp(14), dp(8), dp(14), dp(8));
+        }
         // ⚠ 2026-10-08 修"胶囊文字不是白色": setTextColor(int) 把传进去的值当**原始 ARGB**,
         // 而这里传的是 R.color 资源 ID(0x7f06xxxx) —— 被当成半透明深色渲染。
-        // 颜色 selector 必须经 ColorStateList 解析。
+        // 颜色 selector 必须经 ColorStateList 解析。(原 smallAction 同注释: 传资源 ID 是把 ID 当 ARGB)
         b.setTextColor(androidx.appcompat.content.res.AppCompatResources
                 .getColorStateList(this, R.color.jc_download_chip_text));
         b.setBackgroundResource(R.drawable.jc_download_chip_bg);
         b.setFocusable(true);
+        if (compact) {
+            return b;
+        }
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, dp(4), dp(8), dp(4));
@@ -401,8 +418,8 @@ public class DownloadActivity extends AppCompatActivity {
         int segCount = (total + EPISODE_SEG - 1) / EPISODE_SEG;
         for (int i = 0; i < segCount; i++) {
             final int seg = i;
-            Button b = createChip(String.format(Locale.US, "第 %d-%d 集",
-                    i * EPISODE_SEG + 1, Math.min((i + 1) * EPISODE_SEG, total)));
+            Button b = chip(String.format(Locale.US, "第 %d-%d 集",
+                    i * EPISODE_SEG + 1, Math.min((i + 1) * EPISODE_SEG, total)), false);
             b.setOnClickListener(v -> {
                 currentSegment = seg;
                 selected.clear();
@@ -1421,11 +1438,11 @@ public class DownloadActivity extends AppCompatActivity {
         status.setGravity(Gravity.CENTER);
         row.addView(status, new LinearLayout.LayoutParams(dp(120), ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        Button exportBtn = smallAction("");
+        Button exportBtn = chip("", true);
         row.addView(exportBtn, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        Button playBtn = smallAction("");
+        Button playBtn = chip("", true);
         // 【2026-10-10 修间距】三个按钮此前全无 margin(导出/播放/删除贴在一起, 用户实锤)
         LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1434,35 +1451,12 @@ public class DownloadActivity extends AppCompatActivity {
 
         // 删除: 下载缓存区用 NoOpCacheEvictor(主动下载永不清), 若没有删除入口用户永远
         // 无法释放空间 —— remove() 早已实现却没有 UI 能到, 等于死代码。
-        Button deleteBtn = smallAction("");
+        Button deleteBtn = chip("", true);
         LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         deleteLp.setMargins(dp(8), 0, 0, 0);
         row.addView(deleteBtn, deleteLp);
         return row;
-    }
-
-    /** 行内小操作按钮(暂停/继续/删除/导出/播放): 统一走 chip 样式。
-     *
-     * <p>问题2/5: 旧实现 {@code new Button(this)} 继承壳层 Material 主题 ——
-     * web 壳 AppTheme 是 Light.DarkActionBar, 按钮渲染成亮灰实底深色字,
-     * 与整页深色玻璃风格完全脱节(2026-10-08 pad 截图实锤: "暂停/删除"白底突兀)。
-     * 统一用 jc_download_chip_bg selector + jc_download_chip_text, 焦点态也由 selector 接管。
-     */
-    private Button smallAction(String text) {
-        Button b = new Button(this, null, 0); // null,0 = 不套 Material 默认样式
-        b.setText(text);
-        b.setTextSize(13);
-        b.setAllCaps(false);
-        b.setMinWidth(0);
-        b.setMinHeight(0);
-        b.setPadding(dp(12), dp(5), dp(12), dp(5));
-        // 同 createChip: setTextColor(int) 传资源 ID 是把 ID 当 ARGB, 必须 ColorStateList
-        b.setTextColor(androidx.appcompat.content.res.AppCompatResources
-                .getColorStateList(this, R.color.jc_download_chip_text));
-        b.setBackgroundResource(R.drawable.jc_download_chip_bg);
-        b.setFocusable(true);
-        return b;
     }
 
     /** 删除任务(二次确认): 会连带删除该集的下载缓存分片与已导出的文件引用. */
@@ -1552,14 +1546,14 @@ public class DownloadActivity extends AppCompatActivity {
         RingProgressView ring = new RingProgressView(this);
         row.addView(ring, new LinearLayout.LayoutParams(dp(26), dp(26)));
 
-        Button action = smallAction("");
+        Button action = chip("", true);
         LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         actionLp.setMargins(dp(10), 0, 0, 0);
         row.addView(action, actionLp);
 
         // 删除: 队列里的任务也能删(不然用户只能等它跑完/失败才能清缓存)
-        Button del = smallAction("");
+        Button del = chip("", true);
         // 【2026-10-10 修间距】右侧按钮之间此前无 margin(暂停/删除贴在一起, 用户实锤)
         LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

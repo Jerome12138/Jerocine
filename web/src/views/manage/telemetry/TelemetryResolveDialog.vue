@@ -5,7 +5,7 @@ import type { TelemetryEventRow } from '@/api/manage/telemetry'
 import { toast } from '@/api/http'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
-import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -71,9 +71,13 @@ function submit(): void {
       重开. 24 小时后到 30 天内若再次出现 → 自动变 "已重启" 重回活跃列表; 30 天都没
       再出现则状态变 "过期", 仍不显示.
     </p>
-    <div class="flex justify-end gap-[var(--jc-space-3)] pt-[var(--jc-space-2)]">
-      <ManageButton variant="ghost" type="button" @click="emit('cancel')">取消</ManageButton>
-      <ManageButton variant="primary" type="submit" :loading="busy">保存</ManageButton>
-    </div>
+    <!-- footer(§C8#2 收口 ManageFormActions): 本件提交钮原款实色 primary(非渐变), 差异以 confirm-variant 保真 -->
+    <ManageFormActions
+      :busy="busy"
+      confirm-text="保存"
+      pt
+      confirm-variant="primary"
+      @cancel="emit('cancel')"
+    />
   </form>
 </template>

@@ -179,7 +179,7 @@ useDismiss(
       :aria-expanded="isOpen"
       :aria-activedescendant="activeDescendant"
       :data-focusable="props.disabled ? undefined : 'true'"
-      class="w-full flex items-center justify-between gap-[var(--jc-space-2)] bg-elevated text-primary border border-default rounded-[var(--jc-ctrl-radius)] outline-none focus:border-strong focus:shadow-focus transition disabled:opacity-50 disabled:cursor-not-allowed"
+      class="w-full flex items-center justify-between gap-[var(--jc-space-2)] bg-elevated text-primary border border-ctrl rounded-[var(--jc-ctrl-radius)] outline-none focus:border-ctrl-focus focus:shadow-focus transition disabled:opacity-50 disabled:cursor-not-allowed"
       :class="sizeClass"
       @click="onTriggerClick"
       @keydown="onTriggerKeydown"
@@ -217,7 +217,7 @@ useDismiss(
           role="option"
           :aria-selected="isSelected(opt)"
           :data-focusable="true"
-          class="w-full text-left px-3 py-1.5 text-sm hover:bg-[rgba(255,255,255,0.06)]"
+              class="w-full text-left px-[var(--jc-ctrl-px)] py-[var(--jc-ctrl-py)] text-[length:var(--jc-ctrl-fs)] hover:bg-[rgba(255,255,255,0.06)]"
           :class="{
             'text-[var(--jc-brand-purple)]': isSelected(opt),
             'bg-[rgba(255,255,255,0.06)]': i === activeIndex

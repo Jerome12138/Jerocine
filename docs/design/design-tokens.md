@@ -403,6 +403,27 @@ CSS 变量：
   --jc-radius-2xl: 28px;
   --jc-radius-full: 9999px;
 
+  /* 控件尺寸（2026-11-05 三档标准统一：标准档按端决定，sm/lg 由标准派生）
+     步骤: 移动 <768 → 24 / 平板(默认) → 28 / 桌面 ≥1280 → 32 / TV [data-mode=tv] → 48；
+     移动端 -sm 钉死 = 标准（不派生 20px）。详见 docs/方案-web控件三档标准统一-2026-11-05.md */
+  --jc-ctrl-h: 28px;                              /* 标准档高（平板=新默认） */
+  --jc-ctrl-h-sm: calc(var(--jc-ctrl-h) - 4px);   /* 小号 = 标准 −4 */
+  --jc-ctrl-h-lg: calc(var(--jc-ctrl-h) + 8px);   /* 大号 = 标准 +8 */
+  --jc-ctrl-fs: 13px;                             /* 标准字号 */
+  --jc-ctrl-fs-sm: calc(var(--jc-ctrl-fs) - 1px);
+  --jc-ctrl-fs-lg: calc(var(--jc-ctrl-fs) + 1px);
+  --jc-ctrl-px: 10px;                             /* 标准水平内距 */
+  --jc-ctrl-px-sm: calc(var(--jc-ctrl-px) - 2px);
+  --jc-ctrl-px-lg: calc(var(--jc-ctrl-px) + 2px);
+  --jc-ctrl-py: 3px;                              /* 标准纵向内距 */
+  --jc-ctrl-radius: var(--jc-radius-md);          /* 8px 不动 */
+  --jc-switch-w: 36px;                            /* 开关轨道（平板新值） */
+  --jc-switch-h: 18px;
+  --jc-switch-knob: 14px;
+  --jc-chip-height: 28px;                         /* 胶囊/chip（平板新值） */
+  --jc-chip-padding-x: 10px;
+  --jc-chip-radius: 9999px;
+
   /* 阴影 */
   --jc-shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --jc-shadow-md: 0 4px 12px rgba(0,0,0,0.5);

@@ -199,10 +199,10 @@ watch(statusFilter, () => void loadAll())
       <h1 class="text-2xl font-[var(--jc-fw-semibold)]">埋点监控</h1>
       <div class="flex items-center gap-[var(--jc-space-3)]">
         <div class="w-[120px] shrink-0">
-          <!-- size=sm: 与同行「刷新」按钮(--jc-ctrl-h-sm)同高(规格 §3.6/D⑥) -->
-          <ManageSelect v-model="days" :options="DAYS_OPTIONS" aria-label="时间范围" size="sm" />
+          <!-- 工具栏行不标 size: 随标准档, 与同行归一后的「刷新」按钮同高(B5 size 归一) -->
+          <ManageSelect v-model="days" :options="DAYS_OPTIONS" aria-label="时间范围" />
         </div>
-        <ManageButton variant="ghost" size="sm" :loading="loading" @click="loadAll()">
+        <ManageButton variant="ghost" :loading="loading" @click="loadAll()">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </ManageButton>
       </div>
@@ -223,7 +223,7 @@ watch(statusFilter, () => void loadAll())
       description="网络或服务端异常, 请稍后重试"
     >
       <template #action>
-        <ManageButton size="sm" variant="outline" @click="loadAll()">重试</ManageButton>
+        <ManageButton variant="outline" @click="loadAll()">重试</ManageButton>
       </template>
     </BaseEmpty>
 
@@ -313,7 +313,7 @@ watch(statusFilter, () => void loadAll())
         </div>
         <!-- 服务端状态过滤后 total 大于已加载行数时提供加载更多(每页 100 条) -->
         <div v-if="errors.length < total" class="flex justify-center py-[var(--jc-space-3)]">
-          <ManageButton variant="ghost" size="sm" :loading="loading" @click="loadAll(true)">
+          <ManageButton variant="ghost" :loading="loading" @click="loadAll(true)">
             加载更多 (还剩 {{ total - errors.length }})
           </ManageButton>
         </div>

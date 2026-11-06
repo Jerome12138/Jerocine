@@ -8,6 +8,7 @@ import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
@@ -234,15 +235,15 @@ onMounted(load)
 <template>
   <!-- 页面根: flex 高度链(.jc-manage-main 提供), 表格 fit 自适应 -->
   <div class="flex flex-1 min-h-0 flex-col gap-[var(--jc-space-3)]">
-  <!-- 加载失败: 明确报错 + 重试, 不落到"暂无定时任务"空态 -->
-  <div
+  <!-- 加载失败: 明确报错 + 重试, 不落到"暂无定时任务"空态(§C8#1 收口 ManageErrorState banner) -->
+  <ManageErrorState
     v-if="loadError && !loading"
-    class="flex items-center gap-[var(--jc-space-2)] bg-elevated border border-[var(--jc-danger)] rounded-[var(--jc-radius-md)] px-[var(--jc-space-4)] py-[var(--jc-space-3)]"
-  >
-    <BaseIcon name="info" size="16px" class="text-[var(--jc-danger)]" />
-    <span class="text-sm text-[var(--jc-danger)]">加载失败: {{ loadError }}</span>
-    <ManageButton variant="outline" size="sm" class="ml-auto" @click="load">点击重试</ManageButton>
-  </div>
+    variant="banner"
+    title="加载失败"
+    :description="loadError"
+    retry-label="点击重试"
+    @retry="load"
+  />
 
   <ManageTable
     :columns="columns"
@@ -257,13 +258,12 @@ onMounted(load)
         <ManageInput
           v-model="keyword"
           placeholder="搜索 ID / 表达式 / 备注"
-          size="sm"
           class="w-[180px]"
         />
-        <ManageButton variant="ghost" size="sm" @click="load">
+        <ManageButton variant="ghost" @click="load">
           <BaseIcon name="refresh" size="16px" /> 刷新
         </ManageButton>
-        <ManageButton variant="gradient" size="sm" @click="openAdd">
+        <ManageButton variant="gradient" @click="openAdd">
           <BaseIcon name="plus" size="16px" /> 新增
         </ManageButton>
       </div>

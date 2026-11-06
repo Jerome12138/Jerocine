@@ -6,7 +6,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageImageUpload from '@/components/manage/ManageImageUpload.vue'
-import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -162,9 +162,7 @@ function submit(): void {
       />
     </ManageFormField>
 
-    <div class="flex justify-end gap-[var(--jc-space-3)] pt-[var(--jc-space-2)]">
-      <ManageButton variant="ghost" type="button" @click="emit('cancel')">取消</ManageButton>
-      <ManageButton variant="gradient" type="submit" :loading="busy">保存</ManageButton>
-    </div>
+    <!-- footer(§C8#2 收口 ManageFormActions): 弹窗表单原款 gap-3 + pt-2, type=submit 走表单 @submit -->
+    <ManageFormActions :busy="busy" confirm-text="保存" pt @cancel="emit('cancel')" />
   </form>
 </template>

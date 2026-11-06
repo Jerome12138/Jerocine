@@ -160,7 +160,10 @@ slots: option(scoped { option, active, selected }), trigger(scoped { selected: S
 | default | `--jc-ctrl-h` | `--jc-ctrl-px` | `--jc-ctrl-fs` |
 | lg | `--jc-ctrl-h-lg` | `--jc-ctrl-px-lg` | `--jc-ctrl-fs-lg` |
 
-- 令牌四档（theme.css 已有，勿新增）：移动 <768 = 32/28/36；常规 = 36/30/42；宽屏 ≥1280 = 40/32/46；TV `[data-mode='tv']` = 48/40/56。
+- 令牌（theme.css，2026-11-05 重构后）：**标准档按端决定** —— 移动 <768 = 24／平板（默认）= 28／桌面 ≥1280 = 32／TV `[data-mode='tv']` = 48；
+  `sm`/`lg` **由标准档派生**（`sm = 标准 −4`、`lg = 标准 +8`，写公式不逐端写值）；**移动端 `sm` 钉死 = 标准**；
+  字号 `--jc-ctrl-fs` 12/13/14（TV 18）、水平内距 `--jc-ctrl-px` 8/10/12（TV 20）、纵向内距 `--jc-ctrl-py` 2/3/4（TV 8）。
+- 组件**默认不标 size**（跟随端标准）；只有需要"紧凑/突出"的少数场景才显式标 `sm`/`lg`。
 - ManageInput：class 拼接改为由 size 计算的 computed；`min-h` 保持（textarea 语义不变，这里只改高度档）。
 - number spinner 隐藏：`assets/styles/theme.css` 加一条全局规则 `input[type='number']::-webkit-outer-spin-button, input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }`（chrome61 可用）。
 

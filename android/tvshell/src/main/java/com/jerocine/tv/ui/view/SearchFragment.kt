@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.jerocine.player.ui.JcUi
 import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.ServiceLocator
@@ -133,8 +134,8 @@ class SearchFragment : Fragment(R.layout.fragment_search) {
                     submitSearch()
                 }
             }
-            container.addView(button, LinearLayout.LayoutParams(0, 44.dp, 1f).apply {
-                marginEnd = 6.dp
+            container.addView(button, LinearLayout.LayoutParams(0, JcUi.dp(requireContext(), 44), 1f).apply {
+                marginEnd = JcUi.dp(requireContext(), 6)
             })
         }
     }
@@ -151,8 +152,6 @@ class SearchFragment : Fragment(R.layout.fragment_search) {
     }
 
     private fun openDetail(mid: Long) = (requireActivity() as NativeShellActivity).openDetail(mid)
-
-    private val Int.dp: Int get() = (this * resources.displayMetrics.density).toInt()
 
     companion object {
         fun newInstance() = SearchFragment()

@@ -5,7 +5,7 @@ import { toast } from '@/api/http'
 import type { ManageUserRow } from '@/types/manage'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSelect from '@/components/manage/ManageSelect.vue'
-import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
 /**
@@ -114,11 +114,12 @@ function submit(): void {
       />
       <span v-if="isSelf" class="text-xs text-muted">不能修改自己的角色</span>
     </label>
-    <div class="flex justify-end gap-[var(--jc-space-2)]">
-      <ManageButton variant="ghost" size="sm" @click="cancel">取消</ManageButton>
-      <ManageButton variant="gradient" size="sm" type="submit" :loading="busy">
-        {{ isEdit ? '保存' : '创建' }}
-      </ManageButton>
-    </div>
+    <!-- footer(§C8#2 收口 ManageFormActions): 短弹窗原款 gap-2, type=submit 走表单 @submit -->
+    <ManageFormActions
+      :busy="busy"
+      :confirm-text="isEdit ? '保存' : '创建'"
+      :gap="2"
+      @cancel="cancel"
+    />
   </form>
 </template>

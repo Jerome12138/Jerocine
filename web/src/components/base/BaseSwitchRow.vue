@@ -13,7 +13,7 @@ withDefaults(
     modelValue?: boolean
     title: string
     desc?: string
-    /** 开关尺寸(默认 lg=44×24, SettingsView 现用档) */
+    /** 开关尺寸(默认 lg=--jc-switch-* 三档自适应, SettingsView 现用档) */
     size?: 'lg' | 'sm'
   }>(),
   { modelValue: false, size: 'lg' }

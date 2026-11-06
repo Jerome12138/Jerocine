@@ -4,18 +4,14 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 
 /**
- * HomeView TV 金刚区「设置」卡的宿主分支行为(评审后补)。
+ * HomeTv 金刚区「设置」卡的宿主分支行为(评审后补; 2026-11-06 随方案 B 拆分自
+ * HomeView.tv-settings-guard.spec.ts 迁入 —— 守卫逻辑随组件下沉到了 HomeTv.vue)。
  *
  * 这个用例存在的唯一目的: 锁住 `@click.capture`。
- * 卡是 <RouterLink to="/settings">, 原生壳里要拦掉默认导航改开原生抽屉;
+ * 卡是 <RouterLink to="/login">, 原生壳里要拦掉默认导航改开原生抽屉;
  * 若有人把它改回普通 `@click`(`useTvSettingsEntry.routerlink.spec.ts` 的机制测试
  * 察觉不到这种「用法回退」), 本用例会红。
  */
-
-vi.mock('@/api/live', () => ({
-  // 有源 → 金刚区直播卡可见(否则 0 源全隐藏会少一张卡, 破坏"5 张"计数断言)
-  getLiveSources: () => Promise.resolve({ sources: [{ id: 1, name: 'mock', url: 'http://x', state: 0, sort: 0 }] })
-}))
 
 const mocks = vi.hoisted(() => ({
   openSettings: vi.fn(),
@@ -31,34 +27,7 @@ vi.mock('@/utils/jerocineNative', async (importOriginal) => {
   }
 })
 
-vi.mock('@/api', async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, unknown>
-  const filmApi = (actual.filmApi ?? {}) as Record<string, unknown>
-  return {
-    ...actual,
-    filmApi: {
-      ...filmApi,
-      getHome: vi.fn().mockResolvedValue({ banner: [], content: [] }),
-      getBanners: vi.fn().mockResolvedValue([])
-    }
-  }
-})
-
-vi.mock('@/api/history', () => ({
-  listHistory: vi.fn().mockResolvedValue([]),
-  upsertHistory: vi.fn().mockResolvedValue(undefined),
-  removeHistory: vi.fn().mockResolvedValue(undefined),
-  clearHistory: vi.fn().mockResolvedValue(undefined)
-}))
-
-vi.mock('@/api/auth', () => ({
-  getUserInfo: vi.fn().mockResolvedValue({ userName: 'admin', role: 0 }),
-  login: vi.fn(),
-  logout: vi.fn(),
-  changePassword: vi.fn()
-}))
-
-import HomeView from './HomeView.vue'
+import HomeTv from './HomeTv.vue'
 import { useViewMode } from '@/composables/useViewMode'
 
 function makeRouter(): Router {
@@ -74,13 +43,29 @@ function makeRouter(): Router {
   })
 }
 
-async function mountHome(router: Router) {
-  const wrapper = mount(HomeView, { global: { plugins: [router] } })
+/** 金刚区 props 基线: 1 张推荐图 + 有直播源(否则少卡破坏计数断言); 其余面板空 */
+function baseProps() {
+  return {
+    heroSlides: [{ name: '片A', poster: 'a.jpg', cover: '', remarks: '' }],
+    topRanking: [],
+    rows: [],
+    homeRows: [],
+    historyList: [],
+    isLoggedIn: false,
+    hasLiveSources: true
+  }
+}
+
+async function mountHomeTv(router: Router) {
+  const wrapper = mount(HomeTv, {
+    props: baseProps(),
+    global: { plugins: [router] }
+  })
   await flushPromises()
   return wrapper
 }
 
-describe('HomeView TV「设置」卡 × 原生抽屉', () => {
+describe('HomeTv TV「设置」卡 × 原生抽屉', () => {
   let router: Router
 
   beforeEach(async () => {
@@ -88,14 +73,14 @@ describe('HomeView TV「设置」卡 × 原生抽屉', () => {
     localStorage.clear()
     mocks.native.value = true
     mocks.openSettings.mockClear()
-    useViewMode().setMode('tv') // 只有 TV 模式才渲染金刚区
+    useViewMode().setMode('tv') // 语境对齐 TV 模式(门控在宿主 HomeView 的 v-if, 组件本身不再判 mode)
     router = makeRouter()
     await router.push('/')
     await router.isReady()
   })
 
   it('原生壳: 点设置卡 → 开原生抽屉, 且不跳 SPA 路由(靠 @click.capture 拦截)', async () => {
-    const wrapper = await mountHome(router)
+    const wrapper = await mountHomeTv(router)
     const card = wrapper.find('.jc-tv-fc.fc-5')
     expect(card.exists()).toBe(true)
     expect(card.text()).toContain('设备/账号') // 副标题(2026-10-10 起设置卡只在壳内渲染)
@@ -110,27 +95,27 @@ describe('HomeView TV「设置」卡 × 原生抽屉', () => {
   })
 
   it('原生壳: 设置卡渲染 ⇒ 功能卡网格保持 5 列(不挂 --no-settings)', async () => {
-    const wrapper = await mountHome(router)
+    const wrapper = await mountHomeTv(router)
     expect(wrapper.find('.jc-tv-fc.fc-5').exists()).toBe(true)
     expect(wrapper.find('.jc-tv-funcs').classes()).not.toContain('jc-tv-funcs--no-settings')
   })
 
   it('纯网页 TV 模式: 设置卡不渲染(SPA /settings 已删, 没有可去的设置页)', async () => {
     mocks.native.value = false
-    const wrapper = await mountHome(router)
+    const wrapper = await mountHomeTv(router)
     expect(wrapper.find('.jc-tv-fc.fc-5').exists()).toBe(false)
     expect(mocks.openSettings).not.toHaveBeenCalled()
   })
 
   it('纯网页 TV 模式: 功能卡网格挂 --no-settings ⇒ CSS 侧切 4 列占满行宽(右侧不留空位)', async () => {
     mocks.native.value = false
-    const wrapper = await mountHome(router)
+    const wrapper = await mountHomeTv(router)
     expect(wrapper.find('.jc-tv-funcs').classes()).toContain('jc-tv-funcs--no-settings')
     expect(wrapper.findAll('.jc-tv-fc').length).toBe(5) // 收藏/分类/直播/搜索/我的
   })
 
   it('原生壳: 点「我的」卡 → 也开原生抽屉(账号行在抽屉里), 不跳路由', async () => {
-    const wrapper = await mountHome(router)
+    const wrapper = await mountHomeTv(router)
     const card = wrapper.find('.jc-tv-fc.fc-1')
     expect(card.exists()).toBe(true)
 
@@ -145,7 +130,7 @@ describe('HomeView TV「设置」卡 × 原生抽屉', () => {
 
   it('纯网页 TV 模式: 点「我的」卡 → 兜底去 /login(未登录态; 登录页对已登录用户自动 redirect)', async () => {
     mocks.native.value = false
-    const wrapper = await mountHome(router)
+    const wrapper = await mountHomeTv(router)
     const card = wrapper.find('.jc-tv-fc.fc-1')
     expect(card.exists()).toBe(true)
 

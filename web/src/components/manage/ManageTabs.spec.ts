@@ -43,11 +43,11 @@ describe('ManageTabs 页签', () => {
   })
 
   it('segment 态(默认): 容器胶囊底, active 项 bg-surface+shadow+text-primary, 非 active text-secondary', () => {
-    // 视觉契约(规格 §3.3/D①): 逐像素照抄仪表盘手写胶囊, 类名即契约本身
+    // 视觉契约(规格 §3.3/D① → 2026-11-05 三档统一): 容器胶囊底照旧; 字号/内距/高度改由令牌承担
     const w = mount(ManageTabs, { props: { modelValue: 0, tabs: TABS } })
     expect(w.find('[role="tablist"]').classes()).not.toContain('jc-tabs--underline')
     const list = w.find('[role="tablist"]')
-    for (const c of ['flex', 'rounded-full', 'bg-elevated', 'p-0.5', 'text-xs']) {
+    for (const c of ['flex', 'rounded-full', 'bg-elevated', 'p-0.5']) {
       expect(list.classes()).toContain(c)
     }
     const btns = w.findAll('[role="tab"]')
@@ -59,10 +59,13 @@ describe('ManageTabs 页签', () => {
     expect(btns[1]!.classes()).not.toContain('shadow')
   })
 
-  it('segment 项: min-h-[28px] 定值(D⑨)、无 hover 类(照抄现状), 且不再有按钮组样式(jc-btn-gradient 随 pill 删除)', () => {
+  it('segment 项: 尺寸全绑令牌(min-h/内距/字号随三档自适应)、无 hover 类, 且不再有按钮组样式', () => {
     const w = mount(ManageTabs, { props: { modelValue: 0, tabs: TABS } })
     for (const b of w.findAll('[role="tab"]')) {
-      expect(b.classes()).toContain('min-h-[28px]')
+      expect(b.classes()).toContain('min-h-[var(--jc-ctrl-h)]')
+      expect(b.classes()).toContain('px-[var(--jc-ctrl-px)]')
+      expect(b.classes()).toContain('py-[var(--jc-ctrl-py)]')
+      expect(b.classes()).toContain('text-[length:var(--jc-ctrl-fs)]')
       expect(b.classes()).toContain('rounded-full')
       // 无 hover 类: 未激活项恒 text-secondary, 与仪表盘原版一致
       for (const c of b.classes()) expect(c.startsWith('hover:')).toBe(false)

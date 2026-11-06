@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import * as registerApi from '@/api/register'
 import { ApiError } from '@/types/api'
 import BaseButton from '@/components/base/BaseButton.vue'
+import BaseFormMessage from '@/components/base/BaseFormMessage.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BasePasswordField from '@/components/base/BasePasswordField.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
@@ -21,6 +22,9 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const { isTV } = useViewMode()
+
+/** TV 渲染组件(方案 B 拆分): TV 模板在 ActivateTv.vue, 仅 isTV 时挂载 */
+const ActivateTv = defineAsyncComponent(() => import('./ActivateTv.vue'))
 
 const token = computed(() => String(route.query.token ?? '').trim())
 
@@ -126,25 +130,8 @@ async function handleActivate(): Promise<void> {
 
 <template>
   <!-- ============ TV: 引导去电脑/手机完成激活(设密码+确认不适合遥控器) ============ -->
-  <div v-if="isTV" class="jc-tv-glass-card jc-tv-login__card">
-    <div class="jc-tv-login__logo text-brand-gradient">Jerocine影视</div>
-    <div class="jc-tv-login__sub">激活账号</div>
-    <div class="jc-tv-login__note">
-      <div class="a">电视端不便设置密码。</div>
-      <div class="b">请在电脑或手机上打开邮件中的激活链接，完成设置后即可回来登录。</div>
-    </div>
-    <div class="jc-tv-login__actions">
-      <button
-        type="button"
-        class="jc-tv-btn primary jc-tv-login__submit"
-        data-focusable="true"
-        tabindex="0"
-        @click="router.replace('/login')"
-      >
-        返回登录
-      </button>
-    </div>
-  </div>
+  <!-- 渲染组件(方案 B): TV 模板在 ActivateTv.vue(纯引导卡), 无状态依赖。 -->
+  <ActivateTv v-if="isTV" />
 
   <!-- ============ 桌面 / 移动 ============ -->
   <div v-else class="flex flex-col gap-[var(--jc-space-6)]">
@@ -251,9 +238,8 @@ async function handleActivate(): Promise<void> {
         </div>
       </ManageFormField>
 
-      <p v-if="errorMsg" class="text-xs text-[var(--jc-danger)] text-center" role="alert">
-        {{ errorMsg }}
-      </p>
+      <!-- 错误行(§C8#4 收口 BaseFormMessage) -->
+      <BaseFormMessage :message="errorMsg" />
 
       <BaseButton variant="gradient" size="lg" :loading="loading" type="submit">
         完成设置并登录

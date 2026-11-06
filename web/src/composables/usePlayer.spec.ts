@@ -770,6 +770,51 @@ describe('usePlayer — 补充盲区(覆盖率补强)', () => {
     expect(next).toHaveBeenCalledTimes(1)
   })
 
+  it('控制条自定义按钮: episode-picker 右侧注册(方案 §C7), html 为 .art-icon 包裹列表图标, click 触发 open; dispose 清单例', () => {
+    const open = vi.fn()
+    const { api } = mountHost({ src: MP4, episodePicker: { open } })
+    api.init(document.createElement('div'))
+    const opt = lastArtOption()
+    const ctrls = opt.controls as Array<{
+      name: string
+      position: string
+      tooltip: string
+      html: HTMLElement
+      click: () => void
+    }>
+    const picker = ctrls.find((c) => c.name === 'episode-picker')
+    expect(picker).toBeTruthy()
+    expect(picker!.position).toBe('right')
+    expect(picker!.tooltip).toBe('选集')
+    // html 走 svgStringToNode 范式: 外层 .art-icon 包裹(吃 --art-control-icon-size 缩放与 hover scale), 内嵌列表图标
+    expect(picker!.html).toBeInstanceOf(HTMLElement)
+    expect(picker!.html.className).toContain('art-icon')
+    expect(picker!.html.querySelector('svg')).toBeTruthy()
+    picker!.click()
+    expect(open).toHaveBeenCalledTimes(1)
+    // dispose 清单例: 旧控件点击失效(与 next-episode 单例同范式)
+    api.dispose()
+    picker!.click()
+    expect(open).toHaveBeenCalledTimes(1)
+    // 重建后新回调生效
+    const open2 = vi.fn()
+    const h2 = mountHost({ src: MP4, episodePicker: { open: open2 } })
+    h2.api.init(document.createElement('div'))
+    const picker2 = (lastArtOption().controls as Array<{ name: string; click: () => void }>).find(
+      (c) => c.name === 'episode-picker'
+    )!
+    picker2.click()
+    expect(open2).toHaveBeenCalledTimes(1)
+    h2.api.dispose()
+  })
+
+  it('不传 episodePicker: 不注册 episode-picker 控件(与 next-episode 同口径)', () => {
+    const { api } = mountHost({ src: MP4 })
+    api.init(document.createElement('div'))
+    const ctrls = lastArtOption().controls as Array<{ name: string }>
+    expect(ctrls.every((c) => c.name !== 'episode-picker')).toBe(true)
+  })
+
   it('danmuku 选项透传: 插件注册进 ArtPlayer plugins', () => {
     const { api } = mountHost({
       src: MP4,
@@ -821,6 +866,18 @@ describe('usePlayer — 补充盲区(覆盖率补强)', () => {
     expect(ui).not.toHaveBeenCalled()
     art.emit('control', false)
     expect(ui).toHaveBeenCalledTimes(1)
+  })
+
+  it("on('fullscreenwebchange') → art 'fullscreenWeb' 事件(方案 §C7 补网页全屏缺口)", () => {
+    const { api } = mountHost({ src: MP4 })
+    api.init(document.createElement('div'))
+    const art = lastArt()
+    const fn = vi.fn()
+    api.on('fullscreenwebchange', fn)
+    expect(art.onCalls.some(([e, cb]) => e === 'fullscreenWeb' && cb === fn)).toBe(true)
+    art.emit('fullscreenWeb', true)
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(fn).toHaveBeenCalledWith(true)
   })
 
   it('FRAG_BUFFERED 复位网络重试计数(分片成功后重新计 3 次)', () => {

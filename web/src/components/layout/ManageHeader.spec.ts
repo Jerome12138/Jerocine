@@ -52,11 +52,12 @@ describe('ManageHeader 汉堡按钮分支', () => {
     expect(hamburger(w).find('.sr-only').text()).toBe('打开菜单')
   })
 
-  it('汉堡按钮含 !min-h-[44px] !min-w-[44px] (WCAG 触摸目标, important 压过移动端 36px 兜底)', async () => {
+  it('汉堡按钮视觉尺寸绑 --jc-ctrl-h（命中面积靠 .jc-hotarea 热区补, 不再写死 44px）', async () => {
     const w = await mountHeader({ showHamburger: true })
     const cls = hamburger(w).classes()
-    expect(cls).toContain('!min-h-[44px]')
-    expect(cls).toContain('!min-w-[44px]')
+    expect(cls).toContain('!min-h-[var(--jc-ctrl-h)]')
+    expect(cls).toContain('!min-w-[var(--jc-ctrl-h)]')
+    expect(cls).toContain('jc-hotarea')
   })
 
   it('头部不再重复页面标题(各页面内部已有标题)', async () => {

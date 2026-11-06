@@ -5,6 +5,10 @@ import 'virtual:uno.css'
 import '@/assets/styles/reset.css'
 import '@/assets/styles/theme.css'
 import '@/assets/styles/tv-cards.css'
+// 认证页 TV 形态共享样式(jc-tv-login__ 语法): 被 Login/Register/Activate/Forgot/Reset
+// 五页与 BasePasswordField/BaseFormMessage 跨文件共用, 必须紧跟 tv-cards.css 之后
+// (消费其词汇类与 --jc-tv-* 变量; 同特异性时靠此处顺序取胜)
+import '@/assets/styles/auth-tv.css'
 // 老内核兼容层(Chrome<88 flex-gap/aspect-ratio 回退)必须最后加载
 import '@/assets/styles/compat.css'
 

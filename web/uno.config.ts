@@ -64,6 +64,8 @@ export default defineConfig({
     ['border-subtle', 'border-[var(--jc-border-subtle)]'],
     ['border-default', 'border-[var(--jc-border-default)]'],
     ['border-strong', 'border-[var(--jc-border-strong)]'],
+    ['border-ctrl', 'border-[var(--jc-border-ctrl)]'],
+    ['border-ctrl-focus', 'border-[var(--jc-border-ctrl-focus)]'],
     ['border-brand', 'border-[var(--jc-border-brand)]'],
 
     // 状态

@@ -207,13 +207,14 @@ const currentBoardName = computed(() => {
     @filter-change="onFilterChange"
     @paginate="onPaginate"
   >
+    <!-- 页头(§C8#5 收编 TvSectionHeader, 异形头走默认槽自绘) -->
     <template #head>
-      <div class="jc-cs-tv__head jc-tv-sec">
+      <TvSectionHeader class="jc-cs-tv__head">
         <span class="jc-hb-tv__title">热榜 · {{ currentBoardName }}</span>
         <span v-if="page.total > 0" class="jc-cs-tv__count">
           共 <strong>{{ page.total }}</strong> 部影片 · 第 {{ tvCurrent }} / {{ tvPageCount }} 页
         </span>
-      </div>
+      </TvSectionHeader>
     </template>
   </TvResultBoard>
 

@@ -91,6 +91,17 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
 }
 
 /**
+ * 观看进度 mm:ss 显示 (历史卡右下角时间戳).
+ * seconds 缺失或 <1 返回空串(调用方用 v-if 判空).
+ */
+export function formatProgress(seconds?: number): string {
+  if (!seconds || seconds < 1) return ''
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+/**
  * "当前看到第几集" 的显示标签.
  * - episode: 集名(可能是显示名如 "第01集"/"HD", 也可能是 remote 历史里存的纯数字索引字符串)
  * - episodeIndex: 0-based 索引(原生播放器 updateProgress 会持续更新, 最可靠的"当前集")

@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.jerocine.player.ui.JcUi
 import com.jerocine.tv.R
 import com.jerocine.tv.data.FilterTag
 import com.jerocine.tv.data.ServiceLocator
@@ -40,7 +41,7 @@ class CategoryFilterAdapter(
             title.text = group.title
             adapter.bindGroup(group.key, group.current, group.options)
             options.layoutParams = options.layoutParams.apply {
-                height = ((group.options.size + 2) / 3) * itemView.dp(48)
+                height = ((group.options.size + 2) / 3) * JcUi.dp(itemView.context, 48)
             }
         }
     }
@@ -99,5 +100,3 @@ private class FilterOptionAdapter(
         override fun areContentsTheSame(oldItem: FilterTag, newItem: FilterTag) = oldItem == newItem
     }
 }
-
-private fun View.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

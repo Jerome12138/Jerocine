@@ -376,7 +376,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       </div>
       <div class="flex items-center gap-[var(--jc-space-3)]">
         <span class="text-muted text-sm" v-if="jobsLoading || runsLoading">刷新中…</span>
-        <ManageButton variant="outline" size="sm" @click="loadAll">手动刷新</ManageButton>
+        <ManageButton variant="outline" @click="loadAll">手动刷新</ManageButton>
       </div>
     </header>
 
@@ -418,7 +418,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       <div v-else-if="jobsError && jobs.length === 0" class="jc-tm-empty">
         加载失败: {{ jobsError }}.
         <div class="mt-[var(--jc-space-3)]">
-          <ManageButton variant="outline" size="sm" @click="loadJobs">点击重试</ManageButton>
+          <ManageButton variant="outline" @click="loadJobs">点击重试</ManageButton>
         </div>
       </div>
 
@@ -600,7 +600,6 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
             </span>
             <ManageButton
               variant="primary"
-              size="sm"
               :disabled="!canRecoverAll || busy"
               @click="recover()"
             >{{ busy ? '提交中…' : '补采全部' }}</ManageButton>

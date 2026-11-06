@@ -8,6 +8,7 @@ import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import MailConfigCard from './MailConfigCard.vue'
@@ -235,7 +236,7 @@ onMounted(load)
       <p class="text-sm text-[var(--jc-danger)]">
         系统设置加载失败：为避免用空值 / 默认值覆盖线上配置，各卡片的保存按钮已禁用。
       </p>
-      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
+      <ManageButton variant="outline" @click="load">重试</ManageButton>
     </section>
 
     <div class="grid grid-cols-1 gap-[var(--jc-space-5)] xl:grid-cols-2">
@@ -278,17 +279,15 @@ onMounted(load)
             <ManageInput v-model="form.hint!" placeholder="例：站点正在维护，敬请稍候" />
           </ManageFormField>
 
-          <div class="mt-auto flex justify-end gap-[var(--jc-space-3)]">
-            <ManageButton variant="ghost" type="button" @click="resetBasic">重置</ManageButton>
-            <ManageButton
-              variant="gradient"
-              type="submit"
-              :loading="submitting"
-              :disabled="loadError"
-            >
-              保存
-            </ManageButton>
-          </div>
+          <!-- footer(§C8#2 收口 ManageFormActions): 卡片长表单原款 sticky 吸底 + 读档失败禁提交 -->
+          <ManageFormActions
+            :busy="submitting"
+            confirm-text="保存"
+            cancel-text="重置"
+            sticky
+            :confirm-disabled="!!loadError"
+            @cancel="resetBasic"
+          />
         </form>
       </section>
 
@@ -323,19 +322,18 @@ onMounted(load)
         <ManageFormField label="新 Key" hint="留空不改动；仅显示中间脱敏掩码，明文保存后不可再查看">
           <ManageInput v-model="newKey" placeholder="粘贴 v3 API Key 或 v4 Read Access Token" />
         </ManageFormField>
-        <div class="mt-auto flex justify-end gap-[var(--jc-space-3)]">
-          <ManageButton
-            v-if="tmdb.set"
-            variant="ghost"
-            :disabled="keyBusy || loadError"
-            @click="clearKey"
-          >
-            清除
-          </ManageButton>
-          <ManageButton variant="gradient" :loading="keyBusy" :disabled="loadError" @click="saveKey">
-            保存 Key
-          </ManageButton>
-        </div>
+        <!-- footer(§C8#2 收口 ManageFormActions): 本节无 <form> → 点击驱动; 未存 Key 时原款只留保存钮(cancel-text 空串) -->
+        <ManageFormActions
+          :busy="keyBusy"
+          confirm-text="保存 Key"
+          sticky
+          confirm-type="button"
+          :cancel-text="tmdb.set ? '清除' : ''"
+          :cancel-disabled="keyBusy || !!loadError"
+          :confirm-disabled="!!loadError"
+          @cancel="clearKey"
+          @confirm="saveKey"
+        />
       </section>
 
       <!-- 账号与安全 -->

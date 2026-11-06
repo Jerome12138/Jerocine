@@ -9,6 +9,7 @@ import ManageSelect from '@/components/manage/ManageSelect.vue'
 import type { SelectOption } from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
+import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 
@@ -211,7 +212,7 @@ onMounted(load)
         邮件与注册配置读取失败：为避免用默认值覆盖线上配置（注册模式 / SMTP
         开关），已禁用编辑与保存。
       </p>
-      <ManageButton variant="outline" size="sm" @click="load">重试</ManageButton>
+      <ManageButton variant="outline" @click="load">重试</ManageButton>
     </div>
 
     <form v-else class="flex flex-col gap-[var(--jc-space-5)]" @submit.prevent="submit">
@@ -297,10 +298,8 @@ onMounted(load)
         </p>
       </div>
 
-      <div class="flex justify-end gap-[var(--jc-space-3)]">
-        <ManageButton variant="ghost" type="button" @click="load">重置</ManageButton>
-        <ManageButton variant="gradient" type="submit" :loading="submitting">保存</ManageButton>
-      </div>
+      <!-- footer(§C8#2 收口 ManageFormActions): 卡片表单原款 gap-3 无 pt, 左钮=重置(load) -->
+      <ManageFormActions :busy="submitting" confirm-text="保存" cancel-text="重置" @cancel="load" />
     </form>
 
     <div class="border-t border-[var(--jc-border)]" />

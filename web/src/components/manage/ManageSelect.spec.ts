@@ -97,13 +97,13 @@ describe('ManageSelect v2: API 兼容(9 个使用页零改动)', () => {
     expect(wrapper.emitted('update:modelValue')![0]).toEqual(['failed'])
   })
 
-  it('同族外观: bg-elevated/border-default/rounded/focus 态与 ManageInput 同族', () => {
+  it('同族外观: bg-elevated/border-ctrl/rounded/focus 态与 ManageInput 同族', () => {
     wrapper = mount(ManageSelect, { props: { modelValue: 0, options: OPTIONS } })
     const cls = findTrigger(wrapper).classes()
     expect(cls).toContain('bg-elevated')
-    expect(cls).toContain('border-default')
+    expect(cls).toContain('border-ctrl')
     expect(cls).toContain('rounded-[var(--jc-ctrl-radius)]')
-    expect(cls).toContain('focus:border-strong')
+    expect(cls).toContain('focus:border-ctrl-focus')
     expect(cls).toContain('focus:shadow-focus')
   })
 })

@@ -142,12 +142,12 @@ function go(page: number): void {
 
 <style scoped>
 .jc-page-chip {
-  min-width: 44px;
-  height: 44px;
-  padding: 0 var(--jc-space-3);
+  min-width: var(--jc-ctrl-h);
+  height: var(--jc-ctrl-h);
+  padding: 0 var(--jc-ctrl-px);
   border-radius: var(--jc-radius-full);
   background-color: var(--jc-bg-elevated);
-  font-size: var(--jc-fs-sm);
+  font-size: var(--jc-ctrl-fs);
   font-weight: var(--jc-fw-semibold);
   cursor: pointer;
   transition:
@@ -158,6 +158,15 @@ function go(page: number): void {
   color: var(--jc-text-secondary);
 }
 
+/* 唯一两档豁免(方案 §一/§二.B): 移动端页码 chip = 28 —— 相邻数字 chip 的触达密度,
+   比标准(移动 24)略大; 平板/桌面 = 标准 32; TV 56 见下(不动) */
+@media (max-width: 767px) {
+  .jc-page-chip {
+    min-width: 28px;
+    height: 28px;
+  }
+}
+
 .jc-page-chip--active {
   background-image: var(--jc-brand-gradient);
   color: #fff;
@@ -165,9 +174,9 @@ function go(page: number): void {
 }
 
 .jc-page-ellipsis {
-  min-width: 24px;
-  height: 44px;
-  font-size: var(--jc-fs-sm);
+  min-width: var(--jc-ctrl-h);
+  height: var(--jc-ctrl-h);
+  font-size: var(--jc-ctrl-fs);
 }
 </style>
 

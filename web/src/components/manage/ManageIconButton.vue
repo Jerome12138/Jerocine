@@ -7,8 +7,9 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
  * data-focusable 恒挂（disabled 摘除）、type=button —— 三处调用点（FilmClassView 父/子分类删除钮、
  * FileGalleryView 缩略图删除钮）原先各写一份裸 button + hover 类，现收口于此。
  *
- * - icon 形态（传 icon prop）：36px 定值方块。刻意不走 --jc-ctrl-h 令牌：TV 档会放大到 48px，
- *   改变 FilmClassView 既有布局（D⑨「按原有 UI」），常规档同为 36px 像素不变。
+ * - icon 形态（传 icon prop）：方块尺寸**绑 `--jc-ctrl-h`**（2026-11-05 三档标准统一：原"刻意 36px 不走令牌"
+ *   作废 —— 改为随端自适应 24/28/32、TV 48），并挂 `.jc-hotarea` 伪元素热区补触达；
+ *   FilmClassView 等调用点的布局按新档位复核（视觉尺寸变小时靠热区维持命中面积）。
  * - 文字形态（默认槽）：行内文字钮（如 FileGalleryView「删除」），无障碍名由槽文字提供。
  */
 interface Props {
@@ -37,7 +38,7 @@ function onClick(e: MouseEvent): void {
   <button
     type="button"
     class="jc-icon-btn inline-flex items-center justify-center outline-none"
-    :class="icon ? 'jc-icon-btn--icon w-[36px] h-[36px] shrink-0 rounded-[var(--jc-radius-md)] text-muted' : ''"
+    :class="icon ? 'jc-hotarea jc-icon-btn--icon w-[var(--jc-ctrl-h)] h-[var(--jc-ctrl-h)] shrink-0 rounded-[var(--jc-radius-md)] text-muted' : ''"
     :aria-label="icon ? props.label : undefined"
     :disabled="props.disabled"
     :data-focusable="props.disabled ? undefined : 'true'"

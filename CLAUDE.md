@@ -5,7 +5,7 @@
 ## ⚠️ 安卓播放器架构事实（agent 先读，勿混淆）
 
 - **web 壳 APK 与 TV 版使用同一个原生安卓播放器**：`android/player-core` 的 `PlayerActivity`（ExoPlayer/Media3 系）。
-  **不是网页播放器**。前端 `web/src/views/public/PlayView.vue`（video.js）**只在纯 web 端渲染**。
+  **不是网页播放器**。前端 `web/src/views/public/PlayView.vue`（ArtPlayer）**只在纯 web 端渲染**。
 - 壳（顶层 `android/` 工程）内 `/play` 路由被 router 守卫拦截 → 直接调 `jerocine.playPlaylist` 派发**原生播放器**；
   `PlayView` 在原生上**根本不挂载**。因此前端样式/行为改动对原生播放器**无效**。
 - **安卓端的一切播放器 UI（控制栏/弹窗/抽屉/过滤提示/下载面板）都是原生实现**（player-core），
@@ -183,7 +183,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
   - **进程级的东西放宿主 `:app`**（`com.jerocine.app`）：`JerocineApp`（唯一 Application）、`EntryRouterActivity`（唯一 launcher）、`DeviceProbe`（设备探针/壳路由）都在这里 —— 2026-10-12 从 `:tvshell` 迁来。`:app` 因此也 apply 了 Kotlin 插件（这两个类是 Kotlin），并自己声明 `io.coil-kt:coil`（`:tvshell` 里是 `implementation` 作用域、不会传递上来）。
   - **两壳显示的同一份文案/令牌不得各写一份**：账号行文案在 `JcSettingsDrawer.AccountInfo.loggedIn/loggedOut()` 定义一次；设备能力阈值在 `JcDeviceDiagnostics.MIN_*` 定义一次（`DeviceProbe` 用 `const val` 别名引用）；**颜色/尺寸设计令牌的唯一真源是 core 的 `res/values/colors.xml` + `res/values/dimens.xml`** —— 编程式构建 View 一律经 `col(resId)` / `dimenPx(resId)` 从资源解析（core 的 `JcSettingsDrawer`、web 壳的 `WebShellActivity` 都已收编，壳里不再存第二份 `GF_*` 十六进制）。⚠️ 工程开了 `android.nonTransitiveRClass=true`：**`:app` 的 Java/Kotlin 里引用库资源必须写全限定 `com.jerocine.player.R.color.*`**（`R.color.*` 只含本模块资源）；XML 里的 `@color/jc_*` 不受影响（走合并后的资源命名空间）。
   - **别把"刻意分叉"当冗余清掉**：`jc_tv_dialog_bg` / `jc_tv_toast_bg`（不透明实面，外壳外层用）与 core 的 `jc_dialog_bg` / `jc_toast_bg`（半透明玻璃，播放器内部用）**故意不同名不同值** —— 若同名，壳会覆盖库、把播放器一起改坏。
-  - **播放器内的可见文案以"前端 web 播放器"为唯一基准**（`web/src/views/public/PlayView.vue`，video.js 那套；**不是** `android/app` 壳）。广告过滤角标即五态：`过滤未开启 / 该源无需过滤 / 服务端过滤中 / 未检出广告 / 已过滤 N 段广告`，文案与色调由纯逻辑 `AdFilterStatus` 给出（+2 个 Android 特有态 `过滤未生效 / 过滤失败`），壳层只做 `Tone → drawable` 映射（`jc_badge_dot_{ok,idle,busy}`）。**过滤关掉时不隐藏**（显示"过滤未开启"），只有尚无片源才隐藏 —— 历史上的"开了才显示"会让用户以为功能不存在。改文案两端同步，另有单测锁定优先级。
+  - **播放器内的可见文案以"前端 web 播放器"为唯一基准**（`web/src/views/public/PlayView.vue`，ArtPlayer 那套；**不是** `android/app` 壳）。广告过滤角标即五态：`过滤未开启 / 该源无需过滤 / 服务端过滤中 / 未检出广告 / 已过滤 N 段广告`，文案与色调由纯逻辑 `AdFilterStatus` 给出（+2 个 Android 特有态 `过滤未生效 / 过滤失败`），壳层只做 `Tone → drawable` 映射（`jc_badge_dot_{ok,idle,busy}`）。**过滤关掉时不隐藏**（显示"过滤未开启"），只有尚无片源才隐藏 —— 历史上的"开了才显示"会让用户以为功能不存在。改文案两端同步，另有单测锁定优先级。
   - **遥控器按键约定**：`MENU/INFO` = **唤出/收起上下操作栏**（不再弹"播放控制"弹窗 —— 原弹窗里的倍速/选集/换源/过滤/跳过/退出底栏都有按钮，弹窗已删除）；`BACK` = 面板开着先收面板，否则 2s 内双击退出；面板隐藏时 ←→=快进退、↑↓=上/下一集（需再按一次确认）、OK=播/暂。
   - **底栏按钮即全部播放控制**：上集 / 下集 / 选集 / 倍速 / 换源 / **中转** / **过滤** / 跳过 / 退出。加按钮改 `exo_player_control_view.xml` + `PlayerDialogHelper.bindControlButtons`，新增状态往 `PlayerSession.Host` 加渲染出口（别让 helper 直接摸 View）。
   - **两个开关类按钮（中转 / 过滤）的显示约定**：文案**恒定不变**（就叫「中转」「过滤」，不写"切到X"、不写"过滤 开/关"），文字**不随开关变色**（`jc_ctl_btn_text.xml` 只保留 focused/pressed 分支）；开/关状态一律由**左上角状态点**表达（绿=开 `jc_status_dot_on`、灰=关 `jc_status_dot_off`）。实现上这两个按钮各套一层 `FrameLayout`、点作为兄弟 View 叠在 `top|start` —— 不能用 compound drawable 拼点（`JcPlayerCtlBtn` 的 `drawableTint` 会把整块染成单色、绿点一起被染掉）。**改这两个按钮的文案/配色前先看这条**。
@@ -195,7 +195,7 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
   - **前端改动部署线上即对 APK 生效**（APK 清缓存重启即可），无需重打 APK。
   - **`window.Capacitor` 不会注入**（远程页）→ 壳在 pause/resume `eval("window.Capacitor.triggerEvent(...)")` 会报 undefined。已用 `src/utils/capacitorShim.ts` 垫片兜底；生产(release)包 `onConsoleMessage` 不再弹 Toast。
 - 断网兜底在**原生层** `WebShellActivity`（`showOfflineOverlay`；原 `MainActivity` 已按路由拆分更名），Web 层兜底覆盖不到纯断网。
-- 视频：APK 内有**原生 ExoPlayer 全屏播放器**（`android/player-core` 的 `PlayerActivity` + 壳侧 `JerocineBridge` + 前端 `jerocineNative.ts`），`isNative()` 时 `PlayView` 派发给原生、不渲染 video.js。
+- 视频：APK 内有**原生 ExoPlayer 全屏播放器**（`android/player-core` 的 `PlayerActivity` + 壳侧 `JerocineBridge` + 前端 `jerocineNative.ts`），`isNative()` 时 `PlayView` 派发给原生、不渲染网页播放器（ArtPlayer）。
 - **⚠️ 原生播放派发有 3 个入口，配置必须同步**（踩过：只 PlayView 带 `proxyBase`，另两条漏，致原生端侧过滤"代理地址未传"不触发）：
   1. `router/index.ts` beforeEach 守卫——**APK 上进 `/play` 会被它拦截**（拉 detail → 直接 `jerocine.playPlaylist` → 重定向 `/filmDetail`），**PlayView 在原生上根本不挂载**（其内的 playPlaylist 派发=原生死代码）。收藏/外链/历史进入走这里。
   2. `FilmDetailView.gotoPlay`——详情页"立即播放/继续观看"直跳原生，**不走 `/play` 路由**。
