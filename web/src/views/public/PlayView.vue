@@ -1507,6 +1507,12 @@ function playPrev(): void {
 
 /** ---------- §C7 全屏选集面板 ---------- */
 function openEpisodePicker(): void {
+  // 与播放器自带设置浮窗(.art-settings)同款交互: 再点同一次按钮即收起(toggle)。
+  // (原实现只有"打开", 面板上另挂关闭钮 —— 2026-11-06 重做时随标题栏一并去掉)
+  if (episodePickerOpen.value) {
+    closeEpisodePicker()
+    return
+  }
   // 齿轮设置面板(.art-settings z=90)高于本面板(z=65), 且本面板 @click.stop 不触发 ArtPlayer
   // 点外关闭 → 若设置面板已开, 两面板会同屏叠放(第2轮评审 C7-4); 打开选集面板前先收掉它
   const p = player.value
@@ -2061,18 +2067,6 @@ watch(
                 @touchend.stop
                 @touchcancel.stop
               >
-                <div class="jc-fs-picker__head">
-                  <span class="jc-fs-picker__title">选集</span>
-                  <button
-                    type="button"
-                    class="jc-fs-picker__close"
-                    aria-label="关闭选集"
-                    data-focusable="true"
-                    @click.stop="closeEpisodePicker"
-                  >
-                    <BaseIcon name="close" size="16px" />
-                  </button>
-                </div>
                 <div class="jc-fs-picker__body">
                   <EpisodeTabs
                     :sources="detail.sources"
@@ -2420,73 +2414,35 @@ watch(
   display: flex;
 }
 
-/* 面板: 桌面=右侧抽屉 360px 全高 / 移动(<768, 与 .jc-player--mobile 视口口径一致)=底部抽屉 60vh 全宽。
-   毛玻璃站点卡片风: chrome61 禁新增 backdrop-filter(铁律) → 高不透明 elevated 底 + 描边 + 投影承担层次。
-   z-index 65: 盖过控制条(.art-bottom z=60), 与手势提示同层。 */
+/* 全屏选集面板（2026-11-06 重做）：对齐**播放器自带设置浮窗**(.art-settings)的样式与定位 ——
+ * 右下角贴控制条上沿、max-height 60vh、rgba(0,0,0,.75) + 背景模糊、圆角 6px、内容自身滚动。
+ * 不再是"右侧全高玻璃抽屉"，也不再自带标题栏（设置浮窗同样没有；关闭靠再点一次控制条按钮 / Esc）。
+ * 定位口径照抄 artplayer：right = 浮层间距，bottom ≈ 控制条高度。
+ * 注：此处的 backdrop-filter 与 artplayer 自带浮窗同款，仅播放器浮层使用；站点主样式仍守 chrome61 铁律。 */
 .jc-fs-picker {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 360px;
-  max-width: 100%;
+  z-index: 65; /* 盖过控制条(.art-bottom z=60) */
+  right: 20px;
+  bottom: 74px; /* 控制条 60 + 14 气口，与设置浮窗视觉同高 */
+  width: min(360px, calc(100vw - 40px));
+  max-height: 60vh;
   display: flex;
   flex-direction: column;
-  z-index: 65;
-  background-color: var(--jc-bg-elevated);
-  border-left: 1px solid var(--jc-border-ctrl);
-  border-radius: var(--jc-radius-lg) 0 0 var(--jc-radius-lg);
-  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.5);
+  border-radius: 6px; /* = artplayer --art-border-radius */
+  background-color: rgba(0, 0, 0, 0.75); /* = artplayer 浮窗底 */
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }
+/* 移动端：同款锚定（仍在控制条上沿），仅收窄留白与限高 */
 @media (max-width: 767px) {
   .jc-fs-picker {
-    top: auto;
-    left: 0;
-    right: 0;
-    width: auto;
-    height: 60vh;
-    border-left: none;
-    border-top: 1px solid var(--jc-border-ctrl);
-    border-radius: var(--jc-radius-lg) var(--jc-radius-lg) 0 0;
-    box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.5);
+    right: 12px;
+    bottom: 64px;
+    width: min(320px, calc(100vw - 24px));
+    max-height: 56vh;
   }
-}
-
-.jc-fs-picker__head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--jc-space-3) var(--jc-space-4);
-  border-bottom: 1px solid var(--jc-border-default);
-}
-.jc-fs-picker__title {
-  font-size: var(--jc-fs-base);
-  font-weight: var(--jc-fw-bold);
-  color: var(--jc-text-primary);
-}
-.jc-fs-picker__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--jc-border-default);
-  border-radius: var(--jc-radius-md);
-  background-color: transparent;
-  color: var(--jc-text-secondary);
-  cursor: pointer;
-}
-.jc-fs-picker__close:hover {
-  color: var(--jc-text-primary);
-  background-color: rgba(255, 255, 255, 0.06);
-}
-/* TV 焦点环(面板关闭钮): 统一 --jc-tv-focus-ring token(纯 TV 浏览器直开 /play 的兜底场景) */
-[data-mode='tv'] .jc-fs-picker__close:focus,
-[data-mode='tv'] .jc-fs-picker__close:focus-visible {
-  outline: none;
-  box-shadow: var(--jc-tv-focus-ring);
 }
 
 /* 面板内容区: 两层 tab(源条/分段)固定, 集网格占满剩余高纵滚 —— 与右侧 aside(§C6 前既有收口)同款 */
@@ -2520,10 +2476,11 @@ watch(
   overflow-y: auto;
   /* clip 另一轴, 避免 CSS 规范把 overflow-y 强制成 auto 造成嵌套滚动 */
   overflow-x: clip;
-  overscroll-behavior: contain;
   align-content: start;
   padding-right: var(--jc-space-1);
-  /* 滚动条改由 .jc-scrollauto(EpisodeTabs 挂在网格上) 统一接管：静止隐藏, 滚动显 6px 细条 */
+  /* 滚动条与滚动链统一由 .jc-scrollauto + .jc-scroll-y(EpisodeTabs 挂在网格上)接管：
+     静止隐藏 / 滚动显 6px 细条 / 可滚时才锁纵向滚动链。原先这里写死的 overscroll-behavior:contain
+     会在网格无可滚时把滚轮吃掉，已移除。 */
 }
 /* 短名紧凑：本面板默认 auto-fill(96px 下限) → 折半用 48px 下限 */
 [data-mode]:not([data-mode='tv']) .jc-fs-picker__body :deep(.jc-episode-grid--compact) {
