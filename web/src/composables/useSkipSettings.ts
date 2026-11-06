@@ -24,6 +24,15 @@ export const DEFAULT_OUTRO_SEC = 60
 /** 用户级全局默认键（设置页"跳过片头片尾"默认配置; 单影片配置优先） */
 export const DEFAULT_SKIP_KEY = 'jc-skip-default'
 
+/**
+ * 跳过时长归一化：只接受**非负整数**（负数 / 小数 / 非有限值 → 0 / 向下取整）。
+ * 抽成纯函数是因为播放器设置浮窗的「[−] 数字 [＋]」控件会传「当前值 − 10」这种**可能为负的中间值**进来；
+ * 若只在字符串层用 `replace(/\D/g,'')` 归一化，`-10` 会被剥成 `10`（负数变正数，实测踩过）→ 一律先按数值钳制。
+ */
+export function normalizeSkipSec(n: number): number {
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+}
+
 export interface SkipConfig {
   intro: number
   outro: number

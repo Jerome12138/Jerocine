@@ -33,7 +33,7 @@ import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
-import { useSkipSettings } from '@/composables/useSkipSettings'
+import { useSkipSettings, normalizeSkipSec } from '@/composables/useSkipSettings'
 import type { SkipConfig } from '@/composables/useSkipSettings'
 import { useHistoryStore } from '@/stores/history'
 import { useSiteStore } from '@/stores/site'
@@ -1204,32 +1204,32 @@ function mountSkipNumControl(row: HTMLElement, field: 'intro' | 'outro', icon: s
     '<button type="button" class="jc-skip-num__btn" data-step="10" aria-label="增加 10 秒">＋</button>'
   const input = right.querySelector<HTMLInputElement>('.jc-skip-num__input')
   if (!input) return
-  const read = (): number => {
-    const n = Number(input.value)
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
-  }
-  const commit = (raw: string): void => {
-    const n = Math.max(0, Math.floor(Number(String(raw).replace(/[^\d]/g, '')) || 0))
-    input.value = String(n)
+  // 输入框内容始终是「纯数字串」（下面的 input 事件已过滤非数字），故先取数字再交给纯函数钳制
+  const read = (): number => normalizeSkipSec(Number(input.value))
+  const commit = (n: number): void => {
+    const v = normalizeSkipSec(n)
+    input.value = String(v)
     const cfg = skipCfgOf()
-    applySkipCfg(field === 'intro' ? { ...cfg, intro: n } : { ...cfg, outro: n })
+    // 值没变 → 不重复写库/发请求（change 与 blur 会连着触发两次）
+    if (cfg[field] === v) return
+    applySkipCfg(field === 'intro' ? { ...cfg, intro: v } : { ...cfg, outro: v })
   }
-  input.value = String(skipCfgOf()[field])
+  input.value = String(normalizeSkipSec(skipCfgOf()[field]))
   // 行本身带 selector 残留的点击态 → 控件内的指针事件就地拦掉，不冒泡给行
   for (const ev of ['click', 'pointerdown', 'mousedown', 'touchstart']) {
     right.addEventListener(ev, (e) => e.stopPropagation())
   }
   // 行还是 selector 类型：点行非控件区会被 artplayer 打上 .art-current 高亮，点完立刻摘掉
   row.addEventListener('click', () => row.classList.remove('art-current'))
-  right.querySelector('[data-step="-10"]')?.addEventListener('click', () => commit(String(read() - 10)))
-  right.querySelector('[data-step="10"]')?.addEventListener('click', () => commit(String(read() + 10)))
+  right.querySelector('[data-step="-10"]')?.addEventListener('click', () => commit(read() - 10))
+  right.querySelector('[data-step="10"]')?.addEventListener('click', () => commit(read() + 10))
   // 键入即过滤：只留数字（非负整数）
   input.addEventListener('input', () => {
     const digits = input.value.replace(/[^\d]/g, '').slice(0, 5)
     if (input.value !== digits) input.value = digits
   })
-  input.addEventListener('change', () => commit(input.value))
-  input.addEventListener('blur', () => commit(input.value))
+  input.addEventListener('change', () => commit(read()))
+  input.addEventListener('blur', () => commit(read()))
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') input.blur()
   })

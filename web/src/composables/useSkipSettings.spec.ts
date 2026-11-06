@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useSkipSettings, DEFAULT_SKIP_KEY } from './useSkipSettings'
+import { useSkipSettings, DEFAULT_SKIP_KEY, normalizeSkipSec } from './useSkipSettings'
 
 vi.mock('@/utils/token', () => ({ getToken: () => '' }))
 vi.mock('@/api/skip', () => ({ skipSave: vi.fn(), skipReset: vi.fn(), skipList: vi.fn() }))
@@ -12,6 +12,17 @@ vi.mock('@/api/skip', () => ({ skipSave: vi.fn(), skipReset: vi.fn(), skipList: 
 describe('useSkipSettings', () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  it('normalizeSkipSec: 非负整数归一化（负数不得翻正 —— 「−10s」按钮回归防呆）', () => {
+    // 回归：播放器设置浮窗的减号按钮传「当前值 − 10」进来，曾经的字符串归一化会把 -10 剥成 10（负数变正数）
+    expect(normalizeSkipSec(-10)).toBe(0)
+    expect(normalizeSkipSec(-5)).toBe(0)
+    expect(normalizeSkipSec(0)).toBe(0)
+    expect(normalizeSkipSec(90)).toBe(90)
+    expect(normalizeSkipSec(12.7)).toBe(12)
+    expect(normalizeSkipSec(Number.NaN)).toBe(0)
+    expect(normalizeSkipSec(Number.POSITIVE_INFINITY)).toBe(0)
   })
 
   it('无任何配置 ⇒ 内置默认 90/60 且启用', () => {

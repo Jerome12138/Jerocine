@@ -107,13 +107,16 @@ export function readDanmakuSettings(): DanmakuSettings {
     const raw = localStorage.getItem(DANMAKU_SETTINGS_KEY)
     if (!raw) return { ...DANMAKU_DEFAULT_SETTINGS }
     const p = JSON.parse(raw) as Partial<DanmakuSettings>
-    // 速度档迁移: 旧档值(0.5/0.75/1/1.25/1.5) ×2 → 新档(整体慢一倍, 语义见 DANMAKU_SPEED_STEPS)
+    // 速度档迁移: 旧档值(0.5/0.75/1/1.25/1.5) ×2 → 新档(整体慢一倍, 语义见 DANMAKU_SPEED_STEPS)。
+    // ⚠️ 必须先判**新档**：两套档位有交集（旧 1 / 旧 1.5 与新 1 / 新 1.5 数值相同），
+    //    若先判旧档，用户在新版里选的「1(极快) / 1.5」会被再 ×2 成 2 / 3 —— 每次进页静默漂移（实测）。
+    //    交集一律按新档解释（幂等）；只有旧档独有的 0.5 / 0.75 / 1.25 才做 ×2 迁移。
     let speed = DANMAKU_DEFAULT_SETTINGS.speed
     if (typeof p.speed === 'number') {
-      if ((DANMAKU_OLD_SPEED_STEPS as readonly number[]).includes(p.speed)) {
-        speed = p.speed * 2
-      } else if ((DANMAKU_SPEED_STEPS as readonly number[]).includes(p.speed)) {
+      if ((DANMAKU_SPEED_STEPS as readonly number[]).includes(p.speed)) {
         speed = p.speed
+      } else if ((DANMAKU_OLD_SPEED_STEPS as readonly number[]).includes(p.speed)) {
+        speed = p.speed * 2
       }
     }
     return {
