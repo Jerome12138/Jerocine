@@ -127,7 +127,11 @@ type DanmuAggregateResp struct {
 // from/to（秒, 可选 to=0 视为无穷）: 分片过滤 time∈[from*1000, to*1000) —— 前端懒加载
 // 起播段+按进度预取；上游/整集缓存仍整集粒度（分片只在响应层过滤, 上游只打一次）。
 // Total 恒为整集总条数（过滤后 Comments 条数与之对比可判断是否拉完）。
-func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, episode, from, to int) (DanmuAggregateResp, error) {
+//
+// epTitle（2026-11-06 新增，可选）：App 侧集名（如「20260803(第1期上)」）。第三方源的集序号
+// 与弹幕库期号在综艺类普遍错位，只有把集名传下来才能按「同日期/同期号 + 同变体」对到正确的集；
+// 留空则行为与本改动前一致（走旧的集号/标题/位置三策略）。
+func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, episode, from, to int, epTitle string) (DanmuAggregateResp, error) {
 	if strings.TrimSpace(title) == "" {
 		return DanmuAggregateResp{}, fmt.Errorf("missing title: %w", domain.ErrInvalidArgument)
 	}
@@ -136,7 +140,7 @@ func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, e
 	if s.dandan == nil || !s.dandan.Enabled() || !s.danmuMasterEnabled(ctx) {
 		return empty, nil
 	}
-	episodeID, err := s.resolveAggregateEpisode(ctx, title, year, episode)
+	episodeID, err := s.resolveAggregateEpisode(ctx, title, year, episode, epTitle)
 	if err != nil {
 		return DanmuAggregateResp{}, err
 	}
@@ -186,7 +190,7 @@ func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, e
 // 缓存键掺入 year + episode：同标题不同年份（多季）各自缓存，避免先到请求把后到年份
 // 串到错误季；掺 episode 是因为 PickAnime 打分含集数项(EpisodeCount>=episode+1)，
 // 同标题同年不同集号共享 pick 会把后到请求定位到先到请求按其集号选出的作品。
-func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string, year, episode int) (int64, error) {
+func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string, year, episode int, epTitle string) (int64, error) {
 	kwKey := cache.EpKeyOf(fmt.Sprintf("%s|%d|%d", danmu.NormalizeTitle(title), year, episode))
 	anime, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdAnime(kwKey), danmuSourceTTL, danmuEmptyTTL,
 		func(ctx context.Context) (*danmu.DandanAnime, bool, error) {
@@ -219,7 +223,7 @@ func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string
 	if err != nil {
 		return 0, err
 	}
-	ep := danmu.PickEpisode(eps, episode)
+	ep := danmu.PickEpisode(eps, episode, epTitle)
 	if ep == nil {
 		log.Printf("[danmu] aggregate episode not found: anime=%q ep=%d (库内共 %d 集)", anime.AnimeTitle, episode, len(eps))
 		return 0, nil

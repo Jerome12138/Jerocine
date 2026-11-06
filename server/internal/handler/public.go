@@ -63,6 +63,12 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	}
 	from := queryInt(c, "from", 0)
 	to := queryInt(c, "to", 0)
+	// epTitle（可选, 2026-11-06）: App 侧集名, 用于与弹幕库按「同日期/同期号 + 同变体」对集
+	// （综艺类第三方源集序号与库期号普遍错位）。限长防滥用；非法/超长一律当未提供。
+	epTitle := strings.TrimSpace(c.Query("epTitle"))
+	if len([]rune(epTitle)) > 64 {
+		epTitle = ""
+	}
 	// 分片参数合理性: from/to 负值按缺省(整集)处理; to 不得小于 from
 	if from < 0 {
 		from = 0
@@ -70,7 +76,7 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	if to < from {
 		to = 0
 	}
-	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to)
+	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to, epTitle)
 	if err != nil {
 		dto.Fail(c, err)
 		return

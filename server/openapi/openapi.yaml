@@ -1367,9 +1367,19 @@ paths:
           in: query
           required: false
           schema: { type: integer }
+        - name: epTitle
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            App 侧集名（如「20260803(第1期上)」）。用于与弹幕库按「同日期 / 同期号 + 同变体」对集
+            —— 综艺类第三方源集序号与弹幕库期号普遍错位，只有集名能对上；留空则走集号/标题/下标三策略。
+            变体（加更 / 陪看 / 纯享 / 先导 / 彩蛋 / 特辑等）不一致时判为不同集（宁缺勿错）。
       responses:
         '200':
-          description: OK
+          description: >-
+            OK。**查无作品 / 查无该集同样返回 200**，comments 为空数组（2026-11-06 起与全站「无数据」口径统一；
+            原先该端点唯一地返回 404，会让浏览器 Network 标红、监控当噪声）。
           content:
             application/json:
               schema:
@@ -1385,7 +1395,6 @@ paths:
                         color: { type: integer, description: RGB888 }
                         mode: { type: integer, description: '1 滚动 / 4 底部 / 5 顶部' }
         '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /live/sources:
