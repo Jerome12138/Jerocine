@@ -373,7 +373,7 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
                   </button>
                   <div
                     v-if="openFilterKey === col.key"
-                    class="jc-th-filter__panel absolute left-0 top-full z-20 mt-[var(--jc-space-1)] min-w-[140px] rounded-[var(--jc-radius-md)] border border-subtle bg-elevated p-[var(--jc-space-2)] shadow-card"
+                    class="jc-th-filter__panel absolute left-0 top-full z-20 mt-[var(--jc-space-1)] min-w-[140px] rounded-[var(--jc-radius-md)] border border-subtle bg-surface p-[var(--jc-space-2)] shadow-card"
                   >
                     <template v-if="col.filter.multiple">
                       <!-- ManageCheckbox 统一勾选框: 原裸 input 的悬空 token(--jc-brand)随之消灭;

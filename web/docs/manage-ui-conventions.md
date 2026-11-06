@@ -29,6 +29,23 @@
 - **`lg`（标准 +8）**：公共区 CTA 预留（auth 提交钮等，ManageButton lg 分支）；管理端 `views/manage`/`components/manage` 内不使用。
 - 存量归一：B5 一次性删除工具栏/footer/表单上的历史 `size="sm"` 共 77 处；新增代码按本节执行，行内与紧凑容器仍用 `sm`。
 
+## 底色分层规则（2026-11-06 弹窗可辨性修复）
+
+**三层各差一档，控件永远比它的容器亮一档**：
+
+| 层 | 令牌 | 值 |
+|---|---|---|
+| 页面底 | `--jc-bg-base` | `#0b0b0f` |
+| 卡片 / 弹窗 / 浮层底 | `--jc-bg-surface` | `#141518` |
+| 控件底 | `--jc-bg-elevated` | `#1c1d22` |
+
+- **卡片 / 弹窗 / 浮层**一律 `bg-surface`：`BaseDialog`、`ManageSheet`（modal · sheet）、`ManageTable` 表头筛选浮层、`ManageSelect` 浮层、管理端设置页各配置卡（`SiteConfigView` / `MailConfigCard` / `DanmuConfigCard`）。
+- **输入类控件**一律 `bg-elevated`：`ManageInput`、`ManageTextarea`、`ManageSelect` 触发器、`ManageCheckbox`（未选态）。
+- **控件不再靠 `border-ctrl` 描边"显形"**：
+  - `ManageInput` / `ManageTextarea` 用 `border border-transparent` **静默占位** —— 保住 1px 盒高（与选择框等高、无跳变），常态无边框、焦点才显形（`focus:border-ctrl-focus` + `focus:shadow-focus`）。
+  - `ManageSelect` 触发器 / `ManageCheckbox` 保留 `border-ctrl`（它们需要轮廓定义形状）。
+- **反例（违反即修）**：控件底与容器底取同一档 → 只能靠描边区分，控件进了弹窗就糊成一片（本批即由此修复）。
+
 ## 页面标题两种合法形态（2026-11-06 归一）
 
 - **列表页**：标题在工具栏内，用 `<h2 class="text-lg font-[var(--jc-fw-semibold)]">`（12 个列表页一律不动）。

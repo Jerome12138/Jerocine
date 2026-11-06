@@ -101,7 +101,7 @@ onBeforeUnmount(() => {
              保留该类仅为与 BaseDialog 的 §4/D⑦ 兜底口径在类名上对齐, 不用 CSS min() 因 chrome61 不支持 -->
         <div
           v-if="variant === 'modal'"
-          class="jc-sheet--modal max-w-[94vw] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-elevated rounded-[var(--jc-radius-md)] shadow-card-lg overflow-hidden flex flex-col max-h-[90vh]"
+          class="jc-sheet--modal max-w-[94vw] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-[var(--jc-radius-md)] shadow-card-lg overflow-hidden flex flex-col max-h-[90vh]"
           :style="{ width: '90%', maxWidth: width }"
           @click.stop
         >
@@ -130,7 +130,7 @@ onBeforeUnmount(() => {
         <!-- sheet (mobile 底部弹起) -->
         <div
           v-else-if="variant === 'sheet'"
-          class="jc-sheet--sheet absolute left-0 right-0 bottom-0 bg-elevated rounded-t-[var(--jc-radius-lg)] max-h-[75vh] flex flex-col"
+          class="jc-sheet--sheet absolute left-0 right-0 bottom-0 bg-surface rounded-t-[var(--jc-radius-lg)] max-h-[75vh] flex flex-col"
           @click.stop
         >
           <div class="w-[40px] h-[4px] bg-white/30 rounded-full mx-auto mt-[var(--jc-space-2)]"></div>

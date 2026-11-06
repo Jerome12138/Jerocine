@@ -49,7 +49,7 @@ const sizeClass = computed(() => {
     :type="props.type ?? 'text'"
     :placeholder="props.placeholder"
     :disabled="props.disabled"
-      class="w-full bg-elevated text-primary border border-ctrl rounded-[var(--jc-ctrl-radius)] py-[var(--jc-ctrl-py)] outline-none focus:border-ctrl-focus focus:shadow-focus transition disabled:opacity-50"
+      class="w-full bg-elevated text-primary border border-transparent rounded-[var(--jc-ctrl-radius)] py-[var(--jc-ctrl-py)] outline-none focus:border-ctrl-focus focus:shadow-focus transition disabled:opacity-50"
     :class="sizeClass"
     data-focusable="true"
     @input="onInput"

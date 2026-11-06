@@ -109,7 +109,7 @@ const wrapStyle = computed(() => ({
       >
         <div
           ref="dialogEl"
-          class="jc-dialog bg-elevated rounded-[var(--jc-radius-2xl)] shadow-card-xl flex flex-col max-h-[80vh]"
+          class="jc-dialog bg-surface rounded-[var(--jc-radius-2xl)] shadow-card-xl flex flex-col max-h-[80vh]"
           :style="wrapStyle"
           role="dialog"
           aria-modal="true"
