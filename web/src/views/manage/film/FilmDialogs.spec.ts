@@ -40,7 +40,16 @@ vi.mock('@/api', () => ({
 vi.mock('@/api/manage/film', () => ({
   // 与真实实现同构: 单个/数组归一为数组
   normalizeCollectResult: (res: SourceFilmResult | SourceFilmResult[]) =>
-    Array.isArray(res) ? res : [res]
+    Array.isArray(res) ? res : [res],
+  // 与真实实现同构: 按源汇总 toast(测试经由 h.toast 断言)
+  reportCollectResults: (res: SourceFilmResult[]) => {
+    const oks = res.filter((r) => !r.error)
+    const errs = res.filter((r) => r.error)
+    const total = oks.reduce((s, r) => s + (r.collected ?? 0), 0)
+    if (oks.length) h.toast('success', `采集完成, 共入库 ${total} 集`)
+    if (errs.length) h.toast('error', `${errs.length} 个源采集失败`)
+    if (!oks.length && !errs.length) h.toast('error', '未采集到任何内容')
+  }
 }))
 vi.mock('@/api/http', () => ({ toast: h.toast }))
 

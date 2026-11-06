@@ -1002,6 +1002,11 @@ func (s *ManageService) SearchFilms(ctx context.Context, spec repository.FilterS
 	return CardPage{List: list, Total: total, Page: page}, nil
 }
 
+// CountSources 一批影片各自的源行数(管理列表"源数"列)。空入参返回空表, 查询失败返回错误由调用方决定降级。
+func (s *ManageService) CountSources(ctx context.Context, mids []int64) (map[int64]int, error) {
+	return s.play.CountByMids(ctx, mids)
+}
+
 // GetFilm 后台读取单部影片; 含已软删(后台要能看到并恢复它们)。
 func (s *ManageService) GetFilm(ctx context.Context, mid int64) (*entity.Movie, error) {
 	return s.movie.GetByMidIncludingDeleted(ctx, mid)

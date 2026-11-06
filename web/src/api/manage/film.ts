@@ -1,4 +1,4 @@
-import { http } from '../http'
+import { http, toast } from '../http'
 import type { AxiosRequestConfig } from 'axios'
 import type {
   CollectFilmPayload,
@@ -91,3 +91,24 @@ export const collectFilm = (
 export const normalizeCollectResult = (
   res: SourceFilmResult | SourceFilmResult[]
 ): SourceFilmResult[] => (Array.isArray(res) ? res : [res])
+
+/**
+ * 汇总各源采集/补采结果并 toast —— 采集新片弹窗与影片列表行内「补源」共用。
+ * 业务成败在 HTTP 200 的 error/collected 字段里, 由这里单点汇报(配合 silent 请求, 避免
+ * 拦截器的「操作成功」与业务失败 toast 同屏自相矛盾)。
+ */
+export const reportCollectResults = (res: SourceFilmResult[], ctx = ''): void => {
+  const oks = res.filter((r) => !r.error)
+  const errs = res.filter((r) => r.error)
+  const total = oks.reduce((sum, r) => sum + (r.collected ?? 0), 0)
+  const parts = oks.map((r) => `${r.sourceName} ${r.collected}`).join('、')
+  if (oks.length) {
+    toast('success', `${ctx}采集完成, 共入库 ${total} 集` + (parts ? `（${parts}）` : ''))
+  }
+  if (errs.length) {
+    toast('error', `${errs.length} 个源采集失败: ${errs.map((r) => r.sourceName).join('、')}`)
+  }
+  if (!oks.length && !errs.length) {
+    toast('error', `${ctx}未采集到任何内容`)
+  }
+}

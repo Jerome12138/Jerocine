@@ -101,6 +101,8 @@ export type ManageFilmStatus = 'active' | 'deleted' | 'all'
 /** 后台影片列表行：公开 Card + 软删标记（deletedAt>0 即在回收站） */
 export interface ManageFilmRow extends Card {
   deletedAt?: number
+  /** movie_play_source 源行数（同站补采行各计一条）；统计失败缺省，前端按"—"显示 */
+  sourceCount?: number
 }
 
 /** 后台影片搜索响应（{list, page}） */

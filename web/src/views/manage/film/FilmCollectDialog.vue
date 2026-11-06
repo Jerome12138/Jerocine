@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { manageApi } from '@/api'
 import { toast } from '@/api/http'
-import { normalizeCollectResult } from '@/api/manage/film'
+import { normalizeCollectResult, reportCollectResults } from '@/api/manage/film'
 import type { CollectSource, SourceFilmResult, SourceSearchHit } from '@/types/manage'
 import ManageSheet from '@/components/manage/ManageSheet.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
@@ -87,25 +87,8 @@ async function searchSpider(): Promise<void> {
   }
 }
 
-/** 汇总各源采集结果并 toast */
-function reportCollect(res: SourceFilmResult[]): void {
-  const oks = res.filter((r) => !r.error)
-  const errs = res.filter((r) => r.error)
-  const total = oks.reduce((sum, r) => sum + (r.collected ?? 0), 0)
-  const parts = oks.map((r) => `${r.sourceName} ${r.collected}`).join('、')
-  if (oks.length) {
-    toast('success', `采集完成, 共入库 ${total} 集` + (parts ? `（${parts}）` : ''))
-  }
-  if (errs.length) {
-    toast('error', `${errs.length} 个源采集失败: ${errs.map((r) => r.sourceName).join('、')}`)
-  }
-  if (!oks.length && !errs.length) {
-    toast('error', '未采集到任何内容')
-  }
-}
-
 /** 采集: ids 为空数组表示采集全部启用源。silent=true 自管结果提示(业务成败是
- *  HTTP 200 里的 error 字段, 由 reportCollect 汇报), 异常 toast 由 run 单点 */
+ *  HTTP 200 里的 error 字段, 由 reportCollectResults 汇报), 异常 toast 由 run 单点 */
 async function collect(ids: string[]): Promise<void> {
   const kw = spiderKeyword.value.trim()
   if (!kw) {
@@ -119,7 +102,7 @@ async function collect(ids: string[]): Promise<void> {
       )
       results.value = res
       searched.value = true
-      reportCollect(res)
+      reportCollectResults(res)
       if (res.some((r) => !r.error && (r.collected ?? 0) > 0)) emit('saved')
     }
   })

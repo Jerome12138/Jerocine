@@ -116,6 +116,8 @@ type PlaySourceRepository interface {
 	Truncate(ctx context.Context) error
 	// CountBySite 各采集源已采集播放源行数(已采集片数), 一次 GROUP BY site_id。
 	CountBySite(ctx context.Context) (map[string]int64, error)
+	// CountByMids 一批影片各自的源行数(管理列表"源数"列), 一次 GROUP BY mid。
+	CountByMids(ctx context.Context, mids []int64) (map[int64]int, error)
 }
 
 // CategoryRepository 分类。

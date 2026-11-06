@@ -18,6 +18,7 @@ import BaseTag from '@/components/base/BaseTag.vue'
 import FilmCollectDialog from './FilmCollectDialog.vue'
 import FilmManualAddDialog from './FilmManualAddDialog.vue'
 import { normalizeCatIds } from './catFilter'
+import { normalizeCollectResult, reportCollectResults } from '@/api/manage/film'
 import { toast } from '@/api/http'
 import { usePagedList } from '@/composables/usePagedList'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -79,6 +80,7 @@ const columns: Column<ManageFilmRow>[] = [
   { key: 'name', label: '名称' },
   { key: 'cName', label: '分类', width: '120px' },
   { key: 'year', label: '年份', width: '80px' },
+  { key: 'sourceCount', label: '源数', width: '70px' },
   { key: 'area', label: '地区', width: '100px' },
   { key: 'dbScore', label: '评分', width: '70px' },
   { key: 'remarks', label: '备注', width: '140px' },
@@ -192,6 +194,34 @@ function restoreFilm(row: ManageFilmRow): void {
   })
 }
 
+// ---- 一键补各源数据: 复用 POST /manage/spider/collect-film {mid} ----
+// 空 sources = 全部启用采集源, 服务端用 NormalizeName(片名) 智能匹配(与详情页"按源采集"同链路);
+// 单源失败不阻断其它源, 同名多版本的源返回 candidates(到详情页手动选版本)。
+const supplementing = ref<Record<number, boolean>>({})
+
+function supplementSources(row: ManageFilmRow): void {
+  void run({
+    confirm: {
+      title: `补采《${row.name}》全部源？`,
+      desc: '按片名从全部启用采集源智能匹配并更新各源数据；单源失败不影响其他源，同名多版本的源会跳过（到详情页手动选版本）。耗时取决于源数，可能需要一两分钟。',
+      okText: '开始补采'
+    },
+    action: async () => {
+      supplementing.value[row.mid] = true
+      try {
+        const res = normalizeCollectResult(
+          await manageApi.film.collectFilm({ mid: row.mid }, { silent: true, timeout: 180_000 })
+        )
+        reportCollectResults(res)
+        // 有实际入库才刷新列表(源数列随列表重取)
+        if (res.some((r) => !r.error && (r.collected ?? 0) > 0)) paged.load()
+      } finally {
+        supplementing.value[row.mid] = false
+      }
+    }
+  })
+}
+
 // 分类筛选弹层: 点击外部 / ESC 关闭(此前只能靠再点按钮或「确定」, 弹层会驻留遮挡)
 // 内联 onClickOutside + keydown 监听已下沉 useDismiss(规格 §3.1); 热度排序并入
 // ManageSelect v2 后其外点/ESC 由组件内部的 useDismiss 接管, 页面不再自管
@@ -225,7 +255,7 @@ onMounted(() => {
       v-model:current="paged.current.value"
       :page-size="paged.pageSize.value"
       empty="未找到影片"
-      actions-width="160px"
+      actions-width="200px"
     >
       <template #toolbar>
         <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
@@ -335,6 +365,11 @@ onMounted(() => {
             </span>
           </div>
           <BaseTag v-if="isDeleted(row)" variant="danger" size="xs">已删</BaseTag>
+          <BaseTag
+            v-else-if="row.sourceCount"
+            variant="success"
+            size="xs"
+          >{{ row.sourceCount }} 源</BaseTag>
           <BaseIcon name="chevron-right" size="20px" class="text-secondary shrink-0" />
         </div>
         <!-- 移动端操作行: 此前页面覆盖 mobile-card 插槽后删除/恢复入口完全不可达 -->
@@ -343,6 +378,14 @@ onMounted(() => {
           @click.stop
         >
           <ManageButton variant="ghost" size="sm" @click="viewDetail(row)">查看</ManageButton>
+          <ManageButton
+            v-if="!isDeleted(row)"
+            variant="ghost"
+            size="sm"
+            :loading="supplementing[row.mid]"
+            :disabled="busy"
+            @click="supplementSources(row)"
+          >补源</ManageButton>
           <ManageButton
             v-if="isDeleted(row)"
             variant="ghost"
@@ -374,6 +417,15 @@ onMounted(() => {
         >
           {{ row.dbScore > 0 ? row.dbScore.toFixed(1) : '—' }}
         </span>
+        <!-- 源数列: movie_play_source 源行数; 0/统计失败都按"无源"提示(可点补源) -->
+        <BaseTag
+          v-else-if="col.key === 'sourceCount'"
+          :variant="row.sourceCount ? 'success' : 'warning'"
+          size="xs"
+          :title="row.sourceCount ? `${row.sourceCount} 个源行` : '尚无源数据，可用行内「补源」采集'"
+        >
+          {{ row.sourceCount ? `${row.sourceCount} 源` : '无源' }}
+        </BaseTag>
         <span v-else-if="col.key === 'remarks'" class="text-secondary truncate block max-w-[130px]" :title="row.remarks || ''">
           {{ row.remarks || '—' }}
         </span>
@@ -392,6 +444,15 @@ onMounted(() => {
       <template #actions="{ row }">
         <div class="flex gap-[var(--jc-space-1)] justify-end">
           <ManageButton variant="ghost" size="sm" @click="viewDetail(row)">查看</ManageButton>
+          <ManageButton
+            v-if="!isDeleted(row)"
+            variant="ghost"
+            size="sm"
+            :loading="supplementing[row.mid]"
+            :disabled="busy"
+            title="按片名从全部启用采集源补采该片"
+            @click="supplementSources(row)"
+          >补源</ManageButton>
           <ManageButton
             v-if="isDeleted(row)"
             variant="ghost"

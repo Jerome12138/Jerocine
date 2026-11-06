@@ -72,17 +72,20 @@ func ToCards(list []entity.MovieSearch) []Card {
 type ManageFilmRow struct {
 	Card
 	DeletedAt int64 `json:"deletedAt"`
+	// SourceCount 该片在 movie_play_source 的源行数(同站补采行各计一条)。
+	// 源数统计失败时为 0 —— 前端把 0 与缺省同样按"—"显示, 不因统计失败拖垮列表。
+	SourceCount int `json:"sourceCount"`
 }
 
-func ToManageFilmRow(m entity.MovieSearch) ManageFilmRow {
-	return ManageFilmRow{Card: ToCard(m), DeletedAt: m.DeletedAt}
+func ToManageFilmRow(m entity.MovieSearch, sourceCount int) ManageFilmRow {
+	return ManageFilmRow{Card: ToCard(m), DeletedAt: m.DeletedAt, SourceCount: sourceCount}
 }
 
-// ToManageFilmRows 后台影片列表批量转换。
-func ToManageFilmRows(list []entity.MovieSearch) []ManageFilmRow {
+// ToManageFilmRows 后台影片列表批量转换; counts 为各 mid 源行数(缺省 0)。
+func ToManageFilmRows(list []entity.MovieSearch, counts map[int64]int) []ManageFilmRow {
 	out := make([]ManageFilmRow, 0, len(list))
 	for _, m := range list {
-		out = append(out, ToManageFilmRow(m))
+		out = append(out, ToManageFilmRow(m, counts[m.Mid]))
 	}
 	return out
 }
