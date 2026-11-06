@@ -46,13 +46,26 @@ describe('样式防呆：CSS 层叠陷阱', () => {
     expect(m![1]).toMatch(/155,\s*73,\s*231/)
   })
 
-  it('.jc-scrollauto = 常占位 thin + 拇指透明↔可见（不得用 scrollbar-width:none 切隐藏）', () => {
+  it('.jc-scrollauto 常占位 + 滚动链只在「可滚」且「只锁滚动轴」时阻断', () => {
     const idle = theme.match(/\.jc-scrollauto\s*\{[^}]*\}/)?.[0] ?? ''
     expect(idle).toMatch(/scrollbar-width:\s*thin/)
     expect(idle).toMatch(/scrollbar-color:\s*transparent/)
-    // 内层滑到头不带动外层（滚动链）
-    expect(idle).toMatch(/overscroll-behavior:\s*contain/)
     expect(theme).not.toMatch(/\.jc-scrollauto[^{]*\{[^}]*scrollbar-width:\s*none/)
+
+    // 滚动链: 必须挂在 .is-scrollable + 轴向修饰上
+    // 反例(2026-11-06 实测): 裸 .jc-scrollauto{overscroll-behavior:contain} 会在"无可滚内容"时
+    // 把滚轮一并吃掉 → 内层不动、外层也不动。
+    expect(theme).not.toMatch(/\.jc-scrollauto\s*\{[^}]*overscroll-behavior/)
+    expect(theme).toMatch(/\.jc-scrollauto\.is-scrollable\.jc-scroll-x\s*\{[^}]*overscroll-behavior-x:\s*contain/)
+    expect(theme).toMatch(/\.jc-scrollauto\.is-scrollable\.jc-scroll-y\s*\{[^}]*overscroll-behavior-y:\s*contain/)
+    // 另一轴必须留 auto, 否则竖滚会被吃
+    expect(theme).toMatch(/\.jc-scrollauto\.is-scrollable\.jc-scroll-x\s*\{[^}]*overscroll-behavior-y:\s*auto/)
+    expect(theme).toMatch(/\.jc-scrollauto\.is-scrollable\.jc-scroll-y\s*\{[^}]*overscroll-behavior-x:\s*auto/)
+  })
+
+  it('用了 .jc-scrollauto 的容器都要声明滚动轴（jc-scroll-x / jc-scroll-y）', () => {
+    expect(read('../../components/film/EpisodeTabs.vue')).toMatch(/jc-scrollauto jc-scroll-[xy]/)
+    expect(read('../../components/layout/ManageLayout.vue')).toMatch(/jc-scrollauto jc-scroll-[xy]/)
   })
 
   it('选源条不得自行隐藏滚动条（组件样式晚于 theme.css，会盖掉 .jc-scrollauto）', () => {

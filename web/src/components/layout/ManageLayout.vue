@@ -7,8 +7,9 @@ import ManageHeader from './ManageHeader.vue'
 import ManageSidebar from './ManageSidebar.vue'
 import { useAutoHideScrollbar } from '@/composables/useAutoHideScrollbar'
 
-/** 管理后台主区滚动条：滚动时显形、停止 700ms 后收起（用户 2026-11-06 要求） */
-const mainScroll = useAutoHideScrollbar()
+/** 管理后台主区滚动条：滚动时显形、停止 700ms 后收起；可滚时才锁纵向滚动链（用户 2026-11-06 要求） */
+const mainEl = ref<HTMLElement | null>(null)
+const mainScroll = useAutoHideScrollbar(() => mainEl.value)
 
 const userStore = useUserStore()
 const siteStore = useSiteStore()
@@ -60,7 +61,8 @@ onMounted(async () => {
       >
         <!-- 内容包裹层: 桌面封顶 1440px 居中(页面过空治理, D5) + 高度链贯通(表格 fit 依赖, D1) -->
         <div
-          class="jc-manage-main jc-scrollauto mx-auto flex w-full min-h-0 flex-1 flex-col overflow-y-auto max-w-[var(--jc-content-max-w)]"
+          ref="mainEl"
+          class="jc-manage-main jc-scrollauto jc-scroll-y mx-auto flex w-full min-h-0 flex-1 flex-col overflow-y-auto max-w-[var(--jc-content-max-w)]"
           @scroll="mainScroll.onScroll"
         >
           <slot />

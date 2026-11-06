@@ -371,19 +371,29 @@ body {
   box-shadow: none;
 }
 
-/* ===== 滚动条自动显隐（2026-11-06）=====
+/* ===== 滚动条自动显隐 + 滚动链阻断（2026-11-06）=====
  * 语义: 始终**占位** thin 细条(不产生布局跳动), 但拇指透明 —— 静止看不见, 滚动中 .is-scrolling
- * 让拇指显形, 停止 700ms 后收起（.is-scrolling 由 composables/useAutoHideScrollbar 加/删）。
- * 为什么不用 scrollbar-width: none↔thin 切换: 部分内核下切换不生效导致"永远看不到滚动条"
- * (2026-11-06 用户反馈), 改成"常占位 + 拇指透明↔可见"在 Chrome 与老 WebKit 上都稳。
- * 同时给外层阻断滚动链: 内层滑到头不再带动外层(overscroll-behavior: contain)。 */
+ * 让拇指显形, 停止 700ms 后收起（.is-scrolling / .is-scrollable 由 composables/useAutoHideScrollbar 维护）。
+ * 为什么不用 scrollbar-width: none↔thin 切换: 部分内核下切换不生效导致"永远看不到滚动条"(用户反馈)。
+ *
+ * 滚动链: `overscroll-behavior: contain` 只能在「自身真的可滚」时上 ——
+ * 元素无可滚内容时 contain 会把滚轮一并吃掉(实测: 鼠标在其上滚, 内层不动、外层也不动)。
+ * 且必须**只锁真正滚动的那一轴**, 另一轴留 auto, 否则竖滚也会被吃。
+ * 轴向修饰类: `jc-scroll-x`(横向条) / `jc-scroll-y`(纵向容器)。 */
 .jc-scrollauto {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
-  overscroll-behavior: contain;
 }
 .jc-scrollauto.is-scrolling {
   scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+.jc-scrollauto.is-scrollable.jc-scroll-x {
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+}
+.jc-scrollauto.is-scrollable.jc-scroll-y {
+  overscroll-behavior-y: contain;
+  overscroll-behavior-x: auto;
 }
 .jc-scrollauto::-webkit-scrollbar {
   width: 6px;

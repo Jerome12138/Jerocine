@@ -216,15 +216,26 @@ onUnmounted(() => {
 // 源数量/名字变化 → 内容宽度变 → 重算（源条 v-if 显隐后 DOM 才存在, 故等一帧）
 watch(
   () => props.sources,
-  () => nextTick(syncScrollFade)
+  () => nextTick(() => {
+    syncScrollFade()
+    syncTabsScroll()
+  })
 )
-/** 滚动条自隐：选源横向条 / 集数网格滚动时显 6px 细条，停止 700ms 收起（用户 2026-11-06 要求） */
-const { onScroll: onAutoHideScroll } = useAutoHideScrollbar()
+
+// 可见集数变化（翻分段/换源）→ 集格高度变 → 重算可滚状态
+watch(
+  () => visibleEpisodes.value.length,
+  () => nextTick(syncGridScroll)
+)
+/** 滚动条自隐 + 可滚状态：选源横向条 / 集数网格各一份（可滚时才锁各自轴向的滚动链） */
+const gridEl = ref<HTMLElement | null>(null)
+const { onScroll: onTabsAutoHide, sync: syncTabsScroll } = useAutoHideScrollbar(() => tabsEl.value)
+const { onScroll: onGridAutoHide, sync: syncGridScroll } = useAutoHideScrollbar(() => gridEl.value)
 
 /** 容器滚动 → 同时刷新「可滚方向」(渐隐 / 箭头禁用态) 与滚动条显隐 */
 function onTabsScroll(e: Event): void {
   syncScrollFade()
-  onAutoHideScroll(e)
+  onTabsAutoHide(e)
 }
 
 /** 箭头翻页：点一次滑一排(≈可视宽 80%, 留一点上下文); 到两端时对应箭头 disabled */
@@ -272,7 +283,7 @@ const allEpisodeNamesShort = computed(() => {
       </button>
       <div
         ref="tabsEl"
-        class="jc-source-tabs jc-scrollauto flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
+        class="jc-source-tabs jc-scrollauto jc-scroll-x flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
         :class="{ 'is-fade-left': canScrollLeft, 'is-fade-right': canScrollRight }"
         @scroll="onTabsScroll"
       >
@@ -350,9 +361,10 @@ const allEpisodeNamesShort = computed(() => {
     <!-- 集数网格 -->
     <div
       v-if="visibleEpisodes.length"
-      class="jc-episode-grid jc-scrollauto"
+      ref="gridEl"
+      class="jc-episode-grid jc-scrollauto jc-scroll-y"
       :class="{ 'jc-episode-grid--compact': allEpisodeNamesShort }"
-      @scroll="onAutoHideScroll"
+      @scroll="onGridAutoHide"
     >
       <button
         v-for="{ ep, idx } in visibleEpisodes"
