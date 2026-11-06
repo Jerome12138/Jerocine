@@ -2384,12 +2384,14 @@ watch(
   display: none;
 }
 
-/* 本集无弹幕（2026-11-06 用户要求）：置灰插件的弹幕开关与设置按钮，悬停由原生 title 提示"本集无弹幕"
- * （title 在 <script> 里按 danmuNone 就近挂到插件节点上）。刻意保留 pointer-events —— 否则 title 悬停不触发。 */
-.jc-player-wrap.is-danmu-none :deep(.apd-toggle),
-.jc-player-wrap.is-danmu-none :deep(.apd-config) {
+/* 本集无弹幕（2026-11-06 用户要求）：**隐藏**设置图标（隐藏后自然点不到、也不弹面板）；
+ * 弹幕开关保留但置灰 + 原生 title 提示「本集无弹幕」（保留 pointer-events，否则 title 悬停不触发）。 */
+.jc-player-wrap.is-danmu-none :deep(.apd-toggle) {
   opacity: 0.4;
   cursor: not-allowed;
+}
+.jc-player-wrap.is-danmu-none :deep(.apd-config) {
+  display: none;
 }
 /* 有弹幕但用户把弹幕关掉了 → 隐藏设置按钮（开关本身保留，便于再打开） */
 .jc-player-wrap.is-danmu-off :deep(.apd-config) {

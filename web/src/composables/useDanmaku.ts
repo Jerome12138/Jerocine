@@ -217,24 +217,51 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     return { bottomMode: s.bottomMode, topMode: s.topMode, colored: s.colored }
   }
 
-  /** 把可运行时生效的设置项应用到插件（透明度/区域/字号/速度/防重叠）。 */
-  function applyPluginSettings(): void {
-    const p = plugin()
-    if (!p) return
-    const s = settings.value
-    try {
-      p.config({
-        opacity: s.opacity,
-        // 插件 margin: [纵向间距, 底部偏移]; 显示区域 = 1 - 底部偏移
-        margin: [10, `${Math.round((1 - s.area) * 100)}%`],
-        fontSize: s.fontSize > 0 ? s.fontSize : 23,
-        speed: danmakuSpeedOf(s.speed),
-        antiOverlap: s.antiOverlap
-      })
-    } catch {
-      /* 插件未就绪时静默 */
+/**
+ * 把「秒」速度值吸附到**插件自己的 SPEED 档位表**里最接近的一档。
+ *
+ * 为什么必须吸附（2026-11-06 用户报「弹幕速度档位显示未知」）：插件的速度滑块是**按档位表索引**的 ——
+ * `findIndex(item => item.value === option.speed)`；传入值不在它自己的 `SPEED.steps` 里时索引为 -1，
+ * 标签查不到 → 面板渲染成「未知」（artplayer i18n 兜底）。故一律吸附，且**表从插件实例读**：
+ * 插件升级/换档位表时自动跟随，不必把我们自己的档位写死成对方的常量。
+ * 读不到表时原样返回（行为同改动前，不引入回归）。
+ */
+function snapSpeedToPluginSteps(speedSec: number): number {
+  const p = plugin() as unknown as { SPEED?: { steps?: Array<{ value?: unknown }> } } | null
+  const steps = p?.SPEED?.steps
+  if (!Array.isArray(steps) || steps.length === 0) return speedSec
+  let best = speedSec
+  let bestDiff = Infinity
+  for (const st of steps) {
+    const v = st?.value
+    if (typeof v !== 'number') continue
+    const d = Math.abs(v - speedSec)
+    if (d < bestDiff) {
+      bestDiff = d
+      best = v
     }
   }
+  return best
+}
+
+/** 把可运行时生效的设置项应用到插件（透明度/区域/字号/速度/防重叠）。 */
+function applyPluginSettings(): void {
+  const p = plugin()
+  if (!p) return
+  const s = settings.value
+  try {
+    p.config({
+      opacity: s.opacity,
+      // margin: [顶部, 底部偏移]; 显示区域 = 1 - 底部偏移
+      margin: [10, `${Math.round((1 - s.area) * 100)}%`],
+      fontSize: s.fontSize > 0 ? s.fontSize : 23,
+      speed: snapSpeedToPluginSteps(danmakuSpeedOf(s.speed)),
+      antiOverlap: s.antiOverlap
+    })
+  } catch {
+    /* 插件未就绪时静默 */
+  }
+}
 
   /* ---------------- 取数（内存缓存 + in-flight 去重 + 超时中止） ----------------
    * 服务端已有 Redis 缓存；这里再加一层内存缓存：命中直接装载，连缓存命中往返都省掉。
