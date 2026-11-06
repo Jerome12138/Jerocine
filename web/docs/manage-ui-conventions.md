@@ -29,6 +29,14 @@
 - **`lg`（标准 +8）**：公共区 CTA 预留（auth 提交钮等，ManageButton lg 分支）；管理端 `views/manage`/`components/manage` 内不使用。
 - 存量归一：B5 一次性删除工具栏/footer/表单上的历史 `size="sm"` 共 77 处；新增代码按本节执行，行内与紧凑容器仍用 `sm`。
 
+## 页面标题两种合法形态（2026-11-06 归一）
+
+- **列表页**：标题在工具栏内，用 `<h2 class="text-lg font-[var(--jc-fw-semibold)]">`（12 个列表页一律不动）。
+- **仪表盘 / 监控类**：标题在页面顶部，用 `<h1 class="text-2xl font-[var(--jc-fw-semibold)]">`。
+- 落地样例：`DashboardView`（h2→h1 + 2xl/semibold）、`LiveSourceListView`（去 `jc-livemgr__title` 私有样式改工具类）；
+  `TaskManageView` / `TelemetryView` / `CollectJobsView` 原即目标形态。
+- 禁止第三种形态（如 `h2 + text-[length:--jc-fs-2xl] + fw-bold`、或给标题挂 scoped 私有类定字号）。
+
 ## 交互与可访问性（§3/§7）
 
 - 新交互控件（button/input/option/浮层项…）必带 `data-focusable="true"` —— TV 空间导航按 DOM 几何寻焦。

@@ -208,7 +208,7 @@ const cards = computed(() => {
 <template>
   <div class="flex min-h-0 flex-col gap-[var(--jc-space-6)]">
     <header class="flex items-center justify-between">
-      <h2 class="text-[length:var(--jc-fs-2xl)] font-[var(--jc-fw-bold)]">仪表盘</h2>
+      <h1 class="text-2xl font-[var(--jc-fw-semibold)]">仪表盘</h1>
       <button
         type="button"
         class="jc-hotarea text-[length:var(--jc-ctrl-fs)] text-link hover:underline min-h-[var(--jc-ctrl-h)] px-[var(--jc-ctrl-px)]"

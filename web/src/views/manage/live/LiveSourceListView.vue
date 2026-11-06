@@ -472,7 +472,7 @@ onMounted(async () => {
   <div class="jc-livemgr flex flex-1 min-h-0 flex-col">
     <header class="jc-livemgr__head shrink-0">
       <div>
-        <h1 class="jc-livemgr__title">直播源</h1>
+        <h1 class="text-2xl font-[var(--jc-fw-semibold)]">直播源</h1>
         <p class="jc-livemgr__desc">维护直播页的 m3u 播放列表源；保存/停用后公开频道列表立即刷新。</p>
       </div>
       <div class="flex items-center gap-[var(--jc-space-3)]">
@@ -703,10 +703,6 @@ onMounted(async () => {
   justify-content: space-between;
   gap: var(--jc-space-4);
   margin-bottom: var(--jc-space-5);
-}
-.jc-livemgr__title {
-  font-size: var(--jc-fs-lg);
-  font-weight: var(--jc-fw-bold);
 }
 .jc-livemgr__desc {
   margin-top: 4px;
