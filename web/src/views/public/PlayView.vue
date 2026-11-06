@@ -3255,10 +3255,10 @@ watch(
  *   按钮退回 artplayer 自带的 `.art-controls .art-control{display:flex}`，于是在
  *   「看着像非全屏」的网页全屏里、以及进出网页全屏的瞬间露了出来。
  * 改法：只看**播放器元素自身的类**，不再依赖祖先链（元素搬到 <body> 也照样命中）。
- *   非真全屏一律隐藏 —— 网页全屏也不再显示（用户 2026-11-06 要求非全屏不显示；
- *   上一版"网页全屏也显示"的取舍随之取消）。
- * 特异性 (0,3,0) 高于 artplayer 的 `.art-controls .art-control` (0,2,0)，无需 !important。 */
-.art-video-player:not(.art-fullscreen) .art-control-episode-picker {
+ *   仅**非全屏**时才隐藏 —— 网页全屏（`.art-fullscreen-web`）与真全屏一样保留显示
+ *   （用户 2026-11-06 明确：网页全屏要保留选集入口）。
+ * 特异性 (0,4,0) 高于 artplayer 的 `.art-controls .art-control` (0,2,0)，无需 !important。 */
+.art-video-player:not(.art-fullscreen):not(.art-fullscreen-web) .art-control-episode-picker {
   display: none;
 }
 

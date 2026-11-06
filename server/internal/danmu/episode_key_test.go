@@ -28,6 +28,11 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"第3期中", EpisodeKey{Num: 3, Part: "中"}},
 		// 摘要正文里的 上/下 不算次部分（必须紧邻、最多隔一个左括号）
 		{"第1期中：上集回顾", EpisodeKey{Num: 1, Part: "中"}},
+		// 栏目/系列名（Series）：正片为空，衍生栏目单独成身份（≥2 中文字才算数）
+		{"20261012心动的周末上", EpisodeKey{Date: "20261012", Part: "上", Series: "心动的周末"}},
+		{"【qq】 第1期上：又争又抢，心动了就要打明牌！", EpisodeKey{Num: 1, Part: "上"}},
+		{"心动的周末第1期上：高甜游戏CP亲密贴贴～", EpisodeKey{Num: 1, Part: "上", Series: "心动的周末"}},
+		{"心动的旅行上：草原团建！", EpisodeKey{Part: "上", Series: "心动的旅行"}},
 		{"20260921上", EpisodeKey{Date: "20260921", Part: "上"}},
 		{"20250803", EpisodeKey{Date: "20250803"}},
 		{"第9期上", EpisodeKey{Num: 9, Part: "上"}},
@@ -70,6 +75,8 @@ func TestSameEpisode_KeyRules(t *testing.T) {
 		{"App「第3期中」vs 库「第3期中（上）」→ 一方无次部分, 视为通配, 判同", ParseEpisodeKey("第3期中"), ParseEpisodeKey("第3期中（上）"), true},
 		{"同日期不同支：「20260803上」vs「20260803中」→ 判不同(日期不再掩盖主部分)", ParseEpisodeKey("20260803上"), ParseEpisodeKey("20260803中"), false},
 		{"同日期不同次支：「20260818中（下）」vs「20260818中（上）」→ 判不同", ParseEpisodeKey("20260818中（下）"), ParseEpisodeKey("20260818中（上）"), false},
+		{"库「心动的周末第1期上」vs 正片「第1期上」→ 栏目名不同, 判不同(消除串集隐患)", ParseEpisodeKey("心动的周末第1期上：高甜游戏"), ParseEpisodeKey("第1期上：又争又抢"), false},
+		{"App「20261005心动的旅行上」vs 库「心动的旅行上」→ 栏目名一致但两侧都无期号/日期交集, 仍判不同(需 A2 期号才能配上)", ParseEpisodeKey("20261005心动的旅行上"), ParseEpisodeKey("心动的旅行上：草原团建"), false},
 	}
 	for _, c := range cases {
 		if got := SameEpisode(c.a, c.b); got != c.want {
