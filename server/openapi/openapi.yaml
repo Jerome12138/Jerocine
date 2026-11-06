@@ -1385,6 +1385,12 @@ paths:
               schema:
                 type: object
                 properties:
+                  total:
+                    type: integer
+                    description: >-
+                      **整集总条数**（恒返回，不受 from/to 分片影响）。>0 = 本集在弹幕库有弹幕，
+                      此时 comments 为空只代表**本次时段**没有 —— 前端不得据此置灰弹幕按钮/设置图标；
+                      恒 0 = 本作品/本集查无弹幕，前端才置灰（2026-11-06 起该字段恒出现）。
                   comments:
                     type: array
                     items:

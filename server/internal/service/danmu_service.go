@@ -114,10 +114,17 @@ func (s *DanmuService) danmuMasterEnabled(ctx context.Context) bool {
 }
 
 // DanmuAggregateResp 聚合弹幕响应（复用 DanmuComment 毫秒契约）。
-// Total = 整集总条数：from/to 分片过滤时供前端判断是否已拉完全集。
+//
+// Total = **整集总条数**（恒返回，不受 from/to 分片影响）—— 用来区分两件对用户完全不同的事
+// （2026-11-06 用户要求「区分当前时段没有弹幕 还是 当前集没有弹幕」）：
+//   - Total > 0 ⇒ 本集在弹幕库**有**弹幕；此时 Comments 为空只代表**本次时段**没有
+//     （前端不得据此置灰弹幕按钮/设置图标）；
+//   - Total 恒 0 且 Comments 空 ⇒ 本作品/本集在弹幕库查无弹幕（前端才置灰）。
+//
+// 故 Total 去掉 omitempty：恒出现，避免 total=0 被省略后与"字段缺失"产生歧义。
 type DanmuAggregateResp struct {
 	Comments []DanmuComment `json:"comments"`
-	Total    int            `json:"total,omitempty"` // 整集总条数: from/to 分片过滤时供前端判断是否拉完
+	Total    int            `json:"total"` // 整集总条数（恒返回；0 = 本集无弹幕）
 }
 
 // DanmuAggregate 按标题 + 集号取整集弹幕。查无作品/查无该集**不再是错误** → 返回空 comments（200）；

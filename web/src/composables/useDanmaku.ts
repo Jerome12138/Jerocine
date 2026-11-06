@@ -361,7 +361,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
           added++
         }
         aggCache.set(key, pool)
-        if (resp?.total) segTotal = resp.total
+        // total 恒返回（0 = 本集无弹幕）：显式记录，供"本时段 vs 本集"判定（见 loadPoolIntoPlugin）
+        if (typeof resp?.total === 'number') segTotal = resp.total
         // FIFO 淘汰最旧集（当前 key 刚 set 置于末尾, 淘汰从头开始且跳过当前 key）
         if (aggCache.size > AGG_CACHE_MAX) {
           const first = aggCache.keys().next().value
@@ -400,9 +401,14 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     lastComments = pool.length > 0 ? pool : null
     const items = toDanmuInputs(pool, currentMapFilter())
     if (items.length === 0) {
-      // empty 边缘: 首段(0-900s)无弹幕但整集可能有(后段) —— 预取拉到数据时由
-      // prefetchUpcoming 回写 ready/loadedKey, 这里仅当"池空且无后续段可拉"才是真 empty
-      if (!(segTotal > pool.length && segFinished !== true)) {
+      // 「本时段没弹幕」≠「本集没弹幕」（2026-11-06 用户要求：只有后者才置灰按钮）：
+      //  - segTotal（整集总条数）> 已装条数 ⇒ 本集在弹幕库**有**弹幕，只是当前时段为空
+      //    ⇒ 视为已就绪：控制条开关/设置图标照常可用、不置灰；播放到有内容的时段由 prefetch 装载；
+      //  - segTotal 恒 0（且非"还有后续段没拉"）⇒ 本作品/本集查无弹幕 ⇒ empty：按钮置灰。
+      if (segTotal > pool.length && segFinished !== true) {
+        hasDanmaku.value = true
+        danmuState.value = 'ready'
+      } else {
         danmuState.value = 'empty'
       }
       return false

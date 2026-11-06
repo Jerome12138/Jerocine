@@ -137,6 +137,22 @@ describe('useDanmaku', () => {
     expect(items[2]!.color).toBe('#ff0000')
   })
 
+  it('「本时段没弹幕」≠「本集没弹幕」：前者不置灰，后者才 empty', async () => {
+    // 本集在弹幕库里有弹幕（total=3）但首段 [0,900) 为空 → 视为已就绪：按钮不受影响（不置灰）
+    m.getDanmuAggregate.mockResolvedValue({ comments: [], total: 3 })
+    const a = mountHost(3)
+    await flush()
+    expect(a.api.danmuState.value).toBe<DanmuState>('ready')
+    expect(a.api.hasDanmaku.value).toBe(true)
+
+    // 本集没弹幕（total=0）→ empty：按钮置灰
+    m.getDanmuAggregate.mockResolvedValue({ comments: [], total: 0 })
+    const b = mountHost(3)
+    await flush()
+    expect(b.api.danmuState.value).toBe<DanmuState>('empty')
+    expect(b.api.hasDanmaku.value).toBe(false)
+  })
+
   it('404（查无作品/该集）⇒ unsupported「该片暂无弹幕」', async () => {
     m.getDanmuAggregate.mockRejectedValue(new ApiError(404))
     const { api } = mountHost(4)
