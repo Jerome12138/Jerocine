@@ -120,8 +120,10 @@ type DanmuAggregateResp struct {
 	Total    int            `json:"total,omitempty"` // 整集总条数: from/to 分片过滤时供前端判断是否拉完
 }
 
-// DanmuAggregate 按标题 + 集号取整集弹幕。查无作品/无该集 → domain.ErrNotFound（404，
-// 前端标"该片暂无弹幕"）；取数异常 → 原样上抛（前端标失败可重试）。
+// DanmuAggregate 按标题 + 集号取整集弹幕。查无作品/查无该集**不再是错误** → 返回空 comments（200）；
+// 取数异常 → 原样上抛（前端标失败可重试）。
+// 口径统一（2026-11-06）：全站其它"无数据"都是 200 + 空，本接口原来唯一地返回 404
+// （浏览器 Network 标红、监控当噪声）；诊断信息改由 resolveAggregateEpisode 落日志保留。
 // from/to（秒, 可选 to=0 视为无穷）: 分片过滤 time∈[from*1000, to*1000) —— 前端懒加载
 // 起播段+按进度预取；上游/整集缓存仍整集粒度（分片只在响应层过滤, 上游只打一次）。
 // Total 恒为整集总条数（过滤后 Comments 条数与之对比可判断是否拉完）。
@@ -137,6 +139,10 @@ func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, e
 	episodeID, err := s.resolveAggregateEpisode(ctx, title, year, episode)
 	if err != nil {
 		return DanmuAggregateResp{}, err
+	}
+	if episodeID == 0 {
+		// 查无作品 / 查无该集：按统一口径返回空弹幕（200），原因已在 resolveAggregateEpisode 落日志
+		return empty, nil
 	}
 	resp, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdCmt(episodeID), danmuSourceTTL, danmuEmptyTTL,
 		func(ctx context.Context) (DanmuAggregateResp, bool, error) {
@@ -199,7 +205,8 @@ func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string
 		return 0, err
 	}
 	if anime == nil {
-		return 0, fmt.Errorf("aggregate anime not found: %w", domain.ErrNotFound)
+		log.Printf("[danmu] aggregate anime not found: title=%q year=%d ep=%d", title, year, episode)
+		return 0, nil
 	}
 	eps, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdEps(anime.AnimeID), danmuSourceTTL, danmuEmptyTTL,
 		func(ctx context.Context) ([]danmu.DandanEpisode, bool, error) {
@@ -214,7 +221,8 @@ func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string
 	}
 	ep := danmu.PickEpisode(eps, episode)
 	if ep == nil {
-		return 0, fmt.Errorf("aggregate episode not found %s#%d: %w", anime.AnimeTitle, episode, domain.ErrNotFound)
+		log.Printf("[danmu] aggregate episode not found: anime=%q ep=%d (库内共 %d 集)", anime.AnimeTitle, episode, len(eps))
+		return 0, nil
 	}
 	return ep.EpisodeID, nil
 }
