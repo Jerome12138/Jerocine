@@ -21,7 +21,7 @@ const emit = defineEmits<{
 <template>
   <button
     type="button"
-    class="jc-hotarea absolute top-[var(--jc-space-2)] right-[var(--jc-space-2)] w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
+    class="jc-corner-remove jc-hotarea absolute top-[var(--jc-space-2)] right-[var(--jc-space-2)] w-[24px] h-[24px] rounded-full bg-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.85)] flex-center text-white transition-colors"
     :class="zClass"
     :aria-label="label"
     @click="emit('click', $event)"
@@ -29,3 +29,12 @@ const emit = defineEmits<{
     <BaseIcon name="close" size="14px" />
   </button>
 </template>
+
+<style scoped>
+/* 本钮的本职就是「绝对定位到卡角」—— 显式锁死 position, 避免被 .jc-hotarea 的
+   position 声明(legacy 内核 :where() 失效时)或其它全局样式压成 relative。
+   2026-11-06 修复: 曾被压成 relative → 历史页漂到左下角 / 收藏页被 overflow:hidden 裁掉。 */
+.jc-corner-remove {
+  position: absolute;
+}
+</style>

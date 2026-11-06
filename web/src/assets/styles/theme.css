@@ -576,7 +576,13 @@ html[data-mode="tv"] body::-webkit-scrollbar {
  * 用法: 给视觉尺寸 <44px 的控件加 `.jc-hotarea`；默认向外扩 6px。
  *       横向相邻控件（间距 8px 档）用内联 `style="--jc-hotarea-inset: 4px"` 收窄, 避免命中重叠；
  *       纵向相邻无此限制。备注: 父容器 overflow:hidden 处扩区会被裁掉（可接受）。 */
-.jc-hotarea {
+/* 定位声明用 :where() 包一层 → 特异性归零, **不会压过 UnoCSS 的 .absolute / .fixed**
+   (theme.css 在 virtual:uno.css 之后加载, 同特异性下后来者胜)。
+   反例(2026-11-06 修复): CardCornerRemove 同时带 .absolute 与 .jc-hotarea, 被本规则压成
+   relative → 观看历史页删除钮漂到左下角、收藏页被 overflow:hidden 裁掉而"消失"。
+   注: :where() 需 Chrome 88+; 老内核整条规则失效 ⇒ 该元素退回"无定位"(.absolute 生效 ✓),
+   仅静态元素上的热区不再扩容 —— 优雅降级, 不破坏布局。 */
+:where(.jc-hotarea) {
   position: relative;
 }
 .jc-hotarea::after {

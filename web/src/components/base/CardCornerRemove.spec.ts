@@ -16,6 +16,7 @@ describe('CardCornerRemove', () => {
     expect(btn.attributes('type')).toBe('button')
     expect(btn.attributes('aria-label')).toBe('取消收藏 X')
     expect(btn.classes()).toEqual([
+      'jc-corner-remove', // 2026-11-06 修复: 显式锁 position:absolute(曾被 .jc-hotarea 的 relative 压掉 → 漂位/被裁)
       'jc-hotarea', // 2026-11-05 三档统一: 视觉保持 24px(恰为移动标准), 命中面积靠热区补
       'absolute',
       'top-[var(--jc-space-2)]',
