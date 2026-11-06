@@ -521,7 +521,7 @@ function handleToggleFavorite(): void {
               <BaseButton
                 v-if="resumeRecord"
                 variant="primary"
-                size="md"
+                size="lg"
                 @click="resumeWatching"
               >
                 <template #icon>
@@ -531,7 +531,7 @@ function handleToggleFavorite(): void {
               </BaseButton>
               <BaseButton
                 :variant="resumeRecord ? 'outline' : 'primary'"
-                size="md"
+                size="lg"
                 :disabled="!detail.sources?.[0]?.episodes?.length"
                 @click="playFirst"
               >
@@ -542,7 +542,7 @@ function handleToggleFavorite(): void {
               </BaseButton>
               <BaseButton
                 :variant="isFavorited ? 'primary' : 'outline'"
-                size="md"
+                size="lg"
                 @click="handleToggleFavorite"
               >
                 <template #icon>
@@ -554,7 +554,7 @@ function handleToggleFavorite(): void {
               <BaseButton
                 v-if="!isTV"
                 variant="ghost"
-                size="md"
+                size="lg"
                 @click="handleShare"
               >
                 <template #icon>

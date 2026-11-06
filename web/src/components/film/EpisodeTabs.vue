@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { PlaySource } from '@/types/film'
 
 interface Props {
@@ -178,6 +178,45 @@ function stopMarquee(e: Event): void {
   const chip = e.currentTarget as HTMLElement | null
   if (chip) chip.classList.remove('is-marquee')
 }
+/* ===== 源条横滚渐隐(2026-11-06)：左右阴影只在「该方向还能继续滑」时显示 =====
+ * 原实现是常驻双侧 mask —— 滑到两端仍显示, 反而误导; 现按实际可滚方向加类。
+ * 触发点：挂载 / 容器尺寸变化(ResizeObserver) / 滚动 / 源数量变化。 */
+const tabsEl = ref<HTMLElement | null>(null)
+const canScrollLeft = ref(false)
+const canScrollRight = ref(false)
+
+function syncScrollFade(): void {
+  const el = tabsEl.value
+  if (!el) {
+    canScrollLeft.value = false
+    canScrollRight.value = false
+    return
+  }
+  const max = el.scrollWidth - el.clientWidth
+  canScrollLeft.value = el.scrollLeft > 1
+  canScrollRight.value = max > 1 && el.scrollLeft < max - 1
+}
+
+let fadeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  syncScrollFade()
+  if (tabsEl.value && typeof ResizeObserver !== 'undefined') {
+    fadeObserver = new ResizeObserver(() => syncScrollFade())
+    fadeObserver.observe(tabsEl.value)
+  }
+})
+
+onUnmounted(() => {
+  fadeObserver?.disconnect()
+  fadeObserver = null
+})
+
+// 源数量/名字变化 → 内容宽度变 → 重算（源条 v-if 显隐后 DOM 才存在, 故等一帧）
+watch(
+  () => props.sources,
+  () => nextTick(syncScrollFade)
+)
 </script>
 
 <template>
@@ -189,7 +228,12 @@ function stopMarquee(e: Event): void {
       v-if="sources.length > 1"
       class="jc-source-bar flex items-center gap-[var(--jc-space-4)] border-b border-default"
     >
-      <div class="jc-source-tabs flex items-center gap-[var(--jc-space-6)] overflow-x-auto">
+      <div
+        ref="tabsEl"
+        class="jc-source-tabs flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
+        :class="{ 'is-fade-left': canScrollLeft, 'is-fade-right': canScrollRight }"
+        @scroll="syncScrollFade"
+      >
         <button
           v-for="s in sources"
           :key="s.id"
@@ -284,23 +328,33 @@ function stopMarquee(e: Event): void {
 .jc-source-tabs {
   flex: 1 1 auto;
   min-width: 0;
-  /* 纵向留白 + 不裁纵向, 让焦点框/激活态完整显示(避免被祖先 overflow 截断) */
-  overflow-y: visible;
+  /* 横向滚动容器。纵向必须是 hidden 而不是 visible —— CSS 规范会把「visible + auto」的组合
+     强制成两轴 auto, 于是容器凭空多出纵向滚动范围(滚轮一滚"看着不动"), 手感像卡住,
+     这正是 2026-11-06 用户报的「没法左右滑动」的成因。纵向 6px padding 足够容纳
+     焦点环(outline 2px + offset 2px), 不会被裁。 */
+  overflow-x: auto;
+  overflow-y: hidden;
   padding-block: 6px;
-  /* ===== 横滚 affordance(方案 §C6 #4) — chrome61 双声明回退(参照本文件 TV 块 grid 先例):
-     先写老内核可解析的声明, 后写标准声明; 老内核不识别标准值时整条声明失效, 自然落到上一条。 ===== */
-  /* 双侧渐隐: -webkit-mask(chrome61 可解析) + 标准 mask(Chrome 120+ 起);
-     mask 固定在滚动容器可视框上, 内容滚过时两端淡出。老到不认 mask 的内核 → 无渐隐, 无害。 */
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
-  /* scroll-snap proximity: 老语法(chrome61 认识但无 snap 点时零效果, 兜底无害) + 现代轴语法 */
-  scroll-snap-type: proximity;
-  scroll-snap-type: x proximity;
-  /* 隐藏滚动条(affordance 由双侧渐隐承担): 标准属性(Firefox/Chrome 121+) + 下方 ::-webkit-scrollbar(chrome61) */
+  /* 隐藏滚动条(affordance 由下方"按可滚方向"显隐的渐隐承担): 标准属性 + 下方 ::-webkit-scrollbar */
   scrollbar-width: none;
 }
 .jc-source-tabs::-webkit-scrollbar {
   display: none;
+}
+
+/* 横滚渐隐(2026-11-06): 由 JS 按实际可滚方向加类 —— 滑到头就不再显示该侧阴影。
+   chrome61 双声明回退照旧(先老语法后标准语法, 老内核不识别标准值时落到上一条)。 */
+.jc-source-tabs.is-fade-left {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px);
+  mask-image: linear-gradient(90deg, transparent, #000 16px);
+}
+.jc-source-tabs.is-fade-right {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent);
+}
+.jc-source-tabs.is-fade-left.is-fade-right {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
 }
 
 /* 触达热区(方案 §C6 #2): 源 tab/集格视觉高度 <44px, 命中面积靠 .jc-hotarea(theme.css §三)外扩补偿;
@@ -318,14 +372,14 @@ function stopMarquee(e: Event): void {
   height: var(--jc-ctrl-h);
   margin-block: 4px;
   padding: 0 var(--jc-ctrl-px);
-  border-radius: var(--jc-chip-radius, 9999px);
+  /* 2026-11-06 用户要求: 选源胶囊 → 圆角矩形(不再 9999px 全圆), 走控件圆角令牌 */
+  border-radius: var(--jc-ctrl-radius);
   color: var(--jc-text-secondary);
   font-size: var(--jc-ctrl-fs);
   font-weight: var(--jc-fw-medium);
   cursor: pointer;
   white-space: nowrap;
   min-height: var(--jc-ctrl-h);
-  scroll-snap-align: start;
   transition:
     color var(--jc-dur-fast) var(--jc-ease-standard),
     background-color var(--jc-dur-fast) var(--jc-ease-standard);
@@ -431,8 +485,7 @@ function stopMarquee(e: Event): void {
   color: var(--jc-brand-primary, #6d28d9);
 }
 
-/* 分段 chip (1-30 / 31-60 ...) — 方案 §C6 #6: 改 ghost 风格, 与源 tab(渐变胶囊激活态)拉开层级。
- * 基态透明底 + hover 白色洗地(对齐 BaseButton ghost 语言); 激活=白底+主色字(去渐变)。
+/* 分段 chip (1-30 / 31-60 ...) — 基态 ghost(透明底 + hover 白色洗地, 对齐 BaseButton ghost 语言)。
  * 高度绑 --jc-ctrl-h-sm、字号绑 --jc-ctrl-fs-sm(与源 tab 拉开一档; 2026-11-05 三档统一 §二.B)。
  * 光圈语义(方案 §C6 #7, 维持现状并写明): seg=导航层 → 不加紫色光圈
  * (历史: 原激活态 box-shadow 紫圈会被外层 scroll/overflow 容器按直角硬切, 已去;
@@ -458,10 +511,16 @@ function stopMarquee(e: Event): void {
   background-color: rgba(255, 255, 255, 0.06);
   color: var(--jc-text-primary);
 }
-/* 激活=白底+主色字(方案 §C6 #6, 去 --jc-brand-gradient); 置于 :hover 之后, hover 洗地不覆盖激活态 */
+/* 激活态(2026-11-06 用户要求): 还原为紫蓝渐变底 + 白字 —— §C6 #6 的「白底 + 主色字」作废。
+   仍置于 :hover 之后, 并补 --active:hover 清掉 hover 的半透明白底(与源 tab 同款写法)。 */
 .jc-episode-seg--active {
-  background-color: #fff;
-  color: var(--jc-brand-primary);
+  background-color: transparent;
+  background-image: var(--jc-brand-gradient);
+  color: #fff;
+}
+.jc-episode-seg--active:hover {
+  background-color: transparent;
+  color: #fff;
 }
 
 /* 每行集数: 减少列数, 给每集文字更多宽度(集名可能较长, 如"第01集 高清").

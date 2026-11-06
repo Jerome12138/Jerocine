@@ -2128,7 +2128,7 @@ watch(
         <div class="jc-play-toolbar jc-play-toolbar--main">
           <!-- 组1 播放控制 -->
           <div class="jc-pt-group jc-pt-group--primary">
-            <BaseButton variant="gradient" size="sm" :disabled="!hasNext" @click="() => playNext()">
+            <BaseButton variant="gradient" size="lg" :disabled="!hasNext" @click="() => playNext()">
               <template #icon><BaseIcon name="skip-next" size="18px" /></template>
               下集
             </BaseButton>
@@ -2138,7 +2138,7 @@ watch(
             <!-- 收藏: 纯图标(空心=未收藏 / 实心+品牌色=已收藏), 文案走 aria-label + title -->
             <BaseButton
               variant="outline"
-              size="sm"
+              size="lg"
               class="jc-pt-fav"
               :class="favorited ? 'jc-toggle--on' : ''"
               :aria-pressed="favorited"
@@ -2151,17 +2151,17 @@ watch(
               </template>
             </BaseButton>
             <!-- 切到最快: 仅在有更快线路时出现 -->
-            <BaseButton v-if="fastestLineId && fastestLineId !== currentSourceId" variant="ghost" size="sm" @click="switchToFastest">
+            <BaseButton v-if="fastestLineId && fastestLineId !== currentSourceId" variant="ghost" size="lg" @click="switchToFastest">
               <template #icon><BaseIcon name="skip-next" size="18px" /></template>
               切到最快
             </BaseButton>
             <!-- 分享: 点击复制链接 -->
-            <BaseButton variant="ghost" size="sm" :aria-label="shareLabel" :title="shareLabel" @click="handleShare">
+            <BaseButton variant="ghost" size="lg" :aria-label="shareLabel" :title="shareLabel" @click="handleShare">
               <template #icon><BaseIcon name="share" size="18px" /></template>
             </BaseButton>
             <!-- 更多: 收纳 自动连播 / 过滤广告 / 线路测速 / 跳过设置 -->
             <div class="jc-pt-more">
-              <BaseButton variant="outline" size="sm" :aria-expanded="moreActionsOpen" @click="moreActionsOpen = !moreActionsOpen">
+              <BaseButton variant="outline" size="lg" :aria-expanded="moreActionsOpen" @click="moreActionsOpen = !moreActionsOpen">
                 <template #icon><BaseIcon name="menu" size="18px" /></template>
                 更多
               </BaseButton>
