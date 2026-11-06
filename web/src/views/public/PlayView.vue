@@ -58,6 +58,12 @@ import BaseSwitch from '@/components/base/BaseSwitch.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import posterFallback from '@/assets/play.svg'
 
+/** 「片头时长(s) / 片尾时长(s)」两行的图标（原来两行是 selector 类型、只能拿到默认对勾图标，2026-11-06 换成语义图标） */
+const JC_SKIP_INTRO_SVG =
+  '<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" fill="currentColor"/></svg>'
+const JC_SKIP_OUTRO_SVG =
+  '<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" fill="currentColor"/></svg>'
+
 const route = useRoute()
 const router = useRouter()
 const { isMobile } = useViewMode()
@@ -816,8 +822,8 @@ const {
     filter: (d) => d.text.length <= 100
   },
   // 原生显示设置面板(nextTV 范式): 弹幕开关/过滤广告/自动连播收进播放器自带齿轮面板
-  // ⚠️ 必须写成 getter：对象字面量在 **setup 期** 求值，而下面用到的 skipCfgOf()/skipSecSelector()
-  //    依赖 setup 更晚才声明的 skipSettings / SKIP_SEC_OPTIONS；直接写值会踩 TDZ
+  // ⚠️ 必须写成 getter：对象字面量在 **setup 期** 求值，而下面用到的 skipCfgOf()/mountSkipNumControl()
+  //    依赖 setup 更晚才声明的 skipSettings 等；直接写值会踩 TDZ
   //    （两次实测：Cannot access 'skipSettings' / 'SKIP_SEC_OPTIONS' before initialization）。
   //    getter 会推迟到 usePlayer 真正读 opts.settings 时（= 建播放器，此时 detail 已就绪）再求值。
   get settings() {
@@ -873,25 +879,21 @@ const {
     },
     {
       name: 'jc-skip-intro',
-      html: '跳过片头',
-      tooltip: '片头自动跳过的秒数',
+      html: '片头时长(s)',
       mounted: (_panel, item) => {
         skipIntroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
+        if (skipIntroRowEl) mountSkipNumControl(skipIntroRowEl, 'intro', JC_SKIP_INTRO_SVG)
         syncSkipSettingRows()
-      },
-      selector: skipSecSelector(skipCfgOf().intro),
-      onSelect: (item) => applySkipCfg({ ...skipCfgOf(), intro: Number(item.value) || 0 })
+      }
     },
     {
       name: 'jc-skip-outro',
-      html: '跳过片尾',
-      tooltip: '片尾自动跳过的秒数',
+      html: '片尾时长(s)',
       mounted: (_panel, item) => {
         skipOutroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
+        if (skipOutroRowEl) mountSkipNumControl(skipOutroRowEl, 'outro', JC_SKIP_OUTRO_SVG)
         syncSkipSettingRows()
-      },
-      selector: skipSecSelector(skipCfgOf().outro),
-      onSelect: (item) => applySkipCfg({ ...skipCfgOf(), outro: Number(item.value) || 0 })
+      }
     }
     ] as Artplayer['option']['settings']
   },
@@ -1147,10 +1149,12 @@ const outroTriggeredKey = ref('')
 const outroPromptKey = ref('')
 
 /* ============ 跳过片头片尾（2026-11-06：由「更多」面板弹窗迁入播放器设置浮窗，3 行）============
- * 行结构：开关 / 跳过片头时长 / 跳过片尾时长；时长用 selector（同「播放速度」那款），10s 一档 0–180s；
- * 开关关闭时长两行隐藏（artplayer 无原生条件显隐 → 在行的 mounted 里拿到 $item 后自行 display 控制）。
+ * 行结构：开关 / 片头时长(s) / 片尾时长(s)。时长两行 2026-11-06 由 selector 改成
+ * 「[−] 数字 [＋]」数字输入框（只收非负整数，左右按钮各 ±10s）—— artplayer 没有数字输入这种
+ * 控件类型，故在行的 mounted 里自行往 .art-setting-item-right 注入，见 mountSkipNumControl。
+ * 开关关闭时长两行隐藏（artplayer 无原生条件显隐 → 在行的 mounted 里拿到 $item 后自行 display 控制；
+ * 面板高度另由 CSS `.art-settings{height:auto!important}` 收掉，否则会留两行空白）。
  * 值仍按影片持久化（useSkipSettings.save），写回后即时生效（applySkipLive）。 */
-const SKIP_SEC_OPTIONS = Array.from({ length: 19 }, (_, i) => i * 10) // 0,10,…,180
 
 /** 当前影片的跳过配置（未设置过 → 用户级全局默认 / 内置 90/60） */
 function skipCfgOf(): SkipConfig {
@@ -1170,6 +1174,9 @@ function applySkipCfg(cfg: SkipConfig): void {
 /** 时长两行的 DOM 句柄（行的 mounted 里拿到，用于"开关关则隐藏"） */
 let skipIntroRowEl: HTMLElement | null = null
 let skipOutroRowEl: HTMLElement | null = null
+/** 时长两行的输入框句柄（换片/播放器就绪时把值刷成当前影片配置） */
+let skipIntroInputEl: HTMLInputElement | null = null
+let skipOutroInputEl: HTMLInputElement | null = null
 function syncSkipSettingRows(): void {
   const on = skipCfgOf().enabled
   for (const el of [skipIntroRowEl, skipOutroRowEl]) {
@@ -1177,13 +1184,61 @@ function syncSkipSettingRows(): void {
   }
 }
 
-/** 时长选择器项（当前值预选，artplayer 依 default 高亮） */
-function skipSecSelector(cur: number): Array<{ html: string; value: number; default: boolean }> {
-  return SKIP_SEC_OPTIONS.map((v) => ({ html: `${v} 秒`, value: v, default: v === cur }))
+/**
+ * 把「片头/片尾时长」行右侧渲染成「[−] 数字 [＋]」控件（2026-11-06 用户要求）：
+ *  - artplayer 的 settings 行只有 selector/switch/range 三种右侧控件，没有数字输入 → 在行的 mounted 里自行注入；
+ *  - 输入只收非负整数（键入时过滤非数字，失焦/回车/点加减时钳到 ≥0）；
+ *  - 左右按钮每点一次 ±10s。
+ */
+function mountSkipNumControl(row: HTMLElement, field: 'intro' | 'outro', icon: string): void {
+  // 图标：走默认 selector 类型只能拿到"对勾"，这里直接换成跳片头/片尾的语义图标
+  const iconEl = row.querySelector<HTMLElement>('.art-setting-item-left-icon')
+  if (iconEl) iconEl.innerHTML = icon
+  const right = row.querySelector<HTMLElement>('.art-setting-item-right')
+  if (!right || right.dataset.jcSkipNum === '1') return
+  right.dataset.jcSkipNum = '1'
+  right.classList.add('jc-skip-num')
+  right.innerHTML =
+    '<button type="button" class="jc-skip-num__btn" data-step="-10" aria-label="减少 10 秒">−</button>' +
+    '<input class="jc-skip-num__input" type="text" inputmode="numeric" autocomplete="off" maxlength="5" aria-label="秒数" />' +
+    '<button type="button" class="jc-skip-num__btn" data-step="10" aria-label="增加 10 秒">＋</button>'
+  const input = right.querySelector<HTMLInputElement>('.jc-skip-num__input')
+  if (!input) return
+  const read = (): number => {
+    const n = Number(input.value)
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+  }
+  const commit = (raw: string): void => {
+    const n = Math.max(0, Math.floor(Number(String(raw).replace(/[^\d]/g, '')) || 0))
+    input.value = String(n)
+    const cfg = skipCfgOf()
+    applySkipCfg(field === 'intro' ? { ...cfg, intro: n } : { ...cfg, outro: n })
+  }
+  input.value = String(skipCfgOf()[field])
+  // 行本身带 selector 残留的点击态 → 控件内的指针事件就地拦掉，不冒泡给行
+  for (const ev of ['click', 'pointerdown', 'mousedown', 'touchstart']) {
+    right.addEventListener(ev, (e) => e.stopPropagation())
+  }
+  // 行还是 selector 类型：点行非控件区会被 artplayer 打上 .art-current 高亮，点完立刻摘掉
+  row.addEventListener('click', () => row.classList.remove('art-current'))
+  right.querySelector('[data-step="-10"]')?.addEventListener('click', () => commit(String(read() - 10)))
+  right.querySelector('[data-step="10"]')?.addEventListener('click', () => commit(String(read() + 10)))
+  // 键入即过滤：只留数字（非负整数）
+  input.addEventListener('input', () => {
+    const digits = input.value.replace(/[^\d]/g, '').slice(0, 5)
+    if (input.value !== digits) input.value = digits
+  })
+  input.addEventListener('change', () => commit(input.value))
+  input.addEventListener('blur', () => commit(input.value))
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur()
+  })
+  if (field === 'intro') skipIntroInputEl = input
+  else skipOutroInputEl = input
 }
 
 /** 播放器就绪 / 换片后：把三行的状态同步成「当前影片的真实配置」
- *  （setting.update = 移除后重建，所以 selector 的预选值也会被刷新） */
+ *  （时长两行不再走 setting.update —— 那样会换掉行元素、把注入的数字控件冲掉；直接刷输入框的值更稳） */
 function syncSkipSettingsUI(): void {
   const p = player.value
   if (!p) return
@@ -1194,18 +1249,13 @@ function syncSkipSettingsUI(): void {
     switch: cfg.enabled,
     tooltip: cfg.enabled ? '已开启' : '已关闭'
   })
-  p.setting?.update({
-    name: 'jc-skip-intro',
-    html: '跳过片头',
-    switch: undefined,
-    selector: skipSecSelector(cfg.intro)
-  })
-  p.setting?.update({
-    name: 'jc-skip-outro',
-    html: '跳过片尾',
-    switch: undefined,
-    selector: skipSecSelector(cfg.outro)
-  })
+  // 正在输入时不覆盖用户正在敲的值
+  if (skipIntroInputEl && document.activeElement !== skipIntroInputEl) {
+    skipIntroInputEl.value = String(cfg.intro)
+  }
+  if (skipOutroInputEl && document.activeElement !== skipOutroInputEl) {
+    skipOutroInputEl.value = String(cfg.outro)
+  }
   syncSkipSettingRows()
 }
 
@@ -2406,6 +2456,65 @@ watch(
 .jc-player-wrap.is-danmu-pending :deep(.apd-toggle),
 .jc-player-wrap.is-danmu-pending :deep(.apd-config) {
   display: none;
+}
+
+/* ===== 播放器设置浮窗：跳过时长行的「[−] 数字 [＋]」控件 + 面板高度按内容自适应（2026-11-06） =====
+ * artplayer 的 .art-settings 高度是 resize() 内联写死的「行数 × 35px」，
+ * 「跳过片头片尾」开关一关、两行 display:none 之后仍按原行数占高 → 留两行空白。
+ * 改成按内容自适应（内联样式必须 !important 覆盖；面板自身有 max-height + overflow-y 兜底）。 */
+.jc-player-wrap :deep(.art-settings) {
+  height: auto !important;
+}
+/* 时长两行已不是 selector：点整行没有行为，去掉手型光标 */
+.jc-player-wrap :deep(.art-setting-item[data-name='jc-skip-intro']),
+.jc-player-wrap :deep(.art-setting-item[data-name='jc-skip-outro']) {
+  cursor: default;
+}
+.jc-player-wrap :deep(.jc-skip-num) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.jc-player-wrap :deep(.jc-skip-num__btn) {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.jc-player-wrap :deep(.jc-skip-num__btn:hover) {
+  background: rgba(255, 255, 255, 0.15);
+}
+.jc-player-wrap :deep(.jc-skip-num__input) {
+  width: 54px;
+  height: 22px;
+  padding: 0 2px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  text-align: center;
+  outline: none;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.jc-player-wrap :deep(.jc-skip-num__input:focus) {
+  border-color: #6d5cf6;
+}
+/* 纯数字输入，不要 spinner */
+.jc-player-wrap :deep(.jc-skip-num__input::-webkit-outer-spin-button),
+.jc-player-wrap :deep(.jc-skip-num__input::-webkit-inner-spin-button) {
+  appearance: none;
+  margin: 0;
 }
 
 /* 本集无弹幕（2026-11-06 用户要求）：**隐藏**设置图标（隐藏后自然点不到、也不弹面板）；
