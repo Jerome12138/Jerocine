@@ -33,7 +33,7 @@ import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
-import { useSkipSettings } from '@/composables/useSkipSettings'
+import { useSkipSettings, DEFAULT_INTRO_SEC, DEFAULT_OUTRO_SEC } from '@/composables/useSkipSettings'
 import type { SkipConfig } from '@/composables/useSkipSettings'
 import { useHistoryStore } from '@/stores/history'
 import { useSiteStore } from '@/stores/site'
@@ -846,13 +846,14 @@ const {
       }
     },
     // —— 跳过片头片尾（2026-11-06 从「更多」面板迁入，3 行）——
-    // 注：此处按「用户级全局默认」构建初值（此刻 detail 尚未加载）；播放器就绪后
-    // 由 syncSkipSettingsUI() 用本片真实配置重建，selector 的预选值随之刷新。
+    // ⚠️ 本数组在 **setup 期** 就被求值（usePlayer 的 opts 字面量），而 `skipSettings` 声明在下方，
+    //    这里**绝不能**调 skipCfgOf()/skipSettings（会踩 TDZ：Cannot access before initialization）。
+    //    故初值只写静态/模块级常量；本片真实配置由 syncSkipSettingsUI() 在播放器就绪时重建刷新。
     {
       name: 'jc-skip-switch',
       html: '跳过片头片尾',
-      tooltip: skipCfgOf().enabled ? '已开启' : '已关闭',
-      switch: skipCfgOf().enabled,
+      tooltip: '自动跳过片头与片尾',
+      switch: true,
       onSwitch: () => {
         const cfg = skipCfgOf()
         const next = { ...cfg, enabled: !cfg.enabled }
@@ -868,7 +869,7 @@ const {
         skipIntroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
         syncSkipSettingRows()
       },
-      selector: skipSecSelector(skipCfgOf().intro),
+      selector: skipSecSelector(DEFAULT_INTRO_SEC),
       onSelect: (item) => applySkipCfg({ ...skipCfgOf(), intro: Number(item.value) || 0 })
     },
     {
@@ -879,7 +880,7 @@ const {
         skipOutroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
         syncSkipSettingRows()
       },
-      selector: skipSecSelector(skipCfgOf().outro),
+      selector: skipSecSelector(DEFAULT_OUTRO_SEC),
       onSelect: (item) => applySkipCfg({ ...skipCfgOf(), outro: Number(item.value) || 0 })
     }
   ] as Artplayer['option']['settings'],
