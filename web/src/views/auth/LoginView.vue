@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import QRCode from 'qrcode'
 import { useUserStore } from '@/stores/user'
@@ -20,23 +20,29 @@ const router = useRouter()
 const userStore = useUserStore()
 const { isTV } = useViewMode()
 
+/** TV 渲染组件(方案 B 拆分): TV 模板 / 同屏软键盘状态全在 LoginTv.vue, 仅 isTV 时挂载 */
+const LoginTv = defineAsyncComponent(() => import('./LoginTv.vue'))
+
 const form = reactive({ username: '', password: '' })
 const showPwd = ref(false)
 const loading = ref(false)
 const errorMsg = ref('')
 
-// ===== TV 同屏字母键盘: 当前作用的输入框(账号/密码) =====
-const kbdTarget = ref<'username' | 'password'>('username')
+/**
+ * TV 分支输入框的模板 ref(由渲染组件 LoginTv 的回调 prop 回传)。
+ * 桌面分支用下方 syncAutofill 区域的 usernameInput / passwordInput;
+ * syncAutofill 取「当前实际挂载的那一支」。
+ */
+const tvUsernameInput = ref<HTMLInputElement | null>(null)
+const tvPasswordInput = ref<{ input: HTMLInputElement | null } | null>(null)
 
-/** 软键盘输出 → 写入当前聚焦字段。键盘只产大写字母/数字/空格, 账号通常小写, 由用户自行控制不强转。 */
-function onKbdInput(v: string): void {
-  if (kbdTarget.value === 'password') form.password = v
-  else form.username = v
+function setTvUsernameRef(el: unknown): void {
+  tvUsernameInput.value = (el as HTMLInputElement | null) ?? null
 }
 
-const kbdValue = computed(() =>
-  kbdTarget.value === 'password' ? form.password : form.username
-)
+function setTvPasswordRef(el: unknown): void {
+  tvPasswordInput.value = (el as { input: HTMLInputElement | null } | null) ?? null
+}
 
 // 浏览器 autofill 不触发 v-model 的 input event, 提交时从 DOM 兜底同步
 const usernameInput = ref<HTMLInputElement | null>(null)
@@ -44,8 +50,11 @@ const usernameInput = ref<HTMLInputElement | null>(null)
 const passwordInput = ref<{ input: HTMLInputElement | null } | null>(null)
 
 function syncAutofill(): void {
-  if (usernameInput.value && !form.username) form.username = usernameInput.value.value
-  if (passwordInput.value?.input && !form.password) form.password = passwordInput.value.input.value
+  // TV 与桌面分支各持自己的模板 ref, 取当前实际挂载的那一支
+  const u = usernameInput.value ?? tvUsernameInput.value
+  const p = passwordInput.value ?? tvPasswordInput.value
+  if (u && !form.username) form.username = u.value
+  if (p?.input && !form.password) form.password = p.input.value
 }
 
 const redirectTo = computed(() => {
@@ -202,177 +211,26 @@ async function handleLogin(): Promise<void> {
 
 <template>
   <!-- ============ TV: 雷鸟卡片式登录 ============ -->
-  <div v-if="isTV" class="jc-tv-login">
-    <div class="jc-tv-glass-card jc-tv-login__card">
-      <div class="jc-tv-login__logo text-brand-gradient">Jerocine影视</div>
-      <div class="jc-tv-login__sub">登录后可同步观看历史 / 进度续播 / 收藏</div>
-
-      <!-- 登录方式切换: 密码 / 扫码 -->
-      <div class="jc-tv-login__tabs">
-        <button
-          type="button"
-          class="jc-tv-login__tab"
-          :class="{ cur: mode === 'pwd' }"
-          data-focusable="true"
-          tabindex="0"
-          @click="switchMode('pwd')"
-        >
-          密码登录
-        </button>
-        <button
-          type="button"
-          class="jc-tv-login__tab"
-          :class="{ cur: mode === 'qr' }"
-          data-focusable="true"
-          tabindex="0"
-          @click="switchMode('qr')"
-        >
-          扫码登录
-        </button>
-      </div>
-
-      <!-- 密码登录 -->
-      <template v-if="mode === 'pwd'">
-        <!-- 账号 (字段=account) -->
-        <div class="jc-tv-login__field">
-          <span class="jc-tv-login__lab">用户名 <b>*</b></span>
-          <div class="jc-tv-login__wrap">
-            <BaseIcon name="user" class="jc-tv-login__ic" size="20px" />
-            <input
-              ref="usernameInput"
-              v-model="form.username"
-              type="text"
-              class="jc-tv-input jc-tv-login__input"
-              placeholder="用户名 / 邮箱"
-              autocomplete="username"
-              data-focusable="true"
-              tabindex="0"
-              @focus="kbdTarget = 'username'"
-              @change="form.username = ($event.target as HTMLInputElement).value"
-            />
-          </div>
-        </div>
-
-        <!-- 密码 + 显隐 -->
-        <div class="jc-tv-login__field">
-          <span class="jc-tv-login__lab">密码 <b>*</b></span>
-          <BasePasswordField
-            ref="passwordInput"
-            v-model="form.password"
-            v-model:visible="showPwd"
-            variant="tv"
-            placeholder="密码"
-            autocomplete="current-password"
-            tabindex="0"
-            @focus="kbdTarget = 'password'"
-            @keydown.enter="handleLogin"
-            @change="form.password = ($event.target as HTMLInputElement).value"
-          />
-        </div>
-
-        <p v-if="errorMsg" class="jc-tv-login__err" role="alert">{{ errorMsg }}</p>
-
-        <div class="jc-tv-login__actions">
-          <button
-            type="button"
-            class="jc-tv-btn primary jc-tv-login__submit"
-            :disabled="loading"
-            data-focusable="true"
-            tabindex="0"
-            @click="handleLogin"
-          >
-            {{ loading ? '登录中…' : '登录' }}
-          </button>
-        </div>
-
-        <!-- 忘记密码(P3): TV 不便输邮箱, 引导去电脑/手机走邮件链接 -->
-        <button
-          type="button"
-          class="jc-tv-login__forgot"
-          data-focusable="true"
-          tabindex="0"
-          @click="router.push('/forgot-password')"
-        >
-          忘记密码？
-        </button>
-
-        <!-- 注册入口: off=下线指引; open/apply=引导去 PC/手机完成注册(TV 不便输邮箱+验证码) -->
-        <div class="jc-tv-login__note">
-          <template v-if="registerMode === 'off'">
-            <div class="a">注册功能已暂时下线。</div>
-            <div class="b">
-              如需账号请联系管理员开通；管理员可在后台「系统管理 → 用户管理」创建账号。
-            </div>
-          </template>
-          <template v-else>
-            <div class="a">还没有账号？</div>
-            <div class="b">电视端不便输入邮箱与验证码，请在电脑或手机访问本站完成注册。</div>
-          </template>
-        </div>
-        <div v-if="registerMode !== 'off'" class="jc-tv-login__actions">
-          <button
-            type="button"
-            class="jc-tv-btn cyan"
-            data-focusable="true"
-            tabindex="0"
-            @click="router.push('/register')"
-          >
-            注册账号
-          </button>
-        </div>
-      </template>
-
-      <!-- 扫码 / 设备码登录 -->
-      <template v-else>
-        <div class="jc-tv-login__qr">
-          <div class="jc-tv-login__qr-tip">用已登录的手机扫码，确认后此设备自动登录</div>
-          <div class="jc-tv-login__qr-box" data-focusable="true" tabindex="0">
-            <img
-              v-if="qr.dataUrl"
-              :src="qr.dataUrl"
-              alt="登录二维码"
-              width="220"
-              height="220"
-            />
-            <span v-else class="jc-tv-login__qr-ph">{{
-              qr.loading ? '生成中…' : '加载二维码…'
-            }}</span>
-            <div v-if="qr.status === 'ok'" class="jc-tv-login__qr-ok">已确认，登录中…</div>
-          </div>
-          <div v-if="qr.userCode" class="jc-tv-login__qr-code">
-            校验码 <span class="uc">{{ qr.userCode }}</span>
-          </div>
-          <div class="jc-tv-login__actions">
-            <button
-              type="button"
-              class="jc-tv-btn cyan"
-              data-focusable="true"
-              tabindex="0"
-              @click="startQrLogin"
-            >
-              刷新二维码
-            </button>
-          </div>
-        </div>
-      </template>
-    </div>
-
-    <!-- 右侧: 同屏字母虚拟键盘 (密码登录时显示) -->
-    <div v-if="mode === 'pwd'" class="jc-tv-glass-card jc-tv-login__kbd">
-      <div class="jc-tv-login__kbd-head">
-        <span class="t">软键盘</span>
-        <span class="s">输入 {{ kbdTarget === 'password' ? '密码' : '用户名' }}</span>
-      </div>
-      <TvOnScreenKeyboard
-        :model-value="kbdValue"
-        @update:model-value="onKbdInput"
-        @enter="handleLogin"
-      />
-      <div class="jc-tv-login__tip">首次部署默认管理员 <b>admin</b> / <b>change_me_admin</b>（登录后请立即改密）</div>
-    </div>
-
-    <p v-if="redirectTo" class="jc-tv-login__redirect">登录后将跳转至：{{ redirectTo }}</p>
-  </div>
+  <!-- 渲染组件(方案 B): TV 模板 / 同屏软键盘聚焦状态全在 LoginTv.vue, 此处只做状态供给。
+       form.username / form.password / showPwd 经 v-model 双向共用同一份;
+       TV 输入框的模板 ref 经回调 prop 回传(浏览器 autofill 兜底 syncAutofill 用)。 -->
+  <LoginTv
+    v-if="isTV"
+    v-model:username="form.username"
+    v-model:password="form.password"
+    v-model:visible="showPwd"
+    :mode="mode"
+    :error-msg="errorMsg"
+    :loading="loading"
+    :register-mode="registerMode"
+    :redirect-to="redirectTo"
+    :qr="qr"
+    :on-switch-mode="switchMode"
+    :on-login="handleLogin"
+    :on-refresh-qr="startQrLogin"
+    :on-username-ref="setTvUsernameRef"
+    :on-password-ref="setTvPasswordRef"
+  />
 
   <!-- ============ 桌面 / 移动 (原样) ============ -->
   <div v-else class="flex flex-col gap-[var(--jc-space-6)]">
@@ -575,240 +433,6 @@ async function handleLogin(): Promise<void> {
   </div>
 </template>
 
-<!--
-  TV 专属样式。全部 [data-mode="tv"] 作用域(与 tv-cards.css 同约定), 不影响桌面/移动。
-  AuthLayout 把 slot 限宽 440px(共享文件不可改) → TV 采用纵向堆叠(玻璃登录卡 + 软键盘),
-  在 440px 内完整呈现, 不挤压.
--->
-<style>
-[data-mode='tv'] .jc-tv-login {
-  display: flex;
-  flex-direction: column;
-  gap: var(--jc-space-5);
-  width: 100%;
-}
-
-[data-mode='tv'] .jc-tv-login__card,
-[data-mode='tv'] .jc-tv-login__kbd {
-  padding: 28px 30px;
-}
-
-[data-mode='tv'] .jc-tv-login__logo {
-  font-weight: var(--jc-fw-black);
-  font-size: var(--jc-fs-2xl);
-  text-align: center;
-}
-
-[data-mode='tv'] .jc-tv-login__sub {
-  text-align: center;
-  color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
-  margin-top: 7px;
-}
-
-[data-mode='tv'] .jc-tv-login__tabs {
-  display: flex;
-  gap: 5px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
-  border-radius: var(--jc-radius-full);
-  padding: 5px;
-  margin: 18px 0 6px;
-}
-
-[data-mode='tv'] .jc-tv-login__tab {
-  flex: 1;
-  text-align: center;
-  color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
-  padding: 11px 0;
-  border-radius: var(--jc-radius-full);
-  cursor: pointer;
-  font-weight: var(--jc-fw-semibold);
-  border: 0;
-  background: transparent;
-}
-
-[data-mode='tv'] .jc-tv-login__tab.cur {
-  background: var(--jc-brand-gradient);
-  color: #fff;
-}
-
-[data-mode='tv'] .jc-tv-login__field {
-  margin-top: 16px;
-}
-
-[data-mode='tv'] .jc-tv-login__lab {
-  font-size: var(--jc-fs-sm);
-  color: var(--jc-text-secondary);
-  margin-bottom: 8px;
-  display: block;
-}
-
-[data-mode='tv'] .jc-tv-login__lab b {
-  color: var(--jc-danger, #ff6b81);
-}
-
-[data-mode='tv'] .jc-tv-login__wrap {
-  position: relative;
-}
-
-[data-mode='tv'] .jc-tv-login__ic {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  opacity: 0.7;
-  pointer-events: none;
-}
-
-/* 密码框的眼睛样式(__ic-r)已随 W1b 收敛进 BasePasswordField(variant=tv) */
-
-[data-mode='tv'] .jc-tv-login__input {
-  padding-left: 46px;
-  padding-right: 46px;
-}
-
-[data-mode='tv'] .jc-tv-login__err {
-  margin-top: 14px;
-  text-align: center;
-  color: var(--jc-danger);
-  font-size: var(--jc-fs-sm);
-}
-
-[data-mode='tv'] .jc-tv-login__actions {
-  margin-top: 18px;
-}
-
-[data-mode='tv'] .jc-tv-login__submit {
-  width: 100%;
-  justify-content: center;
-}
-
-[data-mode='tv'] .jc-tv-login__note {
-  margin-top: 18px;
-  border-radius: var(--jc-radius-md);
-  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
-  background: rgba(0, 0, 0, 0.25);
-  padding: 14px 16px;
-  text-align: center;
-}
-
-/* 忘记密码文字链(P3): TV 不便输邮箱, 引导去电脑/手机走邮件链接 */
-[data-mode='tv'] .jc-tv-login__forgot {
-  display: block;
-  margin: 14px auto 0;
-  background: transparent;
-  border: 0;
-  color: var(--jc-text-muted);
-  font-size: var(--jc-fs-sm);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-[data-mode='tv'] .jc-tv-login__forgot:hover,
-[data-mode='tv'] .jc-tv-login__forgot:focus-visible {
-  color: var(--jc-text-primary);
-}
-
-[data-mode='tv'] .jc-tv-login__note .a {
-  color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
-}
-
-[data-mode='tv'] .jc-tv-login__note .b {
-  color: var(--jc-text-muted);
-  font-size: var(--jc-fs-xs);
-  margin-top: 6px;
-}
-
-[data-mode='tv'] .jc-tv-login__kbd-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-[data-mode='tv'] .jc-tv-login__kbd-head .t {
-  font-size: var(--jc-fs-base);
-  font-weight: var(--jc-fw-bold);
-}
-
-[data-mode='tv'] .jc-tv-login__kbd-head .s {
-  font-size: var(--jc-fs-xs);
-  color: var(--jc-brand-cyan);
-}
-
-[data-mode='tv'] .jc-tv-login__tip {
-  margin-top: 14px;
-  text-align: center;
-  color: var(--jc-text-muted);
-  font-size: var(--jc-fs-xs);
-}
-
-[data-mode='tv'] .jc-tv-login__tip b {
-  color: var(--jc-brand-cyan);
-  font-weight: var(--jc-fw-semibold);
-}
-
-/* 扫码区 */
-[data-mode='tv'] .jc-tv-login__qr {
-  margin-top: 16px;
-  text-align: center;
-}
-
-[data-mode='tv'] .jc-tv-login__qr-tip {
-  color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-sm);
-  margin-bottom: 12px;
-}
-
-[data-mode='tv'] .jc-tv-login__qr-box {
-  width: 220px;
-  height: 220px;
-  margin: 0 auto;
-  border-radius: 12px;
-  background: #fff;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-[data-mode='tv'] .jc-tv-login__qr-ph {
-  color: #666;
-  font-size: var(--jc-fs-sm);
-}
-
-[data-mode='tv'] .jc-tv-login__qr-ok {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.7);
-  color: var(--jc-success);
-  font-size: var(--jc-fs-base);
-}
-
-[data-mode='tv'] .jc-tv-login__qr-code {
-  margin-top: 12px;
-  color: var(--jc-text-secondary);
-  font-size: var(--jc-fs-xs);
-}
-
-[data-mode='tv'] .jc-tv-login__qr-code .uc {
-  color: var(--jc-brand-cyan);
-  font-weight: var(--jc-fw-black);
-  letter-spacing: 0.3em;
-  font-family: monospace;
-  font-size: var(--jc-fs-base);
-}
-
-[data-mode='tv'] .jc-tv-login__redirect {
-  text-align: center;
-  color: var(--jc-text-muted);
-  font-size: var(--jc-fs-xs);
-}
-</style>
+<!-- TV 专属样式(P4-a 契约先行)已整块迁出到 src/assets/styles/auth-tv.css(全局引入, 见 main.ts):
+     原块被 Register/Activate/Forgot/Reset 四页 + BasePasswordField/BaseFormMessage 跨文件借用,
+     留在本页会形成隐式耦合。 -->

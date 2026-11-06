@@ -1,0 +1,245 @@
+/* ============================================================
+ * 认证页 TV 形态共享样式 —— 原 LoginView.vue 的非 scoped 全局 <style> 块整块迁出（P4-a 契约先行）。
+ *
+ * 为什么独立成文件：这套 `jc-tv-login__` 语法原挂在 LoginView.vue 上, 却被多个文件跨文件借用
+ *   RegisterView / ActivateView / ForgotPasswordView / ResetPasswordView
+ *   + 基础组件 BasePasswordField / BaseFormMessage
+ * 属于隐式耦合（消费方依赖"LoginView 恰好被打进 bundle"）。迁到全局样式文件后各页不再依赖
+ * LoginView 是否在 bundle 里, 也为后续各页拆出 XxTv.vue 铺路。
+ *
+ * 约定：全部 [data-mode="tv"] 作用域（与 tv-cards.css 同约定），不影响桌面 / 移动；
+ * 规则内容与迁移前逐字一致（仅去掉原文件内已被上游收敛的注释行）。
+ * `.jc-tv-btn` / `.jc-tv-glass-card` 等词汇类仍由 tv-cards.css 提供，本文件不重复定义。
+ * 引入位置：main.ts 中紧跟 tv-cards.css 之后（见该文件导入顺序注释）。
+ * ============================================================ */
+
+[data-mode='tv'] .jc-tv-login {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jc-space-5);
+  width: 100%;
+}
+
+[data-mode='tv'] .jc-tv-login__card,
+[data-mode='tv'] .jc-tv-login__kbd {
+  padding: 28px 30px;
+}
+
+[data-mode='tv'] .jc-tv-login__logo {
+  font-weight: var(--jc-fw-black);
+  font-size: var(--jc-fs-2xl);
+  text-align: center;
+}
+
+[data-mode='tv'] .jc-tv-login__sub {
+  text-align: center;
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  margin-top: 7px;
+}
+
+[data-mode='tv'] .jc-tv-login__tabs {
+  display: flex;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
+  border-radius: var(--jc-radius-full);
+  padding: 5px;
+  margin: 18px 0 6px;
+}
+
+[data-mode='tv'] .jc-tv-login__tab {
+  flex: 1;
+  text-align: center;
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  padding: 11px 0;
+  border-radius: var(--jc-radius-full);
+  cursor: pointer;
+  font-weight: var(--jc-fw-semibold);
+  border: 0;
+  background: transparent;
+}
+
+[data-mode='tv'] .jc-tv-login__tab.cur {
+  background: var(--jc-brand-gradient);
+  color: #fff;
+}
+
+[data-mode='tv'] .jc-tv-login__field {
+  margin-top: 16px;
+}
+
+[data-mode='tv'] .jc-tv-login__lab {
+  font-size: var(--jc-fs-sm);
+  color: var(--jc-text-secondary);
+  margin-bottom: 8px;
+  display: block;
+}
+
+[data-mode='tv'] .jc-tv-login__lab b {
+  color: var(--jc-danger, #ff6b81);
+}
+
+[data-mode='tv'] .jc-tv-login__wrap {
+  position: relative;
+}
+
+[data-mode='tv'] .jc-tv-login__ic {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* 密码框的眼睛样式(__ic-r)已随 W1b 收敛进 BasePasswordField(variant=tv) */
+
+[data-mode='tv'] .jc-tv-login__input {
+  padding-left: 46px;
+  padding-right: 46px;
+}
+
+[data-mode='tv'] .jc-tv-login__err {
+  margin-top: 14px;
+  text-align: center;
+  color: var(--jc-danger);
+  font-size: var(--jc-fs-sm);
+}
+
+[data-mode='tv'] .jc-tv-login__actions {
+  margin-top: 18px;
+}
+
+[data-mode='tv'] .jc-tv-login__submit {
+  width: 100%;
+  justify-content: center;
+}
+
+[data-mode='tv'] .jc-tv-login__note {
+  margin-top: 18px;
+  border-radius: var(--jc-radius-md);
+  border: 1px solid var(--jc-tv-stroke, rgba(255, 255, 255, 0.13));
+  background: rgba(0, 0, 0, 0.25);
+  padding: 14px 16px;
+  text-align: center;
+}
+
+/* 忘记密码文字链(P3): TV 不便输邮箱, 引导去电脑/手机走邮件链接 */
+[data-mode='tv'] .jc-tv-login__forgot {
+  display: block;
+  margin: 14px auto 0;
+  background: transparent;
+  border: 0;
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+[data-mode='tv'] .jc-tv-login__forgot:hover,
+[data-mode='tv'] .jc-tv-login__forgot:focus-visible {
+  color: var(--jc-text-primary);
+}
+
+[data-mode='tv'] .jc-tv-login__note .a {
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+}
+
+[data-mode='tv'] .jc-tv-login__note .b {
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-xs);
+  margin-top: 6px;
+}
+
+[data-mode='tv'] .jc-tv-login__kbd-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+[data-mode='tv'] .jc-tv-login__kbd-head .t {
+  font-size: var(--jc-fs-base);
+  font-weight: var(--jc-fw-bold);
+}
+
+[data-mode='tv'] .jc-tv-login__kbd-head .s {
+  font-size: var(--jc-fs-xs);
+  color: var(--jc-brand-cyan);
+}
+
+[data-mode='tv'] .jc-tv-login__tip {
+  margin-top: 14px;
+  text-align: center;
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-xs);
+}
+
+[data-mode='tv'] .jc-tv-login__tip b {
+  color: var(--jc-brand-cyan);
+  font-weight: var(--jc-fw-semibold);
+}
+
+/* 扫码区 */
+[data-mode='tv'] .jc-tv-login__qr {
+  margin-top: 16px;
+  text-align: center;
+}
+
+[data-mode='tv'] .jc-tv-login__qr-tip {
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-sm);
+  margin-bottom: 12px;
+}
+
+[data-mode='tv'] .jc-tv-login__qr-box {
+  width: 220px;
+  height: 220px;
+  margin: 0 auto;
+  border-radius: 12px;
+  background: #fff;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+[data-mode='tv'] .jc-tv-login__qr-ph {
+  color: #666;
+  font-size: var(--jc-fs-sm);
+}
+
+[data-mode='tv'] .jc-tv-login__qr-ok {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--jc-success);
+  font-size: var(--jc-fs-base);
+}
+
+[data-mode='tv'] .jc-tv-login__qr-code {
+  margin-top: 12px;
+  color: var(--jc-text-secondary);
+  font-size: var(--jc-fs-xs);
+}
+
+[data-mode='tv'] .jc-tv-login__qr-code .uc {
+  color: var(--jc-brand-cyan);
+  font-weight: var(--jc-fw-black);
+  letter-spacing: 0.3em;
+  font-family: monospace;
+  font-size: var(--jc-fs-base);
+}
+
+[data-mode='tv'] .jc-tv-login__redirect {
+  text-align: center;
+  color: var(--jc-text-muted);
+  font-size: var(--jc-fs-xs);
+}

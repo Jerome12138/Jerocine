@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import * as registerApi from '@/api/register'
@@ -16,6 +16,9 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const { isTV } = useViewMode()
+
+/** TV 渲染组件(方案 B 拆分): TV 模板在 RegisterTv.vue, 仅 isTV 时挂载 */
+const RegisterTv = defineAsyncComponent(() => import('./RegisterTv.vue'))
 
 /** 注册模式: off(入口不显示) / open(自由注册, 本表单) / apply(申请审核, 无密码) */
 const mode = ref<'open' | 'apply'>('open')
@@ -209,31 +212,8 @@ watch(
 
 <template>
   <!-- ============ TV: 提示去手机/电脑注册(遥控器输邮箱+验证码体验不可用) ============ -->
-  <div v-if="isTV" class="jc-tv-glass-card jc-tv-login__card">
-    <div class="jc-tv-login__logo text-brand-gradient">Jerocine影视</div>
-    <div class="jc-tv-login__sub">注册账号</div>
-    <div class="jc-tv-login__note">
-      <div class="a">{{ smtpReady ? '电视端不便输入邮箱与验证码。' : '暂不支持注册。' }}</div>
-      <div class="b">
-        {{
-          smtpReady
-            ? '请在电脑或手机上访问本站完成注册，之后可用扫码或账号密码登录。'
-            : '本站当前未开放注册，请稍后再试。'
-        }}
-      </div>
-    </div>
-    <div class="jc-tv-login__actions">
-      <button
-        type="button"
-        class="jc-tv-btn primary jc-tv-login__submit"
-        data-focusable="true"
-        tabindex="0"
-        @click="router.replace('/login')"
-      >
-        返回登录
-      </button>
-    </div>
-  </div>
+  <!-- 渲染组件(方案 B): TV 模板在 RegisterTv.vue, 此处只供给 smtpReady。 -->
+  <RegisterTv v-if="isTV" :smtp-ready="smtpReady" />
 
   <!-- ============ 桌面 / 移动 ============ -->
   <div v-else class="flex flex-col gap-[var(--jc-space-6)]">
