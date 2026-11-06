@@ -410,8 +410,9 @@ function onHeroImgLoad(e: Event, src: string): void {
   }
 }
 
-/* TV 模式 hero 的尺寸与图层(沉浸 Banner: 竖图模糊铺底 + 右侧清晰竖海报)
- * 统一在文件底部非 scoped [data-mode='tv'] 块定义, 避免本处与其冲突(曾两处 max-height 打架). */
+/* (2026-11-06 方案 B 拆分) TV 模式的 hero 尺寸/图层规则已删除: TV(雷鸟卡片式)
+ * 不再挂载本组件(首页 TV 用手写 jc-tv-carousel, 见 HomeTv.vue), 那批
+ * [data-mode='tv'] 规则是永不命中的死代码。 */
 
 .jc-hero__image,
 .jc-hero__image :deep(img) {
@@ -425,7 +426,7 @@ function onHeroImgLoad(e: Event, src: string): void {
 }
 
 /* Web: 默认隐藏竖海报(移动/平板轮播更矮, 不需); 宽屏(≥1024)在右侧展示完整竖海报,
- * 规避封面被 21/9 横幅裁掉竖图信息的问题. TV 模式尺寸在底部非 scoped 块单独定义. */
+ * 规避封面被 21/9 横幅裁掉竖图信息的问题. (TV 模式的尺寸覆盖已删 —— TV 不挂载本组件.) */
 .jc-hero__poster-tv {
   display: none;
 }
@@ -630,76 +631,6 @@ function onHeroImgLoad(e: Event, src: string): void {
 </style>
 
 <style>
-/* TV 默认显示箭头（不依赖 hover），加大尺寸 + 安全区缩进 */
-[data-mode='tv'] .jc-hero__arrow {
-  display: inline-flex;
-  width: 64px;
-  height: 80px;
-}
-[data-mode='tv'] .jc-hero__arrow--left {
-  left: var(--jc-tv-safe);
-}
-[data-mode='tv'] .jc-hero__arrow--right {
-  right: var(--jc-tv-safe);
-}
-[data-mode='tv'] .jc-hero__arrow:focus,
-[data-mode='tv'] .jc-hero__arrow:focus-visible {
-  outline: none;
-  background-color: rgba(0, 0, 0, 0.85);
-  box-shadow: var(--jc-tv-focus-ring);
-}
-/* TV 沉浸 Banner —— 占屏 ~55%; 采集源仅竖海报: 同图模糊放大铺底 + 右侧清晰竖海报兜底 */
-[data-mode='tv'] .jc-hero {
-  aspect-ratio: auto;
-  min-height: var(--jc-tv-hero-h, 55vh);
-  max-height: var(--jc-tv-hero-h, 55vh);
-}
-/* 背景层: 静态模糊(非 backdrop-blur)放大压暗, 把竖海报铺满宽幅不露裁切边 */
-[data-mode='tv'] .jc-hero__image,
-[data-mode='tv'] .jc-hero__image :deep(img) {
-  object-fit: cover;
-  object-position: center;
-  filter: blur(28px) brightness(0.5) saturate(1.1);
-  transform: scale(1.18);
-}
-/* 有真横图时不做模糊放大: 那套"模糊铺底"是采集源只给竖海报时的兜底 */
-[data-mode='tv'] .jc-hero__image--wide {
-  filter: none;
-  transform: none;
-}
-/* 右侧清晰竖海报(2:3), 真正展示该片封面 */
-[data-mode='tv'] .jc-hero__poster-tv {
-  position: absolute;
-  top: 50%;
-  right: clamp(48px, 8vw, 160px);
-  transform: translateY(-50%);
-  height: 74%;
-  aspect-ratio: 2 / 3;
-  border-radius: var(--jc-radius-lg);
-  background-color: var(--jc-bg-elevated);
-  background-size: cover;
-  background-position: center;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
-  z-index: 1;
-}
-[data-mode='tv'] .jc-hero__content {
-  padding-inline: var(--jc-tv-safe);
-  padding-bottom: var(--jc-space-12);
-}
-[data-mode='tv'] .jc-hero__info {
-  max-width: min(720px, 55%);
-}
-[data-mode='tv'] .jc-hero__desc {
-  font-size: var(--jc-fs-lg);
-}
-[data-mode='tv'] .jc-hero__bar {
-  width: 48px;
-  height: 4px;
-}
-[data-mode='tv'] .jc-hero__bar--active {
-  width: 72px;
-}
-
 /* ===== 沉浸式(除 TV 外全尺寸, 2026-10-10 评审定稿, 未 push) =====
  * 用户定稿口径: 原有轮播区域不变、高度不变, 盒内按钮/文字原位;
  * 把图从"圆角框内显示"改为页面顶部背景 —— 宽度铺满视口(body 已有
@@ -735,7 +666,7 @@ function onHeroImgLoad(e: Event, src: string): void {
  *   · width/height 必须 !important 覆盖 BaseImage 根的内联 100%(ratio="" 时
  *     aspectStyle 内联输出, 内联样式压过一切选择器, 不加则纵向拉伸不生效, 踩过);
  *   · 选择器统一加 html:not([data-mode='tv']) 前缀 —— TV 模式完全不匹配这些
- *     规则, 沿用原有 TV 沉浸 Banner(55vh 模糊铺底)样式。 */
+ *     规则(2026-11-06 起 TV 模式不再挂载本组件, 原 [data-mode='tv'] 覆盖块已删)。 */
 html:not([data-mode='tv']) .jc-hero.jc-hero--immersive {
   /* 顶部上提量 = 页头高(mobile 56 / md+ 64) + wrapper pt-6 */
   --jc-hero-toplift: 80px;
