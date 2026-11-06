@@ -72,7 +72,7 @@ export interface UsePlayerOptions {
    * 控件本体恒注册(构造期不知道全屏态); 非全屏时由 PlayView 样式按 art 根的
    * art-fullscreen / art-fullscreen-web 类隐藏(.jc-player 内 :deep 规则)。
    */
-  episodePicker?: { open: () => void }
+  episodePicker?: { open: () => void; shouldMount?: () => boolean }
   /**
    * artplayer-plugin-danmuku 插件配置(可选, nextTV 同款引擎):
    * 传入后注册插件 —— 控制条中部自带「弹幕开关」(apd-toggle) +「弹幕设置」(apd-config-panel:
@@ -564,8 +564,10 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       })
     }
     // 控制条「选集」按钮(方案 §C7, next-episode 同范式): 右侧区列表图标, 点击交回调开 Teleport 面板。
-    // 控件恒注册; 非全屏态的显隐由 PlayView 按 art 根类(art-fullscreen/art-fullscreen-web)CSS 控制
-    if (opts.episodePicker) {
+    // 非全屏态的显隐由 PlayView 按 art 根类(art-fullscreen/art-fullscreen-web)CSS 控制。
+    // `shouldMount()` 在建播放器时求值(此时 detail 已 load 完) —— 整片只有一集且单源时**不注册该按钮**
+    // (2026-11-06 用户要求: 无可选内容就不显示)。
+    if (opts.episodePicker && (opts.episodePicker.shouldMount?.() ?? true)) {
       episodePickerHandler = opts.episodePicker.open
       customControls.push({
         name: 'episode-picker',

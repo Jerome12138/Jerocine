@@ -790,7 +790,11 @@ const {
   nextEpisode: { onClick: () => playNext(undefined) },
   // 方案 §C7: 控制条「选集」按钮(右侧区列表图标) → 打开 Teleport 全屏选集面板。
   // 按钮显隐不在此控制(构造期不知全屏态), 非全屏由样式按 art 根类(art-fullscreen/art-fullscreen-web)隐藏
-  episodePicker: { open: openEpisodePicker },
+  episodePicker: {
+    open: openEpisodePicker,
+    // 建播放器时求值(此时 detail 已就绪)：整片只有一集且只有一个源 → 无内容可选，不挂该按钮
+    shouldMount: () => hasEpisodeChoice.value
+  },
   // 弹幕插件(nextTV 同款引擎): 控制条中部开关 + 弹幕设置面板由插件原生提供。
   // 初始 danmuku 空数组, 数据由 useDanmaku 装载后 plugin.load(); 显示设置映射见 useDanmaku.applyPluginSettings。
   danmuku: {
@@ -1299,6 +1303,14 @@ const isPlayerFullscreen = ref(false)
  *  真全屏一起由 fullscreenchange/fullscreenwebchange 双事件重读同步。 */
 const isPlayerFullscreenWeb = ref(false)
 /** §C7 全屏选集面板开关: 控制条「选集」按钮唤出, Esc/面板内切集换源收起 */
+/** 「选集」按钮是否有意义（用户 2026-11-06 要求：整片只有一集则不显示选集按钮）。
+ *  多源时保留 —— 面板同时承担「切源」，此时仍有可选内容。 */
+const hasEpisodeChoice = computed(() => {
+  const srcs = detail.value?.sources ?? []
+  if (srcs.length > 1) return true
+  return (srcs[0]?.episodes?.length ?? 0) > 1
+})
+
 const episodePickerOpen = ref(false)
 /** 选集触发条件: 真全屏或网页全屏(补此前只翻 fullscreen 的缺口) */
 const episodePickerAvailable = computed(
@@ -2465,10 +2477,10 @@ watch(
   flex: 1 1 0;
   min-width: 0;
 }
-/* 集格列数: 360px 抽屉 ≈3 列 / 移动底部抽屉自适应; TV 例外不覆盖 —— 组件自带
-   [data-mode='tv'] auto-fit(clamp 110-160px)为 TV 调优, :not() 守卫避免样式序之争 */
+/* 弹窗内列数（2026-11-06 用户要求）：长名**每行 1 个**、短名（compact）**每行 2 个** —— 大按钮、好点选。
+ * TV 例外不覆盖 —— 组件自带 [data-mode='tv'] 的自适应列数为 TV 调优。 */
 [data-mode]:not([data-mode='tv']) .jc-fs-picker__body :deep(.jc-episode-grid) {
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-template-columns: repeat(1, minmax(0, 1fr));
 }
 .jc-fs-picker__body :deep(.jc-episode-grid) {
   flex: 1 1 auto;
@@ -2482,9 +2494,9 @@ watch(
      静止隐藏 / 滚动显 6px 细条 / 可滚时才锁纵向滚动链。原先这里写死的 overscroll-behavior:contain
      会在网格无可滚时把滚轮吃掉，已移除。 */
 }
-/* 短名紧凑：本面板默认 auto-fill(96px 下限) → 折半用 48px 下限 */
+/* 短名紧凑（compact）：每行 2 个（见上条口径说明） */
 [data-mode]:not([data-mode='tv']) .jc-fs-picker__body :deep(.jc-episode-grid--compact) {
-  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .jc-player-loading {
