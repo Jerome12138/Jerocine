@@ -39,7 +39,8 @@ export interface DanmakuSettings {
   /** 显示区域高度占比 0-1（0.25/0.5/0.75/1 对应 1/4 屏·半屏·3/4 屏·全屏；映射插件 margin 底部偏移） */
   area: number
   /** 滚动速度档位（数值越大越慢）。映射插件 speed（弹幕持续时间秒, 1-10）：
-   *  档位 [1,1.5,2,2.5,3] → 持续秒 [5,6,7.5,9,10]，默认档 2 = 7.5s 与 nextTV 一致 */
+   *  档位 [1,1.5,2,2.5,3] → 持续秒 [1,2.5,5,7.5,10]（= 插件 SPEED 档位表的 5 档），
+   *  默认档 2 = 5s，与插件 option.speed 默认值一致 */
   speed: number
   /** 同屏弹幕上限 —— **已废弃**（插件 antiOverlap 防重叠替代）；字段保留兼容旧 localStorage */
   limit: number
@@ -58,7 +59,7 @@ export const DANMAKU_DEFAULT_SETTINGS: DanmakuSettings = {
   fontSize: 0,
   opacity: 0.8,
   area: 0.5,
-  // 速度默认 2（"正常"档 = 插件持续 7.5s 走完屏, 与 nextTV speed:7.5 一致）
+  // 速度默认 = 插件默认：artplayer-plugin-danmuku 的 option.speed 默认 5s，我们的档位 2 恰好映射到 5s
   speed: 2,
   // 已废弃(插件 antiOverlap 替代), 默认 30 仅兼容旧数据
   limit: 30,
@@ -72,15 +73,21 @@ export const DANMAKU_FONT_STEPS = [0, 16, 20, 24, 28, 34] as const
 /** 显示区域档位（1/4 屏 → 全屏） */
 export const DANMAKU_AREA_STEPS = [0.25, 0.5, 0.75, 1] as const
 /**
- * 速度档位（数值越大弹幕滚动越慢）。映射插件 speed（持续时间秒）：
- * 档位 [1,1.5,2,2.5,3] → [5,6,7.5,9,10]。默认档 2 = 7.5s（nextTV 同款）。
+ * 速度档位（数值越大弹幕滚动越慢）。**取值刻意与插件 SPEED 档位表逐值对齐**：
+ * 档位 [1,1.5,2,2.5,3] → 持续秒 [1,2.5,5,7.5,10]（= 插件的 极快/较快/适中/较慢/极慢 五档）。
+ * 不对齐的话插件滑块 `findIndex(item => item.value === option.speed)` 命中不了 → 标签渲染「未知」。
+ * 默认档 2 = 5s = 插件 option.speed 的默认值。
  */
 export const DANMAKU_SPEED_STEPS = [1, 1.5, 2, 2.5, 3] as const
+/** 档位 → 插件 speed（秒）取值表，与 DANMAKU_SPEED_STEPS 一一对应（快 → 慢）。 */
+export const DANMAKU_SPEED_SECONDS = [1, 2.5, 5, 7.5, 10] as const
 /** 旧速度档位（仅用于 readDanmakuSettings 迁移: 旧值 ×2 映射到新档） */
 export const DANMAKU_OLD_SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5] as const
-/** 档位值 → 插件 speed（弹幕持续时间秒, 越大越慢; 上限 10）。 */
+/** 档位值 → 插件 speed（弹幕持续时间秒, 越大越慢）。非档位值（旧数据/越界）回落到插件默认 5s。 */
 export function danmakuSpeedOf(speed: number): number {
-  return Math.min(10, 5 + (speed - 1) * 2)
+  const i = (DANMAKU_SPEED_STEPS as readonly number[]).indexOf(speed)
+  const seconds: readonly number[] = DANMAKU_SPEED_SECONDS
+  return seconds[i >= 0 ? i : 2] ?? 5
 }
 
 /** 单个弹幕请求超时（ms）：整集聚合容错更大（服务端聚合最坏数秒 + 4MB 级响应）。
@@ -217,16 +224,16 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     return { bottomMode: s.bottomMode, topMode: s.topMode, colored: s.colored }
   }
 
-/**
- * 把「秒」速度值吸附到**插件自己的 SPEED 档位表**里最接近的一档。
- *
- * 为什么必须吸附（2026-11-06 用户报「弹幕速度档位显示未知」）：插件的速度滑块是**按档位表索引**的 ——
- * `findIndex(item => item.value === option.speed)`；传入值不在它自己的 `SPEED.steps` 里时索引为 -1，
- * 标签查不到 → 面板渲染成「未知」（artplayer i18n 兜底）。故一律吸附，且**表从插件实例读**：
- * 插件升级/换档位表时自动跟随，不必把我们自己的档位写死成对方的常量。
- * 读不到表时原样返回（行为同改动前，不引入回归）。
- */
-function snapSpeedToPluginSteps(speedSec: number): number {
+  /**
+   * 把「秒」速度值吸附到**插件自己的 SPEED 档位表**里最接近的一档。
+   *
+   * 为什么必须吸附（2026-11-06 用户报「弹幕速度档位显示未知」）：插件的速度滑块是**按档位表索引**的 ——
+   * `findIndex(item => item.value === option.speed)`；传入值不在它自己的 `SPEED.steps` 里时索引为 -1，
+   * 标签查不到 → 面板渲染成「未知」（artplayer i18n 兜底）。故一律吸附，且**表从插件实例读**：
+   * 插件升级/换档位表时自动跟随，不必把我们自己的档位写死成对方的常量。
+   * 读不到表时原样返回（行为同改动前，不引入回归）。
+   */
+  function snapSpeedToPluginSteps(speedSec: number): number {
   const p = plugin() as unknown as { SPEED?: { steps?: Array<{ value?: unknown }> } } | null
   const steps = p?.SPEED?.steps
   if (!Array.isArray(steps) || steps.length === 0) return speedSec
@@ -242,18 +249,20 @@ function snapSpeedToPluginSteps(speedSec: number): number {
     }
   }
   return best
-}
+  }
 
-/** 把可运行时生效的设置项应用到插件（透明度/区域/字号/速度/防重叠）。 */
-function applyPluginSettings(): void {
+  /** 把可运行时生效的设置项应用到插件（透明度/区域/字号/速度/防重叠）。 */
+  function applyPluginSettings(): void {
   const p = plugin()
   if (!p) return
   const s = settings.value
   try {
     p.config({
       opacity: s.opacity,
-      // margin: [顶部, 底部偏移]; 显示区域 = 1 - 底部偏移
-      margin: [10, `${Math.round((1 - s.area) * 100)}%`],
+      // margin = [顶部间距, 底部偏移]，取值必须落在插件自带 MARGIN 档位表上
+      // （表: [10,'75%'] / [10,'50%'] / [10,'25%'] / [10,10]；插件比的是元组全等，对不上标签就不刷新）。
+      // 顶部固定 10px（插件默认约定）；「满屏」档插件用的是像素 10，不是百分比。
+      margin: [10, s.area >= 1 ? 10 : `${Math.round((1 - s.area) * 100)}%`],
       fontSize: s.fontSize > 0 ? s.fontSize : 23,
       speed: snapSpeedToPluginSteps(danmakuSpeedOf(s.speed)),
       antiOverlap: s.antiOverlap
@@ -261,7 +270,7 @@ function applyPluginSettings(): void {
   } catch {
     /* 插件未就绪时静默 */
   }
-}
+  }
 
   /* ---------------- 取数（内存缓存 + in-flight 去重 + 超时中止） ----------------
    * 服务端已有 Redis 缓存；这里再加一层内存缓存：命中直接装载，连缓存命中往返都省掉。
@@ -608,7 +617,7 @@ function applyPluginSettings(): void {
     }
     const sp = num(artOption.speed)
     if (sp !== null) {
-      // 反查档位: 持续秒 [5,6,7.5,9,10] → [1,1.5,2,2.5,3]; 非档位值吸附最近档
+      // 反查档位: 持续秒 [1,2.5,5,7.5,10] → 档位 [1,1.5,2,2.5,3]; 非档位值不误判（容忍 0.3s）
       const step = (DANMAKU_SPEED_STEPS as readonly number[]).find(
         (st) => Math.abs(danmakuSpeedOf(st) - sp) < 0.3
       )

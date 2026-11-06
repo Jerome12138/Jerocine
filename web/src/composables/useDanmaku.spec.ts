@@ -357,7 +357,7 @@ describe('useDanmaku', () => {
     const { api, playerRef } = mountHost(3)
     await flush()
     expect(api.danmuState.value).toBe<DanmuState>('ready')
-    // 模拟插件面板滑动: 透明度 0.55 / 字号 28 / 区域滑到 45% 底部偏移(→吸附 0.5 档) / 速度 7.5s(→档 2) / 关防重叠
+    // 模拟插件面板滑动: 透明度 0.55 / 字号 28 / 区域滑到 45% 底部偏移(→吸附 0.5 档) / 速度 7.5s(→档 2.5) / 关防重叠
     ;(playerRef.value as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit(
       'artplayerPluginDanmuku:config',
       { opacity: 0.55, fontSize: 28, margin: [10, '45%'], speed: 7.5, antiOverlap: false }
@@ -367,7 +367,7 @@ describe('useDanmaku', () => {
     expect(s.opacity).toBe(0.55)
     expect(s.fontSize).toBe(28)
     expect(s.area).toBe(0.5) // 45% 偏移 → 面积 0.55 → 吸附最近档 0.5
-    expect(s.speed).toBe(2) // 7.5s → 档 2
+    expect(s.speed).toBe(2.5) // 7.5s → 档 2.5（插件 SPEED 档位表里的「较慢」）
     expect(s.antiOverlap).toBe(false)
     // 持久化落库
     expect(JSON.parse(localStorage.getItem('jc-danmaku-settings')!)).toMatchObject({
@@ -390,7 +390,7 @@ describe('useDanmaku', () => {
         opacity: cur.opacity,
         fontSize: cur.fontSize > 0 ? cur.fontSize : 23,
         margin: [10, `${Math.round((1 - cur.area) * 100)}%`],
-        speed: 7.5, // 默认档 2 → 7.5s
+        speed: 5, // 默认档 2 → 5s（插件 option.speed 默认值）
         antiOverlap: cur.antiOverlap
       }
     )

@@ -33,7 +33,7 @@ import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
-import { useSkipSettings, DEFAULT_INTRO_SEC, DEFAULT_OUTRO_SEC } from '@/composables/useSkipSettings'
+import { useSkipSettings } from '@/composables/useSkipSettings'
 import type { SkipConfig } from '@/composables/useSkipSettings'
 import { useHistoryStore } from '@/stores/history'
 import { useSiteStore } from '@/stores/site'
@@ -802,7 +802,12 @@ const {
     speed: danmakuSpeedOf(danmakuSettingsInit.speed),
     opacity: danmakuSettingsInit.opacity,
     fontSize: danmakuSettingsInit.fontSize > 0 ? danmakuSettingsInit.fontSize : 23,
-    margin: [10, `${Math.round((1 - danmakuSettingsInit.area) * 100)}%`],
+    // margin = [顶部间距, 底部偏移]；取值必须落在**插件自带** MARGIN 档位表上
+    // （[10,'75%'] / [10,'50%'] / [10,'25%'] / [10,10]），顶部固定 10px、满屏档用像素 10。
+    // 2026-11-06 按插件契约对齐：不再覆写插件的 SPEED/MARGIN 档位表 ——
+    // 插件 SPEED 自带 [10,7.5,5,2.5,1] 五档，已在 useDanmaku.danmakuSpeedOf 里逐值对齐（否则面板渲染「未知」）；
+    // OPACITY/FONT_SIZE 插件本就是连续滑条（steps 为空），不需要档位表。
+    margin: [10, danmakuSettingsInit.area >= 1 ? 10 : `${Math.round((1 - danmakuSettingsInit.area) * 100)}%`],
     antiOverlap: danmakuSettingsInit.antiOverlap,
     // 发射器(自己发弹幕)关: 站点只读弹幕, 无发送后端
     emitter: false,
@@ -811,7 +816,12 @@ const {
     filter: (d) => d.text.length <= 100
   },
   // 原生显示设置面板(nextTV 范式): 弹幕开关/过滤广告/自动连播收进播放器自带齿轮面板
-  settings: [
+  // ⚠️ 必须写成 getter：对象字面量在 **setup 期** 求值，而下面用到的 skipCfgOf()/skipSecSelector()
+  //    依赖 setup 更晚才声明的 skipSettings / SKIP_SEC_OPTIONS；直接写值会踩 TDZ
+  //    （两次实测：Cannot access 'skipSettings' / 'SKIP_SEC_OPTIONS' before initialization）。
+  //    getter 会推迟到 usePlayer 真正读 opts.settings 时（= 建播放器，此时 detail 已就绪）再求值。
+  get settings() {
+    return [
     {
       name: 'jc-danmaku-switch',
       html: '弹幕',
@@ -853,7 +863,7 @@ const {
       name: 'jc-skip-switch',
       html: '跳过片头片尾',
       tooltip: '自动跳过片头与片尾',
-      switch: true,
+      switch: skipCfgOf().enabled,
       onSwitch: () => {
         const cfg = skipCfgOf()
         const next = { ...cfg, enabled: !cfg.enabled }
@@ -869,7 +879,7 @@ const {
         skipIntroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
         syncSkipSettingRows()
       },
-      selector: skipSecSelector(DEFAULT_INTRO_SEC),
+      selector: skipSecSelector(skipCfgOf().intro),
       onSelect: (item) => applySkipCfg({ ...skipCfgOf(), intro: Number(item.value) || 0 })
     },
     {
@@ -880,10 +890,11 @@ const {
         skipOutroRowEl = (item as unknown as { $item?: HTMLElement }).$item ?? null
         syncSkipSettingRows()
       },
-      selector: skipSecSelector(DEFAULT_OUTRO_SEC),
+      selector: skipSecSelector(skipCfgOf().outro),
       onSelect: (item) => applySkipCfg({ ...skipCfgOf(), outro: Number(item.value) || 0 })
     }
-  ] as Artplayer['option']['settings'],
+    ] as Artplayer['option']['settings']
+  },
   // 移动端: 隐藏画中画/网页全屏按钮(屏幕小、手势已覆盖, 节省控制条空间)
   isMobile: isMobile.value
 })
@@ -915,6 +926,13 @@ const danmuNone = computed(
 )
 /** 有弹幕、但用户把弹幕关掉了 → 隐藏设置按钮（开关保留，方便再打开） */
 const danmuOff = computed(() => !danmuNone.value && !danmakuActive.value)
+/** 结果未回（用户开着弹幕，但本集弹幕结果还没拿到：idle/loading）→ 两个按钮**先不显示**，
+ *  等拿到结果再按 danmuNone/danmuOff 两条规则显隐（2026-11-06 用户要求）。
+ *  注：用户主动关掉弹幕时 state 也是 idle，但那时 danmakuActive=false → 不在 pending 内，
+ *  开关照常显示，用户才能从播放器把弹幕再打开。 */
+const danmuPending = computed(
+  () => danmakuActive.value && (danmakuState.value === 'idle' || danmakuState.value === 'loading')
+)
 
 /** 本集无弹幕时：置灰的弹幕开关/设置按钮**不允许点击、也不能弹出面板**。
  *  用捕获阶段拦掉并阻止冒泡（不能靠 pointer-events:none —— 那会连带让 title 悬停提示失效）。 */
@@ -2095,7 +2113,7 @@ watch(
           <div
             v-else
             class="jc-player-wrap"
-        :class="{ 'is-danmu-none': danmuNone, 'is-danmu-off': danmuOff }"
+        :class="{ 'is-danmu-none': danmuNone, 'is-danmu-off': danmuOff, 'is-danmu-pending': danmuPending }"
         @click.capture="onWrapClickCapture"
             :data-loading="loading ? '1' : '0'"
             @touchstart="onPlayerTouchStart"
@@ -2381,6 +2399,12 @@ watch(
   display: none !important;
 }
 .jc-player--mobile :deep(.art-video-player.art-fullscreen) .apd-toggle {
+  display: none;
+}
+
+/* 弹幕结果未回（idle/loading）：两个按钮都先隐藏 —— 避免"先闪出来、拿到结果又消失"（2026-11-06 用户要求） */
+.jc-player-wrap.is-danmu-pending :deep(.apd-toggle),
+.jc-player-wrap.is-danmu-pending :deep(.apd-config) {
   display: none;
 }
 
