@@ -6,6 +6,8 @@
   但 label/icon 各写一份会触发 manifest merger 的 conflict 报错)。
   PlayerActivity / DownloadActivity / FileProvider / 权限都不在此声明 —— 宿主 manifest 声明一次即可,
   library 重复声明会导致 merge 冲突或重复组件。
+  例外: LivePlayerActivity 由本库声明(2026-11-07 用户拍板, 见下方节点); 若宿主 manifest
+  将来也声明同名 activity, 合并以宿主属性为准。
   阶段 E 已将入口改名为 .NativeShellActivity(原 MainActivity)。
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -18,6 +20,17 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
             android:screenOrientation="landscape"
             android:theme="@style/Theme.JerocineTV.Launch" />
+
+        <!-- 直播播放器(公共模块 player-core, 2026-11-07 用户拍板): 仅壳内 startActivity 进入 ——
+             不导出、无 ACTION_VIEW intent-filter(与 PlayerActivity 的系统文件打开入口无关);
+             theme/screenOrientation/configChanges 抄 PlayerActivity, launchMode=singleTop(切频道/换源复用同一实例) -->
+        <activity
+            android:name="com.jerocine.player.LivePlayerActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
+            android:theme="@style/Theme.JcPlayer"
+            android:launchMode="singleTop" />
     </application>
 
 </manifest>

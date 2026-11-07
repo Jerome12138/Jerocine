@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  直播抽屉背景: 半透明玻璃面 + **右缘 1dp** 细描边(抽屉贴左屏全高, 只在靠画面一侧收边,
+  不做圆角 —— 全高侧板圆角会在屏幕边露出缝隙).
+  layer-list 写法(minSdk 21 稳, 参考 jc_dialog_radio_on.xml 的内缩遮罩, 不用负 inset):
+    第 1 层: 描边色全尺寸铺底;
+    第 2 层: 玻璃底色从右缘内缩 1dp → 右侧露出 1dp 描边.
+  用半透明 jc_glass 而非 jc_glass_solid: 抽屉衬在视频画面之上, 属"浮层"
+  (取舍见 jc_dialog_bg.xml 注: 实色版专供弹窗, 半透明版供衬在 UI/画面之上的浮层).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_stroke" />
+        </shape>
+    </item>
+    <item android:right="1dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/jc_glass" />
+        </shape>
+    </item>
+</layer-list>

@@ -111,7 +111,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private static final long CACHE_SIZE = 1024L * 1024L * 1024L; // 1GB
     private static final long PROGRESS_TICK_MS = 5000L;
     /** 播放侧 UA(清单/分片同一份) — 源站可能按 UA 给不同表, 各数据源必须一致。 */
-    private static final String MEDIA_UA = "Jerocine/1.0 (Android TV)";
+    static final String MEDIA_UA = "Jerocine/1.0 (Android TV)";
 
     /** 进程内单例, 避免重开时 "Another SimpleCache instance" 报错 — 进程级资源, 必须静态. */
     private static SimpleCache sCache;

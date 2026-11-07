@@ -1,6 +1,7 @@
 package com.jerocine.app;
 
 import com.jerocine.player.JerocinePlayer;
+import com.jerocine.player.LivePlayerActivity;
 import com.jerocine.player.PlayerActivity;
 import com.jerocine.player.ui.GlassToast;
 
@@ -268,7 +269,10 @@ public class JerocineBridge {
     private String handlePlayPlaylist(JSONObject cfg) throws Exception {
         // 多源模式 (v3): cfg.sources = [{id, name, episodes:[{url,title}]}], cfg.currentSourceId
         JSONArray sources = cfg.optJSONArray("sources");
-        Intent it = new Intent(activity, PlayerActivity.class);
+        // 2026-11-07 用户拍板: isLive=true 走独立直播壳 LivePlayerActivity(直播不进点播链路);
+        // false/缺省 → PlayerActivity, 旧载荷向后兼容。extras 对两壳统一照传, 取值口径不变。
+        Intent it = new Intent(activity, cfg.optBoolean("isLive", false)
+                ? LivePlayerActivity.class : PlayerActivity.class);
         if (sources != null && sources.length() > 0) {
             // sanity: 至少一源有 episodes
             boolean any = false;

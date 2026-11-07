@@ -2,6 +2,7 @@ package com.jerocine.tv.player
 
 import android.content.Context
 import android.content.Intent
+import com.jerocine.player.LivePlayerActivity
 import com.jerocine.player.PlayerActivity
 import com.jerocine.tv.data.PlayInfoResp
 import kotlinx.serialization.Serializable
@@ -80,7 +81,10 @@ fun buildNativePlayerPayload(
 
 fun launchNativePlayer(context: Context, payload: NativePlayerPayload) {
     // 目标 Activity 是公共播放模块 player-core 的实现(与 WebView 壳共用同一份播放器)
-    val intent = Intent(context, PlayerActivity::class.java).apply {
+    // 按 payload.isLive 分流(2026-11-07 用户拍板): 直播 → LivePlayerActivity(专用直播壳),
+    // 影片 → PlayerActivity(既有行为不动)。extras 两边照旧全传, 新 Activity 只读它需要的。
+    val target = if (payload.isLive) LivePlayerActivity::class.java else PlayerActivity::class.java
+    val intent = Intent(context, target).apply {
         putExtra(PlayerActivity.EXTRA_SOURCES_JSON, payload.sourcesJson)
         putExtra(PlayerActivity.EXTRA_CURRENT_SOURCE_ID, payload.currentSourceId)
         putExtra(PlayerActivity.EXTRA_START_INDEX, payload.startIndex)

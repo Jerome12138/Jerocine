@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  直播播放器页面布局(纯 UI 层, 与点播 activity_player.xml 同一套玻璃设计语言).
+  结构: 全屏画面 + 左侧抽屉(源 chips 横排 + 频道列表纵排) + 中央反馈件 + 右上角分辨率标.
+  2026-11-07 用户拍板的直播规格, 本布局刻意**不放**的东西:
+    - 无去广告相关 UI(直播不走去广告链路);
+    - 无点播底部控制条(use_controller=false) —— 换源走 ←→ 双击 / 抽屉, 换台走 ↑↓;
+    - 频道列表不分组(item_live_channel 平铺一行一频道, 无分组头).
+  契约 id(一字不差, LivePlayerActivity 绑定依据):
+    live_root / player_view / buffer_spinner / center_toast / center_icon /
+    resolution_badge / live_drawer / source_chip_list / channel_list.
+  注: 两根 RecyclerView 的 layoutManager 不在 XML 设 —— 横/纵两向由 LivePlayerActivity
+  代码设(横向 LinearLayoutManager 给 chips, 纵向给频道), 别顺手补 app:layoutManager.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/live_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black"
+    android:keepScreenOn="true">
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:use_controller="false"
+        app:show_buffering="when_playing"
+        app:animation_enabled="false"
+        app:resize_mode="fit"
+        android:focusable="false"
+        android:focusableInTouchMode="false" />
+
+    <!-- 中央缓冲指示(与 activity_player.xml 同款 64dp) -->
+    <ProgressBar
+        android:id="@+id/buffer_spinner"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:layout_gravity="center"
+        android:visibility="gone"
+        android:indeterminateTint="@color/jc_accent" />
+
+    <!-- 中央 toast 提示 — 玻璃浮层(padding 用 start/end 等价写法: paddingHorizontal 是
+         API 26+ 简写, minSdk 21 用简写会在老设备上静默丢 padding, 见 styles.xml 的说明) -->
+    <TextView
+        android:id="@+id/center_toast"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/jc_toast_bg"
+        android:paddingStart="22dp"
+        android:paddingEnd="22dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp"
+        android:textColor="@color/jc_text"
+        android:textSize="19sp"
+        android:gravity="center"
+        android:visibility="gone" />
+
+    <!-- 中央反馈图标(换台/换源成功闪烁) — 无外框, 由 Java 层 setImageResource -->
+    <ImageView
+        android:id="@+id/center_icon"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:layout_gravity="center"
+        android:scaleType="fitCenter"
+        android:contentDescription="@null"
+        android:visibility="gone" />
+
+    <!-- 右上角分辨率角标 — 玻璃胶囊(同 activity_player.xml 的 resolution_badge).
+         外边距照点播 title_bar 的安全区(top 22dp / end 28dp), 契约只定了"右上角". -->
+    <TextView
+        android:id="@+id/resolution_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="22dp"
+        android:layout_marginEnd="28dp"
+        android:background="@drawable/jc_badge_bg"
+        android:gravity="center_vertical"
+        android:includeFontPadding="false"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:textColor="@color/jc_text"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <!-- 左侧抽屉: ① 源 chips 横排 → ② 频道列表纵排(0dp+weight 占满剩余).
+         半透明 jc_glass 衬在视频画面之上(浮层语义, 见 jc_dialog_bg.xml 注), 右缘 1dp 描边收边. -->
+    <LinearLayout
+        android:id="@+id/live_drawer"
+        android:layout_width="320dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:orientation="vertical"
+        android:background="@drawable/jc_live_drawer_bg"
+        android:elevation="8dp"
+        android:visibility="gone">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/source_chip_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:paddingTop="12dp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/channel_list"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="12dp" />
+    </LinearLayout>
+</FrameLayout>

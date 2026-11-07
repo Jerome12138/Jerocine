@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  直播抽屉「源 chip」行 —— activity_live_player.xml 里 source_chip_list(横向 RecyclerView)的
+  item, 由 LiveSourceChipAdapter 绑定. 根即 chip 本体(TextView), VH 直接拿根做绑定.
+  背景/焦点态复用 stepper 同款 jc_step_btn_bg(聚焦=亮青实底, D-pad 一眼可辨);
+  当前源高亮由 Adapter 绑定表达(「▶ 」前缀 + jc_accent + bold), 不另做选中背景态.
+  padding 用 start/end 等价写法(API 26+ 的 paddingHorizontal 简写见 styles.xml 说明).
+-->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/source_chip"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="4dp"
+    android:layout_marginEnd="4dp"
+    android:focusable="true"
+    android:clickable="true"
+    android:background="@drawable/jc_step_btn_bg"
+    android:gravity="center"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:textColor="@color/jc_text"
+    android:textSize="14sp"
+    android:singleLine="true" />

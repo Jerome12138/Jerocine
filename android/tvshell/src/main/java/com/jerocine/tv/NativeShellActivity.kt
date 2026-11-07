@@ -154,7 +154,14 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
                 // 记「上次观看」（源 + 频道，带名字）——供下次起播定位 + 历史页「直播」条目展示
                 val startSourceId = payload.currentSourceId.toLongOrNull() ?: sources.first().id
                 val startSource = sources.firstOrNull { it.id == startSourceId } ?: sources.first()
-                val startChannel = (channelsBySource[startSource.id] ?: emptyList()).getOrNull(payload.startIndex)
+                // payload.startIndex 是**过滤空 url 后**频道表的下标（buildLivePlayerPayload
+                // 先 filter { it.url.isNotBlank() } 再生成 episodes），这里必须用同一份过滤表
+                // 按下标取频道名，否则目标频道之前有空 url 频道时取到错位频道名写进
+                // LiveLastViewed（2026-11-07 用户拍板评审修复；恢复定位不受影响：
+                // index 两处口径一致，仅此处的名字展示曾错位）。
+                val startChannel = (channelsBySource[startSource.id] ?: emptyList())
+                    .filter { it.url.isNotBlank() }
+                    .getOrNull(payload.startIndex)
                 LiveLastViewed.write(
                     this@NativeShellActivity,
                     LiveLastViewed.Selection(
@@ -332,6 +339,22 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
     private fun handlePlayerEvent(name: String, payload: org.json.JSONObject) {
         if (name == "skipSettingChanged") {
             handleSkipSettingChanged(payload)
+            return
+        }
+        // 直播频道切换(2026-11-07 用户拍板): 独立分支, 只写本地「直播最后观看」,
+        // 不进 isPlayerHistoryEvent 影片历史链路。sourceId/index 合法性不做前置判断 ——
+        // 由 LiveLastViewed.decode 兜底(sourceId<=0 / index<0 读不回)。
+        if (name == "liveChannelChange") {
+            LiveLastViewed.write(
+                this,
+                LiveLastViewed.Selection(
+                    sourceId = payload.optLong("sourceId"),
+                    index = payload.optInt("channelIndex"),
+                    sourceName = payload.optString("sourceName"),
+                    channelName = payload.optString("channelName"),
+                    ts = payload.optLong("ts", System.currentTimeMillis()),
+                ),
+            )
             return
         }
         if (!isPlayerHistoryEvent(name)) return

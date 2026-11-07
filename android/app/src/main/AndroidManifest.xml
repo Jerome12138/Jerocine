@@ -81,6 +81,17 @@
             </intent-filter>
         </activity>
 
+        <!-- 直播播放器 (2026-11-07 用户拍板: 直播走独立壳, 不复用点播 PlayerActivity)。
+             theme/screenOrientation/launchMode/configChanges 抄 PlayerActivity;
+             仅由 JerocineBridge 显式 Intent 启动 —— exported=false, 不加 ACTION_VIEW filter。 -->
+        <activity
+            android:name="com.jerocine.player.LivePlayerActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|uiMode|navigation|density"
+            android:theme="@style/Theme.JcPlayer"
+            android:launchMode="singleTop" />
+
         <!-- 下载管理页(公共模块, 从播放器「⋮ 更多→下载管理」与设置页进入) -->
         <activity
             android:name="com.jerocine.player.download.DownloadActivity"

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  直播抽屉「频道」行 —— activity_live_player.xml 里 channel_list(纵向 RecyclerView)的 item,
+  由 LiveChannelAdapter 绑定. 根即行本体(TextView), VH 直接拿根做绑定.
+  背景/焦点态复用 stepper 同款 jc_step_btn_bg(聚焦=亮青实底, D-pad 一眼可辨);
+  当前频道高亮由 Adapter 绑定表达(「▶ 」前缀 + jc_accent + bold), 不另做选中背景态.
+  频道**不分组**(2026-11-07 用户拍板) —— 平铺一行一频道, 无分组头/无字母条.
+  padding 用 start/end 等价写法(API 26+ 的 paddingHorizontal 简写见 styles.xml 说明).
+-->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/channel_row"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="10dp"
+    android:layout_marginEnd="10dp"
+    android:layout_marginTop="2dp"
+    android:focusable="true"
+    android:clickable="true"
+    android:background="@drawable/jc_step_btn_bg"
+    android:gravity="center_vertical"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp"
+    android:textColor="@color/jc_text"
+    android:textSize="16sp"
+    android:singleLine="true"
+    android:ellipsize="end" />
