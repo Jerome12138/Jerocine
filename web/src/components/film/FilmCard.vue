@@ -307,7 +307,10 @@ const scoreText = computed(() => {
   overflow: hidden;
   /* h4 默认 bold → 改中等字重(用户要求卡片名不加粗) */
   font-weight: var(--jc-fw-medium);
-  min-height: calc(var(--jc-fs-sm) * var(--jc-lh-snug, 1.3) * 2);
+  /* 片名三端阶梯(移动13/平板14/桌面15, TV 15): 2026-11-07 用户反馈"移动端有点大"。
+     此前没设 font-size, h4 被 preflight font-size:inherit 恒 16px; 令牌定义见 theme.css。 */
+  font-size: var(--jc-fs-card-title);
+  min-height: calc(var(--jc-fs-card-title) * var(--jc-lh-snug, 1.3) * 2);
 }
 .jc-film-card__sub-below {
   display: flex;
@@ -445,10 +448,8 @@ const scoreText = computed(() => {
 [data-mode='tv'] .jc-film-card:focus-visible .jc-film-card__title-below {
   color: var(--jc-text-primary);
 }
-/* TV 卡片标题字号（不靠 hover 显示）— 调小一档(base→sm), 与历史/收藏 jc-tv-card .name 一致 */
-[data-mode='tv'] .jc-film-card__title-below {
-  font-size: var(--jc-fs-sm);
-}
+/* TV 卡片标题字号由 --jc-fs-card-title 的 TV 覆盖(theme.css, = sm 15px)统一供给,
+   此处不再单独设 font-size —— 与历史/收藏 jc-tv-card .name 同档。 */
 [data-mode='tv'] .jc-film-card__epinfo {
   font-size: var(--jc-fs-xs);
 }

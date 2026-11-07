@@ -102,6 +102,11 @@
   /* 卡片角标(热度 Hot N / 评分)专用: 比 xs 再小一档 —— 海报角标一旦接近正文大小,
      左上"Hot N"与右上"评分"在窄卡片上会挤到一起(用户反馈过)。TV 档见下方覆盖(同值, 都 11px)。 */
   --jc-fs-badge: 0.6875rem;
+  /* 影片卡片片名(首页/榜单/分类/搜索等全站卡片): 三端阶梯(2026-11-07 用户反馈"移动端有点大,
+     三端逐个缩小") —— 此处 0.8125rem(13px) 是移动档(<768)默认值; 平板 ≥768 覆盖为 14px、
+     桌面 ≥1024 覆盖为 15px(见下方两个断点块); TV 档 15px(= TV 的 sm, 见 [data-mode="tv"] 覆盖)。
+     此前片名没设 font-size, h4 经 UnoCSS preflight font-size:inherit 恒 16px, 是"偏大"的根因。 */
+  --jc-fs-card-title: 0.8125rem;
 
   --jc-fw-regular: 400;
   --jc-fw-medium: 500;
@@ -274,6 +279,7 @@
     --jc-rail-gaps: 5;
     --jc-rail-edge: var(--jc-gutter-tablet);
     --jc-rail-gap: var(--jc-space-4);
+    --jc-fs-card-title: 0.875rem; /* 卡片片名·平板档 14px */
   }
 }
 @media (min-width: 1024px) {
@@ -282,6 +288,7 @@
     --jc-rail-cols: 6;
     --jc-rail-gaps: 5;
     --jc-rail-edge: var(--jc-gutter-desktop);
+    --jc-fs-card-title: 0.9375rem; /* 卡片片名·桌面档 15px */
   }
 }
 @media (min-width: 1152px) {
@@ -492,6 +499,9 @@ body {
   /* 角标(11px)与基础档同值 —— TV 上角标不再单独放大; 紧凑靠"角标不跟正文缩放"实现,
      真正挤压来源是左右两个角标同排, 故配套收了内边距(FilmCard/tv-cards 里 padding 1px 2px)。 */
   --jc-fs-badge: 0.6875rem;
+  /* 卡片片名: TV 用 sm 档 15px(与「sm 次级·卡片名」语义行一致), FilmCard 里的 TV 专属
+     font-size 覆盖已删, 由本令牌统一供给。 */
+  --jc-fs-card-title: 0.9375rem;
 
   /* 间距适当放大 */
   --jc-space-4: 20px;
