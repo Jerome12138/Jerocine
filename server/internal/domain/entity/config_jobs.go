@@ -177,8 +177,13 @@ type SiteConfig struct {
 	// LiveNavEnabled 直播顶栏入口开关(000038): 有启用直播源的前提下, web/TV 顶栏导航
 	// 是否显示"直播"。非敏感展示开关, 随公开 GET /config/site 直接下发(侧边栏/抽屉
 	// 固定显示不消费此列; 无源时前端按 /live/sources 空列表隐藏一切入口)。
-	LiveNavEnabled int   `gorm:"column:live_nav_enabled" json:"liveNavEnabled"`
-	UpdatedAt      int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	LiveNavEnabled int `gorm:"column:live_nav_enabled" json:"liveNavEnabled"`
+	// ImgFallbackHosts 图床域名链(000041, 2026-11-07): 逗号分隔按序尝试 —— 第一个为主图床,
+	// 其余为备用域; 前端封面 onerror 后在链内自动切下一个域(图床家族常换域名, 如
+	// p.lztutu.com 被局域网 DNS 屏蔽时切 img.lzipic.com)。非敏感展示配置, 随公开
+	// GET /config/site 直接下发; 空串 = 不启用回退(前端按现行为渲染)。
+	ImgFallbackHosts string `gorm:"column:img_fallback_hosts" json:"imgFallbackHosts"`
+	UpdatedAt        int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (SiteConfig) TableName() string { return "site_config" }

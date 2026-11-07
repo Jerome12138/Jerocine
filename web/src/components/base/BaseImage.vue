@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { resolveBlobUrl } from '@/utils/blobImg'
+import { imgHostsList } from '@/utils/imgHosts'
 
 interface Props {
   src?: string
@@ -33,6 +34,18 @@ const currentSrc = ref<string>('')
 let observer: IntersectionObserver | null = null
 let blurClearTimer: ReturnType<typeof setTimeout> | null = null
 const blurCleared = ref(false)
+
+// ---- 图床域名链(000041, 2026-11-07): 后台「站点信息」可配, 逗号分隔按序尝试 ----
+// 第一个为主图床, 其余为备用域; 原域 onerror 后换链内下一个 host 重试(路径原样保留)。
+// 图床家族常换域名(lztutu 被局域网 DNS 屏蔽时切 lzipic), 该机制让站点对单一域死亡免疫。
+// 安全边界: 只有失败 host **在链内**才切换 —— 本站 blob/API 图(域不在链内)失败不切, 直接走占位符。
+/** 本轮加载已试过的 host(换 src 重置; 防循环) */
+let triedHosts: string[] = []
+
+function hostOf(url: string): string | null {
+  const m = /^(https?:\/\/)([^/?#]+)/.exec(url)
+  return m ? m[2]! : null
+}
 
 const aspectStyle = computed(() => {
   if (!props.ratio) {
@@ -104,6 +117,7 @@ function startLoad(): void {
     errored.value = true
     return
   }
+  triedHosts = []
   currentSrc.value = safeSrc(props.src)
 }
 
@@ -116,6 +130,26 @@ function onLoaded(): void {
   }, 200)
 }
 function onError(): void {
+  const url = currentSrc.value
+  const host = url ? hostOf(url) : null
+  const chain = imgHostsList()
+  // 安全边界(与注释一致): 只有失败 host **在链内**才切换 —— 本站 blob/API 图(域不在链内)
+  // 失败不切, 直接走占位符, 不误指到图床域。
+  if (url && host && chain.includes(host)) {
+    if (!triedHosts.includes(host)) triedHosts.push(host)
+    const next = chain.find((h) => !triedHosts.includes(h))
+    if (next) {
+      const swapped = url.replace(/^(https?:\/\/)([^/?#]+)/, `$1${next}`)
+      if (swapped !== url) {
+        triedHosts.push(next)
+        // 回到骨架态重试(换域后可能再次 onerror → 继续切, 直到链尽走占位符)
+        loaded.value = false
+        blurCleared.value = false
+        currentSrc.value = swapped
+        return
+      }
+    }
+  }
   errored.value = true
 }
 
@@ -167,6 +201,7 @@ watch(
     loaded.value = false
     errored.value = false
     blurCleared.value = false
+    triedHosts = []
     if (blurClearTimer) {
       clearTimeout(blurClearTimer)
       blurClearTimer = null

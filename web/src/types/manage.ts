@@ -147,6 +147,9 @@ export interface SiteBasic {
   state?: boolean
   /** 站点关闭时的提示语 */
   hint?: string
+  /** 图床域名链（000041, 2026-11-07）：逗号分隔按序尝试 —— 第一个为主图床, 其余为备用域;
+   *  封面 onerror 后在链内自动切下一个域。空 = 不启用回退。 */
+  imgFallbackHosts?: string
 }
 
 /** 接口返回类型：0=JSON 1=XML（与后端 CollectResultModel 对齐） */

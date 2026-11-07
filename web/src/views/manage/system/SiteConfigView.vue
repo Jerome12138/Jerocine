@@ -4,6 +4,7 @@ import { manageApi } from '@/api'
 import { toast } from '@/api/http'
 import type { RuntimeSettings, SiteBasic } from '@/types/manage'
 import { useSiteStore } from '@/stores/site'
+import { imgFallbackHosts as imgHostsRef } from '@/utils/imgHosts'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageTextarea from '@/components/manage/ManageTextarea.vue'
@@ -33,7 +34,8 @@ const form = reactive<SiteBasic>({
   describe: '',
   domain: '',
   state: true,
-  hint: ''
+  hint: '',
+  imgFallbackHosts: ''
 })
 
 // ---- 各卡独立 useAsyncAction(busy 分卡互不影响) ----
@@ -151,8 +153,11 @@ async function submit(): Promise<void> {
         description: form.describe,
         state: form.state ? 0 : 1,
         hint: form.hint ?? '',
+        imgFallbackHosts: form.imgFallbackHosts ?? '',
         updatedAt: Date.now()
       }
+      // 图床域名链同步进模块级单供体(BaseImage 消费) —— 保存即生效, 无需刷新
+      imgHostsRef.value = form.imgFallbackHosts ?? ''
     },
     successMsg: '站点信息已保存'
   })
@@ -277,6 +282,15 @@ onMounted(load)
           </ManageFormField>
           <ManageFormField label="维护提示" hint="站点关闭时给访客的提示语">
             <ManageInput v-model="form.hint!" placeholder="例：站点正在维护，敬请稍候" />
+          </ManageFormField>
+          <ManageFormField
+            label="图床域名链"
+            hint="逗号分隔按序尝试，第一个为主图床，其余为备用域；封面加载出错时自动切下一个域（图床常换域名）。留空不启用"
+          >
+            <ManageInput
+              v-model="form.imgFallbackHosts!"
+              placeholder="例: p.lztutu.com,img.lzipic.com,img.liangzipic.com"
+            />
           </ManageFormField>
 
           <!-- footer(§C8#2 收口 ManageFormActions): 卡片长表单原款 sticky 吸底 + 读档失败禁提交 -->

@@ -488,6 +488,11 @@ components:
         description: { type: string, description: 改名 describe→description }
         state: { type: integer, description: 1 正常 / 0 维护中 }
         hint: { type: string, description: 维护提示 }
+        imgFallbackHosts:
+          type: string
+          description: >-
+            图床域名链（2026-11-07，逗号分隔按序尝试）：第一个为**主图床**，其余为备用域；
+            封面 onerror 后在链内自动切下一个域（图床家族常换域名）。空串 = 不启用回退。
         tmdbKeyMasked: { type: string, description: TMDB 凭据掩码(如 0c06…676b), 未配置为空串; 明文永不外泄 }
         tmdbKeySet: { type: boolean, description: 是否已配置 TMDB 凭据 }
       description: TMDB key 与整组 SMTP 列均经 json:"-" 硬隔离, 任何响应不携带; TMDB 走 /manage/tmdb-key, 邮件走 /manage/mail/config(掩码 DTO)
