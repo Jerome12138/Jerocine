@@ -5,6 +5,7 @@ package mysql
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -34,13 +35,25 @@ func nowMilli() int64 { return time.Now().UnixMilli() }
 // 榜外片随采集自动刷新, 在榜片保留含榜位分的合成分, 两边都不丢。
 //
 // 刻意不做"全表所有列都加保护": 那会让源站主动清空 / 失效的字段(过期简介、失效封面)
-// 永远滞留旧值。当前只有下面这五列存在"源站空、本地有"的情形。
+// 永远滞留旧值。当前只有下面这四列存在"源站空、本地有"的情形。
+// year 不在此表: 它有独立的**上限钳制**(见 yearUpsertExpr), 单列单函数以便跨年现算。
 var conditionalUpsert = map[string]string{
 	"db_id":     "IF(VALUES(db_id) > 0, VALUES(db_id), db_id)",
 	"db_score":  "IF(VALUES(db_score) > 0, VALUES(db_score), db_score)",
-	"year":      "IF(VALUES(year) > 0, VALUES(year), year)",
 	"pub_date":  "IF(VALUES(pub_date) <> '', VALUES(pub_date), pub_date)",
 	"hot_score": "IF(hot_rank = 0, VALUES(hot_score), hot_score)",
+}
+
+// maxValidYear 当前允许的最大合法年份: 东八区"今年+1"(与 search_repo 的 Year 筛选选项、
+// orderLatestSQL 排序钳制同一口径)。源站脏年份(线上实测 2028×5 / 2030×11 / 9999×1、9909×1)
+// 超过它 → upsert 视为无效保留本地值, 避免重采把人工按豆瓣/网络数据修正过的年份写回脏值。
+// 每次构建 upsert 子句时现算, 跨年不依赖进程重启。
+func maxValidYear() int { return time.Now().In(cstZone).Year() + 1 }
+
+// yearUpsertExpr year 列的冲突赋值表达式: 源站年份合法(>0 且 ≤ 今年+1)才采用, 否则保留本地。
+// 下限 >0 沿用原判定; 上限即 maxValidYear。IF() 内只拼 int, 无注入面。
+func yearUpsertExpr() string {
+	return fmt.Sprintf("IF(VALUES(year) > 0 AND VALUES(year) <= %d, VALUES(year), year)", maxValidYear())
 }
 
 // fillHotScore 物化待写入行的**兜底**热度分(不含榜位分) —— 只在 INSERT 时生效:
@@ -65,7 +78,9 @@ func upsertAssignments(cols []string) clause.Set {
 	out := make([]clause.Assignment, 0, len(cols))
 	for _, c := range cols {
 		expr := "VALUES(" + c + ")"
-		if e, ok := conditionalUpsert[c]; ok {
+		if c == "year" {
+			expr = yearUpsertExpr()
+		} else if e, ok := conditionalUpsert[c]; ok {
 			expr = e
 		}
 		out = append(out, clause.Assignment{Column: clause.Column{Name: c}, Value: gorm.Expr(expr)})

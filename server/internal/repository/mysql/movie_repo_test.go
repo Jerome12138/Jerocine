@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
 	"server/internal/domain"
@@ -147,5 +149,28 @@ func TestMovieBatchUpsert_SQLShape(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestYearUpsertExpr_ClampsFutureYears 校验 year 列的冲突赋值带「今年+1」上限钳制:
+// 源站脏年份(2030/9999)不得覆盖本地已修正的值(2026-11-07 数据修正的持久守卫)。
+func TestYearUpsertExpr_ClampsFutureYears(t *testing.T) {
+	set := upsertAssignments([]string{"year"})
+	if len(set) != 1 {
+		t.Fatalf("应只有一条赋值: %+v", set)
+	}
+	expr, ok := set[0].Value.(clause.Expr)
+	if !ok {
+		t.Fatalf("应为 clause.Expr: %T", set[0].Value)
+	}
+	sql := expr.SQL
+	want := fmt.Sprintf("VALUES(year) <= %d", maxValidYear())
+	if !strings.Contains(sql, want) {
+		t.Fatalf("年份赋值应带上限钳制 %q, got %s", want, sql)
+	}
+	for _, banned := range []string{"2030", "9999", "9909"} {
+		if strings.Contains(sql, banned) {
+			t.Fatalf("钳制上限不应是具体脏年份: %s", sql)
+		}
 	}
 }
