@@ -674,9 +674,18 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   const onPluginConfigHandler = (option: unknown): void =>
     onPluginConfig((option ?? {}) as Record<string, unknown>)
 
-  /* ---- 开关 / 集号 / 影片（纳入触发条件; immediate: 初始 enabled=true 的老用户进页即装载） ---- */
+  /* ---- 开关 / 集号 / 影片 / epid（纳入触发条件; immediate: 初始 enabled=true 的老用户进页即装载） ----
+   * epid 必须入 watch: 源切换时集号/集名可能都不变, 但桥接归一状态变化会改 epid → 池键变;
+   * 不重载会造成「已装载池(旧源) ≠ currentLoadKey(新源)」的键/池错位, 后续分片请求写新读旧。 */
   watch(
-    () => [opts.enabled.value, opts.mid.value, opts.episode.value, opts.title.value, opts.episodeName?.value ?? ''] as const,
+    () => [
+      opts.enabled.value,
+      opts.mid.value,
+      opts.episode.value,
+      opts.title.value,
+      opts.episodeName?.value ?? '',
+      opts.epid?.value ?? ''
+    ] as const,
     () => {
       void loadDanmaku()
     },
