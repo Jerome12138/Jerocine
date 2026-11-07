@@ -150,6 +150,19 @@ func (h *Handlers) Films(c *gin.Context) {
 	dto.Page(c, dto.ToCards(cp.List), cp.Page.Current, cp.Page.Size, cp.Total)
 }
 
+// ActorFilms GET /films/by-actor?name=&page=&size= 演员影片列表。
+// 详情页「演职人员」的演员名可点进入; 口径见 FilmService.ActorFilms(本库 actor 列精确归集)。
+func (h *Handlers) ActorFilms(c *gin.Context) {
+	ctx := c.Request.Context()
+	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
+	cp, err := h.Film.ActorFilms(ctx, c.Query("name"), page)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.Page(c, dto.ToCards(cp.List), cp.Page.Current, cp.Page.Size, cp.Total)
+}
+
 // HotBoard GET /hotboard?board=&pid=&year=&area=&language=&sort=&page=&size=
 // board 为空 = 全榜混排(按 hot_score, 枪版动态降级); board 指定 = 该榜视图(按榜位次)。
 func (h *Handlers) HotBoard(c *gin.Context) {

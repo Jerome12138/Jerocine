@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { filmApi } from '@/api'
 import BaseImage from '@/components/base/BaseImage.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
@@ -610,10 +610,12 @@ function handleToggleFavorite(): void {
             <span class="jc-detail__person-name" :title="name">{{ name }}</span>
             <span class="jc-detail__person-role">导演</span>
           </div>
-          <div
+          <!-- 演员名可点 → 演员影片列表页(2026-11-07): 本库 actor 列按人名精确归集 -->
+          <RouterLink
             v-for="(name, i) in actors"
             :key="'a-' + i"
-            class="jc-detail__person"
+            class="jc-detail__person jc-detail__person--link"
+            :to="{ path: '/filmActor', query: { name } }"
           >
             <span
               class="jc-detail__person-avatar"
@@ -624,7 +626,7 @@ function handleToggleFavorite(): void {
             </span>
             <span class="jc-detail__person-name" :title="name">{{ name }}</span>
             <span class="jc-detail__person-role">主演</span>
-          </div>
+          </RouterLink>
         </div>
       </section>
 
@@ -977,6 +979,19 @@ function handleToggleFavorite(): void {
   gap: 4px;
   width: 72px;
   text-align: center;
+}
+/* 演员名可点(→ /filmActor 列表页): 去链接默认色/下划线, hover 名字变链接色提示可进 */
+.jc-detail__person--link {
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--jc-radius-sm);
+}
+.jc-detail__person--link .jc-detail__person-name {
+  transition: color var(--jc-dur-fast, 120ms) ease;
+}
+.jc-detail__person--link:hover .jc-detail__person-name,
+.jc-detail__person--link:focus-visible .jc-detail__person-name {
+  color: var(--jc-text-link-hover);
 }
 @media (min-width: 768px) {
   .jc-detail__person {

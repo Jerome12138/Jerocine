@@ -53,6 +53,13 @@ export const publicRoutes: RouteRecordRaw[] = [
     meta: { layout: 'public', title: '分类筛选' }
   },
   {
+    // 演员影片列表(2026-11-07 详情页演员名可点进入): /filmActor?name=xxx
+    path: '/filmActor',
+    name: 'film-actor',
+    component: () => import('@/views/public/FilmActorView.vue'),
+    meta: { layout: 'public', title: '演员影片' }
+  },
+  {
     // 独立热榜页(8 榜并集/单榜筛选 + 年份/地区/语言/分类/排序)。固定导航入口, 不进 category 表。
     path: '/hotBoard',
     name: 'hot-board',

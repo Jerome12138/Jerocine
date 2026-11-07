@@ -14,7 +14,8 @@ import { useViewMode } from '@/composables/useViewMode'
 
 /**
  * /filmClassify?Pid=xxx
- * 分类首页：最新上线 / 排行榜 / 最近更新 / 高分榜(scoredCount>0 才显示)
+ * 分类首页：排行榜 / 最新上线 / 高分榜(scoredCount>0 才显示)。
+ * 「最近更新」2026-11-07 下线(update_stamp 是收录时间, 不具参考价值, 用户拍板)。
  */
 
 const { params } = useQuerySync<{ Pid: string }>(
@@ -31,7 +32,6 @@ const data = ref<ClassifyData>({
   title: undefined,
   news: [],
   top: [],
-  recent: [],
   score: [],
   scoredCount: 0
 })
@@ -127,9 +127,11 @@ const tvTitlePid = computed(() =>
 )
 
 /**
- * 四段网格配置: **排行榜在最前**(用户定稿), 之后 最新上线 / 最近更新 / 高分榜。
+ * 三段网格配置: **排行榜在最前**(用户定稿), 之后 最新上线 / 高分榜。
+ * 「最近更新」已于 2026-11-07 整体下线(用户拍板) —— update_stamp 是收录时间, 不具参考价值;
+ * 后端 ClassifyData/ClassifyResp 已同步撤掉 recent 字段, 筛选页排序标签里也移到末位。
  * 每个模块最多 3 行(limitToRows, 3 × 当前列数)。
- * sort 值对齐后端 allowedSort(hot=hot_score 降序 / score=db_score 降序 / latest=year+pub_date) ——
+ * sort 值对齐后端 orderForSpec 白名单(hot=hot_score 降序 / score=db_score 降序 / latest=year+pub_date) ——
  * 旧值 hits/release_stamp 后端仍兼容, 但新代码一律用新值。
  * 高分榜只在 scoredCount>0 时进列表(后端为 0 时不返回该分区, 运行时探测代替分类白名单)。
  */
@@ -148,13 +150,6 @@ const sections = computed(() => {
       sub: '每日更新',
       items: limitToRows(data.value.news),
       sort: 'latest'
-    },
-    {
-      key: 'recent',
-      title: '最近更新',
-      sub: '追更不迷路',
-      items: limitToRows(data.value.recent),
-      sort: 'update_stamp'
     }
   ]
   if (data.value.scoredCount > 0) {
@@ -173,7 +168,6 @@ const tvAllEmpty = computed(
   () =>
     !isReady(data.value.news) &&
     !isReady(data.value.top) &&
-    !isReady(data.value.recent) &&
     !isReady(data.value.score)
 )
 </script>
@@ -376,7 +370,6 @@ const tvAllEmpty = computed(
         v-if="
           !isReady(data.news) &&
           !isReady(data.top) &&
-          !isReady(data.recent) &&
           !isReady(data.score)
         "
         title="该分类暂无影片"

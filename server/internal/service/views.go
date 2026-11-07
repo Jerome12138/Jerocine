@@ -24,10 +24,11 @@ type HomeData struct {
 }
 
 // ClassifyData 分类页各榜。
+// 「最近更新」分区已于 2026-11-07 整体下线(用户拍板: update_stamp 是收录时间, 不具参考价值) ——
+// 字段从响应里撤掉; TV 旧 APK 的 Kotlin 模型对该键有 emptyList 默认值, 且段渲染自带空段过滤, 优雅降级。
 type ClassifyData struct {
-	News   []entity.MovieSearch `json:"news"`
-	Top    []entity.MovieSearch `json:"top"`
-	Recent []entity.MovieSearch `json:"recent"`
+	News []entity.MovieSearch `json:"news"`
+	Top  []entity.MovieSearch `json:"top"`
 	// Score 高分榜(db_score > 0 且排除解说)。ScoredCount 为该分类有评分的影片总数:
 	// 为 0 时 Score 必为空, 前端据 ScoredCount 决定要不要渲染这个分区。
 	Score       []entity.MovieSearch `json:"score"`

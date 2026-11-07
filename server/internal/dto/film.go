@@ -234,18 +234,18 @@ func ToHome(h service.HomeData) HomeResp {
 
 // ClassifyResp 分类页各榜(含标题分类)。
 // ScoredCount 为该分类有评分的影片总数; 为 0 时 score 必为空, 前端不渲染高分榜分区。
+// recent(最近更新) 2026-11-07 下线撤字段 —— TV 旧 APK 模型带 emptyList 默认值 + 空段过滤, 优雅降级。
 type ClassifyResp struct {
 	Title       *NavCategory `json:"title"`
 	News        []Card       `json:"news"`
 	Top         []Card       `json:"top"`
-	Recent      []Card       `json:"recent"`
 	Score       []Card       `json:"score"`
 	ScoredCount int64        `json:"scoredCount"`
 }
 
 func ToClassify(c service.ClassifyData, title *entity.CategoryNode) ClassifyResp {
 	r := ClassifyResp{
-		News: ToCards(c.News), Top: ToCards(c.Top), Recent: ToCards(c.Recent),
+		News: ToCards(c.News), Top: ToCards(c.Top),
 		Score: ToCards(c.Score), ScoredCount: c.ScoredCount,
 	}
 	if title != nil {

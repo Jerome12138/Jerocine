@@ -427,20 +427,16 @@ components:
     # ---------------- 内容: 分类首页各榜 ----------------
     ClassifyResp:
       type: object
-      required: [title, news, top, recent]
+      required: [title, news, top]
       properties:
         title: { $ref: '#/components/schemas/Category' }
         news:
           type: array
-          description: 最新上线 (year desc, pub_date desc)
+          description: 最新上线 (year desc, pub_date desc; 超今年+1 的脏年份沉底)
           items: { $ref: '#/components/schemas/FilmCard' }
         top:
           type: array
           description: 排行 (hot_score 降序, 豆瓣榜单热度)
-          items: { $ref: '#/components/schemas/FilmCard' }
-        recent:
-          type: array
-          description: 最近更新 (update_stamp desc)
           items: { $ref: '#/components/schemas/FilmCard' }
         score:
           type: array
@@ -450,6 +446,7 @@ components:
           type: integer
           format: int64
           description: 该分类有豆瓣评分的影片总数 (0 = 前端隐藏高分榜入口)
+        # recent(最近更新) 2026-11-07 下线撤字段 —— update_stamp 是收录时间, 不具参考价值
 
     # ---------------- 内容: tag 筛选选项 (查询期 GROUP BY) ----------------
     FilterOption:
@@ -1186,7 +1183,7 @@ paths:
   /films/classify:
     get:
       tags: [content]
-      summary: 分类首页三榜聚合 (news/top/recent 一次返回)
+      summary: 分类首页三榜聚合 (news/top/score 一次返回; recent 已于 2026-11-07 下线)
       operationId: getClassify
       parameters:
         - name: pid
@@ -1205,6 +1202,29 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ClassifyResp' }
         '304': { $ref: '#/components/responses/NotModified' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /films/by-actor:
+    get:
+      tags: [content]
+      summary: 演员影片列表 (详情页演员名可点进入; 本库 actor 列按人名精确归集)
+      operationId: getFilmsByActor
+      parameters:
+        - name: name
+          in: query
+          required: true
+          description: 演员名(等值成员匹配, 非子串)
+          schema: { type: string }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Trace-Id: { $ref: '#/components/headers/XTraceId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilmCardPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /films/{mid}:

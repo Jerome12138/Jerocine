@@ -61,6 +61,47 @@ func (r *movieRepo) GetByMid(ctx context.Context, mid int64) (*entity.Movie, err
 	return r.getByMid(ctx, mid, false)
 }
 
+// actorNameSeparators 源站 actor 串的人名分隔符全集(半/全角逗号为主, 偶见顿号/斜杠/分号)。
+const actorNameSeparators = ",，、/;；"
+
+// splitActorNames 把 actor 串按分隔符切开并去空白。英文名内部空格保留(如 "Tom Hanks")。
+func splitActorNames(raw string) []string {
+	return strings.FieldsFunc(raw, func(r rune) bool {
+		return strings.ContainsRune(actorNameSeparators, r)
+	})
+}
+
+// MidsByActor 按演员名精确归集影片 mid(演员影片列表页)。
+// LIKE 粗筛命中覆盖索引外的 actor 列后 Go 侧做等值成员匹配(全表 ~16 万行,
+// 一次 LIKE 扫描毫秒级); 排序与公开列表口径一致(hot_score → hits → mid)。
+func (r *movieRepo) MidsByActor(ctx context.Context, name string) ([]int64, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, nil
+	}
+	var rows []struct {
+		Mid   int64
+		Actor string
+	}
+	if err := dbFrom(ctx, r.db).Model(&entity.Movie{}).
+		Select("mid, actor").
+		Where("deleted_at = 0 AND actor <> '' AND actor LIKE ?", "%"+name+"%").
+		Order("hot_score DESC, hits DESC, mid DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]int64, 0, len(rows))
+	for _, x := range rows {
+		for _, part := range splitActorNames(x.Actor) {
+			if strings.TrimSpace(part) == name {
+				out = append(out, x.Mid)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 func (r *movieRepo) GetByMidIncludingDeleted(ctx context.Context, mid int64) (*entity.Movie, error) {
 	return r.getByMid(ctx, mid, true)
 }

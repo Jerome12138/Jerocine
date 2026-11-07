@@ -169,8 +169,10 @@ func coverFirst(items []entity.MovieSearch, n int) []entity.MovieSearch {
 
 // Classify 分类页各榜(缓存)。
 //
-// 四段口径(方案 §3.1 / §3.5): news=最新上线(year+pub_date)、top=该分类热度优先(hot_score)、
-// recent=最近更新(update_stamp)、score=高分榜(db_score 降序, 排除解说)。
+// 三段口径(方案 §3.1 / §3.5): news=最新上线(year+pub_date, 超今年+1 的脏年份沉底, 见
+// search_repo.orderLatestSQL)、top=该分类热度优先(hot_score)、score=高分榜(db_score 降序, 排除解说)。
+// 原 recent=最近更新(update_stamp) 分区已于 2026-11-07 整体下线 —— update_stamp 是收录时间,
+// 不具参考价值(用户拍板), 响应不再携带 recent。
 // 高分榜的显示与否由**运行时探测**决定(该分类 db_score > 0 的条数为 0 则不返回该分区),
 // 不用"体育/短剧/漫剧"这类分类白名单 —— 切源重建分类树后依然正确。
 func (s *FilmService) Classify(ctx context.Context, pid int64) (ClassifyData, error) {
@@ -184,10 +186,6 @@ func (s *FilmService) Classify(ctx context.Context, pid int64) (ClassifyData, er
 		if err != nil {
 			return ClassifyData{}, false, err
 		}
-		recent, err := s.search.TopByPidSorted(ctx, pid, repository.SortRecent, n)
-		if err != nil {
-			return ClassifyData{}, false, err
-		}
 		scored, err := s.search.CountScoredByPid(ctx, pid)
 		if err != nil {
 			return ClassifyData{}, false, err
@@ -198,7 +196,7 @@ func (s *FilmService) Classify(ctx context.Context, pid int64) (ClassifyData, er
 				return ClassifyData{}, false, err
 			}
 		}
-		return ClassifyData{News: news, Top: top, Recent: recent, Score: score, ScoredCount: scored}, true, nil
+		return ClassifyData{News: news, Top: top, Score: score, ScoredCount: scored}, true, nil
 	})
 	return data, err
 }
@@ -345,6 +343,49 @@ func (s *FilmService) Search(ctx context.Context, keyword string, page repositor
 		return CardPage{}, err
 	}
 	return CardPage{List: list, Total: total, Page: page}, nil
+}
+
+// ActorFilms 演员影片列表(2026-11-07 详情页演员名可点进入)。
+// 自建口径: 本库 movie.actor(跨源采集聚合, 线上 9.3 万部有值)按人名精确归集 ——
+// 不引第三方演员接口(cj.lziapi.com provide/actor 只是 lz 单源视角, 还得再做一层
+// vod_id→mid 映射, 且把体验绑在第三方可用性上)。排序已在仓储按 hot_score → hits → mid
+// 排好; 这里切片分页后按 mid 序重取卡片读模型(空行=读模型滞后/隐藏分类, 跳过)。
+// 不缓存: 组合按演员名, 与 /films 同口径交给 nginx api_cache。
+func (s *FilmService) ActorFilms(ctx context.Context, name string, page repository.Page) (CardPage, error) {
+	page = page.Normalize(s.pages.Filter)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return CardPage{List: []entity.MovieSearch{}, Page: page}, nil
+	}
+	mids, err := s.movie.MidsByActor(ctx, name)
+	if err != nil {
+		return CardPage{}, err
+	}
+	total := int64(len(mids))
+	start := page.Offset()
+	if start >= len(mids) {
+		return CardPage{List: []entity.MovieSearch{}, Total: total, Page: page}, nil
+	}
+	end := start + page.Limit()
+	if end > len(mids) {
+		end = len(mids)
+	}
+	pageMids := mids[start:end]
+	list, err := s.SearchByMids(ctx, pageMids)
+	if err != nil {
+		return CardPage{}, err
+	}
+	byMid := make(map[int64]entity.MovieSearch, len(list))
+	for _, m := range list {
+		byMid[m.Mid] = m
+	}
+	out := make([]entity.MovieSearch, 0, len(pageMids))
+	for _, mid := range pageMids {
+		if m, ok := byMid[mid]; ok {
+			out = append(out, m)
+		}
+	}
+	return CardPage{List: out, Total: total, Page: page}, nil
 }
 
 // TagOptions 7 维筛选标签(缓存)。

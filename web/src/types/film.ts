@@ -169,11 +169,11 @@ export interface ClassifyData {
   title?: NavCategory
   news: Card[]
   top: Card[]
-  recent: Card[]
   /** 高分榜(db_score 降序, 排除解说) —— scoredCount 为 0 时必为空数组, 不渲染分区 */
   score: Card[]
   /** 该分类有评分的影片总数(0 = 该分类无评分数据, 隐藏高分榜入口) */
   scoredCount: number
+  /** 「最近更新」分区 2026-11-07 整体下线(update_stamp 是收录时间, 不具参考价值), 后端已撤字段 */
 }
 
 /** 筛选标签(小写 name/value, 对齐后端 TagOption) */

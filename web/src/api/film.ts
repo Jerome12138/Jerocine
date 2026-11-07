@@ -41,6 +41,17 @@ export const getFilms = (
 ): Promise<Paginated<Card>> =>
   http.get<unknown, Paginated<Card>>('/films', { params: query, signal: options?.signal })
 
+/** GET /films/by-actor 演员影片列表(详情页演员名可点进入; 本库 actor 列按人名精确归集) */
+export const getFilmsByActor = (
+  name: string,
+  page: number,
+  options?: { signal?: AbortSignal }
+): Promise<Paginated<Card>> =>
+  http.get<unknown, Paginated<Card>>('/films/by-actor', {
+    params: { name, page },
+    signal: options?.signal
+  })
+
 /** GET /hotboard 热榜(8 榜并集或单榜; 普通请求, 不用 SWR —— 筛选/分页实时反映 URL) */
 export const getHotBoard = (
   query: HotBoardQuery,

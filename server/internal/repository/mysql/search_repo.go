@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strconv"
@@ -31,27 +32,43 @@ func NewSearchRepository(db *gorm.DB) repository.SearchRepository { return &sear
 //	orderHot    热度优先: 主键是实测的 hot_score(见 service/hot_service.go), 后三级只做同分 tiebreak。
 //	            列顺序与 000020 建的 idx_hot(hot_score, year, update_stamp, mid) 完全一致 → 走索引不 filesort。
 //	orderScore  评分优先: db_score 无索引(存量如此), 但只取前 N + 分类页 10 分钟缓存, 可接受。
-//	orderLatest 最新上线: 原为 release_stamp(= 源站录入时间, 受 2023 老片补录污染), 改用
-//	            year + pub_date(源站上映日期, 精度自描述且字典序=时间序), 末级才回退 update_stamp。
 //	orderRecent 最近更新: 源站最近动过它的时间。
 const (
 	orderHot    = "hot_score DESC, year DESC, update_stamp DESC, mid DESC"
 	orderScore  = "db_score DESC, year DESC, mid DESC"
-	orderLatest = "year DESC, pub_date DESC, update_stamp DESC"
 	orderRecent = "update_stamp DESC"
 )
 
-// allowedSort 排序列白名单, 防注入。旧值(hits / db_score / release_stamp)保留为别名:
-// 前端与 Android TV 已发出的链接、以及 TV 端硬编码的旧 value 都要继续工作。
-var allowedSort = map[string]string{
-	"hot":           orderHot,
-	"hits":          orderHot, // 旧值(人气排序)
-	"score":         orderScore,
-	"db_score":      orderScore, // 旧值(评分排序)
-	"latest":        orderLatest,
-	"release_stamp": orderLatest, // 旧值(最新上映)
-	"update_stamp":  orderRecent,
-	"recent":        orderRecent,
+// orderLatestSQL 最新上线: 原为 release_stamp(= 源站录入时间, 受 2023 老片补录污染), 改用
+// year + pub_date(源站上映日期, 精度自描述且字典序=时间序), 末级才回退 update_stamp。
+//
+// 年份钳制(2026-11-07): 与 Year 筛选选项同一口径 —— 东八区"今年+1"为上限(见 TagOptions maxYear)。
+// 线上存在源站脏年份(2028×5 / 2030×11 / 9999×1), 直排 `year DESC` 会让它们恒霸"最新上线"首位;
+// 超限行 year 按 0、pub_date 按 '' 参与排序(一并沉底), 数据不删、只是不再进榜单头。
+// 每次调用现算上限, 跨年不依赖进程重启。IF() 内只拼 int, 无注入面。
+func orderLatestSQL() string {
+	maxYear := time.Now().In(cstZone).Year() + 1
+	return fmt.Sprintf(
+		"IF(year > %d, 0, year) DESC, IF(year > %d, '', pub_date) DESC, update_stamp DESC",
+		maxYear, maxYear)
+}
+
+// orderForSpec 排序列白名单(防注入) → ORDER BY 片段; ok=false 表示未识别(调用方各自兜底:
+// 影片筛选回退热度 defaultSort, 公开搜索回退 orderRecent 沿旧习)。旧值(hits / db_score /
+// release_stamp)保留为别名: 前端与 Android TV 已发出的链接、以及 TV 端硬编码的旧 value 都要继续工作。
+func orderForSpec(sort string) (string, bool) {
+	switch sort {
+	case "hot", "hits": // hits = 旧值(人气排序)
+		return orderHot, true
+	case "score", "db_score": // db_score = 旧值(评分排序)
+		return orderScore, true
+	case "latest", "release_stamp": // release_stamp = 旧值(最新上映)
+		return orderLatestSQL(), true
+	case "update_stamp", "recent":
+		return orderRecent, true
+	default:
+		return "", false
+	}
 }
 
 // defaultSort 未指定 / 无法识别时的排序键。2026-09-16 起默认"热度优先"(原为最近更新):
@@ -61,7 +78,7 @@ const defaultSort = orderHot
 func orderForClassify(s repository.ClassifySort) string {
 	switch s {
 	case repository.SortLatest:
-		return orderLatest
+		return orderLatestSQL()
 	case repository.SortHot:
 		return orderHot
 	case repository.SortScore:
@@ -312,8 +329,8 @@ func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, pag
 	if spec.Plot != "" {
 		q = q.Where("class_tag LIKE ?", "%"+spec.Plot+"%")
 	}
-	order := allowedSort[spec.Sort]
-	if order == "" {
+	order, ok := orderForSpec(spec.Sort)
+	if !ok {
 		order = defaultSort
 	}
 	var total int64
@@ -327,7 +344,7 @@ func (r *searchRepo) Filter(ctx context.Context, spec repository.FilterSpec, pag
 	return out, total, nil
 }
 
-// SearchKeyword 关键字检索。sort 为排序键(白名单 allowedSort), 空/未识别回退
+// SearchKeyword 关键字检索。sort 为排序键(白名单 orderForSpec), 空/未识别回退
 // update_stamp DESC —— 公开搜索历史行为恒为最近更新, 管理后台由 service 层显式传键。
 func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted int, includeHidden bool, sort string, page repository.Page) ([]entity.MovieSearch, int64, error) {
 	keyword = strings.TrimSpace(keyword)
@@ -348,8 +365,8 @@ func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted 
 	} else {
 		q = q.Where(match, keyword)
 	}
-	order := allowedSort[sort]
-	if order == "" {
+	order, ok := orderForSpec(sort)
+	if !ok {
 		order = orderRecent
 	}
 	var total int64
@@ -644,13 +661,14 @@ func (r *searchRepo) TagOptions(ctx context.Context, pid int64) (*repository.Fil
 	}
 	opts.Tags["Initial"] = initial
 
-	// Sort: 静态。value 与 allowedSort 的键一一对应(web / Android TV 都从本接口取值, 不硬编码文案)。
+	// Sort: 静态。value 与 orderForSpec 的键一一对应(web / Android TV 都从本接口取值, 不硬编码文案)。
 	// "最新上映"曾是 release_stamp(= 源站录入时间, 受 2023 老片补录污染) —— 已换成 year + pub_date。
+	// 顺序(2026-11-07 用户拍板): 最近更新是"收录时间"不具参考价值, 沉到列表末尾。
 	opts.Tags["Sort"] = []repository.TagOption{
-		{Name: "最近更新", Value: "update_stamp"},
 		{Name: "热度优先", Value: "hot"},
 		{Name: "评分优先", Value: "score"},
 		{Name: "最新上线", Value: "latest"},
+		{Name: "最近更新", Value: "update_stamp"},
 	}
 	return opts, nil
 }

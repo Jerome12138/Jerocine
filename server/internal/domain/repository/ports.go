@@ -27,6 +27,11 @@ type MovieRepository interface {
 	ListMissingBackdropsByMids(ctx context.Context, mids []int64) ([]entity.Movie, error)
 	// UpdateBackdrop 回填横图(url 可为 tmdb.MissMark 哨兵)。返回是否有行被更新。
 	UpdateBackdrop(ctx context.Context, mid int64, url string) (bool, error)
+	// MidsByActor 按演员名精确归集影片 mid(演员影片列表页, 详情页演员名可点进入)。
+	// actor 列是逗号(半/全角, 偶见 、 / ; )分隔的人名串 —— LIKE 粗筛后 Go 侧按分隔符切分
+	// 做等值成员匹配, 避免 "张翰" 误中 "张翰文"。排序与公开列表一致(hot_score → hits → mid),
+	// 已软删行排除。返回全量命中(单片演员有限, 量级可控), 分页由调用方切片。
+	MidsByActor(ctx context.Context, name string) ([]int64, error)
 	Truncate(ctx context.Context) error
 
 	// ---- 榜单热度(豆瓣榜单刷新任务用, 见 service/hot_service.go) ----
@@ -76,7 +81,7 @@ type SearchRepository interface {
 	Filter(ctx context.Context, spec FilterSpec, page Page) ([]entity.MovieSearch, int64, error)
 	// SearchKeyword 关键字检索 (FULLTEXT ngram)。deleted 取 DeletedExclude/DeletedOnly/DeletedInclude。
 	// includeHidden=false(公开口径)剔除隐藏分类影片, true(管理口径)不过滤 —— 见 FilterSpec.IncludeHidden。
-	// sort 为排序键(hot/latest/update_stamp/score 及旧别名, 白名单见 search_repo.allowedSort);
+	// sort 为排序键(hot/latest/update_stamp/score 及旧别名, 白名单见 search_repo.orderForSpec);
 	// 空/未识别时回退 update_stamp DESC(与历史行为一致 —— 公开搜索固定最近更新)。
 	SearchKeyword(ctx context.Context, keyword string, deleted int, includeHidden bool, sort string, page Page) ([]entity.MovieSearch, int64, error)
 	// CountCreatedSince 统计 created_at(毫秒) >= sinceMillis 的影片数 (仪表盘今日/近一周新增)。

@@ -62,7 +62,8 @@ func (f *fakeSearch) CountScoredByPid(_ context.Context, _ int64) (int64, error)
 
 type fakeMovie struct {
 	repository.MovieRepository
-	m *entity.Movie
+	m         *entity.Movie
+	actorMids []int64 // MidsByActor 返回(热度序全量)
 }
 
 func (f *fakeMovie) GetByMid(_ context.Context, mid int64) (*entity.Movie, error) {
@@ -70,6 +71,10 @@ func (f *fakeMovie) GetByMid(_ context.Context, mid int64) (*entity.Movie, error
 		return nil, domain.ErrMovieNotFound
 	}
 	return f.m, nil
+}
+
+func (f *fakeMovie) MidsByActor(context.Context, string) ([]int64, error) {
+	return f.actorMids, nil
 }
 
 type fakePlay struct {
@@ -322,5 +327,45 @@ func TestNavCategories_FilmVisibleOnly(t *testing.T) {
 	}
 	if len(byId[3].Children) != 1 || byId[3].Children[0].Id != 31 {
 		t.Fatalf("子分类只滤 filmVisible: %+v", byId[3].Children)
+	}
+}
+
+// ActorFilms 分页: 仓储按热度序给全量 mid, service 切片后按 mid 序取卡片;
+// 读模型缺行(隐藏分类/滞后)跳过但序不变; 空名短路返回空表。
+func TestActorFilms_PaginationAndOrder(t *testing.T) {
+	fs := &fakeSearch{rows: []entity.MovieSearch{
+		{Mid: 1, Name: "甲片"}, {Mid: 3, Name: "丙片"}, {Mid: 4, Name: "丁片"}, // mid=2 读模型缺行
+	}}
+	fm := &fakeMovie{actorMids: []int64{1, 2, 3, 4}}
+	svc := newFilmService(fs, fm, nil, nil)
+
+	cp, err := svc.ActorFilms(context.Background(), "沈腾", repository.Page{Current: 1, Size: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 第 1 页 = mids[1,2]; 2 无读模型行 → 只剩 [1]
+	if cp.Total != 4 || len(cp.List) != 1 || cp.List[0].Mid != 1 {
+		t.Fatalf("第 1 页应为 [1](mid=2 缺读模型行跳过), total=4: %+v", cp)
+	}
+
+	cp2, err := svc.ActorFilms(context.Background(), "沈腾", repository.Page{Current: 2, Size: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp2.Total != 4 || len(cp2.List) != 2 || cp2.List[0].Mid != 3 || cp2.List[1].Mid != 4 {
+		t.Fatalf("第 2 页应为 [3,4]: %+v", cp2)
+	}
+
+	cp3, err := svc.ActorFilms(context.Background(), "沈腾", repository.Page{Current: 99, Size: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp3.Total != 4 || len(cp3.List) != 0 {
+		t.Fatalf("越界页应为空表: %+v", cp3)
+	}
+
+	empty, err := svc.ActorFilms(context.Background(), "   ", repository.Page{})
+	if err != nil || len(empty.List) != 0 {
+		t.Fatalf("空名应短路返回空表: %+v / %v", empty, err)
 	}
 }

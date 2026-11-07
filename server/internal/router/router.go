@@ -22,6 +22,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/categories/:pid/filters", h.Filters)
 	v1.GET("/films", h.Films)
 	v1.GET("/films/classify", h.Classify)
+	// 演员影片列表(静态段; 与下方 /films/:mid 参数段共存, gin v1.6+ 支持且静态优先匹配)
+	v1.GET("/films/by-actor", h.ActorFilms)
 	v1.GET("/hotboard", h.HotBoard)
 	v1.GET("/hotboard/filters", h.HotBoardFilters)
 	v1.GET("/films/:mid", h.Detail)

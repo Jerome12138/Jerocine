@@ -116,7 +116,7 @@ data class ClassifyResp(
     val title: NavCategory? = null,
     val news: List<Card> = emptyList(),
     val top: List<Card> = emptyList(),
-    val recent: List<Card> = emptyList(),
+    // recent(最近更新) 2026-11-07 随 web 分类页下线撤字段(update_stamp 是收录时间, 不具参考价值)
     // 高分榜(db_score 降序, 排除解说); scoredCount=0 时后端不返回该分区
     val score: List<Card> = emptyList(),
     val scoredCount: Long = 0
