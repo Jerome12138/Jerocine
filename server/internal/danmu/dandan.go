@@ -202,18 +202,27 @@ func PickAnime(animes []DandanAnime, keyword string, year, episode int) *DandanA
 //  2. 回退标题「第N集/话/期」或纯数字段；
 //  3. 再回退按 1 起下标。
 //
-// 全部未命中返回 nil（调用方标 empty）。appTitle 省略时行为与旧版完全一致。
-func PickEpisode(eps []DandanEpisode, episode int, appTitles ...string) *DandanEpisode {
+// appNum（2026-11-07 v2, 可选）: App 侧**现算期号**（A2, 前端经他源桥接归一得来）—— 注入键的 Num,
+// 使纯日期形态（20261005上）也能键匹配; 键匹配门禁同步补「期号参数非空」。appNum=0 且无 appTitle 时
+// 行为与旧版完全一致。全部未命中返回 nil（调用方标 empty）。
+func PickEpisode(eps []DandanEpisode, episode int, appNum int, appTitles ...string) *DandanEpisode {
 	if episode <= 0 || len(eps) == 0 {
 		return nil
 	}
 	want := strconv.Itoa(episode)
-	if len(appTitles) > 0 {
-		k := ParseEpisodeKey(appTitles[0])
+	if len(appTitles) > 0 || appNum > 0 {
+		k := EpisodeKey{}
+		if len(appTitles) > 0 {
+			k = ParseEpisodeKey(appTitles[0])
+		}
+		if appNum > 0 {
+			k.Num = appNum
+		}
 		// 仅在「集名身份不是纯数字」时走键匹配：带日期/变体/E圆号（综艺形态）说明该集**不以序号标识**，
 		// 此时第三方源的"第几个视频"与弹幕库期号毫无关系 → 键没命中就是没命中，绝不回退索引号或下标。
 		// 纯「第N集/话」形态仍走下面的旧三策略，行为与改动前完全一致（现网 96.8% 属此形态）。
-		if k.Date != "" || k.Variant != "" || k.ENum > 0 {
+		// v2: 前端传来的期号（appNum>0）本身即身份信号, 一并开门 —— 纯日期/纯期号形态由此进键匹配。
+		if k.Date != "" || k.Variant != "" || k.ENum > 0 || appNum > 0 {
 			for i := range eps {
 				if SameEpisode(k, ParseEpisodeKey(eps[i].EpisodeTitle)) {
 					return &eps[i]

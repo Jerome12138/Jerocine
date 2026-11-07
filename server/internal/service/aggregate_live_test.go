@@ -88,7 +88,7 @@ func TestDanmuAggregate(t *testing.T) {
 	defer srvHit.Close()
 
 	svc := aggregateSvc(srvHit.URL, "tok", 1)
-	resp, err := svc.DanmuAggregate(ctx, "庆余年", 2024, 3, 0, 0, "")
+	resp, err := svc.DanmuAggregate(ctx, "庆余年", 2024, 3, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestDanmuAggregate(t *testing.T) {
 	}
 
 	// 第二次调用：搜索/分集/内容三段正缓存全命中，不再打上游
-	resp2, err := svc.DanmuAggregate(ctx, "庆余年", 2024, 3, 0, 0, "")
+	resp2, err := svc.DanmuAggregate(ctx, "庆余年", 2024, 3, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("second call err: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestDanmuAggregate(t *testing.T) {
 	}
 
 	// 分片过滤：from/to 秒区间（整集缓存命中, 上游不重打）。整集 2 条: 12.5s / 65s。
-	seg, err := svc.DanmuAggregate(ctx, "庆余年", 2024, 3, 0, 30, "")
+	seg, err := svc.DanmuAggregate(ctx, "庆余年", 2024, 3, 0, 30, "", 0)
 	if err != nil {
 		t.Fatalf("segment err: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestDanmuAggregate(t *testing.T) {
 	if len(seg.Comments) != 1 || seg.Comments[0].Text != "前方高能" {
 		t.Fatalf("segment comments = %+v, want 仅 [前方高能]", seg.Comments)
 	}
-	segTail, err := svc.DanmuAggregate(ctx, "庆余年", 2024, 3, 30, 0, "")
+	segTail, err := svc.DanmuAggregate(ctx, "庆余年", 2024, 3, 30, 0, "", 0)
 	if err != nil {
 		t.Fatalf("segment tail err: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestDanmuAggregate(t *testing.T) {
 	defer srvNoAnime.Close()
 
 	if _, err := aggregateSvc(srvNoAnime.URL, "tok", 1).
-		DanmuAggregate(ctx, "查无此剧", 2021, 1, 0, 0, ""); err != nil {
+		DanmuAggregate(ctx, "查无此剧", 2021, 1, 0, 0, "", 0); err != nil {
 		t.Fatalf("查无作品 err = %v, want nil (200+空 comments)", err)
 	}
 	if hitsNoAnime != 1 {
@@ -176,7 +176,7 @@ func TestDanmuAggregate(t *testing.T) {
 
 	// episode=99：episodeNumber 精确不中、"第1集" 标题不中、99 > len(eps)=1 下标回退不中
 	if _, err := aggregateSvc(srvNoEp.URL, "tok", 1).
-		DanmuAggregate(ctx, "单集试播剧", 2022, 99, 0, 0, ""); err != nil {
+		DanmuAggregate(ctx, "单集试播剧", 2022, 99, 0, 0, "", 0); err != nil {
 		t.Fatalf("查无集 err = %v, want nil (200+空 comments)", err)
 	}
 	if hitsNoEp != 2 {
@@ -191,7 +191,7 @@ func TestDanmuAggregate(t *testing.T) {
 	defer srvDisabled.Close()
 
 	respOff, err := aggregateSvc(srvDisabled.URL, "tok", 0).
-		DanmuAggregate(ctx, "开关关闭剧", 2023, 1, 0, 0, "")
+		DanmuAggregate(ctx, "开关关闭剧", 2023, 1, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("danmu_enabled=0 err = %v, want nil（静默降级）", err)
 	}
@@ -210,7 +210,7 @@ func TestDanmuAggregate(t *testing.T) {
 	defer srvNoToken.Close()
 
 	respNoTok, err := aggregateSvc(srvNoToken.URL, "", 1).
-		DanmuAggregate(ctx, "无令牌剧", 2020, 1, 0, 0, "")
+		DanmuAggregate(ctx, "无令牌剧", 2020, 1, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("未配置 token err = %v, want nil", err)
 	}

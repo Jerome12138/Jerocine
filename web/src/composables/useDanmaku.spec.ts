@@ -124,7 +124,7 @@ describe('useDanmaku', () => {
     expect(fakePlugin.load).toHaveBeenCalledTimes(1)
     // 首拉起播段 [0, 900)（分片懒加载）
     expect(m.getDanmuAggregate).toHaveBeenCalledWith(
-      { title: '庆余年 第二季', episode: 1, year: 2024, from: 0, to: 900, epTitle: '' },
+      { title: '庆余年 第二季', episode: 1, year: 2024, from: 0, to: 900, epTitle: '', epNum: 0 },
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
     const items = fakePlugin.load.mock.calls[0]![0] as Array<{ time: number; mode: number; color: string; text: string }>

@@ -102,25 +102,25 @@ func TestPickEpisodeOrder(t *testing.T) {
 		{EpisodeID: 13, EpisodeTitle: "特别篇", EpisodeNumber: ""},
 	}
 	// 1) episodeNumber 精确命中
-	if e := PickEpisode(eps, 2); e == nil || e.EpisodeID != 12 {
+	if e := PickEpisode(eps, 2, 0); e == nil || e.EpisodeID != 12 {
 		t.Fatalf("episodeNumber 命中: %+v", e)
 	}
 	// 2) episodeNumber 缺失时按标题「第N集」；季号不是集号（第2季 ≠ 第2集）
-	if e := PickEpisode([]DandanEpisode{{EpisodeID: 31, EpisodeTitle: "第2季"}}, 2); e != nil {
+	if e := PickEpisode([]DandanEpisode{{EpisodeID: 31, EpisodeTitle: "第2季"}}, 2, 0); e != nil {
 		t.Fatalf("季号不应命中集号: %+v", e)
 	}
 	titleOnly := []DandanEpisode{{EpisodeID: 21, EpisodeTitle: "第3期 上"}, {EpisodeID: 22, EpisodeTitle: "番外"}}
-	if e := PickEpisode(titleOnly, 3); e == nil || e.EpisodeID != 21 {
+	if e := PickEpisode(titleOnly, 3, 0); e == nil || e.EpisodeID != 21 {
 		t.Fatalf("标题命中: %+v", e)
 	}
 	// 3) 都没有 → 按下标
-	if e := PickEpisode(titleOnly, 2); e == nil || e.EpisodeID != 22 {
+	if e := PickEpisode(titleOnly, 2, 0); e == nil || e.EpisodeID != 22 {
 		t.Fatalf("下标回退: %+v", e)
 	}
-	if PickEpisode(eps, 99) != nil {
+	if PickEpisode(eps, 99, 0) != nil {
 		t.Fatal("超界应返回 nil")
 	}
-	if PickEpisode(nil, 1) != nil || PickEpisode(eps, 0) != nil {
+	if PickEpisode(nil, 1, 0) != nil || PickEpisode(eps, 0, 0) != nil {
 		t.Fatal("空列表/非法集号应返回 nil")
 	}
 }

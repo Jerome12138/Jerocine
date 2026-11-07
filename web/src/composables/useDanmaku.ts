@@ -191,6 +191,13 @@ export interface UseDanmakuOptions {
    *  （综艺类第三方源集序号与弹幕库期号普遍错位，只有集名能对上；留空则走旧策略）。
    *  可选：老调用方（含测试夹具）不传即等同留空。 */
   episodeName?: Ref<string>
+  /** 当前集 epid（2026-11-07 v2，可选）—— utils/episodeKey.ts 计算，**触发的集必有**（5 段定长、
+   *  期号经桥接归一写入 n 段）。内存池缓存键随之从 `mid:episode:episodeName` 换成 `mid:epid`:
+   *  跨源同集 epid 串相等 → 切源不再重拉; 未触发/未传 = 回退旧键（行为不变）。 */
+  epid?: Ref<string>
+  /** 现算期号（2026-11-07 v2 A2，可选）—— 纯日期集名经他源桥接归一得来；0 = 未提供。
+   *  传给聚合接口 epNum, 后端注入键的 Num（门禁同步补「期号参数非空」）。 */
+  epNum?: Ref<number>
   /** 播放器实例（ready 前为 null；插件实例从 art.plugins 取） */
   player: ShallowRef<Artplayer | null>
   /** 开关 */
@@ -318,7 +325,15 @@ export function useDanmaku(opts: UseDanmakuOptions) {
       const { promise } = withTimeout(
         (signal) =>
     filmApi.getDanmuAggregate(
-      { title: opts.title.value, episode: ep, year: opts.year.value, from, to, epTitle: opts.episodeName?.value ?? '' },
+      {
+        title: opts.title.value,
+        episode: ep,
+        year: opts.year.value,
+        from,
+        to,
+        epTitle: opts.episodeName?.value ?? '',
+        epNum: opts.epNum?.value ?? 0
+      },
             { signal }
           ),
         DANMAKU_FETCH_TIMEOUTS.aggregate,
@@ -385,10 +400,16 @@ export function useDanmaku(opts: UseDanmakuOptions) {
    * 插件在 usePlayer 构造时注册（控制条开关/设置面板随之常驻）; 这里只喂数据与显隐。 */
   let loadToken = 0
 
-  /** 当前集 key（`mid:episode`）；关→开同集即时恢复用（不重新拉取装载） */
+  /** 当前集 key；关→开同集即时恢复用（不重新拉取装载）。
+   *  v2(2026-11-07): 触发的集用 `mid:epid` —— 期号经桥接归一后**跨源同集 epid 串相等**, 切源不再重拉;
+   *  未触发/未传 epid = 回退旧键 `mid:episode:episodeName`（行为与旧版一致）。
+   *  注意: ensureAggregate 的请求去重 key 也走本函数, 两处格式必须一致（2026-11-06 踩过不同步的坑）。 */
   function currentLoadKey(): string | null {
     const mid = opts.mid.value
-    return mid === undefined ? null : `${mid}:${opts.episode.value}:${opts.episodeName?.value ?? ''}`
+    if (mid === undefined) return null
+    const epid = opts.epid?.value
+    if (epid) return `${mid}:${epid}`
+    return `${mid}:${opts.episode.value}:${opts.episodeName?.value ?? ''}`
   }
   /** 已成功装载内容的集 key；null = 尚未装载/需重装 */
   let loadedKey: string | null = null

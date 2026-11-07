@@ -69,6 +69,13 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	if len([]rune(epTitle)) > 64 {
 		epTitle = ""
 	}
+	// epNum（可选, 2026-11-07 v2）: App 侧**现算期号**（A2）—— 前端经他源桥接把纯日期集名的期号归一后传来,
+	// 注入键的 Num 后纯日期/纯期号形态也能键匹配（PickEpisode 门禁同步补「期号参数非空」）。
+	// 非法/越界一律当未提供（沿用 epTitle 的做法）。
+	epNum := queryInt(c, "epNum", 0)
+	if epNum < 0 || epNum > 9999 {
+		epNum = 0
+	}
 	// 分片参数合理性: from/to 负值按缺省(整集)处理; to 不得小于 from
 	if from < 0 {
 		from = 0
@@ -76,7 +83,7 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	if to < from {
 		to = 0
 	}
-	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to, epTitle)
+	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to, epTitle, epNum)
 	if err != nil {
 		dto.Fail(c, err)
 		return

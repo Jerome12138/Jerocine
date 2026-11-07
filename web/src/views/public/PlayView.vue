@@ -31,6 +31,7 @@ import type { PlayInfo, PlaySource } from '@/types/film'
 import { usePlayer, resolutionLabel, isHlsSupported, NEXTTV_AD_SVG, NEXTTV_AUTOPLAY_SVG } from '@/composables/usePlayer'
 import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
+import { epidFor, derivedNumFor } from '@/utils/episodeKey'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings, normalizeSkipSec } from '@/composables/useSkipSettings'
@@ -907,6 +908,15 @@ watch(paused, (v) => setWebWatching(!v))
 
 /* ============ 弹幕（artplayer-plugin-danmuku, nextTV 同款引擎） ============
  * 渲染层/控制条开关/弹幕设置面板全部由插件托管; 本层只喂数据 + 用户级开关持久化。 */
+// v2(2026-11-07): 全部源的集名 → 桥接归一期号(§5.1) → 当前集 epid/A2 期号。
+// 心动9 型（lz 纯日期 + bf/sn 期号+日期）：lz 集经桥接得期号, 跨源同集 epid 串相等。
+const allEpisodeTitles = computed(() =>
+  (detail.value?.sources ?? []).flatMap((s) => s.episodes.map((e) => e.episode))
+)
+/** 当前集 epid: **触发的集必有**（5 段定长）; 未触发（裸序号/E圆号）= ''（池键回退旧格式） */
+const danmakuEpid = computed(() => epidFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value))
+/** A2 现算期号: 0 = 未提供（剧不传, 后端行为不变） */
+const danmakuEpNum = computed(() => derivedNumFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value))
 const danmaku = useDanmaku({
   mid: computed(() => detail.value?.mid),
   // 聚合弹幕按标题匹配: 影片名 + 年份 + 集号
@@ -915,6 +925,10 @@ const danmaku = useDanmaku({
   episode: computed(() => currentEpisodeIndex.value + 1),
   // 集名（可选）：后端据此按「同日期/同期号 + 同变体」对集（综艺类集序号与弹幕库期号会错位）
   episodeName: computed(() => currentEpisode.value?.episode ?? ''),
+  // v2(2026-11-07): 当前集 epid（触发必有, 期号经他源桥接归一）与现算期号（A2）。
+  // 池键随 epid 跨源同集相等 → 切源不再重拉; epNum 传给后端键匹配（纯日期形态也能对上）。
+  epid: danmakuEpid,
+  epNum: danmakuEpNum,
   player,
   // 实际生效 = 用户级; 任一变化触发 useDanmaku watch 重载
   enabled: danmakuActive

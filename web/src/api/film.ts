@@ -83,7 +83,16 @@ export const getRelated = (mid: number | string): Promise<Card[]> =>
 /** GET /danmu/aggregate 按标题匹配的整集聚合弹幕（服务端按 影片名→作品→集 定位）
  *  options.signal 用于超时/卸载中止。404 = 查无作品/该集（上层标"暂无弹幕"）。 */
 export const getDanmuAggregate = (
-  params: { title: string; episode: number; year?: number; from?: number; to?: number; epTitle?: string },
+  params: {
+    title: string
+    episode: number
+    year?: number
+    from?: number
+    to?: number
+    epTitle?: string
+    /** App 侧现算期号(A2, 2026-11-07 v2): 经他源桥接归一得来; 0 = 未提供 */
+    epNum?: number
+  },
   options?: { signal?: AbortSignal }
 ): Promise<DanmuAggregateResp> =>
   http.get<unknown, DanmuAggregateResp>('/danmu/aggregate', { params, signal: options?.signal, silent: true })
