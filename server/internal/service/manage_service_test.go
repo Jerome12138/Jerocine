@@ -451,3 +451,74 @@ func TestUpsertCategory_VisibleNoCascade(t *testing.T) {
 		t.Fatalf("开关应按提交值落库: %+v", fr.cats[0])
 	}
 }
+
+// fakePlaySlim 仅覆写 ListSlimByMidsOrKeys, 验证 CountSources 的口径(主源行 ∪ 名字键行, site+playFrom 去重)。
+type fakePlaySlim struct {
+	repository.PlaySourceRepository
+	rows []repository.SlimSourceRow
+}
+
+func (f *fakePlaySlim) ListSlimByMidsOrKeys(_ context.Context, _ []int64, _ []string) ([]repository.SlimSourceRow, error) {
+	return f.rows, nil
+}
+
+// CountSources 口径对齐详情页: 补充源行 mid=NULL 靠 match_key 关联也要计入, 同 site+playFrom 去重。
+// 回归背景: 旧口径(只 GROUP BY mid)在线上 74% 源行 mid=NULL 时几乎恒报 1(2026-11-07 修复)。
+func TestCountSources_MatchesDetailSemantics(t *testing.T) {
+	key := domain.GenerateHashKey("完美世界")
+	fp := &fakePlaySlim{rows: []repository.SlimSourceRow{
+		{Mid: ptr[int64](1), MatchKey: key, SiteId: "src_a", PlayFrom: "线路1"},  // 主源行
+		{MatchKey: key, SiteId: "src_b", PlayFrom: "线路1"},                      // 补充源行(mid=NULL)
+		{MatchKey: key, SiteId: "src_b", PlayFrom: "线路2"},                      // 补充源行
+		{MatchKey: key, SiteId: "src_a", PlayFrom: "线路1"},                      // 豆瓣键双写行: 同 site+playFrom → 去重不计
+		{MatchKey: domain.GenerateHashKey("别的片"), SiteId: "src_c", PlayFrom: "线路1"}, // 别的片的键 → 不计入
+	}}
+	ms := &ManageService{play: fp}
+	counts, err := ms.CountSources(context.Background(), []entity.MovieSearch{{Mid: 1, Name: "完美世界"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts[1] != 3 {
+		t.Fatalf("应数出 3 条去重线路(主源1 + 补充2), got %d", counts[1])
+	}
+}
+
+// 同名影片共享名字键桶: 每片的计数都含对方的主源行(与详情装配 GetByMatchKeys 同行为)。
+func TestCountSources_SameNameFilmsShareKeyRows(t *testing.T) {
+	key := domain.GenerateHashKey("狩猎")
+	fp := &fakePlaySlim{rows: []repository.SlimSourceRow{
+		{Mid: ptr[int64](1), MatchKey: key, SiteId: "src_a", PlayFrom: "线路1"},
+		{Mid: ptr[int64](2), MatchKey: key, SiteId: "src_b", PlayFrom: "线路1"},
+		{MatchKey: key, SiteId: "src_c", PlayFrom: "线路1"},
+	}}
+	ms := &ManageService{play: fp}
+	counts, err := ms.CountSources(context.Background(), []entity.MovieSearch{
+		{Mid: 1, Name: "狩猎"}, {Mid: 2, Name: "狩猎"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts[1] != 3 || counts[2] != 3 {
+		t.Fatalf("同名两片各应数出 3 条去重线路, got %d/%d", counts[1], counts[2])
+	}
+}
+
+// 无名影片只按 mid 行计; 空入参返回空表。
+func TestCountSources_NamelessFilmAndEmptyInput(t *testing.T) {
+	fp := &fakePlaySlim{rows: []repository.SlimSourceRow{
+		{Mid: ptr[int64](3), MatchKey: "whatever", SiteId: "src_a", PlayFrom: "线路1"},
+		{Mid: ptr[int64](3), MatchKey: "whatever", SiteId: "src_a", PlayFrom: "线路2"},
+	}}
+	ms := &ManageService{play: fp}
+	counts, err := ms.CountSources(context.Background(), []entity.MovieSearch{{Mid: 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts[3] != 2 {
+		t.Fatalf("无名影片应只按 mid 行计 2, got %d", counts[3])
+	}
+	empty, err := ms.CountSources(context.Background(), nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("空入参应返回空表, got %v / %v", empty, err)
+	}
+}

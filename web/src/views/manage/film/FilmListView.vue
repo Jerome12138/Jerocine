@@ -417,12 +417,12 @@ onMounted(() => {
         >
           {{ row.dbScore > 0 ? row.dbScore.toFixed(1) : '—' }}
         </span>
-        <!-- 源数列: movie_play_source 源行数; 0/统计失败都按"无源"提示(可点补源) -->
+        <!-- 源数列: 详情口径可切线路数(主源行 ∪ match_key 关联行去重); 0/统计失败都按"无源"提示(可点补源) -->
         <BaseTag
           v-else-if="col.key === 'sourceCount'"
           :variant="row.sourceCount ? 'success' : 'warning'"
           size="xs"
-          :title="row.sourceCount ? `${row.sourceCount} 个源行` : '尚无源数据，可用行内「补源」采集'"
+          :title="row.sourceCount ? `${row.sourceCount} 个可切线路(与详情页同口径)` : '尚无源数据，可用行内「补源」采集'"
         >
           {{ row.sourceCount ? `${row.sourceCount} 源` : '无源' }}
         </BaseTag>

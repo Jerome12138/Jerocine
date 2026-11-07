@@ -816,12 +816,9 @@ func (h *Handlers) ManageFilms(c *gin.Context) {
 		dto.Fail(c, err)
 		return
 	}
-	// 源数列: 一页一次 GROUP BY mid。统计失败降级为空表(行按 0/"—" 显示), 不因统计失败拖垮列表。
-	mids := make([]int64, 0, len(res.List))
-	for _, m := range res.List {
-		mids = append(mids, m.Mid)
-	}
-	counts, err := h.Manage.CountSources(c.Request.Context(), mids)
+	// 源数列: 口径对齐详情页(主源行 ∪ match_key 关联行, 按 site+playFrom 去重, 见 CountSources)。
+	// 统计失败降级为空表(行按 0/"—" 显示), 不因统计失败拖垮列表。
+	counts, err := h.Manage.CountSources(c.Request.Context(), res.List)
 	if err != nil {
 		log.Printf("manage films: count sources err: %v", err)
 		counts = nil

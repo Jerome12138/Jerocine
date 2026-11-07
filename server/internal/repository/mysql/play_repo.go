@@ -74,25 +74,30 @@ func (r *playRepo) CountBySite(ctx context.Context) (map[string]int64, error) {
 	return m, nil
 }
 
-// CountByMids 一批影片各自的源行数(管理列表"源数"列)。
-// 只引用 mid 一列走索引, 不触碰巨大的 episodes_json 列; 一页 ≤50 个 mid, 单次 GROUP BY。
-func (r *playRepo) CountByMids(ctx context.Context, mids []int64) (map[int64]int, error) {
-	out := make(map[int64]int, len(mids))
-	if len(mids) == 0 {
-		return out, nil
+// ListSlimByMidsOrKeys 一批影片的源行瘦身投影(管理列表"源数"列的数据面)。
+// 只引用 mid/match_key/site_id/play_from 四列, 不触碰巨大的 episodes_json 列(否则全表扫描超时,
+// 见 CountBySite 注释); mid 与 match_key 两段独立索引扫描, OR 合并交给调用方。
+func (r *playRepo) ListSlimByMidsOrKeys(ctx context.Context, mids []int64, matchKeys []string) ([]repository.SlimSourceRow, error) {
+	out := make([]repository.SlimSourceRow, 0, len(mids)+len(matchKeys))
+	if len(mids) > 0 {
+		var byMid []repository.SlimSourceRow
+		if err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
+			Select("mid, match_key, site_id, play_from").
+			Where("mid IN ?", mids).
+			Scan(&byMid).Error; err != nil {
+			return nil, err
+		}
+		out = append(out, byMid...)
 	}
-	var rows []struct {
-		Mid   int64
-		Count int64
-	}
-	if err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
-		Select("mid, COUNT(*) AS count").
-		Where("mid IN ?", mids).
-		Group("mid").Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	for _, x := range rows {
-		out[x.Mid] = int(x.Count)
+	if len(matchKeys) > 0 {
+		var byKey []repository.SlimSourceRow
+		if err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
+			Select("mid, match_key, site_id, play_from").
+			Where("match_key IN ?", matchKeys).
+			Scan(&byKey).Error; err != nil {
+			return nil, err
+		}
+		out = append(out, byKey...)
 	}
 	return out, nil
 }

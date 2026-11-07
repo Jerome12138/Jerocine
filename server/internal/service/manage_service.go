@@ -1002,9 +1002,50 @@ func (s *ManageService) SearchFilms(ctx context.Context, spec repository.FilterS
 	return CardPage{List: list, Total: total, Page: page}, nil
 }
 
-// CountSources 一批影片各自的源行数(管理列表"源数"列)。空入参返回空表, 查询失败返回错误由调用方决定降级。
-func (s *ManageService) CountSources(ctx context.Context, mids []int64) (map[int64]int, error) {
-	return s.play.CountByMids(ctx, mids)
+// CountSources 一批影片各自的「详情页可切线路数」(管理列表"源数"列)。
+// 口径对齐 FilmDetail/公开 assembleSources: 主源行(mid 命中) ∪ 补充源行(match_key 名字键命中),
+// 按 (site_id, play_from) 去重 —— 补充源按片名/豆瓣双键同 site+playFrom 双写, 名字键去重后不漏线路。
+// 旧口径(只 GROUP BY mid)在 74% 源行 mid=NULL 的数据形态下几乎恒报 1(2026-11-07 生产实测修复)。
+// 空入参返回空表, 查询失败返回错误由调用方降级(列表按 0/"—" 显示, 不拖垮列表)。
+func (s *ManageService) CountSources(ctx context.Context, films []entity.MovieSearch) (map[int64]int, error) {
+	out := make(map[int64]int, len(films))
+	if len(films) == 0 {
+		return out, nil
+	}
+	mids := make([]int64, 0, len(films))
+	keys := make([]string, 0, len(films))
+	for _, f := range films {
+		mids = append(mids, f.Mid)
+		if f.Name != "" {
+			keys = append(keys, domain.GenerateHashKey(f.Name))
+		}
+	}
+	rows, err := s.play.ListSlimByMidsOrKeys(ctx, mids, keys)
+	if err != nil {
+		return nil, err
+	}
+	// 行按 mid / match_key 分桶; 同名影片共享 key 桶(与详情装配同行为, 每片独立计数)。
+	byMid := make(map[int64][]repository.SlimSourceRow, len(mids))
+	byKey := make(map[string][]repository.SlimSourceRow, len(keys))
+	for _, r := range rows {
+		if r.Mid != nil {
+			byMid[*r.Mid] = append(byMid[*r.Mid], r)
+		}
+		byKey[r.MatchKey] = append(byKey[r.MatchKey], r)
+	}
+	for _, f := range films {
+		seen := make(map[string]struct{}, 8)
+		for _, r := range byMid[f.Mid] {
+			seen[r.SiteId+"\x00"+r.PlayFrom] = struct{}{}
+		}
+		if f.Name != "" {
+			for _, r := range byKey[domain.GenerateHashKey(f.Name)] {
+				seen[r.SiteId+"\x00"+r.PlayFrom] = struct{}{}
+			}
+		}
+		out[f.Mid] = len(seen)
+	}
+	return out, nil
 }
 
 // GetFilm 后台读取单部影片; 含已软删(后台要能看到并恢复它们)。

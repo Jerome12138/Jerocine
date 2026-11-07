@@ -116,8 +116,19 @@ type PlaySourceRepository interface {
 	Truncate(ctx context.Context) error
 	// CountBySite 各采集源已采集播放源行数(已采集片数), 一次 GROUP BY site_id。
 	CountBySite(ctx context.Context) (map[string]int64, error)
-	// CountByMids 一批影片各自的源行数(管理列表"源数"列), 一次 GROUP BY mid。
-	CountByMids(ctx context.Context, mids []int64) (map[int64]int, error)
+	// ListSlimByMidsOrKeys 一批影片的源行瘦身投影: 主源行(mid 命中) + 补充源行(match_key 命中),
+	// 供管理列表"源数"列按详情页口径统计。mid 与 match_key 各走一次索引扫描(OR 的 index_merge
+	// 在大表上不稳), 两段由调用方合并; 只投影四列, 不触碰巨大的 episodes_json。
+	ListSlimByMidsOrKeys(ctx context.Context, mids []int64, matchKeys []string) ([]SlimSourceRow, error)
+}
+
+// SlimSourceRow 源行瘦身投影(统计用)。
+// Mid 可空: 补充源行(跨站按 match_key 关联)不写 mid —— 线上 74% 源行 mid=NULL(2026-11-07 实测)。
+type SlimSourceRow struct {
+	Mid      *int64
+	MatchKey string
+	SiteId   string
+	PlayFrom string
 }
 
 // CategoryRepository 分类。
