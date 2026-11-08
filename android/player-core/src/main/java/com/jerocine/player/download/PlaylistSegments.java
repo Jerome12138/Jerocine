@@ -306,6 +306,32 @@ public final class PlaylistSegments {
     }
 
     /**
+     * 定位包含 {@code offsetSec} 时间点的分片下标 —— 缓冲窗口"从当前播放位置往后"的起点。
+     *
+     * <p>按 EXTINF 累计时长定位: 第 i 片覆盖 [acc, acc+d), 时间点落在其中即返回 i
+     * (落在片内任意处都含该片 —— 播放半截的分片也值得补全进缓存);
+     * 时间点恰在第 i 片结尾(= 第 i+1 片开头)时返回 i+1。</p>
+     *
+     * @return 0~segments.size(): 超出总时长返回 size()(已到片尾, 无可缓冲);
+     *         offsetSec ≤ 0 返回 0; 分片时长全为 0(缺 EXTINF)无法定位, 返回 -1;
+     *         null/空表返回 0(调用方已保证非空)
+     */
+    public static int startIndexForOffset(List<Segment> segments, double offsetSec) {
+        if (segments == null || segments.isEmpty() || offsetSec <= 0) return 0;
+        double acc = 0.0;
+        boolean anyDuration = false;
+        for (int i = 0; i < segments.size(); i++) {
+            double d = segments.get(i).durationSeconds;
+            if (d > 0) {
+                anyDuration = true;
+                if (acc + d > offsetSec) return i;
+            }
+            acc += d;
+        }
+        return anyDuration ? segments.size() : -1;
+    }
+
+    /**
      * 时长未知时"缓冲 N 分钟"的兜底分片上限(约一集常规分片量级, 不会放大成全集)。
      *
      * <p>公开可见是为了让单测能引用它构造"远超上限"的输入 —— 否则用例里写死一个魔法数,

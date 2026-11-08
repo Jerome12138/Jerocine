@@ -35,7 +35,8 @@ import okhttp3.Response;
  * <pre>
  *   1. 播放暂停(调用方 session.player.pause())
  *   2. GET 当前集原始 m3u8 → 本地 M3u8FilterCore 过滤 → 过滤后清单
- *   3. PlaylistSegments 解析 + rangeForMinutes 取前 N 分钟分片
+ *   3. PlaylistSegments 解析 + startIndexForOffset 定位当前播放位置所在分片(相对窗口起点)
+ *      + rangeForMinutes 取"当前位置起往后 N 分钟"(minutes=0 则到片尾)
  *   4. 对每个分片 CacheWriter(upstream=OkHttpDataSource, cache=播放缓存, key=源站URL) 顺序写
  *   5. 进度回调(已缓存 x/N 分钟) → 完成回调 → 调用方自动 resume
  * </pre>
@@ -79,18 +80,21 @@ public final class BufferPrefetcher {
     }
 
     /**
-     * 开始预取. minutes: 0 = 本集全部; >0 = 前 N 分钟.
+     * 开始预取. minutes: 0 = 从 startOffsetSec 到片尾; >0 = 从 startOffsetSec 起往后 N 分钟
+     * (2026-11-08 改相对语义: 用户原话"针对当前播放时间点往后的相对时间" —— 从片头起算
+     * 会把已看过的片段重复写缓存, 真正卡顿的"还没看到的部分"反而没缓冲到)。
+     * startOffsetSec = 发起缓冲时的播放位置(秒), ≤0 退化为从片头起算。
      *
      * <p>契约(第2轮评审钉死): <b>一实例一次 start</b> —— 正常结束在 finally shutdown 线程池,
      * cancel() 走 shutdownNow, 实例用毕即不可复用(复用会同步抛 RejectedExecutionException,
      * 或因 cancelled 永不复位而秒回"已取消"); 调用方每次缓冲都应 new 新实例
      * (PlayerActivity.startBufferPrefetch 即为每次重建)。
      */
-    public void start(final String srcUrl, final double minutes,
+    public void start(final String srcUrl, final double minutes, final double startOffsetSec,
                       final ProgressListener progress, final CompletionListener done) {
         worker.execute(() -> {
             try {
-                run(srcUrl, minutes, progress, done);
+                run(srcUrl, minutes, startOffsetSec, progress, done);
             } catch (Exception e) {
                 // 取消引起的失败要与真实失败区分开。cancel() 会 shutdownNow 中断本线程,
                 // 被打断的本地过滤返回 null → 这里抛 "广告过滤失败"。
@@ -116,8 +120,8 @@ public final class BufferPrefetcher {
         });
     }
 
-    private void run(String srcUrl, double minutes, ProgressListener progress,
-                     CompletionListener done) throws Exception {
+    private void run(String srcUrl, double minutes, double startOffsetSec,
+                     ProgressListener progress, CompletionListener done) throws Exception {
         // 1) 拉源站清单 → 过滤
         // 【2026-10-08 修“直播流”误报】端侧过滤模式下 mediaUriFor 返回的是**原始源 URL**,
         // 而多数源的根 URL 是 master 清单(master 永远没有 EXT-X-ENDLIST) —— 旧实现直接把
@@ -154,28 +158,40 @@ public final class BufferPrefetcher {
         if (segments.isEmpty()) {
             throw new IOException("清单为空");
         }
-        // 时长全为 0(清单缺 EXTINF)时 rangeForMinutes 会返回全集 → "缓冲 N 分钟"变缓冲整集(数 GB),
-        // 且进度条 target=0 恒显 0%。此时直接拒绝, 让用户改用「缓冲本集」(minutes<=0)。
+        // 时长全为 0(清单缺 EXTINF)时无法定位播放位置、也无法按分钟估算窗口:
+        //   · minutes>0 → 拒绝, 让用户改用「缓冲本集」(minutes<=0, 从当前位置到片尾也做不了时兜底从片头)
+        //   · offset>0  → 拒绝(无法把播放位置映射到分片), 只有无 offset 的"本集"才退化为全集
         boolean durationKnown = false;
         for (PlaylistSegments.Segment s : segments) {
             if (s.durationSeconds > 0) { durationKnown = true; break; }
         }
-        if (minutes > 0 && !durationKnown) {
-            throw new IOException("清单缺少分片时长, 无法按分钟缓冲, 请改用「缓冲本集」");
+        if ((minutes > 0 || startOffsetSec > 0) && !durationKnown) {
+            throw new IOException(minutes > 0
+                    ? "清单缺少分片时长, 无法按分钟缓冲, 请改用「缓冲本集」"
+                    : "清单缺少分片时长, 无法从当前位置定位缓冲起点");
+        }
+        // 相对窗口起点: 播放位置所在分片(含半片)起; 已到片尾 → 无可缓冲
+        int from = 0;
+        if (startOffsetSec > 0) {
+            from = PlaylistSegments.startIndexForOffset(segments, startOffsetSec);
+            if (from < 0) throw new IOException("清单缺少分片时长, 无法定位缓冲起点");
+            if (from >= segments.size()) {
+                throw new IOException("当前播放位置已到片尾, 没有可缓冲的分片");
+            }
         }
         int end = minutes > 0
-                ? PlaylistSegments.rangeForMinutes(segments, minutes)
+                ? from + PlaylistSegments.rangeForMinutes(segments.subList(from, segments.size()), minutes)
                 : segments.size();
-        if (end <= 0) {
+        if (end <= from) {
             throw new IOException("没有可缓冲的分片");
         }
 
-        // 2) 顺序写前 end 片
+        // 3) 顺序写 [from, end) 片 —— 进度按窗口本身算(target=窗口时长), 与所选档位语义一致
         double targetSec = 0;
-        for (int i = 0; i < end; i++) targetSec += segments.get(i).durationSeconds;
+        for (int i = from; i < end; i++) targetSec += segments.get(i).durationSeconds;
 
         double cachedSec = 0;
-        for (int i = 0; i < end; i++) {
+        for (int i = from; i < end; i++) {
             if (cancelled) break;
             PlaylistSegments.Segment seg = segments.get(i);
             // 每片用独立的 upstream: CacheDataSource.close() 会**顺手关掉 upstream**,
@@ -199,7 +215,7 @@ public final class BufferPrefetcher {
                 post(() -> progress.onProgress(c, t));
             } catch (IOException e) {
                 // 单片失败(网络抖/源站断) → 停止, 已有缓存保留
-                throw new IOException("分片 " + (i + 1) + "/" + end + " 缓冲失败: "
+                throw new IOException("分片 " + (i - from + 1) + "/" + (end - from) + " 缓冲失败: "
                         + (e.getMessage() == null ? "网络异常" : e.getMessage()));
             } finally {
                 if (activeWriter == writer) activeWriter = null;

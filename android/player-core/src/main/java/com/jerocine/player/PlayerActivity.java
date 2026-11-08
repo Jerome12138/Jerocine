@@ -465,6 +465,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 session.introSkippedForCurrent = false;
                 session.outroPromptShown = false;
                 session.episodeSwitching = true;
+                // 切集(选集 seek / 上下一集 / 自动连播): 旧集的缓冲窗口作废, 停掉在途预取
+                // (切集经 seekTo* 走这里; 整表重载的切源/启动不走这里, 由 onPlaylistReloaded 管)
+                cancelBufferPrefetch();
                 session.resetFilterStateForEpisode();
                 updateTitleForCurrent();
                 updateLocalOnlineUi(); // 切集后按新集本地/在线态刷新角标与切换按钮
@@ -1193,12 +1196,24 @@ private static String failedRequestUrl(Throwable error) {
                 .show();
     }
 
+    /**
+     * 播放列表整表重载(启动/切源/开关切换, PlayerSession.loadPlaylistIntoPlayer 调):
+     * 切源后旧源分片 URL 全变, 在途缓冲写的是旧源分片、永远命中不了 → 停掉。
+     * 启动场景无在途缓冲, cancelBufferPrefetch 按 bufferInProgress 守卫 no-op。
+     */
+    @Override
+    public void onPlaylistReloaded() {
+        cancelBufferPrefetch();
+    }
+
     /** 更多菜单 → 本集本地/在线切换: 切后重装当前集并保留进度。 */
     /** 底栏「切本地/切在线」(Host 回调): 按当前集翻转 preferOnlineIdx 并原位重装(保留进度). */
     @Override
     public void toggleLocalOnline() {
         int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
         if (!session.isEpisodeLocalAvailable(idx)) return; // 无本地副本/单集本地: 无可切
+        // 本地⇄在线 = 换播放路径(本地不走播放缓存链路), 在途缓冲失去对象 → 同"切源"口径停掉
+        cancelBufferPrefetch();
         if (session.preferOnlineIdx.contains(idx)) {
             session.preferOnlineIdx.remove(idx);
             session.retryCurrentItem(idx, "已切换本地播放");
@@ -1306,9 +1321,11 @@ private static String failedRequestUrl(Throwable error) {
     }
 
     /**
-     * 启动缓存缓冲(路径 B): 暂停 → BufferPrefetcher 把当前集前 N 分钟分片写进播放缓存区
-     * → 完成自动恢复播放(CacheDataSource 命中缓存, 卡顿缓解).
-     * minutes=0 表示本集全部; 缓冲中再次进入会先 cancel 旧的再开始新的.
+     * 启动缓存缓冲(路径 B): 暂停 → BufferPrefetcher 从**当前播放位置**起, 把往后 N 分钟
+     * 分片写进播放缓存区(minutes=0 = 到片尾) → 完成自动恢复播放(CacheDataSource 命中缓存,
+     * 卡顿缓解)。相对当前位置而非片头 —— 片头段要么已看过(播放路径已写过缓存), 要么不是
+     * 卡顿发生的地方(2026-11-08 用户拍板)。
+     * 缓冲中再次进入会先 cancel 旧的再开始新的.
      */
     private void startBufferPrefetch(double minutes, String label) {
         if (session == null || session.player == null) return;
@@ -1326,6 +1343,8 @@ private static String failedRequestUrl(Throwable error) {
             showCenterToast("缓存区未就绪, 稍后再试", 1800);
             return;
         }
+        // 相对窗口起点 = 发起时的播放位置(暂停不改变 position, 读一次定格)
+        final double offsetSec = Math.max(0L, session.player.getCurrentPosition()) / 1000.0;
         final boolean playing = session.player.getPlayWhenReady();
         session.player.pause();
         if (bufferPrefetcher != null) bufferPrefetcher.cancel();
@@ -1345,7 +1364,7 @@ private static String failedRequestUrl(Throwable error) {
         final String srcUrl = session.currentRawUrls.get(idx);
         showCenterToast("正在缓冲 " + label + " · 播放暂停, 更多菜单可取消", 2400);
         try {
-            bufferPrefetcher.start(srcUrl, minutes,
+            bufferPrefetcher.start(srcUrl, minutes, offsetSec,
                 (cached, target) -> {
                     int pct = target > 0 ? (int) (cached * 100.0 / target) : 0;
                     // duration 必须 ≥ 分片下载间隔: toast 是"覆盖+定时消失"式, 1.2s 时

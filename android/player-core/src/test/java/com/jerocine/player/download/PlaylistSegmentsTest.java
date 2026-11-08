@@ -221,6 +221,38 @@ public class PlaylistSegmentsTest {
         assertEquals(0, PlaylistSegments.rangeForMinutes(segs, 0));
     }
 
+    // ---- startIndexForOffset: 缓冲窗口"从当前播放位置往后"的起点定位 ----
+    // SAMPLE 时间轴: seg0 [0,10), seg1 [10,19.5), seg2 [19.5,29.5), 总 29.5s
+
+    @Test
+    public void startIndexForOffset_mapsPositionToSegment() {
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(SAMPLE, "https://x/");
+        assertEquals(0, PlaylistSegments.startIndexForOffset(segs, 0));    // 片头
+        assertEquals(0, PlaylistSegments.startIndexForOffset(segs, 5.0));  // seg0 中段
+        assertEquals(1, PlaylistSegments.startIndexForOffset(segs, 10.0)); // 恰在 seg0/seg1 边界 → seg1 开头
+        assertEquals(1, PlaylistSegments.startIndexForOffset(segs, 12.0)); // seg1 中段
+        assertEquals(2, PlaylistSegments.startIndexForOffset(segs, 20.0)); // seg2 中段
+    }
+
+    @Test
+    public void startIndexForOffset_beyondEndReturnsSize() {
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(SAMPLE, "https://x/");
+        assertEquals(3, PlaylistSegments.startIndexForOffset(segs, 29.5)); // 恰在总时长末尾
+        assertEquals(3, PlaylistSegments.startIndexForOffset(segs, 100.0));
+    }
+
+    @Test
+    public void startIndexForOffset_zeroDurationsOrEmpty() {
+        // 时长全 0(缺 EXTINF) → 无法定位, 返回 -1(调用方拒绝"从当前位置缓冲")
+        List<PlaylistSegments.Segment> segs = PlaylistSegments.parse(
+                "#EXTM3U\nseg0.ts\nseg1.ts\n#EXT-X-ENDLIST\n", "https://x/");
+        assertEquals(-1, PlaylistSegments.startIndexForOffset(segs, 5.0));
+        // 空/无 offset 退化: 返回 0(调用方已保证非空)
+        assertEquals(0, PlaylistSegments.startIndexForOffset(null, 5.0));
+        assertEquals(0, PlaylistSegments.startIndexForOffset(
+                PlaylistSegments.parse(SAMPLE, "https://x/"), 0));
+    }
+
     // ---- resolveUrl 对齐 media3 Uri.resolve(RFC 3986) 的回归用例 ----
 
     @Test

@@ -43,6 +43,7 @@ public class PlayerSessionPrefetchTest {
             @Override public void toggleAdFilter() { }
             @Override public void renderAdFilterSwitch(boolean on) { }
             @Override public void toggleLocalOnline() { }
+        @Override public void onPlaylistReloaded() { }
             @Override public PlayerView playerView() { return null; }
             @Override public void renderAdFilterBadge(AdFilterStatus status) { }
             @Override public void renderSpeedText(String label) { }

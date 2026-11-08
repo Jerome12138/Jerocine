@@ -61,6 +61,12 @@ public class PlayerSession {
         /** 切换当前集 本地 ⇄ 在线(底栏"切本地/切在线"按钮调用; 无本地副本时为 no-op). */
         void toggleLocalOnline();
 
+        /**
+         * 播放列表被整表重载(启动/切源/开关切换, 见 loadPlaylistIntoPlayer)。
+         * 换源后分片 URL 全变, 旧会话发起的缓存缓冲(写的是旧源分片)作废 —— 宿主应停掉在途缓冲。
+         */
+        void onPlaylistReloaded();
+
         /** 播放器视图 — 壳层装配的实例, helper 做面板显隐/取子控件时经此访问. */
         PlayerView playerView();
 
@@ -332,6 +338,9 @@ public class PlayerSession {
         setRawUrls(rawUrls);
         // 装载 = 换片/换源/开关切换: 上一份播放列表的预取清单全部作废(切集不走这里, 缓存能活过切集)
         invalidatePrefetch();
+        // 同口径停掉在途缓存缓冲: 切源后旧源分片 URL 全变, 继续写只会白耗带宽且永远命中不了
+        // (启动场景无在途缓冲, 宿主按 bufferInProgress 守卫, no-op 无害)
+        host.onPlaylistReloaded();
         List<MediaItem> items = new ArrayList<>(rawUrls.size());
         for (int i = 0; i < rawUrls.size(); i++) {
             String raw = rawUrls.get(i);
