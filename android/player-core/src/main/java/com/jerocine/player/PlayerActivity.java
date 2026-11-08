@@ -175,6 +175,14 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
      * onError("已取消"), 不在 cancel 调用处双写状态/恢复播放。
      */
     private boolean bufferInProgress;
+    /**
+     * 源测速排程标记(buffer-perf 规格 D⑦/§3.4): onCreate 与 onNewIntent 两个入口均可为
+     * 「首次」, 本标记保证每 Activity 会话至多排程一次探测(初筛守卫不过则不置位,
+     * 之后的装载入口仍可成为「首次」)。
+     */
+    private boolean hasProbed;
+    /** 源测速 5s 延时器 — onDestroy 与其它 handler 一并 removeCallbacksAndMessages。 */
+    private final Handler probeHandler = new Handler(Looper.getMainLooper());
     /** Q② 直播 behind-live/reset 兜底防循环闸门(短窗限次). */
     private final PlayerLiveErrorPolicy.RecoveryGate liveRecoveryGate =
             new PlayerLiveErrorPolicy.RecoveryGate(
@@ -325,6 +333,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 m.put(0, session.currentRawUrls.get(0));
                 session.localEpisodePlaylists = m;
             }
+            // 后台源测速排程(P2b, D⑦): 装载完成后初筛, 5s 延迟探测, 不阻塞起播
+            maybeScheduleSourceProbe();
         }
     }
 
@@ -929,6 +939,7 @@ private static String failedRequestUrl(Throwable error) {
         toastHandler.removeCallbacksAndMessages(null);
         iconHandler.removeCallbacksAndMessages(null);
         progressHandler.removeCallbacksAndMessages(null);
+        probeHandler.removeCallbacksAndMessages(null); // 待发的源测速延时任务一并撤(D⑦)
         final ExoPlayer player = session.player;
         boolean playbackEnded = player != null && lastPlayerState == Player.STATE_ENDED;
         // 本地模式: 不向壳层上报播放结局(无 web 心跳/无剧集上下文)
@@ -972,6 +983,8 @@ private static String failedRequestUrl(Throwable error) {
         applySkipSettingsFromIntent(intent);
         session.introSkippedForCurrent = false;
         sourceHelper.startFromIntent(intent);
+        // 后台源测速排程(P2b, D⑦): onNewIntent 与 onCreate 均可为「首次」(hasProbed 去重)
+        maybeScheduleSourceProbe();
     }
 
     private void hideSystemUi() {
@@ -1212,6 +1225,8 @@ private static String failedRequestUrl(Throwable error) {
                 items.add("本集已在「" + srcLabel + "」源下载 · 换源播本地");
                 actions.add(() -> {
                     long pos = session.player != null ? session.player.getCurrentPosition() : 0L;
+                    // 用户显式选源(buffer-perf 规格 D⑧): 置位后源测速自动切换永久让位
+                    session.sourceManuallyPicked = true;
                     // 与 PlayerDialogHelper 的换源流程一致: 必须先更新 currentSourceIndex,
                     // 否则 loadPlaylistIntoPlayer 里的 refreshLocalDownloads 仍按旧源查, 本地优先不生效。
                     session.currentSourceIndex = target;
@@ -1473,6 +1488,96 @@ private static String failedRequestUrl(Throwable error) {
         getSharedPreferences(PLAYER_PREFS_FILE, MODE_PRIVATE).edit()
                 .putBoolean(PREF_BUFFER_PARALLEL, next).apply();
         showCenterToast(next ? "并行缓冲已开启： 3 路并发写缓存" : "并行缓冲已关闭", 2000);
+    }
+
+    // ============================ 后台源测速择优(P2b, buffer-perf 规格 D⑦/D⑧) ============================
+
+    /**
+     * 起播装载完成后尝试排程后台源测速(D⑦/§3.4): 初筛守卫(≥2 源 / !单URL / !直播 /
+     * !本地文件)全过才 postDelayed 5s —— 完全不阻塞起播路径; 不满足则本会话不排程
+     * (hasProbed 不置位, 之后的装载入口仍可成为「首次」)。
+     * 调用点: onCreate 与 onNewIntent 的 startFromIntent 之后(两处都算「首次装载完成」)。
+     */
+    private void maybeScheduleSourceProbe() {
+        if (hasProbed || isFinishing()) return;
+        if (session.localPlayback || session.currentBypassFilter) return; // 本地文件/单URL: 无多源语义
+        if (session.isLiveNow()) return; // 直播滑窗清单无测速语义(统一判定出口, 比载荷标志更严)
+        if (session.sourceList.size() < 2) return; // 单源无从择优
+        hasProbed = true;
+        probeHandler.postDelayed(this::runSourceProbe, 5_000L);
+    }
+
+    /** 排程到期(主线程): 进程级节流/熔断({@link SourceProbeThrottle})把关后发起一轮探测。 */
+    private void runSourceProbe() {
+        long now = SystemClock.elapsedRealtime();
+        if (!SourceProbeThrottle.processWide().shouldProbe(now)) {
+            android.util.Log.i(SourceProbeHelper.TAG,
+                    "throttle: skip probe (interval < 30min or circuit broken)");
+            return;
+        }
+        // 源表快照: 探测期间不重解析源表; 排程后换片的极端情形由决策期 filmId 守卫兜底。
+        // SourceData 只读(parseSources 只在 startFromIntent 写, 本会话的装载已全部完成)。
+        final List<PlayerSession.SourceData> sources = new ArrayList<>(session.sourceList);
+        final int curEp = session.player != null ? session.player.getCurrentMediaItemIndex() : 0;
+        final String probedFilmId = filmId();
+        SourceProbeHelper.probe(sources, curEp, results -> onSourceProbeDone(probedFilmId, results));
+    }
+
+    /**
+     * 探测完成(主线程, 每会话至多一次 —— 探测本身每会话一次): 记录进程级节流 →
+     * {@link SourceSpeedRanker} 择优 → D⑧ 守卫①~⑦在**探测完成时重查**全过才切换。
+     * 切换复用 showSourceDialog 同一执行序列(PlaybackTarget.switchSource → 先写
+     * currentSourceIndex → loadSourceIntoPlayer, 铁律 §0.3: 顺序错 = refreshLocalDownloads
+     * 按旧源查、本地优先失效); 自动切换本身不置位 sourceManuallyPicked。
+     */
+    private void onSourceProbeDone(String probedFilmId, List<SourceSpeedRanker.Result> results) {
+        // 探测批次确实跑完了一轮 → 无论切不切都记录节流(探测流量已发生)
+        boolean anySuccess = false;
+        for (SourceSpeedRanker.Result r : results) {
+            anySuccess |= r.ok;
+        }
+        SourceProbeThrottle.processWide().recordRound(SystemClock.elapsedRealtime(), anySuccess);
+        if (isFinishing() || isDestroyed()) return;
+        int best = SourceSpeedRanker.pickBest(results, session.currentSourceIndex);
+        String blockReason = autoSwitchBlockReason(probedFilmId, best);
+        if (blockReason != null) {
+            android.util.Log.i(SourceProbeHelper.TAG, "decision: no switch (reason="
+                    + blockReason + ") best=" + best
+                    + " current=" + session.currentSourceIndex);
+            return;
+        }
+        int curIdx = session.player.getCurrentMediaItemIndex();
+        // 复用 showSourceDialog 同一执行序列(D⑧): 钳位落点 → 先写 currentSourceIndex → 装载
+        long curPos = session.player.getCurrentPosition();
+        PlaybackTarget target = PlaybackTarget.switchSource(best, curIdx, curPos,
+                session.sourceList.get(best).urls.size());
+        session.currentSourceIndex = target.sourceIndex;
+        session.loadSourceIntoPlayer(target.sourceIndex, target.episodeIndex, target.positionMs);
+        android.util.Log.i(SourceProbeHelper.TAG, "decision: auto-switch current="
+                + session.currentSourceIndex + " -> " + best + " (episode=" + target.episodeIndex
+                + " pos=" + target.positionMs + "ms)");
+        session.host().showCenterToast("已自动切换到更快的「"
+                + session.sourceList.get(best).name + "」源", 2400);
+    }
+
+    /**
+     * D⑧ 守卫①~⑦(探测完成时重查 —— 5s 延迟 + 探测期间用户可能已手动操作):
+     * 全过返回 null(可以切), 否则返回不切的原因(决策 logcat 一行含原因)。
+     */
+    private String autoSwitchBlockReason(String probedFilmId, int best) {
+        if (best == SourceSpeedRanker.NONE) return "ranker: no strictly-better source";
+        if (probedFilmId == null || !probedFilmId.equals(filmId())) return "film changed during probe";
+        if (session.sourceList.size() < 2) return "sources < 2";                    // ①
+        if (session.currentBypassFilter) return "bypass (single url) session";      // ②
+        if (session.isLiveNow()) return "live session";                             // ③
+        if (session.sourceManuallyPicked) return "user picked source manually";     // ④
+        if (bufferInProgress) return "buffer in progress";                          // ⑤
+        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        if (idx < 0) return "no current episode";
+        if (session.isEpisodePlayingLocal(idx)) return "current episode is local";  // ⑥
+        if (session.otherSourceHasEpisode(idx)) return "episode downloaded on other source"; // ⑥
+        if (best >= session.sourceList.size()) return "stale best index";           // ⑥' 防御
+        return null;
     }
 
     /** 更多菜单 → 下载管理: 透传影片上下文给 DownloadActivity(选集/下载中/已完成三 tab). */

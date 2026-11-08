@@ -135,6 +135,8 @@ public class PlayerDialogHelper {
                         d.dismiss();
                         return;
                     }
+                    // 用户显式选源(buffer-perf 规格 D⑧): 置位后源测速自动切换永久让位
+                    session.sourceManuallyPicked = true;
                     PlaybackTarget target = PlaybackTarget.switchSource(
                             w, curEp, curPos, session.sourceList.get(w).urls.size());
                     session.currentSourceIndex = target.sourceIndex;
