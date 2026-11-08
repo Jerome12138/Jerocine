@@ -28,10 +28,13 @@ type MovieRepository interface {
 	// UpdateBackdrop 回填横图(url 可为 tmdb.MissMark 哨兵)。返回是否有行被更新。
 	UpdateBackdrop(ctx context.Context, mid int64, url string) (bool, error)
 	// MidsByActor 按演员名精确归集影片 mid(演员影片列表页, 详情页演员名可点进入)。
-	// actor 列是逗号(半/全角, 偶见 、 / ; )分隔的人名串 —— LIKE 粗筛后 Go 侧按分隔符切分
-	// 做等值成员匹配, 避免 "张翰" 误中 "张翰文"。排序与公开列表一致(hot_score → hits → mid),
-	// 已软删行排除。返回全量命中(单片演员有限, 量级可控), 分页由调用方切片。
+	// actor 列按分隔符(半/全角逗号、顿号、斜杠、分号、空白)切分后等值成员匹配,
+	// 避免 "张翰" 误中 "张翰文"。排序与公开列表一致(hot_score → hits → mid),
+	// 已软删行与隐藏分类(film_visible=false)排除。返回全量命中, 分页由调用方切片。
 	MidsByActor(ctx context.Context, name string) ([]int64, error)
+	// DbIdsByMids 批量取豆瓣 subject id(>0 的行) —— 源数统计与详情装配同键集所需
+	// (movie_search 读模型无 db_id 列)。
+	DbIdsByMids(ctx context.Context, mids []int64) (map[int64]int64, error)
 	Truncate(ctx context.Context) error
 
 	// ---- 榜单热度(豆瓣榜单刷新任务用, 见 service/hot_service.go) ----

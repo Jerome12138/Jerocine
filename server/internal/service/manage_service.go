@@ -1003,9 +1003,11 @@ func (s *ManageService) SearchFilms(ctx context.Context, spec repository.FilterS
 }
 
 // CountSources 一批影片各自的「详情页可切线路数」(管理列表"源数"列)。
-// 口径对齐 FilmDetail/公开 assembleSources: 主源行(mid 命中) ∪ 补充源行(match_key 名字键命中),
-// 按 (site_id, play_from) 去重 —— 补充源按片名/豆瓣双键同 site+playFrom 双写, 名字键去重后不漏线路。
-// 旧口径(只 GROUP BY mid)在 74% 源行 mid=NULL 的数据形态下几乎恒报 1(2026-11-07 生产实测修复)。
+// 口径对齐 FilmDetail/公开 assembleSources: 主源行(mid 命中) ∪ 补充源行(match_key 命中),
+// 按 (site_id, play_from) 去重。键集 = hash(片名) ∪ hash(豆瓣ID)(与 assembleSources 完全一致) ——
+// 补充源的片名键用的是**源站侧片名**, 与本地正名归一化失败时只有豆瓣键能关联上,
+// 只查名字键会低估(2026-11-07 审查修复); movie_search 无 db_id 列, 经 DbIdsByMids 补取。
+// 旧口径(只 GROUP BY mid)在 74% 源行 mid=NULL 的数据形态下几乎恒报 1(生产实测修复)。
 // 空入参返回空表, 查询失败返回错误由调用方降级(列表按 0/"—" 显示, 不拖垮列表)。
 func (s *ManageService) CountSources(ctx context.Context, films []entity.MovieSearch) (map[int64]int, error) {
 	out := make(map[int64]int, len(films))
@@ -1013,11 +1015,27 @@ func (s *ManageService) CountSources(ctx context.Context, films []entity.MovieSe
 		return out, nil
 	}
 	mids := make([]int64, 0, len(films))
-	keys := make([]string, 0, len(films))
 	for _, f := range films {
 		mids = append(mids, f.Mid)
+	}
+	dbIds, err := s.movie.DbIdsByMids(ctx, mids)
+	if err != nil {
+		return nil, err
+	}
+	// 每片自己的键集(名字键 + 豆瓣键), 顺序对齐 films 供匹配循环使用。
+	filmKeys := make([][]string, len(films))
+	keys := make([]string, 0, 2*len(films))
+	for i, f := range films {
+		filmKeys[i] = make([]string, 0, 2)
 		if f.Name != "" {
-			keys = append(keys, domain.GenerateHashKey(f.Name))
+			k := domain.GenerateHashKey(f.Name)
+			filmKeys[i] = append(filmKeys[i], k)
+			keys = append(keys, k)
+		}
+		if dbId := dbIds[f.Mid]; dbId > 0 {
+			k := domain.GenerateHashKey(dbId)
+			filmKeys[i] = append(filmKeys[i], k)
+			keys = append(keys, k)
 		}
 	}
 	rows, err := s.play.ListSlimByMidsOrKeys(ctx, mids, keys)
@@ -1033,13 +1051,13 @@ func (s *ManageService) CountSources(ctx context.Context, films []entity.MovieSe
 		}
 		byKey[r.MatchKey] = append(byKey[r.MatchKey], r)
 	}
-	for _, f := range films {
+	for i, f := range films {
 		seen := make(map[string]struct{}, 8)
 		for _, r := range byMid[f.Mid] {
 			seen[r.SiteId+"\x00"+r.PlayFrom] = struct{}{}
 		}
-		if f.Name != "" {
-			for _, r := range byKey[domain.GenerateHashKey(f.Name)] {
+		for _, k := range filmKeys[i] {
+			for _, r := range byKey[k] {
 				seen[r.SiteId+"\x00"+r.PlayFrom] = struct{}{}
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -61,19 +62,25 @@ func (r *movieRepo) GetByMid(ctx context.Context, mid int64) (*entity.Movie, err
 	return r.getByMid(ctx, mid, false)
 }
 
-// actorNameSeparators 源站 actor 串的人名分隔符全集(半/全角逗号为主, 偶见顿号/斜杠/分号)。
-const actorNameSeparators = ",，、/;；"
+// actorNameSeparators 源站 actor 串的人名分隔符全集: 半/全角逗号为主, 偶见顿号/斜杠/分号/空白。
+// 与 web 详情页 takeNames 的切分集(含 \s 与 ;；)保持同一超集 —— 两端不对齐时会出现
+// 「详情页渲染成两个可点名字、后端等值匹配必失败」的空页(2026-11-07 审查修复)。
+const actorNameSeparators = ",，、/;； \t　"
 
-// splitActorNames 把 actor 串按分隔符切开并去空白。英文名内部空格保留(如 "Tom Hanks")。
+// splitActorNames 把 actor 串按分隔符切开并去空白。
+// 空白也作分隔符: 源站存在"成龙 李连杰"形态; 英文名含空格的极少数行会在两端同样被切开
+// (web 渲染与后端匹配一致降级, 不出现单侧空页)。
 func splitActorNames(raw string) []string {
 	return strings.FieldsFunc(raw, func(r rune) bool {
-		return strings.ContainsRune(actorNameSeparators, r)
+		return strings.ContainsRune(actorNameSeparators, r) || unicode.IsSpace(r)
 	})
 }
 
 // MidsByActor 按演员名精确归集影片 mid(演员影片列表页)。
 // LIKE 粗筛命中覆盖索引外的 actor 列后 Go 侧做等值成员匹配(全表 ~16 万行,
 // 一次 LIKE 扫描毫秒级); 排序与公开列表口径一致(hot_score → hits → mid)。
+// 隐藏分类(film_visible=false)排除 —— 搜索/相关推荐都不得成为隐藏片的漏出通道,
+// 演员归集同理(2026-11-07 审查修复, 与 searchRepo.excludeHidden 同一实现)。
 func (r *movieRepo) MidsByActor(ctx context.Context, name string) ([]int64, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -83,10 +90,18 @@ func (r *movieRepo) MidsByActor(ctx context.Context, name string) ([]int64, erro
 		Mid   int64
 		Actor string
 	}
-	if err := dbFrom(ctx, r.db).Model(&entity.Movie{}).
+	q := dbFrom(ctx, r.db).Model(&entity.Movie{}).
 		Select("mid, actor").
-		Where("deleted_at = 0 AND actor <> '' AND actor LIKE ?", "%"+name+"%").
-		Order("hot_score DESC, hits DESC, mid DESC").
+		Where("deleted_at = 0 AND actor <> '' AND actor LIKE ?", "%"+name+"%")
+	if pids, cids := hiddenCatPairs(ctx, r.db); pids != nil || cids != nil {
+		if len(pids) > 0 {
+			q = q.Where("pid NOT IN ?", pids)
+		}
+		if len(cids) > 0 {
+			q = q.Where("cid NOT IN ?", cids)
+		}
+	}
+	if err := q.Order("hot_score DESC, hits DESC, mid DESC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -98,6 +113,29 @@ func (r *movieRepo) MidsByActor(ctx context.Context, name string) ([]int64, erro
 				break
 			}
 		}
+	}
+	return out, nil
+}
+
+// DbIdsByMids 批量取豆瓣 subject id —— 源数列统计要与详情装配同键集
+// (hash(片名) ∪ hash(dbId), 见 assembleSources), movie_search 读模型无 db_id 列。
+func (r *movieRepo) DbIdsByMids(ctx context.Context, mids []int64) (map[int64]int64, error) {
+	out := make(map[int64]int64, len(mids))
+	if len(mids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		Mid  int64
+		DbId int64
+	}
+	if err := dbFrom(ctx, r.db).Model(&entity.Movie{}).
+		Select("mid, db_id").
+		Where("mid IN ? AND db_id > 0", mids).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, x := range rows {
+		out[x.Mid] = x.DbId
 	}
 	return out, nil
 }

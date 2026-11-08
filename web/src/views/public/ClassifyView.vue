@@ -221,7 +221,7 @@ const tvAllEmpty = computed(
       </div>
     </div>
 
-    <!-- 分段网格 (最新上映 / 排行榜 / 最近更新) -->
+    <!-- 分段网格 (排行榜 / 最新上线 / 高分榜) -->
     <template v-else>
       <section
         v-for="sec in sections"

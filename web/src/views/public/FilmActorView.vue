@@ -20,7 +20,7 @@ import { useAbortable } from '@/composables/useAbortable'
  */
 const router = useRouter()
 
-const { params } = useQuerySync<{ name: string; current: number }>(
+const { params, push } = useQuerySync<{ name: string; current: number }>(
   { name: '', current: 1 },
   {
     path: '/filmActor',
@@ -65,8 +65,12 @@ async function load(): Promise<void> {
 }
 
 function onPaginate(p: number): void {
-  params.value = { ...params.value, current: p }
+  // 走 URL push(兄弟视图同款): 直接改 params ref 既不回流 URL 也不触发 onChange → load()
+  void push({ current: p })
 }
+
+// useQuerySync 的 onChange 只响应后续 query 变化, 首次挂载(详情页点演员名进入)必须显式起播
+void load()
 </script>
 
 <template>

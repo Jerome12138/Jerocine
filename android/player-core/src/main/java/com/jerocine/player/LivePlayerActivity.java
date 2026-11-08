@@ -65,15 +65,14 @@ import okhttp3.OkHttpClient;
  *       (分组语义由 LiveChannelAdapter 保证不出现)。</li>
  * </ul>
  *
- * <p><b>事件</b>: 只发 {@code liveChannelChange}, 且每条装载路恰好一次。换源/换频道
- * (时间线非空 → 非空)的发出点是 onMediaItemTransition; **初次装载不在其列** ——
- * setMediaItems 首次装载**不触发** onMediaItemTransition(PlayerSession.loadPlaylistIntoPlayer
- * 2026-10-18 的实测结论), 故 {@link #loadChannel} 在时间线为空的首装时补发一次。
- * 按规格「不在别处重复」: 其余监听回调与按键路径都不发, 防同一次装载双发。
- * 2026-11-07 用户拍板(评审修复): onMediaItemTransition 只认 PLAYLIST_CHANGED ——
- * 流自然播完(伪直播 ENDLIST / 源端停流)触发的 AUTO 前进既非装载路也非用户切台,
- * 不发事件, 只同步下标与 UI(否则事件携带切走前的旧频道下标, 壳层把没在看的频道
- * 写进 LiveLastViewed, 实际播的却是下一频道), 详见 {@link #syncAutoTransition}。
+ * <p><b>事件</b>: 只发 {@code liveChannelChange}, 且每条装载路恰好一次, 唯一发出点是
+ * onMediaItemTransition(PLAYLIST_CHANGED) —— 含首次装载(media3 1.4.1 对空表→非空表
+ * 无条件派发 PLAYLIST_CHANGED, 2026-11-08 字节码复核; 前版「首装不触发 transition」的
+ * 2026-10-18 实测结论不成立, 据此删了 loadChannel 的补发, 见 {@link #loadChannel})。
+ * 2026-11-07 用户拍板(评审修复): 流自然播完(伪直播 ENDLIST / 源端停流)触发的 AUTO 前进
+ * 既非装载路也非用户切台, 不发事件, 只同步下标与 UI(否则事件携带切走前的旧频道下标,
+ * 壳层把没在看的频道写进 LiveLastViewed, 实际播的却是下一频道), 详见
+ * {@link #syncAutoTransition}。
  * payload 键: sourceId(long, Long.parseLong 失败给 0) / sourceName / sourceIndex /
  * channelIndex / channelName / ts(long, System.currentTimeMillis())。
  *
@@ -339,8 +338,8 @@ public class LivePlayerActivity extends AppCompatActivity {
             }
 
             /**
-             * 换源/换频道(时间线非空→非空)的 liveChannelChange 发出点。首次装载不经过这里
-             * (setMediaItems 首装不触发 transition, 2026-10-18 实测), 由 loadChannel 补发;
+             * liveChannelChange 的唯一发出点 —— 全部装载路(含首次装载: media3 1.4.1 对
+             * 空表→非空表无条件派发 PLAYLIST_CHANGED, 2026-11-08 复核)都经过这里;
              * 按规格「不在别处重复」, 除此之外任何路径都不再发同一次装载的事件。
              *
              * <p>reason 必须过滤(2026-11-07 用户拍板评审修复): 只认 PLAYLIST_CHANGED ——
@@ -501,10 +500,12 @@ public class LivePlayerActivity extends AppCompatActivity {
      * 换频道: 调用方用 {@link LiveKeyPolicy#stepChannel} 步进(不回绕)。本方法只同步
      * 状态字段并驱动播放器(setMediaItems/prepare/setPlayWhenReady(true))。
      *
-     * <p>liveChannelChange 只在**首次装载**(时间线为空 → 非空)时由这里补发 ——
-     * setMediaItems 首装不触发 onMediaItemTransition(PlayerSession.loadPlaylistIntoPlayer
-     * 2026-10-18 实测结论), 不补发则壳层收不到首装事件; 换源/换频道的同一次装载会触发
-     * transition, 由监听器发, 此处不再发(规格「不在别处重复」, 防双发)。
+     * <p>liveChannelChange 全部由 onMediaItemTransition(PLAYLIST_CHANGED) 发, 本方法不补发。
+     * 前版曾以「setMediaItems 首装不触发 transition」为由补发, 但该前提经 media3 1.4.1
+     * 字节码复核不成立: ExoPlayerImpl.evaluateMediaItemTransitionReason 对
+     * 空表→非空表无条件返回 PLAYLIST_CHANGED(首装旧 timeline 是 Timeline.EMPTY),
+     * setMediaItems 调用内同步派发 → 补发导致首装恰好双发(2026-11-08 复审修复)。
+     * 首装派发时本方法已先写好 currentSourceIndex/currentChannelIndex, 事件载荷正确。
      */
     private void loadChannel(int sourceIndex, int channelIndex) {
         if (player == null || sourceIndex < 0 || sourceIndex >= sources.size()) return;
@@ -515,14 +516,12 @@ public class LivePlayerActivity extends AppCompatActivity {
             items.add(MediaItem.fromUri(url));
         }
         if (items.isEmpty()) return;
-        boolean firstLoad = player.getCurrentTimeline().isEmpty();
         currentSourceIndex = sourceIndex;
         currentChannelIndex = channelIndex;
         switching = true;
         player.setMediaItems(items, channelIndex, 0);
         player.prepare();
         player.setPlayWhenReady(true);
-        if (firstLoad) emitLiveChannelChange();
     }
 
     /**
@@ -559,6 +558,9 @@ public class LivePlayerActivity extends AppCompatActivity {
         int target = LiveKeyPolicy.stepChannel(currentChannelIndex, delta, src.urls.size());
         if (target == currentChannelIndex) return; // 到头停住
         loadChannel(currentSourceIndex, target);
+        // zap 拍板要求抽屉自动弹出 —— 弹出的就是频道列表, 高亮必须跟着走到新频道
+        // (2026-11-08 复审修复: 此前只有 OSD 换了名, 抽屉 ▶ 还停在上一个频道)。
+        channelAdapter.setCurrentIndex(target);
         showOsd();
         showDrawer(false); // 不抢焦点
     }
@@ -736,13 +738,16 @@ public class LivePlayerActivity extends AppCompatActivity {
     }
 
     /**
-     * BACK 统一处理(DOWN 才进来): 抽屉内任一 View 有焦点 → 清焦点并收抽屉(hideDrawer
-     * 内含 clearFocus); 否则双击 2s 确认退出(文案沿用点播「再按一次返回退出播放」)。
+     * BACK 统一处理(DOWN 才进来): 抽屉**可见**(无论有无焦点) → 收抽屉(hideDrawer 内含
+     * clearFocus); 否则双击 2s 确认退出(文案沿用点播「再按一次返回退出播放」)。
+     * 可见性而非焦点判定(2026-11-08 复审修复): 暂停态抽屉常驻可见且无焦点
+     * (scheduleDrawerAutoHide 暂停不排计时), 按焦点判会让 BACK 直接落进退出确认,
+     * 用户想关抽屉反而退出; 且与 MENU 的开关口径(getVisibility)一致。
      * 收抽屉成功后归零双击计时, 退出确认从头算。遥控 BACK(dispatchKeyEvent)与系统
      * 手势/导航栏返回(OnBackPressedCallback / 本覆写)三路共此一逻辑。
      */
     private boolean handleBack() {
-        if (liveDrawer.findFocus() != null) {
+        if (liveDrawer.getVisibility() == View.VISIBLE) {
             hideDrawer();
             lastBackAt = 0L;
             return true;

@@ -802,7 +802,7 @@ func (h *Handlers) ManageFilms(c *gin.Context) {
 	}
 	// IncludeHidden 恒 true: 管理后台影片列表/搜索不受"影片可见"开关影响, 所有影片都可见。
 	// catIds=1,2,3 分类级联多选(前端确定后传入); 与 pid/cid 单值互斥使用(前端保证)。
-	// sort=hot|latest|update_stamp|score(白名单见 search_repo.allowedSort, 空走默认热度);
+	// sort=hot|latest|update_stamp|score(白名单见 search_repo.orderForSpec, 空走默认热度);
 	// 关键字与无关键字两条路径都消费该字段, 保证列表排序口径一致。
 	spec := repository.FilterSpec{
 		Keyword: c.Query("keyword"), Pid: queryInt64(c, "pid"), Cid: cid,

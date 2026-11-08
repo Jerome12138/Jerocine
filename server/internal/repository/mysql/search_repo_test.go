@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -110,8 +111,10 @@ func TestHotBoardOrder(t *testing.T) {
 		if got := hotBoardOrder("movie_hot_gaia", "score"); !strings.Contains(got, "m.db_score DESC") || strings.Contains(got, tc) {
 			t.Fatalf("单榜 score 排序异常: %q", got)
 		}
-		if got := hotBoardOrder("movie_hot_gaia", "latest"); !strings.Contains(got, "m.pub_date DESC") || strings.Contains(got, tc) {
-			t.Fatalf("单榜 latest 排序异常: %q", got)
+		// latest: 与 films/classify 同口径的年份钳制(2026-11-07), 脏年份不霸热榜「最新上线」
+		if got := hotBoardOrder("movie_hot_gaia", "latest"); !strings.Contains(got, "m.pub_date) DESC") ||
+			!strings.Contains(got, fmt.Sprintf("m.year > %d", maxValidYear())) || strings.Contains(got, tc) {
+			t.Fatalf("单榜 latest 排序异常(应含年份钳制): %q", got)
 		}
 	})
 

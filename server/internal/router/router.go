@@ -22,8 +22,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 	v1.GET("/categories/:pid/filters", h.Filters)
 	v1.GET("/films", h.Films)
 	v1.GET("/films/classify", h.Classify)
-	// 演员影片列表(静态段; 与下方 /films/:mid 参数段共存, gin v1.6+ 支持且静态优先匹配)
-	v1.GET("/films/by-actor", h.ActorFilms)
+	// 演员影片列表(静态段; 与下方 /films/:mid 参数段共存, gin v1.6+ 支持且静态优先匹配)。
+	// 限流(2026-11-07 审查): 每请求一次 movie 全表 LIKE 扫描, 随机 name 在 nginx 缓存全 miss。
+	v1.GET("/films/by-actor", middleware.RateLimit("actor", 30, 10), h.ActorFilms)
 	v1.GET("/hotboard", h.HotBoard)
 	v1.GET("/hotboard/filters", h.HotBoardFilters)
 	v1.GET("/films/:mid", h.Detail)

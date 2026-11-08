@@ -349,8 +349,8 @@ func TestListCategories_TopCountIncludesDirect(t *testing.T) {
 			{Id: 2, Pid: 1, Name: "动作"},
 		}},
 		search: &fakeCountFilms{
-			pids: map[int64]int64{1: 30},             // 子分类影片(pid=1)
-			cids: map[int64]int64{1: 12, 2: 30},      // 直挂(顶级1) + 子分类2
+			pids: map[int64]int64{1: 30},        // 子分类影片(pid=1)
+			cids: map[int64]int64{1: 12, 2: 30}, // 直挂(顶级1) + 子分类2
 		},
 	}
 	tree, err := ms.ListCategories(context.Background())
@@ -452,7 +452,7 @@ func TestUpsertCategory_VisibleNoCascade(t *testing.T) {
 	}
 }
 
-// fakePlaySlim 仅覆写 ListSlimByMidsOrKeys, 验证 CountSources 的口径(主源行 ∪ 名字键行, site+playFrom 去重)。
+// fakePlaySlim 仅覆写 ListSlimByMidsOrKeys, 验证 CountSources 的口径(主源行 ∪ 键命中行, site+playFrom 去重)。
 type fakePlaySlim struct {
 	repository.PlaySourceRepository
 	rows []repository.SlimSourceRow
@@ -467,13 +467,13 @@ func (f *fakePlaySlim) ListSlimByMidsOrKeys(_ context.Context, _ []int64, _ []st
 func TestCountSources_MatchesDetailSemantics(t *testing.T) {
 	key := domain.GenerateHashKey("完美世界")
 	fp := &fakePlaySlim{rows: []repository.SlimSourceRow{
-		{Mid: ptr[int64](1), MatchKey: key, SiteId: "src_a", PlayFrom: "线路1"},  // 主源行
-		{MatchKey: key, SiteId: "src_b", PlayFrom: "线路1"},                      // 补充源行(mid=NULL)
-		{MatchKey: key, SiteId: "src_b", PlayFrom: "线路2"},                      // 补充源行
-		{MatchKey: key, SiteId: "src_a", PlayFrom: "线路1"},                      // 豆瓣键双写行: 同 site+playFrom → 去重不计
+		{Mid: ptr[int64](1), MatchKey: key, SiteId: "src_a", PlayFrom: "线路1"},       // 主源行
+		{MatchKey: key, SiteId: "src_b", PlayFrom: "线路1"},                           // 补充源行(mid=NULL)
+		{MatchKey: key, SiteId: "src_b", PlayFrom: "线路2"},                           // 补充源行
+		{MatchKey: key, SiteId: "src_a", PlayFrom: "线路1"},                           // 豆瓣键双写行: 同 site+playFrom → 去重不计
 		{MatchKey: domain.GenerateHashKey("别的片"), SiteId: "src_c", PlayFrom: "线路1"}, // 别的片的键 → 不计入
 	}}
-	ms := &ManageService{play: fp}
+	ms := &ManageService{play: fp, movie: &fakeMovie{}}
 	counts, err := ms.CountSources(context.Background(), []entity.MovieSearch{{Mid: 1, Name: "完美世界"}})
 	if err != nil {
 		t.Fatal(err)
@@ -491,7 +491,7 @@ func TestCountSources_SameNameFilmsShareKeyRows(t *testing.T) {
 		{Mid: ptr[int64](2), MatchKey: key, SiteId: "src_b", PlayFrom: "线路1"},
 		{MatchKey: key, SiteId: "src_c", PlayFrom: "线路1"},
 	}}
-	ms := &ManageService{play: fp}
+	ms := &ManageService{play: fp, movie: &fakeMovie{}}
 	counts, err := ms.CountSources(context.Background(), []entity.MovieSearch{
 		{Mid: 1, Name: "狩猎"}, {Mid: 2, Name: "狩猎"},
 	})
@@ -503,13 +503,35 @@ func TestCountSources_SameNameFilmsShareKeyRows(t *testing.T) {
 	}
 }
 
+// 补充源与本地正名归一化失败、只有豆瓣键能关联上的形态: 名字键查不到,
+// DbIdsByMids 给出 db_id 后按 hash(dbId) 命中 —— 与 assembleSources 的双键集一致。
+func TestCountSources_DbIdKeyMatchesWhenNameDiffers(t *testing.T) {
+	const dbId int64 = 27000000
+	nameKey := domain.GenerateHashKey("本地正名")
+	dbKey := domain.GenerateHashKey(dbId)
+	fp := &fakePlaySlim{rows: []repository.SlimSourceRow{
+		{Mid: ptr[int64](1), MatchKey: nameKey, SiteId: "src_a", PlayFrom: "线路1"}, // 主源行
+		// 源站侧片名与本地不同的补充源: 只在豆瓣键下有行
+		{MatchKey: dbKey, SiteId: "src_b", PlayFrom: "线路1"},
+		{MatchKey: dbKey, SiteId: "src_b", PlayFrom: "线路2"},
+	}}
+	ms := &ManageService{play: fp, movie: &fakeMovie{dbIds: map[int64]int64{1: dbId}}}
+	counts, err := ms.CountSources(context.Background(), []entity.MovieSearch{{Mid: 1, Name: "本地正名"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts[1] != 3 {
+		t.Fatalf("豆瓣键命中的补充源也应计入(3 条去重线路), got %d", counts[1])
+	}
+}
+
 // 无名影片只按 mid 行计; 空入参返回空表。
 func TestCountSources_NamelessFilmAndEmptyInput(t *testing.T) {
 	fp := &fakePlaySlim{rows: []repository.SlimSourceRow{
 		{Mid: ptr[int64](3), MatchKey: "whatever", SiteId: "src_a", PlayFrom: "线路1"},
 		{Mid: ptr[int64](3), MatchKey: "whatever", SiteId: "src_a", PlayFrom: "线路2"},
 	}}
-	ms := &ManageService{play: fp}
+	ms := &ManageService{play: fp, movie: &fakeMovie{}}
 	counts, err := ms.CountSources(context.Background(), []entity.MovieSearch{{Mid: 3}})
 	if err != nil {
 		t.Fatal(err)

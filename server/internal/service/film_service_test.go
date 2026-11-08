@@ -63,7 +63,8 @@ func (f *fakeSearch) CountScoredByPid(_ context.Context, _ int64) (int64, error)
 type fakeMovie struct {
 	repository.MovieRepository
 	m         *entity.Movie
-	actorMids []int64 // MidsByActor 返回(热度序全量)
+	actorMids []int64         // MidsByActor 返回(热度序全量)
+	dbIds     map[int64]int64 // DbIdsByMids 返回(源数统计豆瓣键用)
 }
 
 func (f *fakeMovie) GetByMid(_ context.Context, mid int64) (*entity.Movie, error) {
@@ -75,6 +76,16 @@ func (f *fakeMovie) GetByMid(_ context.Context, mid int64) (*entity.Movie, error
 
 func (f *fakeMovie) MidsByActor(context.Context, string) ([]int64, error) {
 	return f.actorMids, nil
+}
+
+func (f *fakeMovie) DbIdsByMids(_ context.Context, mids []int64) (map[int64]int64, error) {
+	out := make(map[int64]int64, len(mids))
+	for _, mid := range mids {
+		if id, ok := f.dbIds[mid]; ok {
+			out[mid] = id
+		}
+	}
+	return out, nil
 }
 
 type fakePlay struct {

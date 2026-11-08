@@ -125,11 +125,13 @@ function cleanContent(raw: string | undefined): string {
   return raw.replace(/(&.*?;)|( )|(　　)|(\n)|(<[^>]+>)/g, '').trim()
 }
 
-/** 取前 N 个，逗号 / 空格 / 斜杠 / 顿号 切片 */
+/** 取前 N 个，逗号 / 空格 / 斜杠 / 顿号 / 分号 切片。
+ *  分隔符集必须与后端 MidsByActor 的 splitActorNames 同一超集 —— 否则会出现
+ *  「详情页渲染成一个名字、点击后等值匹配落空」的空页(2026-11-07 审查修复补 ;；)。 */
 function takeNames(raw: string | undefined, max = 3): string[] {
   if (!raw) return []
   return raw
-    .split(/[,，、\/\s]+/)
+    .split(/[,，、\/;；\s]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
     .slice(0, max)

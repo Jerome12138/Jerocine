@@ -44,7 +44,7 @@ const (
 //
 // 年份钳制(2026-11-07): 与 Year 筛选选项同一口径 —— 东八区"今年+1"为上限(见 TagOptions maxYear)。
 // 线上存在源站脏年份(2028×5 / 2030×11 / 9999×1), 直排 `year DESC` 会让它们恒霸"最新上线"首位;
-// 超限行 year 按 0、pub_date 按 '' 参与排序(一并沉底), 数据不删、只是不再进榜单头。
+// 超限行 year 按 0、pub_date 按 ” 参与排序(一并沉底), 数据不删、只是不再进榜单头。
 // 每次调用现算上限, 跨年不依赖进程重启。IF() 内只拼 int, 无注入面。
 func orderLatestSQL() string {
 	maxYear := time.Now().In(cstZone).Year() + 1
@@ -111,12 +111,18 @@ func applyDeleted(q *gorm.DB, mode int) *gorm.DB {
 // 分类表只有几十行, 直接每请求现查 —— 换取后台开关即时生效, 不需要任何失效联动
 // (分类树/聚合缓存仍走各自的 TTL 与 InvalidateCategory)。
 func (r *searchRepo) hiddenCats(ctx context.Context) (pids, cids []int64) {
+	return hiddenCatPairs(ctx, r.db)
+}
+
+// hiddenCatPairs 影片不可见分类(film_visible=false)的 pid/cid 集合 —— searchRepo 与
+// movieRepo(MidsByActor 演员归集, 2026-11-07 审查修复)共用的唯一实现, 防两处漂移。
+func hiddenCatPairs(ctx context.Context, db *gorm.DB) (pids, cids []int64) {
 	var rows []struct {
 		Id          int64
 		Pid         int64
 		FilmVisible bool
 	}
-	if err := dbFrom(ctx, r.db).Table("category").Select("id, pid, film_visible").Scan(&rows).Error; err != nil {
+	if err := db.WithContext(ctx).Table("category").Select("id, pid, film_visible").Scan(&rows).Error; err != nil {
 		// 查询失败宁可不滤(与旧行为一致), 不连累列表; 记日志便于发现。
 		log.Printf("search_repo: 查影片不可见分类失败, 本请求跳过过滤: %v", err)
 		return nil, nil
@@ -569,6 +575,13 @@ func (r *searchRepo) ShadowCommit(ctx context.Context) error {
 		"WHERE m.hot_score > 0 OR m.db_id_src > 0").Error; err != nil {
 		return err
 	}
+	// 年份/上映日期同理(2026-11-07 审查修复): 影子表按源站数据重建, ShadowWrite 的纯 INSERT
+	// 不经 upsert 钳制, 源站脏年份(2030/9999)会在全量重采后原样回到读模型; 而 movie 表走
+	// BatchUpsert 有钳制、且承载人工按豆瓣修正的权威值 —— 读模型以 movie 为准回灌, 两表不分叉。
+	if err := db.Exec("UPDATE movie_search_next ns JOIN movie m ON m.mid = ns.mid " +
+		"SET ns.year = m.year, ns.pub_date = m.pub_date WHERE m.year > 0").Error; err != nil {
+		return err
+	}
 	if err := db.Exec("RENAME TABLE movie_search TO movie_search_old, movie_search_next TO movie_search").Error; err != nil {
 		return err
 	}
@@ -828,7 +841,12 @@ func hotBoardOrder(board, sort string) string {
 	case "score":
 		return "m.db_score DESC, m.year DESC, m.mid DESC"
 	case "latest":
-		return "m.year DESC, m.pub_date DESC, m.update_stamp DESC, m.mid DESC"
+		// 与 orderLatestSQL 同口径(2026-11-07 审查修复): 热榜页的「最新上线」同样不得被
+		// 源站脏年份(2030/9999)霸榜 —— 此前只钳了分类/筛选页, 漏了这条独立实现。
+		maxYear := maxValidYear()
+		return fmt.Sprintf(
+			"IF(m.year > %d, 0, m.year) DESC, IF(m.year > %d, '', m.pub_date) DESC, m.update_stamp DESC, m.mid DESC",
+			maxYear, maxYear)
 	case "hot":
 		return "m.hot_score DESC, m.year DESC, m.update_stamp DESC, m.mid DESC"
 	}
@@ -876,8 +894,8 @@ func (r *searchRepo) HotBoardFilterFacets(ctx context.Context) (*repository.HotB
 			C int64
 		}
 		var rows []cntRow
-		if err := base().Select(col+" AS v, COUNT(*) AS c").
-			Where(col+" <> ''").Group(col).Order("c DESC").Limit(limit).Scan(&rows).Error; err != nil {
+		if err := base().Select(col + " AS v, COUNT(*) AS c").
+			Where(col + " <> ''").Group(col).Order("c DESC").Limit(limit).Scan(&rows).Error; err != nil {
 			return nil, err
 		}
 		opts := make([]repository.TagOption, 0, len(rows))
