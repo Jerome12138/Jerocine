@@ -50,7 +50,10 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -344,11 +347,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
                 .setEnableDecoderFallback(true)
                 .forceEnableMediaCodecAsynchronousQueueing();
-        LoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(30_000, 120_000, 1_500, 2_500)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .setBackBuffer(30_000, true)
-                .build();
+        // 缓冲参数走统一策略(D⑥): 本地文件模式恒现状值(peak 不影响)
+        LoadControl loadControl = buildLoadControl("local");
         final ExoPlayer player = new ExoPlayer.Builder(this, renderersFactory)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(this))
                 .setLoadControl(loadControl)
@@ -389,6 +389,31 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         player.setPlayWhenReady(true);
     }
 
+    /**
+     * LoadControl 统一装配(P2a, buffer-perf 规格 D⑤/D⑥/§3.3): 本地/在线两处装配收敛到
+     * 此, 消灭两份逐字副本(改一漏一即本地/在线行为分叉)。参数表见
+     * {@link PlayerLoadControlPolicy}: 非高峰在线 = 本地恒定 = {30_000, 120_000, 1_500,
+     * 2_500}(现状 golden); 高峰在线 = {60_000, 150_000, 3_000, 5_000}。
+     * 高峰判定用 {@link PeakWindow}(java.util.Calendar/TimeZone 口径, 禁 java.time),
+     * 每次装配取一次; setBufferDurationsMs 位次不变 (min, max, playback, rebuffer)。
+     *
+     * @param mode "local" / "online"(仅用于 logcat 核对)
+     */
+    private LoadControl buildLoadControl(String mode) {
+        boolean peak = PeakWindow.isPeak(System.currentTimeMillis(), TimeZone.getDefault());
+        PlayerLoadControlPolicy p = PlayerLoadControlPolicy.resolve("local".equals(mode), peak);
+        android.util.Log.i("JcLoadControl", "mode=" + mode + " peak=" + peak
+                + " buffer=" + p.minBufferMs() + "/" + p.maxBufferMs() + "/"
+                + p.bufferForPlaybackMs() + "/" + p.bufferForPlaybackAfterRebufferMs()
+                + " back=" + p.backBufferMs());
+        return new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(p.minBufferMs(), p.maxBufferMs(),
+                        p.bufferForPlaybackMs(), p.bufferForPlaybackAfterRebufferMs())
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBackBuffer(p.backBufferMs(), true)
+                .build();
+    }
+
     private void initPlayer() {
         OkHttpClient http = buildMediaHttp();
         DataSource.Factory cacheFactory = buildCacheFactory(http);
@@ -406,12 +431,10 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
                 .setEnableDecoderFallback(true)
                 .forceEnableMediaCodecAsynchronousQueueing();
-        // 缓冲: 起播阈值 1.5s, 卡顿后 2.5s 恢复; 稳态 30s / 上限 120s; 留 30s 回看缓冲
-        LoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(30_000, 120_000, 1_500, 2_500)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .setBackBuffer(30_000, true)
-                .build();
+        // 缓冲参数走统一策略(P2a, buffer-perf 规格 D⑤/D⑥): 非高峰 = 现状四值(golden),
+        // 高峰在线放大一档 —— 高峰判定在装配时刻取一次, 会话内不热切换(跨峰边界
+        // 沿用装配档位, 已知限制); 此前这里与 initLocalPlayer 各有一份逐字副本。
+        LoadControl loadControl = buildLoadControl("online");
         final ExoPlayer player = new ExoPlayer.Builder(this, renderersFactory)
                 .setMediaSourceFactory(msFactory)
                 .setLoadControl(loadControl)
