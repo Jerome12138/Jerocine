@@ -157,6 +157,12 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private PlayerPrefetchHelper prefetchHelper;
     /** 缓存缓冲(网络差预取, 更多菜单触发); 退出时 cancel. */
     private BufferPrefetcher bufferPrefetcher;
+    /**
+     * 缓冲进行中(更多菜单「取消缓冲」显隐依据)。start 同步成功后置 true,
+     * 收尾(完成/失败/取消/启动同步异常)复位 —— 取消的收尾统一走当前实例的
+     * onError("已取消"), 不在 cancel 调用处双写状态/恢复播放。
+     */
+    private boolean bufferInProgress;
     /** Q② 直播 behind-live/reset 兜底防循环闸门(短窗限次). */
     private final PlayerLiveErrorPolicy.RecoveryGate liveRecoveryGate =
             new PlayerLiveErrorPolicy.RecoveryGate(
@@ -884,6 +890,7 @@ private static String failedRequestUrl(Throwable error) {
         skipHelper.stopOutroWatcher();
         prefetchHelper.shutdown(); // 停掉在途预取(否则后台线程还占着 socket 跑一次没人要的过滤)
         if (bufferPrefetcher != null) bufferPrefetcher.cancel(); // 停掉缓存缓冲(已写分片留在缓存)
+        bufferInProgress = false; // Activity 销毁, 取消的 onError 回调不再有消费方
         toastHandler.removeCallbacksAndMessages(null);
         iconHandler.removeCallbacksAndMessages(null);
         progressHandler.removeCallbacksAndMessages(null);
@@ -1142,6 +1149,12 @@ private static String failedRequestUrl(Throwable error) {
         if (!curLocal && !session.isLiveNow()) {
             items.add("缓存缓冲");
             actions.add(this::showBufferDialog);
+            // 缓冲进行中 ⇒ 追加取消入口(2026-11-08 用户要求): 引擎本就支持 cancel
+            // (已写分片留在缓存), 此前没有 UI 入口, 想停只能退出播放页。
+            if (bufferInProgress) {
+                items.add("取消缓冲");
+                actions.add(this::cancelBufferPrefetch);
+            }
         }
         // 本集本地⇄在线切换已移至底栏按钮(去广告右侧, 用户拍板); 菜单里只保留"别源已下载"的换源入口
         android.util.Log.i("JcLocal", "more menu: curIdx=" + curIdx
@@ -1330,7 +1343,7 @@ private static String failedRequestUrl(Throwable error) {
         // 直链(绝对化), 与原始源站 URL 的路径一致 → SimpleCache 的键就是 URL 字符串,
         // 直接用原始源站 URL 预取即可命中。
         final String srcUrl = session.currentRawUrls.get(idx);
-        showCenterToast("正在缓冲 " + label + " · 播放暂停", 2200);
+        showCenterToast("正在缓冲 " + label + " · 播放暂停, 更多菜单可取消", 2400);
         try {
             bufferPrefetcher.start(srcUrl, minutes,
                 (cached, target) -> {
@@ -1346,6 +1359,7 @@ private static String failedRequestUrl(Throwable error) {
                     @Override
                     public void onComplete() {
                         if (bufferPrefetcher != startedInstance) return; // 已被新缓冲顶替的旧实例: 静默丢弃
+                        bufferInProgress = false;
                         showCenterToast("缓存完成 · 已恢复播放", 2200);
                         if (session.player != null && playing) session.player.setPlayWhenReady(true);
                     }
@@ -1353,19 +1367,37 @@ private static String failedRequestUrl(Throwable error) {
                     @Override
                     public void onError(String message) {
                         if (bufferPrefetcher != startedInstance) return; // 旧实例的"已取消"不再 toast/恢复播放
-                        showCenterToast(message, 2400);
+                        bufferInProgress = false;
+                        // 用户在更多菜单主动取消 → cancel() 会异步回 onError("已取消"),
+                        // 换成人话; 其余照旧透传失败原因。
+                        showCenterToast("已取消".equals(message)
+                                ? "已取消缓冲 · 已恢复播放" : message, 2400);
                         if (session.player != null && playing) session.player.setPlayWhenReady(true);
                     }
                 });
+            // start() 同步返回(worker.execute 异步跑)且未抛 → 视为"缓冲进行中":
+            // 更多菜单由此挂出「取消缓冲」; 收尾(完成/失败/取消)在回调里复位。
+            bufferInProgress = true;
         } catch (Exception e) {
             // start() 同步抛异常(如线程池已 shutdown)→ 不会触发回调,
             // 上面捕获的 playing 就丢了, 播放会停在暂停态无人恢复。
             android.util.Log.w("PlayerActivity", "buffer prefetch failed", e);
             bufferPrefetcher = null;
+            bufferInProgress = false;
             showCenterToast("缓存缓冲启动失败: "
                     + (e.getMessage() == null ? "未知错误" : e.getMessage()), 2400);
             if (session.player != null && playing) session.player.setPlayWhenReady(true);
         }
+    }
+
+    /**
+     * 更多菜单 → 取消缓冲: 停止写剩余分片(已写分片留在缓存, 无害), 随后由当前实例的
+     * onError("已取消") 统一收尾 —— 换文案 + 按 bufferResumePlay 恢复播放(见 onError)。
+     * 不在这里直接 resume: 恢复播放只走回调一条路, 避免"cancel 后回调迟到但状态已双写"。
+     */
+    private void cancelBufferPrefetch() {
+        if (!bufferInProgress || bufferPrefetcher == null) return; // 菜单项只在缓冲中挂出, 不可达兜底
+        bufferPrefetcher.cancel();
     }
 
     /** 更多菜单 → 下载管理: 透传影片上下文给 DownloadActivity(选集/下载中/已完成三 tab). */
