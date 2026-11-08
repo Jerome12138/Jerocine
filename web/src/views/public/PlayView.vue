@@ -41,6 +41,7 @@ import { useSiteStore } from '@/stores/site'
 import { toast } from '@/api/http'
 import { useViewMode } from '@/composables/useViewMode'
 import { measureLine } from '@/composables/usePlaySpeedTest'
+import { shouldStallFailover, pickStallTarget, STALL_THRESHOLD_MS } from '@/utils/stallFailover'
 import { useNetworkHint } from '@/composables/useNetworkHint'
 import { useLocalLikes } from '@/composables/useLocalLikes'
 import { useFavoriteStore } from '@/stores/favorite'
@@ -597,6 +598,8 @@ async function resolvePlaySrc(originalUrl: string): Promise<void> {
  * 测速实现在公共模块 usePlaySpeedTest(与后台采集页「测播放」共用), 这里只管结果展示。 */
 const lineSpeeds = ref<Record<string, number>>({}) // ms; -1=失败/无 m3u8
 const testingLines = ref(false)
+/** 已静默测过速的影片 id: 每片只测一次, 换集不重测(排名按当前集才有意义, 但同片重测收益低) */
+let speedTestedForFilm: number | string | null = null
 
 const fastestLineId = computed(() => {
   let id = ''
@@ -612,7 +615,7 @@ const fastestLineId = computed(() => {
   return id
 })
 
-async function testLines(): Promise<void> {
+async function testLines(quiet = false): Promise<void> {
   if (!detail.value || testingLines.value) return
   const sources = detail.value.sources
   if (!sources.length) return
@@ -632,6 +635,7 @@ async function testLines(): Promise<void> {
     const map: Record<string, number> = {}
     for (const r of results) map[r.id] = r.ms
     lineSpeeds.value = map
+    if (quiet) return // 看门狗后台补测: 不弹提示, 结果只供决策
     const ok = results.filter((r) => r.ms >= 0).sort((a, b) => a.ms - b.ms)
     if (ok.length) {
       const name = sources.find((s) => s.id === ok[0]!.id)?.name ?? ''
@@ -1110,6 +1114,12 @@ async function loadPlayInfo(): Promise<void> {
     relate.value = data.related ?? []
     currentSourceId.value = data.currentSource || data.detail.sources[0]?.id || ''
     currentEpisodeIndex.value = Number(data.currentEpisode) || 0
+    // 高峰慢源预案: 进播放页后台静默测一轮线路(限并发 2), 结果供「一键切最快」
+    // 与卡顿看门狗选目标用; 不自动换源不打扰。每部片只测一次(换集不重测)。
+    if (data.detail.sources.length > 1 && speedTestedForFilm !== data.detail.mid) {
+      speedTestedForFilm = data.detail.mid
+      void testLines(true)
+    }
     // 续播进度优先级：URL query.currentTime > history store（严格按 影片::源::集 取该集独立进度）
     let resumeAt = Number(route.query.currentTime) || 0
     if (!resumeAt) {
@@ -1871,7 +1881,86 @@ function resetRetry(): void {
     retryTimer = undefined
   }
   fallbackRounds = 0
+  resetStallWatchdog() // 新集/成功恢复播放: 卡顿看门狗状态一并归零
 }
+
+/* ============ 卡顿看门狗(高峰慢源: 长缓冲但不报错) ============
+ * error 状态机只接真错误; 高峰 CDN 拥堵的体感是 video:waiting 持续转圈。
+ * 连续缓冲超 STALL_THRESHOLD_MS → 按线路测速结果决定是否自动换源(保进度,
+ * 走 changeSource 的历史进度/播放头续播): 有显著更快(省 40%+)的线路才换,
+ * 否则继续缓冲 —— 盲轮换去一个同样慢的源只是换一种卡。
+ * 守卫/阈值/上限/选目标都在 utils/stallFailover 纯函数里(有单测)。
+ * 测速表没数据时先静默补测一轮再评估(单飞, 结果不打扰用户)。 */
+const stallFailoverCount = ref(0)
+let stallTimer: number | undefined
+let stallSince = 0
+let lastStallFailoverAt = 0
+let stallQuietTestInFlight = false
+
+function clearStallTimer(): void {
+  if (stallTimer !== undefined) {
+    window.clearTimeout(stallTimer)
+    stallTimer = undefined
+  }
+}
+
+/** 归零看门狗(新集/成功恢复播放时调, 见 resetRetry) */
+function resetStallWatchdog(): void {
+  clearStallTimer()
+  stallSince = 0
+  stallFailoverCount.value = 0
+  lastStallFailoverAt = 0
+}
+
+watch(buffering, (b) => {
+  // buffering=true(video:waiting) 开始计时; false(canplay/playing) 清表重计
+  clearStallTimer()
+  if (!b) return
+  stallSince = Date.now()
+  stallTimer = window.setTimeout(onStallFire, STALL_THRESHOLD_MS)
+})
+
+async function onStallFire(): Promise<void> {
+  const v = player.value?.video
+  if (!v) return
+  const ctx = {
+    bufferingMs: Date.now() - stallSince,
+    msSinceLastFailover: lastStallFailoverAt === 0 ? Infinity : Date.now() - lastStallFailoverAt,
+    failoverCount: stallFailoverCount.value,
+    paused: v.paused,
+    seeking: v.seeking,
+    switching: switchInFlight,
+    otherSourceCount: (detail.value?.sources.length ?? 1) - 1
+  }
+  if (!shouldStallFailover(ctx)) return
+  // 测速表无有效数据 → 静默补测一轮再评估(单飞防重复起测)
+  const hasSpeeds = Object.values(lineSpeeds.value).some((ms) => ms >= 0)
+  if (!hasSpeeds) {
+    if (stallQuietTestInFlight) return
+    stallQuietTestInFlight = true
+    try {
+      await testLines(true)
+    } finally {
+      stallQuietTestInFlight = false
+    }
+  }
+  const candidates = (detail.value?.sources ?? []).map((s) => s.id)
+  const target = pickStallTarget(lineSpeeds.value, currentSourceId.value, candidates)
+  telemetry.track('action', {
+    category: 'stall',
+    action: target ? 'failover' : 'no-target',
+    label: currentSourceId.value,
+    value: Math.round(ctx.bufferingMs),
+    extra: { target, failoverCount: ctx.failoverCount, episodeIndex: currentEpisodeIndex.value }
+  })
+  if (!target) return // 当前已是可选最快: 继续缓冲, 不折腾
+  stallFailoverCount.value += 1
+  lastStallFailoverAt = Date.now()
+  toast('info', '当前线路持续缓冲, 已自动切换到更快线路')
+  changeSource(target)
+}
+
+onScopeDispose(() => clearStallTimer())
 
 function handleVideoError(fromDeferred = false): void {
   if (!detail.value) return
