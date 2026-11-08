@@ -68,8 +68,14 @@ final class SourceProbeHelper {
     private SourceProbeHelper() {}
 
     /**
-     * 发起一轮探测(异步): 对 {@code sources} 每源各测「将播放集」的清单 GET 耗时,
-     * 全部落幕后以源序(results 与 sources 同序同长)回调。
+     * 发起一轮探测(异步, 立即返回): 对 {@code sources} 每源各测「将播放集」的清单 GET
+     * 耗时, 全部落幕后以源序(results 与 sources 同序同长)回调。
+     *
+     * <p><b>整批汇总不占用调用线程</b>(终审修复): 唯一调用点 runSourceProbe 在主线程,
+     * 若 futures.get() 循环就地执行, 每轮探测会冻结播放页主线程
+     * ≈ ceil(源数/4)×3s、防御超时路径最长 14s(挂起输入超 5s 有 ANR 风险), 直接违反
+     * D⑦「延迟 5s <b>后台</b>探测(完全不阻塞)」。故整批搬进一根一次性后台编排线程,
+     * 本方法调用即返回; 回调仍保证 post 主线程、恰好一次。
      *
      * @param sources        源快照(调用方在排程时刻拷贝; 本类只读)
      * @param currentEpisode 当前集号(每源按切源钳位口径换算将播集)
@@ -77,11 +83,23 @@ final class SourceProbeHelper {
      */
     static void probe(List<PlayerSession.SourceData> sources, int currentEpisode,
                       Callback callback) {
-        final List<SourceSpeedRanker.Result> results = new ArrayList<>();
-        if (sources == null || sources.isEmpty()) {
-            postToMain(callback, results);
+        final List<PlayerSession.SourceData> srcs =
+                (sources == null) ? new ArrayList<>() : sources;
+        if (srcs.isEmpty()) {
+            postToMain(callback, new ArrayList<SourceSpeedRanker.Result>());
             return;
         }
+        // 一次性编排线程(命名对齐 jc-prefetch 惯例): run() 结束线程即终止, 无跨批共享;
+        // 进程级节流(SourceProbeThrottle)保证其触发频率 ≤ 1 次/30 分钟, 无线程堆积面
+        Thread orchestrator = new Thread(
+                () -> runBatch(srcs, currentEpisode, callback), "jc-source-probe");
+        orchestrator.start();
+    }
+
+    /** 整批执行(后台编排线程): 提交全部单源任务 → get 汇总 → 回收池/client → post 主线程。 */
+    private static void runBatch(List<PlayerSession.SourceData> sources, int currentEpisode,
+                                 Callback callback) {
+        final List<SourceSpeedRanker.Result> results = new ArrayList<>();
         final OkHttpClient client = buildClient();
         final ExecutorService pool =
                 Executors.newFixedThreadPool(Math.min(MAX_PARALLEL, sources.size()));
@@ -103,6 +121,10 @@ final class SourceProbeHelper {
                 }
                 results.add(r);
             }
+        } catch (Throwable t) {
+            // 兜底: 编排线程上的任何意外(理论只剩 client/pool 装配)也不吞回调 ——
+            // callback「恰好一次」契约不破, 结果按已收集部分(或空)交付
+            Log.w(TAG, "probe batch failed", t);
         } finally {
             // 批结束即回收(D⑦, 对齐「cancel 必须 shutdownNow」泄漏教训口径):
             // 所有任务已 get 归幕, shutdown 不甩任何任务
