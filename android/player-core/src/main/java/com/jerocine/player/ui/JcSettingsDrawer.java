@@ -326,7 +326,7 @@ public class JcSettingsDrawer {
 
         // ---------- 设备 ----------
         addGroupHeader("设备");
-        addNavRow("设备诊断", "机型 / 系统 / WebView 内核 / 内存", "",
+        addNavRow("设备诊断", "机型 / 系统 / 内核 / 分辨率 / Web 视口 / 内存", "",
                 () -> { hide(); host.onDeviceDiagnostics(); });
         addNavRow("服务器地址", host.getServerUrl(), "修改 ›",
                 () -> { hide(); host.onServerUrlEdit(); });

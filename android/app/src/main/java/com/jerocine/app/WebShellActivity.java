@@ -474,7 +474,29 @@ public class WebShellActivity extends BridgeActivity
     }
     @Override public void onExitApp() { finishAffinity(); }
     @Override public void onCheckUpdate() { checkUpdateExposed(); }
-    @Override public void onDeviceDiagnostics() { JcDeviceDiagnostics.show(this); }
+    /**
+     * 设备诊断附 web 侧视口快照: CSS 视口(innerW/H)/页面内容宽高(docW/H)/dpr/data-mode。
+     * 原独立「诊断」弹窗(showDiagToast)随 6897a22 死代码出清删除, 2026-11-08 把有价值的
+     * 视口半组并回设备诊断 —— 排「页面太宽/2x 显示」要靠这组(物理侧分辨率+density 一直在)。
+     * UA 不采: 诊断页「浏览器内核」行已覆盖。
+     */
+    @Override public void onDeviceDiagnostics() {
+        WebView wv = (bridge != null) ? bridge.getWebView() : null;
+        if (wv == null) {
+            JcDeviceDiagnostics.show(this); // WebView 未就绪: 至少给设备侧诊断
+            return;
+        }
+        wv.evaluateJavascript(
+                "(function(){try{return JSON.stringify({" +
+                        "innerW:window.innerWidth," +
+                        "innerH:window.innerHeight," +
+                        "docW:document.documentElement.scrollWidth," +
+                        "docH:document.documentElement.scrollHeight," +
+                        "dpr:window.devicePixelRatio," +
+                        "mode:document.documentElement.getAttribute('data-mode')" +
+                        "})}catch(e){return JSON.stringify({err:String(e)})}})()",
+                value -> JcDeviceDiagnostics.show(this, value));
+    }
     @Override public void onServerUrlEdit() { promptServerUrl(); }
     @Override public String getServerUrl() {
         return prefs().getString(KEY_SERVER_URL, "");

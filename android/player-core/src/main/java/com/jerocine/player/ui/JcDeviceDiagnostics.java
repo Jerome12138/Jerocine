@@ -220,11 +220,38 @@ public final class JcDeviceDiagnostics {
 
     /** 用项目统一的 JcDialog 展示（铁律：不手写 AlertDialog.Builder）。 */
     public static void show(Activity activity) {
+        show(activity, null);
+    }
+
+    /**
+     * 同 {@link #show(Activity)}，另附 web 壳的「Web 视口」快照行。
+     *
+     * @param rawWebViewSnapshot web 壳对 WebView 执行视口快照 JS 的 evaluateJavascript
+     *                           回调原值（JSON 引号串，格式见 {@link #formatWebViewport}）；
+     *                           传 null（原生壳/WebView 未就绪）则不显示该行。
+     */
+    public static void show(Activity activity, String rawWebViewSnapshot) {
         Info info = collect(activity);
         // 附最近一次未捕获崩溃的摘要(CrashLog 环形落盘, 见 data/CrashLog) ——
         // 诊断文本可一键复制发给维护者, 远程取证不用再让用户 adb logcat。
         String crashSummary = CrashLog.latestSummary(activity);
         String text = info.toText();
+        String web = formatWebViewport(rawWebViewSnapshot);
+        if (web != null) {
+            // Web 视口行紧跟物理「分辨率」行 —— 两组分辨率参数放一起方便对账
+            // (CSS 视口 = 物理宽 ÷ dpr, 1080p 电视 dpr=2 → 960 CSS 视口, 页面整体 2x 显示属预期)
+            int resLine = text.indexOf("分辨率:");
+            if (resLine >= 0) {
+                int eol = text.indexOf('\n', resLine);
+                if (eol >= 0) {
+                    text = text.substring(0, eol + 1) + web + '\n' + text.substring(eol + 1);
+                } else {
+                    text = text + '\n' + web;
+                }
+            } else {
+                text = text + '\n' + web;
+            }
+        }
         if (crashSummary != null) {
             text += "\n最近崩溃: " + crashSummary;
         }
@@ -233,6 +260,57 @@ public final class JcDeviceDiagnostics {
                 .message(text)
                 .confirmButton("关闭")
                 .show();
+    }
+
+    /**
+     * 解析 web 壳注入的视口快照，格式化成一行诊断文本（纯函数，便于单测）。
+     *
+     * <p>数据来源：web 壳（WebShellActivity）打开「设备诊断」前对 WebView 执行
+     * {@code JSON.stringify({innerW, innerH, docW, docH, dpr, mode})}。这组值回答
+     * 「页面按多宽排版 / 是不是 2x 设备 / 有没有横向溢出」—— 原独立诊断弹窗
+     * （showDiagToast）在 6897a22 死代码出清时删除，2026-11-08 把有价值的
+     * 视口半组并回本诊断页；UA 不补（「浏览器内核」行已覆盖）。</p>
+     *
+     * @param rawJsValue evaluateJavascript 回调原值（JSON 引号串）；
+     *                   null / "null" / 解析失败返回 null（调用方不显示该行）
+     * @return 形如 {@code Web 视口: 960×540 (dpr=2, mode=tv); 内容 960×1180} 的单行；
+     *         docW &gt; innerW 时追加 {@code ; ⚠ 横向溢出 Npx}
+     */
+    public static String formatWebViewport(String rawJsValue) {
+        String s = rawJsValue == null ? "" : rawJsValue.trim();
+        // evaluateJavascript 把 JS 字符串结果再包一层 JSON 引号: "{...}", 内部引号转义 \"
+        if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
+            s = s.substring(1, s.length() - 1).replace("\\\"", "\"");
+        }
+        if (s.isEmpty() || "null".equals(s)) return null;
+        java.util.regex.Matcher err = java.util.regex.Pattern
+                .compile("\"err\":\"(.*)\"").matcher(s);
+        if (err.find()) return "Web 视口: 取数失败(" + err.group(1) + ")";
+        Integer innerW = jsonInt(s, "innerW");
+        Integer innerH = jsonInt(s, "innerH");
+        Integer docW = jsonInt(s, "docW");
+        Integer docH = jsonInt(s, "docH");
+        if (innerW == null || innerH == null || docW == null || docH == null) return null;
+        java.util.regex.Matcher dpr = java.util.regex.Pattern
+                .compile("\"dpr\":(-?\\d+(?:\\.\\d+)?)").matcher(s);
+        java.util.regex.Matcher mode = java.util.regex.Pattern
+                .compile("\"mode\":\"?(\\w+)\"?").matcher(s);
+        StringBuilder line = new StringBuilder("Web 视口: ")
+                .append(innerW).append('×').append(innerH)
+                .append(" (dpr=").append(dpr.find() ? dpr.group(1) : "?")
+                .append(", mode=").append(mode.find() ? mode.group(1) : "?").append(')')
+                .append("; 内容 ").append(docW).append('×').append(docH);
+        if (docW > innerW) {
+            line.append("; ⚠ 横向溢出 ").append(docW - innerW).append("px");
+        }
+        return line.toString();
+    }
+
+    /** 从扁平 JSON 串取整数字段（快照里的宽高恒为整数；取不到/非整数返回 null） */
+    private static Integer jsonInt(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + key + "\":(-?\\d+)").matcher(json);
+        return m.find() ? parseIntOrNull(m.group(1)) : null;
     }
 
     // ---- internal ----
