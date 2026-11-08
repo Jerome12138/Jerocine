@@ -23,9 +23,11 @@
 }
 
 /* ---------- 功能卡: 宽扁 + 右大图标 ---------- */
-[data-mode="tv"] .jc-tv-funcs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--jc-space-4); }
-/* auto-fit: 空轨道坍缩 ⇒ N 张卡等宽占满行宽（2026-10-30 起功能卡含"直播"共 5-6 张,
-   按卡数自适应, 不再区分有无设置卡写死列数）。 */
+[data-mode="tv"] .jc-tv-funcs { display: grid; grid-template-columns: repeat(var(--jc-tv-func-n, 5), minmax(0, 1fr)); gap: var(--jc-space-4); }
+/* 列数 = 渲染的卡数(HomeTv 传 --jc-tv-func-n, 4~6), 恒一行等宽铺满。
+ * 曾用 auto-fit+minmax(150px,1fr) 按视口宽现算列数 ⇒ 6 张卡(壳内含设置卡)在不同分辨率下
+ * "有时一行 6 个、有时 5+1 折行"(2026-11-08 用户反馈); TV 仪表盘其余栅格
+ * (jc-tv-duo/jc-tv-p3)本就是固定列数, 这里对齐同一口径。 */
 [data-mode="tv"] .jc-tv-fc {
   position: relative; min-height: 72px; padding: 10px 44px 10px 16px; border-radius: var(--jc-radius-xl, 20px);
   border: 1px solid var(--jc-tv-stroke, rgba(255,255,255,.13)); overflow: hidden; text-decoration: none;

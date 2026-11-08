@@ -194,6 +194,15 @@ const { guard: tvSettingsGuard, isIntercepted: tvSettingsIsNative } = useTvSetti
  */
 const showTvSettingsCard = tvSettingsIsNative()
 const tvSettingsSub = '设备/账号'
+
+/**
+ * 金刚区功能卡数(4~6): 收藏/分类/搜索/我的 恒在, 直播/设置按条件渲染。
+ * 作为 --jc-tv-func-n 传给网格 ⇒ 列数锁死为卡数, 任何分辨率下都一行铺满
+ * (auto-fit 按视口宽现算列数, 6 张卡时会出现"5+1 折行", 2026-11-08 用户反馈)。
+ */
+const tvFuncCount = computed(
+  () => 4 + (props.hasLiveSources ? 1 : 0) + (showTvSettingsCard ? 1 : 0)
+)
 function onTvSettingsClick(e: MouseEvent): void {
   tvSettingsGuard(e)
 }
@@ -322,9 +331,9 @@ onBeforeUnmount(() => {
 
     <!-- ② 功能卡(大彩色卡, 左文字右图标 — 对齐设计稿; 继续观看入口已并入顶部"近期历史")
          注: 卡片本就指向 /favorites, 故主文案用"收藏"(用户拍板), 不再写"历史·收藏"占宽.
-         --no-settings(2026-10-10): 纯网页 TV 无设置卡 ⇒ 网格 5 列改 4 列占满行宽,
-         不留右侧空位(tv-cards.css)。 -->
-    <div class="jc-tv-funcs" :class="{ 'jc-tv-funcs--no-settings': !showTvSettingsCard }">
+         --jc-tv-func-n(2026-11-08): 列数 = 卡数(tv-cards.css), 任何分辨率下恒一行铺满,
+         替代 2026-10-10 的 --no-settings 切列方案(其 CSS 钩子已随 2026-10-30 auto-fit 改造删除)。 -->
+    <div class="jc-tv-funcs" :style="{ '--jc-tv-func-n': tvFuncCount }">
       <RouterLink class="jc-tv-fc fc-2" to="/favorites" data-focusable="true" tabindex="0">
         <span class="ic"><BaseIcon name="heart" size="32px" /></span><span class="ti">收藏</span><span class="su">记录您的热爱</span>
       </RouterLink>

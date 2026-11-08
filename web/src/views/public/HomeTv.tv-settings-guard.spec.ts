@@ -94,10 +94,11 @@ describe('HomeTv TV「设置」卡 × 原生抽屉', () => {
     expect(router.currentRoute.value.path).toBe('/')
   })
 
-  it('原生壳: 设置卡渲染 ⇒ 功能卡网格保持 5 列(不挂 --no-settings)', async () => {
+  it('原生壳: 设置卡渲染 ⇒ 网格列数 = 卡数 6(--jc-tv-func-n, 恒一行铺满不折行)', async () => {
     const wrapper = await mountHomeTv(router)
     expect(wrapper.find('.jc-tv-fc.fc-5').exists()).toBe(true)
-    expect(wrapper.find('.jc-tv-funcs').classes()).not.toContain('jc-tv-funcs--no-settings')
+    expect(wrapper.findAll('.jc-tv-fc').length).toBe(6) // 收藏/分类/直播/搜索/我的/设置
+    expect(wrapper.find('.jc-tv-funcs').attributes('style')).toMatch(/--jc-tv-func-n:\s*6/)
   })
 
   it('纯网页 TV 模式: 设置卡不渲染(SPA /settings 已删, 没有可去的设置页)', async () => {
@@ -107,11 +108,11 @@ describe('HomeTv TV「设置」卡 × 原生抽屉', () => {
     expect(mocks.openSettings).not.toHaveBeenCalled()
   })
 
-  it('纯网页 TV 模式: 功能卡网格挂 --no-settings ⇒ CSS 侧切 4 列占满行宽(右侧不留空位)', async () => {
+  it('纯网页 TV 模式: 无设置卡 ⇒ 网格列数 = 卡数 5(--jc-tv-func-n; 有直播源)', async () => {
     mocks.native.value = false
     const wrapper = await mountHomeTv(router)
-    expect(wrapper.find('.jc-tv-funcs').classes()).toContain('jc-tv-funcs--no-settings')
     expect(wrapper.findAll('.jc-tv-fc').length).toBe(5) // 收藏/分类/直播/搜索/我的
+    expect(wrapper.find('.jc-tv-funcs').attributes('style')).toMatch(/--jc-tv-func-n:\s*5/)
   })
 
   it('原生壳: 点「我的」卡 → 也开原生抽屉(账号行在抽屉里), 不跳路由', async () => {
