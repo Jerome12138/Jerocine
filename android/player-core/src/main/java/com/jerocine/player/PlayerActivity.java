@@ -113,6 +113,15 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     /** 播放侧 UA(清单/分片同一份) — 源站可能按 UA 给不同表, 各数据源必须一致。 */
     static final String MEDIA_UA = "Jerocine/1.0 (Android TV)";
 
+    /**
+     * 并行缓冲开关持久化(buffer-perf 规格 D②/§3.6): 播放器侧 SharedPreferences 文件
+     * "jerocine"(与 PlayerAdFilterHelper 同文件不同键, MODE_PRIVATE), 键
+     * "buffer_parallel_enabled"(boolean, 默认 false = 顺序写保底)。本类是该键唯一读写方,
+     * 键名只在此定义一次 —— 禁止第三处硬编码(对齐 ShellPrefs「键名只在此定义一次」口吻)。
+     */
+    private static final String PLAYER_PREFS_FILE = "jerocine";
+    private static final String PREF_BUFFER_PARALLEL = "buffer_parallel_enabled";
+
     /** 进程内单例, 避免重开时 "Another SimpleCache instance" 报错 — 进程级资源, 必须静态. */
     private static SimpleCache sCache;
     /** sCache 当前指向的缓存目录(与 intent 期望目录不一致时重建, 支持离线播放切到下载缓存区). */
@@ -1158,6 +1167,10 @@ private static String failedRequestUrl(Throwable error) {
                 items.add("取消缓冲");
                 actions.add(this::cancelBufferPrefetch);
             }
+            // 并行缓冲开关(buffer-perf 规格 D②): 仅与「缓存缓冲」同支展示(在线动态列表
+            // 且当前集非本地且非直播); 更多菜单既有 list 形态, 翻转文案零组件改动。
+            items.add(bufferParallelEnabled() ? "并行缓冲： 开" : "并行缓冲： 关");
+            actions.add(this::toggleBufferParallel);
         }
         // 本集本地⇄在线切换已移至底栏按钮(去广告右侧, 用户拍板); 菜单里只保留"别源已下载"的换源入口
         android.util.Log.i("JcLocal", "more menu: curIdx=" + curIdx
@@ -1348,10 +1361,13 @@ private static String failedRequestUrl(Throwable error) {
         final boolean playing = session.player.getPlayWhenReady();
         session.player.pause();
         if (bufferPrefetcher != null) bufferPrefetcher.cancel();
-        // cancel 会 shutdownNow 旧实例的线程池, 旧实例不可复用 → 每次都用新签名(单参 sCache)
-        // 重建; 69d9efb 重写本文件时删掉了这行实例化, start 必现 NPE 被 catch 吃成
+        // cancel 会 shutdownNow 旧实例的线程池, 旧实例不可复用 → 每次都重建;
+        // 69d9efb 重写本文件时删掉了这行实例化, start 必现 NPE 被 catch 吃成
         // 「缓存缓冲启动失败: 未知错误」(2026-11-05 排查报告 §④)。
-        bufferPrefetcher = new BufferPrefetcher(sCache);
+        // 并行缓冲开关(buffer-perf 规格 D①/D②): 开 = 固定池 3 路并发写
+        // (禁 cachedThreadPool —— DownloadEngine OOM 教训); 默认关 = 1 顺序档,
+        // 与改前观测行为逐值一致。
+        bufferPrefetcher = new BufferPrefetcher(sCache, bufferParallelEnabled() ? 3 : 1);
         // 实例身份守卫(第2轮评审修复): 闭包捕获本次发起缓冲的实例, 回调首行比对字段。
         // 缓冲#1 途中改选缓冲#2 时, startBufferPrefetch 在主线程同步执行 cancel#1→new#2→
         // #2.start —— #1 被中断后在主线程 post 的 onError("已取消")必在 #2 start 之后才被
@@ -1366,6 +1382,9 @@ private static String failedRequestUrl(Throwable error) {
         try {
             bufferPrefetcher.start(srcUrl, minutes, offsetSec,
                 (cached, target) -> {
+                    // 实例身份守卫(buffer-perf 规格 D⑨②/§3.1, 本消费点现状无守卫):
+                    // 并行/失败拖尾下, 取消后的迟到进度 toast 不得覆盖「已取消/失败」终态提示。
+                    if (bufferPrefetcher != startedInstance) return;
                     int pct = target > 0 ? (int) (cached * 100.0 / target) : 0;
                     // duration 必须 ≥ 分片下载间隔: toast 是"覆盖+定时消失"式, 1.2s 时
                     // 分片间隔稍大就闪没, 下片完成才再冒出来 —— 用户看到的是"弹窗一会
@@ -1417,6 +1436,20 @@ private static String failedRequestUrl(Throwable error) {
     private void cancelBufferPrefetch() {
         if (!bufferInProgress || bufferPrefetcher == null) return; // 菜单项只在缓冲中挂出, 不可达兜底
         bufferPrefetcher.cancel();
+    }
+
+    /** 并行缓冲开关读取(D②): 默认关 = 顺序写(与现状逐值同语义的零变化保底)。 */
+    private boolean bufferParallelEnabled() {
+        return getSharedPreferences(PLAYER_PREFS_FILE, MODE_PRIVATE)
+                .getBoolean(PREF_BUFFER_PARALLEL, false);
+    }
+
+    /** 更多菜单 → 并行缓冲开关行: 点击翻转 → 落盘 → toast(文案 D② 定稿)。 */
+    private void toggleBufferParallel() {
+        boolean next = !bufferParallelEnabled();
+        getSharedPreferences(PLAYER_PREFS_FILE, MODE_PRIVATE).edit()
+                .putBoolean(PREF_BUFFER_PARALLEL, next).apply();
+        showCenterToast(next ? "并行缓冲已开启： 3 路并发写缓存" : "并行缓冲已关闭", 2000);
     }
 
     /** 更多菜单 → 下载管理: 透传影片上下文给 DownloadActivity(选集/下载中/已完成三 tab). */
