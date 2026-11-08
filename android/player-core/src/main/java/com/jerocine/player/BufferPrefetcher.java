@@ -121,7 +121,7 @@ public final class BufferPrefetcher {
         worker.execute(() -> {
             try {
                 run(srcUrl, minutes, startOffsetSec, progress, done);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 // 取消引起的失败要与真实失败区分开。cancel() 会 shutdownNow 中断本线程,
                 // 被打断的本地过滤返回 null → 这里抛 "广告过滤失败"。
                 // 若不判cancelled, 用户在"缓冲30分钟"中途改选"缓冲5分钟"时, 旧实例会:
@@ -132,13 +132,18 @@ public final class BufferPrefetcher {
                 //      onError 回调), 实际由调用方 PlayerActivity 的实例身份守卫解决:
                 //      旧实例回调到达时 bufferPrefetcher 已指向新实例, 直接丢弃
                 //      (第2轮评审: 修正本注释此前声称本分支已修复②的误导)。
+                // Throwable 而非 Exception(终审 low): OOM/LinkageError 也走失败回调 ——
+                // 否则顺序档收尾被跳过、零回调, bufferInProgress 卡 true 到手动取消。
                 if (cancelled) {
                     post(() -> done.onError("已取消"));
                     return;
                 }
                 String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 Log.w(TAG, "prefetch failed", e);
-                post(() -> done.onError("缓存缓冲失败: " + msg));
+                // 分片级失败(顺序档 runSequential 已带「分片 x/N」)不再二次加前缀 ——
+                // 与并行档文案统一(终审 low: 两档失败 toast 文案不一致)
+                String full = msg.startsWith("分片 ") ? msg : "缓存缓冲失败: " + msg;
+                post(() -> done.onError(full));
             } finally {
                 // 正常结束也要回收(cancel 才走不到的路径); 幂等, 与 cancel 的 shutdown 兼容
                 worker.shutdown();
@@ -275,15 +280,18 @@ public final class BufferPrefetcher {
                     // 依次写完全窗口(30 分钟档 onError 迟到几十分钟)。
                     if (cancelled || failed) return;
                     writeSegment(idx, from, end, segments, progress, aggregator);
-                } catch (Exception e) {
-                    String reason = e.getMessage() == null
-                            ? e.getClass().getSimpleName() : e.getMessage();
-                    String msg = (e instanceof IOException)
+                } catch (Throwable t) {
+                    // Throwable 而非 Exception(终审 low): OOM 级错误也折成失败消息走
+                    // firstFailure 收尾 —— 若放任外抛, 任务线程死亡但 finally 仍落 latch,
+                    // 收尾会误判为「全部成功」发出假 onComplete。
+                    String reason = t.getMessage() == null
+                            ? t.getClass().getSimpleName() : t.getMessage();
+                    String msg = (t instanceof IOException)
                             ? "分片 " + (idx - from + 1) + "/" + total + " 缓冲失败: " + reason
                             : "缓存缓冲失败: " + reason;
                     if (firstFailure.compareAndSet(null, msg)) {
                         failed = true;
-                        Log.w(TAG, "segment prefetch failed", e);
+                        Log.w(TAG, "segment prefetch failed", t);
                         // 掐所有在途(在途 CacheWriter 快速退出); 排队任务走上面的入口短路。
                         // 【不得】此处 writePool.shutdownNow 甩排队任务 —— 被甩的任务不落
                         // latch, await 反而挂死(规格 §3.1)。
