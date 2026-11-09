@@ -6,22 +6,26 @@ import { usePwaUpdate } from '@/composables/usePwaUpdate'
 /**
  * 新版本提示 (方案 §4.3, 2026-10-27 增强).
  *
- * 两个状态(见 usePwaUpdate):
- *  - updateFound: 检测到新版本开始下载 —— 徽标立即出现(不等预取完成);
- *    点击 = 清旧缓存 + 刷新, 直接走网络拿新版(不等漫长预取)。
+ * 三个状态(见 usePwaUpdate):
+ *  - updateFound: 检测到新版本(构建号确实不同) —— 徽标出现, 点击开始切换;
+ *  - applying: 已点击, 正在等新 SW 接管 —— 转"更新中"并禁止重复点击;
  *  - updateReady: 新 SW 已接管当前页面 —— 点击直接刷新切换。
  * 不点击也不打扰, 下次导航/启动本就是新版本。
+ * 同一构建号一个会话只提示一次(去重在 composable 里), 不会反复弹。
  *
  * 放置: 顶栏 brand(标题)右侧(web/TV 共用) + 移动端抽屉菜单项(见 PublicHeader)。
  * 遥控器: `<button>` + data-focusable/tabindex ⇒ D-pad 可聚焦, OK 键触发 click。
  */
 
-const { updateFound, updateReady, applyUpdate } = usePwaUpdate()
-const visible = computed(() => updateFound.value || updateReady.value)
-const text = computed(() => (updateReady.value ? '新版本' : '发现更新'))
-const tip = computed(() =>
-  updateReady.value ? '新版本已就绪，点击刷新' : '发现新版本，点击立即更新'
+const { updateFound, updateReady, applying, applyUpdate } = usePwaUpdate()
+const visible = computed(() => updateFound.value || updateReady.value || applying.value)
+const text = computed(() =>
+  applying.value ? '更新中' : updateReady.value ? '新版本' : '发现更新'
 )
+const tip = computed(() => {
+  if (applying.value) return '正在切换到新版本，请稍候'
+  return updateReady.value ? '新版本已就绪，点击刷新' : '发现新版本，点击立即更新'
+})
 </script>
 
 <template>
@@ -30,9 +34,11 @@ const tip = computed(() =>
       v-if="visible"
       type="button"
       class="jc-pwa-badge"
-      :class="{ 'is-found': !updateReady }"
+      :class="{ 'is-found': !updateReady && !applying }"
       data-focusable="true"
       tabindex="0"
+      :disabled="applying"
+      :aria-busy="applying ? 'true' : undefined"
       :aria-label="tip"
       :title="tip"
       @click="applyUpdate"
@@ -71,7 +77,12 @@ const tip = computed(() =>
   outline: none;
 }
 
-/* 发现更新(预取未完成)态: 琥珀色区分 —— 点击会清缓存强制切新版 */
+.jc-pwa-badge:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+/* 发现更新(预取未完成)态: 琥珀色区分 —— 点击会等待新 SW 接管后切版 */
 .jc-pwa-badge.is-found {
   background-color: rgba(245, 158, 11, 0.14);
   border-color: rgba(245, 158, 11, 0.5);

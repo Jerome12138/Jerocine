@@ -168,6 +168,14 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 2. **Redis 应用层缓存**：`v1:movie:detail:<mid>` 等。手工清（`-a` 参数在 exec 链路易 NOAUTH，用 REDISCLI_AUTH）：
    `sudo docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" jerocine_redis redis-cli --no-auth-warning -n 0 FLUSHDB`
 
+## SW 新版本提示（web，单一来源 `web/src/composables/usePwaUpdate.ts`）
+
+前端 SW 是 `autoUpdate`（装好即接管），顶栏小徽标只是给"TV 壳常驻、没有下次导航"留的立即刷新出口。**铁律（2026-11-09 定）**：
+- **是否提示只看构建号**：本页 `__APP_BUILD__` 与现抓 `index.html` 里的 `assets/<TS>/` 比对。`updatefound` 只当"去核对一次"的信号，**不得直接亮灯**——安装失败后浏览器下次导航会重试 install，无条件亮灯就是"同一个版本提示好几遍"。
+- **探测失败不提示**（除非同时有 `updatefound` 硬证据）：丢包链路上探测失败是常态，当"落后"处理只会随机误报。
+- **同构建号每会话只提示一次**（sessionStorage `jc-pwa-prompted-build`）：点过更新、刷新后仍是旧版时不再重复弹；要强制拿新版走顶栏「刷新」（`reloadToLatest`）。
+- **点击更新 = 等新 SW 接管（controllerchange）后才 reload**，**不再 `clearAppCaches` + 立刻 reload**：旧 SW 仍控制页面时 reload 会被它的 precache 应答，拿回旧 index.html ⇒ 页面没换 ⇒ 稍后又提示一次，还白清 3MB precache。
+
 ## Android 工程版本控制
 
 - `android/` 源码纳入 git。精细忽略：`build/`、`.gradle/`、`local.properties`、`capacitor-cordova-android-plugins/build/`、**`*.keystore`/`*.jks`/`keystore.properties`(发布密钥严禁 commit)**。

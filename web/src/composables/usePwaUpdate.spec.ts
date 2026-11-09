@@ -9,12 +9,35 @@ vi.mock('@/utils/telemetry', () => ({
 }))
 
 interface FakeSW {
+  /** controllerchange 监听 */
   listeners: Set<() => void>
+  /** updatefound 监听(挂在 registration 上) */
+  updateFoundListeners: Set<() => void>
+  /** 触发 registration.updatefound */
+  fireUpdateFound: () => void
 }
 
-/** 装一个假 navigator.serviceWorker; controller 决定"进入页面时是否已被 SW 控制" */
-function installFakeSW(controller: unknown): FakeSW {
+/**
+ * 装一个假 navigator.serviceWorker.
+ * @param controller 进入页面时是否已被 SW 控制(null = 首访)
+ * @param opts.withRegistration 是否让 getRegistration() 返回一个注册对象(默认返回)
+ */
+function installFakeSW(
+  controller: unknown,
+  opts: { withRegistration?: boolean } = {}
+): FakeSW {
   const listeners = new Set<() => void>()
+  const updateFoundListeners = new Set<() => void>()
+  const reg = {
+    update: async () => undefined,
+    waiting: null as { postMessage: (m: unknown) => void } | null,
+    addEventListener: (t: string, cb: () => void) => {
+      if (t === 'updatefound') updateFoundListeners.add(cb)
+    },
+    removeEventListener: (t: string, cb: () => void) => {
+      if (t === 'updatefound') updateFoundListeners.delete(cb)
+    }
+  }
   const fake = {
     controller,
     addEventListener: (_t: string, cb: () => void) => {
@@ -23,10 +46,16 @@ function installFakeSW(controller: unknown): FakeSW {
     removeEventListener: (_t: string, cb: () => void) => {
       listeners.delete(cb)
     },
-    getRegistration: async () => undefined
+    getRegistration: async () => (opts.withRegistration === false ? undefined : reg)
   }
   Object.defineProperty(navigator, 'serviceWorker', { value: fake, configurable: true })
-  return { listeners }
+  return {
+    listeners,
+    updateFoundListeners,
+    fireUpdateFound: () => {
+      for (const cb of updateFoundListeners) cb()
+    }
+  }
 }
 
 function removeFakeSW(): void {
@@ -59,18 +88,35 @@ type Api = ReturnType<typeof usePwaUpdate>
 const apiOf = (w: ReturnType<typeof mount>): Api =>
   (w.vm as never as { api: Api }).api
 
+/** 触发 controllerchange(所有监听者) */
 const fire = async (sw: FakeSW): Promise<void> => {
   for (const cb of sw.listeners) cb()
   await nextTick()
 }
 
+/** 等异步链路(含 0ms 兜底定时器)跑完 */
+const settle = async (): Promise<void> => {
+  await flushPromises()
+  await new Promise((r) => setTimeout(r, 5))
+  await flushPromises()
+}
+
+const OWN = '20261029-120000'
+const NEWER = '20261031-101010'
+
 describe('usePwaUpdate', () => {
   beforeEach(() => {
     sessionStorage.clear()
     removeFakeSW()
+    // 默认探测失败(返回不含构建号的 HTML): 绝大多数用例不关心初始核对, 让它静默
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, text: async () => '<html></html>' }))
+    )
   })
   afterEach(() => {
     removeFakeSW()
+    vi.unstubAllGlobals()
   })
 
   it('环境不支持 Service Worker → supported=false, 不监听', async () => {
@@ -88,16 +134,19 @@ describe('usePwaUpdate', () => {
     expect(apiOf(w).supported).toBe(true)
 
     await fire(sw) // 初次 clientsClaim 触发的 controllerchange
+    await settle()
     expect(apiOf(w).updateReady.value).toBe(false)
   })
 
-  it('回访(进入时已有 controller) → controllerchange 即"新版本就绪"', async () => {
+  it('回访(进入时已有 controller) + 构建号不同 → 提示"新版本就绪"', async () => {
     const sw = installFakeSW({ state: 'activated' })
-    const w = mount(Host)
-    await nextTick()
-    expect(apiOf(w).updateReady.value).toBe(false)
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
+    await settle()
 
     await fire(sw)
+    await settle()
+
+    expect(apiOf(w).updateFound.value).toBe(true)
     expect(apiOf(w).updateReady.value).toBe(true)
   })
 
@@ -111,14 +160,16 @@ describe('usePwaUpdate', () => {
     expect(sessionStorage.getItem(CHUNK_RELOAD_GUARD_KEY)).toBeNull()
   })
 
-  it('卸载后移除 controllerchange 监听', async () => {
+  it('卸载后移除 controllerchange 与 updatefound 监听', async () => {
     const sw = installFakeSW({ state: 'activated' })
     const w = mount(Host)
-    await nextTick()
+    await settle()
     expect(sw.listeners.size).toBe(1)
+    expect(sw.updateFoundListeners.size).toBe(1)
 
     w.unmount()
     expect(sw.listeners.size).toBe(0)
+    expect(sw.updateFoundListeners.size).toBe(0)
   })
 
   // ---- 2026-10-31 修: 判据由"控制器换过"改为"构建号比对" ----
@@ -127,71 +178,233 @@ describe('usePwaUpdate', () => {
 
   it('构建号相同 → 页面已是最新, 不再提示(报障回归)', async () => {
     const sw = installFakeSW({ state: 'activated' })
-    const w = mountWithDeps({
-      ownBuild: '20261029-120000',
-      probeLatestBuild: async () => '20261029-120000'
-    })
-    await nextTick()
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => OWN })
+    await settle()
 
     await fire(sw)
-    await flushPromises()
+    await settle()
 
     expect(apiOf(w).updateReady.value).toBe(false)
     expect(apiOf(w).updateFound.value).toBe(false)
   })
 
-  it('构建号不同 → 页面确实落后, 正常提示"新版本"', async () => {
-    const sw = installFakeSW({ state: 'activated' })
-    const w = mountWithDeps({
-      ownBuild: '20261029-120000',
-      probeLatestBuild: async () => '20261031-101010'
-    })
-    await nextTick()
+  // ---- 2026-11-09 修: 报障"一个版本提示好几遍, 即使刷新了也一样" ----
 
-    await fire(sw)
-    await flushPromises()
+  it('同一构建号刷新后不再重复提示(跨页面实例去重)', async () => {
+    const deps = { ownBuild: OWN, probeLatestBuild: async () => NEWER }
 
-    expect(apiOf(w).updateReady.value).toBe(true)
-    expect(apiOf(w).updateFound.value).toBe(true)
+    const sw1 = installFakeSW({ state: 'activated' })
+    const w1 = mountWithDeps(deps)
+    await settle()
+    await fire(sw1)
+    await settle()
+    expect(apiOf(w1).updateFound.value).toBe(true)
+    w1.unmount()
+
+    // 模拟刷新: 新页面实例, same session
+    removeFakeSW()
+    const sw2 = installFakeSW({ state: 'activated' })
+    const w2 = mountWithDeps(deps)
+    await settle()
+    await fire(sw2)
+    await settle()
+
+    expect(apiOf(w2).updateFound.value).toBe(false)
+    expect(apiOf(w2).updateReady.value).toBe(false)
   })
 
-  it('探测失败(空串/抛错) → 保守提示, 不让 TV 常驻停在旧版', async () => {
-    for (const probe of [async () => '', async () => Promise.reject(new Error('offline'))]) {
-      removeFakeSW()
-      const sw = installFakeSW({ state: 'activated' })
-      const w = mountWithDeps({ ownBuild: '20261029-120000', probeLatestBuild: probe })
-      await nextTick()
+  it('updatefound 但构建号相同 → 不亮灯(安装重试不再误报)', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => OWN })
+    await settle()
 
-      await fire(sw)
-      await flushPromises()
+    sw.fireUpdateFound()
+    await settle()
 
-      expect(apiOf(w).updateReady.value).toBe(true)
-      w.unmount()
-    }
+    expect(apiOf(w).updateFound.value).toBe(false)
+  })
+
+  it('updatefound 触发瞬间不亮灯(必须等构建号核对结果, 否则安装重试会闪现误报)', async () => {
+    let resolveProbe: (v: string) => void = () => {}
+    const probe = vi.fn(
+      () =>
+        new Promise<string>((r) => {
+          resolveProbe = r
+        })
+    )
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: probe })
+    await nextTick()
+
+    // 挂载时的例行核对先放行(同版本), 页面处于"最新"状态
+    resolveProbe(OWN)
+    await settle()
+    expect(apiOf(w).updateFound.value).toBe(false)
+
+    // 新一次 install 开始: 核对还没回来之前, 徽标不能亮
+    sw.fireUpdateFound()
+    await nextTick()
+    expect(apiOf(w).updateFound.value).toBe(false)
+
+    // 核对结果: 仍是同一版本 ⇒ 依然不亮
+    resolveProbe(OWN)
+    await settle()
+    expect(apiOf(w).updateFound.value).toBe(false)
+  })
+
+  it('探测失败且只有 controllerchange → 不提示(丢包链路不再随机误报)', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: OWN,
+      probeLatestBuild: async () => {
+        throw new Error('offline')
+      }
+    })
+    await settle()
+
+    await fire(sw)
+    await settle()
+
+    expect(apiOf(w).updateReady.value).toBe(false)
+    expect(apiOf(w).updateFound.value).toBe(false)
+  })
+
+  it('探测失败但有 updatefound 硬证据 → 提示"发现更新"(保守兜底)', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => '' })
+    await settle()
+
+    sw.fireUpdateFound()
+    await settle()
+
+    expect(apiOf(w).updateFound.value).toBe(true)
+    // 尚未接管 ⇒ 只给 amber, 不能声称"新版本已就绪"
+    expect(apiOf(w).updateReady.value).toBe(false)
+  })
+
+  it('同一实例内 amber 可升级为 ready(同一次提示的进展, 不算重复)', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+    expect(apiOf(w).updateFound.value).toBe(true)
+    expect(apiOf(w).updateReady.value).toBe(false)
+
+    await fire(sw)
+    await settle()
+    expect(apiOf(w).updateReady.value).toBe(true)
+  })
+
+  it('核对进行中又发生接管 → 补跑一次, 最终升级为 ready', async () => {
+    let resolveFirstProbe: (v: string) => void = () => {}
+    let firstCall = true
+    const probe = vi.fn(() => {
+      if (firstCall) {
+        firstCall = false
+        return new Promise<string>((r) => {
+          resolveFirstProbe = r
+        })
+      }
+      return Promise.resolve(NEWER)
+    })
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: probe })
+    await nextTick() // 挂载触发的核对卡在第一次探测上
+
+    await fire(sw) // 接管信号在核对期间到达, 会被记账而不是丢弃
+    resolveFirstProbe(NEWER)
+    await settle()
+
+    expect(apiOf(w).updateFound.value).toBe(true)
+    expect(apiOf(w).updateReady.value).toBe(true)
+  })
+
+  it('未注入构建号(dev/旧构建) → 沿用旧语义: 有接管即提示', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: '', probeLatestBuild: async () => NEWER })
+    await settle()
+
+    await fire(sw)
+    await settle()
+
+    expect(apiOf(w).updateReady.value).toBe(true)
   })
 
   it('首访(无 controller)不发起构建号探测', async () => {
-    const probe = vi.fn(async () => '20261031-101010')
+    const probe = vi.fn(async () => NEWER)
     const sw = installFakeSW(null)
-    const w = mountWithDeps({ ownBuild: '20261029-120000', probeLatestBuild: probe })
-    await nextTick()
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: probe })
+    await settle()
 
     await fire(sw)
-    await flushPromises()
+    await settle()
 
     expect(probe).not.toHaveBeenCalled()
     expect(apiOf(w).updateReady.value).toBe(false)
   })
 
-  it('未注入构建号(dev/旧构建) → 沿用旧语义: 有接管即提示', async () => {
+  // ---- applyUpdate: 确定性切换(2026-11-09) ----
+
+  it('applyUpdate: 已接管时直接刷新', async () => {
+    const reload = vi.fn()
     const sw = installFakeSW({ state: 'activated' })
-    const w = mountWithDeps({ ownBuild: '', probeLatestBuild: async () => '20261031-101010' })
-    await nextTick()
-
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, reload })
+    await settle()
     await fire(sw)
-    await flushPromises()
-
+    await settle()
     expect(apiOf(w).updateReady.value).toBe(true)
+
+    apiOf(w).applyUpdate()
+    await settle()
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('applyUpdate: 未接管时等待新 SW 接管后才刷新(不再"清缓存立刻 reload")', async () => {
+    const reload = vi.fn()
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: OWN,
+      probeLatestBuild: async () => NEWER,
+      applyWaitMs: 30,
+      reload
+    })
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+    expect(apiOf(w).updateReady.value).toBe(false)
+
+    apiOf(w).applyUpdate()
+    expect(apiOf(w).applying.value).toBe(true)
+    await settle()
+    // 还没接管 ⇒ 不能刷新
+    expect(reload).not.toHaveBeenCalled()
+
+    // 新 SW 接管
+    await fire(sw)
+    await settle()
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('applyUpdate: 等待超时也要给出口(刷新一次, 不重复)', async () => {
+    const reload = vi.fn()
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: OWN,
+      probeLatestBuild: async () => NEWER,
+      applyWaitMs: 10,
+      reload
+    })
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+
+    apiOf(w).applyUpdate()
+    apiOf(w).applyUpdate() // 重复点击被 applying 拦住
+    await new Promise((r) => setTimeout(r, 60))
+    await settle()
+
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 
   describe('isPageStale / parseBuildTag', () => {

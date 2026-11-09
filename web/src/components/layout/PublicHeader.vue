@@ -45,10 +45,12 @@ const historyStore = useHistoryStore()
 const userStore = useUserStore()
 const { isTV, isMobile, isTablet } = useViewMode()
 /** 新版本检测/切换: 徽标(brand 右侧) + 移动抽屉「立即更新」菜单项共用 */
-const { updateFound, updateReady, applyUpdate } = usePwaUpdate()
-const pwaUpdateVisible = computed(() => updateFound.value || updateReady.value)
-/** 文案/图标与 PwaUpdateBadge 徽标一致(发现更新/新版本) */
-const pwaUpdateText = computed(() => (updateReady.value ? '新版本' : '发现更新'))
+const { updateFound, updateReady, applying: pwaApplying, applyUpdate } = usePwaUpdate()
+const pwaUpdateVisible = computed(() => updateFound.value || updateReady.value || pwaApplying.value)
+/** 文案/图标与 PwaUpdateBadge 徽标一致(发现更新/新版本/更新中) */
+const pwaUpdateText = computed(() =>
+  pwaApplying.value ? '更新中' : updateReady.value ? '新版本' : '发现更新'
+)
 
 /**
  * 二级页面左上角"返回"按钮 — 仅 TV 模式显示(触屏用户需要可视返回入口, 遥控器返回键之外),
@@ -1240,13 +1242,14 @@ watch(
               <span>后台管理</span>
             </RouterLink>
           </div>
-          <!-- 新版本(检测到即出现; 预取未完成时点击清缓存强制切新版) -->
+          <!-- 新版本(构建号确实不同才出现; 点击等新 SW 接管后切版, 同版本一个会话只提示一次) -->
           <div v-if="pwaUpdateVisible" class="jc-mnav__group">
             <div class="jc-mnav__divider" role="separator" aria-label="更新" />
             <button
               type="button"
               class="jc-mnav__link"
               data-focusable="true"
+              :disabled="pwaApplying"
               @click="applyUpdate"
             >
               <BaseIcon name="refresh" size="16px" class="jc-mnav__link-icon" />
