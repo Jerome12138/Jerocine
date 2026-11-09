@@ -137,11 +137,11 @@ compose_mount="${compose_mount#./}"                               # 树内旧式
 deploy_dest="$(grep -oE 'run_db_migrations "\$ctx/migrations" "[^"]+"' "$DEPLOY_DIR/deploy.sh" \
   | head -1 | sed 's/.*" "//; s/"$//')"
 assert_eq "compose 挂载源 == deploy.sh 同步目标(防静默漂移)" "$deploy_dest" "$compose_mount"
-# 自引导根化: 5 处相对挂载(migrate/secrets/html/apk/certs)都必须写 ${JEROCINE_DEPLOY_ROOT:-.},
-# 否则包内工具链模式下 compose 文件在 deploy/runtime/ 下, 相对挂载会挂到空目录。
-# 只数挂载行(注释里也提这个变量名, 不能裸 grep -c)。
+# 自引导根化: 7 处相对挂载(migrations/secrets/danmu-api-cache/html/apk/certs/nginx-private)
+# 都必须写 ${JEROCINE_DEPLOY_ROOT:-.}, 否则包内工具链模式下 compose 文件在 deploy/runtime/ 下,
+# 相对挂载会挂到空目录。只数挂载行(注释里也提这个变量名, 不能裸 grep -c)。
 n_root="$(grep -cE '^[[:space:]]*- \$\{JEROCINE_DEPLOY_ROOT:-\.\}/' "$DEPLOY_DIR/docker-compose.yml")"
-assert_eq "compose 5 处相对挂载全部根化(JEROCINE_DEPLOY_ROOT)" "$n_root" "5"
+assert_eq "compose 7 处相对挂载全部根化(JEROCINE_DEPLOY_ROOT)" "$n_root" "7"
 grep -q 'export JEROCINE_DEPLOY_ROOT=' "$DEPLOY_DIR/deploy.sh" \
   && ok "deploy.sh 自引导时 export JEROCINE_DEPLOY_ROOT" || bad "deploy.sh 未 export JEROCINE_DEPLOY_ROOT"
 # 包内布局契约: build-server.sh 暂存 migrations/ ↔ deploy.sh 识别 $ctx/migrations

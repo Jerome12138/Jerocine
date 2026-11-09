@@ -49,6 +49,7 @@ usage() {
   JEROCINE_INCOMING_DIR  远端上传落点(默认 <deploy>/incoming)
   JEROCINE_DOWNLOAD_DIR  本机构建产物落地目录(透传给 build-server.sh, 默认 <repo>/deploy/pkg)
   JEROCINE_UPLOAD_CMD    自定义上送命令注入(参数: <host> <本地包> <远端路径>)
+  JEROCINE_UPLOAD_MODE   上送通道: direct(默认) | chunk(断点续传)
 EOF
 }
 
@@ -109,12 +110,14 @@ PKG_NAME="$(basename "$PKG_ABS")"
 #
 # **不用 scp**：本仓库运维约定里 scp 是禁用的，单向传文件的既有姿态就是
 # "走 ssh stdin"（见 Harness `.agents/skills/jerocine-ops` §3 通道 B）。
-# 通用实现 = 整包直传 + sha256 双端校验（比字节数更严）。
+# 通用实现见 `scripts/lib/upload-over-ssh.sh`：**默认整包直传**（一条连接跑完，通用场景最省事）。
+# 慢链路 / 会中途 reset 的跨境链路设 `JEROCINE_UPLOAD_MODE=chunk` 启用**单流追加式断点续传**：
+# 远端写 `<包名>.<sha12>.jcpart`，每次连接前问远端已收字节、只补发剩余；断线或停滞自动重连接着传，
+# 传满后先校验 sha256 再 mv 落位（不再有"传一半全废"，实测见该文件头）。
+# 本项目私有运维仓（Harness 薄壳）固定开 chunk —— 那台源站在新加坡。
 #
 # JEROCINE_UPLOAD_CMD 注入钩子（可选）：设成自定义上送命令（参数:
-# <host> <本地包> <远端路径>），成功返回 0。用于特殊环境，例如带命令沙箱
-# 的 agent 终端里整包长流会被 SIGTERM 掐死 —— Harness 私有仓用 1MB 分片 +
-# 断点续传的实现注入（scripts/lib/upload-over-ssh.sh），公开仓不背这份复杂度。
+# <host> <本地包> <远端路径>），成功返回 0 —— 只在特殊环境要整体覆盖上送实现时用。
 
 info "上传 $PKG_NAME"
 sub "准备远端目录 $HOST:$INCOMING"
@@ -126,18 +129,10 @@ if [ -n "${JEROCINE_UPLOAD_CMD:-}" ]; then
   # shellcheck disable=SC2086  # 刻意允许 "bash <脚本>" 这种带空格的注入形式
   $JEROCINE_UPLOAD_CMD "$HOST" "$PKG_ABS" "$REMOTE_PKG" || die "上传失败(见上方日志)"
 else
-  local_sha="$(sha256sum "$PKG_ABS" 2>/dev/null | awk '{print $1}')"
-  # 秒传: 远端已有相同文件(上次传完但发布被打断) → sha256 一致即跳过重传
-  remote_sha="$(ssh "$HOST" "sha256sum '$REMOTE_PKG'" 2>/dev/null | awk '{print $1}')"
-  if [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ]; then
-    sub "远端已存在相同文件(sha256 ${local_sha:0:12}… 一致) → 跳过上传, 直接复用"
-  else
-    cat "$PKG_ABS" | ssh "$HOST" "cat > '$REMOTE_PKG'" || die "上传失败"
-    remote_sha="$(ssh "$HOST" "sha256sum '$REMOTE_PKG'" 2>/dev/null | awk '{print $1}')"
-    [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ] || die \
-      "sha256 校验不一致(本地 ${local_sha:-?} / 远端 ${remote_sha:-?}) —— 传输被截断或截短，请重试"
-    sub "sha256 校验一致: ${local_sha:0:12}…"
-  fi
+  # shellcheck source=lib/upload-over-ssh.sh
+  . "$HERE/lib/upload-over-ssh.sh"
+  upload_over_ssh "$HOST" "$PKG_ABS" "$REMOTE_PKG" || die \
+    "上传失败(原因见上方日志) —— chunk 模式下远端进度已保留, 重跑本脚本会从断点继续"
 fi
 T_UPLOAD=$(( $(now_s) - _tu ))
 
