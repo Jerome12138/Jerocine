@@ -107,7 +107,9 @@ export function alignEpisode(curIndex: number, curEps: string[], targetEps: stri
   // ① 身份串全等
   const curEpid = epidOf(c)
   for (let i = 0; i < tgt.length; i++) {
-    if (epidOf(tgt[i]!) === curEpid) return { index: i, tier: 'exact' }
+    // ⚠️ epid 串是 5 段（s|v|p|n|d），**不含 sub** ⇒ 必须同时过 sameEpisode，
+    // 否则「第3期中（上）」与「第3期中（下）」epid 相等会被误判为同一集（实测过的坑）。
+    if (epidOf(tgt[i]!) === curEpid && sameEpisode(c, tgt[i]!)) return { index: i, tier: 'exact' }
   }
   // ② 同集（SameEpisode′）+ 期号相同 —— 期号优先，此时不看日期
   if (c.num > 0) {

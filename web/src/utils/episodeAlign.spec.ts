@@ -130,3 +130,11 @@ describe('episodeAlign · L3a 同栏目组内唯一（衍生栏目）', () => {
     expect(alignEpisode(0, ['20260803上'], ['第1期上']).tier).not.toBe('bySeries')
   })
 })
+
+  it('① 档回归：epid 不含 sub ⇒ 中（上）/（下）不得被判为同一集（必须落位置兜底、不自动换）', () => {
+    const r = alignEpisode(0, ['第3期中（上）'], ['第3期中（上）', '第3期中（下）'])
+    expect(r.index).toBe(0)
+    expect(r.tier).toBe('exact')
+    const r2 = alignEpisode(0, ['第3期中'], ['第3期中（上）', '第3期中（下）'])
+    expect(r2.tier === 'exact' && r2.index !== 0).toBe(false) // 至少不能把「中」错配成「中（下）」
+  })

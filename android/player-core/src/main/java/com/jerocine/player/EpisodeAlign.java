@@ -143,7 +143,11 @@ public final class EpisodeAlign {
         // ① 身份串全等
         String curEpid = c.epid();
         for (int i = 0; i < tgt.size(); i++) {
-            if (tgt.get(i).epid().equals(curEpid)) return new Result(i, Tier.EXACT);
+            // ⚠️ epid 串是 5 段（s|v|p|n|d），不含 sub ⇒ 必须同时过 sameEpisode，
+            // 否则「第3期中（上）」与「第3期中（下）」epid 相等会被误判为同一集。
+            if (tgt.get(i).epid().equals(curEpid) && EpisodeKey.sameEpisode(c, tgt.get(i))) {
+                return new Result(i, Tier.EXACT);
+            }
         }
         // ② 同集（SameEpisode′）+ 期号相同 —— 期号优先，此时不看日期
         if (c.num > 0) {
