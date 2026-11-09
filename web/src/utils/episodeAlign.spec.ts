@@ -102,3 +102,31 @@ describe('episodeAlign · 跨源集对齐 5 档', () => {
     expect(parseEpisodeKey('第3期中（上）').part).toBe('中')
   })
 })
+
+describe('episodeAlign · L3a 同栏目组内唯一（衍生栏目）', () => {
+  it('目标侧无期号无日期 + 组内按 (series,part) 唯一 ⇒ 命中，且允许自动换源', () => {
+    const r = alignEpisode(0, ['20261005心动的旅行上'],
+      ['心动的旅行上：草原团建！', '心动的旅行中：…', '心动的旅行下：…'])
+    expect(r.tier).toBe('bySeries')
+    expect(r.index).toBe(0)
+    expect(canAutoSwitch(r.tier)).toBe(true)
+  })
+
+  it('纯栏目名（无限号无主次）且组内唯一 ⇒ 命中', () => {
+    const r = alignEpisode(0, ['20260507线上集结篇'],
+      ['线上集结篇：新老坞民烧脑身份推理战', '线下集结篇：新老坞民爆笑破冰'])
+    expect(r.tier).toBe('bySeries')
+    expect(r.index).toBe(0)
+  })
+
+  it('组内不唯一 ⇒ 落位置兜底、不自动换源（宁缺勿错）', () => {
+    const r = alignEpisode(0, ['20261005心动的旅行'],
+      ['心动的旅行上：…', '心动的旅行中：…'])
+    expect(r.tier).toBe('position')
+    expect(canAutoSwitch(r.tier)).toBe(false)
+  })
+
+  it('正片（series/variant 皆空）不走 L3a', () => {
+    expect(alignEpisode(0, ['20260803上'], ['第1期上']).tier).not.toBe('bySeries')
+  })
+})

@@ -8,7 +8,14 @@
 import { epidOf, partCompatible, parseEpisodeKey, sameEpisode, type EpisodeKey } from './episodeKey'
 
 /** 对齐档位：exact=身份串全等；samePeriod=同期号；sameDate=同日期；byOrdinal=同期序；position=按位置。 */
-export type AlignTier = 'exact' | 'samePeriod' | 'sameDate' | 'byOrdinal' | 'position' | 'failed'
+export type AlignTier =
+  | 'exact'
+  | 'samePeriod'
+  | 'sameDate'
+  | 'byOrdinal'
+  | 'bySeries'
+  | 'position'
+  | 'failed'
 
 export interface AlignResult {
   /** 目标源里的下标；-1 = 完全对不上 */
@@ -19,7 +26,9 @@ export interface AlignResult {
 /** 能否据此**自动**换源：只有精确档（exact/samePeriod/sameDate）放行；
  *  byOrdinal / position 是启发式兜底 ⇒ 只提示、不自动切（宁可不切，不乱切）。 */
 export function canAutoSwitch(tier: AlignTier): boolean {
-  return tier === 'exact' || tier === 'samePeriod' || tier === 'sameDate'
+  // bySeries（同栏目组内唯一，L3a 客户端等价档）也放行：目标侧该组**只有一条** ⇒ 无歧义，
+  // 衍生栏目换源也能保持同一集。
+  return tier === 'exact' || tier === 'samePeriod' || tier === 'sameDate' || tier === 'bySeries'
 }
 
 /**
@@ -65,6 +74,27 @@ function periodOrdinals(list: EpisodeKey[]): number[] {
 }
 
 /**
+ * L3a（客户端等价档，与服务端 `pickSeriesUnique` 同口径）：同 `(series, variant)` 组内**唯一定位**。
+ * 适用：目标侧该集**既无期号也无日期**的衍生栏目（心动的旅行 / 线上集结篇 / 夏日清凉特辑…）。
+ * 安全边界：正片（series/variant 皆空）不适用；作用域被 (series,variant) 锁死 + 主/次相容；
+ * 期号两侧都有须相等；日期两侧都有须相等；**目标侧该组仅 1 条**才返回，否则 -1（宁缺勿错）。
+ */
+function seriesUniqueIndex(c: EpisodeKey, tgt: EpisodeKey[]): number {
+  if (!c.series && !c.variant) return -1
+  let only = -1
+  for (let i = 0; i < tgt.length; i++) {
+    const t = tgt[i]!
+    if (t.series !== c.series || t.variant !== c.variant) continue
+    if (!partCompatible(c, t)) continue
+    if (c.num > 0 && t.num > 0 && c.num !== t.num) continue
+    if (c.date && t.date && c.date !== t.date) continue
+    if (only >= 0) return -1 // 组内不唯一 ⇒ 不配
+    only = i
+  }
+  return only
+}
+
+/**
  * 跨源集对齐（5 档降级）。`curEps` / `targetEps` 为两侧完整集名列表（下标即播放用的集号）。
  * 全部对不上时返回 `{ index: -1, tier: 'failed' }`（调用方自行决定提示）。
  */
@@ -101,6 +131,9 @@ export function alignEpisode(curIndex: number, curEps: string[], targetEps: stri
       if (tgtOrd[i] === ord && identityCompatible(c, tgt[i]!)) return { index: i, tier: 'byOrdinal' }
     }
   }
-  // ⑤ 整体位置（原有兜底：第 i 个 ↔ 第 i 个，超出取最后一集）
+  // ⑤ 同栏目组内唯一（L3a）—— 衍生栏目（目标侧无期号无日期）；与服务端 pickSeriesUnique 同口径
+  const uniq = seriesUniqueIndex(c, tgt)
+  if (uniq >= 0) return { index: uniq, tier: 'bySeries' }
+  // ⑥ 整体位置（原有兜底：第 i 个 ↔ 第 i 个，超出取最后一集）
   return { index: Math.min(curIndex, tgt.length - 1), tier: 'position' }
 }
