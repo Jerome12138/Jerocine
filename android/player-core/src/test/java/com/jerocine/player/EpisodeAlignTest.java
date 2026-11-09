@@ -127,4 +127,39 @@ public class EpisodeAlignTest {
         assertFalse(EpisodeAlign.canAutoSwitch(EpisodeAlign.Tier.POSITION));
         assertFalse(EpisodeAlign.canAutoSwitch(EpisodeAlign.Tier.FAILED));
     }
+
+    /** L3a：目标侧无期号无日期 + 组内按 (series,part) 唯一 ⇒ 命中且可自动换源 */
+    @Test
+    public void bySeries_unique() {
+        EpisodeAlign.Result r = EpisodeAlign.align(0, of("20261005心动的旅行上"),
+                of("心动的旅行上：草原团建！", "心动的旅行中：…", "心动的旅行下：…"));
+        assertEquals(0, r.index);
+        assertEquals(EpisodeAlign.Tier.BY_SERIES, r.tier);
+        assertTrue(EpisodeAlign.canAutoSwitch(r.tier));
+    }
+
+    /** L3a：纯栏目名（无限号无主次）+ 组内唯一 ⇒ 命中 */
+    @Test
+    public void bySeries_pureLabel() {
+        EpisodeAlign.Result r = EpisodeAlign.align(0, of("20260507线上集结篇"),
+                of("线上集结篇：新老坞民烧脑身份推理战", "线下集结篇：新老坞民爆笑破冰"));
+        assertEquals(0, r.index);
+        assertEquals(EpisodeAlign.Tier.BY_SERIES, r.tier);
+    }
+
+    /** L3a：组内不唯一 ⇒ 落位置兜底且不自动换源 */
+    @Test
+    public void bySeries_ambiguousFallsBack() {
+        EpisodeAlign.Result r = EpisodeAlign.align(0, of("20261005心动的旅行"),
+                of("心动的旅行上：…", "心动的旅行中：…"));
+        assertEquals(EpisodeAlign.Tier.POSITION, r.tier);
+        assertFalse(EpisodeAlign.canAutoSwitch(r.tier));
+    }
+
+    /** L3a：正片（series/variant 皆空）不适用 */
+    @Test
+    public void bySeries_notForMainFeature() {
+        assertFalse(EpisodeAlign.align(0, of("20260803上"), of("第1期上")).tier
+                == EpisodeAlign.Tier.BY_SERIES);
+    }
 }

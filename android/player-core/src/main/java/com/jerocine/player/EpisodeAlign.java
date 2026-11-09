@@ -24,6 +24,8 @@ public final class EpisodeAlign {
         SAME_DATE,
         /** 同期序（跨命名体系：一侧用日期、一侧用期号） */
         BY_ORDINAL,
+        /** 同栏目组内唯一（L3a，与 web bySeries / 服务端 pickSeriesUnique 同口径） */
+        BY_SERIES,
         /** 按位置（原有兜底：第 i 个 ↔ 第 i 个） */
         POSITION,
         /** 完全对不上 */
@@ -32,7 +34,8 @@ public final class EpisodeAlign {
 
     /** 精确档：可据此**自动**换源；BY_ORDINAL/POSITION 是启发式兜底 ⇒ 只提示、不自动切。 */
     public static boolean canAutoSwitch(Tier t) {
-        return t == Tier.EXACT || t == Tier.SAME_PERIOD || t == Tier.SAME_DATE;
+        return t == Tier.EXACT || t == Tier.SAME_PERIOD || t == Tier.SAME_DATE
+                || t == Tier.BY_SERIES;
     }
 
     public static final class Result {
@@ -103,6 +106,27 @@ public final class EpisodeAlign {
     }
 
     /**
+     * L3a（客户端等价档，与服务端 pickSeriesUnique、web seriesUniqueIndex 同口径）：
+     * 同 {@code (series, variant)} 组内**唯一定位** —— 覆盖"目标侧既无期号也无日期"的衍生栏目
+     * （心动的旅行 / 线上集结篇 / 夏日清凉特辑…）。边界：正片（series/variant 皆空）不适用；
+     * 主/次相容；期号两侧都有须相等；日期两侧都有须相等；**目标侧该组仅 1 条**才返回，否则 -1。
+     */
+    static int seriesUniqueIndex(EpisodeKey c, java.util.List<EpisodeKey> tgt) {
+        if (c.series.isEmpty() && c.variant.isEmpty()) return -1;
+        int only = -1;
+        for (int i = 0; i < tgt.size(); i++) {
+            EpisodeKey t = tgt.get(i);
+            if (!t.series.equals(c.series) || !t.variant.equals(c.variant)) continue;
+            if (!EpisodeKey.partCompatible(c, t)) continue;
+            if (c.num > 0 && t.num > 0 && c.num != t.num) continue;
+            if (!c.date.isEmpty() && !t.date.isEmpty() && !c.date.equals(t.date)) continue;
+            if (only >= 0) return -1;
+            only = i;
+        }
+        return only;
+    }
+
+    /**
      * 5 档降级对齐。两侧传**完整集名列表**（下标即播放用的集号）；全对不上返回 {@code index=-1}。
      */
     public static Result align(int curIndex, List<String> curTitles, List<String> targetTitles) {
@@ -149,7 +173,10 @@ public final class EpisodeAlign {
                 }
             }
         }
-        // ⑤ 整体位置（原有兜底）
+        // ⑤ 同栏目组内唯一（L3a）
+        int uniq = seriesUniqueIndex(c, tgt);
+        if (uniq >= 0) return new Result(uniq, Tier.BY_SERIES);
+        // ⑥ 整体位置（原有兜底）
         return new Result(Math.min(curIndex, tgt.size() - 1), Tier.POSITION);
     }
 }
