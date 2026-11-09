@@ -21,6 +21,8 @@ interface FakeSW {
   updateFoundListeners: Set<() => void>
   /** 触发 registration.updatefound */
   fireUpdateFound: () => void
+  /** registration.update 的探针(徽标亮起应主动踢一次下载) */
+  update: ReturnType<typeof vi.fn>
 }
 
 /**
@@ -34,8 +36,9 @@ function installFakeSW(
 ): FakeSW {
   const listeners = new Set<() => void>()
   const updateFoundListeners = new Set<() => void>()
+  const update = vi.fn(async () => undefined)
   const reg = {
-    update: async () => undefined,
+    update,
     waiting: null as { postMessage: (m: unknown) => void } | null,
     addEventListener: (t: string, cb: () => void) => {
       if (t === 'updatefound') updateFoundListeners.add(cb)
@@ -60,7 +63,8 @@ function installFakeSW(
     updateFoundListeners,
     fireUpdateFound: () => {
       for (const cb of updateFoundListeners) cb()
-    }
+    },
+    update
   }
 }
 
@@ -507,6 +511,122 @@ describe('usePwaUpdate', () => {
 
     expect(reload).toHaveBeenCalledTimes(1)
     expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWER)
+  })
+
+  // ---- 2026-11-09 补: 徽标亮起即真的开始下载 + 进度环 ----
+
+  it('徽标亮起 → 主动踢一次 SW 下载(不再"亮了但其实一个字节没下")', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
+    await settle()
+
+    sw.fireUpdateFound()
+    await settle()
+
+    expect(apiOf(w).updateFound.value).toBe(true)
+    expect(sw.update).toHaveBeenCalledTimes(1)
+    w.unmount()
+  })
+
+  it('同一构建号不重复踢下载(反复核对也只抓一次 sw.js)', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
+    await settle()
+
+    sw.fireUpdateFound()
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+
+    expect(sw.update).toHaveBeenCalledTimes(1)
+    w.unmount()
+  })
+
+  it('进度按已写入 precache 的条目数推进, 接管瞬间补满', async () => {
+    const keys = Array.from({ length: 10 }, (_, i) => `https://x/old${i}.js?__WB_REVISION__=a`)
+    const list = vi.fn(async () => keys.slice())
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: OWN,
+      probeLatestBuild: async () => NEWER,
+      listPrecacheKeys: list,
+      progressPollMs: 10
+    })
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+    // 亮起就有一格可见进度, 不是 0
+    expect(apiOf(w).progress.value).toBeGreaterThan(0)
+
+    // 新版本落地一半(键名带新 revision, 与基线不重合)
+    for (let i = 0; i < 5; i++) keys.push(`https://x/new${i}.js?__WB_REVISION__=b`)
+    await new Promise((r) => setTimeout(r, 60))
+    await settle()
+    expect(apiOf(w).progress.value).toBeGreaterThanOrEqual(0.5)
+    // 还没接管就不能显示满
+    expect(apiOf(w).progress.value).toBeLessThanOrEqual(0.95)
+
+    await fire(sw) // 新 SW 接管 = 整包落地
+    await settle()
+    expect(apiOf(w).progress.value).toBe(1)
+    w.unmount()
+  })
+
+  // ---- applyUpdate 超时兜底: 硬重置(唯一能保证"点了就拿到新页面"的手段) ----
+
+  it('applyUpdate: 等满超时仍未接管 → 先硬重置再刷新', async () => {
+    const order: string[] = []
+    const reload = vi.fn(() => {
+      order.push('reload')
+    })
+    const hardReset = vi.fn(async () => {
+      order.push('reset')
+    })
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: OWN,
+      probeLatestBuild: async () => NEWER,
+      applyWaitMs: 10,
+      reload,
+      hardReset
+    })
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+
+    apiOf(w).applyUpdate()
+    await new Promise((r) => setTimeout(r, 60))
+    await settle()
+
+    expect(hardReset).toHaveBeenCalledTimes(1)
+    // 顺序: 先拆 SW/清缓存, 再刷新 —— 反了就还会被旧 precache 应答
+    expect(order).toEqual(['reset', 'reload'])
+    w.unmount()
+  })
+
+  it('applyUpdate: 接管成功 → 不硬重置(别白扔已下好的 precache)', async () => {
+    const reload = vi.fn()
+    const hardReset = vi.fn(async () => undefined)
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: OWN,
+      probeLatestBuild: async () => NEWER,
+      applyWaitMs: 30,
+      reload,
+      hardReset
+    })
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+
+    apiOf(w).applyUpdate()
+    await settle()
+    await fire(sw) // 新 SW 接管
+    await settle()
+
+    expect(hardReset).not.toHaveBeenCalled()
+    expect(reload).toHaveBeenCalledTimes(1)
+    w.unmount()
   })
 
   describe('isPageStale / parseBuildTag', () => {

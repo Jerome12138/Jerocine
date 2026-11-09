@@ -47,7 +47,7 @@ const { isTV, isMobile, isTablet } = useViewMode()
 /** 新版本检测/切换: 徽标(brand 右侧) + 移动抽屉「立即更新」菜单项共用 */
 const { updateFound, updateReady, applying: pwaApplying, applyUpdate } = usePwaUpdate()
 const pwaUpdateVisible = computed(() => updateFound.value || updateReady.value || pwaApplying.value)
-/** 文案/图标与 PwaUpdateBadge 徽标一致(发现更新/新版本/更新中) */
+/** 抽屉菜单项文案 —— 徽标本身已图标化(无文字), 但菜单行需要可读的标签 */
 const pwaUpdateText = computed(() =>
   pwaApplying.value ? '更新中' : updateReady.value ? '新版本' : '发现更新'
 )
@@ -1242,7 +1242,7 @@ watch(
               <span>后台管理</span>
             </RouterLink>
           </div>
-          <!-- 新版本(构建号确实不同才出现; 点击等新 SW 接管后切版, 同版本一个会话只提示一次) -->
+          <!-- 新版本(构建号确实不同才出现; 点击等新 SW 接管后切版, 同构建号每设备只提示一次) -->
           <div v-if="pwaUpdateVisible" class="jc-mnav__group">
             <div class="jc-mnav__divider" role="separator" aria-label="更新" />
             <button

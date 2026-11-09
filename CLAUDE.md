@@ -175,8 +175,10 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 - **是否提示只看构建号**：本页 `__APP_BUILD__` 与现抓 `index.html` 里的 `assets/<TS>/` 比对。`updatefound` 只当"去核对一次"的信号，**不得直接亮灯**——安装失败后浏览器下次导航会重试 install，无条件亮灯就是"同一个版本提示好几遍"。
 - **探测失败不提示**（除非同时有 `updatefound` 硬证据）：丢包链路上探测失败是常态，当"落后"处理只会随机误报。
 - **同构建号每设备只提示一次**（localStorage `jc-pwa-prompted-build`，不可用时退回 sessionStorage）：一个构建号只弹一次；出现**更新的**构建号 key 不同照常提示。别再退回 sessionStorage —— 它跟着标签页走，TV 壳冷启动/新标签都是新 session，"每启动一次提示一次"。
-- **点击更新 = 等新 SW 接管（controllerchange）后才 reload**，**不再 `clearAppCaches` + 立刻 reload**：旧 SW 仍控制页面时 reload 会被它的 precache 应答，拿回旧 index.html ⇒ 页面没换 ⇒ 稍后又提示一次，还白清 3MB precache。
-- **8s 超时兜底刷新时必须清掉去重记录**（`clearPromptedBuild`）：超时意味着新 SW 还没接管，这次刷新拿到的仍是旧页面；若留着"已提示"记录，刷新后核对直接静默 ⇒ 用户点了更新、页面没变、还再也看不到入口。已接管后的正常刷新**不清**（那次是兑现了的）。
+- **点击更新 = 等新 SW 接管（controllerchange）后才 reload**，等待上限 **40s**：跨境 3MB precache 要 30–40s，原来 8s 必然超时，等于"点了没用"。**已接管的一次性直接刷**，不等。
+- **等满 40s 仍未接管 ⇒ 先硬重置再刷**（`hardResetSw`：清 `jc-*` / `workbox-precache*` 的 Cache Storage → `unregister()` → reload）。这是"点了就一定能拿到新页面"的唯一保证 —— 旧 SW 会用 precache 应答导航，不拆它刷多少次都是旧页。代价是正在下的 precache 作废重下，所以只压在这个最坏分支；顺手清掉去重记录，万一硬重置没生效、刷新后仍落后，还能再提示一次。
+- **徽标亮起即主动 `reg.update()` 踢一次下载**（按构建号去重，同一版本只踢一次）：页面侧的核对只抓 `index.html` 比版本号，**不触发 SW 下载**；不补这一下，"发现更新"可能亮很久而一个字节没下，点了还得从头等。
+- **徽标是图标不是文字**（`components/base/PwaUpdateBadge.vue`）：标题旁 32px 圆按钮（TV 40px），箭头用两层叠放 + `clip-path` 按 `progress` 从下往上填满；文字只留在 `aria-label` / `title`。`progress` 是**估算**：precache 已落地条目数 / 起手快照条目数（workbox 每下完一个文件 `cache.put` 一条，键带 `__WB_REVISION__`），拿不到缓存时按耗时缓动到 0.9；**未接管封顶 95%**，接管才 100%。
 
 ## Android 工程版本控制
 
