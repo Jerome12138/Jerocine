@@ -5,6 +5,12 @@ import (
 	"context"
 	"fmt"
 	"image"
+	// ⚠ 必须空白导入, 否则 image.Decode 无法解码 JPEG/PNG:
+	// image.Decode 靠各格式包在 init() 注册解码器, "image" 包本身不带任何格式。
+	// TMDB 横图是 JPEG, 缺此注册 → saveBackdrop 的解码分支恒失败 → 静默退回 .jpg,
+	// WebP 转换成为死代码(2026-11-09 定位)。
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log"
 	"net/http"
