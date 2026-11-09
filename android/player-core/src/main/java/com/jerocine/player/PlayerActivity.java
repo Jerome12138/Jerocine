@@ -1546,7 +1546,8 @@ private static String failedRequestUrl(Throwable error) {
         final String probedFilmId = filmId();
         // probe() 立即返回(整批在后台编排线程 jc-source-probe 上跑, 终审修复):
         // 主线程此处不做任何网络等待; 完成回调 post 回主线程(onSourceProbeDone)。
-        SourceProbeHelper.probe(sources, curEp, results -> onSourceProbeDone(probedFilmId, results));
+        SourceProbeHelper.probe(sources, curEp, session.sourceList.get(session.currentSourceIndex).titles,
+                results -> onSourceProbeDone(probedFilmId, results));
     }
 
     /**

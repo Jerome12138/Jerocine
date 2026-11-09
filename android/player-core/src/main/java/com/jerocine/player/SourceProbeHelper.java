@@ -82,6 +82,7 @@ final class SourceProbeHelper {
      * @param callback       主线程回调
      */
     static void probe(List<PlayerSession.SourceData> sources, int currentEpisode,
+                      List<String> curTitles,
                       Callback callback) {
         final List<PlayerSession.SourceData> srcs =
                 (sources == null) ? new ArrayList<>() : sources;
@@ -92,12 +93,13 @@ final class SourceProbeHelper {
         // 一次性编排线程(命名对齐 jc-prefetch 惯例): run() 结束线程即终止, 无跨批共享;
         // 进程级节流(SourceProbeThrottle)保证其触发频率 ≤ 1 次/30 分钟, 无线程堆积面
         Thread orchestrator = new Thread(
-                () -> runBatch(srcs, currentEpisode, callback), "jc-source-probe");
+                () -> runBatch(srcs, currentEpisode, curTitles, callback), "jc-source-probe");
         orchestrator.start();
     }
 
     /** 整批执行(后台编排线程): 提交全部单源任务 → get 汇总 → 回收池/client → post 主线程。 */
     private static void runBatch(List<PlayerSession.SourceData> sources, int currentEpisode,
+                                 List<String> curTitles,
                                  Callback callback) {
         final List<SourceSpeedRanker.Result> results = new ArrayList<>();
         final OkHttpClient client = buildClient();
@@ -108,7 +110,7 @@ final class SourceProbeHelper {
             for (int i = 0; i < sources.size(); i++) {
                 final int idx = i;
                 futures.add(pool.submit(
-                        () -> probeOne(client, sources.get(idx), idx, currentEpisode)));
+                        () -> probeOne(client, sources.get(idx), idx, currentEpisode, curTitles)));
             }
             // 每任务受 3s 预算硬约束, get 超时纯防御(超时按失败源入列, 不拖死整批)
             for (int i = 0; i < futures.size(); i++) {
@@ -141,7 +143,8 @@ final class SourceProbeHelper {
     /** 单源探测: 计「媒体清单 GET 完成」耗时; 任何异常都折成 ok=false 结果, 不外抛。 */
     private static SourceSpeedRanker.Result probeOne(OkHttpClient client,
                                                      PlayerSession.SourceData src,
-                                                     int sourceIndex, int currentEpisode) {
+                                                     int sourceIndex, int currentEpisode,
+                                                     List<String> curTitles) {
         long startNanos = System.nanoTime();
         String reason = "";
         boolean ok = false;
@@ -150,8 +153,11 @@ final class SourceProbeHelper {
                 throw new IOException("该源无集 URL");
             }
             // 「切过去将播放的那一集」(D⑦): 复用切源钳位, 不另写第二份 coerceIn
-            int epIdx = PlaybackTarget.switchSource(
-                    sourceIndex, currentEpisode, 0L, src.urls.size()).getEpisodeIndex();
+            // 「切过去将播放的那一集」(D⑦) —— 与**真换源同口径**（跨源集对齐）:
+            // 否则测的是"另一集"的 URL（同源同 CDN，耗时不变，但口径必须一致 —— 用户要求）。
+            // strictAuto=false: 探针只取下标, 对不上也要给一个 URL（放行兜底档）。
+            int epIdx = PlaybackTarget.switchSourceAligned(
+                    sourceIndex, currentEpisode, 0L, curTitles, src.titles, false).getEpisodeIndex();
             String url = src.urls.get(epIdx);
             long deadlineNanos = startNanos + PROBE_BUDGET_MS * 1_000_000L;
             // master 下钻 ≤2 层(D⑦): 初始 GET + 至多两次 firstVariantUrl 下钻,
