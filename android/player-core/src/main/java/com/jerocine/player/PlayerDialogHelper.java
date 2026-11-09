@@ -137,8 +137,11 @@ public class PlayerDialogHelper {
                     }
                     // 用户显式选源(buffer-perf 规格 D⑧): 置位后源测速自动切换永久让位
                     session.sourceManuallyPicked = true;
-                    PlaybackTarget target = PlaybackTarget.switchSource(
-                            w, curEp, curPos, session.sourceList.get(w).urls.size());
+                    // 手动切源: 放行兜底档(strictAuto=false) —— 用户显式选择, 对不上也给最接近的一集
+                    PlaybackTarget target = PlaybackTarget.switchSourceAligned(
+                            w, curEp, curPos,
+                            session.sourceList.get(session.currentSourceIndex).titles,
+                            session.sourceList.get(w).titles, false);
                     session.currentSourceIndex = target.sourceIndex;
                     session.loadSourceIntoPlayer(
                             target.sourceIndex, target.episodeIndex, target.positionMs);

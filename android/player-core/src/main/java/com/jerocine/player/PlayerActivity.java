@@ -1575,8 +1575,14 @@ private static String failedRequestUrl(Throwable error) {
         int curIdx = session.player.getCurrentMediaItemIndex();
         // 复用 showSourceDialog 同一执行序列(D⑧): 钳位落点 → 先写 currentSourceIndex → 装载
         long curPos = session.player.getCurrentPosition();
-        PlaybackTarget target = PlaybackTarget.switchSource(best, curIdx, curPos,
-                session.sourceList.get(best).urls.size());
+        PlaybackTarget target = PlaybackTarget.switchSourceAligned(best, curIdx, curPos,
+                session.sourceList.get(session.currentSourceIndex).titles,
+                session.sourceList.get(best).titles, true);
+        if (target == null) {
+            android.util.Log.i(SourceProbeHelper.TAG,
+                    "decision: no switch (align not exact) best=" + best);
+            return;
+        }
         session.currentSourceIndex = target.sourceIndex;
         session.loadSourceIntoPlayer(target.sourceIndex, target.episodeIndex, target.positionMs);
         android.util.Log.i(SourceProbeHelper.TAG, "decision: auto-switch current="
@@ -1656,8 +1662,13 @@ private static String failedRequestUrl(Throwable error) {
         int fromIdx = session.currentSourceIndex;
         int curIdx = p.getCurrentMediaItemIndex();
         long curPos = p.getCurrentPosition();
-        PlaybackTarget target = PlaybackTarget.switchSource(best, curIdx, curPos,
-                session.sourceList.get(best).urls.size());
+        PlaybackTarget target = PlaybackTarget.switchSourceAligned(best, curIdx, curPos,
+                session.sourceList.get(session.currentSourceIndex).titles,
+                session.sourceList.get(best).titles, true);
+        if (target == null) {
+            android.util.Log.i("StallFailover", "auto-switch skipped (align not exact) best=" + best);
+            return;
+        }
         session.currentSourceIndex = target.sourceIndex;
         session.loadSourceIntoPlayer(target.sourceIndex, target.episodeIndex, target.positionMs);
         stallFailoverCount += 1;
