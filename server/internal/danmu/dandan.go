@@ -228,6 +228,13 @@ func PickEpisode(eps []DandanEpisode, episode int, appNum int, appTitles ...stri
 					return &eps[i]
 				}
 			}
+			// L3a（2026-11-09）：**同栏目组内唯一定位** —— 覆盖"库侧既无期号也无日期"的衍生栏目集
+			// （心动的旅行上 / 线上集结篇 / 夏日清凉特辑…）。
+			// 安全边界：作用域被 series+variant 锁死、主/次相容、期号与日期不冲突，且**库侧该组仅 1 条**；
+			// 任一条不满足即不配（宁缺勿错 —— 配错比查不到更糟）。
+			if hit := pickSeriesUnique(k, eps); hit != nil {
+				return hit
+			}
 			return nil
 		}
 	}
@@ -325,4 +332,44 @@ func ParseDandanComments(raw []DandanRawComment) []DandanComment {
 		})
 	}
 	return out
+}
+
+// pickSeriesUnique L3a（2026-11-09）：在同 (Series, Variant) 分组内做**唯一定位**。
+//
+// 适用：库侧该集**既无期号也无日期**的"衍生栏目"集（App 侧通常只有日期），例如
+// 「心动的旅行上 / 线上集结篇 / 夏日清凉特辑」。这类集两侧没有任何共同字段，
+// 旧的 SameEpisode 必然判不同 ⇒ 整栏目查不到弹幕。
+//
+// 安全边界（宁缺勿错）：
+//   - 只在 series 或 variant 非空时启用（正片不适用，正片走期号/日期锚点）；
+//   - 作用域被 (Series, Variant) 锁死，并要求主/次部分相容；
+//   - 期号若两侧都有则必须相等；日期若两侧都有则必须相等（硬证据）；
+//   - **库侧同组仅 1 条**才返回；多于 1 条一律不配。
+func pickSeriesUnique(k EpisodeKey, eps []DandanEpisode) *DandanEpisode {
+	if k.Series == "" && k.Variant == "" {
+		return nil
+	}
+	var only *DandanEpisode
+	cnt := 0
+	for i := range eps {
+		o := ParseEpisodeKey(eps[i].EpisodeTitle)
+		if o.Series != k.Series || o.Variant != k.Variant {
+			continue
+		}
+		if !partCompatible(k, o) {
+			continue
+		}
+		if k.Num > 0 && o.Num > 0 && k.Num != o.Num {
+			continue
+		}
+		if k.Date != "" && o.Date != "" && k.Date != o.Date {
+			continue
+		}
+		cnt++
+		if cnt > 1 {
+			return nil
+		}
+		only = &eps[i]
+	}
+	return only
 }

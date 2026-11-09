@@ -172,3 +172,31 @@ func TestSeriesOf_DateStylePeriod(t *testing.T) {
 		t.Fatal("常规「第3期中（上）」解析回归")
 	}
 }
+
+// L3a 防呆（2026-11-09）：同栏目组内唯一定位
+func TestPickEpisode_SeriesUniqueL3a(t *testing.T) {
+	lib := []DandanEpisode{
+		{EpisodeID: 1, EpisodeNumber: "1", EpisodeTitle: "【qq】 第1期上：坞民绝技大乱斗燃爆全场"},
+		{EpisodeID: 2, EpisodeNumber: "2", EpisodeTitle: "【qq】 线上集结篇：新老坞民烧脑身份推理战"},
+		{EpisodeID: 3, EpisodeNumber: "3", EpisodeTitle: "【qq】 第2期上：彭冠英方媛惨遭老坞民整蛊"},
+		{EpisodeID: 4, EpisodeNumber: "4", EpisodeTitle: "【qq】 心动的旅行上：草原团建！"},
+		{EpisodeID: 5, EpisodeNumber: "5", EpisodeTitle: "【qq】 心动的旅行中：…"},
+		{EpisodeID: 6, EpisodeNumber: "6", EpisodeTitle: "【qq】 心动的旅行下：…"},
+	}
+	// ① 纯栏目名（库侧无期号无日期）+ 组内唯一 ⇒ 命中
+	if ep := PickEpisode(lib, 2, 0, "20260507线上集结篇"); ep == nil || ep.EpisodeID != 2 {
+		t.Fatalf("L3a 应命中「线上集结篇」(id=2), got %v", ep)
+	}
+	// ② 带主次部分 + 组内按 (series,part) 唯一 ⇒ 命中（App 的 上/中/下 ↔ 库的 上/中/下）
+	if ep := PickEpisode(lib, 1, 0, "20261005心动的旅行上"); ep == nil || ep.EpisodeID != 4 {
+		t.Fatalf("L3a 应命中「心动的旅行上」(id=4), got %v", ep)
+	}
+	// ③ 无主次部分且组内 3 条 ⇒ 不唯一 ⇒ 不配（宁缺勿错）
+	if ep := PickEpisode(lib, 5, 0, "20261005心动的旅行"); ep != nil {
+		t.Fatalf("组内不唯一时应不配, got id=%d", ep.EpisodeID)
+	}
+	// ④ 正片不适用（series/variant 皆空）⇒ 不因 L3a 命中
+	if ep := PickEpisode(lib, 1, 0, "20260803上"); ep != nil {
+		t.Fatalf("正片不应走 L3a, got id=%d", ep.EpisodeID)
+	}
+}
