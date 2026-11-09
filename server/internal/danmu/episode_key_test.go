@@ -158,3 +158,17 @@ func TestPickEpisode_AppNum(t *testing.T) {
 		t.Fatalf("期号参数应打开键匹配命中 EpisodeID=5, 实际 %+v", ep)
 	}
 }
+
+// v2 追加（2026-11-09，三端同规防呆）：日期样式期号「第20261005期…」不得残留「期」
+func TestSeriesOf_DateStylePeriod(t *testing.T) {
+	k := ParseEpisodeKey("第20261005期心动的旅行上")
+	if k.Series != "心动的旅行" {
+		t.Fatalf("Series = %q, want 心动的旅行（先删第N期再删日期）", k.Series)
+	}
+	if k.Date != "20261005" || k.Part != "上" || k.Num != 0 {
+		t.Fatalf("date/part/num = %q/%q/%d, want 20261005/上/0", k.Date, k.Part, k.Num)
+	}
+	if ParseEpisodeKey("第3期中（上）").Part != "中" {
+		t.Fatal("常规「第3期中（上）」解析回归")
+	}
+}

@@ -115,4 +115,15 @@ public class EpisodeKeyTest {
         EpisodeKey bf = EpisodeKey.parse("20261005第10期上");
         assertEquals(bf.epid(), EpisodeKey.epidFor(lz, others));
     }
+
+    /** v2 追加（2026-11-09，三端同规防呆）：日期样式期号不得残留「期」 */
+    @Test
+    public void dateStylePeriod_noResidualQi() {
+        EpisodeKey k = EpisodeKey.parse("第20261005期心动的旅行上");
+        assertEquals("心动的旅行", k.series);
+        assertEquals("20261005", k.date);
+        assertEquals("上", k.part);
+        assertEquals(0, k.num);
+        assertEquals("中", EpisodeKey.parse("第3期中（上）").part);
+    }
 }

@@ -190,11 +190,13 @@ export function epidFor(title: string, otherTitles: string[]): string {
  */
 export function anchorNumFor(title: string, allTitles: string[]): number {
   const k = parseEpisodeKey(title ?? '')
-  if (!k.date || k.series || k.variant) return 0
+  if (!k.date || k.variant) return 0
   const dates: string[] = []
   for (const t of allTitles ?? []) {
     const o = parseEpisodeKey(t ?? '')
-    if (o.series || o.variant) continue // 排除衍生栏目与变体
+    // ⚠️ 只数**同一栏目组**的「上」：正片组 series=''；衍生栏目（心动的周末/线上集结篇…）各数各的。
+    // 2026-11-09 由"只数正片"扩展为"按 series 分组" —— 否则「心动的周末上」永远拿不到期号 1/2/3。
+    if (o.series !== k.series || o.variant) continue
     if (!o.part.startsWith('上')) continue
     if (o.date) dates.push(o.date)
   }

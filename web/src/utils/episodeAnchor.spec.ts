@@ -88,3 +88,27 @@ describe('derivedNumFor · 期号来源优先级', () => {
     expect(derivedNumFor('20260810上', withBridge)).toBe(2)
   })
 })
+
+const WEEKEND = [
+  ...XD9,
+  '20261019心动的周末上',
+  '20261019心动的周末下',
+  '20261026心动的周末上',
+  '20261026心动的周末下'
+]
+
+describe('anchorNumFor · 衍生栏目按栏目组计数（2026-11-09 扩展）', () => {
+  it('心动的周末：组内「上」日期序 = 期号', () => {
+    expect(anchorNumFor('20261012心动的周末上', WEEKEND)).toBe(1)
+    expect(anchorNumFor('20261019心动的周末上', WEEKEND)).toBe(2)
+    expect(anchorNumFor('20261026心动的周末上', WEEKEND)).toBe(3)
+  })
+
+  it('正片仍按正片组计数（不被衍生栏目带偏）', () => {
+    expect(anchorNumFor('20260929下', WEEKEND)).toBe(4)
+  })
+
+  it('心动的旅行：组内只有 1 个「上」⇒ 保守返回 0（库侧该栏目本就无期号）', () => {
+    expect(anchorNumFor('20261005心动的旅行上', WEEKEND)).toBe(0)
+  })
+})
