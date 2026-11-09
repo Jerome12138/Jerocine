@@ -222,7 +222,7 @@ func PickEpisode(eps []DandanEpisode, episode int, appNum int, appTitles ...stri
 		// 此时第三方源的"第几个视频"与弹幕库期号毫无关系 → 键没命中就是没命中，绝不回退索引号或下标。
 		// 纯「第N集/话」形态仍走下面的旧三策略，行为与改动前完全一致（现网 96.8% 属此形态）。
 		// v2: 前端传来的期号（appNum>0）本身即身份信号, 一并开门 —— 纯日期/纯期号形态由此进键匹配。
-		if k.Date != "" || k.Variant != "" || k.ENum > 0 || appNum > 0 {
+		if k.Date != "" || k.Variant != "" || k.ENum > 0 || k.Series != "" || appNum > 0 {
 			for i := range eps {
 				if SameEpisode(k, ParseEpisodeKey(eps[i].EpisodeTitle)) {
 					return &eps[i]

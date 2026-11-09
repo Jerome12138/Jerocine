@@ -141,8 +141,11 @@ func seriesOf(s string) string {
 	// 跨度删除以 \x00 占位: 残片之间永不拼接, 片段即原文中的连续子串
 	const sep = "\x00"
 	s = reBracket.ReplaceAllString(s, sep)
-	s = reDate8.ReplaceAllString(s, sep)
+	// ⚠️ 顺序要紧：先删「第N期/集/话…」再删日期。反过来的话日期会先被替换成占位符，
+	// reDiNWide 的 `\s*\d{0,8}\s*` 跨不过占位符 ⇒ 「第20261005期心动的旅行上」这类日期样式期号
+	// 会残留一个「期」，栏目名变「期心动的旅行」，与库侧对不上（与 TS 侧同一 bug，2026-11-09 三端同修）
 	s = reDiNWide.ReplaceAllString(s, sep)
+	s = reDate8.ReplaceAllString(s, sep)
 	s = reSeasonSpan.ReplaceAllString(s, sep)
 	s = reENum.ReplaceAllString(s, sep)
 	s = reVariant.ReplaceAllString(s, sep)

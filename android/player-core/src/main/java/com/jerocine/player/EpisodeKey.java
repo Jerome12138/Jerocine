@@ -92,8 +92,8 @@ public final class EpisodeKey {
         if (ci < 0 || (ci2 >= 0 && ci2 < ci)) ci = ci2 >= 0 ? ci2 : ci;
         if (ci >= 0) s = s.substring(0, ci);
         s = s.replaceAll("【[^】]*】|（[^）]*）|\\([^)]*\\)|《[^》]*》|「[^」]*」|『[^』]*』|\\[[^\\]]*\\]", "\u0000");
-        s = s.replaceAll("(?:19|20)\\d{6}", "\u0000");
         s = s.replaceAll("第\\s*\\d{0,8}\\s*[期集话回季部]", "\u0000");
+        s = s.replaceAll("(?:19|20)\\d{6}", "\u0000");
         s = s.replaceAll("第\\s*[\\d一二三四五六七八九十零两]+\\s*季", "\u0000");
         s = s.replaceAll("(?i)(?:^|[^A-Za-z])(?:E|EP)\\s*0*\\d{1,3}(?:\\D|$)", "\u0000");
         s = s.replaceAll("加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外", "\u0000");
