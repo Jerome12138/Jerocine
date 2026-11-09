@@ -146,6 +146,15 @@ public class PlayerSession {
     /** 本次装载是否走"单URL 兼容模式"(不做任何包装) — 重载时要沿用同一模式. 预取线程会读。 */
     volatile boolean currentBypassFilter = false;
 
+    /**
+     * 用户显式选过源(buffer-perf 规格 D⑧): 仅两处用户动作置位 —— 切源弹窗点击他源
+     * (PlayerDialogHelper.showSourceDialog)、更多菜单「换源播本地」(PlayerActivity)。
+     * 源测速自动切换<b>不置位</b>(不抢夺用户后续手动权) —— 探测完成重查守卫见到 true
+     * 即放弃自动切换, 「永不覆盖手动选择」逐字落地。
+     * volatile: 探测决策回调在主线程读写, 与对话框线程置位间建立可见性。
+     */
+    volatile boolean sourceManuallyPicked = false;
+
     // ===== 广告过滤 =====
     volatile boolean adFilterOn = true;
     volatile List<String> currentRawUrls = new ArrayList<>();

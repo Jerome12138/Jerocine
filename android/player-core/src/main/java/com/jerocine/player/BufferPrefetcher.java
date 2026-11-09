@@ -17,9 +17,11 @@ import com.jerocine.player.download.PlaylistSegments;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -37,7 +39,9 @@ import okhttp3.Response;
  *   2. GET 当前集原始 m3u8 → 本地 M3u8FilterCore 过滤 → 过滤后清单
  *   3. PlaylistSegments 解析 + startIndexForOffset 定位当前播放位置所在分片(相对窗口起点)
  *      + rangeForMinutes 取"当前位置起往后 N 分钟"(minutes=0 则到片尾)
- *   4. 对每个分片 CacheWriter(upstream=OkHttpDataSource, cache=播放缓存, key=源站URL) 顺序写
+ *   4. 对每个分片 CacheWriter(upstream=OkHttpDataSource, cache=播放缓存, key=源站URL) 写缓存
+ *      —— parallelism=1 顺序写(默认, 与 2026-11-09 前行为逐值一致);
+ *        parallelism≥2 固定线程池并行写(buffer-perf 规格 D①)
  *   5. 进度回调(已缓存 x/N 分钟) → 完成回调 → 调用方自动 resume
  * </pre>
  *
@@ -70,13 +74,35 @@ public final class BufferPrefetcher {
     }
 
     private final Cache cache;
+    /**
+     * 写并行度(buffer-perf 规格 D①): 1 = 顺序档(默认, 与现状逐值同语义);
+     * ≥2 = 固定线程池并行档。PlayerActivity 按用户开关传 1/3。
+     */
+    private final int parallelism;
+    /** 调度线程(现状角色): pre-work + 提交分片任务 + 收尾回调(仍只从这里 post 主线程). */
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private volatile boolean cancelled;
+    /**
+     * 写分片池, parallelism≥2 才建。红线(D①, DownloadEngine.java:1255-1263 OOM 教训):
+     * 禁 cachedThreadPool —— 固定池线程数恒定; 池随实例生灭(构造建 / finally shutdown /
+     * cancel shutdownNow), 无跨实例共享/静态池。
+     */
     @Nullable
-    private volatile CacheWriter activeWriter;
+    private final ExecutorService writePool;
+    /** 在途写登记处(D④): cancel 掐所有在途, 取代旧 activeWriter 单引用。 */
+    private final BufferWriterRegistry registry = new BufferWriterRegistry();
+    private volatile boolean cancelled;
+    /** 首片失败标志(D④): 分片任务入口查 {@code cancelled || failed} 短路排队任务。 */
+    private volatile boolean failed;
 
     public BufferPrefetcher(Cache cache) {
+        this(cache, 1);
+    }
+
+    public BufferPrefetcher(Cache cache, int parallelism) {
         this.cache = cache;
+        this.parallelism = Math.max(1, parallelism);
+        this.writePool = this.parallelism >= 2
+                ? Executors.newFixedThreadPool(this.parallelism) : null;
     }
 
     /**
@@ -95,7 +121,7 @@ public final class BufferPrefetcher {
         worker.execute(() -> {
             try {
                 run(srcUrl, minutes, startOffsetSec, progress, done);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 // 取消引起的失败要与真实失败区分开。cancel() 会 shutdownNow 中断本线程,
                 // 被打断的本地过滤返回 null → 这里抛 "广告过滤失败"。
                 // 若不判cancelled, 用户在"缓冲30分钟"中途改选"缓冲5分钟"时, 旧实例会:
@@ -106,16 +132,25 @@ public final class BufferPrefetcher {
                 //      onError 回调), 实际由调用方 PlayerActivity 的实例身份守卫解决:
                 //      旧实例回调到达时 bufferPrefetcher 已指向新实例, 直接丢弃
                 //      (第2轮评审: 修正本注释此前声称本分支已修复②的误导)。
+                // Throwable 而非 Exception(终审 low): OOM/LinkageError 也走失败回调 ——
+                // 否则顺序档收尾被跳过、零回调, bufferInProgress 卡 true 到手动取消。
                 if (cancelled) {
                     post(() -> done.onError("已取消"));
                     return;
                 }
                 String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 Log.w(TAG, "prefetch failed", e);
-                post(() -> done.onError("缓存缓冲失败: " + msg));
+                // 分片级失败(顺序档 runSequential 已带「分片 x/N」)不再二次加前缀 ——
+                // 与并行档文案统一(终审 low: 两档失败 toast 文案不一致)
+                String full = msg.startsWith("分片 ") ? msg : "缓存缓冲失败: " + msg;
+                post(() -> done.onError(full));
             } finally {
                 // 正常结束也要回收(cancel 才走不到的路径); 幂等, 与 cancel 的 shutdown 兼容
                 worker.shutdown();
+                // 写分片池与 worker 同轨回收(规格 §3.1 生命周期: 构造建/finally shutdown/cancel
+                // shutdownNow); 走到此处时 latch 已归零或任务从未提交, shutdown 不甩任何任务
+                ExecutorService pool = writePool;
+                if (pool != null) pool.shutdown();
             }
         });
     }
@@ -186,39 +221,35 @@ public final class BufferPrefetcher {
             throw new IOException("没有可缓冲的分片");
         }
 
-        // 3) 顺序写 [from, end) 片 —— 进度按窗口本身算(target=窗口时长), 与所选档位语义一致
+        // 3) 写 [from, end) 片 —— 进度按窗口本身算(target=窗口时长), 与所选档位语义一致
         double targetSec = 0;
         for (int i = from; i < end; i++) targetSec += segments.get(i).durationSeconds;
+        // D③: 顺序/并行两模式统一走聚合器(单调 + 去重; 顺序完成序=序号升序, 与累加逐值一致)
+        BufferProgressAggregator aggregator = new BufferProgressAggregator(targetSec);
 
-        double cachedSec = 0;
+        if (writePool == null) {
+            runSequential(from, end, segments, progress, aggregator, done);
+        } else {
+            runParallel(from, end, segments, progress, aggregator, done);
+        }
+    }
+
+    /**
+     * 顺序档(parallelism=1, 默认): 现状 run() 结构原样 —— 逐片写, 仅两处替换
+     * (activeWriter 单引用 → registry 登记/注销; cachedSec 累加 → 聚合器),
+     * 观测行为与改前逐值一致(buffer-perf 规格 §3.1)。
+     */
+    private void runSequential(int from, int end, List<PlaylistSegments.Segment> segments,
+                               ProgressListener progress, BufferProgressAggregator aggregator,
+                               CompletionListener done) throws IOException {
         for (int i = from; i < end; i++) {
             if (cancelled) break;
-            PlaylistSegments.Segment seg = segments.get(i);
-            // 每片用独立的 upstream: CacheDataSource.close() 会**顺手关掉 upstream**,
-            // 共享一个实例的话, 任何一处给 ds 补上 close 都会让后续所有分片抛
-            // "DataSource is closed"。目前恰好没 close 才没炸, 这条约定很脆。
-            // (OkHttpDataSource 底层共享静态 HTTP 的连接池, 每片新建 DataSource
-            //  的代价只是一层对象, 不会多建连接)
-            OkHttpDataSource upstream = new OkHttpDataSource.Factory(HTTP)
-                    .setUserAgent(UA)
-                    .createDataSource();
-            CacheDataSource ds = new CacheDataSource(cache, upstream,
-                    CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
-            final CacheWriter writer = new CacheWriter(ds, new DataSpec(Uri.parse(seg.url)), null,
-                    (requestedBytes, writtenBytes, cacheSize) -> {
-                    });
-            activeWriter = writer;
             try {
-                writer.cache();
-                cachedSec += seg.durationSeconds;
-                final double c = cachedSec, t = targetSec;
-                post(() -> progress.onProgress(c, t));
+                writeSegment(i, from, end, segments, progress, aggregator);
             } catch (IOException e) {
                 // 单片失败(网络抖/源站断) → 停止, 已有缓存保留
                 throw new IOException("分片 " + (i - from + 1) + "/" + (end - from) + " 缓冲失败: "
                         + (e.getMessage() == null ? "网络异常" : e.getMessage()));
-            } finally {
-                if (activeWriter == writer) activeWriter = null;
             }
         }
         if (cancelled) {
@@ -228,19 +259,115 @@ public final class BufferPrefetcher {
         post(() -> done.onComplete());
     }
 
+    /**
+     * 并行档(parallelism≥2, buffer-perf 规格 D①/D④ §3.1): 每片一个任务提交固定池,
+     * latch await 全部落幕后由本(调度)线程收尾 —— 回调仍只从这里 post 主线程、恰好一次,
+     * 优先级 cancelled > 首个失败 > onComplete。
+     */
+    private void runParallel(int from, int end, List<PlaylistSegments.Segment> segments,
+                             ProgressListener progress, BufferProgressAggregator aggregator,
+                             CompletionListener done) throws InterruptedException {
+        final int total = end - from;
+        final CountDownLatch latch = new CountDownLatch(total);
+        // 首个失败消息恰一条: 并行多片同炸时 CAS 保证只有第一个进收尾
+        final AtomicReference<String> firstFailure = new AtomicReference<>();
+        for (int i = from; i < end; i++) {
+            final int idx = i;
+            writePool.execute(() -> {
+                try {
+                    // 入口查标志(D④): registry 里只有已 register 的在途者, 排队未跑的任务
+                    // 全靠这里查 cancelled||failed 短路 —— 否则首片失败后其余排队任务照常
+                    // 依次写完全窗口(30 分钟档 onError 迟到几十分钟)。
+                    if (cancelled || failed) return;
+                    writeSegment(idx, from, end, segments, progress, aggregator);
+                } catch (Throwable t) {
+                    // Throwable 而非 Exception(终审 low): OOM 级错误也折成失败消息走
+                    // firstFailure 收尾 —— 若放任外抛, 任务线程死亡但 finally 仍落 latch,
+                    // 收尾会误判为「全部成功」发出假 onComplete。
+                    String reason = t.getMessage() == null
+                            ? t.getClass().getSimpleName() : t.getMessage();
+                    String msg = (t instanceof IOException)
+                            ? "分片 " + (idx - from + 1) + "/" + total + " 缓冲失败: " + reason
+                            : "缓存缓冲失败: " + reason;
+                    if (firstFailure.compareAndSet(null, msg)) {
+                        failed = true;
+                        Log.w(TAG, "segment prefetch failed", t);
+                        // 掐所有在途(在途 CacheWriter 快速退出); 排队任务走上面的入口短路。
+                        // 【不得】此处 writePool.shutdownNow 甩排队任务 —— 被甩的任务不落
+                        // latch, await 反而挂死(规格 §3.1)。
+                        registry.cancelAll();
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+        // cancel → worker.shutdownNow 中断本线程 → InterruptedException → start 捕获判 cancelled
+        latch.await();
+        // 收尾判定基于 volatile cancelled/failed, 与任务结束顺序解耦
+        if (cancelled) {
+            post(() -> done.onError("已取消"));
+            return;
+        }
+        String failure = firstFailure.get();
+        if (failure != null) {
+            post(() -> done.onError(failure));
+            return;
+        }
+        post(() -> done.onComplete());
+    }
+
+    /**
+     * 单分片写体(顺序/并行两档完全共用): 每片独立 DataSource + registry 登记/注销 + 聚合器上报。
+     */
+    private void writeSegment(int i, int from, int end, List<PlaylistSegments.Segment> segments,
+                              ProgressListener progress, BufferProgressAggregator aggregator)
+            throws IOException {
+        PlaylistSegments.Segment seg = segments.get(i);
+        // 每片用独立的 upstream: CacheDataSource.close() 会**顺手关掉 upstream**,
+        // 共享一个实例的话, 任何一处给 ds 补上 close 都会让后续所有分片抛
+        // "DataSource is closed"。目前恰好没 close 才没炸, 这条约定很脆。
+        // (OkHttpDataSource 底层共享静态 HTTP 的连接池, 每片新建 DataSource
+        //  的代价只是一层对象, 不会多建连接; 并行下更禁止共享, 规格 D⑨⑤)
+        OkHttpDataSource upstream = new OkHttpDataSource.Factory(HTTP)
+                .setUserAgent(UA)
+                .createDataSource();
+        CacheDataSource ds = new CacheDataSource(cache, upstream,
+                CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+        final CacheWriter writer = new CacheWriter(ds, new DataSpec(Uri.parse(seg.url)), null,
+                (requestedBytes, writtenBytes, cacheSize) -> {
+                });
+        // CacheWriter::cancel 适配(D④): registry 经 Cancellable 抽象承载, 不直接依赖 media3 类型;
+        // 适配器只建一次 —— register/unregister 必须同一引用(身份集合, 各建一份会注销不掉)。
+        final BufferWriterRegistry.Cancellable handle = writer::cancel;
+        registry.register(handle);
+        try {
+            // 评审遗留#2 保守闭死: 任务入口检查与 register 之间存在固有竞态窗口
+            // (通过检查后、register 前被置 cancelled/failed), 不复查则残余单片写完;
+            // register 后再查一次再 cache(), 命中即刻退出(unregister 由 finally 对称兜底)。
+            if (cancelled || failed) return;
+            writer.cache();
+            aggregator.onSegmentDone(i - from + 1, seg.durationSeconds);
+            final double c = aggregator.cachedSeconds(), t = aggregator.targetSeconds();
+            post(() -> progress.onProgress(c, t));
+        } finally {
+            registry.unregister(handle);
+        }
+    }
+
     /** 取消: 停止写剩余分片(已写分片留在缓存). */
     public void cancel() {
         cancelled = true;
-        CacheWriter w = activeWriter;
-        if (w != null) {
-            try {
-                w.cancel();
-            } catch (Exception ignore) {
-            }
-        }
+        // D④: 掐**所有**在途(旧 activeWriter 单引用只掐一个); 单个抛异常吞掉继续其余
+        registry.cancelAll();
         // 必须回收线程池: 本类每次"缓存缓冲"都被 new 一个, 而 newSingleThreadExecutor 的
         // 核心线程永不超时回收 → 用户每点一次就泄漏一个永久存活线程 + 一套连接池。
         worker.shutdownNow();
+        // 写池同样必须 shutdownNow(D⑨⑥, 每漏一处 = 每次缓冲泄漏 permanent 线程);
+        // cancel 路径与失败路径不同: 这里允许甩掉排队任务 —— worker 已中断,
+        // latch.await 不再有人等, 被甩任务无需落 latch。
+        ExecutorService pool = writePool;
+        if (pool != null) pool.shutdownNow();
     }
 
     private byte[] fetch(String url) throws IOException {

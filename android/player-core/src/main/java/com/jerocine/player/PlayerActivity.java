@@ -50,7 +50,10 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -113,6 +116,15 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     /** 播放侧 UA(清单/分片同一份) — 源站可能按 UA 给不同表, 各数据源必须一致。 */
     static final String MEDIA_UA = "Jerocine/1.0 (Android TV)";
 
+    /**
+     * 并行缓冲开关持久化(buffer-perf 规格 D②/§3.6): 播放器侧 SharedPreferences 文件
+     * "jerocine"(与 PlayerAdFilterHelper 同文件不同键, MODE_PRIVATE), 键
+     * "buffer_parallel_enabled"(boolean, 默认 false = 顺序写保底)。本类是该键唯一读写方,
+     * 键名只在此定义一次 —— 禁止第三处硬编码(对齐 ShellPrefs「键名只在此定义一次」口吻)。
+     */
+    private static final String PLAYER_PREFS_FILE = "jerocine";
+    private static final String PREF_BUFFER_PARALLEL = "buffer_parallel_enabled";
+
     /** 进程内单例, 避免重开时 "Another SimpleCache instance" 报错 — 进程级资源, 必须静态. */
     private static SimpleCache sCache;
     /** sCache 当前指向的缓存目录(与 intent 期望目录不一致时重建, 支持离线播放切到下载缓存区). */
@@ -163,6 +175,27 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
      * onError("已取消"), 不在 cancel 调用处双写状态/恢复播放。
      */
     private boolean bufferInProgress;
+    /**
+     * 源测速排程标记(buffer-perf 规格 D⑦/§3.4): onCreate 与 onNewIntent 两个入口均可为
+     * 「首次」, 本标记保证每 Activity 会话至多排程一次探测(初筛守卫不过则不置位,
+     * 之后的装载入口仍可成为「首次」)。
+     */
+    private boolean hasProbed;
+    /** 源测速 5s 延时器 — onDestroy 与其它 handler 一并 removeCallbacksAndMessages。 */
+    private final Handler probeHandler = new Handler(Looper.getMainLooper());
+
+    // ---- 卡顿看门狗跨源 failover(P3, 方案-高峰卡顿单机缓解-2026-11-09 §三) ----
+    /** P2b 探测结果缓存(onSourceProbeDone 存, 看门狗选目标复用; 会话内存, 不落盘不上报) */
+    private List<SourceSpeedRanker.Result> lastProbeResults;
+    /** 看门狗定时器 — onDestroy 与其它 handler 一并清理 */
+    private final Handler stallHandler = new Handler(Looper.getMainLooper());
+    /** 本轮 STATE_BUFFERING 起点(elapsedRealtime); 0=未在计时 */
+    private long stallSince;
+    /** 本集内看门狗已换源次数(切集归零; 上限/冷却口径见 StallFailoverPolicy) */
+    private int stallFailoverCount;
+    private long lastStallFailoverAt;
+    /** 上次看门狗换到的源下标(-1=无): 测速结果不变时 pickBest 恒定, 防止同一目标反复横跳 */
+    private int lastFailoverTarget = -1;
     /** Q② 直播 behind-live/reset 兜底防循环闸门(短窗限次). */
     private final PlayerLiveErrorPolicy.RecoveryGate liveRecoveryGate =
             new PlayerLiveErrorPolicy.RecoveryGate(
@@ -313,6 +346,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 m.put(0, session.currentRawUrls.get(0));
                 session.localEpisodePlaylists = m;
             }
+            // 后台源测速排程(P2b, D⑦): 装载完成后初筛, 5s 延迟探测, 不阻塞起播
+            maybeScheduleSourceProbe();
         }
     }
 
@@ -335,11 +370,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
                 .setEnableDecoderFallback(true)
                 .forceEnableMediaCodecAsynchronousQueueing();
-        LoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(30_000, 120_000, 1_500, 2_500)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .setBackBuffer(30_000, true)
-                .build();
+        // 缓冲参数走统一策略(D⑥): 本地文件模式恒现状值(peak 不影响)
+        LoadControl loadControl = buildLoadControl("local");
         final ExoPlayer player = new ExoPlayer.Builder(this, renderersFactory)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(this))
                 .setLoadControl(loadControl)
@@ -380,6 +412,31 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         player.setPlayWhenReady(true);
     }
 
+    /**
+     * LoadControl 统一装配(P2a, buffer-perf 规格 D⑤/D⑥/§3.3): 本地/在线两处装配收敛到
+     * 此, 消灭两份逐字副本(改一漏一即本地/在线行为分叉)。参数表见
+     * {@link PlayerLoadControlPolicy}: 非高峰在线 = 本地恒定 = {30_000, 120_000, 1_500,
+     * 2_500}(现状 golden); 高峰在线 = {60_000, 150_000, 3_000, 5_000}。
+     * 高峰判定用 {@link PeakWindow}(java.util.Calendar/TimeZone 口径, 禁 java.time),
+     * 每次装配取一次; setBufferDurationsMs 位次不变 (min, max, playback, rebuffer)。
+     *
+     * @param mode "local" / "online"(仅用于 logcat 核对)
+     */
+    private LoadControl buildLoadControl(String mode) {
+        boolean peak = PeakWindow.isPeak(System.currentTimeMillis(), TimeZone.getDefault());
+        PlayerLoadControlPolicy p = PlayerLoadControlPolicy.resolve("local".equals(mode), peak);
+        android.util.Log.i("JcLoadControl", "mode=" + mode + " peak=" + peak
+                + " buffer=" + p.minBufferMs() + "/" + p.maxBufferMs() + "/"
+                + p.bufferForPlaybackMs() + "/" + p.bufferForPlaybackAfterRebufferMs()
+                + " back=" + p.backBufferMs());
+        return new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(p.minBufferMs(), p.maxBufferMs(),
+                        p.bufferForPlaybackMs(), p.bufferForPlaybackAfterRebufferMs())
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBackBuffer(p.backBufferMs(), true)
+                .build();
+    }
+
     private void initPlayer() {
         OkHttpClient http = buildMediaHttp();
         DataSource.Factory cacheFactory = buildCacheFactory(http);
@@ -397,12 +454,10 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
                 .setEnableDecoderFallback(true)
                 .forceEnableMediaCodecAsynchronousQueueing();
-        // 缓冲: 起播阈值 1.5s, 卡顿后 2.5s 恢复; 稳态 30s / 上限 120s; 留 30s 回看缓冲
-        LoadControl loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(30_000, 120_000, 1_500, 2_500)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .setBackBuffer(30_000, true)
-                .build();
+        // 缓冲参数走统一策略(P2a, buffer-perf 规格 D⑤/D⑥): 非高峰 = 现状四值(golden),
+        // 高峰在线放大一档 —— 高峰判定在装配时刻取一次, 会话内不热切换(跨峰边界
+        // 沿用装配档位, 已知限制); 此前这里与 initLocalPlayer 各有一份逐字副本。
+        LoadControl loadControl = buildLoadControl("online");
         final ExoPlayer player = new ExoPlayer.Builder(this, renderersFactory)
                 .setMediaSourceFactory(msFactory)
                 .setLoadControl(loadControl)
@@ -414,6 +469,13 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
             @Override
             public void onPlaybackStateChanged(int state) {
                 lastPlayerState = state;
+                // 卡顿看门狗(P3): STATE_BUFFERING 连续计时, READY/IDLE/ENDED 清表。
+                // 仅在线监听挂 —— failover 是多源在线语义(本地文件监听不挂, 守卫再兜一层)。
+                if (state == Player.STATE_BUFFERING) {
+                    armStallWatchdog();
+                } else {
+                    disarmStallWatchdog();
+                }
                 bufferSpinner.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                 updateControllerAutoHide(); // 暂停/缓冲中面板不主动消失
                 updateFilterLoadingText(state);
@@ -468,6 +530,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                 // 切集(选集 seek / 上下一集 / 自动连播): 旧集的缓冲窗口作废, 停掉在途预取
                 // (切集经 seekTo* 走这里; 整表重载的切源/启动不走这里, 由 onPlaylistReloaded 管)
                 cancelBufferPrefetch();
+                resetStallFailoverForEpisode(); // 看门狗计数按集归零(冷却跨集保留防横跳)
                 session.resetFilterStateForEpisode();
                 updateTitleForCurrent();
                 updateLocalOnlineUi(); // 切集后按新集本地/在线态刷新角标与切换按钮
@@ -897,6 +960,8 @@ private static String failedRequestUrl(Throwable error) {
         toastHandler.removeCallbacksAndMessages(null);
         iconHandler.removeCallbacksAndMessages(null);
         progressHandler.removeCallbacksAndMessages(null);
+        probeHandler.removeCallbacksAndMessages(null); // 待发的源测速延时任务一并撤(D⑦)
+        stallHandler.removeCallbacksAndMessages(null); // 看门狗计时一并撤(P3)
         final ExoPlayer player = session.player;
         boolean playbackEnded = player != null && lastPlayerState == Player.STATE_ENDED;
         // 本地模式: 不向壳层上报播放结局(无 web 心跳/无剧集上下文)
@@ -940,6 +1005,8 @@ private static String failedRequestUrl(Throwable error) {
         applySkipSettingsFromIntent(intent);
         session.introSkippedForCurrent = false;
         sourceHelper.startFromIntent(intent);
+        // 后台源测速排程(P2b, D⑦): onNewIntent 与 onCreate 均可为「首次」(hasProbed 去重)
+        maybeScheduleSourceProbe();
     }
 
     private void hideSystemUi() {
@@ -1158,6 +1225,10 @@ private static String failedRequestUrl(Throwable error) {
                 items.add("取消缓冲");
                 actions.add(this::cancelBufferPrefetch);
             }
+            // 并行缓冲开关(buffer-perf 规格 D②): 仅与「缓存缓冲」同支展示(在线动态列表
+            // 且当前集非本地且非直播); 更多菜单既有 list 形态, 翻转文案零组件改动。
+            items.add(bufferParallelEnabled() ? "并行缓冲： 开" : "并行缓冲： 关");
+            actions.add(this::toggleBufferParallel);
         }
         // 本集本地⇄在线切换已移至底栏按钮(去广告右侧, 用户拍板); 菜单里只保留"别源已下载"的换源入口
         android.util.Log.i("JcLocal", "more menu: curIdx=" + curIdx
@@ -1176,6 +1247,8 @@ private static String failedRequestUrl(Throwable error) {
                 items.add("本集已在「" + srcLabel + "」源下载 · 换源播本地");
                 actions.add(() -> {
                     long pos = session.player != null ? session.player.getCurrentPosition() : 0L;
+                    // 用户显式选源(buffer-perf 规格 D⑧): 置位后源测速自动切换永久让位
+                    session.sourceManuallyPicked = true;
                     // 与 PlayerDialogHelper 的换源流程一致: 必须先更新 currentSourceIndex,
                     // 否则 loadPlaylistIntoPlayer 里的 refreshLocalDownloads 仍按旧源查, 本地优先不生效。
                     session.currentSourceIndex = target;
@@ -1348,10 +1421,13 @@ private static String failedRequestUrl(Throwable error) {
         final boolean playing = session.player.getPlayWhenReady();
         session.player.pause();
         if (bufferPrefetcher != null) bufferPrefetcher.cancel();
-        // cancel 会 shutdownNow 旧实例的线程池, 旧实例不可复用 → 每次都用新签名(单参 sCache)
-        // 重建; 69d9efb 重写本文件时删掉了这行实例化, start 必现 NPE 被 catch 吃成
+        // cancel 会 shutdownNow 旧实例的线程池, 旧实例不可复用 → 每次都重建;
+        // 69d9efb 重写本文件时删掉了这行实例化, start 必现 NPE 被 catch 吃成
         // 「缓存缓冲启动失败: 未知错误」(2026-11-05 排查报告 §④)。
-        bufferPrefetcher = new BufferPrefetcher(sCache);
+        // 并行缓冲开关(buffer-perf 规格 D①/D②): 开 = 固定池 3 路并发写
+        // (禁 cachedThreadPool —— DownloadEngine OOM 教训); 默认关 = 1 顺序档,
+        // 与改前观测行为逐值一致。
+        bufferPrefetcher = new BufferPrefetcher(sCache, bufferParallelEnabled() ? 3 : 1);
         // 实例身份守卫(第2轮评审修复): 闭包捕获本次发起缓冲的实例, 回调首行比对字段。
         // 缓冲#1 途中改选缓冲#2 时, startBufferPrefetch 在主线程同步执行 cancel#1→new#2→
         // #2.start —— #1 被中断后在主线程 post 的 onError("已取消")必在 #2 start 之后才被
@@ -1366,6 +1442,9 @@ private static String failedRequestUrl(Throwable error) {
         try {
             bufferPrefetcher.start(srcUrl, minutes, offsetSec,
                 (cached, target) -> {
+                    // 实例身份守卫(buffer-perf 规格 D⑨②/§3.1, 本消费点现状无守卫):
+                    // 并行/失败拖尾下, 取消后的迟到进度 toast 不得覆盖「已取消/失败」终态提示。
+                    if (bufferPrefetcher != startedInstance) return;
                     int pct = target > 0 ? (int) (cached * 100.0 / target) : 0;
                     // duration 必须 ≥ 分片下载间隔: toast 是"覆盖+定时消失"式, 1.2s 时
                     // 分片间隔稍大就闪没, 下片完成才再冒出来 —— 用户看到的是"弹窗一会
@@ -1417,6 +1496,188 @@ private static String failedRequestUrl(Throwable error) {
     private void cancelBufferPrefetch() {
         if (!bufferInProgress || bufferPrefetcher == null) return; // 菜单项只在缓冲中挂出, 不可达兜底
         bufferPrefetcher.cancel();
+    }
+
+    /** 并行缓冲开关读取(D②): 默认关 = 顺序写(与现状逐值同语义的零变化保底)。 */
+    private boolean bufferParallelEnabled() {
+        return getSharedPreferences(PLAYER_PREFS_FILE, MODE_PRIVATE)
+                .getBoolean(PREF_BUFFER_PARALLEL, false);
+    }
+
+    /** 更多菜单 → 并行缓冲开关行: 点击翻转 → 落盘 → toast(文案 D② 定稿)。 */
+    private void toggleBufferParallel() {
+        boolean next = !bufferParallelEnabled();
+        getSharedPreferences(PLAYER_PREFS_FILE, MODE_PRIVATE).edit()
+                .putBoolean(PREF_BUFFER_PARALLEL, next).apply();
+        showCenterToast(next ? "并行缓冲已开启： 3 路并发写缓存" : "并行缓冲已关闭", 2000);
+    }
+
+    // ============================ 后台源测速择优(P2b, buffer-perf 规格 D⑦/D⑧) ============================
+
+    /**
+     * 起播装载完成后尝试排程后台源测速(D⑦/§3.4): 初筛守卫(≥2 源 / !单URL / !直播 /
+     * !本地文件)全过才 postDelayed 5s —— 完全不阻塞起播路径; 不满足则本会话不排程
+     * (hasProbed 不置位, 之后的装载入口仍可成为「首次」)。
+     * 调用点: onCreate 与 onNewIntent 的 startFromIntent 之后(两处都算「首次装载完成」)。
+     */
+    private void maybeScheduleSourceProbe() {
+        if (hasProbed || isFinishing()) return;
+        if (session.localPlayback || session.currentBypassFilter) return; // 本地文件/单URL: 无多源语义
+        if (session.isLiveNow()) return; // 直播滑窗清单无测速语义(统一判定出口, 比载荷标志更严)
+        if (session.sourceList.size() < 2) return; // 单源无从择优
+        hasProbed = true;
+        probeHandler.postDelayed(this::runSourceProbe, 5_000L);
+    }
+
+    /** 排程到期(主线程): 进程级节流/熔断({@link SourceProbeThrottle})把关后发起一轮探测。 */
+    private void runSourceProbe() {
+        long now = SystemClock.elapsedRealtime();
+        if (!SourceProbeThrottle.processWide().shouldProbe(now)) {
+            android.util.Log.i(SourceProbeHelper.TAG,
+                    "throttle: skip probe (interval < 30min or circuit broken)");
+            return;
+        }
+        // 源表快照: 探测期间不重解析源表; 排程后换片的极端情形由决策期 filmId 守卫兜底。
+        // SourceData 只读(parseSources 只在 startFromIntent 写, 本会话的装载已全部完成)。
+        final List<PlayerSession.SourceData> sources = new ArrayList<>(session.sourceList);
+        final int curEp = session.player != null ? session.player.getCurrentMediaItemIndex() : 0;
+        final String probedFilmId = filmId();
+        // probe() 立即返回(整批在后台编排线程 jc-source-probe 上跑, 终审修复):
+        // 主线程此处不做任何网络等待; 完成回调 post 回主线程(onSourceProbeDone)。
+        SourceProbeHelper.probe(sources, curEp, results -> onSourceProbeDone(probedFilmId, results));
+    }
+
+    /**
+     * 探测完成(主线程, 每会话至多一次 —— 探测本身每会话一次): 记录进程级节流 →
+     * {@link SourceSpeedRanker} 择优 → D⑧ 守卫①~⑦在**探测完成时重查**全过才切换。
+     * 切换复用 showSourceDialog 同一执行序列(PlaybackTarget.switchSource → 先写
+     * currentSourceIndex → loadSourceIntoPlayer, 铁律 §0.3: 顺序错 = refreshLocalDownloads
+     * 按旧源查、本地优先失效); 自动切换本身不置位 sourceManuallyPicked。
+     */
+    private void onSourceProbeDone(String probedFilmId, List<SourceSpeedRanker.Result> results) {
+        // 探测批次确实跑完了一轮 → 无论切不切都记录节流(探测流量已发生)
+        boolean anySuccess = false;
+        for (SourceSpeedRanker.Result r : results) {
+            anySuccess |= r.ok;
+        }
+        // 结果缓存(P3): 卡顿看门狗选目标复用同一份测速, 不再二次探测
+        lastProbeResults = results;
+        SourceProbeThrottle.processWide().recordRound(SystemClock.elapsedRealtime(), anySuccess);
+        if (isFinishing() || isDestroyed()) return;
+        int best = SourceSpeedRanker.pickBest(results, session.currentSourceIndex);
+        String blockReason = autoSwitchBlockReason(probedFilmId, best);
+        if (blockReason != null) {
+            android.util.Log.i(SourceProbeHelper.TAG, "decision: no switch (reason="
+                    + blockReason + ") best=" + best
+                    + " current=" + session.currentSourceIndex);
+            return;
+        }
+        int curIdx = session.player.getCurrentMediaItemIndex();
+        // 复用 showSourceDialog 同一执行序列(D⑧): 钳位落点 → 先写 currentSourceIndex → 装载
+        long curPos = session.player.getCurrentPosition();
+        PlaybackTarget target = PlaybackTarget.switchSource(best, curIdx, curPos,
+                session.sourceList.get(best).urls.size());
+        session.currentSourceIndex = target.sourceIndex;
+        session.loadSourceIntoPlayer(target.sourceIndex, target.episodeIndex, target.positionMs);
+        android.util.Log.i(SourceProbeHelper.TAG, "decision: auto-switch current="
+                + session.currentSourceIndex + " -> " + best + " (episode=" + target.episodeIndex
+                + " pos=" + target.positionMs + "ms)");
+        session.host().showCenterToast("已自动切换到更快的「"
+                + session.sourceList.get(best).name + "」源", 2400);
+    }
+
+    /**
+     * D⑧ 守卫①~⑦(探测完成时重查 —— 5s 延迟 + 探测期间用户可能已手动操作):
+     * 全过返回 null(可以切), 否则返回不切的原因(决策 logcat 一行含原因)。
+     */
+    private String autoSwitchBlockReason(String probedFilmId, int best) {
+        if (best == SourceSpeedRanker.NONE) return "ranker: no strictly-better source";
+        if (probedFilmId == null || !probedFilmId.equals(filmId())) return "film changed during probe";
+        if (session.sourceList.size() < 2) return "sources < 2";                    // ①
+        if (session.currentBypassFilter) return "bypass (single url) session";      // ②
+        if (session.isLiveNow()) return "live session";                             // ③
+        if (session.sourceManuallyPicked) return "user picked source manually";     // ④
+        if (bufferInProgress) return "buffer in progress";                          // ⑤
+        int idx = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        if (idx < 0) return "no current episode";
+        if (session.isEpisodePlayingLocal(idx)) return "current episode is local";  // ⑥
+        if (session.otherSourceHasEpisode(idx)) return "episode downloaded on other source"; // ⑥
+        if (best >= session.sourceList.size()) return "stale best index";           // ⑥' 防御
+        return null;
+    }
+
+    // ============================ 卡顿看门狗跨源 failover(P3, 方案-高峰卡顿单机缓解 §三) ============================
+
+    /** STATE_BUFFERING 起 12s 计时(StallFailoverPolicy.STALL_THRESHOLD_MS); 到期 onStallFire。 */
+    private void armStallWatchdog() {
+        stallHandler.removeCallbacksAndMessages(null);
+        stallSince = android.os.SystemClock.elapsedRealtime();
+        stallHandler.postDelayed(this::onStallFire, StallFailoverPolicy.STALL_THRESHOLD_MS);
+    }
+
+    private void disarmStallWatchdog() {
+        stallHandler.removeCallbacksAndMessages(null);
+        stallSince = 0;
+    }
+
+    /** 切集归零计数(冷却/去重目标跨集保留 —— 30s 冷却继续压制链式横跳)。 */
+    private void resetStallFailoverForEpisode() {
+        stallFailoverCount = 0;
+    }
+
+    /**
+     * 看门狗到期(主线程): 连续缓冲超阈值 —— 守卫({@link StallFailoverPolicy}) → 测速结果择优
+     * ({@link SourceSpeedRanker}, 复用 P2b 探测缓存, 不二次探测) → 复用 D⑧ 守卫全集
+     * ({@link #autoSwitchBlockReason}, 含"用户手动选过源永不覆盖") → 复用切源执行序列。
+     * 没有显著更快(≥20%)的源就不换: 盲轮换去同样慢的源只是换一种卡, 继续缓冲不打扰。
+     */
+    private void onStallFire() {
+        if (session.player == null || isFinishing() || isDestroyed()) return;
+        ExoPlayer p = session.player;
+        long now = android.os.SystemClock.elapsedRealtime();
+        boolean ok = StallFailoverPolicy.shouldFailover(
+                now - stallSince,
+                lastStallFailoverAt == 0 ? Long.MAX_VALUE : now - lastStallFailoverAt,
+                stallFailoverCount,
+                p.getPlayWhenReady(),
+                session.sourceList.size() - 1,
+                session.episodeSwitching || bufferInProgress);
+        if (!ok) return;
+        int best = SourceSpeedRanker.pickBest(lastProbeResults, session.currentSourceIndex);
+        String blockReason = (best == SourceSpeedRanker.NONE) ? "no faster source in probe results"
+                : (best == lastFailoverTarget) ? "same as last failover target (dedup)"
+                : autoSwitchBlockReason(filmId(), best);
+        if (blockReason != null) {
+            android.util.Log.i("StallFailover", "no switch (reason=" + blockReason
+                    + ") bufferingMs=" + (now - stallSince));
+            return;
+        }
+        // 切换序列与 onSourceProbeDone 逐行同款(D⑧ 铁律 §0.3): 先写 currentSourceIndex 再装载
+        int fromIdx = session.currentSourceIndex;
+        int curIdx = p.getCurrentMediaItemIndex();
+        long curPos = p.getCurrentPosition();
+        PlaybackTarget target = PlaybackTarget.switchSource(best, curIdx, curPos,
+                session.sourceList.get(best).urls.size());
+        session.currentSourceIndex = target.sourceIndex;
+        session.loadSourceIntoPlayer(target.sourceIndex, target.episodeIndex, target.positionMs);
+        stallFailoverCount += 1;
+        lastStallFailoverAt = now;
+        lastFailoverTarget = best;
+        android.util.Log.i("StallFailover", "auto-switch current=" + fromIdx + " -> " + best
+                + " (episode=" + target.episodeIndex + " pos=" + target.positionMs
+                + "ms bufferingMs=" + (now - stallSince) + ")");
+        session.host().showCenterToast("持续缓冲, 已自动切换到「"
+                + session.sourceList.get(best).name + "」源", 2400);
+        try {
+            JSONObject pd = new JSONObject();
+            pd.put("filmId", filmId());
+            pd.put("fromSourceIndex", fromIdx);
+            pd.put("toSourceIndex", best);
+            pd.put("episodeIndex", target.episodeIndex);
+            pd.put("positionMs", target.positionMs);
+            emit("playerStallFailover", pd);
+        } catch (Exception ignore) {
+        }
     }
 
     /** 更多菜单 → 下载管理: 透传影片上下文给 DownloadActivity(选集/下载中/已完成三 tab). */
