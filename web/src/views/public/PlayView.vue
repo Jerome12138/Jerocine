@@ -42,6 +42,7 @@ import { toast } from '@/api/http'
 import { useViewMode } from '@/composables/useViewMode'
 import { measureLine } from '@/composables/usePlaySpeedTest'
 import { shouldStallFailover, pickStallTarget, STALL_THRESHOLD_MS } from '@/utils/stallFailover'
+import { alignEpisode, canAutoSwitch } from '@/utils/episodeEpid'
 import { useNetworkHint } from '@/composables/useNetworkHint'
 import { useLocalLikes } from '@/composables/useLocalLikes'
 import { useFavoriteStore } from '@/stores/favorite'
@@ -1594,16 +1595,53 @@ const {
 })
 
 /** ---------- 集数 / 源切换 ---------- */
-function changeSource(sourceId: string): void {
-  if (!detail.value) return
+/**
+ * 切源（手动 / 自动共用）。集对齐见 `utils/episodeEpid`（方案：方案-epid集身份与跨源对齐）——
+ * 以前是"保同下标"，对剧/动漫等价，但**综艺各源分集不一致时会切到错集**。
+ * `opts.auto`：
+ *   · 'strict' —— 看门狗换源（慢，可以不切）：**只放行精确档**，兜底档不切（宁可不切不乱切）；
+ *   · 'loose'  —— error 轮换（已经播不了，必须试）：放行所有档，兜底档给出提示；
+ *   · 不传      —— 用户手动切源：放行所有档，兜底档给出提示。
+ * 返回是否真的切了（调用方据此决定提示文案）。
+ */
+function changeSource(sourceId: string, opts?: { auto?: 'strict' | 'loose' }): boolean {
+  if (!detail.value) return false
   const next = detail.value.sources.find((s) => s.id === sourceId)
-  if (!next) return
-  // 切源保留: 集数 (若超新源最大 index 取最后一集)
-  const keepEp = Math.max(0, Math.min(currentEpisodeIndex.value, next.episodes.length - 1))
+  if (!next) return false
+  const curSrc = detail.value.sources.find((s) => s.id === currentSourceId.value)
+  const curEps = (curSrc?.episodes ?? []).map((e) => e.episode ?? '')
+  const tgtEps = next.episodes.map((e) => e.episode ?? '')
+  const align = alignEpisode(currentEpisodeIndex.value, curEps, tgtEps)
+  // 自动换源只认精确档：兜底档是启发式，乱切比不切更糟
+  if (opts?.auto === 'strict' && !canAutoSwitch(align.tier)) {
+    telemetry.track('action', {
+      category: 'source-switch',
+      action: 'align-blocked',
+      label: sourceId,
+      value: 0,
+      extra: { tier: align.tier, curIndex: currentEpisodeIndex.value, curEp: curEps[currentEpisodeIndex.value] ?? '' }
+    })
+    return false
+  }
+  const keepEp =
+    align.index >= 0
+      ? align.index
+      : Math.max(0, Math.min(currentEpisodeIndex.value, next.episodes.length - 1))
+  if (align.tier === 'byOrdinal' || align.tier === 'position') {
+    toast('info', `该线路分集不同，已按顺序对应到第 ${keepEp + 1} 集`)
+  }
   // 续播: 优先该(源,集)已记录进度; 无记录则沿用当前播放头, 让用户从原位置继续
   const epRec = historyStore.getEpisode(String(detail.value.mid), sourceId, keepEp)
   const resumeAt = epRec?.currentTime ?? Math.floor(playerCurrentTime.value || 0)
+  telemetry.track('action', {
+    category: 'source-switch',
+    action: align.tier,
+    label: sourceId,
+    value: keepEp,
+    extra: { auto: opts?.auto ?? 'manual', curIndex: currentEpisodeIndex.value, tier: align.tier }
+  })
   selectEpisode({ sourceId, episodeIndex: keepEp, resumeAt })
+  return true
 }
 
 function selectEpisode(payload: { sourceId: string; episodeIndex: number; resumeAt?: number; autoPlay?: boolean }): void {
@@ -1944,20 +1982,42 @@ async function onStallFire(): Promise<void> {
       stallQuietTestInFlight = false
     }
   }
-  const candidates = (detail.value?.sources ?? []).map((s) => s.id)
+  // 候选池(P3)：先按"能否精确对齐到同一集"预过滤，避免把自动换源花在"换过去就是另一集"的源上
+  const curSrc = (detail.value?.sources ?? []).find((s) => s.id === currentSourceId.value)
+  const curEps = (curSrc?.episodes ?? []).map((e) => e.episode ?? '')
+  const allIds = (detail.value?.sources ?? []).map((s) => s.id)
+  const candidates = (detail.value?.sources ?? [])
+    .filter((s) => s.id !== currentSourceId.value)
+    .filter((s) => {
+      const tier = alignEpisode(
+        currentEpisodeIndex.value,
+        curEps,
+        s.episodes.map((e) => e.episode ?? '')
+      ).tier
+      return canAutoSwitch(tier)
+    })
+    .map((s) => s.id)
   const target = pickStallTarget(lineSpeeds.value, currentSourceId.value, candidates)
   telemetry.track('action', {
     category: 'stall',
     action: target ? 'failover' : 'no-target',
     label: currentSourceId.value,
     value: Math.round(ctx.bufferingMs),
-    extra: { target, failoverCount: ctx.failoverCount, episodeIndex: currentEpisodeIndex.value }
+    extra: {
+      target,
+      failoverCount: ctx.failoverCount,
+      episodeIndex: currentEpisodeIndex.value,
+      curEp: curEps[currentEpisodeIndex.value] ?? '',
+      sources: allIds.length,
+      alignable: candidates.length
+    }
   })
-  if (!target) return // 当前已是可选最快: 继续缓冲, 不折腾
+  if (!target) return // 当前已是可选最快(或没有可安全对齐的线路): 继续缓冲, 不折腾
   stallFailoverCount.value += 1
   lastStallFailoverAt = Date.now()
-  toast('info', '当前线路持续缓冲, 已自动切换到更快线路')
-  changeSource(target)
+  if (changeSource(target, { auto: 'strict' })) {
+    toast('info', '当前线路持续缓冲, 已自动切换到更快线路')
+  }
 }
 
 onScopeDispose(() => clearStallTimer())
@@ -2073,11 +2133,8 @@ function fallbackSwitchSource(): void {
   if (nextIdx === curIdx) return
   const targetSource = sources[nextIdx]
   if (!targetSource) return
-  const targetEpisodeIdx = Math.min(
-    currentEpisodeIndex.value,
-    Math.max(0, targetSource.episodes.length - 1)
-  )
-  selectEpisode({ sourceId: targetSource.id, episodeIndex: targetEpisodeIdx })
+  // 换源统一走 changeSource（含跨源集对齐）；error 路径已"播不了"，用 loose 放行兜底档
+  changeSource(targetSource.id, { auto: 'loose' })
 }
 
 /** 记忆错误发生时的播放进度, 重试后用. */
