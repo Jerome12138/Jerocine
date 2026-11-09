@@ -362,7 +362,7 @@ deploy_server_from_pkg() {
   wr_extract_tar "$pkg" "$ctx"
   [ -f "$ctx/main" ] || wr_die "包内没有 main —— 用 scripts/build-server.sh 打包"
   [ -d "$ctx/data" ] || wr_die "包内没有 data/（IP 归属地离线库）"
-  [ -d "$ctx/static/upload" ] || wr_die "包内没有 static/upload/（upload 卷挂载点）"
+  [ -d "$ctx/filestore" ] || wr_die "包内没有 filestore/（统一文件仓挂载点）"
   [ -f "$ctx/LICENSE" ] || wr_die "包内没有 LICENSE"
   # migrations/ 缺失 = 旧版产物包(自动迁移上线前打的包)。旧包与旧二进制同版, 对当前库
   # (迁移只加带默认值的列, 只多不少)是兼容的 ⇒ 响亮跳过而非阻断 —— 否则"重新部署旧包"

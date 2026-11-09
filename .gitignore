@@ -24,6 +24,7 @@ package-lock.json
 .idea
 # 文件保留路径
 static/
+filestore/
 
 
 ProvideController.go

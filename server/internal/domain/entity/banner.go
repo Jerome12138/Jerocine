@@ -1,5 +1,11 @@
 package entity
 
+import (
+	"gorm.io/gorm"
+
+	"server/internal/bloburl"
+)
+
 // Banner 首页轮播配置 (table: banner)。
 // image 是横图(宽幅主视觉), poster 是竖图(窄屏/兜底); 跳转优先 link(可外链), 否则关联影片 mid。
 type Banner struct {
@@ -19,6 +25,13 @@ type Banner struct {
 }
 
 func (Banner) TableName() string { return "banner" }
+
+// AfterFind 库里存的裸 key → 对外 URL(见 internal/bloburl)。
+func (b *Banner) AfterFind(*gorm.DB) error {
+	b.Image = bloburl.Resolve(b.Image)
+	b.Poster = bloburl.Resolve(b.Poster)
+	return nil
+}
 
 // Banner 状态: 与站内其它开关同口径(0 启用 / 1 停用)。
 const (

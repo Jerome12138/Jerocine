@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"server/internal/bloburl"
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
@@ -163,7 +164,12 @@ func (r *movieRepo) getByMid(ctx context.Context, mid int64, includeDeleted bool
 
 func (r *movieRepo) Upsert(ctx context.Context, m *entity.Movie) error {
 	fillHotScore(m, time.Now())
-	return dbFrom(ctx, r.db).Clauses(movieUpsertClause()).Create(m).Error
+	// 落库存裸 key(见 internal/bloburl), 写完还原为 URL 视角, 调用方实体不变。
+	cover, backdrop := m.Cover, m.Backdrop
+	m.Cover, m.Backdrop = bloburl.ToKey(cover), bloburl.ToKey(backdrop)
+	err := dbFrom(ctx, r.db).Clauses(movieUpsertClause()).Create(m).Error
+	m.Cover, m.Backdrop = cover, backdrop
+	return err
 }
 
 func (r *movieRepo) BatchUpsert(ctx context.Context, list []entity.Movie) error {
@@ -171,10 +177,18 @@ func (r *movieRepo) BatchUpsert(ctx context.Context, list []entity.Movie) error 
 		return nil
 	}
 	now := time.Now()
+	orig := make([][2]string, len(list))
 	for i := range list {
 		fillHotScore(&list[i], now)
+		orig[i] = [2]string{list[i].Cover, list[i].Backdrop}
+		list[i].Cover = bloburl.ToKey(list[i].Cover)
+		list[i].Backdrop = bloburl.ToKey(list[i].Backdrop)
 	}
-	return dbFrom(ctx, r.db).Clauses(movieUpsertClause()).CreateInBatches(list, 200).Error
+	err := dbFrom(ctx, r.db).Clauses(movieUpsertClause()).CreateInBatches(list, 200).Error
+	for i := range list {
+		list[i].Cover, list[i].Backdrop = orig[i][0], orig[i][1]
+	}
+	return err
 }
 
 func (r *movieRepo) Delete(ctx context.Context, mid int64) error {
@@ -218,7 +232,7 @@ func (r *movieRepo) ListMissingBackdropsByMids(ctx context.Context, mids []int64
 func (r *movieRepo) UpdateBackdrop(ctx context.Context, mid int64, url string) (bool, error) {
 	res := dbFrom(ctx, r.db).Model(&entity.Movie{}).
 		Where("mid = ?", mid).
-		Update("backdrop", url)
+		Update("backdrop", bloburl.ToKey(url)) // 列级更新旁路 hook, 显式剥成裸 key
 	return res.RowsAffected > 0, res.Error
 }
 

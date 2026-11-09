@@ -19,6 +19,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
+	"server/internal/bloburl"
 	"server/internal/config"
 	"server/internal/danmu"
 	"server/internal/douban"
@@ -44,6 +45,10 @@ func main() {
 
 	cfg := config.Load()
 	log.Printf("starting: %s", cfg.String())
+
+	// blob 存储只存裸 key, 出参按 BLOB_BASE_URL 拼基址(详见 internal/bloburl)。
+	// 换对外路径/独立域(CDN)只需改这一处配置, 无需改写数据库存量 URL。
+	bloburl.SetBase(cfg.Blob.BaseURL)
 
 	app, err := buildApp(cfg)
 	if err != nil {

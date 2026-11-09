@@ -14,6 +14,9 @@ export interface SiteConfig {
   /** 图床域名链(000041, 2026-11-07): 逗号分隔按序尝试 —— 第一个为主图床, 其余为备用域;
    *  封面 onerror 后在链内自动切下一个域。空/缺省 = 不启用回退(旧后端兼容)。 */
   imgFallbackHosts?: string
+  /** blob 对外基址(BLOB_BASE_URL, 2026-11-09): 可为路径(/filestore/)或绝对域(https://img.xxx/)。
+   *  blobImg 据此识别路径模式下的前缀; 绝对域模式下后端出参已是绝对 URL, 原样使用。 */
+  fileBase?: string
   updatedAt: number
 }
 

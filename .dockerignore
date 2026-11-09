@@ -28,7 +28,7 @@ Thumbs.db
 # Go 构建产物
 server/*.exe
 server/main
-server/static/upload/gallery/
+server/filestore/gallery/
 
 # CI / 临时
 .github/

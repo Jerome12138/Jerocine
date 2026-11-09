@@ -5,7 +5,7 @@
 #   sudo bash bare-deploy.sh /path/to/jerocine-server-<TS>-<sha7>-linux-<arch>.tar.gz
 #
 # 产物包与本机 scripts/build-server.sh 的 docker 模式包**完全同一个**(main + data/ +
-# static/upload + LICENSE) —— 本机构建/上传链路不变, 只是服务器侧从"解包→docker build"
+# filestore + LICENSE) —— 本机构建/上传链路不变, 只是服务器侧从"解包→docker build"
 # 换成"解包→目录轮换→systemctl restart"。
 #
 # 失败语义: 健康检查不过 → 退出 1, 上一版保留在 $PREFIX/backup/server-<TS>(手动回退:
@@ -28,7 +28,7 @@ trap 'rm -rf "$ctx"' EXIT
 tar xzf "$pkg" -C "$ctx"
 [ -f "$ctx/main" ] || bare_die "包内没有 main —— 用 scripts/build-server.sh 打包"
 [ -d "$ctx/data" ] || bare_die "包内没有 data/（IP 归属地离线库）"
-[ -d "$ctx/static/upload" ] || bare_die "包内没有 static/upload/（上传文件目录）"
+[ -d "$ctx/filestore" ] || bare_die "包内没有 filestore/（统一文件仓目录）"
 [ -f "$ctx/LICENSE" ] || bare_die "包内没有 LICENSE"
 
 # root / unit 检查(BARE_SKIP_ROOT_CHECK 仅供单测注入假环境)
@@ -52,8 +52,8 @@ if [ -d "$PREFIX/server" ]; then
   backup_name="server-$bts"
   mv "$PREFIX/server" "$PREFIX/backup/$backup_name"
 fi
-mkdir -p "$PREFIX/server/static/upload"
-cp -r "$ctx/main" "$ctx/data" "$ctx/static" "$ctx/LICENSE" "$PREFIX/server/"
+mkdir -p "$PREFIX/server/filestore"
+cp -r "$ctx/main" "$ctx/data" "$ctx/filestore" "$ctx/LICENSE" "$PREFIX/server/"
 chmod 755 "$PREFIX/server/main"   # Windows 打包产物无 exec 位(踩过: distroless permission denied)
 if id jerocine >/dev/null 2>&1; then
   chown -R jerocine:jerocine "$PREFIX/server"

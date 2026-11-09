@@ -1,5 +1,11 @@
 package entity
 
+import (
+	"gorm.io/gorm"
+
+	"server/internal/bloburl"
+)
+
 // 采集源等级
 const (
 	GradeMaster int8 = 0 // 主站
@@ -184,9 +190,18 @@ type SiteConfig struct {
 	// GET /config/site 直接下发; 空串 = 不启用回退(前端按现行为渲染)。
 	ImgFallbackHosts string `gorm:"column:img_fallback_hosts" json:"imgFallbackHosts"`
 	UpdatedAt        int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	// FileBase blob 对外基址(非 DB 列, 由 ConfigService 用 BLOB_BASE_URL 注入, 随公开
+	// GET /config/site 下发)。前端据此识别路径模式下的 blob 前缀; 绝对域模式下出参已是绝对 URL, 前端原样。
+	FileBase string `gorm:"-" json:"fileBase"`
 }
 
 func (SiteConfig) TableName() string { return "site_config" }
+
+// AfterFind 站点 logo 存裸 key, 出参拼基址(见 internal/bloburl)。
+func (c *SiteConfig) AfterFind(*gorm.DB) error {
+	c.Logo = bloburl.Resolve(c.Logo)
+	return nil
+}
 
 // AppVersion APK 自升级版本 (table: app_version)。
 type AppVersion struct {
@@ -202,6 +217,12 @@ type AppVersion struct {
 }
 
 func (AppVersion) TableName() string { return "app_version" }
+
+// AfterFind APK 存裸 key, 出参拼基址(见 internal/bloburl)。
+func (v *AppVersion) AfterFind(*gorm.DB) error {
+	v.ApkUrl = bloburl.Resolve(v.ApkUrl)
+	return nil
+}
 
 // 文件类型
 const (
@@ -223,3 +244,9 @@ type FileInfo struct {
 }
 
 func (FileInfo) TableName() string { return "files" }
+
+// AfterFind link 存裸 key, 出参拼基址(见 internal/bloburl)。
+func (f *FileInfo) AfterFind(*gorm.DB) error {
+	f.Link = bloburl.Resolve(f.Link)
+	return nil
+}

@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"server/internal/bloburl"
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
@@ -126,9 +127,13 @@ func (r *siteConfigRepo) Get(ctx context.Context) (*entity.SiteConfig, error) {
 
 func (r *siteConfigRepo) Save(ctx context.Context, c *entity.SiteConfig) error {
 	c.Id = 1
-	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
+	logo := c.Logo // 落库存裸 key, 写完还原为 URL 视角(见 internal/bloburl)
+	c.Logo = bloburl.ToKey(logo)
+	err := dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "id"}}, UpdateAll: true,
 	}).Create(c).Error
+	c.Logo = logo
+	return err
 }
 
 // ---- app_version ----
@@ -163,7 +168,11 @@ func (r *appVersionRepo) List(ctx context.Context, page repository.Page) ([]enti
 }
 
 func (r *appVersionRepo) Create(ctx context.Context, v *entity.AppVersion) error {
-	return dbFrom(ctx, r.db).Create(v).Error
+	apkURL := v.ApkUrl // 落库存裸 key, 写完还原(见 internal/bloburl)
+	v.ApkUrl = bloburl.ToKey(apkURL)
+	err := dbFrom(ctx, r.db).Create(v).Error
+	v.ApkUrl = apkURL
+	return err
 }
 
 func (r *appVersionRepo) Delete(ctx context.Context, id int64) error {
@@ -194,7 +203,11 @@ func (r *fileRepo) GetCoversByRelevance(ctx context.Context, relevanceIds []int6
 }
 
 func (r *fileRepo) Create(ctx context.Context, f *entity.FileInfo) error {
-	return dbFrom(ctx, r.db).Create(f).Error
+	link := f.Link // 落库存裸 key, 写完还原为 URL 视角(见 internal/bloburl)
+	f.Link = bloburl.ToKey(link)
+	err := dbFrom(ctx, r.db).Create(f).Error
+	f.Link = link
+	return err
 }
 
 func (r *fileRepo) Delete(ctx context.Context, id int64) error {

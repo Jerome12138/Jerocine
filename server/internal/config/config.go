@@ -46,7 +46,7 @@ type SpiderConfig struct {
 type BlobConfig struct {
 	Driver   string // local | oss
 	LocalDir string
-	BaseURL  string // 访问前缀, 如 /api/upload/pic/poster/
+	BaseURL  string // 访问前缀, 如 /filestore/pic/poster/ (2026-11-09 由 /api/upload/ 迁来)
 }
 
 // TMDBConfig 横图(backdrop)回填配置。API key 只存 site_config(后台「系统设置」维护,
@@ -102,8 +102,8 @@ func Load() *Config {
 		},
 		Blob: BlobConfig{
 			Driver:   env("BLOB_DRIVER", "local"),
-			LocalDir: env("BLOB_LOCAL_DIR", "./static/upload"),
-			BaseURL:  env("BLOB_BASE_URL", "/api/upload/"),
+			LocalDir: env("BLOB_LOCAL_DIR", "./filestore"),
+			BaseURL:  env("BLOB_BASE_URL", "/filestore/"),
 		},
 		TMDB: TMDBConfig{
 			Lang:      env("TMDB_LANG", "zh-CN"),

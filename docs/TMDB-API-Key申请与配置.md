@@ -6,7 +6,7 @@
 关键特性：
 
 - **只对首页轮播影片回填**（手动配置位 + 热榜自动补位，共前 5 位），TMDB 用量与轮播规模成正比；
-- **图片落本地 blob**（`/api/upload/backdrop/{mid}.jpg`），访问终端无需直连 TMDB（`image.tmdb.org` 在大陆不可直连）；
+- **图片落本地 blob**（`/filestore/backdrop/{mid}.webp`；2026-11-09 起转 WebP，旧图为 `.jpg`），访问终端无需直连 TMDB（`image.tmdb.org` 在大陆不可直连）；
 - **Key 走管理后台维护**（保存前验真、热生效、掩码显示），也可用服务器环境变量兜底；
 - **未配置 Key = 功能整体关闭**，其余功能不受任何影响。
 
@@ -63,8 +63,8 @@ docker compose --env-file .env up -d --no-deps server
 2. **管理页**：后台 → 首页轮播，生效位的「横图已就绪 / 横图待回填」标签即回填进度；
 3. **图片落盘**（本地 blob）：
    ```bash
-   ls /var/lib/docker/volumes/jerocine_uploads/_data/backdrop/   # 宿主机
-   curl -I https://你的域名/api/upload/backdrop/<mid>.jpg          # 访问（应 200）
+   ls /data/filestore/backdrop/                                  # 宿主机(bind mount 固定目录)
+   curl -I https://你的域名/filestore/backdrop/<mid>.webp        # 访问（应 200；2026-11-09 起转 WebP 存储，旧图为 .jpg）
    ```
 
 ## 四、行为细则

@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"server/internal/bloburl"
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
@@ -473,7 +474,11 @@ func (r *searchRepo) Related(ctx context.Context, seed repository.RelatedSeed, c
 
 func (r *searchRepo) Upsert(ctx context.Context, m *entity.MovieSearch) error {
 	fillHotScoreSearch(m, time.Now())
-	return dbFrom(ctx, r.db).Clauses(searchUpsertClause()).Create(m).Error
+	cover, backdrop := m.Cover, m.Backdrop // 落库存裸 key, 写完还原(见 internal/bloburl)
+	m.Cover, m.Backdrop = bloburl.ToKey(cover), bloburl.ToKey(backdrop)
+	err := dbFrom(ctx, r.db).Clauses(searchUpsertClause()).Create(m).Error
+	m.Cover, m.Backdrop = cover, backdrop
+	return err
 }
 
 func (r *searchRepo) BatchUpsert(ctx context.Context, list []entity.MovieSearch) error {
@@ -481,10 +486,18 @@ func (r *searchRepo) BatchUpsert(ctx context.Context, list []entity.MovieSearch)
 		return nil
 	}
 	now := time.Now()
+	orig := make([][2]string, len(list))
 	for i := range list {
 		fillHotScoreSearch(&list[i], now)
+		orig[i] = [2]string{list[i].Cover, list[i].Backdrop}
+		list[i].Cover = bloburl.ToKey(list[i].Cover)
+		list[i].Backdrop = bloburl.ToKey(list[i].Backdrop)
 	}
-	return dbFrom(ctx, r.db).Clauses(searchUpsertClause()).CreateInBatches(list, 200).Error
+	err := dbFrom(ctx, r.db).Clauses(searchUpsertClause()).CreateInBatches(list, 200).Error
+	for i := range list {
+		list[i].Cover, list[i].Backdrop = orig[i][0], orig[i][1]
+	}
+	return err
 }
 
 func (r *searchRepo) Delete(ctx context.Context, mid int64) error {
@@ -510,7 +523,7 @@ func (r *searchRepo) Restore(ctx context.Context, mid int64) error {
 func (r *searchRepo) UpdateBackdrop(ctx context.Context, mid int64, url string) error {
 	return dbFrom(ctx, r.db).Model(&entity.MovieSearch{}).
 		Where("mid = ?", mid).
-		Update("backdrop", url).Error
+		Update("backdrop", bloburl.ToKey(url)).Error // 列级更新旁路 hook, 显式剥成裸 key
 }
 
 // SyncDeletedFromMovie 把 movie.deleted_at 回灌到 movie_search。
@@ -544,10 +557,18 @@ func (r *searchRepo) ShadowWrite(ctx context.Context, list []entity.MovieSearch)
 		return nil
 	}
 	now := time.Now()
+	orig := make([][2]string, len(list))
 	for i := range list {
 		fillHotScoreSearch(&list[i], now)
+		orig[i] = [2]string{list[i].Cover, list[i].Backdrop}
+		list[i].Cover = bloburl.ToKey(list[i].Cover)
+		list[i].Backdrop = bloburl.ToKey(list[i].Backdrop)
 	}
-	return dbFrom(ctx, r.db).Table("movie_search_next").CreateInBatches(list, 200).Error
+	err := dbFrom(ctx, r.db).Table("movie_search_next").CreateInBatches(list, 200).Error
+	for i := range list {
+		list[i].Cover, list[i].Backdrop = orig[i][0], orig[i][1]
+	}
+	return err
 }
 
 // ShadowCommit 交换影子表, 让全量重采"无空窗"。

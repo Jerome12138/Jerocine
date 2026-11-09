@@ -1,5 +1,11 @@
 package entity
 
+import (
+	"gorm.io/gorm"
+
+	"server/internal/bloburl"
+)
+
 // Movie 影片详情主表 (table: movie)。
 // mid 全局唯一主键, 不嵌 cid → 详情可凭 mid 一跳直查 (Redis key v1:movie:detail:{mid})。
 type Movie struct {
@@ -54,6 +60,14 @@ type Movie struct {
 
 func (Movie) TableName() string { return "movie" }
 
+// AfterFind 库里存的裸 key → 对外 URL(见 internal/bloburl): DB 只存 key, 出参拼基址。
+// 读侧集中在此, 换基址无需改任何读路径。写侧由仓储层显式剥前缀(见 movieRepo.Upsert 等)。
+func (m *Movie) AfterFind(*gorm.DB) error {
+	m.Cover = bloburl.Resolve(m.Cover)
+	m.Backdrop = bloburl.Resolve(m.Backdrop)
+	return nil
+}
+
 // movie.db_id 的来源标记(db_id_src) —— 回填可审计、可回滚。
 const (
 	DbIdSrcSource int8 = 0 // 源站自带(vod_douban_id)
@@ -101,6 +115,14 @@ type MovieSearch struct {
 }
 
 func (MovieSearch) TableName() string { return "movie_search" }
+
+// AfterFind 与 Movie 同口径: 裸 key → 对外 URL(见 internal/bloburl)。
+// 内嵌 MovieSearch 的读模型(HotBoardMember 等)自动继承本 hook。
+func (m *MovieSearch) AfterFind(*gorm.DB) error {
+	m.Cover = bloburl.Resolve(m.Cover)
+	m.Backdrop = bloburl.Resolve(m.Backdrop)
+	return nil
+}
 
 // MoviePlaySource 多源播放 (table: movie_play_source) — episodes_json 整源一行。
 // match_key = GenerateHashKey(片名/dbId), 用于跨站点匹配同一影片的播放源。

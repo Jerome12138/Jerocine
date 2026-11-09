@@ -80,8 +80,10 @@ services:
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
       SPIDER_RESET_TOKEN: "${SPIDER_RESET_TOKEN}"
       BLOB_DRIVER: "local"
-      BLOB_LOCAL_DIR: "/opt/server/static/upload"
-      BLOB_BASE_URL: "/api/upload/"
+      BLOB_LOCAL_DIR: "/opt/server/filestore"
+      # 对外基址(可配): 可写路径(同域, 如 /filestore/ 或 /media/) 或绝对域(独立 CDN, 如 https://img.xxx/)。
+      # 数据库只存裸 key, 出参按本值拼完整 URL ⇒ 换基址零数据迁移。容器默认 /filestore/, 可在 .env 覆盖。
+      BLOB_BASE_URL: "${BLOB_BASE_URL:-/filestore/}"
       # TMDB 横图回填: API Key 在后台「系统设置 → TMDB」维护(key 唯一权威, 无 env);
       # 这里只有"基本不会改"的语言与反代地址。
       TMDB_LANG: "${TMDB_LANG:-zh-CN}"
@@ -92,7 +94,10 @@ services:
       DANMU_API_TOKEN: "${DANMU_API_TOKEN}"
       GIN_MODE: release
     volumes:
-      - uploads:/opt/server/static/upload
+      # 统一文件仓: 宿主机固定目录 bind mount(非命名卷), 数据位置稳定、便于备份/迁移/人工放文件。
+      # ⚠ 该目录须**先于 up -d 存在**且对容器 nonroot(uid 65532)可写, 否则 docker 会以 root 建空目录
+      #   → server(nonroot)写不进去。准备命令见 deploy 说明: mkdir -p /data/filestore && chown 65532:65532 /data/filestore
+      - ${FILESTORE_HOST_DIR:-/data/filestore}:/opt/server/filestore
       - ${JEROCINE_DEPLOY_ROOT:-.}/secrets:/etc/jerocine/secrets:ro
     networks:
       - jerocine-network
@@ -183,6 +188,9 @@ services:
       # 私有附加站点(与 jerocine 无关、由 JerocineHarness 维护): nginx.conf 末尾
       # include /etc/nginx/conf.d/private/*.conf 加载。目录空/不存在时 include 不报错。
       - ${JEROCINE_DEPLOY_ROOT:-.}/data/nginx/private:/etc/nginx/conf.d/private:ro
+      # 统一文件仓: 与 server 同一宿主机目录 bind mount(只读), nginx 直接从卷静态托管 /filestore/,
+      # 不再反代后端。
+      - ${FILESTORE_HOST_DIR:-/data/filestore}:/var/www/filestore:ro
       - nginx_cache:/var/cache/nginx/api
     networks:
       - jerocine-network
@@ -269,5 +277,4 @@ networks:
 volumes:
   mysql_data:
   redis_data:
-  uploads:
   nginx_cache:

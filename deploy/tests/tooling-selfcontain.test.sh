@@ -115,7 +115,7 @@ make_pkg() {
   rm -rf "$stage"; mkdir -p "$stage"
   case "$kind" in
     server)
-      mkdir -p "$stage/static/upload" "$stage/data" "$stage/migrations"
+      mkdir -p "$stage/filestore" "$stage/data" "$stage/migrations"
       printf '#!/bin/sh\necho server\n' > "$stage/main"
       printf 'ipdb\n' > "$stage/data/ip2region.db"
       printf 'ddl\n'  > "$stage/migrations/000099_demo.up.sql"
@@ -338,7 +338,7 @@ echo "# 4. legacy 对照与守卫"
 # 4.1 同一个包**不带** tooling/ ⇒ legacy: pull 照旧、无标记、compose 无 -f
 : > "$WORK/state/log"; : > "$WORK/state/git.log"
 stage="$WORK/stage-legacy"
-rm -rf "$stage"; mkdir -p "$stage/static/upload" "$stage/data" "$stage/migrations"
+rm -rf "$stage"; mkdir -p "$stage/filestore" "$stage/data" "$stage/migrations"
 printf '#!/bin/sh\necho server\n' > "$stage/main"
 printf 'ipdb\n' > "$stage/data/ip2region.db"
 printf 'ddl\n'  > "$stage/migrations/000099_demo.up.sql"

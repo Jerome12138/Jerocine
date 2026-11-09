@@ -93,8 +93,8 @@ assert_grep "Redis 指向 127.0.0.1"       "$env_out" 'REDIS_ADDR=127.0.0.1:6379
 assert_grep "Redis 双库分离"             "$env_out" 'REDIS_DB_CACHE=0'
 assert_grep "Redis 协调库"               "$env_out" 'REDIS_DB_COORD=1'
 assert_grep "JWT 私钥随 PREFIX"          "$env_out" "JWT_PRIVATE_KEY_FILE=$P/secrets/jwt_private.pem"
-assert_grep "BLOB 落 PREFIX 内"          "$env_out" "BLOB_LOCAL_DIR=$P/server/static/upload"
-assert_grep "BLOB 基址不变"              "$env_out" 'BLOB_BASE_URL=/api/upload/'
+assert_grep "BLOB 落 PREFIX 内"          "$env_out" "BLOB_LOCAL_DIR=$P/server/filestore"
+assert_grep "BLOB 基址=/filestore/"         "$env_out" 'BLOB_BASE_URL=/filestore/'
 assert_grep "GIN release"                "$env_out" 'GIN_MODE=release'
 # 登录策略(有效期/设备数)与采集并发已移入后台 site_config, 不再出现在 server.env
 assert_no_grep "无 AUTH_TOKEN_TTL_HOURS" "$env_out" 'AUTH_TOKEN_TTL_HOURS'
@@ -138,12 +138,12 @@ make_pkg() {
   local pkg="$1" mark="$2"
   local ctx="$WORK/pkgctx"
   rm -rf "$ctx"
-  mkdir -p "$ctx/data" "$ctx/static/upload"
+  mkdir -p "$ctx/data" "$ctx/filestore"
   printf '#!/bin/sh\necho server-%s\n' "$mark" > "$ctx/main"
   printf 'ipdb\n'            > "$ctx/data/ip2region.db"
-  printf '%s\n' "$mark"     > "$ctx/static/VERSION"   # 标记文件, 随 static 一起被安装
+  printf '%s\n' "$mark"     > "$ctx/filestore/VERSION"   # 标记文件, 随 filestore 一起被安装
   printf 'MIT\n'             > "$ctx/LICENSE"
-  tar czf "$pkg" -C "$ctx" main data static LICENSE
+  tar czf "$pkg" -C "$ctx" main data filestore LICENSE
 }
 
 pkg1="$WORK/jerocine-server-20260101-120000-deadbee-linux-amd64.tar.gz"
@@ -152,7 +152,7 @@ BARE_HEALTH_TRIES=1 bash bare/bare-deploy.sh "$pkg1" >"$WORK/out1" 2>&1 \
   && ok "v1 发布成功" || { bad "v1 发布失败"; cat "$WORK/out1"; }
 assert_has "server/main 落位"        "$P/server/main"
 assert_eq   "main 恢复 exec 位"      "$(stat -c %a "$P/server/main")" "755"
-assert_has "static/upload 目录在位"  "$P/server/static/upload"
+assert_has "filestore 目录在位"  "$P/server/filestore"
 assert_has "包已留档"                "$P/packages/jerocine-server-20260101-120000-deadbee-linux-amd64.tar.gz"
 grep -q "restart jerocine-server" "$STUB_LOG/systemctl.log" \
   && ok "systemctl restart 已调用" || bad "未调用 systemctl restart"
@@ -165,7 +165,7 @@ for v in 2 3 4 5; do
     || { bad "v$v 发布失败"; cat "$WORK/out$v"; }
 done
 assert_eq  "备份保留 3 份" "$(ls -1d "$P/backup"/server-* | wc -l)" "3"
-assert_eq  "当前是最新版 v5" "$(cat "$P/server/static/VERSION")" "v5"
+assert_eq  "当前是最新版 v5" "$(cat "$P/server/filestore/VERSION")" "v5"
 assert_eq  "包留档保留 5 份" "$(ls -1 "$P/packages" | wc -l)" "5"
 
 # 健康检查失败 → 退出 1 + 给出回退指引, 当前目录保持新包(不静默回滚, 与 docker 口径一致)
@@ -175,10 +175,10 @@ STUB_CURL_EXIT=1 BARE_HEALTH_TRIES=1 bash bare/bare-deploy.sh "$pkg6" >"$WORK/ou
   && bad "健康失败应退出非 0" || ok "健康失败按预期退出非 0"
 assert_grep "失败输出回退指引" "$(cat "$WORK/out6")" "backup"
 
-assert_eq   "新包已安装(等人工处置)" "$(cat "$P/server/static/VERSION")" "v6"
+assert_eq   "新包已安装(等人工处置)" "$(cat "$P/server/filestore/VERSION")" "v6"
 
 # 校验断言: 缺 LICENSE 的包被拒
-ctx="$WORK/pkgctx-bad"; rm -rf "$ctx"; mkdir -p "$ctx/static/upload"
+ctx="$WORK/pkgctx-bad"; rm -rf "$ctx"; mkdir -p "$ctx/filestore"
 : > "$ctx/main"; : > "$ctx/LICENSE"
 pkgbad="$WORK/jerocine-server-20260107-000000-deadbee-linux-amd64.tar.gz"
 tar czf "$pkgbad" -C "$ctx" . 2>/dev/null
@@ -197,16 +197,16 @@ S
 chmod +x "$STUB/migrate"
 pkgm="$WORK/jerocine-server-20260107-120000-deadbee-linux-amd64.tar.gz"
 ctxm="$WORK/pkgmig"; rm -rf "$ctxm"
-mkdir -p "$ctxm/data" "$ctxm/static/upload" "$ctxm/migrations"
+mkdir -p "$ctxm/data" "$ctxm/filestore" "$ctxm/migrations"
 printf '#!/bin/sh\necho server-v7\n' > "$ctxm/main"
 printf 'ipdb\n' > "$ctxm/data/ip2region.db"
-printf 'v7\n' > "$ctxm/static/VERSION"
+printf 'v7\n' > "$ctxm/filestore/VERSION"
 printf 'MIT\n' > "$ctxm/LICENSE"
 printf 'ddl\n' > "$ctxm/migrations/000030_demo.up.sql"
-tar czf "$pkgm" -C "$ctxm" main data static migrations LICENSE
+tar czf "$pkgm" -C "$ctxm" main data filestore migrations LICENSE
 MIGRATE_BIN="$STUB/migrate" BARE_HEALTH_TRIES=1 bash bare/bare-deploy.sh "$pkgm" >"$WORK/out7" 2>&1 \
   && ok "带迁移的包发布成功" || { bad "带迁移的包发布失败"; cat "$WORK/out7"; }
-assert_grep "当前是 v7"    "$(cat "$P/server/static/VERSION")" "v7"
+assert_grep "当前是 v7"    "$(cat "$P/server/filestore/VERSION")" "v7"
 grep -qE "migrate -path .+ -database .+ up" "$STUB_LOG/migrate.log" \
   && ok "以包内迁移目录调用 golang-migrate up" || bad "未调用 golang-migrate"
 # 迁移失败 → 发布中止(systemctl 不该被调用)
@@ -218,13 +218,13 @@ S
 pkg8="$WORK/jerocine-server-20260108-120000-deadbee-linux-amd64.tar.gz"
 # v8 与线上(v7)不同内容: 用于观测"失败后磁盘是否恢复成上一版"
 ctx8="$WORK/pkg8ctx"; rm -rf "$ctx8"
-mkdir -p "$ctx8/data" "$ctx8/static/upload" "$ctx8/migrations"
+mkdir -p "$ctx8/data" "$ctx8/filestore" "$ctx8/migrations"
 printf '#!/bin/sh\necho server-v8\n' > "$ctx8/main"
 printf 'ipdb\n' > "$ctx8/data/ip2region.db"
-printf 'v8\n' > "$ctx8/static/VERSION"
+printf 'v8\n' > "$ctx8/filestore/VERSION"
 printf 'MIT\n' > "$ctx8/LICENSE"
 printf 'ddl\n' > "$ctx8/migrations/000030_demo.up.sql"
-tar czf "$pkg8" -C "$ctx8" main data static migrations LICENSE
+tar czf "$pkg8" -C "$ctx8" main data filestore migrations LICENSE
 before_restart="$(grep -c restart "$STUB_LOG/systemctl.log" || true)"
 before_backup="$(ls -1 "$P/backup" 2>/dev/null | wc -l)"
 MIGRATE_BIN="$STUB/migrate" BARE_HEALTH_TRIES=1 bash bare/bare-deploy.sh "$pkg8" >"$WORK/out8" 2>&1 \

@@ -20,7 +20,7 @@
 ```
 /opt/jerocine/
 ├─ server.env          由 bare-lib.sh 从 bare.env 组装（systemd EnvironmentFile）
-├─ server/             当前运行的后端（main + data/ + static/upload + LICENSE）
+├─ server/             当前运行的后端（main + data/ + filestore + LICENSE）
 ├─ backup/server-<TS>/ 上一版整目录备份（保留 3 份，手动回退）
 ├─ packages/           后端包留档（保留 5 份）
 ├─ webdata/            前端发布数据（html/releases/debugmap/packages，与 docker 模式 data/ 同构）
@@ -58,13 +58,13 @@ journalctl -u jerocine-server -n 100               # 后端日志（journald）
 ## 从 Docker 模式迁移数据（一次性）
 
 ```bash
-# 1. 导出（Docker 服务器上）
+# 1. 导出（Docker 服务器上）—— 旧栈文件在命名卷 jerocine_uploads（docker 模式已改用宿主机目录 bind mount）
 docker exec jerocine_mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines jerocine' > dump.sql
-docker run --rm -v jerocine_uploads:/data -v "$PWD:/out" alpine tar czf /out/uploads.tgz -C /data .
+docker run --rm -v jerocine_uploads:/data -v "$PWD:/out" alpine tar czf /out/filestore-old.tgz -C /data .
 # 2. 导入（裸机服务器上）—— 先 systemctl stop jerocine-server（若已启动）
 mysql jerocine < dump.sql
-tar xzf uploads.tgz -C /opt/jerocine/server/static/upload
-chown -R jerocine:jerocine /opt/jerocine/server/static/upload
+tar xzf filestore-old.tgz -C /opt/jerocine/server/filestore
+chown -R jerocine:jerocine /opt/jerocine/server/filestore
 # 3. Redis 不用迁 —— 可重建缓存（读路径回源 MySQL），空库起步即可
 # 4. schema_migrations 已随 dump 带过来，migrate.sh 从断点继续，不会重跑
 ```

@@ -154,6 +154,8 @@ async function submit(): Promise<void> {
         state: form.state ? 0 : 1,
         hint: form.hint ?? '',
         imgFallbackHosts: form.imgFallbackHosts ?? '',
+        // blob 对外基址非可编辑项(后端 env 下发), 原样保留, 避免保存后 store 丢字段
+        fileBase: siteStore.basic?.fileBase,
         updatedAt: Date.now()
       }
       // 图床域名链同步进模块级单供体(BaseImage 消费) —— 保存即生效, 无需刷新

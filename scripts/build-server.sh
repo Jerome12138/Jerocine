@@ -17,7 +17,7 @@
 #
 # 产物包布局(= deploy/Dockerfile.runtime 的 COPY 目标):
 #   main                 linux/<arch> 静态二进制
-#   static/upload/       upload 卷挂载点(空目录)
+#   filestore/           统一文件仓挂载点(空目录)
 #   data/ip2region.db    IP 归属地离线库
 #   LICENSE
 #   migrations/*.sql     版本化 DDL(与二进制同包同版, 先迁移再起新容器)
@@ -175,7 +175,7 @@ chmod 0755 "$STAGE/main" || true
 
 # ---------------------------------------------------------------- 打包
 
-mkdir -p "$STAGE/static/upload" "$STAGE/data" "$STAGE/migrations"
+mkdir -p "$STAGE/filestore" "$STAGE/data" "$STAGE/migrations"
 [ -f "$SRV/data/ip2region.db" ] || die "缺少 $SRV/data/ip2region.db（IP 归属地离线库）"
 cp "$SRV/data/ip2region.db" "$STAGE/data/"
 # 版本化 DDL 随包上送: server-deploy 会把它同步到 deploy/data/migrations 并先于新二进制执行

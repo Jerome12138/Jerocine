@@ -1,7 +1,7 @@
 # 后端**运行镜像**(薄): 只打包本机交叉编译好的 Linux 二进制, 容器内不再编译。
 #
 # 常规部署路径(2026-10-10 起):
-#   本机 scripts/build-server.sh   CGO_ENABLED=0 交叉编译 + 打包(含 data/ static/ LICENSE)
+#   本机 scripts/build-server.sh   CGO_ENABLED=0 交叉编译 + 打包(含 data/ filestore/ LICENSE)
 #   本机 scripts/deploy-server.sh  上传到 deploy/incoming/ 并调远端 ./deploy.sh server-deploy
 #   服务器 deploy.sh server-deploy 解包到 deploy/server/ → 以该目录为上下文构建本文件 → up -d
 #
@@ -24,8 +24,8 @@ WORKDIR /opt/server
 # go build 产物没有 exec 位, 而第一次实测(2026-10-10)里 distroless nonroot 起容器
 # 直接 `exec: "/opt/server/main": permission denied`。
 COPY --chown=nonroot:nonroot --chmod=0755 main /opt/server/main
-# upload 卷的挂载点(内容由 compose 的 uploads 卷提供, 这里只需目录存在)
-COPY --chown=nonroot:nonroot static /opt/server/static
+# filestore 挂载点(内容由 compose 的宿主机目录 bind mount 提供, 这里只需目录存在)
+COPY --chown=nonroot:nonroot filestore /opt/server/filestore
 # IP 归属地离线库(geoip; 缺失时在线明细归属地列留空, 不阻断启动)
 COPY --chown=nonroot:nonroot data /opt/server/data
 # 许可随镜像分发(MIT + GoFilm 衍生声明)

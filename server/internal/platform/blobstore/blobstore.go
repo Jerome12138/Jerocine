@@ -27,7 +27,7 @@ type BlobStore interface {
 	URL(objectKey string) string
 }
 
-// localStore 把对象写到本地目录(docker 卷 film_uploads), URL = baseURL + objectKey。
+// localStore 把对象写到本地目录(生产: 宿主机 /data/filestore 经 bind mount 挂入), URL = baseURL + objectKey。
 type localStore struct {
 	dir     string
 	baseURL string

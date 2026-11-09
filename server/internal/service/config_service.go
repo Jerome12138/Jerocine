@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"server/internal/bloburl"
 	"server/internal/cache"
 	"server/internal/domain"
 	"server/internal/domain/entity"
@@ -28,6 +29,10 @@ func (s *ConfigService) SiteConfig(ctx context.Context) (*entity.SiteConfig, err
 		}
 		return c, true, nil
 	})
+	if v != nil {
+		// blob 对外基址随公开配置下发(前端解析路径模式 blob 前缀用); 非 DB 列, 每次回填。
+		v.FileBase = bloburl.Base()
+	}
 	return v, err
 }
 

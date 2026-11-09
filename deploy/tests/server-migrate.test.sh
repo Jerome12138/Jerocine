@@ -167,7 +167,7 @@ printf 'REDIS_PASSWORD=x\n' > "$SB/.env"   # clear_caches 要 grep 它(pipefail 
 
 make_server_pkg() {  # $1=输出包 $2=解包上下文目录 $3=1含migrations(新包) 0不含(旧包)
   local out="$1" d="$2" mig="$3"
-  rm -rf "$d"; mkdir -p "$d/data" "$d/static/upload"
+  rm -rf "$d"; mkdir -p "$d/data" "$d/filestore"
   printf '#!/bin/sh\necho server\n' > "$d/main"
   printf 'ipdb\n' > "$d/data/ip2region.db"
   printf 'MIT\n' > "$d/LICENSE"
@@ -175,7 +175,7 @@ make_server_pkg() {  # $1=输出包 $2=解包上下文目录 $3=1含migrations(�
     mkdir -p "$d/migrations"
     printf 'ddl\n' > "$d/migrations/000030_demo.up.sql"
   fi
-  tar czf "$out" -C "$d" main data static LICENSE $([ "$mig" = "1" ] && echo migrations)
+  tar czf "$out" -C "$d" main data filestore LICENSE $([ "$mig" = "1" ] && echo migrations)
 }
 run_deploy() { bash "$SB/deploy.sh" server-deploy "$1" > "$WORK/out" 2>&1; }
 

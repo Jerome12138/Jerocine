@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"server/internal/bloburl"
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
@@ -49,7 +50,11 @@ func (r *bannerRepo) Get(ctx context.Context, id int64) (*entity.Banner, error) 
 }
 
 func (r *bannerRepo) Create(ctx context.Context, b *entity.Banner) error {
-	return dbFrom(ctx, r.db).Create(b).Error
+	image, poster := b.Image, b.Poster // 落库存裸 key(link 是跳转链接, 不转换)
+	b.Image, b.Poster = bloburl.ToKey(image), bloburl.ToKey(poster)
+	err := dbFrom(ctx, r.db).Create(b).Error
+	b.Image, b.Poster = image, poster // 还原为 URL 视角
+	return err
 }
 
 // Update 按 id 整体覆盖。
@@ -73,8 +78,8 @@ func (r *bannerRepo) Update(ctx context.Context, b *entity.Banner) error {
 		Updates(map[string]any{
 			"title":    b.Title,
 			"subtitle": b.Subtitle,
-			"image":    b.Image,
-			"poster":   b.Poster,
+			"image":    bloburl.ToKey(b.Image),  // map 更新旁路 hook, 显式剥成裸 key
+			"poster":   bloburl.ToKey(b.Poster), // link 是跳转链接, 不转换
 			"mid":      b.Mid,
 			"link":     b.Link,
 			"sort":     b.Sort,

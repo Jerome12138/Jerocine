@@ -268,17 +268,17 @@ assert_eq   "产物包数 = 保留窗口(2)"            "$(ls -1 "$P10/packages"
 wr_archive_pkg "$P10/packages/20260101-000012.tar.gz" "$P10" 20260101-000012 >/dev/null
 assert_has  "重复归档不丢包"                    "$P10/packages/20260101-000012.tar.gz"
 
-# 后端产物包走通用解包(main + data + static/upload 空目录)
+# 后端产物包走通用解包(main + data + filestore 空目录)
 EXB="$WORK/ex10b"
 BP="$PKG_DIR/jerocine-server-test-linux-amd64.tar.gz"
-mkdir -p "$WORK/srvbuild/static/upload" "$WORK/srvbuild/data"
+mkdir -p "$WORK/srvbuild/filestore" "$WORK/srvbuild/data"
 printf 'ELF\n' > "$WORK/srvbuild/main"
 printf 'DB\n'  > "$WORK/srvbuild/data/ip2region.db"
 tar -czf "$BP" -C "$WORK/srvbuild" .
 wr_extract_tar "$BP" "$EXB" >/dev/null
 assert_has  "后端包解出 main"                   "$EXB/main"
 assert_has  "后端包解出 ip2region.db"           "$EXB/data/ip2region.db"
-assert_has  "后端包解出 static/upload 目录"     "$EXB/static/upload"
+assert_has  "后端包解出 filestore 目录"     "$EXB/filestore"
 assert_die  wr_extract_tar "$PKG_DIR/nope.tar.gz" "$WORK/ex10none"
 
 echo
