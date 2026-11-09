@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, h, nextTick } from 'vue'
-import { usePwaUpdate, isPageStale, parseBuildTag, type PwaUpdateDeps } from './usePwaUpdate'
+import {
+  usePwaUpdate,
+  isPageStale,
+  parseBuildTag,
+  resetPromptedBuildForTest,
+  type PwaUpdateDeps
+} from './usePwaUpdate'
 import { CHUNK_RELOAD_GUARD_KEY } from '@/utils/chunkReload'
 
 vi.mock('@/utils/telemetry', () => ({
@@ -107,6 +113,7 @@ const NEWER = '20261031-101010'
 describe('usePwaUpdate', () => {
   beforeEach(() => {
     sessionStorage.clear()
+    resetPromptedBuildForTest()
     removeFakeSW()
     // 默认探测失败(返回不含构建号的 HTML): 绝大多数用例不关心初始核对, 让它静默
     vi.stubGlobal(
@@ -211,6 +218,52 @@ describe('usePwaUpdate', () => {
 
     expect(apiOf(w2).updateFound.value).toBe(false)
     expect(apiOf(w2).updateReady.value).toBe(false)
+  })
+
+  it('去重必须跨 session: 新标签/TV 冷启动(sessionStorage 为空)也不再提示同一版本', async () => {
+    const deps = { ownBuild: OWN, probeLatestBuild: async () => NEWER }
+
+    const sw1 = installFakeSW({ state: 'activated' })
+    const w1 = mountWithDeps(deps)
+    await settle()
+    await fire(sw1)
+    await settle()
+    expect(apiOf(w1).updateFound.value).toBe(true)
+    w1.unmount()
+
+    // 模拟 TV 壳冷启动 / 新开标签: sessionStorage 是全新的, localStorage 仍在
+    sessionStorage.clear()
+    removeFakeSW()
+    const sw2 = installFakeSW({ state: 'activated' })
+    const w2 = mountWithDeps(deps)
+    await settle()
+    await fire(sw2)
+    await settle()
+
+    expect(apiOf(w2).updateFound.value).toBe(false)
+    expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWER)
+  })
+
+  it('去重按构建号而非永久静默: 出现更新的构建号仍会提示一次', async () => {
+    const NEWEST = '20261101-090000'
+    const sw1 = installFakeSW({ state: 'activated' })
+    const w1 = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
+    await settle()
+    await fire(sw1)
+    await settle()
+    expect(apiOf(w1).updateFound.value).toBe(true)
+    w1.unmount()
+
+    // 又有更新版本: 页面(OWN)依然落后, 但可用版本变成了 NEWEST ⇒ 必须再提示
+    removeFakeSW()
+    const sw2 = installFakeSW({ state: 'activated' })
+    const w2 = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWEST })
+    await settle()
+    await fire(sw2)
+    await settle()
+
+    expect(apiOf(w2).updateFound.value).toBe(true)
+    expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWEST)
   })
 
   it('updatefound 但构建号相同 → 不亮灯(安装重试不再误报)', async () => {

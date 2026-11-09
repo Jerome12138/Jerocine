@@ -40,8 +40,15 @@ import { CHUNK_RELOAD_GUARD_KEY } from '@/utils/chunkReload'
  *  ③ `isPageStale` 把"探测失败(空串)"当"落后", 而探测失败在 5–10% 丢包链路上是常态
  *    ⇒ 随机误报。现在探测失败只在"sw.js 确实变了"(updatefound 硬证据)时才提示,
  *    单纯的 controllerchange 遇到探测失败一律不提示。
- *  另外新增**同构建号每会话只提示一次**(sessionStorage): 点过更新、刷新后仍是旧版时
+ *  另外新增**同构建号每设备只提示一次**(localStorage): 点过更新、刷新后仍是旧版时
  *  不再重复弹; 想彻底拿新版仍可用顶栏「刷新」按钮(reloadToLatest)。
+ *
+ * 2026-11-09 补修(用户要求"好好修"): 上一版把去重记在 **sessionStorage**, 而 sessionStorage
+ *  的生命周期是"一个标签页" —— TV 壳每次冷启动、Web 每开一个新标签都是全新 session,
+ *  于是同一个版本照样"每启动一次提示一次", 报障现象只轻了一半。
+ *  ⇒ 改记 **localStorage**(按设备+源持久化): 一个构建号只提示一次, 出现**更新的**构建号
+ *    key 不同 ⇒ 照常提示。存储不可用(隐私模式/配额满)时退回 sessionStorage, 再不行就
+ *    退化为"每次都可能提示"——只影响提示频次, 不影响更新能力。
  */
 
 export interface PwaUpdate {
@@ -57,8 +64,10 @@ export interface PwaUpdate {
   supported: boolean
 }
 
-/** 本会话已提示过的构建号 —— 同一版本只提示一次, 消除"一个版本提示好几遍" */
+/** 已提示过的构建号 —— 同一版本只提示一次, 消除"一个版本提示好几遍" */
 const PROMPTED_BUILD_KEY = 'jc-pwa-prompted-build'
+/** 探测存储可用性用的临时键(写完立刻删, 不留下垃圾) */
+const STORAGE_PROBE_KEY = 'jc-pwa-storage-probe'
 /** 点「更新」后等新 SW 接管的兜底时长(ms): 慢链路上 install 可能很久, 超时也要给出口 */
 const APPLY_WAIT_MS = 8000
 /** 回到前台重查的最小间隔(ms): TV 壳常驻没有导航机会, 靠 visibilitychange 兜底 */
@@ -86,22 +95,75 @@ function readOwnBuild(): string {
   }
 }
 
-/** 本会话已提示到的构建号(读失败按"没提示过"处理) */
+/**
+ * 去重存储的句柄(懒探测, 只探一次) —— 优先 localStorage, 不可用时退回 sessionStorage。
+ *
+ * 为什么必须 localStorage: sessionStorage 跟着"标签页"走, TV 壳每次冷启动、Web 每开新标签
+ * 都是新 session ⇒ 同一个版本"每启动一次提示一次"。localStorage 按设备+源持久化,
+ * 才真正做到"一个版本只提示一次"。
+ */
+let promptedStore: Storage | null | undefined
+function getPromptedStore(): Storage | null {
+  if (promptedStore !== undefined) return promptedStore
+  promptedStore = null
+  const usable = (s: Storage | undefined): boolean => {
+    if (!s) return false
+    try {
+      s.setItem(STORAGE_PROBE_KEY, '1')
+      s.removeItem(STORAGE_PROBE_KEY)
+      return true
+    } catch {
+      return false
+    }
+  }
+  let local: Storage | undefined
+  let session: Storage | undefined
+  try {
+    local = typeof localStorage === 'undefined' ? undefined : localStorage
+  } catch {
+    local = undefined
+  }
+  try {
+    session = typeof sessionStorage === 'undefined' ? undefined : sessionStorage
+  } catch {
+    session = undefined
+  }
+  if (usable(local)) promptedStore = local ?? null
+  else if (usable(session)) promptedStore = session ?? null
+  return promptedStore
+}
+
+/** 已提示到的构建号(读失败按"没提示过"处理) */
 function readPromptedBuild(): string {
   try {
-    return sessionStorage.getItem(PROMPTED_BUILD_KEY) ?? ''
+    return getPromptedStore()?.getItem(PROMPTED_BUILD_KEY) ?? ''
   } catch {
     return ''
   }
 }
 
-/** 记下"这个构建号已经提示过" —— 同一版本刷新后不再重复弹 */
+/** 记下"这个构建号已经提示过" —— 同一版本刷新/重启后都不再重复弹 */
 function markPromptedBuild(build: string): void {
   if (!build) return
   try {
-    sessionStorage.setItem(PROMPTED_BUILD_KEY, build)
+    getPromptedStore()?.setItem(PROMPTED_BUILD_KEY, build)
   } catch {
-    /* sessionStorage 不可用(隐私模式): 退化为"每次都可能提示", 不影响更新能力 */
+    /* 存储不可用(隐私模式/配额满): 退化为"每次都可能提示", 不影响更新能力 */
+  }
+}
+
+/** 清掉去重记录 —— 仅测试用(生产没有"重新允许提示同一版本"的语义) */
+export function resetPromptedBuildForTest(): void {
+  promptedStore = undefined
+  try {
+    localStorage.removeItem(PROMPTED_BUILD_KEY)
+  } catch {
+    /* 忽略 */
+  }
+  try {
+    sessionStorage.removeItem(PROMPTED_BUILD_KEY)
+  } catch {
+    /* 忽略 */
   }
 }
 
@@ -237,9 +299,9 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
         return
       }
 
-      // 去重: 同一构建号本会话只提示一次 —— 点过更新、刷新后仍是旧版时不再重复弹。
+      // 去重: 同一构建号每设备只提示一次 —— 点过更新、刷新/重启后仍是旧版时不再重复弹。
       // 注意判据分两层:
-      //  - 跨页面实例(刷新/重新挂载): 看 sessionStorage, 已提示过就完全静默;
+      //  - 跨页面实例(刷新/重新挂载/新标签/TV 冷启动): 看 localStorage, 已提示过就完全静默;
       //  - 同一实例内: 允许把 amber「发现更新」升级成蓝色「新版本」(同一次提示的进展, 不是重复)
       const key = latest || `unknown:${signal}`
       if (!promptedInThisInstance && readPromptedBuild() === key) {
