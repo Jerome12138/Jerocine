@@ -196,6 +196,8 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     private long lastStallFailoverAt;
     /** 上次看门狗换到的源下标(-1=无): 测速结果不变时 pickBest 恒定, 防止同一目标反复横跳 */
     private int lastFailoverTarget = -1;
+    /** P3 观测: 上次候选预过滤后「可精确对齐」的源个数（写进决策日志/事件, 便于线上看错切率） */
+    private int lastAlignableCount = 0;
     /** Q② 直播 behind-live/reset 兜底防循环闸门(短窗限次). */
     private final PlayerLiveErrorPolicy.RecoveryGate liveRecoveryGate =
             new PlayerLiveErrorPolicy.RecoveryGate(
@@ -1554,6 +1556,40 @@ private static String failedRequestUrl(Throwable error) {
      * currentSourceIndex → loadSourceIntoPlayer, 铁律 §0.3: 顺序错 = refreshLocalDownloads
      * 按旧源查、本地优先失效); 自动切换本身不置位 sourceManuallyPicked。
      */
+    /**
+     * P3 候选预过滤（与 web 侧同口径）: 只保留「切过去能**精确对齐**到同一集」的源。
+     *
+     * <p>为什么必要: {@link SourceSpeedRanker#pickBest} 只按速度择优 —— 若最快的源与当前集
+     * 对不上，随后的 {@code switchSourceAligned(strictAuto=true)} 只能返回 null、**放弃整次换源**
+     * （用户继续卡）；而**次快但可对齐**的源本来就能用上。
+     *
+     * <p>当前源的结果**必须保留**（{@code pickBest} 的 margin 比较需要它）。
+     */
+    private List<SourceSpeedRanker.Result> alignableOnly(List<SourceSpeedRanker.Result> results, int curEp) {
+        if (results == null || results.isEmpty() || session.sourceList.isEmpty() || curEp < 0) {
+            return results;
+        }
+        int curIdx = Math.max(0, Math.min(session.currentSourceIndex, session.sourceList.size() - 1));
+        List<String> curTitles = session.sourceList.get(curIdx).titles;
+        List<SourceSpeedRanker.Result> out = new ArrayList<>();
+        int alignable = 0;
+        for (SourceSpeedRanker.Result r : results) {
+            if (r.sourceIndex < 0 || r.sourceIndex >= session.sourceList.size()) continue;
+            if (r.sourceIndex == session.currentSourceIndex) {
+                out.add(r);
+                continue;
+            }
+            EpisodeAlign.Tier t = EpisodeAlign.align(
+                    curEp, curTitles, session.sourceList.get(r.sourceIndex).titles).tier;
+            if (EpisodeAlign.canAutoSwitch(t)) {
+                out.add(r);
+                alignable++;
+            }
+        }
+        lastAlignableCount = alignable;
+        return out;
+    }
+
     private void onSourceProbeDone(String probedFilmId, List<SourceSpeedRanker.Result> results) {
         // 探测批次确实跑完了一轮 → 无论切不切都记录节流(探测流量已发生)
         boolean anySuccess = false;
@@ -1564,12 +1600,14 @@ private static String failedRequestUrl(Throwable error) {
         lastProbeResults = results;
         SourceProbeThrottle.processWide().recordRound(SystemClock.elapsedRealtime(), anySuccess);
         if (isFinishing() || isDestroyed()) return;
-        int best = SourceSpeedRanker.pickBest(results, session.currentSourceIndex);
+        final int probeCurEp = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
+        int best = SourceSpeedRanker.pickBest(alignableOnly(results, probeCurEp), session.currentSourceIndex);
         String blockReason = autoSwitchBlockReason(probedFilmId, best);
         if (blockReason != null) {
             android.util.Log.i(SourceProbeHelper.TAG, "decision: no switch (reason="
                     + blockReason + ") best=" + best
-                    + " current=" + session.currentSourceIndex);
+                    + " current=" + session.currentSourceIndex
+                    + " alignable=" + lastAlignableCount);
             return;
         }
         int curIdx = session.player.getCurrentMediaItemIndex();
@@ -1649,7 +1687,8 @@ private static String failedRequestUrl(Throwable error) {
                 session.sourceList.size() - 1,
                 session.episodeSwitching || bufferInProgress);
         if (!ok) return;
-        int best = SourceSpeedRanker.pickBest(lastProbeResults, session.currentSourceIndex);
+        int best = SourceSpeedRanker.pickBest(alignableOnly(lastProbeResults, p.getCurrentMediaItemIndex()),
+                session.currentSourceIndex);
         String blockReason = (best == SourceSpeedRanker.NONE) ? "no faster source in probe results"
                 : (best == lastFailoverTarget) ? "same as last failover target (dedup)"
                 : autoSwitchBlockReason(filmId(), best);
