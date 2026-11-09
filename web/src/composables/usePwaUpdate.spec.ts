@@ -460,6 +460,55 @@ describe('usePwaUpdate', () => {
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
+  /**
+   * 超时兜底刷新的死角(2026-11-09 核对时发现):
+   * 新 SW 还没接管就刷新 ⇒ 导航仍由旧 SW 应答 ⇒ 拿回旧 index.html ⇒ **页面没换**。
+   * 若还把"同构建号已提示过"留在 localStorage, 刷新后的核对会直接静默 ⇒
+   * 用户点了更新、页面没变、而且再也看不到入口(只能顶栏「刷新」)。
+   */
+  it('applyUpdate: 超时未接管 → 清去重记录, 刷新后仍落后可再提示一次', async () => {
+    const reload = vi.fn()
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({
+      ownBuild: OWN,
+      probeLatestBuild: async () => NEWER,
+      applyWaitMs: 10,
+      reload
+    })
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+    expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWER)
+
+    apiOf(w).applyUpdate()
+    await new Promise((r) => setTimeout(r, 60))
+    await settle()
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('jc-pwa-prompted-build')).toBeNull()
+
+    // 模拟"刷新后仍是旧页面": 新实例、远端依然 NEWER ⇒ 必须再提示一次
+    const w2 = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, reload })
+    await settle()
+    expect(apiOf(w2).updateFound.value).toBe(true)
+  })
+
+  it('applyUpdate: 接管成功后的刷新不清去重记录(已兑现, 不该再提示)', async () => {
+    const reload = vi.fn()
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, applyWaitMs: 30, reload })
+    await settle()
+    sw.fireUpdateFound()
+    await settle()
+
+    apiOf(w).applyUpdate()
+    await settle()
+    await fire(sw) // 新 SW 接管
+    await settle()
+
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWER)
+  })
+
   describe('isPageStale / parseBuildTag', () => {
     const base = { hadController: true, ownBuild: 'a', latestBuild: 'a' }
 

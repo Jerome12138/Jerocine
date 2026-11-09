@@ -174,8 +174,9 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 前端 SW 是 `autoUpdate`（装好即接管），顶栏小徽标只是给"TV 壳常驻、没有下次导航"留的立即刷新出口。**铁律（2026-11-09 定）**：
 - **是否提示只看构建号**：本页 `__APP_BUILD__` 与现抓 `index.html` 里的 `assets/<TS>/` 比对。`updatefound` 只当"去核对一次"的信号，**不得直接亮灯**——安装失败后浏览器下次导航会重试 install，无条件亮灯就是"同一个版本提示好几遍"。
 - **探测失败不提示**（除非同时有 `updatefound` 硬证据）：丢包链路上探测失败是常态，当"落后"处理只会随机误报。
-- **同构建号每会话只提示一次**（sessionStorage `jc-pwa-prompted-build`）：点过更新、刷新后仍是旧版时不再重复弹；要强制拿新版走顶栏「刷新」（`reloadToLatest`）。
+- **同构建号每设备只提示一次**（localStorage `jc-pwa-prompted-build`，不可用时退回 sessionStorage）：一个构建号只弹一次；出现**更新的**构建号 key 不同照常提示。别再退回 sessionStorage —— 它跟着标签页走，TV 壳冷启动/新标签都是新 session，"每启动一次提示一次"。
 - **点击更新 = 等新 SW 接管（controllerchange）后才 reload**，**不再 `clearAppCaches` + 立刻 reload**：旧 SW 仍控制页面时 reload 会被它的 precache 应答，拿回旧 index.html ⇒ 页面没换 ⇒ 稍后又提示一次，还白清 3MB precache。
+- **8s 超时兜底刷新时必须清掉去重记录**（`clearPromptedBuild`）：超时意味着新 SW 还没接管，这次刷新拿到的仍是旧页面；若留着"已提示"记录，刷新后核对直接静默 ⇒ 用户点了更新、页面没变、还再也看不到入口。已接管后的正常刷新**不清**（那次是兑现了的）。
 
 ## Android 工程版本控制
 

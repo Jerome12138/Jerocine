@@ -49,6 +49,14 @@ import { CHUNK_RELOAD_GUARD_KEY } from '@/utils/chunkReload'
  *  ⇒ 改记 **localStorage**(按设备+源持久化): 一个构建号只提示一次, 出现**更新的**构建号
  *    key 不同 ⇒ 照常提示。存储不可用(隐私模式/配额满)时退回 sessionStorage, 再不行就
  *    退化为"每次都可能提示"——只影响提示频次, 不影响更新能力。
+ *
+ * 2026-11-09 补修②(核对逻辑时发现的死角): 点「发现更新」后要等新 SW **接管**才刷新
+ *  (最多 8s)。慢链路(跨境 3MB precache 要 30–40s)必然超时 ⇒ 兜底刷新时控制器还是旧的,
+ *  导航被旧 SW 的 precache 应答 ⇒ **拿回旧页面**; 而"同构建号已提示"的记录又会把刷新后的
+ *  核对直接静默 ⇒ 用户点了更新、页面没变、还再也看不到入口。
+ *  ⇒ 超时兜底刷新的分支里**清掉去重记录**: 上一次提示没兑现成新版本, 就该允许再提一次
+ *    (刷新后要么已是新版(不提示), 要么仍落后(再给一次入口))。
+ *  语义边界: 只有"超时(没接管)"才清; 已接管后的正常刷新**不清** —— 那一次是兑现了的。
  */
 
 export interface PwaUpdate {
@@ -149,6 +157,15 @@ function markPromptedBuild(build: string): void {
     getPromptedStore()?.setItem(PROMPTED_BUILD_KEY, build)
   } catch {
     /* 存储不可用(隐私模式/配额满): 退化为"每次都可能提示", 不影响更新能力 */
+  }
+}
+
+/** 忘掉去重记录 —— 用于"提示过但没能真的切到新版"的情况(见 applyUpdate 超时分支) */
+function clearPromptedBuild(): void {
+  try {
+    getPromptedStore()?.removeItem(PROMPTED_BUILD_KEY)
+  } catch {
+    /* 忽略 */
   }
 }
 
@@ -324,27 +341,32 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
     }
   }
 
-  /** 等新 SW 接管(controllerchange) —— 超时也 resolve, 保证用户总能刷新 */
-  function waitForControllerChange(timeoutMs: number): Promise<void> {
+  /**
+   * 等新 SW 接管(controllerchange) —— 超时也 resolve, 保证用户总能刷新。
+   * @returns true = 真的收到 controllerchange(新 SW 已接管, 刷新必得新版);
+   *          false = 等到超时(install 还没完 —— 此时刷新拿到的仍是旧页面)
+   */
+  function waitForControllerChange(timeoutMs: number): Promise<boolean> {
     return new Promise((resolve) => {
       let done = false
-      const finish = (): void => {
+      const settle = (tookOver: boolean): void => {
         if (done) return
         done = true
         try {
-          navigator.serviceWorker.removeEventListener('controllerchange', finish)
+          navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
         } catch {
           /* 忽略 */
         }
-        resolve()
+        resolve(tookOver)
       }
+      const onControllerChange = (): void => settle(true)
       try {
-        navigator.serviceWorker.addEventListener('controllerchange', finish)
+        navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
       } catch {
-        resolve()
+        resolve(false)
         return
       }
-      window.setTimeout(finish, timeoutMs)
+      window.setTimeout(() => settle(false), timeoutMs)
     })
   }
 
@@ -443,8 +465,19 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
       } catch {
         /* getRegistration 失败: 直接走兜底 */
       }
-      await waitForControllerChange(applyWaitMs)
-      doReload()
+      await waitForControllerChange(applyWaitMs).then((tookOver) => {
+        // 超时兜底刷新: 新 SW 还没接管 ⇒ 这次导航仍会被**旧 SW**应答, 拿回旧 index.html
+        // ⇒ 页面其实没换。而"同构建号已提示"的记录会让刷新后的核对直接静默 ——
+        // 于是用户点了更新、页面没变、还再也看不到入口(只能靠顶栏「刷新」)。
+        // ⇒ 没接管就刷新时把去重记录清掉, 让刷新后若仍落后能再提示一次(该版本值得再提一次:
+        //    上一次提示并没有兑现成新版本)。
+        if (!tookOver) {
+          clearPromptedBuild()
+          promptedInThisInstance = false
+          track('update-apply-timeout')
+        }
+        doReload()
+      })
     })()
   }
 
