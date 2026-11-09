@@ -60,8 +60,12 @@ function seriesOf(s: string): string {
   if (ci >= 0) s = s.slice(0, ci)
   s = s
     .replace(RE_BRACKET_G, SEP)
-    .replace(RE_DATE8_G, SEP)
+    // ⚠️ 顺序要紧：必须**先删「第N期/集/话…」再删日期**。
+    // 反过来的话，日期会先被替换成占位符（SEP），而 RE_DI_N_WIDE_G 的 `\s*\d{0,8}\s*` 跨不过占位符
+    // ⇒ 「第20261005期心动的旅行上」这类**日期样式的期号**会残留一个「期」⇒ 栏目名变成「期心动的旅行」，
+    // 与库侧「心动的旅行」对不上（线上真实形态，2026-11-09 实测）。
     .replace(RE_DI_N_WIDE_G, SEP)
+    .replace(RE_DATE8_G, SEP)
     .replace(RE_SEASON_SPAN_G, SEP)
     .replace(RE_E_NUM_G, SEP)
     .replace(RE_VARIANT_G, SEP)
@@ -169,11 +173,47 @@ export function epidFor(title: string, otherTitles: string[]): string {
   return epidOf(k)
 }
 
-/** A2 现算期号（传给聚合接口 epNum）: 自带期号直接用; 缺失经桥接; 桥接失败/未触发返回 0 */
+/**
+ * 锚点期号（**单源片**专用兜底）—— 期号 = 本片「正片『上』」日期集合中**不晚于本集日期**的个数。
+ *
+ * <p>为什么需要：`bridgeNum`（他源桥接）要从**别的源**借期号，单源片没有源可借 ⇒ 期号恒 0 ⇒
+ * 这类综艺（App 侧只有日期、库侧只有期号）永远查不到弹幕。实测（心动9，2026-11-09）：
+ * 现规则 0% → 锚点法 34/133 = 25.6%，且**推算期号与库侧期号 34/34 完全一致**。
+ *
+ * <p>为什么不用"7 天一期"：跨季/断更/非周更都不成立；「每期必有『上』、『上』即该期首播日」
+ * 是综艺的普遍规律，按日期数「上」即可（断更/跨季/一天多期都自洽）。
+ *
+ * <p>口径（用户 2026-11-09 拍板）：**只数正片** —— 排除衍生栏目（`series` 非空）与变体（`variant` 非空），
+ * 否则「心动的周末/旅行」会把正片序带偏。保守条件：正片「上」不足 2 个、或本集非正片/无日期 → 返回 0（不猜）。
+ *
+ * <p>注：入参 `allTitles` 允许是"本片所有源的所有集名" —— 内部按**日期去重**，同一期在多个源里只算一次。
+ */
+export function anchorNumFor(title: string, allTitles: string[]): number {
+  const k = parseEpisodeKey(title ?? '')
+  if (!k.date || k.series || k.variant) return 0
+  const dates: string[] = []
+  for (const t of allTitles ?? []) {
+    const o = parseEpisodeKey(t ?? '')
+    if (o.series || o.variant) continue // 排除衍生栏目与变体
+    if (!o.part.startsWith('上')) continue
+    if (o.date) dates.push(o.date)
+  }
+  const uniq = [...new Set(dates)].sort()
+  if (uniq.length < 2) return 0
+  let n = 0
+  for (const d of uniq) {
+    if (d <= k.date) n++
+  }
+  return n
+}
+
+/** A2 现算期号（传给聚合接口 epNum）: 自带期号直接用 → 他源桥接 → **锚点兜底**；都不行返回 0 */
 export function derivedNumFor(title: string, otherTitles: string[]): number {
   const k = parseEpisodeKey(title)
   if (!episodeTriggered(k)) return 0
   if (k.num > 0) return k.num
   if (!k.date) return 0
-  return bridgeNum(k, otherTitles.map((t) => parseEpisodeKey(t)))
+  const bridged = bridgeNum(k, otherTitles.map((t) => parseEpisodeKey(t)))
+  if (bridged > 0) return bridged
+  return anchorNumFor(title, otherTitles)
 }
