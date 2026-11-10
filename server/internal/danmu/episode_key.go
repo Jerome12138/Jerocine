@@ -15,8 +15,9 @@ type EpisodeKey struct {
 	Date    string // YYYYMMDD（19xx/20xx，无则空）
 	Num     int    // 第N期 / 第N集 / 第N话 / 第N回 / 第N季 / 第N部（无则 0）
 	ENum    int    // E01 / EP01（无则 0）
-	Part    string // 主部分：上 / 中 / 下（取最先出现的那个；无则空）
-	Sub     string // 次部分：紧邻主部分的第二个 上/中/下（可跨一个左括号）
+	Part    string // **主部分（复合单段）**：上 / 中 / 下；若紧跟（最多隔一个左括号）还有 上/中/下 ⇒ 复合为
+	//                「中上」「中下」「上中」等（P0-1c 2026-11-10：由 part+sub 两字段合并为一个复合字段）。
+	//                比较规则见 partCompatible —— **前缀相容**（短的是长的前缀 ⇒ 相容，`中` ⊂ `中上`/`中下`）。
 	Variant string // 有意义的变体词集合，按字典序用 "|" 连接（无则空）
 	// VariantNum **变体序号**（无则 0）：变体词后**紧跟**的数字 —— 「特辑2」⇒ (Variant=特辑, VariantNum=2)。
 	// 必须与变体复合为身份：否则「特辑1..5」坍缩成同一个 Variant，L3a 组内不唯一 ⇒ 整组配不上
@@ -27,7 +28,7 @@ type EpisodeKey struct {
 }
 
 func (k EpisodeKey) IsZero() bool {
-	return k.Date == "" && k.Num == 0 && k.ENum == 0 && k.Part == "" && k.Sub == "" &&
+	return k.Date == "" && k.Num == 0 && k.ENum == 0 && k.Part == "" &&
 		k.Variant == "" && k.VariantNum == 0 && k.Series == ""
 }
 
@@ -53,7 +54,6 @@ func (k EpisodeKey) Serialize(ordinal int) string {
 		"n=" + strconv.Itoa(k.Num),
 		"e=" + strconv.Itoa(k.ENum),
 		"p=" + k.Part,
-		"u=" + k.Sub,
 		"v=" + k.Variant,
 		"vn=" + strconv.Itoa(k.VariantNum),
 		"s=" + k.Series,
@@ -107,11 +107,6 @@ func ParseEpisodeKeyString(s string) (EpisodeKey, bool) {
 				return EpisodeKey{}, false
 			}
 			k.Part = val
-		case "u":
-			if !isPartMark(val) {
-				return EpisodeKey{}, false
-			}
-			k.Sub = val
 		case "v":
 			k.Variant = val
 		case "vn":
@@ -138,12 +133,22 @@ func ParseEpisodeKeyString(s string) (EpisodeKey, bool) {
 	return k, true
 }
 
+// isPartMark 合法的 part 值：空 / 上 / 中 / 下 / **复合**（如 中上、中下、上中 —— 主部分 + 紧跟的次部分）。
 func isPartMark(s string) bool {
-	switch s {
-	case "", "上", "中", "下":
+	rs := []rune(s)
+	if len(rs) == 0 {
 		return true
 	}
-	return false
+	if len(rs) > 2 {
+		return false
+	}
+	isP := func(r rune) bool { return r == '上' || r == '中' || r == '下' }
+	for _, r := range rs {
+		if !isP(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // MergeEpidKey 交叉校验合并（P0-1b）：客户端结构化键为**实测值** ⇒ 默认优先采用，再与集名解析值逐项核对。
@@ -169,9 +174,6 @@ func MergeEpidKey(client, fromTitle EpisodeKey, numBridged bool) (EpisodeKey, []
 	}
 	if k.Part != fromTitle.Part {
 		conflicts = append(conflicts, "part")
-	}
-	if k.Sub != fromTitle.Sub {
-		conflicts = append(conflicts, "sub")
 	}
 	if k.Variant != fromTitle.Variant {
 		conflicts = append(conflicts, "variant")
@@ -259,7 +261,7 @@ func ParseEpisodeKey(title string) EpisodeKey {
 			k.ENum = v
 		}
 	}
-	k.Part, k.Sub = partAndSub(s)
+	k.Part = parsePart(s)
 	if ms := reVariant.FindAllString(s, -1); len(ms) > 0 {
 		sort.Strings(ms)
 		k.Variant = strings.Join(ms, "|")
@@ -273,9 +275,11 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	return k
 }
 
-// partAndSub 解析「主部分 + 次部分」：第3期中（上）→ 中/上；20260831中上 → 中/上；20260803上 → 上/""。
+// parsePart 解析**主部分（复合）**：第3期中（上）→ `中上`；20260831中上 → `中上`；20260803上 → `上`；正片 → `""`。
 // 次部分只在**紧邻主部分**（最多隔一个左括号）时才算，避免把摘要正文当成分支标记。
-func partAndSub(s string) (part, sub string) {
+// P0-1c（2026-11-10）：由「part + sub 两字段」合并为**单个复合值** —— 少一个字段、少一处三端同步面，
+// 且让 epid 串自足（`p=中上`），派生表/SQL 可直接按串匹配（见 partCompatible 的前缀相容规则）。
+func parsePart(s string) string {
 	rs := []rune(s)
 	n := len(rs)
 	isP := func(r rune) bool { return r == '上' || r == '中' || r == '下' }
@@ -287,17 +291,17 @@ func partAndSub(s string) (part, sub string) {
 		}
 	}
 	if pi < 0 {
-		return "", ""
+		return ""
 	}
-	part = string(rs[pi])
+	out := rs[pi : pi+1]
 	j := pi + 1
 	if j < n && isLeftBracket(rs[j]) {
 		j++
 	}
 	if j < n && isP(rs[j]) {
-		sub = string(rs[j])
+		out = append(out, rs[j])
 	}
-	return part, sub
+	return string(out)
 }
 
 func isLeftBracket(r rune) bool {
@@ -367,15 +371,18 @@ func seriesOf(s string) string {
 	return best
 }
 
-// partCompatible 主/次部分是否指向同一支；一方缺失视为通配（App 常只有「中」而库里是「中（上）/（下）」）。
+// partCompatible 主部分是否指向同一支 —— **前缀相容**（P0-1c 2026-11-10，替代旧「part 严格 + sub 通配」两段式）：
+//   - 一方为空 ⇒ 通配（App 常只有「中」而库里是「中（上）/（下）」）；
+//   - 短的是长的前缀 ⇒ 相容：`中` ⊂ `中上`/`中下`（保留上面的宽容）；
+//   - 互不为前缀 ⇒ 不相容：`中上` ≠ `中下`（**区分仍在**，不会把上下半集混为一集）。
+//
+// 与旧实现（part 相等 + sub 双方非空才比较）**逐例等价**；收益是「一条规则同时表达宽容与区分」，
+// 且不再需要"两处必须一起用"的隐式契约（旧实现里 epid 串丢 sub，①档必须额外叠加 SameEpisode）。
 func partCompatible(a, b EpisodeKey) bool {
-	if a.Part != "" && b.Part != "" && a.Part != b.Part {
-		return false
+	if a.Part == "" || b.Part == "" {
+		return true
 	}
-	if a.Sub != "" && b.Sub != "" && a.Sub != b.Sub {
-		return false
-	}
-	return true
+	return strings.HasPrefix(a.Part, b.Part) || strings.HasPrefix(b.Part, a.Part)
 }
 
 // SameEpisode 两个键是否指向同一集。顺序即优先级：

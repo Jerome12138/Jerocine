@@ -99,7 +99,7 @@ describe('episodeAlign · 跨源集对齐 5 档', () => {
 
   it('解析器（复用 episodeKey）仍可用 —— 抽查 epid 触发', () => {
     expect(parseEpisodeKey('20260803上').date).toBe('20260803')
-    expect(parseEpisodeKey('第3期中（上）').part).toBe('中')
+    expect(parseEpisodeKey('第3期中（上）').part).toBe('中上')
   })
 })
 
@@ -131,7 +131,7 @@ describe('episodeAlign · L3a 同栏目组内唯一（衍生栏目）', () => {
   })
 })
 
-  it('① 档回归：epid 不含 sub ⇒ 中（上）/（下）不得被判为同一集（必须落位置兜底、不自动换）', () => {
+  it('① 档回归：p 段前缀相容 ⇒ 中（上）/（下）不得被判为同一集（中上 ≠ 中下）', () => {
     const r = alignEpisode(0, ['第3期中（上）'], ['第3期中（上）', '第3期中（下）'])
     expect(r.index).toBe(0)
     expect(r.tier).toBe('exact')

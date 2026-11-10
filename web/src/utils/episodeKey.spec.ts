@@ -4,8 +4,10 @@ import {
   derivedNumFor,
   epKeyString,
   EPKEY_VERSION,
+  epidCompatible,
   epidFor,
   epidOf,
+  partCompatible,
   parseEpisodeKey,
   sameEpisode,
   serializeEpisodeKey
@@ -15,10 +17,10 @@ import {
 describe('parseEpisodeKey 现网真实集名', () => {
   it('基础形态', () => {
     expect(parseEpisodeKey('20260803(第1期上)')).toEqual({
-      date: '20260803', num: 1, eNum: 0, part: '上', sub: '', variant: '', variantNum: 0, series: ''
+      date: '20260803', num: 1, eNum: 0, part: '上', variant: '', variantNum: 0, series: ''
     })
-    expect(parseEpisodeKey('20260818中（下）')).toMatchObject({ date: '20260818', part: '中', sub: '下' })
-    expect(parseEpisodeKey('第3期中（上）')).toMatchObject({ num: 3, part: '中', sub: '上' })
+    expect(parseEpisodeKey('20260818中（下）')).toMatchObject({ date: '20260818', part: '中下' })
+    expect(parseEpisodeKey('第3期中（上）')).toMatchObject({ num: 3, part: '中上' })
     expect(parseEpisodeKey('20260128未公开特辑')).toMatchObject({ date: '20260128', variant: '特辑' })
     expect(parseEpisodeKey('E01.220705')).toMatchObject({ eNum: 1 })
     expect(parseEpisodeKey('第1集')).toMatchObject({ num: 1 })
@@ -138,36 +140,63 @@ describe('P0-1a 变体序号（变体词后紧跟的数字必须复合为身份�
   })
 })
 
-describe('P0-1b 结构化身份传输串（epk）', () => {
-  it('序列化：与 Go EpisodeKey.Serialize 同格式（数值缺省 0 / 字符串缺省空）', () => {
+describe('P0-1b/P0-1c 结构化身份传输串（epk）', () => {
+  it('序列化：与 Go EpisodeKey.Serialize 同格式（数值缺省 0 / 字符串缺省空；p 段为复合主部分）', () => {
     expect(
       serializeEpisodeKey({
-        date: '20260803', num: 1, eNum: 2, part: '中', sub: '上',
+        date: '20260803', num: 1, eNum: 2, part: '中上',
         variant: '特辑', variantNum: 2, series: '心动的周末'
       }, 5)
-    ).toBe('v1|d=20260803|n=1|e=2|p=中|u=上|v=特辑|vn=2|s=心动的周末|o=5')
+    ).toBe('v1|d=20260803|n=1|e=2|p=中上|v=特辑|vn=2|s=心动的周末|o=5')
     expect(EPKEY_VERSION).toBe('v1')
     // 零键
     expect(
-      serializeEpisodeKey({ date: '', num: 0, eNum: 0, part: '', sub: '', variant: '', variantNum: 0, series: '' })
-    ).toBe('v1|d=|n=0|e=0|p=|u=|v=|vn=0|s=|o=0')
+      serializeEpisodeKey({ date: '', num: 0, eNum: 0, part: '', variant: '', variantNum: 0, series: '' })
+    ).toBe('v1|d=|n=0|e=0|p=|v=|vn=0|s=|o=0')
   })
 
   it('epKeyString：只有触发的集才发（未触发为空串，与 epidFor 同口径）', () => {
     expect(epKeyString('第3集')).toBe('')
     expect(epKeyString('E01.220705')).toBe('')
     expect(epKeyString('')).toBe('')
-    // 触发的集：全部 8 项字段都在串里（含变体序号 vn 与次部分 u）
-    expect(epKeyString('20260803(第1期上)')).toBe('v1|d=20260803|n=1|e=0|p=上|u=|v=|vn=0|s=|o=0')
-    expect(epKeyString('第1期特辑2上')).toBe('v1|d=|n=1|e=0|p=上|u=|v=特辑|vn=2|s=|o=0')
-    expect(epKeyString('20260818中（下）')).toBe('v1|d=20260818|n=0|e=0|p=中|u=下|v=|vn=0|s=|o=0')
+    // 触发的集：s/v/vn/p/n/d 全在串里（P0-1c 后 p 段即复合主部分，不再有独立 u 段）
+    expect(epKeyString('20260803(第1期上)')).toBe('v1|d=20260803|n=1|e=0|p=上|v=|vn=0|s=|o=0')
+    expect(epKeyString('第1期特辑2上')).toBe('v1|d=|n=1|e=0|p=上|v=特辑|vn=2|s=|o=0')
+    expect(epKeyString('20260818中（下）')).toBe('v1|d=20260818|n=0|e=0|p=中下|v=|vn=0|s=|o=0')
   })
 
   it('epKeyString：A2 现算期号写入 n 段（桥接/锚点结果不得丢）', () => {
     // 纯日期形态自身无期号，桥接得 10 ⇒ n=10（与 epidFor 同口径）
-    expect(epKeyString('20261005上', 10)).toBe('v1|d=20261005|n=10|e=0|p=上|u=|v=|vn=0|s=|o=0')
+    expect(epKeyString('20261005上', 10)).toBe('v1|d=20261005|n=10|e=0|p=上|v=|vn=0|s=|o=0')
     // num 参数与服务端 appNum 同语义：非 0 即覆盖（客户端传的就是 derivedNumFor 结果 ⇒ 实践中与自带期号一致）
-    expect(epKeyString('20260803(第1期上)', 9)).toBe('v1|d=20260803|n=9|e=0|p=上|u=|v=|vn=0|s=|o=0')
+    expect(epKeyString('20260803(第1期上)', 9)).toBe('v1|d=20260803|n=9|e=0|p=上|v=|vn=0|s=|o=0')
+  })
+})
+
+describe('P0-1c 主部分合并 + 前缀相容（epid 自足）', () => {
+  it('epid：p 段为复合主部分（中上 ≠ 中；中上 ≠ 中下）', () => {
+    expect(epidOf(parseEpisodeKey('第3期中（上）'))).toBe('s=-|v=-|p=中上|n=3|d=-')
+    expect(epidOf(parseEpisodeKey('第3期中（下）'))).toBe('s=-|v=-|p=中下|n=3|d=-')
+    expect(epidOf(parseEpisodeKey('第3期中'))).toBe('s=-|v=-|p=中|n=3|d=-')
+  })
+
+  it('epidCompatible：p 段前缀相容，其余段要求全等', () => {
+    const zhong = parseEpisodeKey('第3期中')
+    const shang = parseEpisodeKey('第3期中（上）')
+    const xia = parseEpisodeKey('第3期中（下）')
+    expect(epidCompatible(zhong, shang)).toBe(true) // 中 ⊂ 中上
+    expect(epidCompatible(zhong, xia)).toBe(true) // 中 ⊂ 中下
+    expect(epidCompatible(shang, xia)).toBe(false) // 中上 ≠ 中下（区分仍在）
+    expect(epidCompatible(shang, shang)).toBe(true)
+    // 其余段必须全等
+    expect(epidCompatible(parseEpisodeKey('第1期中'), parseEpisodeKey('第3期中'))).toBe(false)
+    expect(epidCompatible(parseEpisodeKey('20260803中'), parseEpisodeKey('第3期中'))).toBe(false)
+  })
+
+  it('partCompatible：前缀相容（互不为前缀 ⇒ 不相容；一方为空 ⇒ 通配）', () => {
+    expect(partCompatible(parseEpisodeKey('第1期上'), parseEpisodeKey('第1期中'))).toBe(false)
+    expect(partCompatible(parseEpisodeKey('EP8上'), parseEpisodeKey('EP8上中'))).toBe(true)
+    expect(partCompatible(parseEpisodeKey('正片'), parseEpisodeKey('第1期中'))).toBe(true)
   })
 })
 

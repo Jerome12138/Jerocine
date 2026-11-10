@@ -5,7 +5,7 @@
  * 背景：切源（含看门狗自动换源 / error 轮换）此前只做「保同下标」——
  * 剧/动漫各源同构时等价，但**综艺各源分集不一致时会静默切到错集**。
  */
-import { epidOf, partCompatible, parseEpisodeKey, sameEpisode, type EpisodeKey } from './episodeKey'
+import { epidCompatible, partCompatible, parseEpisodeKey, sameEpisode, type EpisodeKey } from './episodeKey'
 
 /** 对齐档位：exact=身份串全等；samePeriod=同期号；sameDate=同日期；byOrdinal=同期序；position=按位置。 */
 export type AlignTier =
@@ -106,12 +106,11 @@ export function alignEpisode(curIndex: number, curEps: string[], targetEps: stri
   const c = cur[curIndex]
   if (!c || tgt.length === 0) return { index: -1, tier: 'failed' }
 
-  // ① 身份串全等
-  const curEpid = epidOf(c)
+  // ① 身份串相容（P0-1c：`p` 段前缀相容，其余 s/v(n)/n/d 段全等）
   for (let i = 0; i < tgt.length; i++) {
-    // ⚠️ epid 串是 5 段（s|v|p|n|d），**不含 sub** ⇒ 必须同时过 sameEpisode，
-    // 否则「第3期中（上）」与「第3期中（下）」epid 相等会被误判为同一集（实测过的坑）。
-    if (epidOf(tgt[i]!) === curEpid && sameEpisode(c, tgt[i]!)) return { index: i, tier: 'exact' }
+    // ⚠️ 必须**同时**过 sameEpisode：epidCompatible 只比"身份段"，不含"有共同证据"的要求
+    // （日期双有须相等 / 期号双有须相等 / E圆号双有须相等）。二者是"串层"与"证据层"两道关。
+    if (epidCompatible(c, tgt[i]!) && sameEpisode(c, tgt[i]!)) return { index: i, tier: 'exact' }
   }
   // ② 同集（SameEpisode′）+ 期号相同 —— 期号优先，此时不看日期
   if (c.num > 0) {

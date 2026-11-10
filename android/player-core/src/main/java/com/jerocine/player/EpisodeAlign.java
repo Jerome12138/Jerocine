@@ -144,12 +144,11 @@ public final class EpisodeAlign {
         for (String t : targetTitles) tgt.add(EpisodeKey.parse(t));
         EpisodeKey c = cur.get(curIndex);
 
-        // ① 身份串全等
-        String curEpid = c.epid();
+        // ① 身份串相容（P0-1c：`p` 段前缀相容，其余 s/v(n)/n/d 段全等）
         for (int i = 0; i < tgt.size(); i++) {
-            // ⚠️ epid 串是 5 段（s|v|p|n|d），不含 sub ⇒ 必须同时过 sameEpisode，
-            // 否则「第3期中（上）」与「第3期中（下）」epid 相等会被误判为同一集。
-            if (tgt.get(i).epid().equals(curEpid) && EpisodeKey.sameEpisode(c, tgt.get(i))) {
+            // ⚠️ 必须**同时**过 sameEpisode：epidCompatible 只比"身份段"，不含"有共同证据"的要求
+            // （日期双有须相等 / 期号双有须相等 / E圆号双有须相等）。二者是"串层"与"证据层"两道关。
+            if (EpisodeKey.epidCompatible(c, tgt.get(i)) && EpisodeKey.sameEpisode(c, tgt.get(i))) {
                 return new Result(i, Tier.EXACT);
             }
         }

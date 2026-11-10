@@ -23,11 +23,11 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"20260803完整版", EpisodeKey{Date: "20260803"}},
 		{"20260805超前彩蛋未播", EpisodeKey{Date: "20260805", Variant: "彩蛋|超前"}},
 		{"会员版", EpisodeKey{}},
-		// 主/次部分细分（2026-11-06）：中（上）/ 中（下）不再塌成同一键
-		{"20260818中（下）", EpisodeKey{Date: "20260818", Part: "中", Sub: "下"}},
-		{"20260831中上", EpisodeKey{Date: "20260831", Part: "中", Sub: "上"}},
-		{"第3期中（上）", EpisodeKey{Num: 3, Part: "中", Sub: "上"}},
-		{"第3期中（下）", EpisodeKey{Num: 3, Part: "中", Sub: "下"}},
+		// 主/次部分细分（2026-11-06 引入；P0-1c 2026-11-10 合并为**单个复合 Part 字段**）
+		{"20260818中（下）", EpisodeKey{Date: "20260818", Part: "中下"}},
+		{"20260831中上", EpisodeKey{Date: "20260831", Part: "中上"}},
+		{"第3期中（上）", EpisodeKey{Num: 3, Part: "中上"}},
+		{"第3期中（下）", EpisodeKey{Num: 3, Part: "中下"}},
 		{"第3期中", EpisodeKey{Num: 3, Part: "中"}},
 		// 摘要正文里的 上/下 不算次部分（必须紧邻、最多隔一个左括号）
 		{"第1期中：上集回顾", EpisodeKey{Num: 1, Part: "中"}},
@@ -119,6 +119,13 @@ func TestSameEpisode_KeyRules(t *testing.T) {
 		{"「第1期特辑2」vs「第1期特辑3」→ 序号不同 → 否决", ParseEpisodeKey("第1期特辑2"), ParseEpisodeKey("第1期特辑3"), false},
 		{"「夏日清凉特辑」vs「20260809夏日清凉特辑」→ 仅单边日期、无共同期号/日期 ⇒ 判不同(交 L3a 组内唯一兜底)", ParseEpisodeKey("夏日清凉特辑"), ParseEpisodeKey("20260809夏日清凉特辑"), false},
 		{"「夏日清凉特辑」vs「夏日清凉特辑」（同身份无期号）→ 由 L3a 兜底, SameEpisode 不判同", ParseEpisodeKey("夏日清凉特辑"), ParseEpisodeKey("夏日清凉特辑"), false},
+		// ---- 2026-11-10 P0-1c: 主部分合并为**复合单段** + 前缀相容（逐例等价于旧的 part+sub 两段式） ----
+		{"「第3期中」vs「第3期中（上）」→ 前缀相容（中 ⊂ 中上）⇒ 同集", ParseEpisodeKey("第3期中"), ParseEpisodeKey("第3期中（上）"), true},
+		{"「第3期中」vs「第3期中（下）」→ 前缀相容 ⇒ 同集", ParseEpisodeKey("第3期中"), ParseEpisodeKey("第3期中（下）"), true},
+		{"「第3期中（上）」vs「第3期中（下）」→ 互不为前缀 ⇒ 不同集（区分仍在）", ParseEpisodeKey("第3期中（上）"), ParseEpisodeKey("第3期中（下）"), false},
+		{"「第3期中（上）」vs「第3期中（上）」→ 全等 ⇒ 同集", ParseEpisodeKey("第3期中（上）"), ParseEpisodeKey("第3期中（上）"), true},
+		{"「上」vs「中」→ 互不为前缀 ⇒ 不同集（分支不同）", ParseEpisodeKey("第1期上"), ParseEpisodeKey("第1期中"), false},
+		{"「上」vs「上中」→ 前缀相容 ⇒ 同集", ParseEpisodeKey("EP8上"), ParseEpisodeKey("EP8上中"), true},
 	}
 	for _, c := range cases {
 		if got := SameEpisode(c.a, c.b); got != c.want {
@@ -191,8 +198,8 @@ func TestSeriesOf_DateStylePeriod(t *testing.T) {
 	if k.Date != "20261005" || k.Part != "上" || k.Num != 0 {
 		t.Fatalf("date/part/num = %q/%q/%d, want 20261005/上/0", k.Date, k.Part, k.Num)
 	}
-	if ParseEpisodeKey("第3期中（上）").Part != "中" {
-		t.Fatal("常规「第3期中（上）」解析回归")
+	if ParseEpisodeKey("第3期中（上）").Part != "中上" {
+		t.Fatal("常规「第3期中（上）」解析回归（P0-1c 后主部分复合为 中上）")
 	}
 }
 
@@ -264,10 +271,10 @@ func TestPickEpisode_VariantOrdinalL3a(t *testing.T) {
 // ===== P0-1b（2026-11-10）：结构化身份字段契约 =====
 
 func TestEpisodeKeyString_RoundTrip(t *testing.T) {
-	k := EpisodeKey{Date: "20260803", Num: 1, ENum: 2, Part: "中", Sub: "上",
+	k := EpisodeKey{Date: "20260803", Num: 1, ENum: 2, Part: "中上",
 		Variant: "特辑", VariantNum: 2, Series: "心动的周末"}
 	s := k.Serialize(5)
-	want := "v1|d=20260803|n=1|e=2|p=中|u=上|v=特辑|vn=2|s=心动的周末|o=5"
+	want := "v1|d=20260803|n=1|e=2|p=中上|v=特辑|vn=2|s=心动的周末|o=5"
 	if s != want {
 		t.Fatalf("Serialize = %q, want %q", s, want)
 	}
@@ -290,6 +297,7 @@ func TestParseEpisodeKeyString_Rejects(t *testing.T) {
 		"v1|n=abc",             // 数字非法
 		"v1|n=-1",              // 数字为负
 		"v1|p=左",               // 主部分非法
+		"v1|p=中上上",            // 主部分超长（最多 2 字：主 + 次）
 		"v1|vn=99999",          // 变体序号越界
 		"v1|s=" + strings.Repeat("x", 70), // 值超长
 	}

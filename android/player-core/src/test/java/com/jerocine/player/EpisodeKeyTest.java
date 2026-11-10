@@ -22,13 +22,21 @@ public class EpisodeKeyTest {
     }
 
     @Test
-    public void parse_主次部分() {
+    public void parse_主次部分复合() {
+        // P0-1c：主部分为**复合单段**（中 + 紧随的 下 ⇒ 中下）
         EpisodeKey k = EpisodeKey.parse("20260818中（下）");
-        assertEquals("中", k.part);
-        assertEquals("下", k.sub);
+        assertEquals("中下", k.part);
+        assertEquals("20260818", k.date);
         EpisodeKey k2 = EpisodeKey.parse("第3期中");
         assertEquals("中", k2.part);
-        assertEquals("", k2.sub);
+        // 前缀相容：中 ⊂ 中下 ⇒ 相容；中上 ≠ 中下 ⇒ 不相容（区分仍在）
+        assertTrue(EpisodeKey.partCompatible(k2, k));
+        assertFalse(EpisodeKey.partCompatible(
+                EpisodeKey.parse("第3期中（上）"), EpisodeKey.parse("第3期中（下）")));
+        assertTrue(EpisodeKey.partCompatible(
+                EpisodeKey.parse("第3期中（上）"), EpisodeKey.parse("第3期中（上）")));
+        assertTrue(EpisodeKey.partCompatible(
+                EpisodeKey.parse("第3期中"), EpisodeKey.parse("第3期中（上）")));
     }
 
     @Test
@@ -124,7 +132,7 @@ public class EpisodeKeyTest {
         assertEquals("20261005", k.date);
         assertEquals("上", k.part);
         assertEquals(0, k.num);
-        assertEquals("中", EpisodeKey.parse("第3期中（上）").part);
+        assertEquals("中上", EpisodeKey.parse("第3期中（上）").part);
     }
 
     /** P0-1a（2026-11-10，三端同规防呆）：变体序号 —— 变体词后紧跟的数字必须复合为身份 */

@@ -17,10 +17,12 @@ public final class EpisodeKey {
     public final int num;
     /** E01/EP01（无则 0） */
     public final int eNum;
-    /** 主部分 上/中/下 */
+    /**
+     * **主部分（复合单段）**：上/中/下；若紧跟（最多隔一个左括号）还有 上/中/下 ⇒ 复合为「中上」「中下」「上中」等。
+     * P0-1c（2026-11-10）：由 `part` + `sub` 两字段合并为**一个复合字段** —— 少一个字段、少一处三端同步面，
+     * 且让 `epid` 串自足（`p=中上`）。比较规则见 {@link #partCompatible}（**前缀相容**）。
+     */
     public final String part;
-    /** 次部分（紧邻主部分） */
-    public final String sub;
     /** 有意义变体，字典序 `|` 连接 */
     public final String variant;
     /**
@@ -32,12 +34,11 @@ public final class EpisodeKey {
     /** 栏目/系列名（正片为空；连续片段提取，绝不跨段拼字） */
     public final String series;
 
-    private EpisodeKey(String date, int num, int eNum, String part, String sub, String variant, int variantNum, String series) {
+    private EpisodeKey(String date, int num, int eNum, String part, String variant, int variantNum, String series) {
         this.date = date;
         this.num = num;
         this.eNum = eNum;
         this.part = part;
-        this.sub = sub;
         this.variant = variant;
         this.variantNum = variantNum;
         this.series = series;
@@ -46,7 +47,7 @@ public final class EpisodeKey {
     /** 解析集名（与 Go/TS v2 语义一致） */
     public static EpisodeKey parse(String title) {
         String s = title == null ? "" : title.trim();
-        if (s.isEmpty()) return new EpisodeKey("", 0, 0, "", "", "", 0, "");
+        if (s.isEmpty()) return new EpisodeKey("", 0, 0, "", "", 0, "");
         // 日期格式归一(先于一切提取): 破折/点分 → 8 位
         s = s.replaceAll("((?:19|20)\\d{2})[-.](\\d{2})[-.](\\d{2})", "$1$2$3");
         s = s.replaceAll("会员|未公开|未播|直拍|完整版|未删减", "");
@@ -59,7 +60,7 @@ public final class EpisodeKey {
         int eNum = 0;
         java.util.regex.Matcher em = java.util.regex.Pattern.compile("(?:^|[^A-Za-z])(?:E|EP)\\s*0*(\\d{1,3})(?:\\D|$)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(s);
         if (em.find()) eNum = Integer.parseInt(em.group(1));
-        String[] ps = partAndSub(s);
+        String part = parsePart(s);
         String variant = "";
         java.util.regex.Matcher vm = java.util.regex.Pattern.compile("加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外").matcher(s);
         java.util.TreeSet<String> vs = new java.util.TreeSet<>();
@@ -73,24 +74,28 @@ public final class EpisodeKey {
                 .compile("(?:加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外)[\\s（(【\\[《「『]*(\\d{1,3})(?:[^0-9]|$)")
                 .matcher(s);
         if (vnm.find()) variantNum = Integer.parseInt(vnm.group(1));
-        return new EpisodeKey(date, num, eNum, ps[0], ps[1], variant, variantNum, seriesOf(s));
+        return new EpisodeKey(date, num, eNum, part, variant, variantNum, seriesOf(s));
     }
 
-    /** 主/次部分: 最先出现的 上/中/下 + 紧邻（最多隔一个左括号）的第二个 */
-    private static String[] partAndSub(String s) {
+    /**
+     * 解析**主部分（复合）**：最先出现的 上/中/下；若紧跟（最多隔一个左括号）还有 ⇒ 拼成复合值「中上」。
+     * 次部分只在紧邻时才算，避免把摘要正文当成分支标记。
+     */
+    private static String parsePart(String s) {
         int[] cps = s.codePoints().toArray();
         for (int i = 0; i < cps.length; i++) {
             int c = cps[i];
             if (c == '上' || c == '中' || c == '下') {
-                String part = new String(Character.toChars(c));
+                StringBuilder out = new StringBuilder(new String(Character.toChars(c)));
                 int j = i + 1;
                 if (j < cps.length && isLeftBracket(cps[j])) j++;
-                String sub = j < cps.length && (cps[j] == '上' || cps[j] == '中' || cps[j] == '下')
-                        ? new String(Character.toChars(cps[j])) : "";
-                return new String[]{part, sub};
+                if (j < cps.length && (cps[j] == '上' || cps[j] == '中' || cps[j] == '下')) {
+                    out.append(Character.toChars(cps[j]));
+                }
+                return out.toString();
             }
         }
-        return new String[]{"", ""};
+        return "";
     }
 
     private static boolean isLeftBracket(int c) {
@@ -134,11 +139,14 @@ public final class EpisodeKey {
         return best;
     }
 
-    /** 主/次部分相容: 一方缺失视为通配（App 常只有「中」而库里是「中（上）/（下）」） */
+    /**
+     * 主部分是否指向同一支 —— **前缀相容**（P0-1c 2026-11-10，替代旧「part 严格 + sub 通配」两段式）：
+     * 一方为空 ⇒ 通配（App 常只有「中」而库里是「中（上）/（下）」）；短的是长的前缀 ⇒ 相容（`中` ⊂ `中上`）；
+     * 互不为前缀 ⇒ 不相容（`中上` ≠ `中下`，**区分仍在**）。与旧实现逐例等价。
+     */
     public static boolean partCompatible(EpisodeKey a, EpisodeKey b) {
-        if (!a.part.isEmpty() && !b.part.isEmpty() && !a.part.equals(b.part)) return false;
-        if (!a.sub.isEmpty() && !b.sub.isEmpty() && !a.sub.equals(b.sub)) return false;
-        return true;
+        if (a.part.isEmpty() || b.part.isEmpty()) return true;
+        return a.part.startsWith(b.part) || b.part.startsWith(a.part);
     }
 
     /** SameEpisode′（日期双有不等 → 否决, 硬证据）；P0-1a: 变体序号纳入身份 */
@@ -152,6 +160,17 @@ public final class EpisodeKey {
         if (a.num > 0 && b.num > 0 && a.num == b.num) return partCompatible(a, b);
         if (a.eNum > 0 && b.eNum > 0 && a.eNum == b.eNum) return true;
         return false;
+    }
+
+    /**
+     * P0-1c（2026-11-10）：**身份串相容**（对齐 EXACT 档用）。与"epid 串全等"只差一处 —— `p` 段按
+     * **前缀相容**比较，其余 `s` / `v`（含变体序号）/ `n` / `d` 四段仍要求**全等**。
+     * 逐例等价于合并前的「`epid` 全等 && `sameEpisode`」。
+     */
+    public static boolean epidCompatible(EpisodeKey a, EpisodeKey b) {
+        if (!a.series.equals(b.series) || !a.variant.equals(b.variant) || a.variantNum != b.variantNum) return false;
+        if (a.num != b.num || !a.date.equals(b.date)) return false;
+        return partCompatible(a, b);
     }
 
     /** 综艺/衍生形态判定（epid 只给触发的集; 裸「第N集/期」与 E圆号不触发） */
@@ -171,7 +190,7 @@ public final class EpisodeKey {
 
     /** 返回期号被替换后的键（桥接归一用）; n<=0 返回原键。 */
     public EpisodeKey withNum(int n) {
-        return n <= 0 ? this : new EpisodeKey(date, n, eNum, part, sub, variant, variantNum, series);
+        return n <= 0 ? this : new EpisodeKey(date, n, eNum, part, variant, variantNum, series);
     }
 
     /** 当前集 epid（触发的集必有; 期号缺失经桥接归一写入 n 段）。未触发返回 null（调用方回退位置兜底）。 */

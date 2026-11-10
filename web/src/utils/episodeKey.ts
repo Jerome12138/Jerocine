@@ -15,10 +15,12 @@ export interface EpisodeKey {
   num: number
   /** E01/EP01（无则 0） */
   eNum: number
-  /** 主部分 上/中/下 */
+  /**
+   * **主部分（复合单段）**：上/中/下；若紧跟（最多隔一个左括号）还有 上/中/下 ⇒ 复合为「中上」「中下」「上中」等。
+   * P0-1c（2026-11-10）：由 `part` + `sub` 两字段合并为**一个复合字段** —— 少一个字段、少一处三端同步面，
+   * 且让 `epid` 串自足（`p=中上`）。比较规则见 `partCompatible`（**前缀相容**）。
+   */
   part: string
-  /** 次部分（紧邻主部分） */
-  sub: string
   /** 有意义变体，字典序 `|` 连接 */
   variant: string
   /**
@@ -55,17 +57,20 @@ const RE_DI_N_WIDE_G = /第\s*\d{0,8}\s*[期集话回季部]/g
 const RE_SEASON_SPAN_G = /第\s*[\d一二三四五六七八九十零两]+\s*季/g
 const SEP = '\x00'
 
-/** 主/次部分: 最先出现的 上/中/下 + 紧邻（最多隔一个左括号）的第二个 */
-function partAndSub(s: string): [string, string] {
+/**
+ * 解析**主部分（复合）**：最先出现的 上/中/下；若紧跟（最多隔一个左括号）还有 上/中/下 ⇒ 拼成复合值。
+ * 次部分只在紧邻时才算，避免把摘要正文当成分支标记。
+ */
+function parsePart(s: string): string {
   const rs = [...s]
   const isP = (r: string) => r === '上' || r === '中' || r === '下'
   const pi = rs.findIndex(isP)
-  if (pi < 0) return ['', '']
-  const part = rs[pi] as string
+  if (pi < 0) return ''
+  let out = rs[pi] as string
   let j = pi + 1
   if (j < rs.length && '（(【[《「『'.includes(rs[j] as string)) j++
-  const sub = j < rs.length && isP(rs[j] as string) ? (rs[j] as string) : ''
-  return [part, sub]
+  if (j < rs.length && isP(rs[j] as string)) out += rs[j] as string
+  return out
 }
 
 /** 栏目名 v2: 跨度删除 + 最长纯汉字连续段 —— 连续性由构造保证（绝不满段拼字） */
@@ -105,7 +110,7 @@ function seriesOf(s: string): string {
 
 /** 解析集名（与 Go ParseEpisodeKey v2 语义一致） */
 export function parseEpisodeKey(title: string): EpisodeKey {
-  const k: EpisodeKey = { date: '', num: 0, eNum: 0, part: '', sub: '', variant: '', variantNum: 0, series: '' }
+  const k: EpisodeKey = { date: '', num: 0, eNum: 0, part: '', variant: '', variantNum: 0, series: '' }
   let s = (title ?? '').trim()
   if (!s) return k
   // 日期格式归一(先于一切提取): 破折/点分 → 8 位
@@ -117,9 +122,7 @@ export function parseEpisodeKey(title: string): EpisodeKey {
   if (nm) k.num = Number.parseInt(nm[1] as string, 10) || 0
   const em = s.match(RE_E_NUM)
   if (em) k.eNum = Number.parseInt(em[1] as string, 10) || 0
-  const [part, sub] = partAndSub(s)
-  k.part = part
-  k.sub = sub
+  k.part = parsePart(s)
   const vs = [...s.matchAll(RE_VARIANT_G)].map((m) => m[0]).sort()
   if (vs.length) k.variant = vs.join('|')
   const vnm = s.match(RE_VARIANT_NUM)
@@ -128,11 +131,17 @@ export function parseEpisodeKey(title: string): EpisodeKey {
   return k
 }
 
-/** 主/次部分相容: 一方缺失视为通配（App 常只有「中」而库里是「中（上）/（下）」） */
+/**
+ * 主部分是否指向同一支 —— **前缀相容**（P0-1c 2026-11-10，替代旧「part 严格 + sub 通配」两段式）：
+ * - 一方为空 ⇒ 通配（App 常只有「中」而库里是「中（上）/（下）」）；
+ * - 短的是长的前缀 ⇒ 相容：`中` ⊂ `中上`/`中下`；
+ * - 互不为前缀 ⇒ 不相容：`中上` ≠ `中下`（**区分仍在**，不会把上下半集混为一集）。
+ *
+ * 与旧实现逐例等价；收益是"一条规则同时表达宽容与区分"，且不再需要"epid 串 + sameEpisode 必须一起用"的隐式契约。
+ */
 export function partCompatible(a: EpisodeKey, b: EpisodeKey): boolean {
-  if (a.part && b.part && a.part !== b.part) return false
-  if (a.sub && b.sub && a.sub !== b.sub) return false
-  return true
+  if (!a.part || !b.part) return true
+  return a.part.startsWith(b.part) || b.part.startsWith(a.part)
 }
 
 /** SameEpisode′（与 Go SameEpisode v2 同语义）: 日期双有不等 → 否决（硬证据） */
@@ -167,9 +176,23 @@ export function epidOf(k: EpisodeKey): string {
   ].join('|')
 }
 
+/**
+ * P0-1c（2026-11-10）：**身份串相容**（对齐 ①档用）。与"epid 串全等"只差一处 —— `p` 段按**前缀相容**比较
+ * （`中` ⊂ `中上`/`中下`），其余 `s` / `v`（含变体序号）/ `n` / `d` 四段仍要求**全等**。
+ *
+ * 为什么需要：主部分合并为复合值后，`中` 与 `中（上）` 的 `p` 段不再相等（这正是要的精确性），
+ * 但"库侧分了上/下、源侧只有中"的宽容必须保留 ⇒ 用前缀相容还原。
+ * 逐例等价于合并前的「`epidOf` 全等 && `sameEpisode`」——旧实现 `p` 段只取主部分，二者串相等，
+ * 由 `sameEpisode` 的通配规则放行；现在前移到串比较层，语义一致。
+ */
+export function epidCompatible(a: EpisodeKey, b: EpisodeKey): boolean {
+  if (a.series !== b.series || a.variant !== b.variant || a.variantNum !== b.variantNum) return false
+  if (a.num !== b.num || a.date !== b.date) return false
+  return partCompatible(a, b)
+}
+
 /** P0-1b: 结构化身份传输串的版本前缀（与 Go `EpKeyVersion` 一致；格式变更时同步递增）。 */
 export const EPKEY_VERSION = 'v1'
-
 /**
  * P0-1b（2026-11-10）：**结构化身份字段传输串**（HTTP 参数 `epk`）—— 与 Go `ParseEpisodeKeyString` 同格式。
  *
@@ -184,7 +207,6 @@ export function serializeEpisodeKey(k: EpisodeKey, ordinal = 0): string {
     `n=${k.num > 0 ? k.num : 0}`,
     `e=${k.eNum > 0 ? k.eNum : 0}`,
     `p=${k.part}`,
-    `u=${k.sub}`,
     `v=${k.variant}`,
     `vn=${k.variantNum > 0 ? k.variantNum : 0}`,
     `s=${k.series}`,
