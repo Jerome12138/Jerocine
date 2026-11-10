@@ -189,18 +189,30 @@ public class EpisodeKeyTest {
     }
 
     @Test
-    public void indexByEpid_两级定位与回退() {
-        // ① 严格：同源集序变化（重排/插集）也能定位回原来那一集
+    public void indexByEpid_两档定位与回退() {
+        // ① 强等：同源集序变化（重排/插集）也能定位回原来那一集
         String ep = EpisodeKey.parse("20260803上").epid();
         assertEquals(2, EpisodeKey.indexByEpid(ep,
                 java.util.Arrays.asList("第1集", "第2集", "20260803上", "20260803中")));
         assertEquals(0, EpisodeKey.indexByEpid(ep,
                 java.util.Arrays.asList("20260803上", "第1集", "第9集", "第2集", "20260803中")));
-        // ② 宽松：忽略 n 段（记录时的期号可能是 A2 桥接/锚点算出的值，本地重算不出）
+        // ② 弱等（相容）：s/v 相等；n/p/d 单边通配、双有须过各自规则；候选唯一才采纳
         java.util.List<String> titles = java.util.Arrays.asList("20260803上", "20260803中", "20260804下");
+        // 记录时的期号可能是桥接/锚点算出的值（本地重算不出）⇒ 单边缺 ⇒ 通配
         assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=1|d=20260803", titles));
         // p 段为空 ⇒ 同日期两条候选 ⇒ 不唯一 ⇒ 放弃（宁缺勿错，交回退）
         assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=1|d=20260803", titles));
+        // ⚠️ 期号双有不等 ⇒ 拒绝（不得整体忽略 n —— 否则「第3期」会被「第2期」顶上，配错集）
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=3|d=-",
+                java.util.Arrays.asList("第2期上", "第4期上")));
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=2|d=-",
+                java.util.Arrays.asList("第2期上")));
+        // 日期单边缺失 ⇒ 通配 ⇒ 仍可命中（桥接只补 n，d 一侧可能没有）
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=1|d=-",
+                java.util.Arrays.asList("20260803第1期上")));
+        // 日期双有不等 ⇒ 硬证据 ⇒ 拒绝
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=-|d=20260810",
+                java.util.Arrays.asList("20260803上")));
         // 对不上 / 空列表 / 坏串 ⇒ -1
         assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=下|n=-|d=20261231",
                 java.util.Arrays.asList("20260803上")));

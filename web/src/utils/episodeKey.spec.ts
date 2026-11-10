@@ -221,12 +221,19 @@ describe('P0-3b 续播定位（parseEpid / indexByEpid）', () => {
     expect(indexByEpid(ep, ['20260803上', '第1集', '第9集', '第2集', '20260803中'])).toBe(0)
   })
 
-  it('indexByEpid ②宽松：忽略 n 段（记录时的期号是桥接/锚点算出的值），且要求候选唯一', () => {
+  it('indexByEpid ②弱等（相容）：s/v 相等；n/p/d 单边通配、双有须过各自规则；候选唯一才采纳', () => {
     const titles = ['20260803上', '20260803中', '20260804下']
-    // 心动9 真实形态：App 纯日期，记录时 epid 的 n=1 是桥接值，本地 epidOf 得到 n=-
+    // 心动9 真实形态：App 纯日期，记录时 epid 的 n=1 是桥接值，本地 epidOf 得到 n=- ⇒ 单边缺 ⇒ 通配
     expect(indexByEpid('s=-|v=-|p=上|n=1|d=20260803', titles)).toBe(0)
     // p 段为空 ⇒ 同日期两条候选 ⇒ 不唯一 ⇒ 放弃（宁缺勿错，交回退）
     expect(indexByEpid('s=-|v=-|p=-|n=1|d=20260803', titles)).toBe(-1)
+    // ⚠️ 期号**双有不等** ⇒ 拒绝（不得整体忽略 n —— 否则「第3期」会被「第2期」顶上，配错集）
+    expect(indexByEpid('s=-|v=-|p=上|n=3|d=-', ['第2期上', '第4期上'])).toBe(-1)
+    expect(indexByEpid('s=-|v=-|p=上|n=2|d=-', ['第2期上'])).toBe(0)
+    // 日期**单边缺失** ⇒ 通配 ⇒ 仍可命中（桥接只补 n，d 一侧可能没有）
+    expect(indexByEpid('s=-|v=-|p=上|n=1|d=-', ['20260803第1期上'])).toBe(0)
+    // 日期**双有不等** ⇒ 硬证据 ⇒ 拒绝
+    expect(indexByEpid('s=-|v=-|p=上|n=-|d=20260810', ['20260803上'])).toBe(-1)
   })
 
   it('indexByEpid：对不上 / 空列表 / 坏串 ⇒ -1（调用方回退 episode 下标）', () => {

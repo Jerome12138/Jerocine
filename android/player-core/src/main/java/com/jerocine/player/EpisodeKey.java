@@ -208,15 +208,20 @@ public final class EpisodeKey {
     }
 
     /**
-     * P0-3c：在**目标源集名列表**里按 epid 定位集下标；定位不到返回 -1
-     * （调用方回退 {@code episodeIndex} —— 方案 §3.1.9 的两级回退）。与 web {@code indexByEpid} 同口径：
+     * P0-3c / **方案2 两档身份**（2026-11-10）：在**目标源集名列表**里按 epid 定位集下标；
+     * 定位不到返回 -1（调用方回退 {@code episodeIndex} —— 方案 §3.1.9 的两级回退）。与 web 同口径：
+     *
      * <ol>
-     *   <li>① <b>严格</b>：{@link #epid()} 与存储 epid <b>全等</b> —— 同源集序变化（重排/插集/补集）时下标会失效，
-     *       epid 仍能对上（这正是本方法的价值）；</li>
-     *   <li>② <b>宽松</b>：<b>忽略 {@code n} 段</b> —— 记录时的期号可能是 A2 桥接/锚点算出的值，本地重算不出来；
-     *       此时要求 {@code s} / {@code v}（含变体序号）/ {@code d} 相等、{@code p} 段前缀相容，
-     *       且<b>候选唯一</b>才采纳（多个 ⇒ -1，宁缺勿错）。</li>
+     *   <li>① <b>强等</b>：{@link #epid()} 与存储 epid <b>串全等</b> —— 同源集序变化（重排/插集/补集）也能对上；</li>
+     *   <li>② <b>弱等（相容）</b>：{@code s} / {@code v}（含变体序号）必须<b>相等</b>；
+     *       {@code n} / {@code p} / {@code d} 三段<b>单边缺失视为通配、双有须过各自规则</b>
+     *       （{@code n}/{@code d} 相等，{@code p} 前缀相容）；且<b>候选唯一</b>才采纳（多个 ⇒ -1，宁缺勿错）。</li>
      * </ol>
+     *
+     * <p>为什么需要②档：桥接只补 {@code n}，而 {@code p} 是「相容」非「相等」、{@code d} 可能一侧缺失
+     * ⇒ 借到期号后<b>串仍可能不等</b> ⇒ 必须由②档兜住。
+     * <p>⚠️ <b>不采用「把 d/p 填过来」</b>：它们是<b>原始事实</b>，填了就成编造，且会污染 {@code d} 这条硬证据
+     * （"—用日期相等判同集、又把日期填过去当证据"＝循环论证）—— 方案 §4「禁止填事实」。
      */
     public static int indexByEpid(String epid, java.util.List<String> titles) {
         String[] want = parseEpid(epid);
@@ -225,12 +230,25 @@ public final class EpisodeKey {
             String t = titles.get(i) == null ? "" : titles.get(i);
             if (parse(t).epid().equals(epid)) return i;
         }
+        int wantN = 0;
+        if (!want[3].isEmpty()) {
+            try {
+                wantN = Integer.parseInt(want[3]);
+            } catch (NumberFormatException ignore) {
+                wantN = 0;
+            }
+        }
         int only = -1;
         for (int i = 0; i < titles.size(); i++) {
             EpisodeKey k = parse(titles.get(i) == null ? "" : titles.get(i));
             String kv = (!k.variant.isEmpty() && k.variantNum > 0)
                     ? k.variant + "#" + k.variantNum : k.variant;
-            if (!k.series.equals(want[0]) || !kv.equals(want[1]) || !k.date.equals(want[4])) continue;
+            if (!k.series.equals(want[0]) || !kv.equals(want[1])) continue;
+            // 期号：双有必须相等（不得整体忽略 —— 否则「第3期」会被「第2期」顶上）；单边缺 ⇒ 通配
+            if (wantN > 0 && k.num > 0 && wantN != k.num) continue;
+            // 日期：双有必须相等（硬证据）；单边缺 ⇒ 通配
+            if (!want[4].isEmpty() && !k.date.isEmpty() && !k.date.equals(want[4])) continue;
+            // 主次：双有必须前缀相容；单边缺 ⇒ 通配
             if (!want[2].isEmpty() && !k.part.isEmpty()
                     && !(k.part.startsWith(want[2]) || want[2].startsWith(k.part))) continue;
             if (only >= 0) return -1;

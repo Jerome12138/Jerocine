@@ -214,29 +214,40 @@ export function parseEpid(epid: string): { s: string; v: string; p: string; n: s
 }
 
 /**
- * P0-3b（2026-11-10）：在**目标源的集名列表**里按 `epid` 定位集下标；定位不到返回 -1
- * （调用方回退 `episode` 下标 —— 即方案 §3.1.9 的「两级回退」）。
+ * P0-3b / **方案2 两档身份**（2026-11-10）：在**目标源的集名列表**里按 `epid` 定位集下标；
+ * 定位不到返回 -1（调用方回退 `episodeIndex` 下标 —— 方案 §3.1.9 的两级回退）。
  *
- * 两级：
- *  ① **严格**：`epidOf(该集)` 与存储的 epid **全等** —— 同源集序变化（重排/插集/补集）时下标会失效，
- *     但 epid 仍能对上，这正是本函数的价值；
- *  ② **宽松**：**忽略 `n` 段** —— 记录时的期号可能是 A2 桥接/锚点算出的值（如心动9 纯日期集名桥接得期 1），
- *     本地重算不出来；此时要求 `s` / `v`（含变体序号）/ `d` 相等、`p` 段前缀相容，
- *     且**候选唯一**才采纳（多个 ⇒ 放弃，宁缺勿错）。
+ * **① 强等**：`epidOf(该集)` 与存储 epid **串全等** —— 同源集序变化（重排/插集/补集）也能对上。
+ *
+ * **② 弱等（相容）**：`s` / `v`（含变体序号）必须**相等**；`n` / `p` / `d` 三段**单边缺失视为通配、
+ * 双有必须满足各段规则**（`n`/`d` 相等，`p` 前缀相容 `中` ⊂ `中上`）；且**候选唯一**才采纳
+ * （多个 ⇒ -1，宁缺勿错）。
+ *
+ * 为什么需要②档：`bridgeNum` 只补 `n`，而 `p` 是「相容」非「相等」、`d` 可能一侧缺失
+ * ⇒ 借到期号后**串仍可能不等** ⇒ 必须由②档兜住这一层。
+ *
+ * ⚠️ **不采用「把 `d`/`p` 填过来」**：它们是**原始事实**（不是可对齐的序号），填了就成编造，
+ * 且会污染 `d` 这条硬证据（"用日期相等判同集、又把日期填过去当证据"＝循环论证）—— 方案 §4「禁止填事实」。
  */
 export function indexByEpid(epid: string, titles: string[]): number {
   const want = parseEpid(epid)
   if (!want || !titles || titles.length === 0) return -1
-  // ① 严格：整串全等
+  // ① 强等：整串全等
   for (let i = 0; i < titles.length; i++) {
     if (epidOf(parseEpisodeKey(titles[i] ?? '')) === epid) return i
   }
-  // ② 宽松：忽略 n 段，其余段相等 + p 前缀相容；唯一才采纳
+  // ② 弱等：s/v 相等；n/p/d 单边通配（双有须过各自规则）；候选唯一才采纳
+  const wantN = want.n ? Number.parseInt(want.n, 10) || 0 : 0
   let only = -1
   for (let i = 0; i < titles.length; i++) {
     const k = parseEpisodeKey(titles[i] ?? '')
     const kv = k.variant && k.variantNum > 0 ? `${k.variant}#${k.variantNum}` : k.variant
-    if (k.series !== want.s || kv !== want.v || k.date !== want.d) continue
+    if (k.series !== want.s || kv !== want.v) continue
+    // 期号：**双有必须相等**（不得整体忽略 —— 否则「第3期」会被「第2期」顶上）；单边缺 ⇒ 通配
+    if (wantN > 0 && k.num > 0 && wantN !== k.num) continue
+    // 日期：双有必须相等（硬证据）；单边缺 ⇒ 通配
+    if (want.d && k.date && k.date !== want.d) continue
+    // 主次：双有必须前缀相容；单边缺 ⇒ 通配
     if (want.p && k.part && !(k.part.startsWith(want.p) || want.p.startsWith(k.part))) continue
     if (only >= 0) return -1
     only = i
