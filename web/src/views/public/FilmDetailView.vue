@@ -24,6 +24,7 @@ import { resolveBlobUrl } from '@/utils/blobImg'
 import { useViewMode } from '@/composables/useViewMode'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { dispatchNativePlaylist } from '@/utils/nativePlay'
+import { epidFor, indexByEpid } from '@/utils/episodeKey'
 
 /**
  * 影片详情 — STORY-009
@@ -247,16 +248,23 @@ function gotoPlay(sourceId: string, episodeIndex: number, resumeSec = 0): void {
   if (!d) return
   const src = d.sources?.find((s) => s.id === sourceId) ?? d.sources?.[0]
   const ep = src?.episodes?.[episodeIndex]
+  // P0-3b: 集身份（跨源桥接/锚点归一）—— 续播时优先按它定位集，未命中回退 episode 下标。
+  // 口径与播放页/弹幕请求一致：入参取**本片所有源的所有集名**（桥接/锚点需要他源）。
+  const epid = ep
+    ? epidFor(ep.episode ?? '', (d.sources ?? []).flatMap((s) => (s.episodes ?? []).map((e) => e.episode ?? '')))
+    : ''
   if (src && ep) {
     historyStore.record({
       id: String(d.mid),
       name: d.name,
       link: `/play?id=${d.mid}&source=${src.id}&episode=${episodeIndex}` +
-        (resumeSec > 0 ? `&currentTime=${Math.floor(resumeSec)}` : ''),
+        (resumeSec > 0 ? `&currentTime=${Math.floor(resumeSec)}` : '') +
+        (epid ? `&epid=${encodeURIComponent(epid)}` : ''),
       episode: ep.episode ?? String(episodeIndex + 1),
       picture: d.cover,
       source: src.id,
       episodeIndex,
+      epid,
       currentTime: resumeSec > 0 ? Math.floor(resumeSec) : 0,
       pid: d.pid,
       cid: d.cid
@@ -272,7 +280,9 @@ function gotoPlay(sourceId: string, episodeIndex: number, resumeSec = 0): void {
     query: {
       id: String(d.mid),
       source: sourceId,
-      episode: String(episodeIndex)
+      episode: String(episodeIndex),
+      // 带上 epid ⇒ PlayView 载入后按它重定位（源内集序变化时 episodeIndex 会失效）
+      ...(epid ? { epid } : {})
     }
   })
 }
@@ -294,7 +304,12 @@ const resumeRecord = computed(() => {
   // 校验记录里的 source/episode 在当前 detail 仍然有效
   const src = d.sources?.find((s) => s.id === rec.source)
   if (!src) return null
-  const idx = Math.max(0, rec.episodeIndex ?? 0)
+  // P0-3b: 先按 epid 在当前源里重定位（源内集序变化时 rec.episodeIndex 会失效）；未命中回退老下标
+  const idx0 = Math.max(0, rec.episodeIndex ?? 0)
+  const byEpid = rec.epid
+    ? indexByEpid(rec.epid, (src.episodes ?? []).map((e) => e.episode ?? ''))
+    : -1
+  const idx = byEpid >= 0 ? byEpid : idx0
   if (!src.episodes[idx]) return null
   return {
     source: rec.source,

@@ -7,6 +7,8 @@ import {
   epidCompatible,
   epidFor,
   epidOf,
+  indexByEpid,
+  parseEpid,
   partCompatible,
   parseEpisodeKey,
   sameEpisode,
@@ -197,6 +199,41 @@ describe('P0-1c 主部分合并 + 前缀相容（epid 自足）', () => {
     expect(partCompatible(parseEpisodeKey('第1期上'), parseEpisodeKey('第1期中'))).toBe(false)
     expect(partCompatible(parseEpisodeKey('EP8上'), parseEpisodeKey('EP8上中'))).toBe(true)
     expect(partCompatible(parseEpisodeKey('正片'), parseEpisodeKey('第1期中'))).toBe(true)
+  })
+})
+
+describe('P0-3b 续播定位（parseEpid / indexByEpid）', () => {
+  it('parseEpid：5 段解析；缺值 - 归空；空串/段数不对/未知键 ⇒ null', () => {
+    expect(parseEpid('s=-|v=-|p=中上|n=3|d=-')).toEqual({ s: '', v: '', p: '中上', n: '3', d: '' })
+    expect(parseEpid('s=心动的周末|v=特辑#2|p=-|n=-|d=20260930')).toEqual({
+      s: '心动的周末', v: '特辑#2', p: '', n: '', d: '20260930'
+    })
+    expect(parseEpid('')).toBeNull()
+    expect(parseEpid('   ')).toBeNull()
+    expect(parseEpid('s=-|v=-')).toBeNull()
+    expect(parseEpid('s=-|v=-|p=-|n=-|zz=-')).toBeNull()
+  })
+
+  it('indexByEpid ①严格：同源集序变化（重排/插集）也能定位回原来那一集', () => {
+    const ep = epidOf(parseEpisodeKey('20260803上'))
+    expect(indexByEpid(ep, ['第1集', '第2集', '20260803上', '20260803中'])).toBe(2)
+    // 目标源插了「第9集」并重排 ⇒ 老下标 2 已失效，epid 仍命中新下标 0
+    expect(indexByEpid(ep, ['20260803上', '第1集', '第9集', '第2集', '20260803中'])).toBe(0)
+  })
+
+  it('indexByEpid ②宽松：忽略 n 段（记录时的期号是桥接/锚点算出的值），且要求候选唯一', () => {
+    const titles = ['20260803上', '20260803中', '20260804下']
+    // 心动9 真实形态：App 纯日期，记录时 epid 的 n=1 是桥接值，本地 epidOf 得到 n=-
+    expect(indexByEpid('s=-|v=-|p=上|n=1|d=20260803', titles)).toBe(0)
+    // p 段为空 ⇒ 同日期两条候选 ⇒ 不唯一 ⇒ 放弃（宁缺勿错，交回退）
+    expect(indexByEpid('s=-|v=-|p=-|n=1|d=20260803', titles)).toBe(-1)
+  })
+
+  it('indexByEpid：对不上 / 空列表 / 坏串 ⇒ -1（调用方回退 episode 下标）', () => {
+    expect(indexByEpid('s=-|v=-|p=下|n=-|d=20261231', ['20260803上'])).toBe(-1)
+    expect(indexByEpid('s=-|v=-|p=上|n=-|d=20260803', [])).toBe(-1)
+    expect(indexByEpid('坏串', ['20260803上'])).toBe(-1)
+    expect(indexByEpid('', ['20260803上'])).toBe(-1)
   })
 })
 

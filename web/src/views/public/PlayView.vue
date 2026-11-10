@@ -31,7 +31,7 @@ import type { PlayInfo, PlaySource } from '@/types/film'
 import { usePlayer, resolutionLabel, isHlsSupported, NEXTTV_AD_SVG, NEXTTV_AUTOPLAY_SVG } from '@/composables/usePlayer'
 import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
-import { epidFor, derivedNumFor } from '@/utils/episodeKey'
+import { epidFor, derivedNumFor, indexByEpid } from '@/utils/episodeKey'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings, normalizeSkipSec } from '@/composables/useSkipSettings'
@@ -1076,6 +1076,9 @@ const { flush: flushHistory } = useFilmHistory({
       currentTime: Math.floor(playerCurrentTime.value),
       pid: detail.value.pid,
       cid: detail.value.cid,
+      // P0-3b: 集身份（跨源桥接/锚点归一后，与弹幕请求同源同值）——
+      // 续播时优先按它定位集（源内集序变化时下标会失效），未命中回退 episodeIndex
+      epid: danmakuEpid.value,
       // 影片自身更新状态(HD / 更新至 N 集): 供首页"继续观看"卡左下角像普通影片卡一样展示
       remarks: detail.value.remarks
     }
@@ -1115,6 +1118,17 @@ async function loadPlayInfo(): Promise<void> {
     relate.value = data.related ?? []
     currentSourceId.value = data.currentSource || data.detail.sources[0]?.id || ''
     currentEpisodeIndex.value = Number(data.currentEpisode) || 0
+    // P0-3b（2026-11-10）: URL 带 epid（历史/继续观看写入的集身份）⇒ 先按它在**当前源**里重定位集下标。
+    // 同源集序变化（重排/插集/补集）时 data.currentEpisode 已失效，而 epid 仍能对上；
+    // 对不上（源已换 / 集已下架 / 老记录无 epid）⇒ 保持原下标 —— 即方案 §3.1.9 的**两级回退**。
+    {
+      const wantEpid = String(route.query.epid ?? '')
+      const srcForEpid = data.detail.sources.find((s) => s.id === currentSourceId.value)
+      if (wantEpid && srcForEpid?.episodes?.length) {
+        const idx = indexByEpid(wantEpid, srcForEpid.episodes.map((e) => e.episode ?? ''))
+        if (idx >= 0) currentEpisodeIndex.value = idx
+      }
+    }
     // 高峰慢源预案: 进播放页后台静默测一轮线路(限并发 2), 结果供「一键切最快」
     // 与卡顿看门狗选目标用; 不自动换源不打扰。每部片只测一次(换集不重测)。
     if (data.detail.sources.length > 1 && speedTestedForFilm !== data.detail.mid) {

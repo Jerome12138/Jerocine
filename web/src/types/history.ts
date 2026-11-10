@@ -28,6 +28,8 @@ export interface RemoteHistoryItem {
   episodeName: string
   progress: number
   duration: number
+  /** 集身份串（P0-3b, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`；只有"触发的集"才有，空串 = 无 */
+  epid?: string
   createdAt?: number
   updatedAt?: number
   /** 后端回填的影片卡片(name/cover/cName 等从这里取) */
@@ -57,4 +59,6 @@ export interface HistoryUpsertPayload {
   episodeName?: string
   progress?: number
   duration?: number
+  /** 集身份串（P0-3b, 2026-11-10，可选）。留空 ⇒ 服务端**不会**覆盖已存身份（P0-3a 的 upsert 分支）*/
+  epid?: string
 }

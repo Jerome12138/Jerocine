@@ -191,6 +191,59 @@ export function epidCompatible(a: EpisodeKey, b: EpisodeKey): boolean {
   return partCompatible(a, b)
 }
 
+/** P0-3b: 把 epid 串拆成 5 段（缺值 `-` 归一为空串）。空串 / 段数不对 / 含未知键 ⇒ null（当作"无 epid"）。 */
+export function parseEpid(epid: string): { s: string; v: string; p: string; n: string; d: string } | null {
+  const raw = (epid ?? '').trim()
+  if (!raw) return null
+  const seg = raw.split('|')
+  if (seg.length !== 5) return null
+  const out = { s: '', v: '', p: '', n: '', d: '' }
+  for (const kv of seg) {
+    const i = kv.indexOf('=')
+    if (i <= 0) return null
+    const key = kv.slice(0, i)
+    const val = kv.slice(i + 1) === '-' ? '' : kv.slice(i + 1)
+    if (key === 's') out.s = val
+    else if (key === 'v') out.v = val
+    else if (key === 'p') out.p = val
+    else if (key === 'n') out.n = val
+    else if (key === 'd') out.d = val
+    else return null
+  }
+  return out
+}
+
+/**
+ * P0-3b（2026-11-10）：在**目标源的集名列表**里按 `epid` 定位集下标；定位不到返回 -1
+ * （调用方回退 `episode` 下标 —— 即方案 §3.1.9 的「两级回退」）。
+ *
+ * 两级：
+ *  ① **严格**：`epidOf(该集)` 与存储的 epid **全等** —— 同源集序变化（重排/插集/补集）时下标会失效，
+ *     但 epid 仍能对上，这正是本函数的价值；
+ *  ② **宽松**：**忽略 `n` 段** —— 记录时的期号可能是 A2 桥接/锚点算出的值（如心动9 纯日期集名桥接得期 1），
+ *     本地重算不出来；此时要求 `s` / `v`（含变体序号）/ `d` 相等、`p` 段前缀相容，
+ *     且**候选唯一**才采纳（多个 ⇒ 放弃，宁缺勿错）。
+ */
+export function indexByEpid(epid: string, titles: string[]): number {
+  const want = parseEpid(epid)
+  if (!want || !titles || titles.length === 0) return -1
+  // ① 严格：整串全等
+  for (let i = 0; i < titles.length; i++) {
+    if (epidOf(parseEpisodeKey(titles[i] ?? '')) === epid) return i
+  }
+  // ② 宽松：忽略 n 段，其余段相等 + p 前缀相容；唯一才采纳
+  let only = -1
+  for (let i = 0; i < titles.length; i++) {
+    const k = parseEpisodeKey(titles[i] ?? '')
+    const kv = k.variant && k.variantNum > 0 ? `${k.variant}#${k.variantNum}` : k.variant
+    if (k.series !== want.s || kv !== want.v || k.date !== want.d) continue
+    if (want.p && k.part && !(k.part.startsWith(want.p) || want.p.startsWith(k.part))) continue
+    if (only >= 0) return -1
+    only = i
+  }
+  return only
+}
+
 /** P0-1b: 结构化身份传输串的版本前缀（与 Go `EpKeyVersion` 一致；格式变更时同步递增）。 */
 export const EPKEY_VERSION = 'v1'
 /**
