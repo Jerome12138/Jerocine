@@ -942,22 +942,34 @@ private static String failedRequestUrl(Throwable error) {
     /**
      * P0-3c（2026-11-10）：当前集的**集身份**（epid）—— 与 web / 服务端同规，供服务端**续播定位**。
      *
-     * <p>入参取**当前源的全部集名**（`session.playlistTitles`）；无剧集上下文（本地播放/单集）或
-     * 未触发的集（裸「第N集」）⇒ **空串** —— 空串上报**不会覆盖**服务端已存身份
-     * （见 P0-3a 的 upsert 分支），因此不必担心把历史里的身份清掉。
+     * <p><b>口径（2026-11-10 修正）</b>：当前集标题取**当前源**的位置，但**借用池取「全部源的全部集名」**
+     * —— 与 web `PlayView.allEpisodeTitles`（`(detail.sources ?? []).flatMap(s => s.episodes.map(e => e.episode))`）
+     * 完全一致。`epidFor` 只在"本集缺期号"时向借用池借一个期号（`bridgeNum` 要求日期相等 + 栏目/变体一致
+     * + 主次相容）；池子若只放当前源 ⇒ 单源片永远借不到 ⇒ 与 web 算出的 epid 不一致（曾是本方法的缺陷）。
+     *
+     * <p>无剧集上下文（本地播放/单集）或未触发的集（裸「第N集」）⇒ **空串** —— 空串上报**不会覆盖**
+     * 服务端已存身份（见 P0-3a 的 upsert 分支）。
      */
     private String epidOfCurrentEpisode() {
         try {
             if (session == null || session.player == null) return "";
-            java.util.List<String> titles = session.playlistTitles;
-            if (titles == null || titles.isEmpty()) return "";
+            java.util.List<String> curTitles = session.playlistTitles;
+            if (curTitles == null || curTitles.isEmpty()) return "";
             int idx = session.player.getCurrentMediaItemIndex();
-            String cur = (idx >= 0 && idx < titles.size() && titles.get(idx) != null) ? titles.get(idx) : "";
-            java.util.List<EpisodeKey> keys = new java.util.ArrayList<>(titles.size());
-            for (String t : titles) {
-                keys.add(EpisodeKey.parse(t == null ? "" : t));
+            String cur = (idx >= 0 && idx < curTitles.size() && curTitles.get(idx) != null)
+                    ? curTitles.get(idx) : "";
+            // 借用池 = 全部源的全部集名（对齐 web 口径）
+            java.util.List<EpisodeKey> pool = new java.util.ArrayList<>();
+            for (PlayerSession.SourceData s : session.sourceList) {
+                if (s == null || s.titles == null) continue;
+                for (String t : s.titles) {
+                    pool.add(EpisodeKey.parse(t == null ? "" : t));
+                }
             }
-            return EpisodeKey.epidFor(EpisodeKey.parse(cur), keys.toArray(new EpisodeKey[0]));
+            if (pool.isEmpty()) {
+                for (String t : curTitles) pool.add(EpisodeKey.parse(t == null ? "" : t));
+            }
+            return EpisodeKey.epidFor(EpisodeKey.parse(cur), pool.toArray(new EpisodeKey[0]));
         } catch (Exception ignore) {
             return "";
         }
