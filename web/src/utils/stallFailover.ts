@@ -14,7 +14,9 @@ export const STALL_THRESHOLD_MS = 12000
 export const STALL_COOLDOWN_MS = 30000
 /** 单集内 stall 换源上限(与 error 路径的 fallbackRounds 语义独立, 各管各的)。 */
 export const MAX_STALL_FAILOVERS_PER_EPISODE = 2
-/** 「显著更快」才值得换: 目标耗时 < 当前耗时 × 0.6(至少省 40%), 否则体感无差别白折腾。 */
+/** 「显著更快」才值得换: 目标耗时 < 当前耗时 × 0.6(至少省 40%), 否则体感无差别白折腾。
+ *  与 Android 侧(SourceSpeedRanker.SWITCH_MARGIN=0.8)阈值有意不同: 两侧测量口径不同 ——
+ *  web 计「首片加载耗时」、Android 计「媒体清单 GET」(更稳, margin 可更紧), 各自独立调参。 */
 export const FASTER_RATIO = 0.6
 
 export interface StallContext {
