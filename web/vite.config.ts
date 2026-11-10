@@ -189,12 +189,16 @@ export default defineConfig({
       injectRegister: 'inline',
       // 不生成 web app manifest(无需"添加到主屏", 避免多一份需维护的清单)
       manifest: false,
-      includeAssets: [
-        'favicon*.png',
-        'apple-touch-icon.png',
-        'android-chrome*.png',
-        'default-avatar.svg'
-      ],
+      // 只把"页面真会用到"的图放进 precache(2026-11-10 收窄):
+      // - `android-chrome-{192,512}.png` **故意不进**: 它们只在有 web app manifest 时才有
+      //   意义(浏览器"添加到主屏"是从 manifest 的 icons 读), 而本项目 `manifest: false`、
+      //   也没有静态 webmanifest —— 全仓搜不到任何引用, 属脚手架遗留。两张合计 381KB
+      //   (512 那张 329KB, 是渐变+软阴影的 3D 渲染, 实测无损重压只值 15%), 让它躺在预缓存
+      //   里等于每台设备装机时白下 381KB。文件仍在 public/ 照常发布; 哪天真要恢复
+      //   "添加到主屏", 加回 manifest 与这里即可。
+      // - `apple-touch-icon.png` 留着: index.html 里确有 `<link rel="apple-touch-icon">`,
+      //   Safari 会取(46KB)。
+      includeAssets: ['favicon*.png', 'apple-touch-icon.png', 'default-avatar.svg'],
       workbox: {
         // 显式声明, 不依赖插件默认值(§4.2 C5)
         skipWaiting: true,
@@ -231,7 +235,14 @@ export default defineConfig({
         // precache 进清单等于让 100% 的 modern 设备为 0% 用得上的文件付离线包体积。
         // 低版本设备的缓存由上面 runtimeCaching 的 NetworkFirst 在运行时补上(命中缓存
         // 回退时 Cache Storage 里已有上次成功下载的 bundle)。
-        globIgnores: ['**/*legacy*']
+        // globIgnores 里第二块(2026-11-10): video-vendor(artplayer + hls.js) 737KB,
+        // 只有播放页用 —— usePlayer.ts 静态引入, 而引用它的只有 PlayView / LiveView 两个
+        // **懒加载**路由。让首页访客也为它付安装体积不划算(占整份预缓存的 30%)。
+        // 首次进播放页由上面那条 NetworkFirst 兜住: 该 handler 在 networkTimeoutSeconds
+        // 超时且无缓存时**不 reject**, 而是继续 await 网络返回(见 NetworkFirst._handle 的
+        // "we'd rather wait until the networkPromise resolves"), 所以慢链路只是"第一次慢
+        // 一点", 不会白屏; 下完即进 jc-assets, 之后不再走网络。
+        globIgnores: ['**/*legacy*', '**/video-vendor-*']
       }
     }),
     // 老内核 flex-gap 回退必须最后跑(enforce post): 见函数内注释
