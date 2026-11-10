@@ -1,0 +1,201 @@
+package service
+
+import (
+	"context"
+	"log"
+	"time"
+
+	"server/internal/danmu"
+	"server/internal/domain/entity"
+	"server/internal/repository/mysql"
+)
+
+// EpidService 集身份派生（P1-1, 2026-11-10）。
+//
+// 职责：把 `movie_play_source.episodes_json`（**唯一真相源，永不改**）**单向派生**成
+// `movie_episode_epid`（一集一行）。口径见 docs/方案-集身份epid落地路线与弹幕准确性-2026-11-09.md（v5.0 §5.4）。
+//
+// 设计要点（均为踩过的坑）：
+//   - **整源行重算**（DELETE+INSERT 同事务），**绝不按 `ep_index` 打补丁**（集序会漂）
+//   - **幂等是特性**：只换 link/清晰度 ⇒ 重建出的 epid 一模一样 ⇒ 下游零感知
+//   - **抖动守卫**（F-07 + 60% 阈值）：疑似抖动**不重建**，等下一轮；`force=true` 可人工强制
+//   - **孤儿清理**（F-06）：源行整行没了 ⇒ 级联删派生行
+type EpidService struct {
+	repo *mysql.EpidRepo
+}
+
+func NewEpidService(repo *mysql.EpidRepo) *EpidService { return &EpidService{repo: repo} }
+
+// DeriveStats 一次派生批的统计（可直接打日志/落监控）。
+type DeriveStats struct {
+	Scanned   int            // 扫到的脏源行数
+	Rebuilt   int            // 实际重建的源行数
+	Rows      int64          // 写入的派生行数
+	Skipped   int            // 被抖动守卫拦下的源行数
+	SkipWhy   map[string]int // 原因分布（suspect-shrink / suspect-disjoint）
+	EmptyEpid int64          // 派生行里 epid 为空串的条数（L6：不产身份）
+	LastId    int64          // 本批最后一个源行 id（下次 keyset 从这里继续）
+}
+
+// DeriveBatch 派生一批脏源行（keyset 分页；`afterId` 传上一批的 `LastId`，从头开始传 0）。
+//
+// 结束条件：返回的 `Scanned < limit` 表示这一轮已经扫完（但**不代表没有脏行**：被守卫拦下的仍脏）。
+func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int, force bool) (DeriveStats, error) {
+	st := DeriveStats{SkipWhy: map[string]int{}}
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.repo.DirtySourceRows(ctx, afterId, limit)
+	if err != nil {
+		return st, err
+	}
+	st.Scanned = len(rows)
+	if len(rows) == 0 {
+		st.LastId = afterId
+		return st, nil
+	}
+
+	ids := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.Id)
+	}
+	anchors, err := s.repo.AnchorsBySrcRowIds(ctx, ids)
+	if err != nil {
+		return st, err
+	}
+
+	now := time.Now().UnixMilli()
+	for _, src := range rows {
+		st.LastId = src.Id
+		titles := make([]string, 0, len(src.Episodes))
+		for _, e := range src.Episodes {
+			titles = append(titles, e.Episode)
+		}
+		a := anchors[src.Id]
+		if !force {
+			hasOverlap := false
+			if a.N > 0 {
+				hasOverlap, err = s.repo.ExistsRawName(ctx, src.Id, titles)
+				if err != nil {
+					return st, err
+				}
+			}
+			ok, why := danmu.ShouldReplaceDerived(a.N, len(titles), hasOverlap)
+			if !ok {
+				st.Skipped++
+				st.SkipWhy[why]++
+				log.Printf("[epid] 抖动守卫拦下 src_row_id=%d（[%s] 旧 N=%d 新 N=%d hash=%s→%s）— 本轮不重建，等下一轮；确认无误可 force 重跑",
+					src.Id, why, a.N, len(titles), a.SrcEpHash, src.EpHash)
+				continue
+			}
+		}
+
+		// 派生（服务端口径：带 A2 期号，含锚点兜底；见 danmu.EpidFor）
+		derived := danmu.EpidsForSourceRow(titles)
+		out := make([]entity.MovieEpisodeEpid, 0, len(titles))
+		for i, t := range titles {
+			if derived[i][0] == "" {
+				st.EmptyEpid++
+			}
+			out = append(out, entity.MovieEpisodeEpid{
+				SrcRowId:   src.Id,
+				Mid:        src.Mid,
+				MatchKey:   src.MatchKey,
+				SiteId:     src.SiteId,
+				PlayFrom:   src.PlayFrom,
+				EpIndex:    i,
+				Epid:       derived[i][0],
+				FromSrc:    derived[i][1],
+				RawName:    t,
+				SrcEpHash:  src.EpHash,
+				ComputedAt: now,
+			})
+		}
+		if err := s.repo.ReplaceForSourceRow(ctx, src.Id, out); err != nil {
+			return st, err
+		}
+		st.Rebuilt++
+		st.Rows += int64(len(out))
+	}
+	return st, nil
+}
+
+// DeriveAll 从头扫完一轮（keyset 分页循环）。返回累计统计与"是否仍有被拦下的行"。
+// `batch` 每批源行数；`maxBatches<=0` 表示不限批数。
+func (s *EpidService) DeriveAll(ctx context.Context, batch int, maxBatches int, force bool) (DeriveStats, error) {
+	total := DeriveStats{SkipWhy: map[string]int{}}
+	afterId := int64(0)
+	for n := 0; maxBatches <= 0 || n < maxBatches; n++ {
+		st, err := s.DeriveBatch(ctx, afterId, batch, force)
+		if err != nil {
+			return total, err
+		}
+		total.Scanned += st.Scanned
+		total.Rebuilt += st.Rebuilt
+		total.Rows += st.Rows
+		total.Skipped += st.Skipped
+		total.EmptyEpid += st.EmptyEpid
+		for k, v := range st.SkipWhy {
+			total.SkipWhy[k] += v
+		}
+		total.LastId = st.LastId
+		if st.Scanned < batch || st.Scanned == 0 {
+			break
+		}
+		afterId = st.LastId
+	}
+	return total, nil
+}
+
+// CleanOrphans 孤儿清理（F-06）：派生表里有、源表已不存在的行 ⇒ 级联删除。
+// 返回删除的**源行数**。建议低频跑（整片下架/站点下线/Truncate 之后）。
+func (s *EpidService) CleanOrphans(ctx context.Context, limit int) (int, error) {
+	orphans, err := s.repo.OrphanSrcRowIds(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	if len(orphans) == 0 {
+		return 0, nil
+	}
+	if _, err := s.repo.DeleteBySrcRowIds(ctx, orphans); err != nil {
+		return 0, err
+	}
+	log.Printf("[epid] 孤儿清理：删除 %d 个已消失源行的派生行", len(orphans))
+	return len(orphans), nil
+}
+
+// AlignmentReport 全库对齐率报告（P1-1 验收主指标，配 §4.8 门槛）。
+type AlignmentReport struct {
+	TotalDerivedRows int64
+	EmptyEpidRows    int64
+	AlignedGroups    int64 // 同 (match_key, epid) 出现在 ≥2 个 site 的组数
+	TotalGroups      int64 // 参与统计的非空 epid 组数
+	AlignmentPct     float64
+	ByFromSrc        map[string]int64
+}
+
+func (s *EpidService) AlignmentReport(ctx context.Context) (AlignmentReport, error) {
+	var rep AlignmentReport
+	total, empty, err := s.repo.Coverage(ctx)
+	if err != nil {
+		return rep, err
+	}
+	rep.TotalDerivedRows, rep.EmptyEpidRows = total, empty
+	aligned, groups, err := s.repo.AlignmentRate(ctx)
+	if err != nil {
+		return rep, err
+	}
+	rep.AlignedGroups, rep.TotalGroups = aligned, groups
+	if groups > 0 {
+		rep.AlignmentPct = float64(aligned) * 100 / float64(groups)
+	}
+	rep.ByFromSrc = map[string]int64{}
+	stats, err := s.repo.FromSrcStats(ctx)
+	if err != nil {
+		return rep, err
+	}
+	for _, x := range stats {
+		rep.ByFromSrc[x.FromSrc] = x.N
+	}
+	return rep, nil
+}

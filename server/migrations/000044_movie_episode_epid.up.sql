@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS movie_episode_epid (
   epid        VARCHAR(160) NOT NULL COMMENT '5 段身份串；**空串 = 不产身份**（L6）',
   from_src    VARCHAR(16)  NOT NULL COMMENT '期号来源：self|bridge|anchor|none（P1-3 的 from=）',
   raw_name    VARCHAR(255) NOT NULL COMMENT '原始集名（排查用）',
+  src_ep_hash CHAR(16)     NOT NULL DEFAULT '' COMMENT '派生时该源行的 ep_hash（派生状态锚：与源行当前 ep_hash 不等 ⇒ 该源行脏）',
   computed_at BIGINT       NOT NULL COMMENT '派生时间（**不与源行 updated_at 同名**，避免歧义）',
   PRIMARY KEY (id),
   UNIQUE KEY uk_row_ep (src_row_id, ep_index),
