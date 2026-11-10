@@ -23,12 +23,15 @@ interface FakeSW {
   fireUpdateFound: () => void
   /** registration.update 的探针(徽标亮起应主动踢一次下载) */
   update: ReturnType<typeof vi.fn>
+  /** 让 `navigator.serviceWorker.ready` resolve —— 模拟"首访注册完成、已激活" */
+  resolveReady: () => void
 }
 
 /**
  * 装一个假 navigator.serviceWorker.
  * @param controller 进入页面时是否已被 SW 控制(null = 首访)
- * @param opts.withRegistration 是否让 getRegistration() 返回一个注册对象(默认返回)
+ * @param opts.withRegistration 是否让 getRegistration() 返回一个注册对象(默认返回);
+ *   传 false 模拟"首访: 此刻还没有任何注册, 要等注册脚本跑完"
  */
 function installFakeSW(
   controller: unknown,
@@ -47,6 +50,11 @@ function installFakeSW(
       if (t === 'updatefound') updateFoundListeners.delete(cb)
     }
   }
+  // ready 默认永不 resolve(绝大多数用例不关心首访注册链路); 需要的用例显式 resolveReady()
+  let releaseReady: ((r: unknown) => void) | null = null
+  const ready = new Promise((res) => {
+    releaseReady = res as (r: unknown) => void
+  })
   const fake = {
     controller,
     addEventListener: (_t: string, cb: () => void) => {
@@ -55,7 +63,8 @@ function installFakeSW(
     removeEventListener: (_t: string, cb: () => void) => {
       listeners.delete(cb)
     },
-    getRegistration: async () => (opts.withRegistration === false ? undefined : reg)
+    getRegistration: async () => (opts.withRegistration === false ? undefined : reg),
+    ready
   }
   Object.defineProperty(navigator, 'serviceWorker', { value: fake, configurable: true })
   return {
@@ -64,7 +73,8 @@ function installFakeSW(
     fireUpdateFound: () => {
       for (const cb of updateFoundListeners) cb()
     },
-    update
+    update,
+    resolveReady: () => releaseReady?.(reg)
   }
 }
 
@@ -399,6 +409,57 @@ describe('usePwaUpdate', () => {
 
     expect(probe).not.toHaveBeenCalled()
     expect(apiOf(w).updateReady.value).toBe(false)
+  })
+
+  it('首访: 初次接管只翻"已被控制", 之后再来的 controllerchange 按构建号正常判定', async () => {
+    const probe = vi.fn(async () => NEWER)
+    const sw = installFakeSW(null)
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: probe })
+    await settle()
+
+    // 第一次 controllerchange = clientsClaim 的初次接管: 页面就是刚下载的, 不该提示
+    await fire(sw)
+    await settle()
+    expect(probe).not.toHaveBeenCalled()
+    expect(apiOf(w).updateFound.value).toBe(false)
+
+    // 这是"真的换了新 SW" —— 首访会话也必须具备判定资格(原来钉死常量会整条会话静默)
+    await fire(sw)
+    await settle()
+    expect(probe).toHaveBeenCalledTimes(1)
+    expect(apiOf(w).updateReady.value).toBe(true)
+  })
+
+  it('首访: 注册在 load 之后才完成 ⇒ ready 解决时补挂 updatefound, 之后能正常收到信号', async () => {
+    // withRegistration: false = mount 时还没有任何注册(首访 / 被硬重置后)
+    const sw = installFakeSW(null, { withRegistration: false })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
+    await settle()
+
+    expect(sw.updateFoundListeners.size).toBe(0) // 还没注册, 挂不上
+
+    await fire(sw) // 初次接管
+    await settle()
+    expect(sw.updateFoundListeners.size).toBe(0) // 注册仍未完成
+
+    sw.resolveReady() // 注册脚本(load 后)跑完 → install → activate
+    await settle()
+    expect(sw.updateFoundListeners.size).toBe(1)
+
+    sw.fireUpdateFound()
+    await settle()
+    expect(apiOf(w).updateFound.value).toBe(true)
+  })
+
+  it('已在控制中时不再等 ready(不重复挂同一个 updatefound)', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
+    await settle()
+    expect(sw.updateFoundListeners.size).toBe(1)
+
+    sw.resolveReady() // 即使 ready 也 resolve, 也不该挂第二个
+    await settle()
+    expect(sw.updateFoundListeners.size).toBe(1)
   })
 
   // ---- applyUpdate: 确定性切换(2026-11-09) ----

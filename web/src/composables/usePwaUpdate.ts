@@ -68,6 +68,18 @@ import { CHUNK_RELOAD_GUARD_KEY } from '@/utils/chunkReload'
  *    **只有等满 40s 仍未接管**才走"硬重置"(拆 SW + 清本应用 Cache Storage)再刷新 ——
  *    那是唯一能保证"绕开旧 precache 拿到新页面"的办法, 代价是正在下的 precache 作废重下,
  *    所以只压在最坏分支上, 常态一分钱不花(已接管⇒立即刷; 未接管⇒等下载完成即刷)。
+ *
+ * 2026-11-10 修(首访会话的更新盲区)。两处都是"注册时机被 load 门控"的连带后果,
+ *  但**不靠提前注册解决** —— 那条路会把 1.36MB precache 的 install 塞进首屏关键路径,
+ *  在窄链路上是拿首屏换离线包。真正该修的是状态维护:
+ *  ① `hadController` 原来是 setup 时算一次的常量, 首访恒 false ⇒ checkForUpdate 首句
+ *    就 return ⇒ **首访整条会话都不提示任何更新**(TV 壳常驻可达数天), 只能等下次访问自愈。
+ *    ⇒ 改为可变的 `controlled`: 首访的**第一次** controllerchange 是 clientsClaim 的初次
+ *      接管, 跳过这一次判定但把它置 true —— 页面从此就是正常的"被控制"状态。
+ *  ② `reg` 只在 mount 取一次 `getRegistration()`。首访那时还没有注册(要等 load 之后),
+ *    取到 undefined ⇒ `updatefound` 永远挂不上、`kickDownload` 一直空转。
+ *    ⇒ 取不到就等 `navigator.serviceWorker.ready`(只在存在 active worker 时 resolve,
+ *      正好是"注册 → install → activate"的终点)再挂, 幂等封装在 attachUpdateFound。
  */
 
 export interface PwaUpdate {
@@ -268,7 +280,8 @@ export function parseBuildTag(html: string): string {
 
 /**
  * "当前页面是否确实落后于可用版本" 的纯判据 —— 徽标要不要亮就看它。
- *  - 首访(进入时无 controller): 页面就是刚拿的, 不算更新
+ *  - 此刻还没有 controller: 页面就是刚拿的, 不算更新
+ *    (注意传的是**此刻**的控制状态, 不是"进页面时" —— 首访被 clientsClaim 接管后即为 true)
  *  - 构建号相同: 页面内容已是最新(典型场景: 强制刷新后旧 SW 才被替换) ⇒ 不提示
  *  - 构建号不同 / 任一未知: 判定不了就保守提示(宁可多给一个刷新入口, 也别让 TV 常驻停在旧版)
  *
@@ -347,7 +360,17 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
   let progSampling = false
 
   // 进入页面时是否已被 SW 控制 —— 决定 controllerchange 是"初次接管"还是"换新版本"
-  const hadController = supported && !!navigator.serviceWorker.controller
+  const hadControllerAtLoad = supported && !!navigator.serviceWorker.controller
+  /**
+   * **当前**是否已被 SW 控制(会随初次接管翻成 true)。
+   *
+   * 为什么不能钉死在"进页面时有没有 controller"(2026-11-10 修):
+   *  首访时它恒为 false, 而 checkForUpdate 第一句就是 `if (!controlled) return`。
+   *  但首访的注册走的是 `load` 之后 → install → activate → clientsClaim, 页面随即被接管,
+   *  此后本页就是"旧内容 + 新控制器"的正常状态, 与回访没有区别。
+   *  钉死常量 ⇒ 首访这一整条会话都收不到任何更新提示(TV 壳常驻可达数天), 只能等下次访问自愈。
+   */
+  let controlled = hadControllerAtLoad
 
   let controllerListener: (() => void) | null = null
   let updateFoundListener: (() => void) | null = null
@@ -456,7 +479,7 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
    * 顺序很关键: 先判"页面已最新"(收掉可能的误亮) → 再判"探测可信度" → 最后去重。
    */
   async function checkForUpdate(signal: UpdateSignal): Promise<void> {
-    if (!hadController) return
+    if (!controlled) return
     if (checking) {
       // 正在核对时又来了更强的信号: 记下来, 等这一趟结束补跑(否则会漏掉 ready 升级)
       if (signal === 'controllerchange') pendingControllerChange = true
@@ -472,7 +495,7 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
       }
 
       if (latest) {
-        if (!isPageStale({ hadController, ownBuild, latestBuild: latest })) {
+        if (!isPageStale({ hadController: controlled, ownBuild, latestBuild: latest })) {
           // 页面内容已是新版(典型: 强制刷新后旧 SW 才被替换) —— 收掉徽标, 不给误导
           if (updateFound.value) {
             updateFound.value = false
@@ -554,6 +577,33 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
     })
   }
 
+  /**
+   * 拿到注册对象后挂 `updatefound`(幂等)。
+   *
+   * 两条来路: ① mount 时已存在的注册(`getRegistration`, 回访); ② 首访 / 被硬重置之后
+   * 注册完成激活(`ready`)。第 ② 条是 2026-11-10 补的 —— 原来只在 mount 取一次注册,
+   * 首访那次注册完成后 `reg` 仍为 null ⇒ 监听挂不上、`kickDownload` 空转。
+   *
+   * 换注册对象时先摘旧监听, 免得同一个核对被触发两次。
+   */
+  function attachUpdateFound(r: ServiceWorkerRegistration): void {
+    if (reg === r && updateFoundListener) return
+    if (reg && updateFoundListener) {
+      try {
+        reg.removeEventListener('updatefound', updateFoundListener)
+      } catch {
+        /* 忽略 */
+      }
+    }
+    reg = r
+    updateFoundListener = () => void checkForUpdate('updatefound')
+    try {
+      r.addEventListener('updatefound', updateFoundListener)
+    } catch {
+      /* 老内核可能没有 addEventListener: 靠 controllerchange / visibilitychange 兜住 */
+    }
+  }
+
   onMounted(() => {
     if (!supported) return
 
@@ -563,6 +613,13 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
         sessionStorage.removeItem(CHUNK_RELOAD_GUARD_KEY)
       } catch {
         /* sessionStorage 不可用时忽略 */
+      }
+      // 首访的**第一次** controllerchange 是 clientsClaim 的"初次接管" —— 页面内容是刚下
+      // 载的, 谈不上"落后", 提示就是误报(见 isPageStale 的 hadController 判据)。但这次
+      // 接管之后页面就处于正常的"被控制"状态了 ⇒ 置 true, 让后续信号具备判定资格。
+      if (!controlled) {
+        controlled = true
+        return
       }
       void checkForUpdate('controllerchange')
     }
@@ -575,10 +632,20 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
       void navigator.serviceWorker
         .getRegistration?.()
         ?.then?.((r) => {
-          if (!r) return
-          reg = r
-          updateFoundListener = () => void checkForUpdate('updatefound')
-          r.addEventListener('updatefound', updateFoundListener)
+          if (r) {
+            attachUpdateFound(r)
+            return
+          }
+          // 首访 / 被硬重置之后: 还没有注册 ⇒ 等它装好激活再挂。
+          // `ready` 只在**存在 active worker** 时 resolve, 正好是"注册脚本(load 后) →
+          // install → activate"这条链的终点; 不挂这一步的话, 首访那次注册完成后 reg 仍为
+          // null, updatefound 永远挂不上、kickDownload 也一直空转。
+          // ⚠️ ready 不会 reject: 注册被拒时它会一直 pending —— 只是不做事, 不泄漏。
+          void navigator.serviceWorker.ready
+            ?.then?.((rr) => {
+              if (rr) attachUpdateFound(rr)
+            })
+            ?.catch?.(() => {})
         })
         ?.catch?.(() => {})
     } catch {

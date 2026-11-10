@@ -178,6 +178,8 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 - **点击更新 = 等新 SW 接管（controllerchange）后才 reload**，等待上限 **40s**：跨境 3MB precache 要 30–40s，原来 8s 必然超时，等于"点了没用"。**已接管的一次性直接刷**，不等。
 - **等满 40s 仍未接管 ⇒ 先硬重置再刷**（`hardResetSw`：清 `jc-*` / `workbox-precache*` 的 Cache Storage → `unregister()` → reload）。这是"点了就一定能拿到新页面"的唯一保证 —— 旧 SW 会用 precache 应答导航，不拆它刷多少次都是旧页。代价是正在下的 precache 作废重下，所以只压在这个最坏分支；顺手清掉去重记录，万一硬重置没生效、刷新后仍落后，还能再提示一次。
 - **徽标亮起即主动 `reg.update()` 踢一次下载**（按构建号去重，同一版本只踢一次）：页面侧的核对只抓 `index.html` 比版本号，**不触发 SW 下载**；不补这一下，"发现更新"可能亮很久而一个字节没下，点了还得从头等。
+- **"是否已被控制"必须是可变状态（2026-11-10）**：不能拿 setup 时算一次的 `hadController` 常量当判据 —— 首访恒为 false，`checkForUpdate` 首句就 return，**首访整条会话（TV 壳常驻可达数天）不提示任何更新**。首访的第一次 `controllerchange` 是 `clientsClaim` 的初次接管，跳过这一次判定但把 `controlled` 置 true。另：`getRegistration()` 为空时要等 `navigator.serviceWorker.ready` 回填 `reg`（`attachUpdateFound` 幂等），否则首访那次注册完成后 `updatefound` 永远挂不上、`kickDownload` 空转。
+- **不要靠"提前注册"解决上面那条**：注册挂在 `window.load` 是 `injectRegister: 'inline'` 的固定模板（插件硬编码，没有配置项），**而且是刻意的** —— 提前会把 1.36MB precache 的 install 塞进首屏关键路径，窄链路上等于拿首屏换离线包。更新**感知**本来就不依赖注册（直接抓 `index.html` 比构建号），回访时的下载也不依赖（`getRegistration()` 已能拿到旧注册）。
 - **徽标是图标不是文字**（`components/base/PwaUpdateBadge.vue`）：标题旁 32px 圆按钮（TV 40px），箭头用两层叠放 + `clip-path` 按 `progress` 从下往上填满；文字只留在 `aria-label` / `title`。`progress` 是**估算**：precache 已落地条目数 / 起手快照条目数（workbox 每下完一个文件 `cache.put` 一条，键带 `__WB_REVISION__`），拿不到缓存时按耗时缓动到 0.9；**未接管封顶 95%**，接管才 100%。
 
 ## Android 工程版本控制
