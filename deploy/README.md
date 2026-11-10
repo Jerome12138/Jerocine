@@ -54,6 +54,17 @@ deploy/
 
 ## 日常更新
 
+> ⚠ **一次性迁移（旧「命名卷 jerocine_uploads」部署适用）**：000042 起文件仓改宿主机目录
+> `/data/filestore`（`FILESTORE_HOST_DIR`），DB 只存裸 key —— 升级前先把旧卷内容拷进新目录，
+> 否则 `up -d` 后全站图片 404：
+>
+> ```bash
+> docker run --rm -v jerocine_uploads:/from -v /data/filestore:/to alpine \
+>   sh -c 'cp -a /from/. /to/ && chown -R 65532:65532 /to'
+> ```
+>
+> 首次部署（无旧卷）不需要这一步。详见 `.env.example` 的 `FILESTORE_HOST_DIR` 注释。
+
 常规做法 = **本机构建 → 压缩包上传 → 服务器只解包**（服务器不需要 Node/pnpm/Go，也不攒 docker 构建缓存）：
 
 ```bash
