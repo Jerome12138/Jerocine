@@ -19,10 +19,15 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 	if len(list) == 0 {
 		return nil
 	}
+	// P1-1 / F-05（2026-11-10）：**写侧统一回填 `ep_hash`** —— 派生的唯一入口就是本方法，
+	// 放在这里算可以确保**任何构造点都不会漏**（否则重采不回填 ⇒ 派生任务的变更检测静默失效）。
+	for i := range list {
+		list[i].EpHash = EpisodesHash(list[i].Episodes)
+	}
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "site_id"}, {Name: "match_key"}, {Name: "play_from"}},
 		// source_vod_id 纳入更新列: 重采时回填旧行的源站影片ID(供去重统计 CountBySite)。
-		DoUpdates: clause.AssignmentColumns([]string{"mid", "source_vod_id", "episodes_json", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"mid", "source_vod_id", "episodes_json", "ep_hash", "updated_at"}),
 	}).CreateInBatches(list, 200).Error
 }
 
