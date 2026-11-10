@@ -45,11 +45,18 @@ const historyStore = useHistoryStore()
 const userStore = useUserStore()
 const { isTV, isMobile, isTablet } = useViewMode()
 /** 新版本检测/切换: 徽标(brand 右侧) + 移动抽屉「立即更新」菜单项共用 */
-const { updateFound, updateReady, applying: pwaApplying, applyUpdate } = usePwaUpdate()
+const { updateFound, updateReady, applying: pwaApplying, progress: pwaProgress, applyUpdate } = usePwaUpdate()
 const pwaUpdateVisible = computed(() => updateFound.value || updateReady.value || pwaApplying.value)
+/** 可点 = 新版已就绪(与右上角徽标 actionable 同口径); 下载中一律不可点(2026-11-10 铁律) */
+const pwaUpdateClickable = computed(() => updateReady.value && !pwaApplying.value)
+const pwaPct = computed(() => Math.max(1, Math.min(99, Math.round(pwaProgress.value * 100))))
 /** 抽屉菜单项文案 —— 徽标本身已图标化(无文字), 但菜单行需要可读的标签 */
 const pwaUpdateText = computed(() =>
-  pwaApplying.value ? '更新中' : updateReady.value ? '新版本' : '发现更新'
+  pwaApplying.value
+    ? `更新中 ${pwaPct.value}%`
+    : updateReady.value
+      ? '新版本'
+      : `发现更新 ${pwaPct.value}%`
 )
 
 /**
@@ -1242,14 +1249,15 @@ watch(
               <span>后台管理</span>
             </RouterLink>
           </div>
-          <!-- 新版本(构建号确实不同才出现; 点击等新 SW 接管后切版, 同构建号每设备只提示一次) -->
+          <!-- 新版本(构建号确实不同才出现; 与右上角徽标同一状态机 —— 下载中不可点, 就绪才可点) -->
           <div v-if="pwaUpdateVisible" class="jc-mnav__group">
             <div class="jc-mnav__divider" role="separator" aria-label="更新" />
             <button
               type="button"
               class="jc-mnav__link"
               data-focusable="true"
-              :disabled="pwaApplying"
+              :disabled="!pwaUpdateClickable"
+              :title="pwaUpdateClickable ? '立即切换到新版本' : '新版本下载中, 完成后可点击'"
               @click="applyUpdate"
             >
               <BaseIcon name="refresh" size="16px" class="jc-mnav__link-icon" />
