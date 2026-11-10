@@ -222,7 +222,7 @@ func PickEpisode(eps []DandanEpisode, episode int, appNum int, appTitles ...stri
 		// 此时第三方源的"第几个视频"与弹幕库期号毫无关系 → 键没命中就是没命中，绝不回退索引号或下标。
 		// 纯「第N集/话」形态仍走下面的旧三策略，行为与改动前完全一致（现网 96.8% 属此形态）。
 		// v2: 前端传来的期号（appNum>0）本身即身份信号, 一并开门 —— 纯日期/纯期号形态由此进键匹配。
-		if k.Date != "" || k.Variant != "" || k.ENum > 0 || k.Series != "" || appNum > 0 {
+		if k.Date != "" || k.Variant != "" || k.VariantNum > 0 || k.ENum > 0 || k.Series != "" || appNum > 0 {
 			for i := range eps {
 				if SameEpisode(k, ParseEpisodeKey(eps[i].EpisodeTitle)) {
 					return &eps[i]
@@ -342,9 +342,11 @@ func ParseDandanComments(raw []DandanRawComment) []DandanComment {
 //
 // 安全边界（宁缺勿错）：
 //   - 只在 series 或 variant 非空时启用（正片不适用，正片走期号/日期锚点）；
-//   - 作用域被 (Series, Variant) 锁死，并要求主/次部分相容；
+//   - 作用域被 (Series, Variant, **VariantNum**) 锁死，并要求主/次部分相容；
 //   - 期号若两侧都有则必须相等；日期若两侧都有则必须相等（硬证据）；
 //   - **库侧同组仅 1 条**才返回；多于 1 条一律不配。
+//
+// 2026-11-10 P0-1a: 分组键纳入 VariantNum —— 否则「特辑1..5」同组 5 条、永不唯一 ⇒ 整组丢弹幕。
 func pickSeriesUnique(k EpisodeKey, eps []DandanEpisode) *DandanEpisode {
 	if k.Series == "" && k.Variant == "" {
 		return nil
@@ -353,7 +355,7 @@ func pickSeriesUnique(k EpisodeKey, eps []DandanEpisode) *DandanEpisode {
 	cnt := 0
 	for i := range eps {
 		o := ParseEpisodeKey(eps[i].EpisodeTitle)
-		if o.Series != k.Series || o.Variant != k.Variant {
+		if o.Series != k.Series || o.Variant != k.Variant || o.VariantNum != k.VariantNum {
 			continue
 		}
 		if !partCompatible(k, o) {

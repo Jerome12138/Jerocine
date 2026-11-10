@@ -58,11 +58,12 @@ public final class EpisodeAlign {
     }
 
     /**
-     * 身份相容（不含期号/日期）：栏目 + 变体 + 主次部分；**日期双有且不等 → 否决**（硬证据）。
+     * 身份相容（不含期号/日期）：栏目 + 变体（含**变体序号**）+ 主次部分；**日期双有且不等 → 否决**（硬证据）。
      * 第 ④ 档（跨命名体系）靠它 —— 不能用 {@code sameEpisode}（那要求有共同期号/日期）。
      */
     static boolean identityCompatible(EpisodeKey a, EpisodeKey b) {
-        if (!a.variant.equals(b.variant) || !a.series.equals(b.series)) return false;
+        if (!a.variant.equals(b.variant) || a.variantNum != b.variantNum || !a.series.equals(b.series))
+            return false;
         if (!EpisodeKey.partCompatible(a, b)) return false;
         if (!a.date.isEmpty() && !b.date.isEmpty() && !a.date.equals(b.date)) return false;
         return true;
@@ -107,16 +108,19 @@ public final class EpisodeAlign {
 
     /**
      * L3a（客户端等价档，与服务端 pickSeriesUnique、web seriesUniqueIndex 同口径）：
-     * 同 {@code (series, variant)} 组内**唯一定位** —— 覆盖"目标侧既无期号也无日期"的衍生栏目
+     * 同 {@code (series, variant, variantNum)} 组内**唯一定位** —— 覆盖"目标侧既无期号也无日期"的衍生栏目
      * （心动的旅行 / 线上集结篇 / 夏日清凉特辑…）。边界：正片（series/variant 皆空）不适用；
      * 主/次相容；期号两侧都有须相等；日期两侧都有须相等；**目标侧该组仅 1 条**才返回，否则 -1。
+     *
+     * <p>⚠️ P0-1a（2026-11-10）：组键**必须含 variantNum** —— 否则「特辑1..5」同组 5 条、永不唯一 ⇒ 整组丢弹幕。
      */
     static int seriesUniqueIndex(EpisodeKey c, java.util.List<EpisodeKey> tgt) {
         if (c.series.isEmpty() && c.variant.isEmpty()) return -1;
         int only = -1;
         for (int i = 0; i < tgt.size(); i++) {
             EpisodeKey t = tgt.get(i);
-            if (!t.series.equals(c.series) || !t.variant.equals(c.variant)) continue;
+            if (!t.series.equals(c.series) || !t.variant.equals(c.variant) || t.variantNum != c.variantNum)
+                continue;
             if (!EpisodeKey.partCompatible(c, t)) continue;
             if (c.num > 0 && t.num > 0 && c.num != t.num) continue;
             if (!c.date.isEmpty() && !t.date.isEmpty() && !c.date.equals(t.date)) continue;

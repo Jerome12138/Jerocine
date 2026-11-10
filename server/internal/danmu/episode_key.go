@@ -16,12 +16,17 @@ type EpisodeKey struct {
 	Part    string // 主部分：上 / 中 / 下（取最先出现的那个；无则空）
 	Sub     string // 次部分：紧邻主部分的第二个 上/中/下（可跨一个左括号）
 	Variant string // 有意义的变体词集合，按字典序用 "|" 连接（无则空）
+	// VariantNum **变体序号**（无则 0）：变体词后**紧跟**的数字 —— 「特辑2」⇒ (Variant=特辑, VariantNum=2)。
+	// 必须与变体复合为身份：否则「特辑1..5」坍缩成同一个 Variant，L3a 组内不唯一 ⇒ 整组配不上
+	// （桃花坞6 特辑 4~5 集丢弹幕的根因；P0-1a，2026-11-10 三端同规）。纯日期/5 位以上数字不取（见 reVariantNum）。
+	VariantNum int
 	Series  string // **栏目/系列名**（正片为空）：如「心动的周末」「心动的旅行」；
 	//                需 ≥2 个中文字才算数（过滤「版」「片」这类残留）
 }
 
 func (k EpisodeKey) IsZero() bool {
-	return k.Date == "" && k.Num == 0 && k.ENum == 0 && k.Part == "" && k.Sub == "" && k.Variant == "" && k.Series == ""
+	return k.Date == "" && k.Num == 0 && k.ENum == 0 && k.Part == "" && k.Sub == "" &&
+		k.Variant == "" && k.VariantNum == 0 && k.Series == ""
 }
 
 var (
@@ -31,6 +36,13 @@ var (
 	// reVariant = **有意义的变体**：标识"同一集的另一份内容"，参与同集判定（两侧必须完全相等）。
 	// 「先导片」排在「先导」前，避免剔出残留的「片」。
 	reVariant = regexp.MustCompile(`加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外`)
+	// reVariantNum 变体序号（P0-1a）：变体词后**紧跟**的数字（最多隔一个左括号/空白）。
+	//   特辑2          → 2      （与「特辑」不同身份）
+	//   特辑（2）      → 2
+	//   加更版1        → 0      （隔着「版」⇒ 不算紧跟）
+	//   特辑2026 / 特辑12345 → 0（纯日期/长数字不取）
+	// ⚠️ RE2 **不支持 lookahead** ⇒ 用 `(?:[^0-9]|$)` **消费一个后继字符**做等价断言（三端同此写法，保证字面一致）。
+	reVariantNum = regexp.MustCompile(`(?:加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外)[\s（(【\[《「『]*(\d{1,3})(?:[^0-9]|$)`)
 	// reVariantNoise = **无意义后缀**：只是同一集的版本标签，解析前一律剔除（与括号/标点同等）。
 	reVariantNoise = regexp.MustCompile(`会员|未公开|未播|直拍|完整版|未删减`)
 	// reSeriesStop = 语言/类型标签，不是栏目名（避免把「正片」「国语」当系列）。
@@ -79,6 +91,11 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	if ms := reVariant.FindAllString(s, -1); len(ms) > 0 {
 		sort.Strings(ms)
 		k.Variant = strings.Join(ms, "|")
+	}
+	if m := reVariantNum.FindStringSubmatch(s); m != nil {
+		if v, err := strconv.Atoi(m[1]); err == nil {
+			k.VariantNum = v
+		}
 	}
 	k.Series = seriesOf(s)
 	return k
@@ -190,7 +207,7 @@ func partCompatible(a, b EpisodeKey) bool {
 }
 
 // SameEpisode 两个键是否指向同一集。顺序即优先级：
-//  1. **变体与栏目名必须完全相等**（含"都为空"；一方有一方没有 → 不同集）；
+//  1. **变体（含变体序号）与栏目名必须完全相等**（含"都为空"；一方有一方没有 → 不同集）；
 //  2. 双方都有日期 → 相等 → 同一集（再校验主/次部分）；**不等 → 不同集（硬证据，即使期号相等）**；
 //  3. 双方都有期号/集号且相等 → 同一集（同样校验主/次部分）；
 //  4. 双方都有 E 圆号且相等 → 同一集；
@@ -199,8 +216,10 @@ func partCompatible(a, b EpisodeKey) bool {
 // 2026-11-06 修订：① 规则 2/3 补主/次部分校验；② 新增栏目名（Series）防衍生栏目串集。
 // 2026-11-07 修订（SameEpisode′ 落地）：**日期双有不等 → 否决**——旧逻辑允许"期号相等而日期不同"
 // 判同（现实里那是重播/错标），宁缺勿错。
+// 2026-11-10 修订（P0-1a）：**变体序号纳入身份** —— 「特辑2」≠「特辑」；两者皆无日期/期号时
+// 仍判不同（属"无特征键"，交由 L3a 组内唯一兜底）。
 func SameEpisode(a, b EpisodeKey) bool {
-	if a.Variant != b.Variant || a.Series != b.Series {
+	if a.Variant != b.Variant || a.VariantNum != b.VariantNum || a.Series != b.Series {
 		return false
 	}
 	if a.Date != "" && b.Date != "" {

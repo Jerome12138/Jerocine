@@ -21,6 +21,12 @@ export interface EpisodeKey {
   sub: string
   /** 有意义变体，字典序 `|` 连接 */
   variant: string
+  /**
+   * **变体序号**（无则 0）：变体词后**紧跟**的数字 —— 「特辑2」⇒ (variant=特辑, variantNum=2)。
+   * 必须与变体复合为身份：否则「特辑1..5」坍缩成同一 variant，L3a 组内不唯一 ⇒ 整组配不上
+   * （桃花坞6 特辑 4~5 集丢弹幕的根因；P0-1a，2026-11-10 三端同规）。纯日期/长数字不取（见 RE_VARIANT_NUM）。
+   */
+  variantNum: number
   /** 栏目/系列名（正片为空；连续片段提取，绝不跨段拼字） */
   series: string
 }
@@ -32,6 +38,14 @@ const RE_DI_N = /第\s*(\d{1,4})\s*[期集话回季部]/
 const RE_E_NUM = /(?:^|[^A-Za-z])(?:E|EP)\s*0*(\d{1,3})(?:\D|$)/i
 const RE_E_NUM_G = /(?:^|[^A-Za-z])(?:E|EP)\s*0*(\d{1,3})(?:\D|$)/gi
 const RE_VARIANT_G = /加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外/g
+/**
+ * 变体序号（P0-1a）：变体词后**紧跟**的数字（最多隔一个左括号/空白）。
+ * - `特辑2` / `特辑（2）` → 2
+ * - `加更版1` → 不取（隔着「版」⇒ 不算紧跟）
+ * - `特辑2026` / `特辑12345` → 不取（避免吞掉日期）
+ * 注：用 `(?:[^0-9]|$)` 消费一个后继字符做「后面不再跟数字」的等价断言 —— 与 Go RE2（不支持 lookahead）同写法。
+ */
+const RE_VARIANT_NUM = /(?:加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外)[\s（(【[《「『]*(\d{1,3})(?:[^0-9]|$)/
 const RE_VARIANT_NOISE_G = /会员|未公开|未播|直拍|完整版|未删减/g
 const RE_BRACKET_G = /【[^】]*】|（[^）]*）|\([^)]*\)|《[^》]*》|「[^」]*」|『[^』]*』|\[[^\]]*\]/g
 const RE_SERIES_STOP = /^正片$|^国语$|^粤语$|^原声$|^普通话$|^双语$/
@@ -91,7 +105,7 @@ function seriesOf(s: string): string {
 
 /** 解析集名（与 Go ParseEpisodeKey v2 语义一致） */
 export function parseEpisodeKey(title: string): EpisodeKey {
-  const k: EpisodeKey = { date: '', num: 0, eNum: 0, part: '', sub: '', variant: '', series: '' }
+  const k: EpisodeKey = { date: '', num: 0, eNum: 0, part: '', sub: '', variant: '', variantNum: 0, series: '' }
   let s = (title ?? '').trim()
   if (!s) return k
   // 日期格式归一(先于一切提取): 破折/点分 → 8 位
@@ -108,6 +122,8 @@ export function parseEpisodeKey(title: string): EpisodeKey {
   k.sub = sub
   const vs = [...s.matchAll(RE_VARIANT_G)].map((m) => m[0]).sort()
   if (vs.length) k.variant = vs.join('|')
+  const vnm = s.match(RE_VARIANT_NUM)
+  if (vnm) k.variantNum = Number.parseInt(vnm[1] as string, 10) || 0
   k.series = seriesOf(s)
   return k
 }
@@ -121,7 +137,7 @@ export function partCompatible(a: EpisodeKey, b: EpisodeKey): boolean {
 
 /** SameEpisode′（与 Go SameEpisode v2 同语义）: 日期双有不等 → 否决（硬证据） */
 export function sameEpisode(a: EpisodeKey, b: EpisodeKey): boolean {
-  if (a.variant !== b.variant || a.series !== b.series) return false
+  if (a.variant !== b.variant || a.variantNum !== b.variantNum || a.series !== b.series) return false
   if (a.date && b.date) {
     if (a.date !== b.date) return false
     return partCompatible(a, b)
@@ -136,11 +152,15 @@ export function episodeTriggered(k: EpisodeKey): boolean {
   return !!k.date || !!k.part || !!k.variant || !!k.series
 }
 
-/** 5 段身份串: s|v|p|n|d, 缺值填 `-`（触发的集必有） */
+/**
+ * 5 段身份串: s|v|p|n|d, 缺值填 `-`（触发的集必有）。
+ * `v` 段含**变体序号**：`v=特辑#2`（P0-1a）—— 否则「特辑」与「特辑2」串相同会撞缓存键。
+ */
 export function epidOf(k: EpisodeKey): string {
+  const variant = k.variant && k.variantNum > 0 ? `${k.variant}#${k.variantNum}` : k.variant
   return [
     `s=${k.series || '-'}`,
-    `v=${k.variant || '-'}`,
+    `v=${variant || '-'}`,
     `p=${k.part || '-'}`,
     `n=${k.num > 0 ? String(k.num) : '-'}`,
     `d=${k.date || '-'}`

@@ -12,7 +12,7 @@ import {
 describe('parseEpisodeKey 现网真实集名', () => {
   it('基础形态', () => {
     expect(parseEpisodeKey('20260803(第1期上)')).toEqual({
-      date: '20260803', num: 1, eNum: 0, part: '上', sub: '', variant: '', series: ''
+      date: '20260803', num: 1, eNum: 0, part: '上', sub: '', variant: '', variantNum: 0, series: ''
     })
     expect(parseEpisodeKey('20260818中（下）')).toMatchObject({ date: '20260818', part: '中', sub: '下' })
     expect(parseEpisodeKey('第3期中（上）')).toMatchObject({ num: 3, part: '中', sub: '上' })
@@ -91,6 +91,47 @@ describe('epid', () => {
     expect(epidFor('第3集', [])).toBe('')
     expect(epidFor('E01.220705', [])).toBe('')
     expect(epidFor('20260803上', [])).toBe('s=-|v=-|p=上|n=-|d=20260803')
+  })
+})
+
+describe('P0-1a 变体序号（变体词后紧跟的数字必须复合为身份）', () => {
+  it('解析: 特辑2/特辑（2）/特辑12 取序号; 无序号与长数字不取', () => {
+    expect(parseEpisodeKey('特辑2')).toMatchObject({ variant: '特辑', variantNum: 2, series: '' })
+    expect(parseEpisodeKey('20260128特辑2')).toMatchObject({
+      date: '20260128', variant: '特辑', variantNum: 2
+    })
+    expect(parseEpisodeKey('第1期特辑5上')).toMatchObject({
+      num: 1, part: '上', variant: '特辑', variantNum: 5
+    })
+    expect(parseEpisodeKey('特辑（2）')).toMatchObject({ variant: '特辑', variantNum: 2 })
+    expect(parseEpisodeKey('特辑12')).toMatchObject({ variant: '特辑', variantNum: 12 })
+    // 序号不紧跟（隔着「版」）→ 不取
+    expect(parseEpisodeKey('第1期加更版1')).toMatchObject({ num: 1, variant: '加更', variantNum: 0 })
+    // 纯日期/长数字 → 不取（避免吞日期）
+    expect(parseEpisodeKey('特辑2026')).toMatchObject({ variant: '特辑', variantNum: 0 })
+    expect(parseEpisodeKey('20260128特辑')).toMatchObject({
+      date: '20260128', variant: '特辑', variantNum: 0
+    })
+    // 无序号变体 + 栏目名
+    expect(parseEpisodeKey('夏日清凉特辑')).toMatchObject({
+      variant: '特辑', variantNum: 0, series: '夏日清凉'
+    })
+  })
+
+  it('sameEpisode: 序号纳入身份', () => {
+    expect(sameEpisode(parseEpisodeKey('特辑2'), parseEpisodeKey('特辑3'))).toBe(false)
+    expect(sameEpisode(parseEpisodeKey('特辑2'), parseEpisodeKey('特辑'))).toBe(false)
+    // 两侧都无期号/日期 ⇒ 不判同（交 L3a 组内唯一兜底）
+    expect(sameEpisode(parseEpisodeKey('特辑2'), parseEpisodeKey('特辑2'))).toBe(false)
+    expect(sameEpisode(parseEpisodeKey('第1期特辑2'), parseEpisodeKey('第1期特辑2'))).toBe(true)
+    expect(sameEpisode(parseEpisodeKey('第1期特辑2'), parseEpisodeKey('第1期特辑3'))).toBe(false)
+  })
+
+  it('epid: v 段含序号（特辑 vs 特辑2 不得撞键）', () => {
+    expect(epidOf(parseEpisodeKey('特辑2'))).toBe('s=-|v=特辑#2|p=-|n=-|d=-')
+    expect(epidOf(parseEpisodeKey('20260128特辑2'))).toBe('s=-|v=特辑#2|p=-|n=-|d=20260128')
+    expect(epidOf(parseEpisodeKey('特辑'))).toBe('s=-|v=特辑|p=-|n=-|d=-')
+    expect(epidOf(parseEpisodeKey('夏日清凉特辑'))).toBe('s=夏日清凉|v=特辑|p=-|n=-|d=-')
   })
 })
 

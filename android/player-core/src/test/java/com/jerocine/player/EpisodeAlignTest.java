@@ -162,4 +162,25 @@ public class EpisodeAlignTest {
         assertFalse(EpisodeAlign.align(0, of("20260803上"), of("第1期上")).tier
                 == EpisodeAlign.Tier.BY_SERIES);
     }
+
+    /**
+     * P0-1a（2026-11-10）：**变体序号进入 L3a 组键** —— 桃花坞6 特辑组真实形态。
+     * 改前：特辑1..5 的 variant 全是「特辑」⇒ 组内 6 条 ⇒ 永不唯一 ⇒ 整组丢弹幕。
+     * 改后：variantNum 复合身份 ⇒ 各自唯一 ⇒ 命中并允许自动换源。
+     */
+    @Test
+    public void bySeries_variantOrdinalNoCollapse() {
+        List<String> tgt = of("特辑1", "特辑2", "特辑3", "特辑4", "特辑5", "夏日清凉特辑");
+        assertEquals(0, EpisodeAlign.align(0, of("20260809特辑1"), tgt).index);
+        assertEquals(2, EpisodeAlign.align(0, of("20260809特辑3"), tgt).index);
+        assertEquals(4, EpisodeAlign.align(0, of("20260809特辑5"), tgt).index);
+        assertEquals(EpisodeAlign.Tier.BY_SERIES, EpisodeAlign.align(0, of("20260809特辑3"), tgt).tier);
+        assertTrue(EpisodeAlign.canAutoSwitch(EpisodeAlign.align(0, of("20260809特辑3"), tgt).tier));
+        // 无序号「特辑」身份 ≠ 任何「特辑N」⇒ 不配、不自动换源（宁缺勿错）
+        EpisodeAlign.Result r = EpisodeAlign.align(0, of("20260809特辑"), tgt);
+        assertEquals(EpisodeAlign.Tier.POSITION, r.tier);
+        assertFalse(EpisodeAlign.canAutoSwitch(r.tier));
+        // 夏日清凉特辑：序号同为 0 但 series 不同 ⇒ 自成一组、唯一 ⇒ 命中
+        assertEquals(5, EpisodeAlign.align(0, of("20260809夏日清凉特辑"), tgt).index);
+    }
 }

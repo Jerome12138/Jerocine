@@ -126,4 +126,39 @@ public class EpisodeKeyTest {
         assertEquals(0, k.num);
         assertEquals("中", EpisodeKey.parse("第3期中（上）").part);
     }
+
+    /** P0-1a（2026-11-10，三端同规防呆）：变体序号 —— 变体词后紧跟的数字必须复合为身份 */
+    @Test
+    public void variantOrdinal_复合身份() {
+        assertEquals(2, EpisodeKey.parse("特辑2").variantNum);
+        assertEquals("特辑", EpisodeKey.parse("特辑2").variant);
+        assertEquals(2, EpisodeKey.parse("20260128特辑2").variantNum);
+        assertEquals("20260128", EpisodeKey.parse("20260128特辑2").date);
+        assertEquals(5, EpisodeKey.parse("第1期特辑5上").variantNum);
+        assertEquals(2, EpisodeKey.parse("特辑（2）").variantNum);
+        assertEquals(12, EpisodeKey.parse("特辑12").variantNum);
+        // 序号不紧跟（隔着「版」）→ 不取
+        assertEquals(0, EpisodeKey.parse("第1期加更版1").variantNum);
+        // 纯日期/长数字 → 不取（避免吞日期）
+        assertEquals(0, EpisodeKey.parse("特辑2026").variantNum);
+        assertEquals(0, EpisodeKey.parse("20260128特辑").variantNum);
+        // 无序号变体 + 栏目名
+        assertEquals(0, EpisodeKey.parse("夏日清凉特辑").variantNum);
+        assertEquals("夏日清凉", EpisodeKey.parse("夏日清凉特辑").series);
+    }
+
+    @Test
+    public void variantOrdinal_sameEpisode与epid() {
+        assertFalse(EpisodeKey.sameEpisode(EpisodeKey.parse("特辑2"), EpisodeKey.parse("特辑3")));
+        assertFalse(EpisodeKey.sameEpisode(EpisodeKey.parse("特辑2"), EpisodeKey.parse("特辑")));
+        // 两侧都无期号/日期 ⇒ 不判同（交 L3a 组内唯一兜底）
+        assertFalse(EpisodeKey.sameEpisode(EpisodeKey.parse("特辑2"), EpisodeKey.parse("特辑2")));
+        assertTrue(EpisodeKey.sameEpisode(EpisodeKey.parse("第1期特辑2"), EpisodeKey.parse("第1期特辑2")));
+        assertFalse(EpisodeKey.sameEpisode(EpisodeKey.parse("第1期特辑2"), EpisodeKey.parse("第1期特辑3")));
+        // epid: v 段含序号（特辑 vs 特辑2 不得撞缓存键）
+        assertEquals("s=-|v=特辑#2|p=-|n=-|d=-", EpisodeKey.parse("特辑2").epid());
+        assertEquals("s=-|v=特辑#2|p=-|n=-|d=20260128", EpisodeKey.parse("20260128特辑2").epid());
+        assertEquals("s=-|v=特辑|p=-|n=-|d=-", EpisodeKey.parse("特辑").epid());
+        assertEquals("s=夏日清凉|v=特辑|p=-|n=-|d=-", EpisodeKey.parse("夏日清凉特辑").epid());
+    }
 }

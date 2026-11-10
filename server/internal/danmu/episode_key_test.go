@@ -55,6 +55,17 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"我是大侦探.20180324期", EpisodeKey{Date: "20180324", Series: "我是大侦探"}},
 		{"20261027心动的周末第3期下", EpisodeKey{Date: "20261027", Num: 3, Part: "下", Series: "心动的周末"}},
 		{"20260803第1期中纯享", EpisodeKey{Date: "20260803", Num: 1, Part: "中", Variant: "纯享"}},
+		// ---- 2026-11-10 P0-1a: 变体序号（变体词后紧跟的数字必须复合为身份） ----
+		{"特辑2", EpisodeKey{Variant: "特辑", VariantNum: 2}},
+		{"20260128特辑2", EpisodeKey{Date: "20260128", Variant: "特辑", VariantNum: 2}},
+		{"第1期特辑5上", EpisodeKey{Num: 1, Part: "上", Variant: "特辑", VariantNum: 5}},
+		{"特辑（2）", EpisodeKey{Variant: "特辑", VariantNum: 2}},
+		{"特辑12", EpisodeKey{Variant: "特辑", VariantNum: 12}},
+		// 无序号变体 / 序号不紧跟 / 长数字: 一律不取序号（宁缺勿错）
+		{"夏日清凉特辑", EpisodeKey{Variant: "特辑", Series: "夏日清凉"}},
+		{"第1期加更版1", EpisodeKey{Num: 1, Variant: "加更"}},
+		{"特辑2026", EpisodeKey{Variant: "特辑"}},
+		{"20260128特辑", EpisodeKey{Date: "20260128", Variant: "特辑"}},
 	}
 	for _, c := range cases {
 		if got := ParseEpisodeKey(c.title); got != c.want {
@@ -96,6 +107,15 @@ func TestSameEpisode_KeyRules(t *testing.T) {
 		{"日期双有不等 → 否决(即使期号相等, 现实是重播/错标)", ParseEpisodeKey("20260817第3期上"), ParseEpisodeKey("20260810第3期上"), false},
 		{"日期双有不等 → 否决(一方只有期号不触发否决, 走期号规则)", ParseEpisodeKey("20260817第3期上"), ParseEpisodeKey("第3期上"), true},
 		{"点分日期 vs 8位日期同集", ParseEpisodeKey("2022.05.01期"), ParseEpisodeKey("20220501"), true},
+		// ---- 2026-11-10 P0-1a: 变体序号纳入身份 ----
+		{"「特辑2」vs「特辑3」→ 序号不同, 判不同", ParseEpisodeKey("特辑2"), ParseEpisodeKey("特辑3"), false},
+		{"「特辑2」vs「特辑」→ 一方无序号, 判不同(无特征键不判同, 交 L3a)", ParseEpisodeKey("特辑2"), ParseEpisodeKey("特辑"), false},
+		{"「特辑2」vs「特辑2」(两侧都无期号/日期) → 仍判不同, 由 L3a 组内唯一兜底", ParseEpisodeKey("特辑2"), ParseEpisodeKey("特辑2"), false},
+		{"「20260128特辑2」vs「特辑2」→ 日期单边, 走序号+变体(无共同期号/日期) → 不同", ParseEpisodeKey("20260128特辑2"), ParseEpisodeKey("特辑2"), false},
+		{"「第1期特辑2」vs「第1期特辑2」→ 期号+序号一致 → 同集", ParseEpisodeKey("第1期特辑2"), ParseEpisodeKey("第1期特辑2"), true},
+		{"「第1期特辑2」vs「第1期特辑3」→ 序号不同 → 否决", ParseEpisodeKey("第1期特辑2"), ParseEpisodeKey("第1期特辑3"), false},
+		{"「夏日清凉特辑」vs「20260809夏日清凉特辑」→ 仅单边日期、无共同期号/日期 ⇒ 判不同(交 L3a 组内唯一兜底)", ParseEpisodeKey("夏日清凉特辑"), ParseEpisodeKey("20260809夏日清凉特辑"), false},
+		{"「夏日清凉特辑」vs「夏日清凉特辑」（同身份无期号）→ 由 L3a 兜底, SameEpisode 不判同", ParseEpisodeKey("夏日清凉特辑"), ParseEpisodeKey("夏日清凉特辑"), false},
 	}
 	for _, c := range cases {
 		if got := SameEpisode(c.a, c.b); got != c.want {
@@ -198,5 +218,42 @@ func TestPickEpisode_SeriesUniqueL3a(t *testing.T) {
 	// ④ 正片不适用（series/variant 皆空）⇒ 不因 L3a 命中
 	if ep := PickEpisode(lib, 1, 0, "20260803上"); ep != nil {
 		t.Fatalf("正片不应走 L3a, got id=%d", ep.EpisodeID)
+	}
+}
+
+// P0-1a 防呆（2026-11-10）：**变体序号复合身份** —— 桃花坞6 特辑组真实形态。
+//
+// 改前：特辑1..5 解析出的 Variant 全是「特辑」⇒ L3a 组内 6 条（含夏日清凉特辑）⇒ 永不唯一 ⇒ 整组丢弹幕。
+// 改后：VariantNum 复合进身份 ⇒ 组内唯一 ⇒ 各自命中 ✓
+func TestPickEpisode_VariantOrdinalL3a(t *testing.T) {
+	lib := []DandanEpisode{
+		{EpisodeID: 1, EpisodeNumber: "1", EpisodeTitle: "【qq】 第1期上：坞民绝技大乱斗"},
+		{EpisodeID: 21, EpisodeNumber: "21", EpisodeTitle: "特辑1"},
+		{EpisodeID: 22, EpisodeNumber: "22", EpisodeTitle: "特辑2"},
+		{EpisodeID: 23, EpisodeNumber: "23", EpisodeTitle: "特辑3"},
+		{EpisodeID: 24, EpisodeNumber: "24", EpisodeTitle: "特辑4"},
+		{EpisodeID: 25, EpisodeNumber: "25", EpisodeTitle: "特辑5"},
+		{EpisodeID: 26, EpisodeNumber: "26", EpisodeTitle: "夏日清凉特辑"},
+	}
+	// 带序号特辑：序号各自唯一 ⇒ 命中对应集
+	for _, c := range []struct {
+		app  string
+		want int64
+	}{
+		{"20260809特辑2", 22},
+		{"20260816特辑5", 25},
+	} {
+		ep := PickEpisode(lib, 999, 0, c.app)
+		if ep == nil || ep.EpisodeID != c.want {
+			t.Fatalf("App「%s」应命中 id=%d, got %v", c.app, c.want, ep)
+		}
+	}
+	// 无序号「特辑」（App 侧首条）身份 ≠ 任何「特辑N」⇒ 不配（宁缺勿错）
+	if ep := PickEpisode(lib, 999, 0, "20260809特辑"); ep != nil {
+		t.Fatalf("无序号特辑与「特辑N」身份不同, 应不配, got id=%d", ep.EpisodeID)
+	}
+	// 夏日清凉特辑：无序号但 series 不同 ⇒ 自成一组、组内唯一 ⇒ 命中
+	if ep := PickEpisode(lib, 999, 0, "20260809夏日清凉特辑"); ep == nil || ep.EpisodeID != 26 {
+		t.Fatalf("夏日清凉特辑 应命中 id=26, got %v", ep)
 	}
 }

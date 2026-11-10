@@ -23,23 +23,30 @@ public final class EpisodeKey {
     public final String sub;
     /** 有意义变体，字典序 `|` 连接 */
     public final String variant;
+    /**
+     * **变体序号**（无则 0）：变体词后**紧跟**的数字 —— 「特辑2」⇒ (variant=特辑, variantNum=2)。
+     * 必须与变体复合为身份：否则「特辑1..5」坍缩成同一 variant，L3a 组内不唯一 ⇒ 整组配不上
+     * （桃花坞6 特辑 4~5 集丢弹幕的根因；P0-1a，2026-11-10 三端同规）。纯日期/长数字不取。
+     */
+    public final int variantNum;
     /** 栏目/系列名（正片为空；连续片段提取，绝不跨段拼字） */
     public final String series;
 
-    private EpisodeKey(String date, int num, int eNum, String part, String sub, String variant, String series) {
+    private EpisodeKey(String date, int num, int eNum, String part, String sub, String variant, int variantNum, String series) {
         this.date = date;
         this.num = num;
         this.eNum = eNum;
         this.part = part;
         this.sub = sub;
         this.variant = variant;
+        this.variantNum = variantNum;
         this.series = series;
     }
 
     /** 解析集名（与 Go/TS v2 语义一致） */
     public static EpisodeKey parse(String title) {
         String s = title == null ? "" : title.trim();
-        if (s.isEmpty()) return new EpisodeKey("", 0, 0, "", "", "", "");
+        if (s.isEmpty()) return new EpisodeKey("", 0, 0, "", "", "", 0, "");
         // 日期格式归一(先于一切提取): 破折/点分 → 8 位
         s = s.replaceAll("((?:19|20)\\d{2})[-.](\\d{2})[-.](\\d{2})", "$1$2$3");
         s = s.replaceAll("会员|未公开|未播|直拍|完整版|未删减", "");
@@ -58,7 +65,15 @@ public final class EpisodeKey {
         java.util.TreeSet<String> vs = new java.util.TreeSet<>();
         while (vm.find()) vs.add(vm.group());
         if (!vs.isEmpty()) variant = String.join("|", vs);
-        return new EpisodeKey(date, num, eNum, ps[0], ps[1], variant, seriesOf(s));
+        // 变体序号（P0-1a）: 变体词后**紧跟**的数字（最多隔一个左括号/空白）。
+        //   特辑2 → 2 ／ 加更版1 → 0（隔着「版」）／ 特辑2026 → 0（避免吞日期）
+        //   注: `(?:[^0-9]|$)` 消费一个后继字符做等价断言 —— 与 Go RE2（不支持 lookahead）同写法
+        int variantNum = 0;
+        java.util.regex.Matcher vnm = java.util.regex.Pattern
+                .compile("(?:加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外)[\\s（(【\\[《「『]*(\\d{1,3})(?:[^0-9]|$)")
+                .matcher(s);
+        if (vnm.find()) variantNum = Integer.parseInt(vnm.group(1));
+        return new EpisodeKey(date, num, eNum, ps[0], ps[1], variant, variantNum, seriesOf(s));
     }
 
     /** 主/次部分: 最先出现的 上/中/下 + 紧邻（最多隔一个左括号）的第二个 */
@@ -126,9 +141,10 @@ public final class EpisodeKey {
         return true;
     }
 
-    /** SameEpisode′（日期双有不等 → 否决, 硬证据） */
+    /** SameEpisode′（日期双有不等 → 否决, 硬证据）；P0-1a: 变体序号纳入身份 */
     public static boolean sameEpisode(EpisodeKey a, EpisodeKey b) {
-        if (!a.variant.equals(b.variant) || !a.series.equals(b.series)) return false;
+        if (!a.variant.equals(b.variant) || a.variantNum != b.variantNum || !a.series.equals(b.series))
+            return false;
         if (!a.date.isEmpty() && !b.date.isEmpty()) {
             if (!a.date.equals(b.date)) return false;
             return partCompatible(a, b);
@@ -143,10 +159,11 @@ public final class EpisodeKey {
         return !date.isEmpty() || !part.isEmpty() || !variant.isEmpty() || !series.isEmpty();
     }
 
-    /** 5 段身份串: s|v|p|n|d, 缺值填 `-`（触发的集必有） */
+    /** 5 段身份串: s|v|p|n|d, 缺值填 `-`（`v` 段含变体序号 `v=特辑#2`；触发的集必有） */
     public String epid() {
+        String v = variant.isEmpty() ? "-" : (variantNum > 0 ? variant + "#" + variantNum : variant);
         return "s=" + (series.isEmpty() ? "-" : series)
-                + "|v=" + (variant.isEmpty() ? "-" : variant)
+                + "|v=" + v
                 + "|p=" + (part.isEmpty() ? "-" : part)
                 + "|n=" + (num > 0 ? String.valueOf(num) : "-")
                 + "|d=" + (date.isEmpty() ? "-" : date);
@@ -154,7 +171,7 @@ public final class EpisodeKey {
 
     /** 返回期号被替换后的键（桥接归一用）; n<=0 返回原键。 */
     public EpisodeKey withNum(int n) {
-        return n <= 0 ? this : new EpisodeKey(date, n, eNum, part, sub, variant, series);
+        return n <= 0 ? this : new EpisodeKey(date, n, eNum, part, sub, variant, variantNum, series);
     }
 
     /** 当前集 epid（触发的集必有; 期号缺失经桥接归一写入 n 段）。未触发返回 null（调用方回退位置兜底）。 */

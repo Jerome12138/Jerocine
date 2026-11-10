@@ -138,3 +138,29 @@ describe('episodeAlign · L3a 同栏目组内唯一（衍生栏目）', () => {
     const r2 = alignEpisode(0, ['第3期中'], ['第3期中（上）', '第3期中（下）'])
     expect(r2.tier === 'exact' && r2.index !== 0).toBe(false) // 至少不能把「中」错配成「中（下）」
   })
+
+describe('episodeAlign · P0-1a 变体序号组键（特辑N 不再坍缩）', () => {
+  // 桃花坞6 特辑组真实形态：库侧 特辑1..5 + 夏日清凉特辑
+  const tgt = ['特辑1', '特辑2', '特辑3', '特辑4', '特辑5', '夏日清凉特辑']
+
+  it('组键含序号 ⇒ 各「特辑N」唯一 ⇒ 命中对应集并允许自动换源', () => {
+    for (const [n, want] of [[1, 0], [3, 2], [5, 4]] as const) {
+      const r = alignEpisode(0, [`20260809特辑${n}`], tgt)
+      expect(r.index).toBe(want)
+      expect(r.tier).toBe('bySeries')
+      expect(canAutoSwitch(r.tier)).toBe(true)
+    }
+  })
+
+  it('无序号「特辑」身份 ≠ 任何「特辑N」⇒ 不配、不自动换（宁缺勿错）', () => {
+    const r = alignEpisode(0, ['20260809特辑'], tgt)
+    expect(r.tier).toBe('position')
+    expect(canAutoSwitch(r.tier)).toBe(false)
+  })
+
+  it('夏日清凉特辑：序号同为 0 但 series 不同 ⇒ 自成一组、唯一 ⇒ 命中', () => {
+    const r = alignEpisode(0, ['20260809夏日清凉特辑'], tgt)
+    expect(r.index).toBe(5)
+    expect(canAutoSwitch(r.tier)).toBe(true)
+  })
+})
