@@ -191,6 +191,40 @@ func MergeEpidKey(client, fromTitle EpisodeKey, numBridged bool) (EpisodeKey, []
 // 它是"三端同规"是否漂移的哨兵：正常应恒为 0；一旦上涨说明三端解析已不一致。
 var epKeyConflictTotal int64
 
+// EpKeySources 期号来源（P1-3, 2026-11-10）：`epk` 的 `from=` 段取值。**不参与身份判定**，
+// 仅供服务端在 P1-1 落库/统计时记录「这个 `n` 是怎么来的」。
+const (
+	EpKeySourceSelf   = "self"   // 集名自带期号
+	EpKeySourceBridge = "bridge" // 他源桥接（日期相等 + 栏目/变体一致 + 主次相容）
+	EpKeySourceAnchor = "anchor" // 锚点推算（同栏目组内「上」的日期序）
+	EpKeySourceNone   = "none"   // 无（未触发 / 期号缺失且推算不出）
+)
+
+// ParseEpKeySource 取 `epk` 里的 `from=` 段（P1-3）。缺省 / 超长 / 空串 ⇒ ""（调用方当"未提供"）。
+// 只认四个已知值，其余一律返回 ""（避免把客户端异常值当来源统计）。
+func ParseEpKeySource(epk string) string {
+	s := strings.TrimSpace(epk)
+	if s == "" {
+		return ""
+	}
+	for _, kv := range strings.Split(s, "|") {
+		i := strings.IndexByte(kv, '=')
+		if i <= 0 {
+			continue
+		}
+		if kv[:i] != "from" {
+			continue
+		}
+		v := kv[i+1:]
+		switch v {
+		case EpKeySourceSelf, EpKeySourceBridge, EpKeySourceAnchor, EpKeySourceNone:
+			return v
+		}
+		return ""
+	}
+	return ""
+}
+
 // NoteEpKeyConflicts 记一次字段级冲突（落日志 + 计数）。
 func NoteEpKeyConflicts(fields []string) {
 	if len(fields) == 0 {

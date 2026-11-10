@@ -264,7 +264,7 @@ export const EPKEY_VERSION = 'v1'
  * 服务端**优先采用**并与 `epTitle` 交叉校验（date/num 冲突以 `epTitle` 为准）⇒ 三端解析若漂移可被检出。
  * `num` 传入 A2 现算期号（桥接/锚点结果，0=未提供）；`ordinal` 为可选序位兜底（本批仅透传）。
  */
-export function serializeEpisodeKey(k: EpisodeKey, ordinal = 0): string {
+export function serializeEpisodeKey(k: EpisodeKey, ordinal = 0, from: EpNumSource = 'none'): string {
   return [
     EPKEY_VERSION,
     `d=${k.date}`,
@@ -274,19 +274,22 @@ export function serializeEpisodeKey(k: EpisodeKey, ordinal = 0): string {
     `v=${k.variant}`,
     `vn=${k.variantNum > 0 ? k.variantNum : 0}`,
     `s=${k.series}`,
-    `o=${ordinal > 0 ? ordinal : 0}`
+    `o=${ordinal > 0 ? ordinal : 0}`,
+    // P1-3（2026-11-10）：期号来源（self|bridge|anchor|none）—— 供 P1-1 落库统计，**不参与身份判定**
+    `from=${from}`
   ].join('|')
 }
 
 /**
  * 当前集的传输串。**只有触发的集才发**（未触发返回 `''`，与 `epidFor` 同口径）——
  * 否则裸「第N集」也会多带一份冗余身份，无谓扩大改动面。
+ * `from` 传 {@link derivedNumSourceFor} 的结果（需 allTitles，故由调用方算好传入）。
  */
-export function epKeyString(title: string, num = 0, ordinal = 0): string {
+export function epKeyString(title: string, num = 0, ordinal = 0, from: EpNumSource = 'none'): string {
   const k = parseEpisodeKey(title ?? '')
   if (!episodeTriggered(k)) return ''
   if (num > 0) k.num = num
-  return serializeEpisodeKey(k, ordinal)
+  return serializeEpisodeKey(k, ordinal, from)
 }
 
 /**
@@ -360,4 +363,24 @@ export function derivedNumFor(title: string, otherTitles: string[]): number {
   const bridged = bridgeNum(k, otherTitles.map((t) => parseEpisodeKey(t)))
   if (bridged > 0) return bridged
   return anchorNumFor(title, otherTitles)
+}
+
+/** 期号来源（P1-3）：自带 / 他源桥接 / 锚点推算 / 无 */
+export type EpNumSource = 'self' | 'bridge' | 'anchor' | 'none'
+
+/**
+ * P1-3（2026-11-10）：**期号的来源** —— 判据与 {@link derivedNumFor} **严格同一降级顺序**
+ * （自带 → 他源桥接 → 锚点），只做**标注**、不参与身份判定。
+ *
+ * 用途：写进 `epk` 的 `from=` 段 ⇒ 服务端 **P1-1 落库时一并记录** ⇒ 来源占比与准确性统计
+ * 由落库结果直接得到（**不必另行做在线打点**）。**不进 `epid`** ⇒ 缓存键不变、零格式破坏。
+ */
+export function derivedNumSourceFor(title: string, allTitles: string[]): EpNumSource {
+  const k = parseEpisodeKey(title ?? '')
+  if (!episodeTriggered(k)) return 'none'
+  if (k.num > 0) return 'self'
+  if (!k.date) return 'none'
+  if (bridgeNum(k, (allTitles ?? []).map((t) => parseEpisodeKey(t ?? ''))) > 0) return 'bridge'
+  if (anchorNumFor(title ?? '', allTitles ?? []) > 0) return 'anchor'
+  return 'none'
 }

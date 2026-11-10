@@ -31,7 +31,7 @@ import type { PlayInfo, PlaySource } from '@/types/film'
 import { usePlayer, resolutionLabel, isHlsSupported, NEXTTV_AD_SVG, NEXTTV_AUTOPLAY_SVG } from '@/composables/usePlayer'
 import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
-import { epidFor, derivedNumFor, indexByEpid } from '@/utils/episodeKey'
+import { epidFor, derivedNumFor, indexByEpid, derivedNumSourceFor } from '@/utils/episodeKey'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings, normalizeSkipSec } from '@/composables/useSkipSettings'
@@ -922,6 +922,10 @@ const allEpisodeTitles = computed(() =>
 const danmakuEpid = computed(() => epidFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value))
 /** A2 现算期号: 0 = 未提供（剧不传, 后端行为不变） */
 const danmakuEpNum = computed(() => derivedNumFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value))
+/** P1-3: 期号来源（self|bridge|anchor|none）—— 随 `epk` 的 `from=` 上报，供 P1-1 落库统计（不参与身份） */
+const danmakuNumSource = computed(() =>
+  derivedNumSourceFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value)
+)
 const danmaku = useDanmaku({
   mid: computed(() => detail.value?.mid),
   // 聚合弹幕按标题匹配: 影片名 + 年份 + 集号
@@ -934,6 +938,8 @@ const danmaku = useDanmaku({
   // 池键随 epid 跨源同集相等 → 切源不再重拉; epNum 传给后端键匹配（纯日期形态也能对上）。
   epid: danmakuEpid,
   epNum: danmakuEpNum,
+  // P1-3: 期号来源（写进 epk 的 from= 段，供服务端 P1-1 落库统计）
+  epNumSource: danmakuNumSource,
   player,
   // 实际生效 = 用户级; 任一变化触发 useDanmaku watch 重载
   enabled: danmakuActive

@@ -199,6 +199,9 @@ export interface UseDanmakuOptions {
   /** 现算期号（2026-11-07 v2 A2，可选）—— 纯日期集名经他源桥接归一得来；0 = 未提供。
    *  传给聚合接口 epNum, 后端注入键的 Num（门禁同步补「期号参数非空」）。 */
   epNum?: Ref<number>
+  /** P1-3（2026-11-10，可选）：期号**来源**（self|bridge|anchor|none），写进 `epk` 的 `from=` 段，
+   *  供服务端 P1-1 落库统计（替代另行在线打点）。缺省 = 'none'（不传行为不变）。 */
+  epNumSource?: Ref<import('@/utils/episodeKey').EpNumSource>
   /** 播放器实例（ready 前为 null；插件实例从 art.plugins 取） */
   player: ShallowRef<Artplayer | null>
   /** 开关 */
@@ -336,7 +339,8 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         epNum: opts.epNum?.value ?? 0,
         // P0-1b: 结构化身份字段串（服务端优先采用 + 与 epTitle 交叉校验，冲突打点）。
         // 未触发的集（裸「第N集」/E圆号）为空串 ⇒ 服务端行为与改动前一致。
-        epk: epKeyString(opts.episodeName?.value ?? '', opts.epNum?.value ?? 0)
+        // P1-3: 末段 from= 标注期号来源（供 P1-1 落库统计），不参与身份判定。
+        epk: epKeyString(opts.episodeName?.value ?? '', opts.epNum?.value ?? 0, 0, opts.epNumSource?.value ?? 'none')
       },
             { signal }
           ),

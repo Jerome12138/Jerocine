@@ -343,6 +343,24 @@ func TestMergeEpidKey_CrossCheck(t *testing.T) {
 }
 
 // PickEpisodeKeyed（结构化键路径）与 PickEpisode（集名路径）必须**结果一致** —— 否则接口换路后会回归。
+func TestParseEpKeySource(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"v1|d=20260803|n=1|from=anchor", EpKeySourceAnchor},
+		{"v1|d=|n=0|from=self", EpKeySourceSelf},
+		{"v1|d=|n=0|from=bridge", EpKeySourceBridge},
+		{"v1|d=|n=0|from=none", EpKeySourceNone},
+		{"v1|d=|n=0", ""},           // 缺省 ⇒ 未提供
+		{"", ""},                    // 空串
+		{"v1|d=|n=0|from=weird", ""}, // 未知值 ⇒ 不认（避免脏统计）
+		{"v1|d=|n=0|from=", ""},      // 空值 ⇒ 不认
+	}
+	for _, c := range cases {
+		if got := ParseEpKeySource(c.in); got != c.want {
+			t.Errorf("ParseEpKeySource(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestPickEpisodeKeyed_与集名路径等价(t *testing.T) {
 	lib := []DandanEpisode{
 		{EpisodeID: 1, EpisodeTitle: "【qq】 第1期上：又争又抢"},

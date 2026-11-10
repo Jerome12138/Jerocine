@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   bridgeNum,
   derivedNumFor,
+  derivedNumSourceFor,
   epKeyString,
   EPKEY_VERSION,
   epidCompatible,
@@ -148,13 +149,13 @@ describe('P0-1b/P0-1c 结构化身份传输串（epk）', () => {
       serializeEpisodeKey({
         date: '20260803', num: 1, eNum: 2, part: '中上',
         variant: '特辑', variantNum: 2, series: '心动的周末'
-      }, 5)
-    ).toBe('v1|d=20260803|n=1|e=2|p=中上|v=特辑|vn=2|s=心动的周末|o=5')
+      }, 5, 'self')
+    ).toBe('v1|d=20260803|n=1|e=2|p=中上|v=特辑|vn=2|s=心动的周末|o=5|from=self')
     expect(EPKEY_VERSION).toBe('v1')
-    // 零键
+    // 零键（from 缺省 = none）
     expect(
       serializeEpisodeKey({ date: '', num: 0, eNum: 0, part: '', variant: '', variantNum: 0, series: '' })
-    ).toBe('v1|d=|n=0|e=0|p=|v=|vn=0|s=|o=0')
+    ).toBe('v1|d=|n=0|e=0|p=|v=|vn=0|s=|o=0|from=none')
   })
 
   it('epKeyString：只有触发的集才发（未触发为空串，与 epidFor 同口径）', () => {
@@ -162,16 +163,38 @@ describe('P0-1b/P0-1c 结构化身份传输串（epk）', () => {
     expect(epKeyString('E01.220705')).toBe('')
     expect(epKeyString('')).toBe('')
     // 触发的集：s/v/vn/p/n/d 全在串里（P0-1c 后 p 段即复合主部分，不再有独立 u 段）
-    expect(epKeyString('20260803(第1期上)')).toBe('v1|d=20260803|n=1|e=0|p=上|v=|vn=0|s=|o=0')
-    expect(epKeyString('第1期特辑2上')).toBe('v1|d=|n=1|e=0|p=上|v=特辑|vn=2|s=|o=0')
-    expect(epKeyString('20260818中（下）')).toBe('v1|d=20260818|n=0|e=0|p=中下|v=|vn=0|s=|o=0')
+    expect(epKeyString('20260803(第1期上)')).toBe('v1|d=20260803|n=1|e=0|p=上|v=|vn=0|s=|o=0|from=none')
+    expect(epKeyString('第1期特辑2上')).toBe('v1|d=|n=1|e=0|p=上|v=特辑|vn=2|s=|o=0|from=none')
+    expect(epKeyString('20260818中（下）')).toBe('v1|d=20260818|n=0|e=0|p=中下|v=|vn=0|s=|o=0|from=none')
   })
 
   it('epKeyString：A2 现算期号写入 n 段（桥接/锚点结果不得丢）', () => {
     // 纯日期形态自身无期号，桥接得 10 ⇒ n=10（与 epidFor 同口径）
-    expect(epKeyString('20261005上', 10)).toBe('v1|d=20261005|n=10|e=0|p=上|v=|vn=0|s=|o=0')
+    expect(epKeyString('20261005上', 10)).toBe('v1|d=20261005|n=10|e=0|p=上|v=|vn=0|s=|o=0|from=none')
     // num 参数与服务端 appNum 同语义：非 0 即覆盖（客户端传的就是 derivedNumFor 结果 ⇒ 实践中与自带期号一致）
-    expect(epKeyString('20260803(第1期上)', 9)).toBe('v1|d=20260803|n=9|e=0|p=上|v=|vn=0|s=|o=0')
+    expect(epKeyString('20260803(第1期上)', 9)).toBe('v1|d=20260803|n=9|e=0|p=上|v=|vn=0|s=|o=0|from=none')
+  })
+})
+
+describe('P1-3 期号来源标注（epk 的 from= 段；不进 epid）', () => {
+  it('derivedNumSourceFor：与 derivedNumFor 同一降级顺序（self → bridge → anchor → none）', () => {
+    const others = ['20260803第1期上', '20260810第2期上']
+    // 自带期号 ⇒ self
+    expect(derivedNumSourceFor('20260803第1期上', others)).toBe('self')
+    // 无期号但有日期、他源可桥接（日期相等 + 栏目/变体一致 + 主次相容）⇒ bridge
+    expect(derivedNumSourceFor('20260803上', others)).toBe('bridge')
+    // 桥上不了（others 里没有同日期带期号的集）⇒ 锚点（同栏目组「上」日期 ≥2）
+    expect(derivedNumSourceFor('20260803上', ['20260803上', '20260810上', '20260817上'])).toBe('anchor')
+    // 无日期 ⇒ 既不能桥接也不能锚点 ⇒ none
+    expect(derivedNumSourceFor('特辑', others)).toBe('none')
+    // 未触发（裸「第N集」）⇒ none
+    expect(derivedNumSourceFor('第3集', others)).toBe('none')
+  })
+
+  it('from 只在 epk 里；epid 不受影响（缓存键不变）', () => {
+    expect(epKeyString('20260803上', 1, 0, 'anchor')).toMatch(/\|from=anchor$/)
+    expect(epKeyString('20260803上', 1)).toMatch(/\|from=none$/)
+    expect(epidOf(parseEpisodeKey('20260803上'))).toBe('s=-|v=-|p=上|n=-|d=20260803')
   })
 })
 
