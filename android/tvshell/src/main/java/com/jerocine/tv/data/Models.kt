@@ -173,7 +173,12 @@ data class HistoryItem(
     val cover: String = "",
     val cName: String = "",
     val remarks: String = "",
-    val card: Card? = null
+    val card: Card? = null,
+    /**
+     * 集身份串（P0-3c, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`。
+     * 续播时**优先按它定位集**（同源集序变化时 episodeIndex 会失效），未命中回退 episodeIndex。
+     */
+    val epid: String = ""
 ) {
     fun previewCard(): Card = card ?: Card(
         mid = mid,
@@ -216,7 +221,9 @@ data class LocalHistoryRecord(
     val cover: String = "",
     val cName: String = "",
     val remarks: String = "",
-    val updatedAt: Long = 0
+    val updatedAt: Long = 0,
+    /** 集身份串（P0-3c）：匿名态本地历史也存一份，登录合并后一并带上 */
+    val epid: String = ""
 ) {
     fun toHistoryItem(): HistoryItem = HistoryItem(
         mid = mid,
@@ -228,7 +235,8 @@ data class LocalHistoryRecord(
         name = name,
         cover = cover,
         cName = cName,
-        remarks = remarks
+        remarks = remarks,
+        epid = epid
     )
 }
 

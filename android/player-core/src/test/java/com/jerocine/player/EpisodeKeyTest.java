@@ -1,7 +1,9 @@
 package com.jerocine.player;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -168,5 +170,43 @@ public class EpisodeKeyTest {
         assertEquals("s=-|v=特辑#2|p=-|n=-|d=20260128", EpisodeKey.parse("20260128特辑2").epid());
         assertEquals("s=-|v=特辑|p=-|n=-|d=-", EpisodeKey.parse("特辑").epid());
         assertEquals("s=夏日清凉|v=特辑|p=-|n=-|d=-", EpisodeKey.parse("夏日清凉特辑").epid());
+    }
+
+    /**
+     * P0-3c（2026-11-10）：续播定位 —— parseEpid / indexByEpid。
+     * 与 web `parseEpid`/`indexByEpid`、Go 侧同口径；黄金用例与 TS `episodeKey.spec.ts` 同一组。
+     */
+    @Test
+    public void parseEpid_解析与拒识() {
+        assertArrayEquals(new String[]{"", "", "中上", "3", ""},
+                EpisodeKey.parseEpid("s=-|v=-|p=中上|n=3|d=-"));
+        assertArrayEquals(new String[]{"心动的周末", "特辑#2", "", "", "20260930"},
+                EpisodeKey.parseEpid("s=心动的周末|v=特辑#2|p=-|n=-|d=20260930"));
+        assertNull(EpisodeKey.parseEpid(""));
+        assertNull(EpisodeKey.parseEpid("   "));
+        assertNull(EpisodeKey.parseEpid("s=-|v=-"));
+        assertNull(EpisodeKey.parseEpid("s=-|v=-|p=-|n=-|zz=-"));
+    }
+
+    @Test
+    public void indexByEpid_两级定位与回退() {
+        // ① 严格：同源集序变化（重排/插集）也能定位回原来那一集
+        String ep = EpisodeKey.parse("20260803上").epid();
+        assertEquals(2, EpisodeKey.indexByEpid(ep,
+                java.util.Arrays.asList("第1集", "第2集", "20260803上", "20260803中")));
+        assertEquals(0, EpisodeKey.indexByEpid(ep,
+                java.util.Arrays.asList("20260803上", "第1集", "第9集", "第2集", "20260803中")));
+        // ② 宽松：忽略 n 段（记录时的期号可能是 A2 桥接/锚点算出的值，本地重算不出）
+        java.util.List<String> titles = java.util.Arrays.asList("20260803上", "20260803中", "20260804下");
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=1|d=20260803", titles));
+        // p 段为空 ⇒ 同日期两条候选 ⇒ 不唯一 ⇒ 放弃（宁缺勿错，交回退）
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=1|d=20260803", titles));
+        // 对不上 / 空列表 / 坏串 ⇒ -1
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=下|n=-|d=20261231",
+                java.util.Arrays.asList("20260803上")));
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=-|d=20260803",
+                java.util.Collections.<String>emptyList()));
+        assertEquals(-1, EpisodeKey.indexByEpid("坏串", java.util.Arrays.asList("20260803上")));
+        assertEquals(-1, EpisodeKey.indexByEpid("", java.util.Arrays.asList("20260803上")));
     }
 }

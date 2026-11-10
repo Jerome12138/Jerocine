@@ -544,6 +544,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     p.put("fromIndex", session.lastMediaItemIndex);
                     session.lastMediaItemIndex = session.player.getCurrentMediaItemIndex();
                     p.put("source", session.currentSourceLabel());
+                    p.put("epid", epidOfCurrentEpisode());
                     p.put("reason", reason);
                     emit("playerEpisodeChange", p);
                 } catch (Exception ignore) {
@@ -669,6 +670,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                         p.put("filmId", filmId());
                         p.put("episodeIndex", session.player.getCurrentMediaItemIndex());
                         p.put("source", session.currentSourceLabel());
+                        p.put("epid", epidOfCurrentEpisode());
                         p.put("position", session.player.getCurrentPosition() / 1000.0);
                         emit("playerProgress", p);
                     }
@@ -937,6 +939,30 @@ private static String failedRequestUrl(Throwable error) {
         if (session.player != null && session.player.isPlaying()) session.player.pause();
     }
 
+    /**
+     * P0-3c（2026-11-10）：当前集的**集身份**（epid）—— 与 web / 服务端同规，供服务端**续播定位**。
+     *
+     * <p>入参取**当前源的全部集名**（`session.playlistTitles`）；无剧集上下文（本地播放/单集）或
+     * 未触发的集（裸「第N集」）⇒ **空串** —— 空串上报**不会覆盖**服务端已存身份
+     * （见 P0-3a 的 upsert 分支），因此不必担心把历史里的身份清掉。
+     */
+    private String epidOfCurrentEpisode() {
+        try {
+            if (session == null || session.player == null) return "";
+            java.util.List<String> titles = session.playlistTitles;
+            if (titles == null || titles.isEmpty()) return "";
+            int idx = session.player.getCurrentMediaItemIndex();
+            String cur = (idx >= 0 && idx < titles.size() && titles.get(idx) != null) ? titles.get(idx) : "";
+            java.util.List<EpisodeKey> keys = new java.util.ArrayList<>(titles.size());
+            for (String t : titles) {
+                keys.add(EpisodeKey.parse(t == null ? "" : t));
+            }
+            return EpisodeKey.epidFor(EpisodeKey.parse(cur), keys.toArray(new EpisodeKey[0]));
+        } catch (Exception ignore) {
+            return "";
+        }
+    }
+
     private void emitProgressNow() {
         try {
             if (session.localPlayback || session.isSingleLocalPlaylist()) return; // 本地模式无影片/剧集上下文, 不上报进度
@@ -945,6 +971,7 @@ private static String failedRequestUrl(Throwable error) {
             p.put("filmId", filmId());
             p.put("episodeIndex", session.player.getCurrentMediaItemIndex());
             p.put("source", session.currentSourceLabel());
+            p.put("epid", epidOfCurrentEpisode());
             p.put("position", session.player.getCurrentPosition() / 1000.0);
             emit("playerProgress", p);
         } catch (Exception ignore) {
@@ -977,6 +1004,7 @@ private static String failedRequestUrl(Throwable error) {
                     p.put("duration", player.getDuration() > 0 ? player.getDuration() / 1000.0 : 0);
                     p.put("episodeIndex", player.getCurrentMediaItemIndex());
                     p.put("source", session.currentSourceLabel());
+                    p.put("epid", epidOfCurrentEpisode());
                     if (playbackEnded) p.put("ended", true);
                 }
                 emit("playerClosed", p);

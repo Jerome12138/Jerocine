@@ -16,7 +16,12 @@ data class HistoryReq(
     val playFrom: String = "",
     val episode: Int = 0,
     val progress: Int = 0,
-    val duration: Int = 0
+    val duration: Int = 0,
+    /**
+     * 集身份串（P0-3c, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`（5 段，缺值 `-`）。
+     * 空串 ⇒ 服务端**不覆盖**已存身份（P0-3a 的 upsert 分支）。
+     */
+    val epid: String = ""
 )
 
 /** 收藏（POST /me/favorites {mid}） */

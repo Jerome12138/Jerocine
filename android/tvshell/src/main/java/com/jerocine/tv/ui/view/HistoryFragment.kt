@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.HistoryItem
+import com.jerocine.tv.data.resumeEpisodeIndex
 import com.jerocine.tv.data.LiveLastViewed
 import com.jerocine.tv.data.LocalHistoryRecord
 import com.jerocine.tv.data.ServiceLocator
@@ -206,6 +207,12 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                     ?: info.detail.sources.firstOrNull { it.id == info.currentSource }
                     ?: info.detail.sources.firstOrNull()
                 val isSeries = selected != null && selected.episodes.size > 1
+                // P0-3c: 先按 epid 在目标源里重定位集下标（源内集序变化时老下标会失效），未命中回退老下标
+                val episodeIndex = resumeEpisodeIndex(
+                    history.epid,
+                    history.episodeNumber(),
+                    selected?.episodes.orEmpty(),
+                )
                 val remoteSkip = if (ServiceLocator.isLoggedIn) {
                     ServiceLocator.userRepository.skipFor(history.mid)
                 } else {
@@ -215,7 +222,7 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                 buildNativePlayerPayload(
                     info = info,
                     requestedSource = source,
-                    requestedEpisode = history.episodeNumber(),
+                    requestedEpisode = episodeIndex,
                     skipIntroSec = skip?.intro ?: if (isSeries) SkipDefaults.INTRO else 0,
                     skipOutroSec = skip?.outro ?: if (isSeries) SkipDefaults.OUTRO else 0,
                     resumeSec = history.resumeSeconds(),

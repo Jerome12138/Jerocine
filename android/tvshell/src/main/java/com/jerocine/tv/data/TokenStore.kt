@@ -79,6 +79,7 @@ class TokenStore(context: Context) {
         episodeIndex: Int,
         progress: Double,
         duration: Double,
+        epid: String = "",
     ) {
         val existing = localHistories().firstOrNull { it.mid == mid } ?: return
         upsertLocalHistory(
@@ -87,6 +88,13 @@ class TokenStore(context: Context) {
                 episodeIndex = episodeIndex,
                 progress = progress,
                 duration = duration,
+                // P0-3c（与 web 同口径）：**切集时清空 epid** —— 此处只有集下标、拿不到集名无法重算，
+                // 留上一集的 epid 会让续播按它定位到**上一集**；清空后走"未命中回退 episodeIndex"。
+                epid = if (episodeIndex == existing.episodeIndex) {
+                    epid.ifBlank { existing.epid }
+                } else {
+                    ""
+                },
                 updatedAt = System.currentTimeMillis(),
             )
         )

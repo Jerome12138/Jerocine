@@ -178,6 +178,67 @@ public final class EpisodeKey {
         return !date.isEmpty() || !part.isEmpty() || !variant.isEmpty() || !series.isEmpty();
     }
 
+    /**
+     * P0-3c（2026-11-10）：把 epid 串（`s=..|v=..|p=..|n=..|d=..`，5 段，缺值 `-`）拆成 5 段。
+     * 返回顺序 `[s, v, p, n, d]`；空串 / 段数不对 / 含未知键 ⇒ null（当作"无 epid"）。
+     * 与 web `parseEpid`、Go 侧同规。
+     */
+    public static String[] parseEpid(String epid) {
+        String raw = epid == null ? "" : epid.trim();
+        if (raw.isEmpty()) return null;
+        String[] seg = raw.split("\\|", -1);
+        if (seg.length != 5) return null;
+        String[] out = new String[]{"", "", "", "", ""};
+        for (String kv : seg) {
+            int i = kv.indexOf('=');
+            if (i <= 0) return null;
+            String key = kv.substring(0, i);
+            String raw3 = kv.substring(i + 1);
+            String val = "-".equals(raw3) ? "" : raw3;
+            switch (key) {
+                case "s": out[0] = val; break;
+                case "v": out[1] = val; break;
+                case "p": out[2] = val; break;
+                case "n": out[3] = val; break;
+                case "d": out[4] = val; break;
+                default: return null;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * P0-3c：在**目标源集名列表**里按 epid 定位集下标；定位不到返回 -1
+     * （调用方回退 {@code episodeIndex} —— 方案 §3.1.9 的两级回退）。与 web {@code indexByEpid} 同口径：
+     * <ol>
+     *   <li>① <b>严格</b>：{@link #epid()} 与存储 epid <b>全等</b> —— 同源集序变化（重排/插集/补集）时下标会失效，
+     *       epid 仍能对上（这正是本方法的价值）；</li>
+     *   <li>② <b>宽松</b>：<b>忽略 {@code n} 段</b> —— 记录时的期号可能是 A2 桥接/锚点算出的值，本地重算不出来；
+     *       此时要求 {@code s} / {@code v}（含变体序号）/ {@code d} 相等、{@code p} 段前缀相容，
+     *       且<b>候选唯一</b>才采纳（多个 ⇒ -1，宁缺勿错）。</li>
+     * </ol>
+     */
+    public static int indexByEpid(String epid, java.util.List<String> titles) {
+        String[] want = parseEpid(epid);
+        if (want == null || titles == null || titles.isEmpty()) return -1;
+        for (int i = 0; i < titles.size(); i++) {
+            String t = titles.get(i) == null ? "" : titles.get(i);
+            if (parse(t).epid().equals(epid)) return i;
+        }
+        int only = -1;
+        for (int i = 0; i < titles.size(); i++) {
+            EpisodeKey k = parse(titles.get(i) == null ? "" : titles.get(i));
+            String kv = (!k.variant.isEmpty() && k.variantNum > 0)
+                    ? k.variant + "#" + k.variantNum : k.variant;
+            if (!k.series.equals(want[0]) || !kv.equals(want[1]) || !k.date.equals(want[4])) continue;
+            if (!want[2].isEmpty() && !k.part.isEmpty()
+                    && !(k.part.startsWith(want[2]) || want[2].startsWith(k.part))) continue;
+            if (only >= 0) return -1;
+            only = i;
+        }
+        return only;
+    }
+
     /** 5 段身份串: s|v|p|n|d, 缺值填 `-`（`v` 段含变体序号 `v=特辑#2`；触发的集必有） */
     public String epid() {
         String v = variant.isEmpty() ? "-" : (variantNum > 0 ? variant + "#" + variantNum : variant);

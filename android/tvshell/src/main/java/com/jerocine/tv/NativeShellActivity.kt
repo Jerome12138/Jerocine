@@ -363,6 +363,8 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
         val episode = payload.optInt("episodeIndex", 0)
         val progress = payload.optDouble("position", 0.0).toInt().coerceAtLeast(0)
         val duration = payload.optDouble("duration", 0.0).toInt().coerceAtLeast(0)
+        // P0-3c: 集身份（原生播放器按当前源集名算出）—— 供服务端续播定位；空串不会覆盖已存身份
+        val epid = payload.optString("epid", "")
         if (!ServiceLocator.isLoggedIn) {
             ServiceLocator.tokenStore.updateLocalHistory(
                 mid = mid,
@@ -370,6 +372,7 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
                 episodeIndex = episode,
                 progress = progress.toDouble(),
                 duration = duration.toDouble(),
+                epid = epid,
             )
             return
         }
@@ -381,6 +384,7 @@ class NativeShellActivity : FragmentActivity(), JcSettingsDrawer.JcSettingsHost 
                     episode = episode,
                     progress = progress,
                     duration = duration,
+                    epid = epid,
                 ),
             )
         }

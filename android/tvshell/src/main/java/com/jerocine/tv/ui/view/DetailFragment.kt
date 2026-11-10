@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.jerocine.tv.R
 import com.jerocine.tv.data.FilmDetail
 import com.jerocine.tv.data.HistoryItem
+import com.jerocine.tv.data.resumeEpisodeIndex
 import com.jerocine.tv.data.LocalFavoriteRecord
 import com.jerocine.tv.data.LocalHistoryRecord
 import com.jerocine.tv.data.ServiceLocator
@@ -165,7 +166,11 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
         resumeSource = history?.source()?.takeIf { source ->
             detail.sources.any { it.id == source }
         }.orEmpty()
-        resumeEpisode = history?.episodeNumber() ?: 0
+        // P0-3c: 先按 epid 在续播源里重定位集下标（源内集序变化时老下标会失效），未命中回退老下标
+        val resumeEpisodes = detail.sources.firstOrNull { it.id == resumeSource }?.episodes.orEmpty()
+        resumeEpisode = history?.let {
+            resumeEpisodeIndex(it.epid, it.episodeNumber(), resumeEpisodes)
+        } ?: 0
         resumeSec = history?.resumeSeconds() ?: 0.0
         selection = initialDetailPlaybackSelection(
             playableSources(detail),
