@@ -167,6 +167,42 @@ export function epidOf(k: EpisodeKey): string {
   ].join('|')
 }
 
+/** P0-1b: 结构化身份传输串的版本前缀（与 Go `EpKeyVersion` 一致；格式变更时同步递增）。 */
+export const EPKEY_VERSION = 'v1'
+
+/**
+ * P0-1b（2026-11-10）：**结构化身份字段传输串**（HTTP 参数 `epk`）—— 与 Go `ParseEpisodeKeyString` 同格式。
+ *
+ * 形如 `v1|d=20260803|n=1|e=0|p=中|u=上|v=特辑|vn=2|s=|o=0`（数值缺省 0、字符串缺省空）。
+ * 服务端**优先采用**并与 `epTitle` 交叉校验（date/num 冲突以 `epTitle` 为准）⇒ 三端解析若漂移可被检出。
+ * `num` 传入 A2 现算期号（桥接/锚点结果，0=未提供）；`ordinal` 为可选序位兜底（本批仅透传）。
+ */
+export function serializeEpisodeKey(k: EpisodeKey, ordinal = 0): string {
+  return [
+    EPKEY_VERSION,
+    `d=${k.date}`,
+    `n=${k.num > 0 ? k.num : 0}`,
+    `e=${k.eNum > 0 ? k.eNum : 0}`,
+    `p=${k.part}`,
+    `u=${k.sub}`,
+    `v=${k.variant}`,
+    `vn=${k.variantNum > 0 ? k.variantNum : 0}`,
+    `s=${k.series}`,
+    `o=${ordinal > 0 ? ordinal : 0}`
+  ].join('|')
+}
+
+/**
+ * 当前集的传输串。**只有触发的集才发**（未触发返回 `''`，与 `epidFor` 同口径）——
+ * 否则裸「第N集」也会多带一份冗余身份，无谓扩大改动面。
+ */
+export function epKeyString(title: string, num = 0, ordinal = 0): string {
+  const k = parseEpisodeKey(title ?? '')
+  if (!episodeTriggered(k)) return ''
+  if (num > 0) k.num = num
+  return serializeEpisodeKey(k, ordinal)
+}
+
 /**
  * 期号桥接（§5.1 归一）: 在其余源的集名键里找「期号+日期并存、日期相等、栏目/变体一致、part 相容」
  * 的集读其期号; 多个候选期号不一致（错标/缺期漂移）→ 放弃（宁缺勿错）。返回 0 = 桥接失败。

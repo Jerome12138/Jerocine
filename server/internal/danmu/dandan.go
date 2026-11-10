@@ -209,15 +209,35 @@ func PickEpisode(eps []DandanEpisode, episode int, appNum int, appTitles ...stri
 	if episode <= 0 || len(eps) == 0 {
 		return nil
 	}
+	hasKey := len(appTitles) > 0 || appNum > 0
+	k := EpisodeKey{}
+	if len(appTitles) > 0 {
+		k = ParseEpisodeKey(appTitles[0])
+	}
+	if appNum > 0 {
+		k.Num = appNum
+	}
+	return pickEpisodeByKey(eps, episode, k, hasKey, appNum)
+}
+
+// PickEpisodeKeyed（P0-1b, 2026-11-10）：与 PickEpisode 同逻辑，但**键由调用方给出** ——
+// 即客户端传来的结构化身份串先与服务端集名解析值按 MergeEpidKey 交叉校验合并后的键。
+// hasKey=false 表示"既无结构化键也无集名"（纯集号场景）；appNum>0 仍会开门（沿用 v2 口径）。
+func PickEpisodeKeyed(eps []DandanEpisode, episode, appNum int, k EpisodeKey, hasKey bool) *DandanEpisode {
+	if episode <= 0 || len(eps) == 0 {
+		return nil
+	}
+	if appNum > 0 {
+		k.Num = appNum
+		hasKey = true
+	}
+	return pickEpisodeByKey(eps, episode, k, hasKey, appNum)
+}
+
+// pickEpisodeByKey 键匹配 + L3a 的唯一实现（PickEpisode / PickEpisodeKeyed 共用，避免两处逻辑漂移）。
+func pickEpisodeByKey(eps []DandanEpisode, episode int, k EpisodeKey, hasKey bool, appNum int) *DandanEpisode {
 	want := strconv.Itoa(episode)
-	if len(appTitles) > 0 || appNum > 0 {
-		k := EpisodeKey{}
-		if len(appTitles) > 0 {
-			k = ParseEpisodeKey(appTitles[0])
-		}
-		if appNum > 0 {
-			k.Num = appNum
-		}
+	if hasKey {
 		// 仅在「集名身份不是纯数字」时走键匹配：带日期/变体/E圆号（综艺形态）说明该集**不以序号标识**，
 		// 此时第三方源的"第几个视频"与弹幕库期号毫无关系 → 键没命中就是没命中，绝不回退索引号或下标。
 		// 纯「第N集/话」形态仍走下面的旧三策略，行为与改动前完全一致（现网 96.8% 属此形态）。
@@ -230,8 +250,8 @@ func PickEpisode(eps []DandanEpisode, episode int, appNum int, appTitles ...stri
 			}
 			// L3a（2026-11-09）：**同栏目组内唯一定位** —— 覆盖"库侧既无期号也无日期"的衍生栏目集
 			// （心动的旅行上 / 线上集结篇 / 夏日清凉特辑…）。
-			// 安全边界：作用域被 series+variant 锁死、主/次相容、期号与日期不冲突，且**库侧该组仅 1 条**；
-			// 任一条不满足即不配（宁缺勿错 —— 配错比查不到更糟）。
+			// 安全边界：作用域被 series+variant(+variantNum) 锁死、主/次相容、期号与日期不冲突，
+			// 且**库侧该组仅 1 条**；任一条不满足即不配（宁缺勿错 —— 配错比查不到更糟）。
 			if hit := pickSeriesUnique(k, eps); hit != nil {
 				return hit
 			}

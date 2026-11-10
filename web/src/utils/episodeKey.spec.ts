@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   bridgeNum,
   derivedNumFor,
+  epKeyString,
+  EPKEY_VERSION,
   epidFor,
   epidOf,
   parseEpisodeKey,
-  sameEpisode
+  sameEpisode,
+  serializeEpisodeKey
 } from './episodeKey'
 
 // 黄金用例 —— 与 server/internal/danmu/episode_key_test.go 同一组(三端同规, 任一侧改动必须同组通过)
@@ -132,6 +135,39 @@ describe('P0-1a 变体序号（变体词后紧跟的数字必须复合为身份�
     expect(epidOf(parseEpisodeKey('20260128特辑2'))).toBe('s=-|v=特辑#2|p=-|n=-|d=20260128')
     expect(epidOf(parseEpisodeKey('特辑'))).toBe('s=-|v=特辑|p=-|n=-|d=-')
     expect(epidOf(parseEpisodeKey('夏日清凉特辑'))).toBe('s=夏日清凉|v=特辑|p=-|n=-|d=-')
+  })
+})
+
+describe('P0-1b 结构化身份传输串（epk）', () => {
+  it('序列化：与 Go EpisodeKey.Serialize 同格式（数值缺省 0 / 字符串缺省空）', () => {
+    expect(
+      serializeEpisodeKey({
+        date: '20260803', num: 1, eNum: 2, part: '中', sub: '上',
+        variant: '特辑', variantNum: 2, series: '心动的周末'
+      }, 5)
+    ).toBe('v1|d=20260803|n=1|e=2|p=中|u=上|v=特辑|vn=2|s=心动的周末|o=5')
+    expect(EPKEY_VERSION).toBe('v1')
+    // 零键
+    expect(
+      serializeEpisodeKey({ date: '', num: 0, eNum: 0, part: '', sub: '', variant: '', variantNum: 0, series: '' })
+    ).toBe('v1|d=|n=0|e=0|p=|u=|v=|vn=0|s=|o=0')
+  })
+
+  it('epKeyString：只有触发的集才发（未触发为空串，与 epidFor 同口径）', () => {
+    expect(epKeyString('第3集')).toBe('')
+    expect(epKeyString('E01.220705')).toBe('')
+    expect(epKeyString('')).toBe('')
+    // 触发的集：全部 8 项字段都在串里（含变体序号 vn 与次部分 u）
+    expect(epKeyString('20260803(第1期上)')).toBe('v1|d=20260803|n=1|e=0|p=上|u=|v=|vn=0|s=|o=0')
+    expect(epKeyString('第1期特辑2上')).toBe('v1|d=|n=1|e=0|p=上|u=|v=特辑|vn=2|s=|o=0')
+    expect(epKeyString('20260818中（下）')).toBe('v1|d=20260818|n=0|e=0|p=中|u=下|v=|vn=0|s=|o=0')
+  })
+
+  it('epKeyString：A2 现算期号写入 n 段（桥接/锚点结果不得丢）', () => {
+    // 纯日期形态自身无期号，桥接得 10 ⇒ n=10（与 epidFor 同口径）
+    expect(epKeyString('20261005上', 10)).toBe('v1|d=20261005|n=10|e=0|p=上|u=|v=|vn=0|s=|o=0')
+    // num 参数与服务端 appNum 同语义：非 0 即覆盖（客户端传的就是 derivedNumFor 结果 ⇒ 实践中与自带期号一致）
+    expect(epKeyString('20260803(第1期上)', 9)).toBe('v1|d=20260803|n=9|e=0|p=上|u=|v=|vn=0|s=|o=0')
   })
 })
 

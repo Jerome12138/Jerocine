@@ -5,6 +5,7 @@ import { ApiError } from '@/types/api'
 import { filmApi } from '@/api'
 import type { DanmuComment, DanmuAggregateResp } from '@/types/film'
 import { toDanmuInputs, type DanmuMapFilter } from '@/utils/danmu'
+import { epKeyString } from '@/utils/episodeKey'
 import { SETTINGS_APPLIED_EVENT } from '@/utils/settingEvents'
 
 /**
@@ -332,7 +333,10 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         from,
         to,
         epTitle: opts.episodeName?.value ?? '',
-        epNum: opts.epNum?.value ?? 0
+        epNum: opts.epNum?.value ?? 0,
+        // P0-1b: 结构化身份字段串（服务端优先采用 + 与 epTitle 交叉校验，冲突打点）。
+        // 未触发的集（裸「第N集」/E圆号）为空串 ⇒ 服务端行为与改动前一致。
+        epk: epKeyString(opts.episodeName?.value ?? '', opts.epNum?.value ?? 0)
       },
             { signal }
           ),

@@ -76,6 +76,14 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	if epNum < 0 || epNum > 9999 {
 		epNum = 0
 	}
+	// epk（可选, 2026-11-10 P0-1b）: App 侧**结构化身份字段串**（集名解析结果），形如
+	// `v1|d=20260803|n=1|e=0|p=中|u=上|v=特辑|vn=2|s=|o=0`。服务端**优先采用**并与 epTitle
+	// 交叉校验（date/num 冲突以 epTitle 为准，冲突记日志+计数）；版本不识别/超长一律当未提供
+	// （沿用 epTitle 的做法 ⇒ 旧客户端行为不变）。
+	epk := strings.TrimSpace(c.Query("epk"))
+	if len(epk) > 160 {
+		epk = ""
+	}
 	// 分片参数合理性: from/to 负值按缺省(整集)处理; to 不得小于 from
 	if from < 0 {
 		from = 0
@@ -83,7 +91,7 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	if to < from {
 		to = 0
 	}
-	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to, epTitle, epNum)
+	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to, epTitle, epNum, epk)
 	if err != nil {
 		dto.Fail(c, err)
 		return

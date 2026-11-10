@@ -1,6 +1,9 @@
 package danmu
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // 用例全部取自**现网真实集名**（2026-11-06 抽样：随机 87 部 + 综艺定向 126 部）
 func TestParseEpisodeKey_RealForms(t *testing.T) {
@@ -255,5 +258,115 @@ func TestPickEpisode_VariantOrdinalL3a(t *testing.T) {
 	// 夏日清凉特辑：无序号但 series 不同 ⇒ 自成一组、组内唯一 ⇒ 命中
 	if ep := PickEpisode(lib, 999, 0, "20260809夏日清凉特辑"); ep == nil || ep.EpisodeID != 26 {
 		t.Fatalf("夏日清凉特辑 应命中 id=26, got %v", ep)
+	}
+}
+
+// ===== P0-1b（2026-11-10）：结构化身份字段契约 =====
+
+func TestEpisodeKeyString_RoundTrip(t *testing.T) {
+	k := EpisodeKey{Date: "20260803", Num: 1, ENum: 2, Part: "中", Sub: "上",
+		Variant: "特辑", VariantNum: 2, Series: "心动的周末"}
+	s := k.Serialize(5)
+	want := "v1|d=20260803|n=1|e=2|p=中|u=上|v=特辑|vn=2|s=心动的周末|o=5"
+	if s != want {
+		t.Fatalf("Serialize = %q, want %q", s, want)
+	}
+	if got, ok := ParseEpisodeKeyString(s); !ok || got != k {
+		t.Fatalf("ParseEpisodeKeyString = %+v ok=%v, want %+v", got, ok, k)
+	}
+	// 空键往返（客户端未触发的集会传空串，此处校验"零键"本身也能往返）
+	if got, ok := ParseEpisodeKeyString(EpisodeKey{}.Serialize(0)); !ok || !got.IsZero() {
+		t.Fatalf("零键往返失败: %+v ok=%v", got, ok)
+	}
+}
+
+func TestParseEpisodeKeyString_Rejects(t *testing.T) {
+	bad := []string{
+		"",                     // 空
+		"v2|d=20260803",        // 版本不认识
+		"d=20260803",           // 缺版本前缀
+		"v1|d",                 // 段内无 '='
+		"v1|=20260803",         // 键名为空
+		"v1|n=abc",             // 数字非法
+		"v1|n=-1",              // 数字为负
+		"v1|p=左",               // 主部分非法
+		"v1|vn=99999",          // 变体序号越界
+		"v1|s=" + strings.Repeat("x", 70), // 值超长
+	}
+	for _, s := range bad {
+		if _, ok := ParseEpisodeKeyString(s); ok {
+			t.Errorf("ParseEpisodeKeyString(%q) 应拒绝(ok=false)", s)
+		}
+	}
+	// 未知字段名：向前兼容，忽略（不判非法）
+	if k, ok := ParseEpisodeKeyString("v1|d=20260803|zz=1"); !ok || k.Date != "20260803" {
+		t.Errorf("未知字段应被忽略: %+v ok=%v", k, ok)
+	}
+}
+
+func TestMergeEpidKey_CrossCheck(t *testing.T) {
+	base := ParseEpisodeKey("20260803(第1期上)")
+	// ① 完全一致 ⇒ 无冲突，键不变
+	if k, cf := MergeEpidKey(base, ParseEpisodeKey("20260803(第1期上)"), false); len(cf) != 0 || k != base {
+		t.Fatalf("一致时不应有冲突: cf=%v", cf)
+	}
+	// ② date 冲突 ⇒ 以集名解析值为准（硬证据）
+	if k, cf := MergeEpidKey(ParseEpisodeKey("20260810(第1期上)"), base, false); k.Date != "20260803" ||
+		len(cf) != 1 || cf[0] != "date" {
+		t.Fatalf("date 冲突应以集名为准: k.Date=%q cf=%v", k.Date, cf)
+	}
+	// ③ num 冲突 ⇒ 以集名解析值为准
+	if k, cf := MergeEpidKey(ParseEpisodeKey("20260803(第9期上)"), base, false); k.Num != 1 ||
+		len(cf) != 1 || cf[0] != "num" {
+		t.Fatalf("num 冲突应以集名为准: k.Num=%d cf=%v", k.Num, cf)
+	}
+	// ④ numBridged=true（期号来自 A2 桥接）⇒ 跳过 num 比较，桥接结果不得被打回
+	if _, cf := MergeEpidKey(ParseEpisodeKey("20260803(第9期上)"), base, true); len(cf) != 0 {
+		t.Fatalf("numBridged 时应跳过 num 比较: cf=%v", cf)
+	}
+	// ⑤ 其余字段（无独立证据）⇒ 只记冲突，**不覆盖**客户端值
+	k, cf := MergeEpidKey(ParseEpisodeKey("20260803(第1期加更上)"), base, false)
+	if k.Variant != "加更" {
+		t.Fatalf("非硬证据字段不得被覆盖: variant=%q", k.Variant)
+	}
+	if len(cf) != 1 || cf[0] != "variant" {
+		t.Fatalf("应记录 variant 冲突: %v", cf)
+	}
+}
+
+// PickEpisodeKeyed（结构化键路径）与 PickEpisode（集名路径）必须**结果一致** —— 否则接口换路后会回归。
+func TestPickEpisodeKeyed_与集名路径等价(t *testing.T) {
+	lib := []DandanEpisode{
+		{EpisodeID: 1, EpisodeTitle: "【qq】 第1期上：又争又抢"},
+		{EpisodeID: 2, EpisodeTitle: "特辑2"},
+		{EpisodeID: 3, EpisodeTitle: "第2期下"},
+	}
+	cases := []struct {
+		title  string
+		appNum int
+		want   int64
+	}{
+		{"20260803上", 1, 1},        // A2 桥接期号 = 1 ⇒ 命中「第1期上」
+		{"20260809特辑2", 0, 2},     // 变体序号复合 ⇒ L3a 组内唯一
+		{"20260810第2期下", 0, 3},   // 期号直配
+	}
+	for _, c := range cases {
+		k := ParseEpisodeKey(c.title)
+		keyed := PickEpisodeKeyed(lib, 999, c.appNum, k, true)
+		titled := PickEpisode(lib, 999, c.appNum, c.title)
+		if keyed == nil || titled == nil {
+			t.Fatalf("%s: keyed=%v titled=%v（应都命中）", c.title, keyed, titled)
+		}
+		if keyed.EpisodeID != titled.EpisodeID || keyed.EpisodeID != c.want {
+			t.Fatalf("%s: keyed=%d titled=%d want=%d", c.title, keyed.EpisodeID, titled.EpisodeID, c.want)
+		}
+	}
+	// 既有键又无集名 ⇒ hasKey=false ⇒ 走旧策略（与改动前一致）
+	if got := PickEpisodeKeyed(lib, 2, 0, EpisodeKey{}, false); got == nil || got.EpisodeID != 2 {
+		t.Fatalf("无键时应走旧策略命中第 2 条, got %v", got)
+	}
+	// 越界/空列表 ⇒ nil（不 panic）
+	if PickEpisodeKeyed(nil, 1, 0, EpisodeKey{}, true) != nil || PickEpisodeKeyed(lib, 0, 0, EpisodeKey{}, true) != nil {
+		t.Fatal("空列表/越界集号应返回 nil")
 	}
 }

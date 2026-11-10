@@ -1,10 +1,12 @@
 package danmu
 
 import (
+	"log"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode"
 )
 
@@ -28,6 +30,176 @@ func (k EpisodeKey) IsZero() bool {
 	return k.Date == "" && k.Num == 0 && k.ENum == 0 && k.Part == "" && k.Sub == "" &&
 		k.Variant == "" && k.VariantNum == 0 && k.Series == ""
 }
+
+// ===== P0-1b（2026-11-10）：结构化身份字段契约 =====
+//
+// 客户端把「集名解析结果」序列化成传输串（HTTP 参数 `epk`）传下来：
+//
+//	v1|d=<date>|n=<num>|e=<eNum>|p=<part>|u=<sub>|v=<variant>|vn=<variantNum>|s=<series>|o=<ordinal>
+//
+// 目的：① 服务端不再"重新猜"客户端的解析结果，**三端同规的漂移可被检出**（逐项交叉校验 + 打点）；
+//      ② 为 P1-2（epid 升格为集唯一标识）铺路。
+// 数值缺省写 0、字符串缺省写空；`o` 为可选序位兜底（本批仅透传，不参与判定）。
+// 服务端仍收 `epTitle`：既作交叉校验基准，也作旧客户端回退与排查依据。
+
+// EpKeyVersion 传输串版本前缀。格式变更时递增；服务端遇到不认识的版本一律按"未提供"处理（行为不变）。
+const EpKeyVersion = "v1"
+
+// Serialize 序列化为传输串（与 ParseEpisodeKeyString 互逆）；ordinal 为可选序位兜底，<=0 写 0。
+func (k EpisodeKey) Serialize(ordinal int) string {
+	return strings.Join([]string{
+		EpKeyVersion,
+		"d=" + k.Date,
+		"n=" + strconv.Itoa(k.Num),
+		"e=" + strconv.Itoa(k.ENum),
+		"p=" + k.Part,
+		"u=" + k.Sub,
+		"v=" + k.Variant,
+		"vn=" + strconv.Itoa(k.VariantNum),
+		"s=" + k.Series,
+		"o=" + strconv.Itoa(max(ordinal, 0)),
+	}, "|")
+}
+
+// ParseEpisodeKeyString 解析传输串。**版本不认识 / 结构不合法 ⇒ ok=false**（调用方按"未提供"处理，
+// 行为与改动前完全一致）。未知字段名一律忽略（向前兼容）。
+func ParseEpisodeKeyString(s string) (EpisodeKey, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return EpisodeKey{}, false
+	}
+	parts := strings.Split(s, "|")
+	if len(parts) < 2 || parts[0] != EpKeyVersion {
+		return EpisodeKey{}, false
+	}
+	var k EpisodeKey
+	seen := false
+	atoi := func(val string) (int, bool) {
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 0 || n > 9999 {
+			return 0, false
+		}
+		return n, true
+	}
+	for _, kv := range parts[1:] {
+		i := strings.IndexByte(kv, '=')
+		if i <= 0 || len(kv)-i-1 > 64 { // 限长防滥用
+			return EpisodeKey{}, false
+		}
+		key, val := kv[:i], kv[i+1:]
+		switch key {
+		case "d":
+			k.Date = val
+		case "n":
+			n, ok := atoi(val)
+			if !ok {
+				return EpisodeKey{}, false
+			}
+			k.Num = n
+		case "e":
+			n, ok := atoi(val)
+			if !ok {
+				return EpisodeKey{}, false
+			}
+			k.ENum = n
+		case "p":
+			if !isPartMark(val) {
+				return EpisodeKey{}, false
+			}
+			k.Part = val
+		case "u":
+			if !isPartMark(val) {
+				return EpisodeKey{}, false
+			}
+			k.Sub = val
+		case "v":
+			k.Variant = val
+		case "vn":
+			n, ok := atoi(val)
+			if !ok {
+				return EpisodeKey{}, false
+			}
+			k.VariantNum = n
+		case "s":
+			k.Series = val
+		case "o":
+			// 序位兜底：本批仅透传（解析校验后丢弃），不参与判定
+			if _, ok := atoi(val); !ok {
+				return EpisodeKey{}, false
+			}
+		default:
+			// 未知字段：向前兼容，忽略
+		}
+		seen = true
+	}
+	if !seen {
+		return EpisodeKey{}, false
+	}
+	return k, true
+}
+
+func isPartMark(s string) bool {
+	switch s {
+	case "", "上", "中", "下":
+		return true
+	}
+	return false
+}
+
+// MergeEpidKey 交叉校验合并（P0-1b）：客户端结构化键为**实测值** ⇒ 默认优先采用，再与集名解析值逐项核对。
+//   - date：双方都有且不等 ⇒ **以集名解析值为准**（硬证据），记冲突；
+//   - num：同上；但 numBridged=true（该期号来自 A2 桥接、非集名自带）时**跳过比较** —— 否则会把桥接
+//     结果打回原值，心动9/桃花坞6 的纯日期形态会再次全丢；
+//   - 其余字段（eNum/part/sub/variant/variantNum/series）服务端**无独立证据** ⇒ 只记不一致，**不覆盖**。
+//
+// 只记录不填补：若客户端某字段为空而集名解析非空，属解析漂移，记冲突以便发现（不做"猜着补"）。
+func MergeEpidKey(client, fromTitle EpisodeKey, numBridged bool) (EpisodeKey, []string) {
+	k := client
+	var conflicts []string
+	if k.Date != "" && fromTitle.Date != "" && k.Date != fromTitle.Date {
+		conflicts = append(conflicts, "date")
+		k.Date = fromTitle.Date
+	}
+	if !numBridged && k.Num > 0 && fromTitle.Num > 0 && k.Num != fromTitle.Num {
+		conflicts = append(conflicts, "num")
+		k.Num = fromTitle.Num
+	}
+	if k.ENum != fromTitle.ENum {
+		conflicts = append(conflicts, "eNum")
+	}
+	if k.Part != fromTitle.Part {
+		conflicts = append(conflicts, "part")
+	}
+	if k.Sub != fromTitle.Sub {
+		conflicts = append(conflicts, "sub")
+	}
+	if k.Variant != fromTitle.Variant {
+		conflicts = append(conflicts, "variant")
+	}
+	if k.VariantNum != fromTitle.VariantNum {
+		conflicts = append(conflicts, "variantNum")
+	}
+	if k.Series != fromTitle.Series {
+		conflicts = append(conflicts, "series")
+	}
+	return k, conflicts
+}
+
+// epKeyConflictTotal 客户端解析 ≠ 服务端解析的累计次数（P0-1b 打点）——
+// 它是"三端同规"是否漂移的哨兵：正常应恒为 0；一旦上涨说明三端解析已不一致。
+var epKeyConflictTotal int64
+
+// NoteEpKeyConflicts 记一次字段级冲突（落日志 + 计数）。
+func NoteEpKeyConflicts(fields []string) {
+	if len(fields) == 0 {
+		return
+	}
+	atomic.AddInt64(&epKeyConflictTotal, 1)
+	log.Printf("[danmu] epkey conflict fields=%s", strings.Join(fields, ","))
+}
+
+// EpKeyConflictTotal 累计冲突次数（测试/运维观测用）。
+func EpKeyConflictTotal() int64 { return atomic.LoadInt64(&epKeyConflictTotal) }
 
 var (
 	reDate8 = regexp.MustCompile(`(?:19|20)\d{6}`)
