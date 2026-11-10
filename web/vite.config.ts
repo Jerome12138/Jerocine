@@ -235,13 +235,20 @@ export default defineConfig({
         // precache 进清单等于让 100% 的 modern 设备为 0% 用得上的文件付离线包体积。
         // 低版本设备的缓存由上面 runtimeCaching 的 NetworkFirst 在运行时补上(命中缓存
         // 回退时 Cache Storage 里已有上次成功下载的 bundle)。
-        // globIgnores 里第二块(2026-11-10): video-vendor(artplayer + hls.js) 737KB,
-        // 只有播放页用 —— usePlayer.ts 静态引入, 而引用它的只有 PlayView / LiveView 两个
-        // **懒加载**路由。让首页访客也为它付安装体积不划算(占整份预缓存的 30%)。
+        // globIgnores 里第二块(2026-11-10): video-vendor(artplayer + hls.js), 落盘 737KB
+        // (占清单 30%)、**gzip 后 218KB** 才是真实网络成本 —— 谈收益时必须分清这两个口径。
+        // 只有播放页用: usePlayer.ts 静态引入, 而引用它的只有 PlayView / LiveView 两个
+        // **懒加载**路由。关键认知(最容易搞反的一点): 懒加载只决定"何时 import 执行",
+        // 不决定"何时下载" ——
+        // precache 是 SW install 期按清单无条件拉的, 与访客是否进播放页完全无关, 所以这
+        // 218KB 是 100% 设备都要付、只服务其中一部分人。
+        // 又因为 assetsDir 带 <TS>, 每次部署 166 条里 160 条 URL 都变(cache key 变)⇒ 清单
+        // 全量重下, 这 218KB 是**每次部署**都付一次, 不是只首次。
         // 首次进播放页由上面那条 NetworkFirst 兜住: 该 handler 在 networkTimeoutSeconds
         // 超时且无缓存时**不 reject**, 而是继续 await 网络返回(见 NetworkFirst._handle 的
         // "we'd rather wait until the networkPromise resolves"), 所以慢链路只是"第一次慢
-        // 一点", 不会白屏; 下完即进 jc-assets, 之后不再走网络。
+        // 1.8s 左右"(218KB @ 118KB/s), 不会白屏; 下完即进 jc-assets, 同版本内再进播放页
+        // 命中 HTTP 长缓存 + jc-assets, 零成本。
         globIgnores: ['**/*legacy*', '**/video-vendor-*']
       }
     }),
