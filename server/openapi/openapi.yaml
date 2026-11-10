@@ -729,6 +729,13 @@ components:
         sourceId: { type: string }
         progress: { type: number, format: float, description: 播放进度 (秒) }
         duration: { type: number, format: float, description: 总时长 (秒) }
+        epid:
+          type: string
+          maxLength: 160
+          description: >-
+            集身份串（P0-3, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`（5 段，缺值 `-`）。
+            **只有"触发的集"才有**（裸「第N集」/E圆号 = 空串）。续播时先按它找目标源同集，
+            未命中回退 `sourceId` + `episodeIndex` 下标；空串 ⇒ 一律走老逻辑。
         updatedAt: { type: integer, format: int64 }
     HistoryUpsertReq:
       type: object
@@ -743,6 +750,12 @@ components:
         sourceId: { type: string }
         progress: { type: number, format: float }
         duration: { type: number, format: float }
+        epid:
+          type: string
+          maxLength: 160
+          description: >-
+            集身份串（P0-3, 2026-11-10，可选）。客户端算好传来；留空/超长一律当未提供，
+            且**空值不会覆盖已存身份**（老客户端上报不会把已存的 epid 清空）。
     FavoriteItem:
       type: object
       required: [mid, name]

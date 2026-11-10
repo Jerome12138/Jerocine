@@ -32,6 +32,10 @@ type UserHistory struct {
 	Mid       int64  `gorm:"column:mid" json:"mid"`
 	PlayFrom  string `gorm:"column:play_from" json:"playFrom"`
 	Episode   int    `gorm:"column:episode" json:"episode"`
+	// Epid 集身份串（P0-3, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`（5 段，缺值 `-`），
+	// **只有"触发的集"才有**（裸「第N集」/E圆号 = 空串 ⇒ 回退 `play_from` + `episode` 下标）。
+	// 用途：续播定位 —— 先按 epid 找目标源同集，未命中回退下标（见方案 §3.1.9 的两级回退）。
+	Epid      string `gorm:"column:epid" json:"epid"`
 	Progress  int    `gorm:"column:progress" json:"progress"`
 	Duration  int    `gorm:"column:duration" json:"duration"`
 	CreatedAt int64  `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`

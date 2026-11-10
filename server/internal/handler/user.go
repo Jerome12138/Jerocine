@@ -118,6 +118,9 @@ func (h *Handlers) HistoryUpsert(c *gin.Context) {
 		Mid      int64  `json:"mid"`
 		PlayFrom string `json:"playFrom"`
 		Episode  int    `json:"episode"`
+		// epid（可选, 2026-11-10 P0-3）: 集身份串（`s=..|v=..|p=..|n=..|d=..`）。
+		// 客户端算好传来；**只加列**，留空/超长一律当未提供（老客户端不发 ⇒ 存空串 ⇒ 老行为）。
+		Epid     string `json:"epid"`
 		Progress int    `json:"progress"`
 		Duration int    `json:"duration"`
 	}
@@ -125,9 +128,12 @@ func (h *Handlers) HistoryUpsert(c *gin.Context) {
 		dto.Error(c, http.StatusUnprocessableEntity, "mid required")
 		return
 	}
+	if len([]rune(req.Epid)) > 160 {
+		req.Epid = ""
+	}
 	hh := &entity.UserHistory{
 		UserId: currentUserID(c), Mid: req.Mid, PlayFrom: req.PlayFrom,
-		Episode: req.Episode, Progress: req.Progress, Duration: req.Duration,
+		Episode: req.Episode, Epid: req.Epid, Progress: req.Progress, Duration: req.Duration,
 	}
 	if err := h.User.HistoryUpsert(c.Request.Context(), hh); err != nil {
 		dto.Fail(c, err)

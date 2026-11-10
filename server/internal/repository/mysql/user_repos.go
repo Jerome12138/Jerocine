@@ -155,10 +155,20 @@ type historyRepo struct{ db *gorm.DB }
 func NewHistoryRepository(db *gorm.DB) repository.HistoryRepository { return &historyRepo{db: db} }
 
 func (r *historyRepo) Upsert(ctx context.Context, h *entity.UserHistory) error {
-	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}, {Name: "mid"}},
-		DoUpdates: clause.AssignmentColumns([]string{"play_from", "episode", "progress", "duration", "updated_at"}),
-	}).Create(h).Error
+	cl := func(cols []string) *gorm.DB {
+		return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "mid"}},
+			DoUpdates: clause.AssignmentColumns(cols),
+		}).Create(h)
+	}
+	// P0-3（2026-11-10）: epid **只在本次携非空时参与覆盖**。
+	// 老客户端 / 未触发的集（裸「第N集」）不发 epid（= 空串）⇒ 若一并覆盖会把已存身份清空，
+	// 续播便从"按 epid 定位"悄悄退回下标。这里用两条分支替代 IF(VALUES(...)) 表达式
+	// —— 走的是既有且已验证的 AssignmentColumns 路径，不引入 MySQL 版本相关的 VALUES() 兼容面。
+	if h.Epid == "" {
+		return cl([]string{"play_from", "episode", "progress", "duration", "updated_at"}).Error
+	}
+	return cl([]string{"play_from", "episode", "epid", "progress", "duration", "updated_at"}).Error
 }
 
 func (r *historyRepo) List(ctx context.Context, userId int64, page repository.Page) ([]entity.UserHistory, int64, error) {
