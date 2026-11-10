@@ -5,7 +5,6 @@ import {
   usePwaUpdate,
   isPageStale,
   parseBuildTag,
-  resetPromptedBuildForTest,
   type PwaUpdateDeps
 } from './usePwaUpdate'
 import { CHUNK_RELOAD_GUARD_KEY } from '@/utils/chunkReload'
@@ -19,12 +18,41 @@ interface FakeSW {
   listeners: Set<() => void>
   /** updatefound 监听(挂在 registration 上) */
   updateFoundListeners: Set<() => void>
-  /** 触发 registration.updatefound */
-  fireUpdateFound: () => void
-  /** registration.update 的探针(徽标亮起应主动踢一次下载) */
+  /**
+   * 触发 registration.updatefound.
+   * @param withInstalling 是否顺便挂上 `reg.installing`(默认 true —— 真实的 updatefound
+   *   就是"新 worker 开始装", 不挂的话页面侧会把它当成"控制器已最新")
+   * @returns 那个 installing worker(可用于驱动 statechange)
+   */
+  fireUpdateFound: (withInstalling?: boolean) => FakeWorker | null
+  /** registration.update 的探针(每次核对都应让 SW 去比对 sw.js) */
   update: ReturnType<typeof vi.fn>
   /** 让 `navigator.serviceWorker.ready` resolve —— 模拟"首访注册完成、已激活" */
   resolveReady: () => void
+  /** 直接设置 reg.installing(模拟"刷新后仍在装") */
+  setInstalling: (w: FakeWorker | null) => void
+}
+
+/** 假的 installing worker —— 只有 statechange 与 state 有用 */
+interface FakeWorker {
+  state: ServiceWorkerState
+  setState: (s: ServiceWorkerState) => void
+}
+
+function makeFakeWorker(initial: ServiceWorkerState = 'installing'): FakeWorker {
+  const listeners = new Set<() => void>()
+  const w = {
+    state: initial,
+    addEventListener: (t: string, cb: () => void) => {
+      if (t === 'statechange') listeners.add(cb)
+    },
+    removeEventListener: () => {},
+    setState: (s: ServiceWorkerState) => {
+      w.state = s
+      for (const cb of listeners) cb()
+    }
+  }
+  return w
 }
 
 /**
@@ -32,16 +60,18 @@ interface FakeSW {
  * @param controller 进入页面时是否已被 SW 控制(null = 首访)
  * @param opts.withRegistration 是否让 getRegistration() 返回一个注册对象(默认返回);
  *   传 false 模拟"首访: 此刻还没有任何注册, 要等注册脚本跑完"
+ * @param opts.installing 初始是否已有 worker 在装(模拟"刷新时下载还没完")
  */
 function installFakeSW(
   controller: unknown,
-  opts: { withRegistration?: boolean } = {}
+  opts: { withRegistration?: boolean; installing?: FakeWorker | null } = {}
 ): FakeSW {
   const listeners = new Set<() => void>()
   const updateFoundListeners = new Set<() => void>()
   const update = vi.fn(async () => undefined)
   const reg = {
     update,
+    installing: (opts.installing ?? null) as FakeWorker | null,
     waiting: null as { postMessage: (m: unknown) => void } | null,
     addEventListener: (t: string, cb: () => void) => {
       if (t === 'updatefound') updateFoundListeners.add(cb)
@@ -70,11 +100,20 @@ function installFakeSW(
   return {
     listeners,
     updateFoundListeners,
-    fireUpdateFound: () => {
+    fireUpdateFound: (withInstalling = true) => {
+      let w: FakeWorker | null = null
+      if (withInstalling) {
+        w = makeFakeWorker()
+        reg.installing = w
+      }
       for (const cb of updateFoundListeners) cb()
+      return w
     },
     update,
-    resolveReady: () => releaseReady?.(reg)
+    resolveReady: () => releaseReady?.(reg),
+    setInstalling: (w) => {
+      reg.installing = w
+    }
   }
 }
 
@@ -127,7 +166,7 @@ const NEWER = '20261031-101010'
 describe('usePwaUpdate', () => {
   beforeEach(() => {
     sessionStorage.clear()
-    resetPromptedBuildForTest()
+    localStorage.clear()
     removeFakeSW()
     // 默认探测失败(返回不含构建号的 HTML): 绝大多数用例不关心初始核对, 让它静默
     vi.stubGlobal(
@@ -209,56 +248,45 @@ describe('usePwaUpdate', () => {
     expect(apiOf(w).updateFound.value).toBe(false)
   })
 
-  // ---- 2026-11-09 修: 报障"一个版本提示好几遍, 即使刷新了也一样" ----
+  // ---- 2026-11-10 改: 去掉"同一构建号只提示一次"的去重 ----
+  // 旧实现用 localStorage 记住"这个构建号提示过", 代价是"刷新后仍落后就再也不给入口"
+  // (用户报障: 点了更新、页面没变、入口也没了)。现在"要不要显示"完全由真实状态决定 ——
+  // 页面确实旧就亮灯, 亮灯时要么"能点"(ready)、要么"在装"(不可点), 都不是骚扰;
+  // 升级成功(构建号相同)自然就不亮了 —— 闭环靠构建号, 不靠记忆。
 
-  it('同一构建号刷新后不再重复提示(跨页面实例去重)', async () => {
+  it('刷新后页面已是新版(构建号相同) → 不提示, 闭环自洽', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: NEWER, probeLatestBuild: async () => NEWER })
+    await settle()
+    await fire(sw)
+    await settle()
+
+    expect(apiOf(w).updateFound.value).toBe(false)
+    expect(apiOf(w).updateReady.value).toBe(false)
+  })
+
+  it('刷新后仍落后 → 照常给入口(刷新一定拿得到新版, 不该因为"提示过"而静默)', async () => {
     const deps = { ownBuild: OWN, probeLatestBuild: async () => NEWER }
-
     const sw1 = installFakeSW({ state: 'activated' })
     const w1 = mountWithDeps(deps)
     await settle()
     await fire(sw1)
     await settle()
-    expect(apiOf(w1).updateFound.value).toBe(true)
+    expect(apiOf(w1).updateReady.value).toBe(true)
     w1.unmount()
 
-    // 模拟刷新: 新页面实例, same session
+    // 模拟刷新: 新页面实例, 页面仍是旧构建 ⇒ 入口必须还在
     removeFakeSW()
-    const sw2 = installFakeSW({ state: 'activated' })
+    installFakeSW({ state: 'activated' })
     const w2 = mountWithDeps(deps)
     await settle()
-    await fire(sw2)
-    await settle()
 
-    expect(apiOf(w2).updateFound.value).toBe(false)
-    expect(apiOf(w2).updateReady.value).toBe(false)
+    expect(apiOf(w2).updateFound.value).toBe(true)
+    expect(apiOf(w2).updateReady.value).toBe(true)
+    w2.unmount()
   })
 
-  it('去重必须跨 session: 新标签/TV 冷启动(sessionStorage 为空)也不再提示同一版本', async () => {
-    const deps = { ownBuild: OWN, probeLatestBuild: async () => NEWER }
-
-    const sw1 = installFakeSW({ state: 'activated' })
-    const w1 = mountWithDeps(deps)
-    await settle()
-    await fire(sw1)
-    await settle()
-    expect(apiOf(w1).updateFound.value).toBe(true)
-    w1.unmount()
-
-    // 模拟 TV 壳冷启动 / 新开标签: sessionStorage 是全新的, localStorage 仍在
-    sessionStorage.clear()
-    removeFakeSW()
-    const sw2 = installFakeSW({ state: 'activated' })
-    const w2 = mountWithDeps(deps)
-    await settle()
-    await fire(sw2)
-    await settle()
-
-    expect(apiOf(w2).updateFound.value).toBe(false)
-    expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWER)
-  })
-
-  it('去重按构建号而非永久静默: 出现更新的构建号仍会提示一次', async () => {
+  it('出现更新的构建号 → 照样提示(构建号变了就是真更新)', async () => {
     const NEWEST = '20261101-090000'
     const sw1 = installFakeSW({ state: 'activated' })
     const w1 = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
@@ -268,7 +296,6 @@ describe('usePwaUpdate', () => {
     expect(apiOf(w1).updateFound.value).toBe(true)
     w1.unmount()
 
-    // 又有更新版本: 页面(OWN)依然落后, 但可用版本变成了 NEWEST ⇒ 必须再提示
     removeFakeSW()
     const sw2 = installFakeSW({ state: 'activated' })
     const w2 = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWEST })
@@ -277,7 +304,8 @@ describe('usePwaUpdate', () => {
     await settle()
 
     expect(apiOf(w2).updateFound.value).toBe(true)
-    expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWEST)
+    w2.unmount()
+    void sw2
   })
 
   it('updatefound 但构建号相同 → 不亮灯(安装重试不再误报)', async () => {
@@ -462,9 +490,9 @@ describe('usePwaUpdate', () => {
     expect(sw.updateFoundListeners.size).toBe(1)
   })
 
-  // ---- applyUpdate: 确定性切换(2026-11-09) ----
+  // ---- applyUpdate: 只有"刷新一定拿到新版"才生效(2026-11-10 铁律) ----
 
-  it('applyUpdate: 已接管时直接刷新', async () => {
+  it('applyUpdate: 就绪(新 worker 已接管)时点一下就刷新', async () => {
     const reload = vi.fn()
     const sw = installFakeSW({ state: 'activated' })
     const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, reload })
@@ -478,133 +506,72 @@ describe('usePwaUpdate', () => {
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
-  it('applyUpdate: 未接管时等待新 SW 接管后才刷新(不再"清缓存立刻 reload")', async () => {
+  it('applyUpdate: 下载中不可点 —— 连 reload 都不该发生(刷了也是旧页面)', async () => {
     const reload = vi.fn()
     const sw = installFakeSW({ state: 'activated' })
-    const w = mountWithDeps({
-      ownBuild: OWN,
-      probeLatestBuild: async () => NEWER,
-      applyWaitMs: 30,
-      reload
-    })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, reload })
     await settle()
-    sw.fireUpdateFound()
+    sw.fireUpdateFound() // 新 worker 开始装
     await settle()
+    expect(apiOf(w).updateFound.value).toBe(true)
     expect(apiOf(w).updateReady.value).toBe(false)
 
     apiOf(w).applyUpdate()
-    expect(apiOf(w).applying.value).toBe(true)
     await settle()
-    // 还没接管 ⇒ 不能刷新
     expect(reload).not.toHaveBeenCalled()
+    expect(apiOf(w).applying.value).toBe(false) // 压根没进入"切换中"
+  })
 
-    // 新 SW 接管
-    await fire(sw)
+  it('applyUpdate: 重复点击只刷新一次(applying 拦住)', async () => {
+    const reload = vi.fn()
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, reload })
+    await settle()
+    await fire(sw) // 接管 ⇒ ready
+    await settle()
+
+    apiOf(w).applyUpdate()
+    apiOf(w).applyUpdate()
+    apiOf(w).applyUpdate()
+    await settle()
+
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('控制器已是最新(update() 后没有新 worker) → 直接判定可就绪, 点了就刷', async () => {
+    const reload = vi.fn()
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, reload })
+    await settle()
+    // 没有任何 controllerchange / updatefound: 只是"页面旧了, SW 已是最新"
+    expect(apiOf(w).updateReady.value).toBe(true)
+    expect(sw.update).toHaveBeenCalled()
+
+    apiOf(w).applyUpdate()
     await settle()
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
-  it('applyUpdate: 等待超时也要给出口(刷新一次, 不重复)', async () => {
-    const reload = vi.fn()
+  // ---- 徽标亮起 ⇒ 让 SW 真的开始装 + 进度水位 ----
+
+  it('页面落后但还没开始装 → 核对时让 SW update() 一次, 装起来就转"下载中"', async () => {
     const sw = installFakeSW({ state: 'activated' })
-    const w = mountWithDeps({
-      ownBuild: OWN,
-      probeLatestBuild: async () => NEWER,
-      applyWaitMs: 10,
-      reload
+    // 真实浏览器: update() 发现 sw.js 变了才会创建 installing
+    sw.update.mockImplementation(async () => {
+      sw.setInstalling(makeFakeWorker())
     })
-    await settle()
-    sw.fireUpdateFound()
-    await settle()
-
-    apiOf(w).applyUpdate()
-    apiOf(w).applyUpdate() // 重复点击被 applying 拦住
-    await new Promise((r) => setTimeout(r, 60))
-    await settle()
-
-    expect(reload).toHaveBeenCalledTimes(1)
-  })
-
-  /**
-   * 超时兜底刷新的死角(2026-11-09 核对时发现):
-   * 新 SW 还没接管就刷新 ⇒ 导航仍由旧 SW 应答 ⇒ 拿回旧 index.html ⇒ **页面没换**。
-   * 若还把"同构建号已提示过"留在 localStorage, 刷新后的核对会直接静默 ⇒
-   * 用户点了更新、页面没变、而且再也看不到入口(只能顶栏「刷新」)。
-   */
-  it('applyUpdate: 超时未接管 → 清去重记录, 刷新后仍落后可再提示一次', async () => {
-    const reload = vi.fn()
-    const sw = installFakeSW({ state: 'activated' })
-    const w = mountWithDeps({
-      ownBuild: OWN,
-      probeLatestBuild: async () => NEWER,
-      applyWaitMs: 10,
-      reload
-    })
-    await settle()
-    sw.fireUpdateFound()
-    await settle()
-    expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWER)
-
-    apiOf(w).applyUpdate()
-    await new Promise((r) => setTimeout(r, 60))
-    await settle()
-    expect(reload).toHaveBeenCalledTimes(1)
-    expect(localStorage.getItem('jc-pwa-prompted-build')).toBeNull()
-
-    // 模拟"刷新后仍是旧页面": 新实例、远端依然 NEWER ⇒ 必须再提示一次
-    const w2 = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, reload })
-    await settle()
-    expect(apiOf(w2).updateFound.value).toBe(true)
-  })
-
-  it('applyUpdate: 接管成功后的刷新不清去重记录(已兑现, 不该再提示)', async () => {
-    const reload = vi.fn()
-    const sw = installFakeSW({ state: 'activated' })
-    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER, applyWaitMs: 30, reload })
-    await settle()
-    sw.fireUpdateFound()
-    await settle()
-
-    apiOf(w).applyUpdate()
-    await settle()
-    await fire(sw) // 新 SW 接管
-    await settle()
-
-    expect(reload).toHaveBeenCalledTimes(1)
-    expect(localStorage.getItem('jc-pwa-prompted-build')).toBe(NEWER)
-  })
-
-  // ---- 2026-11-09 补: 徽标亮起即真的开始下载 + 进度环 ----
-
-  it('徽标亮起 → 主动踢一次 SW 下载(不再"亮了但其实一个字节没下")', async () => {
-    const sw = installFakeSW({ state: 'activated' })
     const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
     await settle()
 
-    sw.fireUpdateFound()
-    await settle()
-
+    expect(sw.update).toHaveBeenCalled()
     expect(apiOf(w).updateFound.value).toBe(true)
-    expect(sw.update).toHaveBeenCalledTimes(1)
+    expect(apiOf(w).updateReady.value).toBe(false) // 在装 ⇒ 不可点
     w.unmount()
   })
 
-  it('同一构建号不重复踢下载(反复核对也只抓一次 sw.js)', async () => {
-    const sw = installFakeSW({ state: 'activated' })
-    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
-    await settle()
-
-    sw.fireUpdateFound()
-    await settle()
-    sw.fireUpdateFound()
-    await settle()
-
-    expect(sw.update).toHaveBeenCalledTimes(1)
-    w.unmount()
-  })
-
-  it('进度按已写入 precache 的条目数推进, 接管瞬间补满', async () => {
-    const keys = Array.from({ length: 10 }, (_, i) => `https://x/old${i}.js?__WB_REVISION__=a`)
+  it('进度按 assets/<新构建号>/ 的落地条目数推进, 装完(installed)到 0.99, 接管才满', async () => {
+    // 旧版 10 条(在 OWN 目录下), 新版也是 10 条但目录换成 NEWER
+    const keys = Array.from({ length: 10 }, (_, i) => `https://x/assets/${OWN}/old${i}.js?__WB_REVISION__=a`)
     const list = vi.fn(async () => keys.slice())
     const sw = installFakeSW({ state: 'activated' })
     const w = mountWithDeps({
@@ -614,79 +581,81 @@ describe('usePwaUpdate', () => {
       progressPollMs: 10
     })
     await settle()
-    sw.fireUpdateFound()
+    const worker = sw.fireUpdateFound()!
     await settle()
     // 亮起就有一格可见进度, 不是 0
     expect(apiOf(w).progress.value).toBeGreaterThan(0)
 
-    // 新版本落地一半(键名带新 revision, 与基线不重合)
-    for (let i = 0; i < 5; i++) keys.push(`https://x/new${i}.js?__WB_REVISION__=b`)
+    // 新版本落地一半: 命中 NEWER 目录的 5 条
+    for (let i = 0; i < 5; i++) keys.push(`https://x/assets/${NEWER}/new${i}.js?__WB_REVISION__=b`)
     await new Promise((r) => setTimeout(r, 60))
     await settle()
     expect(apiOf(w).progress.value).toBeGreaterThanOrEqual(0.5)
-    // 还没接管就不能显示满
-    expect(apiOf(w).progress.value).toBeLessThanOrEqual(0.95)
+    expect(apiOf(w).progress.value).toBeLessThan(1)
 
-    await fire(sw) // 新 SW 接管 = 整包落地
+    // 浏览器说装完了 ⇒ 水位顶到 0.99(满格仍然只留给"可点")
+    worker.setState('installed')
+    await settle()
+    expect(apiOf(w).progress.value).toBe(0.99)
+    expect(apiOf(w).updateReady.value).toBe(false)
+
+    await fire(sw) // 新 SW 接管 = 可刷新
     await settle()
     expect(apiOf(w).progress.value).toBe(1)
     w.unmount()
   })
 
-  // ---- applyUpdate 超时兜底: 硬重置(唯一能保证"点了就拿到新页面"的手段) ----
-
-  it('applyUpdate: 等满超时仍未接管 → 先硬重置再刷新', async () => {
-    const order: string[] = []
-    const reload = vi.fn(() => {
-      order.push('reload')
-    })
-    const hardReset = vi.fn(async () => {
-      order.push('reset')
-    })
-    const sw = installFakeSW({ state: 'activated' })
+  it('刷新后在途安装仍在 → 立刻接着显示进度(不用等构建号比对)', async () => {
+    const keys = Array.from({ length: 10 }, (_, i) => `https://x/assets/${OWN}/old${i}.js?__WB_REVISION__=a`)
+    for (let i = 0; i < 4; i++) keys.push(`https://x/assets/${NEWER}/part${i}.js?__WB_REVISION__=b`)
+    const list = vi.fn(async () => keys.slice())
+    const sw = installFakeSW({ state: 'activated' }, { installing: makeFakeWorker() })
     const w = mountWithDeps({
       ownBuild: OWN,
       probeLatestBuild: async () => NEWER,
-      applyWaitMs: 10,
-      reload,
-      hardReset
+      listPrecacheKeys: list,
+      progressPollMs: 10
     })
-    await settle()
-    sw.fireUpdateFound()
-    await settle()
 
-    apiOf(w).applyUpdate()
-    await new Promise((r) => setTimeout(r, 60))
+    // mount 即亮灯, 且进度直接落在"已下 4 条"的位置, 不是从 0 重来
     await settle()
+    expect(apiOf(w).updateFound.value).toBe(true)
+    expect(apiOf(w).updateReady.value).toBe(false)
+    expect(apiOf(w).progress.value).toBeGreaterThanOrEqual(0.3)
 
-    expect(hardReset).toHaveBeenCalledTimes(1)
-    // 顺序: 先拆 SW/清缓存, 再刷新 —— 反了就还会被旧 precache 应答
-    expect(order).toEqual(['reset', 'reload'])
+    // 构建号比对也认可(页面确实旧) ⇒ 灯留着
+    await settle()
+    expect(apiOf(w).updateFound.value).toBe(true)
     w.unmount()
+    void sw
   })
 
-  it('applyUpdate: 接管成功 → 不硬重置(别白扔已下好的 precache)', async () => {
-    const reload = vi.fn()
-    const hardReset = vi.fn(async () => undefined)
-    const sw = installFakeSW({ state: 'activated' })
+  it('有在途安装但页面已是最新 → 比对后收灯, 不误报', async () => {
+    const sw = installFakeSW({ state: 'activated' }, { installing: makeFakeWorker() })
     const w = mountWithDeps({
       ownBuild: OWN,
-      probeLatestBuild: async () => NEWER,
-      applyWaitMs: 30,
-      reload,
-      hardReset
+      probeLatestBuild: async () => OWN, // 页面就是最新
+      listPrecacheKeys: async () => []
     })
     await settle()
-    sw.fireUpdateFound()
-    await settle()
+    expect(apiOf(w).updateFound.value).toBe(false)
+    expect(apiOf(w).updateReady.value).toBe(false)
+    w.unmount()
+    void sw
+  })
 
-    apiOf(w).applyUpdate()
+  it('安装失败(redundant) → 收灯, 不留下永远不动的图标', async () => {
+    const sw = installFakeSW({ state: 'activated' })
+    const w = mountWithDeps({ ownBuild: OWN, probeLatestBuild: async () => NEWER })
     await settle()
-    await fire(sw) // 新 SW 接管
+    const worker = sw.fireUpdateFound()!
     await settle()
+    expect(apiOf(w).updateFound.value).toBe(true)
 
-    expect(hardReset).not.toHaveBeenCalled()
-    expect(reload).toHaveBeenCalledTimes(1)
+    worker.setState('redundant')
+    await settle()
+    expect(apiOf(w).updateFound.value).toBe(false)
+    expect(apiOf(w).updateReady.value).toBe(false)
     w.unmount()
   })
 

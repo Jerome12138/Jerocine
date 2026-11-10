@@ -31,6 +31,7 @@ type IconName =
   | 'user'
   | 'home'
   | 'arrow-left'
+  | 'arrow-up'
   | 'film'
   | 'tv'
   | 'mic'
@@ -108,6 +109,8 @@ const PATHS: Record<IconName, string> = {
     'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4s-4 1.79-4 4s1.79 4 4 4m0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4',
   'home': 'M10 20v-6h4v6h5v-8h3L12 3L2 12h3v8z',
   'arrow-left': 'M20 11H7.83l5.59-5.59L12 4l-8 8l8 8l1.41-1.41L7.83 13H20z',
+  /* arrow-up: 直杆向上箭头 —— 更新提示用(2026-11-10), 与 chevron-up(细折角)区分 */
+  'arrow-up': 'M4 12l1.41 1.41L11 7.83V20h2V7.83l5.59 5.58L20 12l-8-8l-8 8z',
   'film':
     'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V4z',
   /* tv: 剧集(侧栏导航与电影 film 区分, 2026-10-11) */

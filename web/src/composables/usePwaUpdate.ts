@@ -43,6 +43,10 @@ import { CHUNK_RELOAD_GUARD_KEY } from '@/utils/chunkReload'
  *  另外新增**同构建号每设备只提示一次**(localStorage): 点过更新、刷新后仍是旧版时
  *  不再重复弹; 想彻底拿新版仍可用顶栏「刷新」按钮(reloadToLatest)。
  *
+ * ⚠️ 下面 2026-11-09 的三条补修里提到的"去重记录""等 40s / 超时硬重置"都已在
+ *   2026-11-10 移除(见本段之后的「交互重做」)。原文保留只为追溯当时的判据与踩坑,
+ *   不要再照着实现。
+ *
  * 2026-11-09 补修(用户要求"好好修"): 上一版把去重记在 **sessionStorage**, 而 sessionStorage
  *  的生命周期是"一个标签页" —— TV 壳每次冷启动、Web 每开一个新标签都是全新 session,
  *  于是同一个版本照样"每启动一次提示一次", 报障现象只轻了一半。
@@ -80,39 +84,57 @@ import { CHUNK_RELOAD_GUARD_KEY } from '@/utils/chunkReload'
  *    取到 undefined ⇒ `updatefound` 永远挂不上、`kickDownload` 一直空转。
  *    ⇒ 取不到就等 `navigator.serviceWorker.ready`(只在存在 active worker 时 resolve,
  *      正好是"注册 → install → activate"的终点)再挂, 幂等封装在 attachUpdateFound。
+ *
+ * 2026-11-10 交互重做(用户报障: "点一下就消失了, SW 还没加载完, 不知道到底好没好")。
+ *  根因不是状态机错, 而是**允许在"还没装完"的时候点**:
+ *  旧的琥珀态是可点的, 点击后进入 applying → 等 40s → 装不完就硬重置清缓存重下 → 刷新。
+ *  用户视角是"进度条走到 40%, 突然整页刷新, 徽标没了, 到底更没更不知道"。
+ *  ⇒ 语义收紧成一条铁律: **只有"刷新一定拿得到新版"才可点**。
+ *     - 新 worker 已经接管(controllerchange) ⇒ 可点;
+ *     - 控制器本来就是最新、只是本页旧了(`reg.update()` 后没有任何 installing/waiting)
+ *       ⇒ 可点;
+ *     - 其余(正在装 / 判断不出来) ⇒ 琥珀态, **不可点**, 悬停给出百分比。
+ *  为什么"没装完就刷新"根本没用(用户的原话"怎么刷都是旧页面"是对的):
+ *    workbox 配了 `navigateFallback: '/index.html'`, 导航请求由**当前控制器**的 precache
+ *    应答 —— 旧 worker 控制着页面时, 刷新拿回的必然是它缓存里的旧 index.html。
+ *    所以"下载中刷新"只是在骗自己, 还会白扔正在下的 precache。
+ *  ⇒ 顺带把"刷新后看不到进度"补上: 刷新后新页面 mount 时, 若 `reg.installing` 还在,
+ *    立刻接着显示进度(按 `assets/<最新构建号>/` 目录的落地条目数算, 不依赖采样起点),
+ *    于是"装到一半刷新, 进度接着走"成立。
+ *  ⇒ `APPLY_WAIT_MS` / `waitForControllerChange` / `hardResetSw` 一并删除: 它们兜的是
+ *    "下载中点刷新"那条路, 那条路现在从 UI 上就不存在了。
+ *  ⇒ "同一构建号只提示一次"的去重(localStorage `jc-pwa-prompted-build`)同时取消。
+ *    它要压的"一个版本提示好几遍", 两个根因(updatefound 无条件亮灯、刷新后仍是旧页)
+ *    在前两轮就修掉了; 留着它反而制造本次这条链 —— "刷新后仍落后, 却因为提示过而
+ *    再也不给入口"。现在显示与否完全由真实状态决定: 页面确实旧就亮, 亮灯时要么能点、
+ *    要么在装; 真的升级成功, 构建号相同自然就熄了 —— 闭环靠构建号, 不靠记忆。
  */
 
 export interface PwaUpdate {
-  /** 新版本已接管当前页面(可立即刷新切换) */
+  /** 新版本已就绪 —— **此刻刷新一定拿得到新版**, 徽标青色满格且可点 */
   updateReady: Ref<boolean>
-  /** 检测到新版本(开始下载, 可能尚未接管) —— 徽标此刻即亮 */
+  /** 检测到新版本、正在下载 —— 徽标琥珀态, **不可点**(点了也刷不出新版) */
   updateFound: Ref<boolean>
-  /** 正在等待新 SW 接管(用户已点更新) —— 徽标显示"更新中"并禁止重复点击 */
+  /** 用户已点刷新, 正在切换 —— 徽标显示"更新中"并禁止重复点击 */
   applying: Ref<boolean>
-  /** 新版本落地进度 0–1(按已写入 precache 的文件数估算, 见 startProgressSampling) */
+  /** 新版本落地进度 0–1(按已写入 precache 的文件数估算, 见 startProgressSampling); 就绪为 1 */
   progress: Ref<number>
-  /** 立即刷新到新版本 */
+  /** 立即刷新到新版本(仅在 updateReady 时生效) */
   applyUpdate: () => void
   /** 当前环境是否支持 Service Worker */
   supported: boolean
 }
 
-/** 已提示过的构建号 —— 同一版本只提示一次, 消除"一个版本提示好几遍" */
-const PROMPTED_BUILD_KEY = 'jc-pwa-prompted-build'
-/** 探测存储可用性用的临时键(写完立刻删, 不留下垃圾) */
-const STORAGE_PROBE_KEY = 'jc-pwa-storage-probe'
 /**
- * 点「更新」后等新 SW 接管的时长(ms)。
- * 8s 对跨境链路是必然超时(3MB precache 要 30–40s), 等于"点了没反应";
- * 40s 覆盖整包下载, 装好立刻刷。超时才走硬重置兜底(见 applyUpdate)。
+ * 回到前台重查的最小间隔(ms): TV 壳常驻没有导航机会, 靠 visibilitychange 兜底
  */
-const APPLY_WAIT_MS = 40_000
-/** 回到前台重查的最小间隔(ms): TV 壳常驻没有导航机会, 靠 visibilitychange 兜底 */
 const VISIBLE_RECHECK_MS = 60_000
 /** 进度采样间隔(ms) —— 只数 Cache Storage 条目数, 开销可忽略 */
 const PROGRESS_POLL_MS = 800
 /** 拿不到基线时按耗时缓动到的"预估整包时长"(ms): 跨境 3MB 约 30–40s */
 const PROGRESS_ESTIMATE_MS = 30_000
+/** 进度分母的兜底下限 —— 只在"首次安装、缓存里什么都还没有"时防除零 */
+const PROGRESS_MIN_ENTRIES = 10
 
 /**
  * 触发核对的原因 —— 决定"探测失败"时该不该保守提示:
@@ -137,115 +159,33 @@ function readOwnBuild(): string {
 }
 
 /**
- * 去重存储的句柄(懒探测, 只探一次) —— 优先 localStorage, 不可用时退回 sessionStorage。
+ * 探一次 sw.js, 判断"新版本到底在不在装" —— 决定徽标可不可点。
  *
- * 为什么必须 localStorage: sessionStorage 跟着"标签页"走, TV 壳每次冷启动、Web 每开新标签
- * 都是新 session ⇒ 同一个版本"每启动一次提示一次"。localStorage 按设备+源持久化,
- * 才真正做到"一个版本只提示一次"。
+ * 页面侧能看到的只有"本页构建号 vs 服务器最新构建号", **看不到控制器是不是最新的**,
+ * 而这两者对用户是完全不同的处境:
+ *  - 控制器已是最新 ⇒ 只是本页旧了, 刷新必得新版 ⇒ **可点**;
+ *  - 控制器还是旧的 ⇒ 刷新会被它用 precache 应答(navigateFallback: /index.html),
+ *    拿回的还是旧页面 ⇒ **不能点**, 得等新 worker 装完接管。
+ * `reg.update()` 正好能分开这两者: 它拉 sw.js 逐字节比对, 有差异才会创建 installing。
+ * 所以"update() 回来时没有任何 installing/waiting" = 控制器即服务器上的版本。
+ *
+ * @returns 'installing' 有新 worker 在装(不可点); 'latest' 控制器已最新(可点刷新);
+ *          'unknown' 拿不到注册或 update 失败(丢包链路常态) —— 调用方按"还在装"处理,
+ *          宁可暂不给入口, 也不要在装不完时让用户点了白刷。
  */
-let promptedStore: Storage | null | undefined
-function getPromptedStore(): Storage | null {
-  if (promptedStore !== undefined) return promptedStore
-  promptedStore = null
-  const usable = (s: Storage | undefined): boolean => {
-    if (!s) return false
-    try {
-      s.setItem(STORAGE_PROBE_KEY, '1')
-      s.removeItem(STORAGE_PROBE_KEY)
-      return true
-    } catch {
-      return false
-    }
-  }
-  let local: Storage | undefined
-  let session: Storage | undefined
+async function probeSwState(
+  getReg: () => Promise<ServiceWorkerRegistration | null>
+): Promise<'installing' | 'latest' | 'unknown'> {
   try {
-    local = typeof localStorage === 'undefined' ? undefined : localStorage
+    const r = await getReg()
+    if (!r) return 'unknown'
+    if (r.installing || r.waiting) return 'installing'
+    await r.update()
+    // update() 只保证"检查完成"; 真有差异时 installing 在它返回前就已挂上
+    if (r.installing || r.waiting) return 'installing'
+    return 'latest'
   } catch {
-    local = undefined
-  }
-  try {
-    session = typeof sessionStorage === 'undefined' ? undefined : sessionStorage
-  } catch {
-    session = undefined
-  }
-  if (usable(local)) promptedStore = local ?? null
-  else if (usable(session)) promptedStore = session ?? null
-  return promptedStore
-}
-
-/** 已提示到的构建号(读失败按"没提示过"处理) */
-function readPromptedBuild(): string {
-  try {
-    return getPromptedStore()?.getItem(PROMPTED_BUILD_KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
-
-/** 记下"这个构建号已经提示过" —— 同一版本刷新/重启后都不再重复弹 */
-function markPromptedBuild(build: string): void {
-  if (!build) return
-  try {
-    getPromptedStore()?.setItem(PROMPTED_BUILD_KEY, build)
-  } catch {
-    /* 存储不可用(隐私模式/配额满): 退化为"每次都可能提示", 不影响更新能力 */
-  }
-}
-
-/** 忘掉去重记录 —— 用于"提示过但没能真的切到新版"的情况(见 applyUpdate 超时分支) */
-function clearPromptedBuild(): void {
-  try {
-    getPromptedStore()?.removeItem(PROMPTED_BUILD_KEY)
-  } catch {
-    /* 忽略 */
-  }
-}
-
-/** 清掉去重记录 —— 仅测试用(生产没有"重新允许提示同一版本"的语义) */
-export function resetPromptedBuildForTest(): void {
-  promptedStore = undefined
-  try {
-    localStorage.removeItem(PROMPTED_BUILD_KEY)
-  } catch {
-    /* 忽略 */
-  }
-  try {
-    sessionStorage.removeItem(PROMPTED_BUILD_KEY)
-  } catch {
-    /* 忽略 */
-  }
-}
-
-/**
- * 硬重置: 清掉本应用的 Cache Storage, 再注销 SW —— 让下一次导航绕开 precache 直接走网络。
- *
- * 顺序必须是**先清缓存再注销**: 注销并不会立刻让当前页面脱控(控制器要等页面卸载才摘),
- * 这次导航仍可能被旧 worker 应答 —— 那时 precache 已空, PrecacheStrategy 的
- * `fallbackToNetwork`(默认 true)会去网络取, 拿到的就是新 index.html; 反过来先注销后清缓存,
- * 缓存还在, 仍可能被旧 HTML 糊住。
- *
- * 代价(只在"等满 APPLY_WAIT_MS 仍未接管"时付一次): 正在下的 precache 作废,
- * 刷新后从 0 重下新版本。
- */
-async function hardResetSw(): Promise<void> {
-  try {
-    if (typeof caches !== 'undefined') {
-      const names = await caches.keys()
-      await Promise.all(
-        names
-          .filter((n) => n.startsWith('jc-') || n.startsWith('workbox-precache'))
-          .map((n) => caches.delete(n))
-      )
-    }
-  } catch {
-    /* Cache Storage 不可用(隐私模式/老内核): 只靠注销 */
-  }
-  try {
-    const r = await navigator.serviceWorker.getRegistration?.()
-    await r?.unregister?.()
-  } catch {
-    /* 注销失败: 缓存已清, 这次导航大概率仍能走网络拿到新页面 */
+    return 'unknown'
   }
 }
 
@@ -323,10 +263,6 @@ export interface PwaUpdateDeps {
   ownBuild?: string
   /** 最新构建号探测(默认抓 index.html) —— 仅测试注入 */
   probeLatestBuild?: () => Promise<string>
-  /** 等待接管超时(ms) —— 仅测试注入, 生产用 APPLY_WAIT_MS */
-  applyWaitMs?: number
-  /** 超时后的硬重置(拆 SW + 清本应用缓存) —— 仅测试注入, 生产走 hardResetSw */
-  hardReset?: () => Promise<void>
   /** 列 precache 条目(进度采样) —— 仅测试注入, 生产走 listPrecacheKeys */
   listPrecacheKeys?: () => Promise<string[]>
   /** 进度采样间隔(ms) —— 仅测试注入 */
@@ -340,12 +276,10 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
   const updateReady = ref(false)
   /** 检测到新版本开始下载(install 中, 尚未接管) —— 徽标此刻即出现, 不必等预取完成 */
   const updateFound = ref(false)
-  /** 用户已点更新, 正在等新 SW 接管 —— 徽标转"更新中", 禁止重复点击 */
+  /** 用户已点刷新, 正在切换 —— 徽标转"更新中", 禁止重复点击 */
   const applying = ref(false)
   const ownBuild = deps.ownBuild ?? readOwnBuild()
   const probeLatestBuild = deps.probeLatestBuild ?? fetchLatestBuild
-  const applyWaitMs = deps.applyWaitMs ?? APPLY_WAIT_MS
-  const hardReset = deps.hardReset ?? hardResetSw
   const doReload = deps.reload ?? ((): void => window.location.reload())
   const listKeys = deps.listPrecacheKeys ?? listPrecacheKeys
   const progressPollMs = deps.progressPollMs ?? PROGRESS_POLL_MS
@@ -353,7 +287,14 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
   /** 新版本落地进度 0–1(驱动标题旁图标的填充动效) */
   const progress = ref(0)
   let progTimer: number | null = null
-  /** 开始采样时的 precache 条目快照 + 条目总数(两次构建的文件数基本一致) */
+  /**
+   * 进度分母的两种来源:
+   *  - `progTag` 已知(探测到了最新构建号) ⇒ 按"已落地的 `assets/<tag>/` 条目数"算,
+   *    分母取"缓存里不属于该构建的条目数"(≈ 上一版的清单规模)。这样**刷新后接着算也准**
+   *    —— 不依赖"从哪一刻开始采样", 装到一半刷新, 新页面照样能显示 60% 而不是 2%。
+   *  - `progTag` 未知(探测失败 / 首访刚亮灯) ⇒ 退回"相对快照新出现的键数", 只是估算。
+   */
+  let progTag = ''
   let progBaseline: Set<string> | null = null
   let progExpected = 0
   let progStartAt = 0
@@ -376,14 +317,17 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
   let updateFoundListener: (() => void) | null = null
   let visibleListener: (() => void) | null = null
   let reg: ServiceWorkerRegistration | null = null
-  /** 已经为哪个构建号主动踢过下载 —— 同一构建号不重复抓 sw.js(核对可能每分钟触发) */
-  let kickedKey = ''
   /** 同一次核对只跑一趟(探测是网络请求, 多个信号并发时会重复发) */
   let checking = false
   /** 核对期间又来了 controllerchange —— 会补跑一次, 否则会漏掉"已接管"这个最强信号 */
   let pendingControllerChange = false
-  /** 本页实例内是否已经提示过 —— 跨"刷新/重新挂载"由 sessionStorage 去重, 本实例内允许升级到 ready */
-  let promptedInThisInstance = false
+  /**
+   * 已经比对确认"本页就是最新"。
+   * 只为一个竞态存在: mount 时 `resumeInFlight`(看 `reg.installing` 亮灯) 与
+   * `checkForUpdate('visible')`(抓 index.html 比对) 是两条并行的异步链, 若比对先落地
+   * 判出"页面已最新"并收灯, 慢一步的 resumeInFlight 不该又把灯点亮。
+   */
+  let verifiedCurrent = false
   /** 上次"回到前台"核对的时刻, 用于节流 */
   let lastVisibleCheck = 0
 
@@ -399,14 +343,16 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
    * 进度采样 —— 让图标能"按进度填满", 而不是空转。
    *
    * 依据: workbox 每下完一个文件就 `cache.put` 进 precache(键带 `__WB_REVISION__`),
-   * 所以"相对开始时的快照新出现的键数 / 快照里的键数"就是真实落地比例 —— 两次构建的
-   * 文件数基本一致, 用来驱动一个小图标够了, 且比按时间假装更不容易"卡在 90% 不动"。
+   * 而资源目录形如 `assets/<部署时间戳>/` —— 于是"缓存里命中该目录的条目数"就是
+   * 新版本已落地的文件数, 分母用"缓存里**不属于**该目录的条目数"(≈ 上一版清单规模,
+   * 两次部署的文件数基本一致)。这个口径的好处是**刷新后接着算也准**: 装到一半刷新,
+   * 新页面 mount 时同样能算出真实百分比, 不必从头数起。
    *
-   * 兜底: 拿不到缓存(首访/隐私模式/列表为空) 时按耗时缓动到 0.9, 接管瞬间补满。
-   * 上限 0.95 直到真正接管 —— 别在"还在装"的时候显示 100%。
+   * 拿不到构建号(探测失败 / 首访亮灯那一刻)时退回"相对开始快照新出现的键数", 只是估算。
+   * 兜底: 连缓存都读不到(隐私模式 / 老内核)时按耗时缓动到 0.9。
+   * 上限 0.99 —— 满格只留给"真能点了"(见 PwaUpdateBadge 的 fill)。
    */
   async function sampleProgress(): Promise<void> {
-    if (!progBaseline) return
     let keys: string[] = []
     try {
       keys = await listKeys()
@@ -414,7 +360,12 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
       keys = []
     }
     let next: number
-    if (progExpected >= 10 && keys.length > 0) {
+    if (progTag && keys.length > 0) {
+      const placed = keys.filter((k) => k.includes(`/assets/${progTag}/`)).length
+      const prevScale = keys.length - placed
+      const total = Math.max(prevScale, placed, PROGRESS_MIN_ENTRIES)
+      next = Math.min(0.99, placed / total)
+    } else if (progBaseline && progExpected >= PROGRESS_MIN_ENTRIES && keys.length > 0) {
       const fresh = keys.filter((k) => !progBaseline!.has(k)).length
       next = Math.min(0.95, fresh / progExpected)
     } else {
@@ -431,12 +382,16 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
     progSampling = false
   }
 
-  /** 开始采样(幂等) —— 从"发现更新"那一刻起算, 因为下载也在那一刻开始 */
-  function startProgressSampling(): void {
+  /**
+   * 开始采样(幂等)。
+   * @param tag 最新构建号(可空) —— 已知就按目录精确算; 空则退回快照估算。
+   *        采样已在进行中时, 仍然接受补进来的 tag(先亮灯后探到构建号的常见顺序)。
+   */
+  function startProgressSampling(tag = ''): void {
+    if (tag) progTag = tag
     if (progSampling) return
     progSampling = true
     progStartAt = Date.now()
-    if (progress.value < 0.02) progress.value = 0.02 // 亮起就有可见的一小格, 不是"没反应"
     void (async () => {
       try {
         progBaseline = new Set(await listKeys())
@@ -445,38 +400,41 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
       }
       progExpected = progBaseline.size
       await sampleProgress()
+      // 亮起就有可见的一小格, 不是"没反应"(但别盖掉已经算出来的真实进度)
+      if (progress.value < 0.02) progress.value = 0.02
     })()
     progTimer = window.setInterval(() => void sampleProgress(), progressPollMs)
   }
 
-  /**
-   * 主动让 SW 去检查并开始安装 —— 让"发现更新"名副其实。
-   *
-   * 页面侧的例行核对只抓 index.html 比构建号, 从不触发下载; 真正开始装 precache 的是
-   * 浏览器自己的检查(导航 / 约 24h)或用户点击。不补这一下, 琥珀态可能亮很久而一个字节
-   * 都没下, 用户点了还得从头等整包。
-   *
-   * 按构建号去重: 核对每次回到前台都可能跑, 同一个版本只踢一次(失败也不重踢 —— 点徽标
-   * 时 applyUpdate 会再 update 一次, 别把丢包链路刷成 sw.js 轮询)。
-   */
-  function kickDownload(key: string): void {
-    if (!key || kickedKey === key) return
-    kickedKey = key
-    void (async () => {
-      try {
-        const r = reg ?? (await navigator.serviceWorker.getRegistration?.())
-        if (!r) return
-        reg = r
-        await r.update()
-      } catch {
-        /* 丢包链路上 update 抛错是常态: 不重试, 等用户点击那条路再试 */
-      }
-    })()
+  /** 收灯 —— 状态归零, 采样停掉(页面已最新 / 安装失败时用) */
+  function hide(): void {
+    updateFound.value = false
+    updateReady.value = false
+    stopProgressSampling()
+    progress.value = 0
+    progTag = ''
+    progBaseline = null
+    progExpected = 0
+  }
+
+  /** 取注册对象(没有就地取并回填, 顺带把 updatefound 挂上) */
+  async function getRegForUpdate(): Promise<ServiceWorkerRegistration | null> {
+    if (reg) return reg
+    try {
+      const r = (await navigator.serviceWorker.getRegistration?.()) ?? null
+      if (r) attachUpdateFound(r)
+      return r
+    } catch {
+      return null
+    }
   }
 
   /**
    * 统一的"是否要给用户提个醒"判据 —— 所有入口信号都收敛到这里。
-   * 顺序很关键: 先判"页面已最新"(收掉可能的误亮) → 再判"探测可信度" → 最后去重。
+   * 顺序很关键: 先判"页面已最新"(收掉可能的误亮) → 再判"探测可信度" → 最后判"能不能点"。
+   *
+   * 「能不能点」是 2026-11-10 立的铁律(见文件头): 只有"这次刷新一定拿得到新版"才 ready。
+   * 拿不准就报"下载中"(不可点) —— 让用户点一个刷不出新版的按钮, 比暂时不给入口更糟。
    */
   async function checkForUpdate(signal: UpdateSignal): Promise<void> {
     if (!controlled) return
@@ -497,48 +455,55 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
       if (latest) {
         if (!isPageStale({ hadController: controlled, ownBuild, latestBuild: latest })) {
           // 页面内容已是新版(典型: 强制刷新后旧 SW 才被替换) —— 收掉徽标, 不给误导
-          if (updateFound.value) {
-            updateFound.value = false
-            updateReady.value = false
+          verifiedCurrent = true
+          if (updateFound.value || updateReady.value) {
+            hide()
+            track('update-skip-current')
           }
-          stopProgressSampling()
-          progress.value = 0
-          track('update-skip-current')
           return
         }
-      } else if (signal !== 'updatefound') {
-        // 探测失败: 只有"sw.js 确实变了"这条硬证据才值得提示。
-        // 单纯的 controllerchange 在丢包链路上遇到探测失败是常态, 提示就是误报。
+        verifiedCurrent = false
+      } else if (signal !== 'updatefound' && !reg?.installing) {
+        // 探测失败 + 弱信号 + 也没有在途安装 ⇒ 什么都判断不了, 不提示。
+        // (丢包链路上探测失败是常态, 硬提示就是误报; 有 installing 时至少要显示进度)
         track('update-skip-probe-failed')
         return
       }
 
-      // 去重: 同一构建号每设备只提示一次 —— 点过更新、刷新/重启后仍是旧版时不再重复弹。
-      // 注意判据分两层:
-      //  - 跨页面实例(刷新/重新挂载/新标签/TV 冷启动): 看 localStorage, 已提示过就完全静默;
-      //  - 同一实例内: 允许把 amber「发现更新」升级成蓝色「新版本」(同一次提示的进展, 不是重复)
-      const key = latest || `unknown:${signal}`
-      if (!promptedInThisInstance && readPromptedBuild() === key) {
-        track('update-skip-already-prompted')
-        return
+      // ---- 判定"能不能让用户点" ----
+      // ready 的两个可信来源:
+      //  ① 新 worker 已接管页面(controllerchange) ⇒ 刷新必得新版;
+      //  ② 控制器本来就是最新的, 只是本页旧了(update() 后没有任何 installing/waiting)
+      //     ⇒ 刷新命中的是该 worker 的 precache, 里面就是新 index.html。
+      // 其余一律"下载中": 此时刷新会被旧 worker 用 precache 应答(navigateFallback),
+      // 拿回的还是旧页面 —— 点了只会让人更迷惑。
+      let ready = signal === 'controllerchange'
+      if (!ready && !reg?.installing) {
+        // 已经有 worker 在装就不用再探; 探出来的 'installing' 与 'unknown' 都按"还在装/
+        // 判断不出"处理(ready 保持 false, 不可点) —— 只有确证"控制器已是最新"才放行。
+        const st = await probeSwState(getRegForUpdate)
+        ready = st === 'latest'
       }
-      markPromptedBuild(key)
-      promptedInThisInstance = true
 
+      const wasFound = updateFound.value
+      const wasReady = updateReady.value
       updateFound.value = true
-      // 只有 controllerchange 才意味着"新 SW 已接管, 直接刷新即可"; 一旦 ready 不因后续信号降级
-      if (signal === 'controllerchange') updateReady.value = true
-      if (updateReady.value) {
-        // 接管 = 整包已落地: 补齐进度环并停采样
+      updateReady.value = ready
+      if (ready) {
+        // 就绪 = 整包已落地并可由本页消费: 水位补满, 停采样
         stopProgressSampling()
         progress.value = 1
       } else {
-        // 徽标亮起 ⇒ 让下载**真的开始**。否则"发现更新"可能只是比出了构建号差异, 而
-        // precache 一个字节都没下(页面侧的核对不触发 SW 下载), 用户点了还得从头等。
-        startProgressSampling()
-        kickDownload(key)
+        // 下载中: 按最新构建号精确推进水位 + 盯住 worker 的 statechange(装完立刻补满)
+        // 从"就绪"降级下来时水位可能是满的(上一轮判过 ready) —— 必须清掉, 否则会出现
+        // "还没装完却显示满格"的矛盾信号(满格 = 可以点, 见 PwaUpdateBadge 的 fill)。
+        if (progress.value >= 1) progress.value = 0
+        startProgressSampling(latest)
+        watchInstalling()
       }
-      track(updateReady.value ? 'update-ready' : 'update-found')
+      // 只在"刚亮灯"或"升级到就绪"时埋一条 —— 核对每 60s 都会跑, 无脑 track 会刷屏
+      if (!wasFound) track(ready ? 'update-ready' : 'update-found')
+      else if (!wasReady && ready) track('update-ready')
     } finally {
       checking = false
       if (pendingControllerChange) {
@@ -549,32 +514,29 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
   }
 
   /**
-   * 等新 SW 接管(controllerchange) —— 超时也 resolve, 保证用户总能刷新。
-   * @returns true = 真的收到 controllerchange(新 SW 已接管, 刷新必得新版);
-   *          false = 等到超时(install 还没完 —— 此时刷新拿到的仍是旧页面)
+   * 盯住当前正在安装的 worker, 用它的 `statechange` 判定"整包到底装完没有"。
+   *
+   * 为什么不能只靠采样: 条目数是估算(新旧清单文件数不同), 而 `installed` 是浏览器的
+   * 权威结论 —— 装完了就把水位顶到 0.99(不顶到 1:满格留给"可点", 见 Badge 的 fill)。
+   * `redundant` = 安装失败或被替换, 直接收灯, 等下一次 updatefound 再从头来,
+   * 免得留一个永远不动的琥珀图标。
    */
-  function waitForControllerChange(timeoutMs: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      let done = false
-      const settle = (tookOver: boolean): void => {
-        if (done) return
-        done = true
-        try {
-          navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
-        } catch {
-          /* 忽略 */
+  let watchedWorker: ServiceWorker | null = null
+  function watchInstalling(): void {
+    const w = reg?.installing
+    if (!w || watchedWorker === w) return
+    watchedWorker = w
+    try {
+      w.addEventListener('statechange', () => {
+        if (w.state === 'installed') {
+          progress.value = 0.99
+        } else if (w.state === 'redundant') {
+          if (!updateReady.value) hide()
         }
-        resolve(tookOver)
-      }
-      const onControllerChange = (): void => settle(true)
-      try {
-        navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
-      } catch {
-        resolve(false)
-        return
-      }
-      window.setTimeout(() => settle(false), timeoutMs)
-    })
+      })
+    } catch {
+      /* 老内核没有 statechange: 靠采样与 controllerchange 兜底 */
+    }
   }
 
   /**
@@ -582,7 +544,7 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
    *
    * 两条来路: ① mount 时已存在的注册(`getRegistration`, 回访); ② 首访 / 被硬重置之后
    * 注册完成激活(`ready`)。第 ② 条是 2026-11-10 补的 —— 原来只在 mount 取一次注册,
-   * 首访那次注册完成后 `reg` 仍为 null ⇒ 监听挂不上、`kickDownload` 空转。
+   * 首访那次注册完成后 `reg` 仍为 null ⇒ updatefound 监听挂不上、核对也不会被它触发。
    *
    * 换注册对象时先摘旧监听, 免得同一个核对被触发两次。
    */
@@ -602,6 +564,21 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
     } catch {
       /* 老内核可能没有 addEventListener: 靠 controllerchange / visibilitychange 兜住 */
     }
+  }
+
+  /**
+   * 刷新后恢复"正在下载"的显示 —— 用户明确要求: 没更新好就保留图标, 刷新也要显示当前进度。
+   *
+   * 内存态随刷新清零, 但 `reg.installing` 是浏览器侧的真相: 装到一半刷新, 新页面照样能看
+   * 到那个 worker 还在装。这里先亮灯接着走(进度按 `assets/<tag>/` 目录落地数算, 见
+   * sampleProgress —— 所以刷新后不会从 0 重来), 构建号比对随后会判断要不要收灯
+   * (页面本来就已是最新的话, 那颗灯不该亮)。
+   */
+  function resumeInFlight(r: ServiceWorkerRegistration): void {
+    if (!r.installing || verifiedCurrent) return
+    updateFound.value = true
+    startProgressSampling()
+    watchInstalling()
   }
 
   onMounted(() => {
@@ -634,12 +611,13 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
         ?.then?.((r) => {
           if (r) {
             attachUpdateFound(r)
+            resumeInFlight(r)
             return
           }
-          // 首访 / 被硬重置之后: 还没有注册 ⇒ 等它装好激活再挂。
+          // 首访: 还没有注册 ⇒ 等它装好激活再挂。
           // `ready` 只在**存在 active worker** 时 resolve, 正好是"注册脚本(load 后) →
           // install → activate"这条链的终点; 不挂这一步的话, 首访那次注册完成后 reg 仍为
-          // null, updatefound 永远挂不上、kickDownload 也一直空转。
+          // null, updatefound 永远挂不上、它带来的核对信号一条都收不到。
           // ⚠️ ready 不会 reject: 注册被拒时它会一直 pending —— 只是不做事, 不泄漏。
           void navigator.serviceWorker.ready
             ?.then?.((rr) => {
@@ -683,58 +661,17 @@ export function usePwaUpdate(deps: PwaUpdateDeps = {}): PwaUpdate {
   })
 
   /**
-   * 点「更新」后的确定性切换:
-   *  - 已接管(updateReady) ⇒ 直接刷新, 拿新 index.html
-   *  - 仍在 install ⇒ 先让 SW update 一次, 再**等它真正接管**才刷新(最多 applyWaitMs=40s)。
-   *    旧实现在这里"清缓存 + 立刻 reload", 而旧 SW 仍控制页面 ⇒ reload 被它应答
-   *    ⇒ 拿回旧 index.html ⇒ 页面没换 ⇒ 稍后又亮一次("刷新了也一样")。
-   *  - 等满 40s 仍未接管 ⇒ 走硬重置(拆 SW + 清本应用缓存)再刷。这是唯一能保证
-   *    "点了就拿到新页面"的手段(旧 SW 会用 precache 应答导航), 代价是正在下的 precache
-   *    作废重下 —— 所以只压在这个最坏分支, 常态(装好即刷)一分钱不花。
+   * 点击刷新 —— **只有"新版本已就绪"才允许**(2026-11-10 铁律, 见文件头)。
+   *
+   * 之所以能这么简单: 就绪的两个来源(新 worker 已接管 / 控制器已是最新)都保证"这次 reload
+   * 的导航会拿到新 index.html"。旧实现里那套"等 40s → 硬重置"兜的是"下载还没完用户就点了"
+   * 那条路 —— 现在按钮在下载中根本不可点, 那条路从 UI 上不存在了, 兜底也就没必要留。
    */
   function applyUpdate(): void {
-    if (typeof window === 'undefined' || applying.value) return
+    if (typeof window === 'undefined' || applying.value || !updateReady.value) return
     applying.value = true
-    void (async () => {
-      if (updateReady.value) {
-        doReload()
-        return
-      }
-      try {
-        const r = reg ?? (await navigator.serviceWorker.getRegistration())
-        if (r) {
-          reg = r
-          try {
-            await r.update()
-          } catch {
-            /* 网络差时 update 可能抛错 —— 不影响后面的等待与兜底刷新 */
-          }
-          // prompt 模式下新 SW 会停在 waiting, 主动放行; autoUpdate 下这行是空操作
-          try {
-            r.waiting?.postMessage({ type: 'SKIP_WAITING' })
-          } catch {
-            /* 忽略 */
-          }
-        }
-      } catch {
-        /* getRegistration 失败: 直接走兜底 */
-      }
-      await waitForControllerChange(applyWaitMs).then(async (tookOver) => {
-        if (tookOver) {
-          doReload()
-          return
-        }
-        // 等满超时仍未接管 ⇒ 硬重置: 清 precache + 注销 SW, 让这次导航绕开旧 worker
-        // 直接走网络拿新 index.html(详见 hardResetSw 的注释)。
-        track('update-apply-hard-reset')
-        await hardReset()
-        // 万一硬重置没生效(注销被拦/缓存清不掉), 刷新后仍落后时允许再提示一次 ——
-        // 上一次提示没兑现成新版本, 不该把入口永久锁死。
-        clearPromptedBuild()
-        promptedInThisInstance = false
-        doReload()
-      })
-    })()
+    track('update-apply')
+    doReload()
   }
 
   return { updateReady, updateFound, applying, progress, applyUpdate, supported }

@@ -171,16 +171,18 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
 
 ## SW 新版本提示（web，单一来源 `web/src/composables/usePwaUpdate.ts`）
 
-前端 SW 是 `autoUpdate`（装好即接管），顶栏小徽标只是给"TV 壳常驻、没有下次导航"留的立即刷新出口。**铁律（2026-11-09 定）**：
+前端 SW 是 `autoUpdate`（装好即接管），顶栏小徽标只是给"TV 壳常驻、没有下次导航"留的立即刷新出口。**铁律（2026-11-10 定稿）**：
 - **是否提示只看构建号**：本页 `__APP_BUILD__` 与现抓 `index.html` 里的 `assets/<TS>/` 比对。`updatefound` 只当"去核对一次"的信号，**不得直接亮灯**——安装失败后浏览器下次导航会重试 install，无条件亮灯就是"同一个版本提示好几遍"。
-- **探测失败不提示**（除非同时有 `updatefound` 硬证据）：丢包链路上探测失败是常态，当"落后"处理只会随机误报。
-- **同构建号每设备只提示一次**（localStorage `jc-pwa-prompted-build`，不可用时退回 sessionStorage）：一个构建号只弹一次；出现**更新的**构建号 key 不同照常提示。别再退回 sessionStorage —— 它跟着标签页走，TV 壳冷启动/新标签都是新 session，"每启动一次提示一次"。
-- **点击更新 = 等新 SW 接管（controllerchange）后才 reload**，等待上限 **40s**：跨境 3MB precache 要 30–40s，原来 8s 必然超时，等于"点了没用"。**已接管的一次性直接刷**，不等。
-- **等满 40s 仍未接管 ⇒ 先硬重置再刷**（`hardResetSw`：清 `jc-*` / `workbox-precache*` 的 Cache Storage → `unregister()` → reload）。这是"点了就一定能拿到新页面"的唯一保证 —— 旧 SW 会用 precache 应答导航，不拆它刷多少次都是旧页。代价是正在下的 precache 作废重下，所以只压在这个最坏分支；顺手清掉去重记录，万一硬重置没生效、刷新后仍落后，还能再提示一次。
-- **徽标亮起即主动 `reg.update()` 踢一次下载**（按构建号去重，同一版本只踢一次）：页面侧的核对只抓 `index.html` 比版本号，**不触发 SW 下载**；不补这一下，"发现更新"可能亮很久而一个字节没下，点了还得从头等。
-- **"是否已被控制"必须是可变状态（2026-11-10）**：不能拿 setup 时算一次的 `hadController` 常量当判据 —— 首访恒为 false，`checkForUpdate` 首句就 return，**首访整条会话（TV 壳常驻可达数天）不提示任何更新**。首访的第一次 `controllerchange` 是 `clientsClaim` 的初次接管，跳过这一次判定但把 `controlled` 置 true。另：`getRegistration()` 为空时要等 `navigator.serviceWorker.ready` 回填 `reg`（`attachUpdateFound` 幂等），否则首访那次注册完成后 `updatefound` 永远挂不上、`kickDownload` 空转。
+- **探测失败不提示**（除非同时有 `updatefound` 硬证据，或 `reg.installing` 还在）：丢包链路上探测失败是常态，当"落后"处理只会随机误报。
+- **只有"刷新一定拿得到新版"才可点**（2026-11-10 用户报障"点一下就消失、不知道到底好没好"）。可信来源只有两个：① 新 worker 已接管（`controllerchange`）；② 控制器本来就是最新、只是本页旧了（`reg.update()` 后没有任何 `installing`/`waiting`，见 `probeSwState`）。**其余一律"下载中"：徽标保持可见但不可点**，`title` 给百分比。原因是 `navigateFallback: '/index.html'` —— 旧 worker 控制页面时，刷新会被它用 precache 应答，拿回的还是旧页，点了纯属骗人。
+- **"下载中可点 + 等 40s + 硬重置"那套已删**（`APPLY_WAIT_MS` / `waitForControllerChange` / `hardResetSw`）。它没有错，只是"允许下载中点"才需要它；现在下载中不可点，`applyUpdate` 只剩一次 `reload`。
+- **刷新后要能接着看到进度**：内存态清零，但 `reg.installing` 是浏览器侧的真相 —— mount 时若还在装就 `resumeInFlight` 立刻亮灯续采，构建号比对随后决定要不要收（页面已最新就不该亮）。
+- **核对时让 SW 真去比对**：页面侧抓 `index.html` 只比出版本差异、**不触发下载**，所以判定"可不可点"前要 `reg.update()` 一次（`probeSwState`）。
+- **水位口径**：命中 `assets/<最新构建号>/` 的条目数 ÷ 缓存里**不属于**该目录的条目数（≈ 上一版清单规模）—— 刷新后接着算也准；拿不到构建号才退回"相对快照新出现的键"。**未就绪封顶 99%，满格只属于"可点"**；`installing.state === 'installed'` 顶到 0.99，`redundant` 收灯。
+- **不做"同一构建号只提示一次"的去重了（2026-11-10 取消）**：显示与否完全由真实状态决定——页面确实旧就亮，亮灯时要么能点、要么在装；升级成功后构建号相同自然熄灭。去重原想压的"一个版本提示好几遍"，两个根因（`updatefound` 无条件亮灯、刷新无效）都已在前两轮修掉；留着它只会制造"刷新后仍落后却再也不给入口"（本次报障的同一条链）。
+- **徽标是图标不是文字**（`components/base/PwaUpdateBadge.vue`）：标题旁 32px 圆按钮（TV 40px），**向上箭头**（`arrow-up`，不是循环的 `refresh`）两层叠放 + `clip-path` 按 `progress` 从下往上填充液面；文字只留在 `aria-label` / `title`。不可点时用 `aria-disabled`，**别用 `disabled` 属性** —— Chrome 上 disabled 按钮的 `title` 悬停提示不弹，用户就看不到"下到几成了"。
+- **"是否已被控制"必须是可变状态（2026-11-10）**：不能拿 setup 时算一次的 `hadController` 常量当判据 —— 首访恒为 false，`checkForUpdate` 首句就 return，**首访整条会话（TV 壳常驻可达数天）不提示任何更新**。首访的第一次 `controllerchange` 是 `clientsClaim` 的初次接管，跳过这一次判定但把 `controlled` 置 true。另：`getRegistration()` 为空时要等 `navigator.serviceWorker.ready` 回填 `reg`（`attachUpdateFound` 幂等），否则首访那次注册完成后 `updatefound` 永远挂不上。
 - **不要靠"提前注册"解决上面那条**：注册挂在 `window.load` 是 `injectRegister: 'inline'` 的固定模板（插件硬编码，没有配置项），**而且是刻意的** —— 提前会把 1.36MB precache 的 install 塞进首屏关键路径，窄链路上等于拿首屏换离线包。更新**感知**本来就不依赖注册（直接抓 `index.html` 比构建号），回访时的下载也不依赖（`getRegistration()` 已能拿到旧注册）。
-- **徽标是图标不是文字**（`components/base/PwaUpdateBadge.vue`）：标题旁 32px 圆按钮（TV 40px），箭头用两层叠放 + `clip-path` 按 `progress` 从下往上填满；文字只留在 `aria-label` / `title`。`progress` 是**估算**：precache 已落地条目数 / 起手快照条目数（workbox 每下完一个文件 `cache.put` 一条，键带 `__WB_REVISION__`），拿不到缓存时按耗时缓动到 0.9；**未接管封顶 95%**，接管才 100%。
 
 ## Android 工程版本控制
 

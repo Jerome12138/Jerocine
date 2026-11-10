@@ -4,14 +4,17 @@ import BaseIcon from './BaseIcon.vue'
 import { usePwaUpdate } from '@/composables/usePwaUpdate'
 
 /**
- * 新版本提示 (方案 §4.3, 2026-10-27 增强, 2026-11-09 改图标化).
+ * 新版本提示 (方案 §4.3, 2026-10-27 增强, 2026-11-09 改图标化, 2026-11-10 改向上箭头).
  *
- * 形态: 标题旁一个圆形按钮, 里面是更新箭头; **不带文字**, 语义都放进 aria-label/title。
- *  - 发现更新/下载中(amber): 箭头用"液面上升"的方式按落地进度填满(见 usePwaUpdate 的
- *    progress) —— 底色是半透明箭头, 实色箭头按进度从下往上露出, 一眼能看出"在动";
- *  - 更新中(applying): 同上, 并加轻微呼吸, 且禁用重复点击;
- *  - 新版本就绪(cyan): 箭头填满 100%, 外圈呼吸提示可点。
- * 不点击也不打扰, 下次导航/启动本就是新版本。
+ * 形态: 标题旁一个圆形按钮, 里面是**向上箭头**(↑, 一般网站/APP「有新版本」的样子);
+ * 水印动效做在箭头内部 —— 底色是半透明箭头, 实色箭头按进度从下往上露出(液面上升);
+ * 不带文字, 语义都放进 aria-label/title。
+ *
+ * 三种态(2026-11-10 定稿):
+ *  - 下载中(amber): **不可点**。此时旧 SW 还控制着页面, 刷新只会拿回旧 index.html
+ *    (导航命中 navigateFallback)，点了纯属误导。悬停/标题给出百分比。
+ *  - 已就绪(cyan): 水位满格, 可点 ⇒ 点了一下子就换到新版。
+ *  - 切换中(applying): 满格 + 呼吸, 禁重复点击(实际是一次 reload, 转瞬即逝)。
  *
  * 放置: 顶栏 brand(标题)右侧(web/TV 共用) + 移动端抽屉菜单项(见 PublicHeader)。
  * 遥控器: `<button>` + data-focusable/tabindex ⇒ D-pad 可聚焦, OK 键触发 click。
@@ -21,19 +24,35 @@ const { updateFound, updateReady, applying, progress, applyUpdate } = usePwaUpda
 
 const visible = computed(() => updateFound.value || updateReady.value || applying.value)
 
-/** 文案只用于读屏/悬停提示 —— 视觉上不再显示文字 */
+/** 可用 = 点了一下子就能换新版; 下载中一律不可点 */
+const actionable = computed(() => updateReady.value && !applying.value)
+
+const pct = computed(() => Math.max(1, Math.min(99, Math.round(progress.value * 100))))
+
+/** 文案只用于读屏/悬停提示 —— 视觉上不显示文字 */
 const tip = computed(() => {
   if (applying.value) return '正在切换到新版本，请稍候'
   if (updateReady.value) return '新版本已就绪，点击刷新'
-  return '发现新版本，点击立即更新'
+  return `正在下载新版本 ${pct.value}%，完成后即可刷新`
 })
 
-/** 填充百分比: 就绪即 100%; 下载中最小 6%, 让"刚刚开始"也有可见的一小格 */
+/** 填充百分比: 就绪/切换中才是 100%(满格 = 真的能点了);
+ * 下载中最大 99% —— 满格要留给"可以点"这个信号, 别在还装不完的时候骗人。
+ * 下限 6%, 让"刚刚开始"也有可见的一小格。
+ */
 const fill = computed(() => {
-  if (updateReady.value) return '100%'
-  const pct = Math.max(6, Math.min(95, Math.round(progress.value * 100)))
-  return `${pct}%`
+  if (updateReady.value || applying.value) return '100%'
+  return `${Math.max(6, pct.value)}%`
 })
+
+/**
+ * 点击入口再守一道: 下载中点下去什么都不该发生(applyUpdate 自身也会拦,
+ * 这里让"不可点"在 UI 层就成立, 也便于测试)。
+ */
+function onClick(): void {
+  if (!actionable.value) return
+  applyUpdate()
+}
 </script>
 
 <template>
@@ -42,20 +61,20 @@ const fill = computed(() => {
       v-if="visible"
       type="button"
       class="jc-pwa-badge"
-      :class="{ 'is-found': !updateReady && !applying, 'is-ready': updateReady }"
+      :class="{ 'is-found': !updateReady && !applying, 'is-ready': updateReady && !applying }"
       data-focusable="true"
       tabindex="0"
-      :disabled="applying"
+      :aria-disabled="actionable ? undefined : 'true'"
       :aria-busy="applying ? 'true' : undefined"
       :aria-label="tip"
       :title="tip"
-      @click="applyUpdate"
+      @click="onClick"
     >
       <span class="jc-pwa-badge__glyph" :style="{ '--jc-pwa-fill': fill }">
         <!-- 底: 半透明箭头(轮廓) -->
-        <BaseIcon name="refresh" class="jc-pwa-badge__ghost" size="1em" />
-        <!-- 上: 实色箭头, 用 clip-path 从下往上露出 = 按进度填满 -->
-        <BaseIcon name="refresh" class="jc-pwa-badge__liquid" size="1em" />
+        <BaseIcon name="arrow-up" class="jc-pwa-badge__ghost" size="1em" />
+        <!-- 上: 实色箭头, 用 clip-path 从下往上露出 = 按进度填满(液面上升) -->
+        <BaseIcon name="arrow-up" class="jc-pwa-badge__liquid" size="1em" />
       </span>
     </button>
   </Transition>
@@ -82,16 +101,18 @@ const fill = computed(() => {
     color var(--jc-dur-fast) var(--jc-ease-standard);
 }
 
-.jc-pwa-badge:hover,
+/* 只有"能点"时才给 hover 加深 —— 下载中悬停仅靠 title 提示,
+   外观不能暗示可点(用户点了个刷不出新版的按钮, 比没入口更糟) */
+.jc-pwa-badge:not([aria-disabled='true']):hover,
 .jc-pwa-badge:focus-visible {
   background-color: rgba(245, 158, 11, 0.24);
   border-color: rgba(245, 158, 11, 0.8);
   outline: none;
 }
 
-.jc-pwa-badge:disabled {
+/* 下载中: 可聚焦(遥控器能停在上面看提示), 但光标不给"手型" */
+.jc-pwa-badge[aria-disabled='true'] {
   cursor: default;
-  opacity: 0.85;
 }
 
 /* 图标容器: 尺寸跟着 font-size 走, 箭头本体绝对叠两层 */
