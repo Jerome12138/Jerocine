@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAutoHideScrollbar } from '@/composables/useAutoHideScrollbar'
 import type { PlaySource } from '@/types/film'
+import { sortSourcesBySpeed } from '@/utils/sourceOrder'
 
 interface Props {
   sources: PlaySource[]
@@ -256,6 +257,10 @@ const allEpisodeNamesShort = computed(() => {
   if (!eps.length) return false
   return eps.every((e) => cleanEpisodeName(e.episode).length <= SHORT_EPISODE_NAME_MAX)
 })
+
+/** 源 tab 的**展示顺序**(用户 2026-11-09): 测速后按实测延时由快到慢; 未测/失败排最后且保持原相对序。
+ *  仅影响渲染顺序 —— 选中/播放都按 source id 传递(见 selectSource/emit), 重排不动语义。 */
+const displaySources = computed(() => sortSourcesBySpeed(props.sources, props.speeds))
 </script>
 
 <template>
@@ -288,7 +293,7 @@ const allEpisodeNamesShort = computed(() => {
         @scroll="onTabsScroll"
       >
         <button
-          v-for="s in sources"
+          v-for="s in displaySources"
           :key="s.id"
           class="jc-source-tab jc-hotarea"
           :class="s.id === activeSourceId ? 'jc-source-tab--active' : ''"
@@ -650,15 +655,15 @@ const allEpisodeNamesShort = computed(() => {
   }
 }
 
-/* 集名「全部偏短」(「第13集」「03」) → 集格宽折半：列数翻倍。
- * 口径注：用 1fr 分配时, 多出来的那批间隙已在分配里扣掉, 所以不会溢出、也不用手写 calc；
- * 净效果 = (W-7g)/8, 比"原文宽一半"(W-3g)/8 再小 g/2 ≈ 4px —— 这就是用户说的"记得扣去边距"。 */
+/* 集名「全部偏短」(「第13集」「03」) → 集格更窄、列数更多。
+ * 列数(用户 2026-11-09 定稿): 移动端 4 个 / pad(≥768px) 8 个 —— 原 8/12 太密、集名被裁。
+ * 口径注：用 1fr 分配时, 多出来的间隙已在分配里扣掉, 不会溢出、也不用手写 calc。 */
 .jc-episode-grid--compact {
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 @media (min-width: 768px) {
   .jc-episode-grid--compact {
-    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 }
 
@@ -828,6 +833,22 @@ const allEpisodeNamesShort = computed(() => {
   min-height: var(--jc-ctrl-h);
 }
 [data-mode='mobile'] .jc-episode-chip__label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+/* 长集名(非 compact)放宽到两行(用户 2026-11-09 要求): pad / 桌面同样支持换行,
+ * 不再只靠省略号 + 横向轮播(mobile 本就两行, 见上一条)。列数: 移动端 4 / pad 6(常规档, 见 .jc-episode-grid)。
+ * TV 档排除(html:not([data-mode='tv'])) —— TV 保持 40px 定值与单行, 不随本次放宽。 */
+html:not([data-mode='tv']) .jc-episode-grid:not(.jc-episode-grid--compact) .jc-episode-chip {
+  height: auto;
+  min-height: var(--jc-ctrl-h);
+}
+html:not([data-mode='tv']) .jc-episode-grid:not(.jc-episode-grid--compact) .jc-episode-chip__label {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
