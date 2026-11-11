@@ -44,8 +44,8 @@ export interface EpidReport {
   comparableAligned: number
   comparableTotal: number
   comparablePct: number
-  /** 源行口径成熟度（按分类） */
-  maturity: { pid: number; srcRows: number; derivedSrcRows: number }[]
+  /** 源行口径成熟度（按分类）：分母=真相源全部源行，分子=其中已有派生行的源行数 */
+  maturity: { pid: number; category: string; srcRows: number; derivedSrcRows: number }[]
   /** 分层"有身份率"（按分类，用 category 名称） */
   byCategory: { pid: number; category: string; rowCnt: number; nonEmpty: number; nonEmptyPct: number }[]
   /** 空 epid 的集名形态分档（回答"为什么空"） */

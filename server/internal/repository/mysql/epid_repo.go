@@ -466,23 +466,41 @@ func (r *EpidRepo) ByCategory(ctx context.Context) ([]CategoryStat, error) {
 }
 
 // MaturityStat 源行口径的派生成熟度（按分类）。
+//
+// 含义：**分母 = 真相源 `movie_play_source` 的全部源行**，分子 = 其中**已存在派生行**的源行数
+// ⇒ 衡量"派生任务跑到哪了"（覆盖进度），**不是** epid 质量。
+// 为什么必须与 `AlignmentRateComparable` 配对看：可比口径只统计"全源行都已派生"的片 ⇒
+// 成熟度低时样本极小（实测只有 6 个组），任何对齐率读数都不具判定意义 ✗
 type MaturityStat struct {
-	Pid        int64 `json:"pid"`
-	SrcRows    int64 `json:"srcRows"`
-	DerivedRows int64 `json:"derivedSrcRows"`
+	Pid         int64  `json:"pid"`
+	Category    string `json:"category"` // category.name；`pid=-1`（`mid` 为空的附属站行）显示 未关联片
+	SrcRows     int64  `json:"srcRows"`
+	DerivedRows int64  `json:"derivedSrcRows"`
 }
 
 // SourceRowMaturity 源行口径成熟度：**真相源**每个源行是否已有派生行（按分类）。
-// 对齐率只有在"该片全源行都已派生"后才可解释 ⇒ 这个数与 `AlignmentRateComparable` 配对看。
+// 与 `ByCategory` 同规：**必须 join `category` 给出分类名**（不再暴露裸 pid ✗）。
 func (r *EpidRepo) SourceRowMaturity(ctx context.Context) ([]MaturityStat, error) {
 	var out []MaturityStat
 	err := dbFrom(ctx, r.db).Raw(`
-		SELECT IFNULL(m.pid, -1) AS pid, COUNT(*) AS src_rows,
+		SELECT IFNULL(m.pid, -1) AS pid,
+		       CASE
+		         WHEN m.pid IS NULL THEN '未关联片（mid 为空）'
+		         WHEN m.pid = 0 THEN '(未分类)'
+		         ELSE IFNULL(c.name, '(未知分类)')
+		       END AS category,
+		       COUNT(*) AS src_rows,
 		       SUM(IF(d.src_row_id IS NULL, 0, 1)) AS derived_rows
 		FROM movie_play_source s
 		LEFT JOIN movie m ON m.mid = s.mid
+		LEFT JOIN category c ON c.id = m.pid
 		LEFT JOIN (SELECT DISTINCT src_row_id FROM movie_episode_epid) d ON d.src_row_id = s.id
-		GROUP BY IFNULL(m.pid, -1)
+		GROUP BY IFNULL(m.pid, -1),
+		         CASE
+		           WHEN m.pid IS NULL THEN '未关联片（mid 为空）'
+		           WHEN m.pid = 0 THEN '(未分类)'
+		           ELSE IFNULL(c.name, '(未知分类)')
+		         END
 		ORDER BY src_rows DESC`).Scan(&out).Error
 	return out, err
 }
