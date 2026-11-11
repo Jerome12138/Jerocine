@@ -554,20 +554,58 @@ type EpidReport struct {
 	ComparableAligned int64                  `json:"comparableAligned"`
 	ComparableTotal   int64                  `json:"comparableTotal"`
 	ComparablePct     float64                `json:"comparablePct"`
-	Maturity          []mysql.MaturityStat   `json:"maturity"`   // 源行口径成熟度（按分类）
-	ByCategory        []mysql.CategoryStat   `json:"byCategory"` // 分层"有身份率"（按分类）
+	Progress          *EpidProgress          `json:"progress,omitempty"` // 重建期也精确可得（≈1.6s）
+	Maturity          []mysql.MaturityStat   `json:"maturity"`           // 源行口径成熟度（按分类）
+	ByCategory        []mysql.CategoryStat   `json:"byCategory"`         // 分层"有身份率"（按分类）
 	EmptyByShape      []mysql.ShapeStat      `json:"emptyByShape"`
 	MetricsError      string                 `json:"metricsError,omitempty"`
 }
 
+// EpidProgress 重建期也精确可得的"整体进度"（实测合计 ≈1.6s）。
+type EpidProgress struct {
+	DerivedRows    int64 `json:"derivedRows"`    // = EpidReport.DerivedRows（重复给一份便于前端直读）
+	DerivedSrcRows int64 `json:"derivedSrcRows"` // 已派生源行
+	SrcRows        int64 `json:"srcRows"`        // 真相源源行总数
+}
+
+// reportCacheTTL 指标结果缓存（进程内；单实例部署足够）。
+const reportCacheTTL = 5 * time.Minute
+
+var (
+	reportCacheMu   sync.Mutex
+	reportCacheAt   time.Time
+	reportCacheVal  EpidReport
+	reportCacheFull bool
+)
+
 // ReportEpid 汇总验收指标（只读）。
 //
-// ⚠️ **每项指标独立超时 + 全项容错**（2026-11-11 线上事故：重建期间接口被拖到**网关超时 524** ✗）：
-// 派生表在重建中被持续写入、且覆盖率要扫 `movie_play_source` 的巨列 ⇒ 任何一项都可能很慢。
-// 因此：① 单项给独立超时；② 任一项超时/失败**只降级该项**（记进 `MetricsError`，前端显示 N/A + 原因），
-// **绝不整接口 500、也绝不把请求拖过网关超时**；③ 状态（内存）永远可返回。
-func ReportEpid(ctx context.Context) (EpidReport, error) {
-	out := EpidReport{Status: DeriveStatus()}
+// 性能设计（2026-11-11 **线上 524 事故**后的优化，全部经真库实测）：
+//  1. **重建中短路**：`DeriveStatus().Running` 时**只算轻量进度集**（状态 + 派生行数 + 已派生源行/总源行，
+//     实测 ≈1.6s）。原因：重建期对齐率/分层/成熟度的分母都"不成熟"，**本就没有判定意义**，
+//     却每条要 11~26s ✗；而进度本身用精确计数也只要 ~1.6s ✓
+//  2. **每项独立超时 + 全项容错**：任一项超时/失败**只降级该项**（写进 `MetricsError`），
+//     绝不整接口 500、绝不把请求拖过网关超时 ✓
+//  3. **结果缓存 5 分钟**（进程内；重建中不缓存，进度在变）⇒ 连点刷新不再重复算 ✓
+//  4. **覆盖率要扫巨列（≈13s）⇒ 默认不算**，仅 `full=true`（`?full=1`）时计算 ✓
+//  5. 配套迁移 `000046` 给派生表加**覆盖索引** `(match_key, epid, site_id)`：
+//     实测 `GROUP BY match_key, epid` + `COUNT(DISTINCT site_id)` 当前因 `site_id` 不在索引里而
+//     **退化为全表扫 + 临时表**（EXPLAIN `type=ALL; Using temporary`，19.7s）✗；
+//     而只用索引内两列时是 `Using index`（6.5s）✓ ⇒ 加索引后 ①②③④ 预计 25s → 3~8s ✓
+func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
+	st := DeriveStatus()
+	if !st.Running {
+		reportCacheMu.Lock()
+		if !reportCacheAt.IsZero() && time.Since(reportCacheAt) < reportCacheTTL && reportCacheFull == full {
+			v := reportCacheVal
+			reportCacheMu.Unlock()
+			v.Status = st // 状态永远取实时（可能刚跑完）
+			return v, nil
+		}
+		reportCacheMu.Unlock()
+	}
+
+	out := EpidReport{Status: st}
 	s := currentEpidService()
 	if s == nil {
 		return out, nil
@@ -583,7 +621,35 @@ func ReportEpid(ctx context.Context) (EpidReport, error) {
 		}
 	}
 
-	run("全库口径", 8*time.Second, func(c context.Context) error {
+	// ---- ① 轻量进度集：重建期也全算（精确、便宜）----
+	run("派生行数", 3*time.Second, func(c context.Context) error {
+		n, err := s.repo.CountDerivedRows(c)
+		if err != nil {
+			return err
+		}
+		out.DerivedRows = n
+		return nil
+	})
+	run("源行进度", 5*time.Second, func(c context.Context) error {
+		derived, err := s.repo.DerivedSourceRowCount(c)
+		if err != nil {
+			return err
+		}
+		total, err := s.repo.SourceRowCount(c)
+		if err != nil {
+			return err
+		}
+		out.Progress = &EpidProgress{DerivedRows: out.DerivedRows, DerivedSrcRows: derived, SrcRows: total}
+		return nil
+	})
+
+	if st.Running {
+		out.MetricsError = "重建进行中：只显示进度类指标（对齐率/分层/成熟度/形态/覆盖率需重建完成后才有判定意义）"
+		return out, nil
+	}
+
+	// ---- ② 稳态：完整指标（每项独立超时 + 容错）----
+	run("全库口径", 20*time.Second, func(c context.Context) error {
 		rep, err := s.AlignmentReport(c)
 		if err != nil {
 			return err
@@ -593,7 +659,7 @@ func ReportEpid(ctx context.Context) (EpidReport, error) {
 		out.AlignmentPct, out.ByFromSrc = rep.AlignmentPct, rep.ByFromSrc
 		return nil
 	})
-	run("可比口径对齐率", 8*time.Second, func(c context.Context) error {
+	run("可比口径对齐率", 25*time.Second, func(c context.Context) error {
 		a, t, err := s.repo.AlignmentRateComparable(c)
 		if err != nil {
 			return err
@@ -604,7 +670,7 @@ func ReportEpid(ctx context.Context) (EpidReport, error) {
 		}
 		return nil
 	})
-	run("按分类有身份率", 8*time.Second, func(c context.Context) error {
+	run("按分类有身份率", 20*time.Second, func(c context.Context) error {
 		v, err := s.repo.ByCategory(c)
 		if err != nil {
 			return err
@@ -612,7 +678,7 @@ func ReportEpid(ctx context.Context) (EpidReport, error) {
 		out.ByCategory = v
 		return nil
 	})
-	run("源行成熟度", 8*time.Second, func(c context.Context) error {
+	run("源行成熟度", 20*time.Second, func(c context.Context) error {
 		v, err := s.repo.SourceRowMaturity(c)
 		if err != nil {
 			return err
@@ -620,7 +686,7 @@ func ReportEpid(ctx context.Context) (EpidReport, error) {
 		out.Maturity = v
 		return nil
 	})
-	run("空 epid 形态", 8*time.Second, func(c context.Context) error {
+	run("空 epid 形态", 5*time.Second, func(c context.Context) error {
 		v, err := s.repo.EmptyEpidByShape(c)
 		if err != nil {
 			return err
@@ -628,19 +694,26 @@ func ReportEpid(ctx context.Context) (EpidReport, error) {
 		out.EmptyByShape = v
 		return nil
 	})
-	// 覆盖率要扫 `Σ JSON_LENGTH(episodes_json)` 巨列：给更宽但仍设上限的超时
-	run("覆盖率(§6.1)", 20*time.Second, func(c context.Context) error {
-		dr, se, err := s.repo.CoverageFull(c)
-		if err != nil {
-			return err
-		}
-		if se <= 0 {
-			out.CoverageError = "源侧集数为 0（无源行？）"
+	if full {
+		run("覆盖率(§6.1)", 30*time.Second, func(c context.Context) error {
+			dr, se, err := s.repo.CoverageFull(c)
+			if err != nil {
+				return err
+			}
+			if se <= 0 {
+				out.CoverageError = "源侧集数为 0（无源行？）"
+				return nil
+			}
+			out.Coverage = &EpidCoverage{DerivedRows: dr, SourceEpisodes: se, Pct: float64(dr) * 100 / float64(se)}
 			return nil
-		}
-		out.Coverage = &EpidCoverage{DerivedRows: dr, SourceEpisodes: se, Pct: float64(dr) * 100 / float64(se)}
-		return nil
-	})
+		})
+	} else {
+		out.CoverageError = "按需计算：加 ?full=1 拉取（要扫 Σ JSON_LENGTH 巨列，约 13s）"
+	}
+
+	reportCacheMu.Lock()
+	reportCacheAt, reportCacheVal, reportCacheFull = time.Now(), out, full
+	reportCacheMu.Unlock()
 	return out, nil
 }
 

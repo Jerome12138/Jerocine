@@ -391,6 +391,24 @@ func (r *EpidRepo) CountDerivedRows(ctx context.Context) (int64, error) {
 	return n, err
 }
 
+// DerivedSourceRowCount 已派生过的**源行数**（`COUNT(DISTINCT src_row_id)`，走 `uk_row_ep` 覆盖索引）。
+//
+// 2026-11-11 实测：196 万派生行上 **763ms** ⇒ 重建期的"进度分母"也**不需要近似值**（精确即可）✓
+func (r *EpidRepo) DerivedSourceRowCount(ctx context.Context) (int64, error) {
+	var n int64
+	err := dbFrom(ctx, r.db).Raw(`SELECT COUNT(DISTINCT src_row_id) FROM movie_episode_epid`).Scan(&n).Error
+	return n, err
+}
+
+// SourceRowCount 真相源源行总数（进度分母；实测 ≈300ms）。
+//
+// ⚠️ 不要用 `information_schema.TABLES.TABLE_ROWS`（实测 411,808 vs 真实 633,794，**低估 35%** ✗）。
+func (r *EpidRepo) SourceRowCount(ctx context.Context) (int64, error) {
+	var n int64
+	err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).Count(&n).Error
+	return n, err
+}
+
 // ===== 指标口径层（2026-11-11 用户拍板）=====
 //
 // 三条纪律（来自今天两次口径事故）：

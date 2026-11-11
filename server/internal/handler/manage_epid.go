@@ -53,10 +53,13 @@ func (h *Handlers) ManageEpidDeriveAll(c *gin.Context) {
 
 // ManageEpidReport GET /manage/epid/report —— 派生**验收指标**（只读）。
 //
-// 返回：任务状态（在跑/模式/游标/阶段）+ 对齐率（§4.8 门槛 85%）+ 完整覆盖率（§6.1 口径）
-// + 来源分布（self/bridge/anchor/none）+ 派生行数/空 epid 行数。
+// 返回：任务状态（在跑/模式/游标/阶段）+ 进度（派生行/已派生源行）+ 对齐率（§4.8 门槛 ≥85%）
+// + 完整覆盖率（§6.1）+ 来源分布 + 分层有身份率 + 成熟度 + 空 epid 形态。
+//
+// 参数：`?full=1` 才计算覆盖率（要扫 `Σ JSON_LENGTH` 巨列 ≈13s）；
+// **重建进行中**时只返回进度类指标（详见 `service.ReportEpid`）。
 func (h *Handlers) ManageEpidReport(c *gin.Context) {
-	rep, err := service.ReportEpid(c.Request.Context())
+	rep, err := service.ReportEpid(c.Request.Context(), c.Query("full") == "1")
 	if err != nil {
 		dto.Fail(c, err)
 		return
