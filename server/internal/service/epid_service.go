@@ -59,6 +59,12 @@ var deriveCursor atomic.Int64
 
 // 孤儿清理节流（补审 U1-2）：孤儿只在"整片下架 / 站点下线 / Truncate"后产生 ⇒ **低频**任务；
 // 挂在采集收尾却每次跑属**频率错配** ✗ ⇒ 每 24h 最多一次。
+// deriveHotPhase 热门优先阶段（H6, 2026-11-11 评审）：true = **热门趟**（只取 `mid` 非空的源行），
+// false = **长尾趟**（全表）。§5.5 铁律 5 要求"限速 + 热门优先"——纯 `ORDER BY` 在 keyset 分页下
+// **不改变候选集合**（见 repo `DirtySourceRowsHot` 的说明）⇒ 必须拆两趟。**内存态**：重启后从热门趟
+// 重来（热门趟更快、也更该先跑）✓ 零新增持久状态。
+var deriveHotPhase atomic.Bool
+
 var lastOrphanCleanMs atomic.Int64
 
 const (
@@ -92,19 +98,43 @@ func DeriveEpidInBackground() {
 		ctx, cancel := context.WithTimeout(context.Background(), deriveTriggerTimeout)
 		defer cancel()
 		after := deriveCursor.Load()
+		runHot := deriveHotPhase.Load() // H6：本趟是"热门趟"（只扫 mid 非空）还是"长尾趟"（全表）
 		st, err := s.DeriveBatch(ctx, after, deriveBatchPerTrigger, false)
 		if err != nil {
 			log.Printf("[epid] 派生失败（不影响采集）: %v", err)
 			return
 		}
-		if st.Scanned < deriveBatchPerTrigger {
-			deriveCursor.Store(0) // 已扫到末尾 ⇒ 下轮从头复核（含被守卫拦下的行）
+		finishedPass := st.Scanned < deriveBatchPerTrigger
+		if finishedPass {
+			// H6：本趟扫到表尾 ⇒ 切趟。热门趟结束 ⇒ 进长尾趟（从 0 开始）；长尾趟结束 ⇒ 回热门趟
+			// （热门行的集内容变动最频繁，优先复核）。
+			deriveHotPhase.Store(!runHot)
+			deriveCursor.Store(0)
 		} else {
 			deriveCursor.Store(st.LastId)
 		}
+		phaseName := "长尾趟"
+		if runHot {
+			phaseName = "热门趟"
+		}
 		// U1-5：**批次末汇总一行**（原实现逐行打日志 ⇒ 日志量 = 采集频率 × 被拦行数 ✗）
-		log.Printf("[epid] 派生一批完成: 游标 %d→%d 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 来源=%v",
-			after, deriveCursor.Load(), st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid, st.SkipWhy)
+		log.Printf("[epid] 派生一批完成: 趟=%s 游标 %d→%d 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 来源=%v",
+			phaseName, after, deriveCursor.Load(), st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid, st.SkipWhy)
+		// H2（2026-11-11 评审，High）：**验收指标必须有人消费** —— `AlignmentReport` / `Coverage` 原来
+		// **没有任何生产调用点** ⇒ §4.8 门槛与 §6.1 指标永远算不出来（P1-2 的启动条件也就无法判定）✗。
+		// 挂到**每轮收尾**（零接口、零前端改动）：轻量指标每轮一行；代价高的"完整覆盖率"（要扫
+		// `Σ JSON_LENGTH(episodes_json)` 巨列，与性能铁律无关但很慢）只在**整趟结束**时算一次。
+		if rep, rerr := s.AlignmentReport(ctx); rerr == nil {
+			log.Printf("[epid] 验收指标: 派生行=%d 空epid=%d 对齐组=%d/%d (%.1f%%) 来源=%v 门槛(≥85%%)=%v",
+				rep.TotalDerivedRows, rep.EmptyEpidRows, rep.AlignedGroups, rep.TotalGroups,
+				rep.AlignmentPct, rep.ByFromSrc, rep.AlignmentPct >= 85)
+			if finishedPass && rep.TotalDerivedRows > 0 {
+				if dr, se, cerr := s.repo.CoverageFull(ctx); cerr == nil && se > 0 {
+					log.Printf("[epid] 完整覆盖率(§6.1 口径, 空epid也算行): %d/%d ⇒ %.2f%%（目标 ≈100%%）",
+						dr, se, float64(dr)*100/float64(se))
+				}
+			}
+		}
 		// 孤儿清理：24h 节流（CAS 保证同一轮只有一个 goroutine 拿到执行权）
 		nowMs := time.Now().UnixMilli()
 		if last := lastOrphanCleanMs.Load(); nowMs-last >= orphanCleanIntervalMs &&
@@ -135,7 +165,15 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 	if limit <= 0 {
 		limit = 200
 	}
-	rows, err := s.repo.DirtySourceRows(ctx, afterId, limit)
+	// H6（2026-11-11 评审）：按阶段取候选 —— 热门趟只扫 `mid IS NOT NULL`（主站行/已关联行），
+	// 长尾趟才扫全表。**不能**靠 `ORDER BY` 实现（keyset 分页下页内排序不改变候选集合）。
+	var rows []entity.MoviePlaySource
+	var err error
+	if deriveHotPhase.Load() {
+		rows, err = s.repo.DirtySourceRowsHot(ctx, afterId, limit)
+	} else {
+		rows, err = s.repo.DirtySourceRows(ctx, afterId, limit)
+	}
 	if err != nil {
 		return st, err
 	}

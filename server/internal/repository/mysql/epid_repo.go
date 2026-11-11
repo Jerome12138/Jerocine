@@ -234,9 +234,27 @@ func (r *EpidRepo) ListByMatchKeys(ctx context.Context, keys []string) ([]entity
 //  3. 只对**脏的** id 取全字段（含 `episodes_json` 巨列）
 // ⇒ 每批成本与**表规模无关**；且不再需要 `ep_hash <> ''` 过滤（L7：空 hash 也当候选，首次派生一次即收敛）
 func (r *EpidRepo) DirtySourceRows(ctx context.Context, afterId int64, limit int) ([]entity.MoviePlaySource, error) {
+	return r.dirtySourceRows(ctx, afterId, limit, false)
+}
+
+// DirtySourceRowsHot **热门趟**：只取 `mid` 非空的源行（主站行 / 已关联行）—— H6（2026-11-11 评审）。
+//
+// §5.5 铁律 5 要求"限速 + **热门优先**（`mid` 命中的片优先、长尾延后）"。注意：**只给 `ORDER BY` 加一句
+// `mid IS NULL` 是无效的** —— keyset 分页（`id > after` + `LIMIT n`）**先定候选集合**，页内排序不改变
+// 集合 ✗。因此拆**两趟**：先热门趟（`mid IS NOT NULL`），跑到底再进长尾趟（全表）；由服务层
+// `deriveHotPhase` 切换。收益：长尾占 74.4%（470,587 / 632,539）⇒ 不拆的话**热门片会被排在长尾之后**，
+// 而单轮只推进 2000 行 ⇒ 头部内容拿到 epid 的时间会被推后数十倍。
+func (r *EpidRepo) DirtySourceRowsHot(ctx context.Context, afterId int64, limit int) ([]entity.MoviePlaySource, error) {
+	return r.dirtySourceRows(ctx, afterId, limit, true)
+}
+
+func (r *EpidRepo) dirtySourceRows(ctx context.Context, afterId int64, limit int, hotOnly bool) ([]entity.MoviePlaySource, error) {
 	var ids []int64
-	if err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
-		Where("id > ?", afterId).Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
+	q := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).Where("id > ?", afterId)
+	if hotOnly {
+		q = q.Where("mid IS NOT NULL")
+	}
+	if err := q.Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
 		return nil, err
 	}
 	if len(ids) == 0 {
@@ -308,4 +326,24 @@ func (r *EpidRepo) ExistingSourceRowIds(ctx context.Context, ids []int64) (map[i
 		out[id] = true
 	}
 	return out, nil
+}
+
+// CoverageFull **完整覆盖率**（§6.1 口径，H7 2026-11-11 评审）：
+//
+//	派生覆盖率 = 派生表行数 / Σ JSON_LENGTH(episodes_json)  ⇒ 应 ≈100%（**空 epid 也算行**）
+//
+// ⚠️ **只作离线/低频校验用**：分母要扫 `movie_play_source` 的巨列（实测 632,539 行 / 集数 6,477,048），
+// 不是热点路径（性能铁律 1 约束的是"派生与出参"路径，不含这种人工触发的对账）。调用点只放在
+// `AlignmentReport` 的**每整轮一次**分支里（见 `EpidService.DeriveEpidInBackground`）。
+func (r *EpidRepo) CoverageFull(ctx context.Context) (derivedRows int64, sourceEpisodes int64, err error) {
+	var row struct {
+		Derived   int64
+		SourceEp  int64
+	}
+	err = dbFrom(ctx, r.db).Raw(`
+		SELECT
+		  (SELECT COUNT(*) FROM movie_episode_epid) AS derived,
+		  (SELECT COALESCE(SUM(JSON_LENGTH(episodes_json)), 0) FROM movie_play_source) AS source_ep`).
+		Scan(&row).Error
+	return row.Derived, row.SourceEp, err
 }
