@@ -65,6 +65,14 @@ func DeriveEpidInBackground() {
 	}
 	go func() {
 		defer deriveRunning.Store(false)
+		// R1（2026-11-11 评审，High）：**必须 recover** —— 本 goroutine 挂在**采集任务收尾**，
+		// 而 Go 的未捕获 panic **会终止整个进程**（不局限于该 goroutine）⇒ 一条脏数据（JSON 异常/
+		// SQL 扫描异常/下标越界）就能把**全站服务**打挂 ✗。派生是 best-effort，必须"只记账、不致命"。
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[epid] 派生 panic 已拦截（不影响采集与线上服务）: %v", r)
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 		st, err := s.DeriveAll(ctx, 500, 0, false)
