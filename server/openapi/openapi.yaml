@@ -2774,6 +2774,71 @@ paths:
           headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  # ---- epid 派生运维（H2, 2026-11-11）：一键全量派生 + 只读验收指标 ----
+  /manage/epid/derive-all:
+    post:
+      tags: [manage-spider]
+      summary: 一键全量派生集身份 epid（异步；mode=fill 补缺 / rebuild 清空重建）
+      description: >-
+        异步启动，立即返回；与"采集收尾的自动触发"共用同一把锁（互斥）。已有任务在跑时返回 409。
+        rebuild 会先清空派生表（TRUNCATE）再全量重算；期间出参无 epid，端侧自动回退实时解析，不影响可用性。
+        进度看 GET /manage/epid/report（游标/阶段）与后端日志（每批一行）。
+      operationId: manageEpidDeriveAll
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: mode, in: query, schema: { type: string, enum: [fill, rebuild], default: fill } }
+        - { name: batch, in: query, description: 每批源行数（默认 2000，上限 5000）, schema: { type: integer, default: 2000 } }
+        - { name: maxBatches, in: query, description: 批数上限（0=不限）, schema: { type: integer, default: 0 } }
+        - { name: timeoutMin, in: query, description: 总时长上限（分钟，默认 60，上限 240）, schema: { type: integer, default: 60 } }
+      responses:
+        '200':
+          description: 已排队
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/json:
+              schema: { type: object, properties: { started: { type: boolean }, mode: { type: string }, batch: { type: integer }, maxBatches: { type: integer }, timeoutMin: { type: integer } } }
+        '409': { description: 已有派生任务在跑（或未装配） }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/epid/report:
+    get:
+      tags: [manage-spider]
+      summary: 派生验收指标（只读：对齐率/覆盖率/来源分布/进度）
+      operationId: manageEpidReport
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 指标
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      running: { type: boolean }
+                      mode: { type: string }
+                      startedAt: { type: integer, format: int64 }
+                      cursor: { type: integer, format: int64 }
+                      hotPhase: { type: boolean }
+                  derivedRows: { type: integer, format: int64 }
+                  emptyEpidRows: { type: integer, format: int64 }
+                  alignedGroups: { type: integer, format: int64 }
+                  totalGroups: { type: integer, format: int64 }
+                  alignmentPct: { type: number, description: '对齐率 %（§4.8 门槛 ≥85）' }
+                  byFromSrc: { type: object, additionalProperties: { type: integer, format: int64 } }
+                  coverage:
+                    type: object
+                    nullable: true
+                    properties:
+                      derivedRows: { type: integer, format: int64 }
+                      sourceEpisodes: { type: integer, format: int64 }
+                      pct: { type: number }
+                  coverageError: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /manage/films:
     get:
       tags: [manage-film]

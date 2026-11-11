@@ -337,8 +337,8 @@ func (r *EpidRepo) ExistingSourceRowIds(ctx context.Context, ids []int64) (map[i
 // `AlignmentReport` 的**每整轮一次**分支里（见 `EpidService.DeriveEpidInBackground`）。
 func (r *EpidRepo) CoverageFull(ctx context.Context) (derivedRows int64, sourceEpisodes int64, err error) {
 	var row struct {
-		Derived   int64
-		SourceEp  int64
+		Derived  int64
+		SourceEp int64
 	}
 	err = dbFrom(ctx, r.db).Raw(`
 		SELECT
@@ -346,4 +346,20 @@ func (r *EpidRepo) CoverageFull(ctx context.Context) (derivedRows int64, sourceE
 		  (SELECT COALESCE(SUM(JSON_LENGTH(episodes_json)), 0) FROM movie_play_source) AS source_ep`).
 		Scan(&row).Error
 	return row.Derived, row.SourceEp, err
+}
+
+// TruncateAll **清空整张派生表**（一键「清空重建」用；H2 运维入口, 2026-11-11）。
+//
+// ⚠️ **TRUNCATE 不可回滚且隐式提交** —— 只在管理端显式传 `mode=rebuild` 时调用（调用方记日志）。
+// 清空期间出参没有 epid ⇒ 端侧自然回退实时解析（方案 §4.6）⇒ **不影响站点可用性** ✓
+// （派生表是单向派生物：`episodes_json` 才是真相源，重建结果确定 ⇒ 可随时重算）。
+func (r *EpidRepo) TruncateAll(ctx context.Context) error {
+	return dbFrom(ctx, r.db).Exec("TRUNCATE TABLE movie_episode_epid").Error
+}
+
+// CountDerivedRows 派生表行数（轻量，给状态/报告用）。
+func (r *EpidRepo) CountDerivedRows(ctx context.Context) (int64, error) {
+	var n int64
+	err := dbFrom(ctx, r.db).Model(&entity.MovieEpisodeEpid{}).Count(&n).Error
+	return n, err
 }

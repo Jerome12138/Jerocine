@@ -65,6 +65,16 @@ var deriveCursor atomic.Int64
 // 重来（热门趟更快、也更该先跑）✓ 零新增持久状态。
 var deriveHotPhase atomic.Bool
 
+// ---- U5 / H2：一键全量派生（管理端入口, 2026-11-11）----
+//
+// 与"采集收尾自动触发一批"的关系：**共用同一把锁**（`deriveRunning`）⇒ 互斥防重入；
+// 本全量任务由管理端**显式**发起（补缺 / 清空重建），跑完自己打验收指标日志。
+var (
+	deriveFullRunning   atomic.Bool   // 是否有全量任务在跑（供状态查询）
+	deriveFullStartedAt atomic.Int64  // 全量任务的起始毫秒
+	deriveFullMode      atomic.Value  // fill | rebuild
+)
+
 var lastOrphanCleanMs atomic.Int64
 
 const (
@@ -192,6 +202,39 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 		return st, err
 	}
 
+	// H1（2026-11-11 评审；**同日更正**：上一批声称的"批内一次取"实际未落盘，生产上仍是逐行调用 ⇒
+	// 单轮 ≤2000 次 `SourceTitlesByMatchKeys`，每次都拉"整片所有源"的 `episodes_json` 巨列
+	// ⇒ 批处理跑满 10 分钟超时、该轮白跑 ✗，实测已复现）。
+	// 现按 **200 个 match_key 一批**预取（≈10 次查询/批），并记录耗时便于持续观测。
+	poolKeys := make([]string, 0, len(rows))
+	seenKey := make(map[string]struct{}, len(rows))
+	for _, r := range rows {
+		if r.MatchKey == "" {
+			continue
+		}
+		if _, ok := seenKey[r.MatchKey]; ok {
+			continue
+		}
+		seenKey[r.MatchKey] = struct{}{}
+		poolKeys = append(poolKeys, r.MatchKey)
+	}
+	const poolKeyBatch = 200
+	others := make(map[string][]string, len(poolKeys))
+	for i := 0; i < len(poolKeys); i += poolKeyBatch {
+		j := min(i+poolKeyBatch, len(poolKeys))
+		t0 := time.Now()
+		part, perr := s.repo.SourceTitlesByMatchKeys(ctx, poolKeys[i:j], nil)
+		if perr != nil {
+			return st, perr
+		}
+		for k, v := range part {
+			others[k] = append(others[k], v...)
+		}
+		if d := time.Since(t0); d > 500*time.Millisecond {
+			log.Printf("[epid] 取借用池较慢: keys=%d 耗时=%s", j-i, d)
+		}
+	}
+
 	now := time.Now().UnixMilli()
 	for _, src := range rows {
 		st.LastId = src.Id
@@ -199,14 +242,12 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 		for _, e := range src.Episodes {
 			titles = append(titles, e.Episode)
 		}
-		// M2（2026-11-11 评审）：借用/锚点池必须是"**本片所有源**的集名"（web allEpisodeTitles 口径）。
-		// 只放本源 ⇒ 桥接恒不可能命中 + 锚点在本源缺期时推错 ✗。按 match_key 一次批量补池（无 N+1）。
+		// M2（2026-11-11 评审）：借用/锚点池必须是"**本片所有源**"的集名（web allEpisodeTitles 口径）——
+		// 只放本源 ⇒ 桥接恒不可能命中 + 锚点在本源缺期时推错 ✗。
+		// H1：他源部分已在循环外**按 200 key 一批**预取完（`others`），这里只做拼装；
+		// 不传 exclude ⇒ 池 = 该片**全部**源行（含本批自身；重复集名对桥接/锚点无影响 —— 内部按 num/date 去重）。
 		pool := append([]string{}, titles...)
-		extra, err := s.repo.SourceTitlesByMatchKeys(ctx, []string{src.MatchKey}, []int64{src.Id})
-		if err != nil {
-			return st, err
-		}
-		pool = append(pool, extra[src.MatchKey]...)
+		pool = append(pool, others[src.MatchKey]...)
 		a := anchors[src.Id]
 		if !force {
 			hasOverlap := false
@@ -254,6 +295,186 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 		st.Rows += int64(len(out))
 	}
 	return st, nil
+}
+
+// ===== U5 / H2：一键全量派生（管理端入口, 2026-11-11）=====
+
+// DeriveMode 一键派生的两种方式。
+type DeriveMode string
+
+const (
+	// DeriveModeFill 补缺/更新：从**表头**起把"集内容变过"的源行补齐/更新，**不动已有**派生。
+	DeriveModeFill DeriveMode = "fill"
+	// DeriveModeRebuild 清空重建：**先 TRUNCATE 派生表**再全量重算（规则升级后用，方案 §5.4 ③）。
+	DeriveModeRebuild DeriveMode = "rebuild"
+)
+
+// DeriveState 派生任务状态（管理端只读）。
+type DeriveState struct {
+	Running   bool   `json:"running"`   // 是否有全量任务在跑
+	Mode      string `json:"mode"`      // fill | rebuild（无任务时为空）
+	StartedAt int64  `json:"startedAt"` // 全量任务起始毫秒（0 = 无）
+	Cursor    int64  `json:"cursor"`    // 当前游标（源行 id；0 = 刚到表尾）
+	HotPhase  bool   `json:"hotPhase"`  // true = 正在跑"热门趟"（只扫 mid 非空的源行）
+}
+
+// DeriveStatus 读当前派生状态。
+func DeriveStatus() DeriveState {
+	m := ""
+	if v := deriveFullMode.Load(); v != nil {
+		m, _ = v.(string)
+	}
+	return DeriveState{
+		Running:   deriveFullRunning.Load(),
+		Mode:      m,
+		StartedAt: deriveFullStartedAt.Load(),
+		Cursor:    deriveCursor.Load(),
+		HotPhase:  deriveHotPhase.Load(),
+	}
+}
+
+// RunFullDerive 启动一次全量派生（**异步**）。返回 false = 已有任务在跑 / 未装配。
+//
+// 设计要点：①**异步**（全库 63 万源行要跑几十分钟，不能占住 HTTP）；②**互斥**（与采集收尾的自动触发
+// 共用 `deriveRunning`）；③**有上限**（`maxBatches` 批数 + `timeout` 总时长），防一次点错把机器跑满；
+// ④进度可观测（每批一行日志 + `DeriveStatus()`）。
+func RunFullDerive(mode DeriveMode, batch, maxBatches int, timeout time.Duration) bool {
+	s := currentEpidService()
+	if s == nil || !deriveRunning.CompareAndSwap(false, true) {
+		return false
+	}
+	if batch <= 0 {
+		batch = deriveBatchPerTrigger
+	}
+	if timeout <= 0 {
+		timeout = time.Hour
+	}
+	if mode != DeriveModeRebuild {
+		mode = DeriveModeFill
+	}
+	deriveFullMode.Store(string(mode))
+	deriveFullStartedAt.Store(time.Now().UnixMilli())
+	deriveFullRunning.Store(true)
+
+	go func() {
+		defer func() {
+			deriveFullRunning.Store(false)
+			deriveFullStartedAt.Store(0)
+			deriveRunning.Store(false)
+			// 与自动触发同款：**必须 recover**（一条脏数据不能把全站服务打挂）
+			if r := recover(); r != nil {
+				log.Printf("[epid] 全量派生 panic 已拦截（不影响线上服务）: %v", r)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		if mode == DeriveModeRebuild {
+			if err := s.repo.TruncateAll(ctx); err != nil {
+				log.Printf("[epid] 清空派生表失败 ⇒ 任务中止（派生表未被改动）: %v", err)
+				return
+			}
+			log.Printf("[epid] 已清空派生表（mode=rebuild）；期间出参无 epid，端侧回退实时解析，不影响可用性")
+		}
+		// 从表头起跑 + 热门趟优先（H6）
+		deriveCursor.Store(0)
+		deriveHotPhase.Store(true)
+
+		total := DeriveStats{SkipWhy: map[string]int{}}
+		for n := 0; maxBatches <= 0 || n < maxBatches; n++ {
+			after := deriveCursor.Load()
+			runHot := deriveHotPhase.Load()
+			st, err := s.DeriveBatch(ctx, after, batch, false)
+			if err != nil {
+				log.Printf("[epid] 全量派生中断（已处理 %d 批，游标 %d）: %v", n, after, err)
+				break
+			}
+			total.Scanned += st.Scanned
+			total.Rebuilt += st.Rebuilt
+			total.Rows += st.Rows
+			total.Skipped += st.Skipped
+			total.EmptyEpid += st.EmptyEpid
+			for k, v := range st.SkipWhy {
+				total.SkipWhy[k] += v
+			}
+			finished := st.Scanned < batch
+			if finished {
+				deriveHotPhase.Store(!runHot) // 热门趟到底 ⇒ 进长尾趟；长尾趟到底 ⇒ 回热门趟
+				deriveCursor.Store(0)
+			} else {
+				deriveCursor.Store(st.LastId)
+			}
+			phase := "长尾趟"
+			if runHot {
+				phase = "热门趟"
+			}
+			log.Printf("[epid] 全量派生 第%d批: 趟=%s 游标 %d→%d 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d",
+				n+1, phase, after, deriveCursor.Load(), st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid)
+			// 热门趟扫完 ⇒ 继续跑长尾趟；长尾趟也扫完 ⇒ 整趟结束
+			if finished && !runHot {
+				break
+			}
+		}
+		log.Printf("[epid] 全量派生结束（mode=%s）: 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 原因=%v",
+			mode, total.Scanned, total.Rebuilt, total.Rows, total.Skipped, total.EmptyEpid, total.SkipWhy)
+		if rep, rerr := s.AlignmentReport(ctx); rerr == nil {
+			log.Printf("[epid] 验收指标: 派生行=%d 空epid=%d 对齐组=%d/%d (%.1f%%) 来源=%v 门槛(≥85%%)=%v",
+				rep.TotalDerivedRows, rep.EmptyEpidRows, rep.AlignedGroups, rep.TotalGroups,
+				rep.AlignmentPct, rep.ByFromSrc, rep.AlignmentPct >= 85)
+			if dr, se, cerr := s.repo.CoverageFull(ctx); cerr == nil && se > 0 {
+				log.Printf("[epid] 完整覆盖率(§6.1 口径, 空epid也算行): %d/%d ⇒ %.2f%%（目标 ≈100%%）",
+					dr, se, float64(dr)*100/float64(se))
+			}
+		}
+	}()
+	return true
+}
+
+// EpidCoverage 覆盖率（§6.1：派生行数 / Σ JSON_LENGTH(episodes_json)）。
+type EpidCoverage struct {
+	DerivedRows    int64   `json:"derivedRows"`
+	SourceEpisodes int64   `json:"sourceEpisodes"`
+	Pct            float64 `json:"pct"`
+}
+
+// EpidReport 管理端只读报告：状态 + 验收指标（对齐率/覆盖率/来源分布）。
+type EpidReport struct {
+	Status        DeriveState      `json:"status"`
+	DerivedRows   int64            `json:"derivedRows"`
+	EmptyEpidRows int64            `json:"emptyEpidRows"`
+	AlignedGroups int64            `json:"alignedGroups"`
+	TotalGroups   int64            `json:"totalGroups"`
+	AlignmentPct  float64          `json:"alignmentPct"`
+	ByFromSrc     map[string]int64 `json:"byFromSrc"`
+	Coverage      *EpidCoverage    `json:"coverage,omitempty"`
+	CoverageError string           `json:"coverageError,omitempty"`
+}
+
+// ReportEpid 汇总验收指标（只读）。覆盖率走离线口径（要扫巨列，**不在热路径**）。
+func ReportEpid(ctx context.Context) (EpidReport, error) {
+	out := EpidReport{Status: DeriveStatus()}
+	s := currentEpidService()
+	if s == nil {
+		return out, nil
+	}
+	rep, err := s.AlignmentReport(ctx)
+	if err != nil {
+		return out, err
+	}
+	out.DerivedRows, out.EmptyEpidRows = rep.TotalDerivedRows, rep.EmptyEpidRows
+	out.AlignedGroups, out.TotalGroups = rep.AlignedGroups, rep.TotalGroups
+	out.AlignmentPct, out.ByFromSrc = rep.AlignmentPct, rep.ByFromSrc
+
+	dr, se, cerr := s.repo.CoverageFull(ctx)
+	switch {
+	case cerr != nil:
+		out.CoverageError = cerr.Error()
+	case se <= 0:
+		out.CoverageError = "源侧集数为 0（无源行？）"
+	default:
+		out.Coverage = &EpidCoverage{DerivedRows: dr, SourceEpisodes: se, Pct: float64(dr) * 100 / float64(se)}
+	}
+	return out, nil
 }
 
 // DeriveAll 从头扫完一轮（keyset 分页循环）。返回累计统计与"是否仍有被拦下的行"。

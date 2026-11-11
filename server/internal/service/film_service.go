@@ -463,7 +463,7 @@ func (s *FilmService) assembleSources(ctx context.Context, m *entity.Movie) ([]P
 		seenKey[r.MatchKey] = struct{}{}
 		epKeys = append(epKeys, r.MatchKey)
 	}
-	epids := LookupEpids(ctx, epKeys)
+	epids := lookupEpidsBatched(ctx, epKeys)
 	sortPlayLines(lines, s.playLatencyMap(ctx))
 	out := make([]PlaySourceView, len(lines))
 	for i := range lines {

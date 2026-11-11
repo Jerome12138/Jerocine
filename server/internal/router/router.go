@@ -210,6 +210,9 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/spider/category-cover", h.CategoryCover)
 		mg.POST("/spider/search", h.SpiderSearch)      // 按片名搜索各源(预览, 不落库)
 		mg.POST("/spider/collect-film", h.CollectFilm) // 按片名采集(单/多/全部源)
+		// epid 派生运维（H2, 2026-11-11）：一键全量派生（mode=fill 补缺 / rebuild 清空重建）+ 只读验收报告
+		mg.POST("/epid/derive-all", h.ManageEpidDeriveAll)
+		mg.GET("/epid/report", h.ManageEpidReport)
 
 		// 采集失败台账: 页级失败补采(列表 / 触发补采 / 清理已处理)。
 		// 静态段须先于任何 :id 段注册。
