@@ -17,10 +17,11 @@ func TestEpisodesHash(t *testing.T) {
 	if len(EpisodesHash(a)) != 16 {
 		t.Fatalf("应为 16 位十六进制, got %q", EpisodesHash(a))
 	}
-	// link 变（源站换 CDN / 防盗链签名）⇒ 指纹必须变，否则派生任务不会重建
+	// R4（2026-11-11 评审）：link 变（源站换 CDN / 防盗链签名）**指纹不应变** ——
+	// 否则一次重采会把全部源行同时打脏 ⇒ 派生风暴 ✗；而派生内容不依赖 link ⇒ 无需重建 ✓
 	c := entity.EpisodeList{{Episode: "第1集", Link: "u1"}, {Episode: "第2集", Link: "u9"}}
-	if EpisodesHash(a) == EpisodesHash(c) {
-		t.Fatal("link 变了指纹应随之改变")
+	if EpisodesHash(a) != EpisodesHash(c) {
+		t.Fatal("link 变了指纹不应变（R4：避免 CDN 轮换导致全量打脏）")
 	}
 	// 集名变（真正影响身份）⇒ 指纹必须变
 	d := entity.EpisodeList{{Episode: "第1集", Link: "u1"}, {Episode: "第3集", Link: "u2"}}

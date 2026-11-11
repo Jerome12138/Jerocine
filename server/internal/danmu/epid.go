@@ -168,9 +168,20 @@ func EpidFor(title string, allTitles []string) (epid string, fromSrc string) {
 // 入参 `titles` 通常取"本片所有源的所有集名"（桥接/锚点需要他源），
 // 返回与 `titles` **等长**的 (epid, fromSrc) 切片（未触发/推不出 ⇒ 空串 + none）。
 func EpidsForSourceRow(titles []string) [][2]string {
+	return EpidsForSourceRowWithPool(titles, titles)
+}
+
+// EpidsForSourceRowWithPool 同上，但**显式给出借用/锚点池**（M2, 2026-11-11 评审）：
+// 池应是"**本片所有源**的所有集名"（web 的 `allEpisodeTitles` 口径）——
+// 只放本源会让 ①**桥接恒不可能命中**（池里没有"他源"）②**锚点在本源缺期时推错** ✗。
+// `pool` 为空 ⇒ 退化为 `titles`（单源片的正确行为）。
+func EpidsForSourceRowWithPool(titles, pool []string) [][2]string {
+	if len(pool) == 0 {
+		pool = titles
+	}
 	out := make([][2]string, 0, len(titles))
 	for _, t := range titles {
-		epid, from := EpidFor(t, titles)
+		epid, from := EpidFor(t, pool)
 		out = append(out, [2]string{epid, from})
 	}
 	return out

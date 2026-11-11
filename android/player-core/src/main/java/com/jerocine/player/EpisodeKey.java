@@ -215,7 +215,7 @@ public final class EpisodeKey {
      *
      * <ol>
      *   <li>① <b>强等</b>：{@link #epid()} 与存储 epid <b>串全等</b> —— 同源集序变化（重排/插集/补集）也能对上；</li>
-     *   <li>② <b>弱等（相容）</b>：{@code s} / {@code v}（含变体序号）必须<b>相等</b>；
+     *   <li>② <b>弱等（相容）</b>：{@code s} / {@code v}（含变体序号，连接符为 <b>`,`</b> —— M1）必须<b>相等</b>；
      *       {@code n} / {@code p} / {@code d} 三段<b>单边缺失视为通配、双有须过各自规则</b>
      *       （{@code n}/{@code d} 相等，{@code p} 前缀相容）；且<b>候选唯一</b>才采纳（多个 ⇒ -1，宁缺勿错）。</li>
      * </ol>

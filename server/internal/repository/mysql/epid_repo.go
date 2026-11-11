@@ -81,8 +81,9 @@ func (r *EpidRepo) ReplaceForSourceRow(ctx context.Context, srcRowId int64, rows
 
 // Anchor 源行当前的派生状态锚。
 type Anchor struct {
-	N         int    // 现有派生行数（`0` = 从未派生 ⇒ F-07 的"首次派生"分支）
-	SrcEpHash string // 派生时的 ep_hash
+	N              int    // 现有派生行数（`0` = 从未派生 ⇒ F-07 的"首次派生"分支）
+	SrcEpHash      string // 派生时的 ep_hash
+	LastComputedAt int64  // 上次重建时间（L4 宽限期用）
 }
 
 // AnchorsBySrcRowIds 批量取锚（走 `uk_row_ep` 前缀 ⇒ index-only，不碰巨表）。
@@ -92,12 +93,13 @@ func (r *EpidRepo) AnchorsBySrcRowIds(ctx context.Context, ids []int64) (map[int
 		return out, nil
 	}
 	var rows []struct {
-		SrcRowId  int64
-		N         int
-		SrcEpHash string
+		SrcRowId       int64
+		N              int
+		SrcEpHash      string
+		LastComputedAt int64
 	}
 	err := dbFrom(ctx, r.db).Model(&entity.MovieEpisodeEpid{}).
-		Select("src_row_id, COUNT(*) AS n, MIN(src_ep_hash) AS src_ep_hash").
+		Select("src_row_id, COUNT(*) AS n, MIN(src_ep_hash) AS src_ep_hash, MAX(computed_at) AS last_computed_at").
 		Where("src_row_id IN ?", ids).
 		Group("src_row_id").
 		Scan(&rows).Error
@@ -105,7 +107,27 @@ func (r *EpidRepo) AnchorsBySrcRowIds(ctx context.Context, ids []int64) (map[int
 		return nil, err
 	}
 	for _, x := range rows {
-		out[x.SrcRowId] = Anchor{N: x.N, SrcEpHash: x.SrcEpHash}
+		out[x.SrcRowId] = Anchor{N: x.N, SrcEpHash: x.SrcEpHash, LastComputedAt: x.LastComputedAt}
+	}
+	return out, nil
+}
+
+// EpHashBy 批量取源行当前 `ep_hash`（只取两列 ⇒ **不碰巨列**）。
+func (r *EpidRepo) EpHashBy(ctx context.Context, ids []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		Id     int64
+		EpHash string
+	}
+	if err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
+		Select("id, ep_hash").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, x := range rows {
+		out[x.Id] = x.EpHash
 	}
 	return out, nil
 }
@@ -205,24 +227,70 @@ func (r *EpidRepo) ListByMatchKeys(ctx context.Context, keys []string) ([]entity
 
 // DirtySourceRows keyset 分页取"**待派生 / 需重算**"的源行（P1-1 §5.4）。
 //
-// 判据：`ep_hash` 非空（没哨兵的行跳过）且（派生侧无锚 **或** 锚与本行当前 `ep_hash` 不等）。
-// 只对脏行读 `episodes_json`（派生必须读它）——派生锚子查询被 `src_row_id > ?` 限制在同一
-// keyset 窗口内，避免每次全表 GROUP BY 647 万行。
+// **M3 修法（2026-11-11 评审）**：原实现用「剩余派生表全表 GROUP BY」子查询判脏（注释声称"限制在
+// 同一窗口"并不成立）⇒ 一轮总扫描 ≈ 647.7 万 × 批数（数十亿行）✗。现改为**三步、全程 index-only**：
+//  1. 取候选 id 页（`SELECT id ... ORDER BY id LIMIT n` ⇒ 覆盖主键）
+//  2. 对本页 ids 取派生态锚（`AnchorsBySrcRowIds` ⇒ `uk_row_ep` 前缀）
+//  3. 只对**脏的** id 取全字段（含 `episodes_json` 巨列）
+// ⇒ 每批成本与**表规模无关**；且不再需要 `ep_hash <> ''` 过滤（L7：空 hash 也当候选，首次派生一次即收敛）
 func (r *EpidRepo) DirtySourceRows(ctx context.Context, afterId int64, limit int) ([]entity.MoviePlaySource, error) {
+	var ids []int64
+	if err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
+		Where("id > ?", afterId).Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	anchors, err := r.AnchorsBySrcRowIds(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	hashes, err := r.EpHashBy(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	dirty := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		a, ok := anchors[id]
+		if !ok || a.SrcEpHash != hashes[id] {
+			dirty = append(dirty, id)
+		}
+	}
+	if len(dirty) == 0 {
+		return nil, nil
+	}
 	var out []entity.MoviePlaySource
-	err := dbFrom(ctx, r.db).Raw(`
-		SELECT s.id, s.mid, s.match_key, s.site_id, s.play_from, s.episodes_json, s.ep_hash
-		FROM movie_play_source s
-		LEFT JOIN (
-		  SELECT src_row_id, MIN(src_ep_hash) AS h
-		  FROM movie_episode_epid
-		  WHERE src_row_id > ?
-		  GROUP BY src_row_id
-		) d ON d.src_row_id = s.id
-		WHERE s.id > ? AND s.ep_hash <> '' AND (d.src_row_id IS NULL OR d.h <> s.ep_hash)
-		ORDER BY s.id ASC
-		LIMIT ?`, afterId, afterId, limit).Scan(&out).Error
-	return out, err
+	if err := dbFrom(ctx, r.db).Where("id IN ?", dirty).Find(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SourceTitlesByMatchKeys 取"**同片其它源行**"的集名（M2, 2026-11-11 评审）——
+// 供派生任务组成"本片所有源的所有集名"池（web `allEpisodeTitles` 口径）。
+// 只对**本批脏行涉及的片**发起一次批量查询（无 N+1）；`excludeIds` 排除本批自身。
+func (r *EpidRepo) SourceTitlesByMatchKeys(ctx context.Context, keys []string, excludeIds []int64) (map[string][]string, error) {
+	out := make(map[string][]string, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+	var rows []entity.MoviePlaySource
+	q := dbFrom(ctx, r.db).Select("match_key, episodes_json").Where("match_key IN ?", keys)
+	if len(excludeIds) > 0 {
+		q = q.Where("id NOT IN ?", excludeIds)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, x := range rows {
+		for _, e := range x.Episodes {
+			if e.Episode != "" {
+				out[x.MatchKey] = append(out[x.MatchKey], e.Episode)
+			}
+		}
+	}
+	return out, nil
 }
 
 // ExistingSourceRowIds 批量判断源行是否仍存在（孤儿清理用；只取主键 ⇒ index-only，不碰巨表）。

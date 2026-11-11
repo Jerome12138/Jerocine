@@ -52,16 +52,32 @@ func currentEpidService() *EpidService {
 	return defaultEpid
 }
 
-// DeriveEpidInBackground 采集批次结束后**非阻塞**触发一轮派生（带可重入保护 + 超时）。
+// 派生游标（U1-1, 2026-11-11 评审）：采集只会打脏"**本次采到的行**"，而原实现每轮跑 `DeriveAll`
+// （全表 keyset 扫）⇒ 成本与收益严重不匹配 ✗。现改为**每轮只跑一批**（`DeriveBatch`，定量），
+// 游标在批间前进、扫到末尾自动回 0（下一轮从头复核被守卫拦下的行）。
+var deriveCursor atomic.Int64
+
+// 孤儿清理节流（补审 U1-2）：孤儿只在"整片下架 / 站点下线 / Truncate"后产生 ⇒ **低频**任务；
+// 挂在采集收尾却每次跑属**频率错配** ✗ ⇒ 每 24h 最多一次。
+var lastOrphanCleanMs atomic.Int64
+
+const (
+	deriveBatchPerTrigger = 2000             // 每次触发处理的行数上限
+	deriveTriggerTimeout  = 10 * time.Minute // U1-3：只跑一批 ⇒ 不需要 30 分钟
+	orphanCleanIntervalMs = 24 * 60 * 60 * 1000
+)
+
+// DeriveEpidInBackground 采集批次结束后**非阻塞**触发一轮派生（带可重入保护 + 超时 + 游标）。
 //
-// 铁律：**失败只记日志，绝不影响采集**；已在跑 / 未装配 ⇒ 直接返回。跑完顺带做一次孤儿清理。
+// 铁律：**失败只记日志，绝不影响采集**；已在跑 / 未装配 ⇒ 直接返回（并记一条跳过日志，便于发现"长期跑不完"）。
 func DeriveEpidInBackground() {
 	s := currentEpidService()
 	if s == nil {
 		return
 	}
 	if !deriveRunning.CompareAndSwap(false, true) {
-		return // 上一轮还没跑完 ⇒ 本轮跳过（采集是高频的，派生跟上一次就够）
+		log.Printf("[epid] 上一轮派生尚未结束 ⇒ 本轮跳过（U1-6：若长期如此说明单轮远超采集间隔）")
+		return
 	}
 	go func() {
 		defer deriveRunning.Store(false)
@@ -73,17 +89,29 @@ func DeriveEpidInBackground() {
 				log.Printf("[epid] 派生 panic 已拦截（不影响采集与线上服务）: %v", r)
 			}
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), deriveTriggerTimeout)
 		defer cancel()
-		st, err := s.DeriveAll(ctx, 500, 0, false)
+		after := deriveCursor.Load()
+		st, err := s.DeriveBatch(ctx, after, deriveBatchPerTrigger, false)
 		if err != nil {
 			log.Printf("[epid] 派生失败（不影响采集）: %v", err)
 			return
 		}
-		log.Printf("[epid] 派生完成: 扫脏=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 来源=%v",
-			st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid, st.SkipWhy)
-		if n, err := s.CleanOrphans(ctx, 500); err == nil && n > 0 {
-			log.Printf("[epid] 孤儿清理：%d 个源行（级联删派生行）", n)
+		if st.Scanned < deriveBatchPerTrigger {
+			deriveCursor.Store(0) // 已扫到末尾 ⇒ 下轮从头复核（含被守卫拦下的行）
+		} else {
+			deriveCursor.Store(st.LastId)
+		}
+		// U1-5：**批次末汇总一行**（原实现逐行打日志 ⇒ 日志量 = 采集频率 × 被拦行数 ✗）
+		log.Printf("[epid] 派生一批完成: 游标 %d→%d 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 来源=%v",
+			after, deriveCursor.Load(), st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid, st.SkipWhy)
+		// 孤儿清理：24h 节流（CAS 保证同一轮只有一个 goroutine 拿到执行权）
+		nowMs := time.Now().UnixMilli()
+		if last := lastOrphanCleanMs.Load(); nowMs-last >= orphanCleanIntervalMs &&
+			lastOrphanCleanMs.CompareAndSwap(last, nowMs) {
+			if n, err := s.CleanOrphans(ctx, 500); err == nil && n > 0 {
+				log.Printf("[epid] 孤儿清理：%d 个源行（级联删派生行）", n)
+			}
 		}
 	}()
 }
@@ -133,6 +161,14 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 		for _, e := range src.Episodes {
 			titles = append(titles, e.Episode)
 		}
+		// M2（2026-11-11 评审）：借用/锚点池必须是"**本片所有源**的集名"（web allEpisodeTitles 口径）。
+		// 只放本源 ⇒ 桥接恒不可能命中 + 锚点在本源缺期时推错 ✗。按 match_key 一次批量补池（无 N+1）。
+		pool := append([]string{}, titles...)
+		extra, err := s.repo.SourceTitlesByMatchKeys(ctx, []string{src.MatchKey}, []int64{src.Id})
+		if err != nil {
+			return st, err
+		}
+		pool = append(pool, extra[src.MatchKey]...)
 		a := anchors[src.Id]
 		if !force {
 			hasOverlap := false
@@ -142,18 +178,18 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 					return st, err
 				}
 			}
-			ok, why := danmu.ShouldReplaceDerived(a.N, len(titles), hasOverlap)
+			ok, why := danmu.ShouldReplaceDerived(a.N, len(titles), hasOverlap, a.LastComputedAt, now)
 			if !ok {
 				st.Skipped++
 				st.SkipWhy[why]++
-				log.Printf("[epid] 抖动守卫拦下 src_row_id=%d（[%s] 旧 N=%d 新 N=%d hash=%s→%s）— 本轮不重建，等下一轮；确认无误可 force 重跑",
-					src.Id, why, a.N, len(titles), a.SrcEpHash, src.EpHash)
+				// U1-5（2026-11-11 评审）：**逐行打日志会让日志量 = 采集频率 × 被拦行数** ✗
+				// ⇒ 改为只计数，批次末汇总一行（见 DeriveAll/DeriveEpidInBackground 的收尾日志）。
 				continue
 			}
 		}
 
 		// 派生（服务端口径：带 A2 期号，含锚点兜底；见 danmu.EpidFor）
-		derived := danmu.EpidsForSourceRow(titles)
+		derived := danmu.EpidsForSourceRowWithPool(titles, pool)
 		out := make([]entity.MovieEpisodeEpid, 0, len(titles))
 		for i, t := range titles {
 			if derived[i][0] == "" {

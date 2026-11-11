@@ -67,6 +67,9 @@ export function dispatchNativePlaylist(
       picture: detail.cover,
       source: src.id,
       episodeIndex,
+      // F2（2026-11-11 评审）：`record()` 是**整条替换** ⇒ 不带 epid 会把刚写入的身份抹掉 ✗
+      //（该路径此前 P0-3b 失效）。这里带上当前集的 epid（服务端派生表下发；空串 = 未派生 ⇒ 不覆盖）。
+      epid: src.episodes?.[episodeIndex]?.epid ?? '',
       currentTime: resumeSec > 0 ? Math.floor(resumeSec) : 0,
       pid: detail.pid,
       cid: detail.cid,
