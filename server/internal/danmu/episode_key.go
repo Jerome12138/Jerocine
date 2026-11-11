@@ -298,7 +298,10 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	k.Part = parsePart(s)
 	if ms := reVariant.FindAllString(s, -1); len(ms) > 0 {
 		sort.Strings(ms)
-		k.Variant = strings.Join(ms, "|")
+		// ⚠️ M1（2026-11-11 评审）：连接符用 `,` 而**不是 `|`** —— `|` 是 epid/epk 的**段分隔符**，
+		// 多变体（如「特辑|花絮」）会把它写成 `v=特辑|花絮` ⇒ 串变 7 段 ⇒ 服务端 `ParseEpisodeKeyString`
+		// 拒收 + web `parseEpid` 恒 null（续播②档失效）+ 落库坏串 ✗。段值域（中文词表/上中下/数字）无逗号 ⇒ 安全 ✓
+		k.Variant = strings.Join(ms, ",")
 	}
 	if m := reVariantNum.FindStringSubmatch(s); m != nil {
 		if v, err := strconv.Atoi(m[1]); err == nil {

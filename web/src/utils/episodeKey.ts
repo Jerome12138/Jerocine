@@ -124,7 +124,9 @@ export function parseEpisodeKey(title: string): EpisodeKey {
   if (em) k.eNum = Number.parseInt(em[1] as string, 10) || 0
   k.part = parsePart(s)
   const vs = [...s.matchAll(RE_VARIANT_G)].map((m) => m[0]).sort()
-  if (vs.length) k.variant = vs.join('|')
+  // ⚠️ M1（2026-11-11 评审）：变体集合用 `,` 连接而**不是 `|`** —— `|` 是 epid/epk 的段分隔符，
+  // 多变体会把串写成 7 段 ⇒ 服务端拒收 + `parseEpid` 恒 null（续播②档失效）+ 落库坏串 ✗
+  if (vs.length) k.variant = vs.join(',')
   const vnm = s.match(RE_VARIANT_NUM)
   if (vnm) k.variantNum = Number.parseInt(vnm[1] as string, 10) || 0
   k.series = seriesOf(s)

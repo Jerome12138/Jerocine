@@ -65,7 +65,9 @@ public final class EpisodeKey {
         java.util.regex.Matcher vm = java.util.regex.Pattern.compile("加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外").matcher(s);
         java.util.TreeSet<String> vs = new java.util.TreeSet<>();
         while (vm.find()) vs.add(vm.group());
-        if (!vs.isEmpty()) variant = String.join("|", vs);
+        // ⚠️ M1（2026-11-11 评审）：变体集合用 `,` 连接而**不是 `|`**（`|` 是 epid/epk 的段分隔符，
+        // 多变体会把串写成 7 段 ⇒ 服务端拒收 + web parseEpid 恒 null + 落库坏串 ✗）
+        if (!vs.isEmpty()) variant = String.join(",", vs);
         // 变体序号（P0-1a）: 变体词后**紧跟**的数字（最多隔一个左括号/空白）。
         //   特辑2 → 2 ／ 加更版1 → 0（隔着「版」）／ 特辑2026 → 0（避免吞日期）
         //   注: `(?:[^0-9]|$)` 消费一个后继字符做等价断言 —— 与 Go RE2（不支持 lookahead）同写法

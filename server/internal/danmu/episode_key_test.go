@@ -17,11 +17,11 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"20260806(第1期加更上)", EpisodeKey{Date: "20260806", Num: 1, Part: "上", Variant: "加更"}},
 		{"20260807(第1期陪看上)", EpisodeKey{Date: "20260807", Num: 1, Part: "上", Variant: "陪看"}},
 		{"20260731(先导片上)", EpisodeKey{Date: "20260731", Part: "上", Variant: "先导"}},
-		{"20260805(超前彩蛋)", EpisodeKey{Date: "20260805", Variant: "彩蛋|超前"}},
+		{"20260805(超前彩蛋)", EpisodeKey{Date: "20260805", Variant: "彩蛋,超前"}},
 		// 无意义后缀（会员/未公开/未播/直拍/完整版/未删减）解析前剔除 → 等价于「20260128特辑」
 		{"20260128未公开特辑", EpisodeKey{Date: "20260128", Variant: "特辑"}},
 		{"20260803完整版", EpisodeKey{Date: "20260803"}},
-		{"20260805超前彩蛋未播", EpisodeKey{Date: "20260805", Variant: "彩蛋|超前"}},
+		{"20260805超前彩蛋未播", EpisodeKey{Date: "20260805", Variant: "彩蛋,超前"}},
 		{"会员版", EpisodeKey{}},
 		// 主/次部分细分（2026-11-06 引入；P0-1c 2026-11-10 合并为**单个复合 Part 字段**）
 		{"20260818中（下）", EpisodeKey{Date: "20260818", Part: "中下"}},
@@ -343,6 +343,41 @@ func TestMergeEpidKey_CrossCheck(t *testing.T) {
 }
 
 // PickEpisodeKeyed（结构化键路径）与 PickEpisode（集名路径）必须**结果一致** —— 否则接口换路后会回归。
+func TestMultiVariant_SeparatorNotCollidingWithEpid(t *testing.T) {
+	// M1（2026-11-11 评审）：多变体集合**不得用 `|` 连接** —— `|` 是 epid/epk 的段分隔符，
+	// 「特辑|花絮」会让串变成 7 段 ⇒ 服务端拒收 + web parseEpid 恒 null + 落库坏串 ✗
+	k := ParseEpisodeKey("20260803(第1期上)特辑花絮")
+	if strings.Contains(k.Variant, "|") {
+		t.Fatalf("变体集合不得含 `|`（段分隔符冲突）, got %q", k.Variant)
+	}
+	if !strings.Contains(k.Variant, ",") ||
+		!strings.Contains(k.Variant, "特辑") || !strings.Contains(k.Variant, "花絮") {
+		t.Fatalf("多变体应以 `,` 连接且词齐全, got %q", k.Variant)
+	}
+	// ① epid 恒 5 段（4 个分隔符）——多变体也不例外
+	ep := EpidOf(k)
+	if n := strings.Count(ep, "|"); n != 4 {
+		t.Fatalf("epid 必须恒 5 段, got %d 个分隔符: %q", n, ep)
+	}
+	if !strings.Contains(ep, "v="+k.Variant) {
+		t.Fatalf("v 段应含逗号连接的多变体: %q", ep)
+	}
+	// ② epk 往返：多变体不得被服务端拒收
+	s := k.Serialize(0)
+	got, ok := ParseEpisodeKeyString(s)
+	if !ok {
+		t.Fatalf("多变体 epk 必须可解析（否则服务端拒收）: %q", s)
+	}
+	if got.Variant != k.Variant {
+		t.Fatalf("往返后变体应保持: %q vs %q", got.Variant, k.Variant)
+	}
+	// ③ 回归：单变体仍然正常
+	one := ParseEpisodeKey("20260803(第1期上)特辑")
+	if one.Variant != "特辑" || strings.Count(EpidOf(one), "|") != 4 {
+		t.Fatalf("单变体不应受影响: %q / %q", one.Variant, EpidOf(one))
+	}
+}
+
 func TestParseEpKeySource(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"v1|d=20260803|n=1|from=anchor", EpKeySourceAnchor},

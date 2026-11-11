@@ -176,6 +176,28 @@ describe('P0-1b/P0-1c 结构化身份传输串（epk）', () => {
   })
 })
 
+describe('M1 多变体分隔符（不得撞 epid/epk 的段分隔符 |）', () => {
+  it('变体集合用「,」连接 ⇒ epid 恒 5 段、epk 段数固定、parseEpid 不 null', () => {
+    const k = parseEpisodeKey('20260803(第1期上)特辑花絮')
+    expect(k.variant).toContain(',')
+    expect(k.variant).not.toContain('|')
+    expect(k.variant).toContain('特辑')
+    expect(k.variant).toContain('花絮')
+
+    const ep = epidOf(k)
+    expect(ep.split('|')).toHaveLength(5) // 段数恒 5 —— 多变体也不撞
+    expect(ep).toContain(`v=${k.variant}`)
+    expect(parseEpid(ep)).not.toBeNull() // web 侧解析不得 null（否则续播②档失效）
+
+    // epk：版本段 + 9 个字段段 = 10 段（多变体不得撑破）
+    expect(serializeEpisodeKey(k).split('|')).toHaveLength(10)
+    // 单变体回归
+    const one = parseEpisodeKey('20260803(第1期上)特辑')
+    expect(one.variant).toBe('特辑')
+    expect(epidOf(one).split('|')).toHaveLength(5)
+  })
+})
+
 describe('P1-3 期号来源标注（epk 的 from= 段；不进 epid）', () => {
   it('derivedNumSourceFor：与 derivedNumFor 同一降级顺序（self → bridge → anchor → none）', () => {
     const others = ['20260803第1期上', '20260810第2期上']
