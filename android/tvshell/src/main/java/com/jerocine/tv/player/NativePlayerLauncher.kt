@@ -33,6 +33,12 @@ private data class NativeSource(
 private data class NativeEpisode(
     val url: String,
     val title: String,
+    /**
+     * **裸集名**（F1, 2026-11-11 评审）：`title` 是「片名 · 集名」**展示用**拼接串，
+     * 不能拿它当身份解析基准（片名会被当成栏目名 ⇒ epid 恒错且污染历史/缓存 ✗）。
+     * 缺省空串 ⇒ 原生侧**不产 epid**（宁缺勿错，端侧自然回退旧键）。
+     */
+    val rawTitle: String = "",
 )
 
 fun buildNativePlayerPayload(
@@ -53,7 +59,9 @@ fun buildNativePlayerPayload(
                     .map { episode ->
                         NativeEpisode(
                             url = episode.link,
-                            title = "${info.detail.name} · ${episode.episode}".trim()
+                            title = "${info.detail.name} · ${episode.episode}".trim(),
+                            // F1：显式带上**裸集名**供 epid 解析（与 web `nativePlay.ts` 同口径）
+                            rawTitle = episode.episode
                         )
                     }
             )

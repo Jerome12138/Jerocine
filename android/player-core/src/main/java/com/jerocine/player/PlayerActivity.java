@@ -963,17 +963,23 @@ private static String failedRequestUrl(Throwable error) {
                     if (e != null && !e.isEmpty()) return e;
                 }
             }
-            java.util.List<String> curTitles = session.playlistTitles;
+            // F1 / R7（2026-11-11 评审）：回退与借用池**必须用裸集名 `rawTitles`** ——
+            // `playlistTitles` 是「片名 · 集名」展示串（nativePlay.ts / NativePlayerLauncher.kt 拼的），
+            // 拿它解析会把**片名当成栏目名** ⇒ epid 恒错、还会污染历史与缓存 ✗
+            // 老载荷无 `rawTitle` ⇒ 列表为空 ⇒ 下面早退返回 ""（**不产错值**，宁缺勿错）。
+            java.util.List<String> curTitles =
+                    (session.currentSourceIndex >= 0 && session.currentSourceIndex < session.sourceList.size())
+                            ? session.sourceList.get(session.currentSourceIndex).rawTitles : null;
             if (curTitles == null || curTitles.isEmpty()) return "";
             int idx = session.player.getCurrentMediaItemIndex();
             String cur = (idx >= 0 && idx < curTitles.size() && curTitles.get(idx) != null)
                     ? curTitles.get(idx) : "";
-            // 借用池 = 全部源的全部集名（对齐 web 口径）
+            // 借用池 = 全部源的全部**裸集名**（与 web `allEpisodeTitles` 同口径；F1/R7）
             java.util.List<EpisodeKey> pool = new java.util.ArrayList<>();
             for (PlayerSession.SourceData s : session.sourceList) {
-                if (s == null || s.titles == null) continue;
-                for (String t : s.titles) {
-                    pool.add(EpisodeKey.parse(t == null ? "" : t));
+                if (s == null || s.rawTitles == null) continue;
+                for (String t : s.rawTitles) {
+                    if (t != null && !t.isEmpty()) pool.add(EpisodeKey.parse(t));
                 }
             }
             if (pool.isEmpty()) {

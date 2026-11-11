@@ -43,8 +43,10 @@ export function dispatchNativePlaylist(
     episodes: (s.episodes ?? []).map((e) => ({
       url: e.link,
       title: `${detail.name} · ${e.episode ?? ''}`.trim(),
-      // P1-1b / U3-android（2026-11-10）：把服务端派生表下发的 epid 透传给原生播放器；
-      // 空串 = 未派生/不产身份 ⇒ 原生侧回退实时解析（过渡期口径，见方案 §4.6）。
+      // F1（2026-11-11 评审）：`title` 是「片名 · 集名」**展示用**拼接串，不能当身份解析基准
+      //（片名会被当成栏目名 ⇒ 产错 epid ✗）⇒ 显式带上**裸集名**，原生侧一律用 `rawTitle` 解析。
+      rawTitle: e.episode ?? '',
+      // P1-1b / U3-android：服务端派生表下发的 epid（空串 = 未派生 ⇒ 原生侧回退现算）
       epid: e.epid ?? ''
     }))
   }))

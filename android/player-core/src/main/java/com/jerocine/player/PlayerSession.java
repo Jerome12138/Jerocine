@@ -93,6 +93,12 @@ public class PlayerSession {
         public final ArrayList<String> urls = new ArrayList<>();
         public final ArrayList<String> titles = new ArrayList<>();
         /**
+         * **裸集名**（F1, 2026-11-11 评审）：`titles` 是「片名 · 集名」**展示用**拼接串，不能当身份解析
+         * 基准（片名会被当成栏目名 ⇒ 产出的 epid 恒错、还会污染历史/缓存 ✗）。与 `urls`/`titles` 等长；
+         * **老载荷缺失 ⇒ 全空串** ⇒ 原生侧不产 epid（宁缺勿错，端侧自然回退旧键）。
+         */
+        public final ArrayList<String> rawTitles = new ArrayList<>();
+        /**
          * 集身份（P1-1b / U3-android，2026-11-10）：由 web 侧 `sources_json` 透传的服务端派生表 epid；
          * **与 `urls`/`titles` 一一对应**，空串 = 未派生/不产身份 ⇒ 回退"本源现算"。
          * 老调用方不带该字段时为全空串（长度与 urls 对齐）⇒ 行为与改动前一致。
