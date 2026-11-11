@@ -431,3 +431,42 @@ func TestPickEpisodeKeyed_与集名路径等价(t *testing.T) {
 		t.Fatal("空列表/越界集号应返回 nil")
 	}
 }
+
+// P2（2026-11-12 评审）：日期尾随「当日集序」进 p 段 —— 202401011/202401012 = 同一期的两集,
+// 序号位此前被静默丢弃 ⇒ 两集 epid 逐字相同（①强等跨源错配、弹幕池合并）。
+func TestDateSeqOrdinal_P2(t *testing.T) {
+	k1 := ParseEpisodeKey("202401011")
+	if k1.Date != "20240101" || k1.Part != "1" {
+		t.Fatalf("k1 = %+v, want Date=20240101 Part=1", k1)
+	}
+	k2 := ParseEpisodeKey("202401012")
+	if k2.Date != "20240101" || k2.Part != "2" {
+		t.Fatalf("k2 = %+v, want Date=20240101 Part=2", k2)
+	}
+	if EpidOf(k1) == EpidOf(k2) {
+		t.Fatal("两集 epid 不得相同: " + EpidOf(k1))
+	}
+	// 同集判定(服务端匹配口径 SameEpisode): 同名重解析判同; p=1 与 p=2 是不同集
+	if !SameEpisode(k1, ParseEpisodeKey("202401011")) {
+		t.Fatal("同集名重解析应判同集")
+	}
+	if SameEpisode(k1, k2) {
+		t.Fatal("p=1 与 p=2 是不同集, 不得判同(数字序不做前缀相容)")
+	}
+	// 回归: 纯 8 位日期不带序号, 行为不变
+	if k0 := ParseEpisodeKey("20240101"); k0.Part != "" || k0.Date != "20240101" {
+		t.Fatalf("k0 = %+v", k0)
+	}
+	// 8+2 位形态(传奇故事2023 的 2023060101/0102 同型)⇒ 集序 13
+	if k4 := ParseEpisodeKey("2024010113"); k4.Part != "13" || k4.Date != "20240101" {
+		t.Fatalf("k4 = %+v, want Part=13 Date=20240101", k4)
+	}
+	// 不透明长编号(≥3 位尾随数字)不拆序号
+	if k3 := ParseEpisodeKey("20240101113"); k3.Part != "" || k3.Date != "20240101" {
+		t.Fatalf("k3 = %+v, want Part 空且 Date=20240101", k3)
+	}
+	// seriesOf: 尾随集序一并占位, 残渣不得拼进栏目段
+	if s := seriesOf("202401011旅行"); s != "旅行" {
+		t.Fatalf("seriesOf = %q, want 旅行", s)
+	}
+}

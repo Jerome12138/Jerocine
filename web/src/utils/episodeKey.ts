@@ -116,13 +116,22 @@ export function parseEpisodeKey(title: string): EpisodeKey {
   // 日期格式归一(先于一切提取): 破折/点分 → 8 位
   s = s.replace(RE_DASH_DATE, '$1$2$3')
   s = s.replace(RE_VARIANT_NOISE_G, '')
-  const dm = s.match(RE_DATE8)
-  if (dm) k.date = dm[0]
+  const dm = RE_DATE8.exec(s)
+  let dateTail = ''
+  if (dm) {
+    k.date = dm[0]
+    // P2（2026-11-12 评审）: 尾随 1~2 位「当日集序」（不透明长编号 ≥3 位不拆）
+    const tailM = /^[0-9]{1,2}(?![0-9])/.exec(s.slice((dm.index ?? 0) + dm[0].length))
+    if (tailM) dateTail = tailM[0]
+  }
   const nm = s.match(RE_DI_N)
   if (nm) k.num = Number.parseInt(nm[1] as string, 10) || 0
   const em = s.match(RE_E_NUM)
   if (em) k.eNum = Number.parseInt(em[1] as string, 10) || 0
   k.part = parsePart(s)
+  // P2（2026-11-12 评审）: 日期尾随「当日集序」进 p 段(parsePart 命中 上/中/下 时不叠加 ——
+  // 复合值过不了服务端 epk 的 isPartMark 校验); 与 Go dateSeqTail 同规
+  if (dateTail && !k.part) k.part = dateTail
   const vs = [...s.matchAll(RE_VARIANT_G)].map((m) => m[0]).sort()
   // ⚠️ M1（2026-11-11 评审）：变体集合用 `,` 连接而**不是 `|`** —— `|` 是 epid/epk 的段分隔符，
   // 多变体会把串写成 7 段 ⇒ 服务端拒收 + `parseEpid` 恒 null（续播②档失效）+ 落库坏串 ✗
@@ -143,6 +152,9 @@ export function parseEpisodeKey(title: string): EpisodeKey {
  */
 export function partCompatible(a: EpisodeKey, b: EpisodeKey): boolean {
   if (!a.part || !b.part) return true
+  // P2（2026-11-12 评审）: 数字序位（日期尾随「当日集序」）**不做前缀相容** —— 前缀规则是
+  // 为「中」⊂「中上」设计的，"1" 与 "12" 是不同集 ⇒ 任一侧为纯数字时要求严格相等。
+  if (/^[0-9]+$/.test(a.part) || /^[0-9]+$/.test(b.part)) return a.part === b.part
   return a.part.startsWith(b.part) || b.part.startsWith(a.part)
 }
 
