@@ -232,6 +232,9 @@ public final class EpisodeKey {
             String t = titles.get(i) == null ? "" : titles.get(i);
             if (parse(t).epid().equals(epid)) return i;
         }
+        // F6（2026-11-11 评审）：**②档要求本侧至少有一段"身份段"**（s/v/p/d）——否则裸「第N集」
+        //（只有 n，s[0]/v[1]/p[2]/d[4] 全空）会被弱等命中，与"epid 只描述触发的集、宁缺勿错"相悖 ✗
+        if (want[0].isEmpty() && want[1].isEmpty() && want[2].isEmpty() && want[4].isEmpty()) return -1;
         int wantN = 0;
         if (!want[3].isEmpty()) {
             try {

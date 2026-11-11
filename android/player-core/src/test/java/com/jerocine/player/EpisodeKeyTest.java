@@ -220,5 +220,9 @@ public class EpisodeKeyTest {
                 java.util.Collections.<String>emptyList()));
         assertEquals(-1, EpisodeKey.indexByEpid("坏串", java.util.Arrays.asList("20260803上")));
         assertEquals(-1, EpisodeKey.indexByEpid("", java.util.Arrays.asList("20260803上")));
+        // F6（2026-11-11 评审）：**裸「第N集」不得参与弱等** —— s/v/p/d 全空、只剩 n ⇒ 必须拒绝
+        //（否则任意单集源里的第 N 条都会被它"命中"，与"epid 只描述触发的集"相悖 ✗）
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=1|d=-",
+                java.util.Arrays.asList("20260803第1期")));
     }
 }

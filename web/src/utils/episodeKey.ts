@@ -234,6 +234,10 @@ export function parseEpid(epid: string): { s: string; v: string; p: string; n: s
 export function indexByEpid(epid: string, titles: string[]): number {
   const want = parseEpid(epid)
   if (!want || !titles || titles.length === 0) return -1
+  // F6（2026-11-11 评审）：**裸「第N集」不构成身份** ⇒ 直接拒绝（①②档都不参与）。
+  // 裸集名（如「第3集」）的身份串恰好就是 `s=-|v=-|p=-|n=3|d=-` ⇒ 只挡 ② 会被 ①「整串全等」放过去 ✗。
+  // 口径：epid 为空串表示"未触发/不产身份"；既然带了 epid，就必须**至少有一段身份**（s/v/p/d）。
+  if (!want.s && !want.v && !want.p && !want.d) return -1
   // ① 强等：整串全等
   for (let i = 0; i < titles.length; i++) {
     if (epidOf(parseEpisodeKey(titles[i] ?? '')) === epid) return i

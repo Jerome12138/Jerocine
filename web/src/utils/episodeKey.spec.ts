@@ -277,6 +277,10 @@ describe('P0-3b 续播定位（parseEpid / indexByEpid）', () => {
     expect(indexByEpid('s=-|v=-|p=上|n=2|d=-', ['第2期上'])).toBe(0)
     // 日期**单边缺失** ⇒ 通配 ⇒ 仍可命中（桥接只补 n，d 一侧可能没有）
     expect(indexByEpid('s=-|v=-|p=上|n=1|d=-', ['20260803第1期上'])).toBe(0)
+    // F6（2026-11-11 评审）：**裸「第N集」不得参与弱等** —— s/v/p/d 全空、只剩 n ⇒ 必须拒绝
+    //（否则任意单集源里的第 N 条都会被它"命中"，与"epid 只描述**触发的集**"相悖 ✗）
+    expect(indexByEpid('s=-|v=-|p=-|n=1|d=-', ['20260803第1期'])).toBe(-1)
+    expect(indexByEpid('s=-|v=-|p=-|n=3|d=-', ['第3集', '第4集'])).toBe(-1)
     // 日期**双有不等** ⇒ 硬证据 ⇒ 拒绝
     expect(indexByEpid('s=-|v=-|p=上|n=-|d=20260810', ['20260803上'])).toBe(-1)
   })
