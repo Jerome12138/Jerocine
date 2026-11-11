@@ -95,8 +95,10 @@ describe('epid', () => {
     expect(epidOf(parseEpisodeKey('20260806加更上'))).toBe('s=-|v=加更|p=上|n=-|d=20260806')
   })
 
-  it('触发判定: 裸序号/E圆号不触发', () => {
-    expect(epidFor('第3集', [])).toBe('')
+  it('触发判定: 序号型触发（片内唯一即够）；E圆号不触发', () => {
+    // 2026-11-11 放宽：纯序号「第3集」在**片内**明确唯一 ⇒ 必须产 `n=3`
+    expect(epidFor('第3集', [])).toBe('s=-|v=-|p=-|n=3|d=-')
+    // E 圆号仍不触发（epid 串不含 e 段；且不同源 E 编号常漂）
     expect(epidFor('E01.220705', [])).toBe('')
     expect(epidFor('20260803上', [])).toBe('s=-|v=-|p=上|n=-|d=20260803')
   })
@@ -159,7 +161,8 @@ describe('P0-1b/P0-1c 结构化身份传输串（epk）', () => {
   })
 
   it('epKeyString：只有触发的集才发（未触发为空串，与 epidFor 同口径）', () => {
-    expect(epKeyString('第3集')).toBe('')
+    // 2026-11-11 放宽：序号型也算触发 ⇒ 会带上 `n=3`（不再要求"有栏目/日期"）
+    expect(epKeyString('第3集')).toContain('n=3')
     expect(epKeyString('E01.220705')).toBe('')
     expect(epKeyString('')).toBe('')
     // 触发的集：s/v/vn/p/n/d 全在串里（P0-1c 后 p 段即复合主部分，不再有独立 u 段）
@@ -209,8 +212,8 @@ describe('P1-3 期号来源标注（epk 的 from= 段；不进 epid）', () => {
     expect(derivedNumSourceFor('20260803上', ['20260803上', '20260810上', '20260817上'])).toBe('anchor')
     // 无日期 ⇒ 既不能桥接也不能锚点 ⇒ none
     expect(derivedNumSourceFor('特辑', others)).toBe('none')
-    // 未触发（裸「第N集」）⇒ none
-    expect(derivedNumSourceFor('第3集', others)).toBe('none')
+    // 纯序号「第N集」自带序号 ⇒ 来源=self（2026-11-11 放宽后它也算触发）
+    expect(derivedNumSourceFor('第3集', others)).toBe('self')
   })
 
   it('from 只在 epk 里；epid 不受影响（缓存键不变）', () => {
@@ -277,10 +280,14 @@ describe('P0-3b 续播定位（parseEpid / indexByEpid）', () => {
     expect(indexByEpid('s=-|v=-|p=上|n=2|d=-', ['第2期上'])).toBe(0)
     // 日期**单边缺失** ⇒ 通配 ⇒ 仍可命中（桥接只补 n，d 一侧可能没有）
     expect(indexByEpid('s=-|v=-|p=上|n=1|d=-', ['20260803第1期上'])).toBe(0)
-    // F6（2026-11-11 评审）：**裸「第N集」不得参与弱等** —— s/v/p/d 全空、只剩 n ⇒ 必须拒绝
-    //（否则任意单集源里的第 N 条都会被它"命中"，与"epid 只描述**触发的集**"相悖 ✗）
-    expect(indexByEpid('s=-|v=-|p=-|n=1|d=-', ['20260803第1期'])).toBe(-1)
-    expect(indexByEpid('s=-|v=-|p=-|n=3|d=-', ['第3集', '第4集'])).toBe(-1)
+    // F6（2026-11-11 评审；**同日放宽**）：只拒绝"**任何段都空**"的串（`s/v/p/d/n` 全空）。
+    // 序号型（只有 `n`）在**片内**是明确唯一的 ⇒ 必须放行 —— 旧守卫要求 s/v/p/d 至少一段非空，
+    // 会把连续剧/动漫（集名=「第01集」）全挡在门外 ✗；而"必须全局唯一"本就是错误前提
+    //（比较永在片内：续播同片源内、切源同片两源、弹幕池键带 mid:）。
+    expect(indexByEpid('s=-|v=-|p=-|n=1|d=-', ['20260803第1期'])).toBe(0)
+    expect(indexByEpid('s=-|v=-|p=-|n=3|d=-', ['第3集', '第4集'])).toBe(0)
+    // 真·裸串（五段全空）仍拒绝：没有任何可区分信息，命中只会造成误配
+    expect(indexByEpid('s=-|v=-|p=-|n=-|d=-', ['第3集', '第4集'])).toBe(-1)
     // 日期**双有不等** ⇒ 硬证据 ⇒ 拒绝
     expect(indexByEpid('s=-|v=-|p=上|n=-|d=20260810', ['20260803上'])).toBe(-1)
   })
@@ -311,9 +318,10 @@ describe('bridgeNum / A2 现算期号(心动9 真实场景)', () => {
     expect(derivedNumFor('20261012心动的周末上', otherTitles)).toBe(1)
   })
 
-  it('自集无期号且无桥接 → 0; 未触发 → 0', () => {
+  it('自集无期号且无桥接 → 0；纯序号自带序号 → 取自身', () => {
     expect(derivedNumFor('20260731先导片上', otherTitles)).toBe(0) // 变体不同不桥接
-    expect(derivedNumFor('第3集', otherTitles)).toBe(0)
+    // 2026-11-11 放宽：序号型也算触发 ⇒ 现算期号取**自带序号** 3
+    expect(derivedNumFor('第3集', otherTitles)).toBe(3)
   })
 
   it('epidFor: 桥接期号写入 n 段 → 跨源同集 epid 串相等', () => {

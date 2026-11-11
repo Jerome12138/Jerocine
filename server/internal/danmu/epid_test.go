@@ -21,13 +21,14 @@ func TestEpidOf_五段格式(t *testing.T) {
 }
 
 func TestEpisodeTriggered_与TS同规(t *testing.T) {
-	for _, title := range []string{"20260803上", "第3期中（上）", "特辑2", "夏日清凉特辑", "加更"} {
+	for _, title := range []string{"20260803上", "第3期中（上）", "特辑2", "夏日清凉特辑", "加更",
+		"第3集", "第01集", "第12话"} { // 2026-11-11 放宽：**序号型也算触发**（片内唯一即够）
 		if !EpisodeTriggered(ParseEpisodeKey(title)) {
 			t.Errorf("%q 应触发", title)
 		}
 	}
-	// 裸「第N集/期」与 E 圆号不触发（身份就是集号本身）
-	for _, title := range []string{"第3集", "01", "E01.220705", "12"} {
+	// 仍不触发：E 圆号（epid 串不含 e 段）与"无任何可区分信息"的串
+	for _, title := range []string{"01", "E01.220705", "12", ""} {
 		if EpisodeTriggered(ParseEpisodeKey(title)) {
 			t.Errorf("%q 不应触发", title)
 		}
@@ -80,7 +81,8 @@ func TestEpidFor_来源标注与降级顺序(t *testing.T) {
 		wantEpid  string
 		wantFrom  string
 	}{
-		{"未触发 ⇒ 不产身份", "第3集", others, "", EpKeySourceNone},
+		// 2026-11-11 放宽：**纯序号也算触发**（片内唯一即够）⇒ 产 `n=3`，来源=自带序号
+		{"纯序号 ⇒ 自带序号身份", "第3集", others, "s=-|v=-|p=-|n=3|d=-", EpKeySourceSelf},
 		{"自带期号 ⇒ self", "20260803第1期上", others,
 			"s=-|v=-|p=上|n=1|d=20260803", EpKeySourceSelf},
 		{"缺期号可桥接 ⇒ bridge", "20260803上", others,
@@ -119,7 +121,8 @@ func TestEpidsForSourceRow_等长且逐集派生(t *testing.T) {
 	if out[0][0] != out[1][0] {
 		t.Errorf("同集应同 epid: %q vs %q", out[0][0], out[1][0])
 	}
-	if out[2][0] != "" {
-		t.Errorf("裸「第9集」不应产身份, got %q", out[2][0])
+	// 2026-11-11 放宽：**纯序号也算身份**（片内唯一即够）⇒ 「第9集」应产 `n=9`，来源=自带序号
+	if out[2][0] != "s=-|v=-|p=-|n=9|d=-" || out[2][1] != EpKeySourceSelf {
+		t.Errorf("纯序号「第9集」应产自带序号身份, got %v", out[2])
 	}
 }

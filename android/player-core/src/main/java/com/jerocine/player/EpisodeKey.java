@@ -175,9 +175,17 @@ public final class EpisodeKey {
         return partCompatible(a, b);
     }
 
-    /** 综艺/衍生形态判定（epid 只给触发的集; 裸「第N集/期」与 E圆号不触发） */
+    /**
+     * 综艺/衍生形态判定（epid 只给触发的集）。
+     *
+     * <p>2026-11-11 放宽（与 Go `EpisodeTriggered` / web `episodeTriggered` 同规）：**序号也算触发** ——
+     * 「第01集」这类纯序号集名在**片内**是明确唯一的（同剧第 3 集 ↔ 另一个源的第 3 集）⇒ 必须产 `n=3`。
+     * 旧设计误加"必须**全局**唯一"的前提 ✗：实际比较都在**片内**（续播同片源内、切源同片两源、
+     * 弹幕池键带 `mid:`）⇒ 跨片 `n` 重复不会被比较 ✓
+     * 仍不触发：E/EP 圆号（epid 串不含 `e` 段）与无任何信息的裸集名。
+     */
     public boolean triggered() {
-        return !date.isEmpty() || !part.isEmpty() || !variant.isEmpty() || !series.isEmpty();
+        return !date.isEmpty() || !part.isEmpty() || !variant.isEmpty() || !series.isEmpty() || num > 0;
     }
 
     /**
@@ -235,9 +243,11 @@ public final class EpisodeKey {
             String t = titles.get(i) == null ? "" : titles.get(i);
             if (parse(t).epid().equals(raw)) return i;
         }
-        // F6（2026-11-11 评审）：**②档要求本侧至少有一段"身份段"**（s/v/p/d）——否则裸「第N集」
-        //（只有 n，s[0]/v[1]/p[2]/d[4] 全空）会被弱等命中，与"epid 只描述触发的集、宁缺勿错"相悖 ✗
-        if (want[0].isEmpty() && want[1].isEmpty() && want[2].isEmpty() && want[4].isEmpty()) return -1;
+        // F6（2026-11-11 评审；**同日放宽，与 Go/web 同规**）：只拒绝"**任何段都空**"的串
+        //（s[0]/v[1]/p[2]/n[3]/d[4] 全空 = 裸集名）。序列号型（只有 n）在**片内**明确唯一
+        //（连续剧/动漫的「第01集」）⇒ 必须放行；"必须全局唯一"本就是错误前提（比较永在片内）。
+        if (want[0].isEmpty() && want[1].isEmpty() && want[2].isEmpty()
+                && want[3].isEmpty() && want[4].isEmpty()) return -1;
         int wantN = 0;
         if (!want[3].isEmpty()) {
             try {

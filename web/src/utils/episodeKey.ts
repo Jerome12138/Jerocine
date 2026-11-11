@@ -159,8 +159,17 @@ export function sameEpisode(a: EpisodeKey, b: EpisodeKey): boolean {
 }
 
 /** 综艺/衍生形态判定（epid 只给触发的集; 裸「第N集/期」与 E圆号不触发） */
+/**
+ * 集名是否"可产身份"：**有任何可区分本集的信息**即可（2026-11-11 放宽，与 Go/Java 同规）。
+ *
+ * 放宽点：**序号 `n`** —— 「第01集」这类纯序号集名在**片内**是明确唯一的（同剧第 3 集 ↔ 另一个源
+ * 的第 3 集）⇒ 必须产 `n=3`（旧判据漏了序号，导致连续剧/动漫几乎全空）。
+ * 旧设计误加了"必须**全局**唯一"的前提 ✗：实际所有比较都在**片内**（续播在同一部片的源里找、
+ * 切源对齐是同片两源、弹幕池键本就带 `mid:`）⇒ 跨片的 `n` 重复不会被比较 ✓
+ * 仍不触发：E/EP 圆号（epid 串不含 `e` 段）与无任何信息的裸集名。
+ */
 export function episodeTriggered(k: EpisodeKey): boolean {
-  return !!k.date || !!k.part || !!k.variant || !!k.series
+  return !!k.date || !!k.part || !!k.variant || !!k.series || k.num > 0
 }
 
 /**
@@ -234,10 +243,11 @@ export function parseEpid(epid: string): { s: string; v: string; p: string; n: s
 export function indexByEpid(epid: string, titles: string[]): number {
   const want = parseEpid(epid)
   if (!want || !titles || titles.length === 0) return -1
-  // F6（2026-11-11 评审）：**裸「第N集」不构成身份** ⇒ 直接拒绝（①②档都不参与）。
-  // 裸集名（如「第3集」）的身份串恰好就是 `s=-|v=-|p=-|n=3|d=-` ⇒ 只挡 ② 会被 ①「整串全等」放过去 ✗。
-  // 口径：epid 为空串表示"未触发/不产身份"；既然带了 epid，就必须**至少有一段身份**（s/v/p/d）。
-  if (!want.s && !want.v && !want.p && !want.d) return -1
+  // F6（2026-11-11 评审；**同日放宽，与 Go/Java 同规**）：只拒绝"**任何段都空**"的串
+  //（`s/v/p/d/n` 全空 = 裸集名，没有任何可区分信息 ⇒ 命中只会造成误配）。
+  // ⚠️ 不再要求"s/v/p/d 至少一段非空" —— 序号型（只有 `n`）在**片内**明确唯一（连续剧/动漫的
+  // 「第01集」），旧守卫会把它们全挡在门外 ✗；"必须全局唯一"本就是错误前提（比较永在片内）。
+  if (!want.s && !want.v && !want.p && !want.d && !want.n) return -1
   // ① 强等：整串全等
   for (let i = 0; i < titles.length; i++) {
     if (epidOf(parseEpisodeKey(titles[i] ?? '')) === epid) return i

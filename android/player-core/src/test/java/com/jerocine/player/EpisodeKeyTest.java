@@ -96,8 +96,8 @@ public class EpisodeKeyTest {
         assertEquals("s=-|v=-|p=上|n=1|d=-", EpisodeKey.parse("正片第1期上").epid());
         assertEquals("s=-|v=-|p=上|n=-|d=20260803", EpisodeKey.parse("20260803上").epid());
         assertEquals("s=-|v=加更|p=上|n=-|d=20260806", EpisodeKey.parse("20260806加更上").epid());
-        // 裸序号/E圆号不触发（无 epid 语义, 调用方回退位置兜底）
-        assertFalse(EpisodeKey.parse("第3集").triggered());
+        // 2026-11-11 放宽：**纯序号也算触发**（片内唯一即够，连续剧/动漫的「第3集」）；E 圆号仍不触发
+        assertTrue(EpisodeKey.parse("第3集").triggered());
         assertFalse(EpisodeKey.parse("E01.220705").triggered());
         assertTrue(EpisodeKey.parse("20260803上").triggered());
     }
@@ -220,9 +220,14 @@ public class EpisodeKeyTest {
                 java.util.Collections.<String>emptyList()));
         assertEquals(-1, EpisodeKey.indexByEpid("坏串", java.util.Arrays.asList("20260803上")));
         assertEquals(-1, EpisodeKey.indexByEpid("", java.util.Arrays.asList("20260803上")));
-        // F6（2026-11-11 评审）：**裸「第N集」不得参与弱等** —— s/v/p/d 全空、只剩 n ⇒ 必须拒绝
-        //（否则任意单集源里的第 N 条都会被它"命中"，与"epid 只描述触发的集"相悖 ✗）
-        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=1|d=-",
+        // F6（2026-11-11 评审；**同日放宽**）：只拒绝"**任何段都空**"的串（s/v/p/d/n 全空）。
+        // 序号型（只有 n）在**片内**明确唯一 ⇒ 必须放行（旧守卫会把连续剧/动漫全挡在门外 ✗）。
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=1|d=-",
                 java.util.Arrays.asList("20260803第1期")));
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=3|d=-",
+                java.util.Arrays.asList("第3集", "第4集")));
+        // 真·裸串（五段全空）仍拒绝
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=-|d=-",
+                java.util.Arrays.asList("第3集", "第4集")));
     }
 }
