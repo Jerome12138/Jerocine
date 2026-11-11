@@ -1,6 +1,9 @@
 package service
 
-import "context"
+import (
+	"context"
+	"log"
+)
 
 // P1-1b（2026-11-10）：出参带 epid 的**查询注入点**。
 //
@@ -22,6 +25,9 @@ func LookupEpids(ctx context.Context, matchKeys []string) map[string]map[int]str
 	}
 	m, err := epidLookupFn(ctx, matchKeys)
 	if err != nil {
+		// R6（2026-11-11 评审）：**不要静默吞错** —— 否则出参没有 epid 时无法区分
+		// "未派生 / 未装配 / 查询挂了" ✗（排障无着手点）。这里只记账，不影响详情/播放返回。
+		log.Printf("[epid] 出参 epid 查询失败（本响应不带 epid，端侧回退实时解析）: %v", err)
 		return nil
 	}
 	return m

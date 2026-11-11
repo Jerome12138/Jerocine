@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 	"unicode"
 )
 
@@ -226,13 +227,24 @@ func ParseEpKeySource(epk string) string {
 }
 
 // NoteEpKeyConflicts 记一次字段级冲突（落日志 + 计数）。
+//
+// L5（2026-11-11 评审）：**明细日志限频**（每 60s 最多一条）—— 三端解析漂移时日志量会 = 请求量 ✗；
+// 计数（`EpKeyConflictTotal`）不受限频影响，仍逐次累加 ✓（用于监控"是否在漂移"）。
 func NoteEpKeyConflicts(fields []string) {
 	if len(fields) == 0 {
 		return
 	}
 	atomic.AddInt64(&epKeyConflictTotal, 1)
-	log.Printf("[danmu] epkey conflict fields=%s", strings.Join(fields, ","))
+	now := time.Now().UnixMilli()
+	if last := lastEpKeyConflictLogMs.Load(); now-last >= 60_000 &&
+		lastEpKeyConflictLogMs.CompareAndSwap(last, now) {
+		log.Printf("[danmu] epkey conflict fields=%s（明细每 60s 限一条，计数仍逐次累加）",
+			strings.Join(fields, ","))
+	}
 }
+
+// lastEpKeyConflictLogMs 上次打明细日志的时间（L5 限频用）。
+var lastEpKeyConflictLogMs atomic.Int64
 
 // EpKeyConflictTotal 累计冲突次数（测试/运维观测用）。
 func EpKeyConflictTotal() int64 { return atomic.LoadInt64(&epKeyConflictTotal) }
