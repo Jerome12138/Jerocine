@@ -168,10 +168,8 @@ function refresh(): void {
         <dt class="text-muted">源行派生成熟度（按分类）</dt>
         <dd class="flex flex-col">
           <span v-for="m in report.maturity" :key="m.pid">
-            {{ m.category }}：{{ m.derivedSrcRows }}/{{ m.srcRows }}
-            <span class="text-muted">
-              （{{ m.srcRows ? ((m.derivedSrcRows * 100) / m.srcRows).toFixed(1) : '0.0' }}%）
-            </span>
+            {{ m.category }}：{{ m.srcRows ? ((m.derivedSrcRows * 100) / m.srcRows).toFixed(1) : '0.0' }}%
+            <span class="text-muted">（{{ m.derivedSrcRows }}/{{ m.srcRows }}）</span>
           </span>
         </dd>
       </div>
