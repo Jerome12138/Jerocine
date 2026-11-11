@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -155,20 +156,34 @@ type historyRepo struct{ db *gorm.DB }
 func NewHistoryRepository(db *gorm.DB) repository.HistoryRepository { return &historyRepo{db: db} }
 
 func (r *historyRepo) Upsert(ctx context.Context, h *entity.UserHistory) error {
-	cl := func(cols []string) *gorm.DB {
-		return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "user_id"}, {Name: "mid"}},
-			DoUpdates: clause.AssignmentColumns(cols),
-		}).Create(h)
+	// P0-3 + H4（2026-11-11 拍板）：epid 的覆盖规则共三条 ——
+	//   ① `episode` 变了 ⇒ **清空**（客户端切集时会把 epid 置空，那是在表达"旧身份作废"；服务端若把
+	//      "空"一律当"未提供"而保留，就会留下 **(新集号, 旧身份)** 的脏组合 ⇒ 续播按旧身份**静默命中上一集** ✗）；
+	//   ② 同集且本次携非空 ⇒ 覆盖；
+	//   ③ 同集且本次为空 ⇒ **保留**（老客户端 / 未触发的集不带 epid，不得把已存身份清掉）。
+	//
+	// ⚠️ 三条约束决定了实现形态：
+	//   - 必须用**有序**的 Assignments（`map` 顺序随机）：MySQL 的 ON DUPLICATE KEY UPDATE **从左到右**
+	//     赋值，后面的表达式看到的是**已更新**的值 ⇒ `epid` 的 CASE 必须排在 `episode` **之前**求值，
+	//     否则 `episode <> ?` 恒假（看到的是刚写进去的新值）✗；
+	//   - CASE 里那个裸 `epid`（`ELSE epid`）引用的是**旧行**的值（此刻 epid 尚未赋值）⇒ 分支 ③ 直接取它 ✓；
+	//   - 不引入 `VALUES()`（MySQL 8.0.20 起弃用）—— 时间戳改为 Go 侧显式赋值。
+	if h.UpdatedAt == 0 {
+		h.UpdatedAt = time.Now().UnixMilli()
 	}
-	// P0-3（2026-11-10）: epid **只在本次携非空时参与覆盖**。
-	// 老客户端 / 未触发的集（裸「第N集」）不发 epid（= 空串）⇒ 若一并覆盖会把已存身份清空，
-	// 续播便从"按 epid 定位"悄悄退回下标。这里用两条分支替代 IF(VALUES(...)) 表达式
-	// —— 走的是既有且已验证的 AssignmentColumns 路径，不引入 MySQL 版本相关的 VALUES() 兼容面。
-	if h.Epid == "" {
-		return cl([]string{"play_from", "episode", "progress", "duration", "updated_at"}).Error
-	}
-	return cl([]string{"play_from", "episode", "epid", "progress", "duration", "updated_at"}).Error
+	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "mid"}},
+		DoUpdates: clause.Set{
+			{Column: clause.Column{Name: "epid"},
+				Value: gorm.Expr("CASE WHEN episode <> ? THEN '' WHEN ? <> '' THEN ? ELSE epid END",
+					h.Episode, h.Epid, h.Epid)},
+			{Column: clause.Column{Name: "play_from"}, Value: h.PlayFrom},
+			{Column: clause.Column{Name: "episode"}, Value: h.Episode},
+			{Column: clause.Column{Name: "progress"}, Value: h.Progress},
+			{Column: clause.Column{Name: "duration"}, Value: h.Duration},
+			{Column: clause.Column{Name: "updated_at"}, Value: h.UpdatedAt},
+		},
+	}).Create(h).Error
 }
 
 func (r *historyRepo) List(ctx context.Context, userId int64, page repository.Page) ([]entity.UserHistory, int64, error) {

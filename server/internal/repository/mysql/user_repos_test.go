@@ -54,53 +54,57 @@ func TestUserCreate_WithEmailIncludesColumn(t *testing.T) {
 	}
 }
 
-// TestHistoryUpsert_EpidOnlyOverwrittenWhenNonEmpty（P0-3, 2026-11-10）
-// 锁住"空 epid 不得覆盖已存身份"：
-// 老客户端 / 未触发的集（裸「第N集」/E圆号）上报时不带 epid（= 空串）。
-// 若把它一并放进 ON DUPLICATE KEY UPDATE，就会把该条历史已存的 epid 清空
-// ⇒ 续播从"按 epid 找目标源同集"**悄悄退回** play_from + episode 下标（无声劣化）。
-func TestHistoryUpsert_EpidOnlyOverwrittenWhenNonEmpty(t *testing.T) {
-	cases := []struct {
-		name    string
-		epid    string
-		wantUpd bool
-	}{
-		{"epid 为空 ⇒ 不进更新列表（保留已存身份）", "", false},
-		{"epid 非空 ⇒ 进更新列表", "s=-|v=-|p=中上|n=3|d=-", true},
+// TestHistoryUpsert_EpidRule（P0-3, 2026-11-10；H4 修订, 2026-11-11）
+// 锁住 epid 的三条覆盖规则（H4 拍板后由"两条分支"改为**单条 CASE**）：
+//
+//	CASE WHEN episode <> ? THEN ''      -- ① 换集 ⇒ 作废（清空）
+//	     WHEN ? <> '' THEN ?            -- ② 同集且携非空 ⇒ 覆盖
+//	     ELSE epid END                  -- ③ 同集且为空 ⇒ 保留（老客户端/未触发的集）
+//
+// 为什么必须有 ①：客户端切集时把 epid 置空是在表达"旧身份作废"；服务端若保留，就会留下
+// (新集号, 旧身份) 的脏组合 ⇒ 续播按旧身份**静默命中上一集** ✗。
+// 为什么必须有 ③：老客户端 / 未触发的集（裸「第N集」）不带 epid ⇒ 不得把已存身份清掉。
+// ⚠️ 还要锁住**赋值顺序**：CASE 必须出现在 `episode` 之前（MySQL 从左到右求值，
+// 否则 CASE 里的 `episode` 已是新值 ⇒ 分支 ① 恒假）。
+func TestHistoryUpsert_EpidRule(t *testing.T) {
+	gdb, mock, lastSQL := newMockDBCapture(t)
+	repo := NewHistoryRepository(gdb)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `user_history`")).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	h := &entity.UserHistory{UserId: 1, Mid: 100, PlayFrom: "lz", Episode: 3, Progress: 10}
+	if err := repo.Upsert(context.Background(), h); err != nil {
+		t.Fatalf("upsert: %v", err)
 	}
-	for _, c := range cases {
-		gdb, mock, lastSQL := newMockDBCapture(t)
-		repo := NewHistoryRepository(gdb)
-
-		mock.ExpectBegin()
-		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `user_history`")).WillReturnResult(sqlmock.NewResult(1, 1))
-		mock.ExpectCommit()
-
-		h := &entity.UserHistory{UserId: 1, Mid: 100, PlayFrom: "lz", Episode: 3, Epid: c.epid, Progress: 10}
-		if err := repo.Upsert(context.Background(), h); err != nil {
-			t.Fatalf("%s: upsert: %v", c.name, err)
+	sql := *lastSQL
+	i := strings.Index(sql, "ON DUPLICATE KEY UPDATE")
+	if i < 0 {
+		t.Fatalf("未见 ON DUPLICATE KEY UPDATE: %s", sql)
+	}
+	upd := sql[i:]
+	// ① 三分支齐全（换集清空 / 非空覆盖 / 空保留旧值）
+	for _, frag := range []string{"`epid`", "CASE WHEN episode <> ?", "ELSE epid END"} {
+		if !strings.Contains(upd, frag) {
+			t.Fatalf("更新子句缺片段 %q\nSQL: %s", frag, sql)
 		}
-		sql := *lastSQL
-		i := strings.Index(sql, "ON DUPLICATE KEY UPDATE")
-		if i < 0 {
-			t.Fatalf("%s: 未见 ON DUPLICATE KEY UPDATE: %s", c.name, sql)
+	}
+	// ② 赋值顺序：epid 必须早于 episode
+	if strings.Index(upd, "`epid`") > strings.Index(upd, "`episode`") {
+		t.Fatalf("epid 必须排在 episode 之前（ON DUPLICATE KEY UPDATE 从左到右求值）\nSQL: %s", sql)
+	}
+	// ③ 其余列照旧更新（不得把既有行为带偏）
+	for _, col := range []string{"`play_from`", "`episode`", "`progress`", "`duration`", "`updated_at`"} {
+		if !strings.Contains(upd, col) {
+			t.Fatalf("更新列表缺列 %s\nSQL: %s", col, sql)
 		}
-		upd := sql[i:]
-		if got := strings.Contains(upd, "`epid`"); got != c.wantUpd {
-			t.Fatalf("%s: 更新列表含 epid=%v, want %v\nSQL: %s", c.name, got, c.wantUpd, sql)
-		}
-		// 其余列照旧必须更新（分支不得把既有行为带偏）
-		for _, col := range []string{"`play_from`", "`episode`", "`progress`", "`duration`", "`updated_at`"} {
-			if !strings.Contains(upd, col) {
-				t.Fatalf("%s: 更新列表缺列 %s\nSQL: %s", c.name, col, sql)
-			}
-		}
-		// INSERT 侧始终带 epid 列（列默认空串，落库即空）
-		if !strings.Contains(sql[:i], "`epid`") {
-			t.Fatalf("%s: INSERT 列应含 epid\nSQL: %s", c.name, sql)
-		}
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Fatalf("%s: unmet expectations: %v", c.name, err)
-		}
+	}
+	// ④ INSERT 侧始终带 epid 列（列默认空串，落库即空）
+	if !strings.Contains(sql[:i], "`epid`") {
+		t.Fatalf("INSERT 列应含 epid\nSQL: %s", sql)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }
