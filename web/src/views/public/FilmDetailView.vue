@@ -250,8 +250,12 @@ function gotoPlay(sourceId: string, episodeIndex: number, resumeSec = 0): void {
   const ep = src?.episodes?.[episodeIndex]
   // P0-3b: 集身份（跨源桥接/锚点归一）—— 续播时优先按它定位集，未命中回退 episode 下标。
   // 口径与播放页/弹幕请求一致：入参取**本片所有源的所有集名**（桥接/锚点需要他源）。
+  // H5（2026-11-11 评审）：**优先用服务端派生表下发的 `epid`**（与 PlayView 同口径，方案 §4.6 目标态）——
+  // 原来只算本地值（`epidFor`，**不含锚点**）⇒ 与落库口径（`EpidFor`，含锚点）系统性不同，
+  // 详情页入口写下的集身份对不上服务端，续播只能落到②档甚至回退。
   const epid = ep
-    ? epidFor(ep.episode ?? '', (d.sources ?? []).flatMap((s) => (s.episodes ?? []).map((e) => e.episode ?? '')))
+    ? (ep.epid ||
+        epidFor(ep.episode ?? '', (d.sources ?? []).flatMap((s) => (s.episodes ?? []).map((e) => e.episode ?? ''))))
     : ''
   if (src && ep) {
     historyStore.record({
