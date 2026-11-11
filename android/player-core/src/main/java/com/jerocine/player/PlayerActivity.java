@@ -940,79 +940,25 @@ private static String failedRequestUrl(Throwable error) {
     }
 
     /**
-     * P0-3c（2026-11-10）：当前集的**集身份**（epid）—— 与 web / 服务端同规，供服务端**续播定位**。
+     * P0-3c / **U6-c**（2026-11-11 拍板按 c）：当前集的**集身份**（epid）—— **只读服务端派生表下发的值**。
      *
-     * <p><b>口径（2026-11-10 修正）</b>：当前集标题取**当前源**的位置，但**借用池取「全部源的全部集名」**
-     * —— 与 web `PlayView.allEpisodeTitles`（`(detail.sources ?? []).flatMap(s => s.episodes.map(e => e.episode))`）
-     * 完全一致。`epidFor` 只在"本集缺期号"时向借用池借一个期号（`bridgeNum` 要求日期相等 + 栏目/变体一致
-     * + 主次相容）；池子若只放当前源 ⇒ 单源片永远借不到 ⇒ 与 web 算出的 epid 不一致（曾是本方法的缺陷）。
+     * <p><b>为什么不再本地现算</b>：客户端算的那套（`epidFor`，**不含锚点**）与服务端落库口径
+     * （`EpidFor`，**含锚点**）是**两种变体**；并存会让 `user_history.epid` 与服务端派生表对不上
+     * （续播只能落到②档甚至回退）。按 (c) 统一为"**单一权威 = 服务端**"：端侧只读；
+     * 未派生 / 老载荷 / 无剧集上下文 ⇒ 空串（**不产错值**，端侧自然回退 `episodeIndex` 下标）。
      *
-     * <p>无剧集上下文（本地播放/单集）或未触发的集（裸「第N集」）⇒ **空串** —— 空串上报**不会覆盖**
-     * 服务端已存身份（见 P0-3a 的 upsert 分支）。
+     * <p>（F5 的"结果缓存"随之不再需要：这里退化为一次 O(1) 数组取值。`rawTitles` 仍有 web 侧在填充，
+     * 保留供排查/测试 —— 端侧已不再消费它算 epid。）
      */
     private String epidOfCurrentEpisode() {
-        // F5（2026-11-11 评审）：**结果缓存** —— 原实现每次上报（进度/暂停/退出，5s 一次）都要遍历
-        // "全部源的全部集名" 重解析 + `epidFor`（多源长剧 ⇒ 每 5s 一次主线程抖动，低端 TV 盒可感知 ✗）。
-        // 缓存键 = 当前源下标 + 当前集下标 + 当前源集数；`sources_json` 在播放期内不变 ⇒ 命中率 ≈100%。
         try {
             if (session == null || session.player == null) return "";
-            int i = session.player.getCurrentMediaItemIndex();
-            PlayerSession.SourceData cs =
-                    (session.currentSourceIndex >= 0 && session.currentSourceIndex < session.sourceList.size())
-                            ? session.sourceList.get(session.currentSourceIndex) : null;
-            String sig = session.currentSourceIndex + "#" + i + "#"
-                    + (cs == null || cs.rawTitles == null ? -1 : cs.rawTitles.size());
-            if (sig.equals(lastEpidSig)) return lastEpidValue;
-            lastEpidSig = sig;
-            String v = computeEpidOfCurrentEpisode();
-            lastEpidValue = v;
-            return v;
-        } catch (Exception ignore) {
-            return "";
-        }
-    }
-
-    /** F5 缓存：上次的（源下标#集下标#集数）签名与结果。 */
-    private String lastEpidSig = "";
-    private String lastEpidValue = "";
-
-    /** 实际计算 epid（F5 抽出，供缓存包装调用）。口径见 `epidOfCurrentEpisode` 文档。 */
-    private String computeEpidOfCurrentEpisode() {
-        try {
-            if (session == null || session.player == null) return "";
-            // P1-1b / U3-android（2026-11-10）：**优先用服务端派生表下发的 epid**（随 sources_json 传来，
-            // 与 urls/titles 一一对应）。缺失（未派生 / 老调用方没带）⇒ 回退"本源现算"（口径见方案 §4.6）。
-            int idxGiven = session.player.getCurrentMediaItemIndex();
-            if (session.currentSourceIndex >= 0 && session.currentSourceIndex < session.sourceList.size()) {
-                java.util.List<String> given = session.sourceList.get(session.currentSourceIndex).epids;
-                if (given != null && idxGiven >= 0 && idxGiven < given.size()) {
-                    String e = given.get(idxGiven);
-                    if (e != null && !e.isEmpty()) return e;
-                }
-            }
-            // F1 / R7（2026-11-11 评审）：回退与借用池**必须用裸集名 `rawTitles`** ——
-            // `playlistTitles` 是「片名 · 集名」展示串（nativePlay.ts / NativePlayerLauncher.kt 拼的），
-            // 拿它解析会把**片名当成栏目名** ⇒ epid 恒错、还会污染历史与缓存 ✗
-            // 老载荷无 `rawTitle` ⇒ 列表为空 ⇒ 下面早退返回 ""（**不产错值**，宁缺勿错）。
-            java.util.List<String> curTitles =
-                    (session.currentSourceIndex >= 0 && session.currentSourceIndex < session.sourceList.size())
-                            ? session.sourceList.get(session.currentSourceIndex).rawTitles : null;
-            if (curTitles == null || curTitles.isEmpty()) return "";
             int idx = session.player.getCurrentMediaItemIndex();
-            String cur = (idx >= 0 && idx < curTitles.size() && curTitles.get(idx) != null)
-                    ? curTitles.get(idx) : "";
-            // 借用池 = 全部源的全部**裸集名**（与 web `allEpisodeTitles` 同口径；F1/R7）
-            java.util.List<EpisodeKey> pool = new java.util.ArrayList<>();
-            for (PlayerSession.SourceData s : session.sourceList) {
-                if (s == null || s.rawTitles == null) continue;
-                for (String t : s.rawTitles) {
-                    if (t != null && !t.isEmpty()) pool.add(EpisodeKey.parse(t));
-                }
-            }
-            if (pool.isEmpty()) {
-                for (String t : curTitles) pool.add(EpisodeKey.parse(t == null ? "" : t));
-            }
-            return EpisodeKey.epidFor(EpisodeKey.parse(cur), pool.toArray(new EpisodeKey[0]));
+            if (session.currentSourceIndex < 0 || session.currentSourceIndex >= session.sourceList.size()) return "";
+            java.util.List<String> given = session.sourceList.get(session.currentSourceIndex).epids;
+            if (given == null || idx < 0 || idx >= given.size()) return "";
+            String e = given.get(idx);
+            return e == null ? "" : e;
         } catch (Exception ignore) {
             return "";
         }

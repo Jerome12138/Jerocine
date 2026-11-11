@@ -1085,9 +1085,11 @@ const { flush: flushHistory } = useFilmHistory({
       currentTime: Math.floor(playerCurrentTime.value),
       pid: detail.value.pid,
       cid: detail.value.cid,
-      // P0-3b: 集身份（跨源桥接/锚点归一后，与弹幕请求同源同值）——
-      // 续播时优先按它定位集（源内集序变化时下标会失效），未命中回退 episodeIndex
-      epid: danmakuEpid.value,
+      // U6（2026-11-11 拍板按 c）：写历史**只上报服务端下发的 epid** —— 端侧不再产出自己那套
+      // （`epidFor` 不含锚点，与落库口径 `EpidFor`(含锚点) 是两种变体，并存会让"按 epid 续播"对不上）。
+      // 服务端未派生 ⇒ 空串 ⇒ 服务端按 H4 规则保留/清空，续播自然回退 episodeIndex。
+      // 注：弹幕**池键**（`danmakuEpid`）仍保留本地回退 —— 它是内存键、不落库，且未派生时必须有个稳定值。
+      epid: currentEpisode.value?.epid ?? '',
       // 影片自身更新状态(HD / 更新至 N 集): 供首页"继续观看"卡左下角像普通影片卡一样展示
       remarks: detail.value.remarks
     }

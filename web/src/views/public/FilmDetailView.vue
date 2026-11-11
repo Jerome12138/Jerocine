@@ -24,7 +24,7 @@ import { resolveBlobUrl } from '@/utils/blobImg'
 import { useViewMode } from '@/composables/useViewMode'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { dispatchNativePlaylist } from '@/utils/nativePlay'
-import { epidFor, indexByEpid } from '@/utils/episodeKey'
+import { indexByEpid } from '@/utils/episodeKey'
 
 /**
  * 影片详情 — STORY-009
@@ -250,13 +250,10 @@ function gotoPlay(sourceId: string, episodeIndex: number, resumeSec = 0): void {
   const ep = src?.episodes?.[episodeIndex]
   // P0-3b: 集身份（跨源桥接/锚点归一）—— 续播时优先按它定位集，未命中回退 episode 下标。
   // 口径与播放页/弹幕请求一致：入参取**本片所有源的所有集名**（桥接/锚点需要他源）。
-  // H5（2026-11-11 评审）：**优先用服务端派生表下发的 `epid`**（与 PlayView 同口径，方案 §4.6 目标态）——
-  // 原来只算本地值（`epidFor`，**不含锚点**）⇒ 与落库口径（`EpidFor`，含锚点）系统性不同，
-  // 详情页入口写下的集身份对不上服务端，续播只能落到②档甚至回退。
-  const epid = ep
-    ? (ep.epid ||
-        epidFor(ep.episode ?? '', (d.sources ?? []).flatMap((s) => (s.episodes ?? []).map((e) => e.episode ?? ''))))
-    : ''
+  // U6（2026-11-11 拍板按 c）：端侧**只读服务端**下发的 epid，不再自己算 —— 本地 `epidFor` 不含锚点，
+  // 与落库口径（`EpidFor`，含锚点）是两种变体，并存会让 `user_history.epid` 与服务端派生表对不上。
+  // 未派生/未装配 ⇒ 空串（不传 `epid=`、不写历史身份）⇒ 续播走 episode 下标回退。
+  const epid = ep?.epid ?? ''
   if (src && ep) {
     historyStore.record({
       id: String(d.mid),

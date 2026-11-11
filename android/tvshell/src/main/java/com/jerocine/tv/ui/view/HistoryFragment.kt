@@ -246,9 +246,10 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                             cover = card.cover,
                             cName = card.cName,
                             remarks = card.remarks,
-                            // F4（2026-11-11 评审）：匿名态起播也要带上集身份 —— 原来漏传 ⇒ 匿名续播
-                            // 只能靠 `episodeIndex` 下标定位（源内集序一变就续错集 ✗）。`history.epid`
-                            // 是上次会话存下的、正是"要续的那一集"的身份 ⇒ 直接带上 ✓
+                            // U6（2026-11-11 拍板按 c）：只写**服务端下发**的身份（端侧不再自算）。
+                            // `history.epid` 正是服务端下发的值（本地的"切集作废"由 TokenStore 保证，
+                            // 服务端侧由 H4 的 CASE 保证）⇒ 直接沿用，不产生第二种变体；
+                            // 重定位后的下标（`episodeIndex`）只用于 `requestedEpisode`，不回写身份。
                             epid = history.epid,
                             updatedAt = System.currentTimeMillis(),
                         ),

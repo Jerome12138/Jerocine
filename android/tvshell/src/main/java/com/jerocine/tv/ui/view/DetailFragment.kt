@@ -23,7 +23,6 @@ import com.jerocine.tv.data.HistoryItem
 import com.jerocine.tv.data.resumeEpisodeIndex
 import com.jerocine.tv.data.LocalFavoriteRecord
 import com.jerocine.tv.data.LocalHistoryRecord
-import com.jerocine.tv.data.epidForTitles
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.data.SkipDefaults
 import com.jerocine.player.ui.JcUi
@@ -215,18 +214,14 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
                 )
             }.onSuccess { payload ->
                 if (!ServiceLocator.isLoggedIn) {
-                    // F4（2026-11-11 评审）：匿名态起播也要写**集身份** —— 原来漏传 ⇒ 匿名续播只能靠
-                    // 下标定位，源内集序一变就续错集 ✗。口径必须与 `buildNativePlayerPayload` 对齐：
-                    // 下标是**过滤空 link 后**的位置；F1：一律用**裸集名**（展示串含片名 ⇒ 会解析错）。
+                    // U6（2026-11-11 拍板按 c）：匿名态写本地历史也**只写服务端下发的 epid**（端侧不再自算，
+                    // 避免与落库口径并存两种变体）。下标口径与 `buildNativePlayerPayload` 对齐
+                    // （**过滤空 link 后**的位置）；服务端未派生 ⇒ 空串（不产错值，端侧自然回退下标）。
                     val chosen = value.sources.firstOrNull { it.id == payload.currentSourceId }
                         ?: value.sources.firstOrNull()
-                    val playable = chosen?.episodes?.filter { it.link.isNotBlank() }.orEmpty()
-                    val epid = epidForTitles(
-                        currentTitle = playable.getOrNull(payload.startIndex)?.episode.orEmpty(),
-                        allTitles = value.sources.flatMap { s ->
-                            s.episodes.filter { it.link.isNotBlank() }.map { it.episode }
-                        },
-                    )
+                    val epid = chosen?.episodes.orEmpty()
+                        .filter { it.link.isNotBlank() }
+                        .getOrNull(payload.startIndex)?.epid.orEmpty()
                     ServiceLocator.tokenStore.upsertLocalHistory(
                         LocalHistoryRecord(
                             mid = value.mid,
