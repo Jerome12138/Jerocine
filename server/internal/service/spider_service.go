@@ -699,6 +699,9 @@ func (s *SpiderService) registerTasks(ctx context.Context) {
 			}
 			defer cache.Unlock(context.WithoutCancel(ctx), lockKey, tok)
 			s.executeTask(ctx, &task, entity.TaskRunKindCron)
+			// P1-1 / U1（2026-11-10）：采集批次收尾后 best-effort 触发 epid 派生
+			// （异步、可重入保护、失败只记日志 —— **绝不影响采集**；未装配时 no-op）
+			DeriveEpidInBackground()
 		})
 		if e != nil {
 			log.Printf("cron add task %d (spec=%q) err: %v", task.Id, spec, e)

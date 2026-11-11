@@ -236,6 +236,10 @@ func buildApp(cfg *config.Config) (*App, error) {
 	taskRunRepo := repomysql.NewTaskRunRepository(gdb)
 	taskSvc := service.NewTaskRunService(taskRunRepo)
 	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo, taskSvc)
+	// P1-1 / U1（2026-11-10）：装配 epid 派生服务 —— 采集任务收尾后由
+	// `service.DeriveEpidInBackground()`（见 spider_service 的 cron 收尾）异步触发一轮派生。
+	// 未装配 ⇒ 后台触发是 no-op（安全降级）。
+	service.SetDefaultEpidService(service.NewEpidService(repomysql.NewEpidRepository(gdb)))
 	bannerSvc := service.NewBannerService(bannerRepo, filmSvc)
 
 	// TMDB 横图回填 worker: 每轮解析 key(后台 DB > env), 未配置时轻量探测后静默等待。

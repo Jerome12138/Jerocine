@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"log"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"server/internal/danmu"
@@ -25,6 +27,58 @@ type EpidService struct {
 }
 
 func NewEpidService(repo *mysql.EpidRepo) *EpidService { return &EpidService{repo: repo} }
+
+// ---- U1：触发接线（2026-11-10）----
+//
+// 取向：**采集任务收尾后 best-effort 异步触发**（方案 §5.4 的推荐路径"采集批次后异步批量"）。
+// 为什么用"包级默认实例"而不是给 SpiderService 加依赖：SpiderService 的构造签名被多处测试使用，
+// 加参数会扩大回归面；包级装配 + 显式 Set 只需在 main 里一行，**且未装配时是 no-op**（安全降级）。
+var (
+	defaultEpidMu sync.RWMutex
+	defaultEpid   *EpidService
+	deriveRunning atomic.Bool
+)
+
+// SetDefaultEpidService 装配默认派生服务（应用启动时调用一次）。未装配 ⇒ 后台触发为 no-op。
+func SetDefaultEpidService(s *EpidService) {
+	defaultEpidMu.Lock()
+	defer defaultEpidMu.Unlock()
+	defaultEpid = s
+}
+
+func currentEpidService() *EpidService {
+	defaultEpidMu.RLock()
+	defer defaultEpidMu.RUnlock()
+	return defaultEpid
+}
+
+// DeriveEpidInBackground 采集批次结束后**非阻塞**触发一轮派生（带可重入保护 + 超时）。
+//
+// 铁律：**失败只记日志，绝不影响采集**；已在跑 / 未装配 ⇒ 直接返回。跑完顺带做一次孤儿清理。
+func DeriveEpidInBackground() {
+	s := currentEpidService()
+	if s == nil {
+		return
+	}
+	if !deriveRunning.CompareAndSwap(false, true) {
+		return // 上一轮还没跑完 ⇒ 本轮跳过（采集是高频的，派生跟上一次就够）
+	}
+	go func() {
+		defer deriveRunning.Store(false)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		st, err := s.DeriveAll(ctx, 500, 0, false)
+		if err != nil {
+			log.Printf("[epid] 派生失败（不影响采集）: %v", err)
+			return
+		}
+		log.Printf("[epid] 派生完成: 扫脏=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 来源=%v",
+			st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid, st.SkipWhy)
+		if n, err := s.CleanOrphans(ctx, 500); err == nil && n > 0 {
+			log.Printf("[epid] 孤儿清理：%d 个源行（级联删派生行）", n)
+		}
+	}()
+}
 
 // DeriveStats 一次派生批的统计（可直接打日志/落监控）。
 type DeriveStats struct {
