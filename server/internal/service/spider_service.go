@@ -102,6 +102,10 @@ const collectLockTTL = 6 * time.Hour
 // runOne 对单源采集一次(同源重入由分布式锁阻止)。同步执行。
 // 返回采集错误; 拿不到锁(同源已有采集在跑)返回 ErrConflict —— 那不是失败, 只是"这轮没轮上"。
 func (s *SpiderService) runOne(ctx context.Context, src *entity.CollectSource, hours int) error {
+	// N2（2026-11-11 审查）：**所有采集入口的收口点** —— StartCollect / AutoCollect / BatchCollect /
+	// 恢复补采都经由本函数 ⇒ 在这里进出计数，让全量派生在各入口期间都会让路（原先只挂 cron）✓
+	CollectEnter()
+	defer CollectLeave()
 	lockKey := cache.KeyLockCron("src:" + src.Id)
 	token, ok, _ := cache.TryLock(ctx, lockKey, collectLockTTL)
 	if !ok {
@@ -252,6 +256,9 @@ func pickExactHits(hits []spider.SearchHit, keyword string) []spider.SearchHit {
 //
 // 返回契约: Candidates 非空 ⟺ 需前端介入选片(本源未落库, Collected==0); 否则按 Collected 判采集结果。
 func (s *SpiderService) CollectOneSource(ctx context.Context, sourceId, keyword string, vodId int64) (SourceFilmResult, error) {
+	// N2（2026-11-11 审查）：手动"按片名采集"（CollectFilm 逐源调本函数）也进出计数 ⇒ 全量派生让路 ✓
+	CollectEnter()
+	defer CollectLeave()
 	src, err := s.sources.Get(ctx, sourceId)
 	if err != nil {
 		return SourceFilmResult{}, err

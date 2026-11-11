@@ -150,10 +150,15 @@ func DerivedNumFor(title string, allTitles []string) int {
 //
 // ⚠️ 与客户端 `danmakuEpid`（= `epidFor`，**不含锚点**）**不同**——见方案 §4.6 的"两处 epid 变体"待办：
 // 落库取本函数（含锚点、更精确）；客户端内存池键取 `epidFor`（无锚点）。统一留待 P1-2。
+// EpKeySourceSkip **未触发** —— 与 `none`（触发了但推不出期号）**区分开**：
+// 指标层据此把"空 epid"拆成 ①未触发 ②触发推不出 ③未派生 三档（2026-11-11 审查补齐）。
+// 旧数据里这两种情况都记成 `none` ⇒ rebuild 后才有 `skip` ✓（不破坏兼容：`from=` 只是标注）。
+const EpKeySourceSkip = "skip"
+
 func EpidFor(title string, allTitles []string) (epid string, fromSrc string) {
 	k := ParseEpisodeKey(title)
 	if !EpisodeTriggered(k) {
-		return "", EpKeySourceNone
+		return "", EpKeySourceSkip
 	}
 	if k.Num > 0 {
 		return EpidOf(k), EpKeySourceSelf

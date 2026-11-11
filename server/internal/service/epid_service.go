@@ -80,13 +80,28 @@ var (
 // 为什么需要：全量派生与采集**都在写同一张库**；两者重叠会推高死锁概率（项目里已记录过
 // "主站并发过高会批量死锁"）。原先只与"派生自身的自动触发"互斥，**不与采集互斥** ⇒ 全量重建
 // 期间必然撞上 1~3 轮采集。现由采集链路（cron 轮次 起/止）置位，全量派生在**每批前**让路。
-var collectRoundRunning atomic.Bool
+//
+// ⚠️ 2026-11-11 审查（N2）：原来是 `atomic.Bool`，且**只挂在 cron 闭包** ⇒ 手动采集
+// （`StartCollect` / `CollectFilm` / `AutoCollect` / `BatchCollect` / 恢复补采）期间不让路 ✗。
+// 现改为**可重入计数**（`atomic.Int32`）：cron 与各手动入口都进出一次，嵌套/并发也都算"在采集" ✓
+var collectRoundBusy atomic.Int32
 
-// SetCollectRoundRunning 由采集链路在"轮次开始/结束"时调用（见 spider_service 的 cron 闭包）。
-func SetCollectRoundRunning(on bool) { collectRoundRunning.Store(on) }
+// SetCollectRoundRunning 由采集链路在"轮次开始/结束"时调用（cron 闭包）。
+// 语义 = 计数 +1/-1，可重入（见上方说明）。
+func SetCollectRoundRunning(on bool) {
+	if on {
+		collectRoundBusy.Add(1)
+		return
+	}
+	collectRoundBusy.Add(-1)
+}
 
-// CollectRoundRunning 当前是否有采集轮次在跑。
-func CollectRoundRunning() bool { return collectRoundRunning.Load() }
+// CollectEnter / CollectLeave 手动采集入口用的显式进出（与 SetCollectRoundRunning 同一计数）。
+func CollectEnter() { collectRoundBusy.Add(1) }
+func CollectLeave() { collectRoundBusy.Add(-1) }
+
+// CollectRoundRunning 当前是否有采集在跑（含手动入口）。
+func CollectRoundRunning() bool { return collectRoundBusy.Load() > 0 }
 
 // waitCollectIdle 若采集轮次在跑则等待，最多等 `max`；返回是否等到了空闲。
 //
