@@ -63,19 +63,35 @@ func LookupEpidsByMatchKeys(ctx context.Context, keys []string) (map[string]map[
 	return out, nil
 }
 
-// ReplaceForSourceRow **整源行重算**：事务内清旧 + 插新（P1-1 §5.4）。
+// epidInsertChunk 插批大小（对照采集侧 `UpsertBatch` 的 200 行/语句；派生行更宽 ⇒ 500 行/句）。
+const epidInsertChunk = 500
+
+// ReplaceForSourceRows **批级整源行重算**：一个事务内「清旧 + 插新」，一次覆盖**多个源行**（P1-1 §5.4）。
 //
 // ⚠️ 绝不按 `ep_index` 打补丁 —— 集序会漂（重排/插集），按位置补丁必然错位。
 // 同事务 ⇒ 读侧要么见旧、要么见新，不会读到半截。
-func (r *EpidRepo) ReplaceForSourceRow(ctx context.Context, srcRowId int64, rows []entity.MovieEpisodeEpid) error {
+//
+// **2026-11-11 优化（借采集侧批量思路）**：原实现是**每源行一个事务** ⇒ 单批 2000 个事务
+// （DELETE + `CreateInBatches`），redo/binlog 与 4 个索引的维护被放大 2000 倍 —— 与采集侧
+// `playRepo.UpsertBatch`（200 行/语句、一次调用处理整页）相比效率差距明显。批级后事务数降到个位数/批。
+//
+// **语义变化（可接受）**：原子性从"单源行"放宽到"**一次 flush 的一组源行**" ⇒ 失败时这组一起回滚，
+// 下次按 `src_ep_hash` 判脏重新派生 ✓（幂等）；窗口内读侧看到"没有 epid" ⇒ 端侧回退实时解析（§4.6）✓。
+//
+// **调用方约束**：`ids` 必须是**本次 flush 内真要重建**的全部源行（被守卫拦下的行**不要**传进来，
+// 否则会被白删 —— 那些行的旧派生要保留）。
+func (r *EpidRepo) ReplaceForSourceRows(ctx context.Context, ids []int64, rows []entity.MovieEpisodeEpid) error {
+	if len(ids) == 0 {
+		return nil
+	}
 	return dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("src_row_id = ?", srcRowId).Delete(&entity.MovieEpisodeEpid{}).Error; err != nil {
+		if err := tx.Where("src_row_id IN ?", ids).Delete(&entity.MovieEpisodeEpid{}).Error; err != nil {
 			return err
 		}
 		if len(rows) == 0 {
 			return nil
 		}
-		return tx.CreateInBatches(rows, 200).Error
+		return tx.CreateInBatches(rows, epidInsertChunk).Error
 	})
 }
 

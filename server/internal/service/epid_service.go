@@ -75,6 +75,44 @@ var (
 	deriveFullMode      atomic.Value  // fill | rebuild
 )
 
+// 采集轮次进行中的标记（2026-11-11，需求 3"与采集错峰/让路"）。
+//
+// 为什么需要：全量派生与采集**都在写同一张库**；两者重叠会推高死锁概率（项目里已记录过
+// "主站并发过高会批量死锁"）。原先只与"派生自身的自动触发"互斥，**不与采集互斥** ⇒ 全量重建
+// 期间必然撞上 1~3 轮采集。现由采集链路（cron 轮次 起/止）置位，全量派生在**每批前**让路。
+var collectRoundRunning atomic.Bool
+
+// SetCollectRoundRunning 由采集链路在"轮次开始/结束"时调用（见 spider_service 的 cron 闭包）。
+func SetCollectRoundRunning(on bool) { collectRoundRunning.Store(on) }
+
+// CollectRoundRunning 当前是否有采集轮次在跑。
+func CollectRoundRunning() bool { return collectRoundRunning.Load() }
+
+// waitCollectIdle 若采集轮次在跑则等待，最多等 `max`；返回是否等到了空闲。
+//
+// 为什么要设上限：采集一轮可能跑几分钟~十几分钟，无限等会让全量任务被**饿死**；
+// 等满就放行（并在日志里说明），把"完全串行"换成"尽量错峰"。
+func waitCollectIdle(ctx context.Context, max time.Duration) bool {
+	if !CollectRoundRunning() {
+		return true
+	}
+	log.Printf("[epid] 采集轮次进行中 ⇒ 本批让路，最多等 %s", max)
+	deadline := time.Now().Add(max)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(2 * time.Second):
+		}
+		if !CollectRoundRunning() {
+			log.Printf("[epid] 采集轮次已结束 ⇒ 继续派生")
+			return true
+		}
+	}
+	log.Printf("[epid] 等待采集结束超时（%s）⇒ 为免饿死，本批继续执行", max)
+	return false
+}
+
 var lastOrphanCleanMs atomic.Int64
 
 const (
@@ -167,6 +205,10 @@ type DeriveStats struct {
 	LastId    int64          // 本批最后一个源行 id（下次 keyset 从这里继续）
 }
 
+// derivFlushRows 一次 flush 的派生行上限（批级写入缓冲）：≈几 MB 内存，且把"一次事务"的规模
+// 控制在"几十~几百个源行"这一档 —— 对照采集侧的写粒度（200 行/语句、整页一次调用）。
+const derivFlushRows = 5000
+
 // DeriveBatch 派生一批脏源行（keyset 分页；`afterId` 传上一批的 `LastId`，从头开始传 0）。
 //
 // 结束条件：返回的 `Scanned < limit` 表示这一轮已经扫完（但**不代表没有脏行**：被守卫拦下的仍脏）。
@@ -236,6 +278,25 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 	}
 
 	now := time.Now().UnixMilli()
+	// 批级写入缓冲（2026-11-11 优化，借采集侧 UpsertBatch 的批量思路）：
+	// 原实现 **每源行一个事务**（DELETE + CreateInBatches）⇒ 单批 2000 事务，redo/binlog 与 4 个索引的
+	// 维护被放大 2000 倍。现攒到 `derivFlushRows` 行或循环结束 flush 一次 ⇒ 事务数降到**个位数/批**。
+	// `pendingIDs` 只放**本次真要重建**的源行（被守卫拦下的行不进来 —— 否则会被白删）。
+	var (
+		pendingIDs  []int64
+		pendingRows []entity.MovieEpisodeEpid
+	)
+	flush := func() error {
+		if len(pendingIDs) == 0 {
+			return nil
+		}
+		if err := s.repo.ReplaceForSourceRows(ctx, pendingIDs, pendingRows); err != nil {
+			return err
+		}
+		pendingIDs = nil
+		pendingRows = nil
+		return nil
+	}
 	for _, src := range rows {
 		st.LastId = src.Id
 		titles := make([]string, 0, len(src.Episodes))
@@ -288,11 +349,18 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 				ComputedAt: now,
 			})
 		}
-		if err := s.repo.ReplaceForSourceRow(ctx, src.Id, out); err != nil {
-			return st, err
-		}
+		pendingIDs = append(pendingIDs, src.Id)
+		pendingRows = append(pendingRows, out...)
 		st.Rebuilt++
 		st.Rows += int64(len(out))
+		if len(pendingRows) >= derivFlushRows {
+			if err := flush(); err != nil {
+				return st, err
+			}
+		}
+	}
+	if err := flush(); err != nil {
+		return st, err
 	}
 	return st, nil
 }
@@ -382,6 +450,9 @@ func RunFullDerive(mode DeriveMode, batch, maxBatches int, timeout time.Duration
 
 		total := DeriveStats{SkipWhy: map[string]int{}}
 		for n := 0; maxBatches <= 0 || n < maxBatches; n++ {
+			// 需求 3（2026-11-11）：**每批前让路采集** —— 两边都在写同一张库，重叠会推高死锁概率；
+			// 最多等 3 分钟 ⇒ 不让全量任务被采集的长跑"饿死"。
+			waitCollectIdle(ctx, 3*time.Minute)
 			after := deriveCursor.Load()
 			runHot := deriveHotPhase.Load()
 			st, err := s.DeriveBatch(ctx, after, batch, false)

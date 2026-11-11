@@ -690,6 +690,10 @@ func (s *SpiderService) registerTasks(ctx context.Context) {
 		_, e := s.cronLib.AddFunc(spec, func() {
 			s.jobs.Add(1)
 			defer s.jobs.Done()
+			// 2026-11-11：标记"采集轮次进行中" —— 管理端的一键全量派生会在**每批前让路**给它，
+			// 避免两边并发写同一张库推高死锁概率（采集侧已有"并发过高会批量死锁"的记录）。
+			SetCollectRoundRunning(true)
+			defer SetCollectRoundRunning(false)
 			ctx := s.bgCtx() // 优雅停机根 ctx: SIGTERM 取消在跑轮次, 引擎收尾后进程可退
 			lockKey := cache.KeyLockCron("task:" + strconv.FormatInt(task.Id, 10))
 			tok, ok, _ := cache.TryLock(ctx, lockKey, collectLockTTL)

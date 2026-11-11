@@ -27,9 +27,11 @@ func (h *Handlers) ManageEpidDeriveAll(c *gin.Context) {
 		dto.Error(c, http.StatusBadRequest, "mode must be fill|rebuild")
 		return
 	}
-	batch := queryInt(c, "batch", 2000)
+	// 默认 500（2026-11-11 需求 2）：批小 ⇒ 单批更短、与采集的锁重叠窗口更小、对线上读的抖动更平滑；
+	// 代价是总批数变多、总时长变长（可分次跑，续跑用 mode=fill）。
+	batch := queryInt(c, "batch", 500)
 	if batch <= 0 || batch > 5000 {
-		batch = 2000
+		batch = 500
 	}
 	maxBatches := queryInt(c, "maxBatches", 0)
 	if maxBatches < 0 {
