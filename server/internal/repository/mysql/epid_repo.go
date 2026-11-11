@@ -390,3 +390,125 @@ func (r *EpidRepo) CountDerivedRows(ctx context.Context) (int64, error) {
 	err := dbFrom(ctx, r.db).Model(&entity.MovieEpisodeEpid{}).Count(&n).Error
 	return n, err
 }
+
+// ===== 指标口径层（2026-11-11 用户拍板）=====
+//
+// 三条纪律（来自今天两次口径事故）：
+//  1. **"是否多源"必须查真相源 `movie_play_source`** —— 派生表只覆盖一部分，且多源片常**只派生了一侧**
+//     ⇒ 拿派生表判"多源"会把它们当成单源，分母被无谓撑大、指标必然虚低 ✗；
+//  2. **只统计"成熟片"**：该 `match_key` 的**全部源行都已派生**。否则跑批期间分母里混着"还没跑到"的片，
+//     读数不可解释（对齐率会随进度横跳）✗；
+//  3. 全库口径（`AlignmentRate`）保留作对照，**不作门槛判定**。
+
+// AlignmentRateComparable 可比口径对齐率：`match_key` 在**真相源**里有 ≥2 个 site **且该片已成熟**；
+// 仅统计非空 epid 组。§4.8 门槛（≥85%）以本口径为准。
+func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total int64, err error) {
+	var row struct{ Aligned, Total int64 }
+	err = dbFrom(ctx, r.db).Raw(`
+		SELECT
+		  SUM(CASE WHEN t.sites >= 2 THEN 1 ELSE 0 END) AS aligned,
+		  COUNT(*) AS total
+		FROM (
+		  SELECT e.match_key, e.epid, COUNT(DISTINCT e.site_id) AS sites
+		  FROM movie_episode_epid e
+		  WHERE e.epid <> ''
+		  GROUP BY e.match_key, e.epid
+		) t
+		WHERE t.match_key IN (
+		    SELECT s.match_key FROM movie_play_source s GROUP BY s.match_key HAVING COUNT(DISTINCT s.site_id) >= 2
+		  )
+		  AND t.match_key IN (
+		    SELECT s.match_key FROM movie_play_source s
+		    LEFT JOIN movie_episode_epid d ON d.src_row_id = s.id
+		    GROUP BY s.match_key
+		    HAVING COUNT(*) = COUNT(DISTINCT d.src_row_id)
+		  )`).Scan(&row).Error
+	return row.Aligned, row.Total, err
+}
+
+// CategoryStat 按分类分层的"有身份率"（`movie.pid` 指向 `category.id`）。
+type CategoryStat struct {
+	Pid        int64  `json:"pid"`
+	Category   string `json:"category"` // category.name：电影片 / 连续剧 / 综艺片 / 动漫片 …
+	RowCnt     int64  `json:"rowCnt"`
+	NonEmpty   int64  `json:"nonEmpty"`
+	NonEmptyPc float64 `json:"nonEmptyPct"`
+}
+
+// ByCategory 分层"有身份率"（**按需调用**，不进每轮日志：要 join movie/category）。
+func (r *EpidRepo) ByCategory(ctx context.Context) ([]CategoryStat, error) {
+	var out []CategoryStat
+	err := dbFrom(ctx, r.db).Raw(`
+		SELECT
+		  IFNULL(m.pid, -1) AS pid,
+		  IFNULL(c.name, '(未知)') AS category,
+		  COUNT(*) AS row_cnt,
+		  SUM(IF(e.epid <> '', 1, 0)) AS non_empty
+		FROM movie_episode_epid e
+		LEFT JOIN movie m ON m.mid = e.mid
+		LEFT JOIN category c ON c.id = m.pid
+		GROUP BY IFNULL(m.pid, -1), IFNULL(c.name, '(未知)')
+		ORDER BY row_cnt DESC`).Scan(&out).Error
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].RowCnt > 0 {
+			out[i].NonEmptyPc = float64(out[i].NonEmpty) * 100 / float64(out[i].RowCnt)
+		}
+	}
+	return out, nil
+}
+
+// MaturityStat 源行口径的派生成熟度（按分类）。
+type MaturityStat struct {
+	Pid        int64 `json:"pid"`
+	SrcRows    int64 `json:"srcRows"`
+	DerivedRows int64 `json:"derivedSrcRows"`
+}
+
+// SourceRowMaturity 源行口径成熟度：**真相源**每个源行是否已有派生行（按分类）。
+// 对齐率只有在"该片全源行都已派生"后才可解释 ⇒ 这个数与 `AlignmentRateComparable` 配对看。
+func (r *EpidRepo) SourceRowMaturity(ctx context.Context) ([]MaturityStat, error) {
+	var out []MaturityStat
+	err := dbFrom(ctx, r.db).Raw(`
+		SELECT IFNULL(m.pid, -1) AS pid, COUNT(*) AS src_rows,
+		       SUM(IF(d.src_row_id IS NULL, 0, 1)) AS derived_rows
+		FROM movie_play_source s
+		LEFT JOIN movie m ON m.mid = s.mid
+		LEFT JOIN (SELECT DISTINCT src_row_id FROM movie_episode_epid) d ON d.src_row_id = s.id
+		GROUP BY IFNULL(m.pid, -1)
+		ORDER BY src_rows DESC`).Scan(&out).Error
+	return out, err
+}
+
+// ShapeStat 空 epid 的**集名形态**分布 —— 回答"为什么空"。
+type ShapeStat struct {
+	Shape  string `json:"shape"`
+	RowCnt int64  `json:"rowCnt"`
+}
+
+// EmptyEpidByShape 空 epid 按集名形态分档（**未触发的近似口径**）：
+//
+//	has_date  含 8 位日期 ⇒ 理论上应触发（若为空 ⇒ 属"触发但推不出期号"，即 §4.7 L6 的空串豁免）
+//	e_num     E/EP 圆号 ⇒ 按口径**不触发**（epid 串不含 e 段）
+//	ordinal   第N集/期/话… ⇒ 2026-11-11 放宽后**应触发**（rebuild 前仍为空 ⇒ 说明这批还没重算）
+//	other     其它（含片名/无规律）
+//
+// ⚠️ 局限：`from_src` 目前把"未触发"与"触发但推不出"都记成 `none`，无法直接拆开
+// ⇒ 这里用形态近似（后续可在写入侧细分来源值再精确化）。
+func (r *EpidRepo) EmptyEpidByShape(ctx context.Context) ([]ShapeStat, error) {
+	var out []ShapeStat
+	err := dbFrom(ctx, r.db).Raw(`
+		SELECT CASE
+		    WHEN raw_name REGEXP '[0-9]{8}' THEN 'has_date'
+		    WHEN raw_name REGEXP '^[Ee][Pp]?[0-9]+' THEN 'e_num'
+		    WHEN raw_name REGEXP '第[0-9]+[集期话回季部]' THEN 'ordinal'
+		    ELSE 'other' END AS shape,
+		  COUNT(*) AS row_cnt
+		FROM movie_episode_epid
+		WHERE epid = ''
+		GROUP BY shape
+		ORDER BY row_cnt DESC`).Scan(&out).Error
+	return out, err
+}

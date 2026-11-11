@@ -26,11 +26,11 @@ export interface EpidReport {
   derivedRows: number
   /** 其中 epid 为空串的行数（裸「第N集」/推不出期号 —— 按 §4.7 L6 属正常） */
   emptyEpidRows: number
-  /** 同 (match_key, epid) 出现在 ≥2 个 site 的组数 */
+  /** 同 (match_key, epid) 出现在 ≥2 个 site 的组数（**全库口径**，仅作对照） */
   alignedGroups: number
-  /** 参与统计的非空 epid 组数 */
+  /** 参与统计的非空 epid 组数（全库口径） */
   totalGroups: number
-  /** 对齐率（%，§4.8 门槛 ≥85） */
+  /** 对齐率（%，**全库口径**，不作门槛判定） */
   alignmentPct: number
   /** 期号来源分布 */
   byFromSrc: EpidFromSrcStat
@@ -38,6 +38,19 @@ export interface EpidReport {
   coverage?: { derivedRows: number; sourceEpisodes: number; pct: number }
   /** 覆盖率算不出来时的原因（表为空/查询失败等） */
   coverageError?: string
+
+  // ---- 口径层（2026-11-11）：§4.8 门槛以**可比口径**为准 ----
+  /** 可比口径：分母只含"真相源里 ≥2 site 且已成熟"的片 */
+  comparableAligned: number
+  comparableTotal: number
+  comparablePct: number
+  /** 源行口径成熟度（按分类） */
+  maturity: { pid: number; srcRows: number; derivedSrcRows: number }[]
+  /** 分层"有身份率"（按分类，用 category 名称） */
+  byCategory: { pid: number; category: string; rowCnt: number; nonEmpty: number; nonEmptyPct: number }[]
+  /** 空 epid 的集名形态分档（回答"为什么空"） */
+  emptyByShape: { shape: string; rowCnt: number }[]
+  metricsError?: string
 }
 
 /** 一键全量派生的返回（POST /manage/epid/derive-all） */

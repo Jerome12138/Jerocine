@@ -132,10 +132,13 @@ function refresh(): void {
         <dd>{{ report.derivedRows }} / {{ report.emptyEpidRows }}</dd>
       </div>
       <div>
-        <dt class="text-muted">对齐率（门槛 ≥85%）</dt>
+        <dt class="text-muted">对齐率（可比口径，门槛 ≥85%）</dt>
         <dd>
-          {{ pct(report.alignmentPct) }}
-          <span class="text-muted">（{{ report.alignedGroups }}/{{ report.totalGroups }} 组）</span>
+          {{ pct(report.comparablePct) }}
+          <span class="text-muted">
+            （{{ report.comparableAligned }}/{{ report.comparableTotal }} 组；全库口径对照
+            {{ pct(report.alignmentPct) }}）
+          </span>
         </dd>
       </div>
       <div>
@@ -150,6 +153,38 @@ function refresh(): void {
           <span v-if="!Object.keys(report.byFromSrc).length" class="text-muted">—</span>
         </dd>
       </div>
+      <!-- 分层（2026-11-11）：按 category 名称给"有身份率"，避免再用裸 pid 猜分类 -->
+      <div v-if="report.byCategory?.length" class="col-span-2">
+        <dt class="text-muted">按分类（有身份率 = 非空 epid / 派生行）</dt>
+        <dd class="flex flex-col">
+          <span v-for="c in report.byCategory" :key="c.pid">
+            {{ c.category }}：{{ pct(c.nonEmptyPct) }}
+            <span class="text-muted">（{{ c.nonEmpty }}/{{ c.rowCnt }}）</span>
+          </span>
+        </dd>
+      </div>
+      <!-- 成熟度（源行口径）：对齐率只有在该片全源行都已派生后才可解释 -->
+      <div v-if="report.maturity?.length" class="col-span-2">
+        <dt class="text-muted">源行派生成熟度（按分类）</dt>
+        <dd class="flex flex-col">
+          <span v-for="m in report.maturity" :key="m.pid">
+            pid={{ m.pid }}：{{ m.derivedSrcRows }}/{{ m.srcRows }}
+            <span class="text-muted">
+              （{{ m.srcRows ? ((m.derivedSrcRows * 100) / m.srcRows).toFixed(1) : '0.0' }}%）
+            </span>
+          </span>
+        </dd>
+      </div>
+      <!-- 空 epid 的形态分档：回答"为什么空" -->
+      <div v-if="report.emptyByShape?.length" class="col-span-2">
+        <dt class="text-muted">空 epid 的集名形态</dt>
+        <dd>
+          <span v-for="s in report.emptyByShape" :key="s.shape" class="mr-3">
+            {{ s.shape }}={{ s.rowCnt }}
+          </span>
+        </dd>
+      </div>
+      <p v-if="report.metricsError" class="col-span-2 text-muted">{{ report.metricsError }}</p>
     </dl>
 
     <div class="flex flex-wrap gap-[var(--jc-space-3)]">

@@ -521,7 +521,7 @@ type EpidCoverage struct {
 	Pct            float64 `json:"pct"`
 }
 
-// EpidReport 管理端只读报告：状态 + 验收指标（对齐率/覆盖率/来源分布）。
+// EpidReport 管理端只读报告：状态 + 验收指标（分层 + 双口径对齐率 + 成熟度 + 空语义）。
 type EpidReport struct {
 	Status        DeriveState      `json:"status"`
 	DerivedRows   int64            `json:"derivedRows"`
@@ -532,9 +532,21 @@ type EpidReport struct {
 	ByFromSrc     map[string]int64 `json:"byFromSrc"`
 	Coverage      *EpidCoverage    `json:"coverage,omitempty"`
 	CoverageError string           `json:"coverageError,omitempty"`
+
+	// ---- 口径层（2026-11-11）：分层 / 成熟度 / 双口径 / 空语义 ----
+	// ⚠️ 判定口径：**可比口径**（分母只含"真相源里 ≥2 site 且已成熟"的片）才是 §4.8 门槛依据；
+	// 全库口径（alignedGroups/totalGroups/alignmentPct）逐轮都在算（便宜），仅作对照 ✗ 不作门槛。
+	ComparableAligned int64                  `json:"comparableAligned"`
+	ComparableTotal   int64                  `json:"comparableTotal"`
+	ComparablePct     float64                `json:"comparablePct"`
+	Maturity          []mysql.MaturityStat   `json:"maturity"`   // 源行口径成熟度（按分类）
+	ByCategory        []mysql.CategoryStat   `json:"byCategory"` // 分层"有身份率"（按分类）
+	EmptyByShape      []mysql.ShapeStat      `json:"emptyByShape"`
+	MetricsError      string                 `json:"metricsError,omitempty"`
 }
 
-// ReportEpid 汇总验收指标（只读）。覆盖率走离线口径（要扫巨列，**不在热路径**）。
+// ReportEpid 汇总验收指标（只读）。覆盖率 / 分层 / 成熟度都是**离线口径**（要扫巨列或 join 大表），
+// 只在管理端**按需**拉取时算，不进每轮日志。
 func ReportEpid(ctx context.Context) (EpidReport, error) {
 	out := EpidReport{Status: DeriveStatus()}
 	s := currentEpidService()
@@ -548,6 +560,25 @@ func ReportEpid(ctx context.Context) (EpidReport, error) {
 	out.DerivedRows, out.EmptyEpidRows = rep.TotalDerivedRows, rep.EmptyEpidRows
 	out.AlignedGroups, out.TotalGroups = rep.AlignedGroups, rep.TotalGroups
 	out.AlignmentPct, out.ByFromSrc = rep.AlignmentPct, rep.ByFromSrc
+
+	// 可比口径 + 分层 + 成熟度 + 空语义（任一失败不影响其它项：记 metricsError 后继续）
+	if a, t, err := s.repo.AlignmentRateComparable(ctx); err == nil {
+		out.ComparableAligned, out.ComparableTotal = a, t
+		if t > 0 {
+			out.ComparablePct = float64(a) * 100 / float64(t)
+		}
+	} else {
+		out.MetricsError = "对齐率(可比口径)：" + err.Error()
+	}
+	if v, err := s.repo.ByCategory(ctx); err == nil {
+		out.ByCategory = v
+	}
+	if v, err := s.repo.SourceRowMaturity(ctx); err == nil {
+		out.Maturity = v
+	}
+	if v, err := s.repo.EmptyEpidByShape(ctx); err == nil {
+		out.EmptyByShape = v
+	}
 
 	dr, se, cerr := s.repo.CoverageFull(ctx)
 	switch {
