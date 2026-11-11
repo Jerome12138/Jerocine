@@ -721,41 +721,43 @@ components:
         role: { type: integer, enum: [0, 1] }
 
     # ---------------- 用户: 历史 / 收藏 ----------------
+    # P3-7（2026-11-11 评审）：**按实现订正** —— 真实出参是 `service.HistoryView`
+    # （内嵌 `entity.UserHistory` + `card`），不是这里原先写的扁平 name/cover/cName/sourceId/episodeIndex。
     HistoryItem:
       type: object
-      required: [mid, name]
+      required: [mid]
       properties:
         id: { type: integer, format: int64, description: 记录 ID }
+        userId: { type: integer, format: int64 }
         mid: { type: integer, format: int64 }
-        name: { type: string }
-        cover: { type: string }
-        cName: { type: string }
-        episode: { type: string, description: 集数标题 }
-        episodeIndex: { type: integer, description: 集索引 }
-        sourceId: { type: string }
-        progress: { type: number, format: float, description: 播放进度 (秒) }
-        duration: { type: number, format: float, description: 总时长 (秒) }
+        playFrom: { type: string, description: 来源站标识（客户端 `sourceId`/`source` 即此项） }
+        episode: { type: integer, description: 集下标（**整数**；老数据里可能是字符串，客户端两种都容忍） }
         epid:
           type: string
           maxLength: 160
           description: >-
             集身份串（P0-3, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`（5 段，缺值 `-`）。
             **只有"触发的集"才有**（裸「第N集」/E圆号 = 空串）。续播时先按它找目标源同集，
-            未命中回退 `sourceId` + `episodeIndex` 下标；空串 ⇒ 一律走老逻辑。
+            未命中回退 `playFrom` + `episode` 下标；空串 ⇒ 一律走老逻辑。
+        progress: { type: integer, description: 播放进度（**整数秒**） }
+        duration: { type: integer, description: 总时长（**整数秒**） }
+        createdAt: { type: integer, format: int64 }
         updatedAt: { type: integer, format: int64 }
+        card:
+          type: object
+          nullable: true
+          description: 影片卡片（`entity.MovieSearch`，含 name/cover/cName/remarks）；缺省 ⇒ 前端退化为只用 mid 渲染。
+    # P3-7（2026-11-11 评审）：**按实现订正** —— handler 只绑 mid/playFrom/episode/epid/progress/duration，
+    # 其余键一律忽略（原来写的 sourceId/episodeIndex/name/cover/cName 服务端并不读）。
     HistoryUpsertReq:
       type: object
       required: [mid]
       properties:
         mid: { type: integer, format: int64 }
-        name: { type: string }
-        cover: { type: string }
-        cName: { type: string }
-        episode: { type: string }
-        episodeIndex: { type: integer }
-        sourceId: { type: string }
-        progress: { type: number, format: float }
-        duration: { type: number, format: float }
+        playFrom: { type: string, description: 来源站标识 }
+        episode: { type: integer, description: 集下标（整数秒口径同 progress） }
+        progress: { type: integer, description: 播放进度（整数秒） }
+        duration: { type: integer, description: 总时长（整数秒） }
         epid:
           type: string
           maxLength: 160
