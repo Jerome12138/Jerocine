@@ -402,6 +402,11 @@ func (r *EpidRepo) CountDerivedRows(ctx context.Context) (int64, error) {
 
 // AlignmentRateComparable 可比口径对齐率：`match_key` 在**真相源**里有 ≥2 个 site **且该片已成熟**；
 // 仅统计非空 epid 组。§4.8 门槛（≥85%）以本口径为准。
+//
+// ⚠️ **必须显式 `COLLATE`**（2026-11-11 审查实测）：迁移 `000044` 建派生表时未指定 collation ⇒ 用的是
+// 服务器默认 `utf8mb4_0900_ai_ci`，而 `movie_play_source` 的列是 `utf8mb4_unicode_ci`
+// ⇒ **跨表列比较直接报 `Illegal mix of collations`** ✗（只有"列 vs 字面量/参数"的比较才不报）。
+// 这里把派生侧统一到 `utf8mb4_unicode_ci`（只影响比较、不影响语义：`match_key` 是数字串）。
 func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total int64, err error) {
 	var row struct{ Aligned, Total int64 }
 	err = dbFrom(ctx, r.db).Raw(`
@@ -414,10 +419,10 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 		  WHERE e.epid <> ''
 		  GROUP BY e.match_key, e.epid
 		) t
-		WHERE t.match_key IN (
+		WHERE t.match_key COLLATE utf8mb4_unicode_ci IN (
 		    SELECT s.match_key FROM movie_play_source s GROUP BY s.match_key HAVING COUNT(DISTINCT s.site_id) >= 2
 		  )
-		  AND t.match_key IN (
+		  AND t.match_key COLLATE utf8mb4_unicode_ci IN (
 		    SELECT s.match_key FROM movie_play_source s
 		    LEFT JOIN movie_episode_epid d ON d.src_row_id = s.id
 		    GROUP BY s.match_key
