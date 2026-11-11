@@ -17,6 +17,56 @@ export interface EpidDeriveStatus {
   cursor: number
   /** true = 正在跑"热门趟"（只扫 mid 非空的源行） */
   hotPhase: boolean
+  /** 本轮累计扫过的源行数（内存计数，0 成本） */
+  scanned: number
+  /** 本轮累计重建的源行数 */
+  rebuilt: number
+  /** 本轮累计批数 */
+  batches: number
+  /** 本轮已跑秒数（未在跑时为 0） */
+  elapsedSec: number
+  /** 本轮扫过源行/秒 */
+  scanRate: number
+  /** 本轮重建源行/秒 */
+  rebuildRate: number
+}
+
+/**
+ * 进度集（任务**进行中也给**）。
+ *
+ * 口径说明：这几项全部来自「写侧计数器（O(1)）+ 后台缓存快照 + 内存计数」，与表规模无关。
+ * 旧实现用精确 `COUNT(*)`，派生表到 590 万行后要 19.2s / 8.6s ⇒ 撞超时被降级成 0
+ * ⇒ 卡片显示 `0 / 0` 让人以为数据丢了 ✗（2026-11-11 线上事故）。
+ */
+export interface EpidProgress {
+  /** false ⇒ 计数器未初始化且兜底计数超时：**别把这些 0 当真值** */
+  countingAvailable: boolean
+  /** 派生表行数 */
+  derivedRows: number
+  /** 已派生过的源行数 */
+  derivedSrcRows: number
+  /** 真相源源行总数 */
+  srcRows: number
+  /** 还缺多少源行（= srcRows − derivedSrcRows） */
+  remainSrcRows: number
+  scanned: number
+  rebuilt: number
+  batches: number
+  elapsedSec: number
+  scanRate: number
+  rebuildRate: number
+  /** 按重建速率粗估的剩余秒数（0 = 估不出；口径为**下界**） */
+  etaSec: number
+  /** 影片完整度：全部源行都已派生的影片数 */
+  movieComplete: number
+  /** 影片总数 */
+  movieTotal: number
+  /** 不完整影片里一共还缺多少个源行 */
+  missingSrcRows: number
+  /** 快照采样时间（毫秒；0 = 还没算出来） */
+  movieStatAt: number
+  /** true = 后台正在刷新，展示的是上一份快照 */
+  movieStatStale: boolean
 }
 
 /** 派生验收指标（GET /manage/epid/report） */
@@ -24,7 +74,7 @@ export interface EpidReport {
   status: EpidDeriveStatus
   /** 派生表行数 */
   derivedRows: number
-  /** 其中 epid 为空串的行数（裸「第N集」/推不出期号 —— 按 §4.7 L6 属正常） */
+  /** 其中 epid 为空串的行数（裸「第N集」/推不出期号 —— 按 §4.7 L6 属正常；仅稳态口径下有意义） */
   emptyEpidRows: number
   /** 同 (match_key, epid) 出现在 ≥2 个 site 的组数（**全库口径**，仅作对照） */
   alignedGroups: number
@@ -44,6 +94,17 @@ export interface EpidReport {
   comparableAligned: number
   comparableTotal: number
   comparablePct: number
+  /** 进度集（任务进行中也给） */
+  progress?: EpidProgress
+  /**
+   * true ⇒ 本轮**只算了进度集**（任务进行中）。
+   * ⚠️ 此时下面对齐率/分层/成熟度/形态/覆盖率都是 0，**只是"没算"，不是"真的是 0"** ⇒ 不要当真值渲染。
+   */
+  onlyProgress: boolean
+  /** 重型指标快照的采样时间（毫秒；0 = 后台还没算出来） */
+  metricsAt: number
+  /** true = 后台正在刷新，展示的是上一份快照 */
+  metricsStale: boolean
   /** 源行口径成熟度（按分类）：分母=真相源全部源行，分子=其中已有派生行的源行数 */
   maturity: { pid: number; category: string; srcRows: number; derivedSrcRows: number }[]
   /** 分层"有身份率"（按分类，用 category 名称） */

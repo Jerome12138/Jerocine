@@ -2,7 +2,9 @@ package mysql
 
 import (
 	"context"
+	"log"
 	"sync"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -85,13 +87,29 @@ func (r *EpidRepo) ReplaceForSourceRows(ctx context.Context, ids []int64, rows [
 		return nil
 	}
 	return dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("src_row_id IN ?", ids).Delete(&entity.MovieEpisodeEpid{}).Error; err != nil {
+		// ---- 进度计数器（迁移 000048, 2026-11-11）----
+		// 必须在 DELETE **之前**取"这批源行里已有派生的源行数"，才能算出 `derived_src_rows` 的**净增减**
+		// （它是全局计数：只加不减会越滚越大 ✗）。成本 = 一次 `WHERE src_row_id IN (≤500 个 id)`，
+		// 走 `uk_row_ep` 前缀 ⇒ 与表规模无关 ✓。
+		var before struct{ OldSrcRows int64 }
+		if err := tx.Raw(
+			"SELECT COUNT(DISTINCT src_row_id) AS old_src_rows FROM movie_episode_epid WHERE src_row_id IN ?",
+			ids).Scan(&before).Error; err != nil {
 			return err
 		}
-		if len(rows) == 0 {
-			return nil
+		res := tx.Where("src_row_id IN ?", ids).Delete(&entity.MovieEpisodeEpid{})
+		if res.Error != nil {
+			return res.Error
 		}
-		return tx.CreateInBatches(rows, epidInsertChunk).Error
+		if len(rows) == 0 {
+			return bumpDeriveStat(tx, -res.RowsAffected, -before.OldSrcRows)
+		}
+		if err := tx.CreateInBatches(rows, epidInsertChunk).Error; err != nil {
+			return err
+		}
+		// ⚠️ 新增源行数**不能**用 `len(ids)`：源行的 `episodes` 可能为空 ⇒ 它进了 ids 却**不产任何派生行** ✗
+		// ⇒ 按 `rows` 里的 distinct src_row_id 数（rows ≤ 5000，内存算即可）。
+		return bumpDeriveStat(tx, int64(len(rows))-res.RowsAffected, distinctSrcRows(rows)-before.OldSrcRows)
 	})
 }
 
@@ -165,8 +183,23 @@ func (r *EpidRepo) DeleteBySrcRowIds(ctx context.Context, ids []int64) (int64, e
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	tx := dbFrom(ctx, r.db).Where("src_row_id IN ?", ids).Delete(&entity.MovieEpisodeEpid{})
-	return tx.RowsAffected, tx.Error
+	// 删也要**同步扣减计数器**（000048）：否则孤儿清理后读数会虚高 ✗（同事务，原子）。
+	var deleted int64
+	err := dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		var before struct{ OldSrcRows int64 }
+		if err := tx.Raw(
+			"SELECT COUNT(DISTINCT src_row_id) AS old_src_rows FROM movie_episode_epid WHERE src_row_id IN ?",
+			ids).Scan(&before).Error; err != nil {
+			return err
+		}
+		res := tx.Where("src_row_id IN ?", ids).Delete(&entity.MovieEpisodeEpid{})
+		if res.Error != nil {
+			return res.Error
+		}
+		deleted = res.RowsAffected
+		return bumpDeriveStat(tx, -res.RowsAffected, -before.OldSrcRows)
+	})
+	return deleted, err
 }
 
 // OrphanSrcRowIds 找**孤儿**：派生表里有、但源表已不存在（整片下架/站点下线/Truncate）—— F-06。
@@ -381,7 +414,16 @@ func (r *EpidRepo) CoverageFull(ctx context.Context) (derivedRows int64, sourceE
 // 清空期间出参没有 epid ⇒ 端侧自然回退实时解析（方案 §4.6）⇒ **不影响站点可用性** ✓
 // （派生表是单向派生物：`episodes_json` 才是真相源，重建结果确定 ⇒ 可随时重算）。
 func (r *EpidRepo) TruncateAll(ctx context.Context) error {
-	return dbFrom(ctx, r.db).Exec("TRUNCATE TABLE movie_episode_epid").Error
+	// ⚠️ TRUNCATE **隐式提交**（不可回滚）⇒ 不能用事务包住；计数器重置只能放在其后。
+	if err := dbFrom(ctx, r.db).Exec("TRUNCATE TABLE movie_episode_epid").Error; err != nil {
+		return err
+	}
+	// 清空 ⇒ 计数必然归零（000048）。不重置的话读侧会继续显示清空前的大数 ✗（如 590 万行）。
+	// 重置失败不让任务失败（派生正确性不受影响，只是读数偏大）—— 但必须留痕。
+	if err := r.resetDeriveStat(ctx); err != nil {
+		log.Printf("[epid] 计数器归零失败（读数可能偏大，不影响派生正确性）: %v", err)
+	}
+	return nil
 }
 
 // CountDerivedRows 派生表行数（轻量，给状态/报告用）。
@@ -552,4 +594,153 @@ func (r *EpidRepo) EmptyEpidByShape(ctx context.Context) ([]ShapeStat, error) {
 		GROUP BY shape
 		ORDER BY row_cnt DESC`).Scan(&out).Error
 	return out, err
+}
+
+// ===== 进度读数层（2026-11-11 线上"卡片读数全是 0"事故的修法）=====
+//
+// 事故：派生表涨到 **590 万行**后，短路期（任务进行中）用的三个"便宜"计数全部撞穿预算：
+//
+//	`COUNT(*) FROM movie_episode_epid`              → **19.2s**（预算 3s）✗
+//	`COUNT(DISTINCT src_row_id) FROM movie_episode_epid` → **8.6s**（预算 5s）✗
+//	`COUNT(*) FROM movie_play_source`               → **5.3s**（表里挂着 1.1GB 的 episodes_json 巨列）
+//
+// ⇒ 被"每项独立超时 + 全项容错"逐个降级成 0 ⇒ 管理员看到 `0 / 0`，误以为数据丢了 ✗。
+// 修法分三条（本文件给前两条的实现）：
+//  1. **派生行数 / 已派生源行 → 写侧计数器**（单行表 `epid_derive_stat`，读侧主键点查，O(1)）；
+//  2. **影片完整度**（`MovieCompleteness`）—— 新口径，代价 10~14s ⇒ 只走**后台缓存刷新**；
+//  3. 源行总数 → 进程内缓存（见 service 层）。
+
+// EpidDeriveStat 派生进度计数器读数（迁移 000048 的单行表）。
+type EpidDeriveStat struct {
+	DerivedRows    int64 `json:"derivedRows"`
+	DerivedSrcRows int64 `json:"derivedSrcRows"`
+	UpdatedAt      int64 `json:"updatedAt"`
+}
+
+// DeriveStatFast 读计数器：**一次主键点查**，成本与表规模无关（590 万行实测 <1ms）。
+//
+// ⚠️ `UpdatedAt == 0` 表示**尚未初始化**（迁移没跑 / 表被手工清过）⇒ 调用方必须退回精确计数，
+// 不能把 0 当成"真的 0 行"。
+func (r *EpidRepo) DeriveStatFast(ctx context.Context) (EpidDeriveStat, error) {
+	var out EpidDeriveStat
+	err := dbFrom(ctx, r.db).Raw(
+		"SELECT derived_rows, derived_src_rows, updated_at FROM epid_derive_stat WHERE id = 1").Scan(&out).Error
+	return out, err
+}
+
+// bumpDeriveStat 在**写事务内**增减计数（原子；`GREATEST(...,0)` 兜底防负漂）。
+func bumpDeriveStat(tx *gorm.DB, dRows, dSrcRows int64) error {
+	if dRows == 0 && dSrcRows == 0 {
+		return nil
+	}
+	// INSERT IGNORE 兜底：计数器行缺失（迁移未跑）时也不让写路径失败。
+	if err := tx.Exec(
+		"INSERT IGNORE INTO epid_derive_stat (id, derived_rows, derived_src_rows, updated_at) VALUES (1, 0, 0, ?)",
+		time.Now().UnixMilli()).Error; err != nil {
+		return err
+	}
+	return tx.Exec(`UPDATE epid_derive_stat
+	                SET derived_rows     = GREATEST(derived_rows + ?, 0),
+	                    derived_src_rows = GREATEST(derived_src_rows + ?, 0),
+	                    updated_at       = ?
+	                WHERE id = 1`, dRows, dSrcRows, time.Now().UnixMilli()).Error
+}
+
+// resetDeriveStat 计数器归零（清空重建后调用）。
+func (r *EpidRepo) resetDeriveStat(ctx context.Context) error {
+	now := time.Now().UnixMilli()
+	return dbFrom(ctx, r.db).Exec(`INSERT INTO epid_derive_stat (id, derived_rows, derived_src_rows, updated_at)
+	                               VALUES (1, 0, 0, ?)
+	                               ON DUPLICATE KEY UPDATE derived_rows = 0, derived_src_rows = 0, updated_at = ?`,
+		now, now).Error
+}
+
+// distinctSrcRows `rows` 里出现过的不同源行数（内存算，rows ≤ 5000）。
+func distinctSrcRows(rows []entity.MovieEpisodeEpid) int64 {
+	seen := make(map[int64]struct{}, len(rows))
+	for i := range rows {
+		seen[rows[i].SrcRowId] = struct{}{}
+	}
+	return int64(len(seen))
+}
+
+// MovieCompletenessStat 影片级完整度。
+type MovieCompletenessStat struct {
+	Movies         int64 `json:"movies"`         // 影片总数（按真相源 match_key 分组）
+	CompleteMovies int64 `json:"completeMovies"` // 其**全部源行都已派生**的影片数
+	MissingSrcRows int64 `json:"missingSrcRows"` // 不完整影片里一共还缺多少个源行 ⇒ 直接回答"还缺多少"
+}
+
+// MovieCompleteness 影片完整度（**进度主口径**，2026-11-11 用户拍板取代"覆盖率当进度条"）。
+//
+// 为什么用它而不是 §6.1 覆盖率当进度：
+//   - **完全不碰 `episodes_json` 巨列**（覆盖率要 `SUM(JSON_LENGTH(...))`，随集数膨胀，实测 13s+）；
+//   - 它与 §4.8 门槛"可比口径"里的**成熟判据是同一个定义**（该片全部源行都已派生）
+//     ⇒ 看它就能**预判门槛能不能过**，而不只是"跑了多少"；
+//   - 天然回答"还缺多少"：剩余影片数 + 剩余源行数。
+//
+// 代价（2026-11-11 真库实测，590 万派生行）：**10.1s / 13.1s** ⇒ 只允许在**后台缓存刷新**里调用。
+//
+// 实现取舍（同数据 A/B 实测）：
+//
+//	V1（本实现）`LEFT JOIN ... ON d.src_row_id = s.id AND d.ep_index = 0`  → **10.1s / 13.1s** ✓
+//	V2（双侧聚合再比对 `COUNT(DISTINCT src_row_id)`）                      → **142s / 73s** ✗
+//
+// V2 慢是因为派生侧 `GROUP BY match_key` 要回表取 `src_row_id`（500 万次回表）；而 V1 的
+// `(src_row_id, ep_index=0)` 是 `uk_row_ep` 的**唯一键点查** ⇒ 既快又不会"一源多集"扇出。
+//
+// 前置条件（均已线上实测，不满足时本查询结果不可信）：
+//   - `movie_play_source.match_key` 非空（空值 0 行 ⇒ `GROUP BY match_key` 即"影片"）；
+//   - 每个源行的派生行都从 `ep_index = 0` 起编号（"MIN(ep_index) <> 0 的源行数" = 0）—— 写侧
+//     `DeriveBatch` 以 `EpIndex: i` 从 0 递增，结构上保证。
+func (r *EpidRepo) MovieCompleteness(ctx context.Context) (MovieCompletenessStat, error) {
+	var out MovieCompletenessStat
+	err := dbFrom(ctx, r.db).Raw(`
+		SELECT COUNT(*)                     AS movies,
+		       COALESCE(SUM(c_d = c_s), 0)  AS complete_movies,
+		       COALESCE(SUM(c_s - c_d), 0)  AS missing_src_rows
+		FROM (
+		  SELECT s.match_key AS mk, COUNT(*) AS c_s, COUNT(d.src_row_id) AS c_d
+		  FROM movie_play_source s
+		  LEFT JOIN movie_episode_epid d ON d.src_row_id = s.id AND d.ep_index = 0
+		  GROUP BY s.match_key
+		) t`).Scan(&out).Error
+	return out, err
+}
+
+// AnalyzeDerived 重建收尾刷新派生表的优化器统计信息。
+// 大批量 TRUNCATE + INSERT 之后统计会明显失真 ⇒ 计划可能退化（尤其按 match_key/epid 分组的指标查询）。
+// 调用方给**独立上下文**（任务本身可能已到超时）。
+func (r *EpidRepo) AnalyzeDerived(ctx context.Context) error {
+	return dbFrom(ctx, r.db).Exec("ANALYZE TABLE movie_episode_epid").Error
+}
+
+// RecountDeriveStat 计数器**自愈**：用一次精确计数把计数器覆盖成真值。
+//
+// ⚠️ **慢**（590 万行实测 8.6s + 19.2s ⇒ 合计约 20~30s）⇒ 只能在**后台**或迁移里调用，
+// 绝不进请求路径（那正是本次事故的根因）。触发条件：计数器 `updated_at = 0`（迁移没跑 / 被手工清过）。
+//
+// 与写侧增量的相容性：写侧是"事务内增减差额" ⇒ 本函数给出的绝对值 + 之后的所有差额 = 一致 ✓。
+// （计数与写并发时理论上会差几行，下一轮 rebuild 或下一次自愈即可收敛，不影响派生正确性。）
+func (r *EpidRepo) RecountDeriveStat(ctx context.Context) (EpidDeriveStat, error) {
+	var out EpidDeriveStat
+	if err := dbFrom(ctx, r.db).Raw(`
+		SELECT COUNT(*) AS derived_rows, COUNT(DISTINCT src_row_id) AS derived_src_rows
+		FROM movie_episode_epid`).Scan(&out).Error; err != nil {
+		return out, err
+	}
+	out.UpdatedAt = time.Now().UnixMilli()
+	if err := r.SetDeriveStat(ctx, out.DerivedRows, out.DerivedSrcRows); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// SetDeriveStat 直接把计数器写成给定值（自愈 / 基线校准用）。
+func (r *EpidRepo) SetDeriveStat(ctx context.Context, derivedRows, derivedSrcRows int64) error {
+	now := time.Now().UnixMilli()
+	return dbFrom(ctx, r.db).Exec(`INSERT INTO epid_derive_stat (id, derived_rows, derived_src_rows, updated_at)
+	                               VALUES (1, ?, ?, ?)
+	                               ON DUPLICATE KEY UPDATE derived_rows = ?, derived_src_rows = ?, updated_at = ?`,
+		derivedRows, derivedSrcRows, now, derivedRows, derivedSrcRows, now).Error
 }

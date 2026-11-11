@@ -412,6 +412,16 @@ type DeriveState struct {
 	StartedAt int64  `json:"startedAt"` // 全量任务起始毫秒（0 = 无）
 	Cursor    int64  `json:"cursor"`    // 当前游标（源行 id；0 = 刚到表尾）
 	HotPhase  bool   `json:"hotPhase"`  // true = 正在跑"热门趟"（只扫 mid 非空的源行）
+
+	// ---- 本轮任务的内存计数（2026-11-11）----
+	// 为什么放这里：卡片需要"跑到哪了/还缺多少"，而任何全表计数在 590 万行下都要 9~19s ✗；
+	// 任务自己就知道扫过多少、重建多少 ⇒ 0 成本，且**不随表规模增长** ✓
+	Scanned     int64   `json:"scanned"`     // 累计扫过的源行数
+	Rebuilt     int64   `json:"rebuilt"`     // 累计重建的源行数
+	Batches     int64   `json:"batches"`     // 累计批数
+	ElapsedSec  int64   `json:"elapsedSec"`  // 本轮已跑秒数（未在跑时为 0）
+	ScanRate    float64 `json:"scanRate"`    // 扫过源行/秒
+	RebuildRate float64 `json:"rebuildRate"` // 重建源行/秒
 }
 
 // DeriveStatus 读当前派生状态。
@@ -420,12 +430,32 @@ func DeriveStatus() DeriveState {
 	if v := deriveFullMode.Load(); v != nil {
 		m, _ = v.(string)
 	}
+	started := deriveFullStartedAt.Load()
+	running := deriveFullRunning.Load()
+	var elapsed int64
+	if running && started > 0 {
+		if e := (time.Now().UnixMilli() - started) / 1000; e > 0 {
+			elapsed = e
+		}
+	}
+	scanned, rebuilt := deriveFullScanned.Load(), deriveFullRebuilt.Load()
+	var scanRate, rebuildRate float64
+	if elapsed > 0 {
+		scanRate = float64(scanned) / float64(elapsed)
+		rebuildRate = float64(rebuilt) / float64(elapsed)
+	}
 	return DeriveState{
-		Running:   deriveFullRunning.Load(),
-		Mode:      m,
-		StartedAt: deriveFullStartedAt.Load(),
-		Cursor:    deriveCursor.Load(),
-		HotPhase:  deriveHotPhase.Load(),
+		Running:     running,
+		Mode:        m,
+		StartedAt:   started,
+		Cursor:      deriveCursor.Load(),
+		HotPhase:    deriveHotPhase.Load(),
+		Scanned:     scanned,
+		Rebuilt:     rebuilt,
+		Batches:     deriveFullBatches.Load(),
+		ElapsedSec:  elapsed,
+		ScanRate:    scanRate,
+		RebuildRate: rebuildRate,
 	}
 }
 
@@ -465,6 +495,11 @@ func RunFullDerive(mode DeriveMode, batch, maxBatches int, timeout time.Duration
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
+		// 本轮内存计数归零 + 预热进度快照（源行总数 / 影片完整度基线）。
+		// 目的：管理员点开卡片**立刻**能看到"跑到哪、还缺多少"，而不是等第一次刷新才开始算那两个慢查询。
+		ResetDeriveRunCounters()
+		WarmProgressSnapshots()
+
 		if mode == DeriveModeRebuild {
 			if err := s.repo.TruncateAll(ctx); err != nil {
 				log.Printf("[epid] 清空派生表失败 ⇒ 任务中止（派生表未被改动）: %v", err)
@@ -493,6 +528,11 @@ func RunFullDerive(mode DeriveMode, batch, maxBatches int, timeout time.Duration
 			total.Rows += st.Rows
 			total.Skipped += st.Skipped
 			total.EmptyEpid += st.EmptyEpid
+			// 内存计数（供卡片实时读数；**不做任何全表计数** —— 那是 2026-11-11 线上事故的根因）
+			deriveFullScanned.Add(int64(st.Scanned))
+			deriveFullRebuilt.Add(int64(st.Rebuilt))
+			deriveFullRows.Add(st.Rows)
+			deriveFullBatches.Add(1)
 			for k, v := range st.SkipWhy {
 				total.SkipWhy[k] += v
 			}
@@ -516,6 +556,39 @@ func RunFullDerive(mode DeriveMode, batch, maxBatches int, timeout time.Duration
 		}
 		log.Printf("[epid] 全量派生结束（mode=%s）: 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 原因=%v",
 			mode, total.Scanned, total.Rebuilt, total.Rows, total.Skipped, total.EmptyEpid, total.SkipWhy)
+
+		// ---- 收尾 1/2：重建后刷新优化器统计信息 ----
+		// TRUNCATE + 全量 INSERT 会让统计信息明显失真 ⇒ 分组类指标（对齐率/成熟度）的查询计划可能退化。
+		// 用**独立上下文**（任务本身可能已到超时，`ctx` 已失效）。
+		if mode == DeriveModeRebuild {
+			actx, acancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			if err := s.repo.AnalyzeDerived(actx); err != nil {
+				log.Printf("[epid] ANALYZE movie_episode_epid 失败（不影响可用性）: %v", err)
+			} else {
+				log.Printf("[epid] 已 ANALYZE movie_episode_epid（重建后刷新统计信息，避免优化器退化）")
+			}
+			acancel()
+		}
+
+		// ---- 收尾 2/2：刷新"影片完整度"快照 ----
+		// 这是新的**进度主口径**（该片全部源行都已派生 / 影片总数），与 §4.8 门槛的成熟判据同一定义
+		// ⇒ 收尾刷新一次，空闲态卡片立刻是新值，也顺手把"还能不能过门槛"打进行日志。
+		{
+			mctx, mcancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			if mc, ok := RefreshMovieCompleteness(mctx); ok {
+				pct := 0.0
+				if mc.Movies > 0 {
+					pct = float64(mc.CompleteMovies) * 100 / float64(mc.Movies)
+				}
+				log.Printf("[epid] 影片完整度: %d/%d 完整 (%.1f%%)，还缺 %d 部影片 / %d 个源行",
+					mc.CompleteMovies, mc.Movies, pct, mc.Movies-mc.CompleteMovies, mc.MissingSrcRows)
+			}
+			mcancel()
+		}
+
+		// ---- 收尾 3/3：触发重型指标快照刷新（后台）----
+		// 跑完后（尤其 rebuild）全库指标才真正有意义 ⇒ 让空闲态读数尽快变成新值。
+		KickHeavyMetricsRefresh()
 		if rep, rerr := s.AlignmentReport(ctx); rerr == nil {
 			log.Printf("[epid] 验收指标: 派生行=%d 空epid=%d 对齐组=%d/%d (%.1f%%) 来源=%v 门槛(≥85%%)=%v",
 				rep.TotalDerivedRows, rep.EmptyEpidRows, rep.AlignedGroups, rep.TotalGroups,
@@ -554,58 +627,64 @@ type EpidReport struct {
 	ComparableAligned int64                  `json:"comparableAligned"`
 	ComparableTotal   int64                  `json:"comparableTotal"`
 	ComparablePct     float64                `json:"comparablePct"`
-	Progress          *EpidProgress          `json:"progress,omitempty"` // 重建期也精确可得（≈1.6s）
+	Progress          *EpidProgress          `json:"progress,omitempty"` // 任务进行中也给（O(1)/缓存）
+	OnlyProgress      bool                   `json:"onlyProgress"`       // true = 本轮只算了进度集（重型指标未算，前端别把 0 当真值渲染）
+	MetricsAt         int64                  `json:"metricsAt"`          // 重型指标快照的采样时间（毫秒；0 = 还没算出来）
+	MetricsStale      bool                   `json:"metricsStale"`       // true = 后台正在刷新，展示的是上一份快照
 	Maturity          []mysql.MaturityStat   `json:"maturity"`           // 源行口径成熟度（按分类）
 	ByCategory        []mysql.CategoryStat   `json:"byCategory"`         // 分层"有身份率"（按分类）
 	EmptyByShape      []mysql.ShapeStat      `json:"emptyByShape"`
 	MetricsError      string                 `json:"metricsError,omitempty"`
 }
 
-// EpidProgress 重建期也精确可得的"整体进度"（实测合计 ≈1.6s）。
-type EpidProgress struct {
-	DerivedRows    int64 `json:"derivedRows"`    // = EpidReport.DerivedRows（重复给一份便于前端直读）
-	DerivedSrcRows int64 `json:"derivedSrcRows"` // 已派生源行
-	SrcRows        int64 `json:"srcRows"`        // 真相源源行总数
-}
+// EpidProgress 已迁到 `epid_progress.go`（2026-11-11 线上事故修法）：
+// 进度集改为「写侧计数器（O(1)）+ 后台缓存快照（源行总数 / 影片完整度）+ 内存计数」，
+// 因为精确计数在 590 万行下分别要 19.2s / 8.6s，会撞穿接口的每项超时并被降级成 0 ✗。
 
-// reportCacheTTL 指标结果缓存（进程内；单实例部署足够）。
-const reportCacheTTL = 5 * time.Minute
+// 指标结果缓存**已移除**（2026-11-11）。原设计是"5 分钟 TTL 的进程内缓存"，但**过期后的第一次请求
+// 仍要现算全套**（近 2 分钟）⇒ 正好卡在网关超时上 ✗。现改为**后台快照 + 请求只读快照**：
+//   · 重型指标 → `heavyMetricsSnapshot`（epid_progress.go，TTL 5 分钟，后台刷新）
+//   · 影片完整度 → `movieCompletenessSnapshot`（TTL 60 秒，后台刷新）
+//   · 源行总数 → `srcRowTotalSnapshot`（TTL 1 小时，后台刷新）
+//   · 全库计数 → 写侧计数器 `epid_derive_stat`（O(1) 点查）
+// ⇒ 请求路径上**再没有任何全表计数/聚合**，无论数据长到多大都不会变慢。
 
-var (
-	reportCacheMu   sync.Mutex
-	reportCacheAt   time.Time
-	reportCacheVal  EpidReport
-	reportCacheFull bool
-)
+// EpidReport 管理端只读报告：状态 + 进度 + 验收指标（分层 + 双口径对齐率 + 成熟度 + 空语义）。
 
 // ReportEpid 汇总验收指标（只读）。
 //
-// 性能设计（2026-11-11 **线上 524 事故**后的优化，全部经真库实测）：
-//  1. **重建中短路**：`DeriveStatus().Running` 时**只算轻量进度集**（状态 + 派生行数 + 已派生源行/总源行，
-//     实测 ≈1.6s）。原因：重建期对齐率/分层/成熟度的分母都"不成熟"，**本就没有判定意义**，
-//     却每条要 11~26s ✗；而进度本身用精确计数也只要 ~1.6s ✓
-//  2. **每项独立超时 + 全项容错**：任一项超时/失败**只降级该项**（写进 `MetricsError`），
-//     绝不整接口 500、绝不把请求拖过网关超时 ✓
-//  3. **结果缓存 5 分钟**（进程内；重建中不缓存，进度在变）⇒ 连点刷新不再重复算 ✓
-//  4. **覆盖率要扫巨列（≈13s）⇒ 默认不算**，仅 `full=true`（`?full=1`）时计算 ✓
-//  5. 配套迁移 `000046` 给派生表加**覆盖索引** `(match_key, epid, site_id)`：
-//     实测 `GROUP BY match_key, epid` + `COUNT(DISTINCT site_id)` 当前因 `site_id` 不在索引里而
-//     **退化为全表扫 + 临时表**（EXPLAIN `type=ALL; Using temporary`，19.7s）✗；
-//     而只用索引内两列时是 `Using index`（6.5s）✓ ⇒ 加索引后 ①②③④ 预计 25s → 3~8s ✓
+// 性能设计（2026-11-11 **线上 524 + "读数全是 0"两次事故**后的定稿；全部真库实测，派生表 598 万行）：
+//  1. **请求路径上不允许任何全表计数/聚合** —— 两次事故的共同根因：
+//     · `COUNT(*)` 19.2s、`COUNT(DISTINCT src_row_id)` 8.6s ⇒ 撞穿各自超时被降级成 0（"读数全是 0"）；
+//     · 全库口径 ~32s / ≥2 site 子查询 ~33s / 按分类 ~22s ⇒ 全套近 2 分钟 ⇒ 网关 **524**。
+//  2. **三档分层**（"谁在哪算"是本接口的核心设计）：
+//     · T0 内存/点查：本轮扫过/重建/批次/速率（内存计数）+ 全库计数（写侧计数器，O(1)）
+//     · T1 缓存快照：源行总数（1h）、影片完整度（60s）—— 后台刷新，请求只读，并返回**采样时间**
+//     · T2 后台快照：全库口径/可比口径/按分类/成熟度/空形态（5 分钟一份）
+//     · 按需：覆盖率 §6.1（`?full=1`，7~13s）—— 唯一允许现算的重查询，它是一次性对账、不随进度变化
+//  3. **任务进行中短路**：只返回 T0 + T1。重建期对齐率/分层/成熟度的分母"不成熟"，
+//     读数会横跳、**本就没有判定意义**，且会把接口拖过网关超时 ✗
+//     ⇒ 前端据此显示"进行中·未计算"，**不能**把 0 当真值渲染（那正是让人以为数据丢了的原因之一）。
+//  4. **每项独立超时 + 全项容错**：任一项超时/失败只降级该项（写进 `MetricsError`），绝不整接口 500。
+//  5. **null 兜底**：所有 map/slice 初始化为空值（`{}`/`[]`）—— Go 的 nil 会序列化成 `null`，
+//     而前端 `Object.keys(null)` 抛错会把**整个卡片渲染打挂**（2026-11-11 线上事故）。
+//  6. 配套迁移：`000046` 派生表覆盖索引（对齐率系列 index-only）；`000047` 源表 `(match_key, site_id)`
+//     （≥2 site 子查询至今仍**回表**：EXPLAIN `index(idx_match)` 无 `Using index`，实测 33s）；
+//     `000048` 进度计数器单行表。
 func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 	st := DeriveStatus()
-	if !st.Running {
-		reportCacheMu.Lock()
-		if !reportCacheAt.IsZero() && time.Since(reportCacheAt) < reportCacheTTL && reportCacheFull == full {
-			v := reportCacheVal
-			reportCacheMu.Unlock()
-			v.Status = st // 状态永远取实时（可能刚跑完）
-			return v, nil
-		}
-		reportCacheMu.Unlock()
-	}
 
-	out := EpidReport{Status: st}
+	// ⚠️ **null 兜底**（2026-11-11 线上事故）：Go 的 nil map/slice 序列化成 JSON 是 **`null`**，
+	// 而前端 `Object.keys(report.byFromSrc)` 对 null 会抛 TypeError ⇒ **整个组件渲染失败、卡片消失** ✗
+	// （表现为"点一下刷新指标卡片就没了"，且 production 构建不打 console ⇒ 看着像没报错）。
+	// ⇒ 所有 map/slice 一律初始化为**空值**（`{}` / `[]`），从根上不让 JSON 出现 null。
+	out := EpidReport{
+		Status:       st,
+		ByFromSrc:    map[string]int64{},
+		Maturity:     []mysql.MaturityStat{},
+		ByCategory:   []mysql.CategoryStat{},
+		EmptyByShape: []mysql.ShapeStat{},
+	}
 	s := currentEpidService()
 	if s == nil {
 		return out, nil
@@ -621,79 +700,55 @@ func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 		}
 	}
 
-	// ---- ① 轻量进度集：重建期也全算（精确、便宜）----
-	run("派生行数", 3*time.Second, func(c context.Context) error {
-		n, err := s.repo.CountDerivedRows(c)
+	// ---- ① 进度集：**任务进行中也给**，且成本与表规模无关 ----
+	//
+	// 2026-11-11 线上实测（血的教训）：原实现用精确计数当"轻量进度集"，派生表涨到 590 万行后
+	//   `COUNT(*)` = **19.2s**（预算 3s）、`COUNT(DISTINCT src_row_id)` = **8.6s**（预算 5s）、
+	//   `COUNT(*) movie_play_source` = **5.3s**（表里挂着 1.1GB 的 episodes_json 巨列）
+	// ⇒ 三项全部撞穿超时，被"每项独立超时 + 全项容错"逐个降级成 **0** ⇒ 管理员看到 `0 / 0`，
+	// 以为数据丢了 ✗✗。
+	// 现改为：写侧计数器（O(1) 主键点查）+ 两个后台缓存快照（源行总数 / 影片完整度）+ 内存计数
+	// ⇒ 这条路径**不再有任何全表计数**，读数与表规模无关 ✓
+	run("进度", 5*time.Second, func(c context.Context) error {
+		p, err := buildEpidProgress(c)
 		if err != nil {
 			return err
 		}
-		out.DerivedRows = n
-		return nil
-	})
-	run("源行进度", 5*time.Second, func(c context.Context) error {
-		derived, err := s.repo.DerivedSourceRowCount(c)
-		if err != nil {
-			return err
+		out.Progress = p
+		if p != nil && p.CountingAvailable {
+			out.DerivedRows = p.DerivedRows
 		}
-		total, err := s.repo.SourceRowCount(c)
-		if err != nil {
-			return err
-		}
-		out.Progress = &EpidProgress{DerivedRows: out.DerivedRows, DerivedSrcRows: derived, SrcRows: total}
 		return nil
 	})
 
 	if st.Running {
-		out.MetricsError = "重建进行中：只显示进度类指标（对齐率/分层/成熟度/形态/覆盖率需重建完成后才有判定意义）"
+		out.OnlyProgress = true
+		out.MetricsError = "任务进行中：本轮只算进度类指标（对齐率/分层/成熟度/形态/覆盖率需跑完才有判定意义）"
 		return out, nil
 	}
 
-	// ---- ② 稳态：完整指标（每项独立超时 + 容错）----
-	run("全库口径", 20*time.Second, func(c context.Context) error {
-		rep, err := s.AlignmentReport(c)
-		if err != nil {
-			return err
-		}
-		out.DerivedRows, out.EmptyEpidRows = rep.TotalDerivedRows, rep.EmptyEpidRows
-		out.AlignedGroups, out.TotalGroups = rep.AlignedGroups, rep.TotalGroups
-		out.AlignmentPct, out.ByFromSrc = rep.AlignmentPct, rep.ByFromSrc
-		return nil
-	})
-	run("可比口径对齐率", 25*time.Second, func(c context.Context) error {
-		a, t, err := s.repo.AlignmentRateComparable(c)
-		if err != nil {
-			return err
-		}
-		out.ComparableAligned, out.ComparableTotal = a, t
-		if t > 0 {
-			out.ComparablePct = float64(a) * 100 / float64(t)
-		}
-		return nil
-	})
-	run("按分类有身份率", 20*time.Second, func(c context.Context) error {
-		v, err := s.repo.ByCategory(c)
-		if err != nil {
-			return err
-		}
-		out.ByCategory = v
-		return nil
-	})
-	run("源行成熟度", 20*time.Second, func(c context.Context) error {
-		v, err := s.repo.SourceRowMaturity(c)
-		if err != nil {
-			return err
-		}
-		out.Maturity = v
-		return nil
-	})
-	run("空 epid 形态", 5*time.Second, func(c context.Context) error {
-		v, err := s.repo.EmptyEpidByShape(c)
-		if err != nil {
-			return err
-		}
-		out.EmptyByShape = v
-		return nil
-	})
+	// ---- ② 重型指标：**只读后台快照**（每条 10~33s，绝不进请求路径）----
+	//
+	// 实测（2026-11-11，派生表 598 万行）：全库口径 ~32s、≥2 site 子查询 ~33s、按分类 ~22s
+	//（派生表全表扫 + 临时表）、成熟片/成熟度 ~10~15s ⇒ 全套近 **2 分钟**（此前网关 524 的根因）。
+	// 判断：用户要的是"现在什么状态 / 还差多少进度"，**不是**"每次点刷新都跑一遍全库体检"。
+	// ⇒ 一律**后台算、请求读快照**（5 分钟一份），并把**采样时间**一起返回，让"数据多旧"可见 ✓
+	hm, at, stale := heavyMetricsSnapshot()
+	if at.IsZero() {
+		out.MetricsError = "重型指标正在后台计算（每条 10~33s），稍后点「刷新指标」即可"
+	} else {
+		out.MetricsAt, out.MetricsStale = at.UnixMilli(), stale
+		out.DerivedRows, out.EmptyEpidRows = hm.DerivedRows, hm.EmptyEpidRows
+		out.AlignedGroups, out.TotalGroups = hm.AlignedGroups, hm.TotalGroups
+		out.AlignmentPct = hm.AlignmentPct
+		out.ByFromSrc = hm.ByFromSrc
+		out.ComparableAligned, out.ComparableTotal, out.ComparablePct = hm.ComparableAligned, hm.ComparableTotal, hm.ComparablePct
+		out.Maturity, out.ByCategory, out.EmptyByShape = hm.Maturity, hm.ByCategory, hm.EmptyByShape
+		out.MetricsError = hm.MetricsError
+	}
+
+	// ---- ③ 覆盖率：**按需**（唯一仍允许在请求里现算的重查询，实测 7~13s，独立 30s 超时兜底）----
+	// 它是一次性的"对账"指标（派生行数 / Σ集数），不随进度变化，所以放按需最合适。
 	if full {
 		run("覆盖率(§6.1)", 30*time.Second, func(c context.Context) error {
 			dr, se, err := s.repo.CoverageFull(c)
@@ -708,12 +763,8 @@ func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 			return nil
 		})
 	} else {
-		out.CoverageError = "按需计算：加 ?full=1 拉取（要扫 Σ JSON_LENGTH 巨列，约 13s）"
+		out.CoverageError = "按需计算：加 ?full=1 拉取（要扫 Σ JSON_LENGTH 巨列，约 7~13s）"
 	}
-
-	reportCacheMu.Lock()
-	reportCacheAt, reportCacheVal, reportCacheFull = time.Now(), out, full
-	reportCacheMu.Unlock()
 	return out, nil
 }
 
