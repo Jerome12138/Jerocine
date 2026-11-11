@@ -195,8 +195,11 @@ func DeriveEpidInBackground() {
 }
 
 // DeriveStats 一次派生批的统计（可直接打日志/落监控）。
+//
+// ⚠️ `Scanned` 的语义（2026-11-11 修正）：**本批"扫过"的源行数**（keyset 窗口大小），
+// **不是**"脏行数"。调用方据此判"是否到表尾"（`Scanned < limit`）—— 用脏行数判会误判 ✗。
 type DeriveStats struct {
-	Scanned   int            // 扫到的脏源行数
+	Scanned   int            // 本批**扫过**的源行数（== 窗口大小；< limit ⇒ 已到表尾）
 	Rebuilt   int            // 实际重建的源行数
 	Rows      int64          // 写入的派生行数
 	Skipped   int            // 被抖动守卫拦下的源行数
@@ -219,19 +222,29 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 	}
 	// H6（2026-11-11 评审）：按阶段取候选 —— 热门趟只扫 `mid IS NOT NULL`（主站行/已关联行），
 	// 长尾趟才扫全表。**不能**靠 `ORDER BY` 实现（keyset 分页下页内排序不改变候选集合）。
-	var rows []entity.MoviePlaySource
-	var err error
+	//
+	// ⚠️ **2026-11-11 实测 bug 修复**：repo 这里返回的是**过滤后的脏行** ⇒ 必须同时拿回
+	// "本批扫过的源行数 `scanCount`"与"窗口末端 id `scanLast`"：**表尾按 `scanCount < limit` 判、游标按 `scanLast` 推进**。
+	// 原先用"脏行数 < limit"判表尾 ⇒ 一段没有脏行的区间就被误判为表尾 ⇒ 游标归零、原地空转 ✗✗
+	// （线上表现：重启后「补缺」每批 `扫=0` 秒结束，派生表不再增长）。
+	var (
+		rows      []entity.MoviePlaySource
+		scanLast  int64
+		scanCount int
+		err       error
+	)
 	if deriveHotPhase.Load() {
-		rows, err = s.repo.DirtySourceRowsHot(ctx, afterId, limit)
+		rows, scanLast, scanCount, err = s.repo.DirtySourceRowsHot(ctx, afterId, limit)
 	} else {
-		rows, err = s.repo.DirtySourceRows(ctx, afterId, limit)
+		rows, scanLast, scanCount, err = s.repo.DirtySourceRows(ctx, afterId, limit)
 	}
 	if err != nil {
 		return st, err
 	}
-	st.Scanned = len(rows)
+	st.Scanned = scanCount
+	st.LastId = scanLast
 	if len(rows) == 0 {
-		st.LastId = afterId
+		// 本批没有脏行：**不代表到表尾** —— 游标仍按窗口末端推进（调用方据 `Scanned < limit` 决定是否归零/切趟）。
 		return st, nil
 	}
 

@@ -249,7 +249,13 @@ func (r *EpidRepo) ListByMatchKeys(ctx context.Context, keys []string) ([]entity
 //  2. 对本页 ids 取派生态锚（`AnchorsBySrcRowIds` ⇒ `uk_row_ep` 前缀）
 //  3. 只对**脏的** id 取全字段（含 `episodes_json` 巨列）
 // ⇒ 每批成本与**表规模无关**；且不再需要 `ep_hash <> ''` 过滤（L7：空 hash 也当候选，首次派生一次即收敛）
-func (r *EpidRepo) DirtySourceRows(ctx context.Context, afterId int64, limit int) ([]entity.MoviePlaySource, error) {
+// 返回三元组：`rows`=**脏行**（已过滤）、`scanLast`=本批 keyset 窗口的**末端 id**、`scanCount`=本批**扫过**的源行数。
+//
+// ⚠️ **2026-11-11 实测 bug 的修法**：只返回"脏行"是不够的 —— 一段**没有脏行**的区间会返回空，
+// 调用方就无法区分"到表尾"与"这段恰好不脏"，只能拿脏行数判表尾 ⇒ 会把游标错误归零、原地空转 ✗✗
+// （线上表现：重启后"补缺"每批 `扫=0` 秒结束、派生表不再增长）。
+// ⇒ 游标必须按 `scanLast` 推进、表尾必须按 `scanCount < limit` 判定。
+func (r *EpidRepo) DirtySourceRows(ctx context.Context, afterId int64, limit int) ([]entity.MoviePlaySource, int64, int, error) {
 	return r.dirtySourceRows(ctx, afterId, limit, false)
 }
 
@@ -260,29 +266,34 @@ func (r *EpidRepo) DirtySourceRows(ctx context.Context, afterId int64, limit int
 // 集合 ✗。因此拆**两趟**：先热门趟（`mid IS NOT NULL`），跑到底再进长尾趟（全表）；由服务层
 // `deriveHotPhase` 切换。收益：长尾占 74.4%（470,587 / 632,539）⇒ 不拆的话**热门片会被排在长尾之后**，
 // 而单轮只推进 2000 行 ⇒ 头部内容拿到 epid 的时间会被推后数十倍。
-func (r *EpidRepo) DirtySourceRowsHot(ctx context.Context, afterId int64, limit int) ([]entity.MoviePlaySource, error) {
+func (r *EpidRepo) DirtySourceRowsHot(ctx context.Context, afterId int64, limit int) ([]entity.MoviePlaySource, int64, int, error) {
 	return r.dirtySourceRows(ctx, afterId, limit, true)
 }
 
-func (r *EpidRepo) dirtySourceRows(ctx context.Context, afterId int64, limit int, hotOnly bool) ([]entity.MoviePlaySource, error) {
+func (r *EpidRepo) dirtySourceRows(ctx context.Context, afterId int64, limit int, hotOnly bool) ([]entity.MoviePlaySource, int64, int, error) {
 	var ids []int64
 	q := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).Where("id > ?", afterId)
 	if hotOnly {
 		q = q.Where("mid IS NOT NULL")
 	}
 	if err := q.Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
-		return nil, err
+		return nil, afterId, 0, err
 	}
-	if len(ids) == 0 {
-		return nil, nil
+	scanCount := len(ids)
+	scanLast := afterId
+	if scanCount > 0 {
+		scanLast = ids[scanCount-1]
+	}
+	if scanCount == 0 {
+		return nil, scanLast, 0, nil
 	}
 	anchors, err := r.AnchorsBySrcRowIds(ctx, ids)
 	if err != nil {
-		return nil, err
+		return nil, scanLast, scanCount, err
 	}
 	hashes, err := r.EpHashBy(ctx, ids)
 	if err != nil {
-		return nil, err
+		return nil, scanLast, scanCount, err
 	}
 	dirty := make([]int64, 0, len(ids))
 	for _, id := range ids {
@@ -292,13 +303,13 @@ func (r *EpidRepo) dirtySourceRows(ctx context.Context, afterId int64, limit int
 		}
 	}
 	if len(dirty) == 0 {
-		return nil, nil
+		return nil, scanLast, scanCount, nil
 	}
 	var out []entity.MoviePlaySource
 	if err := dbFrom(ctx, r.db).Where("id IN ?", dirty).Find(&out).Error; err != nil {
-		return nil, err
+		return nil, scanLast, scanCount, err
 	}
-	return out, nil
+	return out, scanLast, scanCount, nil
 }
 
 // SourceTitlesByMatchKeys 取"**同片其它源行**"的集名（M2, 2026-11-11 评审）——

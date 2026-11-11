@@ -35,12 +35,18 @@ func TestDirtySourceRows_EpisodesJSON反序列化必须生效(t *testing.T) {
 			"id", "mid", "match_key", "site_id", "play_from", "episodes_json", "ep_hash",
 		}).AddRow(9, 100, "mk-1", "src_lz", "lzm3u8", jsonPayload, "0123456789abcdef"))
 
-	rows, err := repo.DirtySourceRows(context.Background(), 0, 10)
+	rows, scanLast, scanCount, err := repo.DirtySourceRows(context.Background(), 0, 10)
 	if err != nil {
 		t.Fatalf("DirtySourceRows: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("应返回 1 行, got %d", len(rows))
+	}
+	// 关键断言（2026-11-11 游标 bug 的回归守卫）：只有"脏行"是不够的 ——
+	// 必须同时拿回"扫过的窗口规模"与"窗口末端 id"，调用方才能正确判表尾与推进游标
+	// （否则一段没有脏行的区间会被误判为表尾、游标归零 ⇒ 原地空转）。
+	if scanCount != 1 || scanLast != 9 {
+		t.Fatalf("扫描窗口信息不对: scanCount=%d scanLast=%d（want 1 / 9）", scanCount, scanLast)
 	}
 	r := rows[0]
 	// ① 关键断言：episodes_json 必须被反序列化（否则派生池为空 ⇒ 零产出且静默）
