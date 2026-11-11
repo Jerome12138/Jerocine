@@ -23,6 +23,7 @@ import com.jerocine.tv.data.HistoryItem
 import com.jerocine.tv.data.resumeEpisodeIndex
 import com.jerocine.tv.data.LocalFavoriteRecord
 import com.jerocine.tv.data.LocalHistoryRecord
+import com.jerocine.tv.data.epidForTitles
 import com.jerocine.tv.data.ServiceLocator
 import com.jerocine.tv.data.SkipDefaults
 import com.jerocine.player.ui.JcUi
@@ -211,6 +212,18 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
                 )
             }.onSuccess { payload ->
                 if (!ServiceLocator.isLoggedIn) {
+                    // F4（2026-11-11 评审）：匿名态起播也要写**集身份** —— 原来漏传 ⇒ 匿名续播只能靠
+                    // 下标定位，源内集序一变就续错集 ✗。口径必须与 `buildNativePlayerPayload` 对齐：
+                    // 下标是**过滤空 link 后**的位置；F1：一律用**裸集名**（展示串含片名 ⇒ 会解析错）。
+                    val chosen = value.sources.firstOrNull { it.id == payload.currentSourceId }
+                        ?: value.sources.firstOrNull()
+                    val playable = chosen?.episodes?.filter { it.link.isNotBlank() }.orEmpty()
+                    val epid = epidForTitles(
+                        currentTitle = playable.getOrNull(payload.startIndex)?.episode.orEmpty(),
+                        allTitles = value.sources.flatMap { s ->
+                            s.episodes.filter { it.link.isNotBlank() }.map { it.episode }
+                        },
+                    )
                     ServiceLocator.tokenStore.upsertLocalHistory(
                         LocalHistoryRecord(
                             mid = value.mid,
@@ -221,6 +234,7 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
                             cover = value.cover,
                             cName = value.cName,
                             remarks = value.remarks,
+                            epid = epid,
                             updatedAt = System.currentTimeMillis(),
                         ),
                     )

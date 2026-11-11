@@ -241,6 +241,10 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                             cover = card.cover,
                             cName = card.cName,
                             remarks = card.remarks,
+                            // F4（2026-11-11 评审）：匿名态起播也要带上集身份 —— 原来漏传 ⇒ 匿名续播
+                            // 只能靠 `episodeIndex` 下标定位（源内集序一变就续错集 ✗）。`history.epid`
+                            // 是上次会话存下的、正是"要续的那一集"的身份 ⇒ 直接带上 ✓
+                            epid = history.epid,
                             updatedAt = System.currentTimeMillis(),
                         ),
                     )

@@ -951,6 +951,33 @@ private static String failedRequestUrl(Throwable error) {
      * 服务端已存身份（见 P0-3a 的 upsert 分支）。
      */
     private String epidOfCurrentEpisode() {
+        // F5（2026-11-11 评审）：**结果缓存** —— 原实现每次上报（进度/暂停/退出，5s 一次）都要遍历
+        // "全部源的全部集名" 重解析 + `epidFor`（多源长剧 ⇒ 每 5s 一次主线程抖动，低端 TV 盒可感知 ✗）。
+        // 缓存键 = 当前源下标 + 当前集下标 + 当前源集数；`sources_json` 在播放期内不变 ⇒ 命中率 ≈100%。
+        try {
+            if (session == null || session.player == null) return "";
+            int i = session.player.getCurrentMediaItemIndex();
+            PlayerSession.SourceData cs =
+                    (session.currentSourceIndex >= 0 && session.currentSourceIndex < session.sourceList.size())
+                            ? session.sourceList.get(session.currentSourceIndex) : null;
+            String sig = session.currentSourceIndex + "#" + i + "#"
+                    + (cs == null || cs.rawTitles == null ? -1 : cs.rawTitles.size());
+            if (sig.equals(lastEpidSig)) return lastEpidValue;
+            lastEpidSig = sig;
+            String v = computeEpidOfCurrentEpisode();
+            lastEpidValue = v;
+            return v;
+        } catch (Exception ignore) {
+            return "";
+        }
+    }
+
+    /** F5 缓存：上次的（源下标#集下标#集数）签名与结果。 */
+    private String lastEpidSig = "";
+    private String lastEpidValue = "";
+
+    /** 实际计算 epid（F5 抽出，供缓存包装调用）。口径见 `epidOfCurrentEpisode` 文档。 */
+    private String computeEpidOfCurrentEpisode() {
         try {
             if (session == null || session.player == null) return "";
             // P1-1b / U3-android（2026-11-10）：**优先用服务端派生表下发的 epid**（随 sources_json 传来，

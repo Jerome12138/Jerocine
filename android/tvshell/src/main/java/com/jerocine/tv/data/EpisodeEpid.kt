@@ -25,3 +25,20 @@ fun resumeEpisodeIndex(epid: String, fallbackIndex: Int, episodes: List<Episode>
     val byEpid = indexByEpidForSource(epid, episodes)
     return if (byEpid >= 0) byEpid else fallbackIndex
 }
+
+/**
+ * F4（2026-11-11 评审）：按**集名**算集身份（epid）—— 供"匿名态起播写本地历史"用。
+ *
+ * <p>口径与 `player-core PlayerActivity.epidOfCurrentEpisode` / web `danmakuEpid` 一致：
+ * 当前集取**该源该位置**的**裸集名**，借用池取**全部源的全部裸集名**（只在"本集缺期号"时借）。
+ * **F1 教训**：绝不能拿「片名 · 集名」展示串当解析基准（片名会被当成栏目名 ⇒ epid 恒错 ✗）。
+ *
+ * @param currentTitle 当前集**裸集名**；空 ⇒ 返回空串（宁缺勿错，端侧自然回退下标定位）
+ * @param allTitles    借用池（全部源的裸集名）；全空则退化为只用当前集
+ */
+fun epidForTitles(currentTitle: String, allTitles: List<String>): String {
+    if (currentTitle.isBlank()) return ""
+    val cleaned = allTitles.filter { it.isNotBlank() }
+    val pool = if (cleaned.isEmpty()) listOf(currentTitle) else cleaned
+    return EpisodeKey.epidFor(EpisodeKey.parse(currentTitle), pool.map { EpisodeKey.parse(it) }.toTypedArray())
+}
