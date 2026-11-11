@@ -92,6 +92,12 @@ public class PlayerSession {
         public String name;
         public final ArrayList<String> urls = new ArrayList<>();
         public final ArrayList<String> titles = new ArrayList<>();
+        /**
+         * 集身份（P1-1b / U3-android，2026-11-10）：由 web 侧 `sources_json` 透传的服务端派生表 epid；
+         * **与 `urls`/`titles` 一一对应**，空串 = 未派生/不产身份 ⇒ 回退"本源现算"。
+         * 老调用方不带该字段时为全空串（长度与 urls 对齐）⇒ 行为与改动前一致。
+         */
+        public final ArrayList<String> epids = new ArrayList<>();
     }
 
     private final Host host;

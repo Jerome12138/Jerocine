@@ -91,6 +91,8 @@ public class PlayerSourceHelper {
                         if (u.isEmpty()) continue;
                         sd.urls.add(u);
                         sd.titles.add(ep.optString("title", ""));
+                        // P1-1b / U3-android（2026-11-10）：服务端下发的集身份（老调用方不带 ⇒ 空串）
+                        sd.epids.add(ep.optString("epid", ""));
                     }
                 }
                 session.sourceList.add(sd);

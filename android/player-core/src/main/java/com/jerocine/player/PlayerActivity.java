@@ -953,6 +953,16 @@ private static String failedRequestUrl(Throwable error) {
     private String epidOfCurrentEpisode() {
         try {
             if (session == null || session.player == null) return "";
+            // P1-1b / U3-android（2026-11-10）：**优先用服务端派生表下发的 epid**（随 sources_json 传来，
+            // 与 urls/titles 一一对应）。缺失（未派生 / 老调用方没带）⇒ 回退"本源现算"（口径见方案 §4.6）。
+            int idxGiven = session.player.getCurrentMediaItemIndex();
+            if (session.currentSourceIndex >= 0 && session.currentSourceIndex < session.sourceList.size()) {
+                java.util.List<String> given = session.sourceList.get(session.currentSourceIndex).epids;
+                if (given != null && idxGiven >= 0 && idxGiven < given.size()) {
+                    String e = given.get(idxGiven);
+                    if (e != null && !e.isEmpty()) return e;
+                }
+            }
             java.util.List<String> curTitles = session.playlistTitles;
             if (curTitles == null || curTitles.isEmpty()) return "";
             int idx = session.player.getCurrentMediaItemIndex();
