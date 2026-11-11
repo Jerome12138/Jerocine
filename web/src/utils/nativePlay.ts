@@ -42,7 +42,10 @@ export function dispatchNativePlaylist(
     name: s.name,
     episodes: (s.episodes ?? []).map((e) => ({
       url: e.link,
-      title: `${detail.name} · ${e.episode ?? ''}`.trim()
+      title: `${detail.name} · ${e.episode ?? ''}`.trim(),
+      // P1-1b / U3-android（2026-11-10）：把服务端派生表下发的 epid 透传给原生播放器；
+      // 空串 = 未派生/不产身份 ⇒ 原生侧回退实时解析（过渡期口径，见方案 §4.6）。
+      epid: e.epid ?? ''
     }))
   }))
   if (!mapped.some((s) => s.episodes.length > 0)) return false

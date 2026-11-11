@@ -317,6 +317,12 @@ components:
       properties:
         episode: { type: string, description: 集数标题 (如 "第01集") }
         link: { type: string, description: 播放地址 / m3u8 链接 }
+        epid:
+          type: string
+          description: >-
+            集身份（P1-1b, 2026-11-10）：5 段串 `s=..|v=..|p=..|n=..|d=..`，来自服务端派生表
+            `movie_episode_epid`。**空/缺省 = 未派生或不产身份**（裸「第N集」/E圆号）⇒
+            客户端请**回退实时解析**（过渡期口径见方案 §4.6）。
 
     PlaySource:
       type: object
