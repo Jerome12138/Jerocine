@@ -39,6 +39,11 @@ private data class NativeEpisode(
      * 缺省空串 ⇒ 原生侧**不产 epid**（宁缺勿错，端侧自然回退旧键）。
      */
     val rawTitle: String = "",
+    /**
+     * 集身份（P1-1b / M2, 2026-11-11 评审）：由服务端派生表下发的 `epid`（随 sources_json 传到
+     * player-core，与 urls/titles 一一对应）；缺省空串 ⇒ player-core 回退"本源现算"。
+     */
+    val epid: String = "",
 )
 
 fun buildNativePlayerPayload(
@@ -61,7 +66,9 @@ fun buildNativePlayerPayload(
                             url = episode.link,
                             title = "${info.detail.name} · ${episode.episode}".trim(),
                             // F1：显式带上**裸集名**供 epid 解析（与 web `nativePlay.ts` 同口径）
-                            rawTitle = episode.episode
+                            rawTitle = episode.episode,
+                            // M2（2026-11-11 评审）：透传服务端 epid（缺省空串 ⇒ player-core 回退现算）
+                            epid = episode.epid
                         )
                     }
             )

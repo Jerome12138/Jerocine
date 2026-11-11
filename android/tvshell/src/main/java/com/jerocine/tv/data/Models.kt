@@ -46,7 +46,13 @@ data class NavCategory(
 @Serializable
 data class Episode(
     val episode: String = "",
-    val link: String = ""
+    val link: String = "",
+    /**
+     * 集身份（P1-1b, 2026-11-10）：服务端派生表下发的 5 段串；空/缺省 = 未派生 ⇒ 原生侧回退实时解析。
+     * M2（2026-11-11 评审）：本字段原**未透传** ⇒ player-core 的"优先读服务端 epid"在 TV 原生壳
+     * **恒空转**（只能走本地现算）。补上后原生壳与 WebShell 口径一致。
+     */
+    val epid: String = ""
 )
 
 @Serializable

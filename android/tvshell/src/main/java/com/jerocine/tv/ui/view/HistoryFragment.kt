@@ -208,10 +208,15 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                     ?: info.detail.sources.firstOrNull()
                 val isSeries = selected != null && selected.episodes.size > 1
                 // P0-3c: 先按 epid 在目标源里重定位集下标（源内集序变化时老下标会失效），未命中回退老下标
+                // M1（2026-11-11 评审）：候选列表必须与 `buildNativePlayerPayload` 的
+                // `requestedEpisode` **同口径**（那里是**过滤空 link 后**的下标）——否则源内存在
+                // 空 link 集时，epid 定位出的下标被当成"过滤后下标"使用 ⇒ 续播落到相邻集 ✗。
+                // 回退值 `episodeNumber()` 也是这套口径（历史里存的就是 payload 的 startIndex）。
+                val playableEpisodes = selected?.episodes.orEmpty().filter { it.link.isNotBlank() }
                 val episodeIndex = resumeEpisodeIndex(
                     history.epid,
                     history.episodeNumber(),
-                    selected?.episodes.orEmpty(),
+                    playableEpisodes,
                 )
                 val remoteSkip = if (ServiceLocator.isLoggedIn) {
                     ServiceLocator.userRepository.skipFor(history.mid)

@@ -167,8 +167,11 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
         resumeSource = history?.source()?.takeIf { source ->
             detail.sources.any { it.id == source }
         }.orEmpty()
-        // P0-3c: 先按 epid 在续播源里重定位集下标（源内集序变化时老下标会失效），未命中回退老下标
+        // P0-3c: 先按 epid 在续播源里重定位集下标（源内集序变化时老下标会失效），未命中回退老下标。
+        // M1（2026-11-11 评审）：候选列表须与 `buildNativePlayerPayload` 的 `requestedEpisode` 同口径
+        // （**过滤空 link 后**的下标）——否则源内有空 link 集时 epid 定位出的下标会错位到相邻集 ✗。
         val resumeEpisodes = detail.sources.firstOrNull { it.id == resumeSource }?.episodes.orEmpty()
+            .filter { it.link.isNotBlank() }
         resumeEpisode = history?.let {
             resumeEpisodeIndex(it.epid, it.episodeNumber(), resumeEpisodes)
         } ?: 0

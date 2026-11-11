@@ -228,9 +228,12 @@ public final class EpisodeKey {
     public static int indexByEpid(String epid, java.util.List<String> titles) {
         String[] want = parseEpid(epid);
         if (want == null || titles == null || titles.isEmpty()) return -1;
+        // L7（2026-11-11 评审）：① 档也用 **trim 后**的串比较（与 `parseEpid` 的入参归一一致）——
+        // 否则同一入参在 ① 与 ② 两条路径上行为不一致（② 会 trim、① 不会）✗。
+        final String raw = epid.trim();
         for (int i = 0; i < titles.size(); i++) {
             String t = titles.get(i) == null ? "" : titles.get(i);
-            if (parse(t).epid().equals(epid)) return i;
+            if (parse(t).epid().equals(raw)) return i;
         }
         // F6（2026-11-11 评审）：**②档要求本侧至少有一段"身份段"**（s/v/p/d）——否则裸「第N集」
         //（只有 n，s[0]/v[1]/p[2]/d[4] 全空）会被弱等命中，与"epid 只描述触发的集、宁缺勿错"相悖 ✗
