@@ -211,7 +211,7 @@ func (r *EpidRepo) AlignmentRate(ctx context.Context) (aligned int64, total int6
 	}
 	err = dbFrom(ctx, r.db).Raw(`
 		SELECT
-		  SUM(CASE WHEN sites >= 2 THEN 1 ELSE 0 END) AS aligned,
+		  COALESCE(SUM(CASE WHEN sites >= 2 THEN 1 ELSE 0 END), 0) AS aligned,
 		  COUNT(*) AS total
 		FROM (
 		  SELECT match_key, epid, COUNT(DISTINCT site_id) AS sites
@@ -411,7 +411,7 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 	var row struct{ Aligned, Total int64 }
 	err = dbFrom(ctx, r.db).Raw(`
 		SELECT
-		  SUM(CASE WHEN t.sites >= 2 THEN 1 ELSE 0 END) AS aligned,
+		  COALESCE(SUM(CASE WHEN t.sites >= 2 THEN 1 ELSE 0 END), 0) AS aligned,
 		  COUNT(*) AS total
 		FROM (
 		  SELECT e.match_key, e.epid, COUNT(DISTINCT e.site_id) AS sites

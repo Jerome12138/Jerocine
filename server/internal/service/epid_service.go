@@ -560,50 +560,87 @@ type EpidReport struct {
 	MetricsError      string                 `json:"metricsError,omitempty"`
 }
 
-// ReportEpid 汇总验收指标（只读）。覆盖率 / 分层 / 成熟度都是**离线口径**（要扫巨列或 join 大表），
-// 只在管理端**按需**拉取时算，不进每轮日志。
+// ReportEpid 汇总验收指标（只读）。
+//
+// ⚠️ **每项指标独立超时 + 全项容错**（2026-11-11 线上事故：重建期间接口被拖到**网关超时 524** ✗）：
+// 派生表在重建中被持续写入、且覆盖率要扫 `movie_play_source` 的巨列 ⇒ 任何一项都可能很慢。
+// 因此：① 单项给独立超时；② 任一项超时/失败**只降级该项**（记进 `MetricsError`，前端显示 N/A + 原因），
+// **绝不整接口 500、也绝不把请求拖过网关超时**；③ 状态（内存）永远可返回。
 func ReportEpid(ctx context.Context) (EpidReport, error) {
 	out := EpidReport{Status: DeriveStatus()}
 	s := currentEpidService()
 	if s == nil {
 		return out, nil
 	}
-	rep, err := s.AlignmentReport(ctx)
-	if err != nil {
-		return out, err
+	run := func(label string, d time.Duration, fn func(context.Context) error) {
+		c, cancel := context.WithTimeout(ctx, d)
+		defer cancel()
+		if err := fn(c); err != nil {
+			if out.MetricsError != "" {
+				out.MetricsError += "；"
+			}
+			out.MetricsError += label + "：" + err.Error()
+		}
 	}
-	out.DerivedRows, out.EmptyEpidRows = rep.TotalDerivedRows, rep.EmptyEpidRows
-	out.AlignedGroups, out.TotalGroups = rep.AlignedGroups, rep.TotalGroups
-	out.AlignmentPct, out.ByFromSrc = rep.AlignmentPct, rep.ByFromSrc
 
-	// 可比口径 + 分层 + 成熟度 + 空语义（任一失败不影响其它项：记 metricsError 后继续）
-	if a, t, err := s.repo.AlignmentRateComparable(ctx); err == nil {
+	run("全库口径", 8*time.Second, func(c context.Context) error {
+		rep, err := s.AlignmentReport(c)
+		if err != nil {
+			return err
+		}
+		out.DerivedRows, out.EmptyEpidRows = rep.TotalDerivedRows, rep.EmptyEpidRows
+		out.AlignedGroups, out.TotalGroups = rep.AlignedGroups, rep.TotalGroups
+		out.AlignmentPct, out.ByFromSrc = rep.AlignmentPct, rep.ByFromSrc
+		return nil
+	})
+	run("可比口径对齐率", 8*time.Second, func(c context.Context) error {
+		a, t, err := s.repo.AlignmentRateComparable(c)
+		if err != nil {
+			return err
+		}
 		out.ComparableAligned, out.ComparableTotal = a, t
 		if t > 0 {
 			out.ComparablePct = float64(a) * 100 / float64(t)
 		}
-	} else {
-		out.MetricsError = "对齐率(可比口径)：" + err.Error()
-	}
-	if v, err := s.repo.ByCategory(ctx); err == nil {
+		return nil
+	})
+	run("按分类有身份率", 8*time.Second, func(c context.Context) error {
+		v, err := s.repo.ByCategory(c)
+		if err != nil {
+			return err
+		}
 		out.ByCategory = v
-	}
-	if v, err := s.repo.SourceRowMaturity(ctx); err == nil {
+		return nil
+	})
+	run("源行成熟度", 8*time.Second, func(c context.Context) error {
+		v, err := s.repo.SourceRowMaturity(c)
+		if err != nil {
+			return err
+		}
 		out.Maturity = v
-	}
-	if v, err := s.repo.EmptyEpidByShape(ctx); err == nil {
+		return nil
+	})
+	run("空 epid 形态", 8*time.Second, func(c context.Context) error {
+		v, err := s.repo.EmptyEpidByShape(c)
+		if err != nil {
+			return err
+		}
 		out.EmptyByShape = v
-	}
-
-	dr, se, cerr := s.repo.CoverageFull(ctx)
-	switch {
-	case cerr != nil:
-		out.CoverageError = cerr.Error()
-	case se <= 0:
-		out.CoverageError = "源侧集数为 0（无源行？）"
-	default:
+		return nil
+	})
+	// 覆盖率要扫 `Σ JSON_LENGTH(episodes_json)` 巨列：给更宽但仍设上限的超时
+	run("覆盖率(§6.1)", 20*time.Second, func(c context.Context) error {
+		dr, se, err := s.repo.CoverageFull(c)
+		if err != nil {
+			return err
+		}
+		if se <= 0 {
+			out.CoverageError = "源侧集数为 0（无源行？）"
+			return nil
+		}
 		out.Coverage = &EpidCoverage{DerivedRows: dr, SourceEpisodes: se, Pct: float64(dr) * 100 / float64(se)}
-	}
+		return nil
+	})
 	return out, nil
 }
 
