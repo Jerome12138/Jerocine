@@ -149,8 +149,12 @@ function refresh(): void {
       <div class="col-span-2">
         <dt class="text-muted">期号来源分布</dt>
         <dd>
+          <!-- 修复（2026-11-11，线上实测）：后端在"重建中短路"路径里 ByFromSrc 未赋值 ⇒ nil map ⇒ JSON `null`
+               ⇒ 原来这里 `Object.keys(report.byFromSrc)` 抛 TypeError ⇒ **整个卡片渲染失败、点击"刷新指标"后消失** ✗
+               （页面初始 report=null ⇒ 走"未加载"分支 ⇒ 卡片还在；一点就炸 ✓ 与现象吻合）
+               任何来自后端的 map/slice 都可能为 null，这里一律做空值守卫 ✓ -->
           <span v-for="(n, k) in report.byFromSrc" :key="k" class="mr-3">{{ k }}={{ n }}</span>
-          <span v-if="!Object.keys(report.byFromSrc).length" class="text-muted">—</span>
+          <span v-if="!report.byFromSrc || !Object.keys(report.byFromSrc).length" class="text-muted">—</span>
         </dd>
       </div>
       <!-- 分层（2026-11-11）：按 category 名称给"有身份率"，避免再用裸 pid 猜分类 -->
