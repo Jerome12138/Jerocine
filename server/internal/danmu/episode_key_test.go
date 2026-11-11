@@ -274,7 +274,7 @@ func TestEpisodeKeyString_RoundTrip(t *testing.T) {
 	k := EpisodeKey{Date: "20260803", Num: 1, ENum: 2, Part: "中上",
 		Variant: "特辑", VariantNum: 2, Series: "心动的周末"}
 	s := k.Serialize(5)
-	want := "v1|d=20260803|n=1|e=2|p=中上|v=特辑|vn=2|s=心动的周末|o=5"
+	want := "v1|d=20260803|n=1|e=2|p=中上|v=特辑|vn=2|s=心动的周末|o=5|from=none"
 	if s != want {
 		t.Fatalf("Serialize = %q, want %q", s, want)
 	}

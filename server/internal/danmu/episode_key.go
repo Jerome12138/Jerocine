@@ -19,7 +19,9 @@ type EpisodeKey struct {
 	Part    string // **主部分（复合单段）**：上 / 中 / 下；若紧跟（最多隔一个左括号）还有 上/中/下 ⇒ 复合为
 	//                「中上」「中下」「上中」等（P0-1c 2026-11-10：由 part+sub 两字段合并为一个复合字段）。
 	//                比较规则见 partCompatible —— **前缀相容**（短的是长的前缀 ⇒ 相容，`中` ⊂ `中上`/`中下`）。
-	Variant string // 有意义的变体词集合，按字典序用 "|" 连接（无则空）
+	Variant string // 有意义的变体词集合，按字典序用 "," 连接（无则空）
+	//                ⚠️ M1（2026-11-11 评审）：**不是 `|`** —— `|` 是 epid/epk 的段分隔符，
+	//                多变体会把串写成 7 段 ⇒ 服务端拒收 + web parseEpid 恒 null + 落库坏串 ✗。
 	// VariantNum **变体序号**（无则 0）：变体词后**紧跟**的数字 —— 「特辑2」⇒ (Variant=特辑, VariantNum=2)。
 	// 必须与变体复合为身份：否则「特辑1..5」坍缩成同一个 Variant，L3a 组内不唯一 ⇒ 整组配不上
 	// （桃花坞6 特辑 4~5 集丢弹幕的根因；P0-1a，2026-11-10 三端同规）。纯日期/5 位以上数字不取（见 reVariantNum）。
@@ -37,17 +39,23 @@ func (k EpisodeKey) IsZero() bool {
 //
 // 客户端把「集名解析结果」序列化成传输串（HTTP 参数 `epk`）传下来：
 //
-//	v1|d=<date>|n=<num>|e=<eNum>|p=<part>|u=<sub>|v=<variant>|vn=<variantNum>|s=<series>|o=<ordinal>
+//	v1|d=<date>|n=<num>|e=<eNum>|p=<part>|v=<variant>|vn=<variantNum>|s=<series>|o=<ordinal>|from=<src>
 //
 // 目的：① 服务端不再"重新猜"客户端的解析结果，**三端同规的漂移可被检出**（逐项交叉校验 + 打点）；
 //      ② 为 P1-2（epid 升格为集唯一标识）铺路。
-// 数值缺省写 0、字符串缺省写空；`o` 为可选序位兜底（本批仅透传，不参与判定）。
+// 数值缺省写 0、字符串缺省写空；`o` 为可选序位兜底（本批仅透传，不参与判定）；
+// `from` 为期号来源（P1-3：self|bridge|anchor|none）—— 不参与身份判定，但服务端用它判定
+// "`n` 是否来自桥接"（见 `ParseEpKeySource` 与 `DanmuService.resolveAggregateEpisode` 的 numBridged）。
+// L1（2026-11-11 评审）：P0-1c 起 `p` 是**复合单段**（如 `中上`），**没有独立的 `u=` 段**（旧注释残留已删）。
 // 服务端仍收 `epTitle`：既作交叉校验基准，也作旧客户端回退与排查依据。
 
 // EpKeyVersion 传输串版本前缀。格式变更时递增；服务端遇到不认识的版本一律按"未提供"处理（行为不变）。
 const EpKeyVersion = "v1"
 
 // Serialize 序列化为传输串（与 ParseEpisodeKeyString 互逆）；ordinal 为可选序位兜底，<=0 写 0。
+//
+// L1（2026-11-11 评审）：**与 TS `serializeEpisodeKey` 逐字对齐**（末尾补 `from=none`）——
+// 原来 Go 侧少一段，同一份键两端序列化结果不同（Go 侧目前只用于测试/排查，但对齐可免后患）。
 func (k EpisodeKey) Serialize(ordinal int) string {
 	return strings.Join([]string{
 		EpKeyVersion,
@@ -59,6 +67,7 @@ func (k EpisodeKey) Serialize(ordinal int) string {
 		"vn=" + strconv.Itoa(k.VariantNum),
 		"s=" + k.Series,
 		"o=" + strconv.Itoa(max(ordinal, 0)),
+		"from=" + EpKeySourceNone,
 	}, "|")
 }
 
@@ -156,7 +165,8 @@ func isPartMark(s string) bool {
 //   - date：双方都有且不等 ⇒ **以集名解析值为准**（硬证据），记冲突；
 //   - num：同上；但 numBridged=true（该期号来自 A2 桥接、非集名自带）时**跳过比较** —— 否则会把桥接
 //     结果打回原值，心动9/桃花坞6 的纯日期形态会再次全丢；
-//   - 其余字段（eNum/part/sub/variant/variantNum/series）服务端**无独立证据** ⇒ 只记不一致，**不覆盖**。
+//   - 其余字段（eNum/part/variant/variantNum/series）服务端**无独立证据** ⇒ 只记不一致，**不覆盖**。
+//     L1（2026-11-11 评审）：P0-1c 起主部分已合并（**没有独立的 `sub`**）⇒ 不再有 `sub` 项。
 //
 // 只记录不填补：若客户端某字段为空而集名解析非空，属解析漂移，记冲突以便发现（不做"猜着补"）。
 func MergeEpidKey(client, fromTitle EpisodeKey, numBridged bool) (EpisodeKey, []string) {

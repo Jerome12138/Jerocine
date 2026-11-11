@@ -136,12 +136,13 @@ type MoviePlaySource struct {
 	SourceVodID int64       `gorm:"column:source_vod_id" json:"sourceVodId"`
 	PlayFrom    string      `gorm:"column:play_from" json:"playFrom"`
 	Episodes    EpisodeList `gorm:"column:episodes_json;type:json" json:"episodes"`
-	// EpHash 集内容指纹（P1-1, 2026-11-10，16 位十六进制 = fnv64a(episode+link 规范化序列)）。
-	// **写侧必须同步回填**（`play_repo.UpsertBatch` 的 DoUpdates 里带上它）—— 派生任务靠它判断
-	// "该源行的集内容变没变"，从而**不回表读 1GB 的 episodes_json 巨列**（F-05）。
+	// EpHash 集内容指纹（P1-1, 2026-11-10，16 位十六进制 = fnv64a(**集名序列**)，**不含 link**——
+	// R4：源站换 CDN / 防盗链签名轮换会让 URL 天天变，计入 ⇒ 一次重采把全部源行打脏 ⇒ 派生风暴；
+	// 而派生表内容（epid/raw_name）本来就不依赖 link）。**写侧必须同步回填**（`play_repo.UpsertBatch`
+	// 的 DoUpdates 里带上它）—— 派生任务只比它就知道"该源行的集内容变没变"，从而不回表读 1GB 巨列（F-05）。
 	EpHash    string `gorm:"column:ep_hash" json:"epHash"`
 	CreatedAt int64  `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
-	UpdatedAt   int64       `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	UpdatedAt int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (MoviePlaySource) TableName() string { return "movie_play_source" }

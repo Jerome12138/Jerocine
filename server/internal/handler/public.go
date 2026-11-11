@@ -77,7 +77,8 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 		epNum = 0
 	}
 	// epk（可选, 2026-11-10 P0-1b）: App 侧**结构化身份字段串**（集名解析结果），形如
-	// `v1|d=20260803|n=1|e=0|p=中|u=上|v=特辑|vn=2|s=|o=0`。服务端**优先采用**并与 epTitle
+	// `v1|d=20260803|n=1|e=0|p=中上|v=特辑|vn=2|s=|o=0|from=none`
+	// （P0-1c 起**无独立 `u=` 段**，主部分为复合单段；末段 `from=` 为期号来源，P1-3）。服务端**优先采用**并与 epTitle
 	// 交叉校验（date/num 冲突以 epTitle 为准，冲突记日志+计数）；版本不识别/超长一律当未提供
 	// （沿用 epTitle 的做法 ⇒ 旧客户端行为不变）。
 	epk := strings.TrimSpace(c.Query("epk"))
