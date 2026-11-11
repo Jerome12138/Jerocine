@@ -449,10 +449,32 @@ func (s *FilmService) assembleSources(ctx context.Context, m *entity.Movie) ([]P
 	for _, r := range matched {
 		add(r)
 	}
+	// P1-1b（2026-11-10）：给每个源挂上"每集 epid"（来自派生表 movie_episode_epid）。
+	// 未装配 / 未派生 / 查库失败 ⇒ 留空 ⇒ 出参不带 epid ⇒ 端侧回退实时解析（与改动前一致）。
+	epKeys := make([]string, 0, len(rows)+len(matched))
+	seenKey := make(map[string]struct{}, cap(epKeys))
+	for _, r := range append(append([]entity.MoviePlaySource{}, rows...), matched...) {
+		if r.MatchKey == "" {
+			continue
+		}
+		if _, ok := seenKey[r.MatchKey]; ok {
+			continue
+		}
+		seenKey[r.MatchKey] = struct{}{}
+		epKeys = append(epKeys, r.MatchKey)
+	}
+	epids := LookupEpids(ctx, epKeys)
 	sortPlayLines(lines, s.playLatencyMap(ctx))
 	out := make([]PlaySourceView, len(lines))
 	for i := range lines {
 		out[i] = lines[i].View
+		if m, ok := epids[out[i].Id]; ok {
+			eps := make([]string, len(out[i].Episodes))
+			for j := range out[i].Episodes {
+				eps[j] = m[j]
+			}
+			out[i].Epids = eps
+		}
 	}
 	return out, nil
 }

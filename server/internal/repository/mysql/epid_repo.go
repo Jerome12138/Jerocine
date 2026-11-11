@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"sync"
 
 	"gorm.io/gorm"
 
@@ -14,6 +15,53 @@ import (
 type EpidRepo struct{ db *gorm.DB }
 
 func NewEpidRepository(db *gorm.DB) *EpidRepo { return &EpidRepo{db: db} }
+
+// ---- 包级便捷查询（P1-1b，2026-11-10）----
+//
+// 取向：给 `FilmService` 提供 epid 而**不改其构造签名**（其签名被多处测试使用，加参会扩大回归面）；
+// 装配在 main 里一行完成，**未装配时本函数返回 (nil, nil)** ⇒ 调用方当作"无 epid" ⇒ 行为与改动前一致（安全降级）。
+var (
+	defaultEpidRepoMu sync.RWMutex
+	defaultEpidRepo   *EpidRepo
+)
+
+func SetDefaultEpidRepo(r *EpidRepo) {
+	defaultEpidRepoMu.Lock()
+	defer defaultEpidRepoMu.Unlock()
+	defaultEpidRepo = r
+}
+
+func currentEpidRepo() *EpidRepo {
+	defaultEpidRepoMu.RLock()
+	defer defaultEpidRepoMu.RUnlock()
+	return defaultEpidRepo
+}
+
+// LookupEpidsByMatchKeys 一次批量取"整片所有源"的 epid（**性能铁律 3：避免 N+1**）。
+//
+// 返回 `map[Id]map[epIndex]epid`，其中 `Id = site_id + ":" + play_from` —— 与 `PlaySourceView.Id`
+// 的口径一致（调用方据此把它挂回对应源）。
+func LookupEpidsByMatchKeys(ctx context.Context, keys []string) (map[string]map[int]string, error) {
+	r := currentEpidRepo()
+	if r == nil || len(keys) == 0 {
+		return nil, nil
+	}
+	rows, err := r.ListByMatchKeys(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]map[int]string, len(rows))
+	for _, x := range rows {
+		id := x.SiteId + ":" + x.PlayFrom
+		m, ok := out[id]
+		if !ok {
+			m = map[int]string{}
+			out[id] = m
+		}
+		m[x.EpIndex] = x.Epid
+	}
+	return out, nil
+}
 
 // ReplaceForSourceRow **整源行重算**：事务内清旧 + 插新（P1-1 §5.4）。
 //

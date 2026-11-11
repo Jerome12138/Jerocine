@@ -240,6 +240,10 @@ func buildApp(cfg *config.Config) (*App, error) {
 	// `service.DeriveEpidInBackground()`（见 spider_service 的 cron 收尾）异步触发一轮派生。
 	// 未装配 ⇒ 后台触发是 no-op（安全降级）。
 	service.SetDefaultEpidService(service.NewEpidService(repomysql.NewEpidRepository(gdb)))
+	// P1-1b（2026-11-10）：把"按 match_key 批量取 epid"装配进 service（详情/播放出参带 epid）；
+	// 未装配 ⇒ 出参不带 epid ⇒ 端侧回退实时解析（安全降级）。
+	repomysql.SetDefaultEpidRepo(repomysql.NewEpidRepository(gdb))
+	service.SetEpidLookup(repomysql.LookupEpidsByMatchKeys)
 	bannerSvc := service.NewBannerService(bannerRepo, filmSvc)
 
 	// TMDB 横图回填 worker: 每轮解析 key(后台 DB > env), 未配置时轻量探测后静默等待。

@@ -40,6 +40,10 @@ type PlaySourceView struct {
 	Id       string           `json:"id"`
 	Name     string           `json:"name"`
 	Episodes []entity.Episode `json:"episodes"`
+	// Epids 与 Episodes **等长**的集身份（P1-1b, 2026-11-10）：来自派生表 movie_episode_epid；
+	// 空串 = 该集未派生/不产身份 ⇒ 端侧回退实时解析。
+	// **`json:"-"`**：不经本结构直出，由 dto.toSources 映射进 `Episode.Epid`（出参才带）。
+	Epids []string `json:"-"`
 }
 
 // FilmDetailData 影片详情(详情主体 + 多源播放)。

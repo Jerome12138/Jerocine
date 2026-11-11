@@ -918,8 +918,11 @@ watch(paused, (v) => setWebWatching(!v))
 const allEpisodeTitles = computed(() =>
   (detail.value?.sources ?? []).flatMap((s) => s.episodes.map((e) => e.episode))
 )
-/** 当前集 epid: **触发的集必有**（5 段定长）; 未触发（裸序号/E圆号）= ''（池键回退旧格式） */
-const danmakuEpid = computed(() => epidFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value))
+/** 当前集 epid: **优先用服务端派生表下发的 `epid`**（P1-1b；方案 §4.6 过渡期口径）；
+ *  缺失（未派生/未装配/老接口）⇒ **回退实时解析** ⇒ 行为与改动前一致。 */
+const danmakuEpid = computed(
+  () => currentEpisode.value?.epid || epidFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value)
+)
 /** A2 现算期号: 0 = 未提供（剧不传, 后端行为不变） */
 const danmakuEpNum = computed(() => derivedNumFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value))
 /** P1-3: 期号来源（self|bridge|anchor|none）—— 随 `epk` 的 `from=` 上报，供 P1-1 落库统计（不参与身份） */
