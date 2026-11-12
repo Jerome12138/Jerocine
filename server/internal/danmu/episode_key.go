@@ -153,12 +153,17 @@ func isPartMark(s string) bool {
 		return false
 	}
 	isP := func(r rune) bool { return r == '上' || r == '中' || r == '下' }
+	// P2（2026-11-12）：日期尾随「当日集序」落 p 段 ⇒ 纯数字（1~2 位）也是合法 p 值。
+	allP, allD := true, true
 	for _, r := range rs {
 		if !isP(r) {
-			return false
+			allP = false
+		}
+		if r < '0' || r > '9' {
+			allD = false
 		}
 	}
-	return true
+	return allP || allD
 }
 
 // MergeEpidKey 交叉校验合并（P0-1b）：客户端结构化键为**实测值** ⇒ 默认优先采用，再与集名解析值逐项核对。
@@ -281,6 +286,26 @@ var (
 	reBracket = regexp.MustCompile(`【[^】]*】|（[^）]*）|\([^)]*\)|《[^》]*》|「[^」]*」|『[^』]*』|\[[^\]]*\]`)
 )
 
+// dateSeqTail 返回 8 位日期后**紧跟**的「当日集序」（1~2 位数字）；数字串 ≥3 位（不透明长
+// 编号，如源站内部 ID）或不存在 ⇒ ""。
+// P2（2026-11-12 评审）：202401011/202401012 = 同一期的两集，序号位此前被静默丢弃 ⇒ 两集
+// epid 逐字相同（①强等跨源错配、弹幕池合并）。RE2 不支持 lookahead ⇒ 用索引扫描 + 终点
+// 字符判断（与 reVariantNum 的消费式断言同一约束）。
+func dateSeqTail(s string, dateEnd int) string {
+	j := dateEnd
+	for j < len(s) && j-dateEnd < 2 && s[j] >= '0' && s[j] <= '9' {
+		j++
+	}
+	if j == dateEnd {
+		return ""
+	}
+	if j < len(s) && s[j] >= '0' && s[j] <= '9' {
+		return "" // 数字串 ≥3 位: 不透明长编号, 不拆序号
+	}
+	return s[dateEnd:j]
+}
+
+
 // reDashDate 破折/点分日期(2026-10-10期 / 2022.05.01期)—— 弹幕库侧综艺标题的主流日期形态。
 // 解析前统一归一为 8 位, 使三格式(8位/破折/点分)落到同一个键(2026-11-07 v2, 实测最大单项收益)。
 var reDashDate = regexp.MustCompile(`((?:19|20)\d{2})[-.](\d{2})[-.](\d{2})`)
@@ -304,8 +329,10 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	// 日期格式归一(先于一切提取): 破折/点分 → 8 位
 	s = reDashDate.ReplaceAllString(s, "$1$2$3")
 	s = reVariantNoise.ReplaceAllString(s, "")
-	if m := reDate8.FindString(s); m != "" {
-		k.Date = m
+	var dateTail string
+	if loc := reDate8.FindStringIndex(s); loc != nil {
+		k.Date = s[loc[0]:loc[1]]
+		dateTail = dateSeqTail(s, loc[1])
 	}
 	if m := reDiN.FindStringSubmatch(s); m != nil {
 		if v, err := strconv.Atoi(m[1]); err == nil {
@@ -318,6 +345,14 @@ func ParseEpisodeKey(title string) EpisodeKey {
 		}
 	}
 	k.Part = parsePart(s)
+	// P2（2026-11-12 评审）：日期尾随「当日集序」进 p 段 —— 202401011/202401012 = 同一期按
+	// 日期再分的两集，序号位此前被静默丢弃 ⇒ 两集 epid 逐字相同（①强等跨源错配、池键合并）。
+	// 落 p 的行为：①强等区分两集；②档 p 双有须「相等」（数字序不做前缀相容，见 partCompatible）
+	// ⇒ 正确不匹配；单侧没写序号走通配（宁弱勿错）。parsePart 已命中 上/中/下 时**不叠加** ——
+	// 复合值（如「上1」）过不了 epk 的 isPartMark 校验。
+	if dateTail != "" && k.Part == "" {
+		k.Part = dateTail
+	}
 	if ms := reVariant.FindAllString(s, -1); len(ms) > 0 {
 		sort.Strings(ms)
 		// ⚠️ M1（2026-11-11 评审）：连接符用 `,` 而**不是 `|`** —— `|` 是 epid/epk 的**段分隔符**，
@@ -441,7 +476,25 @@ func partCompatible(a, b EpisodeKey) bool {
 	if a.Part == "" || b.Part == "" {
 		return true
 	}
+	// P2（2026-11-12）：数字序位（日期尾随「当日集序」落 p 段）**不做前缀相容** —— 前缀规则是
+	// 为「中」⊂「中上」设计的，"1" 与 "12" 是不同集。任一侧为纯数字 ⇒ 要求严格相等。
+	if isAllDigitPart(a.Part) || isAllDigitPart(b.Part) {
+		return a.Part == b.Part
+	}
 	return strings.HasPrefix(a.Part, b.Part) || strings.HasPrefix(b.Part, a.Part)
+}
+
+// isAllDigitPart p 段是否为纯数字（P2 的「当日集序」形态，见 dateSeqTail）。
+func isAllDigitPart(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // SameEpisode 两个键是否指向同一集。顺序即优先级：

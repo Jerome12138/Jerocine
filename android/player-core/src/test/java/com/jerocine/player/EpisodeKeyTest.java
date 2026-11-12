@@ -230,4 +230,27 @@ public class EpisodeKeyTest {
         assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=-|d=-",
                 java.util.Arrays.asList("第3集", "第4集")));
     }
+    /** P2（2026-11-12 评审）：日期尾随「当日集序」进 p 段 —— 与 Go TestDateSeqOrdinal_P2 / web 同组黄金用例 */
+    @Test
+    public void dateSeqOrdinal_p2() {
+        EpisodeKey k1 = EpisodeKey.parse("202401011");
+        assertEquals("20240101", k1.date);
+        assertEquals("1", k1.part);
+        EpisodeKey k2 = EpisodeKey.parse("202401012");
+        assertEquals("2", k2.part);
+        // 两集 epid 不得相同（旧实现逐字相同 ⇒ ①强等跨源错配、弹幕池合并）
+        assertFalse(k1.epid().equals(k2.epid()));
+        // 同集判定: 同名重解析判同; 数字序不做前缀相容 ⇒ p=1 与 p=2 不同集
+        assertTrue(EpisodeKey.sameEpisode(k1, EpisodeKey.parse("202401011")));
+        assertFalse(EpisodeKey.sameEpisode(k1, k2));
+        // 续播两级定位: 各自 epid 强等命中各自下标, 互不错配
+        java.util.List<String> titles = java.util.Arrays.asList("202401011", "202401012");
+        assertEquals(0, EpisodeKey.indexByEpid(k1.epid(), titles));
+        assertEquals(1, EpisodeKey.indexByEpid(k2.epid(), titles));
+        // 回归: 纯 8 位日期不带序号行为不变; 不透明长编号(≥3 位尾随数字)不拆序号
+        assertEquals("", EpisodeKey.parse("20240101").part);
+        EpisodeKey k3 = EpisodeKey.parse("20240101113");
+        assertEquals("20240101", k3.date);
+        assertEquals("", k3.part);
+    }
 }

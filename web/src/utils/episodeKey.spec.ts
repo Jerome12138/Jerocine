@@ -335,3 +335,30 @@ describe('bridgeNum / A2 现算期号(心动9 真实场景)', () => {
     expect(bridgeNum(parseEpisodeKey('20260803上'), [parseEpisodeKey('20260803第1期上'), parseEpisodeKey('20260803第2期上')])).toBe(0)
   })
 })
+
+describe('P2 日期尾随集序（2026-11-12 评审）', () => {
+  it('date+1位集序进 p 段, 两集 epid 区分', () => {
+    const k1 = parseEpisodeKey('202401011')
+    expect(k1.date).toBe('20240101')
+    expect(k1.part).toBe('1')
+    const k2 = parseEpisodeKey('202401012')
+    expect(k2.part).toBe('2')
+    expect(epidOf(k1)).not.toBe(epidOf(k2))
+    // 数字序不做前缀相容: p=1 与 p=2 不同集; 同名重解析判同
+    expect(sameEpisode(k1, k2)).toBe(false)
+    expect(sameEpisode(k1, parseEpisodeKey('202401011'))).toBe(true)
+  })
+
+  it('续播定位: 各自 epid 强等命中各自下标(旧行为两串相同错配到第 1 集)', () => {
+    const titles = ['202401011', '202401012']
+    expect(indexByEpid('s=-|v=-|p=1|n=-|d=20240101', titles)).toBe(0)
+    expect(indexByEpid('s=-|v=-|p=2|n=-|d=20240101', titles)).toBe(1)
+  })
+
+  it('回归: 纯日期不带序号行为不变; 不透明长编号(≥3 位尾随)不拆序号', () => {
+    expect(parseEpisodeKey('20240101').part).toBe('')
+    const k3 = parseEpisodeKey('20240101113')
+    expect(k3.date).toBe('20240101')
+    expect(k3.part).toBe('')
+  })
+})

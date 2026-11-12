@@ -52,8 +52,16 @@ public final class EpisodeKey {
         s = s.replaceAll("((?:19|20)\\d{2})[-.](\\d{2})[-.](\\d{2})", "$1$2$3");
         s = s.replaceAll("会员|未公开|未播|直拍|完整版|未删减", "");
         String date = "";
-        java.util.regex.Matcher dm = java.util.regex.Pattern.compile("(?:19|20)\\d{6}").matcher(s);
-        if (dm.find()) date = dm.group();
+        String dateTail = "";
+        // P2: 主式带「尾随 1~2 位当日集序」(lookahead 防吃不透明长编号); 不命中再退纯 8 位
+        java.util.regex.Matcher dm = java.util.regex.Pattern.compile("(?:19|20)\\d{6}\\d{0,2}(?!\\d)").matcher(s);
+        if (dm.find()) {
+            date = dm.group().substring(0, 8);
+            dateTail = dm.group().substring(8);
+        } else {
+            java.util.regex.Matcher dm2 = java.util.regex.Pattern.compile("(?:19|20)\\d{6}").matcher(s);
+            if (dm2.find()) date = dm2.group();
+        }
         int num = 0;
         java.util.regex.Matcher nm = java.util.regex.Pattern.compile("第\\s*(\\d{1,4})\\s*[期集话回季部]").matcher(s);
         if (nm.find()) num = Integer.parseInt(nm.group(1));
@@ -61,6 +69,9 @@ public final class EpisodeKey {
         java.util.regex.Matcher em = java.util.regex.Pattern.compile("(?:^|[^A-Za-z])(?:E|EP)\\s*0*(\\d{1,3})(?:\\D|$)", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(s);
         if (em.find()) eNum = Integer.parseInt(em.group(1));
         String part = parsePart(s);
+        // P2（2026-11-12 评审）: 日期尾随「当日集序」进 p 段(parsePart 命中 上/中/下 时不叠加 ——
+        // 复合值过不了 epk 的 isPartMark 校验); 与 Go dateSeqTail 同规
+        if (!dateTail.isEmpty() && part.isEmpty()) part = dateTail;
         String variant = "";
         java.util.regex.Matcher vm = java.util.regex.Pattern.compile("加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外").matcher(s);
         java.util.TreeSet<String> vs = new java.util.TreeSet<>();
@@ -147,8 +158,27 @@ public final class EpisodeKey {
      * 互不为前缀 ⇒ 不相容（`中上` ≠ `中下`，**区分仍在**）。与旧实现逐例等价。
      */
     public static boolean partCompatible(EpisodeKey a, EpisodeKey b) {
-        if (a.part.isEmpty() || b.part.isEmpty()) return true;
-        return a.part.startsWith(b.part) || b.part.startsWith(a.part);
+        return partCompatible(a.part, b.part);
+    }
+
+    /**
+     * 主部分（串形态）是否相容。P2（2026-11-12）：**数字序位不做前缀相容** —— 前缀规则是为
+     * 「中」⊂「中上」设计的，日期尾随集序 "1" 与 "12" 是不同集 ⇒ 任一侧为纯数字时要求严格相等。
+     */
+    private static boolean partCompatible(String a, String b) {
+        if (a.isEmpty() || b.isEmpty()) return true;
+        if (isDigitSeq(a) || isDigitSeq(b)) return a.equals(b);
+        return a.startsWith(b) || b.startsWith(a);
+    }
+
+    /** P2: 纯数字串（日期尾随「当日集序」形态）判定。 */
+    private static boolean isDigitSeq(String s) {
+        if (s.isEmpty()) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return true;
     }
 
     /** SameEpisode′（日期双有不等 → 否决, 硬证据）；P0-1a: 变体序号纳入身份 */
@@ -266,9 +296,8 @@ public final class EpisodeKey {
             if (wantN > 0 && k.num > 0 && wantN != k.num) continue;
             // 日期：双有必须相等（硬证据）；单边缺 ⇒ 通配
             if (!want[4].isEmpty() && !k.date.isEmpty() && !k.date.equals(want[4])) continue;
-            // 主次：双有必须前缀相容；单边缺 ⇒ 通配
-            if (!want[2].isEmpty() && !k.part.isEmpty()
-                    && !(k.part.startsWith(want[2]) || want[2].startsWith(k.part))) continue;
+            // 主次：双有必须前缀相容（数字序位除外, 见 partCompatible）；单边缺 ⇒ 通配
+            if (!want[2].isEmpty() && !k.part.isEmpty() && !partCompatible(k.part, want[2])) continue;
             if (only >= 0) return -1;
             only = i;
         }
