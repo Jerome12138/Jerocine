@@ -371,6 +371,74 @@ func (r *EpidRepo) SourceTitlesByMatchKeys(ctx context.Context, keys []string, e
 	return out, nil
 }
 
+// ===== epid 源头校正层 · T3（2026-11-12）=====
+//
+// B/C 两点（方案 §8.2）对派生表的**点访问**支撑。红线①：movie_episode_epid **零新增列**，
+// B 点只点改既有 epid 一列；红线②：raw_name 等真相列不碰；红线④：全部按 uk_row_ep 前缀
+// /主键键查，**绝不全表扫**（按 match_key 分批的要求针对全表聚合，这里都是键点访问）。
+
+// EpidRowPatch B 点（手动快速应用）的单行点改：把 (src_row_id, ep_index) 的 epid 改为目标值。
+type EpidRowPatch struct {
+	SrcRowId int64
+	EpIndex  int
+	Epid     string
+}
+
+// UpdateEpidByRowKeys B 点用：按 (src_row_id, ep_index) 逐行**点改** epid —— 只改 epid 一列，
+// 不碰 raw_name / from_src / src_ep_hash / computed_at（computed_at 语义是"派生时间"，
+// B 不是派生；src_ep_hash 保持不变 ⇒ 该行不会被判脏误重算）。
+//
+// 一个事务打包（读侧要么全见旧要么全见新）；走 uk_row_ep 唯一键点改，无扫描。
+// 幂等：重复把 epid 更新为相同值 ⇒ MySQL 不实际改行，结果一致（RowsAffected 会为 0，
+// 调用方以自己的计数为准，勿依赖本返回值）。
+func (r *EpidRepo) UpdateEpidByRowKeys(ctx context.Context, patches []EpidRowPatch) (int64, error) {
+	if len(patches) == 0 {
+		return 0, nil
+	}
+	var n int64
+	err := dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		for _, p := range patches {
+			res := tx.Model(&entity.MovieEpisodeEpid{}).
+				Where("src_row_id = ? AND ep_index = ?", p.SrcRowId, p.EpIndex).
+				Update("epid", p.Epid)
+			if res.Error != nil {
+				return res.Error
+			}
+			n += res.RowsAffected
+		}
+		return nil
+	})
+	return n, err
+}
+
+// EpidRowsBySrcRowIds B 点用：按源行批量取派生行的 (ep_index, epid, raw_name) 现值 ——
+// 三元组校验 (src_row_id, key_raw_name, key_epid) 的**比对面**。走 uk_row_ep 前缀、只取四列，
+// 行数 = 命中源行的集数（有界），不碰巨表。
+func (r *EpidRepo) EpidRowsBySrcRowIds(ctx context.Context, srcRowIds []int64) ([]entity.MovieEpisodeEpid, error) {
+	if len(srcRowIds) == 0 {
+		return nil, nil
+	}
+	var out []entity.MovieEpisodeEpid
+	err := dbFrom(ctx, r.db).Model(&entity.MovieEpisodeEpid{}).
+		Select("src_row_id, ep_index, epid, raw_name").
+		Where("src_row_id IN ?", srcRowIds).
+		Find(&out).Error
+	return out, err
+}
+
+// SourceRowsByIds C 点（定向重算）用：按主键批量取源行**全字段**（含 episodes_json 巨列），
+// 供派生链路重算整源行（与 dirtySourceRows 末步同款取法）。
+//
+// ⚠️ 只给**显式 id 小批量**（管理端定向重算，个位数源行）调用；主键 IN 键查，无全表扫（红线④）。
+func (r *EpidRepo) SourceRowsByIds(ctx context.Context, ids []int64) ([]entity.MoviePlaySource, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var out []entity.MoviePlaySource
+	err := dbFrom(ctx, r.db).Where("id IN ?", ids).Find(&out).Error
+	return out, err
+}
+
 // ExistingSourceRowIds 批量判断源行是否仍存在（孤儿清理用；只取主键 ⇒ index-only，不碰巨表）。
 func (r *EpidRepo) ExistingSourceRowIds(ctx context.Context, ids []int64) (map[int64]bool, error) {
 	out := map[int64]bool{}

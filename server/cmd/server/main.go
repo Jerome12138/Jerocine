@@ -239,7 +239,11 @@ func buildApp(cfg *config.Config) (*App, error) {
 	// P1-1 / U1（2026-11-10）：装配 epid 派生服务 —— 采集任务收尾后由
 	// `service.DeriveEpidInBackground()`（见 spider_service 的 cron 收尾）异步触发一轮派生。
 	// 未装配 ⇒ 后台触发是 no-op（安全降级）。
-	service.SetDefaultEpidService(service.NewEpidService(repomysql.NewEpidRepository(gdb)))
+	// T3（epid 源头校正层, 2026-11-12）：同时装配裁定台账 repo —— A 点（派生写库前套用校正）
+	// 与 B/C 管理端入口都依赖它；未装配 ⇒ A 点跳过、B/C 报错（安全降级）。
+	epidSvc := service.NewEpidService(repomysql.NewEpidRepository(gdb))
+	epidSvc.SetEpidOverrideRepo(repomysql.NewEpidOverrideRepository(gdb))
+	service.SetDefaultEpidService(epidSvc)
 	// P1-1b（2026-11-10）：把"按 match_key 批量取 epid"装配进 service（详情/播放出参带 epid）；
 	// 未装配 ⇒ 出参不带 epid ⇒ 端侧回退实时解析（安全降级）。
 	repomysql.SetDefaultEpidRepo(repomysql.NewEpidRepository(gdb))

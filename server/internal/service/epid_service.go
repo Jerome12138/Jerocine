@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,9 +27,15 @@ import (
 //   - **孤儿清理**（F-06）：源行整行没了 ⇒ 级联删派生行
 type EpidService struct {
 	repo *mysql.EpidRepo
+	// ov 裁定台账 repo（epid 源头校正层 T3, 2026-11-12，迁移 000049）。**可选装配**
+	//（SetEpidOverrideRepo）：未装配 ⇒ A 点跳过、B/C 报错 —— 行为与校正层上线前完全一致（安全降级）。
+	ov *mysql.EpidOverrideRepo
 }
 
 func NewEpidService(repo *mysql.EpidRepo) *EpidService { return &EpidService{repo: repo} }
+
+// SetEpidOverrideRepo 装配裁定台账 repo（main 启动时一行；构造签名不变，避免扩大既有调用面的回归）。
+func (s *EpidService) SetEpidOverrideRepo(r *mysql.EpidOverrideRepo) { s.ov = r }
 
 // ---- U1：触发接线（2026-11-10）----
 //
@@ -64,6 +73,25 @@ var deriveCursor atomic.Int64
 // **不改变候选集合**（见 repo `DirtySourceRowsHot` 的说明）⇒ 必须拆两趟。**内存态**：重启后从热门趟
 // 重来（热门趟更快、也更该先跑）✓ 零新增持久状态。
 var deriveHotPhase atomic.Bool
+
+// epidOverrideEnabled epid 源头校正**生效开关**（D3 · T4, 2026-11-12）：**默认关**。
+//
+// 关着时（T4 管理端入口的把守语义，待办-epid源头校正层实施-2026-11-12 T4）：
+//   - **A 点替换不生效**：loadOverrideLedger 直接返回 nil ⇒ DeriveBatch 照常派生、只是不套用裁定；
+//   - **B/C 显式报错**：ApplyOverrides / RecomputeForOverrides 在入口处拒绝（apply 接口 → 403）；
+//   - **import 与 GET 不受影响**：录入/查看先行（先录入核对、后手动打开）。
+//
+// 实现对齐仓内现成的两种"配置/开关"模式里的**运行时开关**一支（deriveHotPhase/deriveRunning 同款
+// atomic.Bool）：持久式（site_config 加列，仿 DanmuEnabled）需要新迁移，第②段迁移只有 000049，
+// 不在 T4 范围 ⇒ 取内存态。重启回默认关 = fail-safe（已落库的校正值不动；A 停止套用，不会写错值）。
+// 打开入口：PUT /manage/epid/overrides/enabled（handler 层）。
+var epidOverrideEnabled atomic.Bool
+
+// EpidOverrideEnabled 生效开关当前状态（GET /manage/epid/overrides 回显 + apply/recompute 把守）。
+func EpidOverrideEnabled() bool { return epidOverrideEnabled.Load() }
+
+// SetEpidOverrideEnabled 打开/关闭生效开关（管理端 PUT /manage/epid/overrides/enabled 调用）。
+func SetEpidOverrideEnabled(on bool) { epidOverrideEnabled.Store(on) }
 
 // ---- U5 / H2：一键全量派生（管理端入口, 2026-11-11）----
 //
@@ -181,8 +209,9 @@ func DeriveEpidInBackground() {
 			phaseName = "热门趟"
 		}
 		// U1-5：**批次末汇总一行**（原实现逐行打日志 ⇒ 日志量 = 采集频率 × 被拦行数 ✗）
-		log.Printf("[epid] 派生一批完成: 趟=%s 游标 %d→%d 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 来源=%v",
-			phaseName, after, deriveCursor.Load(), st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid, st.SkipWhy)
+		log.Printf("[epid] 派生一批完成: 趟=%s 游标 %d→%d 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 来源=%v 校正(套用/登记/标stale)=%d/%d/%d",
+			phaseName, after, deriveCursor.Load(), st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid, st.SkipWhy,
+			st.OverrideApplied, st.OverrideKept, st.OverrideStale)
 		// H2（2026-11-11 评审，High）：**验收指标必须有人消费** —— `AlignmentReport` / `Coverage` 原来
 		// **没有任何生产调用点** ⇒ §4.8 门槛与 §6.1 指标永远算不出来（P1-2 的启动条件也就无法判定）✗。
 		// 挂到**每轮收尾**（零接口、零前端改动）：轻量指标每轮一行；代价高的"完整覆盖率"（要扫
@@ -214,13 +243,18 @@ func DeriveEpidInBackground() {
 // ⚠️ `Scanned` 的语义（2026-11-11 修正）：**本批"扫过"的源行数**（keyset 窗口大小），
 // **不是**"脏行数"。调用方据此判"是否到表尾"（`Scanned < limit`）—— 用脏行数判会误判 ✗。
 type DeriveStats struct {
-	Scanned   int            // 本批**扫过**的源行数（== 窗口大小；< limit ⇒ 已到表尾）
-	Rebuilt   int            // 实际重建的源行数
-	Rows      int64          // 写入的派生行数
-	Skipped   int            // 被抖动守卫拦下的源行数
-	SkipWhy   map[string]int // 原因分布（suspect-shrink / suspect-disjoint）
-	EmptyEpid int64          // 派生行里 epid 为空串的条数（L6：不产身份）
-	LastId    int64          // 本批最后一个源行 id（下次 keyset 从这里继续）
+	Scanned   int            `json:"scanned"`   // 本批**扫过**的源行数（== 窗口大小；< limit ⇒ 已到表尾）
+	Rebuilt   int            `json:"rebuilt"`   // 实际重建的源行数
+	Rows      int64          `json:"rows"`      // 写入的派生行数
+	Skipped   int            `json:"skipped"`   // 被抖动守卫拦下的源行数
+	SkipWhy   map[string]int `json:"skipWhy"`   // 原因分布（suspect-shrink / suspect-disjoint）
+	EmptyEpid int64          `json:"emptyEpid"` // 派生行里 epid 为空串的条数（L6：不产身份）
+	LastId    int64          `json:"lastId"`    // 本批最后一个源行 id（下次 keyset 从这里继续）
+
+	// ---- epid 源头校正层 · A 点（T3, 2026-11-12）----
+	OverrideApplied int `json:"overrideApplied"` // 本批套用 corrected 的派生行数（epid 被替换为 new_epid）
+	OverrideKept    int `json:"overrideKept"`    // 本批登记"已裁定（kept）"的条数（值不变）
+	OverrideStale   int `json:"overrideStale"`   // 本批三元组校验失败被标 stale 的台账条数（重回清单复核）
 }
 
 // derivFlushRows 一次 flush 的派生行上限（批级写入缓冲）：≈几 MB 内存，且把"一次事务"的规模
@@ -228,6 +262,10 @@ type DeriveStats struct {
 const derivFlushRows = 5000
 
 // DeriveBatch 派生一批脏源行（keyset 分页；`afterId` 传上一批的 `LastId`，从头开始传 0）。
+//
+// epid 源头校正层 **A 点**（方案 §8.2，T3 2026-11-12）：派生循环外预加载 active 台账一次，
+// 写库（ReplaceForSourceRows）前对 pendingRows 做**内存命中替换** —— 增量派生与全量重建
+// （RunFullDerive 也走本函数）两条路径都自动套用校正，重建后校正自动回来（§5"清空重建"行）。
 //
 // 结束条件：返回的 `Scanned < limit` 表示这一轮已经扫完（但**不代表没有脏行**：被守卫拦下的仍脏）。
 func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int, force bool) (DeriveStats, error) {
@@ -263,13 +301,43 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 		return st, nil
 	}
 
+	// ---- A 点预加载（方案 §8.2）：台账 ListActive **整表一次**，批内零重复查询 ----
+	// 台账只放人工逐条确认过的结论（第②段 12 条量级小表）⇒ 整表读合规（红线④的分批要求针对
+	// 590 万行派生表的**全表聚合**；本批对派生表的访问仍全部 uk_row_ep 键查）。
+	// 失败 ⇒ **本批中止**（fail-closed）：deriveRows 会整源行重写派生行，套用层缺席会把已生效的
+	// 校正冲掉（且要等该行再变脏才会重算回来）⇒ 宁可整批重试，也不带病落库。
+	var ledger *overrideLedger
+	if s.ov != nil {
+		l, lerr := s.loadOverrideLedger(ctx)
+		if lerr != nil {
+			return st, fmt.Errorf("epid override: 台账预加载失败，本批中止（防已生效校正被重建冲掉）: %w", lerr)
+		}
+		ledger = l
+	}
+	// 未装配台账 repo ⇒ ledger 为 nil ⇒ A 点自动跳过，行为与校正层上线前一致（安全降级）。
+	staleIds, err := s.deriveRows(ctx, rows, force, &st, ledger)
+	if err != nil {
+		return st, err
+	}
+	st.OverrideStale = len(staleIds)
+	if len(staleIds) > 0 {
+		s.markOverridesStale(ctx, staleIds)
+	}
+	return st, nil
+}
+
+// deriveRows 派生循环主体（DeriveBatch 与 C 点 RecomputeForOverrides **共用**，保证 A 点只有一处接线）：
+// 锚/池预取 → 逐源行派生 → 攒 pendingIDs/pendingRows → flush（**写库前先做 A 点内存命中替换**）。
+// `force=true` 跳过抖动守卫（C 点是管理端显式定向重算，守卫拦下会让校正落不了地）。
+// 返回批内三元组校验失败、需标 stale 的台账 id（去重升序）。
+func (s *EpidService) deriveRows(ctx context.Context, rows []entity.MoviePlaySource, force bool, st *DeriveStats, ledger *overrideLedger) ([]int64, error) {
 	ids := make([]int64, 0, len(rows))
 	for _, r := range rows {
 		ids = append(ids, r.Id)
 	}
 	anchors, err := s.repo.AnchorsBySrcRowIds(ctx, ids)
 	if err != nil {
-		return st, err
+		return nil, err
 	}
 
 	// H1（2026-11-11 评审；**同日更正**：上一批声称的"批内一次取"实际未落盘，生产上仍是逐行调用 ⇒
@@ -295,7 +363,7 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 		t0 := time.Now()
 		part, perr := s.repo.SourceTitlesByMatchKeys(ctx, poolKeys[i:j], nil)
 		if perr != nil {
-			return st, perr
+			return nil, perr
 		}
 		for k, v := range part {
 			others[k] = append(others[k], v...)
@@ -313,10 +381,19 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 	var (
 		pendingIDs  []int64
 		pendingRows []entity.MovieEpisodeEpid
+		staleSeen   = map[int64]struct{}{}
 	)
 	flush := func() error {
 		if len(pendingIDs) == 0 {
 			return nil
+		}
+		// ---- A 点（方案 §8.2 "派生写库前"，必做/幂等保障）：对 pendingRows 做**内存命中替换**
+		// —— 台账已在派生循环外预加载，这里零查询、纯内存命中，不额外取业务数据、不影响派生效率。
+		applied, kept, stale := ledger.applyToPending(pendingRows)
+		st.OverrideApplied += applied
+		st.OverrideKept += kept
+		for _, id := range stale {
+			staleSeen[id] = struct{}{}
 		}
 		if err := s.repo.ReplaceForSourceRows(ctx, pendingIDs, pendingRows); err != nil {
 			return err
@@ -343,7 +420,7 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 			if a.N > 0 {
 				hasOverlap, err = s.repo.ExistsRawName(ctx, src.Id, titles)
 				if err != nil {
-					return st, err
+					return nil, err
 				}
 			}
 			ok, why := danmu.ShouldReplaceDerived(a.N, len(titles), hasOverlap, a.LastComputedAt, now)
@@ -383,14 +460,472 @@ func (s *EpidService) DeriveBatch(ctx context.Context, afterId int64, limit int,
 		st.Rows += int64(len(out))
 		if len(pendingRows) >= derivFlushRows {
 			if err := flush(); err != nil {
-				return st, err
+				return nil, err
 			}
 		}
 	}
 	if err := flush(); err != nil {
+		return nil, err
+	}
+	if len(staleSeen) == 0 {
+		return nil, nil
+	}
+	out := make([]int64, 0, len(staleSeen))
+	for id := range staleSeen {
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
+}
+
+// ===== epid 源头校正层 · T3：ApplyOverrides 统一入口 + 三处接线（2026-11-12）=====
+//
+// 口径：docs/epid-集身份/方案-epid源头校正层-2026-11-12.md §8 应用侧 / §5 变化矩阵。
+// 台账（movie_epid_override，迁移 000049）只放"已判过"的结论；派生大表**零新增列**（红线①）——
+// 校正不走行内状态（§8.3），全靠三处接线：
+//   - **A** 派生写库前（DeriveBatch/deriveRows flush，增量与全量重建共用）：内存命中替换；
+//   - **B** 手动快速应用（ApplyOverrides）：只点改命中行，幂等可重复调；
+//   - **C** 定向重算（RecomputeForOverrides）：只重算受影响 src_row_id，不跑全量派生。
+//
+// 统一入口语义（§5 不变式，**宁缺勿错**）：targets=(src_row_id, ep_index) 集合；
+// 命中且三元组 (src_row_id, key_raw_name, key_epid) 校验通过：
+//   - verdict=corrected ⇒ epid=new_epid；verdict=kept ⇒ 不改值，只登记"已裁定"；
+// 三元组对不上（集序漂移/插集/规则值已变）⇒ 该条标 stale 重回清单复核，**且不改值**。
+
+// OverrideTarget 应用目标：(src_row_id, ep_index) —— 与台账唯一键 uk_row_ep 同口径（§8.1）。
+type OverrideTarget struct {
+	SrcRowId int64 `json:"srcRowId"`
+	EpIndex  int   `json:"epIndex"`
+}
+
+// OverrideApplyResult ApplyOverrides（B 点）的汇总。error 只反映 DB 故障；
+// 三元组校验失败/未命中等业务结果全部落在计数字段里（宁缺勿错 ≠ 失败）。
+// ⚠️ 红线③：只有计数、不携带任何台账字段/evidence —— 裁定明细绝不进出参。
+type OverrideApplyResult struct {
+	Considered int `json:"considered"` // 参与裁定的 active 条数（targets 过滤后）
+	Applied    int `json:"applied"`    // corrected 且三元组通过 ⇒ 已点改生效
+	InEffect   int `json:"inEffect"`   // 派生表已是 new_epid ⇒ 重复 apply 的幂等命中（未写库）
+	Kept       int `json:"kept"`       // kept 且三元组通过 ⇒ 值不变，登记"已裁定"
+	Stale      int `json:"stale"`      // 三元组对不上 ⇒ 已标 stale 重回清单
+	Missing    int `json:"missing"`    // 派生表已无对应行 ⇒ 不改台账（源行被删/重建未跑到；orphan 归清扫任务）
+}
+
+// ovKey 台账条目的内存命中键：(src_row_id, ep_index)。
+type ovKey struct {
+	src int64
+	ep  int
+}
+
+// overrideLedger 已生效裁定（status=active）的内存索引 —— A 点一次性预加载（§8.2 "台账很小可
+// 预加载"），批内**零重复查询**；applyToPending 纯内存命中替换。
+type overrideLedger struct {
+	byKey map[ovKey]*entity.MovieEpidOverride
+}
+
+// loadOverrideLedger 预加载 active 台账为内存索引。未装配 ⇒ (nil, nil)（A 点跳过）；
+// 查询失败 ⇒ (nil, err)（调用方决定中止还是降级）。
+func (s *EpidService) loadOverrideLedger(ctx context.Context) (*overrideLedger, error) {
+	// D3 生效开关（默认关）：关着 ⇒ A 点跳过（nil ledger，派生照常、不套用裁定）。
+	// B/C 不走这里的 nil 降级 —— 它们各自在入口先显式拒绝（见 ApplyOverrides/RecomputeForOverrides）。
+	if s.ov == nil || !epidOverrideEnabled.Load() {
+		return nil, nil
+	}
+	rows, err := s.ov.ListActive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	l := &overrideLedger{byKey: make(map[ovKey]*entity.MovieEpidOverride, len(rows))}
+	for i := range rows {
+		l.byKey[ovKey{rows[i].SrcRowId, rows[i].EpIndex}] = &rows[i]
+	}
+	return l, nil
+}
+
+// applyToPending **A 点核心**（方案 §8.2）：派生写库前对本批 pendingRows 做**内存命中替换**
+// —— 台账已在派生循环外预加载，这里零查询、纯内存，不影响派生效率。
+//
+// 语义（§5 不变式，宁缺勿错）：
+//   - 命中且三元组 (src_row_id, key_raw_name, key_epid) 逐字符对上：
+//     verdict=corrected ⇒ epid=new_epid；verdict=kept ⇒ 不改值只登记；
+//   - 三元组对不上（集序漂移/插集/规则值已变）⇒ 不改值，台账 id 记入 staleIds（调用方批末
+//     一次性 SetStatus(stale) 重回清单复核）；
+//   - 命中的源行在本批被重建、但其 ep_index 已不存在（集序缩短）⇒ 漂移确凿 ⇒ 同样 stale；
+//   - 台账条目对应的源行不在本批重建集合 ⇒ 完全不碰（旧派生行还在，没有漂移证据，不下判）。
+//
+// ⚠️ 本函数只应见到**刚派生出的** pendingRows（flush 用完即清，一次性消费）—— 已套用过的行
+// 再进来会因 epid≠key_epid 被判 stale；生产路径 flush 后立即清空，不存在二次套用。
+func (l *overrideLedger) applyToPending(rows []entity.MovieEpisodeEpid) (corrected, kept int, staleIds []int64) {
+	if l == nil || len(l.byKey) == 0 || len(rows) == 0 {
+		return 0, 0, nil
+	}
+	stale := make(map[int64]struct{})
+	// 本 flush 内"真被重建"的源行 → 其集下标集合（一个源行的行不会跨 flush 拆分：攒完整源行才可能触发 flush）
+	rebuilt := make(map[int64]map[int]struct{})
+	for i := range rows {
+		eps, ok := rebuilt[rows[i].SrcRowId]
+		if !ok {
+			eps = make(map[int]struct{})
+			rebuilt[rows[i].SrcRowId] = eps
+		}
+		eps[rows[i].EpIndex] = struct{}{}
+	}
+	// 集序缩短：命中的源行被重建但对应下标已不存在 ⇒ 三元组无从对上 ⇒ stale
+	for k, ov := range l.byKey {
+		if eps, inBatch := rebuilt[k.src]; inBatch {
+			if _, present := eps[k.ep]; !present {
+				stale[ov.Id] = struct{}{}
+			}
+		}
+	}
+	for i := range rows {
+		ov, hit := l.byKey[ovKey{rows[i].SrcRowId, rows[i].EpIndex}]
+		if !hit {
+			continue
+		}
+		if rows[i].RawName != ov.KeyRawName || rows[i].Epid != ov.KeyEpid {
+			stale[ov.Id] = struct{}{} // 不改值（宁缺勿错），批末统一标 stale
+			continue
+		}
+		switch {
+		case ov.Verdict == entity.OverrideVerdictCorrected && ov.NewEpid != "":
+			rows[i].Epid = ov.NewEpid
+			corrected++
+		case ov.Verdict == entity.OverrideVerdictKept:
+			kept++ // 不改值，只登记"已裁定"
+		default:
+			// corrected 却无 new_epid：import 静态校验本应拦下 ⇒ 防御性兜底，标 stale 交人工复核
+			stale[ov.Id] = struct{}{}
+		}
+	}
+	if len(stale) == 0 {
+		return corrected, kept, nil
+	}
+	staleIds = make([]int64, 0, len(stale))
+	for id := range stale {
+		staleIds = append(staleIds, id)
+	}
+	sort.Slice(staleIds, func(i, j int) bool { return staleIds[i] < staleIds[j] })
+	return corrected, kept, staleIds
+}
+
+// markOverridesStale 三元组校验失败的台账条目批末统一标 stale（§5：重回清单复核）。
+// 失败只记日志：校正已"不套用"（值安全），stale 只是台账簿记，绝不能反过来影响派生主链路。
+func (s *EpidService) markOverridesStale(ctx context.Context, ids []int64) {
+	if s.ov == nil || len(ids) == 0 {
+		return
+	}
+	n, err := s.ov.SetStatus(ctx, ids, entity.OverrideStatusStale)
+	if err != nil {
+		log.Printf("[epid] 台账标 stale 失败（不影响派生；条目保持 active，下批三元组校验会再次拦截）: ids=%v err=%v", ids, err)
+		return
+	}
+	if n > 0 {
+		log.Printf("[epid] 台账 %d 条三元组校验失败 ⇒ 已标 stale 重回清单复核（值未套用，宁缺勿错）", n)
+	}
+}
+
+// ApplyOverrides **B 点：手动快速应用**（方案 §8.2）—— 统一入口的"生效"面（T4 管理端调用）。
+//
+// 只对命中行做**点改**（每行一条 UPDATE、一个事务提交），幂等可重复调：
+//   - 已生效（派生表已是 new_epid）⇒ 记 InEffect，不再写库；
+//   - 三元组 (src_row_id, key_raw_name, key_epid) 对不上 ⇒ 标 stale 且**不改值**（宁缺勿错）；
+//   - 派生表无对应行 ⇒ 记 Missing、不动台账（源行被删归 orphan 清扫；与 A 点不同，B 没有
+//     "该源行刚被重建"的确凿漂移证据，不妄判 stale）。
+//
+// targets 传 nil/空 ⇒ 应用**全部** active（§5"清空重建收尾跑一次 ApplyOverrides(all active)"、
+// T4"一键应用"共用）；传具体 targets ⇒ 只裁定命中的条目。
+// 与 C 的分工：B 不走规则链路；要连派生一起刷新用 RecomputeForOverrides。
+func (s *EpidService) ApplyOverrides(ctx context.Context, targets []OverrideTarget) (OverrideApplyResult, error) {
+	var res OverrideApplyResult
+	if s.ov == nil {
+		return res, errors.New("epid override: 裁定台账未装配（SetEpidOverrideRepo），无法应用")
+	}
+	// D3 生效开关（T4）：关着 ⇒ 显式拒绝（fail-closed）—— 不做"静默 0 计数"降级，
+	// 让调用方/管理端明确知道"没生效"而不是"没命中"。
+	if !EpidOverrideEnabled() {
+		return res, errors.New("epid override: 生效开关未开启（D3 默认关；先录入核对，PUT /manage/epid/overrides/enabled 打开后再应用）")
+	}
+	ledger, err := s.loadOverrideLedger(ctx)
+	if err != nil {
+		return res, err
+	}
+	if ledger == nil || len(ledger.byKey) == 0 {
+		return res, nil
+	}
+	// targets 过滤：nil/空 = 全部 active
+	candidates := make([]*entity.MovieEpidOverride, 0, len(ledger.byKey))
+	if len(targets) == 0 {
+		for _, ov := range ledger.byKey {
+			candidates = append(candidates, ov)
+		}
+	} else {
+		want := make(map[ovKey]struct{}, len(targets))
+		for _, t := range targets {
+			want[ovKey{t.SrcRowId, t.EpIndex}] = struct{}{}
+		}
+		for k, ov := range ledger.byKey {
+			if _, ok := want[k]; ok {
+				candidates = append(candidates, ov)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return res, nil
+	}
+	res.Considered = len(candidates)
+
+	// 一次按 src_row_id 收窄取派生行现值（uk_row_ep 前缀键查，红线④；行数 = 命中源行的集数，有界）。
+	srcIds := make([]int64, 0, len(candidates))
+	seenSrc := make(map[int64]struct{}, len(candidates))
+	for _, ov := range candidates {
+		if _, ok := seenSrc[ov.SrcRowId]; !ok {
+			seenSrc[ov.SrcRowId] = struct{}{}
+			srcIds = append(srcIds, ov.SrcRowId)
+		}
+	}
+	curRows, err := s.repo.EpidRowsBySrcRowIds(ctx, srcIds)
+	if err != nil {
+		return res, err
+	}
+	cur := make(map[ovKey]entity.MovieEpisodeEpid, len(curRows))
+	for _, r := range curRows {
+		cur[ovKey{r.SrcRowId, r.EpIndex}] = r
+	}
+
+	// 逐条三元组校验；需要点改的攒一批，一个事务提交（少一个条目失败不影响其余条目已校验的事实）。
+	patches := make([]mysql.EpidRowPatch, 0, len(candidates))
+	staleIds := make([]int64, 0)
+	for _, ov := range candidates {
+		row, ok := cur[ovKey{ov.SrcRowId, ov.EpIndex}]
+		if !ok {
+			res.Missing++
+			continue
+		}
+		if row.RawName != ov.KeyRawName {
+			staleIds = append(staleIds, ov.Id) // 集序漂移/插集 ⇒ 重回清单，值不变
+			continue
+		}
+		switch ov.Verdict {
+		case entity.OverrideVerdictCorrected:
+			switch row.Epid {
+			case ov.NewEpid:
+				res.InEffect++ // 幂等：已生效（重复 apply / A 已套用）⇒ 不写库
+			case ov.KeyEpid:
+				patches = append(patches, mysql.EpidRowPatch{SrcRowId: ov.SrcRowId, EpIndex: ov.EpIndex, Epid: ov.NewEpid})
+				res.Applied++
+			default:
+				// 现值既不是裁定时的规则值、也不是目标值 ⇒ 规则已变/被重算 ⇒ stale 重回清单
+				staleIds = append(staleIds, ov.Id)
+			}
+		case entity.OverrideVerdictKept:
+			if row.Epid != ov.KeyEpid {
+				staleIds = append(staleIds, ov.Id)
+				continue
+			}
+			res.Kept++ // 不改值，登记"已裁定"
+		default:
+			staleIds = append(staleIds, ov.Id)
+		}
+	}
+	if len(patches) > 0 {
+		if _, err := s.repo.UpdateEpidByRowKeys(ctx, patches); err != nil {
+			return res, err
+		}
+	}
+	res.Stale = len(staleIds)
+	s.markOverridesStale(ctx, staleIds)
+	return res, nil
+}
+
+// RecomputeForOverrides **C 点：定向重算**（方案 §8.2）—— 只对受影响的 src_row_id 走完整派生链路
+// （解析 → 桥接/锚点 → A 点套用裁定 → ReplaceForSourceRows），**不跑全量派生**。
+//
+// 与 B 的分工：B 只点改命中行（秒级）；C 会把该源行**全部集**按当前规则重算一遍（整源行重算
+// 铁律，绝不按 ep_index 打补丁），适用于"连规则值一起刷新"的场景。两者均幂等。
+// force 语义：管理端**显式**定向 ⇒ 绕过抖动守卫（否则守卫可能拦下导致校正落不了地）。
+func (s *EpidService) RecomputeForOverrides(ctx context.Context, targets []OverrideTarget) (DeriveStats, error) {
+	st := DeriveStats{SkipWhy: map[string]int{}}
+	if s.ov == nil {
+		return st, errors.New("epid override: 裁定台账未装配（SetEpidOverrideRepo），无法定向重算")
+	}
+	// D3 生效开关（T4）：关着 ⇒ 显式拒绝。C 会**整源行重写**派生行，开关关着 ⇒ A 点缺席 ⇒
+	// 现有校正在重算的行上会被规则值冲掉 —— 必须先打开开关再定向重算。
+	if !EpidOverrideEnabled() {
+		return st, errors.New("epid override: 生效开关未开启（D3 默认关）：定向重算会整源行重写，须先打开开关让 A 点套用裁定")
+	}
+	srcIds := make([]int64, 0, len(targets))
+	seenSrc := make(map[int64]struct{}, len(targets))
+	for _, t := range targets {
+		if t.SrcRowId <= 0 {
+			continue
+		}
+		if _, ok := seenSrc[t.SrcRowId]; ok {
+			continue
+		}
+		seenSrc[t.SrcRowId] = struct{}{}
+		srcIds = append(srcIds, t.SrcRowId)
+	}
+	if len(srcIds) == 0 {
+		return st, nil
+	}
+	rows, err := s.repo.SourceRowsByIds(ctx, srcIds)
+	if err != nil {
 		return st, err
 	}
+	if len(rows) == 0 {
+		return st, nil // 源行已不存在（下架）⇒ 无可重算；orphan 清理另行处理
+	}
+	ledger, err := s.loadOverrideLedger(ctx)
+	if err != nil {
+		// 台账读不到就**不重算**：C 会整源行重写派生行，套用层缺席 ⇒ 现有校正会被规则值冲掉。
+		return st, fmt.Errorf("epid override: 台账预加载失败，已中止定向重算（防校正被冲掉）: %w", err)
+	}
+	staleIds, err := s.deriveRows(ctx, rows, true, &st, ledger)
+	if err != nil {
+		return st, err
+	}
+	st.OverrideStale = len(staleIds)
+	s.markOverridesStale(ctx, staleIds)
 	return st, nil
+}
+
+// ---- T3 管理端包级入口（同 RunFullDerive/ReportEpid 取向：走默认实例，未装配报错）----
+
+// ApplyOverrides B 点包级入口（T4 管理端"手动快速应用"调用）。
+func ApplyOverrides(ctx context.Context, targets []OverrideTarget) (OverrideApplyResult, error) {
+	s := currentEpidService()
+	if s == nil {
+		return OverrideApplyResult{}, errors.New("epid override: 派生服务未装配")
+	}
+	return s.ApplyOverrides(ctx, targets)
+}
+
+// RecomputeForOverrides C 点包级入口（T4 管理端"定向重算"调用）。
+func RecomputeForOverrides(ctx context.Context, targets []OverrideTarget) (DeriveStats, error) {
+	s := currentEpidService()
+	if s == nil {
+		return DeriveStats{SkipWhy: map[string]int{}}, errors.New("epid override: 派生服务未装配")
+	}
+	return s.RecomputeForOverrides(ctx, targets)
+}
+
+// ---- T4 管理端入口（2026-11-12）：import / list 的服务级透传 + 出参白名单视图 ----
+
+// OverrideImportInput import 端点（POST /manage/epid/overrides/import）的**单条候选**请求项。
+//
+// 请求体 = 本结构的 JSON 数组；字段名与类型（T5 生成候选文件按此格式）：
+//
+//	[{"srcRowId": int64, "epIndex": int,
+//	  "keyRawName": string,  // 三元组校验键①（裁定时的集名），必填
+//	  "keyEpid": string,     // 三元组校验键②（裁定时的规则 epid），必填
+//	  "verdict": "corrected" | "kept",
+//	  "newEpid": string,     // verdict=corrected 必填（目标 epid，5 段）
+//	  "provenance": "rule" | "external" | "agent" | "human",
+//	  "confidence": "inferred" | "verified",
+//	  "reason": string（可选）, "evidence": object（可选）, "ruleVersionAt": string（可选）}]
+//
+// status / id / matchKey / mid / createdAt **由 repo 强制/回填**（status=pending、id 自增、
+// match_key/mid 以派生表现值覆盖）—— 请求体传了也无效。逐行静态校验、批内去重、唯一键冲突
+// 拒收、key_epid 与派生表现值对账全在 repo UpsertPending（T2，本任务未改）。
+// Evidence 走独立 map 字段：entity.MovieEpidOverride.Evidence 是 json:"-"（红线③防外泄兜底），
+// 直接绑实体收不到请求里的 evidence ⇒ 必须经本输入结构中转。
+type OverrideImportInput struct {
+	SrcRowId      int64          `json:"srcRowId"`
+	EpIndex       int            `json:"epIndex"`
+	KeyRawName    string         `json:"keyRawName"`
+	KeyEpid       string         `json:"keyEpid"`
+	Verdict       string         `json:"verdict"`
+	NewEpid       string         `json:"newEpid"`
+	Provenance    string         `json:"provenance"`
+	Confidence    string         `json:"confidence"`
+	Reason        string         `json:"reason,omitempty"`
+	Evidence      map[string]any `json:"evidence,omitempty"`
+	RuleVersionAt string         `json:"ruleVersionAt,omitempty"`
+}
+
+// OverrideView 台账行的**管理端出参视图**（GET /manage/epid/overrides 的 list 项）。
+//
+// ⚠️ 红线③：台账行出参必须**显式白名单映射**，绝不直接序列化 entity.MovieEpidOverride。
+// 白名单 = 核对/确认/应用工作流要用的运营字段；**evidence**（外链/抓取记录）、**ruleVersionAt**
+// 与审计三列（created_at / verified_at / verified_by）刻意不出 —— 出参是给"核对下一条要不要
+// 确认/应用"用的，不是台账全量导出。id 保留：后续确认/撤销（SetStatus 按 ids）要用。
+type OverrideView struct {
+	Id         int64  `json:"id"`
+	SrcRowId   int64  `json:"srcRowId"`
+	EpIndex    int    `json:"epIndex"`
+	MatchKey   string `json:"matchKey"`
+	Mid        int64  `json:"mid"`
+	KeyRawName string `json:"keyRawName"`
+	KeyEpid    string `json:"keyEpid"`
+	Verdict    string `json:"verdict"`
+	NewEpid    string `json:"newEpid"`
+	Provenance string `json:"provenance"`
+	Confidence string `json:"confidence"`
+	Reason     string `json:"reason"`
+	Status     string `json:"status"`
+}
+
+// overrideView 显式映射（字段一一搬运，不反射、不整行透传 —— 红线③）。
+func overrideView(r entity.MovieEpidOverride) OverrideView {
+	return OverrideView{
+		Id: r.Id, SrcRowId: r.SrcRowId, EpIndex: r.EpIndex,
+		MatchKey: r.MatchKey, Mid: r.Mid,
+		KeyRawName: r.KeyRawName, KeyEpid: r.KeyEpid,
+		Verdict: r.Verdict, NewEpid: r.NewEpid,
+		Provenance: r.Provenance, Confidence: r.Confidence,
+		Reason: r.Reason, Status: r.Status,
+	}
+}
+
+// ImportOverrides 管理端 import 入口（T4 POST /manage/epid/overrides/import）：T2 UpsertPending
+// 的服务级透传 —— 校验/去重/键冲突/key_epid 对账/入库全在 repo，本层只做输入映射。
+// **不受 D3 生效开关影响**（先录入核对、后手动打开）。rejected 等业务结果都在返回值里（非 error）。
+func ImportOverrides(ctx context.Context, inputs []OverrideImportInput) (mysql.OverrideImportResult, error) {
+	s := currentEpidService()
+	if s == nil || s.ov == nil {
+		return mysql.OverrideImportResult{}, errors.New("epid override: 裁定台账未装配（SetEpidOverrideRepo），无法导入")
+	}
+	rows := make([]entity.MovieEpidOverride, 0, len(inputs))
+	for i := range inputs {
+		in := inputs[i]
+		rows = append(rows, entity.MovieEpidOverride{
+			SrcRowId:      in.SrcRowId,
+			EpIndex:       in.EpIndex,
+			KeyRawName:    in.KeyRawName,
+			KeyEpid:       in.KeyEpid,
+			Verdict:       in.Verdict,
+			NewEpid:       in.NewEpid,
+			Provenance:    in.Provenance,
+			Confidence:    in.Confidence,
+			Reason:        in.Reason,
+			Evidence:      entity.JSONMap(in.Evidence),
+			RuleVersionAt: in.RuleVersionAt,
+		})
+	}
+	return s.ov.UpsertPending(ctx, rows)
+}
+
+// ListOverrides 管理端 GET 入口（T4 GET /manage/epid/overrides）：台账整表读 + 三维统计。
+// **不受 D3 生效开关影响**（查看先行）。台账小表整读合规（同 ListActive 的量级论证，见 repo 注释）；
+// 出参经 overrideView 白名单映射（红线③），status 过滤由调用方按需做（行数小，内存过滤）。
+func ListOverrides(ctx context.Context) ([]OverrideView, mysql.OverrideStats, error) {
+	s := currentEpidService()
+	if s == nil || s.ov == nil {
+		return nil, mysql.OverrideStats{}, errors.New("epid override: 裁定台账未装配（SetEpidOverrideRepo），无法读取")
+	}
+	rows, err := s.ov.ListAll(ctx)
+	if err != nil {
+		return nil, mysql.OverrideStats{}, err
+	}
+	stats, err := s.ov.Stats(ctx)
+	if err != nil {
+		return nil, mysql.OverrideStats{}, err
+	}
+	out := make([]OverrideView, 0, len(rows))
+	for i := range rows {
+		out = append(out, overrideView(rows[i]))
+	}
+	return out, stats, nil
 }
 
 // ===== U5 / H2：一键全量派生（管理端入口, 2026-11-11）=====
@@ -528,6 +1063,9 @@ func RunFullDerive(mode DeriveMode, batch, maxBatches int, timeout time.Duration
 			total.Rows += st.Rows
 			total.Skipped += st.Skipped
 			total.EmptyEpid += st.EmptyEpid
+			total.OverrideApplied += st.OverrideApplied
+			total.OverrideKept += st.OverrideKept
+			total.OverrideStale += st.OverrideStale
 			// 内存计数（供卡片实时读数；**不做任何全表计数** —— 那是 2026-11-11 线上事故的根因）
 			deriveFullScanned.Add(int64(st.Scanned))
 			deriveFullRebuilt.Add(int64(st.Rebuilt))
@@ -547,15 +1085,17 @@ func RunFullDerive(mode DeriveMode, batch, maxBatches int, timeout time.Duration
 			if runHot {
 				phase = "热门趟"
 			}
-			log.Printf("[epid] 全量派生 第%d批: 趟=%s 游标 %d→%d 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d",
-				n+1, phase, after, deriveCursor.Load(), st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid)
+			log.Printf("[epid] 全量派生 第%d批: 趟=%s 游标 %d→%d 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 校正(套用/登记/标stale)=%d/%d/%d",
+				n+1, phase, after, deriveCursor.Load(), st.Scanned, st.Rebuilt, st.Rows, st.Skipped, st.EmptyEpid,
+				st.OverrideApplied, st.OverrideKept, st.OverrideStale)
 			// 热门趟扫完 ⇒ 继续跑长尾趟；长尾趟也扫完 ⇒ 整趟结束
 			if finished && !runHot {
 				break
 			}
 		}
-		log.Printf("[epid] 全量派生结束（mode=%s）: 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 原因=%v",
-			mode, total.Scanned, total.Rebuilt, total.Rows, total.Skipped, total.EmptyEpid, total.SkipWhy)
+		log.Printf("[epid] 全量派生结束（mode=%s）: 扫=%d 重建=%d 派生行=%d 守卫跳过=%d 空epid=%d 原因=%v 校正(套用/登记/标stale)=%d/%d/%d",
+			mode, total.Scanned, total.Rebuilt, total.Rows, total.Skipped, total.EmptyEpid, total.SkipWhy,
+			total.OverrideApplied, total.OverrideKept, total.OverrideStale)
 
 		// ---- 收尾 1/2：重建后刷新优化器统计信息 ----
 		// TRUNCATE + 全量 INSERT 会让统计信息明显失真 ⇒ 分组类指标（对齐率/成熟度）的查询计划可能退化。
@@ -783,6 +1323,9 @@ func (s *EpidService) DeriveAll(ctx context.Context, batch int, maxBatches int, 
 		total.Rows += st.Rows
 		total.Skipped += st.Skipped
 		total.EmptyEpid += st.EmptyEpid
+		total.OverrideApplied += st.OverrideApplied
+		total.OverrideKept += st.OverrideKept
+		total.OverrideStale += st.OverrideStale
 		for k, v := range st.SkipWhy {
 			total.SkipWhy[k] += v
 		}
