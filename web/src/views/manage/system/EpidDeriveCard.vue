@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { manageApi } from '@/api'
-import type { EpidReport } from '@/api/manage/epid'
+import { toast } from '@/api/http'
+import type { EpidOverrideImportItem, EpidOverrideListResp, EpidReport } from '@/api/manage/epid'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -135,6 +136,96 @@ function derive(mode: 'fill' | 'rebuild'): void {
 function refresh(): void {
   void load()
 }
+
+// ===== 源头校正（裁定台账 movie_epid_override · T4, 2026-11-12）=====
+//
+// 「源头校正」面板：把人工核对过的裁定（corrected=要改 / kept=判定不改）录入台账 →
+// 打开生效开关 → 应用（或等下轮派生在写库前自动套用）。
+// 流程口径（方案 §4 状态机）：import（pending）→ 人工核对 → 打开开关（D3，默认关、重启回关）→ apply。
+// 台账是小表（12 条量级）⇒ 列表/统计挂载即拉取、拉取失败只给行内提示；导入/应用/开关走
+// useAsyncAction（独立 busy 实例，不与重型派生动作互抢）。
+const ov = ref<EpidOverrideListResp | null>(null)
+const ovLoading = ref(false)
+const ovError = ref(false)
+const ovImportText = ref('')
+const ovNote = ref('')
+const { busy: ovBusy, run: runOv } = useAsyncAction()
+
+async function loadOverrides(): Promise<void> {
+  ovLoading.value = true
+  ovError.value = false
+  try {
+    ov.value = await manageApi.epid.overridesList()
+  } catch {
+    ovError.value = true
+  } finally {
+    ovLoading.value = false
+  }
+}
+
+/** 导入候选：textarea 粘贴 JSON 数组；前端只做形状校验，逐行校验/去重/key_epid 对账都在后端。 */
+function importCandidates(): void {
+  let items: EpidOverrideImportItem[]
+  try {
+    const parsed: unknown = JSON.parse(ovImportText.value)
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('候选文件必须是 JSON 数组且非空')
+    items = parsed as EpidOverrideImportItem[]
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '候选文件不是合法 JSON')
+    return
+  }
+  let note = ''
+  void runOv({
+    confirm: { title: `导入 ${items.length} 条候选到台账？（status=pending，待人工核对确认后才生效）`, okText: '导入' },
+    action: async () => {
+      const res = await manageApi.epid.overridesImport(items, { silent: true })
+      const rej = res.rejected.length ? ` · 拒收 ${res.rejected.length}（原因见后端响应）` : ''
+      note = `导入结果：新增 ${res.inserted} · 去重 ${res.deduped}${rej}`
+    },
+    successMsg: '导入完成',
+    after: () => {
+      ovNote.value = note
+      void loadOverrides()
+    }
+  })
+}
+
+/** 应用全部 active（B 快速应用：只点改命中行的 epid 一列，幂等可重复；开关关着时按钮禁用）。 */
+function applyOverrides(): void {
+  void runOv({
+    confirm: { title: '应用全部 active 裁定？（只点改命中行的 epid 列，幂等；三元组对不上的会标 stale 不改值）', okText: '应用' },
+    action: async () => {
+      const res = await manageApi.epid.overridesApply(undefined, { silent: true })
+      ovNote.value =
+        `应用结果：considered=${res.considered} · applied=${res.applied} · inEffect=${res.inEffect}` +
+        ` · kept=${res.kept} · stale=${res.stale} · missing=${res.missing}`
+    },
+    successMsg: '应用完成',
+    after: () => void loadOverrides()
+  })
+}
+
+/** 切换 D3 生效开关（内存态：重启回默认关 = fail-safe；已落库的校正值不动）。 */
+function toggleOverrideEnabled(): void {
+  const next = !(ov.value?.enabled ?? false)
+  void runOv({
+    confirm: next
+      ? {
+          title: '打开生效开关？打开后：派生写库前自动套用 active 裁定，「应用」放行；重启后回到默认关。',
+          okText: '打开'
+        }
+      : {
+          title: '关闭生效开关？关闭后：派生不再套用校正、「应用」拒绝；已落库的校正值不动，重新打开可再应用。',
+          okText: '关闭',
+          danger: true
+        },
+    action: () => manageApi.epid.overridesSetEnabled(next, { silent: true }),
+    successMsg: next ? '已打开（重启后回默认关）' : '已关闭',
+    after: () => void loadOverrides()
+  })
+}
+
+onMounted(() => void loadOverrides())
 </script>
 
 <template>
@@ -345,6 +436,120 @@ function refresh(): void {
         清空重建
       </ManageButton>
       <ManageButton variant="ghost" :disabled="busy" @click="refresh">刷新指标</ManageButton>
+    </div>
+
+    <!-- ===== 源头校正（裁定台账 · T4）：导入候选 → 核对 → 打开开关 → 应用 ===== -->
+    <div
+      class="flex flex-col gap-[var(--jc-space-4)] border-t border-[var(--jc-border)] pt-[var(--jc-space-5)] text-sm"
+    >
+      <div>
+        <h3 class="font-[var(--jc-fw-semibold)]">源头校正（裁定台账）</h3>
+        <p class="mt-1 text-muted">
+          规则修不动的个例由人工裁定（corrected=要改 / kept=判定不改）落在台账；打开开关后派生/重建
+          会在写库前自动套用、清空重建也不丢。流程：导入候选 → 核对 → 打开生效开关 → 应用。
+        </p>
+      </div>
+
+      <!-- 开关状态可见（D3） -->
+      <div class="flex flex-wrap items-center gap-[var(--jc-space-3)]">
+        <span class="text-muted">生效开关（默认关 · 重启回关）：</span>
+        <span v-if="ov" class="font-[var(--jc-fw-semibold)]">{{ ov.enabled ? '已打开' : '已关闭' }}</span>
+        <span v-else class="text-muted">—</span>
+        <ManageButton size="small" variant="ghost" :loading="ovBusy" :disabled="ovLoading" @click="toggleOverrideEnabled">
+          {{ ov?.enabled ? '关闭' : '打开' }}
+        </ManageButton>
+        <span v-if="ov && !ov.enabled" class="text-muted">
+          关着时：派生不套用校正、「应用」拒绝（导入与列表不受影响）。
+        </span>
+      </div>
+
+      <!-- 统计（三维计数；后端保证对象非 null，这里仍按卡片惯例兜空数组） -->
+      <div v-if="ov" class="flex flex-wrap gap-x-6 gap-y-1">
+        <div>
+          <span class="text-muted">按状态：</span>
+          <span v-for="s in ov.stats.byStatus" :key="s.name" class="mr-3">{{ s.name }}={{ s.n }}</span>
+          <span v-if="!ov.stats.byStatus.length" class="text-muted">—</span>
+        </div>
+        <div>
+          <span class="text-muted">按裁定：</span>
+          <span v-for="s in ov.stats.byVerdict" :key="s.name" class="mr-3">{{ s.name }}={{ s.n }}</span>
+          <span v-if="!ov.stats.byVerdict.length" class="text-muted">—</span>
+        </div>
+        <div>
+          <span class="text-muted">按来源：</span>
+          <span v-for="s in ov.stats.byProvenance" :key="s.name" class="mr-3">{{ s.name }}={{ s.n }}</span>
+          <span v-if="!ov.stats.byProvenance.length" class="text-muted">—</span>
+        </div>
+      </div>
+
+      <!-- 导入候选（粘贴 JSON 数组） -->
+      <div class="flex flex-col gap-2">
+        <span class="text-muted">
+          导入候选（JSON 数组，逐项：srcRowId, epIndex, keyRawName, keyEpid, verdict, newEpid(corrected 必填),
+          provenance, confidence, reason?; status/id 等由后端强制）
+        </span>
+        <textarea
+          v-model="ovImportText"
+          rows="4"
+          spellcheck="false"
+          placeholder='[{"srcRowId":9,"epIndex":2,"keyRawName":"第3期上","keyEpid":"s=-|v=-|p=上|n=3|d=20260101","verdict":"corrected","newEpid":"s=-|v=-|p=上|n=10|d=20260101","provenance":"agent","confidence":"verified"}]'
+          class="w-full rounded-[var(--jc-radius-sm)] border border-[var(--jc-border)] bg-transparent px-[var(--jc-space-2)] py-1 font-mono text-xs"
+        ></textarea>
+        <div class="flex flex-wrap items-center gap-[var(--jc-space-3)]">
+          <ManageButton size="small" variant="primary" :loading="ovBusy" @click="importCandidates">
+            导入候选
+          </ManageButton>
+          <ManageButton
+            size="small"
+            variant="primary"
+            :loading="ovBusy"
+            :disabled="!ov?.enabled"
+            @click="applyOverrides"
+          >
+            应用全部 active
+          </ManageButton>
+          <ManageButton size="small" variant="ghost" :disabled="ovBusy || ovLoading" @click="loadOverrides">
+            刷新台账
+          </ManageButton>
+        </div>
+      </div>
+
+      <BaseSkeleton v-if="ovLoading" shape="rect" height="80px" />
+      <p v-else-if="ovError" class="text-muted">台账拉取失败（点「刷新台账」重试）</p>
+      <p v-if="ovNote" class="text-muted">{{ ovNote }}</p>
+
+      <!-- 台账列表（后端白名单出参：无 evidence/审计列 —— 红线③） -->
+      <div v-if="ov && ov.list.length" class="overflow-x-auto">
+        <table class="w-full min-w-[760px] text-left text-xs">
+          <thead class="text-muted">
+            <tr>
+              <th class="py-1 pr-3 font-normal">id</th>
+              <th class="py-1 pr-3 font-normal">状态</th>
+              <th class="py-1 pr-3 font-normal">裁定</th>
+              <th class="py-1 pr-3 font-normal">集名</th>
+              <th class="py-1 pr-3 font-normal">key_epid → new_epid</th>
+              <th class="py-1 pr-3 font-normal">src_row_id / ep_index</th>
+              <th class="py-1 pr-3 font-normal">来源/置信</th>
+              <th class="py-1 font-normal">原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in ov.list" :key="r.id" class="border-t border-[var(--jc-border)]">
+              <td class="py-1 pr-3">{{ r.id }}</td>
+              <td class="py-1 pr-3">{{ r.status }}</td>
+              <td class="py-1 pr-3">{{ r.verdict }}</td>
+              <td class="py-1 pr-3">{{ r.keyRawName }}</td>
+              <td class="py-1 pr-3 font-mono">
+                {{ r.keyEpid }} → {{ r.verdict === 'kept' ? '（不变）' : r.newEpid }}
+              </td>
+              <td class="py-1 pr-3">{{ r.srcRowId }} / {{ r.epIndex }}</td>
+              <td class="py-1 pr-3">{{ r.provenance }}/{{ r.confidence }}</td>
+              <td class="py-1">{{ r.reason }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-else-if="ov && !ov.list.length" class="text-muted">台账为空（先导入候选）。</p>
     </div>
   </section>
 </template>

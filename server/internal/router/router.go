@@ -213,6 +213,14 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		// epid 派生运维（H2, 2026-11-11）：一键全量派生（mode=fill 补缺 / rebuild 清空重建）+ 只读验收报告
 		mg.POST("/epid/derive-all", h.ManageEpidDeriveAll)
 		mg.GET("/epid/report", h.ManageEpidReport)
+		// epid 源头校正层（第②段 T4, 2026-11-12）：裁定台账管理面。
+		// import/GET 不受 D3 生效开关影响（先录入核对）；apply/recompute 受开关把守（默认关 ⇒ 403）；
+		// PUT /enabled 是开关本体（内存态，重启回默认关 = fail-safe）。红线③：出参全为计数/白名单视图。
+		mg.POST("/epid/overrides/import", h.ManageEpidOverrideImport)
+		mg.POST("/epid/overrides/apply", h.ManageEpidOverrideApply)
+		mg.POST("/epid/overrides/recompute", h.ManageEpidOverrideRecompute)
+		mg.GET("/epid/overrides", h.ManageEpidOverrideList)
+		mg.PUT("/epid/overrides/enabled", h.ManageEpidOverrideSetEnabled)
 
 		// 采集失败台账: 页级失败补采(列表 / 触发补采 / 清理已处理)。
 		// 静态段须先于任何 :id 段注册。

@@ -146,3 +146,133 @@ export const deriveAll = (
     timeout: 30_000
   })
 }
+
+// ===== epid 源头校正层 · T4 管理端入口（2026-11-12）=====
+//
+// 裁定台账 movie_epid_override 的管理面（对齐 T4 后端五条路由）：
+// import / GET 不受 D3 生效开关影响（先录入核对）；apply / recompute 关着时 403。
+
+/** 台账行（GET /manage/epid/overrides 的 list 项 —— 后端白名单出参，红线③：evidence/审计列不下发） */
+export interface EpidOverrideRow {
+  id: number
+  srcRowId: number
+  epIndex: number
+  matchKey: string
+  mid: number
+  keyRawName: string
+  keyEpid: string
+  verdict: 'corrected' | 'kept' | string
+  newEpid: string
+  provenance: string
+  confidence: string
+  reason: string
+  status: string
+}
+
+/** 单分组计数行（verdict/provenance/status 三维） */
+export interface EpidOverrideStat {
+  name: string
+  n: number
+}
+
+/** GET /manage/epid/overrides 响应：开关状态 + 台账列表 + 统计 */
+export interface EpidOverrideListResp {
+  /** D3 生效开关（内存态，重启回默认关） */
+  enabled: boolean
+  list: EpidOverrideRow[]
+  stats: { byVerdict: EpidOverrideStat[]; byProvenance: EpidOverrideStat[]; byStatus: EpidOverrideStat[] }
+}
+
+/** POST /manage/epid/overrides/apply 响应（纯计数） */
+export interface EpidOverrideApplyResp {
+  considered: number
+  applied: number
+  inEffect: number
+  kept: number
+  stale: number
+  missing: number
+}
+
+/**
+ * import 单条候选（POST /manage/epid/overrides/import 的请求项）。
+ *
+ * 请求体 = 本结构的 JSON 数组；status/id/matchKey/mid/createdAt 由后端强制/回填（传了无效）。
+ */
+export interface EpidOverrideImportItem {
+  srcRowId: number
+  epIndex: number
+  keyRawName: string
+  keyEpid: string
+  verdict: 'corrected' | 'kept'
+  /** verdict=corrected 必填（目标 epid，5 段） */
+  newEpid?: string
+  provenance: 'rule' | 'external' | 'agent' | 'human'
+  confidence: 'inferred' | 'verified'
+  reason?: string
+  evidence?: Record<string, unknown>
+  ruleVersionAt?: string
+}
+
+/** POST /manage/epid/overrides/import 响应（纯计数 + 拒收明细） */
+export interface EpidOverrideImportResp {
+  inserted: number
+  deduped: number
+  rejected: { srcRowId: number; epIndex: number; reason: string }[]
+}
+
+/** GET /manage/epid/overrides 台账列表 + 统计 + 开关状态（?status= 可选过滤） */
+export const overridesList = (status = ''): Promise<EpidOverrideListResp> =>
+  http.get<unknown, EpidOverrideListResp>('/manage/epid/overrides', {
+    params: status ? { status } : undefined,
+    timeout: 30_000
+  })
+
+/**
+ * POST /manage/epid/overrides/import —— 导入候选行 → pending。
+ * 逐行校验/批内去重/键冲突/key_epid 对账在后端；部分拒收也是 200（看 rejected）。
+ */
+export const overridesImport = (
+  items: EpidOverrideImportItem[],
+  config?: { silent?: boolean }
+): Promise<EpidOverrideImportResp> =>
+  http.post<unknown, EpidOverrideImportResp>('/manage/epid/overrides/import', items, {
+    timeout: 60_000,
+    ...config
+  })
+
+/**
+ * POST /manage/epid/overrides/apply —— B 快速应用（只点改命中行，幂等）。
+ * targets 省略/空 = 应用全部 active；开关关着 ⇒ 403。
+ */
+export const overridesApply = (
+  targets?: { srcRowId: number; epIndex: number }[],
+  config?: { silent?: boolean }
+): Promise<EpidOverrideApplyResp> =>
+  http.post<unknown, EpidOverrideApplyResp>(
+    '/manage/epid/overrides/apply',
+    targets && targets.length ? { targets } : undefined,
+    { timeout: 60_000, ...config }
+  )
+
+/**
+ * POST /manage/epid/overrides/recompute —— C 定向重算（整源行重算，force=true 绕过抖动守卫）。
+ * 响应为 DeriveStats 展平（scanned/rebuilt/…/overrideApplied 等）。
+ */
+export const overridesRecompute = (
+  targets: { srcRowId: number; epIndex: number }[],
+  config?: { silent?: boolean }
+): Promise<Record<string, number>> =>
+  http.post<unknown, Record<string, number>>('/manage/epid/overrides/recompute', { targets }, {
+    timeout: 120_000,
+    ...config
+  })
+
+/** PUT /manage/epid/overrides/enabled —— D3 生效开关（内存态；重启回默认关 = fail-safe） */
+export const overridesSetEnabled = (
+  enabled: boolean,
+  config?: { silent?: boolean }
+): Promise<{ enabled: boolean }> =>
+  http.put<unknown, { enabled: boolean }>('/manage/epid/overrides/enabled', { enabled }, {
+    timeout: 15_000,
+    ...config
+  })
