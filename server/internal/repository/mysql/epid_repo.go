@@ -14,9 +14,32 @@ import (
 // EpidRepo 派生表 movie_episode_epid 的读写（P1-1, 2026-11-10）。
 // **单向派生**：本表只由派生任务写；`episodes_json` 是唯一真相源。
 // 刻意导出**具体类型**（而非走 ports.go 的公共端口）：服务层只依赖它，降低回归面。
-type EpidRepo struct{ db *gorm.DB }
+// EpidRepo 集身份派生仓储：**两套连接（2026-11-13）**。
+//
+//   - `db`：主连接（正常写 binlog）—— 所有**读**、以及**真相源/计数器**的写（`movie_play_source`、
+//     `epid_derive_stat`）都必须走它，保住 PITR 能力；
+//   - `deriveDB`：**派生写**专用（会话级 `sql_log_bin=0`，见 `platform/db.InitMySQLNoBinlog`）——
+//     只用于 `movie_episode_epid` 的 整源行 DELETE+INSERT / 孤儿清理 / override 覆盖 / `TRUNCATE` 重建。
+//     派生表是**单向派生产物**（可由 `movie_play_source` 重算回来）⇒ 不记 binlog 是安全的，
+//     而它的写入量最大（全量 rebuild 一轮就是 650 万行级 DELETE+INSERT），是 binlog 的主要来源之一。
+//
+// ⚠️ **绝不可**把真相源的写放到 `deriveDB` 上。
+type EpidRepo struct {
+	db       *gorm.DB
+	deriveDB *gorm.DB
+}
 
-func NewEpidRepository(db *gorm.DB) *EpidRepo { return &EpidRepo{db: db} }
+// NewEpidRepository 主连接同时充当派生写连接（照常写 binlog；旧行为，供测试与兼容装配）。
+func NewEpidRepository(db *gorm.DB) *EpidRepo { return &EpidRepo{db: db, deriveDB: db} }
+
+// NewEpidRepositoryWithDeriveDB 生产装配：派生**写**走 `deriveDB`（`sql_log_bin=0`）。
+// `deriveDB` 为 nil ⇒ 降级为主连接 —— 该特性只省 binlog 体积，绝不阻断派生。
+func NewEpidRepositoryWithDeriveDB(db, deriveDB *gorm.DB) *EpidRepo {
+	if deriveDB == nil {
+		deriveDB = db
+	}
+	return &EpidRepo{db: db, deriveDB: deriveDB}
+}
 
 // ---- 包级便捷查询（P1-1b，2026-11-10）----
 //
@@ -86,7 +109,7 @@ func (r *EpidRepo) ReplaceForSourceRows(ctx context.Context, ids []int64, rows [
 	if len(ids) == 0 {
 		return nil
 	}
-	return dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+	return dbFrom(ctx, r.deriveDB).Transaction(func(tx *gorm.DB) error {
 		// ---- 进度计数器（迁移 000048, 2026-11-11）----
 		// 必须在 DELETE **之前**取"这批源行里已有派生的源行数"，才能算出 `derived_src_rows` 的**净增减**
 		// （它是全局计数：只加不减会越滚越大 ✗）。成本 = 一次 `WHERE src_row_id IN (≤500 个 id)`，
@@ -184,8 +207,9 @@ func (r *EpidRepo) DeleteBySrcRowIds(ctx context.Context, ids []int64) (int64, e
 		return 0, nil
 	}
 	// 删也要**同步扣减计数器**（000048）：否则孤儿清理后读数会虚高 ✗（同事务，原子）。
+	// 派生表写 ⇒ 走 deriveDB（不记 binlog）。
 	var deleted int64
-	err := dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+	err := dbFrom(ctx, r.deriveDB).Transaction(func(tx *gorm.DB) error {
 		var before struct{ OldSrcRows int64 }
 		if err := tx.Raw(
 			"SELECT COUNT(DISTINCT src_row_id) AS old_src_rows FROM movie_episode_epid WHERE src_row_id IN ?",
@@ -237,6 +261,13 @@ func (r *EpidRepo) Coverage(ctx context.Context) (total int64, empty int64, err 
 
 // AlignmentRate 跨源对齐率（P1-1 验收的**主指标**）：同一部片（`match_key`）里同一个 `epid`
 // 出现在 **≥2 个不同 site** 的比例。仅统计**非空 epid**（空串 = 不产身份，按 §4.7 豁免）。
+//
+// **口径排除（2026-11-13）**：`dup_copy = 0` —— 排除「双写副本」（补充源同片按
+// `hash(片名)/hash(豆瓣ID)` 双键各存一行，见 `spider.parse.go` 与
+// docs/epid-集身份/分析-采集侧键口径与匹配度-2026-11-13.md §10.5/§11）。
+// 实测：含副本 35.16% vs 排除副本 **32.83%**（子集同口径）⇒ 不排除会让读数**虚高 ≈2.3pp**
+// （豆瓣键副本天然跨多站、更易满足 site≥2）。
+// 走 `idx_dup_match_epid_site (dup_copy, match_key, epid, site_id)` ⇒ 仍是 **Using index**（不建临时表）。
 func (r *EpidRepo) AlignmentRate(ctx context.Context) (aligned int64, total int64, err error) {
 	var row struct {
 		Aligned int64
@@ -250,6 +281,7 @@ func (r *EpidRepo) AlignmentRate(ctx context.Context) (aligned int64, total int6
 		  SELECT match_key, epid, COUNT(DISTINCT site_id) AS sites
 		  FROM movie_episode_epid
 		  WHERE epid <> ''
+		    AND dup_copy = 0
 		  GROUP BY match_key, epid
 		) t`).Scan(&row).Error
 	return row.Aligned, row.Total, err
@@ -281,7 +313,8 @@ func (r *EpidRepo) ListByMatchKeys(ctx context.Context, keys []string) ([]entity
 //  1. 取候选 id 页（`SELECT id ... ORDER BY id LIMIT n` ⇒ 覆盖主键）
 //  2. 对本页 ids 取派生态锚（`AnchorsBySrcRowIds` ⇒ `uk_row_ep` 前缀）
 //  3. 只对**脏的** id 取全字段（含 `episodes_json` 巨列）
-// ⇒ 每批成本与**表规模无关**；且不再需要 `ep_hash <> ''` 过滤（L7：空 hash 也当候选，首次派生一次即收敛）
+//
+// ⇒ 每批成本与**表规模无关**；且不再需要 `ep_hash <> ”` 过滤（L7：空 hash 也当候选，首次派生一次即收敛）
 // 返回三元组：`rows`=**脏行**（已过滤）、`scanLast`=本批 keyset 窗口的**末端 id**、`scanCount`=本批**扫过**的源行数。
 //
 // ⚠️ **2026-11-11 实测 bug 的修法**：只返回"脏行"是不够的 —— 一段**没有脏行**的区间会返回空，
@@ -396,7 +429,7 @@ func (r *EpidRepo) UpdateEpidByRowKeys(ctx context.Context, patches []EpidRowPat
 		return 0, nil
 	}
 	var n int64
-	err := dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+	err := dbFrom(ctx, r.deriveDB).Transaction(func(tx *gorm.DB) error {
 		for _, p := range patches {
 			res := tx.Model(&entity.MovieEpisodeEpid{}).
 				Where("src_row_id = ? AND ep_index = ?", p.SrcRowId, p.EpIndex).
@@ -483,7 +516,7 @@ func (r *EpidRepo) CoverageFull(ctx context.Context) (derivedRows int64, sourceE
 // （派生表是单向派生物：`episodes_json` 才是真相源，重建结果确定 ⇒ 可随时重算）。
 func (r *EpidRepo) TruncateAll(ctx context.Context) error {
 	// ⚠️ TRUNCATE **隐式提交**（不可回滚）⇒ 不能用事务包住；计数器重置只能放在其后。
-	if err := dbFrom(ctx, r.db).Exec("TRUNCATE TABLE movie_episode_epid").Error; err != nil {
+	if err := dbFrom(ctx, r.deriveDB).Exec("TRUNCATE TABLE movie_episode_epid").Error; err != nil {
 		return err
 	}
 	// 清空 ⇒ 计数必然归零（000048）。不重置的话读侧会继续显示清空前的大数 ✗（如 590 万行）。
@@ -545,6 +578,7 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 		  SELECT e.match_key, e.epid, COUNT(DISTINCT e.site_id) AS sites
 		  FROM movie_episode_epid e
 		  WHERE e.epid <> ''
+		    AND e.dup_copy = 0
 		  GROUP BY e.match_key, e.epid
 		) t
 		WHERE t.match_key COLLATE utf8mb4_unicode_ci IN (
@@ -561,10 +595,10 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 
 // CategoryStat 按分类分层的"有身份率"（`movie.pid` 指向 `category.id`）。
 type CategoryStat struct {
-	Pid        int64  `json:"pid"`
-	Category   string `json:"category"` // category.name：电影片 / 连续剧 / 综艺片 / 动漫片 …
-	RowCnt     int64  `json:"rowCnt"`
-	NonEmpty   int64  `json:"nonEmpty"`
+	Pid        int64   `json:"pid"`
+	Category   string  `json:"category"` // category.name：电影片 / 连续剧 / 综艺片 / 动漫片 …
+	RowCnt     int64   `json:"rowCnt"`
+	NonEmpty   int64   `json:"nonEmpty"`
 	NonEmptyPc float64 `json:"nonEmptyPct"`
 }
 

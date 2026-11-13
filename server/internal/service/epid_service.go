@@ -98,9 +98,9 @@ func SetEpidOverrideEnabled(on bool) { epidOverrideEnabled.Store(on) }
 // 与"采集收尾自动触发一批"的关系：**共用同一把锁**（`deriveRunning`）⇒ 互斥防重入；
 // 本全量任务由管理端**显式**发起（补缺 / 清空重建），跑完自己打验收指标日志。
 var (
-	deriveFullRunning   atomic.Bool   // 是否有全量任务在跑（供状态查询）
-	deriveFullStartedAt atomic.Int64  // 全量任务的起始毫秒
-	deriveFullMode      atomic.Value  // fill | rebuild
+	deriveFullRunning   atomic.Bool  // 是否有全量任务在跑（供状态查询）
+	deriveFullStartedAt atomic.Int64 // 全量任务的起始毫秒
+	deriveFullMode      atomic.Value // fill | rebuild
 )
 
 // 采集轮次进行中的标记（2026-11-11，需求 3"与采集错峰/让路"）。
@@ -451,6 +451,7 @@ func (s *EpidService) deriveRows(ctx context.Context, rows []entity.MoviePlaySou
 				FromSrc:    derived[i][1],
 				RawName:    t,
 				SrcEpHash:  src.EpHash,
+				DupCopy:    src.DupCopy,
 				ComputedAt: now,
 			})
 		}
@@ -1164,17 +1165,17 @@ type EpidReport struct {
 	// ---- 口径层（2026-11-11）：分层 / 成熟度 / 双口径 / 空语义 ----
 	// ⚠️ 判定口径：**可比口径**（分母只含"真相源里 ≥2 site 且已成熟"的片）才是 §4.8 门槛依据；
 	// 全库口径（alignedGroups/totalGroups/alignmentPct）逐轮都在算（便宜），仅作对照 ✗ 不作门槛。
-	ComparableAligned int64                  `json:"comparableAligned"`
-	ComparableTotal   int64                  `json:"comparableTotal"`
-	ComparablePct     float64                `json:"comparablePct"`
-	Progress          *EpidProgress          `json:"progress,omitempty"` // 任务进行中也给（O(1)/缓存）
-	OnlyProgress      bool                   `json:"onlyProgress"`       // true = 本轮只算了进度集（重型指标未算，前端别把 0 当真值渲染）
-	MetricsAt         int64                  `json:"metricsAt"`          // 重型指标快照的采样时间（毫秒；0 = 还没算出来）
-	MetricsStale      bool                   `json:"metricsStale"`       // true = 后台正在刷新，展示的是上一份快照
-	Maturity          []mysql.MaturityStat   `json:"maturity"`           // 源行口径成熟度（按分类）
-	ByCategory        []mysql.CategoryStat   `json:"byCategory"`         // 分层"有身份率"（按分类）
-	EmptyByShape      []mysql.ShapeStat      `json:"emptyByShape"`
-	MetricsError      string                 `json:"metricsError,omitempty"`
+	ComparableAligned int64                `json:"comparableAligned"`
+	ComparableTotal   int64                `json:"comparableTotal"`
+	ComparablePct     float64              `json:"comparablePct"`
+	Progress          *EpidProgress        `json:"progress,omitempty"` // 任务进行中也给（O(1)/缓存）
+	OnlyProgress      bool                 `json:"onlyProgress"`       // true = 本轮只算了进度集（重型指标未算，前端别把 0 当真值渲染）
+	MetricsAt         int64                `json:"metricsAt"`          // 重型指标快照的采样时间（毫秒；0 = 还没算出来）
+	MetricsStale      bool                 `json:"metricsStale"`       // true = 后台正在刷新，展示的是上一份快照
+	Maturity          []mysql.MaturityStat `json:"maturity"`           // 源行口径成熟度（按分类）
+	ByCategory        []mysql.CategoryStat `json:"byCategory"`         // 分层"有身份率"（按分类）
+	EmptyByShape      []mysql.ShapeStat    `json:"emptyByShape"`
+	MetricsError      string               `json:"metricsError,omitempty"`
 }
 
 // EpidProgress 已迁到 `epid_progress.go`（2026-11-11 线上事故修法）：

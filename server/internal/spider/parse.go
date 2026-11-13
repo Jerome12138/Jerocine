@@ -24,11 +24,11 @@ func toMovie(d filmDetail) *entity.Movie {
 		CName: d.TypeName, EnName: d.VodEn, Initial: d.VodLetter, ClassTag: d.VodClass,
 		Area: d.VodArea, Language: d.VodLang, Year: parseYear(d.VodPubDate, d.VodYear),
 		PubDate: parsePubDate(d.VodPubDate),
-		Actor: d.VodActor, Director: d.VodDirector, Writer: d.VodWriter, Content: d.VodContent,
+		Actor:   d.VodActor, Director: d.VodDirector, Writer: d.VodWriter, Content: d.VodContent,
 		DbId: d.VodDouBanID, DbScore: parseScore(d.VodDouBanScore, d.VodScore), Hits: d.VodHits,
 		State: d.VodState, Remarks: d.VodRemarks, Cover: d.VodPic,
-		PlayFrom: splitNonEmpty(d.VodPlayFrom, firstNonEmpty(d.VodPlayNote, "$$$")),
-		DownFrom: d.VodDownFrom,
+		PlayFrom:     splitNonEmpty(d.VodPlayFrom, firstNonEmpty(d.VodPlayNote, "$$$")),
+		DownFrom:     d.VodDownFrom,
 		ReleaseStamp: d.VodTimeAdd, UpdateStamp: parseTimeUnix(d.VodTime),
 	}
 }
@@ -96,11 +96,17 @@ func buildPlaySources(d filmDetail, siteId string, mid *int64) []entity.MoviePla
 		keys = append(keys, domain.GenerateHashKey(d.VodDouBanID))
 	}
 	out := make([]entity.MoviePlaySource, 0, len(groups)*len(keys))
-	for _, k := range keys {
+	for ki, k := range keys {
+		// DupCopy（2026-11-13）：`keys[0]` 恒为**片名键**（主份 ⇒ dup=0），其余键（豆瓣键）是**副本**（dup=1）。
+		// 写侧就地可判 ⇒ 让统计/指标能"排除双写副本"，不必 JOIN 巨表或算 `MIN(id)`。
+		dup := int8(0)
+		if ki > 0 {
+			dup = 1
+		}
 		for _, g := range groups {
 			out = append(out, entity.MoviePlaySource{
 				Mid: mid, SiteId: siteId, MatchKey: k, SourceVodID: d.VodID,
-				PlayFrom: g.Name, Episodes: g.Episodes,
+				PlayFrom: g.Name, Episodes: g.Episodes, DupCopy: dup,
 			})
 		}
 	}
