@@ -144,14 +144,15 @@ type MoviePlaySource struct {
 
 	// ContentHash 源行**内容**指纹（**含 link**：fnv64a over "集名\x01链接\x01" 序列，16 位十六进制，000051）。
 	// 与 EpHash 的分工（别混）：EpHash **不含 link**（R4：CDN 轮换不该把派生打脏）；ContentHash **含 link**，
-	// **只服务采集侧「内容未变不写」判重** —— 四项（mid/source_vod_id/dup_copy/content_hash）全等则跳过 UPDATE，
+	// **只服务采集侧「内容未变不写」判重** —— 三项（mid/source_vod_id/content_hash）全等则跳过 UPDATE，
 	// 避免无谓写入撑大 binlog（2026-11-13）。
 	ContentHash string `gorm:"column:content_hash" json:"contentHash"`
 
 	// DupCopy 双写副本标记（2026-11-13）：补充源同片按 `hash(片名)/hash(豆瓣ID)` 双键各存一行，
-	// 本字段标记哪一份是**副本** —— **0 = 片名键主份**（`keys[0]`）、**1 = 豆瓣键副本**（其余键）。
-	// 写侧**就地可判**（生成两份时即知），无需 JOIN / MIN(id) 计算。
-	// 口径用途：统计与指标按"规范行"排除副本 ⇒ 详见 docs/epid-集身份/分析-采集侧键口径与匹配度-2026-11-13.md §10.5。
+	// 本字段标记哪一份是**副本** —— **0 = 片名键（`hash(VodName)`）主份**、**1 = 豆瓣键（`hash(VodDouBanID)`）副本**。
+	// **写侧零判断**：`spider.buildPlaySources` 生成 `keys` 时就知道每个键的来源 ⇒ 顺手落库即可。
+	// 口径用途：对齐率指标按"排除副本"（派生表同名列为**冗余**，由派生继承）⇒
+	// 详见 docs/epid-集身份/分析-采集侧键口径与匹配度-2026-11-13.md §10.5。
 	DupCopy int8 `gorm:"column:dup_copy" json:"dupCopy"`
 
 	CreatedAt int64 `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`

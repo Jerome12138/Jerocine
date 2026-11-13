@@ -97,8 +97,9 @@ func buildPlaySources(d filmDetail, siteId string, mid *int64) []entity.MoviePla
 	}
 	out := make([]entity.MoviePlaySource, 0, len(groups)*len(keys))
 	for ki, k := range keys {
-		// DupCopy（2026-11-13）：`keys[0]` 恒为**片名键**（主份 ⇒ dup=0），其余键（豆瓣键）是**副本**（dup=1）。
-		// 写侧就地可判 ⇒ 让统计/指标能"排除双写副本"，不必 JOIN 巨表或算 `MIN(id)`。
+		// DupCopy（2026-11-13）：**按"这个键的来源"标，不做任何判断** —— `keys[0]` 恒由 `d.VodName` 生成
+		// （片名键 ⇒ 主份 0），其余键由 `d.VodDouBanID` 生成（豆瓣键 ⇒ 副本 1）。
+		// 口径含义与用途见 `entity.MoviePlaySource.DupCopy` 与迁移 000050。
 		dup := int8(0)
 		if ki > 0 {
 			dup = 1

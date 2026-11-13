@@ -441,16 +441,17 @@ func (s *EpidService) deriveRows(ctx context.Context, rows []entity.MoviePlaySou
 				st.EmptyEpid++
 			}
 			out = append(out, entity.MovieEpisodeEpid{
-				SrcRowId:   src.Id,
-				Mid:        src.Mid,
-				MatchKey:   src.MatchKey,
-				SiteId:     src.SiteId,
-				PlayFrom:   src.PlayFrom,
-				EpIndex:    i,
-				Epid:       derived[i][0],
-				FromSrc:    derived[i][1],
-				RawName:    t,
-				SrcEpHash:  src.EpHash,
+				SrcRowId:  src.Id,
+				Mid:       src.Mid,
+				MatchKey:  src.MatchKey,
+				SiteId:    src.SiteId,
+				PlayFrom:  src.PlayFrom,
+				EpIndex:   i,
+				Epid:      derived[i][0],
+				FromSrc:   derived[i][1],
+				RawName:   t,
+				SrcEpHash: src.EpHash,
+				// 双写副本标记**继承源行**（写侧落库 / 存量脚本补齐；派生**不做判定**）。
 				DupCopy:    src.DupCopy,
 				ComputedAt: now,
 			})

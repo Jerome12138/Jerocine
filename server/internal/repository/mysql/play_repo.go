@@ -40,7 +40,8 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 	// 「内容未变不写」（2026-11-13）：全站重采会把**每一行整行**重写（含 `episodes_json` 巨列）⇒ binlog
 	// 暴涨（实测撑到 12GB+、磁盘 89%）。判重口径 = **mid / source_vod_id / dup_copy / content_hash 四项全等**
 	// ⇒ 跳过（不发 UPDATE）。⚠️ 只看 content_hash 不够：`source_vod_id` 由 0 被回填（vod0 修复）、
-	// `dup_copy` 首次标记这类**修复型写入**必须放行；`content_hash` 为存量空串时也必写（自愈回填）。
+	// `dup_copy` 从存量脚本的**近似值**变回写侧的**确定值**，这类**修复型写入**都必须放行；
+	// `content_hash` 为存量空串时也必写（自愈回填）。
 	list, skipped := r.dropUnchanged(ctx, list)
 	if skipped > 0 {
 		// 日志降噪（F5，2026-11-13 评审）：全站重采时**每批**都会跳过 ⇒ 逐批一行会刷屏。
@@ -56,7 +57,7 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "site_id"}, {Name: "match_key"}, {Name: "play_from"}},
 		// source_vod_id 纳入更新列: 重采时回填旧行的源站影片ID(供去重统计 CountBySite)。
-		// dup_copy 同理纳入: 重采时把"双写副本标记"一并刷新(口径排除用, 见 000050)。
+		// dup_copy 同理纳入: 重采时把"双写副本标记"一并刷新（存量由脚本**近似**补齐，重采会用**正确值**覆盖）✓
 		// content_hash 同理: 判重列本身也要落库(否则下次仍判为"变了" ⇒ 白写, 见 000051)。
 		DoUpdates: clause.AssignmentColumns([]string{"mid", "source_vod_id", "episodes_json", "ep_hash", "content_hash", "dup_copy", "updated_at"}),
 	}).CreateInBatches(list, 200).Error
@@ -66,7 +67,8 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 //
 // 判据：库中同 `(site_id, match_key, play_from)` 的行存在，且
 // `mid / source_vod_id / dup_copy / content_hash` **四项全等** ⇒ 跳过（这行写下去也是同样的值）。
-//   - 只比 `content_hash` 不够：`source_vod_id` 从 0 被回填、`dup_copy` 首次标记等**修复型写入**必须放行；
+//   - 只比 `content_hash` 不够：`source_vod_id` 从 0 被回填（vod0 修复）、`dup_copy` 由**存量脚本近似值**
+//     变为**写侧的确定值** —— 这类**修复型写入**必须放行（否则永远停在近似值上 ✗）；
 //   - `content_hash` 为空串（000051 前的存量行）⇒ 必写一次并填上 ⇒ 自愈 ✓。
 //
 // 性能：只 SELECT 唯一键三列 + 四个比较列 ⇒ **不碰 `episodes_json` 巨列**（性能铁律 1）。

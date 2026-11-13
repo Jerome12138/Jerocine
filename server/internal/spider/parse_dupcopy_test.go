@@ -7,11 +7,12 @@ import (
 )
 
 // TestBuildPlaySourcesMarksDupCopy 防呆：双写两份必须打上正确的 `dup_copy`
-// （0 = 片名键**主份** / 1 = 豆瓣键**副本**）。
+//   - **0 = 片名键**（`hash(d.VodName)` 生成的 `keys[0]`）⇒ 主份；
+//   - **1 = 豆瓣键**（`hash(d.VodDouBanID)` 生成）⇒ 副本。
 //
-// 为什么必须钉住：对齐率系列指标靠 `WHERE dup_copy = 0` **排除双写副本**来消除"虚高"
-// （见 docs/epid-集身份/分析-采集侧键口径与匹配度-2026-11-13.md §10.5/§11，
-// 实测含副本 35.16% vs 排除副本 32.83%）。一旦标记打反或漏打，口径静默失真 ✗。
+// 为什么必须钉住：对齐率指标靠派生表继承来的 `dup_copy = 0` **排除双写副本**，才能消除"虚高"
+// （实测含副本 35.16% vs 排除副本 32.83%）。写侧**不做任何判断**，只是把"这个键的来源"顺手记下来；
+// 一旦打反或漏打，口径静默失真 ✗（存量由离线脚本按 `movie.db_id` 近似补齐，判不了的不猜）。
 func TestBuildPlaySourcesMarksDupCopy(t *testing.T) {
 	playURL := "第01集$https://x.tv/1.m3u8#第02集$https://x.tv/2.m3u8"
 	base := filmDetail{
@@ -20,10 +21,9 @@ func TestBuildPlaySourcesMarksDupCopy(t *testing.T) {
 		VodPlayFrom: "lzm3u8",
 		VodPlayURL:  playURL,
 	}
-
 	nameKey := domain.GenerateHashKey(base.VodName)
 
-	// ① slave 且上游带豆瓣ID ⇒ 双写两行（片名键主份 + 豆瓣键副本）
+	// ① slave 且上游带豆瓣ID ⇒ 双写两行：片名键 dup=0、豆瓣键 dup=1
 	withDB := base
 	withDB.VodDouBanID = 456780
 	rows := buildPlaySources(withDB, "src_test", nil)
@@ -52,25 +52,19 @@ func TestBuildPlaySourcesMarksDupCopy(t *testing.T) {
 	// ② master（mid != nil）⇒ 只写片名键一份，且是主份
 	mid := int64(9)
 	master := buildPlaySources(base, "src_lz", &mid)
-	if len(master) != 1 {
-		t.Fatalf("master 应只写 1 行，得到 %d 行", len(master))
-	}
-	if master[0].DupCopy != 0 {
-		t.Errorf("master 行 dup_copy = %d, want 0", master[0].DupCopy)
+	if len(master) != 1 || master[0].DupCopy != 0 {
+		t.Fatalf("master 应只写片名键一份且 dup=0（实际 %d 行）", len(master))
 	}
 
 	// ③ slave 但上游**没有**豆瓣ID ⇒ 只有片名键一份（无副本）
 	noDB := base
 	noDB.VodDouBanID = 0
 	single := buildPlaySources(noDB, "src_test", nil)
-	if len(single) != 1 {
-		t.Fatalf("slave 无豆瓣ID 应只写 1 行，得到 %d 行", len(single))
-	}
-	if single[0].DupCopy != 0 {
-		t.Errorf("无豆瓣ID 行 dup_copy = %d, want 0", single[0].DupCopy)
+	if len(single) != 1 || single[0].DupCopy != 0 {
+		t.Fatalf("slave 无豆瓣ID 应只写 1 行且 dup=0（实际 %d 行）", len(single))
 	}
 
-	// ④ 多线路时"键 × 线路"各自标记正确（每键每线路一行）
+	// ④ 多线路：键 × 线路各自成行，标记按"键的来源"（与线路无关）
 	multi := withDB
 	multi.VodPlayFrom = "lzm3u8$$$liangzi"
 	multi.VodPlayURL = playURL + "$$$" + playURL
