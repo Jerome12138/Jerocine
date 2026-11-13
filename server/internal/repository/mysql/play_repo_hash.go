@@ -25,3 +25,22 @@ func EpisodesHash(eps entity.EpisodeList) string {
 	}
 	return fmt.Sprintf("%016x", h.Sum64())
 }
+
+// EpisodesContentHash 源行**内容**指纹（**含 link**）：fnv64a over "集名\x01链接\x01" 序列。
+//
+// 与 `EpisodesHash` 的分工（**别混**）：
+//   - `EpisodesHash`（→ `ep_hash`）：**不含 link**，服务**派生判脏**（R4：CDN 轮换不该把派生打脏）；
+//   - `EpisodesContentHash`（→ `content_hash`）：**含 link**，**只服务采集侧「内容未变不写」判重**
+//     （2026-11-13）：连链接都没变 ⇒ 整行确实无需重写 ⇒ 跳过 UPDATE，省 binlog / 省行版本 / 省判脏。
+//
+// 两列各司其职：**判脏用 ep_hash，判重写用 content_hash** —— 不可互换。
+func EpisodesContentHash(eps entity.EpisodeList) string {
+	h := fnv.New64a()
+	for _, e := range eps {
+		_, _ = h.Write([]byte(e.Episode))
+		_, _ = h.Write([]byte{0x01})
+		_, _ = h.Write([]byte(e.Link))
+		_, _ = h.Write([]byte{0x01})
+	}
+	return fmt.Sprintf("%016x", h.Sum64())
+}

@@ -2,6 +2,9 @@ package mysql
 
 import (
 	"context"
+	"log"
+	"sort"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -23,12 +26,105 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 	// 放在这里算可以确保**任何构造点都不会漏**（否则重采不回填 ⇒ 派生任务的变更检测静默失效）。
 	for i := range list {
 		list[i].EpHash = EpisodesHash(list[i].Episodes)
+		list[i].ContentHash = EpisodesContentHash(list[i].Episodes)
+	}
+	sortPlaySourcesForKey(list)
+	// 「内容未变不写」（2026-11-13）：全站重采会把**每一行整行**重写（含 `episodes_json` 巨列）⇒ binlog
+	// 暴涨（实测撑到 12GB+、磁盘 89%）。判重口径 = **mid / source_vod_id / dup_copy / content_hash 四项全等**
+	// ⇒ 跳过（不发 UPDATE）。⚠️ 只看 content_hash 不够：`source_vod_id` 由 0 被回填（vod0 修复）、
+	// `dup_copy` 首次标记这类**修复型写入**必须放行；`content_hash` 为存量空串时也必写（自愈回填）。
+	list, skipped := r.dropUnchanged(ctx, list)
+	if len(list) == 0 {
+		if skipped > 0 {
+			log.Printf("[spider] upsert 全部 %d 行内容未变，跳过写入", skipped)
+		}
+		return nil
+	}
+	if skipped > 0 {
+		log.Printf("[spider] upsert 跳过内容未变行 %d / %d", skipped, skipped+len(list))
 	}
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "site_id"}, {Name: "match_key"}, {Name: "play_from"}},
 		// source_vod_id 纳入更新列: 重采时回填旧行的源站影片ID(供去重统计 CountBySite)。
-		DoUpdates: clause.AssignmentColumns([]string{"mid", "source_vod_id", "episodes_json", "ep_hash", "updated_at"}),
+		// dup_copy 同理纳入: 重采时把"双写副本标记"一并刷新(口径排除用, 见 000050)。
+		// content_hash 同理: 判重列本身也要落库(否则下次仍判为"变了" ⇒ 白写, 见 000051)。
+		DoUpdates: clause.AssignmentColumns([]string{"mid", "source_vod_id", "episodes_json", "ep_hash", "content_hash", "dup_copy", "updated_at"}),
 	}).CreateInBatches(list, 200).Error
+}
+
+// dropUnchanged 返回"确实需要写"的子集与**被跳过**的行数（2026-11-13，「内容未变不写」）。
+//
+// 判据：库中同 `(site_id, match_key, play_from)` 的行存在，且
+// `mid / source_vod_id / dup_copy / content_hash` **四项全等** ⇒ 跳过（这行写下去也是同样的值）。
+//   - 只比 `content_hash` 不够：`source_vod_id` 从 0 被回填、`dup_copy` 首次标记等**修复型写入**必须放行；
+//   - `content_hash` 为空串（000051 前的存量行）⇒ 必写一次并填上 ⇒ 自愈 ✓。
+//
+// 性能：只 SELECT 唯一键三列 + 四个比较列 ⇒ **不碰 `episodes_json` 巨列**（性能铁律 1）。
+// 容错：查询失败时**整体不跳过**（宁多写不误跳）——本特性只省体积，不能因它丢写。
+func (r *playRepo) dropUnchanged(ctx context.Context, list []entity.MoviePlaySource) ([]entity.MoviePlaySource, int) {
+	ph := make([]string, 0, len(list))
+	args := make([]any, 0, len(list)*3)
+	for _, x := range list {
+		ph = append(ph, "(?,?,?)")
+		args = append(args, x.SiteId, x.MatchKey, x.PlayFrom)
+	}
+	var cur []entity.MoviePlaySource
+	err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
+		Select("site_id, match_key, play_from, mid, source_vod_id, dup_copy, content_hash").
+		Where("(site_id, match_key, play_from) IN ("+strings.Join(ph, ",")+")", args...).
+		Find(&cur).Error
+	if err != nil {
+		log.Printf("[spider] upsert 判重查询失败（本轮不跳过，照常写）: %v", err)
+		return list, 0
+	}
+	now := make(map[[3]string]entity.MoviePlaySource, len(cur))
+	for _, x := range cur {
+		now[[3]string{x.SiteId, x.MatchKey, x.PlayFrom}] = x
+	}
+	out := make([]entity.MoviePlaySource, 0, len(list))
+	skipped := 0
+	for _, x := range list {
+		old, ok := now[[3]string{x.SiteId, x.MatchKey, x.PlayFrom}]
+		if ok && sameMidPtr(old.Mid, x.Mid) && old.SourceVodID == x.SourceVodID &&
+			old.DupCopy == x.DupCopy && old.ContentHash != "" && old.ContentHash == x.ContentHash {
+			skipped++
+			continue
+		}
+		out = append(out, x)
+	}
+	return out, skipped
+}
+
+// sameMidPtr 比较两个可空 mid 的**值**（指针直接比较会比较地址，错）。
+func sameMidPtr(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// sortPlaySourcesForKey 按 upsert 唯一键 `(site_id, match_key, play_from)` 升序排序。
+//
+// 死锁防护（2026-11-13）：`UpsertBatch` 走 `INSERT … ON DUPLICATE KEY UPDATE`，会在唯一键上
+// 加**间隙锁/下一键锁**。多个采集 worker 并发提交时，若各自批内的键顺序不同 ⇒ **取锁顺序相反**
+// ⇒ 环形等待（MySQL **Error 1213 Deadlock found**）。实测集中在 `src_lz` 大批量重采期间
+// （`collect_failure` 台账 47 条 1213，其余站均为网络超时），日志形如：
+//
+//	spider page src=src_lz pg=8085 deadlock retry 0/2
+//	play_repo.go:31 Error 1213 (40001): Deadlock found when trying to get lock
+//
+// **先按唯一键排序再分批** ⇒ 所有事务以一致顺序取锁，环即消失（比加锁/降并发更根本，且不损吞吐）。
+// 排序在写侧做（列表本就是待写批次，顺序无语义），对调用方无可见影响。
+func sortPlaySourcesForKey(list []entity.MoviePlaySource) {
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].SiteId != list[j].SiteId {
+			return list[i].SiteId < list[j].SiteId
+		}
+		if list[i].MatchKey != list[j].MatchKey {
+			return list[i].MatchKey < list[j].MatchKey
+		}
+		return list[i].PlayFrom < list[j].PlayFrom
+	})
 }
 
 func (r *playRepo) ListByMid(ctx context.Context, mid int64) ([]entity.MoviePlaySource, error) {
