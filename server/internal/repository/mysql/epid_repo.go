@@ -110,6 +110,11 @@ func (r *EpidRepo) ReplaceForSourceRows(ctx context.Context, ids []int64, rows [
 		return nil
 	}
 	return dbFrom(ctx, r.deriveDB).Transaction(func(tx *gorm.DB) error {
+		// ⚠️ **binlog 取舍（2026-11-13 评审 F2）**：本事务走 `deriveDB`（`sql_log_bin=0`）⇒ **计数器
+		// `epid_derive_stat` 的同步增减也不进 binlog**。这是**有意**的：
+		//   · 拆到主连接会破坏"派生行与计数在同一事务"的**原子性**（跨连接无法回滚一致）；
+		//   · 而 `epid_derive_stat` 是**可重算的读数**（`RecountDeriveStat` 一次 COUNT 即可校准）。
+		// ⇒ PITR 后若读数失真，重算即可，**不影响派生结果本身**。
 		// ---- 进度计数器（迁移 000048, 2026-11-11）----
 		// 必须在 DELETE **之前**取"这批源行里已有派生的源行数"，才能算出 `derived_src_rows` 的**净增减**
 		// （它是全局计数：只加不减会越滚越大 ✗）。成本 = 一次 `WHERE src_row_id IN (≤500 个 id)`，

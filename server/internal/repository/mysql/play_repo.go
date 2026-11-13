@@ -5,6 +5,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -14,6 +15,13 @@ import (
 )
 
 type playRepo struct{ db *gorm.DB }
+
+// 「内容未变不写」的累计计数（F5 日志降噪：每 20 批汇总一行）。
+// 采集有多个 worker 并发 upsert ⇒ 用 `atomic.Int64`（**不混用** int64 + 包级函数，见评审纪律）。
+var (
+	upsertSkipBatches atomic.Int64
+	upsertSkipRows    atomic.Int64
+)
 
 // NewPlaySourceRepository 构造多源播放仓储。
 func NewPlaySourceRepository(db *gorm.DB) repository.PlaySourceRepository { return &playRepo{db: db} }
@@ -34,14 +42,16 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 	// ⇒ 跳过（不发 UPDATE）。⚠️ 只看 content_hash 不够：`source_vod_id` 由 0 被回填（vod0 修复）、
 	// `dup_copy` 首次标记这类**修复型写入**必须放行；`content_hash` 为存量空串时也必写（自愈回填）。
 	list, skipped := r.dropUnchanged(ctx, list)
-	if len(list) == 0 {
-		if skipped > 0 {
-			log.Printf("[spider] upsert 全部 %d 行内容未变，跳过写入", skipped)
-		}
-		return nil
-	}
 	if skipped > 0 {
-		log.Printf("[spider] upsert 跳过内容未变行 %d / %d", skipped, skipped+len(list))
+		// 日志降噪（F5，2026-11-13 评审）：全站重采时**每批**都会跳过 ⇒ 逐批一行会刷屏。
+		// 改为**每 20 批汇总一行**（累计批数 + 累计行数），首个批次必打（便于确认特性生效）。
+		total := upsertSkipRows.Add(int64(skipped))
+		if n := upsertSkipBatches.Add(1); n%20 == 1 {
+			log.Printf("[spider] upsert 跳过内容未变：本批 %d 行（累计 %d 批 / %d 行）", skipped, n, total)
+		}
+	}
+	if len(list) == 0 {
+		return nil
 	}
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "site_id"}, {Name: "match_key"}, {Name: "play_from"}},
