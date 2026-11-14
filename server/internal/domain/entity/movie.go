@@ -155,6 +155,15 @@ type MoviePlaySource struct {
 	// 详见 docs/epid-集身份/分析-采集侧键口径与匹配度-2026-11-13.md §10.5。
 	DupCopy int8 `gorm:"column:dup_copy" json:"dupCopy"`
 
+	// SourceName 上游片名原文（VodName，000052/2026-11-14）：**可空**——存量行不回填（不触发全库重采）。
+	// 用途：双写副本判定里直接得到「片名键 = GenerateHashKey(SourceName)」，
+	// 不再依赖"我们库内是否有这部片"（此前反推只能到 ≈69.8%，见
+	// docs/epid-集身份/分析-双写副本剩余判定方法-2026-11-14.md）。
+	SourceName *string `gorm:"column:source_name" json:"sourceName"`
+	// SourceDoubanID 上游豆瓣 id（VodDouBanID，000052）：可空，0/NULL = 上游没有该字段。
+	// 用途：直接给出「豆瓣键 = GenerateHashKey(SourceDoubanID)」。
+	SourceDoubanID *int64 `gorm:"column:source_douban_id" json:"sourceDoubanId"`
+
 	CreatedAt int64 `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
 	UpdatedAt int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }

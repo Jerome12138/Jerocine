@@ -59,8 +59,33 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 		// source_vod_id 纳入更新列: 重采时回填旧行的源站影片ID(供去重统计 CountBySite)。
 		// dup_copy 同理纳入: 重采时把"双写副本标记"一并刷新（存量由脚本**近似**补齐，重采会用**正确值**覆盖）✓
 		// content_hash 同理: 判重列本身也要落库(否则下次仍判为"变了" ⇒ 白写, 见 000051)。
-		DoUpdates: clause.AssignmentColumns([]string{"mid", "source_vod_id", "episodes_json", "ep_hash", "content_hash", "dup_copy", "updated_at"}),
+		// 更新列见 playSourceUpsertUpdates()：有序；dup_copy / 000052 两列各有刻意设计（见该函数注释）。
+		DoUpdates: playSourceUpsertUpdates(),
 	}).CreateInBatches(list, 200).Error
+}
+
+// playSourceUpsertUpdates 组装 upsert 的更新列（**顺序即 MySQL 的求值顺序**，从左到右）。
+//
+// 三处刻意设计（改动前先读）：
+//  1. `dup_copy` 纳入 —— 重采时把双写副本标记一并刷新（存量由回填脚本近似补齐，重采会用**正确值**覆盖）；
+//  2. `source_name` / `source_douban_id`（000052，2026-11-14）用 **`COALESCE(VALUES(col), col)`**：
+//     上游有值才覆盖、**空值不冲掉已有值**（宁缺勿错）。这两列是"双写副本判定做到 100%"的唯一依据
+//     ⇒ 被冲成 NULL 会静默退回 ≈69.8% 且不可自愈；故**不能**退化成裸 `VALUES(col)`（有防呆用例钉住）。
+//     另：两列**刻意不进**「内容未变不写」的判重列（`dropUnchanged`）⇒ 不为它们把 72 万源行整体重写一遍
+//     （存量行情愿保持 NULL，等自然重采带上；见迁移 000052 注释）。
+//  3. `content_hash` 纳入 —— 判重列本身要落库，否则下次仍判为"变了" ⇒ 白写（见 000051）。
+func playSourceUpsertUpdates() clause.Set {
+	return clause.Set{
+		{Column: clause.Column{Name: "mid"}, Value: gorm.Expr("VALUES(mid)")},
+		{Column: clause.Column{Name: "source_vod_id"}, Value: gorm.Expr("VALUES(source_vod_id)")},
+		{Column: clause.Column{Name: "episodes_json"}, Value: gorm.Expr("VALUES(episodes_json)")},
+		{Column: clause.Column{Name: "ep_hash"}, Value: gorm.Expr("VALUES(ep_hash)")},
+		{Column: clause.Column{Name: "content_hash"}, Value: gorm.Expr("VALUES(content_hash)")},
+		{Column: clause.Column{Name: "dup_copy"}, Value: gorm.Expr("VALUES(dup_copy)")},
+		{Column: clause.Column{Name: "source_name"}, Value: gorm.Expr("COALESCE(VALUES(source_name), source_name)")},
+		{Column: clause.Column{Name: "source_douban_id"}, Value: gorm.Expr("COALESCE(VALUES(source_douban_id), source_douban_id)")},
+		{Column: clause.Column{Name: "updated_at"}, Value: gorm.Expr("VALUES(updated_at)")},
+	}
 }
 
 // dropUnchanged 返回"确实需要写"的子集与**被跳过**的行数（2026-11-13，「内容未变不写」）。
