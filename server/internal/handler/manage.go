@@ -930,6 +930,38 @@ func (h *Handlers) CollectFilm(c *gin.Context) {
 	respond(c, res, err)
 }
 
+// CollectIds POST /manage/spider/collect-ids {sourceId, ids[], batch?} —— 按上游 vod id **批量**补采。
+//
+// 与 `collect-film` 的分工：那个是"按片名 / 单 vodId"（管理端 UI 逐片用）；本入口专给**定向批量补采**用
+// （如"双写副本判定残留的 5.3 万个 (站, vod) 补 `source_name`/`source_douban_id`"）。
+// 同步执行；单次 ≤ `maxCollectIdsPerRequest` 个 id（内部**再**按 batch 切片，默认 100、上限 500），
+// 大批量由调用方分多次请求（避免被网关超时截断）。
+func (h *Handlers) CollectIds(c *gin.Context) {
+	var req struct {
+		SourceId string  `json:"sourceId"`
+		Ids      []int64 `json:"ids"`
+		Batch    int     `json:"batch"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid body")
+		return
+	}
+	if req.SourceId == "" || len(req.Ids) == 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "sourceId and ids required")
+		return
+	}
+	if len(req.Ids) > maxCollectIdsPerRequest {
+		dto.Error(c, http.StatusUnprocessableEntity, "too many ids (max 3000 per request)")
+		return
+	}
+	res, err := h.Spider.CollectIds(c.Request.Context(), req.SourceId, req.Ids, req.Batch)
+	respond(c, res, err)
+}
+
+// maxCollectIdsPerRequest 单次批量补采的 id 上限：内部按 100/批 ⇒ 最多 30 次上游请求，
+// 避免同步 HTTP 被拖过网关超时（这也是"引擎能批量、但没有客户端分片"的兜底约束）。
+const maxCollectIdsPerRequest = 3000
+
 func (h *Handlers) ManageGetFilm(c *gin.Context) {
 	mid, ok := pathInt64(c, "mid")
 	if !ok {

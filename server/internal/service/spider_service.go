@@ -309,6 +309,96 @@ func (s *SpiderService) CollectOneSource(ctx context.Context, sourceId, keyword 
 	return r, nil
 }
 
+const (
+	defaultCollectIdsBatch = 100 // 默认批大小：ids 走 maccms 的 query string，批太大有 URL 长度风险
+	maxCollectIdsBatch     = 500 // 批大小上限（clamp）
+)
+
+// chunkIds 把 id 列表按 size 切片（**跳过非正数**；size<=0 或大于总数时退化为单批；空输入返回 nil）。
+//
+// 为什么分片放在**调用方**：`spider.CollectByIds` 把整串 id 拼成 maccms `ac=detail&ids=1,2,3`
+// 放进 **query string**（`idsParams`），**引擎自身不分片** ⇒ 批量补采必须由调用方按批喂，
+// 否则条数一多会撞 URL 长度 / 上游容忍度。
+func chunkIds(ids []int64, size int) [][]int64 {
+	pos := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id > 0 {
+			pos = append(pos, id)
+		}
+	}
+	if len(pos) == 0 {
+		return nil
+	}
+	if size <= 0 || size > len(pos) {
+		size = len(pos)
+	}
+	out := make([][]int64, 0, (len(pos)+size-1)/size)
+	for i := 0; i < len(pos); i += size {
+		end := i + size
+		if end > len(pos) {
+			end = len(pos)
+		}
+		out = append(out, pos[i:end])
+	}
+	return out
+}
+
+// countPositive 统计正数 id 的个数（与 chunkIds 的过滤口径一致，用于回报 Requested）。
+func countPositive(ids []int64) int {
+	n := 0
+	for _, id := range ids {
+		if id > 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// CollectIdsResult 按 id 批量补采的结果（Errors 恒为非 nil 切片 ⇒ 前端不会被 JSON null 打晕）。
+type CollectIdsResult struct {
+	SourceId   string   `json:"sourceId"`
+	SourceName string   `json:"sourceName"`
+	Requested  int      `json:"requested"` // 去除非正数后的 id 数
+	Batches    int      `json:"batches"`   // 实际发起的批数
+	Collected  int      `json:"collected"` // 引擎累计返回的影片条数
+	Errors     []string `json:"errors"`    // 逐批错误（单批失败不阻断后续批）
+}
+
+// CollectIds 按上游 vod id **批量**补采（000052 定向补采通道）。
+//
+// 背景：`Engine.CollectByIds` 本来就"一次请求拉多部"，但 HTTP 层只暴露
+// `collect-film {sourceId, vodId}`（单部）⇒ 定向补采 5 万+ 部会变成 5 万次调用 ✗。
+//
+// 与 `CollectOneSource` 同口径：进出计数（`CollectEnter/Leave` ⇒ 全量派生让路）、
+// 逐批 `safeNotify("spider", s.OnSettled)`（让派生跟上）、单批失败不阻断其它批。
+// 建议单次 HTTP ≤ 3000 个 id（见 handler），大批量分多次调用；本方法只做分片与聚合。
+func (s *SpiderService) CollectIds(ctx context.Context, sourceId string, ids []int64, batch int) (CollectIdsResult, error) {
+	CollectEnter()
+	defer CollectLeave()
+	src, err := s.sources.Get(ctx, sourceId)
+	if err != nil {
+		return CollectIdsResult{}, err
+	}
+	if batch <= 0 || batch > maxCollectIdsBatch {
+		batch = defaultCollectIdsBatch
+	}
+	chunks := chunkIds(ids, batch)
+	r := CollectIdsResult{
+		SourceId: src.Id, SourceName: src.Name,
+		Requested: countPositive(ids), Batches: len(chunks), Errors: []string{},
+	}
+	for _, ch := range chunks {
+		n, e := s.engine.CollectByIds(ctx, src, ch)
+		if e != nil {
+			r.Errors = append(r.Errors, e.Error())
+			continue
+		}
+		r.Collected += n
+		safeNotify("spider", s.OnSettled)
+	}
+	return r, nil
+}
+
 // CollectFilm 按片名在指定源(空=全部启用源)采集影片(落库)。逐源调 CollectOneSource(vodId=0) 智能采:
 // 某源精确唯一命中即采、某源多义则返候选; 单源失败不阻断其它源。
 func (s *SpiderService) CollectFilm(ctx context.Context, keyword string, ids []string) ([]SourceFilmResult, error) {
