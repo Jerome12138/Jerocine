@@ -38,53 +38,72 @@ func TestParseEpisodeKey_SixDigitDate(t *testing.T) {
 	}
 }
 
-// TestIsSingleVersionName（R12）：单片/单版本形态词表的"整串可拼出"判定。
-//   - 要认：正片 / HD / hd / **HD国语**（实测最多的一类，两项连写）/ 会员版 / 720P / 带空白脏值
-//   - 不认：任何含序号的（OVA01 / EP09 / 第7.5集）、变体词（特辑）、日期（20240103）、噪声（None）
-func TestIsSingleVersionName(t *testing.T) {
-	yes := []string{"正片", "HD", "hd", "HD国语", "国语", "会员版", "720P", "4K", "OVA", "HD\t", " 正片 ", "完整版国语"}
-	for _, s := range yes {
-		if !IsSingleVersionName(s) {
-			t.Errorf("IsSingleVersionName(%q) = false, want true", s)
+// TestHasASCIIDigit（R12 的排除判据）：判据是"集名不含 ASCII 数字" —— 一次排除所有带序号/区间/日期的写法，
+// 从而既不会与真序号撞（`第1集`），也不会把待定形态（`OVA01`/`EP09`/`第7.5集`）夹带进来。
+func TestHasASCIIDigit(t *testing.T) {
+	noDigit := []string{"正片", "HD", "HD国语", "HD中字", "None", "OVA篇", "正片·", "HD??", "某某电影", "国语"}
+	for _, s := range noDigit {
+		if hasASCIIDigit(s) {
+			t.Errorf("hasASCIIDigit(%q) = true, want false", s)
 		}
 	}
-	no := []string{"", "   ", "OVA01", "EP09", "第1集", "第7.5集", "特辑", "20240103", "第1-20集", "None", "正片2"}
-	for _, s := range no {
-		if IsSingleVersionName(s) {
-			t.Errorf("IsSingleVersionName(%q) = true, want false", s)
+	hasDigit := []string{"第1集", "第1-20集", "OVA01", "EP09", "第7.5集", "240103", "1024", "第一季2"}
+	for _, s := range hasDigit {
+		if !hasASCIIDigit(s) {
+			t.Errorf("hasASCIIDigit(%q) = false, want true", s)
 		}
 	}
 }
 
-// TestEpidsForSourceRow_SingleVersionN1（R12）：单片行补 `n=1`，但**必须**守住"本行只有 1 集"。
-// 线上实测：整行全是单片类的源行里 123,547 行只有 1 集（补得安全 ✓），另 485 行同形态多条（补了就撞 ✗）。
-func TestEpidsForSourceRow_SingleVersionN1(t *testing.T) {
-	// ① 整行只有 1 集 + 单片形态 ⇒ n=1，来源记 form
-	got := EpidsForSourceRow([]string{"正片"})
-	if len(got) != 1 || got[0][0] != "s=-|v=-|p=-|n=1|d=-" || got[0][1] != EpKeySourceForm {
-		t.Fatalf("单片单集应补 n=1/form，得 %v", got)
-	}
-	// ② 同形态多条 ⇒ 一条都不补（否则撞成同一身份 ✗）
-	got = EpidsForSourceRow([]string{"正片", "HD"})
-	for i, g := range got {
-		if g[0] != "" || g[1] != EpKeySourceSkip {
-			t.Errorf("整行多条同形态时第 %d 条不该补身份，得 %v", i, g)
+// TestEpidsForSourceRow_SingleEpisodeN1（R12 放宽版，2026-11-14 用户拍板）：
+// **整行只有 1 集 ∧ 集名不含 ASCII 数字** ⇒ `n=1`（来源 `form`）。
+// 线上依据：含 `HD国语` 的源行 4,101/4,557（90%）只有 1 集 ⇒ `HD国语` 是那一集的名字（HD+国语 两个标签）；
+// 另 428 条是 `HD国语 | 第01集 | …` 的"整片位 + 逐集"写法 ⇒ 必须由"只有 1 集"挡掉 ✓。
+func TestEpidsForSourceRow_SingleEpisodeN1(t *testing.T) {
+	// ① 单集 + 无数字 + 常规派生推不出 ⇒ n=1（含实测中最多与易漏的写法）
+	for _, name := range []string{"正片", "HD", "None"} {
+		got := EpidsForSourceRow([]string{name})
+		if len(got) != 1 || got[0][0] != "s=-|v=-|p=-|n=1|d=-" || got[0][1] != EpKeySourceForm {
+			t.Errorf("%q 单集应补 n=1/form，得 %v", name, got)
 		}
 	}
-	// ③ 混有真序号 ⇒ 单片那条不补（避免与「第1集」撞），真序号照常派生
+	// ①b ⚠️ 两类"看着像漏网、其实已有身份"的写法（本轮实测打脸假设）——**不该**再补 n=1：
+	//   - `HD中字` ⇒ 既有怪癖：`中字` 被当作「栏目 + 主次」⇒ 得 `s=中字|p=中|n=-`（跨源一致 ⇒ 无害；
+	//     要治得走 R 系列的"标点/噪声词"那条，不在 R12 范围）
+	//   - `某某电影` ⇒ 整名进 `s` 段 ⇒ 已有身份（对单片而言这个身份其实是对的 ✓）
+	for _, name := range []string{"HD中字", "某某电影"} {
+		got := EpidsForSourceRow([]string{name})
+		if got[0][1] == EpKeySourceForm || got[0][0] == "" {
+			t.Errorf("%q 应已有身份（不该走 R12、也不该为空），得 %v", name, got)
+		}
+	}
+	// ② 单集但含数字（区间 / 形态+序号 / 小数 / 裸数字）⇒ 不补（留给 R13 或待定，宁缺勿错）
+	for _, name := range []string{"第1-20集", "OVA01", "EP09", "第7.5集", "1"} {
+		if got := EpidsForSourceRow([]string{name}); got[0][1] == EpKeySourceForm {
+			t.Errorf("%q 含数字不该走 R12，得 %v", name, got)
+		}
+	}
+	// ③ 整行多集 ⇒ 一条都不补
+	got := EpidsForSourceRow([]string{"正片", "HD"})
+	for i, g := range got {
+		if g[1] == EpKeySourceForm {
+			t.Errorf("多集行第 %d 条不该走 R12，得 %v", i, g)
+		}
+	}
+	// ④ 混有真序号 ⇒ 无数字那条也不补（避免与「第1集」撞），真序号照常派生
 	got = EpidsForSourceRow([]string{"正片", "第1集"})
-	if got[0][0] != "" || got[0][1] != EpKeySourceSkip {
-		t.Errorf("混序号时「正片」不该补 n=1（会撞第1集），得 %v", got[0])
+	if got[0][1] == EpKeySourceForm {
+		t.Errorf("混序号时「正片」不该走 R12（会撞第1集），得 %v", got[0])
 	}
 	if got[1][0] != "s=-|v=-|p=-|n=1|d=-" {
 		t.Errorf("「第1集」应照常派生，得 %v", got[1])
 	}
-	// ④ 变体形态（「特辑」）不受本规则影响
-	if got := EpidsForSourceRow([]string{"特辑"}); got[0][1] == EpKeySourceForm {
-		t.Errorf("「特辑」不是单片形态，不该走 R12，得 %v", got[0])
-	}
 	// ⑤ 空集名不补
 	if got := EpidsForSourceRow([]string{""}); got[0][1] == EpKeySourceForm {
 		t.Errorf("空集名不该补，得 %v", got[0])
+	}
+	// ⑥ 变体形态（「特辑」）本就触发，不走 R12
+	if got := EpidsForSourceRow([]string{"特辑"}); got[0][1] == EpKeySourceForm {
+		t.Errorf("「特辑」不该走 R12，得 %v", got[0])
 	}
 }

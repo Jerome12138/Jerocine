@@ -189,39 +189,42 @@ func EpidFor(title string, allTitles []string) (epid string, fromSrc string) {
 // EpidsForSourceRow 把一个源行的**整段集名**派生成 epid（P1-1 的核心入口）。
 // 入参 `titles` 通常取"本片所有源的所有集名"（桥接/锚点需要他源），
 // 返回与 `titles` **等长**的 (epid, fromSrc) 切片（未触发/推不出 ⇒ 空串 + none）。
-// singleVersionWords 单片/单版本形态词表（R12，2026-11-14 服务端口径）。
+// hasASCIIDigit 名称里是否含 ASCII 数字（R12 的排除判据）。
 //
-// 判据是「**整串可由这些词拼出**」（去空白 + 大写化后贪心消解）—— 这样线上实测最多的一类
-// `HD国语`（3,997 条，两项连写）也能识别 ✓；"不含序号信息"由"词表里没有数字"保证 ✓。
-// ⚠️ 只收"形态/语言/版本/画质"这类**不含序号**的词；含数字的（`OVA01`/`EP09`/`第7.5集`）一律不收
-// ⇒ 它们是 R14/R15/R16 候选，不在本规则里夹带 ✓（宁缺勿错）。
-// 顺序按"同前缀长者优先"（如 HDR 在 HD 前 ✓）。
-var singleVersionWords = []string{
-	"2160P", "1080P", "720P", "会员版", "完整版", "抢先版", "高清", "原画",
-	"正片", "国语", "粤语", "日语", "英语", "原声", "HDR", "4K", "OVA", "HD", "SD", "TC", "BD",
+// 判据演进（2026-11-14）：原用"单片/单版本形态白名单"，线上实测发现漏掉常见写法
+// （`HD中字`、`None`、以片名命名的单集行…）；用户拍板「**只要该行只有 1 集，就直接按单片单集处理**」⇒
+// 改成"**集名不含 ASCII 数字**"：整行只有 1 集时 `n=1` 就是这一行的事实，而"含数字"恰好一次排除掉
+// 所有带序号/区间/日期的写法（`第1-20集`/`OVA01`/`EP09`/`第7.5集`/`240103`/裸数字…）⇒
+// 既简单又守得住"宁缺勿错"（不误撞真序号，也不把待定形态 R14/R15/R16 夹带进来）。
+func hasASCIIDigit(name string) bool {
+	for i := 0; i < len(name); i++ {
+		if isDigitByte(name[i]) {
+			return true
+		}
+	}
+	return false
 }
 
-// IsSingleVersionName 是否"单片/单版本"集名（去空白 + 大写化后可由词表完整拼出，且非空）。
-// 去空白用 `strings.Fields` ⇒ 顺带治 `正片\t`（实测 24 条带尾随制表符）这类脏值 ✓。
-func IsSingleVersionName(name string) bool {
-	s := strings.ToUpper(strings.Join(strings.Fields(name), ""))
-	if s == "" {
-		return false
+// bareNum 裸数字集名（R13，2026-11-14 服务端口径）：去空白后**整串**是 1–4 位十进制数字 ⇒ 返回其值。
+//
+// 上界取 4 位：6 位是 YYMMDD（R11 已处理）、5 位以上含义不明 ⇒ 宁缺勿错；前导零按十进制（`001` ⇒ 1 ✓）。
+// 是否采纳还要看调用方的**行内 distinct ≥2** 守卫（单条裸数字可能是线路/版本号，成串才是集序 ✓）。
+func bareNum(name string) (int, bool) {
+	s := strings.Join(strings.Fields(name), "")
+	if len(s) == 0 || len(s) > 4 {
+		return 0, false
 	}
-	for len(s) > 0 {
-		matched := false
-		for _, w := range singleVersionWords {
-			if strings.HasPrefix(s, w) {
-				s = s[len(w):]
-				matched = true
-				break
-			}
+	v := 0
+	for i := 0; i < len(s); i++ {
+		if !isDigitByte(s[i]) {
+			return 0, false
 		}
-		if !matched {
-			return false
-		}
+		v = v*10 + int(s[i]-'0')
 	}
-	return true
+	if v <= 0 {
+		return 0, false
+	}
+	return v, true
 }
 
 func EpidsForSourceRow(titles []string) [][2]string {
@@ -239,22 +242,41 @@ func EpidsForSourceRowWithPool(titles, pool []string) [][2]string {
 	out := make([][2]string, 0, len(titles))
 	// R12（2026-11-14 **服务端口径**）：单片/单版本行补 `n=1`。
 	// 守卫（缺一不可）：
-	//  ① **本行只有 1 集** —— 实测"整行全是单片类"的源行里，123,547 行只有 1 集；另外 485 行是
-	//     "正片 + HD"这类同形态多条 ⇒ 一刀切会让它们**撞成同一身份** ✗；
-	//  ② 该集名属单片/单版本形态（白名单 ✓，不含任何序号）；
+	//  ① **本行只有 1 集** —— 实测"含 HD国语 的源行"里 4,101/4,557（90%）只有 1 集 ⇒ `HD国语` 就是
+	//     那一集的名字（HD 画质 + 国语 两个标签，**不是两集**）；另 428 条是 `HD国语 | 第01集 | …`
+	//     这种"整片位 + 逐集"写法 ⇒ 由本条①挡掉 ✓（不会给错身份）；
+	//  ② 集名**不含 ASCII 数字** ⇒ 一次排除所有带序号/区间/日期的写法（见 `hasASCIIDigit`）；
 	//  ③ 常规派生**没推出身份**（`skip`）—— 不覆盖已有结论 ✓。
-	// 为什么这是"实测"而非推断：整行只有一集 + 形态是单片 ⇒ `n=1` 就是这一行的事实 ✓
-	// （跨源收益：同一部电影在 A 源叫「正片」、B 源叫「HD」⇒ 都成 `n=1` ⇒ 能对齐、池键也稳 ✓）。
+	// 为什么这是"实测"而非推断：整行只有一集 + 名字里没有任何序号信息 ⇒ `n=1` 就是这一行的事实 ✓
+	// （跨源收益：同一部电影在 A 源叫「正片」、B 源叫「HD国语」⇒ 都成 `n=1` ⇒ 能对齐、池键也稳 ✓）。
 	onlyOne := 0
 	for _, t := range titles {
 		if strings.TrimSpace(t) != "" {
 			onlyOne++
 		}
 	}
+	// R13（2026-11-14 服务端口径）：裸数字集名纳入 `n`（`1`/`02`/`001` ⇒ 1/2/1），**来源记 `self`**
+	// （数字本来就写在集名里 ✓ 与"自带期号"同义 ⇒ 不新增来源值）。
+	// 守卫：**行内 distinct 裸数字名 ≥ 2** —— 单条裸数字可能是线路/版本号，成串才是集序 ✓。
+	// ⚠️ **不能用"行内 ≥2 条"**：双写会让同一集名在同一行出现两次 ⇒ 该条件恒成立 ✗（实测踩过）。
+	bare := make(map[int]struct{}, len(titles))
+	for _, t := range titles {
+		if v, ok := bareNum(t); ok {
+			bare[v] = struct{}{}
+		}
+	}
+	bareOK := len(bare) >= 2
 	for _, t := range titles {
 		epid, from := EpidFor(t, pool)
-		if epid == "" && from == EpKeySourceSkip && onlyOne == 1 && IsSingleVersionName(t) {
-			epid, from = EpidOf(EpisodeKey{Num: 1}), EpKeySourceForm
+		if epid == "" && from == EpKeySourceSkip {
+			switch {
+			case onlyOne == 1 && !hasASCIIDigit(t):
+				epid, from = EpidOf(EpisodeKey{Num: 1}), EpKeySourceForm
+			case bareOK:
+				if v, ok := bareNum(t); ok {
+					epid, from = EpidOf(EpisodeKey{Num: v}), EpKeySourceSelf
+				}
+			}
 		}
 		out = append(out, [2]string{epid, from})
 	}
