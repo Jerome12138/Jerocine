@@ -155,6 +155,11 @@ func DerivedNumFor(title string, allTitles []string) int {
 // 旧数据里这两种情况都记成 `none` ⇒ rebuild 后才有 `skip` ✓（不破坏兼容：`from=` 只是标注）。
 const EpKeySourceSkip = "skip"
 
+// EpKeySourceForm **形态来源**（R12，2026-11-14）：整行只有 1 集、且集名是"单片/单版本"形态
+// （正片/HD/国语/会员版… 无任何序号信息）⇒ 按 **n=1** 给身份。与 self/bridge/anchor/none 并列，
+// 指标 `byFromSrc` 自动分档（便于回看这条规则贡献了多少）。详见 `EpidsForSourceRowWithPool`。
+const EpKeySourceForm = "form"
+
 func EpidFor(title string, allTitles []string) (epid string, fromSrc string) {
 	k := ParseEpisodeKey(title)
 	if !EpisodeTriggered(k) {
@@ -184,6 +189,41 @@ func EpidFor(title string, allTitles []string) (epid string, fromSrc string) {
 // EpidsForSourceRow 把一个源行的**整段集名**派生成 epid（P1-1 的核心入口）。
 // 入参 `titles` 通常取"本片所有源的所有集名"（桥接/锚点需要他源），
 // 返回与 `titles` **等长**的 (epid, fromSrc) 切片（未触发/推不出 ⇒ 空串 + none）。
+// singleVersionWords 单片/单版本形态词表（R12，2026-11-14 服务端口径）。
+//
+// 判据是「**整串可由这些词拼出**」（去空白 + 大写化后贪心消解）—— 这样线上实测最多的一类
+// `HD国语`（3,997 条，两项连写）也能识别 ✓；"不含序号信息"由"词表里没有数字"保证 ✓。
+// ⚠️ 只收"形态/语言/版本/画质"这类**不含序号**的词；含数字的（`OVA01`/`EP09`/`第7.5集`）一律不收
+// ⇒ 它们是 R14/R15/R16 候选，不在本规则里夹带 ✓（宁缺勿错）。
+// 顺序按"同前缀长者优先"（如 HDR 在 HD 前 ✓）。
+var singleVersionWords = []string{
+	"2160P", "1080P", "720P", "会员版", "完整版", "抢先版", "高清", "原画",
+	"正片", "国语", "粤语", "日语", "英语", "原声", "HDR", "4K", "OVA", "HD", "SD", "TC", "BD",
+}
+
+// IsSingleVersionName 是否"单片/单版本"集名（去空白 + 大写化后可由词表完整拼出，且非空）。
+// 去空白用 `strings.Fields` ⇒ 顺带治 `正片\t`（实测 24 条带尾随制表符）这类脏值 ✓。
+func IsSingleVersionName(name string) bool {
+	s := strings.ToUpper(strings.Join(strings.Fields(name), ""))
+	if s == "" {
+		return false
+	}
+	for len(s) > 0 {
+		matched := false
+		for _, w := range singleVersionWords {
+			if strings.HasPrefix(s, w) {
+				s = s[len(w):]
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
 func EpidsForSourceRow(titles []string) [][2]string {
 	return EpidsForSourceRowWithPool(titles, titles)
 }
@@ -197,8 +237,25 @@ func EpidsForSourceRowWithPool(titles, pool []string) [][2]string {
 		pool = titles
 	}
 	out := make([][2]string, 0, len(titles))
+	// R12（2026-11-14 **服务端口径**）：单片/单版本行补 `n=1`。
+	// 守卫（缺一不可）：
+	//  ① **本行只有 1 集** —— 实测"整行全是单片类"的源行里，123,547 行只有 1 集；另外 485 行是
+	//     "正片 + HD"这类同形态多条 ⇒ 一刀切会让它们**撞成同一身份** ✗；
+	//  ② 该集名属单片/单版本形态（白名单 ✓，不含任何序号）；
+	//  ③ 常规派生**没推出身份**（`skip`）—— 不覆盖已有结论 ✓。
+	// 为什么这是"实测"而非推断：整行只有一集 + 形态是单片 ⇒ `n=1` 就是这一行的事实 ✓
+	// （跨源收益：同一部电影在 A 源叫「正片」、B 源叫「HD」⇒ 都成 `n=1` ⇒ 能对齐、池键也稳 ✓）。
+	onlyOne := 0
+	for _, t := range titles {
+		if strings.TrimSpace(t) != "" {
+			onlyOne++
+		}
+	}
 	for _, t := range titles {
 		epid, from := EpidFor(t, pool)
+		if epid == "" && from == EpKeySourceSkip && onlyOne == 1 && IsSingleVersionName(t) {
+			epid, from = EpidOf(EpisodeKey{Num: 1}), EpKeySourceForm
+		}
 		out = append(out, [2]string{epid, from})
 	}
 	return out

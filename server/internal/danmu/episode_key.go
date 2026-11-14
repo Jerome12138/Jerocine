@@ -13,10 +13,10 @@ import (
 
 // EpisodeKey 从「集名/集标题」解析出的**同集判定键**（见同名文档 docs/排查-弹幕集名映射与综艺错位）。
 type EpisodeKey struct {
-	Date    string // YYYYMMDD（19xx/20xx，无则空）
-	Num     int    // 第N期 / 第N集 / 第N话 / 第N回 / 第N季 / 第N部（无则 0）
-	ENum    int    // E01 / EP01（无则 0）
-	Part    string // **主部分（复合单段）**：上 / 中 / 下；若紧跟（最多隔一个左括号）还有 上/中/下 ⇒ 复合为
+	Date string // YYYYMMDD（19xx/20xx，无则空）
+	Num  int    // 第N期 / 第N集 / 第N话 / 第N回 / 第N季 / 第N部（无则 0）
+	ENum int    // E01 / EP01（无则 0）
+	Part string // **主部分（复合单段）**：上 / 中 / 下；若紧跟（最多隔一个左括号）还有 上/中/下 ⇒ 复合为
 	//                「中上」「中下」「上中」等（P0-1c 2026-11-10：由 part+sub 两字段合并为一个复合字段）。
 	//                比较规则见 partCompatible —— **前缀相容**（短的是长的前缀 ⇒ 相容，`中` ⊂ `中上`/`中下`）。
 	Variant string // 有意义的变体词集合，按字典序用 "," 连接（无则空）
@@ -26,7 +26,7 @@ type EpisodeKey struct {
 	// 必须与变体复合为身份：否则「特辑1..5」坍缩成同一个 Variant，L3a 组内不唯一 ⇒ 整组配不上
 	// （桃花坞6 特辑 4~5 集丢弹幕的根因；P0-1a，2026-11-10 三端同规）。纯日期/5 位以上数字不取（见 reVariantNum）。
 	VariantNum int
-	Series  string // **栏目/系列名**（正片为空）：如「心动的周末」「心动的旅行」；
+	Series     string // **栏目/系列名**（正片为空）：如「心动的周末」「心动的旅行」；
 	//                需 ≥2 个中文字才算数（过滤「版」「片」这类残留）
 }
 
@@ -266,6 +266,13 @@ func EpKeyConflictTotal() int64 { return atomic.LoadInt64(&epKeyConflictTotal) }
 
 var (
 	reDate8 = regexp.MustCompile(`(?:19|20)\d{6}`)
+	// reDate6 6 位 YYMMDD（R11，2026-11-14 **服务端口径**）：线上实测"空 epid 里的 6 位纯数字"
+	// 共 2,743 条，其中**月日合法 2,742（99.96%）**、年份前缀 ∈19–26 ⇒ 这是真实存在的日期写法
+	// （周更综艺，如 240103 → 20240103，同片单线路 272 集、每周三）。补齐成 8 位后可与其它源的
+	// 8 位日期**直接比对**（`d` 是原始事实 ⇒ 还能参与桥接）。
+	// ⚠️ 这里只用 `\d{6}` 打底，**边界与合法性在 `date6` 里手工校验**（RE2 无 lookaround，
+	// 沿用"消费后手工判边界"的既有手法），避免把 7/9 位数字串截出半截当日期 ✗。
+	reDate6 = regexp.MustCompile(`\d{6}`)
 	reDiN   = regexp.MustCompile(`第\s*(\d{1,4})\s*[期集话回季部]`)
 	reENum  = regexp.MustCompile(`(?i)(?:^|[^A-Za-z])(?:E|EP)\s*0*(\d{1,3})(?:\D|$)`)
 	// reVariant = **有意义的变体**：标识"同一集的另一份内容"，参与同集判定（两侧必须完全相等）。
@@ -305,7 +312,6 @@ func dateSeqTail(s string, dateEnd int) string {
 	return s[dateEnd:j]
 }
 
-
 // reDashDate 破折/点分日期(2026-10-10期 / 2022.05.01期)—— 弹幕库侧综艺标题的主流日期形态。
 // 解析前统一归一为 8 位, 使三格式(8位/破折/点分)落到同一个键(2026-11-07 v2, 实测最大单项收益)。
 var reDashDate = regexp.MustCompile(`((?:19|20)\d{2})[-.](\d{2})[-.](\d{2})`)
@@ -342,6 +348,17 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	if m := reENum.FindStringSubmatch(s); m != nil {
 		if v, err := strconv.Atoi(m[1]); err == nil {
 			k.ENum = v
+		}
+	}
+	// R11（2026-11-14 **服务端口径**）：6 位 YYMMDD 兼容 —— 补齐为 8 位（便于与其它源的 8 位日期直接比对）。
+	//   - **8 位优先**（上面已处理）⇒ 这里只在常规日期没取到时尝试；
+	//   - ⚠️ **E 圆号类（`E01.220705`/`EP09`）不适用**：口径上 E 圆号整条**不产身份**
+	//     （不同源 E 编号常漂 ⇒ 黄金用例 `E01.220705` 明确"不应触发"）⇒ 6 位日期不得把它"救活" ✗。
+	//     8 位日期 + E 圆号的既有行为**不动**（那是另一件事）。
+	if k.Date == "" && k.ENum == 0 {
+		if d, _, end, ok := date6(s); ok {
+			k.Date = d
+			dateTail = dateSeqTail(s, end)
 		}
 	}
 	k.Part = parsePart(s)
@@ -421,6 +438,61 @@ func isLeftBracket(r rune) bool {
 // 只做两类**边界截断**：尾部 上/中/下（part 标记总在尾部）、首个「季」处（季是分季区分位）
 // → 要求 2~8 个中文字（≤8: 真栏目标签实测全部 ≤8；≥9 全是库侧自由描述/片名+残留）。
 // 旧实现"只留中文+逐字剔除"会跨段拼出假栏目名（残渣巧合匹配），已废。
+// isDigitByte 单字节数字判断（`date6` / `stripDate6` 判边界用；只处理 ASCII 数字）。
+func isDigitByte(b byte) bool { return b >= '0' && b <= '9' }
+
+// daysInMonth 当月天数（含闰年）。
+func daysInMonth(year, month int) int {
+	if month < 1 || month > 12 {
+		return 0
+	}
+	if month == 2 && (year%4 == 0 && year%100 != 0 || year%400 == 0) {
+		return 29
+	}
+	days := [...]int{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+	return days[month]
+}
+
+// date6 在 s 里找**符合 YYMMDD 语义**的 6 位日期，返回 8 位规范形与匹配区间（R11，2026-11-14）。
+//
+// 边界（缺一不可）：① 前后都不接数字（否则是更长数字串的一部分 ✗，如 7/9 位）；
+// ② 月 01–12；③ 日不超当月天数（含闰年）；④ 世纪：yy >= 70 ⇒ 19xx，否则 20xx。
+func date6(s string) (date string, start, end int, ok bool) {
+	for _, loc := range reDate6.FindAllStringIndex(s, -1) {
+		if loc[0] > 0 && isDigitByte(s[loc[0]-1]) {
+			continue
+		}
+		if loc[1] < len(s) && isDigitByte(s[loc[1]]) {
+			continue
+		}
+		v := s[loc[0]:loc[1]]
+		yy, _ := strconv.Atoi(v[0:2])
+		mm, _ := strconv.Atoi(v[2:4])
+		dd, _ := strconv.Atoi(v[4:6])
+		year := 2000 + yy
+		century := "20"
+		if yy >= 70 {
+			year, century = 1900+yy, "19"
+		}
+		if dd < 1 || dd > daysInMonth(year, mm) {
+			continue
+		}
+		return century + v, loc[0], loc[1], true
+	}
+	return "", 0, 0, false
+}
+
+// stripDate6 把 s 里**符合语义**的 6 位日期替换为占位符（`seriesOf` 提栏目名用；占位符非数字 ⇒ 不会自我循环）。
+func stripDate6(s, sep string) string {
+	for {
+		_, start, end, ok := date6(s)
+		if !ok {
+			return s
+		}
+		s = s[:start] + sep + s[end:]
+	}
+}
+
 func seriesOf(s string) string {
 	if i := strings.IndexAny(s, "：:"); i >= 0 {
 		s = s[:i]
@@ -433,6 +505,7 @@ func seriesOf(s string) string {
 	// 会残留一个「期」，栏目名变「期心动的旅行」，与库侧对不上（与 TS 侧同一 bug，2026-11-09 三端同修）
 	s = reDiNWide.ReplaceAllString(s, sep)
 	s = reDate8.ReplaceAllString(s, sep)
+	s = stripDate6(s, sep) // R11：6 位 YYMMDD 同样剥离（否则 240103 会漏进栏目名 ✗）
 	s = reSeasonSpan.ReplaceAllString(s, sep)
 	s = reENum.ReplaceAllString(s, sep)
 	s = reVariant.ReplaceAllString(s, sep)
