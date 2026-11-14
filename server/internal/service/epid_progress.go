@@ -418,7 +418,7 @@ func KickHeavyMetricsRefresh() {
 		if currentEpidService() == nil {
 			return
 		}
-		bg, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		bg, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 		hm := refreshHeavyMetrics(bg)
 		heavyMu.Lock()
@@ -456,6 +456,21 @@ func refreshHeavyMetrics(ctx context.Context) heavyMetrics {
 			hm.MetricsError += label + "：" + err.Error()
 		}
 	}
+	// 分类跨源对齐（mk 级，8 批 keyset 双层聚合，实测需 ~6 分钟）**排最前**（总 ctx 最充裕时跑），
+	// 预算 420s；它产出主口径 alignmentPct（单源默认对齐）。
+	each("分类跨源对齐（mk 级）", 420*time.Second, func(c context.Context) error {
+		v, all, err := s.repo.ClassAlignment(c)
+		if err != nil {
+			return err
+		}
+		if v != nil {
+			hm.ClassAlignment = v
+		}
+		hm.ClassAlignmentAll = all
+		// 主口径对齐率 = mk 级（单源默认对齐；组级 AlignedGroups/TotalGroups 仅对照）。
+		hm.AlignmentPct = all.Pct
+		return nil
+	})
 	each("全库口径", 90*time.Second, func(c context.Context) error {
 		rep, err := s.AlignmentReport(c)
 		if err != nil {
@@ -463,7 +478,6 @@ func refreshHeavyMetrics(ctx context.Context) heavyMetrics {
 		}
 		hm.DerivedRows, hm.EmptyEpidRows = rep.TotalDerivedRows, rep.EmptyEpidRows
 		hm.AlignedGroups, hm.TotalGroups = rep.AlignedGroups, rep.TotalGroups
-		hm.AlignmentPct = rep.AlignmentPct
 		if rep.ByFromSrc != nil {
 			hm.ByFromSrc = rep.ByFromSrc
 		}
@@ -478,19 +492,6 @@ func refreshHeavyMetrics(ctx context.Context) heavyMetrics {
 		if t > 0 {
 			hm.ComparablePct = float64(a) * 100 / float64(t)
 		}
-		return nil
-	})
-	each("分类跨源对齐（mk 级）", 180*time.Second, func(c context.Context) error {
-		v, all, err := s.repo.ClassAlignment(c)
-		if err != nil {
-			return err
-		}
-		if v != nil {
-			hm.ClassAlignment = v
-		}
-		hm.ClassAlignmentAll = all
-		// 主口径对齐率 = mk 级（单源默认对齐；组级 AlignedGroups/TotalGroups 仅对照）。
-		hm.AlignmentPct = all.Pct
 		return nil
 	})
 	each("空 epid 形态", 60*time.Second, func(c context.Context) error {

@@ -724,7 +724,7 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 	}
 	accs := map[int64]*acc{}
 	var all ClassAlignmentStat
-	const page = 50000
+	const page = 100000
 	after := int64(math.MinInt64)
 	for i := 0; i < 32; i++ {
 		var next int64
