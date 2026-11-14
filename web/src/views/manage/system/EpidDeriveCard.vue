@@ -305,30 +305,36 @@ onMounted(() => void loadOverrides())
         </div>
       </div>
 
-      <!-- ===== 本轮任务（内存计数，0 成本）===== -->
+      <!-- ===== 本轮任务（内存计数，0 成本）—— 仅派生中渲染进度类读数（空闲时它们全是陈旧 0）===== -->
       <dl class="grid grid-cols-2 gap-[var(--jc-space-3)]">
         <div>
           <dt class="text-muted">任务状态</dt>
           <dd>
-            {{ report.status.running ? '在跑' : '空闲' }}
-            <span v-if="report.status.running">
+            {{ report.deriving ? '派生中' : report.status.running ? '在跑' : '空闲' }}
+            <span v-if="report.deriving">
               （{{ report.status.mode }} / {{ report.status.hotPhase ? '热门趟' : '长尾趟' }}）
             </span>
           </dd>
         </div>
-        <div>
-          <dt class="text-muted">本轮扫过 / 重建</dt>
-          <dd>
-            {{ num(report.status.scanned) }} / {{ num(report.status.rebuilt) }} 源行（{{ num(report.status.batches) }} 批）
-          </dd>
-        </div>
-        <div>
-          <dt class="text-muted">本轮速率 / 已跑</dt>
-          <dd>{{ rateTxt }} · {{ report.status.running ? dur(report.status.elapsedSec) : '—' }}</dd>
-        </div>
-        <div>
-          <dt class="text-muted">预计还需（按重建速率，下界）</dt>
-          <dd>{{ prog && prog.etaSec > 0 ? dur(prog.etaSec) : '—' }}</dd>
+        <template v-if="report.deriving">
+          <div>
+            <dt class="text-muted">本轮扫过 / 重建</dt>
+            <dd>
+              {{ num(report.status.scanned) }} / {{ num(report.status.rebuilt) }} 源行（{{ num(report.status.batches) }} 批）
+            </dd>
+          </div>
+          <div>
+            <dt class="text-muted">本轮速率 / 已跑</dt>
+            <dd>{{ rateTxt }} · {{ dur(report.status.elapsedSec) }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted">预计还需（按重建速率，下界）</dt>
+            <dd>{{ prog && prog.etaSec > 0 ? dur(prog.etaSec) : '—' }}</dd>
+          </div>
+        </template>
+        <div v-else>
+          <dt class="text-muted">进度类指标</dt>
+          <dd class="text-muted">空闲态 —— 本轮扫过 / 速率 / 预计还需只在派生中有意义</dd>
         </div>
       </dl>
 
@@ -357,7 +363,7 @@ onMounted(() => void loadOverrides())
 
       <!-- ===== 重型指标：任务进行中一律"未算"，不渲染成 0 ===== -->
       <p v-if="report.onlyProgress" class="text-muted">
-        对齐率 / 分层 / 成熟度 / 空形态 / 覆盖率：<span class="font-[var(--jc-fw-semibold)]">任务进行中不计算</span>
+        对齐率 / 分类对齐 / 空形态 / 覆盖率：<span class="font-[var(--jc-fw-semibold)]">任务进行中不计算</span>
         （分母里混着"还没跑到"的片，读数无判定意义）—— 跑完再点「刷新指标」。
       </p>
       <template v-else>
@@ -370,12 +376,12 @@ onMounted(() => void loadOverrides())
         </p>
         <dl class="grid grid-cols-2 gap-[var(--jc-space-3)]">
           <div>
-            <dt class="text-muted">对齐率（可比口径，门槛 ≥85%）</dt>
+            <dt class="text-muted">对齐率（mk 级主口径：单源默认对齐；未对齐 = 多源分歧）</dt>
             <dd>
-              {{ pct(report.comparablePct) }}
+              {{ pct(report.classAlignmentAll?.pct ?? 0) }}
               <span class="text-muted">
-                （{{ report.comparableAligned }}/{{ report.comparableTotal }} 组；全库口径对照
-                {{ pct(report.alignmentPct) }}）
+                （{{ num(report.classAlignmentAll?.alignedMks) }}/{{ num(report.classAlignmentAll?.totalMks) }} 片；
+                组级跨源共享对照 {{ pct(report.alignmentPct) }}）
               </span>
             </dd>
           </div>
@@ -393,23 +399,13 @@ onMounted(() => void loadOverrides())
               <span v-if="!report.byFromSrc || !Object.keys(report.byFromSrc).length" class="text-muted">—</span>
             </dd>
           </div>
-          <!-- 分层（2026-11-11）：按 category 名称给"有身份率"，避免再用裸 pid 猜分类 -->
-          <div v-if="report.byCategory?.length" class="col-span-2">
-            <dt class="text-muted">按分类（有身份率 = 非空 epid / 派生行）</dt>
+          <!-- 分类跨源对齐（mk 级，2026-11-15）：取代旧的"有身份率/成熟度"两块 -->
+          <div v-if="report.classAlignment?.length" class="col-span-2">
+            <dt class="text-muted">按分类跨源对齐（mk 级：对齐 = 该片非空 epid 只有一种）</dt>
             <dd class="flex flex-col">
-              <span v-for="c in report.byCategory" :key="c.pid">
-                {{ c.category }}：{{ pct(c.nonEmptyPct) }}
-                <span class="text-muted">（{{ c.nonEmpty }}/{{ c.rowCnt }}）</span>
-              </span>
-            </dd>
-          </div>
-          <!-- 成熟度（源行口径）：对齐率只有在该片全源行都已派生后才可解释 -->
-          <div v-if="report.maturity?.length" class="col-span-2">
-            <dt class="text-muted">源行派生成熟度（按分类）</dt>
-            <dd class="flex flex-col">
-              <span v-for="m in report.maturity" :key="m.pid">
-                {{ m.category }}：{{ m.srcRows ? ((m.derivedSrcRows * 100) / m.srcRows).toFixed(1) : '0.0' }}%
-                <span class="text-muted">（{{ m.derivedSrcRows }}/{{ m.srcRows }}）</span>
+              <span v-for="c in report.classAlignment" :key="c.pid">
+                {{ c.category }}：{{ pct(c.pct) }}
+                <span class="text-muted">（对齐 {{ num(c.alignedMks) }} / 共 {{ num(c.totalMks) }} 片）</span>
               </span>
             </dd>
           </div>

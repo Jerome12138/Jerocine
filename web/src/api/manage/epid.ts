@@ -80,7 +80,7 @@ export interface EpidReport {
   alignedGroups: number
   /** 参与统计的非空 epid 组数（全库口径） */
   totalGroups: number
-  /** 对齐率（%，**全库口径**，不作门槛判定） */
+  /** 对齐率（%，**mk 级主口径**：单源默认按对齐算；未对齐 = 多源分歧，见 classAlignment） */
   alignmentPct: number
   /** 期号来源分布 */
   byFromSrc: EpidFromSrcStat
@@ -89,26 +89,28 @@ export interface EpidReport {
   /** 覆盖率算不出来时的原因（表为空/查询失败等） */
   coverageError?: string
 
-  // ---- 口径层（2026-11-11）：§4.8 门槛以**可比口径**为准 ----
-  /** 可比口径：分母只含"真相源里 ≥2 site 且已成熟"的片 */
+  // ---- 口径层（2026-11-11 / 2026-11-15 修订）----
+  /** 可比口径（对照）：分母只含"真相源里 ≥2 site 且已成熟"的片 */
   comparableAligned: number
   comparableTotal: number
   comparablePct: number
+  /** true = 派生任务进行中（进度类指标只在此状态有意义） */
+  deriving: boolean
   /** 进度集（任务进行中也给） */
   progress?: EpidProgress
   /**
    * true ⇒ 本轮**只算了进度集**（任务进行中）。
-   * ⚠️ 此时下面对齐率/分层/成熟度/形态/覆盖率都是 0，**只是"没算"，不是"真的是 0"** ⇒ 不要当真值渲染。
+   * ⚠️ 此时对齐率/分类对齐/形态/覆盖率都是 0，**只是"没算"，不是"真的是 0"** ⇒ 不要当真值渲染。
    */
   onlyProgress: boolean
   /** 重型指标快照的采样时间（毫秒；0 = 后台还没算出来） */
   metricsAt: number
   /** true = 后台正在刷新，展示的是上一份快照 */
   metricsStale: boolean
-  /** 源行口径成熟度（按分类）：分母=真相源全部源行，分子=其中已有派生行的源行数 */
-  maturity: { pid: number; category: string; srcRows: number; derivedSrcRows: number }[]
-  /** 分层"有身份率"（按分类，用 category 名称） */
-  byCategory: { pid: number; category: string; rowCnt: number; nonEmpty: number; nonEmptyPct: number }[]
+  /** 按分类跨源对齐（mk 级）：对齐 = 该片非空 epid 只有一种；未对齐 = 多源分歧（P-1 类） */
+  classAlignment: { pid: number; category: string; totalMks: number; alignedMks: number; pct: number }[]
+  /** 全库汇总（category="全部"） */
+  classAlignmentAll: { pid: number; category: string; totalMks: number; alignedMks: number; pct: number }
   /** 空 epid 的集名形态分档（回答"为什么空"） */
   emptyByShape: { shape: string; rowCnt: number }[]
   metricsError?: string

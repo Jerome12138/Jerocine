@@ -354,18 +354,22 @@ const (
 
 // heavyMetrics 重型指标的一份快照。
 type heavyMetrics struct {
-	MetricsError      string
-	DerivedRows       int64
-	EmptyEpidRows     int64
-	AlignedGroups     int64
-	TotalGroups       int64
+	MetricsError  string
+	DerivedRows   int64
+	EmptyEpidRows int64
+	AlignedGroups int64
+	TotalGroups   int64
+	// AlignmentPct **主口径 = mk 级对齐**（ClassAlignment.All，2026-11-15 用户拍板：单源默认按对齐算）：
+	// 对齐 = 该片（match_key）非空 epid 只有一种（单源片天然对齐；多源收敛同 epid 也对齐）；
+	// 未对齐 = 多源分歧（P-1 冲突类）。组级跨源共享口径（AlignedGroups/TotalGroups，site≥2 的组占比）
+	// 仅作对照——单源片天然落不对齐分母（51.3% 单源片 ⇒ 组级 33.92% 被结构性压制）。
 	AlignmentPct      float64
 	ByFromSrc         map[string]int64
 	ComparableAligned int64
 	ComparableTotal   int64
 	ComparablePct     float64
-	Maturity          []mysql.MaturityStat
-	ByCategory        []mysql.CategoryStat
+	ClassAlignment    []mysql.ClassAlignmentStat
+	ClassAlignmentAll mysql.ClassAlignmentStat
 	EmptyByShape      []mysql.ShapeStat
 }
 
@@ -423,8 +427,8 @@ func KickHeavyMetricsRefresh() {
 		if hm.MetricsError != "" {
 			log.Printf("[epid] 重型指标快照已刷新（部分失败）: %s", hm.MetricsError)
 		} else {
-			log.Printf("[epid] 重型指标快照已刷新: 派生行=%d 对齐组=%d/%d (%.1f%%) 可比=%d/%d 覆盖率按需",
-				hm.DerivedRows, hm.AlignedGroups, hm.TotalGroups, hm.AlignmentPct, hm.ComparableAligned, hm.ComparableTotal)
+			log.Printf("[epid] 重型指标快照已刷新: 派生行=%d 对齐(mk级)=%.1f%% 组级对照=%d/%d 可比=%d/%d 覆盖率按需",
+				hm.DerivedRows, hm.AlignmentPct, hm.AlignedGroups, hm.TotalGroups, hm.ComparableAligned, hm.ComparableTotal)
 		}
 	}()
 }
@@ -433,10 +437,9 @@ func KickHeavyMetricsRefresh() {
 // 每项独立超时（后台可以给得比接口宽），任一项失败只记进 `MetricsError`、不整块丢弃。
 func refreshHeavyMetrics(ctx context.Context) heavyMetrics {
 	hm := heavyMetrics{
-		ByFromSrc:    map[string]int64{},
-		Maturity:     []mysql.MaturityStat{},
-		ByCategory:   []mysql.CategoryStat{},
-		EmptyByShape: []mysql.ShapeStat{},
+		ByFromSrc:      map[string]int64{},
+		ClassAlignment: []mysql.ClassAlignmentStat{},
+		EmptyByShape:   []mysql.ShapeStat{},
 	}
 	s := currentEpidService()
 	if s == nil {
@@ -477,24 +480,17 @@ func refreshHeavyMetrics(ctx context.Context) heavyMetrics {
 		}
 		return nil
 	})
-	each("按分类有身份率", 90*time.Second, func(c context.Context) error {
-		v, err := s.repo.ByCategory(c)
+	each("分类跨源对齐（mk 级）", 180*time.Second, func(c context.Context) error {
+		v, all, err := s.repo.ClassAlignment(c)
 		if err != nil {
 			return err
 		}
 		if v != nil {
-			hm.ByCategory = v
+			hm.ClassAlignment = v
 		}
-		return nil
-	})
-	each("源行成熟度", 90*time.Second, func(c context.Context) error {
-		v, err := s.repo.SourceRowMaturity(c)
-		if err != nil {
-			return err
-		}
-		if v != nil {
-			hm.Maturity = v
-		}
+		hm.ClassAlignmentAll = all
+		// 主口径对齐率 = mk 级（单源默认对齐；组级 AlignedGroups/TotalGroups 仅对照）。
+		hm.AlignmentPct = all.Pct
 		return nil
 	})
 	each("空 epid 形态", 60*time.Second, func(c context.Context) error {

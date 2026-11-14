@@ -3,6 +3,8 @@ package mysql
 import (
 	"context"
 	"log"
+	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -688,78 +690,124 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 	return row.Aligned, row.Total, err
 }
 
-// CategoryStat 按分类分层的"有身份率"（`movie.pid` 指向 `category.id`）。
-type CategoryStat struct {
+// ClassAlignmentStat 按分类的**跨源对齐**（mk 级口径，2026-11-15 用户拍板取代旧组级/成熟度指标）：
+//   - 对齐 = 该片（match_key）的非空 epid **只有一种**——单源片天然对齐（"单源默认按对齐算"）；
+//     多源片收敛到同一 epid 也对齐；
+//   - 未对齐 = 多源分歧（P-1 冲突类：同名 hash 混片 / self-vs-self 分歧 / 日期错位）——规则层修复目标。
+//
+// 旧组级口径（COUNT(DISTINCT site_id)>=2 的组占比）把单源片算成"未对齐"⇒ 51.3% 单源片永久压制比率
+// （33.92%），且 R12 上线反而稀释（反向激励）——已废弃作主指标（组级 `AlignmentRate` 保留仅作对照）。
+// ⚠️ 分类归属依赖源表 `mid`（覆盖 ~22.4%，62bcd97 起回填）：`MAX(m.pid)` 取组内任一有 mid 的源行——
+// 同 mk 同片，一行有 mid 即全组可归属；全组无 mid ⇒ pid=-1（未关联，待定向补采）。
+type ClassAlignmentStat struct {
 	Pid        int64   `json:"pid"`
-	Category   string  `json:"category"` // category.name：电影片 / 连续剧 / 综艺片 / 动漫片 …
-	RowCnt     int64   `json:"rowCnt"`
-	NonEmpty   int64   `json:"nonEmpty"`
-	NonEmptyPc float64 `json:"nonEmptyPct"`
+	Category   string  `json:"category"` // category.name：电影片 / 连续剧 / 综艺片 / 动漫片 …；pid=-1 显示 未关联片
+	TotalMks   int64   `json:"totalMks"`
+	AlignedMks int64   `json:"alignedMks"`
+	Pct        float64 `json:"pct"`
 }
 
-// ByCategory 分层"有身份率"（**按需调用**，不进每轮日志：要 join movie/category）。
-func (r *EpidRepo) ByCategory(ctx context.Context) ([]CategoryStat, error) {
-	var out []CategoryStat
-	err := dbFrom(ctx, r.db).Raw(`
-		SELECT
-		  IFNULL(m.pid, -1) AS pid,
-		  IFNULL(c.name, '(未知)') AS category,
-		  COUNT(*) AS row_cnt,
-		  SUM(IF(e.epid <> '', 1, 0)) AS non_empty
-		FROM movie_episode_epid e
-		LEFT JOIN movie m ON m.mid = e.mid
-		LEFT JOIN category c ON c.id = m.pid
-		GROUP BY IFNULL(m.pid, -1), IFNULL(c.name, '(未知)')
-		ORDER BY row_cnt DESC`).Scan(&out).Error
-	if err != nil {
-		return nil, err
+// ClassAlignment mk 级对齐按分类聚合。**mk 键集分批**（Errno 28 纪律：全表 GROUP BY 表达式
+// 有打挂小机器的前科），批内聚合、批间 Go 归并；负数 mk（uint32 hash 存进有符号列）从
+// MinInt64 起圈、一并覆盖。category 名最后一批查出补齐。
+func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, ClassAlignmentStat, error) {
+	type acc struct {
+		total   int64
+		aligned int64
 	}
-	for i := range out {
-		if out[i].RowCnt > 0 {
-			out[i].NonEmptyPc = float64(out[i].NonEmpty) * 100 / float64(out[i].RowCnt)
+	accs := map[int64]*acc{}
+	var all ClassAlignmentStat
+	const page = 50000
+	after := int64(math.MinInt64)
+	for i := 0; i < 32; i++ {
+		var next int64
+		if err := dbFrom(ctx, r.db).Raw(
+			"SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?)",
+			after, page).Scan(&next).Error; err != nil {
+			return nil, all, err
+		}
+		if next == 0 {
+			break
+		}
+		var rows []struct {
+			Pid        int64
+			TotalMks   int64
+			AlignedMks int64
+		}
+		err := dbFrom(ctx, r.db).Raw(`
+			SELECT IFNULL(t.pid, -1) AS pid, COUNT(*) AS total_mks, SUM(t.kinds = 1) AS aligned_mks
+			FROM (
+			  SELECT e.match_key, MAX(m.pid) AS pid, COUNT(DISTINCT e.epid) AS kinds
+			  FROM movie_episode_epid e
+			  LEFT JOIN movie_play_source src ON src.id = e.src_row_id
+			  LEFT JOIN movie m ON m.mid = src.mid
+			  WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
+			  GROUP BY e.match_key
+			) t GROUP BY t.pid`, after, next).Scan(&rows).Error
+		if err != nil {
+			return nil, all, err
+		}
+		for i := range rows {
+			a := accs[rows[i].Pid]
+			if a == nil {
+				a = &acc{}
+				accs[rows[i].Pid] = a
+			}
+			a.total += rows[i].TotalMks
+			a.aligned += rows[i].AlignedMks
+			all.TotalMks += rows[i].TotalMks
+			all.AlignedMks += rows[i].AlignedMks
+		}
+		after = next
+	}
+	// 分类名（category.id = movie.pid；一级分类行）
+	ids := make([]int64, 0, len(accs))
+	for pid := range accs {
+		if pid > 0 {
+			ids = append(ids, pid)
 		}
 	}
-	return out, nil
-}
-
-// MaturityStat 源行口径的派生成熟度（按分类）。
-//
-// 含义：**分母 = 真相源 `movie_play_source` 的全部源行**，分子 = 其中**已存在派生行**的源行数
-// ⇒ 衡量"派生任务跑到哪了"（覆盖进度），**不是** epid 质量。
-// 为什么必须与 `AlignmentRateComparable` 配对看：可比口径只统计"全源行都已派生"的片 ⇒
-// 成熟度低时样本极小（实测只有 6 个组），任何对齐率读数都不具判定意义 ✗
-type MaturityStat struct {
-	Pid         int64  `json:"pid"`
-	Category    string `json:"category"` // category.name；`pid=-1`（`mid` 为空的附属站行）显示 未关联片
-	SrcRows     int64  `json:"srcRows"`
-	DerivedRows int64  `json:"derivedSrcRows"`
-}
-
-// SourceRowMaturity 源行口径成熟度：**真相源**每个源行是否已有派生行（按分类）。
-// 与 `ByCategory` 同规：**必须 join `category` 给出分类名**（不再暴露裸 pid ✗）。
-func (r *EpidRepo) SourceRowMaturity(ctx context.Context) ([]MaturityStat, error) {
-	var out []MaturityStat
-	err := dbFrom(ctx, r.db).Raw(`
-		SELECT IFNULL(m.pid, -1) AS pid,
-		       CASE
-		         WHEN m.pid IS NULL THEN '未关联片（mid 为空）'
-		         WHEN m.pid = 0 THEN '(未分类)'
-		         ELSE IFNULL(c.name, '(未知分类)')
-		       END AS category,
-		       COUNT(*) AS src_rows,
-		       SUM(IF(d.src_row_id IS NULL, 0, 1)) AS derived_rows
-		FROM movie_play_source s
-		LEFT JOIN movie m ON m.mid = s.mid
-		LEFT JOIN category c ON c.id = m.pid
-		LEFT JOIN (SELECT DISTINCT src_row_id FROM movie_episode_epid) d ON d.src_row_id = s.id
-		GROUP BY IFNULL(m.pid, -1),
-		         CASE
-		           WHEN m.pid IS NULL THEN '未关联片（mid 为空）'
-		           WHEN m.pid = 0 THEN '(未分类)'
-		           ELSE IFNULL(c.name, '(未知分类)')
-		         END
-		ORDER BY src_rows DESC`).Scan(&out).Error
-	return out, err
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	names := map[int64]string{}
+	for i := 0; i < len(ids); i += 500 {
+		end := i + 500
+		if end > len(ids) {
+			end = len(ids)
+		}
+		var cn []struct {
+			Id   int64
+			Name string
+		}
+		if err := dbFrom(ctx, r.db).Raw(
+			"SELECT id, name FROM category WHERE id IN ?", ids[i:end]).Scan(&cn).Error; err != nil {
+			return nil, all, err
+		}
+		for _, c := range cn {
+			names[c.Id] = c.Name
+		}
+	}
+	out := make([]ClassAlignmentStat, 0, len(accs))
+	for pid, a := range accs {
+		name := "(未知分类)"
+		if pid == -1 {
+			name = "未关联片（mid 为空）"
+		} else if pid == 0 {
+			name = "(未分类)"
+		} else if n, ok := names[pid]; ok && n != "" {
+			name = n
+		}
+		st := ClassAlignmentStat{Pid: pid, Category: name, TotalMks: a.total, AlignedMks: a.aligned}
+		if a.total > 0 {
+			st.Pct = float64(a.aligned) * 100 / float64(a.total)
+		}
+		out = append(out, st)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TotalMks > out[j].TotalMks })
+	if all.TotalMks > 0 {
+		all.Pct = float64(all.AlignedMks) * 100 / float64(all.TotalMks)
+	}
+	all.Category = "全部"
+	return out, all, nil
 }
 
 // ShapeStat 空 epid 的**集名形态**分布 —— 回答"为什么空"。

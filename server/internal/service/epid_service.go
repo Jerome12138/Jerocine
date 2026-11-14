@@ -1183,20 +1183,23 @@ type EpidReport struct {
 	Coverage      *EpidCoverage    `json:"coverage,omitempty"`
 	CoverageError string           `json:"coverageError,omitempty"`
 
-	// ---- 口径层（2026-11-11）：分层 / 成熟度 / 双口径 / 空语义 ----
-	// ⚠️ 判定口径：**可比口径**（分母只含"真相源里 ≥2 site 且已成熟"的片）才是 §4.8 门槛依据；
-	// 全库口径（alignedGroups/totalGroups/alignmentPct）逐轮都在算（便宜），仅作对照 ✗ 不作门槛。
-	ComparableAligned int64                `json:"comparableAligned"`
-	ComparableTotal   int64                `json:"comparableTotal"`
-	ComparablePct     float64              `json:"comparablePct"`
-	Progress          *EpidProgress        `json:"progress,omitempty"` // 任务进行中也给（O(1)/缓存）
-	OnlyProgress      bool                 `json:"onlyProgress"`       // true = 本轮只算了进度集（重型指标未算，前端别把 0 当真值渲染）
-	MetricsAt         int64                `json:"metricsAt"`          // 重型指标快照的采样时间（毫秒；0 = 还没算出来）
-	MetricsStale      bool                 `json:"metricsStale"`       // true = 后台正在刷新，展示的是上一份快照
-	Maturity          []mysql.MaturityStat `json:"maturity"`           // 源行口径成熟度（按分类）
-	ByCategory        []mysql.CategoryStat `json:"byCategory"`         // 分层"有身份率"（按分类）
-	EmptyByShape      []mysql.ShapeStat    `json:"emptyByShape"`
-	MetricsError      string               `json:"metricsError,omitempty"`
+	// ---- 口径层（2026-11-11 / 2026-11-15 修订）：分层 / 双口径 / 空语义 ----
+	// ⚠️ 主口径（2026-11-15 用户拍板）：**mk 级对齐**（ClassAlignment）——对齐 = 该片非空 epid 只有一种
+	//（单源片默认按对齐算；多源收敛同 epid 也对齐）；未对齐 = 多源分歧（P-1 冲突类）。
+	// 组级口径（alignedGroups/totalGroups，site≥2 的组占比）**仅作对照**——51.3% 单源片结构性压制比率，
+	// 且单源片是覆盖缺失而非机制失败，两种失败不可混计。
+	ComparableAligned int64                      `json:"comparableAligned"`
+	ComparableTotal   int64                      `json:"comparableTotal"`
+	ComparablePct     float64                    `json:"comparablePct"`
+	ClassAlignment    []mysql.ClassAlignmentStat `json:"classAlignment"`     // 按分类的跨源对齐（mk 级）
+	ClassAlignmentAll mysql.ClassAlignmentStat   `json:"classAlignmentAll"`  // 全库汇总（Category="全部"）
+	Deriving          bool                       `json:"deriving"`           // true = 派生任务进行中（前端只渲染进度类指标）
+	Progress          *EpidProgress              `json:"progress,omitempty"` // 任务进行中也给（O(1)/缓存）
+	OnlyProgress      bool                       `json:"onlyProgress"`       // true = 本轮只算了进度集（重型指标未算，前端别把 0 当真值渲染）
+	MetricsAt         int64                      `json:"metricsAt"`          // 重型指标快照的采样时间（毫秒；0 = 还没算出来）
+	MetricsStale      bool                       `json:"metricsStale"`       // true = 后台正在刷新，展示的是上一份快照
+	EmptyByShape      []mysql.ShapeStat          `json:"emptyByShape"`
+	MetricsError      string                     `json:"metricsError,omitempty"`
 }
 
 // EpidProgress 已迁到 `epid_progress.go`（2026-11-11 线上事故修法）：
@@ -1241,11 +1244,12 @@ func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 	// （表现为"点一下刷新指标卡片就没了"，且 production 构建不打 console ⇒ 看着像没报错）。
 	// ⇒ 所有 map/slice 一律初始化为**空值**（`{}` / `[]`），从根上不让 JSON 出现 null。
 	out := EpidReport{
-		Status:       st,
-		ByFromSrc:    map[string]int64{},
-		Maturity:     []mysql.MaturityStat{},
-		ByCategory:   []mysql.CategoryStat{},
-		EmptyByShape: []mysql.ShapeStat{},
+		Status:            st,
+		Deriving:          st.Running,
+		ByFromSrc:         map[string]int64{},
+		ClassAlignment:    []mysql.ClassAlignmentStat{},
+		ClassAlignmentAll: mysql.ClassAlignmentStat{Category: "全部"},
+		EmptyByShape:      []mysql.ShapeStat{},
 	}
 	s := currentEpidService()
 	if s == nil {
@@ -1284,10 +1288,12 @@ func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 	})
 
 	if st.Running {
+		out.Deriving = true
 		out.OnlyProgress = true
 		out.MetricsError = "任务进行中：本轮只算进度类指标（对齐率/分层/成熟度/形态/覆盖率需跑完才有判定意义）"
 		return out, nil
 	}
+	out.Deriving = st.Running // false：空闲（前端据此隐藏进度块、渲染终态指标）
 
 	// ---- ② 重型指标：**只读后台快照**（每条 10~33s，绝不进请求路径）----
 	//
@@ -1305,7 +1311,8 @@ func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 		out.AlignmentPct = hm.AlignmentPct
 		out.ByFromSrc = hm.ByFromSrc
 		out.ComparableAligned, out.ComparableTotal, out.ComparablePct = hm.ComparableAligned, hm.ComparableTotal, hm.ComparablePct
-		out.Maturity, out.ByCategory, out.EmptyByShape = hm.Maturity, hm.ByCategory, hm.EmptyByShape
+		out.ClassAlignment, out.ClassAlignmentAll = hm.ClassAlignment, hm.ClassAlignmentAll
+		out.EmptyByShape = hm.EmptyByShape
 		out.MetricsError = hm.MetricsError
 	}
 
