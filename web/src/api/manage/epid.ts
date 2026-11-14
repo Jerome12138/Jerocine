@@ -107,10 +107,28 @@ export interface EpidReport {
   metricsAt: number
   /** true = 后台正在刷新，展示的是上一份快照 */
   metricsStale: boolean
-  /** 按分类跨源对齐（mk 级）：对齐 = 该片非空 epid 只有一种；未对齐 = 多源分歧（P-1 类） */
-  classAlignment: { pid: number; category: string; totalMks: number; alignedMks: number; pct: number }[]
+  /** 按分类跨源对齐（双粒度）：片级 = 该片非空 epid 只有一种；集级 = (mk,epid) 组内 site≥2 的集行占比 */
+  classAlignment: {
+    pid: number
+    category: string
+    totalMks: number
+    alignedMks: number
+    pct: number
+    totalRows: number
+    alignedRows: number
+    rowsPct: number
+  }[]
   /** 全库汇总（category="全部"） */
-  classAlignmentAll: { pid: number; category: string; totalMks: number; alignedMks: number; pct: number }
+  classAlignmentAll: {
+    pid: number
+    category: string
+    totalMks: number
+    alignedMks: number
+    pct: number
+    totalRows: number
+    alignedRows: number
+    rowsPct: number
+  }
   /** 空 epid 的集名形态分档（回答"为什么空"） */
   emptyByShape: { shape: string; rowCnt: number }[]
   metricsError?: string

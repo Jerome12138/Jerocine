@@ -376,13 +376,17 @@ onMounted(() => void loadOverrides())
         </p>
         <dl class="grid grid-cols-2 gap-[var(--jc-space-3)]">
           <div>
-            <dt class="text-muted">对齐率（mk 级主口径：单源默认对齐；未对齐 = 多源分歧）</dt>
+            <dt class="text-muted">对齐率（双粒度：单源默认按对齐算）</dt>
             <dd>
-              {{ pct(report.classAlignmentAll?.pct ?? 0) }}
+              片级 {{ pct(report.classAlignmentAll?.pct ?? 0) }}
               <span class="text-muted">
-                （{{ num(report.classAlignmentAll?.alignedMks) }}/{{ num(report.classAlignmentAll?.totalMks) }} 片；
-                组级跨源共享对照 {{ pct(report.alignmentPct) }}）
+                （{{ num(report.classAlignmentAll?.alignedMks) }}/{{ num(report.classAlignmentAll?.totalMks) }} 片）
               </span>
+              · 集级 {{ pct(report.classAlignmentAll?.rowsPct ?? 0) }}
+              <span class="text-muted">
+                （{{ num(report.classAlignmentAll?.alignedRows) }}/{{ num(report.classAlignmentAll?.totalRows) }} 集行跨源共享）
+              </span>
+              <span class="text-muted">组级对照 {{ pct(report.alignmentPct) }}</span>
             </dd>
           </div>
           <div>
@@ -399,13 +403,13 @@ onMounted(() => void loadOverrides())
               <span v-if="!report.byFromSrc || !Object.keys(report.byFromSrc).length" class="text-muted">—</span>
             </dd>
           </div>
-          <!-- 分类跨源对齐（mk 级，2026-11-15）：取代旧的"有身份率/成熟度"两块 -->
+          <!-- 分类跨源对齐（双粒度，2026-11-15）：取代旧的"有身份率/成熟度"两块 -->
           <div v-if="report.classAlignment?.length" class="col-span-2">
-            <dt class="text-muted">按分类跨源对齐（mk 级：对齐 = 该片非空 epid 只有一种）</dt>
+            <dt class="text-muted">按分类跨源对齐（片级 = epid 只有一种；集级 = site≥2 的集行占比）</dt>
             <dd class="flex flex-col">
               <span v-for="c in report.classAlignment" :key="c.pid">
-                {{ c.category }}：{{ pct(c.pct) }}
-                <span class="text-muted">（对齐 {{ num(c.alignedMks) }} / 共 {{ num(c.totalMks) }} 片）</span>
+                {{ c.category }}：片级 {{ pct(c.pct) }}（{{ num(c.alignedMks) }}/{{ num(c.totalMks) }}）
+                · 集级 {{ pct(c.rowsPct) }}（{{ num(c.alignedRows) }}/{{ num(c.totalRows) }}）
               </span>
             </dd>
           </div>

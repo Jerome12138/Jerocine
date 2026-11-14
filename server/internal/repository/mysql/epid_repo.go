@@ -690,30 +690,37 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 	return row.Aligned, row.Total, err
 }
 
-// ClassAlignmentStat 按分类的**跨源对齐**（mk 级口径，2026-11-15 用户拍板取代旧组级/成熟度指标）：
-//   - 对齐 = 该片（match_key）的非空 epid **只有一种**——单源片天然对齐（"单源默认按对齐算"）；
-//     多源片收敛到同一 epid 也对齐；
-//   - 未对齐 = 多源分歧（P-1 冲突类：同名 hash 混片 / self-vs-self 分歧 / 日期错位）——规则层修复目标。
+// ClassAlignmentStat 按分类的**跨源对齐**（2026-11-15 用户拍板取代旧组级/成熟度指标；**双粒度**）：
+//   - **片级（mk 级）**：对齐 = 该片（match_key）的非空 epid **只有一种**——单源片天然对齐
+//     （"单源默认按对齐算"）；多源片收敛到同一 epid 也对齐；未对齐 = 多源分歧（P-1 冲突类）。
+//   - **集级（集行）**：对齐集行 = 其 (mk, epid) 组内 **site≥2** 的集行——衡量"多少集享受到了
+//     跨源共享（弹幕池合并/续播互达）"的价值面。
 //
-// 旧组级口径（COUNT(DISTINCT site_id)>=2 的组占比）把单源片算成"未对齐"⇒ 51.3% 单源片永久压制比率
-// （33.92%），且 R12 上线反而稀释（反向激励）——已废弃作主指标（组级 `AlignmentRate` 保留仅作对照）。
+// 旧组级口径（组内 site≥2 的**组占比**）把单源片算成"未对齐"⇒ 51.3% 单源片永久压制比率（33.92%），
+// 且 R12 上线反而稀释（反向激励）——已废弃作主指标（组级 `AlignmentRate` 保留仅作对照）。
 // ⚠️ 分类归属依赖源表 `mid`（覆盖 ~22.4%，62bcd97 起回填）：`MAX(m.pid)` 取组内任一有 mid 的源行——
 // 同 mk 同片，一行有 mid 即全组可归属；全组无 mid ⇒ pid=-1（未关联，待定向补采）。
 type ClassAlignmentStat struct {
-	Pid        int64   `json:"pid"`
-	Category   string  `json:"category"` // category.name：电影片 / 连续剧 / 综艺片 / 动漫片 …；pid=-1 显示 未关联片
-	TotalMks   int64   `json:"totalMks"`
-	AlignedMks int64   `json:"alignedMks"`
-	Pct        float64 `json:"pct"`
+	Pid         int64   `json:"pid"`
+	Category    string  `json:"category"` // category.name：电影片 / 连续剧 / 综艺片 / 动漫片 …；pid=-1 显示 未关联片
+	TotalMks    int64   `json:"totalMks"`
+	AlignedMks  int64   `json:"alignedMks"`
+	Pct         float64 `json:"pct"` // 片级：alignedMks/totalMks
+	TotalRows   int64   `json:"totalRows"`
+	AlignedRows int64   `json:"alignedRows"`
+	RowsPct     float64 `json:"rowsPct"` // 集级：alignedRows/totalRows（跨源共享的集行占比）
 }
 
-// ClassAlignment mk 级对齐按分类聚合。**mk 键集分批**（Errno 28 纪律：全表 GROUP BY 表达式
-// 有打挂小机器的前科），批内聚合、批间 Go 归并；负数 mk（uint32 hash 存进有符号列）从
-// MinInt64 起圈、一并覆盖。category 名最后一批查出补齐。
+// ClassAlignment 双粒度对齐按分类聚合。**mk 键集分批**（Errno 28 纪律：全表 GROUP BY 表达式
+// 有打挂小机器的前科），批内双层 CTE（g = (mk,epid) 组级 site 数 + 集行数；mks = 片级 distinct
+// epid 数），批间 Go 归并；负数 mk（uint32 hash 存进有符号列）从 MinInt64 起圈、一并覆盖。
+// category 名最后批量查出补齐。
 func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, ClassAlignmentStat, error) {
 	type acc struct {
-		total   int64
-		aligned int64
+		totalMks    int64
+		alignedMks  int64
+		totalRows   int64
+		alignedRows int64
 	}
 	accs := map[int64]*acc{}
 	var all ClassAlignmentStat
@@ -730,20 +737,33 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 			break
 		}
 		var rows []struct {
-			Pid        int64
-			TotalMks   int64
-			AlignedMks int64
+			Pid         int64
+			TotalMks    int64
+			AlignedMks  int64
+			TotalRows   int64
+			AlignedRows int64
 		}
 		err := dbFrom(ctx, r.db).Raw(`
-			SELECT IFNULL(t.pid, -1) AS pid, COUNT(*) AS total_mks, SUM(t.kinds = 1) AS aligned_mks
+			SELECT IFNULL(MAX(mks.pid), -1) AS pid,
+			       COUNT(DISTINCT mks.mk) AS total_mks,
+			       SUM(mks.kinds = 1) AS aligned_mks,
+			       SUM(CASE WHEN g.sites >= 2 THEN g.row_n ELSE 0 END) AS aligned_rows,
+			       SUM(g.row_n) AS total_rows
 			FROM (
-			  SELECT e.match_key, MAX(m.pid) AS pid, COUNT(DISTINCT e.epid) AS kinds
+			  SELECT e.match_key AS mk, e.epid, COUNT(DISTINCT e.site_id) AS sites, COUNT(*) AS row_n
+			  FROM movie_episode_epid e
+			  WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
+			  GROUP BY e.match_key, e.epid
+			) g
+			JOIN (
+			  SELECT e.match_key AS mk, MAX(m.pid) AS pid, COUNT(DISTINCT e.epid) AS kinds
 			  FROM movie_episode_epid e
 			  LEFT JOIN movie_play_source src ON src.id = e.src_row_id
 			  LEFT JOIN movie m ON m.mid = src.mid
 			  WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
 			  GROUP BY e.match_key
-			) t GROUP BY t.pid`, after, next).Scan(&rows).Error
+			) mks ON mks.mk = g.mk
+			GROUP BY mks.pid`, after, next, after, next).Scan(&rows).Error
 		if err != nil {
 			return nil, all, err
 		}
@@ -753,10 +773,14 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 				a = &acc{}
 				accs[rows[i].Pid] = a
 			}
-			a.total += rows[i].TotalMks
-			a.aligned += rows[i].AlignedMks
+			a.totalMks += rows[i].TotalMks
+			a.alignedMks += rows[i].AlignedMks
+			a.totalRows += rows[i].TotalRows
+			a.alignedRows += rows[i].AlignedRows
 			all.TotalMks += rows[i].TotalMks
 			all.AlignedMks += rows[i].AlignedMks
+			all.TotalRows += rows[i].TotalRows
+			all.AlignedRows += rows[i].AlignedRows
 		}
 		after = next
 	}
@@ -796,9 +820,16 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 		} else if n, ok := names[pid]; ok && n != "" {
 			name = n
 		}
-		st := ClassAlignmentStat{Pid: pid, Category: name, TotalMks: a.total, AlignedMks: a.aligned}
-		if a.total > 0 {
-			st.Pct = float64(a.aligned) * 100 / float64(a.total)
+		st := ClassAlignmentStat{
+			Pid: pid, Category: name,
+			TotalMks: a.totalMks, AlignedMks: a.alignedMks,
+			TotalRows: a.totalRows, AlignedRows: a.alignedRows,
+		}
+		if a.totalMks > 0 {
+			st.Pct = float64(a.alignedMks) * 100 / float64(a.totalMks)
+		}
+		if a.totalRows > 0 {
+			st.RowsPct = float64(a.alignedRows) * 100 / float64(a.totalRows)
 		}
 		out = append(out, st)
 	}
