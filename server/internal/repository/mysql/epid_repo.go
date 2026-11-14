@@ -729,7 +729,7 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 	for i := 0; i < 32; i++ {
 		var next int64
 		if err := dbFrom(ctx, r.db).Raw(
-			"SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?)",
+			"SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?) t",
 			after, page).Scan(&next).Error; err != nil {
 			return nil, all, err
 		}

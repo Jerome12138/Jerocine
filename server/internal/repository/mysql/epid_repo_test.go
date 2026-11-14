@@ -93,3 +93,51 @@ func TestAnchorsBySrcRowIds_按In查询而非窗口全表(t *testing.T) {
 		t.Fatalf("锚查询必须按 IN 收窄（M3），实际 SQL: %s", *lastSQL)
 	}
 }
+
+// ClassAlignment（mk 级双粒度）三重钉：
+//  ① keyset 分页子查询**必须带表别名** —— 生产曾因缺 `) t` 报 Error 1248，后台快照静默空跑（2026-11-15）；
+//  ② 批内双层聚合（组级 site≥2 的集行 / 片级 distinct epid=1）归并正确；
+//  ③ 全库汇总与百分比。
+func TestClassAlignment_双粒度归并(t *testing.T) {
+	gdb, mock, _ := newMockDBCapture(t)
+	repo := NewEpidRepository(gdb)
+
+	// ① keyset 圈批：一批即完（MAX=100），随后一轮返回 0 ⇒ 循环结束。
+	//    expected 正则里显式含 `) t` —— 实际 SQL 缺别名时匹配失败 ⇒ 用例红（Error 1248 回归守卫）。
+	//    执行顺序：keyset → 批聚合 → keyset（返回 0 终止）→ category 名回查。
+	keyset := regexp.QuoteMeta("SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?) t")
+	mock.ExpectQuery(keyset).WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(100))
+
+	// ② 批聚合：连续剧 3 片全对齐（kinds=1）；电影 1 片多源分歧（kinds=2）
+	mock.ExpectQuery(regexp.QuoteMeta("SUM(mks.kinds = 1) AS aligned_mks")).
+		WillReturnRows(sqlmock.NewRows([]string{"pid", "total_mks", "aligned_mks"}).
+			AddRow(2, 3, 3).AddRow(1, 1, 0))
+
+	mock.ExpectQuery(keyset).WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(0))
+
+	// ③ category 名回查（ids=[1,2]）
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name FROM category WHERE id IN")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "电影片").AddRow(2, "连续剧"))
+
+	out, all, err := repo.ClassAlignment(context.Background())
+	if err != nil {
+		t.Fatalf("ClassAlignment: %v", err)
+	}
+	if len(out) != 2 || all.TotalMks != 4 || all.AlignedMks != 3 {
+		t.Fatalf("归并不符: out=%+v all=%+v", out, all)
+	}
+	for _, st := range out {
+		if st.Pid == 2 && (st.TotalMks != 3 || st.AlignedMks != 3 || st.Pct != 100 || st.Category != "连续剧") {
+			t.Fatalf("连续剧聚合不符: %+v", st)
+		}
+		if st.Pid == 1 && (st.AlignedMks != 0 || st.Pct != 0 || st.Category != "电影片") {
+			t.Fatalf("电影（多源分歧）应为 0%%: %+v", st)
+		}
+	}
+	if all.Pct != 75 {
+		t.Fatalf("全库 Pct 应 75%%（3/4）, got %v", all.Pct)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet: %v", err)
+	}
+}
