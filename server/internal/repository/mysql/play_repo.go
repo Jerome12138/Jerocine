@@ -71,8 +71,8 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 //  2. `source_name` / `source_douban_id`（000052，2026-11-14）用 **`COALESCE(VALUES(col), col)`**：
 //     上游有值才覆盖、**空值不冲掉已有值**（宁缺勿错）。这两列是"双写副本判定做到 100%"的唯一依据
 //     ⇒ 被冲成 NULL 会静默退回 ≈69.8% 且不可自愈；故**不能**退化成裸 `VALUES(col)`（有防呆用例钉住）。
-//     另：两列**刻意不进**「内容未变不写」的判重列（`dropUnchanged`）⇒ 不为它们把 72 万源行整体重写一遍
-//     （存量行情愿保持 NULL，等自然重采带上；见迁移 000052 注释）。
+//     另：两列**不进**判重的**相等性**比较（不算"变了"）；但 `dropUnchanged`/`shouldSkipWrite` 里有一条
+//     **单向自愈**放行：存量空而新行有值 ⇒ 必写一次（定向/自然补采的落地条件，见 `shouldSkipWrite`）。
 //  3. `content_hash` 纳入 —— 判重列本身要落库，否则下次仍判为"变了" ⇒ 白写（见 000051）。
 func playSourceUpsertUpdates() clause.Set {
 	return clause.Set{
@@ -90,13 +90,14 @@ func playSourceUpsertUpdates() clause.Set {
 
 // dropUnchanged 返回"确实需要写"的子集与**被跳过**的行数（2026-11-13，「内容未变不写」）。
 //
-// 判据：库中同 `(site_id, match_key, play_from)` 的行存在，且
-// `mid / source_vod_id / dup_copy / content_hash` **四项全等** ⇒ 跳过（这行写下去也是同样的值）。
+// 判据见 `shouldSkipWrite`：`mid / source_vod_id / dup_copy / content_hash` **四项全等** ⇒ 跳过，
+// 但两处**自愈**必须放行：① `content_hash` 为存量空串（000051 前）⇒ 必写一次填上；
+// ② `source_name`/`source_douban_id` 存量空而新行有值（000052）⇒ 必写一次——这是"定向补采/自然补采
+// 能把上游原文补进来"的落地条件（只在缺失时放行，填上即止，不会反复重写）。
 //   - 只比 `content_hash` 不够：`source_vod_id` 从 0 被回填（vod0 修复）、`dup_copy` 由**存量脚本近似值**
-//     变为**写侧的确定值** —— 这类**修复型写入**必须放行（否则永远停在近似值上 ✗）；
-//   - `content_hash` 为空串（000051 前的存量行）⇒ 必写一次并填上 ⇒ 自愈 ✓。
+//     变为**写侧的确定值** —— 这类**修复型写入**必须放行（否则永远停在近似值上 ✗）。
 //
-// 性能：只 SELECT 唯一键三列 + 四个比较列 ⇒ **不碰 `episodes_json` 巨列**（性能铁律 1）。
+// 性能：只 SELECT 唯一键三列 + 四个比较列 + 000052 两列 ⇒ **不碰 `episodes_json` 巨列**（性能铁律 1）。
 // 容错：查询失败时**整体不跳过**（宁多写不误跳）——本特性只省体积，不能因它丢写。
 func (r *playRepo) dropUnchanged(ctx context.Context, list []entity.MoviePlaySource) ([]entity.MoviePlaySource, int) {
 	ph := make([]string, 0, len(list))
@@ -107,7 +108,7 @@ func (r *playRepo) dropUnchanged(ctx context.Context, list []entity.MoviePlaySou
 	}
 	var cur []entity.MoviePlaySource
 	err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
-		Select("site_id, match_key, play_from, mid, source_vod_id, dup_copy, content_hash").
+		Select("site_id, match_key, play_from, mid, source_vod_id, dup_copy, content_hash, source_name, source_douban_id").
 		Where("(site_id, match_key, play_from) IN ("+strings.Join(ph, ",")+")", args...).
 		Find(&cur).Error
 	if err != nil {
@@ -122,14 +123,32 @@ func (r *playRepo) dropUnchanged(ctx context.Context, list []entity.MoviePlaySou
 	skipped := 0
 	for _, x := range list {
 		old, ok := now[[3]string{x.SiteId, x.MatchKey, x.PlayFrom}]
-		if ok && sameMidPtr(old.Mid, x.Mid) && old.SourceVodID == x.SourceVodID &&
-			old.DupCopy == x.DupCopy && old.ContentHash != "" && old.ContentHash == x.ContentHash {
+		if ok && shouldSkipWrite(old, x) {
 			skipped++
 			continue
 		}
 		out = append(out, x)
 	}
 	return out, skipped
+}
+
+// shouldSkipWrite 判重口径（2026-11-13「内容未变不写」+ 000052 自愈）：返回 true = 这行写下去也是同样的值。
+//
+// 四个**相等性**判据：`mid`（比指针值）/ `source_vod_id` / `dup_copy` / `content_hash`（且非空）。
+// 两条**单向往**的自愈放行（必须放行，否则修复/补采永远到不了库）：
+//   - `content_hash` 存量空串（000051 前）⇒ 写一次填上；
+//   - `source_name` / `source_douban_id` 存量**空（NULL）而新行有值** ⇒ 写一次填上。
+//     ⚠️ 反向不算"变了"：存量有值、新行 NULL 时**跳过**（upsert 用 `COALESCE(VALUES(col), col)` 本来也保旧值）
+//     ⇒ 既补齐、又不因上游偶发缺字段而无谓重写。
+func shouldSkipWrite(old, x entity.MoviePlaySource) bool {
+	if old.SourceName == nil && x.SourceName != nil {
+		return false
+	}
+	if old.SourceDoubanID == nil && x.SourceDoubanID != nil {
+		return false
+	}
+	return sameMidPtr(old.Mid, x.Mid) && old.SourceVodID == x.SourceVodID &&
+		old.DupCopy == x.DupCopy && old.ContentHash != "" && old.ContentHash == x.ContentHash
 }
 
 // sameMidPtr 比较两个可空 mid 的**值**（指针直接比较会比较地址，错）。
