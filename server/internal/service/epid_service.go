@@ -536,11 +536,31 @@ func (s *EpidService) loadOverrideLedger(ctx context.Context) (*overrideLedger, 
 	if err != nil {
 		return nil, err
 	}
+	return newOverrideLedger(rows), nil
+}
+
+// loadOverrideLedgerForRewrite **整源行重写路径**（mode=scope）专用：**绕过 D3 生效开关**装载 active 台账。
+// 开关只应管「新校正的应用」（A 点），不该管「已生效校正的保持」——整源行重写若不套台账，会把已生效
+// 校正冲掉（2026-11-14 mode=fill 实际冲掉 34 条）。开关关着装载是安全方向：只读 active 重套用，
+// 等价于把已套用过的校正原样保持。未装配 ⇒ (nil, nil)（无校正可冲）；查询失败 ⇒ (nil, err)
+// （调用方必须中止 —— mode=scope 的台账 fail-closed）。
+func (s *EpidService) loadOverrideLedgerForRewrite(ctx context.Context) (*overrideLedger, error) {
+	if s.ov == nil {
+		return nil, nil
+	}
+	rows, err := s.ov.ListActive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newOverrideLedger(rows), nil
+}
+
+func newOverrideLedger(rows []entity.MovieEpidOverride) *overrideLedger {
 	l := &overrideLedger{byKey: make(map[ovKey]*entity.MovieEpidOverride, len(rows))}
 	for i := range rows {
 		l.byKey[ovKey{rows[i].SrcRowId, rows[i].EpIndex}] = &rows[i]
 	}
-	return l, nil
+	return l
 }
 
 // applyToPending **A 点核心**（方案 §8.2）：派生写库前对本批 pendingRows 做**内存命中替换**

@@ -284,4 +284,22 @@ func TestApplyOverrides_开关关拒绝(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("开关关着不应发任何 SQL: %v", err)
 	}
+
+	// 整源行重写路径（mode=scope）**绕过开关**：开关关着也必须装出台账（保持已生效校正；
+	// 2026-11-14 mode=fill 曾在开关关态把 34 条冲回 key_epid）。期望一次 ListActive。
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `movie_epid_override` WHERE status = ")).
+		WillReturnRows(overrideListRows().
+			AddRow(7, 9, 2, "mk-9", 100, "第3期上", epidKeyN3,
+				"corrected", epidKeyN10, "agent", "verified", "单测合成数据（非真实候选）",
+				nil, "active", "", 1731380000000, 1731390000000, "tester"))
+	rewLedger, err := svc.loadOverrideLedgerForRewrite(context.Background())
+	if err != nil {
+		t.Fatalf("开关关着，loadOverrideLedgerForRewrite 也应装载（保持已生效校正）: %v", err)
+	}
+	if rewLedger == nil || rewLedger.byKey[ovKey{src: 9, ep: 2}] == nil {
+		t.Fatalf("开关关着，ForRewrite 应回放 active 条目 (9,2)，got %+v", rewLedger)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ForRewrite 的 ListActive 期望未满足: %v", err)
+	}
 }

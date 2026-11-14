@@ -58,9 +58,19 @@ func TestScopeRequest_Resolve(t *testing.T) {
 			w:    want{fromSrc: []string{"skip"}, expand: false, tighten: false},
 		},
 		{
-			name: "显式档 + 手写扩片/收紧",
-			req:  ScopeRequest{FromSrc: []string{"skip", "bridge"}, ExpandMovies: true, Tighten: true},
-			w:    want{fromSrc: []string{"skip", "bridge"}, expand: true, tighten: true},
+			name: "显式档 + 手写扩片（无 tighten：无 rule ⇒ 谓词恒不命中会静默空转）",
+			req:  ScopeRequest{FromSrc: []string{"skip", "bridge"}, ExpandMovies: true},
+			w:    want{fromSrc: []string{"skip", "bridge"}, expand: true, tighten: false},
+		},
+		{
+			name: "显式档 + tighten 无 rule ⇒ 拒绝（谓词来自规则本体，否则静默空转）",
+			req:  ScopeRequest{FromSrc: []string{"skip"}, Tighten: true},
+			w:    want{wantErr: true},
+		},
+		{
+			name: "显式档 + tighten + 空白 rule ⇒ 同样拒绝（TrimSpace 后走显式档分支）",
+			req:  ScopeRequest{FromSrc: []string{"skip"}, Tighten: true, Rule: "   "},
+			w:    want{wantErr: true},
 		},
 		{name: "未知档 ⇒ 拒绝", req: ScopeRequest{FromSrc: []string{"bogus"}}, w: want{wantErr: true}},
 	}

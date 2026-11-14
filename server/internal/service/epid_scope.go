@@ -16,7 +16,8 @@ import (
 //
 // 背景：改解析规则**不会让已派生行变脏**（派生只按 `ep_hash` 判脏，`ShouldReplaceDerived` 只是抖动守卫）
 // ⇒ 光发版规则不作用于存量；而全量 `rebuild` 要 3h37m。本批三条规则（R11/R12/R13）的**输入档都是 `skip`**
-// ⇒ 按档圈即可（`skip` 档 147,099 源行，24% of 603,427）。
+// ⇒ 按档圈即可（`skip` 档 190,125 源行 = 147,099 主份 + 43,026 副本，24% of 603,427；圈档**不滤** dup_copy，
+// 见交接文档口径纪律 3）。
 //
 // 安全边界（缺一不可，见 Harness `审查-epid服务端规则与批量补采-2026-11-14.md` §3.1.1「判断流程」）：
 //  1. 范围**只能从登记表推导**（`rule=` ⇒ `Scope`/`InFromSrc`/`FansOutMovie`）；`Scope=all` 直接拒绝 ✗；
@@ -66,6 +67,13 @@ func (r ScopeRequest) Resolve() (fromSrc []string, expandMovies, tighten bool, e
 		if !known[s] {
 			return nil, false, false, fmt.Errorf("未知 from_src 档 %q（合法值：self|single|skip|none|bridge|anchor）", s)
 		}
+	}
+	// tighten 的选行谓词来自规则本体（danmu.RuleSelectsRow）—— 显式档没带 rule ⇒ 空谓词对任何行都
+	// 不命中，任务会 200 启动后**静默空转**（kept=0）。显式拒绝优于静默吞掉；只要档级上界请去掉
+	// tighten（宁宽勿漏，tighten 只是省时间、不是正确性前提）。
+	if r.Tighten && strings.TrimSpace(r.Rule) == "" {
+		return nil, false, false, fmt.Errorf(
+			"fromSrc 显式档 + tighten 必须同时给 rule（选行谓词来自规则本体）；只要档级上界请去掉 tighten")
 	}
 	return r.FromSrc, r.ExpandMovies, r.Tighten, nil
 }
@@ -196,10 +204,15 @@ func RunScopedDerive(req ScopeRequest, batch int, timeout time.Duration) (string
 				log.Printf("[epid] 定向重算中断（取源行失败，已处理 %d 批）: %v", batches, rerr)
 				break
 			}
-			// 台账仍 **fail-closed 预加载**：缺席会把已生效的人工校正整源行冲掉。
+			// 台账 **fail-closed（含 D3 开关关闭态）**：scope 整源行重写，若不套台账会把已生效校正
+			// 冲掉（2026-11-14 mode=fill 实际冲掉 34 条）。开关只管「新校正的应用」（A 点），不该管
+			// 「已生效校正的保持」—— 这里**绕过开关**强制装载（只读 active 重套用，安全方向）。
 			var ledger *overrideLedger
 			if s.ov != nil {
-				l, lerr := s.loadOverrideLedger(ctx)
+				if !EpidOverrideEnabled() {
+					log.Printf("[epid] 定向重算：生效开关（D3）当前关闭 —— 本路径整源行重写，仍强制套用 active 台账以保持已生效校正（重算后校正值原样回归）")
+				}
+				l, lerr := s.loadOverrideLedgerForRewrite(ctx)
 				if lerr != nil {
 					log.Printf("[epid] 定向重算中止（台账预加载失败，防已生效校正被整源行冲掉）: %v", lerr)
 					break
