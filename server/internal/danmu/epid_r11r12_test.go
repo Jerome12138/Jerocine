@@ -63,7 +63,7 @@ func TestEpidsForSourceRow_SingleEpisodeN1(t *testing.T) {
 	// ① 单集 + 无数字 + 常规派生推不出 ⇒ n=1（含实测中最多与易漏的写法）
 	for _, name := range []string{"正片", "HD", "None"} {
 		got := EpidsForSourceRow([]string{name})
-		if len(got) != 1 || got[0][0] != "s=-|v=-|p=-|n=1|d=-" || got[0][1] != EpKeySourceForm {
+		if len(got) != 1 || got[0][0] != "s=-|v=-|p=-|n=1|d=-" || got[0][1] != EpKeySourceSingle {
 			t.Errorf("%q 单集应补 n=1/form，得 %v", name, got)
 		}
 	}
@@ -73,37 +73,37 @@ func TestEpidsForSourceRow_SingleEpisodeN1(t *testing.T) {
 	//   - `某某电影` ⇒ 整名进 `s` 段 ⇒ 已有身份（对单片而言这个身份其实是对的 ✓）
 	for _, name := range []string{"HD中字", "某某电影"} {
 		got := EpidsForSourceRow([]string{name})
-		if got[0][1] == EpKeySourceForm || got[0][0] == "" {
+		if got[0][1] == EpKeySourceSingle || got[0][0] == "" {
 			t.Errorf("%q 应已有身份（不该走 R12、也不该为空），得 %v", name, got)
 		}
 	}
 	// ② 单集但含数字（区间 / 形态+序号 / 小数 / 裸数字）⇒ 不补（留给 R13 或待定，宁缺勿错）
 	for _, name := range []string{"第1-20集", "OVA01", "EP09", "第7.5集", "1"} {
-		if got := EpidsForSourceRow([]string{name}); got[0][1] == EpKeySourceForm {
+		if got := EpidsForSourceRow([]string{name}); got[0][1] == EpKeySourceSingle {
 			t.Errorf("%q 含数字不该走 R12，得 %v", name, got)
 		}
 	}
 	// ③ 整行多集 ⇒ 一条都不补
 	got := EpidsForSourceRow([]string{"正片", "HD"})
 	for i, g := range got {
-		if g[1] == EpKeySourceForm {
+		if g[1] == EpKeySourceSingle {
 			t.Errorf("多集行第 %d 条不该走 R12，得 %v", i, g)
 		}
 	}
 	// ④ 混有真序号 ⇒ 无数字那条也不补（避免与「第1集」撞），真序号照常派生
 	got = EpidsForSourceRow([]string{"正片", "第1集"})
-	if got[0][1] == EpKeySourceForm {
+	if got[0][1] == EpKeySourceSingle {
 		t.Errorf("混序号时「正片」不该走 R12（会撞第1集），得 %v", got[0])
 	}
 	if got[1][0] != "s=-|v=-|p=-|n=1|d=-" {
 		t.Errorf("「第1集」应照常派生，得 %v", got[1])
 	}
 	// ⑤ 空集名不补
-	if got := EpidsForSourceRow([]string{""}); got[0][1] == EpKeySourceForm {
+	if got := EpidsForSourceRow([]string{""}); got[0][1] == EpKeySourceSingle {
 		t.Errorf("空集名不该补，得 %v", got[0])
 	}
 	// ⑥ 变体形态（「特辑」）本就触发，不走 R12
-	if got := EpidsForSourceRow([]string{"特辑"}); got[0][1] == EpKeySourceForm {
+	if got := EpidsForSourceRow([]string{"特辑"}); got[0][1] == EpKeySourceSingle {
 		t.Errorf("「特辑」不该走 R12，得 %v", got[0])
 	}
 }

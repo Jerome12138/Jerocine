@@ -155,35 +155,26 @@ func DerivedNumFor(title string, allTitles []string) int {
 // 旧数据里这两种情况都记成 `none` ⇒ rebuild 后才有 `skip` ✓（不破坏兼容：`from=` 只是标注）。
 const EpKeySourceSkip = "skip"
 
-// EpKeySourceForm **形态来源**（R12，2026-11-14）：整行只有 1 集、且集名是"单片/单版本"形态
-// （正片/HD/国语/会员版… 无任何序号信息）⇒ 按 **n=1** 给身份。与 self/bridge/anchor/none 并列，
-// 指标 `byFromSrc` 自动分档（便于回看这条规则贡献了多少）。详见 `EpidsForSourceRowWithPool`。
-const EpKeySourceForm = "form"
+// EpKeySourceSingle **单集作品级身份**（老规划 §A.1 定名；2026-11-14 落地）：整行只有 1 集、
+// 且集名**不含任何序号信息**（不含 ASCII 数字）⇒ 按 `n=1` 给身份。与 self/bridge/anchor/none 并列，
+// 指标 `byFromSrc` 自动分档（便于回看这条规则贡献了多少）。
+// ⚠️ 该值须同时登记进 `ParseEpKeySource` 的已知值白名单（老规划 §A.1 改动点 2），否则端侧若带上它
+// 会被静默当"未提供"⇒ 退回旧规则。详见 `EpidsForSourceRowWithPool`。
+const EpKeySourceSingle = "single"
 
 func EpidFor(title string, allTitles []string) (epid string, fromSrc string) {
-	k := ParseEpisodeKey(title)
-	if !EpisodeTriggered(k) {
-		return "", EpKeySourceSkip
-	}
-	if k.Num > 0 {
-		return EpidOf(k), EpKeySourceSelf
-	}
-	if k.Date == "" {
-		return EpidOf(k), EpKeySourceNone
-	}
-	keys := make([]EpisodeKey, 0, len(allTitles))
-	for _, t := range allTitles {
-		keys = append(keys, ParseEpisodeKey(t))
-	}
-	if n := BridgeNum(k, keys); n > 0 {
-		k.Num = n
-		return EpidOf(k), EpKeySourceBridge
-	}
-	if n := AnchorNumFor(title, allTitles); n > 0 {
-		k.Num = n
-		return EpidOf(k), EpKeySourceAnchor
-	}
-	return EpidOf(k), EpKeySourceNone
+	epid, fromSrc, _ = EpidForRule(title, allTitles)
+	return epid, fromSrc
+}
+
+// EpidForRule 同 `EpidFor`，但**额外返回命中的决策规则编号**（`RuleID`，登记表见 `epid_rules.go`）。
+//
+// 分派本身是**有序规则表**（`titleRules` 的 D1~D6，顺序即优先级），本函数只是它的薄封装 ⇒
+// "改规则 ⇒ 重算范围"可以直接查那条规则的 `Scope`/`InFromSrc`（不再靠人脑推影响面）。
+// 将来若把"命中规则"落库到 `movie_episode_epid`，存的就是这个 `id`。
+func EpidForRule(title string, allTitles []string) (epid string, fromSrc string, id RuleID) {
+	epid, id = decideTitle(title, allTitles)
+	return epid, RuleMetaOf(id).OutFromSrc, id
 }
 
 // EpidsForSourceRow 把一个源行的**整段集名**派生成 epid（P1-1 的核心入口）。
@@ -239,45 +230,17 @@ func EpidsForSourceRowWithPool(titles, pool []string) [][2]string {
 	if len(pool) == 0 {
 		pool = titles
 	}
+	// 逐集分派（D1~D6）+ 行级补充（D7=R12 / D8=R13）都在 `epid_rules.go` 的**有序规则表**里；
+	// 本函数只负责"算一次行级上下文 → 逐集取结果"。两条行级规则的判据与守卫见其 `Desc`：
+	//   D7（R12）**整行只有 1 集** ∧ 集名不含 ASCII 数字 ⇒ `n=1`（只跑 `skip` 档）——
+	//     实测"含 HD国语 的源行"4,101/4,557（90%）只有 1 集 ⇒ `HD国语` 是**那一集的名字**；另 428 条
+	//     `HD国语 | 第01集 | …`（整片位 + 逐集）由"只有 1 集"这条守卫挡掉 ✓
+	//   D8（R13）行内 **distinct** 裸数字名 ≥ 2 ⇒ `n=该数字`（`1`/`02`/`001` ⇒ 1/2/1；来源仍记 `self`）
+	//     ⚠️ **不能用"行内 ≥2 条"**：双写会让同一集名在同一行出现两次 ⇒ 该条件恒成立 ✗（实测踩过）
+	ctx := newRuleCtx(titles, pool)
 	out := make([][2]string, 0, len(titles))
-	// R12（2026-11-14 **服务端口径**）：单片/单版本行补 `n=1`。
-	// 守卫（缺一不可）：
-	//  ① **本行只有 1 集** —— 实测"含 HD国语 的源行"里 4,101/4,557（90%）只有 1 集 ⇒ `HD国语` 就是
-	//     那一集的名字（HD 画质 + 国语 两个标签，**不是两集**）；另 428 条是 `HD国语 | 第01集 | …`
-	//     这种"整片位 + 逐集"写法 ⇒ 由本条①挡掉 ✓（不会给错身份）；
-	//  ② 集名**不含 ASCII 数字** ⇒ 一次排除所有带序号/区间/日期的写法（见 `hasASCIIDigit`）；
-	//  ③ 常规派生**没推出身份**（`skip`）—— 不覆盖已有结论 ✓。
-	// 为什么这是"实测"而非推断：整行只有一集 + 名字里没有任何序号信息 ⇒ `n=1` 就是这一行的事实 ✓
-	// （跨源收益：同一部电影在 A 源叫「正片」、B 源叫「HD国语」⇒ 都成 `n=1` ⇒ 能对齐、池键也稳 ✓）。
-	onlyOne := 0
 	for _, t := range titles {
-		if strings.TrimSpace(t) != "" {
-			onlyOne++
-		}
-	}
-	// R13（2026-11-14 服务端口径）：裸数字集名纳入 `n`（`1`/`02`/`001` ⇒ 1/2/1），**来源记 `self`**
-	// （数字本来就写在集名里 ✓ 与"自带期号"同义 ⇒ 不新增来源值）。
-	// 守卫：**行内 distinct 裸数字名 ≥ 2** —— 单条裸数字可能是线路/版本号，成串才是集序 ✓。
-	// ⚠️ **不能用"行内 ≥2 条"**：双写会让同一集名在同一行出现两次 ⇒ 该条件恒成立 ✗（实测踩过）。
-	bare := make(map[int]struct{}, len(titles))
-	for _, t := range titles {
-		if v, ok := bareNum(t); ok {
-			bare[v] = struct{}{}
-		}
-	}
-	bareOK := len(bare) >= 2
-	for _, t := range titles {
-		epid, from := EpidFor(t, pool)
-		if epid == "" && from == EpKeySourceSkip {
-			switch {
-			case onlyOne == 1 && !hasASCIIDigit(t):
-				epid, from = EpidOf(EpisodeKey{Num: 1}), EpKeySourceForm
-			case bareOK:
-				if v, ok := bareNum(t); ok {
-					epid, from = EpidOf(EpisodeKey{Num: v}), EpKeySourceSelf
-				}
-			}
-		}
+		epid, from, _ := decideRow(t, ctx)
 		out = append(out, [2]string{epid, from})
 	}
 	return out

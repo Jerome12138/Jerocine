@@ -233,7 +233,9 @@ func ParseEpKeySource(epk string) string {
 		}
 		v := kv[i+1:]
 		switch v {
-		case EpKeySourceSelf, EpKeySourceBridge, EpKeySourceAnchor, EpKeySourceNone:
+		// ⚠️ 老规划 §A.1 改动点 2：`EpKeySourceSingle` 必须登记在此，否则端侧若带上 `from=single`
+		// 会被静默当"未提供"（退回 `epNum > 0` 旧规则）。
+		case EpKeySourceSelf, EpKeySourceBridge, EpKeySourceAnchor, EpKeySourceNone, EpKeySourceSingle:
 			return v
 		}
 		return ""

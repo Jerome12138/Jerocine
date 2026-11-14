@@ -54,7 +54,7 @@ func TestEpidsForSourceRow_BareNumeric(t *testing.T) {
 		t.Errorf("与其它形态混排时，成串裸数字仍应补，得 %v", got)
 	}
 	// ⑧ 单集裸数字**不**走 R12（含数字 ⇒ 被 hasASCIIDigit 排除）⇒ 仍无身份（宁缺勿错）
-	if got := EpidsForSourceRow([]string{"1"}); got[0][1] == EpKeySourceForm {
+	if got := EpidsForSourceRow([]string{"1"}); got[0][1] == EpKeySourceSingle {
 		t.Errorf("单集裸数字不该走 R12，得 %v", got[0])
 	}
 }
