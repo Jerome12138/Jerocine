@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,21 +14,31 @@ import (
 	"server/internal/service"
 )
 
-// ManageEpidDeriveAll POST /manage/epid/derive-all —— 一键全量派生（H2 运维入口, 2026-11-11）。
+// ManageEpidDeriveAll POST /manage/epid/derive-all —— 一键派生（H2 运维入口, 2026-11-11；2026-11-14 加 scope）。
 //
 // 参数（均可省略）：
 //
 //	mode=fill（默认，**补缺/更新**，不动已有派生）| rebuild（**先清空派生表**再全量重算，规则升级后用）
-//	batch       每批源行数（默认 2000，上限 5000）
-//	maxBatches  批数上限（0=不限，默认 0）
+//	     | scope（**定向重算**：只重算"某个 `from_src` 档"的源行，不动其它行 —— 见下）
+//	batch       每批源行数（默认 500，上限 5000）
+//	maxBatches  批数上限（0=不限，默认 0；仅 fill/rebuild 用）
 //	timeoutMin  总时长上限（分钟，默认 60，上限 240）
 //
+// **mode=scope**（2026-11-14，给"改解析规则 ⇒ 只重算受影响的行"用）：
+//
+//	rule=D7-single        按**规则编号**（推荐）：范围 = 登记表里的 `InFromSrc` + `FansOutMovie`；
+//	                      改的是 `Scope=all` 的规则 ⇒ 直接 400（那种改法只能全量 rebuild）
+//	fromSrc=skip,bridge   按**档**显式给（底层写法；应来自登记表，别手挑）
+//	expandMovies=true     池扇出：∪ 这些行所在片里**池相关档**（bridge/anchor/none）的源行
+//	                      （`rule=` 时由登记的 `FansOutMovie` 决定，无需手写）
+//	tighten=true          用规则自己的选行谓词把档内不需要的排掉（只省时间；非池依赖规则才精确）
+//
 // 行为：**异步**启动（立即返回，不占 HTTP 连接）；与"采集收尾的自动触发"共用同一把锁（**互斥防重入**）。
-// 进度看 `GET /manage/epid/report`（游标/阶段/指标）与后端日志（每批一行 `[epid]` 汇总）。
+// 进度看 `GET /manage/epid/report`（`mode` 显示 `scope:<rule|档>`）与后端日志（每批一行 `[epid]`）。
 func (h *Handlers) ManageEpidDeriveAll(c *gin.Context) {
 	mode := service.DeriveMode(c.DefaultQuery("mode", string(service.DeriveModeFill)))
-	if mode != service.DeriveModeFill && mode != service.DeriveModeRebuild {
-		dto.Error(c, http.StatusBadRequest, "mode must be fill|rebuild")
+	if mode != service.DeriveModeFill && mode != service.DeriveModeRebuild && mode != service.DeriveModeScope {
+		dto.Error(c, http.StatusBadRequest, "mode must be fill|rebuild|scope")
 		return
 	}
 	// 默认 500（2026-11-11 需求 2）：批小 ⇒ 单批更短、与采集的锁重叠窗口更小、对线上读的抖动更平滑；
@@ -44,7 +55,33 @@ func (h *Handlers) ManageEpidDeriveAll(c *gin.Context) {
 	if timeoutMin <= 0 || timeoutMin > 240 {
 		timeoutMin = 60
 	}
-	if !service.RunFullDerive(mode, batch, maxBatches, time.Duration(timeoutMin)*time.Minute) {
+	timeout := time.Duration(timeoutMin) * time.Minute
+
+	if mode == service.DeriveModeScope {
+		req := service.ScopeRequest{
+			Rule:         c.Query("rule"),
+			FromSrc:      epidScopeCSV(c.Query("fromSrc")),
+			ExpandMovies: c.Query("expandMovies") == "1" || c.Query("expandMovies") == "true",
+			Tighten:      c.Query("tighten") == "1" || c.Query("tighten") == "true",
+		}
+		label, err := service.RunScopedDerive(req, batch, timeout)
+		if err != nil {
+			// 锁被占 ⇒ 409（与 fill/rebuild 同款语义）；其余是入参非法 ⇒ 400。
+			if errors.Is(err, service.ErrDeriveBusy) {
+				dto.Error(c, http.StatusConflict, err.Error())
+				return
+			}
+			dto.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		dto.OK(c, gin.H{
+			"started": true, "mode": "scope", "scope": label,
+			"batch": batch, "timeoutMin": timeoutMin,
+		})
+		return
+	}
+
+	if !service.RunFullDerive(mode, batch, maxBatches, timeout) {
 		dto.Error(c, http.StatusConflict, "已有派生任务在跑（或未装配）")
 		return
 	}
@@ -52,6 +89,20 @@ func (h *Handlers) ManageEpidDeriveAll(c *gin.Context) {
 		"started": true, "mode": string(mode), "batch": batch,
 		"maxBatches": maxBatches, "timeoutMin": timeoutMin,
 	})
+}
+
+// epidScopeCSV 解析 `mode=scope` 的 `fromSrc` 逗号列表（去空白、去空项）。
+func epidScopeCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ManageEpidReport GET /manage/epid/report —— 派生**验收指标**（只读）。

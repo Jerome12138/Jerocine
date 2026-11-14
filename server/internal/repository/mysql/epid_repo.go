@@ -494,6 +494,96 @@ func (r *EpidRepo) ExistingSourceRowIds(ctx context.Context, ids []int64) (map[i
 	return out, nil
 }
 
+// ---- `mode=scope`（2026-11-14）：按 `from_src` 档圈「要重算的源行」----
+//
+// 口径来源 = `danmu.DecisionRuleMetas()` 的 `Scope`/`InFromSrc`（改规则 ⇒ 重算该规则的**输入档**）。
+// 三条纪律：
+//  ① **刻意不加 `dup_copy=0`** —— 副本行也要拿到新规则（否则永远补不上 ✗）；
+//  ② **宁宽勿漏** —— 档级是**安全上界**，多算的行重算后结果相同（只多写一遍）；
+//  ③ 读派生表走 `r.db`（`deriveDB` 只用于派生**写**）。
+
+// SourceRowIdsByFromSrc 取「产出于这些档」的全部源行 id（升序、去重、keyset 分页）。
+func (r *EpidRepo) SourceRowIdsByFromSrc(ctx context.Context, fromSrc []string) ([]int64, error) {
+	if len(fromSrc) == 0 {
+		return nil, nil
+	}
+	const page = 50000
+	out := make([]int64, 0, 1024)
+	var after int64
+	for {
+		var chunk []int64
+		err := dbFrom(ctx, r.db).Model(&entity.MovieEpisodeEpid{}).
+			Where("from_src IN ? AND src_row_id > ?", fromSrc, after).
+			Distinct("src_row_id").Order("src_row_id").Limit(page).
+			Pluck("src_row_id", &chunk).Error
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) == 0 {
+			return out, nil
+		}
+		out = append(out, chunk...)
+		if len(chunk) < page {
+			return out, nil
+		}
+		after = chunk[len(chunk)-1]
+	}
+}
+
+// SourceRowIdsInMoviesByFromSrc **池扇出**：取「由 `anchorFromSrc` 档的行所属的片（`match_key`）
+// 之下、产出于 `expandFromSrc` 档」的源行 id。
+//
+// 用途 = `FansOutMovie` 规则（`D4`/`D5`/`D6`，以及"让新日期进池"的 R11 类）：
+// 池一变，**同片里读池的行**（`bridge`/`anchor`/`none`）的 `n` 可能跟着变 ⇒ 必须一起重算。
+// 同片里的 `self`/`single` **不进范围**（读池前就 return ✓，见 §3.1.1 步 3）。
+func (r *EpidRepo) SourceRowIdsInMoviesByFromSrc(ctx context.Context, anchorFromSrc, expandFromSrc []string) ([]int64, error) {
+	if len(anchorFromSrc) == 0 || len(expandFromSrc) == 0 {
+		return nil, nil
+	}
+	var ids []int64
+	err := dbFrom(ctx, r.db).Raw(`
+		SELECT DISTINCT e2.src_row_id
+		FROM movie_episode_epid e1
+		JOIN movie_episode_epid e2 ON e2.match_key = e1.match_key
+		WHERE e1.from_src IN ? AND e2.from_src IN ?`, anchorFromSrc, expandFromSrc).Scan(&ids).Error
+	return ids, err
+}
+
+// SourceRowTitlesByFromSrc 取「候选源行（= 产出于这些档的行）**各自全部集**的集名」——供 `mode=scope`
+// 的**选行谓词**（`danmu.RuleSelectsRow`）用。
+//
+// 两条口径（都实测过，别再凭直觉改）：
+//
+//	① 必须是"该行的**全部**集名"，**不是**"该行里属于这些档的那几集" ✗ —— 规则守卫看的是**整行**
+//	   （`D7` 数"整行只有 1 集"、`D8` 数"行内 distinct 裸数字 ≥2"）；只给子集 ⇒ `D7` 少算集数**误选**、
+//	   `D8` 漏掉非 `skip` 集里的裸数字**漏选** ✗。
+//	② **不加任何 `dup_copy` 过滤** —— `dup_copy` 是**源行级**标记（双写 = 主份/副本**两行**，派生行继承它），
+//	   派生表里**没有**人工重复；过滤掉 `dup_copy=1` 会把 43,026 个**副本源行**踢出紧范围 ⇒ 副本行永远
+//	   拿不到新规则 ✗。行内确有重名时（实测仅 1,408 行）那是 `episodes_json` 本身就重名 ⇒ 应当照数 ✓。
+func (r *EpidRepo) SourceRowTitlesByFromSrc(ctx context.Context, fromSrc []string) (map[int64][]string, error) {
+	out := map[int64][]string{}
+	if len(fromSrc) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		SrcRowID int64
+		RawName  string
+	}
+	// 半连接（semi-join）：候选行集合用子查询圈，外层取**这些行的全部集名** —— 无巨列表 `IN`。
+	err := dbFrom(ctx, r.db).Raw(`
+		SELECT e.src_row_id, e.raw_name
+		FROM movie_episode_epid e
+		WHERE e.src_row_id IN (SELECT DISTINCT c.src_row_id FROM movie_episode_epid c
+		                       WHERE c.from_src IN ?)`, fromSrc).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, x := range rows {
+		out[x.SrcRowID] = append(out[x.SrcRowID], x.RawName)
+	}
+	return out, nil
+}
+
 // CoverageFull **完整覆盖率**（§6.1 口径，H7 2026-11-11 评审）：
 //
 //	派生覆盖率 = 派生表行数 / Σ JSON_LENGTH(episodes_json)  ⇒ 应 ≈100%（**空 epid 也算行**）
