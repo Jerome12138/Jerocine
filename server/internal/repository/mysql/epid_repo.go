@@ -757,7 +757,7 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 			         SUM(slots.kinds = 1) AS aligned_slots, COUNT(*) AS total_slots
 			  FROM (
 			    SELECT e.match_key AS mk, e.ep_index, MAX(m.pid) AS pid,
-			           COUNT(DISTINCT e.site_id) AS sites_c, COUNT(DISTINCT e.epid) AS kinds
+			           COUNT(DISTINCT e.epid) AS kinds
 			    FROM movie_episode_epid e
 			    LEFT JOIN movie_play_source src ON src.id = e.src_row_id
 			    LEFT JOIN movie m ON m.mid = src.mid

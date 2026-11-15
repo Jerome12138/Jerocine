@@ -456,9 +456,10 @@ func refreshHeavyMetrics(ctx context.Context) heavyMetrics {
 			hm.MetricsError += label + "：" + err.Error()
 		}
 	}
-	// 分类跨源对齐（mk 级，8 批 keyset 双层聚合，实测需 ~6 分钟）**排最前**（总 ctx 最充裕时跑），
-	// 预算 420s；它产出主口径 alignmentPct（单源默认对齐）。
-	each("分类跨源对齐（mk 级）", 420*time.Second, func(c context.Context) error {
+	// 分类跨源对齐（mk 级，keyset 双层聚合，实测需 ~6 分钟）**排最前**（总 ctx 最充裕时跑），
+	// 预算 600s（2026-11-16 实测：全量 rebuild 后冷缓存下 420s 不够，context deadline exceeded；
+	// 同批顺手删掉槽级 CTE 里无人消费的 COUNT(DISTINCT site_id) 死列）。
+	each("分类跨源对齐（mk 级）", 600*time.Second, func(c context.Context) error {
 		v, all, err := s.repo.ClassAlignment(c)
 		if err != nil {
 			return err
