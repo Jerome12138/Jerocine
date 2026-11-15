@@ -107,7 +107,11 @@ export interface EpidReport {
   metricsAt: number
   /** true = 后台正在刷新，展示的是上一份快照 */
   metricsStale: boolean
-  /** 按分类跨源对齐（双粒度）：片级 = 该片非空 epid 只有一种；集级 = (mk,epid) 组内 site≥2 的集行占比 */
+  /**
+   * 按分类跨源对齐（双粒度）：
+   * 片级 = 该片只有 1 个播放源（默认对齐）**或**存在跨源共享的 epid 组；未对齐 = 多源且零共享（真分歧）。
+   * 集级 = (mk, epid) 组内 site≥2 的集行占比（跨源共享价值面）。
+   */
   classAlignment: {
     pid: number
     category: string

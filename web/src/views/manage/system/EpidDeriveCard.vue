@@ -376,7 +376,7 @@ onMounted(() => void loadOverrides())
         </p>
         <dl class="grid grid-cols-2 gap-[var(--jc-space-3)]">
           <div>
-            <dt class="text-muted">对齐率（双粒度：单源默认按对齐算）</dt>
+            <dt class="text-muted">对齐率（双粒度；片级判定单位是片：单源默认对齐，多源片有跨源共享组即对齐）</dt>
             <dd>
               片级 {{ pct(report.classAlignmentAll?.pct ?? 0) }}
               <span class="text-muted">

@@ -691,10 +691,14 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 }
 
 // ClassAlignmentStat 按分类的**跨源对齐**（2026-11-15 用户拍板取代旧组级/成熟度指标；**双粒度**）：
-//   - **片级（mk 级）**：对齐 = 该片（match_key）的非空 epid **只有一种**——单源片天然对齐
-//     （"单源默认按对齐算"）；多源片收敛到同一 epid 也对齐；未对齐 = 多源分歧（P-1 冲突类）。
+//   - **片级（mk 级）**：对齐的判定单位是**片**——
+//     ① 整片只有 1 个播放源（max site=1）⇒ **默认按对齐算**（无对照可错，用户拍板"单源直接按默认对齐算"）；
+//     ② 多源片 ⇒ 看该片**是否存在跨源共享的 epid 组**（site≥2 的组 ≥1）⇒ 有即对齐；
+//     未对齐 = 多源且**零**跨源共享组（各源各行其是/全孤立 epid）——规则层修复目标（P-1 冲突类）。
+//     ⚠️ 判据**不是**"该片非空 epid 种类=1"（那是单集片占比/坍缩率，多集片 kinds=集数恒不过），
+//     也**不是**"集级只有单源算对齐"（单源默认对齐只在片级适用）。
 //   - **集级（集行）**：对齐集行 = 其 (mk, epid) 组内 **site≥2** 的集行——衡量"多少集享受到了
-//     跨源共享（弹幕池合并/续播互达）"的价值面。
+//     跨源共享（弹幕池合并/续播互达）"的价值面（单源片的集行不计入——共享价值本就以多源为前提）。
 //
 // 旧组级口径（组内 site≥2 的**组占比**）把单源片算成"未对齐"⇒ 51.3% 单源片永久压制比率（33.92%），
 // 且 R12 上线反而稀释（反向激励）——已废弃作主指标（组级 `AlignmentRate` 保留仅作对照）。
@@ -712,9 +716,9 @@ type ClassAlignmentStat struct {
 }
 
 // ClassAlignment 双粒度对齐按分类聚合。**mk 键集分批**（Errno 28 纪律：全表 GROUP BY 表达式
-// 有打挂小机器的前科），批内双层 CTE（g = (mk,epid) 组级 site 数 + 集行数；mks = 片级 distinct
-// epid 数），批间 Go 归并；负数 mk（uint32 hash 存进有符号列）从 MinInt64 起圈、一并覆盖。
-// category 名最后批量查出补齐。
+// 有打挂小机器的前科），批内三层 CTE（g = (mk,epid) 组级 site 数 + 集行数；pids = mk→分类归属；
+// mkstat = 片级 max site / 共享组数 / 集行计数），批间 Go 归并；负数 mk（uint32 hash 存进有符号列）
+// 从 MinInt64 起圈、一并覆盖。category 名最后批量查出补齐。
 func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, ClassAlignmentStat, error) {
 	type acc struct {
 		totalMks    int64
@@ -744,26 +748,35 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 			AlignedRows int64
 		}
 		err := dbFrom(ctx, r.db).Raw(`
-			SELECT IFNULL(MAX(mks.pid), -1) AS pid,
-			       COUNT(DISTINCT mks.mk) AS total_mks,
-			       SUM(mks.kinds = 1) AS aligned_mks,
-			       SUM(CASE WHEN g.sites >= 2 THEN g.row_n ELSE 0 END) AS aligned_rows,
-			       SUM(g.row_n) AS total_rows
+			SELECT IFNULL(MAX(mkstat.pid), -1) AS pid,
+			       COUNT(*) AS total_mks,
+			       SUM(mkstat.max_sites = 1 OR mkstat.shared_groups >= 1) AS aligned_mks,
+			       SUM(mkstat.aligned_rows) AS aligned_rows,
+			       SUM(mkstat.total_rows) AS total_rows
 			FROM (
-			  SELECT e.match_key AS mk, e.epid, COUNT(DISTINCT e.site_id) AS sites, COUNT(*) AS row_n
-			  FROM movie_episode_epid e
-			  WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
-			  GROUP BY e.match_key, e.epid
-			) g
-			JOIN (
-			  SELECT e.match_key AS mk, MAX(m.pid) AS pid, COUNT(DISTINCT e.epid) AS kinds
-			  FROM movie_episode_epid e
-			  LEFT JOIN movie_play_source src ON src.id = e.src_row_id
-			  LEFT JOIN movie m ON m.mid = src.mid
-			  WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
-			  GROUP BY e.match_key
-			) mks ON mks.mk = g.mk
-			GROUP BY mks.pid`, after, next, after, next).Scan(&rows).Error
+			  SELECT g.mk,
+			         MAX(p.pid) AS pid,
+			         MAX(g.sites) AS max_sites,
+			         SUM(CASE WHEN g.sites >= 2 THEN 1 ELSE 0 END) AS shared_groups,
+			         SUM(CASE WHEN g.sites >= 2 THEN g.row_n ELSE 0 END) AS aligned_rows,
+			         SUM(g.row_n) AS total_rows
+			  FROM (
+			    SELECT e.match_key AS mk, e.epid, COUNT(DISTINCT e.site_id) AS sites, COUNT(*) AS row_n
+			    FROM movie_episode_epid e
+			    WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
+			    GROUP BY e.match_key, e.epid
+			  ) g
+			  JOIN (
+			    SELECT e.match_key AS mk, MAX(m.pid) AS pid
+			    FROM movie_episode_epid e
+			    LEFT JOIN movie_play_source src ON src.id = e.src_row_id
+			    LEFT JOIN movie m ON m.mid = src.mid
+			    WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
+			    GROUP BY e.match_key
+			  ) pids ON pids.mk = g.mk
+			  GROUP BY g.mk
+			) mkstat
+			GROUP BY mkstat.pid`, after, next, after, next).Scan(&rows).Error
 		if err != nil {
 			return nil, all, err
 		}

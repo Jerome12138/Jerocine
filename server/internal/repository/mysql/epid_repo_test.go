@@ -94,22 +94,24 @@ func TestAnchorsBySrcRowIds_按In查询而非窗口全表(t *testing.T) {
 	}
 }
 
-// ClassAlignment（mk 级双粒度）三重钉：
-//  ① keyset 分页子查询**必须带表别名** —— 生产曾因缺 `) t` 报 Error 1248，后台快照静默空跑（2026-11-15）；
-//  ② 批内双层聚合（组级 site≥2 的集行 / 片级 distinct epid=1）归并正确；
-//  ③ 全库汇总与百分比。
+// ClassAlignment（双粒度）三重钉：
+//
+//	① keyset 分页子查询**必须带表别名** —— 生产曾因缺 `) t` 报 Error 1248，后台快照静默空跑（2026-11-15）；
+//	② 片级口径：对齐 = **整片单源（max_sites=1）默认对齐** 或 **多源但存在跨源共享组（shared_groups≥1）**；
+//	   未对齐 = 多源且零共享组（各源各行其是——真分歧面）。判定单位是**片**，不是"集内单源"。
+//	③ 集行口径：跨源共享的集行占比（site≥2 的集行 / 非空集行）。
 func TestClassAlignment_双粒度归并(t *testing.T) {
 	gdb, mock, _ := newMockDBCapture(t)
 	repo := NewEpidRepository(gdb)
 
 	// ① keyset 圈批：一批即完（MAX=100），随后一轮返回 0 ⇒ 循环结束。
 	//    expected 正则里显式含 `) t` —— 实际 SQL 缺别名时匹配失败 ⇒ 用例红（Error 1248 回归守卫）。
-	//    执行顺序：keyset → 批聚合 → keyset（返回 0 终止）→ category 名回查。
+	//    执行顺序：keyset → 片聚合 → keyset（返回 0 终止）→ category 名回查。
 	keyset := regexp.QuoteMeta("SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?) t")
 	mock.ExpectQuery(keyset).WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(100))
 
-	// ② 批聚合：连续剧 3 片全对齐（kinds=1）；电影 1 片多源分歧（kinds=2）
-	mock.ExpectQuery(regexp.QuoteMeta("SUM(mks.kinds = 1) AS aligned_mks")).
+	// ② 片聚合：连续剧 3 片对齐（单源默认 + 多源有共享）；电影 1 片多源零共享 ⇒ 未对齐（真分歧）
+	mock.ExpectQuery(regexp.QuoteMeta("SUM(mkstat.max_sites = 1 OR mkstat.shared_groups >= 1) AS aligned_mks")).
 		WillReturnRows(sqlmock.NewRows([]string{"pid", "total_mks", "aligned_mks"}).
 			AddRow(2, 3, 3).AddRow(1, 1, 0))
 
