@@ -112,26 +112,32 @@ export interface EpidReport {
    * 片级 = 该片只有 1 个播放源（默认对齐）**或**存在跨源共享的 epid 组；未对齐 = 多源且零共享（真分歧）。
    * 集级 = (mk, epid) 组内 site≥2 的集行占比（跨源共享价值面）。
    */
+  /**
+   * 按分类跨源对齐（**槽位口径**，双粒度）：
+   * 槽位 = (match_key, ep_index)。槽对齐 = 槽内非空 epid 唯一（单源槽默认对齐；多源槽同 epid）；
+   * 未对齐槽 = 槽内 epid 多值（不同源对"第 N 集"给出不同身份——分歧）。
+   * 集级 = 对齐槽位占比；片级 = 集级 100% 的片占比。
+   */
   classAlignment: {
     pid: number
     category: string
+    totalSlots: number
+    alignedSlots: number
+    slotPct: number
     totalMks: number
     alignedMks: number
-    pct: number
-    totalRows: number
-    alignedRows: number
-    rowsPct: number
+    mkPct: number
   }[]
   /** 全库汇总（category="全部"） */
   classAlignmentAll: {
     pid: number
     category: string
+    totalSlots: number
+    alignedSlots: number
+    slotPct: number
     totalMks: number
     alignedMks: number
-    pct: number
-    totalRows: number
-    alignedRows: number
-    rowsPct: number
+    mkPct: number
   }
   /** 空 epid 的集名形态分档（回答"为什么空"） */
   emptyByShape: { shape: string; rowCnt: number }[]

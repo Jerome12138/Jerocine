@@ -467,8 +467,8 @@ func refreshHeavyMetrics(ctx context.Context) heavyMetrics {
 			hm.ClassAlignment = v
 		}
 		hm.ClassAlignmentAll = all
-		// 主口径对齐率 = mk 级（单源默认对齐；组级 AlignedGroups/TotalGroups 仅对照）。
-		hm.AlignmentPct = all.Pct
+		// 主口径对齐率 = 集级（SlotPct，每集对齐读数）；片级 MkPct 在 ClassAlignmentAll 里同出。
+		hm.AlignmentPct = all.SlotPct
 		return nil
 	})
 	each("全库口径", 90*time.Second, func(c context.Context) error {

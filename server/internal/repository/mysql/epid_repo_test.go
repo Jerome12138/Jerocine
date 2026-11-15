@@ -97,23 +97,24 @@ func TestAnchorsBySrcRowIds_按In查询而非窗口全表(t *testing.T) {
 // ClassAlignment（双粒度）三重钉：
 //
 //	① keyset 分页子查询**必须带表别名** —— 生产曾因缺 `) t` 报 Error 1248，后台快照静默空跑（2026-11-15）；
-//	② 片级口径：对齐 = **整片单源（max_sites=1）默认对齐** 或 **多源但存在跨源共享组（shared_groups≥1）**；
-//	   未对齐 = 多源且零共享组（各源各行其是——真分歧面）。判定单位是**片**，不是"集内单源"。
-//	③ 集行口径：跨源共享的集行占比（site≥2 的集行 / 非空集行）。
+//	② 槽位口径：集级 = (mk, ep_index) 槽内非空 epid 唯一（单源槽默认对齐 + 多源同 epid 槽）；
+//	   片级 = 该片**全部槽位对齐**（集级 100% 的片，零分歧）。判定单位：槽/片。
+//	③ 归并与百分比（SlotPct/MkPct）。
 func TestClassAlignment_双粒度归并(t *testing.T) {
 	gdb, mock, _ := newMockDBCapture(t)
 	repo := NewEpidRepository(gdb)
 
 	// ① keyset 圈批：一批即完（MAX=100），随后一轮返回 0 ⇒ 循环结束。
 	//    expected 正则里显式含 `) t` —— 实际 SQL 缺别名时匹配失败 ⇒ 用例红（Error 1248 回归守卫）。
-	//    执行顺序：keyset → 片聚合 → keyset（返回 0 终止）→ category 名回查。
+	//    执行顺序：keyset → 槽位聚合 → keyset（返回 0 终止）→ category 名回查。
 	keyset := regexp.QuoteMeta("SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?) t")
 	mock.ExpectQuery(keyset).WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(100))
 
-	// ② 片聚合：连续剧 3 片对齐（单源默认 + 多源有共享）；电影 1 片多源零共享 ⇒ 未对齐（真分歧）
-	mock.ExpectQuery(regexp.QuoteMeta("SUM(mkstat.max_sites = 1 OR mkstat.shared_groups >= 1) AS aligned_mks")).
-		WillReturnRows(sqlmock.NewRows([]string{"pid", "total_mks", "aligned_mks"}).
-			AddRow(2, 3, 3).AddRow(1, 1, 0))
+	// ② 槽位聚合：连续剧 3 槽全对齐（单源槽 + 同 epid 多源槽）⇒ 全对齐片；
+	//    电影 1 槽分歧（多源多 epid）⇒ 非全对齐片
+	mock.ExpectQuery(regexp.QuoteMeta("SUM(mkstat.aligned_slots = mkstat.total_slots) AS aligned_mks")).
+		WillReturnRows(sqlmock.NewRows([]string{"pid", "aligned_slots", "total_slots", "aligned_mks", "total_mks"}).
+			AddRow(2, 3, 3, 3, 3).AddRow(1, 0, 1, 0, 1))
 
 	mock.ExpectQuery(keyset).WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(0))
 
@@ -125,19 +126,22 @@ func TestClassAlignment_双粒度归并(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClassAlignment: %v", err)
 	}
-	if len(out) != 2 || all.TotalMks != 4 || all.AlignedMks != 3 {
+	if len(out) != 2 || all.TotalSlots != 4 || all.AlignedSlots != 3 || all.TotalMks != 4 || all.AlignedMks != 3 {
 		t.Fatalf("归并不符: out=%+v all=%+v", out, all)
 	}
 	for _, st := range out {
-		if st.Pid == 2 && (st.TotalMks != 3 || st.AlignedMks != 3 || st.Pct != 100 || st.Category != "连续剧") {
+		if st.Pid == 2 && (st.TotalSlots != 3 || st.AlignedSlots != 3 || st.SlotPct != 100 || st.MkPct != 100 || st.Category != "连续剧") {
 			t.Fatalf("连续剧聚合不符: %+v", st)
 		}
-		if st.Pid == 1 && (st.AlignedMks != 0 || st.Pct != 0 || st.Category != "电影片") {
-			t.Fatalf("电影（多源分歧）应为 0%%: %+v", st)
+		if st.Pid == 1 && (st.AlignedSlots != 0 || st.SlotPct != 0 || st.MkPct != 0 || st.Category != "电影片") {
+			t.Fatalf("电影（分歧槽）应为 0%%: %+v", st)
 		}
 	}
-	if all.Pct != 75 {
-		t.Fatalf("全库 Pct 应 75%%（3/4）, got %v", all.Pct)
+	if all.SlotPct != 75 {
+		t.Fatalf("集级 SlotPct 应 75%%（3/4 槽）, got %v", all.SlotPct)
+	}
+	if all.MkPct != 75 {
+		t.Fatalf("片级 MkPct 应 75%%（3/4 片全对齐）, got %v", all.MkPct)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet: %v", err)
