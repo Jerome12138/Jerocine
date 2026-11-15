@@ -67,14 +67,22 @@ func TestEpidsForSourceRow_SingleEpisodeN1(t *testing.T) {
 			t.Errorf("%q 单集应补 n=1/form，得 %v", name, got)
 		}
 	}
-	// ①b ⚠️ 两类"看着像漏网、其实已有身份"的写法（本轮实测打脸假设）——**不该**再补 n=1：
-	//   - `HD中字` ⇒ 既有怪癖：`中字` 被当作「栏目 + 主次」⇒ 得 `s=中字|p=中|n=-`（跨源一致 ⇒ 无害；
-	//     要治得走 R 系列的"标点/噪声词"那条，不在 R12 范围）
-	//   - `某某电影` ⇒ 整名进 `s` 段 ⇒ 已有身份（对单片而言这个身份其实是对的 ✓）
-	for _, name := range []string{"HD中字", "某某电影"} {
+	// ①b ⚠️ 两类"看着像漏网"的写法（2026-11-15 R17 修订）：
+	//   - `HD中字` ⇒ **R17 已修**：修饰词「中字」剥进尾剥层（reQualityTail）+ stop 表 ⇒ 裸名走
+	//     R12 `single n=1` —— 与多源兄弟行（HD国语/正片 ⇒ 同样 n=1）同 epid ⇒ 跨源对齐。
+	//     旧行为 `s=中字|p=中|n=-` 曾把 39,227 部电影多源分裂成零共享（server-state 2026-11-15 电影根因）。
+	//     断言改为**应走 R12 single n=1**。
+	//   - `某某电影` ⇒ 整名进 `s` 段 ⇒ 已有身份（对单片而言这个身份其实是对的 ✓）——保留旧断言。
+	for _, name := range []string{"某某电影"} {
 		got := EpidsForSourceRow([]string{name})
 		if got[0][1] == EpKeySourceSingle || got[0][0] == "" {
 			t.Errorf("%q 应已有身份（不该走 R12、也不该为空），得 %v", name, got)
+		}
+	}
+	{
+		got := EpidsForSourceRow([]string{"HD中字"})
+		if got[0][1] != EpKeySourceSingle || got[0][0] != "s=-|v=-|p=-|n=1|d=-" {
+			t.Errorf("R17 后 %q 应剥修饰词走 R12 single n=1（与多源兄弟行同 epid ⇒ 跨源对齐），得 %v", "HD中字", got)
 		}
 	}
 	// ② 单集但含数字（区间 / 形态+序号 / 小数 / 裸数字）⇒ 不补（留给 R13 或待定，宁缺勿错）

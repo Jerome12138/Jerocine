@@ -289,8 +289,16 @@ var (
 	reVariantNum = regexp.MustCompile(`(?:加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外)[\s（(【\[《「『]*(\d{1,3})(?:[^0-9]|$)`)
 	// reVariantNoise = **无意义后缀**：只是同一集的版本标签，解析前一律剔除（与括号/标点同等）。
 	reVariantNoise = regexp.MustCompile(`会员|未公开|未播|直拍|完整版|未删减`)
-	// reSeriesStop = 语言/类型标签，不是栏目名（避免把「正片」「国语」当系列）。
-	reSeriesStop = regexp.MustCompile(`^正片$|^国语$|^粤语$|^原声$|^普通话$|^双语$`)
+	// reQualityTail = **画质/字幕/语言修饰词（集名尾部）**：解析前剥离（R17，2026-11-15）。
+	// 「HD中字」曾分裂同片多源 epid（中字行 s=中字|p=中 vs 国语/正片行 single n=1 ⇒ 39,227 部电影
+	// 多源零共享，全库对齐率被压 ~11pt）。**限定尾部**（$）避免误删中缀真词（如「英语课」）；
+	// 语言前缀（国语/粤语/英语…）与「中字」组合一并剥。s 站实测全谱见 server-state 2026-11-15。
+	reQualityTail = regexp.MustCompile(`(?:国语|粤语|英语|法语|日语|俄语|意大利语)?(?:中字|无字)$|(?:高清|标清|超清|国语版|黑白版|终极)$|(?:国语|粤语|英语|法语|日语|俄语|意大利语)$`)
+	// reSeriesStop = 语言/画质/字幕/版本标签，不是栏目名（避免把「正片」「国语」「中字」当系列）。
+	// 2026-11-15 补全（R17）：「HD中字」的「中字」此前被误当栏目（s=中字|p=中）⇒ 同片多源 epid 分裂
+	//（中字行 vs 国语/正片行的 single n=1）⇒ 39,227 部电影多源零共享（全库对齐率被压 ~11pt）——
+	// 实证与规模见 server-state 2026-11-15 电影根因条目。
+	reSeriesStop = regexp.MustCompile(`^正片$|^国语$|^粤语$|^原声$|^普通话$|^双语$|^中字$|^国语中字$|^粤语中字$|^英语中字$|^法语中字$|^日语中字$|^俄语中字$|^国语无字$|^国语版$|^英语$|^日语$|^意大利语$|^高清$|^标清$|^超清$|^黑白版$|^终极$`)
 	// reBracket = 各类括号及其内容（【】（）()《》「」『』[]）。
 	reBracket = regexp.MustCompile(`【[^】]*】|（[^）]*）|\([^)]*\)|《[^》]*》|「[^」]*」|『[^』]*』|\[[^\]]*\]`)
 )
@@ -334,6 +342,9 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	if s == "" {
 		return k
 	}
+	// 画质/字幕/语言修饰词（R17）：先于一切提取剥离——「中字」不剥会被 part 正则吃成 p=中、
+	// 被 series 循环吞成 s=中字 ⇒ 同片多源 epid 分裂（生产实证 39,227 部电影零共享）。
+	s = reQualityTail.ReplaceAllString(s, "")
 	// 日期格式归一(先于一切提取): 破折/点分 → 8 位
 	s = reDashDate.ReplaceAllString(s, "$1$2$3")
 	s = reVariantNoise.ReplaceAllString(s, "")
@@ -499,6 +510,8 @@ func seriesOf(s string) string {
 	if i := strings.IndexAny(s, "：:"); i >= 0 {
 		s = s[:i]
 	}
+	// 画质/字幕/语言修饰词（R17）：先剥——「中字」不剥会被 series 循环吞成 s=中字（同片多源 epid 分裂）。
+	s = reQualityTail.ReplaceAllString(s, "")
 	// 跨度删除以 \x00 占位: 残片之间永不拼接, 片段即原文中的连续子串
 	const sep = "\x00"
 	s = reBracket.ReplaceAllString(s, sep)

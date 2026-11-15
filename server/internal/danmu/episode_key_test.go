@@ -44,6 +44,18 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"E01.220705", EpisodeKey{ENum: 1}},
 		{"正片", EpisodeKey{}},
 		{"国语", EpisodeKey{}},
+		// ---- R17（2026-11-15）：画质/字幕/语言修饰词不是栏目 ——「HD中字」曾误吞为 s=中字|p=中
+		//      ⇒ 同片多源 epid 分裂（中字行 vs 国语/正片行 single n=1）⇒ 39,227 部电影多源零共享
+		//     （实证见 server-state 2026-11-15 电影根因条目）----
+		{"HD中字", EpisodeKey{}},
+		{"中字", EpisodeKey{}},
+		{"HD国语", EpisodeKey{}},
+		{"高清", EpisodeKey{}},
+		{"国语中字", EpisodeKey{}},
+		{"超清", EpisodeKey{}},
+		{"标清", EpisodeKey{}},
+		// 修饰词剥离不得吞真栏目（正反例：栏目名 + 修饰词 ⇒ Series 仍为栏目名）
+		{"风味人间HD中字", EpisodeKey{Series: "风味人间"}},
 		{"", EpisodeKey{}},
 		// ---- 2026-11-07 v2: 日期三格式归一(8位/破折/点分) ----
 		{"2026-10-10期", EpisodeKey{Date: "20261010"}},
