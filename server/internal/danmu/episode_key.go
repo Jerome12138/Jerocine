@@ -428,6 +428,11 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	return k
 }
 
+// parseEpisodeKey = ParseEpisodeKey 的**计数缝**（性能防呆 2026-11-15）：解析热路径
+//（decideTitleInCtx / ruleCtx.poolKeysOf / AnchorNumFor 包装 / DerivedNumFor）统一走它，
+// 让 `TestDeriveRow_ParsesPoolOnce` 能断言"池只解析一次"；运行时零成本（普通函数变量）。
+var parseEpisodeKey = ParseEpisodeKey
+
 // parsePart 解析**主部分（复合）**：第3期中（上）→ `中上`；20260831中上 → `中上`；20260803上 → `上`；正片 → `""`。
 // 次部分只在**紧邻主部分**（最多隔一个左括号）时才算，避免把摘要正文当成分支标记。
 // P0-1c（2026-11-10）：由「part + sub 两字段」合并为**单个复合值** —— 少一个字段、少一处三端同步面，

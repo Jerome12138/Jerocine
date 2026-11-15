@@ -2,6 +2,7 @@ package danmu
 
 import (
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -284,5 +285,34 @@ func TestDecideRule_MatchesLegacyChain(t *testing.T) {
 		if !covered[m.ID] {
 			t.Errorf("语料未覆盖 %s（%s）—— 等价性测试会空跑", m.ID, m.Desc)
 		}
+	}
+}
+
+// TestDeriveRow_ParsesPoolOnce 性能防呆（2026-11-15 深夜排障）：
+// D4（桥接）/D5（锚点）曾对**同一个池**在行内每个集名上重复 ParseEpisodeKey ⇒
+// E×P 二次方（线上实锤：食尚玩家 585 集 × 池 6253 = 367 万次解析/行，单行磨 ~1 分钟、
+// 一批 8 分钟）。修复 = ruleCtx 惰性缓存池键（poolKeysOf）+ D5 改键版 AnchorNumForKey
+// ⇒ 一次源行派生的解析次数 = E + P。本测试用计数缝钉住上限，回归到二次方即失败。
+func TestDeriveRow_ParsesPoolOnce(t *testing.T) {
+	orig := parseEpisodeKey
+	var n atomic.Int64
+	parseEpisodeKey = func(s string) EpisodeKey {
+		n.Add(1)
+		return orig(s)
+	}
+	t.Cleanup(func() { parseEpisodeKey = orig })
+	titles := []string{"20260803", "20260810", "20260817", "20260824", "20260831",
+		"20260907", "20260914", "20260921"} // E=8，全日期形态（必走 D4→D5）
+	pool := []string{ // P=40 个日期型池标题
+		"20250101", "20250102", "20250103", "20250104", "20250105", "20250106", "20250107", "20250108",
+		"20250109", "20250110", "20250111", "20250112", "20250113", "20250114", "20250115", "20250116",
+		"20250117", "20250118", "20250119", "20250120", "20250121", "20250122", "20250123", "20250124",
+		"20250125", "20250126", "20250127", "20250128", "20250201", "20250202", "20250203", "20250204",
+		"20250205", "20250206", "20250207", "20250208", "20250209", "20250210", "20250211", "20250212",
+	}
+	_ = EpidsForSourceRowWithPool(titles, pool)
+	// 修复前 = E×P + E(D5 自解析) + E(自身解析) ≈ 3×E×P 量级；修复后 = E + P = 48。
+	if got := n.Load(); got > int64(len(titles)+len(pool)) {
+		t.Fatalf("池被重复解析: ParseEpisodeKey 调用 %d 次, 上限 E+P=%d", got, len(titles)+len(pool))
 	}
 }

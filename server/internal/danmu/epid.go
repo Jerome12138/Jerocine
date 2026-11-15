@@ -82,8 +82,25 @@ func BridgeNum(cur EpisodeKey, otherKeys []EpisodeKey) int {
 // AnchorNumFor 锚点期号（**与 TS `anchorNumFor` 同规**）：期号 = **同栏目组**内「正片『上』」的**日期集合**中
 // 不晚于本集日期者个数；组内「上」的日期 < 2 个 ⇒ 返回 0（不猜）；本集无日期或有变体 ⇒ 0。
 // 入参 `allTitles` 允许是"本片**所有源**的所有集名"（内部按日期去重，同一期多源只算一次）。
+// AnchorNumFor 锚点期号（**与 TS `anchorNumFor` 同规**）：期号 = **同栏目组**内「正片『上』」的**日期集合**中
+// 不晚于本集日期者个数；组内「上」的日期 < 2 个 ⇒ 返回 0（不猜）；本集无日期或有变体 ⇒ 0。
+// 入参 `allTitles` 允许是"本片**所有源**的所有集名"（内部按日期去重，同一期多源只算一次）。
+//
+// 兼容包装（性能修复 2026-11-15）：内部解析 title 与 allTitles 各一次后转调键版 `AnchorNumForKey`
+// —— 解析顺序与原实现逐字相同 ⇒ 行为等价；池已解析的调用方请直用键版（省 E×P 重解析）。
 func AnchorNumFor(title string, allTitles []string) int {
-	k := ParseEpisodeKey(title)
+	k := parseEpisodeKey(title)
+	keys := make([]EpisodeKey, 0, len(allTitles))
+	for _, t := range allTitles {
+		keys = append(keys, parseEpisodeKey(t))
+	}
+	return AnchorNumForKey(title, k, keys)
+}
+
+// AnchorNumForKey 锚点期号的**已解析键**版（与 AnchorNumFor 逐字节等价）：
+// `k` 必须是 `ParseEpisodeKey(title)` 的结果（title 原文仅供 R10 裸日期守卫匹配），
+// `poolKeys` 是池标题的解析结果（顺序 = 池标题顺序；去重语义在函数内不变）。
+func AnchorNumForKey(title string, k EpisodeKey, poolKeys []EpisodeKey) int {
 	if k.Date == "" || k.Variant != "" {
 		return 0
 	}
@@ -95,8 +112,7 @@ func AnchorNumFor(title string, allTitles []string) int {
 		return 0
 	}
 	set := map[string]bool{}
-	for _, t := range allTitles {
-		o := ParseEpisodeKey(t)
+	for _, o := range poolKeys {
 		if o.Series != k.Series || o.Variant != "" {
 			continue
 		}
@@ -126,8 +142,9 @@ func AnchorNumFor(title string, allTitles []string) int {
 
 // DerivedNumFor A2 现算期号（**与 TS `derivedNumFor` 同规**）：
 // 自带期号直接用 → 他源桥接 → **锚点兜底**；都不行返回 0。
+// （池只解析一次；原实现经 AnchorNumFor 会把池解析两遍。）
 func DerivedNumFor(title string, allTitles []string) int {
-	k := ParseEpisodeKey(title)
+	k := parseEpisodeKey(title)
 	if !EpisodeTriggered(k) {
 		return 0
 	}
@@ -139,12 +156,12 @@ func DerivedNumFor(title string, allTitles []string) int {
 	}
 	keys := make([]EpisodeKey, 0, len(allTitles))
 	for _, t := range allTitles {
-		keys = append(keys, ParseEpisodeKey(t))
+		keys = append(keys, parseEpisodeKey(t))
 	}
 	if n := BridgeNum(k, keys); n > 0 {
 		return n
 	}
-	return AnchorNumFor(title, allTitles)
+	return AnchorNumForKey(title, k, keys)
 }
 
 // EpidFor **落库/匹配口径**的 epid + 期号来源（供 `movie_episode_epid.from_src` 统计）。

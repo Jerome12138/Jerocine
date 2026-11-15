@@ -76,6 +76,26 @@ type ruleCtx struct {
 	pool     []string         // 借用/锚点池（= 本片所有源的所有集名）
 	nonBlank int              // 本行非空集名数（R12 守卫 ①：整行只有 1 集）
 	bareN    map[int]struct{} // 本行 **distinct** 裸数字集名（R13 守卫；见 RuleBareNum）
+
+	// 池解析缓存（性能修复 2026-11-15）：ParseEpisodeKey 是纯函数，同一池解析一次即可
+	// 复用给行内所有集名 ⇒ 消灭 D4/D5 的 E×P 二次方重解析（线上慢批实锤：食尚玩家单行
+	// 585 集 × 池 6253 ⇒ 367 万次解析/行）。惰性构建：只在真有集名走到 D4/D5 时才付
+	// 一次 P 次解析的钱（D1/D2/D3 提前返回的集名照旧不付）。
+	poolKeys []EpisodeKey
+	poolDone bool // 区分「未构建」与「构建后为空池」
+}
+
+// poolKeysOf 返回池的已解析键（同一 ctx 只解析一次；单 goroutine 使用，无需加锁）。
+func (c *ruleCtx) poolKeysOf() []EpisodeKey {
+	if !c.poolDone {
+		keys := make([]EpisodeKey, 0, len(c.pool))
+		for _, t := range c.pool {
+			keys = append(keys, parseEpisodeKey(t))
+		}
+		c.poolKeys = keys
+		c.poolDone = true
+	}
+	return c.poolKeys
 }
 
 func newRuleCtx(titles, pool []string) *ruleCtx {
@@ -133,10 +153,7 @@ var titleRules = []decisionRule{
 		OutFromSrc: EpKeySourceBridge,
 		Desc:       "缺期号但有日期 ⇒ 他源桥接（日期相等 + 栏目/变体一致 + 主次相容）",
 	}, apply: func(_ string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
-		keys := make([]EpisodeKey, 0, len(ctx.pool))
-		for _, t := range ctx.pool {
-			keys = append(keys, ParseEpisodeKey(t))
-		}
+		keys := ctx.poolKeysOf() // 缓存：同一行只解析一次池（原为每个集名重解析整池 ⇒ E×P 二次方）
 		if n := BridgeNum(k, keys); n > 0 {
 			k.Num = n
 			return EpidOf(k), true
@@ -149,7 +166,8 @@ var titleRules = []decisionRule{
 		OutFromSrc: EpKeySourceAnchor,
 		Desc:       "桥接不成 ⇒ 锚点推算（同栏目组内「上」的日期序）",
 	}, apply: func(title string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
-		if n := AnchorNumFor(title, ctx.pool); n > 0 {
+		// 键版锚点：复用 decideTitleInCtx 已解析的 k 与池缓存（原 AnchorNumFor 会重解析 title + 整池）
+		if n := AnchorNumForKey(title, k, ctx.poolKeysOf()); n > 0 {
 			k.Num = n
 			return EpidOf(k), true
 		}
@@ -221,10 +239,15 @@ func RuleMetaOf(id RuleID) RuleMeta {
 	return RuleMeta{}
 }
 
-// decideTitle 逐集分派：跑 D1~D6，返回 epid + 命中编号。
+// decideTitle 逐集分派（独立单集入口）：跑 D1~D6，返回 epid + 命中编号。
 func decideTitle(title string, pool []string) (epid string, id RuleID) {
-	k := ParseEpisodeKey(title)
-	ctx := &ruleCtx{pool: pool}
+	return decideTitleInCtx(title, &ruleCtx{pool: pool})
+}
+
+// decideTitleInCtx 同 decideTitle，但复用调用方的 ruleCtx（池键缓存生效的关键路由）。
+// 与原实现的唯一差异是 ctx 来源：规则表拿到的 (title, k, ctx.pool) 逐字相同 ⇒ 行为等价。
+func decideTitleInCtx(title string, ctx *ruleCtx) (epid string, id RuleID) {
+	k := parseEpisodeKey(title)
 	for _, r := range titleRules {
 		if e, hit := r.apply(title, k, ctx); hit {
 			return e, r.meta.ID
@@ -236,7 +259,7 @@ func decideTitle(title string, pool []string) (epid string, id RuleID) {
 
 // decideRow 行级入口：先逐集分派，仅当命中 D1（skip）时再跑 D7/D8 补充。
 func decideRow(title string, ctx *ruleCtx) (epid string, fromSrc string, id RuleID) {
-	epid, id = decideTitle(title, ctx.pool)
+	epid, id = decideTitleInCtx(title, ctx)
 	if id != RuleSkipNoTrigger {
 		return epid, RuleMetaOf(id).OutFromSrc, id
 	}
