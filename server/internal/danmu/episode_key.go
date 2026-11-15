@@ -276,10 +276,16 @@ var (
 	// 沿用"消费后手工判边界"的既有手法），避免把 7/9 位数字串截出半截当日期 ✗。
 	reDate6 = regexp.MustCompile(`\d{6}`)
 	reDiN   = regexp.MustCompile(`第\s*(\d{1,4})\s*[期集话回季部]`)
-	reENum  = regexp.MustCompile(`(?i)(?:^|[^A-Za-z])(?:E|EP)\s*0*(\d{1,3})(?:\D|$)`)
+	// reENum（R4，2026-11-15）：捕获组回填 —— 原式 `(?:^|[^A-Za-z])…(?:\D|$)` 的边界断言被正则
+	// **消费掉**，seriesOf 的 `ReplaceAllString` 连相邻汉字一起删（`EP01白昼逃亡`→`昼逃亡`、
+	// `白昼逆行EP10`→`白昼逆` 截断 ✗）。RE2 无 lookahead ⇒ 改捕获组：删除处以 `$1`/`$3` 回填邻居
+	// 字符（取数用 m[2]）。仍保留消费式断言语义（邻居不参与 E 号本身）。
+	reENum = regexp.MustCompile(`(?i)(^|[^A-Za-z])(?:E|EP)\s*0*(\d{1,3})(\D|$)`)
 	// reVariant = **有意义的变体**：标识"同一集的另一份内容"，参与同集判定（两侧必须完全相等）。
-	// 「先导片」排在「先导」前，避免剔出残留的「片」。
-	reVariant = regexp.MustCompile(`加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外`)
+	// R7（2026-11-15）：`未播`/`未公开` 从噪声表挪入 —— 它们是"同一集的另一份内容"（播出状态标签），
+	// 当噪声删会把「第1期未播」与「第1期」拆成两个身份 ✗；而 P-4 实测 `直拍REACTION第10期` 与
+	// `第10期` 是同一集 ⇒ `直拍` 留在噪声表不动。
+	reVariant = regexp.MustCompile(`加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外|未播|未公开`)
 	// reVariantNum 变体序号（P0-1a）：变体词后**紧跟**的数字（最多隔一个左括号/空白）。
 	//   特辑2          → 2      （与「特辑」不同身份）
 	//   特辑（2）      → 2
@@ -287,8 +293,14 @@ var (
 	//   特辑2026 / 特辑12345 → 0（纯日期/长数字不取）
 	// ⚠️ RE2 **不支持 lookahead** ⇒ 用 `(?:[^0-9]|$)` **消费一个后继字符**做等价断言（三端同此写法，保证字面一致）。
 	reVariantNum = regexp.MustCompile(`(?:加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外)[\s（(【\[《「『]*(\d{1,3})(?:[^0-9]|$)`)
+	// reVariantSpan（R2，2026-11-15）：**变体跨度吸收前后修饰** —— seriesOf 删栏目候选时用它替代裸
+	// reVariant：「舞台纯享版第6期」此前删掉纯享后残留「舞台…版」两段 ⇒ 最长连续汉字段 s=舞台 ✗；
+	// 吸收后整段消失 ⇒ s=""，v 仍= 纯享（**不改 v 词表**，reVariant 本身不动）。前缀可重复（`收官特别`
+	// = 两连缀）；后缀只有 版/典藏版。变体位置含 R7 新词（与 reVariant 词表一致）。
+	reVariantSpan = regexp.MustCompile(`(?:剧情|舞台|收官|特别)*(?:加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外|未播|未公开)(?:典藏版|版)?`)
 	// reVariantNoise = **无意义后缀**：只是同一集的版本标签，解析前一律剔除（与括号/标点同等）。
-	reVariantNoise = regexp.MustCompile(`会员|未公开|未播|直拍|完整版|未删减`)
+	// R7：未播/未公开 已挪进 reVariant（变体），此处不再删。
+	reVariantNoise = regexp.MustCompile(`会员|直拍|完整版|未删减`)
 	// reQualityTail = **画质/字幕/语言修饰词（集名尾部）**：解析前剥离（R17，2026-11-15）。
 	// 「HD中字」曾分裂同片多源 epid（中字行 s=中字|p=中 vs 国语/正片行 single n=1 ⇒ 39,227 部电影
 	// 多源零共享，全库对齐率被压 ~11pt）。**限定尾部**（$）避免误删中缀真词（如「英语课」）；
@@ -299,8 +311,16 @@ var (
 	//（中字行 vs 国语/正片行的 single n=1）⇒ 39,227 部电影多源零共享（全库对齐率被压 ~11pt）——
 	// 实证与规模见 server-state 2026-11-15 电影根因条目。
 	reSeriesStop = regexp.MustCompile(`^正片$|^国语$|^粤语$|^原声$|^普通话$|^双语$|^中字$|^国语中字$|^粤语中字$|^英语中字$|^法语中字$|^日语中字$|^俄语中字$|^国语无字$|^国语版$|^英语$|^日语$|^意大利语$|^高清$|^标清$|^超清$|^黑白版$|^终极$`)
-	// reBracket = 各类括号及其内容（【】（）()《》「」『』[]）。
-	reBracket = regexp.MustCompile(`【[^】]*】|（[^）]*）|\([^)]*\)|《[^》]*》|「[^」]*」|『[^』]*』|\[[^\]]*\]`)
+	// reBracketChar（R3，2026-11-15）：各类括号**字符** —— 只作分隔（占位、不删内容）。
+	// 原式（连内容整段删）⇒ 括号里的栏目名丢失（`副本存档中`/`万事屋`/`居民采访`…）；
+	// 改后内容交给护栏过滤：非汉字段（FieldsFunc）、reSeriesStop、2~8 字上限 ⇒
+	// `【qq】`（非汉字）/`（会员版）`（会员是噪声⇒剩 1 字）仍被挡 ✓。
+	reBracketChar = regexp.MustCompile(`【|】|（|）|\(|\)|《|》|「|」|『|』|\[|\]`)
+	// reQuotes（R1，2026-11-15）：引号 = **透明字符** —— 无占位直接删、不丢内容：
+	// `20261001“聚”乐部` 此前落入"非汉字分隔"把词切成 聚/乐部 两段（s=乐部 ✗），删后 聚乐部 连续 ✓。
+	reQuotes = regexp.MustCompile(`[“”‘’]`)
+	// reBareDateRow（R10，2026-11-15）：**裸日期行** —— 整串就是 8 位日期（可带「期」字）。
+	reBareDateRow = regexp.MustCompile(`^\d{8}期?$`)
 )
 
 // dateSeqTail 返回 8 位日期后**紧跟**的「当日集序」（1~2 位数字）；数字串 ≥3 位（不透明长
@@ -342,16 +362,24 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	if s == "" {
 		return k
 	}
+	// 引号透明（R1，2026-11-15）：先于一切剥离 —— 「“”‘’」视作无字符直接删（不丢内容、不留占位）。
+	s = reQuotes.ReplaceAllString(s, "")
 	// 画质/字幕/语言修饰词（R17）：先于一切提取剥离——「中字」不剥会被 part 正则吃成 p=中、
 	// 被 series 循环吞成 s=中字 ⇒ 同片多源 epid 分裂（生产实证 39,227 部电影零共享）。
-	s = reQualityTail.ReplaceAllString(s, "")
+	// R8（2026-11-15）：删除带 \x00 占位 —— 无占位会让相邻汉字拼接出假片段（与 seriesOf 口径统一）。
+	s = reQualityTail.ReplaceAllString(s, "\x00")
 	// 日期格式归一(先于一切提取): 破折/点分 → 8 位
 	s = reDashDate.ReplaceAllString(s, "$1$2$3")
-	s = reVariantNoise.ReplaceAllString(s, "")
+	s = reVariantNoise.ReplaceAllString(s, "\x00") // R8：带占位（同上）
 	var dateTail string
 	if loc := reDate8.FindStringIndex(s); loc != nil {
-		k.Date = s[loc[0]:loc[1]]
-		dateTail = dateSeqTail(s, loc[1])
+		// R6（2026-11-15）：8 位日期合法性 —— 原式只校验 (19|20) 前缀，「202300707下」被切成
+		// d=20230070（月 00/日 70 的伪日期）✗。不合法 ⇒ d 不采用、也不作为 dateSeqTail 基准。
+		// 月 1~12、日 ≤ 当月天数（含闰年，与 R11 date6 同规 —— 比规格的「日 1~31」更严一档）。
+		if d := s[loc[0]:loc[1]]; validDate8(d) {
+			k.Date = d
+			dateTail = dateSeqTail(s, loc[1])
+		}
 	}
 	if m := reDiN.FindStringSubmatch(s); m != nil {
 		if v, err := strconv.Atoi(m[1]); err == nil {
@@ -359,7 +387,8 @@ func ParseEpisodeKey(title string) EpisodeKey {
 		}
 	}
 	if m := reENum.FindStringSubmatch(s); m != nil {
-		if v, err := strconv.Atoi(m[1]); err == nil {
+		// R4：捕获组回填后取数组移（m[1]=左邻居、m[2]=E 号数字、m[3]=右邻居）
+		if v, err := strconv.Atoi(m[2]); err == nil {
 			k.ENum = v
 		}
 	}
@@ -438,16 +467,21 @@ func isLeftBracket(r rune) bool {
 
 // seriesOf 提取**栏目/系列名**（正片返回 ""）—— 2026-11-07 v2: **连续片段提取，连续性由构造保证**。
 //
-//	【qq】 第1期上：又争又抢…            → ""（去括号/期号/上下后无可用片段）
+//	【qq】 第1期上：又争又抢…            → ""（非汉字段/残渣不足 2 字，护栏挡）
 //	心动的周末第1期上：高甜游戏…          → 心动的周末
 //	20261012心动的周末上                → 心动的周末
-//	第20260731期先导片上                → 先导片（reDiNWide 吃掉整个「第20260731期」，无残渣）
+//	20261001“聚”乐部                    → 聚乐部（R1：引号透明，不把词切段）
+//	20261017舞台纯享版第6期             → ""（R2：变体跨度吸收 舞台/版，v=纯享）
+//	20260528(副本存档中第1期)           → 副本存档（R3：括号内容保留；尾部「中」被 part 截断吃掉）
+//	20260529(万事屋加更第1期)           → 万事屋（R3+R2）
+//	EP01白昼逃亡                        → 白昼逃亡（R4：E 号删除不截断邻居）
 //	檀健次带北江小分队回好六了！ 2025-01-04期 → ""（13 字描述 >8，拒识）
 //	王牌对王牌第七季2022.05.01期-会员版   → 王牌对王牌（「季」边界截断）
 //	20260803上 / 第3期中（上）           → ""
 //
-// 做法（用户拍板：栏目名必须连续，绝不跨段拼字）：截断到第一个「：」→ 逐跨度删除
-// （括号/日期/第N期宽口径/变体/噪声，删除处以 \x00 占位为界）→ 取**最长纯汉字连续段** →
+// 做法（用户拍板：栏目名必须连续，绝不跨段拼字）：截断到第一个「：」→ 引号透明删除（R1）→ 逐跨度删除
+//（括号字符（R3：只占位不删内容）/日期/第N期宽口径/E 号（R4：回填邻居）/变体跨度（R2：吸收修饰）/噪声，
+// 删除处以 \x00 占位为界）→ 取**最长纯汉字连续段** →
 // 只做两类**边界截断**：尾部 上/中/下（part 标记总在尾部）、首个「季」处（季是分季区分位）
 // → 要求 2~8 个中文字（≤8: 真栏目标签实测全部 ≤8；≥9 全是库侧自由描述/片名+残留）。
 // 旧实现"只留中文+逐字剔除"会跨段拼出假栏目名（残渣巧合匹配），已废。
@@ -464,6 +498,15 @@ func daysInMonth(year, month int) int {
 	}
 	days := [...]int{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
 	return days[month]
+}
+
+// validDate8 8 位日期合法性（R6，2026-11-15）：月 1~12、日不超当月天数（含闰年，与 R11 date6 同规）。
+// 「202300707下」型 7 位数字此前被切成 d=20230070（月 00/日 70）——伪日期进身份。
+func validDate8(d string) bool {
+	yy, _ := strconv.Atoi(d[0:4])
+	mm, _ := strconv.Atoi(d[4:6])
+	dd, _ := strconv.Atoi(d[6:8])
+	return mm >= 1 && mm <= 12 && dd >= 1 && dd <= daysInMonth(yy, mm)
 }
 
 // date6 在 s 里找**符合 YYMMDD 语义**的 6 位日期，返回 8 位规范形与匹配区间（R11，2026-11-14）。
@@ -510,11 +553,15 @@ func seriesOf(s string) string {
 	if i := strings.IndexAny(s, "：:"); i >= 0 {
 		s = s[:i]
 	}
+	// 引号透明（R1）：ParseEpisodeKey 入口已删，直调 seriesOf 的路径（测试/排查）仍要剥 —— 透明字符不留占位。
+	s = reQuotes.ReplaceAllString(s, "")
 	// 画质/字幕/语言修饰词（R17）：先剥——「中字」不剥会被 series 循环吞成 s=中字（同片多源 epid 分裂）。
-	s = reQualityTail.ReplaceAllString(s, "")
+	s = reQualityTail.ReplaceAllString(s, "\x00")
 	// 跨度删除以 \x00 占位: 残片之间永不拼接, 片段即原文中的连续子串
 	const sep = "\x00"
-	s = reBracket.ReplaceAllString(s, sep)
+	// R3（2026-11-15）：括号一律只作分隔 —— 逐字符占位、内容保留，交给护栏过滤
+	//（非汉字段 / reSeriesStop / 2~8 字上限）。原式连内容整段删 ⇒ 括号里的栏目名丢失 ✗。
+	s = reBracketChar.ReplaceAllString(s, sep)
 	// ⚠️ 顺序要紧：先删「第N期/集/话…」再删日期。反过来的话日期会先被替换成占位符，
 	// reDiNWide 的 `\s*\d{0,8}\s*` 跨不过占位符 ⇒ 「第20261005期心动的旅行上」这类日期样式期号
 	// 会残留一个「期」，栏目名变「期心动的旅行」，与库侧对不上（与 TS 侧同一 bug，2026-11-09 三端同修）
@@ -522,8 +569,10 @@ func seriesOf(s string) string {
 	s = reDate8.ReplaceAllString(s, sep)
 	s = stripDate6(s, sep) // R11：6 位 YYMMDD 同样剥离（否则 240103 会漏进栏目名 ✗）
 	s = reSeasonSpan.ReplaceAllString(s, sep)
-	s = reENum.ReplaceAllString(s, sep)
-	s = reVariant.ReplaceAllString(s, sep)
+	// R4：E 圆号以捕获组回填邻居（$1/$3），只删 E 号本身 —— 不再截断相邻汉字（EP01白昼逃亡 ⇒ s=白昼逃亡）
+	s = reENum.ReplaceAllString(s, "$1"+sep+"$3")
+	// R2：变体跨度吸收前后修饰（剧情/舞台/收官/特别 ×变体×版/典藏版）—— 替代裸 reVariant 删除
+	s = reVariantSpan.ReplaceAllString(s, sep)
 	s = reVariantNoise.ReplaceAllString(s, sep)
 	best := ""
 	for _, frag := range strings.FieldsFunc(s, func(r rune) bool { return r == 0 || !unicode.Is(unicode.Han, r) }) {

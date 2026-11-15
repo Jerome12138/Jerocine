@@ -87,6 +87,13 @@ func AnchorNumFor(title string, allTitles []string) int {
 	if k.Date == "" || k.Variant != "" {
 		return 0
 	}
+	// R9/R10（2026-11-15）：裸日期行收窄 —— 每天更新、多数行没有上/下的节目「上」稀疏，
+	// anchor 会把多条不同日期的行压成同一个 n（实测 21,768 行 / 370 mk / 42% 真踩：
+	// 0520/0521/0526/0527 同为 n=1）。宁缺勿错 ⇒ 裸日期行（`^\d{8}期?$`）且无 p ⇒ 不猜（n=-，靠 d 区分）。
+	// 有 p（如 20230616上）⇒ 仍走 anchor（「上」计数正是 anchor 的本职）；有 v ⇒ 上面已挡（原本就不走）。
+	if k.Part == "" && reBareDateRow.MatchString(strings.TrimSpace(title)) {
+		return 0
+	}
 	set := map[string]bool{}
 	for _, t := range allTitles {
 		o := ParseEpisodeKey(t)
