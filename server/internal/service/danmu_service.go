@@ -273,24 +273,25 @@ func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string
 	// 且"键匹配"的**开启条件不含 `k.Num`**（纯序号型 epid 如 `n=5` 其余全空 ⇒ appNum=0 时连键匹配都不走）。
 	// ⇒ primary 必须传 **epid 自己的 `n`** 当 appNum（既打开键匹配、又不被端侧 `epNum` 覆盖）；
 	// fallback 维持传端侧 `epNum`（原语义一行不变）。
-	var lastCand string
-	for _, c := range []danmuCand{primary, fallback} {
-		if !c.ok {
-			continue
-		}
+	//
+	// ⚠️ 回归修复（2026-11-16 复审实测）：**回退候选必须无条件尝试** —— `PickEpisodeKeyed` 的
+	// `hasKey=false` 分支就是**旧策略（集号精确匹配）**；老客户端（epid/epk/epTitle 全空）三个特征全空，
+	// 若因 `!c.ok` 把回退也跳过 ⇒ **永远不挑集**（实测 TestDanmuAggregate comments=0 want 2）。
+	// 修法：primary 有键才试；fallback 无条件（`fallback.ok=false` ⇒ hasKey=false ⇒ 旧策略原样）。
+	if primary.ok {
 		pickNum := epNum
-		if c.useKeyNum {
-			pickNum = c.k.Num
+		if primary.useKeyNum {
+			pickNum = primary.k.Num
 		}
-		if ep := danmu.PickEpisodeKeyed(eps, episode, pickNum, c.k, c.ok); ep != nil {
+		if ep := danmu.PickEpisodeKeyed(eps, episode, pickNum, primary.k, true); ep != nil {
 			return ep.EpisodeID, nil
 		}
-		lastCand = c.name
 	}
-	// ⚠️ 只在**两条候选都失败**时打一条日志（评审修复：原写法在循环里逐候选打，
-	// 未派生源会每次请求刷一条 ⇒ 日志噪声）
-	if lastCand != "" {
-		log.Printf("[danmu] aggregate episode not found (tried epid,epk/epTitle): anime=%q ep=%d (库内共 %d 集)", anime.AnimeTitle, episode, len(eps))
+	// 回退：无条件执行（hasKey=false 时 PickEpisodeKeyed 内部走旧三策略 —— 与 α 之前逐字一致）
+	if ep := danmu.PickEpisodeKeyed(eps, episode, epNum, fallback.k, fallback.ok); ep != nil {
+		return ep.EpisodeID, nil
 	}
+	// 两条候选都未命中 ⇒ 打一条日志（单条，不再逐候选刷；纯集号兜底未命中的"未派生源"场景同此一条）
+	log.Printf("[danmu] aggregate episode not found (tried epid,epk/epTitle): anime=%q ep=%d (库内共 %d 集)", anime.AnimeTitle, episode, len(eps))
 	return 0, nil
 }
