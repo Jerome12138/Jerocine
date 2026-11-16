@@ -96,6 +96,19 @@ type ruleCtx struct {
 	// 一次 P 次解析的钱（D1/D2/D3 提前返回的集名照旧不付）。
 	poolKeys []EpisodeKey
 	poolDone bool // 区分「未构建」与「构建后为空池」
+	// 池索引（2026-11-16，性能）：把 D4/D5 从片内 O(E×P) 线性扫池降到 O(E+P) 建索引 + O(1)/O(log P) 查询。
+	// 实测全库 Σ(Eb×P)=4.26 亿 → Σ(Eb+P)=581 万（≈73×）。语义与线性版逐字等价（见 pool_index.go）。
+	poolIdx     *poolIndex
+	poolIdxDone bool
+}
+
+// poolIndexOf 返回池索引（同一 ctx 只建一次；单 goroutine 使用，无需加锁）。
+func (c *ruleCtx) poolIndexOf() *poolIndex {
+	if !c.poolIdxDone {
+		c.poolIdx = newPoolIndex(c.poolKeysOf())
+		c.poolIdxDone = true
+	}
+	return c.poolIdx
 }
 
 // poolKeysOf 返回池的已解析键（同一 ctx 只解析一次；单 goroutine 使用，无需加锁）。
@@ -237,8 +250,8 @@ var titleRules = []decisionRule{
 		OutFromSrc: EpKeySourceBridge,
 		Desc:       "缺期号但有日期 ⇒ 他源桥接（日期相等 + 栏目/变体一致 + 主次相容）",
 	}, apply: func(_ string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
-		keys := ctx.poolKeysOf() // 缓存：同一行只解析一次池（原为每个集名重解析整池 ⇒ E×P 二次方）
-		if n := BridgeNum(k, keys); n > 0 {
+		// 池索引版（语义与 BridgeNum 逐字等价，只少了扫全池）
+		if n := ctx.poolIndexOf().bridgeNum(k); n > 0 {
 			k.Num = n
 			return EpidOf(k), true
 		}
@@ -250,8 +263,9 @@ var titleRules = []decisionRule{
 		OutFromSrc: EpKeySourceAnchor,
 		Desc:       "桥接不成 ⇒ 锚点推算（同栏目组内「上」的日期序）",
 	}, apply: func(title string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
-		// 键版锚点：复用 decideTitleInCtx 已解析的 k 与池缓存（原 AnchorNumFor 会重解析 title + 整池）
-		if n := AnchorNumForKey(title, k, ctx.poolKeysOf()); n > 0 {
+		// 池索引版（原 AnchorNumForKey 会**每次重建** Series→日期集合 ⇒ 片内 O(E×P)；
+		// 索引版建一次 + 二分。语义逐字等价，见 pool_index.go）
+		if n := ctx.poolIndexOf().anchorNum(title, k); n > 0 {
 			k.Num = n
 			return EpidOf(k), true
 		}
