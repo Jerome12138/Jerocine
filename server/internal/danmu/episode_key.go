@@ -276,6 +276,14 @@ var (
 	// 沿用"消费后手工判边界"的既有手法），避免把 7/9 位数字串截出半截当日期 ✗。
 	reDate6 = regexp.MustCompile(`\d{6}`)
 	reDiN   = regexp.MustCompile(`第\s*(\d{1,4})\s*[期集话回季部]`)
+	// reDiNCn（2026-11-16）：**中文数字期号** —— `第一期/第十二期/第二十三集/第一百期`。
+	// 为什么补：`reDiN` 只吃阿拉伯数字 ⇒「第二期」这类**落进 s 段**（实测 155 行 `s=第X期`），
+	// 与其它源的「第2期」永不相等（伪分歧）。转换值由 `cnNumeral` 负责（支持 十/百/千 组合）。
+	// ⚠️ **单位只取 期/集/话/回**，**不含 季/部** ——「第X季」「第X部」是**分季/分部标记，不是集序**
+	// （既有回归用例 `TestParseEpisodeKey_RealForms` 钉住 `王牌对王牌第七季…` 的 `Num` 必须为 0）。
+	// ⚠️ 已知不一致（未在本批改）：阿拉伯数字侧 `reDiN` 的单位类**仍含 季/部** ⇒「第7季」会给 `Num=7`
+	// 而「第七季」不给 ⇒ 中英数左右不对称，已登记在规则总表 §5 待裁决。
+	reDiNCn = regexp.MustCompile(`第\s*([一二三四五六七八九十百千零〇两]{1,6})\s*[期集话回]`)
 	// reENum（R4，2026-11-15）：捕获组回填 —— 原式 `(?:^|[^A-Za-z])…(?:\D|$)` 的边界断言被正则
 	// **消费掉**，seriesOf 的 `ReplaceAllString` 连相邻汉字一起删（`EP01白昼逃亡`→`昼逃亡`、
 	// `白昼逆行EP10`→`白昼逆` 截断 ✗）。RE2 无 lookahead ⇒ 改捕获组：删除处以 `$1`/`$3` 回填邻居
@@ -346,10 +354,11 @@ func dateSeqTail(s string, dateEnd int) string {
 // 解析前统一归一为 8 位, 使三格式(8位/破折/点分)落到同一个键(2026-11-07 v2, 实测最大单项收益)。
 var reDashDate = regexp.MustCompile(`((?:19|20)\d{2})[-.](\d{2})[-.](\d{2})`)
 
-// reDiNWide 期号跨度: 第 + 0~8位数字 + 单位字 —— 只用于栏目名清理。
+// reDiNWide 期号跨度: 第 + 0~8位数字或中文数字 + 单位字 —— 只用于栏目名清理。
 // 比 reDiN(数字限 1~4 位)宽: 「第20260731期」这类日期形态 reDiN 吃不掉,
 // 残留的「第/期」单字会污染栏目名(第期先导片 ≠ 先导片, 实测 lz↔uk/md/360/ikun 全 0% 的根因)。
-var reDiNWide = regexp.MustCompile(`第\s*\d{0,8}\s*[期集话回季部]`)
+// 2026-11-16：并入**中文数字**（否则「第二期」会被 seriesOf 当成栏目名 ⇒ `s=第二期`）。
+var reDiNWide = regexp.MustCompile(`第\s*[\d一二三四五六七八九十百千零〇两]{0,8}\s*[期集话回季部]`)
 
 // reSeasonSpan 季号跨度: 第 + 阿拉伯/中文数字 + 季(王牌对王牌第七季 → 第七季 整段删除,
 // 「季」是分季区分位不是栏目名成分; 栏目名在「季」边界截断, 保持连续)。
@@ -384,6 +393,15 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	if m := reDiN.FindStringSubmatch(s); m != nil {
 		if v, err := strconv.Atoi(m[1]); err == nil {
 			k.Num = v
+		}
+	}
+	// 中文数字期号（2026-11-16）：阿拉伯数字没取到时再试；`cnNumeral` 不认的（含非数字字符）一律不设
+	// ⇒ 与"宁缺勿错"一致（如「第X期」的 X 是别的字 ⇒ 保持不产期号）。
+	if k.Num == 0 {
+		if m := reDiNCn.FindStringSubmatch(s); m != nil {
+			if v, ok := cnNumeral(m[1]); ok && v > 0 {
+				k.Num = v
+			}
 		}
 	}
 	if m := reENum.FindStringSubmatch(s); m != nil {

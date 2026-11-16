@@ -242,6 +242,38 @@ func bareNum(name string) (int, bool) {
 	return v, true
 }
 
+// cnNumeral 中文数字 → 值（2026-11-16）：支持 十/百/千 组合（`十一`=11、`二十`=20、`二十三`=23、
+// `一百二十三`=123、`两百`=200、`十`=10）。**含任何非中文数字字符 ⇒ 拒绝**（返回 false）——
+// 与"宁缺勿错"一致：`第X期` 里的 X 若含别的字就不产期号。
+// 上界不额外设（实际集名不会到 千位以上）；`零/〇` 单独出现 ⇒ 返回 0 ⇒ 调用方按"不产期号"处理。
+func cnNumeral(s string) (int, bool) {
+	digit := map[rune]int{'零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4,
+		'五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+	unit := map[rune]int{'十': 10, '百': 100, '千': 1000}
+	total, cur, seen := 0, 0, false
+	for _, r := range s {
+		if d, ok := digit[r]; ok {
+			cur = d
+			seen = true
+			continue
+		}
+		if u, ok := unit[r]; ok {
+			if cur == 0 {
+				cur = 1 // `十一` 的 `十` 前面没有数字 ⇒ 当 1
+			}
+			total += cur * u
+			cur = 0
+			seen = true
+			continue
+		}
+		return 0, false // 含非中文数字字符 ⇒ 拒绝
+	}
+	if !seen {
+		return 0, false
+	}
+	return total + cur, true
+}
+
 func EpidsForSourceRow(titles []string) [][2]string {
 	return EpidsForSourceRowWithPool(titles, titles)
 }
