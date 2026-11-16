@@ -50,6 +50,12 @@ export interface HistoryRecord {
    *  来源: 播放页写入时取自详情; 登录态同步时取自服务端回填的 card.remarks。
    *  匿名模式下的老记录可能没有 → 卡片左下角留空, 不显示。 */
   remarks?: string
+  /**
+   * 集身份串（P0-3b, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`（5 段，缺值 `-`）。
+   * 续播时**优先按它定位集**（同源集序变化 —— 重排/插集 —— 时 `episodeIndex` 已失效，epid 仍能对上），
+   * 未命中回退 `episodeIndex`（方案 §3.1.9 两级回退）。空串/缺省 ⇒ 一律走老逻辑。
+   */
+  epid?: string
 }
 
 export type HistoryMap = Record<string, HistoryRecord>
@@ -197,13 +203,16 @@ export function buildPlayLink(rec: {
   source?: string
   episodeIndex?: number
   currentTime?: number
+  /** P0-3b: 集身份 —— 带上后播放页**优先按它定位集**（源内集序变化时下标会失效），未命中回退 episode 下标 */
+  epid?: string
 }): string {
   // 「直播」历史条（本地专用，id = LIVE_HISTORY_ID）：回 /live；原生壳由路由守卫转原生播放器
   if (rec.id === LIVE_HISTORY_ID) return '/live'
   const ct = Math.floor(rec.currentTime ?? 0)
   return (
     `/play?id=${rec.id}&source=${encodeURIComponent(rec.source ?? '')}&episode=${rec.episodeIndex ?? 0}` +
-    (ct > 0 ? `&currentTime=${ct}` : '')
+    (ct > 0 ? `&currentTime=${ct}` : '') +
+    (rec.epid ? `&epid=${encodeURIComponent(rec.epid)}` : '')
   )
 }
 
@@ -272,6 +281,7 @@ export const useHistoryStore = defineStore('history', () => {
       cid: item.cid,
       duration: item.duration,
       remarks: item.remarks,
+      epid: item.epid,
       timeStamp: item.timeStamp ?? Date.now()
     }
     map.value[next.id] = next
@@ -316,28 +326,36 @@ export const useHistoryStore = defineStore('history', () => {
     if (!existing) return
     const nextSource = source ?? existing.source
     const nextCurrent = Math.floor(currentTime)
+    // P0-3b: **切集时必须清掉 epid** —— 这里拿不到集名，无法为该集重算 epid；
+    // 留着上一集的 epid 会让续播按它定位到**上一集**（错集）。清空后走"未命中回退 episodeIndex"。
+    const nextEpid = episodeIndex === (existing.episodeIndex ?? 0) ? (existing.epid ?? '') : ''
+    const epLink = (epid: string): string =>
+      buildPlayLink({ id: existing.id, source: nextSource, episodeIndex, currentTime: nextCurrent, epid })
     const updated: HistoryRecord = {
       ...existing,
       episodeIndex,
       currentTime: nextCurrent,
+      epid: nextEpid,
       timeStamp: Date.now(),
       // 重建 link: 否则续播仍指向创建时的旧集/旧进度(原生只更 index/position, 不更 link)
-      link: buildPlayLink({ id: existing.id, source: nextSource, episodeIndex, currentTime: nextCurrent }),
+      link: epLink(nextEpid),
       ...(duration !== undefined && duration > 0 ? { duration: Math.floor(duration) } : {}),
       ...(source ? { source } : {}) // 原生换源后同步历史片源, 续播回到正确源
     }
     map.value[id] = updated
     // 每集独立进度: 用复合键更新该 影片::源::集 的进度(无则新建)
     const epKey = entryKey(id, nextSource, episodeIndex)
+    const prevEp = episodeMap.value[epKey]
     episodeMap.value[epKey] = {
-      ...(episodeMap.value[epKey] ?? updated),
+      // 该集条目已存在 ⇒ 展开它**自己的** epid（下面不覆盖）；新建 ⇒ 用影片级刚算出的 nextEpid
+      ...(prevEp ?? updated),
       id: existing.id,
       source: nextSource,
       episodeIndex,
       currentTime: nextCurrent,
       timeStamp: Date.now(),
       episode: existing.episode,
-      link: buildPlayLink({ id: existing.id, source: nextSource, episodeIndex, currentTime: nextCurrent }),
+      link: epLink(prevEp?.epid ?? nextEpid),
       ...(duration !== undefined && duration > 0 ? { duration: Math.floor(duration) } : {})
     }
     if (!remoteMode.value) {
@@ -402,7 +420,8 @@ export const useHistoryStore = defineStore('history', () => {
           id: film.id,
           source: film.source,
           episodeIndex,
-          currentTime: 0
+          currentTime: 0,
+          epid: film.epid
         }),
         timeStamp: Date.now()
       }
@@ -451,7 +470,9 @@ export const useHistoryStore = defineStore('history', () => {
         episode: rec.episodeIndex ?? 0,
         episodeName: rec.episode ?? '',
         progress: Math.floor(rec.currentTime ?? 0),
-        duration: Math.floor(rec.duration ?? 0)
+        duration: Math.floor(rec.duration ?? 0),
+        // P0-3b: 上报集身份；空串不会覆盖服务端已存身份（见 P0-3a 的 upsert 分支）
+        epid: rec.epid ?? ''
       })
     } catch (e) {
       logger.warn('history upsert (remote) failed', e)
@@ -475,6 +496,7 @@ export const useHistoryStore = defineStore('history', () => {
       picture: c?.cover ?? r.picture ?? '',
       source: r.playFrom,
       episodeIndex: r.episode,
+      epid: r.epid ?? '',
       currentTime: r.progress,
       pid: c?.pid ?? r.pid ?? 0,
       cid: c?.cid ?? r.cid ?? 0,
@@ -533,7 +555,8 @@ export const useHistoryStore = defineStore('history', () => {
             episode: rec.episodeIndex ?? 0,
             episodeName: rec.episode ?? '',
             progress: Math.floor(rec.currentTime ?? 0),
-            duration: Math.floor(rec.duration ?? 0)
+            duration: Math.floor(rec.duration ?? 0),
+            epid: rec.epid ?? ''
           })
         } catch (e) {
           logger.warn('history merge (single) failed', rec.id, e)

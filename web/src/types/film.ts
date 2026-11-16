@@ -94,6 +94,8 @@ export interface HeroItem {
 export interface Episode {
   episode: string
   link: string
+  /** 集身份（P1-1b, 2026-11-10）：服务端派生表下发；空/缺省 = 未派生 ⇒ 端侧回退实时解析 */
+  epid?: string
 }
 
 /** 一个播放源 */

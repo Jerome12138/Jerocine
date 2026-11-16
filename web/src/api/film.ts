@@ -103,6 +103,9 @@ export const getDanmuAggregate = (
     epTitle?: string
     /** App 侧现算期号(A2, 2026-11-07 v2): 经他源桥接归一得来; 0 = 未提供 */
     epNum?: number
+    /** P0-1b(2026-11-10): 结构化身份字段串（`v1|d=..|n=..|...`）。服务端优先采用并与 epTitle 交叉校验;
+     *  未触发的集为空串（旧客户端不传 ⇒ 行为不变） */
+    epk?: string
   },
   options?: { signal?: AbortSignal }
 ): Promise<DanmuAggregateResp> =>

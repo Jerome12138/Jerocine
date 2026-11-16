@@ -317,6 +317,12 @@ components:
       properties:
         episode: { type: string, description: 集数标题 (如 "第01集") }
         link: { type: string, description: 播放地址 / m3u8 链接 }
+        epid:
+          type: string
+          description: >-
+            集身份（P1-1b, 2026-11-10）：5 段串 `s=..|v=..|p=..|n=..|d=..`，来自服务端派生表
+            `movie_episode_epid`。**空/缺省 = 未派生或不产身份**（裸「第N集」/E圆号）⇒
+            客户端请**回退实时解析**（过渡期口径见方案 §4.6）。
 
     PlaySource:
       type: object
@@ -715,34 +721,49 @@ components:
         role: { type: integer, enum: [0, 1] }
 
     # ---------------- 用户: 历史 / 收藏 ----------------
+    # P3-7（2026-11-11 评审）：**按实现订正** —— 真实出参是 `service.HistoryView`
+    # （内嵌 `entity.UserHistory` + `card`），不是这里原先写的扁平 name/cover/cName/sourceId/episodeIndex。
     HistoryItem:
       type: object
-      required: [mid, name]
+      required: [mid]
       properties:
         id: { type: integer, format: int64, description: 记录 ID }
+        userId: { type: integer, format: int64 }
         mid: { type: integer, format: int64 }
-        name: { type: string }
-        cover: { type: string }
-        cName: { type: string }
-        episode: { type: string, description: 集数标题 }
-        episodeIndex: { type: integer, description: 集索引 }
-        sourceId: { type: string }
-        progress: { type: number, format: float, description: 播放进度 (秒) }
-        duration: { type: number, format: float, description: 总时长 (秒) }
+        playFrom: { type: string, description: 来源站标识（客户端 `sourceId`/`source` 即此项） }
+        episode: { type: integer, description: 集下标（**整数**；老数据里可能是字符串，客户端两种都容忍） }
+        epid:
+          type: string
+          maxLength: 160
+          description: >-
+            集身份串（P0-3, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`（5 段，缺值 `-`）。
+            **只有"触发的集"才有**（裸「第N集」/E圆号 = 空串）。续播时先按它找目标源同集，
+            未命中回退 `playFrom` + `episode` 下标；空串 ⇒ 一律走老逻辑。
+        progress: { type: integer, description: 播放进度（**整数秒**） }
+        duration: { type: integer, description: 总时长（**整数秒**） }
+        createdAt: { type: integer, format: int64 }
         updatedAt: { type: integer, format: int64 }
+        card:
+          type: object
+          nullable: true
+          description: 影片卡片（`entity.MovieSearch`，含 name/cover/cName/remarks）；缺省 ⇒ 前端退化为只用 mid 渲染。
+    # P3-7（2026-11-11 评审）：**按实现订正** —— handler 只绑 mid/playFrom/episode/epid/progress/duration，
+    # 其余键一律忽略（原来写的 sourceId/episodeIndex/name/cover/cName 服务端并不读）。
     HistoryUpsertReq:
       type: object
       required: [mid]
       properties:
         mid: { type: integer, format: int64 }
-        name: { type: string }
-        cover: { type: string }
-        cName: { type: string }
-        episode: { type: string }
-        episodeIndex: { type: integer }
-        sourceId: { type: string }
-        progress: { type: number, format: float }
-        duration: { type: number, format: float }
+        playFrom: { type: string, description: 来源站标识 }
+        episode: { type: integer, description: 集下标（整数秒口径同 progress） }
+        progress: { type: integer, description: 播放进度（整数秒） }
+        duration: { type: integer, description: 总时长（整数秒） }
+        epid:
+          type: string
+          maxLength: 160
+          description: >-
+            集身份串（P0-3, 2026-11-10，可选）。客户端算好传来；留空/超长一律当未提供，
+            且**空值不会覆盖已存身份**（老客户端上报不会把已存的 epid 清空）。
     FavoriteItem:
       type: object
       required: [mid, name]
@@ -1408,6 +1429,19 @@ paths:
             App 侧现算期号（2026-11-07 v2, A2）。纯日期集名（20261005上）自身无期号，前端经他源桥接
             归一得期号后传来，注入键的 Num；键匹配门禁同步补「期号参数非空」，纯日期/纯期号形态由此进键匹配。
             0/缺省 = 未提供，行为不变（剧不传）；越界/非法一律当未提供。
+        - name: epk
+          in: query
+          required: false
+          schema: { type: string, maxLength: 160 }
+          description: >-
+            **结构化身份字段串**（2026-11-10 P0-1b）：App 侧集名解析结果的序列化，形如
+            `v1|d=20260803|n=1|e=0|p=中|u=上|v=特辑|vn=2|s=|o=0|from=self`（`d` 日期 / `n` 期号 / `e` E 圆号 /
+            `p` 主部分 / `u` 次部分 / `v` 变体 / `vn` 变体序号 / `s` 栏目名 / `o` 序位兜底 / `from` 期号来源；数值缺省 0）。
+            服务端**优先采用**该键，并与 `epTitle` 解析值**交叉校验**（`date`/`num` 冲突以 `epTitle` 为准；
+            期号来自 A2 桥接时不参与比较），冲突会落日志并记数 ⇒ **三端解析漂移可被检出**。
+            版本前缀不认识 / 超长 / 未触发的集（裸「第N集」）一律传空串 ⇒ 行为与改动前完全一致。
+            `from`（2026-11-10 P1-3）取值 `self|bridge|anchor|none`，**仅供落库统计期号来源**、不参与身份判定
+            （服务端用 `danmu.ParseEpKeySource` 读取）。
       responses:
         '200':
           description: >-
@@ -2738,6 +2772,71 @@ paths:
         '202':
           description: 已受理
           headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---- epid 派生运维（H2, 2026-11-11）：一键全量派生 + 只读验收指标 ----
+  /manage/epid/derive-all:
+    post:
+      tags: [manage-spider]
+      summary: 一键全量派生集身份 epid（异步；mode=fill 补缺 / rebuild 清空重建）
+      description: >-
+        异步启动，立即返回；与"采集收尾的自动触发"共用同一把锁（互斥）。已有任务在跑时返回 409。
+        rebuild 会先清空派生表（TRUNCATE）再全量重算；期间出参无 epid，端侧自动回退实时解析，不影响可用性。
+        进度看 GET /manage/epid/report（游标/阶段）与后端日志（每批一行）。
+      operationId: manageEpidDeriveAll
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: mode, in: query, schema: { type: string, enum: [fill, rebuild], default: fill } }
+        - { name: batch, in: query, description: 每批源行数（默认 2000，上限 5000）, schema: { type: integer, default: 2000 } }
+        - { name: maxBatches, in: query, description: 批数上限（0=不限）, schema: { type: integer, default: 0 } }
+        - { name: timeoutMin, in: query, description: 总时长上限（分钟，默认 60，上限 240）, schema: { type: integer, default: 60 } }
+      responses:
+        '200':
+          description: 已排队
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/json:
+              schema: { type: object, properties: { started: { type: boolean }, mode: { type: string }, batch: { type: integer }, maxBatches: { type: integer }, timeoutMin: { type: integer } } }
+        '409': { description: 已有派生任务在跑（或未装配） }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/epid/report:
+    get:
+      tags: [manage-spider]
+      summary: 派生验收指标（只读：对齐率/覆盖率/来源分布/进度）
+      operationId: manageEpidReport
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 指标
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      running: { type: boolean }
+                      mode: { type: string }
+                      startedAt: { type: integer, format: int64 }
+                      cursor: { type: integer, format: int64 }
+                      hotPhase: { type: boolean }
+                  derivedRows: { type: integer, format: int64 }
+                  emptyEpidRows: { type: integer, format: int64 }
+                  alignedGroups: { type: integer, format: int64 }
+                  totalGroups: { type: integer, format: int64 }
+                  alignmentPct: { type: number, description: '对齐率 %（§4.8 门槛 ≥85）' }
+                  byFromSrc: { type: object, additionalProperties: { type: integer, format: int64 } }
+                  coverage:
+                    type: object
+                    nullable: true
+                    properties:
+                      derivedRows: { type: integer, format: int64 }
+                      sourceEpisodes: { type: integer, format: int64 }
+                      pct: { type: number }
+                  coverageError: { type: string }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /manage/films:

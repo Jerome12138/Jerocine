@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.jerocine.tv.R
 import com.jerocine.tv.data.FilmDetail
 import com.jerocine.tv.data.HistoryItem
+import com.jerocine.tv.data.resumeEpisodeIndex
 import com.jerocine.tv.data.LocalFavoriteRecord
 import com.jerocine.tv.data.LocalHistoryRecord
 import com.jerocine.tv.data.ServiceLocator
@@ -165,7 +166,14 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
         resumeSource = history?.source()?.takeIf { source ->
             detail.sources.any { it.id == source }
         }.orEmpty()
-        resumeEpisode = history?.episodeNumber() ?: 0
+        // P0-3c: 先按 epid 在续播源里重定位集下标（源内集序变化时老下标会失效），未命中回退老下标。
+        // M1（2026-11-11 评审）：候选列表须与 `buildNativePlayerPayload` 的 `requestedEpisode` 同口径
+        // （**过滤空 link 后**的下标）——否则源内有空 link 集时 epid 定位出的下标会错位到相邻集 ✗。
+        val resumeEpisodes = detail.sources.firstOrNull { it.id == resumeSource }?.episodes.orEmpty()
+            .filter { it.link.isNotBlank() }
+        resumeEpisode = history?.let {
+            resumeEpisodeIndex(it.epid, it.episodeNumber(), resumeEpisodes)
+        } ?: 0
         resumeSec = history?.resumeSeconds() ?: 0.0
         selection = initialDetailPlaybackSelection(
             playableSources(detail),
@@ -206,6 +214,14 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
                 )
             }.onSuccess { payload ->
                 if (!ServiceLocator.isLoggedIn) {
+                    // U6（2026-11-11 拍板按 c）：匿名态写本地历史也**只写服务端下发的 epid**（端侧不再自算，
+                    // 避免与落库口径并存两种变体）。下标口径与 `buildNativePlayerPayload` 对齐
+                    // （**过滤空 link 后**的位置）；服务端未派生 ⇒ 空串（不产错值，端侧自然回退下标）。
+                    val chosen = value.sources.firstOrNull { it.id == payload.currentSourceId }
+                        ?: value.sources.firstOrNull()
+                    val epid = chosen?.episodes.orEmpty()
+                        .filter { it.link.isNotBlank() }
+                        .getOrNull(payload.startIndex)?.epid.orEmpty()
                     ServiceLocator.tokenStore.upsertLocalHistory(
                         LocalHistoryRecord(
                             mid = value.mid,
@@ -216,6 +232,7 @@ class DetailFragment : Fragment(R.layout.fragment_detail) {
                             cover = value.cover,
                             cName = value.cName,
                             remarks = value.remarks,
+                            epid = epid,
                             updatedAt = System.currentTimeMillis(),
                         ),
                     )

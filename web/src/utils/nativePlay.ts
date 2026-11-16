@@ -42,7 +42,13 @@ export function dispatchNativePlaylist(
     name: s.name,
     episodes: (s.episodes ?? []).map((e) => ({
       url: e.link,
-      title: `${detail.name} · ${e.episode ?? ''}`.trim()
+      title: `${detail.name} · ${e.episode ?? ''}`.trim(),
+      // F1（2026-11-11 评审）：`title` 是「片名 · 集名」**展示用**拼接串，不能当身份解析基准
+      //（片名会被当成栏目名 ⇒ 产错 epid ✗）⇒ 显式带上**裸集名**。
+      // U6-c（2026-11-11 拍板）：端侧**已不再用它算 epid**（只读服务端 `epid`）⇒ 该字段现仅作排查/测试用途。
+      rawTitle: e.episode ?? '',
+      // P1-1b / U3-android：服务端派生表下发的 epid（空串 = 未派生 ⇒ 原生侧回退现算）
+      epid: e.epid ?? ''
     }))
   }))
   if (!mapped.some((s) => s.episodes.length > 0)) return false
@@ -62,6 +68,9 @@ export function dispatchNativePlaylist(
       picture: detail.cover,
       source: src.id,
       episodeIndex,
+      // F2（2026-11-11 评审）：`record()` 是**整条替换** ⇒ 不带 epid 会把刚写入的身份抹掉 ✗
+      //（该路径此前 P0-3b 失效）。这里带上当前集的 epid（服务端派生表下发；空串 = 未派生 ⇒ 不覆盖）。
+      epid: src.episodes?.[episodeIndex]?.epid ?? '',
       currentTime: resumeSec > 0 ? Math.floor(resumeSec) : 0,
       pid: detail.pid,
       cid: detail.cid,

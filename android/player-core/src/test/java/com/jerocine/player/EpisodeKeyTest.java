@@ -1,7 +1,9 @@
 package com.jerocine.player;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -22,13 +24,21 @@ public class EpisodeKeyTest {
     }
 
     @Test
-    public void parse_主次部分() {
+    public void parse_主次部分复合() {
+        // P0-1c：主部分为**复合单段**（中 + 紧随的 下 ⇒ 中下）
         EpisodeKey k = EpisodeKey.parse("20260818中（下）");
-        assertEquals("中", k.part);
-        assertEquals("下", k.sub);
+        assertEquals("中下", k.part);
+        assertEquals("20260818", k.date);
         EpisodeKey k2 = EpisodeKey.parse("第3期中");
         assertEquals("中", k2.part);
-        assertEquals("", k2.sub);
+        // 前缀相容：中 ⊂ 中下 ⇒ 相容；中上 ≠ 中下 ⇒ 不相容（区分仍在）
+        assertTrue(EpisodeKey.partCompatible(k2, k));
+        assertFalse(EpisodeKey.partCompatible(
+                EpisodeKey.parse("第3期中（上）"), EpisodeKey.parse("第3期中（下）")));
+        assertTrue(EpisodeKey.partCompatible(
+                EpisodeKey.parse("第3期中（上）"), EpisodeKey.parse("第3期中（上）")));
+        assertTrue(EpisodeKey.partCompatible(
+                EpisodeKey.parse("第3期中"), EpisodeKey.parse("第3期中（上）")));
     }
 
     @Test
@@ -86,8 +96,8 @@ public class EpisodeKeyTest {
         assertEquals("s=-|v=-|p=上|n=1|d=-", EpisodeKey.parse("正片第1期上").epid());
         assertEquals("s=-|v=-|p=上|n=-|d=20260803", EpisodeKey.parse("20260803上").epid());
         assertEquals("s=-|v=加更|p=上|n=-|d=20260806", EpisodeKey.parse("20260806加更上").epid());
-        // 裸序号/E圆号不触发（无 epid 语义, 调用方回退位置兜底）
-        assertFalse(EpisodeKey.parse("第3集").triggered());
+        // 2026-11-11 放宽：**纯序号也算触发**（片内唯一即够，连续剧/动漫的「第3集」）；E 圆号仍不触发
+        assertTrue(EpisodeKey.parse("第3集").triggered());
         assertFalse(EpisodeKey.parse("E01.220705").triggered());
         assertTrue(EpisodeKey.parse("20260803上").triggered());
     }
@@ -124,6 +134,123 @@ public class EpisodeKeyTest {
         assertEquals("20261005", k.date);
         assertEquals("上", k.part);
         assertEquals(0, k.num);
-        assertEquals("中", EpisodeKey.parse("第3期中（上）").part);
+        assertEquals("中上", EpisodeKey.parse("第3期中（上）").part);
+    }
+
+    /** P0-1a（2026-11-10，三端同规防呆）：变体序号 —— 变体词后紧跟的数字必须复合为身份 */
+    @Test
+    public void variantOrdinal_复合身份() {
+        assertEquals(2, EpisodeKey.parse("特辑2").variantNum);
+        assertEquals("特辑", EpisodeKey.parse("特辑2").variant);
+        assertEquals(2, EpisodeKey.parse("20260128特辑2").variantNum);
+        assertEquals("20260128", EpisodeKey.parse("20260128特辑2").date);
+        assertEquals(5, EpisodeKey.parse("第1期特辑5上").variantNum);
+        assertEquals(2, EpisodeKey.parse("特辑（2）").variantNum);
+        assertEquals(12, EpisodeKey.parse("特辑12").variantNum);
+        // 序号不紧跟（隔着「版」）→ 不取
+        assertEquals(0, EpisodeKey.parse("第1期加更版1").variantNum);
+        // 纯日期/长数字 → 不取（避免吞日期）
+        assertEquals(0, EpisodeKey.parse("特辑2026").variantNum);
+        assertEquals(0, EpisodeKey.parse("20260128特辑").variantNum);
+        // 无序号变体 + 栏目名
+        assertEquals(0, EpisodeKey.parse("夏日清凉特辑").variantNum);
+        assertEquals("夏日清凉", EpisodeKey.parse("夏日清凉特辑").series);
+    }
+
+    @Test
+    public void variantOrdinal_sameEpisode与epid() {
+        assertFalse(EpisodeKey.sameEpisode(EpisodeKey.parse("特辑2"), EpisodeKey.parse("特辑3")));
+        assertFalse(EpisodeKey.sameEpisode(EpisodeKey.parse("特辑2"), EpisodeKey.parse("特辑")));
+        // 两侧都无期号/日期 ⇒ 不判同（交 L3a 组内唯一兜底）
+        assertFalse(EpisodeKey.sameEpisode(EpisodeKey.parse("特辑2"), EpisodeKey.parse("特辑2")));
+        assertTrue(EpisodeKey.sameEpisode(EpisodeKey.parse("第1期特辑2"), EpisodeKey.parse("第1期特辑2")));
+        assertFalse(EpisodeKey.sameEpisode(EpisodeKey.parse("第1期特辑2"), EpisodeKey.parse("第1期特辑3")));
+        // epid: v 段含序号（特辑 vs 特辑2 不得撞缓存键）
+        assertEquals("s=-|v=特辑#2|p=-|n=-|d=-", EpisodeKey.parse("特辑2").epid());
+        assertEquals("s=-|v=特辑#2|p=-|n=-|d=20260128", EpisodeKey.parse("20260128特辑2").epid());
+        assertEquals("s=-|v=特辑|p=-|n=-|d=-", EpisodeKey.parse("特辑").epid());
+        assertEquals("s=夏日清凉|v=特辑|p=-|n=-|d=-", EpisodeKey.parse("夏日清凉特辑").epid());
+    }
+
+    /**
+     * P0-3c（2026-11-10）：续播定位 —— parseEpid / indexByEpid。
+     * 与 web `parseEpid`/`indexByEpid`、Go 侧同口径；黄金用例与 TS `episodeKey.spec.ts` 同一组。
+     */
+    @Test
+    public void parseEpid_解析与拒识() {
+        assertArrayEquals(new String[]{"", "", "中上", "3", ""},
+                EpisodeKey.parseEpid("s=-|v=-|p=中上|n=3|d=-"));
+        assertArrayEquals(new String[]{"心动的周末", "特辑#2", "", "", "20260930"},
+                EpisodeKey.parseEpid("s=心动的周末|v=特辑#2|p=-|n=-|d=20260930"));
+        assertNull(EpisodeKey.parseEpid(""));
+        assertNull(EpisodeKey.parseEpid("   "));
+        assertNull(EpisodeKey.parseEpid("s=-|v=-"));
+        assertNull(EpisodeKey.parseEpid("s=-|v=-|p=-|n=-|zz=-"));
+    }
+
+    @Test
+    public void indexByEpid_两档定位与回退() {
+        // ① 强等：同源集序变化（重排/插集）也能定位回原来那一集
+        String ep = EpisodeKey.parse("20260803上").epid();
+        assertEquals(2, EpisodeKey.indexByEpid(ep,
+                java.util.Arrays.asList("第1集", "第2集", "20260803上", "20260803中")));
+        assertEquals(0, EpisodeKey.indexByEpid(ep,
+                java.util.Arrays.asList("20260803上", "第1集", "第9集", "第2集", "20260803中")));
+        // ② 弱等（相容）：s/v 相等；n/p/d 单边通配、双有须过各自规则；候选唯一才采纳
+        java.util.List<String> titles = java.util.Arrays.asList("20260803上", "20260803中", "20260804下");
+        // 记录时的期号可能是桥接/锚点算出的值（本地重算不出）⇒ 单边缺 ⇒ 通配
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=1|d=20260803", titles));
+        // p 段为空 ⇒ 同日期两条候选 ⇒ 不唯一 ⇒ 放弃（宁缺勿错，交回退）
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=1|d=20260803", titles));
+        // ⚠️ 期号双有不等 ⇒ 拒绝（不得整体忽略 n —— 否则「第3期」会被「第2期」顶上，配错集）
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=3|d=-",
+                java.util.Arrays.asList("第2期上", "第4期上")));
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=2|d=-",
+                java.util.Arrays.asList("第2期上")));
+        // 日期单边缺失 ⇒ 通配 ⇒ 仍可命中（桥接只补 n，d 一侧可能没有）
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=1|d=-",
+                java.util.Arrays.asList("20260803第1期上")));
+        // 日期双有不等 ⇒ 硬证据 ⇒ 拒绝
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=-|d=20260810",
+                java.util.Arrays.asList("20260803上")));
+        // 对不上 / 空列表 / 坏串 ⇒ -1
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=下|n=-|d=20261231",
+                java.util.Arrays.asList("20260803上")));
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=上|n=-|d=20260803",
+                java.util.Collections.<String>emptyList()));
+        assertEquals(-1, EpisodeKey.indexByEpid("坏串", java.util.Arrays.asList("20260803上")));
+        assertEquals(-1, EpisodeKey.indexByEpid("", java.util.Arrays.asList("20260803上")));
+        // F6（2026-11-11 评审；**同日放宽**）：只拒绝"**任何段都空**"的串（s/v/p/d/n 全空）。
+        // 序号型（只有 n）在**片内**明确唯一 ⇒ 必须放行（旧守卫会把连续剧/动漫全挡在门外 ✗）。
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=1|d=-",
+                java.util.Arrays.asList("20260803第1期")));
+        assertEquals(0, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=3|d=-",
+                java.util.Arrays.asList("第3集", "第4集")));
+        // 真·裸串（五段全空）仍拒绝
+        assertEquals(-1, EpisodeKey.indexByEpid("s=-|v=-|p=-|n=-|d=-",
+                java.util.Arrays.asList("第3集", "第4集")));
+    }
+    /** P2（2026-11-12 评审）：日期尾随「当日集序」进 p 段 —— 与 Go TestDateSeqOrdinal_P2 / web 同组黄金用例 */
+    @Test
+    public void dateSeqOrdinal_p2() {
+        EpisodeKey k1 = EpisodeKey.parse("202401011");
+        assertEquals("20240101", k1.date);
+        assertEquals("1", k1.part);
+        EpisodeKey k2 = EpisodeKey.parse("202401012");
+        assertEquals("2", k2.part);
+        // 两集 epid 不得相同（旧实现逐字相同 ⇒ ①强等跨源错配、弹幕池合并）
+        assertFalse(k1.epid().equals(k2.epid()));
+        // 同集判定: 同名重解析判同; 数字序不做前缀相容 ⇒ p=1 与 p=2 不同集
+        assertTrue(EpisodeKey.sameEpisode(k1, EpisodeKey.parse("202401011")));
+        assertFalse(EpisodeKey.sameEpisode(k1, k2));
+        // 续播两级定位: 各自 epid 强等命中各自下标, 互不错配
+        java.util.List<String> titles = java.util.Arrays.asList("202401011", "202401012");
+        assertEquals(0, EpisodeKey.indexByEpid(k1.epid(), titles));
+        assertEquals(1, EpisodeKey.indexByEpid(k2.epid(), titles));
+        // 回归: 纯 8 位日期不带序号行为不变; 不透明长编号(≥3 位尾随数字)不拆序号
+        assertEquals("", EpisodeKey.parse("20240101").part);
+        EpisodeKey k3 = EpisodeKey.parse("20240101113");
+        assertEquals("20240101", k3.date);
+        assertEquals("", k3.part);
     }
 }

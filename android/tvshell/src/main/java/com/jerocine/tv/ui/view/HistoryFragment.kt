@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.jerocine.tv.NativeShellActivity
 import com.jerocine.tv.R
 import com.jerocine.tv.data.HistoryItem
+import com.jerocine.tv.data.resumeEpisodeIndex
 import com.jerocine.tv.data.LiveLastViewed
 import com.jerocine.tv.data.LocalHistoryRecord
 import com.jerocine.tv.data.ServiceLocator
@@ -206,6 +207,17 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                     ?: info.detail.sources.firstOrNull { it.id == info.currentSource }
                     ?: info.detail.sources.firstOrNull()
                 val isSeries = selected != null && selected.episodes.size > 1
+                // P0-3c: 先按 epid 在目标源里重定位集下标（源内集序变化时老下标会失效），未命中回退老下标
+                // M1（2026-11-11 评审）：候选列表必须与 `buildNativePlayerPayload` 的
+                // `requestedEpisode` **同口径**（那里是**过滤空 link 后**的下标）——否则源内存在
+                // 空 link 集时，epid 定位出的下标被当成"过滤后下标"使用 ⇒ 续播落到相邻集 ✗。
+                // 回退值 `episodeNumber()` 也是这套口径（历史里存的就是 payload 的 startIndex）。
+                val playableEpisodes = selected?.episodes.orEmpty().filter { it.link.isNotBlank() }
+                val episodeIndex = resumeEpisodeIndex(
+                    history.epid,
+                    history.episodeNumber(),
+                    playableEpisodes,
+                )
                 val remoteSkip = if (ServiceLocator.isLoggedIn) {
                     ServiceLocator.userRepository.skipFor(history.mid)
                 } else {
@@ -215,7 +227,7 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                 buildNativePlayerPayload(
                     info = info,
                     requestedSource = source,
-                    requestedEpisode = history.episodeNumber(),
+                    requestedEpisode = episodeIndex,
                     skipIntroSec = skip?.intro ?: if (isSeries) SkipDefaults.INTRO else 0,
                     skipOutroSec = skip?.outro ?: if (isSeries) SkipDefaults.OUTRO else 0,
                     resumeSec = history.resumeSeconds(),
@@ -234,6 +246,11 @@ class HistoryFragment : Fragment(R.layout.fragment_history) {
                             cover = card.cover,
                             cName = card.cName,
                             remarks = card.remarks,
+                            // U6（2026-11-11 拍板按 c）：只写**服务端下发**的身份（端侧不再自算）。
+                            // `history.epid` 正是服务端下发的值（本地的"切集作废"由 TokenStore 保证，
+                            // 服务端侧由 H4 的 CASE 保证）⇒ 直接沿用，不产生第二种变体；
+                            // 重定位后的下标（`episodeIndex`）只用于 `requestedEpisode`，不回写身份。
+                            epid = history.epid,
                             updatedAt = System.currentTimeMillis(),
                         ),
                     )

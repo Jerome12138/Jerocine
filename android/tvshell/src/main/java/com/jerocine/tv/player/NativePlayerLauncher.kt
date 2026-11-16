@@ -33,6 +33,19 @@ private data class NativeSource(
 private data class NativeEpisode(
     val url: String,
     val title: String,
+    /**
+     * **裸集名**（F1, 2026-11-11 评审）：`title` 是「片名 · 集名」**展示用**拼接串，
+     * 不能拿它当身份解析基准（片名会被当成栏目名 ⇒ epid 恒错且污染历史/缓存 ✗）。
+     * 缺省空串。
+     * <p>U6-c（2026-11-11 拍板）：端侧**已不再用它算 epid**（只读服务端下发的 `epid`）⇒
+     * 本字段现仅作排查/测试用途。
+     */
+    val rawTitle: String = "",
+    /**
+     * 集身份（P1-1b / M2, 2026-11-11 评审）：由服务端派生表下发的 `epid`（随 sources_json 传到
+     * player-core，与 urls/titles 一一对应）；缺省空串 ⇒ player-core 回退"本源现算"。
+     */
+    val epid: String = "",
 )
 
 fun buildNativePlayerPayload(
@@ -53,7 +66,11 @@ fun buildNativePlayerPayload(
                     .map { episode ->
                         NativeEpisode(
                             url = episode.link,
-                            title = "${info.detail.name} · ${episode.episode}".trim()
+                            title = "${info.detail.name} · ${episode.episode}".trim(),
+                            // F1：显式带上**裸集名**供 epid 解析（与 web `nativePlay.ts` 同口径）
+                            rawTitle = episode.episode,
+                            // M2（2026-11-11 评审）：透传服务端 epid（缺省空串 ⇒ player-core 回退现算）
+                            epid = episode.epid
                         )
                     }
             )

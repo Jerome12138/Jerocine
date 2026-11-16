@@ -145,6 +145,16 @@ func buildApp(cfg *config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init mysql: %w", err)
 	}
+	// 派生**写**专用连接（会话级 `sql_log_bin=0`，2026-11-13）：派生表可重建 ⇒ 不记 binlog 安全，
+	// 而它写量最大（整源行 DELETE+INSERT / 全量 rebuild）是 binlog 主要来源。
+	// **失败即降级**为主连接（只记日志）：本特性只优化 binlog 体积，绝不阻断派生。
+	deriveDB, derr := db.InitMySQLNoBinlog(cfg.MySQLDSN)
+	if derr != nil {
+		log.Printf("[warn] derive 连接（sql_log_bin=0）打开失败，派生写将照常记 binlog: %v", derr)
+		deriveDB = gdb
+	} else {
+		log.Printf("[epid] 派生写连接已启用 sql_log_bin=0（派生写不再进 binlog）")
+	}
 	cacheRdb, coordRdb, err := db.InitRedis(cfg.Redis)
 	if err != nil {
 		return nil, fmt.Errorf("init redis: %w", err)
@@ -236,6 +246,18 @@ func buildApp(cfg *config.Config) (*App, error) {
 	taskRunRepo := repomysql.NewTaskRunRepository(gdb)
 	taskSvc := service.NewTaskRunService(taskRunRepo)
 	spiderSvc := service.NewSpiderService(engine, sourceRepo, cronRepo, healthRepo, failureRepo, taskSvc)
+	// P1-1 / U1（2026-11-10）：装配 epid 派生服务 —— 采集任务收尾后由
+	// `service.DeriveEpidInBackground()`（见 spider_service 的 cron 收尾）异步触发一轮派生。
+	// 未装配 ⇒ 后台触发是 no-op（安全降级）。
+	// T3（epid 源头校正层, 2026-11-12）：同时装配裁定台账 repo —— A 点（派生写库前套用校正）
+	// 与 B/C 管理端入口都依赖它；未装配 ⇒ A 点跳过、B/C 报错（安全降级）。
+	epidSvc := service.NewEpidService(repomysql.NewEpidRepositoryWithDeriveDB(gdb, deriveDB))
+	epidSvc.SetEpidOverrideRepo(repomysql.NewEpidOverrideRepository(gdb))
+	service.SetDefaultEpidService(epidSvc)
+	// P1-1b（2026-11-10）：把"按 match_key 批量取 epid"装配进 service（详情/播放出参带 epid）；
+	// 未装配 ⇒ 出参不带 epid ⇒ 端侧回退实时解析（安全降级）。
+	repomysql.SetDefaultEpidRepo(repomysql.NewEpidRepositoryWithDeriveDB(gdb, deriveDB))
+	service.SetEpidLookup(repomysql.LookupEpidsByMatchKeys)
 	bannerSvc := service.NewBannerService(bannerRepo, filmSvc)
 
 	// TMDB 横图回填 worker: 每轮解析 key(后台 DB > env), 未配置时轻量探测后静默等待。

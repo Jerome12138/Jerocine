@@ -195,7 +195,7 @@ export const jerocine = {
     sources?: Array<{
       id: string
       name: string
-      episodes: Array<{ url: string; title?: string }>
+      episodes: Array<{ url: string; title?: string; rawTitle?: string; epid?: string }>
     }>
     /** v3 多源: 初始选中的源 id (找不到时默认 sources[0]) */
     currentSourceId?: string

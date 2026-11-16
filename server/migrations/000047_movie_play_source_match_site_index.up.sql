@@ -1,0 +1,23 @@
+-- 000047：给**真相源** movie_play_source 加 (match_key, site_id) 覆盖索引。
+--
+-- 背景（2026-11-11 真库实测）：
+--   可比口径对齐率（§4.8 门槛）里有两条以"片（match_key）"为粒度的子查询，都要在
+--   movie_play_source 上按 match_key 分组、并读 site_id：
+--     ①  `GROUP BY s.match_key HAVING COUNT(DISTINCT s.site_id) >= 2`  —— 单选"多源片"
+--     ②  `LEFT JOIN movie_episode_epid d ... HAVING COUNT(*) = COUNT(DISTINCT d.src_row_id)` —— 单选"成熟片"
+--   现有索引只有 `idx_match(match_key)`（**不含 site_id**）⇒ ① 必须回表取 site_id，
+--   EXPLAIN 是 `index(idx_match)` 而非 `Using index`，411,847 行实测 **15.0s** ✗
+--
+-- 为什么是 (match_key, site_id)：
+--   InnoDB 的二级索引**隐含主键**（id）⇒ 该索引实际等效于 (match_key, site_id, id)：
+--     · ① 变 `Using index`（纯覆盖，不必回表）✓
+--     · ② 需要的 (match_key, id) 也在索引内 ⇒ 同样可覆盖 ✓
+--   ⇒ 不新增冗余索引，一条即可同时服务两条子查询。
+--
+-- 代价：索引体积（411k 行 × 两列，估算 30~60MB）与写入略慢；movie_play_source 由采集低频写
+-- （200 行/语句批），可接受 ✓。建索引在 41 万行上预计 5~20s（单次维护操作）。
+--
+-- ⚠️ 注意：`movie_play_source` 列是 `utf8mb4_unicode_ci`，`movie_episode_epid` 已由 000045 对齐到
+-- 同一 collation ⇒ 跨表比较不再需要手写 COLLATE ✓
+ALTER TABLE movie_play_source
+    ADD INDEX idx_match_site (match_key, site_id);

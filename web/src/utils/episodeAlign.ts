@@ -5,7 +5,7 @@
  * 背景：切源（含看门狗自动换源 / error 轮换）此前只做「保同下标」——
  * 剧/动漫各源同构时等价，但**综艺各源分集不一致时会静默切到错集**。
  */
-import { epidOf, partCompatible, parseEpisodeKey, sameEpisode, type EpisodeKey } from './episodeKey'
+import { epidCompatible, partCompatible, parseEpisodeKey, sameEpisode, type EpisodeKey } from './episodeKey'
 
 /** 对齐档位：exact=身份串全等；samePeriod=同期号；sameDate=同日期；byOrdinal=同期序；position=按位置。 */
 export type AlignTier =
@@ -32,11 +32,11 @@ export function canAutoSwitch(tier: AlignTier): boolean {
 }
 
 /**
- * 身份相容（不含期号/日期）：栏目 + 变体 + 主次部分；**日期双有且不等 → 否决**（硬证据，同 SameEpisode′）。
+ * 身份相容（不含期号/日期）：栏目 + 变体（含**变体序号**）+ 主次部分；**日期双有且不等 → 否决**（硬证据，同 SameEpisode′）。
  * 第 ④ 档（跨命名体系：一侧日期、一侧期号）靠它，不能用 `sameEpisode`（那要求有共同期号/日期）。
  */
 function identityCompatible(a: EpisodeKey, b: EpisodeKey): boolean {
-  if (a.variant !== b.variant || a.series !== b.series) return false
+  if (a.variant !== b.variant || a.variantNum !== b.variantNum || a.series !== b.series) return false
   if (!partCompatible(a, b)) return false
   if (a.date && b.date && a.date !== b.date) return false
   return true
@@ -74,17 +74,19 @@ function periodOrdinals(list: EpisodeKey[]): number[] {
 }
 
 /**
- * L3a（客户端等价档，与服务端 `pickSeriesUnique` 同口径）：同 `(series, variant)` 组内**唯一定位**。
+ * L3a（客户端等价档，与服务端 `pickSeriesUnique` 同口径）：同 `(series, variant, variantNum)` 组内**唯一定位**。
  * 适用：目标侧该集**既无期号也无日期**的衍生栏目（心动的旅行 / 线上集结篇 / 夏日清凉特辑…）。
- * 安全边界：正片（series/variant 皆空）不适用；作用域被 (series,variant) 锁死 + 主/次相容；
+ * 安全边界：正片（series/variant 皆空）不适用；作用域被 (series,variant,variantNum) 锁死 + 主/次相容；
  * 期号两侧都有须相等；日期两侧都有须相等；**目标侧该组仅 1 条**才返回，否则 -1（宁缺勿错）。
+ *
+ * ⚠️ P0-1a（2026-11-10）：组键**必须含 variantNum** —— 否则「特辑1..5」同组 5 条、永不唯一 ⇒ 整组丢弹幕。
  */
 function seriesUniqueIndex(c: EpisodeKey, tgt: EpisodeKey[]): number {
   if (!c.series && !c.variant) return -1
   let only = -1
   for (let i = 0; i < tgt.length; i++) {
     const t = tgt[i]!
-    if (t.series !== c.series || t.variant !== c.variant) continue
+    if (t.series !== c.series || t.variant !== c.variant || t.variantNum !== c.variantNum) continue
     if (!partCompatible(c, t)) continue
     if (c.num > 0 && t.num > 0 && c.num !== t.num) continue
     if (c.date && t.date && c.date !== t.date) continue
@@ -104,12 +106,11 @@ export function alignEpisode(curIndex: number, curEps: string[], targetEps: stri
   const c = cur[curIndex]
   if (!c || tgt.length === 0) return { index: -1, tier: 'failed' }
 
-  // ① 身份串全等
-  const curEpid = epidOf(c)
+  // ① 身份串相容（P0-1c：`p` 段前缀相容，其余 s/v(n)/n/d 段全等）
   for (let i = 0; i < tgt.length; i++) {
-    // ⚠️ epid 串是 5 段（s|v|p|n|d），**不含 sub** ⇒ 必须同时过 sameEpisode，
-    // 否则「第3期中（上）」与「第3期中（下）」epid 相等会被误判为同一集（实测过的坑）。
-    if (epidOf(tgt[i]!) === curEpid && sameEpisode(c, tgt[i]!)) return { index: i, tier: 'exact' }
+    // ⚠️ 必须**同时**过 sameEpisode：epidCompatible 只比"身份段"，不含"有共同证据"的要求
+    // （日期双有须相等 / 期号双有须相等 / E圆号双有须相等）。二者是"串层"与"证据层"两道关。
+    if (epidCompatible(c, tgt[i]!) && sameEpisode(c, tgt[i]!)) return { index: i, tier: 'exact' }
   }
   // ② 同集（SameEpisode′）+ 期号相同 —— 期号优先，此时不看日期
   if (c.num > 0) {

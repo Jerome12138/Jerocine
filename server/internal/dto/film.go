@@ -95,6 +95,9 @@ func ToManageFilmRows(list []entity.MovieSearch, counts map[int64]int) []ManageF
 type Episode struct {
 	Episode string `json:"episode"`
 	Link    string `json:"link"`
+	// Epid 集身份（P1-1b, 2026-11-10）：派生表 `movie_episode_epid` 下发的 5 段串；
+	// **空/缺省 = 未派生或不产身份** ⇒ 端侧回退实时解析（过渡期口径见方案 §4.6）。
+	Epid string `json:"epid,omitempty"`
 }
 
 // PlaySource 一个播放源(契约: id/name/episodes)。
@@ -104,10 +107,14 @@ type PlaySource struct {
 	Episodes []Episode `json:"episodes"`
 }
 
-func toEpisodes(eps []entity.Episode) []Episode {
+func toEpisodes(eps []entity.Episode, epids []string) []Episode {
 	out := make([]Episode, 0, len(eps))
-	for _, e := range eps {
-		out = append(out, Episode{Episode: e.Episode, Link: e.Link})
+	for i, e := range eps {
+		epid := ""
+		if i < len(epids) {
+			epid = epids[i]
+		}
+		out = append(out, Episode{Episode: e.Episode, Link: e.Link, Epid: epid})
 	}
 	return out
 }
@@ -115,7 +122,7 @@ func toEpisodes(eps []entity.Episode) []Episode {
 func toSources(srcs []service.PlaySourceView) []PlaySource {
 	out := make([]PlaySource, 0, len(srcs))
 	for _, s := range srcs {
-		out = append(out, PlaySource{Id: s.Id, Name: s.Name, Episodes: toEpisodes(s.Episodes)})
+		out = append(out, PlaySource{Id: s.Id, Name: s.Name, Episodes: toEpisodes(s.Episodes, s.Epids)})
 	}
 	return out
 }

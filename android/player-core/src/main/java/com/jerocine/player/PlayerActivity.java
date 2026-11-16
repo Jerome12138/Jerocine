@@ -547,6 +547,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                     p.put("fromIndex", session.lastMediaItemIndex);
                     session.lastMediaItemIndex = session.player.getCurrentMediaItemIndex();
                     p.put("source", session.currentSourceLabel());
+                    p.put("epid", epidOfCurrentEpisode());
                     p.put("reason", reason);
                     emit("playerEpisodeChange", p);
                 } catch (Exception ignore) {
@@ -672,6 +673,7 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
                         p.put("filmId", filmId());
                         p.put("episodeIndex", session.player.getCurrentMediaItemIndex());
                         p.put("source", session.currentSourceLabel());
+                        p.put("epid", epidOfCurrentEpisode());
                         p.put("position", session.player.getCurrentPosition() / 1000.0);
                         emit("playerProgress", p);
                     }
@@ -940,6 +942,31 @@ private static String failedRequestUrl(Throwable error) {
         if (session.player != null && session.player.isPlaying()) session.player.pause();
     }
 
+    /**
+     * P0-3c / **U6-c**（2026-11-11 拍板按 c）：当前集的**集身份**（epid）—— **只读服务端派生表下发的值**。
+     *
+     * <p><b>为什么不再本地现算</b>：客户端算的那套（`epidFor`，**不含锚点**）与服务端落库口径
+     * （`EpidFor`，**含锚点**）是**两种变体**；并存会让 `user_history.epid` 与服务端派生表对不上
+     * （续播只能落到②档甚至回退）。按 (c) 统一为"**单一权威 = 服务端**"：端侧只读；
+     * 未派生 / 老载荷 / 无剧集上下文 ⇒ 空串（**不产错值**，端侧自然回退 `episodeIndex` 下标）。
+     *
+     * <p>（F5 的"结果缓存"随之不再需要：这里退化为一次 O(1) 数组取值。`rawTitles` 仍有 web 侧在填充，
+     * 保留供排查/测试 —— 端侧已不再消费它算 epid。）
+     */
+    private String epidOfCurrentEpisode() {
+        try {
+            if (session == null || session.player == null) return "";
+            int idx = session.player.getCurrentMediaItemIndex();
+            if (session.currentSourceIndex < 0 || session.currentSourceIndex >= session.sourceList.size()) return "";
+            java.util.List<String> given = session.sourceList.get(session.currentSourceIndex).epids;
+            if (given == null || idx < 0 || idx >= given.size()) return "";
+            String e = given.get(idx);
+            return e == null ? "" : e;
+        } catch (Exception ignore) {
+            return "";
+        }
+    }
+
     private void emitProgressNow() {
         try {
             if (session.localPlayback || session.isSingleLocalPlaylist()) return; // 本地模式无影片/剧集上下文, 不上报进度
@@ -948,6 +975,7 @@ private static String failedRequestUrl(Throwable error) {
             p.put("filmId", filmId());
             p.put("episodeIndex", session.player.getCurrentMediaItemIndex());
             p.put("source", session.currentSourceLabel());
+            p.put("epid", epidOfCurrentEpisode());
             p.put("position", session.player.getCurrentPosition() / 1000.0);
             emit("playerProgress", p);
         } catch (Exception ignore) {
@@ -980,6 +1008,7 @@ private static String failedRequestUrl(Throwable error) {
                     p.put("duration", player.getDuration() > 0 ? player.getDuration() / 1000.0 : 0);
                     p.put("episodeIndex", player.getCurrentMediaItemIndex());
                     p.put("source", session.currentSourceLabel());
+                    p.put("epid", epidOfCurrentEpisode());
                     if (playbackEnded) p.put("ended", true);
                 }
                 emit("playerClosed", p);

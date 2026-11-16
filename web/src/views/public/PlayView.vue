@@ -31,7 +31,7 @@ import type { PlayInfo, PlaySource } from '@/types/film'
 import { usePlayer, resolutionLabel, isHlsSupported, NEXTTV_AD_SVG, NEXTTV_AUTOPLAY_SVG } from '@/composables/usePlayer'
 import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
-import { epidFor, derivedNumFor } from '@/utils/episodeKey'
+import { epidFor, derivedNumFor, indexByEpid, derivedNumSourceFor } from '@/utils/episodeKey'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings, normalizeSkipSec } from '@/composables/useSkipSettings'
@@ -918,10 +918,17 @@ watch(paused, (v) => setWebWatching(!v))
 const allEpisodeTitles = computed(() =>
   (detail.value?.sources ?? []).flatMap((s) => s.episodes.map((e) => e.episode))
 )
-/** 当前集 epid: **触发的集必有**（5 段定长）; 未触发（裸序号/E圆号）= ''（池键回退旧格式） */
-const danmakuEpid = computed(() => epidFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value))
+/** 当前集 epid: **优先用服务端派生表下发的 `epid`**（P1-1b；方案 §4.6 过渡期口径）；
+ *  缺失（未派生/未装配/老接口）⇒ **回退实时解析** ⇒ 行为与改动前一致。 */
+const danmakuEpid = computed(
+  () => currentEpisode.value?.epid || epidFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value)
+)
 /** A2 现算期号: 0 = 未提供（剧不传, 后端行为不变） */
 const danmakuEpNum = computed(() => derivedNumFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value))
+/** P1-3: 期号来源（self|bridge|anchor|none）—— 随 `epk` 的 `from=` 上报，供 P1-1 落库统计（不参与身份） */
+const danmakuNumSource = computed(() =>
+  derivedNumSourceFor(currentEpisode.value?.episode ?? '', allEpisodeTitles.value)
+)
 const danmaku = useDanmaku({
   mid: computed(() => detail.value?.mid),
   // 聚合弹幕按标题匹配: 影片名 + 年份 + 集号
@@ -934,6 +941,8 @@ const danmaku = useDanmaku({
   // 池键随 epid 跨源同集相等 → 切源不再重拉; epNum 传给后端键匹配（纯日期形态也能对上）。
   epid: danmakuEpid,
   epNum: danmakuEpNum,
+  // P1-3: 期号来源（写进 epk 的 from= 段，供服务端 P1-1 落库统计）
+  epNumSource: danmakuNumSource,
   player,
   // 实际生效 = 用户级; 任一变化触发 useDanmaku watch 重载
   enabled: danmakuActive
@@ -1076,6 +1085,11 @@ const { flush: flushHistory } = useFilmHistory({
       currentTime: Math.floor(playerCurrentTime.value),
       pid: detail.value.pid,
       cid: detail.value.cid,
+      // U6（2026-11-11 拍板按 c）：写历史**只上报服务端下发的 epid** —— 端侧不再产出自己那套
+      // （`epidFor` 不含锚点，与落库口径 `EpidFor`(含锚点) 是两种变体，并存会让"按 epid 续播"对不上）。
+      // 服务端未派生 ⇒ 空串 ⇒ 服务端按 H4 规则保留/清空，续播自然回退 episodeIndex。
+      // 注：弹幕**池键**（`danmakuEpid`）仍保留本地回退 —— 它是内存键、不落库，且未派生时必须有个稳定值。
+      epid: currentEpisode.value?.epid ?? '',
       // 影片自身更新状态(HD / 更新至 N 集): 供首页"继续观看"卡左下角像普通影片卡一样展示
       remarks: detail.value.remarks
     }
@@ -1115,6 +1129,17 @@ async function loadPlayInfo(): Promise<void> {
     relate.value = data.related ?? []
     currentSourceId.value = data.currentSource || data.detail.sources[0]?.id || ''
     currentEpisodeIndex.value = Number(data.currentEpisode) || 0
+    // P0-3b（2026-11-10）: URL 带 epid（历史/继续观看写入的集身份）⇒ 先按它在**当前源**里重定位集下标。
+    // 同源集序变化（重排/插集/补集）时 data.currentEpisode 已失效，而 epid 仍能对上；
+    // 对不上（源已换 / 集已下架 / 老记录无 epid）⇒ 保持原下标 —— 即方案 §3.1.9 的**两级回退**。
+    {
+      const wantEpid = String(route.query.epid ?? '')
+      const srcForEpid = data.detail.sources.find((s) => s.id === currentSourceId.value)
+      if (wantEpid && srcForEpid?.episodes?.length) {
+        const idx = indexByEpid(wantEpid, srcForEpid.episodes.map((e) => e.episode ?? ''))
+        if (idx >= 0) currentEpisodeIndex.value = idx
+      }
+    }
     // 高峰慢源预案: 进播放页后台静默测一轮线路(限并发 2), 结果供「一键切最快」
     // 与卡顿看门狗选目标用; 不自动换源不打扰。每部片只测一次(换集不重测)。
     if (data.detail.sources.length > 1 && speedTestedForFilm !== data.detail.mid) {

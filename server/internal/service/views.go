@@ -40,6 +40,15 @@ type PlaySourceView struct {
 	Id       string           `json:"id"`
 	Name     string           `json:"name"`
 	Episodes []entity.Episode `json:"episodes"`
+	// Epids 与 Episodes **等长**的集身份（P1-1b, 2026-11-10）：来自派生表 movie_episode_epid；
+	// 空串 = 该集未派生/不产身份 ⇒ 端侧回退实时解析。
+	//
+	// ⚠️ **2026-11-11 修复（生产实测）**：这里原来是 `json:"-"`，但本结构整体进 Redis 详情缓存
+	// （`cache.KeyMovieDetail`）⇒ `json:"-"` 让 Epids **存不进缓存、缓存命中时读回来即丢**
+	// ⇒ 出参 `sources[].episodes[].epid` **永远为空**（库侧有数据也带不出来，实测已复现）✗。
+	// 改为普通字段（`omitempty`：未派生时不占体积）。出参侧仍由 `dto.toSources` 映射到
+	// `episodes[].epid`，本字段只用于**穿过缓存**。
+	Epids []string `json:"epids,omitempty"`
 }
 
 // FilmDetailData 影片详情(详情主体 + 多源播放)。

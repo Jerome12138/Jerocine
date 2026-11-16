@@ -46,7 +46,13 @@ data class NavCategory(
 @Serializable
 data class Episode(
     val episode: String = "",
-    val link: String = ""
+    val link: String = "",
+    /**
+     * 集身份（P1-1b, 2026-11-10）：服务端派生表下发的 5 段串；空/缺省 = 未派生 ⇒ 原生侧回退实时解析。
+     * M2（2026-11-11 评审）：本字段原**未透传** ⇒ player-core 的"优先读服务端 epid"在 TV 原生壳
+     * **恒空转**（只能走本地现算）。补上后原生壳与 WebShell 口径一致。
+     */
+    val epid: String = ""
 )
 
 @Serializable
@@ -173,7 +179,12 @@ data class HistoryItem(
     val cover: String = "",
     val cName: String = "",
     val remarks: String = "",
-    val card: Card? = null
+    val card: Card? = null,
+    /**
+     * 集身份串（P0-3c, 2026-11-10）：`s=..|v=..|p=..|n=..|d=..`。
+     * 续播时**优先按它定位集**（同源集序变化时 episodeIndex 会失效），未命中回退 episodeIndex。
+     */
+    val epid: String = ""
 ) {
     fun previewCard(): Card = card ?: Card(
         mid = mid,
@@ -216,7 +227,9 @@ data class LocalHistoryRecord(
     val cover: String = "",
     val cName: String = "",
     val remarks: String = "",
-    val updatedAt: Long = 0
+    val updatedAt: Long = 0,
+    /** 集身份串（P0-3c）：匿名态本地历史也存一份，登录合并后一并带上 */
+    val epid: String = ""
 ) {
     fun toHistoryItem(): HistoryItem = HistoryItem(
         mid = mid,
@@ -228,7 +241,8 @@ data class LocalHistoryRecord(
         name = name,
         cover = cover,
         cName = cName,
-        remarks = remarks
+        remarks = remarks,
+        epid = epid
     )
 }
 

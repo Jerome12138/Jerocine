@@ -24,11 +24,11 @@ func toMovie(d filmDetail) *entity.Movie {
 		CName: d.TypeName, EnName: d.VodEn, Initial: d.VodLetter, ClassTag: d.VodClass,
 		Area: d.VodArea, Language: d.VodLang, Year: parseYear(d.VodPubDate, d.VodYear),
 		PubDate: parsePubDate(d.VodPubDate),
-		Actor: d.VodActor, Director: d.VodDirector, Writer: d.VodWriter, Content: d.VodContent,
+		Actor:   d.VodActor, Director: d.VodDirector, Writer: d.VodWriter, Content: d.VodContent,
 		DbId: d.VodDouBanID, DbScore: parseScore(d.VodDouBanScore, d.VodScore), Hits: d.VodHits,
 		State: d.VodState, Remarks: d.VodRemarks, Cover: d.VodPic,
-		PlayFrom: splitNonEmpty(d.VodPlayFrom, firstNonEmpty(d.VodPlayNote, "$$$")),
-		DownFrom: d.VodDownFrom,
+		PlayFrom:     splitNonEmpty(d.VodPlayFrom, firstNonEmpty(d.VodPlayNote, "$$$")),
+		DownFrom:     d.VodDownFrom,
 		ReleaseStamp: d.VodTimeAdd, UpdateStamp: parseTimeUnix(d.VodTime),
 	}
 }
@@ -95,12 +95,34 @@ func buildPlaySources(d filmDetail, siteId string, mid *int64) []entity.MoviePla
 	if mid == nil && d.VodDouBanID > 0 {
 		keys = append(keys, domain.GenerateHashKey(d.VodDouBanID))
 	}
+	// 上游元数据（000052，2026-11-14）：**可空**落库，存量行不回填（不触发全库重采）。
+	// 用途：判定双写副本时直接用 `hash(source_name)` / `hash(source_douban_id)` 得到两个键，
+	// 不再依赖"我们库内是否有这部片"（此前反推只能到 ≈69.8%）。
+	// 两种键的行**都带上** —— 它们描述的是**上游这部片**、不是某一个键 ⇒ 任一行都能自证身份。
+	var srcName *string
+	if d.VodName != "" {
+		v := d.VodName
+		srcName = &v
+	}
+	var srcDouban *int64
+	if d.VodDouBanID > 0 {
+		v := int64(d.VodDouBanID)
+		srcDouban = &v
+	}
 	out := make([]entity.MoviePlaySource, 0, len(groups)*len(keys))
-	for _, k := range keys {
+	for ki, k := range keys {
+		// DupCopy（2026-11-13）：**按"这个键的来源"标，不做任何判断** —— `keys[0]` 恒由 `d.VodName` 生成
+		// （片名键 ⇒ 主份 0），其余键由 `d.VodDouBanID` 生成（豆瓣键 ⇒ 副本 1）。
+		// 口径含义与用途见 `entity.MoviePlaySource.DupCopy` 与迁移 000050。
+		dup := int8(0)
+		if ki > 0 {
+			dup = 1
+		}
 		for _, g := range groups {
 			out = append(out, entity.MoviePlaySource{
 				Mid: mid, SiteId: siteId, MatchKey: k, SourceVodID: d.VodID,
-				PlayFrom: g.Name, Episodes: g.Episodes,
+				PlayFrom: g.Name, Episodes: g.Episodes, DupCopy: dup,
+				SourceName: srcName, SourceDoubanID: srcDouban,
 			})
 		}
 	}

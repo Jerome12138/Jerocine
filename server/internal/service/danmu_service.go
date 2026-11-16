@@ -142,7 +142,14 @@ type DanmuAggregateResp struct {
 // epNum（2026-11-07 v2 新增，可选）：App 侧**现算期号**（A2）—— 纯日期集名（20261005上）自身无期号，
 // 前端经他源桥接归一得期号后传来，注入键的 Num 后纯期号形态也能键匹配（门禁同步补「期号参数非空」）；
 // 0 = 未提供，行为不变。
-func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, episode, from, to int, epTitle string, epNum int) (DanmuAggregateResp, error) {
+//
+// epk（2026-11-10 P0-1b 新增，可选）：App 侧**结构化身份字段串**（集名解析结果），
+// `v1|d=..|n=..|e=..|p=..|v=..|vn=..|s=..|o=..|from=..`
+// （P0-1c 起**无独立 `u=` 段**（`p` 为复合主部分）；末段 `from=` 为期号来源，P1-3）。
+// 服务端**优先采用**并与 epTitle 交叉校验（date/num 冲突以 epTitle 为准），冲突记日志+计数
+// ⇒ 三端解析若漂移可被检出。**`from=bridge` 时跳过 `n` 比较**（H3/M3, 2026-11-11 评审：不再用
+// "客户端传了 epNum"当判据）。留空则与改动前完全一致（旧客户端不受影响）。
+func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, episode, from, to int, epTitle string, epNum int, epk string) (DanmuAggregateResp, error) {
 	if strings.TrimSpace(title) == "" {
 		return DanmuAggregateResp{}, fmt.Errorf("missing title: %w", domain.ErrInvalidArgument)
 	}
@@ -151,7 +158,7 @@ func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, e
 	if s.dandan == nil || !s.dandan.Enabled() || !s.danmuMasterEnabled(ctx) {
 		return empty, nil
 	}
-	episodeID, err := s.resolveAggregateEpisode(ctx, title, year, episode, epTitle, epNum)
+	episodeID, err := s.resolveAggregateEpisode(ctx, title, year, episode, epTitle, epNum, epk)
 	if err != nil {
 		return DanmuAggregateResp{}, err
 	}
@@ -201,7 +208,7 @@ func (s *DanmuService) DanmuAggregate(ctx context.Context, title string, year, e
 // 缓存键掺入 year + episode：同标题不同年份（多季）各自缓存，避免先到请求把后到年份
 // 串到错误季；掺 episode 是因为 PickAnime 打分含集数项(EpisodeCount>=episode+1)，
 // 同标题同年不同集号共享 pick 会把后到请求定位到先到请求按其集号选出的作品。
-func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string, year, episode int, epTitle string, epNum int) (int64, error) {
+func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string, year, episode int, epTitle string, epNum int, epk string) (int64, error) {
 	kwKey := cache.EpKeyOf(fmt.Sprintf("%s|%d|%d", danmu.NormalizeTitle(title), year, episode))
 	anime, _, err := cache.GetOrLoadTTL(ctx, cache.KeyDanmuDdAnime(kwKey), danmuSourceTTL, danmuEmptyTTL,
 		func(ctx context.Context) (*danmu.DandanAnime, bool, error) {
@@ -234,7 +241,30 @@ func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string
 	if err != nil {
 		return 0, err
 	}
-	ep := danmu.PickEpisode(eps, episode, epNum, epTitle)
+	// P0-1b（2026-11-10）: 客户端结构化身份串**优先采用** + 与集名解析值**交叉校验**。
+	//   - 客户端有键且有集名 ⇒ MergeEpidKey（date/num 冲突以集名为准；num 来自 A2 桥接时跳过比较）
+	//   - 只有集名（旧客户端）⇒ 与改动前完全一致
+	//   - 冲突打点：正常应恒为 0，上涨即三端解析漂移的哨兵
+	// H3/M3（2026-11-11 评审）：`numBridged` 不再用"客户端传了 epNum"这一**近似**判据 ——
+	// 客户端**自带期号**时也会传 epNum（`derivedNumFor` 直接返回自带值），那样会**一律跳过 `n` 比较**
+	// ⇒ 漏检三端漂移 ✗。改为**真正消费 `epk` 的 `from=`**（这正是 P1-3 的原意：端侧标注 → 服务端落库/
+	// 判定；此前 `ParseEpKeySource` 无任何生产调用点）。只有来源确为 `bridge` 才跳过；
+	// 老客户端不带 `from=` ⇒ 回退旧规则（`epNum > 0`）⇒ 行为与改动前完全一致。
+	fromSrc := danmu.ParseEpKeySource(epk)
+	numBridged := fromSrc == danmu.EpKeySourceBridge || (fromSrc == "" && epNum > 0)
+	var k danmu.EpisodeKey
+	hasKey := false
+	if clientKey, ok := danmu.ParseEpisodeKeyString(epk); ok {
+		k, hasKey = clientKey, true
+		if epTitle != "" {
+			merged, conflicts := danmu.MergeEpidKey(clientKey, danmu.ParseEpisodeKey(epTitle), numBridged)
+			k = merged
+			danmu.NoteEpKeyConflicts(conflicts)
+		}
+	} else if epTitle != "" {
+		k, hasKey = danmu.ParseEpisodeKey(epTitle), true
+	}
+	ep := danmu.PickEpisodeKeyed(eps, episode, epNum, k, hasKey)
 	if ep == nil {
 		log.Printf("[danmu] aggregate episode not found: anime=%q ep=%d (库内共 %d 集)", anime.AnimeTitle, episode, len(eps))
 		return 0, nil
