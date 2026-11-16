@@ -57,6 +57,11 @@ func EpidOf(k EpisodeKey) string {
 // BridgeNum 他源桥接（**与 TS `bridgeNum` 同规**）：在 otherKeys 里找「**自带期号** + 日期相等 +
 // 栏目/变体一致 + 主次相容」的集，读其期号；**多个候选期号不一致（错标/缺期漂移）⇒ 放弃（0）**。
 // 0 = 桥接失败（调用方回退锚点/不借）。
+//
+// ⚠️ **性能（2026-11-16）**：本函数是**线性扫池**（片内 O(E×P)）。**生产派生路径已改走
+// `poolIndex.bridgeNum`**（`pool_index.go`：同 (Date, Series, Variant) 桶）；本函数**保留作
+// 兼容/对照**——它是等价性单测的基准（`TestPoolIndex_EquivalentToLinear`），TS 侧 `bridgeNum` 仍按本算法。
+// 改桥接口径时**两处都要改**，否则对照测试会红。
 func BridgeNum(cur EpisodeKey, otherKeys []EpisodeKey) int {
 	seen := map[int]bool{}
 	for _, k := range otherKeys {
@@ -100,6 +105,10 @@ func AnchorNumFor(title string, allTitles []string) int {
 // AnchorNumForKey 锚点期号的**已解析键**版（与 AnchorNumFor 逐字节等价）：
 // `k` 必须是 `ParseEpisodeKey(title)` 的结果（title 原文仅供 R10 裸日期守卫匹配），
 // `poolKeys` 是池标题的解析结果（顺序 = 池标题顺序；去重语义在函数内不变）。
+//
+// ⚠️ **性能（2026-11-16）**：本函数**每次调用都重建**「Series → 「上」日期集合」（O(P) + 分配）
+// ⇒ 片内 O(E×P)。**生产派生路径已改走 `poolIndex.anchorNum`**（建一次 + 二分）；
+// 本函数**保留作兼容/对照**（等价性单测基准），TS 侧 `anchorNumFor` 仍按本算法。改口径两处都要改。
 func AnchorNumForKey(title string, k EpisodeKey, poolKeys []EpisodeKey) int {
 	if k.Date == "" || k.Variant != "" {
 		return 0
