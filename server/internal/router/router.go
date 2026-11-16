@@ -214,6 +214,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		// epid 派生运维（H2, 2026-11-11）：一键全量派生（mode=fill 补缺 / rebuild 清空重建）+ 只读验收报告
 		mg.POST("/epid/derive-all", h.ManageEpidDeriveAll)
 		mg.GET("/epid/report", h.ManageEpidReport)
+		// 容忍口径（M4，2026-11-16）：按需计算（不进 600s 快照），用于评估"错位治好后能收编多少片"。
+		mg.GET("/epid/alignment/tolerant", h.ManageEpidAlignmentTolerant)
 		// epid 源头校正层（第②段 T4, 2026-11-12）：裁定台账管理面。
 		// import/GET 不受 D3 生效开关影响（先录入核对）；apply/recompute 受开关把守（默认关 ⇒ 403）；
 		// PUT /enabled 是开关本体（内存态，重启回默认关 = fail-safe）。红线③：出参全为计数/白名单视图。

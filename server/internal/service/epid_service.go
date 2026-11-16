@@ -1236,6 +1236,37 @@ type EpidReport struct {
 //  6. 配套迁移：`000046` 派生表覆盖索引（对齐率系列 index-only）；`000047` 源表 `(match_key, site_id)`
 //     （≥2 site 子查询至今仍**回表**：EXPLAIN `index(idx_match)` 无 `Using index`，实测 33s）；
 //     `000048` 进度计数器单行表。
+// TolerantAlignReport 容忍口径（M4，2026-11-16）按分类的片级读数。
+// ⚠️ 与严格口径的 `TotalMks` **不可直接相减**：容忍口径只统计"≥2 个源"的片（单源不背书）。
+type TolerantAlignReport struct {
+	ByCategory []mysql.TolerantAlignmentStat `json:"byCategory"`
+	All        mysql.TolerantAlignmentStat   `json:"all"`
+}
+
+// ReportAlignmentTolerant 容忍口径报告 —— **按需 / 离线专用**（M4 的出口）：
+// 不进 `heavyMetricsSnapshot` 的 600s 快照、也不进请求路径（用户 2026-11-16 定："算法时间长，离线算即可"），
+// 只由管理端 `GET /manage/epid/alignment/tolerant` 显式触发。
+func ReportAlignmentTolerant(ctx context.Context) (TolerantAlignReport, error) {
+	// slice 一律初始化成空 slice（同 `ReportEpid` 的 null 兜底纪律：nil → JSON null 会打挂前端卡片）
+	out := TolerantAlignReport{
+		ByCategory: []mysql.TolerantAlignmentStat{},
+		All:        mysql.TolerantAlignmentStat{Pid: -1, Category: "全部"},
+	}
+	s := currentEpidService()
+	if s == nil {
+		return out, errors.New("epid 派生服务未装配")
+	}
+	v, all, err := s.repo.ClassAlignmentTolerant(ctx)
+	if err != nil {
+		return out, err
+	}
+	if v != nil {
+		out.ByCategory = v
+	}
+	out.All = all
+	return out, nil
+}
+
 func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 	st := DeriveStatus()
 

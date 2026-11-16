@@ -94,54 +94,77 @@ func TestAnchorsBySrcRowIds_按In查询而非窗口全表(t *testing.T) {
 	}
 }
 
-// ClassAlignment（双粒度）三重钉：
+// ClassAlignment（双粒度）三重钉 + 归属解析（M1/M2/R4）：
 //
 //	① keyset 分页子查询**必须带表别名** —— 生产曾因缺 `) t` 报 Error 1248，后台快照静默空跑（2026-11-15）；
 //	② 槽位口径：集级 = (mk, ep_index) 槽内非空 epid 唯一（单源槽默认对齐 + 多源同 epid 槽）；
 //	   片级 = 该片**全部槽位对齐**（集级 100% 的片，零分歧）。判定单位：槽/片。
 //	③ 归并与百分比（SlotPct/MkPct）。
+//	④ **归属解析（2026-11-16）**：`pid=0` 回退 `cid`；`cid` 是二级类目 ⇒ 再回退其父类；
+//	   "未关联"拆两档（`-1` 无主源 / `-2` 有 mid 未归类）。
 func TestClassAlignment_双粒度归并(t *testing.T) {
 	gdb, mock, _ := newMockDBCapture(t)
 	repo := NewEpidRepository(gdb)
 
+	// ⓪ category 全表（本函数入口一次读全；供归属解析 + 名字）
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, pid, name FROM category")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pid", "name"}).
+			AddRow(1, 0, "电影片").AddRow(2, 0, "连续剧").
+			AddRow(11, 1, "剧情片").AddRow(35, 0, "电影解说"))
+
 	// ① keyset 圈批：一批即完（MAX=100），随后一轮返回 0 ⇒ 循环结束。
 	//    expected 正则里显式含 `) t` —— 实际 SQL 缺别名时匹配失败 ⇒ 用例红（Error 1248 回归守卫）。
-	//    执行顺序：keyset → 槽位聚合 → keyset（返回 0 终止）→ category 名回查。
+	//    执行顺序：category → keyset → 槽位聚合 → keyset（返回 0 终止）。
 	keyset := regexp.QuoteMeta("SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?) t")
 	mock.ExpectQuery(keyset).WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(100))
 
-	// ② 槽位聚合：连续剧 3 槽全对齐（单源槽 + 同 epid 多源槽）⇒ 全对齐片；
-	//    电影 1 槽分歧（多源多 epid）⇒ 非全对齐片
+	// ② 槽位聚合（列序 = pid, cid, has_mid, aligned_slots, total_slots, aligned_mks, total_mks）：
+	//    连续剧 3 槽全对齐；电影（pid=0 + cid=11 二级类目 ⇒ 归到父类 1）1 槽分歧；
+	//    电影解说（pid=0 + cid=35 顶级 ⇒ 直挂）1 槽对齐；两个"未关联"档各 1 槽且都对齐。
 	mock.ExpectQuery(regexp.QuoteMeta("SUM(mkstat.aligned_slots = mkstat.total_slots) AS aligned_mks")).
-		WillReturnRows(sqlmock.NewRows([]string{"pid", "aligned_slots", "total_slots", "aligned_mks", "total_mks"}).
-			AddRow(2, 3, 3, 3, 3).AddRow(1, 0, 1, 0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"pid", "cid", "has_mid", "aligned_slots", "total_slots", "aligned_mks", "total_mks"}).
+			AddRow(2, 0, 1, 3, 3, 3, 3).
+			AddRow(0, 11, 1, 0, 1, 0, 1).
+			AddRow(0, 35, 1, 1, 1, 1, 1).
+			AddRow(-1, 0, 0, 1, 1, 1, 1).
+			AddRow(-1, 0, 1, 1, 1, 1, 1))
 
 	mock.ExpectQuery(keyset).WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(0))
-
-	// ③ category 名回查（ids=[1,2]）
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, name FROM category WHERE id IN")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "电影片").AddRow(2, "连续剧"))
 
 	out, all, err := repo.ClassAlignment(context.Background())
 	if err != nil {
 		t.Fatalf("ClassAlignment: %v", err)
 	}
-	if len(out) != 2 || all.TotalSlots != 4 || all.AlignedSlots != 3 || all.TotalMks != 4 || all.AlignedMks != 3 {
+	if len(out) != 5 || all.TotalSlots != 7 || all.AlignedSlots != 6 || all.TotalMks != 7 || all.AlignedMks != 6 {
 		t.Fatalf("归并不符: out=%+v all=%+v", out, all)
 	}
+	byPid := map[int64]ClassAlignmentStat{}
 	for _, st := range out {
-		if st.Pid == 2 && (st.TotalSlots != 3 || st.AlignedSlots != 3 || st.SlotPct != 100 || st.MkPct != 100 || st.Category != "连续剧") {
-			t.Fatalf("连续剧聚合不符: %+v", st)
-		}
-		if st.Pid == 1 && (st.AlignedSlots != 0 || st.SlotPct != 0 || st.MkPct != 0 || st.Category != "电影片") {
-			t.Fatalf("电影（分歧槽）应为 0%%: %+v", st)
-		}
+		byPid[st.Pid] = st
 	}
-	if all.SlotPct != 75 {
-		t.Fatalf("集级 SlotPct 应 75%%（3/4 槽）, got %v", all.SlotPct)
+	if st, ok := byPid[2]; !ok || st.Category != "连续剧" || st.SlotPct != 100 || st.MkPct != 100 {
+		t.Fatalf("连续剧聚合不符: %+v", st)
 	}
-	if all.MkPct != 75 {
-		t.Fatalf("片级 MkPct 应 75%%（3/4 片全对齐）, got %v", all.MkPct)
+	// R4：pid=0 + cid=11（二级类目）⇒ 应归到父类 1
+	if st, ok := byPid[1]; !ok || st.Category != "电影片" || st.SlotPct != 0 || st.MkPct != 0 {
+		t.Fatalf("cid=11 应回退到父类 1（电影片）: %+v", st)
+	}
+	// M1：pid=0 + cid=35（顶级类目）⇒ 直挂到 35
+	if st, ok := byPid[35]; !ok || st.Category != "电影解说" || st.MkPct != 100 {
+		t.Fatalf("cid=35 应直挂为 35（电影解说）: %+v", st)
+	}
+	// M2：未关联拆两档
+	if st, ok := byPid[-1]; !ok || st.Category != "未关联片（无主源）" {
+		t.Fatalf("无主源档不符: %+v", st)
+	}
+	if st, ok := byPid[PidUnresolvedWithMid]; !ok || st.Category != "未关联片（有 mid 未归类）" {
+		t.Fatalf("有 mid 未归类档不符: %+v", st)
+	}
+	if all.SlotPct < 85.7 || all.SlotPct > 85.72 {
+		t.Fatalf("集级 SlotPct 应 85.71%%（6/7 槽）, got %v", all.SlotPct)
+	}
+	if all.MkPct < 85.7 || all.MkPct > 85.72 {
+		t.Fatalf("片级 MkPct 应 85.71%%（6/7 片全对齐 —— 电影片那 1 片有分歧槽）, got %v", all.MkPct)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet: %v", err)

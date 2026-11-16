@@ -2800,6 +2800,50 @@ paths:
         '409': { description: 已有派生任务在跑（或未装配） }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /manage/epid/alignment/tolerant:
+    get:
+      tags: [manage-spider]
+      summary: 容忍口径片级对齐率（M4，按需计算；骨架取最长源 + 仅插删 + 主源必备相容）
+      description: |
+        与 `/manage/epid/report` 的严格口径（按 ep_index 位置比较）不同，容忍口径只允许「多出 / 缺失」、
+        不允许「同位置替换」，用于回答"跨源错位治好后能收编多少片"。
+        ⚠️ `totalMks` 只统计「≥2 个源」的片（**单源不背书**），故与严格口径的片级**不可直接相减**；
+        同一分母下的严格读数见 `strictAligned`。
+        ⚠️ 该接口**按需现算**（不进后台 600s 快照、不进请求路径）：慢，请低频调用。
+      operationId: manageEpidAlignmentTolerant
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 容忍口径读数
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  byCategory:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        pid: { type: integer }
+                        category: { type: string }
+                        totalMks: { type: integer }
+                        alignedMks: { type: integer }
+                        tolerantMkPct: { type: number }
+                        strictAligned: { type: integer }
+                  all:
+                    type: object
+                    properties:
+                      pid: { type: integer }
+                      category: { type: string }
+                      totalMks: { type: integer }
+                      alignedMks: { type: integer }
+                      tolerantMkPct: { type: number }
+                      strictAligned: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /manage/epid/report:
     get:
       tags: [manage-spider]

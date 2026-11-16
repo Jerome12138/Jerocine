@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"server/internal/danmu"
 	"server/internal/domain/entity"
 )
 
@@ -690,6 +691,12 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 	return row.Aligned, row.Total, err
 }
 
+// PidUnresolvedWithMid 合成 sentinel：**有 mid 但归类不出来**（movie/category 查不到）。
+// 与 `-1`（无主源：组内零 mid 行）分开统计 —— M2（2026-11-16）把"未关联"拆两档，
+// 否则两块语义完全不同的数据会混在一个 `未关联` 里（实测：无主源 135,440 个 mk 混着
+// "有 mid 但 pid=0/无 movie" 的 45,137 个）。
+const PidUnresolvedWithMid int64 = -2
+
 // ClassAlignmentStat 按分类的**跨源对齐**（**槽位口径**，2026-11-15 用户定稿；双粒度）：
 //   - **槽位 = (match_key, ep_index)**：各源行的"第 N 集"对位到同一槽。
 //     槽对齐 ⇔ 槽内非空 epid **只有一种**：
@@ -701,17 +708,221 @@ func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total 
 //
 // 旧组级口径（组内 site≥2 的**组占比**）把单源片算成"未对齐"⇒ 51.3% 单源片永久压制比率（33.92%），
 // 且 R12 上线反而稀释（反向激励）——已废弃作主指标（组级 `AlignmentRate` 保留仅作对照）。
-// ⚠️ 两个已知边界：① ep_index 跨源**错位**（头部插集/中间缺集）产出伪分歧——后续分歧槽归因分类；
-// ② 分类归属依赖源表 `mid`（覆盖 ~22.4%）——全组无 mid ⇒ pid=-1（未关联，待定向补采）。
+// ⚠️ 三个已知边界：
+//  ① ep_index 跨源**错位**（头部插集/中间缺集）产出伪分歧 —— 容忍口径见 `TolerantAlignmentStat`；
+//  ② 分类归属 = `movie.pid`，**pid=0 的"直挂影片"回退 `movie.cid`**（M1，2026-11-16；`cid` 若为
+//     二级类目再回退其父类 = R4），解析在 Go 侧 `resolveCategory`（不在 560 万行上挂 join）；
+//  ③ "未关联"已拆两档（M2）：`-1` 无主源 ／ `PidUnresolvedWithMid` 有 mid 未归类。
 type ClassAlignmentStat struct {
 	Pid          int64   `json:"pid"`
-	Category     string  `json:"category"`     // category.name：电影片 / 连续剧 / 综艺片 / 动漫片 …；pid=-1 显示 未关联片
+	Category     string  `json:"category"`     // category.name（一级分类名）；`pid=-1` → 未关联片（无主源）、`pid=-2` → 未关联片（有 mid 未归类）
 	TotalSlots   int64   `json:"totalSlots"`   // 集级分母：非空 (mk, ep_index) 槽位数
 	AlignedSlots int64   `json:"alignedSlots"` // 集级分子：对齐槽位（单源槽 + 同 epid 多源槽）
 	SlotPct      float64 `json:"slotPct"`      // 集级对齐率
 	TotalMks     int64   `json:"totalMks"`     // 片级分母：有身份的片数
 	AlignedMks   int64   `json:"alignedMks"`   // 片级分子：集级 100% 的片（零分歧）
 	MkPct        float64 `json:"mkPct"`        // 片级对齐率
+}
+
+// TolerantAlignmentStat 容忍口径（M4，2026-11-16）的**片级**读数：
+// 判定 = `danmu.TolerantMkAligned`（骨架取最长源 + 仅插删 + 主源必备相容）。
+// 与严格口径的差别：跨源 `ep_index` 错位（头部多一集 / 中间缺集）在严格口径下产出伪分歧，
+// 这里按"多出 / 缺失"容忍 ⇒ 能回答"把错位治好后能收编多少片"。
+// ⚠️ 单源片**不背书**（非空源 < 2 ⇒ 判不齐）—— 与严格口径的"单源槽默认对齐"有意不同，
+// 所以 `TotalMks` 只统计"≥2 源"的片，两个口径的片级**不可直接相减**。
+type TolerantAlignmentStat struct {
+	Pid           int64   `json:"pid"`
+	Category      string  `json:"category"`
+	TotalMks      int64   `json:"totalMks"`      // 分母：≥2 个源的片
+	AlignedMks    int64   `json:"alignedMks"`    // 分子：容忍口径判齐的片
+	TolerantMkPct float64 `json:"tolerantMkPct"` // 容忍片级
+	StrictAligned int64   `json:"strictAligned"` // 同一分母下、严格口径就整齐的片（对照）
+}
+
+// ClassAlignmentTolerant 容忍口径（M4）按分类的片级读数。
+//
+// **按需 / 离线专用**：它是"体检"指标（不是进度指标），且比严格口径多一次按源取序列的开销，
+// 所以**不进** `heavyMetricsSnapshot` 的 600s 快照、也**不进**请求路径 ——
+// 只由管理端 `GET /manage/epid/alignment/tolerant` 显式触发（用户 2026-11-16 定："算法时间长，离线算即可"）。
+//
+// 批量策略与 `ClassAlignment` 一致（keyset 圈 10 万 mk/批）；每批按 (mk, src_row_id, ep_index) 取
+// 身份序列后在 Go 里判 —— 不依赖 SQL 侧的排序（避免在 560 万行上落盘 filesort）。
+func (r *EpidRepo) ClassAlignmentTolerant(ctx context.Context) ([]TolerantAlignmentStat, TolerantAlignmentStat, error) {
+	catPID := map[int64]int64{}
+	catName := map[int64]string{}
+	{
+		var rows []struct {
+			Id   int64
+			Pid  int64
+			Name string
+		}
+		if err := dbFrom(ctx, r.db).Raw("SELECT id, pid, name FROM category").Scan(&rows).Error; err != nil {
+			return nil, TolerantAlignmentStat{}, err
+		}
+		for _, c := range rows {
+			catPID[c.Id], catName[c.Id] = c.Pid, c.Name
+		}
+	}
+	resolveCategory := func(pid, cid int64) int64 {
+		out := pid
+		if out == 0 {
+			out = cid
+		}
+		if p, ok := catPID[out]; ok && p > 0 {
+			out = p
+		}
+		return out
+	}
+
+	type mkAcc struct{ total, aligned, strictOK int64 }
+	accs := map[int64]*mkAcc{}
+	var all TolerantAlignmentStat
+	const page = 100000
+	after := int64(math.MinInt64)
+	for i := 0; i < 32; i++ {
+		var next int64
+		if err := dbFrom(ctx, r.db).Raw(
+			"SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?) t",
+			after, page).Scan(&next).Error; err != nil {
+			return nil, all, err
+		}
+		if next == 0 {
+			break
+		}
+		var rows []struct {
+			Mk     string
+			RowID  int64
+			EpIdx  int
+			Epid   string
+			Pid    int64
+			Cid    int64
+			HasMid int64
+		}
+		err := dbFrom(ctx, r.db).Raw(`
+			SELECT e.match_key AS mk, e.src_row_id AS row_id, e.ep_index AS ep_idx, e.epid,
+			       MAX(m.pid) AS pid, MAX(m.cid) AS cid, MAX(e.mid IS NOT NULL) AS has_mid
+			FROM movie_episode_epid e
+			LEFT JOIN movie_play_source src ON src.id = e.src_row_id
+			LEFT JOIN movie m ON m.mid = src.mid
+			WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
+			GROUP BY e.match_key, e.src_row_id, e.ep_index`, after, next).Scan(&rows).Error
+		if err != nil {
+			return nil, all, err
+		}
+		// 组装：mk → (src_row_id → {ep_index: epid})
+		type mkSeq struct {
+			pid, cid, hasMid int64
+			bySrc            map[int64]map[int]string
+		}
+		perMK := make(map[string]*mkSeq, len(rows)/4+1)
+		for j := range rows {
+			rr := rows[j]
+			m := perMK[rr.Mk]
+			if m == nil {
+				m = &mkSeq{bySrc: map[int64]map[int]string{}}
+				perMK[rr.Mk] = m
+			}
+			if rr.Pid != 0 {
+				m.pid = rr.Pid
+			}
+			if rr.Cid != 0 {
+				m.cid = rr.Cid
+			}
+			if rr.HasMid == 1 {
+				m.hasMid = 1
+			}
+			sm := m.bySrc[rr.RowID]
+			if sm == nil {
+				sm = map[int]string{}
+				m.bySrc[rr.RowID] = sm
+			}
+			sm[rr.EpIdx] = rr.Epid
+		}
+		for _, m := range perMK {
+			seqs := make([][]string, 0, len(m.bySrc))
+			for _, sm := range m.bySrc {
+				idx := make([]int, 0, len(sm))
+				for k := range sm {
+					idx = append(idx, k)
+				}
+				sort.Ints(idx)
+				seq := make([]string, 0, len(idx))
+				for _, k := range idx {
+					seq = append(seq, sm[k])
+				}
+				seqs = append(seqs, seq)
+			}
+			ok, _, _ := danmu.TolerantMkAligned(seqs, -1)
+			cat := resolveCategory(m.pid, m.cid)
+			if cat <= 0 && m.hasMid == 1 {
+				cat = PidUnresolvedWithMid
+			}
+			a := accs[cat]
+			if a == nil {
+				a = &mkAcc{}
+				accs[cat] = a
+			}
+			a.total++
+			if ok {
+				a.aligned++
+			}
+			if strictMkAligned(m.bySrc) {
+				a.strictOK++
+			}
+		}
+		after = next
+	}
+
+	out := make([]TolerantAlignmentStat, 0, len(accs))
+	for pid, a := range accs {
+		name := "(未知分类)"
+		switch {
+		case pid == -1:
+			name = "未关联片（无主源）"
+		case pid == PidUnresolvedWithMid:
+			name = "未关联片（有 mid 未归类）"
+		case pid == 0:
+			name = "(未分类)"
+		default:
+			if n, ok := catName[pid]; ok && n != "" {
+				name = n
+			}
+		}
+		st := TolerantAlignmentStat{Pid: pid, Category: name, TotalMks: a.total, AlignedMks: a.aligned, StrictAligned: a.strictOK}
+		if a.total > 0 {
+			st.TolerantMkPct = float64(a.aligned) * 100 / float64(a.total)
+		}
+		out = append(out, st)
+		all.TotalMks += a.total
+		all.AlignedMks += a.aligned
+		all.StrictAligned += a.strictOK
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TotalMks > out[j].TotalMks })
+	all.Pid, all.Category = -1, "全部"
+	if all.TotalMks > 0 {
+		all.TolerantMkPct = float64(all.AlignedMks) * 100 / float64(all.TotalMks)
+	}
+	return out, all, nil
+}
+
+// strictMkAligned 严格口径的"片级"判定（与 `ClassAlignment` 同义）：
+// 该片**每个 ep_index 槽位**跨源 epid 只有一种 ⇒ 零分歧片。分母口径由调用方统一为"≥2 源"。
+func strictMkAligned(bySrc map[int64]map[int]string) bool {
+	seen := map[int]map[string]bool{}
+	for _, sm := range bySrc {
+		for idx, epid := range sm {
+			if seen[idx] == nil {
+				seen[idx] = map[string]bool{}
+			}
+			seen[idx][epid] = true
+		}
+	}
+	for _, set := range seen {
+		if len(set) > 1 {
+			return false
+		}
+	}
+	return len(seen) > 0
 }
 
 // ClassAlignment 槽位口径双粒度按分类聚合。**mk 键集分批**（Errno 28 纪律：全表 GROUP BY 表达式
@@ -727,6 +938,37 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 	}
 	accs := map[int64]*acc{}
 	var all ClassAlignmentStat
+
+	// 分类表（44 行）一次读全：① 名字 ② id→pid（**Go 侧解析归属**，不在 5.6M 行上多挂一个 join ——
+	// R4，2026-11-16：`pid=0` 的"直挂影片"回退 `cid`；若 `cid` 本身是**二级**类目则再回退到它的父类）。
+	catPID := map[int64]int64{}
+	catName := map[int64]string{}
+	{
+		var rows []struct {
+			Id   int64
+			Pid  int64
+			Name string
+		}
+		if err := dbFrom(ctx, r.db).Raw("SELECT id, pid, name FROM category").Scan(&rows).Error; err != nil {
+			return nil, all, err
+		}
+		for _, c := range rows {
+			catPID[c.Id] = c.Pid
+			catName[c.Id] = c.Name
+		}
+	}
+	// resolveCategory 归属解析（M1 + R4）：0 ⇒ 回退 `cid`；仍是二级类目 ⇒ 再回退父类。
+	resolveCategory := func(pid, cid int64) int64 {
+		out := pid
+		if out == 0 {
+			out = cid
+		}
+		if p, ok := catPID[out]; ok && p > 0 {
+			out = p
+		}
+		return out
+	}
+
 	const page = 100000
 	after := int64(math.MinInt64)
 	for i := 0; i < 32; i++ {
@@ -741,6 +983,8 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 		}
 		var rows []struct {
 			Pid          int64
+			Cid          int64
+			HasMid       int64
 			AlignedSlots int64
 			TotalSlots   int64
 			AlignedMks   int64
@@ -748,15 +992,25 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 		}
 		err := dbFrom(ctx, r.db).Raw(`
 			SELECT IFNULL(MAX(mkstat.pid), -1) AS pid,
+			       IFNULL(MAX(mkstat.cid), 0) AS cid,
+			       IFNULL(MAX(mkstat.has_mid), 0) AS has_mid,
 			       SUM(mkstat.aligned_slots) AS aligned_slots,
 			       SUM(mkstat.total_slots) AS total_slots,
 			       SUM(mkstat.aligned_slots = mkstat.total_slots) AS aligned_mks,
 			       COUNT(*) AS total_mks
 			FROM (
-			  SELECT slots.mk, MAX(slots.pid) AS pid,
+			  SELECT slots.mk, MAX(slots.pid) AS pid, MAX(slots.cid) AS cid, MAX(slots.has_mid) AS has_mid,
 			         SUM(slots.kinds = 1) AS aligned_slots, COUNT(*) AS total_slots
 			  FROM (
-			    SELECT e.match_key AS mk, e.ep_index, MAX(m.pid) AS pid,
+			    SELECT e.match_key AS mk, e.ep_index,
+			           -- M1(2026-11-16): 分类归属 = movie.pid，pid=0 的"直挂影片"回退 movie.cid。
+			           -- 依据: spider/parse.go 直接取上游 type_id_1（无本地映射表）；上游 type_id_1=0 的
+			           -- 写法里直挂影片只有 cid=顶级类目id（实测 45,830 部全挂在 电影解说/AI漫剧/短剧
+			           -- 三个顶级类目上）。查询侧早已用 (pid=? OR cid=?) 兼容（search_repo.go）；
+			           -- 指标侧此前只按 pid ⇒ 这 4.5 万部被错算进"未关联"，与"真·无主源"混装。
+			           -- ⚠️ pid/cid 只**取出**、解析在 Go 侧（resolveCategory）——避免在 560 万行上再挂 join。
+			           MAX(m.pid) AS pid, MAX(m.cid) AS cid,
+			           MAX(e.mid IS NOT NULL) AS has_mid,
 			           COUNT(DISTINCT e.epid) AS kinds
 			    FROM movie_episode_epid e
 			    LEFT JOIN movie_play_source src ON src.id = e.src_row_id
@@ -766,15 +1020,21 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 			  ) slots
 			  GROUP BY slots.mk
 			) mkstat
-			GROUP BY mkstat.pid`, after, next).Scan(&rows).Error
+			GROUP BY mkstat.pid, mkstat.cid, mkstat.has_mid`, after, next).Scan(&rows).Error
 		if err != nil {
 			return nil, all, err
 		}
 		for i := range rows {
-			a := accs[rows[i].Pid]
+			// M1 + R4：Go 侧解析归属（0 ⇒ 回退 cid；cid 是二级类目 ⇒ 再回退父类）。
+			pid := resolveCategory(rows[i].Pid, rows[i].Cid)
+			// M2（2026-11-16）：把"未关联"拆两档 —— ① 无主源（组内零 mid 行）② 有 mid 但归类不出来。
+			if pid <= 0 && rows[i].HasMid == 1 {
+				pid = PidUnresolvedWithMid
+			}
+			a := accs[pid]
 			if a == nil {
 				a = &acc{}
-				accs[rows[i].Pid] = a
+				accs[pid] = a
 			}
 			a.alignedSlots += rows[i].AlignedSlots
 			a.totalSlots += rows[i].TotalSlots
@@ -787,41 +1047,21 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 		}
 		after = next
 	}
-	// 分类名（category.id = movie.pid；一级分类行）
-	ids := make([]int64, 0, len(accs))
-	for pid := range accs {
-		if pid > 0 {
-			ids = append(ids, pid)
-		}
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	names := map[int64]string{}
-	for i := 0; i < len(ids); i += 500 {
-		end := i + 500
-		if end > len(ids) {
-			end = len(ids)
-		}
-		var cn []struct {
-			Id   int64
-			Name string
-		}
-		if err := dbFrom(ctx, r.db).Raw(
-			"SELECT id, name FROM category WHERE id IN ?", ids[i:end]).Scan(&cn).Error; err != nil {
-			return nil, all, err
-		}
-		for _, c := range cn {
-			names[c.Id] = c.Name
-		}
-	}
+	// 分类名：本函数入口已把 category 全表读进 `catName`（44 行），此处不再二次查询。
 	out := make([]ClassAlignmentStat, 0, len(accs))
 	for pid, a := range accs {
 		name := "(未知分类)"
-		if pid == -1 {
-			name = "未关联片（mid 为空）"
-		} else if pid == 0 {
+		switch {
+		case pid == -1:
+			name = "未关联片（无主源）"
+		case pid == PidUnresolvedWithMid:
+			name = "未关联片（有 mid 未归类）"
+		case pid == 0:
 			name = "(未分类)"
-		} else if n, ok := names[pid]; ok && n != "" {
-			name = n
+		default:
+			if n, ok := catName[pid]; ok && n != "" {
+				name = n
+			}
 		}
 		st := ClassAlignmentStat{
 			Pid: pid, Category: name,

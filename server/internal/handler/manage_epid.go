@@ -121,6 +121,23 @@ func (h *Handlers) ManageEpidReport(c *gin.Context) {
 	dto.OK(c, rep)
 }
 
+// ManageEpidAlignmentTolerant GET /manage/epid/alignment/tolerant —— 容忍口径（M4，2026-11-16）按需计算。
+//
+// 为什么单独一个接口、而不并进 `/epid/report`：容忍判定要多取"每源身份序列"再在 Go 里判
+// （骨架取最长源 + 仅插删 + 主源必备相容），比严格口径慢，且它是**体检指标**（不随进度变化）——
+// 用户 2026-11-16 定："算法时间长，离线算即可" ⇒ 不进 600s 快照、只按需触发。
+//
+// 口径提示：`totalMks` 只统计"≥2 个源"的片（**单源不背书**），故与严格口径的片级**不可直接相减**；
+// 同一分母下的严格读数在同响应的 `strictAligned` 里（便于直接对比"容忍能多收编多少片"）。
+func (h *Handlers) ManageEpidAlignmentTolerant(c *gin.Context) {
+	rep, err := service.ReportAlignmentTolerant(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, rep)
+}
+
 // ===== epid 源头校正层 · T4 管理端入口（2026-11-12）=====
 //
 // 裁定台账 movie_epid_override（迁移 000049）的管理面（全部挂 mg 组：Bearer + RequireAdmin +
