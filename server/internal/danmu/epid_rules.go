@@ -41,13 +41,15 @@ const (
 	RuleSingleEp      RuleID = "D7-single"    // R12（行级补充）
 	RuleBareNum       RuleID = "D8-bare-num"  // R13（行级补充）
 
-	// ---- 逐集分派**前置**段（2026-11-16，R18/R19/R20）----
-	// 这三条的编号沿用**文档口径的 R 系列号**（不是求值序）：它们的求值顺序由 `preRules`
-	// 这个切片的位置决定 —— 必须**先于 D2/D3**，因为这三类形态在旧链里分别落到 `self`/`none` 档、
-	// 产出被"打包词/状态词"污染的身份（诊断见 Harness `分析-对齐率分品类归因与优化方案-2026-11-16.md`）。
-	RuleStatusTail RuleID = "R18-status" // `第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀不是栏目名
-	RulePackEp     RuleID = "R19-pack"   // 打包条目（全集/合集）+ 该源行只有 1 集 ⇒ n=1
-	RuleRangeEp    RuleID = "R20-range"  // 跨集区间（第X-Y集）⇒ 打包条目，暂不产身份（观察项）
+	// ---- 逐集分派**前置**段（2026-11-16）----
+	// **编号即求值序**：`P1 → P2 → P3 → D1 → … → D8`（P = pre-stage，全部在 D1 之前）。
+	// 为什么必须前置：这三类形态在旧链里会被 `D2`/`D3` 先接走，产出被"打包词/状态词"污染的身份
+	// （诊断见 Harness `分析-对齐率分品类归因与优化方案-2026-11-16.md`）。
+	// ⚠️ 2026-11-16 改名（未发布前）：原 `R20-range`→`P1-range`、`R18-status`→`P2-status`、`R19-pack`→`P3-pack`
+	// —— 老文档里的 R18/R19/R20 与此一一对应。
+	RulePreRange  RuleID = "P1-range"  // 跨集区间（第X-Y集）⇒ 打包条目，暂不产身份（观察项）
+	RulePreStatus RuleID = "P2-status" // `第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀不是栏目名
+	RulePrePack   RuleID = "P3-pack"   // 打包条目（全集/合集）+ 该源行只有 1 集 ⇒ n=1
 )
 
 // RuleLayer 规则成熟度（§3.1.1 的两层）。**不是**重算范围的依据（那是 Scope/InFromSrc）。
@@ -155,7 +157,7 @@ var preRules = []decisionRule{
 	// --- R20 跨集区间：整包/区间条目 ⇒ 不产身份（观察项，暂不归一为首集）
 	// 必须**先于** R18/R19 —— `第01-84合集` 同时含 R19 的打包词，不能被 R19 误当"单集整包"给 n=1。
 	{meta: RuleMeta{
-		ID: RuleRangeEp, Layer: LayerPending, Scope: ScopeFromSrc,
+		ID: RulePreRange, Layer: LayerPending, Scope: ScopeFromSrc,
 		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip}, OutFromSrc: EpKeySourceSkip,
 		Desc: "R20：跨集区间（第X-Y集[完结/合集]）⇒ 打包条目，**暂不产身份**（观察项；同片其余集不受影响）",
 	}, apply: func(title string, _ EpisodeKey, _ *ruleCtx) (string, bool) {
@@ -168,7 +170,7 @@ var preRules = []decisionRule{
 	// --- R18 状态尾缀：`第N集完结/已完结/全` ⇒ 清掉被误当栏目名的尾缀（`n` 保留）
 	// 只在**解析出的 `s` 恰好就是状态词**时才动手 ⇒ 真有栏目名的行（如「桃花坞第3集完结」）不受影响。
 	{meta: RuleMeta{
-		ID: RuleStatusTail, Layer: LayerStable, Scope: ScopeFromSrc,
+		ID: RulePreStatus, Layer: LayerStable, Scope: ScopeFromSrc,
 		InFromSrc: []string{EpKeySourceSelf}, OutFromSrc: EpKeySourceSelf,
 		Desc: "R18：`第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀被误算成 s 段，清 s、保留 n（与其它源的 `第N集` 对齐）",
 	}, apply: func(title string, k EpisodeKey, _ *ruleCtx) (string, bool) {
@@ -186,7 +188,7 @@ var preRules = []decisionRule{
 	// 门控用 `ctx.nonBlank == 1`（与 D7 的"整行只有 1 集"同族）：源行**同时**有打包行与正常集时
 	// 本规则**不命中** ⇒ 该行仍走 D3 保留系列身份（**行为不变**，避免把"整包"当成第 1 集）。
 	{meta: RuleMeta{
-		ID: RulePackEp, Layer: LayerStable, Scope: ScopeFromSrc,
+		ID: RulePrePack, Layer: LayerStable, Scope: ScopeFromSrc,
 		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip}, OutFromSrc: EpKeySourceSingle,
 		Desc: "R19：打包条目（全集/合集）且**该源行只有 1 集** ⇒ n=1（同 D7 单集语义）；源行多集时不命中 ⇒ 仍按 D3 保留系列身份",
 	}, apply: func(title string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
@@ -378,7 +380,7 @@ func decideRow(title string, ctx *ruleCtx) (epid string, fromSrc string, id Rule
 // ⇒ 与规则本体**同源**（不存在"用 SQL 复刻守卫"的第二份真理 ✓）。
 //
 // 适用范围：**只对 `FansOutMovie == false` 的规则精确**（`D7`/`D8`，以及 2026-11-16 新增的
-// `R18-status`/`R19-pack`/`R20-range`）——它们的判据只看本行集名（`R19` 另看行级 `ctx.nonBlank`，
+// `P2-status`/`P3-pack`/`P1-range`）——它们的判据只看本行集名（`R19` 另看行级 `ctx.nonBlank`，
 // 那是"本行"信息，不是池）：`D7`/`D8` 只在 `D1`（未触发）之后才可能命中，而 `D1` 的判定
 // （`EpisodeTriggered`）**不读池** ⇒ 传 `pool = titles` 与真实派生（片级池）**结果一致** ✓。
 // 池依赖规则（`D4`/`D5`/`D6`）的判定需要"本片所有源"的池，本函数不适用 ——

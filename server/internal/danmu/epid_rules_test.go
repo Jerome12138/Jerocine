@@ -18,7 +18,7 @@ func TestDecisionRuleMetas_Integrity(t *testing.T) {
 	metas := DecisionRuleMetas()
 	wantOrder := []RuleID{
 		// 前置段（2026-11-16，R18~R20）：求值顺序在 D2/D3 之前，编号沿用 R 系列号
-		RuleRangeEp, RuleStatusTail, RulePackEp,
+		RulePreRange, RulePreStatus, RulePrePack,
 		RuleSkipNoTrigger, RuleSelfInName, RuleNoneNoDate, RuleBridgeNum, RuleAnchorNum,
 		RuleNonePoolMiss, RuleSingleEp, RuleBareNum,
 	}
@@ -286,7 +286,7 @@ func TestDecideRule_MatchesLegacyChain(t *testing.T) {
 	// R18~R20 是**有意偏离旧链**的新规则（旧链把「打包词/状态词/跨集区间」算进 `s` 段，
 	// 与主站正常 `第N集` 永不相等 ⇒ 一行坏集名毁一整片）⇒ 不进"等价性"语料，
 	// 由 `epid_r18_r20_test.go` 逐条钉住。
-	intentional := map[RuleID]bool{RuleStatusTail: true, RulePackEp: true, RuleRangeEp: true}
+	intentional := map[RuleID]bool{RulePreStatus: true, RulePrePack: true, RulePreRange: true}
 	for _, m := range DecisionRuleMetas() {
 		if intentional[m.ID] {
 			continue

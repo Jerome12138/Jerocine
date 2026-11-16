@@ -55,3 +55,23 @@ func TestParseEpisodeKey_ChineseNumeral(t *testing.T) {
 		t.Errorf("中文数字与阿拉伯数字应产出同一身份：%q vs %q", a, b)
 	}
 }
+
+// 季/部 **不是集序**（2026-11-16 修正 reDiN 单位类）：
+//   - `第7季` / `第七季` / `第3部` 一律不给 Num（季/部是分季/分部标记）；
+//   - 关键回归：`第7季第5集` 的 Num 必须是 **5** —— 修正前 reDiN 的第一个匹配落在"第7季"⇒ 集号被抢占成 7。
+func TestParseEpisodeKey_SeasonPartNotEpisodeNum(t *testing.T) {
+	cases := []struct {
+		title   string
+		wantNum int
+	}{
+		{"第7季", 0}, {"第七季", 0}, {"第3部", 0}, {"第三部", 0},
+		{"第7季第5集", 5}, {"王牌对王牌第七季第5期", 5},
+		{"第7季20260101", 0},         // 季号 + 日期：n 该由日期链路（bridge/anchor）解决，不该取 7
+		{"第7季第5集完整版", 5},         // 噪声词不影响
+	}
+	for _, tc := range cases {
+		if k := ParseEpisodeKey(tc.title); k.Num != tc.wantNum {
+			t.Errorf("%q: Num=%d, want %d", tc.title, k.Num, tc.wantNum)
+		}
+	}
+}
