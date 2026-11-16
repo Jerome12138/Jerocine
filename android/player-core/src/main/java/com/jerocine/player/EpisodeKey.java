@@ -263,6 +263,49 @@ public final class EpisodeKey {
      * <p>⚠️ <b>不采用「把 d/p 填过来」</b>：它们是<b>原始事实</b>，填了就成编造，且会污染 {@code d} 这条硬证据
      * （"—用日期相等判同集、又把日期填过去当证据"＝循环论证）—— 方案 §4「禁止填事实」。
      */
+    /**
+     * epid 短码（hash 形态，2026-11-16）—— 与 Go {@code danmu.EpidHash} / web {@code epidHash} **同算法**：
+     * FNV-1a 64-bit → base36 小写（无符号；长度 ≤13、字符集 {@code [0-9a-z]}，URL 非保留）。
+     *
+     * <p>用途：端侧**优先用短码判等/存储**（{@code epid} 原串备用）。**判等语义与 epid 全等完全一致**
+     * （hash 是 epid 的纯函数）⇒ 不引入任何新匹配规则。输入按 **UTF-8 字节**哈希（epid 含中文）。
+     * ⚠️ 黄金值（三端对齐锚点）：{@code "s=-|v=-|p=-|n=1|d=-" => "2y60kj4pkp7rs"}；改算法必须带版本位。
+     */
+    public static String epidHash(String epid) {
+        byte[] bytes = epid.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        long h = 0xcbf29ce484222325L; // FNV-1a 64 offset basis
+        for (byte b : bytes) {
+            h ^= (b & 0xffL);
+            h *= 0x100000001b3L; // FNV prime 64（long 溢出回绕 = 无符号 64 位乘法）
+        }
+        return Long.toUnsignedString(h, 36);
+    }
+
+    /**
+     * 端侧**判等定位**（简化版，2026-11-16）—— 替代两档 {@link #indexByEpid}（后者保留兼容/对照）：
+     * 在**目标源的服务端 epid 列表**里做**全等比较**，命中返回下标，否则 -1（调用方回退 {@code episodeIndex}）。
+     *
+     * <p>为什么可以全等：端侧只写服务端下发值，且每集都带服务端 {@code epid} ⇒ 两边同池同规则 ⇒
+     * "同集即同串"（方案 §3）。**不再有**单边通配 / {@code p} 前缀相容（方案 §1 三条边界）。
+     * 优先比短码（{@link #epidHash}），原串同时兜底（形态切换期双读）。
+     */
+    public static int indexByServerEpid(String want, java.util.List<String> epids) {
+        if (want == null || want.isEmpty() || epids == null || epids.isEmpty()) {
+            return -1;
+        }
+        String wantHash = epidHash(want);
+        for (int i = 0; i < epids.size(); i++) {
+            String cand = epids.get(i);
+            if (cand == null || cand.isEmpty()) {
+                continue;
+            }
+            if (cand.equals(want) || epidHash(cand).equals(wantHash)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     public static int indexByEpid(String epid, java.util.List<String> titles) {
         String[] want = parseEpid(epid);
         if (want == null || titles == null || titles.isEmpty()) return -1;

@@ -3,22 +3,20 @@ package com.jerocine.tv.data
 import com.jerocine.player.EpisodeKey
 
 /**
- * P0-3c（2026-11-10）：按历史里的**集身份**（epid）在目标源里重定位集下标。
+ * P0-3c（2026-11-10）；**2026-11-16 简化**：按历史里的**集身份**（epid）在目标源里重定位集下标。
  *
- * <p>复用 player-core 的 [EpisodeKey.indexByEpid]（与 web `indexByEpid`、Go 侧同口径）：
- * ① 严格 —— epid 串全等（**源内集序变化** —— 重排/插集/补集 —— 时 `episodeIndex` 已失效，epid 仍能对上）；
- * ② 宽松 —— `s`/`v`(含变体序号) 必须**相等**；`n`/`p`/`d` 三段**单边缺失视为通配、双有必须满足各自规则**
- * （`n`/`d` 相等、`p` 前缀相容），且**候选唯一**才采纳（多个 ⇒ 放弃）。
+ * <p>**现在只判等**（方案 `方案-端侧epid判等简化-2026-11-13.md`，2026-11-16 落地）：
+ * 比较的是**目标源每集的服务端 epid**（`Episode.epid`）与历史里的 epid —— **全等命中 ⇒ 下标，否则 -1**
+ * （调用方回退 `episodeIndex`）。优先比短码（`EpisodeKey.epidHash`），原串兜底。
  *
- * <p>⚠️ L5（2026-11-11 评审）：此处原写"② 宽松 —— **忽略 `n` 段**"，与方案 §4.4「**不得整体忽略 `n`**」
- * 相反（那是**错**的口径描述；实现一直是对的）。`n` 双有不等 ⇒ 必须拒绝。
- * <p>⚠️ F6：裸集名（只有 `n`，`s/v/p/d` 全空）**不构成身份** ⇒ ①②档都不参与。
+ * <p>**已删**（旧两档判定的宽容部分）：单边缺通配（`n`/`p`/`d`）、`p` 前缀相容 —— 端侧不再需要
+ * "本地重算值 vs 落库值"那层兜底（端侧只写服务端下发值 ⇒ 两边同池同规则）。
  *
  * @return 定位到的集下标；定位不到返回 -1（调用方回退 `episodeIndex` —— 方案 §3.1.9 的两级回退）。
  */
 fun indexByEpidForSource(epid: String, episodes: List<Episode>): Int {
     if (epid.isBlank() || episodes.isEmpty()) return -1
-    return EpisodeKey.indexByEpid(epid, episodes.map { it.episode })
+    return EpisodeKey.indexByServerEpid(epid, episodes.map { it.epid })
 }
 
 /**
