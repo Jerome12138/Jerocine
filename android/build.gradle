@@ -3,6 +3,12 @@
 buildscript {
     
     repositories {
+        // 国内镜像优先（阿里云全量代理 google / central / gradle-plugin 门户）：
+        // 冷缓存下直连 google()/mavenCentral() 易超时（实测冷启动要下 ~2.8GB）；
+        // 镜像未命中时自动回退到下方官方源。
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
         google()
         mavenCentral()
     }
@@ -21,6 +27,12 @@ apply from: "variables.gradle"
 
 allprojects {
     repositories {
+        // 国内镜像优先（阿里云全量代理 google / central / gradle-plugin 门户）：
+        // 冷缓存下直连 google()/mavenCentral() 易超时（实测冷启动要下 ~2.8GB）；
+        // 镜像未命中时自动回退到下方官方源。
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
         google()
         mavenCentral()
     }
