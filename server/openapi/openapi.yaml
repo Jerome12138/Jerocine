@@ -1413,14 +1413,25 @@ paths:
           in: query
           required: false
           schema: { type: integer }
+        - name: epid
+          in: query
+          required: false
+          schema: { type: string, maxLength: 160 }
+          description: >-
+            **该集的服务器身份串**（2026-11-16 方案 α，推荐替代 `epk`/`epNum`）：端侧从
+            `sources[].episodes[].epid` 取当前集的服务端 epid，形如 `s=<栏目>|v=<变体[#序号]>|p=<主次>|n=<期号>|d=<日期>`（缺值 `-`）。
+            服务端**优先用它**当挑集特征（s/v/p/n/d 信息比 `epk` 更全：实测 99.60% 的行"仅凭集名即可算出"⇒ 与端侧特征等价；
+            仅 0.40% 的 bridge/anchor 推算行可能不同）——**未命中会自动回退** `epk`/`epTitle`/`epNum` 原路径（零退化）。
+            未派生/非法/超长一律当未提供（旧客户端行为不变）。
         - name: epTitle
           in: query
           required: false
           schema: { type: string }
           description: >-
-            App 侧集名（如「20260803(第1期上)」）。用于与弹幕库按「同日期 / 同期号 + 同变体」对集
+            App 侧集名（如「20260803(下)第7期上」）。用于与弹幕库按「同日期 / 同期号 + 同变体」对集
             —— 综艺类第三方源集序号与弹幕库期号普遍错位，只有集名能对上；留空则走集号/标题/下标三策略。
             变体（加更 / 陪看 / 纯享 / 先导 / 彩蛋 / 特辑等）不一致时判为不同集（宁缺勿错）。
+            **2026-11-16 起角色变化：由"主特征"变为 `epid` 的备用回退**。
         - name: epNum
           in: query
           required: false
@@ -1432,9 +1443,10 @@ paths:
         - name: epk
           in: query
           required: false
+          deprecated: true
           schema: { type: string, maxLength: 160 }
           description: >-
-            **结构化身份字段串**（2026-11-10 P0-1b）：App 侧集名解析结果的序列化，形如
+            **（已弃用，2026-11-16）** 结构化身份字段串（2026-11-10 P0-1b）：App 侧集名解析结果的序列化，形如
             `v1|d=20260803|n=1|e=0|p=中|u=上|v=特辑|vn=2|s=|o=0|from=self`（`d` 日期 / `n` 期号 / `e` E 圆号 /
             `p` 主部分 / `u` 次部分 / `v` 变体 / `vn` 变体序号 / `s` 栏目名 / `o` 序位兜底 / `from` 期号来源；数值缺省 0）。
             服务端**优先采用**该键，并与 `epTitle` 解析值**交叉校验**（`date`/`num` 冲突以 `epTitle` 为准；

@@ -106,6 +106,9 @@ export const getDanmuAggregate = (
     /** P0-1b(2026-11-10): 结构化身份字段串（`v1|d=..|n=..|...`）。服务端优先采用并与 epTitle 交叉校验;
      *  未触发的集为空串（旧客户端不传 ⇒ 行为不变） */
     epk?: string
+    /** 2026-11-16 方案 α：该集的**服务端 epid**（`sources[].episodes[].epid`）—— 服务端优先用它挑集，
+     *  未命中会自动回退 `epk`/`epTitle`；留空（未派生）时行为与改动前一致。 */
+    epid?: string
   },
   options?: { signal?: AbortSignal }
 ): Promise<DanmuAggregateResp> =>

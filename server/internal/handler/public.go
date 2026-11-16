@@ -85,6 +85,13 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	if len(epk) > 160 {
 		epk = ""
 	}
+	// epid（可选，2026-11-16 方案 α）：**该集的服务器身份串**（端侧从 `episodes[].epid` 取，未派生即空）。
+	// 服务端**优先用它**当挑集特征（信息比 epk 更全：s/v/p/n/d），未命中 ⇒ 回退 epk/epTitle（epTitle 保留作备用）。
+	// 非法/超长一律当未提供（沿用 epk/epTitle 的做法 ⇒ 旧客户端行为不变）。
+	epid := strings.TrimSpace(c.Query("epid"))
+	if len(epid) > 160 {
+		epid = ""
+	}
 	// 分片参数合理性: from/to 负值按缺省(整集)处理; to 不得小于 from
 	if from < 0 {
 		from = 0
@@ -92,7 +99,7 @@ func (h *Handlers) DanmuAggregate(c *gin.Context) {
 	if to < from {
 		to = 0
 	}
-	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to, epTitle, epNum, epk)
+	resp, err := h.Danmu.DanmuAggregate(c.Request.Context(), title, year, episode, from, to, epTitle, epNum, epk, epid)
 	if err != nil {
 		dto.Fail(c, err)
 		return

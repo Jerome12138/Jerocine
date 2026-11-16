@@ -340,6 +340,9 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         // P0-1b: 结构化身份字段串（服务端优先采用 + 与 epTitle 交叉校验，冲突打点）。
         // 未触发的集（裸「第N集」/E圆号）为空串 ⇒ 服务端行为与改动前一致。
         // P1-3: 末段 from= 标注期号来源（供 P1-1 落库统计），不参与身份判定。
+        // 2026-11-16 方案 α：**有值才带**该集的服务端 epid（服务端优先用它挑集、未命中回退 epk/epTitle）。
+        // 不带时请求形态与改动前完全一致（未派生集 / 旧调用方行为不变）。
+        ...(opts.epid?.value ? { epid: opts.epid.value } : {}),
         epk: epKeyString(opts.episodeName?.value ?? '', opts.epNum?.value ?? 0, 0, opts.epNumSource?.value ?? 'none')
       },
             { signal }
