@@ -244,11 +244,12 @@ func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string
 	// 挑集特征：**① 服务端 epid 优先**（方案 α，2026-11-16）② 端侧 epk/epTitle 回退（原有路径，epTitle 保留作备用）。
 	// ⚠️ 两条候选都建好再挑：`MergeEpidKey` + `NoteEpKeyConflicts`（三端漂移哨兵）**必须照旧无条件执行**。
 	type danmuCand struct {
-		k    danmu.EpisodeKey
-		ok   bool
-		name string
+		k         danmu.EpisodeKey
+		ok        bool
+		name      string
+		useKeyNum bool // true ⇒ 用 `k.Num`（epid 的 n）当 PickEpisodeKeyed 的 appNum，见下
 	}
-	primary := danmuCand{name: "epid"}
+	primary := danmuCand{name: "epid", useKeyNum: true}
 	if pk, ok := danmu.ParseEpidString(epid); ok {
 		primary.k, primary.ok = pk, true
 	}
@@ -267,14 +268,29 @@ func (s *DanmuService) resolveAggregateEpisode(ctx context.Context, title string
 		fallback.k, fallback.ok = danmu.ParseEpisodeKey(epTitle), true
 	}
 	// 两级挑集：epid 未命中 ⇒ 回退 epk/epTitle（**零退化**：原路径能挑到的，现在仍能挑到）
+	//
+	// ⚠️ 评审修复（2026-11-16）：`PickEpisodeKeyed` 内 `if appNum > 0 { k.Num = appNum }` 会**覆盖**键里的 `n`，
+	// 且"键匹配"的**开启条件不含 `k.Num`**（纯序号型 epid 如 `n=5` 其余全空 ⇒ appNum=0 时连键匹配都不走）。
+	// ⇒ primary 必须传 **epid 自己的 `n`** 当 appNum（既打开键匹配、又不被端侧 `epNum` 覆盖）；
+	// fallback 维持传端侧 `epNum`（原语义一行不变）。
+	var lastCand string
 	for _, c := range []danmuCand{primary, fallback} {
 		if !c.ok {
 			continue
 		}
-		if ep := danmu.PickEpisodeKeyed(eps, episode, epNum, c.k, c.ok); ep != nil {
+		pickNum := epNum
+		if c.useKeyNum {
+			pickNum = c.k.Num
+		}
+		if ep := danmu.PickEpisodeKeyed(eps, episode, pickNum, c.k, c.ok); ep != nil {
 			return ep.EpisodeID, nil
 		}
-		log.Printf("[danmu] aggregate episode not found via %s: anime=%q ep=%d (库内共 %d 集)", c.name, anime.AnimeTitle, episode, len(eps))
+		lastCand = c.name
+	}
+	// ⚠️ 只在**两条候选都失败**时打一条日志（评审修复：原写法在循环里逐候选打，
+	// 未派生源会每次请求刷一条 ⇒ 日志噪声）
+	if lastCand != "" {
+		log.Printf("[danmu] aggregate episode not found (tried epid,epk/epTitle): anime=%q ep=%d (库内共 %d 集)", anime.AnimeTitle, episode, len(eps))
 	}
 	return 0, nil
 }
