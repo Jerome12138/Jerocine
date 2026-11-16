@@ -31,7 +31,7 @@ import type { PlayInfo, PlaySource } from '@/types/film'
 import { usePlayer, resolutionLabel, isHlsSupported, NEXTTV_AD_SVG, NEXTTV_AUTOPLAY_SVG } from '@/composables/usePlayer'
 import type Artplayer from 'artplayer'
 import { setWebWatching } from '@/utils/onlineHeartbeat'
-import { epidFor, derivedNumFor, indexByEpid, derivedNumSourceFor } from '@/utils/episodeKey'
+import { epidFor, derivedNumFor, indexByServerEpid, derivedNumSourceFor } from '@/utils/episodeKey'
 import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useSkipSettings, normalizeSkipSec } from '@/composables/useSkipSettings'
@@ -1136,7 +1136,7 @@ async function loadPlayInfo(): Promise<void> {
       const wantEpid = String(route.query.epid ?? '')
       const srcForEpid = data.detail.sources.find((s) => s.id === currentSourceId.value)
       if (wantEpid && srcForEpid?.episodes?.length) {
-        const idx = indexByEpid(wantEpid, srcForEpid.episodes.map((e) => e.episode ?? ''))
+        const idx = indexByServerEpid(wantEpid, srcForEpid.episodes.map((e) => e.epid ?? ''))
         if (idx >= 0) currentEpisodeIndex.value = idx
       }
     }

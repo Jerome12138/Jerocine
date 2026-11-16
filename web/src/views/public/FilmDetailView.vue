@@ -24,7 +24,7 @@ import { resolveBlobUrl } from '@/utils/blobImg'
 import { useViewMode } from '@/composables/useViewMode'
 import { useGridRowsLimit } from '@/composables/useGridRowsLimit'
 import { dispatchNativePlaylist } from '@/utils/nativePlay'
-import { indexByEpid } from '@/utils/episodeKey'
+import { indexByServerEpid } from '@/utils/episodeKey'
 
 /**
  * 影片详情 — STORY-009
@@ -308,7 +308,7 @@ const resumeRecord = computed(() => {
   // P0-3b: 先按 epid 在当前源里重定位（源内集序变化时 rec.episodeIndex 会失效）；未命中回退老下标
   const idx0 = Math.max(0, rec.episodeIndex ?? 0)
   const byEpid = rec.epid
-    ? indexByEpid(rec.epid, (src.episodes ?? []).map((e) => e.episode ?? ''))
+    ? indexByServerEpid(rec.epid, (src.episodes ?? []).map((e) => e.epid ?? ''))
     : -1
   const idx = byEpid >= 0 ? byEpid : idx0
   if (!src.episodes[idx]) return null

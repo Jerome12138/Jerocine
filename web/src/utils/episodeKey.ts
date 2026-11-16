@@ -285,6 +285,46 @@ export function indexByEpid(epid: string, titles: string[]): number {
 
 /** P0-1b: 结构化身份传输串的版本前缀（与 Go `EpKeyVersion` 一致；格式变更时同步递增）。 */
 export const EPKEY_VERSION = 'v1'
+
+/**
+ * epid **短码**（hash 形态，2026-11-16）—— 与 Go `danmu.EpidHash` / android `EpisodeKey.epidHash`
+ * **必须同算法**：FNV-1a 64-bit → base36 小写（长度 ≤13、字符集 `[0-9a-z]`，URL 非保留）。
+ *
+ * 用途：端侧**优先用短码判等/存储**（`epid` 原串备用）；顺带让 URL 不再需要 percent-encode。
+ * **判等语义与 epid 全等完全一致**（hash 是 epid 的纯函数）⇒ 不引入任何新匹配规则。
+ * ⚠️ 输入按 **UTF-8 字节**哈希（epid 含中文）；黄金值见 `episodeKey.spec.ts` 的 `epidHash` 用例。
+ * ⚠️ 改算法必须**带版本位**并双读兼容一版。
+ */
+export function epidHash(epid: string): string {
+  const bytes = new TextEncoder().encode(epid)
+  const prime = 0x100000001b3n // FNV prime 64
+  const mask = 0xffffffffffffffffn
+  let h = 0xcbf29ce484222325n // FNV offset basis 64
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= BigInt(bytes[i] as number)
+    h = (h * prime) & mask
+  }
+  return h.toString(36)
+}
+
+/**
+ * 端侧**判等定位**（简化版，2026-11-16）—— 替代两档 `indexByEpid`（`@deprecated`，待清理）：
+ * 在**目标源的服务端 epid 列表**里做**全等比较**，命中返回下标，否则 `-1`（调用方退化 `episodeIndex`）。
+ *
+ * 为什么可以全等：U6-c 之后端侧只写服务端下发值，且 `sources[].episodes[].epid` 就是服务端值
+ * ⇒ 两边同池同规则 ⇒ "同集即同串"（方案 §3）。**不再有**单边通配 / `p` 前缀相容（方案 §1 三条边界）。
+ * 优先比短码（`epidHash`），`epid` 原串同时兜底（未带短码/未来形态切换期间都能对上）。
+ */
+export function indexByServerEpid(want: string, epids: readonly (string | undefined | null)[]): number {
+  if (!want || !epids || epids.length === 0) return -1
+  const wantHash = epidHash(want)
+  for (let i = 0; i < epids.length; i++) {
+    const cand = epids[i] ?? ''
+    if (!cand) continue
+    if (cand === want || epidHash(cand) === wantHash) return i
+  }
+  return -1
+}
 /**
  * P0-1b（2026-11-10）：**结构化身份字段传输串**（HTTP 参数 `epk`）—— 与 Go `ParseEpisodeKeyString` 同格式。
  *

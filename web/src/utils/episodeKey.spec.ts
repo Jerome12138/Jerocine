@@ -9,6 +9,8 @@ import {
   epidFor,
   epidOf,
   indexByEpid,
+  indexByServerEpid,
+  epidHash,
   parseEpid,
   partCompatible,
   parseEpisodeKey,
@@ -360,5 +362,44 @@ describe('P2 日期尾随集序（2026-11-12 评审）', () => {
     const k3 = parseEpisodeKey('20240101113')
     expect(k3.date).toBe('20240101')
     expect(k3.part).toBe('')
+  })
+})
+
+// ===== 2026-11-16 端侧判等简化 + epid 短码（hash 形态）=====
+//
+// `epidHash` 必须与 Go `danmu.EpidHash` / android `EpisodeKey.epidHash` **同算法**
+// （FNV-1a 64 → base36 小写、按 UTF-8 字节哈希）—— 下面的"黄金值"由 Go 侧实测产出，改算法即红。
+describe('epidHash（三端同规锚点）', () => {
+  it('黄金值（Go 实测）', () => {
+    expect(epidHash('s=-|v=-|p=-|n=1|d=-')).toBe('2y60kj4pkp7rs')
+    expect(epidHash('s=王牌对王牌|v=-|p=-|n=5|d=-')).toBe('1vo45avj8hymg')
+    expect(epidHash('s=-|v=特辑|p=中|n=12|d=20260803')).toBe('tk06iynry8kt')
+  })
+  it('确定性 / 纯 ASCII / 长度 ≤13 / 异串异码', () => {
+    const a = epidHash('s=-|v=-|p=-|n=1|d=-')
+    expect(epidHash('s=-|v=-|p=-|n=1|d=-')).toBe(a)
+    expect(a).toMatch(/^[0-9a-z]{1,13}$/)
+    expect(epidHash('s=-|v=-|p=-|n=2|d=-')).not.toBe(a)
+  })
+})
+
+describe('indexByServerEpid（端侧只判等，不再宽容）', () => {
+  const epids = ['s=-|v=-|p=-|n=1|d=-', 's=-|v=-|p=-|n=2|d=-', 's=-|v=-|p=-|n=3|d=-']
+  it('全等命中 ⇒ 下标', () => {
+    expect(indexByServerEpid('s=-|v=-|p=-|n=1|d=-', epids)).toBe(0)
+    expect(indexByServerEpid('s=-|v=-|p=-|n=3|d=-', epids)).toBe(2)
+  })
+  it('对不上 ⇒ -1（调用方退化 episodeIndex）', () => {
+    expect(indexByServerEpid('s=-|v=-|p=-|n=9|d=-', epids)).toBe(-1)
+    // ⚠️ 不再有单边通配 / p 前缀相容：`p=中` 对 `p=中上` 判**不中**（旧 indexByEpid 的②档行为已废弃）
+    expect(indexByServerEpid('s=-|v=-|p=中|n=1|d=-', ['s=-|v=-|p=中上|n=1|d=-'])).toBe(-1)
+  })
+  it('空值/空列表/坏串 ⇒ -1', () => {
+    expect(indexByServerEpid('', epids)).toBe(-1)
+    expect(indexByServerEpid('s=-|v=-|p=-|n=1|d=-', [])).toBe(-1)
+    expect(indexByServerEpid('s=-|v=-|p=-|n=1|d=-', ['', null, undefined])).toBe(-1)
+  })
+  it('短码/原串两条路都能对上（形态切换期双读）', () => {
+    expect(indexByServerEpid('s=-|v=-|p=-|n=2|d=-', epids)).toBe(1)
   })
 })
