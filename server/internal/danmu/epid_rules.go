@@ -1,6 +1,9 @@
 package danmu
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // ===== 决策规则登记表（2026-11-14，"有序规则"落地）=====
 //
@@ -37,6 +40,14 @@ const (
 	RuleNonePoolMiss  RuleID = "D6-none-miss" // 有日期但桥接、锚点皆败 ⇒ 仍不产期号
 	RuleSingleEp      RuleID = "D7-single"    // R12（行级补充）
 	RuleBareNum       RuleID = "D8-bare-num"  // R13（行级补充）
+
+	// ---- 逐集分派**前置**段（2026-11-16，R18/R19/R20）----
+	// 这三条的编号沿用**文档口径的 R 系列号**（不是求值序）：它们的求值顺序由 `preRules`
+	// 这个切片的位置决定 —— 必须**先于 D2/D3**，因为这三类形态在旧链里分别落到 `self`/`none` 档、
+	// 产出被"打包词/状态词"污染的身份（诊断见 Harness `分析-对齐率分品类归因与优化方案-2026-11-16.md`）。
+	RuleStatusTail RuleID = "R18-status" // `第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀不是栏目名
+	RulePackEp     RuleID = "R19-pack"   // 打包条目（全集/合集）+ 该源行只有 1 集 ⇒ n=1
+	RuleRangeEp    RuleID = "R20-range"  // 跨集区间（第X-Y集）⇒ 打包条目，暂不产身份（观察项）
 )
 
 // RuleLayer 规则成熟度（§3.1.1 的两层）。**不是**重算范围的依据（那是 Scope/InFromSrc）。
@@ -112,10 +123,81 @@ func newRuleCtx(titles, pool []string) *ruleCtx {
 }
 
 // decisionRule 一条决策规则：**顺序即优先级**（先命中先返回）。
-// 返回值 `epid` 为空串 **且仅当** 命中 D1（未触发）——`decideRow` 据此决定是否再跑行级补充。
+// 返回值 `epid` 为空串 **当且仅当** 命中 D1（未触发）或 R20（跨集区间）——
+// `decideRow` 据此决定是否再跑行级补充（两者都不该被 D7/D8 救）。
 type decisionRule struct {
 	meta  RuleMeta
 	apply func(title string, k EpisodeKey, ctx *ruleCtx) (epid string, hit bool)
+}
+
+// ===== R18/R19/R20：逐集分派**前置**段（2026-11-16）=====
+//
+// 背景（实测）：附属站行的集名里带「打包词 / 状态词 / 跨集区间」，被 `seriesOf` 当成**栏目名**写进
+// `s` 段 ⇒ 与主站正常的「第N集」（`s=-`）**永不相等** ⇒ 制造"单槽分歧"；又因片级是"全槽 AND"，
+// **一行坏集名毁一整片**（连续剧片级 46.85% 的 97.7% 由此而来）。
+// 剔除这类行后的 what-if：全库片级 84.21% → 98.48%、连续剧 46.85% → 98.07%。
+//
+// 三条都**不读借用/锚点池**（只读集名 + 行级 `nonBlank`）⇒ `FansOutMovie=false`
+// ⇒ `mode=scope&rule=<ID>` 时自动启用 `RuleSelectsRow` 选行谓词，**范围精确到"集名命中该形态的源行"**，
+// 不必全表重算（这是本批「不想频繁全表重算」的落地方式）。
+var (
+	// reRangeEp（R20）：跨集区间 —— `第X-Y集`（连接符 `-`/`~`/全角破折号）。
+	// ⚠️ **不要求**后面跟单位字：`第01-84合集` 的收尾是"合集"而不是"集"（实测漏网形态），
+	// 只认 `第<数>-<数>` 这个形态本身即可（`第2024-2025季` 这类已被既有链判为"不触发"，改成 skip 无害）。
+	reRangeEp = regexp.MustCompile(`第\s*\d{1,4}\s*(?:-|~|—|－)\s*\d{1,4}`)
+	// reStatusTail（R18）：`……第N集` + 状态尾缀（全/完结/已完结）并**收尾**。
+	reStatusTail = regexp.MustCompile(`.*第\s*\d{1,4}\s*[期集话回季部]\s*(?:全|完结|已完结)\s*$`)
+	// rePackWord（R19）：打包词（`全集`/`合集`，含 `全集完结`/`合全集` 等变体）。
+	rePackWord = regexp.MustCompile(`全集|合集`)
+)
+
+var preRules = []decisionRule{
+	// --- R20 跨集区间：整包/区间条目 ⇒ 不产身份（观察项，暂不归一为首集）
+	// 必须**先于** R18/R19 —— `第01-84合集` 同时含 R19 的打包词，不能被 R19 误当"单集整包"给 n=1。
+	{meta: RuleMeta{
+		ID: RuleRangeEp, Layer: LayerPending, Scope: ScopeFromSrc,
+		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip}, OutFromSrc: EpKeySourceSkip,
+		Desc: "R20：跨集区间（第X-Y集[完结/合集]）⇒ 打包条目，**暂不产身份**（观察项；同片其余集不受影响）",
+	}, apply: func(title string, _ EpisodeKey, _ *ruleCtx) (string, bool) {
+		if reRangeEp.MatchString(title) {
+			return "", true
+		}
+		return "", false
+	}},
+
+	// --- R18 状态尾缀：`第N集完结/已完结/全` ⇒ 清掉被误当栏目名的尾缀（`n` 保留）
+	// 只在**解析出的 `s` 恰好就是状态词**时才动手 ⇒ 真有栏目名的行（如「桃花坞第3集完结」）不受影响。
+	{meta: RuleMeta{
+		ID: RuleStatusTail, Layer: LayerStable, Scope: ScopeFromSrc,
+		InFromSrc: []string{EpKeySourceSelf}, OutFromSrc: EpKeySourceSelf,
+		Desc: "R18：`第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀被误算成 s 段，清 s、保留 n（与其它源的 `第N集` 对齐）",
+	}, apply: func(title string, k EpisodeKey, _ *ruleCtx) (string, bool) {
+		if k.Series != "全" && k.Series != "完结" && k.Series != "已完结" {
+			return "", false
+		}
+		if !reStatusTail.MatchString(title) {
+			return "", false
+		}
+		k.Series = ""
+		return EpidOf(k), true
+	}},
+
+	// --- R19 打包条目：`全集/合集` 且**该源行只有 1 集** ⇒ n=1（整包 = 从第 1 集起）
+	// 门控用 `ctx.nonBlank == 1`（与 D7 的"整行只有 1 集"同族）：源行**同时**有打包行与正常集时
+	// 本规则**不命中** ⇒ 该行仍走 D3 保留系列身份（**行为不变**，避免把"整包"当成第 1 集）。
+	{meta: RuleMeta{
+		ID: RulePackEp, Layer: LayerStable, Scope: ScopeFromSrc,
+		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip}, OutFromSrc: EpKeySourceSingle,
+		Desc: "R19：打包条目（全集/合集）且**该源行只有 1 集** ⇒ n=1（同 D7 单集语义）；源行多集时不命中 ⇒ 仍按 D3 保留系列身份",
+	}, apply: func(title string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
+		if k.Num > 0 || k.Date != "" || ctx.nonBlank != 1 || hasASCIIDigit(title) {
+			return "", false
+		}
+		if !rePackWord.MatchString(title) {
+			return "", false
+		}
+		return EpidOf(EpisodeKey{Num: 1}), true
+	}},
 }
 
 // titleRules **逐集**分派（D1~D6）：顺序 = 原 `EpidFor` 的 if 链（行为等价，测试钉住）。
@@ -211,10 +293,13 @@ var rowRules = []decisionRule{
 	}},
 }
 
-// DecisionRuleMetas 按**求值顺序**返回全部决策规则的登记项（D1~D6，再 D7/D8）。
-// 直接由 `titleRules`/`rowRules` 派生 ⇒ 表与实现**不可能漂移**。
+// DecisionRuleMetas 按**求值顺序**返回全部决策规则的登记项（`preRules`(R18~R20) → D1~D6 → D7/D8）。
+// 直接由 `preRules`/`titleRules`/`rowRules` 派生 ⇒ 表与实现**不可能漂移**。
 func DecisionRuleMetas() []RuleMeta {
-	out := make([]RuleMeta, 0, len(titleRules)+len(rowRules))
+	out := make([]RuleMeta, 0, len(preRules)+len(titleRules)+len(rowRules))
+	for _, r := range preRules {
+		out = append(out, r.meta)
+	}
 	for _, r := range titleRules {
 		out = append(out, r.meta)
 	}
@@ -226,6 +311,11 @@ func DecisionRuleMetas() []RuleMeta {
 
 // RuleMetaOf 取一条规则的登记项；未知编号返回零值。
 func RuleMetaOf(id RuleID) RuleMeta {
+	for _, r := range preRules {
+		if r.meta.ID == id {
+			return r.meta
+		}
+	}
 	for _, r := range titleRules {
 		if r.meta.ID == id {
 			return r.meta
@@ -239,15 +329,24 @@ func RuleMetaOf(id RuleID) RuleMeta {
 	return RuleMeta{}
 }
 
-// decideTitle 逐集分派（独立单集入口）：跑 D1~D6，返回 epid + 命中编号。
+// decideTitle 逐集分派（独立单集入口）：跑 preRules(R18~R20) + D1~D6，返回 epid + 命中编号。
+// ⚠️ 上下文按"**该源行只有这一个集名**"构造（`newRuleCtx([title], pool)`）—— 这是本入口的
+// 唯一合理语义：它只拿到单个 title，拿不到整行集名。需要行级门控（R19/D7/D8）时请走
+// `EpidsForSourceRowWithPool`（那里用整行 titles 建 ctx）。
 func decideTitle(title string, pool []string) (epid string, id RuleID) {
-	return decideTitleInCtx(title, &ruleCtx{pool: pool})
+	return decideTitleInCtx(title, newRuleCtx([]string{title}, pool))
 }
 
 // decideTitleInCtx 同 decideTitle，但复用调用方的 ruleCtx（池键缓存生效的关键路由）。
-// 与原实现的唯一差异是 ctx 来源：规则表拿到的 (title, k, ctx.pool) 逐字相同 ⇒ 行为等价。
+// 求值顺序：**前置段 `preRules`（R18~R20）→ `titleRules`（D1~D6）**；前置段对不含那三种形态的
+// 集名**一律不命中** ⇒ 对既有行为零影响（`TestDecideRule_MatchesLegacyChain` 仍以原语料钉住）。
 func decideTitleInCtx(title string, ctx *ruleCtx) (epid string, id RuleID) {
 	k := parseEpisodeKey(title)
+	for _, r := range preRules {
+		if e, hit := r.apply(title, k, ctx); hit {
+			return e, r.meta.ID
+		}
+	}
 	for _, r := range titleRules {
 		if e, hit := r.apply(title, k, ctx); hit {
 			return e, r.meta.ID
@@ -278,8 +377,9 @@ func decideRow(title string, ctx *ruleCtx) (epid string, fromSrc string, id Rule
 // 实现方式 = **跑一遍真实分派**（`decideRow`），看有没有集命中该规则
 // ⇒ 与规则本体**同源**（不存在"用 SQL 复刻守卫"的第二份真理 ✓）。
 //
-// 适用范围：**只对 `FansOutMovie == false` 的规则精确**（`D7`/`D8`）——
-// 它们的判据只看本行集名：`D7`/`D8` 只在 `D1`（未触发）之后才可能命中，而 `D1` 的判定
+// 适用范围：**只对 `FansOutMovie == false` 的规则精确**（`D7`/`D8`，以及 2026-11-16 新增的
+// `R18-status`/`R19-pack`/`R20-range`）——它们的判据只看本行集名（`R19` 另看行级 `ctx.nonBlank`，
+// 那是"本行"信息，不是池）：`D7`/`D8` 只在 `D1`（未触发）之后才可能命中，而 `D1` 的判定
 // （`EpisodeTriggered`）**不读池** ⇒ 传 `pool = titles` 与真实派生（片级池）**结果一致** ✓。
 // 池依赖规则（`D4`/`D5`/`D6`）的判定需要"本片所有源"的池，本函数不适用 ——
 // 那些规则的作用域本来就是"到达池的档"，按 `from_src` 圈即可（见 §3.1.1 步 3）。
