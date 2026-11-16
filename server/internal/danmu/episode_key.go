@@ -275,7 +275,7 @@ var (
 	// ⚠️ 这里只用 `\d{6}` 打底，**边界与合法性在 `date6` 里手工校验**（RE2 无 lookaround，
 	// 沿用"消费后手工判边界"的既有手法），避免把 7/9 位数字串截出半截当日期 ✗。
 	reDate6 = regexp.MustCompile(`\d{6}`)
-		// reDiN 集序：`第<数>[期集话回]` → Num（**单位不含 季/部**，2026-11-16 修正）。
+	// reDiN 集序：`第<数>[期集话回]` → Num（**单位不含 季/部**，2026-11-16 修正）。
 	// 为什么去掉 季/部：它们是**分季/分部标记，不是集序**；留在单位类里会让「第7季第5集」的
 	// 第一个匹配落在"第7季" ⇒ 集号被**抢占**成 7（实测 `第N季` 73 行 / `第N部` 105 行的 n 段
 	// 全部非空 = 被季/部号占据）。改后既消除这 178 行错值，又让「第X季第Y集」取到正确的 Y。
@@ -445,7 +445,44 @@ func ParseEpisodeKey(title string) EpisodeKey {
 		}
 	}
 	k.Series = seriesOf(s)
+	// 季/部标记并入 Series（2026-11-16，方案 A）：`王牌对王牌第七季` ⇒ `s=王牌对王牌#S7`。
+	// 为什么：季/部是**分季/分部标记** —— 既不该当集序（`reDiN` 已排除 季/部），
+	// 若完全不进身份，"同片多季"的 S1E1 与 S2E1 会得到**同一身份**（实测当前 0 碰撞，但机制存在：
+	// 多季同片实测 4 部 / 多部同片 34 部）。**归一化**（阿拉伯/中文数字统一成 `#S<n>`）⇒
+	// 各源写法差异（`第七季`/`第7季`/`7`）**不会**制造新的伪分歧。
+	// ⚠️ 本改动属**预处理族**（Scope=all）⇒ 必须全量 rebuild 才作用于存量。
+	k.Series += seasonMarkOf(s)
 	return k
+}
+
+var (
+	// reSeasonMark / rePartMark：`第X季` / `第X部`（阿拉伯或中文数字）——提归一化标记用。
+	reSeasonMark = regexp.MustCompile(`第\s*([\d一二三四五六七八九十百千零〇两]{1,6})\s*季`)
+	rePartMark   = regexp.MustCompile(`第\s*([\d一二三四五六七八九十百千零〇两]{1,6})\s*部`)
+)
+
+// seasonMarkOf 归一化季/部标记：`#S7`（季）/ `#B3`（部），两者都有则按「季→部」拼接；无 ⇒ ""。
+func seasonMarkOf(s string) string {
+	out := ""
+	if m := reSeasonMark.FindStringSubmatch(s); m != nil {
+		if v, ok := numberValue(m[1]); ok && v > 0 {
+			out += "#S" + strconv.Itoa(v)
+		}
+	}
+	if m := rePartMark.FindStringSubmatch(s); m != nil {
+		if v, ok := numberValue(m[1]); ok && v > 0 {
+			out += "#B" + strconv.Itoa(v)
+		}
+	}
+	return out
+}
+
+// numberValue 阿拉伯数字（Atoi）或中文数字（`cnNumeral`）→ 值。
+func numberValue(s string) (int, bool) {
+	if v, err := strconv.Atoi(s); err == nil {
+		return v, true
+	}
+	return cnNumeral(s)
 }
 
 // parseEpisodeKey = ParseEpisodeKey 的**计数缝**（性能防呆 2026-11-15）：解析热路径
