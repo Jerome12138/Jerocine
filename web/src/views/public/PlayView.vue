@@ -1608,6 +1608,10 @@ function changeSource(sourceId: string, opts?: { auto?: 'strict' | 'loose' }): b
   if (!detail.value) return false
   const next = detail.value.sources.find((s) => s.id === sourceId)
   if (!next) return false
+  // 空集数源(采集解析失败的行, 服务端聚合不过滤): selectEpisode 会静默 return,
+  // 这里必须如实返回 false —— 否则看门狗弹"已切换"实际原地不动、error 路径
+  // 停在"正在尝试切换…"没有下文(评审 Low)。
+  if (!next.episodes.length) return false
   const curSrc = detail.value.sources.find((s) => s.id === currentSourceId.value)
   const curEps = (curSrc?.episodes ?? []).map((e) => e.episode ?? '')
   const tgtEps = next.episodes.map((e) => e.episode ?? '')
@@ -1934,6 +1938,8 @@ let stallTimer: number | undefined
 let stallSince = 0
 let lastStallFailoverAt = 0
 let stallQuietTestInFlight = false
+/** 上次静默补测时刻: 测速全失败时防止每次 stall 都重跑一轮占带宽 */
+let lastStallQuietTestAt = 0
 
 function clearStallTimer(): void {
   if (stallTimer !== undefined) {
@@ -1959,21 +1965,26 @@ watch(buffering, (b) => {
 })
 
 async function onStallFire(): Promise<void> {
-  const v = player.value?.video
-  if (!v) return
-  const ctx = {
-    bufferingMs: Date.now() - stallSince,
-    msSinceLastFailover: lastStallFailoverAt === 0 ? Infinity : Date.now() - lastStallFailoverAt,
-    failoverCount: stallFailoverCount.value,
-    paused: v.paused,
-    seeking: v.seeking,
-    switching: switchInFlight,
-    otherSourceCount: (detail.value?.sources.length ?? 1) - 1
+  if (!player.value?.video) return
+  const buildCtx = () => {
+    const v = player.value?.video
+    if (!v) return null
+    return {
+      bufferingMs: Date.now() - stallSince,
+      msSinceLastFailover: lastStallFailoverAt === 0 ? Infinity : Date.now() - lastStallFailoverAt,
+      failoverCount: stallFailoverCount.value,
+      paused: v.paused,
+      seeking: v.seeking,
+      switching: switchInFlight,
+      otherSourceCount: (detail.value?.sources.length ?? 1) - 1
+    }
   }
-  if (!shouldStallFailover(ctx)) return
-  // 测速表无有效数据 → 静默补测一轮再评估(单飞防重复起测)
+  let ctx = buildCtx()
+  if (!ctx || !shouldStallFailover(ctx)) return
+  // 测速表无有效数据 → 静默补测一轮再评估(单飞防重复起测; 60s 内不重测 ——
+  // 补测全失败时避免每次 stall 都重跑一轮占带宽)
   const hasSpeeds = Object.values(lineSpeeds.value).some((ms) => ms >= 0)
-  if (!hasSpeeds) {
+  if (!hasSpeeds && Date.now() - lastStallQuietTestAt >= 60_000) {
     if (stallQuietTestInFlight) return
     stallQuietTestInFlight = true
     try {
@@ -1981,6 +1992,14 @@ async function onStallFire(): Promise<void> {
     } finally {
       stallQuietTestInFlight = false
     }
+    lastStallQuietTestAt = Date.now()
+    // 补测最坏耗时数十秒(限并发 2 × 8s 超时 × 层数): 期间缓冲很可能已自愈、
+    // 用户可能已暂停/拖动/切集 —— await 之后一切守卫取现值复检, 否则会把正常
+    // 观看中的用户强行换源(评审 Medium)。buffering false→true 的翻转会被
+    // watch 重置 stallSince, 此处重算自然拿到新周期时长。
+    if (!buffering.value) return
+    ctx = buildCtx()
+    if (!ctx || !shouldStallFailover(ctx)) return
   }
   // 候选池(P3)：先按"能否精确对齐到同一集"预过滤，避免把自动换源花在"换过去就是另一集"的源上
   const curSrc = (detail.value?.sources ?? []).find((s) => s.id === currentSourceId.value)

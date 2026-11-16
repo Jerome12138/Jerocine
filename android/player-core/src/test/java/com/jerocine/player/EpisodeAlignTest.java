@@ -111,6 +111,21 @@ public class EpisodeAlignTest {
         assertTrue(EpisodeAlign.canAutoSwitch(r.tier));
     }
 
+    /** ① 档回归(dd8ea00)：epid 串不含 sub ⇒ 「中（上）/（下）」不得被判为同一集。
+     *  与 web episodeAlign.spec.ts 的①档回归用例同语义(评审 D1: Java 侧此前缺防呆用例)。 */
+    @Test
+    public void exact_sameEpisodeGuard_midUpDown() {
+        // 「中（上）」↔ [中（上）, 中（下）]: 精确命中第 0 条, 不得错落到（下)
+        EpisodeAlign.Result r = EpisodeAlign.align(0, of("第3期中（上）"),
+                of("第3期中（上）", "第3期中（下）"));
+        assertEquals(0, r.index);
+        assertEquals(EpisodeAlign.Tier.EXACT, r.tier);
+        // 只有「中」: 不得错配成「中（下）」(至多按前缀相容落到（上), 绝不 exact 到（下))
+        EpisodeAlign.Result r2 = EpisodeAlign.align(0, of("第3期中"),
+                of("第3期中（上）", "第3期中（下）"));
+        assertFalse(r2.tier == EpisodeAlign.Tier.EXACT && r2.index != 0);
+    }
+
     @Test
     public void failed_onBadInput() {
         assertEquals(-1, EpisodeAlign.align(9, of("第1集", "第2集"), of("第1期")).index);

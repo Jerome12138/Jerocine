@@ -23,7 +23,9 @@ public final class SourceSpeedRanker {
     /** 「无更优源」哨兵值。 */
     public static final int NONE = -1;
 
-    /** 当前源成功时的切换门槛: 最优耗时须严格小于 current × 0.8(D⑧)。 */
+    /** 当前源成功时的切换门槛: 最优耗时须严格小于 current × 0.8(D⑧)。
+ *  与 web 侧(stallFailover.FASTER_RATIO=0.6)阈值有意不同: 测量口径不同 ——
+ *  Android 计「媒体清单 GET」、web 计「首片加载耗时」(抖动更大, margin 更宽), 各自独立调参。 */
     static final double SWITCH_MARGIN = 0.8d;
 
     private SourceSpeedRanker() {}

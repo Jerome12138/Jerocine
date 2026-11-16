@@ -163,6 +163,9 @@ _upload_send_from() {
 # 用法: _upload_stall_watchdog <状态文件> <ssh_pid>
 # 返回 0 = 连接自然结束; 42 = 停滞超时(调用方应杀连接、重连续传)
 _upload_stall_watchdog() {
+  # 无 GNU dd 的平台(BSD/macOS)状态文件恒空: 把 0 当字节数会把健康连接误判停滞、
+  # 45s 一杀(评审 Low, 平台特定)。不可观测 → 不监控, 交给 ssh 自身超时兜底。
+  [ "$_UPLOAD_DD_PROGRESS" = "1" ] || return 0
   local statf="$1" ssh_pid="$2"
   local stall="${JEROCINE_UPLOAD_STALL_SECS:-45}"
   local b last="" idle=0
@@ -197,6 +200,9 @@ _upload_stall_watchdog() {
 # 用法: _upload_watchdog <状态文件> <总字节> <ssh_pid>
 # 返回 0 = 连接已自然结束; 42 = 连续慢速达标(调用方应杀连接、重连续传)。
 _upload_watchdog() {
+  # 同 _upload_stall_watchdog: 无 GNU dd 时状态文件恒空, 速率恒 0 → 直传 3 次重试
+  # 全从 0 重来、>20s 的包永远传不完(评审 Low, 平台特定)。不可观测 → 不监控。
+  [ "$_UPLOAD_DD_PROGRESS" = "1" ] || return 0
   local statf="$1" total="$2" ssh_pid="$3"
   local min_rate="${JEROCINE_UPLOAD_MIN_RATE:-65536}"
   local sample="${JEROCINE_UPLOAD_SAMPLE_SECS:-10}"
@@ -398,7 +404,8 @@ _upload_direct() {
     _upload_sub "整包直传(第 $a/$tries 次尝试)…(进度: 已传/总量/百分比)"
     statf="$(mktemp "$tmpdir/jc-up-stat.XXXXXX")" || { rm -rf "$fifod"; return 1; }
     # ssh(读端)先起 dd(写端)后起, 都拿显式 pid —— 看门狗判慢时精准掐, 不留孤儿进程
-    "$ssh_bin" "$host" "cat > '$dst'" < "$fifod/up" 2>/dev/null &
+    # 先落 .jcpart(与 chunk 通道同款「坏包绝不进正式路径」), sha 一致后远端 mv 到位
+    "$ssh_bin" "$host" "cat > '$dst.jcpart'" < "$fifod/up" 2>/dev/null &
     ssh_pid=$!
     _upload_send_from "$src" 0 "$total" "$statf" > "$fifod/up" &
     dd_pid=$!
@@ -409,14 +416,19 @@ _upload_direct() {
     wait "$ssh_pid" 2>/dev/null || rc_ssh=$?
     wait "$dd_pid" 2>/dev/null || rc_dd=$?
     rm -f "$statf"
+    # 先写 .jcpart、sha 一致后远端 mv —— 与 chunk 通道同款「坏包绝不进正式路径」:
+    # 原实现直写 $dst, 重试耗尽/中途放弃后截断包就躺在正式落点(评审 Low)。
     if [ "$slow" = "0" ] && [ "$rc_ssh" = "0" ] && [ "$rc_dd" = "0" ] \
-       && _upload_verify "$ssh_bin" "$host" "$dst" "$local_sha"; then
+       && _upload_verify "$ssh_bin" "$host" "$dst.jcpart" "$local_sha" \
+       && "$ssh_bin" "$host" "mv -f '$dst.jcpart' '$dst'" 2>/dev/null; then
       rm -rf "$fifod"
       _upload_sub "直传成功(sha256 ${local_sha:0:12}… 一致, 上传耗时 $(_upload_dur "$(($(date +%s) - t0))"))"
       return 0
     fi
     if [ "$a" -ge "$tries" ]; then
       rm -rf "$fifod"
+      # 残留的半包清理(正式路径 $dst 本身从未被写过)
+      "$ssh_bin" "$host" "rm -f '$dst.jcpart'" 2>/dev/null || true
       _upload_warn "直传重试耗尽 —— 建议改用续传模式(JEROCINE_UPLOAD_MODE=chunk)"
       return 1
     fi

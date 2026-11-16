@@ -187,6 +187,9 @@ public class PlayerActivity extends AppCompatActivity implements PlayerSession.H
     // ---- 卡顿看门狗跨源 failover(P3, 方案-高峰卡顿单机缓解-2026-11-09 §三) ----
     /** P2b 探测结果缓存(onSourceProbeDone 存, 看门狗选目标复用; 会话内存, 不落盘不上报) */
     private List<SourceSpeedRanker.Result> lastProbeResults;
+    /** 产生 {@link #lastProbeResults} 时的影片 id —— 看门狗换片守卫必须比对这个,
+     *  而不是拿当前 filmId 自比(那等于恒真, 评审 F1); 换片(onNewIntent)时与结果一起清 */
+    private String lastProbeFilmId;
     /** 看门狗定时器 — onDestroy 与其它 handler 一并清理 */
     private final Handler stallHandler = new Handler(Looper.getMainLooper());
     /** 本轮 STATE_BUFFERING 起点(elapsedRealtime); 0=未在计时 */
@@ -1006,6 +1009,18 @@ private static String failedRequestUrl(Throwable error) {
         // 与 onCreate 一致地按新片重置跳过设置(含开关), 否则换片会沿用上一片的 skipEnabled
         applySkipSettingsFromIntent(intent);
         session.introSkippedForCurrent = false;
+        // 换片(同实例 onNewIntent, singleTop): 看门狗/测速状态全部归零(评审 F1) ——
+        // 旧片的探测结果/换片守卫 id/去重目标/计数/手动选源标记不得沿用给新片;
+        // hasProbed 归零让新片重新排程探测(否则旧片测速会驱动新片自动换源)。
+        hasProbed = false;
+        lastProbeResults = null;
+        lastProbeFilmId = null;
+        lastFailoverTarget = -1;
+        stallFailoverCount = 0;
+        lastStallFailoverAt = 0;
+        lastAlignableCount = 0;
+        disarmStallWatchdog();
+        session.sourceManuallyPicked = false;
         sourceHelper.startFromIntent(intent);
         // 后台源测速排程(P2b, D⑦): onNewIntent 与 onCreate 均可为「首次」(hasProbed 去重)
         maybeScheduleSourceProbe();
@@ -1539,6 +1554,15 @@ private static String failedRequestUrl(Throwable error) {
                     "throttle: skip probe (interval < 30min or circuit broken)");
             return;
         }
+        // 5s 延时窗口内源表可能被 parseSources 先清空(SOURCES_INVALID 路径不清回,
+        // currentSourceIndex 残留): 无界 get 会主线程 IndexOutOfBounds(评审 F2,
+        // 防御缺口 —— 第一方链路当前不可达, 未来出现第二调用方即成真崩溃)。
+        if (session.sourceList.isEmpty()
+                || session.currentSourceIndex < 0
+                || session.currentSourceIndex >= session.sourceList.size()) {
+            android.util.Log.i(SourceProbeHelper.TAG, "skip probe: source list empty/unbound");
+            return;
+        }
         // 源表快照: 探测期间不重解析源表; 排程后换片的极端情形由决策期 filmId 守卫兜底。
         // SourceData 只读(parseSources 只在 startFromIntent 写, 本会话的装载已全部完成)。
         final List<PlayerSession.SourceData> sources = new ArrayList<>(session.sourceList);
@@ -1597,8 +1621,10 @@ private static String failedRequestUrl(Throwable error) {
         for (SourceSpeedRanker.Result r : results) {
             anySuccess |= r.ok;
         }
-        // 结果缓存(P3): 卡顿看门狗选目标复用同一份测速, 不再二次探测
+        // 结果缓存(P3): 卡顿看门狗选目标复用同一份测速, 不再二次探测;
+        // 探测时刻的 filmId 一并缓存 —— 看门狗的换片守卫要拿它与当下比对(评审 F1)
         lastProbeResults = results;
+        lastProbeFilmId = probedFilmId;
         SourceProbeThrottle.processWide().recordRound(SystemClock.elapsedRealtime(), anySuccess);
         if (isFinishing() || isDestroyed()) return;
         final int probeCurEp = session.player != null ? session.player.getCurrentMediaItemIndex() : -1;
@@ -1692,7 +1718,9 @@ private static String failedRequestUrl(Throwable error) {
                 session.currentSourceIndex);
         String blockReason = (best == SourceSpeedRanker.NONE) ? "no faster source in probe results"
                 : (best == lastFailoverTarget) ? "same as last failover target (dedup)"
-                : autoSwitchBlockReason(filmId(), best);
+                // 换片守卫必须比对「测速时刻」的 filmId(lastProbeFilmId), 不能拿当前 filmId
+                // 自比 —— 那是恒真式, 旧片的测速结果会驱动新片换源(评审 F1)
+                : autoSwitchBlockReason(lastProbeFilmId, best);
         if (blockReason != null) {
             android.util.Log.i("StallFailover", "no switch (reason=" + blockReason
                     + ") bufferingMs=" + (now - stallSince));
