@@ -82,7 +82,8 @@ const overrideImportChunk = 200
 // 校验链（任一不过 ⇒ 拒收该行并在 Rejected 里说明原因，绝不带病入库）：
 //  1. **批内去重**：同 (src_row_id, ep_index) 只保留首条，其余计入 Deduped（去重幂等）；
 //  2. **静态校验**：verdict/provenance/confidence 必须是合法枚举；verdict=corrected 必须给
-//     new_epid；key_raw_name / key_epid 必填（三元组校验的后两键，缺了以后没法防错位）；
+//     new_epid；key_raw_name 必填；key_epid 允许空串 = "裁定时的规则 epid 为空（skip 行）"
+//     （M5 取证批扩展；空串与派生表现值逐字符对账成立 ⇒ skip 行修正可走台账且 rebuild-durable）；
 //  3. **唯一键冲突拒收**：台账已有同 (src_row_id, ep_index) 条目 ⇒ 拒收（无论内容异同、什么状态；
 //     DB 层 uk_row_ep 也会兜底拦）。重复 import 同一条同样被拒 —— 幂等的边界在批内去重，
 //     跨批冲突一律显式处理：要换裁定先对既有条 SetStatus(revoked) 再 import；
@@ -216,14 +217,17 @@ func (r *EpidOverrideRepo) UpsertPending(ctx context.Context, rows []entity.Movi
 }
 
 // validateOverrideRow import 静态校验：返回 "" 表示通过，否则返回给调用方可读的拒收原因。
+//
+// ⚠️ key_epid 允许为空串（2026-11-17，M5 取证批）：空串 = "裁定时的规则 epid 为空（skip 行）"
+// 的一等语义 —— ④ 的逐字符对账对空串成立（当前 epid 也是空 ⇒ 收），且 A/C 点的匹配
+// `rows[i].Epid != ov.KeyEpid` 对空串同样成立 ⇒ **rebuild 后空 key 裁定自动重套**（rebuild-durable）。
+// 漂移防护不减弱：裁定后若规则重新给该行身份（epid 非空）⇒ 与空 key 不等 ⇒ stale，宁缺勿错不变。
 func validateOverrideRow(row entity.MovieEpidOverride) string {
 	switch {
 	case row.SrcRowId <= 0:
 		return "src_row_id 必填（>0）"
 	case row.KeyRawName == "":
 		return "key_raw_name 必填 —— 三元组校验键，防 ep_index 因重排/插集漂移后错位"
-	case row.KeyEpid == "":
-		return "key_epid 必填 —— 三元组校验第二键（裁定时的规则 epid）"
 	case !entity.ValidOverrideVerdict(row.Verdict):
 		return fmt.Sprintf("verdict 非法 %q（只收 corrected|kept）", row.Verdict)
 	case row.Verdict == entity.OverrideVerdictCorrected && row.NewEpid == "":

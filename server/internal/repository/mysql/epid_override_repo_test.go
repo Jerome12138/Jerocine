@@ -353,3 +353,24 @@ func TestStats_三维分组计数(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+// M5 取证批（2026-11-17）：key_epid="" 的静态校验放宽 —— 空串 = "裁定时的规则 epid 为空（skip 行）"，
+// ④ 的逐字符对账对空串成立（当前 epid 也是空）⇒ skip 行修正可走台账且 rebuild-durable
+// （A/C 点的 `Epid != KeyEpid` 对空串同样成立）。漂移防护不减弱：规则重新给身份 ⇒ 与空 key 不等 ⇒ stale。
+func TestValidateOverrideRow_KeyEpid空串允许skip行裁定(t *testing.T) {
+	skip := entity.MovieEpidOverride{
+		SrcRowId: 9602, EpIndex: 53,
+		KeyRawName: "0240514", KeyEpid: "",
+		Verdict: entity.OverrideVerdictCorrected, NewEpid: "s=-|v=-|p=-|n=-|d=20240514",
+		Provenance: "agent", Confidence: "inferred",
+	}
+	if reason := validateOverrideRow(skip); reason != "" {
+		t.Fatalf("skip 行裁定（key_epid 空串）应通过静态校验, 拒因: %s", reason)
+	}
+	// 其它校验不受放宽影响：key_raw_name 仍必填
+	bad := skip
+	bad.KeyRawName = ""
+	if reason := validateOverrideRow(bad); reason == "" {
+		t.Fatal("key_raw_name 为空仍应拒收")
+	}
+}
