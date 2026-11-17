@@ -922,7 +922,7 @@ type DateAlignmentStat struct {
 	TotalMks      int64   `json:"totalMks"`      // 分母：≥2 个「纯日期型源」且通过守卫的片
 	AlignedMks    int64   `json:"alignedMks"`    // 分子：日期(+part) 值语义判齐的片
 	DateMkPct     float64 `json:"dateMkPct"`     // 片级日期对齐率
-	StrictAligned int64   `json:"strictAligned"` // 同一分母下、严格口径就整齐的片（对照）
+	StrictAligned int64   `json:"strictAligned"` // 对照：**同一分母、同一源集合（纯日期型源）**下严格口径就整齐的片
 	SkippedMks    int64   `json:"skippedMks"`    // 因「同源同日同 part 重复」放弃判定的片
 }
 
@@ -932,6 +932,9 @@ type DateAlignmentStat struct {
 //   - 只认**纯日期型源**：该源全部行都满足 `s/v/n` 空、`d` 非空（混用期号/栏目的源不参与 —— 宁缺勿错）；
 //   - 需 **≥2 个**这样的源（单源不背书，与 M4 一致）；
 //   - 守卫：每源 `(日期, part)` 复合键唯一；**同日多行但 part 不同属合法**（一天两集，P2 把当日集序落 `p` 段）。
+//
+// `StrictAligned` 对照值也**只在该 mk 的纯日期型源子集内**计算（审查 C3）⇒ 与分子/分母同域，
+// 差异才可归因为"日期口径本身多收编了多少"，而不是"对照多看了几个源"。
 //
 // 判定本体在 `danmu.DateAlignVerdictItems`（值语义子集相容、两两判定、不做无 part 通配）。
 func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat, DateAlignmentStat, error) {
@@ -1043,13 +1046,17 @@ func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat,
 			si.items = append(si.items, danmu.DateAlignItem{Date: k.Date, Part: k.Part})
 		}
 		for _, m := range perMK {
+			// 只把**纯日期型源**喂给两个口径 ⇒ 分子/分母与对照**同域**（审查 C3，2026-11-17）：
+			// 若对照仍按"该 mk 全部源"算，混用片里那个带期号/栏目的源会把它判成不齐，
+			// 于是差异既含"日期口径多收编"也含"对照看的源更多"⇒ 不可归因。
 			var perSrc [][]danmu.DateAlignItem
 			inner := make([]map[int]string, 0, len(m.bySrc))
 			for _, si := range m.bySrc {
-				inner = append(inner, si.eps)
-				if si.allPure && len(si.items) > 0 {
-					perSrc = append(perSrc, si.items)
+				if !si.allPure || len(si.items) == 0 {
+					continue
 				}
+				perSrc = append(perSrc, si.items)
+				inner = append(inner, si.eps)
 			}
 			if len(perSrc) < 2 {
 				continue // 单源不背书 / 非纯日期片：不进分母

@@ -619,7 +619,15 @@ func daysInMonth(year, month int) int {
 
 // validDate8 8 位日期合法性（R6，2026-11-15）：月 1~12、日不超当月天数（含闰年，与 R11 date6 同规）。
 // 「202300707下」型 7 位数字此前被切成 d=20230070（月 00/日 70）——伪日期进身份。
+//
+// ⚠️ 长度守卫（2026-11-17 审查发现）：原实现**直接切片** `d[0:4]/d[4:6]/d[6:8]` ⇒ 传短串（如 `-`、7 位数字）
+// 会 **panic: slice bounds out of range** 打挂调用方 —— 此前安全只因唯一调用方传的是正则切出的 8 位切片。
+// 日期对齐口径（`align_date.go`）在**判定边界**要吃"`d` 段原值"，必须有此守卫 ⇒ 补 `len(d) != 8` 提前返回。
+// 对既有调用方行为不变（它们传的必是 8 位）；非数字字符仍由 Atoi 失败 ⇒ mm=0 ⇒ 返回 false。
 func validDate8(d string) bool {
+	if len(d) != 8 {
+		return false
+	}
 	yy, _ := strconv.Atoi(d[0:4])
 	mm, _ := strconv.Atoi(d[4:6])
 	dd, _ := strconv.Atoi(d[6:8])

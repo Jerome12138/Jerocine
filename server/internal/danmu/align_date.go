@@ -49,12 +49,18 @@ func dateAlignItemsFromDates(dates []string) []DateAlignItem {
 	return out
 }
 
-// dateAlignCleanItems 归一化一侧源行：任一项日期不合法（空 / `-` / 非纯数字）⇒ 返回 nil（该源不参与判定）。
+// dateAlignCleanItems 归一化一侧源行：任一项日期不合法（空 / `-` / 非 `validDate8`）⇒ 返回 nil（该源不参与判定）。
 // 这样"某源整列无日期"与"某源部分行无日期"都不会被当成"日期不同"而误判成不齐。
 //
-// ⚠️ **要求日期为纯数字**（2026-11-17 审查）：`Key()` 以 `#` 拼接，只有保证 `Date` 里不含 `#`，
-// 复合键才是**单射**（第一个 `#` 即分隔点）⇒ 否则脏值（如 `d=a#b`）可能与另一组 `(Date,Part)` 撞键，
-// 判成"齐"而虚增对齐率 ✗。不满足者该源不参与（宁缺勿错，方向保守）。
+// ⚠️ **要求 `validDate8`**（2026-11-17 审查）：
+//  1. 键单射：`Key()` 以 `#` 拼接 ⇒ 只要日期是 8 位数字就不含 `#`，复合键**单射**
+//     （否则脏值如 `d=a#b` 可能与另一组 `(Date,Part)` 撞键 ⇒ 判成"齐"、虚增对齐率 ✗）；
+//  2. 契约对齐：派生写入侧本就只写 `validDate8`/`date6` 校验过的日期（`episode_key.go` L409/L296、构造处 `epid.go` L54），
+//     这里用同一条判据 ⇒ 不再依赖"上游一定给我合法日期"这一**隐含契约**；
+//     但读侧宽松解析器 `ParseEpidString` **不校验**（`case "d": k.Date = val`）⇒ 边界处必须自己守。
+//     ⚠️ `validDate8` 的长度守卫是 2026-11-17 本次审查补上的（它原实现直接切片，短串会 panic）。
+//
+// 不满足者该源不参与（宁缺勿错；凸显在指标上只是 `totalMks` 变小，不会静默虚增）。
 func dateAlignCleanItems(items []DateAlignItem) []DateAlignItem {
 	if len(items) == 0 {
 		return nil
@@ -62,25 +68,12 @@ func dateAlignCleanItems(items []DateAlignItem) []DateAlignItem {
 	out := make([]DateAlignItem, 0, len(items))
 	for _, it := range items {
 		d := strings.TrimSpace(it.Date)
-		if !isDigits(d) {
+		if !validDate8(d) {
 			return nil
 		}
 		out = append(out, DateAlignItem{Date: d, Part: strings.TrimSpace(it.Part)})
 	}
 	return out
-}
-
-// isDigits 全 ASCII 数字且非空。
-func isDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if !isDigitByte(s[i]) {
-			return false
-		}
-	}
-	return true
 }
 
 // dateAlignDupKey 同一源内是否出现重复**复合键**（= 同源同日同 part ≥ 2 行）。

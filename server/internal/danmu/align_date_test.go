@@ -235,6 +235,40 @@ func TestDateAlign_NonDigitDateRejected(t *testing.T) {
 	if DatePartAligned(dirty[0], dirty[1]) {
 		t.Fatal("含非数字日期项的源必须直接判不相容")
 	}
+	// 派生写入侧的契约是 validDate8：不合法的 8 位日期 / 7 位日期 同样必须被拒
+	for _, bad := range []string{"20230230", "20231301", "2023007", "2024031", "abcdefgh"} {
+		if DatePartAligned(
+			[]DateAlignItem{it(bad, ""), it("20240102", "")},
+			[]DateAlignItem{it(bad, ""), it("20240102", "")}) {
+			t.Fatalf("非法日期 %q 不得被当作合法日期（须与派生侧 validDate8 契约一致）", bad)
+		}
+	}
+	// 短串/空串必须"判不齐"而**不是 panic**（validDate8 原实现直接切片，短串会 panic —— 本次审查已补长度守卫）
+	for _, bad := range []string{"", "-", "2", "20240", "202401012"} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("日期 %q 触发了 panic（应安全的返回 false）: %v", bad, r)
+				}
+			}()
+			if DatePartAligned(
+				[]DateAlignItem{it(bad, "")},
+				[]DateAlignItem{it(bad, "")}) {
+				t.Fatalf("非法/短日期 %q 不得判齐", bad)
+			}
+			if DateAlignUsableItems([][]DateAlignItem{{it(bad, "")}, {it(bad, "")}}) {
+				t.Fatalf("非法/短日期 %q 不得让该组可用", bad)
+			}
+		}()
+	}
+	// 闰年 2/29 合法：必须仍然可用（防收紧过头）
+	leap := [][]DateAlignItem{
+		{it("20240229", "")},
+		{it("20240229", "")},
+	}
+	if !DateAlignVerdictItems(leap) {
+		t.Fatal("20240229 是合法闰日，不得被误拒")
+	}
 	// 纯数字日期仍须正常工作（含带 part 的同日多行）
 	if !DatePartAligned(
 		[]DateAlignItem{it("20240101", "")},
