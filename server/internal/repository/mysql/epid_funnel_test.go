@@ -157,13 +157,33 @@ func TestFunnelPiece_AnchorDoesNotBackMixedSlots(t *testing.T) {
 	}
 }
 
-// 多身份行 ⇒ 单列 L5（不进 L3/L4，避免误伤）
+// 多身份行 ⇒ L5 用「去掉 s 的联合键」判定：s 不同但 v/n/d 相同 ⇒ 判齐（栏目名差异不算错）
 func TestFunnelPiece_L5_MixedIdentity(t *testing.T) {
 	a := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
-	b := map[int]string{1: "s=-|v=-|p=-|n=1|d=-"}
+	b := map[int]string{1: "s=栏目B|v=-|p=-|n=1|d=-"}
 	st, _ := funnelPiece(piece(a, b))
 	if st.L5Mixed != 1 {
-		t.Fatalf("含 s 的多身份行应落 L5: %+v", st)
+		t.Fatalf("s 不同但 n 相同的多身份槽应被 L5 联合键救回: %+v", st)
+	}
+	if st.Leftover != 0 {
+		t.Fatalf("L5 救回后不应有 leftover: %+v", st)
+	}
+	// 反向：联合键不同的多身份槽 ⇒ 仍落 leftover（不得被 s 忽略而误判）
+	c := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
+	d := map[int]string{1: "s=栏目A|v=-|p=-|n=2|d=-"}
+	st2, _ := funnelPiece(piece(c, d))
+	if st2.L5Mixed != 0 || st2.Leftover == 0 {
+		t.Fatalf("联合键不同的多身份槽应落 leftover: %+v", st2)
+	}
+	// 单锚层不得给多身份槽背书（含 s 的槽不进 L3/L4）
+	e := map[int]string{1: "s=栏目A|v=-|p=-|n=-|d=20240101"}
+	f := map[int]string{1: "s=栏目B|v=-|p=-|n=-|d=20240101"}
+	st3, _ := funnelPiece(piece(e, f))
+	if st3.L3Date != 0 {
+		t.Fatalf("含 s 的槽不得被日期锚背书（应走 L5）: %+v", st3)
+	}
+	if st3.L5Mixed != 1 {
+		t.Fatalf("含 s 的纯日期槽应由 L5 联合键判定：%+v", st3)
 	}
 }
 
