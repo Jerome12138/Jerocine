@@ -249,6 +249,38 @@ func TestFunnelPiece_L4_PartGuard(t *testing.T) {
 	}
 }
 
+// L4 的边界（与用户 2026-11-17 澄清对齐）：
+//
+//	✅ 兼容"一侧有 part、一侧无 part"（part 不进键）；
+//	❌ 不兼容"某 n 在另一源完全没有"——子集要求较小源 ⊆ 最大源，互有独有值 ⇒ 不救；
+//	❌ 含 s/v 的槽不进 L4（整槽准入）。
+func TestFunnelPiece_L4_Boundaries(t *testing.T) {
+	// 互有独有值：A={1,2,3}、B={1,2,9}（9 只在 B、3 只在 A）⇒ 不救
+	a := map[int]string{
+		1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-", 3: "s=-|v=-|p=-|n=3|d=-",
+	}
+	b := map[int]string{
+		1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-", 3: "s=-|v=-|p=-|n=9|d=-",
+	}
+	st, _ := funnelPiece(piece(a, b))
+	if st.L4Num != 0 {
+		t.Fatalf("某 n 在另一源无对应（互有独有值）不得被 L4 救: %+v", st)
+	}
+	if st.Leftover == 0 {
+		t.Fatalf("该槽应落 leftover: %+v", st)
+	}
+	// 含 s 的槽不进 L4（走诊断档）
+	c := map[int]string{1: "s=栏目|v=-|p=-|n=1|d=-"}
+	d := map[int]string{1: "s=-|v=-|p=-|n=2|d=-"}
+	st2, _ := funnelPiece(piece(c, d))
+	if st2.L4Num != 0 {
+		t.Fatalf("含 s 的槽不得进 L4: %+v", st2)
+	}
+	if st2.MixedDiag == 0 {
+		t.Fatalf("含 s 的未对齐槽应落诊断档: %+v", st2)
+	}
+}
+
 // 不变量 + 分层口径对齐率（2026-11-17 用户定：L2~L5 也纳入对齐率）
 func TestFunnelRates(t *testing.T) {
 	st := FunnelStat{
