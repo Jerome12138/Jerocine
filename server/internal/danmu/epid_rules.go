@@ -162,8 +162,10 @@ var (
 	reRangeEp = regexp.MustCompile(`第\s*\d{1,4}\s*(?:-|~|—|－)\s*\d{1,4}`)
 	// reStatusTail（R18）：`……第N集` + 状态尾缀（全/完结/已完结）并**收尾**。
 	reStatusTail = regexp.MustCompile(`.*第\s*\d{1,4}\s*[期集话回季部]\s*(?:全|完结|已完结)\s*$`)
-	// rePackWord（R19）：打包词（`全集`/`合集`，含 `全集完结`/`合全集` 等变体）。
-	rePackWord = regexp.MustCompile(`全集|合集`)
+	// rePackWord（R19）：打包词（`全集`/`合集`/`整合版`）。
+	// 2026-11-17 补「整合版」：实测 172 行**全部来自"该源行只有 1 集"的源行**、且全属连续剧 ⇒
+	// 与 全集/合集 **同族**（单片/整包形态）⇒ 单集源行给 `n=1`（与其它源的「第01集」对齐），多集源行保留 `s`。
+	rePackWord = regexp.MustCompile(`全集|合集|整合版`)
 )
 
 var preRules = []decisionRule{
