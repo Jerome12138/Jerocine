@@ -23,14 +23,15 @@ import (
 //	L2 值序列容忍（允许插入/删除、不允许替换，M4）      → 整片位序错位救回
 //	L3 日期锚（跨槽：按 (d,part) 对齐，s/v/n 空的行）    → 救回
 //	L4 期号锚（跨槽：按 (n,part) 对齐，s/v/d 空的行）    → 救回
-//	L5 多身份槽（含 s/v，单列诊断；**不判定** ⇒ 计入未对齐）       → 不救回
-//	—  剩余（干净但对不上）                                        → 真未对齐，进归因
+//	L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源集合）        → 救回（覆盖差异不算错）
+//	诊断档 多身份槽（含 s/v，**不判定** ⇒ 计入未对齐）              → 不救回
+//	—  剩余                                                        → 真未对齐，进归因
 //
 // ⚠️ **L3/L4 是"跨槽"判定**：位置口径下 A 的第 5 集与 B 的第 6 集会被判成两个分歧槽；
 // 按锚对齐能把它们认成同一集 ⇒ 这类"本身能对上、只因子集/错位没算进去"的槽才算救回。
 // （审查教训 2026-11-17：若写成"槽内锚唯一"，则永不触发 —— 槽内 epid 不同时差异恰在锚上。）
 //
-// ⚠️ 不变量：SlotsTotal == L0+L1+L2+L3+L4+L5+Leftover（单测钉住）。
+// ⚠️ 不变量：SlotsTotal == L0+L1+L2+L3+L4+L5Subset+MixedDiag+Leftover（单测钉住）。
 type FunnelStat struct {
 	Pid      int64  `json:"pid"`
 	Category string `json:"category"`
@@ -41,7 +42,8 @@ type FunnelStat struct {
 	L2Tolerant int64 `json:"l2Tolerant"` // 值序列容忍（仅插删）救回的槽
 	L3Date     int64 `json:"l3Date"`     // 日期锚（跨槽）救回的槽
 	L4Num      int64 `json:"l4Num"`      // 期号锚（跨槽）救回的槽
-	L5Mixed    int64 `json:"l5Mixed"`    // 多身份槽（含 s/v 且未对齐）—— 诊断分档，**计入未对齐**
+	L5Subset   int64 `json:"l5Subset"`   // L5 正片子集救回（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源）
+	MixedDiag  int64 `json:"mixedDiag"`  // 诊断档：多身份槽（含 s/v），不判定、计入未对齐
 	Leftover   int64 `json:"leftover"`   // 以上都不成立
 
 	MksTotal   int64 `json:"mksTotal"`   // 有非空 epid 的片数
@@ -251,19 +253,24 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 		}
 	}
 
-	// L5 多身份槽：**只做诊断分档，不做判定**（2026-11-17 用户定：
-	// 锚只是用来"找对应关系"，最终判定必须等价于 **epid 相等**；
-	// 去掉 `s` 的宽松键会把不同栏目撞成同集 ⇒ 违反 epid 相等 ⇒ 作废）。
-	// 因此多身份槽只有 epid 全等才算齐（那已在 L1 判掉），未对齐的在此单列，计入"未对齐"。
+	// L5 正片子集（2026-11-17 用户定）：**全片不含 s/v** ∧ 每源 epid 值集合都 ⊆ 最大源集合
+	// ⇒ 只是"缺集"（覆盖差异），不算解析错 ⇒ 该片剩余未对齐槽全部救回。
+	// ⚠️ 只吃正片：s/v 非空时"集合子集相等"不等于 epid 相等（不同栏目会撞成同集）。
+	if len(unaligned) > 0 && normPiece(bySrc) && valueSubsetOK(bySrc) {
+		st.L5Subset += int64(len(unaligned))
+		unaligned = nil
+	}
+
+	// 剩余再分档：含 s/v 的多身份槽 → 诊断档（不判定，计入未对齐）；其余 → leftover
 	for _, idx := range unaligned {
 		if slotHasMultiIdentity(slots[idx]) {
-			st.L5Mixed++
+			st.MixedDiag++
 		} else {
 			st.Leftover++
 		}
 	}
-	// 片级对齐 = **整片无未对齐**（L5 是未对齐的子档，同样阻断）
-	if st.Leftover == 0 && st.L5Mixed == 0 {
+	// 片级对齐 = 整片无未对齐（诊断档同样阻断）
+	if st.Leftover == 0 && st.MixedDiag == 0 {
 		st.MksAligned = 1
 	}
 	return st, true
@@ -416,6 +423,53 @@ func slotHasMultiIdentity(eps []string) bool {
 	return false
 }
 
+// normPiece 全片每一行都不含 s/v（"正片"）：s、v、变体序号全空。
+func normPiece(bySrc map[int64]map[int]string) bool {
+	n := 0
+	for _, sm := range bySrc {
+		for _, ep := range sm {
+			k, ok := danmu.ParseEpidString(ep)
+			if !ok {
+				return false
+			}
+			if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
+				return false
+			}
+			n++
+		}
+	}
+	return n > 0
+}
+
+// valueSubsetOK 每源 epid 值集合是否都 ⊆ 某个"最大源"的集合（等价：并集大小 == 最大集合大小），
+// 且非空源 ≥2。这是 L5 的判据：只要没有任何"同集两身份"，缺集就只是覆盖差异。
+func valueSubsetOK(bySrc map[int64]map[int]string) bool {
+	sets := 0
+	maxLen := 0
+	union := map[string]struct{}{}
+	for _, sm := range bySrc {
+		s := make(map[string]struct{}, len(sm))
+		for _, ep := range sm {
+			if ep == "" {
+				continue
+			}
+			s[ep] = struct{}{}
+			union[ep] = struct{}{}
+		}
+		if len(s) == 0 {
+			continue
+		}
+		sets++
+		if len(s) > maxLen {
+			maxLen = len(s)
+		}
+	}
+	if sets < 2 || maxLen == 0 {
+		return false
+	}
+	return len(union) == maxLen
+}
+
 func addFunnel(dst *FunnelStat, src FunnelStat) {
 	dst.SlotsTotal += src.SlotsTotal
 	dst.L0Single += src.L0Single
@@ -423,7 +477,8 @@ func addFunnel(dst *FunnelStat, src FunnelStat) {
 	dst.L2Tolerant += src.L2Tolerant
 	dst.L3Date += src.L3Date
 	dst.L4Num += src.L4Num
-	dst.L5Mixed += src.L5Mixed
+	dst.L5Subset += src.L5Subset
+	dst.MixedDiag += src.MixedDiag
 	dst.Leftover += src.Leftover
 	dst.MksTotal += src.MksTotal
 	dst.MksAligned += src.MksAligned
