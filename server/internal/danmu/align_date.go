@@ -55,10 +55,13 @@ func dateAlignItemsFromDates(dates []string) []DateAlignItem {
 // ⚠️ **要求 `validDate8`**（2026-11-17 审查）：
 //  1. 键单射：`Key()` 以 `#` 拼接 ⇒ 只要日期是 8 位数字就不含 `#`，复合键**单射**
 //     （否则脏值如 `d=a#b` 可能与另一组 `(Date,Part)` 撞键 ⇒ 判成"齐"、虚增对齐率 ✗）；
-//  2. 契约对齐：派生写入侧本就只写 `validDate8`/`date6` 校验过的日期（`episode_key.go` L409/L296、构造处 `epid.go` L54），
+//  2. 契约对齐：派生写入侧本就只写校验过的日期 —— `ParseEpisodeKey` 里 `reDate8` 命中后由 `validDate8` 门控，
+//     6 位日期由 `date6` 归一成 8 位（`century+v`，非法月日直接 `continue` 不纳入），
+//     最后由 `epid.go` 的 `s=..|v=..|p=..|n=..|d=..` 构造处写出 ⇒ 库里的 `d` 恒为 8 位合法日期。
 //     这里用同一条判据 ⇒ 不再依赖"上游一定给我合法日期"这一**隐含契约**；
 //     但读侧宽松解析器 `ParseEpidString` **不校验**（`case "d": k.Date = val`）⇒ 边界处必须自己守。
-//     ⚠️ `validDate8` 的长度守卫是 2026-11-17 本次审查补上的（它原实现直接切片，短串会 panic）。
+//     ⚠️ `validDate8` 的长度守卫是 2026-11-17 本次审查补上的（它原实现直接切片，短串会 panic；
+//     既有调用方传的都是 `reDate8`/`date6` 产出的 8 位串，故此前未暴露）。
 //
 // 不满足者该源不参与（宁缺勿错；凸显在指标上只是 `totalMks` 变小，不会静默虚增）。
 func dateAlignCleanItems(items []DateAlignItem) []DateAlignItem {
