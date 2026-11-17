@@ -21,7 +21,7 @@ import (
 //	L0 单源槽（只有 1 个源有该集）                     → 默认对齐（覆盖差异不是解析问题）
 //	L1 槽位全等（同一 ep_index 且 epid 全等）          → 对齐
 //	L2 值序列容忍（允许插入/删除、不允许替换，M4）      → 整片位序错位救回
-//	L3 日期锚（跨槽：按 (d,part) 对齐，s/v/n 空的行）    → 救回
+//	L3 日期锚（跨槽：按 d 值对齐，s/v/n 空的行；part 仅作守卫）    → 救回
 //	L4 期号锚（跨槽：按 `n` 值对齐，s/v/d 空的行；part 仅作守卫）  → 救回
 //	L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源集合）        → 救回（覆盖差异不算错）
 //	诊断档 多身份槽（含 s/v，**不判定** ⇒ 计入未对齐）              → 不救回
@@ -234,7 +234,7 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 	// L3 日期锚 / L4 期号锚：**跨槽**按锚键两两相容（片级建立对应）；
 	// ⚠️ 但只救"槽内**每一行**都是该锚的干净行"的槽（2026-11-17 审查）：
 	// 锚只覆盖干净行（s/v 空），含 s/v 的槽不在锚的背书范围内 ⇒ 不得一并救回（防误伤）。
-	if len(unaligned) > 0 {
+	if len(unaligned) > 0 && !anchorPartConflicted(bySrc, anchorDate) {
 		if usable, aligned := anchorAligned(anchorKeySets(bySrc, anchorDate)); usable && aligned {
 			keep := unaligned[:0]
 			for _, idx := range unaligned {
@@ -247,7 +247,7 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 			unaligned = keep
 		}
 	}
-	if len(unaligned) > 0 && !numPartConflicted(bySrc) {
+	if len(unaligned) > 0 && !anchorPartConflicted(bySrc, anchorNum) {
 		if usable, aligned := anchorAligned(anchorKeySets(bySrc, anchorNum)); usable && aligned {
 			keep := unaligned[:0]
 			for _, idx := range unaligned {
@@ -319,7 +319,8 @@ func anchorKeySets(bySrc map[int64]map[int]string, kind anchorKind) [][]string {
 				if k.Num != 0 || k.Date == "" {
 					continue
 				}
-				keys = append(keys, k.Date+"#"+k.Part)
+				// 键只用日期值（2026-11-17 与 L4 同规放宽）：part 的语义交给 anchorPartConflicted 守卫。
+				keys = append(keys, k.Date)
 			case anchorNum:
 				if k.Date != "" || k.Num == 0 {
 					continue
@@ -438,26 +439,41 @@ func slotHasMultiIdentity(eps []string) bool {
 	return false
 }
 
-// numPartConflicted 同一 n 值上是否出现"两个不同的非空 part"。
+// anchorPartConflicted 同一锚键（L3 取 `d`、L4 取 `n`）上是否出现"两个不同的非空 part"。
 //
-// L4 放宽（键=仅 n）后的守卫：若同一集号在两处各有明确 part 且不同（如 上/中/下），
-// 那是**不同的集**，不得判齐。一侧无 part 属"表示差异"，不算冲突（实测该类冲突为 0，
-// 所以这条守卫不会削弱放宽带来的收益）。
-func numPartConflicted(bySrc map[int64]map[int]string) bool {
-	parts := map[int]map[string]struct{}{}
+// 锚层放宽（键不含 `part`）后的统一守卫：若同一集（同日期或同期号）在两处各有明确 part
+// 且不同（如 上/中/下），那是**不同的集**，不得判齐。一侧无 part 属"表示差异"，
+// 不算冲突（实测该类冲突为 0，所以这条守卫不会削弱放宽带来的收益）。
+func anchorPartConflicted(bySrc map[int64]map[int]string, kind anchorKind) bool {
+	parts := map[string]map[string]struct{}{}
 	for _, sm := range bySrc {
 		for _, ep := range sm {
 			k, ok := danmu.ParseEpidString(ep)
 			if !ok {
 				continue
 			}
-			if k.Series != "" || k.Variant != "" || k.VariantNum != 0 || k.Date != "" || k.Num == 0 || k.Part == "" {
+			if k.Series != "" || k.Variant != "" || k.VariantNum != 0 || k.Part == "" {
 				continue
 			}
-			if parts[k.Num] == nil {
-				parts[k.Num] = map[string]struct{}{}
+			var key string
+			switch kind {
+			case anchorDate:
+				if k.Num != 0 || k.Date == "" {
+					continue
+				}
+				key = k.Date
+			case anchorNum:
+				if k.Date != "" || k.Num == 0 {
+					continue
+				}
+				key = strconv.Itoa(k.Num)
+			default:
+				continue
 			}
-			parts[k.Num][k.Part] = struct{}{}
+			if parts[key] == nil {
+				parts[key] = map[string]struct{}{}
+			}
+			parts[key][k.Part] = struct{}{}
 		}
 	}
 	for _, ps := range parts {

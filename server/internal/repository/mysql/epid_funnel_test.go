@@ -281,6 +281,29 @@ func TestFunnelPiece_L4_Boundaries(t *testing.T) {
 	}
 }
 
+// L3 与 L4 同规（2026-11-17）：键 = `d` 值（不含 part）；part 降为守卫。
+//   - 一侧有 part、一侧空 ⇒ 仍可救；
+//   - 同日两侧 part 都有值且不同 ⇒ 不救。
+func TestFunnelPiece_L3_PartGuard(t *testing.T) {
+	// 一侧 part 空 ⇒ 判齐（L2 常先吃掉，这里只断言结果）
+	a := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101"}
+	b := map[int]string{1: "s=-|v=-|p=上|n=-|d=20240101"}
+	st, _ := funnelPiece(piece(a, b))
+	if st.Leftover != 0 || st.MksAligned != 1 {
+		t.Fatalf("一侧 part 空的日期槽应判齐: %+v", st)
+	}
+	// 同日但 part 不同（上 vs 中）⇒ 守卫拒绝
+	c := map[int]string{1: "s=-|v=-|p=上|n=-|d=20240101"}
+	d := map[int]string{1: "s=-|v=-|p=中|n=-|d=20240101"}
+	st2, _ := funnelPiece(piece(c, d))
+	if st2.L3Date != 0 {
+		t.Fatalf("同日 part 不同的槽不得被 L3 救: %+v", st2)
+	}
+	if st2.Leftover == 0 {
+		t.Fatalf("该槽应落 leftover: %+v", st2)
+	}
+}
+
 // 不变量 + 分层口径对齐率（2026-11-17 用户定：L2~L5 也纳入对齐率）
 func TestFunnelRates(t *testing.T) {
 	st := FunnelStat{
