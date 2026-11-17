@@ -220,3 +220,50 @@ func TestDateAlignItemKey(t *testing.T) {
 		t.Fatal("同日不同 part 必须是不同键")
 	}
 }
+
+// ===== 2026-11-17 审查加固：① 日期必须纯数字（保证复合键单射）② 方向按集合大小 =====
+
+func TestDateAlign_NonDigitDateRejected(t *testing.T) {
+	// 脏日期（含 `#`）若被当作合法，会与另一组 (date,part) 撞键 ⇒ 假"齐"（危险方向）⇒ 必须判不齐
+	dirty := [][]DateAlignItem{
+		{it("2024#0101", ""), it("20240102", "")},
+		{it("2024", "0101"), it("20240102", "")}, // 键同为 "2024#0101"
+	}
+	if DateAlignVerdictItems(dirty) {
+		t.Fatal("脏日期不得被当作合法日期（否则复合键碰撞会虚增对齐率）")
+	}
+	if DatePartAligned(dirty[0], dirty[1]) {
+		t.Fatal("含非数字日期项的源必须直接判不相容")
+	}
+	// 纯数字日期仍须正常工作（含带 part 的同日多行）
+	if !DatePartAligned(
+		[]DateAlignItem{it("20240101", "")},
+		[]DateAlignItem{it("20240101", ""), it("20240108", "")}) {
+		t.Fatal("纯数字日期应正常判定")
+	}
+	if DatePartAligned(
+		[]DateAlignItem{it("20240101", "上")},
+		[]DateAlignItem{it("20240101", "中")}) {
+		t.Fatal("同日不同 part 且无交集 => 不齐")
+	}
+}
+
+func TestDatePartAligned_DirectionUsesSetSize(t *testing.T) {
+	// ca 列表更长但集合更小（含重复键），cb 集合更大：真值应为"相容"（ca ⊆ cb），
+	// 按原始长度选方向会误判成不齐。
+	ca := []DateAlignItem{it("20240101", ""), it("20240101", ""), it("20240101", "")}
+	cb := []DateAlignItem{it("20240101", ""), it("20240108", "")}
+	if !DatePartAligned(ca, cb) {
+		t.Fatal("方向须按去重集合大小选择：ca 集合 {20240101} ⊆ cb 集合 => 相容")
+	}
+	// 反向也必须对称
+	if !DatePartAligned(cb, ca) {
+		t.Fatal("对称性：DatePartAligned 必须双向一致")
+	}
+	// 真正的交错缺集仍然不齐
+	cc := []DateAlignItem{it("20240101", ""), it("20240115", "")}
+	cd := []DateAlignItem{it("20240108", ""), it("20240115", "")}
+	if DatePartAligned(cc, cd) {
+		t.Fatal("交错缺集必须判不齐（不放过替换语义）")
+	}
+}

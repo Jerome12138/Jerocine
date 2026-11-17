@@ -49,8 +49,12 @@ func dateAlignItemsFromDates(dates []string) []DateAlignItem {
 	return out
 }
 
-// dateAlignCleanItems 归一化一侧源行：任一项无日期 / `-` ⇒ 返回 nil（该源不参与判定）。
+// dateAlignCleanItems 归一化一侧源行：任一项日期不合法（空 / `-` / 非纯数字）⇒ 返回 nil（该源不参与判定）。
 // 这样"某源整列无日期"与"某源部分行无日期"都不会被当成"日期不同"而误判成不齐。
+//
+// ⚠️ **要求日期为纯数字**（2026-11-17 审查）：`Key()` 以 `#` 拼接，只有保证 `Date` 里不含 `#`，
+// 复合键才是**单射**（第一个 `#` 即分隔点）⇒ 否则脏值（如 `d=a#b`）可能与另一组 `(Date,Part)` 撞键，
+// 判成"齐"而虚增对齐率 ✗。不满足者该源不参与（宁缺勿错，方向保守）。
 func dateAlignCleanItems(items []DateAlignItem) []DateAlignItem {
 	if len(items) == 0 {
 		return nil
@@ -58,12 +62,25 @@ func dateAlignCleanItems(items []DateAlignItem) []DateAlignItem {
 	out := make([]DateAlignItem, 0, len(items))
 	for _, it := range items {
 		d := strings.TrimSpace(it.Date)
-		if d == "" || d == "-" {
+		if !isDigits(d) {
 			return nil
 		}
 		out = append(out, DateAlignItem{Date: d, Part: strings.TrimSpace(it.Part)})
 	}
 	return out
+}
+
+// isDigits 全 ASCII 数字且非空。
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !isDigitByte(s[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // dateAlignDupKey 同一源内是否出现重复**复合键**（= 同源同日同 part ≥ 2 行）。
@@ -80,35 +97,44 @@ func dateAlignDupKey(items []DateAlignItem) bool {
 	return false
 }
 
-// dateAlignItemSubset 判 short 的每个复合键都出现在 long 里（**值**语义，与位置无关）。
-func dateAlignItemSubset(short, long []DateAlignItem) bool {
-	set := make(map[string]struct{}, len(long))
-	for _, it := range long {
-		set[it.Key()] = struct{}{}
-	}
-	for _, it := range short {
-		if _, ok := set[it.Key()]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
 // DatePartAligned 判两源的「日期(+part)」序列是否同排期：只看复合键**值**，允许一方多出 / 缺失。
 // 语义 = 较短一方的键集合是较长一方的子集。
 //   - 一侧多出头部/中间/尾部若干集 ⇒ **相容**（源不全，与 M4 的"插入/删除"一致）；
 //   - 交错缺集（A 缺 x / B 缺 y，`x≠y`）⇒ **不相容**（不放过"替换"）；
 //   - 一侧带 part、另一侧同日无 part ⇒ **不相容**（不做通配猜测）；
-//   - 任一侧为空 / 含无日期项 ⇒ false（无从判定，宁缺勿错）。
+//   - 任一侧为空 / 含非法日期项 ⇒ false（无从判定，宁缺勿错）。
+//
+// 方向选择按**去重后的集合大小**（2026-11-17 审查）：若按原始长度选，含重复键的一侧会被判成"长"，
+// 从而对另一侧施加更严的子集检验 ⇒ 产出假"不齐"（方向保守但属误判）。
 func DatePartAligned(a, b []DateAlignItem) bool {
 	ca, cb := dateAlignCleanItems(a), dateAlignCleanItems(b)
 	if len(ca) == 0 || len(cb) == 0 {
 		return false
 	}
-	if len(ca) <= len(cb) {
-		return dateAlignItemSubset(ca, cb)
+	sa, sb := dateAlignKeySet(ca), dateAlignKeySet(cb)
+	if len(sa) <= len(sb) {
+		return dateAlignSetSubset(sa, sb)
 	}
-	return dateAlignItemSubset(cb, ca)
+	return dateAlignSetSubset(sb, sa)
+}
+
+// dateAlignKeySet 复合键集合（天然去重）。
+func dateAlignKeySet(items []DateAlignItem) map[string]struct{} {
+	set := make(map[string]struct{}, len(items))
+	for _, it := range items {
+		set[it.Key()] = struct{}{}
+	}
+	return set
+}
+
+// dateAlignSetSubset 判 sa ⊆ sb。
+func dateAlignSetSubset(sa, sb map[string]struct{}) bool {
+	for k := range sa {
+		if _, ok := sb[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // DateAligned 纯日期（无 part）版本 —— 等价于把输入包成无 part 的 items。

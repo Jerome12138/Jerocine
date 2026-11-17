@@ -961,14 +961,16 @@ func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat,
 		return out
 	}
 
-	type srcAcc struct {
-		allPure bool
+	// ⚠️ 每个 mk 只维护**一张** per-源映射（审查 2026-11-17）：原先 `bySrc` + `srcs` 两张 map
+	// 会让批内内存翻倍（100k mk × ~10 源 × 2 张 map），小机器上属真实放大风险。
+	type srcInfo struct {
+		eps     map[int]string // ep_index → epid（严格口径对照用）
+		allPure bool           // 该源**全部行**都是纯日期型
 		items   []danmu.DateAlignItem
 	}
 	type mkSeq struct {
 		pid, cid, hasMid int64
-		bySrc            map[int64]map[int]string
-		srcs             map[int64]*srcAcc
+		bySrc            map[int64]*srcInfo
 	}
 
 	type catAcc struct{ total, aligned, strictOK, skipped int64 }
@@ -1011,10 +1013,7 @@ func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat,
 			rr := rows[j]
 			m := perMK[rr.Mk]
 			if m == nil {
-				m = &mkSeq{
-					bySrc: map[int64]map[int]string{},
-					srcs:  map[int64]*srcAcc{},
-				}
+				m = &mkSeq{bySrc: map[int64]*srcInfo{}}
 				perMK[rr.Mk] = m
 			}
 			if rr.Pid != 0 {
@@ -1026,33 +1025,30 @@ func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat,
 			if rr.HasMid == 1 {
 				m.hasMid = 1
 			}
-			sm := m.bySrc[rr.RowID]
-			if sm == nil {
-				sm = map[int]string{}
-				m.bySrc[rr.RowID] = sm
+			si := m.bySrc[rr.RowID]
+			if si == nil {
+				si = &srcInfo{eps: map[int]string{}, allPure: true}
+				m.bySrc[rr.RowID] = si
 			}
-			sm[rr.EpIdx] = rr.Epid
+			si.eps[rr.EpIdx] = rr.Epid
 
-			sa := m.srcs[rr.RowID]
-			if sa == nil {
-				sa = &srcAcc{allPure: true}
-				m.srcs[rr.RowID] = sa
-			}
 			k, ok := danmu.ParseEpidString(rr.Epid)
 			// 纯日期型：s/v/n 全空、d 非空（v 段的 `#序号` 也算 v 非空）
 			pure := ok && k.Date != "" && k.Num == 0 && k.ENum == 0 &&
 				k.Series == "" && k.Variant == "" && k.VariantNum == 0
 			if !pure {
-				sa.allPure = false
+				si.allPure = false
 				continue
 			}
-			sa.items = append(sa.items, danmu.DateAlignItem{Date: k.Date, Part: k.Part})
+			si.items = append(si.items, danmu.DateAlignItem{Date: k.Date, Part: k.Part})
 		}
 		for _, m := range perMK {
 			var perSrc [][]danmu.DateAlignItem
-			for _, sa := range m.srcs {
-				if sa.allPure && len(sa.items) > 0 {
-					perSrc = append(perSrc, sa.items)
+			inner := make([]map[int]string, 0, len(m.bySrc))
+			for _, si := range m.bySrc {
+				inner = append(inner, si.eps)
+				if si.allPure && len(si.items) > 0 {
+					perSrc = append(perSrc, si.items)
 				}
 			}
 			if len(perSrc) < 2 {
@@ -1075,7 +1071,7 @@ func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat,
 			if danmu.DateAlignVerdictItems(perSrc) {
 				a.aligned++
 			}
-			if strictMkAligned(m.bySrc) {
+			if strictMkAlignedFrom(inner) {
 				a.strictOK++
 			}
 		}
@@ -1126,8 +1122,18 @@ func categoryDisplayName(pid int64, names map[int64]string) string {
 // strictMkAligned 严格口径的"片级"判定（与 `ClassAlignment` 同义）：
 // 该片**每个 ep_index 槽位**跨源 epid 只有一种 ⇒ 零分歧片。分母口径由调用方统一为"≥2 源"。
 func strictMkAligned(bySrc map[int64]map[int]string) bool {
-	seen := map[int]map[string]bool{}
+	inner := make([]map[int]string, 0, len(bySrc))
 	for _, sm := range bySrc {
+		inner = append(inner, sm)
+	}
+	return strictMkAlignedFrom(inner)
+}
+
+// strictMkAlignedFrom 同上，但直接吃"每源一份 `ep_index → epid`"的切片 ——
+// 供只维护单张 per-mk 映射的调用方复用（日期对齐口径，2026-11-17），避免为对照再造一张 map。
+func strictMkAlignedFrom(inner []map[int]string) bool {
+	seen := map[int]map[string]bool{}
+	for _, sm := range inner {
 		for idx, epid := range sm {
 			if seen[idx] == nil {
 				seen[idx] = map[string]bool{}
