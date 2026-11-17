@@ -23,8 +23,8 @@ import (
 //	L2 值序列容忍（允许插入/删除、不允许替换，M4）      → 整片位序错位救回
 //	L3 日期锚（跨槽：按 (d,part) 对齐，s/v/n 空的行）    → 救回
 //	L4 期号锚（跨槽：按 (n,part) 对齐，s/v/d 空的行）    → 救回
-//	L5 多身份联合键（去掉 `s` 段：v/vn/p/n/d）                → 救回（近似：s 差异被忽略）
-//	—  剩余                                                  → 真未对齐，进归因
+//	L5 多身份槽（含 s/v，单列诊断；**不判定** ⇒ 计入未对齐）       → 不救回
+//	—  剩余（干净但对不上）                                        → 真未对齐，进归因
 //
 // ⚠️ **L3/L4 是"跨槽"判定**：位置口径下 A 的第 5 集与 B 的第 6 集会被判成两个分歧槽；
 // 按锚对齐能把它们认成同一集 ⇒ 这类"本身能对上、只因子集/错位没算进去"的槽才算救回。
@@ -41,7 +41,7 @@ type FunnelStat struct {
 	L2Tolerant int64 `json:"l2Tolerant"` // 值序列容忍（仅插删）救回的槽
 	L3Date     int64 `json:"l3Date"`     // 日期锚（跨槽）救回的槽
 	L4Num      int64 `json:"l4Num"`      // 期号锚（跨槽）救回的槽
-	L5Mixed    int64 `json:"l5Mixed"`    // 多身份联合键（去掉 s 段）救回的槽
+	L5Mixed    int64 `json:"l5Mixed"`    // 多身份槽（含 s/v 且未对齐）—— 诊断分档，**计入未对齐**
 	Leftover   int64 `json:"leftover"`   // 以上都不成立
 
 	MksTotal   int64 `json:"mksTotal"`   // 有非空 epid 的片数
@@ -251,24 +251,19 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 		}
 	}
 
-	// L5 多身份联合键：**去掉 `s` 段**（栏目名是各源命名差异最大的段）
-	if len(unaligned) > 0 {
-		if usable, aligned := anchorAligned(anchorKeySets(bySrc, anchorMulti)); usable && aligned {
-			keep := unaligned[:0]
-			for _, idx := range unaligned {
-				if slotAllCleanAnchor(slots[idx], anchorMulti) {
-					st.L5Mixed++
-				} else {
-					keep = append(keep, idx)
-				}
-			}
-			unaligned = keep
+	// L5 多身份槽：**只做诊断分档，不做判定**（2026-11-17 用户定：
+	// 锚只是用来"找对应关系"，最终判定必须等价于 **epid 相等**；
+	// 去掉 `s` 的宽松键会把不同栏目撞成同集 ⇒ 违反 epid 相等 ⇒ 作废）。
+	// 因此多身份槽只有 epid 全等才算齐（那已在 L1 判掉），未对齐的在此单列，计入"未对齐"。
+	for _, idx := range unaligned {
+		if slotHasMultiIdentity(slots[idx]) {
+			st.L5Mixed++
+		} else {
+			st.Leftover++
 		}
 	}
-
-	// 剩余一律 leftover（**不再把"未判"混进对齐**：L5 现在已判定）
-	st.Leftover += int64(len(unaligned))
-	if st.Leftover == 0 {
+	// 片级对齐 = **整片无未对齐**（L5 是未对齐的子档，同样阻断）
+	if st.Leftover == 0 && st.L5Mixed == 0 {
 		st.MksAligned = 1
 	}
 	return st, true
@@ -277,18 +272,17 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 type anchorKind int
 
 const (
-	anchorDate  anchorKind = iota // 日期锚（L3）：s/v 空 ∧ n 空
-	anchorNum                     // 期号锚（L4）：s/v 空 ∧ d 空
-	anchorMulti                   // 多身份联合键（L5）：**去掉 s 段**，即 v/vn/p/n/d 联合
+	anchorDate anchorKind = iota // 日期锚（L3）：s/v 空 ∧ n 空
+	anchorNum                    // 期号锚（L4）：s/v 空 ∧ d 空
 )
 
-// anchorKeySets 抽取每源的锚键集合（**只吃满足该层准入的行**）：
+// anchorKeySets 抽取每源的锚键集合（**只吃满足该层准入的干净行**）：
 //   - 日期锚（L3）：`s` 空 ∧ `v` 空 ∧ `n` 空 ∧ `d` 非空 ⇒ 键 = `d`(+`#part`)
 //   - 期号锚（L4）：`s` 空 ∧ `v` 空 ∧ `d` 空 ∧ `n` > 0 ⇒ 键 = `n`(+`#part`)
-//   - 多身份联合（L5）：`s`/`v` 至少一个非空 ⇒ 键 = `v`(+`#vn`)`|p|n|d`（**不含 `s`**）
 //
-// 不含 s 的理由：s 是栏目/系列名，各源写法差异最大（R18~R20 已把其中大部分当噪声剥离）；
-// 若让 s 参与等值判据，同一集永远对不齐。⚠️ 近似：不同系列若 v/n/d 全同仍会被判同集（见总则 §6）。
+// ⚠️ 为什么只允许这两层用锚（2026-11-17 用户定）：这两层里"锚相等"**等价于 `epid` 相等**
+// ——干净行（s/v/n 空）的 epid 只由 `d`(+`p`) 决定，`d` 相等 ⇒ 串必相等 ⇒ 判定结果与
+// "epid 全等"完全一致。含 `s`/`v` 的行做不到这一点（锚相等 ≠ epid 相等）⇒ 不设锚层。
 func anchorKeySets(bySrc map[int64]map[int]string, kind anchorKind) [][]string {
 	out := make([][]string, 0, len(bySrc))
 	for _, sm := range bySrc {
@@ -298,16 +292,8 @@ func anchorKeySets(bySrc map[int64]map[int]string, kind anchorKind) [][]string {
 			if !ok {
 				continue
 			}
-			multi := k.Series != "" || k.Variant != "" || k.VariantNum != 0
-			switch kind {
-			case anchorDate, anchorNum:
-				if multi {
-					continue // 多身份行：不进单锚层
-				}
-			case anchorMulti:
-				if !multi {
-					continue // 非多身份行：不进 L5
-				}
+			if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
+				continue // 多身份行：不进锚层（锚相等 ≠ epid 相等）
 			}
 			switch kind {
 			case anchorDate:
@@ -320,9 +306,6 @@ func anchorKeySets(bySrc map[int64]map[int]string, kind anchorKind) [][]string {
 					continue
 				}
 				keys = append(keys, strconv.Itoa(k.Num)+"#"+k.Part)
-			case anchorMulti:
-				keys = append(keys, k.Variant+"#"+strconv.Itoa(k.VariantNum)+"|"+k.Part+"|"+
-					strconv.Itoa(k.Num)+"|"+k.Date)
 			}
 		}
 		if len(keys) > 0 {
@@ -388,12 +371,11 @@ func stringSubset(small, big map[string]struct{}) bool {
 	return true
 }
 
-// slotAllCleanAnchor 该槽的**每一行**是否都属于该层的准入集合：
+// slotAllCleanAnchor 该槽的**每一行**是否都属于该锚层的准入集合：
 //   - 日期锚（L3）：`s` 空 ∧ `v` 空 ∧ `n` 空 ∧ `d` 非空
 //   - 期号锚（L4）：`s` 空 ∧ `v` 空 ∧ `d` 空 ∧ `n` > 0
-//   - 多身份联合（L5）：`s`/`v` 至少一个非空
 //
-// 各层只给"整槽都属于本层"的槽背书 ⇒ 不跨层误伤（含 s/v 的槽不被 L3/L4 背书；反之亦然）。
+// 各层只给"整槽都属于本层"的槽背书 ⇒ 不跨层误伤。
 func slotAllCleanAnchor(eps []string, kind anchorKind) bool {
 	if len(eps) == 0 {
 		return false
@@ -403,23 +385,35 @@ func slotAllCleanAnchor(eps []string, kind anchorKind) bool {
 		if !ok {
 			return false
 		}
-		multi := k.Series != "" || k.Variant != "" || k.VariantNum != 0
+		if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
+			return false
+		}
 		switch kind {
 		case anchorDate:
-			if multi || k.Num != 0 || k.Date == "" {
+			if k.Num != 0 || k.Date == "" {
 				return false
 			}
 		case anchorNum:
-			if multi || k.Date != "" || k.Num == 0 {
-				return false
-			}
-		case anchorMulti:
-			if !multi {
+			if k.Date != "" || k.Num == 0 {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// slotHasMultiIdentity 该槽是否含"多身份行"（`s`/`v` 任一非空）⇒ L5 诊断分档。
+func slotHasMultiIdentity(eps []string) bool {
+	for _, ep := range eps {
+		k, ok := danmu.ParseEpidString(ep)
+		if !ok {
+			continue
+		}
+		if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func addFunnel(dst *FunnelStat, src FunnelStat) {

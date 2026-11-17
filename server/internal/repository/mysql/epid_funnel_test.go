@@ -157,33 +157,33 @@ func TestFunnelPiece_AnchorDoesNotBackMixedSlots(t *testing.T) {
 	}
 }
 
-// 多身份行 ⇒ L5 用「去掉 s 的联合键」判定：s 不同但 v/n/d 相同 ⇒ 判齐（栏目名差异不算错）
-func TestFunnelPiece_L5_MixedIdentity(t *testing.T) {
+// L5 是**诊断分档、不判定**：多身份槽（含 s/v）只有 epid 全等才算齐（那在 L1 判掉），
+// 否则单列进 L5Mixed 并**计入未对齐**（用户 2026-11-17 定：判定必须等价于 epid 相等，
+// 不能靠"去掉 s"把不同栏目判成同集）。
+func TestFunnelPiece_L5_IsDiagnosticNotJudgment(t *testing.T) {
+	// s 不同 ⇒ 未对齐（不得被宽松键救回）
 	a := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
 	b := map[int]string{1: "s=栏目B|v=-|p=-|n=1|d=-"}
 	st, _ := funnelPiece(piece(a, b))
 	if st.L5Mixed != 1 {
-		t.Fatalf("s 不同但 n 相同的多身份槽应被 L5 联合键救回: %+v", st)
+		t.Fatalf("含 s 的未对齐槽应落 L5Mixed: %+v", st)
 	}
-	if st.Leftover != 0 {
-		t.Fatalf("L5 救回后不应有 leftover: %+v", st)
+	if st.MksAligned != 0 {
+		t.Fatalf("L5 是未对齐子档 ⇒ 该片不得算对齐: %+v", st)
 	}
-	// 反向：联合键不同的多身份槽 ⇒ 仍落 leftover（不得被 s 忽略而误判）
+	// s 相同（epid 全等）⇒ 由 L1 判齐，不进 L5
 	c := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
-	d := map[int]string{1: "s=栏目A|v=-|p=-|n=2|d=-"}
+	d := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
 	st2, _ := funnelPiece(piece(c, d))
-	if st2.L5Mixed != 0 || st2.Leftover == 0 {
-		t.Fatalf("联合键不同的多身份槽应落 leftover: %+v", st2)
+	if st2.L1Slot != 1 || st2.L5Mixed != 0 || st2.MksAligned != 1 {
+		t.Fatalf("epid 全等的多身份槽应由 L1 判齐: %+v", st2)
 	}
-	// 单锚层不得给多身份槽背书（含 s 的槽不进 L3/L4）
+	// 单锚层不得给含 s 的槽背书（整槽准入）
 	e := map[int]string{1: "s=栏目A|v=-|p=-|n=-|d=20240101"}
 	f := map[int]string{1: "s=栏目B|v=-|p=-|n=-|d=20240101"}
 	st3, _ := funnelPiece(piece(e, f))
-	if st3.L3Date != 0 {
-		t.Fatalf("含 s 的槽不得被日期锚背书（应走 L5）: %+v", st3)
-	}
-	if st3.L5Mixed != 1 {
-		t.Fatalf("含 s 的纯日期槽应由 L5 联合键判定：%+v", st3)
+	if st3.L3Date != 0 || st3.L5Mixed != 1 {
+		t.Fatalf("含 s 的日期槽不得走 L3，应落 L5 诊断档: %+v", st3)
 	}
 }
 
