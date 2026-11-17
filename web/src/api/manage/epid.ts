@@ -90,10 +90,8 @@ export interface EpidReport {
   coverageError?: string
 
   // ---- 口径层（2026-11-11 / 2026-11-15 修订）----
-  /** 可比口径（对照）：分母只含"真相源里 ≥2 site 且已成熟"的片 */
-  comparableAligned: number
-  comparableTotal: number
-  comparablePct: number
+  // 2026-11-17：**可比口径字段已移除**（后端 `AlignmentRateComparable` 已删除：无消费方 + 每 120s 全表聚合
+  // 纯浪费 + 易被误读成"对齐率"）。历史组级字段 alignedGroups/totalGroups/alignmentPct 仍返回，仅作对照。
   /** true = 派生任务进行中（进度类指标只在此状态有意义） */
   deriving: boolean
   /** 进度集（任务进行中也给） */

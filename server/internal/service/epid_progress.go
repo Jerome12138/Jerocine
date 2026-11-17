@@ -365,9 +365,6 @@ type heavyMetrics struct {
 	// 仅作对照——单源片天然落不对齐分母（51.3% 单源片 ⇒ 组级 33.92% 被结构性压制）。
 	AlignmentPct      float64
 	ByFromSrc         map[string]int64
-	ComparableAligned int64
-	ComparableTotal   int64
-	ComparablePct     float64
 	ClassAlignment    []mysql.ClassAlignmentStat
 	ClassAlignmentAll mysql.ClassAlignmentStat
 	EmptyByShape      []mysql.ShapeStat
@@ -427,8 +424,8 @@ func KickHeavyMetricsRefresh() {
 		if hm.MetricsError != "" {
 			log.Printf("[epid] 重型指标快照已刷新（部分失败）: %s", hm.MetricsError)
 		} else {
-			log.Printf("[epid] 重型指标快照已刷新: 派生行=%d 对齐(mk级)=%.1f%% 组级对照=%d/%d 可比=%d/%d 覆盖率按需",
-				hm.DerivedRows, hm.AlignmentPct, hm.AlignedGroups, hm.TotalGroups, hm.ComparableAligned, hm.ComparableTotal)
+			log.Printf("[epid] 重型指标快照已刷新: 派生行=%d 对齐(mk级)=%.1f%% 组级对照=%d/%d 覆盖率按需",
+				hm.DerivedRows, hm.AlignmentPct, hm.AlignedGroups, hm.TotalGroups)
 		}
 	}()
 }
@@ -481,17 +478,6 @@ func refreshHeavyMetrics(ctx context.Context) heavyMetrics {
 		hm.AlignedGroups, hm.TotalGroups = rep.AlignedGroups, rep.TotalGroups
 		if rep.ByFromSrc != nil {
 			hm.ByFromSrc = rep.ByFromSrc
-		}
-		return nil
-	})
-	each("可比口径对齐率", 120*time.Second, func(c context.Context) error {
-		a, t, err := s.repo.AlignmentRateComparable(c)
-		if err != nil {
-			return err
-		}
-		hm.ComparableAligned, hm.ComparableTotal = a, t
-		if t > 0 {
-			hm.ComparablePct = float64(a) * 100 / float64(t)
 		}
 		return nil
 	})

@@ -386,7 +386,6 @@ onMounted(() => void loadOverrides())
               <span class="text-muted">
                 （{{ num(report.classAlignmentAll?.alignedMks) }}/{{ num(report.classAlignmentAll?.totalMks) }} 片零分歧）
               </span>
-              <span class="text-muted">组级对照 {{ pct(report.alignmentPct) }}</span>
             </dd>
           </div>
           <div>

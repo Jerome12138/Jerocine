@@ -1188,9 +1188,8 @@ type EpidReport struct {
 	//（单源片默认按对齐算；多源收敛同 epid 也对齐）；未对齐 = 多源分歧（P-1 冲突类）。
 	// 组级口径（alignedGroups/totalGroups，site≥2 的组占比）**仅作对照**——51.3% 单源片结构性压制比率，
 	// 且单源片是覆盖缺失而非机制失败，两种失败不可混计。
-	ComparableAligned int64                      `json:"comparableAligned"`
-	ComparableTotal   int64                      `json:"comparableTotal"`
-	ComparablePct     float64                    `json:"comparablePct"`
+	// 2026-11-17：**可比口径对齐率（comparable*）已删除** —— 无任何 UI 消费方，且每 120s 跑一次
+	// 全表聚合（纯浪费），字段易被误读成"对齐率"。组级字段保留仅作对照。
 	ClassAlignment    []mysql.ClassAlignmentStat `json:"classAlignment"`     // 按分类的跨源对齐（mk 级）
 	ClassAlignmentAll mysql.ClassAlignmentStat   `json:"classAlignmentAll"`  // 全库汇总（Category="全部"）
 	Deriving          bool                       `json:"deriving"`           // true = 派生任务进行中（前端只渲染进度类指标）
@@ -1375,7 +1374,6 @@ func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 		out.AlignedGroups, out.TotalGroups = hm.AlignedGroups, hm.TotalGroups
 		out.AlignmentPct = hm.AlignmentPct
 		out.ByFromSrc = hm.ByFromSrc
-		out.ComparableAligned, out.ComparableTotal, out.ComparablePct = hm.ComparableAligned, hm.ComparableTotal, hm.ComparablePct
 		out.ClassAlignment, out.ClassAlignmentAll = hm.ClassAlignment, hm.ClassAlignmentAll
 		out.EmptyByShape = hm.EmptyByShape
 		out.MetricsError = hm.MetricsError

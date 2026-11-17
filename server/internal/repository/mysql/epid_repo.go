@@ -659,38 +659,6 @@ func (r *EpidRepo) SourceRowCount(ctx context.Context) (int64, error) {
 //     读数不可解释（对齐率会随进度横跳）✗；
 //  3. 全库口径（`AlignmentRate`）保留作对照，**不作门槛判定**。
 
-// AlignmentRateComparable 可比口径对齐率：`match_key` 在**真相源**里有 ≥2 个 site **且该片已成熟**；
-// 仅统计非空 epid 组。§4.8 门槛（≥85%）以本口径为准。
-//
-// ⚠️ **必须显式 `COLLATE`**（2026-11-11 审查实测）：迁移 `000044` 建派生表时未指定 collation ⇒ 用的是
-// 服务器默认 `utf8mb4_0900_ai_ci`，而 `movie_play_source` 的列是 `utf8mb4_unicode_ci`
-// ⇒ **跨表列比较直接报 `Illegal mix of collations`** ✗（只有"列 vs 字面量/参数"的比较才不报）。
-// 这里把派生侧统一到 `utf8mb4_unicode_ci`（只影响比较、不影响语义：`match_key` 是数字串）。
-func (r *EpidRepo) AlignmentRateComparable(ctx context.Context) (aligned, total int64, err error) {
-	var row struct{ Aligned, Total int64 }
-	err = dbFrom(ctx, r.db).Raw(`
-		SELECT
-		  COALESCE(SUM(CASE WHEN t.sites >= 2 THEN 1 ELSE 0 END), 0) AS aligned,
-		  COUNT(*) AS total
-		FROM (
-		  SELECT e.match_key, e.epid, COUNT(DISTINCT e.site_id) AS sites
-		  FROM movie_episode_epid e
-		  WHERE e.epid <> ''
-		    AND e.dup_copy = 0
-		  GROUP BY e.match_key, e.epid
-		) t
-		WHERE t.match_key COLLATE utf8mb4_unicode_ci IN (
-		    SELECT s.match_key FROM movie_play_source s GROUP BY s.match_key HAVING COUNT(DISTINCT s.site_id) >= 2
-		  )
-		  AND t.match_key COLLATE utf8mb4_unicode_ci IN (
-		    SELECT s.match_key FROM movie_play_source s
-		    LEFT JOIN movie_episode_epid d ON d.src_row_id = s.id
-		    GROUP BY s.match_key
-		    HAVING COUNT(*) = COUNT(DISTINCT d.src_row_id)
-		  )`).Scan(&row).Error
-	return row.Aligned, row.Total, err
-}
-
 // PidUnresolvedWithMid 合成 sentinel：**有 mid 但归类不出来**（movie/category 查不到）。
 // 与 `-1`（无主源：组内零 mid 行）分开统计 —— M2（2026-11-16）把"未关联"拆两档，
 // 否则两块语义完全不同的数据会混在一个 `未关联` 里（实测：无主源 135,440 个 mk 混着
