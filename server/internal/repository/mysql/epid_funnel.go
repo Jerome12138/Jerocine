@@ -221,17 +221,33 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 		}
 	}
 
-	// L3 日期锚 / L4 期号锚：**跨槽**按锚键两两相容（此处只对"干净行"取锚）
+	// L3 日期锚 / L4 期号锚：**跨槽**按锚键两两相容（片级建立对应）；
+	// ⚠️ 但只救"槽内**每一行**都是该锚的干净行"的槽（2026-11-17 审查）：
+	// 锚只覆盖干净行（s/v 空），含 s/v 的槽不在锚的背书范围内 ⇒ 不得一并救回（防误伤）。
 	if len(unaligned) > 0 {
 		if usable, aligned := anchorAligned(anchorKeySets(bySrc, anchorDate)); usable && aligned {
-			st.L3Date += int64(len(unaligned))
-			unaligned = nil
+			keep := unaligned[:0]
+			for _, idx := range unaligned {
+				if slotAllCleanAnchor(slots[idx], anchorDate) {
+					st.L3Date++
+				} else {
+					keep = append(keep, idx)
+				}
+			}
+			unaligned = keep
 		}
 	}
 	if len(unaligned) > 0 {
 		if usable, aligned := anchorAligned(anchorKeySets(bySrc, anchorNum)); usable && aligned {
-			st.L4Num += int64(len(unaligned))
-			unaligned = nil
+			keep := unaligned[:0]
+			for _, idx := range unaligned {
+				if slotAllCleanAnchor(slots[idx], anchorNum) {
+					st.L4Num++
+				} else {
+					keep = append(keep, idx)
+				}
+			}
+			unaligned = keep
 		}
 	}
 
@@ -344,6 +360,37 @@ func stringSubset(small, big map[string]struct{}) bool {
 	for k := range small {
 		if _, ok := big[k]; !ok {
 			return false
+		}
+	}
+	return true
+}
+
+// slotAllCleanAnchor 该槽的**每一行**是否都是该锚的干净行：
+//   - 日期锚：`s` 空 ∧ `v` 空 ∧ `n` 空 ∧ `d` 非空
+//   - 期号锚：`s` 空 ∧ `v` 空 ∧ `d` 空 ∧ `n` > 0
+//
+// 锚只在干净行上成立 ⇒ 只给"整槽干净"的槽背书；含 s/v 的槽留给 L5（防误伤）。
+func slotAllCleanAnchor(eps []string, kind anchorKind) bool {
+	if len(eps) == 0 {
+		return false
+	}
+	for _, ep := range eps {
+		k, ok := danmu.ParseEpidString(ep)
+		if !ok {
+			return false
+		}
+		if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
+			return false
+		}
+		switch kind {
+		case anchorDate:
+			if k.Num != 0 || k.Date == "" {
+				return false
+			}
+		case anchorNum:
+			if k.Date != "" || k.Num == 0 {
+				return false
+			}
 		}
 	}
 	return true

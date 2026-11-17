@@ -122,6 +122,41 @@ func TestFunnelPiece_Leftover_RealConflict(t *testing.T) {
 	}
 }
 
+// 锚只给"整槽干净"的槽背书：含 s/v 的槽不得被日期/期号锚救回（防误伤，2026-11-17 审查）
+func TestFunnelPiece_AnchorDoesNotBackMixedSlots(t *testing.T) {
+	// 槽1 干净且两源一致（L1）；槽2 一源带 s ⇒ 既非 L1 也非干净 ⇒ 不得被锚背书 ⇒ leftover
+	a := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=栏目A|v=-|p=-|n=-|d=20240108"}
+	b := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=-|v=-|p=-|n=-|d=20240115"}
+	st, _ := funnelPiece(piece(a, b))
+	if st.L3Date > 0 {
+		t.Fatalf("含 s 的槽不得被日期锚救回: %+v", st)
+	}
+	if st.L5Mixed+st.Leftover == 0 {
+		t.Fatalf("该槽应落 L5 或 leftover: %+v", st)
+	}
+	// 对照：整槽干净 + 子集相容 + 覆盖差超过 M4 预算（6 vs 3，gap=3 > tol=max(2,5%×6)=2）
+	// ⇒ M4 拦不住 ⇒ 只有日期锚能救回（这正是 L3/L4 的真实独有面）
+	c1 := map[int]string{
+		1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=-|v=-|p=-|n=-|d=20240102",
+		3: "s=-|v=-|p=-|n=-|d=20240103", 4: "s=-|v=-|p=-|n=-|d=20240104",
+		5: "s=-|v=-|p=-|n=-|d=20240105", 6: "s=-|v=-|p=-|n=-|d=20240106",
+	}
+	c2 := map[int]string{
+		1: "s=-|v=-|p=-|n=-|d=20240104", 2: "s=-|v=-|p=-|n=-|d=20240105",
+		3: "s=-|v=-|p=-|n=-|d=20240106",
+	}
+	st2, _ := funnelPiece(piece(c1, c2))
+	if st2.L3Date == 0 {
+		t.Fatalf("覆盖差超预算的错位纯日期片应被日期锚救回: %+v", st2)
+	}
+	if st2.Leftover != 0 {
+		t.Fatalf("日期锚救回后不应有 leftover: %+v", st2)
+	}
+	if st2.SlotsTotal != st2.L0Single+st2.L1Slot+st2.L2Tolerant+st2.L3Date+st2.L4Num+st2.L5Mixed+st2.Leftover {
+		t.Fatalf("不变量被破坏: %+v", st2)
+	}
+}
+
 // 多身份行 ⇒ 单列 L5（不进 L3/L4，避免误伤）
 func TestFunnelPiece_L5_MixedIdentity(t *testing.T) {
 	a := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
