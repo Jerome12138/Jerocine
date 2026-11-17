@@ -144,8 +144,15 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 			if rr.HasMid == 1 {
 				m.hasMid = 1
 			}
+			// ⚠️ from_src 按 (mk, src_row_id, ep_index) 分组逐行取值——同源行各集可混 self/bridge。
+			// L6 的 self 门按源行判定 ⇒ 同源行内来源不一时标 "mixed"（ownN=false 保守）：
+			// 混来源行必含 bridge 推算的 n ⇒ 纯 n 判定本就该 false，与按集判定等价（复审 2026-11-18）。
 			if rr.FromSrc != "" {
-				m.srcFrom[rr.RowID] = rr.FromSrc
+				if prev, ok := m.srcFrom[rr.RowID]; ok && prev != rr.FromSrc {
+					m.srcFrom[rr.RowID] = "mixed"
+				} else {
+					m.srcFrom[rr.RowID] = rr.FromSrc
+				}
 			}
 			sm := m.bySrc[rr.RowID]
 			if sm == nil {
@@ -322,10 +329,10 @@ const (
 // 可救，而按 `(n,part)` 复合键会因"一侧有 part、一侧无"整体失败（槽内 part 冲突实测 0 例）。
 // part 的语义改由 `anchorPartConflicted` 守卫（两侧 part 都有值且不同 ⇒ 不救）。
 //
-// ⚠️ **已知近似（2026-11-17 用户确认接受，必须记住）**：去掉 part 后，"锚相等"**不再严格等价于
-// epid 相等** —— 若两侧其实是不同的集（上午场/下午场、上/下集），而一侧漏标了 part，
-// 就会被当成"缺集"算作**对齐**。⇒ 对齐率**可能被高估**，这是统计口径上的让步（不改 epid）。
-// 当前损益可控（冲突 0 例），但源站标注习惯变化后须重测；详见总则 §3.2。
+// ⚠️ **历史备注（2026-11-17，已被 a3af11b 取代）**：本层曾一度把 part 从键里拿掉（"锚相等 ≠ epid
+// 相等"的近似已登记），当晚评审后 **恢复严格键**（`#part` 回到键内），近似转移给 L6 纯 n/纯 d 层
+// （该层的准入闸 + anchorPartConflicted 守卫承担原来的取舍）。本段保留作决策记录；现行语义见
+// anchorNum/l6Kind 与《方案-对齐率分层判定总则》§3.2。
 //
 // ⚠️ 为什么只有这两层能用锚（2026-11-17 用户定）：这两层里"锚相等"**等价于 `epid` 相等**
 // ——干净行（s/v/n 空）的 epid 只由 `d`(+`p`) 决定，`d` 相等 ⇒ 串必相等 ⇒ 判定结果与
@@ -512,11 +519,10 @@ func l6Kind(bySrc map[int64]map[int]string, from map[int64]string) (anchorKind, 
 	return anchorDate, false
 }
 
-// anchorPartConflicted 同一锚键（L3 取 `d`、L4 取 `n`）上是否出现"两个不同的非空 part"。
+// anchorPartConflicted 同一锚键（L6 纯 n 层取 `n`、纯 d 层取 `d`）上是否出现"两个不同的非空 part"。
 //
-// 锚层放宽（键不含 `part`）后的统一守卫：若同一集（同日期或同期号）在两处各有明确 part
-// 且不同（如 上/中/下），那是**不同的集**，不得判齐。一侧无 part 属"表示差异"，
-// 不算冲突（实测该类冲突为 0，所以这条守卫不会削弱放宽带来的收益）。
+// L6 键不含 part ⇒ 本守卫承担"同锚不同主次 = 不同集，不得判齐"的拦截（一侧无 part 属"表示差异"，
+// 不算冲突——实测该类冲突为 0）。
 //
 // ⚠️ **已知局限（2026-11-17 用户确认，已登记）**：本守卫只能挡"**两侧都标了 part 且不同**"，
 // 挡不住"**一侧漏标 part**"。后者若其实是不同的集（上午场/下午场、上/下集），就会被当作

@@ -421,3 +421,31 @@ func TestAnchorAligned_Guards(t *testing.T) {
 		t.Fatal("交错缺集不得判相容")
 	}
 }
+
+// 复审（2026-11-18）：from_src 按 (mk, src_row_id, ep_index) 逐行取值，但 L6 的 self 门按**源行**判定
+// ⇒ 同源行各集混 self/bridge 时曾以"最后一次写入"为准 ⇒ bridge 推算的 n 可能被误当自证。
+// 修法：同源行来源不一时标 "mixed"（ownN=false 保守）——与按集判定**判等价**
+// （混来源行必含 bridge-n ⇒ 纯 n 本就 false）。本测试钉住：混来源行不得自证。
+func TestFunnelPiece_L6_MixedFromSrc不自证(t *testing.T) {
+	bySrc := map[int64]map[int]string{
+		1: {1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"},  // 同源行：ep1=self、ep2=bridge（混）
+		2: {1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"}, // 纯 self 行
+	}
+	from := map[int64]string{1: "self"} // 末次写入=self（构造前会先写 bridge）——直接给 mixed 行为的终态
+	// 模拟修复前的坍缩：from[1] 只剩一个值 ⇒ ep2 的 bridge-n 被误当自证
+	// 修复后：混合来源行 ⇒ ownN=false ⇒ 纯 n 判 false ⇒ L6 不救
+	st, ok := funnelPieceSrc(bySrc, from)
+	_ = st
+	_ = ok
+	// 该片槽 1/2 都是双行同 epid ⇒ L0/L1 已判齐，L6 不会触达 —— 换成双行不同 epid 的构造：
+	bySrc2 := map[int64]map[int]string{
+		1: {1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"},
+		2: {1: "s=-|v=-|p=-|n=1|d=-", 3: "s=-|v=-|p=-|n=3|d=-"},
+	}
+	// 源1 的 from_src 混（self/bridge 各一）⇒ ownN=false ⇒ 纯 n 判 false
+	st2, ok2 := funnelPieceSrc(bySrc2, map[int64]string{1: "mixed", 2: "self"})
+	if ok2 && st2.L6Tol > 0 {
+		t.Fatalf("混来源行不得自证 ⇒ L6 不应救回: L6Tol=%d", st2.L6Tol)
+	}
+	_ = st
+}
