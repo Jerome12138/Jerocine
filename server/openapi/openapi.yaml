@@ -2856,6 +2856,56 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /manage/epid/alignment/date:
+    get:
+      tags: [manage-spider]
+      summary: 日期对齐口径片级对齐率（S，按需计算；按「日期(+part)」值语义判定）
+      description: |
+        与 `/manage/epid/report` 的严格口径（按 `ep_index` **位置**逐段比较）不同，日期对齐口径把
+        「跨源是否同集」的判据换成 **日期值**，并以 `(日期, part)` 复合键支持同日多集（一天两集），
+        用于回答"综艺纯日期型集能收编多少"。
+        范围：只统计「≥2 个纯日期型源（该源全部行 `s/v/n` 空、`d` 非空）且通过守卫」的片。
+        守卫：每源 `(日期, part)` 复合键唯一 —— 同日多行但 part 不同合法；同一 (日期, part) 重复则整组放弃，
+        放弃数见 `skippedMks`。一侧带 part、另一侧同日无 part ⇒ 判不齐（不做通配）。
+        ⚠️ `totalMks` 只统计可判片，**不能**与严格口径片级直接相减；同分母对照读 `strictAligned`。
+        ⚠️ 该接口**按需现算**（不进后台 600s 快照、不进请求路径）：慢，请低频调用。
+        ⚠️ 读侧（弹幕聚合/挑集）**不消费**本口径。
+      operationId: manageEpidAlignmentDate
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 日期对齐口径读数
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  byCategory:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        pid: { type: integer }
+                        category: { type: string }
+                        totalMks: { type: integer }
+                        alignedMks: { type: integer }
+                        dateMkPct: { type: number }
+                        strictAligned: { type: integer }
+                        skippedMks: { type: integer }
+                  all:
+                    type: object
+                    properties:
+                      pid: { type: integer }
+                      category: { type: string }
+                      totalMks: { type: integer }
+                      alignedMks: { type: integer }
+                      dateMkPct: { type: number }
+                      strictAligned: { type: integer }
+                      skippedMks: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /manage/epid/report:
     get:
       tags: [manage-spider]

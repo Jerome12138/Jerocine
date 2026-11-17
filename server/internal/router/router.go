@@ -216,6 +216,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/epid/report", h.ManageEpidReport)
 		// 容忍口径（M4，2026-11-16）：按需计算（不进 600s 快照），用于评估"错位治好后能收编多少片"。
 		mg.GET("/epid/alignment/tolerant", h.ManageEpidAlignmentTolerant)
+		// 日期对齐口径（S，2026-11-17）：同样按需计算；只供指标层，读侧不消费
+		mg.GET("/epid/alignment/date", h.ManageEpidAlignmentDate)
 		// epid 源头校正层（第②段 T4, 2026-11-12）：裁定台账管理面。
 		// import/GET 不受 D3 生效开关影响（先录入核对）；apply/recompute 受开关把守（默认关 ⇒ 403）；
 		// PUT /enabled 是开关本体（内存态，重启回默认关 = fail-safe）。红线③：出参全为计数/白名单视图。

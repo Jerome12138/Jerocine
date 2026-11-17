@@ -905,6 +905,224 @@ func (r *EpidRepo) ClassAlignmentTolerant(ctx context.Context) ([]TolerantAlignm
 	return out, all, nil
 }
 
+// ===== 综艺「日期对齐」口径（S 口径，2026-11-17）=====
+//
+// 与 M4 容忍口径同构：都是**按需/离线**的体检口径 —— 不进 `heavyMetricsSnapshot` 的 600s 快照、
+// 不进请求路径，只由管理端 `GET /manage/epid/alignment/date` 显式触发。
+// 差别只在**身份取什么**：M4 吃 epid 值序列（位置对齐），本口径吃 `(日期, part)` 复合键（值对齐）。
+//
+// 背景与实测（2026-11-17，生产库只读）：
+//   - 综艺占全库「首段差异 = d」分歧槽 75.9%（19,936 / 26,256）；
+//   - 综艺 47.1% 的行是「纯日期型」（s/v/n 空、d 非空）⇒ 这些集现在没有可用身份。
+//
+// 零迁移：**只读派生表现有 `epid` 列**，不新增列、不改写入、不重建派生表。
+type DateAlignmentStat struct {
+	Pid           int64   `json:"pid"`
+	Category      string  `json:"category"`
+	TotalMks      int64   `json:"totalMks"`      // 分母：≥2 个「纯日期型源」且通过守卫的片
+	AlignedMks    int64   `json:"alignedMks"`    // 分子：日期(+part) 值语义判齐的片
+	DateMkPct     float64 `json:"dateMkPct"`     // 片级日期对齐率
+	StrictAligned int64   `json:"strictAligned"` // 同一分母下、严格口径就整齐的片（对照）
+	SkippedMks    int64   `json:"skippedMks"`    // 因「同源同日同 part 重复」放弃判定的片
+}
+
+// ClassAlignmentDate 日期对齐口径的按分类片级读数。
+//
+// 口径要点（缺一不可）：
+//   - 只认**纯日期型源**：该源全部行都满足 `s/v/n` 空、`d` 非空（混用期号/栏目的源不参与 —— 宁缺勿错）；
+//   - 需 **≥2 个**这样的源（单源不背书，与 M4 一致）；
+//   - 守卫：每源 `(日期, part)` 复合键唯一；**同日多行但 part 不同属合法**（一天两集，P2 把当日集序落 `p` 段）。
+//
+// 判定本体在 `danmu.DateAlignVerdictItems`（值语义子集相容、两两判定、不做无 part 通配）。
+func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat, DateAlignmentStat, error) {
+	catPID := map[int64]int64{}
+	catName := map[int64]string{}
+	{
+		var rows []struct {
+			Id   int64
+			Pid  int64
+			Name string
+		}
+		if err := dbFrom(ctx, r.db).Raw("SELECT id, pid, name FROM category").Scan(&rows).Error; err != nil {
+			return nil, DateAlignmentStat{}, err
+		}
+		for _, c := range rows {
+			catPID[c.Id], catName[c.Id] = c.Pid, c.Name
+		}
+	}
+	resolveCategory := func(pid, cid int64) int64 {
+		out := pid
+		if out == 0 {
+			out = cid
+		}
+		if p, ok := catPID[out]; ok && p > 0 {
+			out = p
+		}
+		return out
+	}
+
+	type srcAcc struct {
+		allPure bool
+		items   []danmu.DateAlignItem
+	}
+	type mkSeq struct {
+		pid, cid, hasMid int64
+		bySrc            map[int64]map[int]string
+		srcs             map[int64]*srcAcc
+	}
+
+	type catAcc struct{ total, aligned, strictOK, skipped int64 }
+	accs := map[int64]*catAcc{}
+	var all DateAlignmentStat
+	const page = 100000
+	after := int64(math.MinInt64)
+	for i := 0; i < 32; i++ {
+		var next int64
+		if err := dbFrom(ctx, r.db).Raw(
+			"SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?) t",
+			after, page).Scan(&next).Error; err != nil {
+			return nil, all, err
+		}
+		if next == 0 {
+			break
+		}
+		var rows []struct {
+			Mk     string
+			RowID  int64
+			EpIdx  int
+			Epid   string
+			Pid    int64
+			Cid    int64
+			HasMid int64
+		}
+		err := dbFrom(ctx, r.db).Raw(`
+			SELECT e.match_key AS mk, e.src_row_id AS row_id, e.ep_index AS ep_idx, e.epid,
+			       MAX(m.pid) AS pid, MAX(m.cid) AS cid, MAX(e.mid IS NOT NULL) AS has_mid
+			FROM movie_episode_epid e
+			LEFT JOIN movie_play_source src ON src.id = e.src_row_id
+			LEFT JOIN movie m ON m.mid = src.mid
+			WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
+			GROUP BY e.match_key, e.src_row_id, e.ep_index`, after, next).Scan(&rows).Error
+		if err != nil {
+			return nil, all, err
+		}
+		perMK := make(map[string]*mkSeq, len(rows)/4+1)
+		for j := range rows {
+			rr := rows[j]
+			m := perMK[rr.Mk]
+			if m == nil {
+				m = &mkSeq{
+					bySrc: map[int64]map[int]string{},
+					srcs:  map[int64]*srcAcc{},
+				}
+				perMK[rr.Mk] = m
+			}
+			if rr.Pid != 0 {
+				m.pid = rr.Pid
+			}
+			if rr.Cid != 0 {
+				m.cid = rr.Cid
+			}
+			if rr.HasMid == 1 {
+				m.hasMid = 1
+			}
+			sm := m.bySrc[rr.RowID]
+			if sm == nil {
+				sm = map[int]string{}
+				m.bySrc[rr.RowID] = sm
+			}
+			sm[rr.EpIdx] = rr.Epid
+
+			sa := m.srcs[rr.RowID]
+			if sa == nil {
+				sa = &srcAcc{allPure: true}
+				m.srcs[rr.RowID] = sa
+			}
+			k, ok := danmu.ParseEpidString(rr.Epid)
+			// 纯日期型：s/v/n 全空、d 非空（v 段的 `#序号` 也算 v 非空）
+			pure := ok && k.Date != "" && k.Num == 0 && k.ENum == 0 &&
+				k.Series == "" && k.Variant == "" && k.VariantNum == 0
+			if !pure {
+				sa.allPure = false
+				continue
+			}
+			sa.items = append(sa.items, danmu.DateAlignItem{Date: k.Date, Part: k.Part})
+		}
+		for _, m := range perMK {
+			var perSrc [][]danmu.DateAlignItem
+			for _, sa := range m.srcs {
+				if sa.allPure && len(sa.items) > 0 {
+					perSrc = append(perSrc, sa.items)
+				}
+			}
+			if len(perSrc) < 2 {
+				continue // 单源不背书 / 非纯日期片：不进分母
+			}
+			cat := resolveCategory(m.pid, m.cid)
+			if cat <= 0 && m.hasMid == 1 {
+				cat = PidUnresolvedWithMid
+			}
+			a := accs[cat]
+			if a == nil {
+				a = &catAcc{}
+				accs[cat] = a
+			}
+			if !danmu.DateAlignUsableItems(perSrc) {
+				a.skipped++ // 守卫否决（同源同日同 part 重复）
+				continue
+			}
+			a.total++
+			if danmu.DateAlignVerdictItems(perSrc) {
+				a.aligned++
+			}
+			if strictMkAligned(m.bySrc) {
+				a.strictOK++
+			}
+		}
+		after = next
+	}
+
+	out := make([]DateAlignmentStat, 0, len(accs))
+	for pid, a := range accs {
+		name := categoryDisplayName(pid, catName)
+		st := DateAlignmentStat{
+			Pid: pid, Category: name,
+			TotalMks: a.total, AlignedMks: a.aligned,
+			StrictAligned: a.strictOK, SkippedMks: a.skipped,
+		}
+		if a.total > 0 {
+			st.DateMkPct = float64(a.aligned) * 100 / float64(a.total)
+		}
+		out = append(out, st)
+		all.TotalMks += a.total
+		all.AlignedMks += a.aligned
+		all.StrictAligned += a.strictOK
+		all.SkippedMks += a.skipped
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TotalMks > out[j].TotalMks })
+	all.Pid, all.Category = -1, "全部"
+	if all.TotalMks > 0 {
+		all.DateMkPct = float64(all.AlignedMks) * 100 / float64(all.TotalMks)
+	}
+	return out, all, nil
+}
+
+// categoryDisplayName 分类显示名（-1 / 未归类 sentinel / 空名统一兜底）。
+func categoryDisplayName(pid int64, names map[int64]string) string {
+	switch {
+	case pid == -1:
+		return "未关联片（无主源）"
+	case pid == PidUnresolvedWithMid:
+		return "未关联片（有 mid 未归类）"
+	case pid == 0:
+		return "(未分类)"
+	}
+	if n, ok := names[pid]; ok && n != "" {
+		return n
+	}
+	return "(未知分类)"
+}
+
 // strictMkAligned 严格口径的"片级"判定（与 `ClassAlignment` 同义）：
 // 该片**每个 ep_index 槽位**跨源 epid 只有一种 ⇒ 零分歧片。分母口径由调用方统一为"≥2 源"。
 func strictMkAligned(bySrc map[int64]map[int]string) bool {

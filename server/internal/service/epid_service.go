@@ -1267,6 +1267,40 @@ func ReportAlignmentTolerant(ctx context.Context) (TolerantAlignReport, error) {
 	return out, nil
 }
 
+// DateAlignReport 综艺「日期对齐」口径报告（S 口径，2026-11-17）—— **按需 / 离线专用**。
+//
+// 与容忍口径（M4）同构：不进 600s 快照、不进请求路径，只由
+// `GET /manage/epid/alignment/date` 显式触发（用户 2026-11-17：「读侧不做特殊处理」⇒ 只在指标层）。
+//
+// ⚠️ `totalMks` 只统计「≥2 个纯日期型源且过守卫」的片，**不能**与严格口径的片级直接相减；
+// 同一分母下的严格读数在 `strictAligned` 里。`skippedMks` 是因守卫（同源同日同 part 重复）放弃的片。
+type DateAlignReport struct {
+	ByCategory []mysql.DateAlignmentStat `json:"byCategory"`
+	All        mysql.DateAlignmentStat   `json:"all"`
+}
+
+// ReportAlignmentDate 日期对齐口径报告（指标层出口）。
+func ReportAlignmentDate(ctx context.Context) (DateAlignReport, error) {
+	// slice 一律初始化成空 slice（null → JSON null 会打挂前端卡片，同 ReportEpid 纪律）
+	out := DateAlignReport{
+		ByCategory: []mysql.DateAlignmentStat{},
+		All:        mysql.DateAlignmentStat{Pid: -1, Category: "全部"},
+	}
+	s := currentEpidService()
+	if s == nil {
+		return out, errors.New("epid 派生服务未装配")
+	}
+	v, all, err := s.repo.ClassAlignmentDate(ctx)
+	if err != nil {
+		return out, err
+	}
+	if v != nil {
+		out.ByCategory = v
+	}
+	out.All = all
+	return out, nil
+}
+
 func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 	st := DeriveStatus()
 

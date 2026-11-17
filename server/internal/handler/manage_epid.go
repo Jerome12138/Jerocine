@@ -138,6 +138,26 @@ func (h *Handlers) ManageEpidAlignmentTolerant(c *gin.Context) {
 	dto.OK(c, rep)
 }
 
+// ManageEpidAlignmentDate GET /manage/epid/alignment/date —— 综艺「日期对齐」口径（S，2026-11-17）按需计算。
+//
+// 与容忍口径（M4）同构：只换"身份取什么"——M4 吃 epid 值序列、按位置对齐；
+// 本口径吃 `(日期, part)` 复合键、按值对齐 ⇒ 跨源位序错位不再产出伪分歧。
+//
+// 范围：只统计「≥2 个纯日期型源（该源全部行 s/v/n 空、d 非空）且通过守卫」的片。
+// 守卫：每源 `(日期, part)` 复合键唯一 —— **同日多行但 part 不同是合法的**（一天两集）；
+// 只有同一 (日期, part) 重复才整组放弃，放弃数在 `skippedMks` 里。
+//
+// ⚠️ 按需现算（不进 600s 快照、不进请求路径）；`totalMks` 与严格口径的片级**不可直接相减**，
+// 同分母对照读 `strictAligned`。**读侧（弹幕聚合/挑集）不消费本口径。**
+func (h *Handlers) ManageEpidAlignmentDate(c *gin.Context) {
+	rep, err := service.ReportAlignmentDate(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, rep)
+}
+
 // ===== epid 源头校正层 · T4 管理端入口（2026-11-12）=====
 //
 // 裁定台账 movie_epid_override（迁移 000049）的管理面（全部挂 mg 组：Bearer + RequireAdmin +

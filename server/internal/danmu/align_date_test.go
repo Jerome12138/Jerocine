@@ -111,3 +111,112 @@ func TestDateAlignVerdict_PairwiseRequired(t *testing.T) {
 		})
 	}
 }
+
+// ===== 2026-11-17 二次拍板：同日多行**允许**，只要 part 互不相同且与它源对齐 =====
+// 守卫从「每源同日 ≤1 行」放宽为「每源 (日期,part) 复合键唯一」。
+
+func it(date, part string) DateAlignItem { return DateAlignItem{Date: date, Part: part} }
+
+func TestDateAlignItems_PartDistinguishedSameDate(t *testing.T) {
+	// 一天两集：两源都用 上/中 区分，且 date 相同
+	pair := [][]DateAlignItem{
+		{it("20240101", "上"), it("20240101", "中"), it("20240108", "")},
+		{it("20240101", "上"), it("20240101", "中"), it("20240108", "")},
+	}
+	if !DateAlignVerdictItems(pair) {
+		t.Fatal("同日多行但 part 区分且两源一致 => 应判齐（放宽后）")
+	}
+
+	// 同一形态在旧口径（纯日期）下必须仍然判不齐 —— 防回退到"不看 part"
+	old := [][]string{
+		{"20240101", "20240101", "20240108"},
+		{"20240101", "20240101", "20240108"},
+	}
+	if DateAlignVerdict(old) {
+		t.Fatal("纯日期口径下同日两行 = 歧义，必须判不齐（旧口径保持不变）")
+	}
+
+	cases := []struct {
+		name string
+		src  [][]DateAlignItem
+		want bool
+	}{
+		{
+			name: "一源缺上集（子集）=> 齐",
+			src: [][]DateAlignItem{
+				{it("20240101", "上"), it("20240101", "中")},
+				{it("20240101", "中")},
+			},
+			want: true,
+		},
+		{
+			name: "part 对不上（上 vs 下）=> 不齐",
+			src: [][]DateAlignItem{
+				{it("20240101", "上"), it("20240101", "中")},
+				{it("20240101", "下")},
+			},
+			want: false,
+		},
+		{
+			name: "一源带 part、另一源同日无 part => 不齐（不做通配）",
+			src: [][]DateAlignItem{
+				{it("20240101", "上"), it("20240101", "中")},
+				{it("20240101", "")},
+			},
+			want: false,
+		},
+		{
+			name: "完全相同的 part 重复两行（同键）=> 整组放弃",
+			src: [][]DateAlignItem{
+				{it("20240101", "上"), it("20240101", "上")},
+				{it("20240101", "上")},
+			},
+			want: false,
+		},
+		{
+			name: "同日三集 上中下 两源一致 => 齐",
+			src: [][]DateAlignItem{
+				{it("20240101", "上"), it("20240101", "中"), it("20240101", "下")},
+				{it("20240101", "上"), it("20240101", "中"), it("20240101", "下")},
+			},
+			want: true,
+		},
+		{
+			name: "数字 part（当日集序 1/2）两源一致 => 齐",
+			src: [][]DateAlignItem{
+				{it("20240101", "1"), it("20240101", "2")},
+				{it("20240101", "1"), it("20240101", "2")},
+			},
+			want: true,
+		},
+		{
+			name: "第三源缺 part 而前两源带 part => 不齐",
+			src: [][]DateAlignItem{
+				{it("20240101", "上")},
+				{it("20240101", "上")},
+				{it("20240101", "")},
+			},
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DateAlignVerdictItems(tc.src); got != tc.want {
+				t.Fatalf("DateAlignVerdictItems(%v)=%v want %v", tc.src, got, tc.want)
+			}
+		})
+	}
+}
+
+// 复合键必须能区分同日不同 part，且 Key() 稳定。
+func TestDateAlignItemKey(t *testing.T) {
+	if k := (DateAlignItem{Date: "20240101"}).Key(); k != "20240101" {
+		t.Fatalf("无 part 的键 = %q", k)
+	}
+	if k := (DateAlignItem{Date: "20240101", Part: "中"}).Key(); k != "20240101#中" {
+		t.Fatalf("带 part 的键 = %q", k)
+	}
+	if (DateAlignItem{Date: "20240101", Part: "上"}).Key() == (DateAlignItem{Date: "20240101", Part: "中"}).Key() {
+		t.Fatal("同日不同 part 必须是不同键")
+	}
+}
