@@ -47,7 +47,13 @@ type FunnelStat struct {
 	Leftover   int64 `json:"leftover"`   // 以上都不成立
 
 	MksTotal   int64 `json:"mksTotal"`   // 有非空 epid 的片数
-	MksAligned int64 `json:"mksAligned"` // 片内 leftover == 0 的片数
+	MksAligned int64 `json:"mksAligned"` // 片内 leftover == 0（且 mixedDiag == 0）的片数
+
+	// ===== 对齐率（分层口径，2026-11-17 用户定：L2~L5 也纳入）=====
+	// 分母恒为全部非空槽位/全部有身份片；分子 = 符合任一层口径的（L0~L5 救回的都算对齐）。
+	AlignedSlots int64   `json:"alignedSlots"` // = SlotsTotal - MixedDiag - Leftover
+	SlotPct      float64 `json:"slotPct"`      // 集级对齐率（分层口径）
+	MkPct        float64 `json:"mkPct"`        // 片级对齐率（分层口径）
 }
 
 // ClassAlignmentFunnel 分层漏斗读数（按分类 + 全库）。
@@ -166,11 +172,13 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 	for pid, a := range accs {
 		st := *a
 		st.Pid, st.Category = pid, categoryDisplayName(pid, catName)
+		finalizeFunnel(&st)
 		out = append(out, st)
 		addFunnel(&all, st)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SlotsTotal > out[j].SlotsTotal })
 	all.Pid, all.Category = -1, "全部"
+	finalizeFunnel(&all)
 	return out, all, nil
 }
 
@@ -468,6 +476,18 @@ func valueSubsetOK(bySrc map[int64]map[int]string) bool {
 		return false
 	}
 	return len(union) == maxLen
+}
+
+// finalizeFunnel 补齐派生字段：AlignedSlots / SlotPct / MkPct（分层口径对齐率）。
+// 分母恒为全部非空槽位与全部有身份片；混合身份诊断档与 leftover 都算未对齐。
+func finalizeFunnel(st *FunnelStat) {
+	st.AlignedSlots = st.SlotsTotal - st.MixedDiag - st.Leftover
+	if st.SlotsTotal > 0 {
+		st.SlotPct = float64(st.AlignedSlots) * 100 / float64(st.SlotsTotal)
+	}
+	if st.MksTotal > 0 {
+		st.MkPct = float64(st.MksAligned) * 100 / float64(st.MksTotal)
+	}
 }
 
 func addFunnel(dst *FunnelStat, src FunnelStat) {

@@ -2947,6 +2947,9 @@ paths:
                         leftover: { type: integer }
                         mksTotal: { type: integer }
                         mksAligned: { type: integer }
+                        alignedSlots: { type: integer }
+                        slotPct: { type: number }
+                        mkPct: { type: number }
                   all:
                     type: object
                     properties:
@@ -2963,6 +2966,9 @@ paths:
                       leftover: { type: integer }
                       mksTotal: { type: integer }
                       mksAligned: { type: integer }
+                      alignedSlots: { type: integer }
+                      slotPct: { type: number }
+                      mkPct: { type: number }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 

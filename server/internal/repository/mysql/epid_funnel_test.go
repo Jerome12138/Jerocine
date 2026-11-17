@@ -222,6 +222,40 @@ func TestFunnelPiece_L5_NormSubset(t *testing.T) {
 	}
 }
 
+// 不变量 + 分层口径对齐率（2026-11-17 用户定：L2~L5 也纳入对齐率）
+func TestFunnelRates(t *testing.T) {
+	st := FunnelStat{
+		SlotsTotal: 10,
+		L0Single:   4,
+		L1Slot:     2,
+		L2Tolerant: 1,
+		L3Date:     1,
+		L4Num:      0,
+		L5Subset:   1,
+		MixedDiag:  1,
+		Leftover:   0,
+		MksTotal:   3,
+		MksAligned: 2,
+	}
+	if st.L0Single+st.L1Slot+st.L2Tolerant+st.L3Date+st.L4Num+st.L5Subset+st.MixedDiag+st.Leftover != st.SlotsTotal {
+		t.Fatalf("不变量被破坏: %+v", st)
+	}
+	finalizeFunnel(&st)
+	// 分子 = 10 - 1(诊断档) - 0 = 9
+	if st.AlignedSlots != 9 || st.SlotPct != 90 {
+		t.Fatalf("集级对齐率应为 9/10=90%%: %+v", st)
+	}
+	if st.MkPct != 200.0/3.0 {
+		t.Fatalf("片级对齐率应为 2/3: %+v", st)
+	}
+	// 边界：空统计不得除零
+	var empty FunnelStat
+	finalizeFunnel(&empty)
+	if empty.SlotPct != 0 || empty.MkPct != 0 {
+		t.Fatalf("空统计应保持 0: %+v", empty)
+	}
+}
+
 // 不变量：分母 = 各层之和（总则 §2）
 func TestFunnelInvariant(t *testing.T) {
 	st, _ := funnelPiece(piece(
