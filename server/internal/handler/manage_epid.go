@@ -158,6 +158,25 @@ func (h *Handlers) ManageEpidAlignmentDate(c *gin.Context) {
 	dto.OK(c, rep)
 }
 
+// ManageEpidAlignmentFunnel GET /manage/epid/alignment/funnel —— 对齐率分层漏斗（L0~L5，2026-11-17）按需计算。
+//
+// 总则：docs/epid-集身份/方案-对齐率分层判定总则-2026-11-17.md
+// 只做判定、不改 epid；每层只吃上一层未判齐的剩余，分母恒为全部非空槽位：
+//
+//	L0 单源槽（默认对齐） → L1 槽位全等 → L2 值序列容忍（仅插删）
+//	→ L3 单日期锚（s/v 空 ∧ n 空）→ L4 单期号锚（s/v 空 ∧ d 空）
+//	→ L5 多身份行（本版单列不判）→ 剩余（真未对齐，进归因）
+//
+// ⚠️ 按需现算（不进 600s 快照、不进请求路径）；各层计数可单独回放。
+func (h *Handlers) ManageEpidAlignmentFunnel(c *gin.Context) {
+	rep, err := service.ReportAlignmentFunnel(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, rep)
+}
+
 // ===== epid 源头校正层 · T4 管理端入口（2026-11-12）=====
 //
 // 裁定台账 movie_epid_override（迁移 000049）的管理面（全部挂 mg 组：Bearer + RequireAdmin +

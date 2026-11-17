@@ -1300,6 +1300,39 @@ func ReportAlignmentDate(ctx context.Context) (DateAlignReport, error) {
 	return out, nil
 }
 
+// FunnelReport 对齐率分层漏斗报告（L0~L5，2026-11-17）—— **按需 / 离线专用**。
+//
+// 总则：`docs/epid-集身份/方案-对齐率分层判定总则-2026-11-17.md`
+// 只做判定、不改 epid；不进 600s 快照、不进请求路径。
+//
+// ⚠️ 不变量：`slotsTotal == l0Single + l1Slot + l2Tolerant + l3Date + l4Num + l5Mixed + leftover`。
+// 分母恒为全部非空槽位（单源槽默认算对齐，覆盖差异不是解析问题）。
+type FunnelReport struct {
+	ByCategory []mysql.FunnelStat `json:"byCategory"`
+	All        mysql.FunnelStat   `json:"all"`
+}
+
+// ReportAlignmentFunnel 分层漏斗读数（管理端按需出口）。
+func ReportAlignmentFunnel(ctx context.Context) (FunnelReport, error) {
+	out := FunnelReport{
+		ByCategory: []mysql.FunnelStat{},
+		All:        mysql.FunnelStat{Pid: -1, Category: "全部"},
+	}
+	s := currentEpidService()
+	if s == nil {
+		return out, errors.New("epid 派生服务未装配")
+	}
+	v, all, err := s.repo.ClassAlignmentFunnel(ctx)
+	if err != nil {
+		return out, err
+	}
+	if v != nil {
+		out.ByCategory = v
+	}
+	out.All = all
+	return out, nil
+}
+
 func ReportEpid(ctx context.Context, full bool) (EpidReport, error) {
 	st := DeriveStatus()
 
