@@ -22,7 +22,7 @@ import (
 //	L1 槽位全等（同一 ep_index 且 epid 全等）          → 对齐
 //	L2 值序列容忍（允许插入/删除、不允许替换，M4）      → 整片位序错位救回
 //	L3 日期锚（跨槽：按 (d,part) 对齐，s/v/n 空的行）    → 救回
-//	L4 期号锚（跨槽：按 (n,part) 对齐，s/v/d 空的行）    → 救回
+//	L4 期号锚（跨槽：按 `n` 值对齐，s/v/d 空的行；part 仅作守卫）  → 救回
 //	L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源集合）        → 救回（覆盖差异不算错）
 //	诊断档 多身份槽（含 s/v，**不判定** ⇒ 计入未对齐）              → 不救回
 //	—  剩余                                                        → 真未对齐，进归因
@@ -247,7 +247,7 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 			unaligned = keep
 		}
 	}
-	if len(unaligned) > 0 {
+	if len(unaligned) > 0 && !numPartConflicted(bySrc) {
 		if usable, aligned := anchorAligned(anchorKeySets(bySrc, anchorNum)); usable && aligned {
 			keep := unaligned[:0]
 			for _, idx := range unaligned {
@@ -293,9 +293,13 @@ const (
 
 // anchorKeySets 抽取每源的锚键集合（**只吃满足该层准入的干净行**）：
 //   - 日期锚（L3）：`s` 空 ∧ `v` 空 ∧ `n` 空 ∧ `d` 非空 ⇒ 键 = `d`(+`#part`)
-//   - 期号锚（L4）：`s` 空 ∧ `v` 空 ∧ `d` 空 ∧ `n` > 0 ⇒ 键 = `n`(+`#part`)
+//   - 期号锚（L4）：`s` 空 ∧ `v` 空 ∧ `d` 空 ∧ `n` > 0 ⇒ 键 = **`n` 值**（不含 part；2026-11-17 放宽）
 //
-// ⚠️ 为什么只允许这两层用锚（2026-11-17 用户定）：这两层里"锚相等"**等价于 `epid` 相等**
+// ⚠️ L4 为什么把 part 从键里拿掉：实测 19,840 个"错位一格/小偏移"槽中，按 `n` 值子集有 71.5%
+// 可救，而按 `(n,part)` 复合键会因"一侧有 part、一侧无"整体失败（槽内 part 冲突实测 0 例）。
+// part 的语义改由 `numPartConflicted` 守卫（两侧 part 都有值且不同 ⇒ 不救）。
+//
+// ⚠️ 为什么只有这两层能用锚（2026-11-17 用户定）：这两层里"锚相等"**等价于 `epid` 相等**
 // ——干净行（s/v/n 空）的 epid 只由 `d`(+`p`) 决定，`d` 相等 ⇒ 串必相等 ⇒ 判定结果与
 // "epid 全等"完全一致。含 `s`/`v` 的行做不到这一点（锚相等 ≠ epid 相等）⇒ 不设锚层。
 func anchorKeySets(bySrc map[int64]map[int]string, kind anchorKind) [][]string {
@@ -320,7 +324,10 @@ func anchorKeySets(bySrc map[int64]map[int]string, kind anchorKind) [][]string {
 				if k.Date != "" || k.Num == 0 {
 					continue
 				}
-				keys = append(keys, strconv.Itoa(k.Num)+"#"+k.Part)
+				// 键只用 n 值（2026-11-17 放宽）：实测「n 值子集」能覆盖 71.5% 的错位槽，
+				// 而把 `part` 拉进等值判据会让"一侧有 part、一侧无 part"的片整体子集失败。
+				// part 的语义改由 numPartConflicted 守卫处理（两侧都有值且不同 ⇒ 不救）。
+				keys = append(keys, strconv.Itoa(k.Num))
 			}
 		}
 		if len(keys) > 0 {
@@ -425,6 +432,36 @@ func slotHasMultiIdentity(eps []string) bool {
 			continue
 		}
 		if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// numPartConflicted 同一 n 值上是否出现"两个不同的非空 part"。
+//
+// L4 放宽（键=仅 n）后的守卫：若同一集号在两处各有明确 part 且不同（如 上/中/下），
+// 那是**不同的集**，不得判齐。一侧无 part 属"表示差异"，不算冲突（实测该类冲突为 0，
+// 所以这条守卫不会削弱放宽带来的收益）。
+func numPartConflicted(bySrc map[int64]map[int]string) bool {
+	parts := map[int]map[string]struct{}{}
+	for _, sm := range bySrc {
+		for _, ep := range sm {
+			k, ok := danmu.ParseEpidString(ep)
+			if !ok {
+				continue
+			}
+			if k.Series != "" || k.Variant != "" || k.VariantNum != 0 || k.Date != "" || k.Num == 0 || k.Part == "" {
+				continue
+			}
+			if parts[k.Num] == nil {
+				parts[k.Num] = map[string]struct{}{}
+			}
+			parts[k.Num][k.Part] = struct{}{}
+		}
+	}
+	for _, ps := range parts {
+		if len(ps) > 1 {
 			return true
 		}
 	}

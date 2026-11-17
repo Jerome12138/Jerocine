@@ -222,6 +222,33 @@ func TestFunnelPiece_L5_NormSubset(t *testing.T) {
 	}
 }
 
+// L4 放宽（2026-11-17）：键用 **n 值**（不含 part），part 改作守卫。
+//   - 一侧有 part、一侧空 ⇒ 属"表示差异" ⇒ 仍可救；
+//   - 同一 n 上两侧 part 都有值且不同 ⇒ 是不同集 ⇒ **不救**。
+func TestFunnelPiece_L4_PartGuard(t *testing.T) {
+	// 情形 A：part 一侧空（每源各 2 集，键 {1,2} 相同）⇒ 应救
+	a := map[int]string{
+		1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-",
+	}
+	b := map[int]string{
+		1: "s=-|v=-|p=上|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-",
+	}
+	st, _ := funnelPiece(piece(a, b))
+	if st.Leftover != 0 || st.MksAligned != 1 {
+		t.Fatalf("一侧 part 空的错位片应被判齐（层级不限，L2 常先吃掉）: %+v", st)
+	}
+	// 情形 B：同一 n 上两侧 part 不同（上 vs 中）⇒ 守卫拒绝，不得救
+	c := map[int]string{1: "s=-|v=-|p=上|n=1|d=-"}
+	d := map[int]string{1: "s=-|v=-|p=中|n=1|d=-"}
+	st2, _ := funnelPiece(piece(c, d))
+	if st2.L4Num != 0 {
+		t.Fatalf("同 n 但 part 不同（上/中）不得被 L4 救: %+v", st2)
+	}
+	if st2.Leftover == 0 {
+		t.Fatalf("该槽应落 leftover: %+v", st2)
+	}
+}
+
 // 不变量 + 分层口径对齐率（2026-11-17 用户定：L2~L5 也纳入对齐率）
 func TestFunnelRates(t *testing.T) {
 	st := FunnelStat{
