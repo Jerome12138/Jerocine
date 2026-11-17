@@ -24,10 +24,11 @@ func TestParseEpisodeKey_QualityTailWithBan(t *testing.T) {
 		// 既有口径不受影响
 		{"国语版", ""},
 		{"HD中字", ""},
-		// ⚠️ 反例：**内容版本类**不属本表 ⇒ 保持落 s（B 批另行处理）
+		// ⚠️ 反例：**内容版本类**不属本表 ⇒ 保持落 s（B 批另行处理）；`整合版` 归 P3-pack
 		{"电影版", "电影版"},
 		{"整合版", "整合版"},
-		{"周六夜现场中国版", "周六夜现场中国版"},
+		// B 批（2026-11-17）后：「中国版」被收编为**变体** ⇒ s 只剩主体（不再是 R17 的范围）
+		{"周六夜现场中国版", "周六夜现场"},
 	}
 	for _, c := range cases {
 		if got := ParseEpisodeKey(c.title).Series; got != c.wantS {

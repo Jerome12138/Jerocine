@@ -477,6 +477,10 @@ func ParseEpisodeKey(title string) EpisodeKey {
 		}
 	}
 	k.Series = seriesOf(s)
+	// B 批（2026-11-17）：把栏目名尾部的**内容版本词**剥出来、并入变体（`version_tail.go`）。
+	// 等价变换（`SameEpisode` 里 s 与 v 同为"必须完全相等"）⇒ 判等/触发不变；收益是前缀式/后缀式写法收敛。
+	// ⚠️ 必须在**追加季/部标记之前**做（否则 `#S7` 会挡住 HasSuffix）。
+	k.Series, k.Variant = splitVersionTail(k.Series, k.Variant)
 	// 季/部标记并入 Series（2026-11-16，方案 A）：`王牌对王牌第七季` ⇒ `s=王牌对王牌#S7`。
 	// 为什么：季/部是**分季/分部标记** —— 既不该当集序（`reDiN` 已排除 季/部），
 	// 若完全不进身份，"同片多季"的 S1E1 与 S2E1 会得到**同一身份**（实测当前 0 碰撞，但机制存在：
