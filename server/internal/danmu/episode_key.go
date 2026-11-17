@@ -286,6 +286,16 @@ var (
 	// 与其它源的「第2期」永不相等（伪分歧）。转换值由 `cnNumeral` 负责（支持 十/百/千 组合）。
 	// 单位与 `reDiN` **保持一致**（期/集/话/回；**不含 季/部** —— 详见 reDiN 注释）。
 	reDiNCn = regexp.MustCompile(`第\s*([一二三四五六七八九十百千零〇两]{1,6})\s*[期集话回]`)
+	// reDiNAnchor（M4，2026-11-17 取证批）：**整串**「第N」（缺单位）/「N[期集话回]」（缺第）⇒ Num。
+	// 取证（代表片逐集对比）：短剧「第99」（跨源邻槽=第98/100集 为证，243 行）与「103集」
+	// （多站 2,264 行/57 mk，如 src_lz 整源 '01集'..'NN集'）。普遍性实测见
+	// 方案-代表片取证归因与优化方案-2026-11-17.md §7（scripts/epid-class-prevalence.sql）。
+	// ⚠️ 锚定 ^$：只吃**整串**形态；「第N：副标题」「第N 上」等复合形态不在内（先试算后拍板的口径就到这里）；
+	// ⚠️ 单位不含 季/部（10-16 修正不变：「第7季」不以任何形态给 Num）。
+	reDiNAnchor = regexp.MustCompile(`^(?:第\s*(\d{1,4})|(\d{1,4})\s*[期集话回])$`)
+	// reDiNBare（M4 配套，seriesOf 侧）：裸「第N」（无单位）从栏目名候选剥掉 ——
+	// 否则「第99」得 s=第99 与「第99集」的 s=- 永不相等（取证片9 跨源不一致实证）。
+	reDiNBare = regexp.MustCompile(`第\s*\d{1,4}\s*$`)
 	// reENum（R4，2026-11-15）：捕获组回填 —— 原式 `(?:^|[^A-Za-z])…(?:\D|$)` 的边界断言被正则
 	// **消费掉**，seriesOf 的 `ReplaceAllString` 连相邻汉字一起删（`EP01白昼逃亡`→`昼逃亡`、
 	// `白昼逆行EP10`→`白昼逆` 截断 ✗）。RE2 无 lookahead ⇒ 改捕获组：删除处以 `$1`/`$3` 回填邻居
@@ -406,6 +416,19 @@ func ParseEpisodeKey(title string) EpisodeKey {
 			}
 		}
 	}
+	// M4（2026-11-17 取证批）：整串「第N」（缺单位）/「N[集话回期]」（缺第）⇒ Num —— 见 reDiNAnchor 注释。
+	// 放在 中文数字 之后：两者都是 k.Num==0 的兜底形态，互不重叠（阿拉伯 vs 中文数字）。
+	if k.Num == 0 {
+		if m := reDiNAnchor.FindStringSubmatch(s); m != nil {
+			v := m[1]
+			if v == "" {
+				v = m[2]
+			}
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				k.Num = n
+			}
+		}
+	}
 	if m := reENum.FindStringSubmatch(s); m != nil {
 		// R4：捕获组回填后取数组移（m[1]=左邻居、m[2]=E 号数字、m[3]=右邻居）
 		if v, err := strconv.Atoi(m[2]); err == nil {
@@ -498,25 +521,44 @@ func parsePart(s string) string {
 	rs := []rune(s)
 	n := len(rs)
 	isP := func(r rune) bool { return r == '上' || r == '中' || r == '下' }
-	pi := -1
+	// M3（2026-11-17 取证批）：候选**右邻防粘连** —— 主次字的右邻若是"其它汉字"（非 单位字/主次字/
+	// 期号起始「第」/变体词首字）⇒ 该字是复合词成分而非主次标记（全员空**中**飞人/上**海**/中**国**）
+	// ⇒ 跳过，继续找下一个候选（「…空中飞人第2期上」的尾部上仍能命中）。无合格候选 ⇒ ""。
 	for i := 0; i < n; i++ {
-		if isP(rs[i]) {
-			pi = i
-			break
+		if !isP(rs[i]) {
+			continue
 		}
+		if i+1 < n && partFollowerSuspicious(rs[i+1]) {
+			continue
+		}
+		pi := i
+		out := rs[pi : pi+1]
+		j := pi + 1
+		if j < n && isLeftBracket(rs[j]) {
+			j++
+		}
+		if j < n && isP(rs[j]) {
+			out = append(out, rs[j])
+		}
+		return string(out)
 	}
-	if pi < 0 {
-		return ""
+	return ""
+}
+
+// partFollowerSuspicious 主次字右邻的"粘连"判定（M3）：右邻是汉字且不属于下列豁免 ⇒ 粘连（复合词成分）。
+// 豁免：① 单位字 期集话回季部（「第3期中」尾部、「XX中集」）② 主次字 上中下（「20260831中上」复合）
+// ③ 「第」（期号起始 —— 既有口径「(副本存档中第1期)」中后为第 不受影响）④ 变体词首字
+// 加陪纯先超彩特花预番未（「第5期中纯享/中加更」——右邻是变体 ⇒ 主次成立；R7 词表同步）。
+func partFollowerSuspicious(r rune) bool {
+	if !unicode.Is(unicode.Han, r) {
+		return false
 	}
-	out := rs[pi : pi+1]
-	j := pi + 1
-	if j < n && isLeftBracket(rs[j]) {
-		j++
+	switch r {
+	case '期', '集', '话', '回', '季', '部', '上', '中', '下', '第',
+		'加', '陪', '纯', '先', '超', '彩', '特', '花', '预', '番', '未':
+		return false
 	}
-	if j < n && isP(rs[j]) {
-		out = append(out, rs[j])
-	}
-	return string(out)
+	return true
 }
 
 func isLeftBracket(r rune) bool {
@@ -628,6 +670,10 @@ func seriesOf(s string) string {
 	// reDiNWide 的 `\s*\d{0,8}\s*` 跨不过占位符 ⇒ 「第20261005期心动的旅行上」这类日期样式期号
 	// 会残留一个「期」，栏目名变「期心动的旅行」，与库侧对不上（与 TS 侧同一 bug，2026-11-09 三端同修）
 	s = reDiNWide.ReplaceAllString(s, sep)
+	// M4 配套（2026-11-17 取证批）：裸「第N」（无单位）从栏目名候选剥掉 ——「第99」得 s=第99 与
+	// 「第99集」的 s=- 永不相等（跨源不一致实证；同 Series 会污染同集判定）。
+	// 放 reDiNWide 之后：带单位的「第N期」已被宽口径吃掉，这里只兜缺单位的尾部形态。
+	s = reDiNBare.ReplaceAllString(s, sep)
 	s = reDate8.ReplaceAllString(s, sep)
 	s = stripDate6(s, sep) // R11：6 位 YYMMDD 同样剥离（否则 240103 会漏进栏目名 ✗）
 	s = reSeasonSpan.ReplaceAllString(s, sep)
