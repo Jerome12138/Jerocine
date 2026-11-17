@@ -31,7 +31,7 @@ import (
 // 按锚对齐能把它们认成同一集 ⇒ 这类"本身能对上、只因子集/错位没算进去"的槽才算救回。
 // （审查教训 2026-11-17：若写成"槽内锚唯一"，则永不触发 —— 槽内 epid 不同时差异恰在锚上。）
 //
-// ⚠️ 不变量：SlotsTotal == L0+L1+L2+L3+L4+L5Subset+MixedDiag+Leftover（单测钉住）。
+// ⚠️ 不变量：SlotsTotal == L0+L1+L2+L3+L4+L5Subset+L6Tol+MixedDiag+Leftover（单测钉住）。
 type FunnelStat struct {
 	Pid      int64  `json:"pid"`
 	Category string `json:"category"`
@@ -43,6 +43,7 @@ type FunnelStat struct {
 	L3Date     int64 `json:"l3Date"`     // 日期锚（跨槽）救回的槽
 	L4Num      int64 `json:"l4Num"`      // 期号锚（跨槽）救回的槽
 	L5Subset   int64 `json:"l5Subset"`   // L5 正片子集救回（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源）
+	L6Tol      int64 `json:"l6Tol"`      // L6 纯 n/纯 d 容忍层救回的槽（缺集不算解析异常）
 	MixedDiag  int64 `json:"mixedDiag"`  // 诊断档：多身份槽（含 s/v），不判定、计入未对齐
 	Leftover   int64 `json:"leftover"`   // 以上都不成立
 
@@ -100,17 +101,18 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 			break
 		}
 		var rows []struct {
-			Mk     string
-			RowID  int64
-			EpIdx  int
-			Epid   string
-			Pid    int64
-			Cid    int64
-			HasMid int64
+			Mk      string
+			RowID   int64
+			EpIdx   int
+			Epid    string
+			Pid     int64
+			Cid     int64
+			HasMid  int64
+			FromSrc string
 		}
 		err := dbFrom(ctx, r.db).Raw(`
 			SELECT e.match_key AS mk, e.src_row_id AS row_id, e.ep_index AS ep_idx, e.epid,
-			       MAX(m.pid) AS pid, MAX(m.cid) AS cid, MAX(e.mid IS NOT NULL) AS has_mid
+			       MAX(m.pid) AS pid, MAX(m.cid) AS cid, MAX(e.mid IS NOT NULL) AS has_mid, MAX(e.from_src) AS from_src
 			FROM movie_episode_epid e
 			LEFT JOIN movie_play_source src ON src.id = e.src_row_id
 			LEFT JOIN movie m ON m.mid = src.mid
@@ -123,13 +125,14 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 		type mkSeq struct {
 			pid, cid, hasMid int64
 			bySrc            map[int64]map[int]string
+			srcFrom          map[int64]string
 		}
 		perMK := make(map[string]*mkSeq, len(rows)/4+1)
 		for j := range rows {
 			rr := rows[j]
 			m := perMK[rr.Mk]
 			if m == nil {
-				m = &mkSeq{bySrc: map[int64]map[int]string{}}
+				m = &mkSeq{bySrc: map[int64]map[int]string{}, srcFrom: map[int64]string{}}
 				perMK[rr.Mk] = m
 			}
 			if rr.Pid != 0 {
@@ -141,6 +144,9 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 			if rr.HasMid == 1 {
 				m.hasMid = 1
 			}
+			if rr.FromSrc != "" {
+				m.srcFrom[rr.RowID] = rr.FromSrc
+			}
 			sm := m.bySrc[rr.RowID]
 			if sm == nil {
 				sm = map[int]string{}
@@ -150,7 +156,7 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 		}
 
 		for _, m := range perMK {
-			st, ok := funnelPiece(m.bySrc)
+			st, ok := funnelPieceSrc(m.bySrc, m.srcFrom)
 			if !ok {
 				continue
 			}
@@ -183,7 +189,13 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 }
 
 // funnelPiece 对单片的槽位做 L0~L5 分层。返回 (该片统计, 是否有非空槽)。
+// funnelPiece 兼容旧签名的包装（等价于"来源未知 ⇒ 视为自身"）：单测只用它。
 func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
+	return funnelPieceSrc(bySrc, nil)
+}
+
+// funnelPieceSrc 对单片的槽位做 L0~L6 分层。from = 每源行的 from_src（L6 用；nil/空 表示未知⇒视为自身）。
+func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (FunnelStat, bool) {
 	var st FunnelStat
 	slots := map[int][]string{} // ep_index → 该槽所有行的 epid
 	for _, sm := range bySrc {
@@ -234,7 +246,7 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 	// L3 日期锚 / L4 期号锚：**跨槽**按锚键两两相容（片级建立对应）；
 	// ⚠️ 但只救"槽内**每一行**都是该锚的干净行"的槽（2026-11-17 审查）：
 	// 锚只覆盖干净行（s/v 空），含 s/v 的槽不在锚的背书范围内 ⇒ 不得一并救回（防误伤）。
-	if len(unaligned) > 0 && !anchorPartConflicted(bySrc, anchorDate) {
+	if len(unaligned) > 0 {
 		if usable, aligned := anchorAligned(anchorKeySets(bySrc, anchorDate)); usable && aligned {
 			keep := unaligned[:0]
 			for _, idx := range unaligned {
@@ -247,7 +259,7 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 			unaligned = keep
 		}
 	}
-	if len(unaligned) > 0 && !anchorPartConflicted(bySrc, anchorNum) {
+	if len(unaligned) > 0 {
 		if usable, aligned := anchorAligned(anchorKeySets(bySrc, anchorNum)); usable && aligned {
 			keep := unaligned[:0]
 			for _, idx := range unaligned {
@@ -267,6 +279,17 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 	if len(unaligned) > 0 && normPiece(bySrc) && valueSubsetOK(bySrc) {
 		st.L5Subset += int64(len(unaligned))
 		unaligned = nil
+	}
+	// L6 纯 n / 纯 d 容忍层（2026-11-17 用户定）：该片所有行都是"纯 n"或都是"纯 d"（可含 p）时，
+	// 跨源差异基本只可能是"缺集"（覆盖差异），不可能是解析异常 ⇒ 剩余未对齐槽全部容忍为对齐。
+	// 守卫：纯 n 片要求每行 n 来源 ∈ {self, single}（bridge/anchor 是跨源推算，可能错、不能用来自证）；
+	//       纯 d 片恒为原文（日期不可跨源借，from_src=none）；
+	//       另加 anchorPartConflicted：同一 n/d 上两侧 part 都有值且不同 ⇒ 不救。
+	if len(unaligned) > 0 {
+		if kind, ok := l6Kind(bySrc, from); ok && !anchorPartConflicted(bySrc, kind) {
+			st.L6Tol += int64(len(unaligned))
+			unaligned = nil
+		}
 	}
 
 	// 剩余再分档：含 s/v 的多身份槽 → 诊断档（不判定，计入未对齐）；其余 → leftover
@@ -324,16 +347,12 @@ func anchorKeySets(bySrc map[int64]map[int]string, kind anchorKind) [][]string {
 				if k.Num != 0 || k.Date == "" {
 					continue
 				}
-				// 键只用日期值（2026-11-17 与 L4 同规放宽）：part 的语义交给 anchorPartConflicted 守卫。
-				keys = append(keys, k.Date)
+				keys = append(keys, k.Date+"#"+k.Part)
 			case anchorNum:
 				if k.Date != "" || k.Num == 0 {
 					continue
 				}
-				// 键只用 n 值（2026-11-17 放宽）：实测「n 值子集」能覆盖 71.5% 的错位槽，
-				// 而把 `part` 拉进等值判据会让"一侧有 part、一侧无 part"的片整体子集失败。
-				// part 的语义改由 anchorPartConflicted 守卫处理（两侧都有值且不同 ⇒ 不救）。
-				keys = append(keys, strconv.Itoa(k.Num))
+				keys = append(keys, strconv.Itoa(k.Num)+"#"+k.Part)
 			}
 		}
 		if len(keys) > 0 {
@@ -442,6 +461,55 @@ func slotHasMultiIdentity(eps []string) bool {
 		}
 	}
 	return false
+}
+
+// l6Kind 判该片是否属于 L6 容忍层，以及是哪一类：
+//
+//	纯 n 片：**全部行**都是"纯 n"（`s`/`v` 空 ∧ `d` 空 ∧ `n`>0）**且每行 n 来源 ∈ {self, single}**
+//	         —— `bridge`/`anchor` 是跨源推算，可能本身有错，不能拿来"自证对齐"；`from` 未知时视为自身。
+//	纯 d 片：**全部行**都是"纯 d"（`s`/`v` 空 ∧ `n` 空 ∧ `d` 非空）—— **不校验来源**
+//	         （日期不可跨源借，恒为原文，见既有边界"只借期号"）。
+//
+// 返回 (层级, 是否命中)。
+func l6Kind(bySrc map[int64]map[int]string, from map[int64]string) (anchorKind, bool) {
+	pureN, pureD, rows := true, true, 0
+	for src, sm := range bySrc {
+		f := ""
+		if from != nil {
+			f = from[src]
+		}
+		ownN := f == "" || f == "self" || f == "single"
+		for _, ep := range sm {
+			k, ok := danmu.ParseEpidString(ep)
+			if !ok {
+				return anchorDate, false
+			}
+			if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
+				return anchorDate, false
+			}
+			rows++
+			if k.Date == "" && k.Num > 0 {
+				if !ownN {
+					pureN = false
+				}
+			} else {
+				pureN = false
+			}
+			if k.Num != 0 || k.Date == "" {
+				pureD = false
+			}
+		}
+	}
+	if rows == 0 {
+		return anchorDate, false
+	}
+	if pureN {
+		return anchorNum, true
+	}
+	if pureD {
+		return anchorDate, true
+	}
+	return anchorDate, false
 }
 
 // anchorPartConflicted 同一锚键（L3 取 `d`、L4 取 `n`）上是否出现"两个不同的非空 part"。
@@ -561,6 +629,7 @@ func addFunnel(dst *FunnelStat, src FunnelStat) {
 	dst.L3Date += src.L3Date
 	dst.L4Num += src.L4Num
 	dst.L5Subset += src.L5Subset
+	dst.L6Tol += src.L6Tol
 	dst.MixedDiag += src.MixedDiag
 	dst.Leftover += src.Leftover
 	dst.MksTotal += src.MksTotal

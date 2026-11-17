@@ -2913,11 +2913,11 @@ paths:
       description: |
         按《方案-对齐率分层判定总则》实现的分层判定读数。每层只吃上一层未判齐的剩余，**分母恒为全部非空槽位**：
         L0 单源槽（默认对齐）→ L1 槽位全等 → L2 值序列容忍（仅插入/删除）→ L3 单日期锚（s/v 空 ∧ n 空）
-        → L4 单期号锚（s/v 空 ∧ d 空）→ L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源）→ 诊断档（多身份槽，不判定）→ leftover（真未对齐）。
+        → L4 单期号锚（s/v 空 ∧ d 空）→ L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源）→ L6 纯 n/纯 d 容忍（缺集不算解析异常）→ 诊断档（多身份槽，不判定）→ leftover（真未对齐）。
         ⚠️ 单源默认算对齐：某源集的多少属覆盖差异，不算解析问题。
         ⚠️ 该接口**按需现算**（不进后台 600s 快照、不进请求路径）：慢，请低频调用。
         ⚠️ **只做判定，不改 epid**（归一属写侧规则）。
-        ⚠️ 不变量：`slotsTotal = l0Single + l1Slot + l2Tolerant + l3Date + l4Num + l5Subset + mixedDiag + leftover`。
+        ⚠️ 不变量：`slotsTotal = l0Single + l1Slot + l2Tolerant + l3Date + l4Num + l5Subset + l6Tol + mixedDiag + leftover`。
       operationId: manageEpidAlignmentFunnel
       security: [{ BearerAuth: [] }]
       responses:
@@ -2944,6 +2944,7 @@ paths:
                         l4Num: { type: integer }
                         l5Subset: { type: integer }
                         mixedDiag: { type: integer }
+                        l6Tol: { type: integer }
                         leftover: { type: integer }
                         mksTotal: { type: integer }
                         mksAligned: { type: integer }
@@ -2963,6 +2964,7 @@ paths:
                       l4Num: { type: integer }
                       l5Subset: { type: integer }
                       mixedDiag: { type: integer }
+                      l6Tol: { type: integer }
                       leftover: { type: integer }
                       mksTotal: { type: integer }
                       mksAligned: { type: integer }

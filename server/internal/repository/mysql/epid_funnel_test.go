@@ -80,7 +80,7 @@ func TestFunnelPiece_PureDatePiece_AlignedSomeLayer(t *testing.T) {
 	a := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=-|v=-|p=-|n=-|d=20240108"}
 	b := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240108", 2: "s=-|v=-|p=-|n=-|d=20240101"}
 	st, _ := funnelPiece(piece(a, b))
-	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.MixedDiag + st.Leftover
+	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.L6Tol + st.MixedDiag + st.Leftover
 	if sum != st.SlotsTotal {
 		t.Fatalf("不变量被破坏: %+v", st)
 	}
@@ -111,11 +111,12 @@ func TestFunnelPiece_NumPiece_AlignedSomeLayer(t *testing.T) {
 
 // 值互不相干（真冲突）⇒ 任何层都救不回来
 func TestFunnelPiece_Leftover_RealConflict(t *testing.T) {
-	a := map[int]string{1: "s=-|v=-|p=-|n=1|d=-"}
-	b := map[int]string{1: "s=-|v=-|p=-|n=9|d=-"}
+	// 注意：单纯 n=1 vs n=9 属"纯 n 片"，按 L6 会被容忍为缺集；这里用「n+d 混合行」构造真冲突
+	a := map[int]string{1: "s=-|v=-|p=-|n=1|d=20240101"}
+	b := map[int]string{1: "s=-|v=-|p=-|n=9|d=20240102"}
 	st, _ := funnelPiece(piece(a, b))
 	if st.Leftover == 0 {
-		t.Fatalf("n=1 vs n=9 应落 leftover: %+v", st)
+		t.Fatalf("混合 n+d 且值不相干应落 leftover: %+v", st)
 	}
 	if st.MksAligned != 0 {
 		t.Fatalf("有 leftover 的片不应算对齐: %+v", st)
@@ -152,7 +153,7 @@ func TestFunnelPiece_AnchorDoesNotBackMixedSlots(t *testing.T) {
 	if st2.Leftover != 0 {
 		t.Fatalf("日期锚救回后不应有 leftover: %+v", st2)
 	}
-	if st2.SlotsTotal != st2.L0Single+st2.L1Slot+st2.L2Tolerant+st2.L3Date+st2.L4Num+st2.L5Subset+st2.MixedDiag+st2.Leftover {
+	if st2.SlotsTotal != st2.L0Single+st2.L1Slot+st2.L2Tolerant+st2.L3Date+st2.L4Num+st2.L5Subset+st2.L6Tol+st2.MixedDiag+st2.Leftover {
 		t.Fatalf("不变量被破坏: %+v", st2)
 	}
 }
@@ -266,8 +267,8 @@ func TestFunnelPiece_L4_Boundaries(t *testing.T) {
 	if st.L4Num != 0 {
 		t.Fatalf("某 n 在另一源无对应（互有独有值）不得被 L4 救: %+v", st)
 	}
-	if st.Leftover == 0 {
-		t.Fatalf("该槽应落 leftover: %+v", st)
+	if st.L6Tol == 0 {
+		t.Fatalf("该片是纯 n 片 ⇒ 应由 L6 容忍为缺集: %+v", st)
 	}
 	// 含 s 的槽不进 L4（走诊断档）
 	c := map[int]string{1: "s=栏目|v=-|p=-|n=1|d=-"}
@@ -319,7 +320,7 @@ func TestFunnelRates(t *testing.T) {
 		MksTotal:   3,
 		MksAligned: 2,
 	}
-	if st.L0Single+st.L1Slot+st.L2Tolerant+st.L3Date+st.L4Num+st.L5Subset+st.MixedDiag+st.Leftover != st.SlotsTotal {
+	if st.L0Single+st.L1Slot+st.L2Tolerant+st.L3Date+st.L4Num+st.L5Subset+st.L6Tol+st.MixedDiag+st.Leftover != st.SlotsTotal {
 		t.Fatalf("不变量被破坏: %+v", st)
 	}
 	finalizeFunnel(&st)
@@ -338,6 +339,52 @@ func TestFunnelRates(t *testing.T) {
 	}
 }
 
+// L6 容忍层（2026-11-17 用户定）：纯 n / 纯 d 片，缺集不算解析异常 ⇒ 整片剩余槽容忍为对齐。
+//   - 纯 n 片要求每行 n 来源 ∈ {self, single}（bridge/anchor 不得自证）；
+//   - 纯 d 片**不校验来源**（日期不可跨源借）；
+//   - 含 s/v 的片不进 L6；同一 n/d 上两侧 part 都不同仍拒救。
+func TestFunnelPiece_L6_PureTolerance(t *testing.T) {
+	// 纯 n 片、互有独有值（A={1,2,3}、B={1,2,9}）⇒ L6 容忍为对齐
+	a := map[int]string{
+		1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-", 3: "s=-|v=-|p=-|n=3|d=-",
+	}
+	b := map[int]string{
+		1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-", 3: "s=-|v=-|p=-|n=9|d=-",
+	}
+	from := map[int64]string{1: "self", 2: "self"}
+	st, _ := funnelPieceSrc(piece(a, b), from)
+	if st.L6Tol == 0 || st.Leftover != 0 {
+		t.Fatalf("纯 n 片（来源 self）应被 L6 容忍为对齐: %+v", st)
+	}
+	// 纯 n 片但含 bridge 来源 ⇒ 不救
+	fromBridge := map[int64]string{1: "self", 2: "bridge"}
+	st2, _ := funnelPieceSrc(piece(a, b), fromBridge)
+	if st2.L6Tol != 0 {
+		t.Fatalf("含 bridge 来源的纯 n 片不得被 L6 救: %+v", st2)
+	}
+	// 纯 d 片、来源 none（原文）⇒ 不校验来源，仍救
+	c := map[int]string{
+		1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=-|v=-|p=-|n=-|d=20240102", 3: "s=-|v=-|p=-|n=-|d=20240103",
+		4: "s=-|v=-|p=-|n=-|d=20240104", 5: "s=-|v=-|p=-|n=-|d=20240105", 6: "s=-|v=-|p=-|n=-|d=20240106",
+	}
+	// B 里有一个 A 没有的日期（0109）⇒ 日期集不构成子集 ⇒ L3 救不了 ⇒ 只能靠 L6
+	d := map[int]string{
+		1: "s=-|v=-|p=-|n=-|d=20240104", 2: "s=-|v=-|p=-|n=-|d=20240105", 3: "s=-|v=-|p=-|n=-|d=20240109",
+	}
+	fromD := map[int64]string{1: "none", 2: "none"}
+	st3, _ := funnelPieceSrc(piece(c, d), fromD)
+	if st3.L6Tol == 0 || st3.Leftover != 0 {
+		t.Fatalf("纯 d 片应被 L6 容忍（不校验来源）: %+v", st3)
+	}
+	// 含 s/v 的片不进 L6
+	e := map[int]string{1: "s=栏目|v=-|p=-|n=1|d=-"}
+	f := map[int]string{1: "s=-|v=-|p=-|n=2|d=-"}
+	st4, _ := funnelPieceSrc(piece(e, f), from)
+	if st4.L6Tol != 0 {
+		t.Fatalf("含 s 的片不得进 L6: %+v", st4)
+	}
+}
+
 // 不变量：分母 = 各层之和（总则 §2）
 func TestFunnelInvariant(t *testing.T) {
 	st, _ := funnelPiece(piece(
@@ -350,7 +397,7 @@ func TestFunnelInvariant(t *testing.T) {
 			1: "s=-|v=-|p=-|n=1|d=-",
 			3: "s=-|v=-|p=-|n=3|d=-",
 		}))
-	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.MixedDiag + st.Leftover
+	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.L6Tol + st.MixedDiag + st.Leftover
 	if sum != st.SlotsTotal {
 		t.Fatalf("不变量被破坏: 各层之和=%d 分母=%d %+v", sum, st.SlotsTotal, st)
 	}
