@@ -66,6 +66,12 @@ func expectSvcListActive(mock sqlmock.Sqlmock, rows *sqlmock.Rows) {
 		WillReturnRows(rows)
 }
 
+// expectSvcPromotePending P1 激活（apply 第一步：pending → active）的期望（2026-11-18）。
+func expectSvcPromotePending(mock sqlmock.Sqlmock, affected int64) {
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE movie_epid_override SET status = 'active' WHERE status = 'pending'")).
+		WillReturnResult(sqlmock.NewResult(0, affected))
+}
+
 // overrideListRows 台账查询的列骨架（列序对齐迁移 000049）。
 func overrideListRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
@@ -155,6 +161,7 @@ func TestApplyOverrides_B_三元组校验失败标stale且值不变(t *testing.T
 	t.Cleanup(func() { SetEpidOverrideEnabled(false) })
 	ctx := context.Background()
 
+	expectSvcPromotePending(mock, 0) // P1 激活（apply 第一步；无 pending ⇒ 0 行）
 	expectSvcListActive(mock, overrideListRows().AddRow(
 		7, 9, 2, "mk-9", 100, "第3期上", epidKeyN3,
 		"corrected", epidKeyN10, "agent", "verified", "单测合成数据（非真实候选）",
@@ -195,6 +202,7 @@ func TestApplyOverrides_B_命中生效与幂等(t *testing.T) {
 	targets := []OverrideTarget{{SrcRowId: 9, EpIndex: 2}}
 
 	// 第一遍：台账 2 条 active（targets 只命中 (9,2)，(9,5) 被过滤 ⇒ Considered=1），现值 = key_epid ⇒ 点改
+	expectSvcPromotePending(mock, 0) // P1 激活（apply 第一步；无 pending ⇒ 0 行）
 	expectSvcListActive(mock, overrideListRows().
 		AddRow(7, 9, 2, "mk-9", 100, "第3期上", epidKeyN3,
 			"corrected", epidKeyN10, "agent", "verified", "单测合成数据（非真实候选）",
@@ -221,6 +229,7 @@ func TestApplyOverrides_B_命中生效与幂等(t *testing.T) {
 	}
 
 	// 第二遍（幂等）：现值已是 new_epid ⇒ InEffect 命中，不再写库（无 UPDATE 期望 ⇒ 多发即报错）
+	expectSvcPromotePending(mock, 0) // P1 激活（幂等遍同样先跑激活 SQL）
 	expectSvcListActive(mock, overrideListRows().
 		AddRow(7, 9, 2, "mk-9", 100, "第3期上", epidKeyN3,
 			"corrected", epidKeyN10, "agent", "verified", "单测合成数据（非真实候选）",

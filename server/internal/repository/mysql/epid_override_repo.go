@@ -37,6 +37,17 @@ var setStatusAllowed = map[string]struct{}{
 // 为什么可以整表：台账只放人工逐条确认过的结论，第②段 12 条量级，行数以人的核对带宽兜底；
 // 与派生表（百万行、全表表达式分组实测 Errno 28 ⇒ 红线④必须按 match_key 分批）完全不是一个量级。
 // 若未来台账涨到万级，本方法与 Stats 再改按 match_key 分批。
+// PromotePending 把全部 pending 台账条目升为 active（P1，2026-11-18）：
+// import 写 pending（待确认），但 apply 的行集此前只有 active ⇒ pending 条目**没有任何
+// 激活路径**（M5 取证批实测：id=61 靠 SQL 直改绕过 —— 状态机断链）。
+// apply = 确认语义：升 active 后走既有校验/patch；KeyEpid 与当前规则 epid 不匹配者
+// 会被 A/C 点标 stale（宁缺勿错不变）。返回升级的条数。
+func (r *EpidOverrideRepo) PromotePending(ctx context.Context) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Exec("UPDATE movie_epid_override SET status = 'active' WHERE status = 'pending'")
+	return res.RowsAffected, res.Error
+}
+
 func (r *EpidOverrideRepo) ListActive(ctx context.Context) ([]entity.MovieEpidOverride, error) {
 	var out []entity.MovieEpidOverride
 	err := dbFrom(ctx, r.db).

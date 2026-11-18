@@ -667,6 +667,15 @@ func (s *EpidService) ApplyOverrides(ctx context.Context, targets []OverrideTarg
 	if !EpidOverrideEnabled() {
 		return res, errors.New("epid override: 生效开关未开启（D3 默认关；先录入核对，PUT /manage/epid/overrides/enabled 打开后再应用）")
 	}
+	// P1（2026-11-18）：pending → active 的**激活是 apply 的职责** —— import 写 pending，
+	// 但此前没有任何端点能把 pending 转 active ⇒ 条目永远卡 pending（M5 取证批实测：
+	// 台账 id=61 靠 SQL 直改绕过）。apply = 确认语义：先把全部 pending 升 active，
+	// 再走既有校验/patch；KeyEpid 与当前规则 epid 不匹配者会被标 stale（宁缺勿错不变）。
+	if promoted, err := s.ov.PromotePending(ctx); err != nil {
+		return res, err
+	} else if promoted > 0 {
+		log.Printf("[epid] 台账 pending → active：%d 条（apply 激活）", promoted)
+	}
 	ledger, err := s.loadOverrideLedger(ctx)
 	if err != nil {
 		return res, err
