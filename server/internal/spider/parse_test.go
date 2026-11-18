@@ -115,19 +115,6 @@ func TestBuildPlaySources_MasterVsSlave(t *testing.T) {
 	}
 }
 
-func TestBuildPlaySources_SkipExplainer(t *testing.T) {
-	d := sampleDetail()
-	d.TypeName = "电影解说"
-	if got := buildPlaySources(d, "src_sn", nil); got != nil {
-		t.Fatalf("解说类应跳过, got %d rows", len(got))
-	}
-	// 主站不跳过(按 mid)
-	mid := int64(7)
-	if got := buildPlaySources(d, "src_lz", &mid); len(got) == 0 {
-		t.Fatal("master 解说 不应被跳过")
-	}
-}
-
 func TestParseCategories(t *testing.T) {
 	cl := []filmClass{{TypeID: 1, TypePid: 0, TypeName: "电影"}, {TypeID: 11, TypePid: 1, TypeName: "动作"}}
 	cats := parseCategories(cl)

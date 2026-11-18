@@ -1,6 +1,7 @@
 package spider
 
 import (
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -83,16 +84,33 @@ func splitEpisodes(group string) []entity.Episode {
 // buildPlaySources 把一部影片的播放分组映射为多源行。
 // master(mid!=nil): 按 mid 关联, match_key=hash(片名)。
 // slave(mid==nil): 额外按 hash(dbId) 再存一份以提高跨站匹配率; 跳过"解说"类。
+// isCommentary 是否「解说」类（2026-11-18 用户定，O6）。
+//
+// 判定：**类型名或片名**任一含「解说」即可（实测 `[电影解说]` 有时在片名里、TypeName 却是普通电影类）。
+// 目的：
+//  1. **不生成豆瓣 key** —— 否则解说会按正片 douban id 被并进正片（实测 300/324 解说 mk 带正片豆瓣 id）；
+//  2. **不写 `source_douban_id`** —— 清掉这个"正片豆瓣号"，避免后续按豆瓣 id 的匹配再次污染；
+//  3. 解说只能靠**名字键**独立成片（作为单独片名呈现，不挂正片）。
+func isCommentary(name, typeName string) bool {
+	return strings.Contains(typeName, "解说") || strings.Contains(name, "解说")
+}
+
 func buildPlaySources(d filmDetail, siteId string, mid *int64) []entity.MoviePlaySource {
-	if mid == nil && strings.Contains(d.TypeName, "解说") {
-		return nil
+	cmt := isCommentary(d.VodName, d.TypeName)
+	if cmt && d.VodDouBanID > 0 {
+		// O6（2026-11-18 用户定）：解说**不挂在正片下**，且**必须作为单独片名呈现**。
+		// 隔离靠"名字键"：解说名含「解说」⇒ hash 与正片不同 ⇒ 天然不合并。
+		// 若出现"按名匹配上了正片"，只可能是：① 解说名称缺「解说」标识（被当正片名）② 类型归类错。
+		// 这两种都要**人工核对**，此处打痕以便排查（不自动改归属，避免误伤主站解说自己的片）。
+		log.Printf("[spider] 解说带豆瓣id需核对: name=%q type=%q douban=%d site=%s（是名称缺「解说」标识，还是类型归类错？）",
+			d.VodName, d.TypeName, d.VodDouBanID, siteId)
 	}
 	groups := parsePlayGroups(d.VodPlayFrom, d.VodPlayURL, d.VodPlayNote)
 	if len(groups) == 0 {
 		return nil
 	}
 	keys := []string{domain.GenerateHashKey(d.VodName)}
-	if mid == nil && d.VodDouBanID > 0 {
+	if mid == nil && d.VodDouBanID > 0 && !cmt { // O6：解说不生成豆瓣 key，避免与正片合并
 		keys = append(keys, domain.GenerateHashKey(d.VodDouBanID))
 	}
 	// 上游元数据（000052，2026-11-14）：**可空**落库，存量行不回填（不触发全库重采）。
@@ -105,7 +123,7 @@ func buildPlaySources(d filmDetail, siteId string, mid *int64) []entity.MoviePla
 		srcName = &v
 	}
 	var srcDouban *int64
-	if d.VodDouBanID > 0 {
+	if d.VodDouBanID > 0 && !cmt { // O6：解说清空 source_douban_id（防按豆瓣 id 再次污染）
 		v := int64(d.VodDouBanID)
 		srcDouban = &v
 	}
