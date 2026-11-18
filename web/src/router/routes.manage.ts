@@ -22,6 +22,12 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '直播源' }
   },
   {
+    path: '/manage/epid',
+    name: 'manage-epid',
+    component: () => import('@/views/manage/epid/EpidView.vue'),
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '集身份' }
+  },
+{
     path: '/manage/telemetry',
     name: 'manage-telemetry',
     component: () => import('@/views/manage/telemetry/TelemetryView.vue'),

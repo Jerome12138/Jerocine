@@ -6,6 +6,7 @@ import type { EpidOverrideImportItem, EpidOverrideListResp, EpidReport } from '@
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
+import ManageTable from '@/components/manage/ManageTable.vue'
 
 /**
  * 集身份（epid）派生卡片（后台运维）。
@@ -149,6 +150,33 @@ const ovLoading = ref(false)
 const ovError = ref(false)
 const ovImportText = ref('')
 const ovNote = ref('')
+
+// ===== 台账分页（客户端分页：overridesList 一次返回全量，前端切片）=====
+// 说明：后端 `/manage/epid/overrides` 目前无 page/size 参数，故在前端切片；
+// 若台账量级变大（>数万），应改为服务端分页（届时同步改 API 与 openapi）。
+const ovPage = ref(1)
+const ovPageSize = 20
+const ovRows = computed(() => {
+  const all = ov.value?.list ?? []
+  const from = (ovPage.value - 1) * ovPageSize
+  return all.slice(from, from + ovPageSize)
+})
+const ovTotal = computed(() => ov.value?.list?.length ?? 0)
+
+/** 台账列定义（key 必须落在 EpidOverrideRow 的键上，ManageTable 直接取值渲染） */
+const ovColumns = [
+  { key: 'id' as const, label: 'id', width: '70px' },
+  { key: 'status' as const, label: '状态', width: '90px' },
+  { key: 'verdict' as const, label: '裁定', width: '90px' },
+  { key: 'keyRawName' as const, label: '原名', width: '180px' },
+  { key: 'keyEpid' as const, label: 'key_epid', width: '300px' },
+  { key: 'newEpid' as const, label: 'new_epid', width: '300px' },
+  { key: 'srcRowId' as const, label: 'src_row_id', width: '100px', align: 'center' as const },
+  { key: 'epIndex' as const, label: 'ep_index', width: '90px', align: 'center' as const },
+  { key: 'provenance' as const, label: '来源', width: '90px' },
+  { key: 'confidence' as const, label: '置信', width: '90px' },
+  { key: 'reason' as const, label: '原因' }
+]
 const { busy: ovBusy, run: runOv } = useAsyncAction()
 
 async function loadOverrides(): Promise<void> {
@@ -156,6 +184,7 @@ async function loadOverrides(): Promise<void> {
   ovError.value = false
   try {
     ov.value = await manageApi.epid.overridesList()
+    ovPage.value = 1
   } catch {
     ovError.value = true
   } finally {
@@ -518,36 +547,19 @@ onMounted(() => void loadOverrides())
       <p v-if="ovNote" class="text-muted">{{ ovNote }}</p>
 
       <!-- 台账列表（后端白名单出参：无 evidence/审计列 —— 红线③） -->
-      <div v-if="ov && ov.list.length" class="overflow-x-auto">
-        <table class="w-full min-w-[760px] text-left text-xs">
-          <thead class="text-muted">
-            <tr>
-              <th class="py-1 pr-3 font-normal">id</th>
-              <th class="py-1 pr-3 font-normal">状态</th>
-              <th class="py-1 pr-3 font-normal">裁定</th>
-              <th class="py-1 pr-3 font-normal">集名</th>
-              <th class="py-1 pr-3 font-normal">key_epid → new_epid</th>
-              <th class="py-1 pr-3 font-normal">src_row_id / ep_index</th>
-              <th class="py-1 pr-3 font-normal">来源/置信</th>
-              <th class="py-1 font-normal">原因</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in ov.list" :key="r.id" class="border-t border-[var(--jc-border)]">
-              <td class="py-1 pr-3">{{ r.id }}</td>
-              <td class="py-1 pr-3">{{ r.status }}</td>
-              <td class="py-1 pr-3">{{ r.verdict }}</td>
-              <td class="py-1 pr-3">{{ r.keyRawName }}</td>
-              <td class="py-1 pr-3 font-mono">
-                {{ r.keyEpid }} → {{ r.verdict === 'kept' ? '（不变）' : r.newEpid }}
-              </td>
-              <td class="py-1 pr-3">{{ r.srcRowId }} / {{ r.epIndex }}</td>
-              <td class="py-1 pr-3">{{ r.provenance }}/{{ r.confidence }}</td>
-              <td class="py-1">{{ r.reason }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- 台账列表：接入 ManageTable + 客户端分页（2026-11-18） -->
+      <ManageTable
+        :columns="ovColumns"
+        :rows="ovRows"
+        row-key="id"
+        :total="ovTotal"
+        v-model:current="ovPage"
+        :page-size="ovPageSize"
+        :loading="ovLoading"
+        fit
+        empty="台账为空 —— 先导入候选"
+      />
+      <p v-if="ov && !ov.list.length" class="text-muted">台账为空，先导入候选。</p>
       <p v-else-if="ov && !ov.list.length" class="text-muted">台账为空（先导入候选）。</p>
     </div>
   </section>

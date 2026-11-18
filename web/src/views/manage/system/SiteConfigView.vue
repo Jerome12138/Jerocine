@@ -14,7 +14,6 @@ import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import MailConfigCard from './MailConfigCard.vue'
 import DanmuConfigCard from './DanmuConfigCard.vue'
-import EpidDeriveCard from './EpidDeriveCard.vue'
 
 /**
  * 系统设置（原「站点配置」+「邮件与注册」合并）。
@@ -313,7 +312,6 @@ onMounted(load)
 
       <!-- 弹幕服务(后台配置项, 默认不启用) -->
       <DanmuConfigCard />
-      <EpidDeriveCard />
 
       <!-- TMDB -->
       <section
