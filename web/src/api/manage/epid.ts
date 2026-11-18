@@ -299,3 +299,56 @@ export const overridesSetEnabled = (
     timeout: 15_000,
     ...config
   })
+
+// ===== 对齐率分层漏斗（L0~L6，2026-11-18）=====
+//
+// 契约与 `server/openapi/openapi.yaml` 的 `GET /manage/epid/alignment/funnel` 一致。
+// 口径：分母恒为全部非空槽位 / 全部有身份片；分子含 L0~L6 的救回
+//       （L0 单源 / L1 槽位全等 / L2 值序列容忍 / L3 日期锚 / L4 期号锚 / L5 正片子集 / L6 纯 n·d 容忍），
+//       只有 `mixedDiag`（多身份槽，不判定）与 `leftover`（真未对齐）算未对齐。
+//
+// ⚠️ **端点当前不可用**（P11：全量现算 ~9min vs WriteTimeout 120s）⇒ **暂不在任何页面调用**；
+//    该口径的数字现走 SQL 离线复算（见 `分析-分层漏斗口径与剩余归因-2026-11-17`）。
+//    此处先落类型，待端点改异步/分片后再接 UI。
+export interface EpidFunnelStat {
+  pid: number
+  category: string
+  /** 分母：全部非空 epid 槽位 */
+  slotsTotal: number
+  l0Single: number
+  l1Slot: number
+  l2Tolerant: number
+  l3Date: number
+  l4Num: number
+  l5Subset: number
+  /** L6 纯 n/纯 d 容忍层救回 */
+  l6Tol: number
+  /** 诊断档：含 s/v 的多身份槽（不判定，计入未对齐） */
+  mixedDiag: number
+  leftover: number
+  mksTotal: number
+  mksAligned: number
+  /** = slotsTotal − mixedDiag − leftover */
+  alignedSlots: number
+  /** 集级对齐率（分层口径，%） */
+  slotPct: number
+  /** 片级对齐率（分层口径，%） */
+  mkPct: number
+}
+
+export interface EpidFunnelReport {
+  byCategory: EpidFunnelStat[]
+  all: EpidFunnelStat
+}
+
+/**
+ * GET /manage/epid/alignment/funnel —— 分层漏斗读数（按需现算）。
+ *
+ * ⚠️ 端点超时（P11），**生产暂不调用**；保留函数以便端点修好后直接接线。
+ */
+export const alignmentFunnel = (config?: { silent?: boolean }): Promise<EpidFunnelReport> =>
+  http.get<unknown, EpidFunnelReport>('/manage/epid/alignment/funnel', {
+    // 现算很慢；即使临时调用也要给足超时（服务端 WriteTimeout 仍是硬上限）
+    timeout: 600_000,
+    ...config
+  })
