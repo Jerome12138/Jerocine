@@ -218,7 +218,7 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/epid/alignment/tolerant", h.ManageEpidAlignmentTolerant)
 		// 日期对齐口径（S，2026-11-17）：同样按需计算；只供指标层，读侧不消费
 		mg.GET("/epid/alignment/date", h.ManageEpidAlignmentDate)
-		// 对齐率分层漏斗（L0~L5，2026-11-17）：按需计算；只做判定不改 epid
+		// 对齐率分层漏斗（L0~L6，2026-11-18）：读快照（重算走下方 POST /refresh 后台单飞，P11）；只做判定不改 epid
 		mg.GET("/epid/alignment/funnel", h.ManageEpidAlignmentFunnel)
 		// 漏斗快照异步刷新（P11）：现算 ~9min，故改为后台任务 + 读快照
 		mg.POST("/epid/alignment/funnel/refresh", h.ManageEpidAlignmentFunnelRefresh)

@@ -59,6 +59,10 @@ var (
 	ErrApplyPending = errors.New("注册申请审核中，请等待邮件通知")
 	// ErrApplyRejected 登录时发现该账号的注册申请被驳回; 文案含驳回理由, 可重新申请。
 	ErrApplyRejected = errors.New("注册申请被驳回")
+	// ErrFunnelRefreshOngoing 漏斗快照刷新已有任务在跑(TriggerAlignmentFunnelRefresh 409)。
+	// 2026-11-19 评审 O-b: 原实现裸 errors.New 走 mapStatus default=500, 与"409 语义"注释不符;
+	// 按本文件惯例(文案直达管理端 toast, 必须可读)定义可读哨兵错误。
+	ErrFunnelRefreshOngoing = errors.New("漏斗快照刷新已在进行中，请等当前任务结束再触发")
 	// ErrResetTokenInvalid 找回密码的重置链接无效/已过期/已使用(P3, 30 分钟单次)。
 	ErrResetTokenInvalid = errors.New("重置链接无效或已过期，请重新申请")
 )

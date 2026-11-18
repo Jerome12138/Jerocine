@@ -216,7 +216,6 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 }
 
 // funnelPiece 兼容旧签名的包装（等价于"来源未知 ⇒ 视为自身"）：单测只用它。
-// funnelPiece 兼容旧签名的包装（等价于"来源未知 ⇒ 视为自身"）：单测只用它。
 func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 	return funnelPieceSrc(bySrc, nil)
 }

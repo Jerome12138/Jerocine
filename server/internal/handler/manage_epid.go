@@ -181,10 +181,11 @@ func (h *Handlers) ManageEpidAlignmentFunnel(c *gin.Context) {
 }
 
 // ManageEpidAlignmentFunnelRefresh POST /manage/epid/alignment/funnel/refresh
-// —— 异步触发一次漏斗快照刷新（单飞；已有任务在跑时返回 409 语义的错误）。
+// —— 异步触发一次漏斗快照刷新（单飞；已有任务在跑时返回 409 problem+json）。
 //
 // 后台任务跑完把结果整表覆盖写入 `epid_alignment_funnel_snapshot`（含口径版本与 truncated 标志）。
 // 全量约 9 分钟；请用 GET 轮询 `computedAt` / `pending` 判断是否完成。
+// ⚠️ 全量 rebuild（派生）进行期间勿触发：快照会把派生中间态固化成"最新读数"。
 func (h *Handlers) ManageEpidAlignmentFunnelRefresh(c *gin.Context) {
 	started, err := service.TriggerAlignmentFunnelRefresh()
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"server/internal/danmu"
+	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/repository/mysql"
 )
@@ -1330,9 +1331,8 @@ type FunnelReport struct {
 
 // 漏斗快照刷新的单飞状态（同一时刻只允许一个后台任务）
 var (
-	funnelRefreshMu    sync.Mutex
-	funnelRefreshing   bool
-	funnelRefreshStart time.Time
+	funnelRefreshMu  sync.Mutex
+	funnelRefreshing bool
 )
 
 // FunnelRefreshRunning 当前是否有刷新任务在跑（管理端展示用）。
@@ -1345,15 +1345,14 @@ func FunnelRefreshRunning() bool {
 // TriggerAlignmentFunnelRefresh 异步触发一次漏斗快照刷新（单飞 + recover）。
 //
 // 为什么要异步：全量现算 ~9min，远超 HTTP WriteTimeout(120s)（P11）。
-// 返回 started=false 表示已有任务在跑。
+// 已有任务在跑时返回 (false, domain.ErrFunnelRefreshOngoing) ⇒ handler 映射 409。
 func TriggerAlignmentFunnelRefresh() (started bool, err error) {
 	funnelRefreshMu.Lock()
 	if funnelRefreshing {
 		funnelRefreshMu.Unlock()
-		return false, errors.New("漏斗快照刷新已在进行中")
+		return false, domain.ErrFunnelRefreshOngoing
 	}
 	funnelRefreshing = true
-	funnelRefreshStart = time.Now()
 	funnelRefreshMu.Unlock()
 
 	go func() {

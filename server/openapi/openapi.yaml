@@ -2996,8 +2996,9 @@ paths:
       description: |
         启动一个后台任务计算漏斗（全量约 9 分钟），完成后**整表覆盖写**入
         `epid_alignment_funnel_snapshot`（含 `policy_version` 与 `truncated`）。
-        ⚠️ 单飞：已有任务在跑时返回错误；请用 `GET /manage/epid/alignment/funnel`
-        轮询 `pending` / `computedAt` 判断是否完成。
+        ⚠️ 单飞：已有任务在跑时返回 409 problem+json（`ErrFunnelRefreshOngoing`）；请用
+        `GET /manage/epid/alignment/funnel` 轮询 `pending` / `computedAt` 判断是否完成。
+        ⚠️ 全量 rebuild（派生）进行期间勿触发：快照会把派生中间态固化成"最新读数"。
         ⚠️ 只做判定、不改 epid；不影响端侧。
       operationId: manageEpidAlignmentFunnelRefresh
       security: [{ BearerAuth: [] }]
@@ -3014,6 +3015,12 @@ paths:
                   running: { type: boolean }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: 已有刷新任务在跑（单飞拒绝）
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /manage/epid/report:
     get:

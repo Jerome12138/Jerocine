@@ -11,7 +11,7 @@ import (
 //
 // ⚠️ **口径语义变更时必须递增**（比如 L5/L6 的准入、L3/L4 的键、part 守卫），
 // 否则历史快照与现值不可比 —— 报表与归因文档都以此字段做「同口径对账」。
-const FunnelPolicyVersion = "L0-L6@2026-11-18"
+const FunnelPolicyVersion = "L0-L6.3@2026-11-18"
 
 // FunnelSnapshot 一次漏斗快照（整表覆盖写：库里只保留最近一批）。
 type FunnelSnapshot struct {
@@ -98,6 +98,8 @@ func (r *EpidRepo) LoadFunnelSnapshot(ctx context.Context) (FunnelSnapshot, bool
 		SlotPct       float64
 		MkPct         float64
 	}
+	// ORDER BY (pid = -1)：MySQL 布尔排序——分类行(0)在前按 slots_total 降序，全库行(-1 ⇒ 1)固定排末位。
+	// 元信息取 rows[0]（各行 computed_at/policy_version/truncated 相同）；全库行按 pid == -1 识别归入 out.All。
 	if err := dbFrom(ctx, r.db).Raw(`
 		SELECT computed_at, policy_version, truncated, pid, category,
 		       slots_total, l0_single, l1_slot, l2_tolerant, l3_date, l4_num,
