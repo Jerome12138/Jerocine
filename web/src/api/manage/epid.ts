@@ -307,9 +307,8 @@ export const overridesSetEnabled = (
 //       （L0 单源 / L1 槽位全等 / L2 值序列容忍 / L3 日期锚 / L4 期号锚 / L5 正片子集 / L6 纯 n·d 容忍），
 //       只有 `mixedDiag`（多身份槽，不判定）与 `leftover`（真未对齐）算未对齐。
 //
-// ⚠️ **端点当前不可用**（P11：全量现算 ~9min vs WriteTimeout 120s）⇒ **暂不在任何页面调用**；
-//    该口径的数字现走 SQL 离线复算（见 `分析-分层漏斗口径与剩余归因-2026-11-17`）。
-//    此处先落类型，待端点改异步/分片后再接 UI。
+// P11（2026-11-18 b91d9a0）已收口：GET 只**读快照**（秒回；无快照时 `pending=true`），
+// 重算走 `alignmentFunnelRefresh` 后台单飞（全量 ~9 分钟），完成后 GET 轮询 `computedAt` 变化。
 export interface EpidFunnelStat {
   pid: number
   category: string
@@ -345,16 +344,35 @@ export interface EpidFunnelStat {
 export interface EpidFunnelReport {
   byCategory: EpidFunnelStat[]
   all: EpidFunnelStat
+  /** 快照生成时间（尚无快照时缺省/零值） */
+  computedAt?: string
+  /** 口径版本（L6 语义变更时递增，如 `L0-L6.3@2026-11-18`） */
+  policyVersion?: string
+  /** true=本次计算被分页上限截断（结果不完整） */
+  truncated?: boolean
+  /** true=还没有快照，需先 POST refresh */
+  pending?: boolean
 }
 
 /**
- * GET /manage/epid/alignment/funnel —— 分层漏斗读数（按需现算）。
- *
- * ⚠️ 端点超时（P11），**生产暂不调用**；保留函数以便端点修好后直接接线。
+ * GET /manage/epid/alignment/funnel —— 分层漏斗读数（**读快照**，P11 收口后秒回）。
+ * 无快照时返回 `pending=true`（空集、不现算）；先用 alignmentFunnelRefresh 触发后台刷新。
  */
 export const alignmentFunnel = (config?: { silent?: boolean }): Promise<EpidFunnelReport> =>
   http.get<unknown, EpidFunnelReport>('/manage/epid/alignment/funnel', {
-    // 现算很慢；即使临时调用也要给足超时（服务端 WriteTimeout 仍是硬上限）
-    timeout: 600_000,
+    timeout: 30_000,
+    ...config
+  })
+
+/**
+ * POST /manage/epid/alignment/funnel/refresh —— 异步触发一次漏斗快照刷新（后台单飞）。
+ * 已有任务在跑时 HTTP 409（problem+json）；全量 ~9 分钟，用 GET 轮询 `computedAt` 判断完成。
+ * ⚠️ 全量 rebuild 派生期间勿触发（快照会固化中间态）。
+ */
+export const alignmentFunnelRefresh = (
+  config?: { silent?: boolean }
+): Promise<{ started: boolean; running: boolean }> =>
+  http.post<unknown, { started: boolean; running: boolean }>('/manage/epid/alignment/funnel/refresh', undefined, {
+    timeout: 15_000,
     ...config
   })

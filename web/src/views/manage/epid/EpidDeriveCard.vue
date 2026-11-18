@@ -559,8 +559,6 @@ onMounted(() => void loadOverrides())
         fit
         empty="台账为空 —— 先导入候选"
       />
-      <p v-if="ov && !ov.list.length" class="text-muted">台账为空，先导入候选。</p>
-      <p v-else-if="ov && !ov.list.length" class="text-muted">台账为空（先导入候选）。</p>
     </div>
   </section>
 </template>
