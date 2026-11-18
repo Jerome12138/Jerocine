@@ -449,3 +449,59 @@ func TestFunnelPiece_L6_MixedFromSrc不自证(t *testing.T) {
 	}
 	_ = st
 }
+
+// L6.3（S1，2026-11-18）：纯 d 按槽容忍
+//   - 正例：片内有 s 脏行 ⇒ L6.1/L6.2（整片）不成立，但"槽内纯 d 且同日唯一"的槽应被 L6.3 容忍；
+//   - 反例1：同日在同一源出现 2 次（未识别的同日多集/重复行）⇒ 日期不能当身份 ⇒ 拒绝；
+//   - 反例2：槽内一侧是 n ⇒ 不是纯 d ⇒ 拒绝。
+func TestFunnelPiece_L6_3_SlotPureDate(t *testing.T) {
+	a := map[int]string{
+		1: "s=-|v=-|p=-|n=-|d=20240101",
+		2: "s=-|v=-|p=-|n=-|d=20240102",
+		3: "s=大结局|v=-|p=-|n=-|d=20240103",
+	}
+	b := map[int]string{
+		1: "s=-|v=-|p=-|n=-|d=20240101",
+		2: "s=-|v=-|p=-|n=-|d=20240105",
+		3: "s=-|v=-|p=-|n=-|d=20240103",
+	}
+	st, _ := funnelPieceSrc(piece(a, b), map[int64]string{1: "none", 2: "none"})
+	if st.L6Slot != 1 || st.L6Tol != 1 {
+		t.Fatalf("应有 1 槽走 L6.3：%+v", st)
+	}
+	if st.L6Num != 0 || st.L6Date != 0 {
+		t.Fatalf("L6.1/L6.2 不应命中（片内有 s 行）：%+v", st)
+	}
+	if st.SlotsTotal != st.L0Single+st.L1Slot+st.L2Tolerant+st.L3Date+st.L4Num+st.L5Subset+st.L6Tol+st.MixedDiag+st.Leftover {
+		t.Fatalf("不变量被破坏：%+v", st)
+	}
+
+	// 反例1：a 源同一天两条（同日重复）⇒ 该日期不可当身份
+	a2 := map[int]string{
+		1: "s=-|v=-|p=-|n=-|d=20240101",
+		2: "s=-|v=-|p=-|n=-|d=20240102",
+		3: "s=-|v=-|p=-|n=-|d=20240102",
+		4: "s=会员版|v=-|p=-|n=-|d=20240109",
+	}
+	b2 := map[int]string{
+		1: "s=-|v=-|p=-|n=-|d=20240101",
+		2: "s=-|v=-|p=-|n=-|d=20240105",
+		3: "s=-|v=-|p=-|n=-|d=20240106",
+		4: "s=-|v=-|p=-|n=-|d=20240109",
+	}
+	st2, _ := funnelPieceSrc(piece(a2, b2), map[int64]string{1: "none", 2: "none"})
+	if st2.L6Slot != 0 {
+		t.Fatalf("同日重复不应被 L6.3 容忍：%+v", st2)
+	}
+	if st2.Leftover+st2.MixedDiag == 0 {
+		t.Fatalf("应有未对齐槽：%+v", st2)
+	}
+
+	// 反例2：槽内一侧是 n ⇒ 不是纯 d
+	a3 := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101"}
+	b3 := map[int]string{1: "s=-|v=-|p=-|n=3|d=-"}
+	st3, _ := funnelPieceSrc(piece(a3, b3), map[int64]string{1: "none", 2: "none"})
+	if st3.L6Slot != 0 {
+		t.Fatalf("槽内含 n 不应走 L6.3：%+v", st3)
+	}
+}

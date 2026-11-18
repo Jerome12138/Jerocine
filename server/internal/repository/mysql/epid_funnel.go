@@ -45,6 +45,10 @@ type FunnelStat struct {
 	L4Num      int64 `json:"l4Num"`      // 期号锚（跨槽）救回的槽
 	L5Subset   int64 `json:"l5Subset"`   // L5 正片子集救回（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源）
 	L6Tol      int64 `json:"l6Tol"`      // L6 纯 n/纯 d 容忍层救回的槽（缺集不算解析异常）
+	// L6 子档（2026-11-18 拆分；L6Tol = 三者之和，保留兼容）
+	L6Num  int64 `json:"l6Num"`  // L6.1 纯 n 整片
+	L6Date int64 `json:"l6Date"` // L6.2 纯 d 整片
+	L6Slot int64 `json:"l6Slot"` // L6.3 纯 d 按槽（同日唯一守卫）
 	MixedDiag  int64 `json:"mixedDiag"`  // 诊断档：多身份槽（含 s/v），不判定、计入未对齐
 	Leftover   int64 `json:"leftover"`   // 以上都不成立
 
@@ -309,10 +313,32 @@ func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (Funn
 	//       纯 d 片恒为原文（日期不可跨源借，from_src=none）；
 	//       另加 anchorPartConflicted：同一 n/d 上两侧 part 都有值且不同 ⇒ 不救。
 	if len(unaligned) > 0 {
+		// L6.1 纯 n 整片 / L6.2 纯 d 整片（原 L6，保持行为不变）
 		if kind, ok := l6Kind(bySrc, from); ok && !anchorPartConflicted(bySrc, kind) {
+			if kind == anchorNum {
+				st.L6Num += int64(len(unaligned))
+			} else {
+				st.L6Date += int64(len(unaligned))
+			}
 			st.L6Tol += int64(len(unaligned))
 			unaligned = nil
 		}
+	}
+	// L6.3 纯 d 按槽容忍（S1，2026-11-18）：片内有 s/v 脏行时整片不成立，改为逐槽判定——
+	// 槽内每行都是纯 d（无 n、无 s/v），且该日期在本片**任一源中只出现 1 次**（同日重复 ⇒ 日期不能当身份）。
+	// 守卫：anchorPartConflicted（同一日期对应不同 part ⇒ 整片拒绝）。
+	if len(unaligned) > 0 && !anchorPartConflicted(bySrc, anchorDate) {
+		dateMax := dateSrcMax(bySrc)
+		keep := unaligned[:0]
+		for _, idx := range unaligned {
+			if slotPureDateUnique(slots[idx], dateMax) {
+				st.L6Slot++
+				st.L6Tol++
+			} else {
+				keep = append(keep, idx)
+			}
+		}
+		unaligned = keep
 	}
 
 	// 剩余再分档：含 s/v 的多身份槽 → 诊断档（不判定，计入未对齐）；其余 → leftover
@@ -328,6 +354,53 @@ func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (Funn
 		st.MksAligned = 1
 	}
 	return st, true
+}
+
+// dateSrcMax 统计本片中每个日期在**单个源**内出现的最大次数。
+// >1 表示该源同一天有多集（如上下篇未识别、重复行）⇒ 日期不能单独当身份，供 L6.3 守卫使用。
+func dateSrcMax(bySrc map[int64]map[int]string) map[string]int {
+	out := make(map[string]int, 16)
+	for _, sm := range bySrc {
+		per := make(map[string]int, len(sm))
+		for _, ep := range sm {
+			k, ok := danmu.ParseEpidString(ep)
+			if !ok || k.Date == "" {
+				continue
+			}
+			per[k.Date]++
+		}
+		for d, c := range per {
+			if c > out[d] {
+				out[d] = c
+			}
+		}
+	}
+	return out
+}
+
+// slotPureDateUnique 判断单个槽是否满足 L6.3（纯 d 按槽容忍）：
+//   - 槽内每一行都是纯 d（d 非空，n=0，s/v/vn 全空）；
+//   - 每个日期在本片任一源中只出现 1 次（同日重复即拒绝）。
+func slotPureDateUnique(eps []string, dateMax map[string]int) bool {
+	if len(eps) == 0 {
+		return false
+	}
+	for _, ep := range eps {
+		k, ok := danmu.ParseEpidString(ep)
+		if !ok {
+			return false
+		}
+		if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
+			return false
+		}
+		if k.Num != 0 || k.Date == "" {
+			return false
+		}
+		if dateMax[k.Date] != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 type anchorKind int
@@ -652,6 +725,9 @@ func addFunnel(dst *FunnelStat, src FunnelStat) {
 	dst.L4Num += src.L4Num
 	dst.L5Subset += src.L5Subset
 	dst.L6Tol += src.L6Tol
+	dst.L6Num += src.L6Num
+	dst.L6Date += src.L6Date
+	dst.L6Slot += src.L6Slot
 	dst.MixedDiag += src.MixedDiag
 	dst.Leftover += src.Leftover
 	dst.MksTotal += src.MksTotal

@@ -50,6 +50,9 @@ func (r *EpidRepo) SaveFunnelSnapshot(ctx context.Context, rows []FunnelStat, al
 				"l4_num":         st.L4Num,
 				"l5_subset":      st.L5Subset,
 				"l6_tol":         st.L6Tol,
+				"l6_num":         st.L6Num,
+				"l6_date":        st.L6Date,
+				"l6_slot":        st.L6Slot,
 				"mixed_diag":     st.MixedDiag,
 				"leftover":       st.Leftover,
 				"mks_total":      st.MksTotal,
@@ -84,6 +87,9 @@ func (r *EpidRepo) LoadFunnelSnapshot(ctx context.Context) (FunnelSnapshot, bool
 		L4Num         int64
 		L5Subset      int64
 		L6Tol         int64
+		L6Num         int64
+		L6Date        int64
+		L6Slot        int64
 		MixedDiag     int64
 		Leftover      int64
 		MksTotal      int64
@@ -95,7 +101,7 @@ func (r *EpidRepo) LoadFunnelSnapshot(ctx context.Context) (FunnelSnapshot, bool
 	if err := dbFrom(ctx, r.db).Raw(`
 		SELECT computed_at, policy_version, truncated, pid, category,
 		       slots_total, l0_single, l1_slot, l2_tolerant, l3_date, l4_num,
-		       l5_subset, l6_tol, mixed_diag, leftover, mks_total, mks_aligned,
+		       l5_subset, l6_tol, l6_num, l6_date, l6_slot, mixed_diag, leftover, mks_total, mks_aligned,
 		       aligned_slots, slot_pct, mk_pct
 		FROM epid_alignment_funnel_snapshot
 		ORDER BY (pid = -1), slots_total DESC`).Scan(&rows).Error; err != nil {
@@ -113,7 +119,7 @@ func (r *EpidRepo) LoadFunnelSnapshot(ctx context.Context) (FunnelSnapshot, bool
 			Pid: r0.Pid, Category: r0.Category,
 			SlotsTotal: r0.SlotsTotal, L0Single: r0.L0Single, L1Slot: r0.L1Slot,
 			L2Tolerant: r0.L2Tolerant, L3Date: r0.L3Date, L4Num: r0.L4Num,
-			L5Subset: r0.L5Subset, L6Tol: r0.L6Tol, MixedDiag: r0.MixedDiag,
+			L5Subset: r0.L5Subset, L6Tol: r0.L6Tol, L6Num: r0.L6Num, L6Date: r0.L6Date, L6Slot: r0.L6Slot, MixedDiag: r0.MixedDiag,
 			Leftover: r0.Leftover, MksTotal: r0.MksTotal, MksAligned: r0.MksAligned,
 			AlignedSlots: r0.AlignedSlots, SlotPct: r0.SlotPct, MkPct: r0.MkPct,
 		}

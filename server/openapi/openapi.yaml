@@ -2947,6 +2947,15 @@ paths:
                         l5Subset: { type: integer }
                         mixedDiag: { type: integer }
                         l6Tol: { type: integer }
+              l6Num:
+                type: integer
+                description: "L6.1 纯 n 整片容忍槽"
+              l6Date:
+                type: integer
+                description: "L6.2 纯 d 整片容忍槽"
+              l6Slot:
+                type: integer
+                description: "L6.3 纯 d 按槽容忍槽（同日唯一守卫，S1）"
                         leftover: { type: integer }
                         mksTotal: { type: integer }
                         mksAligned: { type: integer }
