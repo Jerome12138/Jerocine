@@ -2909,14 +2909,16 @@ paths:
   /manage/epid/alignment/funnel:
     get:
       tags: [manage-spider]
-      summary: 对齐率分层漏斗（L0~L5，按需计算；只判不改 epid）
+      summary: 对齐率分层漏斗（L0~L6，读快照；只判不改 epid）
       description: |
         按《方案-对齐率分层判定总则》实现的分层判定读数。每层只吃上一层未判齐的剩余，**分母恒为全部非空槽位**：
-        L0 单源槽（默认对齐）→ L1 槽位全等 → L2 值序列容忍（仅插入/删除）→ L3 单日期锚（s/v 空 ∧ n 空）
-        → L4 单期号锚（s/v 空 ∧ d 空）→ L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源）→ L6 纯 n/纯 d 容忍（缺集不算解析异常）→ 诊断档（多身份槽，不判定）→ leftover（真未对齐）。
+        L0 单源槽（默认对齐）→ L1 槽位全等 → L2 值序列容忍（仅插入/删除）→ L3 单日期锚（(d,part)，s/v/n 空）
+        → L4 单期号锚（(n,part)，s/v/d 空）→ L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源）→ L6 纯 n/纯 d 容忍（缺集不算解析异常）→ 诊断档（多身份槽，不判定）→ leftover（真未对齐）。
         ⚠️ 单源默认算对齐：某源集的多少属覆盖差异，不算解析问题。
         ⚠️ 该接口**按需现算**（不进后台 600s 快照、不进请求路径）：慢，请低频调用。
         ⚠️ **只做判定，不改 epid**（归一属写侧规则）。
+        ⚠️ **读快照**（P11，2026-11-18）：全量现算 ~9min 远超 WriteTimeout(120s) ⇒ 本接口只读 `epid_alignment_funnel_snapshot`；
+        首次需先 `POST /manage/epid/alignment/funnel/refresh` 异步生成；未生成时返回 `pending=true`（空集、不现算）。
         ⚠️ 不变量：`slotsTotal = l0Single + l1Slot + l2Tolerant + l3Date + l4Num + l5Subset + l6Tol + mixedDiag + leftover`。
       operationId: manageEpidAlignmentFunnel
       security: [{ BearerAuth: [] }]
@@ -2971,6 +2973,36 @@ paths:
                       alignedSlots: { type: integer }
                       slotPct: { type: number }
                       mkPct: { type: number }
+                  computedAt: { type: string, format: date-time }
+                  policyVersion: { type: string }
+                  truncated: { type: boolean }
+                  pending: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/epid/alignment/funnel/refresh:
+    post:
+      tags: [manage-spider]
+      summary: 异步刷新对齐率分层漏斗快照（L0~L6）
+      description: |
+        启动一个后台任务计算漏斗（全量约 9 分钟），完成后**整表覆盖写**入
+        `epid_alignment_funnel_snapshot`（含 `policy_version` 与 `truncated`）。
+        ⚠️ 单飞：已有任务在跑时返回错误；请用 `GET /manage/epid/alignment/funnel`
+        轮询 `pending` / `computedAt` 判断是否完成。
+        ⚠️ 只做判定、不改 epid；不影响端侧。
+      operationId: manageEpidAlignmentFunnelRefresh
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: 已受理（started/running）
+          headers: { X-Trace-Id: { $ref: '#/components/headers/XTraceId' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  started: { type: boolean }
+                  running: { type: boolean }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 

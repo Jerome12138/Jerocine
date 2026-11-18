@@ -158,16 +158,19 @@ func (h *Handlers) ManageEpidAlignmentDate(c *gin.Context) {
 	dto.OK(c, rep)
 }
 
-// ManageEpidAlignmentFunnel GET /manage/epid/alignment/funnel —— 对齐率分层漏斗（L0~L5，2026-11-17）按需计算。
+// ManageEpidAlignmentFunnel GET /manage/epid/alignment/funnel —— 对齐率分层漏斗（L0~L6）**读快照**。
 //
 // 总则：docs/epid-集身份/方案-对齐率分层判定总则-2026-11-17.md
 // 只做判定、不改 epid；每层只吃上一层未判齐的剩余，分母恒为全部非空槽位：
 //
 //	L0 单源槽（默认对齐） → L1 槽位全等 → L2 值序列容忍（仅插删）
-//	→ L3 单日期锚（s/v 空 ∧ n 空）→ L4 单期号锚（s/v 空 ∧ d 空）
-//	→ L5 多身份行（本版单列不判）→ 剩余（真未对齐，进归因）
+//	→ L3 单日期锚（（d,part），s/v/n 空）→ L4 单期号锚（（n,part），s/v/d 空）
+//	→ L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源）
+//	→ L6 纯 n/纯 d 容忍（缺集不算解析异常）→ 诊断档（含 s/v 的多身份槽，不判定）→ 剩余
 //
-// ⚠️ 按需现算（不进 600s 快照、不进请求路径）；各层计数可单独回放。
+// ⚠️ **不再现算**（P11，2026-11-18）：全量现算 ~9min 远超 WriteTimeout(120s)，
+// 改为「`POST /manage/epid/alignment/funnel/refresh` 后台刷新 → 本接口读快照」。
+// 快照未生成时返回 `pending=true`（并给出空集），**不会**在请求里触发计算。
 func (h *Handlers) ManageEpidAlignmentFunnel(c *gin.Context) {
 	rep, err := service.ReportAlignmentFunnel(c.Request.Context())
 	if err != nil {
@@ -175,6 +178,20 @@ func (h *Handlers) ManageEpidAlignmentFunnel(c *gin.Context) {
 		return
 	}
 	dto.OK(c, rep)
+}
+
+// ManageEpidAlignmentFunnelRefresh POST /manage/epid/alignment/funnel/refresh
+// —— 异步触发一次漏斗快照刷新（单飞；已有任务在跑时返回 409 语义的错误）。
+//
+// 后台任务跑完把结果整表覆盖写入 `epid_alignment_funnel_snapshot`（含口径版本与 truncated 标志）。
+// 全量约 9 分钟；请用 GET 轮询 `computedAt` / `pending` 判断是否完成。
+func (h *Handlers) ManageEpidAlignmentFunnelRefresh(c *gin.Context) {
+	started, err := service.TriggerAlignmentFunnelRefresh()
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"started": started, "running": service.FunnelRefreshRunning()})
 }
 
 // ===== epid 源头校正层 · T4 管理端入口（2026-11-12）=====

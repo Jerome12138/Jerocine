@@ -1244,6 +1244,7 @@ type EpidReport struct {
 //  6. 配套迁移：`000046` 派生表覆盖索引（对齐率系列 index-only）；`000047` 源表 `(match_key, site_id)`
 //     （≥2 site 子查询至今仍**回表**：EXPLAIN `index(idx_match)` 无 `Using index`，实测 33s）；
 //     `000048` 进度计数器单行表。
+//
 // TolerantAlignReport 容忍口径（M4，2026-11-16）按分类的片级读数。
 // ⚠️ 与严格口径的 `TotalMks` **不可直接相减**：容忍口径只统计"≥2 个源"的片（单源不背书）。
 type TolerantAlignReport struct {
@@ -1319,6 +1320,73 @@ func ReportAlignmentDate(ctx context.Context) (DateAlignReport, error) {
 type FunnelReport struct {
 	ByCategory []mysql.FunnelStat `json:"byCategory"`
 	All        mysql.FunnelStat   `json:"all"`
+
+	// ===== 快照元信息（P11：改为后台刷新 + 读快照）=====
+	ComputedAt    time.Time `json:"computedAt"`    // 快照生成时间（零值 = 尚无快照）
+	PolicyVersion string    `json:"policyVersion"` // 口径版本（L5/L6 语义变更时递增）
+	Truncated     bool      `json:"truncated"`     // 1=计算被分页上限截断（结果不完整）
+	Pending       bool      `json:"pending"`       // true = 还没有快照，需先 POST 刷新
+}
+
+// 漏斗快照刷新的单飞状态（同一时刻只允许一个后台任务）
+var (
+	funnelRefreshMu    sync.Mutex
+	funnelRefreshing   bool
+	funnelRefreshStart time.Time
+)
+
+// FunnelRefreshRunning 当前是否有刷新任务在跑（管理端展示用）。
+func FunnelRefreshRunning() bool {
+	funnelRefreshMu.Lock()
+	defer funnelRefreshMu.Unlock()
+	return funnelRefreshing
+}
+
+// TriggerAlignmentFunnelRefresh 异步触发一次漏斗快照刷新（单飞 + recover）。
+//
+// 为什么要异步：全量现算 ~9min，远超 HTTP WriteTimeout(120s)（P11）。
+// 返回 started=false 表示已有任务在跑。
+func TriggerAlignmentFunnelRefresh() (started bool, err error) {
+	funnelRefreshMu.Lock()
+	if funnelRefreshing {
+		funnelRefreshMu.Unlock()
+		return false, errors.New("漏斗快照刷新已在进行中")
+	}
+	funnelRefreshing = true
+	funnelRefreshStart = time.Now()
+	funnelRefreshMu.Unlock()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[epid] 漏斗快照刷新 panic: %v", r)
+			}
+			funnelRefreshMu.Lock()
+			funnelRefreshing = false
+			funnelRefreshMu.Unlock()
+		}()
+		// 后台任务用独立上下文，不受触发请求的生命周期影响
+		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+		defer cancel()
+		s := currentEpidService()
+		if s == nil {
+			log.Printf("[epid] 漏斗快照刷新失败：派生服务未装配")
+			return
+		}
+		t0 := time.Now()
+		rows, all, truncated, cerr := s.repo.ClassAlignmentFunnelWithMeta(ctx)
+		if cerr != nil {
+			log.Printf("[epid] 漏斗快照计算失败（耗时 %s）: %v", time.Since(t0).Round(time.Second), cerr)
+			return
+		}
+		if serr := s.repo.SaveFunnelSnapshot(ctx, rows, all, truncated); serr != nil {
+			log.Printf("[epid] 漏斗快照写入失败: %v", serr)
+			return
+		}
+		log.Printf("[epid] 漏斗快照已更新（耗时 %s）集级=%.2f%% 片级=%.2f%% 槽=%d truncated=%v",
+			time.Since(t0).Round(time.Second), all.SlotPct, all.MkPct, all.SlotsTotal, truncated)
+	}()
+	return true, nil
 }
 
 // ReportAlignmentFunnel 分层漏斗读数（管理端按需出口）。
@@ -1331,14 +1399,22 @@ func ReportAlignmentFunnel(ctx context.Context) (FunnelReport, error) {
 	if s == nil {
 		return out, errors.New("epid 派生服务未装配")
 	}
-	v, all, err := s.repo.ClassAlignmentFunnel(ctx)
+	snap, ok, err := s.repo.LoadFunnelSnapshot(ctx)
 	if err != nil {
 		return out, err
 	}
-	if v != nil {
-		out.ByCategory = v
+	if !ok {
+		// 尚无快照：不阻塞、不现算（现算必超时），提示调用方先 POST 刷新
+		out.Pending = true
+		return out, nil
 	}
-	out.All = all
+	if snap.ByCategory != nil {
+		out.ByCategory = snap.ByCategory
+	}
+	out.All = snap.All
+	out.ComputedAt = snap.ComputedAt
+	out.PolicyVersion = snap.PolicyVersion
+	out.Truncated = snap.Truncated
 	return out, nil
 }
 

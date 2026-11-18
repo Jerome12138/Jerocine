@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS epid_alignment_funnel_snapshot;

@@ -220,6 +220,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/epid/alignment/date", h.ManageEpidAlignmentDate)
 		// 对齐率分层漏斗（L0~L5，2026-11-17）：按需计算；只做判定不改 epid
 		mg.GET("/epid/alignment/funnel", h.ManageEpidAlignmentFunnel)
+		// 漏斗快照异步刷新（P11）：现算 ~9min，故改为后台任务 + 读快照
+		mg.POST("/epid/alignment/funnel/refresh", h.ManageEpidAlignmentFunnelRefresh)
 		// epid 源头校正层（第②段 T4, 2026-11-12）：裁定台账管理面。
 		// import/GET 不受 D3 生效开关影响（先录入核对）；apply/recompute 受开关把守（默认关 ⇒ 403）；
 		// PUT /enabled 是开关本体（内存态，重启回默认关 = fail-safe）。红线③：出参全为计数/白名单视图。

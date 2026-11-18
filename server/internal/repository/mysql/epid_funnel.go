@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"log"
 	"math"
 	"sort"
 	"strconv"
@@ -55,11 +56,12 @@ type FunnelStat struct {
 	AlignedSlots int64   `json:"alignedSlots"` // = SlotsTotal - MixedDiag - Leftover
 	SlotPct      float64 `json:"slotPct"`      // 集级对齐率（分层口径）
 	MkPct        float64 `json:"mkPct"`        // 片级对齐率（分层口径）
+	Truncated    bool    `json:"truncated"`    // 1=本次计算被分页上限截断（结果不完整，P4）
 }
 
 // ClassAlignmentFunnel 分层漏斗读数（按分类 + 全库）。
 // 批策略与 `ClassAlignmentTolerant` 一致（keyset 每批 10 万 mk、批内 Go 归并）。
-func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, FunnelStat, error) {
+func (r *EpidRepo) ClassAlignmentFunnelWithMeta(ctx context.Context) ([]FunnelStat, FunnelStat, bool, error) {
 	catPID := map[int64]int64{}
 	catName := map[int64]string{}
 	{
@@ -69,7 +71,7 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 			Name string
 		}
 		if err := dbFrom(ctx, r.db).Raw("SELECT id, pid, name FROM category").Scan(&rows).Error; err != nil {
-			return nil, FunnelStat{}, err
+			return nil, FunnelStat{}, false, err
 		}
 		for _, c := range rows {
 			catPID[c.Id], catName[c.Id] = c.Pid, c.Name
@@ -89,13 +91,16 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 	accs := map[int64]*FunnelStat{}
 	var all FunnelStat
 	const page = 100000
+	const maxPages = 32 // = 320 万 mk 上限（P4：超出必须显式告警，不得静默）
 	after := int64(math.MinInt64)
-	for i := 0; i < 32; i++ {
-		var next int64
+	var next int64
+	truncated := false
+	for i := 0; i < maxPages; i++ {
+		next = 0
 		if err := dbFrom(ctx, r.db).Raw(
 			"SELECT COALESCE(MAX(mk),0) FROM (SELECT match_key AS mk FROM movie_play_source WHERE match_key > ? ORDER BY match_key LIMIT ?) t",
 			after, page).Scan(&next).Error; err != nil {
-			return nil, all, err
+			return nil, all, false, err
 		}
 		if next == 0 {
 			break
@@ -119,7 +124,7 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 			WHERE e.epid <> '' AND e.dup_copy = 0 AND e.match_key > ? AND e.match_key <= ?
 			GROUP BY e.match_key, e.src_row_id, e.ep_index`, after, next).Scan(&rows).Error
 		if err != nil {
-			return nil, all, err
+			return nil, all, false, err
 		}
 
 		type mkSeq struct {
@@ -189,13 +194,24 @@ func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, Funn
 		out = append(out, st)
 		addFunnel(&all, st)
 	}
+	if next != 0 {
+		truncated = true
+		log.Printf("[epid] 漏斗计算被分页上限截断：maxPages=%d page=%d（结果不完整，请调大上限或缩小范围）", maxPages, page)
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SlotsTotal > out[j].SlotsTotal })
 	all.Pid, all.Category = -1, "全部"
 	finalizeFunnel(&all)
-	return out, all, nil
+	all.Truncated = truncated
+	return out, all, truncated, nil
 }
 
-// funnelPiece 对单片的槽位做 L0~L5 分层。返回 (该片统计, 是否有非空槽)。
+// ClassAlignmentFunnel 兼容旧签名（不关心截断标志）；新代码请用 ClassAlignmentFunnelWithMeta。
+func (r *EpidRepo) ClassAlignmentFunnel(ctx context.Context) ([]FunnelStat, FunnelStat, error) {
+	out, all, _, err := r.ClassAlignmentFunnelWithMeta(ctx)
+	return out, all, err
+}
+
+// funnelPiece 兼容旧签名的包装（等价于"来源未知 ⇒ 视为自身"）：单测只用它。
 // funnelPiece 兼容旧签名的包装（等价于"来源未知 ⇒ 视为自身"）：单测只用它。
 func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 	return funnelPieceSrc(bySrc, nil)
