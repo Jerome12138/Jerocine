@@ -54,8 +54,8 @@ func TestRange_FirstNum(t *testing.T) {
 	if len(got3) != 1 || got3[0][0] == "" {
 		t.Fatalf("合集应归一为非空 epid，实际 %v", got3)
 	}
-	if k3, _ := ParseEpidString(got3[0][0]); k3.Num != 1 || k3.Part != "1-84" {
-		t.Fatalf("合集应 n=1 且 p=1-84，实际 %+v", k3)
+	if k3, _ := ParseEpidString(got3[0][0]); k3.Num != 1 || k3.Variant != "1-84" {
+		t.Fatalf("合集应 n=1 且 v=1-84，实际 %+v", k3)
 	}
 	// 反例：start>end ⇒ 不归一
 	got4 := EpidsForSourceRow([]string{"第80-61集"})

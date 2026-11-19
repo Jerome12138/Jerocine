@@ -178,7 +178,7 @@ var preRules = []decisionRule{
 	{meta: RuleMeta{
 		ID: RulePreRange, Layer: LayerStable, Scope: ScopeFromSrc,
 		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip, EpKeySourceSelf}, OutFromSrc: EpKeySourceSelf,
-		Desc: "R20a 区间『第X-Y集/期(完结)』→ n=first 且 p=X-Y（区间身份不与单集号混淆）；合集按噪声归一",
+		Desc: "R20a 区间『第X-Y集/期(完结)』→ n=first 且 v=X-Y（v 严格比较，与单集号严格区分）；合集按噪声归一",
 	}, apply: func(title string, k EpisodeKey, _ *ruleCtx) (string, bool) {
 		// A2（2026-11-19）：把「合集」当噪声——只取区间部分（第01-84合集 → 第01-84集），
 		// 且本规则**先于** R19(P3-pack)，避免被打包词误判为 n=1。
@@ -195,7 +195,10 @@ var preRules = []decisionRule{
 		k2 := k
 		k2.Num = start
 		k2.Series = ""
-		k2.Part = strconv.Itoa(start) + "-" + strconv.Itoa(end) // A1：区间入 p 段
+		// A1'（2026-11-19 用户口径）：区间入 **v 段**（v 严格比较 ⇒ 与「第N集」严格区分；
+		// 若放 p 会因为"空 p 通配"把区间与单集误判为同集）。
+		k2.Variant = strconv.Itoa(start) + "-" + strconv.Itoa(end)
+		k2.VariantNum = 0
 		k2.VariantNum = 0
 		return EpidOf(k2), true
 	}},

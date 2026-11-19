@@ -328,6 +328,9 @@ var (
 	// reStatusWordTail（A3 前移，2026-11-19）：仅在整串命中 reStatusTail（`第N集/期` + 尾缀）时，
 	// 把尾部状态词 `完结/已完结/全` 当噪声抹掉 —— 与画质/版本噪声同级，避免"先算 s 再清 s"处理两遍。
 	reStatusWordTail = regexp.MustCompile(`(?:完结|已完结|全)\s*$`)
+	// reDecEp（G1，2026-11-19）：小数期号 `第N.5集`（源独有插入集/番外）。
+	// 口径：`n = 整数部分`、小数串进 **v 段**（v 严格比较 ⇒ 与「第N集」严格区分）。
+	reDecEp = regexp.MustCompile(`第\s*(\d{1,4})\s*[.．]\s*(\d{1,2})\s*[集期话]`)
 	// reQualityTail = **画质/字幕/语言修饰词（集名尾部）**：解析前剥离（R17，2026-11-15）。
 	// 「HD中字」曾分裂同片多源 epid（中字行 s=中字|p=中 vs 国语/正片行 single n=1 ⇒ 39,227 部电影
 	// 多源零共享，全库对齐率被压 ~11pt）。**限定尾部**（$）避免误删中缀真词（如「英语课」）；
@@ -408,6 +411,14 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	// 日期格式归一(先于一切提取): 破折/点分 → 8 位
 	s = reDashDate.ReplaceAllString(s, "$1$2$3")
 	s = reVariantNoise.ReplaceAllString(s, "\x00") // R8：带占位（同上）
+	// G1（2026-11-19）：小数期号 `第N.5集` ⇒ `n = N`、小数进 v（同时把该片段从 s 抹掉，避免污染栏目名）
+	if m := reDecEp.FindStringSubmatch(s); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 && n <= 2000 {
+			k.Num = n
+			k.Variant = m[1] + "." + m[2]
+			s = reDecEp.ReplaceAllString(s, "\x00")
+		}
+	}
 	// A3 前移（2026-11-19）：状态尾缀（`全/完结/已完结`）在**产 s 之前**当噪声抹掉（只依赖当前集名）
 	if reStatusTail.MatchString(title) {
 		s = reStatusWordTail.ReplaceAllString(s, "\x00")
