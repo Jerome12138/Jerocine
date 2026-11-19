@@ -54,11 +54,12 @@ func TestRuleR19_PackAsSingleEpisode(t *testing.T) {
 		}
 	})
 
-	t.Run("多集源行⇒不命中(保留系列身份)", func(t *testing.T) {
+	t.Run("多集源行⇒不命中(打包词清为噪声)", func(t *testing.T) {
 		titles := []string{"全集", "第01集", "第02集"}
 		got := EpidsForSourceRowWithPool(titles, titles)
-		if len(got) != 3 || got[0] != [2]string{"s=全集|v=-|p=-|n=-|d=-", EpKeySourceNone} {
-			t.Errorf("首行（打包行）got %v, want 系列身份 / none（行为不变）", got)
+		// 2026-11-19：`全集/合集/全集完结` 已按噪声清除（E3），故打包行不再以 s=全集 充当身份 ⇒ 空 epid + skip
+		if len(got) != 3 || got[0] != [2]string{"", EpKeySourceSkip} {
+			t.Errorf("首行（打包行）got %v, want 空 epid / skip（噪声已清）", got)
 		}
 		if RuleSelectsRow(RulePrePack, titles) {
 			t.Error("源行多集时 RuleSelectsRow 不该命中 R19（否则 scope 会把不该重算的行圈进来）")

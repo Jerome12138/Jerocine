@@ -228,7 +228,11 @@ var preRules = []decisionRule{
 		if !rePackWord.MatchString(title) {
 			return "", false
 		}
-		return EpidOf(EpisodeKey{Num: 1}), true
+		// 2026-11-19 修正：保留 p/v 段（原实现丢弃 Part，导致 `全集 (上)/(下)` 归并成同一条）
+		k2 := k
+		k2.Num = 1
+		k2.Series = ""
+		return EpidOf(k2), true
 	}},
 }
 
@@ -305,9 +309,13 @@ var rowRules = []decisionRule{
 		ID: RuleSingleEp, Layer: LayerStable, Scope: ScopeFromSrc,
 		InFromSrc: []string{EpKeySourceSkip}, OutFromSrc: EpKeySourceSingle,
 		Desc: "R12：整行只有 1 集 ∧ 集名不含 ASCII 数字 ⇒ n=1（只跑 skip 档）",
-	}, apply: func(title string, _ EpisodeKey, ctx *ruleCtx) (string, bool) {
+	}, apply: func(title string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
 		if ctx.nonBlank == 1 && !hasASCIIDigit(title) {
-			return EpidOf(EpisodeKey{Num: 1}), true
+			// 2026-11-19 修正：保留 p/v 段（原实现丢弃 Part）
+			k2 := k
+			k2.Num = 1
+			k2.Series = ""
+			return EpidOf(k2), true
 		}
 		return "", false
 	}},
