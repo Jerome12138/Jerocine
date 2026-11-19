@@ -2956,6 +2956,12 @@ paths:
               l6Slot:
                 type: integer
                 description: "L6.3 纯 d 按槽容忍槽（同日唯一守卫，S1）"
+              dSlotsTotal:
+                type: integer
+                description: "纯日期槽总量（M8）"
+              dSlotsCross:
+                type: integer
+                description: "其中日期被≥2源覆盖的槽（M8）"
                         leftover: { type: integer }
                         mksTotal: { type: integer }
                         mksAligned: { type: integer }

@@ -328,6 +328,10 @@ export interface EpidFunnelStat {
   l6Date: number
   /** L6.3 纯 d 按槽（同日唯一守卫） */
   l6Slot: number
+  /** 纯日期槽总量（M8） */
+  dSlotsTotal: number
+  /** 其中日期被≥2源覆盖的槽（M8） */
+  dSlotsCross: number
   /** 诊断档：含 s/v 的多身份槽（不判定，计入未对齐） */
   mixedDiag: number
   leftover: number

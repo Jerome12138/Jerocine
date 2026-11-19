@@ -49,6 +49,11 @@ type FunnelStat struct {
 	L6Num  int64 `json:"l6Num"`  // L6.1 纯 n 整片
 	L6Date int64 `json:"l6Date"` // L6.2 纯 d 整片
 	L6Slot int64 `json:"l6Slot"` // L6.3 纯 d 按槽（同日唯一守卫）
+
+	// ===== d 覆盖率（M8，2026-11-19）=====
+	// 槽内每一行都是"纯日期"（d 非空且无 n）时计入总量；其中"该日期在本片 ≥2 个源出现"的计入 cross。
+	DSlotsTotal int64 `json:"dSlotsTotal"`
+	DSlotsCross int64 `json:"dSlotsCross"`
 	MixedDiag  int64 `json:"mixedDiag"`  // 诊断档：多身份槽（含 s/v），不判定、计入未对齐
 	Leftover   int64 `json:"leftover"`   // 以上都不成立
 
@@ -342,6 +347,29 @@ func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (Funn
 
 	// 剩余再分档：含 s/v 的多身份槽 → 诊断档（不判定，计入未对齐）；其余 → leftover
 	for _, idx := range unaligned {
+	// M8（2026-11-19）：d 覆盖率——纯日期槽总量 + 其中"日期在本片 ≥2 源出现"的部分。
+	{
+		srcSet := dateSrcSetOf(bySrc)
+		for idx, eps := range slots {
+			_ = idx
+			if !slotPureDate(eps) {
+				continue
+			}
+			st.DSlotsTotal++
+			cross := true
+			for _, ep := range eps {
+				if k, ok := danmu.ParseEpidString(ep); ok {
+					if len(srcSet[k.Date]) < 2 {
+						cross = false
+						break
+					}
+				}
+			}
+			if cross {
+				st.DSlotsCross++
+			}
+		}
+	}
 		if slotHasMultiIdentity(slots[idx]) {
 			st.MixedDiag++
 		} else {
@@ -357,6 +385,38 @@ func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (Funn
 
 // dateSrcMax 统计本片中每个日期在**单个源**内出现的最大次数。
 // >1 表示该源同一天有多集（如上下篇未识别、重复行）⇒ 日期不能单独当身份，供 L6.3 守卫使用。
+// dateSrcSetOf 统计本片中每个日期被哪些源覆盖（供 M8 的跨源覆盖率使用）。
+func dateSrcSetOf(bySrc map[int64]map[int]string) map[string]map[int64]struct{} {
+	out := make(map[string]map[int64]struct{}, 16)
+	for src, sm := range bySrc {
+		for _, ep := range sm {
+			k, ok := danmu.ParseEpidString(ep)
+			if !ok || k.Date == "" {
+				continue
+			}
+			if out[k.Date] == nil {
+				out[k.Date] = make(map[int64]struct{}, 2)
+			}
+			out[k.Date][src] = struct{}{}
+		}
+	}
+	return out
+}
+
+// slotPureDate 槽内每一行都是纯日期（d 非空且 n=0）。
+func slotPureDate(eps []string) bool {
+	if len(eps) == 0 {
+		return false
+	}
+	for _, ep := range eps {
+		k, ok := danmu.ParseEpidString(ep)
+		if !ok || k.Date == "" || k.Num != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func dateSrcMax(bySrc map[int64]map[int]string) map[string]int {
 	out := make(map[string]int, 16)
 	for _, sm := range bySrc {
@@ -727,6 +787,8 @@ func addFunnel(dst *FunnelStat, src FunnelStat) {
 	dst.L6Num += src.L6Num
 	dst.L6Date += src.L6Date
 	dst.L6Slot += src.L6Slot
+	dst.DSlotsTotal += src.DSlotsTotal
+	dst.DSlotsCross += src.DSlotsCross
 	dst.MixedDiag += src.MixedDiag
 	dst.Leftover += src.Leftover
 	dst.MksTotal += src.MksTotal
