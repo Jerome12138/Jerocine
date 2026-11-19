@@ -322,7 +322,7 @@ var (
 	// R7：未播/未公开 已挪进 reVariant（变体），此处不再删。
 	reVariantNoise = regexp.MustCompile(`直拍|完整版|未删减`) // L1-c（2026-11-19）：会员移出噪声，改认 v=会员
 	// reEAnchorDate（M1，2026-11-19）：`E{N}.{日期}` 双锚——整串锚定，日期 6 位 YYMMDD 或 8 位 YYYYMMDD。
-	reEAnchorDate = regexp.MustCompile(`^[Ee](\d{1,4})\s*[.\s]\s*(\d{6}|\d{8})$`)
+	reEAnchorDate = regexp.MustCompile(`^[Ee]P?(\d{1,4})\s*[.\s]\s*(\d{6}|\d{8})$`)
 	// reVariantPlus（L1-b，2026-11-19）：plus 版本标签（大小写不敏感）。
 	reVariantPlus = regexp.MustCompile(`(?i)plus`)
 	// reMemberVariant（L1-c，2026-11-19）：只认 会员版/会员加更/会员专享；裸"会员"不动。

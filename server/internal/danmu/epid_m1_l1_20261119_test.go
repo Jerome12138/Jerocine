@@ -113,3 +113,21 @@ func TestL2_SameDayTailDisambiguation(t *testing.T) {
 		t.Fatalf("不同日期不应被同日消歧逻辑牵连")
 	}
 }
+
+// 裸 E/EP（无日期）保持"不产身份"的既有口径：EpidOf 无 e= 段 ⇒ 空 epid ⇒ skip。
+// 本用例把该口径钉住，防止后续误改（2,897 行属此列）。
+func TestM1_BareENumKeepsNoIdentity(t *testing.T) {
+	for _, title := range []string{"E01", "EP01", "EP09"} {
+		got := EpidsForSourceRow([]string{title})
+		if got[0][0] != "" || got[0][1] != EpKeySourceSkip {
+			t.Fatalf("%q 应保持不产身份（空 epid + skip），实际 epid=%q from=%s", title, got[0][0], got[0][1])
+		}
+	}
+}
+// EP + 日期 同规（实测全库仅 2 行）：EP 前缀也走 M1 双锚。
+func TestM1_EPFormWithDate(t *testing.T) {
+	k := ParseEpisodeKey("EP07.220705")
+	if k.Num != 7 || k.Date != "20220705" {
+		t.Fatalf("EP07.220705 应双锚为 n=7 d=20220705，实际 n=%d d=%q", k.Num, k.Date)
+	}
+}
