@@ -740,6 +740,14 @@ func seriesOf(s string) string {
 	for _, frag := range strings.FieldsFunc(s, func(r rune) bool { return r == 0 || !unicode.Is(unicode.Han, r) }) {
 		rs := []rune(frag)
 		// 尾部 part 标记截断（上/中/下总在栏目名之后）
+		// B（2026-11-19）：先剥「X篇/X部/X集」（X ∈ 上/中/下）—— 它们已被 parsePart 取作 p，不应污染 s
+		// 实测：s=上篇 33 / 下篇 33 / 中篇 2 / 上集 110 / 下集 106（全库约 1,680 行）
+		if n := len(rs); n >= 2 {
+			last := rs[n-1]
+			if (last == '篇' || last == '部' || last == '集') && (rs[n-2] == '上' || rs[n-2] == '中' || rs[n-2] == '下') {
+				rs = rs[:n-2]
+			}
+		}
 		for len(rs) > 0 && (rs[len(rs)-1] == '上' || rs[len(rs)-1] == '中' || rs[len(rs)-1] == '下') {
 			rs = rs[:len(rs)-1]
 		}

@@ -49,6 +49,7 @@ const (
 	// ⚠️ 2026-11-16 改名（未发布前）：原 `R20-range`→`P1-range`、`R18-status`→`P2-status`、`R19-pack`→`P3-pack`
 	// —— 老文档里的 R18/R19/R20 与此一一对应。
 	RulePreRange  RuleID = "P1-range"  // 跨集区间（第X-Y集）⇒ 打包条目，暂不产身份（观察项）
+	RulePreRangeSkip RuleID = "P1-range-skip" // 区间松散形态（合集/异常）⇒ 保持 skip（待定层，防被 R19 误判）
 	RulePreStatus RuleID = "P2-status" // `第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀不是栏目名
 	RulePrePack   RuleID = "P3-pack"   // 打包条目（全集/合集）+ 该源行只有 1 集 ⇒ n=1
 )
@@ -172,26 +173,37 @@ var (
 )
 
 var preRules = []decisionRule{
-	// --- R20 跨集区间：整包/区间条目 ⇒ 不产身份（观察项，暂不归一为首集）
-	// 必须**先于** R18/R19 —— `第01-84合集` 同时含 R19 的打包词，不能被 R19 误当"单集整包"给 n=1。
+	// --- R20a 跨集区间（严格形态）：『第X-Y集(完结)』⇒ n = first（确定层，2026-11-19）
+	// 必须**先于** R18/R19 与 R20b —— 整串锚定保证不会误吃 `第01-84合集`（合集由 R20b 兜住）。
 	{meta: RuleMeta{
-		ID: RulePreRange, Layer: LayerPending, Scope: ScopeFromSrc,
-		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip}, OutFromSrc: EpKeySourceSkip,
-		Desc: "R20：跨集区间（第X-Y集[完结/合集]）⇒ 打包条目，**暂不产身份**（观察项；同片其余集不受影响）",
+		ID: RulePreRange, Layer: LayerStable, Scope: ScopeFromSrc,
+		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip, EpKeySourceSelf}, OutFromSrc: EpKeySourceSelf,
+		Desc: "R20a 区间『第X-Y集(完结)』→ n=first 归一（确定层）；含合集/异常不归本条",
 	}, apply: func(title string, k EpisodeKey, _ *ruleCtx) (string, bool) {
-		// 区间→n（2026-11-19）：严格"第X-Y集"归一为首号 n；其余（合集/异常）仍 skip。
-		if m := reRangeStrict.FindStringSubmatch(strings.TrimSpace(title)); m != nil && !strings.Contains(title, "合集") {
-			start, e1 := strconv.Atoi(m[1])
-			end, e2 := strconv.Atoi(m[2])
-			if e1 == nil && e2 == nil && start > 0 && end > 0 && start <= end && start <= 2000 {
-				k2 := k
-				k2.Num = start
-				k2.Series = ""
-				k2.Part = ""
-				k2.VariantNum = 0
-				return EpidOf(k2), true
-			}
+		m := reRangeStrict.FindStringSubmatch(strings.TrimSpace(title))
+		if m == nil || strings.Contains(title, "合集") {
+			return "", false
 		}
+		start, e1 := strconv.Atoi(m[1])
+		end, e2 := strconv.Atoi(m[2])
+		if e1 != nil || e2 != nil || start <= 0 || end <= 0 || start > end || start > 2000 {
+			return "", false
+		}
+		k2 := k
+		k2.Num = start
+		k2.Series = ""
+		k2.Part = ""
+		k2.VariantNum = 0
+		return EpidOf(k2), true
+	}},
+
+	// --- R20b 跨集区间（松散/打包形态）：其余含区间的条目（如 `第01-84合集`）⇒ 仍不产身份（待定层）
+	// 保留本条的**唯一目的**：抢在 R19 打包词之前把它判成 skip，避免被误当"单集整包"给 n=1。
+	{meta: RuleMeta{
+		ID: RulePreRangeSkip, Layer: LayerPending, Scope: ScopeFromSrc,
+		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip, EpKeySourceSelf}, OutFromSrc: EpKeySourceSkip,
+		Desc: "R20b 区间松散形态（合集/异常）→ 保持 skip（待定层），防止被 R19 打包词误判为单集",
+	}, apply: func(title string, _ EpisodeKey, _ *ruleCtx) (string, bool) {
 		if reRangeEp.MatchString(title) {
 			return "", true
 		}

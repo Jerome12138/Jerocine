@@ -82,13 +82,13 @@ func TestRuleR20_RangePackNoIdentity(t *testing.T) {
 	// 2026-11-19 起：严格"第X-Y集/期"归一为 n=first（区间→n 批）；"合集"/异常仍 skip。
 	for _, title := range []string{"第61-80集完结", "第1~20集", "第 3 - 10 期"} {
 		got, from, id := EpidForRule(title, []string{title})
-		if got == "" || from != EpKeySourceSkip || id != RulePreRange {
-			t.Errorf("%q: got (%q, %s, %s), want 非空 epid / skip / %s", title, got, from, id, RulePreRange)
+		if got == "" || from != EpKeySourceSelf || id != RulePreRange {
+			t.Errorf("%q: got (%q, %s, %s), want 非空 epid / self / %s", title, got, from, id, RulePreRange)
 		}
 	}
 	// 打包语义（合集）仍不归一
-	if got, from, id := EpidForRule("第01-84合集", []string{"第01-84合集"}); got != "" || from != EpKeySourceSkip || id != RulePreRange {
-		t.Errorf("合集: got (%q, %s, %s), want 空 epid / skip / %s", got, from, id, RulePreRange)
+	if got, from, id := EpidForRule("第01-84合集", []string{"第01-84合集"}); got != "" || from != EpKeySourceSkip || id != RulePreRangeSkip {
+		t.Errorf("合集: got (%q, %s, %s), want 空 epid / skip / %s", got, from, id, RulePreRangeSkip)
 	}
 	// 负例：单个 `第N集` 不是区间
 	if _, _, id := EpidForRule("第80集", []string{"第80集"}); id != RuleSelfInName {
@@ -99,7 +99,7 @@ func TestRuleR20_RangePackNoIdentity(t *testing.T) {
 // 前置性：R20 在 R19 之前 —— 区间型（含打包词）不得被 R19 当成"单集整包"给 n=1。
 func TestRuleR18R20_Precedence(t *testing.T) {
 	got, _, id := EpidForRule("第01-84合集", []string{"第01-84合集"})
-	if id != RulePreRange || got != "" {
+	if id != RulePreRangeSkip || got != "" {
 		t.Errorf("区间+打包词：得 (%q, %s)，应先被 R20 挡下（空 + %s）", got, id, RulePreRange)
 	}
 }
@@ -130,7 +130,7 @@ func TestRuleSelectsRow_R18R20(t *testing.T) {
 // 登记项自洽：R18/R19 是确定层 ⇒ 产出 self/single；R20 是待定层（观察项）⇒ 产出 skip。
 // 三条都必须可收紧（Scope=from-src + InFromSrc + 不扇出整片）。
 func TestRuleMeta_R18R20(t *testing.T) {
-	for _, id := range []RuleID{RulePreStatus, RulePrePack, RulePreRange} {
+	for _, id := range []RuleID{RulePreStatus, RulePrePack, RulePreRange, RulePreRangeSkip} {
 		m := RuleMetaOf(id)
 		if m.Scope != ScopeFromSrc || len(m.InFromSrc) == 0 {
 			t.Errorf("%s: 必须可收紧（Scope=from-src + InFromSrc），得 scope=%s in=%v", id, m.Scope, m.InFromSrc)
@@ -142,8 +142,8 @@ func TestRuleMeta_R18R20(t *testing.T) {
 			t.Errorf("%s: 缺 Desc", id)
 		}
 	}
-	if m := RuleMetaOf(RulePreRange); m.Layer != LayerPending {
-		t.Errorf("R20 是观察项 ⇒ 层应为待定，得 %s", m.Layer)
+	if m := RuleMetaOf(RulePreRange); m.Layer != LayerStable {
+		t.Errorf("R20a 已归一输出确定身份（2026-11-19 起）⇒ 应为确定层，现 %s", m.Layer)
 	}
 	if m := RuleMetaOf(RulePreStatus); m.OutFromSrc != EpKeySourceSelf {
 		t.Errorf("R18 产出档应为 self，得 %s", m.OutFromSrc)
