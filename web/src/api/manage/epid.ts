@@ -332,6 +332,10 @@ export interface EpidFunnelStat {
   dSlotsTotal: number
   /** 其中日期被≥2源覆盖的槽（M8） */
   dSlotsCross: number
+  /** L7 剔除的合集行数（子集法） */
+  l7PackRows: number
+  /** L7 发生剔除的槽数 */
+  l7Slots: number
   /** 诊断档：含 s/v 的多身份槽（不判定，计入未对齐） */
   mixedDiag: number
   leftover: number

@@ -54,6 +54,12 @@ type FunnelStat struct {
 	// 槽内每一行都是"纯日期"（d 非空且无 n）时计入总量；其中"该日期在本片 ≥2 个源出现"的计入 cross。
 	DSlotsTotal int64 `json:"dSlotsTotal"`
 	DSlotsCross int64 `json:"dSlotsCross"`
+
+	// ===== L7 特殊数据剔除层（2026-11-19，用户口径"子集法"）=====
+	// 槽内剔除 `s=合集`（归一后）的行——空集视为任何集合的子集 ⇒ 该槽判对齐；
+	// 仅当该槽还有"可比较行"（非合集行）时才剔除；整槽全为合集行 ⇒ 保持原判。
+	L7PackRows int64 `json:"l7PackRows"` // 被剔除的合集行数
+	L7Slots    int64 `json:"l7Slots"`    // 发生剔除的槽数
 	MixedDiag  int64 `json:"mixedDiag"`  // 诊断档：多身份槽（含 s/v），不判定、计入未对齐
 	Leftover   int64 `json:"leftover"`   // 以上都不成立
 
@@ -232,6 +238,9 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 // funnelPieceSrc 对单片的槽位做 L0~L6 分层。from = 每源行的 from_src（L6 用；nil/空 表示未知⇒视为自身）。
 func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (FunnelStat, bool) {
 	var st FunnelStat
+	// L7（2026-11-19，子集法）：先剔除 `s=合集`（归一后）的行——仅当该槽还存在"可比较行"（非合集行）时才剔；
+	// 空集视为任何集合的子集 ⇒ 该槽判对齐；整槽全为合集行 ⇒ 不剔，保持原判（避免削弱既有对齐）。
+	st.L7PackRows, st.L7Slots = stripPackRows(bySrc)
 	slots := map[int][]string{} // ep_index → 该槽所有行的 epid
 	for _, sm := range bySrc {
 		for idx, ep := range sm {
@@ -388,6 +397,49 @@ func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (Funn
 
 // dateSrcMax 统计本片中每个日期在**单个源**内出现的最大次数。
 // >1 表示该源同一天有多集（如上下篇未识别、重复行）⇒ 日期不能单独当身份，供 L6.3 守卫使用。
+// stripPackRows（L7，2026-11-19）剔除 `s=合集`（归一后）的派生行：
+//   - 只在该槽（ep_index）**还存在非合集行**时剔除 —— 剔除后该槽只剩可比较行，
+//     若可比较行为 0（不可达，因为剔除以"存在非合集行"为前提）则视为空集⊆任意集合；
+//   - 整槽全为合集行 ⇒ 不剔（保持原判：全片同写合集者本就自洽对齐）；
+//   - 返回 (被剔除行数, 发生剔除的槽数)。bySrc 就地修改（调用方每片新建，不复用）。
+func stripPackRows(bySrc map[int64]map[int]string) (int64, int64) {
+	if len(bySrc) == 0 {
+		return 0, 0
+	}
+	hasCmp := map[int]bool{}
+	for _, sm := range bySrc {
+		for idx, ep := range sm {
+			if !isPackSeriesEpid(ep) {
+				hasCmp[idx] = true
+			}
+		}
+	}
+	if len(hasCmp) == 0 {
+		return 0, 0
+	}
+	var dropped int64
+	droppedSlots := map[int]bool{}
+	for src, sm := range bySrc {
+		for idx, ep := range sm {
+			if hasCmp[idx] && isPackSeriesEpid(ep) {
+				delete(sm, idx)
+				dropped++
+				droppedSlots[idx] = true
+			}
+		}
+		if len(sm) == 0 {
+			delete(bySrc, src)
+		}
+	}
+	return dropped, int64(len(droppedSlots))
+}
+
+// isPackSeriesEpid L7：该行是否为"打包系列"（归一后 s == 合集）。
+func isPackSeriesEpid(ep string) bool {
+	k, ok := danmu.ParseEpidString(ep)
+	return ok && k.Series == "合集"
+}
+
 // dateSrcSetOf 统计本片中每个日期被哪些源覆盖（供 M8 的跨源覆盖率使用）。
 func dateSrcSetOf(bySrc map[int64]map[int]string) map[string]map[int64]struct{} {
 	out := make(map[string]map[int64]struct{}, 16)
@@ -792,6 +844,8 @@ func addFunnel(dst *FunnelStat, src FunnelStat) {
 	dst.L6Slot += src.L6Slot
 	dst.DSlotsTotal += src.DSlotsTotal
 	dst.DSlotsCross += src.DSlotsCross
+	dst.L7PackRows += src.L7PackRows
+	dst.L7Slots += src.L7Slots
 	dst.MixedDiag += src.MixedDiag
 	dst.Leftover += src.Leftover
 	dst.MksTotal += src.MksTotal

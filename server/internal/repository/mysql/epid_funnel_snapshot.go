@@ -11,7 +11,7 @@ import (
 //
 // ⚠️ **口径语义变更时必须递增**（比如 L5/L6 的准入、L3/L4 的键、part 守卫），
 // 否则历史快照与现值不可比 —— 报表与归因文档都以此字段做「同口径对账」。
-const FunnelPolicyVersion = "L0-L6.3+dCov@2026-11-19"
+const FunnelPolicyVersion = "L0-L7@2026-11-19"
 
 // FunnelSnapshot 一次漏斗快照（整表覆盖写：库里只保留最近一批）。
 type FunnelSnapshot struct {
@@ -55,6 +55,8 @@ func (r *EpidRepo) SaveFunnelSnapshot(ctx context.Context, rows []FunnelStat, al
 				"l6_slot":        st.L6Slot,
 				"d_slots_total":  st.DSlotsTotal,
 				"d_slots_cross":  st.DSlotsCross,
+				"l7_pack_rows":   st.L7PackRows,
+				"l7_slots":       st.L7Slots,
 				"mixed_diag":     st.MixedDiag,
 				"leftover":       st.Leftover,
 				"mks_total":      st.MksTotal,
@@ -94,6 +96,8 @@ func (r *EpidRepo) LoadFunnelSnapshot(ctx context.Context) (FunnelSnapshot, bool
 		L6Slot        int64
 		DSlotsTotal   int64
 		DSlotsCross   int64
+		L7PackRows    int64
+		L7Slots       int64
 		MixedDiag     int64
 		Leftover      int64
 		MksTotal      int64
@@ -107,7 +111,7 @@ func (r *EpidRepo) LoadFunnelSnapshot(ctx context.Context) (FunnelSnapshot, bool
 	if err := dbFrom(ctx, r.db).Raw(`
 		SELECT computed_at, policy_version, truncated, pid, category,
 		       slots_total, l0_single, l1_slot, l2_tolerant, l3_date, l4_num,
-		       l5_subset, l6_tol, l6_num, l6_date, l6_slot, d_slots_total, d_slots_cross, mixed_diag, leftover, mks_total, mks_aligned,
+		       l5_subset, l6_tol, l6_num, l6_date, l6_slot, d_slots_total, d_slots_cross, l7_pack_rows, l7_slots, mixed_diag, leftover, mks_total, mks_aligned,
 		       aligned_slots, slot_pct, mk_pct
 		FROM epid_alignment_funnel_snapshot
 		ORDER BY (pid = -1), slots_total DESC`).Scan(&rows).Error; err != nil {
@@ -125,7 +129,7 @@ func (r *EpidRepo) LoadFunnelSnapshot(ctx context.Context) (FunnelSnapshot, bool
 			Pid: r0.Pid, Category: r0.Category,
 			SlotsTotal: r0.SlotsTotal, L0Single: r0.L0Single, L1Slot: r0.L1Slot,
 			L2Tolerant: r0.L2Tolerant, L3Date: r0.L3Date, L4Num: r0.L4Num,
-			L5Subset: r0.L5Subset, L6Tol: r0.L6Tol, L6Num: r0.L6Num, L6Date: r0.L6Date, L6Slot: r0.L6Slot, DSlotsTotal: r0.DSlotsTotal, DSlotsCross: r0.DSlotsCross, MixedDiag: r0.MixedDiag,
+			L5Subset: r0.L5Subset, L6Tol: r0.L6Tol, L6Num: r0.L6Num, L6Date: r0.L6Date, L6Slot: r0.L6Slot, DSlotsTotal: r0.DSlotsTotal, DSlotsCross: r0.DSlotsCross, L7PackRows: r0.L7PackRows, L7Slots: r0.L7Slots, MixedDiag: r0.MixedDiag,
 			Leftover: r0.Leftover, MksTotal: r0.MksTotal, MksAligned: r0.MksAligned,
 			AlignedSlots: r0.AlignedSlots, SlotPct: r0.SlotPct, MkPct: r0.MkPct,
 		}

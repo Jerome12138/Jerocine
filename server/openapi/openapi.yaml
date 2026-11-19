@@ -2962,6 +2962,12 @@ paths:
               dSlotsCross:
                 type: integer
                 description: "其中日期被≥2源覆盖的槽（M8）"
+              l7PackRows:
+                type: integer
+                description: "L7 剔除的合集行数（子集法）"
+              l7Slots:
+                type: integer
+                description: "L7 发生剔除的槽数"
                         leftover: { type: integer }
                         mksTotal: { type: integer }
                         mksAligned: { type: integer }

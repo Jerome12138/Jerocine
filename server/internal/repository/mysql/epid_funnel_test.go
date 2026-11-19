@@ -505,3 +505,48 @@ func TestFunnelPiece_L6_3_SlotPureDate(t *testing.T) {
 		t.Fatalf("槽内含 n 不应走 L6.3：%+v", st3)
 	}
 }
+// L7（2026-11-19，子集法）：剔除 `s=合集` 行后按子集判对齐。
+//   - 正例A：源1 只有合集行 + 源2 正常集 ⇒ 槽内剔合集后仅剩可比较行 ⇒ 对齐；
+//   - 正例B：源1 正常 + 源2 正常+合集 ⇒ 剔合集后可比较行一致 ⇒ 对齐；
+//   - 反例1：整槽全为合集行且冲突 ⇒ **不剔**（保持原判，不得白送对齐）；
+//   - 反例2：可比较行之间冲突 ⇒ 仍不对齐（L7 不得掩盖真实分歧）。
+func TestFunnelPiece_L7_PackSubset(t *testing.T) {
+	// 正例A：a 只有合集（上/下），b 有正常集
+	a := map[int]string{1: "s=合集|v=-|p=上|n=-|d=-", 2: "s=合集|v=-|p=下|n=-|d=-"}
+	b := map[int]string{1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"}
+	st, _ := funnelPieceSrc(piece(a, b), map[int64]string{1: "none", 2: "none"})
+	if st.Leftover != 0 || st.MixedDiag != 0 {
+		t.Fatalf("场景A 应判对齐：%+v", st)
+	}
+	if st.L7PackRows != 2 || st.L7Slots != 2 {
+		t.Fatalf("场景A 应剔除 2 行/2 槽：%+v", st)
+	}
+
+	// 正例B：a 正常，b 正常 + 合集（多出一个合集槽）
+	a2 := map[int]string{1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"}
+	b2 := map[int]string{1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-", 3: "s=合集|v=-|p=-|n=-|d=-"}
+	st2, _ := funnelPieceSrc(piece(a2, b2), map[int64]string{1: "none", 2: "none"})
+	if st2.Leftover != 0 || st2.MixedDiag != 0 {
+		t.Fatalf("场景B 应判对齐（合集槽单独存在、无可比较对手）：%+v", st2)
+	}
+
+	// 反例1：整槽全为合集行且两行不同（p 不同）⇒ 不剔 ⇒ 该槽仍算未对齐
+	// 说明：此时 hasCmp 为空 ⇒ 不剔除 ⇒ 走原逻辑
+	a3 := map[int]string{1: "s=合集|v=-|p=上|n=-|d=-"}
+	b3 := map[int]string{1: "s=合集|v=-|p=下|n=-|d=-"}
+	st3, _ := funnelPieceSrc(piece(a3, b3), map[int64]string{1: "none", 2: "none"})
+	if st3.L7PackRows != 0 {
+		t.Fatalf("整槽全合集不应剔除：%+v", st3)
+	}
+
+	// 反例2：可比较行冲突 ⇒ 仍不对齐（单槽，L2 不介入）
+	a4 := map[int]string{1: "s=-|v=-|p=-|n=1|d=-"}
+	b4 := map[int]string{1: "s=-|v=-|p=-|n=9|d=-"}
+	st4, _ := funnelPieceSrc(piece(a4, b4), map[int64]string{1: "none", 2: "none"})
+	if st4.Leftover+st4.MixedDiag == 0 {
+		t.Fatalf("可比较行冲突不应被判对齐：%+v", st4)
+	}
+	if st4.L7PackRows != 0 {
+		t.Fatalf("无可剔除行：%+v", st4)
+	}
+}
