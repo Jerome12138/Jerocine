@@ -354,8 +354,7 @@ func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (Funn
 	// M8（2026-11-19）：d 覆盖率——纯日期槽总量 + 其中"日期在本片 ≥2 源出现"的部分。
 	{
 		srcSet := dateSrcSetOf(bySrc)
-		for idx, eps := range slots {
-			_ = idx
+		for _, eps := range slots {
 			if !slotPureDate(eps) {
 				continue
 			}
