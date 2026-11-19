@@ -182,8 +182,12 @@ func (r *EpidRepo) ClassAlignmentFunnelWithMeta(ctx context.Context) ([]FunnelSt
 				continue
 			}
 			cat := resolveCategory(m.pid, m.cid)
-			if cat <= 0 && m.hasMid == 1 {
-				cat = PidUnresolvedWithMid
+			if cat <= 0 {
+				if m.hasMid == 1 {
+					cat = PidUnresolvedWithMid
+				} else {
+					cat = PidUnresolvedSource
+				}
 			}
 			a := accs[cat]
 			if a == nil {

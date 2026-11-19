@@ -665,6 +665,11 @@ func (r *EpidRepo) SourceRowCount(ctx context.Context) (int64, error) {
 // "有 mid 但 pid=0/无 movie" 的 45,137 个）。
 const PidUnresolvedWithMid int64 = -2
 
+// PidUnresolvedSource 合成 sentinel：**无主源 mk**（组内全部行 mid 为 NULL，没有对应影片）。
+// 与 PidUnresolvedWithMid 区分：-2 是"有 mid 但归不到类"，-3 是"根本没有 mid"。
+// 不用 -1 的原因：漏斗快照把全库合计行写成 pid=-1，分类若也用 -1 会在 Load 时被当成合计行吞掉。
+const PidUnresolvedSource int64 = -3
+
 // ClassAlignmentStat 按分类的**跨源对齐**（**槽位口径**，2026-11-15 用户定稿；双粒度）：
 //   - **槽位 = (match_key, ep_index)**：各源行的"第 N 集"对位到同一槽。
 //     槽对齐 ⇔ 槽内非空 epid **只有一种**：
@@ -822,8 +827,12 @@ func (r *EpidRepo) ClassAlignmentTolerant(ctx context.Context) ([]TolerantAlignm
 			}
 			ok, _, _ := danmu.TolerantMkAligned(seqs, -1)
 			cat := resolveCategory(m.pid, m.cid)
-			if cat <= 0 && m.hasMid == 1 {
-				cat = PidUnresolvedWithMid
+			if cat <= 0 {
+				if m.hasMid == 1 {
+					cat = PidUnresolvedWithMid
+				} else {
+					cat = PidUnresolvedSource
+				}
 			}
 			a := accs[cat]
 			if a == nil {
@@ -845,7 +854,7 @@ func (r *EpidRepo) ClassAlignmentTolerant(ctx context.Context) ([]TolerantAlignm
 	for pid, a := range accs {
 		name := "(未知分类)"
 		switch {
-		case pid == -1:
+case pid == PidUnresolvedSource, pid == -1:
 			name = "未关联片（无主源）"
 		case pid == PidUnresolvedWithMid:
 			name = "未关联片（有 mid 未归类）"
@@ -1030,8 +1039,12 @@ func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat,
 				continue // 单源不背书 / 非纯日期片：不进分母
 			}
 			cat := resolveCategory(m.pid, m.cid)
-			if cat <= 0 && m.hasMid == 1 {
-				cat = PidUnresolvedWithMid
+			if cat <= 0 {
+				if m.hasMid == 1 {
+					cat = PidUnresolvedWithMid
+				} else {
+					cat = PidUnresolvedSource
+				}
 			}
 			a := accs[cat]
 			if a == nil {
@@ -1081,7 +1094,7 @@ func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat,
 // categoryDisplayName 分类显示名（-1 / 未归类 sentinel / 空名统一兜底）。
 func categoryDisplayName(pid int64, names map[int64]string) string {
 	switch {
-	case pid == -1:
+case pid == PidUnresolvedSource, pid == -1:
 		return "未关联片（无主源）"
 	case pid == PidUnresolvedWithMid:
 		return "未关联片（有 mid 未归类）"
@@ -1190,7 +1203,7 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 			TotalMks     int64
 		}
 		err := dbFrom(ctx, r.db).Raw(`
-			SELECT IFNULL(MAX(mkstat.pid), -1) AS pid,
+			SELECT IFNULL(MAX(mkstat.pid), -3) AS pid,
 			       IFNULL(MAX(mkstat.cid), 0) AS cid,
 			       IFNULL(MAX(mkstat.has_mid), 0) AS has_mid,
 			       SUM(mkstat.aligned_slots) AS aligned_slots,
@@ -1227,8 +1240,12 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 			// M1 + R4：Go 侧解析归属（0 ⇒ 回退 cid；cid 是二级类目 ⇒ 再回退父类）。
 			pid := resolveCategory(rows[i].Pid, rows[i].Cid)
 			// M2（2026-11-16）：把"未关联"拆两档 —— ① 无主源（组内零 mid 行）② 有 mid 但归类不出来。
-			if pid <= 0 && rows[i].HasMid == 1 {
-				pid = PidUnresolvedWithMid
+			if pid <= 0 {
+				if rows[i].HasMid == 1 {
+					pid = PidUnresolvedWithMid
+				} else {
+					pid = PidUnresolvedSource
+				}
 			}
 			a := accs[pid]
 			if a == nil {
@@ -1251,7 +1268,7 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 	for pid, a := range accs {
 		name := "(未知分类)"
 		switch {
-		case pid == -1:
+case pid == PidUnresolvedSource, pid == -1:
 			name = "未关联片（无主源）"
 		case pid == PidUnresolvedWithMid:
 			name = "未关联片（有 mid 未归类）"

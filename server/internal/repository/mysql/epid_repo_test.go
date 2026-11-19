@@ -154,7 +154,7 @@ func TestClassAlignment_双粒度归并(t *testing.T) {
 		t.Fatalf("cid=35 应直挂为 35（电影解说）: %+v", st)
 	}
 	// M2：未关联拆两档
-	if st, ok := byPid[-1]; !ok || st.Category != "未关联片（无主源）" {
+	if st, ok := byPid[PidUnresolvedSource]; !ok || st.Category != "未关联片（无主源）" {
 		t.Fatalf("无主源档不符: %+v", st)
 	}
 	if st, ok := byPid[PidUnresolvedWithMid]; !ok || st.Category != "未关联片（有 mid 未归类）" {
