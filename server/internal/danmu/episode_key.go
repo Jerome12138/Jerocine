@@ -321,8 +321,6 @@ var (
 	// reVariantNoise = **无意义后缀**：只是同一集的版本标签，解析前一律剔除（与括号/标点同等）。
 	// R7：未播/未公开 已挪进 reVariant（变体），此处不再删。
 	reVariantNoise = regexp.MustCompile(`直拍|完整版|未删减`) // L1-c（2026-11-19）：会员移出噪声，改认 v=会员
-	// reEAnchorDate（M1，2026-11-19）：`E{N}.{日期}` 双锚——整串锚定，日期 6 位 YYMMDD 或 8 位 YYYYMMDD。
-	reEAnchorDate = regexp.MustCompile(`^[Ee]P?(\d{1,4})\s*[.\s]\s*(\d{6}|\d{8})$`)
 	// reVariantPlus（L1-b，2026-11-19）：plus 版本标签（大小写不敏感）。
 	reVariantPlus = regexp.MustCompile(`(?i)plus`)
 	// reMemberVariant（L1-c，2026-11-19）：只认 会员版/会员加更/会员专享；裸"会员"不动。
@@ -413,20 +411,6 @@ func ParseEpisodeKey(title string) EpisodeKey {
 		memberVariant = "会员"
 		s = reMemberVariant.ReplaceAllString(s, "\x00")
 	}
-	// M1（2026-11-19）：`E{N}.{日期}` 双锚（整串锚定；6 位 YYMMDD 补 20；8 位须为合法 YYYYMMDD）
-	m1Hit := false
-	if m := reEAnchorDate.FindStringSubmatch(strings.TrimSpace(s)); m != nil {
-		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 && n <= 2000 {
-			d := m[2]
-			if len(d) == 6 {
-				d = "20" + d
-			}
-			if validDate8(d) {
-				k.Num, k.Date = n, d
-				m1Hit = true
-			}
-		}
-	}
 	var dateTail string
 	if loc := reDate8.FindStringIndex(s); loc != nil {
 		// R6（2026-11-15）：8 位日期合法性 —— 原式只校验 (19|20) 前缀，「202300707下」被切成
@@ -464,7 +448,7 @@ func ParseEpisodeKey(title string) EpisodeKey {
 			}
 		}
 	}
-	if m := reENum.FindStringSubmatch(s); m != nil && !m1Hit {
+	if m := reENum.FindStringSubmatch(s); m != nil {
 		// R4：捕获组回填后取数组移（m[1]=左邻居、m[2]=E 号数字、m[3]=右邻居）
 		if v, err := strconv.Atoi(m[2]); err == nil {
 			k.ENum = v

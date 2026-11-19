@@ -28,7 +28,7 @@ func TestEpisodeTriggered_与TS同规(t *testing.T) {
 		}
 	}
 	// 仍不触发：E 圆号（epid 串不含 e 段）与"无任何可区分信息"的串
-	for _, title := range []string{"01", "12", ""} {
+	for _, title := range []string{"01", "E01.220705", "12", ""} {
 		if EpisodeTriggered(ParseEpisodeKey(title)) {
 			t.Errorf("%q 不应触发", title)
 		}

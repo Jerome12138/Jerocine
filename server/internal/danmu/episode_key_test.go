@@ -43,7 +43,7 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"第9期上", EpisodeKey{Num: 9, Part: "上"}},
 		{"第1集", EpisodeKey{Num: 1}},
 		{"第1期加更版1", EpisodeKey{Num: 1, Variant: "加更"}},
-		{"E01.220705", EpisodeKey{Num: 1, Date: "20220705"}}, // M1（2026-11-19）：E{N}.{日期} 双锚
+		{"E01.220705", EpisodeKey{ENum: 1}},
 		{"正片", EpisodeKey{}},
 		{"国语", EpisodeKey{}},
 		// ---- R17（2026-11-15）：画质/字幕/语言修饰词不是栏目 ——「HD中字」曾误吞为 s=中字|p=中
@@ -110,7 +110,7 @@ func TestSameEpisode_KeyRules(t *testing.T) {
 		{"App「第1期上」 vs 库「第1期下」→ 上下不同, 判不同", app, appXia, false},
 		{"纯日期同 → 同集", ParseEpisodeKey("20250803"), ParseEpisodeKey("20250803"), true},
 		{"纯日期不同 → 不同集", ParseEpisodeKey("20250803"), ParseEpisodeKey("20250810"), false},
-		{"E圆号「E01.220705」带日期后与裸「E01」不再同集（M1，2026-11-19）", ParseEpisodeKey("E01.220705"), ParseEpisodeKey("E01"), false},
+		{"E圆号同 → 同集", ParseEpisodeKey("E01.220705"), ParseEpisodeKey("E01"), true},
 		{"无特征键之间不判同(避免误配)", ParseEpisodeKey("正片"), ParseEpisodeKey("正片"), false},
 		{"App 有变体、库无变体 → 判不同(宁缺勿错)", ParseEpisodeKey("20250712(加更篇)"), ParseEpisodeKey("第7期"), false},
 		// 2026-11-06 修订：主/次部分必须一致（此前被日期/期号相同掩盖）

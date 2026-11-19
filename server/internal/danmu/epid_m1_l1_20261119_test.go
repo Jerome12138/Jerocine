@@ -5,35 +5,6 @@ import "testing"
 // 本批（2026-11-19）新增：M1 双锚 / L1-b plus / L1-a 篇 / 区间→n / L2 同日尾号。
 // 每条都带反例，防"识别过宽"。
 
-func TestM1_EAnchorDate_DoubleAnchor(t *testing.T) {
-	cases := []struct {
-		name  string
-		title string
-		want  EpisodeKey
-	}{
-		// 正例：整串 E{N}.{6/8 位日期}
-		{"E414.251117 → n=414,d=20251117", "E414.251117", EpisodeKey{Num: 414, Date: "20251117"}},
-		{"E02.220724 → n=2,d=20220724", "E02.220724", EpisodeKey{Num: 2, Date: "20220724"}},
-		// 空格分隔（实测 11 行，ICU 下与 '.' 同类）
-		{"E263 241002 → n=263,d=20241002", "E263 241002", EpisodeKey{Num: 263, Date: "20241002"}},
-		// 8 位合法日期
-		{"E12.20250731 → n=12,d=20250731", "E12.20250731", EpisodeKey{Num: 12, Date: "20250731"}},
-		// 反例：8 位"日期+同日序号"（E04.22061601）不是 YYYYMMDD ⇒ 不设 Date
-		{"E04.22061601 不认日期", "E04.22061601", EpisodeKey{ENum: 4}},
-		// 反例：名前有其他字符 ⇒ 不整串锚定 ⇒ 不设 Date
-		{"剧名 E414.251117 不锚定（但 E 圆号仍成立）", "某剧 E414.251117", EpisodeKey{ENum: 414}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := ParseEpisodeKey(c.title)
-			if got.Num != c.want.Num || got.Date != c.want.Date || got.ENum != c.want.ENum {
-				t.Fatalf("ParseEpisodeKey(%q) = {Num:%d Date:%q ENum:%d}, want {Num:%d Date:%q ENum:%d}",
-					c.title, got.Num, got.Date, got.ENum, c.want.Num, c.want.Date, c.want.ENum)
-			}
-		})
-	}
-}
-
 func TestL1b_PlusVariant(t *testing.T) {
 	// 正例：同含日期（6 位）⇒ 认 v=Plus
 	if k := ParseEpisodeKey("大神260724Plus版"); k.Variant != "Plus" {
@@ -117,7 +88,7 @@ func TestL2_SameDayTailDisambiguation(t *testing.T) {
 // 裸 E/EP（无日期）保持"不产身份"的既有口径：EpidOf 无 e= 段 ⇒ 空 epid ⇒ skip。
 // 本用例把该口径钉住，防止后续误改（2,897 行属此列）。
 func TestM1_BareENumKeepsNoIdentity(t *testing.T) {
-	for _, title := range []string{"E01", "EP01", "EP09"} {
+	for _, title := range []string{"E01", "EP01", "EP09", "E414.251117", "EP07.220705", "E01.220705"} {
 		got := EpidsForSourceRow([]string{title})
 		if got[0][0] != "" || got[0][1] != EpKeySourceSkip {
 			t.Fatalf("%q 应保持不产身份（空 epid + skip），实际 epid=%q from=%s", title, got[0][0], got[0][1])
@@ -125,9 +96,3 @@ func TestM1_BareENumKeepsNoIdentity(t *testing.T) {
 	}
 }
 // EP + 日期 同规（实测全库仅 2 行）：EP 前缀也走 M1 双锚。
-func TestM1_EPFormWithDate(t *testing.T) {
-	k := ParseEpisodeKey("EP07.220705")
-	if k.Num != 7 || k.Date != "20220705" {
-		t.Fatalf("EP07.220705 应双锚为 n=7 d=20220705，实际 n=%d d=%q", k.Num, k.Date)
-	}
-}
