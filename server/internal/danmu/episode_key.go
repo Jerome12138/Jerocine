@@ -325,6 +325,9 @@ var (
 	reVariantPlus = regexp.MustCompile(`(?i)plus`)
 	// reMemberVariant（L1-c，2026-11-19）：只认 会员版/会员加更/会员专享；裸"会员"不动。
 	reMemberVariant = regexp.MustCompile(`会员\s*(?:版|加更|专享)`)
+	// reStatusWordTail（A3 前移，2026-11-19）：仅在整串命中 reStatusTail（`第N集/期` + 尾缀）时，
+	// 把尾部状态词 `完结/已完结/全` 当噪声抹掉 —— 与画质/版本噪声同级，避免"先算 s 再清 s"处理两遍。
+	reStatusWordTail = regexp.MustCompile(`(?:完结|已完结|全)\s*$`)
 	// reQualityTail = **画质/字幕/语言修饰词（集名尾部）**：解析前剥离（R17，2026-11-15）。
 	// 「HD中字」曾分裂同片多源 epid（中字行 s=中字|p=中 vs 国语/正片行 single n=1 ⇒ 39,227 部电影
 	// 多源零共享，全库对齐率被压 ~11pt）。**限定尾部**（$）避免误删中缀真词（如「英语课」）；
@@ -406,6 +409,10 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	// 日期格式归一(先于一切提取): 破折/点分 → 8 位
 	s = reDashDate.ReplaceAllString(s, "$1$2$3")
 	s = reVariantNoise.ReplaceAllString(s, "\x00") // R8：带占位（同上）
+	// A3 前移（2026-11-19）：状态尾缀（`全/完结/已完结`）在**产 s 之前**当噪声抹掉（只依赖当前集名）
+	if reStatusTail.MatchString(title) {
+		s = reStatusWordTail.ReplaceAllString(s, "\x00")
+	}
 	// L1-c（2026-11-19）：会员版/会员加更/会员专享 → v=会员（裸"会员"不动）
 	memberVariant := ""
 	if m := reMemberVariant.FindString(s); m != "" {
@@ -499,13 +506,6 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	// 等价变换（`SameEpisode` 里 s 与 v 同为"必须完全相等"）⇒ 判等/触发不变；收益是前缀式/后缀式写法收敛。
 	// ⚠️ 必须在**追加季/部标记之前**做（否则 `#S7` 会挡住 HasSuffix）。
 	k.Series, k.Variant = splitVersionTail(k.Series, k.Variant)
-	// A3（2026-11-19）：状态尾缀（`全/完结/已完结`）在**预处理阶段**清掉，避免污染 s。
-	// 原 R18/P2-status 规则前移至此（它只依赖当前集名，不依赖任何跨源判定）。
-	if k.Series == "全" || k.Series == "完结" || k.Series == "已完结" {
-		if reStatusTail.MatchString(title) {
-			k.Series = ""
-		}
-	}
 	// 季/部标记并入 Series（2026-11-16，方案 A）：`王牌对王牌第七季` ⇒ `s=王牌对王牌#S7`。
 	// 为什么：季/部是**分季/分部标记** —— 既不该当集序（`reDiN` 已排除 季/部），
 	// 若完全不进身份，"同片多季"的 S1E1 与 S2E1 会得到**同一身份**（实测当前 0 碰撞，但机制存在：
