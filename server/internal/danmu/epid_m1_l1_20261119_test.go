@@ -49,10 +49,13 @@ func TestRange_FirstNum(t *testing.T) {
 	if len(got2) != 1 || got2[0][0] == "" {
 		t.Fatalf("第1~20集应归一，实际 %v", got2)
 	}
-	// 反例：合集 ⇒ 仍 skip（空 epid）
+	// A2（2026-11-19）：合集按噪声归一 —— `第01-84合集` → p=1-84, n=1（非空）
 	got3 := EpidsForSourceRow([]string{"第01-84合集"})
-	if len(got3) != 1 || got3[0][0] != "" {
-		t.Fatalf("合集不应归一（保持 skip），实际 %v", got3)
+	if len(got3) != 1 || got3[0][0] == "" {
+		t.Fatalf("合集应归一为非空 epid，实际 %v", got3)
+	}
+	if k3, _ := ParseEpidString(got3[0][0]); k3.Num != 1 || k3.Part != "1-84" {
+		t.Fatalf("合集应 n=1 且 p=1-84，实际 %+v", k3)
 	}
 	// 反例：start>end ⇒ 不归一
 	got4 := EpidsForSourceRow([]string{"第80-61集"})

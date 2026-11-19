@@ -173,26 +173,29 @@ var (
 )
 
 var preRules = []decisionRule{
-	// --- R20a 跨集区间（严格形态）：『第X-Y集(完结)』⇒ n = first（确定层，2026-11-19）
-	// 必须**先于** R18/R19 与 R20b —— 整串锚定保证不会误吃 `第01-84合集`（合集由 R20b 兜住）。
+	// --- R20a 跨集区间（严格形态）：『第X-Y集(完结)』⇒ n = first + p = X-Y（确定层，2026-11-19）
+	// 必须**先于** R18/R19 与 R20b；`合集` 按噪声归一（第01-84合集 → 第01-84集）后再整串锚定匹配。
 	{meta: RuleMeta{
 		ID: RulePreRange, Layer: LayerStable, Scope: ScopeFromSrc,
 		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip, EpKeySourceSelf}, OutFromSrc: EpKeySourceSelf,
-		Desc: "R20a 区间『第X-Y集(完结)』→ n=first 归一（确定层）；含合集/异常不归本条",
+		Desc: "R20a 区间『第X-Y集/期(完结)』→ n=first 且 p=X-Y（区间身份不与单集号混淆）；合集按噪声归一",
 	}, apply: func(title string, k EpisodeKey, _ *ruleCtx) (string, bool) {
-		m := reRangeStrict.FindStringSubmatch(strings.TrimSpace(title))
-		if m == nil || strings.Contains(title, "合集") {
+		// A2（2026-11-19）：把「合集」当噪声——只取区间部分（第01-84合集 → 第01-84集），
+		// 且本规则**先于** R19(P3-pack)，避免被打包词误判为 n=1。
+		norm := strings.ReplaceAll(strings.TrimSpace(title), "合集", "集")
+		m := reRangeStrict.FindStringSubmatch(norm)
+		if m == nil {
 			return "", false
 		}
 		start, e1 := strconv.Atoi(m[1])
 		end, e2 := strconv.Atoi(m[2])
-		if e1 != nil || e2 != nil || start <= 0 || end <= 0 || start > end || start > 2000 {
+		if e1 != nil || e2 != nil || start <= 0 || end <= 0 || start > end || end > 2000 {
 			return "", false
 		}
 		k2 := k
 		k2.Num = start
 		k2.Series = ""
-		k2.Part = ""
+		k2.Part = strconv.Itoa(start) + "-" + strconv.Itoa(end) // A1：区间入 p 段
 		k2.VariantNum = 0
 		return EpidOf(k2), true
 	}},
@@ -210,22 +213,6 @@ var preRules = []decisionRule{
 		return "", false
 	}},
 
-	// --- R18 状态尾缀：`第N集完结/已完结/全` ⇒ 清掉被误当栏目名的尾缀（`n` 保留）
-	// 只在**解析出的 `s` 恰好就是状态词**时才动手 ⇒ 真有栏目名的行（如「桃花坞第3集完结」）不受影响。
-	{meta: RuleMeta{
-		ID: RulePreStatus, Layer: LayerStable, Scope: ScopeFromSrc,
-		InFromSrc: []string{EpKeySourceSelf}, OutFromSrc: EpKeySourceSelf,
-		Desc: "R18：`第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀被误算成 s 段，清 s、保留 n（与其它源的 `第N集` 对齐）",
-	}, apply: func(title string, k EpisodeKey, _ *ruleCtx) (string, bool) {
-		if k.Series != "全" && k.Series != "完结" && k.Series != "已完结" {
-			return "", false
-		}
-		if !reStatusTail.MatchString(title) {
-			return "", false
-		}
-		k.Series = ""
-		return EpidOf(k), true
-	}},
 
 	// --- R19 打包条目：`全集/合集` 且**该源行只有 1 集** ⇒ n=1（整包 = 从第 1 集起）
 	// 门控用 `ctx.nonBlank == 1`（与 D7 的"整行只有 1 集"同族）：源行**同时**有打包行与正常集时

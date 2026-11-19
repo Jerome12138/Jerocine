@@ -18,7 +18,7 @@ func TestDecisionRuleMetas_Integrity(t *testing.T) {
 	metas := DecisionRuleMetas()
 	wantOrder := []RuleID{
 		// 前置段（2026-11-16，R18~R20）：求值顺序在 D2/D3 之前，编号沿用 R 系列号
-		RulePreRange, RulePreRangeSkip, RulePreStatus, RulePrePack,
+		RulePreRange, RulePreRangeSkip, RulePrePack,
 		RuleSkipNoTrigger, RuleSelfInName, RuleNoneNoDate, RuleBridgeNum, RuleAnchorNum,
 		RuleNonePoolMiss, RuleSingleEp, RuleBareNum,
 	}

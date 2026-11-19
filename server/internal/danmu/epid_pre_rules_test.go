@@ -19,9 +19,9 @@ func TestRuleR18_StatusTail(t *testing.T) {
 		want  string // 期望 EpidFor 的 epid
 		id    RuleID // 期望命中的规则
 	}{
-		{"完结尾缀", "第178集完结", "s=-|v=-|p=-|n=178|d=-", RulePreStatus},
-		{"已完结尾缀", "第360集已完结", "s=-|v=-|p=-|n=360|d=-", RulePreStatus},
-		{"期单位同样适用", "第12期完结", "s=-|v=-|p=-|n=12|d=-", RulePreStatus},
+		{"完结尾缀", "第178集完结", "s=-|v=-|p=-|n=178|d=-", RuleSelfInName},
+		{"已完结尾缀", "第360集已完结", "s=-|v=-|p=-|n=360|d=-", RuleSelfInName},
+		{"期单位同样适用", "第12期完结", "s=-|v=-|p=-|n=12|d=-", RuleSelfInName},
 		// 「全」单字尾缀既有链已正确：seriesOf 只取 2~8 字片段 ⇒ `全` 不入 s（本用例兼作回归钉子）
 		{"全尾缀(既有链已正确)", "第3集全", "s=-|v=-|p=-|n=3|d=-", RuleSelfInName},
 		// 真有栏目名：`第N集` 被占位符切开 ⇒ s 只取到栏目名（既有链已正确，R18 不该动它）
@@ -87,8 +87,8 @@ func TestRuleR20_RangePackNoIdentity(t *testing.T) {
 		}
 	}
 	// 打包语义（合集）仍不归一
-	if got, from, id := EpidForRule("第01-84合集", []string{"第01-84合集"}); got != "" || from != EpKeySourceSkip || id != RulePreRangeSkip {
-		t.Errorf("合集: got (%q, %s, %s), want 空 epid / skip / %s", got, from, id, RulePreRangeSkip)
+	if got, from, id := EpidForRule("第01-84合集", []string{"第01-84合集"}); got == "" || from != EpKeySourceSelf || id != RulePreRange {
+		t.Errorf("合集: got (%q, %s, %s), want 非空 epid / self / %s", got, from, id, RulePreRange)
 	}
 	// 负例：单个 `第N集` 不是区间
 	if _, _, id := EpidForRule("第80集", []string{"第80集"}); id != RuleSelfInName {
@@ -99,7 +99,7 @@ func TestRuleR20_RangePackNoIdentity(t *testing.T) {
 // 前置性：R20 在 R19 之前 —— 区间型（含打包词）不得被 R19 当成"单集整包"给 n=1。
 func TestRuleR18R20_Precedence(t *testing.T) {
 	got, _, id := EpidForRule("第01-84合集", []string{"第01-84合集"})
-	if id != RulePreRangeSkip || got != "" {
+	if id != RulePreRange || got == "" {
 		t.Errorf("区间+打包词：得 (%q, %s)，应先被 R20 挡下（空 + %s）", got, id, RulePreRange)
 	}
 }
@@ -113,8 +113,6 @@ func TestRuleSelectsRow_R18R20(t *testing.T) {
 		titles []string
 		want   bool
 	}{
-		{"R18 命中", RulePreStatus, []string{"第178集完结"}, true},
-		{"R18 负例", RulePreStatus, []string{"第178集"}, false},
 		{"R19 命中(单集源行)", RulePrePack, []string{"全集"}, true},
 		{"R19 门控：源行多集 ⇒ 不命中", RulePrePack, []string{"全集", "第01集"}, false},
 		{"R20 命中", RulePreRange, []string{"第61-80集完结"}, true},
@@ -130,7 +128,7 @@ func TestRuleSelectsRow_R18R20(t *testing.T) {
 // 登记项自洽：R18/R19 是确定层 ⇒ 产出 self/single；R20 是待定层（观察项）⇒ 产出 skip。
 // 三条都必须可收紧（Scope=from-src + InFromSrc + 不扇出整片）。
 func TestRuleMeta_R18R20(t *testing.T) {
-	for _, id := range []RuleID{RulePreStatus, RulePrePack, RulePreRange, RulePreRangeSkip} {
+	for _, id := range []RuleID{RulePrePack, RulePreRange, RulePreRangeSkip} {
 		m := RuleMetaOf(id)
 		if m.Scope != ScopeFromSrc || len(m.InFromSrc) == 0 {
 			t.Errorf("%s: 必须可收紧（Scope=from-src + InFromSrc），得 scope=%s in=%v", id, m.Scope, m.InFromSrc)
@@ -144,9 +142,6 @@ func TestRuleMeta_R18R20(t *testing.T) {
 	}
 	if m := RuleMetaOf(RulePreRange); m.Layer != LayerStable {
 		t.Errorf("R20a 已归一输出确定身份（2026-11-19 起）⇒ 应为确定层，现 %s", m.Layer)
-	}
-	if m := RuleMetaOf(RulePreStatus); m.OutFromSrc != EpKeySourceSelf {
-		t.Errorf("R18 产出档应为 self，得 %s", m.OutFromSrc)
 	}
 	if m := RuleMetaOf(RulePrePack); m.OutFromSrc != EpKeySourceSingle {
 		t.Errorf("R19 产出档应为 single，得 %s", m.OutFromSrc)
