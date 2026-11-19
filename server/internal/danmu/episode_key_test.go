@@ -24,7 +24,7 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"20260128未公开特辑", EpisodeKey{Date: "20260128", Variant: "未公开,特辑"}},
 		{"20260803完整版", EpisodeKey{Date: "20260803"}},
 		{"20260805超前彩蛋未播", EpisodeKey{Date: "20260805", Variant: "彩蛋,未播,超前"}},
-		{"会员版", EpisodeKey{}},
+		{"会员版", EpisodeKey{Variant: "会员"}}, // L1-c（2026-11-19）：会员版 → v=会员（原"零键"已随本批反转）
 		// 主/次部分细分（2026-11-06 引入；P0-1c 2026-11-10 合并为**单个复合 Part 字段**）
 		{"20260818中（下）", EpisodeKey{Date: "20260818", Part: "中下"}},
 		{"20260831中上", EpisodeKey{Date: "20260831", Part: "中上"}},
@@ -43,7 +43,7 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"第9期上", EpisodeKey{Num: 9, Part: "上"}},
 		{"第1集", EpisodeKey{Num: 1}},
 		{"第1期加更版1", EpisodeKey{Num: 1, Variant: "加更"}},
-		{"E01.220705", EpisodeKey{ENum: 1}},
+		{"E01.220705", EpisodeKey{Num: 1, Date: "20220705"}}, // M1（2026-11-19）：E{N}.{日期} 双锚
 		{"正片", EpisodeKey{}},
 		{"国语", EpisodeKey{}},
 		// ---- R17（2026-11-15）：画质/字幕/语言修饰词不是栏目 ——「HD中字」曾误吞为 s=中字|p=中
@@ -69,7 +69,7 @@ func TestParseEpisodeKey_RealForms(t *testing.T) {
 		{"第20260731期先导片上", EpisodeKey{Date: "20260731", Part: "上", Variant: "先导"}},
 		// 2026-11-16 方案A：季号归一化并入 Series（`王牌对王牌第七季` ⇒ `王牌对王牌#S7`）——
 		// 分季标记必须进身份（否则同片多季的 S1E1/S2E1 会撞）；归一化保证各源写法差异不制造伪分歧。
-		{"王牌对王牌第七季2022.05.01期-会员版", EpisodeKey{Date: "20220501", Series: "王牌对王牌#S7"}},
+		{"王牌对王牌第七季2022.05.01期-会员版", EpisodeKey{Date: "20220501", Variant: "会员", Series: "王牌对王牌#S7"}}, // L1-c
 		{"檀健次带北江小分队回好六了！ 2025-01-04期", EpisodeKey{Date: "20250104"}},
 		{"我是大侦探.20180324期", EpisodeKey{Date: "20180324", Series: "我是大侦探"}},
 		{"20261027心动的周末第3期下", EpisodeKey{Date: "20261027", Num: 3, Part: "下", Series: "心动的周末"}},
@@ -110,7 +110,7 @@ func TestSameEpisode_KeyRules(t *testing.T) {
 		{"App「第1期上」 vs 库「第1期下」→ 上下不同, 判不同", app, appXia, false},
 		{"纯日期同 → 同集", ParseEpisodeKey("20250803"), ParseEpisodeKey("20250803"), true},
 		{"纯日期不同 → 不同集", ParseEpisodeKey("20250803"), ParseEpisodeKey("20250810"), false},
-		{"E圆号同 → 同集", ParseEpisodeKey("E01.220705"), ParseEpisodeKey("E01"), true},
+		{"E圆号「E01.220705」带日期后与裸「E01」不再同集（M1，2026-11-19）", ParseEpisodeKey("E01.220705"), ParseEpisodeKey("E01"), false},
 		{"无特征键之间不判同(避免误配)", ParseEpisodeKey("正片"), ParseEpisodeKey("正片"), false},
 		{"App 有变体、库无变体 → 判不同(宁缺勿错)", ParseEpisodeKey("20250712(加更篇)"), ParseEpisodeKey("第7期"), false},
 		// 2026-11-06 修订：主/次部分必须一致（此前被日期/期号相同掩盖）

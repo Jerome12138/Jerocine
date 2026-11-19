@@ -1,6 +1,7 @@
 package danmu
 
 import (
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -308,5 +309,68 @@ func EpidsForSourceRowWithPool(titles, pool []string) [][2]string {
 		epid, from, _ := decideRow(t, ctx)
 		out = append(out, [2]string{epid, from})
 	}
+	// L2（2026-11-19）：同源同日消歧——同日期 ≥2 条、去尾号后文本一致 ⇒ 尾号写 p（compact epid 无 vn 段）
+	disambiguateSameDayTails(titles, out)
 	return out
+}
+
+// reTailNum L2 用：名字末尾的 1~3 位序号。
+var reTailNum = regexp.MustCompile(`^(.*?)(\d{1,3})$`)
+
+// disambiguateSameDayTails（L2，2026-11-19）：
+// 同源、同一日期出现 ≥2 条，且"去掉尾部序号后的文本完全一致"时，把尾部序号写进 p 段。
+// 守卫：只在该日期组内生效；单条尾号一律不动（防「海贼王1000」）；p 已有值（上/下）或带 vn 的不动。
+func disambiguateSameDayTails(titles []string, out [][2]string) {
+	if len(out) < 2 {
+		return
+	}
+	byDate := make(map[string][]int, len(out)/2)
+	keys := make([]EpisodeKey, len(out))
+	for i := range out {
+		k, ok := ParseEpidString(out[i][0])
+		if !ok || k.Date == "" {
+			continue
+		}
+		keys[i] = k
+		byDate[k.Date] = append(byDate[k.Date], i)
+	}
+	for _, idxs := range byDate {
+		if len(idxs) < 2 {
+			continue
+		}
+		base := ""
+		nums := make(map[int]bool, len(idxs))
+		ok := true
+		for _, i := range idxs {
+			k := keys[i]
+			if k.Part != "" || k.VariantNum != 0 {
+				ok = false
+				break
+			}
+			m := reTailNum.FindStringSubmatch(strings.TrimSpace(titles[i]))
+			if m == nil || strings.TrimSpace(m[1]) == "" {
+				ok = false
+				break
+			}
+			n, err := strconv.Atoi(m[2])
+			if err != nil || n <= 0 || n > 2000 || nums[n] {
+				ok = false
+				break
+			}
+			if base == "" {
+				base = m[1]
+			} else if m[1] != base {
+				ok = false
+				break
+			}
+			nums[n] = true
+			keys[i].Part = m[2]
+		}
+		if !ok {
+			continue
+		}
+		for _, i := range idxs {
+			out[i][0] = EpidOf(keys[i])
+		}
+	}
 }

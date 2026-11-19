@@ -79,11 +79,16 @@ func TestRuleR19_PackAsSingleEpisode(t *testing.T) {
 
 // R20：跨集区间 ⇒ 打包条目，暂不产身份；且**必须抢在 R19 之前**（`第01-84合集` 同时含打包词）。
 func TestRuleR20_RangePackNoIdentity(t *testing.T) {
-	for _, title := range []string{"第61-80集完结", "第01-84合集", "第1~20集", "第 3 - 10 期"} {
+	// 2026-11-19 起：严格"第X-Y集/期"归一为 n=first（区间→n 批）；"合集"/异常仍 skip。
+	for _, title := range []string{"第61-80集完结", "第1~20集", "第 3 - 10 期"} {
 		got, from, id := EpidForRule(title, []string{title})
-		if got != "" || from != EpKeySourceSkip || id != RulePreRange {
-			t.Errorf("%q: got (%q, %s, %s), want 空 epid / skip / %s", title, got, from, id, RulePreRange)
+		if got == "" || from != EpKeySourceSkip || id != RulePreRange {
+			t.Errorf("%q: got (%q, %s, %s), want 非空 epid / skip / %s", title, got, from, id, RulePreRange)
 		}
+	}
+	// 打包语义（合集）仍不归一
+	if got, from, id := EpidForRule("第01-84合集", []string{"第01-84合集"}); got != "" || from != EpKeySourceSkip || id != RulePreRange {
+		t.Errorf("合集: got (%q, %s, %s), want 空 epid / skip / %s", got, from, id, RulePreRange)
 	}
 	// 负例：单个 `第N集` 不是区间
 	if _, _, id := EpidForRule("第80集", []string{"第80集"}); id != RuleSelfInName {

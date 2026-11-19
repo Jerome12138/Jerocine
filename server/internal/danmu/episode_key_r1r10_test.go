@@ -33,7 +33,7 @@ func TestParseEpisodeKey_R1R10Golden(t *testing.T) {
 		{"R3 居民采访", "(居民采访第1期)", EpisodeKey{Num: 1, Series: "居民采访"}},
 		{"R3 副本解锁中", "(副本解锁中第2期)", EpisodeKey{Num: 2, Part: "中", Series: "副本解锁"}},
 		{"R3 护栏：非汉字段不许回退", "【qq】第1期上：又争又抢", EpisodeKey{Num: 1, Part: "上"}},
-		{"R3 护栏：噪声残留 1 字", "（会员版）", EpisodeKey{}},
+		{"R3 护栏：噪声残留 1 字", "（会员版）", EpisodeKey{Variant: "会员"}},
 		// ---- R4 E 号删除不截断邻居 ----
 		{"R4 EP 前缀", "EP01白昼逃亡", EpisodeKey{ENum: 1, Series: "白昼逃亡"}},
 		{"R4 EP 后缀", "白昼逆行EP10", EpisodeKey{ENum: 10, Series: "白昼逆行"}},

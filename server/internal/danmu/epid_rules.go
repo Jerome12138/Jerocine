@@ -2,6 +2,7 @@ package danmu
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -160,6 +161,8 @@ var (
 	// ⚠️ **不要求**后面跟单位字：`第01-84合集` 的收尾是"合集"而不是"集"（实测漏网形态），
 	// 只认 `第<数>-<数>` 这个形态本身即可（`第2024-2025季` 这类已被既有链判为"不触发"，改成 skip 无害）。
 	reRangeEp = regexp.MustCompile(`第\s*\d{1,4}\s*(?:-|~|—|－)\s*\d{1,4}`)
+	// reRangeStrict（区间→n，2026-11-19）：整串锚定的"第X-Y集(完结)"，用于 n=first 归一；含"合集"不归一。
+	reRangeStrict = regexp.MustCompile(`^第?\s*(\d{1,4})\s*[-~—－]\s*(\d{1,4})\s*(?:集|期)?\s*(?:完结)?$`)
 	// reStatusTail（R18）：`……第N集` + 状态尾缀（全/完结/已完结）并**收尾**。
 	reStatusTail = regexp.MustCompile(`.*第\s*\d{1,4}\s*[期集话回季部]\s*(?:全|完结|已完结)\s*$`)
 	// rePackWord（R19）：打包词（`全集`/`合集`/`整合版`）。
@@ -175,7 +178,20 @@ var preRules = []decisionRule{
 		ID: RulePreRange, Layer: LayerPending, Scope: ScopeFromSrc,
 		InFromSrc: []string{EpKeySourceNone, EpKeySourceSkip}, OutFromSrc: EpKeySourceSkip,
 		Desc: "R20：跨集区间（第X-Y集[完结/合集]）⇒ 打包条目，**暂不产身份**（观察项；同片其余集不受影响）",
-	}, apply: func(title string, _ EpisodeKey, _ *ruleCtx) (string, bool) {
+	}, apply: func(title string, k EpisodeKey, _ *ruleCtx) (string, bool) {
+		// 区间→n（2026-11-19）：严格"第X-Y集"归一为首号 n；其余（合集/异常）仍 skip。
+		if m := reRangeStrict.FindStringSubmatch(strings.TrimSpace(title)); m != nil && !strings.Contains(title, "合集") {
+			start, e1 := strconv.Atoi(m[1])
+			end, e2 := strconv.Atoi(m[2])
+			if e1 == nil && e2 == nil && start > 0 && end > 0 && start <= end && start <= 2000 {
+				k2 := k
+				k2.Num = start
+				k2.Series = ""
+				k2.Part = ""
+				k2.VariantNum = 0
+				return EpidOf(k2), true
+			}
+		}
 		if reRangeEp.MatchString(title) {
 			return "", true
 		}

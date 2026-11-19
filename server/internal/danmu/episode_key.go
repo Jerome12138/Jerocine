@@ -320,7 +320,13 @@ var (
 	reVariantSpan = regexp.MustCompile(`(?:剧情|舞台|收官|特别)*(?:加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外|未播|未公开)(?:典藏版|版)?`)
 	// reVariantNoise = **无意义后缀**：只是同一集的版本标签，解析前一律剔除（与括号/标点同等）。
 	// R7：未播/未公开 已挪进 reVariant（变体），此处不再删。
-	reVariantNoise = regexp.MustCompile(`会员|直拍|完整版|未删减`)
+	reVariantNoise = regexp.MustCompile(`直拍|完整版|未删减`) // L1-c（2026-11-19）：会员移出噪声，改认 v=会员
+	// reEAnchorDate（M1，2026-11-19）：`E{N}.{日期}` 双锚——整串锚定，日期 6 位 YYMMDD 或 8 位 YYYYMMDD。
+	reEAnchorDate = regexp.MustCompile(`^[Ee](\d{1,4})\s*[.\s]\s*(\d{6}|\d{8})$`)
+	// reVariantPlus（L1-b，2026-11-19）：plus 版本标签（大小写不敏感）。
+	reVariantPlus = regexp.MustCompile(`(?i)plus`)
+	// reMemberVariant（L1-c，2026-11-19）：只认 会员版/会员加更/会员专享；裸"会员"不动。
+	reMemberVariant = regexp.MustCompile(`会员\s*(?:版|加更|专享)`)
 	// reQualityTail = **画质/字幕/语言修饰词（集名尾部）**：解析前剥离（R17，2026-11-15）。
 	// 「HD中字」曾分裂同片多源 epid（中字行 s=中字|p=中 vs 国语/正片行 single n=1 ⇒ 39,227 部电影
 	// 多源零共享，全库对齐率被压 ~11pt）。**限定尾部**（$）避免误删中缀真词（如「英语课」）；
@@ -401,6 +407,26 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	// 日期格式归一(先于一切提取): 破折/点分 → 8 位
 	s = reDashDate.ReplaceAllString(s, "$1$2$3")
 	s = reVariantNoise.ReplaceAllString(s, "\x00") // R8：带占位（同上）
+	// L1-c（2026-11-19）：会员版/会员加更/会员专享 → v=会员（裸"会员"不动）
+	memberVariant := ""
+	if m := reMemberVariant.FindString(s); m != "" {
+		memberVariant = "会员"
+		s = reMemberVariant.ReplaceAllString(s, "\x00")
+	}
+	// M1（2026-11-19）：`E{N}.{日期}` 双锚（整串锚定；6 位 YYMMDD 补 20；8 位须为合法 YYYYMMDD）
+	m1Hit := false
+	if m := reEAnchorDate.FindStringSubmatch(strings.TrimSpace(s)); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 && n <= 2000 {
+			d := m[2]
+			if len(d) == 6 {
+				d = "20" + d
+			}
+			if validDate8(d) {
+				k.Num, k.Date = n, d
+				m1Hit = true
+			}
+		}
+	}
 	var dateTail string
 	if loc := reDate8.FindStringIndex(s); loc != nil {
 		// R6（2026-11-15）：8 位日期合法性 —— 原式只校验 (19|20) 前缀，「202300707下」被切成
@@ -438,7 +464,7 @@ func ParseEpisodeKey(title string) EpisodeKey {
 			}
 		}
 	}
-	if m := reENum.FindStringSubmatch(s); m != nil {
+	if m := reENum.FindStringSubmatch(s); m != nil && !m1Hit {
 		// R4：捕获组回填后取数组移（m[1]=左邻居、m[2]=E 号数字、m[3]=右邻居）
 		if v, err := strconv.Atoi(m[2]); err == nil {
 			k.ENum = v
@@ -464,11 +490,18 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	if dateTail != "" && k.Part == "" {
 		k.Part = dateTail
 	}
-	if ms := reVariant.FindAllString(s, -1); len(ms) > 0 {
+	// L1-b/L1-c（2026-11-19）：plus 需有日期/期/集语境；会员已在上面识别
+	extraVariants := make([]string, 0, 2)
+	if memberVariant != "" {
+		extraVariants = append(extraVariants, memberVariant)
+	}
+	if reVariantPlus.MatchString(s) && (k.Date != "" || strings.ContainsRune(s, '期') || strings.ContainsRune(s, '集')) {
+		extraVariants = append(extraVariants, "Plus")
+	}
+	ms := reVariant.FindAllString(s, -1)
+	ms = append(ms, extraVariants...)
+	if len(ms) > 0 {
 		sort.Strings(ms)
-		// ⚠️ M1（2026-11-11 评审）：连接符用 `,` 而**不是 `|`** —— `|` 是 epid/epk 的**段分隔符**，
-		// 多变体（如「特辑|花絮」）会把它写成 `v=特辑|花絮` ⇒ 串变 7 段 ⇒ 服务端 `ParseEpisodeKeyString`
-		// 拒收 + web `parseEpid` 恒 null（续播②档失效）+ 落库坏串 ✗。段值域（中文词表/上中下/数字）无逗号 ⇒ 安全 ✓
 		k.Variant = strings.Join(ms, ",")
 	}
 	if m := reVariantNum.FindStringSubmatch(s); m != nil {
@@ -567,7 +600,7 @@ func partFollowerSuspicious(r rune) bool {
 		return false
 	}
 	switch r {
-	case '期', '集', '话', '回', '季', '部', '上', '中', '下', '第',
+	case '期', '集', '话', '回', '季', '部', '篇', '上', '中', '下', '第',
 		'加', '陪', '纯', '先', '超', '彩', '特', '花', '预', '番', '未':
 		return false
 	}
