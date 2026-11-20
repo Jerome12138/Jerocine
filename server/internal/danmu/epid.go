@@ -374,3 +374,72 @@ func disambiguateSameDayTails(titles []string, out [][2]string) {
 		}
 	}
 }
+
+// normNameForPrefix 规范化片名（去半角/全角空格与间隔号），用于"s 前缀命中"比较。
+func normNameForPrefix(s string) string {
+	return strings.NewReplacer(" ", "", "\u3000", "", "·", "").Replace(s)
+}
+
+// StripFilmNamePrefix（2026-11-19 用户口径；③ 同日放宽为三条命中情形）：某行 s 与「片名」满足
+// A/B/C 任一 ⇒ 去掉该 s（含季号 `#S<n>`/`#B<n>`）：
+//   - **A 相等**：norm(s) == norm(片名)；
+//   - **B 互为前缀**：norm(s) 以片名为前缀，**或片名以 norm(s) 为前缀**（后者用于 s 被削短的场景，
+//     与 ②「裸数字紧跟日期不剥」配套 —— 修前 s=创造 vs 片名 创造101）；
+//   - **C 片名去尾数字后相等**：norm(s) == strings.TrimRight(norm(片名), "0123456789")（s=创造 vs 创造101）。
+//
+// 评审注记（用户知情接受）：C 的跨片误伤理论面已知（他片去尾数字后撞名）；反例用例
+// （另一部剧#S2 / 普通男女）钉住常见形态。
+//   - 只处理 s 非空的行；filmName 为空则不做任何事；
+//   - 守卫：去掉后若在同一源行内导致 epid 重复 ⇒ 该行不改（宁可不改）；
+//   - 返回实际改动的行数。
+func StripFilmNamePrefix(out [][2]string, filmName string) int {
+	fn := normNameForPrefix(filmName)
+	if fn == "" || len(out) == 0 {
+		return 0
+	}
+	fnTailless := strings.TrimRight(fn, "0123456789")
+	type chg struct {
+		idx     int
+		newEpid string
+	}
+	var changes []chg
+	for i := range out {
+		k, ok := ParseEpidString(out[i][0])
+		if !ok || k.Series == "" {
+			continue
+		}
+		ns := normNameForPrefix(k.Series)
+		if ns == "" {
+			// 规范化后为空（纯空格/间隔号）⇒ B 反向（片名以 "" 为前缀恒真）会误清任何行，保守跳过
+			continue
+		}
+		hit := ns == fn || // A 相等
+			strings.HasPrefix(ns, fn) || strings.HasPrefix(fn, ns) || // B 互为前缀
+			ns == fnTailless // C 片名去尾数字后相等
+		if !hit {
+			continue
+		}
+		k2 := k
+		k2.Series = ""
+		changes = append(changes, chg{i, EpidOf(k2)})
+	}
+	if len(changes) == 0 {
+		return 0
+	}
+	seen := make(map[string]int, len(out))
+	for i := range out {
+		seen[out[i][0]]++
+	}
+	for _, c := range changes {
+		seen[c.newEpid]++
+	}
+	n := 0
+	for _, c := range changes {
+		if seen[c.newEpid] > 1 { // 去重守卫：会与同源行内其它行撞键 ⇒ 不改
+			continue
+		}
+		out[c.idx][0] = c.newEpid
+		n++
+	}
+	return n
+}

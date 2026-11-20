@@ -256,6 +256,8 @@ type DeriveStats struct {
 	OverrideApplied int `json:"overrideApplied"` // 本批套用 corrected 的派生行数（epid 被替换为 new_epid）
 	OverrideKept    int `json:"overrideKept"`    // 本批登记"已裁定（kept）"的条数（值不变）
 	OverrideStale   int `json:"overrideStale"`   // 本批三元组校验失败被标 stale 的台账条数（重回清单复核）
+	// FilmNameStripped S-去前缀（2026-11-19）：s 以片名为前缀 ⇒ 去掉（含季号），计改动行数。
+	FilmNameStripped int `json:"filmNameStripped"`
 }
 
 // derivFlushRows 一次 flush 的派生行上限（批级写入缓冲）：≈几 MB 内存，且把"一次事务"的规模
@@ -337,6 +339,36 @@ func (s *EpidService) deriveRows(ctx context.Context, rows []entity.MoviePlaySou
 		ids = append(ids, r.Id)
 	}
 	anchors, err := s.repo.AnchorsBySrcRowIds(ctx, ids)
+	// S-去前缀（2026-11-19）：C 口径——优先用本行 source_name；为空则按 mid 批量取影片名。
+	midNames := map[int64]string{}
+	{
+		want := make([]int64, 0, len(rows))
+		seenMid := map[int64]struct{}{}
+		for _, r := range rows {
+			if r.SourceName != nil && *r.SourceName != "" {
+				continue
+			}
+			if r.Mid == nil || *r.Mid <= 0 {
+				continue
+			}
+			if _, ok := seenMid[*r.Mid]; ok {
+				continue
+			}
+			seenMid[*r.Mid] = struct{}{}
+			want = append(want, *r.Mid)
+		}
+		const nameBatch = 200
+		for i := 0; i < len(want); i += nameBatch {
+			j := min(i+nameBatch, len(want))
+			part, nerr := s.repo.MovieNamesByMids(ctx, want[i:j])
+			if nerr != nil {
+				return nil, nerr
+			}
+			for k, v := range part {
+				midNames[k] = v
+			}
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -436,6 +468,13 @@ func (s *EpidService) deriveRows(ctx context.Context, rows []entity.MoviePlaySou
 
 		// 派生（服务端口径：带 A2 期号，含锚点兜底；见 danmu.EpidFor）
 		derived := danmu.EpidsForSourceRowWithPool(titles, pool)
+		// S-去前缀（2026-11-19）：C 口径——source_name 优先，回退到 movie.name；
+		// 仅当该行有 s 时才可能改动；去掉后若同源行内重复则不改（守卫在 danmu.StripFilmNamePrefix 内）。
+		if fn := rowFilmName(src, midNames); fn != "" {
+			if n := danmu.StripFilmNamePrefix(derived, fn); n > 0 {
+				st.FilmNameStripped += n
+			}
+		}
 		out := make([]entity.MovieEpisodeEpid, 0, len(titles))
 		for i, t := range titles {
 			if derived[i][0] == "" {
@@ -1598,4 +1637,15 @@ func (s *EpidService) AlignmentReport(ctx context.Context) (AlignmentReport, err
 		rep.ByFromSrc[x.FromSrc] = x.N
 	}
 	return rep, nil
+}
+
+// rowFilmName（S-去前缀，2026-11-19）：C 口径取片名 —— 本行 source_name 优先，其次 mid → movie.name。
+func rowFilmName(src entity.MoviePlaySource, midNames map[int64]string) string {
+	if src.SourceName != nil && *src.SourceName != "" {
+		return *src.SourceName
+	}
+	if src.Mid != nil {
+		return midNames[*src.Mid]
+	}
+	return ""
 }

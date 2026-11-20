@@ -99,3 +99,59 @@ func TestM1_BareENumKeepsNoIdentity(t *testing.T) {
 	}
 }
 // EP + 日期 同规（实测全库仅 2 行）：EP 前缀也走 M1 双锚。
+
+// S-去前缀（2026-11-19 用户口径）：s 以片名为前缀 ⇒ 去掉 s（含季号），带同源行内去重守卫。
+func TestStripFilmNamePrefix(t *testing.T) {
+	// 正例1：s 与片名一致 ⇒ 去掉
+	{
+		out := EpidsForSourceRow([]string{"第1期"})
+		out[0][0] = "s=普通男女|v=-|p=-|n=1|d=-"
+		if n := StripFilmNamePrefix(out, "普通男女"); n != 1 {
+			t.Fatalf("s=片名 应去掉，实际改动 %d（%q）", n, out[0][0])
+		}
+		if out[0][0] != "s=-|v=-|p=-|n=1|d=-" {
+			t.Fatalf("去掉后应为 s=-，实际 %q", out[0][0])
+		}
+	}
+	// 正例2：s 带季号且以片名为前缀 ⇒ 整段去掉（含季号）
+	{
+		out := [][2]string{{"s=熊出没之探险日记#S3|v=-|p=-|n=5|d=-", "self"}}
+		if n := StripFilmNamePrefix(out, "熊出没之探险日记"); n != 1 {
+			t.Fatalf("带季号前缀命中应去掉，实际 %d", n)
+		}
+		if out[0][0] != "s=-|v=-|p=-|n=5|d=-" {
+			t.Fatalf("去掉后应为 s=-，实际 %q", out[0][0])
+		}
+	}
+	// 正例3：空格/间隔号差异不影响命中
+	{
+		out := [][2]string{{"s=普通 男女|v=-|p=-|n=1|d=-", "self"}}
+		if n := StripFilmNamePrefix(out, "普通·男女"); n != 1 {
+			t.Fatalf("规范化后应命中，实际 %d", n)
+		}
+	}
+	// 反例1：s 不以片名为前缀（不同片）⇒ 保留（含季号）
+	{
+		out := [][2]string{{"s=另一部剧#S2|v=-|p=-|n=1|d=-", "self"}}
+		if n := StripFilmNamePrefix(out, "普通男女"); n != 0 {
+			t.Fatalf("前缀不命中应保留，实际 %d", n)
+		}
+	}
+	// 反例2：守卫——去掉后与同源行内其它行撞键 ⇒ 不改
+	{
+		out := [][2]string{
+			{"s=普通男女|v=-|p=-|n=1|d=-", "self"},
+			{"s=-|v=-|p=-|n=1|d=-", "self"},
+		}
+		if n := StripFilmNamePrefix(out, "普通男女"); n != 0 {
+			t.Fatalf("撞键时应守卫回退，实际改动 %d", n)
+		}
+	}
+	// 反例3：s 为空 ⇒ 不处理
+	{
+		out := [][2]string{{"s=-|v=-|p=-|n=1|d=-", "self"}}
+		if n := StripFilmNamePrefix(out, "普通男女"); n != 0 {
+			t.Fatalf("无 s 不应改动，实际 %d", n)
+		}
+	}
+}

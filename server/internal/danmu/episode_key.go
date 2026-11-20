@@ -3,6 +3,7 @@ package danmu
 import (
 	"log"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -305,19 +306,39 @@ var (
 	// R7（2026-11-15）：`未播`/`未公开` 从噪声表挪入 —— 它们是"同一集的另一份内容"（播出状态标签），
 	// 当噪声删会把「第1期未播」与「第1期」拆成两个身份 ✗；而 P-4 实测 `直拍REACTION第10期` 与
 	// `第10期` 是同一集 ⇒ `直拍` 留在噪声表不动。
-	reVariant = regexp.MustCompile(`加更|陪看|纯享|先导|超前|彩蛋|特别篇|特辑|花絮|预告|番外|未播|未公开`)
+	// ①（2026-11-19）：追加 抢鲜看/福利篇/母带 —— 它们此前整串落 s（实测 抢鲜看 19 / 福利篇 56 /
+	// 母带 568 行），属"同一集的另一份内容"标签；母带另受 §1.3 守卫约束（见 ParseEpisodeKey 母带守卫）。
+	reVariant = regexp.MustCompile(`加更|陪看|纯享|先导|超前|彩蛋|特别篇|特辑|花絮|预告|番外|未播|未公开|抢鲜看|福利篇|母带`)
 	// reVariantNum 变体序号（P0-1a）：变体词后**紧跟**的数字（最多隔一个左括号/空白）。
 	//   特辑2          → 2      （与「特辑」不同身份）
 	//   特辑（2）      → 2
 	//   加更版1        → 0      （隔着「版」⇒ 不算紧跟）
 	//   特辑2026 / 特辑12345 → 0（纯日期/长数字不取）
 	// ⚠️ RE2 **不支持 lookahead** ⇒ 用 `(?:[^0-9]|$)` **消费一个后继字符**做等价断言（三端同此写法，保证字面一致）。
-	reVariantNum = regexp.MustCompile(`(?:加更|陪看|纯享|先导|超前|彩蛋|特别篇|特辑|花絮|预告|番外)[\s（(【\[《「『]*(\d{1,3})(?:[^0-9]|$)`)
-	// reVariantSpan（R2，2026-11-15）：**变体跨度吸收前后修饰** —— seriesOf 删栏目候选时用它替代裸
-	// reVariant：「舞台纯享版第6期」此前删掉纯享后残留「舞台…版」两段 ⇒ 最长连续汉字段 s=舞台 ✗；
-	// 吸收后整段消失 ⇒ s=""，v 仍= 纯享（**不改 v 词表**，reVariant 本身不动）。前缀可重复（`收官特别`
-	// = 两连缀）；后缀只有 版/典藏版。变体位置含 R7 新词（与 reVariant 词表一致）。
-	reVariantSpan = regexp.MustCompile(`(?:剧情|舞台|收官|特别)*(?:特别篇|加更|陪看|纯享|先导|超前|彩蛋|特辑|花絮|预告|番外|未播|未公开)(?:典藏版|版)?`)
+	// ①（2026-11-19，评审补全）：§1.3 守卫4 对**全部**变体词闭环 —— 新词 抢鲜看/福利篇/母带 同步入表，
+	// 否则「福利篇2」vn=0 与「福利篇」同身份（L3a/L1 会把两集判齐合并弹幕池）；抢鲜看 归一为 超前
+	// ⇒「抢鲜看2」与「超前2」同为 v=超前#2。
+	reVariantNum = regexp.MustCompile(`(?:加更|陪看|纯享|先导|超前|彩蛋|特别篇|特辑|花絮|预告|番外|抢鲜看|福利篇|母带)[\s（(【\[《「『]*(\d{1,3})(?:[^0-9]|$)`)
+	// reVariantSpan（R2，2026-11-15；① 扩展 2026-11-19）：**变体跨度吸收前后修饰** —— seriesOf 删栏目
+	// 候选时用它替代裸 reVariant：「舞台纯享版第6期」此前删掉纯享后残留「舞台…版」两段 ⇒ 最长连续
+	// 汉字段 s=舞台 ✗；吸收后整段消失 ⇒ s=""，v 仍= 纯享。前缀可重复（`收官特别` = 两连缀）。
+	// ①（2026-11-19）三处调整：
+	//   - 前缀扩 竖屏舞台/剧目/超长/回顾/里番/特典（§1.1 实测 s=竖屏舞台/剧目/超长/回顾 残留）；
+	//     **保留 R2 既有 剧情/舞台**（「20261017舞台纯享版第6期」「20260527第1期剧情纯享」金用例依赖）；
+	//   - 词表扩 抢鲜看/福利篇；**超前营业** 整词置于 超前 之前（RE2 同位置左优先 ⇒ 先长后短）——
+	//     这样 `营业` 只在紧邻"超前"之后才被吃（§1.3 守卫1：「营业中」、节目名含营业不受影响）；
+	//   - 母带**不入**本表：片名可能含"母带"（母带修复计划），归 v 与剥离走 ParseEpisodeKey 的
+	//     母带守卫（s 恰为"母带"或与变体词紧邻才生效）。
+	reVariantSpan = regexp.MustCompile(`(?:竖屏舞台|剧目|超长|回顾|特别|里番|收官|特典|剧情|舞台)*(?:超前营业|纯享|花絮|特辑|加更|陪看|先导|超前|彩蛋|特别篇|预告|番外|未播|未公开|抢鲜看|福利篇)(?:典藏版|版)?`)
+	// reVariantCompound（①，2026-11-19）：**复合变体短语**（先长后短）—— 修饰词与变体词原是一个
+	// 整短语（超前营业/超长花絮/竖屏舞台纯享…），旧口径只吃变体词那几个字 ⇒ 修饰残留进 s
+	//（§1.1：超前营业 ⇒ v=超前 + s=营业）。命中片段经 canonVariant 写**标准值**后，与 reVariant
+	// 逐词结果**去重合并**（ParseEpisodeKey 的 v 组装处）。母带在此列出但受守卫过滤。
+	reVariantCompound = regexp.MustCompile(
+		`竖屏舞台纯享(?:版)?|剧目纯享(?:版)?|超长花絮|回顾特辑|特别加更(?:版)?|加更(?:版)?|超前(?:营业)?|抢鲜看|福利篇|母带`)
+	// reMasterAdjacent（① §1.3 母带守卫第二分支）：母带与变体词**紧邻** ⇒ 视作变体语境
+	//（如 超前母带/母带花絮），可归 v；否则片名含"母带"不动。
+	reMasterAdjacent = regexp.MustCompile(`(?:加更|陪看|纯享|先导|超前|彩蛋|特别篇|特辑|花絮|预告|番外|未播|未公开|抢鲜看|福利篇)母带|母带(?:加更|陪看|纯享|先导|超前|彩蛋|特别篇|特辑|花絮|预告|番外|未播|未公开|抢鲜看|福利篇)`)
 	// reVariantNoise = **无意义后缀**：只是同一集的版本标签，解析前一律剔除（与括号/标点同等）。
 	// R7：未播/未公开 已挪进 reVariant（变体），此处不再删。
 	reVariantNoise = regexp.MustCompile(`直拍|完整版|未删减`) // L1-c（2026-11-19）：会员移出噪声，改认 v=会员
@@ -361,6 +382,30 @@ var (
 	// reBareDateRow（R10，2026-11-15）：**裸日期行** —— 整串就是 8 位日期（可带「期」字）。
 	reBareDateRow = regexp.MustCompile(`^\d{8}期?$`)
 )
+
+// canonVariant 复合变体短语 → **标准值**（①，2026-11-19 §1.2 归一表）：
+// 竖屏舞台纯享（版）/剧目纯享（版）→ 纯享；超长花絮 → 花絮；回顾特辑 → 特辑；
+// 特别加更（版）→ 加更；超前营业/抢鲜看 → 超前；福利篇/母带 → 原词（新词，保留）。
+// 对 reVariant 的既有词**恒等**返回 ⇒ 归一不改变既有 v 输出（可安全作用于全部命中词）。
+func canonVariant(raw string) string {
+	switch raw {
+	case "竖屏舞台纯享", "竖屏舞台纯享版", "剧目纯享", "剧目纯享版", "纯享", "纯享版":
+		return "纯享"
+	case "超长花絮", "花絮":
+		return "花絮"
+	case "回顾特辑", "特辑":
+		return "特辑"
+	case "特别加更", "特别加更版", "加更", "加更版":
+		return "加更"
+	case "超前营业", "超前", "抢鲜看":
+		return "超前"
+	case "福利篇":
+		return "福利篇"
+	case "母带":
+		return "母带"
+	}
+	return raw
+}
 
 // dateSeqTail 返回 8 位日期后**紧跟**的「当日集序」（1~2 位数字）；数字串 ≥3 位（不透明长
 // 编号，如源站内部 ID）或不存在 ⇒ ""。
@@ -500,16 +545,46 @@ func ParseEpisodeKey(title string) EpisodeKey {
 	if reVariantPlus.MatchString(s) && (k.Date != "" || strings.ContainsRune(s, '期') || strings.ContainsRune(s, '集')) {
 		extraVariants = append(extraVariants, "Plus")
 	}
-	ms := reVariant.FindAllString(s, -1)
+	// ① §1.3 母带守卫（防误伤）：母带只有在「栏目名候选恰为 母带」或与变体词紧邻时才归 v / 从 s 剥离
+	//（防片名含"母带"被吞，如《母带修复计划》）。Contains 预判 ⇒ 热路径零额外开销（母带行全库 568 行）。
+	masterOK := false
+	if strings.Contains(s, "母带") {
+		if s0 := seriesOf(s); s0 == "母带" || reMasterAdjacent.MatchString(s) {
+			masterOK = true
+		}
+	}
+	// ①（2026-11-19）v 组装：先跑 reVariantCompound 取**整短语** → canonVariant 归一 → 与 reVariant
+	// 逐词结果（同样过 canonVariant，对既有词恒等）**去重合并**；保持 sort + join(",") 既有约定。
+	// 去重：超前营业 ⇒ [超前,超前]；抢鲜看 归一后与 reVariant 原词同值 ⇒ 只留一个 超前。
+	ms := reVariantCompound.FindAllString(s, -1)
+	ms = append(ms, reVariant.FindAllString(s, -1)...)
 	ms = append(ms, extraVariants...)
-	if len(ms) > 0 {
-		sort.Strings(ms)
-		k.Variant = strings.Join(ms, ",")
+	for i, w := range ms {
+		ms[i] = canonVariant(w)
+	}
+	if !masterOK {
+		ms = slices.DeleteFunc(ms, func(w string) bool { return w == "母带" })
+	}
+	uniq := make([]string, 0, len(ms))
+	seenVar := make(map[string]bool, len(ms))
+	for _, w := range ms {
+		if !seenVar[w] {
+			seenVar[w] = true
+			uniq = append(uniq, w)
+		}
+	}
+	if len(uniq) > 0 {
+		sort.Strings(uniq)
+		k.Variant = strings.Join(uniq, ",")
 	}
 	if m := reVariantNum.FindStringSubmatch(s); m != nil {
 		if v, err := strconv.Atoi(m[1]); err == nil {
 			k.VariantNum = v
 		}
+	}
+	// ① 母带守卫通过 ⇒ 从 s 剥离（占位分隔，片段提取不再产出）⇒ s=- 且 v=母带
+	if masterOK {
+		s = strings.ReplaceAll(s, "母带", "\x00")
 	}
 	k.Series = seriesOf(s)
 	// E3（2026-11-19，用户口径）：打包词**归一为统一系列**（不全删），避免"同一部剧各源写全集/合集"再次分裂：
@@ -739,17 +814,34 @@ func seriesOf(s string) string {
 	// 「第99集」的 s=- 永不相等（跨源不一致实证；同 Series 会污染同集判定）。
 	// 放 reDiNWide 之后：带单位的「第N期」已被宽口径吃掉，这里只兜缺单位的尾部形态。
 	s = reDiNBare.ReplaceAllString(s, sep)
-	s = reDate8.ReplaceAllString(s, sep)
-	s = stripDate6(s, sep) // R11：6 位 YYMMDD 同样剥离（否则 240103 会漏进栏目名 ✗）
+	// ②（2026-11-19）：日期改用**独立占位 \x01**（其余剥离仍用 \x00）—— 片段提取据此识别
+	// 「裸数字紧跟日期」守卫（见 shieldedNumRunes / fragmentsOf）。剥离语义与旧 \x00 完全一致，
+	// 只是占位字节可区分"此处曾是日期"。
+	s = reDate8.ReplaceAllString(s, "\x01")
+	s = stripDate6(s, "\x01") // R11：6 位 YYMMDD 同样剥离（否则 240103 会漏进栏目名 ✗）
 	s = reSeasonSpan.ReplaceAllString(s, sep)
 	// R4：E 圆号以捕获组回填邻居（$1/$3），只删 E 号本身 —— 不再截断相邻汉字（EP01白昼逃亡 ⇒ s=白昼逃亡）
 	s = reENum.ReplaceAllString(s, "$1"+sep+"$3")
 	// R2：变体跨度吸收前后修饰（剧情/舞台/收官/特别 ×变体×版/典藏版）—— 替代裸 reVariant 删除
 	s = reVariantSpan.ReplaceAllString(s, sep)
 	s = reVariantNoise.ReplaceAllString(s, sep)
+	// ②（2026-11-19）：裸数字守卫在**片段提取**处生效 —— 裸数字此前被 FieldsFunc 的
+	// 「非汉字即分隔」吃掉（创造1012018.06.23 ⇒ s=创造，片名被削短）；守卫后随片名保留。
+	keepNum := shieldedNumRunes(s)
 	best := ""
-	for _, frag := range strings.FieldsFunc(s, func(r rune) bool { return r == 0 || !unicode.Is(unicode.Han, r) }) {
+	for _, frag := range fragmentsOf(s, keepNum) {
 		rs := []rune(frag)
+		// ② 守卫后片段可能含数字：纯数字片段（无汉字）不成栏目名，与旧口径一致
+		hasHan := false
+		for _, r := range rs {
+			if unicode.Is(unicode.Han, r) {
+				hasHan = true
+				break
+			}
+		}
+		if !hasHan {
+			continue
+		}
 		// 尾部 part 标记截断（上/中/下总在栏目名之后）
 		// B（2026-11-19）：先剥「X篇/X部/X集」（X ∈ 上/中/下）—— 它们已被 parsePart 取作 p，不应污染 s
 		// 实测：s=上篇 33 / 下篇 33 / 中篇 2 / 上集 110 / 下集 106（全库约 1,680 行）
@@ -781,6 +873,73 @@ func seriesOf(s string) string {
 		}
 	}
 	return best
+}
+
+// shieldedNumRunes（②，2026-11-19）裸数字紧跟日期则不剥：返回需要**随片名保留**的数字 rune 下标集。
+// 命中条件（全部满足）：
+//   - 连续数字段长 **1~4 位**（≥5 位是不透明长编号/日期本身，不救）；
+//   - 数字段的右邻不是 期集话回季部 ⇒ 不是「第N[单位]」集序标记（「第5集20250101」的 5 已被
+//     reDiNWide 连标记一起剥掉、不会走到这里 —— §2.2「只对无标记裸数字生效」反例天然成立）；
+//   - 其后**紧跟**日期占位 \x01（至多隔一段连续汉字）—— 日期已被剥离，占位即"此处曾是日期"。
+//     「创造1012018.06.23」⇒ 101 紧跟日期；「第101次求婚2018.06.23」⇒ 101 隔「次求婚」紧跟日期。
+//     隔断只认汉字：空格/括号/占位隔断即不命中（保守，宁缺勿错）。
+//
+// 「奔跑吧20180623」数字本身是日期 ⇒ 剥离后数字段前面没有别的裸数字 ⇒ 不命中（§2.3 反例）。
+// reDiNBare / dateSeqTail 不在此守卫范围：前者只兜「第N」缺单位形态且要求尾部锚定，后者取的是
+// 日期**之后**的当日集序 —— 都不是本现象（裸数字被片段提取吃掉）的机制。
+func shieldedNumRunes(s string) map[int]bool {
+	rs := []rune(s)
+	isUnit := func(r rune) bool {
+		return r == '期' || r == '集' || r == '话' || r == '回' || r == '季' || r == '部'
+	}
+	out := map[int]bool{}
+	for i := 0; i < len(rs); {
+		if rs[i] < '0' || rs[i] > '9' {
+			i++
+			continue
+		}
+		j := i
+		for j < len(rs) && rs[j] >= '0' && rs[j] <= '9' {
+			j++
+		}
+		if j-i <= 4 && (j >= len(rs) || !isUnit(rs[j])) {
+			k := j
+			for k < len(rs) && unicode.Is(unicode.Han, rs[k]) {
+				k++
+			}
+			if k < len(rs) && rs[k] == '\x01' {
+				for x := i; x < j; x++ {
+					out[x] = true
+				}
+			}
+		}
+		i = j
+	}
+	return out
+}
+
+// fragmentsOf 与 strings.FieldsFunc(s, r==0||!Han) 等价的片段提取，唯一差异：
+// keep 命中的数字不切断片段（② 守卫：数字属片名 ⇒ s=创造101 而非 s=创造）。
+// 数字段一旦被保留，两侧仍按原规则切断（\x00 占位/非汉字），绝不跨段拼字。
+func fragmentsOf(s string, keep map[int]bool) []string {
+	rs := []rune(s)
+	var frags []string
+	start := -1
+	for i, r := range rs {
+		split := r == 0 || r == '\x01' || (!unicode.Is(unicode.Han, r) && !keep[i])
+		if split {
+			if start >= 0 {
+				frags = append(frags, string(rs[start:i]))
+				start = -1
+			}
+		} else if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		frags = append(frags, string(rs[start:]))
+	}
+	return frags
 }
 
 // partCompatible 主部分是否指向同一支 —— **前缀相容**（P0-1c 2026-11-10，替代旧「part 严格 + sub 通配」两段式）：
