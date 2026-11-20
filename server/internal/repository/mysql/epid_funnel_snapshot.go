@@ -112,8 +112,8 @@ func (r *EpidRepo) LoadFunnelSnapshot(ctx context.Context) (FunnelSnapshot, bool
 		DSlotsCross   int64
 		L7PackRows    int64
 		L7Slots       int64
-		L6D4          int64
-		L6N5          int64
+		L6D4          int64 `gorm:"column:l6d4"`
+		L6N5          int64 `gorm:"column:l6n5"`
 		MixedDiag     int64
 		Leftover      int64
 		MksTotal      int64
