@@ -954,6 +954,8 @@ func addFunnel(dst *FunnelStat, src FunnelStat) {
 	dst.L6Num += src.L6Num
 	dst.L6Date += src.L6Date
 	dst.L6Slot += src.L6Slot
+	dst.L6D4 += src.L6D4
+	dst.L6N5 += src.L6N5
 	dst.DSlotsTotal += src.DSlotsTotal
 	dst.DSlotsCross += src.DSlotsCross
 	dst.L7PackRows += src.L7PackRows
