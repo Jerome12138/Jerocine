@@ -80,12 +80,21 @@ func TestFunnelPiece_PureDatePiece_AlignedSomeLayer(t *testing.T) {
 	a := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=-|v=-|p=-|n=-|d=20240108"}
 	b := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240108", 2: "s=-|v=-|p=-|n=-|d=20240101"}
 	st, _ := funnelPiece(piece(a, b))
-	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.L6Tol + st.Leftover
+	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.L6Tol + st.L6D4 + st.L6N5 + st.Leftover
 	if sum != st.SlotsTotal {
 		t.Fatalf("不变量被破坏: %+v", st)
 	}
 	if st.Leftover != 0 || st.MksAligned != 1 {
 		t.Fatalf("顺序相反的纯日期片应被判齐（层级不限）: %+v", st)
+	}
+	// 2026-11-20：锚层通过路径下的不变量（L6.4/L6.5 计入对齐但不落 Leftover）
+	st2, _ := funnelPiece(piece(
+		map[int]string{1: "s=-|v=-|p=-|n=1|d=20240101"},
+		map[int]string{1: "s=-|v=-|p=-|n=9|d=20240102"},
+	))
+	sum2 := st2.L0Single + st2.L1Slot + st2.L2Tolerant + st2.L3Date + st2.L4Num + st2.L5Subset + st2.L6Tol + st2.L6D4 + st2.L6N5 + st2.Leftover
+	if sum2 != st2.SlotsTotal {
+		t.Fatalf("锚层通过时不变量被破坏: 各档之和=%d 分母=%d %+v", sum2, st2.SlotsTotal, st2)
 	}
 }
 
@@ -121,11 +130,11 @@ func TestFunnelPiece_Leftover_RealConflict(t *testing.T) {
 	}
 	if st.Leftover != 0 {
 		t.Fatalf("锚层通过后不应有 leftover: %+v", st)
-}
+	}
 }
 
-// 锚只给"整槽干净"的槽背书：含 s/v 的槽不得被日期/期号锚救回（防误伤，2026-11-17 审查）
-func TestFunnelPiece_AnchorDoesNotBackMixedSlots(t *testing.T) {
+// 锚层语义（2026-11-20 定稿）：槽内每行有锚且无"同锚不同 epid" ⇒ 计入集对齐（含 1 有 1 无 / 无锚行不入口径）。
+func TestFunnelPiece_AnchorBacksNonConflictingSlots(t *testing.T) {
 	// 槽1 干净且两源一致（L1）；槽2 一源带 s ⇒ 既非 L1 也非干净 ⇒ 不得被锚背书 ⇒ leftover
 	a := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=栏目A|v=-|p=-|n=-|d=20240108"}
 	b := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=-|v=-|p=-|n=-|d=20240115"}

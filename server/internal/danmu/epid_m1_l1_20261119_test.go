@@ -98,6 +98,7 @@ func TestM1_BareENumKeepsNoIdentity(t *testing.T) {
 		}
 	}
 }
+
 // EP + 日期 同规（实测全库仅 2 行）：EP 前缀也走 M1 双锚。
 
 // S-去前缀（2026-11-19 用户口径）：s 以片名为前缀 ⇒ 去掉 s（含季号），带同源行内去重守卫。

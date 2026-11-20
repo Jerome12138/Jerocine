@@ -854,7 +854,7 @@ func (r *EpidRepo) ClassAlignmentTolerant(ctx context.Context) ([]TolerantAlignm
 	for pid, a := range accs {
 		name := "(未知分类)"
 		switch {
-case pid == PidUnresolvedSource, pid == -1:
+		case pid == PidUnresolvedSource, pid == -1:
 			name = "未关联片（无主源）"
 		case pid == PidUnresolvedWithMid:
 			name = "未关联片（有 mid 未归类）"
@@ -1094,7 +1094,7 @@ func (r *EpidRepo) ClassAlignmentDate(ctx context.Context) ([]DateAlignmentStat,
 // categoryDisplayName 分类显示名（-1 / 未归类 sentinel / 空名统一兜底）。
 func categoryDisplayName(pid int64, names map[int64]string) string {
 	switch {
-case pid == PidUnresolvedSource, pid == -1:
+	case pid == PidUnresolvedSource, pid == -1:
 		return "未关联片（无主源）"
 	case pid == PidUnresolvedWithMid:
 		return "未关联片（有 mid 未归类）"
@@ -1268,7 +1268,7 @@ func (r *EpidRepo) ClassAlignment(ctx context.Context) ([]ClassAlignmentStat, Cl
 	for pid, a := range accs {
 		name := "(未知分类)"
 		switch {
-case pid == PidUnresolvedSource, pid == -1:
+		case pid == PidUnresolvedSource, pid == -1:
 			name = "未关联片（无主源）"
 		case pid == PidUnresolvedWithMid:
 			name = "未关联片（有 mid 未归类）"

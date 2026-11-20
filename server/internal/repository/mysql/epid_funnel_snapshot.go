@@ -69,8 +69,8 @@ func (r *EpidRepo) SaveFunnelSnapshot(ctx context.Context, rows []FunnelStat, al
 				"d_slots_cross":  st.DSlotsCross,
 				"l7_pack_rows":   st.L7PackRows,
 				"l7_slots":       st.L7Slots,
-				"l6d4":          st.L6D4,
-				"l6n5":          st.L6N5,
+				"l6d4":           st.L6D4,
+				"l6n5":           st.L6N5,
 				"mixed_diag":     st.MixedDiag, // 2026-11-19 删诊断档：恒 0，列保留（契约兼容）
 				"leftover":       st.Leftover,
 				"mks_total":      st.MksTotal,
