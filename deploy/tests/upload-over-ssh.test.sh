@@ -19,6 +19,33 @@ case "${TMPDIR:-}" in
 esac
 
 cd "$(dirname "$0")/.."          # → deploy/
+# 外部通道桩 —— **必须在本库 source 之前注册**: JEROCINE_UPLOAD_EXTRA 是加载时读取的。
+# 用它验证扩展点(自动选路可被外部通道接管、失败会回退), 库本身不认识任何具体中转实现。
+EXTRA_DIR="$(cd "$(mktemp -d)" && pwd)"
+trap 'rm -rf "$EXTRA_DIR" ${WORK:+"$WORK"}' EXIT
+EXTRA="$EXTRA_DIR/extra-channel.sh"
+cat > "$EXTRA" <<'EXTRA_EOF'
+upload_auto_prefer() {   # 大包交给 stub(阈值可由 TEST_EXTRA_MIN 调)
+  local min="${TEST_EXTRA_MIN:-512000}"
+  [ "$1" -ge "$min" ] && printf 'stub\n'
+  return 0
+}
+upload_auto_fallback() { # 失败后回退到哪条通道(默认指定续传; TEST_EXTRA_FB 可改)
+  printf '%s\n' "${TEST_EXTRA_FB:-chunk}"
+}
+upload_channel_stub() {  # <ssh> <host> <src> <dst> <sha256> <size>
+  local ssh_bin="$1" host="$2" src="$3" dst="$4" sha="$5"
+  if [ "${TEST_EXTRA_FAIL:-}" = 1 ]; then
+    _upload_warn "stub 通道故意失败(测试桩)"
+    return 1
+  fi
+  _upload_sub "外部通道 stub 接管(测试桩)"
+  "$ssh_bin" "$host" "cat > '$dst'" < "$src" || return 1
+  _upload_verify "$ssh_bin" "$host" "$dst" "$sha"
+}
+EXTRA_EOF
+export JEROCINE_UPLOAD_EXTRA="$EXTRA"
+
 # shellcheck source=../../scripts/lib/upload-over-ssh.sh
 source ../scripts/lib/upload-over-ssh.sh
 
@@ -31,7 +58,6 @@ assert_has() { case "$2" in *"$3"*) ok "$1" ;; *) bad "$1 (输出里没有 [$3]:
 assert_gone() { [ ! -e "$2" ] && ok "$1" || bad "$1 (不该存在 $2)"; }
 
 WORK="$(cd "$(mktemp -d)" && pwd)"
-trap 'rm -rf "$WORK"' EXIT
 
 REMOTE="$WORK/remote"        # 假远端目录
 mkdir -p "$REMOTE"
@@ -89,6 +115,10 @@ SRC="$WORK/pkg.bin"
 head -c 2621440 /dev/urandom > "$SRC"
 SRC_SHA="$(sha256sum "$SRC" | awk '{print $1}')"
 SRC_SIZE="$(wc -c < "$SRC" | tr -d ' ')"
+# 200KB 小包: 桩通道的阈值是 500KiB ⇒ 不该被它接管, 走直传/续传
+SMALL="$WORK/pkg-small.bin"
+head -c 204800 /dev/urandom > "$SMALL"
+SMALL_SHA="$(sha256sum "$SMALL" | awk '{print $1}')"
 
 echo "upload-over-ssh.test.sh — 假远端: $REMOTE"
 
@@ -99,32 +129,92 @@ assert_eq "TMPDIR 为 Windows 盘符路径 → /tmp" \
   "$( ( TMPDIR='C:\Users\kilim\AppData\Local\Temp'; _upload_tmpdir ) )" "/tmp"
 assert_eq "普通 TMPDIR 原样保留" "$( ( TMPDIR=/var/tmp; _upload_tmpdir ) )" "/var/tmp"
 
-# ---------- 1. 默认通道 = 整包直传(公开仓通用默认) ----------
+# ---------- 1. 小包(<500KiB)默认通道 = 整包直传(公开仓通用默认) ----------
 : > "$STUB_LOG"
 DST="$REMOTE/pkg-v1.tgz"
-out="$(upload_over_ssh fakehost "$SRC" "$DST" 2>&1)"
+out="$(upload_over_ssh fakehost "$SMALL" "$DST" 2>&1)"
 assert_eq "全新上传返回成功" "$?" "0"
-assert_has "默认走整包直传" "$out" "整包直传"
-assert_eq "远端内容与源一致" "$(sha256sum "$DST" | awk '{print $1}')" "$SRC_SHA"
-assert_eq "一次连接即传满(只传了整份)" "$(cat "$STUB_LOG")" "$SRC_SIZE"
-assert_gone "直传后不留 .jcpart" "$DST.${SRC_SHA:0:12}.jcpart"
+assert_has "小包默认走整包直传" "$out" "整包直传"
+assert_eq "远端内容与源一致" "$(sha256sum "$DST" | awk '{print $1}')" "$SMALL_SHA"
+assert_eq "一次连接即传满(只传了整份)" "$(cat "$STUB_LOG")" "204800"
+assert_gone "直传后不留 .jcpart" "$DST.${SMALL_SHA:0:12}.jcpart"
 
-# ---------- 1a. 不指定通道时: 沙箱内必须自动走续传(直传的长流会被闸死) ----------
+# ---------- 1a. 沙箱: 小包自动走续传(直传的长流会被闸死) ----------
 # 沙箱把单条命令的流闸在 ~1–2MB, 超了连脚本一起 SIGTERM ⇒ 沙箱里"先直传再回退"活不到回退。
 : > "$STUB_LOG"
 SANDBOX_ENV="$WORK/shell-runtime-bash-env.sh"
 : > "$SANDBOX_ENV"
 DST1A="$REMOTE/pkg-sandbox.tgz"
-out="$(BASH_ENV="$SANDBOX_ENV" upload_over_ssh fakehost "$SRC" "$DST1A" 2>&1)"
+out="$(BASH_ENV="$SANDBOX_ENV" upload_over_ssh fakehost "$SMALL" "$DST1A" 2>&1)"
 assert_eq "沙箱内不指定通道也能成功" "$?" "0"
-assert_has "沙箱内自动走续传而非直传" "$out" "断点续传"
-assert_eq "沙箱内按 1MB 自动分段" "$(tr '\n' ' ' < "$STUB_LOG" | sed 's/ $//')" "1048576 1048576 524288"
+assert_has "沙箱内小包自动走续传而非直传" "$out" "断点续传"
+assert_eq "沙箱续传后内容一致" "$(sha256sum "$DST1A" | awk '{print $1}')" "$SMALL_SHA"
 # 显式指定仍然说话算数(沙箱里硬要直传就让他试, 便于复现/对比)
 : > "$STUB_LOG"
-out="$(BASH_ENV="$SANDBOX_ENV" JEROCINE_UPLOAD_MODE=direct upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-sandbox2.tgz" 2>&1)"
+out="$(BASH_ENV="$SANDBOX_ENV" JEROCINE_UPLOAD_MODE=direct upload_over_ssh fakehost "$SMALL" "$REMOTE/pkg-sandbox2.tgz" 2>&1)"
 assert_has "沙箱内显式 direct 不被改写" "$out" "整包直传"
 
-# ---------- 1b. chunk 模式 = 单流追加式断点续传 ----------
+# ---------- 1b. 外部通道扩展点: 自动选路可被外部通道接管, 且优先于沙箱默认 ----------
+: > "$STUB_LOG"
+DST1B0="$REMOTE/pkg-auto.tgz"
+out="$(upload_over_ssh fakehost "$SRC" "$DST1B0" 2>&1)"
+assert_eq "外部通道自动选路成功" "$?" "0"
+assert_has "大包被外部通道接管" "$out" "外部通道 stub 接管"
+assert_eq "外部通道路径落位内容与源一致" "$(sha256sum "$DST1B0" | awk '{print $1}')" "$SRC_SHA"
+# 沙箱里也必须优先外部通道: 外部优先判在沙箱判据之前
+: > "$STUB_LOG"
+out="$(BASH_ENV="$SANDBOX_ENV" upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-auto-sandbox.tgz" 2>&1)"
+assert_eq "沙箱内大包同样成功" "$?" "0"
+assert_has "沙箱内大包仍优先外部通道而非续传" "$out" "外部通道 stub 接管"
+# 小包不该被接管(由外部实现自己按阈值决定)
+: > "$STUB_LOG"
+out="$(upload_over_ssh fakehost "$SMALL" "$REMOTE/pkg-auto-small.tgz" 2>&1)"
+assert_has "小包仍走内置直传" "$out" "整包直传"
+
+# ---------- 1c. 外部通道的阈值自己定(库不掺和) ----------
+: > "$STUB_LOG"
+out="$(TEST_EXTRA_MIN=0 upload_over_ssh fakehost "$SMALL" "$REMOTE/pkg-thr0.tgz" 2>&1)"
+assert_has "外部阈值设 0 ⇒ 小包也接管" "$out" "外部通道 stub 接管"
+: > "$STUB_LOG"
+out="$(TEST_EXTRA_MIN=104857600 upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-thrbig.tgz" 2>&1)"
+assert_has "外部阈值设超大 ⇒ 大包回直传" "$out" "整包直传"
+
+# ---------- 1d. 自动选中的外部通道失败 → 回退内置通道(显式指定时不回退) ----------
+: > "$STUB_LOG"
+DST1D="$REMOTE/pkg-fallback.tgz"
+out="$(TEST_EXTRA_FAIL=1 upload_over_ssh fakehost "$SRC" "$DST1D" 2>&1)"
+assert_eq "外部通道失败后回退成功" "$?" "0"
+assert_has "明确提示已回退" "$out" "回退"
+assert_has "回退目标听外部实现的(upload_auto_fallback)" "$out" "回退 chunk 通道"
+assert_eq "回退通道内容仍一致" "$(sha256sum "$DST1D" | awk '{print $1}')" "$SRC_SHA"
+# 外部实现回显"自己"= 把刚失败的通道再跑一遍, 必须被拦下改走内置规则
+: > "$STUB_LOG"
+out="$(TEST_EXTRA_FAIL=1 TEST_EXTRA_FB=stub upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-fbself.tgz" 2>&1)"
+assert_eq "回退目标=self 时仍成功" "$?" "0"
+assert_has "回显自己不采纳" "$out" "不可用(与失败通道相同或未注册)"
+assert_eq "显式指定外部通道失败则不回退" \
+  "$(TEST_EXTRA_FAIL=1 JEROCINE_UPLOAD_MODE=stub \
+     upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-nofallback.tgz" >/dev/null 2>&1; echo $?)" "1"
+
+# ---------- 1d'. 扩展点的错误输入必须可诊断, 且不能弄坏内置通道 ----------
+assert_eq "未注册的通道名 → 64" \
+  "$(JEROCINE_UPLOAD_MODE=nosuch upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-nochan.tgz" >/dev/null 2>&1; echo $?)" "64"
+assert_has "未知通道提示注册方式" \
+  "$(JEROCINE_UPLOAD_MODE=nosuch upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-nochan.tgz" 2>&1)" "JEROCINE_UPLOAD_EXTRA"
+# EXTRA 指向不存在的文件: 只告警, 内置通道照常工作(source 时才读, 这里用子 shell 重载一次)
+out="$( ( JEROCINE_UPLOAD_EXTRA="$WORK/nope.sh"; . ../scripts/lib/upload-over-ssh.sh; \
+          JEROCINE_UPLOAD_MODE=direct upload_over_ssh fakehost "$SMALL" "$REMOTE/pkg-noextra.tgz" ) 2>&1 )"
+assert_has "EXTRA 文件缺失只告警" "$out" "不存在"
+assert_has "EXTRA 缺失时内置通道仍可用" "$out" "整包直传"
+# 外部回显了未注册的名字 → 忽略并走内置默认(而不是报 64)
+NOSUCH="$EXTRA_DIR/bad-prefer.sh"
+printf 'upload_auto_prefer() { printf "ghost\\n"; }\n' > "$NOSUCH"
+out="$( ( JEROCINE_UPLOAD_EXTRA="$NOSUCH"; . ../scripts/lib/upload-over-ssh.sh; \
+          upload_over_ssh fakehost "$SMALL" "$REMOTE/pkg-ghost.tgz" ) 2>&1 )"
+assert_has "回显未注册通道被忽略" "$out" "未注册的通道名"
+assert_has "忽略后走内置默认" "$out" "整包直传"
+
+# ---------- 1e. chunk 模式 = 单流追加式断点续传 ----------
 # 每次都记远端命令, 用来盯"握手次数"这个慢链路命门(一次往返 2–10s)。
 STUB_CMD_LOG="$WORK/cmd.log"
 export STUB_CMD_LOG
@@ -138,7 +228,7 @@ assert_gone "chunk 落位后不留 .jcpart" "$DST1B0.${SRC_SHA:0:12}.jcpart"
 assert_eq "传满后不再多问一次远端尺寸(只 1 次 wc)" \
   "$(grep -cE "wc -c < .*2>/dev/null" "$STUB_CMD_LOG" | tr -d ' ')" "1"
 
-# ---------- 1b. 分段窗口(沙箱默认 1MB/段): 多段拼接仍必须完整 ----------
+# ---------- 1f. 分段窗口(沙箱默认 1MB/段): 多段拼接仍必须完整 ----------
 : > "$STUB_LOG"
 DST1B="$REMOTE/pkg-window.tgz"
 out="$(JEROCINE_UPLOAD_MODE=chunk JEROCINE_UPLOAD_MAX_WINDOW=1048576 upload_over_ssh fakehost "$SRC" "$DST1B" 2>&1)"
@@ -206,6 +296,7 @@ out="$(JEROCINE_UPLOAD_MODE=bogus upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-b
 assert_eq "未知 mode 返回 64" "$?" "64"
 assert_has "提示可选值" "$out" "未知 JEROCINE_UPLOAD_MODE"
 assert_eq "未知 mode 不产生任何传输" "$(wc -l < "$STUB_LOG" | tr -d ' ')" "0"
+
 
 echo
 echo "upload-over-ssh.test.sh: $pass 通过 / $fail 失败"

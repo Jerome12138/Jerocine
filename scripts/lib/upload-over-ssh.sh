@@ -8,18 +8,32 @@
 # 也可 CLI 直跑: upload-over-ssh.sh <host> <本地文件> <远端路径>
 # (供 JEROCINE_UPLOAD_CMD="bash <本脚本>" 这种注入用法调用)
 #
-# ── 两条通道 ────────────────────────────────────────────────────────────────
-#   direct  整包一条流: cat <本地> | ssh 'cat > 远端'。**默认**(通用, 快链路最省事)。
+# ── 两条内置通道 ────────────────────────────────────────────────────────────
+#   direct  整包一条流: cat <本地> | ssh 'cat > 远端'。**小包的默认**(通用, 快链路最省事)。
 #   chunk   单流追加式断点续传: 远端写 `$dst.<sha12>.jcpart`, 每次连接前先问远端
 #           已收多少字节, 只补发剩余部分(`dd skip=`); 连接中断或彻底停滞(默认 45s 零进度)
 #           就重连接着传, 传满后先在远端校验 sha256 再 `mv` 落位。
-#           **慢 / 会中途 reset 的链路才值得开**(跨洲跨境、家宽国际出口等)。
+#           **慢 / 会中途 reset 的链路才值得开**(跨洲跨境、家宽国际出口等); 沙箱内自动选中。
+#
+# 通道选择(2026-11-20 定, 自动选路): 不设 JEROCINE_UPLOAD_MODE 时, 先问外部通道要不要接手
+#   (见下方"外部通道扩展点"), 没有则沙箱内 chunk / 其余 direct。选中的通道失败会自动回退
+#   direct|chunk 重跑一次(显式指定通道时不回退 —— 用户要的就是那条路的成败)。
+#
+# ── 外部通道扩展点(可选, 2026-11-20) ────────────────────────────────────────
+# 本库只内置 direct / chunk。想接自己的中转(对象存储、私有仓库、内网跳板…), **不要改本文件**,
+# 在自己的仓里写一个 .sh 注册进来即可:
+#   JEROCINE_UPLOAD_EXTRA=/path/to/my-channel.sh   (多个用逗号分隔)
+# 那个文件里可以定义:
+#   upload_auto_prefer() <字节数> → 回显优先用的通道名(空 = 让本库走内置默认; 可据此按包体
+#                                  大小选路, 例如"大包走中转、小包直传")
+#   upload_channel_<名字>() <ssh> <host> <本地文件> <远端路径> <sha256> <字节数> → 返回 0/非 0
+#   upload_auto_fallback() → 回显"自动选中的外部通道失败后回退到哪条通道"(空/未注册则按内置规则)
+# 然后在 JEROCINE_UPLOAD_MODE=<名字> 或由 upload_auto_prefer 回显选中。
 #
 # 为什么不把续传做成默认(2026-11-09 定): 通用场景下"多一次连接"就是纯开销 ——
 #   国内到国内、同城机房这些链路上直传一次跑完, 续传每条连接多一次握手 + 一次尺寸核对。
 #   公开仓是给别人的项目用的, 不该让所有人替少数慢链路付这个成本。
-#   **本项目的私有运维仓(Harness)默认设 `JEROCINE_UPLOAD_MODE=chunk`** —— 那台源站在新加坡。
-#   唯一例外是 **agent 命令沙箱**: 那里的单条命令流闸在 ~1–2MB 且超了连脚本一起 SIGTERM,
+#   **agent 命令沙箱是例外**: 那里的单条命令流闸在 ~1–2MB 且超了连脚本一起 SIGTERM,
 #   直传必死、还活不到"回退"那步 —— 所以不显式指定时, 沙箱里自动走 chunk(见 _upload_in_sandbox)。
 #
 # 续传要解决的实测问题(2026-11-09, 国内 → 新加坡 Lighthouse):
@@ -34,8 +48,9 @@
 #   "上次传完但发布被打断"的场景重跑不重传。
 #
 # 可调环境变量:
-#   JEROCINE_UPLOAD_MODE          direct(默认) | chunk|resume
-#                                 (不设时: 沙箱内默认 chunk —— 直传的长流必被沙箱 SIGTERM)
+#   JEROCINE_UPLOAD_MODE          direct | chunk|resume | <外部通道名>
+#                                 (不设时自动选路: 外部通道优先, 否则沙箱 chunk / 其余 direct)
+#   JEROCINE_UPLOAD_EXTRA         外部通道实现文件(逗号分隔), 见上方扩展点说明
 #   JEROCINE_UPLOAD_DIRECT_TRIES  直传模式: 慢速被掐/失败后的重试次数, 默认 3
 #   JEROCINE_UPLOAD_RESUME_TRIES  续传模式下最多重连/失败次数, 默认 10
 #   JEROCINE_UPLOAD_STALL_SECS    续传模式: 连续多少秒零进度才重连, 默认 45
@@ -48,6 +63,9 @@
 #   JEROCINE_UPLOAD_SAMPLE_SECS   直传模式吞吐采样窗口秒数, 默认 10
 #   JEROCINE_UPLOAD_NEAR_DONE_PCT 直传模式进度超过此百分比后不再因慢速重连, 默认 90
 #   JEROCINE_UPLOAD_SLOW_STREAKS  直传模式连续多少个慢速窗口才重连, 默认 2
+#
+# 外部通道的环境变量由各自的实现文件自己定义(见上方扩展点), 本库不认识它们。
+#
 #
 # 输出层级(供调用方对齐): 调用方(deploy-*.sh)先打印第 1 层「==> 上传 <包名>」,
 # 本库内部消息一律第 2 层「  ==> …」, 传输进度行第 3 层「    …」。
@@ -79,6 +97,14 @@ _upload_dur() {
 }
 
 _upload_filesize() { wc -c < "$1" | tr -d ' '; }
+
+# 通道名是否可派发: 内置两条 + 由 JEROCINE_UPLOAD_EXTRA 注册的 upload_channel_<名字>
+_upload_has_channel() {
+  case "${1:-}" in
+    direct|auto|chunk|resume) return 0 ;;
+  esac
+  declare -F "upload_channel_$1" >/dev/null 2>&1
+}
 
 # 临时目录 —— **必须避开 Windows 盘符路径**: Git Bash 下 TMPDIR 常是
 # `C:\Users\...\Temp`, mktemp 会吐出 `C:\...\tmp.xxx`, 一是混分隔符(awk 把它当远程主机/
@@ -441,12 +467,6 @@ _upload_direct() {
 upload_over_ssh() {
   local host="$1" src="$2" dst="$3"
   local ssh_bin="${JEROCINE_UPLOAD_SSH_BIN:-ssh}"
-  # 未显式指定通道时按环境选: 普通终端整包直传(通用默认), **agent 命令沙箱里必须走续传**
-  # (沙箱闸 ~1–2MB, 直传的长流会被 SIGTERM 掐死, 且杀了整条命令, 没有"回退"的机会)。
-  local mode="${JEROCINE_UPLOAD_MODE:-}"
-  if [ -z "$mode" ]; then
-    if _upload_in_sandbox; then mode=chunk; else mode=direct; fi
-  fi
 
   [ -f "$src" ] || { _upload_warn "本地文件不存在: $src"; return 1; }
   [ -n "$host" ] && [ -n "$dst" ] || { _upload_warn "缺少 host 或远端路径"; return 1; }
@@ -454,6 +474,34 @@ upload_over_ssh() {
   local local_size local_sha
   local_size="$(_upload_filesize "$src")"
   local_sha="$(sha256sum "$src" | awk '{print $1}')"
+
+  # 未显式指定通道时自动选路(需先知道包体, 所以放在算完大小之后):
+  #   ① 先问外部通道要不要接手(`upload_auto_prefer <字节数>` 回显通道名) —— 典型用法是
+  #      "大包走中转、小包直传", 具体阈值由那个实现自己定, 本库不掺和。
+  #   ② 没人接手: 沙箱内必须 chunk(单条命令流闸 ~1–2MB, 直传的长流会被 SIGTERM 掐死,
+  #      且连整条命令一起杀, 活不到"回退"那步); 其余情况 direct(一条连接跑完)。
+  local mode="${JEROCINE_UPLOAD_MODE:-}"
+  local auto_pick=""
+  if [ -z "$mode" ]; then
+    auto_pick=1
+    local prefer=""
+    if declare -F upload_auto_prefer >/dev/null 2>&1; then
+      # `|| true`: 外部实现可以用非 0 表示"这次不接管", 不能让调用方(可能开着 set -e)中断;
+      # 它的告警走 stderr, 不静音 —— 参数写错时要看得见。
+      prefer="$(upload_auto_prefer "$local_size" || true)"
+      if [ -n "$prefer" ] && ! _upload_has_channel "$prefer"; then
+        _upload_warn "外部通道回显了未注册的通道名: $prefer → 忽略, 走内置默认"
+        prefer=""
+      fi
+    fi
+    if [ -n "$prefer" ]; then
+      mode="$prefer"
+    elif _upload_in_sandbox; then
+      mode=chunk
+    else
+      mode=direct
+    fi
+  fi
 
   _upload_sub "目标 $host:$dst (本地 $(_upload_mb "$local_size"), sha256 ${local_sha:0:12}…)"
 
@@ -469,12 +517,64 @@ upload_over_ssh() {
   _UPLOAD_DD_PROGRESS=0
   _upload_probe_dd && _UPLOAD_DD_PROGRESS=1
 
+  local rc=0
   case "$mode" in
     direct|auto)       _upload_direct "$ssh_bin" "$host" "$src" "$dst" "$local_sha" "$local_size" ;;
     chunk|resume)      _upload_resume "$ssh_bin" "$host" "$src" "$dst" "$local_sha" "$local_size" ;;
-    *) _upload_warn "未知 JEROCINE_UPLOAD_MODE=$mode(可选 direct|chunk)"; return 64 ;;
+    *)
+      if _upload_has_channel "$mode"; then
+        "upload_channel_$mode" "$ssh_bin" "$host" "$src" "$dst" "$local_sha" "$local_size"
+      else
+        _upload_warn "未知 JEROCINE_UPLOAD_MODE=$mode(内置 direct|chunk; 外部通道须经 JEROCINE_UPLOAD_EXTRA 注册)"
+        return 64
+      fi
+      ;;
   esac
+  rc=$?
+
+  # 自动选中的外部通道失败 → 回退内置通道重跑一次(显式指定时不回退: 用户要的就是那条路的成败)。
+  # 重跑会再走一遍秒传探测, 所以"外部通道其实已落盘、只差最后校验"的情形不会白传。
+  case "$mode" in
+    direct|auto|chunk|resume) return "$rc" ;;
+  esac
+  if [ "$rc" -ne 0 ] && [ -n "$auto_pick" ]; then
+    # 回退目标: 外部实现可指定(`upload_auto_fallback` 回显通道名, 例如"这条链路回退续传更稳"),
+    # 没指定或名字不合法则用内置规则。
+    local fb=""
+    if declare -F upload_auto_fallback >/dev/null 2>&1; then
+      fb="$(upload_auto_fallback || true)"
+    fi
+    # 回显自己 = 把刚失败的那条再跑一遍(纯浪费), 和名字不合法一样按内置规则回退。
+    if [ -n "$fb" ] && { [ "$fb" = "$mode" ] || ! _upload_has_channel "$fb"; }; then
+      _upload_warn "upload_auto_fallback 回显 '$fb' 不可用(与失败通道相同或未注册) → 按内置规则回退"
+      fb=""
+    fi
+    if [ -z "$fb" ]; then
+      fb=direct
+      if _upload_in_sandbox; then fb=chunk; fi
+    fi
+    _upload_warn "自动选中的通道 '$mode' 失败(rc=$rc) → 回退 $fb 通道重试一次"
+    JEROCINE_UPLOAD_MODE="$fb" upload_over_ssh "$host" "$src" "$dst"
+    return $?
+  fi
+  return "$rc"
 }
+
+# ---------------------------------------------------------------------------
+# 外部通道注册(可选): JEROCINE_UPLOAD_EXTRA=<文件>[,<文件>...]
+# 逐个 source —— 里面可定义 upload_auto_prefer / upload_channel_<名字>。
+# 只在本机(Bash)侧生效; 文件不存在时只告警, 不影响内置通道。
+if [ -n "${JEROCINE_UPLOAD_EXTRA:-}" ]; then
+  for _upload_extra in ${JEROCINE_UPLOAD_EXTRA//,/ }; do
+    if [ -f "$_upload_extra" ]; then
+      # shellcheck disable=SC1090  # 路径来自环境变量, 是刻意为之
+      . "$_upload_extra"
+    else
+      _upload_warn "JEROCINE_UPLOAD_EXTRA 指向的文件不存在: $_upload_extra"
+    fi
+  done
+  unset _upload_extra
+fi
 
 # ---------------------------------------------------------------------------
 # CLI 直跑入口(不经 source):

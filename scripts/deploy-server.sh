@@ -49,7 +49,9 @@ usage() {
   JEROCINE_INCOMING_DIR  远端上传落点(默认 <deploy>/incoming)
   JEROCINE_DOWNLOAD_DIR  本机构建产物落地目录(透传给 build-server.sh, 默认 <repo>/deploy/pkg)
   JEROCINE_UPLOAD_CMD    自定义上送命令注入(参数: <host> <本地包> <远端路径>)
-  JEROCINE_UPLOAD_MODE   上送通道: direct(默认) | chunk(断点续传)
+  JEROCINE_UPLOAD_MODE   上送通道: direct | chunk(断点续传) | <外部通道名>
+                         (不设 = 自动选路: 有外部通道则由它接管, 否则沙箱内 chunk / 其余直传)
+  JEROCINE_UPLOAD_EXTRA  外部通道实现文件(逗号分隔, 见 deploy/README.md §上送通道)
 EOF
 }
 
@@ -110,11 +112,13 @@ PKG_NAME="$(basename "$PKG_ABS")"
 #
 # **不用 scp**：本仓库运维约定里 scp 是禁用的，单向传文件的既有姿态就是
 # "走 ssh stdin"（见 Harness `.agents/skills/jerocine-ops` §3 通道 B）。
-# 通用实现见 `scripts/lib/upload-over-ssh.sh`：**默认整包直传**（一条连接跑完，通用场景最省事）。
-# 慢链路 / 会中途 reset 的跨境链路设 `JEROCINE_UPLOAD_MODE=chunk` 启用**单流追加式断点续传**：
-# 远端写 `<包名>.<sha12>.jcpart`，每次连接前问远端已收字节、只补发剩余；断线或停滞自动重连接着传，
-# 传满后先校验 sha256 再 mv 落位（不再有"传一半全废"，实测见该文件头）。
-# 本项目私有运维仓（Harness 薄壳）固定开 chunk —— 那台源站在新加坡。
+# 通用实现见 `scripts/lib/upload-over-ssh.sh`：内置 direct / chunk 两条，**自动选路**——
+# 有外部通道（`JEROCINE_UPLOAD_EXTRA` 注册）时由它先挑，否则沙箱内 chunk / 其余整包直传。
+# 外部通道的典型用法：把大包路由到自己的中转（对象存储 / 私有仓库 / 内网跳板），小包直连；
+# 自动选中的外部通道失败会回退内置通道重跑一次（显式指定通道时不回退）。
+# **chunk（单流追加式断点续传）**：远端写 `<包名>.<sha12>.jcpart`，每次连接前问远端已收字节、
+# 只补发剩余；断线或停滞自动重连接着传，传满后先校验 sha256 再 mv 落位（不再有"传一半全废"）。
+# 强制走某条通道：`JEROCINE_UPLOAD_MODE=direct|chunk|<外部通道名>`（指定后不回退）。
 #
 # JEROCINE_UPLOAD_CMD 注入钩子（可选）：设成自定义上送命令（参数:
 # <host> <本地包> <远端路径>），成功返回 0 —— 只在特殊环境要整体覆盖上送实现时用。

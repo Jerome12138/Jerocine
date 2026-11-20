@@ -82,27 +82,52 @@ bash scripts/deploy-server.sh      # 编译 + 上传 + 发布（一步到位）
 
 ### 上送通道（`scripts/lib/upload-over-ssh.sh`）
 
-三份 `deploy-*.sh` 的上传段共用这一个实现。**默认整包直传**（通用场景最省事：一条连接跑完），
-慢链路或会中途 reset 的跨境链路可开**断点续传**：
+三份 `deploy-*.sh` 的上传段共用这一个实现，**内置两条通道**（`direct` 整包一条流 / `chunk` 单流
+追加式断点续传），**不设 `JEROCINE_UPLOAD_MODE` 时自动选路**：
+
+| 条件 | 通道 | 理由 |
+| --- | --- | --- |
+| 有外部通道通过扩展点接管（见下） | 外部通道 | 由它自己决定（例如按包体大小走中转） |
+| 没有外部通道，且在 agent 命令沙箱里 | `chunk` + 1MB 分段 | 沙箱单条命令流闸 ~1–2MB，直传必死且活不到"回退"那步 |
+| 其余情况 | `direct` | 一条连接跑完，最省事 |
+
+自动选中的外部通道失败会自动**回退** `direct|chunk` 重跑一次并打印警告（显式指定通道时不回退：
+要的就是那条路的成败）。强制某条通道：
 
 ```bash
-JEROCINE_UPLOAD_MODE=chunk bash scripts/deploy-web.sh    # 单流追加式断点续传
+JEROCINE_UPLOAD_MODE=direct bash scripts/deploy-web.sh   # 强制整包直传
+JEROCINE_UPLOAD_MODE=chunk  bash scripts/deploy-web.sh   # 强制断点续传
 ```
 
-续传模式的行为：
+**外部通道扩展点**（2026-11-20）：本库刻意不内置任何具体中转。需要时在自己的仓里写一个 `.sh`，
+用 `JEROCINE_UPLOAD_EXTRA=<文件>[,<文件>]` 注册进来（库加载时 source，**不用改本文件**）：
+
+```bash
+# my-channel.sh
+upload_auto_prefer() {                # $1 = 包体字节数; 回显通道名 = 优先用它
+  [ "$1" -ge 524288 ] && printf 'mychannel\n'
+  return 0
+}
+upload_channel_mychannel() {          # <ssh> <host> <本地文件> <远端路径> <sha256> <字节数>
+  ...
+}
+```
+
+- `upload_auto_prefer` 回显的通道名必须已注册，否则忽略并走内置默认；
+- 通道函数返回 0 = 成功（**远端内容必须与传入的 sha256 一致**，调用方据此判定）；
+- `JEROCINE_UPLOAD_EXTRA` 指向的文件不存在只告警，不影响内置通道。
+
+**chunk（断点续传）** 的行为：
 
 - 远端先写 `<包名>.<sha12>.jcpart`，每次连接前问远端"已收多少字节"，只补发剩余部分；
 - 断线 / 彻底停滞（默认 45s 零进度）自动重连接着传，**不会从头重来**；**慢但一直在动不掐**（掐掉会丢掉在途缓冲，实测一次丢 1.6MB）；
 - 传满后先在远端校验 sha256，一致才 `mv` 落位（坏包绝不落到正式路径）；
-- 秒传（两种模式通用）：远端已有同内容文件（sha256 一致）直接跳过。
+- 秒传（所有通道通用）：远端已有同内容文件（sha256 一致）直接跳过。
 
-为什么默认不开续传：多一次连接就是纯开销 —— 国内/同城链路上直传一次跑完，不该让所有使用者
-替少数慢链路付握手成本。**本项目私有运维仓固定 `JEROCINE_UPLOAD_MODE=chunk`**（源站在新加坡：
-8MB 直传 50s 但十几分钟就被 reset 一次、断了从 0 重来；旧的 1MB 切片续传要 **438s**，因为每片两次 ssh 往返）。
-
-唯一例外是 **agent 命令沙箱**（WorkBuddy 等把单条命令的流闸在 ~1–2MB，超了连脚本一起 SIGTERM）：
-不显式指定通道时，沙箱里**自动走续传**并按 1MB 分段 —— 那里的直传必死，且"先直传再回退"活不到回退那步。
-显式 `JEROCINE_UPLOAD_MODE=direct` 仍然说话算数（便于复现/对比）。
+为什么不用续传当默认：多一次连接就是纯开销 —— 国内/同城链路上直传一次跑完，不该让所有使用者
+替少数慢链路付握手成本。**本项目私有运维仓（Harness 薄壳）以前固定 `chunk`，现在交给自动选路**
+（源站在新加坡：8MB 直传 50s 但十几分钟就被 reset 一次、断了从 0 重来；旧的 1MB 切片续传要
+**438s**，因为每片两次 ssh 往返 —— 本项目私有仓现在把大包交给外部通道（实现在私有运维仓，公开仓不含其细节））。
 
 ## 前端发布语义
 
@@ -112,7 +137,7 @@ JEROCINE_UPLOAD_MODE=chunk bash scripts/deploy-web.sh    # 单流追加式断点
 - 每次发布按 `data/root-manifest.txt` 清理"上一版有、本版没有"的根文件（运维手工放进挂载目录的东西不会被误删）
 - 顺序约束：**先写目录、最后 reload**（无 404 窗口）
 - 空挂载守卫：`web-deploy` / `nginx` 在挂载目录 `data/html` 为空时拒绝执行（防空站点 404）
-- 纯逻辑单测：`bash tests/web-release.test.sh`（83 断言）· `bash tests/deploy-reexec.test.sh`（4 断言）· `bash tests/server-migrate.test.sh`（32 断言）· `bash tests/bare-deploy.test.sh`（74 断言）· `bash tests/tooling-selfcontain.test.sh`（84 断言，自包含端到端）· `bash tests/upload-over-ssh.test.sh`（37 断言，假 ssh 覆盖直传/沙箱选路/续传/分段/秒传/坏进度）
+- 纯逻辑单测：`bash tests/web-release.test.sh`（83 断言）· `bash tests/deploy-reexec.test.sh`（4 断言）· `bash tests/server-migrate.test.sh`（32 断言）· `bash tests/bare-deploy.test.sh`（74 断言）· `bash tests/tooling-selfcontain.test.sh`（84 断言，自包含端到端）· `bash tests/upload-over-ssh.test.sh`（55 断言，假 ssh + 桩通道覆盖自动选路/扩展点/回退/直传/续传/分段/秒传/坏进度）
 
 ## 缓存清理（手动）
 
