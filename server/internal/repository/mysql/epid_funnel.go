@@ -4,13 +4,14 @@ import (
 	"context"
 	"log"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 
 	"server/internal/danmu"
 )
 
-// ===== 对齐率分层漏斗（L0~L5，2026-11-17）=====
+// ===== 对齐率分层漏斗（L0~L7，2026-11-20）=====
 //
 // 总则见 Harness：`docs/epid-集身份/方案-对齐率分层判定总则-2026-11-17.md`
 //
@@ -25,14 +26,16 @@ import (
 //	L3 日期锚（跨槽：按 d 值对齐，s/v/n 空的行；part 仅作守卫）    → 救回
 //	L4 期号锚（跨槽：按 `n` 值对齐，s/v/d 空的行；part 仅作守卫）  → 救回
 //	L5 正片子集（全片无 s/v ∧ 每源 epid 集合 ⊆ 最大源集合）        → 救回（覆盖差异不算错）
-//	诊断档 多身份槽（含 s/v，**不判定** ⇒ 计入未对齐）              → 不救回
-//	—  剩余                                                        → 真未对齐，进归因
+//	L6.1 纯 n 整片 / L6.2 纯 d 整片 / L6.3 纯 d 按槽（同源同日唯一守卫）→ 救回
+//	L7 不可比行剔除（s=合集 ∪ v=区间形态；仅混槽剔、纯不可比槽保持原判）→ 救回
+//	—  剩余（2026-11-19 删诊断档：原 MixedDiag 槽并入此档）        → 真未对齐，进归因
 //
 // ⚠️ **L3/L4 是"跨槽"判定**：位置口径下 A 的第 5 集与 B 的第 6 集会被判成两个分歧槽；
 // 按锚对齐能把它们认成同一集 ⇒ 这类"本身能对上、只因子集/错位没算进去"的槽才算救回。
 // （审查教训 2026-11-17：若写成"槽内锚唯一"，则永不触发 —— 槽内 epid 不同时差异恰在锚上。）
 //
-// ⚠️ 不变量：SlotsTotal == L0+L1+L2+L3+L4+L5Subset+L6Tol+MixedDiag+Leftover（单测钉住）。
+// ⚠️ 不变量：SlotsTotal == L0+L1+L2+L3+L4+L5Subset+L6Tol+Leftover（单测钉住；
+// MixedDiag 恒 0 —— 诊断档 2026-11-19 删除，字段仅为契约兼容保留）。
 type FunnelStat struct {
 	Pid      int64  `json:"pid"`
 	Category string `json:"category"`
@@ -49,26 +52,42 @@ type FunnelStat struct {
 	L6Num  int64 `json:"l6Num"`  // L6.1 纯 n 整片
 	L6Date int64 `json:"l6Date"` // L6.2 纯 d 整片
 	L6Slot int64 `json:"l6Slot"` // L6.3 纯 d 按槽（同日唯一守卫）
+	// ===== L6.4 / L6.5 锚判定（2026-11-20 用户口径）：只有本两层按锚算槽 =====
+	L6D4 int64 `json:"l6d4"` // 日期锚通过的槽数（槽内含日期锚）
+	L6N5 int64 `json:"l6n5"` // 期号锚通过的槽数（槽内锚全为期号）
 
 	// ===== d 覆盖率（M8，2026-11-19）=====
 	// 槽内每一行都是"纯日期"（d 非空且无 n）时计入总量；其中"该日期在本片 ≥2 个源出现"的计入 cross。
 	DSlotsTotal int64 `json:"dSlotsTotal"`
 	DSlotsCross int64 `json:"dSlotsCross"`
 
-	// ===== L7 特殊数据剔除层（2026-11-19，用户口径"子集法"）=====
-	// 槽内剔除 `s=合集`（归一后）的行——空集视为任何集合的子集 ⇒ 该槽判对齐；
-	// 仅当该槽还有"可比较行"（非合集行）时才剔除；整槽全为合集行 ⇒ 保持原判。
-	L7PackRows int64 `json:"l7PackRows"` // 被剔除的合集行数
+	// ===== L7 特殊数据剔除层（2026-11-19，用户口径"子集法"；2026-11-20 +区间行）=====
+	// 槽内剔除"不可比行"——`s=合集`（归一后）行 与 区间行（v 段为区间形态，如 v=1-30）：
+	// 空集视为任何集合的子集 ⇒ 该槽判对齐；
+	// 仅当该槽还有"可比较行"（既非合集也非区间）时才剔除；整槽全为不可比行 ⇒ 保持原判。
+	// 复用 l7_pack_rows/l7_slots 承载扩展语义（**不加迁移列**）：行数=被剔除的不可比行（合集 s / 区间 v）。
+	L7PackRows int64 `json:"l7PackRows"` // 被剔除的不可比行数（s=合集 或 v=区间）
 	L7Slots    int64 `json:"l7Slots"`    // 发生剔除的槽数
-	MixedDiag  int64 `json:"mixedDiag"`  // 诊断档：多身份槽（含 s/v），不判定、计入未对齐
-	Leftover   int64 `json:"leftover"`   // 以上都不成立
+
+	// ===== L6.4 / L6.5 锚容忍（2026-11-19，用户口径）=====
+	// L6.4 以日期为锚（只吃纯日期行，d 非空 ∧ 无 n）、L6.5 以期号为锚（n>0 的行，可带 d）。
+	// 逐锚判定（非片级守卫，2026-11-19 评审定）：
+	//   - 锚可用 = 组内「p 归零后 epid 串全等」（一侧有 p 一侧空=表示差异；两侧 p 不同=冲突，
+	//     与 L3/L4/L6.1 的 part 哲学同规）∧ 无「同源同锚多行」（重复锚不参与本层，也不否决其它锚）；
+	//   - 槽容忍 = 槽内每一行共享**同一锚值**且该锚可用（评审补：各行锚值互不相同的"各自干净"槽
+	//     ——窗口错位/真冲突——不容忍，防把不同集判齐）；
+	//   - d 锚槽内身份守卫（2026-11-20 评审补，二轮补 part）：槽内非零 n distinct ≤1、
+	//     s/v/vn 全等、非空 part distinct ≤1（带 n/s/v 的行不进 d 锚组、绕过组内全等，
+	//     须在槽级补验，详见 slotAnchorOK）。
+	MixedDiag int64 `json:"mixedDiag"` // 诊断档（2026-11-19 删除）：多身份槽不再单列、并入 Leftover；字段恒 0，仅为 openapi/web 契约兼容保留
+	Leftover  int64 `json:"leftover"`  // 以上都不成立（剩余槽全部计入此档）
 
 	MksTotal   int64 `json:"mksTotal"`   // 有非空 epid 的片数
-	MksAligned int64 `json:"mksAligned"` // 片内 leftover == 0（且 mixedDiag == 0）的片数
+	MksAligned int64 `json:"mksAligned"` // 片内 leftover == 0 的片数（MixedDiag 恒 0，2026-11-19 删诊断档）
 
 	// ===== 对齐率（分层口径，2026-11-17 用户定：L2~L5 也纳入）=====
 	// 分母恒为全部非空槽位/全部有身份片；分子 = 符合任一层口径的（L0~L5 救回的都算对齐）。
-	AlignedSlots int64   `json:"alignedSlots"` // = SlotsTotal - MixedDiag - Leftover
+	AlignedSlots int64   `json:"alignedSlots"` // = SlotsTotal - Leftover（MixedDiag 恒 0，减项保留为契约兼容）
 	SlotPct      float64 `json:"slotPct"`      // 集级对齐率（分层口径）
 	MkPct        float64 `json:"mkPct"`        // 片级对齐率（分层口径）
 	Truncated    bool    `json:"truncated"`    // 1=本次计算被分页上限截断（结果不完整，P4）
@@ -238,9 +257,10 @@ func funnelPiece(bySrc map[int64]map[int]string) (FunnelStat, bool) {
 // funnelPieceSrc 对单片的槽位做 L0~L6 分层。from = 每源行的 from_src（L6 用；nil/空 表示未知⇒视为自身）。
 func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (FunnelStat, bool) {
 	var st FunnelStat
-	// L7（2026-11-19，子集法）：先剔除 `s=合集`（归一后）的行——仅当该槽还存在"可比较行"（非合集行）时才剔；
-	// 空集视为任何集合的子集 ⇒ 该槽判对齐；整槽全为合集行 ⇒ 不剔，保持原判（避免削弱既有对齐）。
-	st.L7PackRows, st.L7Slots = stripPackRows(bySrc)
+	// L7（2026-11-19，子集法；2026-11-20 扩区间行）：先剔除"不可比行"（s=合集 / v=区间形态）——
+	// 仅当该槽还存在"可比较行"（既非合集也非区间）时才剔；空集视为任何集合的子集 ⇒ 该槽判对齐；
+	// 整槽全为不可比行 ⇒ 不剔，保持原判（避免削弱既有对齐）。
+	st.L7PackRows, st.L7Slots = stripNonComparableRows(bySrc)
 	slots := map[int][]string{} // ep_index → 该槽所有行的 epid
 	for _, sm := range bySrc {
 		for idx, ep := range sm {
@@ -358,9 +378,30 @@ func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (Funn
 		unaligned = keep
 	}
 
-	// 剩余再分档：含 s/v 的多身份槽 → 诊断档（不判定，计入未对齐）；其余 → leftover
-	for _, idx := range unaligned {
-	// M8（2026-11-19）：d 覆盖率——纯日期槽总量 + 其中"日期在本片 ≥2 源出现"的部分。
+	// L6.4 / L6.5（2026-11-20 用户口径）：**只有本两层按「锚」算槽**（其余层仍按位次）。
+	// 前置：行必须有锚（期号 n≥1 或日期 d 非空）；真·无锚行不入口径。
+	// 通过 ⇔ 槽内【每行都有锚】且【不存在"同锚不同 epid"】（锚一致 / 1 有 1 无 均通过）。
+	// 分档：槽内锚全为期号 ⇒ L6N5；含日期锚 ⇒ L6D4。
+	if len(unaligned) > 0 {
+		conflict := anchorConflictSet(bySrc)
+		keep := unaligned[:0]
+		for _, idx := range unaligned {
+			if okp, kind := slotAnchorPass(slots[idx], conflict); okp {
+				if kind == 'n' {
+					st.L6N5++
+				} else {
+					st.L6D4++
+				}
+				continue
+			}
+			keep = append(keep, idx)
+		}
+		unaligned = keep
+	}
+
+	// M8（2026-11-19）：d 覆盖率——纯日期槽总量 + 其中"日期在本片 ≥2 源出现"的部分（片级一次）。
+	// ⚠️ 2026-11-19 修复：本块此前被误包进下方"剩余槽"循环——不引用循环变量却被逐未对齐槽重跑，
+	// 整片判齐时一次都不跑 ⇒ dSlotsTotal/dSlotsCross 少计/倍计；移回片级。
 	{
 		srcSet := dateSrcSetOf(bySrc)
 		for _, eps := range slots {
@@ -382,34 +423,36 @@ func funnelPieceSrc(bySrc map[int64]map[int]string, from map[int64]string) (Funn
 			}
 		}
 	}
-		if slotHasMultiIdentity(slots[idx]) {
-			st.MixedDiag++
-		} else {
-			st.Leftover++
-		}
-	}
-	// 片级对齐 = 整片无未对齐（诊断档同样阻断）
-	if st.Leftover == 0 && st.MixedDiag == 0 {
+	// 剩余槽（2026-11-19 删诊断档 MixedDiag）：不再区分多身份，直接计未对齐；
+	// MixedDiag 字段保留恒 0（契约兼容，见 FunnelStat 注释）。
+	st.Leftover += int64(len(unaligned))
+	// 片级对齐 = 整片无未对齐（MixedDiag 恒 0）
+	if st.Leftover == 0 {
 		st.MksAligned = 1
 	}
 	return st, true
 }
 
-// dateSrcMax 统计本片中每个日期在**单个源**内出现的最大次数。
-// >1 表示该源同一天有多集（如上下篇未识别、重复行）⇒ 日期不能单独当身份，供 L6.3 守卫使用。
-// stripPackRows（L7，2026-11-19）剔除 `s=合集`（归一后）的派生行：
-//   - 只在该槽（ep_index）**还存在非合集行**时剔除 —— 剔除后该槽只剩可比较行，
-//     若可比较行为 0（不可达，因为剔除以"存在非合集行"为前提）则视为空集⊆任意集合；
-//   - 整槽全为合集行 ⇒ 不剔（保持原判：全片同写合集者本就自洽对齐）；
+// stripNonComparableRows（L7；2026-11-19 打包行 → 2026-11-20 扩名：并入区间行，原 stripPackRows）
+// 剔除"不可比行"——**合集行**（s=合集，归一后）与**区间行**（v 段为区间形态，如 v=1-30）：
+//   - 区间行为何剔：7cb893f 后 R20a 区间行以 `v=X-Y|n=first` 的单集身份入池，与真实单集行
+//     在同一 ep_index 撞槽 ⇒ NEW 未对齐槽 25,630 / mk 翻负 12,072（片级 99.06→94.87）。
+//     见 docs/epid-集身份/分析-交接批回归归因与机会点-2026-11-20.md §2.1 / §5-P0（fix-forward：
+//     并入 L7 剔除层——**身份与弹幕可达收益全部保留，仅不参与槽判定**，随发版生效无需 rebuild）。
+//   - 守卫不变：只在该槽（ep_index）**还存在可比较行**（既非合集也非区间）时剔除 —— 剔除后该槽
+//     只剩可比较行；整槽全为不可比行 ⇒ 不剔（保持原判：全片同写打包/区间者本就自洽对齐，
+//     不得白送对齐）。
 //   - 返回 (被剔除行数, 发生剔除的槽数)。bySrc 就地修改（调用方每片新建，不复用）。
-func stripPackRows(bySrc map[int64]map[int]string) (int64, int64) {
+//   - 口径列：复用 l7_pack_rows/l7_slots（语义扩展为"被剔除的不可比行：合集 s / 区间 v"，
+//     **不加迁移列**）；版本串 `rangeExcl@2026-11-20` 与此对应。
+func stripNonComparableRows(bySrc map[int64]map[int]string) (int64, int64) {
 	if len(bySrc) == 0 {
 		return 0, 0
 	}
 	hasCmp := map[int]bool{}
 	for _, sm := range bySrc {
 		for idx, ep := range sm {
-			if !isPackSeriesEpid(ep) {
+			if !isNonComparableEpid(ep) {
 				hasCmp[idx] = true
 			}
 		}
@@ -421,7 +464,7 @@ func stripPackRows(bySrc map[int64]map[int]string) (int64, int64) {
 	droppedSlots := map[int]bool{}
 	for src, sm := range bySrc {
 		for idx, ep := range sm {
-			if hasCmp[idx] && isPackSeriesEpid(ep) {
+			if hasCmp[idx] && isNonComparableEpid(ep) {
 				delete(sm, idx)
 				dropped++
 				droppedSlots[idx] = true
@@ -434,10 +477,88 @@ func stripPackRows(bySrc map[int64]map[int]string) (int64, int64) {
 	return dropped, int64(len(droppedSlots))
 }
 
+// isNonComparableEpid L7：该行是否为"不可比行"——合集行（s=合集）或区间行（v=X-Y）。
+func isNonComparableEpid(ep string) bool {
+	return isPackSeriesEpid(ep) || isRangeVariantEpid(ep)
+}
+
 // isPackSeriesEpid L7：该行是否为"打包系列"（归一后 s == 合集）。
 func isPackSeriesEpid(ep string) bool {
 	k, ok := danmu.ParseEpidString(ep)
 	return ok && k.Series == "合集"
+}
+
+// reRangeVariant 区间 v 段形态（2026-11-20）：`^\d{1,4}\s*[-~—－至]\s*\d{1,4}$`。
+// 连接符类与派生层区间规则一致（danmu/epid_rules.go reRangeStrict 的 `-`/`~`/`—`/`－`，
+// 另含交接口径的 `至`）；R20a 实际写出的规范形为半角 `X-Y`（无空格），其余仅作防御。
+// 位数上限 4 与 reRangeStrict 同规；5 位以上数字非集序（与 reVariantNum 的口径一致）。
+var reRangeVariant = regexp.MustCompile(`^\d{1,4}\s*[-~—－至]\s*\d{1,4}$`)
+
+// isRangeVariantEpid L7（2026-11-20）：v 段是否为区间形态。解析后判 v 段；
+// v 非空即判（本函数只在 v 非空时可能为真），n 可有（R20a 区间行常伴 n=first）——n 不参与判定。
+func isRangeVariantEpid(ep string) bool {
+	k, ok := danmu.ParseEpidString(ep)
+	return ok && k.Variant != "" && reRangeVariant.MatchString(k.Variant)
+}
+
+// anchorOf（L6.4/L6.5，2026-11-20）：取该行的锚 —— 期号优先，其次日期。
+// 返回 (锚键, 锚类型'n'/'d')；真·无锚（n<=0 且 d 为空）返回 ("", 0)。
+func anchorOf(ep string) (string, byte) {
+	k, ok := danmu.ParseEpidString(ep)
+	if !ok {
+		return "", 0
+	}
+	if k.Num > 0 {
+		return "n|" + strconv.Itoa(k.Num), 'n'
+	}
+	if k.Date != "" {
+		return "d|" + k.Date, 'd'
+	}
+	return "", 0
+}
+
+// anchorConflictSet：片内"锚冲突"集合 —— 同一锚组内出现 ≥2 个不同 epid。
+// 未冲突的锚（含"只有 1 个源有该锚"= 1 有 1 无）不在集合内。
+func anchorConflictSet(bySrc map[int64]map[int]string) map[string]bool {
+	grp := map[string]map[string]bool{}
+	for _, sm := range bySrc {
+		for _, ep := range sm {
+			a, _ := anchorOf(ep)
+			if a == "" {
+				continue
+			}
+			if grp[a] == nil {
+				grp[a] = map[string]bool{}
+			}
+			grp[a][ep] = true
+		}
+	}
+	out := map[string]bool{}
+	for a, eps := range grp {
+		if len(eps) > 1 {
+			out[a] = true
+		}
+	}
+	return out
+}
+
+// slotAnchorPass（L6.4/L6.5）：槽内每行都有锚 且 无锚冲突 ⇒ 通过。
+// 返回 (是否通过, 锚类型)：'n' = 槽内锚全为期号；'d' = 含日期锚。
+func slotAnchorPass(eps []string, conflict map[string]bool) (bool, byte) {
+	if len(eps) == 0 {
+		return false, 0
+	}
+	kind := byte('n')
+	for _, ep := range eps {
+		a, k := anchorOf(ep)
+		if a == "" || conflict[a] {
+			return false, 0
+		}
+		if k == 'd' {
+			kind = 'd'
+		}
+	}
+	return true, kind
 }
 
 // dateSrcSetOf 统计本片中每个日期被哪些源覆盖（供 M8 的跨源覆盖率使用）。
@@ -472,6 +593,8 @@ func slotPureDate(eps []string) bool {
 	return true
 }
 
+// dateSrcMax 统计本片中每个日期在**单个源**内出现的最大次数。
+// >1 表示该源同一天有多集（如上下篇未识别、重复行）⇒ 日期不能单独当身份，供 L6.3 守卫使用。
 func dateSrcMax(bySrc map[int64]map[int]string) map[string]int {
 	out := make(map[string]int, 16)
 	for _, sm := range bySrc {
@@ -659,20 +782,6 @@ func slotAllCleanAnchor(eps []string, kind anchorKind) bool {
 	return true
 }
 
-// slotHasMultiIdentity 该槽是否含"多身份行"（`s`/`v` 任一非空）⇒ L5 诊断分档。
-func slotHasMultiIdentity(eps []string) bool {
-	for _, ep := range eps {
-		k, ok := danmu.ParseEpidString(ep)
-		if !ok {
-			continue
-		}
-		if k.Series != "" || k.Variant != "" || k.VariantNum != 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // l6Kind 判该片是否属于 L6 容忍层，以及是哪一类：
 //
 //	纯 n 片：**全部行**都是"纯 n"（`s`/`v` 空 ∧ `d` 空 ∧ `n`>0）**且每行 n 来源 ∈ {self, single}**
@@ -819,7 +928,8 @@ func valueSubsetOK(bySrc map[int64]map[int]string) bool {
 }
 
 // finalizeFunnel 补齐派生字段：AlignedSlots / SlotPct / MkPct（分层口径对齐率）。
-// 分母恒为全部非空槽位与全部有身份片；混合身份诊断档与 leftover 都算未对齐。
+// 分母恒为全部非空槽位与全部有身份片；leftover 算未对齐（MixedDiag 恒 0 —— 2026-11-19 删诊断档，
+// 减项保留仅为契约兼容）。
 func finalizeFunnel(st *FunnelStat) {
 	st.AlignedSlots = st.SlotsTotal - st.MixedDiag - st.Leftover
 	if st.SlotsTotal > 0 {

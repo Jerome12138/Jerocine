@@ -1482,3 +1482,22 @@ func (r *EpidRepo) SetDeriveStat(ctx context.Context, derivedRows, derivedSrcRow
 	                               ON DUPLICATE KEY UPDATE derived_rows = ?, derived_src_rows = ?, updated_at = ?`,
 		derivedRows, derivedSrcRows, now, derivedRows, derivedSrcRows, now).Error
 }
+
+// MovieNamesByMids 批量取影片名（派生层"S 以片名为前缀则去前缀"判定用，2026-11-19）。
+func (r *EpidRepo) MovieNamesByMids(ctx context.Context, mids []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(mids))
+	if len(mids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		Mid  int64
+		Name string
+	}
+	if err := r.db.WithContext(ctx).Table("movie").Select("mid, name").Where("mid IN ?", mids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, x := range rows {
+		out[x.Mid] = x.Name
+	}
+	return out, nil
+}

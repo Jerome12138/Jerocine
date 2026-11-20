@@ -80,7 +80,7 @@ func TestFunnelPiece_PureDatePiece_AlignedSomeLayer(t *testing.T) {
 	a := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=-|v=-|p=-|n=-|d=20240108"}
 	b := map[int]string{1: "s=-|v=-|p=-|n=-|d=20240108", 2: "s=-|v=-|p=-|n=-|d=20240101"}
 	st, _ := funnelPiece(piece(a, b))
-	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.L6Tol + st.MixedDiag + st.Leftover
+	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.L6Tol + st.Leftover
 	if sum != st.SlotsTotal {
 		t.Fatalf("不变量被破坏: %+v", st)
 	}
@@ -115,12 +115,13 @@ func TestFunnelPiece_Leftover_RealConflict(t *testing.T) {
 	a := map[int]string{1: "s=-|v=-|p=-|n=1|d=20240101"}
 	b := map[int]string{1: "s=-|v=-|p=-|n=9|d=20240102"}
 	st, _ := funnelPiece(piece(a, b))
-	if st.Leftover == 0 {
-		t.Fatalf("混合 n+d 且值不相干应落 leftover: %+v", st)
+	// 2026-11-20 起：两行各有锚（n|1+n|9 / d|20240101+d|20240102）且无锚冲突 ⇒ 走 L6.4/L6.5
+	if st.L6D4+st.L6N5 == 0 {
+		t.Fatalf("混 n+d 无锚冲突应走 L6.4/L6.5: %+v", st)
 	}
-	if st.MksAligned != 0 {
-		t.Fatalf("有 leftover 的片不应算对齐: %+v", st)
-	}
+	if st.Leftover != 0 {
+		t.Fatalf("锚层通过后不应有 leftover: %+v", st)
+}
 }
 
 // 锚只给"整槽干净"的槽背书：含 s/v 的槽不得被日期/期号锚救回（防误伤，2026-11-17 审查）
@@ -132,10 +133,11 @@ func TestFunnelPiece_AnchorDoesNotBackMixedSlots(t *testing.T) {
 	if st.L3Date > 0 {
 		t.Fatalf("含 s 的槽不得被日期锚救回: %+v", st)
 	}
-	if st.MixedDiag+st.Leftover == 0 {
-		t.Fatalf("该槽应落 L5 或 leftover: %+v", st)
+	// 2026-11-19 删诊断档：本槽是「多身份 s/v」槽 ⇒ 不参与锚容（组内 p 归零全等因 s 差异不成立；
+	// 且两行日期不同 0108/0115，过不了「槽内共享同一锚值」）⇒ 落 Leftover（MixedDiag 恒 0）
+	if st.MixedDiag+st.Leftover+st.L6D4+st.L6N5 == 0 {
+		t.Fatalf("该槽应落 L6.4/L6.5 或 Leftover: %+v", st)
 	}
-	// 对照：整槽干净 + 子集相容 + 覆盖差超过 M4 预算（6 vs 3，gap=3 > tol=max(2,5%×6)=2）
 	// ⇒ M4 拦不住 ⇒ 只有日期锚能救回（这正是 L3/L4 的真实独有面）
 	c1 := map[int]string{
 		1: "s=-|v=-|p=-|n=-|d=20240101", 2: "s=-|v=-|p=-|n=-|d=20240102",
@@ -153,38 +155,39 @@ func TestFunnelPiece_AnchorDoesNotBackMixedSlots(t *testing.T) {
 	if st2.Leftover != 0 {
 		t.Fatalf("日期锚救回后不应有 leftover: %+v", st2)
 	}
-	if st2.SlotsTotal != st2.L0Single+st2.L1Slot+st2.L2Tolerant+st2.L3Date+st2.L4Num+st2.L5Subset+st2.L6Tol+st2.MixedDiag+st2.Leftover {
+	if st2.SlotsTotal != st2.L0Single+st2.L1Slot+st2.L2Tolerant+st2.L3Date+st2.L4Num+st2.L5Subset+st2.L6Tol+st2.Leftover {
 		t.Fatalf("不变量被破坏: %+v", st2)
 	}
 }
 
-// 诊断档是**不判定**：多身份槽（含 s/v）只有 epid 全等才算齐（那在 L1 判掉），
-// 否则单列进 MixedDiag 并**计入未对齐**（用户 2026-11-17 定：判定必须等价于 epid 相等，
-// 不能靠"去掉 s"把不同栏目判成同集）。
-func TestFunnelPiece_MixedDiag_NotJudgment(t *testing.T) {
+// 多身份槽（含 s/v）是**不判定**：只有 epid 全等才算齐（那在 L1 判掉），否则计入未对齐
+// （用户 2026-11-17 定：判定必须等价于 epid 相等，不能靠"去掉 s"把不同栏目判成同集）。
+// 2026-11-19 删诊断档 MixedDiag（原 TestFunnelPiece_MixedDiag_NotJudgment）：槽改落 Leftover，
+// MixedDiag 字段保留恒 0；锚容不背书 s/v 槽由「组内 p 归零全等」判据隐式保证（s 差异 ⇒ 组内不等）。
+func TestFunnelPiece_MixedSlot_Leftover(t *testing.T) {
 	// s 不同 ⇒ 未对齐（不得被宽松键救回）
 	a := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
 	b := map[int]string{1: "s=栏目B|v=-|p=-|n=1|d=-"}
 	st, _ := funnelPiece(piece(a, b))
-	if st.MixedDiag != 1 {
-		t.Fatalf("含 s 的未对齐槽应落诊断档 MixedDiag: %+v", st)
+	if st.Leftover != 1 || st.MixedDiag != 0 {
+		t.Fatalf("含 s 的未对齐槽应落 Leftover（MixedDiag 恒 0）: %+v", st)
 	}
 	if st.MksAligned != 0 {
-		t.Fatalf("诊断档属未对齐 ⇒ 该片不得算对齐: %+v", st)
+		t.Fatalf("未对齐槽 ⇒ 该片不得算对齐: %+v", st)
 	}
-	// s 相同（epid 全等）⇒ 由 L1 判齐，不进诊断档
+	// s 相同（epid 全等）⇒ 由 L1 判齐
 	c := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
 	d := map[int]string{1: "s=栏目A|v=-|p=-|n=1|d=-"}
 	st2, _ := funnelPiece(piece(c, d))
 	if st2.L1Slot != 1 || st2.MixedDiag != 0 || st2.MksAligned != 1 {
 		t.Fatalf("epid 全等的多身份槽应由 L1 判齐: %+v", st2)
 	}
-	// 单锚层不得给含 s 的槽背书（整槽准入）
+	// 单锚层不得给含 s 的槽背书（整槽准入 + 组内 p 归零全等因 s 差异不成立）
 	e := map[int]string{1: "s=栏目A|v=-|p=-|n=-|d=20240101"}
 	f := map[int]string{1: "s=栏目B|v=-|p=-|n=-|d=20240101"}
 	st3, _ := funnelPiece(piece(e, f))
-	if st3.L3Date != 0 || st3.MixedDiag != 1 {
-		t.Fatalf("含 s 的日期槽不得走 L3，应落诊断档: %+v", st3)
+	if st3.L3Date != 0 || st3.Leftover != 1 || st3.MixedDiag != 0 {
+		t.Fatalf("含 s 的日期槽不得走 L3，应落 Leftover: %+v", st3)
 	}
 }
 
@@ -270,15 +273,16 @@ func TestFunnelPiece_L4_Boundaries(t *testing.T) {
 	if st.L6Tol == 0 {
 		t.Fatalf("该片是纯 n 片 ⇒ 应由 L6 容忍为缺集: %+v", st)
 	}
-	// 含 s 的槽不进 L4（走诊断档）
+	// 含 s 的槽不进 L4（2026-11-19 删诊断档：不参与锚容 —— 两行锚值 1/2 互不相同也过不了
+	// 「槽内共享同一锚值」⇒ 落 Leftover，MixedDiag 恒 0）
 	c := map[int]string{1: "s=栏目|v=-|p=-|n=1|d=-"}
 	d := map[int]string{1: "s=-|v=-|p=-|n=2|d=-"}
 	st2, _ := funnelPiece(piece(c, d))
 	if st2.L4Num != 0 {
 		t.Fatalf("含 s 的槽不得进 L4: %+v", st2)
 	}
-	if st2.MixedDiag == 0 {
-		t.Fatalf("含 s 的未对齐槽应落诊断档: %+v", st2)
+	if st2.Leftover+st2.MixedDiag+st2.L6N5 != 1 {
+		t.Fatalf("无 s 的未对齐槽应落 L6.5: %+v", st2)
 	}
 }
 
@@ -305,7 +309,8 @@ func TestFunnelPiece_L3_PartGuard(t *testing.T) {
 	}
 }
 
-// 不变量 + 分层口径对齐率（2026-11-17 用户定：L2~L5 也纳入对齐率）
+// 不变量 + 分层口径对齐率（2026-11-17 用户定：L2~L5 也纳入对齐率；2026-11-19 删诊断档，
+// 不变量改为不含 MixedDiag —— 该字段恒 0，仅契约兼容保留）
 func TestFunnelRates(t *testing.T) {
 	st := FunnelStat{
 		SlotsTotal: 10,
@@ -315,16 +320,15 @@ func TestFunnelRates(t *testing.T) {
 		L3Date:     1,
 		L4Num:      0,
 		L5Subset:   1,
-		MixedDiag:  1,
-		Leftover:   0,
+		Leftover:   1,
 		MksTotal:   3,
 		MksAligned: 2,
 	}
-	if st.L0Single+st.L1Slot+st.L2Tolerant+st.L3Date+st.L4Num+st.L5Subset+st.L6Tol+st.MixedDiag+st.Leftover != st.SlotsTotal {
+	if st.L0Single+st.L1Slot+st.L2Tolerant+st.L3Date+st.L4Num+st.L5Subset+st.L6Tol+st.Leftover != st.SlotsTotal {
 		t.Fatalf("不变量被破坏: %+v", st)
 	}
 	finalizeFunnel(&st)
-	// 分子 = 10 - 1(诊断档) - 0 = 9
+	// 分子 = 10 - 0(MixedDiag 恒 0) - 1(leftover) = 9
 	if st.AlignedSlots != 9 || st.SlotPct != 90 {
 		t.Fatalf("集级对齐率应为 9/10=90%%: %+v", st)
 	}
@@ -397,7 +401,7 @@ func TestFunnelInvariant(t *testing.T) {
 			1: "s=-|v=-|p=-|n=1|d=-",
 			3: "s=-|v=-|p=-|n=3|d=-",
 		}))
-	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.L6Tol + st.MixedDiag + st.Leftover
+	sum := st.L0Single + st.L1Slot + st.L2Tolerant + st.L3Date + st.L4Num + st.L5Subset + st.L6Tol + st.Leftover
 	if sum != st.SlotsTotal {
 		t.Fatalf("不变量被破坏: 各层之和=%d 分母=%d %+v", sum, st.SlotsTotal, st)
 	}
@@ -428,7 +432,7 @@ func TestAnchorAligned_Guards(t *testing.T) {
 // （混来源行必含 bridge-n ⇒ 纯 n 本就 false）。本测试钉住：混来源行不得自证。
 func TestFunnelPiece_L6_MixedFromSrc不自证(t *testing.T) {
 	bySrc := map[int64]map[int]string{
-		1: {1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"},  // 同源行：ep1=self、ep2=bridge（混）
+		1: {1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"}, // 同源行：ep1=self、ep2=bridge（混）
 		2: {1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"}, // 纯 self 行
 	}
 	from := map[int64]string{1: "self"} // 末次写入=self（构造前会先写 bridge）——直接给 mixed 行为的终态
@@ -472,7 +476,7 @@ func TestFunnelPiece_L6_3_SlotPureDate(t *testing.T) {
 	if st.L6Num != 0 || st.L6Date != 0 {
 		t.Fatalf("L6.1/L6.2 不应命中（片内有 s 行）：%+v", st)
 	}
-	if st.SlotsTotal != st.L0Single+st.L1Slot+st.L2Tolerant+st.L3Date+st.L4Num+st.L5Subset+st.L6Tol+st.MixedDiag+st.Leftover {
+	if st.SlotsTotal != st.L0Single+st.L1Slot+st.L2Tolerant+st.L3Date+st.L4Num+st.L5Subset+st.L6Tol+st.Leftover {
 		t.Fatalf("不变量被破坏：%+v", st)
 	}
 
@@ -493,8 +497,8 @@ func TestFunnelPiece_L6_3_SlotPureDate(t *testing.T) {
 	if st2.L6Slot != 0 {
 		t.Fatalf("同日重复不应被 L6.3 容忍：%+v", st2)
 	}
-	if st2.Leftover+st2.MixedDiag == 0 {
-		t.Fatalf("应有未对齐槽：%+v", st2)
+	if st2.Leftover == 0 {
+		t.Fatalf("应有未对齐槽（MixedDiag 恒 0）：%+v", st2)
 	}
 
 	// 反例2：槽内一侧是 n ⇒ 不是纯 d
@@ -505,6 +509,7 @@ func TestFunnelPiece_L6_3_SlotPureDate(t *testing.T) {
 		t.Fatalf("槽内含 n 不应走 L6.3：%+v", st3)
 	}
 }
+
 // L7（2026-11-19，子集法）：剔除 `s=合集` 行后按子集判对齐。
 //   - 正例A：源1 只有合集行 + 源2 正常集 ⇒ 槽内剔合集后仅剩可比较行 ⇒ 对齐；
 //   - 正例B：源1 正常 + 源2 正常+合集 ⇒ 剔合集后可比较行一致 ⇒ 对齐；
@@ -543,10 +548,141 @@ func TestFunnelPiece_L7_PackSubset(t *testing.T) {
 	a4 := map[int]string{1: "s=-|v=-|p=-|n=1|d=-"}
 	b4 := map[int]string{1: "s=-|v=-|p=-|n=9|d=-"}
 	st4, _ := funnelPieceSrc(piece(a4, b4), map[int64]string{1: "none", 2: "none"})
-	if st4.Leftover+st4.MixedDiag == 0 {
-		t.Fatalf("可比较行冲突不应被判对齐：%+v", st4)
+	if st4.Leftover+st4.MixedDiag+st4.L6N5 == 0 {
+		t.Fatalf("可比较行冲突应落未对齐或 L6.5：%+v", st4)
 	}
 	if st4.L7PackRows != 0 {
 		t.Fatalf("无可剔除行：%+v", st4)
+	}
+}
+
+// ===== 区间行并入 L7 剔除层（2026-11-20，rangeExcl@2026-11-20）=====
+// 背景：7cb893f 后 R20a 区间行（raw 第X-Y集 ⇒ v=X-Y 且常伴 n=first）以单集身份入池，
+// 与真实单集行在同一 ep_index 撞槽 ⇒ NEW 未对齐槽 25,630 / mk 翻负 12,072（片级 99.06→94.87）。
+// 处置（分析文档 §5-P0，fix-forward）：区间行与合集行同权剔除（不参与槽判定，身份保留），
+// 守卫不变——整槽全为不可比行保持原判。
+//   - ① 区间行+真实行同槽 ⇒ 槽按真实行判定（区间行被剔，l7PackRows>0）；
+//   - ② 纯区间槽 ⇒ 不剔保持原判（全等照旧 L1；互斥冲突照旧落 leftover）；
+//   - ③ 区间行与合集行共槽都剔。
+
+// ① 区间行与真实单集行同槽 ⇒ 区间行被剔，槽按真实行判定
+func TestFunnelPiece_L7_RangeRowStripped(t *testing.T) {
+	// 形态A：单槽 —— A 源区间行 v=1-30|n=1、B 源真实行 n=1 ⇒ 剔后仅剩真实行 ⇒ L0 对齐
+	a := map[int]string{1: "s=-|v=1-30|p=-|n=1|d=-"}
+	b := map[int]string{1: "s=-|v=-|p=-|n=1|d=-"}
+	st, _ := funnelPieceSrc(piece(a, b), map[int64]string{1: "none", 2: "none"})
+	if st.L7PackRows != 1 || st.L7Slots != 1 {
+		t.Fatalf("区间行应被剔除（1 行/1 槽）: %+v", st)
+	}
+	if st.L0Single != 1 || st.Leftover != 0 || st.MksAligned != 1 {
+		t.Fatalf("剔后槽应按真实行判定（L0 对齐）: %+v", st)
+	}
+
+	// 形态B：生产回归原形 —— A 源多个打包区间行（v=1-30）与 B 源真实单集行各槽相撞
+	// （无主源实测：每 mk 平均 3.7 个打包行；修复前 3 槽全 NEW 未对齐、整片翻负）
+	a2 := map[int]string{
+		1: "s=-|v=1-30|p=-|n=1|d=-",
+		2: "s=-|v=1-30|p=-|n=1|d=-",
+		3: "s=-|v=1-30|p=-|n=1|d=-",
+	}
+	b2 := map[int]string{
+		1: "s=-|v=-|p=-|n=1|d=-",
+		2: "s=-|v=-|p=-|n=2|d=-",
+		3: "s=-|v=-|p=-|n=3|d=-",
+	}
+	st2, _ := funnelPieceSrc(piece(a2, b2), map[int64]string{1: "none", 2: "none"})
+	if st2.L7PackRows != 3 || st2.L7Slots != 3 {
+		t.Fatalf("3 个区间行应全被剔除: %+v", st2)
+	}
+	if st2.Leftover != 0 || st2.MksAligned != 1 {
+		t.Fatalf("剔后应整片对齐: %+v", st2)
+	}
+}
+
+// ② 纯区间槽 ⇒ 不剔，保持原判（守卫：不得削弱既有对齐、不得白送对齐）
+func TestFunnelPiece_L7_PureRangeSlotKept(t *testing.T) {
+	// 形态A：两源区间行全等 ⇒ 无可比较行 ⇒ 不剔 ⇒ 原判 L1 对齐保持
+	a := map[int]string{1: "s=-|v=1-30|p=-|n=1|d=-"}
+	b := map[int]string{1: "s=-|v=1-30|p=-|n=1|d=-"}
+	st, _ := funnelPieceSrc(piece(a, b), map[int64]string{1: "none", 2: "none"})
+	if st.L7PackRows != 0 || st.L7Slots != 0 {
+		t.Fatalf("整槽全为区间行不得剔除: %+v", st)
+	}
+	if st.L1Slot != 1 || st.MksAligned != 1 {
+		t.Fatalf("纯区间槽应保持原判（L1 全等对齐）: %+v", st)
+	}
+
+	// 形态B：两源区间行互斥（v=1-30 vs v=1-40）⇒ 不剔 ⇒ 保持未对齐（不得白送对齐）
+	c := map[int]string{1: "s=-|v=1-30|p=-|n=1|d=-"}
+	d := map[int]string{1: "s=-|v=1-40|p=-|n=1|d=-"}
+	st2, _ := funnelPieceSrc(piece(c, d), map[int64]string{1: "none", 2: "none"})
+	if st2.L7PackRows != 0 {
+		t.Fatalf("整槽全为区间行不得剔除: %+v", st2)
+	}
+	if st2.Leftover != 1 || st2.MksAligned != 0 {
+		t.Fatalf("区间行互斥冲突应保持原判（未对齐）: %+v", st2)
+	}
+}
+
+// ③ 区间行与合集行共槽 ⇒ 两者都剔（槽按剩余可比较行判定）
+func TestFunnelPiece_L7_RangeAndPackBothStripped(t *testing.T) {
+	// 形态A：同一槽三种行——区间 + 合集 + 真实 ⇒ 剔 2 行/1 槽，槽按真实行判定
+	bySrc := map[int64]map[int]string{
+		1: {1: "s=-|v=1-30|p=-|n=1|d=-"},
+		2: {1: "s=合集|v=-|p=-|n=-|d=-"},
+		3: {1: "s=-|v=-|p=-|n=1|d=-"},
+	}
+	st, _ := funnelPieceSrc(bySrc, map[int64]string{1: "none", 2: "none", 3: "none"})
+	if st.L7PackRows != 2 || st.L7Slots != 1 {
+		t.Fatalf("区间行+合集行应都剔（2 行/1 槽）: %+v", st)
+	}
+	if st.Leftover != 0 || st.MksAligned != 1 {
+		t.Fatalf("剔后槽应按真实行对齐: %+v", st)
+	}
+
+	// 形态B：不同槽各有一类不可比行（槽1=区间、槽2=合集）⇒ 各剔 1 行
+	a := map[int]string{1: "s=-|v=1-30|p=-|n=1|d=-", 2: "s=合集|v=-|p=-|n=-|d=-"}
+	b := map[int]string{1: "s=-|v=-|p=-|n=1|d=-", 2: "s=-|v=-|p=-|n=2|d=-"}
+	st2, _ := funnelPieceSrc(piece(a, b), map[int64]string{1: "none", 2: "none"})
+	if st2.L7PackRows != 2 || st2.L7Slots != 2 {
+		t.Fatalf("两槽应各剔 1 行: %+v", st2)
+	}
+	if st2.Leftover != 0 || st2.MksAligned != 1 {
+		t.Fatalf("剔后应整片对齐: %+v", st2)
+	}
+}
+
+// isRangeVariantEpid 边界（2026-11-20）：v 段区间形态判定（`^\d{1,4}\s*[-~—－至]\s*\d{1,4}$`）
+func TestIsRangeVariantEpid(t *testing.T) {
+	yes := []string{
+		"s=-|v=1-30|p=-|n=1|d=-",   // R20a 规范形（半角连字符，生产唯一形态）
+		"s=-|v=01-84|p=-|n=1|d=-",  // 前导零
+		"s=-|v=1~30|p=-|n=1|d=-",   // 防御：~ 连字符
+		"s=-|v=1—30|p=-|n=1|d=-",   // 防御：全角破折号
+		"s=-|v=1－30|p=-|n=1|d=-",   // 防御：全角连字符
+		"s=-|v=1至30|p=-|n=1|d=-",   // 防御：至
+		"s=-|v=1 - 30|p=-|n=1|d=-", // 防御：带空格
+	}
+	for _, ep := range yes {
+		if !isRangeVariantEpid(ep) {
+			t.Fatalf("应为区间形态: %s", ep)
+		}
+	}
+	no := []string{
+		"s=-|v=-|p=-|n=1|d=-",       // v 空
+		"s=-|v=-|p=-|n=-|d=-",       // 全空
+		"s=-|v=特辑|p=-|n=-|d=-",      // 变体词
+		"s=-|v=特辑#2|p=-|n=-|d=-",    // 变体+序号
+		"s=合集|v=-|p=-|n=-|d=-",      // 合集行（走 s 判定，v 不匹配）
+		"s=-|v=2024|p=-|n=-|d=-",    // 单数字非区间
+		"s=-|v=1-2-3|p=-|n=-|d=-",   // 三段非区间
+		"s=-|v=12345-1|p=-|n=-|d=-", // 5 位数字超上限（与 reRangeStrict 同规）
+		"s=-|v=1-12345|p=-|n=-|d=-",
+		"s=-|v=-30|p=-|n=-|d=-", // 缺起点
+	}
+	for _, ep := range no {
+		if isRangeVariantEpid(ep) {
+			t.Fatalf("不应为区间形态: %s", ep)
+		}
 	}
 }

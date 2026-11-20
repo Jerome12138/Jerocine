@@ -375,6 +375,20 @@ describe('epidHash（三端同规锚点）', () => {
     expect(epidHash('s=王牌对王牌|v=-|p=-|n=5|d=-')).toBe('1vo45avj8hymg')
     expect(epidHash('s=-|v=特辑|p=中|n=12|d=20260803')).toBe('tk06iynry8kt')
   })
+  // 纯 JS 32 位半字实现 vs BigInt 参考实现（2026-11-20 重写后的等价性锚定）
+  it('纯JS实现与 BigInt 参考实现随机交叉一致', () => {
+    const ref = (s: string): string => {
+      const bytes = new TextEncoder().encode(s)
+      let h = 0xcbf29ce484222325n
+      const prime = 0x100000001b3n
+      for (let i = 0; i < bytes.length; i++) { h ^= BigInt(bytes[i] as number); h = (h * prime) & 0xffffffffffffffffn }
+      return h.toString(36)
+    }
+    for (let i = 0; i < 300; i++) {
+      const s = 'x=' + Math.random().toString(36).slice(2) + String(i)
+      expect(epidHash(s)).toBe(ref(s))
+    }
+  })
   it('确定性 / 纯 ASCII / 长度 ≤13 / 异串异码', () => {
     const a = epidHash('s=-|v=-|p=-|n=1|d=-')
     expect(epidHash('s=-|v=-|p=-|n=1|d=-')).toBe(a)

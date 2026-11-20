@@ -2968,6 +2968,12 @@ paths:
               l7Slots:
                 type: integer
                 description: "L7 发生剔除的槽数"
+              l6d4:
+                type: integer
+                description: "L6.4 日期锚通过的槽（锚=槽，期号优先）"
+              l6n5:
+                type: integer
+                description: "L6.5 期号锚通过的槽"
                         leftover: { type: integer }
                         mksTotal: { type: integer }
                         mksAligned: { type: integer }

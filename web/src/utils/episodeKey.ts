@@ -297,14 +297,35 @@ export const EPKEY_VERSION = 'v1'
  */
 export function epidHash(epid: string): string {
   const bytes = new TextEncoder().encode(epid)
-  const prime = 0x100000001b3n // FNV prime 64
-  const mask = 0xffffffffffffffffn
-  let h = 0xcbf29ce484222325n // FNV offset basis 64
+  // FNV-1a 64-bit —— 纯 JS 32 位半字实现（2026-11-20 web 构建修复）：legacy 目标 chrome64
+  // 无 BigInt（运行时与字面量都不行），改用 {hi, lo} 双 u32 + 16 位肢乘法，float64 全程精确（< 2^53）。
+  // 算法与 Go/android 的 uint64 FNV-1a 逐位等价，黄金值与随机交叉测试（spec）双重锚定。
+  let hi = 0xcbf29ce4 >>> 0
+  let lo = 0x84222325 >>> 0
   for (let i = 0; i < bytes.length; i++) {
-    h ^= BigInt(bytes[i] as number)
-    h = (h * prime) & mask
+    lo = (lo ^ (bytes[i] as number)) >>> 0
+    const a0 = lo & 0xffff, a1 = lo >>> 16, a2 = hi & 0xffff, a3 = hi >>> 16
+    const b0 = 0x01b3, b1 = 0x0000, b2 = 0x0100 // prime 0x100000001B3 = {hi:0x100, lo:0x000001B3}
+    const p0 = a0 * b0
+    const p1 = a0 * b1 + a1 * b0
+    const p2 = a0 * b2 + a1 * b1 + a2 * b0
+    const p3 = (a1 * b2 + a3 * b0) >>> 0 // a0b3、a2b1 为 0（prime 的 b1/b3 肢为 0），但 a3*b0 是移位 48 的有效项
+    const r0 = p0 + (p1 & 0xffff) * 0x10000 // ⚠️ 不能用 <<16：JS 带符号移位在位 31 置位时为负，floor(r0/2^32) 的进位会变 -1
+    lo = r0 >>> 0
+    hi = (Math.floor(r0 / 0x100000000) + Math.floor(p1 / 0x10000) + p2 + p3 * 0x10000) % 0x100000000 >>> 0
   }
-  return h.toString(36)
+  // 64 位 → base36：36 进制长除法（r = rhi*2^32 + lo < 2^38，float64 精确）
+  const digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+  let out = ""
+  while (hi > 0 || lo > 0) {
+    const qhi = Math.floor(hi / 36)
+    const rhi = hi - qhi * 36
+    const r = rhi * 0x100000000 + lo
+    out = digits[r % 36] + out
+    lo = Math.floor(r / 36)
+    hi = qhi
+  }
+  return out === "" ? "0" : out
 }
 
 /**

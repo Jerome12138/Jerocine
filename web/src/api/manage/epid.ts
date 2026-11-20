@@ -336,6 +336,10 @@ export interface EpidFunnelStat {
   l7PackRows: number
   /** L7 发生剔除的槽数 */
   l7Slots: number
+  /** L6.4 日期锚通过的槽（锚=槽） */
+  l6d4: number
+  /** L6.5 期号锚通过的槽 */
+  l6n5: number
   /** 诊断档：含 s/v 的多身份槽（不判定，计入未对齐） */
   mixedDiag: number
   leftover: number
