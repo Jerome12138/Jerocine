@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { manageApi } from '@/api'
 import { toast } from '@/api/http'
-import type { EpidOverrideImportItem, EpidOverrideListResp, EpidReport } from '@/api/manage/epid'
+import type { EpidFunnelReport, EpidOverrideImportItem, EpidOverrideListResp, EpidReport } from '@/api/manage/epid'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -254,7 +254,33 @@ function toggleOverrideEnabled(): void {
   })
 }
 
-onMounted(() => void loadOverrides())
+// ===== D7（2026-11-20 拍板）：分层漏斗升为主口径 —— 头条对齐率读漏斗快照，严格口径降为对照 =====
+// 语义基线（用户定）：位置是各源自己的编号噪声，身份按 epid 对齐（锚干净即对齐）；
+// 快照独立于派生进度（pending/computedAt/truncated 见契约），派生期间展示上一份快照。
+const funnel = ref<EpidFunnelReport | null>(null)
+const funnelError = ref('')
+
+async function loadFunnel(): Promise<void> {
+  funnelError.value = ''
+  try {
+    funnel.value = await manageApi.epid.alignmentFunnel({ silent: true })
+  } catch {
+    funnelError.value = '漏斗快照读取失败（服务端未生成或接口异常）'
+  }
+}
+
+function refreshFunnelSnapshot(): void {
+  // 触发后台单飞计算（全量 ~9 分钟）；完成后点「重取」/「刷新指标」重取快照即可
+  manageApi.epid.alignmentFunnelRefresh({ silent: true }).then(
+    () => toast('success', '漏斗快照后台刷新已触发（约 9 分钟），完成后重取'),
+    () => toast('warning', '触发失败（可能已有刷新在跑）')
+  )
+}
+
+onMounted(() => {
+  void loadOverrides()
+  void loadFunnel()
+})
 </script>
 
 <template>
@@ -391,6 +417,33 @@ onMounted(() => void loadOverrides())
       </p>
 
       <!-- ===== 重型指标：任务进行中一律"未算"，不渲染成 0 ===== -->
+      <!-- ===== 对齐率主口径：分层漏斗（D7 2026-11-20 拍板）——快照独立于派生进度，恒可展示 ===== -->
+      <div>
+        <dt class="text-muted">
+          对齐率（<span class="font-[var(--jc-fw-semibold)]">分层漏斗 · 主口径</span>；
+          D7 拍板：位置是各源编号噪声，身份按 epid 对齐——锚干净即对齐）
+        </dt>
+        <dd v-if="funnelError" class="text-muted">⚠️ {{ funnelError }}</dd>
+        <dd v-else-if="!funnel || funnel.pending" class="text-muted">
+          漏斗快照未生成 ——
+          <ManageButton @click="refreshFunnelSnapshot">刷新漏斗快照</ManageButton>（后台单飞 ~9 分钟）
+        </dd>
+        <dd v-else-if="funnel.all">
+          集级 <span class="font-[var(--jc-fw-semibold)]">{{ pct(funnel.all.slotPct) }}</span>
+          · 片级 <span class="font-[var(--jc-fw-semibold)]">{{ pct(funnel.all.mkPct) }}</span>
+          <span class="text-muted">
+            （{{ num(funnel.all.mksAligned) }}/{{ num(funnel.all.mksTotal) }} 片零未对齐 ·
+            快照 {{ funnel.computedAt ? ago(new Date(funnel.computedAt).getTime()) : '—' }} ·
+            口径 {{ funnel.policyVersion }}<template v-if="funnel.truncated"> · ⚠️截断</template>）
+          </span>
+          <ManageButton class="ml-2" @click="refreshFunnelSnapshot">重算</ManageButton>
+        </dd>
+        <dd class="text-muted">
+          d 覆盖率（纯日期槽中日期被 ≥2 源覆盖）：
+          {{ num(funnel?.all?.dSlotsCross ?? 0) }}/{{ num(funnel?.all?.dSlotsTotal ?? 0) }}
+        </dd>
+      </div>
+
       <p v-if="report.onlyProgress" class="text-muted">
         对齐率 / 分类对齐 / 空形态 / 覆盖率：<span class="font-[var(--jc-fw-semibold)]">任务进行中不计算</span>
         （分母里混着"还没跑到"的片，读数无判定意义）—— 跑完再点「刷新指标」。
@@ -404,8 +457,8 @@ onMounted(() => void loadOverrides())
           重型指标正在后台计算（每条 10~33s，共 5 条）—— 稍后点「刷新指标」即可。
         </p>
         <dl class="grid grid-cols-2 gap-[var(--jc-space-3)]">
-          <div>
-            <dt class="text-muted">对齐率（槽位口径；片级判定单位是片：单源默认对齐，多源片有跨源共享组即对齐）</dt>
+          <div v-if="!report.onlyProgress">
+            <dt class="text-muted">对照 · 严格口径（epid 全等冲突率；片级 = 零分歧片占比）</dt>
             <dd>
               集级 {{ pct(report.classAlignmentAll?.slotPct ?? 0) }}
               <span class="text-muted">
@@ -433,7 +486,7 @@ onMounted(() => void loadOverrides())
           </div>
           <!-- 分类跨源对齐（槽位口径，2026-11-15）：取代旧的"有身份率/成熟度"两块 -->
           <div v-if="report.classAlignment?.length" class="col-span-2">
-            <dt class="text-muted">按分类跨源对齐（集级 = 对齐槽位占比；片级 = 零分歧片占比）</dt>
+            <dt class="text-muted">按分类跨源对齐（严格口径对照：集级 = 对齐槽位占比；片级 = 零分歧片占比）</dt>
             <dd class="flex flex-col">
               <span v-for="c in report.classAlignment" :key="c.pid">
                 {{ c.category }}：集级 {{ pct(c.slotPct) }}（{{ num(c.alignedSlots) }}/{{ num(c.totalSlots) }}）
