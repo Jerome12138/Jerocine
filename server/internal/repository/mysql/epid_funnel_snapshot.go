@@ -23,7 +23,10 @@ import (
 // ⚠️ 列宽守卫（2026-11-20 教训）：本串 42 字符超出 000053 的 policy_version VARCHAR(32)
 // ⇒ 快照写入 Error 1406 回滚（GET 恒旧值）。000058 已扩到 VARCHAR(64)——**再递增本串前
 // 先核对列宽**，超长会让每次刷新计算（~5-9min）白跑且只有慢日志可见。
-const FunnelPolicyVersion = "L0-L7+anchors@2026-11-20"
+//
+// 2026-11-23：+dual-tight —— D10a 反查借 d 的 part 过滤由 partCompatible 收紧为严格相等
+// （双侧空算相等；正查借 n 仍 partCompatible），方案-D10双锚互鉴v2收紧-2026-11-23.md §4.4。
+const FunnelPolicyVersion = "L0-L7+anchors+dual-tight@2026-11-23"
 
 // FunnelSnapshot 一次漏斗快照（整表覆盖写：库里只保留最近一批）。
 type FunnelSnapshot struct {

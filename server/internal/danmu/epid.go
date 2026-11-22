@@ -95,8 +95,10 @@ func BridgeNum(cur EpisodeKey, otherKeys []EpisodeKey) int {
 // 期号+日期的行）按复合键 `(Series, Variant, Num, Part)` 借**日期**；候选日期不唯一（同期重播/错标）
 // ⇒ 放弃（""）。返回 "" = 反查失败（调用方保留 self 身份，n 不变）。
 //
-// 守卫（D10，2026-11-22 设计三条款）：
-//   - **part 进复合键**：Part 按 `partCompatible` 相容（空 = 通配，上/中/下严格、数字序严格）——
+// 守卫（D10，2026-11-22 设计三条款；v2 dual-tight 2026-11-23 收紧 part 语义）：
+//   - **part 进复合键**：Part 按 `partStrictEqual` **严格相等**（双侧空算相等）——v1 的
+//     partCompatible「空=通配/前缀相容」会把 p 空的 borrower 错配到 p=上/下 的 donor（上下期
+//     污染成多日期歧义），v2 收紧后不再借（方案-D10双锚互鉴v2收紧-2026-11-23.md §4.1）——
 //     同日双期（同 d 两个 n=上下期）靠 part 区分互不错借；
 //   - **类隔离**：borrower 与映射行必须**同 Series 同 Variant**（加更/特别篇不互借；由键天然保证）；
 //   - **键值冲突跳过**：同复合键出现 ≥2 个不同日期 ⇒ 不借（宁缺勿错）；
@@ -118,7 +120,7 @@ func DualAnchorDate(cur EpisodeKey, poolKeys []EpisodeKey) string {
 		if k.Variant != cur.Variant || k.Series != cur.Series {
 			continue
 		}
-		if !partCompatible(cur, k) {
+		if !partStrictEqual(cur, k) {
 			continue
 		}
 		seen[k.Date] = true

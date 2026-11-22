@@ -19,7 +19,8 @@ import (
 //   - **正查** `bridge`：(Date, Series, Variant) 桶 → 双锚行（复合键第 4 维 Part 由条目携带，
 //     查询按 `partCompatible` 相容；空 = 通配、上/下严格）—— 给 d-only 行借 n；
 //     语义与既有桥接（D4）完全同构 ⇒ `bridgeNum` 即正查入口（方法名保留，口径不变）。
-//   - **反查** `rev`：(Series, Variant, Num) 桶 → 双锚行（Part 同上）—— 给 n-only 行借 d；
+//   - **反查** `rev`：(Series, Variant, Num) 桶 → 双锚行（Part 由条目携带；v2 dual-tight 起
+//     查询按 `partStrictEqual` 严格相等过滤，双侧空算相等）—— 给 n-only 行借 d；
 //     入口 `dualAnchorDate`（新增）。
 // 四守卫（两方向同款）：①同复合键 ≥2 个不同值 ⇒ 放弃；②part 进复合键（同日双期上下不互借错）；
 // ③类隔离（同 Series 同 Variant，由桶键保证）；④片内无双锚行 ⇒ 映射为空 ⇒ 不借（宁缺勿错）。
@@ -31,7 +32,7 @@ type poolIndex struct {
 	// 复合键第 4 维 Part 在条目上，查询时按 partCompatible 相容过滤（与 BridgeNum 守卫逐字一致）。
 	bridge map[string][]EpisodeKey
 	// 双锚互鉴·反查映射：key = Series\x00Variant\x00Num → 桶内**双锚行**；
-	// 查询（dualAnchorDate）在桶内按 partCompatible 相容过滤，候选日期唯一才借。
+	// 查询（dualAnchorDate）在桶内按 partStrictEqual 严格相等过滤（v2 dual-tight），候选日期唯一才借。
 	rev map[string][]EpisodeKey
 }
 
@@ -81,8 +82,9 @@ func (ix *poolIndex) bridgeNum(cur EpisodeKey) int {
 }
 
 // dualAnchorDate 双锚互鉴·**反查**（D10 新增），与线性版 `DualAnchorDate(cur, poolKeys)` **逐字等价**：
-// n-only 行（自带期号、无日期）按复合键 (Series, Variant, Num) 桶找双锚行，桶内按 partCompatible
-// 相容过滤；**候选日期不唯一 ⇒ 放弃（""）**。返回 "" = 不借（调用方保留 self 身份，n 不变）。
+// n-only 行（自带期号、无日期）按复合键 (Series, Variant, Num) 桶找双锚行，桶内按 partStrictEqual
+// 严格相等过滤（v2 dual-tight，2026-11-23：v1 partCompatible 的「空=通配」会把 p 空 borrower
+// 错配到 p=上/下 donor）；**候选日期不唯一 ⇒ 放弃（""）**。返回 "" = 不借（调用方保留 self 身份，n 不变）。
 func (ix *poolIndex) dualAnchorDate(cur EpisodeKey) string {
 	if ix == nil || cur.Num <= 0 || cur.Date != "" {
 		return ""
@@ -93,7 +95,7 @@ func (ix *poolIndex) dualAnchorDate(cur EpisodeKey) string {
 	}
 	seen := make(map[string]struct{}, len(bucket))
 	for _, k := range bucket {
-		if !partCompatible(cur, k) {
+		if !partStrictEqual(cur, k) {
 			continue
 		}
 		seen[k.Date] = struct{}{}

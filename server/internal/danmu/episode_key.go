@@ -959,6 +959,17 @@ func partCompatible(a, b EpisodeKey) bool {
 	return strings.HasPrefix(a.Part, b.Part) || strings.HasPrefix(b.Part, a.Part)
 }
 
+// partStrictEqual 主部分**严格相等**（D10 v2 dual-tight，2026-11-23）：双侧空算相等，除此之外
+// 不容任何"通配/前缀"。与 partCompatible 的分工：
+//   - **反查借 d**（DualAnchorDate / poolIndex.dualAnchorDate）用它 —— p 空的 borrower 在 v1 的
+//     「空=通配」下会错配到 p=上/下 的 donor（上下期污染成多日期歧义），收紧后 rev2 见证一致率
+//     81.04%→82.46%（revfix 实测，方案-D10双锚互鉴v2收紧-2026-11-23.md §4.7）；
+//   - **正查借 n**（BridgeNum / poolIndex.bridgeNum）**仍用 partCompatible**（p 空通配是正查的
+//     设计宽容，本层不动）。
+func partStrictEqual(a, b EpisodeKey) bool {
+	return a.Part == b.Part
+}
+
 // isAllDigitPart p 段是否为纯数字（P2 的「当日集序」形态，见 dateSeqTail）。
 func isAllDigitPart(s string) bool {
 	if s == "" {

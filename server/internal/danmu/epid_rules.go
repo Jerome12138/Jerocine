@@ -45,7 +45,7 @@ const (
 	// ---- D10 双锚互鉴（2026-11-22）----
 	// 编号沿用任务批号 D10（非求值序）；求值位置见下方注释。D5-anchor 同批退役，
 	// **编号不得复用** ⇒ 新规则另起新号。
-	RuleDualAnchorRev RuleID = "D10a-dual-rev" // 双锚互鉴·反查：n-only 行按 (s,v,n,p) 向双锚行借 d
+	RuleDualAnchorRev RuleID = "D10a-dual-rev" // 双锚互鉴·反查：n-only 行按 (s,v,n,p) 向双锚行借 d（v2 dual-tight：p 严格相等，2026-11-23）
 
 	// ---- 逐集分派**前置**段（2026-11-16）----
 	// **编号即求值序**：`P1 → P2 → P3 → D1 → D10a → D2 → D3 → D4 → D5(退役) → D6 → D7 → D8`
@@ -55,10 +55,10 @@ const (
 	// （诊断见 Harness `分析-对齐率分品类归因与优化方案-2026-11-16.md`）。
 	// ⚠️ 2026-11-16 改名（未发布前）：原 `R20-range`→`P1-range`、`R18-status`→`P2-status`、`R19-pack`→`P3-pack`
 	// —— 老文档里的 R18/R19/R20 与此一一对应。
-	RulePreRange  RuleID = "P1-range"  // 跨集区间（第X-Y集）⇒ 打包条目，暂不产身份（观察项）
+	RulePreRange     RuleID = "P1-range"      // 跨集区间（第X-Y集）⇒ 打包条目，暂不产身份（观察项）
 	RulePreRangeSkip RuleID = "P1-range-skip" // 区间松散形态（合集/异常）⇒ 保持 skip（待定层，防被 R19 误判）
-	RulePreStatus RuleID = "P2-status" // `第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀不是栏目名
-	RulePrePack   RuleID = "P3-pack"   // 打包条目（全集/合集）+ 该源行只有 1 集 ⇒ n=1
+	RulePreStatus    RuleID = "P2-status"     // `第N集` + 状态尾缀（全/完结/已完结）⇒ 尾缀不是栏目名
+	RulePrePack      RuleID = "P3-pack"       // 打包条目（全集/合集）+ 该源行只有 1 集 ⇒ n=1
 )
 
 // RuleLayer 规则成熟度（§3.1.1 的两层）。**不是**重算范围的依据（那是 Scope/InFromSrc）。
@@ -224,7 +224,6 @@ var preRules = []decisionRule{
 		return "", false
 	}},
 
-
 	// --- R19 打包条目：`全集/合集` 且**该源行只有 1 集** ⇒ n=1（整包 = 从第 1 集起）
 	// 门控用 `ctx.nonBlank == 1`（与 D7 的"整行只有 1 集"同族）：源行**同时**有打包行与正常集时
 	// 本规则**不命中** ⇒ 该行仍走 D3 保留系列身份（**行为不变**，避免把"整包"当成第 1 集）。
@@ -268,7 +267,7 @@ var titleRules = []decisionRule{
 		ID: RuleDualAnchorRev, Layer: LayerPending, Scope: ScopeFromSrc, FansOutMovie: true,
 		InFromSrc:  []string{EpKeySourceSelf, EpKeySourceBridge},
 		OutFromSrc: EpKeySourceBridge,
-		Desc:       "D10a 双锚互鉴·反查：n-only 行按 (s,v,n,p 相容 part) 向片内双锚行借 d；键值冲突/part 不容/类不符 ⇒ 不借（宁缺勿错）；借成记 bridge",
+		Desc:       "D10a 双锚互鉴·反查（v2 dual-tight，2026-11-23）：n-only 行按 (s,v,n,p 严格相等) 向片内双锚行借 d；键值冲突/part 不等/类不符 ⇒ 不借（宁缺勿错）；借成记 bridge",
 	}, apply: func(_ string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
 		if k.Num <= 0 || k.Date != "" {
 			return "", false
