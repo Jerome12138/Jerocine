@@ -19,7 +19,8 @@ func TestDecisionRuleMetas_Integrity(t *testing.T) {
 	wantOrder := []RuleID{
 		// 前置段（2026-11-16，R18~R20）：求值顺序在 D2/D3 之前，编号沿用 R 系列号
 		RulePreRange, RulePreRangeSkip, RulePrePack,
-		RuleSkipNoTrigger, RuleSelfInName, RuleNoneNoDate, RuleBridgeNum, RuleAnchorNum,
+		// D10a（2026-11-22）求值位置在 D1 之后、D2 之前（n-only 行先试反查借 d，不成回落 D2-self）
+		RuleSkipNoTrigger, RuleDualAnchorRev, RuleSelfInName, RuleNoneNoDate, RuleBridgeNum, RuleAnchorNum,
 		RuleNonePoolMiss, RuleSingleEp, RuleBareNum,
 	}
 	if len(metas) != len(wantOrder) {
@@ -114,6 +115,17 @@ func TestDecisionRuleMetas_RecomputeScope(t *testing.T) {
 			t.Errorf("%s 的定义域应含 anchor（到达池的档）", id)
 		}
 	}
+	// D10a 双锚反查（2026-11-22）：borrower = n-only 行 —— 存量 n-only 行记 self、借成记 bridge
+	// ⇒ 定义域 = [self, bridge]；借/不借都读片级池 ⇒ FansOutMovie=true。
+	{
+		m := RuleMetaOf(RuleDualAnchorRev)
+		if !m.FansOutMovie {
+			t.Errorf("D10a 会经借用池影响同片其它集 ⇒ FansOutMovie 必须为 true")
+		}
+		if m.Scope != ScopeFromSrc || !eq(m.InFromSrc, []string{EpKeySourceSelf, EpKeySourceBridge}) {
+			t.Errorf("D10a 的定义域应为 [self, bridge]（n-only 行的存量/借成档），得 scope=%s in=%v", m.Scope, m.InFromSrc)
+		}
+	}
 	// 门 / 提取型（D1~D3）只能全量
 	for _, id := range []RuleID{RuleSkipNoTrigger, RuleSelfInName, RuleNoneNoDate} {
 		if m := RuleMetaOf(id); m.Scope != ScopeAll {
@@ -176,7 +188,8 @@ func TestRuleSelectsRow(t *testing.T) {
 	}
 }
 
-// ---- 以下为"重构前的实现"逐字照抄，仅作**行为等价**对照物 ----
+// ---- 以下为"参照实现"的**if 链形态**（2026-11-22 D10 起与规则表同规的降级链），
+// 仅作**行为等价**对照物：自带 n（n-only 先试双锚反查借 d）→ 无日期 none → 桥接(=双锚正查) → none。
 
 func legacyEpidForRef(title string, allTitles []string) (epid string, fromSrc string) {
 	k := ParseEpisodeKey(title)
@@ -184,6 +197,17 @@ func legacyEpidForRef(title string, allTitles []string) (epid string, fromSrc st
 		return "", EpKeySourceSkip
 	}
 	if k.Num > 0 {
+		// D10a：n-only 行先试双锚互鉴·反查借 d（借成记 bridge；不成保留 self，n 不变）
+		if k.Date == "" {
+			keys := make([]EpisodeKey, 0, len(allTitles))
+			for _, t := range allTitles {
+				keys = append(keys, ParseEpisodeKey(t))
+			}
+			if d := DualAnchorDate(k, keys); d != "" {
+				k.Date = d
+				return EpidOf(k), EpKeySourceBridge
+			}
+		}
 		return EpidOf(k), EpKeySourceSelf
 	}
 	if k.Date == "" {
@@ -197,10 +221,7 @@ func legacyEpidForRef(title string, allTitles []string) (epid string, fromSrc st
 		k.Num = n
 		return EpidOf(k), EpKeySourceBridge
 	}
-	if n := AnchorNumFor(title, allTitles); n > 0 {
-		k.Num = n
-		return EpidOf(k), EpKeySourceAnchor
-	}
+	// D10（2026-11-22）：锚点兜底已退役 ⇒ 有日期但正查不成 ⇒ none（n 留空，身份按日期）
 	return EpidOf(k), EpKeySourceNone
 }
 
@@ -239,8 +260,9 @@ func legacyRowRef(titles, pool []string) [][2]string {
 	return out
 }
 
-// TestDecideRule_MatchesLegacyChain 有序规则表必须与重构前的 if 链**逐格等价**
-// （`epid` 与 `from_src` 都相同），并顺带要求语料**覆盖全部 8 条规则**（否则等价性是空跑）。
+// TestDecideRule_MatchesLegacyChain 有序规则表必须与**参照 if 链**（legacyEpidForRef，
+// D10 起与规则表同规的降级链）**逐格等价**（`epid` 与 `from_src` 都相同），
+// 并顺带要求语料**覆盖全部在产规则**（否则等价性是空跑）。
 func TestDecideRule_MatchesLegacyChain(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -252,7 +274,10 @@ func TestDecideRule_MatchesLegacyChain(t *testing.T) {
 		// 不再是 D3 语料 —— 换真栏目形态保持 D3 覆盖。
 		{"D3 触发但无日期（真栏目，无日期无期号）", []string{"风味人间"}, []string{"风味人间"}},
 		{"D4 他源桥接（同日期 + 他源带期号）", []string{"20260803"}, []string{"20260803", "20260803第7期"}},
-		{"D5 锚点推算（同栏目组「上」的日期序）",
+		{"D10a 双锚反查借 d（n-only 行 + 双锚行）", []string{"第5期"}, []string{"第5期", "第5期20260601上"}},
+		{"D10a 反查不成 ⇒ 回落 D2-self（无双锚行）", []string{"第5期"}, []string{"第5期"}},
+		// D10（2026-11-22）撤销锚点后的 D6 语料：池里只有 d+p 行（无双锚行）⇒ 一律不推 n
+		{"D6 有日期但正查皆败（原 D5 语料，锚点已退役）",
 			[]string{"20260803上", "20260810上", "20260817上", "20260803"},
 			[]string{"20260803上", "20260810上", "20260817上", "20260803"}},
 		{"D6 有日期但借推皆败", []string{"20260803"}, []string{"20260803"}},
@@ -286,7 +311,12 @@ func TestDecideRule_MatchesLegacyChain(t *testing.T) {
 	// R18~R20 是**有意偏离旧链**的新规则（旧链把「打包词/状态词/跨集区间」算进 `s` 段，
 	// 与主站正常 `第N集` 永不相等 ⇒ 一行坏集名毁一整片）⇒ 不进"等价性"语料，
 	// 由 `epid_r18_r20_test.go` 逐条钉住。
-	intentional := map[RuleID]bool{RulePreStatus: true, RulePrePack: true, RulePreRange: true, RulePreRangeSkip: true}
+	// D5-anchor（D10, 2026-11-22）已退役：apply 恒不命中 ⇒ 语料**不可能**覆盖（编号不复用，
+	// 登记项保留用于圈存量 anchor 档的退役重算）。
+	intentional := map[RuleID]bool{
+		RulePreStatus: true, RulePrePack: true, RulePreRange: true, RulePreRangeSkip: true,
+		RuleAnchorNum: true,
+	}
 	for _, m := range DecisionRuleMetas() {
 		if intentional[m.ID] {
 			continue

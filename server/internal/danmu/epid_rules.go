@@ -36,14 +36,21 @@ const (
 	RuleSkipNoTrigger RuleID = "D1-skip"      // 未触发 ⇒ 不产身份
 	RuleSelfInName    RuleID = "D2-self"      // 集名自带期号 ⇒ 直接采用
 	RuleNoneNoDate    RuleID = "D3-none"      // 触发但无日期（身份来自 栏目/变体/主次）
-	RuleBridgeNum     RuleID = "D4-bridge"    // 缺期号但有日期 ⇒ 他源桥接
-	RuleAnchorNum     RuleID = "D5-anchor"    // 桥接不成 ⇒ 锚点推算（同栏目组内「上」的日期序）
-	RuleNonePoolMiss  RuleID = "D6-none-miss" // 有日期但桥接、锚点皆败 ⇒ 仍不产期号
+	RuleBridgeNum     RuleID = "D4-bridge"    // 缺期号但有日期 ⇒ 他源桥接（= 双锚互鉴·正查）
+	RuleAnchorNum     RuleID = "D5-anchor"    // 【已退役，D10】锚点推算 —— 永不命中，编号不复用（见下）
+	RuleNonePoolMiss  RuleID = "D6-none-miss" // 有日期但正查不成 ⇒ 仍不产期号（n 留空，身份按日期）
 	RuleSingleEp      RuleID = "D7-single"    // R12（行级补充）
 	RuleBareNum       RuleID = "D8-bare-num"  // R13（行级补充）
 
+	// ---- D10 双锚互鉴（2026-11-22）----
+	// 编号沿用任务批号 D10（非求值序）；求值位置见下方注释。D5-anchor 同批退役，
+	// **编号不得复用** ⇒ 新规则另起新号。
+	RuleDualAnchorRev RuleID = "D10a-dual-rev" // 双锚互鉴·反查：n-only 行按 (s,v,n,p) 向双锚行借 d
+
 	// ---- 逐集分派**前置**段（2026-11-16）----
-	// **编号即求值序**：`P1 → P2 → P3 → D1 → … → D8`（P = pre-stage，全部在 D1 之前）。
+	// **编号即求值序**：`P1 → P2 → P3 → D1 → D10a → D2 → D3 → D4 → D5(退役) → D6 → D7 → D8`
+	// （P = pre-stage，全部在 D1 之前；D10a 必须在 D2 **之前** —— n-only 行先试反查借 d，
+	// 借成记 bridge、不成回落 D2-self）。
 	// 为什么必须前置：这三类形态在旧链里会被 `D2`/`D3` 先接走，产出被"打包词/状态词"污染的身份
 	// （诊断见 Harness `分析-对齐率分品类归因与优化方案-2026-11-16.md`）。
 	// ⚠️ 2026-11-16 改名（未发布前）：原 `R20-range`→`P1-range`、`R18-status`→`P2-status`、`R19-pack`→`P3-pack`
@@ -93,12 +100,13 @@ type ruleCtx struct {
 	bareN    map[int]struct{} // 本行 **distinct** 裸数字集名（R13 守卫；见 RuleBareNum）
 
 	// 池解析缓存（性能修复 2026-11-15）：ParseEpisodeKey 是纯函数，同一池解析一次即可
-	// 复用给行内所有集名 ⇒ 消灭 D4/D5 的 E×P 二次方重解析（线上慢批实锤：食尚玩家单行
-	// 585 集 × 池 6253 ⇒ 367 万次解析/行）。惰性构建：只在真有集名走到 D4/D5 时才付
+	// 复用给行内所有集名 ⇒ 消灭借用类规则（D4/D10a）的 E×P 二次方重解析（线上慢批实锤：食尚玩家单行
+	// 585 集 × 池 6253 ⇒ 367 万次解析/行）。惰性构建：只在真有集名走到借用类规则时才付
 	// 一次 P 次解析的钱（D1/D2/D3 提前返回的集名照旧不付）。
 	poolKeys []EpisodeKey
 	poolDone bool // 区分「未构建」与「构建后为空池」
-	// 池索引（2026-11-16，性能）：把 D4/D5 从片内 O(E×P) 线性扫池降到 O(E+P) 建索引 + O(1)/O(log P) 查询。
+	// 池索引（2026-11-16，性能）：把借用类规则（D4 正查 / D10a 反查）从片内 O(E×P) 线性扫池
+	// 降到 O(E+P) 建索引 + O(1) 桶查询。
 	// 实测全库 Σ(Eb×P)=4.26 亿 → Σ(Eb+P)=581 万（≈73×）。语义与线性版逐字等价（见 pool_index.go）。
 	poolIdx     *poolIndex
 	poolIdxDone bool
@@ -239,7 +247,8 @@ var preRules = []decisionRule{
 	}},
 }
 
-// titleRules **逐集**分派（D1~D6）：顺序 = 原 `EpidFor` 的 if 链（行为等价，测试钉住）。
+// titleRules **逐集**分派（D1~D6 + D10a）：顺序 = 派生链「自带 n → 双锚反查借 d → 自带 n(回落) →
+// 无日期 none → 桥接(=双锚正查) → 池皆败 none」（D10 起锚点退役，测试钉住）。
 var titleRules = []decisionRule{
 	{meta: RuleMeta{
 		ID: RuleSkipNoTrigger, Layer: LayerPending, Scope: ScopeAll, OutFromSrc: EpKeySourceSkip,
@@ -247,6 +256,28 @@ var titleRules = []decisionRule{
 	}, apply: func(_ string, k EpisodeKey, _ *ruleCtx) (string, bool) {
 		if !EpisodeTriggered(k) {
 			return "", true
+		}
+		return "", false
+	}},
+	// --- D10a 双锚互鉴·反查（2026-11-22，替代 A2 锚点的新规则）---
+	// n-only 行（自带期号、无日期）先于 D2 试反查：向片内「双锚行」（Num>0 ∧ Date≠""）按复合键
+	// (Series, Variant, Num, Part) 借 d；借成记 bridge（borrower 的 n 仍是自带，但身份被借来的
+	// 日期补全 ⇒ 记"他源借"档，重算圈档也据此覆盖）；借不成回落 D2-self（行为与 D10 前一致）。
+	// ⚠️ 必须在 D2 **之前**：D2 会把一切自带期号的行接走，n-only 行就永远到不了这里。
+	{meta: RuleMeta{
+		ID: RuleDualAnchorRev, Layer: LayerPending, Scope: ScopeFromSrc, FansOutMovie: true,
+		InFromSrc:  []string{EpKeySourceSelf, EpKeySourceBridge},
+		OutFromSrc: EpKeySourceBridge,
+		Desc:       "D10a 双锚互鉴·反查：n-only 行按 (s,v,n,p 相容 part) 向片内双锚行借 d；键值冲突/part 不容/类不符 ⇒ 不借（宁缺勿错）；借成记 bridge",
+	}, apply: func(_ string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
+		if k.Num <= 0 || k.Date != "" {
+			return "", false
+		}
+		// 池索引版（语义与 DualAnchorDate 逐字等价，只少了扫全池）
+		if d := ctx.poolIndexOf().dualAnchorDate(k); d != "" {
+			k2 := k
+			k2.Date = d
+			return EpidOf(k2), true
 		}
 		return "", false
 	}},
@@ -272,7 +303,7 @@ var titleRules = []decisionRule{
 		ID: RuleBridgeNum, Layer: LayerPending, Scope: ScopeFromSrc, FansOutMovie: true,
 		InFromSrc:  []string{EpKeySourceBridge, EpKeySourceAnchor, EpKeySourceNone},
 		OutFromSrc: EpKeySourceBridge,
-		Desc:       "缺期号但有日期 ⇒ 他源桥接（日期相等 + 栏目/变体一致 + 主次相容）",
+		Desc:       "缺期号但有日期 ⇒ 他源桥接（日期相等 + 栏目/变体一致 + 主次相容）＝ 双锚互鉴·正查 (s,v,d,p)→n",
 	}, apply: func(_ string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
 		// 池索引版（语义与 BridgeNum 逐字等价，只少了扫全池）
 		if n := ctx.poolIndexOf().bridgeNum(k); n > 0 {
@@ -281,25 +312,24 @@ var titleRules = []decisionRule{
 		}
 		return "", false
 	}},
+	// --- D5-anchor【已退役，D10（2026-11-22）】---
+	// A2 锚点计数推 n（同栏目组「上」的日期序）退役：审计可对照面乱对率 51.8%、96.6% 不可验证
+	// ⇒ **永不命中**，anchor 行落到 D6 只产 d+p（n=-，身份按日期，宁缺勿错）。
+	// 登记项**保留**（apply 恒不命中）——① `RuleID 一旦发布不得重编、不得复用`；
+	// ② `mode=scope&rule=D5-anchor` 仍可按本条 InFromSrc 圈出**存量 anchor 档**做退役重算。
 	{meta: RuleMeta{
 		ID: RuleAnchorNum, Layer: LayerPending, Scope: ScopeFromSrc, FansOutMovie: true,
 		InFromSrc:  []string{EpKeySourceBridge, EpKeySourceAnchor, EpKeySourceNone},
 		OutFromSrc: EpKeySourceAnchor,
-		Desc:       "桥接不成 ⇒ 锚点推算（同栏目组内「上」的日期序）",
-	}, apply: func(title string, k EpisodeKey, ctx *ruleCtx) (string, bool) {
-		// 池索引版（原 AnchorNumForKey 会**每次重建** Series→日期集合 ⇒ 片内 O(E×P)；
-		// 索引版建一次 + 二分。语义逐字等价，见 pool_index.go）
-		if n := ctx.poolIndexOf().anchorNum(title, k); n > 0 {
-			k.Num = n
-			return EpidOf(k), true
-		}
+		Desc:       "【已退役，D10】A2 锚点计数推 n（同栏目组「上」的日期序）—— 审计乱对 51.8% ⇒ 永不命中；保留登记用于圈存量 anchor 档的退役重算",
+	}, apply: func(_ string, _ EpisodeKey, _ *ruleCtx) (string, bool) {
 		return "", false
 	}},
 	{meta: RuleMeta{
 		ID: RuleNonePoolMiss, Layer: LayerPending, Scope: ScopeFromSrc, FansOutMovie: true,
 		InFromSrc:  []string{EpKeySourceBridge, EpKeySourceAnchor, EpKeySourceNone},
 		OutFromSrc: EpKeySourceNone,
-		Desc:       "有日期但桥接、锚点皆败 ⇒ 仍不产期号（与 D3「无日期」产出同为 none，但定义域不同）",
+		Desc:       "有日期但双锚正查（桥接）不成 ⇒ 仍不产期号（与 D3「无日期」产出同为 none，但定义域不同）",
 	}, apply: func(_ string, k EpisodeKey, _ *ruleCtx) (string, bool) {
 		return EpidOf(k), true
 	}},
@@ -425,7 +455,7 @@ func decideRow(title string, ctx *ruleCtx) (epid string, fromSrc string, id Rule
 // `P2-status`/`P3-pack`/`P1-range`）——它们的判据只看本行集名（`R19` 另看行级 `ctx.nonBlank`，
 // 那是"本行"信息，不是池）：`D7`/`D8` 只在 `D1`（未触发）之后才可能命中，而 `D1` 的判定
 // （`EpisodeTriggered`）**不读池** ⇒ 传 `pool = titles` 与真实派生（片级池）**结果一致** ✓。
-// 池依赖规则（`D4`/`D5`/`D6`）的判定需要"本片所有源"的池，本函数不适用 ——
+// 池依赖规则（`D4`/`D6`/`D10a`）的判定需要"本片所有源"的池，本函数不适用 ——
 // 那些规则的作用域本来就是"到达池的档"，按 `from_src` 圈即可（见 §3.1.1 步 3）。
 func RuleSelectsRow(id RuleID, titles []string) bool {
 	if len(titles) == 0 {
@@ -440,8 +470,11 @@ func RuleSelectsRow(id RuleID, titles []string) bool {
 	return false
 }
 
-// PoolRelevantFromSrc 会**读借用/锚点池**的产出档 —— 池扇出（`FansOutMovie`）时必须一并重算的档。
-// 依据：`self`/`single` 在读池**之前**就 return ⇒ 同片里它们不受池变化影响 ✓。
+// PoolRelevantFromSrc 会**读借用池**的产出档 —— 池扇出（`FansOutMovie`）时必须一并重算的档。
+// 依据：`self`/`single` 在读池**之前**就 return ⇒ 同片里它们不受池变化影响 ✓
+// （例外：`D10a` 双锚反查的输入档含 self —— n-only 行借 d；其重算圈档见该规则的 InFromSrc，
+// 池扇出展开到本列表后∪输入档即可覆盖）。
+// `anchor` 已无产出者（D10 退役）⇒ 保留仅为存量 anchor 档的重算圈档（宁宽勿漏）。
 func PoolRelevantFromSrc() []string {
 	return []string{EpKeySourceBridge, EpKeySourceAnchor, EpKeySourceNone}
 }

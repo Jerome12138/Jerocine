@@ -2,7 +2,6 @@ package danmu
 
 import (
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -13,9 +12,11 @@ import (
 // 因此服务端必须能**自己算**，且与 web 侧**严格同规**（同规基线：`web/src/utils/episodeKey.ts`）。
 //
 // 唯一的口径差异（有意为之，见 §4.6 端侧范围与「落库口径」）：
-// web 的 `epidFor` **只做他源桥接**、不做锚点；而 `ekp` 上传的 `n` 用的是 `derivedNumFor`
-// （**含锚点兜底**）。**落库取后者**（带 A2 期号、含锚点）—— 它是"匹配用身份"，
+// web 的 `epidFor` **只做他源桥接**；而 `ekp` 上传的 `n` 用的是 `derivedNumFor`
+// （同链：自带期号 → 桥接）。**落库取后者**——它是"匹配用身份"，
 // 且与客户端 `epk` 隐含的身份一致。详见 EpidFor 的注释。
+// ⚠️ D10（2026-11-22）：A2 **锚点计数推 n 已退役**（审计可对照面乱对率 51.8%、96.6% 不可验证），
+// 替代规则 = **双锚互鉴**（正查=桥接借 n；反查=n-only 行借 d，`D10a-dual-rev`）。
 
 // EpisodeTriggered 综艺/衍生形态判定（**与 TS `episodeTriggered` 同规**）：
 // 裸「第N集/期」与 E 圆号**不触发**（其身份就是集号本身，不需要 epid）。
@@ -57,7 +58,11 @@ func EpidOf(k EpisodeKey) string {
 
 // BridgeNum 他源桥接（**与 TS `bridgeNum` 同规**）：在 otherKeys 里找「**自带期号** + 日期相等 +
 // 栏目/变体一致 + 主次相容」的集，读其期号；**多个候选期号不一致（错标/缺期漂移）⇒ 放弃（0）**。
-// 0 = 桥接失败（调用方回退锚点/不借）。
+// 0 = 桥接失败（调用方回退双锚互鉴反查/不借）。
+//
+// ⚠️ **双锚互鉴·正查**（D10，2026-11-22）：本函数的 donor 集（自带期号 ∧ 自带日期）、类隔离
+// （同 Series 同 Variant）、part 相容（partCompatible）与"候选期号不唯一 ⇒ 放弃"，就是双锚互鉴
+// 正查 `(Series, Variant, Date, Part) → Num` 的全部守卫 ⇒ **正查即桥接**，不另设函数。
 //
 // ⚠️ **性能（2026-11-16）**：本函数是**线性扫池**（片内 O(E×P)）。**生产派生路径已改走
 // `poolIndex.bridgeNum`**（`pool_index.go`：同 (Date, Series, Variant) 桶）；本函数**保留作
@@ -85,74 +90,51 @@ func BridgeNum(cur EpisodeKey, otherKeys []EpisodeKey) int {
 	return 0
 }
 
-// AnchorNumFor 锚点期号（**与 TS `anchorNumFor` 同规**）：期号 = **同栏目组**内「正片『上』」的**日期集合**中
-// 不晚于本集日期者个数；组内「上」的日期 < 2 个 ⇒ 返回 0（不猜）；本集无日期或有变体 ⇒ 0。
-// 入参 `allTitles` 允许是"本片**所有源**的所有集名"（内部按日期去重，同一期多源只算一次）。
-// AnchorNumFor 锚点期号（**与 TS `anchorNumFor` 同规**）：期号 = **同栏目组**内「正片『上』」的**日期集合**中
-// 不晚于本集日期者个数；组内「上」的日期 < 2 个 ⇒ 返回 0（不猜）；本集无日期或有变体 ⇒ 0。
-// 入参 `allTitles` 允许是"本片**所有源**的所有集名"（内部按日期去重，同一期多源只算一次）。
+// DualAnchorDate 双锚互鉴·**反查**（线性版，**与 `poolIndex.dualAnchorDate` 同规**，等价性单测基准）：
+// 本行为 **n-only**（自带期号、无日期）时，向片内「双锚行」（**自带期号 ∧ 自带日期**，源站自己写全了
+// 期号+日期的行）按复合键 `(Series, Variant, Num, Part)` 借**日期**；候选日期不唯一（同期重播/错标）
+// ⇒ 放弃（""）。返回 "" = 反查失败（调用方保留 self 身份，n 不变）。
 //
-// 兼容包装（性能修复 2026-11-15）：内部解析 title 与 allTitles 各一次后转调键版 `AnchorNumForKey`
-// —— 解析顺序与原实现逐字相同 ⇒ 行为等价；池已解析的调用方请直用键版（省 E×P 重解析）。
-func AnchorNumFor(title string, allTitles []string) int {
-	k := parseEpisodeKey(title)
-	keys := make([]EpisodeKey, 0, len(allTitles))
-	for _, t := range allTitles {
-		keys = append(keys, parseEpisodeKey(t))
-	}
-	return AnchorNumForKey(title, k, keys)
-}
-
-// AnchorNumForKey 锚点期号的**已解析键**版（与 AnchorNumFor 逐字节等价）：
-// `k` 必须是 `ParseEpisodeKey(title)` 的结果（title 原文仅供 R10 裸日期守卫匹配），
-// `poolKeys` 是池标题的解析结果（顺序 = 池标题顺序；去重语义在函数内不变）。
+// 守卫（D10，2026-11-22 设计三条款）：
+//   - **part 进复合键**：Part 按 `partCompatible` 相容（空 = 通配，上/中/下严格、数字序严格）——
+//     同日双期（同 d 两个 n=上下期）靠 part 区分互不错借；
+//   - **类隔离**：borrower 与映射行必须**同 Series 同 Variant**（加更/特别篇不互借；由键天然保证）；
+//   - **键值冲突跳过**：同复合键出现 ≥2 个不同日期 ⇒ 不借（宁缺勿错）；
+//   - 片内无双锚行 ⇒ 无候选 ⇒ 不借。
 //
-// ⚠️ **性能（2026-11-16）**：本函数**每次调用都重建**「Series → 「上」日期集合」（O(P) + 分配）
-// ⇒ 片内 O(E×P)。**生产派生路径已改走 `poolIndex.anchorNum`**（建一次 + 二分）；
-// 本函数**保留作兼容/对照**（等价性单测基准），TS 侧 `anchorNumFor` 仍按本算法。改口径两处都要改。
-func AnchorNumForKey(title string, k EpisodeKey, poolKeys []EpisodeKey) int {
-	if k.Date == "" || k.Variant != "" {
-		return 0
+// 双锚互鉴的**正查**（(Series, Variant, Date, Part) → Num，给 d-only 行借 n）与既有 `BridgeNum`
+// **同规**（donor 集、类隔离、part 相容、"候选期号不唯一 ⇒ 0" 逐条一致）⇒ 不另设函数。
+// 变体**序号**（`特辑#2` 的 `#2`）不进复合键 —— 与 BridgeNum 既有口径一致；两个序号不同的同 n
+// 双锚行并存时由"候选不唯一 ⇒ 放弃"兜住。
+func DualAnchorDate(cur EpisodeKey, poolKeys []EpisodeKey) string {
+	if cur.Num <= 0 || cur.Date != "" {
+		return ""
 	}
-	// R9/R10（2026-11-15）：裸日期行收窄 —— 每天更新、多数行没有上/下的节目「上」稀疏，
-	// anchor 会把多条不同日期的行压成同一个 n（实测 21,768 行 / 370 mk / 42% 真踩：
-	// 0520/0521/0526/0527 同为 n=1）。宁缺勿错 ⇒ 裸日期行（`^\d{8}期?$`）且无 p ⇒ 不猜（n=-，靠 d 区分）。
-	// 有 p（如 20230616上）⇒ 仍走 anchor（「上」计数正是 anchor 的本职）；有 v ⇒ 上面已挡（原本就不走）。
-	if k.Part == "" && reBareDateRow.MatchString(strings.TrimSpace(title)) {
-		return 0
-	}
-	set := map[string]bool{}
-	for _, o := range poolKeys {
-		if o.Series != k.Series || o.Variant != "" {
+	seen := map[string]bool{}
+	for _, k := range poolKeys {
+		if k.Num == 0 || k.Date == "" || k.Num != cur.Num {
 			continue
 		}
-		if !strings.HasPrefix(o.Part, "上") {
+		if k.Variant != cur.Variant || k.Series != cur.Series {
 			continue
 		}
-		if o.Date != "" {
-			set[o.Date] = true
+		if !partCompatible(cur, k) {
+			continue
+		}
+		seen[k.Date] = true
+	}
+	if len(seen) == 1 {
+		for d := range seen {
+			return d
 		}
 	}
-	if len(set) < 2 {
-		return 0
-	}
-	dates := make([]string, 0, len(set))
-	for d := range set {
-		dates = append(dates, d)
-	}
-	sort.Strings(dates)
-	n := 0
-	for _, d := range dates {
-		if d <= k.Date {
-			n++
-		}
-	}
-	return n
+	return ""
 }
 
-// DerivedNumFor A2 现算期号（**与 TS `derivedNumFor` 同规**）：
-// 自带期号直接用 → 他源桥接 → **锚点兜底**；都不行返回 0。
-// （池只解析一次；原实现经 AnchorNumFor 会把池解析两遍。）
+// DerivedNumFor 现算期号（**与 TS `derivedNumFor` 同规**；D10 起锚点退役）：
+// 自带期号直接用 → 他源桥接（= 双锚互鉴·**正查**，同日借 n）→ 都不行返回 0。
+// （双锚互鉴·反查产出的是**日期**不是期号，不在本函数 —— 见规则表 `D10a-dual-rev` 与 `EpidForRule`。
+// 池只解析一次。）
 func DerivedNumFor(title string, allTitles []string) int {
 	k := parseEpisodeKey(title)
 	if !EpisodeTriggered(k) {
@@ -168,22 +150,19 @@ func DerivedNumFor(title string, allTitles []string) int {
 	for _, t := range allTitles {
 		keys = append(keys, parseEpisodeKey(t))
 	}
-	if n := BridgeNum(k, keys); n > 0 {
-		return n
-	}
-	return AnchorNumForKey(title, k, keys)
+	return BridgeNum(k, keys)
 }
 
 // EpidFor **落库/匹配口径**的 epid + 期号来源（供 `movie_episode_epid.from_src` 统计）。
 //
-// 口径 = 「web `epidFor` 的桥接 + `derivedNumFor` 的锚点兜底」——即**带 A2 期号**的身份：
+// 口径 = 「web `epidFor` 的桥接 + `derivedNumFor` 同链」——D10（2026-11-22）起锚点退役：
 //  1. 未触发（裸「第N集」）⇒ ("", none)：**不产身份**（L6）
-//  2. 自带期号 ⇒ (epid, self)
-//  3. 缺期号但有日期 ⇒ 先他源桥接（bridge），再锚点兜底（anchor）
+//  2. 自带期号且自带日期 ⇒ (epid, self)；自带期号缺日期 ⇒ 先双锚互鉴·反查借 d（bridge），不成 ⇒ self
+//  3. 缺期号但有日期 ⇒ 他源桥接 = 双锚互鉴·正查（bridge）；不成 ⇒ none（**n 留空**——身份按日期，宁缺勿错）
 //  4. 触发但无日期（身份来自 栏目/变体/主次）⇒ (epid, none)
 //
-// ⚠️ 与客户端 `danmakuEpid`（= `epidFor`，**不含锚点**）**不同**——见方案 §4.6 的"两处 epid 变体"待办：
-// 落库取本函数（含锚点、更精确）；客户端内存池键取 `epidFor`（无锚点）。统一留待 P1-2。
+// ⚠️ 与客户端 `danmakuEpid`（= `epidFor`，无服务端池）**不同**——见方案 §4.6 的"两处 epid 变体"待办：
+// 落库取本函数（含双锚互鉴、更精确）；客户端内存池键取 `epidFor`。统一留待 P1-2。
 // EpKeySourceSkip **未触发** —— 与 `none`（触发了但推不出期号）**区分开**：
 // 指标层据此把"空 epid"拆成 ①未触发 ②触发推不出 ③未派生 三档（2026-11-11 审查补齐）。
 // 旧数据里这两种情况都记成 `none` ⇒ rebuild 后才有 `skip` ✓（不破坏兼容：`from=` 只是标注）。

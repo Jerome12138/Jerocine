@@ -379,8 +379,6 @@ var (
 	// reQuotes（R1，2026-11-15）：引号 = **透明字符** —— 无占位直接删、不丢内容：
 	// `20261001“聚”乐部` 此前落入"非汉字分隔"把词切成 聚/乐部 两段（s=乐部 ✗），删后 聚乐部 连续 ✓。
 	reQuotes = regexp.MustCompile(`[“”‘’]`)
-	// reBareDateRow（R10，2026-11-15）：**裸日期行** —— 整串就是 8 位日期（可带「期」字）。
-	reBareDateRow = regexp.MustCompile(`^\d{8}期?$`)
 )
 
 // canonVariant 复合变体短语 → **标准值**（①，2026-11-19 §1.2 归一表）：
@@ -641,7 +639,7 @@ func numberValue(s string) (int, bool) {
 }
 
 // parseEpisodeKey = ParseEpisodeKey 的**计数缝**（性能防呆 2026-11-15）：解析热路径
-// （decideTitleInCtx / ruleCtx.poolKeysOf / AnchorNumFor 包装 / DerivedNumFor）统一走它，
+// （decideTitleInCtx / ruleCtx.poolKeysOf / DerivedNumFor）统一走它，
 // 让 `TestDeriveRow_ParsesPoolOnce` 能断言"池只解析一次"；运行时零成本（普通函数变量）。
 var parseEpisodeKey = ParseEpisodeKey
 

@@ -85,31 +85,25 @@ func TestR5_纯数字集名经R13产序号(t *testing.T) {
 	}
 }
 
-// R9/R10 锚点收窄：裸日期行（^\d{8}期?$）且无 p ⇒ 不猜（n=-，靠 d 区分）；
-// 有 p（上/下）⇒ 仍走 anchor（本职）；有 v ⇒ 原本就不走。
-func TestR9R10_锚点裸日期行收窄(t *testing.T) {
-	// 池：3 个「上」的日期（足够 anchor 计数）
+// R9/R10 的 D10 终局（2026-11-22）：**锚点层整体退役** —— 原来的"裸日期行收窄"不再需要：
+// 任何行都不再按「上」日期计数推 n。池里只有 d+p 行（无双锚行）⇒ 一律不推 n（身份按日期，宁缺勿错）。
+func TestR9R10_锚点退役后不推n(t *testing.T) {
+	// 池：只有 d+p / v 行，**没有任何双锚行**（Num>0 ∧ Date≠""）⇒ 两张映射为空 ⇒ 不借
 	pool := []string{"20260101上", "20260108上", "20260115上", "20260105未播", "20260106下"}
-	// 裸日期行：即便池里「上」充足也不猜 —— 每天更新的节目日期序≠期号
-	for _, title := range []string{"20260105", "20260105期", " 20260106 "} {
-		if n := AnchorNumFor(title, pool); n != 0 {
-			t.Fatalf("R9/R10: AnchorNumFor(%q) = %d, want 0（裸日期行不猜）", title, n)
+	// 裸日期行 / 带 p 行：即便池里「上」充足也不再推 n（D10 撤销锚点推算）
+	for _, title := range []string{"20260105", "20260105期", " 20260106 ", "20260110上"} {
+		epid, from, id := EpidForRule(title, pool)
+		if from != EpKeySourceNone || id != RuleNonePoolMiss {
+			t.Fatalf("R9/R10: EpidForRule(%q) 收 from=%s id=%s, want none(D6)", title, from, id)
+		}
+		if want := EpidOf(ParseEpisodeKey(title)); epid != want {
+			t.Fatalf("R9/R10: EpidForRule(%q) = %q, want 原键（不带 n）%q", title, epid, want)
 		}
 	}
-	// 有 p ⇒ 仍可 anchor（本职不变；20260110 之前有 2 个「上」日期 20260101/20260108）
-	if n := AnchorNumFor("20260110上", pool); n != 2 {
-		t.Fatalf("有 p 的行仍应走 anchor: got %d, want 2", n)
-	}
-	// 有 v ⇒ 原本就不走 anchor（现状保留）
-	if n := AnchorNumFor("20260105未播", pool); n != 0 {
-		t.Fatalf("有 v 不走 anchor: got %d", n)
-	}
-	// 派生链路：裸日期行 anchor 收窄后落到 D6-none（有日期但借推皆败）
-	epid, from, id := EpidForRule("20260105", pool)
-	if from != EpKeySourceNone || id != RuleNonePoolMiss {
-		t.Fatalf("裸日期行应收 none(D6), got from=%s id=%s epid=%q", from, id, epid)
-	}
-	if EpidOf(ParseEpisodeKey("20260105")) != epid {
-		t.Fatalf("D6 产出应为原键（不带 n）: %q", epid)
+	// 有 v ⇒ 同样只落 d（v 是身份的一部分，n 留空）
+	epid, from, id := EpidForRule("20260105未播", pool)
+	if from != EpKeySourceNone || id != RuleNonePoolMiss ||
+		epid != "s=-|v=未播|p=-|n=-|d=20260105" {
+		t.Fatalf("有 v 行应收 none(D6) 且 n=-, got from=%s id=%s epid=%q", from, id, epid)
 	}
 }

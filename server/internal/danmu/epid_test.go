@@ -52,34 +52,17 @@ func TestBridgeNum_候选冲突则放弃(t *testing.T) {
 	}
 }
 
-func TestAnchorNumFor_组内上不足则不猜(t *testing.T) {
-	// 组内「上」日期 <2 ⇒ 0
-	if got := AnchorNumFor("20260803上", []string{"20260803上"}); got != 0 {
-		t.Errorf("组内上不足 2 应返回 0, got %d", got)
-	}
-	titles := []string{"20260803上", "20260810上", "20260817上"}
-	if got := AnchorNumFor("20260803上", titles); got != 1 {
-		t.Errorf("第 1 期应为 1, got %d", got)
-	}
-	if got := AnchorNumFor("20260817上", titles); got != 3 {
-		t.Errorf("第 3 期应为 3, got %d", got)
-	}
-	// 有变体 ⇒ 不参与锚点
-	if got := AnchorNumFor("20260803特辑上", titles); got != 0 {
-		t.Errorf("变体集不应走锚点, got %d", got)
-	}
-}
-
-// EpidFor = 落库/匹配口径（带 A2 期号，含锚点兜底），并给出**来源**供 from_src 统计。
+// EpidFor = 落库/匹配口径（D10 起锚点退役，降级链 = 自带 n → 双锚反查借 d → 双锚正查借 n → none），
+// 并给出**来源**供 from_src 统计。
 func TestEpidFor_来源标注与降级顺序(t *testing.T) {
 	others := []string{"20260803第1期上", "20260810第2期上"}
 
 	cases := []struct {
-		name      string
-		title     string
-		titles    []string
-		wantEpid  string
-		wantFrom  string
+		name     string
+		title    string
+		titles   []string
+		wantEpid string
+		wantFrom string
 	}{
 		// 2026-11-11 放宽：**纯序号也算触发**（片内唯一即够）⇒ 产 `n=3`，来源=自带序号
 		{"纯序号 ⇒ 自带序号身份", "第3集", others, "s=-|v=-|p=-|n=3|d=-", EpKeySourceSelf},
@@ -87,9 +70,15 @@ func TestEpidFor_来源标注与降级顺序(t *testing.T) {
 			"s=-|v=-|p=上|n=1|d=20260803", EpKeySourceSelf},
 		{"缺期号可桥接 ⇒ bridge", "20260803上", others,
 			"s=-|v=-|p=上|n=1|d=20260803", EpKeySourceBridge},
-		{"桥不上但可锚点 ⇒ anchor", "20260803上",
+		{"n-only 双锚反查借 d ⇒ bridge", "第5期",
+			[]string{"第5期", "第5期20260601上"},
+			"s=-|v=-|p=-|n=5|d=20260601", EpKeySourceBridge},
+		{"n-only 反查不成 ⇒ 回落 self（d 留空）", "第5期",
+			[]string{"第5期"},
+			"s=-|v=-|p=-|n=5|d=-", EpKeySourceSelf},
+		{"桥不上且无双锚行 ⇒ none（n 留空，D10 撤销锚点）", "20260803上",
 			[]string{"20260803上", "20260810上", "20260817上"},
-			"s=-|v=-|p=上|n=1|d=20260803", EpKeySourceAnchor},
+			"s=-|v=-|p=上|n=-|d=20260803", EpKeySourceNone},
 		{"有日期但推不出 ⇒ none（n 留空）", "20260803上",
 			[]string{"20260803上"},
 			"s=-|v=-|p=上|n=-|d=20260803", EpKeySourceNone},
