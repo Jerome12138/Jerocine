@@ -167,7 +167,7 @@ const tagChips = computed<string[]>(() => {
 
 const directors = computed(() => takeNames(detail.value?.director, 6))
 /** 全部演员：此前 `takeNames(..., 12)` 把第 13 位起**直接截断**，导致那些演员既看不到也点不进。 */
-const allActors = computed(() => takeNames(detail.value?.actor))
+const allActors = computed(() => takeNames(detail.value?.actor, Number.MAX_SAFE_INTEGER))
 const actorExpanded = ref(false)
 /** 默认仍只渲染前 12 位（保持页面高度），超出部分由"展开全部"切换。 */
 const actors = computed(() =>
