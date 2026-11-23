@@ -166,7 +166,13 @@ const tagChips = computed<string[]>(() => {
 })
 
 const directors = computed(() => takeNames(detail.value?.director, 6))
-const actors = computed(() => takeNames(detail.value?.actor, 12))
+/** 全部演员：此前 `takeNames(..., 12)` 把第 13 位起**直接截断**，导致那些演员既看不到也点不进。 */
+const allActors = computed(() => takeNames(detail.value?.actor))
+const actorExpanded = ref(false)
+/** 默认仍只渲染前 12 位（保持页面高度），超出部分由"展开全部"切换。 */
+const actors = computed(() =>
+  actorExpanded.value ? allActors.value : allActors.value.slice(0, 12)
+)
 
 /** 演职人员卡: 名字 → 渐变首字头像 (基于 hash 选 8 种渐变之一) */
 const PERSON_GRADIENTS = [
@@ -645,6 +651,18 @@ function handleToggleFavorite(): void {
             <span class="jc-detail__person-name" :title="name">{{ name }}</span>
             <span class="jc-detail__person-role">主演</span>
           </RouterLink>
+          <!-- 演员超过 12 位时提供展开/收起（此前第 13 位起被 takeNames 截断，点不到） -->
+          <button
+            v-if="allActors.length > 12"
+            type="button"
+            class="jc-detail__person jc-detail__person--more"
+            style="background: none; border: none; padding: 0; cursor: pointer; color: var(--jc-text-link-hover); font: inherit"
+            :aria-expanded="actorExpanded"
+            @click="actorExpanded = !actorExpanded"
+          >
+            <span class="jc-detail__person-avatar jc-detail__person-avatar--more">{{ actorExpanded ? '−' : '+' }}</span>
+            <span class="jc-detail__person-name">{{ actorExpanded ? '收起' : '全部' }}</span>
+          </button>
         </div>
       </section>
 
