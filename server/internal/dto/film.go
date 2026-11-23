@@ -244,7 +244,9 @@ func ToHome(h service.HomeData) HomeResp {
 // recent(最近更新) 2026-11-07 下线撤字段 —— TV 旧 APK 模型带 emptyList 默认值 + 空段过滤, 优雅降级。
 type ClassifyResp struct {
 	Title       *NavCategory `json:"title"`
-	News        []Card       `json:"news"`
+	// News 已从分类页移除（2026-11-23）：「最近更新」按收录时间排序、无参考价值。
+	// 字段与映射代码保留，先把出参屏蔽（json:"-"），需要恢复时改回 json:"news" 即可。
+	News        []Card       `json:"-"`
 	Top         []Card       `json:"top"`
 	Score       []Card       `json:"score"`
 	ScoredCount int64        `json:"scoredCount"`

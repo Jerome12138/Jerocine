@@ -387,27 +387,37 @@ func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted 
 	// 用户体感"搜不到"；同理"超人"这类精确片名也排不到前面。
 	fq := q
 	if !ok {
-		fq = fq.Order(clause.Expr{
-			SQL: `CASE
+		fq = fq.Order(relevanceOrderExpr(keyword))
+	}
+	if err := fq.Order(order).Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error; err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
+
+// relevanceOrderExpr 公开搜索的相关性排序表达式（未显式指定排序时使用）：
+// 片名完全相等 > pinyin 缩写完全相等 > 片名前缀 > 片名包含 > 缩写前缀 > 其余。
+//
+// 抽成独立函数只为**可测**：占位符与 Vars 的顺序一旦错位，MySQL 不会报错、只会静默排错，
+// 所以由 search_repo_order_test.go 逐项钉住顺序。
+func relevanceOrderExpr(keyword string) clause.Expr {
+	upper := strings.ToUpper(keyword)
+	return clause.Expr{
+		SQL: `CASE
         WHEN name = ? THEN 0
         WHEN name_pinyin = ? THEN 1
         WHEN name LIKE ? THEN 2
         WHEN name LIKE ? THEN 3
         WHEN name_pinyin LIKE ? THEN 4
         ELSE 5 END`,
-			Vars: []interface{}{
-				keyword,
-				strings.ToUpper(keyword),
-				keyword + "%",
-				"%" + keyword + "%",
-				strings.ToUpper(keyword) + "%",
-			},
-		})
+		Vars: []interface{}{
+			keyword,             // name = ?
+			upper,               // name_pinyin = ?
+			keyword + "%",       // name LIKE ?
+			"%" + keyword + "%", // name LIKE ?
+			upper + "%",         // name_pinyin LIKE ?
+		},
 	}
-	if err := fq.Order(order).Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error; err != nil {
-		return nil, 0, err
-	}
-	return out, total, nil
 }
 
 // isAllAsciiLetters 关键字是否全为 ASCII 字母(可能是拼音首字母串)。
