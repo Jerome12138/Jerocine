@@ -144,14 +144,7 @@ const sections = computed(() => {
       items: limitToRows(data.value.top),
       sort: 'hot'
     },
-    {
-      key: 'news',
-      title: '最新上线',
-      sub: '每日更新',
-      items: limitToRows(data.value.news),
-      sort: 'latest'
-    }
-  ]
+    ]
   if (data.value.scoredCount > 0) {
     secs.push({
       key: 'score',

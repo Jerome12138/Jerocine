@@ -485,6 +485,10 @@ const displaySources = computed(() => sortSourcesBySpeed(props.sources, props.sp
   min-height: var(--jc-ctrl-h);
   /* 宽度下限(2026-11-06 用户要求): 桌面 52 / 平板 46 / 移动 40 —— 短源名不再缩成小点,
    * 一排也更齐整。断点与 theme.css 的档位断点一致。 */
+  /* 宽度自适应: 46/40/52 只是下限, 实际由文字撑开; 显式 width:auto + flex:0 0 auto
+     * 压掉外部固定宽度、也避免多源时被 flex 全部压到下限(看起来像固定宽度)。 */
+  width: auto;
+  flex: 0 0 auto;
   min-width: 46px;
 }
 
