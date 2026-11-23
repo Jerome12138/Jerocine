@@ -945,7 +945,10 @@ const danmaku = useDanmaku({
   epNumSource: danmakuNumSource,
   player,
   // 实际生效 = 用户级; 任一变化触发 useDanmaku watch 重载
-  enabled: danmakuActive
+  enabled: danmakuActive,
+  // 插件控制条上的 .apd-toggle 与本开关是同一个: 插件侧变更回写应用开关,
+  // 否则"关了弹幕"只隐藏图层, 换集/拖进度仍会继续拉流。
+  onEnabledChange: setDanmakuEnabled
 })
 const danmakuState = danmaku.danmuState
 

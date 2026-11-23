@@ -643,7 +643,7 @@ watch(
       <div class="flex-1 hidden md:block" />
 
       <!-- 桌面搜索框 (常驻, bilibili 风格居中, 宽 480-520px) -->
-      <div class="jc-header__search-wrap hidden md:flex">
+      <div class="jc-header__search-wrap hidden md:flex" v-if="route.path !== '/search'">
         <form
           class="jc-header__search flex items-center w-full"
           role="search"

@@ -381,7 +381,30 @@ func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted 
 		return nil, 0, err
 	}
 	var out []entity.MovieSearch
-	if err := q.Order(order).Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error; err != nil {
+	// 相关性排序（仅公开搜索：调用方未显式指定排序时）：
+	// 片名完全相等 > pinyin 缩写完全相等 > 片名前缀 > 片名包含 > 缩写前缀 > 其余。
+	// 起因：短缩写（如 "cx"）会命中数百条，旧实现按"最新"排 ⇒ 目标片被埋进第 N 页，
+	// 用户体感"搜不到"；同理"超人"这类精确片名也排不到前面。
+	fq := q
+	if !ok {
+		fq = fq.Order(clause.Expr{
+			SQL: `CASE
+        WHEN name = ? THEN 0
+        WHEN name_pinyin = ? THEN 1
+        WHEN name LIKE ? THEN 2
+        WHEN name LIKE ? THEN 3
+        WHEN name_pinyin LIKE ? THEN 4
+        ELSE 5 END`,
+			Vars: []interface{}{
+				keyword,
+				strings.ToUpper(keyword),
+				keyword + "%",
+				"%" + keyword + "%",
+				strings.ToUpper(keyword) + "%",
+			},
+		})
+	}
+	if err := fq.Order(order).Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error; err != nil {
 		return nil, 0, err
 	}
 	return out, total, nil

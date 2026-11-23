@@ -548,9 +548,16 @@ void load()
   box-shadow: none;
 }
 
-.jc-search__btn {
+/* 右侧按钮做成"胶囊内胶囊": 与外层输入框同高、同圆角语言(radius-full),
+   不再是一个独立圆角矩形 —— 之前 size=md 自带 rounded-xl, 和胶囊框不搭。 */
+.jc-search__input-wrap .jc-search__btn {
   flex-shrink: 0;
   margin-left: var(--jc-space-2);
+  height: 44px;
+  min-width: 44px;
+  padding: 0 var(--jc-space-4);
+  border-radius: var(--jc-radius-full);
+  justify-content: center;
 }
 
 /* 移动端列表行 (桌面已改用主页标准 FilmCard, 不再有 row-desktop) */

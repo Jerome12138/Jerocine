@@ -206,6 +206,15 @@ export interface UseDanmakuOptions {
   player: ShallowRef<Artplayer | null>
   /** 开关 */
   enabled: Ref<boolean>
+  /**
+   * 插件自带开关（控制条 `.apd-toggle`）的回写通道。
+   *
+   * 播放器里存在两个"关弹幕"入口：插件自己的 `visible`、以及应用级开关（`enabled`）。
+   * 旧实现只把 `visible` 当成"显示与否"，**不回写应用开关** ⇒ 用户在控制条上关了，
+   * `enabled` 仍是 true，换集/拖进度时 `loadDanmaku`/`prefetchUpcoming` 照旧发请求。
+   * 这里把插件侧变更同步回应用开关，做到单一事实来源。
+   */
+  onEnabledChange?: (on: boolean) => void
 }
 
 /** 弹幕插件实例名（artplayer-plugin-danmuku 注册名）。 */
@@ -670,6 +679,12 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     if (typeof artOption.antiOverlap === 'boolean' && artOption.antiOverlap !== s.antiOverlap) {
       s.antiOverlap = artOption.antiOverlap
       changed = true
+    }
+    // 插件自带开关（.apd-toggle）→ 回写应用级开关（单一事实来源）。
+    // 只在两者不一致时回写，避免 watch → loadDanmaku → show() → :config 的往返抖动。
+    const vis = artOption.visible
+    if (typeof vis === 'boolean' && vis !== opts.enabled.value) {
+      opts.onEnabledChange?.(vis)
     }
     if (changed) {
       settings.value = s
