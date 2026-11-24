@@ -19,6 +19,22 @@ import (
 // nowMilli 当前毫秒时间戳。库内 BIGINT 时间列统一用毫秒口径(软删除戳、失败台账等), 故下沉到共享层。
 func nowMilli() int64 { return time.Now().UnixMilli() }
 
+// 合法毫秒时间戳区间：2020-01-01 与 2100-01-01。
+// 目的是兜住"非毫秒"的脏值（例如把 YYYYMMDDHHMMSS 当成整数写进来 ≈ 2.0e13、秒级 ≈ 1.7e9、0），
+// 这类值会让一切按 updated_at 的时间窗审计/增量失效（2026-11-23 实测有 322 行中招）。
+const (
+	tsMinValidMilli int64 = 1577836800000
+	tsMaxValidMilli int64 = 4102444800000
+)
+
+// guardMilli 把非法时间戳纠正为"当前毫秒"。写入侧统一过一道闸，防人工 SQL / 临时脚本污染。
+func guardMilli(v int64) int64 {
+	if v < tsMinValidMilli || v > tsMaxValidMilli {
+		return nowMilli()
+	}
+	return v
+}
+
 // conditionalUpsert "源站给不出时保留本地旧值"的列 → 冲突时的赋值表达式。
 //
 // 背景: 采集 upsert 原先是齐刷刷的 `col = VALUES(col)` 覆盖写, 于是一旦源站这次没给数据
@@ -27,7 +43,7 @@ func nowMilli() int64 { return time.Now().UnixMilli() }
 //
 // 这些列都是"源站与本地都会写同一列、本地只在源站给不出时才补"的性质, 故冲突时按
 // IF(VALUES(col) 有效, VALUES(col), col) 取舍: 源站给了就用源站的, 没给就保留已有的。
-// 判定口径按列类型: 数值列 > 0; 字符串列 <> ''。
+// 判定口径按列类型: 数值列 > 0; 字符串列 <> ”。
 //
 // hot_score 是这一族里唯一的"本地派生列": 它由 domain.HotScore(年份/在播/口碑, 单位 0.1 分)
 // 算得, 没有源站对应字段, 但它**会随内容变化**(在播片完结、源站补出评分/年份) —— 若像 hot_rank 那样

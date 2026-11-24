@@ -35,6 +35,9 @@ func (r *playRepo) UpsertBatch(ctx context.Context, list []entity.MoviePlaySourc
 	for i := range list {
 		list[i].EpHash = EpisodesHash(list[i].Episodes)
 		list[i].ContentHash = EpisodesContentHash(list[i].Episodes)
+		// updated_at 写入闸：ODKU 是 `updated_at = VALUES(updated_at)`，值来自本字段；
+		// 一旦有人把 YYYYMMDDHHMMSS/秒级/0 写进来，会污染所有按时间窗的审计（2026-11-23 事故）。
+		list[i].UpdatedAt = guardMilli(list[i].UpdatedAt)
 	}
 	sortPlaySourcesForKey(list)
 	// 「内容未变不写」（2026-11-13）：全站重采会把**每一行整行**重写（含 `episodes_json` 巨列）⇒ binlog
