@@ -140,6 +140,18 @@ type PlaySourceRepository interface {
 
 // SlimSourceRow 源行瘦身投影(统计用)。
 // Mid 可空: 补充源行(跨站按 match_key 关联)不写 mid —— 线上 74% 源行 mid=NULL(2026-11-07 实测)。
+// YearFacet 年份筛选项（含数量）
+type YearFacet struct {
+	Year  int `json:"year"`
+	Count int `json:"count"`
+}
+
+// CatFacet 分类筛选项（含数量）—— Name 由前端用分类表映射，后端不查维表
+type CatFacet struct {
+	Pid   int64 `json:"pid"`
+	Count int   `json:"count"`
+}
+
 type SlimSourceRow struct {
 	Mid      *int64
 	MatchKey string

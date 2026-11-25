@@ -352,7 +352,52 @@ func (s *FilmService) Search(ctx context.Context, keyword string, page repositor
 // vod_id→mid 映射, 且把体验绑在第三方可用性上)。排序已在仓储按 hot_score → hits → mid
 // 排好; 这里切片分页后按 mid 序重取卡片读模型(空行=读模型滞后/隐藏分类, 跳过)。
 // 不缓存: 组合按演员名, 与 /films 同口径交给 nginx api_cache。
-func (s *FilmService) ActorFilms(ctx context.Context, name string, page repository.Page) (CardPage, error) {
+// ActorFacets 演员片单的筛选维度计数（年份 / 分类），供演员页筛选展示数量。
+//
+// 取数路径与列表一致：MidsByActor 拿 mid → 一次 SearchByMids 取回全部元数据 →
+// 在内存里聚合。演员片单规模有限（通常 < 数百），无需新表或额外查询。
+// 年份同样过 maxValidYear 口径（今年+1），避免脏年进入筛选项。
+func (s *FilmService) ActorFacets(ctx context.Context, name string) ([]repository.YearFacet, []repository.CatFacet, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return []repository.YearFacet{}, []repository.CatFacet{}, nil
+	}
+	mids, err := s.movie.MidsByActor(ctx, name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(mids) == 0 {
+		return []repository.YearFacet{}, []repository.CatFacet{}, nil
+	}
+	rows, err := s.SearchByMids(ctx, mids)
+	if err != nil {
+		return nil, nil, err
+	}
+	maxYear := time.Now().Year() + 1
+	yearCnt := map[int]int{}
+	catCnt := map[int64]int{}
+	for _, r := range rows {
+		if r.Year > 0 && r.Year <= maxYear {
+			yearCnt[r.Year]++
+		}
+		if r.Pid > 0 {
+			catCnt[r.Pid]++
+		}
+	}
+	years := make([]repository.YearFacet, 0, len(yearCnt))
+	for y, c := range yearCnt {
+		years = append(years, repository.YearFacet{Year: y, Count: c})
+	}
+	sort.Slice(years, func(i, j int) bool { return years[i].Year > years[j].Year })
+	cats := make([]repository.CatFacet, 0, len(catCnt))
+	for pid, c := range catCnt {
+		cats = append(cats, repository.CatFacet{Pid: pid, Count: c})
+	}
+	sort.Slice(cats, func(i, j int) bool { return cats[i].Count > cats[j].Count })
+	return years, cats, nil
+}
+
+func (s *FilmService) ActorFilms(ctx context.Context, name string, year int, pid int64, page repository.Page) (CardPage, error) {
 	page = page.Normalize(s.pages.Filter)
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -361,6 +406,30 @@ func (s *FilmService) ActorFilms(ctx context.Context, name string, page reposito
 	mids, err := s.movie.MidsByActor(ctx, name)
 	if err != nil {
 		return CardPage{}, err
+	}
+	// 演员页筛选：year / pid（一次 SearchByMids 取回元数据后在内存过滤，片单规模有限）
+	if year > 0 || pid > 0 {
+		rows, ferr := s.SearchByMids(ctx, mids)
+		if ferr != nil {
+			return CardPage{}, ferr
+		}
+		keepSet := make(map[int64]bool, len(rows))
+		for _, r := range rows {
+			if year > 0 && r.Year != year {
+				continue
+			}
+			if pid > 0 && r.Pid != pid {
+				continue
+			}
+			keepSet[r.Mid] = true
+		}
+		kept := make([]int64, 0, len(keepSet))
+		for _, mid := range mids {
+			if keepSet[mid] {
+				kept = append(kept, mid)
+			}
+		}
+		mids = kept
 	}
 	total := int64(len(mids))
 	start := page.Offset()

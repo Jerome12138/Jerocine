@@ -171,7 +171,8 @@ func (h *Handlers) Films(c *gin.Context) {
 func (h *Handlers) ActorFilms(c *gin.Context) {
 	ctx := c.Request.Context()
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
-	cp, err := h.Film.ActorFilms(ctx, c.Query("name"), page)
+	// 演员页筛选：year / pid（0 = 不筛）
+	cp, err := h.Film.ActorFilms(ctx, c.Query("name"), queryInt(c, "year", 0), int64(queryInt(c, "pid", 0)), page)
 	if err != nil {
 		dto.Fail(c, err)
 		return

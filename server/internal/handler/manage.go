@@ -1129,6 +1129,16 @@ func (h *Handlers) RecoverCollectFailures(c *gin.Context) {
 //
 // 按源清空 movie_play_source。**破坏性操作**，故要求 confirm 显式等于源 id（防误触）。
 // 只删源行：movie/movie_search 不动；派生表 movie_episode_epid 会留孤儿，删完应跑该源 rebuild。
+// ActorFacets GET /films/by-actor/facets?name= —— 演员页筛选维度计数（年份/分类）
+func (h *Handlers) ActorFacets(c *gin.Context) {
+	years, cats, err := h.Film.ActorFacets(c.Request.Context(), c.Query("name"))
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"years": years, "categories": cats})
+}
+
 func (h *Handlers) DeleteSourceData(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	if id == "" || c.Query("confirm") != id {
