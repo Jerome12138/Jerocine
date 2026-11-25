@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import * as filmApi from '@/api/film'
 import type { Card } from '@/types/film'
@@ -9,6 +9,7 @@ import BasePagination from '@/components/base/BasePagination.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import SkeletonGrid from '@/components/base/SkeletonGrid.vue'
+import FilmFilterBar, { type FilterGroup } from '@/components/film/FilmFilterBar.vue'
 import { useQuerySync } from '@/composables/useQuerySync'
 import { useAbortable } from '@/composables/useAbortable'
 
@@ -20,8 +21,8 @@ import { useAbortable } from '@/composables/useAbortable'
  */
 const router = useRouter()
 
-const { params, push } = useQuerySync<{ name: string; current: number }>(
-  { name: '', current: 1 },
+const { params, push } = useQuerySync<{ name: string; current: number; year: number; pid: number }>(
+  { name: '', current: 1, year: 0, pid: 0 },
   {
     path: '/filmActor',
     onChange: () => {
@@ -38,6 +39,60 @@ const errorMsg = ref<string>('')
 
 const abortable = useAbortable()
 
+/** 筛选维度计数（后端 facets）与分类名映射（用于分类标签显示名字而非 pid） */
+const facets = ref<filmApi.ActorFacets | null>(null)
+const catName = ref<Map<number, string>>(new Map())
+let facetsForName = ''
+
+async function loadFacets(name: string): Promise<void> {
+  if (facetsForName === name) return
+  facetsForName = name
+  try {
+    facets.value = await filmApi.getActorFacets(name)
+    if (catName.value.size === 0) {
+      const cats = (await filmApi.getCategories()) as unknown as {
+        id?: number
+        pid?: number
+        name: string
+      }[]
+      catName.value = new Map(cats.map((c) => [Number(c.pid ?? c.id ?? 0), c.name]))
+    }
+  } catch {
+    facets.value = null
+  }
+}
+
+const filterGroups = computed<FilterGroup[]>(() => {
+  const f = facets.value
+  if (!f) return []
+  const years = f.years.map((it) => ({ value: it.year, label: `${it.year} (${it.count})` }))
+  const cats = f.categories.map((it) => ({
+    value: it.pid,
+    label: `${catName.value.get(it.pid) ?? `分类${it.pid}`} (${it.count})`
+  }))
+  return [
+    {
+      key: 'year',
+      title: '年份',
+      current: Number(params.value.year) || 0,
+      options: [{ value: 0, label: '全部' }, ...years]
+    },
+    {
+      key: 'pid',
+      title: '分类',
+      current: Number(params.value.pid) || 0,
+      options: [{ value: 0, label: '全部' }, ...cats]
+    }
+  ]
+})
+
+/** 切筛选：重置到第 1 页（走 URL push，onChange 会自动 load） */
+function onFilterChange(payload: { key: string; value: string | number }): void {
+  const v = Number(payload.value) || 0
+  if (payload.key === 'year') void push({ year: v, current: 1 })
+  else if (payload.key === 'pid') void push({ pid: v, current: 1 })
+}
+
 async function load(): Promise<void> {
   const name = (params.value.name || '').trim()
   if (!name) {
@@ -49,7 +104,12 @@ async function load(): Promise<void> {
   errorMsg.value = ''
   const signal = abortable.refresh()
   try {
-    const resp = await filmApi.getFilmsByActor(name, params.value.current || 1, { signal })
+    void loadFacets(name)
+    const resp = await filmApi.getFilmsByActor(name, params.value.current || 1, {
+      year: Number(params.value.year) || 0,
+      pid: Number(params.value.pid) || 0,
+      signal
+    })
     list.value = resp.list ?? []
     page.value = resp.page ?? page.value
     loaded.value = true
@@ -86,6 +146,9 @@ void load()
     </header>
 
     <!-- 骨架屏(首载) -->
+    <!-- 筛选（年份 / 分类，标签带数量） -->
+    <FilmFilterBar v-if="filterGroups.length > 0" :groups="filterGroups" @change="onFilterChange" />
+
     <SkeletonGrid v-if="loading && !loaded" :count="12" />
 
     <!-- 结果网格 -->

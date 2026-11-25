@@ -45,10 +45,26 @@ export const getFilms = (
 export const getFilmsByActor = (
   name: string,
   page: number,
-  options?: { signal?: AbortSignal }
+  options?: { year?: number; pid?: number; signal?: AbortSignal }
 ): Promise<Paginated<Card>> =>
   http.get<unknown, Paginated<Card>>('/films/by-actor', {
-    params: { name, page },
+    // year/pid 为 0/未传 = 不筛
+    params: { name, page, year: options?.year || undefined, pid: options?.pid || undefined },
+    signal: options?.signal
+  })
+
+/** GET /films/by-actor/facets 演员页筛选维度计数（年份/分类） */
+export interface ActorFacets {
+  years: { year: number; count: number }[]
+  categories: { pid: number; count: number }[]
+}
+
+export const getActorFacets = (
+  name: string,
+  options?: { signal?: AbortSignal }
+): Promise<ActorFacets> =>
+  http.get<unknown, ActorFacets>('/films/by-actor/facets', {
+    params: { name },
     signal: options?.signal
   })
 
