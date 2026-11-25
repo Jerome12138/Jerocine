@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"log"
 	"strings"
 	"time"
 
@@ -83,7 +84,9 @@ func coverHostLike(host string) string {
 
 func (r *searchRepo) CountCoverHost(ctx context.Context, host string) (int64, error) {
 	var n int64
-	err := dbFrom(ctx, r.db).Model(&movieSearchPO{}).
+	// 统计改读**真相源 movie**：movie_search 是影子表（由 movie 重建），
+	// 只统计影子表会漏掉"尚未重建"的行，也会与执行范围不一致。
+	err := dbFrom(ctx, r.db).Model(&moviePO{}).
 		Where("cover LIKE ?", coverHostLike(host)).Count(&n).Error
 	return n, err
 }
@@ -96,7 +99,7 @@ func (r *searchRepo) PreviewCoverReplace(ctx context.Context, fromHost, toHost s
 		Mid   int64
 		Cover string
 	}
-	err := dbFrom(ctx, r.db).Model(&movieSearchPO{}).
+	err := dbFrom(ctx, r.db).Model(&moviePO{}).
 		Select("mid, cover").
 		Where("cover LIKE ?", coverHostLike(fromHost)).
 		Order("mid").Limit(limit).Find(&rows).Error
@@ -163,6 +166,15 @@ func (r *searchRepo) SetImgFallbackHosts(ctx context.Context, v string) error {
 }
 
 // ApplyCoverReplace 分批执行封面域名替换（见接口注释）。返回累计影响行数。
+//
+// ⚠️ **关键（P0，2026-11-25 审查发现）**：`movie_search` 是从 `movie` 重建的**影子表**，
+// 只改影子表会在下次重建时被**写回旧域名**（等于白做）。故必须：
+//
+//	① 审计记 **movie.cover** 的 before/after（movie 是真相源）
+//	② 先更新 **movie.cover**
+//	③ 再更新 movie_search.cover（让线上立即可见；即使不更新，重建后也会跟随）
+//
+// 游标由 **movie** 驱动（两表 mid 一一对应，命中集合一致）。
 func (r *searchRepo) ApplyCoverReplace(ctx context.Context, ruleID int64, fromHost, toHost string, batch, sleepMs int) (int64, error) {
 	if batch <= 0 || batch > 5000 {
 		batch = 2000
@@ -174,28 +186,35 @@ func (r *searchRepo) ApplyCoverReplace(ctx context.Context, ruleID int64, fromHo
 	for {
 		var next int64
 		if err := dbFrom(ctx, r.db).Raw(
-			"SELECT COALESCE(MAX(mid),0) FROM (SELECT mid FROM movie_search WHERE mid > ? AND cover LIKE ? ORDER BY mid LIMIT ?) t",
+			"SELECT COALESCE(MAX(mid),0) FROM (SELECT mid FROM movie WHERE mid > ? AND cover LIKE ? ORDER BY mid LIMIT ?) t",
 			cursor, like, batch).Scan(&next).Error; err != nil {
 			return total, err
 		}
 		if next == 0 {
 			return total, nil
 		}
-		// ① 先记审计（回滚依据）；② 再更新同一区间
+		// ① 审计（真相源 movie 的 before/after）
 		if err := dbFrom(ctx, r.db).Exec(
 			"INSERT INTO domain_replace_audit(rule_id, field, mid, before_val, after_val, created_at) "+
-				"SELECT ?, 'vod_pic', mid, cover, REPLACE(cover, ?, ?), ? FROM movie_search "+
+				"SELECT ?, 'vod_pic', mid, cover, REPLACE(cover, ?, ?), ? FROM movie "+
 				"WHERE mid > ? AND mid <= ? AND cover LIKE ?",
 			ruleID, fromPat, toPat, nowMilli(), cursor, next, like).Error; err != nil {
 			return total, err
 		}
+		// ② 先改真相源
 		res := dbFrom(ctx, r.db).Exec(
-			"UPDATE movie_search SET cover = REPLACE(cover, ?, ?) WHERE mid > ? AND mid <= ? AND cover LIKE ?",
+			"UPDATE movie SET cover = REPLACE(cover, ?, ?) WHERE mid > ? AND mid <= ? AND cover LIKE ?",
 			fromPat, toPat, cursor, next, like)
 		if res.Error != nil {
 			return total, res.Error
 		}
 		total += res.RowsAffected
+		// ③ 再改影子表（失败不影响正确性：下次重建会跟随真相源）
+		if err := dbFrom(ctx, r.db).Exec(
+			"UPDATE movie_search SET cover = REPLACE(cover, ?, ?) WHERE mid > ? AND mid <= ? AND cover LIKE ?",
+			fromPat, toPat, cursor, next, like).Error; err != nil {
+			log.Printf("[macrep] 影子表 movie_search 更新失败（下次重建会跟随真相源）: %v", err)
+		}
 		cursor = next
 		if sleepMs > 0 {
 			select {
@@ -209,3 +228,11 @@ func (r *searchRepo) ApplyCoverReplace(ctx context.Context, ruleID int64, fromHo
 		}
 	}
 }
+
+// moviePO 复用 movie 表只读扫描（mid/cover）
+type moviePO struct {
+	Mid   int64  `gorm:"column:mid"`
+	Cover string `gorm:"column:cover"`
+}
+
+func (moviePO) TableName() string { return "movie" }
