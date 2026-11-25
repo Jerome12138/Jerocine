@@ -1145,15 +1145,59 @@ func (h *Handlers) DomainReplaceFetch(c *gin.Context) {
 	dto.OK(c, res)
 }
 
-// DomainReplaceRules GET /manage/domain-replace/rules?state=pending
+// DomainReplaceSources GET /manage/domain-replace/sources
+// 当前支持的公告来源清单（管理端「立即拉取公告」弹窗用；新增站点只改后端注册表）。
+func (h *Handlers) DomainReplaceSources(c *gin.Context) {
+	dto.OK(c, gin.H{"list": h.Film.ListDomainSources()})
+}
+
+// DomainReplaceRules GET /manage/domain-replace/rules?state=pending&page=1&size=24
 func (h *Handlers) DomainReplaceRules(c *gin.Context) {
-	rules, pending, stale, err := h.Film.ListDomainRules(c.Request.Context(), c.Query("state"))
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "24"))
+	rules, total, counts, stale, err := h.Film.ListDomainRules(
+		c.Request.Context(), c.Query("state"), c.Query("keyword"), page, size)
 	if err != nil {
 		dto.Fail(c, err)
 		return
 	}
-	// pending/stale 供管理端红点与告警提示
-	dto.OK(c, gin.H{"list": rules, "pending": pending, "stale": stale})
+	// counts/stale 是全量计数（不受分页与筛选影响），供页签数字与超期告警
+	dto.OK(c, gin.H{"list": rules, "total": total, "page": page, "size": size, "counts": counts, "stale": stale})
+}
+
+// DomainReplaceCreate POST /manage/domain-replace/rules
+// **手工录入规则**（公告页没有、或需要人工修正时用）：只写规则表，不碰业务数据。
+func (h *Handlers) DomainReplaceCreate(c *gin.Context) {
+	var req service.DomainManualRule
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "参数不合法")
+		return
+	}
+	if err := h.Film.UpsertManualDomainRule(c.Request.Context(), req); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"ok": true})
+}
+
+// DomainReplaceUpdate PUT /manage/domain-replace/rules/:id
+// **手工编辑单条规则**（原地改，不新增行）；改 from/to 会把状态重置为 pending。
+func (h *Handlers) DomainReplaceUpdate(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if id <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "id required")
+		return
+	}
+	var req service.DomainManualRule
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "参数不合法")
+		return
+	}
+	if err := h.Film.EditDomainRule(c.Request.Context(), id, req); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"id": id, "ok": true})
 }
 
 // DomainReplaceApply POST /manage/domain-replace/rules/:id/apply
@@ -1190,9 +1234,9 @@ func (h *Handlers) DomainReplaceSetState(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&req)
 	switch req.State {
-	case "pending", "applied", "merged", "rejected":
+	case "pending", "applied", "merged", "rejected", "skipped":
 	default:
-		dto.Error(c, http.StatusUnprocessableEntity, "state must be pending/applied/merged/rejected")
+		dto.Error(c, http.StatusUnprocessableEntity, "state must be pending/applied/merged/rejected/skipped")
 		return
 	}
 	if id <= 0 {

@@ -241,7 +241,10 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/spider/sources/:id/purge-progress", h.SourcePurgeProgress)
 		// 域名替换工具（macrep）：拉取只写规则表；预览只读；执行动作另行加入
 		mg.POST("/domain-replace/fetch", h.DomainReplaceFetch)
+		mg.GET("/domain-replace/sources", h.DomainReplaceSources) // 支持的公告来源清单
 		mg.GET("/domain-replace/rules", h.DomainReplaceRules)
+		mg.POST("/domain-replace/rules", h.DomainReplaceCreate)    // 手工录入规则
+		mg.PUT("/domain-replace/rules/:id", h.DomainReplaceUpdate) // 手工编辑单条规则
 		mg.GET("/domain-replace/rules/:id/preview", h.DomainReplacePreview)
 		mg.POST("/domain-replace/rules/:id/state", h.DomainReplaceSetState)
 		mg.POST("/domain-replace/rules/:id/apply", h.DomainReplaceApply) // 按源清空 movie_play_source（需 confirm=id）

@@ -119,24 +119,73 @@ export const revokeSession = (id: string): Promise<{ id: string; revoked: boolea
 export interface DomainRuleView {
   id: number
   field: string
+  fieldLabel: string
+  ruleType: string
+  /** master 主站 / slave 从站 */
+  scope: string
+  /** scope=slave 时的采集源 id，空=全部从站 */
+  sourceCode: string
+  /** 来源站标识：lz / manual … */
+  sourceKey: string
+  /** 来源页 URL（可点开原文） */
+  sourceUrl: string
   fromHost: string
   toHost: string
-  opsTag: string
+  /** 我们库里的落点（如 movie.cover），空=本库不存储 */
+  targetColumn: string
+  /** 落点说明 */
+  targetNote: string
   announcedAt: number
   state: string
+  /** 本工具的操作备注（如"已替换 1234 行"） */
   note: string
+  /** 源站备注 */
+  sourceNote: string
+  /** 本工具能否自动执行（当前仅 vod_pic） */
+  supported: boolean
+}
+
+/** 手工录入规则载荷 */
+export interface DomainRuleManualPayload {
+  field: string
+  scope: string
+  sourceCode: string
+  fromHost: string
+  toHost: string
+  announcedAt: number
+  sourceNote: string
 }
 
 export interface DomainRuleListResp {
   list: DomainRuleView[]
-  pending: number
+  total: number
+  page: number
+  size: number
+  /** 各状态全量计数（pending/applied/skipped/merged/rejected） */
+  counts: Record<string, number>
+  /** 公告超过 7 天仍未处理的 pending 数 */
   stale: number
+}
+
+/** 一个可拉取的公告来源（后端注册表下发，前端只负责渲染） */
+export interface DomainSource {
+  key: string
+  name: string
+  type: string
+  url: string
+  fieldHint: string
+  /** 这些字段落到我们库的哪里（后端口径） */
+  targetHint: string
+  note: string
 }
 
 export interface DomainFetchResult {
   source: string
   new: number
-  updated: number
+  /** 目标变更、旧行被标 merged 的条数 */
+  merged: number
+  /** 与库内完全一致、跳过的条数 */
+  skipped: number
   rejected: number
   fetchedAt: number
 }
@@ -151,9 +200,40 @@ export interface DomainPreviewResp {
 export const fetchDomainRules = (source = ''): Promise<DomainFetchResult> =>
   http.post<unknown, DomainFetchResult>('/manage/domain-replace/fetch', { source }, { silent: true })
 
-/** GET /manage/domain-replace/rules 规则列表 + 告警计数 */
-export const listDomainRules = (state = ''): Promise<DomainRuleListResp> =>
-  http.get<unknown, DomainRuleListResp>('/manage/domain-replace/rules', { params: { state } })
+/** POST /manage/domain-replace/rules 手工录入规则（只写规则表） */
+export const createDomainRule = (payload: DomainRuleManualPayload): Promise<{ ok: boolean }> =>
+  http.post<unknown, { ok: boolean }>('/manage/domain-replace/rules', payload, { silent: true })
+
+/** PUT /manage/domain-replace/rules/:id 手工编辑单条规则（原地改） */
+export const updateDomainRule = (
+  id: number,
+  payload: DomainRuleManualPayload
+): Promise<{ id: number; ok: boolean }> =>
+  http.put<unknown, { id: number; ok: boolean }>(
+    `/manage/domain-replace/rules/${id}`,
+    payload,
+    { silent: true }
+  )
+
+/** GET /manage/domain-replace/sources 当前支持的公告来源 */
+export const listDomainSources = (): Promise<{ list: DomainSource[] }> =>
+  http.get<unknown, { list: DomainSource[] }>('/manage/domain-replace/sources')
+
+/** GET /manage/domain-replace/rules 规则列表（分页）+ 全量告警计数 */
+export const listDomainRules = (opts: {
+  state?: string
+  keyword?: string
+  page?: number
+  size?: number
+} = {}): Promise<DomainRuleListResp> =>
+  http.get<unknown, DomainRuleListResp>('/manage/domain-replace/rules', {
+    params: {
+      state: opts.state || undefined,
+      keyword: opts.keyword?.trim() || undefined,
+      page: opts.page ?? 1,
+      size: opts.size ?? 24
+    }
+  })
 
 /** GET /manage/domain-replace/rules/:id/preview 影响面预览（只读） */
 export const previewDomainRule = (id: number): Promise<DomainPreviewResp> =>

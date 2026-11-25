@@ -68,13 +68,18 @@ type MovieRepository interface {
 type DomainRule struct {
 	ID          int64
 	Field       string
+	FieldLabel  string // 目标列中文名：视频封面 / 视频播放 / 视频下载
+	RuleType    string // 公告分类：视频封面替换 / 视频播放地址 / 视频下载地址
+	Scope       string // 生效范围：master 主站 / slave 从站
+	SourceCode  string // scope=slave 时的采集源 id，空=全部从站
 	FromHost    string
 	ToHost      string
-	OpsTag      string
-	SourceURL   string
+	SourceKey   string // 来源站标识：lz / manual …
+	SourceURL   string // 来源页完整 URL（卡片上可点开原文）
 	AnnouncedAt int64
 	State       string
-	Note        string
+	Note        string // 本工具的**操作备注**（如"已替换 1234 行"），不存源站文案
+	SourceNote  string // 源站备注（已去掉 ops 标记）
 	CreatedAt   int64
 	UpdatedAt   int64
 }
@@ -92,8 +97,17 @@ type SearchRepository interface {
 	// TopByPidSorted 取某一级分类下某排序维度的前 N 条 (首页区块 / 分类三榜用, 不分页不 count → 根治首页无谓 COUNT)。
 	TopByPidSorted(ctx context.Context, pid int64, sort ClassifySort, limit int) ([]entity.MovieSearch, error)
 	// ---- 域名替换（macrep）----
-	UpsertDomainRule(ctx context.Context, r DomainRule) (bool, error)
-	ListDomainRules(ctx context.Context, state string) ([]DomainRule, error)
+	// InsertDomainRuleWithMerge 同一事务内：不存在则插入；新增成功时把同
+	// (field, from_host, scope, source_code) 的更早 pending 行标 merged。
+	// 返回 (created, id, mergedRows)。mergedRows=0 表示没有旧行被归档。
+	InsertDomainRuleWithMerge(ctx context.Context, r DomainRule) (bool, int64, int64, error)
+	// DomainRuleStats 全量计数：各状态计数 + total + stale(公告早于 staleBefore 的 pending)。
+	DomainRuleStats(ctx context.Context, staleBefore int64) (counts map[string]int64, total, stale int64, err error)
+	// AnnotateSiblingRules 执行替换后给同域名的其它 pending 规则加提示（不改状态）。
+	AnnotateSiblingRules(ctx context.Context, field, fromHost, appliedTo string, keepID int64) (int64, error)
+	// UpdateDomainRule 人工编辑单条规则（原地改）。
+	UpdateDomainRule(ctx context.Context, id int64, r DomainRule) error
+	ListDomainRules(ctx context.Context, state, keyword string, page, size int) ([]DomainRule, int64, error)
 	GetDomainRule(ctx context.Context, id int64) (*DomainRule, error)
 	SetDomainRuleState(ctx context.Context, id int64, state, note string) error
 	CountCoverHost(ctx context.Context, host string) (int64, error)

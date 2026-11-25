@@ -111,6 +111,12 @@ export const manageRoutes: RouteRecordRaw[] = [
   // 原「邮件与注册」独立页已并入系统设置（注册与邮件通道卡片）
   { path: '/manage/system/mail', redirect: '/manage/system/site' },
   {
+    path: '/manage/system/domain-replace',
+    name: 'manage-system-domain-replace',
+    component: () => import('@/views/manage/system/DomainReplaceView.vue'),
+    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '域名替换' }
+  },
+  {
     path: '/manage/system/sessions',
     name: 'manage-system-sessions',
     component: () => import('@/views/manage/system/SessionListView.vue'),

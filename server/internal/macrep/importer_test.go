@@ -42,8 +42,6 @@ func TestParseRules_StrictHostOnly(t *testing.T) {
 	// 1) 播放地址
 	if r, ok := got["vod_play_url|v.lzcdn28.com"]; !ok || r.ToHost != "v.cdnlz28.com" {
 		t.Errorf("播放地址规则缺失或错误: %+v", r)
-	} else if r.OpsTag != "ops:liangzi-play-cdnlz28" {
-		t.Errorf("ops 标记未提取: %q", r.OpsTag)
 	}
 	// 2) 封面
 	if r, ok := got["vod_pic|p.lztutu.com"]; !ok || r.ToHost != "p.lzp261118.com" {

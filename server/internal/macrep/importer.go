@@ -25,13 +25,49 @@ const (
 )
 
 // Rule 解析出的规则（host 已规范化：小写、去协议、去路径、去端口）
+//
+// **只取对我们有用的源站字段**（2026-11-25 用户要求）：
+//
+//	公告时间(time) · 分类(type) · 目标列(field/label) · 备注(note/ops) · 旧新域名。
+//
+// 源站自用的 executable / applied / warning / published_target / rule.id **一律不采信也不存** ——
+// 那是给站长自己看的展示状态，对下游没有决策价值，存了反而让人误以为是我们的状态。
 type Rule struct {
-	Field       string
+	Field       string // vod_pic / vod_play_url / vod_down_url
+	FieldLabel  string // 视频封面 / 视频播放 / 视频下载
+	Type        string // 公告分类：视频封面替换 / 视频播放地址 / 视频下载地址
 	FromHost    string
 	ToHost      string
-	OpsTag      string
 	AnnouncedAt int64
-	Note        string
+	Note        string // 源站备注原文（含 [ops:xxx]，需要时可用于追溯）
+}
+
+// SourceKeyFromURL 把公告页 URL 归一成来源站标识（规则"链接到来源"，便于按站归类与跳转）。
+// 目前只接 lz（量子资源）；未知来源退化成 host，便于以后加站时不用改结构。
+func SourceKeyFromURL(rawURL string) string {
+	u := strings.ToLower(strings.TrimSpace(rawURL))
+	if u == "" {
+		return ""
+	}
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+	}
+	if i := strings.IndexAny(u, "/?#"); i >= 0 {
+		u = u[:i]
+	}
+	if i := strings.Index(u, "@"); i >= 0 {
+		u = u[i+1:]
+	}
+	if i := strings.Index(u, ":"); i >= 0 {
+		u = u[:i]
+	}
+	if u == "" {
+		return ""
+	}
+	if u == "lzizy.com" || strings.HasSuffix(u, ".lzizy.com") || strings.HasPrefix(u, "lzizy") {
+		return "lz"
+	}
+	return u
 }
 
 // Reject 被拒绝的候选（保留原文，便于人工核对/补规则）
@@ -53,7 +89,6 @@ var (
 		regexp.MustCompile(FieldPlay),
 		regexp.MustCompile(FieldDown),
 	}
-	opsRe = regexp.MustCompile(`ops:[a-z0-9-]+`)
 	// 公告日期：2026-11-18 或 2026-11-18 21:40
 	dateRe = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?`)
 )
@@ -111,9 +146,6 @@ func ParseRules(page string) ([]Rule, []Reject) {
 		}
 		seen[key] = true
 		r := Rule{Field: curField, FromHost: from, ToHost: to}
-		if t := findOpsTag(lines, i); t != "" {
-			r.OpsTag = t
-		}
 		if at := findAnnouncedAt(lines, i); at > 0 {
 			r.AnnouncedAt = at
 		}
@@ -147,6 +179,10 @@ func extractHost(s string) (string, bool) {
 	return s, true
 }
 
+// NormalizeHost 供管理端**手工录入**复用同一口径（严格 host → host）：
+// 调用方据此拒绝"带路径/端口/多值"的输入，避免手填规则绕过解析器的约束。
+func NormalizeHost(s string) (string, bool) { return extractHost(s) }
+
 // validHost 严格裸 host 校验：长度、至少一个点、字符集、每段不以连字符开头/结尾。
 func validHost(h string) bool {
 	if len(h) < 4 || len(h) > 253 {
@@ -156,27 +192,6 @@ func validHost(h string) bool {
 		return false
 	}
 	return hostRe.MatchString(h)
-}
-
-// findOpsTag 在箭头行的邻近行里找 ops 标记。
-// 页面把 ops 标记放在规则块的**下一行**（如 `[ops:liangzi-play-cdnlz28]`），
-// 故先向后看 2 行、再向前看 2 行，避免相邻公告互相串味。
-func findOpsTag(lines []string, at int) string {
-	for d := 0; d <= 2; d++ {
-		if j := at + d; j < len(lines) {
-			if t := opsRe.FindString(lines[j]); t != "" {
-				return t
-			}
-		}
-	}
-	for d := 1; d <= 2; d++ {
-		if j := at - d; j >= 0 {
-			if t := opsRe.FindString(lines[j]); t != "" {
-				return t
-			}
-		}
-	}
-	return ""
 }
 
 // findAnnouncedAt 在箭头行的邻近行里找公告日期并转成毫秒（找不到返回 0）。

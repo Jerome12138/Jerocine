@@ -74,6 +74,7 @@ const groups: MenuGroup[] = [
     title: '系统',
     items: [
       { path: '/manage/system/site', label: '系统设置', icon: 'settings' },
+      { path: '/manage/system/domain-replace', label: '域名替换', icon: 'magic' },
       { path: '/manage/epid', label: '集身份', icon: 'sparkles' },
       { path: '/manage/register/applies', label: '注册审核', icon: 'shield' },
       { path: '/manage/system/sessions', label: '在线会话', icon: 'history' },

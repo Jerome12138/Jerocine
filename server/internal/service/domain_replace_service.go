@@ -17,11 +17,64 @@ import (
 // 页面/域名都会换 ⇒ 作为**默认值**而非硬编码，管理端可按次覆盖。
 const DomainReplaceDefaultSource = "https://www.lzizy.com/index.php/macrep.html"
 
+// DomainSource 一个可拉取的公告来源。
+// 未来会有多个站点/类型（封面站、播放站…），管理端「立即拉取公告」弹窗就按这个清单渲染。
+type DomainSource struct {
+	Key        string `json:"key"`
+	Name       string `json:"name"`
+	Type       string `json:"type"` // macrep=替换助手公告 / custom=自定义地址
+	URL        string `json:"url"`
+	FieldHint  string `json:"fieldHint"`  // 该来源通常会带来哪类字段的规则
+	TargetHint string `json:"targetHint"` // 这些字段落到我们库的哪里（后端口径，前端只展示）
+	Note       string `json:"note"`
+}
+
+// DomainSources 当前支持的公告来源。**新增站点只改这里**，前端无需改代码。
+var DomainSources = []DomainSource{
+	{
+		Key: "lz", Name: "lz 量子资源", Type: "macrep", URL: DomainReplaceDefaultSource,
+		FieldHint:  "封面 / 播放 / 下载",
+		TargetHint: "封面→movie.cover（可执行）；播放→movie_play_source.episodes_json（只展示）；下载→本库不存（自动跳过）",
+		Note:       "替换助手公告页（data-rep-data 结构化数据）",
+	},
+}
+
+// ListDomainSources 返回支持的来源清单（返回副本，避免调用方改到全局）。
+func (s *FilmService) ListDomainSources() []DomainSource {
+	out := make([]DomainSource, len(DomainSources))
+	copy(out, DomainSources)
+	return out
+}
+
+// ResolveDomainSource 把「来源 key」或「完整 URL」解析成实际拉取地址。
+func ResolveDomainSource(in string) (DomainSource, string) {
+	in = strings.TrimSpace(in)
+	if in == "" {
+		if len(DomainSources) > 0 {
+			return DomainSources[0], DomainSources[0].URL
+		}
+		return DomainSource{}, ""
+	}
+	for _, src := range DomainSources {
+		if strings.EqualFold(src.Key, in) {
+			return src, src.URL
+		}
+	}
+	key := macrep.SourceKeyFromURL(in)
+	name := key
+	if name == "" {
+		name = in
+	}
+	return DomainSource{Key: key, Name: name, Type: "custom", URL: in, FieldHint: "未知（按公告页解析）"}, in
+}
+
 // DomainFetchResult 拉取结果
 type DomainFetchResult struct {
 	Source    string `json:"source"`
+	SourceKey string `json:"sourceKey"`
 	New       int    `json:"new"`
-	Updated   int    `json:"updated"`
+	Merged    int    `json:"merged"`  // 目标变更、旧行被标 merged 的条数
+	Skipped   int    `json:"skipped"` // 与库内完全一致，跳过
 	Rejected  int    `json:"rejected"`
 	FetchedAt int64  `json:"fetchedAt"`
 }
@@ -35,14 +88,23 @@ type DomainPreviewResult struct {
 
 // DomainRuleView 出参视图
 type DomainRuleView struct {
-	ID          int64  `json:"id"`
-	Field       string `json:"field"`
-	FromHost    string `json:"fromHost"`
-	ToHost      string `json:"toHost"`
-	OpsTag      string `json:"opsTag"`
-	AnnouncedAt int64  `json:"announcedAt"`
-	State       string `json:"state"`
-	Note        string `json:"note"`
+	ID           int64  `json:"id"`
+	Field        string `json:"field"`
+	FieldLabel   string `json:"fieldLabel"`
+	RuleType     string `json:"ruleType"`
+	Scope        string `json:"scope"`      // master 主站 / slave 从站
+	SourceCode   string `json:"sourceCode"` // 从站时的采集源 id
+	SourceKey    string `json:"sourceKey"`  // 来源站标识：lz / manual …
+	SourceURL    string `json:"sourceUrl"`  // 来源页 URL（卡片上可点开原文）
+	FromHost     string `json:"fromHost"`
+	ToHost       string `json:"toHost"`
+	TargetColumn string `json:"targetColumn"` // 在我们库里的落点（如 movie.cover），空=本库不存储
+	TargetNote   string `json:"targetNote"`   // 落点说明（为什么能/不能自动执行）
+	AnnouncedAt  int64  `json:"announcedAt"`
+	State        string `json:"state"`
+	Note         string `json:"note"`       // 本工具的操作备注
+	SourceNote   string `json:"sourceNote"` // 源站备注
+	Supported    bool   `json:"supported"`  // 本工具能否自动执行（当前仅 vod_pic）
 }
 
 // PicSample 封面替换样例
@@ -54,11 +116,12 @@ type PicSample struct {
 
 // FetchDomainRules 拉公告页 → 解析（严格 host→host）→ **只写规则表**，不动业务数据。
 func (s *FilmService) FetchDomainRules(ctx context.Context, sourceURL string) (DomainFetchResult, error) {
-	sourceURL = strings.TrimSpace(sourceURL)
-	if sourceURL == "" {
-		sourceURL = DomainReplaceDefaultSource
+	src, resolved := ResolveDomainSource(sourceURL)
+	if resolved == "" {
+		return DomainFetchResult{}, fmt.Errorf("未指定公告来源")
 	}
-	res := DomainFetchResult{Source: sourceURL, FetchedAt: time.Now().UnixMilli()}
+	sourceURL = resolved
+	res := DomainFetchResult{Source: sourceURL, SourceKey: src.Key, FetchedAt: time.Now().UnixMilli()}
 	cli := &http.Client{Timeout: 20 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
@@ -77,7 +140,7 @@ func (s *FilmService) FetchDomainRules(ctx context.Context, sourceURL string) (D
 	if err != nil {
 		return res, err
 	}
-	rules, rejects := macrep.ParseRules(string(body))
+	rules, rejects := parseDomainPage(src, string(body))
 	res.Rejected = len(rejects)
 	// 图床兜底链（site_config.img_fallback_hosts）：
 	// 前端 BaseImage 把第一项当主图床、其余当备用（onerror 切 host、路径原样保留）。
@@ -100,15 +163,19 @@ func (s *FilmService) FetchDomainRules(ctx context.Context, sourceURL string) (D
 	}
 	now := time.Now().UnixMilli()
 	for _, r := range rules {
-		isNew, uerr := s.search.UpsertDomainRule(ctx, domainRuleFromParsed(r, sourceURL, now))
+		dr := domainRuleFromParsed(r, sourceURL, now)
+		// 插入 + 旧行归档在同一事务里：要么一起生效，要么都不生效。
+		created, _, merged, uerr := s.search.InsertDomainRuleWithMerge(ctx, dr)
 		if uerr != nil {
 			return res, uerr
 		}
-		if isNew {
-			res.New++
-		} else {
-			res.Updated++
+		if !created {
+			// 完全一致 ⇒ 跳过（不写任何字段、不动状态）
+			res.Skipped++
+			continue
 		}
+		res.New++
+		res.Merged += int(merged)
 	}
 	return res, nil
 }
@@ -122,24 +189,22 @@ const DomainRuleStaleAfter = 7 * 24 * time.Hour
 //	stale   —— 其中公告已超过 DomainRuleStaleAfter 仍未处理（强提醒）
 //
 // 计数在内存里算，不额外查库；"命中行数"属于执行影响面，走 Preview 按需拉取。
-func (s *FilmService) ListDomainRules(ctx context.Context, state string) ([]DomainRuleView, int, int, error) {
-	rows, err := s.search.ListDomainRules(ctx, state)
+func (s *FilmService) ListDomainRules(ctx context.Context, state, keyword string, page, size int) ([]DomainRuleView, int64, map[string]int64, int, error) {
+	rows, total, err := s.search.ListDomainRules(ctx, state, keyword, page, size)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, nil, 0, err
 	}
 	out := make([]DomainRuleView, 0, len(rows))
-	pending, stale := 0, 0
-	cutoff := time.Now().Add(-DomainRuleStaleAfter).UnixMilli()
 	for _, r := range rows {
 		out = append(out, toDomainRuleView(r))
-		if r.State == "pending" {
-			pending++
-			if r.AnnouncedAt > 0 && r.AnnouncedAt < cutoff {
-				stale++
-			}
-		}
 	}
-	return out, pending, stale, nil
+	// 计数走全量聚合，不受分页/筛选影响
+	cutoff := time.Now().Add(-DomainRuleStaleAfter).UnixMilli()
+	counts, _, stale, err := s.search.DomainRuleStats(ctx, cutoff)
+	if err != nil {
+		return nil, 0, nil, 0, err
+	}
+	return out, total, counts, int(stale), nil
 }
 
 // StartDomainRuleFetcher 每日一次拉取公告（**只入库，绝不执行替换**）。
@@ -158,8 +223,8 @@ func (s *FilmService) StartDomainRuleFetcher(ctx context.Context) {
 			if res, err := s.FetchDomainRules(ctx, ""); err != nil {
 				log.Printf("[macrep] 每日拉取失败: %v", err)
 			} else {
-				log.Printf("[macrep] 每日拉取完成: 新增 %d / 覆盖 %d / 拒收 %d（仅入库，未执行替换）",
-					res.New, res.Updated, res.Rejected)
+				log.Printf("[macrep] 每日拉取完成: 新增 %d / 跳过(一致) %d / 目标变更 %d / 拒收 %d（仅入库，未执行替换）",
+					res.New, res.Skipped, res.Merged, res.Rejected)
 			}
 			if !sleepCtx(ctx, DomainFetchInterval) {
 				return
@@ -205,19 +270,53 @@ func (s *FilmService) PreviewDomainRule(ctx context.Context, id int64) (DomainPr
 	return out, nil
 }
 
+// clipRunes 按**字符**截断到列宽，避免源站写了超长文案把整次拉取搞挂（严格模式下超长会报错）。
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
+
 // domainRuleFromParsed 把解析结果转成仓储实体（补来源与时间戳）
 func domainRuleFromParsed(r macrep.Rule, sourceURL string, now int64) repository.DomainRule {
+	// 封面只可能来自主站（用户要求）；播放/下载默认也先记主站，管理员可在页面上改成从站。
+	// 本库根本不存这个字段（如下载地址）⇒ 入库即了结，不占"待处理"
+	state, stateNote := "pending", ""
+	if tg := fieldTarget(r.Field); tg.Column == "" && !tg.Executable {
+		state, stateNote = "skipped", tg.Note
+	}
 	return repository.DomainRule{
-		Field: r.Field, FromHost: r.FromHost, ToHost: r.ToHost,
-		OpsTag: r.OpsTag, SourceURL: sourceURL, AnnouncedAt: r.AnnouncedAt,
-		CreatedAt: now, UpdatedAt: now,
+		Field: r.Field, FieldLabel: clipRunes(r.FieldLabel, 32), RuleType: clipRunes(r.Type, 32),
+		Scope: "master", SourceCode: "",
+		SourceKey:   clipRunes(macrep.SourceKeyFromURL(sourceURL), 32),
+		SourceURL:   clipRunes(sourceURL, 512),
+		FromHost:    r.FromHost,
+		ToHost:      r.ToHost,
+		AnnouncedAt: r.AnnouncedAt,
+		SourceNote:  clipRunes(r.Note, 255),
+		State:       state,
+		Note:        stateNote,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 }
 
 func toDomainRuleView(r repository.DomainRule) DomainRuleView {
+	scope := r.Scope
+	if scope == "" {
+		scope = "master"
+	}
 	return DomainRuleView{
-		ID: r.ID, Field: r.Field, FromHost: r.FromHost, ToHost: r.ToHost,
-		OpsTag: r.OpsTag, AnnouncedAt: r.AnnouncedAt, State: r.State, Note: r.Note,
+		ID: r.ID, Field: r.Field, FieldLabel: r.FieldLabel, RuleType: r.RuleType,
+		Scope: scope, SourceCode: r.SourceCode,
+		SourceKey: r.SourceKey, SourceURL: r.SourceURL,
+		FromHost: r.FromHost, ToHost: r.ToHost,
+		TargetColumn: fieldTarget(r.Field).Column, TargetNote: fieldTarget(r.Field).Note,
+		AnnouncedAt: r.AnnouncedAt, State: r.State,
+		Note: r.Note, SourceNote: r.SourceNote,
+		Supported: fieldTarget(r.Field).Executable,
 	}
 }
 
@@ -239,8 +338,211 @@ func buildImgHosts(primary, backup string) string {
 }
 
 // SetDomainRuleState 人工标记规则状态（不改业务数据，只改规则表）
+// domainRuleStates 允许的状态（skipped = 我们库里没有该旧域名，无需替换）。
+var domainRuleStates = map[string]bool{
+	"pending": true, "applied": true, "merged": true, "rejected": true, "skipped": true,
+}
+
 func (s *FilmService) SetDomainRuleState(ctx context.Context, id int64, state, note string) error {
+	state = strings.TrimSpace(state)
+	if !domainRuleStates[state] {
+		return fmt.Errorf("未知状态: %s", state)
+	}
 	return s.search.SetDomainRuleState(ctx, id, state, note)
+}
+
+// DomainManualRule 管理端**手工录入/修改**一条规则（只写规则表，不动业务数据）。
+type DomainManualRule struct {
+	Field       string `json:"field"`
+	Scope       string `json:"scope"`
+	SourceCode  string `json:"sourceCode"`
+	FromHost    string `json:"fromHost"`
+	ToHost      string `json:"toHost"`
+	AnnouncedAt int64  `json:"announcedAt"`
+	SourceNote  string `json:"sourceNote"`
+}
+
+// fieldTargetInfo 源站字段 → 我们库里的落点。**后端维护**：公告源怎么写字段由这里翻译，
+// 前端不做任何配置，只展示。
+type fieldTargetInfo struct {
+	Column     string // 我们的落点（空 = 本库不存该字段）
+	Executable bool   // 本工具能否自动执行
+	Note       string
+}
+
+var fieldTargetMap = map[string]fieldTargetInfo{
+	macrep.FieldPic:  {Column: "movie.cover", Executable: true, Note: "封面：真相源 movie.cover，可自动执行（同步 movie_search.cover）"},
+	macrep.FieldPlay: {Column: "movie_play_source.episodes_json", Note: "播放地址：按源存在 JSON 大列里，只展示不自动改"},
+	macrep.FieldDown: {Note: "下载地址：本库不存储，入库即标记跳过"},
+}
+
+func fieldTarget(field string) fieldTargetInfo {
+	if v, ok := fieldTargetMap[field]; ok {
+		return v
+	}
+	return fieldTargetInfo{Note: "未知字段：需在后端补充落点映射"}
+}
+
+// parseDomainPage 解析**跟着公告源走**：不同来源的页面结构/字段口径可能不同，
+// 由来源 Type 决定用哪个解析器（新增站点 = 后端加一个 case + 解析器，前端不动）。
+func parseDomainPage(src DomainSource, body string) ([]macrep.Rule, []macrep.Reject) {
+	switch src.Type {
+	case "macrep":
+		return macrep.ParsePage(body)
+	default:
+		log.Printf("[macrep] 来源 %s 的类型 %q 未注册专用解析器，回退通用解析", src.Key, src.Type)
+		return macrep.ParsePage(body)
+	}
+}
+
+// fieldLabel 目标列的中文名（与源站 label 对齐）。
+func fieldLabel(field string) string {
+	switch field {
+	case macrep.FieldPic:
+		return "视频封面"
+	case macrep.FieldPlay:
+		return "视频播放"
+	case macrep.FieldDown:
+		return "视频下载"
+	}
+	return field
+}
+
+// ruleType 公告分类的中文名（与源站 type 对齐）。
+func ruleTypeOf(field string) string {
+	switch field {
+	case macrep.FieldPic:
+		return "视频封面替换"
+	case macrep.FieldPlay:
+		return "视频播放地址"
+	case macrep.FieldDown:
+		return "视频下载地址"
+	}
+	return ""
+}
+
+// UpsertManualDomainRule 手工录入规则：与解析器**同一口径**（严格 host → host），
+// 且封面只允许主站（用户要求：pic 只有主站），播放/下载可选主站或从站。
+func (s *FilmService) UpsertManualDomainRule(ctx context.Context, in DomainManualRule) error {
+	field := strings.TrimSpace(in.Field)
+	switch field {
+	case macrep.FieldPic, macrep.FieldPlay, macrep.FieldDown:
+	default:
+		return fmt.Errorf("字段只能是 vod_pic / vod_play_url / vod_down_url")
+	}
+	scope := strings.TrimSpace(in.Scope)
+	if scope == "" {
+		scope = "master"
+	}
+	if scope != "master" && scope != "slave" {
+		return fmt.Errorf("范围只能是 master(主站) / slave(从站)")
+	}
+	if field == macrep.FieldPic && scope != "master" {
+		return fmt.Errorf("封面(vod_pic)只可能来自主站，不能选从站")
+	}
+	from, ok := macrep.NormalizeHost(in.FromHost)
+	if !ok {
+		return fmt.Errorf("旧域名不合法：只填域名本身（不带 http://、路径、端口）")
+	}
+	to, ok := macrep.NormalizeHost(in.ToHost)
+	if !ok {
+		return fmt.Errorf("新域名不合法：只填域名本身（不带 http://、路径、端口）")
+	}
+	if from == to {
+		return fmt.Errorf("新旧域名相同，无需替换")
+	}
+	at := in.AnnouncedAt
+	if at <= 0 {
+		at = time.Now().UnixMilli()
+	}
+	if !validAnnouncedAt(at) {
+		return fmt.Errorf("公告日期超出合理范围")
+	}
+	code := strings.TrimSpace(in.SourceCode)
+	if field == macrep.FieldPic {
+		code = ""
+	}
+	now := time.Now().UnixMilli()
+	created, _, _, err := s.search.InsertDomainRuleWithMerge(ctx, repository.DomainRule{
+		Field: field, FieldLabel: fieldLabel(field), RuleType: ruleTypeOf(field),
+		Scope: scope, SourceCode: code,
+		SourceKey: "manual", SourceURL: "",
+		FromHost: from, ToHost: to, AnnouncedAt: at,
+		SourceNote: clipRunes(strings.TrimSpace(in.SourceNote), 255),
+		CreatedAt:  now, UpdatedAt: now,
+	})
+	if err != nil {
+		return err
+	}
+	if !created {
+		return fmt.Errorf("已存在相同规则（%s %s → %s），如需改目标请编辑那一条", field, from, to)
+	}
+	return nil
+}
+
+// EditDomainRule 手工**编辑**单条规则（原地改，不新增行）。
+// 改动 from/to 等同于换了目标 ⇒ 状态回到 pending，需要重新预览/执行。
+func (s *FilmService) EditDomainRule(ctx context.Context, id int64, in DomainManualRule) error {
+	cur, err := s.search.GetDomainRule(ctx, id)
+	if err != nil {
+		return err
+	}
+	field := strings.TrimSpace(in.Field)
+	switch field {
+	case macrep.FieldPic, macrep.FieldPlay, macrep.FieldDown:
+	default:
+		return fmt.Errorf("字段只能是 vod_pic / vod_play_url / vod_down_url")
+	}
+	scope := strings.TrimSpace(in.Scope)
+	if scope == "" {
+		scope = "master"
+	}
+	if scope != "master" && scope != "slave" {
+		return fmt.Errorf("范围只能是 master(主站) / slave(从站)")
+	}
+	if field == macrep.FieldPic && scope != "master" {
+		return fmt.Errorf("封面(vod_pic)只可能来自主站，不能选从站")
+	}
+	from, ok := macrep.NormalizeHost(in.FromHost)
+	if !ok {
+		return fmt.Errorf("旧域名不合法：只填域名本身（不带 http://、路径、端口）")
+	}
+	to, ok := macrep.NormalizeHost(in.ToHost)
+	if !ok {
+		return fmt.Errorf("新域名不合法：只填域名本身（不带 http://、路径、端口）")
+	}
+	if from == to {
+		return fmt.Errorf("新旧域名相同，无需替换")
+	}
+	at := in.AnnouncedAt
+	if at <= 0 {
+		at = cur.AnnouncedAt
+	}
+	if !validAnnouncedAt(at) {
+		return fmt.Errorf("公告日期超出合理范围")
+	}
+	code := strings.TrimSpace(in.SourceCode)
+	if field == macrep.FieldPic {
+		code = ""
+	}
+	state := cur.State
+	if field != cur.Field || from != cur.FromHost || to != cur.ToHost {
+		state = "pending"
+	}
+	return s.search.UpdateDomainRule(ctx, id, repository.DomainRule{
+		Field: field, FieldLabel: fieldLabel(field), RuleType: ruleTypeOf(field),
+		Scope: scope, SourceCode: code,
+		SourceKey: clipRunes(cur.SourceKey, 32), SourceURL: clipRunes(cur.SourceURL, 512),
+		FromHost: from, ToHost: to,
+		AnnouncedAt: at, SourceNote: clipRunes(strings.TrimSpace(in.SourceNote), 255), State: state,
+	})
+}
+
+// validAnnouncedAt 公告日期只接受 2000-01-01 ~ 现在+1 天，挡住明显的手误（如 20261-01-01）。
+func validAnnouncedAt(ms int64) bool {
+	min := time.Date(2000, 1, 1, 0, 0, 0, 0, time.Local).UnixMilli()
+	max := time.Now().Add(24 * time.Hour).UnixMilli()
+	return ms >= min && ms <= max
 }
 
 // ApplyDomainRule **执行替换**（会改动业务数据），守卫从严：
@@ -271,6 +573,12 @@ func (s *FilmService) ApplyDomainRule(ctx context.Context, id int64, confirmFrom
 	}
 	if serr := s.search.SetDomainRuleState(ctx, id, "applied", fmt.Sprintf("已替换 %d 行", n)); serr != nil {
 		log.Printf("[macrep] 规则 %d 已替换 %d 行，但状态更新失败: %v", id, n, serr)
+	}
+	// 同域名还有别的目标待处理时，给它们加提示（不改状态，避免误删人工判断）
+	if m, aerr := s.search.AnnotateSiblingRules(ctx, rule.Field, rule.FromHost, rule.ToHost, id); aerr != nil {
+		log.Printf("[macrep] 规则 %d 执行后给同域名规则加提示失败: %v", id, aerr)
+	} else if m > 0 {
+		log.Printf("[macrep] 规则 %d 执行后，%d 条同域名规则被标注(目标不同，待复核)", id, m)
 	}
 	return n, nil
 }
