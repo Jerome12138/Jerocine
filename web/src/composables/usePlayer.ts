@@ -11,6 +11,8 @@ import {
 import Artplayer from 'artplayer'
 import artplayerPluginDanmuku, { type Option as DanmukuOption } from 'artplayer-plugin-danmuku'
 import Hls from 'hls.js'
+import { useWebSettings } from './useWebSettings'
+import { createSegmentPrefetcher } from './segmentPrefetch'
 
 /**
  * ArtPlayer + hls.js 播放器 composable（2026-10-30 由 video.js/VHS 迁移）。
@@ -328,6 +330,8 @@ interface PlayerListener {
   wrapped?: (...args: never[]) => void
 }
 
+const { bufferTier } = useWebSettings()
+
 export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
   tuneGlobals()
 
@@ -424,17 +428,68 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
 
     if (Hls.isSupported()) {
       const lowBw = opts.lowBandwidth ?? false
+      // 缓冲档位（用户 2026-11-25）：针对**当前播放**的 hls.js 分片缓冲，解决"一会停一下"。
+      // 档位越高缓冲越深；默认档 1 = 40/80，与既有行为完全一致（usePlayer.spec 断言不变）。
+      const hlsBufferParams = (low: boolean): { max: number; maxMax: number } => {
+        const tier = bufferTier.value
+        const table = [
+          { max: 15, maxMax: 30 },
+          { max: 40, maxMax: 80 },
+          { max: 60, maxMax: 120 },
+          { max: 120, maxMax: 240 }
+        ]
+        const pick = table[tier] ?? table[1]!
+        // lowBandwidth 仍作为**上限**兜底，避免弱网档被拉高
+        return low ? { max: Math.min(pick.max, 25), maxMax: Math.min(pick.maxMax, 50) } : pick
+      }
       const hls = new Hls({
         enableWorker: true,
         // 抗卡顿缓冲(对齐旧 VHS GOAL_BUFFER_LENGTH 40s/上限 80s; 弱网 25s/50s):
         // 实测源站 TTFB 0.4-0.9s/分片, 更深缓冲显著减少 rebuffer
-        maxBufferLength: lowBw ? 25 : 40,
-        maxMaxBufferLength: lowBw ? 50 : 80,
+        maxBufferLength: hlsBufferParams(lowBw).max,
+        maxMaxBufferLength: hlsBufferParams(lowBw).maxMax,
         backBufferLength: 60,
         // 初始带宽估算: 弱网 800k 起播选低码率; 正常网 2M — 实测源站 1080p 变体约
         // 800k~2M, 估算偏高会"起播即选高码率→带宽不足→立刻降级", 起播反糊
         abrEwmaDefaultEstimate: readSavedBandwidth() ?? (lowBw ? 800_000 : 2_000_000),
         startLevel: -1
+      })
+
+      // ---- 并发分片预取（2026-11-25）----
+      // 附加式：不改 hls.js 的加载链路，只并发预热"接下来的 N 个分片"，
+      // 让 hls.js 真去取时命中浏览器 HTTP 缓存。源站若 no-store 会自我禁用（避免流量翻倍）。
+      // 档位越高越激进；省流/标准 保持 0 = 完全关闭，与前行为一致。
+      // 注意：这两个声明必须放在下面 watch 之前（评审指出"先用后声明"顺序脆弱）。
+      const prefetchAheadByTier = (tier: number): number => [0, 0, 2, 4][tier] ?? 0
+      const prefetcher = createSegmentPrefetcher({ ahead: prefetchAheadByTier(bufferTier.value) })
+      // 评审：hls 有多条销毁路径（本文件 hooks、loadInternal 的 staleHls、错误恢复等），
+      // 逐条手挂必漏。挂到 hls 自身的 DESTROYING 事件上，一次覆盖所有路径
+      //（dist 确认：Events.DESTROYING = "hlsDestroying"）。
+      hls.on(Hls.Events.DESTROYING, () => prefetcher.destroy())
+
+      // 档位切换即时生效：hls.js 每个分片都会读最新 config，无需重建实例
+      watch(bufferTier, () => {
+        const bp = hlsBufferParams(lowBw)
+        hls.config.maxBufferLength = bp.max
+        hls.config.maxMaxBufferLength = bp.maxMax
+        prefetcher.setAhead(prefetchAheadByTier(bufferTier.value))
+      })
+      let prefetchFragments: { url: string }[] = []
+      hls.on(Hls.Events.LEVEL_LOADED, (_e, data) => {
+        try {
+          prefetchFragments = (data?.details?.fragments ?? []).map((f) => ({ url: f.url }))
+          prefetcher.onLevel(prefetchFragments)
+        } catch {
+          /* 结构变动时静默：预取只是优化，绝不影响播放 */
+        }
+      })
+      hls.on(Hls.Events.FRAG_CHANGED, (_e, data) => {
+        try {
+          const url = data?.frag?.url
+          if (url) prefetcher.onPlaying(prefetchFragments.findIndex((f) => f.url === url))
+        } catch {
+          /* 同上 */
+        }
       })
 
       // 致命错误自愈(先于 loadSource 注册): 网络错重试(上限 3 次, FRAG_BUFFERED 复位),
@@ -620,7 +675,10 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       // 直播模式不带倍速/画面比例（点播语义, 直播改倍速会造成缓冲漂移）
       setting: !(opts.isLive ?? false),
       playbackRate: !(opts.isLive ?? false),
-      aspectRatio: !(opts.isLive ?? false),
+      // 移除内置「画面比例」入口（用户 2026-11-25 要求）。该 option 是真/假开关
+      // （artplayer dist:996 `if (option.aspectRatio) { this.add(aspectRatio$2(...)) }`），
+      // 置 false 即不添加该项；运行时 setting.remove 会因面板装配时序而失效。
+      aspectRatio: false,
       fullscreen: true,
       // 移动端不展示画中画和网页全屏(屏幕小、手势已覆盖等效操作, 节省控制条空间)
       fullscreenWeb: !(opts.isMobile ?? false),

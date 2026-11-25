@@ -22,12 +22,24 @@ export { AUTO_PLAY_NEXT_KEY }
 
 export const AD_FILTER_KEY = 'jc-ad-filter'
 export const DANMAKU_KEY = 'jc-danmaku'
+/** 缓冲档位：0 省流 / 1 标准(默认) / 2 流畅 / 3 极致 —— 映射 preload 与预取提前量。 */
+export const BUFFER_TIER_KEY = 'jc-buffer-tier'
 
 function readBool(key: string, def: boolean): boolean {
   try {
     const v = localStorage.getItem(key)
     if (v === null) return def
     return v === '1'
+  } catch {
+    return def
+  }
+}
+
+function readInt(key: string, def: number, min: number, max: number): number {
+  try {
+    const v = Number(localStorage.getItem(key))
+    if (!Number.isFinite(v)) return def
+    return Math.min(max, Math.max(min, Math.trunc(v)))
   } catch {
     return def
   }
@@ -41,6 +53,8 @@ const autoPlayNext = ref<boolean>(
 /* 弹幕开关(P0): 与播放页/设置页共用; 不进 webSettingsSnapshot(快照契约对应原生抽屉, 弹幕不在抽屉范围)。
    ⚠️ 2026-10-26 改为默认关闭（用户级/本地级）: 关 = 不调弹幕获取接口; 需要时在设置页打开, 播放器弹幕设置里可对本集再开。 */
 const danmaku = ref<boolean>(readBool(DANMAKU_KEY, false))
+/* 缓冲档位（2026-11-25）：默认 1=标准，与调整前行为一致（preload=metadata / 预取提前 60s） */
+const bufferTier = ref<number>(readInt(BUFFER_TIER_KEY, 1, 0, 3))
 
 function persist(key: string, value: string): void {
   try {
@@ -72,14 +86,23 @@ export function setDanmaku(v: boolean): void {
   persist(DANMAKU_KEY, v ? '1' : '0')
 }
 
+/** 设置缓冲档位（0~3，越界自动夹取）。 */
+export function setBufferTier(v: number): void {
+  const n = Math.min(3, Math.max(0, Math.trunc(Number.isFinite(v) ? v : 1)))
+  bufferTier.value = n
+  persist(BUFFER_TIER_KEY, String(n))
+}
+
 export function useWebSettings() {
   return {
     adFilter,
     autoPlayNext,
     danmaku,
+    bufferTier,
     setAdFilter,
     setAutoPlayNext,
-    setDanmaku
+    setDanmaku,
+    setBufferTier
   }
 }
 
@@ -89,7 +112,8 @@ export function useWebSettings() {
 export function webSettingsSnapshot(): string {
   return [
     `adFilter=${adFilter.value ? '1' : '0'}`,
-    `autoPlayNext=${autoPlayNext.value ? '1' : '0'}`
+    `autoPlayNext=${autoPlayNext.value ? '1' : '0'}`,
+    `bufferTier=${bufferTier.value}`
   ].join(';')
 }
 
@@ -106,6 +130,12 @@ export function applyWebSetting(key: string, value: string): boolean {
       else if (value === '0' || value === 'false') setAutoPlayNext(false)
       else return false
       return true
+    case 'bufferTier': {
+      const n = Number(value)
+      if (!Number.isFinite(n) || n < 0 || n > 3) return false
+      setBufferTier(n)
+      return true
+    }
     default:
       return false
   }

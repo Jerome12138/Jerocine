@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { setBufferTier } from './useWebSettings'
 import { mount } from '@vue/test-utils'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import Artplayer from 'artplayer'
@@ -284,7 +285,7 @@ beforeEach(() => {
 })
 
 describe('usePlayer — ArtPlayer 构造 option', () => {
-  it('点播模式: setting/playbackRate/aspectRatio 开, hotkey/gesture/fastForward 关, customType.m3u8 为函数', () => {
+  it('点播模式: setting/playbackRate 开、aspectRatio 关(入口已移除), hotkey/gesture/fastForward 关, customType.m3u8 为函数', () => {
     const { api } = mountHost({ src: MP4, poster: 'p.jpg', volume: 0.8 })
     api.init(document.createElement('div'))
     const opt = lastArtOption()
@@ -294,7 +295,8 @@ describe('usePlayer — ArtPlayer 构造 option', () => {
     expect(opt.isLive).toBe(false)
     expect(opt.setting).toBe(true)
     expect(opt.playbackRate).toBe(true)
-    expect(opt.aspectRatio).toBe(true)
+    // 2026-11-25 用户要求移除内置「画面比例」入口 ⇒ 点播模式亦为 false
+    expect(opt.aspectRatio).toBe(false)
     expect(opt.hotkey).toBe(false)
     expect(opt.gesture).toBe(false)
     expect(opt.fastForward).toBe(false)
@@ -602,9 +604,13 @@ describe('usePlayer — hls.js 自愈链路', () => {
   }
 
   it('hls 配置: 弱网缓冲/默认带宽估算/贴源 startLevel', () => {
+    // 缓冲档位是模块级共享 ref：先固定为默认档，再建实例（hls 配置在 usePlayer() 时即被读取）
+    setBufferTier(1)
     initHls()
     const cfg = lastHlsConfig()
     expect(cfg.enableWorker).toBe(true)
+    // 缓冲档位是模块级共享 ref，可能被同文件其它用例改动 ⇒ 断言前固定为默认档
+    setBufferTier(1)
     expect(cfg.maxBufferLength).toBe(40)
     expect(cfg.maxMaxBufferLength).toBe(80)
     expect(cfg.abrEwmaDefaultEstimate).toBe(2_000_000)

@@ -158,7 +158,31 @@ const currentEpisodeIndex = ref<number>(0)
  * 自动连播开关 —— 统一存 useWebSettings(localStorage: jerocine:autoPlayNext),
  * 与 /settings 配置页、安卓设置抽屉(window.__jcConfig)共用同一份数据源。
  */
-const { autoPlayNext, setAutoPlayNext } = useWebSettings()
+/** 缓冲档位 → preload 与"下一集预取提前量"（2026-11-25）。
+ *  ⚠️ 必须在 usePlayer(...) 调用**之前**定义：preload 是 usePlayer 参数的一部分，
+ *  在其后定义会触发 TDZ（Cannot access before initialization）。 */
+const BUFFER_PRESETS = [
+  { key: 'saver', label: '省流', desc: '缓冲15s', preload: 'none' as const },
+  { key: 'normal', label: '标准', desc: '缓冲40s', preload: 'metadata' as const },
+  { key: 'smooth', label: '流畅', desc: '缓冲60s · 并发2', preload: 'auto' as const },
+  { key: 'ultra', label: '极致', desc: '缓冲120s · 并发4', preload: 'auto' as const }
+] as const
+
+/** 下一集预取提前量（秒）—— 不随缓冲档位变化，固定用默认值（用户 2026-11-25 要求）。 */
+const NEXT_EP_PREFETCH_LEAD_S = 60
+const BUFFER_DEFAULT = BUFFER_PRESETS[1]
+const bufferTier = useWebSettings().bufferTier
+const bufferPreset = computed(() => BUFFER_PRESETS[bufferTier.value] ?? BUFFER_DEFAULT)
+/** 缓冲档位的 selector 列表（勾选态跟随当前档位；变更后需 updateSettings 重建才移动勾）。 */
+function bufferTierSelector(): { html: string; value: number; default: boolean }[] {
+  return BUFFER_PRESETS.map((ps, i) => ({
+    html: `${ps.label} · ${ps.desc}`,
+    value: i,
+    default: i === bufferTier.value
+  }))
+}
+
+const { autoPlayNext, setAutoPlayNext, setBufferTier } = useWebSettings()
 /** 切换自动连播并持久化 */
 function toggleAutoPlayNext(): void {
   setAutoPlayNext(!autoPlayNext.value)
@@ -796,7 +820,7 @@ const {
   volume: 0.6,
   playbackRates: [0.5, 1.0, 1.25, 1.5, 2.0],
   // 弱网友好默认: preload metadata 而非 auto, 起播更快; 弱网时启用 hls.js 低带宽预设
-  preload: 'metadata',
+  preload: bufferPreset.value.preload,
   lowBandwidth: isSlowNetwork.value,
   // I-018: 控制条「下一集」图标入口(所有模式注册; 移动端非全屏由 CSS 隐藏, 见 .jc-player--mobile)
   nextEpisode: { onClick: () => playNext(undefined) },
@@ -837,6 +861,21 @@ const {
     // 注意：这里**没有**「弹幕」开关 —— 控制条上插件自带的 `.apd-toggle` 就是同一个开关，
     // 两处并存属重复入口（2026-11-06 用户要求去掉显示设置浮窗里的那一份）。
     return [
+    {
+      name: 'jc-buffer-tier',
+      html: '缓冲档位',
+      tooltip: bufferPreset.value.label,
+      selector: bufferTierSelector(),
+      onSelect: (sel: { value?: unknown }) => {
+        setBufferTier(Number(sel.value))
+        updateSettings({
+          name: 'jc-buffer-tier',
+          tooltip: `${bufferPreset.value.label} · ${bufferPreset.value.desc}`,
+          selector: bufferTierSelector()
+        } as Parameters<typeof updateSettings>[0])
+        return bufferPreset.value.label
+      }
+    },
     {
       name: 'jc-ad-filter-switch',
       html: '过滤广告',
@@ -1437,7 +1476,6 @@ function applyCurrentEpisodeToPlayer(resumeAt = 0, autoPlay = false): void {
  *   - 端侧取源(client, 默认): 把下一集"抓源+过滤"整个提前跑掉, 过滤文本存本地缓存
  *     (filteredTextCache) → 自动切集时 resolvePlaySrc 缓存命中, 过滤窗口归零。
  * 切集时在途预取立即 abort。 */
-const PREFETCH_LEAD_S = 60
 const prefetchedEpisodeKey = ref('')
 let prefetchAbort: AbortController | null = null
 async function prefetchNextEpisode(): Promise<void> {
@@ -1487,7 +1525,7 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   if (duration <= 300 || current <= 0) return
   const remaining = duration - current
   // 预取下一集: 距自动切集点 <=60s 时后台预热服务器过滤缓存(幂等, 静默, 失败不影响播放)
-  if (remaining <= skip.outro + PREFETCH_LEAD_S) {
+  if (remaining <= skip.outro + NEXT_EP_PREFETCH_LEAD_S) {
     prefetchNextEpisode()
   }
   const key = `${currentSourceId.value}/${currentEpisodeIndex.value}`
@@ -1502,7 +1540,10 @@ function onPlayerTimeUpdateForSkipOutro(): void {
   if (remaining > skip.outro) return
   if (outroTriggeredKey.value === key) return
   outroTriggeredKey.value = key
-  playNextAuto()
+  // 片尾自动跳 = 用户正在看，必须显式传 autoPlay=true。
+  // 不能依赖 playNextAuto() 的默认值——它会落到 selectEpisode 的 wasPlaying 推断，
+  // 而片尾时刻视频状态已不是「播放中」，推断为 false 就会跳集后停在暂停（表现为到片尾不连播）。
+  playNextAuto(true)
 }
 
 /** ---------- 触屏手势(web 专用; TV/原生播放器不适用) ---------- */
@@ -1831,6 +1872,178 @@ function togglePlayerFullscreen(): void {
 /** 桌面/移动: 键盘始终控制播放器, 与焦点无关 —— 点击按钮留下的焦点不再接管按键。
  * 左右=进度 ±10s, 空格=暂停/继续, 回车=全屏切换, 上下=音量, Esc=返回。
  * 全屏与非全屏行为一致(window 级监听)。 */
+/**
+ * ArtPlayer **内部** DOM 选择器 —— 非公开契约（types 里只有 currentTime/seek）。
+ * 集中一处，便于升级时一次性修正；启动自检取不到会自动降级到自绘浮标。
+ */
+const ART_DOM = {
+  played: '.art-progress-played',
+  indicator: '.art-progress-indicator',
+  tip: '.art-progress-tip'
+} as const
+
+/** 自检失败标记：true ⇒ 不再尝试复用原生浮标，直接走自绘 */
+let artDomDegraded = false
+
+function selfCheckArtDom(): void {
+  const host = (player.value?.template?.$player as HTMLElement | undefined) ?? undefined
+  if (!host) return
+  const missing = (Object.keys(ART_DOM) as (keyof typeof ART_DOM)[]).filter(
+    (k) => !host.querySelector(ART_DOM[k])
+  )
+  // 幂等：player 重建后若结构恢复正常，允许复位降级标记（否则一次降级就永久降级）
+  artDomDegraded = missing.length > 0
+  if (!artDomDegraded) return
+  // 只在启动时报一次：让"升级导致失效"显性可见，而不是等用户反馈
+  console.warn(
+    '[PlayView] ArtPlayer 内部选择器缺失，长按预览将退回自绘浮标：',
+    missing.map((k) => `${k}=${ART_DOM[k]}`),
+    '（多半是 artplayer 升级改了内部结构）'
+  )
+}
+
+/** 长按方向键 = B 方案：长按期间**只累计预览位移**，松手才真正 seek 一次。
+ *  原因：`video.currentTime = x` 会进入 seeking 状态，浏览器在 seeking 期间**不派发 timeupdate**，
+ *  而进度条由 timeupdate 驱动 ⇒ 长按中进度条冻住、松手才跳。预览式全程不进入 seeking。 */
+const SEEK_STEP_S = 10
+let seekPreviewActive = false
+let seekPreviewBase = 0
+let seekPreviewDelta = 0
+
+/** 长按期间把预览位置直接画到进度条上（played 宽度 + indicator 位置）。
+ *  为什么不改 currentTime：那会进入 seeking，浏览器在 seeking 期间不发 timeupdate，
+ *  ArtPlayer 的进度条由 timeupdate 驱动 —— 这正是"长按进度条不动"的根因。
+ *  这里用 rAF 逐帧覆盖，压过约 4Hz 的 timeupdate。 */
+let seekPreviewRaf = 0
+
+function paintSeekPreview(): void {
+  const p = player.value
+  const dur = p?.duration || 0
+  if (!p || dur <= 0) return
+  const host = p.template?.$player as HTMLElement | undefined
+  if (!host) return
+  const target = Math.min(Math.max(0, seekPreviewBase + seekPreviewDelta), dur)
+  const pct = (target / dur) * 100
+  const bar = host.querySelector(ART_DOM.played) as HTMLElement | null
+  const dot = host.querySelector(ART_DOM.indicator) as HTMLElement | null
+  if (bar) bar.style.width = pct + '%'
+  if (dot) dot.style.left = pct + '%'
+  showSeekMarker(host, pct, target)
+}
+
+/**
+ * 长按预览浮标：**优先复用 ArtPlayer 原生的 .art-progress-tip**（拖拽进度条时本来就会显示的那个），
+ * 这样位置口径/样式与原生完全一致；只有在拿不到原生元素时才退回自绘 .jc-seek-marker。
+ * 长按时没有鼠标 hover，原生 tip 默认不可见，故显式抬到可见；松手时撤掉内联覆盖交还原生控制。
+ */
+function fmtTimeShort(sec: number): string {
+  const mm = Math.floor(sec / 60)
+  const ss = Math.floor(sec % 60)
+  return `${mm}:${String(ss).padStart(2, '0')}`
+}
+
+function nativeProgressTip(host: HTMLElement): HTMLElement | null {
+  // 自检失败 ⇒ 明确降级，连"碰巧还能取到"也不再用，避免两套外观混用
+  if (artDomDegraded) return null
+  return host.querySelector(ART_DOM.tip) as HTMLElement | null
+}
+
+function showSeekMarker(host: HTMLElement, pct: number, target: number): void {
+  const tip = nativeProgressTip(host)
+  if (tip) {
+    tip.textContent = fmtTimeShort(target)
+    tip.style.left = pct + '%'
+    tip.style.opacity = '1'
+    tip.style.visibility = 'visible'
+    // 原生 tip 默认 transform: scale(0.5)，只有祖先带 .art-progress-hover 时才放大到 1；
+    // 长按没有 hover，故必须内联 scale(1)，否则浮标只有一半大小。
+    // 另外：原生居中是在 JS 里靠"left 减去半个浮标宽度"做的（CSS 无 translateX(-50%)），
+    // 我们直接给 left=pct% 会让浮标右偏半宽 ⇒ 这里补 translateX(-50%) 与圆点对齐。
+    tip.style.transform = 'translateX(-50%) scale(1)'
+    return
+  }
+  let el = host.querySelector('.jc-seek-marker') as HTMLElement | null
+  if (!el) {
+    el = document.createElement('div')
+    el.className = 'jc-seek-marker'
+    host.appendChild(el)
+  }
+  el.textContent = fmtTimeShort(target)
+  el.style.left = pct + '%'
+  el.style.display = 'block'
+}
+
+function hideSeekMarker(): void {
+  const host = player.value?.template?.$player as HTMLElement | undefined
+  if (!host) return
+  const tip = nativeProgressTip(host)
+  if (tip) {
+    // 先禁过渡再撤内联：否则 css transition 会让浮标"在 left 已跳回 0 的状态下渐隐"
+    // ⇒ 用户看到它闪现到进度条最左再消失。
+    tip.style.transition = 'none'
+    tip.style.removeProperty('opacity')
+    tip.style.removeProperty('visibility')
+    tip.style.removeProperty('transform')
+    // left 必须还原：否则残留位置会盖住下一次原生 hover 的定位
+    tip.style.removeProperty('left')
+    // 强制回流让上面的撤销立即生效，然后恢复过渡，把控制权完全交还原生
+    void tip.offsetWidth
+    tip.style.removeProperty('transition')
+  }
+  const el = host.querySelector('.jc-seek-marker') as HTMLElement | null
+  if (el) el.style.display = 'none'
+}
+
+function stopSeekPreviewPaint(): void {
+  if (seekPreviewRaf) {
+    cancelAnimationFrame(seekPreviewRaf)
+    seekPreviewRaf = 0
+  }
+}
+
+function startSeekPreviewPaint(): void {
+  stopSeekPreviewPaint()
+  const tick = (): void => {
+    if (!seekPreviewActive) {
+      seekPreviewRaf = 0
+      return
+    }
+    paintSeekPreview()
+    seekPreviewRaf = requestAnimationFrame(tick)
+  }
+  seekPreviewRaf = requestAnimationFrame(tick)
+}
+
+function startSeekPreview(dir: -1 | 1): void {
+  const p = player.value
+  if (!p) return
+  if (!seekPreviewActive) {
+    seekPreviewActive = true
+    seekPreviewBase = p.currentTime || 0
+    seekPreviewDelta = 0
+  }
+  seekPreviewDelta += dir * SEEK_STEP_S
+  startSeekPreviewPaint()
+}
+
+/** 松手落定：真正 seek 一次（未处于预览态则什么都不做）。 */
+function commitSeekPreview(): void {
+  if (!seekPreviewActive) return
+  const p = player.value
+  const delta = seekPreviewDelta
+  seekPreviewActive = false
+  seekPreviewDelta = 0
+  stopSeekPreviewPaint()
+  hideSeekMarker()
+  if (!p || delta === 0) return
+  const dur = p.duration || 0
+  const target = Math.min(Math.max(0, seekPreviewBase + delta), dur || 1e9)
+  playerSeekBy(target - (p.currentTime || 0))
+}
+
+function handleKeyup(e: KeyboardEvent): void {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') commitSeekPreview()
+}
 function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement | null): void {
   const tag = target?.tagName?.toLowerCase()
   const onUiButton = tag === 'button' || tag === 'a'
@@ -1874,11 +2087,11 @@ function handleDesktopKeydown(e: KeyboardEvent, key: string, target: HTMLElement
       break
     case 'ArrowLeft':
       e.preventDefault()
-      playerSeekBy(-10)
+      startSeekPreview(-1)
       break
     case 'ArrowRight':
       e.preventDefault()
-      playerSeekBy(10)
+      startSeekPreview(1)
       break
     case 'ArrowUp': {
       e.preventDefault()
@@ -2223,6 +2436,7 @@ onMounted(async () => {
     // ArtPlayer 初始化后会在容器内构建 .art-video-player 根节点 — 它就是全屏元素,
     // 覆盖层宿主指向它, Teleport 即把覆盖层迁进去
     playerOverlayHost.value = (player.value?.template.$player as HTMLElement | null) ?? null
+    selfCheckArtDom()
     onPlayerEvent('ended', () => {
       // 自然播完: 清理本集播放记忆(无论是否开自动连播; 开连播时 playNextAuto 内还会清一次, 幂等)
       clearEpisodeMemory(detail.value?.mid, currentSourceId.value, currentEpisodeIndex.value)
@@ -2242,7 +2456,6 @@ onMounted(async () => {
     // 诊断日志: 跳秒(seek)时打印位置与弹幕状态, 便于排查"跳秒后弹幕长期不出现"
     onPlayerEvent('seeked', () => {
       const t = player.value?.currentTime
-      console.log('[danmaku] seeked: position =', typeof t === 'number' ? t.toFixed(2) : t, ', state =', danmakuState.value)
     })
     // 全屏状态: 触屏手势(长按2x/横滑快进退)仅真全屏启用。§C7: 两个 art 事件都重读两标志 ——
     // 进真全屏时 artplayer 会先退网页全屏(art.fullscreenWeb=false, dist def(art,'fullscreenWeb')),
@@ -2277,6 +2490,9 @@ onMounted(async () => {
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('keydown', handleKeydown)
+    window.addEventListener('keyup', handleKeyup)
+    // 失焦时落定，避免长按中切窗口导致预览态卡住
+    window.addEventListener('blur', commitSeekPreview)
     // APK native ExoPlayer 报错回调: 方案B 下原生已自行"本集回退原始源", 仅当原始源也失败才会
     // 走到这里(真·失败)。不再全局关广告过滤(那会让一次抖动后所有集都不过滤), 只上报+提示切源。
     ;(window as unknown as { __jerocineNativeError?: () => void }).__jerocineNativeError = () => {
@@ -2304,6 +2520,8 @@ onBeforeRouteLeave(() => {
   revokeCurrentBlob() // 释放端侧过滤遗留的 blob: URL, 防内存泄漏
   if (typeof window !== 'undefined') {
     window.removeEventListener('keydown', handleKeydown)
+    window.removeEventListener('keyup', handleKeyup)
+    window.removeEventListener('blur', commitSeekPreview)
     delete (window as unknown as { __jerocineNativeError?: () => void }).__jerocineNativeError
   }
 })
@@ -3375,6 +3593,43 @@ watch(
     min-height: 44px;
   }
 }
+
+/* 片头/片尾时长控件缩小一档（2026-11-25 用户要求）。
+   ⚠️ 必须放在 scoped 块：:deep() 在非 scoped 的 <style> 里是无效语法，整条规则会被丢弃。 */
+.jc-player-wrap :deep(.jc-skip-num) {
+  gap: 2px;
+}
+.jc-player-wrap :deep(.jc-skip-num__btn) {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  font-size: 11px;
+  line-height: 1;
+}
+.jc-player-wrap :deep(.jc-skip-num__input) {
+  width: 34px;
+  height: 18px;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 2px;
+}
+
+/* 长按快进的浮标（元素由 JS 动态创建，故必须用 :deep 才能命中） */
+.jc-player-wrap :deep(.jc-seek-marker) {
+  position: absolute;
+  bottom: 58px;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: var(--jc-radius-sm);
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+  display: none;
+  z-index: 60;
+}
 </style>
 
 <style>
@@ -3468,5 +3723,6 @@ watch(
 .art-video-player:not(.art-fullscreen):not(.art-fullscreen-web) .art-control-episode-picker {
   display: none;
 }
+
 
 </style>
