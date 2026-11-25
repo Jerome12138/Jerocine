@@ -48,10 +48,14 @@ const (
 // 超限行 year 按 0、pub_date 按 ” 参与排序(一并沉底), 数据不删、只是不再进榜单头。
 // 每次调用现算上限, 跨年不依赖进程重启。IF() 内只拼 int, 无注入面。
 func orderLatestSQL() string {
-	maxYear := time.Now().In(cstZone).Year() + 1
+	// ⚠️ 「最新上线」排序的钳制阈值用**今年**，而不是 maxValidYear（今年+1）。
+	// 原因（2026-11-25 用户反馈）：上限放到"今年+1"会让**未来年份的片子排在所有真实新片之上**，
+	// 直接破坏"最新上线"的真实性；而年份*筛选项*仍保留到今年+1（明年待映的片子要能被筛到）。
+	// 越界年份统一按 0 处理（沉到真实年份之后）。
+	thisYear := time.Now().In(cstZone).Year()
 	return fmt.Sprintf(
 		"IF(year > %d, 0, year) DESC, IF(year > %d, '', pub_date) DESC, update_stamp DESC",
-		maxYear, maxYear)
+		thisYear, thisYear)
 }
 
 // orderForSpec 排序列白名单(防注入) → ORDER BY 片段; ok=false 表示未识别(调用方各自兜底:

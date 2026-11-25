@@ -69,7 +69,11 @@ func maxValidYear() int { return time.Now().In(cstZone).Year() + 1 }
 // yearUpsertExpr year 列的冲突赋值表达式: 源站年份合法(>0 且 ≤ 今年+1)才采用, 否则保留本地。
 // 下限 >0 沿用原判定; 上限即 maxValidYear。IF() 内只拼 int, 无注入面。
 func yearUpsertExpr() string {
-	return fmt.Sprintf("IF(VALUES(year) > 0 AND VALUES(year) <= %d, VALUES(year), year)", maxValidYear())
+	// 三分支（2026-11-25 用户反馈「脏年影响最新上线真实性」后收紧）：
+	//   源站没给年份(VALUES<=0)      → 保留旧值（不能把已有合法年份擦掉）
+	//   源站给的年份合法(<=今年+1)   → 采用
+	//   源站给的年份越界(脏年)        → 置 0（**不再保留脏旧值**，否则脏值会永久粘住）
+	return fmt.Sprintf("IF(VALUES(year) <= 0, year, IF(VALUES(year) <= %d, VALUES(year), 0))", maxValidYear())
 }
 
 // fillHotScore 物化待写入行的**兜底**热度分(不含榜位分) —— 只在 INSERT 时生效:
