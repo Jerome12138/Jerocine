@@ -13,8 +13,9 @@ func TestFieldTarget(t *testing.T) {
 	if pic.Column != "movie.cover" || !pic.Executable {
 		t.Fatalf("封面落点错误: %+v", pic)
 	}
+	// 2026-11-25：播放地址已支持自动替换（episodes_json），因此可执行
 	play := fieldTarget(macrep.FieldPlay)
-	if play.Column != "movie_play_source.episodes_json" || play.Executable {
+	if play.Column != "movie_play_source.episodes_json" || !play.Executable {
 		t.Fatalf("播放落点错误: %+v", play)
 	}
 	down := fieldTarget(macrep.FieldDown)

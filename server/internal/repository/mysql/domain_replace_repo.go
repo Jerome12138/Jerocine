@@ -403,6 +403,39 @@ func likeContains(s string) string {
 
 // ---- 播放地址（vod_play_url）替换：作用于 movie_play_source.episodes_json ----
 
+// replaceEpisodeLinks 把一行 episodes_json 里的链接域名换掉（纯函数，便于单测）。
+//
+// 前提：episodes_json 实测只有 `episode` / `link` 两个键（2026-11-25 线上抽样确认），
+// 因此用 entity.EpisodeList 往返不会丢字段。若将来源站/采集侧加了新键，
+// 这里要改成"只替换 link 值 + 保留其余键"的文本级替换。
+// 返回：新 JSON、解析后的列表（供算 content_hash）、命中数、首条 before/after。
+// 坏 JSON 返回 error 由调用方跳过；未命中时 newRaw 原样返回。
+func replaceEpisodeLinks(raw, fromHost, toHost string) (string, entity.EpisodeList, int, string, string, error) {
+	var eps entity.EpisodeList
+	if err := json.Unmarshal([]byte(raw), &eps); err != nil {
+		return raw, nil, 0, "", "", err
+	}
+	changed := 0
+	var firstBefore, firstAfter string
+	for i := range eps {
+		if nl, ok := macrep.ExchangeHost(eps[i].Link, fromHost, toHost); ok {
+			if changed == 0 {
+				firstBefore, firstAfter = eps[i].Link, nl
+			}
+			eps[i].Link = nl
+			changed++
+		}
+	}
+	if changed == 0 {
+		return raw, eps, 0, "", "", nil
+	}
+	buf, err := json.Marshal(eps)
+	if err != nil {
+		return raw, nil, 0, "", "", err
+	}
+	return string(buf), eps, changed, firstBefore, firstAfter, nil
+}
+
 // PlaySiteIDs 解析规则作用到哪些采集源：
 //   - code 非空 ⇒ 只作用于该源；
 //   - scope=master ⇒ 主站（collect_source.grade=0）；
@@ -445,8 +478,8 @@ func (r *searchRepo) PreviewPlayReplace(ctx context.Context, sites []string, fro
 		limit = 20
 	}
 	var rows []struct {
-		Mid int64
-		Raw string
+		Mid int64  `gorm:"column:mid"`
+		Raw string `gorm:"column:raw"`
 	}
 	if err := dbFrom(ctx, r.db).Table("movie_play_source").
 		Select("mid, episodes_json AS raw").
@@ -457,16 +490,11 @@ func (r *searchRepo) PreviewPlayReplace(ctx context.Context, sites []string, fro
 	}
 	out := make([]repository.PicPreview, 0, len(rows))
 	for _, row := range rows {
-		var eps entity.EpisodeList
-		if err := json.Unmarshal([]byte(row.Raw), &eps); err != nil {
+		_, _, changed, before, after, err := replaceEpisodeLinks(row.Raw, fromHost, toHost)
+		if err != nil || changed == 0 {
 			continue
 		}
-		for i := range eps {
-			if nl, ok := macrep.ExchangeHost(eps[i].Link, fromHost, toHost); ok {
-				out = append(out, repository.PicPreview{Mid: row.Mid, Before: eps[i].Link, After: nl})
-				break
-			}
-		}
+		out = append(out, repository.PicPreview{Mid: row.Mid, Before: before, After: after})
 	}
 	return out, nil
 }
@@ -485,9 +513,9 @@ func (r *searchRepo) ApplyPlayReplace(ctx context.Context, ruleID int64, sites [
 	var cursor, done, updated int64
 	for {
 		var rows []struct {
-			ID  int64
-			Mid int64
-			Raw string
+			ID  int64  `gorm:"column:id"`
+			Mid int64  `gorm:"column:mid"`
+			Raw string `gorm:"column:raw"`
 		}
 		if err := dbFrom(ctx, r.db).Table("movie_play_source").
 			Select("id, mid, episodes_json AS raw").
@@ -502,36 +530,18 @@ func (r *searchRepo) ApplyPlayReplace(ctx context.Context, ruleID int64, sites [
 		err := dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 			for _, row := range rows {
 				done++
-				var eps entity.EpisodeList
-				if err := json.Unmarshal([]byte(row.Raw), &eps); err != nil {
-					continue
-				}
-				var firstBefore, firstAfter string
-				changed := 0
-				for i := range eps {
-					if nl, ok := macrep.ExchangeHost(eps[i].Link, fromHost, toHost); ok {
-						if changed == 0 {
-							firstBefore, firstAfter = eps[i].Link, nl
-						}
-						eps[i].Link = nl
-						changed++
-					}
-				}
-				if changed == 0 {
-					continue
-				}
-				buf, mErr := json.Marshal(eps)
-				if mErr != nil {
+				newRaw, eps, changed, before, after, mErr := replaceEpisodeLinks(row.Raw, fromHost, toHost)
+				if mErr != nil || changed == 0 {
 					continue
 				}
 				if err := tx.Exec(
 					"INSERT INTO domain_replace_audit(rule_id, field, mid, before_val, after_val, created_at) VALUES (?,?,?,?,?,?)",
-					ruleID, "vod_play_url", row.Mid, clipStr(firstBefore, 1000), clipStr(firstAfter, 1000), nowMilli()).Error; err != nil {
+					ruleID, "vod_play_url", row.Mid, clipStr(before, 1000), clipStr(after, 1000), nowMilli()).Error; err != nil {
 					return err
 				}
 				if err := tx.Exec(
 					"UPDATE movie_play_source SET episodes_json = ?, content_hash = ?, updated_at = ? WHERE id = ?",
-					string(buf), EpisodesContentHash(eps), nowMilli(), row.ID).Error; err != nil {
+					newRaw, EpisodesContentHash(eps), nowMilli(), row.ID).Error; err != nil {
 					return err
 				}
 				updated++
