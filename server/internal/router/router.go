@@ -242,7 +242,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		// 域名替换工具（macrep）：拉取只写规则表；预览只读；执行动作另行加入
 		mg.POST("/domain-replace/fetch", h.DomainReplaceFetch)
 		mg.GET("/domain-replace/rules", h.DomainReplaceRules)
-		mg.GET("/domain-replace/rules/:id/preview", h.DomainReplacePreview) // 按源清空 movie_play_source（需 confirm=id）
+		mg.GET("/domain-replace/rules/:id/preview", h.DomainReplacePreview)
+		mg.POST("/domain-replace/rules/:id/state", h.DomainReplaceSetState) // 按源清空 movie_play_source（需 confirm=id）
 
 		mg.GET("/telemetry/overview", h.TelemetryOverview)
 		mg.GET("/telemetry/events", h.TelemetryEvents)

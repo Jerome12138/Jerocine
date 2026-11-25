@@ -222,6 +222,58 @@ async function saveSpider(): Promise<void> {
 }
 
 onMounted(load)
+
+// ---- 域名替换规则（macrep）：拉取只入库；执行替换尚未开放 ----
+const drRules = ref<manageApi.system.DomainRuleView[]>([])
+const drPending = ref(0)
+const drStale = ref(0)
+const drFetching = ref(false)
+const drMsg = ref('')
+const drPreview = ref<manageApi.system.DomainPreviewResp | null>(null)
+
+function fmtDrTime(ms: number): string {
+  if (!ms) return '—'
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+async function drLoad(): Promise<void> {
+  try {
+    const r = await manageApi.system.listDomainRules()
+    drRules.value = r.list ?? []
+    drPending.value = r.pending ?? 0
+    drStale.value = r.stale ?? 0
+  } catch {
+    /* 静默：拦截器已提示 */
+  }
+}
+
+async function drFetch(): Promise<void> {
+  drFetching.value = true
+  drMsg.value = ''
+  try {
+    const r = await manageApi.system.fetchDomainRules()
+    drMsg.value = `拉取完成：新增 ${r.new}，覆盖 ${r.updated}，拒收 ${r.rejected}`
+    await drLoad()
+  } catch (e) {
+    drMsg.value = e instanceof Error ? e.message : '拉取失败'
+  } finally {
+    drFetching.value = false
+  }
+}
+
+async function drShowPreview(row: manageApi.system.DomainRuleView): Promise<void> {
+  drPreview.value = await manageApi.system.previewDomainRule(row.id)
+}
+
+async function drSetState(row: manageApi.system.DomainRuleView, state: string): Promise<void> {
+  await manageApi.system.setDomainRuleState(row.id, state)
+  drMsg.value = `规则 #${row.id} 已标记为 ${state}`
+  await drLoad()
+}
+
+onMounted(drLoad)
 </script>
 
 <template>
@@ -417,4 +469,71 @@ onMounted(load)
       </section>
     </div>
   </div>
+
+    <section class="mt-[var(--jc-space-6)] flex flex-col gap-[var(--jc-space-3)]">
+      <header class="flex flex-wrap items-center justify-between gap-[var(--jc-space-3)]">
+        <h2 class="text-base font-semibold">域名替换规则</h2>
+        <div class="flex items-center gap-[var(--jc-space-3)]">
+          <span v-if="drStale > 0" class="text-sm text-[var(--jc-danger)]">
+            {{ drStale }} 条超 7 天未处理
+          </span>
+          <span v-else-if="drPending > 0" class="text-sm text-secondary">{{ drPending }} 条待处理</span>
+          <button
+            type="button"
+            class="jc-hotarea rounded-[var(--jc-radius-md)] border border-default px-[var(--jc-space-4)] py-[var(--jc-space-2)] text-sm disabled:opacity-50"
+            :disabled="drFetching"
+            @click="drFetch"
+          >
+            {{ drFetching ? '拉取中…' : '立即拉取公告' }}
+          </button>
+        </div>
+      </header>
+      <p class="text-xs text-secondary">
+        拉取只写入规则表，<strong>不会改动任何影片数据</strong>；执行替换需逐条预览后手动进行（暂未开放）。
+      </p>
+      <p v-if="drMsg" class="text-xs text-secondary">{{ drMsg }}</p>
+
+      <table v-if="drRules.length > 0" class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-secondary">
+            <th class="py-[var(--jc-space-2)]">字段</th>
+            <th>旧域名</th>
+            <th>新域名</th>
+            <th>公告日期</th>
+            <th>状态</th>
+            <th class="text-right">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in drRules" :key="r.id" class="border-t border-subtle">
+            <td class="py-[var(--jc-space-2)]">{{ r.field }}</td>
+            <td>{{ r.fromHost }}</td>
+            <td>{{ r.toHost }}</td>
+            <td>{{ fmtDrTime(r.announcedAt) }}</td>
+            <td>{{ r.state }}</td>
+            <td class="text-right">
+              <button type="button" class="jc-hotarea mr-[var(--jc-space-2)] underline" @click="drShowPreview(r)">预览</button>
+              <button type="button" class="jc-hotarea mr-[var(--jc-space-2)] underline" @click="drSetState(r, 'applied')">标记完成</button>
+              <button type="button" class="jc-hotarea underline" @click="drSetState(r, 'rejected')">拒绝</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else class="text-xs text-secondary">暂无规则，点「立即拉取公告」试试。</p>
+
+      <div v-if="drPreview" class="rounded-[var(--jc-radius-md)] border border-default p-[var(--jc-space-4)]">
+        <header class="mb-[var(--jc-space-2)] flex items-center justify-between">
+          <strong class="text-sm">
+            {{ drPreview.rule.fromHost }} → {{ drPreview.rule.toHost }}（{{ drPreview.rule.field }}）
+          </strong>
+          <button type="button" class="jc-hotarea text-sm underline" @click="drPreview = null">关闭</button>
+        </header>
+        <p class="text-sm">命中 <strong>{{ drPreview.hits }}</strong> 行</p>
+        <ul class="mt-[var(--jc-space-2)] flex flex-col gap-1 text-xs text-secondary">
+          <li v-for="(s, i) in drPreview.sample" :key="i" class="break-all">
+            #{{ s.mid }}：{{ s.before }} → {{ s.after }}
+          </li>
+        </ul>
+      </div>
+    </section>
 </template>

@@ -246,3 +246,8 @@ func mergeImgHosts(current string, add []string) string {
 	}
 	return strings.Join(out, ",")
 }
+
+// SetDomainRuleState 人工标记规则状态（不改业务数据，只改规则表）
+func (s *FilmService) SetDomainRuleState(ctx context.Context, id int64, state, note string) error {
+	return s.search.SetDomainRuleState(ctx, id, state, note)
+}

@@ -1156,6 +1156,32 @@ func (h *Handlers) DomainReplaceRules(c *gin.Context) {
 	dto.OK(c, gin.H{"list": rules, "pending": pending, "stale": stale})
 }
 
+// DomainReplaceSetState POST /manage/domain-replace/rules/:id/state
+// 人工标记规则状态（applied 已完成 / rejected 拒绝 / pending 复位 / merged 已被新公告合并）。
+func (h *Handlers) DomainReplaceSetState(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	var req struct {
+		State string `json:"state"`
+		Note  string `json:"note"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	switch req.State {
+	case "pending", "applied", "merged", "rejected":
+	default:
+		dto.Error(c, http.StatusUnprocessableEntity, "state must be pending/applied/merged/rejected")
+		return
+	}
+	if id <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "id required")
+		return
+	}
+	if err := h.Film.SetDomainRuleState(c.Request.Context(), id, req.State, req.Note); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"id": id, "state": req.State})
+}
+
 // DomainReplacePreview GET /manage/domain-replace/rules/:id/preview
 // 影响面预览（**只读**）：命中行数 + 前 20 条 before→after 样例。
 func (h *Handlers) DomainReplacePreview(c *gin.Context) {

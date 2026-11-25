@@ -114,3 +114,59 @@ export const revokeSession = (id: string): Promise<{ id: string; revoked: boolea
     `/manage/sessions/${encodeURIComponent(id)}`,
     { silent: true }
   )
+
+// ---- 域名替换工具（macrep，2026-11-25）----
+export interface DomainRuleView {
+  id: number
+  field: string
+  fromHost: string
+  toHost: string
+  opsTag: string
+  announcedAt: number
+  state: string
+  note: string
+}
+
+export interface DomainRuleListResp {
+  list: DomainRuleView[]
+  pending: number
+  stale: number
+}
+
+export interface DomainFetchResult {
+  source: string
+  new: number
+  updated: number
+  rejected: number
+  fetchedAt: number
+}
+
+export interface DomainPreviewResp {
+  rule: DomainRuleView
+  hits: number
+  sample: { mid: number; before: string; after: string }[]
+}
+
+/** POST /manage/domain-replace/fetch 拉取公告（**只写规则表**，不执行替换） */
+export const fetchDomainRules = (source = ''): Promise<DomainFetchResult> =>
+  http.post<unknown, DomainFetchResult>('/manage/domain-replace/fetch', { source }, { silent: true })
+
+/** GET /manage/domain-replace/rules 规则列表 + 告警计数 */
+export const listDomainRules = (state = ''): Promise<DomainRuleListResp> =>
+  http.get<unknown, DomainRuleListResp>('/manage/domain-replace/rules', { params: { state } })
+
+/** GET /manage/domain-replace/rules/:id/preview 影响面预览（只读） */
+export const previewDomainRule = (id: number): Promise<DomainPreviewResp> =>
+  http.get<unknown, DomainPreviewResp>(`/manage/domain-replace/rules/${id}/preview`)
+
+/** POST /manage/domain-replace/rules/:id/state 人工标记规则状态 */
+export const setDomainRuleState = (
+  id: number,
+  state: string,
+  note = ''
+): Promise<{ id: number; state: string }> =>
+  http.post<unknown, { id: number; state: string }>(
+    `/manage/domain-replace/rules/${id}/state`,
+    { state, note },
+    { silent: true }
+  )
