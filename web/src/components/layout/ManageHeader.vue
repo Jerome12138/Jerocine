@@ -92,10 +92,9 @@ const avatar = computed(() => {
         <span class="sr-only">打开菜单</span>
       </button>
       <!-- 页面标题不再放头部: 各页面内部已有自己的标题, 侧栏顶部有「站点名 后台管理」锚点 -->
+        <PwaUpdateBadge />
     </div>
 
-    <!-- 新版本就绪提示(与公共头部同款): 管理端也即时可见 -->
-    <PwaUpdateBadge />
 
     <div class="relative">
       <button

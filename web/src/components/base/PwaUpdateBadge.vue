@@ -205,4 +205,15 @@ function onClick(): void {
   opacity: 0;
   transform: translateY(-4px);
 }
+
+/* 箭头放大 + 加粗，外圈圆(.jc-pwa-badge)尺寸不变 —— 用户 2026-11-25 要求。
+   图标是填充路径，加粗用"描边垫在填充之下"(paint-order: stroke) 只加粗轮廓、不变形。 */
+.jc-pwa-badge__glyph {
+  font-size: 1.25em;
+}
+.jc-pwa-badge__glyph :deep(path) {
+  stroke: currentColor;
+  stroke-width: 1.6px;
+  paint-order: stroke;
+}
 </style>
