@@ -387,7 +387,9 @@ func (r *searchRepo) SearchKeyword(ctx context.Context, keyword string, deleted 
 	// 用户体感"搜不到"；同理"超人"这类精确片名也排不到前面。
 	fq := q
 	if !ok {
-		fq = fq.Order(relevanceOrderExpr(keyword))
+		// ⚠️ 必须用 clause.OrderBy{Expression: ...}：GORM 的 Order() 只认字符串/OrderBy，
+		// 直接传 clause.Expr 会被**静默忽略**（线上实测"排序不生效"的根因）。
+		fq = fq.Clauses(clause.OrderBy{Expression: relevanceOrderExpr(keyword)})
 	}
 	if err := fq.Order(order).Limit(page.Limit()).Offset(page.Offset()).Find(&out).Error; err != nil {
 		return nil, 0, err
