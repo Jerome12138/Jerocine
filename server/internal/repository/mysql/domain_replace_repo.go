@@ -28,15 +28,18 @@ func (r *searchRepo) UpsertDomainRule(ctx context.Context, rule repository.Domai
 	}
 	err := dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "field"}, {Name: "from_host"}},
-		// 新公告覆盖：to_host/ops/时间刷新，状态回到 pending（需重新确认执行）
-		DoUpdates: clause.Assignments(map[string]interface{}{
-			"to_host":      rule.ToHost,
-			"ops_tag":      rule.OpsTag,
-			"source_url":   rule.SourceURL,
-			"announced_at": rule.AnnouncedAt,
-			"state":        "pending",
-			"updated_at":   now,
-		}),
+		// ⚠️ 必须用**有序** clause.Set（P1 修复）：ODKU 的 SET 从左到右求值，
+		// 而 state 的表达式依赖 to_host 已被先赋值。用 clause.Assignments(map) 顺序不保证 ⇒
+		// 会读到旧 to_host ⇒ 把所有规则（含已 applied / rejected）**每天重置回 pending**。
+		// 语义：仅在 to_host 变化（新公告改了目标）时才需重新确认；否则保持原状态。
+		DoUpdates: clause.Set{
+			{Column: clause.Column{Name: "to_host"}, Value: rule.ToHost},
+			{Column: clause.Column{Name: "ops_tag"}, Value: rule.OpsTag},
+			{Column: clause.Column{Name: "source_url"}, Value: rule.SourceURL},
+			{Column: clause.Column{Name: "announced_at"}, Value: rule.AnnouncedAt},
+			{Column: clause.Column{Name: "state"}, Value: gorm.Expr("IF(to_host <> VALUES(to_host), 'pending', state)")},
+			{Column: clause.Column{Name: "updated_at"}, Value: now},
+		},
 	}).Create(&po).Error
 	return existing == 0, err
 }

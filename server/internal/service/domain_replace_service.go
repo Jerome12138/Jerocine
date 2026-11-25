@@ -276,6 +276,9 @@ func (s *FilmService) ApplyDomainRule(ctx context.Context, id int64, confirmFrom
 	if err != nil {
 		return n, err
 	}
-	_ = s.search.SetDomainRuleState(ctx, id, "applied", fmt.Sprintf("已替换 %d 行", n))
+	if serr := s.search.SetDomainRuleState(ctx, id, "applied", fmt.Sprintf("已替换 %d 行", n)); serr != nil {
+		// 替换已完成，只是状态没写进去（P2-1）：记日志而不是静默，便于对账
+		log.Printf("[macrep] 规则 %d 已替换 %d 行，但状态更新失败: %v", id, n, serr)
+	}
 	return n, nil
 }

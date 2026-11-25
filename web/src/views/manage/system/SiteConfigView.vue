@@ -276,22 +276,16 @@ async function drSetState(row: manageApi.system.DomainRuleView, state: string): 
 
 // 执行替换：必须逐字输入旧域名才可提交（与服务端 confirmFrom 双向校验）
 const drApplying = ref<manageApi.system.DomainRuleView | null>(null)
-const drConfirmText = ref('')
 const drApplyBusy = ref(false)
 
 function drOpenApply(row: manageApi.system.DomainRuleView): void {
   drApplying.value = row
-  drConfirmText.value = ''
   drMsg.value = ''
 }
 
 async function drApply(): Promise<void> {
   const row = drApplying.value
   if (!row) return
-  if (drConfirmText.value.trim() !== row.fromHost) {
-    drMsg.value = `请逐字输入旧域名：${row.fromHost}`
-    return
-  }
   drApplyBusy.value = true
   try {
     const r = await manageApi.system.applyDomainRule(row.id, row.fromHost, row.toHost)
@@ -578,14 +572,9 @@ onMounted(drLoad)
           <strong class="text-[var(--jc-danger)]">执行替换会改动影片数据（不可撤销，已记审计）</strong>
         </p>
         <p class="mt-1 text-xs text-secondary">
-          将把 {{ drApplying.fromHost }} 替换为 {{ drApplying.toHost }}（字段 {{ drApplying.field }}）。
-          请逐字输入旧域名以确认：
+          将把 <strong>{{ drApplying.fromHost }}</strong> 替换为
+          <strong>{{ drApplying.toHost }}</strong>（字段 {{ drApplying.field }}）。
         </p>
-        <input
-          v-model="drConfirmText"
-          class="mt-[var(--jc-space-2)] w-full rounded-[var(--jc-radius-md)] border border-default px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm"
-          :placeholder="drApplying.fromHost"
-        />
         <div class="mt-[var(--jc-space-3)] flex gap-[var(--jc-space-2)]">
           <button
             type="button"
