@@ -385,7 +385,9 @@ func (r *movieRepo) ListYearSuspicious(ctx context.Context, limit int) ([]entity
 	var out []entity.Movie
 	err := dbFrom(ctx, r.db).Model(&entity.Movie{}).
 		Select("mid, name, year").
-		Where("year > ? AND deleted_at = 0", maxValidYear()).
+		// 预告类**不强制处理 year**（用户 2026-11-25 要求）：源站以 [预告片]/[预告] 结尾的条目
+		// 本就可能是"未上映"，其年份真假无业务意义，交给「最新上线」侧过滤即可。
+		Where("year > ? AND deleted_at = 0 AND name NOT LIKE ?", maxValidYear(), "%[预告%").
 		Order("year DESC").Limit(limit).Find(&out).Error
 	return out, err
 }

@@ -264,8 +264,17 @@ func (r *searchRepo) TopByPidSorted(ctx context.Context, pid int64, s repository
 	// 一级分类口径 = pid=X(子分类影片, pid 恒为父顶级 id) OR cid=X(直挂影片: XML 源与
 	// maccms type_id_1=0 的写法里直挂影片 pid=0、只有 cid=X, 只按 pid 查会整类漏光)。
 	// pid=隐藏分类时 (pid=? AND pid NOT IN ?) 恒空 —— 隐藏分类页即空榜(导航也不可达)。
-	err := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude)).
-		Where("(pid = ? OR cid = ?)", pid, pid).Order(orderForClassify(s)).Limit(limit).Find(&out).Error
+	q := r.excludeHidden(ctx, applyDeleted(dbFrom(ctx, r.db), repository.DeletedExclude)).
+		Where("(pid = ? OR cid = ?)", pid, pid)
+	if s == repository.SortLatest {
+		// 「最新上线」过滤掉**预告片 / 未上映**（2026-11-25 用户要求）：
+		//  - name 带预告标记（源站以 [预告片]/[预告] 结尾）
+		//  - year 超过今年（尚未上映，不属于"已上线"；year=0 未知的保留，不误杀）
+		// 注意：只加在 SortLatest 上，hot/score 等其它排序不受影响。
+		q = q.Where("name NOT LIKE ? AND (year <= 0 OR year <= ?)",
+			"%[预告%", time.Now().In(cstZone).Year())
+	}
+	err := q.Order(orderForClassify(s)).Limit(limit).Find(&out).Error
 	return out, err
 }
 
