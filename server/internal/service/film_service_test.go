@@ -350,7 +350,7 @@ func TestActorFilms_PaginationAndOrder(t *testing.T) {
 	fm := &fakeMovie{actorMids: []int64{1, 2, 3, 4}}
 	svc := newFilmService(fs, fm, nil, nil)
 
-	cp, err := svc.ActorFilms(context.Background(), "沈腾", repository.Page{Current: 1, Size: 2})
+	cp, err := svc.ActorFilms(context.Background(), "沈腾", 0, 0, repository.Page{Current: 1, Size: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestActorFilms_PaginationAndOrder(t *testing.T) {
 		t.Fatalf("第 1 页应为 [1](mid=2 缺读模型行跳过), total=4: %+v", cp)
 	}
 
-	cp2, err := svc.ActorFilms(context.Background(), "沈腾", repository.Page{Current: 2, Size: 2})
+	cp2, err := svc.ActorFilms(context.Background(), "沈腾", 0, 0, repository.Page{Current: 2, Size: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestActorFilms_PaginationAndOrder(t *testing.T) {
 		t.Fatalf("第 2 页应为 [3,4]: %+v", cp2)
 	}
 
-	cp3, err := svc.ActorFilms(context.Background(), "沈腾", repository.Page{Current: 99, Size: 2})
+	cp3, err := svc.ActorFilms(context.Background(), "沈腾", 0, 0, repository.Page{Current: 99, Size: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func TestActorFilms_PaginationAndOrder(t *testing.T) {
 		t.Fatalf("越界页应为空表: %+v", cp3)
 	}
 
-	empty, err := svc.ActorFilms(context.Background(), "   ", repository.Page{})
+	empty, err := svc.ActorFilms(context.Background(), "   ", 0, 0, repository.Page{})
 	if err != nil || len(empty.List) != 0 {
 		t.Fatalf("空名应短路返回空表: %+v / %v", empty, err)
 	}
