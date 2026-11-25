@@ -375,3 +375,23 @@ func (r *movieRepo) ReplaceHotBoardCandidates(ctx context.Context, cands []repos
 		return tx.Table("hot_board_candidate").Create(rows).Error
 	})
 }
+
+// ListYearSuspicious 取年份越界的影片（脏年候选），供 year-verify worker 逐条核实。
+// 越界口径 = maxValidYear()（月份感知：仅 12 月容忍"今年+1"）；排除已软删。
+func (r *movieRepo) ListYearSuspicious(ctx context.Context, limit int) ([]entity.Movie, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var out []entity.Movie
+	err := dbFrom(ctx, r.db).Model(&entity.Movie{}).
+		Select("mid, name, year").
+		Where("year > ? AND deleted_at = 0", maxValidYear()).
+		Order("year DESC").Limit(limit).Find(&out).Error
+	return out, err
+}
+
+// SetYear 直接改写影片年份（核实成功回填 / 核实失败置 0）。
+func (r *movieRepo) SetYear(ctx context.Context, mid int64, year int) error {
+	return dbFrom(ctx, r.db).Model(&entity.Movie{}).
+		Where("mid = ?", mid).Update("year", year).Error
+}

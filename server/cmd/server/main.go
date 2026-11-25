@@ -84,6 +84,7 @@ func main() {
 	app.handlers.Manage.StartHealthScheduler(rootCtx)
 	// 启动 TMDB 横图回填 worker(未配置 key 时为 no-op)
 	app.backdropSvc.Start(rootCtx)
+	app.yearVerifySvc.Start(rootCtx)
 	// 启动榜单热度刷新调度(每日 04:00 拉豆瓣榜单 → hot_rank/hot_score)
 	app.hotSvc.Start(rootCtx)
 
@@ -130,14 +131,15 @@ func main() {
 
 // App 组合根容器。
 type App struct {
-	gdb         *gorm.DB
-	cacheRdb    *redis.Client
-	coordRdb    *redis.Client
-	userSvc     *service.UserService
-	spiderSvc   *service.SpiderService
-	backdropSvc *service.BackdropService
-	hotSvc      *service.HotService
-	handlers    *handler.Handlers
+	gdb           *gorm.DB
+	cacheRdb      *redis.Client
+	coordRdb      *redis.Client
+	userSvc       *service.UserService
+	spiderSvc     *service.SpiderService
+	backdropSvc   *service.BackdropService
+	yearVerifySvc *service.YearVerifyService
+	hotSvc        *service.HotService
+	handlers      *handler.Handlers
 }
 
 func buildApp(cfg *config.Config) (*App, error) {
@@ -262,6 +264,8 @@ func buildApp(cfg *config.Config) (*App, error) {
 
 	// TMDB 横图回填 worker: 每轮解析 key(后台 DB > env), 未配置时轻量探测后静默等待。
 	backdropSvc := service.NewBackdropService(movieRepo, searchRepo, bannerSvc, blob, tmdbClient, siteRepo)
+	// 年份脏值异步核实 worker（越界年份逐条到 TMDB 核实；无 key 时整体 no-op）
+	yearVerifySvc := service.NewYearVerifyService(movieRepo, tmdbClient)
 	// 事件挂钩: 采集落库/轮播变更/后台改 key → 立即触发横图重算(20min 兜底扫描之外的主路径)。
 	spiderSvc.OnSettled = backdropSvc.Kick
 	bannerSvc.OnChange = backdropSvc.Kick
@@ -287,7 +291,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 
 	return &App{
 		gdb: gdb, cacheRdb: cacheRdb, coordRdb: coordRdb,
-		userSvc: userSvc, spiderSvc: spiderSvc, backdropSvc: backdropSvc, hotSvc: hotSvc,
+		userSvc: userSvc, spiderSvc: spiderSvc, backdropSvc: backdropSvc, hotSvc: hotSvc, yearVerifySvc: yearVerifySvc,
 		handlers: handlers,
 	}, nil
 }

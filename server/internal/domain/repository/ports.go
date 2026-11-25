@@ -22,6 +22,10 @@ type MovieRepository interface {
 	SoftDelete(ctx context.Context, mid, deletedAt int64) error
 	// Restore 清除软删标记。
 	Restore(ctx context.Context, mid int64) error
+	// ListYearSuspicious 取年份越界的影片（脏年候选），供 year-verify worker 逐条核实。
+	ListYearSuspicious(ctx context.Context, limit int) ([]entity.Movie, error)
+	// SetYear 直接改写影片年份（核实成功回填 / 核实失败置 0）。
+	SetYear(ctx context.Context, mid int64, year int) error
 	// ListMissingBackdropsByMids 取指定 mid 中尚未回填横图的影片(TMDB worker 用, 范围仅首页轮播集合)。
 	// 排除未软删外的行(软删/空片名)与 backdrop 非空(含 '-' 哨兵)的行。
 	ListMissingBackdropsByMids(ctx context.Context, mids []int64) ([]entity.Movie, error)

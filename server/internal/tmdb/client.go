@@ -83,12 +83,12 @@ func isJWTToken(key string) bool {
 // searchResp 拉平 movie/tv 两类结果。
 type searchResp struct {
 	Results []struct {
-		MediaType     string  `json:"media_type"`
-		BackdropPath  *string `json:"backdrop_path"`
-		Title         string  `json:"title"`
-		Name          string  `json:"name"`
-		ReleaseDate   string  `json:"release_date"`  // movie: YYYY-MM-DD
-		FirstAirDate  string  `json:"first_air_date"` // tv: YYYY-MM-DD
+		MediaType    string  `json:"media_type"`
+		BackdropPath *string `json:"backdrop_path"`
+		Title        string  `json:"title"`
+		Name         string  `json:"name"`
+		ReleaseDate  string  `json:"release_date"`   // movie: YYYY-MM-DD
+		FirstAirDate string  `json:"first_air_date"` // tv: YYYY-MM-DD
 	} `json:"results"`
 }
 
@@ -217,4 +217,81 @@ func (c *Client) Verify(ctx context.Context, key string) error {
 		return fmt.Errorf("tmdb: key 无效, 请检查后重试")
 	}
 	return nil
+}
+
+// yearSearchResp /search/{movie,tv} 的**精简**响应：只需要日期字段，
+// 故不复用既有 searchResp（避免为取年份去动横图相关的结构）。
+type yearSearchResp struct {
+	Results []struct {
+		Title        string `json:"title"`
+		Name         string `json:"name"`
+		ReleaseDate  string `json:"release_date"`
+		FirstAirDate string `json:"first_air_date"`
+	} `json:"results"`
+}
+
+// SearchYear 按片名查年份（先 movie 再 tv），供「年份脏值异步核实」使用。
+//
+// 口径与 searchOne 保持一致：鉴权二选一（v3 api_key / v4 Bearer）；429 视为"本轮跳过"
+// （返回 0 且无错，交给调用方节奏消化）；无 key / 无命中 / 解析失败均返回 0。
+func (c *Client) SearchYearNamed(ctx context.Context, name string) (int, string, error) {
+	key := c.key()
+	name = strings.TrimSpace(name)
+	if key == "" || name == "" {
+		return 0, "", nil
+	}
+	for _, kind := range []string{"movie", "tv"} {
+		q := url.Values{}
+		q.Set("query", name)
+		q.Set("language", c.lang)
+		q.Set("include_adult", "false")
+		q.Set("page", "1")
+		if !isJWTToken(key) {
+			q.Set("api_key", key)
+		}
+		endpoint := c.baseURL + "/search/" + kind + "?" + q.Encode()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return 0, "", err
+		}
+		if isJWTToken(key) {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		req.Header.Set("Accept", "application/json")
+		resp, err := c.hc.Do(req)
+		if err != nil {
+			return 0, "", fmt.Errorf("tmdb: year search %s: %w", kind, err)
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			log.Printf("tmdb: 429 rate limited on %s year search", kind)
+			return 0, "", nil
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return 0, "", fmt.Errorf("tmdb: %s year search status %d", kind, resp.StatusCode)
+		}
+		var out yearSearchResp
+		err = json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		if err != nil {
+			return 0, "", fmt.Errorf("tmdb: decode %s year: %w", kind, err)
+		}
+		for _, r := range out.Results {
+			d := r.ReleaseDate
+			if d == "" {
+				d = r.FirstAirDate
+			}
+			if len(d) >= 4 {
+				if y, e := strconv.Atoi(d[:4]); e == nil && y > 0 {
+					t := r.Title
+					if t == "" {
+						t = r.Name
+					}
+					return y, t, nil
+				}
+			}
+		}
+	}
+	return 0, "", nil
 }
