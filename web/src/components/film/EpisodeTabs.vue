@@ -1,4 +1,18 @@
 <script setup lang="ts">
+
+/**
+ * 换源 tab：鼠标滚轮 → 横向滚动。
+ * 守卫：只在"真的可横向滚动"时才接管并 preventDefault，否则放行页面纵向滚动
+ *（否则会把整页滚动吃掉，属常见事故）。
+ */
+function onSourceWheel(e: WheelEvent): void {
+  const el = e.currentTarget as HTMLElement | null
+  if (!el || el.scrollWidth <= el.clientWidth) return
+  const d = e.deltaY !== 0 ? e.deltaY : e.deltaX
+  if (d === 0) return
+  el.scrollLeft += d
+  e.preventDefault()
+}
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAutoHideScrollbar } from '@/composables/useAutoHideScrollbar'
 import type { PlaySource } from '@/types/film'
@@ -288,7 +302,7 @@ const displaySources = computed(() => sortSourcesBySpeed(props.sources, props.sp
       </button>
       <div
         ref="tabsEl"
-        class="jc-source-tabs jc-scrollauto jc-scroll-x flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
+        @wheel="onSourceWheel" class="jc-source-tabs jc-scrollauto jc-scroll-x flex items-center gap-[var(--jc-space-6)] overflow-x-auto"
         :class="{ 'is-fade-left': canScrollLeft, 'is-fade-right': canScrollRight }"
         @scroll="onTabsScroll"
       >
