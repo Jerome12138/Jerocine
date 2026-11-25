@@ -179,12 +179,10 @@ func (s *FilmService) Classify(ctx context.Context, pid int64) (ClassifyData, er
 	data, _, err := cache.GetOrLoad(ctx, cache.KeyClassify(pid), ttlClassify, func(ctx context.Context) (ClassifyData, bool, error) {
 		n := s.pages.Classify
 		// 「最近更新」模块已从分类页移除（2026-11-23 用户决定）：此处**屏蔽**查询、代码保留，
-		// 便于将来恢复。同时省掉一次 TopByPidSorted(SortLatest) 的 DB 查询。
-		// news, err := s.search.TopByPidSorted(ctx, pid, repository.SortLatest, n)
-		// if err != nil {
-		// 	return ClassifyData{}, false, err
-		// }
-		var news []entity.MovieSearch
+		news, err := s.search.TopByPidSorted(ctx, pid, repository.SortLatest, n)
+		if err != nil {
+			return ClassifyData{}, false, err
+		}
 		top, err := s.search.TopByPidSorted(ctx, pid, repository.SortHot, n)
 		if err != nil {
 			return ClassifyData{}, false, err
