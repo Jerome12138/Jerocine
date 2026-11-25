@@ -149,6 +149,36 @@ export const startSpider = (data: CollectParams, config?: AxiosRequestConfig): P
   http.post<unknown, void>('/manage/spider/jobs', { sourceId: data.id, duration: data.time }, config)
 
 /** POST /manage/spider/reset 清空全部影片 + 全量重采 (confirm 须匹配服务端令牌, 不可逆) */
+/** 按源清空的进度（弹窗轮询）：stage=deleting|done|failed|idle，percent 按已处理源行计。 */
+export interface PurgeProgress {
+  siteId: string
+  stage: 'deleting' | 'done' | 'failed' | 'idle'
+  total: number
+  done: number
+  rows: number
+  percent: number
+  error?: string
+  startedAt?: number
+  finishedAt?: number
+}
+
+/** 查询按源清空的后台派生清理进度。 */
+export const sourcePurgeProgress = (id: string, config?: AxiosRequestConfig): Promise<PurgeProgress> =>
+  http.get<unknown, PurgeProgress>(`/manage/spider/sources/${enc(id)}/purge-progress`, config)
+
+/**
+ * 按源清空数据（破坏性）：同步删 movie_play_source，派生表 movie_episode_epid 后台异步分批清。
+ * confirm 必须等于 id（服务端校验，不一致返回 422）。
+ */
+export const clearSourceData = (
+  id: string,
+  config?: AxiosRequestConfig
+): Promise<{ siteId: string; deleted: number; epidPurgeAsync: boolean; rebuildRequired: boolean }> =>
+  http.delete<unknown, { siteId: string; deleted: number; epidPurgeAsync: boolean; rebuildRequired: boolean }>(
+    `/manage/spider/sources/${enc(id)}/data`,
+    { params: { confirm: id }, ...(config || {}) }
+  )
+
 export const resetSpider = (confirm: string, config?: AxiosRequestConfig): Promise<void> =>
   http.post<unknown, void>('/manage/spider/reset', { confirm }, config)
 

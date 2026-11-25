@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
 import type { CollectSource } from '@/types/manage'
 import type { SourceHealthRow } from '@/api/manage/collect'
@@ -559,6 +559,88 @@ function openReset(): void {
   resetDialogOpen.value = true
 }
 
+// ---- 按源清空数据（危险操作：输入资源站标识二次确认，交互与「重置片库」一致）----
+const clearDialogOpen = ref(false)
+const clearTarget = ref<CollectSource | null>(null)
+const clearKey = ref('')
+const clearError = ref('')
+const clearSubmitting = ref(false)
+/** 后台派生清理进度（弹窗内展示 + 轮询） */
+const clearProgress = ref<manageApi.collect.PurgeProgress | null>(null)
+let clearTimer: number | undefined
+// 弹窗可能被 ESC / 点遮罩关闭（不经 closeClear）⇒ 用 watch 兜住所有关闭路径，
+// 否则每 1s 的轮询会在用户已经看不到进度时继续空转；onUnmounted 再兜一层。
+watch(clearDialogOpen, (open) => {
+  if (!open) stopClearPoll()
+})
+onUnmounted(stopClearPoll)
+
+const CLEAR_STAGE_LABEL: Record<string, string> = {
+  idle: '未开始',
+  deleting: '正在删除派生表',
+  done: '已完成',
+  failed: '失败'
+}
+function clearStageLabel(s: string): string {
+  return CLEAR_STAGE_LABEL[s] ?? s
+}
+
+function stopClearPoll(): void {
+  if (clearTimer !== undefined) {
+    window.clearInterval(clearTimer)
+    clearTimer = undefined
+  }
+}
+
+function startClearPoll(id: string): void {
+  stopClearPoll()
+  clearTimer = window.setInterval(() => {
+    void manageApi.collect
+      .sourcePurgeProgress(id, { silent: true })
+      .then((p) => {
+        clearProgress.value = p
+        if (p.stage === 'done' || p.stage === 'failed' || p.stage === 'idle') stopClearPoll()
+      })
+      .catch(() => stopClearPoll())
+  }, 1000)
+}
+
+function openClear(row: CollectSource): void {
+  clearTarget.value = row
+  clearKey.value = ''
+  clearError.value = ''
+  clearProgress.value = null
+  stopClearPoll()
+  clearDialogOpen.value = true
+}
+
+function closeClear(): void {
+  stopClearPoll()
+  clearDialogOpen.value = false
+}
+
+async function submitClear(): Promise<void> {
+  clearError.value = ''
+  const row = clearTarget.value
+  if (!row) return
+  if (clearKey.value.trim() !== row.id.trim()) {
+    clearError.value = '请完整输入资源站标识以确认'
+    return
+  }
+  clearSubmitting.value = true
+  try {
+    const res = await manageApi.collect.clearSourceData(row.id, { silent: true })
+    toast('success', `已清空 ${row.id}：源行 ${res.deleted} 条`)
+    clearKey.value = ''
+    clearProgress.value = { siteId: row.id, stage: 'deleting', total: 0, done: 0, rows: 0, percent: 0 }
+    startClearPoll(row.id)
+  } catch (e: unknown) {
+    clearError.value = e instanceof Error ? e.message : '清空失败'
+  } finally {
+    clearSubmitting.value = false
+  }
+}
+
 async function submitReset(): Promise<void> {
   resetError.value = ''
   if (!resetKey.value) {
@@ -751,6 +833,12 @@ onMounted(() => {
           variant="danger"
           size="sm"
           :disabled="!!busyId"
+          @click="openClear(row)"
+        >清空数据</ManageButton>
+        <ManageButton
+          variant="danger"
+          size="sm"
+          :disabled="!!busyId"
           @click="remove(row)"
         >删除</ManageButton>
       </div>
@@ -816,7 +904,51 @@ onMounted(() => {
   </ManageSheet>
 
   <!-- 重置库存 confirm dialog (密钥校验) -->
-  <ManageSheet v-model="resetDialogOpen" title="重置影片库存" mobile-mode="sheet">
+  <ManageSheet v-model="clearDialogOpen" title="按源清空数据" mobile-mode="sheet">
+      <div class="flex flex-col gap-[var(--jc-space-4)]">
+        <p class="text-sm text-secondary">
+          <BaseIcon name="info" size="14px" class="inline align-middle mr-1 text-[var(--jc-danger)]" />
+          <template v-if="!clearProgress">
+            将清空源 <strong class="text-[var(--jc-danger)]">{{ clearTarget?.id }}</strong> 的
+            <strong class="text-[var(--jc-danger)]">全部源行</strong>，并在后台异步清除派生表数据。<strong>不可撤销</strong>。
+          </template>
+          <template v-else>
+            已开始清理源 <strong class="text-[var(--jc-danger)]">{{ clearTarget?.id }}</strong>，派生表在后台分批删除，
+            <strong>请勿关闭页面</strong>。
+          </template>
+        </p>
+        <ManageInput v-if="!clearProgress" v-model="clearKey" placeholder="输入资源站标识以确认" />
+        <p v-if="clearError && !clearProgress" class="text-xs text-[var(--jc-danger)]">{{ clearError }}</p>
+
+        <!-- 后台派生清理进度（提交后出现，1s 轮询） -->
+        <div v-if="clearProgress" class="flex flex-col gap-[var(--jc-space-1)]">
+          <div class="h-2 w-full overflow-hidden rounded-[var(--jc-radius-full)] bg-[var(--jc-bg-muted)]">
+            <div
+              class="h-full bg-[var(--jc-danger)] transition-all duration-300"
+              :style="{ width: clearProgress.percent + '%' }"
+            />
+          </div>
+          <p class="text-sm text-primary">
+            <strong>{{ clearStageLabel(clearProgress.stage) }}</strong> · {{ clearProgress.percent }}%
+          </p>
+          <p class="text-xs text-secondary">
+            源行 {{ clearProgress.done }}/{{ clearProgress.total }} · 已删派生行 {{ clearProgress.rows }}
+          </p>
+          <p v-if="clearProgress.error" class="text-xs text-[var(--jc-danger)]">{{ clearProgress.error }}</p>
+        </div>
+      </div>
+      <template #footer>
+        <ManageButton variant="ghost" @click="closeClear">{{ clearProgress ? '关闭' : '取消' }}</ManageButton>
+        <ManageButton
+          v-if="!clearProgress"
+          variant="danger"
+          :loading="clearSubmitting"
+          @click="submitClear"
+        >确认清空</ManageButton>
+      </template>
+    </ManageSheet>
+
+    <ManageSheet v-model="resetDialogOpen" title="重置影片库存" mobile-mode="sheet">
     <div class="flex flex-col gap-[var(--jc-space-4)]">
       <p class="text-sm text-secondary">
         <BaseIcon name="info" size="14px" class="inline align-middle mr-1 text-[var(--jc-danger)]" />
