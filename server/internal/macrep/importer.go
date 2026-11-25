@@ -14,6 +14,7 @@ package macrep
 import (
 	"regexp"
 	"strings"
+	"time"
 )
 
 // 目标字段（只认这三个；其它字段的公告一律忽略）
@@ -53,6 +54,8 @@ var (
 		regexp.MustCompile(FieldDown),
 	}
 	opsRe = regexp.MustCompile(`ops:[a-z0-9-]+`)
+	// 公告日期：2026-11-18 或 2026-11-18 21:40
+	dateRe = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?`)
 )
 
 // ParseRules 解析公告页 HTML。返回 (采信规则, 被拒候选)。
@@ -110,6 +113,9 @@ func ParseRules(page string) ([]Rule, []Reject) {
 		r := Rule{Field: curField, FromHost: from, ToHost: to}
 		if t := findOpsTag(lines, i); t != "" {
 			r.OpsTag = t
+		}
+		if at := findAnnouncedAt(lines, i); at > 0 {
+			r.AnnouncedAt = at
 		}
 		rules = append(rules, r)
 	}
@@ -171,4 +177,39 @@ func findOpsTag(lines []string, at int) string {
 		}
 	}
 	return ""
+}
+
+// findAnnouncedAt 在箭头行的邻近行里找公告日期并转成毫秒（找不到返回 0）。
+// 与 ops 标记同样按"后 2 行 → 前 2 行"的顺序找，避免相邻公告串味。
+func findAnnouncedAt(lines []string, at int) int64 {
+	pick := func(j int) int64 {
+		if j < 0 || j >= len(lines) {
+			return 0
+		}
+		m := dateRe.FindStringSubmatch(lines[j])
+		if m == nil {
+			return 0
+		}
+		hh, mi := "00", "00"
+		if m[4] != "" {
+			hh, mi = m[4], m[5]
+		}
+		t, err := time.ParseInLocation("2006-01-02 15:04",
+			m[1]+"-"+m[2]+"-"+m[3]+" "+hh+":"+mi, time.Local)
+		if err != nil {
+			return 0
+		}
+		return t.UnixMilli()
+	}
+	for d := 0; d <= 2; d++ {
+		if v := pick(at + d); v > 0 {
+			return v
+		}
+	}
+	for d := 1; d <= 2; d++ {
+		if v := pick(at - d); v > 0 {
+			return v
+		}
+	}
+	return 0
 }

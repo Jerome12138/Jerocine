@@ -64,11 +64,40 @@ type MovieRepository interface {
 
 // SearchRepository 物化卡片/检索宽表 (读模型) + 影子表重建。
 // 接口隔离便于未来把检索换成 meilisearch 等外部引擎。
+// DomainRule 源站域名替换公告规则（macrep 工具）
+type DomainRule struct {
+	ID          int64
+	Field       string
+	FromHost    string
+	ToHost      string
+	OpsTag      string
+	SourceURL   string
+	AnnouncedAt int64
+	State       string
+	Note        string
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
+// PicPreview 封面替换预览的一行
+type PicPreview struct {
+	Mid    int64
+	Before string
+	After  string
+}
+
 type SearchRepository interface {
 	GetByMid(ctx context.Context, mid int64) (*entity.MovieSearch, error)
 	GetByMids(ctx context.Context, mids []int64) ([]entity.MovieSearch, error)
 	// TopByPidSorted 取某一级分类下某排序维度的前 N 条 (首页区块 / 分类三榜用, 不分页不 count → 根治首页无谓 COUNT)。
 	TopByPidSorted(ctx context.Context, pid int64, sort ClassifySort, limit int) ([]entity.MovieSearch, error)
+	// ---- 域名替换（macrep）----
+	UpsertDomainRule(ctx context.Context, r DomainRule) (bool, error)
+	ListDomainRules(ctx context.Context, state string) ([]DomainRule, error)
+	GetDomainRule(ctx context.Context, id int64) (*DomainRule, error)
+	SetDomainRuleState(ctx context.Context, id int64, state, note string) error
+	CountCoverHost(ctx context.Context, host string) (int64, error)
+	PreviewCoverReplace(ctx context.Context, fromHost, toHost string, limit int) ([]PicPreview, error)
 	// TopHotAll 全站跨类别热榜(首页「热门榜单」行, 不按 pid) —— 与分类页排行榜共用同一排序键。
 	TopHotAll(ctx context.Context, limit int) ([]entity.MovieSearch, error)
 	// TopScoreByPid 某一级分类的高分榜(口径见 docs/榜单热度方案 §3.5: db_score > 0 且排除"解说")。

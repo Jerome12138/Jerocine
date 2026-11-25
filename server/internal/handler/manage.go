@@ -1130,6 +1130,47 @@ func (h *Handlers) RecoverCollectFailures(c *gin.Context) {
 // 按源清空 movie_play_source。**破坏性操作**，故要求 confirm 显式等于源 id（防误触）。
 // 只删源行：movie/movie_search 不动；派生表 movie_episode_epid 会留孤儿，删完应跑该源 rebuild。
 // ActorFacets GET /films/by-actor/facets?name= —— 演员页筛选维度计数（年份/分类）
+// DomainReplaceFetch POST /manage/domain-replace/fetch {source?}
+// 拉取公告页 → 解析（严格 host→host）→ **只写规则表**，不碰业务数据。
+func (h *Handlers) DomainReplaceFetch(c *gin.Context) {
+	var req struct {
+		Source string `json:"source"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	res, err := h.Film.FetchDomainRules(c.Request.Context(), req.Source)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, res)
+}
+
+// DomainReplaceRules GET /manage/domain-replace/rules?state=pending
+func (h *Handlers) DomainReplaceRules(c *gin.Context) {
+	rules, err := h.Film.ListDomainRules(c.Request.Context(), c.Query("state"))
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"list": rules})
+}
+
+// DomainReplacePreview GET /manage/domain-replace/rules/:id/preview
+// 影响面预览（**只读**）：命中行数 + 前 20 条 before→after 样例。
+func (h *Handlers) DomainReplacePreview(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if id <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "id required")
+		return
+	}
+	res, err := h.Film.PreviewDomainRule(c.Request.Context(), id)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, res)
+}
+
 func (h *Handlers) ActorFacets(c *gin.Context) {
 	years, cats, err := h.Film.ActorFacets(c.Request.Context(), c.Query("name"))
 	if err != nil {
