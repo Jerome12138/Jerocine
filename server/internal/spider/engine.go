@@ -601,6 +601,21 @@ func joinIds(ids []int64) string {
 // CollectByIds 按 vodId 精确采集单个源指定影片(解决同名多版本: 名搜出候选后锁定具体那部)。
 // 主站走 upsertMaster(full=false, 建/更新影片并挂源), 补充源仅 play.UpsertBatch(按 match_key 挂源)。
 // 返回采集到的影片条数; 采到内容后失效内容缓存让前台即时可见。
+// PlayIDsBySite 取该源源行 id + 最大 id（删除上界，防"删完又重采"竞态）。
+func (e *Engine) PlayIDsBySite(ctx context.Context, siteId string) ([]int64, int64, error) {
+	return e.play.PlayIDsBySite(ctx, siteId)
+}
+
+// DeletePlayBySiteUpTo 同步删该源 <= maxID 的源行。
+func (e *Engine) DeletePlayBySiteUpTo(ctx context.Context, siteId string, maxID int64) (int64, error) {
+	return e.play.DeletePlayBySiteUpTo(ctx, siteId, maxID)
+}
+
+// DeleteEpidByRowIDs 按源行 id 分批删派生表（走 uk_row_ep）。
+func (e *Engine) DeleteEpidByRowIDs(ctx context.Context, rowIDs []int64) (int64, error) {
+	return e.play.DeleteEpidByRowIDs(ctx, rowIDs)
+}
+
 func (e *Engine) CollectByIds(ctx context.Context, src *entity.CollectSource, ids []int64) (int, error) {
 	idsStr := joinIds(ids)
 	if idsStr == "" {

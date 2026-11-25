@@ -1125,6 +1125,46 @@ func (h *Handlers) RecoverCollectFailures(c *gin.Context) {
 }
 
 // ClearHandledFailures DELETE /manage/collect-failures/handled 清理已处理记录。
+// DeleteSourceData DELETE /manage/spider/sources/:id/data?confirm=<id>
+//
+// 按源清空 movie_play_source。**破坏性操作**，故要求 confirm 显式等于源 id（防误触）。
+// 只删源行：movie/movie_search 不动；派生表 movie_episode_epid 会留孤儿，删完应跑该源 rebuild。
+func (h *Handlers) DeleteSourceData(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" || c.Query("confirm") != id {
+		dto.Error(c, http.StatusUnprocessableEntity, "confirm must equal source id")
+		return
+	}
+	n, err := h.Spider.DeleteSourceData(c.Request.Context(), id)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	// 源表已同步删除；派生表 movie_episode_epid 在后台分批清（见 SpiderService.DeleteSourceData）。
+	// 派生快照仍会偏旧，建议随后手动跑一次派生重算。
+	dto.OK(c, gin.H{
+		"siteId":          id,
+		"deleted":         n,
+		"epidPurgeAsync":  true,
+		"rebuildRequired": n > 0,
+	})
+}
+
+// SourcePurgeProgress GET /manage/spider/sources/:id/purge-progress
+// 返回按源清空的后台派生清理进度（弹窗轮询）：stage=deleting|done|failed|idle。
+func (h *Handlers) SourcePurgeProgress(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		dto.Error(c, http.StatusUnprocessableEntity, "id required")
+		return
+	}
+	if p := h.Spider.PurgeProgressOf(id); p != nil {
+		dto.OK(c, p)
+		return
+	}
+	dto.OK(c, gin.H{"siteId": id, "stage": "idle", "total": 0, "done": 0, "rows": 0, "percent": 0})
+}
+
 func (h *Handlers) ClearHandledFailures(c *gin.Context) {
 	n, err := h.Spider.ClearHandledFailures(c.Request.Context())
 	if err != nil {

@@ -2665,6 +2665,68 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /manage/spider/sources/{id}/data:
+    delete:
+      tags: [manage-spider]
+      summary: 按源清空 movie_play_source（破坏性，需 confirm=id）
+      description: |
+        同步删除该源的 movie_play_source 行；派生表 movie_episode_epid **后台异步分批删除**
+        （5000/批，不阻塞本请求，进度落服务端日志）。
+        不动 movie / movie_search。派生表删完快照会偏旧 —— **建议随后手动触发一次派生重算**。
+        confirm 必须与路径 id 完全一致，否则返回 422（防误触）。
+      operationId: manageSpiderDeleteSourceData
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - name: confirm
+          in: query
+          required: true
+          description: 必须与 path 的 id 完全一致
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  siteId: { type: string }
+                  deleted: { type: integer, format: int64, description: 删除的 movie_play_source 行数 }
+                  epidPurgeAsync: { type: boolean, description: 派生表 movie_episode_epid 在后台分批清（不阻塞本请求） }
+                  rebuildRequired: { type: boolean, description: 删过行才为 true；建议手动跑一次派生重算 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /manage/spider/sources/{id}/purge-progress:
+    get:
+      tags: [manage-spider]
+      summary: 按源清空的后台派生清理进度（弹窗轮询）
+      description: |
+        删除接口返回后，派生表 movie_episode_epid 在后台按 src_row_id 分批清。
+        percent 按"已处理的源行 id 数 / 总 id 数"计；stage=deleting|done|failed|idle。
+      operationId: manageSpiderSourcePurgeProgress
+      security: [{ BearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  siteId: { type: string }
+                  stage: { type: string, enum: [idle, deleting, done, failed] }
+                  total: { type: integer, format: int64, description: 待处理源行 id 总数 }
+                  done: { type: integer, format: int64, description: 已处理源行 id 数 }
+                  rows: { type: integer, format: int64, description: 实际删除的派生行数 }
+                  percent: { type: integer }
+                  remaining: { type: integer, format: int64, description: 失败时未处理完的源行 id 数（评估孤儿规模；跑一次 rebuild 可清孤儿） }
+                  error: { type: string }
+                  startedAt: { type: integer, format: int64 }
+                  finishedAt: { type: integer, format: int64 }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /manage/spider/jobs:
     get:
       tags: [manage-spider]
@@ -2947,33 +3009,33 @@ paths:
                         l5Subset: { type: integer }
                         mixedDiag: { type: integer }
                         l6Tol: { type: integer }
-              l6Num:
-                type: integer
-                description: "L6.1 纯 n 整片容忍槽"
-              l6Date:
-                type: integer
-                description: "L6.2 纯 d 整片容忍槽"
-              l6Slot:
-                type: integer
-                description: "L6.3 纯 d 按槽容忍槽（同日唯一守卫，S1）"
-              dSlotsTotal:
-                type: integer
-                description: "纯日期槽总量（M8）"
-              dSlotsCross:
-                type: integer
-                description: "其中日期被≥2源覆盖的槽（M8）"
-              l7PackRows:
-                type: integer
-                description: "L7 剔除的合集行数（子集法）"
-              l7Slots:
-                type: integer
-                description: "L7 发生剔除的槽数"
-              l6d4:
-                type: integer
-                description: "L6.4 日期锚通过的槽（锚=槽，期号优先）"
-              l6n5:
-                type: integer
-                description: "L6.5 期号锚通过的槽"
+                        l6Num:
+                          type: integer
+                          description: "L6.1 纯 n 整片容忍槽"
+                        l6Date:
+                          type: integer
+                          description: "L6.2 纯 d 整片容忍槽"
+                        l6Slot:
+                          type: integer
+                          description: "L6.3 纯 d 按槽容忍槽（同日唯一守卫，S1）"
+                        dSlotsTotal:
+                          type: integer
+                          description: "纯日期槽总量（M8）"
+                        dSlotsCross:
+                          type: integer
+                          description: "其中日期被≥2源覆盖的槽（M8）"
+                        l7PackRows:
+                          type: integer
+                          description: "L7 剔除的合集行数（子集法）"
+                        l7Slots:
+                          type: integer
+                          description: "L7 发生剔除的槽数"
+                        l6d4:
+                          type: integer
+                          description: "L6.4 日期锚通过的槽（锚=槽，期号优先）"
+                        l6n5:
+                          type: integer
+                          description: "L6.5 期号锚通过的槽"
                         leftover: { type: integer }
                         mksTotal: { type: integer }
                         mksAligned: { type: integer }
@@ -2994,6 +3056,15 @@ paths:
                       l5Subset: { type: integer }
                       mixedDiag: { type: integer }
                       l6Tol: { type: integer }
+                      l6Num: { type: integer }
+                      l6Date: { type: integer }
+                      l6Slot: { type: integer }
+                      dSlotsTotal: { type: integer }
+                      dSlotsCross: { type: integer }
+                      l7PackRows: { type: integer }
+                      l7Slots: { type: integer }
+                      l6d4: { type: integer }
+                      l6n5: { type: integer }
                       leftover: { type: integer }
                       mksTotal: { type: integer }
                       mksAligned: { type: integer }

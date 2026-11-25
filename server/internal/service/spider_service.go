@@ -372,6 +372,138 @@ type CollectIdsResult struct {
 // 与 `CollectOneSource` 同口径：进出计数（`CollectEnter/Leave` ⇒ 全量派生让路）、
 // 逐批 `safeNotify("spider", s.OnSettled)`（让派生跟上）、单批失败不阻断其它批。
 // 建议单次 HTTP ≤ 3000 个 id（见 handler），大批量分多次调用；本方法只做分片与聚合。
+// PurgeProgress 按源清空的后台派生清理进度（管理端弹窗轮询）。
+// Percent 按"已处理的源行 id 数 / 总 id 数"计算，Rows 是实际删掉的派生行数。
+type PurgeProgress struct {
+	SiteId  string `json:"siteId"`
+	Stage   string `json:"stage"` // deleting | done | failed
+	Total   int64  `json:"total"`
+	Done    int64  `json:"done"`
+	Rows    int64  `json:"rows"`
+	Percent int    `json:"percent"`
+	// Remaining 未处理完的源行 id 数（失败时用于评估孤儿规模；跑一次 rebuild 可清掉孤儿）
+	Remaining  int64  `json:"remaining"`
+	Error      string `json:"error,omitempty"`
+	StartedAt  int64  `json:"startedAt"`
+	FinishedAt int64  `json:"finishedAt,omitempty"`
+}
+
+var (
+	purgeMu  sync.Mutex
+	purgeMap = map[string]*PurgeProgress{}
+)
+
+// purgeMapPruneAfterMs 已完成条目保留时长：够前端轮询到 done 即可，之后剪掉避免 map 无限增长。
+const purgeMapPruneAfterMs int64 = 60 * 60 * 1000
+
+func setPurgeProgress(p *PurgeProgress) {
+	purgeMu.Lock()
+	cp := *p
+	purgeMap[p.SiteId] = &cp
+	// 顺手剪枝：已完成且超过保留期的条目清掉（量小，但避免长期累积）
+	if cp.FinishedAt > 0 {
+		cutoff := time.Now().UnixMilli() - purgeMapPruneAfterMs
+		for k, v := range purgeMap {
+			if k != p.SiteId && v.FinishedAt > 0 && v.FinishedAt < cutoff {
+				delete(purgeMap, k)
+			}
+		}
+	}
+	purgeMu.Unlock()
+}
+
+// PurgeProgressOf 读该源清空进度；从未清空过返回 nil。
+func (s *SpiderService) PurgeProgressOf(siteId string) *PurgeProgress {
+	purgeMu.Lock()
+	defer purgeMu.Unlock()
+	if p, ok := purgeMap[siteId]; ok {
+		cp := *p
+		return &cp
+	}
+	return nil
+}
+
+// DeleteSourceData 按源清空：源表**同步**删（走 site 索引），派生表**后台异步**按 src_row_id 分块删。
+//
+// 两个关键设计：
+//  1. 派生表**不能**按 site_id 删 —— movie_episode_epid 没有 site_id 前缀索引，会每批全表扫 683 万行；
+//     改为先快照源行 id，再按 src_row_id 走 uk_row_ep 索引。
+//  2. 删除上界 maxID：快照 id 之后新采进来的行 id 更大，天然不会被误删（防"删完又重采"竞态）。
+func (s *SpiderService) DeleteSourceData(ctx context.Context, sourceId string) (int64, error) {
+	sourceId = strings.TrimSpace(sourceId)
+	if sourceId == "" {
+		return 0, domain.ErrInvalidArgument
+	}
+	if _, err := s.sources.Get(ctx, sourceId); err != nil {
+		return 0, err
+	}
+	ids, maxID, err := s.engine.PlayIDsBySite(ctx, sourceId)
+	if err != nil {
+		return 0, err
+	}
+	n, err := s.engine.DeletePlayBySiteUpTo(ctx, sourceId, maxID)
+	if err != nil {
+		return 0, err
+	}
+
+	total := int64(len(ids))
+	base := &PurgeProgress{SiteId: sourceId, Stage: "deleting", Total: total, StartedAt: time.Now().UnixMilli()}
+	if total == 0 {
+		// 没有源行可清（可能只剩历史孤儿）⇒ 不为清理起点，直接标记完成，避免 UI 停在 0%
+		base.Stage = "done"
+		base.Percent = 100
+		base.FinishedAt = time.Now().UnixMilli()
+	}
+	setPurgeProgress(base)
+
+	go func(site string, rowIDs []int64, total int64) {
+		p := *base
+		defer func() {
+			if r := recover(); r != nil {
+				p.Stage = "failed"
+				p.Error = fmt.Sprintf("panic: %v", r)
+				p.Remaining = total - p.Done
+				p.FinishedAt = time.Now().UnixMilli()
+				setPurgeProgress(&p)
+				log.Printf("[spider] 派生清理 panic site=%s done=%d/%d: %v", site, p.Done, total, r)
+			}
+		}()
+		dctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+
+		const chunk = 2000
+		for i := 0; i < len(rowIDs); i += chunk {
+			end := i + chunk
+			if end > len(rowIDs) {
+				end = len(rowIDs)
+			}
+			m, e := s.engine.DeleteEpidByRowIDs(dctx, rowIDs[i:end])
+			if e != nil {
+				p.Stage = "failed"
+				p.Error = e.Error()
+				p.Remaining = total - p.Done
+				p.FinishedAt = time.Now().UnixMilli()
+				setPurgeProgress(&p)
+				log.Printf("[spider] 派生清理失败 site=%s done=%d/%d rows=%d err=%v", site, p.Done, total, p.Rows, e)
+				return
+			}
+			p.Rows += m
+			p.Done += int64(end - i)
+			if total > 0 {
+				p.Percent = int(p.Done * 100 / total)
+			}
+			setPurgeProgress(&p)
+		}
+		p.Stage = "done"
+		p.Percent = 100
+		p.FinishedAt = time.Now().UnixMilli()
+		setPurgeProgress(&p)
+		log.Printf("[spider] 派生清理完成 site=%s 源行=%d 派生行=%d", site, total, p.Rows)
+	}(sourceId, ids, total)
+
+	return n, nil
+}
+
 func (s *SpiderService) CollectIds(ctx context.Context, sourceId string, ids []int64, batch int) (CollectIdsResult, error) {
 	CollectEnter()
 	defer CollectLeave()

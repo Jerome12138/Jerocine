@@ -209,6 +209,61 @@ func (r *playRepo) Truncate(ctx context.Context) error {
 	return dbFrom(ctx, r.db).Exec("TRUNCATE TABLE movie_play_source").Error
 }
 
+// PlayIDsBySite 取该源全部源行 id + 最大 id（走 idx_mps_site*，不读 episodes_json）。
+// maxID 用作删除上界：删除期间新采的行 id 更大，不会被误删。
+func (r *playRepo) PlayIDsBySite(ctx context.Context, siteId string) ([]int64, int64, error) {
+	if siteId == "" {
+		return nil, 0, nil
+	}
+	var ids []int64
+	if err := dbFrom(ctx, r.db).Model(&entity.MoviePlaySource{}).
+		Where("site_id = ?", siteId).Pluck("id", &ids).Error; err != nil {
+		return nil, 0, err
+	}
+	var maxID int64
+	for _, v := range ids {
+		if v > maxID {
+			maxID = v
+		}
+	}
+	return ids, maxID, nil
+}
+
+// DeleteEpidByRowIDs 按源行 id 分批删派生表（每批 2000，走 uk_row_ep(src_row_id, ep_index)）。
+//
+// ⚠️ 为什么不能用 `WHERE site_id = ?`：movie_episode_epid 没有任何以 site_id 为前缀的索引
+// （idx_match_epid_site / idx_dup_match_epid_site 里 site_id 都在第 3/4 列），
+// 按 site_id 删会每批全表扫 683 万行。
+func (r *playRepo) DeleteEpidByRowIDs(ctx context.Context, rowIDs []int64) (int64, error) {
+	const chunk = 2000
+	var total int64
+	for i := 0; i < len(rowIDs); i += chunk {
+		end := i + chunk
+		if end > len(rowIDs) {
+			end = len(rowIDs)
+		}
+		res := dbFrom(ctx, r.db).Exec("DELETE FROM movie_episode_epid WHERE src_row_id IN (?)", rowIDs[i:end])
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+	}
+	return total, nil
+}
+
+// DeletePlayBySiteUpTo 删该源 <= maxID 的源行（同步，走 site 索引）。maxID<=0 表示不限。
+func (r *playRepo) DeletePlayBySiteUpTo(ctx context.Context, siteId string, maxID int64) (int64, error) {
+	if siteId == "" {
+		return 0, nil
+	}
+	q := dbFrom(ctx, r.db).Where("site_id = ?", siteId)
+	if maxID > 0 {
+		q = q.Where("id <= ?", maxID)
+	}
+	res := q.Delete(&entity.MoviePlaySource{})
+	return res.RowsAffected, res.Error
+}
+
 // CountBySite 一次 GROUP BY site_id 统计各源已采集"去重片数"。
 // 补充源同一部片按 hash(片名)/hash(豆瓣ID) 双键各存一行, 故不能直接 COUNT(*)(会把一片记多行,
 // sn 实测 1.43x)。两段不相交求和去重: 新行按源站 source_vod_id 去重(同片双键共享同一 vod_id → 计1),

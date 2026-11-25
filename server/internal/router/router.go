@@ -236,6 +236,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/collect-failures", h.ListCollectFailures)
 		mg.POST("/collect-failures/recover", h.RecoverCollectFailures)
 		mg.DELETE("/collect-failures/handled", h.ClearHandledFailures)
+		mg.DELETE("/spider/sources/:id/data", h.DeleteSourceData)
+		mg.GET("/spider/sources/:id/purge-progress", h.SourcePurgeProgress) // 按源清空 movie_play_source（需 confirm=id）
 
 		mg.GET("/telemetry/overview", h.TelemetryOverview)
 		mg.GET("/telemetry/events", h.TelemetryEvents)

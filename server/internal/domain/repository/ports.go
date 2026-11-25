@@ -122,6 +122,14 @@ type PlaySourceRepository interface {
 	ListByMid(ctx context.Context, mid int64) ([]entity.MoviePlaySource, error)
 	GetByMatchKeys(ctx context.Context, siteId string, matchKeys []string) ([]entity.MoviePlaySource, error)
 	Truncate(ctx context.Context) error
+	// PlayIDsBySite 取该源全部源行 id（走 site 索引），并返回其中最大 id。
+	// 最大 id 用作**删除上界**：删除期间新采进来的行 id 更大，天然不被误删（防竞态）。
+	PlayIDsBySite(ctx context.Context, siteId string) (ids []int64, maxID int64, err error)
+	// DeleteEpidByRowIDs 按源行 id 分批删派生表（走 uk_row_ep 索引）；返回删除行数。
+	// 注意：movie_episode_epid **没有 site_id 前缀索引**，按 site_id 删会全表扫，必须走本方法。
+	DeleteEpidByRowIDs(ctx context.Context, rowIDs []int64) (int64, error)
+	// DeletePlayBySiteUpTo 删该源 <= maxID 的源行（同步，走 site 索引）。
+	DeletePlayBySiteUpTo(ctx context.Context, siteId string, maxID int64) (int64, error)
 	// CountBySite 各采集源已采集播放源行数(已采集片数), 一次 GROUP BY site_id。
 	CountBySite(ctx context.Context) (map[string]int64, error)
 	// ListSlimByMidsOrKeys 一批影片的源行瘦身投影: 主源行(mid 命中) + 补充源行(match_key 命中),
@@ -279,7 +287,7 @@ type UserRepository interface {
 }
 
 // UserProfile 后台编辑用户的可改字段(密码走 UpdatePassword)。
-// Email 空串 = 解绑邮箱(落 NULL: users.email 唯一索引下多 NULL 合法, '' 只允许一个)。
+// Email 空串 = 解绑邮箱(落 NULL: users.email 唯一索引下多 NULL 合法, ” 只允许一个)。
 type UserProfile struct {
 	Name  string
 	Role  int
@@ -356,15 +364,15 @@ type FavoriteRepository interface {
 
 // SkipSettingRepository 每用户每片片头/片尾跳过设置。
 type SkipSettingRepository interface {
-        List(ctx context.Context, userId int64) ([]entity.UserSkipSetting, error)
-        Upsert(ctx context.Context, s *entity.UserSkipSetting) error // (user_id,mid) 冲突则更新
-        Delete(ctx context.Context, userId, mid int64) error
+	List(ctx context.Context, userId int64) ([]entity.UserSkipSetting, error)
+	Upsert(ctx context.Context, s *entity.UserSkipSetting) error // (user_id,mid) 冲突则更新
+	Delete(ctx context.Context, userId, mid int64) error
 }
 
 // WebSettingRepository 每用户 Web 端设置快照 (JSON blob 整存整取, 见 entity.WebSetting)。
 type WebSettingRepository interface {
-        Get(ctx context.Context, userId int64) (*entity.WebSetting, error) // 未存过返回 (nil, nil)
-        Upsert(ctx context.Context, s *entity.WebSetting) error            // (user_id) 冲突则更新
+	Get(ctx context.Context, userId int64) (*entity.WebSetting, error) // 未存过返回 (nil, nil)
+	Upsert(ctx context.Context, s *entity.WebSetting) error            // (user_id) 冲突则更新
 }
 
 // TelemetryRepository 埋点入库 + 分析查询 + 问题闭环。
