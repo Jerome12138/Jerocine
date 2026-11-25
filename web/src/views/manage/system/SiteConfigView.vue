@@ -273,6 +273,37 @@ async function drSetState(row: manageApi.system.DomainRuleView, state: string): 
   await drLoad()
 }
 
+
+// 执行替换：必须逐字输入旧域名才可提交（与服务端 confirmFrom 双向校验）
+const drApplying = ref<manageApi.system.DomainRuleView | null>(null)
+const drConfirmText = ref('')
+const drApplyBusy = ref(false)
+
+function drOpenApply(row: manageApi.system.DomainRuleView): void {
+  drApplying.value = row
+  drConfirmText.value = ''
+  drMsg.value = ''
+}
+
+async function drApply(): Promise<void> {
+  const row = drApplying.value
+  if (!row) return
+  if (drConfirmText.value.trim() !== row.fromHost) {
+    drMsg.value = `请逐字输入旧域名：${row.fromHost}`
+    return
+  }
+  drApplyBusy.value = true
+  try {
+    const r = await manageApi.system.applyDomainRule(row.id, row.fromHost, row.toHost)
+    drMsg.value = `替换完成：${row.fromHost} → ${row.toHost}，影响 ${r.affected} 行（已记审计，可用反向规则回滚）`
+    drApplying.value = null
+    await drLoad()
+  } catch (e) {
+    drMsg.value = e instanceof Error ? e.message : '执行失败'
+  } finally {
+    drApplyBusy.value = false
+  }
+}
 onMounted(drLoad)
 </script>
 
@@ -513,6 +544,12 @@ onMounted(drLoad)
             <td>{{ r.state }}</td>
             <td class="text-right">
               <button type="button" class="jc-hotarea mr-[var(--jc-space-2)] underline" @click="drShowPreview(r)">预览</button>
+              <button
+                v-if="r.field === 'vod_pic' && r.state !== 'applied'"
+                type="button"
+                class="jc-hotarea mr-[var(--jc-space-2)] underline text-[var(--jc-danger)]"
+                @click="drOpenApply(r)"
+              >执行替换</button>
               <button type="button" class="jc-hotarea mr-[var(--jc-space-2)] underline" @click="drSetState(r, 'applied')">标记完成</button>
               <button type="button" class="jc-hotarea underline" @click="drSetState(r, 'rejected')">拒绝</button>
             </td>
@@ -534,6 +571,30 @@ onMounted(drLoad)
             #{{ s.mid }}：{{ s.before }} → {{ s.after }}
           </li>
         </ul>
+      </div>
+
+      <div v-if="drApplying" class="rounded-[var(--jc-radius-md)] border border-[var(--jc-danger)] p-[var(--jc-space-4)]">
+        <p class="text-sm">
+          <strong class="text-[var(--jc-danger)]">执行替换会改动影片数据（不可撤销，已记审计）</strong>
+        </p>
+        <p class="mt-1 text-xs text-secondary">
+          将把 {{ drApplying.fromHost }} 替换为 {{ drApplying.toHost }}（字段 {{ drApplying.field }}）。
+          请逐字输入旧域名以确认：
+        </p>
+        <input
+          v-model="drConfirmText"
+          class="mt-[var(--jc-space-2)] w-full rounded-[var(--jc-radius-md)] border border-default px-[var(--jc-space-3)] py-[var(--jc-space-2)] text-sm"
+          :placeholder="drApplying.fromHost"
+        />
+        <div class="mt-[var(--jc-space-3)] flex gap-[var(--jc-space-2)]">
+          <button
+            type="button"
+            class="jc-hotarea rounded-[var(--jc-radius-md)] bg-[var(--jc-danger)] px-[var(--jc-space-4)] py-[var(--jc-space-2)] text-sm text-white disabled:opacity-50"
+            :disabled="drApplyBusy"
+            @click="drApply"
+          >{{ drApplyBusy ? '执行中…' : '确认执行' }}</button>
+          <button type="button" class="jc-hotarea underline text-sm" @click="drApplying = null">取消</button>
+        </div>
       </div>
     </section>
 </template>

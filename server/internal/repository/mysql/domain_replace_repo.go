@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"strings"
+	"time"
 
 	"server/internal/domain/repository"
 
@@ -156,4 +157,52 @@ func (r *searchRepo) GetImgFallbackHosts(ctx context.Context) (string, error) {
 func (r *searchRepo) SetImgFallbackHosts(ctx context.Context, v string) error {
 	return dbFrom(ctx, r.db).Exec(
 		"UPDATE site_config SET img_fallback_hosts = ?, updated_at = ?", v, nowMilli()).Error
+}
+
+// ApplyCoverReplace 分批执行封面域名替换（见接口注释）。返回累计影响行数。
+func (r *searchRepo) ApplyCoverReplace(ctx context.Context, ruleID int64, fromHost, toHost string, batch, sleepMs int) (int64, error) {
+	if batch <= 0 || batch > 5000 {
+		batch = 2000
+	}
+	like := "%://" + fromHost + "/%"
+	fromPat := "://" + fromHost + "/"
+	toPat := "://" + toHost + "/"
+	var cursor, total int64
+	for {
+		var next int64
+		if err := dbFrom(ctx, r.db).Raw(
+			"SELECT COALESCE(MAX(mid),0) FROM (SELECT mid FROM movie_search WHERE mid > ? AND cover LIKE ? ORDER BY mid LIMIT ?) t",
+			cursor, like, batch).Scan(&next).Error; err != nil {
+			return total, err
+		}
+		if next == 0 {
+			return total, nil
+		}
+		// ① 先记审计（回滚依据）；② 再更新同一区间
+		if err := dbFrom(ctx, r.db).Exec(
+			"INSERT INTO domain_replace_audit(rule_id, field, mid, before_val, after_val, created_at) "+
+				"SELECT ?, 'vod_pic', mid, cover, REPLACE(cover, ?, ?), ? FROM movie_search "+
+				"WHERE mid > ? AND mid <= ? AND cover LIKE ?",
+			ruleID, fromPat, toPat, nowMilli(), cursor, next, like).Error; err != nil {
+			return total, err
+		}
+		res := dbFrom(ctx, r.db).Exec(
+			"UPDATE movie_search SET cover = REPLACE(cover, ?, ?) WHERE mid > ? AND mid <= ? AND cover LIKE ?",
+			fromPat, toPat, cursor, next, like)
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		cursor = next
+		if sleepMs > 0 {
+			select {
+			case <-ctx.Done():
+				return total, ctx.Err()
+			case <-time.After(time.Duration(sleepMs) * time.Millisecond):
+			}
+		}
+		if ctx.Err() != nil {
+			return total, ctx.Err()
+		}
+	}
 }

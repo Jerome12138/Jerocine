@@ -1156,6 +1156,30 @@ func (h *Handlers) DomainReplaceRules(c *gin.Context) {
 	dto.OK(c, gin.H{"list": rules, "pending": pending, "stale": stale})
 }
 
+// DomainReplaceApply POST /manage/domain-replace/rules/:id/apply
+// **执行替换（会改动业务数据）**：必须逐字传入 confirmFrom/confirmTo 做二次确认；
+// 仅支持 vod_pic；分批游标执行并写审计表。
+func (h *Handlers) DomainReplaceApply(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if id <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "id required")
+		return
+	}
+	var req struct {
+		ConfirmFrom string `json:"confirmFrom"`
+		ConfirmTo   string `json:"confirmTo"`
+		Batch       int    `json:"batch"`
+		SleepMs     int    `json:"sleepMs"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	n, err := h.Film.ApplyDomainRule(c.Request.Context(), id, req.ConfirmFrom, req.ConfirmTo, req.Batch, req.SleepMs)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"id": id, "affected": n})
+}
+
 // DomainReplaceSetState POST /manage/domain-replace/rules/:id/state
 // 人工标记规则状态（applied 已完成 / rejected 拒绝 / pending 复位 / merged 已被新公告合并）。
 func (h *Handlers) DomainReplaceSetState(c *gin.Context) {

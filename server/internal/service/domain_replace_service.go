@@ -251,3 +251,31 @@ func mergeImgHosts(current string, add []string) string {
 func (s *FilmService) SetDomainRuleState(ctx context.Context, id int64, state, note string) error {
 	return s.search.SetDomainRuleState(ctx, id, state, note)
 }
+
+// ApplyDomainRule **执行替换**（会改动业务数据），守卫从严：
+//  1. 仅支持 vod_pic：播放/下载地址在 episodes_json（JSON 大列）里，必须按 JSON 逐 url 处理，
+//     属独立路径，尚未开放 —— 明确报错而不是"顺手文本替换"。
+//  2. **二次确认**：confirmFrom/confirmTo 必须与规则逐字一致，否则拒绝（防误触）。
+//  3. 已 applied 的规则拒绝重复执行（幂等；副作用本来就幂等，但不允许重复记账）。
+//  4. 分批 + 批间 sleep，全程可被 ctx 中断；每批先写审计再更新。
+func (s *FilmService) ApplyDomainRule(ctx context.Context, id int64, confirmFrom, confirmTo string, batch, sleepMs int) (int64, error) {
+	rule, err := s.search.GetDomainRule(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if rule.Field != macrep.FieldPic {
+		return 0, fmt.Errorf("暂只支持封面(vod_pic)执行；%s 位于 JSON 大列，需按 url 逐条处理，尚未开放", rule.Field)
+	}
+	if rule.State == "applied" {
+		return 0, fmt.Errorf("该规则已标记为已执行")
+	}
+	if strings.TrimSpace(confirmFrom) != rule.FromHost || strings.TrimSpace(confirmTo) != rule.ToHost {
+		return 0, fmt.Errorf("二次确认不匹配：请逐字输入 %s → %s", rule.FromHost, rule.ToHost)
+	}
+	n, err := s.search.ApplyCoverReplace(ctx, id, rule.FromHost, rule.ToHost, batch, sleepMs)
+	if err != nil {
+		return n, err
+	}
+	_ = s.search.SetDomainRuleState(ctx, id, "applied", fmt.Sprintf("已替换 %d 行", n))
+	return n, nil
+}

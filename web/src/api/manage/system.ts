@@ -170,3 +170,20 @@ export const setDomainRuleState = (
     { state, note },
     { silent: true }
   )
+
+/**
+ * POST /manage/domain-replace/rules/:id/apply —— **执行替换（会改动业务数据）**
+ * 必须逐字传入 confirmFrom/confirmTo 做二次确认；服务端只接受 vod_pic。
+ */
+export const applyDomainRule = (
+  id: number,
+  confirmFrom: string,
+  confirmTo: string,
+  batch = 2000,
+  sleepMs = 30
+): Promise<{ id: number; affected: number }> =>
+  http.post<unknown, { id: number; affected: number }>(
+    `/manage/domain-replace/rules/${id}/apply`,
+    { confirmFrom, confirmTo, batch, sleepMs },
+    { silent: true }
+  )

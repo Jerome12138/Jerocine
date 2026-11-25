@@ -100,6 +100,10 @@ type SearchRepository interface {
 	PreviewCoverReplace(ctx context.Context, fromHost, toHost string, limit int) ([]PicPreview, error)
 	// GetImgFallbackHosts / SetImgFallbackHosts 读写 site_config.img_fallback_hosts
 	//（前端 BaseImage 的图床兜底列表：第一项主图床，其余备用，路径原样保留）。
+	// ApplyCoverReplace 分批把 cover 里的 "://from/" 换成 "://to/"：
+	// **主键游标**分批（避免 LIKE 全表扫退化成 O(n²)）、每批先写审计再更新、支持批间 sleep 与 ctx 中断。
+	// 幂等：已替换过的行不再命中 LIKE，重复执行 0 行。
+	ApplyCoverReplace(ctx context.Context, ruleID int64, fromHost, toHost string, batch, sleepMs int) (int64, error)
 	GetImgFallbackHosts(ctx context.Context) (string, error)
 	SetImgFallbackHosts(ctx context.Context, v string) error
 	// TopHotAll 全站跨类别热榜(首页「热门榜单」行, 不按 pid) —— 与分类页排行榜共用同一排序键。
