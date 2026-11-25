@@ -138,3 +138,25 @@ func TestStripOpsTag(t *testing.T) {
 		}
 	}
 }
+
+// 单条链接换域名：带协议 / 裸前缀 / 不命中 / 子域名不误伤。
+func TestExchangeHost(t *testing.T) {
+	cases := []struct {
+		in, from, to, want string
+		ok                 bool
+	}{
+		{"https://v.lzcdn28.com/hls/1.m3u8", "v.lzcdn28.com", "v.cdnlz28.com",
+			"https://v.cdnlz28.com/hls/1.m3u8", true},
+		{"http://a.b.com:8080/x", "a.b.com", "c.com", "http://c.com:8080/x", true},
+		{"v.lzcdn28.com/hls/1.m3u8", "v.lzcdn28.com", "v.cdnlz28.com",
+			"v.cdnlz28.com/hls/1.m3u8", true},
+		{"https://v.lzcdn28.com.cn/x", "v.lzcdn28.com", "a.com", "https://v.lzcdn28.com.cn/x", false},
+		{"https://other.com/x", "v.lzcdn28.com", "a.com", "https://other.com/x", false},
+	}
+	for _, c := range cases {
+		got, ok := ExchangeHost(c.in, c.from, c.to)
+		if got != c.want || ok != c.ok {
+			t.Fatalf("ExchangeHost(%q,%q,%q) = (%q,%v), want (%q,%v)", c.in, c.from, c.to, got, ok, c.want, c.ok)
+		}
+	}
+}

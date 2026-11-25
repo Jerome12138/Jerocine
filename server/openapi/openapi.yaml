@@ -1013,6 +1013,118 @@ components:
       properties:
         url: { type: string, format: uri, description: 上游 m3u8 地址 (服务端 SSRF 校验) }
         filterAds: { type: boolean, default: true }
+    DomainSource:
+      type: object
+      properties:
+        key: { type: string, description: 来源标识（如 lz） }
+        name: { type: string }
+        type: { type: string, description: macrep / custom }
+        url: { type: string }
+        fieldHint: { type: string, description: 该来源会带来哪类字段的规则 }
+        targetHint: { type: string, description: 这些字段落到我们库的哪里 }
+        note: { type: string }
+
+    DomainRule:
+      type: object
+      properties:
+        id: { type: integer }
+        field: { type: string, description: vod_pic / vod_play_url / vod_down_url }
+        fieldLabel: { type: string }
+        ruleType: { type: string }
+        scope: { type: string, description: master 主站 / slave 从站 }
+        sourceCode: { type: string, description: 从站时的采集源 id }
+        sourceKey: { type: string }
+        sourceUrl: { type: string }
+        fromHost: { type: string }
+        toHost: { type: string }
+        targetColumn: { type: string, description: 我们库里的落点，空=本库不存储 }
+        targetNote: { type: string }
+        announcedAt: { type: integer, description: 公告时间(ms) }
+        state: { type: string }
+        note: { type: string, description: 本工具的操作备注 }
+        sourceNote: { type: string }
+        supported: { type: boolean, description: 本工具能否自动执行（封面 / 播放） }
+
+    DomainRulePage:
+      type: object
+      properties:
+        list: { type: array, items: { $ref: '#/components/schemas/DomainRule' } }
+        total: { type: integer }
+        page: { type: integer }
+        size: { type: integer }
+        counts:
+          type: object
+          description: 各状态全量计数（不受分页/筛选影响）
+          additionalProperties: { type: integer }
+        stale: { type: integer, description: 公告超 7 天未处理的 pending 数 }
+
+    DomainRuleInput:
+      type: object
+      required: [field, fromHost, toHost]
+      properties:
+        field: { type: string }
+        scope: { type: string, description: master / slave }
+        sourceCode: { type: string }
+        fromHost: { type: string, description: 只填域名，不带协议/路径/端口 }
+        toHost: { type: string }
+        announcedAt: { type: integer, description: 毫秒；0 或缺省 = 现在（编辑时 = 保持原值） }
+        sourceNote: { type: string }
+
+    DomainStateInput:
+      type: object
+      required: [state]
+      properties:
+        state: { type: string, description: pending / applied / skipped / rejected / merged }
+        note: { type: string }
+
+    DomainApplyInput:
+      type: object
+      required: [confirmFrom, confirmTo]
+      properties:
+        confirmFrom: { type: string, description: 必须与规则 fromHost 逐字一致 }
+        confirmTo: { type: string }
+        batch: { type: integer, description: 每批行数（默认 2000 封面 / 500 播放） }
+        sleepMs: { type: integer, description: 批间让路毫秒 }
+
+    DomainPreview:
+      type: object
+      properties:
+        rule: { $ref: '#/components/schemas/DomainRule' }
+        hits: { type: integer }
+        sites: { type: array, items: { type: string }, description: 播放规则命中的采集源 }
+        sample:
+          type: array
+          items:
+            type: object
+            properties:
+              mid: { type: integer }
+              before: { type: string }
+              after: { type: string }
+
+    DomainFetchResult:
+      type: object
+      properties:
+        source: { type: string }
+        sourceKey: { type: string }
+        new: { type: integer }
+        merged: { type: integer, description: 目标变更、旧行被标 merged 的条数 }
+        skipped: { type: integer, description: 与库内完全一致、跳过的条数 }
+        rejected: { type: integer }
+        fetchedAt: { type: integer }
+
+    DomainProgress:
+      type: object
+      properties:
+        ruleId: { type: integer }
+        field: { type: string }
+        state: { type: string, description: running / done / failed / idle }
+        total: { type: integer }
+        done: { type: integer }
+        updated: { type: integer }
+        message: { type: string }
+        startedAt: { type: integer }
+        updatedAt: { type: integer }
+
 
 # ============================================================================
 # 端点定义
@@ -2117,6 +2229,176 @@ paths:
               schema: { $ref: '#/components/schemas/SiteConfig' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/domain-replace/sources:
+    get:
+      tags: [manage-domain]
+      summary: 支持的公告来源清单（解析规则由后端维护）
+      operationId: manageDomainSources
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list: { type: array, items: { $ref: '#/components/schemas/DomainSource' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/domain-replace/fetch:
+    post:
+      tags: [manage-domain]
+      summary: 拉取公告（只写规则表，不动业务数据）
+      description: 只增不改：同 (field,from_host,to_host) 跳过；目标变了新增一条并把旧行标 merged。
+      operationId: manageDomainFetch
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source: { type: string, description: 来源 key（如 lz）或完整公告页 URL；空 = 默认来源 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DomainFetchResult' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/domain-replace/rules:
+    get:
+      tags: [manage-domain]
+      summary: 规则列表（分页，按公告时间倒序）
+      operationId: manageDomainRules
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: state, in: query, schema: { type: string }, description: pending / applied / skipped / merged / rejected }
+        - { name: keyword, in: query, schema: { type: string }, description: 匹配新旧域名与备注 }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DomainRulePage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [manage-domain]
+      summary: 手工新增规则（只写规则表）
+      operationId: manageDomainRuleCreate
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DomainRuleInput' }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/domain-replace/rules/{id}:
+    put:
+      tags: [manage-domain]
+      summary: 手工编辑单条规则（原地改，不新增行）
+      operationId: manageDomainRuleUpdate
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DomainRuleInput' }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/domain-replace/rules/{id}/preview:
+    get:
+      tags: [manage-domain]
+      summary: 影响面预览（只读）
+      description: 封面统计 movie.cover；播放统计 movie_play_source.episodes_json（按规则作用源）。
+      operationId: manageDomainRulePreview
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DomainPreview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/domain-replace/rules/{id}/state:
+    post:
+      tags: [manage-domain]
+      summary: 标记规则状态（不改业务数据）
+      operationId: manageDomainRuleState
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DomainStateInput' }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/domain-replace/rules/{id}/apply:
+    post:
+      tags: [manage-domain]
+      summary: 执行替换（异步，返回 started 后轮询 progress）
+      description: 支持 vod_pic 与 vod_play_url；必须逐字传 confirmFrom/confirmTo；每行写审计。
+      operationId: manageDomainRuleApply
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DomainApplyInput' }
+      responses:
+        '202':
+          description: 已开始（前端轮询 /progress）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  started: { type: boolean }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/domain-replace/rules/{id}/progress:
+    get:
+      tags: [manage-domain]
+      summary: 执行进度（异步任务快照）
+      operationId: manageDomainRuleProgress
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DomainProgress' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /manage/tmdb-key:
     post:

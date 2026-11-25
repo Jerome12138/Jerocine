@@ -85,6 +85,7 @@ type DomainPreviewResult struct {
 	Rule   DomainRuleView `json:"rule"`
 	Hits   int64          `json:"hits"`
 	Sample []PicSample    `json:"sample"`
+	Sites  []string       `json:"sites"` // 播放规则：命中的采集源
 }
 
 // DomainRuleView 出参视图
@@ -294,30 +295,39 @@ func (s *FilmService) PreviewDomainRule(ctx context.Context, id int64) (DomainPr
 		return out, err
 	}
 	out.Rule = toDomainRuleView(*rule)
-	if rule.Field != macrep.FieldPic {
-		// 播放地址实测"新采已换好"，且位于 JSON 大列内，需按 JSON 逐 url 处理
-		// ⇒ 执行侧单独实现，本预览只覆盖封面
-		out.Hits = 0
-		out.Sample = []PicSample{}
-		return out, nil
-	}
-	hits, err := s.search.CountCoverHost(ctx, rule.FromHost)
-	if err != nil {
-		return out, err
-	}
-	out.Hits = hits
-	rows, err := s.search.PreviewCoverReplace(ctx, rule.FromHost, rule.ToHost, 20)
-	if err != nil {
-		return out, err
-	}
-	out.Sample = make([]PicSample, 0, len(rows))
-	for _, r := range rows {
-		out.Sample = append(out.Sample, PicSample{Mid: r.Mid, Before: r.Before, After: r.After})
+	out.Sample = []PicSample{}
+	switch rule.Field {
+	case macrep.FieldPic:
+		if out.Hits, err = s.search.CountCoverHost(ctx, rule.FromHost); err != nil {
+			return out, err
+		}
+		rows, perr := s.search.PreviewCoverReplace(ctx, rule.FromHost, rule.ToHost, 20)
+		if perr != nil {
+			return out, perr
+		}
+		for _, r := range rows {
+			out.Sample = append(out.Sample, PicSample{Mid: r.Mid, Before: r.Before, After: r.After})
+		}
+	case macrep.FieldPlay:
+		sites, serr := s.search.PlaySiteIDs(ctx, rule.Scope != "slave", rule.SourceCode)
+		if serr != nil {
+			return out, serr
+		}
+		out.Sites = sites
+		if out.Hits, err = s.search.CountPlayHost(ctx, sites, rule.FromHost); err != nil {
+			return out, err
+		}
+		rows, perr := s.search.PreviewPlayReplace(ctx, sites, rule.FromHost, rule.ToHost, 20)
+		if perr != nil {
+			return out, perr
+		}
+		for _, r := range rows {
+			out.Sample = append(out.Sample, PicSample{Mid: r.Mid, Before: r.Before, After: r.After})
+		}
 	}
 	return out, nil
 }
 
-// clipRunes 按**字符**截断到列宽，避免源站写了超长文案把整次拉取搞挂（严格模式下超长会报错）。
 func clipRunes(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -423,7 +433,7 @@ type fieldTargetInfo struct {
 
 var fieldTargetMap = map[string]fieldTargetInfo{
 	macrep.FieldPic:  {Column: "movie.cover", Executable: true, Note: "封面：真相源 movie.cover，可自动执行（同步 movie_search.cover）"},
-	macrep.FieldPlay: {Column: "movie_play_source.episodes_json", Note: "播放地址：按源存在 JSON 大列里，只展示不自动改"},
+	macrep.FieldPlay: {Column: "movie_play_source.episodes_json", Executable: true, Note: "播放地址：按源写入 episodes_json，可自动替换并重算内容指纹"},
 	macrep.FieldDown: {Note: "下载地址：本库不存储，入库即标记跳过"},
 }
 
@@ -607,44 +617,150 @@ func validAnnouncedAt(ms int64) bool {
 	return ms >= min && ms <= max
 }
 
-// ApplyDomainRule **执行替换**（会改动业务数据），守卫从严：
-//  1. 仅支持 vod_pic：播放/下载地址在 episodes_json（JSON 大列）里，必须按 JSON 逐 url 处理；
-//  2. **二次确认**：confirmFrom/confirmTo 必须与规则逐字一致（防误触）；
-//  3. 已 applied 的规则拒绝重复执行；
-//  4. 分批 + 批间 sleep，全程可被 ctx 中断；每批先写审计再更新。
+// DomainRuleProgress 替换进度快照（异步任务；前端 1s 轮询）。
+type DomainRuleProgress struct {
+	RuleID    int64  `json:"ruleId"`
+	Field     string `json:"field"`
+	State     string `json:"state"` // running / done / failed
+	Total     int64  `json:"total"`
+	Done      int64  `json:"done"`
+	Updated   int64  `json:"updated"`
+	Message   string `json:"message"`
+	StartedAt int64  `json:"startedAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
+
+var domainProgress = struct {
+	mu sync.Mutex
+	m  map[int64]*DomainRuleProgress
+}{m: map[int64]*DomainRuleProgress{}}
+
+func snapshotDomainProgress(id int64) (DomainRuleProgress, bool) {
+	domainProgress.mu.Lock()
+	defer domainProgress.mu.Unlock()
+	p, ok := domainProgress.m[id]
+	if !ok {
+		return DomainRuleProgress{}, false
+	}
+	return *p, true
+}
+
+func setDomainProgress(p DomainRuleProgress) {
+	p.UpdatedAt = time.Now().UnixMilli()
+	domainProgress.mu.Lock()
+	domainProgress.m[p.RuleID] = &p
+	domainProgress.mu.Unlock()
+}
+
+// DomainRuleProgress 查进度（没有记录时 ok=false，前端按"未执行"处理）。
+func (s *FilmService) DomainRuleProgress(id int64) (DomainRuleProgress, bool) {
+	return snapshotDomainProgress(id)
+}
+
+// StartDomainRuleApply 启动**异步**替换（封面 / 播放地址），立即返回，前端轮询进度。
 //
-// 注（P2-4）：审计 INSERT 与 UPDATE **不在同一事务** —— 若 UPDATE 失败会多记一批审计，
-// 但审计"只多不少"且替换本身幂等，重复执行会 0 行命中，故不额外引入事务复杂度。
-func (s *FilmService) ApplyDomainRule(ctx context.Context, id int64, confirmFrom, confirmTo string, batch, sleepMs int) (int64, error) {
+// 守卫（照旧从严）：
+//  1. 只接受可执行字段（封面 / 播放；下载地址本库不存，直接拒绝并给出原因）；
+//  2. 封面只可能来自主站；
+//  3. 已 applied 的规则不重复执行；
+//  4. confirmFrom/confirmTo 必须与规则逐字一致；
+//  5. 同一规则正在执行时拒绝重复触发。
+func (s *FilmService) StartDomainRuleApply(ctx context.Context, id int64, confirmFrom, confirmTo string, batch, sleepMs int) error {
 	rule, err := s.search.GetDomainRule(ctx, id)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	if rule.Field != macrep.FieldPic {
-		return 0, fmt.Errorf("暂只支持封面(vod_pic)执行；%s 位于 JSON 大列，需按 url 逐条处理，尚未开放", rule.Field)
+	tg := fieldTarget(rule.Field)
+	if !tg.Executable {
+		return fmt.Errorf("%s", tg.Note)
 	}
-	if rule.Scope != "" && rule.Scope != "master" {
-		return 0, fmt.Errorf("封面只可能来自主站，这条规则的范围是 %s，请先改成主站", rule.Scope)
+	if rule.Field == macrep.FieldPic && rule.Scope != "" && rule.Scope != "master" {
+		return fmt.Errorf("封面只可能来自主站，这条规则的范围是 %s，请先改成主站", rule.Scope)
 	}
 	if rule.State == "applied" {
-		return 0, fmt.Errorf("该规则已标记为已执行")
+		return fmt.Errorf("该规则已标记为已执行")
 	}
 	if strings.TrimSpace(confirmFrom) != rule.FromHost || strings.TrimSpace(confirmTo) != rule.ToHost {
-		return 0, fmt.Errorf("二次确认不匹配：期望 %s → %s", rule.FromHost, rule.ToHost)
+		return fmt.Errorf("二次确认不匹配：期望 %s → %s", rule.FromHost, rule.ToHost)
 	}
-	n, err := s.search.ApplyCoverReplace(ctx, id, rule.FromHost, rule.ToHost, batch, sleepMs)
+	if p, ok := snapshotDomainProgress(id); ok && p.State == "running" {
+		return fmt.Errorf("该规则正在执行中（%d/%d），请稍候", p.Done, p.Total)
+	}
+
+	var sites []string
+	var total int64
+	switch rule.Field {
+	case macrep.FieldPic:
+		if total, err = s.search.CountCoverHost(ctx, rule.FromHost); err != nil {
+			return err
+		}
+	case macrep.FieldPlay:
+		if sites, err = s.search.PlaySiteIDs(ctx, rule.Scope != "slave", rule.SourceCode); err != nil {
+			return err
+		}
+		if len(sites) == 0 {
+			// 找不到源就停：否则会"执行 0 行"后把规则标成已执行，看起来像做过了
+			return fmt.Errorf("没有匹配的采集源（范围=%s，来源=%q），请先确认站点配置", rule.Scope, rule.SourceCode)
+		}
+		if total, err = s.search.CountPlayHost(ctx, sites, rule.FromHost); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("暂不支持 %s 的自动执行", rule.Field)
+	}
+
+	setDomainProgress(DomainRuleProgress{
+		RuleID: id, Field: rule.Field, State: "running", Total: total,
+		StartedAt: time.Now().UnixMilli(), Message: "开始执行",
+	})
+	go s.runDomainRuleApply(*rule, sites, batch, sleepMs)
+	return nil
+}
+
+// runDomainRuleApply 后台执行（不带请求 ctx：页面关掉也要跑完）。
+func (s *FilmService) runDomainRuleApply(rule repository.DomainRule, sites []string, batch, sleepMs int) {
+	defer func() {
+		if r := recover(); r != nil {
+			p, _ := snapshotDomainProgress(rule.ID)
+			p.State, p.Message = "failed", fmt.Sprintf("执行异常: %v", r)
+			setDomainProgress(p)
+			log.Printf("[macrep] 规则 %d 执行 panic: %v", rule.ID, r)
+		}
+	}()
+	bg := context.Background()
+	onProgress := func(done, updated int64) {
+		p, ok := snapshotDomainProgress(rule.ID)
+		if !ok {
+			return
+		}
+		p.Done, p.Updated = done, updated
+		setDomainProgress(p)
+	}
+	var n int64
+	var err error
+	switch rule.Field {
+	case macrep.FieldPlay:
+		n, err = s.search.ApplyPlayReplace(bg, rule.ID, sites, rule.FromHost, rule.ToHost, batch, sleepMs, onProgress)
+	default:
+		n, err = s.search.ApplyCoverReplace(bg, rule.ID, rule.FromHost, rule.ToHost, batch, sleepMs, onProgress)
+	}
+	p, _ := snapshotDomainProgress(rule.ID)
 	if err != nil {
-		return n, err
+		p.State, p.Message = "failed", err.Error()
+		setDomainProgress(p)
+		log.Printf("[macrep] 规则 %d 执行失败: %v", rule.ID, err)
+		return
 	}
-	if serr := s.search.SetDomainRuleState(ctx, id, "applied", fmt.Sprintf("已替换 %d 行", n)); serr != nil {
-		log.Printf("[macrep] 规则 %d 已替换 %d 行，但状态更新失败: %v", id, n, serr)
+	if serr := s.search.SetDomainRuleState(bg, rule.ID, "applied", fmt.Sprintf("已替换 %d 行", n)); serr != nil {
+		log.Printf("[macrep] 规则 %d 已替换 %d 行，但状态更新失败: %v", rule.ID, n, serr)
 	}
-	// 同域名还有别的目标待处理时，给它们加提示（不改状态，避免误删人工判断）
 	invalidateDomainStats()
-	if m, aerr := s.search.AnnotateSiblingRules(ctx, rule.Field, rule.FromHost, rule.ToHost, id); aerr != nil {
-		log.Printf("[macrep] 规则 %d 执行后给同域名规则加提示失败: %v", id, aerr)
+	if m, aerr := s.search.AnnotateSiblingRules(bg, rule.Field, rule.FromHost, rule.ToHost, rule.ID); aerr != nil {
+		log.Printf("[macrep] 规则 %d 执行后给同域名规则加提示失败: %v", rule.ID, aerr)
 	} else if m > 0 {
-		log.Printf("[macrep] 规则 %d 执行后，%d 条同域名规则被标注(目标不同，待复核)", id, m)
+		log.Printf("[macrep] 规则 %d 执行后，%d 条同域名规则被标注(目标不同，待复核)", rule.ID, m)
 	}
-	return n, nil
+	p.State, p.Updated, p.Message = "done", n, fmt.Sprintf("已替换 %d 行", n)
+	p.Done = p.Total
+	setDomainProgress(p)
 }

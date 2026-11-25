@@ -42,6 +42,35 @@ type Rule struct {
 	Note        string // 源站备注原文（含 [ops:xxx]，需要时可用于追溯）
 }
 
+// ExchangeHost 把**一条链接**里的旧域名换成新域名，返回 (新链接, 是否命中)。
+// 两种形态都覆盖：`scheme://host/...` 与不带协议的 `host/...`（后者要求出现在开头，
+// 避免误伤子域名 a.foo.com 里的 foo.com）。
+func ExchangeHost(link, fromHost, toHost string) (string, bool) {
+	fromHost = strings.ToLower(strings.TrimSpace(fromHost))
+	toHost = strings.ToLower(strings.TrimSpace(toHost))
+	if link == "" || fromHost == "" || toHost == "" || fromHost == toHost {
+		return link, false
+	}
+	low := strings.ToLower(link)
+
+	// ① 带协议：scheme://host（后面必须是 "/" 或 ":端口"，避免误伤 host.com.cn）
+	needle := "://" + fromHost
+	if idx := strings.Index(low, needle); idx >= 0 {
+		after := idx + len(needle)
+		if after < len(low) && (low[after] == '/' || low[after] == ':') {
+			return link[:idx+3] + toHost + link[after:], true
+		}
+	}
+	// ② 不带协议：必须以 host/ 或 host: 开头
+	if strings.HasPrefix(low, fromHost+"/") {
+		return toHost + link[len(fromHost):], true
+	}
+	if strings.HasPrefix(low, fromHost+":") {
+		return toHost + link[len(fromHost):], true
+	}
+	return link, false
+}
+
 // SourceKeyFromURL 把公告页 URL 归一成来源站标识（规则"链接到来源"，便于按站归类与跳转）。
 // 目前只接 lz（量子资源）；未知来源退化成 host，便于以后加站时不用改结构。
 func SourceKeyFromURL(rawURL string) string {

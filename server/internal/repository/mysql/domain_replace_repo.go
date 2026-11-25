@@ -2,12 +2,15 @@ package mysql
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	"server/internal/domain/entity"
 	"server/internal/domain/repository"
+	"server/internal/macrep"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -257,7 +260,7 @@ func (r *searchRepo) PreviewCoverReplace(ctx context.Context, fromHost, toHost s
 //
 // 游标由 **movie** 驱动（两表 mid 一一对应，命中集合一致）。
 // 分两轮：先处理带协议的 `://host/`，再处理极少数不带协议的 `host/` 前缀形态。
-func (r *searchRepo) ApplyCoverReplace(ctx context.Context, ruleID int64, fromHost, toHost string, batch, sleepMs int) (int64, error) {
+func (r *searchRepo) ApplyCoverReplace(ctx context.Context, ruleID int64, fromHost, toHost string, batch, sleepMs int, onProgress func(done, updated int64)) (int64, error) {
 	if batch <= 0 || batch > 5000 {
 		batch = 2000
 	}
@@ -292,6 +295,9 @@ func (r *searchRepo) ApplyCoverReplace(ctx context.Context, ruleID int64, fromHo
 			return total, res.Error
 		}
 		total += res.RowsAffected
+		if onProgress != nil {
+			onProgress(total, total)
+		}
 		if err := dbFrom(ctx, r.db).Exec(
 			"UPDATE movie_search SET cover = REPLACE(cover, ?, ?) WHERE mid > ? AND mid <= ? AND cover LIKE ?",
 			fromPat, toPat, cursor, next, like).Error; err != nil {
@@ -393,6 +399,168 @@ func (r *searchRepo) UpdateDomainRule(ctx context.Context, id int64, rule reposi
 func likeContains(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
 	return "%" + r.Replace(s) + "%"
+}
+
+// ---- 播放地址（vod_play_url）替换：作用于 movie_play_source.episodes_json ----
+
+// PlaySiteIDs 解析规则作用到哪些采集源：
+//   - code 非空 ⇒ 只作用于该源；
+//   - scope=master ⇒ 主站（collect_source.grade=0）；
+//   - 否则 ⇒ 全部从站（grade=1）。
+func (r *searchRepo) PlaySiteIDs(ctx context.Context, master bool, code string) ([]string, error) {
+	var ids []string
+	q := dbFrom(ctx, r.db).Table("collect_source").Select("id")
+	if c := strings.TrimSpace(code); c != "" {
+		q = q.Where("id = ?", c)
+	} else if master {
+		q = q.Where("grade = 0")
+	} else {
+		q = q.Where("grade = 1")
+	}
+	if err := q.Order("id").Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// CountPlayHost 统计这些源里含该旧域名的播放源行数（按源一行）。
+func (r *searchRepo) CountPlayHost(ctx context.Context, sites []string, host string) (int64, error) {
+	if len(sites) == 0 || host == "" {
+		return 0, nil
+	}
+	var n int64
+	err := dbFrom(ctx, r.db).Table("movie_play_source").
+		Where("site_id IN ?", sites).
+		Where("episodes_json LIKE ?", "%://"+host+"/%").
+		Count(&n).Error
+	return n, err
+}
+
+// PreviewPlayReplace 预览：取前 limit 行，给出第一条命中的链接 before/after。
+func (r *searchRepo) PreviewPlayReplace(ctx context.Context, sites []string, fromHost, toHost string, limit int) ([]repository.PicPreview, error) {
+	if len(sites) == 0 || fromHost == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	var rows []struct {
+		Mid int64
+		Raw string
+	}
+	if err := dbFrom(ctx, r.db).Table("movie_play_source").
+		Select("mid, episodes_json AS raw").
+		Where("site_id IN ?", sites).
+		Where("episodes_json LIKE ?", "%://"+fromHost+"/%").
+		Order("id").Limit(limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]repository.PicPreview, 0, len(rows))
+	for _, row := range rows {
+		var eps entity.EpisodeList
+		if err := json.Unmarshal([]byte(row.Raw), &eps); err != nil {
+			continue
+		}
+		for i := range eps {
+			if nl, ok := macrep.ExchangeHost(eps[i].Link, fromHost, toHost); ok {
+				out = append(out, repository.PicPreview{Mid: row.Mid, Before: eps[i].Link, After: nl})
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// ApplyPlayReplace 分批替换播放源里的域名。
+// 每行：解析 episodes_json → 逐条 link 换域名 → 重算 content_hash（含 link 的内容指纹；
+// ep_hash 只含集名，不受影响）→ 先写审计再更新。坏 JSON 跳过不阻断整批。
+func (r *searchRepo) ApplyPlayReplace(ctx context.Context, ruleID int64, sites []string, fromHost, toHost string, batch, sleepMs int, onProgress func(done, updated int64)) (int64, error) {
+	if len(sites) == 0 {
+		return 0, nil
+	}
+	if batch <= 0 || batch > 2000 {
+		batch = 500
+	}
+	like := "%://" + fromHost + "/%"
+	var cursor, done, updated int64
+	for {
+		var rows []struct {
+			ID  int64
+			Mid int64
+			Raw string
+		}
+		if err := dbFrom(ctx, r.db).Table("movie_play_source").
+			Select("id, mid, episodes_json AS raw").
+			Where("id > ? AND site_id IN ?", cursor, sites).
+			Where("episodes_json LIKE ?", like).
+			Order("id").Limit(batch).Scan(&rows).Error; err != nil {
+			return updated, err
+		}
+		if len(rows) == 0 {
+			return updated, nil
+		}
+		err := dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+			for _, row := range rows {
+				done++
+				var eps entity.EpisodeList
+				if err := json.Unmarshal([]byte(row.Raw), &eps); err != nil {
+					continue
+				}
+				var firstBefore, firstAfter string
+				changed := 0
+				for i := range eps {
+					if nl, ok := macrep.ExchangeHost(eps[i].Link, fromHost, toHost); ok {
+						if changed == 0 {
+							firstBefore, firstAfter = eps[i].Link, nl
+						}
+						eps[i].Link = nl
+						changed++
+					}
+				}
+				if changed == 0 {
+					continue
+				}
+				buf, mErr := json.Marshal(eps)
+				if mErr != nil {
+					continue
+				}
+				if err := tx.Exec(
+					"INSERT INTO domain_replace_audit(rule_id, field, mid, before_val, after_val, created_at) VALUES (?,?,?,?,?,?)",
+					ruleID, "vod_play_url", row.Mid, clipStr(firstBefore, 1000), clipStr(firstAfter, 1000), nowMilli()).Error; err != nil {
+					return err
+				}
+				if err := tx.Exec(
+					"UPDATE movie_play_source SET episodes_json = ?, content_hash = ?, updated_at = ? WHERE id = ?",
+					string(buf), EpisodesContentHash(eps), nowMilli(), row.ID).Error; err != nil {
+					return err
+				}
+				updated++
+				if onProgress != nil {
+					onProgress(done, updated)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return updated, err
+		}
+		cursor = rows[len(rows)-1].ID
+		if onProgress != nil {
+			onProgress(done, updated)
+		}
+		if !sleepCtxOr(ctx, sleepMs) {
+			return updated, ctx.Err()
+		}
+	}
+}
+
+// clipStr 按字符截断（审计列 1024）。
+func clipStr(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 // drOrDefault 空串取默认值（scope 的默认是 master）。

@@ -1202,7 +1202,8 @@ func (h *Handlers) DomainReplaceUpdate(c *gin.Context) {
 
 // DomainReplaceApply POST /manage/domain-replace/rules/:id/apply
 // **执行替换（会改动业务数据）**：必须逐字传入 confirmFrom/confirmTo 做二次确认；
-// 仅支持 vod_pic；分批游标执行并写审计表。
+// 支持 vod_pic（movie.cover）与 vod_play_url（movie_play_source.episodes_json）；
+// 异步执行，前端轮询 /progress；分批游标 + 每行写审计。
 func (h *Handlers) DomainReplaceApply(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	if id <= 0 {
@@ -1216,12 +1217,28 @@ func (h *Handlers) DomainReplaceApply(c *gin.Context) {
 		SleepMs     int    `json:"sleepMs"`
 	}
 	_ = c.ShouldBindJSON(&req)
-	n, err := h.Film.ApplyDomainRule(c.Request.Context(), id, req.ConfirmFrom, req.ConfirmTo, req.Batch, req.SleepMs)
-	if err != nil {
+	if err := h.Film.StartDomainRuleApply(c.Request.Context(), id, req.ConfirmFrom, req.ConfirmTo, req.Batch, req.SleepMs); err != nil {
 		dto.Fail(c, err)
 		return
 	}
-	dto.OK(c, gin.H{"id": id, "affected": n})
+	// 异步执行：前端轮询 /progress 拿进度
+	dto.Accepted(c, gin.H{"id": id, "started": true})
+}
+
+// DomainReplaceProgress GET /manage/domain-replace/rules/:id/progress
+// 替换进度（异步任务）：total/done/updated/state，前端 1s 轮询。
+func (h *Handlers) DomainReplaceProgress(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if id <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "id required")
+		return
+	}
+	p, ok := h.Film.DomainRuleProgress(id)
+	if !ok {
+		dto.OK(c, gin.H{"ruleId": id, "state": "idle"})
+		return
+	}
+	dto.OK(c, p)
 }
 
 // DomainReplaceSetState POST /manage/domain-replace/rules/:id/state

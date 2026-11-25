@@ -247,7 +247,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.PUT("/domain-replace/rules/:id", h.DomainReplaceUpdate) // 手工编辑单条规则
 		mg.GET("/domain-replace/rules/:id/preview", h.DomainReplacePreview)
 		mg.POST("/domain-replace/rules/:id/state", h.DomainReplaceSetState)
-		mg.POST("/domain-replace/rules/:id/apply", h.DomainReplaceApply) // 按源清空 movie_play_source（需 confirm=id）
+		mg.POST("/domain-replace/rules/:id/apply", h.DomainReplaceApply)      // 异步执行，返回 started
+		mg.GET("/domain-replace/rules/:id/progress", h.DomainReplaceProgress) // 执行进度 // 按源清空 movie_play_source（需 confirm=id）
 
 		mg.GET("/telemetry/overview", h.TelemetryOverview)
 		mg.GET("/telemetry/events", h.TelemetryEvents)

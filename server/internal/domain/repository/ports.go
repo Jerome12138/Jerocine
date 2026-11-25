@@ -116,8 +116,16 @@ type SearchRepository interface {
 	//（前端 BaseImage 的图床兜底列表：第一项主图床，其余备用，路径原样保留）。
 	// ApplyCoverReplace 分批把 cover 里的 "://from/" 换成 "://to/"：
 	// **主键游标**分批（避免 LIKE 全表扫退化成 O(n²)）、每批先写审计再更新、支持批间 sleep 与 ctx 中断。
-	// 幂等：已替换过的行不再命中 LIKE，重复执行 0 行。
-	ApplyCoverReplace(ctx context.Context, ruleID int64, fromHost, toHost string, batch, sleepMs int) (int64, error)
+	// 幂等：已替换过的行不再命中 LIKE，重复执行 0 行。onProgress 可空。
+	ApplyCoverReplace(ctx context.Context, ruleID int64, fromHost, toHost string, batch, sleepMs int, onProgress func(done, updated int64)) (int64, error)
+	// PlaySiteIDs 解析播放规则作用到哪些采集源（master=主站，否则从站；code 非空则限定该源）。
+	PlaySiteIDs(ctx context.Context, master bool, code string) ([]string, error)
+	// CountPlayHost 统计这些源里含旧域名的播放源行数。
+	CountPlayHost(ctx context.Context, sites []string, host string) (int64, error)
+	// PreviewPlayReplace 播放地址替换预览（每行取第一条命中链接的 before/after）。
+	PreviewPlayReplace(ctx context.Context, sites []string, fromHost, toHost string, limit int) ([]PicPreview, error)
+	// ApplyPlayReplace 分批替换 episodes_json 里的播放域名（重算 content_hash）。
+	ApplyPlayReplace(ctx context.Context, ruleID int64, sites []string, fromHost, toHost string, batch, sleepMs int, onProgress func(done, updated int64)) (int64, error)
 	GetImgFallbackHosts(ctx context.Context) (string, error)
 	SetImgFallbackHosts(ctx context.Context, v string) error
 	// TopHotAll 全站跨类别热榜(首页「热门榜单」行, 不按 pid) —— 与分类页排行榜共用同一排序键。
