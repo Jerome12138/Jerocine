@@ -85,3 +85,21 @@ func TestDomainStatsCacheInvalidate(t *testing.T) {
 		t.Fatal("缓存未被清空")
 	}
 }
+
+// 本库不存的字段（下载地址）入库就必须是 skipped，不能占"待处理"。
+func TestDomainRuleFromParsed_DownFieldSkipped(t *testing.T) {
+	r := macrep.Rule{Field: macrep.FieldDown, Type: "视频下载地址", FieldLabel: "视频下载",
+		FromHost: "a.com", ToHost: "b.com", AnnouncedAt: 1700000000000}
+	dr := domainRuleFromParsed(r, "https://www.lzizy.com/index.php/macrep.html", 1)
+	if dr.State != "skipped" || dr.Note == "" {
+		t.Fatalf("下载字段应标 skipped 并带原因, got state=%q note=%q", dr.State, dr.Note)
+	}
+	if dr.SourceKey != "lz" {
+		t.Fatalf("来源标识错误: %q", dr.SourceKey)
+	}
+	// 封面保持 pending 且可执行
+	pic := domainRuleFromParsed(macrep.Rule{Field: macrep.FieldPic, FromHost: "a.com", ToHost: "b.com"}, "https://www.lzizy.com/x", 1)
+	if pic.State != "pending" {
+		t.Fatalf("封面应为 pending, got %q", pic.State)
+	}
+}

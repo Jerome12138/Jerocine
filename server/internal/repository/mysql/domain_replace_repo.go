@@ -33,7 +33,7 @@ func (r *searchRepo) InsertDomainRuleWithMerge(ctx context.Context, rule reposit
 			Scope: drOrDefault(rule.Scope, "master"), SourceCode: rule.SourceCode,
 			FromHost: rule.FromHost, ToHost: rule.ToHost,
 			SourceKey: rule.SourceKey, SourceURL: rule.SourceURL,
-			AnnouncedAt: rule.AnnouncedAt, State: "pending", SourceNote: rule.SourceNote,
+			AnnouncedAt: rule.AnnouncedAt, State: drOrDefault(rule.State, "pending"), SourceNote: rule.SourceNote,
 			CreatedAt: now, UpdatedAt: now,
 		}
 		// 命中 uk_field_from_to ⇒ 什么都不做（DoNothing 在 MySQL 下生成 ON DUPLICATE KEY UPDATE col=col）
