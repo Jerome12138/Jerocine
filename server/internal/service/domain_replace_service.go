@@ -79,22 +79,23 @@ func (s *FilmService) FetchDomainRules(ctx context.Context, sourceURL string) (D
 	}
 	rules, rejects := macrep.ParseRules(string(body))
 	res.Rejected = len(rejects)
-	// 拉取后把**图片**域名（旧+新）并入前端图床兜底列表 site_config.img_fallback_hosts：
-	// 前端 BaseImage 会把第一项当主图床、其余当备用（onerror 切 host、路径原样保留），
-	// 于是"旧图 404 → 自动切新域名"，替换期间也不会裂图。
-	// 只并 vod_pic；播放/下载域名与图片无关，不进该列表。
-	var picHosts []string
-	for _, r := range rules {
-		if r.Field == macrep.FieldPic {
-			picHosts = append(picHosts, r.FromHost, r.ToHost)
+	// 图床兜底链（site_config.img_fallback_hosts）：
+	// 前端 BaseImage 把第一项当主图床、其余当备用（onerror 切 host、路径原样保留）。
+	// 用户要求（2026-11-25）：**只保留最新 2 个**，每次拉取直接整链替换（不累积历史域名）：
+	//   [ 新域名(主), 旧域名(备) ] —— 取**最新一条 vod_pic 规则**（按公告时间）。
+	// 只处理 vod_pic；播放/下载域名与图片无关，不进该列表。
+	var newest *macrep.Rule
+	for i := range rules {
+		if rules[i].Field != macrep.FieldPic {
+			continue
+		}
+		if newest == nil || rules[i].AnnouncedAt > newest.AnnouncedAt {
+			newest = &rules[i]
 		}
 	}
-	if len(picHosts) > 0 {
-		cur, herr := s.search.GetImgFallbackHosts(ctx)
-		if herr == nil {
-			if merged := mergeImgHosts(cur, picHosts); merged != cur {
-				_ = s.search.SetImgFallbackHosts(ctx, merged)
-			}
+	if newest != nil {
+		if v := buildImgHosts(newest.ToHost, newest.FromHost); v != "" {
+			_ = s.search.SetImgFallbackHosts(ctx, v)
 		}
 	}
 	now := time.Now().UnixMilli()
@@ -220,29 +221,19 @@ func toDomainRuleView(r repository.DomainRule) DomainRuleView {
 	}
 }
 
-// mergeImgHosts 合并图床 host 列表（逗号分隔）：
-//   - 保持**原有顺序**（第一项是主图床，语义不能变）
-//   - 追加新 host 时**去重**（忽略大小写与首尾空白）、忽略空串、只接受裸 host
-//   - 上限 24 个，避免随公告无限增长
+// buildImgHosts 图床兜底链**只保留最新 2 个**：[新域名(主), 旧域名(备)]。
 //
-// 这一条同时满足"自动过滤掉相同的"：同一域名出现多次只保留一次。
-func mergeImgHosts(current string, add []string) string {
-	const maxHosts = 24
-	seen := map[string]bool{}
-	out := make([]string, 0, maxHosts)
-	push := func(h string) {
-		h = strings.ToLower(strings.TrimSpace(h))
-		if h == "" || seen[h] || len(out) >= maxHosts {
-			return
-		}
-		seen[h] = true
-		out = append(out, h)
+// 用户要求（2026-11-25）：不再累积历史域名，每次拉取把整链换成最近的一对。
+// 去重：新==旧 时只留一个。空值忽略（不写空链，避免把已有配置擦掉）。
+func buildImgHosts(primary, backup string) string {
+	p := strings.ToLower(strings.TrimSpace(primary))
+	b := strings.ToLower(strings.TrimSpace(backup))
+	out := make([]string, 0, 2)
+	if p != "" {
+		out = append(out, p)
 	}
-	for _, p := range strings.Split(current, ",") {
-		push(p)
-	}
-	for _, h := range add {
-		push(h)
+	if b != "" && b != p {
+		out = append(out, b)
 	}
 	return strings.Join(out, ",")
 }
@@ -253,11 +244,13 @@ func (s *FilmService) SetDomainRuleState(ctx context.Context, id int64, state, n
 }
 
 // ApplyDomainRule **执行替换**（会改动业务数据），守卫从严：
-//  1. 仅支持 vod_pic：播放/下载地址在 episodes_json（JSON 大列）里，必须按 JSON 逐 url 处理，
-//     属独立路径，尚未开放 —— 明确报错而不是"顺手文本替换"。
-//  2. **二次确认**：confirmFrom/confirmTo 必须与规则逐字一致，否则拒绝（防误触）。
-//  3. 已 applied 的规则拒绝重复执行（幂等；副作用本来就幂等，但不允许重复记账）。
+//  1. 仅支持 vod_pic：播放/下载地址在 episodes_json（JSON 大列）里，必须按 JSON 逐 url 处理；
+//  2. **二次确认**：confirmFrom/confirmTo 必须与规则逐字一致（防误触）；
+//  3. 已 applied 的规则拒绝重复执行；
 //  4. 分批 + 批间 sleep，全程可被 ctx 中断；每批先写审计再更新。
+//
+// 注（P2-4）：审计 INSERT 与 UPDATE **不在同一事务** —— 若 UPDATE 失败会多记一批审计，
+// 但审计"只多不少"且替换本身幂等，重复执行会 0 行命中，故不额外引入事务复杂度。
 func (s *FilmService) ApplyDomainRule(ctx context.Context, id int64, confirmFrom, confirmTo string, batch, sleepMs int) (int64, error) {
 	rule, err := s.search.GetDomainRule(ctx, id)
 	if err != nil {
@@ -270,14 +263,13 @@ func (s *FilmService) ApplyDomainRule(ctx context.Context, id int64, confirmFrom
 		return 0, fmt.Errorf("该规则已标记为已执行")
 	}
 	if strings.TrimSpace(confirmFrom) != rule.FromHost || strings.TrimSpace(confirmTo) != rule.ToHost {
-		return 0, fmt.Errorf("二次确认不匹配：请逐字输入 %s → %s", rule.FromHost, rule.ToHost)
+		return 0, fmt.Errorf("二次确认不匹配：期望 %s → %s", rule.FromHost, rule.ToHost)
 	}
 	n, err := s.search.ApplyCoverReplace(ctx, id, rule.FromHost, rule.ToHost, batch, sleepMs)
 	if err != nil {
 		return n, err
 	}
 	if serr := s.search.SetDomainRuleState(ctx, id, "applied", fmt.Sprintf("已替换 %d 行", n)); serr != nil {
-		// 替换已完成，只是状态没写进去（P2-1）：记日志而不是静默，便于对账
 		log.Printf("[macrep] 规则 %d 已替换 %d 行，但状态更新失败: %v", id, n, serr)
 	}
 	return n, nil

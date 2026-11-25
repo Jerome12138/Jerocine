@@ -544,7 +544,7 @@ onMounted(drLoad)
                 class="jc-hotarea mr-[var(--jc-space-2)] underline text-[var(--jc-danger)]"
                 @click="drOpenApply(r)"
               >执行替换</button>
-              <button type="button" class="jc-hotarea mr-[var(--jc-space-2)] underline" @click="drSetState(r, 'applied')">标记完成</button>
+              <button type="button" class="jc-hotarea mr-[var(--jc-space-2)] underline" @click="drSetState(r, 'applied')" title="仅当你已在别处（如直接改库/原站侧）完成该替换时使用；本工具执行会自动标记">已在他处执行</button>
               <button type="button" class="jc-hotarea underline" @click="drSetState(r, 'rejected')">拒绝</button>
             </td>
           </tr>
