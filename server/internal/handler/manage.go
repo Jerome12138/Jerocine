@@ -1147,12 +1147,13 @@ func (h *Handlers) DomainReplaceFetch(c *gin.Context) {
 
 // DomainReplaceRules GET /manage/domain-replace/rules?state=pending
 func (h *Handlers) DomainReplaceRules(c *gin.Context) {
-	rules, err := h.Film.ListDomainRules(c.Request.Context(), c.Query("state"))
+	rules, pending, stale, err := h.Film.ListDomainRules(c.Request.Context(), c.Query("state"))
 	if err != nil {
 		dto.Fail(c, err)
 		return
 	}
-	dto.OK(c, gin.H{"list": rules})
+	// pending/stale 供管理端红点与告警提示
+	dto.OK(c, gin.H{"list": rules, "pending": pending, "stale": stale})
 }
 
 // DomainReplacePreview GET /manage/domain-replace/rules/:id/preview

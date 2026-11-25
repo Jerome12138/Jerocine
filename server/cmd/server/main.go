@@ -87,6 +87,8 @@ func main() {
 	app.yearVerifySvc.Start(rootCtx)
 	// 启动榜单热度刷新调度(每日 04:00 拉豆瓣榜单 → hot_rank/hot_score)
 	app.hotSvc.Start(rootCtx)
+	// 域名替换：每日拉取公告（**只入库**，不执行任何替换；执行动作由人工触发）
+	app.filmSvc.StartDomainRuleFetcher(rootCtx)
 
 	// 超时收敛: 无超时的 Server 可被慢连接(slowloris)长期占住 fd。
 	// ReadHeaderTimeout 短; Read/Write 长于最坏请求(弹幕聚合 30s 上游/大图上传); Idle 收敛 keep-alive。
@@ -138,6 +140,7 @@ type App struct {
 	spiderSvc     *service.SpiderService
 	backdropSvc   *service.BackdropService
 	yearVerifySvc *service.YearVerifyService
+	filmSvc       *service.FilmService
 	hotSvc        *service.HotService
 	handlers      *handler.Handlers
 }
@@ -291,7 +294,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 
 	return &App{
 		gdb: gdb, cacheRdb: cacheRdb, coordRdb: coordRdb,
-		userSvc: userSvc, spiderSvc: spiderSvc, backdropSvc: backdropSvc, hotSvc: hotSvc, yearVerifySvc: yearVerifySvc,
+		userSvc: userSvc, spiderSvc: spiderSvc, backdropSvc: backdropSvc, hotSvc: hotSvc, yearVerifySvc: yearVerifySvc, filmSvc: filmSvc,
 		handlers: handlers,
 	}, nil
 }

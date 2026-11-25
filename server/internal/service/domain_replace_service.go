@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -111,18 +112,66 @@ func (s *FilmService) FetchDomainRules(ctx context.Context, sourceURL string) (D
 	return res, nil
 }
 
-// ListDomainRules 列出规则（state 空=全部）
-func (s *FilmService) ListDomainRules(ctx context.Context, state string) ([]DomainRuleView, error) {
+// DomainRuleStaleAfter 待处理规则超过该时长即计入"告警"
+const DomainRuleStaleAfter = 7 * 24 * time.Hour
+
+// ListDomainRules 列出规则（state 空=全部），并返回**告警计数**：
+//
+//	pending —— 待处理规则数（前端红点）
+//	stale   —— 其中公告已超过 DomainRuleStaleAfter 仍未处理（强提醒）
+//
+// 计数在内存里算，不额外查库；"命中行数"属于执行影响面，走 Preview 按需拉取。
+func (s *FilmService) ListDomainRules(ctx context.Context, state string) ([]DomainRuleView, int, int, error) {
 	rows, err := s.search.ListDomainRules(ctx, state)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 	out := make([]DomainRuleView, 0, len(rows))
+	pending, stale := 0, 0
+	cutoff := time.Now().Add(-DomainRuleStaleAfter).UnixMilli()
 	for _, r := range rows {
 		out = append(out, toDomainRuleView(r))
+		if r.State == "pending" {
+			pending++
+			if r.AnnouncedAt > 0 && r.AnnouncedAt < cutoff {
+				stale++
+			}
+		}
 	}
-	return out, nil
+	return out, pending, stale, nil
 }
+
+// StartDomainRuleFetcher 每日一次拉取公告（**只入库，绝不执行替换**）。
+// 首次等 DomainFetchInitialDelay 再跑（避免重启风暴打公告站），之后 24h 一轮。
+func (s *FilmService) StartDomainRuleFetcher(ctx context.Context) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[macrep] fetcher panic: %v", r)
+			}
+		}()
+		if !sleepCtx(ctx, DomainFetchInitialDelay) {
+			return
+		}
+		for {
+			if res, err := s.FetchDomainRules(ctx, ""); err != nil {
+				log.Printf("[macrep] 每日拉取失败: %v", err)
+			} else {
+				log.Printf("[macrep] 每日拉取完成: 新增 %d / 覆盖 %d / 拒收 %d（仅入库，未执行替换）",
+					res.New, res.Updated, res.Rejected)
+			}
+			if !sleepCtx(ctx, DomainFetchInterval) {
+				return
+			}
+		}
+	}()
+}
+
+// DomainFetchInitialDelay / DomainFetchInterval 拉取节奏（与 hot worker 同款：启动不立即跑）
+var (
+	DomainFetchInitialDelay = 10 * time.Minute
+	DomainFetchInterval     = 24 * time.Hour
+)
 
 // PreviewDomainRule 影响面预览：**只读**。目前仅实现 vod_pic（封面，实测的主战场）。
 func (s *FilmService) PreviewDomainRule(ctx context.Context, id int64) (DomainPreviewResult, error) {
