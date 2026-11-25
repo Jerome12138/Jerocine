@@ -331,7 +331,6 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     const flightKey = `${key}#${from}-${to}`
     const existing = aggReq.get(flightKey)
     if (existing) return existing
-    console.log('[danmaku] agg request START', key, `range=[${from},${to})`, 'timeout =', DANMAKU_FETCH_TIMEOUTS.aggregate)
     const t0 = performance.now()
     /** 单次请求（带超时）。失败(非 404)时由外层重试 DANMAKU_AGG_RETRIES 次。 */
     const attempt = (): Promise<DanmuAggregateResp> => {
@@ -381,7 +380,6 @@ export function useDanmaku(opts: UseDanmakuOptions) {
     }
     const req = withRetry()
       .then((resp) => {
-        console.log('[danmaku] agg request OK', key, Math.round(performance.now() - t0) + 'ms, comments =', resp?.comments?.length ?? 0, 'total =', resp?.total ?? '?')
         aggReq.delete(flightKey)
         const data = resp?.comments ?? []
         // 分片池合并: 追加新段（去重——同 time+text 的重复条目丢弃, 服务端段边界半开区间理论不重, 双保险）
@@ -403,7 +401,6 @@ export function useDanmaku(opts: UseDanmakuOptions) {
           const first = aggCache.keys().next().value
           if (first !== undefined && first !== key) aggCache.delete(first)
         }
-        console.log('[danmaku] pool merged:', added, 'added,', pool.length, 'total')
         return data
       })
       .catch((err) => {
@@ -571,7 +568,6 @@ export function useDanmaku(opts: UseDanmakuOptions) {
         danmuState.value = 'ready'
         if (opts.enabled.value && pluginWantsShow()) p.show()
       }
-      console.log('[danmaku] segments loaded, pulled =', pulled, ', pool =', lastComments?.length ?? 0)
     } catch (e) {
       // 404 = 查无作品/该集语义态 —— 该集后续段必然同样 404, 置 segFinished 永久停止预取
       // (否则短集片尾缓冲区里每 10s tick 循环请求到切集); 其余(网络/超时)回滚游标下个 tick 重试
@@ -782,7 +778,6 @@ export function useDanmaku(opts: UseDanmakuOptions) {
   )
   /** 诊断日志: 弹幕状态机每次切换都打印(便于排查"弹幕长期不出现") */
   watch(danmuState, (to, from) => {
-    console.log('[danmaku] state:', from, '→', to)
   })
   /** 云端设置合并到此设备(useCloudSettings 广播): 重读设置; 底部/顶部/彩色类变更需重载映射 */
   const onCloudApplied = (): void => {
