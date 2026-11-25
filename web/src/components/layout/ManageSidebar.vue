@@ -56,7 +56,9 @@ const groups: MenuGroup[] = [
     items: [
       { path: '/manage/collect', label: '采集源', icon: 'magic' },
       { path: '/manage/tasks', label: '任务管理', icon: 'eye' },
-      { path: '/manage/cron', label: '定时任务', icon: 'clock' }
+      { path: '/manage/cron', label: '定时任务', icon: 'clock' },
+      { path: '/manage/epid', label: '集身份', icon: 'sparkles' },
+      { path: '/manage/system/domain-replace', label: '域名替换', icon: 'settings' }
     ]
   },
   {
@@ -74,8 +76,6 @@ const groups: MenuGroup[] = [
     title: '系统',
     items: [
       { path: '/manage/system/site', label: '系统设置', icon: 'settings' },
-      { path: '/manage/system/domain-replace', label: '域名替换', icon: 'magic' },
-      { path: '/manage/epid', label: '集身份', icon: 'sparkles' },
       { path: '/manage/register/applies', label: '注册审核', icon: 'shield' },
       { path: '/manage/system/sessions', label: '在线会话', icon: 'history' },
       { path: '/manage/user', label: '用户管理', icon: 'user' }

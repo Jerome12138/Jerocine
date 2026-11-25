@@ -61,6 +61,8 @@ export interface ManageTableProps<U extends Record<string, any>> {
   pageSize?: number
   /** 透传 BasePagination 的桌面页码数, 默认 7 */
   pagerCount?: number
+  /** 操作列固定到右侧（横向滚动时不跟着走） */
+  stickyActions?: boolean
   /** 桌面高度自适应, 默认 true; mobile card 模式忽略 */
   fit?: boolean
   /** fit 模式滚动区最低高度, 默认 '320px' */
@@ -72,6 +74,7 @@ export interface ManageTableProps<U extends Record<string, any>> {
 const props = withDefaults(defineProps<ManageTableProps<T>>(), {
   mobileVariant: 'card',
   actionsWidth: '180px',
+  stickyActions: false,
   pageSize: 20,
   pagerCount: 7,
   fit: true,
@@ -413,6 +416,7 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
               v-if="$slots.actions"
               :style="{ width: props.actionsWidth }"
               class="jc-table__th text-right font-[var(--jc-fw-semibold)] px-[var(--jc-space-4)]"
+              :class="props.stickyActions ? 'sticky right-0 z-[2] bg-surface shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.18)]' : ''"
             >
               操作
             </th>
@@ -422,7 +426,7 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
           <tr
             v-for="row in displayRows"
             :key="String(row[props.rowKey])"
-            class="border-b border-subtle hover:bg-elevated transition-colors"
+            class="group border-b border-subtle hover:bg-elevated transition-colors"
           >
             <td
               v-for="col in props.columns"
@@ -438,7 +442,15 @@ function onFilterOptionClick(col: Column<T>, option: ColumnFilterOption): void {
                 {{ cellValue(row, col) ?? '—' }}
               </slot>
             </td>
-            <td v-if="$slots.actions" class="jc-table__td px-[var(--jc-space-4)] text-right">
+            <td
+              v-if="$slots.actions"
+              class="jc-table__td px-[var(--jc-space-4)] text-right"
+              :class="
+                props.stickyActions
+                  ? 'sticky right-0 z-[1] bg-surface transition-colors group-hover:bg-elevated'
+                  : ''
+              "
+            >
               <slot name="actions" :row="row" />
             </td>
           </tr>

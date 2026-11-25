@@ -194,6 +194,8 @@ export interface DomainPreviewResp {
   rule: DomainRuleView
   hits: number
   sample: { mid: number; before: string; after: string }[]
+  /** 播放规则：命中的采集源 */
+  sites?: string[]
 }
 
 /** POST /manage/domain-replace/fetch 拉取公告（**只写规则表**，不执行替换） */
@@ -261,9 +263,27 @@ export const applyDomainRule = (
   confirmTo: string,
   batch = 2000,
   sleepMs = 30
-): Promise<{ id: number; affected: number }> =>
-  http.post<unknown, { id: number; affected: number }>(
+): Promise<{ id: number; started: boolean }> =>
+  http.post<unknown, { id: number; started: boolean }>(
     `/manage/domain-replace/rules/${id}/apply`,
     { confirmFrom, confirmTo, batch, sleepMs },
     { silent: true }
   )
+
+/** 替换进度（异步任务） */
+export interface DomainRuleProgress {
+  ruleId: number
+  field: string
+  /** running / done / failed / idle */
+  state: string
+  total: number
+  done: number
+  updated: number
+  message: string
+}
+
+/** GET /manage/domain-replace/rules/:id/progress */
+export const domainRuleProgress = (id: number): Promise<DomainRuleProgress> =>
+  http.get<unknown, DomainRuleProgress>(`/manage/domain-replace/rules/${id}/progress`, {
+    silent: true
+  })

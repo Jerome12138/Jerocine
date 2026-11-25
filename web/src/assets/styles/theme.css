@@ -14,11 +14,16 @@
   --jc-bg-header: rgba(11, 11, 15, 0);
   --jc-bg-header-scrolled: rgba(11, 11, 15, 0.92);
 
-  /* ---------- 文本 ---------- */
+  /* ---------- 文本 ----------
+   * 2026-11-25：由"纯白 + 透明度"改为**带冷色调的实心灰阶**。
+   * 原因：深色底上 alpha 白混合后只剩亮度差，小字号/低档位几乎分不出来（用户反馈）；
+   * 实心冷灰同时靠"明度 + 色相"拉开层次，主文本的纯白也更突出。
+   * 明度阶：100% → ~78% → ~60% → ~42%（对应 primary / secondary / muted / disabled）。
+   */
   --jc-text-primary: #ffffff;
-  --jc-text-secondary: rgba(255, 255, 255, 0.78);
-  --jc-text-muted: rgba(255, 255, 255, 0.55);
-  --jc-text-disabled: rgba(255, 255, 255, 0.32);
+  --jc-text-secondary: #c8cedb;
+  --jc-text-muted: #98a2b3;
+  --jc-text-disabled: #6b7280;
   --jc-text-inverse: #0b0b0f;
   --jc-text-link: #4ad1e5;
   --jc-text-link-hover: #9b49e7;

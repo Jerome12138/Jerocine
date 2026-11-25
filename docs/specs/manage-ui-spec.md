@@ -4,6 +4,68 @@
 > 本文档 = 第 1 步方案脑暴（§1 决策记录）+ 第 2 步组件规格（§2~§3）。
 > 对应 TDD 实施计划见 `docs/specs/manage-ui-plan.md`。
 
+## 强制约定（先读）：公共组件与设计令牌优先
+
+> **硬规则**：做界面时，**先用 `web/src/components/base` 与 `web/src/components/manage` 里已有的组件**，
+> 以及 `theme.css` 的设计令牌 / UnoCSS 语义类。**非必要不自己写 DOM + 样式。**
+> 这条优先于"实现得快"，也优先于个人审美偏好。
+
+### 判定流程（按顺序，一步都别跳）
+
+1. **先查有没有**：读 `components/base`、`components/manage` 的 props / slots，确认是否已覆盖该场景。
+2. **只差一点能力** ⇒ 给公共组件加**可选** prop（默认值保持旧行为），不要在页面里复制一份。
+   例：域名替换页需要"操作列固定"，做法是给 `ManageTable` 加 `stickyActions?: boolean`，
+   **不是**在页面里手写一张 `<table>`。
+3. **确实没有** 才在页面内写，并在提交信息里写一句"为什么不能用公共组件"。
+   自写范围仅限"纯布局容器"（如弹窗内的分块、示例列表），且必须复用令牌，不得出现新色值/新字号。
+
+### 场景 → 该用哪个（先看这张表）
+
+| 场景 | 用它 | 位置 |
+|---|---|---|
+| 列表 / 表格 / 分页 / 空态 / 骨架 | `ManageTable` | `components/manage/ManageTable.vue` |
+| 页签（含计数徽标） | `ManageTabs` | `components/manage/ManageTabs.vue` |
+| 状态标签（value→label+variant 映射） | `StatusTag` | `components/manage/StatusTag.vue` |
+| 普通标签 | `BaseTag` | `components/base/BaseTag.vue` |
+| 按钮 | `ManageButton` / `BaseButton` | `components/manage`、`components/base` |
+| 输入 / 下拉 / 多行 / 开关 / 复选 | `ManageInput` / `ManageSelect` / `ManageTextarea` / `ManageSwitch` / `ManageCheckbox` | `components/manage` |
+| 表单行 + footer | `ManageFormField` / `ManageFormActions` | `components/manage` |
+| 弹窗（含右上角关闭） | `openManageDialog` + `ManageSheet` | `composables/useManageDialog` |
+| 二次确认（危险操作） | `confirm`（`useConfirm`）/ `useAsyncAction({confirm})` | `composables/useConfirm` |
+| 加载失败 / 重试 | `ManageErrorState` | `components/manage/ManageErrorState.vue` |
+| 空态 | `BaseEmpty`（或 `ManageTable` 的 `empty`） | `components/base` |
+| 骨架屏 | `BaseSkeleton` / `SkeletonGrid` | `components/base` |
+
+### 样式令牌（不许硬编码颜色和字号）
+
+| 用途 | 令牌 / 类 | 值 |
+|---|---|---|
+| 主文本 | `text-primary` | `#ffffff` |
+| 次文本 | `text-secondary` | `#c8cedb` |
+| 辅助描述 | `text-muted` | `#98a2b3` |
+| 禁用 | `text-disabled` | `#6b7280` |
+| 边框 | `border-subtle` / `border-default` / `border-strong` | 白 6% / 12% / 24% |
+| 背景 | `bg-base` / `bg-surface` / `bg-elevated` / `bg-subtle` | 见 `theme.css` |
+| 间距 / 圆角 / 字号 | `--jc-space-*` / `--jc-radius-*` / `--jc-fs-*` | 见 `theme.css` |
+
+**禁止**：`#xxxxxx` / `rgba(...)` 直接写在页面里、`text-[18px]` 这类拍脑袋字号、复制公共组件改一份、
+自己画一套表格/页签/分页/按钮/状态标签。
+
+### 反面案例（2026-11-25，域名替换页）
+
+第一版页面自写了 `<table>`、页签按钮、状态映射、空的加载/失败容器；被指出后全部替换：
+
+- 表格 → `ManageTable`（并给它补 `stickyActions`，而不是页面里做固定列）
+- 页签 → `ManageTabs`（计数用组件 `count`，不再手写选中态）
+- 状态 → `StatusTag`（映射表只留一份）
+- 加载失败 → `ManageErrorState`
+- 按钮 → `ManageButton`（不再用"下划线文字"当按钮）
+- 文字颜色 → `text-primary/secondary/muted`（并顺手把全站"纯白+透明度"换成冷灰阶）
+
+代价对比：自写版改了 6 轮样式仍然不达标；换公共组件后一轮就对齐了其他页面。
+
+---
+
 ## 0. 背景与硬性需求映射
 
 用户硬性需求 → 本规格条目：
