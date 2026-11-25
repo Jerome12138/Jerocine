@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"server/internal/domain/repository"
 	"server/internal/tmdb"
@@ -96,6 +97,7 @@ func (s *YearVerifyService) tick(ctx context.Context) {
 	if len(rows) == 0 {
 		return
 	}
+	thisYear := time.Now().Year()
 	fixed, unchanged, untouched := 0, 0, 0
 	for _, m := range rows {
 		if ctx.Err() != nil {
@@ -109,6 +111,13 @@ func (s *YearVerifyService) tick(ctx context.Context) {
 		y, title, serr := s.client.SearchYearNamed(ctx, query)
 		if serr != nil || y <= 0 || !yearVerifySameName(m.Name, title) {
 			untouched++ // 网络错误 / 无命中 / 误命中：一律不动
+			continue
+		}
+		// ⚠️ P1 修复（2026-11-25 审查）：SetYear 是**直接 UPDATE**，不走 yearUpsertExpr 的守卫，
+		// 故必须在此再守一道，否则 TMDB 给出未来年会**绕过**第 1/2 层建立的钳制。
+		// 取"<= 今年"的保守口径：未来年份属于"待映"，写进库没有业务意义，宁可不动。
+		if y < 1900 || y > thisYear {
+			untouched++
 			continue
 		}
 		if y == m.Year {
@@ -138,12 +147,32 @@ func yearVerifyQueryName(name string) string {
 
 // yearVerifySameName 同名判定：规范化后相等或互相包含。
 // 用于挡住 TMDB 模糊检索的误命中（实测「勇者时代」→「勇敢者的预算超支时代」2017）。
+// 守卫：包含关系只在**长度接近**时采信 —— 否则本地「超人」会被 TMDB「超人总动员」误命中
+// （实测反例：Contains 判定会放行跨作品匹配，从而把别人的年份写进来）。
+// 阈值 0.6：挡住 超人/超人总动员(2/5=0.4)，放行 流浪地球3/流浪地球3(上)(5/8=0.625，
+// 注意全角括号只是转半角、**不去掉**，故长度按 8 计)。
+const yearVerifyNameMinRatio = 0.6
+
 func yearVerifySameName(local, remote string) bool {
 	a, b := yearVerifyNorm(local), yearVerifyNorm(remote)
 	if a == "" || b == "" {
 		return false
 	}
-	return a == b || strings.Contains(a, b) || strings.Contains(b, a)
+	if a == b {
+		return true
+	}
+	la, lb := utf8.RuneCountInString(a), utf8.RuneCountInString(b)
+	if la == 0 || lb == 0 {
+		return false
+	}
+	minL, maxL := la, lb
+	if minL > maxL {
+		minL, maxL = maxL, minL
+	}
+	if float64(minL)/float64(maxL) < yearVerifyNameMinRatio {
+		return false
+	}
+	return strings.Contains(a, b) || strings.Contains(b, a)
 }
 
 func yearVerifyNorm(s string) string {
