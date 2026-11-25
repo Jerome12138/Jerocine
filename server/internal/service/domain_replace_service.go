@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"server/internal/domain/repository"
@@ -177,7 +178,54 @@ func (s *FilmService) FetchDomainRules(ctx context.Context, sourceURL string) (D
 		res.New++
 		res.Merged += int(merged)
 	}
+	invalidateDomainStats()
 	return res, nil
+}
+
+// 规则统计缓存：全量聚合在规则表变大后会变贵，列表页每 10s 最多算一次；
+// 任何写操作（拉取/新增/编辑/改状态/执行）都会立即让它失效。
+const domainStatsTTL = 10 * time.Second
+
+var domainStatsCache struct {
+	mu     sync.Mutex
+	at     time.Time
+	counts map[string]int64
+	total  int64
+	stale  int64
+}
+
+func invalidateDomainStats() {
+	domainStatsCache.mu.Lock()
+	domainStatsCache.at = time.Time{}
+	domainStatsCache.counts = nil
+	domainStatsCache.mu.Unlock()
+}
+
+func (s *FilmService) domainStats(ctx context.Context) (map[string]int64, int64, int64, error) {
+	domainStatsCache.mu.Lock()
+	if !domainStatsCache.at.IsZero() && time.Since(domainStatsCache.at) < domainStatsTTL {
+		c := make(map[string]int64, len(domainStatsCache.counts))
+		for k, v := range domainStatsCache.counts {
+			c[k] = v
+		}
+		total, stale := domainStatsCache.total, domainStatsCache.stale
+		domainStatsCache.mu.Unlock()
+		return c, total, stale, nil
+	}
+	domainStatsCache.mu.Unlock()
+
+	cutoff := time.Now().Add(-DomainRuleStaleAfter).UnixMilli()
+	counts, total, stale, err := s.search.DomainRuleStats(ctx, cutoff)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	domainStatsCache.mu.Lock()
+	domainStatsCache.at = time.Now()
+	domainStatsCache.counts = counts
+	domainStatsCache.total = total
+	domainStatsCache.stale = stale
+	domainStatsCache.mu.Unlock()
+	return counts, total, stale, nil
 }
 
 // DomainRuleStaleAfter 待处理规则超过该时长即计入"告警"
@@ -198,9 +246,8 @@ func (s *FilmService) ListDomainRules(ctx context.Context, state, keyword string
 	for _, r := range rows {
 		out = append(out, toDomainRuleView(r))
 	}
-	// 计数走全量聚合，不受分页/筛选影响
-	cutoff := time.Now().Add(-DomainRuleStaleAfter).UnixMilli()
-	counts, _, stale, err := s.search.DomainRuleStats(ctx, cutoff)
+	// 计数走全量聚合（带 10s 缓存），不受分页/筛选影响
+	counts, _, stale, err := s.domainStats(ctx)
 	if err != nil {
 		return nil, 0, nil, 0, err
 	}
@@ -348,7 +395,11 @@ func (s *FilmService) SetDomainRuleState(ctx context.Context, id int64, state, n
 	if !domainRuleStates[state] {
 		return fmt.Errorf("未知状态: %s", state)
 	}
-	return s.search.SetDomainRuleState(ctx, id, state, note)
+	err := s.search.SetDomainRuleState(ctx, id, state, note)
+	if err == nil {
+		invalidateDomainStats()
+	}
+	return err
 }
 
 // DomainManualRule 管理端**手工录入/修改**一条规则（只写规则表，不动业务数据）。
@@ -483,6 +534,7 @@ func (s *FilmService) UpsertManualDomainRule(ctx context.Context, in DomainManua
 	if !created {
 		return fmt.Errorf("已存在相同规则（%s %s → %s），如需改目标请编辑那一条", field, from, to)
 	}
+	invalidateDomainStats()
 	return nil
 }
 
@@ -535,13 +587,17 @@ func (s *FilmService) EditDomainRule(ctx context.Context, id int64, in DomainMan
 	if field != cur.Field || from != cur.FromHost || to != cur.ToHost {
 		state = "pending"
 	}
-	return s.search.UpdateDomainRule(ctx, id, repository.DomainRule{
+	err = s.search.UpdateDomainRule(ctx, id, repository.DomainRule{
 		Field: field, FieldLabel: fieldLabel(field), RuleType: ruleTypeOf(field),
 		Scope: scope, SourceCode: code,
 		SourceKey: clipRunes(cur.SourceKey, 32), SourceURL: clipRunes(cur.SourceURL, 512),
 		FromHost: from, ToHost: to,
 		AnnouncedAt: at, SourceNote: clipRunes(strings.TrimSpace(in.SourceNote), 255), State: state,
 	})
+	if err == nil {
+		invalidateDomainStats()
+	}
+	return err
 }
 
 // validAnnouncedAt 公告日期只接受 2000-01-01 ~ 现在+1 天，挡住明显的手误（如 20261-01-01）。
@@ -584,6 +640,7 @@ func (s *FilmService) ApplyDomainRule(ctx context.Context, id int64, confirmFrom
 		log.Printf("[macrep] 规则 %d 已替换 %d 行，但状态更新失败: %v", id, n, serr)
 	}
 	// 同域名还有别的目标待处理时，给它们加提示（不改状态，避免误删人工判断）
+	invalidateDomainStats()
 	if m, aerr := s.search.AnnotateSiblingRules(ctx, rule.Field, rule.FromHost, rule.ToHost, id); aerr != nil {
 		log.Printf("[macrep] 规则 %d 执行后给同域名规则加提示失败: %v", id, aerr)
 	} else if m > 0 {

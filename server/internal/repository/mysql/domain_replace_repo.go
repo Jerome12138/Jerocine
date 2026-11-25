@@ -108,21 +108,20 @@ func (r *searchRepo) DomainRuleStats(ctx context.Context, staleBefore int64) (co
 	var rows []struct {
 		State string
 		N     int64
+		Stale int64
 	}
-	if err = dbFrom(ctx, r.db).Model(&domainReplaceRulePO{}).
-		Select("state, COUNT(*) AS n").Group("state").Scan(&rows).Error; err != nil {
+	// 一条 SQL 同时拿到各状态计数与超期数（避免两次全表聚合）
+	q := dbFrom(ctx, r.db).Model(&domainReplaceRulePO{}).
+		Select("state, COUNT(*) AS n, SUM(CASE WHEN state = ? AND announced_at > 0 AND announced_at < ? THEN 1 ELSE 0 END) AS stale",
+			"pending", staleBefore).
+		Group("state")
+	if err = q.Scan(&rows).Error; err != nil {
 		return
 	}
 	for _, x := range rows {
 		counts[x.State] = x.N
 		total += x.N
-	}
-	if staleBefore > 0 {
-		if err = dbFrom(ctx, r.db).Model(&domainReplaceRulePO{}).
-			Where("state = ? AND announced_at > 0 AND announced_at < ?", "pending", staleBefore).
-			Count(&stale).Error; err != nil {
-			return
-		}
+		stale += x.Stale
 	}
 	return
 }
@@ -162,13 +161,13 @@ func (r *searchRepo) ListDomainRules(ctx context.Context, state, keyword string,
 	return out, total, nil
 }
 
-// AnnotateSiblingRules 执行替换后，给同域名的**其它**待处理规则加一条提示：
-// 不改状态、不覆盖人工备注（只覆盖空备注或上一次同款提示）。
+// AnnotateSiblingRules 执行替换后，给同域名的**其它**待处理规则加一条提示。
+// 只写"备注为空"的行：管理员写过备注说明已经人工看过，绝不覆盖。
 func (r *searchRepo) AnnotateSiblingRules(ctx context.Context, field, fromHost, appliedTo string, keepID int64) (int64, error) {
 	note := fmt.Sprintf("注意：同域名已按 %s 执行（#%d），本规则目标不同，请复核", appliedTo, keepID)
 	res := dbFrom(ctx, r.db).Model(&domainReplaceRulePO{}).
-		Where("field = ? AND from_host = ? AND id <> ? AND state = ? AND to_host <> ? AND (note = '' OR note LIKE ?)",
-			field, fromHost, keepID, "pending", appliedTo, "注意：同域名已按%").
+		Where("field = ? AND from_host = ? AND id <> ? AND state = ? AND to_host <> ? AND note = ''",
+			field, fromHost, keepID, "pending", appliedTo).
 		Updates(map[string]interface{}{"note": note, "updated_at": nowMilli()})
 	return res.RowsAffected, res.Error
 }
