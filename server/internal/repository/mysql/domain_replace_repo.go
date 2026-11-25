@@ -42,14 +42,38 @@ func (r *searchRepo) InsertDomainRuleWithMerge(ctx context.Context, rule reposit
 			return res.Error
 		}
 		if res.RowsAffected == 0 {
-			if err := tx.Model(&domainReplaceRulePO{}).
-				Where("field = ? AND from_host = ? AND to_host = ?", rule.Field, rule.FromHost, rule.ToHost).
-				Pluck("id", &id).Error; err != nil {
-				return err
-			}
-			if id == 0 {
+			var cur domainReplaceRulePO
+			if err := tx.Where("field = ? AND from_host = ? AND to_host = ?",
+				rule.Field, rule.FromHost, rule.ToHost).First(&cur).Error; err != nil {
 				// 冲突却没查到行 = 不该发生；宁可报错，也不要把这条规则静默当成"已存在"丢掉
-				return fmt.Errorf("规则写入未生效且查不到已有行（%s %s → %s）", rule.Field, rule.FromHost, rule.ToHost)
+				return fmt.Errorf("规则写入未生效且查不到已有行（%s %s → %s）: %w",
+					rule.Field, rule.FromHost, rule.ToHost, err)
+			}
+			id = cur.ID
+			// **目标回退**：源站把目标改回了历史值（之前这条被判"已被取代"）⇒ 复活为待处理，
+			// 并把别的待处理行归档 —— 否则库里会留一条指向旧目标的 pending，误导执行。
+			// 人工决策（skipped/rejected/applied）一律尊重，不复活。
+			if cur.State == "merged" {
+				if err := tx.Model(&domainReplaceRulePO{}).Where("id = ?", id).
+					Updates(map[string]interface{}{
+						"state":      "pending",
+						"note":       "目标恢复为本次公告值",
+						"updated_at": now,
+					}).Error; err != nil {
+					return err
+				}
+				mres := tx.Model(&domainReplaceRulePO{}).
+					Where("field = ? AND from_host = ? AND scope = ? AND source_code = ? AND id <> ? AND state = ? AND to_host <> ?",
+						rule.Field, rule.FromHost, drOrDefault(cur.Scope, "master"), cur.SourceCode, id, "pending", rule.ToHost).
+					Updates(map[string]interface{}{
+						"state":      "merged",
+						"note":       fmt.Sprintf("目标已变更，被 #%d 取代（历史保留）", id),
+						"updated_at": now,
+					})
+				if mres.Error != nil {
+					return mres.Error
+				}
+				merged = mres.RowsAffected
 			}
 			return nil
 		}
@@ -117,7 +141,7 @@ func (r *searchRepo) ListDomainRules(ctx context.Context, state, keyword string,
 			q = q.Where("state = ?", state)
 		}
 		if kw := strings.TrimSpace(keyword); kw != "" {
-			like := "%" + kw + "%"
+			like := likeContains(kw)
 			q = q.Where("from_host LIKE ? OR to_host LIKE ? OR source_note LIKE ?", like, like, like)
 		}
 		return q
@@ -364,6 +388,12 @@ func (r *searchRepo) UpdateDomainRule(ctx context.Context, id int64, rule reposi
 			"state":        rule.State,
 			"updated_at":   nowMilli(),
 		}).Error
+}
+
+// likeContains 转义 LIKE 通配符（用户搜 "100%" 时不该变成任意匹配）。
+func likeContains(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return "%" + r.Replace(s) + "%"
 }
 
 // drOrDefault 空串取默认值（scope 的默认是 master）。

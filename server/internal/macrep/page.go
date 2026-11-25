@@ -135,7 +135,7 @@ func announcedMilli(t int64) int64 {
 
 // opsRe 源站备注里的内部发布标记，形如 [ops:liangzi-play-cdnlz28]。
 // 那是给站长自己看的发布凭据，对下游没有价值 ⇒ 写库前直接剥掉（不单独存列，也不留在备注里）。
-var opsRe = regexp.MustCompile(`ops:[a-z0-9-]+`)
+var opsRe = regexp.MustCompile(`\[?\s*ops:[a-z0-9-]+\s*\]?`)
 
 // stripOpsTag 去掉备注里的 [ops:xxx] 片段，并把因此产生的多余空白/分隔符收干净。
 func stripOpsTag(note string) string {
@@ -143,6 +143,6 @@ func stripOpsTag(note string) string {
 	if out == "" {
 		return ""
 	}
-	out = strings.ReplaceAll(out, "["+opsRe.FindString(out)+"]", "")
+	out = opsRe.ReplaceAllString(out, "")
 	return strings.Trim(strings.Join(strings.Fields(out), " "), " -—,，;；")
 }

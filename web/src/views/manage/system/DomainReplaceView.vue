@@ -63,7 +63,9 @@ const stateText: Record<string, string> = {
 const pages = computed(() => Math.max(1, Math.ceil(total.value / size)))
 
 function tabCount(key: string): number {
-  return key ? (counts.value[key] ?? 0) : total.value
+  if (key) return counts.value[key] ?? 0
+  // 与其它页签同口径：全量各状态之和（搜索时不受筛选影响）；分页仍看 total
+  return Object.values(counts.value).reduce((a, b) => a + b, 0)
 }
 
 function scopeText(r: DomainRuleView): string {

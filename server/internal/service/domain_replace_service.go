@@ -463,13 +463,19 @@ func (s *FilmService) UpsertManualDomainRule(ctx context.Context, in DomainManua
 		code = ""
 	}
 	now := time.Now().UnixMilli()
+	// 与拉取同一口径：本库根本不存的字段（如下载地址）入库即了结
+	state, note := "pending", ""
+	if tg := fieldTarget(field); tg.Column == "" && !tg.Executable {
+		state, note = "skipped", tg.Note
+	}
 	created, _, _, err := s.search.InsertDomainRuleWithMerge(ctx, repository.DomainRule{
 		Field: field, FieldLabel: fieldLabel(field), RuleType: ruleTypeOf(field),
 		Scope: scope, SourceCode: code,
 		SourceKey: "manual", SourceURL: "",
 		FromHost: from, ToHost: to, AnnouncedAt: at,
 		SourceNote: clipRunes(strings.TrimSpace(in.SourceNote), 255),
-		CreatedAt:  now, UpdatedAt: now,
+		State:      state, Note: note,
+		CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
 		return err
@@ -560,6 +566,9 @@ func (s *FilmService) ApplyDomainRule(ctx context.Context, id int64, confirmFrom
 	}
 	if rule.Field != macrep.FieldPic {
 		return 0, fmt.Errorf("暂只支持封面(vod_pic)执行；%s 位于 JSON 大列，需按 url 逐条处理，尚未开放", rule.Field)
+	}
+	if rule.Scope != "" && rule.Scope != "master" {
+		return 0, fmt.Errorf("封面只可能来自主站，这条规则的范围是 %s，请先改成主站", rule.Scope)
 	}
 	if rule.State == "applied" {
 		return 0, fmt.Errorf("该规则已标记为已执行")

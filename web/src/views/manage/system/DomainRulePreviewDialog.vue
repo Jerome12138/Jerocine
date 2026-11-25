@@ -71,7 +71,10 @@ onMounted(load)
 
       <p v-if="rule.supported" class="text-sm">
         命中 <strong class="text-lg">{{ hits }}</strong> 行
-        <span v-if="hits === 0" class="text-xs text-secondary">
+        <span v-if="hits === 0 && rule.state === 'applied'" class="text-xs text-secondary">
+          —— 该规则已执行过，命中 0 行属正常
+        </span>
+        <span v-else-if="hits === 0" class="text-xs text-secondary">
           —— 库里没有该旧域名，说明我们没采集到，可以标「无需替换」
         </span>
       </p>

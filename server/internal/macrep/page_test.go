@@ -123,3 +123,18 @@ func TestSourceKeyFromURL(t *testing.T) {
 		}
 	}
 }
+
+// ops 标记可能出现在备注里（甚至多段），写库前全部剥掉。
+func TestStripOpsTag(t *testing.T) {
+	cases := map[string]string{
+		"域名迁移 [ops:liangzi-play-cdnlz28]": "域名迁移",
+		"[ops:a-1] 两个 [ops:b-2]":          "两个",
+		"无标记的备注":                          "无标记的备注",
+		"":                                "",
+	}
+	for in, want := range cases {
+		if got := stripOpsTag(in); got != want {
+			t.Fatalf("stripOpsTag(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
