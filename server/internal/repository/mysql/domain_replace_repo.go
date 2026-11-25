@@ -144,3 +144,16 @@ type movieSearchPO struct {
 func (movieSearchPO) TableName() string { return "movie_search" }
 
 var _ = gorm.ErrRecordNotFound
+
+// GetImgFallbackHosts 读 site_config.img_fallback_hosts（单行站点配置）。
+func (r *searchRepo) GetImgFallbackHosts(ctx context.Context) (string, error) {
+	var v string
+	err := dbFrom(ctx, r.db).Raw("SELECT COALESCE(img_fallback_hosts, '') FROM site_config ORDER BY id LIMIT 1").Scan(&v).Error
+	return v, err
+}
+
+// SetImgFallbackHosts 写回 site_config.img_fallback_hosts（只更新现有行，不新建站点）。
+func (r *searchRepo) SetImgFallbackHosts(ctx context.Context, v string) error {
+	return dbFrom(ctx, r.db).Exec(
+		"UPDATE site_config SET img_fallback_hosts = ?, updated_at = ?", v, nowMilli()).Error
+}

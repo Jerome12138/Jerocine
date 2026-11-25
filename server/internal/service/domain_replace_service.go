@@ -78,6 +78,24 @@ func (s *FilmService) FetchDomainRules(ctx context.Context, sourceURL string) (D
 	}
 	rules, rejects := macrep.ParseRules(string(body))
 	res.Rejected = len(rejects)
+	// 拉取后把**图片**域名（旧+新）并入前端图床兜底列表 site_config.img_fallback_hosts：
+	// 前端 BaseImage 会把第一项当主图床、其余当备用（onerror 切 host、路径原样保留），
+	// 于是"旧图 404 → 自动切新域名"，替换期间也不会裂图。
+	// 只并 vod_pic；播放/下载域名与图片无关，不进该列表。
+	var picHosts []string
+	for _, r := range rules {
+		if r.Field == macrep.FieldPic {
+			picHosts = append(picHosts, r.FromHost, r.ToHost)
+		}
+	}
+	if len(picHosts) > 0 {
+		cur, herr := s.search.GetImgFallbackHosts(ctx)
+		if herr == nil {
+			if merged := mergeImgHosts(cur, picHosts); merged != cur {
+				_ = s.search.SetImgFallbackHosts(ctx, merged)
+			}
+		}
+	}
 	now := time.Now().UnixMilli()
 	for _, r := range rules {
 		isNew, uerr := s.search.UpsertDomainRule(ctx, domainRuleFromParsed(r, sourceURL, now))
@@ -151,4 +169,31 @@ func toDomainRuleView(r repository.DomainRule) DomainRuleView {
 		ID: r.ID, Field: r.Field, FromHost: r.FromHost, ToHost: r.ToHost,
 		OpsTag: r.OpsTag, AnnouncedAt: r.AnnouncedAt, State: r.State, Note: r.Note,
 	}
+}
+
+// mergeImgHosts 合并图床 host 列表（逗号分隔）：
+//   - 保持**原有顺序**（第一项是主图床，语义不能变）
+//   - 追加新 host 时**去重**（忽略大小写与首尾空白）、忽略空串、只接受裸 host
+//   - 上限 24 个，避免随公告无限增长
+//
+// 这一条同时满足"自动过滤掉相同的"：同一域名出现多次只保留一次。
+func mergeImgHosts(current string, add []string) string {
+	const maxHosts = 24
+	seen := map[string]bool{}
+	out := make([]string, 0, maxHosts)
+	push := func(h string) {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h == "" || seen[h] || len(out) >= maxHosts {
+			return
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	for _, p := range strings.Split(current, ",") {
+		push(p)
+	}
+	for _, h := range add {
+		push(h)
+	}
+	return strings.Join(out, ",")
 }

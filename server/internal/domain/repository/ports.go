@@ -98,6 +98,10 @@ type SearchRepository interface {
 	SetDomainRuleState(ctx context.Context, id int64, state, note string) error
 	CountCoverHost(ctx context.Context, host string) (int64, error)
 	PreviewCoverReplace(ctx context.Context, fromHost, toHost string, limit int) ([]PicPreview, error)
+	// GetImgFallbackHosts / SetImgFallbackHosts 读写 site_config.img_fallback_hosts
+	//（前端 BaseImage 的图床兜底列表：第一项主图床，其余备用，路径原样保留）。
+	GetImgFallbackHosts(ctx context.Context) (string, error)
+	SetImgFallbackHosts(ctx context.Context, v string) error
 	// TopHotAll 全站跨类别热榜(首页「热门榜单」行, 不按 pid) —— 与分类页排行榜共用同一排序键。
 	TopHotAll(ctx context.Context, limit int) ([]entity.MovieSearch, error)
 	// TopScoreByPid 某一级分类的高分榜(口径见 docs/榜单热度方案 §3.5: db_score > 0 且排除"解说")。
