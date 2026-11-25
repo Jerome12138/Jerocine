@@ -8,9 +8,17 @@
  * 本模块选择**附加式**方案：不改 hls.js 的加载路径，只在旁边并发预取**接下来的 N 个分片**，
  * 使 hls.js 真正去取时命中浏览器 HTTP 缓存（若源站/CDN 允许缓存）。
  *
+ * 锚点（2026-11-25 线上修复）：
+ *  **以"hls 正在加载的分片"为基准**（FRAG_LOADING），预取它后面的 N 个 —— 而不是以"正在播放的分片"
+ *  为基准（FRAG_CHANGED）。后者永远落在 hls 已经缓冲好的区间里，白下流量；线上表现就是
+ *  "刚开开关时并发了一下（全打在已缓冲分片上），之后一直是一个一个地拉"。
+ *
  * 安全设计（四条）：
- *  1. **自检可缓存性**：首次预取后检查 `Cache-Control`；出现 `no-store`/`no-cache`/`private`
- *     直接**自我禁用**，避免"预取一遍 + hls.js 再下一遍"把流量翻倍。
+ *  1. **自检可缓存性**：首次预取后检查 `Cache-Control`：
+ *     - `no-store` ⇒ 完全不缓存，预取只会让流量翻倍 ⇒ **自我禁用**；
+ *     - `no-cache` / `private` ⇒ **允许**（浏览器仍会存；`no-cache` 只是要重新校验，
+ *       源站带 ETag 时 hls.js 拿到 304，只多一个 RTT，body 不必重下）。
+ *     早期版本把 `no-cache` 也当成不可缓存而永久禁用，导致大量源站"只并发一次就退化"。
  *  2. **在途合并**：同一 URL 只发一个请求（Map<url, Promise>），重复触发不重复下载。
  *  3. **可取消**（2026-11-25 评审补充）：每个请求都带 AbortController；**用户跳转/换 level/销毁/
  *     预取被裁剪**时立即 abort —— 否则会继续下载"用户已经跳过的分片"，纯浪费带宽。
@@ -27,8 +35,8 @@ export interface PrefetchFragment {
 export interface SegmentPrefetcher {
   /** 告知当前分片列表 —— 由 hls.js 的 LEVEL_LOADED 驱动；换 level 会取消在途预取 */
   onLevel(fragments: PrefetchFragment[]): void
-  /** 告知正在播的分片下标 —— 由 FRAG_CHANGED 驱动；发生跳转（seek）时取消在途预取 */
-  onPlaying(index: number): void
+  /** 告知 hls **正在加载**的分片下标 —— 由 FRAG_LOADING 驱动；发生跳转/换集时取消在途预取 */
+  onLoading(index: number): void
   /** 档位变化时调整预取深度（0 = 清空并关闭） */
   setAhead(n: number): void
   /** 该会话是否仍在预取（自检未禁用） */
@@ -45,6 +53,9 @@ interface Opts {
   maxEntries?: number
 }
 
+/** 单个预取请求的最长等待：超时即中止，避免 inflight 卡死把后续预取全堵住 */
+const PREFETCH_TIMEOUT_MS = 30000
+
 export function createSegmentPrefetcher(opts: Opts): SegmentPrefetcher {
   let ahead = Math.max(0, opts.ahead)
   const maxInflight = opts.maxInflight ?? 3
@@ -52,6 +63,8 @@ export function createSegmentPrefetcher(opts: Opts): SegmentPrefetcher {
 
   let fragments: PrefetchFragment[] = []
   let playing = -1
+  /** 已经预取到的最远分片下标：避免连续加载时把同一个后续分片重复预取 */
+  let prefetchedUpTo = -1
   let disabled = false
   let inflight = 0
   const pending = new Map<string, Promise<void>>()
@@ -81,16 +94,24 @@ export function createSegmentPrefetcher(opts: Opts): SegmentPrefetcher {
     }
   }
 
-  function prefetch(url: string): void {
-    if (disabled || inflight >= maxInflight || pending.has(url)) return
+  /**
+   * 发起一个预取，返回"该分片是否已被覆盖"：
+   *   true  = 本次发起成功，或已在途（pending 命中）；
+   *   false = 因禁用/并发上限没发起 —— 调用方**不能**推进水位，否则这个分片永远补不上。
+   */
+  function prefetch(url: string): boolean {
+    if (disabled) return false
+    if (pending.has(url)) return true
+    if (inflight >= maxInflight) return false
     const ctrl = new AbortController()
     controllers.set(url, ctrl)
     inflight += 1
+    const timer = window.setTimeout(() => ctrl.abort(), PREFETCH_TIMEOUT_MS)
     const p = fetch(url, { credentials: 'omit', signal: ctrl.signal })
       .then((res) => {
-        // 自检：源站明确不允许缓存 ⇒ 预取无意义且会双倍流量，立即禁用
+        // 自检：只有 no-store 才值得禁用（no-cache/private 浏览器仍会存，最多多一次 304 校验）
         const cc = (res.headers.get('cache-control') || '').toLowerCase()
-        if (cc.includes('no-store') || cc.includes('no-cache') || cc.includes('private')) {
+        if (cc.includes('no-store')) {
           disabled = true
           abortAll()
           return
@@ -99,40 +120,53 @@ export function createSegmentPrefetcher(opts: Opts): SegmentPrefetcher {
       })
       .catch(() => undefined) // 含 AbortError：取消是预期行为，不视为错误
       .finally(() => {
+        window.clearTimeout(timer)
         inflight = Math.max(0, inflight - 1)
         pending.delete(url)
         controllers.delete(url)
+        // 腾出并发位就立刻补下一个（disabled 时 pump 内部直接返回）
+        pump()
       })
     pending.set(url, p)
     trim()
+    return true
   }
 
   function pump(): void {
     if (disabled || ahead <= 0 || playing < 0 || fragments.length === 0) return
     for (let k = 1; k <= ahead; k += 1) {
-      const f = fragments[playing + k]
+      const idx = playing + k
+      const f = fragments[idx]
       if (!f?.url) continue
-      prefetch(f.url)
+      // 已经在更早一轮预取过 ⇒ 跳过（否则 ahead=2 时每个分片会被预取两次）
+      if (idx <= prefetchedUpTo) continue
+      if (prefetch(f.url)) prefetchedUpTo = idx
     }
   }
 
   return {
     onLevel(list: PrefetchFragment[]): void {
       fragments = Array.isArray(list) ? list : []
-      // 换 level（清晰度切换）⇒ 旧 level 的分片 URL 基本作废，取消在途
+      // 换 level（清晰度切换）⇒ 旧 level 的分片 URL 基本作废，取消在途，预取水位清零
       abortAll()
+      prefetchedUpTo = -1
       pump()
     },
-    onPlaying(index: number): void {
-      // 非连续前进 = 用户 seek/跳集 ⇒ 之前预取的分片多半已被跳过，取消以省流量
-      if (playing >= 0 && Math.abs(index - playing) > ahead + 1) {
+    onLoading(index: number): void {
+      // 非连续跳变 = 用户 seek / 换集 / 换清晰度 ⇒ 之前预取的分片多半已被跳过，取消以省流量
+      // 往前大幅跳 / 任何往回退 ⇒ 之前的水位不再适用
+      if (playing >= 0 && (index < playing || Math.abs(index - playing) > ahead + 1)) {
         abortAll()
+        prefetchedUpTo = -1
       }
       playing = index
       pump()
     },
     setAhead(n: number): void {
-      ahead = Math.max(0, n)
+      const next = Math.max(0, n)
+      if (next === ahead) return
+      ahead = next
+      prefetchedUpTo = -1 // 档位变了：按新深度重新算
       if (ahead === 0) {
         abortAll() // 已含 clear
         return

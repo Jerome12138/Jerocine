@@ -456,8 +456,10 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       })
 
       // ---- 并发分片预取（2026-11-25）----
-      // 附加式：不改 hls.js 的加载链路，只并发预热"接下来的 N 个分片"，
-      // 让 hls.js 真去取时命中浏览器 HTTP 缓存。源站若 no-store 会自我禁用（避免流量翻倍）。
+      // 附加式：不改 hls.js 的加载链路，只并发预热"hls 正在加载的那个分片之后的 N 个"，
+      // 让 hls.js 真去取时命中浏览器 HTTP 缓存（no-cache 源站最多多一次 304 校验）。
+      // 只有 no-store 才自我禁用。锚点必须是 FRAG_LOADING（加载前线），不能用 FRAG_CHANGED
+      //（播放位置永远在缓冲区后面，会白下已缓冲的分片 —— 2026-11-25 线上踩过）。
       // 档位越高越激进；省流/标准 保持 0 = 完全关闭，与前行为一致。
       // 注意：这两个声明必须放在下面 watch 之前（评审指出"先用后声明"顺序脆弱）。
       const prefetchAheadByTier = (tier: number): number => [0, 0, 2, 4][tier] ?? 0
@@ -483,10 +485,13 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
           /* 结构变动时静默：预取只是优化，绝不影响播放 */
         }
       })
-      hls.on(Hls.Events.FRAG_CHANGED, (_e, data) => {
+      hls.on(Hls.Events.FRAG_LOADING, (_e, data) => {
         try {
           const url = data?.frag?.url
-          if (url) prefetcher.onPlaying(prefetchFragments.findIndex((f) => f.url === url))
+          if (!url) return
+          // 只认主列表里的分片（音轨/字幕的 frag 不在 prefetchFragments 里，findIndex 返回 -1 自动跳过）
+          const idx = prefetchFragments.findIndex((f) => f.url === url)
+          if (idx >= 0) prefetcher.onLoading(idx)
         } catch {
           /* 同上 */
         }
