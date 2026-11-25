@@ -22,6 +22,20 @@ function resetAll(): void {
   setAutoPlayNext(true)
 }
 
+/**
+ * 把快照 "k=v;k=v" 解析成 map。
+ * 不要断言整串 —— 新增设置项（如 bufferTier）会合法地追加键，整串断言会误报失败。
+ */
+function snapshotMap(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const kv of webSettingsSnapshot().split(';')) {
+    const i = kv.indexOf('=')
+    if (i <= 0) continue
+    out[kv.slice(0, i)] = kv.slice(i + 1)
+  }
+  return out
+}
+
 describe('useWebSettings 默认值与持久化', () => {
   beforeEach(resetAll)
 
@@ -57,7 +71,12 @@ describe('webSettingsSnapshot / applyWebSetting(k=v; 契约)', () => {
 
   it('快照格式: k=v;k=v 且按布尔序列化', () => {
     setAdFilter(false)
-    expect(webSettingsSnapshot()).toBe('adFilter=0;autoPlayNext=1')
+    const raw = webSettingsSnapshot()
+    // 只校验格式与关键键，不锁死整串（新增设置项属正常演进）
+    expect(raw).toMatch(/^[a-zA-Z]+=[^;]+(?:;[a-zA-Z]+=[^;]+)*$/)
+    const m = snapshotMap()
+    expect(m.adFilter).toBe('0')
+    expect(m.autoPlayNext).toBe('1')
   })
 
   it('applyWebSetting 合法值生效并持久化', () => {
@@ -95,7 +114,8 @@ describe('window.__jcConfig 钩子(安卓抽屉桥)', () => {
     const hook = (window as unknown as {
       __jcConfig: { getAll(): string; set(k: string, v: string): boolean }
     }).__jcConfig
-    expect(hook.getAll()).toBe('adFilter=1;autoPlayNext=1')
+    expect(hook.getAll()).toContain('adFilter=1')
+    expect(hook.getAll()).toContain('autoPlayNext=1')
     expect(hook.set('adFilter', '0')).toBe(true)
     expect(hook.getAll()).toContain('adFilter=0')
     expect(localStorage.getItem(AD_FILTER_KEY)).toBe('0')
