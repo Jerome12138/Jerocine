@@ -196,6 +196,17 @@ assert_eq "显式指定外部通道失败则不回退" \
   "$(TEST_EXTRA_FAIL=1 JEROCINE_UPLOAD_MODE=stub \
      upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-nofallback.tgz" >/dev/null 2>&1; echo $?)" "1"
 
+# ---------- 1d-bis. JEROCINE_UPLOAD_NO_FALLBACK=1: 失败即报错, 不许静默降级 ----------
+# 背景(2026-11-25): 中转失败后静默回退 chunk = 20KB/s, 15MB 要 ~19 分钟, 而且看起来"还在跑",
+# 比直接报错难发现得多 —— 所以给"硬失败"留一个开关, 由 Harness 侧默认打开。
+: > "$STUB_LOG"
+out="$(TEST_EXTRA_FAIL=1 JEROCINE_UPLOAD_NO_FALLBACK=1 \
+  upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-hardfail.tgz" 2>&1)"; rc=$?
+assert_eq "禁用自动回退 → 失败码原样上抛" "$rc" "1"
+assert_has "禁用自动回退给出明确原因" "$out" "已禁用自动回退"
+assert_eq "禁用自动回退不产生任何远端传输" "$(wc -l < "$STUB_LOG" | tr -d ' ')" "0"
+assert_gone "禁用自动回退不落位目标文件" "$REMOTE/pkg-hardfail.tgz"
+
 # ---------- 1d'. 扩展点的错误输入必须可诊断, 且不能弄坏内置通道 ----------
 assert_eq "未注册的通道名 → 64" \
   "$(JEROCINE_UPLOAD_MODE=nosuch upload_over_ssh fakehost "$SRC" "$REMOTE/pkg-nochan.tgz" >/dev/null 2>&1; echo $?)" "64"

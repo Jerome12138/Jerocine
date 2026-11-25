@@ -538,6 +538,13 @@ upload_over_ssh() {
     direct|auto|chunk|resume) return "$rc" ;;
   esac
   if [ "$rc" -ne 0 ] && [ -n "$auto_pick" ]; then
+    # 显式禁止自动回退（2026-11-25）：外部通道（如 GitHub 中转）失败时**直接失败**。
+    # 原因：静默降级到 chunk（20KB/s）会让 15MB 包"看起来还在跑"，十几分钟后才发现
+    # 走了慢路 —— 那种失败比直接报错难发现得多。
+    if [ "${JEROCINE_UPLOAD_NO_FALLBACK:-0}" = "1" ]; then
+      _upload_warn "自动选中的通道 '$mode' 失败(rc=$rc)，且已禁用自动回退(JEROCINE_UPLOAD_NO_FALLBACK=1) → 中止"
+      return "$rc"
+    fi
     # 回退目标: 外部实现可指定(`upload_auto_fallback` 回显通道名, 例如"这条链路回退续传更稳"),
     # 没指定或名字不合法则用内置规则。
     local fb=""
