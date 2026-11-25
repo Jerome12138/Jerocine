@@ -64,7 +64,15 @@ var conditionalUpsert = map[string]string{
 // orderLatestSQL 排序钳制同一口径)。源站脏年份(线上实测 2028×5 / 2030×11 / 9999×1、9909×1)
 // 超过它 → upsert 视为无效保留本地值, 避免重采把人工按豆瓣/网络数据修正过的年份写回脏值。
 // 每次构建 upsert 子句时现算, 跨年不依赖进程重启。
-func maxValidYear() int { return time.Now().In(cstZone).Year() + 1 }
+func maxValidYear() int {
+	// 月份感知（2026-11-25 用户要求）：只有 **12 月**才容忍「今年+1」——
+	// 12 月时明年待映的片子已开始录入；1~11 月出现"今年+1"基本可判定为源站脏年。
+	now := time.Now().In(cstZone)
+	if now.Month() == time.December {
+		return now.Year() + 1
+	}
+	return now.Year()
+}
 
 // yearUpsertExpr year 列的冲突赋值表达式: 源站年份合法(>0 且 ≤ 今年+1)才采用, 否则保留本地。
 // 下限 >0 沿用原判定; 上限即 maxValidYear。IF() 内只拼 int, 无注入面。
