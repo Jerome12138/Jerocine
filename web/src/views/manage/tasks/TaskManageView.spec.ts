@@ -372,9 +372,11 @@ describe('TaskManageView 轮询', () => {
     const text = w.text()
     // 在跑：有百分比进度（12/40 = 30%）
     expect(text).toContain('30%')
-    // 完成：只显示总页数，不出现"100%"
+    // 完成：**文字进度保留**（"已完成 40 / 共 40 页 · 100%"），只是不再画进度条
     expect(text).toContain('共 40 页')
-    expect(text).not.toContain('100%')
+    expect(text).toContain('100%')
+    // 进度条只在"在跑/暂停"时渲染：这里 1 个 running + 1 个 done ⇒ 只应有 1 条
+    expect(w.findAll('[data-testid="job-bar"]')).toHaveLength(1)
     w.unmount()
   })
 
@@ -385,6 +387,8 @@ describe('TaskManageView 轮询', () => {
     const text = w.text()
     expect(text).not.toContain('已完成 24/24')
     expect(text).not.toContain('%')
+    // 长期周期任务不再挂"已完成"这类终态标签（只有 运行中/失败 才显示）
+    expect(text, '计划任务行不应出现「已完成」标签').not.toContain('已完成')
     w.unmount()
   })
 

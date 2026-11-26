@@ -116,14 +116,6 @@ function isActive(state: string): boolean {
   return state === 'running' || state === 'paused'
 }
 
-/** 终态的文字摘要（不带百分比）：完成看页数，失败/取消看跑到哪了 */
-function finishedText(j: SpiderJob): string {
-  const total = j.totalPages > 0 ? `共 ${j.totalPages} 页` : '无分页数据'
-  if (j.state === 'done') return `已完成 · ${total}`
-  if (j.state === 'canceled') return `已取消 · ${j.donePages}/${total}`
-  return `${total}` // error 的原因单独一行展示
-}
-
 interface JobRow extends SpiderJob {
   progressText: string
   elapsedText: string
@@ -231,7 +223,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
             />
             <span class="jc-job__bar-text">{{ row.progressText }}</span>
           </div>
-          <span v-else class="text-xs text-muted tabular-nums">{{ finishedText(row) }}</span>
+          <span v-else class="text-xs text-muted tabular-nums">{{ row.progressText }}</span>
         </div>
         <span v-else-if="col.key === 'elapsedText'" class="text-muted text-xs">{{ row.elapsedText }}</span>
         <span v-else>{{ row[col.key] }}</span>
@@ -268,7 +260,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
             />
             <span class="jc-job__bar-text">{{ row.progressText }}</span>
           </div>
-          <span v-else class="text-xs text-muted tabular-nums">{{ finishedText(row) }}</span>
+          <span v-else class="text-xs text-muted tabular-nums">{{ row.progressText }}</span>
           <span v-if="row.state === 'error' && row.error" class="jc-job__error">
             <span class="flex-1 break-all">{{ row.error }}</span>
           </span>

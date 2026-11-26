@@ -578,6 +578,11 @@ function barClass(j: SpiderJob): string {
 }
 
 /** 进度文案：总数未知时不给假进度（"共 ? 页 · 0%" 是上一版的观感问题） */
+/** 任务是否"活跃"（在跑/暂停）—— 只有活跃才画进度条、才显示百分比 */
+function isJobActive(state: string): boolean {
+  return state === 'running' || state === 'paused'
+}
+
 function progressText(j: SpiderJob): string {
   if (j.totalPages <= 0) {
     if (j.state === 'running') return '准备中…'
@@ -777,17 +782,10 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
             <span class="text-xs text-muted">启动 {{ j.startedAt ? formatDateTime(j.startedAt * 1000) : '—' }}</span>
             <span class="text-xs text-muted">耗时 {{ j.elapsedMs > 0 ? fmtDuration(j.elapsedMs) : '—' }}</span>
 
-            <!-- 只有"在跑/暂停"才显示进度；已完成/失败/取消的状态由左侧状态标签 + 耗时表达，
-                 再挂一个"100%"反而像还在跑（2026-11-26 用户反馈） -->
-            <span
-              v-if="j.state === 'running' || j.state === 'paused'"
-              class="ml-auto text-xs tabular-nums"
-              :class="j.totalPages > 0 ? 'text-secondary' : 'text-muted'"
-            >
+            <!-- 文字进度一直保留（完成态也显示"已完成 x/共 y 页 · 100%"）；
+                 只有下方的**进度条**按活跃态隐藏（2026-11-26 用户要求：只删条、留文字） -->
+            <span class="ml-auto text-xs tabular-nums" :class="j.totalPages > 0 ? 'text-secondary' : 'text-muted'">
               {{ progressText(j) }}
-            </span>
-            <span v-else-if="j.totalPages > 0" class="ml-auto text-xs text-muted tabular-nums">
-              共 {{ j.totalPages }} 页
             </span>
 
             <div class="flex gap-[var(--jc-space-1)]">
@@ -822,9 +820,11 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
             </div>
           </div>
 
-          <!-- 细进度条：只有知道总页数时才画，避免"共 ? 页 · 0%"这种假进度 -->
+          <!-- 细进度条：只在**在跑/暂停**时画；终态（完成/失败/取消）不再挂条，
+               否则一条满格进度条看起来像还在跑（2026-11-26 用户反馈） -->
           <div
-            v-if="j.totalPages > 0"
+            v-if="j.totalPages > 0 && isJobActive(j.state)"
+            data-testid="job-bar"
             class="h-1 w-full overflow-hidden rounded-full bg-[var(--jc-border-default)]"
           >
             <div
@@ -900,7 +900,14 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               <span v-if="t.target" class="text-xs text-muted">目标 {{ t.target }}</span>
               <span v-if="t.intervalLabel" class="text-xs text-muted">间隔 {{ t.intervalLabel }}</span>
 
-              <StatusTag v-if="t.state !== 'idle'" :value="t.state" :map="TC_STATE_MAP" size="xs" />
+              <!-- 计划任务是长期周期任务，"已完成/已取消"没有意义（行尾已有上次运行时间）；
+                   只保留需要人注意的两态：运行中 / 失败 -->
+              <StatusTag
+                v-if="t.state === 'running' || t.state === 'failed'"
+                :value="t.state"
+                :map="TC_STATE_MAP"
+                size="xs"
+              />
               <!-- 已停用但仍有一轮在跑：停用不中断本轮，跑完才真正停下（页面必须说真话） -->
               <span v-if="!t.enabled && t.state === 'running'" class="text-xs text-warning">
                 本轮结束后停止
