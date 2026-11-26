@@ -60,7 +60,8 @@ func (s *FilmService) doubanStatusFor(task string) func(context.Context) taskcen
 			// 另一条豆瓣任务在跑：本任务就是空闲，既不显示别人的进度也不要别人的文案
 			return taskcenter.Status{State: taskcenter.StateIdle}
 		}
-		st := taskcenter.Status{State: taskcenter.StateIdle, Message: p.Message, StartedAt: p.StartedAt}
+		st := taskcenter.Status{State: taskcenter.StateIdle, Message: p.Message,
+			StartedAt: p.StartedAt, UpdatedAt: p.UpdatedAt}
 		switch p.State {
 		case "running":
 			st.State = taskcenter.StateRunning
@@ -92,6 +93,9 @@ func (s *FilmService) TaskDefs() []taskcenter.Def {
 			// 豆瓣刷分是"启动后台批 + 内存进度"：Run 必须用 Start 变体并标 Async，
 			// 否则手动/定时触发都会**立刻记成功**（用户实测："一触发就完成、没有进度"）。
 			Async: true,
+			// 实测：近半年候选 ≈1941 部 × 4s ≈ 2.2h；给 8h 余量 + 30 分钟停滞判定
+			WatchTimeout: 8 * time.Hour,
+			WatchStall:   30 * time.Minute,
 			Run: func(ctx context.Context) error {
 				if s == nil {
 					return fmt.Errorf("影片服务未装配")
@@ -108,6 +112,9 @@ func (s *FilmService) TaskDefs() []taskcenter.Def {
 			Editable: editAllFields, Caps: capsRun,
 			Status: s.doubanStatusFor("douban_backfill"),
 			Async:  true, // 同上：后台批 + 内存进度
+			// 实测欠账 ≈2.8 万部 × 4s ≈ 31h；给 48h 上限，停滞 30 分钟才判失败
+			WatchTimeout: 48 * time.Hour,
+			WatchStall:   30 * time.Minute,
 			Run: func(ctx context.Context) error {
 				if s == nil {
 					return fmt.Errorf("影片服务未装配")

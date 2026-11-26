@@ -42,10 +42,14 @@ func (f *fakeSettings) SetEnabled(_ context.Context, key string, v bool, _ int64
 
 type fakeCrons struct {
 	t      entity.CronTask
+	list   []entity.CronTask // 非空时 List 返回它（多行用例）
 	upsert int
 }
 
 func (f *fakeCrons) List(context.Context) ([]entity.CronTask, error) {
+	if len(f.list) > 0 { // 多行场景（如周期归一用例）
+		return f.list, nil
+	}
 	return []entity.CronTask{f.t}, nil
 }
 func (f *fakeCrons) Get(context.Context, int64) (*entity.CronTask, error) {
@@ -53,6 +57,14 @@ func (f *fakeCrons) Get(context.Context, int64) (*entity.CronTask, error) {
 	return &c, nil
 }
 func (f *fakeCrons) Upsert(_ context.Context, c *entity.CronTask) error {
+	// 多行场景要写回 list（否则用例里读 list 看不到变化）
+	for i := range f.list {
+		if f.list[i].Id == c.Id {
+			f.list[i] = *c
+			f.upsert++
+			return nil
+		}
+	}
 	f.t = *c
 	f.upsert++
 	return nil

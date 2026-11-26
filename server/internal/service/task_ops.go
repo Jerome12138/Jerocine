@@ -385,31 +385,28 @@ func (s *TaskCenterService) runManualBuiltin(ctx context.Context, def taskcenter
 	return nil
 }
 
-// watchBuiltinRun 异步任务的手动执行观察者：轮询 Status 到终态后收尾台账。
+// watchBuiltinRun 异步任务的手动执行观察者：轮询 Status 到终态/停滞/超时后收尾台账。
+// 规则与调度触发共用 waitDefTerminal（时长按 Def.WatchTimeout / WatchStall）。
 func (s *TaskCenterService) watchBuiltinRun(runID int64, def taskcenter.Def) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[task-center] 观察者 panic(run=%d): %v", runID, r)
 		}
 	}()
-	ctx := context.Background()
-	deadline := time.Now().Add(3 * time.Hour)
-	for time.Now().Before(deadline) {
-		time.Sleep(10 * time.Second)
-		if def.Status == nil {
-			return
-		}
-		st := def.Status(ctx)
-		switch st.State {
-		case taskcenter.StateSucceeded:
-			s.finishRun(runID, entity.TaskRunSuccess, firstNonEmpty(st.Message, "完成"))
-			return
-		case taskcenter.StateFailed:
-			s.finishRun(runID, entity.TaskRunFailed, firstNonEmpty(st.Error, st.Message, "失败"))
-			return
-		}
+	out, ok := waitDefTerminal(context.Background(), def, 10*time.Second)
+	led := s.ledger()
+	if led == nil {
+		return
 	}
-	s.finishRun(runID, entity.TaskRunFailed, "[timeout] 超过 3 小时仍未结束，已按超时收尾")
+	if !ok {
+		led.Finish(runID, entity.TaskRunSuccess, 0, 0, 0, "完成（无状态探针）", "")
+		return
+	}
+	msg := firstNonEmpty(out.Message, "完成")
+	if out.State == taskcenter.StateFailed {
+		msg = firstNonEmpty(out.Error, out.Reason, out.Message, "失败")
+	}
+	led.Finish(runID, string(out.State), out.Total, out.Done, out.Failed, msg, msg)
 }
 
 // finishRun 收尾一条手工触发的台账（走唯一写入口；成功写 Message、失败写 Error）。

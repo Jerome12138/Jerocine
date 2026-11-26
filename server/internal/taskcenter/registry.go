@@ -46,6 +46,9 @@ type Status struct {
 	Error     string
 	StartedAt int64 // ms
 	ElapsedMs int64
+	// UpdatedAt 进度最后更新时间（ms）。观察者据此判断"停滞"：长时间不推进才判失败，
+	// 比"固定 3 小时"更贴近真实（豆瓣欠账补查实测要 30 小时）。
+	UpdatedAt int64
 }
 
 // 能力
@@ -92,6 +95,12 @@ type Def struct {
 	// Async 该任务的 Run 是"启动即返回"（真正跑完要轮询 Status 才知道）。
 	// 手动执行时据此决定：立即收尾（同步）还是挂观察者等它结束（异步）。
 	Async bool
+	// WatchTimeout 异步任务的台账收尾上限（0 = 默认 3h）。按实测时长给足，别误杀：
+	// 豆瓣评分同步 ≈1941 部 × 4s ≈ 2.2h；欠账补查 ≈2.8 万部 ≈ 31h。
+	WatchTimeout time.Duration
+	// WatchStall 进度停滞上限（0 = 默认 30m）：Status.UpdatedAt 超过这么久没动才判失败收尾 ——
+	// "真卡死"能及时发现，而"跑得慢但一直在动"不会被误杀。
+	WatchStall time.Duration
 	// Run 触发一次（Phase 2 收敛后由中心调度调用）。
 	// 为 nil 表示该任务只读展示（还没有可复用的执行入口）。
 	Run func(ctx context.Context) error
@@ -341,6 +350,28 @@ func NextJobState(cur string, act JobAction) (next string, ok bool) {
 // JobTerminal 是否终态（done/error/canceled）。
 func JobTerminal(state string) bool {
 	return state == JobDone || state == JobError || state == JobCanceled
+}
+
+// 观察者默认值（Def 未指定时生效）。
+const (
+	DefaultWatchTimeout = 3 * time.Hour
+	DefaultWatchStall   = 30 * time.Minute
+)
+
+// WatchTimeoutOrDefault 台账收尾上限。
+func (d Def) WatchTimeoutOrDefault() time.Duration {
+	if d.WatchTimeout > 0 {
+		return d.WatchTimeout
+	}
+	return DefaultWatchTimeout
+}
+
+// WatchStallOrDefault 进度停滞上限。
+func (d Def) WatchStallOrDefault() time.Duration {
+	if d.WatchStall > 0 {
+		return d.WatchStall
+	}
+	return DefaultWatchStall
 }
 
 // ---- 生效配置合并（单点）----

@@ -18,6 +18,9 @@ type fakeRuns struct {
 	// 任务中心"此刻是否在跑"的读口径（List 取内置最近一条 / LatestByCron 取采集最近一条）
 	latest     []entity.TaskRun
 	latestCron map[int64]entity.TaskRun
+	// PruneHistory 用例：记录最近一次保留期入参
+	pruneBefore int64
+	pruneCalls  int
 }
 
 func (f *fakeRuns) Create(context.Context, *entity.TaskRun) error { return nil }
@@ -44,8 +47,11 @@ func (f *fakeRuns) LatestByCron(context.Context, []int64) (map[int64]entity.Task
 func (f *fakeRuns) CountSince(context.Context, int64) (int64, int64, error) { return 0, 0, nil }
 func (f *fakeRuns) CountRunning(context.Context, []string) (int64, error)   { return 0, nil }
 func (f *fakeRuns) MarkInterrupted(context.Context) error                   { return nil }
-func (f *fakeRuns) PruneBefore(context.Context, int64, int) (int64, error)  { return 0, nil }
-func (f *fakeRuns) SetIgnored(context.Context, int64, bool) error           { return nil }
+func (f *fakeRuns) PruneBefore(_ context.Context, beforeMs int64, _ int) (int64, error) {
+	f.pruneBefore, f.pruneCalls = beforeMs, f.pruneCalls+1
+	return 0, nil
+}
+func (f *fakeRuns) SetIgnored(context.Context, int64, bool) error { return nil }
 func (f *fakeRuns) CountRunningByType(_ context.Context, typ string, cronID int64) (int64, error) {
 	f.gotType, f.gotCronID = typ, cronID
 	return f.runningN, nil

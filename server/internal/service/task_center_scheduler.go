@@ -424,43 +424,26 @@ func (s *TaskScheduler) NextRuns() map[string]int64 {
 	return out
 }
 
-// watchAsync 异步任务的台账收尾：轮询 Def.Status 到终态才 Finish（最长 3 小时）。
-// 与手动执行的观察者（TaskCenterService.watchBuiltinRun）同语义，只是这里只有 SchedLedger。
+// watchAsync 异步任务的台账收尾：与手动执行共用 waitDefTerminal 的规则
+// （Def.WatchTimeout 上限 + Def.WatchStall 停滞判定），不再固定 3 小时。
 func (s *TaskScheduler) watchAsync(d taskcenter.Def, runID int64) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[task-scheduler] 异步观察者 panic(%s run=%d): %v", d.Key, runID, r)
 		}
 	}()
-	ctx := context.Background()
-	deadline := time.Now().Add(3 * time.Hour)
-	for time.Now().Before(deadline) {
-		time.Sleep(10 * time.Second)
-		if d.Status == nil {
-			s.led.Finish(runID, entity.TaskRunSuccess, 0, 0, 0, "完成（无状态探针）", "")
-			return
-		}
-		st := d.Status(ctx)
-		switch st.State {
-		case taskcenter.StateSucceeded:
-			msg := st.Message
-			if msg == "" {
-				msg = "完成"
-			}
-			total, done, failed := progressNums(st)
-			s.led.Finish(runID, entity.TaskRunSuccess, total, done, failed, msg, "")
-			return
-		case taskcenter.StateFailed:
-			msg := st.Error
-			if msg == "" {
-				msg = firstNonEmptyStr(st.Message, "失败")
-			}
-			total, done, failed := progressNums(st)
-			s.led.Finish(runID, entity.TaskRunFailed, total, done, failed, "", msg)
-			return
-		}
+	out, ok := waitDefTerminal(context.Background(), d, 10*time.Second)
+	if !ok {
+		s.led.Finish(runID, entity.TaskRunSuccess, 0, 0, 0, "完成（无状态探针）", "")
+		return
 	}
-	s.led.Finish(runID, entity.TaskRunFailed, 0, 0, 0, "", "[timeout] 超过 3 小时仍未结束，已按超时收尾")
+	if out.State == taskcenter.StateFailed {
+		msg := firstNonEmptyStr(out.Error, out.Reason, out.Message, "失败")
+		s.led.Finish(runID, entity.TaskRunFailed, out.Total, out.Done, out.Failed, "", msg)
+		return
+	}
+	msg := firstNonEmptyStr(out.Message, "完成")
+	s.led.Finish(runID, entity.TaskRunSuccess, out.Total, out.Done, out.Failed, msg, "")
 }
 
 // progressNums 把 Status.Progress 摊成台账的 total/done/failed。
