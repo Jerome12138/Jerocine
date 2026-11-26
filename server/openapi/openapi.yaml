@@ -2543,7 +2543,7 @@ paths:
         ②此刻正在跑的**采集任务**协作暂停（停在页边界，不中断事务、不丢已完成进度）；
         ③没有协作暂停点的长任务（豆瓣批量、全量派生等）在返回体里标 `pauseable=false` 并给原因，
         **不会假装已暂停**。暂停是协作式的（等当前页跑完），且不能跨进程续跑（容器重建后该轮次即结束）。
-        闸门带 TTL 自动关闭（默认 60 分钟，上限 6 小时），不会把任务永久停住。
+        闸门带 TTL 自动关闭（默认 60 分钟，上限 120 分钟），不会把任务永久停住。
       operationId: manageTaskCenterPause
       security: [{ MaintToken: [] }]
       requestBody:
@@ -2554,7 +2554,7 @@ paths:
               type: object
               properties:
                 by: { type: string, description: 打开者标识（如 deploy-agent），缺省 unknown }
-                ttlMinutes: { type: integer, description: 窗口时长（分钟）；缺省 60，上限 360 }
+                ttlMinutes: { type: integer, description: 窗口时长（分钟）；缺省 60，上限 120（须明显小于采集单飞锁 6h） }
       responses:
         '200':
           description: OK

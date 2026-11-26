@@ -365,9 +365,11 @@ MAINT_OPENED=0
 
 maint_token() {
   local t=""
-  t="$(grep -E '^MAINTENANCE_TOKEN=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  # tr -d '\r': .env 若被 Windows 编辑器改过会带 CRLF，令牌尾部多一个 \r 就恒 403
+  #（服务端读环境变量时也已 TrimSpace，两者口径一致）。
+  t="$(grep -E '^MAINTENANCE_TOKEN=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' || true)"
   if [ -z "$t" ]; then
-    t="$(grep -E '^SPIDER_RESET_TOKEN=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+    t="$(grep -E '^SPIDER_RESET_TOKEN=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' || true)"
   fi
   printf '%s' "$t"
 }

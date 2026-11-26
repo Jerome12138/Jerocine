@@ -83,7 +83,7 @@ func (s *TaskCenterService) PauseAll(ctx context.Context, by string, ttlMinutes 
 	rep.Items = append(rep.Items, paused...)
 	rep.Items = append(rep.Items, s.nonPauseableRunning(ctx)...)
 
-	log.Printf("[task-center] 维护窗口已打开: by=%s until=%s · 暂停采集源 %d 个, 不可暂停的长任务 %d 个",
+	log.Printf("[task-center] 维护窗口已打开: by=%s until=%s · 暂停采集源 %d 个, 跳过/不可暂停 %d 个",
 		byNow, until.Format(time.RFC3339), countAction(rep.Items, "paused"), countAction(rep.Items, "skipped"))
 	return rep, nil
 }

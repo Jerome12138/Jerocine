@@ -16,8 +16,8 @@ func TestGateTTL(t *testing.T) {
 		{0, 60 * time.Minute},
 		{-5, 60 * time.Minute},
 		{30, 30 * time.Minute},
-		{360, 360 * time.Minute},
-		{9999, 360 * time.Minute}, // 截断
+		{120, 120 * time.Minute},
+		{9999, 120 * time.Minute}, // 截断（上限远小于 collectLockTTL=6h，见 GateTTLMaxMin 注释）
 	}
 	for _, c := range cases {
 		if got := GateTTL(c.in); got != c.want {

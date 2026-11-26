@@ -78,7 +78,10 @@ func (s *TaskScheduler) effective(d taskcenter.Def, settings map[string]entity.T
 
 func (s *TaskScheduler) tick(ctx context.Context) {
 	// 维护窗口（POST /manage/task-center/pause）：整轮不触发 —— 部署/迁移期间要的是安静窗口，
-	// 边迁移边开新采集是最坏情况。窗口关闭后 next 仍按 schedule 续算，不会"补跑错过的轮次"。
+	// 边迁移边开新采集是最坏情况。
+	// 注意语义：窗口期内 s.next **不前进**，所以窗口关闭后的第一个 tick 会把"错过的轮次"补跑**一次**
+	// （每个任务最多一次，不会堆积：next 下次就按 now 重算了）。这是有意的（别把一整天的采集都跳过），
+	// 但也意味着 resume 之后会有一小波集中触发 —— 部署脚本把它放在清缓存之后、作为最后一步。
 	if s.gateBlocked(ctx) {
 		return
 	}

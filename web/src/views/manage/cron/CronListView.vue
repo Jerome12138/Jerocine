@@ -272,7 +272,7 @@ onMounted(load)
         v-else-if="col.key === 'schedule'"
         class="font-[var(--jc-font-mono)] text-[length:var(--jc-fs-xs)] text-[var(--jc-text-link)]"
       >
-        {{ row.schedule }}
+        {{ row.schedule || '未配置' }}
       </code>
       <span v-else-if="col.key === 'time'">{{ row.time }} 小时</span>
       <span v-else-if="col.key === 'id'" class="font-[var(--jc-font-mono)] text-xs">
