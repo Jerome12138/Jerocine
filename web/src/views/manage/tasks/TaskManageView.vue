@@ -717,7 +717,9 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
     </template>
 
     <!-- ===== 计划任务（统一任务中心：内置 + 采集）===== -->
-    <template v-if="activeTab === 'schedule'">
+    <!-- 注意：这里必须是 v-else-if —— 写成 v-if 会另起一条链，末尾的 v-else(失败记录)
+         就会在「近期任务」页签下一起渲染（2026-11-26 用户实测到的问题） -->
+    <template v-else-if="activeTab === 'schedule'">
       <div v-if="tcLoading && tcList.length === 0" class="flex flex-col gap-[var(--jc-space-3)]">
         <BaseSkeleton v-for="i in 3" :key="i" shape="rect" height="72px" />
       </div>

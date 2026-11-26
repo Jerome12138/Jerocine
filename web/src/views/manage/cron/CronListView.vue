@@ -4,6 +4,7 @@ import { manageApi } from '@/api'
 import type { CronTask, CollectSource } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
+import SchedulePicker from '@/components/manage/SchedulePicker.vue'
 import ManageSelect from '@/components/manage/ManageSelect.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
@@ -325,8 +326,8 @@ onMounted(load)
 
   <ManageSheet v-model="dialogOpen" :title="editing ? '编辑任务' : '新增任务'" mobile-mode="fullsheet">
     <div class="flex flex-col gap-[var(--jc-space-4)]">
-      <ManageFormField label="执行周期" required :hint="`友好文本：${SCHEDULE_HINT}`">
-        <ManageInput v-model="form.schedule" placeholder="每天 04:00 → daily:04:00" />
+      <ManageFormField label="执行周期" required :hint="`选择式；保存为友好文本（${SCHEDULE_HINT}）`">
+        <SchedulePicker v-model="form.schedule" size="sm" />
       </ManageFormField>
       <ManageFormField label="任务类型" required>
         <ManageSelect v-model="form.model" :options="MODEL_OPTIONS" aria-label="任务类型" />

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { scheduleError, scheduleValid, describeSchedule } from './schedule'
+import {
+  scheduleError, scheduleValid, describeSchedule,
+  parseSchedule, composeSchedule, DEFAULT_SCHEDULE_PARTS
+} from './schedule'
 
 describe('schedule 友好文本周期校验（与后端 taskcenter.ValidateSchedule 同规则）', () => {
   it('空串合法（不定时 / 仅手动）', () => {
@@ -69,5 +72,25 @@ describe('schedule 友好文本周期校验（与后端 taskcenter.ValidateSched
     // 剥掉注释：文件头注释里正举着这个陷阱的反例，不剥会自己撞自己
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
     expect(/[A-Za-z]+:\(/.test(code)).toBe(false)
+  })
+})
+
+describe('parseSchedule / composeSchedule（选择器前后端同一套取值）', () => {
+  it('四种形态往返一致', () => {
+    for (const text of ['every:30m', 'every:6h', 'daily:03:00', 'weekly:1 03:00', 'monthly:28 23:59']) {
+      const parts = parseSchedule(text)
+      expect(parts, text).not.toBeNull()
+      expect(composeSchedule(parts!)).toBe(text)
+    }
+  })
+
+  it('解析不了的一律 null（让选择器回退"自定义"而不是编一个值）', () => {
+    for (const bad of ['', '   ', '0 0 3 * *', 'daily', 'daily:3:00', 'foo:1m', 'every:0m', 'monthly:29 04:00']) {
+      expect(parseSchedule(bad), bad).toBeNull()
+    }
+  })
+
+  it('默认值本身合法（防止选择器一进来就吐非法值）', () => {
+    expect(scheduleValid(composeSchedule(DEFAULT_SCHEDULE_PARTS))).toBe(true)
   })
 })

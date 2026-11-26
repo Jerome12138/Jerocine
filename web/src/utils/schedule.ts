@@ -111,3 +111,81 @@ export function describeSchedule(input: string): string {
   }
   return v
 }
+
+/** 周期选择器的结构化表示（与友好文本一一对应）。 */
+export type ScheduleKind = 'every' | 'daily' | 'weekly' | 'monthly'
+
+export interface ScheduleParts {
+  kind: ScheduleKind
+  /** every 的数值（分钟/小时） */
+  n: number
+  /** every 的单位：m=分钟 h=小时 */
+  unit: 'm' | 'h'
+  /** 每周几（1=周一 … 7=周日） */
+  weekday: number
+  /** 每月几号（1~28） */
+  day: number
+  hour: number
+  minute: number
+}
+
+/** 默认值：每天 04:00 —— 与 `Def.DefaultSchedule` 的常见口味一致（低峰）。 */
+export const DEFAULT_SCHEDULE_PARTS: ScheduleParts = {
+  kind: 'daily', n: 30, unit: 'm', weekday: 1, day: 1, hour: 4, minute: 0
+}
+
+/**
+ * 解析友好文本 → 结构化；解析不了返回 null（调用方回退到"手动输入"）。
+ * 与 scheduleError 同一套取值，不依赖正则里的"冒号紧跟括号"写法（见文件头警告）。
+ */
+export function parseSchedule(text: string): ScheduleParts | null {
+  const v = text.trim()
+  if (!v) return null
+  // 只接受**合法**值：直接复用 scheduleError 的语义校验（范围/上限），
+  // 否则 `every:0m`、`monthly:29 …` 这类脏值会被解析成结构化状态再原样吐回去。
+  if (scheduleError(v) !== '') return null
+  const at = v.indexOf(':')
+  if (at <= 0) return null
+  const kind = v.slice(0, at)
+  const rest = v.slice(at + 1)
+  const base: ScheduleParts = { ...DEFAULT_SCHEDULE_PARTS }
+  if (kind === 'every') {
+    const m = RE_EVERY.exec(rest)
+    if (!m) return null
+    return { ...base, kind: 'every', n: Number(m[1]), unit: m[2] as 'm' | 'h' }
+  }
+  if (kind === 'daily') {
+    const m = RE_DAILY.exec(rest)
+    if (!m) return null
+    return { ...base, kind: 'daily', hour: Number(m[1]), minute: Number(m[2]) }
+  }
+  if (kind === 'weekly') {
+    const m = RE_WEEKLY.exec(rest)
+    if (!m) return null
+    return { ...base, kind: 'weekly', weekday: Number(m[1]), hour: Number(m[2]), minute: Number(m[3]) }
+  }
+  if (kind === 'monthly') {
+    const m = RE_MONTHLY.exec(rest)
+    if (!m) return null
+    return { ...base, kind: 'monthly', day: Number(m[1]), hour: Number(m[2]), minute: Number(m[3]) }
+  }
+  return null
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+/** 结构化 → 友好文本（与后端 ValidateSchedule 的规范写法对齐；空表示"仅手动"）。 */
+export function composeSchedule(p: ScheduleParts): string {
+  switch (p.kind) {
+    case 'every':
+      return `every:${p.n}${p.unit}`
+    case 'daily':
+      return `daily:${pad2(p.hour)}:${pad2(p.minute)}`
+    case 'weekly':
+      return `weekly:${p.weekday} ${pad2(p.hour)}:${pad2(p.minute)}`
+    case 'monthly':
+      return `monthly:${p.day} ${pad2(p.hour)}:${pad2(p.minute)}`
+    default:
+      return ''
+  }
+}

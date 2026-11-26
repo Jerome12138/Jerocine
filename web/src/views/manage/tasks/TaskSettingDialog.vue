@@ -7,6 +7,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
+import SchedulePicker from '@/components/manage/SchedulePicker.vue'
 import { scheduleError, SCHEDULE_HINT } from '@/utils/schedule'
 import type { TaskCenterItem } from '@/api/manage/tasks'
 
@@ -109,7 +110,7 @@ function submit(): void {
     </ManageFormField>
 
     <ManageFormField v-if="can('schedule')" label="执行周期" :hint="scheduleHint">
-      <ManageInput v-model="form.schedule" :placeholder="task.kind === 'builtin' ? 'every:24h' : 'daily:04:00'" />
+      <SchedulePicker v-model="form.schedule" size="sm" :allow-empty="task.kind === 'builtin'" />
     </ManageFormField>
 
     <ManageFormField v-if="can('interval')" label="接口间隔" :hint="intervalHint">

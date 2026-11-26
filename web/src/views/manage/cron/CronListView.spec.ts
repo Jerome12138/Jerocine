@@ -86,6 +86,16 @@ function inputByPlaceholder(w: ReturnType<typeof mount>, ph: string) {
 }
 
 /** ManageSelect v2(自绘浮层)交互辅助: 按 aria-label 打开浮层并点选指定文案的选项(行为断言口径) */
+/** 用选择器把周期设成"每天 HH:MM"（schedule 形如 daily:03:00） */
+async function setDailySchedule(w: ReturnType<typeof mount>, schedule: string): Promise<void> {
+  const m = /^daily:(\d{2}):(\d{2})$/.exec(schedule)
+  if (!m) throw new Error(`setDailySchedule 只支持 daily:HH:MM, got ${schedule}`)
+  await pickSelect(w, '周期类型', '每天')
+  await pickSelect(w, '小时', m[1])
+  await pickSelect(w, '分钟', m[2])
+  await flushPromises()
+}
+
 async function pickSelect(w: ReturnType<typeof mount>, ariaLabel: string, optionLabel: string) {
   const trig = w.findAll('button[aria-haspopup="listbox"]').find((b) => b.attributes('aria-label') === ariaLabel)
   if (!trig) throw new Error(`未找到下拉触发钮: ${ariaLabel}`)
@@ -289,26 +299,34 @@ describe('CronListView 表单校验', () => {
     w: ReturnType<typeof mount>,
     over: { schedule?: string; time?: string } = {}
   ): Promise<void> {
-    const sched = inputByPlaceholder(w, '每天 04:00 → daily:04:00')!
-    await sched.setValue(over.schedule ?? 'daily:03:00')
+    // 周期是选择式控件（SchedulePicker）：默认每天 04:00 已合法；需要特定值走 pickSelect
+    if (over.schedule) await setDailySchedule(w, over.schedule)
     const time = inputByPlaceholder(w, '24')!
     await time.setValue(over.time ?? '24')
   }
 
-  it('空周期 / 非法友好文本不提交', async () => {
+  it('周期：选择式产不出非法值；"自定义"里塞脏值仍被提交前拦下', async () => {
     const w = await mountView()
     await openAdd(w)
-    await inputByPlaceholder(w, '每天 04:00 → daily:04:00')!.setValue('')
+    // 默认（每天 04:00）就是合法值 → 直接保存能过周期校验（time 也合法）
     await btn(w, '保存')!.trigger('click')
     await flushPromises()
-    expect(w.text()).toContain('请填写执行周期')
-    expect(h.add).not.toHaveBeenCalled()
+    expect(h.add).toHaveBeenCalledWith(expect.objectContaining({ schedule: 'daily:04:00' }))
+    h.add.mockClear()
 
-    await inputByPlaceholder(w, '每天 04:00 → daily:04:00')!.setValue('0 0 3 * *')
-    await btn(w, '保存')!.trigger('click')
+    // 存量脏值（旧 cron 表达式）编辑时会落到"自定义"，保留原文本 —— 提交前仍必须被拦住，
+    // 否则"看着是旧值、实际按新语义存"更难查
+    h.list.mockResolvedValue([row({ id: '8', schedule: '0 0 3 * *' })])
+    const w2 = await mountView()
+    await w2.findAll('tbody tr')[0].findAll('button').find((b) => b.text().trim() === '编辑')!
+      .trigger('click')
     await flushPromises()
-    expect(w.text()).toContain('周期格式')
-    expect(h.add).not.toHaveBeenCalled()
+    expect(w2.text(), '解析不了的值应回退到自定义并展示原值').toContain('0 0 3 * *')
+    await btn(w2, '保存')!.trigger('click')
+    await flushPromises()
+    expect(w2.text()).toContain('周期格式')
+    expect(h.update).not.toHaveBeenCalled()
+    w2.unmount()
     w.unmount()
   })
 
@@ -367,7 +385,7 @@ describe('CronListView 表单校验', () => {
   it('合法新增: 提交裁剪后的 schedule 与数字 time, 成功后关弹窗重拉', async () => {
     const w = await mountView()
     await openAdd(w)
-    await inputByPlaceholder(w, '每天 04:00 → daily:04:00')!.setValue('  daily:03:00  ')
+    await setDailySchedule(w, 'daily:03:00')
     await inputByPlaceholder(w, '24')!.setValue('12')
     await btn(w, '保存')!.trigger('click')
     await flushPromises()
@@ -386,8 +404,7 @@ describe('CronListView 表单校验', () => {
     await w.findAll('tbody tr')[0].findAll('button').find((b) => b.text().trim() === '编辑')!
       .trigger('click')
     await flushPromises()
-    const specInput = inputByPlaceholder(w, '每天 04:00 → daily:04:00')!
-    expect((specInput.element as HTMLInputElement).value).toBe('daily:03:00')
+    expect(w.text(), '选择器应回填行里的周期').toContain('每天 03:00')
     // 弹窗内勾掉 src_a 再取消勾选 → 原行 ids 不受影响
     await w.findAll('[role="button"]').find((t) => t.text() === '源A')!.trigger('click')
     await w.findAll('[role="button"]').find((t) => t.text() === '源A')!.trigger('click')
