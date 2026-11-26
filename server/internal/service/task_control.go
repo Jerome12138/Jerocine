@@ -144,6 +144,10 @@ func (s *TaskCenterService) ResumeAll(ctx context.Context) (TaskGateReport, erro
 		return TaskGateReport{}, fmt.Errorf("关闭维护窗口失败: %w", err)
 	}
 	rep := TaskGateReport{Items: []TaskGateItem{}, Note: gateNote}
+	// keepFailed：恢复**真的失败**（协调存储抖动等）的源必须留在白名单里，
+	// 否则"关窗成功 + 清空白名单 + 源还停在 paused" ⇒ 没人再管它（要等 job hash 24h TTL 才自愈）。
+	// 已结束/已中断/已在跑（错失状态）的这些不算失败：它们本来就不需要恢复。
+	var keepFailed []string
 	for _, id := range ids {
 		it := TaskGateItem{Key: "job:" + id, Kind: taskcenter.KindCollect, State: cache.JobPaused, Pauseable: true}
 		switch err := cache.JobControl(ctx, id, cache.JobRunning, cache.JobPaused); {
@@ -169,11 +173,20 @@ func (s *TaskCenterService) ResumeAll(ctx context.Context) (TaskGateReport, erro
 			}
 		default:
 			it.Action, it.Reason = "skipped", err.Error()
+			if keepOnResumeError(err) {
+				keepFailed = append(keepFailed, id)
+			}
 			rep.Errors = append(rep.Errors, it.Key+": "+err.Error())
 		}
 		rep.Items = append(rep.Items, it)
 	}
 	cache.TaskGateJobsClear(ctx)
+	if len(keepFailed) > 0 {
+		for _, id := range keepFailed {
+			cache.TaskGateMarkJob(ctx, id) // 留白名单：再调一次 resume 就能补上
+		}
+		log.Printf("[task-center] resume 有 %d 个源恢复失败, 已留在白名单待重试: %v", len(keepFailed), keepFailed)
+	}
 	log.Printf("[task-center] 维护窗口已关闭 · 恢复采集源 %d 个", countAction(rep.Items, "resumed"))
 	return rep, nil
 }
@@ -210,4 +223,12 @@ func countAction(items []TaskGateItem, action string) int {
 		}
 	}
 	return n
+}
+
+// keepOnResumeError 恢复失败时是否要留在白名单待重试。
+//   - 已回收（job 键没了）/ 状态已变化（已中断、已跑完、已在跑）→ 本来就不需要恢复，不留；
+//   - 其余（协调存储抖动等真失败）→ 必须留，否则"关窗 + 清空白名单 + 源仍 paused"没人再管，
+//     要等 job hash 的 24h TTL 才自愈（这期间页面一直显示"暂停中"，也不会再被采集）。
+func keepOnResumeError(err error) bool {
+	return !errors.Is(err, cache.ErrJobNotFound) && !errors.Is(err, cache.ErrJobStateMismatch)
 }

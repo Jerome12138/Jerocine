@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -935,8 +934,8 @@ func (s *SpiderService) registerTasks(ctx context.Context) {
 			// 避免两边并发写同一张库推高死锁概率（采集侧已有"并发过高会批量死锁"的记录）。
 			SetCollectRoundRunning(true)
 			defer SetCollectRoundRunning(false)
-			ctx := s.bgCtx() // 优雅停机根 ctx: SIGTERM 取消在跑轮次, 引擎收尾后进程可退
-			lockKey := cache.KeyLockCron("task:" + strconv.FormatInt(task.Id, 10))
+			ctx := s.bgCtx()                          // 优雅停机根 ctx: SIGTERM 取消在跑轮次, 引擎收尾后进程可退
+			lockKey := cache.KeyLockCronTask(task.Id) // 与 RunCronTask / 任务中心探测共用同一份键拼法
 			tok, ok, _ := cache.TryLock(ctx, lockKey, collectLockTTL)
 			if !ok {
 				log.Printf("cron task %d 上次未结束, 跳过", task.Id)
@@ -968,7 +967,7 @@ func (s *SpiderService) RunCronTask(ctx context.Context, t *entity.CronTask, kin
 	defer SetCollectRoundRunning(false)
 
 	bg := s.bgCtx()
-	lockKey := cache.KeyLockCron("task:" + strconv.FormatInt(t.Id, 10))
+	lockKey := cache.KeyLockCronTask(t.Id) // 键拼法与 cache.LockHeld 探测共用一份
 	tok, ok, err := cache.TryLock(bg, lockKey, collectLockTTL)
 	if err != nil {
 		return err

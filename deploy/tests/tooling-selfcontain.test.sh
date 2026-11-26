@@ -188,6 +188,18 @@ grep -qF '${JEROCINE_NGINX_CONTEXT:-..}' "$DEPLOY_DIR/docker-compose.yml" \
 grep -qF '${JEROCINE_NGINX_DOCKERFILE:-web/Dockerfile}' "$DEPLOY_DIR/docker-compose.yml" \
   && ok "nginx Dockerfile 可切换(默认树内 web/Dockerfile)" || bad "nginx dockerfile 不可切换"
 
+# 1.3.2 维护窗口接口(2026-11-26, pause/resume/control)**只走内网直连**:
+# 部署脚本用容器内网 IP:3601 直达 Go 服务; 外网一律 404。
+# 两个 443 server 块(api.jerocine.art + 主站)都要拦 —— 只拦一个, 另一个域仍能摸到"暂停所有任务"。
+for _p in pause resume control; do
+  _n="$(grep -c "location = /api/v1/manage/task-center/$_p .*return 404;" "$DEPLOY_DIR/data/nginx/nginx.conf")"
+  assert_eq "nginx 外网屏蔽维护接口: $_p（两个 443 server 块各一条）" "$_n" "2"
+done
+# 通用 /api/ 反代**不得**把它们放行到后端: 精确匹配块必须在 /api/ 之前被 nginx 命中(规则保证),
+# 这里只静态确认两条 location 都还在(缺一条则请求落到 /api/ 反代 → 公网可达)。
+grep -q 'location /api/ {' "$DEPLOY_DIR/data/nginx/nginx.conf" \
+  && ok "通用 /api/ 反代仍在(维护接口靠精确匹配拦在其前)" || bad "缺失 /api/ 反代块"
+
 # 1.3.1 私有附加站点入口(2026-11-05): 公开仓只留 include + 挂载, 实际配置在私有仓。
 # 约定: private 目录 :ro 挂载 + nginx.conf 末尾通配 include + .gitignore 排除 —— 三者缺一
 # 会让「私有站点的 nginx 配置」要么加载不到, 要么误入公开仓。

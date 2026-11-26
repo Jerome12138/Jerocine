@@ -45,3 +45,16 @@ func randToken() string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// LockHeld 探测某个分布式锁**当前是否被持有**（只读，不抢锁、不改 TTL）。
+//
+// 用途：判断"某任务此刻是否有一轮在跑"。台账行是在抢到锁之后才写的，
+// 只看台账会漏掉"刚起轮次、台账还没落"的那一小段 —— 探测锁能覆盖它。
+// 协调端不可用（单测/降级）时返回 false（不知道就当没在跑，不能让探测失败拦人）。
+func LockHeld(ctx context.Context, key string) bool {
+	if coordRdb == nil {
+		return false
+	}
+	n, err := coordRdb.Exists(ctx, key).Result()
+	return err == nil && n > 0
+}

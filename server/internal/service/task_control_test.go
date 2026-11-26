@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -253,5 +254,62 @@ func TestResumeAll_AfterRestartInterrupted(t *testing.T) {
 	}
 	if cur := cache.JobReadState(ctx, "src_a"); cur != cache.JobError {
 		t.Fatalf("不能翻回 running（幽灵），应保持 error, got %s", cur)
+	}
+}
+
+// 停用判据要覆盖"刚起轮次、台账还没落"的窗口：任务级单飞锁在 = 在跑。
+// 只看台账会漏这一小段，导致停用时误报"没在跑"（deferred 提示错）。
+func TestIsTaskRunning_LockHeld(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+	svc := &TaskCenterService{reg: newRegistryWithBuiltins()}
+
+	// 锁被持有，但台账里没有任何 running 行（模拟刚抢到锁、台账还没写）
+	if _, _, err := cache.TryLock(ctx, cache.KeyLockCronTask(7), time.Minute); err != nil {
+		t.Fatalf("TryLock: %v", err)
+	}
+	if !svc.isTaskRunning(ctx, "cron:7") {
+		t.Fatal("锁在就该判为在跑（覆盖台账未落的窗口）")
+	}
+	// 换个任务 id：锁不匹配就不该误判
+	if svc.isTaskRunning(ctx, "cron:8") {
+		t.Fatal("别的任务 id 不该被误判为在跑")
+	}
+}
+
+// resume 只有"真的失败"才留在白名单（关窗+清空+源仍 paused = 没人再管它，要等 24h TTL）。
+// 已结束/已中断/已在跑属于"不需要恢复"，不该留。
+func TestResumeKeepFailedSet(t *testing.T) {
+	if keepOnResumeError(cache.ErrJobNotFound) {
+		t.Fatal("已回收的 job 不该留在白名单")
+	}
+	if keepOnResumeError(cache.ErrJobStateMismatch) {
+		t.Fatal("状态已变化（已中断/已在跑）不该留在白名单")
+	}
+	if !keepOnResumeError(errors.New("redis: connection refused")) {
+		t.Fatal("真正的失败必须留在白名单待重试")
+	}
+}
+
+// 集成：resume 成功后白名单清空（成功路径的行为基线）。
+func TestResumeAll_ClearsWhitelist(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+	svc := &TaskCenterService{reg: newRegistryWithBuiltins()}
+
+	if err := cache.JobStart(ctx, "src_a", "A", 10, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	if _, err := svc.PauseAll(ctx, "deploy.sh", 30); err != nil {
+		t.Fatalf("PauseAll: %v", err)
+	}
+	if _, err := svc.ResumeAll(ctx); err != nil {
+		t.Fatalf("ResumeAll: %v", err)
+	}
+	if got := cache.TaskGateJobs(ctx); len(got) != 0 {
+		t.Fatalf("恢复成功后白名单应清空, got %v", got)
+	}
+	if r := cache.JobReadState(ctx, "src_a"); r != cache.JobRunning {
+		t.Fatalf("应恢复为 running, got %s", r)
 	}
 }

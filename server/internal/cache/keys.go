@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -68,8 +69,15 @@ const (
 )
 
 // ---- db1 协调态键 ----
-func KeyLockSF(key string) string        { return "v1:lock:sf:" + key }
-func KeyLockCron(taskId string) string   { return "v1:lock:cron:" + taskId }
+func KeyLockSF(key string) string      { return "v1:lock:sf:" + key }
+func KeyLockCron(taskId string) string { return "v1:lock:cron:" + taskId }
+
+// KeyLockCronTask 采集定时任务的**任务级单飞锁**键（RunCronTask 抢它，一个 cron_task 同时只跑一轮）。
+// 抽成函数是为了让"抢锁"和"探测是否在跑"共用同一份键拼法（此前拼在 spider_service 里，
+// 任务中心要探测运行时容易拼错/漂移）。
+func KeyLockCronTask(id int64) string {
+	return KeyLockCron("task:" + strconv.FormatInt(id, 10))
+}
 func KeyRate(scope, ip string) string    { return fmt.Sprintf("v1:rl:%s:%s", scope, ip) }
 func KeyJob(sourceId string) string      { return "v1:job:" + sourceId }
 func KeyToken(userId int64) string       { return fmt.Sprintf("v1:token:%d", userId) }

@@ -701,6 +701,12 @@ func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in Ta
 // 采集任务看最近一条台账。查不到一律当"没在跑"，避免把停用变成需要等待的操作。
 func (s *TaskCenterService) isTaskRunning(ctx context.Context, key string) bool {
 	if id, ok := cronIDOf(key); ok {
+		// ① 任务级单飞锁在 = 这一轮正在跑。**先看锁再看台账**：锁是在写台账之前抢的
+		// （spider.RunCronTask），只看台账会漏掉"刚起轮次、台账还没落"的那一小段，
+		// 导致停用时误报"没在跑"（deferred 提示错）。
+		if cache.LockHeld(ctx, cache.KeyLockCronTask(id)) {
+			return true
+		}
 		if s.crons == nil || s.runs == nil {
 			return false
 		}
