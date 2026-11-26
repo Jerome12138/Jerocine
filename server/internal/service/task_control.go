@@ -53,7 +53,10 @@ type TaskGateState struct {
 	By         string   `json:"by,omitempty"`
 	Until      int64    `json:"until,omitempty"`
 	PausedJobs []string `json:"pausedJobs"` // 因闸门而暂停、待 resume 恢复的采集源
-	Note       string   `json:"note,omitempty"`
+	// RunningJobs 仍在跑的采集源：暂停是**协作式**的（引擎在页边界才检查状态），
+	// 部署脚本据此轮询"安静点到了没有"——为空即可动手迁移/重建容器。
+	RunningJobs []string `json:"runningJobs"`
+	Note        string   `json:"note,omitempty"`
 }
 
 // 返回体里的固定说明（接口自解释，免得 agent 误判"暂停=立刻冻结/可跨重启"）。
@@ -149,8 +152,21 @@ func (s *TaskCenterService) ResumeAll(ctx context.Context) (TaskGateReport, erro
 		case errors.Is(err, cache.ErrJobNotFound):
 			it.Action, it.Reason = "skipped", "任务已结束/已回收，无需恢复"
 		case errors.Is(err, cache.ErrJobStateMismatch):
-			// 用户在窗口内手工恢复过了：不重复动它
-			it.Action, it.Reason = "skipped", "状态已变化（可能已被手工恢复）"
+			// 状态已不是 paused：读一眼说清楚是什么，别笼统写"已变化"。
+			//   error + 「服务重启中断」= 部署重启把这一轮掐掉了（进程内的轮次不可能跨重启续跑），
+			//   这不是异常而是预期：下一轮按增量窗口重采，数据不会丢（已落库的页都在事务里）。
+			switch cur := cache.JobReadState(ctx, id); cur {
+			case cache.JobError:
+				it.Action, it.Reason = "skipped", "本轮已随服务重启中断（进程内轮次不跨重启续跑），下一轮会自动重采"
+			case cache.JobDone:
+				it.Action, it.Reason = "skipped", "本轮已跑完，无需恢复"
+			case cache.JobCanceled:
+				it.Action, it.Reason = "skipped", "已被取消，无需恢复"
+			case cache.JobRunning:
+				it.Action, it.Reason = "skipped", "已在跑（可能被手工恢复）"
+			default:
+				it.Action, it.Reason = "skipped", "状态已变化（当前 "+cur+"）"
+			}
 		default:
 			it.Action, it.Reason = "skipped", err.Error()
 			rep.Errors = append(rep.Errors, it.Key+": "+err.Error())
@@ -162,15 +178,26 @@ func (s *TaskCenterService) ResumeAll(ctx context.Context) (TaskGateReport, erro
 	return rep, nil
 }
 
-// ControlState 当前维护窗口状态（给 agent 轮询：开没开、谁开的、还有多久、暂停了哪些源）。
+// ControlState 当前维护窗口状态（给 agent 轮询：开没开、谁开的、还有多久、暂停了哪些源、
+// 还有哪些源没停到页边界）。
 func (s *TaskCenterService) ControlState(ctx context.Context) (TaskGateState, error) {
 	by, until, open, err := cache.TaskGateInfo(ctx)
 	if err != nil {
 		return TaskGateState{}, err
 	}
-	st := TaskGateState{Open: open, By: by, PausedJobs: cache.TaskGateJobs(ctx), Note: gateNote}
+	st := TaskGateState{
+		Open: open, By: by, PausedJobs: cache.TaskGateJobs(ctx),
+		RunningJobs: []string{}, Note: gateNote,
+	}
 	if open {
 		st.Until = until.Unix()
+	}
+	if jobs, jerr := cache.JobList(ctx); jerr == nil {
+		for _, j := range jobs {
+			if j.State == cache.JobRunning {
+				st.RunningJobs = append(st.RunningJobs, j.SourceId)
+			}
+		}
 	}
 	return st, nil
 }

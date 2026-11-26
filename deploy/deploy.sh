@@ -342,6 +342,112 @@ archive_server_pkg() {
   if [ -n "$old" ]; then (cd data/packages && rm -f $old); fi
 }
 
+# ==================== 维护窗口(迁移/重建期间暂停采集) ====================
+#
+# 为什么要有: 迁移是 DDL(要拿元数据锁), 采集在同时写库 → 抢锁 + 死锁概率上去; 重建容器又会把
+# 跑到一半的采集掐掉。做法是调**后端自己的运维接口**(不直接改 Redis —— 逻辑单一来源):
+#   POST /api/v1/manage/task-center/pause   打开窗口(拦新触发 + 采集按页边界暂停)
+#   GET  /api/v1/manage/task-center/control 轮询"还有哪些源在跑"
+#   POST /api/v1/manage/task-center/resume  关窗并恢复因窗口暂停的源
+#
+# 只处理**长任务**(采集轮次按页边界协作暂停); 内置短任务(热度/横图/巡检/年份核实)不暂停,
+# 让它们自己跑完 —— 它们幂等且短, 被重启打断只记一次失败台账, 不丢数据(不为它们加暂停复杂度)。
+#
+# 令牌: 请求头 X-Maint-Token = .env 里的 MAINTENANCE_TOKEN; 未配置则复用 SPIDER_RESET_TOKEN
+# (与 server 的 config.maintToken() 同规则)。两者都没配 ⇒ 跳过窗口并告警, 不阻断发布。
+#
+# 失败一律"降级不阻断": 窗口开不起来/等不到安静点/resume 失败, 都只告警 —— 发布本身不能因为
+# 这套保护而卡死; 窗口带 TTL(默认 30 分钟)自愈, 不会把任务永久停住。
+
+JC_MAINT_TTL="${JC_MAINT_TTL:-30}"          # 窗口 TTL(分钟), 要覆盖 迁移+重建+健康检查
+JC_MAINT_QUIET_WAIT="${JC_MAINT_QUIET_WAIT:-90}" # 等采集停到页边界的上限(秒)
+MAINT_OPENED=0
+
+maint_token() {
+  local t=""
+  t="$(grep -E '^MAINTENANCE_TOKEN=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  if [ -z "$t" ]; then
+    t="$(grep -E '^SPIDER_RESET_TOKEN=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  fi
+  printf '%s' "$t"
+}
+
+# 后端没映射到宿主机端口(只在 compose 网络里), 所以走容器内网 IP:3601。
+maint_base() {
+  local ip=""
+  ip="$("${DOCKER[@]}" inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' jerocine_server 2>/dev/null || true)"
+  [ -n "$ip" ] || return 1
+  printf 'http://%s:3601/api/v1/manage/task-center' "$ip"
+}
+
+maint_pause() {
+  local tok base body
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "!! 服务器没有 curl —— 跳过维护窗口(迁移期间可能有采集在写库)" >&2
+    return 0
+  fi
+  tok="$(maint_token)"
+  if [ -z "$tok" ]; then
+    echo "!! 未配置维护令牌(MAINTENANCE_TOKEN / SPIDER_RESET_TOKEN) —— 跳过维护窗口" >&2
+    echo "   迁移/采集可能并发写库。如需保护: 在 deploy/.env 加一行 MAINTENANCE_TOKEN=<长随机串>" >&2
+    return 0
+  fi
+  if ! base="$(maint_base)"; then
+    echo "!! 取不到 jerocine_server 容器地址(容器未起?) —— 跳过维护窗口" >&2
+    return 0
+  fi
+  body="{\"by\":\"deploy.sh\",\"ttlMinutes\":$JC_MAINT_TTL}"
+  echo "==> 打开维护窗口: 拦新触发 + 采集按页边界暂停(TTL ${JC_MAINT_TTL} 分钟自动关闭)"
+  if ! curl -fsS --max-time 15 -X POST -H "X-Maint-Token: $tok" \
+       -H 'Content-Type: application/json' -d "$body" "$base/pause" -o /tmp/jc-maint-pause.json; then
+    echo "!! 打开维护窗口失败 —— 继续发布, 但迁移期间可能有采集在写库" >&2
+    return 0
+  fi
+  MAINT_OPENED=1
+  # 原样打印后端回报(暂停了哪些源 / 哪些长任务无协作暂停点), 让发布日志可审计
+  echo "   后端回报: $(cat /tmp/jc-maint-pause.json)"
+  maint_wait_quiet "$tok" "$base"
+}
+
+# 等采集停到页边界: runningJobs 为空数组即安静点到了。
+maint_wait_quiet() {
+  local tok="$1" base="$2" deadline resp
+  deadline=$(( $(date +%s) + JC_MAINT_QUIET_WAIT ))
+  echo "==> 等采集停到页边界(最多 ${JC_MAINT_QUIET_WAIT}s; 短任务让它自己跑完, 不暂停)"
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    resp="$(curl -fsS --max-time 10 -H "X-Maint-Token: $tok" "$base/control" 2>/dev/null || true)"
+    case "$resp" in
+      *'"runningJobs":[]'*|*'"runningJobs": []'*)
+        echo "==> 采集已停到页边界, 开始迁移/重建"
+        return 0 ;;
+    esac
+    sleep 3
+  done
+  echo "!! 等待超时, 仍有采集在跑 —— 继续发布" >&2
+  echo "   说明: 已落库的页都在事务里(不会写一半); 被打断的这一轮会记「服务重启中断」, 下一轮按窗口重采" >&2
+  echo "   当前状态: ${resp:-<取不到>}" >&2
+  return 0
+}
+
+# 关窗 + 恢复(幂等; 也由 EXIT trap 兜底, 迁移失败/健康检查失败都不会把任务晾在窗口里)。
+maint_resume() {
+  [ "${MAINT_OPENED:-0}" = "1" ] || return 0
+  local tok base
+  MAINT_OPENED=0
+  tok="$(maint_token)"
+  if ! base="$(maint_base)"; then
+    echo "!! 取不到 jerocine_server 容器地址 —— 窗口将在 TTL(${JC_MAINT_TTL} 分钟)后自动关闭" >&2
+    return 0
+  fi
+  echo "==> 关闭维护窗口并恢复因窗口暂停的采集源"
+  if curl -fsS --max-time 20 -X POST -H "X-Maint-Token: $tok" "$base/resume" -o /tmp/jc-maint-resume.json; then
+    echo "   后端回报: $(cat /tmp/jc-maint-resume.json)"
+  else
+    echo "!! resume 调用失败 —— 窗口会在 TTL(${JC_MAINT_TTL} 分钟)后自动关闭, 不阻断发布" >&2
+  fi
+  return 0
+}
+
 deploy_server_from_pkg() {
   local pkg="${1:-}"
   if [ -z "$pkg" ]; then
@@ -375,6 +481,11 @@ deploy_server_from_pkg() {
   # 迁移先于新二进制运行(顺序不能反): 失败则中止发布, 线上保持旧版本(镜像已 build, 无副作用)。
   # 无新迁移时 golang-migrate up 幂等秒退, 不会动库。迁移文件与二进制同包同版,
   # 同步到 data/migrations(compose migrate 服务挂载它, 不再依赖服务器 git 工作树)。
+  # 维护窗口: 迁移/重建前先让采集停在页边界。失败只告警不阻断；一旦开窗就挂 EXIT trap ——
+  # 迁移失败/健康检查失败也会把窗口关掉(不会把任务晾在窗口里等 TTL)。
+  maint_pause
+  trap 'maint_resume || true' EXIT
+
   if [ -d "$ctx/migrations" ]; then
     if ! run_db_migrations "$ctx/migrations" "data/migrations"; then
       echo "!! 发布已中止 —— 线上仍是旧版本; 排查: ${COMPOSE[*]} logs migrate" >&2
@@ -397,6 +508,10 @@ deploy_server_from_pkg() {
   fi
 
   clear_caches
+
+  # 发布成功: 关窗并恢复被窗口暂停的采集源(这是最后一步, 失败也能在日志里看见)
+  maint_resume
+  trap - EXIT
 
   archive_server_pkg "$pkg"
   echo "==> 完成: 后端已发布(镜像 jerocine-server:latest 由 $pkg 构建)"

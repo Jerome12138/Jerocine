@@ -74,6 +74,14 @@ components:
         RS256 JWT。登录返回 token, 客户端置于 Authorization: Bearer <token>。
         服务端临期自动续期, 通过响应头 `New-Token` 下发新 token。
         多设备 token (ZSET, 最多 5 设备) 由 v1:token:{userId} 管理。
+    MaintToken:
+      type: apiKey
+      in: header
+      name: X-Maint-Token
+      description: |
+        维护窗口运维令牌（部署脚本/agent 用，不需要管理员 JWT）。
+        取值来自服务端环境变量 `MAINTENANCE_TOKEN`；未单独配置时复用 `SPIDER_RESET_TOKEN`。
+        服务端未配置任何令牌时，这条通道**一律拒绝**（fail-closed）。
 
   # ---------------- 通用参数 ----------------
   parameters:
@@ -1152,6 +1160,12 @@ components:
         by: { type: string }
         until: { type: integer, description: unix 秒；自动关闭时刻 }
         pausedJobs: { type: array, items: { type: string }, description: 因闸门而暂停、待 resume 恢复的采集源 }
+        runningJobs:
+          type: array
+          items: { type: string }
+          description: |
+            仍在跑的采集源。暂停是协作式的（引擎到页边界才检查状态），
+            部署脚本轮询到它为空数组即"安静点到了"，可以开始迁移/重建。
         note: { type: string }
 
     TaskCenterItem:
@@ -2531,7 +2545,7 @@ paths:
         **不会假装已暂停**。暂停是协作式的（等当前页跑完），且不能跨进程续跑（容器重建后该轮次即结束）。
         闸门带 TTL 自动关闭（默认 60 分钟，上限 6 小时），不会把任务永久停住。
       operationId: manageTaskCenterPause
-      security: [{ BearerAuth: [] }]
+      security: [{ MaintToken: [] }]
       requestBody:
         required: false
         content:
@@ -2558,7 +2572,7 @@ paths:
         只恢复**因本窗口而暂停**的采集任务（白名单），绝不误恢复用户手工暂停的任务；
         已结束/已回收的任务跳过并说明原因。
       operationId: manageTaskCenterResume
-      security: [{ BearerAuth: [] }]
+      security: [{ MaintToken: [] }]
       responses:
         '200':
           description: OK
@@ -2573,7 +2587,7 @@ paths:
       tags: [manage-task]
       summary: 维护窗口状态（开没开/谁开的/还有多久自动关/暂停了哪些采集源）
       operationId: manageTaskCenterControl
-      security: [{ BearerAuth: [] }]
+      security: [{ MaintToken: [] }]
       responses:
         '200':
           description: OK

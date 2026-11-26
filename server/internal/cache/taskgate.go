@@ -130,3 +130,32 @@ func TaskGateJobsClear(ctx context.Context) {
 	}
 	coordRdb.Del(ctx, KeyTaskGateJobs)
 }
+
+// JobMarkInterrupted 服务启动时把**遗留的非终态采集任务**标记为中断（running/paused → error）。
+//
+// 为什么必须有：采集轮次是进程内 goroutine，进程一停它就没了，但 Redis 里的 job 进度 hash 还在。
+// 不扫的话会留下"幽灵运行中/幽灵暂停中"——
+//
+//	· 页面永远显示某个源在跑（进度条卡住），管理员无法判断真假；
+//	· 维护窗口 resume 时把 paused 翻回 running，却没人在跑 ⇒ 幽灵更顽固（直到 24h TTL）；
+//	· 任务中心的"是否在跑"判断被带偏（停用时的 deferred 提示会错）。
+//
+// 标记成 error 是**如实**的：这一轮确实被中断了，下一轮会按窗口重新采（增量窗口滚动自愈）。
+func JobMarkInterrupted(ctx context.Context) (int, error) {
+	if coordRdb == nil {
+		return 0, nil
+	}
+	list, err := JobList(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, p := range list {
+		if p.State != JobRunning && p.State != JobPaused {
+			continue // 只收拾非终态；done/error/canceled 不动
+		}
+		JobFail(ctx, p.SourceId, "服务重启中断，可重新触发采集")
+		n++
+	}
+	return n, nil
+}

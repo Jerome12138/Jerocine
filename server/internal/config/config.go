@@ -17,6 +17,9 @@ type Config struct {
 	Redis      RedisConfig
 	JWT        JWTConfig
 	CORS       []string
+	// MaintToken 维护窗口接口的运维令牌（X-Maint-Token）。未单独配置时复用
+	// SPIDER_RESET_TOKEN —— 让部署脚本零配置即可用，又不必给它发管理员 JWT。
+	MaintToken string
 	Spider     SpiderConfig
 	Blob       BlobConfig
 	TMDB       TMDBConfig
@@ -96,7 +99,8 @@ func Load() *Config {
 			TTL:        168 * time.Hour,
 			MaxDevices: 5,
 		},
-		CORS: splitNonEmpty(os.Getenv("CORS_ALLOWED_ORIGINS")),
+		CORS:       splitNonEmpty(os.Getenv("CORS_ALLOWED_ORIGINS")),
+		MaintToken: maintToken(),
 		Spider: SpiderConfig{
 			ResetToken: mustEnv("SPIDER_RESET_TOKEN"),
 		},
@@ -175,6 +179,15 @@ func splitNonEmpty(s string) []string {
 		}
 	}
 	return out
+}
+
+// maintToken 维护窗口令牌：优先 MAINTENANCE_TOKEN，未配置则复用 SPIDER_RESET_TOKEN。
+// 两者都空 ⇒ 返回空串，此时中间件一律拒绝（fail-closed），部署脚本会跳过维护窗口并告警。
+func maintToken() string {
+	if v := strings.TrimSpace(os.Getenv("MAINTENANCE_TOKEN")); v != "" {
+		return v
+	}
+	return strings.TrimSpace(os.Getenv("SPIDER_RESET_TOKEN"))
 }
 
 // String 脱敏摘要, 启动日志用 (不打印密钥/密码)。

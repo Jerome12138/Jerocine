@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"log"
 	"net/http"
 	"strings"
@@ -116,6 +117,30 @@ func RequireAdmin() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// MaintToken 运维令牌（维护窗口接口专用）：只校验 X-Maint-Token 头，常量时间比较。
+//
+// 为什么要独立令牌而不是复用管理员 JWT：调它的是**部署脚本/agent**（服务器本地、无用户会话），
+// 让脚本持有长期管理员 JWT 风险更大；这里只开放"暂停/恢复/查状态"三个运维动作。
+// wanted 为空 ⇒ 一律拒绝（未配置即关闭该入口，绝不"没配就当放行"）。
+func MaintToken(wanted string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !MaintTokenOK(c.GetHeader("X-Maint-Token"), wanted) {
+			dto.Error(c, http.StatusForbidden, "维护令牌不匹配（X-Maint-Token）")
+			return
+		}
+		c.Next()
+	}
+}
+
+// MaintTokenOK 常量时间比较；未配置（wanted 为空）或未传（got 为空）恒 false。
+// 单独抽出来是为了能单测"空配置=拒绝"这条 fail-closed 语义。
+func MaintTokenOK(got, wanted string) bool {
+	if wanted == "" || got == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(wanted)) == 1
 }
 
 // RateLimit 令牌桶限流(per-IP, 走 Redis 协调态, 多副本一致)。

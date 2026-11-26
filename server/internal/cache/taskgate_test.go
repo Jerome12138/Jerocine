@@ -100,3 +100,46 @@ func TestTaskGateJobsWhitelist(t *testing.T) {
 		t.Fatal("清空后白名单应为空")
 	}
 }
+
+// 服务重启扫尾: 遗留的 running/paused 采集任务必须标成「中断」(error),
+// 否则会留下幽灵"运行中/暂停中"（页面永远显示在跑、resume 还会把它翻回 running）。
+func TestJobMarkInterrupted(t *testing.T) {
+	newTestCache(t)
+	ctx := context.Background()
+
+	// 三个源: 运行中 / 暂停中 / 已完成
+	if err := JobStart(ctx, "src_run", "在跑", 10, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	if err := JobStart(ctx, "src_paused", "暂停中", 10, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	if err := JobControl(ctx, "src_paused", JobPaused, JobRunning); err != nil {
+		t.Fatalf("暂停: %v", err)
+	}
+	if err := JobStart(ctx, "src_done", "已完成", 10, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	JobSetState(ctx, "src_done", JobDone)
+
+	n, err := JobMarkInterrupted(ctx)
+	if err != nil || n != 2 {
+		t.Fatalf("应把 2 个非终态任务标中断, got n=%d err=%v", n, err)
+	}
+	for _, id := range []string{"src_run", "src_paused"} {
+		p, _ := JobSnapshot(ctx, id)
+		if p.State != JobError || p.Error == "" {
+			t.Fatalf("%s 应标成 error 且带原因, got %+v", id, p)
+		}
+		if p.EndedAt == 0 {
+			t.Fatalf("%s 应打上结束时间(否则 30min GC 窗口判不出来)", id)
+		}
+	}
+	if p, _ := JobSnapshot(ctx, "src_done"); p.State != JobDone {
+		t.Fatalf("终态任务不该被动过, got %s", p.State)
+	}
+	// 幂等: 再来一次没有非终态任务可收拾
+	if n2, _ := JobMarkInterrupted(ctx); n2 != 0 {
+		t.Fatalf("第二次应无可标记, got %d", n2)
+	}
+}

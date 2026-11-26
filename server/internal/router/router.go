@@ -91,6 +91,17 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		me.PUT("/me/web-settings", h.WebSettingPut)
 	}
 
+	// ---- 维护窗口（部署/迁移/备份 agent 调用；X-Maint-Token，不需要管理员 JWT）----
+	// 单独成组而不是挂在 mg 下: 调它的是服务器上的部署脚本/agent，没有用户会话；
+	// 只开放"暂停/恢复/查状态"三个运维动作，令牌未配置时整组拒绝（fail-closed）。
+	maint := v1.Group("/manage/task-center")
+	maint.Use(middleware.MaintToken(cfg.MaintToken), middleware.NoStore())
+	{
+		maint.POST("/pause", h.TaskCenterPauseAll)
+		maint.POST("/resume", h.TaskCenterResumeAll)
+		maint.GET("/control", h.TaskCenterControl)
+	}
+
 	// ---- 管理后台(Bearer + Admin + no-store) ----
 	mg := v1.Group("/manage")
 	mg.Use(middleware.AuthToken(us), middleware.RequireAdmin(), middleware.NoStore())
@@ -171,10 +182,6 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/task-center/tasks", h.TaskCenterTasks) // 统一任务中心（只读）
 		mg.GET("/task-center/overview", h.TaskCenterOverview)
 		mg.POST("/task-center/tasks/batch-state", h.TaskCenterBatchState) // 批量启用/停用
-		// 维护窗口（部署/迁移用）：暂停全部触发 + 协作暂停在跑的采集任务
-		mg.POST("/task-center/pause", h.TaskCenterPauseAll)
-		mg.POST("/task-center/resume", h.TaskCenterResumeAll)
-		mg.GET("/task-center/control", h.TaskCenterControl)
 		mg.PUT("/task-center/tasks/:key/setting", h.TaskCenterUpdateSetting)
 		mg.POST("/task-center/tasks/:key/run", h.TaskCenterRun)
 		mg.POST("/task-center/tasks/:key/pause", h.TaskCenterPause)

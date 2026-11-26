@@ -186,3 +186,72 @@ func TestNonPauseableRunning_ReportsHonestly(t *testing.T) {
 		t.Fatalf("不可暂停的长任务必须如实标注: %+v", items[0])
 	}
 }
+
+// control 要能回答"还有哪些源没停到页边界"：部署脚本靠它轮询安静点。
+func TestControlState_RunningJobs(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+	svc := &TaskCenterService{reg: newRegistryWithBuiltins()}
+
+	if err := cache.JobStart(ctx, "src_a", "A", 10, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	if err := cache.JobStart(ctx, "src_b", "B", 10, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	if err := cache.TaskGateOpen(ctx, "deploy.sh", time.Minute); err != nil {
+		t.Fatalf("开闸门: %v", err)
+	}
+	st, err := svc.ControlState(ctx)
+	if err != nil {
+		t.Fatalf("ControlState: %v", err)
+	}
+	if !st.Open || len(st.RunningJobs) != 2 {
+		t.Fatalf("窗口开着且两个源都在跑: %+v", st)
+	}
+
+	// 暂停后 runningJobs 为空 = 安静点到了（部署脚本据此开始迁移）
+	if _, err := svc.PauseAll(ctx, "deploy.sh", 30); err != nil {
+		t.Fatalf("PauseAll: %v", err)
+	}
+	st, _ = svc.ControlState(ctx)
+	if len(st.RunningJobs) != 0 {
+		t.Fatalf("暂停后不应还有 running 的源: %+v", st.RunningJobs)
+	}
+	if len(st.PausedJobs) != 2 {
+		t.Fatalf("白名单应有 2 个源: %+v", st.PausedJobs)
+	}
+}
+
+// 部署重启后 resume：被窗口暂停的源已被启动扫尾标成"服务重启中断"，
+// resume 必须**跳过并说清楚**，不能把它翻回 running 造出幽灵。
+func TestResumeAll_AfterRestartInterrupted(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+	svc := &TaskCenterService{reg: newRegistryWithBuiltins()}
+
+	if err := cache.JobStart(ctx, "src_a", "A", 10, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	if _, err := svc.PauseAll(ctx, "deploy.sh", 30); err != nil {
+		t.Fatalf("PauseAll: %v", err)
+	}
+	// 模拟容器重建: 新进程启动时把遗留的 paused 扫成 error
+	if n, err := cache.JobMarkInterrupted(ctx); err != nil || n != 1 {
+		t.Fatalf("扫尾应标记 1 个, got n=%d err=%v", n, err)
+	}
+
+	rep, err := svc.ResumeAll(ctx)
+	if err != nil {
+		t.Fatalf("ResumeAll 不应失败: %v", err)
+	}
+	if len(rep.Items) != 1 || rep.Items[0].Action != "skipped" {
+		t.Fatalf("已中断的源应 skipped: %+v", rep.Items)
+	}
+	if !strings.Contains(rep.Items[0].Reason, "中断") {
+		t.Fatalf("原因应说明是重启中断: %q", rep.Items[0].Reason)
+	}
+	if cur := cache.JobReadState(ctx, "src_a"); cur != cache.JobError {
+		t.Fatalf("不能翻回 running（幽灵），应保持 error, got %s", cur)
+	}
+}

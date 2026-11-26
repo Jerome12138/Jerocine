@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 
 	"server/internal/bloburl"
+	"server/internal/cache"
 	"server/internal/config"
 	"server/internal/danmu"
 	"server/internal/douban"
@@ -78,6 +79,14 @@ func main() {
 	app.spiderSvc.SetBaseCtx(rootCtx)
 	// 服务重启: 把上一轮遗留的 running 台账行标记为中断(避免幽灵"运行中"任务)。
 	app.handlers.Tasks.MarkInterrupted(rootCtx)
+	// 同理收拾采集 job 进度 hash: 进程一停轮次就没了, Redis 里 running/paused 的行必须标成中断,
+	// 否则页面永远显示"在跑"、维护窗口 resume 还会把它翻回 running 变成更顽固的幽灵。
+	// （与台账 MarkInterrupted 同一口径：单实例部署假设，见 deploy/README。）
+	if n, err := cache.JobMarkInterrupted(rootCtx); err != nil {
+		log.Printf("[boot] 遗留采集任务标中断失败: %v", err)
+	} else if n > 0 {
+		log.Printf("[boot] 已把 %d 个遗留的采集任务标记为「服务重启中断」", n)
+	}
 	// 2026-11-25：采集定时任务的调度已并入统一任务中心（时间语义统一为友好文本）。
 	// 启动时先幂等转换存量 spec → schedule，再由 taskCenterSched 统一调度。
 	// app.spiderSvc.StartScheduler(rootCtx) // 保留便于回滚
