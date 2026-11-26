@@ -16,6 +16,7 @@ import (
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
+	"server/internal/errclass"
 	"server/internal/spider"
 )
 
@@ -149,7 +150,7 @@ func (s *SpiderService) StartCollect(sourceId string, hours int) error {
 			"手动采集："+src.Name, hours)
 		err := s.runOne(ctx, src, hours)
 		if err != nil {
-			status, msg := entity.TaskRunFailed, err.Error()
+			status, msg := entity.TaskRunFailed, errclass.Format(err)
 			if errors.Is(err, domain.ErrConflict) {
 				status = entity.TaskRunCanceled
 				msg = "同源已有采集在跑, 本次跳过"
@@ -683,7 +684,7 @@ func (s *SpiderService) CategoryCover(ctx context.Context, sourceId string) erro
 	runId := s.tasks.Start(entity.TaskRunKindManual, entity.TaskRunCategoryCover, 0, src.Id,
 		"分类覆盖："+src.Name, 0)
 	if err := s.engine.CoverCategories(ctx, src); err != nil {
-		s.tasks.Finish(runId, entity.TaskRunFailed, 0, 0, 0, "", err.Error())
+		s.tasks.Finish(runId, entity.TaskRunFailed, 0, 0, 0, "", errclass.Format(err))
 		return err
 	}
 	s.tasks.Finish(runId, entity.TaskRunSuccess, 0, 0, 0, "分类已覆盖", "")
@@ -1024,7 +1025,7 @@ func (s *SpiderService) finishCollectRun(runId int64, sum CollectSummary) {
 	if sum.Failed > 0 {
 		err := fmt.Sprintf("%d 个源失败", sum.Failed)
 		if sum.FirstErr != "" {
-			err += ": " + sum.FirstErr
+			err += ": " + errclass.FormatMsg(sum.FirstErr)
 		}
 		s.tasks.Finish(runId, entity.TaskRunFailed, sum.Total, sum.Done, sum.FailedPages, msg, err)
 		return

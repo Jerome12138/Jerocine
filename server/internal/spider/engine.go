@@ -15,6 +15,7 @@ import (
 	"server/internal/domain"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
+	"server/internal/errclass"
 	"server/internal/platform/blobstore"
 )
 
@@ -277,51 +278,71 @@ func isDeadlock(err error) bool {
 
 // collectPageWithRetry collectPage 的死锁重试包装: 命中 1213 时随机退避 50~150ms 重放,
 // 仍失败才原样返回(由调用方记台账)。优雅停机 ctx 取消时立即中止, 不再重试。
+// retryDelay 重试退避：死锁沿用 50~150ms 抖动；网络/5xx 用 0.5s→2s 指数退避，
+// 且不低于该源自己的每页间隔（重试也必须服从执行层节流，否则等于放大压力）。
+func retryDelay(code string, attempt int, src *entity.CollectSource) time.Duration {
+	if code == errclass.CodeDeadlock {
+		return time.Duration(50+rand.Intn(100)) * time.Millisecond
+	}
+	d := time.Duration(500*(1<<(attempt-1))) * time.Millisecond
+	if d > 2*time.Second {
+		d = 2 * time.Second
+	}
+	if src != nil && src.IntervalMs > 0 {
+		if iv := time.Duration(src.IntervalMs) * time.Millisecond; iv > d {
+			d = iv
+		}
+	}
+	return d
+}
+
 func (e *Engine) collectPageWithRetry(ctx context.Context, src *entity.CollectSource, pg, hours int, master, full bool) error {
 	var err error
-	for attempt := 0; attempt <= deadlockRetries; attempt++ {
-		if attempt > 0 {
-			delay := time.Duration(50+rand.Intn(100)) * time.Millisecond
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
-			}
-		}
+	for attempt := 0; ; attempt++ {
 		err = e.collectPage(ctx, src, pg, hours, master, full)
-		if err == nil || !isDeadlock(err) {
+		if err == nil {
+			return nil
+		}
+		cls := errclass.Classify(err)
+		if !cls.Retryable || attempt >= cls.RetryMax {
 			return err
 		}
-		log.Printf("spider page src=%s pg=%d deadlock retry %d/%d", src.Id, pg, attempt, deadlockRetries)
+		delay := retryDelay(cls.Code, attempt+1, src)
+		log.Printf("spider page src=%s pg=%d %s retry %d/%d", src.Id, pg, cls.Code, attempt+1, cls.RetryMax)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
 	}
-	return err
 }
 
 // collectPageNWithRetry 同 collectPageWithRetry, 额外返回该页落库条数(补采回报用)。
 func (e *Engine) collectPageNWithRetry(ctx context.Context, src *entity.CollectSource, pg, hours int, master, full bool) (int, error) {
 	var n int
 	var err error
-	for attempt := 0; attempt <= deadlockRetries; attempt++ {
-		if attempt > 0 {
-			delay := time.Duration(50+rand.Intn(100)) * time.Millisecond
-			select {
-			case <-ctx.Done():
-				return 0, ctx.Err()
-			case <-time.After(delay):
-			}
-		}
+	for attempt := 0; ; attempt++ {
 		if master {
 			n, err = e.collectMasterPageN(ctx, src, pg, hours, full)
 		} else {
 			err = e.collectSlavePage(ctx, src, pg, hours)
 			n = 0
 		}
-		if err == nil || !isDeadlock(err) {
+		if err == nil {
+			return n, nil
+		}
+		cls := errclass.Classify(err)
+		if !cls.Retryable || attempt >= cls.RetryMax {
 			return n, err
 		}
-		log.Printf("spider page src=%s pg=%d deadlock retry %d/%d", src.Id, pg, attempt, deadlockRetries)
+		delay := retryDelay(cls.Code, attempt+1, src)
+		log.Printf("spider page src=%s pg=%d %s retry %d/%d", src.Id, pg, cls.Code, attempt+1, cls.RetryMax)
+		select {
+		case <-ctx.Done():
+			return n, ctx.Err()
+		case <-time.After(delay):
+		}
 	}
-	return n, err
 }
 
 func (e *Engine) collectMasterPage(ctx context.Context, src *entity.CollectSource, pg, hours int, full bool) error {
@@ -373,10 +394,8 @@ func (e *Engine) recordFailure(ctx context.Context, src *entity.CollectSource, p
 		return
 	}
 	ctx = finCtx(ctx) // 台账写入必须活过停机取消: 取消导致的页失败恰恰最需要记下来补采
-	msg := ""
-	if cause != nil {
-		msg = cause.Error()
-	}
+	// 台账只记 `[code] 短文案`；原始异常进日志（原因字典见 internal/errclass）
+	msg := errclass.Format(cause)
 	if len(msg) > maxCauseLen {
 		msg = msg[:maxCauseLen]
 	}
