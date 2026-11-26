@@ -240,7 +240,10 @@ async function loadAll(): Promise<void> {
   if (activeTab.value === 'running') void loadJobs()
   if (activeTab.value === 'schedule') void loadTc()
   if (activeTab.value === 'history') void loadRuns()
-  if (activeTab.value === 'failures') void loadFailures()
+  if (activeTab.value === 'failures') {
+    void loadFailures()
+    void loadErrRuns()
+  }
 }
 
 function schedulePoll(): void {
@@ -346,6 +349,51 @@ async function rerunRun(r: TaskRun): Promise<void> {
 // 筛选变更 → 回第 1 页重查(search 在第 1 页时直接 load)
 function changeRunStatus(): void {
   searchRuns()
+}
+
+// ---- 任务异常（所有定时/内置任务的失败台账，支持重跑/忽略）----
+const errRuns = ref<TaskRun[]>([])
+const errIgnored = ref<TaskRun[]>([])
+const errLoading = ref(false)
+const showIgnoredRuns = ref(false)
+
+async function loadErrRuns(): Promise<void> {
+  errLoading.value = true
+  try {
+    const r = await tasksApi.runs({ status: 'failed', ignored: false, page: 1, size: 20 })
+    errRuns.value = r.list ?? []
+    if (showIgnoredRuns.value) {
+      const ri = await tasksApi.runs({ status: 'failed', ignored: true, page: 1, size: 20 })
+      errIgnored.value = ri.list ?? []
+    } else {
+      errIgnored.value = []
+    }
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '异常列表加载失败')
+  } finally {
+    errLoading.value = false
+  }
+}
+
+async function rerunTaskRun(row: TaskRun): Promise<void> {
+  await run({
+    confirm: {
+      title: '重新执行',
+      desc: `将按「${row.name}」的类型重新触发一次（不改变原计划）。`,
+      okText: '执行'
+    },
+    action: () => tasksApi.rerunRun(row.id),
+    successMsg: '已提交重跑',
+    after: loadErrRuns
+  })
+}
+
+async function ignoreTaskRun(row: TaskRun, ignored: boolean): Promise<void> {
+  await run({
+    action: () => tasksApi.ignoreRun(row.id, ignored),
+    successMsg: ignored ? '已忽略（仍保留记录）' : '已恢复提示',
+    after: loadErrRuns
+  })
 }
 
 // ---- 失败记录操作 ----
@@ -771,8 +819,40 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       </ManageTable>
     </template>
 
-    <!-- ===== 失败记录 ===== -->
+    <!-- ===== 失败记录（任务异常 + 待补采失败页）===== -->
     <template v-else>
+      <section class="mb-[var(--jc-space-5)] flex flex-col gap-[var(--jc-space-2)]">
+        <div class="flex flex-wrap items-center gap-[var(--jc-space-3)]">
+          <h3 class="text-sm font-[var(--jc-fw-medium)]">任务异常</h3>
+          <span class="text-xs text-muted">{{ errRuns.length }} 条未忽略</span>
+          <label class="ml-auto flex items-center gap-1 text-xs text-muted">
+            <input v-model="showIgnoredRuns" type="checkbox" @change="loadErrRuns" />
+            显示已忽略
+          </label>
+        </div>
+        <p v-if="errLoading" class="text-xs text-muted">加载中…</p>
+        <p v-else-if="!errRuns.length && !errIgnored.length" class="text-xs text-muted">
+          没有任务异常。所有定时任务（含内置）失败都会记在这里，可重新执行或忽略。
+        </p>
+        <article
+          v-for="r in [...errRuns, ...errIgnored]"
+          :key="r.id"
+          class="flex flex-wrap items-center gap-[var(--jc-space-2)] rounded-card bg-surface p-[var(--jc-space-3)] shadow-card"
+        >
+          <StatusTag :value="r.status" :map="RUN_STATUS_MAP" size="sm" />
+          <BaseTag variant="info" size="xs">{{ r.type }}</BaseTag>
+          <span class="text-sm font-[var(--jc-fw-medium)]">{{ r.name }}</span>
+          <span class="text-xs text-muted">{{ fmtTime(r.startedAt) }}</span>
+          <span v-if="r.endedAt > 0" class="text-xs text-muted">耗时 {{ fmtDuration(r.endedAt - r.startedAt) }}</span>
+          <span class="min-w-0 flex-1 break-all text-xs text-[var(--jc-danger)]">{{ r.error }}</span>
+          <span v-if="r.ignored" class="text-xs text-muted">已忽略</span>
+          <ManageButton size="sm" variant="ghost" :disabled="busy" @click="rerunTaskRun(r)">重新执行</ManageButton>
+          <ManageButton size="sm" variant="ghost" @click="ignoreTaskRun(r, !r.ignored)">
+            {{ r.ignored ? '恢复' : '忽略' }}
+          </ManageButton>
+        </article>
+      </section>
+
       <ManageTable
         :columns="failureColumns"
         :rows="failures"

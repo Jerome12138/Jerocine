@@ -16,6 +16,8 @@ export interface TaskRunPage {
 export const runs = (params?: {
   status?: string
   type?: string
+  /** true=只看已忽略 / false=只看未忽略 / 不传=全部 */
+  ignored?: boolean
   page?: number
   size?: number
 }): Promise<TaskRunPage> => http.get<unknown, TaskRunPage>('/manage/tasks/runs', { params })
@@ -98,6 +100,18 @@ export const taskCenterRun = (key: string): Promise<{ accepted: boolean }> =>
   http.post<unknown, { accepted: boolean }>(
     `/manage/task-center/tasks/${encodeURIComponent(key)}/run`,
     {},
+    { silent: true }
+  )
+
+/** POST /manage/task-center/runs/:id/rerun 异常重跑 */
+export const rerunRun = (id: number): Promise<{ accepted: boolean }> =>
+  http.post<unknown, { accepted: boolean }>(`/manage/task-center/runs/${id}/rerun`, {}, { silent: true })
+
+/** POST /manage/task-center/runs/:id/ignore 忽略/恢复一条异常 */
+export const ignoreRun = (id: number, ignored = true): Promise<{ ok: boolean; ignored: boolean }> =>
+  http.post<unknown, { ok: boolean; ignored: boolean }>(
+    `/manage/task-center/runs/${id}/ignore`,
+    { ignored },
     { silent: true }
   )
 

@@ -399,6 +399,8 @@ type UserProfile struct {
 type TaskRunFilter struct {
 	Status string
 	Type   string
+	// Ignored nil=不过滤 / true=只看已忽略 / false=只看未忽略（异常页默认 false）
+	Ignored *bool
 }
 
 // RegisterApplyRepository 申请注册审核行 (table: register_apply, P2)。
@@ -439,6 +441,8 @@ type TaskRunRepository interface {
 	// excludeSourceIds 非空时剔除这些源的行 —— 同一次采集同时有 Redis 活跃 job 与
 	// 台账 running 行, 统计卡把两口径直加前先按源去重, 避免一个任务数成两个。
 	CountRunning(ctx context.Context, excludeSourceIds []string) (int64, error)
+	// SetIgnored 标记/取消"已忽略"（异常处理用；不删行）。
+	SetIgnored(ctx context.Context, id int64, ignored bool) error
 	// PruneBefore 删除早于 beforeMs 的**终态**记录（分批；不删 running），供历史保留 30 天用。
 	PruneBefore(ctx context.Context, beforeMs int64, limit int) (int64, error)
 	// MarkInterrupted 把全部 running 行标记为 failed(服务重启导致的中断), 避免幽灵"运行中"行。

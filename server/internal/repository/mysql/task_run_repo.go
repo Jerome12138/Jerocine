@@ -54,6 +54,13 @@ func (r *taskRunRepo) List(ctx context.Context, f repository.TaskRunFilter, page
 	if f.Type != "" {
 		q = q.Where("task_type = ?", f.Type)
 	}
+	if f.Ignored != nil {
+		if *f.Ignored {
+			q = q.Where("ignored = 1")
+		} else {
+			q = q.Where("ignored = 0")
+		}
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -113,6 +120,12 @@ func (r *taskRunRepo) CountRunning(ctx context.Context, excludeSourceIds []strin
 }
 
 // MarkInterrupted 服务重启时调用: 未收尾的 running 行标记为 failed(中断)。
+// SetIgnored 标记/取消"已忽略"（异常处理；不删行，保留审计）。
+func (r *taskRunRepo) SetIgnored(ctx context.Context, id int64, ignored bool) error {
+	return dbFrom(ctx, r.db).Model(&entity.TaskRun{}).Where("id = ?", id).
+		Update("ignored", ignored).Error
+}
+
 // PruneBefore 删除早于 beforeMs 的**终态**记录（running 不删，避免误删活任务）。
 func (r *taskRunRepo) PruneBefore(ctx context.Context, beforeMs int64, limit int) (int64, error) {
 	if limit <= 0 || limit > 20000 {

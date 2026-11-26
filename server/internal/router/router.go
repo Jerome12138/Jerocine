@@ -175,6 +175,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.POST("/task-center/tasks/:key/pause", h.TaskCenterPause)
 		mg.POST("/task-center/tasks/:key/resume", h.TaskCenterResume)
 		mg.POST("/task-center/tasks/:key/stop", h.TaskCenterStop)
+		mg.POST("/task-center/runs/:id/rerun", h.TaskCenterRerun)      // 异常：重新执行
+		mg.POST("/task-center/runs/:id/ignore", h.TaskCenterIgnoreRun) // 异常：忽略/恢复
 		mg.GET("/tasks/runs", h.TaskRuns)
 		mg.GET("/tasks/overview", h.TaskOverview)
 		mg.POST("/tasks/:id/rerun", h.TaskRerun)

@@ -159,7 +159,7 @@ func (s *TaskCenterService) registerBuiltins() {
 		Key: "builtin:backdrop", Kind: taskcenter.KindBuiltin, Type: "backdrop",
 		Name: "横图补采", Target: "缺横图的影片（TMDB）",
 		Detail:          "扫描缺横图的影片并从 TMDB 取图（每请求固定延迟）；频率高，只执行不记台账。",
-		DefaultSchedule: "every:20m", Enabled: true, NoLedger: true,
+		DefaultSchedule: "every:20m", Enabled: true, QuietOnSuccess: true,
 		DefaultIntervalMs: 300, MinIntervalMs: 100, IntervalLabel: "300ms/请求",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: idleWithMessage("每 20 分钟扫描一次"),
@@ -176,7 +176,7 @@ func (s *TaskCenterService) registerBuiltins() {
 		Key: "builtin:health", Kind: taskcenter.KindBuiltin, Type: "health",
 		Name: "采集源健康巡检", Target: "全部启用的采集源",
 		Detail:          "探测各源可用性与延迟（并发 6，按间隔限速）；频率高，只执行不记台账。",
-		DefaultSchedule: "every:1h", Enabled: true, NoLedger: true,
+		DefaultSchedule: "every:1h", Enabled: true, QuietOnSuccess: true,
 		DefaultIntervalMs: 200, MinIntervalMs: 200, IntervalLabel: "200ms/探针",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: idleWithMessage("每 1 小时巡检一次"),
@@ -193,7 +193,7 @@ func (s *TaskCenterService) registerBuiltins() {
 		Key: "builtin:year_verify", Kind: taskcenter.KindBuiltin, Type: "year_verify",
 		Name: "年份核实", Target: "年份越界的影片（TMDB 校验）",
 		Detail:          "用外部权威纠正**确凿错误**的年份：同名命中且年份不同才写库，查不到一律不动（宁缺勿错）。",
-		DefaultSchedule: "every:30m", Enabled: true, NoLedger: true,
+		DefaultSchedule: "every:30m", Enabled: true, QuietOnSuccess: true,
 		DefaultIntervalMs: 300, MinIntervalMs: 100, IntervalLabel: "300ms/请求",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: idleWithMessage("每 30 分钟扫描一次（高频，不记台账）"),
@@ -636,6 +636,43 @@ func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in Ta
 	}
 	// Upsert 只覆盖非空字段（不会清空备注，也不会动 enabled）
 	return s.settings.Upsert(ctx, set)
+}
+
+// RerunRun 按一条台账记录重跑对应任务（异常处理用）。
+func (s *TaskCenterService) RerunRun(ctx context.Context, runID int64) error {
+	if s.runs == nil {
+		return fmt.Errorf("台账仓储未装配")
+	}
+	r, err := s.runs.Get(ctx, runID)
+	if err != nil {
+		return err
+	}
+	// 定时采集任务：按 cron id 重跑（走 TriggerCron，保留其既有限制）
+	if r.CronId > 0 {
+		return s.RunTask(ctx, "cron:"+strconv.FormatInt(r.CronId, 10))
+	}
+	// 内置任务：按 type 反查注册表（同 type 只可能有一个 key）
+	for _, d := range s.reg.All() {
+		if d.Type == r.Type && d.Run != nil {
+			return s.RunTask(ctx, d.Key)
+		}
+	}
+	if r.Type == entity.TaskRunCollect && r.SourceId != "" {
+		// 手动单源采集：没有注册表项，直接复用采集入口
+		if s.spider == nil {
+			return fmt.Errorf("采集服务未装配")
+		}
+		return s.spider.StartCollect(r.SourceId, r.Hours)
+	}
+	return fmt.Errorf("该类型（%s）暂不支持重跑", r.Type)
+}
+
+// SetRunIgnored 忽略/恢复一条异常台账（不删行，保留审计）。
+func (s *TaskCenterService) SetRunIgnored(ctx context.Context, runID int64, ignored bool) error {
+	if s.runs == nil {
+		return fmt.Errorf("台账仓储未装配")
+	}
+	return s.runs.SetIgnored(ctx, runID, ignored)
 }
 
 // RunTask 手动执行一次。

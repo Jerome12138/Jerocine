@@ -645,7 +645,18 @@ func (h *Handlers) startHotRefreshAsync() {
 // status: running | success | failed | canceled; type: collect | recover | category_cover | hot_refresh。
 func (h *Handlers) TaskRuns(c *gin.Context) {
 	page := repository.Page{Current: queryInt(c, "page", 1), Size: queryInt(c, "size", 0)}
-	list, total, err := h.Tasks.List(c.Request.Context(), c.Query("status"), c.Query("type"), page)
+	// ignored: ""=不过滤 / "true"=只看已忽略 / "false"=只看未忽略（异常页默认 false）
+	var ignored *bool
+	switch c.Query("ignored") {
+	case "true":
+		v := true
+		ignored = &v
+	case "false":
+		v := false
+		ignored = &v
+	}
+	list, total, err := h.Tasks.ListFiltered(c.Request.Context(),
+		repository.TaskRunFilter{Status: c.Query("status"), Type: c.Query("type"), Ignored: ignored}, page)
 	if err != nil {
 		dto.Fail(c, err)
 		return
@@ -813,6 +824,44 @@ func (h *Handlers) TaskCenterUpdateSetting(c *gin.Context) {
 		return
 	}
 	dto.OK(c, gin.H{"ok": true})
+}
+
+// TaskCenterRerun POST /manage/task-center/runs/:id/rerun
+// 按一条**台账记录**重跑对应任务（异常处理：重新执行）。
+func (h *Handlers) TaskCenterRerun(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if id <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid id")
+		return
+	}
+	if err := h.TaskCenter.RerunRun(c.Request.Context(), id); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.Accepted(c, gin.H{"accepted": true})
+}
+
+// TaskCenterIgnoreRun POST /manage/task-center/runs/:id/ignore {ignored?}
+// 忽略一条异常（默认 true；传 false 可恢复）。不删行，保留审计。
+func (h *Handlers) TaskCenterIgnoreRun(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if id <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid id")
+		return
+	}
+	var req struct {
+		Ignored *bool `json:"ignored"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	ignored := true
+	if req.Ignored != nil {
+		ignored = *req.Ignored
+	}
+	if err := h.TaskCenter.SetRunIgnored(c.Request.Context(), id, ignored); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"ok": true, "ignored": ignored})
 }
 
 // TaskCenterRun POST /manage/task-center/tasks/:key/run

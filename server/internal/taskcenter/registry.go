@@ -83,8 +83,9 @@ type Def struct {
 	Caps     []string
 
 	Internal bool // 不在列表展示（如 history_prune）
-	// NoLedger 高频任务：照常按计划执行，但**不写 task_run 台账**（避免台账被 20 分钟级任务刷爆）
-	NoLedger bool
+	// QuietOnSuccess 高频任务：照常执行，**成功不写台账、失败照写**。
+	// 这样既不把台账刷爆（20~30 分钟一条），又能保证"异常留痕 + 可重跑/可忽略"。
+	QuietOnSuccess bool
 
 	Status func(ctx context.Context) Status
 	// Run 触发一次（Phase 2 收敛后由中心调度调用）。

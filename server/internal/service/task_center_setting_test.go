@@ -182,10 +182,10 @@ func TestBuiltinRegistry_SchedulingContract(t *testing.T) {
 		}
 	}
 
-	noLedger := []string{"builtin:backdrop", "builtin:health", "builtin:year_verify"}
-	for _, k := range noLedger {
-		if !got[k].NoLedger {
-			t.Fatalf("%s 属高频任务，应标记 NoLedger", k)
+	quietOnSuccess := []string{"builtin:backdrop", "builtin:health", "builtin:year_verify"}
+	for _, k := range quietOnSuccess {
+		if !got[k].QuietOnSuccess {
+			t.Fatalf("%s 属高频任务，应标记 QuietOnSuccess（成功不记、失败记）", k)
 		}
 	}
 

@@ -79,6 +79,14 @@ func (s *TaskRunService) Get(ctx context.Context, id int64) (*entity.TaskRun, er
 	return s.runs.Get(ctx, id)
 }
 
+// ListFiltered 台账分页（支持 ignored 过滤）。
+func (s *TaskRunService) ListFiltered(ctx context.Context, f repository.TaskRunFilter, page repository.Page) ([]entity.TaskRun, int64, error) {
+	if !s.enabled() {
+		return nil, 0, nil
+	}
+	return s.runs.List(ctx, f, page.Normalize(20))
+}
+
 // List 台账分页(status/type 为空则不过滤)。
 func (s *TaskRunService) List(ctx context.Context, status, taskType string, page repository.Page) ([]entity.TaskRun, int64, error) {
 	if !s.enabled() {

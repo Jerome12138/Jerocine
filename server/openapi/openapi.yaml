@@ -2536,6 +2536,40 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { description: 该任务不支持停止 }
 
+  /manage/task-center/runs/{id}/rerun:
+    post:
+      tags: [manage-task]
+      summary: 异常重跑（按台账记录重跑对应任务）
+      description: 定时采集按 cron id 重跑；内置任务按 type 反查注册表重跑；手动单源采集走采集入口。
+      operationId: manageTaskCenterRerun
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '202': { description: 已提交 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: 该类型暂不支持重跑 }
+
+  /manage/task-center/runs/{id}/ignore:
+    post:
+      tags: [manage-task]
+      summary: 忽略/恢复一条异常（不删行，保留审计）
+      operationId: manageTaskCenterIgnoreRun
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ignored: { type: boolean, description: 缺省 true（忽略）；false 表示恢复提示 }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /manage/task-center/overview:
     get:
       tags: [manage-task]

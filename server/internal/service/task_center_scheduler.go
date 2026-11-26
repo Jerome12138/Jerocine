@@ -127,8 +127,10 @@ func (s *TaskScheduler) runOne(ctx context.Context, d taskcenter.Def) {
 
 	start := time.Now()
 	runID := int64(0)
-	// 高频任务（backdrop/health）只执行不记台账：台账是给人看的，20 分钟一条会把它刷爆
-	if s.tc.runs != nil && !d.NoLedger {
+	// 台账策略（2026-11-25 用户要求）：
+	//   · 普通任务：开始即落"运行中"，结束时收尾；
+	//   · 高频任务(QuietOnSuccess)：**先跑，失败才补落一条失败台账**（成功不留痕，避免刷爆）
+	if s.tc.runs != nil && !d.QuietOnSuccess {
 		r := &entity.TaskRun{
 			Kind: "builtin", Type: d.Type, Name: d.Name,
 			Status: entity.TaskRunRunning, StartedAt: start.UnixMilli(), CreatedAt: start.UnixMilli(),
@@ -140,6 +142,19 @@ func (s *TaskScheduler) runOne(ctx context.Context, d taskcenter.Def) {
 
 	err := safeRunTask(ctx, d)
 	cost := time.Since(start).Round(time.Second)
+
+	// 高频任务失败：补落一条终态台账，让"异常"页能看见并支持重跑/忽略
+	if s.tc.runs != nil && d.QuietOnSuccess && err != nil {
+		r := &entity.TaskRun{
+			Kind: "builtin", Type: d.Type, Name: d.Name,
+			Status: entity.TaskRunFailed, StartedAt: start.UnixMilli(),
+			EndedAt: time.Now().UnixMilli(), CreatedAt: start.UnixMilli(),
+			Error: errclass.Format(err),
+		}
+		if cerr := s.tc.runs.Create(ctx, r); cerr != nil {
+			log.Printf("[task-scheduler] %s 失败台账写入失败: %v", d.Key, cerr)
+		}
+	}
 
 	if s.tc.runs != nil && runID > 0 {
 		if cur, gerr := s.tc.runs.Get(ctx, runID); gerr == nil && cur != nil {

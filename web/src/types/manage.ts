@@ -246,6 +246,8 @@ export interface TaskRun {
   hours: number
   /** 状态: running | success | failed | canceled */
   status: 'running' | 'success' | 'failed' | 'canceled'
+  /** 已忽略（异常处理：不再提示；不删行） */
+  ignored?: boolean
   /** 总页数 */
   total: number
   /** 成功页数 */
