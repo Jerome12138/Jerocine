@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import TaskManageView from './TaskManageView.vue'
+
+// 页签与 ?tab= 同步：这里给一个可改的 query + replace 探针
+vi.mock('vue-router', () => ({
+  useRoute: () => ({
+    get query() {
+      return h.routeQuery.tab ? { tab: h.routeQuery.tab } : {}
+    }
+  }),
+  useRouter: () => ({ replace: h.routerReplace })
+}))
 import type { SpiderJob } from '@/api/manage/collect'
 import type { CollectFailure, TaskRun } from '@/types/manage'
 
@@ -18,6 +28,9 @@ const h = vi.hoisted(() => ({
   rerun: vi.fn(),
   toast: vi.fn(),
   confirm: vi.fn(),
+  // 路由：页签同步到 ?tab=
+  routeQuery: { tab: '' },
+  routerReplace: vi.fn(),
   // 统一任务中心
   taskCenterTasks: vi.fn(),
   taskCenterOverview: vi.fn(),
@@ -159,7 +172,9 @@ describe('TaskManageView 任务管理', () => {
     expect(text).toContain('50%')
     expect(h.overview).toHaveBeenCalledTimes(1)
     expect(h.spiderJobs).toHaveBeenCalledTimes(1)
-    expect(h.runs).not.toHaveBeenCalled()
+    // running 页签会查一次台账（正在运行的内置任务）；历史台账仍不该预取。
+    expect(h.runs).toHaveBeenCalledTimes(1)
+    expect(h.runs.mock.calls[0]?.[0]).toMatchObject({ status: 'running' })
     expect(h.failures).not.toHaveBeenCalled()
     w.unmount()
   })
@@ -346,3 +361,75 @@ describe('TaskManageView 轮询', () => {
     expect(h.overview).toHaveBeenCalledTimes(3)
   })
 })
+
+  it('近期任务: 只有在跑/暂停才显示进度；已完成只显示页数，不再挂百分比', async () => {
+    h.spiderJobs.mockResolvedValue([
+      job({ sourceId: 'src_run', state: 'running', totalPages: 40, donePages: 12 }),
+      job({ sourceId: 'src_done', sourceName: '完成的源', state: 'done', totalPages: 40, donePages: 40 })
+    ])
+    const w = await mountView()
+    await flushPromises()
+    const text = w.text()
+    // 在跑：有百分比进度（12/40 = 30%）
+    expect(text).toContain('30%')
+    // 完成：只显示总页数，不出现"100%"
+    expect(text).toContain('共 40 页')
+    expect(text).not.toContain('100%')
+    w.unmount()
+  })
+
+  it('计划任务行不再显示"已完成 x/y 页 · z%"（状态标签+耗时已足够，用户要求去掉）', async () => {
+    const w = await mountView()
+    await gotoTab(w, '计划任务')
+    await flushPromises()
+    const text = w.text()
+    expect(text).not.toContain('已完成 24/24')
+    expect(text).not.toContain('%')
+    w.unmount()
+  })
+
+  it('近期任务: 正在运行的内置任务（台账 running, 非 cron）也要显示；英文类型给中文', async () => {
+    h.spiderJobs.mockResolvedValue([])
+    h.runs.mockResolvedValue({
+      list: [
+        { id: 9001, kind: 'manual', type: 'backdrop', name: '手动执行 · 横图补采', status: 'running', startedAt: Date.now() - 60000, endedAt: 0, total: 0, done: 0, failed: 0, message: '', error: '', ignored: false, cronId: 0, sourceId: '', hours: 0 },
+        { id: 9002, kind: 'cron', type: 'collect', name: '定时任务 #1', status: 'running', startedAt: Date.now() - 60000, endedAt: 0, total: 0, done: 0, failed: 0, message: '', error: '', ignored: false, cronId: 1, sourceId: '', hours: 24 }
+      ],
+      page: { current: 1, size: 20, total: 2 }
+    })
+    const w = await mountView()
+    await flushPromises()
+    const text = w.text()
+    expect(text).toContain('正在运行的内置任务')
+    expect(text).toContain('手动执行 · 横图补采')
+    expect(text).toContain('横图补采')   // 类型已中文化（不再露英文 backdrop）
+    expect(text).not.toContain('backdrop')
+    // 采集类（cron）不重复出现在内置区块
+    expect(text).not.toContain('定时任务 #1')
+    w.unmount()
+  })
+
+  it('页签与 URL ?tab= 同步：带参数进入停在对应页签；切页签写回 URL', async () => {
+    h.routeQuery.tab = 'history'
+    const w = await mountView()
+    await flushPromises()
+    const selected = w.findAll('[role="tab"]').find((t) => t.attributes('aria-selected') === 'true')
+    expect(selected?.text(), '带 ?tab=history 进入应停在历史记录').toContain('历史记录')
+
+    await gotoTab(w, '计划任务')
+    expect(h.routerReplace).toHaveBeenCalledWith(
+      expect.objectContaining({ query: expect.objectContaining({ tab: 'schedule' }) })
+    )
+    h.routeQuery.tab = '' // 复位，避免影响其它用例
+    w.unmount()
+  })
+
+  it('非法 ?tab= 回落到「近期任务」', async () => {
+    h.routeQuery.tab = 'nonsense'
+    const w = await mountView()
+    await flushPromises()
+    const selected = w.findAll('[role="tab"]').find((t) => t.attributes('aria-selected') === 'true')
+    expect(selected?.text()).toContain('近期任务')
+    h.routeQuery.tab = ''
+    w.unmount()
+  })

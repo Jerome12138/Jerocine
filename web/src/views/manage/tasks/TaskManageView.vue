@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as collectApi from '@/api/manage/collect'
 import * as tasksApi from '@/api/manage/tasks'
 import type { TaskCenterItem } from '@/api/manage/tasks'
@@ -15,6 +15,7 @@ import type { TabItem } from '@/components/manage/ManageTabs.vue'
 import ManageSelect from '@/components/manage/ManageSelect.vue'
 import StatusTag from '@/components/manage/StatusTag.vue'
 import type { StatusMap } from '@/components/manage/StatusTag.vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePagedList } from '@/composables/usePagedList'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import { toast } from '@/api/http'
@@ -38,7 +39,30 @@ import { formatDateTime } from '@/utils/format'
  */
 type TabKey = 'running' | 'schedule' | 'history' | 'errs' | 'failures'
 
-const activeTab = ref<TabKey>('running')
+const TAB_KEYS: readonly TabKey[] = ['running', 'schedule', 'history', 'errs', 'failures']
+
+const route = useRoute()
+const router = useRouter()
+
+/** 当前页签放 URL `?tab=`：刷新/回退/分享链接都停在原页签（此前刷新一律跳回「近期任务」） */
+function tabFromQuery(): TabKey {
+  const q = route?.query?.tab
+  const v = Array.isArray(q) ? q[0] : q
+  return v && (TAB_KEYS as readonly string[]).includes(v) ? (v as TabKey) : 'running'
+}
+
+const activeTab = ref<TabKey>(tabFromQuery())
+
+// 浏览器前进/后退：URL 变了要跟着切页签
+watch(
+  () => route?.query?.tab,
+  () => {
+    const t = tabFromQuery()
+    if (t === activeTab.value) return
+    activeTab.value = t
+    void loadAll()
+  }
+)
 
 // 状态词汇表 → StatusTag(替代 jobStateVariant/Text 等自写映射)
 const JOB_STATE_MAP: StatusMap = {
@@ -66,6 +90,8 @@ const ov = ref<TaskOverview>({ running: 0, todaySuccess: 0, todayFailed: 0, pend
 
 // ---- 运行中 job ----
 const jobs = ref<SpiderJob[]>([])
+/** 正在运行的内置任务（来自台账；采集 job 走 Redis，两者口径不同） */
+const builtinRunning = ref<TaskRun[]>([])
 const jobsLoading = ref(false)
 /** 统一任务中心：内置 + 采集，一份列表 */
 const tcList = ref<TaskCenterItem[]>([])
@@ -166,12 +192,6 @@ async function batchState(enabled: boolean): Promise<void> {
 }
 
 /** 任务行内进度文案（无进度时给空串，前端不画进度条） */
-function taskProgressText(t: TaskCenterItem): string {
-  if (!t.progress || t.progress.total <= 0) return ''
-  const pct = Math.min(100, Math.round((t.progress.done / t.progress.total) * 100))
-  return `已完成 ${t.progress.done}/${t.progress.total} ${t.progress.unit} · ${pct}%`
-}
-
 async function runTask(t: TaskCenterItem): Promise<void> {
   tcBusy.value = { ...tcBusy.value, [t.key]: true }
   try {
@@ -311,8 +331,25 @@ async function loadOverview(): Promise<void> {
   }
 }
 
+/**
+ * 正在运行的内置任务（台账 running，kind != cron）。
+ *
+ * 为什么需要：近期任务原来只列采集 job（Redis 里的 per-source 进度），而"手动执行 · 横图补采"
+ * 这类内置任务只写台账、没有 Redis job ⇒ 在近期任务里完全看不到（用户实测提问）。
+ * 这里把台账里正在跑的内置任务并进来，采集 job 与内置任务在同一个页签能看到。
+ */
+async function loadBuiltinRunning(): Promise<void> {
+  try {
+    const r = await tasksApi.runs({ status: 'running', page: 1, size: 20 })
+    builtinRunning.value = (r.list ?? []).filter((x) => x.kind !== 'cron')
+  } catch {
+    builtinRunning.value = []
+  }
+}
+
 async function loadJobs(): Promise<void> {
   jobsLoading.value = true
+  void loadBuiltinRunning()
   try {
     jobs.value = (await collectApi.spiderJobs({ silent: true })) ?? []
     jobsError.value = ''
@@ -362,6 +399,10 @@ function stopPoll(): void {
 
 function switchTab(tab: TabKey): void {
   activeTab.value = tab
+  // 只改 query、不新增历史记录（点页签不该产生一条可回退的浏览记录）
+  if (router) {
+    void router.replace({ query: { ...(route?.query ?? {}), tab } })
+  }
   void loadAll()
 }
 
@@ -556,19 +597,23 @@ function runKindText(kind: TaskRun['kind']): string {
   return kind === 'cron' ? '定时' : '手动'
 }
 
+/** task_type → 中文。新增任务时在这里补一行（漏了就会在页面露出英文 key，如 backdrop）。 */
+const RUN_TYPE_TEXT: Record<string, string> = {
+  collect: '采集',
+  recover: '补采',
+  category_cover: '分类覆盖',
+  // 内置任务（与 Def.Type 同名）
+  douban_score: '豆瓣评分',
+  douban_backfill: '豆瓣欠账补查',
+  domain_fetch: '域名公告拉取',
+  hot_refresh: '榜单热度',
+  backdrop: '横图补采',
+  health: '源健康巡检',
+  year_verify: '年份核实',
+  history_prune: '台账清理'
+}
 function runTypeText(t: TaskRun['type']): string {
-  switch (t) {
-    case 'collect':
-      return '采集'
-    case 'recover':
-      return '补采'
-    case 'category_cover':
-      return '分类覆盖'
-    case 'hot_refresh':
-      return '榜单刷新'
-    default:
-      return t
-  }
+  return RUN_TYPE_TEXT[t] ?? t
 }
 
 const historyColumns: Column<RunRow>[] = [
@@ -675,6 +720,29 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
 
     <!-- ===== 运行中 ===== -->
     <template v-if="activeTab === 'running'">
+      <!-- 正在运行的内置任务（台账口径）：采集 job 有 Redis 进度、内置任务只有台账，
+           此前"手动执行 · 横图补采"在近期任务里完全看不到 -->
+      <section v-if="builtinRunning.length" class="mb-[var(--jc-space-4)] flex flex-col gap-[var(--jc-space-2)]">
+        <div class="flex items-center gap-[var(--jc-space-2)]">
+          <h3 class="text-sm font-[var(--jc-fw-medium)]">正在运行的内置任务</h3>
+          <span class="text-xs text-muted">{{ builtinRunning.length }} 个（不支持暂停/取消，跑完自动结束）</span>
+        </div>
+        <article
+          v-for="r in builtinRunning"
+          :key="r.id"
+          class="flex flex-wrap items-center gap-[var(--jc-space-2)] rounded-card bg-surface p-[var(--jc-space-3)] shadow-card"
+        >
+          <StatusTag value="running" :map="TC_STATE_MAP" size="sm" />
+          <BaseTag variant="purple" size="xs">内置</BaseTag>
+          <span class="text-sm font-[var(--jc-fw-medium)]">{{ r.name }}</span>
+          <span class="text-xs text-muted">{{ runTypeText(r.type) }}</span>
+          <span class="text-xs text-muted">启动 {{ fmtTime(r.startedAt) }}</span>
+          <span v-if="r.startedAt > 0" class="ml-auto text-xs text-muted tabular-nums">
+            已运行 {{ fmtDuration(Date.now() - r.startedAt) }}
+          </span>
+        </article>
+      </section>
+
       <!-- 加载中: 占位, 不与空态混同 -->
       <div v-if="jobsLoading && jobs.length === 0" class="flex flex-col gap-[var(--jc-space-3)]">
         <BaseSkeleton v-for="i in 3" :key="i" shape="rect" height="72px" />
@@ -709,8 +777,17 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
             <span class="text-xs text-muted">启动 {{ j.startedAt ? formatDateTime(j.startedAt * 1000) : '—' }}</span>
             <span class="text-xs text-muted">耗时 {{ j.elapsedMs > 0 ? fmtDuration(j.elapsedMs) : '—' }}</span>
 
-            <span class="ml-auto text-xs tabular-nums" :class="j.totalPages > 0 ? 'text-secondary' : 'text-muted'">
+            <!-- 只有"在跑/暂停"才显示进度；已完成/失败/取消的状态由左侧状态标签 + 耗时表达，
+                 再挂一个"100%"反而像还在跑（2026-11-26 用户反馈） -->
+            <span
+              v-if="j.state === 'running' || j.state === 'paused'"
+              class="ml-auto text-xs tabular-nums"
+              :class="j.totalPages > 0 ? 'text-secondary' : 'text-muted'"
+            >
               {{ progressText(j) }}
+            </span>
+            <span v-else-if="j.totalPages > 0" class="ml-auto text-xs text-muted tabular-nums">
+              共 {{ j.totalPages }} 页
             </span>
 
             <div class="flex gap-[var(--jc-space-1)]">
@@ -824,9 +901,6 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               <span v-if="t.intervalLabel" class="text-xs text-muted">间隔 {{ t.intervalLabel }}</span>
 
               <StatusTag v-if="t.state !== 'idle'" :value="t.state" :map="TC_STATE_MAP" size="xs" />
-              <span v-if="taskProgressText(t)" class="text-xs text-secondary tabular-nums">
-                {{ taskProgressText(t) }}
-              </span>
               <!-- 已停用但仍有一轮在跑：停用不中断本轮，跑完才真正停下（页面必须说真话） -->
               <span v-if="!t.enabled && t.state === 'running'" class="text-xs text-warning">
                 本轮结束后停止
