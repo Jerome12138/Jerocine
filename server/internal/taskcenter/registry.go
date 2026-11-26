@@ -240,11 +240,13 @@ func NextRun(schedule string, now time.Time) time.Time {
 	switch {
 	case m[2] != "": // every:Nm|h
 		n, _ := strconv.Atoi(m[2])
-		d := time.Duration(n) * time.Minute
-		if m[3] == "h" {
-			d = time.Duration(n) * time.Hour
+		if n <= 0 {
+			return time.Time{}
 		}
-		return now.Add(d)
+		if m[3] == "h" {
+			return nextEveryHours(now, n)
+		}
+		return nextEveryMinutes(now, n)
 	case m[4] != "":
 		return nextDaily(now, atoi(m[4]), atoi(m[5]))
 	case m[6] != "":
@@ -437,4 +439,41 @@ func ParseIDRef(key, prefix string) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// ---- every 的"整点对齐"（2026-11-26 修正）----
+//
+// 语义变更前：`every:20m` = 从"上次计算时刻"起 +20 分钟 ⇒ 会漂移（重启/改配置后触发点整体平移），
+// 而且**与迁移前的 cron 不一致**：`0 */20 * * * ?` 是每小时 0/20/40 分整点触发。
+// 迁移到友好文本时把这一点改掉了，属实现引入的语义回退（用户实测提出）。
+//
+// 现在与 cron 对齐：
+//   every:Nm → 每小时的第 0、N、2N … 分（60%N==0 时与 `*/N * * * *` 完全一致）
+//   every:Nh → 每天的 0、N、2N … 点整（N≤24；N>24 无法用整日对齐，退回"从 now 起算"）
+// 好处：触发点确定、可预测；重启/改配置不会平移。
+
+// nextEveryMinutes 下一个"分钟数 % n == 0"的整分钟（严格晚于 now）。
+func nextEveryMinutes(now time.Time, n int) time.Time {
+	hourStart := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location())
+	for k := 0; k < 60; k += n {
+		if cand := hourStart.Add(time.Duration(k) * time.Minute); cand.After(now) {
+			return cand
+		}
+	}
+	// 本小时已过最后一个边界 → 下一小时的 :00
+	return hourStart.Add(time.Hour)
+}
+
+// nextEveryHours 下一个"小时数 % n == 0"的整点（严格晚于 now）。n>24 时退回相对起算。
+func nextEveryHours(now time.Time, n int) time.Time {
+	if n > 24 {
+		return now.Add(time.Duration(n) * time.Hour)
+	}
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	for k := 0; k < 24; k += n {
+		if cand := dayStart.Add(time.Duration(k) * time.Hour); cand.After(now) {
+			return cand
+		}
+	}
+	return dayStart.Add(24 * time.Hour) // 明天的 00:00
 }

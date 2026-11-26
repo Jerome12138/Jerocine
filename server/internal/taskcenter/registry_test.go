@@ -65,8 +65,9 @@ func TestNextRun(t *testing.T) {
 	if got := NextRun("monthly:1 04:00", base); !got.Equal(time.Date(2026, 12, 1, 4, 0, 0, 0, time.Local)) {
 		t.Fatalf("monthly 应算到下月 1 日, got %s", got)
 	}
-	if got := NextRun("every:6h", base); !got.Equal(base.Add(6 * time.Hour)) {
-		t.Fatalf("every 应从 now 起算, got %s", got)
+	// every 已改为**整点对齐**（与迁移前的 cron `0 */6 * * * ?` 一致）：base=2026-11-25 周三 ?
+	if got := NextRun("every:6h", base); !got.Equal(time.Date(2026, 11, 25, 6, 0, 0, 0, time.Local)) {
+		t.Fatalf("every:6h 应对齐到整点(06:00), got %s", got)
 	}
 	if got := NextRun("", base); !got.IsZero() {
 		t.Fatal("空周期应返回零值（仅手动）")
@@ -92,5 +93,41 @@ func TestRegistry(t *testing.T) {
 	}
 	if _, ok := r.Get("nope"); ok {
 		t.Fatal("不存在的 key 不应命中")
+	}
+}
+
+// every 的"整点对齐"语义（与迁移前 cron `*/N` 一致）：触发点确定、不随重启/改配置漂移。
+func TestNextRunEveryAligned(t *testing.T) {
+	at := func(day, h, m, sec int) time.Time {
+		return time.Date(2026, 11, day, h, m, sec, 0, time.Local)
+	}
+	cases := []struct {
+		sched string
+		now   time.Time
+		want  time.Time
+	}{
+		// 每 20 分钟 = 每小时 0/20/40 分
+		{"every:20m", at(25, 10, 7, 0), at(25, 10, 20, 0)},
+		{"every:20m", at(25, 10, 20, 0), at(25, 10, 40, 0)}, // 恰在边界：取**下一个**边界
+		{"every:20m", at(25, 10, 20, 30), at(25, 10, 40, 0)},
+		{"every:20m", at(25, 10, 45, 0), at(25, 11, 0, 0)}, // 本小时边界用尽 → 下一小时 :00
+		{"every:20m", at(25, 10, 59, 59), at(25, 11, 0, 0)},
+		{"every:1m", at(25, 10, 30, 0), at(25, 10, 31, 0)},
+		{"every:7m", at(25, 10, 8, 0), at(25, 10, 14, 0)}, // 0,7,14,21…
+		// 每 N 小时 = 每天 0/N/2N… 点整
+		{"every:6h", at(25, 2, 0, 0), at(25, 6, 0, 0)},
+		{"every:6h", at(25, 7, 30, 0), at(25, 12, 0, 0)},
+		{"every:1h", at(25, 10, 30, 0), at(25, 11, 0, 0)},
+		{"every:24h", at(25, 22, 0, 0), at(26, 0, 0, 0)},
+	}
+	for _, c := range cases {
+		if got := NextRun(c.sched, c.now); !got.Equal(c.want) {
+			t.Fatalf("NextRun(%s, %s) = %s, want %s", c.sched, c.now.Format("01-02 15:04:05"), got.Format("01-02 15:04:05"), c.want.Format("01-02 15:04:05"))
+		}
+	}
+	// N>24 的小时间隔无法按天对齐 → 退回"从 now 起算"（并保持可预测）
+	now := at(25, 10, 0, 0)
+	if got := NextRun("every:48h", now); !got.Equal(now.Add(48 * time.Hour)) {
+		t.Fatalf("every:48h 应退回相对起算, got %s", got)
 	}
 }

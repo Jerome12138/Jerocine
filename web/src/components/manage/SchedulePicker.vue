@@ -144,8 +144,19 @@ const summary = computed(() => {
   const p = parts.value
   const hhmm = `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`
   switch (mode.value) {
-    case 'every':
-      return `每 ${p.n} ${p.unit === 'm' ? '分钟' : '小时'}`
+    case 'every': {
+      // 说清楚"整点对齐"（与 cron `*/N` 同语义）：避免用户以为是"从点了保存那一刻起算"
+      if (p.unit === 'm') {
+        const marks = Array.from({ length: Math.floor(60 / p.n) }, (_, i) => i * p.n)
+        return marks.length > 1
+          ? `每小时 ${marks.join('/')} 分执行（整点对齐）`
+          : `每 ${p.n} 分钟执行（整点起算）`
+      }
+      const hours = Array.from({ length: Math.floor(24 / p.n) }, (_, i) => i * p.n)
+      return hours.length > 1
+        ? `每天 ${hours.join('/')} 点执行（整点对齐）`
+        : `每 ${p.n} 小时执行（从上次触发起算）`
+    }
     case 'daily':
       return `每天 ${hhmm}`
     case 'weekly':
