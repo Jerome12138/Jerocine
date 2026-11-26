@@ -874,6 +874,10 @@ func (s *TaskCenterService) SetRunIgnored(ctx context.Context, runID int64, igno
 
 // RunTask 手动执行一次（**同样写台账**：手动与定时在历史/异常里一视同仁）。
 func (s *TaskCenterService) RunTask(ctx context.Context, key string) error {
+	// 维护窗口内不接新活（闸门口径单点在 cache.TaskGateBlockReason）
+	if reason := cache.TaskGateBlockReason(ctx); reason != "" {
+		return fmt.Errorf("%s", reason)
+	}
 	if id, ok := cronIDOf(key); ok {
 		if s.spider == nil {
 			return fmt.Errorf("采集服务未装配")

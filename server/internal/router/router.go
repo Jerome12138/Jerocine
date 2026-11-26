@@ -171,6 +171,10 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/task-center/tasks", h.TaskCenterTasks) // 统一任务中心（只读）
 		mg.GET("/task-center/overview", h.TaskCenterOverview)
 		mg.POST("/task-center/tasks/batch-state", h.TaskCenterBatchState) // 批量启用/停用
+		// 维护窗口（部署/迁移用）：暂停全部触发 + 协作暂停在跑的采集任务
+		mg.POST("/task-center/pause", h.TaskCenterPauseAll)
+		mg.POST("/task-center/resume", h.TaskCenterResumeAll)
+		mg.GET("/task-center/control", h.TaskCenterControl)
 		mg.PUT("/task-center/tasks/:key/setting", h.TaskCenterUpdateSetting)
 		mg.POST("/task-center/tasks/:key/run", h.TaskCenterRun)
 		mg.POST("/task-center/tasks/:key/pause", h.TaskCenterPause)

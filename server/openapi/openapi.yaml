@@ -1124,6 +1124,36 @@ components:
         message: { type: string }
         startedAt: { type: integer }
         updatedAt: { type: integer }
+    TaskGateItem:
+      type: object
+      description: 维护窗口报告里的一行（这一个采集源/任务被怎么处理了）
+      properties:
+        key: { type: string, description: 'job:<sourceId> / builtin:xxx' }
+        name: { type: string }
+        kind: { type: string, description: collect / builtin }
+        state: { type: string, description: 动作前的状态 }
+        action: { type: string, description: paused / resumed / skipped }
+        pauseable: { type: boolean, description: false = 该任务没有协作暂停点（未暂停） }
+        reason: { type: string }
+
+    TaskGateReport:
+      type: object
+      properties:
+        by: { type: string, description: 打开者标识 }
+        until: { type: integer, description: unix 秒；闸门自动关闭时刻（0=未开） }
+        items: { type: array, items: { $ref: '#/components/schemas/TaskGateItem' } }
+        errors: { type: array, items: { type: string } }
+        note: { type: string, description: 语义说明（协作暂停/不可跨进程续跑/TTL 自愈） }
+
+    TaskGateState:
+      type: object
+      properties:
+        open: { type: boolean }
+        by: { type: string }
+        until: { type: integer, description: unix 秒；自动关闭时刻 }
+        pausedJobs: { type: array, items: { type: string }, description: 因闸门而暂停、待 resume 恢复的采集源 }
+        note: { type: string }
+
     TaskCenterItem:
       type: object
       properties:
@@ -2488,6 +2518,69 @@ paths:
                   errors: { type: array, items: { type: string }, description: 失败明细（部分失败不回滚） }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/task-center/pause:
+    post:
+      tags: [manage-task]
+      summary: 打开维护窗口（暂停全部新触发 + 协作暂停在跑的采集任务）
+      description: >
+        给部署/迁移/备份/重建派生表这类"需要安静窗口"的动作调用（完成后调 /resume）。
+        语义：①窗口内**不再触发新任务**（调度器自动触发、手动"立即执行"、单源启动采集一并拒绝）；
+        ②此刻正在跑的**采集任务**协作暂停（停在页边界，不中断事务、不丢已完成进度）；
+        ③没有协作暂停点的长任务（豆瓣批量、全量派生等）在返回体里标 `pauseable=false` 并给原因，
+        **不会假装已暂停**。暂停是协作式的（等当前页跑完），且不能跨进程续跑（容器重建后该轮次即结束）。
+        闸门带 TTL 自动关闭（默认 60 分钟，上限 6 小时），不会把任务永久停住。
+      operationId: manageTaskCenterPause
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                by: { type: string, description: 打开者标识（如 deploy-agent），缺省 unknown }
+                ttlMinutes: { type: integer, description: 窗口时长（分钟）；缺省 60，上限 360 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskGateReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/Internal' }
+
+  /manage/task-center/resume:
+    post:
+      tags: [manage-task]
+      summary: 关闭维护窗口并恢复"因窗口而暂停"的采集任务
+      description: >
+        只恢复**因本窗口而暂停**的采集任务（白名单），绝不误恢复用户手工暂停的任务；
+        已结束/已回收的任务跳过并说明原因。
+      operationId: manageTaskCenterResume
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskGateReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/Internal' }
+
+  /manage/task-center/control:
+    get:
+      tags: [manage-task]
+      summary: 维护窗口状态（开没开/谁开的/还有多久自动关/暂停了哪些采集源）
+      operationId: manageTaskCenterControl
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskGateState' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /manage/task-center/tasks/{key}/setting:
     put:

@@ -1,0 +1,188 @@
+package service
+
+import (
+	"context"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"server/internal/cache"
+	"server/internal/taskcenter"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+)
+
+// initTestCache 给本包测试接一个 miniredis 当协调存储；测试结束恢复成"未接入"。
+// 本包其他测试依赖 coordRdb==nil 的语义，所以必须还原（勿删）。
+func initTestCache(t *testing.T) {
+	t.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	cache.Init(rdb, rdb)
+	t.Cleanup(func() {
+		cache.Init(nil, nil)
+		mr.Close()
+	})
+}
+
+// 维护窗口 = 拦新触发 + 协作暂停在跑的采集源；resume 只恢复"因窗口而暂停"的那些。
+// 关键回归点：**绝不误恢复用户手工暂停的任务**（否则 resume 会擅自把别人停掉的任务开起来）。
+func TestPauseAllResumeAll(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+	svc := &TaskCenterService{reg: newRegistryWithBuiltins()}
+
+	// 三个源：一个在跑、一个已被用户手工暂停、一个从未启动
+	if err := cache.JobStart(ctx, "src_run", "在跑的源", 100, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	if err := cache.JobStart(ctx, "src_manual", "手工暂停的源", 100, 24); err != nil {
+		t.Fatalf("JobStart: %v", err)
+	}
+	if err := cache.JobControl(ctx, "src_manual", cache.JobPaused, cache.JobRunning); err != nil {
+		t.Fatalf("手工暂停: %v", err)
+	}
+
+	rep, err := svc.PauseAll(ctx, "deploy-agent", 30)
+	if err != nil {
+		t.Fatalf("PauseAll 失败: %v", err)
+	}
+	if rep.By != "deploy-agent" || rep.Until <= time.Now().Unix() {
+		t.Fatalf("报告应带打开者与关闭时刻: %+v", rep)
+	}
+	if len(rep.Errors) != 0 {
+		t.Fatalf("不应有错误: %v", rep.Errors)
+	}
+	// 只有"在跑"的那个被暂停，手工暂停的不在报告里
+	if len(rep.Items) != 1 || rep.Items[0].Key != "job:src_run" || rep.Items[0].Action != "paused" {
+		t.Fatalf("报告应只含在跑的源且已暂停: %+v", rep.Items)
+	}
+	if r := cache.JobReadState(ctx, "src_run"); r != cache.JobPaused {
+		t.Fatalf("在跑的源应被暂停, got %s", r)
+	}
+
+	// 窗口内：状态可查、新触发被拦
+	st, err := svc.ControlState(ctx)
+	if err != nil || !st.Open || len(st.PausedJobs) != 1 || st.PausedJobs[0] != "src_run" {
+		t.Fatalf("control 状态不对: %+v err=%v", st, err)
+	}
+	if err := svc.RunTask(ctx, "builtin:hot_refresh"); err == nil || !strings.Contains(err.Error(), "维护窗口") {
+		t.Fatalf("窗口内手动执行应被拦, got %v", err)
+	}
+	if err := svc.RunTask(ctx, "job:src_run"); err == nil || !strings.Contains(err.Error(), "维护窗口") {
+		t.Fatalf("窗口内手动执行采集源也应被拦, got %v", err)
+	}
+
+	// 恢复：只恢复 src_run；手工暂停的 src_manual 保持暂停
+	rep, err = svc.ResumeAll(ctx)
+	if err != nil {
+		t.Fatalf("ResumeAll 失败: %v", err)
+	}
+	if len(rep.Items) != 1 || rep.Items[0].Action != "resumed" || rep.Items[0].Key != "job:src_run" {
+		t.Fatalf("应只恢复闸门暂停的那一个: %+v", rep.Items)
+	}
+	if r := cache.JobReadState(ctx, "src_run"); r != cache.JobRunning {
+		t.Fatalf("src_run 应恢复为 running, got %s", r)
+	}
+	if r := cache.JobReadState(ctx, "src_manual"); r != cache.JobPaused {
+		t.Fatalf("手工暂停的 src_manual 必须保持 paused（不能被误恢复）, got %s", r)
+	}
+	if st, _ := svc.ControlState(ctx); st.Open || len(st.PausedJobs) != 0 {
+		t.Fatalf("resume 后窗口应关闭且白名单清空: %+v", st)
+	}
+	if err := svc.RunTask(ctx, "builtin:hot_refresh"); err != nil && strings.Contains(err.Error(), "维护窗口") {
+		t.Fatalf("窗口关闭后不应再被闸门拦: %v", err)
+	}
+}
+
+// 协调存储不可用：开窗口必须**报错**，绝不能假成功（否则 agent 以为安静了，实际还在跑）。
+func TestPauseAll_NoCoord(t *testing.T) {
+	cache.Init(nil, nil)
+	svc := &TaskCenterService{reg: newRegistryWithBuiltins()}
+	if _, err := svc.PauseAll(context.Background(), "deploy", 30); err == nil {
+		t.Fatal("协调存储不可用时应报错")
+	}
+	if _, err := svc.ResumeAll(context.Background()); err == nil {
+		t.Fatal("协调存储不可用时 resume 也应报错")
+	}
+}
+
+// 恢复时任务已结束/已回收（job 键没了）：跳过并说明原因，不报错。
+func TestResumeAll_JobGone(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+	svc := &TaskCenterService{reg: newRegistryWithBuiltins()}
+
+	if err := cache.TaskGateOpen(ctx, "deploy", time.Minute); err != nil {
+		t.Fatalf("开闸门失败: %v", err)
+	}
+	cache.TaskGateMarkJob(ctx, "src_gone") // 白名单里有，但 job 键不存在（已 GC）
+	rep, err := svc.ResumeAll(ctx)
+	if err != nil {
+		t.Fatalf("ResumeAll 不应失败: %v", err)
+	}
+	if len(rep.Items) != 1 || rep.Items[0].Action != "skipped" || !strings.Contains(rep.Items[0].Reason, "已结束") {
+		t.Fatalf("已回收的 job 应 skipped 并说明: %+v", rep.Items)
+	}
+}
+
+// 调度器：维护窗口开着时整轮不触发；关闭后恢复触发。
+func TestSchedulerTick_GateBlocksTrigger(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+
+	var calls int32
+	reg := taskcenter.NewRegistry()
+	reg.Register(taskcenter.Def{
+		Key: "builtin:probe", Type: "probe", Name: "探针", Kind: taskcenter.KindBuiltin,
+		Enabled: true, DefaultSchedule: "every:1m",
+		Run: func(context.Context) error { atomic.AddInt32(&calls, 1); return nil },
+	})
+	tc := &TaskCenterService{reg: reg, settings: &fakeSettings{}}
+	s := NewTaskScheduler(tc)
+	s.next["builtin:probe"] = time.Now().Add(-time.Minute) // 已到点，若无闸门必然触发
+
+	if err := cache.TaskGateOpen(ctx, "deploy-agent", time.Minute); err != nil {
+		t.Fatalf("开闸门失败: %v", err)
+	}
+	s.tick(ctx)
+	if n := atomic.LoadInt32(&calls); n != 0 {
+		t.Fatalf("维护窗口内不应触发, got %d 次", n)
+	}
+
+	if err := cache.TaskGateClose(ctx); err != nil {
+		t.Fatalf("关闸门失败: %v", err)
+	}
+	s.next["builtin:probe"] = time.Now().Add(-time.Minute)
+	s.tick(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && atomic.LoadInt32(&calls) == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Fatalf("窗口关闭后应触发一次, got %d 次", n)
+	}
+}
+
+// 不可协作暂停的内置长任务：如实回报（pauseable=false + 原因），不假装暂停。
+func TestNonPauseableRunning_ReportsHonestly(t *testing.T) {
+	svc := &TaskCenterService{reg: taskcenter.NewRegistry()}
+	svc.reg.Register(taskcenter.Def{
+		Key: "builtin:fake_long", Name: "假装很长的任务", Kind: taskcenter.KindBuiltin,
+		Status: func(context.Context) taskcenter.Status {
+			return taskcenter.Status{State: taskcenter.StateRunning}
+		},
+	})
+	items := svc.nonPauseableRunning(context.Background())
+	if len(items) != 1 {
+		t.Fatalf("应回报 1 条: %+v", items)
+	}
+	if items[0].Pauseable || items[0].Action != "skipped" || items[0].Reason == "" {
+		t.Fatalf("不可暂停的长任务必须如实标注: %+v", items[0])
+	}
+}

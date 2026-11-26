@@ -847,6 +847,45 @@ func (h *Handlers) TaskCenterBatchState(c *gin.Context) {
 	dto.OK(c, gin.H{"ok": ok, "deferred": deferred, "errors": errs})
 }
 
+// TaskCenterPauseAll POST /manage/task-center/pause {by, ttlMinutes}
+// 打开"维护窗口"：窗口内不触发新任务，并把此刻在跑的采集任务协作暂停。
+// 给部署/迁移 agent 在动作前调用（动作结束后调 /task-center/resume）。
+func (h *Handlers) TaskCenterPauseAll(c *gin.Context) {
+	var req struct {
+		By         string `json:"by"`
+		TTLMinutes int    `json:"ttlMinutes"`
+	}
+	_ = c.ShouldBindJSON(&req) // 允许空 body：by 缺省 unknown、ttl 缺省 60 分钟
+	rep, err := h.TaskCenter.PauseAll(c.Request.Context(), req.By, req.TTLMinutes)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, rep)
+}
+
+// TaskCenterResumeAll POST /manage/task-center/resume
+// 关闭维护窗口，并只恢复"因窗口而暂停"的采集任务（不误恢复手工暂停的）。
+func (h *Handlers) TaskCenterResumeAll(c *gin.Context) {
+	rep, err := h.TaskCenter.ResumeAll(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, rep)
+}
+
+// TaskCenterControl GET /manage/task-center/control
+// 维护窗口状态：开没开、谁开的、还有多久自动关闭、暂停了哪些采集源。
+func (h *Handlers) TaskCenterControl(c *gin.Context) {
+	st, err := h.TaskCenter.ControlState(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, st)
+}
+
 // TaskCenterRerun POST /manage/task-center/runs/:id/rerun
 // 按一条**台账记录**重跑对应任务（异常处理：重新执行）。
 func (h *Handlers) TaskCenterRerun(c *gin.Context) {

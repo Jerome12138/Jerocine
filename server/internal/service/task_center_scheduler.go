@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"server/internal/cache"
 	"server/internal/domain/entity"
 	"server/internal/errclass"
 	"server/internal/taskcenter"
@@ -32,6 +33,9 @@ type TaskScheduler struct {
 	mu   sync.Mutex
 	next map[string]time.Time // 每个任务的下次触发时间（内存态；重启后重新按 schedule 计算）
 	busy map[string]bool      // 单飞：同一任务不并发
+	// gateLogged 维护窗口的日志节流：只在"开→关/关→开"变化时打一行，
+	// 否则 30s 一 tick 会把日志刷爆（窗口可能开几十分钟）。
+	gateLogged bool
 }
 
 func NewTaskScheduler(tc *TaskCenterService) *TaskScheduler {
@@ -73,6 +77,12 @@ func (s *TaskScheduler) effective(d taskcenter.Def, settings map[string]entity.T
 }
 
 func (s *TaskScheduler) tick(ctx context.Context) {
+	// 维护窗口（POST /manage/task-center/pause）：整轮不触发 —— 部署/迁移期间要的是安静窗口，
+	// 边迁移边开新采集是最坏情况。窗口关闭后 next 仍按 schedule 续算，不会"补跑错过的轮次"。
+	if s.gateBlocked(ctx) {
+		return
+	}
+
 	settings := map[string]entity.TaskSetting{}
 	if s.tc.settings != nil {
 		if m, err := s.tc.settings.List(ctx); err == nil {
@@ -112,6 +122,25 @@ func (s *TaskScheduler) tick(ctx context.Context) {
 
 	// ---- 采集定时任务：同样由中心调度（时间语义已统一为友好文本）----
 	s.tickCron(ctx, now)
+}
+
+// gateBlocked 维护窗口是否开着（开着则整轮不触发），并做日志节流。
+func (s *TaskScheduler) gateBlocked(ctx context.Context) bool {
+	reason := cache.TaskGateBlockReason(ctx)
+	open := reason != ""
+	s.mu.Lock()
+	changed := open != s.gateLogged
+	s.gateLogged = open
+	s.mu.Unlock()
+	if !changed {
+		return open
+	}
+	if open {
+		log.Printf("[task-scheduler] 进入维护窗口, 暂停全部触发: %s", reason)
+	} else {
+		log.Printf("[task-scheduler] 维护窗口已关闭, 恢复正常调度")
+	}
+	return open
 }
 
 // tickCron 采集定时任务的调度分支。每条都读 cron_task.schedule（友好文本），
