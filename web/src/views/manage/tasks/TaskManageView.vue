@@ -92,7 +92,7 @@ const ov = ref<TaskOverview>({ running: 0, todaySuccess: 0, todayFailed: 0, pend
 const jobs = ref<SpiderJob[]>([])
 /** 正在运行的内置任务（来自调度器内存 busy；QuietOnSuccess 任务台账里没有 running 行，
  *  只看台账会永远为空 —— 用户实测"手动执行豆瓣/横图看不到"） */
-interface BuiltinRunningItem { key: string; name: string; scheduleText: string }
+interface BuiltinRunningItem { key: string; name: string; note: string }
 const builtinRunning = ref<BuiltinRunningItem[]>([])
 const jobsLoading = ref(false)
 /** 统一任务中心：内置 + 采集，一份列表 */
@@ -263,6 +263,11 @@ async function removeCron(t: TaskCenterItem): Promise<void> {
   }
 }
 
+/** 毫秒 → 人类可读："5s" / "300ms" */
+function fmtInterval(ms: number): string {
+  return ms >= 1000 ? `${Math.round(ms / 100) / 10}s` : `${ms}ms`
+}
+
 /** 豆瓣两个任务（共用同一条后台批次，停止是批级别的） */
 function isDoubanTask(t: TaskCenterItem): boolean {
   return t.key === 'builtin:douban_score' || t.key === 'builtin:douban_backfill'
@@ -357,13 +362,37 @@ async function loadOverview(): Promise<void> {
  * 这类内置任务只写台账、没有 Redis job ⇒ 在近期任务里完全看不到（用户实测提问）。
  * 这里把台账里正在跑的内置任务并进来，采集 job 与内置任务在同一个页签能看到。
  */
-/** 正在运行的内置任务：取调度器快照（内存 busy，纯只读、不查库），比台账准确 */
+/**
+ * 正在运行的内置任务 —— 三个来源取并集（各自都有盲区）：
+ *   ① 台账 running 行（kind != cron）：覆盖**手动触发的异步任务**（豆瓣批次，会落 running 行）
+ *   ② 调度器内存 busy：覆盖 QuietOnSuccess 的高频任务（backdrop/health/year_verify 不写台账行）
+ *   ③ 采集 job 走 Redis（jobs 列表），不在这里
+ * 只取其中一个就会出现"概览说运行中 1、列表却是空的"（用户实测）。
+ */
 async function loadBuiltinRunning(): Promise<void> {
   try {
-    const r = await tasksApi.taskCenterSchedule()
-    builtinRunning.value = (r.items ?? [])
-      .filter((x) => x.running && x.kind === 'builtin')
-      .map((x) => ({ key: x.key, name: x.name, scheduleText: x.scheduleText }))
+    const [runsRes, schedRes] = await Promise.all([
+      tasksApi.runs({ status: 'running', page: 1, size: 20 }).catch(() => ({ list: [] as TaskRun[] })),
+      tasksApi
+        .taskCenterSchedule()
+        .catch(() => ({ items: [], gateOpen: false, tickMs: 0, now: 0 }))
+    ])
+    const items: BuiltinRunningItem[] = []
+    const seen = new Set<string>()
+    for (const r of runsRes.list ?? []) {
+      if (r.kind === 'cron') continue
+      const key = 'builtin:' + r.type
+      if (seen.has(key)) continue
+      seen.add(key)
+      items.push({ key, name: r.name, note: runTypeText(r.type) })
+    }
+    for (const x of schedRes.items ?? []) {
+      if (!x.running || x.kind !== 'builtin') continue
+      if (seen.has(x.key)) continue
+      seen.add(x.key)
+      items.push({ key: x.key, name: x.name, note: x.scheduleText })
+    }
+    builtinRunning.value = items
   } catch {
     builtinRunning.value = []
   }
@@ -695,7 +724,9 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
   {
     value: 'running',
     label: '近期任务',
-    count: jobs.value.filter((j) => j.state === 'running' || j.state === 'paused').length
+    count:
+      jobs.value.filter((j) => j.state === 'running' || j.state === 'paused').length +
+      builtinRunning.value.length
   },
   { value: 'schedule', label: '计划任务', count: tcList.value.length },
   { value: 'history', label: '历史记录', count: runTotal.value },
@@ -769,7 +800,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
           <StatusTag value="running" :map="TC_STATE_MAP" size="sm" />
           <BaseTag variant="purple" size="xs">内置</BaseTag>
           <span class="text-sm font-[var(--jc-fw-medium)]">{{ r.name }}</span>
-          <span class="ml-auto text-xs text-muted">{{ r.scheduleText }}</span>
+          <span class="ml-auto text-xs text-muted">{{ r.note }}</span>
         </article>
       </section>
 
@@ -924,7 +955,9 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               <span class="text-sm font-[var(--jc-fw-medium)]">{{ t.name }}</span>
               <span class="text-xs text-muted">计划 {{ t.scheduleText }}</span>
               <span v-if="t.target" class="text-xs text-muted">目标 {{ t.target }}</span>
-              <span v-if="t.intervalLabel" class="text-xs text-muted">间隔 {{ t.intervalLabel }}</span>
+              <!-- 显示**真实**间隔（来自配置）；只有没有可配间隔的任务才回落到说明性文案 -->
+              <span v-if="t.intervalMs > 0" class="text-xs text-muted">间隔 {{ fmtInterval(t.intervalMs) }}</span>
+              <span v-else-if="t.intervalLabel" class="text-xs text-muted">{{ t.intervalLabel }}</span>
 
               <!-- 计划任务是长期周期任务，"已完成/已取消"没有意义（行尾已有上次运行时间）；
                    只保留需要人注意的两态：运行中 / 失败 -->

@@ -28,3 +28,23 @@ func TestParseAbstractRate(t *testing.T) {
 		}
 	}
 }
+
+// 兜底决策：abstract 只要可用（err==nil）就**绝不**兜底 rexxar —— 否则"豆瓣无评分"
+// 会被 rexxar 的 400 变成"失败"，5 次即熔断（2026-11-26 实测欠账补查 5/2000 就中止）。
+func TestDecideRatingSource(t *testing.T) {
+	if got := DecideRatingSource(nil, true); got != RatingFromAbstract {
+		t.Fatalf("abstract 有分应直接用, got %v", got)
+	}
+	if got := DecideRatingSource(nil, false); got != RatingFromAbstract {
+		t.Fatalf("abstract 200 但无分也应视为'无评分'(不兜底), got %v", got)
+	}
+	if got := DecideRatingSource(errTest, false); got != RatingFromRexxar {
+		t.Fatalf("abstract 真的失败才兜底, got %v", got)
+	}
+}
+
+type testErr struct{}
+
+func (testErr) Error() string { return "boom" }
+
+var errTest = testErr{}

@@ -36,9 +36,21 @@ const form = reactive({
 /** 周期输入提示：内置与采集任务都已统一为友好文本（cron 表达式在迁移时自动转换） */
 const intervalHint = computed(() => {
   if (props.task.kind !== 'builtin') return '采集任务的间隔在「采集源」里按源配置'
-  if (!props.task.minIntervalMs) return '毫秒；0 = 使用默认'
-  return `毫秒；不小于 ${props.task.minIntervalMs}（${props.task.intervalLabel}）`
+  const min = props.task.minIntervalMs
+  const cur = Number(form.intervalMs) || 0
+  // 用**当前输入值**算，不引用 Def.IntervalLabel —— 那是写死的"默认值说明"，
+  // 混在 hint 里会被当成实时值（用户实测："改成 5000 了还显示默认 10s/部"）
+  if (!cur) return min ? `毫秒；0 表示用默认（不小于 ${min}）` : '毫秒；0 = 使用默认'
+  const lo = Math.round(cur * 0.8)
+  const hi = Math.round(cur * 1.2)
+  const base = `毫秒；当前 ${fmtMs(cur)}/次，实际请求按 ${fmtMs(lo)}~${fmtMs(hi)} 抖动`
+  return min ? base + `；不小于 ${min}` : base
 })
+
+/** 毫秒 → 人类可读（10000 → 10s） */
+function fmtMs(ms: number): string {
+  return ms >= 1000 ? `${Math.round(ms / 100) / 10}s` : `${ms}ms`
+}
 
 const { busy, run } = useAsyncAction()
 

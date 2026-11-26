@@ -23,6 +23,11 @@ import (
 	"server/internal/taskcenter"
 )
 
+// ⚠ IntervalLabel 是**说明性静态文案**，不是实时值：
+//   有可配间隔的任务，界面一律显示 `intervalMs` 对应的真实值（如 "间隔 5s"）；
+//   IntervalLabel 只在"没有可配间隔"时兜底（如固定 5s/请求的榜单任务）。
+//   别在这里写"默认 10s"这类会被当成当前值的措辞（2026-11-26 用户实测踩过）。
+
 // editAllFields 全部可编辑字段（大多数任务的默认值）。
 var editAllFields = []string{
 	taskcenter.FieldEnabled, taskcenter.FieldSchedule, taskcenter.FieldRemark, taskcenter.FieldInterval,
@@ -88,7 +93,7 @@ func (s *FilmService) TaskDefs() []taskcenter.Def {
 			Detail:          "每周固定时间刷新这批影片的豆瓣评分（区间内分数会变）。",
 			DefaultSchedule: "weekly:1 03:00", Enabled: true,
 			DefaultIntervalMs: doubanDefaultIntervalMs, MinIntervalMs: doubanMinIntervalMs,
-			IntervalLabel: "默认 10s/部（±20% 抖动，可调）",
+			IntervalLabel: "±20% 抖动，按「接口间隔」执行",
 			Editable:      editAllFields, Caps: capsRun,
 			Status: s.doubanStatusFor("douban_score"),
 			// 豆瓣刷分是"启动后台批 + 内存进度"：Run 必须用 Start 变体并标 Async，
@@ -110,7 +115,7 @@ func (s *FilmService) TaskDefs() []taskcenter.Def {
 			Detail:          "默认不启用（不参与定时）；需要时手动触发，单次上限可配。",
 			DefaultSchedule: "", Enabled: false,
 			DefaultIntervalMs: doubanDefaultIntervalMs, MinIntervalMs: doubanMinIntervalMs,
-			IntervalLabel: "默认 10s/部（±20% 抖动，可调）",
+			IntervalLabel: "±20% 抖动，按「接口间隔」执行",
 			Editable:      editAllFields, Caps: capsRun,
 			Status: s.doubanStatusFor("douban_backfill"),
 			Async:  true, // 同上：后台批 + 内存进度

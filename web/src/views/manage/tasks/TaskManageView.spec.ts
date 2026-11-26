@@ -175,9 +175,10 @@ describe('TaskManageView 任务管理', () => {
     expect(text).toContain('50%')
     expect(h.overview).toHaveBeenCalledTimes(1)
     expect(h.spiderJobs).toHaveBeenCalledTimes(1)
-    // running 页签改为读调度器快照（不查台账）；历史台账仍不该预取
+    // running 页签要同时读「调度器快照」(QuietOnSuccess 的 busy) 和「台账 running 行」(手动异步任务)：
+    // 只读其中一个就会出现"概览说运行中 1、列表空"（用户实测）
     expect(h.taskCenterSchedule).toHaveBeenCalled()
-    expect(h.runs).not.toHaveBeenCalled()
+    expect(h.runs).toHaveBeenCalledWith(expect.objectContaining({ status: 'running' }))
     expect(h.failures).not.toHaveBeenCalled()
     w.unmount()
   })
@@ -473,5 +474,49 @@ describe('TaskManageView 轮询', () => {
     const w = await mountView()
     const errTab = w.findAll('[role="tab"]').find((t) => t.text().includes('任务异常'))
     expect(errTab?.text(), '未加载时徽标不该出现 0').not.toMatch(/任务异常\s*0/)
+    w.unmount()
+  })
+
+  it('计划任务行显示**真实**间隔（来自配置），不是静态说明文案', async () => {
+    h.taskCenterTasks.mockResolvedValue({
+      list: [
+        {
+          key: 'builtin:douban_score', kind: 'builtin', type: 'douban_score', name: '豆瓣评分同步',
+          schedule: 'weekly:1 03:00', scheduleText: '每周一 03:00', enabled: true,
+          editable: ['enabled', 'schedule', 'remark', 'interval'], caps: ['run'], state: 'idle',
+          intervalMs: 5000, minIntervalMs: 3000, intervalLabel: '±20% 抖动，按「接口间隔」执行',
+          progress: null, startedAt: 0, elapsedMs: 0, lastRunAt: 0, message: '', error: '', nextAt: 0
+        }
+      ]
+    })
+    const w = await mountView()
+    await gotoTab(w, '计划任务')
+    await flushPromises()
+    const text = w.text()
+    expect(text).toContain('间隔 5s')          // 真实值
+    expect(text).not.toContain('默认 10s')     // 静态文案不再冒充当前值
+    w.unmount()
+  })
+
+  it('近期任务: 手动触发的异步任务（只有台账 running 行、没有调度器 busy）也要显示', async () => {
+    h.spiderJobs.mockResolvedValue([])
+    // 调度器快照里没有它（手动触发不经过调度器）
+    h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now: Date.now() })
+    h.runs.mockResolvedValue({
+      list: [
+        {
+          id: 9100, kind: 'manual', type: 'douban_score', name: '手动执行 · 豆瓣评分同步',
+          status: 'running', startedAt: Date.now() - 60000, endedAt: 0, total: 1941, done: 120,
+          failed: 0, message: '', error: '', ignored: false, cronId: 0, sourceId: '', hours: 0
+        }
+      ],
+      page: { current: 1, size: 20, total: 1 }
+    })
+    const w = await mountView()
+    await flushPromises()
+    const text = w.text()
+    expect(text, '概览说运行中 1 时，近期任务必须能看到它').toContain('正在运行的内置任务')
+    expect(text).toContain('手动执行 · 豆瓣评分同步')
+    expect(text).toContain('豆瓣评分') // 类型中文，不露英文 key
     w.unmount()
   })

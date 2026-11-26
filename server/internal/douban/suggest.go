@@ -89,11 +89,36 @@ func (c *Client) SubjectRating(ctx context.Context, id int64) (float64, int, err
 		return 0, 0, fmt.Errorf("豆瓣 id 无效")
 	}
 	// 首选 j/subject_abstract：movie.douban.com 域，实测未见 IP 限流
-	if score, ok, err := c.ratingFromAbstract(ctx, id); err == nil && ok {
+	score, ok, err := c.ratingFromAbstract(ctx, id)
+	switch DecideRatingSource(err, ok) {
+	case RatingFromAbstract:
+		if !ok {
+			// 对端 200 但 rate 为空 = **豆瓣本来就没有评分**（欠账补查的目标全是这类片），
+			// 这是"无评分"不是"失败"。**绝不能兜底到 rexxar** —— 它对本机 IP 已封（400），
+			// 一兜底就把所有"无评分"变成"失败"，5 次即触发熔断（2026-11-26 实测：5/2000 就中止）。
+			return 0, 0, nil
+		}
 		return score, 0, nil
 	}
-	// 兜底：rexxar 详情（IP 正常时可用；被封时会 400）
 	return c.ratingFromRexxar(ctx, id)
+}
+
+// RatingSource 评分来源决策。
+type RatingSource int
+
+const (
+	// RatingFromAbstract abstract 可用（200）：得分就用它，rate 空就当"无评分"，不兜底
+	RatingFromAbstract RatingSource = iota
+	// RatingFromRexxar 只有 abstract 真的失败（网络/非 200）才兜底 rexxar
+	RatingFromRexxar
+)
+
+// DecideRatingSource 决定是否需要兜底 rexxar（纯函数，便于单测这条关键规则）。
+func DecideRatingSource(abstractErr error, abstractHasScore bool) RatingSource {
+	if abstractErr == nil {
+		return RatingFromAbstract
+	}
+	return RatingFromRexxar
 }
 
 // ratingFromAbstract 走 j/subject_abstract 取 subject.rate（10 分制，字符串）。
