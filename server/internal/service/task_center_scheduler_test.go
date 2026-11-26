@@ -50,3 +50,36 @@ func TestSchedulerEffective_DefaultDisabled(t *testing.T) {
 		t.Fatal("默认不启用的任务不应被调度")
 	}
 }
+
+// 内置任务的状态来自台账：running/success/failed/canceled 映射 + 耗时计算。
+func TestStatusFromRun(t *testing.T) {
+	cases := []struct {
+		status string
+		want   taskcenter.State
+	}{
+		{entity.TaskRunRunning, taskcenter.StateRunning},
+		{entity.TaskRunSuccess, taskcenter.StateSucceeded},
+		{entity.TaskRunFailed, taskcenter.StateFailed},
+		{entity.TaskRunCanceled, taskcenter.StateCanceled},
+		{"", taskcenter.StateIdle},
+	}
+	for _, c := range cases {
+		got := statusFromRun(entity.TaskRun{Status: c.status, StartedAt: 1000, EndedAt: 1500})
+		if got.State != c.want {
+			t.Fatalf("%q → %v, want %v", c.status, got.State, c.want)
+		}
+	}
+	// 已结束：耗时 = 起止差
+	if got := statusFromRun(entity.TaskRun{Status: entity.TaskRunSuccess, StartedAt: 1000, EndedAt: 1500}); got.ElapsedMs != 500 {
+		t.Fatalf("耗时应为 500ms, got %d", got.ElapsedMs)
+	}
+	// 运行中：耗时 = now - startedAt（>0 即可）
+	if got := statusFromRun(entity.TaskRun{Status: entity.TaskRunRunning, StartedAt: 1000}); got.ElapsedMs <= 0 {
+		t.Fatalf("运行中应有耗时, got %d", got.ElapsedMs)
+	}
+	// 失败原因/摘要透传（已由 errclass 归一）
+	got := statusFromRun(entity.TaskRun{Status: entity.TaskRunFailed, Error: "[net_timeout] 源站请求超时", Message: "1 个源失败"})
+	if got.Error == "" || got.Message == "" {
+		t.Fatalf("摘要/原因应透传: %+v", got)
+	}
+}

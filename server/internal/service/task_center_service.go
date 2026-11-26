@@ -269,6 +269,41 @@ func (s *TaskCenterService) List(ctx context.Context, kind string) ([]TaskView, 
 	return out, nil
 }
 
+// latestBuiltinRun 取某内置任务类型最近一条台账（没有则 ok=false）。
+func (s *TaskCenterService) latestBuiltinRun(ctx context.Context, typ string) (entity.TaskRun, bool) {
+	if s.runs == nil || typ == "" {
+		return entity.TaskRun{}, false
+	}
+	list, _, err := s.runs.List(ctx, repository.TaskRunFilter{Type: typ}, repository.Page{Current: 1, Size: 1})
+	if err != nil || len(list) == 0 {
+		return entity.TaskRun{}, false
+	}
+	return list[0], true
+}
+
+// statusFromRun 把一条台账映射成任务状态（与 cron 任务同一套口径）。
+func statusFromRun(r entity.TaskRun) taskcenter.Status {
+	st := taskcenter.Status{Message: r.Message, Error: r.Error, StartedAt: r.StartedAt}
+	switch r.Status {
+	case entity.TaskRunRunning:
+		st.State = taskcenter.StateRunning
+	case entity.TaskRunSuccess:
+		st.State = taskcenter.StateSucceeded
+	case entity.TaskRunFailed:
+		st.State = taskcenter.StateFailed
+	case entity.TaskRunCanceled:
+		st.State = taskcenter.StateCanceled
+	default:
+		st.State = taskcenter.StateIdle
+	}
+	if r.EndedAt > 0 && r.StartedAt > 0 {
+		st.ElapsedMs = r.EndedAt - r.StartedAt
+	} else if st.State == taskcenter.StateRunning && r.StartedAt > 0 {
+		st.ElapsedMs = time.Now().UnixMilli() - r.StartedAt
+	}
+	return st
+}
+
 func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set entity.TaskSetting) TaskView {
 	enabled := d.Enabled
 	schedule := d.DefaultSchedule
@@ -288,6 +323,13 @@ func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set
 	st := taskcenter.Status{State: taskcenter.StateIdle}
 	if d.Status != nil {
 		st = d.Status(ctx)
+	}
+	// 台账兜底：hot/backdrop/health/domain 这类没有内存态的任务，运行结果只在 task_run 里。
+	// 不补这一步，页面上它们永远显示"空闲"（PR4 之后它们已由中心调度并写台账）。
+	if st.State == taskcenter.StateIdle {
+		if run, ok := s.latestBuiltinRun(ctx, d.Type); ok {
+			st = statusFromRun(run)
+		}
 	}
 	if st.Message == "" && set.Remark != "" {
 		st.Message = set.Remark
