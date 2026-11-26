@@ -84,7 +84,7 @@ func main() {
 	// app.handlers.Manage.StartHealthScheduler(rootCtx) // 同上：改由任务中心调度（RunHealthCheckOnce）
 	// 启动 TMDB 横图回填 worker(未配置 key 时为 no-op)
 	// app.backdropSvc.Start(rootCtx) // 同上：改由任务中心调度（SweepOnce）
-	app.yearVerifySvc.Start(rootCtx)
+	// app.yearVerifySvc.Start(rootCtx) // 同上：改由任务中心调度（RunOnce，每 30 分钟）
 	// 启动榜单热度刷新调度(每日 04:00 拉豆瓣榜单 → hot_rank/hot_score)
 	// app.hotSvc.Start(rootCtx) // 同上：改由任务中心调度（SweepOnce）
 	// 域名替换：每日拉取公告（**只入库**，不执行任何替换；执行动作由人工触发）
@@ -291,7 +291,7 @@ func buildApp(cfg *config.Config) (*App, error) {
 	// 统一任务中心（只读目录）：内置任务注册表 + cron 动态展开
 	taskSettingRepo := repomysql.NewTaskSettingRepo(gdb)
 	taskCenterSvc := service.NewTaskCenterService(filmSvc, cronRepo, taskRunRepo, taskSettingRepo, sourceRepo,
-		spiderSvc, hotSvc, backdropSvc, manageSvc)
+		spiderSvc, hotSvc, backdropSvc, manageSvc, yearVerifySvc)
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc,

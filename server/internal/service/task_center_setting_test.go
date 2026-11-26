@@ -157,3 +157,46 @@ func TestUpdateSetting_Cron(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// 调度接管的回归护栏：**每个有周期的内置任务都必须有 Run**，否则调度器会空转；
+// 高频任务必须 NoLedger（否则 20~30 分钟一条把台账刷爆）。
+func TestBuiltinRegistry_SchedulingContract(t *testing.T) {
+	reg := newRegistryWithBuiltins()
+	got := map[string]taskcenter.Def{}
+	for _, d := range reg.All() {
+		got[d.Key] = d
+	}
+
+	want := []string{
+		"builtin:douban_score", "builtin:douban_backfill", "builtin:domain_fetch",
+		"builtin:hot_refresh", "builtin:backdrop", "builtin:health",
+		"builtin:history_prune", "builtin:year_verify",
+	}
+	for _, k := range want {
+		d, ok := got[k]
+		if !ok {
+			t.Fatalf("任务未注册（调度不会接管）: %s", k)
+		}
+		if d.DefaultSchedule != "" && d.Run == nil {
+			t.Fatalf("%s 声明了周期却没有 Run：调度会空转", k)
+		}
+	}
+
+	noLedger := []string{"builtin:backdrop", "builtin:health", "builtin:year_verify"}
+	for _, k := range noLedger {
+		if !got[k].NoLedger {
+			t.Fatalf("%s 属高频任务，应标记 NoLedger", k)
+		}
+	}
+
+	// 欠账补查：默认不启用（只手动），避免一上来就把 2.7 万条历史欠账全刷一遍
+	if got["builtin:douban_backfill"].Enabled {
+		t.Fatal("builtin:douban_backfill 默认应为不启用")
+	}
+	// 周期文案必须能被解析（否则 NextRun 永远为零值、永不触发）
+	for k, d := range got {
+		if err := taskcenter.ValidateSchedule(d.DefaultSchedule); err != nil {
+			t.Fatalf("%s 的默认周期不合法: %v", k, err)
+		}
+	}
+}

@@ -61,16 +61,17 @@ type TaskCenterOverview struct {
 
 // TaskCenterService 只读聚合。
 type TaskCenterService struct {
-	film     *FilmService
-	crons    repository.CronTaskRepository
-	runs     repository.TaskRunRepository
-	settings repository.TaskSettingRepository
-	sources  repository.CollectSourceRepository
-	spider   *SpiderService
-	hot      *HotService
-	backdrop *BackdropService
-	manage   *ManageService
-	reg      *taskcenter.Registry
+	film       *FilmService
+	crons      repository.CronTaskRepository
+	runs       repository.TaskRunRepository
+	settings   repository.TaskSettingRepository
+	sources    repository.CollectSourceRepository
+	spider     *SpiderService
+	hot        *HotService
+	backdrop   *BackdropService
+	manage     *ManageService
+	yearVerify *YearVerifyService
+	reg        *taskcenter.Registry
 }
 
 func NewTaskCenterService(
@@ -83,9 +84,11 @@ func NewTaskCenterService(
 	hot *HotService,
 	backdrop *BackdropService,
 	manage *ManageService,
+	yearVerify *YearVerifyService,
 ) *TaskCenterService {
 	s := &TaskCenterService{film: film, crons: crons, runs: runs, settings: settings, sources: sources,
-		spider: spider, hot: hot, backdrop: backdrop, manage: manage, reg: taskcenter.NewRegistry()}
+		spider: spider, hot: hot, backdrop: backdrop, manage: manage, yearVerify: yearVerify,
+		reg: taskcenter.NewRegistry()}
 	s.registerBuiltins()
 	return s
 }
@@ -132,6 +135,7 @@ func (s *TaskCenterService) registerBuiltins() {
 		Status: func(context.Context) taskcenter.Status {
 			return taskcenter.Status{State: taskcenter.StateIdle, Message: "每 24 小时自动拉取一次"}
 		},
+		Run: s.film.RunDomainFetchOnce,
 	})
 
 	s.reg.Register(taskcenter.Def{
@@ -181,6 +185,23 @@ func (s *TaskCenterService) registerBuiltins() {
 				return fmt.Errorf("管理服务未装配")
 			}
 			s.manage.RunHealthCheckOnce(ctx)
+			return nil
+		},
+	})
+
+	s.reg.Register(taskcenter.Def{
+		Key: "builtin:year_verify", Kind: taskcenter.KindBuiltin, Type: "year_verify",
+		Name: "年份核实", Target: "年份越界的影片（TMDB 校验）",
+		Detail:          "用外部权威纠正**确凿错误**的年份：同名命中且年份不同才写库，查不到一律不动（宁缺勿错）。",
+		DefaultSchedule: "every:30m", Enabled: true, NoLedger: true,
+		DefaultIntervalMs: 300, MinIntervalMs: 100, IntervalLabel: "300ms/请求",
+		Editable: editAll, Caps: []string{taskcenter.CapRun},
+		Status: idleWithMessage("每 30 分钟扫描一次（高频，不记台账）"),
+		Run: func(ctx context.Context) error {
+			if s.yearVerify == nil {
+				return fmt.Errorf("年份核实服务未装配")
+			}
+			s.yearVerify.RunOnce(ctx)
 			return nil
 		},
 	})

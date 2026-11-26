@@ -76,6 +76,10 @@ func (s *YearVerifyService) loop(ctx context.Context) {
 	}
 }
 
+// RunOnce 由统一任务中心调度调用（Phase 2 收敛：不再自起 ticker）。
+// 内部策略不变：同名才采信 + 查不到就不动（宁缺勿错）。
+func (s *YearVerifyService) RunOnce(ctx context.Context) { s.tick(ctx) }
+
 // tick 一轮：取越界候选 → 逐条按片名核实 → 仅在**同名命中且年份不同**时纠正。
 //
 // ⚠️ 实测（2026-11-25）修正了本层策略，两条守卫必须同时成立才写库：
