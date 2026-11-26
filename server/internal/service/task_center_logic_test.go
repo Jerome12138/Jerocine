@@ -273,3 +273,53 @@ func TestDoubanJitterFor(t *testing.T) {
 		}
 	}
 }
+
+// 台账状态必须用 entity 的取值（success/failed），不能把 taskcenter 的 "succeeded" 写进去：
+// 否则历史页认不出、今日成功不计、PruneBefore 也永不清理（2026-11-26 审查发现）。
+func TestWatchBuiltinRun_LedgerStatus(t *testing.T) {
+	repo := &fakeTaskRunRepo{}
+	led := NewTaskRunService(repo)
+	svc := &TaskCenterService{ledgerSvc: led, reg: newRegistryWithBuiltins()}
+
+	// 成功：状态=success、error 必须为空
+	id := led.Start(entity.TaskRunKindManual, "douban_score", 0, "", "手动执行 · 豆瓣评分同步", 0)
+	if id == 0 {
+		t.Fatal("建行失败")
+	}
+	svc.watchBuiltinRun(id, taskcenter.Def{
+		Key: "builtin:douban_score", Type: "douban_score", Async: true,
+		Status: func(context.Context) taskcenter.Status {
+			return taskcenter.Status{State: taskcenter.StateSucceeded, Message: "完成"}
+		},
+	})
+	var got entity.TaskRun
+	for _, r := range repo.rows {
+		if r.Id == id {
+			got = r
+		}
+	}
+	if got.Status != entity.TaskRunSuccess {
+		t.Fatalf("成功行状态必须是 success（不是 succeeded）, got %q", got.Status)
+	}
+	if got.Error != "" {
+		t.Fatalf("成功行不该有 error 文案, got %q", got.Error)
+	}
+
+	// 失败：状态=failed 且原因落到 error
+	id2 := led.Start(entity.TaskRunKindManual, "douban_backfill", 0, "", "手动执行 · 补查", 0)
+	svc.watchBuiltinRun(id2, taskcenter.Def{
+		Key: "builtin:douban_backfill", Type: "douban_backfill", Async: true,
+		Status: func(context.Context) taskcenter.Status {
+			return taskcenter.Status{State: taskcenter.StateFailed, Error: "subject_ip_rate_limit"}
+		},
+	})
+	got = entity.TaskRun{}
+	for _, r := range repo.rows {
+		if r.Id == id2 {
+			got = r
+		}
+	}
+	if got.Status != entity.TaskRunFailed || got.Error == "" {
+		t.Fatalf("失败行状态/原因不对: status=%q error=%q", got.Status, got.Error)
+	}
+}

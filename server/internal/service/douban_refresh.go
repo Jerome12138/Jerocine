@@ -26,7 +26,28 @@ var manualDouban = douban.New()
 // doubanBatchCancel 当前批次的取消句柄（有批次在跑时非 nil）。
 // 让"中途停止"成为可能：之前批次用 context.WithoutCancel 脱离请求后，外部没有任何手段叫停，
 // 只能重启容器（2026-11-26 对端全量 400 时白跑两小时才发现）。
+//
+// 加锁：写方是 goroutine 的 defer、读方是 HTTP handler，裸变量是 data race；
+// 且旧批次的 defer 可能把新批次刚设的句柄置 nil。
 var doubanBatchCancel context.CancelFunc
+
+// setDoubanBatchCancel 设置取消句柄并返回"代际号"（复用 doubanBatchMu：写方是 goroutine、读方是 HTTP handler）。
+func setDoubanBatchCancel(c context.CancelFunc) int64 {
+	doubanBatchMu.Lock()
+	defer doubanBatchMu.Unlock()
+	doubanBatchCancel = c
+	doubanBatchGen++
+	return doubanBatchGen
+}
+
+// clearDoubanBatchCancel 只清**自己那一代**的句柄，避免旧批次的 defer 清掉新批次的句柄。
+func clearDoubanBatchCancel(gen int64) {
+	doubanBatchMu.Lock()
+	defer doubanBatchMu.Unlock()
+	if doubanBatchGen == gen {
+		doubanBatchCancel = nil
+	}
+}
 
 // doubanMaxConsecutiveFail uint 连续失败达到该值即中止整批：
 // 对端整段封禁/限流时（2026-11-26 实测 rexxar 全量 400），不熔断就要白跑两小时。
@@ -35,7 +56,9 @@ const doubanMaxConsecutiveFail = 5
 // StopDoubanBatch 中止当前正在跑的豆瓣批次（评分同步 / 欠账补查）。
 // 返回是否有批次被叫停（false = 当前没有批次在跑）。
 func (s *FilmService) StopDoubanBatch() bool {
+	doubanBatchMu.Lock()
 	cancel := doubanBatchCancel
+	doubanBatchMu.Unlock()
 	if cancel == nil {
 		return false
 	}
@@ -212,10 +235,10 @@ func (s *FilmService) StartDoubanScoreSyncOnce(ctx context.Context) error {
 	}
 	// 脱离请求 ctx（页面关掉也要跑完），但**保留一个可取消的句柄**供"中途停止"用
 	bg, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	doubanBatchCancel = cancel
+	gen := setDoubanBatchCancel(cancel)
 	go func() {
 		defer doubanBatchBusy.Store(false)
-		defer func() { doubanBatchCancel = nil; cancel() }()
+		defer func() { clearDoubanBatchCancel(gen); cancel() }()
 		s.runDoubanScoreSyncLocked(bg)
 	}()
 	return nil
@@ -243,17 +266,30 @@ func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 	total := len(targets)
 	updated, noScore, failed := 0, 0, 0
 	consecutiveFail := 0 // 连续失败计数（成功即清零，用于熔断）
+	// 拿到片单才知道总数：补上 Total，让列表能显示进度（此前一直是空进度）
+	setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+		p.Total, p.Done = total, 0
+	})
 	log.Printf("[douban-sync] 开始：上线月份 ≥ %s 共 %d 部", from, total)
 
 	for i, t := range targets {
 		if ctx.Err() != nil {
 			log.Printf("[douban-sync] 已取消，进度 %d/%d（更新 %d）", i, total, updated)
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+				p.State = "failed"
+				p.Message = fmt.Sprintf("已取消，进度 %d/%d", i, total)
+			})
 			return
 		}
 		score, _, err := scoreSyncClient.SubjectRating(ctx, t.DbId)
-		if err != nil {
+		switch {
+		case err != nil:
 			failed++
 			consecutiveFail++
+			// 每部都刷新 Done/UpdatedAt：观察者靠 UpdatedAt 判"停滞"，不刷新会把正常批次误判成卡死
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+				p.Done, p.Failed = i+1, failed
+			})
 			if failed%50 == 1 {
 				log.Printf("[douban-sync] 取评分失败(mid=%d id=%d): %v", t.Mid, t.DbId, err)
 			}
@@ -267,21 +303,37 @@ func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 				return
 			}
 			continue
-		}
-		consecutiveFail = 0
-		if score <= 0 {
-			noScore++ // 豆瓣本身暂无评分（新片/冷门），跳过
+		case score <= 0:
+			// 豆瓣确实没分（新片/冷门）：跳过，但**算一次正常推进**
+			noScore++
+			consecutiveFail = 0
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+				p.Done, p.NoScore = i+1, noScore
+			})
 			continue
 		}
-		if err := s.movie.UpdateDbScore(ctx, t.Mid, score); err != nil {
+		consecutiveFail = 0
+		if uerr := s.movie.UpdateDbScore(ctx, t.Mid, score); uerr != nil {
 			failed++
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+				p.Done, p.Failed = i+1, failed
+			})
 			continue
 		}
 		updated++
+		setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+			p.Done, p.Updated = i+1, updated
+		})
 		if (i+1)%100 == 0 {
 			log.Printf("[douban-sync] 进度 %d/%d 更新=%d 无评分=%d 失败=%d", i+1, total, updated, noScore, failed)
 		}
 	}
+	// 终态：不置 done 的话列表会永远显示"运行中"，观察者也永远等不到结果（2026-11-26 审查发现）
+	setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+		p.State = "done"
+		p.Message = fmt.Sprintf("完成：目标 %d，更新 %d，豆瓣无评分 %d，失败 %d（耗时 %s）",
+			total, updated, noScore, failed, time.Since(start).Round(time.Second))
+	})
 	log.Printf("[douban-sync] 完成：目标 %d，更新 %d，豆瓣无评分 %d，失败 %d，耗时 %s",
 		total, updated, noScore, failed, time.Since(start).Round(time.Second))
 }
@@ -318,6 +370,8 @@ var (
 	doubanBatchProg = DoubanBatchProgress{State: "idle"}
 	// doubanBatchBusy 单飞：定时同步与手动补查共用一个"豆瓣外部调用批"名额
 	doubanBatchBusy atomic.Bool
+	// doubanBatchGen 取消句柄代际号（防旧批次清掉新批次；与 doubanBatchMu 同锁保护）
+	doubanBatchGen int64
 )
 
 // DoubanBatchProgress 读进度快照。
@@ -363,9 +417,9 @@ func (s *FilmService) StartDoubanScoreBackfill(ctx context.Context, limit int) e
 	})
 	// 脱离请求 ctx（页面关掉也要跑完），但保留可取消句柄供"中途停止"
 	bg, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	doubanBatchCancel = cancel
+	gen := setDoubanBatchCancel(cancel)
 	go func() {
-		defer func() { doubanBatchCancel = nil; cancel() }()
+		defer func() { clearDoubanBatchCancel(gen); cancel() }()
 		s.runDoubanBackfill(bg, targets)
 	}()
 	return nil

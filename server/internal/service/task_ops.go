@@ -402,11 +402,15 @@ func (s *TaskCenterService) watchBuiltinRun(runID int64, def taskcenter.Def) {
 		led.Finish(runID, entity.TaskRunSuccess, 0, 0, 0, "完成（无状态探针）", "")
 		return
 	}
-	msg := firstNonEmpty(out.Message, "完成")
+	// ⚠ 台账状态用 entity 的取值（success/failed），不能直接用 taskcenter.State
+	// （"succeeded" 不在台账词表里 ⇒ 历史页认不出、今日成功不计、PruneBefore 也永不清理这类行）
 	if out.State == taskcenter.StateFailed {
-		msg = firstNonEmpty(out.Error, out.Reason, out.Message, "失败")
+		msg := firstNonEmpty(out.Error, out.Reason, out.Message, "失败")
+		led.Finish(runID, entity.TaskRunFailed, out.Total, out.Done, out.Failed, "", msg)
+		return
 	}
-	led.Finish(runID, string(out.State), out.Total, out.Done, out.Failed, msg, msg)
+	led.Finish(runID, entity.TaskRunSuccess, out.Total, out.Done, out.Failed,
+		firstNonEmpty(out.Message, "完成"), "")
 }
 
 // finishRun 收尾一条手工触发的台账（走唯一写入口；成功写 Message、失败写 Error）。
