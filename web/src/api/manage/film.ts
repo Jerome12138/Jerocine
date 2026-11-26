@@ -82,13 +82,13 @@ export const doubanCandidates = (
   name = ''
 ): Promise<{ list: DoubanCandidate[]; keyword: string }> =>
   http.get<unknown, { list: DoubanCandidate[]; keyword: string }>(
-    `/films/${mid}/douban/candidates`,
+    `/manage/films/${mid}/douban/candidates`,
     { params: { name }, silent: true }
   )
 
 /** POST /manage/films/:mid/douban {dbId?} — dbId=0 表示按片名自动匹配 */
 export const refreshDouban = (mid: number | string, dbId = 0): Promise<DoubanRefreshResp> =>
-  http.post<unknown, DoubanRefreshResp>(`/films/${mid}/douban`, { dbId }, { silent: true })
+  http.post<unknown, DoubanRefreshResp>(`/manage/films/${mid}/douban`, { dbId }, { silent: true })
 
 export const detail = (mid: number | string): Promise<ManageFilmDetailResp> =>
   http.get<unknown, ManageFilmDetailResp>(`/manage/films/${mid}/detail`)
