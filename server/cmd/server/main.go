@@ -73,6 +73,14 @@ func main() {
 	r.GET("/healthz", app.health)
 	r.Static(cfg.Blob.BaseURL, cfg.Blob.LocalDir) // 本地图片访问(生产由 nginx 托管)
 
+	// 组合根自检：这些字段漏赋值时，症状是"启动后某个 goroutine/启动调用 panic"（2026-11-26
+	// app.taskCenter 漏填 → NormalizeCronSchedules 空指针 → 发布后容器反复重启）。宁可启动即停、
+	// 打一行能直接定位的日志，也不要带病运行。
+	if app.taskCenter == nil || app.handlers == nil || app.spiderSvc == nil || app.userSvc == nil {
+		log.Fatalf("组合根装配缺失: taskCenter=%v handlers=%v spider=%v user=%v",
+			app.taskCenter == nil, app.handlers == nil, app.spiderSvc == nil, app.userSvc == nil)
+	}
+
 	router.Register(r, app.handlers, app.userSvc, cfg)
 
 	// 后台调度统一挂 rootCtx; 采集服务额外注入根 ctx 供手动触发/定时任务派生。
@@ -326,7 +334,10 @@ func buildApp(cfg *config.Config) (*App, error) {
 	return &App{
 		gdb: gdb, cacheRdb: cacheRdb, coordRdb: coordRdb,
 		userSvc: userSvc, spiderSvc: spiderSvc, backdropSvc: backdropSvc, hotSvc: hotSvc, yearVerifySvc: yearVerifySvc, filmSvc: filmSvc,
-		handlers: handlers,
+		// ⚠️ 这个字段漏赋值过一次（2026-11-26 发版 panic）：main 里 app.taskCenter.NormalizeCronSchedules(rootCtx)
+		// 与 NewTaskScheduler(app.taskCenter) 都会用到它，nil 时第一个启动调用就空指针。新增 App 字段时务必回填。
+		taskCenter: taskCenterSvc,
+		handlers:   handlers,
 	}, nil
 }
 

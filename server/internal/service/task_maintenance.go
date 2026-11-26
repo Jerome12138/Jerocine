@@ -20,7 +20,7 @@ import (
 //   - 转不动（步长/区间/列表等复杂语法）：**停用并标注**，等人工在任务中心改周期，
 //     绝不按旧表达式静默继续跑（避免"看着在跑、实际周期错"）。
 func (s *TaskCenterService) NormalizeCronSchedules(ctx context.Context) {
-	if s.crons == nil {
+	if s == nil || s.crons == nil { // nil 守卫：调用方传 nil 时不能把服务打挂（启动路径上曾踩过）
 		return
 	}
 	list, err := s.crons.List(ctx)

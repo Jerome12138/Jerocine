@@ -377,7 +377,9 @@ maint_token() {
 # 后端没映射到宿主机端口(只在 compose 网络里), 所以走容器内网 IP:3601。
 maint_base() {
   local ip=""
-  ip="$("${DOCKER[@]}" inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' jerocine_server 2>/dev/null || true)"
+  # 多网络时模板会把多个 IP 直接拼在一起（172.19.0.41.72.20.0.5）⇒ curl 报
+  # "Malformed input to a URL function"（2026-11-26 发版实测）。用空格分隔后只取第一个。
+  ip="$("${DOCKER[@]}" inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' jerocine_server 2>/dev/null | awk '{print $1}' || true)"
   [ -n "$ip" ] || return 1
   printf 'http://%s:3601/api/v1/manage/task-center' "$ip"
 }
