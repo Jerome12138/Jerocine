@@ -12,6 +12,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"server/internal/domain/repository"
@@ -138,6 +140,11 @@ func nextMonday3am(now time.Time) time.Time {
 // 为什么不再补"有 id 无评分"的历史欠账：实测那批 2.7 万条里绝大多数是半年前的老片，
 // 豆瓣本来就没有评分，反复查只是浪费请求。
 func (s *FilmService) RunDoubanScoreSync(ctx context.Context) {
+	if !doubanBatchBusy.CompareAndSwap(false, true) {
+		log.Printf("[douban-sync] 已有豆瓣刷分任务在跑，本轮跳过")
+		return
+	}
+	defer doubanBatchBusy.Store(false)
 	start := time.Now()
 	from := time.Now().Add(doubanSyncWindow).Format("2006-01")
 	targets, err := s.movie.ListDoubanScoreTargets(ctx, repository.DoubanScoreQuery{
@@ -181,4 +188,126 @@ func (s *FilmService) RunDoubanScoreSync(ctx context.Context) {
 	}
 	log.Printf("[douban-sync] 完成：目标 %d，更新 %d，豆瓣无评分 %d，失败 %d，耗时 %s",
 		total, updated, noScore, failed, time.Since(start).Round(time.Second))
+}
+
+// ---------------------------------------------------------------------------
+// 豆瓣评分欠账补查（有 db_id 无评分）
+//
+// 定位：**默认不启用**（不注册定时器），只支持手动触发；等任务中心落地后注册为
+// `builtin:douban_backfill`（enabled=false）。
+// 与每周同步共用一把单飞锁，避免两条链路同时打豆瓣。
+// ---------------------------------------------------------------------------
+
+// doubanBackfillDefaultLimit 单次补查上限（3~5s/条 → 2000 条约 2~3 小时）
+const doubanBackfillDefaultLimit = 2000
+
+// DoubanBatchProgress 豆瓣批量刷分的进度快照。
+type DoubanBatchProgress struct {
+	State     string `json:"state"` // idle / running / done / failed
+	Total     int    `json:"total"`
+	Done      int    `json:"done"`
+	Updated   int    `json:"updated"`
+	NoScore   int    `json:"noScore"`
+	Failed    int    `json:"failed"`
+	Message   string `json:"message"`
+	StartedAt int64  `json:"startedAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
+
+var (
+	doubanBatchMu   sync.Mutex
+	doubanBatchProg = DoubanBatchProgress{State: "idle"}
+	// doubanBatchBusy 单飞：定时同步与手动补查共用一个"豆瓣外部调用批"名额
+	doubanBatchBusy atomic.Bool
+)
+
+// DoubanBatchProgress 读进度快照。
+func (s *FilmService) DoubanBatchProgress() DoubanBatchProgress {
+	doubanBatchMu.Lock()
+	defer doubanBatchMu.Unlock()
+	return doubanBatchProg
+}
+
+func setDoubanBatchProgress(f func(p *DoubanBatchProgress)) {
+	doubanBatchMu.Lock()
+	defer doubanBatchMu.Unlock()
+	f(&doubanBatchProg)
+	doubanBatchProg.UpdatedAt = time.Now().UnixMilli()
+}
+
+// StartDoubanScoreBackfill 手动触发欠账补查（异步，立即返回）。
+func (s *FilmService) StartDoubanScoreBackfill(ctx context.Context, limit int) error {
+	if limit <= 0 {
+		limit = doubanBackfillDefaultLimit
+	}
+	if limit > 20000 {
+		limit = 20000
+	}
+	if !doubanBatchBusy.CompareAndSwap(false, true) {
+		return fmt.Errorf("已有豆瓣刷分任务在执行中，请稍后再试")
+	}
+	targets, err := s.movie.ListDoubanScoreTargets(ctx,
+		repository.DoubanScoreQuery{OnlyMissing: true, Limit: limit})
+	if err != nil {
+		doubanBatchBusy.Store(false)
+		return err
+	}
+	if len(targets) == 0 {
+		doubanBatchBusy.Store(false)
+		return fmt.Errorf("没有需要补查的影片（有豆瓣 id 但无评分的已为 0）")
+	}
+	setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+		*p = DoubanBatchProgress{
+			State: "running", Total: len(targets),
+			StartedAt: time.Now().UnixMilli(), Message: "开始补查欠账",
+		}
+	})
+	// 脱离请求 ctx：页面关掉也要跑完
+	go s.runDoubanBackfill(context.WithoutCancel(ctx), targets)
+	return nil
+}
+
+func (s *FilmService) runDoubanBackfill(ctx context.Context, targets []repository.DoubanTarget) {
+	defer doubanBatchBusy.Store(false)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[douban-backfill] panic: %v", r)
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+				p.State, p.Message = "failed", fmt.Sprintf("执行异常: %v", r)
+			})
+		}
+	}()
+
+	start := time.Now()
+	for i, t := range targets {
+		if ctx.Err() != nil {
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.State, p.Message = "failed", "已取消" })
+			return
+		}
+		score, _, err := scoreSyncClient.SubjectRating(ctx, t.DbId)
+		switch {
+		case err != nil:
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.Done, p.Failed = i+1, p.Failed+1 })
+		case score <= 0:
+			// 豆瓣确实没分：跳过，不再纠缠（这正是"半年前老片大概率没分"的那批）
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.Done, p.NoScore = i+1, p.NoScore+1 })
+		default:
+			if uerr := s.movie.UpdateDbScore(ctx, t.Mid, score); uerr != nil {
+				setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.Done, p.Failed = i+1, p.Failed+1 })
+				continue
+			}
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.Done, p.Updated = i+1, p.Updated+1 })
+		}
+		if (i+1)%50 == 0 {
+			p := s.DoubanBatchProgress()
+			log.Printf("[douban-backfill] 进度 %d/%d 更新=%d 无评分=%d 失败=%d", p.Done, p.Total, p.Updated, p.NoScore, p.Failed)
+		}
+	}
+	p := s.DoubanBatchProgress()
+	setDoubanBatchProgress(func(x *DoubanBatchProgress) {
+		x.State = "done"
+		x.Message = fmt.Sprintf("补查完成：更新 %d，豆瓣无评分 %d，失败 %d（耗时 %s）",
+			p.Updated, p.NoScore, p.Failed, time.Since(start).Round(time.Second))
+	})
+	log.Printf("[douban-backfill] %s", p.Message)
 }

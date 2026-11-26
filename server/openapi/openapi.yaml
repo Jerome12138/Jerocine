@@ -3475,6 +3475,50 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/Unprocessable' }
 
+  /manage/douban/score-backfill/run:
+    post:
+      tags: [manage-film]
+      summary: 手动触发"有豆瓣 id 无评分"的欠账补查（默认不启用定时）
+      description: 与每周一 03:00 的评分同步共用单飞锁；请求间隔 3~5s 随机；异步执行，轮询 progress 看进度。
+      operationId: manageDoubanScoreBackfill
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit: { type: integer, description: 单次上限，默认 2000，最大 20000 }
+      responses:
+        '202': { description: 已开始 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: 已有豆瓣刷分任务在执行 }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/douban/score-backfill/progress:
+    get:
+      tags: [manage-film]
+      summary: 豆瓣刷分进度（定时同步与手动补查共用）
+      operationId: manageDoubanBackfillProgress
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: { type: string, description: idle / running / done / failed }
+                  total: { type: integer }
+                  done: { type: integer }
+                  updated: { type: integer, description: 成功写入评分的条数 }
+                  noScore: { type: integer, description: 豆瓣确实没有评分的条数 }
+                  failed: { type: integer }
+                  message: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /manage/films/{mid}/douban/candidates:
     get:
       tags: [manage-film]

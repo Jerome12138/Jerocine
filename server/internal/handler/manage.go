@@ -792,6 +792,25 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 
 // ---- 影片管理 ----
 
+// DoubanScoreBackfill POST /manage/douban/score-backfill/run {limit?}
+// 手动触发"有豆瓣 id 无评分"的欠账补查（默认不启用定时，只手动）。
+func (h *Handlers) DoubanScoreBackfill(c *gin.Context) {
+	var req struct {
+		Limit int `json:"limit"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if err := h.Film.StartDoubanScoreBackfill(c.Request.Context(), req.Limit); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.Accepted(c, gin.H{"accepted": true})
+}
+
+// DoubanScoreBackfillProgress GET /manage/douban/score-backfill/progress
+func (h *Handlers) DoubanScoreBackfillProgress(c *gin.Context) {
+	dto.OK(c, h.Film.DoubanBatchProgress())
+}
+
 // FilmDoubanCandidates GET /manage/films/:mid/douban/candidates?name=
 // 按片名取豆瓣候选（name 可改；缺省用影片名），供管理端挑选。
 func (h *Handlers) FilmDoubanCandidates(c *gin.Context) {

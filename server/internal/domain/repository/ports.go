@@ -197,6 +197,8 @@ type DoubanTarget struct {
 type DoubanScoreQuery struct {
 	// PubMonthFrom 上线月份下限（YYYY-MM，按 movie.pub_date 前 7 位比较）；空 = 不限
 	PubMonthFrom string
+	// OnlyMissing true = 只取"有 db_id 但没评分"的（历史欠账补查用）
+	OnlyMissing bool
 	// Limit 上限（<=0 用默认）
 	Limit int
 }

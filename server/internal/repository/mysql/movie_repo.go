@@ -237,6 +237,10 @@ func (r *movieRepo) ListDoubanScoreTargets(ctx context.Context, q repository.Dou
 	}
 	db := dbFrom(ctx, r.db).Model(&entity.Movie{}).
 		Where("deleted_at = 0 AND db_id > 0 AND pub_date <> ''")
+	if q.OnlyMissing {
+		// 补查欠账：只挑"有 id 没分"的（排序统一在下方 Order）
+		db = db.Where("db_score = 0")
+	}
 	if q.PubMonthFrom != "" {
 		// pub_date 存在 "YYYY" / "YYYY-MM" / "YYYY-MM-DD" 三种形态，按前 7 位比较
 		// 可同时覆盖月粒度与日粒度（"2026" 这类只有年的天然落在更早，不纳入）

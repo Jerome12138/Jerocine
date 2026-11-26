@@ -197,6 +197,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 
 		mg.GET("/films", h.ManageFilms)
 		mg.POST("/films", h.AddFilm)
+		mg.POST("/douban/score-backfill/run", h.DoubanScoreBackfill) // 欠账补查（手动，默认不启用定时）
+		mg.GET("/douban/score-backfill/progress", h.DoubanScoreBackfillProgress)
 		mg.GET("/films/:mid/douban/candidates", h.FilmDoubanCandidates) // 豆瓣候选（可改片名）
 		mg.POST("/films/:mid/douban", h.FilmDoubanRefresh)              // 取豆瓣 ID/评分（可指定候选）
 		mg.GET("/films/:mid", h.ManageGetFilm)
