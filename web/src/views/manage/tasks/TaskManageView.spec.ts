@@ -583,3 +583,28 @@ describe('TaskManageView 轮询', () => {
     expect(w.findAll('[data-testid="builtin-bar"]')).toHaveLength(0)
     w.unmount()
   })
+
+  it('近期任务：刚结束的豆瓣批次不显示 暂停/继续/停止（只有运行中才有暂停+停止）', async () => {
+    const now = Date.now()
+    h.spiderJobs.mockResolvedValue([])
+    h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now })
+    h.taskCenterTasks.mockResolvedValue({
+      list: [
+        {
+          key: 'builtin:douban_score', kind: 'builtin', type: 'douban_score', name: '豆瓣评分同步',
+          schedule: 'weekly:1 03:00', scheduleText: '每周一 03:00', enabled: true,
+          editable: [], caps: [], state: 'succeeded',
+          progress: { total: 1941, done: 1941, failed: 0, unit: '部' },
+          startedAt: now - 600000, elapsedMs: 0, lastRunAt: now - 600000, message: '完成', error: '', nextAt: 0
+        }
+      ]
+    })
+    const w = await mountView()
+    await flushPromises()
+    const text = w.text()
+    expect(text).toContain('已完成 1941/1941 部')
+    expect(text).not.toContain('暂停')
+    expect(text).not.toContain('继续')
+    expect(text).not.toContain('停止')
+    w.unmount()
+  })

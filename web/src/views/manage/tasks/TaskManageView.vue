@@ -98,6 +98,8 @@ interface BuiltinRunningItem {
   note: string
   /** true=在跑（画进度条）；false=刚结束（只显示 x/y 文字） */
   running: boolean
+  /** 任务状态（running / paused / succeeded / failed …）：决定显示哪些操作按钮 */
+  state: string
   /** 有进度就用它显示（豆瓣批次等异步任务会给出 total/done） */
   progress?: { total: number; done: number; failed: number; unit: string } | null
 }
@@ -429,12 +431,12 @@ async function loadBuiltinRunning(): Promise<void> {
       const recentlyDone = !running && at > 0 && nowMs - at <= recentMs
       if (!running && !recentlyDone) continue
       seen.add(t.key)
-      items.push({ key: t.key, name: t.name, note: runTypeText(t.type), progress: t.progress, running })
+      items.push({ key: t.key, name: t.name, note: runTypeText(t.type), progress: t.progress, running, state: t.state })
     }
     for (const x of sched.items ?? []) {
       if (!x.running || x.kind !== 'builtin' || seen.has(x.key)) continue
       seen.add(x.key)
-      items.push({ key: x.key, name: x.name, note: x.scheduleText, running: true })
+      items.push({ key: x.key, name: x.name, note: x.scheduleText, running: true, state: 'running' })
     }
     builtinRunning.value = items
   } catch {
@@ -850,24 +852,26 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
             {{ Math.round((r.progress.done / r.progress.total) * 100) }}%
           </span>
           <span v-else class="ml-auto text-xs text-muted">{{ r.note }}</span>
-          <ManageButton
-            v-if="isDoubanKey(r.key) && r.running"
-            size="sm"
-            variant="outline"
-            @click="pauseDouban"
-          >暂停</ManageButton>
-          <ManageButton
-            v-if="isDoubanKey(r.key) && !r.running"
-            size="sm"
-            variant="primary"
-            @click="resumeDouban"
-          >继续</ManageButton>
-          <ManageButton
-            v-if="isDoubanKey(r.key)"
-            size="sm"
-            variant="danger"
-            @click="stopDouban"
-          >停止</ManageButton>
+          <template v-if="isDoubanKey(r.key)">
+            <ManageButton
+              v-if="r.state === 'running'"
+              size="sm"
+              variant="outline"
+              @click="pauseDouban"
+            >暂停</ManageButton>
+            <ManageButton
+              v-if="r.state === 'paused'"
+              size="sm"
+              variant="primary"
+              @click="resumeDouban"
+            >继续</ManageButton>
+            <ManageButton
+              v-if="r.state === 'running' || r.state === 'paused'"
+              size="sm"
+              variant="danger"
+              @click="stopDouban"
+            >停止</ManageButton>
+          </template>
           <!-- 与采集进度同款的细进度条：多接口任务运行时一眼看到完成度 -->
           <div
             v-if="r.running && r.progress && r.progress.total > 0"

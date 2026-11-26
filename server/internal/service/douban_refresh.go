@@ -101,7 +101,7 @@ func (s *FilmService) ResumeDoubanBatch() bool {
 
 // waitIfDoubanPaused 每部之前调用：暂停时把进度标成 paused 并原地等待，继续后返回。
 // ctx 取消（服务停机/停止）则返回 false，调用方收尾退出。
-func waitIfDoubanPaused(ctx context.Context, task string) bool {
+func waitIfDoubanPaused(ctx context.Context) bool {
 	if !doubanBatchPaused.Load() {
 		return true
 	}
@@ -359,6 +359,16 @@ func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 	total := len(targets)
 	updated, noScore, failed := 0, 0, 0
 	consecutiveFail := 0 // 连续失败计数（成功即清零，用于熔断）
+	// 断点续跑（与补查同构）：片单总数一致才继续，否则从头
+	done := 0
+	if c, ok := loadDoubanCursor(ctx, "douban_score"); ok && c.Total == total && c.Done < c.Total {
+		done = c.Done
+		updated, noScore, failed = c.Upd, c.NoSc, c.Failed
+		setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+			p.Done, p.Updated, p.NoScore, p.Failed = c.Done, c.Upd, c.NoSc, c.Failed
+		})
+		log.Printf("[douban-sync] 从断点继续：%d/%d（更新 %d）", done, total, c.Upd)
+	}
 	// 拿到片单才知道总数：补上 Total，让列表能显示进度（此前一直是空进度）
 	setDoubanBatchProgress(func(p *DoubanBatchProgress) {
 		p.Total, p.Done = total, 0
@@ -366,6 +376,19 @@ func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 	log.Printf("[douban-sync] 开始：上线月份 ≥ %s 共 %d 部", from, total)
 
 	for i, t := range targets {
+		if i < done {
+			continue // 断点之前的已处理过
+		}
+		if !waitIfDoubanPaused(ctx) { // 暂停时在此等待；停止/停机则退出
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+				p.State = "failed"
+				p.Message = fmt.Sprintf("已取消，进度 %d/%d", i, total)
+			})
+			return
+		}
+		// 断点：记"已处理完 i 部"（当前这一部若中途失败/停机，下次会重做 —— 幂等）
+		saveDoubanCursor(ctx, doubanCursor{Task: "douban_score", Total: total,
+			Done: i, Upd: updated, NoSc: noScore, Failed: failed})
 		if ctx.Err() != nil {
 			log.Printf("[douban-sync] 已取消，进度 %d/%d（更新 %d）", i, total, updated)
 			setDoubanBatchProgress(func(p *DoubanBatchProgress) {
@@ -388,7 +411,8 @@ func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 			}
 			if consecutiveFail >= doubanMaxConsecutiveFail {
 				// 对端整段封禁/限流时不要白跑整批（2026-11-26 实测 rexxar 全量 400）
-				log.Printf("[douban-sync] 连续失败 %d 次，已中止（疑似被限流/风控）: 进度 %d/%d", consecutiveFail, i, total)
+				log.Printf("[douban-sync] 连续失败 %d 次，已中止（疑似被限流/风控）: 进度 %d/%d；游标保留，续跑将从 %d 部之后继续（这几部不再重试）",
+					consecutiveFail, i, total, i+1)
 				setDoubanBatchProgress(func(p *DoubanBatchProgress) {
 					p.State = "failed"
 					p.Message = fmt.Sprintf("连续失败 %d 次已中止（疑似被豆瓣限流），进度 %d/%d", consecutiveFail, i, total)
@@ -429,6 +453,7 @@ func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 	})
 	log.Printf("[douban-sync] 完成：目标 %d，更新 %d，豆瓣无评分 %d，失败 %d，耗时 %s",
 		total, updated, noScore, failed, time.Since(start).Round(time.Second))
+	clearDoubanCursor(context.WithoutCancel(ctx), "douban_score")
 }
 
 // ---------------------------------------------------------------------------
@@ -546,9 +571,15 @@ func (s *FilmService) runDoubanBackfill(ctx context.Context, targets []repositor
 		if i < done {
 			continue // 断点之前的不重复处理
 		}
-		if !waitIfDoubanPaused(ctx, "douban_backfill") { // 暂停时在这里等；停止/停机则退出
+		if !waitIfDoubanPaused(ctx) { // 暂停时在这里等；停止/停机则退出
 			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.State, p.Message = "failed", "已取消" })
 			return
+		}
+		// 断点：记"已处理完 i 部"（当前这一部若中途失败/停机，下次会重做 —— 幂等）
+		{
+			pp := s.DoubanBatchProgress()
+			saveDoubanCursor(ctx, doubanCursor{Task: "douban_backfill", Total: len(targets),
+				Done: i, Upd: pp.Updated, NoSc: pp.NoScore, Failed: pp.Failed})
 		}
 		if ctx.Err() != nil {
 			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.State, p.Message = "failed", "已取消" })
@@ -583,10 +614,6 @@ func (s *FilmService) runDoubanBackfill(ctx context.Context, targets []repositor
 			p := s.DoubanBatchProgress()
 			log.Printf("[douban-backfill] 进度 %d/%d 更新=%d 无评分=%d 失败=%d", p.Done, p.Total, p.Updated, p.NoScore, p.Failed)
 		}
-		// 每部落一次断点（Redis SET 很小；崩溃/暂停后最多丢一部）
-		pp := s.DoubanBatchProgress()
-		saveDoubanCursor(ctx, doubanCursor{Task: "douban_backfill", Total: len(targets),
-			Done: pp.Done, Upd: pp.Updated, NoSc: pp.NoScore, Failed: pp.Failed})
 	}
 	p := s.DoubanBatchProgress()
 	setDoubanBatchProgress(func(x *DoubanBatchProgress) {
