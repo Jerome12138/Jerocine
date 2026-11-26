@@ -48,15 +48,17 @@ func (CollectSource) TableName() string { return "collect_source" }
 type CronTask struct {
 	Id        int64       `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	SourceIds StringSlice `gorm:"column:source_ids;type:json" json:"sourceIds"`
-	Spec      string      `gorm:"column:spec" json:"spec"`
-	Time      int         `gorm:"column:time" json:"time"`
-	Model     int8        `gorm:"column:model" json:"model"` // 见 CronModel* 常量: 0 自动全站 / 1 指定源 / 2 补采失败页
-	State     int8        `gorm:"column:state" json:"state"`
-	Remark    string      `gorm:"column:remark" json:"remark"`
-	EntryId   int         `gorm:"column:entry_id" json:"entryId"`
-	LastRunAt int64       `gorm:"column:last_run_at" json:"lastRunAt"`
-	CreatedAt int64       `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
-	UpdatedAt int64       `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	Spec      string      `gorm:"column:spec" json:"spec"` // 旧 cron 表达式（保留兼容，不再用于调度）
+	// Schedule 友好文本周期（统一时间语义，由任务中心调度）：every:30m / daily:03:00 / weekly:1 03:00
+	Schedule  string `gorm:"column:schedule" json:"schedule"`
+	Time      int    `gorm:"column:time" json:"time"`
+	Model     int8   `gorm:"column:model" json:"model"` // 见 CronModel* 常量: 0 自动全站 / 1 指定源 / 2 补采失败页
+	State     int8   `gorm:"column:state" json:"state"`
+	Remark    string `gorm:"column:remark" json:"remark"`
+	EntryId   int    `gorm:"column:entry_id" json:"entryId"`
+	LastRunAt int64  `gorm:"column:last_run_at" json:"lastRunAt"`
+	CreatedAt int64  `gorm:"column:created_at;autoCreateTime:milli" json:"createdAt"`
+	UpdatedAt int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 }
 
 func (CronTask) TableName() string { return "cron_task" }
@@ -189,7 +191,7 @@ type SiteConfig struct {
 	// p.lztutu.com 被局域网 DNS 屏蔽时切 img.lzipic.com)。非敏感展示配置, 随公开
 	// GET /config/site 直接下发; 空串 = 不启用回退(前端按现行为渲染)。
 	ImgFallbackHosts string `gorm:"column:img_fallback_hosts" json:"imgFallbackHosts"`
-	UpdatedAt        int64 `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
+	UpdatedAt        int64  `gorm:"column:updated_at;autoUpdateTime:milli" json:"updatedAt"`
 	// FileBase blob 对外基址(非 DB 列, 由 ConfigService 用 BLOB_BASE_URL 注入, 随公开
 	// GET /config/site 下发)。前端据此识别路径模式下的 blob 前缀; 绝对域模式下出参已是绝对 URL, 前端原样。
 	FileBase string `gorm:"-" json:"fileBase"`

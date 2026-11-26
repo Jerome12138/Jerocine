@@ -84,12 +84,13 @@ export const taskCenterTasks = (kind = ''): Promise<{ list: TaskCenterItem[] }> 
 export const taskCenterOverview = (): Promise<TaskCenterOverview> =>
   http.get<unknown, TaskCenterOverview>('/manage/task-center/overview', { silent: true })
 
-/** PUT /manage/task-center/tasks/:key/setting */
+/** PUT /manage/task-center/tasks/:key/setting
+ *  deferred=true: 该任务此刻有一轮在跑 —— 停用只影响下次触发，本轮跑完才真正停下 */
 export const taskCenterUpdateSetting = (
   key: string,
   payload: { enabled?: boolean; schedule?: string; remark?: string; intervalMs?: number }
-): Promise<{ ok: boolean }> =>
-  http.put<unknown, { ok: boolean }>(
+): Promise<{ ok: boolean; deferred?: boolean }> =>
+  http.put<unknown, { ok: boolean; deferred?: boolean }>(
     `/manage/task-center/tasks/${encodeURIComponent(key)}/setting`,
     payload,
     { silent: true }
@@ -100,6 +101,18 @@ export const taskCenterRun = (key: string): Promise<{ accepted: boolean }> =>
   http.post<unknown, { accepted: boolean }>(
     `/manage/task-center/tasks/${encodeURIComponent(key)}/run`,
     {},
+    { silent: true }
+  )
+
+/** POST /manage/task-center/tasks/batch-state 批量启用/停用
+ *  deferred: 本次被停用但**此刻正在跑**的任务 key（等本轮跑完才真正停下） */
+export const taskCenterBatchState = (
+  keys: string[],
+  enabled: boolean
+): Promise<{ ok: number; deferred?: string[]; errors: string[] }> =>
+  http.post<unknown, { ok: number; deferred?: string[]; errors: string[] }>(
+    '/manage/task-center/tasks/batch-state',
+    { keys, enabled },
     { silent: true }
   )
 

@@ -109,11 +109,59 @@ async function loadTc(): Promise<void> {
   try {
     const r = await tasksApi.taskCenterTasks()
     tcList.value = r.list ?? []
+    // 选中的任务可能已被停用/删除，剔除不存在的
+    const keys = new Set(tcList.value.map((t) => t.key))
+    picked.value = picked.value.filter((k) => keys.has(k))
   } catch (e) {
     toast('error', e instanceof Error ? e.message : '任务列表加载失败')
   } finally {
     tcLoading.value = false
   }
+}
+
+/** 批量选择（计划任务） */
+const picked = ref<string[]>([])
+const allPicked = computed(() => tcList.value.length > 0 && picked.value.length === tcList.value.length)
+
+function togglePick(key: string): void {
+  picked.value = picked.value.includes(key) ? picked.value.filter((k) => k !== key) : [...picked.value, key]
+}
+
+function togglePickAll(): void {
+  picked.value = allPicked.value ? [] : tcList.value.map((t) => t.key)
+}
+
+async function batchState(enabled: boolean): Promise<void> {
+  if (!picked.value.length) return
+  // 停用时后端会回报"此刻正在跑"的任务：那些只标记停用，等本轮跑完才真正停下
+  let deferred: string[] = []
+  await run({
+    confirm: {
+      title: enabled ? '批量启用' : '批量停用',
+      desc: `将对选中的 ${picked.value.length} 个任务执行${enabled ? '启用' : '停用'}（只改计划，不中断正在跑的实例）。`,
+      okText: '确定'
+    },
+    action: async () => {
+      const r = await tasksApi.taskCenterBatchState(picked.value, enabled)
+      deferred = r.deferred ?? []
+      return r
+    },
+    successMsg: enabled ? '已批量启用' : '已批量停用',
+    after: async () => {
+      if (deferred.length) {
+        toast('info', `${deferred.length} 个任务正在运行，将在本轮运行结束后停止`)
+      }
+      picked.value = []
+      await loadTc()
+    }
+  })
+}
+
+/** 任务行内进度文案（无进度时给空串，前端不画进度条） */
+function taskProgressText(t: TaskCenterItem): string {
+  if (!t.progress || t.progress.total <= 0) return ''
+  const pct = Math.min(100, Math.round((t.progress.done / t.progress.total) * 100))
+  return `已完成 ${t.progress.done}/${t.progress.total} ${t.progress.unit} · ${pct}%`
 }
 
 async function runTask(t: TaskCenterItem): Promise<void> {
@@ -675,6 +723,17 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       </div>
 
       <div v-else class="flex flex-col gap-[var(--jc-space-4)]">
+        <!-- 批量操作：启用 / 停用（只改计划，不影响正在跑的实例） -->
+        <div class="flex flex-wrap items-center gap-[var(--jc-space-3)] rounded-card bg-surface p-[var(--jc-space-3)] shadow-card">
+          <label class="flex items-center gap-1 text-xs text-muted">
+            <input type="checkbox" :checked="allPicked" @change="togglePickAll" />
+            全选
+          </label>
+          <span class="text-xs text-muted">已选 {{ picked.length }} / {{ tcList.length }}</span>
+          <ManageButton size="sm" variant="outline" :disabled="!picked.length || busy" @click="batchState(true)">批量启用</ManageButton>
+          <ManageButton size="sm" variant="outline" :disabled="!picked.length || busy" @click="batchState(false)">批量停用</ManageButton>
+        </div>
+
         <section v-for="g in tcGroups" :key="g.key" class="flex flex-col gap-[var(--jc-space-2)]">
           <button
             type="button"
@@ -692,6 +751,11 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               :key="t.key"
               class="flex flex-wrap items-center gap-[var(--jc-space-2)] rounded-card bg-surface p-[var(--jc-space-3)] shadow-card"
             >
+              <input
+                type="checkbox"
+                :checked="picked.includes(t.key)"
+                @change="togglePick(t.key)"
+              />
               <StatusTag :value="t.enabled ? 'on' : 'off'" :map="CRON_STATE_MAP" size="sm" />
               <BaseTag :variant="t.kind === 'builtin' ? 'purple' : 'info'" size="xs">
                 {{ t.kind === 'builtin' ? '内置' : '采集' }}
@@ -702,6 +766,13 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               <span v-if="t.intervalLabel" class="text-xs text-muted">间隔 {{ t.intervalLabel }}</span>
 
               <StatusTag v-if="t.state !== 'idle'" :value="t.state" :map="TC_STATE_MAP" size="xs" />
+              <span v-if="taskProgressText(t)" class="text-xs text-secondary tabular-nums">
+                {{ taskProgressText(t) }}
+              </span>
+              <!-- 已停用但仍有一轮在跑：停用不中断本轮，跑完才真正停下（页面必须说真话） -->
+              <span v-if="!t.enabled && t.state === 'running'" class="text-xs text-warning">
+                本轮结束后停止
+              </span>
 
               <span class="ml-auto text-xs text-muted">
                 {{ t.lastRunAt || t.startedAt ? formatDateTime(t.lastRunAt || t.startedAt) : '未运行' }}

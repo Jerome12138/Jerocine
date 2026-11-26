@@ -78,8 +78,10 @@ func main() {
 	app.spiderSvc.SetBaseCtx(rootCtx)
 	// 服务重启: 把上一轮遗留的 running 台账行标记为中断(避免幽灵"运行中"任务)。
 	app.handlers.Tasks.MarkInterrupted(rootCtx)
-	// 启动 cron 调度(读 cron_task 注册已启用任务)
-	app.spiderSvc.StartScheduler(rootCtx)
+	// 2026-11-25：采集定时任务的调度已并入统一任务中心（时间语义统一为友好文本）。
+	// 启动时先幂等转换存量 spec → schedule，再由 taskCenterSched 统一调度。
+	// app.spiderSvc.StartScheduler(rootCtx) // 保留便于回滚
+	app.taskCenter.NormalizeCronSchedules(rootCtx)
 	// 启动采集源健康检查定时任务(默认 1h, 写健康度 → 自动停采/恢复死源)
 	// app.handlers.Manage.StartHealthScheduler(rootCtx) // 同上：改由任务中心调度（RunHealthCheckOnce）
 	// 启动 TMDB 横图回填 worker(未配置 key 时为 no-op)

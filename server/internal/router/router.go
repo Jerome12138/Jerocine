@@ -170,6 +170,7 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		// 静态段先于 :id 注册。
 		mg.GET("/task-center/tasks", h.TaskCenterTasks) // 统一任务中心（只读）
 		mg.GET("/task-center/overview", h.TaskCenterOverview)
+		mg.POST("/task-center/tasks/batch-state", h.TaskCenterBatchState) // 批量启用/停用
 		mg.PUT("/task-center/tasks/:key/setting", h.TaskCenterUpdateSetting)
 		mg.POST("/task-center/tasks/:key/run", h.TaskCenterRun)
 		mg.POST("/task-center/tasks/:key/pause", h.TaskCenterPause)

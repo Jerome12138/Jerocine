@@ -813,17 +813,38 @@ func taskKey(c *gin.Context) string {
 
 // TaskCenterUpdateSetting PUT /manage/task-center/tasks/:key/setting
 // 编辑任务配置：内置任务写 task_setting（启用/周期/备注/间隔），cron 任务写 cron_task（启用/计划/备注）。
+// 停用时若该任务正在跑，返回 deferred=true（本轮跑完才真正停下，前端据此如实提示）。
 func (h *Handlers) TaskCenterUpdateSetting(c *gin.Context) {
 	var in service.TaskSettingInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		dto.Error(c, http.StatusUnprocessableEntity, "参数不合法")
 		return
 	}
-	if err := h.TaskCenter.UpdateSetting(c.Request.Context(), taskKey(c), in); err != nil {
+	deferred, err := h.TaskCenter.UpdateSetting(c.Request.Context(), taskKey(c), in)
+	if err != nil {
 		dto.Fail(c, err)
 		return
 	}
-	dto.OK(c, gin.H{"ok": true})
+	dto.OK(c, gin.H{"ok": true, "deferred": deferred})
+}
+
+// TaskCenterBatchState POST /manage/task-center/tasks/batch-state {keys, enabled}
+// 批量启用/停用（采集任务写 cron_task.state，内置任务写 task_setting.enabled）。
+func (h *Handlers) TaskCenterBatchState(c *gin.Context) {
+	var req struct {
+		Keys    []string `json:"keys"`
+		Enabled bool     `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "参数不合法")
+		return
+	}
+	if len(req.Keys) == 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "keys 不能为空")
+		return
+	}
+	ok, deferred, errs := h.TaskCenter.BatchSetEnabled(c.Request.Context(), req.Keys, req.Enabled)
+	dto.OK(c, gin.H{"ok": ok, "deferred": deferred, "errors": errs})
 }
 
 // TaskCenterRerun POST /manage/task-center/runs/:id/rerun

@@ -7,6 +7,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
+import { scheduleError, SCHEDULE_HINT } from '@/utils/schedule'
 import type { TaskCenterItem } from '@/api/manage/tasks'
 
 /**
@@ -31,11 +32,11 @@ const form = reactive({
   intervalMs: props.task.intervalMs || 0
 })
 
-/** 周期输入提示：内置任务用友好文本，采集任务用 cron 表达式 */
+/** 周期输入提示：内置与采集任务都已统一为友好文本（cron 表达式在迁移时自动转换） */
 const scheduleHint = computed(() =>
   props.task.kind === 'builtin'
-    ? '友好文本：every:30m / daily:03:00 / weekly:1 03:00 / monthly:1 04:00（留空=仅手动）'
-    : 'cron 表达式，如 0 3 * * *（留空不允许；停用请关闭「启用」）'
+    ? `友好文本：${SCHEDULE_HINT}（留空=仅手动）`
+    : `友好文本：${SCHEDULE_HINT}（原 cron 表达式已自动转换）`
 )
 
 const intervalHint = computed(() => {
@@ -53,6 +54,16 @@ function submit(): void {
   if (can('remark')) payload.remark = form.remark.trim()
   if (can('interval')) payload.intervalMs = Number(form.intervalMs) || 0
 
+  // 周期与后端 taskcenter.ValidateSchedule 同规则: 本地先拦, 省一次 422 往返
+  // （空串合法 = 仅手动, 与后端一致）
+  if (payload.schedule !== undefined) {
+    const err = scheduleError(payload.schedule)
+    if (err) {
+      toast('warning', err)
+      return
+    }
+  }
+
   if (payload.intervalMs && props.task.minIntervalMs && payload.intervalMs < props.task.minIntervalMs) {
     toast('warning', `间隔不能小于 ${props.task.minIntervalMs}ms，否则容易被源站拉黑`)
     return
@@ -68,10 +79,21 @@ function submit(): void {
     return
   }
 
+  // 停用时若后端回报"此刻有一轮在跑"：不中断本轮，跑完才真正停下 —— 如实告知
+  let deferredStop = false
   void run({
-    action: () => tasksApi.taskCenterUpdateSetting(props.task.key, payload),
+    action: async () => {
+      const r = await tasksApi.taskCenterUpdateSetting(props.task.key, payload)
+      deferredStop = r.deferred === true
+      return r
+    },
     successMsg: '配置已保存',
-    after: () => emit('confirm')
+    after: () => {
+      if (deferredStop) {
+        toast('info', '该任务正在运行，本轮运行结束后停止')
+      }
+      emit('confirm')
+    }
   })
 }
 </script>
@@ -87,7 +109,7 @@ function submit(): void {
     </ManageFormField>
 
     <ManageFormField v-if="can('schedule')" label="执行周期" :hint="scheduleHint">
-      <ManageInput v-model="form.schedule" :placeholder="task.kind === 'builtin' ? 'every:24h' : '0 3 * * *'" />
+      <ManageInput v-model="form.schedule" :placeholder="task.kind === 'builtin' ? 'every:24h' : 'daily:04:00'" />
     </ManageFormField>
 
     <ManageFormField v-if="can('interval')" label="接口间隔" :hint="intervalHint">

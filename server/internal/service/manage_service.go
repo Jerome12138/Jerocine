@@ -18,6 +18,7 @@ import (
 	"server/internal/domain/repository"
 	"server/internal/platform/blobstore"
 	"server/internal/spider"
+	"server/internal/taskcenter"
 	"server/internal/tmdb"
 )
 
@@ -851,6 +852,24 @@ func (s *ManageService) GetCron(ctx context.Context, id int64) (*entity.CronTask
 	return s.crons.Get(ctx, id)
 }
 func (s *ManageService) UpsertCron(ctx context.Context, t *entity.CronTask) error {
+	// 时间语义统一（2026-11-25）：以友好文本 schedule 为准。
+	//   - 有 schedule：校验格式；
+	//   - 只有旧 spec：尝试自动转换成 schedule（转不动直接报错，避免存进去后调度空转）。
+	sched := strings.TrimSpace(t.Schedule)
+	if sched == "" {
+		if strings.TrimSpace(t.Spec) == "" {
+			return fmt.Errorf("执行周期不能为空（如 every:30m / daily:04:00 / weekly:7 04:00）")
+		}
+		converted, ok := taskcenter.CronSpecToSchedule(t.Spec)
+		if !ok {
+			return fmt.Errorf("周期格式不支持：%q；请改用友好文本（every:30m / daily:04:00 / weekly:1 04:00 / monthly:1 04:00）", t.Spec)
+		}
+		sched = converted
+	}
+	if err := taskcenter.ValidateSchedule(sched); err != nil {
+		return err
+	}
+	t.Schedule = sched
 	return s.crons.Upsert(ctx, t)
 }
 func (s *ManageService) DeleteCron(ctx context.Context, id int64) error {

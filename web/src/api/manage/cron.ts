@@ -8,6 +8,7 @@ interface CronDTO {
   id: number
   sourceIds: string[]
   spec: string
+  schedule: string
   time: number
   model: number
   state: number // 0 启用 / 1 停用
@@ -24,6 +25,7 @@ const toView = (d: CronDTO): CronTask => ({
   ids: d.sourceIds ?? [],
   time: d.time,
   spec: d.spec,
+  schedule: d.schedule ?? '',
   model: d.model === 1 ? 1 : d.model === 2 ? 2 : 0,
   state: d.state === 0,
   remark: d.remark,
@@ -36,7 +38,8 @@ const toView = (d: CronDTO): CronTask => ({
 const toDTO = (v: CronTask): CronDTO => ({
   id: Number(v.id) || 0,
   sourceIds: v.ids ?? [],
-  spec: v.spec,
+  spec: v.spec ?? '',
+  schedule: v.schedule ?? '',
   time: Number(v.time) || 0,
   model: v.model,
   state: v.state ? 0 : 1,

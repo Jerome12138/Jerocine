@@ -16,6 +16,7 @@ import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { confirm } from '@/composables/useConfirm'
 import { formatShortDateTime } from '@/utils/format'
+import { scheduleError, SCHEDULE_HINT } from '@/utils/schedule'
 
 // 状态/类型列 → StatusTag 词汇表(替代 lastRunVariant/lastRunText 等自写映射)
 const CRON_STATE_MAP: StatusMap = {
@@ -50,7 +51,7 @@ const form = reactive<CronTask>({
   id: '',
   ids: [],
   time: 24,
-  spec: '',
+  schedule: '',
   model: 0,
   state: true,
   remark: ''
@@ -58,7 +59,7 @@ const form = reactive<CronTask>({
 
 const columns = [
   { key: 'id' as const, label: '任务 ID', width: '160px' },
-  { key: 'spec' as const, label: 'Cron 表达式', width: '200px' },
+  { key: 'schedule' as const, label: '执行周期', width: '200px' },
   { key: 'model' as const, label: '类型', width: '110px' },
   { key: 'time' as const, label: '采集时长', width: '110px' },
   { key: 'state' as const, label: '状态', width: '80px', align: 'center' as const },
@@ -80,7 +81,7 @@ const filteredRows = computed<CronTask[]>(() => {
   return rows.value.filter(
     (r) =>
       r.id.toLowerCase().includes(kw) ||
-      r.spec.toLowerCase().includes(kw) ||
+      r.schedule.toLowerCase().includes(kw) ||
       (r.remark ?? '').toLowerCase().includes(kw)
   )
 })
@@ -129,7 +130,7 @@ async function load(): Promise<void> {
 function openAdd(): void {
   editing.value = null
   formError.value = ''
-  Object.assign(form, { id: '', ids: [], time: 24, spec: '', model: 0, state: true, remark: '' })
+  Object.assign(form, { id: '', ids: [], time: 24, schedule: '', model: 0, state: true, remark: '' })
   dialogOpen.value = true
 }
 
@@ -142,25 +143,20 @@ function openEdit(row: CronTask): void {
 }
 
 /**
- * 服务端 cron.WithSeconds() 解析表达式, 要求 秒 分 时 日 月 周 共 6 字段;
- * 逐字段宽松放行 数字/`*`/范围`-`/步进`/`/列表`,`/Quartz `?`/月周英文名。
- * 服务端 UpsertCron 不校验, 空/坏表达式入库后 AddFunc 报错只记日志,
- * 任务永远不调度却显示"运行中", 必须在提交前拦住。
+ * 周期校验统一走 utils/schedule（与后端 taskcenter.ValidateSchedule 同规则）。
+ * ⚠️ 不要在本文件写"冒号紧跟左括号"的正则：UnoCSS transformerVariantGroup 会把
+ * 它当变体组改写掉（括号被吃、无报错），详见 utils/schedule.ts 头部说明。
  */
-function specValid(spec: string): boolean {
-  const fields = spec.trim().split(/\s+/)
-  if (fields.length !== 6) return false
-  return fields.every((f) => /^[\d*\/,\-?A-Za-z]+$/.test(f) && !/^[\/,\-?]+$/.test(f))
-}
 
 async function submit(): Promise<void> {
-  const spec = form.spec.trim()
-  if (!spec) {
-    formError.value = '请填写 Cron 表达式（秒 分 时 日 月 周）'
+  const sched = form.schedule.trim()
+  if (!sched) {
+    formError.value = `请填写执行周期（如 ${SCHEDULE_HINT}）`
     return
   }
-  if (!specValid(spec)) {
-    formError.value = 'Cron 表达式需为 6 个字段：秒 分 时 日 月 周（如 0 0 3 * * *）'
+  const schedErr = scheduleError(sched)
+  if (schedErr) {
+    formError.value = schedErr
     return
   }
   // time 落库后 0/负数会被服务端引擎反转为全量采集, 必须为 ≥1 整数
@@ -176,7 +172,7 @@ async function submit(): Promise<void> {
   formError.value = ''
   submitting.value = true
   try {
-    form.spec = spec
+    form.schedule = sched
     form.time = time
     if (editing.value) await manageApi.cron.update({ ...form })
     else await manageApi.cron.add({ ...form })
@@ -273,10 +269,10 @@ onMounted(load)
       <StatusTag v-if="col.key === 'state'" :value="row.state" :map="CRON_STATE_MAP" />
       <StatusTag v-else-if="col.key === 'model'" :value="row.model" :map="CRON_MODEL_MAP" size="xs" />
       <code
-        v-else-if="col.key === 'spec'"
+        v-else-if="col.key === 'schedule'"
         class="font-[var(--jc-font-mono)] text-[length:var(--jc-fs-xs)] text-[var(--jc-text-link)]"
       >
-        {{ row.spec }}
+        {{ row.schedule }}
       </code>
       <span v-else-if="col.key === 'time'">{{ row.time }} 小时</span>
       <span v-else-if="col.key === 'id'" class="font-[var(--jc-font-mono)] text-xs">
@@ -329,8 +325,8 @@ onMounted(load)
 
   <ManageSheet v-model="dialogOpen" :title="editing ? '编辑任务' : '新增任务'" mobile-mode="fullsheet">
     <div class="flex flex-col gap-[var(--jc-space-4)]">
-      <ManageFormField label="Cron 表达式" required hint="如 0 0 3 * * *（秒 分 时 日 月 周）">
-        <ManageInput v-model="form.spec" placeholder="0 0 3 * * *" />
+      <ManageFormField label="执行周期" required :hint="`友好文本：${SCHEDULE_HINT}`">
+        <ManageInput v-model="form.schedule" placeholder="每天 04:00 → daily:04:00" />
       </ManageFormField>
       <ManageFormField label="任务类型" required>
         <ManageSelect v-model="form.model" :options="MODEL_OPTIONS" aria-label="任务类型" />

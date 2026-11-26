@@ -2456,6 +2456,39 @@ paths:
                     items: { $ref: '#/components/schemas/TaskCenterItem' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /manage/task-center/tasks/batch-state:
+    post:
+      tags: [manage-task]
+      summary: 批量启用/停用任务（采集任务写 cron_task.state，内置任务写 task_setting.enabled）
+      operationId: manageTaskCenterBatchState
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keys, enabled]
+              properties:
+                keys: { type: array, items: { type: string }, description: 任务 key 列表（builtin:xxx / cron:<id>） }
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: integer, description: 成功条数 }
+                  deferred:
+                    type: array
+                    items: { type: string }
+                    description: 本次被停用但**此刻正在跑**的任务 key（等本轮跑完才真正停下）
+                  errors: { type: array, items: { type: string }, description: 失败明细（部分失败不回滚） }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
   /manage/task-center/tasks/{key}/setting:
     put:
       tags: [manage-task]
@@ -2479,7 +2512,17 @@ paths:
                 remark: { type: string }
                 intervalMs: { type: integer }
       responses:
-        '200': { description: OK }
+        '200':
+          description: >
+            OK。停用时若该任务**此刻有一轮正在跑**，返回 deferred=true：
+            停用只影响下次触发，本轮不会被中断，跑完才真正停下（前端据此如实提示）。
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  deferred: { type: boolean, description: 停用在跑任务时=true（本轮结束后生效） }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/Unprocessable' }
 

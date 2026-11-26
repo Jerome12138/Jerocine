@@ -950,6 +950,35 @@ func (s *SpiderService) registerTasks(ctx context.Context) {
 	}
 }
 
+// RunCronTask 跑一轮采集定时任务（**定时与手动共用**）。
+// 把原 cron 闭包里的四样守卫原样搬进来：优雅停机计数、采集轮次标记（让 epid 派生让路）、
+// 任务级 Redis 单飞锁、以及收尾的 epid 派生触发。台账由 executeTask 自己写。
+func (s *SpiderService) RunCronTask(ctx context.Context, t *entity.CronTask, kind string) error {
+	if t == nil {
+		return domain.ErrInvalidArgument
+	}
+	s.jobs.Add(1)
+	defer s.jobs.Done()
+	// 标记"采集轮次进行中"：一键全量派生会在每批前让路，避免并发写库推高死锁概率
+	SetCollectRoundRunning(true)
+	defer SetCollectRoundRunning(false)
+
+	bg := s.bgCtx()
+	lockKey := cache.KeyLockCron("task:" + strconv.FormatInt(t.Id, 10))
+	tok, ok, err := cache.TryLock(bg, lockKey, collectLockTTL)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("该任务上一次还没结束，本次跳过")
+	}
+	defer cache.Unlock(context.WithoutCancel(bg), lockKey, tok)
+
+	s.executeTask(bg, t, kind)
+	DeriveEpidInBackground()
+	return nil
+}
+
 // TriggerCron 手动触发一个定时任务立即执行一次(后台"立即执行"按钮), 返回 202 语义。
 // 登记为 kind=manual —— 任务管理页按"手动任务"展示, 与定时到点触发区分。
 func (s *SpiderService) TriggerCron(ctx context.Context, id int64) error {
@@ -960,15 +989,16 @@ func (s *SpiderService) TriggerCron(ctx context.Context, id int64) error {
 	if t.State != entity.StateEnabled {
 		return domain.ErrInvalidArgument
 	}
-	s.jobs.Add(1)
 	go func() {
-		defer s.jobs.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("spider TriggerCron panic: %v", r)
 			}
 		}()
-		s.executeTask(s.bgCtx(), t, entity.TaskRunKindManual)
+		// 复用同一套守卫：任务级单飞锁 + 轮次标记（原先手动路径缺这两个，与定时路径不一致）
+		if err := s.RunCronTask(context.Background(), t, entity.TaskRunKindManual); err != nil {
+			log.Printf("spider TriggerCron 跳过: %v", err)
+		}
 	}()
 	return nil
 }

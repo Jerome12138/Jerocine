@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"server/internal/cache"
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
 	"server/internal/errclass"
@@ -227,6 +228,11 @@ func idleWithMessage(msg string) func(context.Context) taskcenter.Status {
 
 // doubanStatus 豆瓣两个任务共用一份进度（同一把单飞锁）。
 func (s *TaskCenterService) doubanStatus(ctx context.Context) taskcenter.Status {
+	if s.film == nil {
+		// 未装配（单测/精简装配）时按"空闲"处理：状态探针不能把调用方（如停用前的
+		// isTaskRunning）打挂 —— 探针炸掉只是不知道状态，不该拦下停用。
+		return taskcenter.Status{State: taskcenter.StateIdle}
+	}
 	p := s.film.DoubanBatchProgress()
 	st := taskcenter.Status{State: taskcenter.StateIdle, Message: p.Message, StartedAt: p.StartedAt}
 	switch p.State {
@@ -372,7 +378,7 @@ func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, l
 		Key: "cron:" + strconv.FormatInt(t.Id, 10), Kind: taskcenter.KindCollect,
 		Type: cronTaskType(t), Name: cronTaskName(t, names),
 		Target:   cronTaskTarget(t, names),
-		Schedule: t.Spec, ScheduleText: t.Spec,
+		Schedule: t.Schedule, ScheduleText: taskcenter.DescribeSchedule(t.Schedule),
 		Enabled:  t.State == entity.StateEnabled,
 		Editable: []string{"enabled", "schedule", "remark"},
 		Caps:     []string{taskcenter.CapRun},
@@ -400,11 +406,49 @@ func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, l
 		if last.Total > 0 {
 			v.Progress = &taskcenter.Progress{Total: last.Total, Done: last.Done, Failed: last.Failed, Unit: "页"}
 		}
+		// 运行中且台账还没页数（刚开始/快照缺失）→ 用 Redis 采集进度兜底，让页面能实时看到进度
+		if v.Progress == nil && v.State == string(taskcenter.StateRunning) {
+			v.Progress = s.cronProgress(ctx, t)
+		}
 		if v.State == string(taskcenter.StateRunning) && v.ElapsedMs == 0 && last.StartedAt > 0 {
 			v.ElapsedMs = time.Now().UnixMilli() - last.StartedAt
 		}
 	}
 	return v
+}
+
+// cronProgress 采集任务运行中的进度：聚合各目标源的 Redis 采集进度（页数）。
+// 只有"知道总数"的行才给进度对象，否则返回 nil（前端不画进度条）。
+func (s *TaskCenterService) cronProgress(ctx context.Context, t entity.CronTask) *taskcenter.Progress {
+	siteIds := make([]string, 0, 8)
+	switch t.Model {
+	case entity.CronModelRecover:
+		return nil // 失败页补采没有"页"的概念
+	case entity.CronModelSomeSrc:
+		siteIds = append(siteIds, t.SourceIds...)
+	default:
+		if s.sources != nil {
+			if list, err := s.sources.List(ctx, true); err == nil {
+				for _, src := range list {
+					siteIds = append(siteIds, src.Id)
+				}
+			}
+		}
+	}
+	var total, done, failed int
+	for _, id := range siteIds {
+		p, err := cache.JobSnapshot(ctx, id)
+		if err != nil {
+			continue
+		}
+		total += p.Total
+		done += p.Done
+		failed += p.Failed
+	}
+	if total <= 0 {
+		return nil
+	}
+	return &taskcenter.Progress{Total: total, Done: done, Failed: failed, Unit: "页"}
 }
 
 // Overview 概览（运行中 / 内置数 / 采集数 / 24h 失败）。
@@ -540,48 +584,56 @@ func jobKeyOf(key string) (string, bool) {
 }
 
 // UpdateSetting 编辑任务配置（内置任务走 task_setting；cron 任务写 cron_task）。
-func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in TaskSettingInput) error {
+//
+// 返回值 deferred=true 表示"该任务此刻有一轮正在跑"：停用**只影响下次触发**，
+// 不中断在跑的这一轮（短任务跑完即停），前端据此对用户说真话 ——
+// 否则会出现"点了停用、页面显示已停用、后台还在跑"的假象。
+func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in TaskSettingInput) (deferred bool, err error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return fmt.Errorf("缺少任务标识")
+		return false, fmt.Errorf("缺少任务标识")
 	}
 
 	// ---- 采集(cron) 任务：启用 / 计划 / 备注 ----
 	if id, ok := cronIDOf(key); ok {
 		if s.crons == nil {
-			return fmt.Errorf("cron 仓储未装配")
+			return false, fmt.Errorf("cron 仓储未装配")
 		}
 		t, err := s.crons.Get(ctx, id)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if in.IntervalMs != nil {
-			return fmt.Errorf("采集任务的请求间隔在「采集源」里按源配置，不在这里改")
+			return false, fmt.Errorf("采集任务的请求间隔在「采集源」里按源配置，不在这里改")
 		}
 		if in.Enabled != nil {
 			if *in.Enabled {
 				t.State = entity.StateEnabled
 			} else {
+				deferred = s.isTaskRunning(ctx, key)
 				t.State = entity.StateDisabled
 			}
 		}
 		if in.Schedule != nil {
-			spec := strings.TrimSpace(*in.Schedule)
-			if spec == "" {
-				return fmt.Errorf("cron 计划不能为空（停用请用 enabled=false）")
+			sched := strings.TrimSpace(*in.Schedule)
+			if sched == "" {
+				return false, fmt.Errorf("执行周期不能为空（停用请用 enabled=false）")
 			}
-			t.Spec = spec
+			if verr := taskcenter.ValidateSchedule(sched); verr != nil {
+				return false, verr
+			}
+			t.Schedule = sched // 统一时间语义：写友好文本，不再写 cron 表达式
 		}
 		if in.Remark != nil {
 			t.Remark = strings.TrimSpace(*in.Remark)
 		}
-		return s.crons.Upsert(ctx, t)
+		return deferred, s.crons.Upsert(ctx, t)
 	}
 
 	// ---- 内置任务 ----
 	def, err := s.EnsureTaskKeyRegistered(key)
 	if err != nil {
-		return err
+		return false, err
 	}
 	allowed := make(map[string]bool, len(def.Editable))
 	for _, f := range def.Editable {
@@ -591,39 +643,42 @@ func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in Ta
 		return fmt.Errorf("该任务不支持修改%s", label)
 	}
 	if in.Enabled != nil && !allowed["enabled"] {
-		return deny("enabled", "启用状态")
+		return false, deny("enabled", "启用状态")
 	}
 	if in.Schedule != nil && !allowed["schedule"] {
-		return deny("schedule", "执行周期")
+		return false, deny("schedule", "执行周期")
 	}
 	if in.Remark != nil && !allowed["remark"] {
-		return deny("remark", "备注")
+		return false, deny("remark", "备注")
 	}
 	if in.IntervalMs != nil && !allowed["interval"] {
-		return deny("interval", "接口间隔")
+		return false, deny("interval", "接口间隔")
 	}
 
 	if in.Schedule != nil {
 		if err := taskcenter.ValidateSchedule(*in.Schedule); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if in.IntervalMs != nil && *in.IntervalMs > 0 && *in.IntervalMs < def.MinIntervalMs {
-		return fmt.Errorf("接口间隔不能小于 %dms（%s）；这是执行层下限，防止被源站拉黑",
+		return false, fmt.Errorf("接口间隔不能小于 %dms（%s）；这是执行层下限，防止被源站拉黑",
 			def.MinIntervalMs, def.IntervalLabel)
 	}
 
 	now := time.Now().UnixMilli()
 	if in.Enabled != nil {
 		if s.settings == nil {
-			return fmt.Errorf("配置仓储未装配")
+			return false, fmt.Errorf("配置仓储未装配")
+		}
+		if !*in.Enabled {
+			deferred = s.isTaskRunning(ctx, key)
 		}
 		if err := s.settings.SetEnabled(ctx, key, *in.Enabled, now); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if s.settings == nil {
-		return fmt.Errorf("配置仓储未装配")
+		return false, fmt.Errorf("配置仓储未装配")
 	}
 	set := entity.TaskSetting{TaskKey: key, UpdatedAt: now}
 	if in.Schedule != nil {
@@ -636,7 +691,140 @@ func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in Ta
 		set.IntervalMs = *in.IntervalMs
 	}
 	// Upsert 只覆盖非空字段（不会清空备注，也不会动 enabled）
-	return s.settings.Upsert(ctx, set)
+	return deferred, s.settings.Upsert(ctx, set)
+}
+
+// isTaskRunning 该任务此刻是否有一轮在跑。
+//
+// 口径与列表页 state=running 完全一致（用户看到的"运行中"就是这个）：
+// 内置任务先看内存状态（如豆瓣批量的 Task 进度），再退回最近一条台账；
+// 采集任务看最近一条台账。查不到一律当"没在跑"，避免把停用变成需要等待的操作。
+func (s *TaskCenterService) isTaskRunning(ctx context.Context, key string) bool {
+	if id, ok := cronIDOf(key); ok {
+		if s.crons == nil || s.runs == nil {
+			return false
+		}
+		latest, err := s.runs.LatestByCron(ctx, []int64{id})
+		if err != nil {
+			return false
+		}
+		return latest[id].Status == entity.TaskRunRunning
+	}
+	def, err := s.EnsureTaskKeyRegistered(key)
+	if err != nil {
+		return false
+	}
+	if def.Status != nil {
+		if st := def.Status(ctx); st.State == taskcenter.StateRunning {
+			return true
+		}
+	}
+	if run, ok := s.latestBuiltinRun(ctx, def.Type); ok {
+		return run.Status == entity.TaskRunRunning
+	}
+	return false
+}
+
+// BatchSetEnabled 批量启用/停用（采集任务写 cron_task.state，内置任务写 task_setting.enabled）。
+//
+// 返回成功条数、**延迟生效的任务 key**（正在跑、等本轮结束才真正停下）与失败明细
+// （部分失败不整体回滚：用户能看到哪些没成功）。
+func (s *TaskCenterService) BatchSetEnabled(ctx context.Context, keys []string, enabled bool) (int, []string, []string) {
+	ok, errs := 0, []string{}
+	deferred := []string{}
+	now := time.Now().UnixMilli()
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		// 停用前先探"此刻是否在跑"：在跑就记进 deferred，前端如实提示"本轮结束后停止"
+		// （停用本身不会中断在跑的那一轮，见 UpdateSetting 注释）
+		running := !enabled && s.isTaskRunning(ctx, key)
+		if id, isCron := cronIDOf(key); isCron {
+			if s.crons == nil {
+				errs = append(errs, key+": cron 仓储未装配")
+				continue
+			}
+			t, err := s.crons.Get(ctx, id)
+			if err != nil {
+				errs = append(errs, key+": "+err.Error())
+				continue
+			}
+			if enabled {
+				t.State = entity.StateEnabled
+			} else {
+				t.State = entity.StateDisabled
+			}
+			if err := s.crons.Upsert(ctx, t); err != nil {
+				errs = append(errs, key+": "+err.Error())
+				continue
+			}
+			if running {
+				deferred = append(deferred, key)
+			}
+			ok++
+			continue
+		}
+		if _, err := s.EnsureTaskKeyRegistered(key); err != nil {
+			errs = append(errs, key+": 未知任务")
+			continue
+		}
+		if s.settings == nil {
+			errs = append(errs, key+": 配置仓储未装配")
+			continue
+		}
+		if err := s.settings.SetEnabled(ctx, key, enabled, now); err != nil {
+			errs = append(errs, key+": "+err.Error())
+			continue
+		}
+		if running {
+			deferred = append(deferred, key)
+		}
+		ok++
+	}
+	return ok, deferred, errs
+}
+
+// NormalizeCronSchedules 把存量 cron 表达式幂等转换为友好文本（统一时间语义）。
+//
+//   - 能转：写入 schedule，之后由任务中心统一调度；
+//   - 转不动（步长/区间/列表等复杂语法）：**停用并标注**，等人工在任务中心改周期，
+//     绝不按旧表达式静默继续跑（避免"看着在跑、实际周期错"）。
+func (s *TaskCenterService) NormalizeCronSchedules(ctx context.Context) {
+	if s.crons == nil {
+		return
+	}
+	list, err := s.crons.List(ctx)
+	if err != nil {
+		log.Printf("[task-center] 读取采集定时任务失败: %v", err)
+		return
+	}
+	for i := range list {
+		t := list[i]
+		if strings.TrimSpace(t.Schedule) != "" {
+			continue
+		}
+		if sched, ok := taskcenter.CronSpecToSchedule(t.Spec); ok {
+			t.Schedule = sched
+			if uerr := s.crons.Upsert(ctx, &t); uerr != nil {
+				log.Printf("[task-center] 周期转换写库失败 #%d: %v", t.Id, uerr)
+				continue
+			}
+			log.Printf("[task-center] 采集任务 #%d 周期已统一: %q → %s", t.Id, t.Spec, sched)
+			continue
+		}
+		if t.State != entity.StateDisabled {
+			t.State = entity.StateDisabled
+			if !strings.Contains(t.Remark, "周期待人工配置") {
+				t.Remark = strings.TrimSpace(t.Remark + "（周期待人工配置）")
+			}
+			if uerr := s.crons.Upsert(ctx, &t); uerr != nil {
+				log.Printf("[task-center] 停用待配置任务失败 #%d: %v", t.Id, uerr)
+			}
+			log.Printf("[task-center] 采集任务 #%d 周期无法自动转换，已停用待人工配置: spec=%q", t.Id, t.Spec)
+		}
+	}
 }
 
 // RerunRun 按一条台账记录重跑对应任务（异常处理用）。

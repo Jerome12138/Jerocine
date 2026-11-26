@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -108,6 +109,72 @@ func (s *TaskScheduler) tick(ctx context.Context) {
 			go s.runOne(ctx, d)
 		}
 	}
+
+	// ---- 采集定时任务：同样由中心调度（时间语义已统一为友好文本）----
+	s.tickCron(ctx, now)
+}
+
+// tickCron 采集定时任务的调度分支。每条都读 cron_task.schedule（友好文本），
+// 到点调 spider.RunCronTask；台账由采集侧自己写（避免双重记账）。
+func (s *TaskScheduler) tickCron(ctx context.Context, now time.Time) {
+	if s.tc.spider == nil || s.tc.crons == nil {
+		return
+	}
+	crons, err := s.tc.crons.List(ctx)
+	if err != nil {
+		return
+	}
+	for i := range crons {
+		t := crons[i]
+		if t.State != entity.StateEnabled || t.Schedule == "" {
+			continue // 未启用 / 周期待人工配置
+		}
+		key := "cron:" + strconv.FormatInt(t.Id, 10)
+
+		s.mu.Lock()
+		nextAt, known := s.next[key]
+		if !known {
+			s.next[key] = taskcenter.NextRun(t.Schedule, now)
+			s.mu.Unlock()
+			continue
+		}
+		due := !now.Before(nextAt)
+		if due {
+			s.next[key] = taskcenter.NextRun(t.Schedule, now)
+		}
+		busy := s.busy[key]
+		s.mu.Unlock()
+
+		if due && !busy {
+			go s.runCron(ctx, t)
+		}
+	}
+}
+
+// runCron 触发一轮采集任务（台账在 executeTask 内写）。
+func (s *TaskScheduler) runCron(ctx context.Context, t entity.CronTask) {
+	key := "cron:" + strconv.FormatInt(t.Id, 10)
+	s.mu.Lock()
+	if s.busy[key] {
+		s.mu.Unlock()
+		return
+	}
+	s.busy[key] = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.busy[key] = false
+		s.mu.Unlock()
+	}()
+
+	start := time.Now()
+	task := t
+	err := s.tc.spider.RunCronTask(ctx, &task, entity.TaskRunKindCron)
+	if err != nil {
+		log.Printf("[task-scheduler] %s 跳过/失败: %v", key, err)
+		return
+	}
+	log.Printf("[task-scheduler] %s 完成 · 耗时 %s", key, time.Since(start).Round(time.Second))
 }
 
 // runOne 触发一次并写台账（失败只记日志，绝不影响调度循环）。

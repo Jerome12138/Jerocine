@@ -211,8 +211,10 @@ export interface CronTask {
   ids: string[]
   /** 采集时长（小时） */
   time: number
-  /** cron 表达式 */
-  spec: string
+  /** 旧 cron 表达式（可选，保留兼容；迁移后不再用于调度） */
+  spec?: string
+  /** 友好文本周期（统一时间语义）：every:30m / daily:03:00 / weekly:1 03:00 */
+  schedule: string
   /** 任务类型 0=自动更新已启用站点 1=更新 ids 2=补采失败页 */
   model: 0 | 1 | 2
   /** 启用 */

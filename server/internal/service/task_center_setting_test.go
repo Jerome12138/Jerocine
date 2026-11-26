@@ -80,7 +80,7 @@ func TestUpdateSetting_BuiltinValidation(t *testing.T) {
 
 	t.Run("间隔低于下限被拒并给出下限", func(t *testing.T) {
 		ms := 100
-		err := svc.UpdateSetting(ctx, "builtin:douban_score", TaskSettingInput{IntervalMs: &ms})
+		_, err := svc.UpdateSetting(ctx, "builtin:douban_score", TaskSettingInput{IntervalMs: &ms})
 		if err == nil || !strings.Contains(err.Error(), "不能小于") {
 			t.Fatalf("应拒绝低于下限, got %v", err)
 		}
@@ -88,7 +88,7 @@ func TestUpdateSetting_BuiltinValidation(t *testing.T) {
 
 	t.Run("不支持改间隔的任务被拒", func(t *testing.T) {
 		ms := 5000
-		err := svc.UpdateSetting(ctx, "builtin:domain_fetch", TaskSettingInput{IntervalMs: &ms})
+		_, err := svc.UpdateSetting(ctx, "builtin:domain_fetch", TaskSettingInput{IntervalMs: &ms})
 		if err == nil || !strings.Contains(err.Error(), "不支持修改") {
 			t.Fatalf("domain_fetch 不可改间隔, got %v", err)
 		}
@@ -96,7 +96,7 @@ func TestUpdateSetting_BuiltinValidation(t *testing.T) {
 
 	t.Run("非法周期被拒", func(t *testing.T) {
 		bad := "0 3 * * *"
-		err := svc.UpdateSetting(ctx, "builtin:douban_score", TaskSettingInput{Schedule: &bad})
+		_, err := svc.UpdateSetting(ctx, "builtin:douban_score", TaskSettingInput{Schedule: &bad})
 		if err == nil {
 			t.Fatal("裸 cron 应被拒（内置任务用友好文本）")
 		}
@@ -107,7 +107,7 @@ func TestUpdateSetting_BuiltinValidation(t *testing.T) {
 		rm := "每周看一眼"
 		ms := 3000
 		off := false
-		if err := svc.UpdateSetting(ctx, "builtin:douban_score", TaskSettingInput{
+		if _, err := svc.UpdateSetting(ctx, "builtin:douban_score", TaskSettingInput{
 			Enabled: &off, Schedule: &sch, Remark: &rm, IntervalMs: &ms,
 		}); err != nil {
 			t.Fatalf("应成功: %v", err)
@@ -125,34 +125,124 @@ func TestUpdateSetting_BuiltinValidation(t *testing.T) {
 	})
 
 	t.Run("未知任务被拒", func(t *testing.T) {
-		if err := svc.UpdateSetting(ctx, "builtin:nope", TaskSettingInput{}); err == nil {
+		if _, err := svc.UpdateSetting(ctx, "builtin:nope", TaskSettingInput{}); err == nil {
 			t.Fatal("未知 key 应报错")
 		}
 	})
 }
 
+// 停用正在跑的任务：**不中断本轮**，但要让调用方知道"延迟生效"，前端才能如实提示
+// （否则页面显示"已停用"、后台还在跑，是假象）。
+func TestUpdateSetting_DeferredWhenRunning(t *testing.T) {
+	ctx := context.Background()
+	off, on := false, true
+
+	t.Run("内置任务在跑 → deferred", func(t *testing.T) {
+		runs := &fakeRuns{latest: []entity.TaskRun{{Id: 3, Type: "year_verify", Status: entity.TaskRunRunning}}}
+		svc := &TaskCenterService{settings: &fakeSettings{}, reg: newRegistryWithBuiltins(), runs: runs}
+		deferred, err := svc.UpdateSetting(ctx, "builtin:year_verify", TaskSettingInput{Enabled: &off})
+		if err != nil {
+			t.Fatalf("应成功: %v", err)
+		}
+		if !deferred {
+			t.Fatal("正在跑的内置任务停用应返回 deferred=true")
+		}
+	})
+
+	t.Run("采集任务在跑 → deferred 且照常落库", func(t *testing.T) {
+		crons := &fakeCrons{t: entity.CronTask{Id: 7, State: entity.StateEnabled, Schedule: "daily:03:00"}}
+		runs := &fakeRuns{latestCron: map[int64]entity.TaskRun{7: {Id: 1, CronId: 7, Status: entity.TaskRunRunning}}}
+		svc := &TaskCenterService{crons: crons, settings: &fakeSettings{}, reg: newRegistryWithBuiltins(), runs: runs}
+		deferred, err := svc.UpdateSetting(ctx, "cron:7", TaskSettingInput{Enabled: &off})
+		if err != nil {
+			t.Fatalf("应成功: %v", err)
+		}
+		if !deferred {
+			t.Fatal("正在跑的采集任务停用应返回 deferred=true")
+		}
+		if crons.t.State != entity.StateDisabled {
+			t.Fatal("停用必须落库（只是本轮不中断）")
+		}
+	})
+
+	t.Run("空闲任务不 deferred", func(t *testing.T) {
+		runs := &fakeRuns{latest: []entity.TaskRun{{Id: 5, Type: "year_verify", Status: entity.TaskRunSuccess}}}
+		svc := &TaskCenterService{settings: &fakeSettings{}, reg: newRegistryWithBuiltins(), runs: runs}
+		deferred, err := svc.UpdateSetting(ctx, "builtin:year_verify", TaskSettingInput{Enabled: &off})
+		if err != nil || deferred {
+			t.Fatalf("没在跑就不该 deferred: err=%v deferred=%v", err, deferred)
+		}
+	})
+
+	t.Run("启用方向不 deferred", func(t *testing.T) {
+		runs := &fakeRuns{latest: []entity.TaskRun{{Type: "year_verify", Status: entity.TaskRunRunning}}}
+		svc := &TaskCenterService{settings: &fakeSettings{}, reg: newRegistryWithBuiltins(), runs: runs}
+		deferred, err := svc.UpdateSetting(ctx, "builtin:year_verify", TaskSettingInput{Enabled: &on})
+		if err != nil || deferred {
+			t.Fatalf("启用不该 deferred: err=%v deferred=%v", err, deferred)
+		}
+	})
+}
+
+// 批量停用：把"正在跑"的挑出来单独回报（其余照常停用），未知任务进 errors（部分失败不回滚）。
+func TestBatchSetEnabled_ReportsDeferred(t *testing.T) {
+	ctx := context.Background()
+	crons := &fakeCrons{t: entity.CronTask{Id: 7, State: entity.StateEnabled, Schedule: "daily:03:00"}}
+	runs := &fakeRuns{
+		latestCron: map[int64]entity.TaskRun{7: {Id: 1, CronId: 7, Status: entity.TaskRunRunning}},
+		latest:     []entity.TaskRun{{Type: "year_verify", Status: entity.TaskRunRunning}},
+	}
+	svc := &TaskCenterService{crons: crons, settings: &fakeSettings{}, reg: newRegistryWithBuiltins(), runs: runs}
+
+	ok, deferred, errs := svc.BatchSetEnabled(ctx, []string{"cron:7", "builtin:year_verify", "builtin:nope"}, false)
+	if ok != 2 {
+		t.Fatalf("应成功 2 条, got %d (%v)", ok, errs)
+	}
+	if len(deferred) != 2 {
+		t.Fatalf("两条都在跑, 都应回报 deferred: %v", deferred)
+	}
+	if len(errs) != 1 || !strings.Contains(errs[0], "未知任务") {
+		t.Fatalf("未知任务应进 errors: %v", errs)
+	}
+	if crons.t.State != entity.StateDisabled {
+		t.Fatal("采集任务应被停用")
+	}
+
+	// 启用方向：即使有在跑实例也不报 deferred（不是"延迟停用"）
+	crons.t.State = entity.StateDisabled
+	ok, deferred, errs = svc.BatchSetEnabled(ctx, []string{"cron:7"}, true)
+	if ok != 1 || len(deferred) != 0 || len(errs) != 0 {
+		t.Fatalf("启用不该 deferred: ok=%d deferred=%v errs=%v", ok, deferred, errs)
+	}
+}
+
 // cron 任务：启用/计划/备注可改，间隔不可在此改。
+// 计划统一写**友好文本**（时间语义统一后不再收 cron 表达式）。
 func TestUpdateSetting_Cron(t *testing.T) {
-	crons := &fakeCrons{t: entity.CronTask{Id: 7, Spec: "0 3 * * *", State: entity.StateEnabled}}
+	crons := &fakeCrons{t: entity.CronTask{Id: 7, Spec: "0 3 * * *", Schedule: "daily:03:00", State: entity.StateEnabled}}
 	svc := &TaskCenterService{crons: crons, settings: &fakeSettings{}, reg: newRegistryWithBuiltins()}
 	ctx := context.Background()
 
 	off := false
-	spec := "30 4 * * *"
+	sched := "daily:04:30"
 	rm := "改成凌晨"
-	if err := svc.UpdateSetting(ctx, "cron:7", TaskSettingInput{Enabled: &off, Schedule: &spec, Remark: &rm}); err != nil {
+	if _, err := svc.UpdateSetting(ctx, "cron:7", TaskSettingInput{Enabled: &off, Schedule: &sched, Remark: &rm}); err != nil {
 		t.Fatalf("应成功: %v", err)
 	}
-	if crons.t.State != entity.StateDisabled || crons.t.Spec != spec || crons.t.Remark != rm {
+	if crons.t.State != entity.StateDisabled || crons.t.Schedule != sched || crons.t.Remark != rm {
 		t.Fatalf("cron 未按预期更新: %+v", crons.t)
 	}
 
 	ms := 5000
-	if err := svc.UpdateSetting(ctx, "cron:7", TaskSettingInput{IntervalMs: &ms}); err == nil {
+	if _, err := svc.UpdateSetting(ctx, "cron:7", TaskSettingInput{IntervalMs: &ms}); err == nil {
 		t.Fatal("采集任务的间隔不应在这里改")
 	}
-	if err := svc.UpdateSetting(ctx, "cron:7", TaskSettingInput{Schedule: strPtr("")}); err == nil {
-		t.Fatal("空 cron 计划应被拒")
+	if _, err := svc.UpdateSetting(ctx, "cron:7", TaskSettingInput{Schedule: strPtr("")}); err == nil {
+		t.Fatal("空计划应被拒（停用请用 enabled=false）")
+	}
+	// 旧的 cron 表达式不再是合法计划（迁移已统一为友好文本）
+	if _, err := svc.UpdateSetting(ctx, "cron:7", TaskSettingInput{Schedule: strPtr("30 4 * * *")}); err == nil {
+		t.Fatal("裸 cron 表达式应被拒（统一时间语义）")
 	}
 }
 

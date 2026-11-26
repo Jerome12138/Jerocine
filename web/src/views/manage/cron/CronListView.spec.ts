@@ -40,7 +40,7 @@ function row(over: Partial<CronTask> = {}): CronTask {
     id: '7',
     ids: [],
     time: 24,
-    spec: '0 0 3 * * *',
+    schedule: 'daily:03:00',
     model: 0,
     state: true,
     remark: '',
@@ -120,7 +120,7 @@ describe('CronListView 定时任务列表', () => {
     ])
     const w = await mountView()
     const texts = w.findAll('tbody tr').map((tr) => tr.text())
-    expect(texts[0]).toContain('0 0 3 * * *')
+    expect(texts[0]).toContain('daily:03:00')
     expect(texts[0]).toContain('自动')
     expect(texts[0]).toContain('24 小时')
     expect(texts[0]).toContain('运行中') // state=true 标签
@@ -153,15 +153,15 @@ describe('CronListView 定时任务列表', () => {
 
   it('关键字过滤: 命中备注/ID/表达式, 清空恢复全量', async () => {
     h.list.mockResolvedValue([
-      row({ id: '1', spec: '0 0 3 * * *', remark: '夜间全量' }),
-      row({ id: '2', spec: '0 */6 * * * *', remark: '补采兜底' })
+      row({ id: '1', schedule: 'daily:03:00', remark: '夜间全量' }),
+      row({ id: '2', schedule: 'every:6h', remark: '补采兜底' })
     ])
     const w = await mountView()
     expect(w.findAll('tbody tr')).toHaveLength(2)
     await inputByPlaceholder(w, '搜索 ID / 表达式 / 备注')!.setValue('夜间')
     expect(w.findAll('tbody tr')).toHaveLength(1)
     expect(w.findAll('tbody tr')[0].text()).toContain('夜间全量')
-    await inputByPlaceholder(w, '搜索 ID / 表达式 / 备注')!.setValue('*/6')
+    await inputByPlaceholder(w, '搜索 ID / 表达式 / 备注')!.setValue('6h')
     expect(w.findAll('tbody tr')).toHaveLength(1)
     expect(w.findAll('tbody tr')[0].text()).toContain('补采兜底')
     await inputByPlaceholder(w, '搜索 ID / 表达式 / 备注')!.setValue('')
@@ -287,27 +287,27 @@ describe('CronListView 表单校验', () => {
 
   async function fill(
     w: ReturnType<typeof mount>,
-    over: { spec?: string; time?: string } = {}
+    over: { schedule?: string; time?: string } = {}
   ): Promise<void> {
-    const spec = inputByPlaceholder(w, '0 0 3 * * *')!
-    await spec.setValue(over.spec ?? '0 0 3 * * *')
+    const sched = inputByPlaceholder(w, '每天 04:00 → daily:04:00')!
+    await sched.setValue(over.schedule ?? 'daily:03:00')
     const time = inputByPlaceholder(w, '24')!
     await time.setValue(over.time ?? '24')
   }
 
-  it('空 spec / 非 6 字段表达式不提交', async () => {
+  it('空周期 / 非法友好文本不提交', async () => {
     const w = await mountView()
     await openAdd(w)
-    await inputByPlaceholder(w, '0 0 3 * * *')!.setValue('')
+    await inputByPlaceholder(w, '每天 04:00 → daily:04:00')!.setValue('')
     await btn(w, '保存')!.trigger('click')
     await flushPromises()
-    expect(w.text()).toContain('请填写 Cron 表达式')
+    expect(w.text()).toContain('请填写执行周期')
     expect(h.add).not.toHaveBeenCalled()
 
-    await inputByPlaceholder(w, '0 0 3 * * *')!.setValue('0 0 3 * *')
+    await inputByPlaceholder(w, '每天 04:00 → daily:04:00')!.setValue('0 0 3 * *')
     await btn(w, '保存')!.trigger('click')
     await flushPromises()
-    expect(w.text()).toContain('Cron 表达式需为 6 个字段')
+    expect(w.text()).toContain('周期格式')
     expect(h.add).not.toHaveBeenCalled()
     w.unmount()
   })
@@ -364,16 +364,16 @@ describe('CronListView 表单校验', () => {
     w.unmount()
   })
 
-  it('合法新增: 提交裁剪后的 spec 与数字 time, 成功后关弹窗重拉', async () => {
+  it('合法新增: 提交裁剪后的 schedule 与数字 time, 成功后关弹窗重拉', async () => {
     const w = await mountView()
     await openAdd(w)
-    await inputByPlaceholder(w, '0 0 3 * * *')!.setValue('  0 0 3 * * *  ')
+    await inputByPlaceholder(w, '每天 04:00 → daily:04:00')!.setValue('  daily:03:00  ')
     await inputByPlaceholder(w, '24')!.setValue('12')
     await btn(w, '保存')!.trigger('click')
     await flushPromises()
     await flushPromises()
     expect(h.add).toHaveBeenCalledWith(
-      expect.objectContaining({ spec: '0 0 3 * * *', time: 12, model: 0 })
+      expect.objectContaining({ schedule: 'daily:03:00', time: 12, model: 0 })
     )
     expect(h.list).toHaveBeenCalledTimes(2)
     w.unmount()
@@ -386,8 +386,8 @@ describe('CronListView 表单校验', () => {
     await w.findAll('tbody tr')[0].findAll('button').find((b) => b.text().trim() === '编辑')!
       .trigger('click')
     await flushPromises()
-    const specInput = inputByPlaceholder(w, '0 0 3 * * *')!
-    expect((specInput.element as HTMLInputElement).value).toBe('0 0 3 * * *')
+    const specInput = inputByPlaceholder(w, '每天 04:00 → daily:04:00')!
+    expect((specInput.element as HTMLInputElement).value).toBe('daily:03:00')
     // 弹窗内勾掉 src_a 再取消勾选 → 原行 ids 不受影响
     await w.findAll('[role="button"]').find((t) => t.text() === '源A')!.trigger('click')
     await w.findAll('[role="button"]').find((t) => t.text() === '源A')!.trigger('click')

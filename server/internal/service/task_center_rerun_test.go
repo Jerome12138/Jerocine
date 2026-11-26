@@ -9,12 +9,15 @@ import (
 	"server/internal/domain/repository"
 )
 
-// fakeRuns 只覆盖重跑守卫需要的两个方法，其余返回零值。
+// fakeRuns 只覆盖守卫需要的几个方法，其余返回零值。
 type fakeRuns struct {
 	run       entity.TaskRun
 	runningN  int64
 	gotType   string
 	gotCronID int64
+	// 任务中心"此刻是否在跑"的读口径（List 取内置最近一条 / LatestByCron 取采集最近一条）
+	latest     []entity.TaskRun
+	latestCron map[int64]entity.TaskRun
 }
 
 func (f *fakeRuns) Create(context.Context, *entity.TaskRun) error { return nil }
@@ -24,9 +27,12 @@ func (f *fakeRuns) Get(context.Context, int64) (*entity.TaskRun, error) {
 	return &r, nil
 }
 func (f *fakeRuns) List(context.Context, repository.TaskRunFilter, repository.Page) ([]entity.TaskRun, int64, error) {
-	return nil, 0, nil
+	return f.latest, int64(len(f.latest)), nil
 }
 func (f *fakeRuns) LatestByCron(context.Context, []int64) (map[int64]entity.TaskRun, error) {
+	if f.latestCron != nil {
+		return f.latestCron, nil
+	}
 	return map[int64]entity.TaskRun{}, nil
 }
 func (f *fakeRuns) CountSince(context.Context, int64) (int64, int64, error) { return 0, 0, nil }
