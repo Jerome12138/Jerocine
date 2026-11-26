@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"server/internal/cache"
@@ -78,6 +79,10 @@ type TaskCenterService struct {
 	// 台账的**唯一写入口**（与采集任务共用同一条实现）；nil 时降级为不写台账。
 	ledgerSvc *TaskRunService
 
+	// 调度器实例（Start 时挂回来），仅用于只读诊断接口；nil = 未启动。
+	schedMu sync.RWMutex
+	sched   *TaskScheduler
+
 	// 运行时策略（原先写死）：台账保留天数、调度轮询间隔。0 表示用默认值。
 	retentionDays int
 	tickEvery     time.Duration
@@ -95,6 +100,26 @@ type TaskCenterOptions struct {
 	TickEvery     time.Duration
 	// Ledger 台账写入口（TaskRunService）。给 nil 时任务中心仍可只读浏览，但不写台账。
 	Ledger *TaskRunService
+}
+
+// attachScheduler 由调度器 Start 时回调挂上（只读诊断用）。
+func (s *TaskCenterService) attachScheduler(sched *TaskScheduler) {
+	if s == nil {
+		return
+	}
+	s.schedMu.Lock()
+	s.sched = sched
+	s.schedMu.Unlock()
+}
+
+// scheduler 当前调度器（未启动返回 nil）。
+func (s *TaskCenterService) scheduler() *TaskScheduler {
+	if s == nil {
+		return nil
+	}
+	s.schedMu.RLock()
+	defer s.schedMu.RUnlock()
+	return s.sched
 }
 
 // ledger 台账写入口（可能为 nil：未注入时各调用点自行跳过）。

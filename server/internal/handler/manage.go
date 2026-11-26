@@ -886,6 +886,14 @@ func (h *Handlers) TaskCenterControl(c *gin.Context) {
 	dto.OK(c, st)
 }
 
+// TaskCenterSchedule GET /manage/task-center/schedule
+// 调度态只读诊断：每个任务**生效**的周期 + 下次触发时刻 + 是否在跑 + 维护窗口是否开着。
+// 排查"任务为什么没跑"时第一时间看这个（NextAt=0 说明调度器还没给它算下次时间）。
+func (h *Handlers) TaskCenterSchedule(c *gin.Context) {
+	items, gateOpen, tickMs := h.TaskCenter.ScheduleSnapshot(c.Request.Context())
+	dto.OK(c, gin.H{"items": items, "gateOpen": gateOpen, "tickMs": tickMs, "now": time.Now().UnixMilli()})
+}
+
 // TaskCenterRerun POST /manage/task-center/runs/:id/rerun
 // 按一条**台账记录**重跑对应任务（异常处理：重新执行）。
 func (h *Handlers) TaskCenterRerun(c *gin.Context) {

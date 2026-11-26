@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -49,6 +50,8 @@ func NewTaskScheduler(tc *TaskCenterService) *TaskScheduler {
 
 // Start 启动调度循环（ctx 取消即退出）。
 func (s *TaskScheduler) Start(ctx context.Context) {
+	// 挂到任务中心上，供只读诊断接口（GET /task-center/schedule）读"下次什么时候跑"
+	s.tc.attachScheduler(s)
 	go func() {
 		t := time.NewTicker(s.tickEvery)
 		defer t.Stop()
@@ -273,4 +276,96 @@ func safeRunTask(ctx context.Context, d taskcenter.Def) (err error) {
 		}
 	}()
 	return d.Run(ctx)
+}
+
+// ScheduleItem 一个任务的调度态快照（只读诊断用）。
+type ScheduleItem struct {
+	Key          string `json:"key"`
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`
+	Enabled      bool   `json:"enabled"`
+	Schedule     string `json:"schedule"`
+	ScheduleText string `json:"scheduleText"`
+	// NextAt 下次触发时刻（unix 毫秒；0 = 还没算出/已停用）
+	NextAt int64 `json:"nextAt"`
+	// Running 同进程内是否正有一轮在跑
+	Running bool `json:"running"`
+}
+
+// Snapshot 调度器内存态快照（next/busy 的真实值 + 生效配置，别处看不到）。
+//
+// 用途：运维/agent 排查"为什么这个任务没跑" —— 看 NextAt 有没有算出来（0=没算过/已停用）、
+// 窗口是不是开着（gateOpen）、以及**生效**的周期（不是注册表默认值）。
+func (s *TaskScheduler) Snapshot(ctx context.Context) (items []ScheduleItem, gateOpen bool, tickMs int64) {
+	settings := map[string]entity.TaskSetting{}
+	if s.tc.settings != nil {
+		if m, err := s.tc.settings.List(ctx); err == nil {
+			settings = m
+		}
+	}
+	crons := map[string]entity.CronTask{}
+	if s.tc.crons != nil {
+		if list, err := s.tc.crons.List(ctx); err == nil {
+			for _, t := range list {
+				crons["cron:"+strconv.FormatInt(t.Id, 10)] = t
+			}
+		}
+	}
+
+	// 拷一份再解锁：下面要查库/组装，别持锁
+	s.mu.Lock()
+	nextCopy := make(map[string]time.Time, len(s.next))
+	for k, v := range s.next {
+		nextCopy[k] = v
+	}
+	busyCopy := make(map[string]bool, len(s.busy))
+	for k, v := range s.busy {
+		busyCopy[k] = v
+	}
+	gateOpen, tickMs = s.gateLogged, s.tickEvery.Milliseconds()
+	s.mu.Unlock()
+
+	items = make([]ScheduleItem, 0, len(s.tc.reg.All())+len(crons))
+	seen := make(map[string]bool, len(items))
+	for _, d := range s.tc.reg.All() {
+		rc := taskcenter.Resolve(d, userConfigOf(settings[d.Key]))
+		it := ScheduleItem{
+			Key: d.Key, Name: d.Name, Kind: d.Kind,
+			Enabled: rc.Enabled, Schedule: rc.Schedule,
+			ScheduleText: taskcenter.DescribeSchedule(rc.Schedule),
+			Running:      busyCopy[d.Key],
+		}
+		if at, ok := nextCopy[d.Key]; ok {
+			it.NextAt = at.UnixMilli()
+		}
+		items = append(items, it)
+		seen[d.Key] = true
+	}
+	// 采集任务：只列"调度器已经算过下次时间"的（没算过 = 停用/周期待配置）
+	for k, at := range nextCopy {
+		if seen[k] {
+			continue
+		}
+		t, ok := crons[k]
+		if !ok {
+			continue
+		}
+		items = append(items, ScheduleItem{
+			Key: k, Name: cronTaskName(t, map[string]string{}), Kind: taskcenter.KindCollect,
+			Enabled: t.State == entity.StateEnabled, Schedule: t.Schedule,
+			ScheduleText: taskcenter.DescribeSchedule(t.Schedule),
+			NextAt:       at.UnixMilli(), Running: busyCopy[k],
+		})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Key < items[j].Key })
+	return items, gateOpen, tickMs
+}
+
+// ScheduleSnapshot / ScheduleGate 是任务中心对外暴露的只读诊断入口（handler 用）。
+func (s *TaskCenterService) ScheduleSnapshot(ctx context.Context) ([]ScheduleItem, bool, int64) {
+	sched := s.scheduler()
+	if sched == nil {
+		return []ScheduleItem{}, false, 0
+	}
+	return sched.Snapshot(ctx)
 }

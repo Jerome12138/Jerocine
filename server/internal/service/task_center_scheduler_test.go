@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"server/internal/domain/entity"
 	"server/internal/taskcenter"
@@ -81,5 +83,61 @@ func TestStatusFromRun(t *testing.T) {
 	got := statusFromRun(entity.TaskRun{Status: entity.TaskRunFailed, Error: "[net_timeout] 源站请求超时", Message: "1 个源失败"})
 	if got.Error == "" || got.Message == "" {
 		t.Fatalf("摘要/原因应透传: %+v", got)
+	}
+}
+
+// 调度态快照要能回答"下次什么时候跑"：生效周期（用户覆盖过的）、NextAt、是否在跑、窗口开没开。
+func TestSchedulerSnapshot(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+	fs := &fakeSettings{sets: []entity.TaskSetting{
+		{TaskKey: "builtin:hot_refresh", Enabled: true, Schedule: "daily:09:30"},
+	}}
+	reg := taskcenter.NewRegistry()
+	reg.Register(taskcenter.Def{Key: "builtin:hot_refresh", Name: "热度", Kind: taskcenter.KindBuiltin,
+		Enabled: true, DefaultSchedule: "daily:04:00", Run: func(context.Context) error { return nil }})
+	crons := &fakeCrons{t: entity.CronTask{Id: 7, Schedule: "weekly:1 03:00", State: entity.StateEnabled}}
+	svc := &TaskCenterService{reg: reg, settings: fs, crons: crons}
+	s := NewTaskScheduler(svc)
+	svc.attachScheduler(s)
+
+	// 模拟"已经算过下次时间"
+	s.next["builtin:hot_refresh"] = time.Now().Add(2 * time.Hour)
+	s.next["cron:7"] = time.Now().Add(3 * time.Hour)
+
+	items, gateOpen, tickMs := svc.ScheduleSnapshot(ctx)
+	if gateOpen {
+		t.Fatal("没开窗口不该报 gateOpen")
+	}
+	if tickMs != 30000 {
+		t.Fatalf("tick 应为 30000ms, got %d", tickMs)
+	}
+	if len(items) != 2 {
+		t.Fatalf("应有内置 + 采集两条, got %d: %+v", len(items), items)
+	}
+	// 按 key 排序：cron:7 < builtin:hot_refresh（字符串序）
+	byKey := map[string]ScheduleItem{}
+	for _, it := range items {
+		byKey[it.Key] = it
+	}
+	hot := byKey["builtin:hot_refresh"]
+	if hot.Schedule != "daily:09:30" {
+		t.Fatalf("快照应给**生效**周期（用户覆盖后的），got %q", hot.Schedule)
+	}
+	if hot.ScheduleText == "" || hot.NextAt == 0 {
+		t.Fatalf("应有可读周期与下次时间: %+v", hot)
+	}
+	cron := byKey["cron:7"]
+	if !cron.Enabled || cron.Schedule != "weekly:1 03:00" || cron.NextAt == 0 {
+		t.Fatalf("采集任务快照不对: %+v", cron)
+	}
+}
+
+// 未启动调度器时快照要"空而不炸"（handler 会在任何时刻被调用）。
+func TestScheduleSnapshot_NotStarted(t *testing.T) {
+	svc := &TaskCenterService{}
+	items, gateOpen, tickMs := svc.ScheduleSnapshot(context.Background())
+	if len(items) != 0 || gateOpen || tickMs != 0 {
+		t.Fatalf("未启动应返回空快照, got %+v %v %d", items, gateOpen, tickMs)
 	}
 }

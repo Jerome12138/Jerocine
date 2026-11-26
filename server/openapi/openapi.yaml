@@ -2533,6 +2533,41 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/Unprocessable' }
 
+  /manage/task-center/schedule:
+    get:
+      tags: [manage-task]
+      summary: 调度态只读诊断（生效周期 / 下次触发时刻 / 是否在跑 / 维护窗口）
+      description: >
+        nextAt=0 表示调度器还没给它算下次时间（停用或周期待配置）；
+        schedule 是**生效值**（用户覆盖后的），不是注册表默认值。
+      operationId: manageTaskCenterSchedule
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string }
+                        name: { type: string }
+                        kind: { type: string }
+                        enabled: { type: boolean }
+                        schedule: { type: string, description: 生效的友好文本周期 }
+                        scheduleText: { type: string, description: 中文描述 }
+                        nextAt: { type: integer, description: unix 毫秒；0=未算出 }
+                        running: { type: boolean, description: 同进程内是否正有一轮在跑 }
+                  gateOpen: { type: boolean, description: 维护窗口是否开着 }
+                  tickMs: { type: integer, description: 调度器轮询间隔（毫秒） }
+                  now: { type: integer, description: unix 毫秒 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /manage/task-center/pause:
     post:
       tags: [manage-task]
