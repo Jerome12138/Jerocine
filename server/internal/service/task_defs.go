@@ -67,10 +67,13 @@ func (s *FilmService) doubanStatusFor(task string) func(context.Context) taskcen
 		}
 		st := taskcenter.Status{State: taskcenter.StateIdle, Message: p.Message,
 			StartedAt: p.StartedAt, UpdatedAt: p.UpdatedAt}
+		// 进度与状态解耦：**完成后也要带上 x/y**（用户要求列表对已完成任务也显示总数/完成数）
+		if p.Total > 0 {
+			st.Progress = &taskcenter.Progress{Total: p.Total, Done: p.Done, Failed: p.Failed, Unit: "部"}
+		}
 		switch p.State {
 		case "running":
 			st.State = taskcenter.StateRunning
-			st.Progress = &taskcenter.Progress{Total: p.Total, Done: p.Done, Failed: p.Failed, Unit: "部"}
 			if p.StartedAt > 0 {
 				st.ElapsedMs = time.Now().UnixMilli() - p.StartedAt
 			}

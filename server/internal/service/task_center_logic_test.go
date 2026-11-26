@@ -323,3 +323,21 @@ func TestWatchBuiltinRun_LedgerStatus(t *testing.T) {
 		t.Fatalf("失败行状态/原因不对: status=%q error=%q", got.Status, got.Error)
 	}
 }
+
+// 用户要求：多接口任务"已完成"时，列表也要显示总数/完成数（不能只有运行中才有进度）。
+func TestDoubanStatus_KeepsProgressWhenDone(t *testing.T) {
+	defer setDoubanBatchProgress(func(p *DoubanBatchProgress) { *p = DoubanBatchProgress{} })
+	svc := &FilmService{}
+	probe := svc.doubanStatusFor("douban_backfill")
+
+	setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+		*p = DoubanBatchProgress{State: "done", Task: "douban_backfill", Total: 2000, Done: 1998, Failed: 2}
+	})
+	st := probe(context.Background())
+	if st.State != taskcenter.StateSucceeded {
+		t.Fatalf("应为 succeeded: %+v", st)
+	}
+	if st.Progress == nil || st.Progress.Total != 2000 || st.Progress.Done != 1998 {
+		t.Fatalf("完成态也要带进度数字: %+v", st.Progress)
+	}
+}

@@ -92,7 +92,13 @@ const ov = ref<TaskOverview>({ running: 0, todaySuccess: 0, todayFailed: 0, pend
 const jobs = ref<SpiderJob[]>([])
 /** 正在运行的内置任务（来自调度器内存 busy；QuietOnSuccess 任务台账里没有 running 行，
  *  只看台账会永远为空 —— 用户实测"手动执行豆瓣/横图看不到"） */
-interface BuiltinRunningItem { key: string; name: string; note: string }
+interface BuiltinRunningItem {
+  key: string
+  name: string
+  note: string
+  /** 有进度就用它显示（豆瓣批次等异步任务会给出 total/done） */
+  progress?: { total: number; done: number; failed: number; unit: string } | null
+}
 const builtinRunning = ref<BuiltinRunningItem[]>([])
 const jobsLoading = ref(false)
 /** 统一任务中心：内置 + 采集，一份列表 */
@@ -268,6 +274,11 @@ function fmtInterval(ms: number): string {
   return ms >= 1000 ? `${Math.round(ms / 100) / 10}s` : `${ms}ms`
 }
 
+/** 豆瓣批次的任务 key（停止是批级别的，两个任务共用） */
+function isDoubanKey(key: string): boolean {
+  return key === 'builtin:douban_score' || key === 'builtin:douban_backfill'
+}
+
 /** 豆瓣两个任务（共用同一条后台批次，停止是批级别的） */
 function isDoubanTask(t: TaskCenterItem): boolean {
   return t.key === 'builtin:douban_score' || t.key === 'builtin:douban_backfill'
@@ -363,32 +374,28 @@ async function loadOverview(): Promise<void> {
  * 这里把台账里正在跑的内置任务并进来，采集 job 与内置任务在同一个页签能看到。
  */
 /**
- * 正在运行的内置任务 —— 三个来源取并集（各自都有盲区）：
- *   ① 台账 running 行（kind != cron）：覆盖**手动触发的异步任务**（豆瓣批次，会落 running 行）
- *   ② 调度器内存 busy：覆盖 QuietOnSuccess 的高频任务（backdrop/health/year_verify 不写台账行）
- *   ③ 采集 job 走 Redis（jobs 列表），不在这里
- * 只取其中一个就会出现"概览说运行中 1、列表却是空的"（用户实测）。
+ * 正在运行的内置任务 —— 两个来源取并集（各有盲区）：
+ *   ① 任务中心列表 state==='running'：带**实时进度**（豆瓣批次），且状态已按任务归属
+ *   ② 调度器内存 busy：覆盖 QuietOnSuccess 的高频任务（backdrop/health/year_verify 的 Status 是静态 idle）
+ * 采集 job 走 Redis，不在这里。
  */
 async function loadBuiltinRunning(): Promise<void> {
   try {
-    const [runsRes, schedRes] = await Promise.all([
-      tasksApi.runs({ status: 'running', page: 1, size: 20 }).catch(() => ({ list: [] as TaskRun[] })),
+    const [tc, sched] = await Promise.all([
+      tasksApi.taskCenterTasks().catch(() => ({ list: [] as TaskCenterItem[] })),
       tasksApi
         .taskCenterSchedule()
         .catch(() => ({ items: [], gateOpen: false, tickMs: 0, now: 0 }))
     ])
     const items: BuiltinRunningItem[] = []
     const seen = new Set<string>()
-    for (const r of runsRes.list ?? []) {
-      if (r.kind === 'cron') continue
-      const key = 'builtin:' + r.type
-      if (seen.has(key)) continue
-      seen.add(key)
-      items.push({ key, name: r.name, note: runTypeText(r.type) })
+    for (const t of tc.list ?? []) {
+      if (t.state !== 'running' || t.kind !== 'builtin') continue
+      seen.add(t.key)
+      items.push({ key: t.key, name: t.name, note: runTypeText(t.type), progress: t.progress })
     }
-    for (const x of schedRes.items ?? []) {
-      if (!x.running || x.kind !== 'builtin') continue
-      if (seen.has(x.key)) continue
+    for (const x of sched.items ?? []) {
+      if (!x.running || x.kind !== 'builtin' || seen.has(x.key)) continue
       seen.add(x.key)
       items.push({ key: x.key, name: x.name, note: x.scheduleText })
     }
@@ -674,7 +681,7 @@ const RUN_TYPE_TEXT: Record<string, string> = {
   year_verify: '年份核实',
   history_prune: '台账清理'
 }
-function runTypeText(t: TaskRun['type']): string {
+function runTypeText(t: string): string {
   return RUN_TYPE_TEXT[t] ?? t
 }
 
@@ -800,7 +807,29 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
           <StatusTag value="running" :map="TC_STATE_MAP" size="sm" />
           <BaseTag variant="purple" size="xs">内置</BaseTag>
           <span class="text-sm font-[var(--jc-fw-medium)]">{{ r.name }}</span>
-          <span class="ml-auto text-xs text-muted">{{ r.note }}</span>
+          <!-- 有进度就显示（豆瓣批次 x/y 部 + %），没有才回落到说明文案 -->
+          <span v-if="r.progress && r.progress.total > 0" class="ml-auto text-xs text-secondary tabular-nums">
+            已完成 {{ r.progress.done }}/{{ r.progress.total }} {{ r.progress.unit }} ·
+            {{ Math.round((r.progress.done / r.progress.total) * 100) }}%
+          </span>
+          <span v-else class="ml-auto text-xs text-muted">{{ r.note }}</span>
+          <ManageButton
+            v-if="isDoubanKey(r.key)"
+            size="sm"
+            variant="danger"
+            @click="stopDouban"
+          >停止</ManageButton>
+          <!-- 与采集进度同款的细进度条：多接口任务运行时一眼看到完成度 -->
+          <div
+            v-if="r.progress && r.progress.total > 0"
+            class="h-1 w-full overflow-hidden rounded-full bg-[var(--jc-border-default)]"
+            data-testid="builtin-bar"
+          >
+            <div
+              class="h-full rounded-full bg-[var(--jc-accent)] transition-all"
+              :style="{ width: Math.min(100, Math.round((r.progress.done / r.progress.total) * 100)) + '%' }"
+            />
+          </div>
         </article>
       </section>
 
@@ -1006,6 +1035,14 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               >编辑</ManageButton>
               <!-- 豆瓣批次（评分同步/欠账补查）是后台 long-running，给一个中止入口：
                    否则对端限流时只能重启容器才能停 -->
+              <!-- 多接口任务（豆瓣批次）的进度：完成态也显示总数/完成数（用户要求） -->
+              <span
+                v-if="t.progress && t.progress.total > 0"
+                class="text-xs text-secondary tabular-nums"
+              >
+                已完成 {{ t.progress.done }}/{{ t.progress.total }} {{ t.progress.unit }} ·
+                {{ Math.round((t.progress.done / t.progress.total) * 100) }}%
+              </span>
               <ManageButton
                 v-if="isDoubanTask(t) && t.state === 'running'"
                 size="sm"

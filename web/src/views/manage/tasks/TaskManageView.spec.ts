@@ -154,6 +154,8 @@ describe('TaskManageView 任务管理', () => {
     h.overview.mockResolvedValue({ running: 1, todaySuccess: 2, todayFailed: 1, pendingFailures: 3 })
     h.spiderJobs.mockResolvedValue([job()])
     h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now: Date.now() })
+    // 近期任务的"正在运行"同时读任务中心列表；默认给空，避免 .catch on undefined
+    h.taskCenterTasks.mockResolvedValue({ list: [] })
     h.list.mockResolvedValue([
       { id: 'src_a', name: '源A', uri: '', resultModel: 0, grade: 0, syncPictures: false, collectType: 0, state: true, interval: 0 }
     ])
@@ -175,10 +177,10 @@ describe('TaskManageView 任务管理', () => {
     expect(text).toContain('50%')
     expect(h.overview).toHaveBeenCalledTimes(1)
     expect(h.spiderJobs).toHaveBeenCalledTimes(1)
-    // running 页签要同时读「调度器快照」(QuietOnSuccess 的 busy) 和「台账 running 行」(手动异步任务)：
+    // running 页签要同时读「任务中心列表」(带实时进度) 和「调度器快照」(QuietOnSuccess 的 busy)：
     // 只读其中一个就会出现"概览说运行中 1、列表空"（用户实测）
+    expect(h.taskCenterTasks).toHaveBeenCalled()
     expect(h.taskCenterSchedule).toHaveBeenCalled()
-    expect(h.runs).toHaveBeenCalledWith(expect.objectContaining({ status: 'running' }))
     expect(h.failures).not.toHaveBeenCalled()
     w.unmount()
   })
@@ -396,24 +398,35 @@ describe('TaskManageView 轮询', () => {
     w.unmount()
   })
 
-  it('近期任务: 正在运行的内置任务（台账 running, 非 cron）也要显示；英文类型给中文', async () => {
+  it('近期任务: 正在运行的内置任务（任务中心 state=running）也要显示，且带进度', async () => {
     h.spiderJobs.mockResolvedValue([])
-    h.taskCenterSchedule.mockResolvedValue({
-      items: [
-        { key: 'builtin:backdrop', name: '横图补采', kind: 'builtin', enabled: true, schedule: 'every:20m', scheduleText: '每 20 分钟', nextAt: 0, running: true },
-        { key: 'builtin:health', name: '采集源健康巡检', kind: 'builtin', enabled: true, schedule: 'every:1h', scheduleText: '每 1 小时', nextAt: 0, running: false },
-        { key: 'cron:1', name: '定时任务 #1', kind: 'collect', enabled: true, schedule: 'every:20m', scheduleText: '每 20 分钟', nextAt: 0, running: true }
-      ],
-      gateOpen: false, tickMs: 30000, now: Date.now()
+    h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now: Date.now() })
+    h.taskCenterTasks.mockResolvedValue({
+      list: [
+        {
+          key: 'builtin:douban_backfill', kind: 'builtin', type: 'douban_backfill',
+          name: '手动执行 · 豆瓣评分欠账补查', schedule: '', scheduleText: '仅手动', enabled: false,
+          editable: [], caps: [], state: 'running',
+          progress: { total: 2000, done: 300, failed: 2, unit: '部' },
+          startedAt: Date.now() - 60000, elapsedMs: 60000, lastRunAt: 0, message: '', error: '', nextAt: 0
+        },
+        {
+          key: 'builtin:health', kind: 'builtin', type: 'health', name: '采集源健康巡检',
+          schedule: 'every:1h', scheduleText: '每 1 小时', enabled: true, editable: [], caps: [],
+          state: 'idle', progress: null, startedAt: 0, elapsedMs: 0, lastRunAt: 0, message: '', error: '', nextAt: 0
+        }
+      ]
     })
     const w = await mountView()
     await flushPromises()
     const text = w.text()
     expect(text).toContain('正在运行的内置任务')
-    expect(text).toContain('横图补采')
-    // 未在跑的内置任务不列；采集任务(cron)不混进内置区块
+    expect(text).toContain('豆瓣评分欠账补查')
+    // 有进度就显示 x/y + %
+    expect(text).toContain('300/2000')
+    expect(text).toContain('15%')
+    // 空闲任务不列
     expect(text).not.toContain('采集源健康巡检')
-    expect(text).not.toContain('定时任务 #1')
     w.unmount()
   })
 
@@ -498,25 +511,65 @@ describe('TaskManageView 轮询', () => {
     w.unmount()
   })
 
-  it('近期任务: 手动触发的异步任务（只有台账 running 行、没有调度器 busy）也要显示', async () => {
+  it('近期任务: 手动触发的异步任务也要显示（含进度与停止按钮）', async () => {
     h.spiderJobs.mockResolvedValue([])
-    // 调度器快照里没有它（手动触发不经过调度器）
     h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now: Date.now() })
-    h.runs.mockResolvedValue({
+    h.taskCenterTasks.mockResolvedValue({
       list: [
         {
-          id: 9100, kind: 'manual', type: 'douban_score', name: '手动执行 · 豆瓣评分同步',
-          status: 'running', startedAt: Date.now() - 60000, endedAt: 0, total: 1941, done: 120,
-          failed: 0, message: '', error: '', ignored: false, cronId: 0, sourceId: '', hours: 0
+          key: 'builtin:douban_score', kind: 'builtin', type: 'douban_score',
+          name: '手动执行 · 豆瓣评分同步', schedule: 'weekly:1 03:00', scheduleText: '每周一 03:00',
+          enabled: true, editable: [], caps: [], state: 'running',
+          progress: { total: 1941, done: 120, failed: 0, unit: '部' },
+          startedAt: Date.now() - 60000, elapsedMs: 60000, lastRunAt: 0, message: '', error: '', nextAt: 0
         }
-      ],
-      page: { current: 1, size: 20, total: 1 }
+      ]
     })
     const w = await mountView()
     await flushPromises()
     const text = w.text()
     expect(text, '概览说运行中 1 时，近期任务必须能看到它').toContain('正在运行的内置任务')
     expect(text).toContain('手动执行 · 豆瓣评分同步')
-    expect(text).toContain('豆瓣评分') // 类型中文，不露英文 key
+    expect(text).toContain('120/1941')
+    expect(text).toContain('停止')
+    w.unmount()
+  })
+
+  it('多接口任务：运行中有进度条+x/y+%，已完成也在列表显示 x/y（不画条）', async () => {
+    // ① 运行中：近期任务里有细进度条
+    h.spiderJobs.mockResolvedValue([])
+    h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now: Date.now() })
+    h.taskCenterTasks.mockResolvedValue({
+      list: [
+        {
+          key: 'builtin:douban_backfill', kind: 'builtin', type: 'douban_backfill',
+          name: '手动执行 · 豆瓣评分欠账补查', schedule: '', scheduleText: '仅手动', enabled: false,
+          editable: [], caps: [], state: 'running',
+          progress: { total: 2000, done: 500, failed: 0, unit: '部' },
+          startedAt: Date.now() - 60000, elapsedMs: 60000, lastRunAt: 0, message: '', error: '', nextAt: 0
+        }
+      ]
+    })
+    const w = await mountView()
+    await flushPromises()
+    expect(w.findAll('[data-testid="builtin-bar"]')).toHaveLength(1)
+
+    // ② 已完成：计划任务行显示 x/y，但不画条
+    h.taskCenterTasks.mockResolvedValue({
+      list: [
+        {
+          key: 'builtin:douban_backfill', kind: 'builtin', type: 'douban_backfill',
+          name: '豆瓣评分欠账补查', schedule: '', scheduleText: '仅手动', enabled: false,
+          editable: [], caps: [], state: 'succeeded',
+          progress: { total: 2000, done: 2000, failed: 0, unit: '部' },
+          startedAt: 0, elapsedMs: 0, lastRunAt: Date.now(), message: '完成', error: '', nextAt: 0
+        }
+      ]
+    })
+    await gotoTab(w, '计划任务')
+    await flushPromises()
+    const text = w.text()
+    expect(text).toContain('已完成 2000/2000 部')
+    expect(text).toContain('100%')
     w.unmount()
   })
