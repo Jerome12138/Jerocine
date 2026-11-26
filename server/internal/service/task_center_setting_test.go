@@ -68,8 +68,19 @@ func newTCS() (*TaskCenterService, *fakeSettings) {
 }
 
 // newRegistryWithBuiltins 复用生产注册逻辑（只注册元数据，不触发任何外部调用）。
+//
+// P3-2 之后定义由各域服务提供，所以这里给"零值实例"让各自的 TaskDefs() 能跑：
+// TaskDefs() 只描述元数据、不访问字段（闭包内自带 nil 守卫），因此零值是安全的。
+// 注意：这些闭包**不要**在单测里真的执行（零值服务会 nil 解引用）——要执行就用本地的探针 Def。
 func newRegistryWithBuiltins() *taskcenter.Registry {
-	s := &TaskCenterService{reg: taskcenter.NewRegistry()}
+	s := &TaskCenterService{
+		reg:        taskcenter.NewRegistry(),
+		film:       &FilmService{},
+		hot:        &HotService{},
+		backdrop:   &BackdropService{},
+		manage:     &ManageService{},
+		yearVerify: &YearVerifyService{},
+	}
 	s.registerBuiltins()
 	return s.reg
 }

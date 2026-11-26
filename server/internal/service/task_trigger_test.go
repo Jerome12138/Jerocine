@@ -21,8 +21,8 @@ func TestAllTriggerEntriesRespectGate(t *testing.T) {
 		t.Fatalf("开闸门: %v", err)
 	}
 
-	// ① 任务中心手动执行（内置）
-	svc := &TaskCenterService{reg: newRegistryWithBuiltins(), settings: &fakeSettings{}}
+	// ① 任务中心手动执行（内置）—— 用探针 Def，避免真的去跑零值服务
+	svc := &TaskCenterService{reg: probeRegistry(), settings: &fakeSettings{}}
 	if err := svc.RunTask(ctx, "builtin:hot_refresh"); !isGateErr(err) {
 		t.Fatalf("内置手动执行应被闸门拦, got %v", err)
 	}
@@ -55,7 +55,7 @@ func TestAllTriggerEntriesRespectGate(t *testing.T) {
 func TestTriggerEntriesResumeAfterGateClosed(t *testing.T) {
 	initTestCache(t)
 	ctx := context.Background()
-	svc := &TaskCenterService{reg: newRegistryWithBuiltins(), settings: &fakeSettings{}}
+	svc := &TaskCenterService{reg: probeRegistry(), settings: &fakeSettings{}}
 	if err := cache.TaskGateOpen(ctx, "deploy.sh", time.Minute); err != nil {
 		t.Fatalf("开闸门: %v", err)
 	}
@@ -111,4 +111,16 @@ func TestJobStateMachineMatchesCache(t *testing.T) {
 			}
 		}
 	}
+}
+
+// probeRegistry 只含一个"什么都不做"的内置任务：用于断言触发链路（闸门/放行），
+// 不牵扯真实服务（零值服务真的执行会 nil 解引用）。
+func probeRegistry() *taskcenter.Registry {
+	reg := taskcenter.NewRegistry()
+	reg.Register(taskcenter.Def{
+		Key: "builtin:probe", Type: "probe", Name: "探针", Kind: taskcenter.KindBuiltin,
+		Enabled: true, DefaultSchedule: "daily:04:00",
+		Run: func(context.Context) error { return nil },
+	})
+	return reg
 }

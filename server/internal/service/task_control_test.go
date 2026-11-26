@@ -36,7 +36,7 @@ func initTestCache(t *testing.T) {
 func TestPauseAllResumeAll(t *testing.T) {
 	initTestCache(t)
 	ctx := context.Background()
-	svc := &TaskCenterService{reg: newRegistryWithBuiltins()}
+	svc := &TaskCenterService{reg: probeRegistry()}
 
 	// 三个源：一个在跑、一个已被用户手工暂停、一个从未启动
 	if err := cache.JobStart(ctx, "src_run", "在跑的源", 100, 24); err != nil {
@@ -96,7 +96,7 @@ func TestPauseAllResumeAll(t *testing.T) {
 	if st, _ := svc.ControlState(ctx); st.Open || len(st.PausedJobs) != 0 {
 		t.Fatalf("resume 后窗口应关闭且白名单清空: %+v", st)
 	}
-	if err := svc.RunTask(ctx, "builtin:hot_refresh"); err != nil && strings.Contains(err.Error(), "维护窗口") {
+	if err := svc.RunTask(ctx, "builtin:probe"); err != nil && strings.Contains(err.Error(), "维护窗口") {
 		t.Fatalf("窗口关闭后不应再被闸门拦: %v", err)
 	}
 }
