@@ -206,8 +206,8 @@ func (s *TaskCenterService) ownTaskDefs() []taskcenter.Def {
 	return []taskcenter.Def{
 		{
 			Key: "builtin:history_prune", Kind: taskcenter.KindBuiltin, Type: "history_prune",
-			Name: "历史台账清理", Target: "task_run（按保留天数）",
-			Detail:          "删除保留期之前的终态记录（分批，不删 running）。",
+			Name: "历史台账清理", Target: "任务历史台账（保留期默认 30 天，可用 TASK_RETENTION_DAYS 配）",
+			Detail:          "删除保留期之前的已结束记录（成功/失败/取消），分批执行；运行中的不删。",
 			DefaultSchedule: "daily:04:00", Enabled: true,
 			Editable: editBasicFields,
 			Status:   idleWithMessage("每天清理一次"),

@@ -201,11 +201,11 @@ describe('TaskManageView 任务管理', () => {
     w.unmount()
   })
 
-  it('失败页签: 20/页分页 + 共 N 条展示; recover 提交 ids 且 silent 自管提示', async () => {
+  it('失败页补采页签: 20/页分页 + 待补采页数; recover 提交 ids 且 silent 自管提示', async () => {
     const w = await mountView()
-    await gotoTab(w, '失败记录')
+    await gotoTab(w, '失败页补采')
     expect(h.failures).toHaveBeenCalledWith({ status: 0, page: 1, size: 20 }, { silent: true })
-    expect(w.text()).toContain('共 25 条')
+    expect(w.text()).toContain('待补采')
 
     // 单条补采: 传该行 id, silent(页面自管提示, 不与拦截器叠两条)
     await w.findAll('tbody tr')[0].findAll('button').find((b) => b.text().trim() === '补采')!.trigger('click')
@@ -290,8 +290,9 @@ describe('TaskManageView 任务管理', () => {
     expect(tablist.exists()).toBe(true)
     expect(tablist.classes()).toContain('jc-tabs--underline')
     const tabs = w.findAll('[role="tab"]')
-    // 2026-11-25 起为 4 个页签：近期任务 / 计划任务 / 历史记录 / 失败记录
-    expect(tabs).toHaveLength(4)
+    // 2026-11-26 起为 5 个页签：近期任务 / 计划任务 / 历史记录 / 任务异常 / 失败页补采
+    // （"任务异常"是任务级台账，"失败页补采"是采集页级，两个维度必须分开）
+    expect(tabs).toHaveLength(5)
     expect(tabs[0]!.attributes('aria-selected')).toBe('true')
     for (const t of tabs) expect(t.attributes('data-focusable')).toBe('true')
 

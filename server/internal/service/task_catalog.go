@@ -93,7 +93,13 @@ func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set
 			st = statusFromRun(run)
 		}
 	}
-	if st.Message == "" && rc.Remark != "" {
+	// 行尾文案的取舍（2026-11-26 用户反馈"每 20 分钟扫描一次"与左侧"计划"列重复）：
+	//   · idle 的静态提示本质是"周期说明"，已在计划列展示 ⇒ 不再当正文；
+	//   · idle 时优先展示用户备注（此前被静态提示盖住，等于改备注看不到效果）；
+	//   · 有台账结果（成功/失败）时保留结果文案。
+	if st.State == taskcenter.StateIdle {
+		st.Message = rc.Remark
+	} else if st.Message == "" && rc.Remark != "" {
 		st.Message = rc.Remark
 	}
 	return TaskView{

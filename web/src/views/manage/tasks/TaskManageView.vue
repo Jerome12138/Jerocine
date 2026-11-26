@@ -36,7 +36,7 @@ import { formatDateTime } from '@/utils/format'
  * 提示口径: 写操作经 useAsyncAction 单点提示 + { silent: true }(拦截器的通用提示关闭,
  * 页面差异化文案不与拦截器叠两条); 后台轮询用的读接口也 silent, 失败只降级页内状态不刷 toast。
  */
-type TabKey = 'running' | 'schedule' | 'history' | 'failures'
+type TabKey = 'running' | 'schedule' | 'history' | 'errs' | 'failures'
 
 const activeTab = ref<TabKey>('running')
 
@@ -340,10 +340,8 @@ async function loadAll(): Promise<void> {
   if (activeTab.value === 'running') void loadJobs()
   if (activeTab.value === 'schedule') void loadTc()
   if (activeTab.value === 'history') void loadRuns()
-  if (activeTab.value === 'failures') {
-    void loadFailures()
-    void loadErrRuns()
-  }
+  if (activeTab.value === 'errs') void loadErrRuns()
+  if (activeTab.value === 'failures') void loadFailures()
 }
 
 function schedulePoll(): void {
@@ -623,7 +621,11 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
   },
   { value: 'schedule', label: '计划任务', count: tcList.value.length },
   { value: 'history', label: '历史记录', count: runTotal.value },
-  { value: 'failures', label: '失败记录' }
+  // 两个**不同维度**，不要混在一个页签里：
+  //   errs     = 任务级台账（task_run）：某个任务跑失败了，且之后没成功过
+  //   failures = 采集页级（collect_failure）：某页没采到，等着补采
+  { value: 'errs', label: '任务异常', count: errRuns.value.length },
+  { value: 'failures', label: '失败页补采', count: ov.value.pendingFailures }
 ])
 </script>
 
@@ -958,9 +960,9 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       </ManageTable>
     </template>
 
-    <!-- ===== 失败记录（任务异常 + 待补采失败页）===== -->
-    <template v-else>
-      <section class="mb-[var(--jc-space-5)] flex flex-col gap-[var(--jc-space-2)]">
+    <!-- ===== 任务异常（任务级台账：失败且其后没成功过；与"失败页补采"是两个维度）===== -->
+    <template v-else-if="activeTab === 'errs'">
+      <section class="flex flex-col gap-[var(--jc-space-2)]">
         <div class="flex flex-wrap items-center gap-[var(--jc-space-3)]">
           <h3 class="text-sm font-[var(--jc-fw-medium)]">任务异常</h3>
           <span class="text-xs text-muted">{{ errRuns.length }} 条待处理</span>
@@ -991,7 +993,10 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
           </ManageButton>
         </article>
       </section>
+    </template>
 
+    <!-- ===== 失败页补采（采集页级：某页没采到，等补采）===== -->
+    <template v-else>
       <ManageTable
         :columns="failureColumns"
         :rows="failures"
@@ -1004,8 +1009,8 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
         <template #toolbar>
           <div class="flex items-center gap-[var(--jc-space-3)] flex-wrap">
             <span class="text-sm text-muted">
-              待补采 <span class="font-[var(--jc-fw-semibold)] text-primary">{{ ov.pendingFailures }}</span> 页
-              · 共 {{ failTotal }} 条
+              待补采
+              <span class="font-[var(--jc-fw-semibold)] text-primary">{{ ov.pendingFailures }}</span> 页
             </span>
             <ManageButton
               variant="primary"

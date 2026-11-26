@@ -136,3 +136,25 @@ func TestViewOfCron_ProgressFromSnapshots(t *testing.T) {
 		t.Fatalf("SomeSrc 只应聚合指定源, got %+v", v.Progress)
 	}
 }
+
+// idle 任务的静态周期提示不再当正文（与"计划"列重复）；备注必须能显示出来。
+func TestViewOfDef_IdleMessage(t *testing.T) {
+	svc := &TaskCenterService{}
+	d := taskcenter.Def{
+		Key: "builtin:probe", Type: "probe", Name: "探针", Kind: taskcenter.KindBuiltin,
+		Enabled: true, DefaultSchedule: "every:20m",
+		Status: func(context.Context) taskcenter.Status {
+			return taskcenter.Status{State: taskcenter.StateIdle, Message: "每 20 分钟扫描一次"}
+		},
+	}
+	// 无备注：行尾不该出现"每 20 分钟扫描一次"
+	v := svc.viewOfDef(context.Background(), d, entity.TaskSetting{})
+	if v.Message != "" {
+		t.Fatalf("idle 静态提示不应作为正文展示（与计划列重复），got %q", v.Message)
+	}
+	// 有备注：展示备注（此前被静态提示盖住）
+	v = svc.viewOfDef(context.Background(), d, entity.TaskSetting{TaskKey: d.Key, Enabled: true, Remark: "人工备注"})
+	if v.Message != "人工备注" {
+		t.Fatalf("idle 时应展示备注, got %q", v.Message)
+	}
+}
