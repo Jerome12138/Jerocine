@@ -38,6 +38,7 @@ type TaskView struct {
 	ScheduleText  string               `json:"scheduleText"` // 中文展示
 	Enabled       bool                 `json:"enabled"`
 	IntervalMs    int                  `json:"intervalMs"`
+	MinIntervalMs int                  `json:"minIntervalMs"` // 执行层下限（前端据此提示，低于它会被 422）
 	IntervalLabel string               `json:"intervalLabel"`
 	Editable      []string             `json:"editable"`
 	Caps          []string             `json:"caps"`
@@ -251,7 +252,7 @@ func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set
 	return TaskView{
 		Key: d.Key, Kind: d.Kind, Type: d.Type, Name: d.Name, Target: d.Target, Detail: d.Detail,
 		Schedule: schedule, ScheduleText: taskcenter.DescribeSchedule(schedule),
-		Enabled: enabled, IntervalMs: interval, IntervalLabel: d.IntervalLabel,
+		Enabled: enabled, IntervalMs: interval, MinIntervalMs: d.MinIntervalMs, IntervalLabel: d.IntervalLabel,
 		Editable: d.Editable, Caps: d.Caps,
 		State: string(st.State), Progress: st.Progress,
 		StartedAt: st.StartedAt, ElapsedMs: st.ElapsedMs, Message: st.Message, Error: st.Error,

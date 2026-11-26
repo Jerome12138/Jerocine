@@ -17,7 +17,12 @@ const h = vi.hoisted(() => ({
   runs: vi.fn(),
   rerun: vi.fn(),
   toast: vi.fn(),
-  confirm: vi.fn()
+  confirm: vi.fn(),
+  // 统一任务中心
+  taskCenterTasks: vi.fn(),
+  taskCenterOverview: vi.fn(),
+  taskCenterRun: vi.fn(),
+  taskCenterUpdateSetting: vi.fn()
 }))
 
 vi.mock('@/api/manage/collect', () => ({
@@ -34,7 +39,12 @@ vi.mock('@/api/manage/collect', () => ({
 vi.mock('@/api/manage/tasks', () => ({
   overview: h.overview,
   runs: h.runs,
-  rerun: h.rerun
+  rerun: h.rerun,
+  // 统一任务中心（2026-11-25）
+  taskCenterTasks: h.taskCenterTasks,
+  taskCenterOverview: h.taskCenterOverview,
+  taskCenterRun: h.taskCenterRun,
+  taskCenterUpdateSetting: h.taskCenterUpdateSetting
 }))
 
 vi.mock('@/api/http', () => ({ toast: h.toast }))
@@ -144,7 +154,9 @@ describe('TaskManageView 任务管理', () => {
     expect(text).toContain('运行中任务')
     expect(text).toContain('源A')
     expect(text).toContain('采集中')
-    expect(text).toContain('进度 50%')
+    // 2026-11-25：卡片文案改为「已完成 x / 共 y 页 · z%」（并新增 目标/启动/耗时）
+    expect(text).toContain('已完成 5 / 共 10 页')
+    expect(text).toContain('50%')
     expect(h.overview).toHaveBeenCalledTimes(1)
     expect(h.spiderJobs).toHaveBeenCalledTimes(1)
     expect(h.runs).not.toHaveBeenCalled()
@@ -278,7 +290,8 @@ describe('TaskManageView 任务管理', () => {
     expect(tablist.exists()).toBe(true)
     expect(tablist.classes()).toContain('jc-tabs--underline')
     const tabs = w.findAll('[role="tab"]')
-    expect(tabs).toHaveLength(3)
+    // 2026-11-25 起为 4 个页签：近期任务 / 计划任务 / 历史记录 / 失败记录
+    expect(tabs).toHaveLength(4)
     expect(tabs[0]!.attributes('aria-selected')).toBe('true')
     for (const t of tabs) expect(t.attributes('data-focusable')).toBe('true')
 

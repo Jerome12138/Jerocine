@@ -2,8 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as collectApi from '@/api/manage/collect'
 import * as tasksApi from '@/api/manage/tasks'
+import type { TaskCenterItem } from '@/api/manage/tasks'
 import type { SpiderJob } from '@/api/manage/collect'
-import type { CollectFailure, CronTask, TaskOverview, TaskRun } from '@/types/manage'
+import type { CollectFailure, TaskOverview, TaskRun } from '@/types/manage'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -17,6 +18,8 @@ import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import { toast } from '@/api/http'
+import { openManageDialog } from '@/composables/useManageDialog'
+import TaskSettingDialog from './TaskSettingDialog.vue'
 import { manageApi } from '@/api'
 import { formatDateTime } from '@/utils/format'
 
@@ -62,56 +65,81 @@ const ov = ref<TaskOverview>({ running: 0, todaySuccess: 0, todayFailed: 0, pend
 // ---- 运行中 job ----
 const jobs = ref<SpiderJob[]>([])
 const jobsLoading = ref(false)
-/** 计划任务（定时）：与其他类型统一展示在同一"任务中心"里 */
-const crons = ref<CronTask[]>([])
-const cronsLoading = ref(false)
-/** 采集源 id → 名称（计划任务的目标列展示用） */
-const sourceNameById = ref<Record<string, string>>({})
+/** 统一任务中心：内置 + 采集，一份列表 */
+const tcList = ref<TaskCenterItem[]>([])
+const tcLoading = ref(false)
+const tcBusy = ref<Record<string, boolean>>({})
+const collapsed = ref<Record<string, boolean>>(loadCollapsed())
 
-async function loadCrons(): Promise<void> {
-  cronsLoading.value = true
+const TC_STATE_MAP: StatusMap = {
+  running: { label: '运行中', variant: 'brand' },
+  paused: { label: '已暂停', variant: 'warning' },
+  succeeded: { label: '已完成', variant: 'success' },
+  failed: { label: '失败', variant: 'danger' },
+  canceled: { label: '已取消', variant: 'warning' },
+  idle: { label: '空闲', variant: 'default' }
+}
+
+const COLLAPSE_KEY = 'jc.taskcenter.collapsed'
+
+function loadCollapsed(): Record<string, boolean> {
   try {
-    const [list, sources] = await Promise.all([
-      manageApi.cron.list(),
-      collectApi.list().catch(() => [])
-    ])
-    crons.value = list ?? []
-    const m: Record<string, string> = {}
-    for (const s of sources) m[s.id] = s.name || s.id
-    sourceNameById.value = m
-  } catch (e) {
-    toast('error', e instanceof Error ? e.message : '计划任务加载失败')
-  } finally {
-    cronsLoading.value = false
+    return JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '{}') as Record<string, boolean>
+  } catch {
+    return {}
   }
 }
 
-function cronTypeText(c: CronTask): string {
-  if (c.model === 0) return '全站采集'
-  if (c.model === 2) return '失败页补采'
-  return '指定源采集'
+function toggleGroup(key: string): void {
+  collapsed.value = { ...collapsed.value, [key]: !collapsed.value[key] }
+  localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed.value))
 }
 
-function cronTargetText(c: CronTask): string {
-  if (c.model === 2) return '失败页'
-  if (c.model === 0) return '全部启用源'
-  const names = (c.ids ?? []).map((id) => sourceNameById.value[id] ?? id)
-  return names.length ? names.join('、') : '—'
-}
+/** 分组：内置类 / 采集类（空组不显示） */
+const tcGroups = computed(() => {
+  const groups = [
+    { key: 'builtin', label: '内置任务', items: tcList.value.filter((t) => t.kind === 'builtin') },
+    { key: 'collect', label: '采集定时任务', items: tcList.value.filter((t) => t.kind !== 'builtin') }
+  ]
+  return groups.filter((g) => g.items.length > 0)
+})
 
-const cronRunning = ref<Record<string, boolean>>({})
-async function runCronNow(c: CronTask): Promise<void> {
-  cronRunning.value = { ...cronRunning.value, [c.id]: true }
+async function loadTc(): Promise<void> {
+  tcLoading.value = true
   try {
-    await manageApi.cron.runNow(c.id)
-    toast('success', `已提交执行：${cronTypeText(c)}`)
-    setTimeout(() => void loadCrons(), 1500)
+    const r = await tasksApi.taskCenterTasks()
+    tcList.value = r.list ?? []
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '任务列表加载失败')
+  } finally {
+    tcLoading.value = false
+  }
+}
+
+async function runTask(t: TaskCenterItem): Promise<void> {
+  tcBusy.value = { ...tcBusy.value, [t.key]: true }
+  try {
+    await tasksApi.taskCenterRun(t.key)
+    toast('success', `已提交执行：${t.name}`)
+    setTimeout(() => void loadTc(), 1500)
   } catch (e) {
     toast('error', e instanceof Error ? e.message : '触发失败')
   } finally {
-    cronRunning.value = { ...cronRunning.value, [c.id]: false }
+    tcBusy.value = { ...tcBusy.value, [t.key]: false }
   }
 }
+
+async function editTask(t: TaskCenterItem): Promise<void> {
+  const done = await openManageDialog<boolean>({
+    title: `编辑任务 · ${t.name}`,
+    component: TaskSettingDialog,
+    props: { task: t },
+    width: '560px'
+  })
+  if (done) await loadTc()
+}
+
+const cronRunning = ref<Record<string, boolean>>({})
 
 const jobsError = ref('') // 列表加载失败: 页内错误态+重试, 不伪装成"暂无任务"
 
@@ -210,7 +238,7 @@ async function loadSources(): Promise<void> {
 async function loadAll(): Promise<void> {
   void loadOverview()
   if (activeTab.value === 'running') void loadJobs()
-  if (activeTab.value === 'schedule') void loadCrons()
+  if (activeTab.value === 'schedule') void loadTc()
   if (activeTab.value === 'history') void loadRuns()
   if (activeTab.value === 'failures') void loadFailures()
 }
@@ -444,7 +472,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
     label: '近期任务',
     count: jobs.value.filter((j) => j.state === 'running' || j.state === 'paused').length
   },
-  { value: 'schedule', label: '计划任务', count: crons.value.length },
+  { value: 'schedule', label: '计划任务', count: tcList.value.length },
   { value: 'history', label: '历史记录', count: runTotal.value },
   { value: 'failures', label: '失败记录' }
 ])
@@ -454,9 +482,9 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
   <div class="container-page flex flex-1 min-h-0 flex-col py-[var(--jc-space-5)]">
     <header class="flex items-center justify-between mb-[var(--jc-space-5)]">
       <div>
-        <h1 class="text-2xl font-[var(--jc-fw-semibold)]">任务管理</h1>
+        <h1 class="text-2xl font-[var(--jc-fw-semibold)]">任务中心</h1>
         <p class="text-muted text-sm mt-[var(--jc-space-1)]">
-          全部定时 / 手动任务的实时状态、失败原因与重跑入口
+          内置任务与采集任务的统一入口：计划、状态、手动执行与失败重跑
         </p>
       </div>
       <div class="flex items-center gap-[var(--jc-space-3)]">
@@ -592,41 +620,65 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       </div>
     </template>
 
-    <!-- ===== 计划任务（定时）===== -->
+    <!-- ===== 计划任务（统一任务中心：内置 + 采集）===== -->
     <template v-if="activeTab === 'schedule'">
-      <div v-if="cronsLoading && crons.length === 0" class="jc-tm-empty">加载中…</div>
-      <div v-else-if="crons.length === 0" class="jc-tm-empty">
-        还没有定时任务。到
-        <RouterLink to="/manage/cron" class="text-link">定时任务</RouterLink>
-        新建一个。
+      <div v-if="tcLoading && tcList.length === 0" class="flex flex-col gap-[var(--jc-space-3)]">
+        <BaseSkeleton v-for="i in 3" :key="i" shape="rect" height="72px" />
       </div>
-      <div v-else class="flex flex-col gap-[var(--jc-space-3)]">
-        <article
-          v-for="c in crons"
-          :key="c.id"
-          class="flex flex-wrap items-center gap-[var(--jc-space-2)] rounded-card bg-surface p-[var(--jc-space-4)] shadow-card"
-        >
-          <StatusTag :value="c.state ? 'on' : 'off'" :map="CRON_STATE_MAP" size="sm" />
-          <BaseTag variant="purple" size="xs">{{ cronTypeText(c) }}</BaseTag>
-          <span class="text-sm font-[var(--jc-fw-medium)]">{{ c.remark || cronTargetText(c) }}</span>
-          <span class="text-xs text-muted">计划 {{ c.spec }}</span>
-          <span v-if="c.model !== 2" class="text-xs text-muted">目标 {{ cronTargetText(c) }}</span>
-          <span class="text-xs text-muted">采集 {{ c.time > 0 ? `近 ${c.time} 小时` : '全量' }}</span>
 
-          <span class="ml-auto text-xs text-muted">
-            上次 {{ c.lastRunAt ? formatDateTime(c.lastRunAt) : '未运行' }}
-          </span>
-          <StatusTag v-if="c.lastStatus" :value="c.lastStatus" :map="RUN_STATUS_MAP" size="xs" />
+      <div v-else class="flex flex-col gap-[var(--jc-space-4)]">
+        <section v-for="g in tcGroups" :key="g.key" class="flex flex-col gap-[var(--jc-space-2)]">
+          <button
+            type="button"
+            class="jc-hotarea flex items-center gap-[var(--jc-space-2)] text-left text-sm font-[var(--jc-fw-medium)]"
+            @click="toggleGroup(g.key)"
+          >
+            <span class="text-xs text-muted">{{ collapsed[g.key] ? '▸' : '▾' }}</span>
+            <span>{{ g.label }}</span>
+            <span class="text-xs text-muted">{{ g.items.length }} 项</span>
+          </button>
 
-          <ManageButton
-            size="sm"
-            variant="outline"
-            :loading="!!cronRunning[c.id]"
-            @click="runCronNow(c)"
-          >立即执行</ManageButton>
-        </article>
+          <div v-show="!collapsed[g.key]" class="flex flex-col gap-[var(--jc-space-2)]">
+            <article
+              v-for="t in g.items"
+              :key="t.key"
+              class="flex flex-wrap items-center gap-[var(--jc-space-2)] rounded-card bg-surface p-[var(--jc-space-3)] shadow-card"
+            >
+              <StatusTag :value="t.enabled ? 'on' : 'off'" :map="CRON_STATE_MAP" size="sm" />
+              <BaseTag :variant="t.kind === 'builtin' ? 'purple' : 'info'" size="xs">
+                {{ t.kind === 'builtin' ? '内置' : '采集' }}
+              </BaseTag>
+              <span class="text-sm font-[var(--jc-fw-medium)]">{{ t.name }}</span>
+              <span class="text-xs text-muted">计划 {{ t.scheduleText }}</span>
+              <span v-if="t.target" class="text-xs text-muted">目标 {{ t.target }}</span>
+              <span v-if="t.intervalLabel" class="text-xs text-muted">间隔 {{ t.intervalLabel }}</span>
+
+              <StatusTag v-if="t.state !== 'idle'" :value="t.state" :map="TC_STATE_MAP" size="xs" />
+
+              <span class="ml-auto text-xs text-muted">
+                {{ t.lastRunAt || t.startedAt ? formatDateTime(t.lastRunAt || t.startedAt) : '未运行' }}
+              </span>
+              <span v-if="t.message" class="text-xs text-muted" :title="t.message">{{ t.message }}</span>
+
+              <ManageButton
+                size="sm"
+                variant="ghost"
+                :loading="!!tcBusy[t.key]"
+                @click="runTask(t)"
+              >立即执行</ManageButton>
+              <ManageButton
+                v-if="t.editable && t.editable.length"
+                size="sm"
+                variant="ghost"
+                @click="editTask(t)"
+              >编辑</ManageButton>
+            </article>
+          </div>
+        </section>
+
         <p class="text-xs text-muted">
           计划任务到点自动执行；这里的「立即执行」等同手动触发一次（不影响原计划）。
+          暂停/继续/停止在「近期任务」里对正在运行的采集任务操作。
         </p>
       </div>
     </template>
