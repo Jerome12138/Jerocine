@@ -397,3 +397,44 @@ func Resolve(d Def, u UserConfig) ResolvedConfig {
 	}
 	return rc
 }
+
+// ---- 可编辑字段与引用键（类型化，替代裸字符串）----
+
+// 可编辑字段名（Def.Editable / UpdateSetting 白名单共用）。
+// 用常量而不是裸字符串：拼错时编译期就红；改名字只需一处。
+const (
+	FieldEnabled  = "enabled"  // 启用位
+	FieldSchedule = "schedule" // 调度层周期（友好文本）
+	FieldRemark   = "remark"   // 备注
+	FieldInterval = "interval" // 执行层外部请求间隔
+)
+
+// 引用键前缀（任务中心对外统一用 "builtin:<key>" / "cron:<id>" / "job:<sourceId>" 三种）。
+const (
+	RefPrefixBuiltin = "builtin:"
+	RefPrefixCron    = "cron:"
+	RefPrefixJob     = "job:"
+)
+
+// RefCron 采集任务的引用键。
+func RefCron(id int64) string { return RefPrefixCron + strconv.FormatInt(id, 10) }
+
+// RefJob 采集源 job 的引用键。
+func RefJob(sourceID string) string { return RefPrefixJob + sourceID }
+
+// ParseCronRef 解析 "cron:<id>"；不是采集任务键返回 ok=false。
+func ParseCronRef(key string) (int64, bool) {
+	return ParseIDRef(key, RefPrefixCron)
+}
+
+// ParseIDRef 通用解析器：`<prefix><正整数>`。
+func ParseIDRef(key, prefix string) (int64, bool) {
+	if !strings.HasPrefix(key, prefix) {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(key, prefix), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
+}

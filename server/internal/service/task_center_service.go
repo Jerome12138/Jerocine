@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"log"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -172,7 +171,7 @@ func NewTaskCenterService(
 //
 // 注意：这里**只描述**任务，不接管调度；各任务仍由自己的 ticker/cron 触发（Phase 2 再收敛）。
 func (s *TaskCenterService) registerBuiltins() {
-	editAll := []string{"enabled", "schedule", "remark", "interval"}
+	editAll := []string{taskcenter.FieldEnabled, taskcenter.FieldSchedule, taskcenter.FieldRemark, taskcenter.FieldInterval}
 
 	s.reg.Register(taskcenter.Def{
 		Key: "builtin:douban_score", Kind: taskcenter.KindBuiltin, Type: "douban_score",
@@ -206,7 +205,7 @@ func (s *TaskCenterService) registerBuiltins() {
 		Detail:          "按注册表里的来源逐个拉取公告并入库（只写规则表，不改业务数据）。",
 		DefaultSchedule: "every:24h", Enabled: true,
 		IntervalLabel: "单请求 · 无间隔",
-		Editable:      []string{"enabled", "schedule", "remark"}, Caps: []string{taskcenter.CapRun},
+		Editable:      []string{taskcenter.FieldEnabled, taskcenter.FieldSchedule, taskcenter.FieldRemark}, Caps: []string{taskcenter.CapRun},
 		Status: func(context.Context) taskcenter.Status {
 			return taskcenter.Status{State: taskcenter.StateIdle, Message: "每 24 小时自动拉取一次"}
 		},
@@ -287,7 +286,7 @@ func (s *TaskCenterService) registerBuiltins() {
 		Name: "历史台账清理", Target: "task_run（保留 30 天）",
 		Detail:          "删除 30 天前的终态记录（分批，不删 running）。",
 		DefaultSchedule: "daily:04:00", Enabled: true,
-		Editable: []string{"enabled", "schedule", "remark"},
+		Editable: []string{taskcenter.FieldEnabled, taskcenter.FieldSchedule, taskcenter.FieldRemark},
 		Status:   idleWithMessage("每天清理一次"),
 		Run:      s.PruneHistory,
 	})
@@ -441,12 +440,12 @@ func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set
 func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, last entity.TaskRun,
 	names map[string]string, allIDs []string, snaps map[string]cache.JobProgress) TaskView {
 	v := TaskView{
-		Key: "cron:" + strconv.FormatInt(t.Id, 10), Kind: taskcenter.KindCollect,
+		Key: taskcenter.RefCron(t.Id), Kind: taskcenter.KindCollect,
 		Type: cronTaskType(t), Name: cronTaskName(t, names),
 		Target:   cronTaskTarget(t, names),
 		Schedule: t.Schedule, ScheduleText: taskcenter.DescribeSchedule(t.Schedule),
 		Enabled:  t.State == entity.StateEnabled,
-		Editable: []string{"enabled", "schedule", "remark"},
+		Editable: []string{taskcenter.FieldEnabled, taskcenter.FieldSchedule, taskcenter.FieldRemark},
 		Caps:     []string{taskcenter.CapRun},
 		State:    string(taskcenter.StateIdle),
 	}
@@ -631,16 +630,8 @@ type TaskSettingInput struct {
 	IntervalMs *int    `json:"intervalMs"`
 }
 
-func cronIDOf(key string) (int64, bool) {
-	if !strings.HasPrefix(key, "cron:") {
-		return 0, false
-	}
-	id, err := strconv.ParseInt(strings.TrimPrefix(key, "cron:"), 10, 64)
-	if err != nil || id <= 0 {
-		return 0, false
-	}
-	return id, true
-}
+// cronIDOf "cron:<id>" → id（解析单点在 taskcenter.ParseCronRef）。
+func cronIDOf(key string) (int64, bool) { return taskcenter.ParseCronRef(key) }
 
 func jobKeyOf(key string) (string, bool) {
 	if !strings.HasPrefix(key, "job:") {
@@ -709,16 +700,16 @@ func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in Ta
 	deny := func(field, label string) error {
 		return fmt.Errorf("该任务不支持修改%s", label)
 	}
-	if in.Enabled != nil && !allowed["enabled"] {
+	if in.Enabled != nil && !allowed[taskcenter.FieldEnabled] {
 		return false, deny("enabled", "启用状态")
 	}
-	if in.Schedule != nil && !allowed["schedule"] {
+	if in.Schedule != nil && !allowed[taskcenter.FieldSchedule] {
 		return false, deny("schedule", "执行周期")
 	}
-	if in.Remark != nil && !allowed["remark"] {
+	if in.Remark != nil && !allowed[taskcenter.FieldRemark] {
 		return false, deny("remark", "备注")
 	}
-	if in.IntervalMs != nil && !allowed["interval"] {
+	if in.IntervalMs != nil && !allowed[taskcenter.FieldInterval] {
 		return false, deny("interval", "接口间隔")
 	}
 
@@ -928,7 +919,7 @@ func (s *TaskCenterService) RerunRun(ctx context.Context, runID int64) error {
 	}
 	// 定时采集任务：按 cron id 重跑（走 TriggerCron，保留其既有限制）
 	if r.CronId > 0 {
-		return s.RunTask(ctx, "cron:"+strconv.FormatInt(r.CronId, 10))
+		return s.RunTask(ctx, taskcenter.RefCron(r.CronId))
 	}
 	// 内置任务：按 type 反查注册表（同 type 只可能有一个 key）
 	for _, d := range s.reg.All() {

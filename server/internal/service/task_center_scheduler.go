@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -169,7 +168,7 @@ func (s *TaskScheduler) tickCron(ctx context.Context, now time.Time) {
 		if t.State != entity.StateEnabled || t.Schedule == "" {
 			continue // 未启用 / 周期待人工配置
 		}
-		key := "cron:" + strconv.FormatInt(t.Id, 10)
+		key := taskcenter.RefCron(t.Id)
 
 		s.mu.Lock()
 		nextAt, known := s.next[key]
@@ -193,7 +192,7 @@ func (s *TaskScheduler) tickCron(ctx context.Context, now time.Time) {
 
 // runCron 触发一轮采集任务（台账在 executeTask 内写）。
 func (s *TaskScheduler) runCron(ctx context.Context, t entity.CronTask) {
-	key := "cron:" + strconv.FormatInt(t.Id, 10)
+	key := taskcenter.RefCron(t.Id)
 	s.mu.Lock()
 	if s.busy[key] {
 		s.mu.Unlock()
@@ -307,7 +306,7 @@ func (s *TaskScheduler) Snapshot(ctx context.Context) (items []ScheduleItem, gat
 	if s.tc.crons != nil {
 		if list, err := s.tc.crons.List(ctx); err == nil {
 			for _, t := range list {
-				crons["cron:"+strconv.FormatInt(t.Id, 10)] = t
+				crons[taskcenter.RefCron(t.Id)] = t
 			}
 		}
 	}

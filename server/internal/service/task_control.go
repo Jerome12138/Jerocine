@@ -96,7 +96,7 @@ func (s *TaskCenterService) pauseRunningJobs(ctx context.Context, jobs []cache.J
 			continue // 已暂停/已结束的不动（尤其别把"用户手工暂停"的算成闸门暂停）
 		}
 		it := TaskGateItem{
-			Key: "job:" + j.SourceId, Name: j.Name, Kind: taskcenter.KindCollect,
+			Key: taskcenter.RefJob(j.SourceId), Name: j.Name, Kind: taskcenter.KindCollect,
 			State: j.State, Pauseable: true,
 		}
 		switch err := cache.JobControl(ctx, j.SourceId, cache.JobPaused, cache.JobRunning); {
@@ -149,7 +149,7 @@ func (s *TaskCenterService) ResumeAll(ctx context.Context) (TaskGateReport, erro
 	// 已结束/已中断/已在跑（错失状态）的这些不算失败：它们本来就不需要恢复。
 	var keepFailed []string
 	for _, id := range ids {
-		it := TaskGateItem{Key: "job:" + id, Kind: taskcenter.KindCollect, State: cache.JobPaused, Pauseable: true}
+		it := TaskGateItem{Key: taskcenter.RefJob(id), Kind: taskcenter.KindCollect, State: cache.JobPaused, Pauseable: true}
 		switch err := cache.JobControl(ctx, id, cache.JobRunning, cache.JobPaused); {
 		case err == nil:
 			it.Action = "resumed"

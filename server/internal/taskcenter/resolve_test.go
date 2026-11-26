@@ -107,3 +107,25 @@ func TestNextJobState(t *testing.T) {
 		t.Fatal("终态判定不对")
 	}
 }
+
+// 引用键：构造与解析必须成对（拼法单点，避免各处 "cron:"+itoa 漂移）。
+func TestTaskRefs(t *testing.T) {
+	if got := RefCron(7); got != "cron:7" {
+		t.Fatalf("RefCron = %q", got)
+	}
+	if got := RefJob("src_lz"); got != "job:src_lz" {
+		t.Fatalf("RefJob = %q", got)
+	}
+	if id, ok := ParseCronRef("cron:7"); !ok || id != 7 {
+		t.Fatalf("ParseCronRef(cron:7) = (%d,%v)", id, ok)
+	}
+	for _, bad := range []string{"cron:", "cron:0", "cron:-1", "cron:abc", "builtin:x", "7", ""} {
+		if id, ok := ParseCronRef(bad); ok {
+			t.Fatalf("%q 不该被解析成采集任务 id=%d", bad, id)
+		}
+	}
+	// Field 常量与前端/后端口径一致（改了要同步 task_setting 的白名单语义）
+	if FieldEnabled != "enabled" || FieldSchedule != "schedule" || FieldRemark != "remark" || FieldInterval != "interval" {
+		t.Fatal("Field 常量取值被改动，需同步前后端与文档")
+	}
+}
