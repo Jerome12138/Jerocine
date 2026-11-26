@@ -341,3 +341,76 @@ func TestDoubanStatus_KeepsProgressWhenDone(t *testing.T) {
 		t.Fatalf("完成态也要带进度数字: %+v", st.Progress)
 	}
 }
+
+// 安静点（发版前）：已按长任务暂停的豆瓣批次**不能**算在 runningBuiltin 里，
+// 否则脚本会白等到超时（暂停中的 goroutine 仍活着、busy 仍为 true）。
+func TestControlState_ExcludesPausedLong(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+
+	reg := taskcenter.NewRegistry()
+	reg.Register(taskcenter.Def{Key: "builtin:douban_score", Type: "douban_score",
+		Kind: taskcenter.KindBuiltin, Enabled: true, Run: func(context.Context) error { return nil }})
+	reg.Register(taskcenter.Def{Key: "builtin:backdrop", Type: "backdrop",
+		Kind: taskcenter.KindBuiltin, Enabled: true, Run: func(context.Context) error { return nil }})
+	svc := &TaskCenterService{reg: reg, film: &FilmService{}}
+	sched := NewTaskScheduler(svc)
+	svc.attachScheduler(sched)
+
+	// 模拟：豆瓣在跑（busy）+ 横图在跑（busy）+ 豆瓣已被暂停
+	sched.mu.Lock()
+	sched.busy["builtin:douban_score"] = true
+	sched.busy["builtin:backdrop"] = true
+	sched.mu.Unlock()
+	doubanBatchPaused.Store(true)
+	defer doubanBatchPaused.Store(false)
+
+	st, err := svc.ControlState(ctx)
+	if err != nil {
+		t.Fatalf("ControlState: %v", err)
+	}
+	if len(st.PausedLong) == 0 {
+		t.Fatal("应报告已暂停的长任务")
+	}
+	for _, k := range st.RunningBuiltin {
+		if k == "builtin:douban_score" {
+			t.Fatalf("已暂停的长任务不该出现在 runningBuiltin: %v", st.RunningBuiltin)
+		}
+	}
+	found := false
+	for _, k := range st.RunningBuiltin {
+		if k == "builtin:backdrop" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("仍在跑的短任务必须留在 runningBuiltin: %v", st.RunningBuiltin)
+	}
+}
+
+// 重启把批次打断后：resume 只关窗不恢复任何批次，但**必须**告诉人"断点还在，手动执行可续"
+func TestResumeAll_ReportsOrphanCursor(t *testing.T) {
+	initTestCache(t)
+	ctx := context.Background()
+	svc := &TaskCenterService{reg: newRegistryWithBuiltins(), film: &FilmService{}}
+
+	// 模拟重启后的状态：不是 busy、没在跑，但游标还在
+	saveDoubanCursor(ctx, doubanCursor{Task: "douban_backfill", Total: 2000, Done: 300})
+
+	rep, err := svc.ResumeAll(ctx)
+	if err != nil {
+		t.Fatalf("ResumeAll: %v", err)
+	}
+	var hit *TaskGateItem
+	for i := range rep.Items {
+		if rep.Items[i].Key == "builtin:douban_backfill" {
+			hit = &rep.Items[i]
+		}
+	}
+	if hit == nil {
+		t.Fatalf("有断点却什么都没报（操作者会以为一切正常）: %+v", rep.Items)
+	}
+	if hit.Action != "skipped" || !strings.Contains(hit.Reason, "断点") {
+		t.Fatalf("应回报 skipped 且说明断点保留, got %+v", *hit)
+	}
+}

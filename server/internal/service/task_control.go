@@ -196,11 +196,31 @@ func (s *TaskCenterService) ResumeAll(ctx context.Context) (TaskGateReport, erro
 		rep.Items = append(rep.Items, it)
 	}
 	// 豆瓣批次（无白名单，靠 idempotent 恢复）
-	if s.film != nil && s.film.ResumeDoubanBatch() {
-		rep.Items = append(rep.Items, TaskGateItem{
-			Key: "builtin:douban_batch", Name: "豆瓣批次", Kind: taskcenter.KindBuiltin,
-			Action: "resumed", Pauseable: true,
-		})
+	if s.film != nil {
+		switch {
+		case s.film.ResumeDoubanBatch():
+			rep.Items = append(rep.Items, TaskGateItem{
+				Key: "builtin:douban_batch", Name: "豆瓣批次", Kind: taskcenter.KindBuiltin,
+				Action: "resumed", Pauseable: true,
+			})
+		default:
+			// 没恢复成功分两种：① 根本没在跑（无事）② 重启把批次打断了，但游标还在。
+			// ② 必须说出来 —— 否则页面显示"恢复 0 个"，操作者以为正常，实际需要手动再执行一次。
+			if _, okS := loadDoubanCursor(ctx, "douban_score"); okS {
+				rep.Items = append(rep.Items, TaskGateItem{
+					Key: "builtin:douban_score", Name: "豆瓣评分同步", Kind: taskcenter.KindBuiltin,
+					Action: "skipped", Pauseable: true,
+					Reason: "批次已随服务重启中断；断点保留，手动执行会从上次进度继续",
+				})
+			}
+			if _, okB := loadDoubanCursor(ctx, "douban_backfill"); okB {
+				rep.Items = append(rep.Items, TaskGateItem{
+					Key: "builtin:douban_backfill", Name: "豆瓣欠账补查", Kind: taskcenter.KindBuiltin,
+					Action: "skipped", Pauseable: true,
+					Reason: "批次已随服务重启中断；断点保留，手动执行会从上次进度继续",
+				})
+			}
+		}
 	}
 	cache.TaskGateJobsClear(ctx)
 	if len(keepFailed) > 0 {
@@ -227,14 +247,23 @@ func (s *TaskCenterService) ControlState(ctx context.Context) (TaskGateState, er
 	if open {
 		st.Until = until.Unix()
 	}
-	st.RunningBuiltin = s.runningBuiltins()
-	if st.RunningBuiltin == nil {
-		st.RunningBuiltin = []string{}
-	}
 	if s.film != nil && s.film.DoubanPaused() {
 		st.PausedLong = []string{"builtin:douban_score", "builtin:douban_backfill"}
 	} else {
 		st.PausedLong = []string{}
+	}
+	// runningBuiltin 只留"还在忙、需要等"的：**已按长任务暂停的不算**
+	// （暂停中的豆瓣 goroutine 仍活着、busy 仍为 true，不剔除的话发版会白等到超时）
+	pausedSet := make(map[string]bool, len(st.PausedLong))
+	for _, k := range st.PausedLong {
+		pausedSet[k] = true
+	}
+	st.RunningBuiltin = make([]string, 0, 4)
+	for _, k := range s.runningBuiltins() {
+		if pausedSet[k] {
+			continue
+		}
+		st.RunningBuiltin = append(st.RunningBuiltin, k)
 	}
 	if jobs, jerr := cache.JobList(ctx); jerr == nil {
 		for _, j := range jobs {
