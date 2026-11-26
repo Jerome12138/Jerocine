@@ -50,12 +50,20 @@ async function loadFacets(name: string): Promise<void> {
   try {
     facets.value = await filmApi.getActorFacets(name)
     if (catName.value.size === 0) {
-      const cats = (await filmApi.getCategories()) as unknown as {
-        id?: number
-        pid?: number
-        name: string
-      }[]
-      catName.value = new Map(cats.map((c) => [Number(c.pid ?? c.id ?? 0), c.name]))
+      type CatNode = { id?: number; name: string; children?: CatNode[] }
+      const tree = (await filmApi.getCategories()) as unknown as CatNode[]
+      // 分类接口返回的是**树**，且节点上的 pid 是"父 id"（顶层为 0）。
+      // 用 c.pid 当 key ⇒ 只有 0/父 id 有值，facets 的真实 pid 全查不到，界面退化成"分类1/分类2"。
+      // 这里按自身 id、并展开子级建立映射。
+      const flat: CatNode[] = []
+      const walk = (list: CatNode[]): void => {
+        for (const c of list) {
+          flat.push(c)
+          if (c.children?.length) walk(c.children)
+        }
+      }
+      walk(tree ?? [])
+      catName.value = new Map(flat.map((c) => [Number(c.id ?? 0), c.name]))
     }
   } catch {
     facets.value = null

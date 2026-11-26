@@ -17,6 +17,7 @@ import DomainRuleFormDialog from './DomainRuleFormDialog.vue'
 import DomainRulePreviewDialog from './DomainRulePreviewDialog.vue'
 import type { Column } from '@/components/manage/ManageTable.vue'
 import type { DomainRuleView } from '@/api/manage/system'
+import { DOMAIN_RULE_STATE_MAP } from './domainRuleState'
 
 /**
  * 域名替换规则（macrep）—— 列表页。
@@ -65,14 +66,6 @@ const columns: Column<DomainRuleView>[] = [
   { key: 'state', label: '状态', width: '96px' }
 ]
 
-/** 状态词表：交给公共 StatusTag 渲染（label + variant 一处定义） */
-const STATE_MAP = {
-  pending: { label: '待处理', variant: 'warning' as const },
-  applied: { label: '已执行', variant: 'success' as const },
-  skipped: { label: '无需替换', variant: 'default' as const },
-  merged: { label: '已被取代', variant: 'info' as const },
-  rejected: { label: '已拒绝', variant: 'danger' as const }
-}
 
 /** 列 key 归一成 string：ManageTable 的 #cell 插槽把 key 收窄成 keyof T，直接比较派生列会报错 */
 function colKey(col: { key: string }): string {
@@ -274,7 +267,7 @@ onMounted(() => {
     v-model:current="page"
     :page-size="pageSize"
     empty="暂无规则，点右上角「立即拉取公告」或「手工添加」"
-    actions-width="268px"
+    actions-width="150px"
     sticky-actions
   >
     <template #toolbar>
@@ -322,45 +315,25 @@ onMounted(() => {
           :href="sourceLink(r)"
           target="_blank"
           rel="noopener"
-          class="jc-hotarea text-[var(--jc-accent)] underline"
+          class="jc-hotarea text-[var(--jc-brand-purple)] underline"
           title="打开公告原文"
         >{{ sourceLabel(r) }}</a>
         <span v-else class="text-muted">{{ sourceLabel(r) }}</span>
       </template>
 
-      <StatusTag v-else-if="colKey(col) === 'state'" :value="r.state" :map="STATE_MAP" />
+      <StatusTag v-else-if="colKey(col) === 'state'" :value="r.state" :map="DOMAIN_RULE_STATE_MAP" />
     </template>
 
     <template #actions="{ row }">
       <div class="flex flex-wrap justify-end gap-[var(--jc-space-1)]">
+        <!-- 操作列只留「预览」；具体动作（执行/无需替换/拒绝/重置）都在预览弹窗里 -->
         <ManageButton variant="ghost" size="sm" @click="previewRule(row)">预览</ManageButton>
         <ManageButton
-          v-if="row.supported && row.state !== 'applied'"
+          v-if="row.state === 'pending'"
           variant="ghost"
           size="sm"
-          class="text-[var(--jc-accent)]"
-          @click="applyRule(row)"
-        >执行</ManageButton>
-        <ManageButton variant="ghost" size="sm" @click="editRule(row)">编辑</ManageButton>
-        <ManageButton
-          v-if="row.state !== 'skipped'"
-          variant="ghost"
-          size="sm"
-          @click="setState(row, 'skipped')"
-        >无需替换</ManageButton>
-        <ManageButton
-          v-if="row.state !== 'rejected'"
-          variant="ghost"
-          size="sm"
-          class="text-[var(--jc-danger)]"
-          @click="setState(row, 'rejected')"
-        >拒绝</ManageButton>
-        <ManageButton
-          v-if="row.state !== 'pending' && row.state !== 'applied'"
-          variant="ghost"
-          size="sm"
-          @click="setState(row, 'pending')"
-        >重置</ManageButton>
+          @click="editRule(row)"
+        >编辑</ManageButton>
       </div>
     </template>
   </ManageTable>

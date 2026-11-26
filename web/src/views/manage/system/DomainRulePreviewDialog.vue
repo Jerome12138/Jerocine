@@ -5,7 +5,9 @@ import { toast } from '@/api/http'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import ManageErrorState from '@/components/manage/ManageErrorState.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
+import StatusTag from '@/components/manage/StatusTag.vue'
 import type { DomainRuleView } from '@/api/manage/system'
+import { DOMAIN_RULE_STATE_MAP } from './domainRuleState'
 
 /**
  * 规则影响面预览（openManageDialog 内容组件，**只读**）。
@@ -31,6 +33,7 @@ const loadError = ref(false)
 const hits = ref(0)
 const sample = ref<{ mid: number; before: string; after: string }[]>([])
 const sites = ref<string[]>([])
+
 
 const fieldVariant = computed<'brand' | 'purple' | 'default'>(() => {
   if (props.rule.field === 'vod_pic') return 'brand'
@@ -82,6 +85,7 @@ onMounted(load)
         <BaseTag :variant="fieldVariant" size="sm">{{ rule.fieldLabel || rule.field }}</BaseTag>
         <span class="text-xs text-secondary">{{ scopeText }}</span>
         <span v-if="rule.targetColumn" class="text-xs text-muted">落点 {{ rule.targetColumn }}</span>
+        <StatusTag :value="rule.state" :map="DOMAIN_RULE_STATE_MAP" size="sm" class="ml-auto" />
       </div>
       <p class="break-all text-sm font-[var(--jc-fw-medium)]">
         {{ rule.fromHost }} <span class="text-muted">→</span> {{ rule.toHost }}
@@ -140,27 +144,20 @@ onMounted(load)
     <div
       class="sticky bottom-0 z-[1] -mx-[var(--jc-space-5)] -mb-[var(--jc-space-5)] mt-[var(--jc-space-2)] flex flex-wrap items-center justify-end gap-[var(--jc-space-2)] border-t border-subtle bg-surface px-[var(--jc-space-5)] pb-[var(--jc-space-5)] pt-[var(--jc-space-3)]"
     >
-      <ManageButton
-        v-if="rule.state !== 'skipped'"
-        variant="ghost"
-        @click="emit('confirm', { action: 'skip' })"
-      >无需替换</ManageButton>
-      <ManageButton
-        v-if="rule.state !== 'rejected'"
-        variant="ghost"
-        class="text-[var(--jc-danger)]"
-        @click="emit('confirm', { action: 'reject' })"
-      >拒绝</ManageButton>
-      <ManageButton
-        v-if="rule.state !== 'pending' && rule.state !== 'applied'"
-        variant="ghost"
-        @click="emit('confirm', { action: 'reset' })"
-      >重置</ManageButton>
-      <ManageButton
-        v-if="rule.supported && rule.state !== 'applied'"
-        variant="gradient"
-        @click="emit('confirm', { action: 'apply' })"
-      >执行替换</ManageButton>
+      <template v-if="rule.state === 'pending'">
+        <ManageButton variant="ghost" @click="emit('confirm', { action: 'skip' })">无需替换</ManageButton>
+        <ManageButton
+          variant="ghost"
+          class="text-[var(--jc-danger)]"
+          @click="emit('confirm', { action: 'reject' })"
+        >拒绝</ManageButton>
+        <ManageButton
+          v-if="rule.supported"
+          variant="gradient"
+          @click="emit('confirm', { action: 'apply' })"
+        >执行替换</ManageButton>
+      </template>
+      <ManageButton v-else variant="ghost" @click="emit('confirm', { action: 'reset' })">重置</ManageButton>
     </div>
   </div>
 </template>

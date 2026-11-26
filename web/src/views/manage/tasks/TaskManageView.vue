@@ -3,10 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as collectApi from '@/api/manage/collect'
 import * as tasksApi from '@/api/manage/tasks'
 import type { SpiderJob } from '@/api/manage/collect'
-import type { CollectFailure, TaskOverview, TaskRun } from '@/types/manage'
+import type { CollectFailure, CronTask, TaskOverview, TaskRun } from '@/types/manage'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import ManageTable, { type Column } from '@/components/manage/ManageTable.vue'
 import ManageTabs from '@/components/manage/ManageTabs.vue'
 import type { TabItem } from '@/components/manage/ManageTabs.vue'
@@ -16,6 +17,7 @@ import type { StatusMap } from '@/components/manage/StatusTag.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import { toast } from '@/api/http'
+import { manageApi } from '@/api'
 import { formatDateTime } from '@/utils/format'
 
 /**
@@ -29,7 +31,7 @@ import { formatDateTime } from '@/utils/format'
  * 提示口径: 写操作经 useAsyncAction 单点提示 + { silent: true }(拦截器的通用提示关闭,
  * 页面差异化文案不与拦截器叠两条); 后台轮询用的读接口也 silent, 失败只降级页内状态不刷 toast。
  */
-type TabKey = 'running' | 'history' | 'failures'
+type TabKey = 'running' | 'schedule' | 'history' | 'failures'
 
 const activeTab = ref<TabKey>('running')
 
@@ -41,6 +43,12 @@ const JOB_STATE_MAP: StatusMap = {
   error: { label: '失败', variant: 'danger' },
   canceled: { label: '已取消', variant: 'danger' }
 }
+/** 计划任务启停状态 */
+const CRON_STATE_MAP: StatusMap = {
+  on: { label: '启用', variant: 'success' },
+  off: { label: '停用', variant: 'default' }
+}
+
 const RUN_STATUS_MAP: StatusMap = {
   running: { label: '运行中', variant: 'brand' },
   success: { label: '成功', variant: 'success' },
@@ -54,6 +62,57 @@ const ov = ref<TaskOverview>({ running: 0, todaySuccess: 0, todayFailed: 0, pend
 // ---- 运行中 job ----
 const jobs = ref<SpiderJob[]>([])
 const jobsLoading = ref(false)
+/** 计划任务（定时）：与其他类型统一展示在同一"任务中心"里 */
+const crons = ref<CronTask[]>([])
+const cronsLoading = ref(false)
+/** 采集源 id → 名称（计划任务的目标列展示用） */
+const sourceNameById = ref<Record<string, string>>({})
+
+async function loadCrons(): Promise<void> {
+  cronsLoading.value = true
+  try {
+    const [list, sources] = await Promise.all([
+      manageApi.cron.list(),
+      collectApi.list().catch(() => [])
+    ])
+    crons.value = list ?? []
+    const m: Record<string, string> = {}
+    for (const s of sources) m[s.id] = s.name || s.id
+    sourceNameById.value = m
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '计划任务加载失败')
+  } finally {
+    cronsLoading.value = false
+  }
+}
+
+function cronTypeText(c: CronTask): string {
+  if (c.model === 0) return '全站采集'
+  if (c.model === 2) return '失败页补采'
+  return '指定源采集'
+}
+
+function cronTargetText(c: CronTask): string {
+  if (c.model === 2) return '失败页'
+  if (c.model === 0) return '全部启用源'
+  const names = (c.ids ?? []).map((id) => sourceNameById.value[id] ?? id)
+  return names.length ? names.join('、') : '—'
+}
+
+const cronRunning = ref<Record<string, boolean>>({})
+async function runCronNow(c: CronTask): Promise<void> {
+  cronRunning.value = { ...cronRunning.value, [c.id]: true }
+  try {
+    await manageApi.cron.runNow(c.id)
+    toast('success', `已提交执行：${cronTypeText(c)}`)
+    setTimeout(() => void loadCrons(), 1500)
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '触发失败')
+  } finally {
+    cronRunning.value = { ...cronRunning.value, [c.id]: false }
+  }
+}
+
 const jobsError = ref('') // 列表加载失败: 页内错误态+重试, 不伪装成"暂无任务"
 
 // ---- 历史台账(usePagedList: 筛选 runStatus/runType 闭包捕获, elapsedMs 派生在 fetch 映射) ----
@@ -151,6 +210,7 @@ async function loadSources(): Promise<void> {
 async function loadAll(): Promise<void> {
   void loadOverview()
   if (activeTab.value === 'running') void loadJobs()
+  if (activeTab.value === 'schedule') void loadCrons()
   if (activeTab.value === 'history') void loadRuns()
   if (activeTab.value === 'failures') void loadFailures()
 }
@@ -288,6 +348,30 @@ function fmtDuration(ms: number): string {
   return `${h}h ${m % 60}m`
 }
 
+/**
+ * 进度条配色：
+ *  - 运行中 = 品牌渐变（与旧版一致）
+ *  - 已完成 = 成功绿（之前误用了不存在的 --jc-accent，渲染出来是灰的）
+ *  - 暂停 = 琥珀 / 失败 = 红
+ */
+function barClass(j: SpiderJob): string {
+  if (j.state === 'paused') return 'bg-[var(--jc-warning)]'
+  if (j.state === 'error') return 'bg-[var(--jc-danger)]'
+  if (j.state === 'done') return 'bg-[var(--jc-success)]'
+  return 'bg-[linear-gradient(90deg,var(--jc-brand-purple),var(--jc-brand-cyan))]'
+}
+
+/** 进度文案：总数未知时不给假进度（"共 ? 页 · 0%" 是上一版的观感问题） */
+function progressText(j: SpiderJob): string {
+  if (j.totalPages <= 0) {
+    if (j.state === 'running') return '准备中…'
+    if (j.state === 'done') return '已完成（无分页数据）'
+    if (j.state === 'error') return '失败'
+    return '—'
+  }
+  return `已完成 ${j.donePages} / 共 ${j.totalPages} 页 · ${fmtPercent(j)}%`
+}
+
 function fmtPercent(j: SpiderJob): number {
   if (j.totalPages <= 0) return 0
   return Math.min(100, Math.round((j.donePages / j.totalPages) * 100))
@@ -357,9 +441,10 @@ const RUN_TYPE_OPTIONS = [
 const tabs = computed<TabItem<TabKey>[]>(() => [
   {
     value: 'running',
-    label: '运行中',
+    label: '近期任务',
     count: jobs.value.filter((j) => j.state === 'running' || j.state === 'paused').length
   },
+  { value: 'schedule', label: '计划任务', count: crons.value.length },
   { value: 'history', label: '历史记录', count: runTotal.value },
   { value: 'failures', label: '失败记录' }
 ])
@@ -412,7 +497,9 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
     <!-- ===== 运行中 ===== -->
     <template v-if="activeTab === 'running'">
       <!-- 加载中: 占位, 不与空态混同 -->
-      <div v-if="jobsLoading && jobs.length === 0" class="jc-tm-empty">加载中…</div>
+      <div v-if="jobsLoading && jobs.length === 0" class="flex flex-col gap-[var(--jc-space-3)]">
+        <BaseSkeleton v-for="i in 3" :key="i" shape="rect" height="72px" />
+      </div>
 
       <!-- 首次加载失败: 明确报错 + 重试, 不落入"暂无任务"空态误导 -->
       <div v-else-if="jobsError && jobs.length === 0" class="jc-tm-empty">
@@ -429,67 +516,118 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       </div>
 
       <div v-else class="flex flex-col gap-[var(--jc-space-4)]">
-        <article v-for="j in jobs" :key="j.sourceId" class="jc-job">
-          <header class="jc-job__head">
-            <span class="jc-job__name">{{ j.sourceName }}</span>
-            <StatusTag :value="j.state" :map="JOB_STATE_MAP" />
-            <span class="text-muted text-xs ml-auto">
-              {{ j.hour > 0 ? `近 ${j.hour}h` : '全量' }} · 用时 {{ fmtDuration(j.elapsedMs) }}
-            </span>
-          </header>
+        <article
+          v-for="j in jobs"
+          :key="j.sourceId"
+          class="flex flex-col gap-[var(--jc-space-2)] rounded-card bg-surface p-[var(--jc-space-4)] shadow-card"
+        >
+          <!-- 一行放完：状态 / 名称 / 目标 / 启动 / 耗时 / 进度 / 操作 -->
+          <div class="flex flex-wrap items-center gap-[var(--jc-space-2)]">
+            <StatusTag :value="j.state" :map="JOB_STATE_MAP" size="sm" />
+            <span class="text-sm font-[var(--jc-fw-medium)]">{{ j.sourceName }}</span>
+            <BaseTag variant="info" size="xs">采集</BaseTag>
+            <span class="text-xs text-muted">目标 {{ j.hour > 0 ? `近 ${j.hour} 小时` : '全量' }}</span>
+            <span class="text-xs text-muted">启动 {{ j.startedAt ? formatDateTime(j.startedAt * 1000) : '—' }}</span>
+            <span class="text-xs text-muted">耗时 {{ j.elapsedMs > 0 ? fmtDuration(j.elapsedMs) : '—' }}</span>
 
-          <div class="jc-job__bar">
+            <span class="ml-auto text-xs tabular-nums" :class="j.totalPages > 0 ? 'text-secondary' : 'text-muted'">
+              {{ progressText(j) }}
+            </span>
+
+            <div class="flex gap-[var(--jc-space-1)]">
+              <ManageButton
+                v-if="j.state === 'running'"
+                variant="outline"
+                size="sm"
+                :disabled="busy"
+                @click="pause(j.sourceId)"
+              >暂停</ManageButton>
+              <ManageButton
+                v-if="j.state === 'paused'"
+                variant="primary"
+                size="sm"
+                :disabled="busy"
+                @click="resume(j.sourceId)"
+              >继续</ManageButton>
+              <ManageButton
+                v-if="j.state === 'running' || j.state === 'paused'"
+                variant="danger"
+                size="sm"
+                :disabled="busy"
+                @click="cancelJob(j)"
+              >取消</ManageButton>
+              <ManageButton
+                v-if="j.state === 'error' || j.state === 'canceled'"
+                variant="primary"
+                size="sm"
+                :disabled="busy"
+                @click="rerunJob(j)"
+              >重跑</ManageButton>
+            </div>
+          </div>
+
+          <!-- 细进度条：只有知道总页数时才画，避免"共 ? 页 · 0%"这种假进度 -->
+          <div
+            v-if="j.totalPages > 0"
+            class="h-1 w-full overflow-hidden rounded-full bg-[var(--jc-border-default)]"
+          >
             <div
-              class="jc-job__bar-fill"
-              :class="{ 'jc-job__bar-fill--paused': j.state === 'paused' }"
+              class="h-full rounded-full transition-all"
+              :class="barClass(j)"
               :style="{ width: fmtPercent(j) + '%' }"
             />
-            <span class="jc-job__bar-text">
-              已完成 {{ j.donePages }} 页 / 共 {{ j.totalPages || '?' }} 页
-              <template v-if="j.failedPages > 0">
-                · <span class="text-danger">失败 {{ j.failedPages }} 页</span>
-              </template>
-              · 进度 {{ fmtPercent(j) }}%
+          </div>
+
+          <div class="flex flex-wrap items-center gap-[var(--jc-space-3)] text-xs">
+            <span v-if="j.failedPages > 0" class="text-[var(--jc-danger)]">失败 {{ j.failedPages }} 页</span>
+            <span
+              v-if="j.state === 'error' && j.error"
+              class="flex min-w-0 flex-1 items-start gap-1 text-[var(--jc-danger)]"
+            >
+              <BaseIcon name="info" size="14" />
+              <span class="break-all">{{ j.error }}</span>
             </span>
           </div>
-
-          <!-- 失败原因: 红色高亮 + 展开提示 -->
-          <div v-if="j.state === 'error' && j.error" class="jc-job__error">
-            <BaseIcon name="info" size="14" />
-            <span class="flex-1 break-all">{{ j.error }}</span>
-          </div>
-
-          <div class="jc-job__actions">
-            <ManageButton
-              v-if="j.state === 'running'"
-              variant="outline"
-              size="sm"
-              :disabled="busy"
-              @click="pause(j.sourceId)"
-            >暂停</ManageButton>
-            <ManageButton
-              v-if="j.state === 'paused'"
-              variant="primary"
-              size="sm"
-              :disabled="busy"
-              @click="resume(j.sourceId)"
-            >继续</ManageButton>
-            <ManageButton
-              v-if="j.state === 'running' || j.state === 'paused'"
-              variant="danger"
-              size="sm"
-              :disabled="busy"
-              @click="cancelJob(j)"
-            >取消</ManageButton>
-            <ManageButton
-              v-if="j.state === 'error' || j.state === 'canceled'"
-              variant="primary"
-              size="sm"
-              :disabled="busy"
-              @click="rerunJob(j)"
-            >重跑</ManageButton>
-          </div>
         </article>
+      </div>
+    </template>
+
+    <!-- ===== 计划任务（定时）===== -->
+    <template v-if="activeTab === 'schedule'">
+      <div v-if="cronsLoading && crons.length === 0" class="jc-tm-empty">加载中…</div>
+      <div v-else-if="crons.length === 0" class="jc-tm-empty">
+        还没有定时任务。到
+        <RouterLink to="/manage/cron" class="text-link">定时任务</RouterLink>
+        新建一个。
+      </div>
+      <div v-else class="flex flex-col gap-[var(--jc-space-3)]">
+        <article
+          v-for="c in crons"
+          :key="c.id"
+          class="flex flex-wrap items-center gap-[var(--jc-space-2)] rounded-card bg-surface p-[var(--jc-space-4)] shadow-card"
+        >
+          <StatusTag :value="c.state ? 'on' : 'off'" :map="CRON_STATE_MAP" size="sm" />
+          <BaseTag variant="purple" size="xs">{{ cronTypeText(c) }}</BaseTag>
+          <span class="text-sm font-[var(--jc-fw-medium)]">{{ c.remark || cronTargetText(c) }}</span>
+          <span class="text-xs text-muted">计划 {{ c.spec }}</span>
+          <span v-if="c.model !== 2" class="text-xs text-muted">目标 {{ cronTargetText(c) }}</span>
+          <span class="text-xs text-muted">采集 {{ c.time > 0 ? `近 ${c.time} 小时` : '全量' }}</span>
+
+          <span class="ml-auto text-xs text-muted">
+            上次 {{ c.lastRunAt ? formatDateTime(c.lastRunAt) : '未运行' }}
+          </span>
+          <StatusTag v-if="c.lastStatus" :value="c.lastStatus" :map="RUN_STATUS_MAP" size="xs" />
+
+          <ManageButton
+            size="sm"
+            variant="outline"
+            :loading="!!cronRunning[c.id]"
+            @click="runCronNow(c)"
+          >立即执行</ManageButton>
+        </article>
+        <p class="text-xs text-muted">
+          计划任务到点自动执行；这里的「立即执行」等同手动触发一次（不影响原计划）。
+        </p>
       </div>
     </template>
 

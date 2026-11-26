@@ -55,7 +55,9 @@ withDefaults(
 }
 .jc-settings-page__knob {
   position: absolute;
-  top: calc(3px * var(--jc-sw-scale));
+  /* 垂直居中：轨道高度与滑块直径分档变化，硬编码 top 会偏（用户反馈"圆圈没上下居中"） */
+  top: 50%;
+  transform: translateY(-50%);
   left: calc(3px * var(--jc-sw-scale));
   width: calc(var(--jc-switch-knob) * var(--jc-sw-scale));
   height: calc(var(--jc-switch-knob) * var(--jc-sw-scale));
@@ -64,7 +66,7 @@ withDefaults(
   transition: transform 0.15s ease;
 }
 .jc-settings-page__switch.is-on .jc-settings-page__knob {
-  transform: translateX(calc((var(--jc-switch-w) - var(--jc-switch-knob) - 6px) * var(--jc-sw-scale)));
+  transform: translate(calc((var(--jc-switch-w) - var(--jc-switch-knob) - 6px) * var(--jc-sw-scale)), -50%);
 }
 
 /* —— sm: 绑 --jc-switch-*(scale=0.85, 兼容原 36×20 档) —— */
@@ -83,7 +85,8 @@ withDefaults(
 }
 .jc-skip-switch__thumb {
   position: absolute;
-  top: calc(2px * var(--jc-sw-scale));
+  top: 50%;
+  transform: translateY(-50%);
   left: calc(2px * var(--jc-sw-scale));
   width: calc(var(--jc-switch-knob) * var(--jc-sw-scale));
   height: calc(var(--jc-switch-knob) * var(--jc-sw-scale));
@@ -92,6 +95,6 @@ withDefaults(
   transition: transform var(--jc-dur-fast) var(--jc-ease-standard);
 }
 .jc-skip-switch__track.is-on .jc-skip-switch__thumb {
-  transform: translateX(calc((var(--jc-switch-w) - var(--jc-switch-knob) - 4px) * var(--jc-sw-scale)));
+  transform: translate(calc((var(--jc-switch-w) - var(--jc-switch-knob) - 4px) * var(--jc-sw-scale)), -50%);
 }
 </style>

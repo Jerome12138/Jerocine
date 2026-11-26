@@ -160,8 +160,15 @@ func (s *SpiderService) StartCollect(sourceId string, hours int) error {
 		// 引擎已把进度写进 Redis job, 收尾时快照补齐页数统计
 		p, _ := cache.JobSnapshot(finishCtx(ctx), src.Id)
 		msg := "采集完成"
-		if p.Failed > 0 {
+		switch {
+		case p.Failed > 0:
 			msg = fmt.Sprintf("采集完成, %d 页失败(可在失败记录中补采)", p.Failed)
+		case p.Total == 0 && p.State == cache.JobDone:
+			// 引擎判定该时间窗内没有新增页 → 正常的"0 页"，不是丢数据
+			msg = "采集完成（本次时间窗内无新增页）"
+		case p.Total == 0:
+			// 进度快照已过期/被覆盖：如实说明，避免前端显示成"假进度"
+			msg = "采集完成（无分页统计：进度快照已过期）"
 		}
 		s.tasks.Finish(runId, entity.TaskRunSuccess, p.Total, p.Done, p.Failed, msg, "")
 	}()
@@ -1005,6 +1012,9 @@ func (s *SpiderService) executeTask(ctx context.Context, t *entity.CronTask, kin
 // finishCollectRun 把一轮批量采集汇总收尾进台账。
 func (s *SpiderService) finishCollectRun(runId int64, sum CollectSummary) {
 	msg := fmt.Sprintf("成功 %d 个源, 跳过 %d 个", sum.OK, sum.Skipped)
+	if sum.Total == 0 && sum.Done == 0 {
+		msg += "（本次时间窗内无新增页）"
+	}
 	if sum.Done > 0 || sum.FailedPages > 0 {
 		msg += fmt.Sprintf(", 采 %d 页", sum.Done)
 		if sum.FailedPages > 0 {

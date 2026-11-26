@@ -94,7 +94,7 @@ onBeforeUnmount(stop)
       <div class="h-2 w-full overflow-hidden rounded-full bg-[var(--jc-border-default)]">
         <div
           class="h-full rounded-full transition-all"
-          :class="progress.state === 'failed' ? 'bg-[var(--jc-danger)]' : 'bg-[var(--jc-accent)]'"
+          :class="progress.state === 'failed' ? 'bg-[var(--jc-danger)]' : 'bg-[linear-gradient(90deg,var(--jc-brand-purple),var(--jc-brand-cyan))]'"
           :style="{ width: pct + '%' }"
         />
       </div>
