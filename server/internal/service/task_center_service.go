@@ -23,6 +23,7 @@ import (
 
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
+	"server/internal/errclass"
 	"server/internal/taskcenter"
 )
 
@@ -647,6 +648,14 @@ func (s *TaskCenterService) RerunRun(ctx context.Context, runID int64) error {
 	if err != nil {
 		return err
 	}
+	// ① 状态判断：还在跑的没有"重跑"可言
+	if r.Status == entity.TaskRunRunning {
+		return fmt.Errorf("该任务仍在运行中，无需重跑")
+	}
+	// ② 幂等：同一任务已有在执行中的实例时拒绝（重复点"重新执行"不会叠加）
+	if n, cerr := s.runs.CountRunningByType(ctx, r.Type, r.CronId); cerr == nil && n > 0 {
+		return fmt.Errorf("该任务已有执行中的实例，请等它结束后再重跑")
+	}
 	// 定时采集任务：按 cron id 重跑（走 TriggerCron，保留其既有限制）
 	if r.CronId > 0 {
 		return s.RunTask(ctx, "cron:"+strconv.FormatInt(r.CronId, 10))
@@ -675,29 +684,131 @@ func (s *TaskCenterService) SetRunIgnored(ctx context.Context, runID int64, igno
 	return s.runs.SetIgnored(ctx, runID, ignored)
 }
 
-// RunTask 手动执行一次。
+// RunTask 手动执行一次（**同样写台账**：手动与定时在历史/异常里一视同仁）。
 func (s *TaskCenterService) RunTask(ctx context.Context, key string) error {
 	if id, ok := cronIDOf(key); ok {
 		if s.spider == nil {
 			return fmt.Errorf("采集服务未装配")
 		}
-		return s.spider.TriggerCron(ctx, id)
+		return s.spider.TriggerCron(ctx, id) // 采集侧自带 task_run(kind=manual)
+	}
+	def, err := s.EnsureTaskKeyRegistered(key)
+	if err != nil {
+		return err
+	}
+	if def.Run == nil {
+		return fmt.Errorf("该任务暂不支持手动执行")
 	}
 	switch key {
 	case "builtin:douban_score":
-		return s.film.StartDoubanScoreSyncOnce(ctx)
+		return s.runManualBuiltin(ctx, def, func(c context.Context) error { return s.film.StartDoubanScoreSyncOnce(c) })
 	case "builtin:douban_backfill":
-		return s.film.StartDoubanScoreBackfill(ctx, 0)
+		return s.runManualBuiltin(ctx, def, func(c context.Context) error { return s.film.StartDoubanScoreBackfill(c, 0) })
 	case "builtin:domain_fetch":
-		bg := context.WithoutCancel(ctx)
-		go func() {
-			if _, err := s.film.FetchDomainRules(bg, ""); err != nil {
-				log.Printf("[task-center] 域名公告拉取失败: %v", err)
-			}
-		}()
+		return s.runManualBuiltin(ctx, def, func(c context.Context) error {
+			bg := context.WithoutCancel(c)
+			go func() {
+				if _, ferr := s.film.FetchDomainRules(bg, ""); ferr != nil {
+					log.Printf("[task-center] 域名公告拉取失败: %v", ferr)
+				}
+			}()
+			return nil
+		})
+	}
+	// 其余内置任务（热度/横图/巡检/年份核实/台账清理）直接调 Run，同步收尾
+	return s.runManualBuiltin(ctx, def, def.Run)
+}
+
+// runManualBuiltin 执行一次内置任务并写台账：
+//   - 同步任务：跑完即收尾（成功/失败都落）；
+//   - 异步任务(Async)：先落"运行中"，再由观察者轮询 Status 到终态收尾（最长 3 小时）。
+func (s *TaskCenterService) runManualBuiltin(ctx context.Context, def taskcenter.Def, run func(context.Context) error) error {
+	runID := int64(0)
+	now := time.Now().UnixMilli()
+	if s.runs != nil {
+		r := &entity.TaskRun{
+			Kind: "manual", Type: def.Type, Name: "手动执行 · " + def.Name,
+			Status: entity.TaskRunRunning, StartedAt: now, CreatedAt: now,
+		}
+		if err := s.runs.Create(context.WithoutCancel(ctx), r); err == nil {
+			runID = r.Id
+		}
+	}
+
+	err := run(ctx)
+
+	if runID == 0 || s.runs == nil {
+		return err
+	}
+	if def.Async {
+		// 启动失败要立刻收尾；启动成功则交给观察者（真跑完才知道结果）
+		if err != nil {
+			s.finishRun(runID, entity.TaskRunFailed, errclass.Format(err))
+			return err
+		}
+		go s.watchBuiltinRun(runID, def)
 		return nil
 	}
-	return fmt.Errorf("该任务暂不支持手动执行（可在对应页面操作或等待后续版本接入）")
+	if err != nil {
+		s.finishRun(runID, entity.TaskRunFailed, errclass.Format(err))
+		return err
+	}
+	s.finishRun(runID, entity.TaskRunSuccess, "完成")
+	return nil
+}
+
+// watchBuiltinRun 异步任务的手动执行观察者：轮询 Status 到终态后收尾台账。
+func (s *TaskCenterService) watchBuiltinRun(runID int64, def taskcenter.Def) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[task-center] 观察者 panic(run=%d): %v", runID, r)
+		}
+	}()
+	ctx := context.Background()
+	deadline := time.Now().Add(3 * time.Hour)
+	for time.Now().Before(deadline) {
+		time.Sleep(10 * time.Second)
+		if def.Status == nil {
+			return
+		}
+		st := def.Status(ctx)
+		switch st.State {
+		case taskcenter.StateSucceeded:
+			s.finishRun(runID, entity.TaskRunSuccess, firstNonEmpty(st.Message, "完成"))
+			return
+		case taskcenter.StateFailed:
+			s.finishRun(runID, entity.TaskRunFailed, firstNonEmpty(st.Error, st.Message, "失败"))
+			return
+		}
+	}
+	s.finishRun(runID, entity.TaskRunFailed, "[timeout] 超过 3 小时仍未结束，已按超时收尾")
+}
+
+func (s *TaskCenterService) finishRun(runID int64, status, msg string) {
+	ctx := context.Background()
+	cur, err := s.runs.Get(ctx, runID)
+	if err != nil || cur == nil {
+		return
+	}
+	cur.Status = status
+	cur.EndedAt = time.Now().UnixMilli()
+	if status == entity.TaskRunFailed {
+		cur.Error = msg
+	} else {
+		cur.Message = msg
+	}
+	if uerr := s.runs.Update(ctx, cur); uerr != nil {
+		log.Printf("[task-center] 台账收尾失败(run=%d): %v", runID, uerr)
+	}
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // PauseTask / ResumeTask / StopTask：目前只对"正在运行的采集任务"（key=job:<sourceId>）生效。

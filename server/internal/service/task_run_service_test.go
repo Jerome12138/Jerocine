@@ -103,6 +103,11 @@ func (f *fakeTaskRunRepo) CountRunning(_ context.Context, excludeSourceIds []str
 
 // PruneBefore 供接口完整性（本用例不校验清理逻辑）
 // SetIgnored 供接口完整性（本用例不校验忽略逻辑）
+// CountRunningByType 供接口完整性（本用例不校验在跑计数）
+func (f *fakeTaskRunRepo) CountRunningByType(context.Context, string, int64) (int64, error) {
+	return 0, nil
+}
+
 func (f *fakeTaskRunRepo) SetIgnored(context.Context, int64, bool) error { return nil }
 
 func (f *fakeTaskRunRepo) PruneBefore(context.Context, int64, int) (int64, error) { return 0, nil }

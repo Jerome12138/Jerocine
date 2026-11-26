@@ -120,6 +120,20 @@ func (r *taskRunRepo) CountRunning(ctx context.Context, excludeSourceIds []strin
 }
 
 // MarkInterrupted 服务重启时调用: 未收尾的 running 行标记为 failed(中断)。
+// CountRunningByType 统计某任务类型（cronId>0 时再按 cron 限定）当前在跑的条数。
+func (r *taskRunRepo) CountRunningByType(ctx context.Context, taskType string, cronId int64) (int64, error) {
+	q := dbFrom(ctx, r.db).Model(&entity.TaskRun{}).Where("status = ?", entity.TaskRunRunning)
+	if taskType != "" {
+		q = q.Where("task_type = ?", taskType)
+	}
+	if cronId > 0 {
+		q = q.Where("cron_id = ?", cronId)
+	}
+	var n int64
+	err := q.Count(&n).Error
+	return n, err
+}
+
 // SetIgnored 标记/取消"已忽略"（异常处理；不删行，保留审计）。
 func (r *taskRunRepo) SetIgnored(ctx context.Context, id int64, ignored bool) error {
 	return dbFrom(ctx, r.db).Model(&entity.TaskRun{}).Where("id = ?", id).

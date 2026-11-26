@@ -441,6 +441,8 @@ type TaskRunRepository interface {
 	// excludeSourceIds 非空时剔除这些源的行 —— 同一次采集同时有 Redis 活跃 job 与
 	// 台账 running 行, 统计卡把两口径直加前先按源去重, 避免一个任务数成两个。
 	CountRunning(ctx context.Context, excludeSourceIds []string) (int64, error)
+	// CountRunningByType 统计某任务类型（可选按 cronId）当前在跑的条数 —— 重跑幂等判据。
+	CountRunningByType(ctx context.Context, taskType string, cronId int64) (int64, error)
 	// SetIgnored 标记/取消"已忽略"（异常处理用；不删行）。
 	SetIgnored(ctx context.Context, id int64, ignored bool) error
 	// PruneBefore 删除早于 beforeMs 的**终态**记录（分批；不删 running），供历史保留 30 天用。

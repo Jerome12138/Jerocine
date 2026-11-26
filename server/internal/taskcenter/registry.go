@@ -88,6 +88,9 @@ type Def struct {
 	QuietOnSuccess bool
 
 	Status func(ctx context.Context) Status
+	// Async 该任务的 Run 是"启动即返回"（真正跑完要轮询 Status 才知道）。
+	// 手动执行时据此决定：立即收尾（同步）还是挂观察者等它结束（异步）。
+	Async bool
 	// Run 触发一次（Phase 2 收敛后由中心调度调用）。
 	// 为 nil 表示该任务只读展示（还没有可复用的执行入口）。
 	Run func(ctx context.Context) error
