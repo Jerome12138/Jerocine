@@ -111,6 +111,19 @@ function hourLabel(hour: number): string {
 }
 
 /** 表格行: 任务 + 派生「进度文案」「用时文案」 */
+/** 在跑/暂停才算"活跃"，才画进度条 */
+function isActive(state: string): boolean {
+  return state === 'running' || state === 'paused'
+}
+
+/** 终态的文字摘要（不带百分比）：完成看页数，失败/取消看跑到哪了 */
+function finishedText(j: SpiderJob): string {
+  const total = j.totalPages > 0 ? `共 ${j.totalPages} 页` : '无分页数据'
+  if (j.state === 'done') return `已完成 · ${total}`
+  if (j.state === 'canceled') return `已取消 · ${j.donePages}/${total}`
+  return `${total}` // error 的原因单独一行展示
+}
+
 interface JobRow extends SpiderJob {
   progressText: string
   elapsedText: string
@@ -208,13 +221,17 @@ const hasJobs = computed(() => jobs.value.length > 0)
           </span>
         </div>
         <StatusTag v-else-if="col.key === 'state'" :value="row.state" :map="JOB_STATE_MAP" />
-        <div v-else-if="col.key === 'progressText'" class="jc-job__bar">
-          <div
-            class="jc-job__bar-fill"
-            :class="{ 'jc-job__bar-fill--paused': row.state === 'paused' }"
-            :style="{ width: fmtPercent(row) + '%' }"
-          />
-          <span class="jc-job__bar-text">{{ row.progressText }}</span>
+        <!-- 终态（done/error/canceled）不画进度条：完成后再挂一条满格进度条等于"假装还在跑" -->
+        <div v-else-if="col.key === 'progressText'">
+          <div v-if="isActive(row.state)" class="jc-job__bar">
+            <div
+              class="jc-job__bar-fill"
+              :class="{ 'jc-job__bar-fill--paused': row.state === 'paused' }"
+              :style="{ width: fmtPercent(row) + '%' }"
+            />
+            <span class="jc-job__bar-text">{{ row.progressText }}</span>
+          </div>
+          <span v-else class="text-xs text-muted tabular-nums">{{ finishedText(row) }}</span>
         </div>
         <span v-else-if="col.key === 'elapsedText'" class="text-muted text-xs">{{ row.elapsedText }}</span>
         <span v-else>{{ row[col.key] }}</span>
@@ -243,7 +260,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
             <span class="jc-job__name">{{ row.sourceName }}</span>
             <StatusTag :value="row.state" :map="JOB_STATE_MAP" />
           </div>
-          <div class="jc-job__bar">
+          <div v-if="isActive(row.state)" class="jc-job__bar">
             <div
               class="jc-job__bar-fill"
               :class="{ 'jc-job__bar-fill--paused': row.state === 'paused' }"
@@ -251,6 +268,7 @@ const hasJobs = computed(() => jobs.value.length > 0)
             />
             <span class="jc-job__bar-text">{{ row.progressText }}</span>
           </div>
+          <span v-else class="text-xs text-muted tabular-nums">{{ finishedText(row) }}</span>
           <span v-if="row.state === 'error' && row.error" class="jc-job__error">
             <span class="flex-1 break-all">{{ row.error }}</span>
           </span>
