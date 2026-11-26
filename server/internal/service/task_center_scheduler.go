@@ -127,7 +127,8 @@ func (s *TaskScheduler) runOne(ctx context.Context, d taskcenter.Def) {
 
 	start := time.Now()
 	runID := int64(0)
-	if s.tc.runs != nil {
+	// 高频任务（backdrop/health）只执行不记台账：台账是给人看的，20 分钟一条会把它刷爆
+	if s.tc.runs != nil && !d.NoLedger {
 		r := &entity.TaskRun{
 			Kind: "builtin", Type: d.Type, Name: d.Name,
 			Status: entity.TaskRunRunning, StartedAt: start.UnixMilli(), CreatedAt: start.UnixMilli(),

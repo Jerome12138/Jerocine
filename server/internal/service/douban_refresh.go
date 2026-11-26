@@ -175,6 +175,12 @@ func (s *FilmService) StartDoubanScoreSyncOnce(ctx context.Context) error {
 // runDoubanScoreSyncLocked 调用方必须已持有 doubanBatchBusy。
 func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 	start := time.Now()
+	setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+		*p = DoubanBatchProgress{
+			State: "running", Task: "douban_score",
+			StartedAt: start.UnixMilli(), Message: "开始刷新近半年评分",
+		}
+	})
 	from := time.Now().Add(doubanSyncWindow).Format("2006-01")
 	targets, err := s.movie.ListDoubanScoreTargets(ctx, repository.DoubanScoreQuery{
 		PubMonthFrom: from,
@@ -232,7 +238,10 @@ const doubanBackfillDefaultLimit = 2000
 
 // DoubanBatchProgress 豆瓣批量刷分的进度快照。
 type DoubanBatchProgress struct {
-	State     string `json:"state"` // idle / running / done / failed
+	State string `json:"state"` // idle / running / done / failed
+	// Task 当前在跑的是哪个豆瓣任务（douban_score / douban_backfill）——两条任务共用一把单飞锁，
+	// 列表据此把进度归到正确的那一行。
+	Task      string `json:"task"`
 	Total     int    `json:"total"`
 	Done      int    `json:"done"`
 	Updated   int    `json:"updated"`
@@ -287,7 +296,7 @@ func (s *FilmService) StartDoubanScoreBackfill(ctx context.Context, limit int) e
 	}
 	setDoubanBatchProgress(func(p *DoubanBatchProgress) {
 		*p = DoubanBatchProgress{
-			State: "running", Total: len(targets),
+			State: "running", Task: "douban_backfill", Total: len(targets),
 			StartedAt: time.Now().UnixMilli(), Message: "开始补查欠账",
 		}
 	})

@@ -137,11 +137,11 @@ func (s *TaskCenterService) registerBuiltins() {
 	s.reg.Register(taskcenter.Def{
 		Key: "builtin:hot_refresh", Kind: taskcenter.KindBuiltin, Type: "hot_refresh",
 		Name: "榜单热度刷新", Target: "豆瓣榜单（按分类）",
-		Detail:          "定期抓榜单并把热度分写回影片（豆瓣接口，注意间隔）。",
-		DefaultSchedule: "every:10m", Enabled: true,
+		Detail:          "每天抓一轮榜单并把热度分写回影片（服务内部仍按 04:00 判定 + 当日锁）。",
+		DefaultSchedule: "daily:04:00", Enabled: true,
 		DefaultIntervalMs: 5000, MinIntervalMs: 2000, IntervalLabel: "5s/请求",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
-		Status: idleWithMessage("每 10 分钟扫描一次"),
+		Status: idleWithMessage("每天 04:00 刷新一轮"),
 		Run: func(ctx context.Context) error {
 			if s.hot == nil {
 				return fmt.Errorf("热度服务未装配")
@@ -154,8 +154,8 @@ func (s *TaskCenterService) registerBuiltins() {
 	s.reg.Register(taskcenter.Def{
 		Key: "builtin:backdrop", Kind: taskcenter.KindBuiltin, Type: "backdrop",
 		Name: "横图补采", Target: "缺横图的影片（TMDB）",
-		Detail:          "扫描缺横图的影片并从 TMDB 取图（每请求有固定延迟）。",
-		DefaultSchedule: "every:20m", Enabled: true,
+		Detail:          "扫描缺横图的影片并从 TMDB 取图（每请求固定延迟）；频率高，只执行不记台账。",
+		DefaultSchedule: "every:20m", Enabled: true, NoLedger: true,
 		DefaultIntervalMs: 300, MinIntervalMs: 100, IntervalLabel: "300ms/请求",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: idleWithMessage("每 20 分钟扫描一次"),
@@ -171,8 +171,8 @@ func (s *TaskCenterService) registerBuiltins() {
 	s.reg.Register(taskcenter.Def{
 		Key: "builtin:health", Kind: taskcenter.KindBuiltin, Type: "health",
 		Name: "采集源健康巡检", Target: "全部启用的采集源",
-		Detail:          "定期探测各源可用性与延迟（并发 6，建议配间隔避免打爆源站）。",
-		DefaultSchedule: "every:1h", Enabled: true,
+		Detail:          "探测各源可用性与延迟（并发 6，按间隔限速）；频率高，只执行不记台账。",
+		DefaultSchedule: "every:1h", Enabled: true, NoLedger: true,
 		DefaultIntervalMs: 200, MinIntervalMs: 200, IntervalLabel: "200ms/探针",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: idleWithMessage("每 1 小时巡检一次"),
@@ -185,13 +185,14 @@ func (s *TaskCenterService) registerBuiltins() {
 		},
 	})
 
-	// 历史台账保留 30 天（内部维护任务，不在列表展示）
+	// 历史台账保留 30 天（定时任务之一，周期可在任务中心改）
 	s.reg.Register(taskcenter.Def{
 		Key: "builtin:history_prune", Kind: taskcenter.KindBuiltin, Type: "history_prune",
 		Name: "历史台账清理", Target: "task_run（保留 30 天）",
-		Detail:          "每天 04:00 删除 30 天前的终态记录（分批，不删 running）。",
+		Detail:          "删除 30 天前的终态记录（分批，不删 running）。",
 		DefaultSchedule: "daily:04:00", Enabled: true,
-		Internal: true,
+		Editable: []string{"enabled", "schedule", "remark"},
+		Status:   idleWithMessage("每天清理一次"),
 		Run:      s.PruneHistory,
 	})
 }
