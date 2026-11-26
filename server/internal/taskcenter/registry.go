@@ -340,3 +340,60 @@ func NextJobState(cur string, act JobAction) (next string, ok bool) {
 func JobTerminal(state string) bool {
 	return state == JobDone || state == JobError || state == JobCanceled
 }
+
+// ---- 生效配置合并（单点）----
+//
+// 为什么单独成类型：内置任务的"实际生效值"= 注册表默认值 ⊕ 用户改过的值。
+// 这段合并原先在 `TaskScheduler.effective()` 与 `TaskCenterService.viewOfDef()` **各写一遍**
+// （`if set.Schedule != "" { schedule = set.Schedule }` …）。两处必须永远同步，否则出现
+// "页面显示启用、调度器认为停用"这种最难查的分歧。现在合并只在这里做，两边都调它。
+
+// UserConfig 用户改过的值（空串/0 表示"没改"，与 task_setting 的"只存用户改过的值"同语义）。
+type UserConfig struct {
+	Enabled    *bool
+	Schedule   string
+	IntervalMs int
+	Remark     string
+}
+
+// ResolvedConfig 合并后的生效配置 + 每个字段的来源（default / user），便于排查。
+type ResolvedConfig struct {
+	Enabled    bool
+	Schedule   string
+	IntervalMs int
+	Remark     string
+
+	FromEnabled    string
+	FromSchedule   string
+	FromIntervalMs string
+}
+
+// Resolve 把注册表默认值与用户配置合并成生效配置（唯一实现）。
+// 规则：
+//   - Enabled：用户显式给过就用它，否则用注册表默认（默认停用的任务不会因为"只改备注"被打开）；
+//   - Schedule：用户非空则覆盖，否则用默认；
+//   - IntervalMs：用户 >0 则覆盖，否则用默认；最后**统一夹到执行层下限**（防被源站拉黑）；
+//   - Remark：用户值（注册表没有备注概念）。
+func Resolve(d Def, u UserConfig) ResolvedConfig {
+	rc := ResolvedConfig{
+		Enabled: d.Enabled, Schedule: d.DefaultSchedule,
+		IntervalMs: d.DefaultIntervalMs, Remark: u.Remark,
+		FromEnabled: "default", FromSchedule: "default", FromIntervalMs: "default",
+	}
+	if u.Enabled != nil {
+		rc.Enabled = *u.Enabled
+		rc.FromEnabled = "user"
+	}
+	if u.Schedule != "" {
+		rc.Schedule = u.Schedule
+		rc.FromSchedule = "user"
+	}
+	if u.IntervalMs > 0 {
+		rc.IntervalMs = u.IntervalMs
+		rc.FromIntervalMs = "user"
+	}
+	if rc.IntervalMs < d.MinIntervalMs {
+		rc.IntervalMs = d.MinIntervalMs // 下限永远优先（比默认值和用户值都硬）
+	}
+	return rc
+}

@@ -386,21 +386,9 @@ func statusFromRun(r entity.TaskRun) taskcenter.Status {
 }
 
 func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set entity.TaskSetting) TaskView {
-	enabled := d.Enabled
-	schedule := d.DefaultSchedule
-	interval := d.DefaultIntervalMs
-	if set.TaskKey != "" {
-		enabled = set.Enabled
-		if set.Schedule != "" {
-			schedule = set.Schedule
-		}
-		if set.IntervalMs > 0 {
-			interval = set.IntervalMs
-		}
-	}
-	if interval < d.MinIntervalMs {
-		interval = d.MinIntervalMs
-	}
+	// 合并逻辑单点在 taskcenter.Resolve（与调度器 effective 同一实现，不会两边漂移）
+	rc := taskcenter.Resolve(d, userConfigOf(set))
+	enabled, schedule, interval := rc.Enabled, rc.Schedule, rc.IntervalMs
 	st := taskcenter.Status{State: taskcenter.StateIdle}
 	if d.Status != nil {
 		st = d.Status(ctx)

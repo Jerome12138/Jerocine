@@ -65,15 +65,20 @@ func (s *TaskScheduler) Start(ctx context.Context) {
 }
 
 // effective 合成"实际生效的启用态与周期"：task_setting 覆盖注册表默认值。
+// effective 生效的(启用位, 周期) —— 合并逻辑单点在 taskcenter.Resolve。
 func (s *TaskScheduler) effective(d taskcenter.Def, settings map[string]entity.TaskSetting) (bool, string) {
-	enabled, schedule := d.Enabled, d.DefaultSchedule
-	if set, ok := settings[d.Key]; ok {
-		enabled = set.Enabled
-		if set.Schedule != "" {
-			schedule = set.Schedule
-		}
+	rc := taskcenter.Resolve(d, userConfigOf(settings[d.Key]))
+	return rc.Enabled, rc.Schedule
+}
+
+// userConfigOf 把 task_setting 行映射成规则层的 UserConfig。
+// 语义：**没有行**（TaskKey 为空）= 用户什么都没改（不能用零值 false 当成"用户停用了"）。
+func userConfigOf(set entity.TaskSetting) taskcenter.UserConfig {
+	if set.TaskKey == "" {
+		return taskcenter.UserConfig{Remark: set.Remark}
 	}
-	return enabled, schedule
+	en := set.Enabled // 拷一份：UserConfig 用指针表达"用户给过"
+	return taskcenter.UserConfig{Enabled: &en, Schedule: set.Schedule, IntervalMs: set.IntervalMs, Remark: set.Remark}
 }
 
 func (s *TaskScheduler) tick(ctx context.Context) {
