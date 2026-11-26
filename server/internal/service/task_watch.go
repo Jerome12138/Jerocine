@@ -67,6 +67,12 @@ func waitDefTerminal(ctx context.Context, d taskcenter.Def, poll time.Duration) 
 				Total: pn(st, 0), Done: pn(st, 1), Failed: pn(st, 2)}, true
 		}
 
+		// 暂停不算停滞：暂停期间 UpdatedAt 本来就不动，不能因此判死
+		if st.State == taskcenter.StatePaused {
+			lastUpdate = time.Now().UnixMilli()
+			continue
+		}
+
 		// 停滞判定：有 UpdatedAt 就看 UpdatedAt；没有就看 done 数是否推进
 		moved := false
 		if st.UpdatedAt > 0 {

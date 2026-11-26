@@ -77,6 +77,8 @@ func (s *FilmService) doubanStatusFor(task string) func(context.Context) taskcen
 			if p.StartedAt > 0 {
 				st.ElapsedMs = time.Now().UnixMilli() - p.StartedAt
 			}
+		case "paused":
+			st.State = taskcenter.StatePaused
 		case "done":
 			st.State = taskcenter.StateSucceeded
 		case "failed":

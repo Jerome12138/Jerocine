@@ -286,6 +286,26 @@ function isDoubanTask(t: TaskCenterItem): boolean {
   return t.key === 'builtin:douban_score' || t.key === 'builtin:douban_backfill'
 }
 
+async function pauseDouban(): Promise<void> {
+  try {
+    const r = await tasksApi.doubanBatchPause()
+    toast('info', r.paused ? '已请求暂停（当前这一部跑完即停，可继续）' : '当前没有批次在跑')
+    setTimeout(() => void loadTc(), 1500)
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '暂停失败')
+  }
+}
+
+async function resumeDouban(): Promise<void> {
+  try {
+    const r = await tasksApi.doubanBatchResume()
+    toast('info', r.resumed ? '已继续' : '没有处于暂停的批次')
+    setTimeout(() => void loadTc(), 1500)
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '继续失败')
+  }
+}
+
 async function stopDouban(): Promise<void> {
   try {
     const r = await tasksApi.doubanBatchStop()
@@ -831,6 +851,18 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
           </span>
           <span v-else class="ml-auto text-xs text-muted">{{ r.note }}</span>
           <ManageButton
+            v-if="isDoubanKey(r.key) && r.running"
+            size="sm"
+            variant="outline"
+            @click="pauseDouban"
+          >暂停</ManageButton>
+          <ManageButton
+            v-if="isDoubanKey(r.key) && !r.running"
+            size="sm"
+            variant="primary"
+            @click="resumeDouban"
+          >继续</ManageButton>
+          <ManageButton
             v-if="isDoubanKey(r.key)"
             size="sm"
             variant="danger"
@@ -944,7 +976,9 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               v-if="j.state === 'error' && j.error"
               class="flex min-w-0 flex-1 items-start gap-1 text-[var(--jc-danger)]"
             >
-              <BaseIcon name="info" size="14" />
+              <!-- ⚠ size 是 CSS 长度：必须带单位（裸 "14" 会失效 → 图标撑到天然大小，
+                   用户实测"感叹号太大"）。同理别写数字。 -->
+              <BaseIcon name="info" size="14px" class="mt-[2px] shrink-0" />
               <span class="break-all">{{ j.error }}</span>
             </span>
           </div>
@@ -1064,6 +1098,18 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
                    否则对端限流时只能重启容器才能停 -->
               <ManageButton
                 v-if="isDoubanTask(t) && t.state === 'running'"
+                size="sm"
+                variant="outline"
+                @click="pauseDouban"
+              >暂停</ManageButton>
+              <ManageButton
+                v-if="isDoubanTask(t) && t.state === 'paused'"
+                size="sm"
+                variant="primary"
+                @click="resumeDouban"
+              >继续</ManageButton>
+              <ManageButton
+                v-if="isDoubanTask(t) && (t.state === 'running' || t.state === 'paused')"
                 size="sm"
                 variant="danger"
                 @click="stopDouban"

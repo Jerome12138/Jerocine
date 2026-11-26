@@ -152,6 +152,14 @@ export const pendingRuns = (
     { params: { limit } }
   )
 
+/** POST /manage/douban/batch/pause 暂停当前豆瓣批次（在下一部之前停下，可继续） */
+export const doubanBatchPause = (): Promise<{ paused: boolean }> =>
+  http.post<unknown, { paused: boolean }>('/manage/douban/batch/pause', {}, { silent: true })
+
+/** POST /manage/douban/batch/resume 继续已暂停的批次 */
+export const doubanBatchResume = (): Promise<{ resumed: boolean }> =>
+  http.post<unknown, { resumed: boolean }>('/manage/douban/batch/resume', {}, { silent: true })
+
 /** POST /manage/douban/batch/stop 中止当前豆瓣批次（评分同步/欠账补查）
  *  stopped=false 表示当前没有批次在跑 */
 export const doubanBatchStop = (): Promise<{ stopped: boolean }> =>

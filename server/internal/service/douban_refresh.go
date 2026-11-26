@@ -10,12 +10,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"server/internal/cache"
 	"server/internal/domain/repository"
 	"server/internal/douban"
 )
@@ -65,6 +67,97 @@ func (s *FilmService) StopDoubanBatch() bool {
 	cancel()
 	log.Printf("[douban] 已请求中止当前批次")
 	return true
+}
+
+// ---- 暂停 / 继续（2026-11-26 用户要求）----
+//
+// 为什么内置任务原本不支持暂停：采集轮次有"页边界"这个天然检查点，内置任务没有。
+// 豆瓣批次是"逐部处理"的长任务，这里把**每部之间**做成检查点：
+//   · PauseDoubanBatch 只置标记，循环在下一部之前停下并等待（不中断进行中的那一部）；
+//   · 游标落 Redis（v1:douban:cursor:<task>）：暂停/进程重启后能从"第几部"继续，
+//     而不是从头再来（欠账补查 2.8 万部，重来一次就是 30 小时）。
+
+var doubanBatchPaused atomic.Bool
+
+// PauseDoubanBatch 请求暂停当前批次。true=有批次在跑（会在下一部之前停下）。
+func (s *FilmService) PauseDoubanBatch() bool {
+	if !doubanBatchBusy.Load() {
+		return false
+	}
+	doubanBatchPaused.Store(true)
+	log.Printf("[douban] 已请求暂停当前批次")
+	return true
+}
+
+// ResumeDoubanBatch 继续已暂停的批次。
+func (s *FilmService) ResumeDoubanBatch() bool {
+	if !doubanBatchBusy.Load() || !doubanBatchPaused.Load() {
+		return false
+	}
+	doubanBatchPaused.Store(false)
+	log.Printf("[douban] 已继续当前批次")
+	return true
+}
+
+// waitIfDoubanPaused 每部之前调用：暂停时把进度标成 paused 并原地等待，继续后返回。
+// ctx 取消（服务停机/停止）则返回 false，调用方收尾退出。
+func waitIfDoubanPaused(ctx context.Context, task string) bool {
+	if !doubanBatchPaused.Load() {
+		return true
+	}
+	setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.State = "paused" })
+	for doubanBatchPaused.Load() {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(time.Second):
+		}
+	}
+	setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.State = "running" })
+	return true
+}
+
+// ---- 游标（断点续跑）----
+
+// doubanCursor 批次断点。total 用于校验"片单没变"，变了就从头开始（宁缺勿错）。
+type doubanCursor struct {
+	Task   string `json:"task"`
+	Total  int    `json:"total"`
+	Done   int    `json:"done"`
+	Upd    int    `json:"updated"`
+	NoSc   int    `json:"noScore"`
+	Failed int    `json:"failed"`
+}
+
+const doubanCursorPrefix = "v1:douban:cursor:"
+
+func saveDoubanCursor(ctx context.Context, c doubanCursor) {
+	if rdb := cache.CoordClient(); rdb != nil {
+		b, _ := json.Marshal(c)
+		rdb.Set(ctx, doubanCursorPrefix+c.Task, b, 7*24*time.Hour)
+	}
+}
+
+func loadDoubanCursor(ctx context.Context, task string) (doubanCursor, bool) {
+	rdb := cache.CoordClient()
+	if rdb == nil {
+		return doubanCursor{}, false
+	}
+	raw, err := rdb.Get(ctx, doubanCursorPrefix+task).Bytes()
+	if err != nil {
+		return doubanCursor{}, false
+	}
+	var c doubanCursor
+	if json.Unmarshal(raw, &c) != nil {
+		return doubanCursor{}, false
+	}
+	return c, true
+}
+
+func clearDoubanCursor(ctx context.Context, task string) {
+	if rdb := cache.CoordClient(); rdb != nil {
+		rdb.Del(ctx, doubanCursorPrefix+task)
+	}
 }
 
 // scoreSyncClient 定时同步用的客户端（3~5s 随机间隔）。
@@ -438,7 +531,25 @@ func (s *FilmService) runDoubanBackfill(ctx context.Context, targets []repositor
 
 	start := time.Now()
 	consecutiveFail := 0 // 连续失败计数（成功/无评分即清零）
+	// 断点续跑：片单总数一致才继续，否则从头（宁缺勿错）
+	done := 0
+	if c, ok := loadDoubanCursor(ctx, "douban_backfill"); ok && c.Total == len(targets) && c.Done < c.Total {
+		done = c.Done
+		// 累计计数直接恢复到进度里，UI 上 x/y 与"更新数"都接得上
+		setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+			p.Done, p.Updated, p.NoScore, p.Failed = c.Done, c.Upd, c.NoSc, c.Failed
+		})
+		log.Printf("[douban-backfill] 从断点继续：%d/%d（更新 %d）", done, len(targets), c.Upd)
+	}
+	_ = start
 	for i, t := range targets {
+		if i < done {
+			continue // 断点之前的不重复处理
+		}
+		if !waitIfDoubanPaused(ctx, "douban_backfill") { // 暂停时在这里等；停止/停机则退出
+			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.State, p.Message = "failed", "已取消" })
+			return
+		}
 		if ctx.Err() != nil {
 			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.State, p.Message = "failed", "已取消" })
 			return
@@ -472,6 +583,10 @@ func (s *FilmService) runDoubanBackfill(ctx context.Context, targets []repositor
 			p := s.DoubanBatchProgress()
 			log.Printf("[douban-backfill] 进度 %d/%d 更新=%d 无评分=%d 失败=%d", p.Done, p.Total, p.Updated, p.NoScore, p.Failed)
 		}
+		// 每部落一次断点（Redis SET 很小；崩溃/暂停后最多丢一部）
+		pp := s.DoubanBatchProgress()
+		saveDoubanCursor(ctx, doubanCursor{Task: "douban_backfill", Total: len(targets),
+			Done: pp.Done, Upd: pp.Updated, NoSc: pp.NoScore, Failed: pp.Failed})
 	}
 	p := s.DoubanBatchProgress()
 	setDoubanBatchProgress(func(x *DoubanBatchProgress) {
@@ -480,4 +595,5 @@ func (s *FilmService) runDoubanBackfill(ctx context.Context, targets []repositor
 			p.Updated, p.NoScore, p.Failed, time.Since(start).Round(time.Second))
 	})
 	log.Printf("[douban-backfill] %s", p.Message)
+	clearDoubanCursor(context.WithoutCancel(ctx), "douban_backfill")
 }
