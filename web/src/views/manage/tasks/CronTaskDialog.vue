@@ -6,6 +6,7 @@ import ManageSheet from '@/components/manage/ManageSheet.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSelect from '@/components/manage/ManageSelect.vue'
+import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import SchedulePicker from '@/components/manage/SchedulePicker.vue'
@@ -110,6 +111,10 @@ async function submit(): Promise<void> {
     <div class="flex flex-col gap-[var(--jc-space-4)]">
       <ManageFormField label="执行周期" required :hint="`选择式；保存为友好文本（${SCHEDULE_HINT}）`">
         <SchedulePicker v-model="form.schedule" size="sm" />
+      </ManageFormField>
+
+      <ManageFormField label="启用" hint="停用只停计划，不影响正在跑的这一轮">
+        <ManageSwitch v-model="form.state" aria-label="启用" />
       </ManageFormField>
 
       <ManageFormField label="任务类型" required>

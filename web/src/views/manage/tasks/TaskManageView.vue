@@ -338,7 +338,14 @@ async function loadOverview(): Promise<void> {
  * 这类内置任务只写台账、没有 Redis job ⇒ 在近期任务里完全看不到（用户实测提问）。
  * 这里把台账里正在跑的内置任务并进来，采集 job 与内置任务在同一个页签能看到。
  */
-async function loadBuiltinRunning(): Promise<void> {
+const BUILTIN_RUNNING_MIN_MS = 10_000
+let builtinRunningAt = 0
+
+/** 正在运行的内置任务（节流 10s：active 轮询 5s，没必要每次都查台账） */
+async function loadBuiltinRunning(force = false): Promise<void> {
+  const now = Date.now()
+  if (!force && now - builtinRunningAt < BUILTIN_RUNNING_MIN_MS) return
+  builtinRunningAt = now
   try {
     const r = await tasksApi.runs({ status: 'running', page: 1, size: 20 })
     builtinRunning.value = (r.list ?? []).filter((x) => x.kind !== 'cron')
@@ -399,9 +406,12 @@ function stopPoll(): void {
 
 function switchTab(tab: TabKey): void {
   activeTab.value = tab
-  // 只改 query、不新增历史记录（点页签不该产生一条可回退的浏览记录）
+  // 只改 query、不新增历史记录；默认页签（running）不写进 URL，避免 ?tab=running 噪音
   if (router) {
-    void router.replace({ query: { ...(route?.query ?? {}), tab } })
+    const q = { ...(route?.query ?? {}) }
+    if (tab === 'running') delete q.tab
+    else q.tab = tab
+    void router.replace({ query: q })
   }
   void loadAll()
 }
@@ -494,6 +504,8 @@ function changeRunStatus(): void {
 const errRuns = ref<TaskRun[]>([])
 const errIgnored = ref<TaskRun[]>([])
 const errLoading = ref(false)
+/** 待处理异常是否已加载过（决定页签徽标是否展示，避免"假 0"） */
+const errLoaded = ref(false)
 const showIgnoredRuns = ref(false)
 
 async function loadErrRuns(): Promise<void> {
@@ -512,6 +524,7 @@ async function loadErrRuns(): Promise<void> {
     toast('error', e instanceof Error ? e.message : '异常列表加载失败')
   } finally {
     errLoading.value = false
+    errLoaded.value = true
   }
 }
 
@@ -674,7 +687,8 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
   // 两个**不同维度**，不要混在一个页签里：
   //   errs     = 任务级台账（task_run）：某个任务跑失败了，且之后没成功过
   //   failures = 采集页级（collect_failure）：某页没采到，等着补采
-  { value: 'errs', label: '任务异常', count: errRuns.value.length },
+  // 徽标只在**加载过**之后才给（否则未进页签时恒显示 0，看起来像"没有异常"）
+  { value: 'errs', label: '任务异常', count: errLoaded.value ? errRuns.value.length : undefined },
   { value: 'failures', label: '失败页补采', count: ov.value.pendingFailures }
 ])
 </script>
@@ -761,7 +775,8 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
         </div>
       </div>
 
-      <div v-else-if="jobs.length === 0" class="jc-tm-empty">
+      <!-- 有内置任务在跑时，下面这句"暂无采集任务"会与上方区块自相矛盾 -->
+      <div v-else-if="jobs.length === 0 && !builtinRunning.length" class="jc-tm-empty">
         暂无正在运行 / 最近 30 分钟内结束的采集任务. 去
         <RouterLink to="/manage/collect" class="text-link">采集源列表</RouterLink>
         启动一个.
@@ -916,7 +931,14 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               <span class="ml-auto text-xs text-muted">
                 {{ t.lastRunAt || t.startedAt ? formatDateTime(t.lastRunAt || t.startedAt) : '未运行' }}
               </span>
-              <span v-if="t.message" class="text-xs text-muted" :title="t.message">{{ t.message }}</span>
+              <!-- 失败时后端写的是 Error 字段（Message 只承载成功/备注），两者都要展示，
+                   否则只看到「失败」标签却不知道原因 -->
+              <span
+                v-if="t.error || t.message"
+                class="text-xs"
+                :class="t.error ? 'text-[var(--jc-danger)]' : 'text-muted'"
+                :title="t.error || t.message"
+              >{{ t.error || t.message }}</span>
 
               <ManageButton
                 size="sm"

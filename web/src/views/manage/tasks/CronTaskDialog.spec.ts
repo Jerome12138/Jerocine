@@ -130,3 +130,20 @@ describe('CronTaskDialog 采集任务新建/编辑', () => {
     expect(w.emitted('saved')).toBeFalsy()
   })
 })
+
+  it('启用开关：新建默认开；编辑回填原状态；提交带上 state（P2 单条启停能力恢复）', async () => {
+    // 新建：默认启用
+    const w = await mountOpen(null)
+    await btn(w, '保存')!.trigger('click')
+    await flushPromises()
+    expect(h.add).toHaveBeenCalledWith(expect.objectContaining({ state: true }))
+    w.unmount()
+
+    // 编辑一个已停用的任务：开关回填 false，原样提交 false（不会偷偷打开）
+    h.add.mockClear()
+    const off = await mountOpen(task({ state: false }))
+    await btn(off, '保存')!.trigger('click')
+    await flushPromises()
+    expect(h.update).toHaveBeenCalledWith(expect.objectContaining({ id: '7', state: false }))
+    off.unmount()
+  })

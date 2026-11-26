@@ -437,3 +437,38 @@ describe('TaskManageView 轮询', () => {
     h.routeQuery.tab = ''
     w.unmount()
   })
+
+  it('计划任务行: 失败任务要显示错误原因（后端失败写 Error 不是 Message）', async () => {
+    h.taskCenterTasks.mockResolvedValue({
+      list: [
+        {
+          key: 'builtin:probe', kind: 'builtin', type: 'probe', name: '探针',
+          schedule: 'daily:04:00', scheduleText: '每天 04:00', enabled: true,
+          editable: ['enabled'], caps: ['run'], state: 'failed',
+          error: 'net_timeout 连接超时', message: ''
+        }
+      ]
+    })
+    const w = await mountView()
+    await gotoTab(w, '计划任务')
+    await flushPromises()
+    expect(w.text()).toContain('连接超时')
+    w.unmount()
+  })
+
+  it('切到默认页签「近期任务」不把 tab 写进 URL', async () => {
+    const w = await mountView()
+    await gotoTab(w, '计划任务')
+    h.routerReplace.mockClear()
+    await gotoTab(w, '近期任务')
+    const arg = h.routerReplace.mock.calls.at(-1)?.[0] as { query?: Record<string, string> } | undefined
+    expect(arg?.query?.tab, '默认页签不该出现在 URL').toBeUndefined()
+    w.unmount()
+  })
+
+  it('任务异常徽标：未加载过不显示（避免假 0 条）', async () => {
+    const w = await mountView()
+    const errTab = w.findAll('[role="tab"]').find((t) => t.text().includes('任务异常'))
+    expect(errTab?.text(), '未加载时徽标不该出现 0').not.toMatch(/任务异常\s*0/)
+    w.unmount()
+  })

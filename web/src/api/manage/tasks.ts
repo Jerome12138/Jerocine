@@ -119,10 +119,13 @@ export const taskCenterBatchState = (
 /** GET /manage/task-center/runs/pending "待处理异常"
  *  口径：failed 且未忽略，且其后没有同一任务的成功运行 —— 已重跑成功的旧失败不会出现在这里。
  *  （与「历史记录」的全量台账是两个口径，别混用） */
-export const pendingRuns = (limit = 200): Promise<{ items: TaskRun[]; total: number }> =>
-  http.get<unknown, { items: TaskRun[]; total: number }>('/manage/task-center/runs/pending', {
-    params: { limit }
-  })
+export const pendingRuns = (
+  limit = 200
+): Promise<{ items: TaskRun[]; count: number; limit: number; truncated: boolean }> =>
+  http.get<unknown, { items: TaskRun[]; count: number; limit: number; truncated: boolean }>(
+    '/manage/task-center/runs/pending',
+    { params: { limit } }
+  )
 
 /** POST /manage/task-center/runs/:id/rerun 异常重跑 */
 export const rerunRun = (id: number): Promise<{ accepted: boolean }> =>

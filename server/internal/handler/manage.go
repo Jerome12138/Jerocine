@@ -645,12 +645,15 @@ func (h *Handlers) startHotRefreshAsync() {
 // "待处理异常"：failed 且未忽略、且其后没有同一任务的成功运行（已重跑成功的旧失败不再打扰人）。
 // 与「历史记录」的全量台账（含已处理的失败）是**两个口径**，别再混在一起展示。
 func (h *Handlers) TaskCenterPendingRuns(c *gin.Context) {
-	list, err := h.Tasks.ListUnhandledFailed(c.Request.Context(), queryInt(c, "limit", 200))
+	limit := queryInt(c, "limit", 200)
+	list, err := h.Tasks.ListUnhandledFailed(c.Request.Context(), limit)
 	if err != nil {
 		dto.Fail(c, err)
 		return
 	}
-	dto.OK(c, gin.H{"items": list, "total": len(list)})
+	// count 是**本次返回条数**（不是全库总数）——字段名如实说明，避免被当成 total 用。
+	// truncated=true 表示可能被 limit 截断（返回条数已达上限）。
+	dto.OK(c, gin.H{"items": list, "count": len(list), "limit": limit, "truncated": len(list) >= limit})
 }
 
 // TaskRuns GET /manage/tasks/runs?status=&type=&page=&size= 任务运行台账分页。

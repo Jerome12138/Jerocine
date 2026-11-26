@@ -2553,7 +2553,9 @@ paths:
                 type: object
                 properties:
                   items: { type: array, items: { type: object } }
-                  total: { type: integer }
+                  count: { type: integer, description: 本次返回条数（不是全库总数） }
+                  limit: { type: integer, description: 本次请求上限 }
+                  truncated: { type: boolean, description: true=返回条数已达上限，可能还有更多 }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /manage/task-center/schedule:
