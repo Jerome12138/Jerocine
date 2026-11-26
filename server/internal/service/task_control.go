@@ -56,7 +56,11 @@ type TaskGateState struct {
 	// RunningJobs 仍在跑的采集源：暂停是**协作式**的（引擎在页边界才检查状态），
 	// 部署脚本据此轮询"安静点到了没有"——为空即可动手迁移/重建容器。
 	RunningJobs []string `json:"runningJobs"`
-	Note        string   `json:"note,omitempty"`
+	// RunningBuiltin 正在跑的内置任务 key（调度器 busy）。发版前判断"短任务跑完没有"用。
+	RunningBuiltin []string `json:"runningBuiltin"`
+	// PausedLong 已按"长任务"暂停的 key（这些不算"还在忙"，发版不用等）。
+	PausedLong []string `json:"pausedLong"`
+	Note       string   `json:"note,omitempty"`
 }
 
 // 返回体里的固定说明（接口自解释，免得 agent 误判"暂停=立刻冻结/可跨重启"）。
@@ -81,6 +85,14 @@ func (s *TaskCenterService) PauseAll(ctx context.Context, by string, ttlMinutes 
 	}
 	paused := s.pauseRunningJobs(ctx, jobs, &rep)
 	rep.Items = append(rep.Items, paused...)
+	// 豆瓣批次是"多接口长任务"：**协作暂停**（停在两部之间），而不是让它跑完或被掐断
+	if s.film != nil && s.film.PauseDoubanBatch() {
+		rep.Items = append(rep.Items, TaskGateItem{
+			Key: "builtin:douban_batch", Name: "豆瓣批次", Kind: taskcenter.KindBuiltin,
+			State: "running", Action: "paused", Pauseable: true,
+			Reason: "停在两部之间，resume 后从断点继续",
+		})
+	}
 	rep.Items = append(rep.Items, s.nonPauseableRunning(ctx)...)
 
 	log.Printf("[task-center] 维护窗口已打开: by=%s until=%s · 暂停采集源 %d 个, 跳过/不可暂停 %d 个",
@@ -123,6 +135,9 @@ func (s *TaskCenterService) nonPauseableRunning(ctx context.Context) []TaskGateI
 	for _, d := range s.reg.All() {
 		if d.Status == nil || d.Internal {
 			continue
+		}
+		if d.Key == "builtin:douban_score" || d.Key == "builtin:douban_backfill" {
+			continue // 豆瓣批次已支持协作暂停（PauseAll 会停它），不算"不可暂停"
 		}
 		st := d.Status(ctx)
 		if st.State != taskcenter.StateRunning {
@@ -180,6 +195,13 @@ func (s *TaskCenterService) ResumeAll(ctx context.Context) (TaskGateReport, erro
 		}
 		rep.Items = append(rep.Items, it)
 	}
+	// 豆瓣批次（无白名单，靠 idempotent 恢复）
+	if s.film != nil && s.film.ResumeDoubanBatch() {
+		rep.Items = append(rep.Items, TaskGateItem{
+			Key: "builtin:douban_batch", Name: "豆瓣批次", Kind: taskcenter.KindBuiltin,
+			Action: "resumed", Pauseable: true,
+		})
+	}
 	cache.TaskGateJobsClear(ctx)
 	if len(keepFailed) > 0 {
 		for _, id := range keepFailed {
@@ -204,6 +226,15 @@ func (s *TaskCenterService) ControlState(ctx context.Context) (TaskGateState, er
 	}
 	if open {
 		st.Until = until.Unix()
+	}
+	st.RunningBuiltin = s.runningBuiltins()
+	if st.RunningBuiltin == nil {
+		st.RunningBuiltin = []string{}
+	}
+	if s.film != nil && s.film.DoubanPaused() {
+		st.PausedLong = []string{"builtin:douban_score", "builtin:douban_backfill"}
+	} else {
+		st.PausedLong = []string{}
 	}
 	if jobs, jerr := cache.JobList(ctx); jerr == nil {
 		for _, j := range jobs {

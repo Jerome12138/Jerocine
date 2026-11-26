@@ -178,6 +178,14 @@ func (s *TaskCenterService) scheduler() *TaskScheduler {
 	return s.sched
 }
 
+// runningBuiltins 当前在跑的内置任务 key（调度器 busy 快照）。
+func (s *TaskCenterService) runningBuiltins() []string {
+	if sched := s.scheduler(); sched != nil {
+		return sched.Running()
+	}
+	return nil
+}
+
 // nextRuns 调度器内存里的"下次触发时刻"快照（未启动时为空 map）。
 func (s *TaskCenterService) nextRuns() map[string]int64 {
 	if sched := s.scheduler(); sched != nil {

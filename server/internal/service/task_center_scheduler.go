@@ -463,3 +463,20 @@ func firstNonEmptyStr(vals ...string) string {
 	}
 	return ""
 }
+
+// Running 当前同进程内在跑的任务 key 列表（busy 快照）。发版前的"安静点"判断要用：
+// 短任务（热度/横图/巡检/年份核实）不暂停，等它自己跑完；长任务（豆瓣）走暂停。
+func (s *TaskScheduler) Running() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.busy))
+	for k, v := range s.busy {
+		if v {
+			out = append(out, k)
+		}
+	}
+	return out
+}

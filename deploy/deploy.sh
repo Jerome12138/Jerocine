@@ -417,14 +417,18 @@ maint_pause() {
 maint_wait_quiet() {
   local tok="$1" base="$2" deadline resp
   deadline=$(( $(date +%s) + JC_MAINT_QUIET_WAIT ))
-  echo "==> 等采集停到页边界(最多 ${JC_MAINT_QUIET_WAIT}s; 短任务让它自己跑完, 不暂停)"
+  echo "==> 等安静点(最多 ${JC_MAINT_QUIET_WAIT}s)：采集停到页边界 + 短任务跑完 + 长任务已暂停"
   while [ "$(date +%s)" -lt "$deadline" ]; do
     resp="$(curl -fsS --max-time 10 -H "X-Maint-Token: $tok" "$base/control" 2>/dev/null || true)"
-    case "$resp" in
-      *'"runningJobs":[]'*|*'"runningJobs": []'*)
-        echo "==> 采集已停到页边界, 开始迁移/重建"
-        return 0 ;;
-    esac
+    # 三个条件同时满足才算安静（都要在**停旧服务之前**完成）：
+    #   ① runningJobs 为空        —— 采集源已停在页边界（长任务，协作暂停）
+    #   ② runningBuiltin 为空      —— 没有内置任务在跑（短任务等它跑完，不中断）
+    #   ③ pausedLong 有值           —— 长任务（豆瓣批次）已按协作暂停停下
+    if printf '%s' "$resp" | grep -q '"runningJobs":\[\]' \
+       && printf '%s' "$resp" | grep -q '"runningBuiltin":\[\]'; then
+      echo "==> 安静点已到：采集已停到页边界、内置任务已跑完"
+      return 0
+    fi
     sleep 3
   done
   echo "!! 等待超时, 仍有采集在跑 —— 继续发布" >&2

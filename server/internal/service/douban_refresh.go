@@ -89,6 +89,9 @@ func (s *FilmService) PauseDoubanBatch() bool {
 	return true
 }
 
+// DoubanPaused 当前豆瓣批次是否处于暂停态（发版前"安静点"判断用）。
+func (s *FilmService) DoubanPaused() bool { return doubanBatchPaused.Load() }
+
 // ResumeDoubanBatch 继续已暂停的批次。
 func (s *FilmService) ResumeDoubanBatch() bool {
 	if !doubanBatchBusy.Load() || !doubanBatchPaused.Load() {
