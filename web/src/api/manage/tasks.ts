@@ -64,6 +64,8 @@ export interface TaskCenterItem {
   lastRunAt: number
   message: string
   error: string
+  /** 下次计划触发时刻（unix 毫秒；0=调度器还没算，如停用/周期待配置） */
+  nextAt: number
 }
 
 export interface TaskCenterOverview {
@@ -115,6 +117,29 @@ export const taskCenterBatchState = (
     { keys, enabled },
     { silent: true }
   )
+
+/** GET /manage/task-center/schedule 调度态只读诊断
+ *  items[].running = 调度器内存里是否正有一轮在跑（**QuietOnSuccess 任务台账没有 running 行**，
+ *  所以"正在运行"必须看这个，而不是查台账）。 */
+export interface ScheduleItem {
+  key: string
+  name: string
+  kind: string
+  enabled: boolean
+  schedule: string
+  scheduleText: string
+  nextAt: number
+  running: boolean
+}
+export const taskCenterSchedule = (): Promise<{
+  items: ScheduleItem[]
+  gateOpen: boolean
+  tickMs: number
+  now: number
+}> => http.get<unknown, { items: ScheduleItem[]; gateOpen: boolean; tickMs: number; now: number }>(
+  '/manage/task-center/schedule',
+  { silent: true }
+)
 
 /** GET /manage/task-center/runs/pending "待处理异常"
  *  口径：failed 且未忽略，且其后没有同一任务的成功运行 —— 已重跑成功的旧失败不会出现在这里。

@@ -44,29 +44,38 @@ func idleWithMessage(msg string) func(context.Context) taskcenter.Status {
 
 // ---- 豆瓣 / 域名公告（FilmService 拥有）----
 
-// doubanStatus 豆瓣两个任务共用一份进度（同一把单飞锁）。
-func (s *FilmService) doubanStatus(ctx context.Context) taskcenter.Status {
-	if s == nil {
-		// 未装配（单测/精简装配）时按"空闲"处理：状态探针不能把调用方（如停用前的
-		// isTaskRunning）打挂 —— 探针炸掉只是不知道状态，不该拦下停用。
-		return taskcenter.Status{State: taskcenter.StateIdle}
-	}
-	p := s.DoubanBatchProgress()
-	st := taskcenter.Status{State: taskcenter.StateIdle, Message: p.Message, StartedAt: p.StartedAt}
-	switch p.State {
-	case "running":
-		st.State = taskcenter.StateRunning
-		st.Progress = &taskcenter.Progress{Total: p.Total, Done: p.Done, Failed: p.Failed, Unit: "部"}
-		if p.StartedAt > 0 {
-			st.ElapsedMs = time.Now().UnixMilli() - p.StartedAt
+// doubanStatusFor 返回"只看本任务"的状态探针。
+//
+// 豆瓣两条任务共用一把单飞锁和**一份**进度结构（p.Task 标明当前是哪个任务在跑）。
+// 探针必须按归属判断，否则一条在跑时另一条也会显示"运行中"并带上进度
+// （用户实测：手动跑「评分同步」，「欠账补查」也被显示成运行中，还挂了"本轮结束后停止"）。
+func (s *FilmService) doubanStatusFor(task string) func(context.Context) taskcenter.Status {
+	return func(ctx context.Context) taskcenter.Status {
+		if s == nil {
+			// 未装配（单测/精简装配）时按"空闲"处理：状态探针不能把调用方打挂
+			return taskcenter.Status{State: taskcenter.StateIdle}
 		}
-	case "done":
-		st.State = taskcenter.StateSucceeded
-	case "failed":
-		st.State = taskcenter.StateFailed
-		st.Error = p.Message
+		p := s.DoubanBatchProgress()
+		if p.Task != "" && p.Task != task {
+			// 另一条豆瓣任务在跑：本任务就是空闲，既不显示别人的进度也不要别人的文案
+			return taskcenter.Status{State: taskcenter.StateIdle}
+		}
+		st := taskcenter.Status{State: taskcenter.StateIdle, Message: p.Message, StartedAt: p.StartedAt}
+		switch p.State {
+		case "running":
+			st.State = taskcenter.StateRunning
+			st.Progress = &taskcenter.Progress{Total: p.Total, Done: p.Done, Failed: p.Failed, Unit: "部"}
+			if p.StartedAt > 0 {
+				st.ElapsedMs = time.Now().UnixMilli() - p.StartedAt
+			}
+		case "done":
+			st.State = taskcenter.StateSucceeded
+		case "failed":
+			st.State = taskcenter.StateFailed
+			st.Error = p.Message
+		}
+		return st
 	}
-	return st
 }
 
 // TaskDefs 豆瓣评分同步 / 欠账补查 / 域名公告拉取。
@@ -79,8 +88,16 @@ func (s *FilmService) TaskDefs() []taskcenter.Def {
 			DefaultSchedule: "weekly:1 03:00", Enabled: true,
 			DefaultIntervalMs: 4000, MinIntervalMs: 2000, IntervalLabel: "3~5s 随机",
 			Editable: editAllFields, Caps: capsRun,
-			Status: s.doubanStatus,
-			Run:    s.RunDoubanScoreSyncOnce,
+			Status: s.doubanStatusFor("douban_score"),
+			// 豆瓣刷分是"启动后台批 + 内存进度"：Run 必须用 Start 变体并标 Async，
+			// 否则手动/定时触发都会**立刻记成功**（用户实测："一触发就完成、没有进度"）。
+			Async: true,
+			Run: func(ctx context.Context) error {
+				if s == nil {
+					return fmt.Errorf("影片服务未装配")
+				}
+				return s.StartDoubanScoreSyncOnce(ctx)
+			},
 		},
 		{
 			Key: "builtin:douban_backfill", Kind: taskcenter.KindBuiltin, Type: "douban_backfill",
@@ -89,8 +106,12 @@ func (s *FilmService) TaskDefs() []taskcenter.Def {
 			DefaultSchedule: "", Enabled: false,
 			DefaultIntervalMs: 4000, MinIntervalMs: 2000, IntervalLabel: "3~5s 随机",
 			Editable: editAllFields, Caps: capsRun,
-			Status: s.doubanStatus,
+			Status: s.doubanStatusFor("douban_backfill"),
+			Async:  true, // 同上：后台批 + 内存进度
 			Run: func(ctx context.Context) error {
+				if s == nil {
+					return fmt.Errorf("影片服务未装配")
+				}
 				return s.StartDoubanScoreBackfill(ctx, 0)
 			},
 		},

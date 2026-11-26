@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"server/internal/cache"
 	"server/internal/domain/entity"
 	"server/internal/errclass"
 	"server/internal/taskcenter"
@@ -283,6 +284,8 @@ func (s *TaskScheduler) runOne(ctx context.Context, d taskcenter.Def) {
 
 	err := s.run.RunDefinition(ctx, d)
 	cost := time.Since(start).Round(time.Second)
+	// 轻量留痕：QuietOnSuccess 的任务不写台账，但列表要看得到"上次运行"
+	cache.TaskLastRunSet(context.WithoutCancel(ctx), d.Type, time.Now().UnixMilli(), err == nil)
 
 	if led != nil && d.QuietOnSuccess && err != nil {
 		// 高频任务失败：补落一条终态台账，让"异常"页能看见并支持重跑/忽略
@@ -291,9 +294,14 @@ func (s *TaskScheduler) runOne(ctx context.Context, d taskcenter.Def) {
 	}
 
 	if runID > 0 {
-		if err != nil {
+		switch {
+		case err != nil:
 			led.Finish(runID, entity.TaskRunFailed, 0, 0, 0, "", errclass.Format(err))
-		} else {
+		case d.Async:
+			// 异步任务（如豆瓣刷分）：Run 只是"启动后台批"，真正结果要看 Def.Status。
+			// 这里不能立刻记成功，否则页面显示"一触发就完成"且看不到进度。
+			go s.watchAsync(d, runID)
+		default:
 			led.Finish(runID, entity.TaskRunSuccess, 0, 0, 0, "完成 · 耗时 "+cost.String(), "")
 		}
 	}
@@ -399,4 +407,76 @@ func (s *TaskCenterService) ScheduleSnapshot(ctx context.Context) ([]ScheduleIte
 		return []ScheduleItem{}, false, 0
 	}
 	return sched.Snapshot(ctx)
+}
+
+// NextRuns 只读"下次触发时刻"（任务 key → unix 毫秒），给列表展示用。
+// 未启动/还没算过的任务不在 map 内；调度器为 nil 时返回空。
+func (s *TaskScheduler) NextRuns() map[string]int64 {
+	if s == nil {
+		return map[string]int64{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]int64, len(s.next))
+	for k, v := range s.next {
+		out[k] = v.UnixMilli()
+	}
+	return out
+}
+
+// watchAsync 异步任务的台账收尾：轮询 Def.Status 到终态才 Finish（最长 3 小时）。
+// 与手动执行的观察者（TaskCenterService.watchBuiltinRun）同语义，只是这里只有 SchedLedger。
+func (s *TaskScheduler) watchAsync(d taskcenter.Def, runID int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[task-scheduler] 异步观察者 panic(%s run=%d): %v", d.Key, runID, r)
+		}
+	}()
+	ctx := context.Background()
+	deadline := time.Now().Add(3 * time.Hour)
+	for time.Now().Before(deadline) {
+		time.Sleep(10 * time.Second)
+		if d.Status == nil {
+			s.led.Finish(runID, entity.TaskRunSuccess, 0, 0, 0, "完成（无状态探针）", "")
+			return
+		}
+		st := d.Status(ctx)
+		switch st.State {
+		case taskcenter.StateSucceeded:
+			msg := st.Message
+			if msg == "" {
+				msg = "完成"
+			}
+			total, done, failed := progressNums(st)
+			s.led.Finish(runID, entity.TaskRunSuccess, total, done, failed, msg, "")
+			return
+		case taskcenter.StateFailed:
+			msg := st.Error
+			if msg == "" {
+				msg = firstNonEmptyStr(st.Message, "失败")
+			}
+			total, done, failed := progressNums(st)
+			s.led.Finish(runID, entity.TaskRunFailed, total, done, failed, "", msg)
+			return
+		}
+	}
+	s.led.Finish(runID, entity.TaskRunFailed, 0, 0, 0, "", "[timeout] 超过 3 小时仍未结束，已按超时收尾")
+}
+
+// progressNums 把 Status.Progress 摊成台账的 total/done/failed。
+func progressNums(st taskcenter.Status) (total, done, failed int) {
+	if st.Progress == nil {
+		return 0, 0, 0
+	}
+	return st.Progress.Total, st.Progress.Done, st.Progress.Failed
+}
+
+// firstNonEmptyStr 取第一个非空字符串（台账文案兜底）。
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

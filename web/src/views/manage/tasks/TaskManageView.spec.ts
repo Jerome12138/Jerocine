@@ -33,6 +33,7 @@ const h = vi.hoisted(() => ({
   routerReplace: vi.fn(),
   // 统一任务中心
   taskCenterTasks: vi.fn(),
+  taskCenterSchedule: vi.fn(),
   taskCenterOverview: vi.fn(),
   taskCenterRun: vi.fn(),
   taskCenterUpdateSetting: vi.fn()
@@ -55,6 +56,7 @@ vi.mock('@/api/manage/tasks', () => ({
   rerun: h.rerun,
   // 统一任务中心（2026-11-25）
   taskCenterTasks: h.taskCenterTasks,
+  taskCenterSchedule: h.taskCenterSchedule,
   taskCenterOverview: h.taskCenterOverview,
   taskCenterRun: h.taskCenterRun,
   taskCenterUpdateSetting: h.taskCenterUpdateSetting
@@ -151,6 +153,7 @@ describe('TaskManageView 任务管理', () => {
     vi.clearAllMocks()
     h.overview.mockResolvedValue({ running: 1, todaySuccess: 2, todayFailed: 1, pendingFailures: 3 })
     h.spiderJobs.mockResolvedValue([job()])
+    h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now: Date.now() })
     h.list.mockResolvedValue([
       { id: 'src_a', name: '源A', uri: '', resultModel: 0, grade: 0, syncPictures: false, collectType: 0, state: true, interval: 0 }
     ])
@@ -172,9 +175,9 @@ describe('TaskManageView 任务管理', () => {
     expect(text).toContain('50%')
     expect(h.overview).toHaveBeenCalledTimes(1)
     expect(h.spiderJobs).toHaveBeenCalledTimes(1)
-    // running 页签会查一次台账（正在运行的内置任务）；历史台账仍不该预取。
-    expect(h.runs).toHaveBeenCalledTimes(1)
-    expect(h.runs.mock.calls[0]?.[0]).toMatchObject({ status: 'running' })
+    // running 页签改为读调度器快照（不查台账）；历史台账仍不该预取
+    expect(h.taskCenterSchedule).toHaveBeenCalled()
+    expect(h.runs).not.toHaveBeenCalled()
     expect(h.failures).not.toHaveBeenCalled()
     w.unmount()
   })
@@ -394,21 +397,21 @@ describe('TaskManageView 轮询', () => {
 
   it('近期任务: 正在运行的内置任务（台账 running, 非 cron）也要显示；英文类型给中文', async () => {
     h.spiderJobs.mockResolvedValue([])
-    h.runs.mockResolvedValue({
-      list: [
-        { id: 9001, kind: 'manual', type: 'backdrop', name: '手动执行 · 横图补采', status: 'running', startedAt: Date.now() - 60000, endedAt: 0, total: 0, done: 0, failed: 0, message: '', error: '', ignored: false, cronId: 0, sourceId: '', hours: 0 },
-        { id: 9002, kind: 'cron', type: 'collect', name: '定时任务 #1', status: 'running', startedAt: Date.now() - 60000, endedAt: 0, total: 0, done: 0, failed: 0, message: '', error: '', ignored: false, cronId: 1, sourceId: '', hours: 24 }
+    h.taskCenterSchedule.mockResolvedValue({
+      items: [
+        { key: 'builtin:backdrop', name: '横图补采', kind: 'builtin', enabled: true, schedule: 'every:20m', scheduleText: '每 20 分钟', nextAt: 0, running: true },
+        { key: 'builtin:health', name: '采集源健康巡检', kind: 'builtin', enabled: true, schedule: 'every:1h', scheduleText: '每 1 小时', nextAt: 0, running: false },
+        { key: 'cron:1', name: '定时任务 #1', kind: 'collect', enabled: true, schedule: 'every:20m', scheduleText: '每 20 分钟', nextAt: 0, running: true }
       ],
-      page: { current: 1, size: 20, total: 2 }
+      gateOpen: false, tickMs: 30000, now: Date.now()
     })
     const w = await mountView()
     await flushPromises()
     const text = w.text()
     expect(text).toContain('正在运行的内置任务')
-    expect(text).toContain('手动执行 · 横图补采')
-    expect(text).toContain('横图补采')   // 类型已中文化（不再露英文 backdrop）
-    expect(text).not.toContain('backdrop')
-    // 采集类（cron）不重复出现在内置区块
+    expect(text).toContain('横图补采')
+    // 未在跑的内置任务不列；采集任务(cron)不混进内置区块
+    expect(text).not.toContain('采集源健康巡检')
     expect(text).not.toContain('定时任务 #1')
     w.unmount()
   })

@@ -90,8 +90,10 @@ const ov = ref<TaskOverview>({ running: 0, todaySuccess: 0, todayFailed: 0, pend
 
 // ---- 运行中 job ----
 const jobs = ref<SpiderJob[]>([])
-/** 正在运行的内置任务（来自台账；采集 job 走 Redis，两者口径不同） */
-const builtinRunning = ref<TaskRun[]>([])
+/** 正在运行的内置任务（来自调度器内存 busy；QuietOnSuccess 任务台账里没有 running 行，
+ *  只看台账会永远为空 —— 用户实测"手动执行豆瓣/横图看不到"） */
+interface BuiltinRunningItem { key: string; name: string; scheduleText: string }
+const builtinRunning = ref<BuiltinRunningItem[]>([])
 const jobsLoading = ref(false)
 /** 统一任务中心：内置 + 采集，一份列表 */
 const tcList = ref<TaskCenterItem[]>([])
@@ -206,13 +208,15 @@ async function runTask(t: TaskCenterItem): Promise<void> {
 }
 
 async function editTask(t: TaskCenterItem): Promise<void> {
-  const done = await openManageDialog<boolean>({
+  // TaskSettingDialog 的 confirm 不带 payload（取消也走 confirm 关闭）⇒ 无法从返回值判断存没存，
+  // 所以关窗后**一律重拉**（一次列表请求，成本可忽略）；否则编辑后页面不刷新（用户实测）
+  await openManageDialog<boolean>({
     title: `编辑任务 · ${t.name}`,
     component: TaskSettingDialog,
     props: { task: t },
     width: '560px'
   })
-  if (done) await loadTc()
+  await loadTc()
 }
 
 // ---- 采集任务的建模面（任务类型/采集时长/资源站）----
@@ -338,17 +342,13 @@ async function loadOverview(): Promise<void> {
  * 这类内置任务只写台账、没有 Redis job ⇒ 在近期任务里完全看不到（用户实测提问）。
  * 这里把台账里正在跑的内置任务并进来，采集 job 与内置任务在同一个页签能看到。
  */
-const BUILTIN_RUNNING_MIN_MS = 10_000
-let builtinRunningAt = 0
-
-/** 正在运行的内置任务（节流 10s：active 轮询 5s，没必要每次都查台账） */
-async function loadBuiltinRunning(force = false): Promise<void> {
-  const now = Date.now()
-  if (!force && now - builtinRunningAt < BUILTIN_RUNNING_MIN_MS) return
-  builtinRunningAt = now
+/** 正在运行的内置任务：取调度器快照（内存 busy，纯只读、不查库），比台账准确 */
+async function loadBuiltinRunning(): Promise<void> {
   try {
-    const r = await tasksApi.runs({ status: 'running', page: 1, size: 20 })
-    builtinRunning.value = (r.list ?? []).filter((x) => x.kind !== 'cron')
+    const r = await tasksApi.taskCenterSchedule()
+    builtinRunning.value = (r.items ?? [])
+      .filter((x) => x.running && x.kind === 'builtin')
+      .map((x) => ({ key: x.key, name: x.name, scheduleText: x.scheduleText }))
   } catch {
     builtinRunning.value = []
   }
@@ -748,17 +748,13 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
         </div>
         <article
           v-for="r in builtinRunning"
-          :key="r.id"
+          :key="r.key"
           class="flex flex-wrap items-center gap-[var(--jc-space-2)] rounded-card bg-surface p-[var(--jc-space-3)] shadow-card"
         >
           <StatusTag value="running" :map="TC_STATE_MAP" size="sm" />
           <BaseTag variant="purple" size="xs">内置</BaseTag>
           <span class="text-sm font-[var(--jc-fw-medium)]">{{ r.name }}</span>
-          <span class="text-xs text-muted">{{ runTypeText(r.type) }}</span>
-          <span class="text-xs text-muted">启动 {{ fmtTime(r.startedAt) }}</span>
-          <span v-if="r.startedAt > 0" class="ml-auto text-xs text-muted tabular-nums">
-            已运行 {{ fmtDuration(Date.now() - r.startedAt) }}
-          </span>
+          <span class="ml-auto text-xs text-muted">{{ r.scheduleText }}</span>
         </article>
       </section>
 
@@ -928,8 +924,10 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
                 本轮结束后停止
               </span>
 
+              <!-- 上次运行 + 下次运行：让"没跑"变成"还没到点"（高频任务成功不写台账，靠轻量记录兜底） -->
               <span class="ml-auto text-xs text-muted">
-                {{ t.lastRunAt || t.startedAt ? formatDateTime(t.lastRunAt || t.startedAt) : '未运行' }}
+                {{ t.lastRunAt || t.startedAt ? `上次 ${formatDateTime(t.lastRunAt || t.startedAt)}` : '未运行' }}
+                <template v-if="t.nextAt"> · 下次 {{ formatDateTime(t.nextAt) }}</template>
               </span>
               <!-- 失败时后端写的是 Error 字段（Message 只承载成功/备注），两者都要展示，
                    否则只看到「失败」标签却不知道原因 -->

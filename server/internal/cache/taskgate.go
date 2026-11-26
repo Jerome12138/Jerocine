@@ -16,6 +16,8 @@ package cache
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"sort"
 	"time"
 
@@ -163,4 +165,55 @@ func JobMarkInterrupted(ctx context.Context) (int, error) {
 		n++
 	}
 	return n, nil
+}
+
+// ---- 任务"最近一次执行"轻量记录（不落台账）----
+//
+// 为什么需要：高频任务标了 QuietOnSuccess（成功不写 task_run，避免刷屏），
+// 但这也导致**列表/历史里完全看不到它们在跑**（用户实测："内置任务一个都没自动运行过"，
+// 实际日志里 backdrop/health/year_verify 一直在跑）。这里用 Redis 记一个极轻的时间戳+成败，
+// 只给列表展示"上次运行"，不回填台账、不参与异常判定。
+
+const KeyTaskLastRun = "v1:task:lastrun"
+
+// TaskLastRun 某任务最近一次执行结果。
+type TaskLastRun struct {
+	AtMs int64
+	OK   bool
+}
+
+// TaskLastRunSet 记录一次执行（atMs 毫秒；ok=是否成功）。协调端不可用时静默跳过。
+func TaskLastRunSet(ctx context.Context, taskType string, atMs int64, ok bool) {
+	if coordRdb == nil || taskType == "" {
+		return
+	}
+	okFlag := "0"
+	if ok {
+		okFlag = "1"
+	}
+	coordRdb.HSet(ctx, KeyTaskLastRun, taskType, strconv.FormatInt(atMs, 10)+"|"+okFlag)
+}
+
+// TaskLastRuns 取全部任务的最近执行（task_type → 结果）。一次 HGETALL，列表用。
+func TaskLastRuns(ctx context.Context) map[string]TaskLastRun {
+	out := map[string]TaskLastRun{}
+	if coordRdb == nil {
+		return out
+	}
+	m, err := coordRdb.HGetAll(ctx, KeyTaskLastRun).Result()
+	if err != nil {
+		return out
+	}
+	for k, v := range m {
+		parts := strings.SplitN(v, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		at, aerr := strconv.ParseInt(parts[0], 10, 64)
+		if aerr != nil {
+			continue
+		}
+		out[k] = TaskLastRun{AtMs: at, OK: parts[1] == "1"}
+	}
+	return out
 }

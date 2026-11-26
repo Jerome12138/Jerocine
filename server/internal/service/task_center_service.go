@@ -47,6 +47,9 @@ type TaskView struct {
 	Message       string               `json:"message"`
 	Error         string               `json:"error"`
 	LastRunAt     int64                `json:"lastRunAt"`
+	// NextAt 下次计划触发时刻（unix 毫秒；0=调度器还没给它算，如停用/周期待配置）。
+	// 排查"这个任务怎么没跑"第一眼就看它：有值说明只是还没到点。
+	NextAt int64 `json:"nextAt"`
 }
 
 // TaskCenterOverview 概览。
@@ -163,6 +166,14 @@ func (s *TaskCenterService) scheduler() *TaskScheduler {
 	s.schedMu.RLock()
 	defer s.schedMu.RUnlock()
 	return s.sched
+}
+
+// nextRuns 调度器内存里的"下次触发时刻"快照（未启动时为空 map）。
+func (s *TaskCenterService) nextRuns() map[string]int64 {
+	if sched := s.scheduler(); sched != nil {
+		return sched.NextRuns()
+	}
+	return map[string]int64{}
 }
 
 // ledger 台账写入口（可能为 nil：未注入时各调用点自行跳过）。

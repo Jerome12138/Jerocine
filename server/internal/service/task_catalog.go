@@ -17,6 +17,12 @@ import (
 
 // List 合并「内置任务 + cron 任务」。
 func (s *TaskCenterService) List(ctx context.Context, kind string) ([]TaskView, error) {
+	// 两个一次性快照（避免每个任务各查一次）：
+	//   lastRuns — 高频任务成功不写台账，靠这个轻量记录显示"上次运行"
+	//   nextAt   — 调度器内存里的"下次触发时刻"，用来回答"为什么还没跑"
+	lastRuns := cache.TaskLastRuns(ctx)
+	nextAt := s.nextRuns()
+
 	settings := map[string]entity.TaskSetting{}
 	if s.settings != nil {
 		if m, err := s.settings.List(ctx); err == nil {
@@ -32,7 +38,7 @@ func (s *TaskCenterService) List(ctx context.Context, kind string) ([]TaskView, 
 		if kind != "" && d.Kind != kind {
 			continue
 		}
-		out = append(out, s.viewOfDef(ctx, d, settings[d.Key]))
+		out = append(out, s.viewOfDef(ctx, d, settings[d.Key], lastRuns, nextAt))
 	}
 
 	if kind == "" || kind == taskcenter.KindCollect {
@@ -52,7 +58,8 @@ func (s *TaskCenterService) List(ctx context.Context, kind string) ([]TaskView, 
 			// /tasks 与 /overview ⇒ 翻倍）。JobList 本来就是一次 SCAN，用它喂进度最省。
 			snaps := cache.JobSnapshots(ctx)
 			for i := range crons {
-				out = append(out, s.viewOfCron(ctx, crons[i], latest[crons[i].Id], names, allIDs, snaps))
+				out = append(out, s.viewOfCron(ctx, crons[i], latest[crons[i].Id], names, allIDs, snaps,
+					nextAt[taskcenter.RefCron(crons[i].Id)]))
 			}
 		}
 	}
@@ -78,7 +85,8 @@ func (s *TaskCenterService) latestBuiltinRun(ctx context.Context, typ string) (e
 	return list[0], true
 }
 
-func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set entity.TaskSetting) TaskView {
+func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set entity.TaskSetting,
+	lastRuns map[string]cache.TaskLastRun, nextAt map[string]int64) TaskView {
 	// 合并逻辑单点在 taskcenter.Resolve（与调度器 effective 同一实现，不会两边漂移）
 	rc := taskcenter.Resolve(d, userConfigOf(set))
 	enabled, schedule, interval := rc.Enabled, rc.Schedule, rc.IntervalMs
@@ -91,6 +99,14 @@ func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set
 	if st.State == taskcenter.StateIdle {
 		if run, ok := s.latestBuiltinRun(ctx, d.Type); ok {
 			st = statusFromRun(run)
+		} else if lr, ok := lastRuns[d.Type]; ok {
+			// 高频任务(QuietOnSuccess)成功不写台账 ⇒ 用轻量记录兜底，
+			// 否则列表永远显示"未运行"，让人以为任务没在跑
+			st.State = taskcenter.StateSucceeded
+			if !lr.OK {
+				st.State = taskcenter.StateFailed
+			}
+			st.StartedAt = lr.AtMs
 		}
 	}
 	// 行尾文案的取舍（2026-11-26 用户反馈"每 20 分钟扫描一次"与左侧"计划"列重复）：
@@ -109,11 +125,12 @@ func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set
 		Editable: d.Editable, Caps: d.Caps,
 		State: string(st.State), Progress: st.Progress,
 		StartedAt: st.StartedAt, ElapsedMs: st.ElapsedMs, Message: st.Message, Error: st.Error,
+		NextAt: nextAt[d.Key],
 	}
 }
 
 func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, last entity.TaskRun,
-	names map[string]string, allIDs []string, snaps map[string]cache.JobProgress) TaskView {
+	names map[string]string, allIDs []string, snaps map[string]cache.JobProgress, nextAtMs int64) TaskView {
 	v := TaskView{
 		Key: taskcenter.RefCron(t.Id), Kind: taskcenter.KindCollect,
 		Type: cronTaskType(t), Name: cronTaskName(t, names),
@@ -123,6 +140,7 @@ func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, l
 		Editable: []string{taskcenter.FieldEnabled, taskcenter.FieldSchedule, taskcenter.FieldRemark},
 		Caps:     []string{taskcenter.CapRun},
 		State:    string(taskcenter.StateIdle),
+		NextAt:   nextAtMs,
 	}
 	if last.Id > 0 {
 		v.LastRunAt = last.StartedAt
