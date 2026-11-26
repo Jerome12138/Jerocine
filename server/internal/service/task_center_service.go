@@ -135,7 +135,17 @@ func (s *TaskCenterService) Crons(ctx context.Context) ([]entity.CronTask, error
 }
 
 // RunDefinition 跑一个内置任务（SchedRunner）：带 recover，任务自己 panic 不会打挂进程。
+//
+// 顺带把"接口间隔"真正接进执行：此前 IntervalMs 只存库/只校验、没有任何代码拿它配速
+// （用户实测："我调了频次，界面还显示 3~5s"）。豆瓣批次的节奏由客户端抖动控制，
+// 这里按**合并后的生效值**在每次触发前设置一次。
 func (s *TaskCenterService) RunDefinition(ctx context.Context, d taskcenter.Def) error {
+	if d.Key == "builtin:douban_score" || d.Key == "builtin:douban_backfill" {
+		if s.film != nil {
+			rc := taskcenter.Resolve(d, userConfigOf(s.Settings(ctx)[d.Key]))
+			s.film.SetDoubanJitter(rc.IntervalMs)
+		}
+	}
 	return safeRunTask(ctx, d)
 }
 

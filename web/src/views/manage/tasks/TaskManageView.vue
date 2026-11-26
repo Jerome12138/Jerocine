@@ -263,6 +263,21 @@ async function removeCron(t: TaskCenterItem): Promise<void> {
   }
 }
 
+/** 豆瓣两个任务（共用同一条后台批次，停止是批级别的） */
+function isDoubanTask(t: TaskCenterItem): boolean {
+  return t.key === 'builtin:douban_score' || t.key === 'builtin:douban_backfill'
+}
+
+async function stopDouban(): Promise<void> {
+  try {
+    const r = await tasksApi.doubanBatchStop()
+    toast('info', r.stopped ? '已请求中止豆瓣批次（当前这一部跑完即停）' : '当前没有豆瓣批次在跑')
+    setTimeout(() => void loadTc(), 1500)
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '中止失败')
+  }
+}
+
 const cronRunning = ref<Record<string, boolean>>({})
 
 const jobsError = ref('') // 列表加载失败: 页内错误态+重试, 不伪装成"暂无任务"
@@ -956,6 +971,14 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
                 variant="ghost"
                 @click="editTask(t)"
               >编辑</ManageButton>
+              <!-- 豆瓣批次（评分同步/欠账补查）是后台 long-running，给一个中止入口：
+                   否则对端限流时只能重启容器才能停 -->
+              <ManageButton
+                v-if="isDoubanTask(t) && t.state === 'running'"
+                size="sm"
+                variant="danger"
+                @click="stopDouban"
+              >停止</ManageButton>
               <ManageButton
                 v-if="t.kind === 'collect'"
                 size="sm"

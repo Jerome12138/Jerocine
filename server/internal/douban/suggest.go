@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -21,6 +22,10 @@ import (
 const (
 	suggestEndpoint = "https://movie.douban.com/j/subject_suggest"
 	detailEndpoint  = "https://m.douban.com/rexxar/api/v2/movie/"
+	// abstractEndpoint 详情兜底/首选：**rexxar 详情接口对服务器 IP 会整段封禁**
+	// （2026-11-26 实测 400 `subject_ip_rate_limit` code=1309，带随机 bid cookie 也无效），
+	// 而 movie.douban.com 域的 j/subject_abstract 同 IP 仍 200，返回 subject.rate（10 分制字符串）。
+	abstractEndpoint = "https://movie.douban.com/j/subject_abstract"
 )
 
 // Suggestion 一条搜索建议
@@ -83,6 +88,66 @@ func (c *Client) SubjectRating(ctx context.Context, id int64) (float64, int, err
 	if id <= 0 {
 		return 0, 0, fmt.Errorf("豆瓣 id 无效")
 	}
+	// 首选 j/subject_abstract：movie.douban.com 域，实测未见 IP 限流
+	if score, ok, err := c.ratingFromAbstract(ctx, id); err == nil && ok {
+		return score, 0, nil
+	}
+	// 兜底：rexxar 详情（IP 正常时可用；被封时会 400）
+	return c.ratingFromRexxar(ctx, id)
+}
+
+// ratingFromAbstract 走 j/subject_abstract 取 subject.rate（10 分制，字符串）。
+// rate 缺失时**不猜**（star 是 5 分制星级，×2 只是粗略近似）—— 宁缺勿错，返回 ok=false。
+func (c *Client) ratingFromAbstract(ctx context.Context, id int64) (float64, bool, error) {
+	if err := c.wait(ctx); err != nil {
+		return 0, false, err
+	}
+	u := abstractEndpoint + "?subject_id=" + strconv.FormatInt(id, 10)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Referer", "https://movie.douban.com/")
+	res, err := c.hc.Do(req)
+	if err != nil {
+		return 0, false, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return 0, false, fmt.Errorf("豆瓣详情接口 HTTP %d", res.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return 0, false, err
+	}
+	score, ok := ParseAbstractRate(body)
+	return score, ok, nil
+}
+
+// ParseAbstractRate 从 j/subject_abstract 的响应里取评分（纯函数，便于单测）。
+// 形如 {"r":0,"subject":{"rate":"9.7","star":5.0,...}}；
+// r!=0 或 rate 为空/非法 → ok=false（调用方跳过，不写 0 分）。
+func ParseAbstractRate(body []byte) (float64, bool) {
+	var raw struct {
+		R       int `json:"r"`
+		Subject struct {
+			Rate string  `json:"rate"`
+			Star float64 `json:"star"`
+		} `json:"subject"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil || raw.R != 0 {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(raw.Subject.Rate), 64)
+	if err != nil || v <= 0 {
+		return 0, false
+	}
+	return v, true
+}
+
+// ratingFromRexxar 原有实现（保留作兜底）。
+func (c *Client) ratingFromRexxar(ctx context.Context, id int64) (float64, int, error) {
 	if err := c.wait(ctx); err != nil {
 		return 0, 0, err
 	}

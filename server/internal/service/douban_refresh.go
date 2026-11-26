@@ -23,12 +23,58 @@ import (
 // manualDouban 手工刷新用的客户端（低频，包级单例即可）。
 var manualDouban = douban.New()
 
+// doubanBatchCancel 当前批次的取消句柄（有批次在跑时非 nil）。
+// 让"中途停止"成为可能：之前批次用 context.WithoutCancel 脱离请求后，外部没有任何手段叫停，
+// 只能重启容器（2026-11-26 对端全量 400 时白跑两小时才发现）。
+var doubanBatchCancel context.CancelFunc
+
+// doubanMaxConsecutiveFail uint 连续失败达到该值即中止整批：
+// 对端整段封禁/限流时（2026-11-26 实测 rexxar 全量 400），不熔断就要白跑两小时。
+const doubanMaxConsecutiveFail = 5
+
+// StopDoubanBatch 中止当前正在跑的豆瓣批次（评分同步 / 欠账补查）。
+// 返回是否有批次被叫停（false = 当前没有批次在跑）。
+func (s *FilmService) StopDoubanBatch() bool {
+	cancel := doubanBatchCancel
+	if cancel == nil {
+		return false
+	}
+	cancel()
+	log.Printf("[douban] 已请求中止当前批次")
+	return true
+}
+
 // scoreSyncClient 定时同步用的客户端（3~5s 随机间隔）。
 var scoreSyncClient = func() *douban.Client {
 	c := douban.New()
-	c.SetJitter(3*time.Second, 5*time.Second)
+	c.SetJitter(DoubanJitterFor(doubanDefaultIntervalMs))
 	return c
 }()
+
+const (
+	// doubanDefaultIntervalMs 默认单次间隔（毫秒）。2026-11-26 实测：3~5s（≈0.25rps）连续跑 ~50 次
+	// 后服务器 IP 即被豆瓣封（400 subject_ip_rate_limit），而同接口从非机房 IP 正常 ⇒ 机房 IP 额度很低。
+	// 默认降到 10s（≈360 次/小时），并允许在任务中心「接口间隔」里调（真正生效，见 RunDefinition）。
+	doubanDefaultIntervalMs = 10_000
+	// doubanMinIntervalMs 下限：再快就是自寻封禁
+	doubanMinIntervalMs = 3_000
+)
+
+// DoubanJitterFor 把配置的间隔（毫秒）折成 ±20% 抖动区间；低于下限按 3s 处理。
+// 抽成纯函数：任务中心改「接口间隔」后由 RunDefinition 调它，单测可直接验边界。
+func DoubanJitterFor(intervalMs int) (min, max time.Duration) {
+	if intervalMs < doubanMinIntervalMs {
+		intervalMs = doubanMinIntervalMs
+	}
+	d := time.Duration(intervalMs) * time.Millisecond
+	return d * 8 / 10, d * 12 / 10
+}
+
+// SetDoubanJitter 让任务中心配置的「接口间隔」真正生效（此前这个字段只存库不生效）。
+func (s *FilmService) SetDoubanJitter(intervalMs int) {
+	min, max := DoubanJitterFor(intervalMs)
+	scoreSyncClient.SetJitter(min, max)
+}
 
 const (
 	// doubanSyncLimit 每轮刷新的上限（近半年按上线日期实测 ~1.8k，留足余量）
@@ -164,10 +210,13 @@ func (s *FilmService) StartDoubanScoreSyncOnce(ctx context.Context) error {
 	if !doubanBatchBusy.CompareAndSwap(false, true) {
 		return fmt.Errorf("已有豆瓣刷分任务在执行中，请稍后再试")
 	}
-	// 脱离请求 ctx：页面关掉也要跑完
+	// 脱离请求 ctx（页面关掉也要跑完），但**保留一个可取消的句柄**供"中途停止"用
+	bg, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	doubanBatchCancel = cancel
 	go func() {
 		defer doubanBatchBusy.Store(false)
-		s.runDoubanScoreSyncLocked(context.WithoutCancel(ctx))
+		defer func() { doubanBatchCancel = nil; cancel() }()
+		s.runDoubanScoreSyncLocked(bg)
 	}()
 	return nil
 }
@@ -193,6 +242,7 @@ func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 
 	total := len(targets)
 	updated, noScore, failed := 0, 0, 0
+	consecutiveFail := 0 // 连续失败计数（成功即清零，用于熔断）
 	log.Printf("[douban-sync] 开始：上线月份 ≥ %s 共 %d 部", from, total)
 
 	for i, t := range targets {
@@ -203,11 +253,22 @@ func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 		score, _, err := scoreSyncClient.SubjectRating(ctx, t.DbId)
 		if err != nil {
 			failed++
+			consecutiveFail++
 			if failed%50 == 1 {
 				log.Printf("[douban-sync] 取评分失败(mid=%d id=%d): %v", t.Mid, t.DbId, err)
 			}
+			if consecutiveFail >= doubanMaxConsecutiveFail {
+				// 对端整段封禁/限流时不要白跑整批（2026-11-26 实测 rexxar 全量 400）
+				log.Printf("[douban-sync] 连续失败 %d 次，已中止（疑似被限流/风控）: 进度 %d/%d", consecutiveFail, i, total)
+				setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+					p.State = "failed"
+					p.Message = fmt.Sprintf("连续失败 %d 次已中止（疑似被豆瓣限流），进度 %d/%d", consecutiveFail, i, total)
+				})
+				return
+			}
 			continue
 		}
+		consecutiveFail = 0
 		if score <= 0 {
 			noScore++ // 豆瓣本身暂无评分（新片/冷门），跳过
 			continue
@@ -300,8 +361,13 @@ func (s *FilmService) StartDoubanScoreBackfill(ctx context.Context, limit int) e
 			StartedAt: time.Now().UnixMilli(), Message: "开始补查欠账",
 		}
 	})
-	// 脱离请求 ctx：页面关掉也要跑完
-	go s.runDoubanBackfill(context.WithoutCancel(ctx), targets)
+	// 脱离请求 ctx（页面关掉也要跑完），但保留可取消句柄供"中途停止"
+	bg, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	doubanBatchCancel = cancel
+	go func() {
+		defer func() { doubanBatchCancel = nil; cancel() }()
+		s.runDoubanBackfill(bg, targets)
+	}()
 	return nil
 }
 
@@ -317,6 +383,7 @@ func (s *FilmService) runDoubanBackfill(ctx context.Context, targets []repositor
 	}()
 
 	start := time.Now()
+	consecutiveFail := 0 // 连续失败计数（成功/无评分即清零）
 	for i, t := range targets {
 		if ctx.Err() != nil {
 			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.State, p.Message = "failed", "已取消" })
@@ -325,15 +392,26 @@ func (s *FilmService) runDoubanBackfill(ctx context.Context, targets []repositor
 		score, _, err := scoreSyncClient.SubjectRating(ctx, t.DbId)
 		switch {
 		case err != nil:
+			consecutiveFail++
 			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.Done, p.Failed = i+1, p.Failed+1 })
+			if consecutiveFail >= doubanMaxConsecutiveFail {
+				log.Printf("[douban-backfill] 连续失败 %d 次，已中止（疑似被限流/风控）: 进度 %d/%d", consecutiveFail, i, len(targets))
+				setDoubanBatchProgress(func(p *DoubanBatchProgress) {
+					p.State = "failed"
+					p.Message = fmt.Sprintf("连续失败 %d 次已中止（疑似被豆瓣限流），进度 %d/%d", consecutiveFail, i+1, len(targets))
+				})
+				return
+			}
 		case score <= 0:
 			// 豆瓣确实没分：跳过，不再纠缠（这正是"半年前老片大概率没分"的那批）
+			consecutiveFail = 0
 			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.Done, p.NoScore = i+1, p.NoScore+1 })
 		default:
 			if uerr := s.movie.UpdateDbScore(ctx, t.Mid, score); uerr != nil {
 				setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.Done, p.Failed = i+1, p.Failed+1 })
 				continue
 			}
+			consecutiveFail = 0
 			setDoubanBatchProgress(func(p *DoubanBatchProgress) { p.Done, p.Updated = i+1, p.Updated+1 })
 		}
 		if (i+1)%50 == 0 {

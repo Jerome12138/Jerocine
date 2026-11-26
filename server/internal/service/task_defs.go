@@ -87,8 +87,9 @@ func (s *FilmService) TaskDefs() []taskcenter.Def {
 			Name: "豆瓣评分同步", Target: "上线月份近半年、已有豆瓣 ID 的影片",
 			Detail:          "每周固定时间刷新这批影片的豆瓣评分（区间内分数会变）。",
 			DefaultSchedule: "weekly:1 03:00", Enabled: true,
-			DefaultIntervalMs: 4000, MinIntervalMs: 2000, IntervalLabel: "3~5s 随机",
-			Editable: editAllFields, Caps: capsRun,
+			DefaultIntervalMs: doubanDefaultIntervalMs, MinIntervalMs: doubanMinIntervalMs,
+			IntervalLabel: "默认 10s/部（±20% 抖动，可调）",
+			Editable:      editAllFields, Caps: capsRun,
 			Status: s.doubanStatusFor("douban_score"),
 			// 豆瓣刷分是"启动后台批 + 内存进度"：Run 必须用 Start 变体并标 Async，
 			// 否则手动/定时触发都会**立刻记成功**（用户实测："一触发就完成、没有进度"）。
@@ -108,8 +109,9 @@ func (s *FilmService) TaskDefs() []taskcenter.Def {
 			Name: "豆瓣评分欠账补查", Target: "有豆瓣 ID 但一直没评分的影片",
 			Detail:          "默认不启用（不参与定时）；需要时手动触发，单次上限可配。",
 			DefaultSchedule: "", Enabled: false,
-			DefaultIntervalMs: 4000, MinIntervalMs: 2000, IntervalLabel: "3~5s 随机",
-			Editable: editAllFields, Caps: capsRun,
+			DefaultIntervalMs: doubanDefaultIntervalMs, MinIntervalMs: doubanMinIntervalMs,
+			IntervalLabel: "默认 10s/部（±20% 抖动，可调）",
+			Editable:      editAllFields, Caps: capsRun,
 			Status: s.doubanStatusFor("douban_backfill"),
 			Async:  true, // 同上：后台批 + 内存进度
 			// 实测欠账 ≈2.8 万部 × 4s ≈ 31h；给 48h 上限，停滞 30 分钟才判失败
@@ -145,7 +147,8 @@ func (s *HotService) TaskDefs() []taskcenter.Def {
 			Detail:          "每天抓一轮榜单并把热度分写回影片（服务内部仍按 04:00 判定 + 当日锁）。",
 			DefaultSchedule: "daily:04:00", Enabled: true,
 			DefaultIntervalMs: 5000, MinIntervalMs: 2000, IntervalLabel: "5s/请求",
-			Editable: editAllFields, Caps: capsRun,
+			// 间隔由服务内部常量控制（5s/请求），未接任务中心配置 ⇒ 不暴露可编辑项，避免"改了不生效"
+			Editable: editBasicFields, Caps: capsRun,
 			Status: idleWithMessage("每天 04:00 刷新一轮"),
 			Run: func(ctx context.Context) error {
 				if s == nil {
@@ -168,7 +171,7 @@ func (s *BackdropService) TaskDefs() []taskcenter.Def {
 			Detail:          "扫描缺横图的影片并从 TMDB 取图（每请求固定延迟）；频率高，只执行不记台账。",
 			DefaultSchedule: "every:20m", Enabled: true, QuietOnSuccess: true,
 			DefaultIntervalMs: 300, MinIntervalMs: 100, IntervalLabel: "300ms/请求",
-			Editable: editAllFields, Caps: capsRun,
+			Editable: editBasicFields, Caps: capsRun, // 同上：间隔为内部常量
 			Status: idleWithMessage("每 20 分钟扫描一次"),
 			Run: func(ctx context.Context) error {
 				if s == nil {
@@ -191,7 +194,7 @@ func (s *ManageService) TaskDefs() []taskcenter.Def {
 			Detail:          "探测各源可用性与延迟（并发 6，按间隔限速）；频率高，只执行不记台账。",
 			DefaultSchedule: "every:1h", Enabled: true, QuietOnSuccess: true,
 			DefaultIntervalMs: 200, MinIntervalMs: 200, IntervalLabel: "200ms/探针",
-			Editable: editAllFields, Caps: capsRun,
+			Editable: editBasicFields, Caps: capsRun, // 同上
 			Status: idleWithMessage("每 1 小时巡检一次"),
 			Run: func(ctx context.Context) error {
 				if s == nil {
@@ -214,7 +217,7 @@ func (s *YearVerifyService) TaskDefs() []taskcenter.Def {
 			Detail:          "用外部权威纠正**确凿错误**的年份：同名命中且年份不同才写库，查不到一律不动（宁缺勿错）。",
 			DefaultSchedule: "every:30m", Enabled: true, QuietOnSuccess: true,
 			DefaultIntervalMs: 300, MinIntervalMs: 100, IntervalLabel: "300ms/请求",
-			Editable: editAllFields, Caps: capsRun,
+			Editable: editBasicFields, Caps: capsRun, // 同上
 			Status: idleWithMessage("每 30 分钟扫描一次（高频，不记台账）"),
 			Run: func(ctx context.Context) error {
 				if s == nil {

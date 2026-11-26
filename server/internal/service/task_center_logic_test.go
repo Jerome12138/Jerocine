@@ -252,3 +252,24 @@ func TestEnsureTaskKeyRegistered(t *testing.T) {
 		t.Fatalf("默认周期必须是合法友好文本: %q", d.DefaultSchedule)
 	}
 }
+
+// 豆瓣批次节奏：配置的「接口间隔」必须真的折成抖动区间（此前只存库不生效），
+// 低于下限要抬到 3s（否则调快=自寻封禁）。
+func TestDoubanJitterFor(t *testing.T) {
+	cases := []struct {
+		ms       int
+		min, max time.Duration
+	}{
+		{10000, 8 * time.Second, 12 * time.Second}, // 默认 10s ±20%
+		{30000, 24 * time.Second, 36 * time.Second},
+		{3000, 2400 * time.Millisecond, 3600 * time.Millisecond}, // 正好下限
+		{1000, 2400 * time.Millisecond, 3600 * time.Millisecond}, // 低于下限 → 按 3s
+		{0, 2400 * time.Millisecond, 3600 * time.Millisecond},
+	}
+	for _, c := range cases {
+		mn, mx := DoubanJitterFor(c.ms)
+		if mn != c.min || mx != c.max {
+			t.Fatalf("DoubanJitterFor(%d) = (%s,%s), want (%s,%s)", c.ms, mn, mx, c.min, c.max)
+		}
+	}
+}

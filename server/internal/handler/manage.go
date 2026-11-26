@@ -1017,6 +1017,13 @@ func (h *Handlers) DoubanScoreBackfill(c *gin.Context) {
 }
 
 // DoubanScoreBackfillProgress GET /manage/douban/score-backfill/progress
+// DoubanBatchStop POST /manage/douban/batch/stop
+// 中止当前正在跑的豆瓣批次（评分同步 / 欠账补查）。stopped=false 表示没有批次在跑。
+func (h *Handlers) DoubanBatchStop(c *gin.Context) {
+	stopped := h.Film.StopDoubanBatch()
+	dto.OK(c, gin.H{"stopped": stopped})
+}
+
 func (h *Handlers) DoubanScoreBackfillProgress(c *gin.Context) {
 	dto.OK(c, h.Film.DoubanBatchProgress())
 }

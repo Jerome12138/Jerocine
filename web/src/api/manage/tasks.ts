@@ -152,6 +152,11 @@ export const pendingRuns = (
     { params: { limit } }
   )
 
+/** POST /manage/douban/batch/stop 中止当前豆瓣批次（评分同步/欠账补查）
+ *  stopped=false 表示当前没有批次在跑 */
+export const doubanBatchStop = (): Promise<{ stopped: boolean }> =>
+  http.post<unknown, { stopped: boolean }>('/manage/douban/batch/stop', {}, { silent: true })
+
 /** POST /manage/task-center/runs/:id/rerun 异常重跑 */
 export const rerunRun = (id: number): Promise<{ accepted: boolean }> =>
   http.post<unknown, { accepted: boolean }>(`/manage/task-center/runs/${id}/rerun`, {}, { silent: true })
