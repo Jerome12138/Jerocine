@@ -197,6 +197,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 
 		mg.GET("/films", h.ManageFilms)
 		mg.POST("/films", h.AddFilm)
+		mg.GET("/films/:mid/douban/candidates", h.FilmDoubanCandidates) // 豆瓣候选（可改片名）
+		mg.POST("/films/:mid/douban", h.FilmDoubanRefresh)              // 取豆瓣 ID/评分（可指定候选）
 		mg.GET("/films/:mid", h.ManageGetFilm)
 		mg.GET("/films/:mid/detail", h.ManageFilmDetail) // 影片 + 全部源与集(实时)
 		mg.DELETE("/films/:mid", h.DeleteFilm)           // 软删(可在回收站恢复)

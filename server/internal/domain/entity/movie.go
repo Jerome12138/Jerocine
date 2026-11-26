@@ -72,6 +72,7 @@ func (m *Movie) AfterFind(*gorm.DB) error {
 const (
 	DbIdSrcSource int8 = 0 // 源站自带(vod_douban_id)
 	DbIdSrcHot    int8 = 1 // 豆瓣榜单回填(源站只覆盖 59.2%, 缺的靠榜单 id 精确补上)
+	DbIdSrcManual int8 = 2 // 管理端手工"获取豆瓣ID/评分"(2026-11-25)
 )
 
 // MovieSearch 物化卡片/检索宽表 (table: movie_search) — CQRS 读模型。

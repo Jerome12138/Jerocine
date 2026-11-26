@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -270,8 +271,11 @@ type Stats struct {
 // Client 豆瓣榜单客户端: 单线程、内置限速、无需 key。
 type Client struct {
 	hc       *http.Client
-	interval time.Duration
-	base     string // 接口前缀; 默认 baseURL, 单测用 SetBaseURL 指向 httptest
+	interval time.Duration // 固定间隔（未启用抖动时使用）
+	// 抖动区间：启用后每次请求前在 [min,max] 内随机取间隔，避免固定节拍被风控识别
+	jitterMin time.Duration
+	jitterMax time.Duration
+	base      string // 接口前缀; 默认 baseURL, 单测用 SetBaseURL 指向 httptest
 
 	mu   sync.Mutex
 	last time.Time // 上次请求发起时间(限速锚点)
@@ -293,6 +297,30 @@ func (c *Client) SetInterval(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.interval = d
+	c.jitterMin, c.jitterMax = 0, 0
+}
+
+// SetJitter 启用随机间隔：每次请求前在 [min,max] 内取随机值（2026-11-25 用户要求 3~5s）。
+// 固定节拍容易被风控识别，抖动后更像人；min<=0 或 max<min 时回退固定间隔。
+func (c *Client) SetJitter(min, max time.Duration) {
+	if min <= 0 || max < min {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.jitterMin, c.jitterMax = min, max
+}
+
+// nextGap 取本次请求该等多久（抖动优先，否则固定间隔）。
+func (c *Client) nextGap() time.Duration {
+	c.mu.Lock()
+	min, max, fixed := c.jitterMin, c.jitterMax, c.interval
+	c.mu.Unlock()
+	if min > 0 && max >= min {
+		span := int64(max - min)
+		return min + time.Duration(rand.Int63n(span+1))
+	}
+	return fixed
 }
 
 // SetBaseURL 覆盖接口前缀(测试与手工排障用; 传空串忽略)。
@@ -433,8 +461,9 @@ func (c *Client) doFetchPage(ctx context.Context, name string, start int) ([]Ite
 // wait 保证相邻两次请求间隔不小于 interval(以请求发起时间为锚点)。
 func (c *Client) wait(ctx context.Context) error {
 	c.mu.Lock()
-	gap := c.interval - time.Since(c.last)
+	last := c.last
 	c.mu.Unlock()
+	gap := c.nextGap() - time.Since(last)
 	if gap > 0 && !sleepCtx(ctx, gap) {
 		return ctx.Err()
 	}

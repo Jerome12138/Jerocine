@@ -58,6 +58,38 @@ export const restore = (
 ): Promise<void> => http.post<unknown, void>(`/manage/films/${mid}/restore`, undefined, config)
 
 /** GET /manage/films/:mid/detail 后台影片详情(实时全源全集) */
+export interface DoubanRefreshResp {
+  mid: number
+  dbId: number
+  dbScore: number
+  votes: number
+  title: string
+  year: number
+  warning?: string
+}
+
+/** 豆瓣候选（name 可改；缺省用影片名） */
+export interface DoubanCandidate {
+  id: number
+  title: string
+  year: number
+  type: string
+}
+
+/** GET /manage/films/:mid/douban/candidates */
+export const doubanCandidates = (
+  mid: number | string,
+  name = ''
+): Promise<{ list: DoubanCandidate[]; keyword: string }> =>
+  http.get<unknown, { list: DoubanCandidate[]; keyword: string }>(
+    `/films/${mid}/douban/candidates`,
+    { params: { name }, silent: true }
+  )
+
+/** POST /manage/films/:mid/douban {dbId?} — dbId=0 表示按片名自动匹配 */
+export const refreshDouban = (mid: number | string, dbId = 0): Promise<DoubanRefreshResp> =>
+  http.post<unknown, DoubanRefreshResp>(`/films/${mid}/douban`, { dbId }, { silent: true })
+
 export const detail = (mid: number | string): Promise<ManageFilmDetailResp> =>
   http.get<unknown, ManageFilmDetailResp>(`/manage/films/${mid}/detail`)
 

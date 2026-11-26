@@ -19,6 +19,8 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import SourceCandidateDialog from '@/components/manage/SourceCandidateDialog.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
+import { openManageDialog } from '@/composables/useManageDialog'
+import DoubanMatchDialog from './DoubanMatchDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -132,6 +134,33 @@ async function load(): Promise<void> {
  *  单点; silent=true 关拦截器通用「操作成功」—— 单源采集业务失败时 HTTP 仍是 200,
  *  结果内 error 字段才代表真实成败, 由 handleCollectResult 自管提示。 */
 const { busy, run } = useAsyncAction()
+
+/** 获取豆瓣 ID/评分：先弹窗（可改片名、可挑候选），再按选择写入 */
+const doubanBusy = ref(false)
+async function refreshDouban(): Promise<void> {
+  const cur = movie.value
+  const id = cur?.mid ?? Number(mid.value)
+  if (!id) return
+  const picked = await openManageDialog<{ dbId: number }>({
+    title: '获取豆瓣 ID / 评分',
+    component: DoubanMatchDialog,
+    props: { mid: id, name: cur?.name ?? '', year: cur?.year ?? 0 },
+    width: '620px'
+  })
+  if (!picked) return
+  doubanBusy.value = true
+  try {
+    const r = await manageApi.film.refreshDouban(id, picked.dbId)
+    const score = r.dbScore > 0 ? r.dbScore.toFixed(1) : '暂无评分'
+    toast('success', `豆瓣：${r.title}（${r.year || '—'}）· ID ${r.dbId} · ${score}${r.votes ? `（${r.votes} 人）` : ''}`)
+    if (r.warning) toast('warning', r.warning)
+    await load()
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '获取失败')
+  } finally {
+    doubanBusy.value = false
+  }
+}
 
 /** 采集单源: collectFilm({ sourceId, mid }) → 处理 collected / candidates */
 async function collectOne(row: MergedSource): Promise<void> {
@@ -270,6 +299,15 @@ onMounted(async () => {
           @click="gotoPlay"
         >
           <BaseIcon name="play" size="16px" /> 去播放页
+        </ManageButton>
+        <ManageButton
+          variant="outline"
+          :loading="doubanBusy"
+          :disabled="!movie || isDeletedMovie"
+          title="按片名去豆瓣匹配，写回 db_id 与评分（movie + movie_search）"
+          @click="refreshDouban"
+        >
+          <BaseIcon name="heart" size="16px" /> 获取豆瓣
         </ManageButton>
         <ManageButton variant="ghost" @click="router.back()">返回</ManageButton>
       </div>

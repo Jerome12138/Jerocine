@@ -792,6 +792,51 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 
 // ---- 影片管理 ----
 
+// FilmDoubanCandidates GET /manage/films/:mid/douban/candidates?name=
+// 按片名取豆瓣候选（name 可改；缺省用影片名），供管理端挑选。
+func (h *Handlers) FilmDoubanCandidates(c *gin.Context) {
+	mid, _ := strconv.ParseInt(c.Param("mid"), 10, 64)
+	if mid <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid mid")
+		return
+	}
+	name := strings.TrimSpace(c.Query("name"))
+	if name == "" {
+		m, err := h.Film.FilmBrief(c.Request.Context(), mid)
+		if err != nil {
+			dto.Fail(c, err)
+			return
+		}
+		name = m.Name
+	}
+	list, err := h.Film.SearchDoubanCandidates(c.Request.Context(), name)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"list": list, "keyword": name})
+}
+
+// FilmDoubanRefresh POST /manage/films/:mid/douban {dbId?}
+// dbId 有值 = 用用户选中的条目；否则按片名自动匹配（宁缺勿错）。写 movie + movie_search。
+func (h *Handlers) FilmDoubanRefresh(c *gin.Context) {
+	mid, _ := strconv.ParseInt(c.Param("mid"), 10, 64)
+	if mid <= 0 {
+		dto.Error(c, http.StatusUnprocessableEntity, "invalid mid")
+		return
+	}
+	var req struct {
+		DbId int64 `json:"dbId"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	res, err := h.Film.RefreshFilmDouban(c.Request.Context(), mid, req.DbId)
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, res)
+}
+
 // ManageFilms GET /manage/films 后台影片搜索(分页 {list,page})。
 // status 取 active(默认, 仅在架) | deleted(回收站) | all(全部)。
 func (h *Handlers) ManageFilms(c *gin.Context) {

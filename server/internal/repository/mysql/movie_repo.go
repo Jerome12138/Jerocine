@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"time"
 	"unicode"
@@ -169,7 +170,16 @@ func (r *movieRepo) Upsert(ctx context.Context, m *entity.Movie) error {
 	m.Cover, m.Backdrop = bloburl.ToKey(cover), bloburl.ToKey(backdrop)
 	err := dbFrom(ctx, r.db).Clauses(movieUpsertClause()).Create(m).Error
 	m.Cover, m.Backdrop = cover, backdrop
-	return err
+	if err != nil {
+		return err
+	}
+	// 影子表只由重建/热榜双写更新；采集 upsert 改了 db_id/db_score 时必须补一次，
+	// 否则首页（读 movie_search）无评分、详情页（读 movie）有 —— 2026-11-25 线上问题。
+	// 尽力而为：派生表同步失败只记日志，不能把采集任务判失败（下次重建/同步会自愈）。
+	if serr := syncShadowDbMeta(dbFrom(ctx, r.db), []int64{m.Mid}); serr != nil {
+		log.Printf("[movie] 同步影子表 db 元信息失败(mid=%d): %v", m.Mid, serr)
+	}
+	return nil
 }
 
 func (r *movieRepo) BatchUpsert(ctx context.Context, list []entity.Movie) error {
@@ -188,7 +198,91 @@ func (r *movieRepo) BatchUpsert(ctx context.Context, list []entity.Movie) error 
 	for i := range list {
 		list[i].Cover, list[i].Backdrop = orig[i][0], orig[i][1]
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	mids := make([]int64, 0, len(list))
+	for i := range list {
+		mids = append(mids, list[i].Mid)
+	}
+	// 同上：派生表同步失败不阻断采集
+	if serr := syncShadowDbMeta(dbFrom(ctx, r.db), mids); serr != nil {
+		log.Printf("[movie] 批量同步影子表 db 元信息失败(%d 条): %v", len(mids), serr)
+	}
+	return nil
+}
+
+// UpdateDbScore 只更新评分（movie + movie_search 同事务）。
+func (r *movieRepo) UpdateDbScore(ctx context.Context, mid int64, dbScore float64) error {
+	if mid <= 0 || dbScore <= 0 {
+		return nil
+	}
+	return dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&entity.Movie{}).Where("mid = ?", mid).
+			UpdateColumns(map[string]any{"db_score": dbScore}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&entity.MovieSearch{}).Where("mid = ?", mid).
+			UpdateColumns(map[string]any{"db_score": dbScore}).Error
+	})
+}
+
+// ListDoubanScoreTargets 定时同步的目标片单：按**上线日期**（movie.pub_date，ISO 日期串）
+// 取 PubDateFrom 之后的片（需已有 db_id）。pub_date 兼容 "YYYY-MM-DD" 与 "YYYY" 两种形态，
+// 后者按字符串比较天然落在同年日期之前，故只纳入"有月日"的片（够用且不误判）。
+func (r *movieRepo) ListDoubanScoreTargets(ctx context.Context, q repository.DoubanScoreQuery) ([]repository.DoubanTarget, error) {
+	limit := q.Limit
+	if limit <= 0 || limit > 20000 {
+		limit = 5000
+	}
+	db := dbFrom(ctx, r.db).Model(&entity.Movie{}).
+		Where("deleted_at = 0 AND db_id > 0 AND pub_date <> ''")
+	if q.PubMonthFrom != "" {
+		// pub_date 存在 "YYYY" / "YYYY-MM" / "YYYY-MM-DD" 三种形态，按前 7 位比较
+		// 可同时覆盖月粒度与日粒度（"2026" 这类只有年的天然落在更早，不纳入）
+		db = db.Where("LEFT(pub_date, 7) >= ?", q.PubMonthFrom)
+	}
+	var rows []entity.Movie
+	if err := db.Select("mid, db_id, name, year").
+		Order("pub_date DESC, mid DESC").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]repository.DoubanTarget, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, repository.DoubanTarget{Mid: m.Mid, DbId: m.DbId, Name: m.Name, Year: m.Year})
+	}
+	return out, nil
+}
+
+// syncShadowDbMeta 把 movie（真相源）的 db_id/db_score 同步到 movie_search。
+// 只更新不一致的行，按主键 join，代价与批次大小成正比。
+func syncShadowDbMeta(db *gorm.DB, mids []int64) error {
+	if len(mids) == 0 {
+		return nil
+	}
+	return db.Exec(
+		"UPDATE movie_search s JOIN movie m ON m.mid = s.mid "+
+			"SET s.db_id = m.db_id, s.db_score = m.db_score "+
+			"WHERE m.mid IN ? AND (s.db_id <> m.db_id OR s.db_score <> m.db_score)",
+		mids).Error
+}
+
+// SetDouban 手工写入豆瓣 id/评分（movie + movie_search 同事务）。
+func (r *movieRepo) SetDouban(ctx context.Context, mid int64, dbId int64, dbScore float64) error {
+	return dbFrom(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		mv := map[string]any{"db_id": dbId, "db_id_src": int8(entity.DbIdSrcManual)}
+		if dbScore > 0 {
+			mv["db_score"] = dbScore
+		}
+		if err := tx.Model(&entity.Movie{}).Where("mid = ?", mid).UpdateColumns(mv).Error; err != nil {
+			return err
+		}
+		sv := map[string]any{"db_id": dbId}
+		if dbScore > 0 {
+			sv["db_score"] = dbScore
+		}
+		return tx.Model(&entity.MovieSearch{}).Where("mid = ?", mid).UpdateColumns(sv).Error
+	})
 }
 
 func (r *movieRepo) Delete(ctx context.Context, mid int64) error {

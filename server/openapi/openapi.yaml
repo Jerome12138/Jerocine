@@ -3475,6 +3475,72 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/Unprocessable' }
 
+  /manage/films/{mid}/douban/candidates:
+    get:
+      tags: [manage-film]
+      summary: 豆瓣候选（可改片名，缺省用影片名）
+      operationId: manageFilmDoubanCandidates
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: mid, in: path, required: true, schema: { type: integer } }
+        - { name: name, in: query, schema: { type: string }, description: 关键字；缺省用影片名 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keyword: { type: string }
+                  list:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer, description: 豆瓣 subject id }
+                        title: { type: string }
+                        year: { type: integer }
+                        type: { type: string, description: movie / tv }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/films/{mid}/douban:
+    post:
+      tags: [manage-film]
+      summary: 手工获取豆瓣 ID 与评分（按片名匹配，写回 movie + movie_search）
+      description: >
+        建议接口取候选（宁缺勿错：同名要求年份差 ≤1），详情接口取评分；
+        movie.db_id_src 记为 2（手工）。匹配不到直接 422，不做猜测。
+      operationId: manageFilmDoubanRefresh
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: mid, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dbId: { type: integer, description: 选中的豆瓣 id；0/缺省 = 按片名自动匹配 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mid: { type: integer }
+                  dbId: { type: integer }
+                  dbScore: { type: number }
+                  votes: { type: integer }
+                  title: { type: string }
+                  year: { type: integer }
+                  warning: { type: string, description: 评分获取失败时的提示（id 已写入） }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
   /manage/films/{mid}:
     get:
       tags: [manage-film]

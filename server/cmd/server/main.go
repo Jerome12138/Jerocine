@@ -89,6 +89,8 @@ func main() {
 	app.hotSvc.Start(rootCtx)
 	// 域名替换：每日拉取公告（**只入库**，不执行任何替换；执行动作由人工触发）
 	app.filmSvc.StartDomainRuleFetcher(rootCtx)
+	// 每周一 04:00 刷新豆瓣评分（近半年 + 历史欠账，限量）
+	app.filmSvc.StartDoubanScoreSync(rootCtx)
 
 	// 超时收敛: 无超时的 Server 可被慢连接(slowloris)长期占住 fd。
 	// ReadHeaderTimeout 短; Read/Write 长于最坏请求(弹幕聚合 30s 上游/大图上传); Idle 收敛 keep-alive。

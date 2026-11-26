@@ -16,6 +16,12 @@ type MovieRepository interface {
 	// GetByMidIncludingDeleted 同 GetByMid, 但不排除已软删的影片。后台查看/恢复需要能读到它们。
 	GetByMidIncludingDeleted(ctx context.Context, mid int64) (*entity.Movie, error)
 	Upsert(ctx context.Context, m *entity.Movie) error
+	// SetDouban 写入豆瓣 id/评分（真相源 movie 与影子表 movie_search 同时写）。
+	SetDouban(ctx context.Context, mid int64, dbId int64, dbScore float64) error
+	// UpdateDbScore 只更新评分（movie + movie_search），用于定时同步。
+	UpdateDbScore(ctx context.Context, mid int64, dbScore float64) error
+	// ListDoubanScoreTargets 定时同步的目标片单（按 update_stamp 倒序）。
+	ListDoubanScoreTargets(ctx context.Context, q DoubanScoreQuery) ([]DoubanTarget, error)
 	BatchUpsert(ctx context.Context, list []entity.Movie) error
 	Delete(ctx context.Context, mid int64) error
 	// SoftDelete 打软删标记(deletedAt 毫秒时间戳, 供后台展示删除时间)。
@@ -177,6 +183,22 @@ type SearchRepository interface {
 	ShadowWrite(ctx context.Context, list []entity.MovieSearch) error
 	ShadowCommit(ctx context.Context) error
 	Truncate(ctx context.Context) error
+}
+
+// DoubanTarget 一条待刷评分的片
+type DoubanTarget struct {
+	Mid  int64
+	DbId int64
+	Name string
+	Year int
+}
+
+// DoubanScoreQuery 目标片单查询条件
+type DoubanScoreQuery struct {
+	// PubMonthFrom 上线月份下限（YYYY-MM，按 movie.pub_date 前 7 位比较）；空 = 不限
+	PubMonthFrom string
+	// Limit 上限（<=0 用默认）
+	Limit int
 }
 
 // PlaySourceRepository 多源播放。
