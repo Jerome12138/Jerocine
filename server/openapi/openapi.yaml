@@ -1124,6 +1124,38 @@ components:
         message: { type: string }
         startedAt: { type: integer }
         updatedAt: { type: integer }
+    TaskCenterItem:
+      type: object
+      properties:
+        key: { type: string, description: builtin:douban_score / cron:3 }
+        kind: { type: string, description: builtin / collect }
+        type: { type: string }
+        name: { type: string }
+        target: { type: string, description: 任务目标（源名 / 范围描述） }
+        detail: { type: string }
+        schedule: { type: string, description: 内置=友好文本；采集=cron 表达式 }
+        scheduleText: { type: string, description: 中文展示 }
+        enabled: { type: boolean }
+        intervalMs: { type: integer, description: 执行层间隔（已按下限收敛） }
+        intervalLabel: { type: string, description: 如 3~5s 随机 / 300ms/请求 }
+        editable: { type: array, items: { type: string }, description: enabled/schedule/remark/interval }
+        caps: { type: array, items: { type: string }, description: run/pause/resume/stop }
+        state: { type: string, description: idle/running/paused/succeeded/failed/canceled }
+        progress:
+          type: object
+          nullable: true
+          description: null = 总数未知（前端不画进度条）
+          properties:
+            total: { type: integer }
+            done: { type: integer }
+            failed: { type: integer }
+            unit: { type: string, description: 页 / 部 / 条 }
+        startedAt: { type: integer }
+        elapsedMs: { type: integer }
+        lastRunAt: { type: integer }
+        message: { type: string }
+        error: { type: string, description: '归一后的短文案（[code] 说明）' }
+
 
 
 # ============================================================================
@@ -2398,6 +2430,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DomainProgress' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/task-center/tasks:
+    get:
+      tags: [manage-task]
+      summary: 统一任务中心任务列表（内置任务 + 采集定时任务）
+      description: >
+        状态与进度已归一：`progress=null` 表示总数未知（前端不画进度条）；
+        内置任务的 schedule 为友好文本（every:/daily:/weekly:/monthly:），采集任务为 cron 表达式。
+      operationId: manageTaskCenterTasks
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: kind, in: query, schema: { type: string }, description: builtin / collect；空=全部 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaskCenterItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /manage/task-center/overview:
+    get:
+      tags: [manage-task]
+      summary: 任务中心概览（运行中 / 内置数 / 采集数 / 24h 失败）
+      operationId: manageTaskCenterOverview
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  running: { type: integer }
+                  builtin: { type: integer }
+                  collect: { type: integer }
+                  failed24h: { type: integer }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /manage/tmdb-key:

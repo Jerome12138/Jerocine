@@ -792,6 +792,27 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 
 // ---- 影片管理 ----
 
+// TaskCenterTasks GET /manage/task-center/tasks?kind=builtin|collect
+// 统一任务中心：内置任务 + 采集(cron) 任务合并列表（状态/进度已归一）。
+func (h *Handlers) TaskCenterTasks(c *gin.Context) {
+	list, err := h.TaskCenter.List(c.Request.Context(), c.Query("kind"))
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"list": list})
+}
+
+// TaskCenterOverview GET /manage/task-center/overview
+func (h *Handlers) TaskCenterOverview(c *gin.Context) {
+	ov, err := h.TaskCenter.Overview(c.Request.Context())
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, ov)
+}
+
 // DoubanScoreBackfill POST /manage/douban/score-backfill/run {limit?}
 // 手动触发"有豆瓣 id 无评分"的欠账补查（默认不启用定时，只手动）。
 func (h *Handlers) DoubanScoreBackfill(c *gin.Context) {

@@ -284,13 +284,20 @@ func buildApp(cfg *config.Config) (*App, error) {
 	danmuSvc := service.NewDanmuService(movieRepo, danmu.NewDandan(cfg.Danmu.APIURL, cfg.Danmu.APIToken), siteRepo)
 	liveSvc := service.NewLiveService(repomysql.NewLiveSourceRepository(gdb), repomysql.NewLiveChannelStateRepository(gdb), live.NewClient())
 
+	// 统一任务中心（只读目录）：内置任务注册表 + cron 动态展开
+	taskSettingRepo := repomysql.NewTaskSettingRepo(gdb)
+	taskCenterSvc := service.NewTaskCenterService(filmSvc, cronRepo, taskRunRepo, taskSettingRepo, sourceRepo)
+
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc,
 		Telemetry: telemetrySvc, Manage: manageSvc, Spider: spiderSvc, Banner: bannerSvc,
-		Backdrop: backdropSvc,
-		Hot:      hotSvc, Tasks: taskSvc, Online: service.NewOnlineService(cacheRdb),
-		Register: registerSvc,
-		Danmu:    danmuSvc, Live: liveSvc,
+		Backdrop:   backdropSvc,
+		Hot:        hotSvc,
+		Tasks:      taskSvc,
+		TaskCenter: taskCenterSvc,
+		Online:     service.NewOnlineService(cacheRdb),
+		Register:   registerSvc,
+		Danmu:      danmuSvc, Live: liveSvc,
 		Blob: blob, ResetToken: cfg.Spider.ResetToken,
 	}
 

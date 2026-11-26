@@ -23,10 +23,11 @@ type Handlers struct {
 	Backdrop   *service.BackdropService // TMDB 横图回填 worker(单片手动触发用)
 	Hot        *service.HotService      // 榜单热度刷新(每日 04:00 自动 + 后台手动触发)
 	Tasks      *service.TaskRunService
-	Online     *service.OnlineService   // 内存在线/观看统计(心跳上报)
-	Register   *service.RegisterService // 自注册 + 邮件通道(注册配置/发码/注册/邮件管理)
-	Danmu      *service.DanmuService    // 弹幕: 豆瓣 vendors 候选 + B站弹幕 + 聚合弹幕
-	Live       *service.LiveService     // 直播: 直播源公开解析 + 管理端 CRUD
+	TaskCenter *service.TaskCenterService // 统一任务中心（只读目录）
+	Online     *service.OnlineService     // 内存在线/观看统计(心跳上报)
+	Register   *service.RegisterService   // 自注册 + 邮件通道(注册配置/发码/注册/邮件管理)
+	Danmu      *service.DanmuService      // 弹幕: 豆瓣 vendors 候选 + B站弹幕 + 聚合弹幕
+	Live       *service.LiveService       // 直播: 直播源公开解析 + 管理端 CRUD
 	Blob       blobstore.BlobStore
 	ResetToken string // /manage/spider/reset 二次确认 token
 }

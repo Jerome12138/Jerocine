@@ -168,6 +168,8 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 
 		// 任务管理: 运行台账(全部定时/手动任务的历史、状态、失败原因与重跑)。
 		// 静态段先于 :id 注册。
+		mg.GET("/task-center/tasks", h.TaskCenterTasks) // 统一任务中心（只读）
+		mg.GET("/task-center/overview", h.TaskCenterOverview)
 		mg.GET("/tasks/runs", h.TaskRuns)
 		mg.GET("/tasks/overview", h.TaskOverview)
 		mg.POST("/tasks/:id/rerun", h.TaskRerun)

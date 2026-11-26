@@ -443,6 +443,15 @@ type TaskRunRepository interface {
 	MarkInterrupted(ctx context.Context) error
 }
 
+// TaskSettingRepository 内置任务配置（统一任务中心）；表里只存"用户改过的值"。
+type TaskSettingRepository interface {
+	List(ctx context.Context) (map[string]entity.TaskSetting, error)
+	Get(ctx context.Context, key string) (entity.TaskSetting, bool, error)
+	Upsert(ctx context.Context, s entity.TaskSetting) error
+	// SetEnabled 单独改启用位（false 也要落库，与 Upsert 的"非空才覆盖"不同）
+	SetEnabled(ctx context.Context, key string, enabled bool, now int64) error
+}
+
 // HistoryRepository 观看历史。
 type HistoryRepository interface {
 	Upsert(ctx context.Context, h *entity.UserHistory) error
