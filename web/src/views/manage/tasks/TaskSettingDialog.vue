@@ -8,7 +8,7 @@ import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormActions from '@/components/manage/ManageFormActions.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import SchedulePicker from '@/components/manage/SchedulePicker.vue'
-import { scheduleError, SCHEDULE_HINT } from '@/utils/schedule'
+import { scheduleError } from '@/utils/schedule'
 import type { TaskCenterItem } from '@/api/manage/tasks'
 
 /**
@@ -34,12 +34,6 @@ const form = reactive({
 })
 
 /** 周期输入提示：内置与采集任务都已统一为友好文本（cron 表达式在迁移时自动转换） */
-const scheduleHint = computed(() =>
-  props.task.kind === 'builtin'
-    ? `友好文本：${SCHEDULE_HINT}（留空=仅手动）`
-    : `友好文本：${SCHEDULE_HINT}（原 cron 表达式已自动转换）`
-)
-
 const intervalHint = computed(() => {
   if (props.task.kind !== 'builtin') return '采集任务的间隔在「采集源」里按源配置'
   if (!props.task.minIntervalMs) return '毫秒；0 = 使用默认'
@@ -109,7 +103,7 @@ function submit(): void {
       <ManageSwitch v-model="form.enabled" />
     </ManageFormField>
 
-    <ManageFormField v-if="can('schedule')" label="执行周期" :hint="scheduleHint">
+    <ManageFormField v-if="can('schedule')" label="执行周期">
       <SchedulePicker v-model="form.schedule" size="sm" :allow-empty="task.kind === 'builtin'" />
     </ManageFormField>
 
