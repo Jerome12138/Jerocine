@@ -35,20 +35,15 @@ func TestAllTriggerEntriesRespectGate(t *testing.T) {
 	if err := sp.TriggerCron(ctx, 7); !isGateErr(err) {
 		t.Fatalf("TriggerCron 应被闸门拦, got %v", err)
 	}
-	// ④ 单源手动采集（StartCollect）—— 在闸门之后才查源，所以这里只需要"不是闸门之外的错"
-	if err := sp.StartCollect("src_x", 24); err != nil {
-		if se, ok := err.(*MaintenanceWindowError); ok {
-			if se.Reason == "" {
-				t.Fatal("闸门拒绝必须带原因")
-			}
-		}
+	// ④ 单源手动采集（StartCollect）—— 必须**严格**是闸门错（若有人把闸门挪到查源之后，
+	//    这里会拿到"源不存在"之类的别的错，用例必须变红，而不是静默放过）
+	if err := sp.StartCollect("src_x", 24); !isGateErr(err) {
+		t.Fatalf("StartCollect 应被闸门拦, got %v", err)
 	}
-	// ⑤ 调度器整轮
-	sched := NewTaskScheduler(svc)
-	if !gateBlockedNow(ctx) {
-		t.Fatal("调度器必须认为窗口开着（否则 tick 会照常触发）")
+	// ⑤ 调度器整轮（tick 依赖同一判断源）
+	if err := GuardTrigger(ctx); err == nil {
+		t.Fatal("GuardTrigger 必须认为窗口开着（否则调度器 tick 会照常触发）")
 	}
-	_ = sched
 }
 
 // 闸门关闭后同一批入口必须恢复可用（别把"永久拒绝"写进判断里）。

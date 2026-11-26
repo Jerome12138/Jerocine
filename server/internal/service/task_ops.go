@@ -352,38 +352,36 @@ func (s *TaskCenterService) RunTask(ctx context.Context, key string) error {
 // runManualBuiltin 执行一次内置任务并写台账：
 //   - 同步任务：跑完即收尾（成功/失败都落）；
 //   - 异步任务(Async)：先落"运行中"，再由观察者轮询 Status 到终态收尾（最长 3 小时）。
+//
+// 台账写入统一走 TaskRunService（P2-4 的唯一写入口）—— 之前这里直接调 repo 的
+// Create/Get/Update，自己拼实体、自己写 Message/Error，既不截断（超列宽会让收尾失败、
+// 行卡在 running 变幽灵），也与调度器那边的口径两套。现在两边同一条实现。
 func (s *TaskCenterService) runManualBuiltin(ctx context.Context, def taskcenter.Def, run func(context.Context) error) error {
+	led := s.ledger()
 	runID := int64(0)
-	now := time.Now().UnixMilli()
-	if s.runs != nil {
-		r := &entity.TaskRun{
-			Kind: "manual", Type: def.Type, Name: "手动执行 · " + def.Name,
-			Status: entity.TaskRunRunning, StartedAt: now, CreatedAt: now,
-		}
-		if err := s.runs.Create(context.WithoutCancel(ctx), r); err == nil {
-			runID = r.Id
-		}
+	if led != nil {
+		runID = led.Start(entity.TaskRunKindManual, def.Type, 0, "", "手动执行 · "+def.Name, 0)
 	}
 
 	err := run(ctx)
 
-	if runID == 0 || s.runs == nil {
+	if runID == 0 || led == nil {
 		return err
 	}
 	if def.Async {
 		// 启动失败要立刻收尾；启动成功则交给观察者（真跑完才知道结果）
 		if err != nil {
-			s.finishRun(runID, entity.TaskRunFailed, errclass.Format(err))
+			led.Finish(runID, entity.TaskRunFailed, 0, 0, 0, "", errclass.Format(err))
 			return err
 		}
 		go s.watchBuiltinRun(runID, def)
 		return nil
 	}
 	if err != nil {
-		s.finishRun(runID, entity.TaskRunFailed, errclass.Format(err))
+		led.Finish(runID, entity.TaskRunFailed, 0, 0, 0, "", errclass.Format(err))
 		return err
 	}
-	s.finishRun(runID, entity.TaskRunSuccess, "完成")
+	led.Finish(runID, entity.TaskRunSuccess, 0, 0, 0, "完成", "")
 	return nil
 }
 
@@ -414,22 +412,17 @@ func (s *TaskCenterService) watchBuiltinRun(runID int64, def taskcenter.Def) {
 	s.finishRun(runID, entity.TaskRunFailed, "[timeout] 超过 3 小时仍未结束，已按超时收尾")
 }
 
+// finishRun 收尾一条手工触发的台账（走唯一写入口；成功写 Message、失败写 Error）。
 func (s *TaskCenterService) finishRun(runID int64, status, msg string) {
-	ctx := context.Background()
-	cur, err := s.runs.Get(ctx, runID)
-	if err != nil || cur == nil {
+	led := s.ledger()
+	if led == nil || runID <= 0 {
 		return
 	}
-	cur.Status = status
-	cur.EndedAt = time.Now().UnixMilli()
 	if status == entity.TaskRunFailed {
-		cur.Error = msg
-	} else {
-		cur.Message = msg
+		led.Finish(runID, status, 0, 0, 0, "", msg)
+		return
 	}
-	if uerr := s.runs.Update(ctx, cur); uerr != nil {
-		log.Printf("[task-center] 台账收尾失败(run=%d): %v", runID, uerr)
-	}
+	led.Finish(runID, status, 0, 0, 0, msg, "")
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -93,8 +93,8 @@ func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set
 			st = statusFromRun(run)
 		}
 	}
-	if st.Message == "" && set.Remark != "" {
-		st.Message = set.Remark
+	if st.Message == "" && rc.Remark != "" {
+		st.Message = rc.Remark
 	}
 	return TaskView{
 		Key: d.Key, Kind: d.Kind, Type: d.Type, Name: d.Name, Target: d.Target, Detail: d.Detail,

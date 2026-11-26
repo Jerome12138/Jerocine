@@ -32,11 +32,6 @@ func GuardTrigger(ctx context.Context) error {
 	return nil
 }
 
-// gateBlockedNow 供调度器等"跳过即可、不必报错"的场景使用（语义与 GuardTrigger 同源）。
-func gateBlockedNow(ctx context.Context) bool {
-	return GuardTrigger(ctx) != nil
-}
-
 // describeGate 便于日志里带出拒绝原因（空串=没开窗口）。
 func describeGate(ctx context.Context) string {
 	if err := GuardTrigger(ctx); err != nil {
