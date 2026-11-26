@@ -2533,6 +2533,29 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/Unprocessable' }
 
+  /manage/task-center/runs/pending:
+    get:
+      tags: [manage-task]
+      summary: 待处理异常（failed 且未忽略、且其后没有同一任务的成功运行）
+      description: >
+        与「历史记录」的全量台账是两个口径：这里只列真正还没被后续成功覆盖的失败。
+        台账是纯追加的，重跑成功后旧失败仍在历史里，但不会出现在这里、也不会再打扰人。
+      operationId: manageTaskCenterPendingRuns
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 200 }, description: 最多返回条数(≤500) }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { type: object } }
+                  total: { type: integer }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /manage/task-center/schedule:
     get:
       tags: [manage-task]

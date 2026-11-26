@@ -641,6 +641,18 @@ func (h *Handlers) startHotRefreshAsync() {
 
 // ---- 任务管理(运行台账) ----
 
+// TaskCenterPendingRuns GET /manage/task-center/runs/pending?limit=
+// "待处理异常"：failed 且未忽略、且其后没有同一任务的成功运行（已重跑成功的旧失败不再打扰人）。
+// 与「历史记录」的全量台账（含已处理的失败）是**两个口径**，别再混在一起展示。
+func (h *Handlers) TaskCenterPendingRuns(c *gin.Context) {
+	list, err := h.Tasks.ListUnhandledFailed(c.Request.Context(), queryInt(c, "limit", 200))
+	if err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"items": list, "total": len(list)})
+}
+
 // TaskRuns GET /manage/tasks/runs?status=&type=&page=&size= 任务运行台账分页。
 // status: running | success | failed | canceled; type: collect | recover | category_cover | hot_refresh。
 func (h *Handlers) TaskRuns(c *gin.Context) {

@@ -443,6 +443,12 @@ type TaskRunRepository interface {
 	CountRunning(ctx context.Context, excludeSourceIds []string) (int64, error)
 	// CountRunningByType 统计某任务类型（可选按 cronId）当前在跑的条数 —— 重跑幂等判据。
 	CountRunningByType(ctx context.Context, taskType string, cronId int64) (int64, error)
+	// ListUnhandledFailed 列出**未处理**的失败：failed 且未忽略，且其后没有同一任务的成功运行。
+	//
+	// 为什么需要"未处理"这个口径（2026-11-26 用户要求）：台账是纯追加的，"失败行"永不消失，
+	// 于是重跑成功后旧失败仍挂在异常列表里 —— 线上实测 289 条历史失败**全部**已被后续成功覆盖，
+	// 却被当成"待处理异常"展示。按"其后是否有成功"判未处理，异常列表才只剩真正需要人看的。
+	ListUnhandledFailed(ctx context.Context, limit int) ([]entity.TaskRun, error)
 	// SetIgnored 标记/取消"已忽略"（异常处理用；不删行）。
 	SetIgnored(ctx context.Context, id int64, ignored bool) error
 	// PruneBefore 删除早于 beforeMs 的**终态**记录（分批；不删 running），供历史保留 30 天用。

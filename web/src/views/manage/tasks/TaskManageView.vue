@@ -4,7 +4,7 @@ import * as collectApi from '@/api/manage/collect'
 import * as tasksApi from '@/api/manage/tasks'
 import type { TaskCenterItem } from '@/api/manage/tasks'
 import type { SpiderJob } from '@/api/manage/collect'
-import type { CollectFailure, TaskOverview, TaskRun } from '@/types/manage'
+import type { CollectFailure, CronTask, TaskOverview, TaskRun } from '@/types/manage'
 import ManageButton from '@/components/manage/ManageButton.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -20,6 +20,8 @@ import { useAsyncAction } from '@/composables/useAsyncAction'
 import { toast } from '@/api/http'
 import { openManageDialog } from '@/composables/useManageDialog'
 import TaskSettingDialog from './TaskSettingDialog.vue'
+import { confirm } from '@/composables/useConfirm'
+import CronTaskDialog from './CronTaskDialog.vue'
 import { manageApi } from '@/api'
 import { formatDateTime } from '@/utils/format'
 
@@ -109,6 +111,12 @@ async function loadTc(): Promise<void> {
   try {
     const r = await tasksApi.taskCenterTasks()
     tcList.value = r.list ?? []
+    // 采集任务完整实体（编辑弹窗用）；失败不影响列表展示
+    try {
+      cronRows.value = await manageApi.cron.list()
+    } catch {
+      cronRows.value = []
+    }
     // 选中的任务可能已被停用/删除，剔除不存在的
     const keys = new Set(tcList.value.map((t) => t.key))
     picked.value = picked.value.filter((k) => keys.has(k))
@@ -185,6 +193,50 @@ async function editTask(t: TaskCenterItem): Promise<void> {
     width: '560px'
   })
   if (done) await loadTc()
+}
+
+// ---- 采集任务的建模面（任务类型/采集时长/资源站）----
+// 2026-11-26：原「定时任务页」下线，新建/编辑/删除采集任务统一收在这里；
+// 任务中心自己的「编辑」只负责调度与启停（TaskSettingDialog）。
+const cronDialogOpen = ref(false)
+/** 采集任务原始实体（任务中心的 TaskCenterItem 只有 key，编辑弹窗要 model/time/ids/remark） */
+const cronRows = ref<CronTask[]>([])
+const cronEditing = ref<CronTask | null>(null)
+
+function openCronCreate(): void {
+  cronEditing.value = null
+  cronDialogOpen.value = true
+}
+
+function openCronEdit(t: TaskCenterItem): void {
+  // 任务中心的行只带 key（cron:<id>），这里按 id 从原始 cron 列表里取完整实体
+  const id = t.key.startsWith('cron:') ? t.key.slice('cron:'.length) : ''
+  const row = cronRows.value.find((r) => r.id === id)
+  if (!row) {
+    toast('error', '未找到该采集任务，请刷新后重试')
+    return
+  }
+  cronEditing.value = row
+  cronDialogOpen.value = true
+}
+
+async function removeCron(t: TaskCenterItem): Promise<void> {
+  const id = t.key.startsWith('cron:') ? t.key.slice('cron:'.length) : ''
+  if (!id) return
+  const ok = await confirm({
+    title: '确认删除任务？',
+    desc: `任务「${t.name}」删除后不可恢复`,
+    okText: '删除',
+    danger: true
+  })
+  if (!ok) return
+  try {
+    await manageApi.cron.remove(id)
+    toast('success', '已删除')
+    await loadAll()
+  } catch (e) {
+    toast('error', e instanceof Error ? e.message : '删除失败')
+  }
 }
 
 const cronRunning = ref<Record<string, boolean>>({})
@@ -408,8 +460,9 @@ const showIgnoredRuns = ref(false)
 async function loadErrRuns(): Promise<void> {
   errLoading.value = true
   try {
-    const r = await tasksApi.runs({ status: 'failed', ignored: false, page: 1, size: 20 })
-    errRuns.value = r.list ?? []
+    // 「待处理」= 未被后续成功覆盖的失败（已重跑成功的旧失败不再打扰）
+    const r = await tasksApi.pendingRuns(200)
+    errRuns.value = r.items ?? []
     if (showIgnoredRuns.value) {
       const ri = await tasksApi.runs({ status: 'failed', ignored: true, page: 1, size: 20 })
       errIgnored.value = ri.list ?? []
@@ -734,6 +787,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
           <span class="text-xs text-muted">已选 {{ picked.length }} / {{ tcList.length }}</span>
           <ManageButton size="sm" variant="outline" :disabled="!picked.length || busy" @click="batchState(true)">批量启用</ManageButton>
           <ManageButton size="sm" variant="outline" :disabled="!picked.length || busy" @click="batchState(false)">批量停用</ManageButton>
+          <ManageButton size="sm" variant="primary" class="ml-auto" @click="openCronCreate">新建采集任务</ManageButton>
         </div>
 
         <section v-for="g in tcGroups" :key="g.key" class="flex flex-col gap-[var(--jc-space-2)]">
@@ -788,11 +842,23 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
                 @click="runTask(t)"
               >立即执行</ManageButton>
               <ManageButton
-                v-if="t.editable && t.editable.length"
+                v-if="t.kind === 'collect'"
+                size="sm"
+                variant="ghost"
+                @click="openCronEdit(t)"
+              >编辑</ManageButton>
+              <ManageButton
+                v-else-if="t.editable && t.editable.length"
                 size="sm"
                 variant="ghost"
                 @click="editTask(t)"
               >编辑</ManageButton>
+              <ManageButton
+                v-if="t.kind === 'collect'"
+                size="sm"
+                variant="danger"
+                @click="removeCron(t)"
+              >删除</ManageButton>
             </article>
           </div>
         </section>
@@ -897,7 +963,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       <section class="mb-[var(--jc-space-5)] flex flex-col gap-[var(--jc-space-2)]">
         <div class="flex flex-wrap items-center gap-[var(--jc-space-3)]">
           <h3 class="text-sm font-[var(--jc-fw-medium)]">任务异常</h3>
-          <span class="text-xs text-muted">{{ errRuns.length }} 条未忽略</span>
+          <span class="text-xs text-muted">{{ errRuns.length }} 条待处理</span>
           <label class="ml-auto flex items-center gap-1 text-xs text-muted">
             <input v-model="showIgnoredRuns" type="checkbox" @change="loadErrRuns" />
             显示已忽略
@@ -905,7 +971,7 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
         </div>
         <p v-if="errLoading" class="text-xs text-muted">加载中…</p>
         <p v-else-if="!errRuns.length && !errIgnored.length" class="text-xs text-muted">
-          没有任务异常。所有定时任务（含内置）失败都会记在这里，可重新执行或忽略。
+          没有待处理异常。任务失败后只要之后成功跑过一次（含重跑）就不再提示；全部失败仍可在「历史记录」里查。
         </p>
         <article
           v-for="r in [...errRuns, ...errIgnored]"
@@ -981,6 +1047,9 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
       </ManageTable>
     </template>
   </div>
+
+  <!-- 采集任务的建模面弹窗（新建/编辑任务类型·时长·资源站） -->
+  <CronTaskDialog v-model="cronDialogOpen" :task="cronEditing" @saved="loadTc" />
 </template>
 
 <style scoped>

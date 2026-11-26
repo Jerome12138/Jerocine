@@ -59,13 +59,6 @@ export const manageRoutes: RouteRecordRaw[] = [
     meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '任务管理' }
   },
   {
-    path: '/manage/cron',
-    name: 'manage-cron',
-    component: () => import('@/views/manage/cron/CronListView.vue'),
-    meta: { layout: 'manage', requiresAuth: true, requiresAdmin: true, title: '定时任务' }
-  },
-  { path: '/manage/cron/index', redirect: '/manage/cron' },
-  {
     path: '/manage/film',
     name: 'manage-film-list',
     component: () => import('@/views/manage/film/FilmListView.vue'),

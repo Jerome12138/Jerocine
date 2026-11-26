@@ -140,6 +140,35 @@ func (r *taskRunRepo) SetIgnored(ctx context.Context, id int64, ignored bool) er
 		Update("ignored", ignored).Error
 }
 
+// ListUnhandledFailed 未处理的失败：failed 且未忽略，且其后没有同一任务的**成功**运行。
+//
+// 同一任务的判定 = (task_type, cron_id, source_id) 三者相同（内置任务 cron_id/source_id 为 0/空）。
+// 语义意图：只要后来又成功跑过一次，说明问题已自愈/已重跑过 → 不再打扰人。
+// 索引：外层走 idx_status_ignored_started；子查询走 idx_task_run_cron(kind,cron_id) + PK 回表，
+// 台账保留 30 天（万级行）实测秒级。
+func (r *taskRunRepo) ListUnhandledFailed(ctx context.Context, limit int) ([]entity.TaskRun, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	var rows []entity.TaskRun
+	err := dbFrom(ctx, r.db).Raw(
+		`SELECT t.* FROM task_run t
+		 WHERE t.status = ? AND t.ignored = 0
+		   AND NOT EXISTS (
+		     SELECT 1 FROM task_run s
+		     WHERE s.status = ?
+		       AND s.id > t.id
+		       AND s.task_type = t.task_type
+		       AND s.cron_id = t.cron_id
+		       AND s.source_id = t.source_id
+		   )
+		 ORDER BY t.id DESC
+		 LIMIT ?`,
+		entity.TaskRunFailed, entity.TaskRunSuccess, limit,
+	).Scan(&rows).Error
+	return rows, err
+}
+
 // PruneBefore 删除早于 beforeMs 的**终态**记录（running 不删，避免误删活任务）。
 func (r *taskRunRepo) PruneBefore(ctx context.Context, beforeMs int64, limit int) (int64, error) {
 	if limit <= 0 || limit > 20000 {

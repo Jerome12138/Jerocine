@@ -183,6 +183,7 @@ func Register(r *gin.Engine, h *handler.Handlers, us *service.UserService, cfg *
 		mg.GET("/task-center/overview", h.TaskCenterOverview)
 		mg.POST("/task-center/tasks/batch-state", h.TaskCenterBatchState) // 批量启用/停用
 		mg.GET("/task-center/schedule", h.TaskCenterSchedule)             // 调度态只读诊断
+		mg.GET("/task-center/runs/pending", h.TaskCenterPendingRuns)      // 待处理异常（已重跑成功的不再出现）
 		mg.PUT("/task-center/tasks/:key/setting", h.TaskCenterUpdateSetting)
 		mg.POST("/task-center/tasks/:key/run", h.TaskCenterRun)
 		mg.POST("/task-center/tasks/:key/pause", h.TaskCenterPause)

@@ -29,6 +29,12 @@ func (f *fakeRuns) Get(context.Context, int64) (*entity.TaskRun, error) {
 func (f *fakeRuns) List(context.Context, repository.TaskRunFilter, repository.Page) ([]entity.TaskRun, int64, error) {
 	return f.latest, int64(len(f.latest)), nil
 }
+
+// ListUnhandledFailed 未处理失败（异常页"待处理"口径）；测试默认返回空。
+func (f *fakeRuns) ListUnhandledFailed(context.Context, int) ([]entity.TaskRun, error) {
+	return nil, nil
+}
+
 func (f *fakeRuns) LatestByCron(context.Context, []int64) (map[int64]entity.TaskRun, error) {
 	if f.latestCron != nil {
 		return f.latestCron, nil

@@ -56,7 +56,6 @@ const groups: MenuGroup[] = [
     items: [
       { path: '/manage/collect', label: '采集源', icon: 'magic' },
       { path: '/manage/tasks', label: '任务中心', icon: 'eye' },
-      { path: '/manage/cron', label: '定时任务', icon: 'clock' },
       { path: '/manage/epid', label: '集身份', icon: 'sparkles' },
       { path: '/manage/system/domain-replace', label: '域名替换', icon: 'settings' }
     ]

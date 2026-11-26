@@ -130,6 +130,14 @@ func (s *TaskRunService) List(ctx context.Context, status, taskType string, page
 	return s.runs.List(ctx, repository.TaskRunFilter{Status: status, Type: taskType}, page.Normalize(20))
 }
 
+// ListUnhandledFailed 未处理的失败（异常页"待处理"口径）。
+func (s *TaskRunService) ListUnhandledFailed(ctx context.Context, limit int) ([]entity.TaskRun, error) {
+	if !s.enabled() {
+		return nil, nil
+	}
+	return s.runs.ListUnhandledFailed(ctx, limit)
+}
+
 // LatestByCron 每个定时任务最近一次运行。
 func (s *TaskRunService) LatestByCron(ctx context.Context, cronIds []int64) (map[int64]entity.TaskRun, error) {
 	if !s.enabled() {

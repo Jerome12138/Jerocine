@@ -55,6 +55,12 @@ func (f *fakeTaskRunRepo) List(_ context.Context, fl repository.TaskRunFilter, p
 	}
 	return out, int64(len(out)), nil
 }
+
+// ListUnhandledFailed 未处理失败（异常页口径）；本组用例不覆盖，返回空。
+func (f *fakeTaskRunRepo) ListUnhandledFailed(_ context.Context, _ int) ([]entity.TaskRun, error) {
+	return nil, nil
+}
+
 func (f *fakeTaskRunRepo) LatestByCron(_ context.Context, cronIds []int64) (map[int64]entity.TaskRun, error) {
 	m := map[int64]entity.TaskRun{}
 	for _, r := range f.rows {
