@@ -302,7 +302,9 @@ func buildApp(cfg *config.Config) (*App, error) {
 	// 统一任务中心（只读目录）：内置任务注册表 + cron 动态展开
 	taskSettingRepo := repomysql.NewTaskSettingRepo(gdb)
 	taskCenterSvc := service.NewTaskCenterService(filmSvc, cronRepo, taskRunRepo, taskSettingRepo, sourceRepo,
-		spiderSvc, hotSvc, backdropSvc, manageSvc, yearVerifySvc)
+		spiderSvc, hotSvc, backdropSvc, manageSvc, yearVerifySvc,
+		// 运行时策略可配（TASK_RETENTION_DAYS / TASK_TICK_SECONDS），此前是写死的 30 天 / 30s
+		service.TaskCenterOptions{RetentionDays: cfg.Tasks.RetentionDays, TickEvery: cfg.Tasks.TickEvery})
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc,

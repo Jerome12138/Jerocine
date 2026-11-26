@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"server/internal/domain/entity"
 	"server/internal/domain/repository"
@@ -288,5 +289,64 @@ func TestBuiltinRegistry_SchedulingContract(t *testing.T) {
 		if err := taskcenter.ValidateSchedule(d.DefaultSchedule); err != nil {
 			t.Fatalf("%s 的默认周期不合法: %v", k, err)
 		}
+	}
+}
+
+// 回归：**只改周期/备注**（不传 enabled）不得把默认启用的内置任务停用。
+// 踩过的坑：Upsert 的 INSERT 分支用实体零值建行（enabled=false）⇒ 任务静默不跑、零报错。
+func TestUpdateSetting_PartialUpdateKeepsEnabled(t *testing.T) {
+	ctx := context.Background()
+	fs := &fakeSettings{}
+	svc := &TaskCenterService{settings: fs, reg: newRegistryWithBuiltins()}
+
+	sch := "daily:06:10"
+	deferred, err := svc.UpdateSetting(ctx, "builtin:hot_refresh", TaskSettingInput{Schedule: &sch})
+	if err != nil {
+		t.Fatalf("应成功: %v", err)
+	}
+	if deferred {
+		t.Fatal("只改周期不该报 deferred（那是停用才会有的语义）")
+	}
+	v, ok := fs.enabled["builtin:hot_refresh"]
+	if !ok || !v {
+		t.Fatalf("启用位应保持默认开启(true), got ok=%v v=%v", ok, v)
+	}
+	// 默认不启用的任务：只改备注也不能被"顺手启用"
+	rm := "补查用"
+	if _, err := svc.UpdateSetting(ctx, "builtin:douban_backfill", TaskSettingInput{Remark: &rm}); err != nil {
+		t.Fatalf("应成功: %v", err)
+	}
+	if v, ok := fs.enabled["builtin:douban_backfill"]; !ok || v {
+		t.Fatalf("默认停用的任务不该被局部更新打开, got ok=%v v=%v", ok, v)
+	}
+}
+
+// 显式停用仍要 deferred 语义（在跑 ⇒ 等本轮结束）。
+func TestUpdateSetting_ExplicitDisableStillDeferred(t *testing.T) {
+	ctx := context.Background()
+	off := false
+	runs := &fakeRuns{latest: []entity.TaskRun{{Type: "year_verify", Status: entity.TaskRunRunning}}}
+	svc := &TaskCenterService{settings: &fakeSettings{}, reg: newRegistryWithBuiltins(), runs: runs}
+	deferred, err := svc.UpdateSetting(ctx, "builtin:year_verify", TaskSettingInput{Enabled: &off})
+	if err != nil {
+		t.Fatalf("应成功: %v", err)
+	}
+	if !deferred {
+		t.Fatal("显式停用且在跑 ⇒ 应 deferred")
+	}
+}
+
+// 策略默认值兜底：直接构造 &TaskCenterService{} 时不能把保留天数算成 0（否则"删光全部台账"）。
+func TestRetentionAndTickFallback(t *testing.T) {
+	svc := &TaskCenterService{}
+	if got := svc.retention(); got != 30 {
+		t.Fatalf("默认保留天数应为 30, got %d", got)
+	}
+	if got := svc.schedulerTick(); got != 30*time.Second {
+		t.Fatalf("默认 tick 应为 30s, got %s", got)
+	}
+	custom := &TaskCenterService{retentionDays: 7, tickEvery: 5 * time.Second}
+	if custom.retention() != 7 || custom.schedulerTick() != 5*time.Second {
+		t.Fatalf("配置值应生效: %d / %s", custom.retention(), custom.schedulerTick())
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"server/internal/cache"
 	"server/internal/domain/entity"
 	"server/internal/taskcenter"
 )
@@ -13,12 +14,15 @@ import (
 func TestViewOfCron_ProgressMapping(t *testing.T) {
 	svc := &TaskCenterService{}
 	names := map[string]string{"src_lz": "lz 量子资源"}
+	allIDs := []string{"src_lz", "src_uk"}
+	// 快照由调用方（List）取一次后传入 —— 这里给"空快照"基线，进度断言只走台账
+	noSnaps := map[string]cache.JobProgress{}
 
 	t.Run("运行中且有总数", func(t *testing.T) {
 		v := svc.viewOfCron(context.Background(),
 			entity.CronTask{Id: 3, Spec: "0 3 * * *", Model: entity.CronModelSomeSrc, SourceIds: []string{"src_lz"}, Time: 24, State: entity.StateEnabled},
 			entity.TaskRun{Id: 11, Status: entity.TaskRunRunning, Total: 20, Done: 8, Failed: 2, StartedAt: 1000},
-			names)
+			names, allIDs, noSnaps)
 		if v.Key != "cron:3" || v.State != string(taskcenter.StateRunning) {
 			t.Fatalf("基础字段不对: %+v", v)
 		}
@@ -37,7 +41,7 @@ func TestViewOfCron_ProgressMapping(t *testing.T) {
 		v := svc.viewOfCron(context.Background(),
 			entity.CronTask{Id: 4, Spec: "0 4 * * *", Model: entity.CronModelAutoAll, State: entity.StateEnabled},
 			entity.TaskRun{Id: 12, Status: entity.TaskRunSuccess, Total: 0, Done: 0, StartedAt: 100, EndedAt: 160},
-			names)
+			names, allIDs, noSnaps)
 		if v.State != string(taskcenter.StateSucceeded) {
 			t.Fatalf("状态应为 succeeded: %+v", v)
 		}
@@ -52,7 +56,7 @@ func TestViewOfCron_ProgressMapping(t *testing.T) {
 	t.Run("没有运行记录的启用任务", func(t *testing.T) {
 		v := svc.viewOfCron(context.Background(),
 			entity.CronTask{Id: 5, Spec: "0 5 * * *", Model: entity.CronModelRecover, State: entity.StateDisabled},
-			entity.TaskRun{}, names)
+			entity.TaskRun{}, names, allIDs, noSnaps)
 		if v.State != string(taskcenter.StateIdle) {
 			t.Fatalf("无记录应为 idle: %+v", v)
 		}
@@ -106,4 +110,29 @@ func TestViewOfDef_SettingOverride(t *testing.T) {
 			t.Fatalf("应抬到下限 2000, got %d", v.IntervalMs)
 		}
 	})
+}
+
+// 运行中、台账还没页数（刚开始）→ 用 Redis 快照兜底；快照只取一次、按源聚合。
+func TestViewOfCron_ProgressFromSnapshots(t *testing.T) {
+	svc := &TaskCenterService{}
+	names := map[string]string{"src_lz": "lz", "src_uk": "uk"}
+	allIDs := []string{"src_lz", "src_uk"}
+	snaps := map[string]cache.JobProgress{
+		"src_lz": {SourceId: "src_lz", Total: 10, Done: 4, Failed: 1},
+		"src_uk": {SourceId: "src_uk", Total: 5, Done: 5},
+	}
+	// AutoAll = 全部源
+	v := svc.viewOfCron(context.Background(),
+		entity.CronTask{Id: 6, Schedule: "daily:03:00", Model: entity.CronModelAutoAll, State: entity.StateEnabled},
+		entity.TaskRun{Id: 13, Status: entity.TaskRunRunning, StartedAt: 1000}, names, allIDs, snaps)
+	if v.Progress == nil || v.Progress.Total != 15 || v.Progress.Done != 9 || v.Progress.Failed != 1 {
+		t.Fatalf("应按全部源聚合快照, got %+v", v.Progress)
+	}
+	// SomeSrc = 只算指定源
+	v = svc.viewOfCron(context.Background(),
+		entity.CronTask{Id: 7, Schedule: "daily:03:00", Model: entity.CronModelSomeSrc, SourceIds: []string{"src_uk"}, State: entity.StateEnabled},
+		entity.TaskRun{Id: 14, Status: entity.TaskRunRunning, StartedAt: 1000}, names, allIDs, snaps)
+	if v.Progress == nil || v.Progress.Total != 5 || v.Progress.Done != 5 {
+		t.Fatalf("SomeSrc 只应聚合指定源, got %+v", v.Progress)
+	}
 }

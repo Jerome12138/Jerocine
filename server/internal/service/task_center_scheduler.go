@@ -23,7 +23,8 @@ import (
 	"server/internal/taskcenter"
 )
 
-const schedulerTickEvery = 30 * time.Second
+// 轮询间隔默认值（可被 TaskCenterService.tickEvery / TASK_TICK_SECONDS 覆盖）
+const schedulerTickEvery = defaultSchedulerTick
 
 // TaskScheduler 统一调度器。
 type TaskScheduler struct {
@@ -41,7 +42,7 @@ type TaskScheduler struct {
 func NewTaskScheduler(tc *TaskCenterService) *TaskScheduler {
 	return &TaskScheduler{
 		tc:        tc,
-		tickEvery: schedulerTickEvery,
+		tickEvery: tc.schedulerTick(),
 		next:      map[string]time.Time{},
 		busy:      map[string]bool{},
 	}

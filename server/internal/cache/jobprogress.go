@@ -221,6 +221,23 @@ func JobList(ctx context.Context) ([]JobProgress, error) {
 	}
 }
 
+// JobSnapshots 一次取回全部源的最新进度快照（sourceId → 进度）。
+//
+// 用途：任务中心要在列表里给每个采集任务聚合"本次跑了多少页"，此前是"每任务 × 每源"
+// 各一次 JobSnapshot（Redis 往返 O(任务×源)）。JobList 本来就是一次 SCAN，用它整形最省。
+// 协调端不可用时返回空 map（调用方按"没有进度"降级，不报错）。
+func JobSnapshots(ctx context.Context) map[string]JobProgress {
+	list, err := JobList(ctx)
+	if err != nil || len(list) == 0 {
+		return map[string]JobProgress{}
+	}
+	out := make(map[string]JobProgress, len(list))
+	for _, p := range list {
+		out[p.SourceId] = p
+	}
+	return out
+}
+
 func fillJob(p *JobProgress, m map[string]string) {
 	p.Name = m["name"]
 	p.State = m["state"]

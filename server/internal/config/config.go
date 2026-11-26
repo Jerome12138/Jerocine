@@ -25,6 +25,15 @@ type Config struct {
 	TMDB       TMDBConfig
 	Danmu      DanmuConfig
 	PageSizes  PageSizes
+	Tasks      TaskConfig
+}
+
+// TaskConfig 任务中心的运行时策略（原先写死在代码里的两个常量）。
+type TaskConfig struct {
+	// RetentionDays 台账保留天数（PruneHistory 用）。0/负数由使用方兜底为 30。
+	RetentionDays int
+	// TickEvery 调度器轮询间隔（多久检查一次"有没有任务到点"）。0 由使用方兜底为 30s。
+	TickEvery time.Duration
 }
 
 type RedisConfig struct {
@@ -119,6 +128,10 @@ func Load() *Config {
 			APIToken: os.Getenv("DANMU_API_TOKEN"),
 		},
 		PageSizes: PageSizes{Home: 14, Classify: 21, Filter: 49, Search: 10, Gallery: 39},
+		Tasks: TaskConfig{
+			RetentionDays: envInt("TASK_RETENTION_DAYS", 30),
+			TickEvery:     time.Duration(envInt("TASK_TICK_SECONDS", 30)) * time.Second,
+		},
 	}
 	if c.Redis.CacheDB == c.Redis.CoordDB {
 		log.Fatalf("config: REDIS_DB_CACHE 与 REDIS_DB_COORD 不能相同 (均为 %d)", c.Redis.CacheDB)

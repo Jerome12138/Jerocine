@@ -10,6 +10,7 @@ package taskcenter
 import (
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -108,10 +109,16 @@ func NewRegistry() *Registry {
 }
 
 // Register 注册（同 key 覆盖，便于测试与热更新）。
+// Register 注册/覆盖任务定义。
+// 重复 key 会**告警**（不 panic：注册在启动期，但测试替身可能故意覆盖）——
+// 静默覆盖的后果是两个域误用同一个 key 时，后注册者悄悄接管，排查时看不出任何线索。
 func (r *Registry) Register(d Def) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.defs[d.Key]; !ok {
+	if prev, ok := r.defs[d.Key]; ok {
+		log.Printf("[taskcenter] 重复注册任务 key=%q（原 name=%q → 新 name=%q），已覆盖",
+			d.Key, prev.Name, d.Name)
+	} else {
 		r.order = append(r.order, d.Key)
 	}
 	r.defs[d.Key] = d

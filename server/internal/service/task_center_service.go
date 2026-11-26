@@ -74,6 +74,38 @@ type TaskCenterService struct {
 	manage     *ManageService
 	yearVerify *YearVerifyService
 	reg        *taskcenter.Registry
+
+	// 运行时策略（原先写死）：台账保留天数、调度轮询间隔。0 表示用默认值。
+	retentionDays int
+	tickEvery     time.Duration
+}
+
+// 策略默认值（配置未给时兜底；抽出来是为了单测能直接构造 &TaskCenterService{} 而不炸）。
+const (
+	defaultRetentionDays = 30
+	defaultSchedulerTick = 30 * time.Second
+)
+
+// TaskCenterOptions 任务中心的运行时策略（来自 config.Tasks）。
+type TaskCenterOptions struct {
+	RetentionDays int
+	TickEvery     time.Duration
+}
+
+// retention 实际生效的台账保留天数。
+func (s *TaskCenterService) retention() int {
+	if s != nil && s.retentionDays > 0 {
+		return s.retentionDays
+	}
+	return defaultRetentionDays
+}
+
+// schedulerTick 实际生效的调度轮询间隔。
+func (s *TaskCenterService) schedulerTick() time.Duration {
+	if s != nil && s.tickEvery > 0 {
+		return s.tickEvery
+	}
+	return defaultSchedulerTick
 }
 
 func NewTaskCenterService(
@@ -87,9 +119,11 @@ func NewTaskCenterService(
 	backdrop *BackdropService,
 	manage *ManageService,
 	yearVerify *YearVerifyService,
+	opts TaskCenterOptions,
 ) *TaskCenterService {
 	s := &TaskCenterService{film: film, crons: crons, runs: runs, settings: settings, sources: sources,
 		spider: spider, hot: hot, backdrop: backdrop, manage: manage, yearVerify: yearVerify,
+		retentionDays: opts.RetentionDays, tickEvery: opts.TickEvery,
 		reg: taskcenter.NewRegistry()}
 	s.registerBuiltins()
 	return s
@@ -282,9 +316,13 @@ func (s *TaskCenterService) List(ctx context.Context, kind string) ([]TaskView, 
 				ids = append(ids, crons[i].Id)
 			}
 			latest, _ := s.runs.LatestByCron(ctx, ids)
-			names := s.sourceNames(ctx)
+			names, allIDs := s.sourcesOnce(ctx)
+			// Redis 采集进度**只取一次全量快照**再按源聚合：
+			// 此前是"每 cron × 每源"各往返一次（20 源 × 3 任务 = 60 次/刷新，页面还并发拉
+			// /tasks 与 /overview ⇒ 翻倍）。JobList 本来就是一次 SCAN，用它喂进度最省。
+			snaps := cache.JobSnapshots(ctx)
 			for i := range crons {
-				out = append(out, s.viewOfCron(ctx, crons[i], latest[crons[i].Id], names))
+				out = append(out, s.viewOfCron(ctx, crons[i], latest[crons[i].Id], names, allIDs, snaps))
 			}
 		}
 	}
@@ -373,7 +411,8 @@ func (s *TaskCenterService) viewOfDef(ctx context.Context, d taskcenter.Def, set
 	}
 }
 
-func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, last entity.TaskRun, names map[string]string) TaskView {
+func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, last entity.TaskRun,
+	names map[string]string, allIDs []string, snaps map[string]cache.JobProgress) TaskView {
 	v := TaskView{
 		Key: "cron:" + strconv.FormatInt(t.Id, 10), Kind: taskcenter.KindCollect,
 		Type: cronTaskType(t), Name: cronTaskName(t, names),
@@ -408,7 +447,7 @@ func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, l
 		}
 		// 运行中且台账还没页数（刚开始/快照缺失）→ 用 Redis 采集进度兜底，让页面能实时看到进度
 		if v.Progress == nil && v.State == string(taskcenter.StateRunning) {
-			v.Progress = s.cronProgress(ctx, t)
+			v.Progress = s.cronProgress(t, allIDs, snaps)
 		}
 		if v.State == string(taskcenter.StateRunning) && v.ElapsedMs == 0 && last.StartedAt > 0 {
 			v.ElapsedMs = time.Now().UnixMilli() - last.StartedAt
@@ -419,7 +458,10 @@ func (s *TaskCenterService) viewOfCron(ctx context.Context, t entity.CronTask, l
 
 // cronProgress 采集任务运行中的进度：聚合各目标源的 Redis 采集进度（页数）。
 // 只有"知道总数"的行才给进度对象，否则返回 nil（前端不画进度条）。
-func (s *TaskCenterService) cronProgress(ctx context.Context, t entity.CronTask) *taskcenter.Progress {
+// cronProgress 用**调用方预先取好的** Redis 快照聚合进度（纯函数：不碰 IO、不 N+1）。
+// 之前是"每 cron × 每源"各一次 JobSnapshot —— 20 源 × 3 任务 = 60 次往返/刷新，
+// 页面还并发拉 /tasks 与 /overview 再翻一倍。现在快照在 List 入口取一次。
+func (s *TaskCenterService) cronProgress(t entity.CronTask, allIDs []string, snaps map[string]cache.JobProgress) *taskcenter.Progress {
 	siteIds := make([]string, 0, 8)
 	switch t.Model {
 	case entity.CronModelRecover:
@@ -427,18 +469,12 @@ func (s *TaskCenterService) cronProgress(ctx context.Context, t entity.CronTask)
 	case entity.CronModelSomeSrc:
 		siteIds = append(siteIds, t.SourceIds...)
 	default:
-		if s.sources != nil {
-			if list, err := s.sources.List(ctx, true); err == nil {
-				for _, src := range list {
-					siteIds = append(siteIds, src.Id)
-				}
-			}
-		}
+		siteIds = allIDs
 	}
 	var total, done, failed int
 	for _, id := range siteIds {
-		p, err := cache.JobSnapshot(ctx, id)
-		if err != nil {
+		p, ok := snaps[id]
+		if !ok {
 			continue
 		}
 		total += p.Total
@@ -526,19 +562,23 @@ func cronTaskTarget(t entity.CronTask, names map[string]string) string {
 	return strings.Join(parts, "、")
 }
 
-func (s *TaskCenterService) sourceNames(ctx context.Context) map[string]string {
+// sourcesOnce 一次取回"源名映射 + 全部源 id 列表"。
+// List 里既要显示源名、又要按源聚合采集进度 —— 同一次查询喂两处，避免重复查库。
+func (s *TaskCenterService) sourcesOnce(ctx context.Context) (map[string]string, []string) {
 	out := map[string]string{}
+	ids := make([]string, 0, 16)
 	if s.sources == nil {
-		return out
+		return out, ids
 	}
 	list, err := s.sources.List(ctx, false)
 	if err != nil {
-		return out
+		return out, ids
 	}
 	for _, src := range list {
 		out[src.Id] = src.Name
+		ids = append(ids, src.Id)
 	}
-	return out
+	return out, ids
 }
 
 // EnsureTaskKeyRegistered 供 PR2 的写接口复用：key 必须是注册表里的内置任务。
@@ -666,21 +706,30 @@ func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in Ta
 	}
 
 	now := time.Now().UnixMilli()
-	if in.Enabled != nil {
-		if s.settings == nil {
-			return false, fmt.Errorf("配置仓储未装配")
-		}
-		if !*in.Enabled {
-			deferred = s.isTaskRunning(ctx, key)
-		}
-		if err := s.settings.SetEnabled(ctx, key, *in.Enabled, now); err != nil {
-			return false, err
-		}
-	}
 	if s.settings == nil {
 		return false, fmt.Errorf("配置仓储未装配")
 	}
-	set := entity.TaskSetting{TaskKey: key, UpdatedAt: now}
+	// 启用位**每次都显式写一次（写的是合并后的值）**，不再"只在传了 enabled 时才写"。
+	// 原因：Upsert 的 INSERT 分支会用实体的零值建行，而实体零值 enabled=false ——
+	// "只改周期/备注"这类局部更新会把默认启用的任务建成停用（静默不跑、零报错）。
+	// 合并优先级：入参 enabled → 现有行 → 注册表默认。
+	enabledNow := def.Enabled
+	if cur, ok, gerr := s.settings.Get(ctx, key); gerr != nil {
+		return false, gerr
+	} else if ok {
+		enabledNow = cur.Enabled
+	}
+	if in.Enabled != nil {
+		enabledNow = *in.Enabled
+	}
+	// deferred 只在"本次请求是要停用"时才算（只改周期时提示"运行中"会误导）
+	if in.Enabled != nil && !*in.Enabled {
+		deferred = s.isTaskRunning(ctx, key)
+	}
+	if err := s.settings.SetEnabled(ctx, key, enabledNow, now); err != nil {
+		return false, err
+	}
+	set := entity.TaskSetting{TaskKey: key, UpdatedAt: now, Enabled: enabledNow}
 	if in.Schedule != nil {
 		set.Schedule = strings.TrimSpace(*in.Schedule)
 	}
@@ -690,7 +739,7 @@ func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in Ta
 	if in.IntervalMs != nil {
 		set.IntervalMs = *in.IntervalMs
 	}
-	// Upsert 只覆盖非空字段（不会清空备注，也不会动 enabled）
+	// Upsert 只覆盖非空字段（不会清空备注；enabled 由上面的 SetEnabled 负责）
 	return deferred, s.settings.Upsert(ctx, set)
 }
 
@@ -1039,7 +1088,7 @@ func (s *TaskCenterService) PruneHistory(ctx context.Context) error {
 	if s.runs == nil {
 		return fmt.Errorf("台账仓储未装配")
 	}
-	before := time.Now().AddDate(0, 0, -30).UnixMilli()
+	before := time.Now().AddDate(0, 0, -s.retention()).UnixMilli()
 	total := int64(0)
 	for {
 		if ctx.Err() != nil {
