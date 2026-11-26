@@ -85,6 +85,9 @@ type Def struct {
 	Internal bool // 不在列表展示（如 history_prune）
 
 	Status func(ctx context.Context) Status
+	// Run 触发一次（Phase 2 收敛后由中心调度调用）。
+	// 为 nil 表示该任务只读展示（还没有可复用的执行入口）。
+	Run func(ctx context.Context) error
 }
 
 // Registry 任务注册表（读多写少）。

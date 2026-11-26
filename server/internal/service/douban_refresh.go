@@ -148,6 +148,17 @@ func (s *FilmService) RunDoubanScoreSync(ctx context.Context) {
 	s.runDoubanScoreSyncLocked(ctx)
 }
 
+// RunDoubanScoreSyncOnce 同步跑一轮"近半年评分同步"（供统一任务中心调度调用）。
+// 已被占用时直接返回错误（单飞），不阻塞等待。
+func (s *FilmService) RunDoubanScoreSyncOnce(ctx context.Context) error {
+	if !doubanBatchBusy.CompareAndSwap(false, true) {
+		return fmt.Errorf("已有豆瓣刷分任务在执行中")
+	}
+	defer doubanBatchBusy.Store(false)
+	s.runDoubanScoreSyncLocked(ctx)
+	return nil
+}
+
 // StartDoubanScoreSyncOnce 手动触发一次"近半年评分同步"（异步，供任务中心"立即执行"用）。
 func (s *FilmService) StartDoubanScoreSyncOnce(ctx context.Context) error {
 	if !doubanBatchBusy.CompareAndSwap(false, true) {

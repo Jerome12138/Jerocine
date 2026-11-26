@@ -81,16 +81,19 @@ func main() {
 	// 启动 cron 调度(读 cron_task 注册已启用任务)
 	app.spiderSvc.StartScheduler(rootCtx)
 	// 启动采集源健康检查定时任务(默认 1h, 写健康度 → 自动停采/恢复死源)
-	app.handlers.Manage.StartHealthScheduler(rootCtx)
+	// app.handlers.Manage.StartHealthScheduler(rootCtx) // 同上：改由任务中心调度（RunHealthCheckOnce）
 	// 启动 TMDB 横图回填 worker(未配置 key 时为 no-op)
-	app.backdropSvc.Start(rootCtx)
+	// app.backdropSvc.Start(rootCtx) // 同上：改由任务中心调度（SweepOnce）
 	app.yearVerifySvc.Start(rootCtx)
 	// 启动榜单热度刷新调度(每日 04:00 拉豆瓣榜单 → hot_rank/hot_score)
-	app.hotSvc.Start(rootCtx)
+	// app.hotSvc.Start(rootCtx) // 同上：改由任务中心调度（SweepOnce）
 	// 域名替换：每日拉取公告（**只入库**，不执行任何替换；执行动作由人工触发）
-	app.filmSvc.StartDomainRuleFetcher(rootCtx)
+	// Phase 2（2026-11-25）：内置任务调度收敛到统一任务中心 —— 下面这些各自的 ticker 已停用，
+	// 由 taskCenterSched 按 schedule 触发（保留方法便于回滚）。
+	// app.filmSvc.StartDomainRuleFetcher(rootCtx)
+	service.NewTaskScheduler(app.taskCenter).Start(rootCtx)
 	// 每周一 04:00 刷新豆瓣评分（近半年 + 历史欠账，限量）
-	app.filmSvc.StartDoubanScoreSync(rootCtx)
+	// app.filmSvc.StartDoubanScoreSync(rootCtx) // 同上：改由任务中心调度
 
 	// 超时收敛: 无超时的 Server 可被慢连接(slowloris)长期占住 fd。
 	// ReadHeaderTimeout 短; Read/Write 长于最坏请求(弹幕聚合 30s 上游/大图上传); Idle 收敛 keep-alive。
@@ -144,6 +147,7 @@ type App struct {
 	yearVerifySvc *service.YearVerifyService
 	filmSvc       *service.FilmService
 	hotSvc        *service.HotService
+	taskCenter    *service.TaskCenterService
 	handlers      *handler.Handlers
 }
 
@@ -286,7 +290,8 @@ func buildApp(cfg *config.Config) (*App, error) {
 
 	// 统一任务中心（只读目录）：内置任务注册表 + cron 动态展开
 	taskSettingRepo := repomysql.NewTaskSettingRepo(gdb)
-	taskCenterSvc := service.NewTaskCenterService(filmSvc, cronRepo, taskRunRepo, taskSettingRepo, sourceRepo, spiderSvc)
+	taskCenterSvc := service.NewTaskCenterService(filmSvc, cronRepo, taskRunRepo, taskSettingRepo, sourceRepo,
+		spiderSvc, hotSvc, backdropSvc, manageSvc)
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc,

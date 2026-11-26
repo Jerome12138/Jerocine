@@ -257,6 +257,29 @@ func (s *FilmService) ListDomainRules(ctx context.Context, state, keyword string
 
 // StartDomainRuleFetcher 每日一次拉取公告（**只入库，绝不执行替换**）。
 // 首次等 DomainFetchInitialDelay 再跑（避免重启风暴打公告站），之后 24h 一轮。
+// RunDomainFetchOnce 跑一轮"公告拉取"（供统一任务中心调度调用，同步返回）。
+func (s *FilmService) RunDomainFetchOnce(ctx context.Context) error {
+	srcs := DomainSources
+	var firstErr error
+	ok := 0
+	for _, src := range srcs {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if _, err := s.FetchDomainRules(ctx, src.Key); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		ok++
+	}
+	if firstErr != nil {
+		return fmt.Errorf("拉取 %d/%d 个来源失败: %w", len(srcs)-ok, len(srcs), firstErr)
+	}
+	return nil
+}
+
 func (s *FilmService) StartDomainRuleFetcher(ctx context.Context) {
 	go func() {
 		defer func() {

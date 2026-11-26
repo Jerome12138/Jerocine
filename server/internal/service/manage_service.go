@@ -828,6 +828,9 @@ func (s *ManageService) StartHealthScheduler(ctx context.Context) {
 	}()
 }
 
+// RunHealthCheckOnce 由统一任务中心调度调用（Phase 2 收敛：不再自起 ticker）。
+func (s *ManageService) RunHealthCheckOnce(ctx context.Context) { s.runHealthCheck(ctx) }
+
 func (s *ManageService) runHealthCheck(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -883,6 +886,7 @@ func (s *ManageService) ListCategories(ctx context.Context) ([]*entity.CategoryN
 	}
 	return tree, nil
 }
+
 // UpsertCategory 保存分类(管理端)。三开关强制联动: filmVisible=false 时"影片整体不可见"
 // 是最狠的一档, 本节点与全部子孙的 show/sidebar_show 必须一并置 false —— 影片都搜不到
 // 列不出了, 导航入口就不允许还亮着(前端开关同步禁用置灰, 这里是服务端兜底)。
@@ -928,6 +932,7 @@ func (s *ManageService) cascadeHideDescendants(ctx context.Context, id int64) er
 	}
 	return nil
 }
+
 // DeleteCategory 删除分类。树只有两级: 级联先删直接子分类再删本节点(同事务) ——
 // 只删单行会留下 pid 悬空的孤儿行, buildTree 会静默丢弃它们(公开导航与本页一起消失
 // 但行残留, 永远无法再管理)。与前端确认文案「及其全部子分类将被永久删除」对齐。

@@ -135,6 +135,10 @@ func (s *HotService) loop(ctx context.Context) {
 }
 
 // tick 到点才刷: 当天没成功跑过(Redis 标记) + 已过刷新时刻 + 退避已到期。
+// SweepOnce 由统一任务中心调度调用（Phase 2 收敛：不再自起 ticker）。
+// 内部 due/backoff 语义保持不变，等价于原先 ticker 触发的那一次。
+func (s *HotService) SweepOnce(ctx context.Context) { s.tick(ctx) }
+
 func (s *HotService) tick(ctx context.Context) {
 	if !s.due(time.Now()) {
 		return

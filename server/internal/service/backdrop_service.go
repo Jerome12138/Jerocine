@@ -125,6 +125,9 @@ func safeNotify(name string, fn func()) {
 }
 
 // tick 一轮扫描: 解析当前 key → 轮播集合 → 过滤缺图 → 逐片补采。每步失败都只记日志, 不影响下一轮。
+// SweepOnce 由统一任务中心调度调用（Phase 2 收敛：不再自起 ticker）。
+func (s *BackdropService) SweepOnce(ctx context.Context) { s.tick(ctx) }
+
 func (s *BackdropService) tick(ctx context.Context) {
 	key := s.currentKey(ctx)
 	if key == "" {

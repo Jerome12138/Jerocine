@@ -67,6 +67,9 @@ type TaskCenterService struct {
 	settings repository.TaskSettingRepository
 	sources  repository.CollectSourceRepository
 	spider   *SpiderService
+	hot      *HotService
+	backdrop *BackdropService
+	manage   *ManageService
 	reg      *taskcenter.Registry
 }
 
@@ -77,9 +80,12 @@ func NewTaskCenterService(
 	settings repository.TaskSettingRepository,
 	sources repository.CollectSourceRepository,
 	spider *SpiderService,
+	hot *HotService,
+	backdrop *BackdropService,
+	manage *ManageService,
 ) *TaskCenterService {
 	s := &TaskCenterService{film: film, crons: crons, runs: runs, settings: settings, sources: sources,
-		spider: spider, reg: taskcenter.NewRegistry()}
+		spider: spider, hot: hot, backdrop: backdrop, manage: manage, reg: taskcenter.NewRegistry()}
 	s.registerBuiltins()
 	return s
 }
@@ -98,6 +104,9 @@ func (s *TaskCenterService) registerBuiltins() {
 		DefaultIntervalMs: 4000, MinIntervalMs: 2000, IntervalLabel: "3~5s 随机",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: s.doubanStatus,
+		Run: func(ctx context.Context) error {
+			return s.film.RunDoubanScoreSyncOnce(ctx)
+		},
 	})
 
 	s.reg.Register(taskcenter.Def{
@@ -108,6 +117,9 @@ func (s *TaskCenterService) registerBuiltins() {
 		DefaultIntervalMs: 4000, MinIntervalMs: 2000, IntervalLabel: "3~5s 随机",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: s.doubanStatus,
+		Run: func(ctx context.Context) error {
+			return s.film.StartDoubanScoreBackfill(ctx, 0)
+		},
 	})
 
 	s.reg.Register(taskcenter.Def{
@@ -130,6 +142,13 @@ func (s *TaskCenterService) registerBuiltins() {
 		DefaultIntervalMs: 5000, MinIntervalMs: 2000, IntervalLabel: "5s/请求",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: idleWithMessage("每 10 分钟扫描一次"),
+		Run: func(ctx context.Context) error {
+			if s.hot == nil {
+				return fmt.Errorf("热度服务未装配")
+			}
+			s.hot.SweepOnce(ctx)
+			return nil
+		},
 	})
 
 	s.reg.Register(taskcenter.Def{
@@ -140,6 +159,13 @@ func (s *TaskCenterService) registerBuiltins() {
 		DefaultIntervalMs: 300, MinIntervalMs: 100, IntervalLabel: "300ms/请求",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: idleWithMessage("每 20 分钟扫描一次"),
+		Run: func(ctx context.Context) error {
+			if s.backdrop == nil {
+				return fmt.Errorf("横图服务未装配")
+			}
+			s.backdrop.SweepOnce(ctx)
+			return nil
+		},
 	})
 
 	s.reg.Register(taskcenter.Def{
@@ -150,6 +176,23 @@ func (s *TaskCenterService) registerBuiltins() {
 		DefaultIntervalMs: 200, MinIntervalMs: 200, IntervalLabel: "200ms/探针",
 		Editable: editAll, Caps: []string{taskcenter.CapRun},
 		Status: idleWithMessage("每 1 小时巡检一次"),
+		Run: func(ctx context.Context) error {
+			if s.manage == nil {
+				return fmt.Errorf("管理服务未装配")
+			}
+			s.manage.RunHealthCheckOnce(ctx)
+			return nil
+		},
+	})
+
+	// 历史台账保留 30 天（内部维护任务，不在列表展示）
+	s.reg.Register(taskcenter.Def{
+		Key: "builtin:history_prune", Kind: taskcenter.KindBuiltin, Type: "history_prune",
+		Name: "历史台账清理", Target: "task_run（保留 30 天）",
+		Detail:          "每天 04:00 删除 30 天前的终态记录（分批，不删 running）。",
+		DefaultSchedule: "daily:04:00", Enabled: true,
+		Internal: true,
+		Run:      s.PruneHistory,
 	})
 }
 
@@ -579,4 +622,28 @@ func (s *TaskCenterService) StopTask(ctx context.Context, key string) error {
 		return fmt.Errorf("只有正在运行的采集任务支持停止")
 	}
 	return s.spider.CancelJob(ctx, id)
+}
+
+// PruneHistory 历史台账保留 30 天（分批删除终态记录；running 不动）。
+func (s *TaskCenterService) PruneHistory(ctx context.Context) error {
+	if s.runs == nil {
+		return fmt.Errorf("台账仓储未装配")
+	}
+	before := time.Now().AddDate(0, 0, -30).UnixMilli()
+	total := int64(0)
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		n, err := s.runs.PruneBefore(ctx, before, 5000)
+		if err != nil {
+			return err
+		}
+		total += n
+		if n == 0 {
+			break
+		}
+	}
+	log.Printf("[task-center] 历史台账清理：删除 %d 行（早于 %s）", total, time.UnixMilli(before).Format("2006-01-02"))
+	return nil
 }

@@ -113,6 +113,17 @@ func (r *taskRunRepo) CountRunning(ctx context.Context, excludeSourceIds []strin
 }
 
 // MarkInterrupted 服务重启时调用: 未收尾的 running 行标记为 failed(中断)。
+// PruneBefore 删除早于 beforeMs 的**终态**记录（running 不删，避免误删活任务）。
+func (r *taskRunRepo) PruneBefore(ctx context.Context, beforeMs int64, limit int) (int64, error) {
+	if limit <= 0 || limit > 20000 {
+		limit = 5000
+	}
+	res := dbFrom(ctx, r.db).Exec(
+		"DELETE FROM task_run WHERE started_at < ? AND status IN (?, ?, ?) LIMIT ?",
+		beforeMs, entity.TaskRunSuccess, entity.TaskRunFailed, entity.TaskRunCanceled, limit)
+	return res.RowsAffected, res.Error
+}
+
 func (r *taskRunRepo) MarkInterrupted(ctx context.Context) error {
 	return dbFrom(ctx, r.db).Model(&entity.TaskRun{}).
 		Where("status = ?", entity.TaskRunRunning).

@@ -100,6 +100,10 @@ func (f *fakeTaskRunRepo) CountRunning(_ context.Context, excludeSourceIds []str
 	}
 	return n, nil
 }
+
+// PruneBefore 供接口完整性（本用例不校验清理逻辑）
+func (f *fakeTaskRunRepo) PruneBefore(context.Context, int64, int) (int64, error) { return 0, nil }
+
 func (f *fakeTaskRunRepo) MarkInterrupted(_ context.Context) error {
 	for i := range f.rows {
 		if f.rows[i].Status == entity.TaskRunRunning {
