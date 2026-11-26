@@ -25,10 +25,43 @@ import (
 // 轮询间隔默认值（可被 TaskCenterService.tickEvery / TASK_TICK_SECONDS 覆盖）
 const schedulerTickEvery = defaultSchedulerTick
 
-// TaskScheduler 统一调度器。
+// 调度器只依赖**三个能力接口**，不再直接抓 *TaskCenterService 的私有字段。
+//
+// 为什么这么切：调度器的本质是"读任务清单 → 到点 → 调执行 → 记台账"，
+// 它不需要知道任务中心是怎么拼出清单的、台账写到哪里。切开之后：
+//
+//	· 新增任务来源（比如以后多个库/多租户）只需要实现 Catalog；
+//	· tick 逻辑可以用纯替身单测（见 task_center_scheduler_fake_test.go），不必构造半个服务。
+type (
+	// SchedCatalog 任务清单 + 用户配置（只读）。
+	SchedCatalog interface {
+		Definitions() []taskcenter.Def
+		Settings(ctx context.Context) map[string]entity.TaskSetting
+		Crons(ctx context.Context) ([]entity.CronTask, error)
+	}
+	// SchedRunner 实际执行能力。
+	SchedRunner interface {
+		RunDefinition(ctx context.Context, d taskcenter.Def) error
+		RunCronRound(ctx context.Context, t entity.CronTask) error
+	}
+	// SchedLedger 台账写入口（可为 nil：未装配时降级为不写台账）。
+	SchedLedger interface {
+		Start(kind, taskType string, cronID int64, sourceID, name string, hours int) int64
+		Finish(id int64, status string, total, done, failed int, message, errMsg string)
+		Record(kind, taskType string, cronID int64, sourceID, name, status string,
+			total, done, failed int, message, errMsg string) int64
+	}
+)
+
+// TaskScheduler 统一调度器（依赖三个接口，不依赖具体服务）。
 type TaskScheduler struct {
-	tc        *TaskCenterService
+	cat SchedCatalog
+	run SchedRunner
+	led SchedLedger
+
 	tickEvery time.Duration
+	// attach 启动时回调（把自身挂到任务中心上，供只读诊断接口用）；可为 nil。
+	attach func(*TaskScheduler)
 
 	mu   sync.Mutex
 	next map[string]time.Time // 每个任务的下次触发时间（内存态；重启后重新按 schedule 计算）
@@ -38,19 +71,33 @@ type TaskScheduler struct {
 	gateLogged bool
 }
 
+// NewTaskScheduler 生产装配：TaskCenterService 同时实现三个接口。
 func NewTaskScheduler(tc *TaskCenterService) *TaskScheduler {
+	var led SchedLedger
+	if l := tc.ledger(); l != nil { // 避免"nil 指针装进接口"后调用 panic
+		led = l
+	}
+	return newTaskScheduler(tc, tc, led, tc.schedulerTick(), tc.attachScheduler)
+}
+
+// newTaskScheduler 内部构造（测试可注入纯替身）。
+func newTaskScheduler(cat SchedCatalog, run SchedRunner, led SchedLedger,
+	tick time.Duration, attach func(*TaskScheduler)) *TaskScheduler {
+	if tick <= 0 {
+		tick = schedulerTickEvery
+	}
 	return &TaskScheduler{
-		tc:        tc,
-		tickEvery: tc.schedulerTick(),
-		next:      map[string]time.Time{},
-		busy:      map[string]bool{},
+		cat: cat, run: run, led: led, tickEvery: tick, attach: attach,
+		next: map[string]time.Time{}, busy: map[string]bool{},
 	}
 }
 
 // Start 启动调度循环（ctx 取消即退出）。
 func (s *TaskScheduler) Start(ctx context.Context) {
 	// 挂到任务中心上，供只读诊断接口（GET /task-center/schedule）读"下次什么时候跑"
-	s.tc.attachScheduler(s)
+	if s.attach != nil {
+		s.attach(s)
+	}
 	go func() {
 		t := time.NewTicker(s.tickEvery)
 		defer t.Stop()
@@ -93,15 +140,10 @@ func (s *TaskScheduler) tick(ctx context.Context) {
 		return
 	}
 
-	settings := map[string]entity.TaskSetting{}
-	if s.tc.settings != nil {
-		if m, err := s.tc.settings.List(ctx); err == nil {
-			settings = m
-		}
-	}
+	settings := s.cat.Settings(ctx)
 	now := time.Now()
 
-	for _, d := range s.tc.reg.All() {
+	for _, d := range s.cat.Definitions() {
 		if d.Run == nil {
 			continue
 		}
@@ -156,10 +198,7 @@ func (s *TaskScheduler) gateBlocked(ctx context.Context) bool {
 // tickCron 采集定时任务的调度分支。每条都读 cron_task.schedule（友好文本），
 // 到点调 spider.RunCronTask；台账由采集侧自己写（避免双重记账）。
 func (s *TaskScheduler) tickCron(ctx context.Context, now time.Time) {
-	if s.tc.spider == nil || s.tc.crons == nil {
-		return
-	}
-	crons, err := s.tc.crons.List(ctx)
+	crons, err := s.cat.Crons(ctx)
 	if err != nil {
 		return
 	}
@@ -208,7 +247,7 @@ func (s *TaskScheduler) runCron(ctx context.Context, t entity.CronTask) {
 
 	start := time.Now()
 	task := t
-	err := s.tc.spider.RunCronTask(ctx, &task, entity.TaskRunKindCron)
+	err := s.run.RunCronRound(ctx, task)
 	if err != nil {
 		log.Printf("[task-scheduler] %s 跳过/失败: %v", key, err)
 		return
@@ -236,13 +275,13 @@ func (s *TaskScheduler) runOne(ctx context.Context, d taskcenter.Def) {
 	//   · 普通任务：开始即落"运行中"，结束时收尾；
 	//   · 高频任务(QuietOnSuccess)：**先跑，失败才补落一条失败台账**（成功不留痕，避免刷爆）
 	// 写入统一走 TaskRunService（与采集任务同一条实现）—— 此前调度器直连 repo，两套口径。
-	led := s.tc.ledger()
+	led := s.led
 	runID := int64(0)
 	if led != nil && !d.QuietOnSuccess {
 		runID = led.Start(entity.TaskRunKindBuiltin, d.Type, 0, "", d.Name, 0)
 	}
 
-	err := safeRunTask(ctx, d)
+	err := s.run.RunDefinition(ctx, d)
 	cost := time.Since(start).Round(time.Second)
 
 	if led != nil && d.QuietOnSuccess && err != nil {
@@ -296,18 +335,11 @@ type ScheduleItem struct {
 // 用途：运维/agent 排查"为什么这个任务没跑" —— 看 NextAt 有没有算出来（0=没算过/已停用）、
 // 窗口是不是开着（gateOpen）、以及**生效**的周期（不是注册表默认值）。
 func (s *TaskScheduler) Snapshot(ctx context.Context) (items []ScheduleItem, gateOpen bool, tickMs int64) {
-	settings := map[string]entity.TaskSetting{}
-	if s.tc.settings != nil {
-		if m, err := s.tc.settings.List(ctx); err == nil {
-			settings = m
-		}
-	}
+	settings := s.cat.Settings(ctx)
 	crons := map[string]entity.CronTask{}
-	if s.tc.crons != nil {
-		if list, err := s.tc.crons.List(ctx); err == nil {
-			for _, t := range list {
-				crons[taskcenter.RefCron(t.Id)] = t
-			}
+	if list, err := s.cat.Crons(ctx); err == nil {
+		for _, t := range list {
+			crons[taskcenter.RefCron(t.Id)] = t
 		}
 	}
 
@@ -324,9 +356,9 @@ func (s *TaskScheduler) Snapshot(ctx context.Context) (items []ScheduleItem, gat
 	gateOpen, tickMs = s.gateLogged, s.tickEvery.Milliseconds()
 	s.mu.Unlock()
 
-	items = make([]ScheduleItem, 0, len(s.tc.reg.All())+len(crons))
+	items = make([]ScheduleItem, 0, len(s.cat.Definitions())+len(crons))
 	seen := make(map[string]bool, len(items))
-	for _, d := range s.tc.reg.All() {
+	for _, d := range s.cat.Definitions() {
 		rc := taskcenter.Resolve(d, userConfigOf(settings[d.Key]))
 		it := ScheduleItem{
 			Key: d.Key, Name: d.Name, Kind: d.Kind,

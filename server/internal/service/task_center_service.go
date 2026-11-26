@@ -101,6 +101,54 @@ type TaskCenterOptions struct {
 	Ledger *TaskRunService
 }
 
+// ---- 调度器三接口的实现（SchedCatalog / SchedRunner / SchedLedger）----
+//
+// 调度器只认这三个能力；这里做**薄适配**，不掺杂业务判断。
+// 好处：调度器可被纯替身单测；以后换任务来源（多库/多租户）只需另一个 Catalog 实现。
+
+// Definitions 全部内置任务定义（SchedCatalog）。
+func (s *TaskCenterService) Definitions() []taskcenter.Def {
+	if s == nil || s.reg == nil {
+		return nil
+	}
+	return s.reg.All()
+}
+
+// Settings 内置任务的用户配置（SchedCatalog）。读失败降级为空 map（= 全用默认），不阻断调度。
+func (s *TaskCenterService) Settings(ctx context.Context) map[string]entity.TaskSetting {
+	if s == nil || s.settings == nil {
+		return map[string]entity.TaskSetting{}
+	}
+	m, err := s.settings.List(ctx)
+	if err != nil {
+		log.Printf("[task-center] 读取任务配置失败（按默认值调度）: %v", err)
+		return map[string]entity.TaskSetting{}
+	}
+	return m
+}
+
+// Crons 采集定时任务清单（SchedCatalog）。
+func (s *TaskCenterService) Crons(ctx context.Context) ([]entity.CronTask, error) {
+	if s == nil || s.crons == nil {
+		return nil, nil
+	}
+	return s.crons.List(ctx)
+}
+
+// RunDefinition 跑一个内置任务（SchedRunner）：带 recover，任务自己 panic 不会打挂进程。
+func (s *TaskCenterService) RunDefinition(ctx context.Context, d taskcenter.Def) error {
+	return safeRunTask(ctx, d)
+}
+
+// RunCronRound 跑一轮采集定时任务（SchedRunner）：复用采集侧 RunCronTask（单飞锁/轮次标记都在里面）。
+func (s *TaskCenterService) RunCronRound(ctx context.Context, t entity.CronTask) error {
+	if s == nil || s.spider == nil {
+		return fmt.Errorf("采集服务未装配")
+	}
+	task := t
+	return s.spider.RunCronTask(ctx, &task, entity.TaskRunKindCron)
+}
+
 // attachScheduler 由调度器 Start 时回调挂上（只读诊断用）。
 func (s *TaskCenterService) attachScheduler(sched *TaskScheduler) {
 	if s == nil {
