@@ -424,8 +424,11 @@ maint_wait_quiet() {
     #   ① runningJobs 为空        —— 采集源已停在页边界（长任务，协作暂停）
     #   ② runningBuiltin 为空      —— 没有内置任务在跑（短任务等它跑完，不中断）
     #   ③ pausedLong 有值           —— 长任务（豆瓣批次）已按协作暂停停下
-    if printf '%s' "$resp" | grep -q '"runningJobs":\[\]' \
-       && printf '%s' "$resp" | grep -q '"runningBuiltin":\[\]'; then
+    # 兼容：老后端没有 runningBuiltin 字段时视作"空"（否则首发版会白等满上限）
+    _rb_ok=0
+    printf '%s' "$resp" | grep -q '"runningBuiltin":\[\]' && _rb_ok=1
+    ! printf '%s' "$resp" | grep -q '"runningBuiltin"' && _rb_ok=1
+    if printf '%s' "$resp" | grep -q '"runningJobs":\[\]' && [ "$_rb_ok" = "1" ]; then
       echo "==> 安静点已到：采集已停到页边界、内置任务已跑完"
       return 0
     fi
