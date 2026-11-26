@@ -15,6 +15,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,6 +65,7 @@ type TaskCenterService struct {
 	runs     repository.TaskRunRepository
 	settings repository.TaskSettingRepository
 	sources  repository.CollectSourceRepository
+	spider   *SpiderService
 	reg      *taskcenter.Registry
 }
 
@@ -73,9 +75,10 @@ func NewTaskCenterService(
 	runs repository.TaskRunRepository,
 	settings repository.TaskSettingRepository,
 	sources repository.CollectSourceRepository,
+	spider *SpiderService,
 ) *TaskCenterService {
 	s := &TaskCenterService{film: film, crons: crons, runs: runs, settings: settings, sources: sources,
-		reg: taskcenter.NewRegistry()}
+		spider: spider, reg: taskcenter.NewRegistry()}
 	s.registerBuiltins()
 	return s
 }
@@ -395,3 +398,184 @@ func (s *TaskCenterService) EnsureTaskKeyRegistered(key string) (taskcenter.Def,
 }
 
 var _ = fmt.Sprintf
+
+// ---------------------------------------------------------------------------
+// PR2：编辑配置 + 手动执行 / 控制
+// ---------------------------------------------------------------------------
+
+// TaskSettingInput 部分更新：用指针区分"未提供"与"显式设为零值"。
+type TaskSettingInput struct {
+	Enabled    *bool   `json:"enabled"`
+	Schedule   *string `json:"schedule"`
+	Remark     *string `json:"remark"`
+	IntervalMs *int    `json:"intervalMs"`
+}
+
+func cronIDOf(key string) (int64, bool) {
+	if !strings.HasPrefix(key, "cron:") {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(key, "cron:"), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
+}
+
+func jobKeyOf(key string) (string, bool) {
+	if !strings.HasPrefix(key, "job:") {
+		return "", false
+	}
+	id := strings.TrimPrefix(key, "job:")
+	return id, id != ""
+}
+
+// UpdateSetting 编辑任务配置（内置任务走 task_setting；cron 任务写 cron_task）。
+func (s *TaskCenterService) UpdateSetting(ctx context.Context, key string, in TaskSettingInput) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("缺少任务标识")
+	}
+
+	// ---- 采集(cron) 任务：启用 / 计划 / 备注 ----
+	if id, ok := cronIDOf(key); ok {
+		if s.crons == nil {
+			return fmt.Errorf("cron 仓储未装配")
+		}
+		t, err := s.crons.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if in.IntervalMs != nil {
+			return fmt.Errorf("采集任务的请求间隔在「采集源」里按源配置，不在这里改")
+		}
+		if in.Enabled != nil {
+			if *in.Enabled {
+				t.State = entity.StateEnabled
+			} else {
+				t.State = entity.StateDisabled
+			}
+		}
+		if in.Schedule != nil {
+			spec := strings.TrimSpace(*in.Schedule)
+			if spec == "" {
+				return fmt.Errorf("cron 计划不能为空（停用请用 enabled=false）")
+			}
+			t.Spec = spec
+		}
+		if in.Remark != nil {
+			t.Remark = strings.TrimSpace(*in.Remark)
+		}
+		return s.crons.Upsert(ctx, t)
+	}
+
+	// ---- 内置任务 ----
+	def, err := s.EnsureTaskKeyRegistered(key)
+	if err != nil {
+		return err
+	}
+	allowed := make(map[string]bool, len(def.Editable))
+	for _, f := range def.Editable {
+		allowed[f] = true
+	}
+	deny := func(field, label string) error {
+		return fmt.Errorf("该任务不支持修改%s", label)
+	}
+	if in.Enabled != nil && !allowed["enabled"] {
+		return deny("enabled", "启用状态")
+	}
+	if in.Schedule != nil && !allowed["schedule"] {
+		return deny("schedule", "执行周期")
+	}
+	if in.Remark != nil && !allowed["remark"] {
+		return deny("remark", "备注")
+	}
+	if in.IntervalMs != nil && !allowed["interval"] {
+		return deny("interval", "接口间隔")
+	}
+
+	if in.Schedule != nil {
+		if err := taskcenter.ValidateSchedule(*in.Schedule); err != nil {
+			return err
+		}
+	}
+	if in.IntervalMs != nil && *in.IntervalMs > 0 && *in.IntervalMs < def.MinIntervalMs {
+		return fmt.Errorf("接口间隔不能小于 %dms（%s）；这是执行层下限，防止被源站拉黑",
+			def.MinIntervalMs, def.IntervalLabel)
+	}
+
+	now := time.Now().UnixMilli()
+	if in.Enabled != nil {
+		if s.settings == nil {
+			return fmt.Errorf("配置仓储未装配")
+		}
+		if err := s.settings.SetEnabled(ctx, key, *in.Enabled, now); err != nil {
+			return err
+		}
+	}
+	if s.settings == nil {
+		return fmt.Errorf("配置仓储未装配")
+	}
+	set := entity.TaskSetting{TaskKey: key, UpdatedAt: now}
+	if in.Schedule != nil {
+		set.Schedule = strings.TrimSpace(*in.Schedule)
+	}
+	if in.Remark != nil {
+		set.Remark = strings.TrimSpace(*in.Remark)
+	}
+	if in.IntervalMs != nil {
+		set.IntervalMs = *in.IntervalMs
+	}
+	// Upsert 只覆盖非空字段（不会清空备注，也不会动 enabled）
+	return s.settings.Upsert(ctx, set)
+}
+
+// RunTask 手动执行一次。
+func (s *TaskCenterService) RunTask(ctx context.Context, key string) error {
+	if id, ok := cronIDOf(key); ok {
+		if s.spider == nil {
+			return fmt.Errorf("采集服务未装配")
+		}
+		return s.spider.TriggerCron(ctx, id)
+	}
+	switch key {
+	case "builtin:douban_score":
+		return s.film.StartDoubanScoreSyncOnce(ctx)
+	case "builtin:douban_backfill":
+		return s.film.StartDoubanScoreBackfill(ctx, 0)
+	case "builtin:domain_fetch":
+		bg := context.WithoutCancel(ctx)
+		go func() {
+			if _, err := s.film.FetchDomainRules(bg, ""); err != nil {
+				log.Printf("[task-center] 域名公告拉取失败: %v", err)
+			}
+		}()
+		return nil
+	}
+	return fmt.Errorf("该任务暂不支持手动执行（可在对应页面操作或等待后续版本接入）")
+}
+
+// PauseTask / ResumeTask / StopTask：目前只对"正在运行的采集任务"（key=job:<sourceId>）生效。
+func (s *TaskCenterService) PauseTask(ctx context.Context, key string) error {
+	id, ok := jobKeyOf(key)
+	if !ok || s.spider == nil {
+		return fmt.Errorf("只有正在运行的采集任务支持暂停")
+	}
+	return s.spider.PauseJob(ctx, id)
+}
+
+func (s *TaskCenterService) ResumeTask(ctx context.Context, key string) error {
+	id, ok := jobKeyOf(key)
+	if !ok || s.spider == nil {
+		return fmt.Errorf("只有暂停中的采集任务支持继续")
+	}
+	return s.spider.ResumeJob(ctx, id)
+}
+
+func (s *TaskCenterService) StopTask(ctx context.Context, key string) error {
+	id, ok := jobKeyOf(key)
+	if !ok || s.spider == nil {
+		return fmt.Errorf("只有正在运行的采集任务支持停止")
+	}
+	return s.spider.CancelJob(ctx, id)
+}

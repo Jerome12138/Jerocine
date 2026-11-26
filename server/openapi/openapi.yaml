@@ -2456,6 +2456,86 @@ paths:
                     items: { $ref: '#/components/schemas/TaskCenterItem' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /manage/task-center/tasks/{key}/setting:
+    put:
+      tags: [manage-task]
+      summary: 编辑任务配置（内置任务=启用/周期/备注/间隔；采集任务=启用/计划/备注）
+      description: >
+        只接受该任务 `editable` 里声明的字段，其余字段 422；
+        周期用友好文本（every:/daily:/weekly:/monthly:）；间隔低于执行层下限时 422 并回传下限。
+      operationId: manageTaskCenterUpdateSetting
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string }, description: '如 builtin:douban_score、cron:3' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                schedule: { type: string }
+                remark: { type: string }
+                intervalMs: { type: integer }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /manage/task-center/tasks/{key}/run:
+    post:
+      tags: [manage-task]
+      summary: 手动执行一次（不改变原计划）
+      operationId: manageTaskCenterRun
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        '202': { description: 已开始 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: 已有同任务在执行 }
+        '422': { description: 该任务暂不支持手动执行 }
+
+  /manage/task-center/tasks/{key}/pause:
+    post:
+      tags: [manage-task]
+      summary: 暂停（仅正在运行的采集任务，key=job:<sourceId>）
+      operationId: manageTaskCenterPause
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: 该任务不支持暂停 }
+
+  /manage/task-center/tasks/{key}/resume:
+    post:
+      tags: [manage-task]
+      summary: 继续（仅暂停中的采集任务）
+      operationId: manageTaskCenterResume
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: 该任务不支持继续 }
+
+  /manage/task-center/tasks/{key}/stop:
+    post:
+      tags: [manage-task]
+      summary: 停止（仅正在运行的采集任务）
+      operationId: manageTaskCenterStop
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: 该任务不支持停止 }
+
   /manage/task-center/overview:
     get:
       tags: [manage-task]

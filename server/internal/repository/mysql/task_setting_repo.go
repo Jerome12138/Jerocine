@@ -49,7 +49,8 @@ func (r *taskSettingRepo) Upsert(ctx context.Context, s entity.TaskSetting) erro
 	return dbFrom(ctx, r.db).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "task_key"}},
 		DoUpdates: clause.Assignments(map[string]any{
-			"enabled":     s.Enabled,
+			// 注意：**不更新 enabled** —— 启用位统一走 SetEnabled。
+			// 否则"只改备注"这类部分更新会把启用状态打回 INSERT 时的默认值。
 			"schedule":    gorm.Expr("IF(VALUES(schedule) <> '', VALUES(schedule), schedule)"),
 			"remark":      gorm.Expr("IF(VALUES(remark) <> '', VALUES(remark), remark)"),
 			"interval_ms": gorm.Expr("IF(VALUES(interval_ms) > 0, VALUES(interval_ms), interval_ms)"),

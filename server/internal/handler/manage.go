@@ -792,6 +792,63 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 
 // ---- 影片管理 ----
 
+// taskKey 取任务标识：优先路径参数，其次 query（兼容前端对 cron:3 的编码差异）。
+func taskKey(c *gin.Context) string {
+	if k := strings.TrimSpace(c.Param("key")); k != "" {
+		return k
+	}
+	return strings.TrimSpace(c.Query("key"))
+}
+
+// TaskCenterUpdateSetting PUT /manage/task-center/tasks/:key/setting
+// 编辑任务配置：内置任务写 task_setting（启用/周期/备注/间隔），cron 任务写 cron_task（启用/计划/备注）。
+func (h *Handlers) TaskCenterUpdateSetting(c *gin.Context) {
+	var in service.TaskSettingInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		dto.Error(c, http.StatusUnprocessableEntity, "参数不合法")
+		return
+	}
+	if err := h.TaskCenter.UpdateSetting(c.Request.Context(), taskKey(c), in); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"ok": true})
+}
+
+// TaskCenterRun POST /manage/task-center/tasks/:key/run
+func (h *Handlers) TaskCenterRun(c *gin.Context) {
+	if err := h.TaskCenter.RunTask(c.Request.Context(), taskKey(c)); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.Accepted(c, gin.H{"accepted": true})
+}
+
+// TaskCenterPause / Resume / Stop：只对正在运行的采集任务（key=job:<sourceId>）生效。
+func (h *Handlers) TaskCenterPause(c *gin.Context) {
+	if err := h.TaskCenter.PauseTask(c.Request.Context(), taskKey(c)); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"ok": true})
+}
+
+func (h *Handlers) TaskCenterResume(c *gin.Context) {
+	if err := h.TaskCenter.ResumeTask(c.Request.Context(), taskKey(c)); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"ok": true})
+}
+
+func (h *Handlers) TaskCenterStop(c *gin.Context) {
+	if err := h.TaskCenter.StopTask(c.Request.Context(), taskKey(c)); err != nil {
+		dto.Fail(c, err)
+		return
+	}
+	dto.OK(c, gin.H{"ok": true})
+}
+
 // TaskCenterTasks GET /manage/task-center/tasks?kind=builtin|collect
 // 统一任务中心：内置任务 + 采集(cron) 任务合并列表（状态/进度已归一）。
 func (h *Handlers) TaskCenterTasks(c *gin.Context) {

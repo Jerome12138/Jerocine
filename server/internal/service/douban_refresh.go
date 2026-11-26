@@ -145,6 +145,24 @@ func (s *FilmService) RunDoubanScoreSync(ctx context.Context) {
 		return
 	}
 	defer doubanBatchBusy.Store(false)
+	s.runDoubanScoreSyncLocked(ctx)
+}
+
+// StartDoubanScoreSyncOnce 手动触发一次"近半年评分同步"（异步，供任务中心"立即执行"用）。
+func (s *FilmService) StartDoubanScoreSyncOnce(ctx context.Context) error {
+	if !doubanBatchBusy.CompareAndSwap(false, true) {
+		return fmt.Errorf("已有豆瓣刷分任务在执行中，请稍后再试")
+	}
+	// 脱离请求 ctx：页面关掉也要跑完
+	go func() {
+		defer doubanBatchBusy.Store(false)
+		s.runDoubanScoreSyncLocked(context.WithoutCancel(ctx))
+	}()
+	return nil
+}
+
+// runDoubanScoreSyncLocked 调用方必须已持有 doubanBatchBusy。
+func (s *FilmService) runDoubanScoreSyncLocked(ctx context.Context) {
 	start := time.Now()
 	from := time.Now().Add(doubanSyncWindow).Format("2006-01")
 	targets, err := s.movie.ListDoubanScoreTargets(ctx, repository.DoubanScoreQuery{
