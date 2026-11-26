@@ -75,6 +75,9 @@ type TaskCenterService struct {
 	yearVerify *YearVerifyService
 	reg        *taskcenter.Registry
 
+	// 台账的**唯一写入口**（与采集任务共用同一条实现）；nil 时降级为不写台账。
+	ledgerSvc *TaskRunService
+
 	// 运行时策略（原先写死）：台账保留天数、调度轮询间隔。0 表示用默认值。
 	retentionDays int
 	tickEvery     time.Duration
@@ -90,6 +93,16 @@ const (
 type TaskCenterOptions struct {
 	RetentionDays int
 	TickEvery     time.Duration
+	// Ledger 台账写入口（TaskRunService）。给 nil 时任务中心仍可只读浏览，但不写台账。
+	Ledger *TaskRunService
+}
+
+// ledger 台账写入口（可能为 nil：未注入时各调用点自行跳过）。
+func (s *TaskCenterService) ledger() *TaskRunService {
+	if s == nil {
+		return nil
+	}
+	return s.ledgerSvc
 }
 
 // retention 实际生效的台账保留天数。
@@ -124,7 +137,8 @@ func NewTaskCenterService(
 	s := &TaskCenterService{film: film, crons: crons, runs: runs, settings: settings, sources: sources,
 		spider: spider, hot: hot, backdrop: backdrop, manage: manage, yearVerify: yearVerify,
 		retentionDays: opts.RetentionDays, tickEvery: opts.TickEvery,
-		reg: taskcenter.NewRegistry()}
+		ledgerSvc: opts.Ledger,
+		reg:       taskcenter.NewRegistry()}
 	s.registerBuiltins()
 	return s
 }
@@ -929,9 +943,9 @@ func (s *TaskCenterService) SetRunIgnored(ctx context.Context, runID int64, igno
 
 // RunTask 手动执行一次（**同样写台账**：手动与定时在历史/异常里一视同仁）。
 func (s *TaskCenterService) RunTask(ctx context.Context, key string) error {
-	// 维护窗口内不接新活（闸门口径单点在 cache.TaskGateBlockReason）
-	if reason := cache.TaskGateBlockReason(ctx); reason != "" {
-		return fmt.Errorf("%s", reason)
+	// 维护窗口内不接新活（闸门判断单点在 GuardTrigger）
+	if err := GuardTrigger(ctx); err != nil {
+		return err
 	}
 	if id, ok := cronIDOf(key); ok {
 		if s.spider == nil {

@@ -53,12 +53,8 @@ func (s *TaskRunService) Finish(id int64, status string, total, done, failed int
 	if gerr != nil || cur == nil {
 		return // 行已不存在(清理过), 不再补写
 	}
-	if len(errMsg) > 512 {
-		errMsg = errMsg[:512]
-	}
-	if len(message) > 255 {
-		message = message[:255]
-	}
+	errMsg = TruncateErr(errMsg)
+	message = TruncateMsg(message)
 	cur.Status = status
 	cur.Total = total
 	cur.Done = done
@@ -69,6 +65,45 @@ func (s *TaskRunService) Finish(id int64, status string, total, done, failed int
 	if err := s.runs.Update(ctx, cur); err != nil {
 		log.Printf("task_run: 收尾任务失败 id=%d: %v", id, err)
 	}
+}
+
+// Record 直接插入一条**已结束**的运行记录（不经历 running 阶段）。
+//
+// 用途：一类是"高频任务成功不记、失败记"（QuietOnSuccess）—— 成功时根本不该留行，
+// 失败时行直接就是终态；另一类是补记历史。有了它，内置任务与采集任务的台账写入
+// 可以共用本服务（此前内置任务由调度器直连 repo 写，与这里两套实现、两套口径）。
+func (s *TaskRunService) Record(kind, taskType string, cronId int64, sourceId, name string,
+	status string, total, done, failed int, message, errMsg string) int64 {
+	if !s.enabled() {
+		return 0
+	}
+	now := time.Now().UnixMilli()
+	r := &entity.TaskRun{
+		Kind: kind, Type: taskType, CronId: cronId, SourceId: sourceId,
+		Name: name, Status: status, Total: total, Done: done, Failed: failed,
+		Message: TruncateMsg(message), Error: TruncateErr(errMsg),
+		StartedAt: now, EndedAt: now, CreatedAt: now,
+	}
+	if err := s.runs.Create(context.Background(), r); err != nil {
+		log.Printf("task_run: 直接记录任务失败 kind=%s type=%s name=%s: %v", kind, taskType, name, err)
+		return 0
+	}
+	return r.Id
+}
+
+// TruncateMsg / TruncateErr 台账字段长度上限（与列宽一致，单点截断）。
+func TruncateMsg(s string) string {
+	if len(s) > 255 {
+		return s[:255]
+	}
+	return s
+}
+
+func TruncateErr(s string) string {
+	if len(s) > 512 {
+		return s[:512]
+	}
+	return s
 }
 
 // Get 取一条运行记录(仓库未注入返回 ErrTasksUnavailable)。

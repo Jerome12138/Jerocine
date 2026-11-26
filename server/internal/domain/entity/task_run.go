@@ -5,8 +5,9 @@ package entity
 
 // TaskRunKind 触发来源
 const (
-	TaskRunKindCron   = "cron"   // 定时任务触发
-	TaskRunKindManual = "manual" // 手动触发
+	TaskRunKindCron    = "cron"    // 定时任务触发
+	TaskRunKindManual  = "manual"  // 手动触发
+	TaskRunKindBuiltin = "builtin" // 内置任务由中心调度触发
 )
 
 // TaskRunType 任务类型

@@ -283,3 +283,60 @@ func nextMonthly(now time.Time, day, hh, mm int) time.Time {
 	}
 	return t
 }
+
+// ---- 采集 job 状态机（纯规则）----
+//
+// 为什么放在规则层：这些"从哪个状态可以走到哪个状态"是**业务语义**，不是存储细节。
+// 原先这段判断埋在 cache.JobControl 里（存储层知道状态机），取消/暂停语义遂扩散到缓存包。
+// 现在规则在这里、读写原语仍在 cache —— cache 侧有等价性用例兜住（service 包
+// TestJobStateMachineMatchesCache）。
+
+// JobAction 采集任务的三个控制动作。
+type JobAction string
+
+const (
+	JobActionPause  JobAction = "pause"
+	JobActionResume JobAction = "resume"
+	JobActionCancel JobAction = "cancel"
+)
+
+// 采集 job 的状态常量（与 cache 侧的字符串取值一一对应）。
+const (
+	JobRunning  = "running"
+	JobPaused   = "paused"
+	JobCanceled = "canceled"
+	JobDone     = "done"
+	JobError    = "error"
+)
+
+// NextJobState 计算动作后的状态；ok=false 表示"当前状态不允许该动作"。
+//
+// 允许的迁移（与 cache.JobControl 的 from 前置一致）：
+//
+//	run   --pause-->  paused        （只能暂停在跑的）
+//	paused --resume--> running      （只能恢复暂停的）
+//	run|paused --cancel--> canceled （在跑/暂停都能取消）
+//
+// done/error 是终态，任何动作都不允许（避免把已结束的任务"复活"成 running 造成幽灵运行）。
+func NextJobState(cur string, act JobAction) (next string, ok bool) {
+	switch act {
+	case JobActionPause:
+		if cur == JobRunning {
+			return JobPaused, true
+		}
+	case JobActionResume:
+		if cur == JobPaused {
+			return JobRunning, true
+		}
+	case JobActionCancel:
+		if cur == JobRunning || cur == JobPaused {
+			return JobCanceled, true
+		}
+	}
+	return "", false
+}
+
+// JobTerminal 是否终态（done/error/canceled）。
+func JobTerminal(state string) bool {
+	return state == JobDone || state == JobError || state == JobCanceled
+}

@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"server/internal/cache"
 	"server/internal/domain/entity"
 	"server/internal/errclass"
 	"server/internal/taskcenter"
@@ -130,7 +129,7 @@ func (s *TaskScheduler) tick(ctx context.Context) {
 
 // gateBlocked 维护窗口是否开着（开着则整轮不触发），并做日志节流。
 func (s *TaskScheduler) gateBlocked(ctx context.Context) bool {
-	reason := cache.TaskGateBlockReason(ctx)
+	reason := describeGate(ctx) // 与 GuardTrigger 同源（判断单点在 task_trigger.go）
 	open := reason != ""
 	s.mu.Lock()
 	changed := open != s.gateLogged
@@ -226,49 +225,30 @@ func (s *TaskScheduler) runOne(ctx context.Context, d taskcenter.Def) {
 	}()
 
 	start := time.Now()
-	runID := int64(0)
 	// 台账策略（2026-11-25 用户要求）：
 	//   · 普通任务：开始即落"运行中"，结束时收尾；
 	//   · 高频任务(QuietOnSuccess)：**先跑，失败才补落一条失败台账**（成功不留痕，避免刷爆）
-	if s.tc.runs != nil && !d.QuietOnSuccess {
-		r := &entity.TaskRun{
-			Kind: "builtin", Type: d.Type, Name: d.Name,
-			Status: entity.TaskRunRunning, StartedAt: start.UnixMilli(), CreatedAt: start.UnixMilli(),
-		}
-		if err := s.tc.runs.Create(ctx, r); err == nil {
-			runID = r.Id
-		}
+	// 写入统一走 TaskRunService（与采集任务同一条实现）—— 此前调度器直连 repo，两套口径。
+	led := s.tc.ledger()
+	runID := int64(0)
+	if led != nil && !d.QuietOnSuccess {
+		runID = led.Start(entity.TaskRunKindBuiltin, d.Type, 0, "", d.Name, 0)
 	}
 
 	err := safeRunTask(ctx, d)
 	cost := time.Since(start).Round(time.Second)
 
-	// 高频任务失败：补落一条终态台账，让"异常"页能看见并支持重跑/忽略
-	if s.tc.runs != nil && d.QuietOnSuccess && err != nil {
-		r := &entity.TaskRun{
-			Kind: "builtin", Type: d.Type, Name: d.Name,
-			Status: entity.TaskRunFailed, StartedAt: start.UnixMilli(),
-			EndedAt: time.Now().UnixMilli(), CreatedAt: start.UnixMilli(),
-			Error: errclass.Format(err),
-		}
-		if cerr := s.tc.runs.Create(ctx, r); cerr != nil {
-			log.Printf("[task-scheduler] %s 失败台账写入失败: %v", d.Key, cerr)
-		}
+	if led != nil && d.QuietOnSuccess && err != nil {
+		// 高频任务失败：补落一条终态台账，让"异常"页能看见并支持重跑/忽略
+		led.Record(entity.TaskRunKindBuiltin, d.Type, 0, "", d.Name,
+			entity.TaskRunFailed, 0, 0, 0, "", errclass.Format(err))
 	}
 
-	if s.tc.runs != nil && runID > 0 {
-		if cur, gerr := s.tc.runs.Get(ctx, runID); gerr == nil && cur != nil {
-			cur.EndedAt = time.Now().UnixMilli()
-			if err != nil {
-				cur.Status = entity.TaskRunFailed
-				cur.Error = errclass.Format(err)
-			} else {
-				cur.Status = entity.TaskRunSuccess
-				cur.Message = "完成 · 耗时 " + cost.String()
-			}
-			if uerr := s.tc.runs.Update(ctx, cur); uerr != nil {
-				log.Printf("[task-scheduler] %s 台账收尾失败: %v", d.Key, uerr)
-			}
+	if runID > 0 {
+		if err != nil {
+			led.Finish(runID, entity.TaskRunFailed, 0, 0, 0, "", errclass.Format(err))
+		} else {
+			led.Finish(runID, entity.TaskRunSuccess, 0, 0, 0, "完成 · 耗时 "+cost.String(), "")
 		}
 	}
 

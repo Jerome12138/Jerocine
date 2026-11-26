@@ -130,9 +130,9 @@ func (s *SpiderService) runOne(ctx context.Context, src *entity.CollectSource, h
 // 同时登记一条手动采集运行记录(kind=manual, type=collect), 供任务管理页展示/重跑。
 func (s *SpiderService) StartCollect(sourceId string, hours int) error {
 	ctx := s.bgCtx()
-	// 维护窗口内不开新采集（闸门口径单点在 cache.TaskGateBlockReason）
-	if reason := cache.TaskGateBlockReason(ctx); reason != "" {
-		return fmt.Errorf("%s", reason)
+	// 维护窗口内不开新采集（闸门判断单点在 GuardTrigger）
+	if err := GuardTrigger(ctx); err != nil {
+		return err
 	}
 	src, err := s.sources.Get(ctx, sourceId)
 	if err != nil {
@@ -985,9 +985,9 @@ func (s *SpiderService) RunCronTask(ctx context.Context, t *entity.CronTask, kin
 // TriggerCron 手动触发一个定时任务立即执行一次(后台"立即执行"按钮), 返回 202 语义。
 // 登记为 kind=manual —— 任务管理页按"手动任务"展示, 与定时到点触发区分。
 func (s *SpiderService) TriggerCron(ctx context.Context, id int64) error {
-	// 维护窗口内不触发新轮次（部署/迁移要有安静窗口）
-	if reason := cache.TaskGateBlockReason(ctx); reason != "" {
-		return fmt.Errorf("%s", reason)
+	// 维护窗口内不触发新轮次（部署/迁移要有安静窗口；闸门判断单点在 GuardTrigger）
+	if err := GuardTrigger(ctx); err != nil {
+		return err
 	}
 	t, err := s.crons.Get(ctx, id)
 	if err != nil {

@@ -304,7 +304,11 @@ func buildApp(cfg *config.Config) (*App, error) {
 	taskCenterSvc := service.NewTaskCenterService(filmSvc, cronRepo, taskRunRepo, taskSettingRepo, sourceRepo,
 		spiderSvc, hotSvc, backdropSvc, manageSvc, yearVerifySvc,
 		// 运行时策略可配（TASK_RETENTION_DAYS / TASK_TICK_SECONDS），此前是写死的 30 天 / 30s
-		service.TaskCenterOptions{RetentionDays: cfg.Tasks.RetentionDays, TickEvery: cfg.Tasks.TickEvery})
+		service.TaskCenterOptions{
+			RetentionDays: cfg.Tasks.RetentionDays,
+			TickEvery:     cfg.Tasks.TickEvery,
+			Ledger:        taskSvc, // 台账写入口与采集任务共用同一条实现
+		})
 
 	handlers := &handler.Handlers{
 		Film: filmSvc, User: userSvc, Config: configSvc,
