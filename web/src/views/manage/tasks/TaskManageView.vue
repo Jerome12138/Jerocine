@@ -96,6 +96,8 @@ interface BuiltinRunningItem {
   key: string
   name: string
   note: string
+  /** true=在跑（画进度条）；false=刚结束（只显示 x/y 文字） */
+  running: boolean
   /** 有进度就用它显示（豆瓣批次等异步任务会给出 total/done） */
   progress?: { total: number; done: number; failed: number; unit: string } | null
 }
@@ -379,7 +381,15 @@ async function loadOverview(): Promise<void> {
  *   ② 调度器内存 busy：覆盖 QuietOnSuccess 的高频任务（backdrop/health/year_verify 的 Status 是静态 idle）
  * 采集 job 走 Redis，不在这里。
  */
+let builtinFetchedAt = 0
+const BUILTIN_FETCH_MIN_MS = 10_000
+
 async function loadBuiltinRunning(): Promise<void> {
+  // 节流：active 轮询 5s 一次，但 /task-center/tasks 要装配 10 来条查询，
+  // 没必要每轮都拉；10s 一次足够（进度条本身也不是秒级精度）
+  const nowFetch = Date.now()
+  if (builtinFetchedAt && nowFetch - builtinFetchedAt < BUILTIN_FETCH_MIN_MS) return
+  builtinFetchedAt = nowFetch
   try {
     const [tc, sched] = await Promise.all([
       tasksApi.taskCenterTasks().catch(() => ({ list: [] as TaskCenterItem[] })),
@@ -389,15 +399,22 @@ async function loadBuiltinRunning(): Promise<void> {
     ])
     const items: BuiltinRunningItem[] = []
     const seen = new Set<string>()
+    const recentMs = 30 * 60 * 1000
+    const nowMs = Date.now()
     for (const t of tc.list ?? []) {
-      if (t.state !== 'running' || t.kind !== 'builtin') continue
+      if (t.kind !== 'builtin') continue
+      const at = t.lastRunAt || t.startedAt || 0
+      const running = t.state === 'running'
+      // 运行中一律列出；已结束的只留"最近 30 分钟内"的（与采集 job 的口径一致）
+      const recentlyDone = !running && at > 0 && nowMs - at <= recentMs
+      if (!running && !recentlyDone) continue
       seen.add(t.key)
-      items.push({ key: t.key, name: t.name, note: runTypeText(t.type), progress: t.progress })
+      items.push({ key: t.key, name: t.name, note: runTypeText(t.type), progress: t.progress, running })
     }
     for (const x of sched.items ?? []) {
       if (!x.running || x.kind !== 'builtin' || seen.has(x.key)) continue
       seen.add(x.key)
-      items.push({ key: x.key, name: x.name, note: x.scheduleText })
+      items.push({ key: x.key, name: x.name, note: x.scheduleText, running: true })
     }
     builtinRunning.value = items
   } catch {
@@ -796,8 +813,8 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
            此前"手动执行 · 横图补采"在近期任务里完全看不到 -->
       <section v-if="builtinRunning.length" class="mb-[var(--jc-space-4)] flex flex-col gap-[var(--jc-space-2)]">
         <div class="flex items-center gap-[var(--jc-space-2)]">
-          <h3 class="text-sm font-[var(--jc-fw-medium)]">正在运行的内置任务</h3>
-          <span class="text-xs text-muted">{{ builtinRunning.length }} 个（不支持暂停/取消，跑完自动结束）</span>
+          <h3 class="text-sm font-[var(--jc-fw-medium)]">内置任务动态</h3>
+          <span class="text-xs text-muted">{{ builtinRunning.length }} 个（含最近 30 分钟结束的）</span>
         </div>
         <article
           v-for="r in builtinRunning"
@@ -821,12 +838,13 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
           >停止</ManageButton>
           <!-- 与采集进度同款的细进度条：多接口任务运行时一眼看到完成度 -->
           <div
-            v-if="r.progress && r.progress.total > 0"
+            v-if="r.running && r.progress && r.progress.total > 0"
             class="h-1 w-full overflow-hidden rounded-full bg-[var(--jc-border-default)]"
             data-testid="builtin-bar"
           >
             <div
-              class="h-full rounded-full bg-[var(--jc-accent)] transition-all"
+              class="h-full rounded-full transition-all"
+              style="background: linear-gradient(90deg, var(--jc-brand-purple), var(--jc-brand-cyan))"
               :style="{ width: Math.min(100, Math.round((r.progress.done / r.progress.total) * 100)) + '%' }"
             />
           </div>
@@ -996,6 +1014,15 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
                 :map="TC_STATE_MAP"
                 size="xs"
               />
+              <!-- 多接口任务的**进度文字**（完成态也显示 x/y）；**进度条**只在「近期任务」里画。
+                   采集(cron)任务的页级进度不在此显示（用户明确要求）。 -->
+              <span
+                v-if="t.kind === 'builtin' && t.progress && t.progress.total > 0"
+                class="text-xs text-secondary tabular-nums"
+              >
+                已完成 {{ t.progress.done }}/{{ t.progress.total }} {{ t.progress.unit }} ·
+                {{ Math.round((t.progress.done / t.progress.total) * 100) }}%
+              </span>
               <!-- 已停用但仍有一轮在跑：停用不中断本轮，跑完才真正停下（页面必须说真话） -->
               <span v-if="!t.enabled && t.state === 'running'" class="text-xs text-warning">
                 本轮结束后停止
@@ -1035,14 +1062,6 @@ const tabs = computed<TabItem<TabKey>[]>(() => [
               >编辑</ManageButton>
               <!-- 豆瓣批次（评分同步/欠账补查）是后台 long-running，给一个中止入口：
                    否则对端限流时只能重启容器才能停 -->
-              <!-- 多接口任务（豆瓣批次）的进度：完成态也显示总数/完成数（用户要求） -->
-              <span
-                v-if="t.progress && t.progress.total > 0"
-                class="text-xs text-secondary tabular-nums"
-              >
-                已完成 {{ t.progress.done }}/{{ t.progress.total }} {{ t.progress.unit }} ·
-                {{ Math.round((t.progress.done / t.progress.total) * 100) }}%
-              </span>
               <ManageButton
                 v-if="isDoubanTask(t) && t.state === 'running'"
                 size="sm"

@@ -117,6 +117,14 @@ scripts/build-android.sh all -- -PwebVersionCode=1104          # `--` 之后原�
   只要同 applicationId + 更大 versionCode 即可）。
 - 跨平台 macOS / Linux / **Windows 需 Git Bash**（PowerShell/cmd 跑不了 `.sh`）。
 
+## ⚠️ 部署纪律（用户明确要求，2026-11-26）
+
+**未经用户在本轮对话里明确说"部署/发版"，绝不执行任何部署动作**（`deploy-server.sh` / `deploy-web.sh` /
+`deploy.sh server-deploy` / `docker restart` / 直接改线上数据都算）。理由：这两次我自行发版打断了用户正在验证的状态。
+
+正确姿势：改完 → 跑门禁 → **只提交** → 报告"已提交、未上线，等指令"。
+用户之前授权过一次发版，**不等于**授权下 N 次。
+
 ## 部署（Docker Compose）
 
 - **从零部署 / 新机器上线**：先读 [`docs/部署指南.md`](./docs/部署指南.md)（前置条件、`.env` 配置清单、部署步骤、验证与排障）；本节只讲日常运维。

@@ -90,7 +90,7 @@ func (c *Client) SubjectRating(ctx context.Context, id int64) (float64, int, err
 	}
 	// 首选 j/subject_abstract：movie.douban.com 域，实测未见 IP 限流
 	score, ok, err := c.ratingFromAbstract(ctx, id)
-	switch DecideRatingSource(err, ok) {
+	switch DecideRatingSource(err) {
 	case RatingFromAbstract:
 		if !ok {
 			// 对端 200 但 rate 为空 = **豆瓣本来就没有评分**（欠账补查的目标全是这类片），
@@ -114,7 +114,8 @@ const (
 )
 
 // DecideRatingSource 决定是否需要兜底 rexxar（纯函数，便于单测这条关键规则）。
-func DecideRatingSource(abstractErr error, abstractHasScore bool) RatingSource {
+// 只看 abstract 是否可用：**"有没有分"不影响这个决策**（无分就是无分，不该去撞 rexxar）。
+func DecideRatingSource(abstractErr error) RatingSource {
 	if abstractErr == nil {
 		return RatingFromAbstract
 	}

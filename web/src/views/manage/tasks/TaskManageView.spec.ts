@@ -420,7 +420,7 @@ describe('TaskManageView 轮询', () => {
     const w = await mountView()
     await flushPromises()
     const text = w.text()
-    expect(text).toContain('正在运行的内置任务')
+    expect(text).toContain('内置任务动态')
     expect(text).toContain('豆瓣评分欠账补查')
     // 有进度就显示 x/y + %
     expect(text).toContain('300/2000')
@@ -528,17 +528,18 @@ describe('TaskManageView 轮询', () => {
     const w = await mountView()
     await flushPromises()
     const text = w.text()
-    expect(text, '概览说运行中 1 时，近期任务必须能看到它').toContain('正在运行的内置任务')
+    expect(text, '概览说运行中 1 时，近期任务必须能看到它').toContain('内置任务动态')
     expect(text).toContain('手动执行 · 豆瓣评分同步')
     expect(text).toContain('120/1941')
     expect(text).toContain('停止')
     w.unmount()
   })
 
-  it('多接口任务：运行中有进度条+x/y+%，已完成也在列表显示 x/y（不画条）', async () => {
-    // ① 运行中：近期任务里有细进度条
+  it('进度条只在近期任务；进度文字两处都有（计划任务行的采集任务除外）', async () => {
+    const now = Date.now()
+    // ① 运行中：近期任务有条
     h.spiderJobs.mockResolvedValue([])
-    h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now: Date.now() })
+    h.taskCenterSchedule.mockResolvedValue({ items: [], gateOpen: false, tickMs: 30000, now })
     h.taskCenterTasks.mockResolvedValue({
       list: [
         {
@@ -546,7 +547,7 @@ describe('TaskManageView 轮询', () => {
           name: '手动执行 · 豆瓣评分欠账补查', schedule: '', scheduleText: '仅手动', enabled: false,
           editable: [], caps: [], state: 'running',
           progress: { total: 2000, done: 500, failed: 0, unit: '部' },
-          startedAt: Date.now() - 60000, elapsedMs: 60000, lastRunAt: 0, message: '', error: '', nextAt: 0
+          startedAt: now - 60000, elapsedMs: 60000, lastRunAt: 0, message: '', error: '', nextAt: 0
         }
       ]
     })
@@ -554,7 +555,7 @@ describe('TaskManageView 轮询', () => {
     await flushPromises()
     expect(w.findAll('[data-testid="builtin-bar"]')).toHaveLength(1)
 
-    // ② 已完成：计划任务行显示 x/y，但不画条
+    // ② 刚结束（10 分钟前）：仍在近期任务里显示 x/y，但**不画条**
     h.taskCenterTasks.mockResolvedValue({
       list: [
         {
@@ -562,14 +563,23 @@ describe('TaskManageView 轮询', () => {
           name: '豆瓣评分欠账补查', schedule: '', scheduleText: '仅手动', enabled: false,
           editable: [], caps: [], state: 'succeeded',
           progress: { total: 2000, done: 2000, failed: 0, unit: '部' },
-          startedAt: 0, elapsedMs: 0, lastRunAt: Date.now(), message: '完成', error: '', nextAt: 0
+          startedAt: now - 600000, elapsedMs: 0, lastRunAt: now - 600000, message: '完成', error: '', nextAt: 0
         }
       ]
     })
+    // 重新进页签触发一次加载（数据源变了不会自动重拉）；
+    // 10s 节流会挡住立即重拉，这里直接把节流时间戳提前（等价于"距上次拉取已超过 10s"）
+    ;(w.vm as unknown as { $: { setupState: Record<string, unknown> } }).$.setupState.builtinFetchedAt = 0
+    await gotoTab(w, '计划任务')
+    await gotoTab(w, '近期任务')
+    await flushPromises()
+    expect(w.text()).toContain('已完成 2000/2000 部')
+    expect(w.findAll('[data-testid="builtin-bar"]')).toHaveLength(0)
+
+    // ③ 计划任务页：内置任务**显示进度文字**（含完成态），但**不画条**；采集任务的页级进度不显示
     await gotoTab(w, '计划任务')
     await flushPromises()
-    const text = w.text()
-    expect(text).toContain('已完成 2000/2000 部')
-    expect(text).toContain('100%')
+    expect(w.text()).toContain('已完成 2000/2000 部')
+    expect(w.findAll('[data-testid="builtin-bar"]')).toHaveLength(0)
     w.unmount()
   })
